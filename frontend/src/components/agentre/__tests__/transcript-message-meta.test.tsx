@@ -8,7 +8,7 @@ import {
   TranscriptRowView,
 } from "../transcript-row-view";
 
-import type { TranscriptRow } from "../transcript-rows";
+import type { TranscriptRow } from "@agentre-ai/agentre-ui";
 
 function assistantRow(
   message: Partial<Record<string, unknown>>,

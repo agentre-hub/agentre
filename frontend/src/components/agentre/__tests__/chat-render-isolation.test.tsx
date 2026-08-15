@@ -9,7 +9,10 @@ const probe = vi.hoisted(() => ({
   renders: new Map<string, number>(),
 }));
 
-vi.mock("@/components/agentre/activity-block/block", () => ({
+// ActivityBlock 已搬进共享包,宿主只能从包的公开出口拿到它 —— 所以探针也换成
+// 「原样透传整个 barrel、只替掉 ActivityBlock」的 per-file mock。
+vi.mock("@agentre-ai/agentre-ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agentre-ai/agentre-ui")>()),
   ActivityBlock: ({
     steps,
   }: {

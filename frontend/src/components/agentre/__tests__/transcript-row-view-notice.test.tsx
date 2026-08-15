@@ -8,7 +8,7 @@ import {
   TranscriptRowView,
 } from "../transcript-row-view";
 
-import type { TranscriptRow } from "../transcript-rows";
+import type { TranscriptRow } from "@agentre-ai/agentre-ui";
 
 // 供应商回退等持久 notice 走既有 NoticeBlock 渲染：Text 原样显示。
 // （#26 的结构化模型偏离提示已随 model_override 整体移除，ChatBlock 不再有

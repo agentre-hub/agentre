@@ -10,7 +10,7 @@ import {
   TranscriptRowView,
 } from "../transcript-row-view";
 
-import type { TranscriptRow } from "../transcript-rows";
+import type { TranscriptRow } from "@agentre-ai/agentre-ui";
 
 // 转录树里的交互卡片从 context 取动作端口,少了 Provider 会在挂载期直接抛。
 const ports: TranscriptPorts = {

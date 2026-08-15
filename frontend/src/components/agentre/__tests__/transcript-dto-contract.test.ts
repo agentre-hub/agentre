@@ -1,10 +1,12 @@
 import type {
   AgentStatus as PackageAgentStatus,
   TranscriptBlock,
+  TranscriptLocalCommand,
   TranscriptMessage,
 } from "@agentre-ai/agentre-ui";
 import { describe, expect, it } from "vitest";
 
+import type { LocalCommandEntry } from "@/stores/local-commands-store";
 import type { AgentStatus as HostAgentStatus } from "@/stores/types";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
@@ -44,6 +46,14 @@ export type AgentStatusMatchesPackage = Assert<
   PackageAgentStatus extends HostAgentStatus ? true : false
 >;
 
+/**
+ * 本地 `!command` 条目由宿主的 zustand store 产生，包只按形状把它排进转录行。
+ * 断言方向与消息 / 块一致：**宿主的类型可赋值给包 DTO**，宿主往包里传才安全。
+ */
+export type LocalCommandIsAssignable = Assert<
+  LocalCommandEntry extends TranscriptLocalCommand ? true : false
+>;
+
 describe("transcript DTO contract", () => {
   it("keeps generated chat_svc models assignable to the shared package DTO", () => {
     // 类型断言在 tsc 阶段生效（见上方 Assert<>）；这里只留一条运行时锚点，
@@ -55,6 +65,12 @@ describe("transcript DTO contract", () => {
 
   it("keeps AgentStatus identical on both sides", () => {
     const proof: AgentStatusMatchesHost & AgentStatusMatchesPackage = true;
+
+    expect(proof).toBe(true);
+  });
+
+  it("keeps the host local-command entry assignable to the shared package DTO", () => {
+    const proof: LocalCommandIsAssignable = true;
 
     expect(proof).toBe(true);
   });

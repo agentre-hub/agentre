@@ -13,10 +13,12 @@ import {
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
+  buildTranscriptRows,
   loadTranscriptScrollState,
   nextAutoFollow,
   saveTranscriptScrollState,
   copyTextWithToast,
+  type PlanActionStream,
 } from "@agentre-ai/agentre-ui";
 import { Badge } from "@/components/ui/badge";
 
@@ -80,7 +82,6 @@ import {
 
 import { useBackendCapabilities } from "./capability/use-backend-capabilities";
 import { useSessionCapabilities } from "./capability/use-session-capabilities";
-import type { PlanActionStream } from "./canonical-tool/props";
 import {
   ChatComposer,
   ChatTranscript,
@@ -118,7 +119,6 @@ import {
 } from "./background-tasks/flip-subagent-status";
 import { deriveTaskProgress } from "./task-progress/derive";
 import { TaskProgressBar } from "./task-progress/task-progress-bar";
-import { buildTranscriptRows } from "./transcript-rows";
 import type { AgentColor, AgentStatus } from "./types";
 import { agentTextColorClassName, statusConfig } from "./types";
 

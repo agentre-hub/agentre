@@ -28,7 +28,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { isNoticeOnlyMessage } from "@/lib/notice-message";
 import { cn } from "@/lib/utils";
 
-import type { PlanActionStream } from "./canonical-tool/props";
 import type { Editor } from "@tiptap/react";
 import {
   AIChatInput,
@@ -37,9 +36,17 @@ import {
   type LocalCommandSubmitHandler,
 } from "./chat-input";
 import {
+  applyLiveTranscriptRows,
+  buildSettledTranscriptRows,
+  buildSourceByMessageId,
   CodeBlock,
+  estimateRowSizeWithSpacing,
+  isLastRowOfMessage,
   TranscriptCard,
   TranscriptUIStateProvider,
+  type LiveRowContent,
+  type PlanActionStream,
+  type TranscriptRow,
 } from "@agentre-ai/agentre-ui";
 import { CompactHistoryFold } from "./compact-history-fold";
 import {
@@ -50,15 +57,6 @@ import {
   TranscriptRowView,
   type TranscriptRenderContextValue,
 } from "./transcript-row-view";
-import {
-  applyLiveTranscriptRows,
-  buildSettledTranscriptRows,
-  buildSourceByMessageId,
-  estimateRowSizeWithSpacing,
-  isLastRowOfMessage,
-  type LiveRowContent,
-  type TranscriptRow,
-} from "./transcript-rows";
 import type { AgentColor, AgentStatus } from "./types";
 import { statusConfig } from "./types";
 import type { RetryNotice } from "@/stores/chat-streams-store";

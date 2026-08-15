@@ -41,7 +41,7 @@ import {
   TranscriptRowView,
 } from "../transcript-row-view";
 import type { UseProviderPillOptions } from "../model-pill";
-import type { TranscriptRow } from "../transcript-rows";
+import type { TranscriptRow } from "@agentre-ai/agentre-ui";
 
 beforeEach(() => {
   vi.clearAllMocks();

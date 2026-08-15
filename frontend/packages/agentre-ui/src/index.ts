@@ -90,6 +90,26 @@ export {
   summarizeRawTool,
 } from "./transcript/canonical-tool/raw/summary";
 export type { SummarizeOptions } from "./transcript/canonical-tool/raw/summary";
+// 对话流行模型 —— 宿主把消息喂进来、拿回虚拟行,渲染细节留在包里。
+export {
+  applyLiveTranscriptRows,
+  buildSettledTranscriptRows,
+  buildSourceByMessageId,
+  buildTranscriptRows,
+  estimateRowSizeWithSpacing,
+  isLastRowOfMessage,
+} from "./transcript/transcript-rows";
+export type {
+  LiveRowContent,
+  TranscriptRow,
+  TranscriptRowItem,
+} from "./transcript/transcript-rows";
+// 行渲染出口:活动块(工具步骤)与 canonical 工具卡路由。
+export { ActivityBlock } from "./transcript/activity-block/block";
+export type { ActivityBlockProps } from "./transcript/activity-block/block";
+export { CanonicalToolRouter } from "./transcript/canonical-tool/registry";
+export { PlanApproveCard } from "./transcript/canonical-tool/plan-approve-request/card";
+export type { PlanActionStream } from "./transcript/canonical-tool/props";
 export { CodeBlock } from "./transcript/code-block";
 export type { CodeBlockProps } from "./transcript/code-block";
 export {
@@ -170,6 +190,7 @@ export type {
   PlanUpdate,
   RetryNotice,
   SubagentRun,
+  LocalCommandStatus,
   ToolPermission,
   TranscriptBlock,
   TranscriptBlockAskUserQuestion,
@@ -179,6 +200,7 @@ export type {
   TranscriptBlockSubagent,
   TranscriptBlockToolApproval,
   TranscriptBlockToolPermission,
+  TranscriptLocalCommand,
   TranscriptMessage,
   UserAsk,
 } from "./transcript/dto";

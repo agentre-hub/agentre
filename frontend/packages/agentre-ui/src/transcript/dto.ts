@@ -306,3 +306,28 @@ export interface RetryNotice {
   details: string;
   at: number;
 }
+
+export type LocalCommandStatus = "running" | "done" | "failed" | "stopped";
+
+/**
+ * 本地 `!command` 执行条目在转录行模型里的形态。
+ *
+ * 条目的**产生**归宿主（桌面端是 `local-commands-store` 这个 zustand store，
+ * 由 Wails 侧的 PTY 事件喂），包只按这个形状把它排进行里。所以这里是一份
+ * 与宿主同形的声明，而不是 import 宿主的类型 —— 让包反向依赖 store 会拧反
+ * 依赖方向，`boundary.test.ts` 也会当场拦下。
+ *
+ * 漂移由宿主的 `transcript-dto-contract.test.ts` 断言拦住。
+ * 没有本地执行能力的宿主（agentre-server）恒定传空数组即可。
+ */
+export interface TranscriptLocalCommand {
+  id: string;
+  sessionId: number;
+  command: string;
+  createdAt: number;
+  status: LocalCommandStatus;
+  exitCode?: number;
+  output: string;
+  finishedAt?: number;
+  expanded?: boolean;
+}

@@ -67,23 +67,27 @@ export const SCANNED: {
   { file: "rich-link.tsx", skip: ["radius"], root: "package" },
   // 活动块:折叠态组头 + 展开态活动行 + 行内就地展开体。对话流的新形态,
   // 全套字号走 text-meta / text-aux,无卡片外壳(不受 radius/shadow 影响)。
-  { file: "activity-block/block.tsx" },
-  { file: "activity-block/row.tsx" },
-  { file: "canonical-tool/raw/card.tsx" },
+  { file: "activity-block/block.tsx", root: "package" },
+  { file: "activity-block/row.tsx", root: "package" },
+  { file: "canonical-tool/raw/card.tsx", root: "package" },
   // file.write / file.edit 的卡壳已随聚合改动删除(它们只会折进活动块,
   // 路由永远到不了),留下的是给活动行展开体复用的两个正文渲染器 ——
   // 守卫范围跟着正文走,别把已覆盖的行漏出去。
-  { file: "canonical-tool/file-edit/hunk-renderer.tsx" },
-  { file: "canonical-tool/file-write/content-renderer.tsx" },
-  { file: "canonical-tool/agent-spawn/card.tsx" },
-  { file: "canonical-tool/plan/card.tsx" },
+  { file: "canonical-tool/file-edit/hunk-renderer.tsx", root: "package" },
+  { file: "canonical-tool/file-write/content-renderer.tsx", root: "package" },
+  { file: "canonical-tool/agent-spawn/card.tsx", root: "package" },
+  { file: "canonical-tool/plan/card.tsx", root: "package" },
   { file: "tool-approval/card.tsx" },
-  { file: "canonical-tool/tool-permission/card.tsx" },
+  { file: "canonical-tool/tool-permission/card.tsx", root: "package" },
   // user-ask/card.tsx 的选项按钮 / “其他”输入行 / 错误横幅是手写交互控件,
   // 故意与全局 shadcn Button/Input 保持一致的 rounded-md,不跟卡片外壳走
   // rounded-lg —— 否则同一张卡片里手写按钮与底部共享 Button 圆角会打架。
   // 卡片外壳圆角由 TranscriptCard 提供,不是这个文件里的字面量,不受此豁免影响。
-  { file: "canonical-tool/user-ask/card.tsx", skip: ["radius"] },
+  {
+    file: "canonical-tool/user-ask/card.tsx",
+    skip: ["radius"],
+    root: "package",
+  },
   { file: "local-command/card.tsx" },
   { file: "transcript-row-view.tsx" },
   // chat.tsx 同时装着 transcript 和 composer —— 646/654/714/726 行的圆角与阴影

@@ -98,25 +98,6 @@ function walkProductionSourceFiles(): string[] {
   ];
 }
 
-/**
- * 这两个目录的组件已经改用共享包的 namespace 取文案(`useUiTranslation`),它们
- * 的 key 也随 canonical / activity 两棵子树迁进了包的 bundle —— 宿主 common 里
- * 一条都不剩。所以它们不能再拿宿主 common 去查,得查包的 bundle。
- *
- * 等文件真的搬进 `packages/agentre-ui/src/`,包自己的 i18n 守卫(那边同名用例走
- * TS AST)就接管了,这份清单连同下面那条 package-namespace 用例一起删。
- */
-const packageNamespaceDirs = [
-  "src/components/agentre/activity-block",
-  "src/components/agentre/canonical-tool",
-];
-
-function isPackageNamespaceFile(file: string): boolean {
-  return packageNamespaceDirs.some((dir) =>
-    file.startsWith(path.resolve(process.cwd(), dir) + path.sep),
-  );
-}
-
 function collectStaticI18nKeys(files: string[]): string[] {
   const keys = new Set<string>();
   const patterns = [
@@ -138,18 +119,8 @@ function collectStaticI18nKeys(files: string[]): string[] {
 }
 
 function collectStaticCommonI18nKeys(): string[] {
-  const sourceRoot = path.resolve(process.cwd(), "src");
-
   return collectStaticI18nKeys(
-    walkSourceFiles(sourceRoot).filter((file) => !isPackageNamespaceFile(file)),
-  );
-}
-
-function collectStaticPackageNamespaceI18nKeys(): string[] {
-  return collectStaticI18nKeys(
-    packageNamespaceDirs.flatMap((dir) =>
-      walkSourceFiles(path.resolve(process.cwd(), dir)),
-    ),
+    walkSourceFiles(path.resolve(process.cwd(), "src")),
   );
 }
 
@@ -443,18 +414,6 @@ describe("i18n resources", () => {
 
     expect(keys.filter((key) => !hasLocaleKey(zhCommon, key))).toEqual([]);
     expect(keys.filter((key) => !hasLocaleKey(enCommon, key))).toEqual([]);
-  });
-
-  it("Given components that translate through the shared package namespace, When locales are checked, Then the package bundles provide every key", () => {
-    const keys = collectStaticPackageNamespaceI18nKeys();
-
-    expect(keys.length).toBeGreaterThan(0);
-    expect(
-      keys.filter((key) => !hasLocaleKey(agentreUiResources["zh-CN"], key)),
-    ).toEqual([]);
-    expect(
-      keys.filter((key) => !hasLocaleKey(agentreUiResources.en, key)),
-    ).toEqual([]);
   });
 
   it("Given the Claude usage poll interval, When quota copy is checked, Then both languages describe the same five-minute interval", () => {

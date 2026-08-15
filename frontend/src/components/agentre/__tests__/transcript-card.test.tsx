@@ -15,7 +15,7 @@ import { AutoTriggerBanner } from "../auto-trigger-banner";
 import { CompactHistoryFold } from "../compact-history-fold";
 import { TranscriptRowView } from "../transcript-row-view";
 
-import type { TranscriptRow } from "../transcript-rows";
+import type { TranscriptRow } from "@agentre-ai/agentre-ui";
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
 describe("TranscriptCard", () => {

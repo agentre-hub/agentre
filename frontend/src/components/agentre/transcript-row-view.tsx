@@ -22,27 +22,28 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { ActivityBlock } from "./activity-block/block";
 import { AutoTriggerBanner } from "./auto-trigger-banner";
-import { PlanApproveCard } from "./canonical-tool/plan-approve-request/card";
-import type { PlanActionStream } from "./canonical-tool/props";
-import { CanonicalToolRouter } from "./canonical-tool/registry";
 import {
   makeMentionDecorator,
   prepareMentionText,
 } from "./chat-input/mentions/transcript";
 import {
+  ActivityBlock,
+  CanonicalToolRouter,
   CompactBoundaryDivider,
   MarkdownText,
+  PlanApproveCard,
   StreamingMarkdown,
   ThinkingBlock,
+  type PlanActionStream,
   type TranscriptBlock,
+  type TranscriptRow,
+  type TranscriptRowItem,
 } from "@agentre-ai/agentre-ui";
 import { LocalCommandCard } from "./local-command/card";
 import { MessageRow, MessageCopyButton } from "./message-row";
 import { OpenClawExecApprovalCard } from "./openclaw-exec-approval/card";
 import { ToolApprovalCard } from "./tool-approval/card";
-import type { TranscriptRow, TranscriptRowItem } from "./transcript-rows";
 import type { AgentColor } from "./types";
 import type { RetryNotice } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
