@@ -1,6 +1,11 @@
 import { Ellipsis } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
+import {
+  resolvePreviewRelPath,
+  toRelPath,
+  copyTextWithToast,
+} from "@agentre-ai/agentre-ui";
 
 import {
   ContextMenu,
@@ -12,7 +17,6 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
 import { cn } from "@/lib/utils";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 
@@ -20,8 +24,6 @@ import type {
   FilePreviewTab,
   PreviewSourceMode,
 } from "@/stores/chat-sidebar-store";
-
-import { resolvePreviewRelPath, toRelPath } from "../previewable";
 
 import {
   CONTEXT_MENU_PARTS,

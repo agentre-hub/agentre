@@ -1,8 +1,21 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+import { TranscriptPortsProvider } from "@agentre-ai/agentre-ui";
+import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { RawToolCard } from "./card";
 import type { ChatBlockData } from "@/stores/chat-streams-store";
+
+// 只有未决的 toolPermission 才挂 ToolPermissionOverlay,而 overlay 从
+// TranscriptPortsProvider 取动作端口 —— 因此只有那一条用例需要注入端口。
+const ports: TranscriptPorts = {
+  answerToolPermission: vi.fn().mockResolvedValue(undefined),
+  answerUserQuestion: vi.fn().mockResolvedValue(undefined),
+  answerToolApproval: vi.fn().mockResolvedValue(undefined),
+  resolveExecApproval: vi.fn().mockResolvedValue({ status: "resolved" }),
+  resolvePlanAction: vi.fn().mockResolvedValue(undefined),
+};
 
 const bashUse = (overrides: Partial<ChatBlockData> = {}): ChatBlockData =>
   ({
@@ -309,18 +322,20 @@ describe("RawToolCard background running pill", () => {
 describe("RawToolCard permission integration", () => {
   it("shows the unresolved permission overlay", () => {
     render(
-      <RawToolCard
-        toolBlock={bashUse({
-          toolInput: { command: "rm -rf /" },
-          toolPermission: {
-            requestId: "req-1",
-            toolName: "Bash",
-            toolInput: {},
-            resolved: false,
-          },
-        })}
-        sessionId={42}
-      />,
+      <TranscriptPortsProvider ports={ports}>
+        <RawToolCard
+          toolBlock={bashUse({
+            toolInput: { command: "rm -rf /" },
+            toolPermission: {
+              requestId: "req-1",
+              toolName: "Bash",
+              toolInput: {},
+              resolved: false,
+            },
+          })}
+          sessionId={42}
+        />
+      </TranscriptPortsProvider>,
     );
     expect(screen.getByTestId("tool-permission-overlay")).toBeDefined();
   });

@@ -1,9 +1,9 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { classifyLink } from "@agentre-ai/agentre-ui";
 
 import { OpenPath, RevealPath } from "@/../wailsjs/go/app/App";
-import { classifyLink } from "@/lib/link-classify";
 
 /**
  * openTarget 把面板里的一条路径解析成能交给系统打开的绝对路径：工具调用给的

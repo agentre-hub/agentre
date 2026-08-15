@@ -31,8 +31,7 @@ export {
   MessageMeta,
   ToolCall,
 } from "./chat";
-export { CodeBlock } from "./code-block";
-export { MarkdownText } from "./markdown-text";
+export { CodeBlock, MarkdownText } from "@agentre-ai/agentre-ui";
 export { SettingsPage } from "./settings";
 export {
   ShortcutsProvider,

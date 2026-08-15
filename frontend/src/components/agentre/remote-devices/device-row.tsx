@@ -15,9 +15,14 @@ import type { DevicePath, DeviceRowModel } from "./use-remote-devices";
 
 /** 作用在 LAN 配对行(paired_agentreds)上的那组动作。 */
 export type DeviceRowActions = {
-  onRefresh: () => void;
+  /**
+   * 「刷新直连」与「TLS 信任」两项只在这一行真的有 LAN 地址时才给得出来:
+   * 账号收编来的行(IsRelayOnly)也有配对行,但没有可拨的地址、也没有可信任的直连
+   * 端点 —— 给了只会点出一个无意义的失败。不传就不画。
+   */
+  onRefresh?: () => void;
   onRename: () => void;
-  onEditTLS: () => void;
+  onEditTLS?: () => void;
   onRemove: () => void;
 };
 

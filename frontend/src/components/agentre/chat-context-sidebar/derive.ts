@@ -1,4 +1,4 @@
-import { mentionsToDisplayText } from "../chat-input/mentions/xml";
+import { mentionsToDisplayText } from "@agentre-ai/agentre-ui";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
 

@@ -13,23 +13,23 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
+import {
+  shouldIgnoreClickForSelection,
+  useCollapsible,
+  CollapsibleCode,
+  TranscriptCard,
+  TranscriptCardHeader,
+  TranscriptPill,
+  useTranscriptBooleanState,
+} from "@agentre-ai/agentre-ui";
 
 import { cn } from "@/lib/utils";
 import type { ChatBlockData } from "@/stores/chat-streams-store";
 
 import { ActivityBlock } from "../../activity-block/block";
 import type { PendingOutcome } from "../../activity-block/facts";
-import { CollapsibleCode } from "../../collapsible-code";
-import { shouldIgnoreClickForSelection } from "../../copyable-text";
-import {
-  TranscriptCard,
-  TranscriptCardHeader,
-  TranscriptPill,
-} from "../../transcript-card";
 import { summarizeActivity, type ActivityStep } from "../../transcript-rows";
 import { statusConfig, type AgentStatus } from "../../types";
-import { useTranscriptBooleanState } from "../../transcript-ui-state";
-import { useCollapsible } from "../../use-collapsible";
 import type { AgentSpawnChildBlocks, CanonicalCardProps } from "../props";
 import type {
   AgentSpawnDTO,

@@ -15,7 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
+import { copyTextWithToast } from "@agentre-ai/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import {

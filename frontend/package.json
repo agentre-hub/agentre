@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
+    "@agentre-ai/agentre-ui": "workspace:*",
     "@dnd-kit/sortable": "^10.0.0",
     "@iconify-icons/tabler": "^1.2.95",
     "@iconify/react": "^6.0.2",

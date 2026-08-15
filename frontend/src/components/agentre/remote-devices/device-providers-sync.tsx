@@ -5,7 +5,7 @@ import { CheckCircle2, Copy, Loader2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
+import { copyTextWithToast } from "@agentre-ai/agentre-ui";
 
 import {
   ListAgentBackends,

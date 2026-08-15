@@ -9,25 +9,24 @@ import {
   TriangleAlert,
   Wrench,
 } from "lucide-react";
-
-import { copyTextWithToast } from "@/lib/clipboard-toast";
-import { cn } from "@/lib/utils";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
-
 import {
+  summarizeRawTool,
+  useCollapsible,
+  copyTextWithToast,
   CollapsibleCode,
   CollapsibleCodeParams,
   toolInputEntries,
-} from "../../collapsible-code";
-import {
   TranscriptCard,
   TranscriptCardBody,
   TranscriptCardHeader,
   TranscriptPill,
-} from "../../transcript-card";
+  useTranscriptBooleanState,
+} from "@agentre-ai/agentre-ui";
+
+import { cn } from "@/lib/utils";
+import type { ChatBlockData } from "@/stores/chat-streams-store";
+
 import { statusConfig, type AgentStatus } from "../../types";
-import { useTranscriptBooleanState } from "../../transcript-ui-state";
-import { useCollapsible } from "../../use-collapsible";
 import {
   commandResultOf,
   isFailedCommandResult,
@@ -35,7 +34,6 @@ import {
 } from "../command-result";
 import type { CanonicalCardProps } from "../props";
 
-import { summarizeRawTool } from "./summary";
 import { ToolPermissionOverlay } from "./tool-permission-overlay";
 
 // RawToolCard 是不进 canonical 集合的工具(Bash/Read/Glob/MCP 等)的兜底卡。

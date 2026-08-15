@@ -1,16 +1,33 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  TranscriptPortsProvider,
+  __resetChatPanelScrollStateForTesting,
+} from "@agentre-ai/agentre-ui";
+import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { PlanApproveCard } from "./card";
 import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import type { ChatBlockData } from "@/stores/chat-streams-store";
-import { __resetChatPanelScrollStateForTesting } from "../../chat-panel-scroll-state";
 
-vi.mock("../../../../../wailsjs/go/app/App", () => ({
-  ResolvePlanAction: vi.fn().mockResolvedValue(undefined),
-}));
+// 卡片不再直接调 Wails,而是从 TranscriptPortsProvider 取动作端口;这里注入
+// 一份 mock 端口,断言打在端口上。
+const resolvePlanAction = vi.fn().mockResolvedValue(undefined);
+const ports: TranscriptPorts = {
+  answerToolPermission: vi.fn().mockResolvedValue(undefined),
+  answerUserQuestion: vi.fn().mockResolvedValue(undefined),
+  answerToolApproval: vi.fn().mockResolvedValue(undefined),
+  resolveExecApproval: vi.fn().mockResolvedValue({ status: "resolved" }),
+  resolvePlanAction,
+};
 
-import { ResolvePlanAction } from "../../../../../wailsjs/go/app/App";
+function renderCard(ui: React.ReactElement) {
+  return render(
+    <TranscriptPortsProvider ports={ports}>{ui}</TranscriptPortsProvider>,
+  );
+}
 
 // PlanApproveCard 现在只看 canonical.actions[],不再读 session meta
 // 的 permissionModeAtLaunch(那条规则迁到 backend handlers/plan_approve.go)。
@@ -63,7 +80,7 @@ describe("PlanApproveCard", () => {
 
   it("renders nothing without canonical", () => {
     const block = { type: "tool_use" } as unknown as ChatBlockData;
-    const { container } = render(
+    const { container } = renderCard(
       <PlanApproveCard toolBlock={block} sessionId={1} />,
     );
     expect(container.firstChild).toBeNull();
@@ -75,7 +92,7 @@ describe("PlanApproveCard", () => {
       { id: "plan.approve.manual", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("AI Submitted an Execution Plan")).toBeDefined();
     expect(screen.getByText("Continue Planning")).toBeDefined();
   });
@@ -86,7 +103,7 @@ describe("PlanApproveCard", () => {
       { id: "plan.approve.manual", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("Approve and Switch to Auto Mode")).toBeDefined();
     expect(screen.getByText("Approve, Confirm Edits Manually")).toBeDefined();
     expect(screen.queryByText("Approve and Bypass Permissions")).toBeNull();
@@ -98,22 +115,22 @@ describe("PlanApproveCard", () => {
       { id: "plan.approve.manual", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("Approve and Bypass Permissions")).toBeDefined();
     expect(screen.getByText("Approve, Confirm Edits Manually")).toBeDefined();
     expect(screen.queryByText("Approve and Switch to Auto Mode")).toBeNull();
   });
 
-  it("点 accept_edits → ResolvePlanAction(plan.approve.accept_edits)", async () => {
+  it("点 accept_edits → resolvePlanAction(plan.approve.accept_edits)", async () => {
     const block = blockWithActions([
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.approve.manual", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     fireEvent.click(screen.getByText("Approve and Switch to Auto Mode"));
     await waitFor(() => {
-      expect(ResolvePlanAction).toHaveBeenCalledWith(
+      expect(resolvePlanAction).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: 1,
           requestId: "req-1",
@@ -124,16 +141,16 @@ describe("PlanApproveCard", () => {
     });
   });
 
-  it("点 manual → ResolvePlanAction(plan.approve.manual)", async () => {
+  it("点 manual → resolvePlanAction(plan.approve.manual)", async () => {
     const block = blockWithActions([
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.approve.manual", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     fireEvent.click(screen.getByText("Approve, Confirm Edits Manually"));
     await waitFor(() => {
-      expect(ResolvePlanAction).toHaveBeenCalledWith(
+      expect(resolvePlanAction).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: 1,
           requestId: "req-1",
@@ -143,16 +160,16 @@ describe("PlanApproveCard", () => {
     });
   });
 
-  it("点 bypass → ResolvePlanAction(plan.approve.bypass_permissions)", async () => {
+  it("点 bypass → resolvePlanAction(plan.approve.bypass_permissions)", async () => {
     const block = blockWithActions([
       { id: "plan.approve.bypass_permissions", kind: "approve" },
       { id: "plan.approve.manual", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     fireEvent.click(screen.getByText("Approve and Bypass Permissions"));
     await waitFor(() => {
-      expect(ResolvePlanAction).toHaveBeenCalledWith(
+      expect(resolvePlanAction).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: 1,
           requestId: "req-1",
@@ -162,20 +179,20 @@ describe("PlanApproveCard", () => {
     });
   });
 
-  it("refine 按钮展开 feedback 并传给 ResolvePlanAction(plan.refine)", async () => {
+  it("refine 按钮展开 feedback 并传给 resolvePlanAction(plan.refine)", async () => {
     const block = blockWithActions([
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.approve.manual", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     fireEvent.click(screen.getByText("Continue Planning"));
     fireEvent.change(screen.getByPlaceholderText(/step 2/), {
       target: { value: "再细一些" },
     });
     fireEvent.click(screen.getByText("Send Feedback and Continue Planning"));
     await waitFor(() => {
-      expect(ResolvePlanAction).toHaveBeenCalledWith(
+      expect(resolvePlanAction).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: 1,
           requestId: "req-1",
@@ -191,7 +208,7 @@ describe("PlanApproveCard", () => {
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    const view = render(
+    const view = renderCard(
       <PlanApproveCard
         toolBlock={block}
         sessionId={1}
@@ -206,7 +223,7 @@ describe("PlanApproveCard", () => {
     });
 
     view.unmount();
-    render(
+    renderCard(
       <PlanApproveCard
         toolBlock={block}
         sessionId={1}
@@ -225,7 +242,7 @@ describe("PlanApproveCard", () => {
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    const view = render(
+    const view = renderCard(
       <PlanApproveCard
         toolBlock={block}
         sessionId={1}
@@ -239,7 +256,7 @@ describe("PlanApproveCard", () => {
     });
 
     view.unmount();
-    render(
+    renderCard(
       <PlanApproveCard
         toolBlock={block}
         sessionId={1}
@@ -256,7 +273,7 @@ describe("PlanApproveCard", () => {
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    const view = render(
+    const view = renderCard(
       <PlanApproveCard
         toolBlock={block}
         sessionId={1}
@@ -269,10 +286,10 @@ describe("PlanApproveCard", () => {
       target: { value: "feedback before submit" },
     });
     fireEvent.click(screen.getByText("Send Feedback and Continue Planning"));
-    await waitFor(() => expect(ResolvePlanAction).toHaveBeenCalled());
+    await waitFor(() => expect(resolvePlanAction).toHaveBeenCalled());
 
     view.unmount();
-    render(
+    renderCard(
       <PlanApproveCard
         toolBlock={block}
         sessionId={1}
@@ -298,7 +315,7 @@ describe("PlanApproveCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("Plan Approved")).toBeDefined();
     expect(screen.getByText("Start executing the plan")).toBeDefined();
     expect(screen.queryByText("Approve and Switch to Auto Mode")).toBeNull();
@@ -306,7 +323,7 @@ describe("PlanApproveCard", () => {
   });
 
   it("renders type=plan block from canonical.plan.update actions", () => {
-    render(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
     expect(screen.getByTestId("plan-card")).toBeDefined();
     expect(screen.getByText("Execute Plan")).toBeDefined();
     expect(screen.getByText("Refine Plan")).toBeDefined();
@@ -318,10 +335,10 @@ describe("PlanApproveCard", () => {
   });
 
   it("plan.execute action does not require a requestId", async () => {
-    render(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
     fireEvent.click(screen.getByText("Execute Plan"));
     await waitFor(() => {
-      expect(ResolvePlanAction).toHaveBeenCalledWith(
+      expect(resolvePlanAction).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: 1,
           requestId: "",
@@ -344,7 +361,7 @@ describe("PlanApproveCard", () => {
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
 
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
 
     const approveButton = screen
       .getByText("Approve and Switch to Auto Mode")
@@ -364,7 +381,7 @@ describe("PlanApproveCard", () => {
       streamStartedAt: Date.now(),
     });
 
-    render(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
 
     const executeButton = screen
       .getByText("Execute Plan")
@@ -374,14 +391,14 @@ describe("PlanApproveCard", () => {
 
   it("plan.execute starts the returned stream in the parent transcript", async () => {
     const onPlanActionStarted = vi.fn();
-    vi.mocked(ResolvePlanAction).mockResolvedValueOnce({
+    resolvePlanAction.mockResolvedValueOnce({
       sessionId: 1,
       userMessageId: 10,
       assistantMessageId: 11,
       stream: "chat.stream.1.11",
     });
 
-    render(
+    renderCard(
       <PlanApproveCard
         toolBlock={actionPlanBlock()}
         sessionId={1}
@@ -404,14 +421,14 @@ describe("PlanApproveCard", () => {
   });
 
   it("hides requestless plan actions after successful submission", async () => {
-    vi.mocked(ResolvePlanAction).mockResolvedValueOnce({
+    resolvePlanAction.mockResolvedValueOnce({
       sessionId: 1,
       userMessageId: 10,
       assistantMessageId: 11,
       stream: "chat.stream.1.11",
     });
 
-    render(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
     fireEvent.click(screen.getByText("Execute Plan"));
 
     await waitFor(() => {
@@ -426,9 +443,9 @@ describe("PlanApproveCard", () => {
       value: "当前会话已有进行中的对话，请稍后再试",
       enumerable: false,
     });
-    vi.mocked(ResolvePlanAction).mockRejectedValueOnce(err);
+    resolvePlanAction.mockRejectedValueOnce(err);
 
-    render(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
     fireEvent.click(screen.getByText("Execute Plan"));
 
     expect(
@@ -444,7 +461,7 @@ describe("PlanApproveCard", () => {
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
     ]);
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("plan-card")).toHaveClass("border-primary");
   });
 
@@ -462,7 +479,7 @@ describe("PlanApproveCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("plan-card")).toHaveClass(
       "border-status-running/50",
     );
@@ -482,19 +499,19 @@ describe("PlanApproveCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<PlanApproveCard toolBlock={block} sessionId={1} />);
+    renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("plan-card")).toHaveClass("border-border");
   });
 
-  it("requestless plan.refine action sends feedback through ResolvePlanAction", async () => {
-    render(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
+  it("requestless plan.refine action sends feedback through resolvePlanAction", async () => {
+    renderCard(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
     fireEvent.click(screen.getByText("Refine Plan"));
     fireEvent.change(screen.getByPlaceholderText(/step 2/), {
       target: { value: "把测试写具体一点" },
     });
     fireEvent.click(screen.getByText("Send Feedback and Continue Planning"));
     await waitFor(() => {
-      expect(ResolvePlanAction).toHaveBeenCalledWith(
+      expect(resolvePlanAction).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: 1,
           requestId: "",

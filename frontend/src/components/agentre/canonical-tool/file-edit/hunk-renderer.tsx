@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
-import { TranscriptPill } from "../../transcript-card";
+import { TranscriptPill } from "@agentre-ai/agentre-ui";
 import type { DiffHunk, DiffLine, FileEditPatch } from "../types";
 
 // FileBlock 渲染单个文件的 diff(可能多 hunks);showHeader=true 时画出文件名条。

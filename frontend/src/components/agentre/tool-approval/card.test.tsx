@@ -1,18 +1,40 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, it, expect, vi } from "vitest";
+import {
+  TranscriptPortsProvider,
+  type TranscriptPorts,
+} from "@agentre-ai/agentre-ui";
 
 import { ToolApprovalCard } from "./card";
 import type { ToolApprovalData } from "@/stores/chat-streams-store";
-import { AnswerToolApproval } from "../../../../wailsjs/go/app/App";
 
-vi.mock("../../../../wailsjs/go/app/App", () => ({
-  AnswerToolApproval: vi.fn().mockResolvedValue(undefined),
-}));
+// 卡片不再认识 Wails 绑定,只认注入的动作端口;测试注入自己的端口实现,
+// 断言「用户按下批准/拒绝」落到 answerToolApproval 上。
+const answerToolApproval = vi.fn();
+
+function makePorts(): TranscriptPorts {
+  return {
+    answerToolPermission: vi.fn(async () => {}),
+    answerUserQuestion: vi.fn(async () => {}),
+    answerToolApproval,
+    resolveExecApproval: vi.fn(async () => ({ status: "resolved" })),
+    resolvePlanAction: vi.fn(async () => ({})),
+  };
+}
+
+function renderCard(approval: ToolApprovalData) {
+  return render(
+    <TranscriptPortsProvider ports={makePorts()}>
+      <ToolApprovalCard approval={approval} sessionId={42} />
+    </TranscriptPortsProvider>,
+  );
+}
 
 describe("ToolApprovalCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    answerToolApproval.mockResolvedValue(undefined);
   });
 
   const pending = (
@@ -27,7 +49,7 @@ describe("ToolApprovalCard", () => {
   });
 
   it("renders the tool label, the input payload and approve/reject buttons when pending", () => {
-    render(<ToolApprovalCard approval={pending()} sessionId={42} />);
+    renderCard(pending());
     // tools.org_create_department → "Create department" (setup forces en locale)
     expect(screen.getByText("Create department")).toBeDefined();
     // 入参 JSON 原样渲染(动态内容不翻译)
@@ -37,58 +59,59 @@ describe("ToolApprovalCard", () => {
   });
 
   it("scrolls a long tool input JSON without an expand control", () => {
-    render(
-      <ToolApprovalCard
-        approval={pending({
-          toolInput: { system_prompt: "x".repeat(300) },
-        })}
-        sessionId={42}
-      />,
+    renderCard(
+      pending({
+        toolInput: { system_prompt: "x".repeat(300) },
+      }),
     );
     expect(screen.queryByRole("button", { name: "Expand all" })).toBeNull();
   });
 
-  it("calls AnswerToolApproval with allow:true when approve is clicked", async () => {
+  it("calls the answerToolApproval port with allow:true when approve is clicked", async () => {
     const user = userEvent.setup();
-    render(<ToolApprovalCard approval={pending()} sessionId={42} />);
+    renderCard(pending());
     await user.click(screen.getByText("Approve"));
     await waitFor(() => {
-      expect(AnswerToolApproval).toHaveBeenCalledTimes(1);
+      expect(answerToolApproval).toHaveBeenCalledTimes(1);
     });
-    expect(AnswerToolApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 42,
-        requestId: "org-1",
-        allow: true,
-      }),
-    );
+    expect(answerToolApproval).toHaveBeenCalledWith({
+      sessionId: 42,
+      requestId: "org-1",
+      allow: true,
+    });
   });
 
-  it("calls AnswerToolApproval with allow:false when reject is clicked", async () => {
+  it("calls the answerToolApproval port with allow:false when reject is clicked", async () => {
     const user = userEvent.setup();
-    render(<ToolApprovalCard approval={pending()} sessionId={42} />);
+    renderCard(pending());
     await user.click(screen.getByText("Reject"));
     await waitFor(() => {
-      expect(AnswerToolApproval).toHaveBeenCalledTimes(1);
+      expect(answerToolApproval).toHaveBeenCalledTimes(1);
     });
-    expect(AnswerToolApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 42,
-        requestId: "org-1",
-        allow: false,
-      }),
-    );
+    expect(answerToolApproval).toHaveBeenCalledWith({
+      sessionId: 42,
+      requestId: "org-1",
+      allow: false,
+    });
+  });
+
+  it("shows an inline error and stays retryable when the port rejects", async () => {
+    answerToolApproval.mockRejectedValueOnce(new Error("relay offline"));
+    const user = userEvent.setup();
+    renderCard(pending());
+
+    await user.click(screen.getByText("Approve"));
+
+    expect(await screen.findByText("Approval submission failed")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
   });
 
   it("renders a read-only status badge with no buttons once denied", () => {
-    render(
-      <ToolApprovalCard
-        approval={pending({
-          status: "denied",
-          result: "用户拒绝了删除操作",
-        })}
-        sessionId={42}
-      />,
+    renderCard(
+      pending({
+        status: "denied",
+        result: "用户拒绝了删除操作",
+      }),
     );
     expect(screen.getByText("Rejected")).toBeDefined();
     expect(screen.getByText("用户拒绝了删除操作")).toBeDefined();
@@ -97,14 +120,11 @@ describe("ToolApprovalCard", () => {
   });
 
   it("renders an approved badge with the result text", () => {
-    render(
-      <ToolApprovalCard
-        approval={pending({
-          status: "approved",
-          result: "已创建部门 研发部",
-        })}
-        sessionId={42}
-      />,
+    renderCard(
+      pending({
+        status: "approved",
+        result: "已创建部门 研发部",
+      }),
     );
     expect(screen.getByText("Approved")).toBeDefined();
     expect(screen.getByText("已创建部门 研发部")).toBeDefined();
@@ -112,12 +132,7 @@ describe("ToolApprovalCard", () => {
   });
 
   it("renders an expired badge for status=expired", () => {
-    render(
-      <ToolApprovalCard
-        approval={pending({ status: "expired" })}
-        sessionId={42}
-      />,
-    );
+    renderCard(pending({ status: "expired" }));
     expect(screen.getByText("Expired")).toBeDefined();
     expect(screen.queryByText("Approve")).toBeNull();
   });

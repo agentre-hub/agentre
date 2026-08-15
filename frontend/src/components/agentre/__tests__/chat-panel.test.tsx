@@ -364,7 +364,7 @@ import {
 import {
   __resetChatPanelScrollStateForTesting,
   loadTranscriptScrollState,
-} from "../chat-panel-scroll-state";
+} from "@agentre-ai/agentre-ui";
 import {
   streamForMessage,
   useChatStreamsStore,

@@ -11,10 +11,13 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { toast } from "sonner";
+import {
+  TERMINAL_FONT_FAMILY,
+  readTerminalTheme,
+} from "@agentre-ai/agentre-ui";
 
 import { useTerminal } from "./use-terminal";
 import { useAttachedTerminal } from "./use-attached-terminal";
-import { TERMINAL_FONT_FAMILY, readTerminalTheme } from "./terminal-theme";
 import { attachXtermRolloverGuard } from "./xterm-rollover-guard";
 
 export interface TerminalPanelProps {

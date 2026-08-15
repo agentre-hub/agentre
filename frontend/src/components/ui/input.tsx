@@ -1,33 +1,6 @@
-import * as React from "react";
-
-import { cn } from "@/lib/utils";
-
-function Input({
-  autoCapitalize = "off",
-  autoComplete = "off",
-  autoCorrect = "off",
-  className,
-  spellCheck = false,
-  type,
-  ...props
-}: React.ComponentProps<"input">) {
-  return (
-    <input
-      type={type}
-      data-slot="input"
-      autoCapitalize={autoCapitalize}
-      autoComplete={autoComplete}
-      autoCorrect={autoCorrect}
-      spellCheck={spellCheck}
-      className={cn(
-        "h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30",
-        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-export { Input };
+// Input 的实现已经搬进共享包 @agentre-ai/agentre-ui(包内 src/ui/input.tsx)。
+//
+// 这一层转发是**刻意保留**的:30 个宿主文件从 "@/components/ui/input" 拿 Input,
+// 把它们一次性改写成包路径会把搬迁的真实 diff 埋掉。新代码请直接从
+// "@agentre-ai/agentre-ui" 导入,这里只服务既有调用点。
+export { Input } from "@agentre-ai/agentre-ui";

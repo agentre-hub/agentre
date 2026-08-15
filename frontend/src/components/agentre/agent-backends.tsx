@@ -66,6 +66,7 @@ import {
   httpgateway,
   llm_provider_svc,
 } from "../../../wailsjs/go/models";
+import { EventsOn } from "../../../wailsjs/runtime/runtime";
 import { AgentreDialog } from "./app-dialog";
 import {
   ModelTargetPicker,
@@ -103,6 +104,8 @@ type DeviceView = {
   daemonFingerprint?: string;
   supportsLLMModelTarget?: boolean;
 };
+// remote_device_watcher_svc 的在线态推送通道（与 session-exec-target / 设备面板同一条）。
+const REMOTE_DEVICE_STATE_EVENT = "remote.device.state";
 type ProviderSummary = {
   key?: string;
   name?: string;
@@ -1310,14 +1313,23 @@ function BackendEditor({
   }, [cliBased]);
 
   // Fetch paired remote devices when the dialog opens (or re-opens).
+  //
+  // 顺序是有意的，不是可以并发的两个读：账号设备的收编发生在 ServerListDevices
+  // **内部**（app.ServerListDevices → AdoptAccountDevices 写 paired_agentreds）。
+  // 并发时 RemoteDeviceList 大概率先返回，这一次就读不到刚收编的那一行 ——
+  // 用户得关掉弹窗重开才看得见那台机器。所以先让收编跑完，再读配对行。
+  // 指纹与账号清单之间没有依赖，仍可并发。
   React.useEffect(() => {
     if (state.kind === "closed") return;
-    void Promise.all([
-      RemoteDeviceList(),
-      RemoteDeviceFingerprint(),
-      ServerListDevices().catch(() => []),
-    ])
-      .then(([rows, fingerprint, accountDevices]) => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [fingerprint, accountDevices] = await Promise.all([
+          RemoteDeviceFingerprint(),
+          ServerListDevices().catch(() => []),
+        ]);
+        const rows = await RemoteDeviceList();
+        if (cancelled) return;
         setDevices((rows ?? []) as unknown as DeviceView[]);
         setLocalFingerprint(fingerprint ?? "");
         setAccountDeviceNames(
@@ -1327,12 +1339,38 @@ function BackendEditor({
               .map((device) => [device.Fingerprint, device.Name] as const),
           ),
         );
-      })
-      .catch(() => {
+      } catch {
+        if (cancelled) return;
         setDevices([]);
         setLocalFingerprint("");
         setAccountDeviceNames(new Map());
-      });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state.kind]);
+
+  // 运行设备下拉按 online 禁用选项，而在线态在弹窗开着的时候会翻转：刚收编的那一行
+  // watcher 才开始拨号，那一刻 online=false。不订阅这条既有推送，那个灰掉的选项要
+  // 等到用户关掉弹窗重开才会变可选。只改在线态，不重拉清单 —— 行集合没变。
+  React.useEffect(() => {
+    if (state.kind === "closed") return;
+    const off = EventsOn(REMOTE_DEVICE_STATE_EVENT, (payload: unknown) => {
+      const ev = payload as {
+        id: number;
+        name: string;
+        online: boolean;
+      };
+      setDevices((prev) =>
+        prev.map((d) =>
+          d.id === ev.id
+            ? { ...d, name: ev.name || d.name, online: ev.online }
+            : d,
+        ),
+      );
+    });
+    return () => off?.();
   }, [state.kind]);
 
   // 远端执行时以目标 daemon 目录为可运行事实源（task 6 决策 12）：拉一次该设备的

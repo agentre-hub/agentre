@@ -3,22 +3,23 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, ChevronDown, ShieldAlert, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { useChatStreamsStore } from "@/stores/chat-streams-store";
-import { AnswerToolPermission as wailsAnswerToolPermission } from "../../../../../wailsjs/go/app/App";
-import type { chat_svc } from "../../../../../wailsjs/go/models";
-
-import { CollapsibleCode } from "../../collapsible-code";
-import { shouldIgnoreClickForSelection } from "../../copyable-text";
 import {
+  shouldIgnoreClickForSelection,
+  useCollapsible,
+  useTranscriptPorts,
+  CollapsibleCode,
   TranscriptCard,
   TranscriptCardBody,
   TranscriptCardHeader,
   TranscriptPill,
-} from "../../transcript-card";
-import { useTranscriptBooleanState } from "../../transcript-ui-state";
-import { useCollapsible } from "../../use-collapsible";
+  useTranscriptBooleanState,
+} from "@agentre-ai/agentre-ui";
+
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useChatStreamsStore } from "@/stores/chat-streams-store";
+import type { chat_svc } from "../../../../../wailsjs/go/models";
+
 import type { CanonicalCardProps } from "../props";
 import type { CanonicalDTO, ToolPermissionDTO } from "../types";
 
@@ -59,6 +60,7 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
   uiStateKey,
 }) => {
   const { t } = useTranslation();
+  const ports = useTranscriptPorts();
   const payload = readPermission(toolBlock);
   const markToolPermissionResolved = useChatStreamsStore(
     (s) => s.markToolPermissionResolved,
@@ -88,12 +90,12 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
       } as chat_svc.ChatBlockToolPermission;
       try {
         markToolPermissionResolved(sessionId, messageId ?? 0, optimistic);
-        await wailsAnswerToolPermission({
+        await ports.answerToolPermission({
           sessionId,
           requestId: payload.requestId,
           allow,
           alwaysAllowSession,
-        } as chat_svc.AnswerToolPermissionRequest);
+        });
       } catch (err) {
         // 后端 takePermWaiter 在 RespondToControl 失败前已经 take+delete,
         // 回滚后再点也会 "no waiting tool permission" 失败;切回未决态只是
@@ -115,6 +117,7 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
     },
     [
       payload,
+      ports,
       sessionId,
       messageId,
       isResolved,

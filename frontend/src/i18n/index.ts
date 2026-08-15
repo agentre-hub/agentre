@@ -1,3 +1,12 @@
+// 走 `/i18n` 窄入口而不是包的 barrel:这个模块是**测试 setup 最先加载**的东西
+// (src/__tests__/setup.ts → @/i18n),从 barrel 进来会把整个包(含 sonner 的
+// clipboard-toast)在任何 `vi.mock("sonner")` 注册之前就装进模块缓存,之后所有
+// 打在 sonner 上的桩都会静默失效 —— 组件照常调真 toast,断言看到 0 次调用。
+// 语言包本来也不需要组件树,窄入口同时让 agentre-server 只取文案而不拖渲染器。
+import {
+  AGENTRE_UI_NAMESPACE,
+  agentreUiResources,
+} from "@agentre-ai/agentre-ui/i18n";
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
@@ -19,9 +28,17 @@ type DetectInitialLanguageOptions = {
   storage?: LanguageStorage | null;
 };
 
+/**
+ * 共享包 `@agentre-ai/agentre-ui` 自带语言包，但**不建自己的 i18next 实例** ——
+ * 实例只有这一个，包的资源在 init 时并进来。包用独立 namespace，所以它的 key
+ * 与宿主 `common` 分属两棵树，谁都覆盖不了谁（对象字面量里重复 ns 键 TS 会直接报错）。
+ */
 const resources = {
-  "zh-CN": { common: zhCommon },
-  en: { common: enCommon },
+  "zh-CN": {
+    common: zhCommon,
+    [AGENTRE_UI_NAMESPACE]: agentreUiResources["zh-CN"],
+  },
+  en: { common: enCommon, [AGENTRE_UI_NAMESPACE]: agentreUiResources.en },
 };
 
 function normalizeStoredLanguage(value: string | null | undefined) {

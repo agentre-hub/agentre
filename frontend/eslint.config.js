@@ -6,7 +6,8 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "wailsjs"] },
+  // packages/*/dist 是共享包 prepare 阶段 tsc 的产出物，与 dist / wailsjs 同属生成物。
+  { ignores: ["dist", "wailsjs", "packages/*/dist"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   i18next.configs["flat/recommended"],
@@ -53,7 +54,15 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/**/__tests__/**/*.{ts,tsx}", "src/**/*.{test,spec}.{ts,tsx}"],
+    files: [
+      "src/**/__tests__/**/*.{ts,tsx}",
+      "src/**/*.{test,spec}.{ts,tsx}",
+      // 共享包 packages/*/src 里的用例同理：测试中的中文是夹具与断言数据，
+      // 不是产品文案。豁免必须跟着被豁免的代码走 —— 组件正从 src/ 搬进包，
+      // 只写 src/** 等于让搬过去的用例凭空多出一条不适用的规则。
+      "packages/*/src/**/__tests__/**/*.{ts,tsx}",
+      "packages/*/src/**/*.{test,spec}.{ts,tsx}",
+    ],
     rules: {
       "i18next/no-literal-string": "off",
     },

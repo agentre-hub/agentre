@@ -1,8 +1,27 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import type * as React from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import { TranscriptPortsProvider } from "@agentre-ai/agentre-ui";
+import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { ToolPermissionCard } from "./card";
 import type { ChatBlockData } from "@/stores/chat-streams-store";
+
+// 卡片从 TranscriptPortsProvider 取动作端口,少了 provider 会在挂载期就抛。
+const ports: TranscriptPorts = {
+  answerToolPermission: vi.fn().mockResolvedValue(undefined),
+  answerUserQuestion: vi.fn().mockResolvedValue(undefined),
+  answerToolApproval: vi.fn().mockResolvedValue(undefined),
+  resolveExecApproval: vi.fn().mockResolvedValue({ status: "resolved" }),
+  resolvePlanAction: vi.fn().mockResolvedValue(undefined),
+};
+
+function renderCard(ui: React.ReactElement) {
+  return render(
+    <TranscriptPortsProvider ports={ports}>{ui}</TranscriptPortsProvider>,
+  );
+}
 
 describe("ToolPermissionCard JSON input", () => {
   it("collapses a long tool input JSON with an expand control once expanded", () => {
@@ -20,7 +39,7 @@ describe("ToolPermissionCard JSON input", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(
+    renderCard(
       <ToolPermissionCard toolBlock={block} sessionId={1} messageId={1} />,
     );
     // 卡片默认折叠;展开后 JSON 入参出现并带折叠控制
@@ -43,7 +62,7 @@ describe("ToolPermissionCard JSON input", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(
+    renderCard(
       <ToolPermissionCard toolBlock={block} sessionId={1} messageId={1} />,
     );
     const header = screen.getByRole("button", { expanded: false });

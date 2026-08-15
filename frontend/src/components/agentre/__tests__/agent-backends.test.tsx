@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -34,6 +35,28 @@ const appMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
+
+// remote.device.state 是 agentred 上下线的既有推送。运行设备下拉按 online 禁用选项，
+// 收编刚发生时那台机器还在拨号（online=false），没有订阅就只能靠关掉重开。
+const runtimeMocks = vi.hoisted(() => {
+  const handlers = new Map<string, Set<(payload: unknown) => void>>();
+  return {
+    handlers,
+    EventsOn: vi.fn((event: string, cb: (payload: unknown) => void) => {
+      const set = handlers.get(event) ?? new Set<(payload: unknown) => void>();
+      set.add(cb);
+      handlers.set(event, set);
+      return () => set.delete(cb);
+    }),
+    emit(event: string, payload: unknown) {
+      for (const cb of [...(handlers.get(event) ?? [])]) cb(payload);
+    },
+  };
+});
+
+vi.mock("../../../../wailsjs/runtime/runtime", () => ({
+  EventsOn: runtimeMocks.EventsOn,
+}));
 
 import { AgentBackendsPanel as AgentBackendsPanelBase } from "../agent-backends";
 
@@ -222,6 +245,73 @@ function installAppMock(overrides: Partial<AppMockShape> = {}) {
 
 afterEach(() => {
   vi.clearAllMocks();
+  runtimeMocks.handlers.clear();
+});
+
+describe("AgentBackendsPanel runtime device list", () => {
+  // 收编发生在 ServerListDevices 内部（app.ServerListDevices → AdoptAccountDevices
+  // 写库）。两个调用并发时 RemoteDeviceList 大概率先返回，这一次就拿不到刚收编的
+  // 那一行，用户得关掉弹窗重开才看得见。
+  it("Given account devices are still loading, When the editor opens, Then the paired list is read only after adoption has run", async () => {
+    const user = userEvent.setup();
+    const gate = deferred<unknown[]>();
+    const mocks = installAppMock({
+      ServerListDevices: vi.fn(() => gate.promise),
+      RemoteDeviceList: vi.fn(() => Promise.resolve([])),
+    });
+    render(<AgentBackendsPanel />);
+
+    await screen.findByRole("list", { name: "Agent backend list" });
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    await screen.findByRole("dialog");
+
+    await waitFor(() => expect(mocks.ServerListDevices).toHaveBeenCalled());
+    expect(mocks.RemoteDeviceList).not.toHaveBeenCalled();
+
+    gate.resolve([]);
+    await waitFor(() => expect(mocks.RemoteDeviceList).toHaveBeenCalled());
+  });
+
+  // 刚收编的那一行 watcher 才开始拨号，那一刻 online=false，下拉把它渲染成灰的
+  // 不可选项。在线态推送到了就该就地变可选，而不是等用户关掉弹窗重开。
+  it("Given an offline runtime device, When it comes online, Then its option becomes selectable in place", async () => {
+    const user = userEvent.setup();
+    installAppMock({
+      RemoteDeviceList: vi.fn(() =>
+        Promise.resolve([{ id: 7, name: "linux-srv", online: false }]),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+
+    await screen.findByRole("list", { name: "Agent backend list" });
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("radio", { name: /Claude Code CLI/ }),
+    );
+    await user.click(
+      within(dialog).getByRole("combobox", { name: "Runtime Device" }),
+    );
+
+    const offline = await screen.findByRole("option", { name: /linux-srv/ });
+    expect(offline).toHaveAttribute("aria-disabled", "true");
+
+    act(() =>
+      runtimeMocks.emit("remote.device.state", {
+        id: 7,
+        name: "linux-srv",
+        online: true,
+        lastSeenAt: 1_700_000_000_000,
+        lastError: "",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("option", { name: /linux-srv/ }),
+      ).not.toHaveAttribute("aria-disabled", "true"),
+    );
+  });
 });
 
 describe("AgentBackendsPanel", () => {

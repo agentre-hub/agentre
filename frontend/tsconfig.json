@@ -17,8 +17,10 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@agentre-ai/agentre-ui": ["./packages/agentre-ui/src/index.ts"],
+      "@agentre-ai/agentre-ui/i18n": ["./packages/agentre-ui/src/i18n/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "packages/agentre-ui/src"]
 }

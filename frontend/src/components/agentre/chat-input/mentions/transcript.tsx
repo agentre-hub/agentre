@@ -1,10 +1,10 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { parseMentionXml, type MentionRef } from "@agentre-ai/agentre-ui";
 
-import type { MarkdownInlineDecorator } from "../../markdown-text";
+import type { MarkdownInlineDecorator } from "@agentre-ai/agentre-ui";
 import { tokenToCssColor } from "../../session-avatar";
-import { parseMentionXml, type MentionRef } from "./xml";
 
 // 私有区哨兵:markdown 无 rehype-raw 会吃掉 <agent>/<project> 原始标签,所以
 // 先把标签替换成 {idx} 这种「对 markdown 无意义」的纯文本哨兵,

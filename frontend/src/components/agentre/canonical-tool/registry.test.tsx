@@ -1,14 +1,28 @@
 import { render, screen } from "@testing-library/react";
+import type * as React from "react";
 import { describe, it, expect, vi } from "vitest";
+
+import { TranscriptPortsProvider } from "@agentre-ai/agentre-ui";
+import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { CanonicalToolRouter } from "./registry";
 import type { ChatBlockData } from "@/stores/chat-streams-store";
 
-vi.mock("../../../../wailsjs/go/app/App", () => ({
-  AnswerToolPermission: vi.fn().mockResolvedValue(undefined),
-  AnswerUserQuestion: vi.fn().mockResolvedValue(undefined),
-  ResolvePlanAction: vi.fn().mockResolvedValue(undefined),
-}));
+// 路由出来的交互卡片从 TranscriptPortsProvider 取动作端口,少了 provider 会在
+// 挂载期就抛 —— 这里给整棵路由树注入一份 mock 端口。
+const ports: TranscriptPorts = {
+  answerToolPermission: vi.fn().mockResolvedValue(undefined),
+  answerUserQuestion: vi.fn().mockResolvedValue(undefined),
+  answerToolApproval: vi.fn().mockResolvedValue(undefined),
+  resolveExecApproval: vi.fn().mockResolvedValue({ status: "resolved" }),
+  resolvePlanAction: vi.fn().mockResolvedValue(undefined),
+};
+
+function renderRouted(ui: React.ReactElement) {
+  return render(
+    <TranscriptPortsProvider ports={ports}>{ui}</TranscriptPortsProvider>,
+  );
+}
 
 describe("CanonicalToolRouter", () => {
   it("falls back to RawToolCard when canonical is missing", () => {
@@ -17,7 +31,7 @@ describe("CanonicalToolRouter", () => {
       toolName: "Bash",
       toolInput: { command: "ls" },
     } as unknown as ChatBlockData;
-    render(<CanonicalToolRouter toolBlock={block} />);
+    renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("raw-tool-card")).toBeDefined();
   });
 
@@ -33,7 +47,7 @@ describe("CanonicalToolRouter", () => {
         toolInput: { file_path: "/a.ts", content: "x" },
         canonical: { kind },
       } as unknown as ChatBlockData;
-      render(<CanonicalToolRouter toolBlock={block} />);
+      renderRouted(<CanonicalToolRouter toolBlock={block} />);
       expect(screen.getByTestId("raw-tool-card")).toBeDefined();
       expect(screen.queryByTestId("file-write-card")).toBeNull();
       expect(screen.queryByTestId("file-edit-card")).toBeNull();
@@ -57,7 +71,7 @@ describe("CanonicalToolRouter", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<CanonicalToolRouter toolBlock={block} sessionId={1} />);
+    renderRouted(<CanonicalToolRouter toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("user-ask-card")).toBeDefined();
   });
 
@@ -73,7 +87,7 @@ describe("CanonicalToolRouter", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<CanonicalToolRouter toolBlock={block} />);
+    renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("raw-tool-card")).toBeDefined();
     expect(screen.getByText("update_plan")).toBeDefined();
     expect(screen.queryByText("plan.update")).toBeNull();
@@ -88,7 +102,7 @@ describe("CanonicalToolRouter", () => {
         planApprove: { requestId: "r", planText: "# p" },
       },
     } as unknown as ChatBlockData;
-    render(<CanonicalToolRouter toolBlock={block} sessionId={1} />);
+    renderRouted(<CanonicalToolRouter toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("plan-card")).toBeDefined();
   });
 
@@ -100,7 +114,7 @@ describe("CanonicalToolRouter", () => {
         agentSpawn: { taskId: "1" },
       },
     } as unknown as ChatBlockData;
-    render(<CanonicalToolRouter toolBlock={block} />);
+    renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("agent-spawn-card")).toBeDefined();
   });
 
@@ -111,7 +125,7 @@ describe("CanonicalToolRouter", () => {
       toolInput: { foo: "bar" },
       canonical: { kind: "totally.unknown" },
     } as unknown as ChatBlockData;
-    render(<CanonicalToolRouter toolBlock={block} />);
+    renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("raw-tool-card")).toBeDefined();
   });
 });

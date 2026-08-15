@@ -2,6 +2,11 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { X } from "lucide-react";
+import {
+  previewKind,
+  type PreviewKind,
+  MarkdownText,
+} from "@agentre-ai/agentre-ui";
 
 import {
   WorkspaceFsGitFileContent,
@@ -17,15 +22,12 @@ import {
 } from "@/stores/chat-sidebar-store";
 import { useSessionStatus } from "@/stores/session-status-store";
 
-import type { PreviewKind } from "../chat-context-sidebar/previewable";
-import { previewKind } from "../chat-context-sidebar/previewable";
 import {
   errorText,
   PanelNotice,
   PanelSkeleton,
 } from "../chat-context-sidebar/views/panel-feedback";
 import { FileTypeIcon } from "../file-type-icon";
-import { MarkdownText } from "../markdown-text";
 import { ResizableSidebar } from "../resizable-sidebar";
 
 import { CodePreview } from "./code-view";

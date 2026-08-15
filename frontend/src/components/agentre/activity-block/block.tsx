@@ -1,18 +1,20 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronRight, Ellipsis, Layers } from "lucide-react";
+import {
+  shouldIgnoreClickForSelection,
+  useCollapsible,
+  useTranscriptBooleanState,
+} from "@agentre-ai/agentre-ui";
 
 import { cn } from "@/lib/utils";
 
-import { shouldIgnoreClickForSelection } from "../copyable-text";
 import {
   summarizeActivity,
   type ActivityStep,
   type ActivitySummary,
   type ActivitySummaryPart,
 } from "../transcript-rows";
-import { useTranscriptBooleanState } from "../transcript-ui-state";
-import { useCollapsible } from "../use-collapsible";
 
 import { stepLabel, type PendingOutcome } from "./facts";
 import { ActivityRow } from "./row";

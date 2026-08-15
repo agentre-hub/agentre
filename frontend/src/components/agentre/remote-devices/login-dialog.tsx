@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
+import { copyTextWithToast } from "@agentre-ai/agentre-ui";
 
 import { AgentreDialog } from "../app-dialog";
 import { BrowserOpenURL } from "../../../../wailsjs/runtime/runtime";

@@ -12,6 +12,12 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import {
+  loadTranscriptScrollState,
+  nextAutoFollow,
+  saveTranscriptScrollState,
+  copyTextWithToast,
+} from "@agentre-ai/agentre-ui";
 import { Badge } from "@/components/ui/badge";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -44,7 +50,6 @@ import { useProjectTree } from "@/hooks/use-project-tree";
 import { useVisibleMessageId } from "@/hooks/use-visible-message-id";
 import i18n from "@/i18n";
 import { reasonToDisplayStatus } from "@/lib/attention-display";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
 import { splitErrorDetail } from "@/lib/error-detail";
 import { isNoticeOnlyMessage } from "@/lib/notice-message";
 import {
@@ -106,11 +111,6 @@ import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { AgentAvatar, DeviceTag, StatusDot } from "./primitives";
 import { QueuedMessagesBar } from "./queued-messages-bar";
 import { BackgroundTasksChip } from "./background-tasks/background-tasks-chip";
-import {
-  loadTranscriptScrollState,
-  nextAutoFollow,
-  saveTranscriptScrollState,
-} from "./chat-panel-scroll-state";
 import { deriveBackgroundTasks } from "./background-tasks/derive";
 import {
   flipSubagentStatusInMessages,

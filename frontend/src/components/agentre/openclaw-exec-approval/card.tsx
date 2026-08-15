@@ -1,14 +1,16 @@
 import * as React from "react";
 import { ShieldAlertIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import {
+  useTranscriptPorts,
+  TranscriptCard,
+  TranscriptCardBody,
+} from "@agentre-ai/agentre-ui";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { ExecApprovalData } from "@/stores/chat-streams-store";
-
-import { ResolveExecApproval } from "../../../../wailsjs/go/app/App";
-import { TranscriptCard, TranscriptCardBody } from "../transcript-card";
 
 const supportedDecisions = ["allow-once", "allow-always", "deny"] as const;
 type ExecApprovalDecision = (typeof supportedDecisions)[number];
@@ -26,6 +28,7 @@ export function OpenClawExecApprovalCard({
   sessionId: number;
 }) {
   const { t } = useTranslation();
+  const ports = useTranscriptPorts();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [localTerminal, setLocalTerminal] = React.useState<{
@@ -53,7 +56,7 @@ export function OpenClawExecApprovalCard({
     setSubmitting(true);
     setError(null);
     try {
-      const response = await ResolveExecApproval({
+      const response = await ports.resolveExecApproval({
         sessionId,
         approvalId: approval.id,
         decision: nextDecision,

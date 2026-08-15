@@ -1,17 +1,36 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  TranscriptPortsProvider,
+  type TranscriptPorts,
+} from "@agentre-ai/agentre-ui";
 
 import type { ExecApprovalData } from "@/stores/chat-streams-store";
 
-import { ResolveExecApproval } from "../../../../wailsjs/go/app/App";
 import { OpenClawExecApprovalCard } from "./card";
 
-vi.mock("../../../../wailsjs/go/app/App", () => ({
-  ResolveExecApproval: vi.fn(),
-}));
+// 卡片不再认识 Wails 绑定,只认注入的动作端口;测试注入自己的端口实现,
+// 断言决议落到 resolveExecApproval 上,并按它的回包渲染终态。
+const resolveExecApproval = vi.fn();
 
-const resolveExecApproval = ResolveExecApproval as ReturnType<typeof vi.fn>;
+function makePorts(): TranscriptPorts {
+  return {
+    answerToolPermission: vi.fn(async () => {}),
+    answerUserQuestion: vi.fn(async () => {}),
+    answerToolApproval: vi.fn(async () => {}),
+    resolveExecApproval,
+    resolvePlanAction: vi.fn(async () => ({})),
+  };
+}
+
+function renderCard(approval: ExecApprovalData) {
+  return render(
+    <TranscriptPortsProvider ports={makePorts()}>
+      <OpenClawExecApprovalCard approval={approval} sessionId={42} />
+    </TranscriptPortsProvider>,
+  );
+}
 
 function pending(overrides: Partial<ExecApprovalData> = {}): ExecApprovalData {
   return {
@@ -38,7 +57,7 @@ describe("OpenClawExecApprovalCard", () => {
   });
 
   it("Given a pending approval, When decisions are rendered, Then only Gateway allowedDecisions are offered", () => {
-    render(<OpenClawExecApprovalCard approval={pending()} sessionId={42} />);
+    renderCard(pending());
 
     expect(screen.getByText("Execution approval")).toBeDefined();
     expect(screen.getByText("git status --short")).toBeDefined();
@@ -49,19 +68,16 @@ describe("OpenClawExecApprovalCard", () => {
   });
 
   it("Given allow-always is granted, When rendered, Then the optional decision is available", () => {
-    render(
-      <OpenClawExecApprovalCard
-        approval={pending({
-          allowedDecisions: ["allow-once", "allow-always", "deny"],
-        })}
-        sessionId={42}
-      />,
+    renderCard(
+      pending({
+        allowedDecisions: ["allow-once", "allow-always", "deny"],
+      }),
     );
 
     expect(screen.getByRole("button", { name: "Always allow" })).toBeDefined();
   });
 
-  it("Given a resolution is in flight, When a decision is clicked repeatedly, Then one RPC is sent and all decisions are disabled", async () => {
+  it("Given a resolution is in flight, When a decision is clicked repeatedly, Then one port call is made and all decisions are disabled", async () => {
     let settle!: (value: { status: string; decision: string }) => void;
     resolveExecApproval.mockReturnValue(
       new Promise((resolve) => {
@@ -69,13 +85,10 @@ describe("OpenClawExecApprovalCard", () => {
       }),
     );
     const user = userEvent.setup();
-    render(
-      <OpenClawExecApprovalCard
-        approval={pending({
-          allowedDecisions: ["allow-once", "allow-always", "deny"],
-        })}
-        sessionId={42}
-      />,
+    renderCard(
+      pending({
+        allowedDecisions: ["allow-once", "allow-always", "deny"],
+      }),
     );
 
     const allowOnce = screen.getByRole("button", { name: "Allow once" });
@@ -96,12 +109,12 @@ describe("OpenClawExecApprovalCard", () => {
     await waitFor(() => expect(screen.getByText("Allowed once")).toBeDefined());
   });
 
-  it("Given resolve fails, When the user retries, Then an inline error is cleared and the RPC can succeed", async () => {
+  it("Given the port rejects, When the user retries, Then an inline error is cleared and the call can succeed", async () => {
     resolveExecApproval
       .mockRejectedValueOnce(new Error("gateway disconnected"))
       .mockResolvedValueOnce({ status: "resolved", decision: "deny" });
     const user = userEvent.setup();
-    render(<OpenClawExecApprovalCard approval={pending()} sessionId={42} />);
+    renderCard(pending());
 
     await user.click(screen.getByRole("button", { name: "Deny" }));
     expect(
@@ -118,27 +131,19 @@ describe("OpenClawExecApprovalCard", () => {
   });
 
   it("Given an expired approval, When rendered, Then it is read-only", () => {
-    render(
-      <OpenClawExecApprovalCard
-        approval={pending({ status: "expired" })}
-        sessionId={42}
-      />,
-    );
+    renderCard(pending({ status: "expired" }));
 
     expect(screen.getByText("Expired")).toBeDefined();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
   it("Given an approval resolved by another client, When rendered, Then resolution metadata is shown without an exec-finished claim", () => {
-    render(
-      <OpenClawExecApprovalCard
-        approval={pending({
-          status: "resolved",
-          decision: "allow-always",
-          resolvedBy: "operator-device-2",
-        })}
-        sessionId={42}
-      />,
+    renderCard(
+      pending({
+        status: "resolved",
+        decision: "allow-always",
+        resolvedBy: "operator-device-2",
+      }),
     );
 
     expect(screen.getByText("Always allowed")).toBeDefined();

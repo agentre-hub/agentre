@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { ChatBlockData } from "@/stores/chat-streams-store";
 
 import type { ActivityStep, ActivitySummary } from "../transcript-rows";
-import { TranscriptUIStateProvider } from "../transcript-ui-state";
+import { TranscriptUIStateProvider } from "@agentre-ai/agentre-ui";
 
 import { ActivityBlock } from "./block";
 

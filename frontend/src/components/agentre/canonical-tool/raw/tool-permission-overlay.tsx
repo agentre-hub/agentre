@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { AnswerToolPermission } from "../../../../../wailsjs/go/app/App";
+import { useTranscriptPorts } from "@agentre-ai/agentre-ui";
 import { Button } from "@/components/ui/button";
 
 // ToolPermissionOverlay 是 RawToolCard 的"等待审批"小条。ExitPlanMode 这种特例
@@ -15,17 +15,18 @@ export const ToolPermissionOverlay: React.FC<{
   sessionId?: number;
 }> = ({ payload, sessionId }) => {
   const { t } = useTranslation();
+  const ports = useTranscriptPorts();
   const [submitting, setSubmitting] = React.useState(false);
 
   const handle = async (allow: boolean) => {
     if (!sessionId || submitting) return;
     setSubmitting(true);
     try {
-      await AnswerToolPermission({
+      await ports.answerToolPermission({
         sessionId,
         requestId: payload.requestId,
         allow,
-      } as Parameters<typeof AnswerToolPermission>[0]);
+      });
     } finally {
       setSubmitting(false);
     }

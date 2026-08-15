@@ -1,5 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { SquareTerminal, X, ChevronRight, ChevronDown } from "lucide-react";
+import {
+  formatDuration,
+  shouldIgnoreClickForSelection,
+  TranscriptPill,
+} from "@agentre-ai/agentre-ui";
 
 import { Button } from "@/components/ui/button";
 
@@ -8,9 +13,6 @@ import {
   isCollapsed,
 } from "../../../stores/local-commands-store";
 import type { LocalCommandStatus } from "../../../stores/local-commands-store";
-import { shouldIgnoreClickForSelection } from "../copyable-text";
-import { TranscriptPill } from "../transcript-card";
-import { formatDuration } from "./format-duration";
 import { OutputTerminal } from "./output-terminal";
 
 // Status → visual style map (DRY — one place for all status styles).

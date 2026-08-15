@@ -36,9 +36,12 @@ import {
   type LocalCommandHistoryScope,
   type LocalCommandSubmitHandler,
 } from "./chat-input";
-import { CodeBlock } from "./code-block";
+import {
+  CodeBlock,
+  TranscriptCard,
+  TranscriptUIStateProvider,
+} from "@agentre-ai/agentre-ui";
 import { CompactHistoryFold } from "./compact-history-fold";
-import { TranscriptCard } from "./transcript-card";
 import {
   ChatMessage,
   ErrorCard,
@@ -56,7 +59,6 @@ import {
   type LiveRowContent,
   type TranscriptRow,
 } from "./transcript-rows";
-import { TranscriptUIStateProvider } from "./transcript-ui-state";
 import type { AgentColor, AgentStatus } from "./types";
 import { statusConfig } from "./types";
 import type { RetryNotice } from "@/stores/chat-streams-store";

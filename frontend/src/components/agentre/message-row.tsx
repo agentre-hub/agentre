@@ -3,7 +3,7 @@ import { Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
+import { copyTextWithToast } from "@agentre-ai/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import { AgentAvatar } from "./primitives";

@@ -4,8 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import { MessageRow, MessageCopyButton } from "./message-row";
 
 // 隔离剪贴板副作用：只断言 copyTextWithToast 被以正文调用。
+// copyTextWithToast 已搬进共享包，所以桩要打在包上；用 importOriginal 展开原模块
+// 再覆盖这一个导出 —— 整包替换会连带把 cn / Button 等同源导出一起打空。
 const copySpy = vi.fn();
-vi.mock("@/lib/clipboard-toast", () => ({
+vi.mock("@agentre-ai/agentre-ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agentre-ai/agentre-ui")>()),
   copyTextWithToast: (text: string, opts: unknown) => {
     copySpy(text, opts);
     return Promise.resolve(true);

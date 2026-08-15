@@ -12,23 +12,21 @@ import {
   Square,
   SquareCheck,
 } from "lucide-react";
+import {
+  clearTranscriptDraftState,
+  loadTranscriptDraftState,
+  saveTranscriptDraftState,
+  useCollapsible,
+  TranscriptCard,
+  TranscriptCardBody,
+  TranscriptPill,
+  useTranscriptBooleanState,
+} from "@agentre-ai/agentre-ui";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import {
-  clearTranscriptDraftState,
-  loadTranscriptDraftState,
-  saveTranscriptDraftState,
-} from "../../chat-panel-scroll-state";
-import {
-  TranscriptCard,
-  TranscriptCardBody,
-  TranscriptPill,
-} from "../../transcript-card";
-import { useTranscriptBooleanState } from "../../transcript-ui-state";
-import { useCollapsible } from "../../use-collapsible";
 import type { CanonicalCardProps } from "../props";
 import type {
   AskQuestionDTO,
@@ -36,7 +34,7 @@ import type {
   CanonicalDTO,
   UserAskDTO,
 } from "../types";
-import { submitAnswer } from "./use-submit-answer";
+import { useSubmitAnswer } from "./use-submit-answer";
 
 // OTHER_LABEL 与后端 canonical.OtherAnswerLabel 对齐。
 const OTHER_LABEL = "__other__";
@@ -71,6 +69,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
   tabStateKey,
 }) => {
   const { t } = useTranslation();
+  const submitAnswer = useSubmitAnswer();
   const payload = readUserAsk(toolBlock);
   const draftKey =
     payload?.requestId && !payload.answered && !payload.skipped
@@ -204,6 +203,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
       sessionId,
       selections,
       isLocked,
+      submitAnswer,
       t,
       setCollapsed,
       tabStateKey,

@@ -2,56 +2,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+/**
+ * 色板 token 本身的守卫已随 tokens 迁到共享包
+ * （packages/agentre-ui/src/styles/tokens.test.ts）。这里只留宿主侧
+ * base 层的规则——选中/复制语义是桌面端 globals.css 独有的，不进共享包。
+ */
 const globalsPath = resolve(process.cwd(), "src/styles/globals.css");
 
-function readThemeBlock(selector: string) {
-  const css = readFileSync(globalsPath, "utf8");
-  const match = new RegExp(`${selector.replace(".", "\\.")}\\s*{([^}]*)}`).exec(
-    css,
-  );
-
-  if (!match) {
-    throw new Error(`Missing ${selector} theme block`);
-  }
-
-  return match[1];
-}
-
-function readColorVar(block: string, name: string) {
-  const match = new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6});`).exec(block);
-
-  if (!match) {
-    throw new Error(`Missing ${name} color variable`);
-  }
-
-  return match[1].toLowerCase();
-}
-
-function rgb(hex: string) {
-  return {
-    r: Number.parseInt(hex.slice(1, 3), 16),
-    g: Number.parseInt(hex.slice(3, 5), 16),
-    b: Number.parseInt(hex.slice(5, 7), 16),
-  };
-}
-
-function colorDistance(a: string, b: string) {
-  const left = rgb(a);
-  const right = rgb(b);
-
-  return Math.hypot(left.r - right.r, left.g - right.g, left.b - right.b);
-}
-
-describe("theme tokens", () => {
-  it("keeps dark accent visibly distinct from popover for hover states", () => {
-    const darkTheme = readThemeBlock(".dark");
-    const popover = readColorVar(darkTheme, "--popover");
-    const accent = readColorVar(darkTheme, "--accent");
-
-    expect(accent).not.toBe(popover);
-    expect(colorDistance(accent, popover)).toBeGreaterThanOrEqual(32);
-  });
-
+describe("app base layer", () => {
   it("keeps copyable control text enabled after button selection reset", () => {
     const css = readFileSync(globalsPath, "utf8");
     const buttonReset = css.indexOf('[data-selectable-text="true"] button');
@@ -61,5 +19,14 @@ describe("theme tokens", () => {
     expect(copyableText).toBeGreaterThan(buttonReset);
     expect(css).toContain('[data-copyable-control-text="true"] *');
     expect(css).toContain("user-select: text;");
+  });
+
+  it("pulls design tokens from the shared package rather than redefining them", () => {
+    const css = readFileSync(globalsPath, "utf8");
+
+    expect(css).toContain('@import "@agentre-ai/agentre-ui/tokens.css";');
+    // 回流守卫：token 定义块一旦被抄回宿主，共享包就不再是唯一真相源。
+    expect(css).not.toMatch(/^@theme\b/m);
+    expect(css).not.toMatch(/^\.dark\s*\{/m);
   });
 });

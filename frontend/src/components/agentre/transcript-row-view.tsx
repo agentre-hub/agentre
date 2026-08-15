@@ -31,13 +31,16 @@ import {
   makeMentionDecorator,
   prepareMentionText,
 } from "./chat-input/mentions/transcript";
-import { CompactBoundaryDivider } from "./compact-boundary-divider";
+import {
+  CompactBoundaryDivider,
+  MarkdownText,
+  StreamingMarkdown,
+  ThinkingBlock,
+} from "@agentre-ai/agentre-ui";
 import { LocalCommandCard } from "./local-command/card";
-import { MarkdownText, StreamingMarkdown } from "./markdown-text";
 import { MessageRow, MessageCopyButton } from "./message-row";
 import { OpenClawExecApprovalCard } from "./openclaw-exec-approval/card";
 import { ToolApprovalCard } from "./tool-approval/card";
-import { ThinkingBlock } from "./thinking-block";
 import type { TranscriptRow, TranscriptRowItem } from "./transcript-rows";
 import type { AgentColor } from "./types";
 import type { ChatBlockData, RetryNotice } from "@/stores/chat-streams-store";

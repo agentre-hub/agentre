@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithPorts as render } from "@/__tests__/helpers/transcript-ports";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
-import { MarkdownText } from "../../../markdown-text";
+import { MarkdownText } from "@agentre-ai/agentre-ui";
 import { makeMentionDecorator, prepareMentionText } from "../transcript";
 
 describe("prepareMentionText", () => {

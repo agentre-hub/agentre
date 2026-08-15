@@ -5,13 +5,11 @@
 // 事:把 canonical / result 里已有的事实(增删行、退出码、结果规模)取出来,以及
 // 决定这一步用哪一档字重。
 
+import { relativizePath, summarizeRawTool } from "@agentre-ai/agentre-ui";
+
 import type { ChatBlockData } from "@/stores/chat-streams-store";
 
 import { commandResultOf } from "../canonical-tool/command-result";
-import {
-  relativizePath,
-  summarizeRawTool,
-} from "../canonical-tool/raw/summary";
 import { displayName, tier } from "../canonical-tool/tier";
 import type { CanonicalDTO } from "../canonical-tool/types";
 import { isFailedStep, type ActivityStep } from "../transcript-rows";

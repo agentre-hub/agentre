@@ -106,6 +106,31 @@ describe("mergeDeviceSources (R15)", () => {
     ]);
   });
 
+  // 收编自账号的行没有 LAN 地址(url 为空 = 后端的 IsRelayOnly)。它确实有一行本地
+  // 记录——那正是让它能被选成「运行设备」的东西——但它**没有** LAN 路径。照 LAN 行
+  // 渲染会画出一条根本不存在的直连路径,把「本机从没配对过这台机器」说成「直连在用」。
+  it("does not invent a LAN path for a row adopted from the account (no url)", () => {
+    const rows = mergeDeviceSources([lanDevice({ url: "" })], {
+      known: true,
+      devices: [accountDevice()],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].paths).toEqual([{ kind: "relay", state: "in-use" }]);
+    expect(rows[0].viaRelay).toBe(true);
+    expect(rows[0].online).toBe(true);
+    expect(rows[0].unclaimed).toBe(false);
+  });
+
+  // 收编行 + 账号侧中继离线 = 这台机器此刻真的够不着,不能因为本地有一行就报在线。
+  it("an adopted row whose relay presence is gone is offline with a dead relay path", () => {
+    const rows = mergeDeviceSources([lanDevice({ url: "" })], {
+      known: true,
+      devices: [accountDevice({ Online: false })],
+    });
+    expect(rows[0].paths).toEqual([{ kind: "relay", state: "dead" }]);
+    expect(rows[0].online).toBe(false);
+  });
+
   it("marks a LAN-only device unclaimed when the account list is known", () => {
     const rows = mergeDeviceSources([lanDevice()], {
       known: true,
@@ -366,7 +391,8 @@ describe("useRemoteDevices", () => {
   });
 
   it("loads devices on mount", async () => {
-    mockList.mockResolvedValueOnce([{ id: 1, name: "a" }]);
+    // url 必须写出来:它现在是「这一行有没有 LAN 路径」的标记,省略即表示收编行。
+    mockList.mockResolvedValueOnce([{ id: 1, name: "a", url: "ws://a/rpc" }]);
     const { result } = renderHook(() => useRemoteDevices());
     await waitFor(() => expect(result.current.loadState).toBe("ready"));
     expect(result.current.devices[0].name).toBe("a");
@@ -408,8 +434,22 @@ describe("useRemoteDevices", () => {
 
   it("merges remote.device.state events into devices by id", async () => {
     mockList.mockResolvedValueOnce([
-      { id: 1, name: "a", online: false, lastSeenAt: 0, lastError: "" },
-      { id: 2, name: "b", online: false, lastSeenAt: 0, lastError: "" },
+      {
+        id: 1,
+        name: "a",
+        url: "ws://a/rpc",
+        online: false,
+        lastSeenAt: 0,
+        lastError: "",
+      },
+      {
+        id: 2,
+        name: "b",
+        url: "ws://b/rpc",
+        online: false,
+        lastSeenAt: 0,
+        lastError: "",
+      },
     ]);
     const handlers: Record<string, (p: unknown) => void> = {};
     mockEventsOn.mockImplementation(

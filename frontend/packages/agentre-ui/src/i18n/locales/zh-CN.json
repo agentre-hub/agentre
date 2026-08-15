@@ -1,0 +1,56 @@
+{
+  "canonical": {
+    "code": {
+      "copy": "复制"
+    }
+  },
+  "clipboard": {
+    "unsupported": "当前环境不支持剪贴板"
+  },
+  "codeBlock": {
+    "copyDone": "已复制代码",
+    "copyFailed": "复制代码失败"
+  },
+  "common": {
+    "copied": "已复制",
+    "copy": "复制",
+    "copyFailed": "复制失败"
+  },
+  "compactBoundary": {
+    "aria": "上下文压缩边界",
+    "label": "上下文已压缩",
+    "tokensBefore": "压缩前 {{tokens}} tokens",
+    "trigger": {
+      "auto": "自动压缩",
+      "compressed": "已压缩",
+      "manual": "手动 /compact"
+    }
+  },
+  "markdownImage": {
+    "cannotPreview": "无法预览",
+    "tooLarge": "图片过大"
+  },
+  "richLink": {
+    "localFile": "本地文件",
+    "localFileExternal": "本地文件 · 项目外",
+    "localFolder": "本地文件夹",
+    "localFolderExternal": "本地文件夹 · 项目外",
+    "openFailed": "打开失败: {{error}}",
+    "openInBrowser": "点击在系统浏览器中打开",
+    "openWithDefaultApp": "点击用系统默认应用打开",
+    "outsideCwd": "路径不在当前 cwd 之下，不展示项目根分段。",
+    "projectRoot": "项目根",
+    "relative": "相对",
+    "url": "URL"
+  },
+  "thinking": {
+    "done": "思考完成",
+    "meta": {
+      "charCount": "· {{count}} 字",
+      "withSeconds": "· {{seconds}}s · {{count}} 字"
+    },
+    "streaming": "思考中…",
+    "toggleDone": "切换思考完成展开/收起",
+    "toggleStreaming": "切换思考中展开/收起"
+  }
+}

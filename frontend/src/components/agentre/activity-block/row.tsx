@@ -10,21 +10,21 @@ import {
   TriangleAlert,
   Wrench,
 } from "lucide-react";
-
-import { cn } from "@/lib/utils";
-
 import {
+  shouldIgnoreClickForSelection,
+  useCollapsible,
   CollapsibleCode,
   CollapsibleCodeParams,
   toolInputEntries,
-} from "../collapsible-code";
+  useTranscriptBooleanState,
+} from "@agentre-ai/agentre-ui";
+
+import { cn } from "@/lib/utils";
+
 import { FileBlock } from "../canonical-tool/file-edit/hunk-renderer";
 import { FileWriteContent } from "../canonical-tool/file-write/content-renderer";
 import { toolCategory } from "../canonical-tool/tier";
-import { shouldIgnoreClickForSelection } from "../copyable-text";
 import type { ActivityStep } from "../transcript-rows";
-import { useTranscriptBooleanState } from "../transcript-ui-state";
-import { useCollapsible } from "../use-collapsible";
 
 import {
   canonicalOf,

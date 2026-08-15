@@ -1,8 +1,4 @@
 {
-  "markdownImage": {
-    "cannotPreview": "Cannot preview",
-    "tooLarge": "Image too large"
-  },
   "notify": {
     "app": "Agentre",
     "body": {
@@ -475,7 +471,6 @@
       "waitingFirstStep": "Waiting for the first child call..."
     },
     "code": {
-      "copy": "Copy",
       "copyAll": "Copy all",
       "paramCount": "{{count}} params"
     },
@@ -1363,23 +1358,6 @@
     "unknownError": "Unknown error",
     "unsavedChanges": "Unsaved changes",
     "saveChanges": "Save changes"
-  },
-  "codeBlock": {
-    "copyDone": "Code copied",
-    "copyFailed": "Failed to copy code"
-  },
-  "clipboard": {
-    "unsupported": "Clipboard is not supported in this environment"
-  },
-  "compactBoundary": {
-    "aria": "Context compaction boundary",
-    "label": "Context compacted",
-    "tokensBefore": "{{tokens}} tokens before compaction",
-    "trigger": {
-      "auto": "Automatic compaction",
-      "compressed": "Compacted",
-      "manual": "Manual /compact"
-    }
   },
   "compactHistory": {
     "viewPrevious": "View {{count}} messages before compaction"
@@ -2534,19 +2512,6 @@
       }
     }
   },
-  "richLink": {
-    "localFile": "Local File",
-    "localFileExternal": "Local File · Outside Project",
-    "localFolder": "Local Folder",
-    "localFolderExternal": "Local Folder · Outside Project",
-    "openFailed": "Open failed: {{error}}",
-    "openInBrowser": "Click to open in the system browser",
-    "openWithDefaultApp": "Click to open with the default system app",
-    "outsideCwd": "Path is outside the current cwd, so the project root segment is not shown.",
-    "projectRoot": "Project Root",
-    "relative": "Relative",
-    "url": "URL"
-  },
   "org": {
     "chart": {
       "actions": {
@@ -3027,16 +2992,6 @@
     "systemWithResolved": "System ({{resolved}})",
     "toggle": "Toggle theme (current {{current}}, next {{next}})",
     "toggleTitle": "{{current}} · Click to switch to {{next}}"
-  },
-  "thinking": {
-    "done": "Thought complete",
-    "meta": {
-      "charCount": "· {{count}} chars",
-      "withSeconds": "· {{seconds}}s · {{count}} chars"
-    },
-    "streaming": "Thinking…",
-    "toggleDone": "Toggle completed thought",
-    "toggleStreaming": "Toggle active thought"
   },
   "settingsProxy": {
     "actions": {

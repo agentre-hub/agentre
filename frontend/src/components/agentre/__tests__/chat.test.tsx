@@ -1,13 +1,41 @@
 import {
   act,
   fireEvent,
-  render,
+  render as rtlRender,
   screen,
   waitFor,
   within,
+  type RenderOptions,
 } from "@testing-library/react";
+import { TranscriptPortsProvider } from "@agentre-ai/agentre-ui";
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
+
+// 转录里的审批/回答卡片从 TranscriptPortsProvider 取动作端口,而 Provider 由宿主
+// (App.tsx)挂载。本文件渲染的是 ChatTranscript 子树,所以自己补一个 ——
+// 这些用例只验渲染,不验动作,端口给 no-op 即可。
+const testTranscriptPorts = {
+  answerToolPermission: async () => {},
+  answerUserQuestion: async () => {},
+  answerToolApproval: async () => {},
+  resolveExecApproval: async () => ({ status: "resolved" }),
+  resolvePlanAction: async () => ({}),
+};
+
+function PortsWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <TranscriptPortsProvider ports={testTranscriptPorts}>
+      {children}
+    </TranscriptPortsProvider>
+  );
+}
+
+function render(
+  ui: React.ReactElement,
+  options?: Omit<RenderOptions, "wrapper">,
+) {
+  return rtlRender(ui, { wrapper: PortsWrapper, ...options });
+}
 
 const sonnerMocks = vi.hoisted(() => ({
   toast: {

@@ -19,9 +19,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 type Props = {
-  onRefresh: () => void;
+  /** 只有真的有 LAN 地址的行才给「刷新直连」;没有地址可拨时不传。 */
+  onRefresh?: () => void;
   onRename: () => void;
-  onEditTLS: () => void;
+  /** 同上:没有直连端点就没有可配置的 TLS 信任。 */
+  onEditTLS?: () => void;
   onRemove: () => void;
   onToggleProviders?: () => void;
 };
@@ -41,18 +43,22 @@ export function DeviceActionMenu(props: Props) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={props.onRefresh}>
-          <RotateCw className="mr-2 h-4 w-4" />
-          {t("remoteDevices.actions.refreshStatus")}
-        </DropdownMenuItem>
+        {props.onRefresh ? (
+          <DropdownMenuItem onSelect={props.onRefresh}>
+            <RotateCw className="mr-2 h-4 w-4" />
+            {t("remoteDevices.actions.refreshStatus")}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onSelect={props.onRename}>
           <Edit3 className="mr-2 h-4 w-4" />
           {t("remoteDevices.actions.rename")}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={props.onEditTLS}>
-          <Settings2 className="mr-2 h-4 w-4" />
-          {t("remoteDevices.actions.editTls")}
-        </DropdownMenuItem>
+        {props.onEditTLS ? (
+          <DropdownMenuItem onSelect={props.onEditTLS}>
+            <Settings2 className="mr-2 h-4 w-4" />
+            {t("remoteDevices.actions.editTls")}
+          </DropdownMenuItem>
+        ) : null}
         {props.onToggleProviders ? (
           <DropdownMenuItem onSelect={props.onToggleProviders}>
             <Activity className="mr-2 h-4 w-4" />

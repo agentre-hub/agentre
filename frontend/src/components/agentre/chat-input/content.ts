@@ -2,7 +2,7 @@ import {
   parseMentionXml,
   serializeMentionXml,
   type MentionKind,
-} from "./mentions/xml";
+} from "@agentre-ai/agentre-ui";
 import type {
   AIChatInputDraft,
   ProseMirrorLikeNode,

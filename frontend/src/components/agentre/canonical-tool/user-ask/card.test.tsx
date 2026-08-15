@@ -1,15 +1,33 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type * as React from "react";
 import { beforeEach, describe, it, expect, vi } from "vitest";
+
+import {
+  TranscriptPortsProvider,
+  __resetChatPanelScrollStateForTesting,
+} from "@agentre-ai/agentre-ui";
+import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { UserAskCard } from "./card";
 import type { ChatBlockData } from "@/stores/chat-streams-store";
-import { AnswerUserQuestion } from "../../../../../wailsjs/go/app/App";
-import { __resetChatPanelScrollStateForTesting } from "../../chat-panel-scroll-state";
 
-vi.mock("../../../../../wailsjs/go/app/App", () => ({
-  AnswerUserQuestion: vi.fn().mockResolvedValue(undefined),
-}));
+// 卡片不再直接调 Wails,而是从 TranscriptPortsProvider 取动作端口;这里注入
+// 一份 mock 端口,断言打在端口上。
+const answerUserQuestion = vi.fn().mockResolvedValue(undefined);
+const ports: TranscriptPorts = {
+  answerToolPermission: vi.fn().mockResolvedValue(undefined),
+  answerUserQuestion,
+  answerToolApproval: vi.fn().mockResolvedValue(undefined),
+  resolveExecApproval: vi.fn().mockResolvedValue({ status: "resolved" }),
+  resolvePlanAction: vi.fn().mockResolvedValue(undefined),
+};
+
+function renderCard(ui: React.ReactElement) {
+  return render(
+    <TranscriptPortsProvider ports={ports}>{ui}</TranscriptPortsProvider>,
+  );
+}
 
 describe("UserAskCard", () => {
   beforeEach(() => {
@@ -47,7 +65,7 @@ describe("UserAskCard", () => {
       type: "tool_use",
       toolName: "AskUserQuestion",
     } as unknown as ChatBlockData;
-    const { container } = render(
+    const { container } = renderCard(
       <UserAskCard toolBlock={block} sessionId={1} />,
     );
     expect(container.firstChild).toBeNull();
@@ -74,7 +92,7 @@ describe("UserAskCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<UserAskCard toolBlock={block} sessionId={1} />);
+    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("想用哪种方式?")).toBeDefined();
     expect(screen.getByText("A")).toBeDefined();
     expect(screen.getByText(/WAITING/)).toBeDefined();
@@ -100,7 +118,7 @@ describe("UserAskCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<UserAskCard toolBlock={block} sessionId={1} />);
+    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("ANSWERED")).toBeDefined();
   });
 
@@ -122,7 +140,7 @@ describe("UserAskCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<UserAskCard toolBlock={block} sessionId={1} />);
+    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     const header = screen.getByRole("button", { expanded: true });
     expect(screen.getByText("想用哪种方式?")).toBeDefined();
 
@@ -164,7 +182,7 @@ describe("UserAskCard", () => {
       },
     } as unknown as ChatBlockData;
 
-    render(<UserAskCard toolBlock={block} sessionId={1} />);
+    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
 
     await user.click(screen.getByRole("button", { name: /Q2 · Second/ }));
 
@@ -199,7 +217,7 @@ describe("UserAskCard", () => {
       },
     } as unknown as ChatBlockData;
 
-    render(<UserAskCard toolBlock={block} sessionId={1} />);
+    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
 
     await user.click(screen.getByRole("button", { name: /Q2 · Second/ }));
 
@@ -212,7 +230,7 @@ describe("UserAskCard", () => {
   it("Given a draft answer, When the Ask User card remounts in the same tab, Then it restores selections, Other text, and active question", async () => {
     const user = userEvent.setup();
     const block = draftBlock();
-    const view = render(
+    const view = renderCard(
       <UserAskCard
         toolBlock={block}
         sessionId={1}
@@ -226,7 +244,7 @@ describe("UserAskCard", () => {
     await user.type(screen.getByRole("textbox"), "custom answer");
 
     view.unmount();
-    render(
+    renderCard(
       <UserAskCard
         toolBlock={block}
         sessionId={1}
@@ -246,7 +264,7 @@ describe("UserAskCard", () => {
   it("Given a draft answer in one tab, When the same request remounts in another tab, Then it does not restore the old draft", async () => {
     const user = userEvent.setup();
     const block = draftBlock();
-    const view = render(
+    const view = renderCard(
       <UserAskCard
         toolBlock={block}
         sessionId={1}
@@ -257,7 +275,7 @@ describe("UserAskCard", () => {
     await user.type(screen.getByRole("textbox"), "tab A draft");
 
     view.unmount();
-    render(
+    renderCard(
       <UserAskCard
         toolBlock={block}
         sessionId={1}
@@ -289,7 +307,7 @@ describe("UserAskCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<UserAskCard toolBlock={block} sessionId={1} />);
+    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText(/已失效|EXPIRED/i)).toBeDefined();
     expect(screen.queryByText("提交回复")).toBeNull();
     expect(screen.queryByText("Submit reply")).toBeNull();
@@ -297,9 +315,7 @@ describe("UserAskCard", () => {
 
   it("on submit failure shows expired message and locks the card", async () => {
     const user = userEvent.setup();
-    (
-      AnswerUserQuestion as unknown as ReturnType<typeof vi.fn>
-    ).mockRejectedValueOnce("no waiting AskUserQuestion");
+    answerUserQuestion.mockRejectedValueOnce("no waiting AskUserQuestion");
     const block = {
       type: "tool_use",
       toolName: "AskUserQuestion",
@@ -317,7 +333,7 @@ describe("UserAskCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    render(<UserAskCard toolBlock={block} sessionId={1} />);
+    renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     await user.click(screen.getByText("A"));
     await user.click(screen.getByText("Submit Reply"));
     await waitFor(() => {
@@ -346,7 +362,7 @@ describe("UserAskCard", () => {
         },
       },
     } as unknown as ChatBlockData;
-    const view = render(
+    const view = renderCard(
       <UserAskCard
         toolBlock={block}
         sessionId={1}
@@ -357,10 +373,10 @@ describe("UserAskCard", () => {
 
     await user.type(screen.getByRole("textbox"), "draft before submit");
     await user.click(screen.getByRole("button", { name: /Submit Reply/ }));
-    await waitFor(() => expect(AnswerUserQuestion).toHaveBeenCalled());
+    await waitFor(() => expect(answerUserQuestion).toHaveBeenCalled());
 
     view.unmount();
-    render(
+    renderCard(
       <UserAskCard
         toolBlock={block}
         sessionId={1}

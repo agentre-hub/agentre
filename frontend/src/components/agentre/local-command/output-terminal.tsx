@@ -4,19 +4,17 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { useTranslation } from "react-i18next";
-
-import { useLocalCommandsStore } from "@/stores/local-commands-store";
-import {
-  TERMINAL_FONT_FAMILY,
-  readTerminalTheme,
-} from "../terminal/terminal-theme";
 import {
   computeTerminalHeight,
-  MIN_ROWS,
-  MAX_ROWS,
-  PADDING_PX,
   FALLBACK_CELL_PX,
-} from "./terminal-height";
+  MAX_ROWS,
+  MIN_ROWS,
+  PADDING_PX,
+  TERMINAL_FONT_FAMILY,
+  readTerminalTheme,
+} from "@agentre-ai/agentre-ui";
+
+import { useLocalCommandsStore } from "@/stores/local-commands-store";
 
 // 本地命令(`!cmd`)输出的只读展示。复用交互终端同一套 xterm 渲染:让 xterm 自己解释
 // ANSI/OSC/控制序列(颜色、光标、标题序列…),而不是用正则剥转义 —— 后者会漏掉前导

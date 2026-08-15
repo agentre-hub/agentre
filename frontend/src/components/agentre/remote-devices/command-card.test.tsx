@@ -5,7 +5,10 @@ const { copyTextWithToast } = vi.hoisted(() => ({
   copyTextWithToast: vi.fn(),
 }));
 
-vi.mock("@/lib/clipboard-toast", () => ({
+// copyTextWithToast 已搬进共享包，所以桩要打在包上；用 importOriginal 展开原模块
+// 再覆盖这一个导出 —— 整包替换会连带把 cn / Button 等同源导出一起打空。
+vi.mock("@agentre-ai/agentre-ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agentre-ai/agentre-ui")>()),
   copyTextWithToast,
 }));
 

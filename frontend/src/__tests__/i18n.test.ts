@@ -3,7 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 
-import { LANGUAGE_STORAGE_KEY, detectInitialLanguage } from "@/i18n";
+import {
+  AGENTRE_UI_NAMESPACE,
+  agentreUiResources,
+} from "@agentre-ai/agentre-ui";
+
+import i18n, { LANGUAGE_STORAGE_KEY, detectInitialLanguage } from "@/i18n";
 import enCommon from "@/i18n/locales/en/common.json";
 import zhCommon from "@/i18n/locales/zh-CN/common.json";
 
@@ -84,8 +89,13 @@ function walkSourceFiles(dir: string, out: string[] = []): string[] {
 }
 
 function walkProductionSourceFiles(): string[] {
-  const sourceRoot = path.resolve(process.cwd(), "src");
-  return walkSourceFiles(sourceRoot);
+  // 共享包 packages/agentre-ui 是本 app 的一部分生产代码(桌面端经 vite alias 直接
+  // 吃它的源码),中文硬编码这条红线在包里同样成立。组件正在从 src/ 搬进包,
+  // 若这里只扫 src/,搬一个文件就等于让它悄悄脱离守卫。
+  return [
+    ...walkSourceFiles(path.resolve(process.cwd(), "src")),
+    ...walkSourceFiles(path.resolve(process.cwd(), "packages/agentre-ui/src")),
+  ];
 }
 
 function collectStaticCommonI18nKeys(): string[] {
@@ -363,6 +373,26 @@ describe("i18n resources", () => {
 
     expect(zhKeys.filter((key) => !enKeys.includes(key))).toEqual([]);
     expect(enKeys.filter((key) => !zhKeys.includes(key))).toEqual([]);
+  });
+
+  it("Given the shared agentre-ui package ships its own locales, When the host instance is initialized, Then they are merged under their own namespace and the host common namespace is untouched", () => {
+    for (const language of ["zh-CN", "en"] as const) {
+      // 包的 key 进得来 —— CodeBlock 已随组件搬进包,这两条文案现在只有包有。
+      expect(
+        i18n.getResource(language, AGENTRE_UI_NAMESPACE, "codeBlock.copyDone"),
+      ).toBe(agentreUiResources[language].codeBlock.copyDone);
+      expect(
+        i18n.getResource(
+          language,
+          AGENTRE_UI_NAMESPACE,
+          "codeBlock.copyFailed",
+        ),
+      ).toBe(agentreUiResources[language].codeBlock.copyFailed);
+      // 且没有顺手灌进 common —— 两棵树各自独立,包的资源不会漏进宿主 namespace。
+      expect(
+        i18n.getResource(language, "common", "codeBlock.copyDone"),
+      ).toBeUndefined();
+    }
   });
 
   it("Given App shell and settings UI translation keys, When locales are checked, Then both languages provide every key", () => {

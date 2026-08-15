@@ -247,6 +247,10 @@ export function RemoteDevicesPanel({
           {devices.map((d) => {
             // 用 const 接住,窄化才进得了下面那几个闭包。
             const lan = d.lan;
+            // 「刷新直连」与「TLS 信任」作用在**直连地址**上,不是在配对行上:账号
+            // 收编来的行(IsRelayOnly)有配对行、url 却是空的,给了这两个动作等于让
+            // 用户去刷新一条不存在的直连 —— 点下去只会拿到一个无意义的失败。
+            const hasLanAddress = !!lan?.url;
             return (
               <DeviceRow
                 key={d.key}
@@ -255,10 +259,14 @@ export function RemoteDevicesPanel({
                 actions={
                   lan
                     ? {
-                        onRefresh: () => void refresh(lan.id),
+                        onRefresh: hasLanAddress
+                          ? () => void refresh(lan.id)
+                          : undefined,
                         onRename: () =>
                           setRenameFor({ id: lan.id, draft: lan.name }),
-                        onEditTLS: () => setEditTLSFor(lan),
+                        onEditTLS: hasLanAddress
+                          ? () => setEditTLSFor(lan)
+                          : undefined,
                         onRemove: () => setRemoveFor(lan),
                       }
                     : undefined

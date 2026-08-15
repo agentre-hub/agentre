@@ -94,12 +94,20 @@ export function mergeDeviceSources(
   const rows: DeviceRowModel[] = lan.map((d) => {
     const acc = accountByFp.get(d.daemonFingerprint);
     if (acc) claimedFingerprints.add(d.daemonFingerprint);
+    // url 为空 = 后端收编自账号的行(paired_agentred_entity.IsRelayOnly):本机有一行
+    // 记录(它正是让这台机器能被选成「运行设备」的东西),但**没有** LAN 路径。画一条
+    // 直连 chip 会把「本机从没配对过它」说成「直连在用」。
+    const relayOnly = !d.url;
     const online = d.online;
-    const paths: DevicePath[] = [
-      { kind: "lan", state: online ? "in-use" : "dead" },
-    ];
+    const paths: DevicePath[] = relayOnly
+      ? []
+      : [{ kind: "lan", state: online ? "in-use" : "dead" }];
     let relayInUse = false;
-    if (acc) {
+    if (relayOnly) {
+      const relayReachable = acc?.Online ?? false;
+      relayInUse = relayReachable;
+      paths.push({ kind: "relay", state: relayReachable ? "in-use" : "dead" });
+    } else if (acc) {
       // 中转路径是否可达,取 daemon 在 server 上的中继在线登记(R20),
       // 而不是账号侧的授权标志 —— R15 要求这一行呈现「可达路径」而非
       // 「凭据来源」。授权被撤销的机器无法再续期在线登记,Online 会自行落回 false。
@@ -113,7 +121,9 @@ export function mergeDeviceSources(
     return {
       key: `lan:${d.id}`,
       name: d.name,
-      online: online || relayInUse,
+      // 收编行没有 LAN 握手,d.online(由 last_seen_at 推出)对它没有意义:
+      // 它是否可达完全取决于账号侧的中继登记。
+      online: relayOnly ? relayInUse : online || relayInUse,
       lastSeenAt: d.lastSeenAt,
       lan: d,
       account: acc,

@@ -8,6 +8,18 @@ import {
   X,
 } from "lucide-react";
 
+import {
+  clearTranscriptDraftState,
+  loadTranscriptDraftState,
+  saveTranscriptDraftState,
+  useTranscriptPorts,
+  MarkdownText,
+  TranscriptCard,
+  TranscriptCardBody,
+  TranscriptCardHeader,
+  useTranscriptBooleanState,
+} from "@agentre-ai/agentre-ui";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -15,20 +27,7 @@ import {
   hasSessionStream,
   useChatStreamsStore,
 } from "@/stores/chat-streams-store";
-import { ResolvePlanAction as wailsResolvePlanAction } from "../../../../../wailsjs/go/app/App";
 
-import {
-  clearTranscriptDraftState,
-  loadTranscriptDraftState,
-  saveTranscriptDraftState,
-} from "../../chat-panel-scroll-state";
-import { MarkdownText } from "../../markdown-text";
-import {
-  TranscriptCard,
-  TranscriptCardBody,
-  TranscriptCardHeader,
-} from "../../transcript-card";
-import { useTranscriptBooleanState } from "../../transcript-ui-state";
 import type { CanonicalCardProps, PlanActionStream } from "../props";
 import type { CanonicalDTO, PlanActionDTO } from "../types";
 
@@ -141,6 +140,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
   tabStateKey,
 }) => {
   const { t } = useTranslation();
+  const ports = useTranscriptPorts();
   const plan = readPlan(toolBlock);
   const feedbackDraftKey =
     plan && !plan.resolved && (plan.requestId || uiStateKey)
@@ -216,12 +216,12 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
     setError(null);
     setSubmitting(true);
     try {
-      const resp = (await wailsResolvePlanAction({
+      const resp = await ports.resolvePlanAction({
         sessionId,
         requestId: activePlan.requestId,
         actionId: action.id,
         feedback: feedbackText,
-      } as Parameters<typeof wailsResolvePlanAction>[0])) as unknown;
+      });
       const userText = sendTextForAction(
         action,
         activePlan.requestId,

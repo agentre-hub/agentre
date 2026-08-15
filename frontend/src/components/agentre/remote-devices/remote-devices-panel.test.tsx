@@ -722,6 +722,75 @@ describe("RemoteDevicesPanel", () => {
     expect(screen.getByLabelText("More actions")).toBeInTheDocument();
   });
 
+  // 账号收编来的那一行(paired_agentred_entity.IsRelayOnly)有配对行、却没有 LAN
+  // 地址:「刷新直连」拨不出去,「TLS 信任」也没有可信任的直连端点。判据是 url 有没有
+  // 值,不是 lan 这一行在不在 —— 后者对收编行恒为真,正是它让这两个动作出现在一台
+  // 没有直连地址的机器上,点「刷新直连」只会得到一个无意义的失败。
+  it("hides the direct-connection actions on an adopted row that has no LAN address", async () => {
+    const user = userEvent.setup();
+    mockList.mockResolvedValueOnce([
+      {
+        id: 5,
+        name: "cloud-box",
+        url: "",
+        daemonFingerprint: "fp-cloud",
+        tlsMode: "default",
+        online: true,
+        lastSeenAt: 1_700_000_000_000,
+      },
+    ] as Partial<DeviceView>[]);
+    mockServerList.mockResolvedValueOnce([
+      {
+        ID: 21,
+        Name: "cloud-box",
+        Kind: "agentred",
+        Platform: "linux",
+        Version: "0.3.0",
+        Fingerprint: "fp-cloud",
+        LastSeenAt: 1_700_000_000_000,
+        Status: 1,
+        Online: true,
+        IsThisDevice: false,
+      },
+    ]);
+
+    render(<RemoteDevicesPanel />);
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("device-row")).toHaveLength(1),
+    );
+    await user.click(screen.getByLabelText("More actions"));
+    // 改名与解除配对作用在这一行本身,收编行照样要有。
+    expect(await screen.findByText("Rename")).toBeInTheDocument();
+    expect(screen.getByText("Unpair")).toBeInTheDocument();
+    expect(screen.queryByText("Refresh Status")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit TLS Trust")).not.toBeInTheDocument();
+  });
+
+  it("keeps the direct-connection actions on a row that really has a LAN address", async () => {
+    const user = userEvent.setup();
+    mockList.mockResolvedValueOnce([
+      {
+        id: 6,
+        name: "linux-srv",
+        url: "ws://192.168.1.50:7456/rpc",
+        daemonFingerprint: "fp-lan",
+        tlsMode: "default",
+        online: true,
+        lastSeenAt: 1_700_000_000_000,
+      },
+    ] as Partial<DeviceView>[]);
+
+    render(<RemoteDevicesPanel />);
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("device-row")).toHaveLength(1),
+    );
+    await user.click(screen.getByLabelText("More actions"));
+    expect(await screen.findByText("Refresh Status")).toBeInTheDocument();
+    expect(screen.getByText("Edit TLS Trust")).toBeInTheDocument();
+  });
+
   describe("unpair & rename use dialogs, never native window.*", () => {
     const device = {
       id: 1,

@@ -1,18 +1,17 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Check, ShieldAlert, X } from "lucide-react";
+import {
+  useTranscriptPorts,
+  CollapsibleCode,
+  TranscriptCard,
+  TranscriptCardBody,
+  TranscriptPill,
+} from "@agentre-ai/agentre-ui";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ToolApprovalData } from "@/stores/chat-streams-store";
-import { AnswerToolApproval } from "../../../../wailsjs/go/app/App";
-import { chat_svc } from "../../../../wailsjs/go/models";
-import { CollapsibleCode } from "../collapsible-code";
-import {
-  TranscriptCard,
-  TranscriptCardBody,
-  TranscriptPill,
-} from "../transcript-card";
 
 // ToolApprovalCard 渲染 agent 内置写工具(org_create_department / org_update_agent /
 // ...)的审批卡。视觉对齐 canonical-tool/tool-permission/card.tsx,但走
@@ -28,6 +27,7 @@ export const ToolApprovalCard: React.FC<{
   sessionId: number;
 }> = ({ approval, sessionId }) => {
   const { t } = useTranslation();
+  const ports = useTranscriptPorts();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -39,14 +39,13 @@ export const ToolApprovalCard: React.FC<{
     setError(null);
     setSubmitting(true);
     try {
-      // 所有内置写工具审批统一走 chat_svc 通用网关,按 requestId 路由唤醒。
-      await AnswerToolApproval(
-        chat_svc.AnswerToolApprovalRequest.createFrom({
-          sessionId,
-          requestId: approval.requestId,
-          allow,
-        }),
-      );
+      // 所有内置写工具审批统一走同一个端口,按 requestId 路由唤醒;
+      // 接到哪个后端(桌面端 chat_svc / server 端 relay)由宿主决定。
+      await ports.answerToolApproval({
+        sessionId,
+        requestId: approval.requestId,
+        allow,
+      });
     } catch {
       // 应答失败:切回可重试态并把错误文案露出来(对齐 tool-permission 卡的内联 error
       // 呈现,不用 toast)。决议落库与唤醒挂起 MCP 调用由后端保证。
