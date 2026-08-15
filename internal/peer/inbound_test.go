@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -23,6 +24,8 @@ import (
 	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-ai/agentre/internal/peer"
+	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
@@ -120,6 +123,13 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	require.NotNil(t, unauthenticatedAttach.Error)
 	assert.Equal(t, rpc.ErrUnauthorized.Code, unauthenticatedAttach.Error.Code)
 
+	unauthenticatedWaiters := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`13`), Method: wire.MethodSessionPendingWaiters,
+		Params: mustJSON(t, wire.SessionPendingWaitersParams{SessionID: 1}),
+	})
+	require.NotNil(t, unauthenticatedWaiters.Error)
+	assert.Equal(t, rpc.ErrUnauthorized.Code, unauthenticatedWaiters.Error.Code)
+
 	authenticated := relayRequest(t, ws, "desktop-peer", rpc.Frame{
 		JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "auth.account",
 		Params: mustJSON(t, rpc.AccountParams{Credential: "same-account-device-jwt", DeviceFingerprint: "sha256:peer"}),
@@ -190,6 +200,24 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	require.NoError(t, json.Unmarshal(pulled.Result, &page))
 	assert.Equal(t, int64(0), page.OldestSeq, "empty desktop transcript has no reclaimed prefix")
 
+	// 审批卡的数据源是这个方法，不是事件流：桌面端不答它，浏览器上一张待决策卡都
+	// 画不出来（同一份浏览器代码对每种设备都调它，agentred 侧一直有）。
+	waiters := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`7`), Method: wire.MethodSessionPendingWaiters,
+		Params: mustJSON(t, wire.SessionPendingWaitersParams{SessionID: 1}),
+	})
+	require.Nil(t, waiters.Error, "the attached peer must read this desktop session's still-blocked waiters")
+	var pending wire.SessionPendingWaitersResult
+	require.NoError(t, json.Unmarshal(waiters.Result, &pending))
+	assert.Equal(t, wire.SessionPendingWaitersResult{
+		ToolPermissions: []agentruntime.PendingToolPermission{{
+			RequestID: "perm-1", ToolName: "Bash", Input: json.RawMessage(`{"command":"ls -la"}`),
+		}},
+		AskUserQuestions: []agentruntime.PendingAskUserQuestion{{
+			RequestID: "ask-1", Questions: []agentruntime.AskQuestion{{ID: "q1", Question: "继续？"}},
+		}},
+	}, pending, "the desktop must hand back the same waiter payload shape agentred does")
+
 	stop()
 	require.NoError(t, ws.SetReadDeadline(time.Now().Add(time.Second)))
 	_, _, err := ws.ReadMessage()
@@ -238,12 +266,46 @@ func registerInboundPeerChat(t *testing.T) {
 	}}, nil).Times(2)
 	sessions.EXPECT().Find(gomock.Any(), int64(1)).Return(&chat_entity.Session{
 		ID: 1, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", Status: consts.ACTIVE,
-	}, nil)
+	}, nil).Times(2)
 	messages.EXPECT().List(gomock.Any(), int64(1)).Return(nil, nil)
-	agents.EXPECT().Find(gomock.Any(), int64(7)).Return(agent, nil)
+	agents.EXPECT().Find(gomock.Any(), int64(7)).Return(agent, nil).Times(2)
 	backends.EXPECT().Find(gomock.Any(), int64(11)).Return(&agent_backend_entity.AgentBackend{
 		ID: 11, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
 	}, nil).AnyTimes()
+
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &waiterRuntime{
+		sessionID: 1,
+		snapshot: agentruntime.WaiterSnapshot{
+			ToolPermissions: []agentruntime.PendingToolPermission{{
+				RequestID: "perm-1", ToolName: "Bash", Input: json.RawMessage(`{"command":"ls -la"}`),
+			}},
+			AskUserQuestions: []agentruntime.PendingAskUserQuestion{{
+				RequestID: "ask-1", Questions: []agentruntime.AskQuestion{{ID: "q1", Question: "继续？"}},
+			}},
+		},
+	}))
+}
+
+// waiterRuntime 是一个有审批协议的 backend runtime 替身:它只回答「这条会话此刻
+// 还阻塞着哪些待决策」(agentruntime.WaiterLister),不跑轮次。
+type waiterRuntime struct {
+	sessionID int64
+	snapshot  agentruntime.WaiterSnapshot
+}
+
+func (r *waiterRuntime) Capabilities() capability.Capabilities { return capability.Capabilities{} }
+
+func (r *waiterRuntime) Run(context.Context, agentruntime.RunRequest) (
+	<-chan agentruntime.Event, *agentruntime.RunResult, error,
+) {
+	return nil, nil, errors.New("waiterRuntime never runs a turn")
+}
+
+func (r *waiterRuntime) PendingWaiters(_ context.Context, sessionID int64) agentruntime.WaiterSnapshot {
+	if sessionID != r.sessionID {
+		return agentruntime.WaiterSnapshot{}
+	}
+	return r.snapshot
 }
 
 func relayRequest(t *testing.T, conn *websocket.Conn, channelID string, request rpc.Frame) rpc.Frame {

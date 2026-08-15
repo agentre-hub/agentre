@@ -17,6 +17,8 @@ import (
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-ai/agentre/internal/pkg/code"
 	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
+	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
 	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
 	"github.com/agentre-ai/agentre/internal/repository/project_repo"
 	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
@@ -178,6 +180,78 @@ func (s *chatSvc) preflightPeerRemoteExecution(ctx context.Context, backend *age
 // queue for remote peers.
 func (s *chatSvc) EnqueuePeerSession(ctx context.Context, params wire.SteerParams, source PeerSessionSource) (*EnqueueResponse, error) {
 	return s.enqueue(ctx, &EnqueueRequest{SessionID: params.SessionID, Text: params.Text, peerSource: source.messageSource()})
+}
+
+// PendingPeerSessionWaiters 是 AnswerPeerToolPermission / AnswerPeerUserQuestion 这两个
+// 写侧的读侧（与 agentred 的 SessionCatchupHandlers.PendingWaiters 同一个方法、同一份
+// 载荷形状）。浏览器不订阅桌面端的 Wails 事件，它画审批卡 / 提问卡的数据源就是这份
+// 快照 —— 桌面端答不了它，托管在这台机器上的会话在浏览器上就永远没有卡可批。
+//
+// 快照来自 backend runtime 的进程内存而不是数据库：会话行只用来解「这条会话跑在哪个
+// backend 上」。答案随后由写侧用同一个会话键投回同一个 runner，读写两侧因此永远对得上。
+func (s *chatSvc) PendingPeerSessionWaiters(
+	ctx context.Context, params wire.SessionPendingWaitersParams,
+) (wire.SessionPendingWaitersResult, error) {
+	session, err := chat_repo.Session().Find(ctx, params.SessionID)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, operationFailedWithCause(ctx, err)
+	}
+	if session == nil {
+		return wire.SessionPendingWaitersResult{}, ErrPeerSessionNotFound
+	}
+	lister, err := s.peerSessionWaiterLister(ctx, session)
+	if err != nil || lister == nil {
+		return wire.SessionPendingWaitersResult{}, err
+	}
+	snapshot := lister.PendingWaiters(ctx, session.ID)
+	return wire.SessionPendingWaitersResult{
+		ToolPermissions:  snapshot.ToolPermissions,
+		AskUserQuestions: snapshot.AskUserQuestions,
+	}, nil
+}
+
+// peerSessionWaiterLister 解出这条会话此刻的 waiter 读侧；没有读侧时回 (nil, nil)。
+//
+// backend 的解析与写侧 AnswerToolPermission 逐字一致（会话钉住哪一档就用哪一档）：
+// 读出来的 waiter 与提交答案的目标必须是同一个 runner，否则浏览器会照着一份别处的
+// requestID 去答一个这里没有的问题。
+func (s *chatSvc) peerSessionWaiterLister(
+	ctx context.Context, session *chat_entity.Session,
+) (agentruntime.WaiterLister, error) {
+	agent, err := agent_repo.Agent().Find(ctx, session.AgentID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("%w: agent %d", ErrPeerSessionNotFound, session.AgentID)
+	}
+	backendID := agent.AgentBackendID
+	if session.ExecAgentBackendID > 0 {
+		backendID = session.ExecAgentBackendID
+	}
+	if backendID <= 0 {
+		return nil, fmt.Errorf("%w: session %d has no agent backend", ErrPeerSessionMetadata, session.ID)
+	}
+	backend, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if backend == nil {
+		return nil, fmt.Errorf("%w: agent backend %d", ErrPeerSessionMetadata, backendID)
+	}
+	if beTargetsRemote(backend) {
+		// 这一轮跑在另一台机器上：waiter 住在那台 agentred 的进程内存里，本机的 runtime
+		// 注册表里没有它，而 remote.Runtime 也不实现 WaiterLister。为一份必然为空的快照
+		// 去借一条远端连接（selectRunner 的远端分支会拨号并占住 lease）没有意义。
+		return nil, nil
+	}
+	runner := agentruntime.RuntimeFor(agent_backend_entity.BackendType(backend.Type))
+	if runner == nil {
+		return nil, nil
+	}
+	// 没有审批协议的 backend 不实现 WaiterLister：R7 明写这一支回空列表而不是报错。
+	lister, _ := runner.(agentruntime.WaiterLister)
+	return lister, nil
 }
 
 func (s *chatSvc) AnswerPeerUserQuestion(ctx context.Context, params wire.SubmitAnswerParams) (PeerSessionControlResult, error) {

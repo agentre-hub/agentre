@@ -16,6 +16,7 @@ type inboundSessionAdapter interface {
 	ListPeerSessions(context.Context) (*wire.SessionListResult, error)
 	AttachPeerSession(context.Context, wire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error)
 	PullPeerSession(context.Context, wire.SessionPullParams, chat_svc.PeerSessionSubscriber) (wire.SessionPullResult, error)
+	PendingPeerSessionWaiters(context.Context, wire.SessionPendingWaitersParams) (wire.SessionPendingWaitersResult, error)
 	RunPeerSession(context.Context, wire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
 	EnqueuePeerSession(context.Context, wire.SteerParams, chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error)
 	AnswerPeerUserQuestion(context.Context, wire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
@@ -90,6 +91,7 @@ func RegisterInboundMethods(registry *rpc.Registry) {
 	registry.Register(wire.MethodSessionList, requireAccount(listSessions))
 	registry.Register(wire.MethodSessionAttach, requireAccount(attachSession))
 	registry.Register(wire.MethodSessionPull, requireAccount(pullSession))
+	registry.Register(wire.MethodSessionPendingWaiters, requireAccount(pendingSessionWaiters))
 	registry.Register(wire.MethodRun, requireAccount(runSession))
 	registry.Register(wire.MethodSteer, requireAccount(steerSession))
 	registry.Register(wire.MethodSubmitAnswer, requireAccount(submitAnswer))
@@ -167,6 +169,30 @@ func pullSession(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, rpc.ErrInternal
 	}
 	result, err := adapter.PullPeerSession(ctx, params, connPeerSessionSubscriber{conn: conn})
+	if err != nil {
+		if errors.Is(err, chat_svc.ErrPeerSessionNotFound) {
+			return nil, rpc.ErrSessionNotFound
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// pendingSessionWaiters is the read half of submitAnswer / submitToolPermission,
+// and the only data source a browser peer has for drawing an approval or
+// question card: it does not receive the desktop's Wails events, and the event
+// stream alone never tells it which requests are still blocked. agentred serves
+// the same method (daemon.registry), so the browser parses one shape either way.
+func pendingSessionWaiters(ctx context.Context, raw json.RawMessage) (any, error) {
+	var params wire.SessionPendingWaitersParams
+	if err := json.Unmarshal(raw, &params); err != nil || params.SessionID <= 0 {
+		return nil, rpc.ErrInvalidParams
+	}
+	adapter, ok := chat_svc.Chat().(inboundSessionAdapter)
+	if !ok || adapter == nil {
+		return nil, rpc.ErrInternal
+	}
+	result, err := adapter.PendingPeerSessionWaiters(ctx, params)
 	if err != nil {
 		if errors.Is(err, chat_svc.ErrPeerSessionNotFound) {
 			return nil, rpc.ErrSessionNotFound
