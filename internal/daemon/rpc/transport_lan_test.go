@@ -184,6 +184,85 @@ func TestLAN_ServeCtxNotCanceledAfterUpgrade(t *testing.T) {
 	}
 }
 
+// daemon 默认监听通配地址(cmd/agentred/run.go 的 0.0.0.0),Go 对通配监听走双栈,
+// listener.Addr() 报回来的是 "[::]:7456"。这串东西被 /local/pair 当作 listenURLs 交给
+// `agentred pair` 打印,用户照引导粘进桌面端的配对表单 —— 桌面端于是去拨 [::]:7456,
+// 那是桌面端**自己那台机器**。所以对外广播的地址不能是通配地址。
+func TestLAN_GivenWildcardBind_WhenAdvertisingURLs_ThenHostsAreDialableByAPeer(t *testing.T) {
+	for _, host := range []string{"0.0.0.0", ""} {
+		srv := NewLANServer(LANOpts{Host: host, Port: 0, Registry: NewRegistry()})
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() { _ = srv.Run(ctx) }()
+		require.Eventually(t, func() bool { return srv.Addr() != "" }, time.Second, 10*time.Millisecond)
+
+		urls := srv.AdvertiseURLs()
+		require.NotEmpty(t, urls, "bind %q: this host has a routable interface, so pairing must advertise one", host)
+		for _, raw := range urls {
+			assertDialableByPeer(t, raw)
+		}
+		cancel()
+	}
+}
+
+// 用户显式指定了 --host 就照他说的广播:他可能指的是一个 NAT 后的转发入口 / 一张只在
+// 某个网段可见的网卡,daemon 没有资格替他改写。
+func TestLAN_GivenExplicitHostBind_WhenAdvertisingURLs_ThenKeepsThatHost(t *testing.T) {
+	srv := NewLANServer(LANOpts{Host: "127.0.0.1", Port: 0, Registry: NewRegistry()})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Run(ctx) }()
+	require.Eventually(t, func() bool { return srv.Addr() != "" }, time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, []string{"ws://" + srv.Addr() + "/rpc"}, srv.AdvertiseURLs())
+}
+
+// 过滤规则:关掉的网卡、回环、link-local 都不是对端拨得通的地址;同一个地址在多张网卡上
+// 出现只报一次;IPv4 排在前面,用户粘的通常是第一条。
+func TestRoutableHosts_GivenMixedInterfaces_ThenKeepsOnlyWhatAPeerCanDial(t *testing.T) {
+	hosts := routableHosts([]lanInterface{
+		{flags: net.FlagUp | net.FlagLoopback, addrs: []net.Addr{cidr(t, "127.0.0.1/8"), cidr(t, "::1/128")}},
+		{flags: 0, addrs: []net.Addr{cidr(t, "10.9.9.9/24")}}, // down
+		{flags: net.FlagUp, addrs: []net.Addr{
+			cidr(t, "169.254.7.7/16"), // IPv4 link-local
+			cidr(t, "fe80::1/64"),     // IPv6 link-local
+			cidr(t, "192.168.1.9/24"), // 正常的局域网地址
+			cidr(t, "fd00::1/64"),     // ULA,局域网内可路由
+		}},
+		{flags: net.FlagUp, addrs: []net.Addr{cidr(t, "192.168.1.9/24")}}, // 重复
+	})
+
+	assert.Equal(t, []string{"192.168.1.9", "fd00::1"}, hosts)
+}
+
+// 一个可路由地址都没有时返回空:此时**不能**回退到 bind 地址 —— 那正是让用户粘错的那串
+// 东西。空列表让上层(agentred pair)明确告诉用户加 --host,而不是发一个必然拨不通的地址。
+func TestRoutableHosts_GivenNothingRoutable_ThenReturnsEmptyRatherThanBindAddress(t *testing.T) {
+	hosts := routableHosts([]lanInterface{
+		{flags: net.FlagUp | net.FlagLoopback, addrs: []net.Addr{cidr(t, "127.0.0.1/8")}},
+		{flags: 0, addrs: []net.Addr{cidr(t, "192.168.1.9/24")}},
+	})
+
+	assert.Empty(t, hosts)
+}
+
+func cidr(t *testing.T, s string) net.Addr {
+	t.Helper()
+	ip, ipnet, err := net.ParseCIDR(s)
+	require.NoError(t, err)
+	ipnet.IP = ip
+	return ipnet
+}
+
+func assertDialableByPeer(t *testing.T, raw string) {
+	t.Helper()
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+	ip := net.ParseIP(u.Hostname())
+	require.NotNil(t, ip, "advertised %q must carry an IP a peer can dial", raw)
+	assert.False(t, ip.IsUnspecified(), "advertised %q points a peer at itself, not at this daemon", raw)
+	assert.False(t, ip.IsLoopback(), "advertised %q is only reachable from this box", raw)
+}
+
 func TestLAN_TLSMisconfigFails(t *testing.T) {
 	srv := NewLANServer(LANOpts{
 		Host:        "127.0.0.1",

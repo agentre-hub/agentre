@@ -40,6 +40,8 @@ type loginDeps struct {
 	// hostname 提供设备列表里的显示名。取不到时按空串上报，由服务端回退到指纹
 	// 缩写——一个取不到的显示名不该让整次登录失败。
 	hostname func() (string, error)
+	// daemonRunning 报告本机是否有 daemon 正持有 state.json（见 statefile.go）。
+	daemonRunning func() bool
 }
 
 type deviceAuthorizeResponse struct {
@@ -81,9 +83,10 @@ func newLoginCmd() *cobra.Command {
 			time.Sleep(delay)
 			return nil
 		},
-		platform: runtime.GOOS,
-		version:  agentredBuildIdentity(),
-		hostname: os.Hostname,
+		platform:      runtime.GOOS,
+		version:       agentredBuildIdentity(),
+		hostname:      os.Hostname,
+		daemonRunning: daemonIsRunning,
 	})
 }
 
@@ -93,6 +96,11 @@ func newLoginCmdWithDeps(deps loginDeps) *cobra.Command {
 		Short: "Claim this daemon through account device authorization",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// 闸门放在**网络之前**：设备流一旦发起就在服务端占了一个待批准的
+			// 授权，而这次登录的结果根本存不下来。
+			if err := requireNoRunningDaemon(deps.daemonRunning); err != nil {
+				return err
+			}
 			dir, err := deps.dataDir()
 			if err != nil {
 				return err

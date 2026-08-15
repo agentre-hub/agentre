@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -276,6 +277,16 @@ func (p *pool) accountCredential() string {
 // 直连的凭据优先级：该指纹有本地配对就沿用 auth.connect（R2，行为不变）；没有配对
 // 才用账号凭据走 auth.account（R3）。中转路径恒用 auth.account，不受影响。
 func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string) (*client.Client, error) {
+	// 账号来源收编的行没有 LAN 地址（paired_agentred_entity.IsRelayOnly）：直连不是
+	// 「拨了没通」而是**根本不存在**这条路。拿空地址去竞速只会白等一次拨号超时，
+	// 还会把「这台机器本来就没有 LAN 路径」包装成一条看起来像网络故障的失败原因。
+	if strings.TrimSpace(args.URL) == "" {
+		if p.relay == nil {
+			return nil, fmt.Errorf("device %s has no LAN address and no relay is configured",
+				args.ExpectedDaemonFingerprint)
+		}
+		return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, args.DeviceFingerprint)
+	}
 	direct := func(ctx context.Context) (*client.Client, error) {
 		if args.DeviceToken != "" {
 			return p.dial.Open(ctx, args)

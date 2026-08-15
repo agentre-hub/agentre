@@ -316,6 +316,51 @@ func TestSeedCEOAgent(t *testing.T) {
 	}
 }
 
+// TestMigrationsAllowSameNamedAgentsFromDifferentMachines 回归 R12a：
+//
+// 双机办公的用户两边各建过一个「开发」，登录同一账号后两份都该落地，由用户自行删掉
+// 多余的那个（规格 R12a）。原先 agents(name) WHERE status=1 上有唯一索引，第二份**插
+// 不进来** —— 下行每 30 秒撞一次 2067，那一行连同它的下游永久卡在暂缓队列里，用户连
+// 「删掉多余那个」的机会都没有。
+//
+// 手输重名照旧被拒：那道闸在 agent_svc.Create/Update 的 FindByName 上，与本索引无关。
+func TestMigrationsAllowSameNamedAgentsFromDifferentMachines(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	gdb := db.Default()
+	// 本机自己那份（迁移里种下的默认 Agent 就叫「CEO 助手」）。
+	var seeded agent_entity.Agent
+	if err := gdb.Table("agents").Where("system_badge = ?", "DEFAULT").First(&seeded).Error; err != nil {
+		t.Fatalf("load seeded agent: %v", err)
+	}
+
+	// 另一台机器同名、但同步标识不同的那一份，经下行落地。
+	arriving := map[string]any{
+		"name": seeded.Name, "status": 1,
+		"sync_id": "01KZQPHK6Q55AKRHWFX5EM0YWH", "sync_account_id": 1,
+		"prompt_json": "[]", "skills_json": "[]", "tools_json": "[]",
+	}
+	if err := gdb.Table("agents").Create(arriving).Error; err != nil {
+		t.Fatalf("a same-named agent from another machine must be able to land: %v", err)
+	}
+
+	var same int64
+	if err := gdb.Table("agents").Where("name = ? AND status = 1", seeded.Name).Count(&same).Error; err != nil {
+		t.Fatalf("count same-named agents: %v", err)
+	}
+	if same != 2 {
+		t.Fatalf("same-named active agents = %d, want 2 (both histories kept for the user to merge)", same)
+	}
+}
+
 // TestInitRegistersProjectLocationRepo 回归：远端 backend 拉 cwd 时会走
 // project_location_repo.ProjectLocation()；bootstrap 漏注册会导致前端只看到
 // 「Agent 调用失败：project_location_repo not registered」。

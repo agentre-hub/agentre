@@ -116,8 +116,8 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 }
 
 // Given a corrupt desktop row missing first-class title or Agent identity, when
-// it is listed, then the adapter rejects it instead of fabricating a degraded group.
-func TestListPeerSessions_GivenMissingTitleOrAgentIdentity_ThenRejectsRatherThanDegrade(t *testing.T) {
+// it is listed, then it is omitted instead of being fabricated into a degraded group.
+func TestListPeerSessions_GivenMissingTitleOrAgentIdentity_ThenOmitsRatherThanDegrade(t *testing.T) {
 	for name, tc := range map[string]struct {
 		title     string
 		agentSync string
@@ -137,10 +137,62 @@ func TestListPeerSessions_GivenMissingTitleOrAgentIdentity_ThenRejectsRatherThan
 				Return([]*chat_entity.Session{{ID: 41, AgentID: 7, Title: tc.title, AgentStatus: "idle", Status: consts.ACTIVE}}, nil)
 
 			got, err := deps.svc.ListPeerSessions(ctx)
-			require.Error(t, err)
-			assert.Nil(t, got, "never emit a blank or guessed fallback summary")
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Empty(t, got.Sessions, "never emit a blank or guessed fallback summary")
 		})
 	}
+}
+
+// Given one unusable row next to healthy ones, when an account peer lists sessions,
+// then only the unusable row is dropped. A single corrupt row must not blind the peer
+// to the whole machine: ListPeerSessions is the web console's only way in, and an
+// error there leaves the browser with no list and no reason.
+func TestListPeerSessions_GivenOneCorruptRow_ThenServesEveryHealthyRow(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
+	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
+		ID: 7, Name: "Release captain", Status: consts.ACTIVE, AgentBackendID: 11,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
+	}}, nil)
+	deps.session.EXPECT().ListByAgentPagedIncludingGroups(ctx, int64(7), 0, math.MaxInt).
+		Return([]*chat_entity.Session{
+			{ID: 40, AgentID: 7, Title: "", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 41, AgentID: 7, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 42, AgentID: 7, Title: "Investigate timeout", AgentStatus: "nonsense", Status: consts.ACTIVE},
+			{ID: 43, AgentID: 7, Title: "Document the release", AgentStatus: "idle", Status: consts.ACTIVE},
+		}, nil)
+	deps.backend.EXPECT().Find(ctx, int64(11)).
+		Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
+
+	got, err := deps.svc.ListPeerSessions(ctx)
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 2, "an untitled row and an unknown-status row are dropped; the rest are served")
+	assert.Equal(t, int64(41), got.Sessions[0].SessionID)
+	assert.Equal(t, int64(43), got.Sessions[1].SessionID)
+}
+
+// Given the backend lookup fails for infrastructure reasons, when sessions are listed,
+// then the call still fails. Only per-row metadata defects are skippable — swallowing a
+// database error would serve a silently short list as if it were complete.
+func TestListPeerSessions_GivenRepositoryFailure_ThenStillFails(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
+	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
+		ID: 7, Name: "Release captain", Status: consts.ACTIVE, AgentBackendID: 11,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
+	}}, nil)
+	deps.session.EXPECT().ListByAgentPagedIncludingGroups(ctx, int64(7), 0, math.MaxInt).
+		Return([]*chat_entity.Session{
+			{ID: 41, AgentID: 7, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
+		}, nil)
+	deps.backend.EXPECT().Find(ctx, int64(11)).Return(nil, errors.New("database is gone"))
+
+	got, err := deps.svc.ListPeerSessions(ctx)
+	require.Error(t, err)
+	assert.Nil(t, got)
 }
 
 type recordingPeerSubscriber struct {

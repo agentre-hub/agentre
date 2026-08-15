@@ -36,5 +36,7 @@ func migrationList() []*gormigrate.Migration {
 		migration202608100001(), // chat_messages 恢复标记索引 (role, device_id)
 		migration202608110001(), // llm_provider_models：Provider 1→N 稳定模型 + 默认/目标列 + 旧路由结构化
 		migration202608130001(), // 本端执行目标顺序覆盖（R14，纯本地不同步）
+		migration202608150001(), // 删 agents 名唯一索引（与 R12a 的同名共存冲突）
+		migration202608150002(), // paired_agentreds 容纳「只有中转路径」的行（决策 1）
 	}
 }

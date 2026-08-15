@@ -57,6 +57,22 @@ func TestPairedAgentred_Check(t *testing.T) {
 		p := &PairedAgentred{Name: "x", URL: "wss://h/rpc", DaemonFingerprint: "fp", TLSMode: "pin-cert", TLSCertPEM: "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----"}
 		So(p.Check(context.Background()), ShouldBeNil)
 	})
+	// 账号来源收编的行：这台机器在账号里，但本机从没 LAN 配对过它，所以没有 LAN
+	// 地址可填。空 URL 就是「只有中转路径」的标记——中转按指纹寻址，不需要地址。
+	Convey("relay-only row: empty URL is valid when it is the marker for having no LAN path", t, func() {
+		p := &PairedAgentred{Name: "coding", DaemonFingerprint: "sha256:abc", TLSMode: "default"}
+		So(p.Check(context.Background()), ShouldBeNil)
+		So(p.IsRelayOnly(), ShouldBeTrue)
+	})
+	Convey("a LAN row is not relay-only", t, func() {
+		p := &PairedAgentred{Name: "x", URL: "ws://h/rpc", DaemonFingerprint: "fp", TLSMode: "default"}
+		So(p.IsRelayOnly(), ShouldBeFalse)
+	})
+	// 中转按指纹寻址，没有指纹就既连不上也认不出——比缺地址更致命。
+	Convey("relay-only row without a fingerprint is still invalid", t, func() {
+		p := &PairedAgentred{Name: "x", TLSMode: "default"}
+		So(p.Check(context.Background()), ShouldNotBeNil)
+	})
 }
 
 func TestPairedAgentred_IsOnline(t *testing.T) {

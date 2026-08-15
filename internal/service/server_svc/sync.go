@@ -107,6 +107,11 @@ func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]sy
 }
 
 // SyncPull 按版本游标增量下行；cursor = 0 拉全量（R6a 的重同步用它）。
+//
+// server 判「这个游标超出本账号版本序列的头」时返回 CodeCursorUnknown，这里翻成
+// syncwire.ErrCursorUnknown——调用方据此重建整份历史并把 server 不认识的本地行重新
+// 上行。不翻的话它只是一句「rejected with code 30505」，与网络抖动无从区分，那台机器
+// 会安静地一直重试同一个死游标。
 func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncwire.PullPage, error) {
 	if err := s.requireLogin(ctx); err != nil {
 		return nil, err
@@ -121,6 +126,9 @@ func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncw
 	err := s.withAuth(ctx, func(ctx context.Context) error {
 		var env envelope[syncPullResp]
 		_, doErr := s.getClient().do(ctx, http.MethodGet, path, nil, &env)
+		if env.Code == syncwire.CodeCursorUnknown {
+			return syncwire.ErrCursorUnknown
+		}
 		if doErr != nil {
 			return doErr
 		}

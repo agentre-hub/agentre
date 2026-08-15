@@ -382,6 +382,19 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_PersistsUserMessageWithSource
 			}
 		})
 
+		convey.Convey("来源写进了落库行:刷新 / 重开会话后经转录读路径仍读得回来", func() {
+			require.NotNil(t, createdUser, "浏览器发起的一轮必须落一行 user 消息")
+			// 走真实读路径(toChatMessage → peerMessageSourceOf),而不是在 BlocksJSON
+			// 里找子串:用户看到的 pill 就是这条路径投影出来的。来源只挂在实时事件上时,
+			// 桌面端当场显示「来自 Chrome · macOS」,刷新之后 pill 消失,那行用户消息
+			// 看起来像本机自己打的字 —— 多设备协作分不出哪句是谁在哪儿发的。
+			reloaded, err := chat_svc.ToChatMessageForTest(createdUser)
+			require.NoError(t, err)
+			assert.Equal(t, "sha256:web-device", reloaded.SourceDevice,
+				"来源必须落库,否则刷新后来源标识消失")
+			assert.Equal(t, "Chrome · macOS", reloaded.SourceDeviceName)
+		})
+
 		var started *chat_svc.ChatStreamEvent
 		for _, ev := range m.events {
 			p, ok := ev.Payload.(chat_svc.ChatStreamEvent)
@@ -434,11 +447,16 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_NameMissing_FallsBackWithoutB
 		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
 
 		var createdRoles []string
+		var createdUser *chat_entity.Message
 		m.dbMock.ExpectBegin()
 		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(7, nil)
 		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
 				createdRoles = append(createdRoles, msg.Role)
+				if msg.Role == "user" {
+					cp := *msg
+					createdUser = &cp
+				}
 				msg.ID = 3001 + int64(len(createdRoles))
 				return nil
 			}).Times(2)
@@ -477,6 +495,94 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_NameMissing_FallsBackWithoutB
 			assert.Equal(t, "sha256:web-device", started.UserMessages[0].SourceDevice)
 			assert.Empty(t, started.UserMessages[0].SourceDeviceName, "名字缺失保持空,由前端回退指纹")
 		}
+
+		convey.Convey("名字缺失时落库仍带指纹,刷新后读得回来(只是没有名字)", func() {
+			require.NotNil(t, createdUser)
+			reloaded, err := chat_svc.ToChatMessageForTest(createdUser)
+			require.NoError(t, err)
+			assert.Equal(t, "sha256:web-device", reloaded.SourceDevice)
+			assert.Empty(t, reloaded.SourceDeviceName, "名字缺失不落一个空名字字段")
+		})
+	})
+}
+
+// TestDriveAutonomousTurn_LocalInitiatedRound_PersistsUserMessageWithoutSource 是 R22
+// 的单端零变化守卫:这一轮由本机自己发起(user_message 标记不带 SourceDevice)时,
+// 落库行**逐字节不含来源字段**、转录读路径投影出的 sourceDevice 为空、实时事件里也
+// 为空 —— 前端因此不渲染任何「来自 …」pill,单端使用的呈现与今天一致。
+// R18/R21 那条落库写点(persistPeerMessageSource)对空 source 必须是 no-op。
+func TestDriveAutonomousTurn_LocalInitiatedRound_PersistsUserMessageWithoutSource(t *testing.T) {
+	convey.Convey("本机发起的一轮:落库行不带来源字段,DTO 里 sourceDevice 为空", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc"}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+
+		var createdRoles []string
+		var createdUser *chat_entity.Message
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil)
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				createdRoles = append(createdRoles, msg.Role)
+				if msg.Role == "user" {
+					cp := *msg
+					createdUser = &cp
+				}
+				msg.ID = 4001 + int64(len(createdRoles))
+				return nil
+			}).Times(2)
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.dbMock.ExpectCommit()
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		evs := make(chan agentruntime.Event, 2)
+		evs <- agentruntime.UserMessageEvent{Text: "本机发的消息"}
+		evs <- agentruntime.TextDelta{Text: "reply"}
+		close(evs)
+		at := agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc"},
+			Trigger: "catch_up",
+		}
+
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
+
+		convey.Convey("照常落 user + assistant 两行", func() {
+			assert.Equal(t, []string{"user", "assistant"}, createdRoles)
+		})
+
+		convey.Convey("落库行里没有来源字段(R22:呈现与今天逐像素一致)", func() {
+			require.NotNil(t, createdUser)
+			assert.Contains(t, createdUser.BlocksJSON, "本机发的消息")
+			assert.NotContains(t, createdUser.BlocksJSON, "sourceDevice",
+				"本机发的消息不得因为经过 persistPeerMessageSource 而多出来源字段")
+			assert.NotContains(t, createdUser.BlocksJSON, "sourceDeviceName")
+		})
+
+		convey.Convey("重载与实时两条读路径的 sourceDevice 都为空", func() {
+			require.NotNil(t, createdUser)
+			reloaded, err := chat_svc.ToChatMessageForTest(createdUser)
+			require.NoError(t, err)
+			assert.Empty(t, reloaded.SourceDevice)
+			assert.Empty(t, reloaded.SourceDeviceName)
+
+			var started *chat_svc.ChatStreamEvent
+			for _, ev := range m.events {
+				p, ok := ev.Payload.(chat_svc.ChatStreamEvent)
+				if ok && p.Kind == chat_svc.StreamAutonomousStarted {
+					cp := p
+					started = &cp
+				}
+			}
+			require.NotNil(t, started, "应 emit StreamAutonomousStarted")
+			require.Len(t, started.UserMessages, 1)
+			assert.Empty(t, started.UserMessages[0].SourceDevice, "本机发起的一轮不带来源标识")
+			assert.Empty(t, started.UserMessages[0].SourceDeviceName)
+		})
 	})
 }
 

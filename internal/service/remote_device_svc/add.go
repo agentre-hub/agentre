@@ -52,6 +52,18 @@ func (s *service) Add(ctx context.Context, req AddRequest) (*DeviceView, error) 
 	if err != nil {
 		return nil, translatePairError(ctx, err)
 	}
+	// 指纹只有握完手才知道，所以这一步必须在 Pair 之后：本机可能已经有这台机器的
+	// 一行「只有中转路径」的收编记录（AdoptAccountDevices）。那是同一台机器，再建
+	// 一行会让它在面板上变成两台、在连接池里变成两个 entry，指纹唯一索引也会拒掉。
+	// 正确的收场是把那一行升级成双路径。
+	if existing, ferr := s.repo.FindByFingerprint(ctx, result.DaemonFingerprint); ferr != nil {
+		return nil, ferr
+	} else if existing != nil {
+		if !existing.IsRelayOnly() {
+			return nil, i18n.NewError(ctx, code.RemoteDeviceAlreadyPaired)
+		}
+		return s.upgradeRelayOnly(ctx, existing, req, result)
+	}
 	row := &paired_agentred_entity.PairedAgentred{
 		Name: name, URL: req.URL,
 		DaemonFingerprint: result.DaemonFingerprint, InstanceUUID: result.InstanceUUID,
@@ -165,4 +177,38 @@ func translatePairError(ctx context.Context, err error) error {
 		logger.Ctx(ctx).Warn("remote device dial failed", zap.Error(err))
 		return i18n.NewError(ctx, code.RemoteDeviceDialFailed)
 	}
+}
+
+// upgradeRelayOnly 把一行「只有中转路径」的收编记录升级成双路径：补上刚握手拿到的
+// LAN 地址与 TLS 配置，设备令牌落到它自己的 keychain 账号下。
+//
+// 刻意不新建行：同一台机器（同一 daemon 指纹）在本机只能有一行，否则设备面板会把它
+// 显示成两台、连接池会为它开两个 entry、两份在线状态各说各话。
+//
+// 端点变了，长连状态机必须按新端点重来，所以是 Restart 而不是 Start。
+func (s *service) upgradeRelayOnly(
+	ctx context.Context, row *paired_agentred_entity.PairedAgentred, req AddRequest, result PairResult,
+) (*DeviceView, error) {
+	if err := s.repo.UpdateEndpoint(ctx, row.ID, req.URL, result.DaemonFingerprint); err != nil {
+		return nil, err
+	}
+	if err := s.repo.UpdateTLS(ctx, row.ID, req.TLSMode, req.TLSCertPEM); err != nil {
+		return nil, err
+	}
+	if err := s.keychain.Set(keychainAccountForToken(row.ID), result.DeviceToken); err != nil {
+		// 不回滚成「没有这一行」：升级之前它就在，而且经中转是可用的。地址已经写进去，
+		// 少的只是直连令牌——直连拨号会拿账号凭据兜底（见 ConnPool.openAny）。
+		logger.Ctx(ctx).Warn("remote_device_svc.upgradeRelayOnly: storing the pairing token failed",
+			zap.Int64("deviceID", row.ID), zap.Error(err))
+		return nil, i18n.NewError(ctx, code.RemoteDeviceKeychainFailed)
+	}
+	row.URL = req.URL
+	row.DaemonFingerprint = result.DaemonFingerprint
+	row.InstanceUUID = result.InstanceUUID
+	row.TLSMode = req.TLSMode
+	row.TLSCertPEM = req.TLSCertPEM
+	if s.watcher != nil {
+		_ = s.watcher.Restart(ctx, row.ID)
+	}
+	return s.toView(row), nil
 }

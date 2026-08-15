@@ -32,6 +32,14 @@ var ErrHubUnavailable = errors.New("rpc: hub relay unavailable")
 // a login that lands later is picked up without restarting the process.
 var ErrHubUnresolved = errors.New("rpc: relay endpoint not resolved yet")
 
+// ErrRelayCredentialRejected reports that the relay answered the handshake with
+// 401. Unlike every other dial failure this one never heals by itself: the device
+// has been deauthorized, or the account it is claimed to no longer exists on the
+// server (a rebuilt database is the usual cause — the numeric user/device ids the
+// credential names are simply gone). Only a human can fix it, so it must not read
+// like transient network trouble.
+var ErrRelayCredentialRejected = errors.New("rpc: relay rejected this daemon's account credential")
+
 // HubFrame is one raw WebSocket frame arriving from the relay. The future hub
 // multiplexer owns interpreting its payload and must select on Frames instead
 // of reading the underlying socket directly.
@@ -143,6 +151,9 @@ func (l *HubLink) Run(ctx context.Context) error {
 	// 登录，而退避封顶 60s —— 每轮记一行就是每天上千行噪声，真正的失败会被淹掉。
 	// 只在进入这个状态时记一次，离开它（连上了，或换成别的失败）时复位。
 	unresolvedLogged := false
+	// 401 同理，而且更该压制：它是个**永久**状态（要人来 unclaim + login），退避封顶
+	// 60s 也照样是每天上千行。说清楚一次，比重复一千遍有用。
+	rejectedLogged := false
 	for {
 		if ctx.Err() != nil {
 			// Shutdown is Run's normal termination, not a relay failure.
@@ -162,8 +173,17 @@ func (l *HubLink) Run(ctx context.Context) error {
 					l.opts.Logf("rpc.HubLink: no account to connect to yet; waiting for login")
 					unresolvedLogged = true
 				}
+			} else if errors.Is(err, ErrRelayCredentialRejected) {
+				unresolvedLogged = false
+				if !rejectedLogged {
+					l.opts.Logf("rpc.HubLink: the server rejected this daemon's credential (HTTP 401); " +
+						"retrying cannot fix it — this device was deauthorized, or the account it is claimed " +
+						"to no longer exists. Stop the daemon, then run `agentred unclaim` and `agentred login`.")
+					rejectedLogged = true
+				}
 			} else {
 				unresolvedLogged = false
+				rejectedLogged = false
 				l.opts.Logf("rpc.HubLink: relay dial failed; retrying: %v", err)
 			}
 			if err := l.wait(ctx, failures); err != nil {
@@ -188,7 +208,9 @@ func (l *HubLink) Run(ctx context.Context) error {
 		if renewed {
 			failures = 0
 		}
+		// 连上过就说明凭据当时是好的：两个抑制位都复位，之后再出现同样的状态要重新说一次。
 		unresolvedLogged = false
+		rejectedLogged = false
 		l.notifyDisconnect(err)
 		l.opts.Logf("rpc.HubLink: relay disconnected; retrying: %v", err)
 		if err := l.wait(ctx, failures); err != nil {
@@ -306,6 +328,11 @@ func (l *HubLink) dial(ctx context.Context) (*websocket.Conn, error) {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
+		// gorilla 把任何非 101 都压成 ErrBadHandshake，状态码只在 resp 上。401 与
+		// 「连不上」必须分开：前者重试到天荒地老也不会成功。
+		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+			return nil, ErrRelayCredentialRejected
+		}
 		return nil, fmt.Errorf("dial relay websocket: %w", err)
 	}
 	return conn, nil

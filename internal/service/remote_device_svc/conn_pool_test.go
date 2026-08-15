@@ -310,6 +310,42 @@ func TestPool_Borrow_RelayConfigured_BothFail_ReportsBothReasons(t *testing.T) {
 	})
 }
 
+// 账号来源收编的行没有 LAN 地址（IsRelayOnly）。它的直连路径不是「拨了没通」而是
+// **根本不存在**：拿空 URL 去拨只会浪费一次超时，还把「这台机器本来就没有 LAN 路径」
+// 报成一条像是网络故障的错误。中转按指纹寻址，不需要地址。
+func TestPool_Borrow_RelayOnlyRow_SkipsTheDirectPathEntirely(t *testing.T) {
+	Convey("relay-only row: never dials direct, connects over the relay", t, func() {
+		relayClient := stubClient()
+		var gotDaemonFP, gotPeerFP string
+		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, daemonFP, peerFP string) (*client.Client, error) {
+			gotDaemonFP, gotPeerFP = daemonFP, peerFP
+			return relayClient, nil
+		}}))
+		f.device.URL = "" // 收编自账号，本机从没配对过它
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+		// dial.Open 没有 EXPECT：被调用一次就是失败（gomock 会报 unexpected call）。
+
+		lease, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease.Client(), ShouldNotBeNil)
+		So(gotDaemonFP, ShouldEqual, "sha256:abc")
+		So(gotPeerFP, ShouldEqual, "fp-x")
+	})
+}
+
+// 没有 relay 又没有 LAN 地址 = 无路可走。必须当场说清楚，而不是拿空地址去拨一次。
+func TestPool_Borrow_RelayOnlyRow_WithoutRelayConfigured_FailsClearly(t *testing.T) {
+	Convey("relay-only row but no relay wired: fails without dialing", t, func() {
+		f := newPoolFixture(t)
+		f.device.URL = ""
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+
+		_, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, "no LAN address")
+	})
+}
+
 // stubAccountCredential 是 AccountCredentialPort 的假替身:返回固定的账号凭据
 // (生产实现是 server_svc,未登录时返回空串)。
 type stubAccountCredential struct{ value string }

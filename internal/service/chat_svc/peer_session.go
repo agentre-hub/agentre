@@ -7,6 +7,9 @@ import (
 	"math"
 	"strings"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
+
 	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -75,6 +78,15 @@ func (s *chatSvc) ListPeerSessions(ctx context.Context) (*wire.SessionListResult
 		for _, session := range sessions {
 			summary, err := peerSessionSummary(ctx, session, agent, fingerprint)
 			if err != nil {
+				// 一行缺元数据只影响这一行（R5 仍然成立：跳过它，绝不补一个编出来的
+				// 摘要）。整份清单不能跟着完蛋——它是 web 控制台进入这台机器的唯一入口，
+				// 这里报错，浏览器就只剩一个不会结束的「加载中」。
+				if errors.Is(err, ErrPeerSessionMetadata) {
+					logger.Ctx(ctx).Warn("chat_svc.ListPeerSessions: skipping unusable session row",
+						zap.Int64("sessionId", sessionID(session)),
+						zap.Int64("agentId", agent.ID), zap.Error(err))
+					continue
+				}
 				return nil, err
 			}
 			result.Sessions = append(result.Sessions, summary)

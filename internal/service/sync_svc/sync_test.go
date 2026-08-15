@@ -31,6 +31,9 @@ type fakeTransport struct {
 	pages    []*syncwire.PullPage
 	pulledAt []int64
 	pullErr  error
+	// pullErrs 按调用次序消耗一次：第 i 次 SyncPull 取 pullErrs[i]，非 nil 就返回它。
+	// 与 pullErr（每一次都返回）互补——server 只在第一次拒绝，之后照常应答。
+	pullErrs []error
 
 	// 本机路径上报（R16）与头像（R16a）的替身状态。
 	localPathReports [][]syncwire.LocalPathReportItem
@@ -70,6 +73,13 @@ func (f *fakeTransport) SyncPush(_ context.Context, items []syncwire.PushItem) (
 
 func (f *fakeTransport) SyncPull(_ context.Context, cursor int64, _ int) (*syncwire.PullPage, error) {
 	f.pulledAt = append(f.pulledAt, cursor)
+	if len(f.pullErrs) > 0 {
+		err := f.pullErrs[0]
+		f.pullErrs = f.pullErrs[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	if f.pullErr != nil {
 		return nil, f.pullErr
 	}

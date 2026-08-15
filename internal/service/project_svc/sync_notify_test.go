@@ -194,6 +194,10 @@ func (emptySyncState) ClaimUnowned(context.Context, string, int64) ([]syncstate_
 func (emptySyncState) SaveMeta(context.Context, string, string, syncmeta_entity.SyncMeta) error {
 	return nil
 }
+func (emptySyncState) ResetVersions(context.Context, string, int64) error { return nil }
+func (emptySyncState) ListUnversioned(context.Context, string, int64) ([]string, error) {
+	return nil, nil
+}
 
 // memorySettings 是本地 key-value 设置表的替身（下行游标住在这里）。
 type memorySettings struct {

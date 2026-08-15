@@ -62,6 +62,8 @@ type RemoteDeviceSvc interface {
 	List(ctx context.Context) ([]*DeviceView, error)
 	Get(ctx context.Context, id int64) (*DeviceView, error)
 	Add(ctx context.Context, req AddRequest) (*DeviceView, error)
+	// AdoptAccountDevices 收编账号里已有、本机没有本地记录的 agentred（见 adopt.go）。
+	AdoptAccountDevices(ctx context.Context, devices []AccountDevice) (int, error)
 	Remove(ctx context.Context, id int64) error
 	UpdateTLS(ctx context.Context, id int64, mode, pem string) (*DeviceView, error)
 	Refresh(ctx context.Context, id int64) (*DeviceView, error)

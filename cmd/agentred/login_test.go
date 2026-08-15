@@ -161,6 +161,59 @@ func TestLoginRejectsAlreadyClaimedDaemonWithoutNetwork(t *testing.T) {
 	assert.Equal(t, 0, networkCalls)
 }
 
+// state.json 归运行中的 daemon 所有:它内存里存着完整一份,任何一次 Save 都是整文件
+// 覆写。login 与 daemon 是两个进程各自 load-modify-save,所以在 daemon 活着的时候登录
+// 会被它下一次 Save 静默回滚 —— 服务端签发了凭据、CLI 打印「成功」,而 daemon 手上还是
+// 旧的。宁可当场失败,也不要让一次「成功」在几分钟后无声消失。
+func TestLoginRefusesWhileDaemonIsRunningSoItCannotBeSilentlyReverted(t *testing.T) {
+	dir := t.TempDir()
+	var networkCalls int
+	cmd := newLoginCmdWithDeps(loginDeps{
+		dataDir: func() (string, error) { return dir, nil },
+		http: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			networkCalls++
+			return nil, assert.AnError
+		})},
+		openBrowser:   func(string) error { return nil },
+		wait:          func(time.Duration) error { return nil },
+		daemonRunning: func() bool { return true },
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--server", "http://127.0.0.1:8443"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentred is running")
+	assert.Equal(t, 0, networkCalls, "must not burn a device-flow authorization it cannot persist")
+
+	got, loadErr := state.Load(dir)
+	require.NoError(t, loadErr)
+	assert.False(t, got.IsClaimed(), "a refused login must leave state.json untouched")
+}
+
+func TestLoginProceedsWhenNoDaemonHoldsTheStateFile(t *testing.T) {
+	dir := t.TempDir()
+	var networkCalls int
+	cmd := newLoginCmdWithDeps(loginDeps{
+		dataDir: func() (string, error) { return dir, nil },
+		http: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			networkCalls++
+			return nil, assert.AnError
+		})},
+		openBrowser:   func(string) error { return nil },
+		wait:          func(time.Duration) error { return nil },
+		daemonRunning: func() bool { return false },
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--server", "http://127.0.0.1:8443"})
+
+	err := cmd.Execute()
+	require.Error(t, err) // 网络被打桩成失败,这里只关心它确实走到了网络那一步
+	assert.Positive(t, networkCalls, "with no daemon holding the file, login must run normally")
+}
+
 func unsignedJWT(t *testing.T, claims map[string]any) string {
 	t.Helper()
 	payload, err := json.Marshal(claims)

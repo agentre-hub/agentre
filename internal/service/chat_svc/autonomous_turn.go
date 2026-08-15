@@ -107,6 +107,17 @@ func (s *chatSvc) driveAutonomousTurn(ctx context.Context, sessionID int64, be *
 			if err := userMsg.SetBlocks([]blocks.ContentBlock{&blocks.TextBlock{Text: prelude.Text}}); err != nil {
 				return err
 			}
+			// R18/R21:来源标识必须**写进落库的 block data**,与 Send / consumed-steer
+			// 三条同类路径同一个写点(chat.go 的 persistPeerMessageSource 调用)。只把它
+			// 挂在实时事件上的话,刷新 / 重开会话后转录读路径(peerMessageSourceOf)读不
+			// 到来源,那行用户消息看起来像本机自己打的字;下游 peer 补齐读同一批字段,
+			// 同样拿不到。R22:本机发起(SourceDevice 为空)时这里是 no-op,落库行逐字节
+			// 不变。
+			if err := persistPeerMessageSource(userMsg, peerMessageSource{
+				Device: prelude.SourceDevice, Name: prelude.SourceDeviceName,
+			}); err != nil {
+				return err
+			}
 			if err := chat_repo.Message().Create(txCtx, userMsg); err != nil {
 				return err
 			}
@@ -157,10 +168,10 @@ func (s *chatSvc) driveAutonomousTurn(ctx context.Context, sessionID int64, be *
 				zap.Int64("sessionId", sessionID), zap.Error(err))
 		} else {
 			um.SessionID = sessionID
-			// R17 同款:来源标识随消息 DTO 带出 —— 本机/未知为空,前端看到空 sourceDevice
-			// 就不渲染;名字缺失时保持空,前端回退指纹(R19)。
-			um.SourceDevice = prelude.SourceDevice
-			um.SourceDeviceName = prelude.SourceDeviceName
+			// 来源标识不在这里手动覆盖:toChatMessage 已经从**落库的** block data 里读出
+			// 它(R17 同款投影,本机/未知为空前端就不渲染,名字缺失保持空由前端回退指纹
+			// R19)。手动覆盖会让实时事件即使在落库丢了来源时也照样正确,把「实时对、刷新
+			// 就没了」这类分歧藏起来 —— 实时与重载因此共用同一个数据源。
 			userEvents = []ChatMessage{um}
 		}
 	}

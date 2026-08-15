@@ -143,7 +143,10 @@ func lanURLs(d *Daemon) []string {
 	if d.lan == nil {
 		return nil
 	}
-	return []string{d.lan.URL()}
+	// AdvertiseURLs 而不是 URL():这份列表会被 `agentred pair` / `agentred status` 印出来
+	// 让用户粘进桌面端,而通配监听下的 bind 地址("[::]:7456")粘过去指的是桌面端自己
+	// 那台机器。找不到可路由地址时它给空列表,由 CLI 明确要求用户加 --host。
+	return d.lan.AdvertiseURLs()
 }
 
 func summarizePeers(m map[string]state.PairedPeer) []map[string]any {

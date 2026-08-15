@@ -44,6 +44,20 @@ type SyncStateRepo interface {
 	// 都没被 Create/Update 触达过）在这里就地补一个——标识本该在行创建时生成，
 	// 它们只是早于本轮。已经属于别的账号的行一行不动（R13a）。
 	ClaimUnowned(ctx context.Context, kind string, accountID int64) ([]ClaimedRow, error)
+	// ResetVersions 把某个账号名下全部行的同步版本号清零：这些版本号是**上一套
+	// server 序列**里的值，server 换了一套（库被重建 / 用户自建）之后它们既比不了
+	// 大小，也会把新序列的全量快照整个挡在门外（applyInbound 的版本守卫是
+	// 「本机版本 >= 来的版本就不落」，旧序列的 500 永远大过新序列的 3）。
+	//
+	// 只清版本号：同步标识、所属账号与**墓碑标记**一律不动——清掉墓碑标记等于
+	// 让已经删掉的行重新变成一条待上行的新建（R6）。
+	ResetVersions(ctx context.Context, kind string, accountID int64) error
+	// ListUnversioned 列出某账号名下**还没有版本号**的存活行的同步标识。
+	//
+	// 版本号只由 server 在受理上行时分配，因此「同步版本号为 0」就是「server 从没
+	// 见过这一行」。紧接在一次全量快照之后问它，答案就是「这份快照没送来的行」
+	// ——那些行只存在于本机，必须重新上行，否则它们静默留在这台机器上。
+	ListUnversioned(ctx context.Context, kind string, accountID int64) ([]string, error)
 }
 
 // ClaimedRow 是一次认领里被收进当前账号的一行（R12a）。
@@ -218,6 +232,50 @@ func (r *syncStateRepo) ClaimUnowned(ctx context.Context, kind string, accountID
 			return nil, err
 		}
 		out = append(out, ClaimedRow{SyncID: syncID, Version: row.SyncVersion})
+	}
+	return out, nil
+}
+
+func (r *syncStateRepo) ResetVersions(ctx context.Context, kind string, accountID int64) error {
+	table, err := tableOf(kind)
+	if err != nil {
+		return err
+	}
+	if accountID == 0 {
+		return nil
+	}
+	// 属于别的账号的行一行不动（R13a），未归属的行也不动——它们本来就没有版本号，
+	// 归属由 ClaimUnowned 负责（R12a）。
+	return db.Ctx(ctx).Table(table).
+		Where("sync_account_id = ?", accountID).
+		Update("sync_version", 0).Error
+}
+
+func (r *syncStateRepo) ListUnversioned(ctx context.Context, kind string, accountID int64) ([]string, error) {
+	table, err := tableOf(kind)
+	if err != nil {
+		return nil, err
+	}
+	if accountID == 0 {
+		return nil, nil
+	}
+
+	// 与 ClaimUnowned 同一套「存活」判据：本机已经软删的行不该被当成一次新建推上
+	// 账号（R6），墓碑同理。
+	query := db.Ctx(ctx).Table(table).
+		Where("sync_account_id = ? AND sync_version = 0 AND sync_deleted_at = 0 AND sync_id != ''", accountID)
+	if hasStatusColumn(kind) {
+		query = query.Where("status = ?", consts.ACTIVE)
+	}
+	var rows []struct {
+		SyncID string `gorm:"column:sync_id"`
+	}
+	if err := query.Select("sync_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.SyncID)
 	}
 	return out, nil
 }

@@ -48,6 +48,22 @@ const CodeResyncRequired = 30500
 // 全量快照并以之为准。
 var ErrResyncRequired = errors.New("sync: resync required")
 
+// CodeCursorUnknown 是 server 在「下行游标超出本账号版本序列的头」时返回的业务码
+// （agentre-server internal/pkg/code.SyncCursorUnknown）：那段历史它不认识——库被
+// 重建，或用户换了一套自建服务端。
+const CodeCursorUnknown = 30505
+
+// ErrCursorUnknown 是 CodeCursorUnknown 的客户端表达。
+//
+// 它与 ErrResyncRequired **不是**一回事，处置也相反：
+//
+//   - ErrResyncRequired（上行时）＝「你离线太久」。server 的历史是全的、本端的不全，
+//     以快照为准，队列里基版本对不上的一律拦下（R6a）——那正是防复活的那一条。
+//   - ErrCursorUnknown（下行时）＝「我不认识你说的那段历史」。server 的历史没了、
+//     本端的才是全的，因此必须把 server 不认识的本地行**重新上行**，否则整个工作区
+//     静默留在本机，而界面上待同步是 0、没有任何错误可循。
+var ErrCursorUnknown = errors.New("sync: server does not recognize this cursor")
+
 // PushItem 是一次上行里的一条改动。
 //
 // 没有 json 标签是刻意的：Payload 是一份**已经序列化好的 JSON 文档**，直接

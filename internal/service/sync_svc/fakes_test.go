@@ -2,6 +2,8 @@ package sync_svc
 
 import (
 	"context"
+	"sort"
+	"strings"
 
 	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
@@ -150,6 +152,35 @@ func (f *fakeSyncState) ClaimUnowned(_ context.Context, kind string, accountID i
 		f.claimedBy[kind+":"+row.SyncID] = accountID
 	}
 	return rows, nil
+}
+
+// ResetVersions 清掉某账号名下全部行的版本号（换了一套 server 之后旧序列的版本号
+// 既比不了大小，也会把新序列的快照挡在版本守卫外面）。墓碑标记不动。
+func (f *fakeSyncState) ResetVersions(_ context.Context, kind string, accountID int64) error {
+	for key, meta := range f.meta {
+		if !strings.HasPrefix(key, kind+":") || meta.SyncAccountID != accountID {
+			continue
+		}
+		meta.SyncVersion = 0
+		f.meta[key] = meta
+	}
+	return nil
+}
+
+// ListUnversioned 列出「server 从没给过版本号」的存活行：版本号为 0 且不是墓碑。
+func (f *fakeSyncState) ListUnversioned(_ context.Context, kind string, accountID int64) ([]string, error) {
+	var out []string
+	for key, meta := range f.meta {
+		if !strings.HasPrefix(key, kind+":") || meta.SyncAccountID != accountID {
+			continue
+		}
+		if meta.SyncVersion != 0 || meta.SyncDeletedAt != 0 || meta.SyncID == "" {
+			continue
+		}
+		out = append(out, meta.SyncID)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func (f *fakeSyncState) key(kind, syncID string) string { return kind + ":" + syncID }

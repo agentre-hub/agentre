@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -409,4 +410,52 @@ func TestHubLink_GivenNoAccount_WhenRetryingForever_ThenSaysSoOnceNotEveryRound(
 	defer mu.Unlock()
 	require.Len(t, lines, 1, "转了 %d 轮，只该说一次「还没有账号可连」，实际记了 %d 行", rounds.Load(), len(lines))
 	assert.Contains(t, lines[0], "no account")
+}
+
+// 401 与「连不上」是两种完全不同的处境，退避重试却长得一模一样。凭据被服务端拒绝时
+// 重试永远不会成功——机器要么已被解除授权，要么它认领的那个账号在服务端已经不存在
+// （例如库被重建）。这两种都只能靠人 unclaim 后重新 login，所以这一行必须把话说清楚，
+// 而不是混在一串 "relay dial failed" 里让人对着一台恒离线的机器猜。
+func TestHubLink_GivenServerRejectsTheCredential_ThenSaysItNeedsAFreshLoginNotJustRetrying(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		lines []string
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"code":30304}`, http.StatusUnauthorized)
+	}))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	link := NewHubLink(HubLinkOptions{
+		ServerURL:           server.URL,
+		AccessTokenProvider: func() string { return "stale-token" },
+		HeartbeatInterval:   100 * time.Millisecond,
+		RetryInitial:        time.Millisecond,
+		RetryMax:            2 * time.Millisecond,
+		RetryWait:           func(context.Context, time.Duration) error { return nil },
+		Random:              func() float64 { return 1 },
+		Logf: func(format string, args ...any) {
+			mu.Lock()
+			defer mu.Unlock()
+			lines = append(lines, fmt.Sprintf(format, args...))
+		},
+	})
+	runDone := make(chan error, 1)
+	go func() { runDone <- link.Run(ctx) }()
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, l := range lines {
+			if strings.Contains(l, "agentred login") {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "401 必须给出可执行的下一步，实际记了: %v", lines)
+
+	cancel()
+	require.NoError(t, <-runDone)
 }

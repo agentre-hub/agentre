@@ -34,6 +34,12 @@ func (*PairedAgentred) TableName() string { return "paired_agentreds" }
 // IsActive 是否处于启用态。
 func (p *PairedAgentred) IsActive() bool { return p != nil && p.Status == consts.ACTIVE }
 
+// IsRelayOnly 报告这一行只有中转一条路径。它由账号来源收编而来（本机从没 LAN 配对
+// 过这台机器），因此没有 LAN 地址可拨；连接侧据此跳过直连、只走中转。
+func (p *PairedAgentred) IsRelayOnly() bool {
+	return p != nil && strings.TrimSpace(p.URL) == ""
+}
+
 // onlineWindowMs 是 last_seen_at 之后被视为「在线」的窗口。
 const onlineWindowMs = int64(5 * 60 * 1000)
 
@@ -59,8 +65,11 @@ func (p *PairedAgentred) Check(ctx context.Context) error {
 	if strings.TrimSpace(p.Name) == "" {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
+	// 空 URL 合法，且**只**表示一件事：这一行没有 LAN 路径（IsRelayOnly）。
+	// 账号里已有、本机从没配对过的 agentred 就长这样——中转按 DaemonFingerprint
+	// 寻址，本来就不需要地址。填了地址就必须是个能拨的 ws 地址。
 	url := strings.TrimSpace(p.URL)
-	if !strings.HasPrefix(url, "ws://") && !strings.HasPrefix(url, "wss://") {
+	if url != "" && !strings.HasPrefix(url, "ws://") && !strings.HasPrefix(url, "wss://") {
 		return i18n.NewError(ctx, code.RemoteDeviceURLInvalid)
 	}
 	if _, ok := validTLSModes[p.TLSMode]; !ok {

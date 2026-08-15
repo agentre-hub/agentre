@@ -160,11 +160,134 @@ func (s *LANServer) Addr() string {
 	return s.listener.Addr().String()
 }
 
-// URL returns the canonical ws[s]://addr/rpc endpoint.
+// URL returns the ws[s]:// endpoint of the bound address itself. It is what a
+// caller on this same host dials; it is NOT what a peer should be handed —
+// a wildcard bind reports back as "[::]:7456" here. Use AdvertiseURLs for that.
 func (s *LANServer) URL() string {
+	return s.urlFor(s.Addr())
+}
+
+// AdvertiseURLs returns the ws[s]://host:port/rpc endpoints a desktop elsewhere
+// on the LAN can actually dial.
+//
+// The daemon listens on a wildcard address by default (0.0.0.0, see
+// cmd/agentred/run.go), and Go serves a wildcard bind dual-stack, so
+// listener.Addr() reports "[::]:7456". Handing that to a peer is worse than
+// useless: "[::]" resolves on the *peer's* box, so the desktop ends up dialing
+// itself and reports a connection error that says nothing about the address
+// being wrong. A wildcard bind is therefore expanded into this host's own
+// routable addresses, while an explicit --host bind is passed through untouched
+// (the operator may be naming a forwarding entrypoint we have no business
+// rewriting).
+//
+// When nothing routable turns up the result is empty **on purpose** — the caller
+// must tell the user to re-run with --host rather than quietly advertise the
+// bind address that started this whole problem.
+func (s *LANServer) AdvertiseURLs() []string {
+	host, port, err := net.SplitHostPort(s.Addr())
+	if err != nil {
+		return nil
+	}
+	if !isWildcardHost(host) {
+		return []string{s.urlFor(net.JoinHostPort(host, port))}
+	}
+	hosts := routableHosts(localInterfaces())
+	urls := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		urls = append(urls, s.urlFor(net.JoinHostPort(h, port)))
+	}
+	return urls
+}
+
+func (s *LANServer) urlFor(hostPort string) string {
 	scheme := "ws"
 	if s.opts.TLSCertFile != "" {
 		scheme = "wss"
 	}
-	return fmt.Sprintf("%s://%s/rpc", scheme, s.Addr())
+	return fmt.Sprintf("%s://%s/rpc", scheme, hostPort)
+}
+
+// isWildcardHost reports whether the bind host names every local address rather
+// than one of them — "", "0.0.0.0" and "::" all land here.
+func isWildcardHost(host string) bool {
+	if host == "" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsUnspecified()
+}
+
+// lanInterface is the slice of a net.Interface that address selection needs.
+// net.Interface.Addrs() is a method that hits the OS, so the filtering rules
+// only stay testable if they take the flags and the addresses as plain data.
+type lanInterface struct {
+	flags net.Flags
+	addrs []net.Addr
+}
+
+// localInterfaces snapshots this host's interfaces. An interface whose
+// addresses cannot be read is skipped rather than failing the whole lookup —
+// one unreadable interface must not cost the user every other address.
+func localInterfaces() []lanInterface {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	out := make([]lanInterface, 0, len(ifaces))
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		out = append(out, lanInterface{flags: iface.Flags, addrs: addrs})
+	}
+	return out
+}
+
+// routableHosts picks the addresses a peer on the LAN can dial back on: down
+// and loopback interfaces are out, so are loopback / link-local / multicast /
+// unspecified addresses. Private RFC 1918 and ULA addresses stay — on a LAN
+// they are the normal case. IPv4 comes first because that is the entry users
+// paste, and duplicates (the same address on several interfaces) collapse.
+func routableHosts(ifaces []lanInterface) []string {
+	var v4, v6 []string
+	seen := make(map[string]bool)
+	for _, iface := range ifaces {
+		if iface.flags&net.FlagUp == 0 || iface.flags&net.FlagLoopback != 0 {
+			continue
+		}
+		for _, addr := range iface.addrs {
+			ip := addrIP(addr)
+			if !isRoutableIP(ip) || seen[ip.String()] {
+				continue
+			}
+			seen[ip.String()] = true
+			if ip.To4() != nil {
+				v4 = append(v4, ip.String())
+			} else {
+				v6 = append(v6, ip.String())
+			}
+		}
+	}
+	return append(v4, v6...)
+}
+
+func addrIP(addr net.Addr) net.IP {
+	switch a := addr.(type) {
+	case *net.IPNet:
+		return a.IP
+	case *net.IPAddr:
+		return a.IP
+	default:
+		return nil
+	}
+}
+
+func isRoutableIP(ip net.IP) bool {
+	if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return false
+	}
+	// IsGlobalUnicast additionally rules out the unspecified and multicast
+	// addresses while keeping the private ranges a LAN actually runs on.
+	return ip.IsGlobalUnicast()
 }

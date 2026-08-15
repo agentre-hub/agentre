@@ -148,4 +148,22 @@ func TestSyncPull(t *testing.T) {
 		So(page.NextCursor, ShouldEqual, int64(12))
 		So(page.HasMore, ShouldBeFalse)
 	})
+
+	Convey("server 不认识这个游标时翻成 ErrCursorUnknown", t, func() {
+		// 不翻的话它只是一句「rejected with code 30505」，与网络抖动无从区分：那台机器
+		// 会安静地一直重试同一个死游标，而账号下什么都没有。
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"code":30505,"msg":"unknown sync cursor"}`))
+		}))
+		defer srv.Close()
+
+		svc, mRepo, _ := setupServerSvc(t, srv.URL)
+		mRepo.EXPECT().Get(gomock.Any()).Return(loggedInState(srv.URL), nil)
+
+		page, err := svc.SyncPull(context.Background(), 500, 200)
+		So(err, ShouldEqual, syncwire.ErrCursorUnknown)
+		So(page, ShouldBeNil)
+	})
 }

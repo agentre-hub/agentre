@@ -10,15 +10,18 @@ import (
 )
 
 func newUnclaimCmd() *cobra.Command {
-	return newUnclaimCmdWithDataDir(paths.AgentredDataDir)
+	return newUnclaimCmdWithDeps(paths.AgentredDataDir, daemonIsRunning)
 }
 
-func newUnclaimCmdWithDataDir(dataDir func() (string, error)) *cobra.Command {
+func newUnclaimCmdWithDeps(dataDir func() (string, error), daemonRunning func() bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "unclaim",
 		Short: "Remove this daemon's local account claim",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := requireNoRunningDaemon(daemonRunning); err != nil {
+				return err
+			}
 			dir, err := dataDir()
 			if err != nil {
 				return err

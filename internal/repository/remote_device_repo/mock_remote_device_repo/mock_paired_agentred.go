@@ -69,6 +69,21 @@ func (mr *MockPairedAgentredRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockPairedAgentredRepo)(nil).Delete), ctx, id)
 }
 
+// FindByFingerprint mocks base method.
+func (m *MockPairedAgentredRepo) FindByFingerprint(ctx context.Context, fingerprint string) (*paired_agentred_entity.PairedAgentred, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByFingerprint", ctx, fingerprint)
+	ret0, _ := ret[0].(*paired_agentred_entity.PairedAgentred)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindByFingerprint indicates an expected call of FindByFingerprint.
+func (mr *MockPairedAgentredRepoMockRecorder) FindByFingerprint(ctx, fingerprint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByFingerprint", reflect.TypeOf((*MockPairedAgentredRepo)(nil).FindByFingerprint), ctx, fingerprint)
+}
+
 // FindByURL mocks base method.
 func (m *MockPairedAgentredRepo) FindByURL(ctx context.Context, url string) (*paired_agentred_entity.PairedAgentred, error) {
 	m.ctrl.T.Helper()
@@ -112,6 +127,35 @@ func (m *MockPairedAgentredRepo) List(ctx context.Context) ([]*paired_agentred_e
 func (mr *MockPairedAgentredRepoMockRecorder) List(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockPairedAgentredRepo)(nil).List), ctx)
+}
+
+// ListDeleted mocks base method.
+func (m *MockPairedAgentredRepo) ListDeleted(ctx context.Context) ([]*paired_agentred_entity.PairedAgentred, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDeleted", ctx)
+	ret0, _ := ret[0].([]*paired_agentred_entity.PairedAgentred)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDeleted indicates an expected call of ListDeleted.
+func (mr *MockPairedAgentredRepoMockRecorder) ListDeleted(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeleted", reflect.TypeOf((*MockPairedAgentredRepo)(nil).ListDeleted), ctx)
+}
+
+// Purge mocks base method.
+func (m *MockPairedAgentredRepo) Purge(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Purge", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Purge indicates an expected call of Purge.
+func (mr *MockPairedAgentredRepoMockRecorder) Purge(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Purge", reflect.TypeOf((*MockPairedAgentredRepo)(nil).Purge), ctx, id)
 }
 
 // Rename mocks base method.

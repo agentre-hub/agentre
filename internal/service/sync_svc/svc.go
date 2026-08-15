@@ -14,6 +14,7 @@ package sync_svc
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
 	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
 )
 
@@ -299,8 +301,22 @@ func (s *service) SyncOnce(ctx context.Context) error {
 		return err
 	}
 	if err := s.pull(ctx, accountID); err != nil {
-		s.setLastErr(err)
-		return err
+		// server 不认识本端的游标：它的历史被重建过（或换了一套自建服务端）。这不是
+		// 一次可重试的失败——同一个游标下一轮还是死的——而是要求本端重建整份历史，
+		// 并把 server 不认识的本地行重新上行（rebase.go）。重推排在 rebase 之后而不是
+		// 交给下一个 30 秒周期：这条路径本来就是从「静默失联」里爬出来，没有理由再等。
+		if !errors.Is(err, syncwire.ErrCursorUnknown) {
+			s.setLastErr(err)
+			return err
+		}
+		if err := s.rebase(ctx, accountID); err != nil {
+			s.setLastErr(err)
+			return err
+		}
+		if err := s.flush(ctx, accountID, deviceID); err != nil {
+			s.setLastErr(err)
+			return err
+		}
 	}
 	s.setLastErr(nil)
 	return nil

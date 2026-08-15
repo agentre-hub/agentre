@@ -142,6 +142,60 @@ func TestClaimUnowned_GivenTableWithoutStatus_SkipsStatusFilter(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestResetVersions 换了一套 server 之后，行上盖的还是上一套序列的版本号：既比不了
+// 大小，也会把新序列的全量快照整个挡在门外（版本守卫是「本机版本 >= 来的版本就不
+// 落」）。清零只碰版本号一列。
+func TestResetVersions(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := NewSyncState()
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `agents` SET `sync_version`=\\? WHERE sync_account_id = \\?").
+		WithArgs(0, int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.ResetVersions(ctx, syncwire.KindAgent, 7))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestResetVersions_GivenLoggedOut_DoesNothing R12：未登录时一行都不碰。
+func TestResetVersions_GivenLoggedOut_DoesNothing(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	require.NoError(t, NewSyncState().ResetVersions(ctx, syncwire.KindProject, 0))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestListUnversioned 版本号只由 server 分配，为 0 就是「server 从没见过这一行」。
+// 判据与 ClaimUnowned 同一套：只要存活的行——本机已经软删或落了墓碑的不该被重新
+// 推上账号（R6）。
+func TestListUnversioned(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := NewSyncState()
+	mock.ExpectQuery("SELECT sync_id FROM `projects` WHERE \\(sync_account_id = \\? AND sync_version = 0 AND sync_deleted_at = 0 AND sync_id != ''\\) AND status = \\?").
+		WithArgs(int64(7), consts.ACTIVE).
+		WillReturnRows(sqlmock.NewRows([]string{"sync_id"}).AddRow("p-1").AddRow("p-2"))
+
+	rows, err := repo.ListUnversioned(ctx, syncwire.KindProject, 7)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"p-1", "p-2"}, rows)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestListUnversioned_GivenTableWithoutStatus_SkipsStatusFilter 成员关系与执行目标是
+// 硬删，没有 status 列——不能把一个不存在的列拼进 SQL。
+func TestListUnversioned_GivenTableWithoutStatus_SkipsStatusFilter(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := NewSyncState()
+	mock.ExpectQuery("SELECT sync_id FROM `agent_exec_targets` WHERE sync_account_id = \\? AND sync_version = 0 AND sync_deleted_at = 0 AND sync_id != ''").
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"sync_id"}))
+
+	rows, err := repo.ListUnversioned(ctx, syncwire.KindAgentExecTarget, 7)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestClaimUnowned_GivenLoggedOut_DoesNothing R12：未登录时一行都不碰。
 func TestClaimUnowned_GivenLoggedOut_DoesNothing(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
