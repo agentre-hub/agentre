@@ -1,11 +1,11 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import { ChevronRight, Ellipsis, Layers } from "lucide-react";
 import {
   cn,
   shouldIgnoreClickForSelection,
   useCollapsible,
   useTranscriptBooleanState,
+  useUiTranslation,
 } from "@agentre-ai/agentre-ui";
 
 import {
@@ -69,7 +69,7 @@ export function ActivityBlock({
   defaultExpanded = false,
   pendingOutcome,
 }: ActivityBlockProps) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   // 自动行为走 fallback、用户选择走 store:运行中 fallback=true(自动展开),
   // 轮次结束 fallback 变回默认值(自动收起);用户点过一次就写进 store,
   // 从此以用户的选择为准,不被自动收起覆盖。
@@ -225,7 +225,7 @@ function ElidedSteps({
   pendingOutcome?: PendingOutcome;
   steps: ActivityStep[];
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const summary = React.useMemo(
     () => summarizeActivity(steps, pendingOutcome === "failed"),
     [pendingOutcome, steps],
@@ -264,7 +264,7 @@ function ElidedSteps({
 // FailureCount —— 组头与省略行共用:红色计数永远在可伸缩的汇总**之外**,
 // 挤不下时先裁汇总(折叠是收起,不是让发生过的事消失)。
 function FailureCount({ count }: { count: number }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   if (count <= 0) return null;
   return (
     <span
@@ -314,7 +314,7 @@ function Separator() {
 }
 
 function SummaryPart({ part }: { part: ActivitySummaryPart }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   if (part.category === "edit") {
     return (
       <span className="flex shrink-0 items-center gap-1">
@@ -338,7 +338,7 @@ function SummaryPart({ part }: { part: ActivitySummaryPart }) {
 // categoryLabel 逐类目静态 t(...) —— 拼接 key 会让 i18n 守卫(静态 key 扫描)
 // 看不见这些文案,双语齐全就没人守了。
 function categoryLabel(
-  t: ReturnType<typeof useTranslation>["t"],
+  t: ReturnType<typeof useUiTranslation>["t"],
   part: ActivitySummaryPart,
 ): string {
   const count = part.count;
@@ -359,7 +359,7 @@ function categoryLabel(
 // currentStepLabel:运行中的组头播报当前这一步(名字 + 摘要),取组内最后一步。
 // 名字与摘要走与活动行同一个 stepLabel —— 同一步在组头与展开后必须叫同一个名字。
 function currentStepLabel(
-  t: ReturnType<typeof useTranslation>["t"],
+  t: ReturnType<typeof useUiTranslation>["t"],
   steps: ActivityStep[],
   cwd?: string,
 ): string {

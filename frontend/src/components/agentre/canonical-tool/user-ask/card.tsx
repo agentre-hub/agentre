@@ -1,5 +1,4 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import {
   Check,
   CheckCircle2,
@@ -24,6 +23,7 @@ import {
   TranscriptCardBody,
   TranscriptPill,
   useTranscriptBooleanState,
+  useUiTranslation,
 } from "@agentre-ai/agentre-ui";
 
 import type { CanonicalCardProps } from "../props";
@@ -67,7 +67,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
   uiStateKey,
   tabStateKey,
 }) => {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const submitAnswer = useSubmitAnswer();
   const payload = readUserAsk(toolBlock);
   const draftKey =
@@ -335,7 +335,7 @@ function StatusPill({
   skipped: boolean;
   expired: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   if (expired) {
     return (
       <TranscriptPill tone="default">
@@ -430,7 +430,7 @@ function QuestionGroup({
   onToggle: (qIdx: number, label: string, multi: boolean) => void;
   onOther: (qIdx: number, text: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const labels = sel?.labels ?? [];
   const multi = !!q.multiSelect;
   return (

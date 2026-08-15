@@ -1,6 +1,5 @@
 import * as React from "react";
 import { useCallback, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Check, ChevronDown, ShieldAlert, X } from "lucide-react";
 
 import {
@@ -9,6 +8,7 @@ import {
   useCollapsible,
   useMarkToolPermissionResolved,
   useTranscriptPorts,
+  useUiTranslation,
   Button,
   CollapsibleCode,
   TranscriptCard,
@@ -58,7 +58,7 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
   messageId,
   uiStateKey,
 }) => {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const ports = useTranscriptPorts();
   const payload = readPermission(toolBlock);
   const markToolPermissionResolved = useMarkToolPermissionResolved();

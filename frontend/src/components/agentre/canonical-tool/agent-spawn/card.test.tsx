@@ -3,10 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect } from "vitest";
 
 import type { TranscriptBlock } from "@agentre-ai/agentre-ui";
+import { agentreUiResources } from "@agentre-ai/agentre-ui/i18n";
 
 import { AgentSpawnCard, shortenModelName } from "./card";
-import enCommon from "@/i18n/locales/en/common.json";
-import zhCommon from "@/i18n/locales/zh-CN/common.json";
+
+// 卡片文案已随 canonical 子树搬进共享包,只剩包这一份;宿主 common.json 里再也
+// 没有 canonical.*,断言必须改看包的 bundle 才还盯着真正生效的那份文案。
+const enCommon = agentreUiResources.en;
+const zhCommon = agentreUiResources["zh-CN"];
 
 // expandCard 点击卡片头部展开详情区。折叠态下 agent-spawn-meta-* 节点本就常驻
 // DOM(展开动画靠 CSS grid-template-rows,不是 display:none),getByTestId 在

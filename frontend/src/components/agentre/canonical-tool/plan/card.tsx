@@ -1,5 +1,4 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import {
   CheckCircle2,
   ClipboardList,
@@ -15,6 +14,7 @@ import {
   saveTranscriptDraftState,
   useIsStreamActive,
   useTranscriptPorts,
+  useUiTranslation,
   Button,
   MarkdownText,
   Textarea,
@@ -135,7 +135,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
   uiStateKey,
   tabStateKey,
 }) => {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const ports = useTranscriptPorts();
   const plan = readPlan(toolBlock);
   const feedbackDraftKey =

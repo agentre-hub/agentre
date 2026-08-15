@@ -1,5 +1,4 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import {
   Brain,
   ChevronRight,
@@ -14,6 +13,7 @@ import {
   cn,
   shouldIgnoreClickForSelection,
   useCollapsible,
+  useUiTranslation,
   CollapsibleCode,
   CollapsibleCodeParams,
   toolInputEntries,
@@ -76,7 +76,7 @@ export function ActivityRow({
   /** 这一行没有组头罩着(单条不成组):展开箭头常显,而不是 hover 才显形。 */
   standalone?: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   // 折叠态挂在这一步「单独成行时」的同一个 key 上 —— 组内组外字节级一致,
   // 用户展开过的那一步不会因为它被折进组而丢掉展开态。
   const [expanded, setExpanded] = useTranscriptBooleanState(
@@ -207,7 +207,7 @@ export function ActivityRow({
 // 还没落定的一步(没有结果 / 后台还在跑)在这里报状态标记而不是结果信息 ——
 // 「没有标记 = 成功」要成立,没成功的那些步就必须留着标记(spec 决策 10)。
 function StepTrailing({ facts }: { facts: ReturnType<typeof stepFacts> }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   return (
     <>
       {facts.plus !== undefined && facts.plus > 0 ? (
@@ -272,7 +272,7 @@ function StepTrailing({ facts }: { facts: ReturnType<typeof stepFacts> }) {
 // 运行态同一个语汇);已终结却没配到结果的一步按归属报 失败 / 已取消 / 结果未知
 // —— 它们不转圈(轮次已经结束了,再转就是谎报正在跑)。
 function PendingMarker({ outcome }: { outcome: PendingOutcome }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   if (outcome === "running") {
     return (
       <span
@@ -321,7 +321,7 @@ function ActivityRowBody({
   step: ActivityStep;
   facts: ReturnType<typeof stepFacts>;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   if (step.type === "thinking") {
     return (
       <div className="whitespace-pre-wrap break-words text-aux italic text-muted-foreground">
@@ -363,7 +363,7 @@ function ParamsAndResult({
   step: ActivityStep;
   facts: ReturnType<typeof stepFacts>;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const toolBlock = step.type === "tool" ? step.toolBlock : undefined;
   const params = React.useMemo(
     () =>

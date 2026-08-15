@@ -1,5 +1,4 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
   Check,
@@ -23,6 +22,7 @@ import {
   TranscriptCardHeader,
   TranscriptPill,
   useTranscriptBooleanState,
+  useUiTranslation,
 } from "@agentre-ai/agentre-ui";
 import type { AgentStatus, TranscriptBlock } from "@agentre-ai/agentre-ui";
 
@@ -349,7 +349,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
   uiStateKey,
   onStopSubagent,
 }) => {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const spawn = readSpawn(toolBlock);
   const [expanded, setExpanded] = useTranscriptBooleanState(uiStateKey, false);
   const { mounted, onTransitionEnd } = useCollapsible(expanded);
@@ -821,7 +821,7 @@ function GroupedAgentSpawnCard({
   keyBase,
   onStopSubagent,
 }: GroupedAgentSpawnCardProps): React.ReactElement {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const { mounted, onTransitionEnd } = useCollapsible(expanded);
   const runs = (spawn.runs ?? []).slice().sort((a, b) => a.index - b.index);
   const outerStatus = spawn.status ?? "running";
@@ -1005,7 +1005,7 @@ function AgentSpawnRunGroup({
   cardExpanded: boolean;
   uiStateKey: string;
 }): React.ReactElement {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const status = runStatus(run, mode);
   const steps = pairChildBlocks(blocks);
   const hasActivity =

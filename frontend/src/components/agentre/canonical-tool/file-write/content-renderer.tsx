@@ -1,8 +1,11 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import { Copy } from "lucide-react";
 
-import { Button, copyTextWithToast } from "@agentre-ai/agentre-ui";
+import {
+  Button,
+  copyTextWithToast,
+  useUiTranslation,
+} from "@agentre-ai/agentre-ui";
 
 import type { FileWriteDTO } from "../types";
 
@@ -20,7 +23,7 @@ export function FileWriteContent({
 }: {
   write: FileWriteDTO;
 }): React.ReactElement {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   if (write.content === "") {
     return (
       <div className="px-3 py-1 text-muted-foreground">
@@ -60,7 +63,7 @@ export function FileWriteContent({
 }
 
 function TruncatedBar({ content, lines }: { content: string; lines: number }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const [copyState, setCopyState] = React.useState<
     "copied" | "failed" | "idle"
   >("idle");

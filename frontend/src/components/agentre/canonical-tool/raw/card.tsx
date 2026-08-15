@@ -1,5 +1,4 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import {
   Check,
   ChevronRight,
@@ -14,6 +13,7 @@ import {
   statusConfig,
   summarizeRawTool,
   useCollapsible,
+  useUiTranslation,
   copyTextWithToast,
   CollapsibleCode,
   CollapsibleCodeParams,
@@ -46,7 +46,7 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
   sessionId,
   uiStateKey,
 }) => {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const [expanded, setExpanded] = useTranscriptBooleanState(uiStateKey, false);
   const { mounted, onTransitionEnd } = useCollapsible(expanded);
 

@@ -1,6 +1,4 @@
-import { useTranslation } from "react-i18next";
-
-import { cn, TranscriptPill } from "@agentre-ai/agentre-ui";
+import { cn, useUiTranslation, TranscriptPill } from "@agentre-ai/agentre-ui";
 import type { DiffHunk, DiffLine, FileEditPatch } from "../types";
 
 // FileBlock 渲染单个文件的 diff(可能多 hunks);showHeader=true 时画出文件名条。
@@ -11,7 +9,7 @@ export function FileBlock({
   file: FileEditPatch;
   showHeader: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const empty = !file.hunks || file.hunks.length === 0;
   return (
     <div>
