@@ -36,6 +36,7 @@ import {
   MarkdownText,
   StreamingMarkdown,
   ThinkingBlock,
+  type TranscriptBlock,
 } from "@agentre-ai/agentre-ui";
 import { LocalCommandCard } from "./local-command/card";
 import { MessageRow, MessageCopyButton } from "./message-row";
@@ -43,7 +44,7 @@ import { OpenClawExecApprovalCard } from "./openclaw-exec-approval/card";
 import { ToolApprovalCard } from "./tool-approval/card";
 import type { TranscriptRow, TranscriptRowItem } from "./transcript-rows";
 import type { AgentColor } from "./types";
-import type { ChatBlockData, RetryNotice } from "@/stores/chat-streams-store";
+import type { RetryNotice } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 
 // ─── 会话级静态渲染依赖 ───────────────────────────────────────────────────────
@@ -528,10 +529,10 @@ function DisconnectedIndicator() {
   );
 }
 
-function ImageBlockView({ block }: { block: ChatBlockData }) {
+function ImageBlockView({ block }: { block: TranscriptBlock }) {
   const { t } = useTranslation();
   const image = (
-    block as ChatBlockData & {
+    block as TranscriptBlock & {
       image?: { dataUrl?: string; mediaType?: string; name?: string };
     }
   ).image;
@@ -553,8 +554,8 @@ function ImageBlockView({ block }: { block: ChatBlockData }) {
 }
 
 function extractAssistantOutputText(
-  blocks: ChatBlockData[] = [],
-  liveBlocks: ChatBlockData[] = [],
+  blocks: TranscriptBlock[] = [],
+  liveBlocks: TranscriptBlock[] = [],
   liveTail: string = "",
 ): string {
   const allBlocks = [...blocks, ...liveBlocks];
@@ -800,7 +801,7 @@ export type TranscriptRowViewProps = {
   row: TranscriptRow;
   /** 仅 live 消息的末行收到非空值 —— footer copyText 需要拼上未持久化的输出。 */
   liveTail: string;
-  liveBlocks: ChatBlockData[] | undefined;
+  liveBlocks: TranscriptBlock[] | undefined;
   /** 仅 live 消息的末行非空。 */
   liveRetry: RetryNotice | null;
   /** 末行 && 该消息是 streaming 指示器宿主(最后一条 assistant)。 */

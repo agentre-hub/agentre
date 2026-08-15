@@ -12,9 +12,11 @@ import {
   type ToolCategory,
 } from "@/components/agentre/canonical-tool/tier";
 import type { CanonicalDTO } from "@/components/agentre/canonical-tool/types";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
+import type {
+  TranscriptBlock,
+  TranscriptMessage,
+} from "@agentre-ai/agentre-ui";
 import type { LocalCommandEntry } from "@/stores/local-commands-store";
-import type { chat_svc } from "../../../wailsjs/go/models";
 
 // isSubagentCanonical 替代旧 isSubagentTool(name) — name-based 检测改为读
 // canonical.kind。translator 在 emit 时已经把 Task/Agent/collabAgent 工具识别成
@@ -35,7 +37,7 @@ export function isAskUserQuestionToolName(
   return name === "askuserquestion" || name === "ask_user_question";
 }
 
-export function isRenderablePlanBlock(block: ChatBlockData): boolean {
+export function isRenderablePlanBlock(block: TranscriptBlock): boolean {
   const canonical = block.canonical;
   if (canonical?.kind !== "plan.update" || !canonical.planUpdate) return false;
   const actions = canonical.planUpdate.actions ?? [];
@@ -46,43 +48,43 @@ export function isRenderablePlanBlock(block: ChatBlockData): boolean {
 }
 
 type MutableAgentSpawnChildBlocks = Omit<AgentSpawnChildBlocks, "byRun"> & {
-  byRun: Map<string, ChatBlockData[]>;
+  byRun: Map<string, TranscriptBlock[]>;
 };
 
 export type RenderItem =
   // streaming=true 标记这是「流式途中正在生长」的文本项 —— 用 StreamingMarkdown
   // 增量渲染(已定稿 block memo 跳过、只重解析活跃尾巴);持久化文本仍走整段 MarkdownText。
   | { text: string; type: "text"; streaming?: boolean }
-  | { block: ChatBlockData; type: "plan" }
+  | { block: TranscriptBlock; type: "plan" }
   | {
-      block: ChatBlockData;
+      block: TranscriptBlock;
       startedAt?: number;
       streaming: boolean;
       type: "thinking";
     }
   | {
-      resultBlock?: ChatBlockData;
-      toolBlock?: ChatBlockData;
+      resultBlock?: TranscriptBlock;
+      toolBlock?: TranscriptBlock;
       // childBlocks 仅 canonical.agent.spawn 需要(parent → run 归集),其它工具留空。
       childBlocks?: AgentSpawnChildBlocks;
       type: "tool";
     }
   | {
-      block: ChatBlockData;
+      block: TranscriptBlock;
       type: "image";
     }
   | {
-      block: ChatBlockData;
+      block: TranscriptBlock;
       // _consumed 标记此条审批已被 merge 到某条 tool_use 卡上,buildRenderItems 返回前
       // 会被过滤掉。未 resolved / resolved-denied 的审批不会被标记,保留为独立卡。
       _consumed?: boolean;
       type: "tool_permission_request";
     }
-  | { block: ChatBlockData; type: "tool_approval" }
-  | { block: ChatBlockData; type: "exec_approval" }
-  | { block: ChatBlockData; type: "unknown" }
-  | { block: ChatBlockData; type: "notice" }
-  | { block: ChatBlockData; type: "compact_boundary" };
+  | { block: TranscriptBlock; type: "tool_approval" }
+  | { block: TranscriptBlock; type: "exec_approval" }
+  | { block: TranscriptBlock; type: "unknown" }
+  | { block: TranscriptBlock; type: "notice" }
+  | { block: TranscriptBlock; type: "compact_boundary" };
 
 // ─── 活动块 ─────────────────────────────────────────────────────────────────
 // 一段连续的「思考 / 只读探查 / 中性 / 写 / 命令 / 失败」折成一个活动块:一个
@@ -159,7 +161,7 @@ export type VisibleRenderItem = (RenderItem | ActivityRenderItem) & {
 
 export type BuildRenderItemsArgs = {
   messageId: number;
-  blocks?: ChatBlockData[];
+  blocks?: TranscriptBlock[];
   /** 本轮仍在生长的尾巴文本,合并进末尾 text 项并标记 streaming。 */
   liveTail?: string;
   /** 流式中累积的 thinking 增量,合成一张排在 liveBlocks 之前的 thinking 卡。 */
@@ -169,7 +171,7 @@ export type BuildRenderItemsArgs = {
   // chat-streams-store 维护。和 persisted blocks 拼成一个完整顺序 —— 关键:
   // 流式途中遇到 tool_use 时,store 会把当下的 liveDelta 先冻成 text block 推
   // 到 liveBlocks 尾,所以真实顺序就是 [persisted..., ...liveBlocks, liveDelta]。
-  liveBlocks?: ChatBlockData[];
+  liveBlocks?: TranscriptBlock[];
 };
 
 export function buildRenderItems({
@@ -183,11 +185,11 @@ export function buildRenderItems({
   // 预扫一遍把 subagent 内部 block 先按外层 tool_use_id,再按 run id 归集;
   // 缺失 run id 的块仍保留在 all 中,主流程会 skip,由父卡作为 unmatched step 渲染。
   const childrenByParent = new Map<string, MutableAgentSpawnChildBlocks>();
-  const collectChildren = (b: ChatBlockData) => {
+  const collectChildren = (b: TranscriptBlock) => {
     if (!b.parentToolUseId) return;
     const grouped = childrenByParent.get(b.parentToolUseId) ?? {
       all: [],
-      byRun: new Map<string, ChatBlockData[]>(),
+      byRun: new Map<string, TranscriptBlock[]>(),
     };
     grouped.all.push(b);
     if (b.subagentRunId) {
@@ -225,7 +227,7 @@ export function buildRenderItems({
     items.push({ text, type: "text", streaming });
   }
 
-  const consumeBlock = (b: ChatBlockData) => {
+  const consumeBlock = (b: TranscriptBlock) => {
     // subagent 内部 block 已经被归集到父 AgentSpawnCard 的 childBlocks,不再同级渲染。
     if (b.parentToolUseId) return;
     switch (b.type) {
@@ -389,7 +391,7 @@ export function buildRenderItems({
   liveBlocks.forEach(consumeBlock);
   if (liveThinking) {
     items.push({
-      block: { text: liveThinking, type: "thinking" } as ChatBlockData,
+      block: { text: liveThinking, type: "thinking" } as TranscriptBlock,
       startedAt: liveThinkingStartedAt ?? undefined,
       streaming: !liveTail,
       type: "thinking",
@@ -562,7 +564,7 @@ export function summarizeActivity(
 
 // fileEditPatches:后端 translator 已把每次编辑算成按文件的 patch(路径 + 增删行),
 // 组头的「改 N 个文件 +P −M」直接汇总它,不在前端重算 diff。
-function fileEditPatches(block: ChatBlockData) {
+function fileEditPatches(block: TranscriptBlock) {
   const canonical = (block as { canonical?: CanonicalDTO }).canonical;
   if (canonical?.kind !== "file.edit") return [];
   return canonical.fileEdit?.files ?? [];
@@ -610,7 +612,7 @@ export type TranscriptRow = {
    * 行渲染需要的消息引用(角色/时间戳/meta tokens/errorText)。local_command 行
    * 无对应消息,字段缺省 —— 渲染层在读取前已按 item.type 提前返回。
    */
-  message?: chat_svc.ChatMessage;
+  message?: TranscriptMessage;
   /**
    * R17:非本机发出的用户消息的来源设备标识。仅当调用方在 sourceByMessageId
    * 里给这条用户消息提供了来源时才有值(本机发出的恒为 undefined —— 呈现与
@@ -645,7 +647,7 @@ export type TranscriptRowsResult = {
  * 它仍是这台设备的标识。
  */
 export function buildSourceByMessageId(
-  messages: readonly chat_svc.ChatMessage[],
+  messages: readonly TranscriptMessage[],
   localFingerprint: string | undefined,
 ): Map<number, string> {
   const out = new Map<number, string>();
@@ -660,7 +662,7 @@ export function buildSourceByMessageId(
 }
 
 export type BuildTranscriptRowsArgs = {
-  displayMessages: chat_svc.ChatMessage[];
+  displayMessages: TranscriptMessage[];
   autonomousIds: ReadonlySet<number>;
   /**
    * 当前会话的本地命令条目(F4 store,listForSession 已按 createdAt 升序)。
@@ -684,7 +686,7 @@ export type BuildTranscriptRowsArgs = {
    * 自然失效。live 消息(liveByMessageId 里有 key 的)每 chunk 内容都在变,
    * 绕过缓存现场重建。
    */
-  cache?: WeakMap<chat_svc.ChatMessage, TranscriptRow[]>;
+  cache?: WeakMap<TranscriptMessage, TranscriptRow[]>;
   /**
    * R17:用户消息 id → 来源设备标识。只在多客户端、消息确实由他端发出时才有
    * 条目;本机发出的消息不在表里,输出与不传逐项一致(单客户端界面零变化)。
@@ -697,18 +699,18 @@ export type LiveRowContent = {
   liveTail?: string;
   liveThinking?: string;
   liveThinkingStartedAt?: number | null;
-  liveBlocks?: ChatBlockData[];
+  liveBlocks?: TranscriptBlock[];
 };
 
 function buildMessageRows(
-  m: chat_svc.ChatMessage,
+  m: TranscriptMessage,
   autonomous: boolean,
   sourceDevice: string | undefined,
   live?: {
     liveTail?: string;
     liveThinking?: string;
     liveThinkingStartedAt?: number | null;
-    liveBlocks?: ChatBlockData[];
+    liveBlocks?: TranscriptBlock[];
   },
 ): TranscriptRow[] {
   const items = buildRenderItems({
@@ -766,7 +768,7 @@ export type SettledTranscriptRows = TranscriptRowsResult & {
   /** messageId → 该消息行组在 rows 里的 [start, length)。live overlay 据此 splice。 */
   groupByMessageId: ReadonlyMap<number, { start: number; length: number }>;
   /** messageId → 消息对象。overlay 重建 live 行时按 id 取对象,避免每 chunk 全表扫描。 */
-  messageByMessageId: ReadonlyMap<number, chat_svc.ChatMessage>;
+  messageByMessageId: ReadonlyMap<number, TranscriptMessage>;
 };
 
 /**
@@ -786,7 +788,7 @@ function buildRows(args: BuildTranscriptRowsArgs): SettledTranscriptRows {
   // 阶段一:按 displayMessages 顺序产出各消息的行组(缓存/live 逻辑与历史一致),
   // 同时记下每组的 createtime,供阶段二归并 —— 消息组顺序原样保留,无重排可能。
   const messageGroups: { rows: TranscriptRow[]; createtime: number }[] = [];
-  const messageByMessageId = new Map<number, chat_svc.ChatMessage>();
+  const messageByMessageId = new Map<number, TranscriptMessage>();
   for (const m of displayMessages) {
     messageByMessageId.set(m.id, m);
   }
@@ -919,7 +921,7 @@ export function applyLiveTranscriptRows(
   const liveGroups: {
     content: LiveRowContent;
     length: number;
-    m: chat_svc.ChatMessage;
+    m: TranscriptMessage;
     start: number;
   }[] = [];
   for (const [messageId, content] of liveByMessageId) {
@@ -1090,7 +1092,9 @@ export function estimateRowSizeWithSpacing(
   return Math.round(estimateRowSize(current) + delta);
 }
 
-export function stableBlockIdentity(block?: ChatBlockData): string | undefined {
+export function stableBlockIdentity(
+  block?: TranscriptBlock,
+): string | undefined {
   if (!block) return undefined;
   if (block.toolUseId) return `tool:${block.toolUseId}`;
   if (block.toolPermission?.requestId) {

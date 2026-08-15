@@ -10,6 +10,8 @@ import {
   Wrench,
 } from "lucide-react";
 import {
+  cn,
+  statusConfig,
   summarizeRawTool,
   useCollapsible,
   copyTextWithToast,
@@ -22,11 +24,8 @@ import {
   TranscriptPill,
   useTranscriptBooleanState,
 } from "@agentre-ai/agentre-ui";
+import type { AgentStatus, TranscriptBlock } from "@agentre-ai/agentre-ui";
 
-import { cn } from "@/lib/utils";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
-
-import { statusConfig, type AgentStatus } from "../../types";
 import {
   commandResultOf,
   isFailedCommandResult,
@@ -54,7 +53,7 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
   const toolName = toolBlock.toolName ?? "tool";
   const input = toolBlock.toolInput as Record<string, unknown> | undefined;
   const isBackground = input?.run_in_background === true;
-  const bgSubagent = (toolBlock as ChatBlockData).subagent;
+  const bgSubagent = (toolBlock as TranscriptBlock).subagent;
   // The 「后台运行」 pill is a "running in background right now" indicator. A
   // run_in_background Bash gets its tool_result (launch ACK) immediately, so we
   // can't key off hasResult — drive it off the background subagent's status.
@@ -98,7 +97,7 @@ export const RawToolCard: React.FC<CanonicalCardProps> = ({
           : t("canonical.status.running");
   const StatusIcon = isError ? TriangleAlert : hasResult ? Check : LoaderCircle;
 
-  const perm = (toolBlock as ChatBlockData).toolPermission;
+  const perm = (toolBlock as TranscriptBlock).toolPermission;
   const showOverlay = perm && !perm.resolved;
   const allowedBadge =
     perm?.resolved && perm.allowed

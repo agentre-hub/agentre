@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChatBlockData } from "@/stores/chat-streams-store";
+import type { TranscriptBlock } from "@agentre-ai/agentre-ui";
 
 import { displayName, tier } from "./tier";
 
 // canonical 字面量在测试里天然缺 wailsjs 生成类的 convertValues 方法;
 // 沿用其余 canonical-tool 卡片测试同一手法(agent-spawn/card.test.tsx:44)
 // 经 unknown 收窄绕过。
-function block(partial: Record<string, unknown>): ChatBlockData {
-  return { type: "tool_use", ...partial } as unknown as ChatBlockData;
+function block(partial: Record<string, unknown>): TranscriptBlock {
+  return { type: "tool_use", ...partial } as unknown as TranscriptBlock;
 }
 
 describe("tier", () => {

@@ -2,8 +2,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Copy } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { copyTextWithToast } from "@agentre-ai/agentre-ui";
+import { Button, copyTextWithToast } from "@agentre-ai/agentre-ui";
 
 import type { FileWriteDTO } from "../types";
 

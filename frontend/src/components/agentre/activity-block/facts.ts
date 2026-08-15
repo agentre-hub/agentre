@@ -5,9 +5,11 @@
 // 事:把 canonical / result 里已有的事实(增删行、退出码、结果规模)取出来,以及
 // 决定这一步用哪一档字重。
 
-import { relativizePath, summarizeRawTool } from "@agentre-ai/agentre-ui";
-
-import type { ChatBlockData } from "@/stores/chat-streams-store";
+import {
+  relativizePath,
+  summarizeRawTool,
+  type TranscriptBlock,
+} from "@agentre-ai/agentre-ui";
 
 import { commandResultOf } from "../canonical-tool/command-result";
 import { displayName, tier } from "../canonical-tool/tier";
@@ -26,7 +28,7 @@ export function stepWeight(step: ActivityStep): ActivityWeight {
   return t === "read" || t === "write" ? t : "neutral";
 }
 
-export function canonicalOf(block?: ChatBlockData): CanonicalDTO | undefined {
+export function canonicalOf(block?: TranscriptBlock): CanonicalDTO | undefined {
   return (block as { canonical?: CanonicalDTO } | undefined)?.canonical;
 }
 
@@ -131,7 +133,7 @@ function countLines(text: string): number {
 // 立刻拿到启动 ACK,所以「还在不在跑」只能看后台 subagent 的状态,不能看有没有
 // 结果。终态之外(含状态缺失 = 刚起还没回报)一律算还在跑。
 function backgroundFacts(
-  block?: ChatBlockData,
+  block?: TranscriptBlock,
 ): Pick<StepFacts, "backgroundRunning" | "backgroundTaskId"> {
   const input = block?.toolInput as Record<string, unknown> | undefined;
   if (input?.run_in_background !== true) return {};
@@ -165,7 +167,7 @@ export type StepLabel = {
 // 几百 KB 的写入 / 一段 unified diff 会整段进到一个 whitespace-nowrap 的行盒里。
 const SUMMARY_MAX_CHARS = 200;
 
-export function stepLabel(block?: ChatBlockData, cwd?: string): StepLabel {
+export function stepLabel(block?: TranscriptBlock, cwd?: string): StepLabel {
   const input = block?.toolInput as Record<string, unknown> | undefined;
   // RawToolCard 的同一条规矩:input 里有 command 就是 shell 形态,标签用 Bash
   // (codex 的 command_execution 与 claudecode 的 Bash 同形)。

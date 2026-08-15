@@ -128,6 +128,18 @@ export {
   useOptionalPort,
   useTranscriptPorts,
 } from "./transcript/ports-context";
+export {
+  noopTranscriptLiveState,
+  TranscriptLiveStateProvider,
+  useIsStreamActive,
+  useMarkToolPermissionResolved,
+} from "./transcript/live-state";
+export type {
+  MarkToolPermissionResolvedInput,
+  TranscriptLiveState,
+} from "./transcript/live-state";
+export { statusConfig } from "./transcript/agent-status";
+export type { AgentStatus, AgentStatusStyle } from "./transcript/agent-status";
 export type {
   AnswerToolApprovalInput,
   AnswerToolPermissionInput,

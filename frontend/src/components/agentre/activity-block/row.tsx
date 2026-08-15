@@ -11,6 +11,7 @@ import {
   Wrench,
 } from "lucide-react";
 import {
+  cn,
   shouldIgnoreClickForSelection,
   useCollapsible,
   CollapsibleCode,
@@ -18,8 +19,6 @@ import {
   toolInputEntries,
   useTranscriptBooleanState,
 } from "@agentre-ai/agentre-ui";
-
-import { cn } from "@/lib/utils";
 
 import { FileBlock } from "../canonical-tool/file-edit/hunk-renderer";
 import { FileWriteContent } from "../canonical-tool/file-write/content-renderer";

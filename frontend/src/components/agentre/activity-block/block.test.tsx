@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ChatBlockData } from "@/stores/chat-streams-store";
-
 import type { ActivityStep, ActivitySummary } from "../transcript-rows";
-import { TranscriptUIStateProvider } from "@agentre-ai/agentre-ui";
+import {
+  TranscriptUIStateProvider,
+  type TranscriptBlock,
+} from "@agentre-ai/agentre-ui";
 
 import { ActivityBlock } from "./block";
 
@@ -14,14 +15,14 @@ import { ActivityBlock } from "./block";
 
 function toolStep(
   key: string,
-  toolBlock: Partial<ChatBlockData>,
-  resultBlock?: Partial<ChatBlockData>,
+  toolBlock: Partial<TranscriptBlock>,
+  resultBlock?: Partial<TranscriptBlock>,
 ): ActivityStep {
   return {
     resultBlock: resultBlock
-      ? ({ type: "tool_result", ...resultBlock } as ChatBlockData)
+      ? ({ type: "tool_result", ...resultBlock } as TranscriptBlock)
       : undefined,
-    toolBlock: { type: "tool_use", ...toolBlock } as ChatBlockData,
+    toolBlock: { type: "tool_use", ...toolBlock } as TranscriptBlock,
     type: "tool",
     uiStateKey: key,
   };
@@ -29,7 +30,7 @@ function toolStep(
 
 function thinkingStep(key: string, text: string): ActivityStep {
   return {
-    block: { text, type: "thinking" } as ChatBlockData,
+    block: { text, type: "thinking" } as TranscriptBlock,
     streaming: false,
     type: "thinking",
     uiStateKey: key,
@@ -77,7 +78,7 @@ const exitOnlyFailedStep = toolStep(
 // subagent sidecar 是 wails 生成的 class 类型(带 convertValues),测试只用其中
 // 两个字段,按纯数据对象构造后 cast —— 与 store 里同一手法。
 function subagentState(status: string, taskId: string) {
-  return { status, taskId } as unknown as ChatBlockData["subagent"];
+  return { status, taskId } as unknown as TranscriptBlock["subagent"];
 }
 
 // manySteps —— 一轮长活动:每 5 步夹一条失败的命令,其余是只读探查。
@@ -302,7 +303,7 @@ describe("ActivityBlock 活动行(展开态)", () => {
             ],
           },
           kind: "file.edit",
-        } as unknown as ChatBlockData["canonical"],
+        } as unknown as TranscriptBlock["canonical"],
         toolInput: { new_string: "const next = 1;", old_string: "x" },
         toolName: "Edit",
       },
@@ -329,7 +330,7 @@ describe("ActivityBlock 活动行(展开态)", () => {
             path: "/repo/new.ts",
           },
           kind: "file.write",
-        } as unknown as ChatBlockData["canonical"],
+        } as unknown as TranscriptBlock["canonical"],
         toolInput: { content: "line one\nline two", file_path: "/repo/new.ts" },
         toolName: "Write",
       },
@@ -361,7 +362,7 @@ describe("ActivityBlock 活动行(展开态)", () => {
             truncated: true,
           },
           kind: "file.write",
-        } as unknown as ChatBlockData["canonical"],
+        } as unknown as TranscriptBlock["canonical"],
         toolInput: { content: "kept one\nkept two", file_path: "/repo/big.ts" },
         toolName: "Write",
       },
@@ -431,7 +432,7 @@ describe("ActivityBlock 活动行(展开态)", () => {
           ],
         },
         kind: "file.edit",
-      } as unknown as ChatBlockData["canonical"],
+      } as unknown as TranscriptBlock["canonical"],
       toolInput: {
         changes: [{ diff, kind: "update", path: "/repo/internal/app/chat.go" }],
       },

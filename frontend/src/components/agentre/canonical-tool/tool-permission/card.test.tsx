@@ -1,25 +1,51 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type * as React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TranscriptPortsProvider } from "@agentre-ai/agentre-ui";
-import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
+import {
+  TranscriptLiveStateProvider,
+  TranscriptPortsProvider,
+} from "@agentre-ai/agentre-ui";
+import type {
+  TranscriptBlock,
+  TranscriptLiveState,
+  TranscriptPorts,
+} from "@agentre-ai/agentre-ui";
 
 import { ToolPermissionCard } from "./card";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
 
 // 卡片从 TranscriptPortsProvider 取动作端口,少了 provider 会在挂载期就抛。
+const answerToolPermission = vi.fn().mockResolvedValue(undefined);
 const ports: TranscriptPorts = {
-  answerToolPermission: vi.fn().mockResolvedValue(undefined),
+  answerToolPermission,
   answerUserQuestion: vi.fn().mockResolvedValue(undefined),
   answerToolApproval: vi.fn().mockResolvedValue(undefined),
   resolveExecApproval: vi.fn().mockResolvedValue({ status: "resolved" }),
   resolvePlanAction: vi.fn().mockResolvedValue(undefined),
 };
 
+// 乐观更新写回宿主的实时流,卡片只认 TranscriptLiveState 契约(桌面端接
+// chat-streams-store,只读转录的宿主什么都不接)。liveState 必须是模块级常量
+// —— 它的成员被当 hook 调用。
+const markToolPermissionResolved = vi.fn();
+const liveState: TranscriptLiveState = {
+  useIsStreamActive: () => false,
+  markToolPermissionResolved,
+};
+
 function renderCard(ui: React.ReactElement) {
   return render(
-    <TranscriptPortsProvider ports={ports}>{ui}</TranscriptPortsProvider>,
+    <TranscriptPortsProvider ports={ports}>
+      <TranscriptLiveStateProvider value={liveState}>
+        {ui}
+      </TranscriptLiveStateProvider>
+    </TranscriptPortsProvider>,
   );
 }
 
@@ -38,7 +64,7 @@ describe("ToolPermissionCard JSON input", () => {
           resolved: false,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(
       <ToolPermissionCard toolBlock={block} sessionId={1} messageId={1} />,
     );
@@ -61,7 +87,7 @@ describe("ToolPermissionCard JSON input", () => {
           resolved: false,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(
       <ToolPermissionCard toolBlock={block} sessionId={1} messageId={1} />,
     );
@@ -77,5 +103,91 @@ describe("ToolPermissionCard JSON input", () => {
     expect(within(grid).getByText(/system_prompt/)).toBeDefined();
     fireEvent.transitionEnd(grid);
     expect(within(grid).queryByText(/system_prompt/)).toBeNull();
+  });
+});
+
+describe("ToolPermissionCard optimistic resolution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function pendingBlock(): TranscriptBlock {
+    return {
+      type: "tool_use",
+      toolName: "Bash",
+      toolUseId: "perm-2",
+      canonical: {
+        kind: "tool.permission",
+        toolPermission: {
+          requestId: "req-1",
+          toolName: "Bash",
+          toolInput: { command: "ls" },
+          resolved: false,
+        },
+      },
+    } as unknown as TranscriptBlock;
+  }
+
+  it("Given a pending permission, When Allow Once is clicked, Then the host live state is marked resolved for this session and message", async () => {
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={pendingBlock()}
+        sessionId={7}
+        messageId={42}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow Once" }));
+
+    expect(markToolPermissionResolved).toHaveBeenCalledWith({
+      sessionId: 7,
+      assistantMessageId: 42,
+      toolPermission: {
+        requestId: "req-1",
+        toolName: "Bash",
+        toolInput: { command: "ls" },
+        resolved: true,
+        allowed: true,
+        alwaysAllow: false,
+      },
+    });
+    await waitFor(() => {
+      expect(answerToolPermission).toHaveBeenCalledWith({
+        sessionId: 7,
+        requestId: "req-1",
+        allow: true,
+        alwaysAllowSession: false,
+      });
+    });
+  });
+
+  it("Given the answer port rejects, When the approval fails, Then the optimistic resolution is rolled back and the error surfaces", async () => {
+    answerToolPermission.mockRejectedValueOnce(
+      new Error("no waiting tool permission"),
+    );
+
+    renderCard(
+      <ToolPermissionCard
+        toolBlock={pendingBlock()}
+        sessionId={7}
+        messageId={42}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+
+    expect(await screen.findByText("no waiting tool permission")).toBeDefined();
+    expect(markToolPermissionResolved).toHaveBeenLastCalledWith({
+      sessionId: 7,
+      assistantMessageId: 42,
+      toolPermission: {
+        requestId: "req-1",
+        toolName: "Bash",
+        toolInput: { command: "ls" },
+        resolved: false,
+        allowed: false,
+        alwaysAllow: false,
+      },
+    });
   });
 });

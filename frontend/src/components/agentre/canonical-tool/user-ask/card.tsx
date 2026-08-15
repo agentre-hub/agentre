@@ -14,18 +14,17 @@ import {
 } from "lucide-react";
 import {
   clearTranscriptDraftState,
+  cn,
   loadTranscriptDraftState,
   saveTranscriptDraftState,
   useCollapsible,
+  Button,
+  Input,
   TranscriptCard,
   TranscriptCardBody,
   TranscriptPill,
   useTranscriptBooleanState,
 } from "@agentre-ai/agentre-ui";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 
 import type { CanonicalCardProps } from "../props";
 import type {

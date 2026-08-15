@@ -2,8 +2,9 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect } from "vitest";
 
+import type { TranscriptBlock } from "@agentre-ai/agentre-ui";
+
 import { AgentSpawnCard, shortenModelName } from "./card";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
 import enCommon from "@/i18n/locales/en/common.json";
 import zhCommon from "@/i18n/locales/zh-CN/common.json";
 
@@ -41,7 +42,7 @@ function expandCard(container: HTMLElement): HTMLElement {
 
 describe("AgentSpawnCard", () => {
   it("renders nothing without canonical", () => {
-    const block = { type: "tool_use" } as unknown as ChatBlockData;
+    const block = { type: "tool_use" } as unknown as TranscriptBlock;
     const { container } = render(<AgentSpawnCard toolBlock={block} />);
     expect(container.firstChild).toBeNull();
   });
@@ -61,7 +62,7 @@ describe("AgentSpawnCard", () => {
           status: "running",
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     expect(screen.getByText("Agent")).toBeDefined();
     expect(screen.getByText("review PR")).toBeDefined();
@@ -95,7 +96,7 @@ describe("AgentSpawnCard", () => {
         status: "completed",
         durationMs: 12000,
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { container } = render(<AgentSpawnCard toolBlock={block} />);
     // 成功态没有状态胶囊(spec 决策 10),合并进来的运行时态改由头部次级信息作证。
     expect(screen.queryByTestId("agent-spawn-status-pill")).toBeNull();
@@ -127,11 +128,11 @@ describe("AgentSpawnCard", () => {
           status: "completed",
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const result = {
       type: "tool_result",
       text: "summary text",
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { container } = render(
       <AgentSpawnCard toolBlock={block} resultBlock={result} />,
     );
@@ -152,7 +153,7 @@ describe("AgentSpawnCard", () => {
           model: "haiku",
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     const badge = screen.getByTestId("agent-spawn-model-badge");
     expect(badge.textContent).toBe("haiku");
@@ -175,7 +176,7 @@ describe("AgentSpawnCard", () => {
       subagent: {
         model: "claude-haiku-4-5-20251001",
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     expect(screen.getByTestId("agent-spawn-model-badge").textContent).toBe(
       "haiku-4-5",
@@ -192,7 +193,7 @@ describe("AgentSpawnCard", () => {
         agentSpawn: { taskId: "1" },
       },
       subagent: { model: "claude-opus-5" },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     expect(screen.getByTestId("agent-spawn-model-badge").textContent).toBe(
       "opus-5",
@@ -213,7 +214,7 @@ describe("AgentSpawnCard", () => {
         agentSpawn: { taskId: "1", subagentType: "general-purpose" },
       },
       subagent: { toolUses: 2 },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     expect(screen.queryByTestId("agent-spawn-model-badge")).toBeNull();
   });
@@ -237,7 +238,7 @@ describe("AgentSpawnCard", () => {
         status: "canceled",
         durationMs: 4200,
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     expect(screen.getByText(/STOPPED/)).toBeDefined();
     expect(screen.queryByText(/RUNNING/)).toBeNull();
@@ -256,7 +257,7 @@ describe("AgentSpawnCard", () => {
           totalTokens: 14500,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { container } = render(<AgentSpawnCard toolBlock={block} />);
     const progress = screen.getByTestId("agent-spawn-progress");
     expect(progress.textContent).toBe("3 · 14.5K");
@@ -295,7 +296,7 @@ describe("AgentSpawnCard", () => {
           totalTokens: 14500,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     expect(screen.queryByTestId("agent-spawn-progress")).toBeNull();
   });
@@ -318,7 +319,7 @@ describe("AgentSpawnCard", () => {
           totalTokens: 14500,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     const description = screen.getByText("x");
     const progress = screen.getByTestId("agent-spawn-progress");
@@ -352,7 +353,7 @@ describe("AgentSpawnCard", () => {
         agentSpawn: { taskId: "1", status: "running", toolUses: 2 },
       },
       subagent: { status: "canceled" },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { unmount } = render(<AgentSpawnCard toolBlock={canceled} />);
     expect(screen.queryByTestId("agent-spawn-progress")).toBeNull();
     unmount();
@@ -364,12 +365,12 @@ describe("AgentSpawnCard", () => {
         kind: "agent.spawn",
         agentSpawn: { taskId: "1", status: "running", toolUses: 2 },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const result = {
       type: "tool_result",
       isError: true,
       text: "boom",
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={errored} resultBlock={result} />);
     expect(screen.queryByTestId("agent-spawn-progress")).toBeNull();
   });
@@ -383,7 +384,7 @@ describe("AgentSpawnCard", () => {
         agentSpawn: { taskId: "1", model: "haiku" },
       },
       subagent: { model: "claude-haiku-4-5-20251001" },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { container } = render(<AgentSpawnCard toolBlock={block} />);
     expect(screen.getByTestId("agent-spawn-model-badge").textContent).toBe(
       "haiku-4-5",
@@ -407,7 +408,7 @@ describe("AgentSpawnCard", () => {
           totalTokens: 0,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { container } = render(<AgentSpawnCard toolBlock={block} />);
     const details = expandCard(container);
     expect(
@@ -436,7 +437,7 @@ describe("AgentSpawnCard", () => {
         agentSpawn: { taskId: "1" },
       },
       subagent: { model: longModel },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     const badge = screen.getByTestId("agent-spawn-model-badge");
     // 完整原值仍在 DOM 里(截断只是视觉裁切,不是数据丢失)。
@@ -461,7 +462,7 @@ describe("AgentSpawnCard", () => {
         agentSpawn: { taskId: "1" },
       },
       subagent: { model: longModel },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     const badge = screen.getByTestId("agent-spawn-model-badge");
     // 承载 truncate 的必须是内层子节点,不是这个 flex item 本身。
@@ -494,7 +495,7 @@ describe("AgentSpawnCard", () => {
         },
       },
       subagent: { model: "claude-haiku-4-5-20251001" },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     const badge = screen.getByTestId("agent-spawn-model-badge");
     const progress = screen.getByTestId("agent-spawn-progress");
@@ -517,7 +518,7 @@ describe("AgentSpawnCard", () => {
         kind: "agent.spawn",
         agentSpawn: { taskId: "1", subagentType: "general-purpose" },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { container } = render(<AgentSpawnCard toolBlock={block} />);
     const details = expandCard(container);
     expect(within(details).queryByTestId("agent-spawn-meta-row")).toBeNull();
@@ -532,7 +533,7 @@ function normalizedSpawnBlock({
   mode?: "single" | "parallel" | "chain";
   runs: Record<string, unknown>[];
   status?: string;
-}): ChatBlockData {
+}): TranscriptBlock {
   return {
     type: "tool_use",
     toolName: "subagent",
@@ -564,7 +565,7 @@ function normalizedSpawnBlock({
       },
     },
     subagent: { mode, runs, status },
-  } as unknown as ChatBlockData;
+  } as unknown as TranscriptBlock;
 }
 
 function groupedChildren(
@@ -577,9 +578,9 @@ function groupedChildren(
     isError?: boolean;
   }>,
 ) {
-  const all: ChatBlockData[] = [];
-  const byRun = new Map<string, ChatBlockData[]>();
-  const fallback: ChatBlockData[] = [];
+  const all: TranscriptBlock[] = [];
+  const byRun = new Map<string, TranscriptBlock[]>();
+  const fallback: TranscriptBlock[] = [];
   for (const entry of entries) {
     const target = entry.runId ? (byRun.get(entry.runId) ?? []) : fallback;
     const toolBlock = {
@@ -588,7 +589,7 @@ function groupedChildren(
       toolUseId: entry.toolUseId,
       subagentRunId: entry.runId,
       ...(entry.toolInput ? { toolInput: entry.toolInput } : {}),
-    } as ChatBlockData;
+    } as TranscriptBlock;
     target.push(toolBlock);
     all.push(toolBlock);
     if (entry.result !== undefined) {
@@ -598,7 +599,7 @@ function groupedChildren(
         text: entry.result,
         isError: entry.isError,
         subagentRunId: entry.runId,
-      } as ChatBlockData;
+      } as TranscriptBlock;
       target.push(resultBlock);
       all.push(resultBlock);
     }
@@ -629,7 +630,7 @@ describe("AgentSpawnCard normalized runs", () => {
       <AgentSpawnCard
         toolBlock={block}
         resultBlock={
-          { type: "tool_result", text: "Top-level summary" } as ChatBlockData
+          { type: "tool_result", text: "Top-level summary" } as TranscriptBlock
         }
         childBlocks={groupedChildren([])}
       />,
@@ -1134,7 +1135,7 @@ describe("progress accessibility label i18n (canonical.agentSpawn.progressAria)"
           totalTokens: 0,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     const progress = screen.getByTestId("agent-spawn-progress");
     const ariaLabel = progress.getAttribute("aria-label");
@@ -1171,7 +1172,7 @@ describe("progress accessibility label i18n (canonical.agentSpawn.progressAria)"
           totalTokens: 2400,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
     const progress = screen.getByTestId("agent-spawn-progress");
     const ariaLabel = progress.getAttribute("aria-label");
@@ -1190,19 +1191,19 @@ describe("AgentSpawnCard step-list laziness (perf regression)", () => {
   // 真实的工具结果是多行的(read/grep 的大文件输出),折叠的活动行对多行结果
   // 只报规模(「N 行」)。单行结果按 spec 会在行尾留一段截断预览 —— 那是设计
   // 上的实义信息,不是懒挂载漏网,所以这里用多行样本来量「隐藏文本」。
-  const manyChildSteps = (count: number): ChatBlockData[] => {
-    const all: ChatBlockData[] = [];
+  const manyChildSteps = (count: number): TranscriptBlock[] => {
+    const all: TranscriptBlock[] = [];
     for (let i = 0; i < count; i++) {
       all.push({
         type: "tool_use",
         toolName: "Read",
         toolUseId: `call-${i}`,
-      } as ChatBlockData);
+      } as TranscriptBlock);
       all.push({
         type: "tool_result",
         toolUseId: `call-${i}`,
         text: `${"x".repeat(100)}\n`.repeat(100),
-      } as ChatBlockData);
+      } as TranscriptBlock);
     }
     return all;
   };
@@ -1420,7 +1421,7 @@ describe("AgentSpawnCard steps region as an activity block", () => {
         totalTokens: 2400,
         durationMs: 12000,
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     render(<AgentSpawnCard toolBlock={block} />);
 
     // 成功态不再有任何状态胶囊 —— 「没有标记 = 成功」(spec 决策 10)。
@@ -1440,7 +1441,7 @@ describe("AgentSpawnCard steps region as an activity block", () => {
         kind: "agent.spawn",
         agentSpawn: { taskId: "1", status: "running" },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { container } = render(<AgentSpawnCard toolBlock={block} />);
     const name = screen.getByText("Agent");
     expect(name.className).not.toContain("text-primary-text");

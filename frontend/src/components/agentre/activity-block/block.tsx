@@ -2,12 +2,11 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronRight, Ellipsis, Layers } from "lucide-react";
 import {
+  cn,
   shouldIgnoreClickForSelection,
   useCollapsible,
   useTranscriptBooleanState,
 } from "@agentre-ai/agentre-ui";
-
-import { cn } from "@/lib/utils";
 
 import {
   summarizeActivity,

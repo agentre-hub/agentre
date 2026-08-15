@@ -7,10 +7,9 @@ import {
   TranscriptPortsProvider,
   __resetChatPanelScrollStateForTesting,
 } from "@agentre-ai/agentre-ui";
-import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
+import type { TranscriptBlock, TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { UserAskCard } from "./card";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
 
 // 卡片不再直接调 Wails,而是从 TranscriptPortsProvider 取动作端口;这里注入
 // 一份 mock 端口,断言打在端口上。
@@ -35,7 +34,7 @@ describe("UserAskCard", () => {
     __resetChatPanelScrollStateForTesting();
   });
 
-  function draftBlock(): ChatBlockData {
+  function draftBlock(): TranscriptBlock {
     return {
       type: "tool_use",
       toolName: "AskUserQuestion",
@@ -57,14 +56,14 @@ describe("UserAskCard", () => {
           ],
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
   }
 
   it("renders nothing without canonical", () => {
     const block = {
       type: "tool_use",
       toolName: "AskUserQuestion",
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const { container } = renderCard(
       <UserAskCard toolBlock={block} sessionId={1} />,
     );
@@ -91,7 +90,7 @@ describe("UserAskCard", () => {
           ],
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("想用哪种方式?")).toBeDefined();
     expect(screen.getByText("A")).toBeDefined();
@@ -117,7 +116,7 @@ describe("UserAskCard", () => {
           answered: true,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("ANSWERED")).toBeDefined();
   });
@@ -139,7 +138,7 @@ describe("UserAskCard", () => {
           ],
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     const header = screen.getByRole("button", { expanded: true });
     expect(screen.getByText("想用哪种方式?")).toBeDefined();
@@ -180,7 +179,7 @@ describe("UserAskCard", () => {
           answered: true,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
 
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
 
@@ -215,7 +214,7 @@ describe("UserAskCard", () => {
           skipped: true,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
 
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
 
@@ -306,7 +305,7 @@ describe("UserAskCard", () => {
           expired: true,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText(/已失效|EXPIRED/i)).toBeDefined();
     expect(screen.queryByText("提交回复")).toBeNull();
@@ -332,7 +331,7 @@ describe("UserAskCard", () => {
           ],
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(<UserAskCard toolBlock={block} sessionId={1} />);
     await user.click(screen.getByText("A"));
     await user.click(screen.getByText("Submit Reply"));
@@ -361,7 +360,7 @@ describe("UserAskCard", () => {
           ],
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const view = renderCard(
       <UserAskCard
         toolBlock={block}

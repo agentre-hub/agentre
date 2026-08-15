@@ -3,14 +3,17 @@ import type * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  TranscriptLiveStateProvider,
   TranscriptPortsProvider,
   __resetChatPanelScrollStateForTesting,
 } from "@agentre-ai/agentre-ui";
-import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
+import type {
+  TranscriptBlock,
+  TranscriptLiveState,
+  TranscriptPorts,
+} from "@agentre-ai/agentre-ui";
 
 import { PlanApproveCard } from "./card";
-import { useChatStreamsStore } from "@/stores/chat-streams-store";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
 
 // 卡片不再直接调 Wails,而是从 TranscriptPortsProvider 取动作端口;这里注入
 // 一份 mock 端口,断言打在端口上。
@@ -23,9 +26,22 @@ const ports: TranscriptPorts = {
   resolvePlanAction,
 };
 
+// 「会话是否有流在跑」是宿主状态,卡片只通过 TranscriptLiveState 契约读它。
+// liveState 必须是模块级常量(它的成员被当 hook 调用),开关放在外面的变量上,
+// 由每条用例在 render 之前设定。
+let streamActive = false;
+const liveState: TranscriptLiveState = {
+  useIsStreamActive: () => streamActive,
+  markToolPermissionResolved: () => {},
+};
+
 function renderCard(ui: React.ReactElement) {
   return render(
-    <TranscriptPortsProvider ports={ports}>{ui}</TranscriptPortsProvider>,
+    <TranscriptPortsProvider ports={ports}>
+      <TranscriptLiveStateProvider value={liveState}>
+        {ui}
+      </TranscriptLiveStateProvider>
+    </TranscriptPortsProvider>,
   );
 }
 
@@ -38,7 +54,7 @@ function blockWithActions(
     kind: "approve" | "refine";
     requiresFeedback?: boolean;
   }[],
-): ChatBlockData {
+): TranscriptBlock {
   return {
     type: "tool_use",
     toolName: "ExitPlanMode",
@@ -50,10 +66,10 @@ function blockWithActions(
         actions,
       },
     },
-  } as unknown as ChatBlockData;
+  } as unknown as TranscriptBlock;
 }
 
-function actionPlanBlock(): ChatBlockData {
+function actionPlanBlock(): TranscriptBlock {
   return {
     type: "plan",
     text: "# Plan\n- inspect\n- patch",
@@ -68,18 +84,18 @@ function actionPlanBlock(): ChatBlockData {
         steps: [],
       },
     },
-  } as unknown as ChatBlockData;
+  } as unknown as TranscriptBlock;
 }
 
 describe("PlanApproveCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetChatPanelScrollStateForTesting();
-    useChatStreamsStore.setState({ streams: new Map() });
+    streamActive = false;
   });
 
   it("renders nothing without canonical", () => {
-    const block = { type: "tool_use" } as unknown as ChatBlockData;
+    const block = { type: "tool_use" } as unknown as TranscriptBlock;
     const { container } = renderCard(
       <PlanApproveCard toolBlock={block} sessionId={1} />,
     );
@@ -314,7 +330,7 @@ describe("PlanApproveCard", () => {
           allowed: true,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByText("Plan Approved")).toBeDefined();
     expect(screen.getByText("Start executing the plan")).toBeDefined();
@@ -350,12 +366,7 @@ describe("PlanApproveCard", () => {
   });
 
   it("keeps request-backed approval actions enabled while the session stream is waiting", () => {
-    useChatStreamsStore.getState().openStream({
-      name: "chat.stream.waiting",
-      sessionId: 1,
-      assistantMessageId: 99,
-      streamStartedAt: Date.now(),
-    });
+    streamActive = true;
     const block = blockWithActions([
       { id: "plan.approve.accept_edits", kind: "approve" },
       { id: "plan.refine", kind: "refine", requiresFeedback: true },
@@ -374,12 +385,7 @@ describe("PlanApproveCard", () => {
   });
 
   it("disables requestless plan actions while the session has an active stream", () => {
-    useChatStreamsStore.getState().openStream({
-      name: "chat.stream.running",
-      sessionId: 1,
-      assistantMessageId: 99,
-      streamStartedAt: Date.now(),
-    });
+    streamActive = true;
 
     renderCard(<PlanApproveCard toolBlock={actionPlanBlock()} sessionId={1} />);
 
@@ -478,7 +484,7 @@ describe("PlanApproveCard", () => {
           allowed: true,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("plan-card")).toHaveClass(
       "border-status-running/50",
@@ -498,7 +504,7 @@ describe("PlanApproveCard", () => {
           allowed: false,
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderCard(<PlanApproveCard toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("plan-card")).toHaveClass("border-border");
   });

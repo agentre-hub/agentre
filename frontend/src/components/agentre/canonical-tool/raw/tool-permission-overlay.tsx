@@ -1,7 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { useTranscriptPorts } from "@agentre-ai/agentre-ui";
-import { Button } from "@/components/ui/button";
+import { Button, useTranscriptPorts } from "@agentre-ai/agentre-ui";
 
 // ToolPermissionOverlay 是 RawToolCard 的"等待审批"小条。ExitPlanMode 这种特例
 // 走 plan-approve-request/card.tsx,不走这里;这里只负责通用工具的 Allow / Deny。

@@ -20,6 +20,12 @@ export type AgentColor =
 import type { AgentStatus } from "@/stores/types";
 export type { AgentStatus };
 
+/**
+ * 状态配色是纯展示投影，已随对话流卡片一起搬进 `@agentre-ai/agentre-ui`。
+ * 这里保留转发：仓库内有 9 个引用点，把它们全部改指包只会淹没真正的改动。
+ */
+export { statusConfig } from "@agentre-ai/agentre-ui";
+
 export const agentColorClassNames: Record<AgentColor, string> = {
   "agent-1": "bg-agent-1",
   "agent-2": "bg-agent-2",
@@ -89,38 +95,3 @@ export const agentColorOrder: AgentColor[] = [
   "agent-15",
   "agent-16",
 ];
-
-export const statusConfig: Record<
-  AgentStatus,
-  {
-    label: string;
-    dotClassName: string;
-    textClassName: string;
-    pillClassName: string;
-  }
-> = {
-  running: {
-    label: "RUNNING",
-    dotClassName: "bg-status-running",
-    textClassName: "text-status-running",
-    pillClassName: "bg-status-running-bg text-status-running",
-  },
-  waiting: {
-    label: "WAITING",
-    dotClassName: "bg-status-waiting",
-    textClassName: "text-status-waiting",
-    pillClassName: "bg-status-waiting-bg text-status-waiting",
-  },
-  idle: {
-    label: "IDLE",
-    dotClassName: "bg-status-idle",
-    textClassName: "text-muted-foreground",
-    pillClassName: "bg-secondary text-muted-foreground",
-  },
-  error: {
-    label: "ERROR",
-    dotClassName: "bg-status-error",
-    textClassName: "text-status-error",
-    pillClassName: "bg-destructive-soft text-status-error",
-  },
-};

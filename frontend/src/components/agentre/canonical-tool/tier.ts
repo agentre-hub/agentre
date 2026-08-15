@@ -5,7 +5,7 @@
 //
 // 中性层是关键分支:认不出来的工具不假装它是只读,不能给它读层的轻量级视觉权重。
 
-import type { ChatBlockData } from "@/stores/chat-streams-store";
+import type { TranscriptBlock } from "@agentre-ai/agentre-ui";
 
 import type { CanonicalDTO, CanonicalKind } from "./types";
 
@@ -37,7 +37,7 @@ const READ_SHAPE_KEYS = [
   "url",
 ];
 
-export function tier(block: ChatBlockData): Tier {
+export function tier(block: TranscriptBlock): Tier {
   // block.canonical 的生成类型(wailsjs view.CanonicalDTO)把 kind 宽化成 string;
   // 这里借道本地 CanonicalDTO 拿回字面量联合类型,与其余 canonical-tool 卡片同一手法
   // (如 file-write/card.tsx:28、agent-spawn/card.tsx:51)。
@@ -68,7 +68,7 @@ function hasAnyKey(input: Record<string, unknown>, keys: string[]): boolean {
 // 也只会落 "other",不会被谎报成读层。
 export type ToolCategory = "read" | "edit" | "write" | "command" | "other";
 
-export function toolCategory(block: ChatBlockData): ToolCategory {
+export function toolCategory(block: TranscriptBlock): ToolCategory {
   // 档位仍由 tier 独家判定 —— 这里只在写层内部再分岔,不另起一套判据。
   const t = tier(block);
   if (t === "out") return "other";

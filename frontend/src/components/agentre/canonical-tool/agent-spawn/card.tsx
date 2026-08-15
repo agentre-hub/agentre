@@ -14,7 +14,9 @@ import {
   Wrench,
 } from "lucide-react";
 import {
+  cn,
   shouldIgnoreClickForSelection,
+  statusConfig,
   useCollapsible,
   CollapsibleCode,
   TranscriptCard,
@@ -22,14 +24,11 @@ import {
   TranscriptPill,
   useTranscriptBooleanState,
 } from "@agentre-ai/agentre-ui";
-
-import { cn } from "@/lib/utils";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
+import type { AgentStatus, TranscriptBlock } from "@agentre-ai/agentre-ui";
 
 import { ActivityBlock } from "../../activity-block/block";
 import type { PendingOutcome } from "../../activity-block/facts";
 import { summarizeActivity, type ActivityStep } from "../../transcript-rows";
-import { statusConfig, type AgentStatus } from "../../types";
 import type { AgentSpawnChildBlocks, CanonicalCardProps } from "../props";
 import type {
   AgentSpawnDTO,
@@ -43,7 +42,7 @@ import type {
 // prompt/taskId)与 toolBlock.subagent(SubagentStarted/Progress/Done 经 mergeSubagentMeta
 // 累积的运行时字段:toolUses/totalTokens/durationMs/status/lastToolName)。零值不覆盖,避免
 // 早到的空 meta 把已有进度抹掉。
-function readSpawn(toolBlock: ChatBlockData): AgentSpawnDTO | undefined {
+function readSpawn(toolBlock: TranscriptBlock): AgentSpawnDTO | undefined {
   const c = (toolBlock as { canonical?: CanonicalDTO }).canonical;
   if (!c || c.kind !== "agent.spawn") return undefined;
   const base = c.agentSpawn;
@@ -114,9 +113,9 @@ function narrowSpawnMode(s: string | undefined): AgentSpawnMode | undefined {
   return s === "single" || s === "parallel" || s === "chain" ? s : undefined;
 }
 
-type StepRow = { tool: ChatBlockData; result?: ChatBlockData };
+type StepRow = { tool: TranscriptBlock; result?: TranscriptBlock };
 
-function pairChildBlocks(blocks: ChatBlockData[]): StepRow[] {
+function pairChildBlocks(blocks: TranscriptBlock[]): StepRow[] {
   const steps: StepRow[] = [];
   const byId = new Map<string, number>();
   for (const b of blocks) {
@@ -135,7 +134,7 @@ function pairChildBlocks(blocks: ChatBlockData[]): StepRow[] {
 
 function statusFromSpawn(
   spawn: AgentSpawnDTO,
-  resultBlock: ChatBlockData | undefined,
+  resultBlock: TranscriptBlock | undefined,
 ): AgentStatus {
   if (resultBlock?.isError || spawn.status === "failed") return "error";
   if (spawn.status === "running") return "running";
@@ -319,7 +318,7 @@ const EMPTY_CHILD_BLOCKS: AgentSpawnChildBlocks = {
   byRun: new Map(),
 };
 
-function allChildBlocks(children: AgentSpawnChildBlocks): ChatBlockData[] {
+function allChildBlocks(children: AgentSpawnChildBlocks): TranscriptBlock[] {
   return children.all;
 }
 
@@ -428,7 +427,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
           type: "tool_result",
           text: normalizedOutput,
           isError: normalizedRun?.status === "failed",
-        } as ChatBlockData);
+        } as TranscriptBlock);
   // Legacy and normalized single both attach every child, including missing or
   // unknown run IDs, to their sole STEPS list.
   const steps = pairChildBlocks(allChildBlocks(childBlocks));
@@ -712,8 +711,8 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
 
 type GroupedAgentSpawnCardProps = {
   spawn: AgentSpawnDTO;
-  toolBlock: ChatBlockData;
-  resultBlock?: ChatBlockData;
+  toolBlock: TranscriptBlock;
+  resultBlock?: TranscriptBlock;
   cwd?: string;
   childBlocks: AgentSpawnChildBlocks;
   expanded: boolean;
@@ -1000,7 +999,7 @@ function AgentSpawnRunGroup({
 }: {
   run: AgentSpawnRunDTO;
   mode: AgentSpawnMode | undefined;
-  blocks: ChatBlockData[];
+  blocks: TranscriptBlock[];
   cwd?: string;
   /** 卡片内容挂载态(展开或收缩过渡中)—— 折叠落定后不 mount 任何 run 内的步骤(性能)。 */
   cardExpanded: boolean;
@@ -1215,7 +1214,7 @@ function AgentSpawnSection({
 function renderSummary(
   status: AgentStatus,
   t: TFunction,
-  resultBlock?: ChatBlockData,
+  resultBlock?: TranscriptBlock,
 ): React.ReactElement {
   if (!resultBlock || !resultBlock.text) {
     if (status === "running" || status === "waiting") {

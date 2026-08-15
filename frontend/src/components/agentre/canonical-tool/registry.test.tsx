@@ -3,10 +3,9 @@ import type * as React from "react";
 import { describe, it, expect, vi } from "vitest";
 
 import { TranscriptPortsProvider } from "@agentre-ai/agentre-ui";
-import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
+import type { TranscriptBlock, TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { CanonicalToolRouter } from "./registry";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
 
 // 路由出来的交互卡片从 TranscriptPortsProvider 取动作端口,少了 provider 会在
 // 挂载期就抛 —— 这里给整棵路由树注入一份 mock 端口。
@@ -30,7 +29,7 @@ describe("CanonicalToolRouter", () => {
       type: "tool_use",
       toolName: "Bash",
       toolInput: { command: "ls" },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("raw-tool-card")).toBeDefined();
   });
@@ -46,7 +45,7 @@ describe("CanonicalToolRouter", () => {
         toolName: "Write",
         toolInput: { file_path: "/a.ts", content: "x" },
         canonical: { kind },
-      } as unknown as ChatBlockData;
+      } as unknown as TranscriptBlock;
       renderRouted(<CanonicalToolRouter toolBlock={block} />);
       expect(screen.getByTestId("raw-tool-card")).toBeDefined();
       expect(screen.queryByTestId("file-write-card")).toBeNull();
@@ -70,7 +69,7 @@ describe("CanonicalToolRouter", () => {
           ],
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderRouted(<CanonicalToolRouter toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("user-ask-card")).toBeDefined();
   });
@@ -86,7 +85,7 @@ describe("CanonicalToolRouter", () => {
           steps: [{ step: "s", status: "pending" }],
         },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("raw-tool-card")).toBeDefined();
     expect(screen.getByText("update_plan")).toBeDefined();
@@ -101,7 +100,7 @@ describe("CanonicalToolRouter", () => {
         kind: "plan.approve_request",
         planApprove: { requestId: "r", planText: "# p" },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderRouted(<CanonicalToolRouter toolBlock={block} sessionId={1} />);
     expect(screen.getByTestId("plan-card")).toBeDefined();
   });
@@ -113,7 +112,7 @@ describe("CanonicalToolRouter", () => {
         kind: "agent.spawn",
         agentSpawn: { taskId: "1" },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("agent-spawn-card")).toBeDefined();
   });
@@ -124,7 +123,7 @@ describe("CanonicalToolRouter", () => {
       toolName: "Custom",
       toolInput: { foo: "bar" },
       canonical: { kind: "totally.unknown" },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     renderRouted(<CanonicalToolRouter toolBlock={block} />);
     expect(screen.getByTestId("raw-tool-card")).toBeDefined();
   });

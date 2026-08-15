@@ -1,8 +1,11 @@
 import type {
+  AgentStatus as PackageAgentStatus,
   TranscriptBlock,
   TranscriptMessage,
 } from "@agentre-ai/agentre-ui";
 import { describe, expect, it } from "vitest";
+
+import type { AgentStatus as HostAgentStatus } from "@/stores/types";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
@@ -27,11 +30,31 @@ export type BlockIsAssignable = Assert<
   chat_svc.ChatBlock extends TranscriptBlock ? true : false
 >;
 
+/**
+ * `AgentStatus` 是唯一一处**双向**断言：它在两侧各有一份同形的字符串联合
+ * （宿主的 `stores/types.ts` 是领域 token，包里那份是展示投影的键），
+ * 刻意不让 store 反向 import UI 包。两份必须逐字相等 —— 任一侧加减一个状态，
+ * 包里的 `statusConfig` 就会缺键或多键，这里当场红。
+ */
+export type AgentStatusMatchesHost = Assert<
+  HostAgentStatus extends PackageAgentStatus ? true : false
+>;
+
+export type AgentStatusMatchesPackage = Assert<
+  PackageAgentStatus extends HostAgentStatus ? true : false
+>;
+
 describe("transcript DTO contract", () => {
   it("keeps generated chat_svc models assignable to the shared package DTO", () => {
     // 类型断言在 tsc 阶段生效（见上方 Assert<>）；这里只留一条运行时锚点，
     // 说明这份守卫的失败信号来自类型检查而不是断言表达式。
     const proof: MessageIsAssignable & BlockIsAssignable = true;
+
+    expect(proof).toBe(true);
+  });
+
+  it("keeps AgentStatus identical on both sides", () => {
+    const proof: AgentStatusMatchesHost & AgentStatusMatchesPackage = true;
 
     expect(proof).toBe(true);
   });

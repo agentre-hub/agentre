@@ -2,10 +2,9 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 
 import { TranscriptPortsProvider } from "@agentre-ai/agentre-ui";
-import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
+import type { TranscriptBlock, TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { RawToolCard } from "./card";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
 
 // 只有未决的 toolPermission 才挂 ToolPermissionOverlay,而 overlay 从
 // TranscriptPortsProvider 取动作端口 —— 因此只有那一条用例需要注入端口。
@@ -17,20 +16,20 @@ const ports: TranscriptPorts = {
   resolvePlanAction: vi.fn().mockResolvedValue(undefined),
 };
 
-const bashUse = (overrides: Partial<ChatBlockData> = {}): ChatBlockData =>
+const bashUse = (overrides: Partial<TranscriptBlock> = {}): TranscriptBlock =>
   ({
     type: "tool_use",
     toolName: "Bash",
     toolInput: { command: "ls -la" },
     ...overrides,
-  }) as unknown as ChatBlockData;
+  }) as unknown as TranscriptBlock;
 
-const result = (overrides: Partial<ChatBlockData> = {}): ChatBlockData =>
+const result = (overrides: Partial<TranscriptBlock> = {}): TranscriptBlock =>
   ({
     type: "tool_result",
     text: "hi\n",
     ...overrides,
-  }) as unknown as ChatBlockData;
+  }) as unknown as TranscriptBlock;
 
 describe("RawToolCard header", () => {
   it("shows the tool name and a one-line summary", () => {

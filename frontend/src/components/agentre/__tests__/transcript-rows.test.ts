@@ -17,9 +17,11 @@ import {
   type VisibleActivityItem,
   type VisibleRenderItem,
 } from "@/components/agentre/transcript-rows";
-import type { ChatBlockData } from "@/stores/chat-streams-store";
+import type {
+  TranscriptBlock,
+  TranscriptMessage,
+} from "@agentre-ai/agentre-ui";
 import type { LocalCommandEntry } from "@/stores/local-commands-store";
-import type { chat_svc } from "../../../../wailsjs/go/models";
 
 // buildRenderItems 是 renderMessageBlocks 状态机的纯函数抽取。这些单测把配对 /
 // 合并 / skip / FIFO / 归集 / 合成顺序 / uiStateKey 字面量逐一钉死 —— 行级虚拟化
@@ -28,27 +30,27 @@ import type { chat_svc } from "../../../../wailsjs/go/models";
 function toolUse(
   toolUseId: string | undefined,
   toolName = "Bash",
-  extra: Partial<ChatBlockData> = {},
-): ChatBlockData {
+  extra: Partial<TranscriptBlock> = {},
+): TranscriptBlock {
   return {
     toolInput: { command: "echo hi" },
     toolName,
     toolUseId,
     type: "tool_use",
     ...extra,
-  } as ChatBlockData;
+  } as TranscriptBlock;
 }
 
 function toolResult(
   toolUseId: string | undefined,
   text = "ok",
-  extra: Partial<ChatBlockData> = {},
-): ChatBlockData {
-  return { text, toolUseId, type: "tool_result", ...extra } as ChatBlockData;
+  extra: Partial<TranscriptBlock> = {},
+): TranscriptBlock {
+  return { text, toolUseId, type: "tool_result", ...extra } as TranscriptBlock;
 }
 
-function text(t: string): ChatBlockData {
-  return { type: "text", text: t } as ChatBlockData;
+function text(t: string): TranscriptBlock {
+  return { type: "text", text: t } as TranscriptBlock;
 }
 
 describe("buildRenderItems", () => {
@@ -145,7 +147,7 @@ describe("buildRenderItems", () => {
         resolved: true,
         toolName: "Bash",
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const deniedPerm = {
       type: "tool_permission_request",
       toolPermission: {
@@ -154,7 +156,7 @@ describe("buildRenderItems", () => {
         resolved: true,
         toolName: "Bash",
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
 
     const items = buildRenderItems({
       messageId: 5,
@@ -187,7 +189,7 @@ describe("buildRenderItems", () => {
         toolInput: { name: "研发部" },
         status: "pending",
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
 
     const items = buildRenderItems({
       messageId: 8,
@@ -206,7 +208,7 @@ describe("buildRenderItems", () => {
       type: "notice",
       level: "info",
       text: "provider notice",
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
 
     const items = buildRenderItems({
       messageId: 8,
@@ -215,7 +217,7 @@ describe("buildRenderItems", () => {
 
     expect(items).toHaveLength(1);
     expect(items[0].type).toBe("notice");
-    const block = (items[0] as { block: ChatBlockData }).block;
+    const block = (items[0] as { block: TranscriptBlock }).block;
     expect(block.text).toBe("provider notice");
   });
 
@@ -231,7 +233,7 @@ describe("buildRenderItems", () => {
             allowedDecisions: ["allow-once", "deny"],
             status: "pending",
           },
-        } as unknown as ChatBlockData,
+        } as unknown as TranscriptBlock,
       ],
     });
 
@@ -251,7 +253,7 @@ describe("buildRenderItems", () => {
       blocks: [
         toolUse("toolu-parent", "Agent", {
           canonical: { kind: "agent.spawn" },
-        } as unknown as Partial<ChatBlockData>),
+        } as unknown as Partial<TranscriptBlock>),
         toolUse("toolu-child", "Bash", { parentToolUseId: "toolu-parent" }),
         toolResult("toolu-child", "hello", { parentToolUseId: "toolu-parent" }),
         toolResult("toolu-parent", "Raw output"),
@@ -278,7 +280,7 @@ describe("buildRenderItems", () => {
             kind: "agent.spawn",
             agentSpawn: { mode: "parallel", runs: [] },
           },
-        } as unknown as Partial<ChatBlockData>),
+        } as unknown as Partial<TranscriptBlock>),
         toolUse("shared", "Read", {
           parentToolUseId: "toolu-parent",
           subagentRunId: "run-a",
@@ -361,7 +363,7 @@ describe("buildRenderItems", () => {
       liveThinking: "round2…",
       liveBlocks: [
         toolUse("toolu-1"),
-        { type: "tool_result", toolUseId: "toolu-1" } as ChatBlockData,
+        { type: "tool_result", toolUseId: "toolu-1" } as TranscriptBlock,
       ],
     });
     expect(round2Thinking.map((item) => item.type)).toEqual([
@@ -404,25 +406,25 @@ describe("buildRenderItems", () => {
       // liveBlocks 已含 round1 冻结段(thinking/text/tool_use/tool_result)
       // + round2 冻结段(thinking/text/tool_use)。
       liveBlocks: [
-        { type: "thinking", text: "thought1" } as ChatBlockData,
-        { type: "text", text: "text1" } as ChatBlockData,
+        { type: "thinking", text: "thought1" } as TranscriptBlock,
+        { type: "text", text: "text1" } as TranscriptBlock,
         toolUse("toolu-1"),
         {
           type: "tool_result",
           toolUseId: "toolu-1",
           text: "r1",
-        } as ChatBlockData,
-        { type: "thinking", text: "thought2" } as ChatBlockData,
-        { type: "text", text: "text2" } as ChatBlockData,
+        } as TranscriptBlock,
+        { type: "thinking", text: "thought2" } as TranscriptBlock,
+        { type: "text", text: "text2" } as TranscriptBlock,
         toolUse("toolu-2"),
       ],
     });
     // 活动块摊平成它的步骤 —— 聚合只改变「谁和谁同处一行」,不改变时间顺序。
     const label = (item: { type: string } & Record<string, unknown>): string =>
       item.type === "thinking"
-        ? `thinking:${(item as unknown as { block: ChatBlockData }).block.text}`
+        ? `thinking:${(item as unknown as { block: TranscriptBlock }).block.text}`
         : item.type === "tool"
-          ? `tool:${(item as unknown as { toolBlock?: ChatBlockData }).toolBlock?.toolName}`
+          ? `tool:${(item as unknown as { toolBlock?: TranscriptBlock }).toolBlock?.toolName}`
           : item.type === "text"
             ? `text:${(item as unknown as { text: string }).text}`
             : item.type;
@@ -459,7 +461,7 @@ describe("buildRenderItems", () => {
     const items = buildRenderItems({
       messageId: 5,
       blocks: [
-        { type: "thinking", text: "chain" } as ChatBlockData,
+        { type: "thinking", text: "chain" } as TranscriptBlock,
         text("说完了"),
       ],
     });
@@ -478,14 +480,14 @@ describe("buildRenderItems", () => {
         kind: "plan.update",
         planUpdate: { actions: [{ kind: "approve" }], steps: [], text: "" },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const progressOnly = {
       type: "plan",
       canonical: {
         kind: "plan.update",
         planUpdate: { actions: [], steps: [{ title: "step" }], text: "" },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
 
     const items = buildRenderItems({
       messageId: 1,
@@ -501,9 +503,9 @@ describe("buildRenderItems", () => {
       messageId: 1,
       blocks: [
         text(""),
-        { type: "ask_user_question" } as ChatBlockData,
-        { type: "compact_boundary" } as ChatBlockData,
-        { type: "mystery" } as ChatBlockData,
+        { type: "ask_user_question" } as TranscriptBlock,
+        { type: "compact_boundary" } as TranscriptBlock,
+        { type: "mystery" } as TranscriptBlock,
       ],
     });
 
@@ -573,7 +575,7 @@ describe("buildSourceByMessageId (R17 caller side)", () => {
       ...message(id, "user", [text("x")]),
       sourceDevice,
       sourceDeviceName,
-    }) as chat_svc.ChatMessage;
+    }) as TranscriptMessage;
 
   it("maps a foreign user message to its device name", () => {
     const out = buildSourceByMessageId(
@@ -606,7 +608,7 @@ describe("buildSourceByMessageId (R17 caller side)", () => {
         {
           ...message(5, "assistant", [text("assistant")]),
           sourceDevice: "sha256:other",
-        } as chat_svc.ChatMessage,
+        } as TranscriptMessage,
       ],
       "sha256:self",
     );
@@ -625,8 +627,8 @@ describe("buildSourceByMessageId (R17 caller side)", () => {
 function message(
   id: number,
   role: "user" | "assistant",
-  blocks: ChatBlockData[],
-): chat_svc.ChatMessage {
+  blocks: TranscriptBlock[],
+): TranscriptMessage {
   return {
     blocks,
     completionTokens: 0,
@@ -639,7 +641,7 @@ function message(
     role,
     seq: id,
     sessionId: 1,
-  } as chat_svc.ChatMessage;
+  } as TranscriptMessage;
 }
 
 describe("buildTranscriptRows", () => {
@@ -819,7 +821,7 @@ describe("buildTranscriptRows", () => {
   });
 
   it("WeakMap 缓存:非 live 消息同对象重建返回同一行数组引用,live 消息绕过缓存", () => {
-    const cache = new WeakMap<chat_svc.ChatMessage, TranscriptRow[]>();
+    const cache = new WeakMap<TranscriptMessage, TranscriptRow[]>();
     const persisted = message(1, "assistant", [text("stable")]);
     const live = message(2, "assistant", []);
     const args = {
@@ -878,17 +880,17 @@ describe("estimateRowSize", () => {
       case "placeholder":
         return { type: "placeholder" };
       case "image":
-        return { block: {} as ChatBlockData, type: "image", uiStateKey: "k" };
+        return { block: {} as TranscriptBlock, type: "image", uiStateKey: "k" };
       case "thinking":
         return {
-          block: {} as ChatBlockData,
+          block: {} as TranscriptBlock,
           streaming: false,
           type: "thinking",
           uiStateKey: "k",
         };
       case "compact_boundary":
         return {
-          block: {} as ChatBlockData,
+          block: {} as TranscriptBlock,
           type: "compact_boundary",
           uiStateKey: "k",
         };
@@ -996,7 +998,7 @@ describe("estimateRowSizeWithSpacing / isLastRowOfMessage", () => {
     const rows = [
       makeRow(1, "a", { type: "tool", uiStateKey: "a" }),
       makeRow(1, "b", {
-        block: {} as ChatBlockData,
+        block: {} as TranscriptBlock,
         streaming: false,
         type: "thinking",
         uiStateKey: "b",
@@ -1292,18 +1294,18 @@ describe("buildSettledTranscriptRows + applyLiveTranscriptRows (M3 split)", () =
 // 判据来源不在本文件:每一步落哪一档 / 哪个类目由 canonical-tool/tier.ts 算
 // (canonical.kind → input shape → 中性兜底,全程不查工具名表)。
 
-function thinkingBlock(t: string): ChatBlockData {
-  return { type: "thinking", text: t } as ChatBlockData;
+function thinkingBlock(t: string): TranscriptBlock {
+  return { type: "thinking", text: t } as TranscriptBlock;
 }
 
-function readUse(id: string, path = "a.ts"): ChatBlockData {
+function readUse(id: string, path = "a.ts"): TranscriptBlock {
   return toolUse(id, "Read", { toolInput: { path } });
 }
 
 function editUse(
   id: string,
   files: { path: string; plus: number; minus: number }[],
-): ChatBlockData {
+): TranscriptBlock {
   return toolUse(id, "Edit", {
     canonical: {
       kind: "file.edit",
@@ -1312,30 +1314,30 @@ function editUse(
       },
     },
     toolInput: { file_path: files[0]?.path },
-  } as unknown as Partial<ChatBlockData>);
+  } as unknown as Partial<TranscriptBlock>);
 }
 
-function writeUse(id: string, path = "new.ts"): ChatBlockData {
+function writeUse(id: string, path = "new.ts"): TranscriptBlock {
   return toolUse(id, "Write", {
     canonical: {
       kind: "file.write",
       fileWrite: { bytes: 1, content: "x", lines: 1, path },
     },
     toolInput: { content: "x", file_path: path },
-  } as unknown as Partial<ChatBlockData>);
+  } as unknown as Partial<TranscriptBlock>);
 }
 
-function otherUse(id: string): ChatBlockData {
+function otherUse(id: string): TranscriptBlock {
   return toolUse(id, "mcp__acme__execute", { toolInput: { foo: "bar" } });
 }
 
-function spawnUse(id: string): ChatBlockData {
+function spawnUse(id: string): TranscriptBlock {
   return toolUse(id, "Agent", {
     canonical: { kind: "agent.spawn", agentSpawn: { taskId: id } },
-  } as unknown as Partial<ChatBlockData>);
+  } as unknown as Partial<TranscriptBlock>);
 }
 
-function failedResult(id: string): ChatBlockData {
+function failedResult(id: string): TranscriptBlock {
   return toolResult(id, "boom", { isError: true });
 }
 
@@ -1531,8 +1533,8 @@ describe("活动块聚合", () => {
     const pendingPerm = {
       type: "tool_permission_request",
       toolPermission: { requestId: "req-1", toolName: "Bash" },
-    } as unknown as ChatBlockData;
-    const askBlock = { type: "ask_user_question" } as ChatBlockData;
+    } as unknown as TranscriptBlock;
+    const askBlock = { type: "ask_user_question" } as TranscriptBlock;
 
     const items = buildRenderItems({
       messageId: 1,
@@ -1580,14 +1582,14 @@ describe("活动块聚合", () => {
         toolKey: "org",
         toolName: "org_create_department",
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
     const planBlock = {
       type: "plan",
       canonical: {
         kind: "plan.update",
         planUpdate: { actions: [{ kind: "approve" }], steps: [], text: "" },
       },
-    } as unknown as ChatBlockData;
+    } as unknown as TranscriptBlock;
 
     const items = buildRenderItems({
       messageId: 1,

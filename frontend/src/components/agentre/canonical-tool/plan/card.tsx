@@ -10,23 +10,19 @@ import {
 
 import {
   clearTranscriptDraftState,
+  cn,
   loadTranscriptDraftState,
   saveTranscriptDraftState,
+  useIsStreamActive,
   useTranscriptPorts,
+  Button,
   MarkdownText,
+  Textarea,
   TranscriptCard,
   TranscriptCardBody,
   TranscriptCardHeader,
   useTranscriptBooleanState,
 } from "@agentre-ai/agentre-ui";
-
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-import {
-  hasSessionStream,
-  useChatStreamsStore,
-} from "@/stores/chat-streams-store";
 
 import type { CanonicalCardProps, PlanActionStream } from "../props";
 import type { CanonicalDTO, PlanActionDTO } from "../types";
@@ -146,9 +142,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
     plan && !plan.resolved && (plan.requestId || uiStateKey)
       ? `planFeedback:${plan.requestId || uiStateKey}`
       : undefined;
-  const streamActive = useChatStreamsStore((s) =>
-    sessionId ? hasSessionStream(s, sessionId) : false,
-  );
+  const streamActive = useIsStreamActive(sessionId);
 
   const [expanded, setExpanded] = useTranscriptBooleanState(
     uiStateKey,

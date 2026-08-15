@@ -10,7 +10,7 @@
 // 各写一份必然漂移:失败判据一旦只留在其中一处,另外两处就会把一条 exit 1 的命令
 // 当成功渲染。
 
-import type { ChatBlockData } from "@/stores/chat-streams-store";
+import type { TranscriptBlock } from "@agentre-ai/agentre-ui";
 
 export type CommandResult = {
   exitCode?: number;
@@ -55,9 +55,9 @@ export function isFailedCommandResult(result: CommandResult | null): boolean {
 // commandResultOf 按结果块缓存解析结果:同一个块会被组头汇总(流式里每 chunk 一次)、
 // 活动行事实与 RawToolCard 各要一次,而解析要把整段结果(可能几 MB)JSON.parse 一遍。
 // 块是不可变的(store 更新一律换新对象),旧条目随块一起被 GC。
-const cache = new WeakMap<ChatBlockData, CommandResult | null>();
+const cache = new WeakMap<TranscriptBlock, CommandResult | null>();
 
-export function commandResultOf(block?: ChatBlockData): CommandResult | null {
+export function commandResultOf(block?: TranscriptBlock): CommandResult | null {
   if (!block) return null;
   const hit = cache.get(block);
   if (hit !== undefined) return hit;

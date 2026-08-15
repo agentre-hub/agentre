@@ -2,7 +2,7 @@
 // modules can import it without pulling in the registry (which itself imports
 // every card — would cause a circular import otherwise).
 
-import type { ChatBlockData } from "@/stores/chat-streams-store";
+import type { TranscriptBlock } from "@agentre-ai/agentre-ui";
 
 export type PlanActionStream = {
   sessionId: number;
@@ -12,13 +12,13 @@ export type PlanActionStream = {
 };
 
 export type AgentSpawnChildBlocks = {
-  all: ChatBlockData[];
-  byRun: ReadonlyMap<string, ChatBlockData[]>;
+  all: TranscriptBlock[];
+  byRun: ReadonlyMap<string, TranscriptBlock[]>;
 };
 
 export type CanonicalCardProps = {
-  toolBlock: ChatBlockData;
-  resultBlock?: ChatBlockData;
+  toolBlock: TranscriptBlock;
+  resultBlock?: TranscriptBlock;
   cwd?: string;
   sessionId?: number;
   /** 本卡所属的 assistant 消息 id —— 审批类卡片做乐观更新时用它定位对应的那条 LiveStream。 */

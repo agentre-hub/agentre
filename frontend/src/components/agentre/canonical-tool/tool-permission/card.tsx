@@ -4,9 +4,12 @@ import { useTranslation } from "react-i18next";
 import { Check, ChevronDown, ShieldAlert, X } from "lucide-react";
 
 import {
+  cn,
   shouldIgnoreClickForSelection,
   useCollapsible,
+  useMarkToolPermissionResolved,
   useTranscriptPorts,
+  Button,
   CollapsibleCode,
   TranscriptCard,
   TranscriptCardBody,
@@ -14,11 +17,7 @@ import {
   TranscriptPill,
   useTranscriptBooleanState,
 } from "@agentre-ai/agentre-ui";
-
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { useChatStreamsStore } from "@/stores/chat-streams-store";
-import type { chat_svc } from "../../../../../wailsjs/go/models";
+import type { TranscriptBlockToolPermission } from "@agentre-ai/agentre-ui";
 
 import type { CanonicalCardProps } from "../props";
 import type { CanonicalDTO, ToolPermissionDTO } from "../types";
@@ -62,9 +61,7 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
   const { t } = useTranslation();
   const ports = useTranscriptPorts();
   const payload = readPermission(toolBlock);
-  const markToolPermissionResolved = useChatStreamsStore(
-    (s) => s.markToolPermissionResolved,
-  );
+  const markToolPermissionResolved = useMarkToolPermissionResolved();
 
   const [collapsed, setCollapsed] = useTranscriptBooleanState(uiStateKey, true);
   const { mounted, onTransitionEnd } = useCollapsible(!collapsed);
@@ -80,16 +77,20 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
       if (isResolved || submitting) return;
       setError(null);
       setSubmitting(true);
-      const optimistic: chat_svc.ChatBlockToolPermission = {
+      const optimistic: TranscriptBlockToolPermission = {
         requestId: payload.requestId,
         toolName: payload.toolName,
         toolInput: (payload.toolInput ?? {}) as Record<string, unknown>,
         resolved: true,
         allowed: allow,
         alwaysAllow: alwaysAllowSession,
-      } as chat_svc.ChatBlockToolPermission;
+      };
       try {
-        markToolPermissionResolved(sessionId, messageId ?? 0, optimistic);
+        markToolPermissionResolved({
+          sessionId,
+          assistantMessageId: messageId ?? 0,
+          toolPermission: optimistic,
+        });
         await ports.answerToolPermission({
           sessionId,
           requestId: payload.requestId,
@@ -100,12 +101,16 @@ export const ToolPermissionCard: React.FC<CanonicalCardProps> = ({
         // 后端 takePermWaiter 在 RespondToControl 失败前已经 take+delete,
         // 回滚后再点也会 "no waiting tool permission" 失败;切回未决态只是
         // 为了把错误文案露出来。
-        markToolPermissionResolved(sessionId, messageId ?? 0, {
-          ...optimistic,
-          resolved: false,
-          allowed: false,
-          alwaysAllow: false,
-        } as chat_svc.ChatBlockToolPermission);
+        markToolPermissionResolved({
+          sessionId,
+          assistantMessageId: messageId ?? 0,
+          toolPermission: {
+            ...optimistic,
+            resolved: false,
+            allowed: false,
+            alwaysAllow: false,
+          },
+        });
         setError(
           err instanceof Error
             ? err.message
