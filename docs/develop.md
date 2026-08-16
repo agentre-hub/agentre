@@ -83,6 +83,9 @@ These are the conventions with a real check behind them. Everything else in thes
 | Go formatting and import grouping | `gofmt` + `goimports` | golangci-lint `formatters`, run by `make lint-backend` | `.claude`, `.dev-kit`, `frontend` (excluded paths) |
 | The daemon's `agentruntime` registry keeps every backend registered | Keep the `init` imports in `internal/daemon/runtime_imports.go` | `internal/daemon/runtime_imports_test.go` | — |
 | Transcript typography stays on the shared token scale | Use the tokens `globals.css` exposes | `frontend/src/components/agentre/__tests__/transcript-typography-guard.test.ts` + `frontend/src/__tests__/design-tokens.test.ts` | — |
+| The shared UI package imports no host code, and declares every npm package it imports | Take host capability through a port / prop; add real dependencies to the package's `package.json` | `frontend/packages/agentre-ui/src/boundary.test.ts` | — |
+| Every static `t("…")` key in the shared package resolves in **both** of its bundles | Add the key to `packages/agentre-ui/src/i18n/locales/{en,zh-CN}.json` | `frontend/packages/agentre-ui/src/i18n/i18n.test.tsx` | — |
+| The Wails-generated chat models stay assignable to the shared package DTO | Update `packages/agentre-ui/src/transcript/dto.ts` when the Go side changes | `frontend/src/components/agentre/__tests__/transcript-dto-contract.test.ts` (fails at `tsc`, not at runtime) | — |
 
 > The i18n rule is the one with a **guard test on the guard**: `frontend/src/__tests__/eslint-i18n.test.ts` loads the real ESLint config and asserts the rule is present at the right severity and scope. **When you change one of these rules, change its guard in the same commit** — a rule that silently stops loading looks exactly like a rule nobody violates.
 

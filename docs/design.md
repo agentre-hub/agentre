@@ -26,7 +26,7 @@ Every UI change must satisfy all of these. They are the bar for "consistent, fri
 - **Use tokens, not literal colors — one value, one place.** Never write a hex (`#3b6896`), an `rgb()`, or a palette class (`text-blue-500`). Always use a semantic token — `bg-background`, `text-foreground`, `border-border`, `text-primary`, `text-primary-text`, `text-muted-foreground`, … (§3). All color values live in exactly one place — the token definitions in [`globals.css`](../frontend/src/styles/globals.css) — so the palette stays unified and a single edit re-skins everything. One semantic concept maps to **one** token: before adding a color, check §3 for an existing token and reuse it; don't introduce a near-duplicate. Only add a new token when the concept is genuinely new — with both light and dark values — and document it in §3.
 
   > **Sanctioned literal-color exceptions** (everything else must be a token): the xterm ANSI
-  > palette in [`terminal/terminal-theme.ts`](../frontend/src/components/agentre/terminal/terminal-theme.ts)
+  > palette in [`terminal/terminal-theme.ts`](../frontend/packages/agentre-ui/src/terminal/terminal-theme.ts)
   > (xterm.js can't consume CSS variables); the `#94a3b8` slate **avatar fallback** when agent meta is
   > missing (§3.6); neutral black-alpha **shadows/scrim** (`box-shadow rgba(0,0,0,…)`, the `Dialog`
   > backdrop) — there are no `--shadow-*` tokens by design (§3.12); and `bg-neutral-600` as the
@@ -291,7 +291,7 @@ type AppThemePreference = AppTheme | "system";   // user choice
 | `font-sans` (`--font-sans`) | Body / UI text. Applied on `body` via `@apply font-sans`, so everything inherits it; you rarely write `font-sans` explicitly. Stack: `-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", Roboto, … sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"`. |
 | `font-mono` (`--font-mono`) | Code, model names, IDs, status pills, paths — anything monospaced (`font-mono`). Stack: `ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", Consolas, … "PingFang SC", "Microsoft YaHei", monospace`. |
 
-> **No `@font-face`, no CDN.** Don't reference a family that isn't actually packaged (it would silently fall back and mislead). Code-block syntax highlighting is styled in [`code-highlight.css`](../frontend/src/styles/code-highlight.css).
+> **No `@font-face`, no CDN.** Don't reference a family that isn't actually packaged (it would silently fall back and mislead). Code-block syntax highlighting is styled in [`code-highlight.css`](../frontend/packages/agentre-ui/styles/code-highlight.css).
 
 ### Type scale
 
@@ -391,7 +391,7 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 
 Two distinct systems — use the right one:
 
-- **Transient toasts → Sonner.** `<Toaster position="bottom-right" richColors theme={effectiveTheme} />` is mounted once in `AppLayout` ([`App.tsx`](../frontend/src/App.tsx)). Business code imports `toast` **directly from `sonner`** (`toast.success/error(title, { description, duration })`) — there is no `notify` wrapper. The toast colors are bound to design tokens in [`globals.css`](../frontend/src/styles/globals.css) (`[data-sonner-toaster][data-rich-colors="true"]`): success→`status-running-bg`, error→`destructive-soft`, warning→`status-waiting-bg`, info→`primary-soft`; neutral `foreground` text, saturated icon. See [`lib/clipboard-toast.ts`](../frontend/src/lib/clipboard-toast.ts) for the canonical call.
+- **Transient toasts → Sonner.** `<Toaster position="bottom-right" richColors theme={effectiveTheme} />` is mounted once in `AppLayout` ([`App.tsx`](../frontend/src/App.tsx)). Business code imports `toast` **directly from `sonner`** (`toast.success/error(title, { description, duration })`) — there is no `notify` wrapper. The toast colors are bound to design tokens in [`globals.css`](../frontend/src/styles/globals.css) (`[data-sonner-toaster][data-rich-colors="true"]`): success→`status-running-bg`, error→`destructive-soft`, warning→`status-waiting-bg`, info→`primary-soft`; neutral `foreground` text, saturated icon. See [`lib/clipboard-toast.ts`](../frontend/packages/agentre-ui/src/lib/clipboard-toast.ts) for the canonical call.
 - **Agent turn-completion → the notification viewport.** `<NotificationToastViewport />` (custom, backed by a Zustand store [`stores/notification-toast-store.ts`](../frontend/src/stores/notification-toast-store.ts)) surfaces turn done / error / awaiting-approval events — up to 5 at once. Use it for *session lifecycle* signals, not generic feedback.
 
 ### 6.6 Selection guidance
@@ -436,7 +436,7 @@ There is **no `useIsMobile`, no `MOBILE_BREAKPOINT`, and no mobile re-shell.** R
 
 ### Long lists
 
-The chat transcript can hold thousands of rows and is windowed with **`@tanstack/react-virtual`** ([`chat.tsx`](../frontend/src/components/agentre/chat.tsx)): dynamic per-row size estimation, overscan, `anchorTo: "end"` stick-to-bottom, and `measureElement` for real heights (see [`transcript-rows.ts`](../frontend/src/components/agentre/transcript-rows.ts) + [`transcript-row-view.tsx`](../frontend/src/components/agentre/transcript-row-view.tsx)). Other lists (issues, org chart, settings) are bounded and render plainly — don't add virtualization unprompted, but **do** virtualize any new unbounded list rather than mounting every row.
+The chat transcript can hold thousands of rows and is windowed with **`@tanstack/react-virtual`** ([`chat.tsx`](../frontend/src/components/agentre/chat.tsx)): dynamic per-row size estimation, overscan, `anchorTo: "end"` stick-to-bottom, and `measureElement` for real heights (see [`transcript-rows.ts`](../frontend/packages/agentre-ui/src/transcript/transcript-rows.ts) + [`transcript-row-view.tsx`](../frontend/src/components/agentre/transcript-row-view.tsx)). Other lists (issues, org chart, settings) are bounded and render plainly — don't add virtualization unprompted, but **do** virtualize any new unbounded list rather than mounting every row.
 
 ### Layering (z-index)
 
@@ -614,7 +614,7 @@ export default function ExamplePage() {
 
 **Implementation source of truth (read/edit these when changing the design):**
 
-- Color / font / motion / scrollbar tokens → [`frontend/src/styles/globals.css`](../frontend/src/styles/globals.css); code highlighting → [`code-highlight.css`](../frontend/src/styles/code-highlight.css)
+- Color / font / motion / scrollbar tokens → [`frontend/src/styles/globals.css`](../frontend/src/styles/globals.css); code highlighting → [`code-highlight.css`](../frontend/packages/agentre-ui/styles/code-highlight.css)
 - Theming + the app shell (title bar, rail, status bar, auto-hide scrollbars, window size) → [`frontend/src/App.tsx`](../frontend/src/App.tsx) + [`frontend/src/components/agentre/chrome.tsx`](../frontend/src/components/agentre/chrome.tsx)
 - Agent color / status model → [`frontend/src/components/agentre/types.ts`](../frontend/src/components/agentre/types.ts) + [`session-avatar.ts`](../frontend/src/components/agentre/session-avatar.ts); agent/status primitives → [`primitives.tsx`](../frontend/src/components/agentre/primitives.tsx)
 - Component primitives → [`frontend/src/components/ui/`](../frontend/src/components/ui/); shadcn config → [`components.json`](../frontend/components.json); `cn()` → [`frontend/src/lib/utils.ts`](../frontend/src/lib/utils.ts)

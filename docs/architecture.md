@@ -27,11 +27,26 @@ migrations/                    (gormigrate sequential migrations, filename prefi
 pkg/                           (externally reusable packages: claudecode / codex / piagent —— independently maintained CLI subprocess wrappers;
                                 agentred/protocol —— shared agentred wire protocol)
 frontend/                      (React 19 + TS + Vite + Tailwind; wailsjs/ is wails-generated, gitignored)
+  packages/agentre-ui/         (@agentre-ai/agentre-ui —— the shared frontend layer, also consumed by agentre-server;
+                                design tokens + transcript renderer + data contract. See below and frontend.md)
 e2e/                           (independent hermetic Wails app/composition + one Playwright runner/config;
                                 formal agentre/agentred dependency graphs do not import it)
 ```
 
 The `App` struct lives in `internal/app/app.go` (lifecycle + common methods), with domain methods spread across sibling files (`agent.go`, `chat.go`, …). **Keep these bindings thin — logic inside `App` is unreachable from `go test`; always put business logic in `service/`.**
+
+## The shared frontend package (`@agentre-ai/agentre-ui`)
+
+`frontend/packages/agentre-ui` holds the frontend layer that the desktop app and `agentre-server` both render: design tokens, the transcript renderer (markdown / thinking / code / canonical tool cards / activity blocks), the row model, and the data contract they agree on. The desktop consumes it through a Vite alias to the package **source**; `agentre-server` installs it as a dependency and consumes the built `dist/`.
+
+**It is a leaf layer, the frontend counterpart of `internal/pkg/`.** Every layer may import it; it imports no host code — no `@/` alias, no `wailsjs/`, no zustand store. That direction is not a convention held by review: `packages/agentre-ui/src/boundary.test.ts` scans the package sources as text and fails on any of them, because a host coupling still *resolves* on the desktop (the alias is there) and only breaks when the server builds.
+
+Anything the package needs from its host arrives through one of two seams:
+
+- **`TranscriptPorts`** — actions with a side effect (answer a permission, resolve a plan action, open a path). A plain object of functions; the desktop wires it to Wails in `src/components/agentre/transcript-ports-desktop.ts`, the server wires it to relay RPC. Missing **optional** ports mean "this host lacks the capability", and the component hides the affordance rather than rendering a dead control.
+- **`TranscriptLiveState`** — reactive reads of the host's in-flight stream, plus the optimistic write that pairs with them. Separate from ports because `useIsStreamActive` must be a **hook**: hanging it off the ports constant would return the value at call time with nothing to re-render when the stream ends. Unlike ports it has a working default, since "this host has no live streams" is a legitimate shape rather than a wiring gap.
+
+Consumption rules, the entry points, and the i18n namespace are [`frontend.md`](frontend.md)'s.
 
 ## Remote execution (remote chat)
 
