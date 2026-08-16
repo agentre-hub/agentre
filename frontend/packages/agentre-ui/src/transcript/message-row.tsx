@@ -1,24 +1,27 @@
 import * as React from "react";
 import { Copy } from "lucide-react";
-import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
-import { copyTextWithToast } from "@agentre-ai/agentre-ui";
-import { cn } from "@/lib/utils";
+import { useUiTranslation } from "../i18n";
+import { copyTextWithToast } from "../lib/clipboard-toast";
+import { cn } from "../lib/utils";
+import { Button } from "../ui/button";
 
-import { AgentAvatar } from "./primitives";
-import type { AgentColor } from "./types";
-
-// MESSAGE_AVATAR_CLASS：统一的彩色头像尺寸(以单聊为准)。抽成常量，
-// 杜绝两处各写 size-6 / size-7 的漂移。size="md" 的 size-8 被 twMerge 去重成 size-7。
+// MESSAGE_AVATAR_CLASS：头像列的**尺寸契约**(以单聊为准)。MessageRow 自己不画头像,
+// 但整行的排版(以及后续分片行的幽灵 gutter)按这个尺寸对齐,所以调用方渲染头像时
+// 套上它 —— 杜绝两处各写 size-6 / size-7 的漂移。
 export const MESSAGE_AVATAR_CLASS = "size-7 rounded-lg text-[11px]";
 
 type MessageRowProps = Omit<React.ComponentProps<"article">, "children"> & {
-  /** 逃生口：自定义头像节点(如单聊 user 的「我」灰胶囊)。传了就不渲染内置头像。 */
-  avatar?: React.ReactNode;
-  avatarName?: string;
-  avatarColor?: AgentColor;
-  avatarInitials?: string;
+  /**
+   * 头像节点，**必填**。
+   *
+   * 头像画什么是**身份**问题而不是布局问题：桌面端有 16 色 agent 调色板 +
+   * 图标注册表 + 自定义头像图片，agentre-server 侧另有一套。把任何一种塞进这里
+   * 都会顺带把宿主的 icon-registry / i18n 拖进本包，还会把那一种身份模型强加给
+   * 另一个消费方。MessageRow 只负责把调用方给的节点排进头像列
+   * （建议套 MESSAGE_AVATAR_CLASS 保尺寸一致）。
+   */
+  avatar: React.ReactNode;
   /** 名字行；传 null 时不显名(单聊 user 行)。 */
   name?: React.ReactNode;
   /** 名字行右侧附加内容：时间 / 附加灰字说明。 */
@@ -32,9 +35,6 @@ type MessageRowProps = Omit<React.ComponentProps<"article">, "children"> & {
 // 单条聊天消息在不同 transcript 视图间共用，保证头像尺寸/布局一致，并提供 footer 槽。
 function MessageRow({
   avatar,
-  avatarName = "",
-  avatarColor = "agent-1",
-  avatarInitials,
   name,
   headerExtra,
   footer,
@@ -45,15 +45,7 @@ function MessageRow({
   const showHeader = name != null || headerExtra != null;
   return (
     <article className={cn("flex gap-3 text-sm", className)} {...props}>
-      {avatar ?? (
-        <AgentAvatar
-          name={avatarName}
-          initials={avatarInitials}
-          color={avatarColor}
-          size="md"
-          className={MESSAGE_AVATAR_CLASS}
-        />
-      )}
+      {avatar}
       <div className="flex min-w-0 max-w-measure flex-1 flex-col gap-1">
         {showHeader ? (
           <div className="flex items-center gap-2">
@@ -96,7 +88,7 @@ function MessageCopyButton({
   successTitle,
   errorTitle,
 }: MessageCopyButtonProps) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   if (text.length === 0) return null;
   const visible = label ?? t("common.copy");
   async function handleCopy() {

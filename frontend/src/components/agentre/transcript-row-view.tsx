@@ -32,6 +32,9 @@ import {
   CanonicalToolRouter,
   CompactBoundaryDivider,
   MarkdownText,
+  MessageCopyButton,
+  MESSAGE_AVATAR_CLASS,
+  MessageRow,
   PlanApproveCard,
   StreamingMarkdown,
   ThinkingBlock,
@@ -41,8 +44,8 @@ import {
   type TranscriptRowItem,
 } from "@agentre-ai/agentre-ui";
 import { LocalCommandCard } from "./local-command/card";
-import { MessageRow, MessageCopyButton } from "./message-row";
 import { OpenClawExecApprovalCard } from "./openclaw-exec-approval/card";
+import { AgentAvatar } from "./primitives";
 import { ToolApprovalCard } from "./tool-approval/card";
 import type { AgentColor } from "./types";
 import type { RetryNotice } from "@/stores/chat-streams-store";
@@ -127,11 +130,19 @@ function ChatMessage({
           >
             {t("chat.message.me")}
           </span>
-        ) : undefined
+        ) : (
+          // 头像由调用方给：MessageRow 已搬进 @agentre-ai/agentre-ui，那里不认识
+          // 桌面端的 16 色 agent 调色板 / icon-registry。桌面端的身份模型留在
+          // AgentAvatar 里，只借包的 MESSAGE_AVATAR_CLASS 对齐头像列尺寸。
+          <AgentAvatar
+            name={author}
+            initials={initials}
+            color={avatarColor}
+            size="md"
+            className={MESSAGE_AVATAR_CLASS}
+          />
+        )
       }
-      avatarName={author}
-      avatarInitials={initials}
-      avatarColor={avatarColor}
       name={isUser ? null : author}
       headerExtra={
         <>

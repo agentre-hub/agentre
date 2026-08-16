@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
+  TerminalTransportProvider,
   TranscriptLiveStateProvider,
   TranscriptPortsProvider,
 } from "@agentre-ai/agentre-ui";
@@ -50,6 +51,7 @@ import {
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
 import { desktopTranscriptLiveState } from "@/components/agentre/transcript-live-state-desktop";
 import { desktopTranscriptPorts } from "@/components/agentre/transcript-ports-desktop";
+import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal-transport-desktop";
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
 import { useChatAgents } from "@/hooks/use-chat-agents";
 import { deriveAppStatusBarState } from "@/lib/app-status-bar";
@@ -787,88 +789,94 @@ function AppLayout() {
     // 能力(打开路径 / 外部链接 / 读工作区文件),只挂转录上另外两棵会取不到。
     <TranscriptPortsProvider ports={desktopTranscriptPorts}>
       <TranscriptLiveStateProvider value={desktopTranscriptLiveState}>
-        <ShortcutsProvider platform={platform}>
-          <ChatTabsShortcuts />
-          <div className="flex h-full min-h-full flex-col overflow-hidden bg-background text-foreground">
-            <AppTopBar
-              appName="Agentre"
-              breadcrumb={breadcrumb}
-              platform={platform}
-            />
-
-            <div className="flex min-h-0 min-w-0 flex-1">
-              <aside
-                aria-label={t("app.navigationLabel")}
-                className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail px-2 py-3"
-              >
-                {navItems.map((item) => (
-                  <SidebarButton
-                    key={item.labelKey}
-                    data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
-                    label={t(item.labelKey)}
-                    icon={item.icon}
-                    active={isNavItemActive(location.pathname, item.path)}
-                    onClick={item.path ? () => navigate(item.path!) : undefined}
-                  />
-                ))}
-                <ThemeToggle
-                  className="mt-auto"
-                  effectiveTheme={effectiveTheme}
-                  themePreference={themePreference}
-                  onThemePreferenceChange={setThemePreference}
-                />
-                <SidebarButton
-                  data-testid="nav-settings"
-                  label={t(settingsNavItem.labelKey)}
-                  icon={settingsNavItem.icon}
-                  active={isNavItemActive(
-                    location.pathname,
-                    settingsNavItem.path,
-                  )}
-                  onClick={() => navigate(settingsNavItem.path!)}
-                />
-              </aside>
-
-              <Outlet
-                context={{
-                  effectiveTheme,
-                  onThemePreferenceChange: setThemePreference,
-                  themePreference,
-                }}
+        {/* 终端传输同样挂在应用根：终端标签页由 ChatPanelHost 渲染，
+            而本地命令卡片(转录里)未来也要盯同一条 PTY。 */}
+        <TerminalTransportProvider transport={desktopTerminalTransport}>
+          <ShortcutsProvider platform={platform}>
+            <ChatTabsShortcuts />
+            <div className="flex h-full min-h-full flex-col overflow-hidden bg-background text-foreground">
+              <AppTopBar
+                appName="Agentre"
+                breadcrumb={breadcrumb}
+                platform={platform}
               />
 
-              <div
-                data-page-has-chat={hasChat}
-                className="flex min-h-0 min-w-0 flex-1 flex-col"
-                style={{ display: hasChat ? "flex" : "none" }}
-              >
-                <TabStrip />
-                <ChatPanelHost />
-              </div>
-            </div>
+              <div className="flex min-h-0 min-w-0 flex-1">
+                <aside
+                  aria-label={t("app.navigationLabel")}
+                  className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail px-2 py-3"
+                >
+                  {navItems.map((item) => (
+                    <SidebarButton
+                      key={item.labelKey}
+                      data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
+                      label={t(item.labelKey)}
+                      icon={item.icon}
+                      active={isNavItemActive(location.pathname, item.path)}
+                      onClick={
+                        item.path ? () => navigate(item.path!) : undefined
+                      }
+                    />
+                  ))}
+                  <ThemeToggle
+                    className="mt-auto"
+                    effectiveTheme={effectiveTheme}
+                    themePreference={themePreference}
+                    onThemePreferenceChange={setThemePreference}
+                  />
+                  <SidebarButton
+                    data-testid="nav-settings"
+                    label={t(settingsNavItem.labelKey)}
+                    icon={settingsNavItem.icon}
+                    active={isNavItemActive(
+                      location.pathname,
+                      settingsNavItem.path,
+                    )}
+                    onClick={() => navigate(settingsNavItem.path!)}
+                  />
+                </aside>
 
-            <AppStatusBar
-              agentCount={statusBarState.agentCount}
-              runningCount={statusBarState.runningCount}
-              approvalCount={statusBarState.approvalIds.length}
-              unreadCount={statusBarState.unreadIds.length}
-              attentionIds={[
-                ...statusBarState.approvalIds,
-                ...statusBarState.unreadIds,
-              ]}
-              status={statusBarState.indicatorStatus}
-              version={appVersion}
-              onAttentionClick={(sessionId) => openSession(sessionId)}
-            />
-            <PaletteScopeBridge />
-            <CommandPalette />
-            <Toaster
-              position="bottom-right"
-              richColors
-              theme={effectiveTheme}
-            />
-          </div>
-        </ShortcutsProvider>
+                <Outlet
+                  context={{
+                    effectiveTheme,
+                    onThemePreferenceChange: setThemePreference,
+                    themePreference,
+                  }}
+                />
+
+                <div
+                  data-page-has-chat={hasChat}
+                  className="flex min-h-0 min-w-0 flex-1 flex-col"
+                  style={{ display: hasChat ? "flex" : "none" }}
+                >
+                  <TabStrip />
+                  <ChatPanelHost />
+                </div>
+              </div>
+
+              <AppStatusBar
+                agentCount={statusBarState.agentCount}
+                runningCount={statusBarState.runningCount}
+                approvalCount={statusBarState.approvalIds.length}
+                unreadCount={statusBarState.unreadIds.length}
+                attentionIds={[
+                  ...statusBarState.approvalIds,
+                  ...statusBarState.unreadIds,
+                ]}
+                status={statusBarState.indicatorStatus}
+                version={appVersion}
+                onAttentionClick={(sessionId) => openSession(sessionId)}
+              />
+              <PaletteScopeBridge />
+              <CommandPalette />
+              <Toaster
+                position="bottom-right"
+                richColors
+                theme={effectiveTheme}
+              />
+            </div>
+          </ShortcutsProvider>
+        </TerminalTransportProvider>
       </TranscriptLiveStateProvider>
     </TranscriptPortsProvider>
   );

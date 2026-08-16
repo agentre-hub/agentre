@@ -160,6 +160,12 @@ export type {
 } from "./transcript/live-state";
 export { statusConfig } from "./transcript/agent-status";
 export type { AgentStatus, AgentStatusStyle } from "./transcript/agent-status";
+// 消息外壳:头像列 + 内容列的布局骨架。头像节点由调用方给(见 message-row.tsx)。
+export {
+  MESSAGE_AVATAR_CLASS,
+  MessageCopyButton,
+  MessageRow,
+} from "./transcript/message-row";
 export type {
   AnswerToolApprovalInput,
   AnswerToolPermissionInput,
@@ -204,3 +210,17 @@ export type {
   TranscriptMessage,
   UserAsk,
 } from "./transcript/dto";
+// 终端传输端口 —— 订阅式接缝(长连接的字节流),与上面那批一次性动作端口分开。
+export {
+  TerminalTransportProvider,
+  useOptionalTerminalTransport,
+  useTerminalTransport,
+} from "./terminal/transport-context";
+export type {
+  TerminalExit,
+  TerminalExitReason,
+  TerminalOpenInput,
+  TerminalSubscriber,
+  TerminalTransport,
+  TerminalUnsubscribe,
+} from "./terminal/transport";
