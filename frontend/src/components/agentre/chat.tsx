@@ -53,10 +53,12 @@ import {
   ChatMessage,
   ErrorCard,
   MessageMeta,
+  MESSAGE_AVATAR_CLASS,
   TranscriptRenderContext,
   TranscriptRowView,
   type TranscriptRenderContextValue,
-} from "./transcript-row-view";
+} from "@agentre-ai/agentre-ui";
+import { AgentAvatar } from "./primitives";
 import type { AgentColor, AgentStatus } from "./types";
 import { statusConfig } from "./types";
 import type { RetryNotice } from "@/stores/chat-streams-store";
@@ -1493,8 +1495,18 @@ const ChatTranscript = React.forwardRef<
 
   const renderCtx = React.useMemo<TranscriptRenderContextValue>(
     () => ({
-      agentColor,
       agentName,
+      // 头像节点由宿主给：包里的 MessageRow / ChatMessage 不认识桌面端的 16 色
+      // agent 调色板与 icon-registry，只借包的 MESSAGE_AVATAR_CLASS 对齐头像列尺寸。
+      agentAvatar: (
+        <AgentAvatar
+          name={agentName}
+          initials={agentName.charAt(0)}
+          color={agentColor}
+          size="md"
+          className={MESSAGE_AVATAR_CLASS}
+        />
+      ),
       cwd,
       // 只读调用方不传 onEdit/onRerun 时，上游 ref 为 undefined；
       // 此处有条件地传入稳定代理，让行视图能用 ctx?.onEdit 作存在性门控。

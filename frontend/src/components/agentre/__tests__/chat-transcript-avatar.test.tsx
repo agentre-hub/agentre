@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ChatMessage } from "../transcript-row-view";
+import { ChatMessage, MESSAGE_AVATAR_CLASS } from "@agentre-ai/agentre-ui";
+
+import { AgentAvatar } from "../primitives";
 
 // 头像归属从 MessageRow 挪到了调用方：MessageRow 搬进 @agentre-ai/agentre-ui 后
 // 不再内置任何头像（那里不认识桌面端的 16 色 agent 调色板 / icon-registry），
@@ -11,7 +13,21 @@ import { ChatMessage } from "../transcript-row-view";
 describe("ChatMessage 头像列", () => {
   it("assistant 消息的彩色头像用规范尺寸 size-7(锁住一致性)", () => {
     render(
-      <ChatMessage author="后端" avatarColor="agent-2" time="10:00">
+      // 与 chat.tsx 里 renderCtx.agentAvatar 的构造保持一致 —— 这条守卫要锁的
+      // 正是「宿主这样构造出来的头像，落在规范的头像列尺寸上」。
+      <ChatMessage
+        author="后端"
+        avatar={
+          <AgentAvatar
+            name="后端"
+            initials="后"
+            color="agent-2"
+            size="md"
+            className={MESSAGE_AVATAR_CLASS}
+          />
+        }
+        time="10:00"
+      >
         正文
       </ChatMessage>,
     );

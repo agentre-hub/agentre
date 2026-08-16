@@ -1,6 +1,7 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import { BellRing } from "lucide-react";
+
+import { useUiTranslation } from "../i18n";
 
 // AutoTriggerBanner 渲染 transcript 内嵌的「后台任务完成 · 自动继续」分隔卡片 ——
 // 标记一条**非用户发起**的 assistant 轮:CLI 在 run_in_background 任务完成后自主跑
@@ -9,7 +10,7 @@ import { BellRing } from "lucide-react";
 // 视觉对齐 CompactBoundaryDivider(左右细线 + 中间 chip),与设计稿
 // (~/Desktop/agentry.pen「Autonomous Turn」)一致。
 export function AutoTriggerBanner(): React.ReactElement {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   return (
     <div
       className="flex w-full max-w-measure items-center gap-3 py-1"

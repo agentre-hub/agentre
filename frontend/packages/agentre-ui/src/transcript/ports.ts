@@ -13,6 +13,8 @@
  *     server 侧则把它们映射成自己的 relay 请求。
  */
 
+import type { MentionRef } from "../chat-input/mentions/xml";
+
 export interface AnswerToolPermissionInput {
   sessionId: number;
   requestId: string;
@@ -92,6 +94,13 @@ export interface TranscriptPorts {
   readWorkspaceFile?(sessionId: number, path: string): Promise<ReadFileResult>;
   /** 把一条本地命令挂到终端标签上。纯桌面能力。 */
   attachTerminal?(input: { terminalId: string; command: string }): void;
+  /**
+   * 转录里 @提及 chip 的点击去向。宿主不提供时 chip 渲染成非交互文本。
+   *
+   * 「去哪」是宿主的路由问题：桌面端跳 /org 或 /projects，server 侧的 URL 结构
+   * 完全不同，而 react-router 刻意不在本包的依赖里（见 boundary.test.ts）。
+   */
+  openMention?(ref: MentionRef): void;
 }
 
 /**

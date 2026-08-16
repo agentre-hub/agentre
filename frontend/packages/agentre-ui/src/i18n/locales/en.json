@@ -212,6 +212,75 @@
       "waiting": "WAITING · Awaiting reply"
     }
   },
+  "chat": {
+    "message": {
+      "fromDevice": "From {{device}}",
+      "me": "Me"
+    },
+    "meta": {
+      "cacheHit": "Cache hit",
+      "cacheWrite": "Cache write",
+      "completion": "Received (completion)",
+      "duration": "Duration",
+      "model": "Model",
+      "prompt": "Sent (prompt)",
+      "reasoning": "Reasoning",
+      "tokenDetails": "Token usage details",
+      "usage": "Usage",
+      "usageUnavailable": "Not reported by the backend"
+    },
+    "errorCard": {
+      "continue": "Continue",
+      "message": "Agent call failed: {{text}}",
+      "regenerate": "↻ Regenerate"
+    },
+    "retry": {
+      "aria": "Retrying",
+      "defaultMessage": "Upstream connection interrupted temporarily",
+      "title": "Retrying",
+      "titleWithAttempt": "Retrying {{attempt}}",
+      "titleWithMax": "Retrying {{attempt}}/{{max}}"
+    },
+    "typing": {
+      "aria": "Generating"
+    },
+    "compacting": {
+      "aria": "Compacting context",
+      "label": "Compacting context..."
+    },
+    "disconnected": {
+      "aria": "Connection lost, reconnecting",
+      "label": "Connection lost, reconnecting · the remote is still running"
+    },
+    "notice": {
+      "providerFallback": {
+        "sentence": "Selected provider {{provider}} is unavailable; fell back to the agent binding"
+      },
+      "providerSwitch": {
+        "fixedModel": "Fixed model · {{provider}} · {{model}} from here",
+        "followAgentBinding": "Follow agent binding from here",
+        "sentence": "Follow provider default · {{provider}} from here"
+      }
+    },
+    "debug": {
+      "unknownBlock": "(debug) unimplemented block type: {{type}}"
+    },
+    "actions": {
+      "copyOutput": "Copy AI output",
+      "copyOutputDone": "AI output copied",
+      "copyOutputFailed": "Failed to copy AI output",
+      "regenerate": "Regenerate"
+    },
+    "image": {
+      "alt": "Image"
+    }
+  },
+  "chatPanel": {
+    "autonomous": {
+      "banner": "Background task finished · auto-continued",
+      "aria": "Auto-continued response"
+    }
+  },
   "clipboard": {
     "unsupported": "Clipboard is not supported in this environment"
   },
@@ -224,6 +293,7 @@
     "copied": "Copied",
     "copy": "Copy",
     "copyFailed": "Copy failed",
+    "edit": "Edit",
     "reject": "Reject",
     "skip": "Skip"
   },
@@ -257,6 +327,12 @@
   "markdownImage": {
     "cannotPreview": "Cannot preview",
     "tooLarge": "Image too large"
+  },
+  "mentions": {
+    "chip": {
+      "agentTitle": "Agent: {{name}}",
+      "projectTitle": "Project: {{name}}"
+    }
   },
   "openclawExecApproval": {
     "title": "Execution approval",

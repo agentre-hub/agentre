@@ -1,30 +1,18 @@
-export type AgentColor =
-  | "agent-1"
-  | "agent-2"
-  | "agent-3"
-  | "agent-4"
-  | "agent-5"
-  | "agent-6"
-  | "agent-7"
-  | "agent-8"
-  | "agent-9"
-  | "agent-10"
-  | "agent-11"
-  | "agent-12"
-  | "agent-13"
-  | "agent-14"
-  | "agent-15"
-  | "agent-16"
-  | "neutral";
-
 import type { AgentStatus } from "@/stores/types";
 export type { AgentStatus };
 
 /**
  * 状态配色是纯展示投影，已随对话流卡片一起搬进 `@agentre-ai/agentre-ui`。
  * 这里保留转发：仓库内有 9 个引用点，把它们全部改指包只会淹没真正的改动。
+ *
+ * 颜色 token 词汇表（`AgentColor` / `agentColorOrder`）同理：定义随 tokens.css
+ * 搬进包（转录里的 @提及 chip 要按 token 上色），这里同样只留转发。
  */
 export { statusConfig } from "@agentre-ai/agentre-ui";
+export { agentColorOrder } from "@agentre-ai/agentre-ui";
+export type { AgentColor } from "@agentre-ai/agentre-ui";
+
+import type { AgentColor } from "@agentre-ai/agentre-ui";
 
 export const agentColorClassNames: Record<AgentColor, string> = {
   "agent-1": "bg-agent-1",
@@ -76,22 +64,3 @@ export function agentTextColorClassName(
     agentTextColorClassNames[fallback]
   );
 }
-
-export const agentColorOrder: AgentColor[] = [
-  "agent-1",
-  "agent-2",
-  "agent-3",
-  "agent-4",
-  "agent-5",
-  "agent-6",
-  "agent-7",
-  "agent-8",
-  "agent-9",
-  "agent-10",
-  "agent-11",
-  "agent-12",
-  "agent-13",
-  "agent-14",
-  "agent-15",
-  "agent-16",
-];

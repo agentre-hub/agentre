@@ -39,7 +39,7 @@ import { recentStorageKey } from "../model-target-picker/recents";
 import {
   TranscriptRenderContext,
   TranscriptRowView,
-} from "../transcript-row-view";
+} from "@agentre-ai/agentre-ui";
 import type { UseProviderPillOptions } from "../model-pill";
 import type { TranscriptRow } from "@agentre-ai/agentre-ui";
 
@@ -109,7 +109,7 @@ function renderSwitchNotice(block: SwitchNotice) {
   render(
     <TooltipProvider>
       <TranscriptRenderContext.Provider
-        value={{ agentName: "Agentre", agentColor: "agent-1", sessionId: 42 }}
+        value={{ agentName: "Agentre", agentAvatar: <span />, sessionId: 42 }}
       >
         <TranscriptRowView
           row={row}

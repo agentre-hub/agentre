@@ -5,11 +5,13 @@ import type {
   TranscriptBlockToolApproval,
   TranscriptLocalCommand,
   TranscriptMessage,
+  RetryNotice as PackageRetryNotice,
 } from "@agentre-ai/agentre-ui";
 import { describe, expect, it } from "vitest";
 
 import type {
   ExecApprovalData,
+  RetryNotice as HostRetryNotice,
   ToolApprovalData,
 } from "@/stores/chat-streams-store";
 import type { LocalCommandEntry } from "@/stores/local-commands-store";
@@ -80,6 +82,14 @@ export type ExecApprovalIsAssignable = Assert<
   ExecApprovalData extends TranscriptBlockExecApproval ? true : false
 >;
 
+/**
+ * 重试提示（连接失败重连的第 N 次尝试）由宿主的流 store 产生，随消息行装配
+ * 一起搬进包后成了包 DTO。方向与上面几族一致：**宿主类型可赋值给包 DTO**。
+ */
+export type RetryNoticeIsAssignable = Assert<
+  HostRetryNotice extends PackageRetryNotice ? true : false
+>;
+
 describe("transcript DTO contract", () => {
   it("keeps generated chat_svc models assignable to the shared package DTO", () => {
     // 类型断言在 tsc 阶段生效（见上方 Assert<>）；这里只留一条运行时锚点，
@@ -103,6 +113,12 @@ describe("transcript DTO contract", () => {
 
   it("keeps the host approval payloads assignable to the shared package DTOs", () => {
     const proof: ToolApprovalIsAssignable & ExecApprovalIsAssignable = true;
+
+    expect(proof).toBe(true);
+  });
+
+  it("keeps the host retry notice assignable to the shared package DTO", () => {
+    const proof: RetryNoticeIsAssignable = true;
 
     expect(proof).toBe(true);
   });

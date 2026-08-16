@@ -212,6 +212,75 @@
       "waiting": "WAITING · 等待回复"
     }
   },
+  "chat": {
+    "message": {
+      "fromDevice": "来自 {{device}}",
+      "me": "我"
+    },
+    "meta": {
+      "cacheHit": "缓存命中",
+      "cacheWrite": "缓存写入",
+      "completion": "接收 (completion)",
+      "duration": "耗时",
+      "model": "模型",
+      "prompt": "发送 (prompt)",
+      "reasoning": "思考",
+      "tokenDetails": "token 用量明细",
+      "usage": "用量",
+      "usageUnavailable": "后端未上报"
+    },
+    "errorCard": {
+      "continue": "继续",
+      "message": "Agent 调用失败：{{text}}",
+      "regenerate": "↻ 重新生成"
+    },
+    "retry": {
+      "aria": "正在重试",
+      "defaultMessage": "上游连接暂时中断",
+      "title": "正在重试",
+      "titleWithAttempt": "正在重试 {{attempt}}",
+      "titleWithMax": "正在重试 {{attempt}}/{{max}}"
+    },
+    "typing": {
+      "aria": "正在生成"
+    },
+    "compacting": {
+      "aria": "正在压缩上下文",
+      "label": "正在压缩上下文…"
+    },
+    "disconnected": {
+      "aria": "连接中断,重连中",
+      "label": "连接中断,重连中 · 远端仍在运行"
+    },
+    "notice": {
+      "providerFallback": {
+        "sentence": "所选供应商 {{provider}} 不可用，已回退 agent 绑定"
+      },
+      "providerSwitch": {
+        "fixedModel": "自此固定模型 · {{provider}} · {{model}}",
+        "followAgentBinding": "自此跟随 Agent 绑定",
+        "sentence": "自此跟随供应商默认 · {{provider}}"
+      }
+    },
+    "debug": {
+      "unknownBlock": "(debug) 未实现 block 类型：{{type}}"
+    },
+    "actions": {
+      "copyOutput": "复制 AI 输出原文",
+      "copyOutputDone": "已复制 AI 输出原文",
+      "copyOutputFailed": "复制 AI 输出原文失败",
+      "regenerate": "重新生成"
+    },
+    "image": {
+      "alt": "图片"
+    }
+  },
+  "chatPanel": {
+    "autonomous": {
+      "banner": "后台任务完成 · 自动继续",
+      "aria": "自动继续的回复"
+    }
+  },
   "clipboard": {
     "unsupported": "当前环境不支持剪贴板"
   },
@@ -224,6 +293,7 @@
     "copied": "已复制",
     "copy": "复制",
     "copyFailed": "复制失败",
+    "edit": "编辑",
     "reject": "拒绝",
     "skip": "跳过"
   },
@@ -257,6 +327,12 @@
   "markdownImage": {
     "cannotPreview": "无法预览",
     "tooLarge": "图片过大"
+  },
+  "mentions": {
+    "chip": {
+      "agentTitle": "Agent：{{name}}",
+      "projectTitle": "项目：{{name}}"
+    }
   },
   "openclawExecApproval": {
     "title": "执行审批",

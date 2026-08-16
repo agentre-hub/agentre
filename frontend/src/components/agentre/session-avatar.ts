@@ -1,18 +1,7 @@
 // session-avatar 把 session 的 agent 元信息（颜色 token + 名字）推导成头像所需的
 // { letter, color }，供 tab 条与通知 toast 等处复用，避免各自再实现一遍。
-import type { AgentColor } from "./types";
-import { agentColorOrder } from "./types";
-
-const AGENT_COLOR_SET = new Set<string>(agentColorOrder);
-
-// tokenToCssColor 把 agent / project 颜色 token 映射成 css 变量；非法 token → null。
-export function tokenToCssColor(
-  token: string | null | undefined,
-): string | null {
-  if (!token) return null;
-  if (!AGENT_COLOR_SET.has(token as AgentColor)) return null;
-  return `var(--${token})`;
-}
+// token → css 变量的映射本身归共享包（词汇表与 tokens.css 同源）。
+import { tokenToCssColor } from "@agentre-ai/agentre-ui";
 
 // firstLetter 取名字首字符作头像字母；空名回落 "?"。
 export function firstLetter(name: string | null | undefined): string {

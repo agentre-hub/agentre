@@ -360,11 +360,7 @@
   },
   "chat": {
     "actions": {
-      "approve": "批准",
-      "copyOutput": "复制 AI 输出原文",
-      "copyOutputDone": "已复制 AI 输出原文",
-      "copyOutputFailed": "复制 AI 输出原文失败",
-      "regenerate": "重新生成"
+      "approve": "批准"
     },
     "composer": {
       "addImage": "添加图片",
@@ -398,55 +394,12 @@
         "run": "运行命令"
       }
     },
-    "compacting": {
-      "aria": "正在压缩上下文",
-      "label": "正在压缩上下文…"
-    },
     "context": {
       "aria": "上下文用量 {{used}} / {{max}}",
       "label": "上下文"
     },
-    "debug": {
-      "unknownBlock": "(debug) 未实现 block 类型：{{type}}"
-    },
-    "disconnected": {
-      "aria": "连接中断,重连中",
-      "label": "连接中断,重连中 · 远端仍在运行"
-    },
-    "errorCard": {
-      "continue": "继续",
-      "message": "Agent 调用失败：{{text}}",
-      "regenerate": "↻ 重新生成"
-    },
     "image": {
-      "alt": "图片",
       "attachmentAlt": "图片附件"
-    },
-    "message": {
-      "fromDevice": "来自 {{device}}",
-      "me": "我"
-    },
-    "notice": {
-      "providerFallback": {
-        "sentence": "所选供应商 {{provider}} 不可用，已回退 agent 绑定"
-      },
-      "providerSwitch": {
-        "fixedModel": "自此$t(providerPill.mode.fixed) · {{provider}} · {{model}}",
-        "followAgentBinding": "自此$t(modelTargetPicker.special.chat)",
-        "sentence": "自此$t(providerPill.mode.followDefault) · {{provider}}"
-      }
-    },
-    "meta": {
-      "cacheHit": "缓存命中",
-      "cacheWrite": "缓存写入",
-      "completion": "接收 (completion)",
-      "duration": "耗时",
-      "model": "模型",
-      "prompt": "发送 (prompt)",
-      "reasoning": "思考",
-      "tokenDetails": "token 用量明细",
-      "usage": "用量",
-      "usageUnavailable": "后端未上报"
     },
     "quota": {
       "aria": "Claude Code 配额 5h {{five}}% 7d {{seven}}% 来自 {{device}}",
@@ -465,16 +418,6 @@
         "network": "Claude Code 配额 · {{device}}(网络错误, 显示上次值)",
         "rateLimited": "Claude Code 配额 · {{device}}(429 退避中, 显示上次值)"
       }
-    },
-    "retry": {
-      "aria": "正在重试",
-      "defaultMessage": "上游连接暂时中断",
-      "title": "正在重试",
-      "titleWithAttempt": "正在重试 {{attempt}}",
-      "titleWithMax": "正在重试 {{attempt}}/{{max}}"
-    },
-    "typing": {
-      "aria": "正在生成"
     }
   },
   "chatContext": {
@@ -606,10 +549,6 @@
   "chatPanel": {
     "actions": {
       "rename": "重命名"
-    },
-    "autonomous": {
-      "banner": "后台任务完成 · 自动继续",
-      "aria": "自动继续的回复"
     },
     "compact": {
       "imageUnsupported": "/compact 不能和图片一起发送",
@@ -1773,10 +1712,6 @@
     "group": {
       "agents": "Agent",
       "projects": "项目"
-    },
-    "chip": {
-      "agentTitle": "Agent：{{name}}",
-      "projectTitle": "项目：{{name}}"
     }
   },
   "nav": {

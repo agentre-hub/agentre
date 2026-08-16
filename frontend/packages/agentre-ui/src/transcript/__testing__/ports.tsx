@@ -35,6 +35,7 @@ export function makeTestPorts(
     openPath: async () => {},
     openExternalURL: () => {},
     readWorkspaceFile: async () => ({ content: "", contentType: "text/plain" }),
+    openMention: () => {},
     ...overrides,
   };
 }

@@ -1,14 +1,25 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { TooltipProvider } from "@/components/ui/tooltip";
-import i18n from "@/i18n";
+import { TooltipProvider } from "../ui/tooltip";
+import i18next from "i18next";
+
+import { AGENTRE_UI_NAMESPACE } from "../i18n";
+
+// 期望文案按 key 算而不是硬编码字符串。包的文案住在自己的 namespace 下
+// （`useUiTranslation()` = `useTranslation(AGENTRE_UI_NAMESPACE)`），而默认实例
+// 由宿主持有：独立跑包测试时 vitest.setup.ts 扮演最小宿主，跑在宿主 vitest 里
+// 时宿主的 src/i18n 已把同一份 bundle 合进去。两种情况下这条都成立。
+const i18n = {
+  t: (key: string, opts?: Record<string, unknown>) =>
+    i18next.t(key, { ...opts, ns: AGENTRE_UI_NAMESPACE }),
+};
 import {
   TranscriptRenderContext,
   TranscriptRowView,
-} from "../transcript-row-view";
+} from "./transcript-row-view";
 
-import type { TranscriptRow } from "@agentre-ai/agentre-ui";
+import type { TranscriptRow } from "./transcript-rows";
 
 // 供应商回退等持久 notice 走既有 NoticeBlock 渲染：Text 原样显示。
 // （#26 的结构化模型偏离提示已随 model_override 整体移除，ChatBlock 不再有
@@ -55,7 +66,7 @@ function renderRow(row: TranscriptRow) {
   render(
     <TooltipProvider>
       <TranscriptRenderContext.Provider
-        value={{ agentName: "Agentre", agentColor: "agent-1", sessionId: 42 }}
+        value={{ agentName: "Agentre", agentAvatar: <span />, sessionId: 42 }}
       >
         <TranscriptRowView
           row={row}

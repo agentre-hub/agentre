@@ -1,16 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import {
-  TranscriptPortsProvider,
-  type TranscriptPorts,
-} from "@agentre-ai/agentre-ui";
+import { TranscriptPortsProvider } from "./ports-context";
+import type { TranscriptPorts } from "./ports";
 
 import {
   TranscriptRenderContext,
   TranscriptRowView,
-} from "../transcript-row-view";
+} from "./transcript-row-view";
 
-import type { TranscriptRow } from "@agentre-ai/agentre-ui";
+import type { TranscriptRow } from "./transcript-rows";
 
 // 转录树里的交互卡片从 context 取动作端口,少了 Provider 会在挂载期直接抛。
 const ports: TranscriptPorts = {
@@ -58,7 +56,7 @@ describe("TranscriptRowView OpenClaw approval", () => {
         <TranscriptRenderContext.Provider
           value={{
             agentName: "OpenClaw",
-            agentColor: "agent-1",
+            agentAvatar: <span />,
             sessionId: 42,
           }}
         >

@@ -1,9 +1,10 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { tokenToCssColor } from "@agentre-ai/agentre-ui";
+
 import { cn } from "@/lib/utils";
 
-import { tokenToCssColor } from "../../session-avatar";
 import { SuggestionPopover } from "../suggestion-popover";
 import type { MentionItem, MentionMenuState } from "./types";
 

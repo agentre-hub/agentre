@@ -13,6 +13,9 @@ export {
   useUiTranslation,
 } from "./i18n";
 export { cn } from "./lib/utils";
+// agent 调色板的 token 词汇表（与 tokens.css 同源）+ token → css 变量。
+export { agentColorOrder, tokenToCssColor } from "./lib/agent-color";
+export type { AgentColor } from "./lib/agent-color";
 export {
   COPY_TOAST_DURATION_MS,
   COPY_TOAST_ERROR_DURATION_MS,
@@ -113,6 +116,17 @@ export type { PlanActionStream } from "./transcript/canonical-tool/props";
 // 两张按 block.type 直接路由的审批卡(不进 CanonicalToolRouter)。
 export { OpenClawExecApprovalCard } from "./transcript/openclaw-exec-approval/card";
 export { ToolApprovalCard } from "./transcript/tool-approval/card";
+// 消息行装配:把行模型装成带外壳(头像/名字/时间戳/元信息)的一条消息。
+// 这是 agentre-server 拿到「完整消息」而不只是正文块的那一层。
+export {
+  ChatMessage,
+  ErrorCard,
+  MessageMeta,
+  TranscriptRenderContext,
+  TranscriptRowView,
+} from "./transcript/transcript-row-view";
+export type { TranscriptRenderContextValue } from "./transcript/transcript-row-view";
+export { AutoTriggerBanner } from "./transcript/auto-trigger-banner";
 export { CodeBlock } from "./transcript/code-block";
 export type { CodeBlockProps } from "./transcript/code-block";
 export {

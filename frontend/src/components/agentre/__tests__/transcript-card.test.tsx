@@ -11,9 +11,9 @@ import {
   ThinkingBlock,
   CompactBoundaryDivider,
 } from "@agentre-ai/agentre-ui";
-import { AutoTriggerBanner } from "../auto-trigger-banner";
+import { AutoTriggerBanner } from "@agentre-ai/agentre-ui";
 import { CompactHistoryFold } from "../compact-history-fold";
-import { TranscriptRowView } from "../transcript-row-view";
+import { TranscriptRowView } from "@agentre-ai/agentre-ui";
 
 import type { TranscriptRow } from "@agentre-ai/agentre-ui";
 import type { chat_svc } from "../../../../wailsjs/go/models";

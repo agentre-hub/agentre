@@ -1,10 +1,10 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
-import { parseMentionXml, type MentionRef } from "@agentre-ai/agentre-ui";
 
-import type { MarkdownInlineDecorator } from "@agentre-ai/agentre-ui";
-import { tokenToCssColor } from "../../session-avatar";
+import { useUiTranslation } from "../../i18n";
+import { tokenToCssColor } from "../../lib/agent-color";
+import type { MarkdownInlineDecorator } from "../../transcript/markdown-text";
+import { useOptionalPort } from "../../transcript/ports-context";
+import { parseMentionXml, type MentionRef } from "./xml";
 
 // 私有区哨兵:markdown 无 rehype-raw 会吃掉 <agent>/<project> 原始标签,所以
 // 先把标签替换成 {idx} 这种「对 markdown 无意义」的纯文本哨兵,
@@ -34,24 +34,34 @@ export function MentionChip({
 }: {
   refData: MentionRef;
 }): React.ReactElement {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { t } = useUiTranslation();
+  // 能力探测:宿主没接 openMention 就没有「去处」,那就别渲染一个点了没反应的按钮。
+  // @label 与颜色本身是有信息的,退化成纯文本时它们要留着。
+  const openMention = useOptionalPort("openMention");
   const title =
     refData.kind === "agent"
       ? t("mentions.chip.agentTitle", { name: refData.label })
       : t("mentions.chip.projectTitle", { name: refData.label });
   const color = tokenToCssColor(refData.color ?? "");
+  const style = color
+    ? ({ "--mention-color": color } as React.CSSProperties)
+    : undefined;
+
+  if (!openMention) {
+    return (
+      <span title={title} className="agentre-mention" style={style}>
+        @{refData.label}
+      </span>
+    );
+  }
+
   return (
     <button
       type="button"
       title={title}
-      onClick={() => navigate(refData.kind === "agent" ? "/org" : "/projects")}
+      onClick={() => openMention(refData)}
       className="agentre-mention cursor-pointer"
-      style={
-        color
-          ? ({ "--mention-color": color } as React.CSSProperties)
-          : undefined
-      }
+      style={style}
     >
       @{refData.label}
     </button>

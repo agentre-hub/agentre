@@ -12,50 +12,49 @@ import {
   TriangleAlert,
   WifiOff,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-
-import { AutoTriggerBanner } from "./auto-trigger-banner";
 import {
   makeMentionDecorator,
   prepareMentionText,
-} from "./chat-input/mentions/transcript";
-import {
-  ActivityBlock,
-  CanonicalToolRouter,
-  CompactBoundaryDivider,
-  MarkdownText,
-  MessageCopyButton,
-  MESSAGE_AVATAR_CLASS,
-  MessageRow,
-  OpenClawExecApprovalCard,
-  PlanApproveCard,
-  LocalCommandCard,
-  StreamingMarkdown,
-  ThinkingBlock,
-  ToolApprovalCard,
-  type PlanActionStream,
-  type TranscriptBlock,
-  type TranscriptRow,
-  type TranscriptRowItem,
-} from "@agentre-ai/agentre-ui";
-import { AgentAvatar } from "./primitives";
-import type { AgentColor } from "./types";
-import type { RetryNotice } from "@/stores/chat-streams-store";
-import { useChatTabsStore } from "@/stores/chat-tabs-store";
+} from "../chat-input/mentions/transcript";
+import { useUiTranslation } from "../i18n";
+import { cn } from "../lib/utils";
+import { Button } from "../ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+
+import { ActivityBlock } from "./activity-block/block";
+import { AutoTriggerBanner } from "./auto-trigger-banner";
+import { PlanApproveCard } from "./canonical-tool/plan-approve-request/card";
+import type { PlanActionStream } from "./canonical-tool/props";
+import { CanonicalToolRouter } from "./canonical-tool/registry";
+import { CompactBoundaryDivider } from "./compact-boundary-divider";
+import type {
+  RetryNotice,
+  TranscriptBlock,
+  TranscriptLocalCommand,
+} from "./dto";
+import { LocalCommandCard } from "./local-command/card";
+import { MarkdownText, StreamingMarkdown } from "./markdown-text";
+import { MessageCopyButton, MessageRow } from "./message-row";
+import { OpenClawExecApprovalCard } from "./openclaw-exec-approval/card";
+import { useOptionalPort } from "./ports-context";
+import { ThinkingBlock } from "./thinking-block";
+import { ToolApprovalCard } from "./tool-approval/card";
+import type { TranscriptRow, TranscriptRowItem } from "./transcript-rows";
 
 // ─── 会话级静态渲染依赖 ───────────────────────────────────────────────────────
 
 export type TranscriptRenderContextValue = {
   agentName: string;
-  agentColor: AgentColor;
+  /**
+   * assistant 行的头像节点，**必填**，由宿主给。
+   *
+   * 与 MessageRow 的 `avatar` 同一个理由：头像画什么是身份问题（桌面端的 16 色
+   * 调色板 + icon-registry + 自定义头像图片，agentre-server 另有一套），不是布局
+   * 问题。会话级常量，所以挂在这个上下文上而不是逐行传 —— 顺带保住行级 memo。
+   * 尺寸对齐用包导出的 `MESSAGE_AVATAR_CLASS`。
+   */
+  agentAvatar: React.ReactNode;
   cwd?: string;
   sessionId: number;
   tabStateKey?: string;
@@ -91,9 +90,12 @@ function formatHHmmss(ms: number): string {
 
 type ChatMessageProps = React.ComponentProps<"article"> & {
   author: string;
-  avatarColor?: AgentColor;
+  /**
+   * assistant 行的头像节点。user 行不用它 —— 「我」是中性的、与身份无关，
+   * 由本组件自己画（见下）。
+   */
+  avatar: React.ReactNode;
   children: React.ReactNode;
-  initials?: string;
   meta?: React.ReactNode;
   /** R17:非本机发出的用户消息的来源设备显示名;undefined = 不渲染来源标识。 */
   source?: string;
@@ -106,17 +108,16 @@ type ChatMessageProps = React.ComponentProps<"article"> & {
 
 function ChatMessage({
   author,
-  avatarColor = "agent-1",
+  avatar,
   children,
   className,
-  initials,
   meta,
   source,
   time,
   variant = "assistant",
   ...props
 }: ChatMessageProps) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const isUser = variant === "user";
   return (
     <MessageRow
@@ -131,16 +132,7 @@ function ChatMessage({
             {t("chat.message.me")}
           </span>
         ) : (
-          // 头像由调用方给：MessageRow 已搬进 @agentre-ai/agentre-ui，那里不认识
-          // 桌面端的 16 色 agent 调色板 / icon-registry。桌面端的身份模型留在
-          // AgentAvatar 里，只借包的 MESSAGE_AVATAR_CLASS 对齐头像列尺寸。
-          <AgentAvatar
-            name={author}
-            initials={initials}
-            color={avatarColor}
-            size="md"
-            className={MESSAGE_AVATAR_CLASS}
-          />
+          avatar
         )
       }
       name={isUser ? null : author}
@@ -185,7 +177,7 @@ function MessageMeta({
   promptTokens,
   reasoningTokens = 0,
 }: MessageMetaProps) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const durationLabel = `${(durationMs / 1000).toFixed(1)}s`;
   // 后端一个 token 数都没上报时（如 OpenClaw 网关不发 usage 帧），渲染「↑0 ↓0」
   // 等于把「没上报」说成「用了 0 个 token」。这种情况整块隐藏计数，只留耗时。
@@ -325,7 +317,7 @@ function AssistantMessageActions({
   promptTokens,
   reasoningTokens,
 }: AssistantMessageActionsProps) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
 
   return (
     <>
@@ -355,7 +347,7 @@ function AssistantMessageActions({
 // UserMessageActions 渲染 user 气泡的 action 行：目前只有「编辑」。
 // 作为 `meta` prop 传入 ChatMessage，常驻显示在消息下方。
 function UserMessageActions({ onEdit }: { onEdit: () => void }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center gap-1.5">
       <Button
@@ -381,7 +373,7 @@ function ErrorCard({
   onContinue?: () => void;
   onRerun?: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   return (
     <section
       data-selectable-text="true"
@@ -416,7 +408,7 @@ function ErrorCard({
 }
 
 function RetryNoticeCard({ retry }: { retry: RetryNotice }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const hasCount = retry.attempt > 0 && retry.maxAttempts > 0;
   const title = hasCount
     ? t("chat.retry.titleWithMax", {
@@ -465,7 +457,7 @@ function RetryNoticeCard({ retry }: { retry: RetryNotice }) {
 }
 
 function TypingIndicator() {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   // keyframe 自己控制 opacity (0.2 ↔ 1)，dot 颜色不再叠 /60，避免叠加后整体太淡看不见。
   // 6px 三点 + 1.5 gap 是「克制但可感知」的尺寸；动画通过 @theme 的 --animate-typing-dot 注册，
   // class 名 animate-typing-dot 由 Tailwind v4 解析为 animation: typing-dot 1.2s ease-in-out infinite。
@@ -489,7 +481,7 @@ function TypingIndicator() {
 // 让用户知道这段时间不是普通回答,而是在压缩上下文 (manual 或 auto)。文案旁
 // 复用 TypingIndicator 的 dot 动画做"还在跑"的视觉信号。
 function CompactingIndicator() {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const dotClass =
     "size-1.5 rounded-full bg-muted-foreground animate-typing-dot motion-reduce:animate-none";
   return (
@@ -518,7 +510,7 @@ function CompactingIndicator() {
 // typing-dot-slow),让"网络在等"与"agent 在想"一眼可分。降级(prefers-reduced-
 // motion)时停动画、点降到低透明度,标签与图形都还在,信息不丢。
 function DisconnectedIndicator() {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const dotClass =
     "size-1.5 rounded-full bg-muted-foreground animate-typing-dot-slow motion-reduce:animate-none motion-reduce:opacity-55";
   return (
@@ -542,7 +534,7 @@ function DisconnectedIndicator() {
 }
 
 function ImageBlockView({ block }: { block: TranscriptBlock }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const image = (
     block as TranscriptBlock & {
       image?: { dataUrl?: string; mediaType?: string; name?: string };
@@ -634,7 +626,7 @@ function RenderItemView({
   /** 消息级耗时(块级无来源),活动块组头的耗时槽用;运行中不显示。 */
   durationMs?: number;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const ctx = React.useContext(TranscriptRenderContext);
   switch (item.type) {
     case "placeholder":
@@ -807,6 +799,28 @@ function RenderItemView({
   }
 }
 
+// LocalCommandRowView 单独成组件,只为了让 attachTerminal 端口的 hook 落在
+// 「真的渲染了一张本地命令卡」的那一次上 —— 端口取用口会在缺 Provider 时如实抛错,
+// 放到 TranscriptRowView 顶部就等于让每一行都要求宿主接好这个纯桌面能力。
+function LocalCommandRowView({
+  entry,
+  onStop,
+}: {
+  entry: TranscriptLocalCommand;
+  onStop?: (terminalId: string) => void | Promise<void>;
+}) {
+  const attachTerminal = useOptionalPort("attachTerminal");
+  return (
+    <LocalCommandCard
+      entryId={entry.id}
+      onOpenInTerminal={(id) =>
+        attachTerminal?.({ terminalId: id, command: entry.command })
+      }
+      onStop={onStop}
+    />
+  );
+}
+
 // ─── 行渲染 ──────────────────────────────────────────────────────────────────
 
 export type TranscriptRowViewProps = {
@@ -839,15 +853,9 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
   const ctx = React.useContext(TranscriptRenderContext);
   // local_command 行无 message 引用,独立成卡(无头像/footer chrome)在此提前返回。
   if (row.item.type === "local_command") {
-    const entry = row.item.entry;
     return (
-      <LocalCommandCard
-        entryId={entry.id}
-        onOpenInTerminal={(id) =>
-          useChatTabsStore
-            .getState()
-            .attachTerminal({ terminalId: id, command: entry.command })
-        }
+      <LocalCommandRowView
+        entry={row.item.entry}
         onStop={ctx?.onStopLocalCommand}
       />
     );
@@ -915,8 +923,7 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
         {row.autonomous ? <AutoTriggerBanner /> : null}
         <ChatMessage
           author={isAssistant ? (ctx?.agentName ?? "") : ""}
-          avatarColor={isAssistant ? (ctx?.agentColor ?? "agent-1") : "neutral"}
-          initials={isAssistant ? ctx?.agentName.charAt(0) : undefined}
+          avatar={ctx?.agentAvatar}
           variant={isAssistant ? "assistant" : "user"}
           time={formatHHmm(m.createtime)}
           source={isAssistant ? undefined : row.sourceDevice}

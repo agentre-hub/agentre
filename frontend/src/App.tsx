@@ -52,7 +52,7 @@ import {
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
 import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
 import { desktopTranscriptLiveState } from "@/components/agentre/transcript-live-state-desktop";
-import { desktopTranscriptPorts } from "@/components/agentre/transcript-ports-desktop";
+import { useDesktopTranscriptPorts } from "@/components/agentre/transcript-ports-desktop";
 import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal-transport-desktop";
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
 import { useChatAgents } from "@/hooks/use-chat-agents";
@@ -785,11 +785,13 @@ function AppLayout() {
   const hasChat =
     location.pathname === "/chat" || location.pathname === "/projects";
 
+  const ports = useDesktopTranscriptPorts();
+
   return (
     // 端口挂在应用根而不是转录子树：markdown-text 被三棵树共用(转录、文件预览
     // 面板、聊天输入的提及回显),它底下的 rich-link / markdown-image 要用宿主
     // 能力(打开路径 / 外部链接 / 读工作区文件),只挂转录上另外两棵会取不到。
-    <TranscriptPortsProvider ports={desktopTranscriptPorts}>
+    <TranscriptPortsProvider ports={ports}>
       <TranscriptLiveStateProvider value={desktopTranscriptLiveState}>
         {/* 终端传输同样挂在应用根：终端标签页由 ChatPanelHost 渲染，
             而本地命令卡片(转录里)未来也要盯同一条 PTY。 */}

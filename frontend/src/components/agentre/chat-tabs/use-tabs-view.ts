@@ -1,6 +1,7 @@
 // frontend/src/components/agentre/chat-tabs/use-tabs-view.ts
 import * as React from "react";
 import { useTranslation } from "react-i18next";
+import { tokenToCssColor } from "@agentre-ai/agentre-ui";
 
 import { useProjectTree } from "@/hooks/use-project-tree";
 import { reasonToPillText } from "@/lib/attention-display";
@@ -13,7 +14,7 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { avatarFromMeta, tokenToCssColor } from "../session-avatar";
+import { avatarFromMeta } from "../session-avatar";
 import type { TabStatus } from "./tab";
 
 export type TabView = {

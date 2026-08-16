@@ -1,4 +1,6 @@
-import type { TranscriptPorts } from "@agentre-ai/agentre-ui";
+import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import type { MentionRef, TranscriptPorts } from "@agentre-ai/agentre-ui";
 
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 
@@ -24,7 +26,10 @@ import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
  * 模块级常量而不是每次渲染现造：TranscriptRenderContext 的稳定性是
  * 行级 memo 不被击穿的前提，端口对象跟着一起保持同一性。
  */
-export const desktopTranscriptPorts: TranscriptPorts = {
+// 用 `satisfies` 而不是类型标注 `: TranscriptPorts`：标注会把每个可选成员
+// widen 成 `... | undefined`，展开进下面的完整端口面时就再也证明不了「一个不缺」。
+// `satisfies` 同样校验形状，但保住字面量的精确成员类型。
+export const desktopTranscriptPorts = {
   async answerToolPermission(input) {
     await AnswerToolPermission(input as chat_svc.AnswerToolPermissionRequest);
   },
@@ -82,4 +87,31 @@ export const desktopTranscriptPorts: TranscriptPorts = {
   attachTerminal(input) {
     useChatTabsStore.getState().attachTerminal(input);
   },
-};
+} satisfies TranscriptPorts;
+
+/**
+ * 桌面端完整的端口面 —— 应用根用它，不要直接用上面的常量。
+ *
+ * 为什么单独一层：其余端口都是 Wails 调用，可以做成模块级常量；而
+ * `openMention`（点 @提及去哪）是**路由**问题，`navigate` 只能从 hook 拿，
+ * 模块级常量表达不了。依赖只有 navigate（react-router 保证其稳定），
+ * 所以 TranscriptRenderContext 的稳定性不受影响、行级 memo 不会被击穿。
+ *
+ * `satisfies Required<TranscriptPorts>` 是这层的重点：桌面端是全能力宿主，
+ * 包里的可选端口对它应当**一个不缺**（可选是给 agentre-server 那种缺能力的
+ * 宿主留的）。漏接一个的表现是「按钮悄悄消失、点了没反应」，肉眼极难发现 ——
+ * 这条标注让它变成编译期错误。新增可选端口而桌面端没接，`tsc` 当场红。
+ */
+export function useDesktopTranscriptPorts(): TranscriptPorts {
+  const navigate = useNavigate();
+
+  return useMemo(
+    () =>
+      ({
+        ...desktopTranscriptPorts,
+        openMention: (ref: MentionRef) =>
+          navigate(ref.kind === "agent" ? "/org" : "/projects"),
+      }) satisfies Required<TranscriptPorts>,
+    [navigate],
+  );
+}

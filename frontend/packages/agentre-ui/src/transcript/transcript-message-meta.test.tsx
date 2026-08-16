@@ -1,14 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { TooltipProvider } from "../ui/tooltip";
 
 import {
   TranscriptRenderContext,
   TranscriptRowView,
-} from "../transcript-row-view";
+} from "./transcript-row-view";
 
-import type { TranscriptRow } from "@agentre-ai/agentre-ui";
+import type { TranscriptRow } from "./transcript-rows";
 
 function assistantRow(
   message: Partial<Record<string, unknown>>,
@@ -45,7 +45,7 @@ function renderRow(row: TranscriptRow) {
   render(
     <TooltipProvider>
       <TranscriptRenderContext.Provider
-        value={{ agentName: "OpenClaw", agentColor: "agent-1", sessionId: 42 }}
+        value={{ agentName: "OpenClaw", agentAvatar: <span />, sessionId: 42 }}
       >
         <TranscriptRowView
           row={row}

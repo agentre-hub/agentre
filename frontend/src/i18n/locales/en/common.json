@@ -360,11 +360,7 @@
   },
   "chat": {
     "actions": {
-      "approve": "Approve",
-      "copyOutput": "Copy AI output",
-      "copyOutputDone": "AI output copied",
-      "copyOutputFailed": "Failed to copy AI output",
-      "regenerate": "Regenerate"
+      "approve": "Approve"
     },
     "composer": {
       "addImage": "Add Image",
@@ -398,55 +394,12 @@
         "run": "Run command"
       }
     },
-    "compacting": {
-      "aria": "Compacting context",
-      "label": "Compacting context..."
-    },
     "context": {
       "aria": "Context usage {{used}} / {{max}}",
       "label": "Context"
     },
-    "debug": {
-      "unknownBlock": "(debug) unimplemented block type: {{type}}"
-    },
-    "disconnected": {
-      "aria": "Connection lost, reconnecting",
-      "label": "Connection lost, reconnecting · the remote is still running"
-    },
-    "errorCard": {
-      "continue": "Continue",
-      "message": "Agent call failed: {{text}}",
-      "regenerate": "↻ Regenerate"
-    },
     "image": {
-      "alt": "Image",
       "attachmentAlt": "Image attachment"
-    },
-    "message": {
-      "fromDevice": "From {{device}}",
-      "me": "Me"
-    },
-    "notice": {
-      "providerFallback": {
-        "sentence": "Selected provider {{provider}} is unavailable; fell back to the agent binding"
-      },
-      "providerSwitch": {
-        "fixedModel": "$t(providerPill.mode.fixed) · {{provider}} · {{model}} from here",
-        "followAgentBinding": "$t(modelTargetPicker.special.chat) from here",
-        "sentence": "$t(providerPill.mode.followDefault) · {{provider}} from here"
-      }
-    },
-    "meta": {
-      "cacheHit": "Cache hit",
-      "cacheWrite": "Cache write",
-      "completion": "Received (completion)",
-      "duration": "Duration",
-      "model": "Model",
-      "prompt": "Sent (prompt)",
-      "reasoning": "Reasoning",
-      "tokenDetails": "Token usage details",
-      "usage": "Usage",
-      "usageUnavailable": "Not reported by the backend"
     },
     "quota": {
       "aria": "Claude Code quota 5h {{five}}% 7d {{seven}}% from {{device}}",
@@ -465,16 +418,6 @@
         "network": "Claude Code quota · {{device}} (network error, showing last value)",
         "rateLimited": "Claude Code quota · {{device}} (429 backoff, showing last value)"
       }
-    },
-    "retry": {
-      "aria": "Retrying",
-      "defaultMessage": "Upstream connection interrupted temporarily",
-      "title": "Retrying",
-      "titleWithAttempt": "Retrying {{attempt}}",
-      "titleWithMax": "Retrying {{attempt}}/{{max}}"
-    },
-    "typing": {
-      "aria": "Generating"
     }
   },
   "chatContext": {
@@ -606,10 +549,6 @@
   "chatPanel": {
     "actions": {
       "rename": "Rename"
-    },
-    "autonomous": {
-      "banner": "Background task finished · auto-continued",
-      "aria": "Auto-continued response"
     },
     "compact": {
       "imageUnsupported": "/compact cannot be sent with images",
@@ -1773,10 +1712,6 @@
     "group": {
       "agents": "Agents",
       "projects": "Projects"
-    },
-    "chip": {
-      "agentTitle": "Agent: {{name}}",
-      "projectTitle": "Project: {{name}}"
     }
   },
   "nav": {
