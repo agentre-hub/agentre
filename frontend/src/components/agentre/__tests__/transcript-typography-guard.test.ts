@@ -78,6 +78,10 @@ export const SCANNED: {
   { file: "canonical-tool/agent-spawn/card.tsx", root: "package" },
   { file: "canonical-tool/plan/card.tsx", root: "package" },
   { file: "tool-approval/card.tsx", root: "package" },
+  // openclaw-exec-approval/card.tsx 一直漏在名单外(与 tool-approval 同为按
+  // block.type 直接路由的审批卡,却从未被登记)。搬进包时补登记 —— 它本来就
+  // 该在这儿,不是新组件。
+  { file: "openclaw-exec-approval/card.tsx", root: "package" },
   { file: "canonical-tool/tool-permission/card.tsx", root: "package" },
   // user-ask/card.tsx 的选项按钮 / “其他”输入行 / 错误横幅是手写交互控件,
   // 故意与全局 shadcn Button/Input 保持一致的 rounded-md,不跟卡片外壳走
