@@ -1,21 +1,20 @@
 import * as React from "react";
 import { ShieldAlertIcon } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import {
-  useTranscriptPorts,
-  TranscriptCard,
-  TranscriptCardBody,
-} from "@agentre-ai/agentre-ui";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import type { ExecApprovalData } from "@/stores/chat-streams-store";
+import { Badge } from "../../ui/badge";
+import { Button } from "../../ui/button";
+import { Spinner } from "../../ui/spinner";
+import { useUiTranslation } from "../../i18n";
+import type { TranscriptBlockExecApproval } from "../dto";
+import { useTranscriptPorts } from "../ports-context";
+import { TranscriptCard, TranscriptCardBody } from "../transcript-card";
 
 const supportedDecisions = ["allow-once", "allow-always", "deny"] as const;
 type ExecApprovalDecision = (typeof supportedDecisions)[number];
 
-function allowedDecisions(approval: ExecApprovalData): ExecApprovalDecision[] {
+function allowedDecisions(
+  approval: TranscriptBlockExecApproval,
+): ExecApprovalDecision[] {
   const values = approval.allowedDecisions ?? [];
   return supportedDecisions.filter((decision) => values.includes(decision));
 }
@@ -24,10 +23,10 @@ export function OpenClawExecApprovalCard({
   approval,
   sessionId,
 }: {
-  approval: ExecApprovalData;
+  approval: TranscriptBlockExecApproval;
   sessionId: number;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const ports = useTranscriptPorts();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);

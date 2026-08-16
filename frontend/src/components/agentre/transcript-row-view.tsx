@@ -35,18 +35,18 @@ import {
   MessageCopyButton,
   MESSAGE_AVATAR_CLASS,
   MessageRow,
+  OpenClawExecApprovalCard,
   PlanApproveCard,
   StreamingMarkdown,
   ThinkingBlock,
+  ToolApprovalCard,
   type PlanActionStream,
   type TranscriptBlock,
   type TranscriptRow,
   type TranscriptRowItem,
 } from "@agentre-ai/agentre-ui";
 import { LocalCommandCard } from "./local-command/card";
-import { OpenClawExecApprovalCard } from "./openclaw-exec-approval/card";
 import { AgentAvatar } from "./primitives";
-import { ToolApprovalCard } from "./tool-approval/card";
 import type { AgentColor } from "./types";
 import type { RetryNotice } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";

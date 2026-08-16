@@ -1,13 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import {
-  TranscriptPortsProvider,
-  type TranscriptPorts,
-} from "@agentre-ai/agentre-ui";
+
+import type { TranscriptBlockToolApproval } from "../dto";
+import type { TranscriptPorts } from "../ports";
+import { TranscriptPortsProvider } from "../ports-context";
 
 import { ToolApprovalCard } from "./card";
-import type { ToolApprovalData } from "@/stores/chat-streams-store";
 
 // 卡片不再认识 Wails 绑定,只认注入的动作端口;测试注入自己的端口实现,
 // 断言「用户按下批准/拒绝」落到 answerToolApproval 上。
@@ -23,7 +22,7 @@ function makePorts(): TranscriptPorts {
   };
 }
 
-function renderCard(approval: ToolApprovalData) {
+function renderCard(approval: TranscriptBlockToolApproval) {
   return render(
     <TranscriptPortsProvider ports={makePorts()}>
       <ToolApprovalCard approval={approval} sessionId={42} />
@@ -38,8 +37,8 @@ describe("ToolApprovalCard", () => {
   });
 
   const pending = (
-    overrides: Partial<ToolApprovalData> = {},
-  ): ToolApprovalData => ({
+    overrides: Partial<TranscriptBlockToolApproval> = {},
+  ): TranscriptBlockToolApproval => ({
     toolKey: "org",
     requestId: "org-1",
     toolName: "org_create_department",

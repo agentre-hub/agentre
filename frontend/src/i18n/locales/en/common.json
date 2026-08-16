@@ -358,50 +358,6 @@
       "passed": "Test passed · {{latency}}ms · {{message}}"
     }
   },
-  "toolApproval": {
-    "title": "Org structure operation approval",
-    "approve": "Approve",
-    "deny": "Reject",
-    "submitFailed": "Approval submission failed",
-    "status": {
-      "approved": "Approved",
-      "denied": "Rejected",
-      "expired": "Expired"
-    },
-    "tools": {
-      "org_create_department": "Create department",
-      "org_update_department": "Update department",
-      "org_delete_department": "Delete department",
-      "org_create_agent": "Create agent",
-      "org_update_agent": "Update agent",
-      "org_delete_agent": "Delete agent"
-    }
-  },
-  "openclawExecApproval": {
-    "title": "Execution approval",
-    "command": "Command",
-    "host": "Host",
-    "node": "Node",
-    "agent": "Agent",
-    "resolvedBy": "Resolved by",
-    "loading": "Submitting decision…",
-    "submitFailed": "Could not submit the approval decision.",
-    "status": {
-      "pending": "Pending",
-      "resolved": "Resolved",
-      "expired": "Expired"
-    },
-    "decision": {
-      "allow-once": "Allow once",
-      "allow-always": "Always allow",
-      "deny": "Deny"
-    },
-    "decisionResult": {
-      "allow-once": "Allowed once",
-      "allow-always": "Always allowed",
-      "deny": "Denied"
-    }
-  },
   "chat": {
     "actions": {
       "approve": "Approve",

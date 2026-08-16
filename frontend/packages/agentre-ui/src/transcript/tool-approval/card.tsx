@@ -1,17 +1,17 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 import { Check, ShieldAlert, X } from "lucide-react";
+
+import { Button } from "../../ui/button";
+import { cn } from "../../lib/utils";
+import { useUiTranslation } from "../../i18n";
+import { CollapsibleCode } from "../collapsible-code";
+import type { TranscriptBlockToolApproval } from "../dto";
+import { useTranscriptPorts } from "../ports-context";
 import {
-  useTranscriptPorts,
-  CollapsibleCode,
   TranscriptCard,
   TranscriptCardBody,
   TranscriptPill,
-} from "@agentre-ai/agentre-ui";
-
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import type { ToolApprovalData } from "@/stores/chat-streams-store";
+} from "../transcript-card";
 
 // ToolApprovalCard 渲染 agent 内置写工具(org_create_department / org_update_agent /
 // ...)的审批卡。视觉对齐 canonical-tool/tool-permission/card.tsx,但走
@@ -23,10 +23,10 @@ import type { ToolApprovalData } from "@/stores/chat-streams-store";
 //   - "approved"|"denied"|"expired":渲染只读徽标 + result 文本(动态内容原样展示)
 // 后端 finalize 已把悬空 pending 落成 expired,前端不按会话活跃度自行推断。
 export const ToolApprovalCard: React.FC<{
-  approval: ToolApprovalData;
+  approval: TranscriptBlockToolApproval;
   sessionId: number;
 }> = ({ approval, sessionId }) => {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const ports = useTranscriptPorts();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);

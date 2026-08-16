@@ -1,11 +1,17 @@
 import type {
   AgentStatus as PackageAgentStatus,
   TranscriptBlock,
+  TranscriptBlockExecApproval,
+  TranscriptBlockToolApproval,
   TranscriptLocalCommand,
   TranscriptMessage,
 } from "@agentre-ai/agentre-ui";
 import { describe, expect, it } from "vitest";
 
+import type {
+  ExecApprovalData,
+  ToolApprovalData,
+} from "@/stores/chat-streams-store";
 import type { LocalCommandEntry } from "@/stores/local-commands-store";
 import type { AgentStatus as HostAgentStatus } from "@/stores/types";
 
@@ -54,6 +60,26 @@ export type LocalCommandIsAssignable = Assert<
   LocalCommandEntry extends TranscriptLocalCommand ? true : false
 >;
 
+/**
+ * 两张审批卡（内置写工具审批 / OpenClaw 执行审批）已经搬进包，卡片的 prop 类型
+ * 是包 DTO。宿主这侧两条审批数据由 store 产生（流事件 payload 与持久化 block
+ * 共用一份类型），喂进卡片前必须仍然可赋值。
+ *
+ * 方向与消息 / 块一致：**宿主类型可赋值给包 DTO**。反向不断言 —— 包 DTO 是被
+ * 喂的那一侧，多一个可选字段不该让宿主红。
+ *
+ * ⚠️ 单向断言的失效方式是**只放松包 DTO**：把包里某个必填字段改成可选，宿主
+ * 依旧可赋值，守卫照样绿。真正会被抓住的是「包 DTO 收紧 / 加必填字段而宿主没跟上」，
+ * 那正是 agentre-server 会在运行期读到 undefined 的那一类漂移。
+ */
+export type ToolApprovalIsAssignable = Assert<
+  ToolApprovalData extends TranscriptBlockToolApproval ? true : false
+>;
+
+export type ExecApprovalIsAssignable = Assert<
+  ExecApprovalData extends TranscriptBlockExecApproval ? true : false
+>;
+
 describe("transcript DTO contract", () => {
   it("keeps generated chat_svc models assignable to the shared package DTO", () => {
     // 类型断言在 tsc 阶段生效（见上方 Assert<>）；这里只留一条运行时锚点，
@@ -71,6 +97,12 @@ describe("transcript DTO contract", () => {
 
   it("keeps the host local-command entry assignable to the shared package DTO", () => {
     const proof: LocalCommandIsAssignable = true;
+
+    expect(proof).toBe(true);
+  });
+
+  it("keeps the host approval payloads assignable to the shared package DTOs", () => {
+    const proof: ToolApprovalIsAssignable & ExecApprovalIsAssignable = true;
 
     expect(proof).toBe(true);
   });

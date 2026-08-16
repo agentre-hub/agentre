@@ -1,12 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  TranscriptPortsProvider,
-  type TranscriptPorts,
-} from "@agentre-ai/agentre-ui";
 
-import type { ExecApprovalData } from "@/stores/chat-streams-store";
+import type { TranscriptBlockExecApproval } from "../dto";
+import type { TranscriptPorts } from "../ports";
+import { TranscriptPortsProvider } from "../ports-context";
 
 import { OpenClawExecApprovalCard } from "./card";
 
@@ -24,7 +22,7 @@ function makePorts(): TranscriptPorts {
   };
 }
 
-function renderCard(approval: ExecApprovalData) {
+function renderCard(approval: TranscriptBlockExecApproval) {
   return render(
     <TranscriptPortsProvider ports={makePorts()}>
       <OpenClawExecApprovalCard approval={approval} sessionId={42} />
@@ -32,7 +30,9 @@ function renderCard(approval: ExecApprovalData) {
   );
 }
 
-function pending(overrides: Partial<ExecApprovalData> = {}): ExecApprovalData {
+function pending(
+  overrides: Partial<TranscriptBlockExecApproval> = {},
+): TranscriptBlockExecApproval {
   return {
     id: "approval-1",
     commandText: "git status --short",

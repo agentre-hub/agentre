@@ -110,6 +110,9 @@ export type { ActivityBlockProps } from "./transcript/activity-block/block";
 export { CanonicalToolRouter } from "./transcript/canonical-tool/registry";
 export { PlanApproveCard } from "./transcript/canonical-tool/plan-approve-request/card";
 export type { PlanActionStream } from "./transcript/canonical-tool/props";
+// 两张按 block.type 直接路由的审批卡(不进 CanonicalToolRouter)。
+export { OpenClawExecApprovalCard } from "./transcript/openclaw-exec-approval/card";
+export { ToolApprovalCard } from "./transcript/tool-approval/card";
 export { CodeBlock } from "./transcript/code-block";
 export type { CodeBlockProps } from "./transcript/code-block";
 export {

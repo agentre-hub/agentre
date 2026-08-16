@@ -240,6 +240,31 @@
     "cannotPreview": "无法预览",
     "tooLarge": "图片过大"
   },
+  "openclawExecApproval": {
+    "title": "执行审批",
+    "command": "命令",
+    "host": "执行主机",
+    "node": "节点",
+    "agent": "Agent",
+    "resolvedBy": "决策方",
+    "loading": "正在提交决策…",
+    "submitFailed": "无法提交审批决策。",
+    "status": {
+      "pending": "待审批",
+      "resolved": "已决策",
+      "expired": "已过期"
+    },
+    "decision": {
+      "allow-once": "仅本次允许",
+      "allow-always": "始终允许",
+      "deny": "拒绝"
+    },
+    "decisionResult": {
+      "allow-once": "已允许一次",
+      "allow-always": "已始终允许",
+      "deny": "已拒绝"
+    }
+  },
   "richLink": {
     "localFile": "本地文件",
     "localFileExternal": "本地文件 · 项目外",
@@ -262,5 +287,24 @@
     "streaming": "思考中…",
     "toggleDone": "切换思考完成展开/收起",
     "toggleStreaming": "切换思考中展开/收起"
+  },
+  "toolApproval": {
+    "title": "组织架构操作审批",
+    "approve": "批准",
+    "deny": "拒绝",
+    "submitFailed": "审批提交失败",
+    "status": {
+      "approved": "已批准",
+      "denied": "已拒绝",
+      "expired": "已过期"
+    },
+    "tools": {
+      "org_create_department": "创建部门",
+      "org_update_department": "修改部门",
+      "org_delete_department": "删除部门",
+      "org_create_agent": "创建 Agent",
+      "org_update_agent": "修改 Agent",
+      "org_delete_agent": "删除 Agent"
+    }
   }
 }

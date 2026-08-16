@@ -77,7 +77,7 @@ export const SCANNED: {
   { file: "canonical-tool/file-write/content-renderer.tsx", root: "package" },
   { file: "canonical-tool/agent-spawn/card.tsx", root: "package" },
   { file: "canonical-tool/plan/card.tsx", root: "package" },
-  { file: "tool-approval/card.tsx" },
+  { file: "tool-approval/card.tsx", root: "package" },
   { file: "canonical-tool/tool-permission/card.tsx", root: "package" },
   // user-ask/card.tsx 的选项按钮 / “其他”输入行 / 错误横幅是手写交互控件,
   // 故意与全局 shadcn Button/Input 保持一致的 rounded-md,不跟卡片外壳走
