@@ -38,7 +38,7 @@
 3. 作为**要给 Agent 加一台机器的用户**，我希望直接在看到的这个列表上加，而不必先想明白这属于哪个作用域。
 4. 作为**用浏览器发起对话的用户**，我希望在浏览器上也能把常用的那台机器排到前面，并且这个偏好在我下次打开时还在。
 5. 作为**在手机和电脑上都开过控制台的用户**，我希望两个浏览器各自记住各自的顺序，互不覆盖。
-6. 作为**解除了某个浏览器授权的用户**，我希望它留下的偏好一并被清掉，不残留在账号里。
+6. 作为**删掉了某个 Agent 的用户**，我希望各个浏览器为它排的顺序一并消失，不残留在账号里。
 
 ## Design decisions
 
@@ -49,10 +49,10 @@
 | 3 | 本轮推翻前置规格 [2026-08-11 桌面端互访](./2026-08-11-desktop-peer-access.md) 的 R16 第二句，并修订该文件。 | R16 写着「默认顺序本身在何处编辑也要有明确入口，不得只能靠某一端的覆盖间接影响它」，与决策 2 直接冲突。代码与已提交规格不得对不上，因此本轮同时提交对 R16 的修订。R14（解析规则）与 R22（单端零变化）不变。 |
 | 4 | 桌面端不再消费 `HasOverride`，也不提供「恢复为账号默认顺序」。 | 决策 2 之后没有可见的「默认」，「恢复默认」失去指称对象；覆盖态徽标要区分的「自动 vs 手动」同理失去意义。已知代价：拖过一次就永远处于本端顺序，没有回到「本机自动提前」的路径 —— 等价操作是把本机拖回第 1 位，代价接近零（用户裁决接受）。`HasOverride` 字段服务端照常返回，不删。 |
 | 5 | 两端都不渲染任何解释作用域的说明行。 | 用户裁决（2026-08-14）：「不需要这个多余的说明」，与既有偏好一致 —— 界面只写「现在会跑什么」，不写总述性解释条。列表本身已经回答了「会派到哪」，一句「顺序只影响这台电脑」既不改变用户能做的事，也不改变结果。**已知代价**：用户在另一端发现顺序不同时，界面不解释原因（用户已就此裁决两次）。因此桌面端不再需要判断单端/多端，R22「单端界面零变化」天然成立。拒绝多端时显示（初版设计）；拒绝恒显。 |
-| 6 | web 端的顺序存服务端新表，不用 `localStorage`。 | 用户裁决（2026-08-14，在下述更正之后重新确认）。依据：解除授权 / 删除设备时能连带清掉它的顺序；多浏览器与手机各自一份是账号级设备模型的自然延伸，而不是靠同源隔离得来的巧合；将来设备身份若改为账号派生，顺序自动幸存。**已更正的错误依据**：先前提出「`localStorage` 会被 Safari ITP 清掉导致派发目标悄悄变」，该论据不成立 —— web 设备指纹本身就存在 `localStorage`（`agentre-server/frontend/src/lib/webDevice.ts:30,147`），清掉后会注册成一台新设备、服务端那行随之成为孤儿，用户可见结果与存 `localStorage` 完全相同。拒绝 `localStorage`（我方初版提议，已收回）。 |
-| 7 | 新表键为 `(user_id, device_id, agent_sync_id)`，值为 **backend sync_id 的有序数组**。 | 问题 10：`device_id` 不唯一（一台机器可挂多个 backend），`rank` 是位置性的。`BackendSyncID` 是跨机稳定且逐档唯一的既有标识（`agentExecTargetPayload`，`workspace.go:201-205`）。键用 `device_id` 而非 `device_fingerprint`：一是隔壁 `followed_sessions.device_fingerprint` 指的是**目标**设备，同名反义必被读错；二是 `device_id` 只能由指纹解析 `devices` 行得到，从而让决策 9 的账号归属校验**结构上绕不过去**，而不是一条容易漏写的规则。形状与既有 `device_local_paths` 一致。拒绝以指纹为键（同名反义 + 校验可绕）；拒绝把顺序写回同步对象的 `sort_order`（那是账号级的，会污染所有端）。 |
+| 6 | web 端的顺序存服务端新表，不用 `localStorage`。 | 用户裁决（2026-08-14，在下述更正之后重新确认）。依据：① 顺序由服务端解析（决策 8），存在服务端就不必把整份排列塞进每一次取派发计划的请求；② 同一账号下多浏览器各一份是**账号内偏好命名空间**的自然形态，而不是靠同源隔离得来的巧合；③ Agent 被删除时服务端能连带清掉引用它的排列（`sync_svc.Push` 落 agent 墓碑时直接 DELETE），`localStorage` 做不到这件事。**已作废的依据**（2026-08-15 `browser_relay_clients` 迁移之后）：初版写的「解除授权 / 删除设备时能连带清掉它的顺序」与「将来设备身份若改为账号派生，顺序自动幸存」——那次迁移把浏览器从设备模型里拆了出去（键由 `device_id` 换成浏览器自持的 `client_id`，`kind='web'` 的设备行全部删除），服务端不再有「撤销某个浏览器」这个动作，这两条都没有对应物了。**已知代价**：浏览器换掉 `client_id`（清站点数据 / 换浏览器 / 隐私窗口）后旧行成为孤儿，服务端**没有任何回收触发点**。**已更正的错误依据**：先前提出「`localStorage` 会被 Safari ITP 清掉导致派发目标悄悄变」，该论据不成立 —— web 设备指纹本身就存在 `localStorage`（`agentre-server/frontend/src/lib/webDevice.ts:30,147`），清掉后会注册成一台新设备、服务端那行随之成为孤儿，用户可见结果与存 `localStorage` 完全相同。拒绝 `localStorage`（我方初版提议，已收回）。 |
+| 7 | 新表键为 `(user_id, device_id, agent_sync_id)`，值为 **backend sync_id 的有序数组**。 | 问题 10：`device_id` 不唯一（一台机器可挂多个 backend），`rank` 是位置性的。`BackendSyncID` 是跨机稳定且逐档唯一的既有标识（`agentExecTargetPayload`，`workspace.go:201-205`）。键用 `device_id` 而非 `device_fingerprint`：一是隔壁 `followed_sessions.device_fingerprint` 指的是**目标**设备，同名反义必被读错；二是 `device_id` 只能由指纹解析 `devices` 行得到，从而让决策 9 的账号归属校验**结构上绕不过去**，而不是一条容易漏写的规则。形状与既有 `device_local_paths` 一致。拒绝以指纹为键（同名反义 + 校验可绕）；拒绝把顺序写回同步对象的 `sort_order`（那是账号级的，会污染所有端）。**键已变更（2026-08-15）**：`browser_relay_clients` 迁移把浏览器移出设备模型，表改为 `browser_exec_target_orders`、键改为 `(user_id, client_id, agent_sync_id)`，`client_id` 是浏览器自持、服务端无对应记录的标识。**上面第二条依据随之失效**——`client_id` 直接来自请求参数，不再需要（也无从）解析 `devices` 行，决策 9 那条「结构上绕不过去」的约束因此不复存在（见决策 9）。第一条依据（同名反义）与两条拒绝方案仍然成立。 |
 | 8 | 浏览器把自己的顺序**交给服务端解析**，不自行挑档。 | 浏览器自行挑档需要每一档都带 `device_fingerprint` 与 `cwd`，后者直接违反硬不变量 2（R19：路径只随选中档出现）。让服务端按调用方的顺序重排后走既有的「第一个可用」循环，红线不动。拒绝在 `DispatchTierItem` 上铺 `cwd`。 |
-| 9 | 服务端读写顺序时必须校验传入的设备指纹属于调用方账号。 | `/v1/workspace/*` 走 `SessionOrDeviceAuth`（`internal/api/router.go:76-89`），身份是用户不是设备，所以设备指纹只能由参数传入。同步组的既有约定是「账号与设备一律取自 JWT claims，不接受参数里的身份」（`router.go:94`）；本组做不到这一点，因此以「先按 `(user_id, fingerprint)` 解析出 `devices` 行、解析不到即拒绝」补上：`device_id` 是主键的一部分，拿不到它就无法读写，校验因此不可绕过（决策 7）。不得直接信任参数里的身份。 |
+| 9 | 服务端读写顺序时必须校验传入的设备指纹属于调用方账号。 | `/v1/workspace/*` 走 `SessionOrDeviceAuth`（`internal/api/router.go:76-89`），身份是用户不是设备，所以设备指纹只能由参数传入。同步组的既有约定是「账号与设备一律取自 JWT claims，不接受参数里的身份」（`router.go:94`）；本组做不到这一点，因此以「先按 `(user_id, fingerprint)` 解析出 `devices` 行、解析不到即拒绝」补上：`device_id` 是主键的一部分，拿不到它就无法读写，校验因此不可绕过（决策 7）。不得直接信任参数里的身份。**本条已失效（superseded，2026-08-15）**：`browser_relay_clients` 迁移把浏览器移出设备模型之后，`client_id` 没有任何服务端记录可供比对，这条校验**没有对应物**，实现里也已经不存在。今天真实成立的边界只有一条：`user_id` 取自 JWT，因此跨账号写不进去；`client_id` 是调用方自报的浏览器标识，服务端不校验也无从校验，它只起「同一账号内的偏好命名空间」的作用。**这一条曾在代码注释里被宣称仍然生效，是比缺失本身更危险的失真**——读代码的人会以为有一道校验在——已于 2026-08-16 一并清理。 |
 | 10 | web 的排序控件放在 Overview 的 Agent 卡片上，用上移 / 下移按钮，不引入拖拽库。 | 卡片上今天已经渲染这条执行目标链（`frontend/src/pages/Overview.tsx:39,300`），是「这个 Agent 会派到哪」的既有落点。`agentre-server/frontend/package.json` 没有任何拖拽依赖；此体量下上移/下移按钮足够且天然可键盘操作（桌面端那个列表本就同时提供拖拽与上下按钮）。拒绝新对话弹层（那是发起流程，不该塞配置）；拒绝为此引入 dnd-kit。 |
 | 11 | `skipped_for_web` 的档不参与 web 排序。 | `device_id` 为空的「本机」相对引用在浏览器语境下永远不可派发（R15d，`workspace.go:501-503`），给它一个可排序的位置是纯噪音。它仍在只读链里显示，只是不可移动。 |
 | 12 | 桌面端的 `agent_exec_target_overrides` 保持本地、保持本地自增 id 键，不上行同步。 | 「各端自己排」意味着两端本就不需要互相认识，桌面端今天这套工作正常。改成 sync_id 键要迁移 + 重写 R14 解析，换不来任何可观察收益。**已知重复**：同一个概念在两端有两套存储，若将来出现第三类客户端应重新评估。拒绝本轮统一（纯成本）。 |
@@ -76,11 +76,14 @@
 
 **顺序的持有者是设备，被排序的是 backend。** 这里有两个「设备」轴，不可混同：**持有者**是排这份顺序的客户端（本轮只有 `kind=web` 的浏览器会写），**被排序的目标**是 `order_json` 里的 backend sync_id（它们各自指向某台机器）。一行的含义是「某个浏览器，对某个 Agent，把执行目标排成这个次序」。同一账号下换一个浏览器就是另一台设备、另一行。
 
-没有行 = 该设备没有自己的顺序，解析回落到同步下来的账号 `sort_order`。设备被解除授权或删除时，它的顺序行一并清除。
+没有行 = 该浏览器没有自己的顺序，解析回落到同步下来的账号 `sort_order`。**Agent 被删除时，各浏览器为它排的那些顺序行一并清除**（服务端在 agent 墓碑落地时直接 DELETE——顺序是浏览器本地偏好、不是同步对象，没有副本要传播，因此不落墓碑）。
 
-**新增的唯一一张表。** server 侧新增 `device_exec_target_orders`，桌面端不新增任何表、不新增迁移：
+**已知限制**：一个再也不回来的浏览器留下的行**没有回收触发点**。浏览器清站点数据 / 换浏览器 / 用隐私窗口都会产生一个新 `client_id` 并留下一批旧行；服务端既没有它的设备记录，也没有「撤销某个浏览器」这个动作，更没有 TTL 或定时回收。这是这张表上唯一一类完全回收不掉的行。
+
+**新增的唯一一张表。** server 侧新增一张顺序表，桌面端不新增任何表、不新增迁移。**本轮建的是 `device_exec_target_orders`（下方 SQL），2026-08-15 的 `browser_relay_clients` 迁移已把它替换为 `browser_exec_target_orders`**：键的中段由 `device_id bigint` 换成 `client_id varchar(128)`，其余列与形状不变，旧表的 `kind='web'` 行按 `devices.fingerprint` 回填后随旧表一并删除。
 
 ```sql
+-- 本轮原始形态（已被 browser_exec_target_orders 取代，键中段现为 client_id）
 CREATE TABLE device_exec_target_orders (
   user_id       bigint NOT NULL,
   device_id     bigint NOT NULL,
@@ -128,7 +131,8 @@ CREATE TABLE device_exec_target_orders (
 | 桌面 `exec-target-list.test.tsx`（vitest） | 单列表形态：无作用域切换器；增删在任意状态可用；一档时退化成单行；加载态是骨架而非空态；「当前生效」贴在第一个可用档 | 既有 `frontend/src/components/agentre/org/__tests__/exec-target-list.test.tsx` |
 | 桌面 `org-detail-agent-r16.test.tsx`（vitest，**重写**） | 重排只写 `orderOverride`、不写账号执行目标；不再存在「恢复为账号默认顺序」入口 | 既有同名文件（当前断言双作用域，须随决策 1/4 重写） |
 | 桌面 `i18n.test.ts` + locale parity | 删除的 `org.agent.execTargets.scope*` / `restoreDefault` / `deviceScopeHint` / `deviceEmptyHint` 键无残留引用；新增说明行的键两套 locale 齐备 | 既有 `frontend/src/__tests__/i18n.test.ts` |
-| server 顺序仓储（sqlmock） | 按 `(user_id, device_id, agent_sync_id)` 唯一；upsert 覆盖；按设备删除（解除授权连带清理） | `internal/repository/follow_repo/follow_test.go` |
+| server 顺序仓储（sqlmock） | 按 `(user_id, client_id, agent_sync_id)` 唯一；upsert 覆盖；**按 Agent 删除**（`DeleteByAgent`，作用域钉死在 `user_id + agent_sync_id`：不按 client_id 收窄、不跨账号） | `internal/repository/follow_repo/follow_test.go` |
+| Agent 删除连带清顺序（server 单测） | `sync_svc.Push` 落 agent 墓碑时删掉各浏览器为它排的顺序行。判据含 conflict（R4 后到者胜时那一行确实写了，只判 accepted 会漏）；Agent 只是被改、落墓碑的是别的类型、该删除被拒时**一行都不许删**；清理失败只记 Warn、墓碑照旧成立（回滚会让桌面端把同一条删除永远重推） | 无先例，新建 |
 | server `workspace_svc` 排列解析（纯函数 + mock 仓储） | 有排列按排列；无排列回落 `sort_order`；排列含已删 backend 时忽略；集合新增档补到尾部；`skipped_for_web` 档不因排列被提前成 `Chosen` | `internal/service/workspace_svc/workspace_test.go` |
 | server `workspace_ctr`（controller test） | 顺序读写端点；**传入设备指纹不属于调用方账号时拒绝**（决策 9）；派发计划按调用方顺序返回 `Chosen` 与逐档原因 | `internal/controller/follow_ctr/follow_test.go` |
 | server 迁移链 | 新迁移在 `migrationList()` 末尾且全新库跑通 | 既有 `migrations/migrations_test.go` |
