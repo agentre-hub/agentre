@@ -220,6 +220,7 @@
     "copyFailed": "Failed to copy code"
   },
   "common": {
+    "close": "Close",
     "copied": "Copied",
     "copy": "Copy",
     "copyFailed": "Copy failed",
@@ -235,6 +236,23 @@
       "compressed": "Compacted",
       "manual": "Manual /compact"
     }
+  },
+  "localCommand": {
+    "localChip": "Local command",
+    "notSharedWithAI": "Not sent to AI",
+    "status": {
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "exitCode": "Exit {{code}}",
+    "stop": "Stop",
+    "openInTerminal": "Open in terminal",
+    "dismiss": "Dismiss command",
+    "noOutput": "No output",
+    "expand": "Expand output",
+    "collapse": "Collapse output"
   },
   "markdownImage": {
     "cannotPreview": "Cannot preview",
@@ -277,6 +295,18 @@
     "projectRoot": "Project Root",
     "relative": "Relative",
     "url": "URL"
+  },
+  "terminal": {
+    "banner": {
+      "connectionLost": "Connection lost — terminal session cannot be recovered"
+    },
+    "toast": {
+      "agentredClosed": "agentred has shut down",
+      "connectionLost": "Terminal connection lost",
+      "shellExited": "Shell exited (code {{code}})",
+      "startFailed": "Terminal failed to start: {{message}}"
+    },
+    "unknown": "unknown"
   },
   "thinking": {
     "done": "Thought complete",

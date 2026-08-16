@@ -1,11 +1,9 @@
 import { render as rtlRender, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  TerminalTransportProvider,
-  type TerminalTransport,
-} from "@agentre-ai/agentre-ui";
-import { TerminalPanel } from "../terminal-panel";
-import type { UseTerminalArgs } from "../use-terminal";
+import type { TerminalTransport } from "./transport";
+import { TerminalTransportProvider } from "./transport-context";
+import { TerminalPanel } from "./terminal-panel";
+import type { UseTerminalArgs } from "./use-terminal";
 
 // TerminalPanel 里的 attach 数据源经端口取 stdin / resize;生产里 Provider 挂在
 // App 根。这些用例只关心 xterm 与 live 数据源,端口给个不动声色的替身即可。
@@ -97,13 +95,13 @@ let capturedArgs: {
 } | null = null;
 const writeProxy = vi.fn();
 const resizeProxy = vi.fn();
-vi.mock("../use-terminal", () => ({
+vi.mock("./use-terminal", () => ({
   useTerminal: vi.fn().mockImplementation((args) => {
     capturedArgs = args;
     return { state: "open", write: writeProxy, resize: resizeProxy };
   }),
 }));
-import { useTerminal } from "../use-terminal";
+import { useTerminal } from "./use-terminal";
 
 beforeEach(() => {
   capturedArgs = null;

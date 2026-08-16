@@ -9,7 +9,10 @@ import { useProjectSessionsStore } from "@/stores/project-sessions-store";
 
 const chatPanelRenderCounts = vi.hoisted(() => new Map<number, number>());
 
-vi.mock("../../terminal/terminal-panel", () => ({
+// TerminalPanel 已搬进共享包;这里只替换那一个导出,其余(pruneChatPanelScrollState
+// 等)保持真实实现。
+vi.mock("@agentre-ai/agentre-ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agentre-ai/agentre-ui")>()),
   TerminalPanel: ({
     terminalID,
     active,

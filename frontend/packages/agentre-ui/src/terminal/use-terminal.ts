@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import {
-  useTerminalTransport,
-  type TerminalExit,
-} from "@agentre-ai/agentre-ui";
+
+import type { TerminalExit } from "./transport";
+import { useTerminalTransport } from "./transport-context";
 
 export type TerminalState = "opening" | "open" | "closing" | "idle";
 

@@ -37,6 +37,7 @@ import {
   MessageRow,
   OpenClawExecApprovalCard,
   PlanApproveCard,
+  LocalCommandCard,
   StreamingMarkdown,
   ThinkingBlock,
   ToolApprovalCard,
@@ -45,7 +46,6 @@ import {
   type TranscriptRow,
   type TranscriptRowItem,
 } from "@agentre-ai/agentre-ui";
-import { LocalCommandCard } from "./local-command/card";
 import { AgentAvatar } from "./primitives";
 import type { AgentColor } from "./types";
 import type { RetryNotice } from "@/stores/chat-streams-store";

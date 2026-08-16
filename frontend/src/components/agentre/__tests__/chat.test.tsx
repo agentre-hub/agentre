@@ -7,9 +7,14 @@ import {
   within,
   type RenderOptions,
 } from "@testing-library/react";
-import { TranscriptPortsProvider } from "@agentre-ai/agentre-ui";
+import {
+  LocalCommandsProvider,
+  TranscriptPortsProvider,
+} from "@agentre-ai/agentre-ui";
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
+
+import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
 
 // 转录里的审批/回答卡片从 TranscriptPortsProvider 取动作端口,而 Provider 由宿主
 // (App.tsx)挂载。本文件渲染的是 ChatTranscript 子树,所以自己补一个 ——
@@ -22,10 +27,14 @@ const testTranscriptPorts = {
   resolvePlanAction: async () => ({}),
 };
 
+// 本地命令卡片同样是转录里的一张卡,它从 LocalCommandsProvider 取宿主状态接缝;
+// 这里用桌面实现(而不是替身),因为用例正是拿 useLocalCommandsStore 造条目的。
 function PortsWrapper({ children }: { children: React.ReactNode }) {
   return (
     <TranscriptPortsProvider ports={testTranscriptPorts}>
-      {children}
+      <LocalCommandsProvider access={desktopLocalCommandsAccess}>
+        {children}
+      </LocalCommandsProvider>
     </TranscriptPortsProvider>
   );
 }

@@ -2882,18 +2882,6 @@
     "title": "键盘快捷键",
     "unbound": "未绑定"
   },
-  "terminal": {
-    "banner": {
-      "connectionLost": "连接已断开 — 终端会话不可恢复"
-    },
-    "toast": {
-      "agentredClosed": "agentred 已关闭",
-      "connectionLost": "终端连接已断开",
-      "shellExited": "shell 退出 (code {{code}})",
-      "startFailed": "终端启动失败: {{message}}"
-    },
-    "unknown": "unknown"
-  },
   "taskProgress": {
     "allCompleted": "全部完成",
     "completed": "已完成",
@@ -3010,21 +2998,7 @@
     "clearFailed": "无法清空命令历史，请重试。"
   },
   "localCommand": {
-    "localChip": "本地命令",
-    "notSharedWithAI": "不发送给 AI",
-    "status": {
-      "running": "运行中",
-      "done": "完成",
-      "failed": "失败",
-      "stopped": "已停止"
-    },
-    "exitCode": "退出码 {{code}}",
-    "stop": "停止",
-    "openInTerminal": "在终端中打开",
-    "dismiss": "移除此命令",
-    "noOutput": "无输出",
-    "expand": "展开输出",
-    "collapse": "折叠输出"
+    "notSharedWithAI": "不发送给 AI"
   },
   "modelTargetPicker": {
     "special": {

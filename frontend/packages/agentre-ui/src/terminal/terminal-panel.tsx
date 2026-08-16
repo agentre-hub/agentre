@@ -5,17 +5,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { toast } from "sonner";
-import {
-  TERMINAL_FONT_FAMILY,
-  readTerminalTheme,
-} from "@agentre-ai/agentre-ui";
 
+import { useUiTranslation } from "../i18n";
+
+import { TERMINAL_FONT_FAMILY, readTerminalTheme } from "./terminal-theme";
 import { useTerminal } from "./use-terminal";
 import { useAttachedTerminal } from "./use-attached-terminal";
 import { attachXtermRolloverGuard } from "./xterm-rollover-guard";
@@ -39,7 +37,7 @@ export function TerminalPanel({
   attach = false,
   onClose,
 }: TerminalPanelProps) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);

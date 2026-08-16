@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
+  LocalCommandsProvider,
   TerminalTransportProvider,
   TranscriptLiveStateProvider,
   TranscriptPortsProvider,
@@ -49,6 +50,7 @@ import {
   type DesktopPlatform,
 } from "@/components/agentre";
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
+import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
 import { desktopTranscriptLiveState } from "@/components/agentre/transcript-live-state-desktop";
 import { desktopTranscriptPorts } from "@/components/agentre/transcript-ports-desktop";
 import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal-transport-desktop";
@@ -792,90 +794,94 @@ function AppLayout() {
         {/* 终端传输同样挂在应用根：终端标签页由 ChatPanelHost 渲染，
             而本地命令卡片(转录里)未来也要盯同一条 PTY。 */}
         <TerminalTransportProvider transport={desktopTerminalTransport}>
-          <ShortcutsProvider platform={platform}>
-            <ChatTabsShortcuts />
-            <div className="flex h-full min-h-full flex-col overflow-hidden bg-background text-foreground">
-              <AppTopBar
-                appName="Agentre"
-                breadcrumb={breadcrumb}
-                platform={platform}
-              />
-
-              <div className="flex min-h-0 min-w-0 flex-1">
-                <aside
-                  aria-label={t("app.navigationLabel")}
-                  className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail px-2 py-3"
-                >
-                  {navItems.map((item) => (
-                    <SidebarButton
-                      key={item.labelKey}
-                      data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
-                      label={t(item.labelKey)}
-                      icon={item.icon}
-                      active={isNavItemActive(location.pathname, item.path)}
-                      onClick={
-                        item.path ? () => navigate(item.path!) : undefined
-                      }
-                    />
-                  ))}
-                  <ThemeToggle
-                    className="mt-auto"
-                    effectiveTheme={effectiveTheme}
-                    themePreference={themePreference}
-                    onThemePreferenceChange={setThemePreference}
-                  />
-                  <SidebarButton
-                    data-testid="nav-settings"
-                    label={t(settingsNavItem.labelKey)}
-                    icon={settingsNavItem.icon}
-                    active={isNavItemActive(
-                      location.pathname,
-                      settingsNavItem.path,
-                    )}
-                    onClick={() => navigate(settingsNavItem.path!)}
-                  />
-                </aside>
-
-                <Outlet
-                  context={{
-                    effectiveTheme,
-                    onThemePreferenceChange: setThemePreference,
-                    themePreference,
-                  }}
+          {/* 本地命令接缝也挂应用根：卡片在转录里，而同一条命令 attach 到终端
+              标签后由 ChatPanelHost 渲染，两棵子树都要读得到。 */}
+          <LocalCommandsProvider access={desktopLocalCommandsAccess}>
+            <ShortcutsProvider platform={platform}>
+              <ChatTabsShortcuts />
+              <div className="flex h-full min-h-full flex-col overflow-hidden bg-background text-foreground">
+                <AppTopBar
+                  appName="Agentre"
+                  breadcrumb={breadcrumb}
+                  platform={platform}
                 />
 
-                <div
-                  data-page-has-chat={hasChat}
-                  className="flex min-h-0 min-w-0 flex-1 flex-col"
-                  style={{ display: hasChat ? "flex" : "none" }}
-                >
-                  <TabStrip />
-                  <ChatPanelHost />
-                </div>
-              </div>
+                <div className="flex min-h-0 min-w-0 flex-1">
+                  <aside
+                    aria-label={t("app.navigationLabel")}
+                    className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail px-2 py-3"
+                  >
+                    {navItems.map((item) => (
+                      <SidebarButton
+                        key={item.labelKey}
+                        data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
+                        label={t(item.labelKey)}
+                        icon={item.icon}
+                        active={isNavItemActive(location.pathname, item.path)}
+                        onClick={
+                          item.path ? () => navigate(item.path!) : undefined
+                        }
+                      />
+                    ))}
+                    <ThemeToggle
+                      className="mt-auto"
+                      effectiveTheme={effectiveTheme}
+                      themePreference={themePreference}
+                      onThemePreferenceChange={setThemePreference}
+                    />
+                    <SidebarButton
+                      data-testid="nav-settings"
+                      label={t(settingsNavItem.labelKey)}
+                      icon={settingsNavItem.icon}
+                      active={isNavItemActive(
+                        location.pathname,
+                        settingsNavItem.path,
+                      )}
+                      onClick={() => navigate(settingsNavItem.path!)}
+                    />
+                  </aside>
 
-              <AppStatusBar
-                agentCount={statusBarState.agentCount}
-                runningCount={statusBarState.runningCount}
-                approvalCount={statusBarState.approvalIds.length}
-                unreadCount={statusBarState.unreadIds.length}
-                attentionIds={[
-                  ...statusBarState.approvalIds,
-                  ...statusBarState.unreadIds,
-                ]}
-                status={statusBarState.indicatorStatus}
-                version={appVersion}
-                onAttentionClick={(sessionId) => openSession(sessionId)}
-              />
-              <PaletteScopeBridge />
-              <CommandPalette />
-              <Toaster
-                position="bottom-right"
-                richColors
-                theme={effectiveTheme}
-              />
-            </div>
-          </ShortcutsProvider>
+                  <Outlet
+                    context={{
+                      effectiveTheme,
+                      onThemePreferenceChange: setThemePreference,
+                      themePreference,
+                    }}
+                  />
+
+                  <div
+                    data-page-has-chat={hasChat}
+                    className="flex min-h-0 min-w-0 flex-1 flex-col"
+                    style={{ display: hasChat ? "flex" : "none" }}
+                  >
+                    <TabStrip />
+                    <ChatPanelHost />
+                  </div>
+                </div>
+
+                <AppStatusBar
+                  agentCount={statusBarState.agentCount}
+                  runningCount={statusBarState.runningCount}
+                  approvalCount={statusBarState.approvalIds.length}
+                  unreadCount={statusBarState.unreadIds.length}
+                  attentionIds={[
+                    ...statusBarState.approvalIds,
+                    ...statusBarState.unreadIds,
+                  ]}
+                  status={statusBarState.indicatorStatus}
+                  version={appVersion}
+                  onAttentionClick={(sessionId) => openSession(sessionId)}
+                />
+                <PaletteScopeBridge />
+                <CommandPalette />
+                <Toaster
+                  position="bottom-right"
+                  richColors
+                  theme={effectiveTheme}
+                />
+              </div>
+            </ShortcutsProvider>
+          </LocalCommandsProvider>
         </TerminalTransportProvider>
       </TranscriptLiveStateProvider>
     </TranscriptPortsProvider>

@@ -161,6 +161,21 @@ export type {
   MarkToolPermissionResolvedInput,
   TranscriptLiveState,
 } from "./transcript/live-state";
+// 本地 `!command` 卡片 + 它与宿主状态之间的接缝(反应式投影 / 输出订阅 / 写动作)。
+export { LocalCommandCard } from "./transcript/local-command/card";
+export { isLocalCommandCollapsed } from "./transcript/local-command/collapsed";
+export { makeStreamDecoder } from "./transcript/local-command/decode";
+export {
+  LocalCommandsProvider,
+  useLocalCommand,
+  useLocalCommandsAccess,
+} from "./transcript/local-command/access";
+export type {
+  LocalCommandOutputListener,
+  LocalCommandsAccess,
+  LocalCommandUnsubscribe,
+  LocalCommandView,
+} from "./transcript/local-command/access";
 export { statusConfig } from "./transcript/agent-status";
 export type { AgentStatus, AgentStatusStyle } from "./transcript/agent-status";
 // 消息外壳:头像列 + 内容列的布局骨架。头像节点由调用方给(见 message-row.tsx)。
@@ -213,6 +228,9 @@ export type {
   TranscriptMessage,
   UserAsk,
 } from "./transcript/dto";
+// 终端视图 —— 交互式 PTY 面板(live 开新 PTY / attach 接管本地命令那条)。
+export { TerminalPanel } from "./terminal/terminal-panel";
+export type { TerminalPanelProps } from "./terminal/terminal-panel";
 // 终端传输端口 —— 订阅式接缝(长连接的字节流),与上面那批一次性动作端口分开。
 export {
   TerminalTransportProvider,

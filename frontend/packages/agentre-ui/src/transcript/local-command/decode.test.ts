@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { makeStreamDecoder } from "../local-command/decode";
+import { makeStreamDecoder } from "./decode";
 
 describe("makeStreamDecoder", () => {
   it("decodes PTY byte chunks", () => {

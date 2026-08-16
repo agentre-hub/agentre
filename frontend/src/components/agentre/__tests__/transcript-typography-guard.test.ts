@@ -92,7 +92,7 @@ export const SCANNED: {
     skip: ["radius"],
     root: "package",
   },
-  { file: "local-command/card.tsx" },
+  { file: "local-command/card.tsx", root: "package" },
   { file: "transcript-row-view.tsx" },
   // chat.tsx 同时装着 transcript 和 composer —— 646/654/714/726 行的圆角与阴影
   // 属于输入框 / 拖放提示层 / 附件缩略图,不归对话流卡片系统管,故意不跟随

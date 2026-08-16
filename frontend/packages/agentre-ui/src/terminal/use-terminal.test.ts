@@ -1,12 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createElement, type ReactNode } from "react";
 import { renderHook, act } from "@testing-library/react";
-import {
-  TerminalTransportProvider,
-  type TerminalSubscriber,
-  type TerminalTransport,
-} from "@agentre-ai/agentre-ui";
-import { useTerminal } from "../use-terminal";
+import type { TerminalSubscriber, TerminalTransport } from "./transport";
+import { TerminalTransportProvider } from "./transport-context";
+import { useTerminal } from "./use-terminal";
 
 // 端口替身:记录订阅者并允许用例直接投喂字节/退出,不碰 Wails。
 // 传输细节(base64、EventsOn/EventsOff 的扇出)属于桌面适配层,由

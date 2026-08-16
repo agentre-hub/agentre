@@ -338,9 +338,29 @@ vi.mock("../task-progress/derive", () => ({
   deriveTaskProgress: () => ({ total: 0, done: 0 }),
 }));
 
-vi.mock("../local-command/output-terminal", () => ({
-  OutputTerminal: () => null,
+// 本地命令卡片里的只读输出终端已随卡片搬进共享包,没法再按宿主路径桩掉。
+// 桩掉 xterm 三件套即可:这些用例盯的是卡片外壳与停止/移除动作,终端渲染由
+// 包里的 output-terminal.test.tsx 覆盖。
+vi.mock("@xterm/xterm", () => ({
+  Terminal: vi.fn().mockImplementation(() => ({
+    open: vi.fn(),
+    write: vi.fn(),
+    loadAddon: vi.fn(),
+    dispose: vi.fn(),
+    focus: vi.fn(),
+    cols: 80,
+    rows: 24,
+    buffer: { active: { length: 1, baseY: 0, cursorY: 0 } },
+    options: {},
+  })),
 }));
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: vi.fn().mockImplementation(() => ({
+    fit: vi.fn(),
+    proposeDimensions: () => ({ cols: 80, rows: 24 }),
+  })),
+}));
+vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: vi.fn() }));
 
 // chat-panel-context-usage 有复杂计算，桩掉
 vi.mock("../chat-panel-context-usage", () => ({
@@ -355,7 +375,6 @@ import {
   COLLAPSED_RESTORE_GUARD_MS,
   computeTopVisibleAnchor,
 } from "../chat-panel";
-import { LocalCommandCard } from "../local-command/card";
 import {
   __resetCatchUpStateForTesting,
   openCatchUpWindow,
@@ -364,6 +383,8 @@ import {
 import {
   __resetChatPanelScrollStateForTesting,
   loadTranscriptScrollState,
+  LocalCommandCard,
+  LocalCommandsProvider,
   TerminalTransportProvider,
 } from "@agentre-ai/agentre-ui";
 import {
@@ -374,15 +395,18 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { localCommandRuntimeStore } from "@/stores/local-command-runtime-store";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
+import { desktopLocalCommandsAccess } from "../local-commands-access-desktop";
 import { desktopTerminalTransport } from "../terminal/terminal-transport-desktop";
 
-// ChatPanel 经终端传输端口订阅本地命令的 PTY;生产里 Provider 挂在 App 根。
-// 这里统一套上桌面实现(而不是替身):本地命令与终端视图共用同一套 Wails 事件
-// 扇出,正是这些用例要盯的东西。
+// ChatPanel 经终端传输端口订阅本地命令的 PTY;卡片经本地命令接缝读条目。
+// 生产里两个 Provider 都挂在 App 根。这里统一套上桌面实现(而不是替身):
+// 本地命令与终端视图共用同一套 Wails 事件扇出与同一个 store,正是这些用例要盯的东西。
 function TerminalTransportHost({ children }: { children?: React.ReactNode }) {
   return (
     <TerminalTransportProvider transport={desktopTerminalTransport}>
-      {children}
+      <LocalCommandsProvider access={desktopLocalCommandsAccess}>
+        {children}
+      </LocalCommandsProvider>
     </TerminalTransportProvider>
   );
 }

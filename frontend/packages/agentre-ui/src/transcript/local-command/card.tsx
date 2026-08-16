@@ -1,18 +1,14 @@
-import { useTranslation } from "react-i18next";
 import { SquareTerminal, X, ChevronRight, ChevronDown } from "lucide-react";
-import {
-  formatDuration,
-  shouldIgnoreClickForSelection,
-  TranscriptPill,
-} from "@agentre-ai/agentre-ui";
 
-import { Button } from "@/components/ui/button";
+import { useUiTranslation } from "../../i18n";
+import { formatDuration } from "../../lib/format-duration";
+import { shouldIgnoreClickForSelection } from "../../lib/copyable-text";
+import { Button } from "../../ui/button";
+import type { LocalCommandStatus } from "../dto";
+import { TranscriptPill } from "../transcript-card";
 
-import {
-  useLocalCommandsStore,
-  isCollapsed,
-} from "../../../stores/local-commands-store";
-import type { LocalCommandStatus } from "../../../stores/local-commands-store";
+import { useLocalCommand, useLocalCommandsAccess } from "./access";
+import { isLocalCommandCollapsed } from "./collapsed";
 import { OutputTerminal } from "./output-terminal";
 
 // Status → visual style map (DRY — one place for all status styles).
@@ -51,8 +47,9 @@ export function LocalCommandCard({
   onOpenInTerminal: (id: string) => void;
   onStop?: (id: string) => void | Promise<void>;
 }) {
-  const { t } = useTranslation();
-  const entry = useLocalCommandsStore((s) => s.entries[entryId]);
+  const { t } = useUiTranslation();
+  const commands = useLocalCommandsAccess();
+  const entry = useLocalCommand(entryId);
 
   if (!entry) return null;
 
@@ -60,7 +57,7 @@ export function LocalCommandCard({
   const isRunning = entry.status === "running";
   const showExitCode =
     entry.status !== "running" && entry.exitCode !== undefined;
-  const collapsed = isCollapsed(entry);
+  const collapsed = isLocalCommandCollapsed(entry);
   const duration =
     entry.finishedAt !== undefined
       ? formatDuration(entry.finishedAt - entry.createdAt)
@@ -87,7 +84,7 @@ export function LocalCommandCard({
       className="-mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       onClick={(e) => {
         e.stopPropagation();
-        useLocalCommandsStore.getState().remove(entryId);
+        commands.remove(entryId);
       }}
     >
       <X className="size-3.5" aria-hidden="true" />
@@ -96,8 +93,7 @@ export function LocalCommandCard({
 
   // ── Collapsed: one-line summary (command + status + exit + duration). ──
   if (collapsed) {
-    const toggle = () =>
-      useLocalCommandsStore.getState().toggleExpanded(entryId);
+    const toggle = () => commands.toggleExpanded(entryId);
     return (
       <div
         role="button"
@@ -177,9 +173,7 @@ export function LocalCommandCard({
             aria-label={t("localCommand.collapse")}
             title={t("localCommand.collapse")}
             className="-mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            onClick={() =>
-              useLocalCommandsStore.getState().toggleExpanded(entryId)
-            }
+            onClick={() => commands.toggleExpanded(entryId)}
           >
             <ChevronDown className="size-3.5" aria-hidden="true" />
           </button>
@@ -189,7 +183,7 @@ export function LocalCommandCard({
         {!isRunning && dismissBtn}
       </div>
 
-      {/* Output area — read-only xterm; ANSI/OSC 交给 xterm 解释,不剥转义。 */}
+      {/* Output area — read-only xterm;ANSI/OSC 交给 xterm 解释,不剥转义。 */}
       <OutputTerminal terminalId={entry.id} />
 
       {/* Actions — only while running */}

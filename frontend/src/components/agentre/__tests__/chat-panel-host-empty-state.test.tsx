@@ -11,7 +11,9 @@ vi.mock("../chat-panel", () => ({
   pruneChatPanelScrollState: vi.fn(),
 }));
 
-vi.mock("../terminal/terminal-panel", () => ({
+// TerminalPanel 已搬进共享包;只替换那一个导出,其余保持真实实现。
+vi.mock("@agentre-ai/agentre-ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agentre-ai/agentre-ui")>()),
   TerminalPanel: () => <div data-testid="terminal-panel" />,
 }));
 

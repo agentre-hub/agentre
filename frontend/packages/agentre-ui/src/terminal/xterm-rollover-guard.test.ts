@@ -4,7 +4,7 @@ import {
   attachXtermRolloverGuard,
   shouldRolloverWrite,
   type XTermRolloverInternals,
-} from "../xterm-rollover-guard";
+} from "./xterm-rollover-guard";
 
 // Builds a partial InputEvent good enough for shouldRolloverWrite. The guard
 // only reads inputType/data/isComposing/composed, so we cast a plain object.

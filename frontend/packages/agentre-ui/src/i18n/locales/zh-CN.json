@@ -220,6 +220,7 @@
     "copyFailed": "复制代码失败"
   },
   "common": {
+    "close": "关闭",
     "copied": "已复制",
     "copy": "复制",
     "copyFailed": "复制失败",
@@ -235,6 +236,23 @@
       "compressed": "已压缩",
       "manual": "手动 /compact"
     }
+  },
+  "localCommand": {
+    "localChip": "本地命令",
+    "notSharedWithAI": "不发送给 AI",
+    "status": {
+      "running": "运行中",
+      "done": "完成",
+      "failed": "失败",
+      "stopped": "已停止"
+    },
+    "exitCode": "退出码 {{code}}",
+    "stop": "停止",
+    "openInTerminal": "在终端中打开",
+    "dismiss": "移除此命令",
+    "noOutput": "无输出",
+    "expand": "展开输出",
+    "collapse": "折叠输出"
   },
   "markdownImage": {
     "cannotPreview": "无法预览",
@@ -277,6 +295,18 @@
     "projectRoot": "项目根",
     "relative": "相对",
     "url": "URL"
+  },
+  "terminal": {
+    "banner": {
+      "connectionLost": "连接已断开 — 终端会话不可恢复"
+    },
+    "toast": {
+      "agentredClosed": "agentred 已关闭",
+      "connectionLost": "终端连接已断开",
+      "shellExited": "shell 退出 (code {{code}})",
+      "startFailed": "终端启动失败: {{message}}"
+    },
+    "unknown": "unknown"
   },
   "thinking": {
     "done": "思考完成",

@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import {
   buildTranscriptRows,
   loadTranscriptScrollState,
+  makeStreamDecoder,
   nextAutoFollow,
   saveTranscriptScrollState,
   copyTextWithToast,
@@ -150,7 +151,6 @@ import {
 } from "../../../wailsjs/go/app/App";
 import { chat_svc } from "../../../wailsjs/go/models";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
-import { makeStreamDecoder } from "./local-command/decode";
 
 type SvcChatMessage = chat_svc.ChatMessage;
 type ChatAgentItem = chat_svc.ChatAgentItem;

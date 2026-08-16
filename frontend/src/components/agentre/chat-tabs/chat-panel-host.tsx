@@ -3,14 +3,16 @@ import * as React from "react";
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { pruneChatPanelScrollState } from "@agentre-ai/agentre-ui";
+import {
+  pruneChatPanelScrollState,
+  TerminalPanel,
+} from "@agentre-ai/agentre-ui";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 import { ChatPanel } from "../chat-panel";
 import { PeerPanel } from "../peer/peer-panel";
-import { TerminalPanel } from "../terminal/terminal-panel";
 import { reloadSidebarSources } from "@/stores/sidebar-reload";
 import type { ChatTab, TabKind } from "@/stores/chat-tabs-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
