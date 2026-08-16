@@ -9,7 +9,7 @@
 import {
   act,
   fireEvent,
-  render,
+  render as rtlRender,
   screen,
   waitFor,
   within,
@@ -364,6 +364,7 @@ import {
 import {
   __resetChatPanelScrollStateForTesting,
   loadTranscriptScrollState,
+  TerminalTransportProvider,
 } from "@agentre-ai/agentre-ui";
 import {
   streamForMessage,
@@ -373,6 +374,25 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { localCommandRuntimeStore } from "@/stores/local-command-runtime-store";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
+import { desktopTerminalTransport } from "../terminal/terminal-transport-desktop";
+
+// ChatPanel 经终端传输端口订阅本地命令的 PTY;生产里 Provider 挂在 App 根。
+// 这里统一套上桌面实现(而不是替身):本地命令与终端视图共用同一套 Wails 事件
+// 扇出,正是这些用例要盯的东西。
+function TerminalTransportHost({ children }: { children?: React.ReactNode }) {
+  return (
+    <TerminalTransportProvider transport={desktopTerminalTransport}>
+      {children}
+    </TerminalTransportProvider>
+  );
+}
+
+function render(
+  ui: React.ReactElement,
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { ...options, wrapper: TerminalTransportHost });
+}
 
 /** 清 store streams 以避免测试间串台 */
 function resetStore() {
@@ -2061,7 +2081,7 @@ describe("ChatPanel · local command scope and execution", () => {
     expect(appMocks.TerminalClose).toHaveBeenCalledTimes(1);
   });
 
-  it("Given partial terminal cleanup throws before removal, When automatic close succeeds and the runtime recovers after panel unmount, Then the retained listener guardian still cleans without settling twice", async () => {
+  it("Given the runtime cannot cancel a partially installed observer, When automatic close settles the card, Then it settles once, retains no cleanup timer, and the orphaned listener can never reach the card again", async () => {
     vi.useFakeTimers();
     onTestFinished(() => {
       vi.clearAllTimers();
@@ -2076,31 +2096,22 @@ describe("ChatPanel · local command scope and execution", () => {
       string,
       Set<(...args: unknown[]) => void>
     >();
-    let cleanupRecovered = false;
-    const exactCleanup = vi.fn((event: string, handler: unknown) => {
-      if (!cleanupRecovered) throw cleanupError;
-      activeListeners
-        .get(event)
-        ?.delete(handler as (...args: unknown[]) => void);
-    });
     runtimeMocks.EventsOn.mockImplementation((event, handler) => {
       if (!event?.startsWith("terminal:") || !handler) return vi.fn();
       if (event.endsWith(":exit")) throw listenerError;
       const listeners = activeListeners.get(event) ?? new Set();
       listeners.add(handler);
       activeListeners.set(event, listeners);
-      return vi.fn(() => exactCleanup(event, handler));
-    });
-    runtimeMocks.EventsOff.mockImplementation((event?: string) => {
-      if (!cleanupRecovered) throw cleanupError;
-      if (event) activeListeners.delete(event);
+      return vi.fn(() => {
+        throw cleanupError;
+      });
     });
     appMocks.TerminalRunCommand.mockResolvedValueOnce({
       scope: { deviceId: "remote-12", cwd: "/srv/exact" },
     });
     appMocks.TerminalClose.mockResolvedValueOnce(undefined);
 
-    const view = render(<ChatPanel sessionId={42} />);
+    render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
       ?.onRunCommand as (command: string) => Promise<unknown>;
 
@@ -2111,18 +2122,6 @@ describe("ChatPanel · local command scope and execution", () => {
     expect(appMocks.TerminalRunCommand).toHaveBeenCalledTimes(1);
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const dataEvent = `terminal:${terminalId}:data`;
-    expect(
-      runtimeMocks.EventsOn.mock.calls.filter(([event]) =>
-        event?.startsWith(`terminal:${terminalId}:`),
-      ),
-    ).toHaveLength(2);
-    expect(exactCleanup).toHaveBeenCalledTimes(2);
-    expect(
-      runtimeMocks.EventsOff.mock.calls.filter(
-        ([event]) => event === dataEvent,
-      ),
-    ).toHaveLength(2);
-    expect(activeListeners.get(dataEvent)?.size ?? 0).toBe(1);
     expect(appMocks.TerminalClose).toHaveBeenCalledTimes(1);
     expect(useLocalCommandsStore.getState().get(terminalId)).toMatchObject({
       command: "pwd",
@@ -2132,17 +2131,24 @@ describe("ChatPanel · local command scope and execution", () => {
     });
     expect(finish).toHaveBeenCalledTimes(1);
     expect(finish).toHaveBeenCalledWith(terminalId, "failed", -1);
-    expect(vi.getTimerCount()).toBe(1);
+    // 撤不掉的那个监听留在运行时里,但它扇给的订阅表是空的 —— 它再吐字节也
+    // 进不了卡片、更不会二次结算。所以既不需要一个不断重试的清理看门狗,也
+    // 不该退回 `EventsOff(event)`:那一步会把同一条 PTY 上别人的订阅一起摘掉。
+    expect(vi.getTimerCount()).toBe(0);
+    expect(runtimeMocks.EventsOff).not.toHaveBeenCalled();
 
-    view.unmount();
-    cleanupRecovered = true;
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
+    act(() => {
+      for (const handler of [...(activeListeners.get(dataEvent) ?? [])]) {
+        handler({ data: "ZG9uZQo=" });
+      }
     });
 
-    expect(activeListeners.get(dataEvent)?.size ?? 0).toBe(0);
+    expect(useLocalCommandsStore.getState().get(terminalId)).toMatchObject({
+      exitCode: -1,
+      output: String(listenerError),
+      status: "failed",
+    });
     expect(finish).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("Given two deferred commands in a new chat, When the panel unmounts and one terminal RPC rejects, Then session creation stays shared while both commands continue and settle independently exactly once", async () => {
@@ -2412,6 +2418,74 @@ describe("ChatPanel · local command scope and execution", () => {
     expect(appMocks.TerminalRunCommand).toHaveBeenCalledTimes(1);
     expect(finish).toHaveBeenCalledTimes(1);
     expect(finish).toHaveBeenCalledWith(terminalId, "failed", -1);
+  });
+
+  it("Given a terminal view watching the same PTY through the transport, When the chat panel installs its own PTY observers, Then the terminal view keeps receiving the stdout bytes", async () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+    // 卡片的 terminalId 是 launchLocalCommand 内部生成的;钉死它,好让终端视图
+    // 在命令起飞之前就订上同一条 PTY(“在终端中打开”正是这个形状)。
+    const terminalId = "shared-pty";
+    const uuid = vi
+      .spyOn(crypto, "randomUUID")
+      .mockReturnValue(terminalId as ReturnType<typeof crypto.randomUUID>);
+    onTestFinished(() => uuid.mockRestore());
+
+    // 复刻 Wails v2 事件运行时的两条关键语义:`EventsOn` 的返回值只摘自己,
+    // 而 `EventsOff(event)` 摘掉该事件名下的**全部**监听者。
+    const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+    let dataRegistrations = 0;
+    runtimeMocks.EventsOn.mockImplementation((event, handler) => {
+      if (!event?.startsWith("terminal:") || !handler) return vi.fn();
+      // 第 1 次注册 data 的是终端视图(经 transport);第 2 次才是 chat-panel。
+      // 让 chat-panel 那次失败一回 —— 这是它的重试世代唯一会走到 EventsOff 兜底的入口。
+      if (event.endsWith(":data") && ++dataRegistrations === 2) {
+        throw new Error("data listener failed");
+      }
+      const bucket = listeners.get(event) ?? new Set();
+      bucket.add(handler);
+      listeners.set(event, bucket);
+      return vi.fn(() => bucket.delete(handler));
+    });
+    runtimeMocks.EventsOff.mockImplementation((event?: string) => {
+      if (event) listeners.delete(event);
+    });
+    appMocks.TerminalRunCommand.mockResolvedValueOnce({
+      scope: { deviceId: "", cwd: "/repo" },
+    });
+
+    const terminalView = {
+      onData: vi.fn<(bytes: Uint8Array) => void>(),
+      onExit: vi.fn(),
+    };
+    const detachTerminalView = desktopTerminalTransport.subscribe(
+      terminalId,
+      terminalView,
+    );
+    onTestFinished(() => detachTerminalView());
+
+    render(<ChatPanel sessionId={42} />);
+    const runCommand = componentMocks.chatComposerProps.at(-1)
+      ?.onRunCommand as (command: string) => Promise<unknown>;
+    await runCommand("printf done");
+
+    act(() => {
+      for (const handler of [
+        ...(listeners.get(`terminal:${terminalId}:data`) ?? []),
+      ]) {
+        handler({ data: "ZG9uZQo=" });
+      }
+    });
+
+    // 卡片照常收到输出;终端视图也必须收到同一份字节 —— 它的订阅不该被
+    // 另一个视图的清理连坐摘掉。
+    expect(useLocalCommandsStore.getState().get(terminalId)?.output).toBe(
+      "done\n",
+    );
+    expect(terminalView.onData).toHaveBeenCalledTimes(1);
+    expect(Array.from(terminalView.onData.mock.calls[0][0])).toEqual([
+      0x64, 0x6f, 0x6e, 0x65, 0x0a,
+    ]);
   });
 });
 

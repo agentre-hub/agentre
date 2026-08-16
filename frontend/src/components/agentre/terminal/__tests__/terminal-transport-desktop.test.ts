@@ -15,12 +15,18 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
 type Handler = (payload: never) => void;
 const listeners = new Map<string, Set<Handler>>();
 
+// 运行时故障注入:用例把钩子设成会抛的函数,模拟 Wails 注册 / 撤销监听失败。
+let failRegistration: ((event: string) => void) | undefined;
+let failCancel: ((event: string) => void) | undefined;
+
 vi.mock("@/../wailsjs/runtime/runtime", () => ({
   EventsOn: vi.fn((event: string, handler: Handler) => {
+    failRegistration?.(event);
     const bucket = listeners.get(event) ?? new Set<Handler>();
     listeners.set(event, bucket);
     bucket.add(handler);
     return () => {
+      failCancel?.(event);
       bucket.delete(handler);
       if (bucket.size === 0) listeners.delete(event);
     };
@@ -60,6 +66,8 @@ const BOX_DRAW_BYTES = [0x68, 0x69, 0x20, 0xe2, 0x94, 0x80];
 beforeEach(() => {
   vi.clearAllMocks();
   listeners.clear();
+  failRegistration = undefined;
+  failCancel = undefined;
 });
 
 describe("desktopTerminalTransport", () => {
@@ -167,6 +175,45 @@ describe("desktopTerminalTransport", () => {
     emit("terminal:multi-6:data", { data: BOX_DRAW_B64 });
 
     expect(second.onData).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the second listener of the pair fails to register, When subscribe is called, Then the first one is rolled back and the failure reaches the caller", () => {
+    // 半截注册是最脏的一种泄漏:data 已经挂上、exit 没挂上,而 fanout 从未进表,
+    // 于是那个 data 监听再也没人持有句柄。这里要求 subscribe 自己收干净。
+    failRegistration = (event) => {
+      if (event.endsWith(":exit")) throw new Error("exit listener failed");
+    };
+
+    expect(() =>
+      desktopTerminalTransport.subscribe("partial", makeSubscriber()),
+    ).toThrow("exit listener failed");
+    expect(listenerCount("terminal:partial:data")).toBe(0);
+
+    // 表里不该留下半个 fanout:下一次订阅必须能干净地重来。
+    failRegistration = undefined;
+    const retry = makeSubscriber();
+    desktopTerminalTransport.subscribe("partial", retry);
+    emit("terminal:partial:data", { data: BOX_DRAW_B64 });
+
+    expect(retry.onData).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the runtime's cancel throws for one listener, When the last subscriber leaves, Then the other listener is still cancelled and the caller sees no error", () => {
+    // 退订的**行为**保证(订阅者不再被回调)由订阅表达成,和底层撤监听成不成功无关;
+    // 撤不掉最多留一个扇给空集合的空转监听,不能把异常甩给调用方,更不能因为一个
+    // 失败就放着另一个不撤。
+    const subscriber = makeSubscriber();
+    const off = desktopTerminalTransport.subscribe("brittle", subscriber);
+    failCancel = (event) => {
+      if (event.endsWith(":data")) throw new Error("cancel failed");
+    };
+
+    expect(() => off()).not.toThrow();
+    expect(listenerCount("terminal:brittle:exit")).toBe(0);
+
+    failCancel = undefined;
+    emit("terminal:brittle:data", { data: BOX_DRAW_B64 });
+    expect(subscriber.onData).not.toHaveBeenCalled();
   });
 
   it("Given a terminal request, When the transport is driven, Then each action proxies to its Wails binding", async () => {

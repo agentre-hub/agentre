@@ -49,31 +49,58 @@ function cancelListener(off: (() => void) | undefined, event: string) {
   EventsOff(event);
 }
 
+/** 一个已经挂到 Wails 上的监听:`off` 缺失时只能退回会误伤的 `EventsOff`。 */
+type Registration = { event: string; off?: () => void };
+
+/**
+ * 撤监听是**尽力而为**:退订的行为保证(订阅者不再被回调)由上面的订阅表达成,
+ * 与底层撤不撤得掉无关。撤失败最多留一个扇给空集合的空转监听 —— 既不该把异常
+ * 甩给调用方(它并不持有那个 Wails 监听,无从补救),也不该因为一个失败就放着
+ * 另一个不撤。
+ */
+function releaseRegistrations(registrations: Registration[]) {
+  for (const registration of registrations) {
+    try {
+      cancelListener(registration.off, registration.event);
+    } catch {
+      // 唯一的“重试”手段是 EventsOff(event),而它会连坐同名事件的其它监听者 ——
+      // 正是这层要根治的那个 bug。宁可留一个空转监听,也不去摘别人的。
+    }
+  }
+}
+
 function attach(terminalId: string): Fanout {
   const subscribers = new Set<TerminalSubscriber>();
   const dataEvent = `terminal:${terminalId}:data`;
   const exitEvent = `terminal:${terminalId}:exit`;
+  const registrations: Registration[] = [];
 
-  // 派发前先快照:订阅者完全可能在 onExit 里退订自己,直接迭代 Set 会边迭代边改。
-  const offData: (() => void) | undefined = EventsOn(
-    dataEvent,
-    (payload: { data: string }) => {
+  function listen<P>(event: string, handler: (payload: P) => void) {
+    const off: (() => void) | undefined = EventsOn(event, handler);
+    // 先注册成功再记账:EventsOn 抛出时这一条压根没挂上,记进去反而会让回滚
+    // 退回 EventsOff 去摘别人的监听。
+    registrations.push({ event, off });
+  }
+
+  try {
+    // 派发前先快照:订阅者完全可能在 onExit 里退订自己,直接迭代 Set 会边迭代边改。
+    listen(dataEvent, (payload: { data: string }) => {
       const bytes = base64ToBytes(payload.data);
       for (const subscriber of [...subscribers]) subscriber.onData(bytes);
-    },
-  );
-  const offExit: (() => void) | undefined = EventsOn(
-    exitEvent,
-    (payload: TerminalExit) => {
+    });
+    listen(exitEvent, (payload: TerminalExit) => {
       for (const subscriber of [...subscribers]) subscriber.onExit(payload);
-    },
-  );
+    });
+  } catch (err) {
+    // 半截注册的那一条没人再持有句柄(fanout 从未进表),留着就是永久泄漏。
+    releaseRegistrations(registrations);
+    throw err;
+  }
 
   return {
     subscribers,
     detach() {
-      cancelListener(offData, dataEvent);
-      cancelListener(offExit, exitEvent);
+      releaseRegistrations(registrations);
     },
   };
 }

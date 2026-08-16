@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
-import * as App from "@/../wailsjs/go/app/App";
+import { useTerminalTransport } from "@agentre-ai/agentre-ui";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
 
-// attach 模式数据源:不开 / 不关 PTY,不订阅 Wails terminal 事件(单一订阅者是
-// F6 的 store)。从 useLocalCommandsStore 里取该 terminalId 的 output 做 seed,
-// 订阅 store 增量写 xterm;stdin 走 App.TerminalWrite,resize 走 App.TerminalResize。
+// attach 模式数据源:不开 / 不关 PTY —— 那条 PTY 的所有权属于起它的那一方
+// (本地命令卡片),这里只是搭个视图上去看。stdin / resize 走终端传输端口。
 //
-// 注意:增量输出依赖宿主会话 ChatPanel 里的 F6 store 订阅存活(它是唯一的
-// Wails `terminal:<id>:data` 事件订阅者);若宿主 Tab 被关闭,store 停止更新,
-// attach tab 的显示会停滞,但后端 PTY 仍在运行。这是单订阅者设计的固有行为。
+// 为什么输出仍从 useLocalCommandsStore 读增量,而不自己订阅端口:卡片那侧已经把
+// 字节流按**一个** TextDecoder 解成了字符串,再开一路订阅就得再解一次 —— 而块
+// 边界可能切在多字节字符中间,第二个解码器从半个字符处起手会吐 U+FFFD。共用卡片
+// 那份已解码文本,既没有重复输出,也没有跨块乱码。
+// (卡片的订阅由 launchLocalCommand 的闭包持有,不随宿主 Tab 卸载而中断,所以
+// attach 视图在宿主 Tab 关掉之后依然跟得上。)
 export function useAttachedTerminal({
   terminalID,
   xtermRef,
@@ -19,6 +21,7 @@ export function useAttachedTerminal({
   xtermRef: React.RefObject<Terminal | null>;
   enabled: boolean;
 }) {
+  const transport = useTerminalTransport();
   const writtenLenRef = useRef(0);
   useEffect(() => {
     if (!enabled) return;
@@ -38,12 +41,12 @@ export function useAttachedTerminal({
   }, [enabled, terminalID, xtermRef]);
 
   const write = useCallback(
-    (d: string) => App.TerminalWrite(terminalID, d),
-    [terminalID],
+    (d: string) => transport.write(terminalID, d),
+    [transport, terminalID],
   );
   const resize = useCallback(
-    (c: number, r: number) => App.TerminalResize(terminalID, c, r),
-    [terminalID],
+    (c: number, r: number) => transport.resize(terminalID, c, r),
+    [transport, terminalID],
   );
   // state 恒为 "open":PTY 已在跑,TerminalPanel 的 fit/resize effect(gated on
   // state==="open")才会执行。

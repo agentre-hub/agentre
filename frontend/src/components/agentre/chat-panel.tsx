@@ -18,7 +18,10 @@ import {
   nextAutoFollow,
   saveTranscriptScrollState,
   copyTextWithToast,
+  useTerminalTransport,
   type PlanActionStream,
+  type TerminalSubscriber,
+  type TerminalUnsubscribe,
 } from "@agentre-ai/agentre-ui";
 import { Badge } from "@/components/ui/badge";
 
@@ -145,7 +148,6 @@ import {
   TerminalClose,
   TerminalRunCommand,
 } from "../../../wailsjs/go/app/App";
-import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
 import { chat_svc } from "../../../wailsjs/go/models";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
 import { makeStreamDecoder } from "./local-command/decode";
@@ -657,6 +659,9 @@ function ChatPanel({
   scrollStateKey,
 }: ChatPanelProps) {
   const { t } = useTranslation();
+  // 本地命令卡片跑的是一条真 PTY,订阅走终端传输端口(宿主在 App 根挂 Provider)。
+  // 它自持订阅表并扇出,所以同一条 PTY 可以同时被终端标签页盯着,谁退订都不连坐。
+  const transport = useTerminalTransport();
   // 流式状态(streams / queuedBySession / liveBlocks ...)全部托管在跨路由长存的
   // zustand store 里。ChatPanel 只做「读 + 派发」,不再持有状态副本,这样切到 /projects
   // 等其它路由再切回来时,store 里累积的 liveDelta / liveBlocks / queued 都能直接还原。
@@ -1869,77 +1874,17 @@ function ChatPanel({
       command: string,
     ): Promise<LocalCommandHistoryScope | undefined> => {
       const terminalId = crypto.randomUUID();
-      const dataEvent = `terminal:${terminalId}:data`;
-      const exitEvent = `terminal:${terminalId}:exit`;
-      const cleanupRetryInitialDelayMs = 100;
-      const cleanupRetryMaxDelayMs = 5_000;
-      type ListenerRegistration = {
-        event: string;
-        off?: () => void;
-        cleaned: boolean;
-      };
-      type ListenerGeneration = {
-        listeners: ListenerRegistration[];
-        guardianTimer?: number;
-        retryDelayMs: number;
-      };
-      let activeGeneration: ListenerGeneration | undefined;
+      const closeRetryInitialDelayMs = 100;
+      const closeRetryMaxDelayMs = 5_000;
+      // 端口的退订句柄:只摘自己、幂等、同步生效。同一条 PTY 上的终端视图
+      // (卡片的“在终端中打开”)与本卡片共用一份扇出,谁走都不影响另一个。
+      let releaseObservers: TerminalUnsubscribe | undefined;
       let settled = false;
       let closePromise: Promise<void> | undefined;
       let automaticCloseRequired = false;
       let automaticCloseGuardianTimer: number | undefined;
-      let automaticCloseRetryDelayMs = cleanupRetryInitialDelayMs;
+      let automaticCloseRetryDelayMs = closeRetryInitialDelayMs;
       let userStopRequested = false;
-      const cleanupListeners = (generation: ListenerGeneration): boolean => {
-        let cleaned = true;
-        for (const listener of generation.listeners) {
-          if (listener.cleaned) continue;
-          try {
-            if (listener.off) listener.off();
-            else EventsOff(listener.event);
-            listener.cleaned = true;
-          } catch {
-            try {
-              EventsOff(listener.event);
-              listener.cleaned = true;
-            } catch {
-              cleaned = false;
-            }
-          }
-        }
-        return cleaned;
-      };
-      const cleanupListenersSynchronously = (
-        generation: ListenerGeneration,
-      ): boolean =>
-        cleanupListeners(generation) || cleanupListeners(generation);
-      const stopCleanupGuardian = (generation: ListenerGeneration) => {
-        if (generation.guardianTimer === undefined) return;
-        window.clearTimeout(generation.guardianTimer);
-        generation.guardianTimer = undefined;
-      };
-      const scheduleCleanupGuardian = (generation: ListenerGeneration) => {
-        if (generation.guardianTimer !== undefined) return;
-        // Keep ownership outside React lifecycle so panel unmount cannot abandon a Wails listener.
-        generation.guardianTimer = window.setTimeout(() => {
-          generation.guardianTimer = undefined;
-          if (cleanupListenersSynchronously(generation)) return;
-          generation.retryDelayMs = Math.min(
-            generation.retryDelayMs * 2,
-            cleanupRetryMaxDelayMs,
-          );
-          scheduleCleanupGuardian(generation);
-        }, generation.retryDelayMs);
-      };
-      const ensureListenersCleaned = (
-        generation = activeGeneration,
-      ): boolean => {
-        if (!generation) return true;
-        const cleaned = cleanupListenersSynchronously(generation);
-        if (cleaned) stopCleanupGuardian(generation);
-        else scheduleCleanupGuardian(generation);
-        return cleaned;
-      };
       const clearAutomaticCloseTimer = () => {
         if (automaticCloseGuardianTimer === undefined) return;
         window.clearTimeout(automaticCloseGuardianTimer);
@@ -1960,10 +1905,7 @@ function ChatPanel({
         status: "done" | "failed" | "stopped",
         exitCode?: number,
       ) => {
-        if (settled) {
-          ensureListenersCleaned();
-          return;
-        }
+        if (settled) return;
         settled = true;
         stopAutomaticCloseGuardian();
         const commands = useLocalCommandsStore.getState();
@@ -1971,14 +1913,13 @@ function ChatPanel({
           if (exitCode === undefined) commands.finish(terminalId, status);
           else commands.finish(terminalId, status, exitCode);
         }
-        ensureListenersCleaned();
+        // 退订同步生效且只摘自己:走人之后本卡片再收不到任何帧,不需要“确认清干净”
+        // 的重试世代 —— 底层监听撤没撤掉是传输层的事,与本卡片的结算无关。
+        releaseObservers?.();
         localCommandRuntimeStore.unregister(terminalId, controller);
       };
       const fail = (error: unknown) => {
-        if (settled) {
-          ensureListenersCleaned();
-          return;
-        }
+        if (settled) return;
         appendFailure(error);
         settle("failed", -1);
       };
@@ -1993,7 +1934,7 @@ function ChatPanel({
         const retryDelayMs = automaticCloseRetryDelayMs;
         automaticCloseRetryDelayMs = Math.min(
           automaticCloseRetryDelayMs * 2,
-          cleanupRetryMaxDelayMs,
+          closeRetryMaxDelayMs,
         );
         automaticCloseGuardianTimer = window.setTimeout(() => {
           automaticCloseGuardianTimer = undefined;
@@ -2034,22 +1975,24 @@ function ChatPanel({
       const startAutomaticCloseGuardian = () => {
         if (settled) return;
         if (!automaticCloseRequired) {
-          automaticCloseRetryDelayMs = cleanupRetryInitialDelayMs;
+          automaticCloseRetryDelayMs = closeRetryInitialDelayMs;
         }
         automaticCloseRequired = true;
         void requestTerminalClose("automatic");
       };
       const decode = makeStreamDecoder();
-      const handleData = (p: { data: string }) => {
-        if (settled) return;
-        useLocalCommandsStore
-          .getState()
-          .appendOutput(terminalId, decode(p.data));
-      };
-      const handleExit = (p: { code: number; reason: string }) => {
-        const status =
-          p.reason === "killed" ? "stopped" : p.code === 0 ? "done" : "failed";
-        settle(status, p.code);
+      const observers: TerminalSubscriber = {
+        onData: (bytes) => {
+          if (settled) return;
+          useLocalCommandsStore
+            .getState()
+            .appendOutput(terminalId, decode(bytes));
+        },
+        onExit: ({ code, reason }) => {
+          const status =
+            reason === "killed" ? "stopped" : code === 0 ? "done" : "failed";
+          settle(status, code);
+        },
       };
       const controller: LocalCommandRuntimeController = {
         stop: () => requestTerminalClose("user"),
@@ -2061,34 +2004,18 @@ function ChatPanel({
         command,
         createdAt: Date.now(),
       });
+      // 先订阅再起 PTY:第一帧完全可能早于 TerminalRunCommand 兑现。
+      // 传输层保证一次失败的 subscribe 不留半截注册,所以重试一次即可,
+      // 不需要自持世代 / 清理看门狗。
       let observerError: unknown;
-      let observersReady = false;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const attemptGeneration: ListenerGeneration = {
-          listeners: [],
-          retryDelayMs: cleanupRetryInitialDelayMs,
-        };
+      for (let attempt = 0; attempt < 2 && !releaseObservers; attempt += 1) {
         try {
-          const dataListener: ListenerRegistration = {
-            event: dataEvent,
-            cleaned: false,
-          };
-          attemptGeneration.listeners.push(dataListener);
-          dataListener.off = EventsOn(dataEvent, handleData);
-          const exitListener: ListenerRegistration = {
-            event: exitEvent,
-            cleaned: false,
-          };
-          attemptGeneration.listeners.push(exitListener);
-          exitListener.off = EventsOn(exitEvent, handleExit);
-          activeGeneration = attemptGeneration;
-          observersReady = true;
-          break;
+          releaseObservers = transport.subscribe(terminalId, observers);
         } catch (error: unknown) {
           observerError = error;
-          if (!ensureListenersCleaned(attemptGeneration)) break;
         }
       }
+      const observersReady = releaseObservers !== undefined;
       try {
         const response = await TerminalRunCommand(
           terminalId,
@@ -2115,7 +2042,7 @@ function ChatPanel({
         return undefined;
       }
     },
-    [],
+    [transport],
   );
 
   React.useEffect(() => {

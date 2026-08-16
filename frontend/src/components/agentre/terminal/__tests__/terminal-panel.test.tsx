@@ -1,7 +1,36 @@
-import { render, act } from "@testing-library/react";
+import { render as rtlRender, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  TerminalTransportProvider,
+  type TerminalTransport,
+} from "@agentre-ai/agentre-ui";
 import { TerminalPanel } from "../terminal-panel";
 import type { UseTerminalArgs } from "../use-terminal";
+
+// TerminalPanel 里的 attach 数据源经端口取 stdin / resize;生产里 Provider 挂在
+// App 根。这些用例只关心 xterm 与 live 数据源,端口给个不动声色的替身即可。
+const transportStub: TerminalTransport = {
+  subscribe: () => () => {},
+  open: async () => {},
+  close: async () => {},
+  write: async () => {},
+  resize: async () => {},
+};
+
+function TerminalTransportHost({ children }: { children?: React.ReactNode }) {
+  return (
+    <TerminalTransportProvider transport={transportStub}>
+      {children}
+    </TerminalTransportProvider>
+  );
+}
+
+function render(
+  ui: React.ReactElement,
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { ...options, wrapper: TerminalTransportHost });
+}
 
 // --- sonner mock (must be hoisted) ---
 const toastMocks = vi.hoisted(() => ({
