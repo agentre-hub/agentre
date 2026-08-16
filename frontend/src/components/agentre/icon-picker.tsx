@@ -20,8 +20,9 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
-  ICON_BY_KEY,
+  hasIcon,
   iconForKey,
+  iconMeta,
   iconsByCategory,
   searchIcons,
   type IconMeta,
@@ -50,7 +51,7 @@ export function IconPicker({
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const Icon = iconForKey(value);
-  const meta = ICON_BY_KEY.get(value);
+  const meta = iconMeta(value);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -218,7 +219,7 @@ export function AgentAvatarPicker({
               label={t("org.department.icon")}
               hint={
                 avatarIcon
-                  ? (ICON_BY_KEY.get(avatarIcon)?.label ??
+                  ? (iconMeta(avatarIcon)?.label ??
                     t("iconPicker.avatar.selected"))
                   : t("iconPicker.avatar.notSet")
               }
@@ -458,8 +459,8 @@ function ModeChip({
 }
 
 function getModeIconForChip(iconKey: string) {
-  if (iconKey && ICON_BY_KEY.has(iconKey)) {
-    return ICON_BY_KEY.get(iconKey)!.icon;
+  if (hasIcon(iconKey)) {
+    return iconForKey(iconKey);
   }
   return ImageIcon; // 占位（未设置时显示个图）
 }
