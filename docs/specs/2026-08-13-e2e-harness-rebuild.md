@@ -13,7 +13,7 @@
 1. **正式桌面入口依赖 E2E 包。** 当前 `main.go:12` 导入 `e2e/fakes`，并在完成 `bootstrap.Init` 后由 `main.go:47` 调用 `fakes.Install`；`e2e/fakes/install.go` 与 `install_noop.go` 再通过互斥 build tag 决定该调用是真实安装还是空操作。正式入口因而知道测试装配，生产与测试边界依赖编译参数而不是依赖方向。
 2. **错误启动 E2E 构建会在隔离检查之前打开应用数据。** 当前 fake 在 `bootstrap.Init` 之后安装；而 `internal/pkg/paths/paths.go` 在未提供 `AGENTRE_DATA_DIR` 时会回退到正式或开发数据目录，`internal/bootstrap/keychain.go` 在未提供 `AGENTRE_KEYCHAIN_DIR` 时会使用 system keychain。独立执行带 E2E tag 的 Wails/Go 启动命令因此可能先连接真实存储，再执行 seed。
 3. **已有证据表明隔离失败曾污染正式数据库。** 对本机正式库的只读检查发现 `E2E Local Backend` 与 `E2E Codex Backend` 各有 25 条软删除残留；对应名称由 `e2e/fakes/install.go` seed。该检查没有修改数据库。
-4. **桌面 E2E 越过了仓库责任边界。** 当前 `make e2e-sync` 经 `e2e/run-e2e-sync.mjs` 启动真实 `agentre-server`，并要求其 PostgreSQL/Redis 可用；对 `agentre/` 而言，Server、OAuth 及其数据基础设施都是外部系统，不应成为桌面仓库自动化 E2E 的前置条件。
+4. **桌面 E2E 越过了仓库责任边界。** 当前 `make e2e-sync` 经 `e2e/run-e2e-sync.mjs` 启动真实 `agentre-server`，并要求其 MySQL/Redis 可用；对 `agentre/` 而言，Server、OAuth 及其数据基础设施都是外部系统，不应成为桌面仓库自动化 E2E 的前置条件。
 5. **入口和 harness 分裂。** 当前 Makefile 同时暴露 `e2e`、`e2e-scratch`、`e2e-sync` 及 fake/real 两种 verification flavor；`e2e/` 又维护普通、scratch、sync 多套 runner/config。相同的进程、端口、数据目录和清理约束分散在多处，难以证明所有入口都 fail closed。
 6. **现有 committed suite 超出本轮需要的最小回归面。** `e2e/tests/` 当前包含聊天、会话刷新、Git 预览、组织工具和子代理工具等多条规格。本轮已获准删除原有普通 E2E 内容，以三个桌面责任边界的基础冒烟重新建立可信基线。
 7. **正式数据库元数据 canary 与正在运行的正式应用冲突。** 修正前 runner 会在 E2E 前后比较正式/开发 SQLite、WAL、SHM 的元数据；本地运行观察到 installed Agentre 自己的正常 WAL 写入会让 7 条 smoke 全部通过后仍判定隔离失败。该机制既不能把正式应用写入与 E2E 污染归因区分开，也迫使测试要求正式应用静默，不符合 E2E 不接触生产数据的边界。
@@ -34,7 +34,7 @@
 | 2 | 删除所有 E2E build tag，使用不会被正式入口引用的独立 E2E main。 | Go 的入口依赖图能天然隔离测试装配，正式 main 不再需要测试 no-op。Rejected: 继续由正式 main 调用 build-tag no-op——依赖方向仍然错误，且错误 tag 启动仍危险。 |
 | 3 | 正式 main 与 E2E main 复用同一桌面启动壳和同一应用层，只在 composition root 选择外部依赖。 | E2E 必须覆盖真实 React、Wails IPC、service、repository、migration 和 SQLite，同时避免复制窗口/lifecycle 配置。Rejected: 复制一份完整桌面 main——两份启动行为会漂移。 |
 | 4 | E2E main 在 `bootstrap.Init` 之前验证 runner 签发的运行 manifest 与随机 token，并对路径做规范化和 containment 校验。 | 安全门必须先于数据库、日志和 keychain 初始化。Rejected: 只检查 `AGENTRE_ENV=test` 或目录名称——环境变量可手工误设，名称也不能证明目录由本次运行创建。 |
-| 5 | `make e2e` 使用真实桌面内部栈和每次运行独占的临时 SQLite/file keychain；所有进程外边界均由本仓库 harness 提供确定性 fake。 | 这是桌面仓库拥有且能稳定验证的边界。Rejected: 启动 sibling `agentre-server`、PostgreSQL、Redis、真实 OAuth、真实 Agent CLI 或真实 `agentred`——这些会把外部可用性变成桌面 E2E 的失败源。 |
+| 5 | `make e2e` 使用真实桌面内部栈和每次运行独占的临时 SQLite/file keychain；所有进程外边界均由本仓库 harness 提供确定性 fake。 | 这是桌面仓库拥有且能稳定验证的边界。Rejected: 启动 sibling `agentre-server`、MySQL、Redis、真实 OAuth、真实 Agent CLI 或真实 `agentred`——这些会把外部可用性变成桌面 E2E 的失败源。 |
 | 6 | 自动化 suite 只重建 desktop、sync client、remote peer 三条高价值冒烟。 | 三条分别保护本地核心路径、Server 客户端协议路径和远程执行客户端协议路径。Rejected: 搬运全部旧规格——会在新隔离模型尚未稳定时恢复大而脆弱的 suite。 |
 | 7 | 本地真实验证使用正式 main、真实依赖和隔离本地存储，不复用 E2E main 或 fake flavor。 | “真实验证”与“确定性自动化”职责不同。Rejected: verification 默认启动 E2E fake——无法证明真实外部集成，且继续混淆两个入口。 |
 | 8 | 不修改 sibling `agentre-server/` 仓库及其 E2E。 | 三个仓库独立提交，桌面仓库只验证自己的客户端责任。Rejected: 同时重建 Server E2E——扩大范围并混合仓库所有权。 |
@@ -86,7 +86,7 @@ fake runtime 返回失败时，桌面按既有用户可见错误契约结束该�
 
 ## Sync client smoke
 
-E2E composition 将桌面的真实 Server/sync client 指向 harness 内的 fake HTTP server，并建立等同于“已完成登录”的临时测试身份。测试不进入 GitHub OAuth，也不启动 Server Web UI、`agentre-server`、PostgreSQL 或 Redis。
+E2E composition 将桌面的真实 Server/sync client 指向 harness 内的 fake HTTP server，并建立等同于“已完成登录”的临时测试身份。测试不进入 GitHub OAuth，也不启动 Server Web UI、`agentre-server`、MySQL 或 Redis。
 
 用户从桌面 UI 创建或修改一个由桌面同步客户端负责的账号级对象时，真实 sync service 和 HTTP client 将协议请求发送到 fake server。fake 记录请求后返回协议有效的确认；测试观察请求中的身份、对象类型、版本/游标和业务 payload，证明桌面正确转换并推送本地状态。
 
@@ -125,7 +125,7 @@ E2E fake 只使用生成的测试身份、测试凭据和测试内容。日志�
 ## Out of scope
 
 - 修改或删除 `agentre-server/`、`agentre-hub/` 及其 E2E。
-- 自动化真实 GitHub OAuth、PostgreSQL、Redis、Server Web UI 或 sibling Server 的持久化行为。
+- 自动化真实 GitHub OAuth、MySQL、Redis、Server Web UI 或 sibling Server 的持久化行为。
 - 自动化真实 `agentred` 进程、daemon SQLite、LAN 发现、真实 relay 或真实 Claude Code/Codex/Pi CLI。
 - 恢复旧 suite 的 Git 预览、组织工具、子代理工具等扩展回归；后续只有在明确归属桌面边界且具备稳定 seam 时才逐条加入。
 - 清理正式数据库中已存在的 E2E 残留；任何清理需另行确认、备份和只针对已证明的测试数据执行。
@@ -146,7 +146,7 @@ E2E fake 只使用生成的测试身份、测试凭据和测试内容。日志�
 | 正式构建检查 | 正式 app/agentred 能在无 E2E tag、无 E2E 环境变量时构建，产物不包含 E2E composition | 当前 `make build`、`make agentred`；本轮由依赖图 guard 补强 |
 | Driven real verification | 自动化无法证明的真实 Server、daemon、CLI 和平台集成，由隔离正式 main 的本地运行观察并按 verification report 记录 | `verify.mjs`、`drive.mjs`、`docs/verification.md` |
 
-CI 继续调用与本地相同的 `make e2e`，只安装 Wails、前端依赖、Playwright/Chromium 与桌面 GUI 系统依赖；不配置 Server、OAuth、PostgreSQL、Redis、真实 daemon 或 Agent CLI。完成实现时还需运行仓库既有 backend、frontend、lint 和文档链接检查，以证明入口重构没有破坏非 E2E 构建。
+CI 继续调用与本地相同的 `make e2e`，只安装 Wails、前端依赖、Playwright/Chromium 与桌面 GUI 系统依赖；不配置 Server、OAuth、MySQL、Redis、真实 daemon 或 Agent CLI。完成实现时还需运行仓库既有 backend、frontend、lint 和文档链接检查，以证明入口重构没有破坏非 E2E 构建。
 
 ## Relevant links
 

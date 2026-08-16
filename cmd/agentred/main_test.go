@@ -56,8 +56,13 @@ func TestRootSubcommands(t *testing.T) {
 
 // TestUnclaimClearsAccountLocally verifies that unclaim returns the daemon to the
 // unclaimed state by removing every account-derived local cache — credential,
-// verification key, and revocation list — exclusively through state.json. The
-// default HTTP transport is a tripwire: any network request fails the test.
+// verification key, and revocation list — exclusively through state.json.
+//
+// This fixture records no HubServerURL, so there is nowhere to notify and the
+// command stays purely local: the default HTTP transport is a tripwire proving
+// the local clear itself never depends on the network. A daemon that *does* know
+// its server best-effort revokes the authorization first — see
+// TestUnclaimBestEffortRevokesTheAccountAuthorizationBeforeClearingLocalState.
 func TestUnclaimClearsAccountLocally(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("AGENTRED_DATA_DIR", dir)
@@ -96,7 +101,7 @@ func TestUnclaimClearsAccountLocally(t *testing.T) {
 	assert.Equal(t, state.AccountCredential{}, got.Credential)
 	assert.Empty(t, got.RevokedJTIs, "the previous account's revocation list must not survive unclaim")
 	assert.Zero(t, got.RevocationsAsOf, "the previous account's revocation timestamp must not survive unclaim")
-	assert.Zero(t, networkCalls.Load(), "unclaim must not make network requests")
+	assert.Zero(t, networkCalls.Load(), "with no server recorded, unclaim has nowhere to notify")
 
 	gotDir, err := paths.AgentredDataDir()
 	require.NoError(t, err)

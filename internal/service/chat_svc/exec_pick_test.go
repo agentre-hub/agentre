@@ -179,6 +179,47 @@ func TestPickExecTarget_GivenFirstBlockedByExistingBlockReason_WhenSecondAvailab
 	assert.Equal(t, int64(82), choice.Backend.ID)
 }
 
+// backend 的删除是软删（status=DELETE），而引用它的执行目标行**留在原地**：本端发起的
+// 删除要等墓碑绕服务端一圈回来才由下行清掉，服务端发起的删除（设备离开账号时把指向它
+// 的 backend 落墓碑）则根本不会有对应的执行目标墓碑到达。这条用例钉住那个悬空档的既有
+// 兜底：Find 按 status 过滤后返回 nil，该档判不可用并跳到下一档 —— 派发因此不需要在下行
+// 侧再补一遍 R6 的级联。
+func TestPickExecTarget_GivenFirstBackendRowGone_WhenSecondAvailable_ThenSkipsToSecond(t *testing.T) {
+	ctx, m, svc := setupPickExecTargetTest(t)
+	m.execTarget.EXPECT().ListByAgent(ctx, int64(341)).Return([]*agent_entity.AgentExecTarget{
+		{ID: 71, AgentID: 341, AgentBackendID: 811, SortOrder: 0},
+		{ID: 72, AgentID: 341, AgentBackendID: 812, SortOrder: 1},
+	}, nil)
+	// 软删过的 backend：agent_backend_repo.Find 带 status = ACTIVE 条件，取不到行。
+	m.backend.EXPECT().Find(ctx, int64(811)).Return(nil, nil)
+	m.backend.EXPECT().Find(ctx, int64(812)).Return(&agent_backend_entity.AgentBackend{
+		ID: 812, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "",
+	}, nil)
+
+	choice, err := svc.PickExecTarget(ctx, 341, 0)
+	require.NoError(t, err)
+	require.NotNil(t, choice)
+	assert.Equal(t, int64(812), choice.Backend.ID)
+}
+
+// 悬空档是**唯一**一档时不静默失败，而是按 R15 逐档报原因——这一档的原因是
+// 「引用的后端已不存在」，与「这个 Agent 一档都没配」区分得开。
+func TestPickExecTarget_GivenOnlyTargetBackendRowGone_ThenReportsBackendGone(t *testing.T) {
+	ctx, m, svc := setupPickExecTargetTest(t)
+	m.execTarget.EXPECT().ListByAgent(ctx, int64(342)).Return([]*agent_entity.AgentExecTarget{
+		{ID: 73, AgentID: 342, AgentBackendID: 813, SortOrder: 0},
+	}, nil)
+	m.backend.EXPECT().Find(ctx, int64(813)).Return(nil, nil)
+
+	choice, err := svc.PickExecTarget(ctx, 342, 0)
+	require.Error(t, err)
+	assert.Nil(t, choice)
+	var noneAvailable *chat_svc.ExecTargetNoneAvailableError
+	require.ErrorAs(t, err, &noneAvailable)
+	require.Len(t, noneAvailable.Reasons, 1)
+	assert.Equal(t, chat_svc.BlockReasonNoBackend, noneAvailable.Reasons[0].Reason)
+}
+
 func TestPickExecTarget_GivenProjectBoundSession_WhenLocalPathMissing_ThenSkipsToRemoteWithPath(t *testing.T) {
 	ctx, m, svc := setupPickExecTargetTest(t)
 	m.execTarget.EXPECT().ListByAgent(ctx, int64(35)).Return([]*agent_entity.AgentExecTarget{
