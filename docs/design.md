@@ -436,7 +436,7 @@ There is **no `useIsMobile`, no `MOBILE_BREAKPOINT`, and no mobile re-shell.** R
 
 ### Long lists
 
-The chat transcript can hold thousands of rows and is windowed with **`@tanstack/react-virtual`** ([`chat.tsx`](../frontend/src/components/agentre/chat.tsx)): dynamic per-row size estimation, overscan, `anchorTo: "end"` stick-to-bottom, and `measureElement` for real heights (see [`transcript-rows.ts`](../frontend/packages/agentre-ui/src/transcript/transcript-rows.ts) + [`transcript-row-view.tsx`](../frontend/src/components/agentre/transcript-row-view.tsx)). Other lists (issues, org chart, settings) are bounded and render plainly — don't add virtualization unprompted, but **do** virtualize any new unbounded list rather than mounting every row.
+The chat transcript can hold thousands of rows and is windowed with **`@tanstack/react-virtual`** ([`chat.tsx`](../frontend/src/components/agentre/chat.tsx)): dynamic per-row size estimation, overscan, `anchorTo: "end"` stick-to-bottom, and `measureElement` for real heights (see [`transcript-rows.ts`](../frontend/packages/agentre-ui/src/transcript/transcript-rows.ts) + [`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)). Other lists (issues, org chart, settings) are bounded and render plainly — don't add virtualization unprompted, but **do** virtualize any new unbounded list rather than mounting every row.
 
 ### Layering (z-index)
 
@@ -470,7 +470,7 @@ Ties break by DOM/portal order, not a bespoke number. A new "always on top" need
 
 | utility / pattern | Use |
 | --- | --- |
-| `animate-typing-dot` (`--animate-typing-dot`) | The chat typing/compacting indicator — three dots with staggered `[animation-delay:…]` (see `TypingIndicator` in [`transcript-row-view.tsx`](../frontend/src/components/agentre/transcript-row-view.tsx)). Keyframe `typing-dot` defined in [`globals.css`](../frontend/src/styles/globals.css). |
+| `animate-typing-dot` (`--animate-typing-dot`) | The chat typing/compacting indicator — three dots with staggered `[animation-delay:…]` (see `TypingIndicator` in [`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)). Keyframe `typing-dot` defined in [`globals.css`](../frontend/src/styles/globals.css). |
 | `data-[state=open]:animate-in … fade-*/zoom-in-95/zoom-out-95/slide-*` | Dialog / Dropdown / Popover / HoverCard enter-leave (Radix-driven) |
 | `animate-spin` | `Loader2` / `RefreshCw` / `LoaderCircle` spinners |
 | `transition-colors` / `transition-transform` / `duration-150` | hover/focus color, chevron rotation |
@@ -494,7 +494,7 @@ Every async flow covers loading / empty / error / success consistently. **Import
 | --- | --- |
 | **Loading** | A centered `Loader2` (`animate-spin`, `text-muted-foreground`) for whole regions, or an inline `Loader2 size-3.5 animate-spin` inside a disabled button for single actions. For lightweight "first load" copy, the `CenterNote` pattern (centered `text-xs text-muted-foreground`, e.g. [`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). No skeletons exist — add one only if you build the shared component. |
 | **Empty** | Centered icon (`Inbox` / `Sparkles` in `subtle-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/src/components/agentre/llm-providers.tsx)) and `IssuesEmpty` ([`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). |
-| **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/src/components/agentre/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message, and an optional outline retry button. For page-level failures, centered `text-destructive` copy. |
+| **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message, and an optional outline retry button. For page-level failures, centered `text-destructive` copy. |
 | **Success** | Transient → a Sonner `toast.success` (§6.5); a completed agent turn → the notification viewport. |
 | **In-progress** | No general-purpose `Progress` primitive in `components/ui/`. Agent background-task progress has a dedicated `TaskProgressBar` ([`task-progress/`](../frontend/src/components/agentre/task-progress/)) — a real bar + expandable task list with a `LoaderCircle` spinner tinted `text-status-waiting`. For other waits, a status-tinted spinner + readable copy. |
 
