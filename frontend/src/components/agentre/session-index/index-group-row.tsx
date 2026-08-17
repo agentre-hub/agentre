@@ -19,6 +19,7 @@ import { FreeGroupHeader } from "./free-group-header";
 import { OwnSessionsHeader } from "./own-sessions-header";
 import { ProjectGroupHeader } from "./project-group-header";
 import { RowLeadingSlot } from "./row-leading-slot";
+import { RowSecondaryLine } from "./row-secondary-line";
 import type { IndexGroup } from "./use-index-groups";
 import { useGroupRows } from "./use-group-rows";
 
@@ -130,10 +131,21 @@ export function IndexGroupRow({
       const agentName = resolved.name || (meta.agentName ?? "");
       const agentColor = resolved.color || meta.agentColor || "agent-1";
       if (axis === "time") {
-        const projectName = projectID > 0 ? projectNameOf(projectID) : "";
         return {
           ...row,
-          secondaryLabel: [agentName, projectName].filter(Boolean).join(" · "),
+          secondaryLabel: (
+            <RowSecondaryLine
+              agentName={agentName}
+              agentColor={agentColor}
+              // 自由会话报「随手对话」而不是空 —— 它有去处，只是那个去处不是项目。
+              projectName={
+                projectID > 0
+                  ? projectNameOf(projectID)
+                  : t("sessionIndex.free.name")
+              }
+              projectColor={projectID > 0 ? projectColorOf(projectID) : null}
+            />
+          ),
         };
       }
       return {
@@ -148,7 +160,7 @@ export function IndexGroupRow({
         ),
       };
     },
-    [axis, metas, projectColorOf, projectNameOf, agentInfoOf],
+    [axis, metas, projectColorOf, projectNameOf, agentInfoOf, t],
   );
 
   const decoratedSessions = React.useMemo(
@@ -245,7 +257,6 @@ export function IndexGroupRow({
         <FreeGroupHeader
           expanded={expanded}
           onToggle={toggle}
-          count={sessions.length}
           attentionCount={attentionCount}
           // 随手对话的 `＋` 不带项目上下文：projectID 传 0，agent 由命令面板挑。
           onNewSession={() => handlers.onNewSession(0, 0)}

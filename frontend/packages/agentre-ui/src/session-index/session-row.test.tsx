@@ -171,6 +171,28 @@ describe("SessionRow slots", () => {
     expect(screen.getByText("session-1")).toBeTruthy();
   });
 
+  it("Given a secondary label built from nodes, When the row renders, Then the host can hang glyphs on the second line", () => {
+    // 桌面端「按时间」档的第二行是 `〔头像〕agent · 〔文件夹〕项目` —— 两维各自带
+    // 着和其它档同一个字形。只收字符串的话宿主只能退回纯文字，同一条会话在三个
+    // 档之间就长出三种样子。
+    render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        trailingLabel="5m"
+        secondaryLabel={
+          <span data-testid="second-line">
+            <span data-testid="agent-mark" aria-hidden="true" />
+            设计师 · Agentre
+          </span>
+        }
+      />,
+    );
+
+    expect(screen.getByTestId("agent-mark")).toBeTruthy();
+    expect(screen.getByTestId("second-line").textContent).toContain("Agentre");
+  });
+
   it("Given a secondary label on a link row, When it renders, Then the link still carries both lines", () => {
     render(
       <SessionRow
@@ -251,5 +273,61 @@ describe("SessionRow trailing slots", () => {
     );
 
     expect(container.textContent).toBe("session-1");
+  });
+});
+
+/**
+ * 标题列的第三行。
+ *
+ * agentre-server 的移动端行是三行：Agent 名（自己一行，在标题**之上**）、状态点 +
+ * 标题 + 时间、设备 · 后端。第一行不能用 `leading` —— 那是**行内**槽，在窄屏上会把
+ * 标题挤没，而设计稿（48b / 屏 20）当初让它独占一行正是为了避免这件事。
+ */
+describe("SessionRow overline", () => {
+  it("Given an overline, When the row renders, Then it sits above the title inside the title column, not inline with the status dot", () => {
+    const { container } = render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        overline={<span data-testid="agent-line">后端 Agent</span>}
+        secondaryLabel="调试机 · claude_code"
+      />,
+    );
+
+    const agentLine = screen.getByTestId("agent-line");
+    const title = screen.getByText("session-1");
+    // 同一个标题列里，且排在标题前面。
+    expect(agentLine.parentElement).toBe(title.parentElement);
+    expect(
+      agentLine.compareDocumentPosition(title) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // 行内槽是另一个位置：overline 不该跑到状态点旁边去。
+    const dot = container.querySelector('[aria-label$="status"]');
+    expect(dot?.nextElementSibling).not.toBe(agentLine);
+  });
+
+  it("Given all three lines, When the row renders, Then they read overline → title → secondary in order", () => {
+    render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        overline="后端 Agent"
+        secondaryLabel="调试机 · claude_code"
+      />,
+    );
+
+    const column = screen.getByText("session-1").parentElement!;
+    expect(column.textContent).toBe(
+      "后端 Agent" + "session-1" + "调试机 · claude_code",
+    );
+  });
+
+  it("Given no overline, When the row renders, Then no empty line is reserved", () => {
+    render(<SessionRow status="idle" title="session-1" />);
+
+    expect(screen.getByText("session-1").parentElement!.childElementCount).toBe(
+      1,
+    );
   });
 });

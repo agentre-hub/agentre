@@ -656,11 +656,19 @@ export function SessionIndexPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {/* 副标题不是装饰：这一项开的是命令面板，而「在面板里按 Tab 能换
+                    项目」是这条路唯一能开出「不挂项目」的会话的办法（决策 6 的第二
+                    条路），不写出来没人会去按。 */}
                 <DropdownMenuItem
                   data-testid="new-agent-chat-item"
                   onSelect={() => openCommandPalette(NEW_CHAT_INITIAL_QUERY)}
                 >
-                  {t("sessionIndex.add.newChat")}
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span>{t("sessionIndex.add.newChat")}</span>
+                    <span className="text-2xs text-muted-foreground">
+                      {t("sessionIndex.add.newChatHint")}
+                    </span>
+                  </div>
                 </DropdownMenuItem>
                 {/* 决策 11：「新建项目」降为次级项 —— ＋ 只有一种含义（开一条对话）。 */}
                 <DropdownMenuItem

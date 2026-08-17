@@ -125,6 +125,49 @@ describe("IndexGroupRow regressions", () => {
     expect(screen.getByText("设计师")).toBeInTheDocument();
   });
 
+  it("Given the time axis, When a row renders its second line, Then each dimension keeps the glyph it wears on the other two axes", () => {
+    // 决策 5 的两行行式在 mockup 里是 `〔头像〕agent · 〔文件夹〕项目`：字形和
+    // 「按项目」的行首头像、「按 Agent」的行首文件夹**同一个**。退成纯文字的话，
+    // 同一条会话在三个档之间长出三种样子，切档时读者要重新找一遍锚点。
+    seed(1, { agentId: 7, projectId: 4, lastMessageAt: 100 });
+
+    renderRow({
+      axis: "time",
+      group: group({ key: "flat", kind: "flat", refID: 0, sessionIDs: [1] }),
+      subtreeSessionIDs: [1],
+      project: undefined,
+      projectNameOf: () => "Agentre",
+      projectColorOf: () => "agent-3",
+      agentInfoOf: () => ({ name: "设计师", color: "agent-9" }),
+    });
+
+    const line = screen.getByTestId("row-secondary-line");
+    expect(line).toHaveTextContent("设计师");
+    expect(line).toHaveTextContent("Agentre");
+    expect(line.querySelector("[data-kind='agent-avatar']")).not.toBeNull();
+    expect(line.querySelector("[data-kind='project-folder']")).not.toBeNull();
+  });
+
+  it("Given a free session on the time axis, When its second line renders, Then the project half says 随手对话 with the muted glyph instead of going blank", () => {
+    // 决策 7：「随手对话」是一个正当的去处，不是分类失败的残留。留半行空白会让
+    // 自由会话看起来像「项目丢了」，而它本来就不该有项目。
+    seed(1, { agentId: 7, projectId: 0, lastMessageAt: 100 });
+
+    renderRow({
+      axis: "time",
+      group: group({ key: "flat", kind: "flat", refID: 0, sessionIDs: [1] }),
+      subtreeSessionIDs: [1],
+      project: undefined,
+      agentInfoOf: () => ({ name: "设计师", color: "agent-9" }),
+    });
+
+    const line = screen.getByTestId("row-secondary-line");
+    expect(line).toHaveTextContent("Quick chats");
+    expect(
+      line.querySelector("[data-kind='project-folder-muted']"),
+    ).not.toBeNull();
+  });
+
   it("Given a collapsed parent whose descendant needs attention, When it renders, Then the bubble rolls the descendant up instead of hiding it", () => {
     seed(1, { projectId: 1, lastMessageAt: 100 });
     seed(2, { projectId: 2, lastMessageAt: 200 }, { needsAttention: true });

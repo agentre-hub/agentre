@@ -31,7 +31,8 @@ export type SessionRowModel = {
    * `trailing`（链接内）与 `rowActions`（链接外）为什么必须分成两个。
    */
   leading?: import("react").ReactNode;
-  secondaryLabel?: string;
+  secondaryLabel?: import("react").ReactNode;
+  overline?: import("react").ReactNode;
   trailing?: import("react").ReactNode;
   rowActions?: import("react").ReactNode;
   /**

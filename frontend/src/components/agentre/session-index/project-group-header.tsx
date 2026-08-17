@@ -110,6 +110,7 @@ export function ProjectGroupHeader({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
+          data-testid="project-group-header"
           className={cn(
             "group/proj flex items-center gap-1.5 rounded-md text-xs hover:bg-sidebar-active-bg",
             isSub ? "px-1.5 py-1" : "px-2 py-1.5",

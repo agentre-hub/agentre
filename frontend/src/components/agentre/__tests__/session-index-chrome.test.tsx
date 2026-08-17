@@ -71,6 +71,17 @@ describe("AxisPicker", () => {
     ).toEqual(["Project", "Agent", "Time"]);
   });
 
+  it("Given the menu is open, When it renders, Then the grouping noun appears as the menu's own label — off the 288px row, where decision 3 has no quarrel with it", async () => {
+    const user = setupUser();
+    render(<AxisPicker value="project" onChange={vi.fn()} />);
+
+    await user.click(screen.getByTestId("axis-picker"));
+
+    expect(await screen.findByTestId("axis-picker-label")).toHaveTextContent(
+      enCommon.sessionIndex.axis.title,
+    );
+  });
+
   it("Given both locales, When the axis labels are inspected, Then no label carries the grouping noun while the tooltip still does the explaining (decision 3)", () => {
     for (const locale of [zhCommon, enCommon]) {
       const axis = locale.sessionIndex.axis;
@@ -91,7 +102,6 @@ describe("FreeGroupHeader", () => {
       <FreeGroupHeader
         expanded
         onToggle={vi.fn()}
-        count={0}
         attentionCount={0}
         onNewSession={onNewSession}
       />,
@@ -109,7 +119,6 @@ describe("FreeGroupHeader", () => {
       <FreeGroupHeader
         expanded
         onToggle={vi.fn()}
-        count={3}
         attentionCount={1}
         onNewSession={vi.fn()}
       />,
@@ -139,7 +148,6 @@ describe("FreeGroupHeader", () => {
       <FreeGroupHeader
         expanded={false}
         onToggle={onToggle}
-        count={2}
         attentionCount={0}
         onNewSession={vi.fn()}
       />,

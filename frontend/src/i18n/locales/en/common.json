@@ -2714,6 +2714,7 @@
       "newAgent": "New agent",
       "newAgentHint": "Create it in the org chart",
       "newChat": "New chat",
+      "newChatHint": "Command palette: Tab for project → pick an agent",
       "newProject": "New project"
     },
     "axis": {
@@ -2733,7 +2734,6 @@
     },
     "free": {
       "attention": "{{count}} quick chats need attention",
-      "count": "{{count}} quick chats",
       "empty": "No quick chats yet",
       "name": "Quick chats",
       "newSession": "New quick chat"

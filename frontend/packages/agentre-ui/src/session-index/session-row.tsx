@@ -54,8 +54,20 @@ type SessionRowProps = Omit<React.ComponentProps<"button">, "onClick"> & {
    *
    * 两端都要：桌面索引的「按时间」档没有组头，两维只能落在行里；agentre-server 的
    * 会话行第二行是「设备 · 后端」。内容由宿主拼，包不认识它的语义。
+   *
+   * 收 `ReactNode` 而不是 `string`：桌面端那一行是 `〔头像〕agent · 〔文件夹〕项目`，
+   * 两维各自带着和其它档同一个字形。只收字符串宿主就只能退回纯文字。
    */
-  secondaryLabel?: string;
+  secondaryLabel?: React.ReactNode;
+  /**
+   * 标题**之上**的一行（排版里的 overline / kicker）。
+   *
+   * 与 `leading` 的分别是「另起一行 vs 行内」，不是风格偏好：`leading` 挤在状态点
+   * 和标题之间，内容一长就把标题压没。agentre-server 的移动端行把 Agent 名放在
+   * 这里正是这个原因（设计稿 48b / 屏 20）；桌面端按 Agent 分组，名字在组头上，
+   * 不用这一槽。
+   */
+  overline?: React.ReactNode;
   /**
    * 行尾插槽，在 `trailingLabel` 之后、**仍在链接/按钮之内**。
    *
@@ -103,6 +115,7 @@ function SessionRow({
   href,
   renderLink,
   leading,
+  overline,
   secondaryLabel,
   trailing,
   rowActions,
@@ -119,8 +132,13 @@ function SessionRow({
     onOpenInNewTab || onRenameSession || onDeleteSession,
   );
 
+  // 两行行的状态点与尾标跟**第一行**对齐，而不是跟两行整块居中 —— 居中会把点压到
+  // 两行的缝里，读起来像它属于第二行。单行行照旧居中。
+  const twoLine = Boolean(secondaryLabel);
+
   const rowClassName = cn(
-    "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors hover:bg-sidebar-active-bg focus-visible:ring-[3px] focus-visible:ring-ring/50",
+    "flex cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors hover:bg-sidebar-active-bg focus-visible:ring-[3px] focus-visible:ring-ring/50",
+    twoLine ? "items-start" : "items-center",
     // 有行尾操作时行成为 flex 子项，宽度交给容器；否则照旧独占一行。
     rowActions ? "min-w-0 flex-1" : "w-full",
     selected && "bg-primary-soft text-primary-text",
@@ -134,6 +152,7 @@ function SessionRow({
         selected ? "font-medium text-primary-text" : "text-foreground",
       )}
     >
+      {overline}
       <span className="block truncate">{title}</span>
       {secondaryLabel ? (
         <span className="mt-0.5 block truncate text-2xs text-muted-foreground">
@@ -148,6 +167,8 @@ function SessionRow({
       <StatusDot
         status={status}
         size="xs"
+        // 点高 6px、第一行的行盒 16px：(16 - 6) / 2 = 5。
+        className={twoLine ? "mt-[5px]" : undefined}
         {...(hiddenFromAccessibility
           ? { "aria-hidden": true, "aria-label": undefined }
           : {})}

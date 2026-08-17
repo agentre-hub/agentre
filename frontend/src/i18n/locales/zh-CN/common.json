@@ -2714,6 +2714,7 @@
       "newAgent": "新建 Agent",
       "newAgentHint": "前往组织架构创建",
       "newChat": "新建对话",
+      "newChatHint": "命令面板：Tab 切项目 → 选 Agent",
       "newProject": "新建项目"
     },
     "axis": {
@@ -2733,7 +2734,6 @@
     },
     "free": {
       "attention": "{{count}} 条随手对话需要关注",
-      "count": "{{count}} 条随手对话",
       "empty": "还没有随手对话",
       "name": "随手对话",
       "newSession": "新建随手对话"

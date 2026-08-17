@@ -4,7 +4,7 @@
 // 「图标 + 当前值 + chevron」，不带「分组」二字**。320px 侧栏减 px-4 只剩 288px，
 // 带标签时「分组 Agent」这一档会把同一行的「未读 N」chip 挤到第二行（mockup 实测）。
 // 可发现性交给 `title` —— 它不占行内像素。
-import { Bot, Briefcase, ChevronDown, Clock } from "lucide-react";
+import { Bot, ChevronDown, Clock, Folder } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -12,6 +12,7 @@ import type { TFunction } from "i18next";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -25,8 +26,10 @@ export type AxisPickerProps = {
 
 const AXES: readonly IndexAxis[] = ["project", "agent", "time"];
 
+// 项目档用的是**行首那一枚文件夹字形**，不是另一个「项目感」的图标：选择器说的
+// 「项目」和行里画的「项目」必须是同一个记号。
 const AXIS_ICONS: Record<IndexAxis, LucideIcon> = {
-  project: Briefcase,
+  project: Folder,
   agent: Bot,
   time: Clock,
 };
@@ -64,6 +67,11 @@ export function AxisPicker({ value, onChange }: AxisPickerProps) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[160px]">
+        {/* 决策 3 把「分组」二字赶出那 288px 的行，不是赶出整个控件：菜单里有的是
+            地方，标题行让第一次打开的人知道这三档是什么维度。 */}
+        <DropdownMenuLabel data-testid="axis-picker-label" className="text-2xs">
+          {t("sessionIndex.axis.title")}
+        </DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={value}
           onValueChange={(next) => onChange(next as IndexAxis)}

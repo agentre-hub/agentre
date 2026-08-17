@@ -15,8 +15,12 @@ import { cn } from "@/lib/utils";
 export type FreeGroupHeaderProps = {
   expanded: boolean;
   onToggle: () => void;
-  /** 组内会话数；0 时组头照常渲染（决策 6）。 */
-  count: number;
+  /**
+   * 需要关注的条数；0 时不渲染那枚圆点。
+   *
+   * **组内总条数不在这里** —— 组头不报「有几条」：条数就在下面列着，写出来是复述；
+   * 需要关注的那几条则可能在折叠态下看不见，那才值得一个记号。
+   */
   attentionCount: number;
   onNewSession: () => void;
 };
@@ -24,7 +28,6 @@ export type FreeGroupHeaderProps = {
 export function FreeGroupHeader({
   expanded,
   onToggle,
-  count,
   attentionCount,
   onNewSession,
 }: FreeGroupHeaderProps) {
@@ -58,13 +61,6 @@ export function FreeGroupHeader({
         </span>
         <span className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold">
           {t("sessionIndex.free.name")}
-        </span>
-        <span
-          data-testid="free-group-count"
-          className="shrink-0 font-mono text-2xs text-subtle-foreground"
-          title={t("sessionIndex.free.count", { count })}
-        >
-          {count}
         </span>
         {attentionCount > 0 ? (
           <span

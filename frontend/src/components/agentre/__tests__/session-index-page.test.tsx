@@ -407,11 +407,13 @@ describe("SessionIndexPage grouping axes", () => {
     const row = await screen.findByRole("button", { name: /Root work/ });
 
     // 没有组头可点，两维只能落在行的第二行（决策 5）。
-    expect(screen.queryByText("Agentre", { selector: "span" })).toBeNull();
+    expect(screen.queryByTestId("project-group-header")).toBeNull();
     expect(screen.queryByTestId("free-group-header")).toBeNull();
-    expect(row).toHaveTextContent("Eng · Agentre");
-    // 自由会话如实只报 agent 那一维，不编一个项目名出来。
+    expect(row).toHaveTextContent("Eng");
+    expect(row).toHaveTextContent("Agentre");
+    // 自由会话报的是「随手对话」——它有去处，只是那个去处不是项目（决策 7）。
     expect(sessionRow("Quick question")).toHaveTextContent("Designer");
+    expect(sessionRow("Quick question")).toHaveTextContent("Quick chats");
   });
 });
 
@@ -888,7 +890,10 @@ describe("SessionIndexPage top + menu", () => {
     renderIndex();
 
     await user.click(await screen.findByRole("button", { name: "New" }));
-    await user.click(await screen.findByRole("menuitem", { name: "New chat" }));
+    const item = await screen.findByTestId("new-agent-chat-item");
+    // 副标题说的是「在面板里按 Tab 换项目」——决策 6 的第二条路全靠它被人看见。
+    expect(item).toHaveTextContent("Tab for project");
+    await user.click(item);
 
     expect(useCommandPaletteStore.getState()).toMatchObject({
       open: true,
