@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 
 import type { TranscriptBlock } from "../../dto";
 import { agentreUiResources } from "../../../i18n";
+import { TranscriptUIStateProvider } from "../../transcript-ui-state";
 
 import { AgentSpawnCard, shortenModelName } from "./card";
 
@@ -1409,6 +1410,123 @@ describe("AgentSpawnCard steps region as an activity block", () => {
 
     fireEvent.click(within(details).getByTestId("activity-header"));
     expect(within(details).getAllByTestId("activity-row")).toHaveLength(21);
+  });
+
+  // ─── 运行态与转录活动块对齐(2026-08-17 增补)────────────────────────────
+  // 步骤区的默认值原本只看「步数 ≤ 20」这个活算的 fallback:卡片在子代理跑着时
+  // 被打开(当时 ≤20 步),流到第 21 步的瞬间 fallback 翻 false,整个步骤区当场
+  // 自己收起 —— 观感上就是「有时候展开有时候收缩」。对齐后运行中交由 running
+  // 接管(自动展开 + 超 8 步只留最后 6 行,与转录同款),落定才退回 ≤20 阈值。
+  describe("steps region follows the transcript running behavior", () => {
+    const renderWithProvider = (toolBlock: TranscriptBlock, count: number) =>
+      render(
+        <TranscriptUIStateProvider>
+          <AgentSpawnCard
+            toolBlock={toolBlock}
+            childBlocks={readSteps(count)}
+          />
+        </TranscriptUIStateProvider>,
+      );
+
+    it("Given a running spawn opened at 10 steps, When the steps grow past 20 while running, Then the region stays expanded and elides to the last 6 rows", () => {
+      // 生产里转录恒定包在 TranscriptUIStateProvider 内(chat.tsx),fallback
+      // 因此是「活」的 —— 不包 provider 的测试走 useState 初值,复现不了翻转。
+      const toolBlock = singleSpawn("running");
+      const { rerender, container } = renderWithProvider(toolBlock, 10);
+      const details = expandCard(container);
+      // 运行态从一开始就走转录的省略规则:>8 步即省略,10 步 = 省略行 + 末 6 行。
+      expect(within(details).getAllByTestId("activity-row")).toHaveLength(6);
+      expect(within(details).getByTestId("activity-elided")).toHaveTextContent(
+        "4 earlier steps",
+      );
+
+      rerender(
+        <TranscriptUIStateProvider>
+          <AgentSpawnCard toolBlock={toolBlock} childBlocks={readSteps(21)} />
+        </TranscriptUIStateProvider>,
+      );
+
+      // 跨过 20 步不再当场收起;省略行随着步数长高,展开态保持。
+      const header = within(details).getByTestId("activity-header");
+      expect(header).toHaveAttribute("aria-expanded", "true");
+      expect(within(details).getAllByTestId("activity-row")).toHaveLength(6);
+      expect(within(details).getByTestId("activity-elided")).toHaveTextContent(
+        "15 earlier steps",
+      );
+    });
+
+    it("Given a running spawn with 21 steps, When it settles, Then the region returns to the over-20 collapsed default", () => {
+      const { rerender, container } = renderWithProvider(
+        singleSpawn("running"),
+        21,
+      );
+      const details = expandCard(container);
+      expect(within(details).getByTestId("activity-header")).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+
+      rerender(
+        <TranscriptUIStateProvider>
+          <AgentSpawnCard
+            toolBlock={singleSpawn("completed")}
+            childBlocks={readSteps(21)}
+          />
+        </TranscriptUIStateProvider>,
+      );
+
+      // 落定退回决策 9 的阈值:>20 只留组头;省略是运行态专属,一并消失。
+      expect(within(details).getByTestId("activity-header")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      expect(within(details).queryByTestId("activity-elided")).toBeNull();
+    });
+  });
+
+  it("Given a grouped spawn with a running 21-step run, When the card is expanded, Then that run's steps elide to the last 6 rows", () => {
+    const block = normalizedSpawnBlock({
+      mode: "parallel",
+      status: "running",
+      runs: [{ id: "run-one", index: 0, agent: "worker", status: "running" }],
+    });
+    const { container } = render(
+      <AgentSpawnCard toolBlock={block} childBlocks={readSteps(21)} />,
+    );
+    const details = expandCard(container);
+    const runGroup = within(details).getByTestId("agent-spawn-run-group");
+    expect(within(runGroup).getAllByTestId("activity-row")).toHaveLength(6);
+    expect(within(runGroup).getByTestId("activity-elided")).toHaveTextContent(
+      "15 earlier steps",
+    );
+  });
+
+  it("Given a grouped running spawn with unattributed child steps over the elide threshold, When expanded, Then the fallback STEPS region elides too", () => {
+    const block = normalizedSpawnBlock({
+      mode: "parallel",
+      status: "running",
+      runs: [{ id: "run-one", index: 0, agent: "worker", status: "running" }],
+    });
+    const { container } = render(
+      <AgentSpawnCard
+        toolBlock={block}
+        childBlocks={groupedChildren(
+          Array.from({ length: 10 }, (_, i) => ({
+            // 不带 runId 的子块归入 fallback 步骤区。
+            toolName: "Read",
+            toolUseId: `loose-${i}`,
+            toolInput: { path: `./f${i}.ts` },
+            result: "content",
+          })),
+        )}
+      />,
+    );
+    const details = expandCard(container);
+    const fallback = within(details).getByTestId("agent-spawn-fallback-steps");
+    expect(within(fallback).getAllByTestId("activity-row")).toHaveLength(6);
+    expect(within(fallback).getByTestId("activity-elided")).toHaveTextContent(
+      "4 earlier steps",
+    );
   });
 
   it("Given a completed dispatch, When rendered, Then the header drops the green success pill for secondary steps · tokens · duration", () => {

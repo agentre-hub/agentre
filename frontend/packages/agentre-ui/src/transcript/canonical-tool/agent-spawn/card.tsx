@@ -259,9 +259,12 @@ function buildOutcomeSummary(
   return parts.join(" · ");
 }
 
-// 子代理内部的活动块阈值(spec 决策 9)。转录里的块只看运行态,子代理这层另有
-// 阈值 —— 用户已经主动展开过卡片一次,再默认折叠一遍步骤反而多一次点击;但
-// 200 步的子代理默认展开就是一面墙,所以超过阈值仍然只留组头。
+// 子代理内部的活动块阈值(spec 决策 9,2026-08-17 增补运行态)。运行中与转录
+// 同一规则:自动展开、超过 RUNNING_ELIDE_OVER 步只留最后几行 —— 否则卡片在
+// 子代理跑着时被打开,流到第 21 步的瞬间这个「≤20」的活 fallback 翻 false,
+// 步骤区当场自己收起。落定后退回子代理自己的阈值 —— 用户已经主动展开过卡片
+// 一次,再默认折叠一遍步骤反而多一次点击;但 200 步的子代理默认展开就是一面
+// 墙,所以超过阈值仍然只留组头。
 const STEPS_DEFAULT_EXPANDED_MAX = 20;
 
 // AgentSpawnSteps —— 子代理的步骤区就是转录里的那一个活动块(spec 子代理 §1):
@@ -272,6 +275,7 @@ function AgentSpawnSteps({
   cwd,
   keyPrefix,
   runStatus,
+  running = false,
   steps,
 }: {
   cwd?: string;
@@ -279,6 +283,8 @@ function AgentSpawnSteps({
   keyPrefix: string;
   /** 这些步骤所属 run 的状态 —— 决定没配到结果的一步怎么报(见 unmatchedOutcome)。 */
   runStatus?: AgentSpawnStatus;
+  /** 这批步骤还在跑:步骤区按转录运行态渲染(自动展开 + 超阈值省略尾部)。 */
+  running?: boolean;
   steps: StepRow[];
 }): React.ReactElement {
   const activitySteps: ActivityStep[] = steps.map((step, index) => ({
@@ -297,6 +303,7 @@ function AgentSpawnSteps({
       summary={summarizeActivity(activitySteps, pendingOutcome === "failed")}
       uiStateKey={`${keyPrefix}:activity`}
       cwd={cwd}
+      running={running}
       defaultExpanded={activitySteps.length <= STEPS_DEFAULT_EXPANDED_MAX}
       pendingOutcome={pendingOutcome}
     />
@@ -694,6 +701,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
                       ? normalizedStatus
                       : undefined
                   }
+                  running={isRunningState}
                 />
               ) : null}
             </AgentSpawnSection>
@@ -724,6 +732,12 @@ type GroupedAgentSpawnCardProps = {
 
 function isTerminalRunStatus(status: AgentSpawnStatus): boolean {
   return status !== "waiting" && status !== "running" && status !== "partial";
+}
+
+// isLiveRunStatus —— run 还在跑或还在排队:步骤区交由活动块的运行态接管
+// (自动展开 + 超阈值省略尾部,与转录同一套);落定后退回决策 9 的 ≤20 阈值。
+function isLiveRunStatus(status: AgentSpawnStatus): boolean {
+  return status === "running" || status === "waiting";
 }
 
 function statusLabel(status: AgentSpawnStatus, t: TFunction): string {
@@ -973,6 +987,7 @@ function GroupedAgentSpawnCard({
                     cwd={cwd}
                     keyPrefix={`${keyBase}:fallback`}
                     runStatus={outerStatus}
+                    running={isLiveRunStatus(outerStatus)}
                   />
                 </AgentSpawnSection>
               </div>
@@ -1116,6 +1131,7 @@ function AgentSpawnRunGroup({
                     cwd={cwd}
                     keyPrefix={uiStateKey}
                     runStatus={terminal ? status : undefined}
+                    running={isLiveRunStatus(status)}
                   />
                 ) : null
               ) : (
