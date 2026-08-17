@@ -1,4 +1,4 @@
-import { scoreSuggestion } from "@/lib/suggestion-score";
+import { scoreSuggestion } from "../../lib/suggestion-score";
 
 import type { MentionItem, MentionSources } from "./types";
 

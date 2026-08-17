@@ -1,4 +1,4 @@
-import type { MentionKind } from "@agentre-ai/agentre-ui";
+import type { MentionKind } from "./mentions/xml";
 import type { LocalCommandHistoryScope } from "./local-command-history/types";
 
 export type { LocalCommandHistoryScope };

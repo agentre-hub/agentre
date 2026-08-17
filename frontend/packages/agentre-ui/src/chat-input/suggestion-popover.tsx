@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 
-import { cn } from "@/lib/utils";
+import { cn } from "../lib/utils";
 
 const CURSOR_GAP = 4;
 const VIEWPORT_MARGIN = 8;

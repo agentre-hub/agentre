@@ -71,6 +71,64 @@ export type {
   MentionRef,
   MentionSegment,
 } from "./chat-input/mentions/xml";
+// ── 聊天输入编辑器 ─────────────────────────────────────────────────────────
+export { AIChatInput } from "./chat-input";
+export type { AIChatInputProps } from "./chat-input";
+export type {
+  AIChatInputDraft,
+  AIChatInputHandle,
+  LocalCommandSubmitHandler,
+} from "./chat-input/types";
+export {
+  buildEditorDocFromMessage,
+  extractPlainText,
+} from "./chat-input/content";
+export { buildMentionSources } from "./chat-input/mentions/build-sources";
+export type { MentionItem, MentionSources } from "./chat-input/mentions/types";
+export {
+  classifyDroppedPaths,
+  formatPathsForInput,
+  resolveDroppedPaths,
+} from "./chat-input/drop";
+export type {
+  DroppedImageAttachment,
+  DroppedImageItem,
+} from "./chat-input/drop";
+export { useFileDropZone } from "./chat-input/use-file-drop";
+export type { DropZoneRegistrar } from "./chat-input/use-file-drop";
+// `/` 命令：机制在包里，清单归宿主（见 chat-input/slash/types.ts）。
+export { filterByQuery } from "./chat-input/slash/filter";
+export { detectSlashTrigger } from "./chat-input/slash/trigger";
+export type { SlashTriggerHit } from "./chat-input/slash/trigger";
+export {
+  findValidSlashRanges,
+  SlashHighlight,
+} from "./chat-input/slash/slash-highlight";
+export type { SlashRange } from "./chat-input/slash/slash-highlight";
+export { SlashPopover } from "./chat-input/slash/slash-popover";
+export { useSlashMenu } from "./chat-input/slash/use-slash-menu";
+export type { SlashMenuState } from "./chat-input/slash/use-slash-menu";
+export type { SlashCommand, SlashExec } from "./chat-input/slash/types";
+// `!` Shell 历史：可选的宿主接缝（agentre-server 没有这条能力）。
+export {
+  LocalCommandHistoryProvider,
+  useOptionalLocalCommandHistoryAccess,
+} from "./chat-input/local-command-history/access";
+export type {
+  LocalCommandHistoryAccess,
+  LocalCommandHistoryEntry,
+  LocalCommandHistoryMutation,
+  LocalCommandHistoryScope,
+} from "./chat-input/local-command-history/access";
+export {
+  LOCAL_COMMAND_HISTORY_CLEAR_SELECTOR,
+  localCommandHistoryOptionId,
+} from "./chat-input/local-command-history/history-popover";
+export {
+  normalizeSuggestionQuery,
+  scoreSuggestion,
+} from "./lib/suggestion-score";
+export type { SuggestionScoreInput } from "./lib/suggestion-score";
 export {
   __resetChatPanelScrollStateForTesting,
   clearTranscriptDraftState,

@@ -10,35 +10,12 @@
 //     只补全文字,真正分发由 Enter 走 chat-panel 完成。
 //   - builtin / 其它: 暂不参与 slash 命令。
 
+// 命令的**数据契约**在共享包里（`SlashCommand` / `SlashExec`），**清单在这里**：
+// 文案要读宿主的 i18next 实例、`/new` 是纯桌面的开标签页动作、skill 目录要走
+// Wails 绑定拉 —— 这些都进不了包。理由见包内 chat-input/slash/types.ts。
+import type { SlashCommand } from "@agentre-ai/agentre-ui";
+
 import i18n from "@/i18n";
-import { scoreSuggestion } from "@/lib/suggestion-score";
-
-export type SlashExec =
-  | {
-      // 直接以普通用户消息形式发送一段文本(典型例子:claudecode 的 /compact)。
-      kind: "literal_text";
-      text: string;
-    }
-  | {
-      // 调用 Wails 绑定走专门 RPC 路径(典型例子:codex 没有原生 /compact,
-      // 需要前端自行触发一次 Compact RPC)。handler 拿到 sessionId 自行 dispatch。
-      kind: "rpc";
-      handler: (ctx: { sessionId: number }) => Promise<void> | void;
-    };
-
-export type SlashCommand = {
-  // canonical name (kebab-case),用于稳定 key/匹配,例:"compact"。
-  name: string;
-  // 下拉里显示的命令字面值,通常等于 `/${name}`。
-  label: string;
-  // 触发字符:Claude Code/Pi Skill 和各 backend 内置命令用 /;
-  // Codex Skill mention 按 CLI 协议用 $。
-  trigger: "/" | "$";
-  // 一句话说明,会在下拉项右侧 muted 显示。
-  description?: string;
-  // 返回当前 backend 下的执行策略;null 表示该 backend 不支持此命令。
-  resolve: (backendType: string) => SlashExec | null;
-};
 
 export const slashCommands: SlashCommand[] = [
   {
@@ -152,32 +129,4 @@ export function listAvailable(
     seen.add(key);
     return true;
   });
-}
-
-// filterByQuery 在 listAvailable 基础上隔离当前 trigger，再按共享相关度评分。
-// 空 query 全部保留且维持源顺序；同分候选也维持源顺序。
-export function filterByQuery(
-  commands: SlashCommand[],
-  query: string,
-  trigger?: "/" | "$",
-): SlashCommand[] {
-  return commands
-    .map((command, sourceIndex) => ({
-      command,
-      sourceIndex,
-      score:
-        !trigger || command.trigger === trigger
-          ? scoreSuggestion({
-              query,
-              title: command.name,
-              subtitle: command.description,
-            })
-          : 0,
-    }))
-    .filter(({ score }) => score > 0)
-    .sort(
-      (left, right) =>
-        right.score - left.score || left.sourceIndex - right.sourceIndex,
-    )
-    .map(({ command }) => command);
 }

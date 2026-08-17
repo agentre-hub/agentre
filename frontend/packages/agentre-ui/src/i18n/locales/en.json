@@ -332,6 +332,11 @@
     "chip": {
       "agentTitle": "Agent: {{name}}",
       "projectTitle": "Project: {{name}}"
+    },
+    "aria": "Mention a project or agent",
+    "group": {
+      "agents": "Agents",
+      "projects": "Projects"
     }
   },
   "openclawExecApproval": {
@@ -412,5 +417,13 @@
       "org_update_agent": "Update agent",
       "org_delete_agent": "Delete agent"
     }
+  },
+  "localCommandHistory": {
+    "aria": "Shell command history",
+    "clearCurrentScope": "Clear history for current directory",
+    "clearFailed": "Couldn’t clear command history. Try again."
+  },
+  "slashCommands": {
+    "aria": "Command and skill suggestions"
   }
 }

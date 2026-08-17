@@ -1,4 +1,4 @@
-import type { MentionKind } from "@agentre-ai/agentre-ui";
+import type { MentionKind } from "./xml";
 
 export type MentionItem = {
   kind: MentionKind;

@@ -1,4 +1,9 @@
-import type { ChatImageAttachment } from "../chat";
+/** 拖入后被收编成图片附件的那一类结果。字段与 composer 的提交载荷同形。 */
+export type DroppedImageAttachment = {
+  dataUrl: string;
+  mediaType: string;
+  name: string;
+};
 
 export type DroppedImageItem = {
   path: string;
@@ -47,10 +52,10 @@ export async function resolveDroppedPaths(
     remainingImageSlots: number;
     readImages: (imagePaths: string[]) => Promise<DroppedImageItem[]>;
   },
-): Promise<{ attachments: ChatImageAttachment[]; text: string }> {
+): Promise<{ attachments: DroppedImageAttachment[]; text: string }> {
   const { imageCandidates, plainPaths } = classifyDroppedPaths(paths);
   const toInsert = [...plainPaths];
-  const attachments: ChatImageAttachment[] = [];
+  const attachments: DroppedImageAttachment[] = [];
 
   if (!opts.allowImages || imageCandidates.length === 0) {
     toInsert.push(...imageCandidates); // 图片也降级为路径

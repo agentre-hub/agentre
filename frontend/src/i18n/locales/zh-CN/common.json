@@ -1707,13 +1707,6 @@
       "submit": "添加"
     }
   },
-  "mentions": {
-    "aria": "提及项目或 agent",
-    "group": {
-      "agents": "Agent",
-      "projects": "项目"
-    }
-  },
   "nav": {
     "chat": "对话",
     "hooks": "Hooks",
@@ -2505,7 +2498,6 @@
     "viewAll": "查看全部 {{count}} 个会话"
   },
   "slashCommands": {
-    "aria": "命令与 Skill 提示",
     "compact": {
       "description": "压缩对话上下文,只保留摘要"
     },
@@ -2926,11 +2918,6 @@
       "on": "开",
       "off": "关"
     }
-  },
-  "localCommandHistory": {
-    "aria": "Shell 命令历史",
-    "clearCurrentScope": "清空当前目录历史",
-    "clearFailed": "无法清空命令历史，请重试。"
   },
   "localCommand": {
     "notSharedWithAI": "不发送给 AI"

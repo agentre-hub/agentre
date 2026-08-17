@@ -20,6 +20,7 @@ import {
   saveTranscriptScrollState,
   copyTextWithToast,
   useTerminalTransport,
+  type LocalCommandHistoryScope,
   type PlanActionStream,
   type TerminalSubscriber,
   type TerminalUnsubscribe,
@@ -95,7 +96,6 @@ import {
   type ChatImageAttachment,
   type TranscriptLiveContent,
 } from "./chat";
-import type { LocalCommandHistoryScope } from "./chat-input";
 import { ChatContextSidebar } from "./chat-context-sidebar";
 import { FilePreviewPanel } from "./file-preview/file-preview-panel";
 import {

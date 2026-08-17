@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { SlashCommand } from "../registry";
+import type { SlashCommand } from "../types";
 import { SlashPopover } from "../slash-popover";
 import type { SlashMenuState } from "../use-slash-menu";
 

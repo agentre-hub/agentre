@@ -9,17 +9,13 @@ import {
 } from "react";
 
 import type { Editor } from "@tiptap/react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { normalizeSuggestionQuery } from "@/lib/suggestion-score";
-import {
-  deriveLocalCommandHistoryScopeKey,
-  localCommandHistoryStore,
-} from "@/stores/local-command-history-store";
-
+import { useUiTranslation } from "../../i18n";
+import { normalizeSuggestionQuery } from "../../lib/suggestion-score";
 import { extractPlainText } from "../content";
 import type { ProseMirrorLikeNode, TipTapDocNode } from "../types";
+import { useOptionalLocalCommandHistoryAccess } from "./access";
 import { rankLocalCommandHistory } from "./rank";
 import type {
   LocalCommandHistoryEntry,
@@ -103,7 +99,9 @@ export function useLocalCommandHistoryMenu({
   onClearBlur: (event: ReactFocusEvent<HTMLButtonElement>) => void;
   onClearKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
 } {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
+  // 宿主没挂 Provider → history 恒为 null,下面每条路径都退化成「菜单永远关着」。
+  const history = useOptionalLocalCommandHistoryAccess();
   const [state, setState] = useState<LocalCommandHistoryMenuState>(() =>
     closedState(),
   );
@@ -120,12 +118,12 @@ export function useLocalCommandHistoryMenu({
 
   useLayoutEffect(() => {
     suppressedQueryRef.current = null;
-    if (!editor || deviceId === undefined || cwd === undefined) {
+    if (!history || !editor || deviceId === undefined || cwd === undefined) {
       setState(closedState());
       return;
     }
     const activeScope: LocalCommandHistoryScope = { deviceId, cwd };
-    const activeScopeKey = deriveLocalCommandHistoryScopeKey(activeScope);
+    const activeScopeKey = history.deriveScopeKey(activeScope);
 
     const recompute = () => {
       const { $from, empty } = editor.state.selection;
@@ -152,9 +150,9 @@ export function useLocalCommandHistoryMenu({
         suppressedQueryRef.current = null;
       }
 
-      let history: LocalCommandHistoryEntry[];
+      let entries: LocalCommandHistoryEntry[];
       try {
-        history = localCommandHistoryStore.list(activeScope);
+        entries = history.list(activeScope);
       } catch (error) {
         console.warn(
           "[chat-input] failed to read local command history",
@@ -163,7 +161,7 @@ export function useLocalCommandHistoryMenu({
         setState(closedState(hit.query));
         return;
       }
-      const items = rankLocalCommandHistory(history, hit.query);
+      const items = rankLocalCommandHistory(entries, hit.query);
       if (items.length === 0) {
         setState(closedState(hit.query));
         return;
@@ -216,7 +214,7 @@ export function useLocalCommandHistoryMenu({
       });
     };
 
-    const unsubscribe = localCommandHistoryStore.subscribe((mutation) => {
+    const unsubscribe = history.subscribe((mutation) => {
       if (mutation.scopeKey !== activeScopeKey || clearingRef.current) return;
       if (mutation.type === "clear" && stateRef.current.open) {
         const text = extractPlainText(
@@ -235,7 +233,7 @@ export function useLocalCommandHistoryMenu({
       editor.off("update", recompute);
       editor.off("selectionUpdate", recompute);
     };
-  }, [cwd, deviceId, editor]);
+  }, [cwd, deviceId, editor, history]);
 
   const dismiss = useCallback((query: string) => {
     suppressedQueryRef.current = query;
@@ -299,11 +297,11 @@ export function useLocalCommandHistoryMenu({
   );
 
   const clear = useCallback(() => {
-    if (deviceId === undefined || cwd === undefined) return;
+    if (!history || deviceId === undefined || cwd === undefined) return;
     let cleared: boolean;
     clearingRef.current = true;
     try {
-      cleared = localCommandHistoryStore.clear({ deviceId, cwd });
+      cleared = history.clear({ deviceId, cwd });
     } finally {
       clearingRef.current = false;
     }
@@ -313,7 +311,7 @@ export function useLocalCommandHistoryMenu({
     }
     dismiss(state.query);
     editor?.commands.focus();
-  }, [cwd, deviceId, dismiss, editor, state.query, t]);
+  }, [cwd, deviceId, dismiss, editor, history, state.query, t]);
 
   const onClearFocus = useCallback(() => {
     setState((previous) =>

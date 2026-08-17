@@ -3,7 +3,8 @@
 // 保持可测 + 与仓库现有「只用 decoration 插件」的编辑器风格一致。
 // color 用于显示着色，并随 XML 往返以保持发送前后的 chip 视觉一致。
 import { Node, mergeAttributes } from "@tiptap/core";
-import { tokenToCssColor, type MentionKind } from "@agentre-ai/agentre-ui";
+import { tokenToCssColor } from "../../lib/agent-color";
+import type { MentionKind } from "./xml";
 
 export const MENTION_NODE_NAME = "mention";
 

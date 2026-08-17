@@ -1707,13 +1707,6 @@
       "submit": "Add"
     }
   },
-  "mentions": {
-    "aria": "Mention a project or agent",
-    "group": {
-      "agents": "Agents",
-      "projects": "Projects"
-    }
-  },
   "nav": {
     "chat": "Chat",
     "hooks": "Hooks",
@@ -2505,7 +2498,6 @@
     "viewAll": "View all {{count}} sessions"
   },
   "slashCommands": {
-    "aria": "Command and skill suggestions",
     "compact": {
       "description": "Compact the chat context and keep only the summary"
     },
@@ -2926,11 +2918,6 @@
       "on": "On",
       "off": "Off"
     }
-  },
-  "localCommandHistory": {
-    "aria": "Shell command history",
-    "clearCurrentScope": "Clear history for current directory",
-    "clearFailed": "Couldn’t clear command history. Try again."
   },
   "localCommand": {
     "notSharedWithAI": "Not sent to AI"

@@ -11,7 +11,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { Editor } from "@tiptap/react";
 
 import { AIChatInput, type AIChatInputHandle } from "../../index";
+import type { SlashCommand } from "../../slash/types";
 import type { MentionSources } from "../types";
+
+// 命令清单归宿主（见 slash/types.ts），包内用例自带一条 fixture，不去引宿主注册表。
+const compactCommand: SlashCommand = {
+  name: "compact",
+  label: "/compact",
+  trigger: "/",
+  resolve: () => ({ kind: "literal_text", text: "/compact" }),
+};
 
 const sources: MentionSources = {
   agents: [{ kind: "agent", refId: 12, label: "Reviewer", color: "agent-3" }],
@@ -24,11 +33,13 @@ function Harness({
   onSubmit,
   backendType,
   onSlashSelect,
+  slashCommands,
   mentionSources = sources,
 }: {
   onSubmit: (t: string) => void;
   backendType?: string;
   onSlashSelect?: ComponentProps<typeof AIChatInput>["onSlashSelect"];
+  slashCommands?: SlashCommand[];
   mentionSources?: MentionSources;
 }) {
   const editorRef = useRef<Editor | null>(null);
@@ -92,6 +103,7 @@ function Harness({
         mentionSources={mentionSources}
         backendType={backendType}
         onSlashSelect={onSlashSelect}
+        slashCommands={slashCommands}
         autoFocus
       />
     </>
@@ -240,6 +252,7 @@ describe("AIChatInput @ mention integration", () => {
         onSubmit={onSubmit}
         backendType="claudecode"
         onSlashSelect={() => {}}
+        slashCommands={[compactCommand]}
       />,
     );
 

@@ -2,11 +2,11 @@ import { act, render } from "@testing-library/react";
 import { useRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { useFileDropZone } from "../use-file-drop";
+import { useFileDropZone, type DropZoneRegistrar } from "../use-file-drop";
 
-vi.mock("@/lib/file-drop", () => ({
-  registerDropZone: vi.fn(() => () => {}),
-}));
+// 原生 drop 通道是宿主能力（桌面端接 Wails 的 OnFileDrop），这里注入一个空实现：
+// 本组用例只覆盖包自己那段纯 DOM 的高亮/preventDefault 逻辑。
+const noopRegistrar: DropZoneRegistrar = vi.fn(() => () => {});
 
 function Harness() {
   const ref = useRef<HTMLDivElement>(null);
@@ -14,6 +14,7 @@ function Harness() {
     ref,
     enabled: true,
     onPaths: () => {},
+    registerDropZone: noopRegistrar,
   });
   return (
     <div ref={ref} data-testid="zone">

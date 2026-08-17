@@ -332,6 +332,11 @@
     "chip": {
       "agentTitle": "Agent：{{name}}",
       "projectTitle": "项目：{{name}}"
+    },
+    "aria": "提及项目或 agent",
+    "group": {
+      "agents": "Agent",
+      "projects": "项目"
     }
   },
   "openclawExecApproval": {
@@ -412,5 +417,13 @@
       "org_update_agent": "修改 Agent",
       "org_delete_agent": "删除 Agent"
     }
+  },
+  "localCommandHistory": {
+    "aria": "Shell 命令历史",
+    "clearCurrentScope": "清空当前目录历史",
+    "clearFailed": "无法清空命令历史，请重试。"
+  },
+  "slashCommands": {
+    "aria": "命令与 Skill 提示"
   }
 }

@@ -1,9 +1,8 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 
-import { tokenToCssColor } from "@agentre-ai/agentre-ui";
-
-import { cn } from "@/lib/utils";
+import { useUiTranslation } from "../../i18n";
+import { tokenToCssColor } from "../../lib/agent-color";
+import { cn } from "../../lib/utils";
 
 import { SuggestionPopover } from "../suggestion-popover";
 import type { MentionItem, MentionMenuState } from "./types";
@@ -28,7 +27,7 @@ export function MentionPopover({
   onDismiss?: () => void;
   editorElement?: HTMLElement | null;
 }): React.ReactElement | null {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
 
   return (
     <SuggestionPopover

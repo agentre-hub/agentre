@@ -1,11 +1,12 @@
 import * as React from "react";
 
+import type { SlashCommand } from "@agentre-ai/agentre-ui";
+
 import { ListAgentSkillCommands } from "@/../wailsjs/go/app/App";
 
 import {
   skillCommandPrefix,
   skillCommandsFromCatalog,
-  type SlashCommand,
   type SkillCommandSource,
 } from "./registry";
 

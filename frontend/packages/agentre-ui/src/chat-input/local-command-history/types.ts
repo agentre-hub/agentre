@@ -1,7 +1,7 @@
 import type {
   LocalCommandHistoryEntry,
   LocalCommandHistoryScope,
-} from "@/stores/local-command-history-store";
+} from "./access";
 
 export type { LocalCommandHistoryEntry, LocalCommandHistoryScope };
 

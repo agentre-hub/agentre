@@ -1,9 +1,9 @@
 import * as React from "react";
 import { Trash2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { useUiTranslation } from "../../i18n";
+import { cn } from "../../lib/utils";
+import { Button } from "../../ui/button";
 
 import { SuggestionPopover } from "../suggestion-popover";
 import type {
@@ -46,7 +46,7 @@ export function LocalCommandHistoryPopover({
   onDismiss?: () => void;
   editorElement?: HTMLElement | null;
 }): React.ReactElement | null {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
 
   return (
     <SuggestionPopover

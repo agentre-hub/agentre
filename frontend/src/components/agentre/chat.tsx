@@ -31,10 +31,16 @@ import { cn } from "@/lib/utils";
 import type { Editor } from "@tiptap/react";
 import {
   AIChatInput,
+  buildMentionSources,
+  LOCAL_COMMAND_HISTORY_CLEAR_SELECTOR,
+  resolveDroppedPaths,
+  useFileDropZone,
   type AIChatInputHandle,
   type LocalCommandHistoryScope,
   type LocalCommandSubmitHandler,
-} from "./chat-input";
+  type SlashCommand,
+  type SlashExec,
+} from "@agentre-ai/agentre-ui";
 import {
   applyLiveTranscriptRows,
   buildSettledTranscriptRows,
@@ -70,11 +76,8 @@ import {
   RemoteDeviceFingerprint,
 } from "../../../wailsjs/go/app/App";
 import { chat_svc } from "../../../wailsjs/go/models";
-import { buildMentionSources } from "./chat-input/mentions/build-sources";
-import { LOCAL_COMMAND_HISTORY_CLEAR_SELECTOR } from "./chat-input/local-command-history/history-popover";
-import { resolveDroppedPaths } from "./chat-input/drop";
-import { useFileDropZone } from "./chat-input/use-file-drop";
-import { useAgentSkillCommands } from "./slash-commands";
+import { registerDropZone } from "@/lib/file-drop";
+import { listAvailable, useAgentSkillCommands } from "./slash-commands";
 
 type ToolCallProps = React.ComponentProps<"div"> & {
   path?: string;
@@ -223,8 +226,8 @@ type ChatComposerProps = Omit<React.ComponentProps<"form">, "onSubmit"> & {
   /** slash menu rpc 类命令的回调(literal_text 类由 AIChatInput 内部直接填回编辑器,
    *  不自动发送,也不会冒泡到这里)。省略则 slash menu 不启用。 */
   onSlashRpc?: (
-    cmd: import("./slash-commands").SlashCommand,
-    exec: Extract<import("./slash-commands").SlashExec, { kind: "rpc" }>,
+    cmd: SlashCommand,
+    exec: Extract<SlashExec, { kind: "rpc" }>,
   ) => void;
   /** 本地命令回调:启动命令后返回后端解析出的稳定设备与 cwd，供历史落盘。 */
   onRunCommand?: LocalCommandSubmitHandler;
@@ -718,6 +721,12 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, ChatComposerProps>(
       backendType ?? "",
       cwd,
     );
+    // 命令清单归宿主:静态注册表 + 该 agent 的技能命令,按 backend 过滤后交给
+    // composer。包内只负责触发检测/排序/渲染(见包的 chat-input/slash/types.ts)。
+    const availableSlashCommands = React.useMemo(
+      () => listAvailable(backendType ?? "", skillCommands),
+      [backendType, skillCommands],
+    );
     const resolvedPlaceholder =
       placeholder ??
       t(
@@ -822,6 +831,8 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, ChatComposerProps>(
       ref: dropRef,
       enabled: !disabled,
       onPaths: handleDroppedPaths,
+      // 原生 drop 通道是桌面端能力(Wails OnFileDrop),由宿主注入。
+      registerDropZone,
     });
 
     function handleSend(text: string) {
@@ -1060,7 +1071,7 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, ChatComposerProps>(
               disabled={disabled}
               backendType={backendType}
               mentionSources={mentionSources}
-              skillCommands={skillCommands}
+              slashCommands={availableSlashCommands}
               onSlashSelect={(cmd, exec) => {
                 // literal_text 由 AIChatInput 内部直接填回编辑器(不自动发送),
                 // 这里只接 rpc 类命令转交给父组件。

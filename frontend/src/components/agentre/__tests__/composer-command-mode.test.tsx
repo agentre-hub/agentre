@@ -1,11 +1,14 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render as renderBare, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { RefObject } from "react";
+import type { ReactElement, ReactNode, RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Editor } from "@tiptap/react";
 
-import type { LocalCommandHistoryScope } from "@/components/agentre/chat-input/local-command-history/types";
+import {
+  LocalCommandHistoryProvider,
+  type LocalCommandHistoryScope,
+} from "@agentre-ai/agentre-ui";
 import { localCommandHistoryStore } from "@/stores/local-command-history-store";
 
 // chat.tsx uses wailsjs runtime (OnFileDrop/OnFileDropOff via useFileDropZone)
@@ -21,6 +24,21 @@ vi.mock("../../../../wailsjs/runtime/runtime", async () => {
 });
 
 import { ChatComposer } from "../chat";
+import { desktopLocalCommandHistoryAccess } from "../local-command-history-access-desktop";
+
+/**
+ * ! Shell 历史是可选的宿主能力：桌面端挂上 Provider，composer 才渲染历史弹层
+ * 并把命令记进 localStorage store。
+ */
+function render(ui: ReactElement) {
+  return renderBare(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <LocalCommandHistoryProvider access={desktopLocalCommandHistoryAccess}>
+        {children}
+      </LocalCommandHistoryProvider>
+    ),
+  });
+}
 
 const historyScope: LocalCommandHistoryScope = {
   deviceId: "composer-device",

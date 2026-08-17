@@ -3,15 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { Editor } from "@tiptap/react";
 
-import { normalizeSuggestionQuery } from "@/lib/suggestion-score";
+import { normalizeSuggestionQuery } from "../../lib/suggestion-score";
 
-import {
-  filterByQuery,
-  listAvailable,
-  type SlashCommand,
-  type SlashExec,
-} from "./registry";
+import { filterByQuery } from "./filter";
 import { detectSlashTrigger } from "./trigger";
+import type { SlashCommand, SlashExec } from "./types";
 
 // ProseMirror 的 textBetween 默认给非文本 leaf 节点 0 个字符,但每个 leaf 在文档里
 // 仍占 1 个位置 —— 于是「字符串下标」与「文档位置」按前面 leaf 的个数错位,
@@ -48,18 +44,19 @@ function sameRect(
 }
 
 // 默认值必须是模块级常量：写成行内 `[]` 会让每次 render 都产生新身份，下面
-// available / triggers 两个 useMemo 跟着变，订阅 editor 的 effect 便每次提交都重跑。
-const EMPTY_DYNAMIC_COMMANDS: SlashCommand[] = [];
+// triggers / items 两个 useMemo 跟着变，订阅 editor 的 effect 便每次提交都重跑。
+const EMPTY_COMMANDS: SlashCommand[] = [];
 
 export type UseSlashMenuOpts = {
   // 编辑器实例;TipTap useEditor 返回的 Editor。null 时 hook noop。
   editor: Editor | null;
-  // 当前会话的 backend 类型,决定可用命令清单。空串 hook 视作 disabled。
+  // 当前会话的 backend 类型;选中时透传给 `SlashCommand.resolve`。
   backendType: string;
-  // 当前 agent 的动态 skill 命令;与静态 /compact 等共用同一套菜单。
-  dynamicCommands?: SlashCommand[];
+  // 当前 backend 下可用的完整命令清单(静态注册表 + skill 命令,宿主已合并过滤)。
+  // 清单为什么归宿主见 `./types.ts`。空清单 → 菜单永远不开。
+  commands?: SlashCommand[];
   // 用户选中命令时调用;literal_text 由 chat-input 直接把文本填回编辑器(不自动发送),
-  // rpc 由 chat-input 转交给 ChatPanel 走 Wails 绑定。
+  // rpc 由 chat-input 转交给宿主。
   onSelect: (cmd: SlashCommand, exec: SlashExec) => void;
 };
 
@@ -74,7 +71,7 @@ export type UseSlashMenuOpts = {
 export function useSlashMenu({
   editor,
   backendType,
-  dynamicCommands = EMPTY_DYNAMIC_COMMANDS,
+  commands = EMPTY_COMMANDS,
   onSelect,
 }: UseSlashMenuOpts): {
   state: SlashMenuState;
@@ -101,10 +98,7 @@ export function useSlashMenu({
     openRef.current = open;
   }, [open]);
 
-  const available = useMemo(
-    () => listAvailable(backendType, dynamicCommands),
-    [backendType, dynamicCommands],
-  );
+  const available = commands;
   const triggers = useMemo(
     () => Array.from(new Set(available.map((command) => command.trigger))),
     [available],

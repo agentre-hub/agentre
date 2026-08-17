@@ -18,17 +18,7 @@ import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 
-import { cn } from "@/lib/utils";
-import { localCommandHistoryStore } from "@/stores/local-command-history-store";
-
-import {
-  listAvailable,
-  SlashHighlight,
-  SlashPopover,
-  useSlashMenu,
-  type SlashCommand,
-  type SlashExec,
-} from "../slash-commands";
+import { cn } from "../lib/utils";
 
 import { parsePlainTextClipboard } from "./clipboard";
 import { extractPlainText } from "./content";
@@ -39,11 +29,16 @@ import {
   shouldIgnoreEditorShortcut,
   shouldStartInputHistory,
 } from "./keyboard";
+import { useOptionalLocalCommandHistoryAccess } from "./local-command-history/access";
 import {
   localCommandHistoryOptionId,
   LocalCommandHistoryPopover,
 } from "./local-command-history/history-popover";
 import { useLocalCommandHistoryMenu } from "./local-command-history/use-local-command-history-menu";
+import { SlashHighlight } from "./slash/slash-highlight";
+import { SlashPopover } from "./slash/slash-popover";
+import type { SlashCommand, SlashExec } from "./slash/types";
+import { useSlashMenu } from "./slash/use-slash-menu";
 import {
   Mention,
   MentionPopover,
@@ -60,7 +55,7 @@ import type {
 
 // 同 useSlashMenu 里的常量:行内 `[]` 默认值每次 render 都是新身份,会把 slash
 // 菜单的订阅 effect 变成「每次提交都重跑」。
-const EMPTY_SKILL_COMMANDS: SlashCommand[] = [];
+const EMPTY_SLASH_COMMANDS: SlashCommand[] = [];
 
 export type {
   AIChatInputDraft,
@@ -87,8 +82,8 @@ export interface AIChatInputProps {
   autoFocus?: boolean;
   /** 仅用于测试：暴露 TipTap editor 以便测试代码直接操作富文本。 */
   editorRef?: RefObject<Editor | null>;
-  /** 当前会话 backend 类型 (claudecode/codex/builtin)。slash menu 据此过滤可用命令;
-   *  空串或省略 → 不启用 slash menu。 */
+  /** 当前会话 backend 类型 (claudecode/codex/builtin)。选中命令时透传给
+   *  `SlashCommand.resolve`;空串或省略 → 不启用 slash menu。 */
   backendType?: string;
   /** 用户在 slash menu 选中一项时触发。literal_text 由 AIChatInput 内部直接把
    *  命令文本填回编辑器(不自动发送,等用户回车),所以父组件只需要处理 rpc 类。
@@ -96,9 +91,10 @@ export interface AIChatInputProps {
   onSlashSelect?: (cmd: SlashCommand, exec: SlashExec) => void;
   /** 项目 / agent 提及数据源。提供且非空时启用 @ 菜单;省略则不启用。 */
   mentionSources?: MentionSources;
-  /** 当前 agent 最终生效的技能命令。Codex 用 $,Claude Code 用 /;
-   *  与静态 slash commands 合并后由同一 popover 渲染。 */
-  skillCommands?: SlashCommand[];
+  /** 当前 backend 下**可用的完整命令清单**:宿主已把静态注册表与该 agent 的技能
+   *  命令合并、并按 backend 过滤好(见 `slash/types.ts` 里为什么清单归宿主)。
+   *  Codex 技能用 $,Claude Code 用 /;两种 trigger 由同一 popover 渲染。 */
+  slashCommands?: SlashCommand[];
   /** 当前本地命令执行目标。设备与 cwd 共同隔离持久化 Shell 历史。 */
   localCommandHistoryScope?: LocalCommandHistoryScope;
 }
@@ -120,13 +116,16 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       backendType,
       onSlashSelect,
       mentionSources,
-      skillCommands = EMPTY_SKILL_COMMANDS,
+      slashCommands = EMPTY_SLASH_COMMANDS,
       localCommandHistoryScope,
     },
     ref,
   ) {
     const localCommandHistoryInstanceId = useId();
     const localCommandHistoryListboxId = `local-command-history-listbox-${localCommandHistoryInstanceId.replace(/:/g, "")}`;
+    // 可选宿主能力:null 表示这个宿主没有本地命令历史(见 local-command-history/access.tsx)。
+    const localCommandHistory = useOptionalLocalCommandHistoryAccess();
+    const localCommandHistoryRef = useRef(localCommandHistory);
     const submitRef = useRef(onSubmit);
     const sendOnEnterRef = useRef(sendOnEnter);
     const onEmptyChangeRef = useRef(onEmptyChange);
@@ -150,6 +149,10 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     useEffect(() => {
       slashSelectRef.current = onSlashSelect;
     }, [onSlashSelect]);
+
+    useEffect(() => {
+      localCommandHistoryRef.current = localCommandHistory;
+    }, [localCommandHistory]);
 
     useEffect(() => {
       onCommandModeChangeRef.current = onCommandModeChange;
@@ -183,7 +186,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     const validNames = useMemo(() => {
       if (!backendType) return new Set<string>();
       return new Set(
-        listAvailable(backendType, skillCommands)
+        slashCommands
           .filter(
             (command) =>
               command.trigger === "/" &&
@@ -191,7 +194,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
           )
           .map((command) => command.name),
       );
-    }, [backendType, skillCommands]);
+    }, [backendType, slashCommands]);
     const validNamesRef = useRef(validNames);
 
     const editor = useEditor({
@@ -330,6 +333,8 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
           const command = content.trimStart().slice(1).trim();
           historyIndexRef.current = -1;
           if (command) {
+            // 宿主没有历史能力时 history 为 null:命令照常提交,只是不留痕。
+            const history = localCommandHistoryRef.current;
             const warnSubmissionFailure = (error: unknown) => {
               console.warn(
                 "[chat-input] local command submission failed",
@@ -338,7 +343,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
             };
             let submittedAt: number | undefined;
             try {
-              submittedAt = localCommandHistoryStore.reserveLastUsedAt();
+              submittedAt = history?.reserveLastUsedAt();
             } catch (error) {
               console.warn(
                 "[chat-input] failed to reserve local command history order",
@@ -347,7 +352,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
             }
             const releaseHistoryReservation = () => {
               if (submittedAt === undefined) return;
-              localCommandHistoryStore.releaseLastUsedAt(submittedAt);
+              history?.releaseLastUsedAt(submittedAt);
             };
             try {
               const executionScope = onCommandSubmitRef.current?.(command);
@@ -358,11 +363,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
                   .then((scope) => {
                     if (!scope || submittedAt === undefined) return;
                     try {
-                      localCommandHistoryStore.record(
-                        scope,
-                        command,
-                        submittedAt,
-                      );
+                      history?.record(scope, command, submittedAt);
                     } catch (error) {
                       console.warn(
                         "[chat-input] failed to record local command history",
@@ -503,7 +504,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     const slashMenu = useSlashMenu({
       editor: slashEnabled ? (editor ?? null) : null,
       backendType: backendType ?? "",
-      dynamicCommands: skillCommands,
+      commands: slashCommands,
       onSelect: slashSelectHandler,
     });
     useEffect(() => {
@@ -533,19 +534,22 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     return (
       <>
         <EditorContent editor={editor} />
-        <LocalCommandHistoryPopover
-          state={commandHistoryMenu.state}
-          listboxId={localCommandHistoryListboxId}
-          onPick={commandHistoryMenu.pick}
-          onHover={commandHistoryMenu.setSelectedIndex}
-          clearButtonRef={commandHistoryMenu.clearButtonRef}
-          onClear={commandHistoryMenu.clear}
-          onClearFocus={commandHistoryMenu.onClearFocus}
-          onClearBlur={commandHistoryMenu.onClearBlur}
-          onClearKeyDown={commandHistoryMenu.onClearKeyDown}
-          onDismiss={commandHistoryMenu.dismissCurrent}
-          editorElement={editor?.view.dom ?? null}
-        />
+        {/* 宿主没有历史能力时整块不渲染 —— 可选口是能力探测,不是弹一个空列表。 */}
+        {localCommandHistory ? (
+          <LocalCommandHistoryPopover
+            state={commandHistoryMenu.state}
+            listboxId={localCommandHistoryListboxId}
+            onPick={commandHistoryMenu.pick}
+            onHover={commandHistoryMenu.setSelectedIndex}
+            clearButtonRef={commandHistoryMenu.clearButtonRef}
+            onClear={commandHistoryMenu.clear}
+            onClearFocus={commandHistoryMenu.onClearFocus}
+            onClearBlur={commandHistoryMenu.onClearBlur}
+            onClearKeyDown={commandHistoryMenu.onClearKeyDown}
+            onDismiss={commandHistoryMenu.dismissCurrent}
+            editorElement={editor?.view.dom ?? null}
+          />
+        ) : null}
         {slashEnabled ? (
           <SlashPopover
             state={slashMenu.state}

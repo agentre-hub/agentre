@@ -1,10 +1,10 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 
-import { SuggestionPopover } from "../chat-input/suggestion-popover";
-import { cn } from "@/lib/utils";
+import { useUiTranslation } from "../../i18n";
+import { cn } from "../../lib/utils";
+import { SuggestionPopover } from "../suggestion-popover";
 
-import type { SlashCommand } from "./registry";
+import type { SlashCommand } from "./types";
 import type { SlashMenuState } from "./use-slash-menu";
 
 // SlashPopover 是 / 命令下拉的视觉层。位置走 fixed,以光标视口坐标为锚点;
@@ -30,7 +30,7 @@ export function SlashPopover({
   onDismiss?: () => void;
   editorElement?: HTMLElement | null;
 }): React.ReactElement | null {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
 
   return (
     <SuggestionPopover

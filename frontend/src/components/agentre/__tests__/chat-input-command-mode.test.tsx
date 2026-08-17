@@ -1,6 +1,17 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render as renderBare,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, type RefObject } from "react";
+import {
+  createRef,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 const sonnerMocks = vi.hoisted(() => ({
@@ -14,12 +25,18 @@ vi.mock("sonner", () => sonnerMocks);
 
 import type { Editor } from "@tiptap/react";
 
+import {
+  AIChatInput,
+  LocalCommandHistoryProvider,
+  type AIChatInputHandle,
+  type LocalCommandHistoryScope,
+  type LocalCommandSubmitHandler,
+} from "@agentre-ai/agentre-ui";
+
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
 import { localCommandHistoryStore } from "@/stores/local-command-history-store";
 
-import { AIChatInput } from "../index";
-import type { LocalCommandHistoryScope } from "../local-command-history/types";
-import type { AIChatInputHandle, LocalCommandSubmitHandler } from "../types";
+import { desktopLocalCommandHistoryAccess } from "../local-command-history-access-desktop";
 
 const repoScope: LocalCommandHistoryScope = {
   deviceId: "device-command-mode",
@@ -40,6 +57,20 @@ beforeEach(() => {
   localCommandHistoryStore.clear(otherScope);
   useLocalCommandsStore.setState({ entries: {} });
 });
+
+/**
+ * 本地命令历史是可选的宿主能力：桌面端把 localStorage store 接到包的接缝上，
+ * 输入框才渲染 ! 历史弹层。整组用例都要在这个 Provider 里跑。
+ */
+function render(ui: ReactElement) {
+  return renderBare(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <LocalCommandHistoryProvider access={desktopLocalCommandHistoryAccess}>
+        {children}
+      </LocalCommandHistoryProvider>
+    ),
+  });
+}
 
 /** 在编辑器的 contentEditable DOM 上派发一次 keydown，驱动 TipTap 菜单/提交路径。 */
 function pressKey(editor: Editor, key: string, init: KeyboardEventInit = {}) {
