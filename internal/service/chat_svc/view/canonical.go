@@ -7,9 +7,9 @@ import (
 // FromCanonical 把 agentruntime.canonical 类型转成 wire CanonicalDTO。
 // nil-safe(返 nil)。
 //
-// Live emit 路径:ToolCall handler 拿 ev.Canonical 直接调这里;
-// Replay 路径:view/project.go 在重建 ChatBlock 时按需从 raw ToolUseBlock.Input
-// 重算 canonical 后再调这里。
+// Live emit 路径:ToolCall handler 拿 ev.Canonical 直接调这里。
+// Replay 路径不重算 canonical —— canonical 是 runtime translator 的翻译产物,
+// chat_svc.toChatMessage 重建历史时只透传已落库的结果。
 func FromCanonical(c canonical.CanonicalTool) *CanonicalDTO {
 	if c == nil {
 		return nil

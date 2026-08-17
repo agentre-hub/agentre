@@ -1043,9 +1043,8 @@ func untypedStringConst(gd *ast.GenDecl, s ast.Spec) (string, chatBlockTypeDecl,
 //     消费方的 switch 静默落进 default;
 //   - Type 的值必须是标识符,不能是裸字符串字面量。
 //
-// 只扫 chat_svc 包本身(parseGoPackage 不进子目录):chat_svc/view 里另有一个同名的
-// view.ChatBlock,是 replay 投影的精简兄弟,当前**没有任何生产调用方**,不在本词表的
-// 真理范围内。它哪天活过来,得先决定它到底发不发给前端,再回来改这里。
+// 只扫 chat_svc 包本身(parseGoPackage 不进子目录):子包里不再有同名类型,
+// chat_svc.ChatBlock 是这份词表唯一的真理来源。
 func scanChatBlockTypeUses(t *testing.T) []string {
 	t.Helper()
 	var used []string
