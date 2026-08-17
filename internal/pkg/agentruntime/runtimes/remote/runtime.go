@@ -1019,6 +1019,30 @@ func (r *Runtime) SubmitToolPermission(ctx context.Context, sessionID int64, req
 	return controlResultError(res)
 }
 
+// PendingWaiters 交出那台 daemon 上这条会话此刻仍在阻塞的全部待决策 —— 与
+// SubmitAnswer / SubmitToolPermission 这两个写侧同源的读侧。
+//
+// 它刻意**不**实现 agentruntime.WaiterLister,尽管名字与语义都对得上:那个接口没有
+// 错误返回,契约明写 PendingWaiters 是一次进程内内存快照读(mirrors
+// SteerDrainer.DrainPending)、不是 I/O 调用。远端这一路偏偏是一次 RPC —— 会阻塞、
+// 会失败,而在没有错误返回的形状里,失败只能被降级成零值快照;零值快照的语义又恰好是
+// 「确实没有待决策」。于是一次瞬时网络故障就把一条正卡在审批上的会话画成空闲:用户
+// 看不到卡片,也无从知道自己漏了什么。所以远端走自己的形状,把错误如实交给调用方,
+// 由它决定是报错还是回退(LSP:实现不得悄悄违背接口契约)。
+//
+// 不像别的控制类调用那样先过 hasSession:这是只读快照,daemon 对不属于调用方 / 它不
+// 认识的会话本就回空列表而不是报错(R7),本地再加一道「不认识就当空」只会多造一个
+// 说不清是「真没有」还是「本机没跟上」的静默分支。
+func (r *Runtime) PendingWaiters(ctx context.Context, sessionID int64) (wire.SessionPendingWaitersResult, error) {
+	var res wire.SessionPendingWaitersResult
+	if err := r.callSentinel(ctx, wire.MethodSessionPendingWaiters, wire.SessionPendingWaitersParams{
+		SessionID: sessionID, PeerFingerprint: r.originFor(sessionID),
+	}, &res); err != nil {
+		return wire.SessionPendingWaitersResult{}, err
+	}
+	return res, nil
+}
+
 func controlResultError(res wire.PeerSessionControlResult) error {
 	if res.AlreadyHandled {
 		return agentruntime.ErrWaiterNotFound

@@ -5493,6 +5493,27 @@ func (s *chatSvc) borrowRemoteRuntimeOwned(
 	return rt, nil
 }
 
+// cachedRemoteRuntime 交出某台配对 daemon 上**此刻已经在跑的**那个 *remote.Runtime,
+// 没有就交 nil。它是只读控制路径(如浏览器查一眼待决策)专用的:命中条件与
+// remoteRuntimeForDevice 的 fast path 逐字一致(条目在、且它手上还握着 lease),但一件
+// 副作用都不做。
+//
+// 三件事都不能顺手做:借连接(pool.Borrow)为一次「查一眼」拨号并占住池引用;
+// recordExecDaemon 是一次数据库写 —— 只读查询不该改会话的执行归属;addSessionRefs 记下
+// 的引用没有对应的 release,那条 lease 从此还不掉。
+//
+// 交 nil 的语义是「本机此刻没有在那台设备上开着的轮次」:没有在跑的连接,那边也就没有
+// 本机要照看的待决策,调用方据此回空而不是当故障。
+func (s *chatSvc) cachedRemoteRuntime(deviceID int64) *remote.Runtime {
+	s.remoteMu.Lock()
+	defer s.remoteMu.Unlock()
+	entry, ok := s.remoteCache[deviceID]
+	if !ok || !entry.leased {
+		return nil
+	}
+	return entry.runtime
+}
+
 // remoteRuntimeForDevice 取(或建)某台配对 daemon 上共享的 *remote.Runtime,并把
 // sessionIDs 记进它的引用集;顺带交回该 daemon 此刻的实例标识。
 //

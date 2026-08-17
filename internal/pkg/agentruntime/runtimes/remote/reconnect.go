@@ -669,9 +669,8 @@ func (r *Runtime) catchUpSession(ctx context.Context, sid int64) error {
 	if err != nil {
 		return err
 	}
-	var pend wire.SessionPendingWaitersResult
-	if err := r.conn().Call(ctx, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: sid, PeerFingerprint: r.originFor(sid)}, &pend); err != nil {
+	pend, err := r.PendingWaiters(ctx, sid)
+	if err != nil {
 		// 待决策查询失败不推翻已经补齐的转录:重放已经落定,卡片最差是少一张,
 		// 用户仍可看到全部历史。
 		logger.Ctx(ctx).Warn("remote runtime: pending waiters query failed",
