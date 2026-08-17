@@ -47,7 +47,17 @@ type SyncSvc interface {
 	RecreateFromLostChange(ctx context.Context, id int64) error
 	// DiscardLostChange 丢掉一条「没能同步的改动」。
 	DiscardLostChange(ctx context.Context, id int64) error
+	// SetEmitter 注入「下行落地了」的通知函数；不注入就是静默（单机构建 / 单元测试）。
+	SetEmitter(emit Emitter)
 }
+
+// Emitter 把「这一轮下行落地了哪几类对象」推给上层（生产是 Wails EventsEmit，
+// 单测是 spy）。只给类型不给条数：界面据此决定重拉哪几份数据，条数它不关心。
+type Emitter func(kinds []string)
+
+// AppliedEvent 是上面那条通知在 Wails 事件总线上的名字。常量放在这里而不是让
+// 两端各自手抄一个字符串 —— 前端 `stores/sync-applied.ts` 订阅的就是它。
+const AppliedEvent = "sync:applied"
 
 var defaultSvc SyncSvc
 
@@ -101,6 +111,7 @@ type service struct {
 
 	mu        sync.Mutex
 	transport Transport
+	emit      Emitter
 	lastErr   string
 	stopCh    chan struct{}
 	// syncing 串行化上行/下行：轮询与「编辑当场上行」可能同时发生。
@@ -152,6 +163,20 @@ func (s *service) getTransport() Transport {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.transport
+}
+
+// SetEmitter 由 App.Startup 在 wails ctx 就绪后绑定（与 server_svc / cc_usage_svc
+// 同一个套路）。装配之前的那几轮同步没有听众，静默是对的。
+func (s *service) SetEmitter(emit Emitter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.emit = emit
+}
+
+func (s *service) getEmitter() Emitter {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.emit
 }
 
 func (s *service) setLastErr(err error) {

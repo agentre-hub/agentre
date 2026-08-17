@@ -30,6 +30,7 @@ import (
 	watcher "github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
 	"github.com/agentre-ai/agentre/internal/service/server_svc"
 	"github.com/agentre-ai/agentre/internal/service/subagent_svc"
+	"github.com/agentre-ai/agentre/internal/service/sync_svc"
 	"github.com/agentre-ai/agentre/internal/service/terminal_svc"
 
 	"github.com/cago-frame/cago/configs"
@@ -125,6 +126,15 @@ func (a *App) Startup(ctx context.Context) {
 	// 出站对端客户端（R18/R19）：接线后前端才能把对话派到另一台桌面端 / 接入其会话。
 	a.registerPeerService()
 	// 工作区多端同步的下行轮询（R3：30 秒一轮）。未登录时每一轮都是空操作（R12）。
+	//
+	// 落地什么要喊出来：项目树没有任何推送通道，另一台设备同步过来的项目此前靠
+	// 项目页那条 1 秒轮询才现身，轮询随单一会话索引一起删掉之后就只能干等下一次
+	// 别的交互。emitter 必须在 SyncBoot 之前绑好，否则第一轮下行没有听众。
+	if s := sync_svc.Default(); s != nil {
+		s.SetEmitter(func(kinds []string) {
+			wailsruntime.EventsEmit(a.ctx, sync_svc.AppliedEvent, kinds)
+		})
+	}
 	bootstrap.SyncBoot(context.Background())
 
 	// Remote device watcher：注入 wails 事件 emitter,Boot 拉起所有 ACTIVE 设备的 watcher。

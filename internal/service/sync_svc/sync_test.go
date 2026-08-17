@@ -388,6 +388,54 @@ func TestApplyInbound_ConvergesUnderBothArrivalOrders(t *testing.T) {
 	}
 }
 
+// TestPull_GivenSomethingLanded_AnnouncesTheKinds 下行落地后要有人喊一声。
+//
+// 界面没有别的办法知道「另一台设备刚建了个项目」：项目树没有任何推送通道，此前
+// 全靠项目页那条 1 秒轮询兜着，轮询随单一会话索引一起删掉之后，同步过来的项目
+// 会一直不出现，直到用户碰巧做了点别的事。
+func TestPull_GivenSomethingLanded_AnnouncesTheKinds(t *testing.T) {
+	h := newHarness(t, true)
+	var announced [][]string
+	h.svc.SetEmitter(func(kinds []string) {
+		announced = append(announced, kinds)
+	})
+	h.transport.pages = []*syncwire.PullPage{{
+		Items: []syncwire.PullItem{{
+			Kind: "project", SyncID: "p-1", Version: 5, Payload: []byte(`{"name":"A"}`),
+		}},
+		NextCursor: 5,
+	}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, announced, 1, "落地了就喊一声")
+	assert.Equal(t, []string{"project"}, announced[0])
+}
+
+// TestPull_GivenNothingLanded_StaysQuiet 空转的那些轮次不喊 —— 30 秒一次的轮询
+// 如果每轮都喊，界面就会每 30 秒无谓地重拉一遍项目树。
+func TestPull_GivenNothingLanded_StaysQuiet(t *testing.T) {
+	h := newHarness(t, true)
+	var announced [][]string
+	h.svc.SetEmitter(func(kinds []string) {
+		announced = append(announced, kinds)
+	})
+	item := syncwire.PullItem{
+		Kind: "project", SyncID: "p-1", Version: 5, Payload: []byte(`{"name":"A"}`),
+	}
+	h.transport.pages = []*syncwire.PullPage{
+		{Items: []syncwire.PullItem{item}, NextCursor: 5},
+		{Items: []syncwire.PullItem{item}, NextCursor: 5},
+	}
+	ctx := context.Background()
+
+	require.NoError(t, h.svc.SyncOnce(ctx))
+	require.NoError(t, h.svc.SyncOnce(ctx))
+
+	// 第二轮是重复投递，被版本守卫挡下——它没有改变本机任何东西，也就没什么可喊的。
+	assert.Len(t, announced, 1, "只有真落地的那一轮喊")
+}
+
 // TestApplyInbound_GivenDuplicateDelivery_AppliesOnce R7：重复投递只应用一次。
 func TestApplyInbound_GivenDuplicateDelivery_AppliesOnce(t *testing.T) {
 	h := newHarness(t, true)

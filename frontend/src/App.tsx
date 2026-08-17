@@ -40,6 +40,7 @@ import {
   PaletteScopeBridge,
   QuitConfirmDialog,
   ShortcutsProvider,
+  SyncAppliedHost,
   SidebarButton,
   SettingsPage,
   ThemeToggle,
@@ -920,6 +921,10 @@ function App() {
           store,切回来时 ChatPanel 能从 store 还原完整流式状态。*/}
       <ChatStreamsHost />
       <TurnCompleteNotifier />
+      {/* 多端同步落地什么就刷什么：项目树没有推送通道，此前靠项目页那条 1 秒
+          轮询兜着，轮询随单一会话索引一起删掉了。挂在根上，因为左栏的数据源
+          与当前路由无关。*/}
+      <SyncAppliedHost />
       <NotificationToastViewport />
       {/* 退出二次确认:常驻订阅 "app:quit-blocked",活跃会话存在时拦截退出弹框。*/}
       <QuitConfirmDialog />
