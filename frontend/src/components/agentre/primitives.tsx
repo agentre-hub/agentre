@@ -2,6 +2,9 @@ import * as React from "react";
 import { Icon as IconifyIconCmp } from "@iconify/react";
 import type { IconifyIcon } from "@iconify/types";
 import { type LucideIcon } from "lucide-react";
+// StatusDot 随会话索引搬进了共享包（agentre-server 的会话列表要用同一个圆点）；
+// 这里转发，仓库内 7 个引用点不必改指包。
+import { StatusDot } from "@agentre-ai/agentre-ui";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -117,39 +120,6 @@ function AgentAvatar({
     >
       {initials ?? getInitials(name)}
     </div>
-  );
-}
-
-type StatusDotProps = React.ComponentProps<"span"> & {
-  status: AgentStatus;
-  size?: "xs" | "sm" | "md";
-};
-
-const dotSizeClassNames = {
-  xs: "size-1.5",
-  sm: "size-2",
-  md: "size-2.5",
-};
-
-function StatusDot({
-  className,
-  size = "sm",
-  status,
-  ...props
-}: StatusDotProps) {
-  const config = statusConfig[status];
-
-  return (
-    <span
-      aria-label={`${config.label.toLowerCase()} status`}
-      className={cn(
-        "inline-block shrink-0 rounded-full",
-        dotSizeClassNames[size],
-        config.dotClassName,
-        className,
-      )}
-      {...props}
-    />
   );
 }
 

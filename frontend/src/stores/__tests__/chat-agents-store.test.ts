@@ -228,6 +228,32 @@ describe("chat-agents-store", () => {
     expect(meta?.projectId).toBeUndefined();
   });
 
+  it("Given the list payload carries projectId, When reload runs, Then it lands in the meta store", async () => {
+    // ChatSessionLite 现在带 projectId（0 = 未挂项目）。单一会话索引按项目分组、以及
+    // 按 Agent 分组时行首那个项目色字形（决策 4）都要它 —— 此前它只有会话详情才有，
+    // 侧栏永远拿不到。
+    listChatAgents.mockResolvedValueOnce({
+      agents: [
+        {
+          id: 1,
+          name: "Eng",
+          pinned: false,
+          chattable: true,
+          sessions: [
+            { id: 1, status: "idle", projectId: 7 },
+            { id: 2, status: "idle", projectId: 0 },
+          ],
+        },
+      ],
+    });
+
+    await useChatAgentsStore.getState().reload();
+
+    const metas = useSessionMetaStore.getState().metas;
+    expect(metas.get(1)?.projectId).toBe(7);
+    expect(metas.get(2)?.projectId).toBe(0);
+  });
+
   it("bulkUpsert merge 不会清掉 useChatSession 之前写入的 projectId", async () => {
     useSessionMetaStore.getState().__reset();
     // 模拟: useChatSession 先 setMeta(完整含 projectId=7)

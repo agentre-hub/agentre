@@ -1,7 +1,6 @@
 package app
 
 import (
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-ai/agentre/internal/service/project_location_svc"
 	"github.com/agentre-ai/agentre/internal/service/project_svc"
@@ -89,17 +88,6 @@ type ProjectDetailResponse struct {
 	Project          *ProjectItem         `json:"project"`
 	DirectMembers    []*ProjectMemberItem `json:"directMembers"`
 	InheritedMembers []*ProjectMemberItem `json:"inheritedMembers"`
-}
-
-// ProjectSessionItem 项目下会话摘要。
-type ProjectSessionItem struct {
-	ID             int64  `json:"id"`
-	AgentID        int64  `json:"agentID"`
-	Title          string `json:"title"`
-	AgentStatus    string `json:"agentStatus"`
-	LastMessageAt  int64  `json:"lastMessageAt"`
-	LastReadAt     int64  `json:"lastReadAt"`
-	NeedsAttention bool   `json:"needsAttention"`
 }
 
 // ProjectGitRepoInfo 路径下 git 探测结果。
@@ -206,14 +194,6 @@ func (a *App) ProjectLocationRemove(projectID int64, deviceID string) error {
 }
 
 // ProjectListSessions 项目下未软删除的会话列表。
-func (a *App) ProjectListSessions(projectID int64) ([]*ProjectSessionItem, error) {
-	rows, err := project_svc.Default().ListSessions(a.ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	return toProjectSessionItems(rows), nil
-}
-
 // ProjectSetLocalPath 就地指定本机路径，解除「本机未配置路径」状态（R10）。
 func (a *App) ProjectSetLocalPath(req *ProjectSetLocalPathRequest) (*ProjectItem, error) {
 	var id int64
@@ -299,22 +279,6 @@ func toProjectTreeNodes(nodes []*project_svc.ProjectNode) []*ProjectTreeNode {
 		out = append(out, &ProjectTreeNode{
 			Project:  toProjectItem(n.Project),
 			Children: toProjectTreeNodes(n.Children),
-		})
-	}
-	return out
-}
-
-func toProjectSessionItems(rows []*chat_entity.Session) []*ProjectSessionItem {
-	out := make([]*ProjectSessionItem, 0, len(rows))
-	for _, s := range rows {
-		out = append(out, &ProjectSessionItem{
-			ID:             s.ID,
-			AgentID:        s.AgentID,
-			Title:          s.Title,
-			AgentStatus:    s.AgentStatus,
-			LastMessageAt:  s.LastMessageAt,
-			LastReadAt:     s.LastReadAt,
-			NeedsAttention: s.IsWaitingForUser(),
 		})
 	}
 	return out

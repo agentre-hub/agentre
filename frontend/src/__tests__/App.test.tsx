@@ -623,12 +623,12 @@ describe("App", () => {
   });
 
   it("restores the last opened page from localStorage on startup", async () => {
-    localStorage.setItem(lastPathStorageKey, "/projects");
+    localStorage.setItem(lastPathStorageKey, "/issues");
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Projects" })).toHaveAttribute(
+      expect(screen.getByRole("button", { name: "Issues" })).toHaveAttribute(
         "aria-current",
         "page",
       );
@@ -636,6 +636,22 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Chat" })).not.toHaveAttribute(
       "aria-current",
     );
+  });
+
+  it("Given a stored /projects path, When the app starts, Then it lands on the merged index instead of a dead route", () => {
+    // 「项目」不再是一个导航项 —— 它退化成会话索引的一个分组维度（规格决策 1）。
+    // 老用户 localStorage 里存着 /projects，重定向必须把他们带到 /chat。
+    localStorage.setItem(lastPathStorageKey, "/projects");
+
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Projects" }),
+    ).not.toBeInTheDocument();
   });
 
   it("falls back to the chat page when the stored last path is unknown", async () => {
@@ -701,9 +717,8 @@ describe("App", () => {
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
 
-    expect(labels.slice(0, 5)).toEqual([
+    expect(labels.slice(0, 4)).toEqual([
       "Chat",
-      "Projects",
       "Issues",
       "Organization",
       "Hooks",
@@ -863,7 +878,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Chat" }));
 
     const textareaEvent = fireSelectAllKey(
-      screen.getByPlaceholderText("Search Agent"),
+      screen.getByPlaceholderText("Search sessions, projects, agents"),
       "meta",
     );
 
@@ -907,9 +922,11 @@ describe("App", () => {
       screen.getByRole("button", { name: "Settings" }),
     ).not.toHaveAttribute("aria-current");
     expect(
-      screen.getByRole("complementary", { name: "Agent list" }),
+      screen.getByRole("complementary", { name: "Session index" }),
     ).toHaveStyle({ width: "320px" });
-    expect(screen.getByPlaceholderText("Search Agent")).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("Search sessions, projects, agents"),
+    ).toBeInTheDocument();
     // 空聊天态: 测试环境没有可对话 Agent (ListChatAgents 未 mock, agents=[]),
     // 因此显示 spec §7 组 1B 的两步配置引导空态而非旧占位。
     expect(

@@ -2,6 +2,7 @@ package project_svc_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -160,9 +161,46 @@ func TestProjectSvcDelete_Success(t *testing.T) {
 	mp.EXPECT().Find(ctx, int64(1)).Return(&project_entity.Project{ID: 1, Status: consts.ACTIVE}, nil)
 	mp.EXPECT().HasActiveChildren(ctx, int64(1)).Return(false, nil)
 	ms.EXPECT().CountActiveByProject(ctx, int64(1), []string{"running", "waiting"}).Return(int64(0), nil)
+	ms.EXPECT().ReassignProject(ctx, int64(1), int64(0)).Return(nil)
 	mp.EXPECT().Delete(ctx, int64(1)).Return(nil)
 
 	require.NoError(t, svc.Delete(ctx, 1))
+}
+
+// 删项目时，名下幸存的（idle / error）会话必须改挂成自由会话（project_id = 0），
+// 而不是留着一个指向已删项目的悬空引用。
+//
+// 不修的话：这些会话在「按项目」的索引里凭空消失（那个项目行没了），在「按 Agent」
+// 的索引里却还在 —— 合并成单一会话索引之后，同一条会话在两档分组之间时有时无。
+// 修在 producer（这里），不在索引侧加「查不到项目就归到随手对话」的兜底。
+//
+// 规格：docs/specs/2026-08-16-unified-chat-index.md 的 R7。
+func TestProjectSvcDelete_ReassignsSurvivingSessionsToFree(t *testing.T) {
+	ctx, mp, _, ms, svc := setupProjectSvc(t)
+	mp.EXPECT().Find(ctx, int64(7)).Return(&project_entity.Project{ID: 7, Status: consts.ACTIVE}, nil)
+	mp.EXPECT().HasActiveChildren(ctx, int64(7)).Return(false, nil)
+	ms.EXPECT().CountActiveByProject(ctx, int64(7), []string{"running", "waiting"}).Return(int64(0), nil)
+	// 关键断言：置零发生在删除项目行**之前** —— 先摘干净引用再删，中途失败时
+	// 项目还在，用户可以重试；反过来则会留下一批指向不存在项目的会话。
+	gomock.InOrder(
+		ms.EXPECT().ReassignProject(ctx, int64(7), int64(0)).Return(nil),
+		mp.EXPECT().Delete(ctx, int64(7)).Return(nil),
+	)
+
+	require.NoError(t, svc.Delete(ctx, 7))
+}
+
+// 置零失败时整个删除失败：不允许留下「会话已改挂但项目还在」或
+// 「项目已删但会话还指着它」的半个状态。
+func TestProjectSvcDelete_ReassignFails_ThenProjectSurvives(t *testing.T) {
+	ctx, mp, _, ms, svc := setupProjectSvc(t)
+	mp.EXPECT().Find(ctx, int64(7)).Return(&project_entity.Project{ID: 7, Status: consts.ACTIVE}, nil)
+	mp.EXPECT().HasActiveChildren(ctx, int64(7)).Return(false, nil)
+	ms.EXPECT().CountActiveByProject(ctx, int64(7), []string{"running", "waiting"}).Return(int64(0), nil)
+	ms.EXPECT().ReassignProject(ctx, int64(7), int64(0)).Return(errors.New("db down"))
+	// mp.Delete 没有 EXPECT：置零失败后一次都不该调它。
+
+	require.Error(t, svc.Delete(ctx, 7))
 }
 
 func TestProjectSvcListTree_BuildsHierarchy(t *testing.T) {

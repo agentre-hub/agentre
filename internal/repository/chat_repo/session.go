@@ -26,6 +26,23 @@ type SessionRepo interface {
 	ListAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
 	ListAttentionByAgentIncludingGroups(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
 	ListByProject(ctx context.Context, projectID int64) ([]*chat_entity.Session, error)
+	// ListRecentPaged 按 last_message_at DESC 翻页返回全部未删除会话，**不限 agent、
+	// 不限项目**。单一会话索引的「按时间」档要的就是这条跨维度的最近活动流 ——
+	// 按 agent 的变体各自只看一个 agent，把它们并起来只能得到一个窗口而不是全量。
+	ListRecentPaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error)
+	// ListFreePaged 同上，但只要**未挂项目**（project_id = 0）的会话，即索引里的
+	// 「随手对话」组。它等价于 ListByProject(0)，独立成方法是因为服务层刻意把
+	// ListSessions 挡在 projectID > 0：0 不是一个项目，不该从项目那条路进来。
+	ListFreePaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error)
+	// ListByProjectPaged 是 ListByProject 的分页版。索引的项目组默认只展开前几条，
+	// 其余走「查看全部 N」——一次性拉一个项目的全部会话（ListByProject 的口径）在
+	// 侧栏这条路上没有必要。
+	ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error)
+	// CountAll / CountFree / CountByProject 是上面几个列表各自的总数，
+	// 供「还有 N 条」与翻页终止判断。
+	CountAll(ctx context.Context) (int64, error)
+	CountFree(ctx context.Context) (int64, error)
+	CountByProject(ctx context.Context, projectID int64) (int64, error)
 	// ReassignProject 把 project_id 从 fromProjectID 整批改挂到 toProjectID（R11a
 	// 的项目合并）。刻意**不带 status / purpose 过滤**：软删的会话与子 agent 委派
 	// 会话在 ListByProject 里都看不见（后者被 nonSubagentScope 排除），逐行改挂必然
@@ -349,6 +366,71 @@ func (r *sessionRepo) ListByProject(ctx context.Context, projectID int64) ([]*ch
 		Find(&rows).Error
 	applySessionDerivedFields(rows)
 	return rows, err
+}
+
+// indexScope 是「会话索引」几条查询共用的 WHERE：未软删 + 排除子 agent 委派会话，
+// 再按 projectFilter 收窄。ORDER 与分页由调用方拼，计数不需要它们。
+//
+// projectFilter 为 nil 表示不限项目（时间轴）；指向 0 即「随手对话」，指向正数即某个
+// 项目。用指针而不是 -1 之类的哨兵：0 是一个**有意义的取值**，哨兵会把它吃掉。
+func indexScope(projectFilter *int64) func(*gorm.DB) *gorm.DB {
+	return func(d *gorm.DB) *gorm.DB {
+		if projectFilter != nil {
+			d = d.Where("project_id = ? AND status = ?", *projectFilter, consts.ACTIVE)
+		} else {
+			d = d.Where("status = ?", consts.ACTIVE)
+		}
+		return d.Scopes(nonSubagentScope)
+	}
+}
+
+func (r *sessionRepo) listIndexPaged(ctx context.Context, projectFilter *int64, offset, limit int) ([]*chat_entity.Session, error) {
+	var rows []*chat_entity.Session
+	err := db.Ctx(ctx).
+		Scopes(indexScope(projectFilter)).
+		Order("last_message_at DESC, id DESC").
+		Offset(offset).
+		Limit(limit).
+		Find(&rows).Error
+	applySessionDerivedFields(rows)
+	return rows, err
+}
+
+func (r *sessionRepo) countIndex(ctx context.Context, projectFilter *int64) (int64, error) {
+	var n int64
+	err := db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Scopes(indexScope(projectFilter)).
+		Count(&n).Error
+	return n, err
+}
+
+// ListRecentPaged 见接口注释：不限 agent、不限项目的最近活动分页。
+func (r *sessionRepo) ListRecentPaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
+	return r.listIndexPaged(ctx, nil, offset, limit)
+}
+
+// ListFreePaged 见接口注释：仅 project_id = 0 的会话。
+func (r *sessionRepo) ListFreePaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
+	free := int64(0)
+	return r.listIndexPaged(ctx, &free, offset, limit)
+}
+
+// ListByProjectPaged 见接口注释：ListByProject 的分页版。
+func (r *sessionRepo) ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error) {
+	return r.listIndexPaged(ctx, &projectID, offset, limit)
+}
+
+func (r *sessionRepo) CountAll(ctx context.Context) (int64, error) {
+	return r.countIndex(ctx, nil)
+}
+
+func (r *sessionRepo) CountFree(ctx context.Context) (int64, error) {
+	free := int64(0)
+	return r.countIndex(ctx, &free)
+}
+
+func (r *sessionRepo) CountByProject(ctx context.Context, projectID int64) (int64, error) {
+	return r.countIndex(ctx, &projectID)
 }
 
 // ReassignProject 见接口注释：WHERE 里只有 project_id，没有 status / purpose。

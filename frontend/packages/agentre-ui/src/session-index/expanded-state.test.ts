@@ -4,7 +4,7 @@ import {
   SIDEBAR_EXPANDED_KEY_PREFIX,
   readSidebarExpanded,
   writeSidebarExpanded,
-} from "./sidebar-expanded-state";
+} from "./expanded-state";
 
 describe("sidebar-expanded-state", () => {
   beforeEach(() => {

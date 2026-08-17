@@ -1,12 +1,12 @@
 import * as React from "react";
 import { ChevronDown, Loader2, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { isOpenInNewTabModifier } from "@agentre-ai/agentre-ui";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { useEffectiveSessionStatus } from "@/hooks/use-live-session-status";
-import { isOpenInNewTabModifier } from "@/lib/keyboard";
 import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 

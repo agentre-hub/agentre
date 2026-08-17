@@ -2,10 +2,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentSession } from "../agent-list";
-import { SessionGroup } from "../session-group";
+import { SessionGroup } from "./session-group";
+import type { SessionRowModel } from "./types";
 
-function unreadSession(id: number): AgentSession {
+function unreadSession(id: number): SessionRowModel {
   return {
     id: String(id),
     status: "waiting",
@@ -15,7 +15,7 @@ function unreadSession(id: number): AgentSession {
   };
 }
 
-function needsAttentionSession(id: number): AgentSession {
+function needsAttentionSession(id: number): SessionRowModel {
   return {
     id: String(id),
     status: "waiting",
@@ -25,7 +25,7 @@ function needsAttentionSession(id: number): AgentSession {
   };
 }
 
-function selectedSession(id: number): AgentSession {
+function selectedSession(id: number): SessionRowModel {
   return {
     id: String(id),
     status: "idle",
@@ -35,7 +35,7 @@ function selectedSession(id: number): AgentSession {
   };
 }
 
-function ordinarySession(id: number): AgentSession {
+function ordinarySession(id: number): SessionRowModel {
   return {
     id: String(id),
     status: "idle",

@@ -43,7 +43,6 @@ type ProjectSvc interface {
 	Merge(ctx context.Context, req *MergeProjectsRequest) (*project_entity.Project, error)
 	AddMember(ctx context.Context, projectID, agentID int64) error
 	RemoveMember(ctx context.Context, projectID, agentID int64) error
-	ListSessions(ctx context.Context, projectID int64) ([]*chat_entity.Session, error)
 	DetectGitRepo(ctx context.Context, path string) (*GitRepoInfo, error)
 
 	// cwd
@@ -264,6 +263,15 @@ func (s *projectSvc) Delete(ctx context.Context, id int64) error {
 	if n > 0 {
 		return i18n.NewError(ctx, code.ProjectHasActiveSessions)
 	}
+	// 名下幸存的（idle / error）会话改挂成自由会话，而不是留下指向已删项目的悬空
+	// project_id。ReassignProject 刻意不带 status / purpose 过滤（见 chat_repo 那边
+	// 的注释），软删会话与子 agent 委派会话一并摘干净，与 R11a 合并同一条要求。
+	//
+	// 顺序是「先摘引用、再删项目行」：中途失败时项目还在，用户可以重试；反过来会
+	// 留下一批指向不存在项目的会话。失败即整体失败，不留半个状态。
+	if err := chat_repo.Session().ReassignProject(ctx, id, 0); err != nil {
+		return err
+	}
 	if err := project_repo.Project().Delete(ctx, id); err != nil {
 		return err
 	}
@@ -319,13 +327,6 @@ func (s *projectSvc) ListTree(ctx context.Context) ([]*ProjectNode, error) {
 		parent.Children = append(parent.Children, node)
 	}
 	return roots, nil
-}
-
-func (s *projectSvc) ListSessions(ctx context.Context, projectID int64) ([]*chat_entity.Session, error) {
-	if projectID <= 0 {
-		return nil, i18n.NewError(ctx, code.InvalidParameter)
-	}
-	return chat_repo.Session().ListByProject(ctx, projectID)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

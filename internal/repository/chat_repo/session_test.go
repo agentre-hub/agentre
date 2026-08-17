@@ -849,3 +849,111 @@ func TestSessionRepo_ReassignProject(t *testing.T) {
 	require.NoError(t, chat_repo.NewSession().ReassignProject(ctx, 4, 9))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// ── 会话索引：不限 agent 的分页 / 自由会话 ──────────────────────────────────
+//
+// 「对话 / 项目」合并成单一索引后，「按时间」这一档要的是**跨 agent、跨项目**的最近
+// 活动列表，而「随手对话」组要的是 project_id = 0 那一批。两者今天都没有查询能给出：
+// 按 agent 的变体各自只看一个 agent，ListByProject 又被服务层挡在 projectID > 0。
+// 见 docs/specs/2026-08-16-unified-chat-index.md。
+
+func TestSessionRepo_ListRecentPaged(t *testing.T) {
+	t.Run("Given sessions across agents and projects, When listing a page, Then it orders by last activity without filtering on agent or project", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20, 40).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "project_id", "last_message_at", "status"}).
+				AddRow(int64(9), int64(1), int64(3), 1700000090000, consts.ACTIVE).
+				AddRow(int64(8), int64(2), int64(0), 1700000080000, consts.ACTIVE))
+
+		rows, err := chat_repo.NewSession().ListRecentPaged(ctx, 40, 20)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 2)
+		assert.Equal(t, int64(9), rows[0].ID)
+		// 自由会话（project_id = 0）与挂了项目的会话在这一档同列。
+		assert.Equal(t, int64(0), rows[1].ProjectID)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given the first page, When listing, Then no OFFSET clause is emitted", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?$").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+
+		rows, err := chat_repo.NewSession().ListRecentPaged(ctx, 0, 20)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestSessionRepo_ListFreePaged(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .project_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
+		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id"}).
+			AddRow(int64(5), int64(0)))
+
+	rows, err := chat_repo.NewSession().ListFreePaged(ctx, 0, 20)
+	assert.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.Equal(t, int64(0), rows[0].ProjectID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountAll(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+		WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(37))
+
+	n, err := chat_repo.NewSession().CountAll(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(37), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountFree(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+
+	n, err := chat_repo.NewSession().CountFree(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(4), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_ListByProjectPaged(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .project_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
+		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "project_id"}).
+			AddRow(int64(101), int64(42), int64(7)))
+
+	rows, err := chat_repo.NewSession().ListByProjectPaged(ctx, 7, 5, 5)
+	assert.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountByProject(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
+
+	n, err := chat_repo.NewSession().CountByProject(ctx, 7)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(12), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

@@ -23,7 +23,9 @@ const invalidName = `sync-invalid-${runID}`;
 async function createProject(page: Page, name: string) {
   const path = join(process.env.AGENTRE_DATA_DIR!, "projects", name);
   mkdirSync(path, { recursive: true });
-  await page.getByTestId("nav-projects").click();
+  // 「项目」不再是一个导航项 —— 它是会话索引的一个分组维度（规格决策 1）。
+  // 新建项目降为侧栏 ＋ 下拉里的次级项（决策 11）。
+  await page.getByTestId("new-chat-button").click();
   await page.getByTestId("project-create-trigger").click();
   const dialog = page.getByRole("dialog");
   await dialog.getByTestId("project-new-path").fill(path);

@@ -1,30 +1,19 @@
 import * as React from "react";
-import {
-  ChevronDown,
-  ExternalLink,
-  Pencil,
-  Pin,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { ChevronDown, Pin, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import {
+  SessionGroup,
+  SessionRow,
+  type SessionRowModel,
+} from "@agentre-ai/agentre-ui";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
-
 import type { AttentionReason } from "@/stores/attention-store";
+
 import { AgentAvatar, StatusDot } from "./primitives";
-import { SessionGroup } from "./session-group";
-import type { AgentColor, AgentStatus } from "./types";
-import { statusConfig } from "./types";
+import type { AgentColor } from "./types";
 
 type AgentPanelSectionProps = React.ComponentProps<"div"> & {
   label: string;
@@ -53,111 +42,16 @@ function AgentPanelSection({
   );
 }
 
-type SessionRowProps = React.ComponentProps<"button"> & {
-  selected?: boolean;
-  status: AgentStatus;
-  title: string;
-  trailingLabel: string;
-  // 会话行右键菜单（可选）：任一 handler 存在即在行上渲染 ContextMenu；
-  // 不传时保持纯按钮 —— 项目页（SessionGroup 不传这些 props）沿用旧行为。
-  onOpenInNewTab?: () => void;
-  onRenameSession?: () => void;
-  onDeleteSession?: () => void;
-};
-
-function SessionRow({
-  "aria-hidden": ariaHidden,
-  className,
-  disabled,
-  selected = false,
-  status,
-  title,
-  trailingLabel,
-  onOpenInNewTab,
-  onRenameSession,
-  onDeleteSession,
-  ...props
-}: SessionRowProps) {
-  const { t } = useTranslation();
-  const config = statusConfig[status];
-  const hiddenFromAccessibility = ariaHidden === true || ariaHidden === "true";
-  const hasContextMenu = Boolean(
-    onOpenInNewTab || onRenameSession || onDeleteSession,
-  );
-
-  const row = (
-    <button
-      type="button"
-      aria-hidden={ariaHidden}
-      disabled={disabled}
-      aria-current={selected ? "true" : undefined}
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors hover:bg-sidebar-active-bg focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        selected && "bg-primary-soft text-primary-text",
-        className,
-      )}
-      {...props}
-    >
-      <StatusDot
-        status={status}
-        size="xs"
-        {...(hiddenFromAccessibility
-          ? { "aria-hidden": true, "aria-label": undefined }
-          : {})}
-      />
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate",
-          selected ? "font-medium text-primary-text" : "text-foreground",
-        )}
-      >
-        {title}
-      </span>
-      <span
-        className={cn(
-          "shrink-0 font-mono text-2xs",
-          selected ? "text-primary-text" : config.textClassName,
-        )}
-      >
-        {trailingLabel}
-      </span>
-    </button>
-  );
-
-  if (!hasContextMenu) return row;
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onSelect={onRenameSession}>
-          <Pencil className="size-4" aria-hidden="true" />
-          <span>{t("chatPage.sessionMenu.rename")}</span>
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={onOpenInNewTab}>
-          <ExternalLink className="size-4" aria-hidden="true" />
-          <span>{t("chatPage.sessionMenu.openInNewTab")}</span>
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem variant="destructive" onSelect={onDeleteSession}>
-          <Trash2 className="size-4" aria-hidden="true" />
-          <span>{t("chatPage.sessionMenu.delete")}</span>
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-  );
-}
-
-type AgentSession = {
-  id: string;
-  selected?: boolean;
-  status: AgentStatus;
-  title: string;
-  trailingLabel: string;
-  // 只有 attentionSessions 数组里的项会有；SessionGroup 在 expanded 态下用它把
-  // selected 从 bubble 中过滤掉（让它回到常规列表它本来的位置）；
-  // unread / running / error / needs_attention 在 expanded 下也保留在 bubble,
-  // 这样按住 ⌘ 时未读会话也能拿到 ⌘N chip。
+/**
+ * 会话行的展示模型。定义随 `SessionRow` / `SessionGroup` 一起搬进
+ * `@agentre-ai/agentre-ui`（agentre-server 的会话列表要用同一件东西）；
+ * 这里保留本地别名，仓库内 40 多个引用点不必逐个改指包。
+ *
+ * `attentionRank` 在包里是**不透明 token**（包只解释 `"selected"` 那一个值），
+ * 桌面端在这里把它收窄回 `AttentionReason | "selected"` —— 不能因为搬了包
+ * 就把宿主侧的类型放松成任意字符串。
+ */
+type AgentSession = Omit<SessionRowModel, "attentionRank"> & {
   attentionRank?: AttentionReason | "selected";
 };
 

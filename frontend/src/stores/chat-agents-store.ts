@@ -151,9 +151,14 @@ export const useChatAgentsStore = create<State & Actions>((set) => ({
         useSessionStatusStore.getState().bulkUpsert(entries);
 
         // 把 sessions 的静态字段分发到 session-meta-store。
-        // ChatSessionLite 没有 projectId —— 它只能从 ChatSessionDetail (LoadChatSession) 拿,
-        // 所以这里 patch 不带 projectId, 由 useChatSession 在加载详情后通过 setMeta 补全。
-        // bulkUpsert 走 merge 语义, 不会清掉既有 projectId。
+        //
+        // projectId 现在由 ChatSessionLite 直接带上（0 = 未挂项目）。此前它只有
+        // ChatSessionDetail 才有 —— 也就是「这条会话被打开过」之后才知道自己属于哪个
+        // 项目，侧栏因此永远拿不到；单一会话索引按项目分组、以及按 Agent 分组时行首
+        // 那个项目色字形（决策 4）都要它。
+        //
+        // 载荷**没提到** projectId 时（旧快照 / 半截数据）不写这个键，而不是补一个 0：
+        // 0 是「随手对话」这个有意义的取值，凭空写进去会把一条挂着项目的会话搬到别的组。
         const metaEntries: [number, Partial<SessionMeta>][] = [];
         for (const a of agents) {
           for (const s of listKnownSessions(a)) {
@@ -163,6 +168,9 @@ export const useChatAgentsStore = create<State & Actions>((set) => ({
                 agentId: a.id,
                 agentName: a.name,
                 agentColor: a.avatarColor || "agent-1",
+                ...(s.projectId === undefined
+                  ? {}
+                  : { projectId: s.projectId }),
                 title: s.title || "",
                 lastMessageAt: s.lastMessageAt ?? 0,
                 lastReadAt: s.lastReadAt ?? 0,

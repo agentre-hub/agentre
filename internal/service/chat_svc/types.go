@@ -482,7 +482,15 @@ type ChatMessage struct {
 }
 
 type ChatSessionLite struct {
-	ID             int64  `json:"id"`
+	ID int64 `json:"id"`
+	// AgentID / ProjectID 是会话的两个归属维度（ProjectID = 0 即未挂项目）。
+	//
+	// 单一会话索引按其中一维分组时，行首要放**另一维**（决策 4：按项目分组时行首是
+	// agent 头像，按 Agent 分组时是项目色文件夹字形；决策 5 的时间轴两维都给）。
+	// 此前 Lite 两个都不带 —— 项目归属只有 ChatSessionDetail 有，也就是「这条会话被
+	// 打开过」之后才知道，侧栏拿不到。
+	AgentID        int64  `json:"agentId"`
+	ProjectID      int64  `json:"projectId"`
 	Title          string `json:"title"`
 	Status         string `json:"status"`
 	NeedsAttention bool   `json:"needsAttention"`
@@ -730,6 +738,46 @@ type ListAgentSessionsRequest struct {
 	Limit   int   `json:"limit"`
 }
 type ListAgentSessionsResponse struct {
+	Sessions []ChatSessionLite `json:"sessions"`
+	Total    int64             `json:"total"`
+	HasMore  bool              `json:"hasMore"`
+}
+
+// SessionIndexScope 是单一会话索引的查询范围。
+//
+// 刻意用具名字符串而不是「projectID = -1 表示不限」这类哨兵：哨兵在 Wails 生成的
+// TS 签名里读不出含义，调用方迟早传错一个 0 进来。
+type SessionIndexScope = string
+
+const (
+	// SessionScopeRecent 全部会话按最近活动排序 —— 索引的「按时间」档。
+	// 它跨 agent、跨项目，是唯一能给出「全局最近」的查询：按 agent 的变体各自只看
+	// 一个 agent，并起来只是一个窗口。
+	SessionScopeRecent SessionIndexScope = "recent"
+	// SessionScopeFree 仅未挂项目（project_id = 0）的会话 —— 索引的「随手对话」组。
+	// 自由会话此前没有任何列表接口能拿到：ListSessions 被挡在 projectID > 0，
+	// 而 0 本来就不是一个项目。
+	SessionScopeFree SessionIndexScope = "free"
+	// SessionScopeProject 某个项目下的会话 —— 索引的项目组。
+	//
+	// 它与 free 只差一个 project_id，走同一条查询是有意的：索引三个轴拿到的是**同一种
+	// 载荷**（ChatSessionLite，带 agent / 项目 / bgRunning / 已读），前端一处投影就够。
+	// 旧的 ProjectListSessions 返回的是另一个形状（无 bgRunning、无 project_id），
+	// 正是「同一条会话在两个页面显示不一样」的根。
+	SessionScopeProject SessionIndexScope = "project"
+)
+
+// ListIndexSessionsRequest 单一会话索引的分页查询。
+// Limit==0 时服务侧用默认页大小 20；上限 100（与 ListAgentSessions 同一口径）。
+type ListIndexSessionsRequest struct {
+	Scope SessionIndexScope `json:"scope"`
+	// ProjectID 仅在 Scope=project 时有意义，且必须 > 0：0 走 Scope=free。
+	ProjectID int64 `json:"projectId"`
+	Offset    int   `json:"offset"`
+	Limit     int   `json:"limit"`
+}
+
+type ListIndexSessionsResponse struct {
 	Sessions []ChatSessionLite `json:"sessions"`
 	Total    int64             `json:"total"`
 	HasMore  bool              `json:"hasMore"`

@@ -19,7 +19,55 @@ import { AGENTRE_UI_NAMESPACE, agentreUiResources } from "./src/i18n";
  */
 afterEach(() => {
   cleanup();
+  localStorage.clear();
 });
+
+/**
+ * 包里有落 localStorage 的东西（`SessionGroup` 的展开偏好、转录的滚动位置），
+ * 而 happy-dom 在本仓库这个版本下**不给** `localStorage` 全局 —— 宿主的
+ * `src/__tests__/setup.ts` 装了内存垫片，所以跑在宿主 vitest 里看不出问题，
+ * 包独立 `pnpm test` 才炸。「最小宿主」这份配置得把这条一并扮演掉。
+ */
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+
+  return {
+    get length() {
+      return values.size;
+    },
+    clear() {
+      values.clear();
+    },
+    getItem(key: string) {
+      return values.get(key) ?? null;
+    },
+    key(index: number) {
+      return Array.from(values.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      values.delete(key);
+    },
+    setItem(key: string, value: string) {
+      values.set(key, value);
+    },
+  };
+}
+
+if (
+  typeof globalThis.localStorage === "undefined" ||
+  typeof globalThis.localStorage.getItem !== "function"
+) {
+  const storage = createMemoryStorage();
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
 
 /**
  * 包内组件（CodeBlock / ThinkingBlock / RichLink…）经 `useUiTranslation()` 取文案，

@@ -29,7 +29,9 @@
     "expand": "展开 {{name}}",
     "newSession": "新建 {{name}} 会话",
     "openRecent": "打开 {{name}} 最近会话",
+    "pin": "置顶 {{name}}",
     "pinned": "置顶",
+    "unpin": "取消置顶 {{name}}",
     "running": "运行中",
     "runningAria": "{{name}} 有运行中的会话",
     "backendNotConfigured": "未配置后端",
@@ -793,11 +795,6 @@
       "clear": "清空筛选",
       "noMatches": "没有匹配 \"{{query}}\" 的 Agent",
       "placeholder": "搜索 Agent"
-    },
-    "sessionMenu": {
-      "delete": "删除",
-      "openInNewTab": "新标签打开",
-      "rename": "改名"
     },
     "sections": {
       "agents": "AGENTS",
@@ -2493,10 +2490,6 @@
     "resizeAria": "调整{{label}}宽度",
     "resizeTitle": "拖拽调整宽度"
   },
-  "sessionGroup": {
-    "empty": "暂无会话",
-    "viewAll": "查看全部 {{count}} 个会话"
-  },
   "slashCommands": {
     "compact": {
       "description": "压缩对话上下文,只保留摘要"
@@ -2715,6 +2708,44 @@
       "portRequired": "端口不能为空"
     }
   },
+  "sessionIndex": {
+    "add": {
+      "aria": "新建",
+      "newAgent": "新建 Agent",
+      "newAgentHint": "前往组织架构创建",
+      "newChat": "新建对话",
+      "newProject": "新建项目"
+    },
+    "axis": {
+      "agent": "Agent",
+      "project": "项目",
+      "time": "时间",
+      "title": "分组方式"
+    },
+    "empty": {
+      "noMatch": "没有匹配的会话",
+      "nothing": "还没有任何对话"
+    },
+    "filter": {
+      "all": "全部",
+      "running": "运行中",
+      "unread": "未读"
+    },
+    "free": {
+      "attention": "{{count}} 条随手对话需要关注",
+      "count": "{{count}} 条随手对话",
+      "empty": "还没有随手对话",
+      "name": "随手对话",
+      "newSession": "新建随手对话"
+    },
+    "search": {
+      "aria": "搜索会话、项目或 Agent",
+      "clear": "清除搜索",
+      "placeholder": "搜索会话、项目、Agent"
+    },
+    "sidebar": "会话索引",
+    "untitledSession": "未命名会话"
+  },
   "sessionsPopover": {
     "empty": "暂无会话",
     "loadFailed": "加载失败：{{error}}",
@@ -2770,8 +2801,8 @@
           "label": "切换到 组织"
         },
         "projects": {
-          "hint": "项目与会话列表",
-          "label": "切换到 项目"
+          "hint": "会话索引按项目分组",
+          "label": "按项目分组"
         },
         "settings": {
           "hint": "设置面板",

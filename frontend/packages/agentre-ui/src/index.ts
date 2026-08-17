@@ -27,8 +27,24 @@ export {
 } from "./lib/copyable-text";
 export { Badge } from "./ui/badge";
 export { Button, buttonVariants } from "./ui/button";
+export {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
 export { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
 export { Input } from "./ui/input";
+export {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "./ui/popover";
 export { Spinner } from "./ui/spinner";
 export { Textarea } from "./ui/textarea";
 export {
@@ -49,6 +65,29 @@ export type { PreviewKind } from "./lib/previewable";
 export { splitStreamingMarkdown } from "./lib/streaming-markdown";
 export type { SplitStreamingMarkdown } from "./lib/streaming-markdown";
 export { useCollapsible } from "./hooks/use-collapsible";
+export { isOpenInNewTabModifier } from "./lib/keyboard";
+export { StatusDot } from "./ui/status-dot";
+export type { StatusDotProps } from "./ui/status-dot";
+// ── 会话索引 ───────────────────────────────────────────────────────────────
+// 行与分组容器进包，**分组本身留宿主**（两端的轴天生不同，见
+// docs/specs/2026-08-16-unified-chat-index.md 决策 12）。
+export { SessionGroup } from "./session-index/session-group";
+export type { SessionGroupProps } from "./session-index/session-group";
+export { SessionRow } from "./session-index/session-row";
+export type {
+  SessionRowLinkProps,
+  SessionRowLinkRenderer,
+  SessionRowProps,
+} from "./session-index/session-row";
+export type {
+  SessionAttentionRank,
+  SessionRowModel,
+} from "./session-index/types";
+export {
+  readSidebarExpanded,
+  SIDEBAR_EXPANDED_KEY_PREFIX,
+  writeSidebarExpanded,
+} from "./session-index/expanded-state";
 export {
   computeTerminalHeight,
   FALLBACK_CELL_PX,

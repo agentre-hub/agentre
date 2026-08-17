@@ -29,7 +29,9 @@
     "expand": "Expand {{name}}",
     "newSession": "New {{name}} session",
     "openRecent": "Open {{name}} recent session",
+    "pin": "Pin {{name}}",
     "pinned": "Pinned",
+    "unpin": "Unpin {{name}}",
     "running": "Running",
     "runningAria": "{{name}} has running sessions",
     "backendNotConfigured": "Backend not configured",
@@ -793,11 +795,6 @@
       "clear": "Clear filter",
       "noMatches": "No agents match \"{{query}}\"",
       "placeholder": "Search Agent"
-    },
-    "sessionMenu": {
-      "delete": "Delete",
-      "openInNewTab": "Open in new tab",
-      "rename": "Rename"
     },
     "sections": {
       "agents": "AGENTS",
@@ -2493,10 +2490,6 @@
     "resizeAria": "Resize {{label}} width",
     "resizeTitle": "Drag to resize width"
   },
-  "sessionGroup": {
-    "empty": "No sessions",
-    "viewAll": "View all {{count}} sessions"
-  },
   "slashCommands": {
     "compact": {
       "description": "Compact the chat context and keep only the summary"
@@ -2715,6 +2708,44 @@
       "portRequired": "Port is required"
     }
   },
+  "sessionIndex": {
+    "add": {
+      "aria": "New",
+      "newAgent": "New agent",
+      "newAgentHint": "Create it in the org chart",
+      "newChat": "New chat",
+      "newProject": "New project"
+    },
+    "axis": {
+      "agent": "Agent",
+      "project": "Project",
+      "time": "Time",
+      "title": "Group by"
+    },
+    "empty": {
+      "noMatch": "No matching sessions",
+      "nothing": "No conversations yet"
+    },
+    "filter": {
+      "all": "All",
+      "running": "Running",
+      "unread": "Unread"
+    },
+    "free": {
+      "attention": "{{count}} quick chats need attention",
+      "count": "{{count}} quick chats",
+      "empty": "No quick chats yet",
+      "name": "Quick chats",
+      "newSession": "New quick chat"
+    },
+    "search": {
+      "aria": "Search sessions, projects or agents",
+      "clear": "Clear search",
+      "placeholder": "Search sessions, projects, agents"
+    },
+    "sidebar": "Session index",
+    "untitledSession": "Untitled session"
+  },
   "sessionsPopover": {
     "empty": "No sessions",
     "loadFailed": "Load failed: {{error}}",
@@ -2770,8 +2801,8 @@
           "label": "Switch to Organization"
         },
         "projects": {
-          "hint": "Projects and sessions list",
-          "label": "Switch to Projects"
+          "hint": "Group the session index by project",
+          "label": "Group by Project"
         },
         "settings": {
           "hint": "Settings panel",

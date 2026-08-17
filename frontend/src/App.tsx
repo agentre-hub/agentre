@@ -19,7 +19,6 @@ import {
   useNavigate,
 } from "react-router-dom";
 import type { IconifyIcon } from "@iconify/types";
-import briefcaseIcon from "@iconify-icons/tabler/briefcase";
 import buildingCommunityIcon from "@iconify-icons/tabler/building-community";
 import layoutKanbanIcon from "@iconify-icons/tabler/layout-kanban";
 import messageCircleIcon from "@iconify-icons/tabler/message-circle";
@@ -29,7 +28,6 @@ import webhookIcon from "@iconify-icons/tabler/webhook";
 import {
   AppStatusBar,
   AppTopBar,
-  ChatPage,
   ChatStreamsHost,
   ChatTabsShortcuts,
   TurnCompleteNotifier,
@@ -37,9 +35,9 @@ import {
   CommandPalette,
   HooksPage,
   IssuesPage,
+  SessionIndexPage,
   OrgChartPage,
   PaletteScopeBridge,
-  ProjectsPage,
   QuitConfirmDialog,
   ShortcutsProvider,
   SidebarButton,
@@ -86,11 +84,6 @@ const navItems: NavItem[] = [
     icon: messageCircleIcon,
   },
   {
-    path: "/projects",
-    labelKey: "nav.projects",
-    icon: briefcaseIcon,
-  },
-  {
     path: "/issues",
     labelKey: "nav.issues",
     icon: layoutKanbanIcon,
@@ -115,7 +108,6 @@ const settingsNavItem: NavItem = {
 
 const pageBreadcrumbKeys: Record<string, string> = {
   "/chat": "nav.chat",
-  "/projects": "nav.projects",
   "/hooks": "nav.hooks",
   "/issues": "nav.issues",
   "/org": "nav.org",
@@ -784,8 +776,7 @@ function AppLayout() {
 
   const breadcrumbKey = pageBreadcrumbKeys[location.pathname];
   const breadcrumb = breadcrumbKey ? t(breadcrumbKey) : "";
-  const hasChat =
-    location.pathname === "/chat" || location.pathname === "/projects";
+  const hasChat = location.pathname === "/chat";
 
   const ports = useDesktopTranscriptPorts();
 
@@ -897,6 +888,17 @@ function AppLayout() {
   );
 }
 
+/**
+ * `/projects` 的重定向。用组件而不是 `<Navigate to="/chat" />`：后者会把 query
+ * 丢掉，而 `?focus=<id>`（会话设置页点「项目」进来）正是靠 query 传项目 id 的。
+ */
+function RedirectToChat() {
+  const location = useLocation();
+  return (
+    <Navigate to={{ pathname: "/chat", search: location.search }} replace />
+  );
+}
+
 function SettingsRoute() {
   const { effectiveTheme, onThemePreferenceChange, themePreference } =
     useOutletContext<AppOutletContext>();
@@ -923,8 +925,11 @@ function App() {
       <QuitConfirmDialog />
       <Routes>
         <Route element={<AppLayout />}>
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/chat" element={<SessionIndexPage />} />
+          {/* 决策 1：「项目」不再是一个导航项，它退化成索引的一个分组维度。
+              保留重定向是因为会话设置页的「项目」入口发的是 /projects?focus=<id>，
+              query 必须原样带过去 —— 索引那边靠它打开项目设置抽屉。 */}
+          <Route path="/projects" element={<RedirectToChat />} />
           <Route path="/issues" element={<IssuesPage />} />
           <Route path="/hooks" element={<HooksPage />} />
           <Route path="/org" element={<OrgChartPage />} />

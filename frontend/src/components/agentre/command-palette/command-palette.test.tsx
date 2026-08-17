@@ -1106,7 +1106,7 @@ describe("CommandPalette — navigation source (BDD)", () => {
     return <div data-testid="location-probe">{location.pathname}</div>;
   }
 
-  it("Given palette open in default mode, When selecting the Projects nav item, Then navigate('/projects') and the palette closes", async () => {
+  it("Given palette open in default mode, When selecting a nav item, Then it navigates and the palette closes — and Projects is gone (decision 1)", async () => {
     appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
     render(
       <MemoryRouter initialEntries={["/chat"]}>
@@ -1121,10 +1121,9 @@ describe("CommandPalette — navigation source (BDD)", () => {
 
     // nav 分组渲染（heading 与 Footer 的 "Navigate" 提示共用同一文案 → getAllByText）
     expect(screen.getAllByText("Navigate").length).toBeGreaterThanOrEqual(1);
-    // 6 个导航目的地都在
+    // 5 个导航目的地都在
     for (const label of [
       "Chat",
-      "Projects",
       "Issues",
       "Organization",
       "Hooks",
@@ -1132,12 +1131,14 @@ describe("CommandPalette — navigation source (BDD)", () => {
     ]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
+    // 「项目」不再是一个导航目的地 —— 它退化成会话索引的一个分组维度（决策 1）。
+    // 留在面板里等于又造出一个「换个说法的同一个地方」。
+    expect(screen.queryByText("Projects")).toBeNull();
 
-    fireEvent.click(screen.getByText("Projects"));
+    fireEvent.click(screen.getByText("Issues"));
     await flush();
 
-    // 面板关闭 + 路由切到 /projects
     expect(useCommandPaletteStore.getState().open).toBe(false);
-    expect(screen.getByTestId("location-probe").textContent).toBe("/projects");
+    expect(screen.getByTestId("location-probe").textContent).toBe("/issues");
   });
 });

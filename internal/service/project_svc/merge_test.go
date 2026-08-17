@@ -57,11 +57,18 @@ func setupMergeTest(t *testing.T) (context.Context, *mergeMocks, project_svc.Pro
 }
 
 // expectCleanDelete 给「合并已经把 dropID 名下的东西清空」之后、Merge 复用既有
-// Delete() 收尾时要满足的三个守卫桩：无子项目、无活跃会话、真正执行软删。
+// Delete() 收尾时要满足的守卫桩：无子项目、无活跃会话、把残余会话摘成自由会话、
+// 真正执行软删。
+//
+// 那次 ReassignProject(dropID, 0) 在合并路径上**必然匹配 0 行** —— 上一步已经把
+// 会话整批改挂到 keep 了。留着它与 Merge 自己的设计意图一致（见 merge.go 的
+// 「Delete 内部的守卫在这里等于免费的二次校验」）：万一上一步漏了或有并发写入，
+// 这一下把它摘成自由会话，而不是留下指向已删项目的悬空引用。
 func expectCleanDelete(ctx context.Context, m *mergeMocks, dropID int64, drop *project_entity.Project) {
 	m.project.EXPECT().Find(ctx, dropID).Return(drop, nil)
 	m.project.EXPECT().HasActiveChildren(ctx, dropID).Return(false, nil)
 	m.session.EXPECT().CountActiveByProject(ctx, dropID, []string{"running", "waiting"}).Return(int64(0), nil)
+	m.session.EXPECT().ReassignProject(ctx, dropID, int64(0)).Return(nil)
 	m.project.EXPECT().Delete(ctx, dropID).Return(nil)
 }
 

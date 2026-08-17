@@ -80,6 +80,9 @@ var sendImageMediaTypes = map[string]struct{}{
 type ChatSvc interface {
 	ListAgents(ctx context.Context, req *ListAgentsRequest) (*ListAgentsResponse, error)
 	ListAgentSessions(ctx context.Context, req *ListAgentSessionsRequest) (*ListAgentSessionsResponse, error)
+	// ListIndexSessions 给单一会话索引翻页：scope=recent 是跨 agent、跨项目的全局
+	// 最近活动（「按时间」档），scope=free 是未挂项目的会话（「随手对话」组）。
+	ListIndexSessions(ctx context.Context, req *ListIndexSessionsRequest) (*ListIndexSessionsResponse, error)
 	LoadSession(ctx context.Context, req *LoadSessionRequest) (*LoadSessionResponse, error)
 	GetLaunchCommand(ctx context.Context, req *LaunchCommandRequest) (*LaunchCommandResponse, error)
 	GetSessionGitState(ctx context.Context, req *GetSessionGitStateRequest) (*GetSessionGitStateResponse, error)
@@ -457,6 +460,75 @@ func (s *chatSvc) ListAgents(ctx context.Context, _ *ListAgentsRequest) (*ListAg
 	return resp, nil
 }
 
+// ── ListIndexSessions ────────────────────────────────────────────────────────
+
+// ListIndexSessions 见接口注释。两个 scope 各补上一个此前根本拿不到的集合：
+//
+//   - recent —— 跨 agent、跨项目的全局最近活动。ListChatAgents 每个 agent 只给前 5
+//     条，把它们并起来是一个窗口而不是全量；「按时间」这一档要的正是全量的头部。
+//   - free —— project_id = 0 的会话。ListSessions 挡在 projectID > 0（0 不是一个
+//     项目），所以自由会话此前只能靠「碰巧落在某个 agent 的前 5 条里」被看见。
+//
+// 分页口径与 ListAgentSessions 完全一致（默认 20 / 上限 100），前端两处翻页逻辑同形。
+func (s *chatSvc) ListIndexSessions(ctx context.Context, req *ListIndexSessionsRequest) (*ListIndexSessionsResponse, error) {
+	if req == nil || req.Offset < 0 {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	// 认不出的 scope 直接拒绝，不默默当成 recent —— 静默降级会让调用方以为自己拿到的
+	// 是「随手对话」，实际是全部会话。
+	switch req.Scope {
+	case SessionScopeRecent, SessionScopeFree:
+	case SessionScopeProject:
+		// projectID 0 有专门的 scope（free），从 project 这条路进来必是调用方漏传。
+		if req.ProjectID <= 0 {
+			return nil, i18n.NewError(ctx, code.InvalidParameter)
+		}
+	default:
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = listAgentSessionsDefaultLimit
+	}
+	if limit > listAgentSessionsMaxLimit {
+		limit = listAgentSessionsMaxLimit
+	}
+
+	list := chat_repo.Session().ListRecentPaged
+	count := chat_repo.Session().CountAll
+	switch req.Scope {
+	case SessionScopeFree:
+		list = chat_repo.Session().ListFreePaged
+		count = chat_repo.Session().CountFree
+	case SessionScopeProject:
+		list = func(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
+			return chat_repo.Session().ListByProjectPaged(ctx, req.ProjectID, offset, limit)
+		}
+		count = func(ctx context.Context) (int64, error) {
+			return chat_repo.Session().CountByProject(ctx, req.ProjectID)
+		}
+	}
+
+	sessions, err := list(ctx, req.Offset, limit)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	total, err := count(ctx)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+
+	resp := &ListIndexSessionsResponse{
+		Sessions: make([]ChatSessionLite, 0, len(sessions)),
+		Total:    total,
+		HasMore:  int64(req.Offset+len(sessions)) < total,
+	}
+	for _, sess := range sessions {
+		resp.Sessions = append(resp.Sessions, s.sessionLiteFromEntity(sess))
+	}
+	return resp, nil
+}
+
 // ── ListAgentSessions ────────────────────────────────────────────────────────
 
 // ListAgentSessions 给「查看全部 N 个会话」popover 翻页拉数据用。
@@ -505,6 +577,8 @@ func (s *chatSvc) sessionLiteFromEntity(sess *chat_entity.Session) ChatSessionLi
 	}
 	return ChatSessionLite{
 		ID:             sess.ID,
+		AgentID:        sess.AgentID,
+		ProjectID:      sess.ProjectID,
 		Title:          sess.Title,
 		Status:         sess.AgentStatus,
 		NeedsAttention: sess.IsWaitingForUser(),

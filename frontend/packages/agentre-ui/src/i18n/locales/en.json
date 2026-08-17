@@ -425,5 +425,16 @@
   },
   "slashCommands": {
     "aria": "Command and skill suggestions"
+  },
+  "sessionGroup": {
+    "empty": "No sessions",
+    "viewAll": "View all {{count}} sessions"
+  },
+  "sessionRow": {
+    "menu": {
+      "delete": "Delete",
+      "openInNewTab": "Open in new tab",
+      "rename": "Rename"
+    }
   }
 }

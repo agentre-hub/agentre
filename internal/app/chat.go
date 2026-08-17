@@ -18,6 +18,12 @@ func (a *App) ListChatAgentSessions(req *chat_svc.ListAgentSessionsRequest) (*ch
 	return chat_svc.Chat().ListAgentSessions(a.ctx, req)
 }
 
+// ListChatIndexSessions 给单一会话索引翻页：scope="recent" 是跨 agent、跨项目的全局
+// 最近活动（「按时间」档），scope="free" 是未挂项目的会话（「随手对话」组）。
+func (a *App) ListChatIndexSessions(req *chat_svc.ListIndexSessionsRequest) (*chat_svc.ListIndexSessionsResponse, error) {
+	return chat_svc.Chat().ListIndexSessions(a.ctx, req)
+}
+
 // ListAgentExecTargetAvailability 逐档判定 R15 执行目标列表的可用性，供组织架构页
 // Agent 详情展示（任务 12）。projectID<=0 表示自由会话，不做项目路径判定。
 func (a *App) ListAgentExecTargetAvailability(agentID int64, projectID int64) ([]chat_svc.ExecTargetAvailabilityView, error) {

@@ -1,24 +1,24 @@
 import * as React from "react";
 import { ArrowRight, Inbox } from "lucide-react";
-import { useTranslation } from "react-i18next";
 
-import { Popover, PopoverTrigger } from "@/components/ui/popover";
-import { isOpenInNewTabModifier } from "@/lib/keyboard";
-import {
-  readSidebarExpanded,
-  writeSidebarExpanded,
-} from "@/lib/sidebar-expanded-state";
-import { cn } from "@/lib/utils";
+import { useUiTranslation } from "../i18n";
+import { isOpenInNewTabModifier } from "../lib/keyboard";
+import { cn } from "../lib/utils";
+import { Popover, PopoverTrigger } from "../ui/popover";
 
-import { SessionRow } from "./agent-list";
-import type { AgentSession } from "./agent-list";
+import { readSidebarExpanded, writeSidebarExpanded } from "./expanded-state";
+import { SessionRow } from "./session-row";
+import type { SessionRowLinkRenderer } from "./session-row";
+import type { SessionRowModel } from "./types";
 
 // SessionGroup —— 通用的「会话分组」侧栏容器：
-// 头部由调用方通过 renderHeader 完全自定义（agent / project / 其它都可以塞自己的 chrome），
-// body 部分负责标准能力：折叠态可见的 attention bubble、grid 平滑展开动画、
+// 头部由调用方通过 renderHeader 完全自定义（agent / project / 状态 / 其它都可以塞自己的
+// chrome），body 部分负责标准能力：折叠态可见的 attention bubble、grid 平滑展开动画、
 // 常规会话列表（自动跟 attention 去重）、「查看全部 N」溢出 Popover、空态、子节点插槽。
 //
-// 由 AgentGroup（chat 侧）与 ProjectCard（项目侧）共用。
+// **分组本身不在这里**：桌面端按项目 / Agent / 时间三轴（用户选），agentre-server 按
+// Agent / 状态（视口决定）。两边都对，塞进包就得二选一 —— 所以包收已经建好的组，
+// `buildGroups` 留在各自宿主。
 type SessionGroupProps = React.ComponentProps<"article"> & {
   // 头部 slot：完全由调用方控制 chrome（avatar / 名称 / 各种 badge / chevron 位置），
   // SessionGroup 把 expanded / toggle 回传给它使用。
@@ -32,19 +32,22 @@ type SessionGroupProps = React.ComponentProps<"article"> & {
   defaultExpanded?: boolean; // 未持久化时的初始默认值
 
   // 主列表
-  sessions?: AgentSession[];
+  sessions?: SessionRowModel[];
   selectedSessionId?: string;
   onSessionSelect?: (id: string, opts?: { newTab?: boolean }) => void;
+  // 带 href 的行用宿主的路由链接渲染（见 SessionRow 的导航接缝）。整组一份，
+  // 因为「用什么元素跳」是宿主外壳的性质，不是某一行的性质。
+  renderLink?: SessionRowLinkRenderer;
 
   // 溢出 Popover：超过常规列表上限时显示「查看全部 N」入口，content 由调用方提供
   totalSessions?: number;
   renderSessionsPopover?: (close: () => void) => React.ReactNode;
 
   // Attention 气泡（折叠态也始终可见；展开态过滤掉 unread/selected 这类「软」rank）
-  attentionSessions?: AgentSession[];
+  attentionSessions?: SessionRowModel[];
   // 折叠态专用 attention 气泡。项目树用它把后代项目的 attention 汇总到
   // 折叠父级；不传时保持旧行为。
-  collapsedAttentionSessions?: AgentSession[];
+  collapsedAttentionSessions?: SessionRowModel[];
 
   // 子节点插槽：在 sessions 列表之后渲染（仍在 grid 展开动画容器内），
   // 主要给项目树的子项目递归用。
@@ -71,6 +74,7 @@ function SessionGroup({
   sessions = [],
   selectedSessionId,
   onSessionSelect,
+  renderLink,
   totalSessions,
   renderSessionsPopover,
   attentionSessions = [],
@@ -83,7 +87,7 @@ function SessionGroup({
   attentionAriaLabel,
   ...props
 }: SessionGroupProps) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const resolvedEmptyLabel = emptyLabel ?? t("sessionGroup.empty");
   const [popoverOpen, setPopoverOpen] = React.useState(false);
   const [expanded, setExpanded] = React.useState(
@@ -147,6 +151,7 @@ function SessionGroup({
             <SessionRow
               key={`attn-${session.id}`}
               {...session}
+              renderLink={renderLink}
               selected={
                 selectedSessionId
                   ? session.id === selectedSessionId
@@ -194,6 +199,7 @@ function SessionGroup({
                   <SessionRow
                     key={session.id}
                     {...session}
+                    renderLink={renderLink}
                     aria-hidden={!expanded}
                     disabled={!expanded}
                     selected={

@@ -425,5 +425,16 @@
   },
   "slashCommands": {
     "aria": "命令与 Skill 提示"
+  },
+  "sessionGroup": {
+    "empty": "暂无会话",
+    "viewAll": "查看全部 {{count}} 个会话"
+  },
+  "sessionRow": {
+    "menu": {
+      "delete": "删除",
+      "openInNewTab": "新标签打开",
+      "rename": "改名"
+    }
   }
 }
