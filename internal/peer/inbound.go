@@ -202,8 +202,6 @@ func pendingSessionWaiters(ctx context.Context, raw json.RawMessage) (any, error
 	return result, nil
 }
 
-const peerExecutionUnavailableCode = -32015
-
 func peerSource(ctx context.Context, requestedName string) (chat_svc.PeerSessionSource, error) {
 	conn := rpc.ConnFromContext(ctx)
 	if conn == nil || conn.Auth().DeviceFingerprint == "" {
@@ -239,7 +237,7 @@ func runSession(ctx context.Context, raw json.RawMessage) (any, error) {
 			if marshalErr != nil {
 				return nil, rpc.ErrInternal
 			}
-			return nil, &rpc.Error{Code: peerExecutionUnavailableCode, Message: err.Error(), Data: data}
+			return nil, &rpc.Error{Code: wire.ErrCodePeerExecutionUnavailable, Message: err.Error(), Data: data}
 		}
 		return nil, err
 	}

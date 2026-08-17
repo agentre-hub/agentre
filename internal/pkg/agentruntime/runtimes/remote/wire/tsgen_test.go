@@ -152,6 +152,7 @@ func tsConstDecls() []tsConstDecl {
 		{"ErrCodeUnsupported", ErrCodeUnsupported},
 		{"ErrCodeAborted", ErrCodeAborted},
 		{"ErrCodeSessionNotFound", ErrCodeSessionNotFound},
+		{"ErrCodePeerExecutionUnavailable", ErrCodePeerExecutionUnavailable},
 		{"CapLLMModelTargetV1", CapLLMModelTargetV1},
 		{"SessionLifecycleRunning", SessionLifecycleRunning},
 		{"SessionLifecycleIdle", SessionLifecycleIdle},

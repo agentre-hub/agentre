@@ -86,6 +86,16 @@ const (
 	ErrCodeUnsupported     = -32012
 	ErrCodeAborted         = -32013
 	ErrCodeSessionNotFound = -32014
+	// ErrCodePeerExecutionUnavailable:会话钉住的执行目标(agentred)当前不可用。
+	//
+	// 与上面五个不同,它**不进 SentinelFromCode**:那张表翻的是 daemon 回给
+	// remote 客户端的 agentruntime sentinel,而这一条是桌面端 peer 回给浏览器的,
+	// 两条链路不同。放这里的唯一理由是让它跟着 wire 一起生成给 TS ——
+	// 浏览器要靠它把「执行目标不可用」(停用写入 + 状态横幅)与普通拒绝区分开,
+	// 此前是在 agentre-server 里手抄的一个魔数,改了这边不会有任何地方变红。
+	//
+	// 应答里同时带类型化 data(accepted / historyAvailable / executionUnavailable)。
+	ErrCodePeerExecutionUnavailable = -32015
 )
 
 // ToJSONRPCError 把 agentruntime 的 sentinel 包成 *jsonrpc.Error,daemon 端返回。
