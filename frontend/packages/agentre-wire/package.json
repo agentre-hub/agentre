@@ -1,14 +1,28 @@
 {
   "name": "@agentre-ai/agentre-wire",
   "version": "0.1.0",
-  "description": "Agentre wire 协议黄金样本：Go 生成器产出的真实帧，供跨端 TS 编解码做对照基准",
+  "description": "Agentre wire 协议：Go 生成器产出的 TS 编解码 + 真实帧黄金样本",
   "license": "MIT",
   "type": "module",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./fixtures/*.json": "./fixtures/*.json",
     "./package.json": "./package.json"
   },
   "files": [
+    "dist",
     "fixtures"
-  ]
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.1"
+  }
 }

@@ -121,6 +121,8 @@ A **guard test** pins a convention that has no natural home in ordinary tests �
 | `frontend/src/__tests__/design-tokens.test.ts` | Color tokens are used instead of literal colors |
 | `frontend/src/components/agentre/__tests__/transcript-typography-guard.test.ts` | Transcript typography stays on the shared scale |
 | `internal/pkg/agentruntime/runtimes/remote/wire/golden_test.go` (`TestGoldenFixturesFresh`) | The committed `@agentre-ai/agentre-wire` golden samples are what the Go marshaler emits today — regenerates into a temp dir and compares byte for byte |
+| `internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go` (`TestGeneratedTSFresh`) | The committed `@agentre-ai/agentre-wire` `src/*.gen.ts` are what the generator writes today — same temp-dir-and-compare shape. Catches what the golden samples cannot: an added `omitempty` field changes no fixture byte, but does change the codec |
+| `internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go` (`TestTSGenCoversWirePackage`) | The generator's type/constant list covers every exported struct and constant the wire package declares — parsed from the source, because reflection only sees the types it was handed. Without it a brand-new wire struct would simply never reach the browser, with every other guard still green |
 
 **A guard test that only greps source text is a lint rule wearing a test costume.** Where the ecosystem has a real rule available, prefer it — and when replacing a file-text assertion with a lint rule, **the rule lands and is verified before the test is deleted**.
 
