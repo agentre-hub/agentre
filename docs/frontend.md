@@ -70,7 +70,7 @@ It has **zero runtime dependencies** (the codec is pure functions over `JSON.par
 
 | Entry | Contents |
 | --- | --- |
-| `@agentre-ai/agentre-wire` | frame types + `decodeXxx` / `encodeXxx` + protocol constants + the `EventKind` vocabulary |
+| `@agentre-ai/agentre-wire` | frame types + `decodeXxx` / `encodeXxx` + protocol constants + the `EventKind`, block-type and view-block-type vocabularies |
 | `@agentre-ai/agentre-wire/fixtures/<name>.json` | one golden frame, imported directly by a consumer's test |
 
 **`wire.go` is the single source of truth; the TS side is generated from it.** Only three files in `src/` are hand-written, and none of them describes a frame:
@@ -80,10 +80,20 @@ It has **zero runtime dependencies** (the codec is pure functions over `JSON.par
 | `src/runtime.ts` | hand | the validation primitives (`decodeWire` / `reqStr` / `optArrOf` / …) the generated code calls. Stable — it does not change when a wire struct does |
 | `src/envelope.ts` | hand | the JSON-RPC 2.0 frame shell. Its Go truth (`daemon/rpc.Frame`) sits **outside** the wire package, which deliberately does not depend on `daemon`, so the generator cannot see it — and the RFC froze those six fields anyway |
 | `src/index.ts` | hand | re-exports |
-| `src/*.gen.ts` | generated | every frame type, codec, protocol constant, and the `EventKind` vocabulary |
+| `src/*.gen.ts` | generated | every frame type, codec, protocol constant, and the three vocabularies |
 | `fixtures/*.json` | generated | the golden samples |
 
-`src/event-kinds.gen.ts` is the **one deliberate exception** to "only follow types declared inside the wire package". `EventFrame.event` is a `json.RawMessage` — the payload is opaque to wire and can only ever generate as `unknown`, so the `kind` discriminator is the single typed thing in the whole event stream, and it is the contract itself. `agentruntime` is a direct dependency of wire (`wire.go` already uses its `TurnKind` / `MCPServerSpec`), so following it breaks no layering. **The exception stops there** — it is not a precedent for generating everything `agentruntime` declares. The reasoning is restated in the artifact's own header and next to `tsEventKindDecls()` in the generator.
+Three artifacts deliberately step outside "only follow types declared inside the wire package", and **they are not all the same kind of exception** — read the file header before treating one as a precedent for another:
+
+| Artifact | Vocabulary | Why it may step outside |
+| --- | --- | --- |
+| `src/event-kinds.gen.ts` | `agentruntime.EventKind` | `EventFrame.event` is a `json.RawMessage` — the payload is opaque to wire and can only ever generate as `unknown`, so the `kind` discriminator is the single typed thing in the whole event stream, and it is the contract itself. `agentruntime` is a direct dependency of wire (`wire.go` already uses its `TurnKind` / `MCPServerSpec`), so following it breaks no layering |
+| `src/block-types.gen.ts` | `blocks.StoredBlock.type` | same argument one link down: `StoredBlock.data` is a `json.RawMessage`, so `type` is the only typed thing on the `HistoryMessageWire.blocks` / `RunParams.userBlocks` paths, and the block registry package is already wire's direct dependency |
+| `src/chat-block-types.gen.ts` | `chat_svc.ChatBlock.type` | **a different kind of exception — this one is not on the wire at all.** It is the view DTO for the backend → frontend hop (Wails binding on the desktop, HTTP for the web console). It lives here only because this package is the repo's single Go → TS generation seam, and the vocabulary had two frontends hand-copying it |
+
+**Neither is a precedent for generating everything a neighbouring package declares.** Each artifact restates its own reasoning in its header, and next to its declaration list in the generator.
+
+`block-types.gen.ts` and `chat-block-types.gen.ts` are **two different tables and both are exported** — the projection in `chat_svc` renames (`user_ask` → `ask_user_question`), folds many-to-one (`nested_tool_use` → `tool_use`) and drops whole classes (`subagent_state`) between them. The cells that share a name (`text` / `thinking` / `plan` / …) are places the projection happened not to rename, not one truth. The view vocabulary's truth boundary is drawn at **what Go can emit**: the frontend's `TranscriptBlock.type` currently holds one more value, `"raw"`, produced by `peer-transcript.ts`, and its truth stays on the TS side.
 
 **Do not hand-edit a `*.gen.ts` file or a fixture, and do not add a runtime dependency to this package.** Both generators live next to the Go types they mirror and own their own file lists:
 

@@ -18,6 +18,10 @@
 //   - TestTSGenCoversEventKinds —— 同上,守 agentruntime 的 EventKind 词表。
 //   - TestTSGenCoversBlockTypes —— 守块类型词表。这一条与上面两条**机制不同**:
 //     块类型是运行时注册表,不是编译期常量表,理由见该测试的注释。
+//   - TestTSGenCoversChatBlockTypes —— 守**视图**块类型词表(chat_svc.ChatBlock.Type)。
+//     它与上面那张块类型表**不是同一张**:一个是持久化判别值,一个是 backend → 前端
+//     的视图判别值,投影在两者之间改名 / 折叠 / 丢弃。机制第三种:词表在源码里,
+//     但生成器 import 不进去(import cycle),只能 AST 读,理由见该测试的注释。
 //   - TestGeneratedTSFresh —— 新鲜度守卫,总是运行:把产物生成到临时目录,与包里
 //     已提交的 *.gen.ts 比文件集 + 逐字节内容。改了 wire 结构却忘了重新生成,这里变红。
 //   - TestWriteTSCodec —— 重新生成这个动作本身,带 WIRE_TS_WRITE=1 才执行,
@@ -301,6 +305,69 @@ func tsBlockTypeConstName(v string) string {
 		b.WriteString(part[1:])
 	}
 	return b.String()
+}
+
+// ── 视图块类型词表清单 ─────────────────────────────────────────────────────
+
+// chatSvcRel 是 chat_svc 包在本仓里的位置(相对仓库根)。视图词表的真理源。
+const chatSvcRel = "internal/service/chat_svc"
+
+// chatBlockTypeName 是视图 DTO 的结构名 —— AST 据此认出「往 ChatBlock.Type
+// 里写值」的构造点。
+const chatBlockTypeName = "ChatBlock"
+
+// chatBlockTypeField 是视图 DTO 上承载判别值的字段名。
+const chatBlockTypeField = "Type"
+
+// chatBlockTypeAnchors 是词表里必然存在的几格。扫描器本身坏掉(比如
+// ChatBlock 改了名、构造点换了形态)时会扫出空集或残集,产物随之静默缩水;
+// 有了这条锚,那种情况直接变红而不是悄悄过。
+var chatBlockTypeAnchors = []string{"text", "tool_use", "tool_result", "unknown"}
+
+// chatBlockTypeDecl 一条视图词表项:Go 常量名 + 值 + 文档注释。
+// 三样都由 AST 从 chat_svc 源码里读出,生成器里没有任何一格需要人填。
+type chatBlockTypeDecl struct {
+	name  string
+	value string
+	doc   string
+}
+
+// chatBlockTypeVocabulary 求视图词表 —— ChatBlock.Type 的全部取值。
+//
+// **为什么只能走 AST,不能像 tsConstDecls 那样直接引用 Go 常量:** 本文件是
+// wire 包的包内测试,而 chat_svc 传递依赖 wire 包 —— import 它直接是 import
+// cycle。这与 blockTypeCycleBound 记的是同一条约束,只是那里够不着一格,
+// 这里够不着整张表。
+//
+// 也因此这份词表与 tsRootTypes / tsConstDecls / tsEventKindDecls 形态不同:
+// 那三份在生成器里各有一张手抄清单(靠 AST 完整性守卫兜底),这一份连清单
+// 都没有 —— 成员由「哪些常量真的被写进了 ChatBlock.Type」反查得出,凡是能
+// 被手抄错的东西都不存在。词表与构造点是否自洽由 TestTSGenCoversChatBlockTypes
+// 机械保证。
+//
+// 排列顺序跟着 chat_block_type.go 里 const 块的声明序走,产物因此能与它并排对读。
+func chatBlockTypeVocabulary(t *testing.T) []chatBlockTypeDecl {
+	t.Helper()
+	consts, groups := parseChatBlockTypeConsts(t)
+	used := scanChatBlockTypeUses(t)
+
+	group := ""
+	for _, name := range used {
+		owner, ok := consts[name]
+		require.True(t, ok,
+			"%s 里有构造点把 %s 写进 %s.%s,但它不是本包里一个 `Name = \"字面量\"` 形态的常量,"+
+				"生成器取不到值", chatSvcRel, name, chatBlockTypeName, chatBlockTypeField)
+		if group == "" {
+			group = owner
+			continue
+		}
+		require.Equal(t, group, owner,
+			"视图词表被拆到了多个 const 块(%s 与 %s)。整张表必须留在一个块里,"+
+				"否则「这张表有哪些格」就没有一个可读的答案", group, owner)
+	}
+	require.NotEmpty(t, group, "没在 %s 扫到任何 ChatBlock{%s: …} 构造点,扫描逻辑本身坏了",
+		chatSvcRel, chatBlockTypeField)
+	return groups[group]
 }
 
 // ── Prettier 形态的行渲染 ───────────────────────────────────────────────────
@@ -905,6 +972,140 @@ func singleStringReturn(fd *ast.FuncDecl) (string, bool) {
 	return v, err == nil
 }
 
+// ── AST:本仓的视图块类型词表 ──────────────────────────────────────────────
+
+// parseChatBlockTypeConsts 读出 chat_svc 包里全部 `Name = "字面量"` 形态的常量,
+// 按声明它们的 const 块分组;返回 (常量名 → 组键, 组键 → 组内声明序的词条)。
+//
+// 只认**无类型**字符串常量:ChatBlock.Type 的 Go 类型是 string(必须保持,否则
+// wails 生成的 models.ts 会跟着变),词表常量因此只能是无类型的才赋得进去。带类型
+// 的常量(如 ChatStreamEventKind 那一组)天然赋不进 Type,自然也不可能是词表成员。
+//
+// 组键取该块里第一个常量的名字 —— 不需要位置信息就能稳定区分两个 const 块,
+// 失败信息里也读得懂。
+func parseChatBlockTypeConsts(t *testing.T) (owner map[string]string, groups map[string][]chatBlockTypeDecl) {
+	t.Helper()
+	owner = map[string]string{}
+	groups = map[string][]chatBlockTypeDecl{}
+	parseGoPackage(t, filepath.Join(repoRoot(t), chatSvcRel), func(f *ast.File) {
+		for _, d := range f.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			key := ""
+			for _, s := range gd.Specs {
+				name, decl, ok := untypedStringConst(gd, s)
+				if !ok {
+					continue
+				}
+				if key == "" {
+					key = name
+				}
+				owner[name] = key
+				groups[key] = append(groups[key], decl)
+			}
+		}
+	})
+	return owner, groups
+}
+
+// untypedStringConst 把一条 `Name = "字面量"` 的 ValueSpec 读成词条;形态不符返回 false。
+func untypedStringConst(gd *ast.GenDecl, s ast.Spec) (string, chatBlockTypeDecl, bool) {
+	vs, ok := s.(*ast.ValueSpec)
+	if !ok || vs.Type != nil || len(vs.Names) != 1 || len(vs.Values) != 1 {
+		return "", chatBlockTypeDecl{}, false
+	}
+	lit, ok := vs.Values[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", chatBlockTypeDecl{}, false
+	}
+	v, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", chatBlockTypeDecl{}, false
+	}
+	doc := docText(vs.Doc, gd.Doc, len(gd.Specs))
+	if doc == "" && vs.Comment != nil {
+		doc = strings.TrimRight(vs.Comment.Text(), "\n")
+	}
+	name := vs.Names[0].Name
+	return name, chatBlockTypeDecl{name: name, value: v, doc: doc}, true
+}
+
+// scanChatBlockTypeUses 扫 chat_svc 包,返回全部 ChatBlock{Type: …} 构造点写进去的
+// 常量名(按出现序,可能重复)。
+//
+// 扫的是**构造动作**而不是常量声明 —— 与 scanBlockTypeRegistrations 同一条思路:
+// 声明了却没人往 ChatBlock 里写的常量不是词表成员,而写进去了却没有常量的值更是
+// 本轮要消灭的那种漂移。两条要求一并在这里钉死:
+//
+//   - 每个 ChatBlock 复合字面量都必须显式给 Type —— 漏了会发出 type:"" 的块,
+//     消费方的 switch 静默落进 default;
+//   - Type 的值必须是标识符,不能是裸字符串字面量。
+//
+// 只扫 chat_svc 包本身(parseGoPackage 不进子目录):chat_svc/view 里另有一个同名的
+// view.ChatBlock,是 replay 投影的精简兄弟,当前**没有任何生产调用方**,不在本词表的
+// 真理范围内。它哪天活过来,得先决定它到底发不发给前端,再回来改这里。
+func scanChatBlockTypeUses(t *testing.T) []string {
+	t.Helper()
+	var used []string
+	parseGoPackage(t, filepath.Join(repoRoot(t), chatSvcRel), func(f *ast.File) {
+		ast.Inspect(f, func(n ast.Node) bool {
+			cl, ok := n.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			if arr, ok := cl.Type.(*ast.ArrayType); ok {
+				if id, ok := arr.Elt.(*ast.Ident); ok && id.Name == chatBlockTypeName {
+					require.Empty(t, cl.Elts,
+						"%s 里出现了带元素的 []%s{…} 字面量:元素类型是隐式的,扫描器读不到它的 %s,"+
+							"请改成逐个 %s{…} 构造", chatSvcRel, chatBlockTypeName, chatBlockTypeField, chatBlockTypeName)
+				}
+				return true
+			}
+			id, ok := cl.Type.(*ast.Ident)
+			if !ok || id.Name != chatBlockTypeName {
+				return true
+			}
+			used = append(used, chatBlockTypeValue(t, cl))
+			return true
+		})
+	})
+	return used
+}
+
+// chatBlockTypeValue 取一个 ChatBlock 复合字面量里 Type 字段写入的常量名。
+func chatBlockTypeValue(t *testing.T, cl *ast.CompositeLit) string {
+	t.Helper()
+	for _, e := range cl.Elts {
+		kv, ok := e.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok || key.Name != chatBlockTypeField {
+			continue
+		}
+		if id, ok := kv.Value.(*ast.Ident); ok {
+			return id.Name
+		}
+		lit, isLit := kv.Value.(*ast.BasicLit)
+		require.False(t, isLit && lit.Kind == token.STRING,
+			"%s.%s 被赋了裸字符串字面量 %s —— 视图词表的每一格都必须是 chat_block_type.go 里的具名常量,"+
+				"否则它对生成器不存在、对两个前端也只是又一处手抄。改完重新生成:\n\t%s",
+			chatBlockTypeName, chatBlockTypeField, lit.Value, tsRegenCmd)
+		require.FailNow(t,
+			"生成器读不出词表成员",
+			"%s.%s 被赋了一个既不是具名常量也不是字面量的表达式;词表必须是可穷举的",
+			chatBlockTypeName, chatBlockTypeField)
+		return ""
+	}
+	require.FailNow(t, "构造点漏了判别值",
+		"%s 里有一处 %s{…} 没有显式给 %s,它会发出 type:\"\" 的块,消费方的 switch 静默落进 default",
+		chatSvcRel, chatBlockTypeName, chatBlockTypeField)
+	return ""
+}
+
 // docText 取 spec 自己的注释;没有且整个 GenDecl 只声明一项时退回块注释。
 func docText(own, block *ast.CommentGroup, blockSpecs int) string {
 	if own != nil {
@@ -921,9 +1122,10 @@ func docText(own, block *ast.CommentGroup, blockSpecs int) string {
 // tsGenHeader 每个产物的文件头:出处 + 禁止手改 + 重新生成命令 + 边界与格式约定。
 //
 // truth 是这份产物的真理源,boundary 是它与「只追 wire 包内类型」那条边界的关系 ——
-// 两份 wire 产物(codec / constants)守着边界,event-kinds.gen.ts 与
-// block-types.gen.ts 是仅有的两处刻意例外,理由各自写在自己的头里
-// (见 tsEventKindBoundary / tsBlockTypeBoundary)。
+// 两份 wire 产物(codec / constants)守着边界,另外三份各自越界,理由写在自己的头里:
+// event-kinds.gen.ts 与 block-types.gen.ts 追的是 wire 上唯一有类型意义的判别值
+// (见 tsEventKindBoundary / tsBlockTypeBoundary);chat-block-types.gen.ts 性质不同,
+// 它讲的根本不是 wire(见 tsChatBlockTypeBoundary)。
 func tsGenHeader(what string, truth, boundary []string) []string {
 	out := []string{
 		"/**",
@@ -977,7 +1179,8 @@ func tsEventKindTruth() []string {
 func tsEventKindBoundary() []string {
 	return []string{
 		" * 边界例外:codec / constants 两份产物守的规矩是「wire 包之外的类型一律",
-		" * unknown」,这一份与 block-types.gen.ts 是仅有的两处刻意例外。理由:",
+		" * unknown」,这一份与 block-types.gen.ts 是仅有的两处刻意例外",
+		" * (chat-block-types.gen.ts 不在此列 —— 它讲的根本不是 wire)。理由:",
 		" *",
 		" * EventFrame.event 在 Go 侧是 json.RawMessage —— 载荷对 wire 完全不透明,",
 		" * 生成器对它只能给出 unknown。整条事件流里唯一有类型意义的东西就是这个",
@@ -1036,7 +1239,8 @@ func tsBlockTypeTruth() []string {
 func tsBlockTypeBoundary() []string {
 	return []string{
 		" * 边界例外:codec / constants 两份产物守的规矩是「wire 包之外的类型一律",
-		" * unknown」,这一份与 event-kinds.gen.ts 是仅有的两处刻意例外。理由:",
+		" * unknown」,这一份与 event-kinds.gen.ts 是仅有的两处刻意例外",
+		" * (chat-block-types.gen.ts 不在此列 —— 它讲的根本不是 wire)。理由:",
 		" *",
 		" * StoredBlock 在 Go 侧是 {type, data},data 是 json.RawMessage —— 载荷对",
 		" * wire 完全不透明,生成器对它只能给出 unknown。HistoryMessageWire.blocks",
@@ -1082,6 +1286,89 @@ func renderTSBlockTypes(vocab []string) string {
 			tail = ";"
 		}
 		lines = append(lines, "  | typeof "+tsBlockTypeConstName(v)+tail)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// tsChatBlockTypeTruth / tsChatBlockTypeBoundary 是视图块类型词表产物的头部段落。
+//
+// 边界那段是这份产物**最要紧**的内容 —— 前三份产物讲的都是「为什么可以越界去追
+// 一个 wire 包外的类型」,这一份要讲的是另一件事:它压根不在 wire 上,以及真理
+// 边界为什么画在「Go 发得出什么」而不是「前端能收到什么」。
+func tsChatBlockTypeTruth() []string {
+	return []string{
+		" * 真理源:  internal/service/chat_svc 的 chat_block_type.go",
+		" *          (成员由 AST 反查 ChatBlock{Type: …} 构造点得出,",
+		" *           生成器里没有任何手抄清单)",
+	}
+}
+
+func tsChatBlockTypeBoundary() []string {
+	return []string{
+		" * 边界:这是第三份越出 wire 包的产物,而且与前两份**性质不同**,值得先看清:",
+		" *",
+		" * event-kinds / block-types 越界的理由是「它就在 wire 上,而且是那条链路上",
+		" * 唯一有类型意义的东西」。这一份不是 —— ChatBlock 根本不在 agentre ↔ agentred",
+		" * 的 wire 上,它是 backend → 前端这一跳(桌面走 wails binding、web 控制台走",
+		" * HTTP)的视图 DTO。它放在这个包里只有一个理由:这里是本仓 Go → TS 单向生成",
+		" * 唯一的那道缝,而这份词表同样有两个前端在手抄。**别把它读成 wire 协议的一部分。**",
+		" *",
+		" * 与 block-types.gen.ts 不是同一张表(两份都导出,别混用):那份是",
+		" * blocks.StoredBlock.type,持久化 / 跨进程的判别值;这份是 ChatBlock.type,",
+		" * 视图判别值。chat_svc 的投影正是两者之间的翻译 —— 重命名(user_ask →",
+		" * ask_user_question、tool_permission → tool_permission_request)、多对一折叠",
+		" * (nested_tool_use 与 tool_use 都落成 tool_use)、整类丢弃(subagent_state",
+		" * 合进外层 tool_use 块,permission_mode_change 直接 skip)。同名的那几格",
+		" * (text / thinking / plan …)是投影恰好没改名,不是同一个真理。",
+		" *",
+		" * 真理边界画在「Go 发得出什么」:本词表 = chat_svc 的投影能写进 ChatBlock.type",
+		" * 的全部取值,一格不多、一格不少。前端的 TranscriptBlock.type 今天比它多一格",
+		" * \"raw\" —— 那是 peer-transcript.ts 自产的降级形态(认不出的 peer 事件帧原样",
+		" * JSON 塞进去),Go 从不发它,它的真理本来就该留在产它的那一侧。所以消费方收窄时",
+		" * **不要**直接拿 ChatBlockType 当 TranscriptBlock.type 的类型,而应写成",
+		" * ChatBlockType | <前端自产的那几格>,让每一格的真理留在产它的那一侧。",
+		" *",
+		" * 一个容易踩的坑:\"unknown\" 在本词表里 —— 它是 **Go 侧**的降级形态(投影认不出",
+		" * 的持久化块,原判别值放在 .raw.kind)。它与前端自产的 \"raw\" 长得像、所有者不同,",
+		" * 别合并成一格。",
+	}
+}
+
+// tsChatBlockTypeUnionDoc 是视图词表联合类型的 JSDoc —— 解释它为什么存在,而不是复述定义。
+const tsChatBlockTypeUnionDoc = `全部视图块类型判别值的联合类型(= Go 的 chat_svc.ChatBlock.type 取值域)。
+
+消费方把手上的 type 收窄成这个类型之后,在 switch 的 default 分支写一句
+const _: never = type,「Go 的投影新增了一个视图块类型」就成了消费方的编译期
+错误。今天后端加一格,桌面端与 web 控制台的 switch 都不会有任何信号。
+
+注意它**不等于**前端的 TranscriptBlock.type:后者还多一格前端自产的 "raw"
+(peer-transcript.ts)。收窄时写 ChatBlockType | typeof … 组合,别直接替换。`
+
+// renderTSChatBlockTypes 渲染视图块类型词表产物:逐条常量(带 Go 文档注释)+ 一个联合类型。
+//
+// 与 block-types.gen.ts 的一处不同:那份的判别值来自运行时注册表,拿不到声明处的
+// 文档注释,索性一条都不带;这一份是 AST 读源码,每一格的注释都在,照搬过来。
+func renderTSChatBlockTypes(vocab []chatBlockTypeDecl) string {
+	lines := tsGenHeader(
+		"视图块类型词表:chat_svc.ChatBlock 的 type 判别值的全部取值。",
+		tsChatBlockTypeTruth(), tsChatBlockTypeBoundary(),
+	)
+	for _, c := range vocab {
+		lines = append(lines, "")
+		lines = append(lines, tsDocComment(0, c.doc)...)
+		lines = append(lines, "export const "+c.name+" = "+strconv.Quote(c.value)+";")
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, tsDocComment(0, tsChatBlockTypeUnionDoc)...)
+	// Prettier 对放不下一行的联合类型的形态:`=` 后换行,每支一行、前置 `|`。
+	lines = append(lines, "export type ChatBlockType =")
+	for i, c := range vocab {
+		tail := ""
+		if i == len(vocab)-1 {
+			tail = ";"
+		}
+		lines = append(lines, "  | typeof "+c.name+tail)
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -1308,6 +1595,7 @@ func buildTSSources(t *testing.T) []tsSource {
 		{name: "codec.gen.ts", content: renderTSCodec(t, decls)},
 		{name: "event-kinds.gen.ts", content: renderTSEventKinds(parseEventKindDecls(t))},
 		{name: "block-types.gen.ts", content: renderTSBlockTypes(blockTypeVocabulary(t))},
+		{name: "chat-block-types.gen.ts", content: renderTSChatBlockTypes(chatBlockTypeVocabulary(t))},
 	}
 }
 
@@ -1429,6 +1717,65 @@ func TestTSGenCoversBlockTypes(t *testing.T) {
 			"挪进 chat_svc/blocks(那里 import 得进来),挪不动再更新 blockTypeCycleBound;\n"+
 			"少掉的:某个原本够不着的块类型现在够得着了,回去把 blockTypeCycleBound 那段\n"+
 			"注释一起改掉。改完重新生成:\n\t%s", tsRegenCmd)
+}
+
+// TestTSGenCoversChatBlockTypes 完整性守卫:视图块类型词表。
+//
+// 这条守卫与前三条的机制又不同,原因值得写清楚:
+//
+//   - wire 结构 / EventKind 的守卫是「AST 读源码 vs 生成器里的手抄清单」二者相比 ——
+//     漏登记一格就变红。
+//   - 块类型的守卫要把进程跑起来问运行时注册表,因为源码里根本没有一张可读的表。
+//   - 视图词表两样都不是:源码里有表(chat_block_type.go 的 const 块),但生成器
+//     **够不着**它 —— 本文件是 wire 包的包内测试,而 chat_svc 传递依赖 wire,
+//     import 它直接 import cycle(与 blockTypeCycleBound 同一条约束)。所以词表
+//     只能由 AST 读出,生成器里连清单都没有,也就没有「漏登记」这种失败模式。
+//
+// 那这条守卫守的是什么?**构造点与词表的自洽**,一共三件事:
+//
+//  1. 每个 ChatBlock{…} 都显式给了 Type —— 漏了会发出 type:"" 的块;
+//  2. 每个 Type 写的都是具名常量而不是裸字面量 —— 裸字面量对生成器不存在,
+//     等于又开一处手抄;
+//  3. 词表那个 const 块与构造点实际用到的常量集合**完全相等** —— 多一格是死词条
+//     (产物里凭空多一个前端永远收不到的值),少一格根本进不来。
+//
+// 于是「Go 侧新增一个视图块类型」这条路上没有静默出口:写裸字面量 → 第 2 条红;
+// 加常量并用上 → 词表变了 → TestGeneratedTSFresh 红;加了常量却没用 → 第 3 条红。
+func TestTSGenCoversChatBlockTypes(t *testing.T) {
+	consts, _ := parseChatBlockTypeConsts(t)
+	require.NotEmpty(t, consts, "没从 %s 扫到任何无类型字符串常量,扫描逻辑本身坏了", chatSvcRel)
+
+	// 第 1、2 条在扫描时就地 require;这里拿到的是干净的使用集。
+	used := scanChatBlockTypeUses(t)
+	require.NotEmpty(t, used, "没在 %s 扫到任何 %s{%s: …} 构造点,扫描逻辑本身坏了",
+		chatSvcRel, chatBlockTypeName, chatBlockTypeField)
+
+	vocab := chatBlockTypeVocabulary(t)
+	declared := make([]string, 0, len(vocab))
+	values := make([]string, 0, len(vocab))
+	seen := map[string]string{}
+	for _, c := range vocab {
+		declared = append(declared, c.name)
+		values = append(values, c.value)
+		require.NotEmpty(t, c.value, "词表常量 %s 的值是空串,它会发出一个 type:\"\" 的块", c.name)
+		prev, dup := seen[c.value]
+		require.False(t, dup, "词表里 %s 与 %s 的值都是 %q,联合类型会出现重复分支;"+
+			"同一个判别值只该有一个名字", prev, c.name, c.value)
+		seen[c.value] = c.name
+	}
+
+	sortedUsed := append([]string(nil), used...)
+	sort.Strings(sortedUsed)
+	require.ElementsMatch(t, declared, dedupe(sortedUsed),
+		"视图词表的 const 块与 %s{%s: …} 构造点实际用到的常量对不上。\n"+
+			"多出来的:死词条 —— 产物里会凭空多一个前端永远收不到的值,删掉它或者把它用上;\n"+
+			"少掉的:某个常量声明在了别的 const 块里 —— 整张表必须留在一个块里。\n"+
+			"改完重新生成:\n\t%s", chatBlockTypeName, chatBlockTypeField, tsRegenCmd)
+
+	// 扫描器坏掉(ChatBlock 改名、构造点换形态)会扫出空集或残集,而空集在上面
+	// 每一条断言里都是"通过"。这条锚把那种静默缩水挡住。
+	require.Subset(t, values, chatBlockTypeAnchors,
+		"视图词表里少了必然存在的几格 %v,多半是扫描器本身坏了而不是词表真的变了", chatBlockTypeAnchors)
 }
 
 // dedupe 去重(输入需已排序)。

@@ -12,7 +12,8 @@
  *   WIRE_TS_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteTSCodec
  *
  * 边界例外:codec / constants 两份产物守的规矩是「wire 包之外的类型一律
- * unknown」,这一份与 event-kinds.gen.ts 是仅有的两处刻意例外。理由:
+ * unknown」,这一份与 event-kinds.gen.ts 是仅有的两处刻意例外
+ * (chat-block-types.gen.ts 不在此列 —— 它讲的根本不是 wire)。理由:
  *
  * StoredBlock 在 Go 侧是 {type, data},data 是 json.RawMessage —— 载荷对
  * wire 完全不透明,生成器对它只能给出 unknown。HistoryMessageWire.blocks
