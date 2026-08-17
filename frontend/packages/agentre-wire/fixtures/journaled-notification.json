@@ -1,0 +1,11 @@
+{
+  "seq": 11,
+  "method": "runtime.event",
+  "params": {
+    "sessionId": 42,
+    "event": {
+      "kind": "text_delta",
+      "text": "你好"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": -32014,
+    "message": "session not found"
+  },
+  "id": 2,
+  "jsonrpc": "2.0"
+}

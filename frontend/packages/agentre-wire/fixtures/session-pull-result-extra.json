@@ -1,0 +1,20 @@
+{
+  "cursor": 1,
+  "hasMore": true,
+  "notifications": [
+    {
+      "method": "runtime.event",
+      "params": {
+        "event": {
+          "kind": "text_delta",
+          "text": "你好"
+        },
+        "seq": 1,
+        "sessionId": 42
+      },
+      "seq": 1
+    }
+  ],
+  "oldestSeq": 1,
+  "serverVersion": "1.2.3"
+}

@@ -1,0 +1,13 @@
+{
+  "sessionId": 42,
+  "agentId": 7,
+  "title": "重构登录页",
+  "agentSyncId": "01JZ7W2A8KZ4R5T6Y7U8I9O0P1Q",
+  "providerSessionId": "sess_abc123",
+  "cwd": "/home/agent/proj",
+  "backendType": "claudecode",
+  "lifecycleState": "running",
+  "waitingForInput": true,
+  "latestSeq": 12,
+  "updatedAt": 1754800000000
+}

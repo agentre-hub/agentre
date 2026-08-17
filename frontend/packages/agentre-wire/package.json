@@ -1,0 +1,14 @@
+{
+  "name": "@agentre-ai/agentre-wire",
+  "version": "0.1.0",
+  "description": "Agentre wire 协议黄金样本：Go 生成器产出的真实帧，供跨端 TS 编解码做对照基准",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./fixtures/*.json": "./fixtures/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "fixtures"
+  ]
+}

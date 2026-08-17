@@ -62,6 +62,24 @@ cd frontend/packages/agentre-ui && pnpm test    # the package's own suite
 
 The host's vitest run also collects `packages/`, so `cd frontend && pnpm test` covers both.
 
+## Shared Wire Fixtures Package (`@agentre-ai/agentre-wire`)
+
+`frontend/packages/agentre-wire` publishes the **golden samples** of the agentre ↔ agentred wire protocol: 24 real frames serialized by the Go marshaler, which a browser-side TS codec asserts itself against field by field. Where it sits in the layering is [architecture.md](./architecture.md#the-shared-frontend-package-agentre-aiagentre-ui)'s; this section owns the rules.
+
+It is **pure data** — no runtime dependency, no build step, no `src/`. `exports` points straight at the JSON:
+
+| Entry | Contents |
+| --- | --- |
+| `@agentre-ai/agentre-wire/fixtures/<name>.json` | one golden frame, imported directly by a consumer's test |
+
+**Do not hand-edit a fixture, and do not add a dependency to this package.** The samples are generated output; the generator is `internal/pkg/agentruntime/runtimes/remote/wire/golden_test.go`, which owns both the frame list and the file names. Adding a frame type means adding a sample there, then regenerating:
+
+```bash
+WIRE_GOLDEN_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteGoldenSamples
+```
+
+Writing is deliberately an explicit action, so a plain `make test-backend` never dirties the working tree. **Staleness is caught mechanically**: `TestGoldenFixturesFresh` always runs, regenerates into a temp dir, and compares the file set plus every byte against the committed copies — so changing a Go struct's JSON shape without regenerating turns the build red instead of silently leaving the consumer decoding an obsolete shape. The guard is self-contained within this repository and never reads a sibling checkout.
+
 ## Project Structure
 
 - `frontend/components.json` defines the aliases: `@/components`, `@/lib/utils`, `@/components/ui`, `@/lib`, `@/hooks`.

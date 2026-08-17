@@ -1,0 +1,10 @@
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "method": "runtime.session.pull",
+  "params": {
+    "sessionId": 42,
+    "cursor": 0,
+    "limit": 200
+  }
+}

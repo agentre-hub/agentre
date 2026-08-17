@@ -1,0 +1,10 @@
+{
+  "backend": {
+    "backendType": "claudecode"
+  },
+  "agentId": 7,
+  "sessionId": 42,
+  "cwd": "/home/agent/proj",
+  "freshSession": true,
+  "permissionMode": "default"
+}

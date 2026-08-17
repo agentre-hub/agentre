@@ -1,0 +1,17 @@
+{
+  "sessionId": 42,
+  "providerSessionId": "sess_abc123",
+  "usage": {
+    "promptTokens": 100,
+    "completionTokens": 50,
+    "reasoningTokens": 10,
+    "cachedTokens": 5,
+    "cacheCreationTokens": 2,
+    "totalTokens": 155
+  },
+  "userAnchor": "anchor-1",
+  "model": "claude-sonnet-4-5",
+  "contextWindow": 200000,
+  "turnToken": 9,
+  "seq": 12
+}
