@@ -22,15 +22,18 @@ export type SessionRowModel = {
   selected?: boolean;
   status: AgentStatus;
   title: string;
-  trailingLabel: string;
+  trailingLabel?: string;
   attentionRank?: SessionAttentionRank;
   /**
-   * 行首插槽与第二行。它们是**这一行显示什么**的一部分（`trailingLabel` 已经是一个
-   * 拼好的字符串，同理），所以留在行模型里而不是另开一个 render prop —— 宿主本来
-   * 就是逐行投影出这个模型的。见 `SessionRowProps` 上的说明。
+   * 行首 / 第二行 / 行尾三个插槽。它们是**这一行显示什么**的一部分（`trailingLabel`
+   * 已经是一个拼好的字符串，同理），所以留在行模型里而不是另开一个 render prop ——
+   * 宿主本来就是逐行投影出这个模型的。见 `SessionRowProps` 上的说明，尤其是
+   * `trailing`（链接内）与 `rowActions`（链接外）为什么必须分成两个。
    */
   leading?: import("react").ReactNode;
   secondaryLabel?: string;
+  trailing?: import("react").ReactNode;
+  rowActions?: import("react").ReactNode;
   /**
    * 行的目标地址。给了就把行渲染成链接而不是按钮 —— 浏览器宿主靠它保住
    * 中键 / ⌘ 点击 / 「复制链接地址」。桌面端不给（点击是开标签页，没有地址可言）。

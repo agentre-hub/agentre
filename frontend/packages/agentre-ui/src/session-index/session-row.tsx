@@ -36,7 +36,11 @@ type SessionRowProps = Omit<React.ComponentProps<"button">, "onClick"> & {
   selected?: boolean;
   status: AgentStatus;
   title: string;
-  trailingLabel: string;
+  /**
+   * 行尾的短标签，按状态着色。不给就**不渲染** —— 给一个空串会留下一个占位的空
+   * span，让行尾的间距凭空多一段。
+   */
+  trailingLabel?: string;
   onClick?: React.MouseEventHandler<HTMLElement>;
   /**
    * 行首插槽，紧跟在状态点之后。索引按一维分组时用它放**另一维**：按项目分组时是
@@ -52,6 +56,25 @@ type SessionRowProps = Omit<React.ComponentProps<"button">, "onClick"> & {
    * 会话行第二行是「设备 · 后端」。内容由宿主拼，包不认识它的语义。
    */
   secondaryLabel?: string;
+  /**
+   * 行尾插槽，在 `trailingLabel` 之后、**仍在链接/按钮之内**。
+   *
+   * 与 `trailingLabel` 的分工是「字符串 vs 元素」：桌面端行尾只有一个按状态着色的
+   * 短标签，agentre-server 要的是 `<time dateTime>`（保住语义标签与 hover 完整时刻）
+   * 加一枚移动端状态徽标。放在链接内 = 点它和点行其余部分一样跳转。
+   */
+  trailing?: React.ReactNode;
+  /**
+   * 行尾的**可交互**元素，渲染在链接/按钮**之外**。
+   *
+   * 这一条和 `trailing` 分成两个槽的原因是硬的：`<button>` 不能嵌在 `<a>` 里 ——
+   * HTML 不允许，浏览器对嵌套可交互元素的行为也说不清。agentre-server 的关注开关
+   * 因此必须是链接的兄弟节点（它自己的 SessionList 本来就是这么排的）。
+   *
+   * 不传时行的 DOM 一层不多 —— 桌面端的行由 SessionGroup 直接排列，凭空多一层
+   * flex 容器会改掉它的间距。
+   */
+  rowActions?: React.ReactNode;
   /**
    * 行的目标地址。给了就渲染成链接而不是按钮。
    *
@@ -81,6 +104,8 @@ function SessionRow({
   renderLink,
   leading,
   secondaryLabel,
+  trailing,
+  rowActions,
   onClick,
   onOpenInNewTab,
   onRenameSession,
@@ -95,7 +120,9 @@ function SessionRow({
   );
 
   const rowClassName = cn(
-    "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors hover:bg-sidebar-active-bg focus-visible:ring-[3px] focus-visible:ring-ring/50",
+    "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors hover:bg-sidebar-active-bg focus-visible:ring-[3px] focus-visible:ring-ring/50",
+    // 有行尾操作时行成为 flex 子项，宽度交给容器；否则照旧独占一行。
+    rowActions ? "min-w-0 flex-1" : "w-full",
     selected && "bg-primary-soft text-primary-text",
     className,
   );
@@ -127,14 +154,17 @@ function SessionRow({
       />
       {leading}
       {titleColumn}
-      <span
-        className={cn(
-          "shrink-0 font-mono text-2xs",
-          selected ? "text-primary-text" : config.textClassName,
-        )}
-      >
-        {trailingLabel}
-      </span>
+      {trailingLabel === undefined ? null : (
+        <span
+          className={cn(
+            "shrink-0 font-mono text-2xs",
+            selected ? "text-primary-text" : config.textClassName,
+          )}
+        >
+          {trailingLabel}
+        </span>
+      )}
+      {trailing}
     </>
   );
 
@@ -173,9 +203,7 @@ function SessionRow({
     row = renderLink ? renderLink(linkProps) : <a {...linkProps} />;
   }
 
-  if (!hasContextMenu) return row;
-
-  return (
+  const withMenu = hasContextMenu ? (
     <ContextMenu>
       <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
       <ContextMenuContent>
@@ -194,6 +222,17 @@ function SessionRow({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  ) : (
+    row
+  );
+
+  if (!rowActions) return withMenu;
+
+  return (
+    <div className="flex w-full items-center gap-1">
+      {withMenu}
+      {rowActions}
+    </div>
   );
 }
 

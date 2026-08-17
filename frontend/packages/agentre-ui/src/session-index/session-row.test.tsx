@@ -186,3 +186,70 @@ describe("SessionRow slots", () => {
     expect(link.textContent).toContain("row two");
   });
 });
+
+/**
+ * 行尾的两个插槽。**它们是两个而不是一个，原因是硬的**：`<button>` 不能嵌在
+ * `<a>` 里（HTML 不允许，浏览器行为也说不清），而 agentre-server 的行尾同时有
+ * 「相对时间」这种可以在链接里的东西，和「关注开关」这种必须在链接外的按钮。
+ *
+ * 所以按**位置**分：`trailing` 在链接/按钮内（跟着行一起跳转），`rowActions` 在它外
+ * （自己是可交互元素）。
+ */
+describe("SessionRow trailing slots", () => {
+  it("Given a trailing node on a link row, When it renders, Then it sits inside the link (clicking it navigates like the rest of the row)", () => {
+    render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        href="/s/1"
+        trailing={<time dateTime="2026-08-17T00:00:00Z">5m ago</time>}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: /session-1/ });
+    expect(link.querySelector("time")).not.toBeNull();
+  });
+
+  it("Given row actions, When the row renders, Then they sit OUTSIDE the link — a button nested in an anchor is invalid HTML", () => {
+    render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        href="/s/1"
+        rowActions={
+          <button type="button" aria-label="Follow">
+            ★
+          </button>
+        }
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: /session-1/ });
+    const follow = screen.getByRole("button", { name: "Follow" });
+    expect(link.contains(follow)).toBe(false);
+    expect(follow).toBeTruthy();
+  });
+
+  it("Given neither slot, When the row renders, Then the DOM keeps its old single-element shape (no wrapper for hosts that never asked for one)", () => {
+    const { container } = render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        trailingLabel="5m"
+        href="/s/1"
+      />,
+    );
+
+    // 没有 rowActions 就不该多一层 flex 容器 —— 桌面端的行是 SessionGroup 直接
+    // 排列的，凭空多一层会改变它的间距。
+    expect(container.firstElementChild?.tagName).toBe("A");
+  });
+
+  it("Given no trailingLabel, When the row renders, Then no empty label span is emitted", () => {
+    const { container } = render(
+      <SessionRow status="idle" title="session-1" />,
+    );
+
+    expect(container.textContent).toBe("session-1");
+  });
+});
