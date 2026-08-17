@@ -44,10 +44,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
 )
 
 // tsGenRel 生成产物在本仓里的位置(相对仓库根)—— @agentre-ai/agentre-wire 的 src/。
 const tsGenRel = "frontend/packages/agentre-wire/src"
+
+// agentruntimeRel 是 agentruntime 包在本仓里的位置(相对仓库根)。
+// 只为 EventKind 词表而定 —— 破例的理由见 tsEventKindDecls。
+const agentruntimeRel = "internal/pkg/agentruntime"
 
 // tsRegenCmd 产物过期时重新生成的确切命令,原样出现在守卫的失败信息里。
 const tsRegenCmd = "WIRE_TS_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteTSCodec"
@@ -152,6 +158,70 @@ func tsConstDecls() []tsConstDecl {
 		{"SessionLifecycleInterrupted", SessionLifecycleInterrupted},
 		{"DefaultSessionPullLimit", DefaultSessionPullLimit},
 		{"MaxSessionPullLimit", MaxSessionPullLimit},
+	}
+}
+
+// eventKindTypeName 是词表常量在 agentruntime 里的类型名 —— AST 据此把 EventKind
+// 常量从该包的其它常量里筛出来。
+const eventKindTypeName = "EventKind"
+
+// tsEventKindDecl 一条 EventKind 词表项。value 的类型就是 agentruntime.EventKind,
+// 所以往清单里塞一个不是 EventKind 的东西直接编译不过。
+type tsEventKindDecl struct {
+	name  string
+	value agentruntime.EventKind
+}
+
+// tsEventKindDecls 是要导出到 TS 的 agentruntime.EventKind 词表。
+//
+// **这是「只追 wire 包内类型」那条边界唯一的、刻意的例外。** 破例的理由要成立到
+// 这个程度才配:
+//
+//   - EventFrame.Event 在 Go 侧是 json.RawMessage —— 载荷对 wire 完全不透明,
+//     生成器对它只能给出 unknown。整条事件流里**唯一有类型意义的东西就是那个
+//     kind 判别值**,而它恰恰是 agentre ↔ agentred 之间的契约本身。词表留在包外,
+//     等于契约里唯一可校验的那一格没有任何机械保证。
+//   - agentruntime 是 wire 包的**直接依赖**(wire.go 已经在用它的 TurnKind /
+//     MCPServerSpec / Goal),不是第三方模块,追它不打穿分层。
+//   - EventKind 是一张编译期常量表,AST 能完整枚举 —— 这是完整性守卫
+//     (TestTSGenCoversEventKinds)成立的前提。换成运行时注册表填充的词表
+//     (如 blocks.StoredBlock.Type)就没有这个前提,不能照搬这套机制。
+//
+// 例外**到此为止**:这不是「凡是 agentruntime 的东西都生成」的先例。别的
+// agentruntime 类型仍然一律 unknown —— 它们大多没有 JSON tag,追进去等于凭空
+// 发明一份新契约(理由见 isWireStruct)。
+//
+// 清单的完整性由 TestTSGenCoversEventKinds 机械保证,不靠人记得回来加一行。
+// 排列顺序跟着 runner.go 的声明序走(产物因此能与 runner.go 并排对读),
+// event_wire.go 补登的那条排在最后。
+func tsEventKindDecls() []tsEventKindDecl {
+	return []tsEventKindDecl{
+		{"EventTextDelta", agentruntime.EventTextDelta},
+		{"EventThinkingDelta", agentruntime.EventThinkingDelta},
+		{"EventToolUseStart", agentruntime.EventToolUseStart},
+		{"EventToolUseEnd", agentruntime.EventToolUseEnd},
+		{"EventToolResult", agentruntime.EventToolResult},
+		{"EventSteerConsumed", agentruntime.EventSteerConsumed},
+		{"EventSubagentStarted", agentruntime.EventSubagentStarted},
+		{"EventSubagentProgress", agentruntime.EventSubagentProgress},
+		{"EventSubagentDone", agentruntime.EventSubagentDone},
+		{"EventSubagentModel", agentruntime.EventSubagentModel},
+		{"EventAskUserQuestion", agentruntime.EventAskUserQuestion},
+		{"EventAskUserQuestionAnswered", agentruntime.EventAskUserQuestionAnswered},
+		{"EventPlanUpdated", agentruntime.EventPlanUpdated},
+		{"EventToolPermissionRequest", agentruntime.EventToolPermissionRequest},
+		{"EventToolPermissionResolved", agentruntime.EventToolPermissionResolved},
+		{"EventExecApprovalRequested", agentruntime.EventExecApprovalRequested},
+		{"EventExecApprovalResolved", agentruntime.EventExecApprovalResolved},
+		{"EventPermissionModeChanged", agentruntime.EventPermissionModeChanged},
+		{"EventRetry", agentruntime.EventRetry},
+		{"EventUsage", agentruntime.EventUsage},
+		{"EventCompactBoundary", agentruntime.EventCompactBoundary},
+		{"EventRuntimeStatus", agentruntime.EventRuntimeStatus},
+		{"EventError", agentruntime.EventError},
+		{"EventDone", agentruntime.EventDone},
+		{"EventUserMessage", agentruntime.EventUserMessage},
+		{"EventContextWindowUpdated", agentruntime.EventContextWindowUpdated},
 	}
 }
 
@@ -405,14 +475,12 @@ type wireDecls struct {
 	constDocs   map[string]string
 }
 
-// parseWireDecls 解析本包的非测试源码(按文件名排序,保证产物顺序确定)。
-func parseWireDecls(t *testing.T) wireDecls {
+// parseGoPackage 解析一个目录下的非测试 Go 源码,按文件名序把每份 AST 交给 visit。
+// 按文件名排序是为了让产物顺序确定。
+func parseGoPackage(t *testing.T, dir string, visit func(*ast.File)) {
 	t.Helper()
-	dir, err := os.Getwd()
-	require.NoError(t, err)
-
 	entries, err := os.ReadDir(dir)
-	require.NoError(t, err, "读 wire 包目录")
+	require.NoError(t, err, "读 Go 包目录 %s", dir)
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		n := e.Name()
@@ -423,17 +491,26 @@ func parseWireDecls(t *testing.T) wireDecls {
 	}
 	sort.Strings(names)
 
+	fset := token.NewFileSet()
+	for _, n := range names {
+		f, err := parser.ParseFile(fset, filepath.Join(dir, n), nil, parser.ParseComments)
+		require.NoError(t, err, "解析 Go 源码 %s", n)
+		visit(f)
+	}
+}
+
+// parseWireDecls 解析本包的非测试源码。
+func parseWireDecls(t *testing.T) wireDecls {
+	t.Helper()
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+
 	out := wireDecls{
 		structDocs: map[string]string{},
 		fieldDocs:  map[string]map[string]string{},
 		constDocs:  map[string]string{},
 	}
-	fset := token.NewFileSet()
-	for _, n := range names {
-		f, err := parser.ParseFile(fset, filepath.Join(dir, n), nil, parser.ParseComments)
-		require.NoError(t, err, "解析 wire 包源码 %s", n)
-		collectFileDecls(f, &out)
-	}
+	parseGoPackage(t, dir, func(f *ast.File) { collectFileDecls(f, &out) })
 	return out
 }
 
@@ -499,6 +576,62 @@ func collectConstDecls(gd *ast.GenDecl, out *wireDecls) {
 	}
 }
 
+// eventKindDecls 是 AST 从 agentruntime 包源码里读出的 EventKind 词表:
+// 声明序的常量名 + 文档注释。词表分散在该包的多个文件里(runner.go 是主表,
+// event_wire.go 另有补登的 discriminator),所以扫的是整个包目录而不是某一个文件。
+type eventKindDecls struct {
+	names []string
+	docs  map[string]string
+}
+
+// parseEventKindDecls 从 agentruntime 包源码里读出全部 EventKind 常量。
+func parseEventKindDecls(t *testing.T) eventKindDecls {
+	t.Helper()
+	out := eventKindDecls{docs: map[string]string{}}
+	dir := filepath.Join(repoRoot(t), agentruntimeRel)
+	parseGoPackage(t, dir, func(f *ast.File) { collectEventKindDecls(f, &out) })
+	return out
+}
+
+// collectEventKindDecls 挑出 const 声明里类型为 EventKind 的项。
+func collectEventKindDecls(file *ast.File, out *eventKindDecls) {
+	for _, d := range file.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		// isKind 在一个 const 组里逐行推进:显式写了类型的行直接判定,省略类型的
+		// 行沿用组内上一行(Go 的隐式重复)。省略类型却自带值的行严格说是 untyped
+		// string,但它在每一个需要 EventKind 的调用点都照样能用 —— 对词表而言是
+		// 同一样东西,一并收进来才不会留下缺口。
+		isKind := false
+		for _, s := range gd.Specs {
+			vs, ok := s.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			if vs.Type != nil {
+				id, ok := vs.Type.(*ast.Ident)
+				isKind = ok && id.Name == eventKindTypeName
+			}
+			if !isKind {
+				continue
+			}
+			doc := docText(vs.Doc, gd.Doc, len(gd.Specs))
+			if doc == "" && vs.Comment != nil {
+				doc = strings.TrimRight(vs.Comment.Text(), "\n")
+			}
+			for _, id := range vs.Names {
+				if !id.IsExported() {
+					continue
+				}
+				out.names = append(out.names, id.Name)
+				out.docs[id.Name] = doc
+			}
+		}
+	}
+}
+
 // docText 取 spec 自己的注释;没有且整个 GenDecl 只声明一项时退回块注释。
 func docText(own, block *ast.CommentGroup, blockSpecs int) string {
 	if own != nil {
@@ -513,34 +646,115 @@ func docText(own, block *ast.CommentGroup, blockSpecs int) string {
 // ── 渲染 ────────────────────────────────────────────────────────────────────
 
 // tsGenHeader 每个产物的文件头:出处 + 禁止手改 + 重新生成命令 + 边界与格式约定。
-func tsGenHeader(what string) []string {
-	return []string{
+//
+// truth 是这份产物的真理源,boundary 是它与「只追 wire 包内类型」那条边界的关系 ——
+// 两份 wire 产物守着边界,event-kinds.gen.ts 是唯一一处刻意的例外,理由写在它自己
+// 的头里(见 tsEventKindBoundary)。
+func tsGenHeader(what string, truth, boundary []string) []string {
+	out := []string{
 		"/**",
 		" * " + what,
 		" *",
 		" * 本文件由 Go 生成器产出,**不要手改** —— 手改会被下一次重新生成覆盖,",
 		" * 而且 TestGeneratedTSFresh 会立刻变红。",
 		" *",
-		" * 真理源:  internal/pkg/agentruntime/runtimes/remote/wire/wire.go",
+	}
+	out = append(out, truth...)
+	out = append(out,
 		" * 生成器:  internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go",
 		" * 重新生成:",
 		" *",
-		" *   " + tsRegenCmd,
+		" *   "+tsRegenCmd,
 		" *",
-		" * 边界:wire 包**之外**的类型一律映射成 unknown。它们大多没有 JSON tag",
-		" * (按 Go 字段名裸序列化,如 agentruntime.MCPServerSpec 的 Name/URL),",
-		" * TS 侧从未为它们建过类型;追进去等于凭空发明一份新契约。",
+	)
+	out = append(out, boundary...)
+	return append(out,
 		" *",
 		" * 格式:生成器直接输出 Prettier(printWidth 80,本仓默认配置)的形态,",
 		" * 与手写代码同一套 ESLint 规则,没有整文件豁免。格式化是产物的一部分 ——",
 		" * 若放到生成之后当外部工序,「重新生成 → 逐字节比对」的守卫会永久误报。",
 		" */",
+	)
+}
+
+// tsWireTruth / tsWireBoundary 两份 wire 产物(codec / constants)共用的头部段落。
+func tsWireTruth() []string {
+	return []string{" * 真理源:  internal/pkg/agentruntime/runtimes/remote/wire/wire.go"}
+}
+
+func tsWireBoundary() []string {
+	return []string{
+		" * 边界:wire 包**之外**的类型一律映射成 unknown。它们大多没有 JSON tag",
+		" * (按 Go 字段名裸序列化,如 agentruntime.MCPServerSpec 的 Name/URL),",
+		" * TS 侧从未为它们建过类型;追进去等于凭空发明一份新契约。",
 	}
+}
+
+// tsEventKindTruth / tsEventKindBoundary 是词表产物的头部段落。边界那段把破例的
+// 理由写在产物里 —— 读到这个文件的人第一眼就该知道它为什么可以越界,以及例外
+// 到哪里为止(完整论证见 tsEventKindDecls)。
+func tsEventKindTruth() []string {
+	return []string{
+		" * 真理源:  internal/pkg/agentruntime 的 EventKind 常量",
+		" *          (runner.go 是主表,event_wire.go 另有补登的 discriminator)",
+	}
+}
+
+func tsEventKindBoundary() []string {
+	return []string{
+		" * 边界例外:另两份产物守的规矩是「wire 包之外的类型一律 unknown」,",
+		" * 这一份是**唯一刻意的例外**。理由:",
+		" *",
+		" * EventFrame.event 在 Go 侧是 json.RawMessage —— 载荷对 wire 完全不透明,",
+		" * 生成器对它只能给出 unknown。整条事件流里唯一有类型意义的东西就是这个",
+		" * kind 判别值,而它恰恰是 agentre ↔ agentred 的契约本身;把词表留在生成",
+		" * 范围之外,等于契约里唯一可校验的那一格没有任何机械保证。agentruntime",
+		" * 又是 wire 包的直接依赖(wire.go 已在用它的 TurnKind / MCPServerSpec),",
+		" * 追它不打穿分层。",
+		" *",
+		" * 例外到此为止:这不是「凡是 agentruntime 的东西都生成」的先例。",
+	}
+}
+
+// tsEventKindUnionDoc 是词表联合类型的 JSDoc —— 解释它为什么存在,而不是复述定义。
+const tsEventKindUnionDoc = `全部 kind 的联合类型(= Go 的 agentruntime.EventKind)。
+
+消费方把手上的 kind 收窄成这个类型之后,在 switch 的 default 分支写一句
+const _: never = kind,「Go 新增了一个 kind」就成了消费方的编译期错误。载荷
+本身是 json.RawMessage、无从校验,kind 是这条链路上唯一能被类型系统接住的东西。`
+
+// renderTSEventKinds 渲染 EventKind 词表产物:逐条常量 + 一个联合类型。
+func renderTSEventKinds(decls eventKindDecls) string {
+	kinds := tsEventKindDecls()
+	lines := tsGenHeader(
+		"agentruntime.EventKind 词表:EventFrame.event 载荷里 kind 判别值的全部取值。",
+		tsEventKindTruth(),
+		tsEventKindBoundary(),
+	)
+	for _, c := range kinds {
+		lines = append(lines, "")
+		lines = append(lines, tsDocComment(0, decls.docs[c.name])...)
+		lines = append(lines, "export const "+c.name+" = "+strconv.Quote(string(c.value))+";")
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, tsDocComment(0, tsEventKindUnionDoc)...)
+	// Prettier 对放不下一行的联合类型的形态:`=` 后换行,每支一行、前置 `|`。
+	lines = append(lines, "export type EventKind =")
+	for i, c := range kinds {
+		tail := ""
+		if i == len(kinds)-1 {
+			tail = ";"
+		}
+		lines = append(lines, "  | typeof "+c.name+tail)
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // renderTSConstants 渲染常量产物。
 func renderTSConstants(decls wireDecls) string {
-	lines := tsGenHeader("wire 协议常量:RPC 方法名 / 通知名 / 错误码 / 会话生命周期 / 拉取上限。")
+	lines := tsGenHeader("wire 协议常量:RPC 方法名 / 通知名 / 错误码 / 会话生命周期 / 拉取上限。",
+		tsWireTruth(), tsWireBoundary())
 	for _, c := range tsConstDecls() {
 		lines = append(lines, "")
 		lines = append(lines, tsDocComment(0, decls.constDocs[c.name])...)
@@ -598,7 +812,8 @@ func renderTSCodec(t *testing.T, decls wireDecls) string {
 		body = append(body, renderTSEncoder(name)...)
 	}
 
-	lines := tsGenHeader("wire 协议帧类型与编解码:与 wire.go 的 JSON tag 逐字段同构。")
+	lines := tsGenHeader("wire 协议帧类型与编解码:与 wire.go 的 JSON tag 逐字段同构。",
+		tsWireTruth(), tsWireBoundary())
 	lines = append(lines, "")
 	lines = append(lines, renderTSImport(used)...)
 	return strings.Join(append(lines, body...), "\n") + "\n"
@@ -756,6 +971,7 @@ func buildTSSources(t *testing.T) []tsSource {
 	return []tsSource{
 		{name: "constants.gen.ts", content: renderTSConstants(decls)},
 		{name: "codec.gen.ts", content: renderTSCodec(t, decls)},
+		{name: "event-kinds.gen.ts", content: renderTSEventKinds(parseEventKindDecls(t))},
 	}
 }
 
@@ -802,6 +1018,29 @@ func TestTSGenCoversWirePackage(t *testing.T) {
 	}
 	require.ElementsMatch(t, decls.constNames, consts,
 		"wire 包的导出常量与 tsConstDecls() 不一致,补齐清单后重新生成:\n\t%s", tsRegenCmd)
+}
+
+// TestTSGenCoversEventKinds 完整性守卫:agentruntime 声明的 EventKind 常量必须
+// 全部在 tsEventKindDecls() 里。
+//
+// 这条守卫就是把词表纳入生成的全部意义所在。此前 Go 侧加一个 kind,浏览器侧
+// **没有任何信号** —— EventFrame.Event 是 json.RawMessage,往返测试照样绿,消费方
+// 那份手抄的 kind 常量该不该多一条,从来没有人被问到过。有了它,Go 侧加常量这里
+// 直接变红,「这个 kind 该不该有真正的渲染」才成为一个必须有人回答的问题。
+//
+// 扫的是整个 agentruntime 包目录而不是 runner.go 一个文件:词表本来就分散在
+// 多个文件里(event_wire.go 补登过 EventContextWindowUpdated),盯死单个文件
+// 等于给漂移留一扇后门。
+func TestTSGenCoversEventKinds(t *testing.T) {
+	decls := parseEventKindDecls(t)
+	require.NotEmpty(t, decls.names, "没从 %s 扫到任何 EventKind 常量,扫描逻辑本身坏了", agentruntimeRel)
+
+	listed := make([]string, 0, len(tsEventKindDecls()))
+	for _, c := range tsEventKindDecls() {
+		listed = append(listed, c.name)
+	}
+	require.ElementsMatch(t, decls.names, listed,
+		"agentruntime 的 EventKind 常量与 tsEventKindDecls() 不一致,补齐清单后重新生成:\n\t%s", tsRegenCmd)
 }
 
 // TestGeneratedTSFresh 新鲜度守卫:已提交的 *.gen.ts 必须就是生成器此刻会写出的
