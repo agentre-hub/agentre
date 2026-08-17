@@ -1481,6 +1481,139 @@ func TestSession_ConcurrentBackgroundSubagentsSplitByOwner(t *testing.T) {
 	assert.Contains(t, byOwner[fakeBgSubAgentA], "sub_a2@"+fakeBgSubAgentA)
 }
 
+// drainTextWithin 同 drainText,但带时限:轮的流被喂错时 ch 永不 close,不设时限会把
+// 测试挂到 go test 的全局超时,失败信息也看不出是哪一轮饿死。
+func drainTextWithin(t *testing.T, ch <-chan Event, d time.Duration) string {
+	t.Helper()
+	var b strings.Builder
+	deadline := time.After(d)
+	for {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				return b.String()
+			}
+			if ev.Kind == EventTextDelta {
+				b.WriteString(ev.Text)
+			}
+		case <-deadline:
+			t.Fatalf("这一轮 %s 内没等到终帧(已收到文本 %q)", d, b.String())
+			return b.String()
+		}
+	}
+}
+
+// fakeUserTurnDuringSubagentActivity 复刻 sess-2974 抓到的帧序:turn1 派了一个
+// run_in_background subagent 后即 result 收尾,子 agent 在空闲态实时吐内部活动(此时
+// 活动轮占住 s.active);**活动还开着的时候**用户发了新消息,CLI 为它起主线的
+// init → assistant → result#2,这些帧的 parent_tool_use_id 全是 null。
+//
+// 主线轮结束后子 agent 继续吐活动,验证让位是干净切分而不是把子 agent 的流丢掉。
+func fakeUserTurnDuringSubagentActivity(stdin io.Reader, stdout io.Writer) {
+	const sid = "sess-userturn-during-activity"
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+	turn := 0
+	for sc.Scan() {
+		turn++
+		reply := extractTextField(sc.Text())
+		if turn == 1 {
+			writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a1","content":[{"type":"tool_use","id":%q,"name":"Agent","input":{"subagent_type":"general-purpose","description":"explore","prompt":"go","run_in_background":true}}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":%q,"content":"Async agent launched successfully. output_file: /tmp/tasks/sub.output"}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a2","content":[{"type":"text","text":"started:%s"}]}}`, reply)
+			writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+			// —— 空闲态:子 agent 内部活动开一轮活动轮,并**保持开着**(不发让位帧)——
+			writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s1","content":[{"type":"text","text":"subagent thinking"}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s2","content":[{"type":"tool_use","id":"sub_bash","name":"Bash","input":{"command":"sleep 6"}}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"system","subtype":"task_progress","task_id":"subtask","tool_use_id":%q,"subagent_type":"general-purpose"}`, fakeBgSubAgentTU)
+			continue // 回到 Scan 等用户的下一条消息:活动轮此刻仍是 s.active
+		}
+		// turn2:用户在活动轮开着时发来的消息。CLI 为它起主线一轮,帧不带 parent_tool_use_id。
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a3","content":[{"type":"text","text":"echo:%s"}]}}`, reply)
+		writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":2,"output_tokens":2}}`, sid)
+		// 主线轮收尾后子 agent 还在跑,继续吐活动 → 应另开一轮活动轮。
+		writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s3","content":[{"type":"text","text":"subagent after"}]}}`, fakeBgSubAgentTU)
+	}
+}
+
+// TestSession_UserTurnDuringSubagentActivityNotSwallowed 锁定 sess-2974:后台 subagent
+// 的活动轮占住 s.active 期间,用户新发一轮 —— currentTurn 的让位规则只认「后台型完成
+// 通知」和「另一个 subagent owner 的帧」,主线帧(parent_tool_use_id 为 null)不让位,
+// 于是用户这一轮的 init / 回答 / result 全被喂进活动轮:
+//   - 回答被消费方按 ParentToolCallID 过滤后整段丢弃(assistant 行永远空);
+//   - result 收尾的是**活动轮**,用户那一轮的 activeTurn 永远留在 pendingTurns、ch 不
+//     close → drainStream 永久阻塞 → 会话卡住,最终被 startup 看门狗误杀成
+//     errStartupTimeout。
+//
+// 断言:(a) 用户轮拿到自己的文本并正常收尾;(b) 活动轮不含主线文本;(c) 主线轮之后
+// 子 agent 的后续活动仍能另开一轮活动轮(让位是干净切分,不是丢流)。
+func TestSession_UserTurnDuringSubagentActivityNotSwallowed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeUserTurnDuringSubagentActivity))
+	sess, err := c.OpenSession(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	acts := make(chan *SubagentActivity, 4)
+	go func() {
+		defer close(acts)
+		for act := range sess.SubagentActivity() {
+			acts <- act
+		}
+	}()
+
+	ch1, err := sess.Turn(ctx, "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, "started:alpha", drainText(t, ch1))
+
+	// 活动轮已开 = s.active 被它占住,此刻再发用户轮才是要复刻的竞态。
+	var act1 *SubagentActivity
+	select {
+	case act1 = <-acts:
+	case <-time.After(2 * time.Second):
+		t.Fatal("2s 内没等到 subagent 活动轮")
+	}
+	require.NotNil(t, act1)
+	assert.Equal(t, fakeBgSubAgentTU, act1.ToolUseID)
+
+	act1Text := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		for ev := range act1.Events {
+			if ev.Kind == EventTextDelta {
+				b.WriteString(ev.Text)
+			}
+		}
+		act1Text <- b.String()
+	}()
+
+	ch2, err := sess.Turn(ctx, "beta")
+	require.NoError(t, err)
+	// (a) 修复前:主线帧全进活动轮,ch2 一帧不得、永不 close → 这里超时红。
+	assert.Equal(t, "echo:beta", drainTextWithin(t, ch2, 3*time.Second))
+
+	// (b) 活动轮只该有子 agent 自己的内部文本。
+	select {
+	case got := <-act1Text:
+		assert.Contains(t, got, "subagent thinking")
+		assert.NotContains(t, got, "echo:beta", "用户轮的回答不得被喂进 subagent 活动轮")
+	case <-time.After(2 * time.Second):
+		t.Fatal("2s 内活动轮没有收尾")
+	}
+
+	// (c) 让位后子 agent 的后续活动仍要另开一轮活动轮,不能整条流丢掉。
+	select {
+	case act2 := <-acts:
+		require.NotNil(t, act2)
+		assert.Equal(t, fakeBgSubAgentTU, act2.ToolUseID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("2s 内没等到让位后的第二轮 subagent 活动")
+	}
+}
+
 // TestSession_IdleBackgroundSubagentKeepsReaderAlive 锁定 Phase 1 缺陷:后台 subagent
 // 的内部活动在空闲态(result#1 之后、无 user turn 在飞)实时流出时,读循环不得卡死。
 //

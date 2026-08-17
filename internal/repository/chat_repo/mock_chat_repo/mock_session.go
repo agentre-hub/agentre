@@ -411,6 +411,20 @@ func (mr *MockSessionRepoMockRecorder) Update(ctx, s any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockSessionRepo)(nil).Update), ctx, s)
 }
 
+// UpdateContextWindow mocks base method.
+func (m *MockSessionRepo) UpdateContextWindow(ctx context.Context, sessionID int64, tokens int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateContextWindow", ctx, sessionID, tokens)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateContextWindow indicates an expected call of UpdateContextWindow.
+func (mr *MockSessionRepoMockRecorder) UpdateContextWindow(ctx, sessionID, tokens any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateContextWindow", reflect.TypeOf((*MockSessionRepo)(nil).UpdateContextWindow), ctx, sessionID, tokens)
+}
+
 // UpdateEventCursor mocks base method.
 func (m *MockSessionRepo) UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint string, seq int64) error {
 	m.ctrl.T.Helper()

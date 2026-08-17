@@ -518,6 +518,27 @@ func TestSessionRepo_UpdatePermissionModeAtLaunch(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestSessionRepo_UpdateContextWindow 钉死 runtime 探到 model 上下文窗口时的单列写入。
+//
+// sess-2974:这一列此前是「改内存实体再 Update 整行」落库的,而带外轮(自主续轮 / 后台
+// subagent 活动轮)手里的实体是它起步时读出来的快照 —— 用户随后发的新一轮把 agent_status
+// 写成 running 之后,带外轮再收到一帧 context window 就把整行(含 agent_status、
+// last_message_at)拍回旧值,会话在库里退回 idle。改成单列 UPDATE 后,这条路径在结构上
+// 就碰不到别的列。
+func TestSessionRepo_UpdateContextWindow(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions` SET `context_window`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+		WithArgs(1000000, sqlmock.AnyArg(), int64(42), consts.ACTIVE).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.UpdateContextWindow(ctx, 42, 1000000))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestSessionRepo_UpdateExecDaemon 钉死「这条会话跑在哪台 daemon 上、钉在哪一档」的
 // 写入 SQL(R15b / 决策36)。关键不变式:(实例标识, 游标) 必须始终是同一条通知日志上
 // 的一对 —— 改绑到另一台 daemon 时,老游标指的是老 daemon 日志里的位置,必须在同一

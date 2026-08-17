@@ -55,6 +55,12 @@ type SessionRepo interface {
 	// 不走整行 Save —— 后者会把并发轮次正在写的状态列一起盖掉。同理这两列都在 Update
 	// 的 Omit 清单里:轮次收尾的整行回写拿的是轮次开始时读出的旧实体。
 	UpdateModelTarget(ctx context.Context, sessionID int64, providerKey, modelKey string) error
+	// UpdateContextWindow 落库 runtime 探到的 model 上下文窗口。轮内随时可能到帧,
+	// 且**带外轮**(自主续轮 / 后台 subagent 活动轮)也会写它 —— 而带外轮手里的实体
+	// 是它起步时读出的快照。走整行 Save 的话,用户在带外轮进行中发的新一轮刚写好的
+	// agent_status=running / last_message_at 会被那份旧快照原样拍回去,会话在库里退
+	// 回 idle(sess-2974)。所以这里只碰 context_window 一列。
+	UpdateContextWindow(ctx context.Context, sessionID int64, tokens int) error
 	// UpdateExecDaemon 记录执行该会话的配对 daemon(paired_agentreds.id)及其实例标识
 	// (sha256:<hex>)、以及这条会话钉住的执行目标档(agentBackendID,R15b / 决策36)。
 	// deviceID=0 + 空标识表示回到本机执行；agentBackendID=0 表示尚未钉住。三列同一条
@@ -445,6 +451,15 @@ func (r *sessionRepo) UpdateModelTarget(ctx context.Context, sessionID int64, pr
 			"provider_key": providerKey,
 			"model_key":    modelKey,
 			"updatetime":   time.Now().UnixMilli(),
+		}).Error
+}
+
+func (r *sessionRepo) UpdateContextWindow(ctx context.Context, sessionID int64, tokens int) error {
+	return db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Where("id = ? AND status = ?", sessionID, consts.ACTIVE).
+		Updates(map[string]any{
+			"context_window": tokens,
+			"updatetime":     time.Now().UnixMilli(),
 		}).Error
 }
 

@@ -80,15 +80,19 @@ func (errorWriterAdapter) WriteErrorText(msg any, errText string) {
 	m.ErrorText = errText
 }
 
-// contextWindowWriterAdapter 实现 handlers.ContextWindowWriter。
+// contextWindowWriterAdapter 实现 handlers.ContextWindowWriter:同步内存中的
+// sess.ContextWindow + 调 chat_repo.Session().UpdateContextWindow(column-only,理由见
+// 该接口注释:整行回写会让带外轮的旧快照把 agent_status 拍回 idle)。
+// 值与实体一致时跳过,避免每帧多一次 UPDATE。
 type contextWindowWriterAdapter struct{}
 
-func (contextWindowWriterAdapter) WriteContextWindow(sess any, tokens int) {
+func (contextWindowWriterAdapter) WriteContextWindow(ctx context.Context, sess any, tokens int) error {
 	s, ok := sess.(*chat_entity.Session)
-	if !ok || s == nil {
-		return
+	if !ok || s == nil || s.ContextWindow == tokens {
+		return nil
 	}
 	s.ContextWindow = tokens
+	return chat_repo.Session().UpdateContextWindow(ctx, s.ID, tokens)
 }
 
 // permissionModeWriterAdapter 实现 handlers.PermissionModeWriter:

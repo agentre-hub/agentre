@@ -317,12 +317,34 @@ func subagentOwnerID(f rawFrame) string {
 	return ""
 }
 
+// isMainThreadTurnFrame 判定一帧属于「主 agent 自己这一轮」而非某个后台 subagent 的
+// 内部活动:user 轮起步的 system:init,以及不带 parent_tool_use_id 的 assistant / user
+// 内容帧。
+//
+// 判据只收这两类是有意的:stream_event / system:task_* / result 在一轮子 agent 活动里
+// 也合法出现(且都不带 parent_tool_use_id),拿它们判让位会把一轮正常的活动切得粉碎。
+// init 是 CLI 为新 user 轮起步时必发的首帧(2.1.216 抓帧实证),用它当让位点,主线这一轮
+// 的第一帧就能落到正确的轮上。
+func isMainThreadTurnFrame(f rawFrame) bool {
+	switch f.Type {
+	case "system":
+		return f.Subtype == "init"
+	case "assistant", "user":
+		return f.ParentToolUseID == ""
+	}
+	return false
+}
+
 // currentTurn 返回当前活跃轮;轮间(active==nil)时按归属规则建立新轮:
 //   - 活动轮收到「后台型完成通知」→ 收尾活动轮,落到下方起自主续轮。
 //   - 活动轮收到**另一个** owner 的空闲 subagent 帧 → 收尾当前活动轮,落到下方按新 owner
 //     另开一轮。同一轮里可以并发派多个 run_in_background subagent,它们在空闲态交替说话;
 //     不切轮的话单槽位被先到的 owner 占住,另一个的帧全被塞进它的活动轮,消费方按
 //     ToolUseID 过滤子块时整段丢弃(sess-2275)。
+//   - 活动轮收到主线帧(system:init / 无 parent_tool_use_id 的 assistant·user)且确有 user
+//     Turn 在排队 → 收尾当前活动轮,落到下方认领那一轮。用户在活动轮开着时发消息,CLI 为
+//     它起的整轮都是主线帧;不让位的话这一轮会被整段喂进活动轮、连 result 都收错轮,
+//     user 的 activeTurn 永远留在 pendingTurns(sess-2974)。
 //   - 后台型 task_notification → 自主轮,经 autoCh 吐出,返回 nil(调用方丢弃起始标记)。
 //   - 无资格起轮的帧(control_response / 空闲 status / 后台任务状态帧 / 任何未知
 //     类型)→ 返回 nil,不认领排队的 user Turn;否则读循环会被这些会话级帧卡死在
@@ -334,11 +356,21 @@ func subagentOwnerID(f rawFrame) string {
 func (s *Session) currentTurn(f rawFrame) *activeTurn {
 	s.sinkMu.Lock()
 	if s.active != nil {
-		// 后台 subagent 活动轮要让位的两种情况:收到「后台型完成通知」(收尾后落到下方起
-		// 自主续轮),或收到另一个 subagent 的空闲活动帧(收尾后落到下方按新 owner 另开一轮)。
+		// 后台 subagent 活动轮要让位的三种情况:收到「后台型完成通知」(收尾后落到下方起
+		// 自主续轮),收到另一个 subagent 的空闲活动帧(收尾后落到下方按新 owner 另开一轮),
+		// 或收到主线帧**且确有 user Turn 在排队**(收尾后落到下方认领那一轮)。
+		//
+		// 第三条是 sess-2974:用户在活动轮开着时发新消息,CLI 为它起主线 init → 回答 →
+		// result,这些帧 parent_tool_use_id 全是 null、owner 为空,旧规则不让位,于是整轮
+		// 被喂进活动轮 —— 回答被消费方按 ParentToolCallID 过滤掉,result 收尾的还是活动轮,
+		// user 那一轮的 activeTurn 永远留在 pendingTurns、ch 不 close,会话就此卡死。
+		// 必须带 len(pendingTurns)>0 这个前提:空闲态 CLI 会自发重播 system:init(sess-2187),
+		// 没有轮在排队时让位只会白白腰斩一轮正常的子 agent 活动。
 		owner := subagentOwnerID(f)
 		yield := s.active.subagentToolUseID != "" &&
-			(isBackgroundTaskNotification(f) || (owner != "" && owner != s.active.subagentToolUseID))
+			(isBackgroundTaskNotification(f) ||
+				(owner != "" && owner != s.active.subagentToolUseID) ||
+				(isMainThreadTurnFrame(f) && len(s.pendingTurns) > 0))
 		if !yield {
 			at := s.active
 			s.sinkMu.Unlock()
