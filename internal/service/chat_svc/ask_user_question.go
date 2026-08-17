@@ -22,7 +22,7 @@ import (
 // 前端 CanonicalToolRouter 与 live 路径共用一份渲染入口(UserAskCard)。
 func askUserQuestionBlockToChatBlock(b blocks.UserAskBlock) ChatBlock {
 	return ChatBlock{
-		Type: "ask_user_question",
+		Type: ChatBlockTypeAskUserQuestion,
 		AskUserQuestion: &ChatBlockAskUserQuestion{
 			RequestID: b.RequestID,
 			Questions: b.Questions,

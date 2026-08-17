@@ -50,7 +50,7 @@ func planBlockToChatBlock(b PlanBlock) ChatBlock {
 		}
 	}
 	return ChatBlock{
-		Type:      "plan",
+		Type:      ChatBlockTypePlan,
 		Text:      text,
 		Canonical: view.FromCanonical(cu),
 	}

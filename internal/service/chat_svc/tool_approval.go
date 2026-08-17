@@ -11,7 +11,7 @@ import (
 // toolApprovalBlockToChatBlock 历史回放/overlay 路径：持久化 block → 前端 ChatBlock。
 func toolApprovalBlockToChatBlock(b blocks.ToolApprovalBlock) ChatBlock {
 	return ChatBlock{
-		Type: "tool_approval",
+		Type: ChatBlockTypeToolApproval,
 		ToolApproval: &ChatBlockToolApproval{
 			ToolKey:   b.ToolKey,
 			RequestID: b.RequestID,

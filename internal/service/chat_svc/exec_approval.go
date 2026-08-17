@@ -76,5 +76,5 @@ func execApprovalBlockToDTO(block blocks.ExecApprovalBlock) *ChatBlockExecApprov
 }
 
 func execApprovalBlockToChatBlock(block blocks.ExecApprovalBlock) ChatBlock {
-	return ChatBlock{Type: "exec_approval", ExecApproval: execApprovalBlockToDTO(block)}
+	return ChatBlock{Type: ChatBlockTypeExecApproval, ExecApproval: execApprovalBlockToDTO(block)}
 }

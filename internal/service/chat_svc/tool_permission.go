@@ -21,7 +21,7 @@ import (
 // 与 live 路径共用 PlanApproveCard。
 func toolPermissionBlockToChatBlock(b blocks.ToolPermissionBlock) ChatBlock {
 	cb := ChatBlock{
-		Type: "tool_permission_request",
+		Type: ChatBlockTypeToolPermissionRequest,
 		ToolPermission: &ChatBlockToolPermission{
 			RequestID:   b.RequestID,
 			ToolName:    b.ToolName,

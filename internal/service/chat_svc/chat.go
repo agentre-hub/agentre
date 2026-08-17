@@ -935,7 +935,7 @@ func firstNonEmpty(values ...string) string {
 func noticeBlockToChatBlock(tb blocks.NoticeBlock) ChatBlock {
 	if p, ok := decodeProviderNotice(tb.Text); ok {
 		return ChatBlock{
-			Type:         "notice",
+			Type:         ChatBlockTypeNotice,
 			Level:        tb.Level,
 			ProviderKey:  p.ProviderKey,
 			ProviderName: p.ProviderName,
@@ -944,7 +944,7 @@ func noticeBlockToChatBlock(tb blocks.NoticeBlock) ChatBlock {
 			NoticeKind:   p.Kind,
 		}
 	}
-	return ChatBlock{Type: "notice", Level: tb.Level, Text: tb.Text}
+	return ChatBlock{Type: ChatBlockTypeNotice, Level: tb.Level, Text: tb.Text}
 }
 
 func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
@@ -991,9 +991,9 @@ func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
 	for _, b := range bs {
 		switch tb := b.(type) {
 		case blocks.TextBlock:
-			out.Blocks = append(out.Blocks, ChatBlock{Type: "text", Text: tb.Text})
+			out.Blocks = append(out.Blocks, ChatBlock{Type: ChatBlockTypeText, Text: tb.Text})
 		case *blocks.TextBlock:
-			out.Blocks = append(out.Blocks, ChatBlock{Type: "text", Text: tb.Text})
+			out.Blocks = append(out.Blocks, ChatBlock{Type: ChatBlockTypeText, Text: tb.Text})
 		case blocks.ImageBlock:
 			out.Blocks = append(out.Blocks, imageBlockToChatBlock(tb))
 		case *blocks.ImageBlock:
@@ -1001,9 +1001,9 @@ func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
 				out.Blocks = append(out.Blocks, imageBlockToChatBlock(*tb))
 			}
 		case blocks.ThinkingBlock:
-			out.Blocks = append(out.Blocks, ChatBlock{Type: "thinking", Text: tb.Text})
+			out.Blocks = append(out.Blocks, ChatBlock{Type: ChatBlockTypeThinking, Text: tb.Text})
 		case *blocks.ThinkingBlock:
-			out.Blocks = append(out.Blocks, ChatBlock{Type: "thinking", Text: tb.Text})
+			out.Blocks = append(out.Blocks, ChatBlock{Type: ChatBlockTypeThinking, Text: tb.Text})
 		case blocks.NoticeBlock:
 			out.Blocks = append(out.Blocks, noticeBlockToChatBlock(tb))
 		case *blocks.NoticeBlock:
@@ -1042,7 +1042,7 @@ func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
 		case *chatblocks.CompactBoundaryBlock:
 			if tb != nil {
 				out.Blocks = append(out.Blocks, ChatBlock{
-					Type: "compact_boundary",
+					Type: ChatBlockTypeCompactBoundary,
 					Compact: &ChatBlockCompactBoundary{
 						PreTokens: tb.PreTokens, Trigger: tb.Trigger, At: tb.At,
 					},
@@ -1050,7 +1050,7 @@ func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
 			}
 		case chatblocks.CompactBoundaryBlock:
 			out.Blocks = append(out.Blocks, ChatBlock{
-				Type: "compact_boundary",
+				Type: ChatBlockTypeCompactBoundary,
 				Compact: &ChatBlockCompactBoundary{
 					PreTokens: tb.PreTokens, Trigger: tb.Trigger, At: tb.At,
 				},
@@ -1086,14 +1086,14 @@ func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
 				out.Blocks = append(out.Blocks, planBlockToChatBlock(*tb))
 			}
 		default:
-			out.Blocks = append(out.Blocks, ChatBlock{Type: "unknown", Raw: map[string]any{"kind": b.Type()}})
+			out.Blocks = append(out.Blocks, ChatBlock{Type: ChatBlockTypeUnknown, Raw: map[string]any{"kind": b.Type()}})
 		}
 	}
 	return out, nil
 }
 
 func toolUseToChatBlock(id, name string, input map[string]any) ChatBlock {
-	cb := ChatBlock{Type: "tool_use", ToolUseID: id, ToolName: name}
+	cb := ChatBlock{Type: ChatBlockTypeToolUse, ToolUseID: id, ToolName: name}
 	if len(input) > 0 {
 		cb.ToolInput = input
 	}
@@ -1156,7 +1156,7 @@ func cloneSubagentRunSnapshot(runs []agentruntime.SubagentRun) []agentruntime.Su
 }
 
 func imageBlockToChatBlock(img blocks.ImageBlock) ChatBlock {
-	cb := ChatBlock{Type: "image", Image: &ChatBlockImage{MediaType: img.MediaType}}
+	cb := ChatBlock{Type: ChatBlockTypeImage, Image: &ChatBlockImage{MediaType: img.MediaType}}
 	if len(img.Source.Inline) > 0 {
 		cb.Image.DataURL = "data:" + img.MediaType + ";base64," + base64.StdEncoding.EncodeToString(img.Source.Inline)
 	} else if img.Source.URL != "" {
@@ -1171,7 +1171,7 @@ func imageBlockToChatBlock(img blocks.ImageBlock) ChatBlock {
 // canonical 故意不算 —— 内层是被父 agent.spawn 包住的 step,不需要独立 canonical 路由。
 func nestedToolUseToChatBlock(b *chatblocks.NestedToolUseBlock) ChatBlock {
 	cb := ChatBlock{
-		Type:             "tool_use",
+		Type:             ChatBlockTypeToolUse,
 		ToolUseID:        b.ID,
 		ToolName:         b.Name,
 		ParentToolCallID: b.ParentToolCallID,
@@ -1187,7 +1187,7 @@ func nestedToolUseToChatBlock(b *chatblocks.NestedToolUseBlock) ChatBlock {
 // 保留 ParentToolCallID/SubagentRunID，Content 已经是拍平字符串。
 func nestedToolResultToChatBlock(b *chatblocks.NestedToolResultBlock) ChatBlock {
 	return ChatBlock{
-		Type:             "tool_result",
+		Type:             ChatBlockTypeToolResult,
 		ToolUseID:        b.ToolCallID,
 		Text:             b.Content,
 		IsError:          b.IsError,
@@ -1208,7 +1208,7 @@ func toolResultToChatBlock(toolUseID string, content []blocks.ContentBlock, isEr
 			sb.WriteString(t.Text)
 		}
 	}
-	return ChatBlock{Type: "tool_result", ToolUseID: toolUseID, Text: sb.String(), IsError: isError}
+	return ChatBlock{Type: ChatBlockTypeToolResult, ToolUseID: toolUseID, Text: sb.String(), IsError: isError}
 }
 
 type sendOptions struct {
