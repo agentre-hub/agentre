@@ -11,8 +11,8 @@
  *
  *   WIRE_TS_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteTSCodec
  *
- * 边界例外:另两份产物守的规矩是「wire 包之外的类型一律 unknown」,
- * 这一份是**唯一刻意的例外**。理由:
+ * 边界例外:codec / constants 两份产物守的规矩是「wire 包之外的类型一律
+ * unknown」,这一份与 block-types.gen.ts 是仅有的两处刻意例外。理由:
  *
  * EventFrame.event 在 Go 侧是 json.RawMessage —— 载荷对 wire 完全不透明,
  * 生成器对它只能给出 unknown。整条事件流里唯一有类型意义的东西就是这个

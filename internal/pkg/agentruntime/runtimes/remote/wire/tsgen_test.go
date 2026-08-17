@@ -11,10 +11,13 @@
 // 正好给出「只追 wire 包内的类型」这条边界判定。AST 只用来取两样反射拿不到的东西:
 // 文档注释,以及「本包声明了哪些导出结构 / 常量」(完整性守卫的依据)。
 //
-// 三个测试各司其职(与 golden_test.go 同一套形状):
+// 几个测试各司其职(与 golden_test.go 同一套形状):
 //
 //   - TestTSGenCoversWirePackage —— 完整性守卫:AST 扫出的导出结构 / 常量集合必须
 //     与生成器的清单一致。新增一个 wire 结构却忘了登记,这里变红。
+//   - TestTSGenCoversEventKinds —— 同上,守 agentruntime 的 EventKind 词表。
+//   - TestTSGenCoversBlockTypes —— 守块类型词表。这一条与上面两条**机制不同**:
+//     块类型是运行时注册表,不是编译期常量表,理由见该测试的注释。
 //   - TestGeneratedTSFresh —— 新鲜度守卫,总是运行:把产物生成到临时目录,与包里
 //     已提交的 *.gen.ts 比文件集 + 逐字节内容。改了 wire 结构却忘了重新生成,这里变红。
 //   - TestWriteTSCodec —— 重新生成这个动作本身,带 WIRE_TS_WRITE=1 才执行,
@@ -35,6 +38,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -43,9 +47,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	// 块类型词表是**运行时**注册表:判别值只有在注册包的 init() 跑过之后才存在。
+	// 这个 blank import 就是把本仓的注册包链接进测试二进制、让 init() 真的执行 ——
+	// 生成器随后问 blocks.RegisteredTypes() 拿到的才是完整答案。理由与代价见
+	// blockTypeVocabulary 与 TestTSGenCoversBlockTypes。
+	_ "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
 )
 
 // tsGenRel 生成产物在本仓里的位置(相对仓库根)—— @agentre-ai/agentre-wire 的 src/。
@@ -224,6 +234,73 @@ func tsEventKindDecls() []tsEventKindDecl {
 		{"EventUserMessage", agentruntime.EventUserMessage},
 		{"EventContextWindowUpdated", agentruntime.EventContextWindowUpdated},
 	}
+}
+
+// ── 块类型词表清单 ─────────────────────────────────────────────────────────
+
+// blocksPkgPath 是块注册表所在的包。既是运行时枚举的入口,也是 AST 扫描认出
+// 「这个文件里有没有注册点」的依据。
+const blocksPkgPath = "github.com/cago-frame/agents/agent/blocks"
+
+// blockTypeCycleBound 是本仓声明、但运行时枚举**够不着**的块类型判别值。
+//
+// 目前只有一条:chat_svc.PlanBlock 的 "plan"。它注册在 chat_svc 包本身(而不是
+// chat_svc/blocks 子包),而 chat_svc 传递依赖 wire 包,所以本包的包内测试
+// blank import 它会直接 import cycle —— 换句话说,这个 init() 在本测试二进制里
+// **永远不可能**跑起来。词表里那一格因此由 AST 扫描(scanBlockTypeRegistrations)
+// 补齐,而不是靠人记得手抄。
+//
+// 这不是一张豁免清单,而是一条被钉住的事实:TestTSGenCoversBlockTypes 断言
+// 「AST 扫到的减去运行时枚举到的」正好等于它。再有一个块类型落进够不着的包,
+// 或者 PlanBlock 挪进 chat_svc/blocks 之后这一格空了,守卫都会变红,逼人回来
+// 更新这段话。
+var blockTypeCycleBound = []string{"plan"}
+
+// blockTypeVocabulary 求块类型判别值的完整词表(去重 + 字典序)。
+//
+// 两个来源合起来才完整,少哪个都留洞:
+//
+//   - blocks.RegisteredTypes() —— 运行时注册表。唯一能看见**第三方**词表
+//     (cago 的 text / image / tool_use …)的途径:那些 init() 在依赖模块里,
+//     本仓的 AST 扫不到。
+//   - scanBlockTypeRegistrations() —— AST 扫本仓的注册点。唯一能看见
+//     **没链接进来**的本仓块类型的途径(见 blockTypeCycleBound)。
+//
+// 词表本身不再手抄一份清单 —— 这与 tsRootTypes / tsConstDecls / tsEventKindDecls
+// 刻意不同。那三份的值必须由 Go 侧的具名标识符提供(TS 常量名要跟着 Go 名走),
+// 手抄清单加上 AST 完整性守卫是当时唯一的形态;而块类型的 TS 常量名是从判别值
+// 本身推出来的(tsBlockTypeConstName),清单里没有任何一格需要人来填,凡是能被
+// 手抄错的东西都不存在。
+func blockTypeVocabulary(t *testing.T) []string {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, v := range blocks.RegisteredTypes() {
+		seen[v] = true
+	}
+	for _, v := range scanBlockTypeRegistrations(t) {
+		seen[v] = true
+	}
+	out := make([]string, 0, len(seen))
+	for v := range seen {
+		require.Regexp(t, `^[a-z][a-z0-9]*(_[a-z0-9]+)*$`, v,
+			"块类型判别值 %q 不是 lower_snake_case,tsBlockTypeConstName 推不出合法的 TS 标识符", v)
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// tsBlockTypeConstName 把判别值推成 TS 常量名:tool_use → BlockTypeToolUse。
+// 加 BlockType 前缀是因为产物与 event-kinds.gen.ts 一起从包根导出,
+// 裸的 ToolUse / Text 撞名的概率太高。
+func tsBlockTypeConstName(v string) string {
+	var b strings.Builder
+	b.WriteString("BlockType")
+	for _, part := range strings.Split(v, "_") {
+		b.WriteString(strings.ToUpper(part[:1]))
+		b.WriteString(part[1:])
+	}
+	return b.String()
 }
 
 // ── Prettier 形态的行渲染 ───────────────────────────────────────────────────
@@ -633,6 +710,201 @@ func collectEventKindDecls(file *ast.File, out *eventKindDecls) {
 	}
 }
 
+// ── AST:本仓的块类型注册点 ────────────────────────────────────────────────
+
+// scanBlockTypeRegistrations 扫本仓源码,返回全部块类型的判别值(未排序、可能重复)。
+//
+// 扫的是**注册动作**而不是「实现了 ContentBlock 的类型」:没注册进注册表的类型
+// 根本无法跨进程往返,不属于词表。两种注册形态都认:
+//
+//	blocks.RegisterFactory[XxxBlock]()   判别值取 XxxBlock 的 Type() 返回字面量
+//	blocks.Register("xxx", factory)      判别值就是第一个实参的字面量
+//
+// 认得出注册点的前提是文件 import 了块注册表包 —— 先只解析 import 段(便宜),
+// 没有这个 import 的文件直接跳过,不做完整解析。裸叫 Register( 的地方本仓多得是
+// (jsonrpc registry、wails binding …),必须靠 import 的本地名限定,否则全是误报。
+func scanBlockTypeRegistrations(t *testing.T) []string {
+	t.Helper()
+	root := repoRoot(t)
+
+	// dir → 该目录里被 RegisterFactory 点名的类型名。
+	pending := map[string][]string{}
+	var values []string
+
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			if skipScanDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		imports, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if err != nil {
+			return fmt.Errorf("解析 import 段 %s: %w", path, err)
+		}
+		local, ok := blocksImportName(imports)
+		if !ok {
+			return nil
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return fmt.Errorf("解析 %s: %w", path, err)
+		}
+		dir := filepath.Dir(path)
+		types, direct := collectBlockRegistrations(t, path, local, file)
+		pending[dir] = append(pending[dir], types...)
+		values = append(values, direct...)
+		return nil
+	})
+	require.NoError(t, err, "遍历仓库源码")
+
+	dirs := make([]string, 0, len(pending))
+	for dir := range pending {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	for _, dir := range dirs {
+		discs := blockTypeDiscriminators(t, dir)
+		for _, name := range pending[dir] {
+			v, ok := discs[name]
+			require.True(t, ok,
+				"%s 注册了 %s,却在同一个包里找不到它的 Type() string 返回字面量", dir, name)
+			values = append(values, v)
+		}
+	}
+	return values
+}
+
+// skipScanDir 是扫描要跳过的目录:版本库元数据、前端与其依赖、构建产物。
+// 它们要么没有 Go 源码,要么(node_modules)藏着与本仓无关的 Go 包。
+func skipScanDir(name string) bool {
+	switch name {
+	case ".git", "node_modules", "frontend", "build", "dist":
+		return true
+	}
+	return false
+}
+
+// blocksImportName 返回块注册表包在这个文件里的本地名。
+func blocksImportName(file *ast.File) (string, bool) {
+	for _, imp := range file.Imports {
+		p, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || p != blocksPkgPath {
+			continue
+		}
+		if imp.Name != nil {
+			return imp.Name.Name, imp.Name.Name != "_"
+		}
+		return "blocks", true
+	}
+	return "", false
+}
+
+// collectBlockRegistrations 从一份 AST 里挑出注册调用:
+// RegisterFactory 返回被点名的类型名,Register 直接返回判别值字面量。
+func collectBlockRegistrations(t *testing.T, path, local string, file *ast.File) (types, values []string) {
+	t.Helper()
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch fn := call.Fun.(type) {
+		case *ast.IndexExpr: // blocks.RegisterFactory[XxxBlock]()
+			if !isBlocksSelector(fn.X, local, "RegisterFactory") {
+				return true
+			}
+			id, ok := fn.Index.(*ast.Ident)
+			require.True(t, ok,
+				"%s:RegisterFactory 的类型实参不是本包的具名类型,扫描器无从取判别值", path)
+			types = append(types, id.Name)
+		case *ast.SelectorExpr: // blocks.Register("xxx", factory)
+			if !isBlocksSelector(fn, local, "Register") {
+				return true
+			}
+			require.NotEmpty(t, call.Args, "%s:Register 没有实参", path)
+			lit, ok := call.Args[0].(*ast.BasicLit)
+			require.True(t, ok && lit.Kind == token.STRING,
+				"%s:Register 的判别值不是字符串字面量,扫描器无从取值", path)
+			v, err := strconv.Unquote(lit.Value)
+			require.NoError(t, err, "%s:Register 的判别值解不出来", path)
+			values = append(values, v)
+		}
+		return true
+	})
+	return types, values
+}
+
+// isBlocksSelector 判断表达式是不是「块注册表包的某个函数」。
+func isBlocksSelector(e ast.Expr, local, fn string) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != fn {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == local
+}
+
+// blockTypeDiscriminators 读一个包里全部 `func (X) Type() string { return "…" }`,
+// 返回类型名 → 判别值。ContentBlock 的判别值只能这么写(接口要求 Type() string),
+// 拼接 / 常量引用一律取不到,取不到就在调用方 require 变红,不会静默漏一格。
+func blockTypeDiscriminators(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	parseGoPackage(t, dir, func(f *ast.File) {
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Name.Name != "Type" || fd.Recv == nil || len(fd.Recv.List) != 1 {
+				continue
+			}
+			recv, ok := receiverTypeName(fd.Recv.List[0].Type)
+			if !ok {
+				continue
+			}
+			if v, ok := singleStringReturn(fd); ok {
+				out[recv] = v
+			}
+		}
+	})
+	return out
+}
+
+// receiverTypeName 取接收者的类型名(值接收者与指针接收者同等对待)。
+func receiverTypeName(e ast.Expr) (string, bool) {
+	if star, ok := e.(*ast.StarExpr); ok {
+		e = star.X
+	}
+	id, ok := e.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	return id.Name, true
+}
+
+// singleStringReturn 取「函数体只有一句 return "字面量"」的那个字面量。
+func singleStringReturn(fd *ast.FuncDecl) (string, bool) {
+	if fd.Body == nil || len(fd.Body.List) != 1 {
+		return "", false
+	}
+	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return "", false
+	}
+	lit, ok := ret.Results[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	v, err := strconv.Unquote(lit.Value)
+	return v, err == nil
+}
+
 // docText 取 spec 自己的注释;没有且整个 GenDecl 只声明一项时退回块注释。
 func docText(own, block *ast.CommentGroup, blockSpecs int) string {
 	if own != nil {
@@ -649,8 +921,9 @@ func docText(own, block *ast.CommentGroup, blockSpecs int) string {
 // tsGenHeader 每个产物的文件头:出处 + 禁止手改 + 重新生成命令 + 边界与格式约定。
 //
 // truth 是这份产物的真理源,boundary 是它与「只追 wire 包内类型」那条边界的关系 ——
-// 两份 wire 产物守着边界,event-kinds.gen.ts 是唯一一处刻意的例外,理由写在它自己
-// 的头里(见 tsEventKindBoundary)。
+// 两份 wire 产物(codec / constants)守着边界,event-kinds.gen.ts 与
+// block-types.gen.ts 是仅有的两处刻意例外,理由各自写在自己的头里
+// (见 tsEventKindBoundary / tsBlockTypeBoundary)。
 func tsGenHeader(what string, truth, boundary []string) []string {
 	out := []string{
 		"/**",
@@ -703,8 +976,8 @@ func tsEventKindTruth() []string {
 
 func tsEventKindBoundary() []string {
 	return []string{
-		" * 边界例外:另两份产物守的规矩是「wire 包之外的类型一律 unknown」,",
-		" * 这一份是**唯一刻意的例外**。理由:",
+		" * 边界例外:codec / constants 两份产物守的规矩是「wire 包之外的类型一律",
+		" * unknown」,这一份与 block-types.gen.ts 是仅有的两处刻意例外。理由:",
 		" *",
 		" * EventFrame.event 在 Go 侧是 json.RawMessage —— 载荷对 wire 完全不透明,",
 		" * 生成器对它只能给出 unknown。整条事件流里唯一有类型意义的东西就是这个",
@@ -748,6 +1021,67 @@ func renderTSEventKinds(decls eventKindDecls) string {
 			tail = ";"
 		}
 		lines = append(lines, "  | typeof "+c.name+tail)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// tsBlockTypeTruth / tsBlockTypeBoundary 是块类型词表产物的头部段落。
+func tsBlockTypeTruth() []string {
+	return []string{
+		" * 真理源:  " + blocksPkgPath + " 的块注册表",
+		" *          (运行时枚举 + 本仓注册点的 AST 扫描,两者取并集)",
+	}
+}
+
+func tsBlockTypeBoundary() []string {
+	return []string{
+		" * 边界例外:codec / constants 两份产物守的规矩是「wire 包之外的类型一律",
+		" * unknown」,这一份与 event-kinds.gen.ts 是仅有的两处刻意例外。理由:",
+		" *",
+		" * StoredBlock 在 Go 侧是 {type, data},data 是 json.RawMessage —— 载荷对",
+		" * wire 完全不透明,生成器对它只能给出 unknown。HistoryMessageWire.blocks",
+		" * 与 RunParams.userBlocks 这两条链路上唯一有类型意义的东西就是 type 判别值,",
+		" * 而块注册表包正是 wire.go 的直接依赖(那两个字段的元素类型就是它的",
+		" * StoredBlock),追它不打穿分层。",
+		" *",
+		" * 与 event-kinds.gen.ts 的一处不同:那张表是编译期常量,AST 扫源码就能穷举;",
+		" * 这一份是运行时注册表,判别值散在各类型的 Type() 方法里、由各包的 init()",
+		" * 填进注册表。完整性守卫因此形态不同,见生成器里的 TestTSGenCoversBlockTypes。",
+	}
+}
+
+// tsBlockTypeUnionDoc 是块类型联合类型的 JSDoc —— 解释它为什么存在,而不是复述定义。
+const tsBlockTypeUnionDoc = `全部块类型判别值的联合类型(= Go 的 blocks.StoredBlock.type 取值域)。
+
+消费方把手上的 type 收窄成这个类型之后,在 switch 的 default 分支写一句
+const _: never = type,「上游新增了一个块类型」就成了消费方的编译期错误。块的
+data 是 json.RawMessage、无从校验,type 是这条链路上唯一能被类型系统接住的东西。`
+
+// renderTSBlockTypes 渲染块类型词表产物:逐条常量 + 一个联合类型。
+//
+// 刻意不带逐条 JSDoc:运行时枚举只给得出判别值本身,给不出声明处的文档注释,
+// 而第三方(cago)那批块类型的注释更是本仓 AST 够不着的。一半有一半没有会让人
+// 误以为「没注释的那些是本仓的」,不如一条都不带。
+func renderTSBlockTypes(vocab []string) string {
+	lines := tsGenHeader(
+		"块类型词表:blocks.StoredBlock 的 type 判别值的全部取值。",
+		tsBlockTypeTruth(), tsBlockTypeBoundary(),
+	)
+	for _, v := range vocab {
+		lines = append(lines, "")
+		lines = append(lines, "export const "+tsBlockTypeConstName(v)+" = "+strconv.Quote(v)+";")
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, tsDocComment(0, tsBlockTypeUnionDoc)...)
+	// Prettier 对放不下一行的联合类型的形态:`=` 后换行,每支一行、前置 `|`。
+	lines = append(lines, "export type BlockType =")
+	for i, v := range vocab {
+		tail := ""
+		if i == len(vocab)-1 {
+			tail = ";"
+		}
+		lines = append(lines, "  | typeof "+tsBlockTypeConstName(v)+tail)
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -973,6 +1307,7 @@ func buildTSSources(t *testing.T) []tsSource {
 		{name: "constants.gen.ts", content: renderTSConstants(decls)},
 		{name: "codec.gen.ts", content: renderTSCodec(t, decls)},
 		{name: "event-kinds.gen.ts", content: renderTSEventKinds(parseEventKindDecls(t))},
+		{name: "block-types.gen.ts", content: renderTSBlockTypes(blockTypeVocabulary(t))},
 	}
 }
 
@@ -1042,6 +1377,69 @@ func TestTSGenCoversEventKinds(t *testing.T) {
 	}
 	require.ElementsMatch(t, decls.names, listed,
 		"agentruntime 的 EventKind 常量与 tsEventKindDecls() 不一致,补齐清单后重新生成:\n\t%s", tsRegenCmd)
+}
+
+// TestTSGenCoversBlockTypes 完整性守卫:块类型词表。
+//
+// **与上面两条守卫机制不同**,这是这份词表最值得写清楚的一点:
+//
+//   - wire 结构与 EventKind 是**编译期**的东西 —— 一组类型声明、一张 const 表。
+//     源码里躺着一份可穷举的清单,守卫因此是「AST 读源码 vs 读生成器清单」二者
+//     相比,不需要把任何代码跑起来。
+//   - 块类型是**运行时**的 —— 判别值散在各类型的 Type() 方法里,进不进词表取决于
+//     某个包的 init() 有没有执行 RegisterFactory。源码里没有一张表可读,唯一的
+//     真理是进程起来之后注册表里到底有什么。所以本文件 blank import 了注册包、
+//     让 init() 真的跑,再问 blocks.RegisteredTypes()。
+//
+// 运行时枚举换来的是 AST 拿不到的东西:第三方(cago)自带的那批块类型。本仓的
+// AST 永远扫不到依赖模块里的 init(),而它们照样会出现在 wire 上。
+//
+// 代价是一条 AST 式守卫没有的软肋:**没链接进测试二进制的包等于不存在**。
+// chat_svc 正好撞上它(见 blockTypeCycleBound),所以这里同时留了一条 AST 扫描
+// 兜底,并把「AST 扫到、运行时枚举漏掉」的差集钉死 —— 差集变化必须有人回答。
+func TestTSGenCoversBlockTypes(t *testing.T) {
+	registered := blocks.RegisteredTypes()
+	require.NotEmpty(t, registered, "块注册表是空的,blank import 或访问器本身坏了")
+	// 第三方词表还在 —— 这一格只有运行时枚举给得出,掉了说明 blank import
+	// 被人删了或依赖降级了。
+	require.Subset(t, registered, []string{"text", "image", "tool_use", "tool_result", "thinking"},
+		"cago 自带的块类型不在注册表里,运行时枚举这条路断了")
+
+	scanned := scanBlockTypeRegistrations(t)
+	require.NotEmpty(t, scanned, "AST 没在本仓扫到任何块类型注册点,扫描逻辑本身坏了")
+
+	vocab := blockTypeVocabulary(t)
+	require.Subset(t, vocab, registered, "运行时注册表里有词表漏掉的判别值")
+	require.Subset(t, vocab, scanned, "本仓注册点里有词表漏掉的判别值")
+
+	known := map[string]bool{}
+	for _, v := range registered {
+		known[v] = true
+	}
+	missed := make([]string, 0, len(scanned))
+	for _, v := range scanned {
+		if !known[v] {
+			missed = append(missed, v)
+		}
+	}
+	sort.Strings(missed)
+	require.Equal(t, blockTypeCycleBound, dedupe(missed),
+		"「本仓声明、但运行时枚举够不着」的块类型集合变了。\n"+
+			"多出来的:多半是新块类型注册在了一个 blank import 不进来的包里 —— 优先把它\n"+
+			"挪进 chat_svc/blocks(那里 import 得进来),挪不动再更新 blockTypeCycleBound;\n"+
+			"少掉的:某个原本够不着的块类型现在够得着了,回去把 blockTypeCycleBound 那段\n"+
+			"注释一起改掉。改完重新生成:\n\t%s", tsRegenCmd)
+}
+
+// dedupe 去重(输入需已排序)。
+func dedupe(in []string) []string {
+	out := make([]string, 0, len(in))
+	for i, v := range in {
+		if i == 0 || in[i-1] != v {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // TestGeneratedTSFresh 新鲜度守卫:已提交的 *.gen.ts 必须就是生成器此刻会写出的

@@ -6,7 +6,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Microsoft/go-winio v0.6.1
 	github.com/UserExistsError/conpty v0.1.4
-	github.com/cago-frame/agents v0.0.0-20260727021936-d7bfede861b9
+	github.com/cago-frame/agents v0.0.0-20260817065233-4dddea8e09bf
 	github.com/cago-frame/cago v0.0.0-20260609091633-ba2f550b2729
 	github.com/creack/pty v1.1.21
 	github.com/glebarez/sqlite v1.11.0
