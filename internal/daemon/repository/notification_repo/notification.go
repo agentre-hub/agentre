@@ -54,26 +54,19 @@ type NotificationRepo interface {
 
 	// OldestSeq 返回该会话此刻**现存最老**的 seq,一条通知都没有时为 0。
 	//
-	// 它是留存回收(DeleteBelow)在读侧的对应物:回收之后 seq 1..N 不再从 1 开始,而
-	// 补齐的客户端游标可能正落在被回收掉的那一段里。少了这个下界,客户端拉到的每一页
-	// 第一条都比 游标+1 大,只能当成跳号丢弃并再拉一次同一页 —— 游标永远推不动,会话
-	// 没有错误地冻住。有了它,客户端知道那截尾巴是真的没有了,复位游标接着补。
+	// 本 daemon 自己不再回收任何日志(规格 2026-08-18-server-session-mirror 决策 8),
+	// 因此它平时就是这条会话的第一行;它仍然要如实报出来,因为补齐的客户端游标可能
+	// 落在一段这台机器上已经不存在的区间里(库被人手动裁过,或换了别的实现)。少了
+	// 这个下界,客户端拉到的每一页第一条都比 游标+1 大,只能当成跳号丢弃并再拉一次
+	// 同一页 —— 游标永远推不动,会话没有错误地冻住。有了它,客户端知道那截尾巴是
+	// 真的没有了,复位游标接着补。
 	OldestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
 
-	// DeleteBelow 删除这条 (对端, 会话) 下 seq **严格小于** seq 的日志行,返回删除行数。
-	//
-	// 「严格小于」是硬的:高水位那一行必须活着。它一旦被删,该会话的 MAX(seq) 归零,
-	// Append 会从 1 重新分配 seq,而客户端游标还停在旧高水位上 —— 此后每条实时通知都
-	// 被它当成重复丢弃,会话没有跳号、没有错误地冻住。
-	DeleteBelow(ctx context.Context, peerFingerprint, peerSessionID string, seq int64) (int64, error)
-
 	// DeleteAll 删掉这一条 (对端, 会话) 的**全部**日志行,返回删除行数;会话删除的
-	// 另一半(身份行由 session_repo.Delete 删)。
-	//
-	// 它与 DeleteBelow 的「严格小于」正相反,所以不复用后者:留存回收要保住高水位那
-	// 一行,整条删除要的恰恰是一行不剩 —— 拿 DeleteBelow(MAX(seq)) 顶替会永远留下最后
-	// 一条通知,那条会话的转录就清不干净。抹掉高水位带来的 seq 复位由消费方按
-	// dropCursorAboveHighWater 那条规则收口(会话都没了,那个游标本来也不该再用)。
+	// 另一半(身份行由 session_repo.Delete 删)。这是本包唯一一条会让已落库的通知
+	// 消失的路径 —— 高水位那一行也一并删掉,整条转录要的就是一行不剩。抹掉高水位
+	// 带来的 seq 复位由消费方按 dropCursorAboveHighWater 那条规则收口(会话都没了,
+	// 那个游标本来也不该再用)。
 	DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
 }
 
@@ -164,13 +157,6 @@ func (r *notificationRepo) OldestSeq(ctx context.Context, peerFingerprint, peerS
 		return 0, err
 	}
 	return seq, nil
-}
-
-func (r *notificationRepo) DeleteBelow(ctx context.Context, peerFingerprint, peerSessionID string, seq int64) (int64, error) {
-	tx := db.Ctx(ctx).
-		Where("peer_fingerprint = ? AND peer_session_id = ? AND seq < ?", peerFingerprint, peerSessionID, seq).
-		Delete(&NotificationLog{})
-	return tx.RowsAffected, tx.Error
 }
 
 func (r *notificationRepo) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {

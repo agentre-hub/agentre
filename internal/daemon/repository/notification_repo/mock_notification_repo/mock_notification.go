@@ -70,21 +70,6 @@ func (mr *MockNotificationRepoMockRecorder) DeleteAll(ctx, peerFingerprint, peer
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAll", reflect.TypeOf((*MockNotificationRepo)(nil).DeleteAll), ctx, peerFingerprint, peerSessionID)
 }
 
-// DeleteBelow mocks base method.
-func (m *MockNotificationRepo) DeleteBelow(ctx context.Context, peerFingerprint, peerSessionID string, seq int64) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteBelow", ctx, peerFingerprint, peerSessionID, seq)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DeleteBelow indicates an expected call of DeleteBelow.
-func (mr *MockNotificationRepoMockRecorder) DeleteBelow(ctx, peerFingerprint, peerSessionID, seq any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBelow", reflect.TypeOf((*MockNotificationRepo)(nil).DeleteBelow), ctx, peerFingerprint, peerSessionID, seq)
-}
-
 // LatestSeq mocks base method.
 func (m *MockNotificationRepo) LatestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()

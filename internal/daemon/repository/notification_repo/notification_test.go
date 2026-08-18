@@ -175,29 +175,9 @@ func TestNotificationRepo_ListSince_CursorBoundaries(t *testing.T) {
 	})
 }
 
-// TestNotificationRepo_DeleteBelow_KeepsTheHighWaterRow 覆盖回收的删除面:删除**严格
-// 小于**给定 seq 的行,且只在这一条 (对端, 会话) 的范围内。删成 <= 会把该会话的高水位
-// 一起抹掉,MAX(seq) 归零后 Append 会从 1 重新分配 —— 客户端游标停在旧高水位上,此后
-// 每一条实时通知都被它当成重复丢弃,会话无声冻住。
-func TestNotificationRepo_DeleteBelow_KeepsTheHighWaterRow(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-	repo := notification_repo.NewNotification()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM `daemon_notification_logs` WHERE peer_fingerprint = \\? AND peer_session_id = \\? AND seq < \\?").
-		WithArgs("peerA", "s1", int64(900)).
-		WillReturnResult(sqlmock.NewResult(0, 899))
-	mock.ExpectCommit()
-
-	deleted, err := repo.DeleteBelow(ctx, "peerA", "s1", 900)
-	require.NoError(t, err)
-	assert.Equal(t, int64(899), deleted)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-// TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor 覆盖回收之后「这条会话的日志
-// 从哪一格开始还在」:补齐的客户端只有拿到这个下界,才分得清「游标之后那一条还没写」
-// 与「它已经被留存回收掉了」。分不清就只能一直等,会话静默冻住。
+// TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor 覆盖「这条会话的日志从哪一格
+// 开始还在」:补齐的客户端只有拿到这个下界,才分得清「游标之后那一条还没写」与「它
+// 已经不在这台机器上了」。分不清就只能一直等,会话静默冻住。
 func TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := notification_repo.NewNotification()
@@ -216,10 +196,8 @@ func TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor(t *testing.T) {
 // TestNotificationRepo_DeleteAll_RemovesTheWholeSessionJournal 覆盖整条会话的日志
 // 清空(会话删除的另一半):删掉这一条 (对端, 会话) 的**全部**行,包括高水位那一条。
 //
-// 它与 DeleteBelow 的「严格小于」正相反,所以不能复用后者:留存回收要保住高水位,
-// 会话删除要的恰恰是一行不剩 —— 用 DeleteBelow(seq=MAX) 删会留下最后一行,那条
-// 会话的转录就永远清不干净。抹掉高水位带来的 seq 复位由镜像客户端按
-// dropCursorAboveHighWater 那条规则收口。
+// 高水位那一行也必须删掉:留下它,那条会话的转录就永远清不干净。抹掉高水位带来的
+// seq 复位由镜像客户端按 dropCursorAboveHighWater 那条规则收口。
 func TestNotificationRepo_DeleteAll_RemovesTheWholeSessionJournal(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := notification_repo.NewNotification()
