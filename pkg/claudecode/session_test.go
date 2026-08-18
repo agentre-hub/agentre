@@ -2099,3 +2099,82 @@ func TestSession_RawSinkReceivesFramesFromReadLoop(t *testing.T) {
 	assert.Contains(t, joined, `"type":"assistant"`)
 	assert.Contains(t, joined, `"type":"result"`)
 }
+
+// fakeBgSubAgentTU2 是第二个并发 run_in_background subagent 的 Agent tool_use_id。
+const fakeBgSubAgentTU2 = "toolu_agent2"
+
+// fakeInterleavedMainThreadAndSubagents 复刻 sess-2980 抓到的帧序。与 sess-2974
+// (fakeUserTurnDuringSubagentActivity)的决定性差异是**交错**:那一版里用户轮的主线帧
+// 是连成一段的(init → assistant → result),中间没有 subagent 帧插进来;真实现场里
+// turn1 派了多个 run_in_background subagent,它们在用户轮进行**期间**持续吐内部活动,
+// 于是帧流长这样:
+//
+//	init(主线) → subagent A 帧 → 主线 thinking/tool_use → subagent A 帧 →
+//	主线 tool_use → subagent B 帧 → ... → result(主线)
+//
+// 现场表现:用户那一轮的 assistant 消息落库是空 []，CLI 明明答了 60 多块主线内容。
+func fakeInterleavedMainThreadAndSubagents(stdin io.Reader, stdout io.Writer) {
+	const sid = "sess-interleave"
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+	turn := 0
+	for sc.Scan() {
+		turn++
+		reply := extractTextField(sc.Text())
+		if turn == 1 {
+			writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+			for _, tu := range []string{fakeBgSubAgentTU, fakeBgSubAgentTU2} {
+				writeFrame(stdout, `{"type":"assistant","message":{"id":"a1","content":[{"type":"tool_use","id":%q,"name":"Agent","input":{"subagent_type":"general-purpose","description":"explore","prompt":"go","run_in_background":true}}]}}`, tu)
+				writeFrame(stdout, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":%q,"content":"Async agent launched successfully. output_file: /tmp/tasks/sub.output"}]}}`, tu)
+			}
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a2","content":[{"type":"text","text":"started:%s"}]}}`, reply)
+			writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+			// 空闲态:subagent A 开一轮活动轮并保持开着 —— 用户下一条消息就撞在这上面。
+			writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s1","content":[{"type":"text","text":"A1"}]}}`, fakeBgSubAgentTU)
+			continue
+		}
+		// turn2:用户在活动轮开着时发的消息。CLI 照常为它起主线一轮 —— 但两个后台
+		// subagent 还在跑,它们的帧与主线帧**交错**到达。
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s2","content":[{"type":"text","text":"A2"}]}}`, fakeBgSubAgentTU)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"echo:%s"}]}}`, reply)
+		writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s3","content":[{"type":"text","text":"B1"}]}}`, fakeBgSubAgentTU2)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"-tail"}]}}`)
+		writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":2,"output_tokens":2}}`, sid)
+	}
+}
+
+// TestSession_MainThreadFramesInterleavedWithSubagentActivity 锁定 sess-2980:后台
+// subagent 的活动帧与用户轮的主线帧交错到达时,用户轮必须完整拿到自己的主线正文。
+//
+// 现场:s.active 是**单槽位**,currentTurn 靠让位在「活动轮」与「用户轮」之间切换。
+// 主线帧让位认领用户轮之后,紧接着到达的 subagent 帧因为让位前置条件
+// (s.active.subagentToolUseID != "")为假而不让位 —— 它被喂进用户轮,而用户轮这边
+// 按 ParentToolCallID 找不到归属直接丢弃;更要命的是活动轮/用户轮反复切换的过程中
+// 用户轮被提前收尾,后续主线帧再也回不到它,整轮正文落库成空 []。
+func TestSession_MainThreadFramesInterleavedWithSubagentActivity(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeInterleavedMainThreadAndSubagents))
+	sess, err := c.OpenSession(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	go func() {
+		for act := range sess.SubagentActivity() {
+			go func(a *SubagentActivity) {
+				for range a.Events { //nolint:revive // 只需 drain,不断言内容
+				}
+			}(act)
+		}
+	}()
+
+	ch1, err := sess.Turn(ctx, "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, "started:alpha", drainText(t, ch1))
+
+	ch2, err := sess.Turn(ctx, "beta")
+	require.NoError(t, err)
+	// 修复前:主线正文被交错的 subagent 帧挤掉,这里拿不到完整文本。
+	assert.Equal(t, "echo:beta-tail", drainTextWithin(t, ch2, 3*time.Second))
+}
