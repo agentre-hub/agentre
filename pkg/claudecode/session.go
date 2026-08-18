@@ -83,14 +83,30 @@ type Session struct {
 
 	// —— 常驻 demux reader 状态(sinkMu 保护)——
 	// readLoop 占住 scanner 整个子进程生命周期,把每帧 demux 到「当前活跃轮」的 ch。
-	// 一刻只有一个活跃轮(CLI 串行 emit,每轮 result 收尾)。归属规则:某轮以「后台型
+	// 主线(user 轮 / 自主续轮)一刻只有一个,每轮 result 收尾;归属规则:某轮以「后台型
 	// task_notification」开头 → 自主轮(经 autoCh 吐出);否则按 FIFO 取一个 pendingTurns
 	// 里等待的 user Turn。
+	//
+	// 后台 subagent 的内部活动**与主线真正并发**,不占 active 槽:见 sideActivities。
 	sinkMu       sync.Mutex
-	active       *activeTurn            // 当前正在投递帧的轮;nil = 轮间空闲
+	active       *activeTurn            // 当前正在投递帧的主线轮;nil = 轮间空闲
 	pendingTurns chan *activeTurn       // 已写 stdin、等待其帧到达的 user Turn(FIFO)
 	autoCh       chan *AutoTurn         // AutonomousTurns() 返回的 channel;子进程退出时 close
 	subagentCh   chan *SubagentActivity // 后台 subagent 活动轮的出口(无消费方时缓冲兜底)
+
+	// sideActivities 是主线轮活跃期间、按 owner(Agent 工具 tool_use_id)并行开着的
+	// 后台 subagent 活动轮。key 为 owner,一个 owner 一路。
+	//
+	// 为什么不能复用 active 单槽位(sess-2980):run_in_background 的 subagent 与主线是
+	// 真并发的,CLI 把两边的帧**交错**吐出来 ——
+	//
+	//	init(主线) → subagent A 帧 → 主线 thinking → subagent B 帧 → 主线 tool_use → ...
+	//
+	// 单槽位下主线轮认领 active 之后,让位判据的前置 `s.active.subagentToolUseID != ""`
+	// 对主线轮恒假,交错进来的 subagent 帧既不让位也无处可去,被整段喂进主线轮;消费方
+	// 按 ParentToolCallID 找不到归属再整段丢弃,用户那一轮的正文就此落库成空 []。
+	// 让它们各走各的旁路,主线轮只收主线帧,subagent 卡片也不再被切成上百段。
+	sideActivities map[string]*activeTurn
 
 	// readerDone 在 readLoop 收尾(子进程 EOF / Close)时 close。等 control_response
 	// 的调用方必须一并 select 它:reader 一走就再没有人 dispatch 回执,只等 ch / ctx
@@ -189,6 +205,8 @@ func newSession(p *process, rawSink func([]byte), sessionID string) *Session {
 		autoCh:       make(chan *AutoTurn, 8),
 		subagentCh:   make(chan *SubagentActivity, 8),
 		readerDone:   make(chan struct{}),
+
+		sideActivities: make(map[string]*activeTurn),
 	}
 }
 
@@ -355,6 +373,23 @@ func isMainThreadTurnFrame(f rawFrame) bool {
 //     Turn 的登记先于 stdin 写,所以真属于某轮的首帧到达时队首一定已就位。
 func (s *Session) currentTurn(f rawFrame) *activeTurn {
 	s.sinkMu.Lock()
+	// 旁路(sess-2980):主线轮(user 轮 / 自主续轮,subagentToolUseID == "")活跃期间,
+	// 后台 subagent 的内部活动帧既不抢 active 槽也不喂进主线轮 —— 按 owner 各开一路
+	// 并发活动轮。主线轮收尾时由 finishActiveTurn 一并收尾(见 sideActivities)。
+	if s.active != nil && s.active.subagentToolUseID == "" {
+		if owner := subagentOwnerID(f); owner != "" && isIdleBackgroundSubagentFrame(f) {
+			if at := s.sideActivities[owner]; at != nil {
+				s.sinkMu.Unlock()
+				return at
+			}
+			at := newActiveTurn(true)
+			at.subagentToolUseID = owner
+			s.sideActivities[owner] = at
+			s.sinkMu.Unlock()
+			s.subagentCh <- &SubagentActivity{ToolUseID: owner, Events: at.ch, SessionID: s.sessionID}
+			return at // 首帧(子 agent 内部活动)要喂进这一路
+		}
+	}
 	if s.active != nil {
 		// 后台 subagent 活动轮要让位的三种情况:收到「后台型完成通知」(收尾后落到下方起
 		// 自主续轮),收到另一个 subagent 的空闲活动帧(收尾后落到下方按新 owner 另开一轮),
@@ -554,14 +589,30 @@ func (s *Session) feed(at *activeTurn, events []Event) {
 }
 
 // finishActiveTurn 收尾一轮:清 active 槽 + close ch(唤醒消费方 range)+ close done(唤醒 waiter)。
+//
+// 收尾的是**主线轮**(subagentToolUseID == "")时,与它并发的旁路活动轮一并收尾:主线一轮
+// 结束即这批后台活动的天然分段点,消费方(subagent 卡片)据此结帐。subagent 若仍在跑,
+// 下一帧会重新开一路 —— 与让位语义一致,不丢流(sess-2980)。
 func (s *Session) finishActiveTurn(at *activeTurn) {
 	s.sinkMu.Lock()
 	if s.active == at {
 		s.active = nil
 	}
+	var sides []*activeTurn
+	if at.subagentToolUseID == "" && len(s.sideActivities) > 0 {
+		sides = make([]*activeTurn, 0, len(s.sideActivities))
+		for owner, side := range s.sideActivities {
+			sides = append(sides, side)
+			delete(s.sideActivities, owner)
+		}
+	}
 	s.sinkMu.Unlock()
 	close(at.ch)
 	close(at.done)
+	for _, side := range sides {
+		close(side.ch)
+		close(side.done)
+	}
 }
 
 // markAbandoned 标记某轮消费方已放弃(Turn 的 ctx 取消)。close abandon 让 feed 停
@@ -584,10 +635,19 @@ func (s *Session) shutdownReader() {
 	s.sinkMu.Lock()
 	at := s.active
 	s.active = nil
+	sides := make([]*activeTurn, 0, len(s.sideActivities))
+	for owner, side := range s.sideActivities {
+		sides = append(sides, side)
+		delete(s.sideActivities, owner)
+	}
 	s.sinkMu.Unlock()
 	if at != nil {
 		close(at.ch)
 		close(at.done)
+	}
+	for _, side := range sides { // 与主线并发的旁路活动轮同样要唤醒消费方
+		close(side.ch)
+		close(side.done)
 	}
 	for {
 		select {
