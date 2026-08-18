@@ -115,6 +115,7 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | `border-strong` | `#d4d4d8` | `#3a3e47` | Emphasized dividers / drag handles where `border` is too faint |
 | `input` | `#e4e4e7` | `#2a2d34` | Form-control borders |
 | `input-bg` | `#ffffff` | `#17191c` | Form-control fill |
+| `control-border` | `#8a8a91` | `#70757f` | **Controls whose outline *is* the control** — an unchecked `Checkbox` has no fill, so losing the border loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.14 dark). Do **not** reach for `border`/`input` here: they are quiet dividers/field edges at ~1.1:1 against every surface, which is why the model table's header select-all used to vanish. Guarded by [`ui/__tests__/checkbox.test.tsx`](../frontend/src/components/ui/__tests__/checkbox.test.tsx) |
 
 ### 3.5 Status colors (agent run state)
 
