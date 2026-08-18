@@ -66,6 +66,15 @@ type NotificationRepo interface {
 	// Append 会从 1 重新分配 seq,而客户端游标还停在旧高水位上 —— 此后每条实时通知都
 	// 被它当成重复丢弃,会话没有跳号、没有错误地冻住。
 	DeleteBelow(ctx context.Context, peerFingerprint, peerSessionID string, seq int64) (int64, error)
+
+	// DeleteAll 删掉这一条 (对端, 会话) 的**全部**日志行,返回删除行数;会话删除的
+	// 另一半(身份行由 session_repo.Delete 删)。
+	//
+	// 它与 DeleteBelow 的「严格小于」正相反,所以不复用后者:留存回收要保住高水位那
+	// 一行,整条删除要的恰恰是一行不剩 —— 拿 DeleteBelow(MAX(seq)) 顶替会永远留下最后
+	// 一条通知,那条会话的转录就清不干净。抹掉高水位带来的 seq 复位由消费方按
+	// dropCursorAboveHighWater 那条规则收口(会话都没了,那个游标本来也不该再用)。
+	DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
 }
 
 var defaultNotification NotificationRepo
@@ -160,6 +169,13 @@ func (r *notificationRepo) OldestSeq(ctx context.Context, peerFingerprint, peerS
 func (r *notificationRepo) DeleteBelow(ctx context.Context, peerFingerprint, peerSessionID string, seq int64) (int64, error) {
 	tx := db.Ctx(ctx).
 		Where("peer_fingerprint = ? AND peer_session_id = ? AND seq < ?", peerFingerprint, peerSessionID, seq).
+		Delete(&NotificationLog{})
+	return tx.RowsAffected, tx.Error
+}
+
+func (r *notificationRepo) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	tx := db.Ctx(ctx).
+		Where("peer_fingerprint = ? AND peer_session_id = ?", peerFingerprint, peerSessionID).
 		Delete(&NotificationLog{})
 	return tx.RowsAffected, tx.Error
 }

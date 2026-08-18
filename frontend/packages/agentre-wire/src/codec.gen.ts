@@ -1071,6 +1071,54 @@ export function encodeSessionAttachResult(v: SessionAttachResult): string {
 }
 
 /**
+ * SessionDeleteParams 是 MethodSessionDelete 的请求。PeerFingerprint 的语义与补齐族
+ * 完全一致:省略 = 调用方自己的对端,点名别人是账号级能力(见 handlers.ResolveSessionPeer)。
+ * 这是本 wire 上第一个破坏性方法,越界的代价不再是「读到了不该读的」而是「删掉了
+ * 别人的对话」,所以它绝不能自成一套宽松的范围规则。
+ */
+export interface SessionDeleteParams extends WireObject {
+  sessionId: number;
+  peerFingerprint?: string;
+}
+
+export function decodeSessionDeleteParams(v: unknown): SessionDeleteParams {
+  return decodeWire<SessionDeleteParams>(v, "SessionDeleteParams", (o) => {
+    o.sessionId = reqNum(o.sessionId, "SessionDeleteParams.sessionId");
+    o.peerFingerprint = optStr(
+      o.peerFingerprint,
+      "SessionDeleteParams.peerFingerprint",
+    );
+  });
+}
+
+export function encodeSessionDeleteParams(v: SessionDeleteParams): string {
+  return encodeWire(v);
+}
+
+/**
+ * SessionDeleteResult 交回删除的**后置条件**:应答返回时,这一端已经没有这条会话了。
+ *
+ * 它有意不是「删了几行」:删除必须幂等 —— server 那份先删、执行端离线时留一条待办,
+ * 待办会重放,而且上一次可能删到一半(会话行没了、日志还剩着)。已经不在的会话回
+ * Deleted=false 会让调用方把它当成没删干净并永远重放下去,回错误更糟。两种端存的
+ * 东西也不一样(agentred 是会话行 + 日志,桌面端是 chat_sessions 与它的消息),
+ * 只有后置条件才是两边都答得准的同一件事。
+ */
+export interface SessionDeleteResult extends WireObject {
+  deleted: boolean;
+}
+
+export function decodeSessionDeleteResult(v: unknown): SessionDeleteResult {
+  return decodeWire<SessionDeleteResult>(v, "SessionDeleteResult", (o) => {
+    o.deleted = reqBool(o.deleted, "SessionDeleteResult.deleted");
+  });
+}
+
+export function encodeSessionDeleteResult(v: SessionDeleteResult): string {
+  return encodeWire(v);
+}
+
+/**
  * EventFrame wraps a single agentruntime.Event for delivery over NotifyEvent.
  * SessionID is transport metadata so the receiving end can route by session;
  * Event payload is the JSON output of one of the 19 sealed Event types

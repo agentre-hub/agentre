@@ -72,6 +72,17 @@ export const MethodSessionPendingWaiters = "runtime.session.pendingWaiters";
  */
 export const MethodSessionAttach = "runtime.session.attach";
 
+/**
+ * MethodSessionDelete 删掉这一端上的那条会话:agentred 上是会话行与它的整段通知
+ * 日志,桌面端上是**那台电脑自己那条对话本体**。两种端一视同仁地受理它 —— 会话
+ * 在哪台机器上执行,删除就在哪台机器上生效。
+ *
+ * 它同样是**新增**方法而不是给既有方法加参数:老版本的执行端不认识它,会回
+ * method-not-found,调用方据此判定「这台机器这辈子都答不了」并如实降级(判据见
+ * ErrSessionDeleteUnsupported),而不是把一条永远失败的删除重试到天荒地老。
+ */
+export const MethodSessionDelete = "runtime.session.delete";
+
 /** daemon → client 通知。 */
 export const NotifyEvent = "runtime.event";
 

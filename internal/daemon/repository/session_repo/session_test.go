@@ -184,3 +184,40 @@ func TestSessionRepo_CountByLifecycle_CountsOnlyThatState(t *testing.T) {
 	assert.Equal(t, int64(2), n)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestSessionRepo_Delete_ScopedToThatPeersRow 覆盖整条会话的删除:只删这一条
+// (对端, 会话),并交回真的删了几行。不带对端指纹的 DELETE 会把别的机器上同号的
+// 那条会话一起抹掉 —— 会话 id 是各客户端本地自增的,重号是常态。
+func TestSessionRepo_Delete_ScopedToThatPeersRow(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("peerA", "s1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	deleted, err := repo.Delete(ctx, "peerA", "s1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), deleted)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_Delete_MissingRowIsNotAnError 覆盖重复删除:会话行早就不在时删掉
+// 零行、不报错。报错会让调用方(server 那条删除待办)永远重放同一条指令。
+func TestSessionRepo_Delete_MissingRowIsNotAnError(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("peerA", "gone").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	deleted, err := repo.Delete(ctx, "peerA", "gone")
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

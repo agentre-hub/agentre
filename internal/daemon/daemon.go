@@ -92,6 +92,10 @@ type Daemon struct {
 	// 它要知道是**哪条连接**在接管,见 bindConn。
 	catchup *handlers.SessionCatchupHandlers
 
+	// sessionDelete 是会话删除 handler。与补齐族同为 Daemon 级、静态注册:它按对端
+	// 限定、改的是库而不是「通知推给谁」,与哪条连接在调用无关。
+	sessionDelete *handlers.SessionDeleteHandlers
+
 	mu  sync.RWMutex
 	lan *rpc.LANServer
 	hub *rpc.HubLink
@@ -777,6 +781,11 @@ func New(opts Options) (*Daemon, error) {
 		Journal:          journalReader{db: gormDB},
 		ClaimedAccountID: d.claimedAccountID,
 	})
+	d.sessionDelete = handlers.NewSessionDeleteHandlers(handlers.SessionDeleteDeps{
+		Sessions:         d.sessionStore,
+		Journal:          journalPurger{db: gormDB},
+		ClaimedAccountID: d.claimedAccountID,
+	})
 	d.gateway = httpgateway.New("127.0.0.1", 0, NewProviderLookup(st))
 	// 内置工具 MCP(org/subagent/group/workflow)隧道:daemon 上 CLI 子进程把请求打到
 	// 本机 gateway 的 /mcp/*(URL 已由 runtime.Run 改写成 daemon base),这里捕获后反向
@@ -914,6 +923,11 @@ func (d *Daemon) registerMethods() {
 	d.registry.Register(wire.MethodSessionList, wrapGuardedNoParams(d.catchup.List))
 	d.registry.Register(wire.MethodSessionPull, wrapGuarded(d.catchup.Pull))
 	d.registry.Register(wire.MethodSessionPendingWaiters, wrapGuarded(d.catchup.PendingWaiters))
+
+	// 删除与补齐族同样静态注册、同样按对端限定,但它是这条 wire 上唯一会让东西消失的
+	// 方法:删掉会话行与它的整段通知日志。它更不该走 trackSessionOwner —— 删一条会话
+	// 顺带把实时流指向自己,是删除最不该有的副作用。
+	d.registry.Register(wire.MethodSessionDelete, wrapGuarded(d.sessionDelete.Delete))
 
 	// runtime.* RPC 族 1:1 镜像 agentruntime.Runtime + 7 个可选子接口,
 	// 把远端 agentre 当成「本地」backend 跑。Handler 在 bindConn
@@ -1887,6 +1901,13 @@ func (s daemonSessionStore) Finish(ctx context.Context, peerFingerprint, peerSes
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, wire.SessionLifecycleIdle)
 }
 
+// Delete 删掉这一条 (对端, 会话) 的会话行(handlers.SessionDeletePort)。它只删身份
+// 行,那条会话的通知日志由 journalPurger 清 —— 两张表各自的仓储各管各的。
+func (s daemonSessionStore) Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	return session_repo.Session().Delete(
+		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID)
+}
+
 // CountRunning 数一数这台 daemon 此刻正在跑的会话(本机状态查询用,见 ipcStatus)。
 // 只服务本机 IPC,不经 LAN 出去,因此不按对端限定 —— 它答的是「这台机器忙不忙」。
 func (s daemonSessionStore) CountRunning(ctx context.Context) (int64, error) {
@@ -1940,6 +1961,18 @@ func sessionRecordOf(row *session_repo.DaemonSession) handlers.SessionRecord {
 		ProviderSessionID: row.ProviderSessionID,
 		UpdatedAt:         row.UpdatedAt,
 	}
+}
+
+// journalPurger 是通知日志的删除侧(会话删除用)。它与 notificationJournal(写一条)
+// 和 journalReader(读)分开:整段清空是唯一一条会让已落库的通知消失的路径,handlers
+// 那边也按 ISP 单独声明了它(JournalPurgePort)。
+type journalPurger struct{ db *gorm.DB }
+
+var _ handlers.JournalPurgePort = journalPurger{}
+
+func (j journalPurger) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	return notification_repo.Notification().DeleteAll(
+		dbpkg.WithContextDB(ctx, j.db), peerFingerprint, peerSessionID)
 }
 
 // journalReader 是通知日志的读侧(补齐用),写侧见 notificationJournal。

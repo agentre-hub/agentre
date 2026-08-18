@@ -212,3 +212,44 @@ func TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor(t *testing.T) {
 	assert.Equal(t, int64(900), got)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestNotificationRepo_DeleteAll_RemovesTheWholeSessionJournal 覆盖整条会话的日志
+// 清空(会话删除的另一半):删掉这一条 (对端, 会话) 的**全部**行,包括高水位那一条。
+//
+// 它与 DeleteBelow 的「严格小于」正相反,所以不能复用后者:留存回收要保住高水位,
+// 会话删除要的恰恰是一行不剩 —— 用 DeleteBelow(seq=MAX) 删会留下最后一行,那条
+// 会话的转录就永远清不干净。抹掉高水位带来的 seq 复位由镜像客户端按
+// dropCursorAboveHighWater 那条规则收口。
+func TestNotificationRepo_DeleteAll_RemovesTheWholeSessionJournal(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := notification_repo.NewNotification()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `daemon_notification_logs` WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("peerA", "s1").
+		WillReturnResult(sqlmock.NewResult(0, 900))
+	mock.ExpectCommit()
+
+	deleted, err := repo.DeleteAll(ctx, "peerA", "s1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(900), deleted)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestNotificationRepo_DeleteAll_LeavesOtherPeersSameSessionIDAlone 覆盖 R16 的
+// 复合键边界:同号会话属于另一个对端时一行都不能动。
+func TestNotificationRepo_DeleteAll_LeavesOtherPeersSameSessionIDAlone(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := notification_repo.NewNotification()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `daemon_notification_logs` WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("peerB", "s1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	deleted, err := repo.DeleteAll(ctx, "peerB", "s1")
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

@@ -58,6 +58,15 @@ const (
 	// 路径,所以重连的客户端需要一个不含副作用的入口明说这件事。
 	MethodSessionAttach = "runtime.session.attach"
 
+	// MethodSessionDelete 删掉这一端上的那条会话:agentred 上是会话行与它的整段通知
+	// 日志,桌面端上是**那台电脑自己那条对话本体**。两种端一视同仁地受理它 —— 会话
+	// 在哪台机器上执行,删除就在哪台机器上生效。
+	//
+	// 它同样是**新增**方法而不是给既有方法加参数:老版本的执行端不认识它,会回
+	// method-not-found,调用方据此判定「这台机器这辈子都答不了」并如实降级(判据见
+	// ErrSessionDeleteUnsupported),而不是把一条永远失败的删除重试到天荒地老。
+	MethodSessionDelete = "runtime.session.delete"
+
 	// daemon → client 通知。
 	NotifyEvent         = "runtime.event"
 	NotifyRunResultDone = "runtime.runResultDone"
@@ -156,6 +165,27 @@ func CodeForSentinel(err error) (int, bool) {
 		return ErrCodeSessionNotFound, true
 	}
 	return 0, false
+}
+
+// ErrSessionDeleteUnsupported 是 MethodSessionDelete 回 method-not-found 时的判据:
+// 对面的执行端太老,它这辈子都不认识这个方法。
+//
+// 它必须与「这一次没删成」分开(与 remote.ErrCatchUpUnsupported 同形):后者等机器
+// 回来再删一遍就成了,而前者重试多少次都是同一个结果 —— 分不开,server 那条删除待办
+// 就会对着一台永远答不了的机器重放到天荒地老。
+var ErrSessionDeleteUnsupported = errors.New("agentruntime/runtimes/remote/wire: peer does not support session delete")
+
+// SessionDeleteCallError 把一次 MethodSessionDelete 调用的错误分类:JSON-RPC 标准的
+// -32601 翻成 ErrSessionDeleteUnsupported,其余原样交回(包括 nil)。
+func SessionDeleteCallError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var rpcErr *jsonrpc.Error
+	if errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.ErrMethodNotFound.Code {
+		return ErrSessionDeleteUnsupported
+	}
+	return err
 }
 
 // ── RPC types ───────────────────────────────────────────────────────────────
@@ -572,6 +602,26 @@ type SessionAttachResult struct {
 	BackendType    string `json:"backendType,omitempty"`
 	LifecycleState string `json:"lifecycleState"`
 	LatestSeq      int64  `json:"latestSeq"`
+}
+
+// SessionDeleteParams 是 MethodSessionDelete 的请求。PeerFingerprint 的语义与补齐族
+// 完全一致:省略 = 调用方自己的对端,点名别人是账号级能力(见 handlers.ResolveSessionPeer)。
+// 这是本 wire 上第一个破坏性方法,越界的代价不再是「读到了不该读的」而是「删掉了
+// 别人的对话」,所以它绝不能自成一套宽松的范围规则。
+type SessionDeleteParams struct {
+	SessionID       int64  `json:"sessionId"`
+	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+}
+
+// SessionDeleteResult 交回删除的**后置条件**:应答返回时,这一端已经没有这条会话了。
+//
+// 它有意不是「删了几行」:删除必须幂等 —— server 那份先删、执行端离线时留一条待办,
+// 待办会重放,而且上一次可能删到一半(会话行没了、日志还剩着)。已经不在的会话回
+// Deleted=false 会让调用方把它当成没删干净并永远重放下去,回错误更糟。两种端存的
+// 东西也不一样(agentred 是会话行 + 日志,桌面端是 chat_sessions 与它的消息),
+// 只有后置条件才是两边都答得准的同一件事。
+type SessionDeleteResult struct {
+	Deleted bool `json:"deleted"`
 }
 
 // ── Notification frames ─────────────────────────────────────────────────────

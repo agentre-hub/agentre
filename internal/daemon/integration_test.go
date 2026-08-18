@@ -2686,6 +2686,83 @@ func TestIntegration_SessionCatchup_ScopedToTheCallersPeer(t *testing.T) {
 	assert.Equal(t, wire.ErrCodeSessionNotFound, rpcErr.Code)
 }
 
+// TestIntegration_SessionDelete_ClearsTheSessionAndItsJournal 覆盖执行端删除:
+// server 上的一条对话被删掉时,执行端这一份(会话行 + 它的整段通知日志)也要没。
+//
+// 断言走的是 wire 本身而不是库:清单里不再有它、按同一个会话 id 拉不到任何一行 ——
+// 后者正是「只删会话行、日志留着」那种半吊子实现的照妖镜:会话 id 是调用方本地自增
+// 的、会被复用,留下的旧日志下一次就会被当成新会话的历史拉走。
+func TestIntegration_SessionDelete_ClearsTheSessionAndItsJournal(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{
+		agentruntime.TextDelta{Text: "delete me"},
+		agentruntime.Done{},
+	})
+	events, _ := rig.startRun(t, 903)
+	_ = drainRuntimeEvents(t, events, 5*time.Second)
+
+	var before wire.SessionListResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &before))
+	require.Len(t, before.Sessions, 1, "删之前这条会话确实在")
+	require.Greater(t, before.Sessions[0].LatestSeq, int64(0), "删之前它确实有日志")
+
+	var deleted wire.SessionDeleteResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionDelete,
+		wire.SessionDeleteParams{SessionID: 903}, &deleted))
+	assert.True(t, deleted.Deleted)
+
+	var after wire.SessionListResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &after))
+	assert.Empty(t, after.Sessions, "删掉的会话不得再出现在清单里")
+
+	var page wire.SessionPullResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
+		wire.SessionPullParams{SessionID: 903}, &page))
+	assert.Empty(t, page.Notifications, "那条会话的通知日志必须一行不剩")
+	assert.Zero(t, page.OldestSeq)
+
+	// 再删一次:server 的删除待办会重放,报错会让它永远重放下去。
+	var again wire.SessionDeleteResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionDelete,
+		wire.SessionDeleteParams{SessionID: 903}, &again), "重复删除必须幂等")
+	assert.True(t, again.Deleted)
+}
+
+// TestIntegration_SessionDelete_ScopedToTheCallersPeer 钉住删除的权限边界:删除按
+// 与 list / pull 同一条 (对端, 会话) 复合键定位(ResolveSessionPeer)。会话 id 是各
+// 客户端本地自增的,不带对端限定的删除会让任何一台已配对设备照着裸数字删掉别人的
+// 对话 —— 这是本 wire 上第一个破坏性方法,越界的代价不再是「看到了不该看的」。
+func TestIntegration_SessionDelete_ScopedToTheCallersPeer(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{
+		agentruntime.TextDelta{Text: "mine"},
+		agentruntime.Done{},
+	})
+	events, _ := rig.startRun(t, 904)
+	_ = drainRuntimeEvents(t, events, 5*time.Second)
+
+	other := pairSecondDevice(t, rig.d, "sha256:other-device")
+	var stolen wire.SessionDeleteResult
+	require.NoError(t, callRig(t, other, wire.MethodSessionDelete,
+		wire.SessionDeleteParams{SessionID: 904}, &stolen), "删自己名下不存在的会话是幂等成功")
+
+	var mine wire.SessionListResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &mine))
+	require.Len(t, mine.Sessions, 1, "另一个对端删不掉别人的会话")
+
+	var page wire.SessionPullResult
+	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
+		wire.SessionPullParams{SessionID: 904}, &page))
+	assert.NotEmpty(t, page.Notifications, "它的转录也必须原封不动")
+
+	// 配对身份点名别人的对端同样删不动(点名 origin 是账号级能力)。
+	var named wire.SessionDeleteResult
+	err := callRig(t, other, wire.MethodSessionDelete,
+		wire.SessionDeleteParams{SessionID: 904, PeerFingerprint: "sha256:desktop-test"}, &named)
+	require.Error(t, err)
+	var rpcErr *rpc.Error
+	require.True(t, errors.As(err, &rpcErr))
+	assert.Equal(t, rpc.ErrUnauthorized.Code, rpcErr.Code)
+}
+
 // TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeersOnTheSameSessionID
 // 覆盖 R16 里最难的那半:两个对端**各自持有同一个本地会话 id**。
 //

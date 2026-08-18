@@ -113,6 +113,25 @@ type SessionQueryPort interface {
 	Find(ctx context.Context, peerFingerprint, peerSessionID string) (*SessionRecord, error)
 }
 
+// SessionDeletePort 删掉一条会话的身份行,返回真的删了几行(不存在时 0 行、不报错)。
+//
+// 它与 SessionQueryPort / SessionLifecyclePort 分开声明是 ISP,也是刻意的读写分离:
+// 补齐族只读、跑一轮的一侧只推进生命周期,只有删除会让一条会话整个消失。
+type SessionDeletePort interface {
+	Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+}
+
+// JournalPurgePort 清空某会话的**全部**通知日志,返回删除行数。
+//
+// 它是会话删除的另一半:只删会话行会留下一段没有主人的转录,而会话 id 是各客户端
+// 本地自增、会被复用的 —— 那段旧日志下一次就会被当成新会话的历史拉走。
+//
+// 与 JournalPort(写一条)/ JournalReaderPort(读)三者分开:一条路径只做一件事,
+// 而这条是唯一一条会让已落库的通知消失的路径。
+type JournalPurgePort interface {
+	DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+}
+
 // SteerSourceEntry 是一条 mid-turn steer 的提交方信息。Record 时由 Steer RPC
 // 从调用连接的对端鉴权状态里取,Consume 时盖回被消费的 steer 上。
 type SteerSourceEntry struct {

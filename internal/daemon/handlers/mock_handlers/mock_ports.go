@@ -335,6 +335,84 @@ func (mr *MockSessionQueryPortMockRecorder) List(ctx, peerFingerprint any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSessionQueryPort)(nil).List), ctx, peerFingerprint)
 }
 
+// MockSessionDeletePort is a mock of SessionDeletePort interface.
+type MockSessionDeletePort struct {
+	ctrl     *gomock.Controller
+	recorder *MockSessionDeletePortMockRecorder
+	isgomock struct{}
+}
+
+// MockSessionDeletePortMockRecorder is the mock recorder for MockSessionDeletePort.
+type MockSessionDeletePortMockRecorder struct {
+	mock *MockSessionDeletePort
+}
+
+// NewMockSessionDeletePort creates a new mock instance.
+func NewMockSessionDeletePort(ctrl *gomock.Controller) *MockSessionDeletePort {
+	mock := &MockSessionDeletePort{ctrl: ctrl}
+	mock.recorder = &MockSessionDeletePortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSessionDeletePort) EXPECT() *MockSessionDeletePortMockRecorder {
+	return m.recorder
+}
+
+// Delete mocks base method.
+func (m *MockSessionDeletePort) Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Delete", ctx, peerFingerprint, peerSessionID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockSessionDeletePortMockRecorder) Delete(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockSessionDeletePort)(nil).Delete), ctx, peerFingerprint, peerSessionID)
+}
+
+// MockJournalPurgePort is a mock of JournalPurgePort interface.
+type MockJournalPurgePort struct {
+	ctrl     *gomock.Controller
+	recorder *MockJournalPurgePortMockRecorder
+	isgomock struct{}
+}
+
+// MockJournalPurgePortMockRecorder is the mock recorder for MockJournalPurgePort.
+type MockJournalPurgePortMockRecorder struct {
+	mock *MockJournalPurgePort
+}
+
+// NewMockJournalPurgePort creates a new mock instance.
+func NewMockJournalPurgePort(ctrl *gomock.Controller) *MockJournalPurgePort {
+	mock := &MockJournalPurgePort{ctrl: ctrl}
+	mock.recorder = &MockJournalPurgePortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockJournalPurgePort) EXPECT() *MockJournalPurgePortMockRecorder {
+	return m.recorder
+}
+
+// DeleteAll mocks base method.
+func (m *MockJournalPurgePort) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAll", ctx, peerFingerprint, peerSessionID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteAll indicates an expected call of DeleteAll.
+func (mr *MockJournalPurgePortMockRecorder) DeleteAll(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAll", reflect.TypeOf((*MockJournalPurgePort)(nil).DeleteAll), ctx, peerFingerprint, peerSessionID)
+}
+
 // MockSteerSourcePort is a mock of SteerSourcePort interface.
 type MockSteerSourcePort struct {
 	ctrl     *gomock.Controller

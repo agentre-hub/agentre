@@ -56,6 +56,21 @@ func (mr *MockSessionRepoMockRecorder) CountByLifecycle(ctx, state any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).CountByLifecycle), ctx, state)
 }
 
+// Delete mocks base method.
+func (m *MockSessionRepo) Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Delete", ctx, peerFingerprint, peerSessionID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockSessionRepoMockRecorder) Delete(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockSessionRepo)(nil).Delete), ctx, peerFingerprint, peerSessionID)
+}
+
 // Find mocks base method.
 func (m *MockSessionRepo) Find(ctx context.Context, peerFingerprint, peerSessionID string) (*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()

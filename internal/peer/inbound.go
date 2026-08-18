@@ -10,6 +10,7 @@ import (
 	"github.com/agentre-ai/agentre/internal/daemon/rpc"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
 )
 
 type inboundSessionAdapter interface {
@@ -17,6 +18,9 @@ type inboundSessionAdapter interface {
 	AttachPeerSession(context.Context, wire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error)
 	PullPeerSession(context.Context, wire.SessionPullParams, chat_svc.PeerSessionSubscriber) (wire.SessionPullResult, error)
 	PendingPeerSessionWaiters(context.Context, wire.SessionPendingWaitersParams) (wire.SessionPendingWaitersResult, error)
+	// Delete 是桌面端自己那条删除对话的入口(不是为对端另开的第二条删除路径):
+	// 对端删掉的就是用户在这台电脑上删掉的那一份。
+	Delete(context.Context, *chat_svc.DeleteRequest) (*chat_svc.DeleteResponse, error)
 	RunPeerSession(context.Context, wire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
 	EnqueuePeerSession(context.Context, wire.SteerParams, chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error)
 	AnswerPeerUserQuestion(context.Context, wire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
@@ -92,6 +96,7 @@ func RegisterInboundMethods(registry *rpc.Registry) {
 	registry.Register(wire.MethodSessionAttach, requireAccount(attachSession))
 	registry.Register(wire.MethodSessionPull, requireAccount(pullSession))
 	registry.Register(wire.MethodSessionPendingWaiters, requireAccount(pendingSessionWaiters))
+	registry.Register(wire.MethodSessionDelete, requireAccount(deleteSession))
 	registry.Register(wire.MethodRun, requireAccount(runSession))
 	registry.Register(wire.MethodSteer, requireAccount(steerSession))
 	registry.Register(wire.MethodSubmitAnswer, requireAccount(submitAnswer))
@@ -200,6 +205,61 @@ func pendingSessionWaiters(ctx context.Context, raw json.RawMessage) (any, error
 		return nil, err
 	}
 	return result, nil
+}
+
+// deleteSession removes this computer's own copy of a chat session, because the
+// desktop is a mirror target on equal terms with agentred: a session deleted
+// from the account is deleted wherever it executes.
+//
+// The blast radius here is not an execution log. On agentred the same method
+// drops a session row and its notification journal; on the desktop it drops the
+// user's primary copy of the conversation — so this is the desktop's own delete
+// (chat_svc.Delete), not a second deletion path invented for peers.
+//
+// peerFingerprint has exactly one legal value on this end: this computer. Every
+// desktop session originates here, and the session list hands out this machine's
+// fingerprint on every summary, so a mirror naming any other machine is asking a
+// different machine to delete something. Following the bare sessionId anyway
+// would destroy this computer's same-numbered conversation — session ids are
+// each end's local autoincrement, so collisions are the norm, not the exception.
+func deleteSession(ctx context.Context, raw json.RawMessage) (any, error) {
+	var params wire.SessionDeleteParams
+	if err := json.Unmarshal(raw, &params); err != nil || params.SessionID <= 0 {
+		return nil, rpc.ErrInvalidParams
+	}
+	if err := requireOwnOrigin(params.PeerFingerprint); err != nil {
+		return nil, err
+	}
+	adapter, ok := chat_svc.Chat().(inboundSessionAdapter)
+	if !ok || adapter == nil {
+		return nil, rpc.ErrInternal
+	}
+	if _, err := adapter.Delete(ctx, &chat_svc.DeleteRequest{SessionID: params.SessionID}); err != nil {
+		return nil, err
+	}
+	// Deleting an already-deleted session stays a success: the account keeps a
+	// pending delete for every machine that was offline and replays it, and an
+	// error would make that job replay forever.
+	return wire.SessionDeleteResult{Deleted: true}, nil
+}
+
+// requireOwnOrigin accepts an omitted origin (= this machine, the wire's own
+// convention) and this desktop's own fingerprint; anything else is refused.
+// An unreadable local fingerprint refuses a named origin rather than assuming
+// it matches — the destructive direction is the one that must fail closed.
+func requireOwnOrigin(originPeer string) error {
+	if originPeer == "" {
+		return nil
+	}
+	device := remote_device_svc.Default()
+	if device == nil {
+		return rpc.ErrUnauthorized
+	}
+	fingerprint, err := device.DeviceFingerprint()
+	if err != nil || fingerprint == "" || fingerprint != originPeer {
+		return rpc.ErrUnauthorized
+	}
+	return nil
 }
 
 func peerSource(ctx context.Context, requestedName string) (chat_svc.PeerSessionSource, error) {

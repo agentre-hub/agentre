@@ -3,6 +3,7 @@ package wire
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -90,9 +91,32 @@ func TestMethodNames_Stable(t *testing.T) {
 		NotifyAutonomousTurnStarted: "runtime.autonomousTurn.started",
 		NotifyAutonomousTurnEvent:   "runtime.autonomousTurn.event",
 		NotifyAutonomousTurnDone:    "runtime.autonomousTurn.done",
+		MethodSessionDelete:         "runtime.session.delete",
 	} {
 		assert.Equal(t, v, k)
 	}
+}
+
+// TestSessionDeleteCallError_SeparatesTooOldFromFailed 钉住删除的回落判据:执行端
+// 不认识 runtime.session.delete 时回 JSON-RPC 标准的 -32601,调用方必须能把它与
+// 「这一次没删成」分开 —— 前者重试多少次都是同一个结果(那台机器这辈子都答不了),
+// 后者等一会儿再来就成了。判据与 remote.ErrCatchUpUnsupported 同形。
+func TestSessionDeleteCallError_SeparatesTooOldFromFailed(t *testing.T) {
+	tooOld := SessionDeleteCallError(&jsonrpc.Error{Code: jsonrpc.ErrMethodNotFound.Code, Message: "Method not found"})
+	require.ErrorIs(t, tooOld, ErrSessionDeleteUnsupported)
+
+	// 别的 JSON-RPC 错误只是这一次失败,不能被当成「对面太老」——那会让一条删不掉的
+	// 会话被永久放弃。
+	failed := &jsonrpc.Error{Code: ErrCodeSessionNotFound, Message: "session not found"}
+	got := SessionDeleteCallError(failed)
+	assert.NotErrorIs(t, got, ErrSessionDeleteUnsupported)
+	assert.Same(t, failed, got)
+
+	// 包在别的错误里的 -32601 同样算(调用栈会 wrap)。
+	wrapped := SessionDeleteCallError(fmt.Errorf("delete session 7: %w", &jsonrpc.Error{Code: jsonrpc.ErrMethodNotFound.Code}))
+	assert.ErrorIs(t, wrapped, ErrSessionDeleteUnsupported)
+
+	assert.NoError(t, SessionDeleteCallError(nil))
 }
 
 func TestAutonomousTurnStartedFrame_RoundTrip(t *testing.T) {

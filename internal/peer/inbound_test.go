@@ -225,6 +225,141 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	releaseRelay.Do(func() { close(holdRelay) })
 }
 
+// Given 一台已登录的桌面端作为对端在线, When 同账号的对端删除它上面的一条对话,
+// Then 删掉的是**这台电脑自己那条 chat_sessions**(用户的主副本,不是一份执行日志,
+// 规格决策 16),重复删除仍然成功,而点名别的机器时一行都不许动。
+//
+// 桌面端这一侧单独立此回归:agentred 上删掉的是会话行与通知日志,这里删掉的是用户
+// 本机的对话本体 —— 同一个 wire 方法在两种端上破坏力完全不同,agentred 那边的用例
+// 覆盖不到这一份。
+func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisComputersOwnCopyIdempotently(t *testing.T) {
+	sessions := registerInboundPeerChatForDelete(t)
+	ws := startInboundPeer(t)
+
+	// 账号门:补齐族的每个方法都在门后,新增的删除不能是例外 —— 它比读更该在门后。
+	unauthenticated := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 1}),
+	})
+	require.NotNil(t, unauthenticated.Error)
+	assert.Equal(t, rpc.ErrUnauthorized.Code, unauthenticated.Error.Code)
+
+	authenticated := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "auth.account",
+		Params: mustJSON(t, rpc.AccountParams{Credential: "same-account-device-jwt", DeviceFingerprint: "sha256:peer"}),
+	})
+	require.Nil(t, authenticated.Error)
+
+	sessions.EXPECT().SoftDelete(gomock.Any(), int64(1)).Return(nil).Times(2)
+
+	deleted := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`3`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 1}),
+	})
+	require.Nil(t, deleted.Error, "授权对端必须删得掉这台电脑上的对话")
+	var result wire.SessionDeleteResult
+	require.NoError(t, json.Unmarshal(deleted.Result, &result))
+	assert.True(t, result.Deleted, "删除返回时这一端必须已经没有这条会话")
+
+	// 重复删除幂等:server 那条删除待办会重放,报错会让它永远重放下去。这一次还带上
+	// 本机指纹 —— 会话清单交出去的 PeerFingerprint 就是它,镜像会原样带回来。
+	again := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`4`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 1, PeerFingerprint: "sha256:desktop"}),
+	})
+	require.Nil(t, again.Error, "重复删除必须幂等")
+	var repeated wire.SessionDeleteResult
+	require.NoError(t, json.Unmarshal(again.Result, &repeated))
+	assert.True(t, repeated.Deleted)
+
+	// 点名另一台机器:这条连接删得掉的只有本机那份。照着裸 sessionId 删下去会把本机
+	// 同号的另一条对话(会话 id 各端本地自增、必然重号)当场抹掉。SoftDelete 的
+	// Times(2) 就是这条断言的执行者。
+	foreign := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`5`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 1, PeerFingerprint: "sha256:some-agentred"}),
+	})
+	require.NotNil(t, foreign.Error, "点名别的机器不得删掉本机同号的对话")
+	assert.Equal(t, rpc.ErrUnauthorized.Code, foreign.Error.Code)
+
+	invalid := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`6`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 0}),
+	})
+	require.NotNil(t, invalid.Error)
+	assert.Equal(t, rpc.ErrInvalidParams.Code, invalid.Error.Code)
+}
+
+// startInboundPeer 起一台只接一条连接的假中继,并把桌面端 Inbound 挂上去,返回中继
+// 这一侧的那条连接。
+func startInboundPeer(t *testing.T) *websocket.Conn {
+	t.Helper()
+	upgrader := websocket.Upgrader{}
+	accepted := make(chan *websocket.Conn, 1)
+	hold := make(chan struct{})
+	var releaseRelay sync.Once
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		accepted <- ws
+		<-hold
+		_ = ws.Close()
+	}))
+	t.Cleanup(relay.Close)
+
+	link := rpc.NewHubLink(rpc.HubLinkOptions{
+		ServerURL:         relay.URL,
+		AccessToken:       "desktop-token",
+		RetryInitial:      time.Millisecond,
+		RetryMax:          time.Millisecond,
+		RetryWait:         func(context.Context, time.Duration) error { return nil },
+		Random:            func() float64 { return 1 },
+		HeartbeatInterval: time.Hour,
+	})
+	inbound := peer.NewInbound(link)
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- inbound.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		require.NoError(t, <-runDone)
+		releaseRelay.Do(func() { close(hold) })
+	})
+
+	select {
+	case ws := <-accepted:
+		return ws
+	case <-time.After(2 * time.Second):
+		t.Fatal("desktop did not register with the relay")
+		return nil
+	}
+}
+
+// registerInboundPeerChatForDelete 只装删除这条路径要的替身:本机指纹 + 会话仓储。
+// 期望由用例自己按场景下,helper 不替它决定删了几次。
+func registerInboundPeerChatForDelete(t *testing.T) *mock_chat_repo.MockSessionRepo {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	sessions := mock_chat_repo.NewMockSessionRepo(ctrl)
+	device := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+	prevChat := chat_svc.Chat()
+	prevSessions := chat_repo.Session()
+	prevDevice := remote_device_svc.Default()
+	chat_repo.RegisterSession(sessions)
+	remote_device_svc.SetDefault(device)
+	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NoopEmitter{}))
+	t.Cleanup(func() {
+		chat_svc.RegisterChat(prevChat)
+		chat_repo.RegisterSession(prevSessions)
+		remote_device_svc.SetDefault(prevDevice)
+		ctrl.Finish()
+	})
+	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
+	return sessions
+}
+
 func registerInboundPeerChat(t *testing.T) {
 	t.Helper()
 	ctrl := gomock.NewController(t)

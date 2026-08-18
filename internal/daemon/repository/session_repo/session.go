@@ -75,6 +75,14 @@ type SessionRepo interface {
 	// 里数:这一列只用来印一个数字,没有理由把整张表搬出库。
 	CountByLifecycle(ctx context.Context, state string) (int64, error)
 
+	// Delete 删掉这一条 (对端, 会话) 的会话行,返回删除行数。会话不存在时删掉零行、
+	// 不报错:删除必须幂等 —— 调用方(server 那条删除待办)会重放同一条指令,报错会让
+	// 它永远重放下去。
+	//
+	// 它只删身份行;那条会话的通知日志由 notification_repo.DeleteAll 清(两个包各管
+	// 各的表)。
+	Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+
 	// InterruptAll 把库中所有还不是 interruptedState 的会话一次改成该状态,返回受影响
 	// 行数(R10 的启动清扫)。它按状态而不是按对端 / 会话枚举:daemon 刚起时内存里一条
 	// 会话都没有,库里的行就是唯一的来源。
@@ -164,6 +172,13 @@ func (r *sessionRepo) CountByLifecycle(ctx context.Context, state string) (int64
 		return 0, err
 	}
 	return n, nil
+}
+
+func (r *sessionRepo) Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	tx := db.Ctx(ctx).
+		Where("peer_fingerprint = ? AND peer_session_id = ?", peerFingerprint, peerSessionID).
+		Delete(&DaemonSession{})
+	return tx.RowsAffected, tx.Error
 }
 
 func (r *sessionRepo) InterruptAll(ctx context.Context, interruptedState string) (int64, error) {
