@@ -9,8 +9,8 @@ import {
 } from "@agentre-ai/agentre-ui";
 
 import i18n, { LANGUAGE_STORAGE_KEY, detectInitialLanguage } from "@/i18n";
-import enCommon from "@/i18n/locales/en/common.json";
-import zhCommon from "@/i18n/locales/zh-CN/common.json";
+import enCommon from "@/i18n/locales/en";
+import zhCommon from "@/i18n/locales/zh-CN";
 
 type LocaleTree = Record<string, unknown>;
 

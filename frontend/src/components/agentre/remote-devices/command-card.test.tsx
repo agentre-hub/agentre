@@ -12,8 +12,8 @@ vi.mock("@agentre-ai/agentre-ui", async (importOriginal) => ({
   copyTextWithToast,
 }));
 
-import en from "../../../i18n/locales/en/common.json";
-import zhCN from "../../../i18n/locales/zh-CN/common.json";
+import en from "../../../i18n/locales/en";
+import zhCN from "../../../i18n/locales/zh-CN";
 import { CommandCard } from "./command-card";
 
 describe("CommandCard", () => {

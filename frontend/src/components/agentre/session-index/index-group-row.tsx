@@ -17,6 +17,7 @@ import type { app } from "../../../../wailsjs/go/models";
 
 import { FreeGroupHeader } from "./free-group-header";
 import { OwnSessionsHeader } from "./own-sessions-header";
+import type { ProjectGlyphInfo } from "./project-glyph";
 import { ProjectGroupHeader } from "./project-group-header";
 import { RowLeadingSlot } from "./row-leading-slot";
 import { RowSecondaryLine } from "./row-secondary-line";
@@ -68,8 +69,12 @@ export type IndexGroupRowProps = {
   hasRunning: boolean;
   allLocalPathsMissing: boolean;
   dragListeners?: Record<string, unknown>;
-  projectColorOf: (projectID: number) => string | null;
-  projectNameOf: (projectID: number) => string;
+  /**
+   * 项目 id → 画一枚项目字形所需的三件事（名字 / 颜色 / 图标）。返回 null =
+   * 认不出这个项目。三件事一起取而不是三个各自的取值函数：它们只在一处一起用，
+   * 拆开只会让「同一个项目在组头和行里长得不一样」重新有机可乘。
+   */
+  projectInfoOf: (projectID: number) => ProjectGlyphInfo | null;
   /**
    * agent id → 名称 / 颜色。**不能只读 meta.agentName** —— 索引 RPC 的载荷里没有
    * 这两个字段（只有 agentId），只有 ListChatAgents 那条路会顺带写。凡是落在某个
@@ -93,8 +98,7 @@ export function IndexGroupRow({
   hasRunning,
   allLocalPathsMissing,
   dragListeners,
-  projectColorOf,
-  projectNameOf,
+  projectInfoOf,
   agentInfoOf,
   handlers,
   children,
@@ -130,6 +134,7 @@ export function IndexGroupRow({
       const resolved = agentInfoOf(meta.agentId ?? 0);
       const agentName = resolved.name || (meta.agentName ?? "");
       const agentColor = resolved.color || meta.agentColor || "agent-1";
+      const project = projectID > 0 ? projectInfoOf(projectID) : null;
       if (axis === "time") {
         return {
           ...row,
@@ -137,13 +142,9 @@ export function IndexGroupRow({
             <RowSecondaryLine
               agentName={agentName}
               agentColor={agentColor}
+              project={project}
               // 自由会话报「随手对话」而不是空 —— 它有去处，只是那个去处不是项目。
-              projectName={
-                projectID > 0
-                  ? projectNameOf(projectID)
-                  : t("sessionIndex.free.name")
-              }
-              projectColor={projectID > 0 ? projectColorOf(projectID) : null}
+              freeLabel={t("sessionIndex.free.name")}
             />
           ),
         };
@@ -155,12 +156,12 @@ export function IndexGroupRow({
             axis={axis}
             agentName={agentName}
             agentColor={agentColor}
-            projectColor={projectID > 0 ? projectColorOf(projectID) : null}
+            project={project}
           />
         ),
       };
     },
-    [axis, metas, projectColorOf, projectNameOf, agentInfoOf, t],
+    [axis, metas, projectInfoOf, agentInfoOf, t],
   );
 
   const decoratedSessions = React.useMemo(

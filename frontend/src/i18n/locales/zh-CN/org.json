@@ -1,0 +1,268 @@
+{
+  "org": {
+    "chart": {
+      "actions": {
+        "newAgent": "新建 Agent",
+        "newDepartment": "新建部门"
+      },
+      "detail": {
+        "empty": "选择一个部门或 Agent 查看详情"
+      },
+      "empty": {
+        "noMountNodes": "暂无可挂载节点"
+      },
+      "loading": "正在加载组织架构…",
+      "newAgent": {
+        "agentOption": "Agent · {{name}}",
+        "avatar": "头像",
+        "avatarColor": "头像配色",
+        "avatarColorNamed": "头像配色 {{color}}",
+        "avatarHint": "点击头像选图标，创建后可在详情页上传图片",
+        "backend": "后端",
+        "departmentOption": "部门 · {{name}}",
+        "description": "设置 Agent 的名称、挂载位置和执行后端。",
+        "intentHint": "创建后先配后端再对话",
+        "intentSettings": "去设置 → Agent 后端",
+        "optionalSuffix": "（可选）",
+        "placement": "选择部门或上级 Agent"
+      },
+      "newDepartment": {
+        "description": "选择父级、图标和主题色，创建后会出现在组织架构中。",
+        "iconAria": "新部门图标"
+      },
+      "summary": {
+        "list": "{{count}} 个 Agent · 列表视图",
+        "tree": "{{departments}} 部门 · {{subDepartments}} 子部门 · {{agents}} Agent"
+      },
+      "title": "组织架构",
+      "view": {
+        "list": "列表",
+        "listAria": "列表视图",
+        "tree": "树状",
+        "treeAria": "树状视图"
+      },
+      "zoom": {
+        "in": "放大",
+        "out": "缩小",
+        "reset": "重置缩放"
+      }
+    },
+    "agent": {
+      "actions": {
+        "deleteAgent": "删除 Agent"
+      },
+      "avatar": {
+        "replaceImage": "替换图片",
+        "uploadImage": "上传图片"
+      },
+      "backend": {
+        "configureProvider": "去配置 LLM 供应商",
+        "goAgentBackendSettings": "去 Agent 后端设置",
+        "inactiveSuffix": "（已停用）",
+        "noBackendDescription": "绑定一个 Agent 后端后即可开始对话；内置后端需要额外的 LLM 供应商。",
+        "noBackendTitle": "这个 Agent 还不能对话",
+        "providerGapDescription": "内置 SDK 后端通过 LLM 供应商执行任务，当前还没有已激活的供应商。",
+        "providerGapTitle": "还需要一个 LLM 供应商",
+        "title": "AGENT 后端",
+        "unlinkedProvider": "未绑定 LLM 供应商"
+      },
+      "execTargets": {
+        "title": "执行目标",
+        "add": "添加",
+        "addFull": "添加执行目标",
+        "replace": "更换",
+        "remove": "移除",
+        "moveUp": "上移执行目标",
+        "moveDown": "下移执行目标",
+        "dragHandle": "拖拽排序（也可按 ↑ / ↓ 方向键）",
+        "moved": "已移到第 {{position}} 位，共 {{total}} 位。",
+        "currentlyActive": "当前生效",
+        "online": "在线",
+        "offline": "离线",
+        "localMachine": "本机",
+        "emptyTitle": "还没有执行目标",
+        "emptyHint": "至少要有一项，这个 Agent 才能起会话。",
+        "saveRejected": "保存被拒：请至少添加一个执行目标。",
+        "allUnavailableTitle": "「{{name}}」现在没有可用的执行机器",
+        "addPanel": {
+          "searchPlaceholder": "搜索机器或后端…",
+          "alreadyInList": "已在列表中",
+          "unpaired": "未配对"
+        },
+        "reasons": {
+          "orphanBackend": "该执行目标引用的后端已不存在",
+          "backendRequiresProvider": "需指定 LLM Provider",
+          "providerInactive": "LLM 供应商未激活",
+          "remoteProviderMissing": "远端缺少 LLM 供应商",
+          "gatewayNotRunning": "本地网关未启动",
+          "remoteOpenclawUnavailable": "远端 OpenClaw 暂不可用",
+          "unknownBackend": "未知后端类型",
+          "unpaired": "这台电脑未配对它",
+          "offline": "离线",
+          "projectPathMissing": "这台机器上没有配置这个项目的路径"
+        },
+        "loading": "正在加载执行目标…"
+      },
+      "basicInfo": "基本信息",
+      "charCount": "{{count}} 字",
+      "deleteDialog": {
+        "description": "该 Agent 的对话、技能与状态记录都会一并清除，该操作不可撤销。",
+        "title": "确认删除 Agent「{{name}}」？"
+      },
+      "departmentLead": "{{name}} 部门长",
+      "descriptionHint": "可选 · 显示在卡片副标题",
+      "dragHierarchyHint": "· 拖拽卡片可调整层级",
+      "fallbackName": "Agent",
+      "relativeTime": {
+        "daysAgo": "{{count}} 天前",
+        "hoursAgo": "{{count}} 小时前",
+        "justNow": "刚刚",
+        "minutesAgo": "{{count}} 分钟前"
+      },
+      "reportsTo": "汇报给",
+      "savedAt": "已保存 · {{time}}",
+      "skills": {
+        "sectionTitle": "技能 · SKILL PACKS",
+        "manage": "管理技能",
+        "count": "继承 {{inherit}} · 强制开 {{on}} · 强制关 {{off}}",
+        "countCompact": "继承 {{inherit}} · 开 {{on}} · 关 {{off}}",
+        "inheritNote": "灰=继承全局已启用 · 蓝=仅此 agent 强制开 · 红=仅此 agent 强制关(不动全局)。改动下次起新会话生效。",
+        "empty": "未授予技能包",
+        "personalNote": "始终可用 · 个人技能（~/.claude/skills）不可单独开关",
+        "summary": "{{enabled}} 启用 · {{disabled}} 禁用",
+        "title": "技能",
+        "copyFrom": "复制自",
+        "copyFromDisabledHint": "后端类型不同，包 ID 对不上",
+        "offlineNote": "机器离线，列不出可添加的包 · 已授权的仍可移除"
+      },
+      "skillsGate": {
+        "pill": "backend 不支持",
+        "title": "当前 backend 不支持技能",
+        "description": "技能是 Claude Code 原生能力 · 添加一档 Claude Code 类型的执行目标即可为它单独启用并配置"
+      },
+      "skillPicker": {
+        "title": "添加技能 · Skill Packs",
+        "subtitle": "一个包 = 一组 skill，按 agent 授权",
+        "subtitleForTarget": "第 {{index}} 档 · {{machine}} · {{backend}} —— 只影响这一档",
+        "searchPlaceholder": "搜索技能包 / 描述…",
+        "personalNote": "个人技能（~/.claude/skills）始终可用，CLI 不支持单独开关"
+      },
+      "tools": {
+        "title": "工具",
+        "sectionTitle": "工具 · TOOLS",
+        "enabledCount": "{{count}} 已启用",
+        "add": "添加工具",
+        "empty": "暂无可用工具",
+        "approval": "需审批",
+        "names": {
+          "org": "组织架构",
+          "subagent": "调用子 Agent",
+          "hook": "脚本 Hook"
+        },
+        "descriptions": {
+          "org": "允许该 Agent 查询并管理部门与成员（写操作需你审批）",
+          "subagent": "把子任务委派给另一个已配置的 Agent 执行并同步取回结果。子 Agent 在隔离的一次性会话中运行；用作子 Agent 的成员建议使用自动批准的权限模式。",
+          "hook": "允许该 Agent 编写、试运行并按 cron 调度脚本 Hook，定时产出事件（创建/修改/删除/执行均需你审批）"
+        }
+      },
+      "toolPicker": {
+        "title": "添加工具",
+        "subtitle": "工具调用经 MCP 注入 · 写操作需审批",
+        "searchPlaceholder": "搜索工具 / 描述…"
+      },
+      "skillCatalog": {
+        "group": {
+          "available": "可安装 · MARKETPLACE",
+          "inheritedOn": "继承(全局已开)",
+          "enableable": "可启用(已安装·全局未开)"
+        },
+        "needInstall": "需先安装",
+        "globalEnabled": "全局已启用",
+        "globalDisabled": "全局未启用"
+      },
+      "systemPrompt": "系统提示词",
+      "systemPromptHint": "风格 / 语气 / 边界都写进 system prompt — 不另设字段。",
+      "unsaved": "未保存"
+    },
+    "department": {
+      "addGroup": "添加 Agent 或子部门",
+      "addAgent": "Agent",
+      "basicInfo": "基本信息",
+      "deleteDepartment": "删除部门",
+      "deleteDialog": {
+        "cascadeDescription": "连同所有子部门 / Agent 一并软删",
+        "cascadeTitle": "递归删除整棵子树",
+        "confirm": "确认删除",
+        "description": "将按所选策略递归处理，该操作不可撤销。",
+        "irreversible": "该操作不可撤销",
+        "reparentDescription": "推荐 / 安全 · 直属子项移动到当前部门的父级",
+        "reparentTitle": "成员上挂到父部门",
+        "strategyTitle": "选择如何处理子项",
+        "title": "确认删除「{{name}}」？"
+      },
+      "departmentMemberCount": "{{count}} 名成员",
+      "description": "简介",
+      "editEyebrow": "编辑部门",
+      "icon": "图标",
+      "leadHint": "从直属 Agent 中选",
+      "leadBadge": "LEAD",
+      "leader": "负责人",
+      "memberSummary": "{{agents}} 直属 Agent · {{departments}} 子部门",
+      "members": "成员",
+      "name": "名称",
+      "noDirectMembers": "暂无直属成员",
+      "parent": "归属",
+      "path": "路径",
+      "subDepartment": "子部门",
+      "themeColor": "主题色",
+      "themeColorNamed": "主题色 {{color}}",
+      "topLevel": "公司顶层（CEO 之下）",
+      "viewAgent": "查看 Agent {{name}}",
+      "viewDepartment": "查看部门 {{name}}"
+    },
+    "list": {
+      "empty": "未找到 Agent",
+      "filters": {
+        "backendAria": "后端过滤",
+        "backendPrefix": "后端：",
+        "clearReportsTo": "清除汇报给过滤",
+        "reportsToAria": "汇报给过滤",
+        "reportsToPrefix": "汇报给："
+      },
+      "search": {
+        "aria": "搜索 Agent",
+        "placeholder": "搜索 Agent 或描述"
+      },
+      "skills": {
+        "enabledOnly": "{{count}} 启用"
+      },
+      "sort": {
+        "aria": "排序方式",
+        "asc": "升序",
+        "desc": "降序",
+        "hierarchy": "层级",
+        "label": "排序",
+        "status": "状态"
+      },
+      "table": {
+        "active": "活跃",
+        "agent": "Agent",
+        "sortByAgent": "按 Agent 排序"
+      }
+    },
+    "tree": {
+      "collapse": "折叠 {{name}}",
+      "collapsedSuffix": "（已折叠）",
+      "empty": {
+        "addAgent": "添加 Agent",
+        "description": "可新建部门，或把新 Agent 挂到 CEO 助手下。",
+        "newDepartment": "新建部门",
+        "title": "未创建部门"
+      },
+      "expand": "展开 {{name}}",
+      "lead": "Lead · {{name}}",
+      "memberCount": "{{count}} 名成员"
+    },
+    "reorderFailed": "排序保存失败，请重试"
+  }
+}

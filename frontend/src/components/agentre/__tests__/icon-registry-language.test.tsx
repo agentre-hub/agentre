@@ -2,8 +2,8 @@ import { render, screen, act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import i18n from "@/i18n";
-import enCommon from "@/i18n/locales/en/common.json";
-import zhCommon from "@/i18n/locales/zh-CN/common.json";
+import enCommon from "@/i18n/locales/en";
+import zhCommon from "@/i18n/locales/zh-CN";
 
 import { IconPicker } from "../icon-picker";
 import { iconsByCategory, searchIcons } from "../icon-registry";

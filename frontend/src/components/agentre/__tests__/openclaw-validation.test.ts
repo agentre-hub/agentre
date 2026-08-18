@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import en from "@/i18n/locales/en/common.json";
-import zh from "@/i18n/locales/zh-CN/common.json";
+import en from "@/i18n/locales/en";
+import zh from "@/i18n/locales/zh-CN";
 import {
   OPENCLAW_ERROR_KEY_BY_CODE,
   openClawDraftIssue,

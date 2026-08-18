@@ -10,8 +10,8 @@ import {
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
-import enCommon from "./locales/en/common.json";
-import zhCommon from "./locales/zh-CN/common.json";
+import enCommon from "./locales/en";
+import zhCommon from "./locales/zh-CN";
 
 export const LANGUAGE_STORAGE_KEY = "agentre.language";
 

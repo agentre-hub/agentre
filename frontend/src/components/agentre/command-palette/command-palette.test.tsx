@@ -40,9 +40,9 @@ function mkAgent(
   } as chat_svc.ChatAgentItem;
 }
 
-// 默认 /projects —— 多数 ContextBar/Tab/上下文相关测试都在
-// 项目路由下成立。需要测自由会话 source 的用例显式传 "/chat"。
-function renderHarness(initialPath = "/projects") {
+// 默认 /chat —— 会话索引唯一的落点。项目已经不是页面，命令面板里
+// 「新建对话落在哪」由 new-chat-context store 决定，与路由无关。
+function renderHarness(initialPath = "/chat") {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <CommandPalette />
@@ -114,19 +114,6 @@ describe("CommandPalette — ⌘N opens command mode and lists agents (BDD)", ()
     expect(labels.length).toBeGreaterThanOrEqual(2);
     // 同时 newProjectChatSource 未激活
     expect(screen.queryByText("New project chat with")).toBeNull();
-  });
-
-  it("ContextBar shows 无项目 when no project context is set (on /projects route)", async () => {
-    appMocks.ListChatAgents.mockResolvedValue({
-      agents: [mkAgent({ id: 1, name: "CEO 助手" })],
-    });
-    renderHarness("/projects");
-    await act(async () => {
-      useCommandPaletteStore.getState().openWith("> ");
-    });
-    await flush();
-
-    expect(screen.getByText(/No project/)).toBeTruthy();
   });
 });
 
@@ -631,8 +618,50 @@ describe("CommandPalette — Tab 直接切上下文 (BDD)", () => {
   });
 });
 
-describe("CommandPalette — 路由互斥的两个命令 source", () => {
-  it("/chat 路由 ⌘N → 只显示 'New chat with X'，不显示 'New project chat with' + 无 ContextBar", async () => {
+describe("CommandPalette — ⌘N 的项目选择不挂在 /projects 路由上（回归）", () => {
+  // 「项目」合并进会话索引后 /projects 只剩一条重定向，索引页本身挂在 /chat。
+  // 项目选择条一旦按路由开关，用户就再也够不到它。
+  it("Given 会话索引所在的 /chat + ⌘N, Then ContextBar 可见，项目可选", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({
+      agents: [mkAgent({ id: 1, name: "CEO 助手" })],
+    });
+    renderHarness("/chat");
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    expect(screen.getByLabelText("Switch project context")).toBeTruthy();
+    expect(screen.getByText(/No project/)).toBeTruthy();
+  });
+
+  it("Given /chat + 已选项目上下文 + ⌘N, Then 出 'New project chat with'，自由 'New chat with' 让位", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({
+      agents: [mkAgent({ id: 1, name: "CEO 助手" })],
+    });
+    appMocks.ProjectGet.mockResolvedValue({
+      project: { id: 1, name: "Agentre" },
+      directMembers: [{ agentID: 1 }],
+      inheritedMembers: [],
+    });
+    useNewChatContextStore
+      .getState()
+      .setContext({ projectID: 1, projectName: "Agentre" });
+
+    renderHarness("/chat");
+    await act(async () => {
+      useCommandPaletteStore.getState().openWith("> ");
+    });
+    await flush();
+
+    expect(screen.getByText("New project chat with")).toBeTruthy();
+    expect(screen.queryByText("New chat with")).toBeNull();
+    expect(await screen.findByText("New chat in Agentre")).toBeTruthy();
+  });
+});
+
+describe("CommandPalette — 两个命令 source 按项目上下文互斥", () => {
+  it("无项目上下文 ⌘N → 只显示 'New chat with X'，不显示 'New project chat with'；ContextBar 仍在（随时可选项目）", async () => {
     appMocks.ListChatAgents.mockResolvedValue({
       agents: [mkAgent({ id: 1, name: "CEO 助手" })],
     });
@@ -645,16 +674,19 @@ describe("CommandPalette — 路由互斥的两个命令 source", () => {
 
     expect(screen.getByText("New chat with")).toBeTruthy();
     expect(screen.queryByText("New project chat with")).toBeNull();
-    // ContextBar 不渲染（自由 source 不需要项目作用域）
-    expect(screen.queryByLabelText("Switch project context")).toBeNull();
+    // ContextBar 常驻：不选项目也要能看见「现在落在哪」+ 改掉它
+    expect(screen.getByLabelText("Switch project context")).toBeTruthy();
   });
 
-  it("/projects 路由 ⌘N → 只显示 'New project chat with X'，不显示自由 'New chat with' + ContextBar 可见", async () => {
+  it("已选项目上下文 ⌘N → 只显示 'New project chat with X'，不显示自由 'New chat with' + ContextBar 可见", async () => {
     appMocks.ListChatAgents.mockResolvedValue({
       agents: [mkAgent({ id: 1, name: "CEO 助手" })],
     });
     appMocks.ProjectListTree.mockResolvedValue([]);
-    renderHarness("/projects");
+    useNewChatContextStore
+      .getState()
+      .setContext({ projectID: 1, projectName: "Agentre" });
+    renderHarness("/chat");
     await act(async () => {
       useCommandPaletteStore.getState().openWith("> ");
     });
@@ -666,7 +698,7 @@ describe("CommandPalette — 路由互斥的两个命令 source", () => {
     expect(screen.getByLabelText("Switch project context")).toBeTruthy();
   });
 
-  it("/chat 路由 ⌘N + Tab → projectContext 不变（自由命令不消费 Tab）", async () => {
+  it("⌘N + Tab 在 /chat 也切上下文（项目不再是一个路由）", async () => {
     appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
     appMocks.ProjectListTree.mockResolvedValue([
       {
@@ -695,11 +727,12 @@ describe("CommandPalette — 路由互斥的两个命令 source", () => {
     input.focus();
     fireEvent.keyDown(input, { key: "Tab" });
 
-    // /chat 路由：Tab handler 不拦截 → projectContext 没被赋值
-    expect(useNewChatContextStore.getState().projectContext).toBeNull();
+    expect(useNewChatContextStore.getState().projectContext?.projectID).toBe(
+      10,
+    );
   });
 
-  it("/projects 路由 ⌘N + 输入 'new project chat ce' → 只命中含 'CEO' 的 New project chat with 行", async () => {
+  it("已选项目上下文 ⌘N + 输入 'new project chat ce' → 只命中含 'CEO' 的 New project chat with 行", async () => {
     appMocks.ListChatAgents.mockResolvedValue({
       agents: [
         mkAgent({ id: 1, name: "CEO 助手" }),
@@ -707,7 +740,10 @@ describe("CommandPalette — 路由互斥的两个命令 source", () => {
       ],
     });
     appMocks.ProjectListTree.mockResolvedValue([]);
-    renderHarness("/projects");
+    useNewChatContextStore
+      .getState()
+      .setContext({ projectID: 1, projectName: "Agentre" });
+    renderHarness("/chat");
     await act(async () => {
       useCommandPaletteStore.getState().openWith("> new project chat ce");
     });
@@ -717,7 +753,7 @@ describe("CommandPalette — 路由互斥的两个命令 source", () => {
     expect(screen.queryByText("工程师")).toBeNull();
   });
 
-  it("/projects 路由 ⌘N reopen → refetches project members instead of reusing a stale empty set", async () => {
+  it("⌘N reopen → refetches project members instead of reusing a stale empty set", async () => {
     appMocks.ListChatAgents.mockResolvedValue({
       agents: [
         mkAgent({ id: 5, name: "Builder" }),
@@ -737,7 +773,7 @@ describe("CommandPalette — 路由互斥的两个命令 source", () => {
       .getState()
       .setContext({ projectID: 1, projectName: "Agentre" });
 
-    renderHarness("/projects");
+    renderHarness();
     await act(async () => {
       useCommandPaletteStore.getState().openWith("> ");
     });
@@ -790,12 +826,20 @@ describe("CommandPalette — 命令模式分组顺序：新建对话先于操作
     ).toBeTruthy();
   });
 
-  it("Given /projects + ⌘N with project new chat and New agent visible, When the palette opens, Then the 'New Project Chat' group/results come before 'Actions / New agent' while the project ContextBar stays visible", async () => {
+  it("Given 已选项目上下文 + ⌘N with project new chat and New agent visible, When the palette opens, Then the 'New Project Chat' group/results come before 'Actions / New agent' while the project ContextBar stays visible", async () => {
     appMocks.ListChatAgents.mockResolvedValue({
       agents: [mkAgent({ id: 1, name: "CEO 助手" })],
     });
     appMocks.ProjectListTree.mockResolvedValue([]);
-    renderHarness("/projects");
+    appMocks.ProjectGet.mockResolvedValue({
+      project: { id: 1, name: "Agentre" },
+      directMembers: [{ agentID: 1 }],
+      inheritedMembers: [],
+    });
+    useNewChatContextStore
+      .getState()
+      .setContext({ projectID: 1, projectName: "Agentre" });
+    renderHarness("/chat");
     await act(async () => {
       useCommandPaletteStore.getState().openWith("> ");
     });
@@ -941,7 +985,7 @@ describe("CommandPalette — 命令模式分组顺序：新建对话先于操作
       .getState()
       .setContext({ projectID: 1, projectName: "Project A" });
 
-    renderHarness("/projects");
+    renderHarness();
     await act(async () => {
       useCommandPaletteStore.getState().openWith("> ");
     });
@@ -974,7 +1018,7 @@ describe("CommandPalette — 命令模式分组顺序：新建对话先于操作
 });
 
 describe("CommandPalette — 非成员（其它 Agent）行不可选/不可点（disabled）", () => {
-  it("/projects: 非成员行 aria-disabled=true + cursor-not-allowed；成员行可选", async () => {
+  it("非成员行 aria-disabled=true + cursor-not-allowed；成员行可选", async () => {
     appMocks.ListChatAgents.mockResolvedValue({
       agents: [
         mkAgent({ id: 5, name: "Builder" }), // member
@@ -990,7 +1034,7 @@ describe("CommandPalette — 非成员（其它 Agent）行不可选/不可点�
       .getState()
       .setContext({ projectID: 1, projectName: "Agentre" });
 
-    renderHarness("/projects");
+    renderHarness();
     await act(async () => {
       useCommandPaletteStore.getState().openWith("> ");
     });

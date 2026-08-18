@@ -211,15 +211,6 @@ function AgentRow({ item }: AgentRowProps) {
   );
 }
 
-export const PROJECTS_PATH_PREFIX = "/projects";
-
-function isProjectsRoute(pathname: string): boolean {
-  return (
-    pathname === PROJECTS_PATH_PREFIX ||
-    pathname.startsWith(`${PROJECTS_PATH_PREFIX}/`)
-  );
-}
-
 function onSelect(item: NewChatItem, ctx: OnSelectCtx): void {
   ctx.close();
   // 不可对话：不建会话，打开任务 2 的引导弹窗（面板关闭、弹窗接管）。
@@ -240,7 +231,7 @@ export const newChatSource: CommandSource<NewChatItem> = {
   id: "new-chat",
   heading: i18n.t("commandPalette.newChat.heading"),
   modes: ["command"],
-  activeFor: (ctx) => !isProjectsRoute(ctx.pathname),
+  activeFor: (ctx) => !ctx.hasProjectContext,
   useItems,
   getScore,
   renderItem,

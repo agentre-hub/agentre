@@ -77,7 +77,7 @@ Verify **every** concrete assertion against the code. Common assertion types and
 | repository uses the `Register` / accessor pattern | `git grep -n "^func Register" "$VERIFY_TREE" -- internal/repository` |
 | migration count / naming prefix (`YYYYMMDDNNNN`) | `git ls-tree -r --name-only "$VERIFY_TREE" migrations/` + `git grep -oE "migration[0-9]{12}" "$VERIFY_TREE" -- migrations/migrations.go` |
 | Counts ("N migrations", "N languages", "N tables") | Enumerate from the canonical list — don't trust prose, don't trust memory |
-| i18n locale language count | `git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/` (should contain `zh-CN/common.json` + `en/common.json`) |
+| i18n locale language count / module split | `git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/` (one `index.ts` barrel per language — `zh-CN` + `en` — each next to the same set of domain `*.json` modules) |
 | frontend path alias | `git show "$VERIFY_TREE":frontend/components.json` → the `aliases` block |
 | localStorage keys (`agentre.theme` / `windowSize` / `lastPath`) | `git grep -n -e 'agentre.theme' -e 'agentre.windowSize' -e 'agentre.lastPath' "$VERIFY_TREE" -- frontend/src` |
 | `AppDataDir` paths / database table names | Cross-check `migrations/` + the entity's GORM tags; for table structure use the live DB `.schema` (see [debugging.md](./debugging.md)), don't go from memory |
@@ -113,7 +113,8 @@ echo "== repository Register/accessor =="; git grep -n "^func Register" "$VERIFY
 echo "== migration count + registered identifiers =="
 git ls-tree -r --name-only "$VERIFY_TREE" migrations/ | grep -vE '_test\.go$|/migrations\.go$' | wc -l
 git grep -hoE "migration[0-9]{12}" "$VERIFY_TREE" -- migrations/migrations.go | sort -u
-echo "== i18n locale languages =="; git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/ | grep '/common.json$'
+echo "== i18n locale languages =="; git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/ | grep '/index.ts$'
+echo "== i18n locale modules =="; git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/en/ | grep '\.json$'
 echo "== frontend path aliases =="; git show "$VERIFY_TREE":frontend/components.json | grep -A6 '"aliases"'
 echo "== localStorage keys =="; git grep -nE "agentre\.(theme|windowSize|lastPath)" "$VERIFY_TREE" -- frontend/src
 echo "== golangci nilerr exception =="; git grep -n "nolint:nilerr" "$VERIFY_TREE" -- internal

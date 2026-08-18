@@ -6,8 +6,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import enCommon from "@/i18n/locales/en/common.json";
-import zhCommon from "@/i18n/locales/zh-CN/common.json";
+import enCommon from "@/i18n/locales/en";
+import zhCommon from "@/i18n/locales/zh-CN";
 
 import { AxisPicker } from "../session-index/axis-picker";
 import { FreeGroupHeader } from "../session-index/free-group-header";
@@ -161,40 +161,53 @@ describe("FreeGroupHeader", () => {
 });
 
 describe("RowLeadingSlot", () => {
-  const props = {
-    agentName: "Atlas",
-    agentColor: "agent-3",
-    projectColor: "agent-7" as string | null,
-  };
+  const agent = { agentName: "Atlas", agentColor: "agent-3" };
+  const project = { name: "Agentre", color: "agent-7", icon: "rocket" };
 
   it("Given grouping by project, When a row renders, Then the slot carries the agent avatar (decision 4)", () => {
-    render(<RowLeadingSlot axis="project" {...props} />);
+    render(<RowLeadingSlot axis="project" {...agent} project={project} />);
 
     const slot = screen.getByTestId("row-leading-slot");
     expect(slot.dataset.kind).toBe("agent-avatar");
     expect(screen.getByRole("img", { name: "Atlas" })).toBeInTheDocument();
   });
 
-  it("Given grouping by agent, When a project-bound row renders, Then the slot carries the project-colored folder (decision 4)", () => {
-    render(<RowLeadingSlot axis="agent" {...props} />);
+  it("Given grouping by agent, When a project-bound row renders, Then the slot carries that project's own icon and color — the same glyph its group header wears (decision 4)", () => {
+    // 通用文件夹字形认不出**是哪个项目**：三个项目在行首长一个样，只有颜色不同。
+    // 项目自己选的图标就是它在组头上的身份，行里必须是同一枚。
+    render(<RowLeadingSlot axis="agent" {...agent} project={project} />);
 
     const slot = screen.getByTestId("row-leading-slot");
-    expect(slot.dataset.kind).toBe("project-folder");
-    expect(slot.querySelector("svg")?.getAttribute("class")).toContain(
-      "text-agent-7",
+    expect(slot.dataset.kind).toBe("project-avatar");
+    const glyph = screen.getByRole("img", { name: "Agentre" });
+    expect(glyph.className).toContain("bg-agent-7");
+    expect(glyph.querySelector("svg")).not.toBeNull();
+  });
+
+  it("Given a project that never picked an icon, When its row renders, Then the slot falls back to the project initial, exactly like the group header", () => {
+    render(
+      <RowLeadingSlot
+        axis="agent"
+        {...agent}
+        project={{ ...project, icon: "" }}
+      />,
     );
+
+    expect(screen.getByRole("img", { name: "Agentre" })).toHaveTextContent("A");
   });
 
   it("Given grouping by agent, When a free session renders, Then the slot stays and only the glyph is muted (decision 4)", () => {
-    const { unmount } = render(<RowLeadingSlot axis="project" {...props} />);
+    const { unmount } = render(
+      <RowLeadingSlot axis="project" {...agent} project={project} />,
+    );
     const projectSlotClass = screen.getByTestId("row-leading-slot").className;
     unmount();
 
-    render(<RowLeadingSlot axis="agent" {...props} projectColor={null} />);
+    render(<RowLeadingSlot axis="agent" {...agent} project={null} />);
 
     // 左缘必须对齐：不渲染字形会让这一行比邻居往左缩，整列参差。
     const slot = screen.getByTestId("row-leading-slot");
-    expect(slot.dataset.kind).toBe("project-folder-muted");
+    expect(slot.dataset.kind).toBe("free-glyph");
     expect(slot.className).toBe(projectSlotClass);
     expect(slot.querySelector("svg")?.getAttribute("class")).toContain(
       "text-subtle-foreground",
@@ -202,7 +215,7 @@ describe("RowLeadingSlot", () => {
   });
 
   it("Given grouping by time, When a row renders, Then the slot is absent because both dimensions live in the two-line row (decision 5)", () => {
-    render(<RowLeadingSlot axis="time" {...props} />);
+    render(<RowLeadingSlot axis="time" {...agent} project={project} />);
 
     expect(screen.queryByTestId("row-leading-slot")).toBeNull();
   });

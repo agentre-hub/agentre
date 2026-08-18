@@ -20,14 +20,15 @@ Before adding a component, check whether `frontend/src/components/ui` and `front
 
 New user-visible UI copy must be explicitly wired to i18n; do not add hardcoded Chinese.
 
-- New UI copy uses `react-i18next`'s `useTranslation()` / `t("...")`, with keys placed in `frontend/src/i18n/locales/{zh-CN,en}/common.json`; both languages must be filled in at the same time. Copy that lives in the shared package goes to its own bundle and its own hook instead — see [Shared UI Package](#shared-ui-package-agentre-aiagentre-ui).
+- New UI copy uses `react-i18next`'s `useTranslation()` / `t("...")`, with keys placed under `frontend/src/i18n/locales/{zh-CN,en}/`; both languages must be filled in at the same time. Copy that lives in the shared package goes to its own bundle and its own hook instead — see [Shared UI Package](#shared-ui-package-agentre-aiagentre-ui).
+- The `common` namespace is **one tree physically split into domain modules** — `agents` / `chat` / `common` / `hooks` / `llm` / `org` / `projects` / `remote` / `session` / `settings` (each a `.json`), merged by `locales/<lang>/index.ts`. The module name is **not** part of the key: copy living in `chat.json` is still `t("chatPanel.title")`. Put a new key in the module that owns its top-level prefix, in the same file for both languages. A new module file must be imported into both barrels, and no two modules may claim the same top-level key — `src/__tests__/i18n-locale-modules.test.ts` guards both.
 - Do not introduce any bypass text-rewriting mechanism; static UI copy must be wired explicitly to `t(...)` in the component or module.
 - Do not translate dynamic content such as agent output, user input, terminal output, file contents, diffs, code blocks, or markdown rendering; by nature it never enters `t(...)`.
 - `eslint-plugin-i18next`'s `i18next/no-literal-string` catches hardcoded Chinese copy in JSX text and in visible attributes such as `aria-label` / `title` / `placeholder` / `alt`; if you need to display copy, change it to `t(...)`.
 - After changing i18n resources, run:
 
 ```bash
-cd frontend && pnpm test -- src/__tests__/i18n.test.ts src/__tests__/eslint-i18n.test.ts
+cd frontend && pnpm test -- src/__tests__/i18n.test.ts src/__tests__/i18n-locale-modules.test.ts src/__tests__/eslint-i18n.test.ts
 cd frontend && pnpm exec eslint src
 ```
 

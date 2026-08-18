@@ -46,13 +46,12 @@ function mkItem(over: Partial<NewProjectChatItem> = {}): NewProjectChatItem {
   };
 }
 
-function mkCtx(pathname = "/projects") {
+function mkCtx() {
   return {
     navigate: vi.fn(),
     close: vi.fn(),
     openSession: vi.fn(),
     openNewSession: vi.fn(),
-    pathname,
   } as unknown as OnSelectCtx & {
     navigate: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
@@ -237,22 +236,11 @@ describe("newProjectChatSource — metadata", () => {
     expect(newProjectChatSource.modes).toEqual(["command"]);
   });
 
-  it("activeFor returns true for /projects routes only", () => {
-    expect(newProjectChatSource.activeFor?.({ pathname: "/projects" })).toBe(
+  it("activeFor 只认项目上下文，不认路由", () => {
+    expect(newProjectChatSource.activeFor?.({ hasProjectContext: true })).toBe(
       true,
     );
-    expect(newProjectChatSource.activeFor?.({ pathname: "/projects/42" })).toBe(
-      true,
-    );
-    expect(
-      newProjectChatSource.activeFor?.({ pathname: "/projects/42/foo" }),
-    ).toBe(true);
-  });
-
-  it("activeFor returns false for non-/projects routes (互斥于 newChatSource)", () => {
-    expect(newProjectChatSource.activeFor?.({ pathname: "/chat" })).toBe(false);
-    expect(newProjectChatSource.activeFor?.({ pathname: "/" })).toBe(false);
-    expect(newProjectChatSource.activeFor?.({ pathname: "/issues" })).toBe(
+    expect(newProjectChatSource.activeFor?.({ hasProjectContext: false })).toBe(
       false,
     );
   });
@@ -324,10 +312,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
       .setContext({ projectID: 42, projectName: "X" });
     useNewChatContextStore.getState().setNewSelectionHandler(handler);
     const agent = mkAgent({ id: 77 });
-    newProjectChatSource.onSelect(
-      mkItem({ agent, isMember: true }),
-      mkCtx("/projects"),
-    );
+    newProjectChatSource.onSelect(mkItem({ agent, isMember: true }), mkCtx());
     expect(readLastAgentId()).toBe(77);
 
     // 退化自由会话（member, 无 project context）也写
@@ -335,7 +320,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     clearLastAgentId();
     newProjectChatSource.onSelect(
       mkItem({ agent: mkAgent({ id: 88 }), isMember: true }),
-      mkCtx("/projects"),
+      mkCtx(),
     );
     expect(readLastAgentId()).toBe(88);
   });
@@ -349,7 +334,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
 
     const agent = mkAgent({ id: 9, name: "设计师" });
     const item = mkItem({ agent, isMember: false });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(ctx.close).not.toHaveBeenCalled();
@@ -360,18 +345,9 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     expect(useNewChatContextStore.getState().projectContext).not.toBeNull();
   });
 
-  it("defense: if pathname is somehow not /projects → free chat fallback (activeFor 已经过滤了，这里只是兜底)", () => {
+  it("上下文在选中与回车之间被清掉 → 退化成自由会话", () => {
     const item = mkItem({ agent: mkAgent({ id: 7 }) });
-    const ctx = mkCtx("/chat");
-    newProjectChatSource.onSelect(item, ctx);
-
-    expect(ctx.openNewSession).toHaveBeenCalledWith(7);
-    expect(ctx.navigate).toHaveBeenCalledWith("/chat");
-  });
-
-  it("with no project context (tree not yet selected) → free chat fallback", () => {
-    const item = mkItem({ agent: mkAgent({ id: 7 }) });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(ctx.openNewSession).toHaveBeenCalledWith(7);
@@ -388,7 +364,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
 
     const agent = mkAgent({ id: 7, name: "CEO" });
     const item = mkItem({ agent, isMember: true });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(ctx.close).toHaveBeenCalledTimes(1);
@@ -406,7 +382,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     // handler intentionally not set
 
     const item = mkItem({ agent: mkAgent({ id: 7 }), isMember: true });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(ctx.openNewSession).toHaveBeenCalledWith(7);
@@ -422,10 +398,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     useNewChatContextStore.getState().setNewSelectionHandler(handler);
 
     const agent = mkAgent({ id: 7 });
-    newProjectChatSource.onSelect(
-      mkItem({ agent, isMember: true }),
-      mkCtx("/projects/42"),
-    );
+    newProjectChatSource.onSelect(mkItem({ agent, isMember: true }), mkCtx());
     expect(handler).toHaveBeenCalledWith(42, agent);
   });
 
@@ -448,7 +421,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
       online: false,
     });
     const item = mkItem({ agent, isMember: true });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(handler).toHaveBeenCalledWith(42, agent);
@@ -471,7 +444,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     });
     // locationPath 缺失 = 这台机器没配这个项目的路径。
     const item = mkItem({ agent, isMember: true, locationPath: undefined });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(handler).toHaveBeenCalledWith(42, agent);

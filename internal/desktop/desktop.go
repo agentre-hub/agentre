@@ -114,6 +114,11 @@ func newWailsOptions(a *app.App, assets fs.FS, goos, dataDir string) *options.Ap
 					zap.String("workingDirectory", secondInstanceData.WorkingDirectory))
 			},
 		}
+	} else {
+		// Wails dev only: the asset proxy dials vite and can hit a burst of
+		// `connection reset by peer` on first load (upstream wails#4556, unfixed
+		// in v2). Retry GET 5xx so the webview never lands on a black shell.
+		appOptions.AssetServer.Middleware = devProxyRetryMiddleware
 	}
 
 	configurePlatformWindowOptions(appOptions, goos)

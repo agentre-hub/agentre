@@ -46,14 +46,13 @@ function mkItem(over: Partial<NewChatItem> = {}): NewChatItem {
   };
 }
 
-function mkCtx(pathname = "/chat") {
+function mkCtx() {
   return {
     navigate: vi.fn(),
     close: vi.fn(),
     openSession: vi.fn(),
     openNewSession: vi.fn(),
     openNotChattableDialog: vi.fn(),
-    pathname,
   } as unknown as OnSelectCtx & {
     navigate: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
@@ -160,18 +159,9 @@ describe("newChatSource — metadata", () => {
     expect(newChatSource.modes).toEqual(["command"]);
   });
 
-  it("activeFor returns true for non-/projects routes", () => {
-    expect(newChatSource.activeFor?.({ pathname: "/chat" })).toBe(true);
-    expect(newChatSource.activeFor?.({ pathname: "/" })).toBe(true);
-    expect(newChatSource.activeFor?.({ pathname: "/issues" })).toBe(true);
-  });
-
-  it("activeFor returns false for /projects routes (互斥于 newProjectChatSource)", () => {
-    expect(newChatSource.activeFor?.({ pathname: "/projects" })).toBe(false);
-    expect(newChatSource.activeFor?.({ pathname: "/projects/42" })).toBe(false);
-    expect(newChatSource.activeFor?.({ pathname: "/projects/42/foo" })).toBe(
-      false,
-    );
+  it("activeFor 只认项目上下文，不认路由（互斥于 newProjectChatSource）", () => {
+    expect(newChatSource.activeFor?.({ hasProjectContext: false })).toBe(true);
+    expect(newChatSource.activeFor?.({ hasProjectContext: true })).toBe(false);
   });
 
   it("getScore matches the full action title (delegates to scoreItem)", () => {
@@ -283,7 +273,7 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
 
   it("写入 lastAgentId，供下次面板打开时置顶", () => {
     const item = mkItem({ agent: mkAgent({ id: 42, name: "工程师" }) });
-    const ctx = mkCtx("/chat");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
     expect(readLastAgentId()).toBe(42);
   });
@@ -298,7 +288,7 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
     useNewChatContextStore.getState().setNewSelectionHandler(handler);
 
     const item = mkItem({ agent: mkAgent({ id: 7, name: "CEO" }) });
-    const ctx = mkCtx("/chat");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
 
     expect(handler).not.toHaveBeenCalled();
@@ -307,9 +297,9 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
     expect(ctx.navigate).toHaveBeenCalledWith("/chat");
   });
 
-  it("from any non-/projects route also goes free", () => {
+  it("再选一次仍然走自由会话（无项目上下文时的唯一形态）", () => {
     const item = mkItem({ agent: mkAgent({ id: 7 }) });
-    const ctx = mkCtx("/issues");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
 
     expect(ctx.openNewSession).toHaveBeenCalledWith(7);
@@ -325,7 +315,7 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
         blockReason: "no-backend",
       }),
     });
-    const ctx = mkCtx("/chat");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
 
     // 面板关闭 + 打开引导弹窗
@@ -342,7 +332,7 @@ describe("newChatSource.onSelect — 永远走 /chat 自由会话，忽略 store
 
   it("chattable agent still creates a session (unchanged behavior)", () => {
     const item = mkItem({ agent: mkAgent({ id: 42, name: "工程师" }) });
-    const ctx = mkCtx("/chat");
+    const ctx = mkCtx();
     newChatSource.onSelect(item, ctx);
 
     expect(ctx.openNotChattableDialog).not.toHaveBeenCalled();

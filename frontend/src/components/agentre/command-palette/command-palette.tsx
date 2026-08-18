@@ -49,16 +49,7 @@ import { newChatSource } from "./sources/new-chat-source";
 import { newProjectChatSource } from "./sources/new-project-chat-source";
 import type { CommandItemBase, CommandSource, OnSelectCtx } from "./types";
 
-// 路由约定：与 sources 内部判断同步。也是 ContextBar / Tab 拦截的守卫条件。
-const PROJECTS_PATH_PREFIX = "/projects";
-function isProjectsRoute(pathname: string): boolean {
-  return (
-    pathname === PROJECTS_PATH_PREFIX ||
-    pathname.startsWith(`${PROJECTS_PATH_PREFIX}/`)
-  );
-}
-
-// 命令源数组：按 source.modes + source.activeFor(ctx) 在不同模式 / 路由下过滤。
+// 命令源数组：按 source.modes + source.activeFor(ctx) 在不同模式 / 上下文下过滤。
 // 加新源（导航 / 项目 / 动作）只动这一行 + 自己的 modes / activeFor 字段。
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const SOURCES: CommandSource<any>[] = [
@@ -95,6 +86,9 @@ export function CommandPalette(): React.ReactElement {
   // 提到 root 一份：SearchRow 的 Tab 循环 + ContextBar 的下拉共享同一份列表，
   // 避免双倍 ProjectListTree RPC。
   const { projects } = useProjectList();
+  // 「新建对话」落在哪个项目里由这一条上下文决定 —— 不再由路由决定：
+  // 「项目」已经从一个页面退化成会话索引的一个分组轴，没有「项目路由」可判。
+  const projectContext = useNewChatContextStore((s) => s.projectContext);
 
   // open 翻 true 时：
   //   1) 把 store 的 seed 拷到本地 query，并立刻清掉 store 的 initialQuery
@@ -134,7 +128,6 @@ export function CommandPalette(): React.ReactElement {
         opts?.newTab ? openSessionInNewTab(sid) : openSession(sid),
       openNewSession: (agentId) => openNewSessionRaw(0, agentId, ""),
       openNotChattableDialog: (agent) => setGuidanceAgent(agent),
-      pathname: location.pathname,
     }),
     [
       navigate,
@@ -143,14 +136,14 @@ export function CommandPalette(): React.ReactElement {
       openSessionInNewTab,
       openNewSessionRaw,
       setGuidanceAgent,
-      location.pathname,
     ],
   );
 
   const activeSources = SOURCES.filter(
     (s) =>
       s.modes.includes(mode) &&
-      (s.activeFor == null || s.activeFor({ pathname: location.pathname })),
+      (s.activeFor == null ||
+        s.activeFor({ hasProjectContext: projectContext != null })),
   );
 
   React.useEffect(() => {
@@ -206,10 +199,6 @@ export function CommandPalette(): React.ReactElement {
     // eslint-disable-next-line react-hooks/preserve-manual-memoization
     [mode, selectionScope],
   );
-
-  // ContextBar / Tab 拦截只在项目路由 + 命令模式下成立 —— 与 newProjectChatSource 的 activeFor 同步。
-  const isProjectMode =
-    mode === "command" && isProjectsRoute(location.pathname);
 
   return (
     <>
@@ -268,11 +257,10 @@ export function CommandPalette(): React.ReactElement {
               mode={mode}
               payload={payload}
               projects={projects}
-              isProjectMode={isProjectMode}
               onQueryChange={setQuery}
               onClose={close}
             />
-            {isProjectMode ? <ContextBar projects={projects} /> : null}
+            {mode === "command" ? <ContextBar projects={projects} /> : null}
             <CommandPrimitive.List className="max-h-[60vh] overflow-y-auto px-2 pb-2 pt-1">
               <CommandPrimitive.Empty className="px-4 py-10 text-center text-xs text-muted-foreground">
                 {emptyText(mode, payload, t)}
@@ -312,7 +300,6 @@ type SearchRowProps = {
   mode: PaletteMode;
   payload: string;
   projects: ProjectFlat[];
-  isProjectMode: boolean;
   onQueryChange: (v: string) => void;
   onClose: () => void;
 };
@@ -322,7 +309,6 @@ function SearchRow({
   mode,
   payload,
   projects,
-  isProjectMode,
   onQueryChange,
   onClose,
 }: SearchRowProps) {
@@ -346,10 +332,9 @@ function SearchRow({
   //   2) 无 projectContext → 退出命令模式（删 chip）
   // 多按一次 Backspace 才退出 = 防误删 + 与 chip 操作惯例对齐。
   //
-  // Tab 仅在"项目命令模式"（mode==="command" && /projects 路由）下生效：
+  // Tab 在命令模式下生效（默认模式不消费，走 native）：
   //   Tab → 循环切下一个项目
   //   Shift+Tab → 循环切上一个项目
-  // 非项目路由 ⌘N（自由会话 source） → Tab 走 native（不消费）
   // 焦点始终留在 Input；preventDefault + stopPropagation 防止浏览器 native focus
   // 切换以及 cmdk 在 Command 根上消费 Tab。
   const handleKeyDown = React.useCallback(
@@ -366,13 +351,13 @@ function SearchRow({
         }
         return;
       }
-      if (e.key === "Tab" && isProjectMode) {
+      if (e.key === "Tab") {
         e.preventDefault();
         e.stopPropagation();
         cycleProjectShortcut(projects, e.shiftKey ? -1 : 1);
       }
     },
-    [mode, payload, projects, isProjectMode, onQueryChange],
+    [mode, payload, projects, onQueryChange],
   );
 
   return (

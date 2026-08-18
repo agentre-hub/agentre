@@ -164,7 +164,6 @@ describe("chatSessionsSource.onSelect", () => {
       close,
       openNotChattableDialog: vi.fn(),
       navigate: navigate as never,
-      pathname: "/chat",
     });
     expect(openSession).toHaveBeenCalledWith(99);
     expect(openNewSession).not.toHaveBeenCalled();
@@ -196,7 +195,6 @@ describe("chatSessionsSource.onSelect", () => {
         close: vi.fn(),
         openNotChattableDialog: vi.fn(),
         navigate: navigate as never,
-        pathname: "/chat",
       }),
     ).not.toThrow();
     expect(warn).toHaveBeenCalled();

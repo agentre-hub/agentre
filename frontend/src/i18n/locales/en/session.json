@@ -1,0 +1,212 @@
+{
+  "commandPalette": {
+    "chatSessions": {
+      "heading": "Chat Sessions",
+      "status": {
+        "error": "Error",
+        "running": "Running",
+        "waiting": "Waiting"
+      },
+      "untitled": "(Untitled session)"
+    },
+    "close": "Close command palette",
+    "context": {
+      "freeModeHint": "New chats go to free sessions",
+      "projectModeHint": "Members first · non-members dimmed",
+      "switchProject": "Switch project",
+      "title": "Context"
+    },
+    "description": "Search sessions · Jump · Run actions",
+    "empty": {
+      "commandHint": "Type a command name, for example: New chat with",
+      "noCommands": "No matching commands",
+      "noSessions": "No matching sessions",
+      "sessionHint": "No sessions yet · start an agent chat first"
+    },
+    "footer": {
+      "clearContext": "Clear context",
+      "create": "Create",
+      "navigate": "Navigate",
+      "open": "Open",
+      "newChat": "New chat"
+    },
+    "group": {
+      "activeFirst": "Active first · {{count}} total",
+      "matches": "{{count}} matches"
+    },
+    "newProjectChat": {
+      "heading": "New Project Chat",
+      "itemPrefix": "New project chat with",
+      "itemTitle": "New project chat with {{agentName}}",
+      "memberHeading": "New chat in {{projectName}}",
+      "otherHeading": "Other Agents",
+      "notInProject": "Not in this project"
+    },
+    "newAgent": {
+      "description": "Create a new assistant/employee in the org chart",
+      "heading": "Actions",
+      "title": "New agent"
+    },
+    "newChat": {
+      "heading": "New Chat",
+      "itemPrefix": "New chat with",
+      "itemTitle": "New chat with {{agentName}}",
+      "needSetup": "Needs setup",
+      "needSetupBadge": "Not configured",
+      "needSetupTitle": "Start a new chat with {{agentName}}",
+      "needSetupTitlePrefix": "Start a new chat with",
+      "needSetupTitleSuffix": ""
+    },
+    "project": {
+      "empty": "(no projects yet)",
+      "fallbackName": "Project #{{id}}",
+      "none": "No project",
+      "switchAria": "Switch project context",
+      "switchTitle": "Click to switch project, or press Tab"
+    },
+    "search": {
+      "clear": "Clear query",
+      "command": "Command",
+      "commandMode": "Command mode",
+      "commandModeTitle": "Command mode (type > to enter)",
+      "commandPlaceholder": "Type a command...",
+      "sessionPlaceholder": "Search sessions..."
+    },
+    "title": "Command Palette",
+    "nav": {
+      "heading": "Navigate"
+    }
+  },
+  "sessionIndex": {
+    "add": {
+      "aria": "New",
+      "newAgent": "New agent",
+      "newAgentHint": "Create it in the org chart",
+      "newChat": "New chat",
+      "newChatHint": "Command palette: Tab for project → pick an agent",
+      "newProject": "New project"
+    },
+    "axis": {
+      "agent": "Agent",
+      "project": "Project",
+      "time": "Time",
+      "title": "Group by"
+    },
+    "empty": {
+      "noMatch": "No matching sessions",
+      "nothing": "No conversations yet"
+    },
+    "filter": {
+      "all": "All",
+      "running": "Running",
+      "unread": "Unread"
+    },
+    "free": {
+      "attention": "{{count}} quick chats need attention",
+      "empty": "No quick chats yet",
+      "name": "Quick chats",
+      "newSession": "New quick chat"
+    },
+    "search": {
+      "aria": "Search sessions, projects or agents",
+      "clear": "Clear search",
+      "placeholder": "Search sessions, projects, agents"
+    },
+    "sidebar": "Session index",
+    "untitledSession": "Untitled session"
+  },
+  "sessionsPopover": {
+    "empty": "No sessions",
+    "loadFailed": "Load failed: {{error}}",
+    "loaded": "Loaded {{loaded}} / {{total}}",
+    "loadMore": "Load More",
+    "noMatches": "No matches for \"{{query}}\"",
+    "running": "{{count}} running",
+    "search": {
+      "aria": "Filter sessions by title",
+      "placeholder": "Search titles..."
+    },
+    "total": "{{count}} sessions",
+    "untitled": "(Untitled)"
+  },
+  "shortcuts": {
+    "chatTab": {
+      "hint": "Uses TabStrip order (pinned + normal + preview)",
+      "label": "Switch to Tab N"
+    },
+    "chatTabCycle": {
+      "hint": "Next / previous tab (wraps around)",
+      "label": "Cycle Through Tabs"
+    },
+    "conflict": {
+      "inUse": "Already used by \"{{label}}\"",
+      "systemReserved": "This chord is reserved by the system. Choose another one."
+    },
+    "description": "Adjust global navigation and chat page shortcuts.",
+    "fixed": "Fixed",
+    "record": "Record",
+    "recording": "Press a new shortcut...",
+    "reset": "Reset",
+    "registry": {
+      "closeTab": {
+        "hint": "Close the active tab (pinned tabs cannot be closed)",
+        "label": "Close Current Tab"
+      },
+      "nav": {
+        "chat": {
+          "hint": "Main Agent chat panel",
+          "label": "Switch to Chat"
+        },
+        "hooks": {
+          "hint": "Hook trigger rules",
+          "label": "Switch to Hooks"
+        },
+        "issues": {
+          "hint": "Board / issue list",
+          "label": "Switch to Issues"
+        },
+        "org": {
+          "hint": "Org chart and Agent roles",
+          "label": "Switch to Organization"
+        },
+        "projects": {
+          "hint": "Group the session index by project",
+          "label": "Group by Project"
+        },
+        "settings": {
+          "hint": "Settings panel",
+          "label": "Open Settings"
+        }
+      },
+      "newChat": {
+        "hint": "Open the command palette and jump to New chat with ...",
+        "label": "New Chat"
+      },
+      "palette": {
+        "hint": "Search sessions · Jump · Run actions",
+        "label": "Command Palette"
+      },
+      "sessionChip": {
+        "hint": "Compatibility shortcut for the old sidebar",
+        "label": "Switch to session {{index}}"
+      },
+      "tabChip": {
+        "hint": "Uses TabStrip order (pinned + normal + preview)",
+        "label": "Switch to Tab {{index}}"
+      }
+    },
+    "resetAll": "Reset All to Defaults",
+    "resetDialog": {
+      "description": "All custom bindings will return to their defaults. This cannot be undone.",
+      "storagePrefix": "The browser-local",
+      "storageSuffix": "entry will be cleared after reset.",
+      "title": "Reset all shortcuts?"
+    },
+    "sections": {
+      "chat": "Chat Page",
+      "global": "Global Navigation"
+    },
+    "title": "Keyboard Shortcuts",
+    "unbound": "Unbound"
+  }
+}

@@ -81,8 +81,7 @@ function renderRow(over: Partial<Parameters<typeof IndexGroupRow>[0]> = {}) {
     project: { id: 1, name: "Agentre" } as never,
     hasRunning: false,
     allLocalPathsMissing: false,
-    projectColorOf: () => "agent-3",
-    projectNameOf: () => "Agentre",
+    projectInfoOf: () => ({ name: "Agentre", color: "agent-3", icon: "" }),
     agentInfoOf: () => ({ name: "", color: "" }),
     handlers: noopHandlers,
     ...over,
@@ -126,8 +125,8 @@ describe("IndexGroupRow regressions", () => {
   });
 
   it("Given the time axis, When a row renders its second line, Then each dimension keeps the glyph it wears on the other two axes", () => {
-    // 决策 5 的两行行式在 mockup 里是 `〔头像〕agent · 〔文件夹〕项目`：字形和
-    // 「按项目」的行首头像、「按 Agent」的行首文件夹**同一个**。退成纯文字的话，
+    // 决策 5 的两行行式是 `〔agent 头像〕agent · 〔项目头像〕项目`：字形和
+    // 「按项目」的行首头像、「按 Agent」的行首项目头像**同一个**。退成纯文字的话，
     // 同一条会话在三个档之间长出三种样子，切档时读者要重新找一遍锚点。
     seed(1, { agentId: 7, projectId: 4, lastMessageAt: 100 });
 
@@ -136,8 +135,11 @@ describe("IndexGroupRow regressions", () => {
       group: group({ key: "flat", kind: "flat", refID: 0, sessionIDs: [1] }),
       subtreeSessionIDs: [1],
       project: undefined,
-      projectNameOf: () => "Agentre",
-      projectColorOf: () => "agent-3",
+      projectInfoOf: () => ({
+        name: "Agentre",
+        color: "agent-3",
+        icon: "rocket",
+      }),
       agentInfoOf: () => ({ name: "设计师", color: "agent-9" }),
     });
 
@@ -145,7 +147,14 @@ describe("IndexGroupRow regressions", () => {
     expect(line).toHaveTextContent("设计师");
     expect(line).toHaveTextContent("Agentre");
     expect(line.querySelector("[data-kind='agent-avatar']")).not.toBeNull();
-    expect(line.querySelector("[data-kind='project-folder']")).not.toBeNull();
+    // 项目那一维带的是**这个项目自己的**图标 + 项目色，与它在项目轴组头上的
+    // 那一枚同源；通用文件夹字形分不出是哪个项目。
+    const glyph = line.querySelector("[data-kind='project-avatar']");
+    expect(glyph).not.toBeNull();
+    expect(glyph?.querySelector("svg")).not.toBeNull();
+    expect(glyph?.querySelector("[role='img']")?.className).toContain(
+      "bg-agent-3",
+    );
   });
 
   it("Given a free session on the time axis, When its second line renders, Then the project half says 随手对话 with the muted glyph instead of going blank", () => {
@@ -163,9 +172,7 @@ describe("IndexGroupRow regressions", () => {
 
     const line = screen.getByTestId("row-secondary-line");
     expect(line).toHaveTextContent("Quick chats");
-    expect(
-      line.querySelector("[data-kind='project-folder-muted']"),
-    ).not.toBeNull();
+    expect(line.querySelector("[data-kind='free-glyph']")).not.toBeNull();
   });
 
   it("Given a collapsed parent whose descendant needs attention, When it renders, Then the bubble rolls the descendant up instead of hiding it", () => {

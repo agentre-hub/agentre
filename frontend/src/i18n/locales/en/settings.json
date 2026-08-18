@@ -1,0 +1,260 @@
+{
+  "dataBackup": {
+    "actions": {
+      "create": "Create",
+      "duplicate": "Duplicate as New",
+      "overwrite": "Overwrite",
+      "skip": "Skip"
+    },
+    "description": "Import and export Agentre configuration data across devices.",
+    "export": {
+      "action": "Export...",
+      "description": "Choose what to export and generate a JSON file.",
+      "failed": "Export failed",
+      "includeSecrets": "Include secrets",
+      "includeSecretsDescription": "Exports API keys, TLS certificates, and other secrets in plain text. Keep the file secure.",
+      "secretsWarning": "The export contains plain-text secrets. Anyone with this file can use your accounts.",
+      "selectOne": "Select at least one scope",
+      "success": "Exported {{count}} records",
+      "title": "Export"
+    },
+    "import": {
+      "chooseFile": "Choose File...",
+      "description": "Choose an Agentre export JSON file, preview it, then import.",
+      "failed": "Import failed",
+      "parseFailed": "Failed to parse file",
+      "title": "Import"
+    },
+    "importPreview": {
+      "action": "Action",
+      "apply": "Apply",
+      "conflict": "Conflict",
+      "dangling": "Missing Reference",
+      "defaultStrategy": "Default conflict strategy",
+      "description": "Choose strategies, then apply. Failures roll back the whole batch.",
+      "new": "New",
+      "noSecrets": "This file does not include secrets. Re-enter API keys and other sensitive fields after import.",
+      "scope": "Scope",
+      "title": "Import Preview"
+    },
+    "importResult": {
+      "created": "Created",
+      "duplicated": "Duplicated",
+      "ok": "Got it",
+      "overwrote": "Overwrote",
+      "skipped": "Skipped",
+      "title": "Import Complete"
+    },
+    "scopes": {
+      "agent-backends": "Agent Backends",
+      "llm-providers": "LLM Providers",
+      "organization": "Organization",
+      "remote-devices": "Remote Devices"
+    },
+    "title": "Data & Backup"
+  },
+  "settings": {
+    "agentBackend": {
+      "description": "Configure agent execution engines and their models. Runtime options such as working directory and permission mode are configured per agent in Organization → Agent.",
+      "title": "Agent Backends"
+    },
+    "appearance": {
+      "colorMode": {
+        "title": "Color Mode"
+      },
+      "description": "Theme and language preferences are saved on this device.",
+      "themeMode": {
+        "label": "Theme Mode"
+      },
+      "title": "Appearance"
+    },
+    "localProxy": {
+      "description": "Configure the app's built-in LLM Gateway. claudecode and codex subprocesses send HTTP requests here; the app authenticates them with a temporary token and forwards requests to the real LLM provider without exposing secrets outside the app.",
+      "title": "Local HTTP Proxy"
+    },
+    "llmProvider": {
+      "description": "Configure available model sources. After saving, Agentre can fetch the models available under the account and fill in each model's capabilities automatically.",
+      "gapBanner": {
+        "description": "Some agents are bound to backends that have no activated LLM provider. Once you've configured a provider, go to the org chart to assign it to those agents.",
+        "goToOrg": "Go to org chart",
+        "title": "Some agents still need this"
+      },
+      "title": "LLM Providers"
+    },
+    "notifications": {
+      "pageTitle": "Notifications",
+      "pageDesc": "Get notified when a conversation finishes, fails, or needs your input.",
+      "masterTitle": "Notifications",
+      "masterDesc": "Master switch — turning this off disables every method below.",
+      "enableLabel": "Enable notifications",
+      "enableDesc": "Alert you when a turn finishes.",
+      "onlyWhenUnfocusedLabel": "Only when app is in background",
+      "onlyWhenUnfocusedDesc": "On by default; turn off to also be notified when the app is focused but the finished session isn't the one you're viewing.",
+      "channelsTitle": "Methods",
+      "channelsDesc": "When the alert condition is met, notify via any method enabled below.",
+      "systemLabel": "System notification",
+      "systemDesc": "Posts to macOS Notification Center / Windows Action Center — visible even when the app is in the background.",
+      "toastLabel": "In-app toast",
+      "toastDesc": "Pop a toast in the bottom-right of the app (only visible while the app is focused).",
+      "ruleTitle": "When you get notified",
+      "ruleDesc": "By default you're only notified when the app is in the background; turn off the switch above to also be notified while focused on a different session. Done, error, and needs-input all notify; ones you stop manually don't."
+    },
+    "nav": {
+      "about": "About",
+      "agentBackend": "Agent Backends",
+      "agentBackendDot": "Some agents don't have a backend yet",
+      "appearance": "Appearance",
+      "dataBackup": "Data & Backup",
+      "engine": "Engine",
+      "general": "General",
+      "integrations": "Integrations",
+      "keyboardShortcuts": "Keyboard Shortcuts",
+      "localProxy": "Local HTTP Proxy",
+      "llmProvider": "LLM Providers",
+      "llmProviderDot": "Some backends are missing an activated LLM provider",
+      "mcpServers": "MCP Servers",
+      "notifications": "Notifications",
+      "remoteDevices": "Remote",
+      "settings": "Settings",
+      "skillsTools": "Skills / Tools",
+      "sync": "Sync",
+      "versionLogs": "Version & Updates"
+    },
+    "underConstruction": {
+      "mcpServers": {
+        "description": "The MCP server configuration view is reserved for managing connections, authorization, and available tools.",
+        "title": "MCP Servers"
+      },
+      "skillsTools": {
+        "description": "The skills and tools management view is reserved for enabling, disabling, and configuring agent capabilities.",
+        "title": "Skills / Tools"
+      }
+    }
+  },
+  "settingsProxy": {
+    "actions": {
+      "applyAndRestart": "Apply and Restart",
+      "copyUrl": "Copy URL",
+      "restart": "Restart Proxy"
+    },
+    "flash": {
+      "applied": "Applied and restarted proxy",
+      "copyUrlDone": "URL copied",
+      "copyUrlFailed": "Failed to copy URL",
+      "restarted": "Local HTTP proxy restarted",
+      "restartFailed": "Proxy is still not running: {{reason}}",
+      "savedButStopped": "Settings saved, but the proxy did not start: {{reason}}"
+    },
+    "listener": {
+      "currentUrl": "Current URL",
+      "currentUrlHint": "Forwarded by claudecode / codex",
+      "description": "All LLM requests from claudecode / codex subprocesses arrive here. The app routes them to real LLM providers with tokens.",
+      "host": "Listen host",
+      "hostHint": "Default 127.0.0.1. Loopback is local-only.",
+      "port": "Port",
+      "portHint": "Default 52401. Use 0 for a random port on each launch.",
+      "title": "Listener"
+    },
+    "routes": {
+      "anthropicMessages": "Anthropic Messages (claudecode CLI)",
+      "chatCompletions": "OpenAI Chat Completions (codex wire_api=chat)",
+      "count": "{{count}} routes",
+      "description": "Requests are forwarded after temporary token verification. Tokens live only in memory during tests or runtime.",
+      "mcpReserved": "Reserved local MCP service entry point (404 when no service is registered)",
+      "openAIResponses": "OpenAI Responses (codex CLI default)",
+      "reserved": "Reserved",
+      "title": "Exposed Routes"
+    },
+    "security": {
+      "description": "Real LLM provider secrets stay in main-process memory. CLI subprocesses receive temporary tokens issued by the app. Tokens are valid for only 60 seconds, revoked immediately after tests, and never written to .env, config, or process args.",
+      "title": "Secrets Stay in the App"
+    },
+    "status": {
+      "notStarted": "Not started{{reason}}",
+      "running": "Running",
+      "stopped": "Stopped"
+    },
+    "validation": {
+      "hostInvalid": "Listen host format is invalid",
+      "hostRequired": "Listen host is required",
+      "portNumeric": "Port must be numeric",
+      "portRange": "Port must be between 0 and 65535",
+      "portRequired": "Port is required"
+    }
+  },
+  "update": {
+    "actions": {
+      "check": "Check for Updates",
+      "checking": "Checking...",
+      "downloadAndInstall": "Download and Install",
+      "downloading": "Downloading...",
+      "downloadingShort": "Downloading",
+      "openLogs": "Open Logs",
+      "reportBug": "Report Bug",
+      "restartNow": "Restart Now"
+    },
+    "channel": {
+      "beta": {
+        "description": "Try new features early. May include a few known issues.",
+        "label": "Beta"
+      },
+      "nightly": {
+        "description": "Daily builds with the fastest updates and the lowest stability.",
+        "label": "Nightly"
+      },
+      "stable": {
+        "description": "Official releases for all users, with the lowest update frequency.",
+        "label": "Stable"
+      },
+      "title": "Update Channel"
+    },
+    "checksum": {
+      "confirm": "Skip Checksum and Continue",
+      "description": "SHA256SUMS.txt could not be fetched, so the downloaded file cannot be verified.",
+      "title": "Checksum File Download Failed",
+      "warning": "Continuing will skip integrity verification. Make sure you trust the current download source."
+    },
+    "currentVersion": {
+      "description": "Check GitHub Releases and install a new version.",
+      "title": "Current Version"
+    },
+    "debug": {
+      "description": "Lower the log level to debug for troubleshooting. Turn it off once you're done.",
+      "disabledToast": "Debug logging disabled",
+      "enabledToast": "Debug logging enabled",
+      "title": "Debug Logging"
+    },
+    "error": {
+      "title": "Operation Failed"
+    },
+    "header": {
+      "description": "Agentre automatically checks for new versions in the background on startup. You can also switch channels or choose a download mirror for faster access.",
+      "title": "Version & Updates"
+    },
+    "installed": {
+      "description": "Restart the app to load the new version.",
+      "title": "{{version}} installed"
+    },
+    "mirror": {
+      "custom": "Custom...",
+      "description": "Use an accelerated mirror when GitHub access is slow. Custom mirrors must keep the protocol prefix, for example https://your.mirror/.",
+      "title": "Download Mirror"
+    },
+    "release": {
+      "available": "New version available: {{version}}",
+      "noNotes": "This release has no notes.",
+      "publishedAt": "Published at {{time}}",
+      "unknownTime": "Unknown time"
+    },
+    "repository": {
+      "description": "View source code, releases, and issues.",
+      "title": "Repository"
+    },
+    "status": {
+      "upToDate": "You are on the latest version"
+    },
+    "version": {
+      "unknown": "Unknown"
+    }
+  }
+}

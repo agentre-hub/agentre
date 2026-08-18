@@ -1,0 +1,222 @@
+{
+  "issues": {
+    "actions": {
+      "dispatchToAgent": "Dispatch to agent",
+      "filter": "Filter",
+      "newIssue": "New issue",
+      "redispatch": "Re-dispatch",
+      "close": "Close",
+      "reopen": "Reopen",
+      "edit": "Edit",
+      "delete": "Delete"
+    },
+    "board": {
+      "addCard": "Add Card",
+      "addToColumn": "Add to {{column}}",
+      "aria": "Kanban board",
+      "emptyColumn": "Empty",
+      "lastFailure": "exit={{code}} · last fail {{minutes}}m ago",
+      "viewAllClosed": "View all {{count}} →"
+    },
+    "stages": {
+      "todo": "To do",
+      "doing": "In progress",
+      "review": "In review",
+      "done": "Done"
+    },
+    "form": {
+      "stage": "Stage"
+    },
+    "dialog": {
+      "title": "New Issue",
+      "editTitle": "Edit Issue",
+      "titleLabel": "Title",
+      "bodyLabel": "Description",
+      "projectLabel": "Project",
+      "noProject": "No project",
+      "labelsLabel": "Labels",
+      "create": "Create issue",
+      "save": "Save"
+    },
+    "empty": {
+      "title": "No issues yet",
+      "desc": "Create an issue to start tracking work"
+    },
+    "filters": {
+      "assignedAgent": "Assigned Agent",
+      "author": "Author",
+      "closed": "Closed",
+      "label": "Label",
+      "latestUpdate": "Latest Update",
+      "open": "Open"
+    },
+    "list": {
+      "aria": "Issue list"
+    },
+    "state": {
+      "loading": "Loading…",
+      "error": "Failed to load"
+    },
+    "status": {
+      "unassigned": "Unassigned"
+    },
+    "summary": {
+      "counts": "{{open}} open · {{closed}} closed"
+    },
+    "title": "Board",
+    "view": {
+      "aria": "Issue view",
+      "board": "Board",
+      "list": "List"
+    }
+  },
+  "projectMerge": {
+    "title": "Merge into existing project",
+    "description": "The two projects become one. This action can't be undone with a single click.",
+    "pickTargetLabel": "Merge into",
+    "pickTargetPlaceholder": "Choose a project to merge into…",
+    "noCandidates": "No other project to merge into",
+    "keepPathNote": "The local project's local path is kept, so sessions can still start.",
+    "reassignNote": "Sessions, member agents, sub-projects, and remote path records from both sides move to the merged project.",
+    "identityNote": "The account-side project wins: name, icon, color, and description take its values.",
+    "confirm": "Merge",
+    "cancel": "Cancel",
+    "errors": {
+      "mergeFailed": "Merge failed: {{error}}"
+    }
+  },
+  "projectNew": {
+    "browse": "Browse...",
+    "create": "Create Project",
+    "descriptionPlaceholder": "One sentence about what this project is for (optional)",
+    "detectingGit": "Detecting Git repository...",
+    "gitDetected": "Git repository detected",
+    "gitSummary": "Branch {{branch}} · {{origin}}",
+    "localPath": "Local path",
+    "noGit": "No Git repository detected",
+    "noOrigin": "No origin remote",
+    "none": "— None —",
+    "parentProject": "Parent project",
+    "selectDirectory": "Select project directory",
+    "topLevel": "— Top-level project —",
+    "unknown": "(unknown)"
+  },
+  "projectSettings": {
+    "basic": {
+      "description": "Description",
+      "iconKey": "Icon key",
+      "iconPlaceholder": "folder / briefcase / custom emoji",
+      "localPathReadonly": "Local path (read-only)",
+      "name": "Project name"
+    },
+    "danger": {
+      "confirmName": "Enter project name \"{{name}}\" to confirm",
+      "deleteDescription": "Soft-delete the project record. This does not delete the local repository or chat sessions. Deletion is refused if the project still has child projects or active sessions.",
+      "deleteProject": "Delete Project"
+    },
+    "locations": {
+      "absolutePathRequired": "Must be an absolute path (starts with /)",
+      "addRemotePath": "Add Remote Path",
+      "allDevicesConfigured": "All paired remote devices already have paths",
+      "browseRemoteDir": "Browse remote directory",
+      "count": "Remote Paths · {{count}}",
+      "deletePath": "Delete Path",
+      "editPath": "Edit Path",
+      "empty": "No remote paths yet. Add a path before adding agents from that device on the Members tab.",
+      "enterToSave": "Enter to save",
+      "newPath": "New Path",
+      "offlineSuffix": " · offline",
+      "pathPlaceholder": "/abs/path on remote (e.g. /home/me/proj)",
+      "remoteDevice": "Remote device",
+      "selectRemoteDevice": "Select remote device"
+    },
+    "members": {
+      "addAgent": "Add Agent",
+      "configureRemotePath": "⚠ Configure Remote Paths first",
+      "directCount": "Direct Members · {{count}}",
+      "directEmpty": "No direct members yet. Add one from the candidates below.",
+      "inheritedBadge": "⋯ inherited",
+      "inheritedCount": "Inherited from parent projects · {{count}}",
+      "inheritedFrom": "Inherited from {{name}}",
+      "missingRemotePathTitle": "This device has no remote path configured",
+      "noCandidates": "All agents are already in this project or inherited from a parent project.",
+      "parentProject": "parent project",
+      "pickAgent": "Choose Agent",
+      "remoteHint": "Remote agents need a path for that device configured on the Remote Paths tab first.",
+      "removeAgent": "Remove {{name}}"
+    },
+    "tabs": {
+      "basic": "Basic",
+      "danger": "Danger Zone",
+      "locations": "Remote Paths",
+      "members": "Members"
+    },
+    "title": "Project Settings",
+    "titleSuffix": "· Project Settings"
+  },
+  "projects": {
+    "actions": {
+      "deleteProject": "Delete Project",
+      "more": "More actions for {{name}}",
+      "newProject": "New Project",
+      "newSubProject": "New Sub-project"
+    },
+    "empty": {
+      "description": "Register a local code repository as a project so multiple agents can collaborate here.",
+      "title": "No projects yet"
+    },
+    "errors": {
+      "loadFailed": "Load failed: {{error}}",
+      "reorderFailed": "Failed to save project order: {{error}}"
+    },
+    "filter": {
+      "chips": {
+        "all": "All",
+        "running": "Running"
+      }
+    },
+    "localPath": {
+      "badge": "Not configured",
+      "allMissingTitle": "This device hasn't configured a path for any project yet",
+      "allMissingDescription": "All {{count}} projects from your account are here — configure each one's directory to start chatting on this machine.",
+      "specifyPath": "Specify path…",
+      "mergeIntoExisting": "Merge into existing project…",
+      "specifyFailed": "Failed to specify path: {{error}}",
+      "unconfiguredInline": "This device hasn't configured one yet",
+      "unconfiguredHint": "This project was synced from your account — specify a directory to start chatting on this machine.",
+      "specifyShort": "Specify…"
+    },
+    "search": {
+      "aria": "Search projects / sessions",
+      "clear": "Clear filter",
+      "placeholder": "Search projects / sessions"
+    },
+    "session": {
+      "activeCount": "{{count}} active sessions including sub-projects",
+      "attentionAria": "{{name}} sessions needing attention",
+      "empty": "No sessions",
+      "group": "Sessions",
+      "groupToggle": "Toggle {{name}} sessions",
+      "inherited": "Inherited",
+      "loadMembersFailed": "Failed to load members: {{error}}",
+      "loadingMembers": "Loading members...",
+      "new": "New Session",
+      "newForProject": "New session in {{name}}",
+      "noMembers": "No members yet. Add a few in project settings first.",
+      "pickAgent": "Choose an Agent",
+      "untitled": "(Untitled session)"
+    },
+    "sidebar": {
+      "aria": "Project list",
+      "title": "Projects"
+    },
+    "terminal": {
+      "deviceOffline": "Device offline",
+      "local": "Local",
+      "new": "New Terminal",
+      "offlineSuffix": " · offline",
+      "pathMissingSuffix": " · no path",
+      "pathNotConfigured": "Configure the remote path in project settings first"
+    }
+  }
+}

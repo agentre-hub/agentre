@@ -1,0 +1,383 @@
+{
+  "peerPanel": {
+    "header": {
+      "remote": "on {{device}}"
+    },
+    "status": {
+      "connecting": "Connecting…",
+      "ready": "Attached",
+      "unavailable": "Unavailable"
+    },
+    "error": {
+      "title": "Cannot attach remote session",
+      "description": "Could not reach Agentre on {{device}}. Make sure Agentre is running on that computer."
+    },
+    "composerPlaceholder": "Send a message to the remote session…",
+    "sendFailed": "Send failed, please retry",
+    "alreadyHandled": "That decision was already handled; state refreshed",
+    "decision": {
+      "askTitle": "The remote session is waiting for your answer",
+      "answer": "Answer",
+      "askAnswered": "That question was already answered",
+      "askSkipped": "That question was skipped",
+      "permissionTitle": "{{tool}} is requesting tool permission",
+      "allow": "Allow",
+      "deny": "Deny",
+      "permissionAllowed": "Tool permission was allowed",
+      "permissionDenied": "Tool permission was denied"
+    }
+  },
+  "remoteDevices": {
+    "onboarding": {
+      "commands": {
+        "daemonRunning": "Daemon running",
+        "foregroundRun": "agentred run",
+        "installUnix": "curl -fsSL https://github.com/agentre-ai/agentre/releases/latest/download/install.sh | sh",
+        "installWindows": "irm https://github.com/agentre-ai/agentre/releases/latest/download/install.ps1 | iex",
+        "listenAddress": "ws://…:7456/rpc",
+        "pair": "agentred pair",
+        "serviceInstall": "agentred service install --start",
+        "serviceRestart": "agentred service restart",
+        "serviceStatus": "agentred service status",
+        "version": "agentred --version"
+      },
+      "complete": {
+        "action": "Configure Agent Backends",
+        "description": "Choose Claude Code, Codex, or Pi on this device.",
+        "title": "Remote connected"
+      },
+      "copyLabel": "Copy {{label}}",
+      "copySuccess": "Command copied",
+      "dismiss": "Collapse guide",
+      "install": {
+        "archHint": "Architecture is detected automatically",
+        "description": "Choose the remote operating system, then run the install command in its terminal.",
+        "linux": "Linux",
+        "macos": "macOS",
+        "manual": "Manual installation",
+        "next": "Installed, next",
+        "osLabel": "Remote operating system",
+        "powershell": "PowerShell",
+        "recommended": "Recommended install command",
+        "terminal": "Remote terminal",
+        "verify": "Verify installation",
+        "windows": "Windows",
+        "title": "Install agentred"
+      },
+      "pair": {
+        "back": "Back to service",
+        "commandLabel": "Get pairing information",
+        "description": "Run the pairing command on the remote machine, then enter its address and one-time code.",
+        "submit": "Pair and verify",
+        "title": "Connect this remote machine"
+      },
+      "service": {
+        "background": "Background service (recommended)",
+        "description": "Use the background service for a machine that should stay available.",
+        "diagnostics": {
+          "first": "Run <command>{{command}}</command> and confirm <status>{{status}}</status> appears.",
+          "second": "Confirm the listen address includes <address>{{address}}</address>.",
+          "third": "Keep the service running, then continue to pairing."
+        },
+        "diagnosticsHint": "Run these checks in the remote terminal",
+        "diagnosticsTitle": "Confirm the service is running",
+        "foreground": "Temporary foreground",
+        "foregroundDescription": "Keep this terminal open; closing it stops agentred.",
+        "installLabel": "Install and start service",
+        "modeHint": "Background service is recommended",
+        "modeLabel": "Run mode",
+        "next": "Service is running",
+        "restartLabel": "Restart service",
+        "statusLabel": "Check status",
+        "title": "Start the remote service"
+      },
+      "stepLabel": "Step {{current}} of {{total}}",
+      "steps": {
+        "install": {
+          "done": "Complete",
+          "subtitle": "About 1 minute",
+          "title": "Install agentred"
+        },
+        "navLabel": "Step {{number}}: {{title}}",
+        "pair": {
+          "subtitle": "One-time code",
+          "title": "Pair and verify"
+        },
+        "service": {
+          "done": "Running",
+          "subtitle": "Stay online",
+          "title": "Start the remote service"
+        }
+      }
+    },
+    "actions": {
+      "addAgentred": "Add agentred",
+      "editTls": "Edit TLS Trust",
+      "refreshStatus": "Refresh Status",
+      "removeConfirm": "Unpair \"{{name}}\"? This desktop will clear the token and fingerprint pin for this agentred. The remote agentred state.json.pairedPeers will not be cleaned up automatically.",
+      "removePairing": "Unpair",
+      "rename": "Rename",
+      "renamePrompt": "Rename to"
+    },
+    "add": {
+      "advancedTls": "Advanced — TLS Trust ({{mode}})",
+      "errors": {
+        "pairFailed": "Pairing failed"
+      },
+      "fields": {
+        "displayName": "Display Name (optional)",
+        "displayNamePlaceholder": "Leave empty to derive it from the address",
+        "pairingCode": "Pairing Code",
+        "pairingCodeHint": "6-character pairing code",
+        "url": "Address",
+        "urlInvalid": "Address must end with /rpc, e.g. ws://192.168.1.100:7456/rpc",
+        "codeInvalid": "Pairing code must be exactly 6 characters"
+      },
+      "pair": "Pair",
+      "pairing": "Pairing..."
+    },
+    "errors": {
+      "dialFailed": "Connection failed: {{message}}",
+      "tofuMismatch": "The server identity fingerprint changed. Verify it is safe, then pair again.",
+      "unauthorized": "Credentials expired. Pair again."
+    },
+    "load": {
+      "errorDescription": "Check the connection and try again.",
+      "errorTitle": "Couldn't load remote devices",
+      "loading": "Loading remote devices"
+    },
+    "login": {
+      "actions": {
+        "connecting": "Connecting...",
+        "continue": "Continue",
+        "openBrowser": "Open Browser",
+        "signOut": "Sign out",
+        "copyCode": "Copy",
+        "copied": "Copied"
+      },
+      "description": "Connect this desktop to your account so your other devices can find it.",
+      "errors": {
+        "accessDenied": "Sign-in was declined.",
+        "expired": "The code expired. Sign in again.",
+        "generic": "Sign-in failed.",
+        "inProgress": "A sign-in is already in progress.",
+        "unreachable": "Can't reach the server. Check the URL and try again."
+      },
+      "fields": {
+        "url": "Server URL"
+      },
+      "servers": {
+        "official": "Agentre Cloud",
+        "officialDesc": "Official hosted service · app.agentrehub.com",
+        "recommended": "Recommended",
+        "custom": "Custom server",
+        "customDesc": "Connect a self-hosted or privately deployed agentrehub"
+      },
+      "signIn": "Sign in",
+      "status": {
+        "signedIn": "Signed in to {{server}}",
+        "serverOffline": "Server offline",
+        "serverOfflineHint": "Can't reach the server; retrying automatically. Your sign-in is kept — no need to sign in again."
+      },
+      "title": "Sign in to your account",
+      "waiting": {
+        "userCode": "Your code",
+        "verificationUrl": "Go to",
+        "expiresIn": "Code expires in {{time}}",
+        "autoClose": "Auto-finishes sign-in once you approve · sign out anytime in the Remote panel"
+      }
+    },
+    "panel": {
+      "description": "Manage remote agentred compute endpoints: desktop remote driver, direct LAN connections, and Cloud relay across networks (v0.3+).",
+      "stats": "{{paired}} paired · {{online}} online",
+      "title": "Remote"
+    },
+    "path": {
+      "inUseAria": "{{path}} · In use",
+      "lan": "Direct",
+      "relay": "Relay",
+      "unreachableAria": "{{path}} · Unreachable",
+      "unreachableLabel": "{{path}} · Unreachable"
+    },
+    "providers": {
+      "copyAria": "Copy fix command {{key}}",
+      "copyCommand": "Copy Command",
+      "copyDescription": "Paste it into the terminal running remote agentred",
+      "copyDone": "Fix command copied",
+      "copyFailed": "Failed to copy fix command",
+      "empty": "No local Agent Backend providers are linked to this device.",
+      "loadFailed": "Load failed: {{message}}",
+      "loading": "Loading Provider sync status...",
+      "missing": "Missing",
+      "synced": "Synced",
+      "title": "Provider Sync Status",
+      "unsynced": "Not synced"
+    },
+    "status": {
+      "daemonOutdated": "Outdated daemon — a disconnect ends the running turn. Upgrade agentred on that machine so it keeps running while you are away.",
+      "lastConnected": "Last connected {{time}}",
+      "neverConnected": "Never connected",
+      "offline": "Offline",
+      "online": "Online",
+      "viaRelay": "Via relay"
+    },
+    "unclaimed": {
+      "claim": "Claim to account",
+      "instructions": "Run `agentred login` on that machine to claim it to your account (your desktop must already be signed in). Once claimed, your other devices can see it and connect directly.",
+      "label": "Unclaimed",
+      "note": "Paired on this desktop only — other devices can't see it"
+    },
+    "time": {
+      "daysAgo": "{{days}}d ago",
+      "hoursAgo": "{{hours}}h ago",
+      "justNow": "just now",
+      "minutesAgo": "{{minutes}}m ago",
+      "never": "never"
+    },
+    "tls": {
+      "apply": "Apply",
+      "badges": {
+        "notRecommended": "Not recommended",
+        "recommended": "Recommended"
+      },
+      "description": "How to verify agentred's TLS certificate",
+      "errors": {
+        "pemInvalid": "Invalid PEM: missing BEGIN/END CERTIFICATE markers",
+        "pemRequired": "Paste PEM content"
+      },
+      "modes": {
+        "caBundle": {
+          "description": "Trust certificates issued by a specific CA. Useful for enterprise PKI that is not installed in the OS trust store.",
+          "label": "CA Bundle"
+        },
+        "default": {
+          "description": "Use the OS trust store. Works with mkcert -install, Let's Encrypt, and enterprise CAs.",
+          "label": "OS Default"
+        },
+        "pinCert": {
+          "description": "Pin agentred's leaf certificate. Useful for self-signed certificates without a CA setup.",
+          "label": "Pin Certificate"
+        },
+        "skipVerify": {
+          "description": "Disable TLS verification. Anyone who can reach agentred can impersonate it. For debugging only.",
+          "label": "Skip Verification"
+        }
+      },
+      "pem": {
+        "caBundle": "CA Bundle (PEM)",
+        "cert": "Certificate (PEM)"
+      },
+      "title": "TLS Trust"
+    },
+    "desktop": {
+      "kindBadge": "Desktop",
+      "thisDevice": "This device",
+      "running": "Running",
+      "notRunning": "Agentre is not running on this computer",
+      "lastSeen": "Last seen {{time}}",
+      "sessionsToggleAria": "Expand/collapse this desktop's sessions",
+      "loadingSessions": "Loading sessions…",
+      "noSessions": "This desktop has no sessions yet",
+      "untitledSession": "Untitled session",
+      "session": {
+        "running": "Running",
+        "waiting": "Waiting for input",
+        "interrupted": "Interrupted",
+        "idle": "Idle"
+      }
+    }
+  },
+  "remoteFs": {
+    "actions": {
+      "cancel": "Cancel",
+      "newFolder": "New",
+      "selectCurrent": "Select This Folder"
+    },
+    "create": {
+      "placeholder": "folder name"
+    },
+    "empty": "(empty)",
+    "entry": {
+      "enter": "Open",
+      "enterNamed": "Open {{name}}",
+      "symlink": "Symbolic link"
+    },
+    "errors": {
+      "invalidName": "Invalid name"
+    },
+    "filter": {
+      "ariaLabel": "Filter current folder",
+      "placeholder": "Filter current folder..."
+    },
+    "hidden": {
+      "ariaLabel": "Show hidden files",
+      "label": "Hidden"
+    },
+    "loading": "Loading...",
+    "title": "Select Folder",
+    "truncated": "Some items are not listed. Use the filter to narrow the folder."
+  },
+  "sync": {
+    "title": "Sync",
+    "description": "Your agents, departments, projects, and project paths stay in sync across every signed-in desktop.",
+    "status": {
+      "title": "Sync status",
+      "description": "Changes reach your other desktops within 30 seconds.",
+      "badge": {
+        "upToDate": "Up to date",
+        "pending": "{{count}} pending",
+        "unreachable": "Unreachable"
+      },
+      "lastSuccess": "Last successful sync",
+      "pending": "Pending",
+      "pendingCount": "{{count}}",
+      "unreachableTitle": "Can't reach the account server",
+      "unreachableDetail": "Local changes are saved as usual and will catch up once reconnected. Retrying with backoff.",
+      "errorTitle": "Sync failed",
+      "retry": "Retry now",
+      "retrying": "Retrying…"
+    },
+    "lostChanges": {
+      "title": "Changes that didn't sync",
+      "description": "When a local change doesn't take effect, that version stays here for 30 days and can be restored anytime.",
+      "count": "{{count}}",
+      "empty": "Every change synced successfully.",
+      "reason": {
+        "overwritten": "Overwritten",
+        "discarded": "Reference missing",
+        "rejected": "Upload timed out"
+      },
+      "overwrittenFrom": "from \"{{device}}\"",
+      "discardedDetail": "A dependency didn't arrive in time",
+      "rejectedDetail": "Offline for more than 30 days; the server's version was kept",
+      "entity": {
+        "project": "Project",
+        "department": "Department",
+        "agent": "Agent",
+        "agentBackend": "Agent backend",
+        "execTarget": "Execution target",
+        "projectMember": "Project member",
+        "projectLocation": "Project path"
+      },
+      "content": "Content",
+      "restore": "Restore my version",
+      "restoreHint": "Restoring is a normal edit and syncs to your other machines as usual.",
+      "restoring": "Restoring…",
+      "restoreSucceeded": "Restored",
+      "restoreFailed": "Restore failed",
+      "deletedBadge": "Deleted",
+      "deletedTitle": "This {{entity}} was deleted on \"{{device}}\"; restoring won't bring it back.",
+      "deletedTitleUnknownDevice": "This {{entity}} was deleted elsewhere; restoring won't bring it back.",
+      "deletedDescription": "Restoring would push the deleted object back up, and it would reappear on other devices for no reason. You can create a new one from this content below instead — same content, but a new object.",
+      "recreate": "Create new from this",
+      "recreating": "Creating…",
+      "recreateSucceeded": "Created",
+      "recreateFailed": "Create failed",
+      "discard": "Discard this record",
+      "discarding": "Discarding…",
+      "discardFailed": "Discard failed",
+      "toggleExpand": "Expand",
+      "toggleCollapse": "Collapse"
+    }
+  }
+}

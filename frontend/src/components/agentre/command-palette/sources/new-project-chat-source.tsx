@@ -21,10 +21,11 @@ import type { AgentColor } from "../../types";
 import { scoreItem } from "../score";
 import type { CommandSource, OnSelectCtx } from "../types";
 
-// 命令面板的 "New project chat with <agent>" 命令源 —— 仅在 /projects 路由激活。
-// 项目上下文从 useNewChatContextStore 读：
+// 命令面板的 "New project chat with <agent>" 命令源 —— 选了项目上下文时激活
+// （「项目」不是路由，是命令面板里的一条上下文）。项目上下文从
+// useNewChatContextStore 读：
 //   - 有 context → 按 members 分组（成员前，非成员置灰）
-//   - 无 context（项目页但 tree 没选）→ 列全部 chattable，onSelect 退化到自由会话
+//   - 无 context → 本源不激活；退化形态只在 context 被并发清空时才走到
 export type NewProjectChatItem = {
   key: string;
   // subHeading: 命令面板内的次级分组标签。
@@ -320,15 +321,6 @@ function AgentRow({ item }: AgentRowProps) {
   );
 }
 
-export const PROJECTS_PATH_PREFIX = "/projects";
-
-function isProjectsRoute(pathname: string): boolean {
-  return (
-    pathname === PROJECTS_PATH_PREFIX ||
-    pathname.startsWith(`${PROJECTS_PATH_PREFIX}/`)
-  );
-}
-
 function dispatchFreeChat(item: NewProjectChatItem, ctx: OnSelectCtx): void {
   ctx.openNewSession(item.agentId);
   try {
@@ -354,19 +346,12 @@ function onSelect(item: NewProjectChatItem, ctx: OnSelectCtx): void {
   // 记忆最近选过的 agent —— 不论是走项目路径还是兜底自由会话。
   writeLastAgentId(item.agentId);
 
-  // 防御：activeFor 已经限定只在 /projects 激活；万一某天误传 ctx
-  // 仍保留这个保护：非 /projects 路由直接走自由会话。
-  if (!isProjectsRoute(ctx.pathname)) {
-    dispatchFreeChat(item, ctx);
-    return;
-  }
-
   const store = useNewChatContextStore.getState();
   const projectContext = store.projectContext;
   const handler = store.newSelectionHandler;
 
-  // 项目页但还没选任何项目（左侧 tree 没选中）→ 没有 project 上下文可挂，
-  // 静默退化到自由会话。
+  // 选中与回车之间上下文被清掉（Backspace / 切「无项目」）→ 没有 project
+  // 上下文可挂，静默退化到自由会话。
   if (!projectContext) {
     dispatchFreeChat(item, ctx);
     return;
@@ -394,7 +379,7 @@ export const newProjectChatSource: CommandSource<NewProjectChatItem> = {
   id: "new-project-chat",
   heading: i18n.t("commandPalette.newProjectChat.heading"),
   modes: ["command"],
-  activeFor: (ctx) => isProjectsRoute(ctx.pathname),
+  activeFor: (ctx) => ctx.hasProjectContext,
   useItems,
   getScore,
   renderItem,

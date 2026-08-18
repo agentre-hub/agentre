@@ -35,7 +35,6 @@ import { Input } from "@/components/ui/input";
 import { useChatAgents, type ChatAgentItem } from "@/hooks/use-chat-agents";
 import { useProjectTree } from "@/hooks/use-project-tree";
 import { NEW_CHAT_INITIAL_QUERY } from "@/components/agentre/shortcuts/registry";
-import { findProjectColorToken } from "@/lib/project-chain";
 import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
 import { cn } from "@/lib/utils";
 import { useSessionAttentionList } from "@/stores/attention-store";
@@ -61,6 +60,7 @@ import type { app } from "../../../../wailsjs/go/models";
 
 import { AxisPicker } from "./axis-picker";
 import { IndexGroupRow, type IndexGroupHandlers } from "./index-group-row";
+import type { ProjectGlyphInfo } from "./project-glyph";
 import { SessionActionDialogs, useSessionActions } from "./session-actions";
 import { useIndexGroups, type IndexGroup } from "./use-index-groups";
 
@@ -442,12 +442,14 @@ export function SessionIndexPage() {
     ],
   );
 
-  const projectColorOf = React.useCallback(
-    (projectID: number) => findProjectColorToken(tree, projectID),
-    [tree],
-  );
-  const projectNameOf = React.useCallback(
-    (projectID: number) => projectByID.get(projectID)?.name ?? "",
+  // 画一枚项目字形要的三件事一起取：组头与行里的字形从此只有一个来源
+  // （project-glyph.tsx），不会再各画各的。
+  const projectInfoOf = React.useCallback(
+    (projectID: number): ProjectGlyphInfo | null => {
+      const p = projectByID.get(projectID);
+      if (!p) return null;
+      return { name: p.name, color: p.color, icon: p.icon };
+    },
     [projectByID],
   );
   const agentInfoOf = React.useCallback(
@@ -504,8 +506,7 @@ export function SessionIndexPage() {
         })}
         allLocalPathsMissing={allLocalPathsMissing}
         dragListeners={drag?.listeners}
-        projectColorOf={projectColorOf}
-        projectNameOf={projectNameOf}
+        projectInfoOf={projectInfoOf}
         agentInfoOf={agentInfoOf}
         handlers={handlers}
       >
@@ -520,8 +521,7 @@ export function SessionIndexPage() {
       agentByID,
       reasonBySession,
       allLocalPathsMissing,
-      projectColorOf,
-      projectNameOf,
+      projectInfoOf,
       agentInfoOf,
       subtreeSessionIDs,
       handlers,

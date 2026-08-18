@@ -33,7 +33,7 @@ The following are hard rules. If the current task conflicts with them, **stop an
    - **No** drive-by refactor / rename sweep / formatter pass / dead-code cleanup / import reordering / unrelated test churn — they bury the real change and break `git bisect`.
    - When you see unrelated dirty data, flag it to the user and ask, **do not fix it in passing**.
 5. **New visible frontend UI copy must go through i18n.**
-   - New UI text uses `react-i18next`'s `t(...)`, and updates both `frontend/src/i18n/locales/zh-CN/common.json` and `frontend/src/i18n/locales/en/common.json`.
+   - New UI text uses `react-i18next`'s `t(...)`, and updates both `frontend/src/i18n/locales/zh-CN/` and `frontend/src/i18n/locales/en/` — one tree split into domain modules (`chat.json` / `settings.json` / …) merged by each language's `index.ts`; the module name is not part of the key.
    - Do not add hardcoded Chinese; ESLint, via `eslint-plugin-i18next`'s `i18next/no-literal-string`, blocks hardcoded Chinese UI copy in JSX text and visible attributes.
    - Static `t("...")` keys and locale coverage are validated by `frontend/src/__tests__/i18n.test.ts`; run the relevant tests when you change copy.
    - Do not translate dynamic output such as agent / user / terminal / code / markdown; it naturally never enters `t(...)`, and using a global text-rewrite fallback is forbidden.
@@ -84,7 +84,7 @@ Before writing code / fixing bugs / writing tests, read these docs first — the
 - **Append new migrations to the end of `migrationList()`**; modifying an existing migration is forbidden; prefer native SQL for DDL, avoid relying on `AutoMigrate`. Migrations carry **no unit tests of their own** — do not add a `migrations/*_test.go`. `internal/bootstrap/cago_test.go` only proves the chain runs clean on a *fresh* database; backfill and key-change semantics are verified by hand against a database holding real rows, per [docs/develop.md](docs/develop.md) "When Touching Persistent Data" step 4.
 - **Critical flows must log**: use `logger.Ctx(ctx)`, with a lowercase `package.Method:` prefix in the message, and dynamic values passed through **camelCase** `zap.Xxx(...)` fields. See [docs/observability.md](docs/observability.md).
 - **Frontend form controls uniformly use shadcn `@/components/ui/*`**; adding a native `<select>` is forbidden.
-- **New visible frontend UI copy must go through i18n**: use `react-i18next`'s `t(...)` and `frontend/src/i18n/locales/{zh-CN,en}/common.json`, do not add hardcoded Chinese; `i18next/no-literal-string` blocks hardcoded Chinese UI copy in JSX. Do not introduce a side-channel text-rewrite mechanism. Do not translate dynamic content such as agent / user / terminal / markdown. See [docs/frontend.md](docs/frontend.md) for details.
+- **New visible frontend UI copy must go through i18n**: use `react-i18next`'s `t(...)` and `frontend/src/i18n/locales/{zh-CN,en}/` (domain modules merged by `index.ts`), do not add hardcoded Chinese; `i18next/no-literal-string` blocks hardcoded Chinese UI copy in JSX. Do not introduce a side-channel text-rewrite mechanism. Do not translate dynamic content such as agent / user / terminal / markdown. See [docs/frontend.md](docs/frontend.md) for details.
 
 ## Common Commands
 

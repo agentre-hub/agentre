@@ -102,7 +102,7 @@ Agentre 采用标准的 GitHub fork 协作模式：
 - [ ] 测试先于实现编写，覆盖主路径 + 至少一个边界/错误用例。
 - [ ] `make check` 通过（golangci-lint + ESLint + 后端 Go 测试 + 前端 Vitest）。
 - [ ] diff 只包含任务范围内的改动。
-- [ ] 新增的前端可见文案在 `frontend/src/i18n/locales/zh-CN/common.json` 和 `en/common.json` **两边**都有翻译。
+- [ ] 新增的前端可见文案在 `frontend/src/i18n/locales/zh-CN/` 和 `en/` **两边**都有翻译，且落在同一个按域拆分的模块文件里。
 - [ ] 提交信息符合上面的 gitmoji 规范。
 - [ ] 如果改了贡献者文档，遵循了 [documentation.md](./documentation.md)（链接可解析、事实已对照拟提交的暂存树核验）。
 

@@ -2,8 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import enCommon from "@/i18n/locales/en/common.json";
-import zhCommon from "@/i18n/locales/zh-CN/common.json";
+import enCommon from "@/i18n/locales/en";
+import zhCommon from "@/i18n/locales/zh-CN";
 
 import { ModelTargetPicker } from "../model-target-picker";
 import {

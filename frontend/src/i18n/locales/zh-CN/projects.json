@@ -1,0 +1,222 @@
+{
+  "issues": {
+    "actions": {
+      "dispatchToAgent": "派发给 Agent",
+      "filter": "筛选",
+      "newIssue": "新建 Issue",
+      "redispatch": "重新派发",
+      "close": "关闭",
+      "reopen": "重新打开",
+      "edit": "编辑",
+      "delete": "删除"
+    },
+    "board": {
+      "addCard": "添加卡片",
+      "addToColumn": "添加到{{column}}",
+      "aria": "看板",
+      "emptyColumn": "暂无",
+      "lastFailure": "exit={{code}} · last fail {{minutes}} 分钟前",
+      "viewAllClosed": "查看全部 {{count}} 个 →"
+    },
+    "stages": {
+      "todo": "待办",
+      "doing": "进行中",
+      "review": "待审",
+      "done": "已完成"
+    },
+    "form": {
+      "stage": "阶段"
+    },
+    "dialog": {
+      "title": "新建 Issue",
+      "editTitle": "编辑 Issue",
+      "titleLabel": "标题",
+      "bodyLabel": "描述",
+      "projectLabel": "项目",
+      "noProject": "未归属",
+      "labelsLabel": "标签",
+      "create": "创建 Issue",
+      "save": "保存"
+    },
+    "empty": {
+      "title": "还没有 Issue",
+      "desc": "新建一个 Issue 开始追踪工作项"
+    },
+    "filters": {
+      "assignedAgent": "分派 Agent",
+      "author": "作者",
+      "closed": "Closed",
+      "label": "标签",
+      "latestUpdate": "最新更新",
+      "open": "Open"
+    },
+    "list": {
+      "aria": "Issue 列表"
+    },
+    "state": {
+      "loading": "加载中…",
+      "error": "加载失败"
+    },
+    "status": {
+      "unassigned": "未派发"
+    },
+    "summary": {
+      "counts": "{{open}} 个 Open · {{closed}} 个 Closed"
+    },
+    "title": "看板",
+    "view": {
+      "aria": "Issue 视图",
+      "board": "Board",
+      "list": "List"
+    }
+  },
+  "projectMerge": {
+    "title": "合并到已有项目",
+    "description": "两个项目会变成一个。这个动作不能一键撤销。",
+    "pickTargetLabel": "合并到",
+    "pickTargetPlaceholder": "选择要合并到的项目…",
+    "noCandidates": "没有其它项目可以合并",
+    "keepPathNote": "保留本机项目的本机路径，会话照常能起。",
+    "reassignNote": "两边的会话、成员 Agent、子项目与远端路径记录都会归到合并后的项目下。",
+    "identityNote": "以账号里那一个为准：名称、图标、颜色、描述取账号侧的值。",
+    "confirm": "合并",
+    "cancel": "取消",
+    "errors": {
+      "mergeFailed": "合并失败：{{error}}"
+    }
+  },
+  "projectNew": {
+    "browse": "浏览…",
+    "create": "创建项目",
+    "descriptionPlaceholder": "一句话讲清这个项目用来干什么（可选）",
+    "detectingGit": "检测 Git 仓库…",
+    "gitDetected": "检测到 Git 仓库",
+    "gitSummary": "分支 {{branch}} · {{origin}}",
+    "localPath": "本地路径",
+    "noGit": "未检测到 Git 仓库",
+    "noOrigin": "无 origin remote",
+    "none": "— 无 —",
+    "parentProject": "父项目",
+    "selectDirectory": "选择项目目录",
+    "topLevel": "— 顶级项目 —",
+    "unknown": "(未知)"
+  },
+  "projectSettings": {
+    "basic": {
+      "description": "描述",
+      "iconKey": "图标 key",
+      "iconPlaceholder": "folder / briefcase / 自定义 emoji",
+      "localPathReadonly": "本地路径（只读）",
+      "name": "项目名"
+    },
+    "danger": {
+      "confirmName": "输入项目名 \"{{name}}\" 以确认",
+      "deleteDescription": "软删除项目记录，**不会**删除本地代码仓库或会话内容。如果项目还有子项目或活跃会话，删除会被拒绝。",
+      "deleteProject": "删除项目"
+    },
+    "locations": {
+      "absolutePathRequired": "必须是绝对路径 (/开头)",
+      "addRemotePath": "添加远端路径",
+      "allDevicesConfigured": "所有已配对的远端设备都已配置路径",
+      "browseRemoteDir": "浏览远端目录",
+      "count": "远端路径 · {{count}}",
+      "deletePath": "删除路径",
+      "editPath": "编辑路径",
+      "empty": "还没有远端路径。加完路径后才能在「成员」tab 里添加该设备上的 Agent。",
+      "enterToSave": "Enter 保存",
+      "newPath": "新增路径",
+      "offlineSuffix": " · offline",
+      "pathPlaceholder": "/abs/path on remote (e.g. /home/me/proj)",
+      "remoteDevice": "远端设备",
+      "selectRemoteDevice": "选择远端设备"
+    },
+    "members": {
+      "addAgent": "添加 Agent",
+      "configureRemotePath": "⚠ 先去「远端路径」配置",
+      "directCount": "直接成员 · {{count}}",
+      "directEmpty": "还没有直接成员；可以从下面候选里加。",
+      "inheritedBadge": "⋯ 继承",
+      "inheritedCount": "继承自父项目 · {{count}}",
+      "inheritedFrom": "继承自 {{name}}",
+      "missingRemotePathTitle": "该设备未配置远端路径",
+      "noCandidates": "所有 Agent 都已经在本项目（或父项目继承）。",
+      "parentProject": "父项目",
+      "pickAgent": "选择 Agent",
+      "remoteHint": "远端 Agent 需要先在「远端路径」tab 配置该设备的路径",
+      "removeAgent": "移除 {{name}}"
+    },
+    "tabs": {
+      "basic": "基本",
+      "danger": "危险区",
+      "locations": "远端路径",
+      "members": "成员"
+    },
+    "title": "项目设置",
+    "titleSuffix": "· 项目设置"
+  },
+  "projects": {
+    "actions": {
+      "deleteProject": "删除项目",
+      "more": "{{name}} 更多操作",
+      "newProject": "新建项目",
+      "newSubProject": "新建子项目"
+    },
+    "empty": {
+      "description": "把一个本地代码仓库登记为项目，就可以让多个 Agent 在这里协作。",
+      "title": "还没有项目"
+    },
+    "errors": {
+      "loadFailed": "加载失败：{{error}}",
+      "reorderFailed": "项目顺序保存失败：{{error}}"
+    },
+    "filter": {
+      "chips": {
+        "all": "全部",
+        "running": "运行中"
+      }
+    },
+    "localPath": {
+      "badge": "未配置",
+      "allMissingTitle": "这台设备还没有为任何项目配置路径",
+      "allMissingDescription": "账号里的 {{count}} 个项目都在，指定各自的目录后就能在本机开会话。",
+      "specifyPath": "指定路径…",
+      "mergeIntoExisting": "合并到已有项目…",
+      "specifyFailed": "指定路径失败：{{error}}",
+      "unconfiguredInline": "这台设备还没有配置",
+      "unconfiguredHint": "这个项目从账号同步而来，指定目录后才能在本机开会话。",
+      "specifyShort": "指定…"
+    },
+    "search": {
+      "aria": "搜索项目 / 会话",
+      "clear": "清空筛选",
+      "placeholder": "搜索项目 / 会话"
+    },
+    "session": {
+      "activeCount": "{{count}} 个活跃会话（含子项目）",
+      "attentionAria": "{{name}} 待处理会话",
+      "empty": "暂无会话",
+      "group": "会话",
+      "groupToggle": "展开/收起 {{name}} 的会话",
+      "inherited": "继承",
+      "loadMembersFailed": "加载成员失败：{{error}}",
+      "loadingMembers": "加载成员中…",
+      "new": "新建会话",
+      "newForProject": "{{name}} 新建会话",
+      "noMembers": "还没添加成员，去项目设置加几个先。",
+      "pickAgent": "选一个 Agent",
+      "untitled": "(未命名会话)"
+    },
+    "sidebar": {
+      "aria": "项目列表",
+      "title": "项目"
+    },
+    "terminal": {
+      "deviceOffline": "设备离线",
+      "local": "本地",
+      "new": "新建终端",
+      "offlineSuffix": " · 离线",
+      "pathMissingSuffix": " · 未配置路径",
+      "pathNotConfigured": "先在项目设置配置远端路径"
+    }
+  }
+}

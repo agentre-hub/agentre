@@ -46,6 +46,8 @@ import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { AgentAvatar } from "../primitives";
 import { useRemoteDevices } from "../remote-devices/use-remote-devices";
 import type { AgentColor } from "../types";
+
+import { ProjectGlyph } from "./project-glyph";
 import * as WailsApp from "../../../../wailsjs/go/app/App";
 import type { app } from "../../../../wailsjs/go/models";
 
@@ -141,12 +143,14 @@ export function ProjectGroupHeader({
               )}
               aria-hidden="true"
             />
-            <AgentAvatar
-              name={project.name}
-              initials={project.name.charAt(0)}
-              color={(project.color as AgentColor) || "agent-1"}
-              avatarIcon={project.icon || "folder"}
-              size="sm"
+            {/* 组头与行里的项目字形同一个组件 —— 两处各画各的正是「行里是文件夹、
+                组头是项目图标」的由来。 */}
+            <ProjectGlyph
+              project={{
+                name: project.name,
+                color: project.color,
+                icon: project.icon,
+              }}
               className={cn(
                 isDeep
                   ? "size-3.5 rounded-sm"

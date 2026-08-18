@@ -1,0 +1,268 @@
+{
+  "org": {
+    "chart": {
+      "actions": {
+        "newAgent": "New Agent",
+        "newDepartment": "New Department"
+      },
+      "detail": {
+        "empty": "Select a department or agent to view details"
+      },
+      "empty": {
+        "noMountNodes": "No nodes available to mount"
+      },
+      "loading": "Loading org chart...",
+      "newAgent": {
+        "agentOption": "Agent · {{name}}",
+        "avatar": "Avatar",
+        "avatarColor": "Avatar Color",
+        "avatarColorNamed": "Avatar color {{color}}",
+        "avatarHint": "Click the avatar to pick an icon. Upload an image from the detail page after creation.",
+        "backend": "Backend",
+        "departmentOption": "Department · {{name}}",
+        "description": "Set the agent name, placement, and execution backend.",
+        "intentHint": "Configure the backend after creating the agent, then start chatting",
+        "intentSettings": "Go to settings → Agent backend",
+        "optionalSuffix": "(optional)",
+        "placement": "Select a department or parent agent"
+      },
+      "newDepartment": {
+        "description": "Choose the parent, icon, and theme color. It appears in the org chart after creation.",
+        "iconAria": "New department icon"
+      },
+      "summary": {
+        "list": "{{count}} agents · list view",
+        "tree": "{{departments}} departments · {{subDepartments}} sub-departments · {{agents}} agents"
+      },
+      "title": "Org Chart",
+      "view": {
+        "list": "List",
+        "listAria": "List view",
+        "tree": "Tree",
+        "treeAria": "Tree view"
+      },
+      "zoom": {
+        "in": "Zoom In",
+        "out": "Zoom Out",
+        "reset": "Reset Zoom"
+      }
+    },
+    "agent": {
+      "actions": {
+        "deleteAgent": "Delete Agent"
+      },
+      "avatar": {
+        "replaceImage": "Replace Image",
+        "uploadImage": "Upload Image"
+      },
+      "backend": {
+        "configureProvider": "Configure LLM providers",
+        "goAgentBackendSettings": "Go to Agent backend settings",
+        "inactiveSuffix": " (disabled)",
+        "noBackendDescription": "Bind an agent backend to start chatting; the built-in backend also needs an LLM provider.",
+        "noBackendTitle": "This agent can't chat yet",
+        "providerGapDescription": "The built-in SDK backend runs tasks through an LLM provider, but no active provider is linked yet.",
+        "providerGapTitle": "An LLM provider is still needed",
+        "title": "Agent Backend",
+        "unlinkedProvider": "No linked LLM provider"
+      },
+      "execTargets": {
+        "title": "Execution Targets",
+        "add": "Add",
+        "addFull": "Add execution target",
+        "replace": "Replace",
+        "remove": "Remove",
+        "moveUp": "Move target up",
+        "moveDown": "Move target down",
+        "dragHandle": "Reorder target (drag, or press the up / down arrow keys)",
+        "moved": "Moved to position {{position}} of {{total}}.",
+        "currentlyActive": "Currently active",
+        "online": "Online",
+        "offline": "Offline",
+        "localMachine": "Local machine",
+        "emptyTitle": "No execution targets yet",
+        "emptyHint": "At least one is required before this agent can start a session.",
+        "saveRejected": "Save rejected: add at least one execution target.",
+        "allUnavailableTitle": "\"{{name}}\" has no available execution target right now",
+        "addPanel": {
+          "searchPlaceholder": "Search machine or backend…",
+          "alreadyInList": "Already in the list",
+          "unpaired": "Not paired"
+        },
+        "reasons": {
+          "orphanBackend": "This execution target's backend no longer exists",
+          "backendRequiresProvider": "An LLM provider must be specified",
+          "providerInactive": "LLM provider is not active",
+          "remoteProviderMissing": "The remote device is missing this LLM provider",
+          "gatewayNotRunning": "Local gateway is not running",
+          "remoteOpenclawUnavailable": "Remote OpenClaw is unavailable",
+          "unknownBackend": "Unknown backend type",
+          "unpaired": "This computer isn't paired with it",
+          "offline": "Offline",
+          "projectPathMissing": "This machine has no configured path for this project"
+        },
+        "loading": "Loading execution targets…"
+      },
+      "basicInfo": "Basic Info",
+      "charCount": "{{count}} chars",
+      "deleteDialog": {
+        "description": "This also clears the agent's conversations, skills, and state records. This action cannot be undone.",
+        "title": "Delete agent \"{{name}}\"?"
+      },
+      "departmentLead": "{{name}} department lead",
+      "descriptionHint": "Optional · shown as the card subtitle",
+      "dragHierarchyHint": "· Drag cards to adjust hierarchy",
+      "fallbackName": "Agent",
+      "relativeTime": {
+        "daysAgo": "{{count}} days ago",
+        "hoursAgo": "{{count}} hours ago",
+        "justNow": "just now",
+        "minutesAgo": "{{count}} minutes ago"
+      },
+      "reportsTo": "Reports to",
+      "savedAt": "Saved · {{time}}",
+      "skills": {
+        "sectionTitle": "Skills · Skill Packs",
+        "manage": "Manage skills",
+        "count": "{{inherit}} inherited · {{on}} on · {{off}} off",
+        "countCompact": "{{inherit}} inherited · {{on}} on · {{off}} off",
+        "inheritNote": "Gray = inherited from global · Blue = forced on for this agent · Red = forced off for this agent (global untouched). Changes apply on the agent's next new session.",
+        "empty": "No skill packs granted",
+        "personalNote": "Always available · personal skills (~/.claude/skills) can't be toggled individually",
+        "summary": "{{enabled}} enabled · {{disabled}} disabled",
+        "title": "Skills",
+        "copyFrom": "Copy from",
+        "copyFromDisabledHint": "Different backend type — package ids don't match",
+        "offlineNote": "Machine is offline, can't list packs to add · already-granted ones can still be removed"
+      },
+      "skillsGate": {
+        "pill": "Unsupported",
+        "title": "This backend doesn't support skills",
+        "description": "Skills are a Claude Code native capability. Add a Claude Code execution target to enable and configure them for that target."
+      },
+      "skillPicker": {
+        "title": "Add Skills · Skill Packs",
+        "subtitle": "One pack = a set of skills, granted per agent",
+        "subtitleForTarget": "Target #{{index}} · {{machine}} · {{backend}} — only affects this one",
+        "searchPlaceholder": "Search skill packs / descriptions…",
+        "personalNote": "Personal skills (~/.claude/skills) are always available; the CLI can't toggle them individually"
+      },
+      "tools": {
+        "title": "Tools",
+        "sectionTitle": "Tools · TOOLS",
+        "enabledCount": "{{count}} enabled",
+        "add": "Add Tool",
+        "empty": "No tools available",
+        "approval": "Approval",
+        "names": {
+          "org": "Org Structure",
+          "subagent": "Call Sub-agent",
+          "hook": "Script Hooks"
+        },
+        "descriptions": {
+          "org": "Allow this agent to read and manage departments and members (writes require your approval)",
+          "subagent": "Delegate a subtask to another configured agent and get its result back synchronously. The sub-agent runs in an isolated one-shot session; agents used as sub-agents should use an auto-approving permission mode.",
+          "hook": "Let this agent author, dry-run and schedule script Hooks on a cron to emit events (create/update/delete/run all require your approval)"
+        }
+      },
+      "toolPicker": {
+        "title": "Add Tools",
+        "subtitle": "Tool calls are injected over MCP; writes need approval",
+        "searchPlaceholder": "Search tools / descriptions…"
+      },
+      "skillCatalog": {
+        "group": {
+          "available": "Available · Marketplace",
+          "inheritedOn": "Inherited (on globally)",
+          "enableable": "Available to enable (installed)"
+        },
+        "needInstall": "Install first",
+        "globalEnabled": "Globally enabled",
+        "globalDisabled": "Globally disabled"
+      },
+      "systemPrompt": "System Prompt",
+      "systemPromptHint": "Put style, tone, and boundaries in the system prompt. No separate fields are used.",
+      "unsaved": "Unsaved"
+    },
+    "department": {
+      "addGroup": "Add agent or sub-department",
+      "addAgent": "Agent",
+      "basicInfo": "Basic Info",
+      "deleteDepartment": "Delete department",
+      "deleteDialog": {
+        "cascadeDescription": "Soft-delete all sub-departments and agents as well",
+        "cascadeTitle": "Recursively delete the subtree",
+        "confirm": "Confirm Delete",
+        "description": "The selected strategy is applied recursively. This action cannot be undone.",
+        "irreversible": "This action cannot be undone",
+        "reparentDescription": "Recommended / safe · Move direct children to this department's parent",
+        "reparentTitle": "Move members to parent department",
+        "strategyTitle": "Choose how to handle children",
+        "title": "Delete \"{{name}}\"?"
+      },
+      "departmentMemberCount": "{{count}} members",
+      "description": "Description",
+      "editEyebrow": "Edit Department",
+      "icon": "Icon",
+      "leadHint": "Choose from direct agents",
+      "leadBadge": "LEAD",
+      "leader": "Leader",
+      "memberSummary": "{{agents}} direct agents · {{departments}} sub-departments",
+      "members": "Members",
+      "name": "Name",
+      "noDirectMembers": "No direct members",
+      "parent": "Parent",
+      "path": "Path",
+      "subDepartment": "Sub-department",
+      "themeColor": "Theme Color",
+      "themeColorNamed": "Theme color {{color}}",
+      "topLevel": "Company top level (under CEO)",
+      "viewAgent": "View agent {{name}}",
+      "viewDepartment": "View department {{name}}"
+    },
+    "list": {
+      "empty": "No agents found",
+      "filters": {
+        "backendAria": "Backend filter",
+        "backendPrefix": "Backend:",
+        "clearReportsTo": "Clear reports-to filter",
+        "reportsToAria": "Reports-to filter",
+        "reportsToPrefix": "Reports to:"
+      },
+      "search": {
+        "aria": "Search agents",
+        "placeholder": "Search agents or descriptions"
+      },
+      "skills": {
+        "enabledOnly": "{{count}} enabled"
+      },
+      "sort": {
+        "aria": "Sort mode",
+        "asc": "Ascending",
+        "desc": "Descending",
+        "hierarchy": "Hierarchy",
+        "label": "Sort",
+        "status": "Status"
+      },
+      "table": {
+        "active": "Active",
+        "agent": "Agent",
+        "sortByAgent": "Sort by agent"
+      }
+    },
+    "tree": {
+      "collapse": "Collapse {{name}}",
+      "collapsedSuffix": " (collapsed)",
+      "empty": {
+        "addAgent": "Add Agent",
+        "description": "Create a department, or attach new Agents under the CEO assistant.",
+        "newDepartment": "New Department",
+        "title": "No departments created"
+      },
+      "expand": "Expand {{name}}",
+      "lead": "Lead · {{name}}",
+      "memberCount": "{{count}} members"
+    },
+    "reorderFailed": "Failed to save order, please retry"
+  }
+}
