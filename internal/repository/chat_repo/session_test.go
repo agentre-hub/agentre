@@ -810,9 +810,10 @@ func applySetClause(row map[string]any, sql string, vars []any) {
 //
 // 取材还必须**有界**:补齐会为每条会话装一个消费方、加一份池连接引用、开一条自主轮
 // 监视,而这条查询原本返回「历史上曾远端执行过的每一条」会话 —— 用得久了就是几千条。
-// 两个上界都有依据:daemon 的通知日志只留 30 天(daemon.defaultJournalRetention),
-// 更老的会话补齐能拿回来的是空的;仍停在 running / waiting 的行不受时间窗限制并排在
-// 最前 —— 只有 daemon 能给它们判据,漏掉它们就是界面上一条永远转圈的会话。
+// 仍停在 running / waiting 的行不受时间窗限制并排在最前 —— 只有 daemon 能给它们判据,
+// 漏掉它们就是界面上一条永远转圈的会话,这条依据还在。时间窗当初与 daemon 的通知日志
+// 留存窗口对齐(更老的会话补齐能拿回来的是空的);agentred 现在永久保存通知日志、不再
+// 回收(规格决策 8),这条依据已经不成立。
 func TestSessionRepo_ListRemoteExecSessions(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 

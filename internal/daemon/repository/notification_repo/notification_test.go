@@ -175,31 +175,6 @@ func TestNotificationRepo_ListSince_CursorBoundaries(t *testing.T) {
 	})
 }
 
-// TestNotificationRepo_SilentSessions_OnlyReportsSessionsWithNothingNewInTheWindow
-// 覆盖回收的取材面:「整个留存窗口内一条新通知都没有」的会话才进入候选,判据是该会话
-// **最新**一行的时间(不是最老那一行)—— 按单行时间取材会把一条还在被消费的会话的
-// 老前缀一起端走,而那正是重连客户端要补齐的区间(R5)。只有一行的会话不进候选:
-// 它那一行是高水位,回收要保留的就是它,取回来也无事可做。
-func TestNotificationRepo_SilentSessions_OnlyReportsSessionsWithNothingNewInTheWindow(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-	repo := notification_repo.NewNotification()
-
-	mock.ExpectQuery("SELECT peer_fingerprint, peer_session_id, MAX\\(seq\\) AS latest_seq "+
-		"FROM daemon_notification_logs GROUP BY peer_fingerprint, peer_session_id "+
-		"HAVING MAX\\(created_at\\) < \\? AND COUNT\\(\\*\\) > 1 LIMIT \\?").
-		WithArgs(int64(1000), 50).
-		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "latest_seq"}).
-			AddRow("peerA", "s1", 900).
-			AddRow("peerB", "s3", 12))
-
-	got, err := repo.SilentSessions(ctx, 1000, 50)
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assert.Equal(t, notification_repo.SilentSession{PeerFingerprint: "peerA", PeerSessionID: "s1", LatestSeq: 900}, got[0])
-	assert.Equal(t, notification_repo.SilentSession{PeerFingerprint: "peerB", PeerSessionID: "s3", LatestSeq: 12}, got[1])
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 // TestNotificationRepo_DeleteBelow_KeepsTheHighWaterRow 覆盖回收的删除面:删除**严格
 // 小于**给定 seq 的行,且只在这一条 (对端, 会话) 的范围内。删成 <= 会把该会话的高水位
 // 一起抹掉,MAX(seq) 归零后 Append 会从 1 重新分配 —— 客户端游标停在旧高水位上,此后

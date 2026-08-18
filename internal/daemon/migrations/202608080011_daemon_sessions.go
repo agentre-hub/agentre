@@ -17,8 +17,8 @@ import (
 //
 // daemon_notification_logs —— 通知日志表。复合主键 (peer_fingerprint,
 // peer_session_id, seq):日志的一行 = 一条本该发出的通知,method/payload 是原样的
-// JSON-RPC (method, params)。追加写;回收由 daemon.collectJournal 按留存窗口做
-// (安静满窗口的终态会话回收高水位以下的前缀),本迁移不建任何清理路径。
+// JSON-RPC (method, params)。只追加、永久保存——agentred 不再回收任何一行(规格决策 8,
+// server 与 agentred 两端都不设保留期),清理逻辑留给后续,本迁移不建任何清理路径。
 func migration202608080011() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "202608080011",

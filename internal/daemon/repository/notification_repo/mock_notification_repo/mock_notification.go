@@ -130,18 +130,3 @@ func (mr *MockNotificationRepoMockRecorder) OldestSeq(ctx, peerFingerprint, peer
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OldestSeq", reflect.TypeOf((*MockNotificationRepo)(nil).OldestSeq), ctx, peerFingerprint, peerSessionID)
 }
-
-// SilentSessions mocks base method.
-func (m *MockNotificationRepo) SilentSessions(ctx context.Context, cutoffMs int64, limit int) ([]notification_repo.SilentSession, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SilentSessions", ctx, cutoffMs, limit)
-	ret0, _ := ret[0].([]notification_repo.SilentSession)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SilentSessions indicates an expected call of SilentSessions.
-func (mr *MockNotificationRepoMockRecorder) SilentSessions(ctx, cutoffMs, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SilentSessions", reflect.TypeOf((*MockNotificationRepo)(nil).SilentSessions), ctx, cutoffMs, limit)
-}

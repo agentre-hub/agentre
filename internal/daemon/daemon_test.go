@@ -1233,111 +1233,18 @@ func journalSeqs(t *testing.T, ctx context.Context, peer, sid string) []int64 {
 	return out
 }
 
-// TestDaemon_CollectJournal_NeverReclaimsARangeThatCouldStillBeCaughtUp 钉死留存策略
-// 的判据。回收只碰**整个留存窗口内一条新通知都没有**的会话,而且永远保留它的高水位那一行:
-//
-//   - 还在产出的会话一行都不动 —— 哪怕它最老的那批日志早过了窗口。那段老前缀正是一个
-//     久未上线的客户端重连后要补齐的区间(R5:补齐序列与不断连逐条相等)。
-//   - 非终态(running)的会话一行都不动:它随时可能被接管接着跑。
-//   - 库里没有会话行的日志一行都不动:身份不明时一律保守。
-func TestDaemon_CollectJournal_NeverReclaimsARangeThatCouldStillBeCaughtUp(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir(), JournalRetention: 24 * time.Hour})
-	require.NoError(t, err)
-	t.Cleanup(func() { closeDB(d.db) })
-	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-
-	old := time.Now().Add(-90 * 24 * time.Hour).UnixMilli()
-	fresh := time.Now().UnixMilli()
-
-	// 安静了整个窗口的空闲会话:可回收。
-	seedSession(t, ctx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
-	seedJournal(t, ctx, "peerA", "1", 5, old)
-	// 老前缀 + 刚刚还在产出:一行都不能动。
-	seedSession(t, ctx, d.sessionStore, "peerA", "2", wire.SessionLifecycleIdle)
-	seedJournal(t, ctx, "peerA", "2", 3, old)
-	require.NoError(t, notification_repo.NewNotification().Append(ctx, &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "2", Method: wire.NotifyEvent, Payload: "{}", CreatedAt: fresh,
-	}))
-	// 还在跑的会话:安静再久也不动。
-	seedSession(t, ctx, d.sessionStore, "peerA", "3", wire.SessionLifecycleRunning)
-	seedJournal(t, ctx, "peerA", "3", 4, old)
-	// 没有会话行的孤儿日志:不动。
-	seedJournal(t, ctx, "peerB", "9", 4, old)
-
-	collected, err := d.collectJournal(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, int64(4), collected, "只该回收那条安静会话高水位以下的 4 行")
-
-	assert.Equal(t, []int64{5}, journalSeqs(t, ctx, "peerA", "1"),
-		"安静会话只留高水位那一行")
-	assert.Equal(t, []int64{1, 2, 3, 4}, journalSeqs(t, ctx, "peerA", "2"),
-		"还在产出的会话,连它窗口之外的老前缀也必须原封不动 —— 那正是久未上线的客户端要补齐的区间")
-	assert.Equal(t, []int64{1, 2, 3, 4}, journalSeqs(t, ctx, "peerA", "3"),
-		"非终态会话随时可能被接管接着跑,一行都不回收")
-	assert.Equal(t, []int64{1, 2, 3, 4}, journalSeqs(t, ctx, "peerB", "9"),
-		"库里没有会话行时身份不明,保守起见不回收")
-}
-
-// TestDaemon_CollectJournal_KeepsTheSeqTimelineIntact 覆盖回收之后这条会话**接得回去**:
-// 高水位不退、下一条通知接着往上排、落在高水位前一格的客户端仍拉得到那一条。
-//
-// 少了这条约束,回收就是在制造 8496c291 修掉的那种静默冻结:MAX(seq) 被抹掉后 Append
-// 从 1 重新分配,而客户端游标还停在旧高水位上,此后每一条实时通知都被当成重复丢弃 ——
-// 没有跳号、没有错误,会话就是再也不出字。
-func TestDaemon_CollectJournal_KeepsTheSeqTimelineIntact(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir(), JournalRetention: 24 * time.Hour})
-	require.NoError(t, err)
-	t.Cleanup(func() { closeDB(d.db) })
-	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-	repo := notification_repo.NewNotification()
-
-	seedSession(t, ctx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
-	seedJournal(t, ctx, "peerA", "1", 5, time.Now().Add(-90*24*time.Hour).UnixMilli())
-
-	_, err = d.collectJournal(context.Background())
-	require.NoError(t, err)
-
-	latest, err := repo.LatestSeq(ctx, "peerA", "1")
-	require.NoError(t, err)
-	assert.Equal(t, int64(5), latest, "高水位不因回收而后退")
-
-	next := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "1", Method: wire.NotifyEvent, Payload: "{}",
-	}
-	require.NoError(t, repo.Append(ctx, next))
-	assert.Equal(t, int64(6), next.Seq, "回收之后 seq 接着往上排,绝不从 1 重来")
-
-	rows, _, err := repo.ListSince(ctx, "peerA", "1", 4, 10)
-	require.NoError(t, err)
-	require.Len(t, rows, 2, "落在高水位前一格的客户端仍能按游标拉平")
-	assert.Equal(t, int64(5), rows[0].Seq)
-	assert.Equal(t, int64(6), rows[1].Seq)
-}
-
-// TestDaemon_CollectJournal_RetentionCanBeTurnedOff 覆盖留存窗口的开关:规格把
-// 「永久保留」写成了默认承诺,负数窗口因此必须让回收整个不发生(一行都不删)。
-func TestDaemon_CollectJournal_RetentionCanBeTurnedOff(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir(), JournalRetention: -1})
-	require.NoError(t, err)
-	t.Cleanup(func() { closeDB(d.db) })
-	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-
-	seedSession(t, ctx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
-	seedJournal(t, ctx, "peerA", "1", 5, time.Now().Add(-90*24*time.Hour).UnixMilli())
-
-	collected, err := d.collectJournal(context.Background())
-	require.NoError(t, err)
-	assert.Zero(t, collected)
-	assert.Len(t, journalSeqs(t, ctx, "peerA", "1"), 5, "关掉留存窗口时一行都不回收")
-}
-
-// TestDaemon_RunCollectsTheJournal 钉死接线:回收必须由 daemon 自己跑起来,而不是等
-// 谁来调 —— 没有调用方的回收路径等于没有回收路径,日志照旧无限增长。
-func TestDaemon_RunCollectsTheJournal(t *testing.T) {
-	dir, err := os.MkdirTemp("", "agentred-collect")
+// TestDaemon_RunNeverReclaimsTheJournal 钉死规格决策 8(两端都永久保存):agentred 不再
+// 回收通知日志,Run 起来之后哪怕一条会话早就是终态、且安静了很久(90 天),它高水位以下的
+// 每一行也原样留着——不止行数不变,连每一个 seq 都必须还在,后续 Append 接着从高水位往上
+// 排。这正是 8496c291 那次静默冻结要防住的东西(TestDaemon_CollectJournal_KeepsTheSeq
+// TimelineIntact 曾经就地钉过的教训,回收整段删除后随之搬到这里):一旦谁悄悄删掉了旧
+// 前缀,MAX(seq) 归零后 Append 会从 1 重新分配,客户端游标停在旧高水位上,此后每条实时
+// 通知都被当成重复丢弃——没有跳号、没有错误,会话就是再也不出字。
+func TestDaemon_RunNeverReclaimsTheJournal(t *testing.T) {
+	dir, err := os.MkdirTemp("", "agentred-no-collect")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, JournalRetention: time.Hour})
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0})
 	require.NoError(t, err)
 	dbCtx := dbpkg.WithContextDB(context.Background(), d.db)
 	seedSession(t, dbCtx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
@@ -1347,9 +1254,18 @@ func TestDaemon_RunCollectsTheJournal(t *testing.T) {
 	defer cancel()
 	go func() { _ = d.Run(ctx) }()
 
-	require.Eventually(t, func() bool {
-		return len(journalSeqs(t, dbCtx, "peerA", "1")) == 1
-	}, 3*time.Second, 20*time.Millisecond, "daemon 跑起来之后必须自己回收掉安静会话的日志前缀")
+	assert.Never(t, func() bool {
+		return len(journalSeqs(t, dbCtx, "peerA", "1")) != 5
+	}, 300*time.Millisecond, 20*time.Millisecond,
+		"daemon 跑起来之后不该再回收任何通知日志,哪怕会话早已安静终态")
+	assert.Equal(t, []int64{1, 2, 3, 4, 5}, journalSeqs(t, dbCtx, "peerA", "1"),
+		"高水位以下的每一行原样留着,不止行数不变")
+
+	next := &notification_repo.NotificationLog{
+		PeerFingerprint: "peerA", PeerSessionID: "1", Method: wire.NotifyEvent, Payload: "{}",
+	}
+	require.NoError(t, notification_repo.NewNotification().Append(dbCtx, next))
+	assert.Equal(t, int64(6), next.Seq, "序列接着从高水位往上排,绝不会被重排回 1")
 }
 
 func TestDaemon_VerificationKeysGivenEmergencyRetirementWhenRefreshedThenDropsOldKey(t *testing.T) {

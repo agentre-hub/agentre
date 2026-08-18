@@ -563,9 +563,10 @@ func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, dev
 		}).Error
 }
 
-// catchUpWindow 启动补齐回头看多久。与 daemon 的通知日志留存窗口对齐
-// (internal/daemon 的 defaultJournalRetention = 30 天):一条会话安静满 30 天,它高
-// 水位以下的日志已经被 daemon 回收,再对它发补齐拿回来的是空的。
+// catchUpWindow 启动补齐回头看多久:早于这个窗口的远端会话不进入取材范围(仍停在
+// running/waiting 的行不受它限制,见下方查询)。这个值原先与 daemon 的通知日志留存
+// 窗口对齐;agentred 现在永久保存通知日志、不再回收(规格决策 8:两端都不设保留期),
+// 这条依据已经不成立。
 const catchUpWindow = 30 * 24 * time.Hour
 
 // catchUpLimit 一次启动补齐最多认领多少条会话。补齐会为**每条**会话装一个轮次消费方、

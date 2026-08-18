@@ -60,27 +60,12 @@ type NotificationRepo interface {
 	// 没有错误地冻住。有了它,客户端知道那截尾巴是真的没有了,复位游标接着补。
 	OldestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
 
-	// SilentSessions 列出「最新一条通知也早于 cutoffMs」的会话及其高水位 seq,最多
-	// limit 条 —— 回收的取材面(策略本身在调用方,见 daemon.collectJournal)。
-	//
-	// 判据是该会话**最新**那一行的时间,不是逐行的时间:一条还在产出的会话,它窗口
-	// 之外的老前缀恰恰是久未上线的客户端重连后要补齐的区间(R5),按行取材会把那段端走。
-	// 只有一行的会话不出现在结果里:那一行就是高水位,回收要保留的正是它。
-	SilentSessions(ctx context.Context, cutoffMs int64, limit int) ([]SilentSession, error)
-
 	// DeleteBelow 删除这条 (对端, 会话) 下 seq **严格小于** seq 的日志行,返回删除行数。
 	//
 	// 「严格小于」是硬的:高水位那一行必须活着。它一旦被删,该会话的 MAX(seq) 归零,
 	// Append 会从 1 重新分配 seq,而客户端游标还停在旧高水位上 —— 此后每条实时通知都
 	// 被它当成重复丢弃,会话没有跳号、没有错误地冻住。
 	DeleteBelow(ctx context.Context, peerFingerprint, peerSessionID string, seq int64) (int64, error)
-}
-
-// SilentSession 是一条整个留存窗口内都没有新通知的会话:身份 + 它此刻的高水位 seq。
-type SilentSession struct {
-	PeerFingerprint string `gorm:"column:peer_fingerprint"`
-	PeerSessionID   string `gorm:"column:peer_session_id"`
-	LatestSeq       int64  `gorm:"column:latest_seq"`
 }
 
 var defaultNotification NotificationRepo
@@ -170,25 +155,6 @@ func (r *notificationRepo) OldestSeq(ctx context.Context, peerFingerprint, peerS
 		return 0, err
 	}
 	return seq, nil
-}
-
-// silentSessionsSQL 一遍分组扫描就把候选选完:HAVING 里的 MAX(created_at) 是「这条会话
-// 最后一次产出通知」的时刻,COUNT(*) > 1 排掉只剩高水位、无事可做的会话。
-// 刻意不建索引来加速它:索引要由**每条流式通知**的插入来偿还,而这张表的写入正是
-// 每个 token 一条;回收一天跑不了几次,一次全表分组扫描比拖慢热路径划算。
-const silentSessionsSQL = "SELECT peer_fingerprint, peer_session_id, MAX(seq) AS latest_seq " +
-	"FROM daemon_notification_logs GROUP BY peer_fingerprint, peer_session_id " +
-	"HAVING MAX(created_at) < ? AND COUNT(*) > 1 LIMIT ?"
-
-func (r *notificationRepo) SilentSessions(ctx context.Context, cutoffMs int64, limit int) ([]SilentSession, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	var rows []SilentSession
-	if err := db.Ctx(ctx).Raw(silentSessionsSQL, cutoffMs, limit).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
 }
 
 func (r *notificationRepo) DeleteBelow(ctx context.Context, peerFingerprint, peerSessionID string, seq int64) (int64, error) {
