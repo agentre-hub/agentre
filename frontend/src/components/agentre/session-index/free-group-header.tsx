@@ -11,6 +11,9 @@ import { ChevronDown, MessagesSquare, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
+import type { AgentStatus } from "@/stores/types";
+
+import { statusConfig } from "../types";
 
 export type FreeGroupHeaderProps = {
   expanded: boolean;
@@ -22,6 +25,11 @@ export type FreeGroupHeaderProps = {
    * 需要关注的那几条则可能在折叠态下看不见，那才值得一个记号。
    */
   attentionCount: number;
+  /**
+   * 那枚记号的档位（`error > waiting > running`）。`null` = 没有需要关注的会话。
+   * 与项目组头同一套 —— 同一枚记号在两种组头上不能一个说真话一个写死绿色。
+   */
+  attentionTone: AgentStatus | null;
   onNewSession: () => void;
 };
 
@@ -29,6 +37,7 @@ export function FreeGroupHeader({
   expanded,
   onToggle,
   attentionCount,
+  attentionTone,
   onNewSession,
 }: FreeGroupHeaderProps) {
   const { t } = useTranslation();
@@ -62,14 +71,22 @@ export function FreeGroupHeader({
         <span className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold">
           {t("sessionIndex.free.name")}
         </span>
-        {attentionCount > 0 ? (
+        {attentionCount > 0 && attentionTone ? (
           <span
-            className="inline-flex shrink-0 items-center gap-1 font-mono text-2xs text-status-running"
+            data-testid="free-attention-mark"
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 font-mono text-2xs",
+              // 数字用状态的文字角色、点用填充角色 —— 与项目组头、与行本身同一套投影。
+              statusConfig[attentionTone].textClassName,
+            )}
             title={t("sessionIndex.free.attention", { count: attentionCount })}
           >
             <span
               aria-hidden="true"
-              className="inline-block size-1.5 rounded-full bg-status-running"
+              className={cn(
+                "inline-block size-1.5 rounded-full",
+                statusConfig[attentionTone].dotClassName,
+              )}
             />
             {attentionCount}
           </span>

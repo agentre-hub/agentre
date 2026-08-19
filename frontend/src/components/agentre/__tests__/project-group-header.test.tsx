@@ -59,7 +59,7 @@ function renderHeader(overrides: Partial<ProjectGroupHeaderProps> = {}) {
     expanded: true,
     onToggle: vi.fn(),
     attentionCount: 0,
-    hasRunning: false,
+    attentionTone: null,
     allLocalPathsMissing: false,
     onOpenSettings: vi.fn(),
     onAddSubProject: vi.fn(),
@@ -198,16 +198,40 @@ describe("ProjectGroupHeader running highlight", () => {
     appMocks.ServerListDevices.mockResolvedValue([]);
   });
 
-  it("Given the subtree has a running session, When the header renders, Then the left running bar shows", () => {
-    renderHeader({ hasRunning: true });
+  it("Given the subtree has a running session, When the header renders, Then no left bar is drawn any more", () => {
+    renderHeader({ attentionTone: "running", attentionCount: 3 });
 
-    expect(screen.getByTestId("project-running-indicator")).toBeInTheDocument();
+    // 那根 3px 绿条撤了：它说的「子树里有东西在跑」，与同一行的计数记号完全重合，
+    // 而且 hover 时整行底色会被顶掉、只剩它——三个记号说同一件事的局面到此为止。
+    expect(screen.queryByTestId("project-running-indicator")).toBeNull();
   });
 
-  it("Given nothing in the subtree runs, When the header renders, Then no running bar shows", () => {
-    renderHeader({ hasRunning: false });
+  it("Given the subtree only has unread sessions, When the header renders, Then the count is amber rather than green", () => {
+    renderHeader({ attentionTone: "waiting", attentionCount: 3 });
 
-    expect(screen.queryByTestId("project-running-indicator")).toBeNull();
+    // 此前这里写死 text-status-running：3 条未读的项目显示绿色「3」，
+    // 而那三行自己画的是琥珀点，组头和它自己的行对不上。
+    const mark = screen.getByTestId("project-attention-mark");
+    expect(mark.className).toMatch(/text-status-waiting-text/);
+    expect(mark.className).not.toMatch(/text-status-running/);
+  });
+
+  it("Given a running subtree, When the header renders, Then the dot uses the saturated fill and the number the text role", () => {
+    renderHeader({ attentionTone: "running", attentionCount: 2 });
+
+    // 点是填充、数字是文字，两个角色分开取值——与会话行的「行首点 + 行尾短标签」
+    // 逐字同一套投影。饱和色当文字在亮色下只有 2.31:1。
+    const mark = screen.getByTestId("project-attention-mark");
+    expect(mark.className).toMatch(/text-status-running-text/);
+    expect(
+      mark.querySelector("[data-slot='project-attention-dot']")?.className,
+    ).toMatch(/bg-status-running/);
+  });
+
+  it("Given nothing needs attention, When the header renders, Then no mark is drawn", () => {
+    renderHeader({ attentionTone: null, attentionCount: 0 });
+
+    expect(screen.queryByTestId("project-attention-mark")).toBeNull();
   });
 });
 

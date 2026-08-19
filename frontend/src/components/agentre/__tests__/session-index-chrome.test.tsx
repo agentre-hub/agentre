@@ -103,6 +103,7 @@ describe("FreeGroupHeader", () => {
         expanded
         onToggle={vi.fn()}
         attentionCount={0}
+        attentionTone={null}
         onNewSession={onNewSession}
       />,
     );
@@ -120,6 +121,7 @@ describe("FreeGroupHeader", () => {
         expanded
         onToggle={vi.fn()}
         attentionCount={1}
+        attentionTone="waiting"
         onNewSession={vi.fn()}
       />,
     );
@@ -141,6 +143,24 @@ describe("FreeGroupHeader", () => {
     ).toBeNull();
   });
 
+  it("Given only unread quick chats, When the header renders, Then its mark is amber like the project header's, not a hardcoded green", () => {
+    // 两种组头上的同一枚记号必须同一套规则：一个说真话、另一个写死绿色，
+    // 会让「随手对话」这一组的颜色和它自己的行长期对不上。
+    render(
+      <FreeGroupHeader
+        expanded
+        onToggle={vi.fn()}
+        attentionCount={2}
+        attentionTone="waiting"
+        onNewSession={vi.fn()}
+      />,
+    );
+
+    const mark = screen.getByTestId("free-attention-mark");
+    expect(mark.className).toMatch(/text-status-waiting-text/);
+    expect(mark.className).not.toMatch(/text-status-running/);
+  });
+
   it("Given a collapsed header, When the row is clicked, Then it toggles", async () => {
     const user = setupUser();
     const onToggle = vi.fn();
@@ -149,6 +169,7 @@ describe("FreeGroupHeader", () => {
         expanded={false}
         onToggle={onToggle}
         attentionCount={0}
+        attentionTone={null}
         onNewSession={vi.fn()}
       />,
     );

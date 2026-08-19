@@ -124,6 +124,7 @@ const RESTING_SURFACES = [
 const FEEDBACK_SURFACES: Array<[string, string[]]> = [
   ["--accent", ["--card", "--background", "--popover", "--secondary"]],
   ["--rail-accent", ["--rail"]],
+  ["--sidebar-selected-bg", ["--sidebar"]],
 ];
 
 describe("交互反馈色与静止表面必须分开", () => {
@@ -159,6 +160,30 @@ describe("交互反馈色与静止表面必须分开", () => {
 });
 
 /**
+ * 选中面必须**压过** hover 面。
+ *
+ * 这条不是「可觉察」（FEEDBACK_MIN 已经管了），是「谁更强」：`--primary-soft` 当选中面时
+ * 对 --sidebar 只有 1.01，而 hover 的 --sidebar-active-bg 是 1.10——「我选中的」比
+ * 「鼠标碰巧停着的」更弱，读起来是反的。当时补救的办法是在行左边加一根 3px 竖条；
+ * 竖条撤掉之后，就只剩这条不变量兜着了。
+ */
+describe("选中面比 hover 面更强", () => {
+  it.each(THEMES)(
+    "%s（%s）下选中面对 --sidebar 的比值高于 hover 面",
+    (_scope, _label, get) => {
+      const t = get();
+      const selected = contrast(t["--sidebar-selected-bg"], t["--sidebar"]);
+      const hover = contrast(t["--sidebar-active-bg"], t["--sidebar"]);
+      expect(
+        selected,
+        `选中面 ${t["--sidebar-selected-bg"]} 对 sidebar 是 ${selected.toFixed(2)}，` +
+          `hover 面 ${t["--sidebar-active-bg"]} 是 ${hover.toFixed(2)}`,
+      ).toBeGreaterThan(hover);
+    },
+  );
+});
+
+/**
  * 文字色 → 它**实际落在**的表面。
  *
  * 和 FEEDBACK_SURFACES 同一个道理，教训也同一个：取值必须由**最暗的那个落点**
@@ -189,8 +214,16 @@ const TEXT_SURFACES: Array<[string, string[]]> = [
   ["--sidebar-foreground", ["--sidebar"]],
   ["--code-foreground", ["--code-surface"]],
   ["--code-muted-foreground", ["--code-surface"]],
-  ["--primary-text", ["--card", "--background", "--primary-soft"]],
+  [
+    "--primary-text",
+    ["--card", "--background", "--primary-soft", "--sidebar-selected-bg"],
+  ],
   ["--destructive-text", ["--destructive-soft", "--card"]],
+  // 「按时间」档的行是两行式，第二行是弱化文字；选中时它落在选中面上而不是 sidebar 上。
+  // 不能沿用 --muted-foreground：暗色下 #909399 在任何「强过 hover」的选中面上都够不到
+  // 4.5（可行窗口只剩对 sidebar 1.28~1.33 那一丝，落进去选中与 hover 就分不出了）。
+  // 与 --status-*-text 同一个道理：换了落脚的面，弱化文字就得换值。
+  ["--sidebar-selected-muted", ["--sidebar-selected-bg"]],
 ];
 
 describe("正文色对它落到的每个表面都达标", () => {

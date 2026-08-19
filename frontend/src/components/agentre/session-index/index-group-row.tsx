@@ -7,6 +7,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { SessionGroup } from "@agentre-ai/agentre-ui";
 
+import { strongestAttentionTone } from "@/lib/attention-display";
 import type { IndexAxis } from "@/lib/session-axis";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 
@@ -66,7 +67,6 @@ export type IndexGroupRowProps = {
   subtreeSessionIDs: readonly number[];
   project?: app.ProjectItem;
   agent?: ChatAgentItem;
-  hasRunning: boolean;
   allLocalPathsMissing: boolean;
   dragListeners?: Record<string, unknown>;
   /**
@@ -95,7 +95,6 @@ export function IndexGroupRow({
   subtreeSessionIDs,
   project,
   agent,
-  hasRunning,
   allLocalPathsMissing,
   dragListeners,
   projectInfoOf,
@@ -177,10 +176,19 @@ export function IndexGroupRow({
     () => subtree.attentionSessions.map(decorate),
     [subtree.attentionSessions, decorate],
   );
-  // 计数含后代 —— 折叠的父项目也要显示子项目里有几条在等你。
-  const attentionCount = subtree.attentionSessions.filter(
-    (s) => s.attentionRank !== "selected",
-  ).length;
+  // 计数与取色都含后代 —— 折叠的父项目也要显示子项目里有几条在等你、是哪一档。
+  // 两者同一个集合：数出来是 3 却按另一批行取色，就是此前「绿色的 3 下面全是琥珀点」
+  // 那种对不上。`selected` 不是需要关注的理由，只是个锚点，两边都排除它。
+  const attentionRows = React.useMemo(
+    () =>
+      subtree.attentionSessions.filter((s) => s.attentionRank !== "selected"),
+    [subtree.attentionSessions],
+  );
+  const attentionCount = attentionRows.length;
+  const attentionTone = React.useMemo(
+    () => strongestAttentionTone(attentionRows.map((s) => s.status)),
+    [attentionRows],
+  );
   // 「查看全部 N」只在真的还有没加载的会话时出现；筛选生效时不出现 —— 翻页拉回来的
   // 是未过滤的下一页，混进过滤后的列表只会让人以为筛选漏了。
   const overflow =
@@ -259,6 +267,7 @@ export function IndexGroupRow({
           expanded={expanded}
           onToggle={toggle}
           attentionCount={attentionCount}
+          attentionTone={attentionTone}
           // 随手对话的 `＋` 不带项目上下文：projectID 传 0，agent 由命令面板挑。
           onNewSession={() => handlers.onNewSession(0, 0)}
         />
@@ -272,7 +281,7 @@ export function IndexGroupRow({
           expanded={expanded}
           onToggle={toggle}
           attentionCount={attentionCount}
-          hasRunning={hasRunning}
+          attentionTone={attentionTone}
           allLocalPathsMissing={allLocalPathsMissing}
           dragListeners={dragListeners}
           onOpenSettings={handlers.onOpenSettings}

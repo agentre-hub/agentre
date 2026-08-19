@@ -105,12 +105,54 @@ describe("SessionRow navigation seam", () => {
       />,
     );
 
-    // 亮色下选中底 --primary-soft 落在侧栏上只有 1.01:1，比 hover 的 1.10 还弱 ——
-    // 「选中」比「鼠标停着」更弱，读起来是反的。颜色在这里撑不住，必须另有一个
-    // 非颜色线索（WCAG 1.4.1 Use of Color）。这里钉的是那条竖条的存在，
-    // 而不是它的颜色：改色可以，去掉不行。
-    expect(screen.getByRole("link", { name: /session-1/ }).className).toMatch(
-      /before:w-\[3px\]/,
+    // WCAG 1.4.1：选中不能只靠一种颜色成立。此前担这个责的是行左边一条 3px 竖条；
+    // 竖条撤掉后由三样共同承担，这里钉后两样（第一样是 --sidebar-selected-bg 与
+    // hover 面**反向**偏离静止面，由 tokens.test.ts 的「选中面比 hover 面更强」守）：
+    // 标题字重，以及 aria-current。
+    const link = screen.getByRole("link", { name: /session-1/ });
+    expect(link.getAttribute("aria-current")).toBe("true");
+    expect(screen.getByText("session-1").parentElement?.className).toMatch(
+      /font-medium/,
+    );
+  });
+
+  it("Given a selected row, When the pointer hovers it, Then the selected fill is not overridden by the generic hover fill", () => {
+    render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        trailingLabel="5m"
+        href="/s/1"
+        selected
+      />,
+    );
+
+    // 这条钉的是一个真实存在过的 bug：`hover:bg-sidebar-active-bg` 与 `bg-primary-soft`
+    // 同时挂在行上时，前者在编译产物里排在后面且多一个伪类，级联上必胜——鼠标一停，
+    // 选中底色整块消失，只剩那条竖条。竖条撤掉后这个洞会直接露出来，所以选中行
+    // **不再发出**那条通用 hover 类，而不是靠调色去压它。
+    const className = screen.getByRole("link", { name: /session-1/ }).className;
+    expect(className).toMatch(/bg-sidebar-selected-bg/);
+    expect(className).not.toMatch(/hover:bg-sidebar-active-bg/);
+    expect(className).not.toMatch(/before:w-\[3px\]/);
+  });
+
+  it("Given a selected two-line row, When it renders, Then the quiet second line uses the muted role of the selected surface", () => {
+    render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        trailingLabel="5m"
+        href="/s/1"
+        secondaryLabel="研究员 · 支付网关"
+        selected
+      />,
+    );
+
+    // --muted-foreground 是配 sidebar 调的，落到选中面上暗色只有 3.45。
+    // 换了脚下的面，弱化文字就得换值（同 --status-*-text 的理由）。
+    expect(screen.getByText("研究员 · 支付网关").className).toMatch(
+      /text-sidebar-selected-muted/,
     );
   });
 

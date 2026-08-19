@@ -497,13 +497,6 @@ export function SessionIndexPage() {
           group.kind === "project" ? projectByID.get(group.refID) : undefined
         }
         agent={group.kind === "agent" ? agentByID.get(group.refID) : undefined}
-        hasRunning={(group.kind === "project"
-          ? (subtreeSessionIDs.get(group.refID) ?? group.sessionIDs)
-          : group.sessionIDs
-        ).some((sid) => {
-          const r = reasonBySession.get(sid);
-          return r === "running" || r === "bg_running";
-        })}
         allLocalPathsMissing={allLocalPathsMissing}
         dragListeners={drag?.listeners}
         projectInfoOf={projectInfoOf}
@@ -519,7 +512,6 @@ export function SessionIndexPage() {
       visibleSessionIDs,
       projectByID,
       agentByID,
-      reasonBySession,
       allLocalPathsMissing,
       projectInfoOf,
       agentInfoOf,

@@ -79,7 +79,6 @@ function renderRow(over: Partial<Parameters<typeof IndexGroupRow>[0]> = {}) {
     visibleSessionIDs: null,
     subtreeSessionIDs: [] as number[],
     project: { id: 1, name: "Agentre" } as never,
-    hasRunning: false,
     allLocalPathsMissing: false,
     projectInfoOf: () => ({ name: "Agentre", color: "agent-3", icon: "" }),
     agentInfoOf: () => ({ name: "", color: "" }),
@@ -102,6 +101,36 @@ describe("IndexGroupRow regressions", () => {
     renderRow({ group: group({ sessionIDs: [1] }), subtreeSessionIDs: [1] });
 
     expect(screen.getByRole("button", { name: /s-1/ })).not.toBeDisabled();
+  });
+
+  it("Given a subtree whose strongest attention is an error, When the group header renders, Then the mark is red even though other sessions are running", () => {
+    // 组头的档位由子树里最强的一档决定，而不是「有没有在跑」——一条出错被三条在跑
+    // 盖成绿色，正是此前那根绿条与写死绿计数一起造成的读误。
+    seed(1, { projectId: 1, lastMessageAt: 100 }, { agentStatus: "running" });
+    seed(2, { projectId: 1, lastMessageAt: 90 }, { agentStatus: "running" });
+    seed(3, { projectId: 1, lastMessageAt: 80 }, { agentStatus: "error" });
+
+    renderRow({
+      group: group({ sessionIDs: [1, 2, 3] }),
+      subtreeSessionIDs: [1, 2, 3],
+    });
+
+    const mark = screen.getByTestId("project-attention-mark");
+    expect(mark.className).toMatch(/text-status-error/);
+    expect(mark.textContent).toContain("3");
+  });
+
+  it("Given a subtree that only has unread sessions, When the group header renders, Then the mark is amber, matching the rows below it", () => {
+    seed(1, { projectId: 1, lastMessageAt: 100 });
+
+    renderRow({
+      group: group({ sessionIDs: [1] }),
+      subtreeSessionIDs: [1],
+    });
+
+    expect(screen.getByTestId("project-attention-mark").className).toMatch(
+      /text-status-waiting-text/,
+    );
   });
 
   it("Given a session outside its agent's loaded window, When the row is decorated, Then the agent identity is resolved through the agents list, not through meta", () => {

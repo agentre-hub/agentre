@@ -43,9 +43,11 @@ import {
 import { cn } from "@/lib/utils";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 
+import type { AgentStatus } from "@/stores/types";
+
 import { AgentAvatar } from "../primitives";
 import { useRemoteDevices } from "../remote-devices/use-remote-devices";
-import type { AgentColor } from "../types";
+import { statusConfig, type AgentColor } from "../types";
 
 import { ProjectGlyph } from "./project-glyph";
 import * as WailsApp from "../../../../wailsjs/go/app/App";
@@ -66,8 +68,14 @@ export type ProjectGroupHeaderProps = {
   onToggle: () => void;
   /** 组头上的绿点计数（含子项目）。 */
   attentionCount: number;
-  /** 子树有 running → 品牌底色 + 左侧 3px 绿条。 */
-  hasRunning: boolean;
+  /**
+   * 组头那枚记号的档位：子树里最强的一档（`error > waiting > running`，
+   * 见 `strongestAttentionTone`）。`null` = 子树里没有需要关注的会话。
+   *
+   * **不是** `hasRunning` —— 计数统计的是全部 attention 条数，此前记号却写死绿色，
+   * 于是 3 条未读的项目显示绿色「3」，而那三行自己画的是琥珀点。
+   */
+  attentionTone: AgentStatus | null;
   /** 全部项目都缺本机路径时逐行角标撤掉，改由项目名变灰承担。 */
   allLocalPathsMissing: boolean;
   /** dnd-kit listeners；undefined = 当前不可拖。 */
@@ -91,7 +99,7 @@ export function ProjectGroupHeader({
   expanded,
   onToggle,
   attentionCount,
-  hasRunning,
+  attentionTone,
   allLocalPathsMissing,
   dragListeners,
   onOpenSettings,
@@ -117,18 +125,9 @@ export function ProjectGroupHeader({
             "group/proj flex items-center gap-1.5 rounded-md text-xs hover:bg-sidebar-active-bg",
             isSub ? "px-1.5 py-1" : "px-2 py-1.5",
             dragListeners && "cursor-grab active:cursor-grabbing",
-            // R2x 运行中品牌高亮：brand-soft 底色 + 左侧 running 竖条。
-            hasRunning && "bg-primary-soft relative",
           )}
           {...(dragListeners ?? {})}
         >
-          {hasRunning ? (
-            <span
-              data-testid="project-running-indicator"
-              aria-hidden="true"
-              className="absolute left-0 top-1/2 h-[60%] w-[3px] -translate-y-1/2 rounded-full bg-status-running"
-            />
-          ) : null}
           <button
             type="button"
             className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -177,16 +176,27 @@ export function ProjectGroupHeader({
             >
               {project.name}
             </span>
-            {attentionCount > 0 ? (
+            {attentionCount > 0 && attentionTone ? (
               <span
-                className="inline-flex items-center gap-1 font-mono text-2xs text-status-running"
+                data-testid="project-attention-mark"
+                className={cn(
+                  "inline-flex items-center gap-1 font-mono text-2xs",
+                  // 数字用状态的**文字**角色，不用饱和填充色：--status-running #10b981
+                  // 落在侧栏上只有 2.31:1。点用填充角色——与会话行的「行首点 + 行尾
+                  // 短标签」逐字同一套投影。
+                  statusConfig[attentionTone].textClassName,
+                )}
                 title={t("projects.session.activeCount", {
                   count: attentionCount,
                 })}
               >
                 <span
+                  data-slot="project-attention-dot"
                   aria-hidden="true"
-                  className="inline-block size-1.5 rounded-full bg-status-running"
+                  className={cn(
+                    "inline-block size-1.5 rounded-full",
+                    statusConfig[attentionTone].dotClassName,
+                  )}
                 />
                 {attentionCount}
               </span>

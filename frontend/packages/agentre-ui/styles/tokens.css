@@ -82,6 +82,21 @@
   --sidebar-accent: #f4f4f5;
   --sidebar-accent-foreground: #18181b;
   --sidebar-active-bg: #ffffff;
+  /* Selected row in the session index. Deliberately NOT --primary-soft: that one is
+     the brand INFO surface (rail active button, info toast), tuned to sit lightly on
+     a white card — landing on --sidebar it is 1.01, i.e. weaker than the 1.10 hover
+     right next to it, so "the row I picked" read fainter than "the row my cursor
+     happens to be over". This value goes the other way instead: hover lifts toward
+     white, selection sinks into a tint. 1.17 on --sidebar, 1.28 against the hover
+     fill. It cannot go darker while --muted-foreground stays #65656d — the time-axis
+     row's second line rides on this surface and needs 4.5 (it has 4.51 here).
+     Guarded by src/tokens.test.ts. */
+  --sidebar-selected-bg: #d7e5f3;
+  /* Muted text ON the selected fill (the time-axis row's two-line second line).
+     Same reason --status-*-text exists: change the surface underneath and the muted
+     role needs its own value. --muted-foreground #65656d only has 4.51 here, and in
+     dark it cannot work at all — see the .dark note. 4.94 on --sidebar-selected-bg. */
+  --sidebar-selected-muted: #5f5f67;
   --sidebar-border: #e4e4e7;
   --sidebar-icon: #71717a;
   --sidebar-icon-active: #3b6896;
@@ -240,6 +255,15 @@
   --sidebar-accent: #262931;
   --sidebar-accent-foreground: #e6e8eb;
   --sidebar-active-bg: #262931;
+  /* See :root. Dark has more room: 1.75 on --sidebar, 1.37 against the hover fill. */
+  --sidebar-selected-bg: #27405c;
+  /* Dark is where this token becomes unavoidable rather than merely tidy:
+     --muted-foreground #909399 clears 4.5 only on fills at or below luminance
+     0.0258, while beating the hover fill needs luminance above 0.0222 — a window
+     of "1.28-1.33 against --sidebar", i.e. a selected row indistinguishable from a
+     hovered one. Freeing the muted role frees the fill. 4.72 on the fill, and still
+     1.9x dimmer than --foreground, so it still reads as the quiet line. */
+  --sidebar-selected-muted: #a8adb7;
   --sidebar-border: #2a2d34;
   --sidebar-icon: #8a8d94;
   --sidebar-icon-active: #5b8dbf;
@@ -442,6 +466,8 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-active-bg: var(--sidebar-active-bg);
+  --color-sidebar-selected-bg: var(--sidebar-selected-bg);
+  --color-sidebar-selected-muted: var(--sidebar-selected-muted);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-icon: var(--sidebar-icon);
   --color-sidebar-icon-active: var(--sidebar-icon-active);

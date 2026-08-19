@@ -137,15 +137,19 @@ function SessionRow({
   const twoLine = Boolean(secondaryLabel);
 
   const rowClassName = cn(
-    "flex cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors hover:bg-sidebar-active-bg focus-visible:ring-[3px] focus-visible:ring-ring/50",
+    "flex cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
     twoLine ? "items-start" : "items-center",
     // 有行尾操作时行成为 flex 子项，宽度交给容器；否则照旧独占一行。
     rowActions ? "min-w-0 flex-1" : "w-full",
-    // 选中除了底色，还要有一条 primary 竖条：亮色下 --primary-soft 落在侧栏上只有
-    // 1.01:1，比 hover 的 1.10 还弱，光靠颜色「选中」会输给「鼠标停着」。
-    // 竖条压在行左侧的内边距里（px-2 = 8px，条宽 3px），不挤内容也不产生跳动。
-    selected &&
-      "relative bg-primary-soft text-primary-text before:absolute before:top-1 before:bottom-1 before:left-0 before:w-[3px] before:rounded-full before:bg-primary before:content-['']",
+    // hover 只发给**未选中**的行。同时挂两个类时 `hover:` 那个在编译产物里排在后面
+    // 且多一个伪类，级联上必胜 —— 鼠标一停，选中底色就整块被顶掉。已经落在的那一行
+    // 不需要再用底色告诉你「可以点」，所以是不发，而不是调色去压它。
+    !selected && "hover:bg-sidebar-active-bg",
+    // 选中面是自己的一档，不复用 --primary-soft（那是品牌信息面，落在侧栏上只有
+    // 1.01，比 hover 的 1.10 还弱）。--sidebar-selected-bg 与 hover **反向**偏离
+    // 静止面：hover 提亮、选中压深，灰度下也分得开——这就是竖条撤掉后仍然满足
+    // WCAG 1.4.1 的那一条非色相线索，另两条是标题字重与 aria-current。
+    selected && "bg-sidebar-selected-bg text-primary-text",
     className,
   );
 
@@ -159,7 +163,14 @@ function SessionRow({
       {overline}
       <span className="block truncate">{title}</span>
       {secondaryLabel ? (
-        <span className="mt-0.5 block truncate text-2xs text-muted-foreground">
+        <span
+          className={cn(
+            "mt-0.5 block truncate text-2xs",
+            // --muted-foreground 是配静止面调的；落到选中面上暗色只有 3.45。
+            // 换了脚下的面，弱化文字就得换值（同 --status-*-text 的理由）。
+            selected ? "text-sidebar-selected-muted" : "text-muted-foreground",
+          )}
+        >
           {secondaryLabel}
         </span>
       ) : null}
