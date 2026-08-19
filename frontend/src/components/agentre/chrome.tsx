@@ -102,7 +102,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.minimize")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground"
         onClick={() => runWindowAction(WindowMinimise)}
       >
         <Minus className="size-4" aria-hidden="true" />
@@ -110,7 +110,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.maximize")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground"
         onClick={() => runWindowAction(WindowToggleMaximise)}
       >
         <Square className="size-3.5" aria-hidden="true" />
@@ -212,7 +212,7 @@ function ThemeToggle({
       variant="ghost"
       size="icon"
       className={cn(
-        "wails-no-drag group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
+        "wails-no-drag group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
         className,
       )}
       aria-label={t("theme.toggle", {
@@ -377,7 +377,7 @@ function AppStatusBar({
               summary: attentionSummary,
             })}
             title={attentionSummary}
-            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 truncate">{attentionSummary}</span>

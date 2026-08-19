@@ -190,7 +190,7 @@ function SidebarButton({
       aria-describedby={describedBy}
       aria-label={label}
       className={cn(
-        "group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
+        "group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
         active &&
           "bg-primary-soft text-sidebar-icon-active shadow-xs hover:bg-primary-soft hover:text-sidebar-icon-active",
         className,

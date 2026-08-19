@@ -106,6 +106,24 @@ const RESTING_SURFACES = [
   "--secondary",
   "--muted",
   "--sidebar",
+  "--rail",
+];
+
+/**
+ * 反馈色 → 它**实际落在**的表面。
+ *
+ * 分成两条而不是「一个 accent 打天下」，是因为 `--rail`（外壳带：标题栏 / 图标栏 /
+ * 状态栏）比其它表面暗得多，亮色下是 #e4e4e7。任何在白卡片上够用的 hover 落到它
+ * 身上都会被吃掉：2026-08-19 把 --accent 从 #f4f4f5 调到 #e7e7ea 修好了 card /
+ * background，却正好把它挪到了 rail 跟前——rail 上的 hover 从 1.154 掉到 1.028。
+ * 当时这条守卫只列了 card 和 background，所以没拦住。
+ *
+ * 教训写在这里：**新增一个会被 hover 的表面时，必须同时把它加进这张表**，
+ * 否则那一层的反馈会静默失效——不报错、不崩、只是点上去没有任何变化。
+ */
+const FEEDBACK_SURFACES: Array<[string, string[]]> = [
+  ["--accent", ["--card", "--background", "--popover", "--secondary"]],
+  ["--rail-accent", ["--rail"]],
 ];
 
 describe("交互反馈色与静止表面必须分开", () => {
@@ -119,14 +137,21 @@ describe("交互反馈色与静止表面必须分开", () => {
     }
   });
 
-  it.each(THEMES)(
-    "%s(%s)下 --accent 对 card 与 background 都可觉察",
-    (_scope, _t, get) => {
+  it.each(
+    THEMES.flatMap(([scope, label, get]) =>
+      FEEDBACK_SURFACES.map(
+        ([token, surfaces]) => [scope, label, token, surfaces, get] as const,
+      ),
+    ),
+  )(
+    "%s(%s)下 %s 对它实际落到的每个表面都可觉察",
+    (_scope, _label, token, surfaces, get) => {
       const t = get();
-      for (const surface of ["--card", "--background"] as const) {
+      expect(t[token], `tokens.css 里没有 ${token}`).toBeDefined();
+      for (const surface of surfaces) {
         expect(
-          contrast(t["--accent"], t[surface]),
-          `--accent ${t["--accent"]} 落在 ${surface} ${t[surface]} 上`,
+          contrast(t[token], t[surface]),
+          `${token} ${t[token]} 落在 ${surface} ${t[surface]} 上`,
         ).toBeGreaterThanOrEqual(FEEDBACK_MIN);
       }
     },

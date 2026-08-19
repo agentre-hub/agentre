@@ -31,14 +31,22 @@
   --muted: #f4f4f5;
   --muted-foreground: #71717a;
   --subtle-foreground: #a1a1aa;
-  /* Interaction feedback (hover / selected fills) — deliberately NOT equal to any
-     resting surface. It used to be #f4f4f5, i.e. the same byte as --secondary,
-     --muted and --sidebar, so all 86 `hover:bg-accent` call sites rendered at
-     1.00:1 on those surfaces. Not #e4e4e7 either: that byte belongs to --border
-     and --rail, which would just move the collision. 1.23 on --card, 1.18 on
-     --background. Guarded by src/tokens.test.ts. */
-  --accent: #e7e7ea;
+  /* Interaction feedback (hover / selected fills) on the content surfaces —
+     deliberately NOT equal to any resting surface. It used to be #f4f4f5, i.e.
+     the same byte as --secondary, --muted and --sidebar, so all 86
+     `hover:bg-accent` call sites rendered at 1.00:1 on those surfaces.
+     1.32 on --card/--popover, 1.26 on --background, 1.20 on --secondary.
+     Hover on the window chrome bands uses --rail-accent instead: --rail is
+     #e4e4e7, far darker than any content surface, and one value cannot serve
+     both (a fill dark enough to read on white is invisible on the rail).
+     Guarded by src/tokens.test.ts. */
+  --accent: #e0e0e3;
   --accent-foreground: #18181b;
+  /* Hover / focus feedback on the window chrome bands (title bar, icon rail,
+     status bar — everything on --rail). Lighter rather than darker: the rail is
+     the recessed tier, so hovering lifts, matching --sidebar-active-bg. 1.19 on
+     --rail. */
+  --rail-accent: #f7f7f8;
 
   /* Border / Input */
   --border: #e4e4e7;
@@ -95,6 +103,10 @@
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
   --destructive-soft: #fef2f2;
+  /* Same split as --status-*-text: the saturated fill is unreadable AS TEXT on
+     its own soft wash (#dc2626 on #fef2f2 is 4.41). Use --destructive for fills,
+     dots and icon marks; use this one whenever red is the text itself. */
+  --destructive-text: #b91c1c;
 
   /* The initial glyph on a project / agent avatar. The fill underneath comes from
      the --agent-1…16 palette; the letter is white on every one of them, in both
@@ -133,6 +145,20 @@
   --agent-14: #ca8a04;
   --agent-15: #64748b;
   --agent-16: #9333ea;
+
+  /* Label tones — the two hues in the issue-label vocabulary that have no
+     semantic family to borrow from. The other eight tones reuse destructive /
+     primary / status / secondary; these two exist only to keep ten labels
+     apart. They are NOT the --agent-1…16 identity palette: that one is built for
+     `bg-agent-N` + white glyph, and half of it misses 4.5 as text on a card —
+     `text-agent-1` on a 10% tint was 4.49 light. Soft fill + text role, like
+     every sibling tone. The fills reproduce what agent-1/2 at 10% used to render
+     on a card, so the chips look unchanged but no longer shift with the surface
+     under them. Guarded by src/components/agentre/__tests__/issue-tones.test.ts. */
+  --tone-blue-bg: #e9effd;
+  --tone-blue-text: #1d4ed8;
+  --tone-violet-bg: #f2ebfd;
+  --tone-violet-text: #6d28d9;
 
   /* File identity — 8 semantic hues for Logo/glyph color in a transparent 17px
      alignment slot. Light uses saturated 500-600 shades for readable marks;
@@ -184,6 +210,8 @@
   --subtle-foreground: #5a5d64;
   --accent: #383d47;
   --accent-foreground: #e6e8eb;
+  /* 1.27 on the dark --rail #0a0b0d. */
+  --rail-accent: #212429;
 
   /* Border / Input */
   --border: #2a2d34;
@@ -225,6 +253,9 @@
   --destructive: #f87171;
   --destructive-foreground: #fafafa;
   --destructive-soft: #2a1414;
+  /* Dark already clears the bar on the soft wash (6.28), so the text role reuses
+     the fill value here. The split matters in light. */
+  --destructive-text: #f87171;
 
   /* Dark needs a heavier drop shadow to read as a layer, and a light hairline
      instead of a dark one. */
@@ -255,6 +286,12 @@
   --agent-14: #fde047;
   --agent-15: #94a3b8;
   --agent-16: #c084fc;
+
+  /* Label tones — see :root. Fills mirror the old agent-N/10 tint over --card. */
+  --tone-blue-bg: #242d3a;
+  --tone-blue-text: #60a5fa;
+  --tone-violet-bg: #2b2b3a;
+  --tone-violet-text: #a78bfa;
 
   /* File identity glyph colors — lighter 400 shades for dark surfaces
      (mirrors the agent palette light/dark split). */
@@ -323,9 +360,11 @@
   --color-subtle-foreground: var(--subtle-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-rail-accent: var(--rail-accent);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-text: var(--destructive-text);
   --color-code-surface: var(--code-surface);
   --color-code-foreground: var(--code-foreground);
   --color-code-muted-foreground: var(--code-muted-foreground);
@@ -352,6 +391,10 @@
   --color-agent-14: var(--agent-14);
   --color-agent-15: var(--agent-15);
   --color-agent-16: var(--agent-16);
+  --color-tone-blue-bg: var(--tone-blue-bg);
+  --color-tone-blue-text: var(--tone-blue-text);
+  --color-tone-violet-bg: var(--tone-violet-bg);
+  --color-tone-violet-text: var(--tone-violet-text);
   --color-file-blue: var(--file-blue);
   --color-file-yellow: var(--file-yellow);
   --color-file-cyan: var(--file-cyan);

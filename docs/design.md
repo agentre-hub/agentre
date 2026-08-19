@@ -104,7 +104,8 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | `secondary` | `#f4f4f5` | `#262931` | Secondary buttons / fills; the tab-strip band |
 | `secondary-foreground` | `#3f3f46` | `#c4c7cd` | Text on secondary |
 | `muted` | `#f4f4f5` | `#1d2025` | Muted background (group fills, placeholders) |
-| `accent` | `#e7e7ea` | `#383d47` | **Interaction feedback** — hover / selected fills (menu items, table rows). Deliberately not equal to any resting surface: it used to be `#f4f4f5`, the same byte as `secondary` / `muted` / `sidebar`, so all 86 `hover:bg-accent` sites rendered at 1.00:1 on those surfaces. Not `#e4e4e7` either — that byte belongs to `border`/`rail`. Guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
+| `accent` | `#e0e0e3` | `#383d47` | **交互反馈** —— 内容表面上的 hover / 选中填充。刻意不等于任何静止表面：曾经是 `#f4f4f5`，与 `secondary`/`muted`/`sidebar` 同字节，86 处 `hover:bg-accent` 在那些面上渲染成 1.00:1。实测 card/popover 1.32、background 1.26、secondary 1.20。**外壳带上的 hover 用 `rail-accent`，不要用它** |
+| `rail-accent` | `#f7f7f8` | `#212429` | 窗口外壳带（标题栏 / 图标栏 / 状态栏，即所有 `bg-rail` 之上）的 hover / focus 反馈。`rail` 亮色是 `#e4e4e7`，比任何内容表面都暗得多，**一个值无法同时服务两边**：在白卡片上够深的填充落到 rail 上会被吃掉（2026-08-19 就这么把 rail 的 hover 压到过 1.028）。rail 是下沉的一层，所以 hover 是提亮而非压暗，与 `sidebar-active-bg` 一致。实测 rail 上 1.19 / 1.27 |
 | `accent-foreground` | `#18181b` | `#e6e8eb` | Text on accent |
 
 ### 3.4 Borders, inputs, ring
@@ -187,6 +188,19 @@ The file-type icon uses a transparent 17px alignment slot containing a directly 
 
 Use `text-file-<tone>` (exposed via `--color-file-*` in the `@theme inline` block); never write the hex directly. The slot has no background, border, radius, shadow or padding, and selected/hover backgrounds belong to the containing row or tab. High-recognition languages use the installed Tabler Brand Logo where available; formats use their file-type glyph. Directory rows remain separate and keep neutral `Folder` / `FolderOpen` plus Chevron icons. The icon itself is decorative (`aria-hidden`) — file names, Git status and actions keep carrying the semantics.
 
+### 3.6b Issue label tones (2 extra hues)
+
+The ten issue-label chips in [`components/agentre/issue-tones.ts`](../frontend/src/components/agentre/issue-tones.ts) are all "soft fill + a text color readable on that fill". Eight of them borrow an existing semantic family — `destructive-soft`/`destructive-text` (bug), `destructive` (critical), `secondary`/`secondary-foreground` (docs, ops), `status-running-*` (feature), `status-waiting-*` (perf), `primary-soft`/`primary-text` (hook, refactor). Two hues have no semantic home; they exist only to keep ten labels apart, so they get their own pair here.
+
+| Token / class | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `tone-blue-bg` | `#e9effd` | `#242d3a` | Soft blue chip fill (`auth`) |
+| `tone-blue-text` | `#1d4ed8` | `#60a5fa` | Text on `tone-blue-bg` |
+| `tone-violet-bg` | `#f2ebfd` | `#2b2b3a` | Soft violet chip fill (`ui`) |
+| `tone-violet-text` | `#6d28d9` | `#a78bfa` | Text on `tone-violet-bg` |
+
+**Do not reach into the agent palette for this.** These two used to be `bg-agent-1/10 text-agent-1` / `bg-agent-2/10 text-agent-2`, which broke twice over: the `--agent-*` hues are *identity* built for `bg-agent-N` + a white glyph (§3.6) — as text on a card, half the sixteen miss 4.5 — and a `/10` tint is transparent, so the chip's real fill (and its contrast) shifted with whatever surface it landed on: `auth` measured 4.49 on `card`, 4.33 on `background`, 4.06 on a hovered list row. The fills above are the opaque equivalent of what the old tint rendered on a card, so the chips look the same but no longer depend on what is underneath. Guarded by [`components/agentre/__tests__/issue-tones.test.ts`](../frontend/src/components/agentre/__tests__/issue-tones.test.ts), which reads the classes back out of `issue-tones.ts`, resolves them through `tokens.css`, and asserts ≥ 4.5 for every tone on every surface, both themes.
+
 ### 3.7 Sidebar
 
 A dedicated family so the navigation rail and context sidebars theme independently of the page surfaces.
@@ -235,6 +249,7 @@ Don't restyle scrollbars per-container; the global rules in [`globals.css`](../f
 | `destructive` | `#dc2626` | `#f87171` | Dangerous / delete / error actions |
 | `destructive-foreground` | `#ffffff` | `#fafafa` | Text on solid destructive |
 | `destructive-soft` | `#fef2f2` | `#2a1414` | Soft red wash — error cards, error toasts, the `error` status pill |
+| `destructive-text` | `#b91c1c` | `#f87171` | **Red rendered as text** on `destructive-soft` / a card. The same fill-vs-text split as `status-*-text`: `destructive` on its own wash is only 4.41 in light. Keep `destructive` for fills, dots and icon marks; reach for this one whenever the red *is* the text. Dark already clears the bar on the wash (6.28), so it reuses the fill value |
 
 ### 3.11a Code / console surface
 

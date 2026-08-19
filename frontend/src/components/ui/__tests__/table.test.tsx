@@ -61,15 +61,37 @@ function rowClasses(): string[] {
 }
 
 /**
- * 从 `hover:bg-muted/50`、`data-[state=selected]:bg-muted` 这样的类名里取出底色 token。
- * 带 `/50` 透明度的也要能认出来——透明度只改浓淡，撞色与否看的是那个 token。
+ * 从 `hover:bg-accent/60`、`data-[state=selected]:bg-accent` 这样的类名里取出
+ * 底色 token **和它的透明度**。
+ *
+ * 透明度必须一起取回来：`bg-accent/60` 渲染出来的不是 `--accent`，是 `--accent`
+ * 按 60% 混到宿主表面上的结果，比实色弱得多。第一版守卫把 `/N` 直接丢掉、
+ * 拿实色去算，于是报出 1.234 而实际渲染只有 1.108 —— 一条**放过了自己门槛**的
+ * 守卫，比没有守卫更糟，因为它让人以为查过了。
  */
-function bgTokenFor(prefix: string): string | undefined {
+function bgFillFor(prefix: string): { token: string; alpha: number } | null {
   const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`^${escaped}bg-([a-z-]+)(?:/\\d+)?$`);
-  return rowClasses()
-    .map((c) => re.exec(c)?.[1])
-    .find(Boolean);
+  const re = new RegExp(`^${escaped}bg-([a-z-]+)(?:/(\\d+))?$`);
+  for (const cls of rowClasses()) {
+    const m = re.exec(cls);
+    if (m) return { token: m[1], alpha: m[2] ? Number(m[2]) / 100 : 1 };
+  }
+  return null;
+}
+
+/** 把半透明前景按 alpha 混到底色上，得到实际渲染出的颜色。 */
+function composite(fg: string, bg: string, alpha: number): string {
+  const ch = (hex: string, i: number) => parseInt(hex.slice(i, i + 2), 16);
+  return (
+    "#" +
+    [1, 3, 5]
+      .map((i) =>
+        Math.round(ch(fg, i) * alpha + ch(bg, i) * (1 - alpha))
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")
+  );
 }
 
 describe("TableRow 的 hover / 选中反馈", () => {
@@ -77,27 +99,43 @@ describe("TableRow 的 hover / 选中反馈", () => {
     ["hover:", "hover"],
     ["data-[state=selected]:", "选中"],
   ])("%s 用的底色 token 不是静止表面 muted", (prefix, _label) => {
-    const token = bgTokenFor(prefix);
+    const fill = bgFillFor(prefix);
 
-    expect(token, `没找到 ${prefix}bg-* 类`).toBeDefined();
+    expect(fill, `没找到 ${prefix}bg-* 类`).not.toBeNull();
     // --muted 在暗色下与 --card 同值，而表格就放在卡片里。
-    expect(token).not.toBe("muted");
+    expect(fill?.token).not.toBe("muted");
   });
 
   it.each([
     [":root" as const, "亮色"],
     [".dark" as const, "暗色"],
-  ])("%s(%s)下 hover 与选中底色对 card 都可觉察", (scope, _theme) => {
-    const tokens = readTokens(scope);
+  ])(
+    "%s(%s)下 hover 与选中**实际渲染出的**底色对 card 都可觉察",
+    (scope, _theme) => {
+      const tokens = readTokens(scope);
 
-    for (const prefix of ["hover:", "data-[state=selected]:"]) {
-      const token = bgTokenFor(prefix) as string;
-      const color = tokens[token];
-      expect(color, `tokens.css 里没有 --${token}`).toBeDefined();
-      expect(
-        contrast(color, tokens.card),
-        `${prefix}bg-${token} (${color}) 落在 --card ${tokens.card} 上`,
-      ).toBeGreaterThanOrEqual(FEEDBACK_MIN);
-    }
+      for (const prefix of ["hover:", "data-[state=selected]:"]) {
+        const fill = bgFillFor(prefix)!;
+        const color = tokens[fill.token];
+        expect(color, `tokens.css 里没有 --${fill.token}`).toBeDefined();
+
+        const rendered = composite(color, tokens.card, fill.alpha);
+        expect(
+          contrast(rendered, tokens.card),
+          `${prefix}bg-${fill.token}${fill.alpha < 1 ? `/${fill.alpha * 100}` : ""}` +
+            ` 在 --card ${tokens.card} 上实际渲染成 ${rendered}`,
+        ).toBeGreaterThanOrEqual(FEEDBACK_MIN);
+      }
+    },
+  );
+
+  it("hover 比选中弱，两者可区分", () => {
+    // 同一个 token 承担两种状态，只靠 alpha 分开。若哪天有人把 hover 也调成实色，
+    // 「停在这一行」和「选中了这一行」就会长得一模一样。
+    const hover = bgFillFor("hover:")!;
+    const selected = bgFillFor("data-[state=selected]:")!;
+
+    expect(hover.token).toBe(selected.token);
+    expect(hover.alpha).toBeLessThan(selected.alpha);
   });
 });
