@@ -298,9 +298,12 @@ describe("update-store 下载与进度", () => {
 });
 
 describe("update-store 跳过版本", () => {
-  it("Given 有新版本, When 跳过, Then 持久化版本号且状态栏陈述不变", async () => {
+  it("Given 有新版本, When 跳过, Then 持久化版本号、状态栏陈述不变、面板关闭", async () => {
     const app = installBindings();
-    useUpdateStore.setState({ phase: { kind: "available", info: INFO } });
+    useUpdateStore.setState({
+      phase: { kind: "available", info: INFO },
+      panelOpen: true,
+    });
 
     await useUpdateStore.getState().skipCurrentVersion();
 
@@ -311,6 +314,8 @@ describe("update-store 跳过版本", () => {
       kind: "available",
       info: INFO,
     });
+    // 面板是瞬态交互面：跳过即关闭；胶囊仍在，只压制通告与红点。
+    expect(useUpdateStore.getState().panelOpen).toBe(false);
   });
 
   it("Given 该版本已被跳过, When 求「待通告版本」, Then 为空但「有未跳过的更新」也为空", async () => {

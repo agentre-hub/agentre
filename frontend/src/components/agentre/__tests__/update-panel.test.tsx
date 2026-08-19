@@ -77,7 +77,11 @@ describe("更新面板 · 有新版本", () => {
     );
   });
 
-  it("Given 面板打开, When 点跳过此版本, Then 胶囊陈述不变、只压制通告", async () => {
+  it("Given 面板打开, When 点跳过此版本, Then 胶囊陈述不变、只压制通告、面板关闭", async () => {
+    useUpdateStore.setState({
+      phase: { kind: "available", info: INFO },
+      panelOpen: true,
+    });
     render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Skip/i }));
@@ -89,11 +93,16 @@ describe("更新面板 · 有新版本", () => {
       kind: "available",
       info: INFO,
     });
+    expect(useUpdateStore.getState().panelOpen).toBe(false);
   });
 
-  it("Given 持久化失败, When 点跳过此版本, Then 不谎称已跳过", async () => {
+  it("Given 持久化失败, When 点跳过此版本, Then 不谎称已跳过且面板不关闭", async () => {
     installBindings({
       UpdateAppSettings: vi.fn(() => Promise.reject(new Error("db closed"))),
+    });
+    useUpdateStore.setState({
+      phase: { kind: "available", info: INFO },
+      panelOpen: true,
     });
     render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
@@ -101,6 +110,7 @@ describe("更新面板 · 有新版本", () => {
 
     await waitFor(() => expect(useUpdateStore.getState().phase).toBeTruthy());
     expect(useUpdateStore.getState().skippedVersion).toBe("");
+    expect(useUpdateStore.getState().panelOpen).toBe(true);
   });
 
   it("Given 面板打开, When 点发布页, Then 用外部浏览器打开", async () => {

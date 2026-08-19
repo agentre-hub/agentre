@@ -271,7 +271,8 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       return;
     }
     // 只压制通告与红点：phase 不动，胶囊继续陈述「有 v0.9.2 可用」。
-    set({ skippedVersion: version });
+    // 面板是瞬态交互面：跳过即完成交互，随手关掉；胶囊仍保留事实陈述。
+    set({ skippedVersion: version, panelOpen: false });
   },
 
   restart: async () => {
