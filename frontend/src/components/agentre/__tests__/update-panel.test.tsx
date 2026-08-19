@@ -198,13 +198,15 @@ describe("更新面板 · 其余四态", () => {
     expect(container.querySelector("button[aria-label*='opy']")).toBeNull();
   });
 
-  it("Given 任一终态, When 点打开更新设置, Then 通知宿主走深链", () => {
+  it("Given 任一终态, When 点打开更新设置, Then 通知宿主走深链并收起面板", () => {
     const onOpenSettings = vi.fn();
-    useUpdateStore.setState({ phase: { kind: "uptodate" } });
+    useUpdateStore.setState({ phase: { kind: "uptodate" }, panelOpen: true });
 
     render(<UpdatePanel version="v0.9.1" onOpenSettings={onOpenSettings} />);
     fireEvent.click(screen.getByRole("button", { name: /update settings/i }));
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    // 深链只是换路由,状态栏不重挂:面板不自己收起来就会一直浮在设置页上面。
+    expect(useUpdateStore.getState().panelOpen).toBe(false);
   });
 });

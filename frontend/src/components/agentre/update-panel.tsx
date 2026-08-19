@@ -129,8 +129,18 @@ export function UpdatePanel({
   const unknownTime = t("update.release.unknownTime");
   const channelLabel = t(CHANNEL_LABEL[channel]);
 
+  // 深链只是换路由，状态栏（以及挂在它上面的这层浮层）不会重挂，面板得跟「稍后」
+  // 一样自己收起来，否则它会一直浮在刚打开的设置页上面。
   const settingsButton = (
-    <Button type="button" variant="ghost" size="sm" onClick={onOpenSettings}>
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={() => {
+        setPanelOpen(false);
+        onOpenSettings();
+      }}
+    >
       <Settings aria-hidden="true" className="size-3.5" />
       {t("update.panel.openSettings")}
     </Button>

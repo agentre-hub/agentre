@@ -1,7 +1,7 @@
 import * as React from "react";
 import { create } from "zustand";
 
-import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
+import { EventsOn } from "../../wailsjs/runtime/runtime";
 import {
   CHECKSUM_FETCH_ERROR_PREFIX,
   checkForUpdate,
@@ -144,17 +144,23 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   ...INITIAL_UPDATE_STATE,
 
   init: async () => {
-    EventsOn("update:checked", (outcome: UpdateCheckOutcome) => {
-      const next = resultToPhase(outcome.info ?? null, outcome.error ?? "");
-      if (next === null) return;
-      set((s) => ({
-        lastCheckedAt: Date.now(),
-        lastTrigger: (outcome.trigger as CheckTrigger) ?? null,
-        phase: acceptsCheckResult(s.phase) ? next : s.phase,
-      }));
-    });
+    // 用 EventsOn 返回的取消函数，不用按事件名一刀切的 EventsOff：解绑要跨一个
+    // await 才交得出去，StrictMode / 热更新的「挂载→卸载→再挂载」是同步连着跑的，
+    // 迟到的解绑会落在下一次订阅之后，一刀切就把还在用的那份也清了。
+    const offChecked = EventsOn(
+      "update:checked",
+      (outcome: UpdateCheckOutcome) => {
+        const next = resultToPhase(outcome.info ?? null, outcome.error ?? "");
+        if (next === null) return;
+        set((s) => ({
+          lastCheckedAt: Date.now(),
+          lastTrigger: (outcome.trigger as CheckTrigger) ?? null,
+          phase: acceptsCheckResult(s.phase) ? next : s.phase,
+        }));
+      },
+    );
 
-    EventsOn(
+    const offProgress = EventsOn(
       "update:progress",
       (p: { downloaded?: number; total?: number }) => {
         if (!p || !p.total || p.total <= 0) return;
@@ -180,8 +186,8 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     set({ skippedVersion: await getSkippedUpdateVersion() });
 
     return () => {
-      EventsOff("update:checked");
-      EventsOff("update:progress");
+      offChecked();
+      offProgress();
     };
   },
 
@@ -197,11 +203,14 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
           ? await checkForUpdate()
           : await maybeCheckForUpdate();
       const next = resultToPhase(info, "");
-      set({
-        lastTrigger: trigger,
-        lastCheckedAt: next === null ? get().lastCheckedAt : Date.now(),
-        phase: next ?? phase,
-      });
+      if (next === null) {
+        // 被节流跳过：什么都没查，也就没有「最近一次结果」。只把阶段退回原样，
+        // 触发源与检查时刻一概不动 —— 改写它们会让用户刚在设置页亲手查出来的
+        // 更新，因为切了一下窗口就被当成后台发现的而弹一张到达提示。
+        set({ phase });
+        return;
+      }
+      set({ lastTrigger: trigger, lastCheckedAt: Date.now(), phase: next });
     } catch (err) {
       set({
         lastTrigger: trigger,

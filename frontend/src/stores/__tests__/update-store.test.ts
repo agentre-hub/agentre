@@ -1,10 +1,32 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const runtimeMocks = vi.hoisted(() => ({
-  EventsOff: vi.fn(),
-  EventsOn: vi.fn(),
-}));
+// 这套桩照抄真实 wails runtime 的两条语义，别把它简化成空 no-op：
+// EventsOn 返回「只摘掉这一个监听器」的取消函数，EventsOff 按事件名一次清掉
+// 该名下**全部**监听器。差别正是重复挂载会不会把订阅清空的分界线。
+const runtimeMocks = vi.hoisted(() => {
+  const listeners = new Map<string, Set<(payload: never) => void>>();
+  return {
+    listeners,
+    EventsOn: vi.fn((name: string, cb: (payload: never) => void) => {
+      let set = listeners.get(name);
+      if (!set) {
+        set = new Set();
+        listeners.set(name, set);
+      }
+      set.add(cb);
+      return () => set?.delete(cb);
+    }),
+    EventsOff: vi.fn((...names: string[]) => {
+      for (const name of names) listeners.delete(name);
+    }),
+  };
+});
+
+function liveListeners(name: string): number {
+  return runtimeMocks.listeners.get(name)?.size ?? 0;
+}
 
 vi.mock("../../../wailsjs/runtime/runtime", () => runtimeMocks);
 
@@ -47,28 +69,25 @@ function installBindings(overrides?: AppMock): AppMock {
   return app;
 }
 
-// emitChecked 取出 init() 注册的 "update:checked" 处理器并投一条后台检查结果进去。
+// emit 把一条事件投给当下**还活着**的监听器 —— 而不是 EventsOn 的调用记录：
+// 后者连已经解绑的那一份也会被翻出来，测不出订阅有没有被清掉。
+function emit(name: string, payload: unknown) {
+  const set = runtimeMocks.listeners.get(name);
+  if (!set || set.size === 0) throw new Error(`${name} 未被订阅`);
+  for (const cb of [...set]) (cb as (p: unknown) => void)(payload);
+}
+
 function emitChecked(outcome: UpdateCheckOutcome) {
-  const entry = runtimeMocks.EventsOn.mock.calls.find(
-    (c) => c[0] === "update:checked",
-  );
-  if (!entry) throw new Error("update:checked 未被订阅");
-  (entry[1] as (o: UpdateCheckOutcome) => void)(outcome);
+  emit("update:checked", outcome);
 }
 
 function emitProgress(downloaded: number, total: number) {
-  const entry = runtimeMocks.EventsOn.mock.calls.find(
-    (c) => c[0] === "update:progress",
-  );
-  if (!entry) throw new Error("update:progress 未被订阅");
-  (entry[1] as (p: { downloaded: number; total: number }) => void)({
-    downloaded,
-    total,
-  });
+  emit("update:progress", { downloaded, total });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  runtimeMocks.listeners.clear();
   useUpdateStore.setState({ ...INITIAL_UPDATE_STATE });
   installBindings();
 });
@@ -139,8 +158,8 @@ describe("update-store 后台检查结果的接收", () => {
 
     dispose();
 
-    expect(runtimeMocks.EventsOff).toHaveBeenCalledWith("update:checked");
-    expect(runtimeMocks.EventsOff).toHaveBeenCalledWith("update:progress");
+    expect(liveListeners("update:checked")).toBe(0);
+    expect(liveListeners("update:progress")).toBe(0);
   });
 });
 
@@ -193,6 +212,21 @@ describe("update-store 主动检查", () => {
       kind: "error",
       message: "网络不通",
     });
+  });
+
+  it("Given 用户自己查出了新版本, When 回窗补检被节流跳过, Then 不改判成「后台发现的」", async () => {
+    // 什么都没查的一次补检不产生「最近一次结果」。若它照样把触发源改写成 focus,
+    // 用户刚在设置页亲手查出来的更新会因为切了一下窗口就弹一张到达提示。
+    installBindings({
+      MaybeCheckForUpdate: vi.fn(() => Promise.resolve(null)),
+    });
+    await useUpdateStore.getState().check("manual");
+    expect(pendingAnnouncement(useUpdateStore.getState())).toBeNull();
+
+    await useUpdateStore.getState().check("focus");
+
+    expect(useUpdateStore.getState().lastTrigger).toBe("manual");
+    expect(pendingAnnouncement(useUpdateStore.getState())).toBeNull();
   });
 
   it("Given 正在检查, When 再次触发, Then 不重复发起", async () => {
@@ -340,6 +374,33 @@ describe("useUpdateWatch 回窗补检", () => {
     );
     // 回窗不该绕过节流 —— 频繁切窗口不能变成对 GitHub 的高频请求。
     expect(app.CheckForUpdate).not.toHaveBeenCalled();
+  });
+
+  it("Given StrictMode 把 effect 挂了两遍, When 第一次的解绑姗姗来迟, Then 订阅仍然活着", async () => {
+    // init() 要跨一个 await 才交出解绑函数，而 StrictMode 的「挂载→卸载→再挂载」
+    // 是同一批同步跑完的：第一次的解绑因此落在第二次订阅**之后**。它若按事件名
+    // 一刀切，就会连第二次的订阅一起清掉 —— 开发态下更新胶囊从此收不到任何后台
+    // 检查结果。
+    const resolvers: Array<(v: { value: string }) => void> = [];
+    installBindings({
+      GetAppSetting: vi.fn(
+        () => new Promise<{ value: string }>((res) => resolvers.push(res)),
+      ),
+    });
+
+    renderHook(() => useUpdateWatch(), { wrapper: StrictMode });
+
+    expect(resolvers).toHaveLength(2); // 前提：StrictMode 确实挂了两遍
+    await act(async () => {
+      resolvers.forEach((res) => res({ value: "" }));
+    });
+
+    await waitFor(() => expect(liveListeners("update:checked")).toBe(1));
+    emitChecked({ trigger: "tick", info: INFO, error: "" });
+    expect(useUpdateStore.getState().phase).toEqual({
+      kind: "available",
+      info: INFO,
+    });
   });
 
   it("Given 已卸载, When 窗口获得焦点, Then 不再补查", async () => {
