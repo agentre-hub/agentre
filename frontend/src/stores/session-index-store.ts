@@ -144,11 +144,58 @@ function clampLimit(limit: number): number {
   return Math.min(limit, INDEX_MAX_LIMIT);
 }
 
+/** id 顺序是否一致。变了才值得换 ids 数组的引用。 */
+function sameIDs(a: readonly number[], b: readonly number[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 export const useSessionIndexStore = create<State & Actions>((set, get) => {
   function patchPage(key: string, patch: Partial<IndexPage>): void {
     set((state) => {
       const pages = new Map(state.pages);
       pages.set(key, { ...(pages.get(key) ?? emptyPage), ...patch });
+      return { pages };
+    });
+  }
+
+  /**
+   * 落一页结果。内容与缓存里那份完全一致时**原样返回 state** —— 不换 pages Map,
+   * 订阅它的 useIndexGroups 就不会重算所有组和所有行。
+   *
+   * 为什么值得: reloadLoaded 每轮对话被调两次(起手 / 落定), 而绝大多数轮次这些 scope
+   * 一条都没变。
+   */
+  function commitPage(
+    key: string,
+    next: { ids: number[]; total: number; hasMore: boolean },
+  ): void {
+    set((state) => {
+      const prev = state.pages.get(key);
+      const idsUnchanged = !!prev && sameIDs(prev.ids, next.ids);
+      if (
+        prev &&
+        idsUnchanged &&
+        prev.total === next.total &&
+        prev.hasMore === next.hasMore &&
+        !prev.loading &&
+        prev.error === null
+      ) {
+        return state;
+      }
+      const pages = new Map(state.pages);
+      pages.set(key, {
+        ...(prev ?? emptyPage),
+        ...next,
+        // 只有 total/hasMore 变化时保住 ids 的引用, 让 useGroupRows 那层的 memo 也不动。
+        ids: idsUnchanged ? prev.ids : next.ids,
+        loading: false,
+        error: null,
+      });
       return { pages };
     });
   }
@@ -163,7 +210,10 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
     const existing = inflight.get(key);
     if (existing) return existing;
 
-    patchPage(key, { loading: true, error: null });
+    // loading 的语义是「这一格首屏还没数据」, 不是「有个请求在飞」: 已经有页缓存时
+    // (重拉 / 翻页都走这条)不再翻它 —— 换 pages Map 会让 useIndexGroups 重算全部组和行,
+    // 而这个字段目前没有任何渲染处在读。
+    if (!get().pages.has(key)) patchPage(key, { loading: true, error: null });
     const run = (async () => {
       try {
         const resp = await ListChatIndexSessions({
@@ -182,12 +232,10 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
         const seen = new Set(prev);
         const ids = [...prev, ...incoming.filter((id) => !seen.has(id))];
 
-        patchPage(key, {
+        commitPage(key, {
           ids,
           total: resp?.total ?? ids.length,
           hasMore: resp?.hasMore ?? false,
-          loading: false,
-          error: null,
         });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);

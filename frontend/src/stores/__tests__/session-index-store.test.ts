@@ -232,6 +232,68 @@ describe("session-index-store", () => {
     expect(listIndex).toHaveBeenCalledTimes(2);
   });
 
+  // ── 刷新不churn ────────────────────────────────────────────────────────────
+  // reloadLoaded 每轮对话被调两次(起手 / 落定)。pages 换新 Map 就等于让订阅它的
+  // useIndexGroups 重算所有组、所有行 —— 而绝大多数轮次这些 scope 一条都没变。
+
+  it("Given a loaded scope, When it is refetched with the same rows, Then the pages map is left untouched so the sidebar does not re-render", async () => {
+    listIndex.mockResolvedValue({
+      sessions: [lite(2), lite(1)],
+      total: 2,
+      hasMore: false,
+    });
+    await useSessionIndexStore.getState().loadFirstPage(recentScope());
+    const pages = useSessionIndexStore.getState().pages;
+
+    await useSessionIndexStore.getState().reloadLoaded();
+
+    expect(useSessionIndexStore.getState().pages).toBe(pages);
+  });
+
+  it("Given a loaded scope, When the refetched rows actually differ, Then the new order lands", async () => {
+    listIndex.mockResolvedValueOnce({
+      sessions: [lite(2), lite(1)],
+      total: 2,
+      hasMore: false,
+    });
+    await useSessionIndexStore.getState().loadFirstPage(recentScope());
+
+    listIndex.mockResolvedValueOnce({
+      sessions: [lite(1), lite(2)],
+      total: 2,
+      hasMore: false,
+    });
+    await useSessionIndexStore.getState().reloadLoaded();
+
+    expect(useSessionIndexStore.getState().pages.get("recent")?.ids).toEqual([
+      1, 2,
+    ]);
+  });
+
+  it("Given a loaded scope, When it is being refetched, Then loading is not flipped back to true", async () => {
+    listIndex.mockResolvedValueOnce({
+      sessions: [lite(1)],
+      total: 1,
+      hasMore: false,
+    });
+    await useSessionIndexStore.getState().loadFirstPage(recentScope());
+
+    let resolveFn: ((v: unknown) => void) | null = null;
+    listIndex.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveFn = res;
+      }),
+    );
+    const p = useSessionIndexStore.getState().reloadLoaded();
+
+    expect(useSessionIndexStore.getState().pages.get("recent")?.loading).toBe(
+      false,
+    );
+
+    resolveFn!({ sessions: [lite(1)], total: 1, hasMore: false });
+    await p;
+  });
+
   it("Given scopes that were loaded, When the sidebar refreshes, Then only those are refetched and untouched scopes stay silent", async () => {
     listIndex.mockResolvedValue({ sessions: [], total: 0, hasMore: false });
     await useSessionIndexStore.getState().loadFirstPage(projectScope(7));

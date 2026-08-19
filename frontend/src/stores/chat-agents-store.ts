@@ -14,6 +14,8 @@
 
 import { create } from "zustand";
 
+import { samePayload } from "@/lib/same-payload";
+
 import { ListChatAgents } from "../../wailsjs/go/app/App";
 import type { chat_svc } from "../../wailsjs/go/models";
 
@@ -95,7 +97,10 @@ export const useChatAgentsStore = create<State & Actions>((set) => ({
   error: null,
   reload: () => {
     if (inflight) return inflight;
-    set({ loading: true, error: null });
+    // 这里刻意不写 loading=true。loading 的语义是「首屏还没拉过, 别把空 agents 当成
+    // 最终态」(初值就是 true), 不是「有个请求在飞」—— 侧栏每轮对话起手 / 落定各刷一次,
+    // 把它翻上去再翻回来会拖着所有订阅者(索引页 / 命令面板三个 source / 空态)白走两趟
+    // 渲染。error 同理: 留着上一次的直到新结果落定, 不在重拉开始时先抹掉。
     inflight = (async () => {
       try {
         const resp = await ListChatAgents();
@@ -188,7 +193,16 @@ export const useChatAgentsStore = create<State & Actions>((set) => ({
           }) as AgentSlim;
         });
 
-        set({ agents: slimAgents, loading: false, error: null });
+        // 同值短路: 快照没变就保住 agents 的数组引用, 订阅者一动不动
+        // (与 session-status-store 的 bulkUpsert 同一口径)。
+        set((s) => {
+          if (!samePayload(s.agents, slimAgents)) {
+            return { agents: slimAgents, loading: false, error: null };
+          }
+          if (s.loading || s.error !== null)
+            return { loading: false, error: null };
+          return s;
+        });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         set({ loading: false, error: msg });

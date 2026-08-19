@@ -102,6 +102,85 @@ describe("chat-agents-store", () => {
     expect(useChatAgentsStore.getState().loading).toBe(false);
   });
 
+  // ── 刷新不churn：侧栏每轮对话起手 / 落定各刷一次 ──────────────────────────
+  // 绝大多数轮次这份快照一个字节都没变。换新数组 / 翻 loading 会让所有订阅者
+  // (索引页、命令面板三个 source、空态) 白重渲两趟。
+
+  it("Given agents were already loaded, When a refresh returns the same payload, Then the agents array identity is kept so subscribers do not re-render", async () => {
+    const payload = () => ({
+      agents: [
+        {
+          id: 1,
+          name: "Eng",
+          pinned: false,
+          chattable: true,
+          sessions: [
+            {
+              id: 9,
+              status: "idle",
+              needsAttention: false,
+              title: "s-9",
+              lastMessageAt: 10,
+            },
+          ],
+        },
+      ],
+    });
+    listChatAgents.mockResolvedValueOnce(payload());
+    await useChatAgentsStore.getState().reload();
+    const first = useChatAgentsStore.getState().agents;
+
+    listChatAgents.mockResolvedValueOnce(payload());
+    await useChatAgentsStore.getState().reload();
+
+    expect(useChatAgentsStore.getState().agents).toBe(first);
+  });
+
+  it("Given agents were already loaded, When the payload actually changes, Then the new snapshot still lands", async () => {
+    listChatAgents.mockResolvedValueOnce({
+      agents: [
+        { id: 1, name: "Eng", pinned: false, chattable: true, sessions: [] },
+      ],
+    });
+    await useChatAgentsStore.getState().reload();
+    const first = useChatAgentsStore.getState().agents;
+
+    listChatAgents.mockResolvedValueOnce({
+      agents: [
+        {
+          id: 1,
+          name: "Eng 改名",
+          pinned: false,
+          chattable: true,
+          sessions: [],
+        },
+      ],
+    });
+    await useChatAgentsStore.getState().reload();
+
+    expect(useChatAgentsStore.getState().agents).not.toBe(first);
+    expect(useChatAgentsStore.getState().agents[0].name).toBe("Eng 改名");
+  });
+
+  it("Given agents were already loaded, When the sidebar refreshes, Then loading stays false instead of dragging every subscriber through a loading pass", async () => {
+    listChatAgents.mockResolvedValueOnce({ agents: [] });
+    await useChatAgentsStore.getState().reload();
+    expect(useChatAgentsStore.getState().loading).toBe(false);
+
+    let resolveFn: ((v: { agents: unknown[] }) => void) | null = null;
+    listChatAgents.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveFn = res;
+      }),
+    );
+    const p = useChatAgentsStore.getState().reload();
+
+    expect(useChatAgentsStore.getState().loading).toBe(false);
+
+    resolveFn!({ agents: [] });
+    await p;
+  });
+
   it("reload 后再次 reload, 第二次拿到新的快照", async () => {
     listChatAgents.mockResolvedValueOnce({ agents: [] });
     await useChatAgentsStore.getState().reload();
