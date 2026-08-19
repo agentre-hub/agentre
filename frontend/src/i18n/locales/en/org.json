@@ -30,21 +30,52 @@
         "description": "Choose the parent, icon, and theme color. It appears in the org chart after creation.",
         "iconAria": "New department icon"
       },
-      "summary": {
-        "list": "{{count}} agents · list view",
-        "tree": "{{departments}} departments · {{subDepartments}} sub-departments · {{agents}} agents"
+      "summary": "{{departments}} departments · {{subDepartments}} sub-departments · {{agents}} agents",
+      "title": "Org Chart"
+    },
+    "index": {
+      "search": {
+        "aria": "Search agents",
+        "placeholder": "Search agents or descriptions"
       },
-      "title": "Org Chart",
-      "view": {
-        "list": "List",
-        "listAria": "List view",
-        "tree": "Tree",
-        "treeAria": "Tree view"
+      "filters": {
+        "backendAria": "Filter by backend",
+        "reportsToAria": "Filter by manager",
+        "backendLabel": "Backend: {{name}}",
+        "reportsToLabel": "Reports to: {{name}}",
+        "searchLabel": "Search: {{value}}",
+        "clear": "Clear filter {{label}}",
+        "clearAll": "Clear all filters"
       },
-      "zoom": {
-        "in": "Zoom In",
-        "out": "Zoom Out",
-        "reset": "Reset Zoom"
+      "lead": "Lead · {{name}}",
+      "reportsToInline": "↳ {{name}}",
+      "noMatch": {
+        "title": "No agents found",
+        "conditions": "Active at the same time: {{conditions}}"
+      },
+      "emptyDepartments": {
+        "title": "No departments created",
+        "description": "Create a department, or attach new Agents under the CEO assistant.",
+        "newDepartment": "New Department",
+        "addAgent": "Add Agent"
+      },
+      "drag": {
+        "agentHandle": "Drag {{name}} (press Space to pick up)",
+        "departmentHandle": "Drag department {{name}} (press Space to pick up)",
+        "pickedUp": "Picked up {{name}}. Arrow keys choose a target, Enter drops, Esc cancels.",
+        "dropped": "Dropped {{name}}.",
+        "cancelled": "Drag cancelled.",
+        "zoneReorder": "Reorder · place before {{name}}",
+        "zoneReorderEnd": "Reorder · place last",
+        "zoneAgent": "Change manager · report to {{name}}",
+        "zoneDepartment": "Change department · move into {{name}}",
+        "refused": "{{zone}} — can't drop: {{reason}}",
+        "reasonCycle": "an agent can't report to its own subordinate",
+        "reasonDepartmentCycle": "a department can't move under its own sub-department",
+        "reasonBucket": "reordering only works within the same department and manager",
+        "reasonSystem": "the system agent can't be moved",
+        "reasonSystemTarget": "the system agent doesn't accept drops",
+        "reasonGeneric": "this target doesn't accept it"
       }
     },
     "agent": {
@@ -110,8 +141,8 @@
         "title": "Delete agent \"{{name}}\"?"
       },
       "departmentLead": "{{name}} department lead",
-      "descriptionHint": "Optional · shown as the card subtitle",
-      "dragHierarchyHint": "· Drag cards to adjust hierarchy",
+      "descriptionHint": "Optional · shown as the row subtitle in the index",
+      "dragHierarchyHint": "· Drag rows in the index to adjust hierarchy",
       "fallbackName": "Agent",
       "relativeTime": {
         "daysAgo": "{{count}} days ago",
@@ -221,47 +252,9 @@
       "viewDepartment": "View department {{name}}"
     },
     "list": {
-      "empty": "No agents found",
-      "filters": {
-        "backendAria": "Backend filter",
-        "backendPrefix": "Backend:",
-        "clearReportsTo": "Clear reports-to filter",
-        "reportsToAria": "Reports-to filter",
-        "reportsToPrefix": "Reports to:"
-      },
-      "search": {
-        "aria": "Search agents",
-        "placeholder": "Search agents or descriptions"
-      },
-      "skills": {
-        "enabledOnly": "{{count}} enabled"
-      },
       "sort": {
-        "aria": "Sort mode",
-        "asc": "Ascending",
-        "desc": "Descending",
-        "hierarchy": "Hierarchy",
-        "label": "Sort",
         "status": "Status"
-      },
-      "table": {
-        "active": "Active",
-        "agent": "Agent",
-        "sortByAgent": "Sort by agent"
       }
-    },
-    "tree": {
-      "collapse": "Collapse {{name}}",
-      "collapsedSuffix": " (collapsed)",
-      "empty": {
-        "addAgent": "Add Agent",
-        "description": "Create a department, or attach new Agents under the CEO assistant.",
-        "newDepartment": "New Department",
-        "title": "No departments created"
-      },
-      "expand": "Expand {{name}}",
-      "lead": "Lead · {{name}}",
-      "memberCount": "{{count}} members"
     },
     "reorderFailed": "Failed to save order, please retry"
   }

@@ -1,14 +1,6 @@
 import * as React from "react";
 import type { TFunction } from "i18next";
-import {
-  FolderPlus,
-  List,
-  Network,
-  Plus,
-  RotateCcw,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
+import { FolderPlus, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -42,10 +34,9 @@ import {
 } from "./org/types";
 import { OrgDetailAgent } from "./org/org-detail-agent";
 import { OrgDetailDepartment } from "./org/org-detail-department";
-import { OrgList } from "./org/org-list";
-import { OrgTree } from "./org/org-tree";
+import { OrgIndex } from "./org/org-index";
 import { useOrgData } from "./org/use-org-data";
-import { useOrgTreeView } from "./org/use-org-tree-view";
+import { useOrgIndexView } from "./org/use-org-index-view";
 
 export function OrgChartPage() {
   const { t } = useTranslation();
@@ -59,7 +50,6 @@ export function OrgChartPage() {
     moveAgent,
     moveDepartment,
     reorderAgents,
-    reorderDepartments,
     updateDepartment,
     deleteDepartment,
     updateAgent,
@@ -69,7 +59,7 @@ export function OrgChartPage() {
     createDepartment,
     createAgent,
   } = useOrgData();
-  const view = useOrgTreeView();
+  const view = useOrgIndexView();
   const location = useLocation();
 
   React.useEffect(() => {
@@ -116,20 +106,13 @@ export function OrgChartPage() {
   );
 
   const summaryText = React.useMemo(() => {
-    const totalAgents = agents.length;
-    if (view.viewMode === "list") {
-      return t("org.chart.summary.list", { count: totalAgents });
-    }
     const top = departments.filter((d) => d.parentId === 0).length;
-    const sub = departments.length - top;
-    return t("org.chart.summary.tree", {
-      agents: totalAgents,
+    return t("org.chart.summary", {
+      agents: agents.length,
       departments: top,
-      subDepartments: sub,
+      subDepartments: departments.length - top,
     });
-  }, [departments, agents, t, view.viewMode]);
-
-  const zoomPct = Math.round(view.zoom * 100);
+  }, [departments, agents, t]);
 
   if (loading) {
     return (
@@ -200,85 +183,17 @@ export function OrgChartPage() {
           </span>
         </div>
         <div className="flex-1" />
-        {view.viewMode === "tree" && (
-          <div className="flex items-center gap-1 rounded-md border bg-card px-1 py-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label={t("org.chart.zoom.out")}
-              onClick={view.zoomOut}
-            >
-              <ZoomOut className="size-3.5" />
-            </Button>
-            <span className="inline-flex h-6 w-12 items-center justify-center rounded bg-muted font-mono text-2xs">
-              {zoomPct}%
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label={t("org.chart.zoom.in")}
-              onClick={view.zoomIn}
-            >
-              <ZoomIn className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label={t("org.chart.zoom.reset")}
-              onClick={view.zoomReset}
-            >
-              <RotateCcw className="size-3.5" />
-            </Button>
-          </div>
-        )}
-        <div className="flex rounded-md bg-secondary p-0.5">
-          <button
-            type="button"
-            aria-pressed={view.viewMode === "tree"}
-            aria-label={t("org.chart.view.treeAria")}
-            onClick={() => view.setViewMode("tree")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-2xs font-medium transition-colors",
-              view.viewMode === "tree"
-                ? "bg-card shadow-xs"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Network className="size-3" />
-            {t("org.chart.view.tree")}
-          </button>
-          <button
-            type="button"
-            aria-pressed={view.viewMode === "list"}
-            aria-label={t("org.chart.view.listAria")}
-            onClick={() => view.setViewMode("list")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-2xs font-medium transition-colors",
-              view.viewMode === "list"
-                ? "bg-card shadow-xs"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <List className="size-3" />
-            {t("org.chart.view.list")}
-          </button>
-        </div>
-        {view.viewMode === "tree" && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setNewSubDeptParentId(0);
-              setNewDeptOpen(true);
-            }}
-          >
-            <FolderPlus className="size-3.5 mr-1" />
-            {t("org.chart.actions.newDepartment")}
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setNewSubDeptParentId(0);
+            setNewDeptOpen(true);
+          }}
+        >
+          <FolderPlus className="size-3.5 mr-1" />
+          {t("org.chart.actions.newDepartment")}
+        </Button>
         <Button
           size="sm"
           disabled={departments.length === 0 && agents.length === 0}
@@ -300,65 +215,44 @@ export function OrgChartPage() {
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 overflow-hidden">
-          {view.viewMode === "tree" ? (
-            <OrgTree
-              departments={departments}
-              agents={agents}
-              selected={view.selected}
-              collapse={view.collapse}
-              zoom={view.zoom}
-              pan={view.pan}
-              onSelect={view.setSelected}
-              onToggleCollapse={view.toggleCollapse}
-              onPanChange={view.setPan}
-              onZoomChange={view.setZoom}
-              onMoveAgent={(id, placement) => {
-                void moveAgent({
-                  id,
-                  newDepartmentId: placement.departmentId,
-                  newParentAgentId: placement.parentAgentId,
-                  newSortOrder: 0,
-                });
-              }}
-              onMoveDepartment={(id, parentId) => {
-                void moveDepartment({
-                  id,
-                  newParentId: parentId,
-                  newSortOrder: 0,
-                });
-              }}
-              onReorderAgent={(departmentId, parentAgentId, orderedIds) => {
-                void reorderAgents(departmentId, parentAgentId, orderedIds);
-              }}
-              onReorderDepartment={(parentId, orderedIds) => {
-                void reorderDepartments(parentId, orderedIds);
-              }}
-              onCreateDepartment={() => {
-                setNewSubDeptParentId(0);
-                setNewDeptOpen(true);
-              }}
-              onCreateAgent={
-                departments.length > 0 || agents.length > 0
-                  ? () => {
-                      setNewAgentFromIntent(false);
-                      setNewAgentParentDeptId(0);
-                      setNewAgentOpen(true);
-                    }
-                  : undefined
-              }
-            />
-          ) : (
-            <OrgList
-              departments={departments}
-              agents={agents}
-              backends={backends}
-              selected={view.selected}
-              onSelect={view.setSelected}
-              onReorderAgent={(departmentId, parentAgentId, orderedIds) => {
-                void reorderAgents(departmentId, parentAgentId, orderedIds);
-              }}
-            />
-          )}
+          <OrgIndex
+            departments={departments}
+            agents={agents}
+            backends={backends}
+            selected={view.selected}
+            onSelect={view.setSelected}
+            onMoveAgent={(id, placement) => {
+              void moveAgent({
+                id,
+                newDepartmentId: placement.departmentId,
+                newParentAgentId: placement.parentAgentId,
+                newSortOrder: 0,
+              });
+            }}
+            onMoveDepartment={(id, parentId) => {
+              void moveDepartment({
+                id,
+                newParentId: parentId,
+                newSortOrder: 0,
+              });
+            }}
+            onReorderAgent={(departmentId, parentAgentId, orderedIds) => {
+              void reorderAgents(departmentId, parentAgentId, orderedIds);
+            }}
+            onCreateDepartment={() => {
+              setNewSubDeptParentId(0);
+              setNewDeptOpen(true);
+            }}
+            onCreateAgent={
+              departments.length > 0 || agents.length > 0
+                ? () => {
+                    setNewAgentFromIntent(false);
+                    setNewAgentParentDeptId(0);
+                    setNewAgentOpen(true);
+                  }
+                : undefined
+            }
+          />
         </div>
 
         <aside
@@ -404,14 +298,14 @@ export function OrgChartPage() {
 }
 
 type RenderDetailArgs = {
-  selected: ReturnType<typeof useOrgTreeView>["selected"];
+  selected: OrgSelection;
   agentById: Record<number, OrgAgent>;
   departmentById: Record<number, OrgDepartment>;
   departments: OrgDepartment[];
   agents: OrgAgent[];
   backends: ReturnType<typeof useOrgData>["backends"];
   availableTools: ReturnType<typeof useOrgData>["availableTools"];
-  onSelect: (sel: ReturnType<typeof useOrgTreeView>["selected"]) => void;
+  onSelect: (sel: OrgSelection) => void;
   onClose: () => void;
   updateDepartment: ReturnType<typeof useOrgData>["updateDepartment"];
   moveDepartment: ReturnType<typeof useOrgData>["moveDepartment"];
