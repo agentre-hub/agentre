@@ -141,8 +141,8 @@ func (h *SessionCatchupHandlers) List(ctx context.Context) (wire.SessionListResu
 // The optional origin peer is resolved at the account gate before it reaches
 // the composite journal key; omitted origin remains the caller's own peer.
 //
-// 现存最老的 seq 每页都报:日志的老前缀会被留存回收(daemon.collectJournal 只保住高水位
-// 那一行),一个离线超过整个留存窗口的客户端,它的游标正落在那段已经不存在的区间里。
+// 现存最老的 seq 每页都报:日志本身已经不回收了(规格 2026-08-18 决策 8),但库可能被从
+// 外部恢复或截断,客户端的游标于是落在一段已经不存在的区间里。
 // 不报下界,它拉到的每一页第一条都比 游标+1 大,只能当成跳号丢弃并再拉一次同一页 ——
 // 游标永远推不动,此后连实时通知也全被判成跳号,会话没有错误、没有跳号地冻住。
 // 读不出下界不让整页拉取失败:内容比下界重要,客户端按 0(=不知道)处理即可。
@@ -152,10 +152,10 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullPar
 		return wire.SessionPullResult{}, err
 	}
 	sid := strconv.FormatInt(p.SessionID, 10)
-	// 下界先读:两次读之间随时可能跑一轮留存回收。先读页、后读下界,回收就会让下界涨到
-	// 页里那些行**之上** —— 客户端拿它复位游标(复位跑在重放之前),这一整页已经拿到手
-	// 的行会被当成重复全部丢掉,一段本来读得到的转录凭空消失。反过来先读下界只会偏小,
-	// 偏小最多让客户端少复位一次,拉下一页时自然拿到新的下界。
+	// 下界先读:两次读之间老前缀随时可能消失(库被从外部恢复或截断)。先读页、后读下界,
+	// 下界就会涨到页里那些行**之上** —— 客户端拿它复位游标(复位跑在重放之前),这一整页
+	// 已经拿到手的行会被当成重复全部丢掉,一段本来读得到的转录凭空消失。反过来先读下界
+	// 只会偏小,偏小最多让客户端少复位一次,拉下一页时自然拿到新的下界。
 	oldest, err := h.deps.Journal.OldestSeq(ctx, peer, sid)
 	if err != nil {
 		oldest = 0

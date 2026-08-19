@@ -231,11 +231,11 @@ func TestSessionCatchup_Pull_ReturnsPageAndAdvancesCursor(t *testing.T) {
 	assert.True(t, got.HasMore)
 }
 
-// TestSessionCatchup_Pull_ReportsTheSurvivingFloor 覆盖留存回收之后的那一半:一页补齐
+// TestSessionCatchup_Pull_ReportsTheSurvivingFloor 覆盖老前缀不在了的那一半:一页补齐
 // 除了内容,还要交出这条会话此刻**现存最老**的 seq。
 //
-// 日志的老前缀会被 daemon.collectJournal 回收,而一个离线超过整个留存窗口的客户端,
-// 游标正落在被回收掉的那一段里。不报下界,它拉到的每一页第一条都比 游标+1 大,只能当成
+// agentred 自己已经不回收日志(规格 2026-08-18 决策 8),但库可能被从外部恢复或截断,
+// 游标正落在消失了的那一段里。不报下界,它拉到的每一页第一条都比 游标+1 大,只能当成
 // 跳号丢弃、再拉一次同一页 —— 游标永远推不动,此后连实时通知也全被判成跳号,会话没有
 // 错误、没有跳号地冻住。报了它,客户端就知道那截尾巴是真的没有了,复位游标接着补。
 func TestSessionCatchup_Pull_ReportsTheSurvivingFloor(t *testing.T) {
@@ -252,11 +252,11 @@ func TestSessionCatchup_Pull_ReportsTheSurvivingFloor(t *testing.T) {
 		"游标之后的 8、9 已被回收,客户端只有拿到这个下界才不会一直等它们")
 }
 
-// TestSessionCatchup_Pull_FloorNeverExceedsTheRowsInTheSamePage 钉死两次读之间跑了一轮
-// 留存回收时的那一半:交出去的下界不得高于**同一页里**的行。
+// TestSessionCatchup_Pull_FloorNeverExceedsTheRowsInTheSamePage 钉死两次读之间老前缀
+// 恰好消失时的那一半:交出去的下界不得高于**同一页里**的行。
 //
 // 客户端拿 oldestSeq 复位游标,而复位跑在这一页重放**之前**(否则第一条当场被判成跳号)。
-// 下界若是回收之后的那个高水位,而页里还留着更低的行,这些已经拿到手的行就会被当成重复
+// 下界若是老前缀消失之后的那个高水位,而页里还留着更低的行,这些已经拿到手的行会被当成重复
 // 全部丢掉 —— 一整页转录凭空消失,而它们本来是读得到的。所以下界要先读:先读的下界只会
 // 偏小,偏小最多让客户端少复位一次,不会丢内容。
 func TestSessionCatchup_Pull_FloorNeverExceedsTheRowsInTheSamePage(t *testing.T) {

@@ -394,8 +394,8 @@ func TestAutonomousTurnStarted_ClosesTheOpenTurnFirst(t *testing.T) {
 	assert.NotEqual(t, TriggerCatchUp, second.Trigger)
 }
 
-// Given 客户端离线的时间超过了 daemon 的整个日志留存窗口,它游标之后的那截尾巴已经被
-// 回收(daemon.collectJournal 只保住高水位那一行),When 它回来补齐,
+// Given daemon 那边游标之后的那截尾巴已经不在了(agentred 自己不再回收日志 —— 规格
+// 2026-08-18 决策 8 —— 但库可能被从外部恢复或截断),When 客户端回来补齐,
 // Then 按 daemon 交回的「现存最老 seq」把游标复位,现存的那段照常重放进转录。
 //
 // 不复位的后果不是「少几条」而是这条会话就此静默冻住:每一页的第一条都比 游标+1 大,

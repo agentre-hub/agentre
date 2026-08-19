@@ -797,16 +797,16 @@ func (r *Runtime) dropCursorAboveHighWater(ctx context.Context, sid int64, ss *s
 	r.flushCursors()
 }
 
-// dropCursorBelowOldest 把落在「已被回收掉的那一段」里的游标抬到现存最老的一行之前。
+// dropCursorBelowOldest 把落在「已经不存在的那一段」里的游标抬到现存最老的一行之前。
 //
-// daemon 的日志留存会回收终态会话高水位以下的老前缀(见 daemon.collectJournal)。一个
-// 离线时间超过整个留存窗口、且落后不止一格的客户端,它的游标正指向那段已经不存在的区间:
+// agentred 不再回收通知日志(规格 2026-08-18 决策 8),但它的库可能被从外部恢复或截断,
+// 老前缀因此仍可能消失。落后不止一格的客户端,它的游标正指向那段已经不存在的区间:
 // 拉回来的每一页第一条都比 游标+1 大,在 dispatchNotification 的第二条规则里被判成跳号
 // 丢弃并触发补洞拉取,而补洞原样拉回同一页 —— 游标永远推不动,此后连实时通知也全被当成
 // 跳号,会话没有错误、没有跳号地冻住(与 dropCursorAboveHighWater 处理的越界冻结同类)。
 //
 // 那截尾巴是真的没有了,拿不回来。所以按 daemon 交回的下界复位,从现存最老的一行接着补,
-// 并留一条 Warn 让「这段转录是被留存回收掉的」在日志里看得见。
+// 并留一条 Warn 让「这段转录已经不在 daemon 那边了」在日志里看得见。
 //
 // 只在游标真的落在下界之下时动它:正常补齐里 oldest == 游标+1(甚至更小),一动就是把
 // 已经交付过的通知再重放一遍。oldest 为 0 表示 daemon 没报(老 daemon / 读不出来),
