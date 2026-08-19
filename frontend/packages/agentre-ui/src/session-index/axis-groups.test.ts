@@ -317,7 +317,13 @@ describe("组的形状契约", () => {
       totals: { "ag-fe": 42 },
     });
 
-    expect(bare.map((g) => Object.hasOwn(g, "total"))).toEqual([false, false]);
+    // 用 hasOwnProperty 而不是 ES2022 的 Object.hasOwn：宿主 app 的 tsconfig
+    // 是 lib ES2020 且**不排除**包里的用例文件，用新内置会把宿主的 tsc -b 弄红。
+    const carriesTotal = (group: object) =>
+      Object.prototype.hasOwnProperty.call(group, "total");
+
+    expect(bare.map(carriesTotal)).toEqual([false, false]);
+    expect(paged.map(carriesTotal)).toEqual([true, false]);
     // 总数是**加上去**的一维，别的什么都不动。
     expect(paged.map(({ total: _total, ...rest }) => rest)).toEqual(bare);
   });
