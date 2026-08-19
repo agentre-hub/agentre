@@ -157,3 +157,25 @@ describe("UpdateSection debug logging", () => {
     await waitFor(() => expect(app.SetDebugLogging).toHaveBeenCalledWith(true));
   });
 });
+
+describe("UpdateSection channel switch", () => {
+  it("Given the user switches update channel, When it persists, Then a fresh check runs against the new channel", async () => {
+    const app = installUpdateBindings();
+    app.SetUpdateChannel = vi.fn(() => Promise.resolve());
+    app.CheckForUpdate = vi.fn(() =>
+      Promise.resolve({ hasUpdate: false, currentVersion: "1.2.3" }),
+    );
+
+    render(<UpdateSection />);
+    await waitFor(() => expect(app.GetUpdateChannel).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("combobox", { name: /channel/i }));
+    fireEvent.click(await screen.findByRole("option", { name: /beta/i }));
+
+    await waitFor(() =>
+      expect(app.SetUpdateChannel).toHaveBeenCalledWith("beta"),
+    );
+    // 切完通道不该把结果清成「未知」让用户自己再点一次——他此刻就在等结果。
+    await waitFor(() => expect(app.CheckForUpdate).toHaveBeenCalled());
+  });
+});

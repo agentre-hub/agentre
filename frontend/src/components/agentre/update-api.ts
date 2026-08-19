@@ -55,6 +55,12 @@ export function checkForUpdate(): Promise<UpdateInfo> {
   return call<UpdateInfo>("CheckForUpdate");
 }
 
+// maybeCheckForUpdate 受 24h 节流约束的检查（窗口重新获得焦点时调用）。
+// 距上次检查太近时后端什么都不做并返回 null —— 那不是「已是最新」。
+export function maybeCheckForUpdate(): Promise<UpdateInfo | null> {
+  return call<UpdateInfo | null>("MaybeCheckForUpdate");
+}
+
 export function downloadAndInstallUpdate(skipChecksum: boolean): Promise<void> {
   return call<void>("DownloadAndInstallUpdate", skipChecksum);
 }
