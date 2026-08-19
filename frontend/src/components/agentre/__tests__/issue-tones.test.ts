@@ -70,7 +70,7 @@ const root = readScope(":root");
 // 暗色只覆写一部分 token,其余继承 :root(例如主题无关的 --agent-foreground)。
 const dark = { ...root, ...readScope(".dark") };
 
-const THEMES = [["亮色", root] as const, ["暗色", dark] as const];
+const THEMES = [["亮色", root, false] as const, ["暗色", dark, true] as const];
 
 const channels = (hex: string) =>
   [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
@@ -101,11 +101,24 @@ function composite(color: string, alpha: number, under: string): string {
 
 type Layer = { token: string; alpha: number };
 
-/** 从类名串里挑出 `bg-x` / `text-x`,并解出可选的 `/N` 不透明度。 */
-function layer(classNames: string, prefix: "bg" | "text"): Layer {
-  const m = new RegExp(
-    `(?:^|\\s)${prefix}-([a-z0-9-]+)(?:/(\\d{1,3}))?(?=\\s|$)`,
-  ).exec(classNames);
+/**
+ * 从类名串里挑出 `bg-x` / `text-x`,并解出可选的 `/N` 不透明度。
+ *
+ * 暗色下必须优先认 `dark:` 变体:critical 写的是
+ * `bg-destructive … dark:bg-destructive/60`,暗色实际渲染的是后者。只认无前缀的
+ * 那条,量出来的是一个屏幕上不存在的颜色——守卫会以 2.65 判它不达标,而真实渲染
+ * 是 5.30。这正是「守卫必须模拟真实渲染」那条教训的第三次出现。
+ */
+function layer(
+  classNames: string,
+  prefix: "bg" | "text",
+  isDark = false,
+): Layer {
+  const pick = (variant: string) =>
+    new RegExp(
+      `(?:^|\\s)${variant}${prefix}-([a-z0-9-]+)(?:/(\\d{1,3}))?(?=\\s|$)`,
+    ).exec(classNames);
+  const m = (isDark && pick("dark:")) || pick("");
   if (!m) throw new Error(`"${classNames}" 里没有 ${prefix}- 类`);
   return { token: `--${m[1]}`, alpha: m[2] ? Number(m[2]) / 100 : 1 };
 }
@@ -115,9 +128,10 @@ function rendered(
   classNames: string,
   tokens: Record<string, string>,
   surface: string,
+  isDark = false,
 ): { text: string; fill: string } {
-  const bg = layer(classNames, "bg");
-  const text = layer(classNames, "text");
+  const bg = layer(classNames, "bg", isDark);
+  const text = layer(classNames, "text", isDark);
   for (const { token } of [bg, text]) {
     expect(tokens[token], `tokens.css 里没有 ${token}`).toBeDefined();
   }
@@ -125,60 +139,34 @@ function rendered(
   return { text: composite(tokens[text.token], text.alpha, fill), fill };
 }
 
-// critical 是唯一一档实心填充(bg-destructive + 文字用 --destructive-foreground),
-// 和其余九档"软底 + 文字色"不是同一个角色。它在暗色下只有 2.65,根因是全局
-// --destructive-foreground(#fafafa 白字)压在暗色主题的**浅**红 --destructive
-// (#f87171)上——这条 token 是每一个 destructive 按钮/徽章共用的,改它等于给全应用
-// 的危险控件重新上色,不在本次"issue 标签可读性"的范围内。故单独立案见文件末尾。
-const SOFT_FILL_CASES: [string, string][] = (
+// 十档全部在内,critical 也不例外。它曾经被豁免过一轮:唯一一档实心填充,暗色下
+// 白字压在**浅**红 --destructive #f87171 上只有 2.65,而当时判断改全局
+// --destructive-foreground 会波及每个 destructive 按钮。后来查清影响面其实只有三处
+// (button/badge 都带着 dark:bg-destructive/60,混出 #a05153 后白字 5.30),
+// 于是让 critical 照同样的办法压暗填充,而不是动那个共用 token。
+const TONE_CASES: [string, string][] = (
   Object.keys(labelToneClassNames) as IssueLabelTone[]
-)
-  .filter((tone) => tone !== "critical")
-  .map((tone) => [tone, labelToneClassNames[tone]]);
+).map((tone) => [tone, labelToneClassNames[tone]]);
 
 // 后端可以送来任何 tone 字符串,认不出来的走 toneClass 的兜底。那也是一枚一模一样
 // 的胶囊,所以它必须和十档一起过同一条线——否则兜底就是护栏上的一个洞。
-SOFT_FILL_CASES.push(["(未知 tone 兜底)", toneClass("__no_such_tone__")]);
+TONE_CASES.push(["(未知 tone 兜底)", toneClass("__no_such_tone__")]);
 
-describe.each(THEMES)("issue 标签色档在%s下的正文对比度", (_theme, tokens) => {
-  it.each(SOFT_FILL_CASES)(
-    `%s 的文字在自己的底色上 ≥ ${TEXT_MIN}`,
-    (name, classNames) => {
-      for (const surface of HOST_SURFACES) {
-        const under = surface.resolve(tokens);
-        const { text, fill } = rendered(classNames, tokens, under);
-        expect(
-          contrast(text, fill),
-          `${name} "${classNames}" 落在 ${surface.label} ${under} 上:文字 ${text} / 底 ${fill}`,
-        ).toBeGreaterThanOrEqual(TEXT_MIN);
-      }
-    },
-  );
-});
-
-describe("critical(实心红)——已立案的全局欠账", () => {
-  it("亮色下达标", () => {
-    for (const surface of HOST_SURFACES) {
-      const { text, fill } = rendered(
-        labelToneClassNames.critical,
-        root,
-        surface.resolve(root),
-      );
-      expect(contrast(text, fill)).toBeGreaterThanOrEqual(TEXT_MIN);
-    }
-  });
-
-  // 这条断言故意钉住"坏"的现状:--destructive-foreground 一旦被修好,它就会红,
-  // 逼着把 critical 收回上面的主断言,而不是让这个豁免永远留在这里。
-  it("暗色下仍不达标,根因在全局 --destructive-foreground 而非本档", () => {
-    const { text, fill } = rendered(
-      labelToneClassNames.critical,
-      dark,
-      dark["--card"],
+describe.each(THEMES)(
+  "issue 标签色档在%s下的正文对比度",
+  (_theme, tokens, isDark) => {
+    it.each(TONE_CASES)(
+      `%s 的文字在自己的底色上 ≥ ${TEXT_MIN}`,
+      (name, classNames) => {
+        for (const surface of HOST_SURFACES) {
+          const under = surface.resolve(tokens);
+          const { text, fill } = rendered(classNames, tokens, under, isDark);
+          expect(
+            contrast(text, fill),
+            `${name} "${classNames}" 落在 ${surface.label} ${under} 上:文字 ${text} / 底 ${fill}`,
+          ).toBeGreaterThanOrEqual(TEXT_MIN);
+        }
+      },
     );
-    expect(
-      contrast(text, fill),
-      `--destructive-foreground ${text} 压在 --destructive ${fill} 上已达标 —— 请删掉本条并把 critical 移回主断言`,
-    ).toBeLessThan(TEXT_MIN);
-  });
-});
+  },
+);

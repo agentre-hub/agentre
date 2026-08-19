@@ -118,7 +118,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.close")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:bg-destructive focus-visible:text-destructive-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:bg-destructive focus-visible:text-destructive-foreground dark:hover:bg-destructive/60 dark:focus-visible:bg-destructive/60"
         onClick={() => runWindowAction(Quit)}
       >
         <X className="size-4" aria-hidden="true" />

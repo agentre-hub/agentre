@@ -19,7 +19,10 @@ export type IssueLabelTone =
 export const labelToneClassNames: Record<IssueLabelTone, string> = {
   auth: "bg-tone-blue-bg text-tone-blue-text",
   bug: "bg-destructive-soft text-destructive-text",
-  critical: "bg-destructive text-destructive-foreground",
+  // 十档里唯一的实心填充(最高优先级要压过其余九档的软底)。暗色下必须把底压到
+  // /60:--destructive 在暗色是**浅**红 #f87171,白字压上去只有 2.65。
+  // 压暗后混出 #a05153,白字 5.30。与 Button / Badge 的 destructive 变体同一处理。
+  critical: "bg-destructive text-destructive-foreground dark:bg-destructive/60",
   docs: "bg-secondary text-secondary-foreground",
   feature: "bg-status-running-bg text-status-running-text",
   hook: "bg-primary-soft text-primary-text",

@@ -13,7 +13,8 @@ const order: TriState[] = ["inherit", "on", "off"];
 const activeClass: Record<TriState, string> = {
   inherit: "bg-card text-foreground border border-border",
   on: "bg-primary text-primary-foreground",
-  off: "bg-destructive text-white",
+  // 前景走 token 而不是硬编码 text-white(docs/design.md 约束 1);暗色压底同 critical。
+  off: "bg-destructive text-destructive-foreground dark:bg-destructive/60",
 };
 
 export function TriStateToggle(props: Props) {
