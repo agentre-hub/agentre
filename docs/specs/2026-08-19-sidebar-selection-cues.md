@@ -4,7 +4,7 @@
 
 > Status: **Approved**（2026-08-19，用户裁决「可以」）
 > Owner: 桌面端（`agentre`，前端；会话行在共享包 `@agentre-ai/agentre-ui` 里）
-> Last updated: 2026-08-19（决策 8 于同日补入：计数数字改用状态的文字角色色）
+> Last updated: 2026-08-19（同日补入决策 8 计数数字改用状态文字角色色、决策 9 选中面上的弱化文字另立 token）
 > Mockup（本地产物，`.dev-kit/` 在 Git 之外）：`.dev-kit/artifacts/2026-08-19-sidebar-selection-cues/mockups/`
 > —— `?view=now` 现状（含悬停态）、`?view=options` 三方案对比、`?view=matrix` 同一行四态、
 > `?view=header` 组头四种画法、`?view=bubble` 琥珀括号去留、`?view=final` 定稿方向。
@@ -73,19 +73,21 @@
 |---|---|---|
 | 1 | 选中态改为**加深的专用底色**（方案 A「实面」），删掉 3px 主色竖条 | 底色与 hover **反向**偏离静止面（选中压深、hover 提亮），方向差比比例差更好读；`?view=matrix` 逐格验证过。Rejected：**B 浮卡**（选中白底+投影、hover 改为下沉灰）——要改整条侧栏的 hover，组头/子组头/随手对话全跟着变，波及面远超本轮；**C 实心主色行**——最不可能误读，但份量重到会先于内容被看到，且行首状态点落在饱和蓝上只有 2.3:1，得再给状态点加描边 |
 | 2 | 新增一对 `--sidebar-selected-bg` token，而不是继续复用 `--primary-soft` | `--primary-soft` 是**品牌信息面**（rail 激活按钮、info toast 都用它），它被调成「在白卡上很轻」，落到 sidebar 上就只剩 1.01。选中需要自己的取值。Rejected：直接把 `--primary-soft` 调深——会同时改掉 rail 按钮与 toast 的观感，属于本轮之外的连坐 |
-| 3 | 亮色取 `#d7e5f3`（对 sidebar **1.17**、对 hover 白 **1.28**），暗色取 `#27405c`（**1.75** / **1.37**） | 亮色**被 `--muted-foreground` 卡住**：时间轴的两行行第二行是 `text-muted-foreground`，`#65656d` 在 `#d7e5f3` 上是 4.51，再深一档（`#cfe0f0`）就掉到 4.28、跌破 4.5。`--primary-text` 在这块面上 4.54 同样贴着线。Rejected：`#cfe0f0`（1.23，更醒目）——需要连带新增一个更深的选中文字 token，把一处改动摊成三处 |
+| 3 | 亮色取 `#d7e5f3`（对 sidebar **1.17**、对 hover 白 **1.28**），暗色取 `#27405c`（**1.75** / **1.37**） | 亮色被 `--primary-text` 卡住：`#3b6896` 在 `#d7e5f3` 上是 4.54，再深一档（`#cfe0f0`）掉到 4.32、跌破 4.5，标题就得连带换色。暗色则相反，取值受决策 9 那对矛盾支配。Rejected：`#cfe0f0`（1.23，更醒目）——把「一个新 token」变成「新 token + 换标题色」两处 |
 | 4 | 组头的三个记号收成**一个**：删绿条、删 `bg-primary-soft`，计数改为**按最强 reason 着色的裸点+数字**（甲-2），**不加文案** | 用户裁决：「不需要『在跑』这个文案，有颜色表达就可以了」。裸点+数字与今天形状完全一致，只换颜色来源。Rejected：**甲-1 软底 pill**——亮色下 `--status-running-bg #ecfdf5` 对 sidebar 只有 1.04，色块几乎看不出，白多一个形状（`?view=final` 左/中并排可见）；**乙 绿软底整行**、**丙 头像挂运行点**——均被用户否掉 |
 | 5 | 组头记号取色规则：把组内每条 attention 会话过 `reasonToDisplayStatus`，按 **error(红) > waiting(琥珀) > running(绿)** 取最强 | 与行自己的点同源同色，组头与行不再对不上。优先级按「谁更需要你动手」排：出错要看、等你回最挡路、在跑只是通报。Rejected：沿用 `computeAttention` 的会话内优先级（`needs_attention > running > error > ...`）——那是单条会话选 reason 的顺序，把 error 排在 running 之后，用作组级取色会让红被绿盖住 |
 | 6 | attention 气泡的琥珀 `border-l-2` **保留** | 用户裁决。它框的是「需要你看的这几条」这一**段**，是分组括号而非某一行的选中记号，与前两根条不同义（`?view=bubble` 两种都画了） |
 | 7 | 既有的「选中不能只靠颜色」守卫**改写而非删除** | 该断言今天钉的是 `before:w-[3px]` 的存在（`session-row.test.tsx:97-115`），注释里明写「改色可以，去掉不行」。竖条撤走后，非颜色线索由**亮度方向**（选中压深 / hover 提亮，灰度下也分得开）、**标题字重 `font-medium`**、**`aria-current="true"`** 三者共同承担，守卫改钉这三样。Rejected：直接删掉这条测试——那等于把 WCAG 1.4.1 的约束一并删掉 |
 | 8 | 数字用 `statusConfig[tone].textClassName`（状态的**文字**角色），不沿用今天的 `text-status-running`（**填充**角色） | 已验证：`--status-running` `#10b981` 落在 `--sidebar` `#f4f4f5` 上只有 **2.31:1**，tokens.css 自己写明饱和填充色在亮色下当文字不可读；换成 `--status-running-text` 是 **4.99**、`--status-waiting-text` **4.57**。这不是新增要求，而是照抄旧写法会把既有缺陷搬进新代码。已知例外：`--status-error` `#dc2626` 在侧栏上 **4.39**，差一点到 4.5——这是既有 token 缺口（今天每一行行尾的 `error` 标签同值），本轮沿用同一套投影、不新增偏差，补 token 另开一轮 |
+| 9 | 选中面上的**弱化文字**另给一个 token `--sidebar-selected-muted`（亮 `#5f5f67` / 暗 `#a8adb7`），不复用 `--muted-foreground` | 暗色下这是**硬冲突**，由守卫当场逼出来：`--muted-foreground` `#909399` 要在选中面上达 4.5，要求选中面亮度 ≤ 0.0258；而「强过 hover」要求 > 0.0222——可行窗口只剩「对 sidebar 1.28~1.33」那一丝，落在里面选中与 hover 肉眼无从分辨，本轮的目的就没了。这和 tokens.css 里 `--status-*-text` 存在的理由是同一条：**换了落脚的面，弱化文字就得换值**。作用范围只有一处——「按时间」档两行行选中时的第二行；标题与行尾用的 `--primary-text` 在两个主题上是 4.54 / 5.00，不受影响。Rejected：把暗色选中面提到那一丝窗口里——等于放弃「选中要比 hover 强」这条本轮的核心不变量；Rejected：把 `--sidebar-selected-bg` 从 `--muted-foreground` 的落点表里豁免掉——那张表的注释写明「新增一个会被 hover 的表面时必须加进来」，豁免就是把守卫关掉 |
 
 ## 会话行的选中态
 
 **前提**：一条会话行渲染在侧栏（`--sidebar`）上，`selected` 为真。
 **动作**：无论鼠标是否悬停其上。
 **结果**：该行底色为 `--sidebar-selected-bg`；标题为 `--primary-text` 且 `font-medium`；
-行尾短标签同为 `--primary-text`；`aria-current="true"`。行左侧**没有**任何竖条，
+行尾短标签同为 `--primary-text`；两行行的第二行为 `--sidebar-selected-muted`（决策 9）；
+`aria-current="true"`。行左侧**没有**任何竖条，
 行的内边距、圆角、字号与未选中行完全一致。
 
 **前提**：一条 `selected` 的行被鼠标悬停。
@@ -151,7 +153,7 @@
 |---|---|---|
 | `packages/agentre-ui/src/session-index/session-row.test.tsx` | 选中行携带 `aria-current="true"`、标题字重、以及**与 hover 不同的**选中底色类；不再断言 `before:w-[3px]` | 改写现有的 `:97-115`（决策 7），BDD 句式沿用同文件 |
 | `packages/agentre-ui/src/tokens.test.ts` | `--sidebar-selected-bg` 在明暗两主题下对 `--sidebar` 都 ≥ `FEEDBACK_MIN`，且**严格大于** `--sidebar-active-bg` 对 `--sidebar` 的比值 | 加进既有的 `FEEDBACK_SURFACES` 表（`:124-127`）+ 一条新断言；后半句是这一轮新增的口径，今天没有测试钉过「选中要比 hover 强」 |
-| `packages/agentre-ui/src/tokens.test.ts` | `--primary-text` 与 `--muted-foreground` 落在 `--sidebar-selected-bg` 上都 ≥ 4.5 | 加进既有的 `TEXT_SURFACES` 表（`:172`）——决策 3 的取值正是被这一条卡住的，必须由测试守住 |
+| `packages/agentre-ui/src/tokens.test.ts` | `--primary-text` 与 `--sidebar-selected-muted` 落在 `--sidebar-selected-bg` 上都 ≥ 4.5 | 加进既有的 `TEXT_SURFACES` 表（`:172`）——决策 3 与 9 的取值正是被这一条卡住的（暗色那次是它当场抓出来的），必须由测试守住 |
 | `src/components/agentre/__tests__/project-group-header.test.tsx` | 组头不再渲染 `project-running-indicator`；给定混合 reason 的子树，记号取到约定的那一档颜色 | 改写现有的 `:202-210`；同文件已有 `attentionCount` 的渲染断言可复用夹具 |
 | `src/components/agentre/__tests__/index-group-row.test.tsx` | 折叠父项目时记号的条数与取色含后代 | 同文件已有 `hasRunning` / subtree 夹具（`:82`） |
 
