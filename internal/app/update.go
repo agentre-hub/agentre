@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
@@ -11,30 +10,24 @@ import (
 	"github.com/agentre-ai/agentre/internal/service/update_svc"
 )
 
-// 启动后延迟若干秒再触发自动检查，避开前端冷启动 / DB 迁移高峰。
+// 启动后延迟若干秒再触发首次判定，避开前端冷启动 / DB 迁移高峰。
 const autoUpdateCheckDelay = 5 * time.Second
 
-// 自动检查最短间隔，距上次检查不足 24h 时跳过。
-const autoUpdateCheckInterval = 24 * time.Hour
+// 常驻定时器的 tick 间隔。是否真的发请求由 update_svc.ShouldCheck 的
+// AutoCheckInterval 节流决定；tick 比节流窗口密只是为了让「应用连开不重启」
+// 也能在窗口到期后尽快查一次，而不是等下次启动。
+const autoUpdateCheckTick = 4 * time.Hour
 
-// CheckForUpdate 检查最新版本。channel / mirror 从持久化设置读取。
+// CheckForUpdate 用户主动检查最新版本，绕过节流。前端切换更新通道后也调它 ——
+// 用户此刻在等结果。channel / mirror 从持久化设置读取。
 func (a *App) CheckForUpdate() (*update_svc.UpdateInfo, error) {
-	channel, err := update_svc.Update().GetChannel(a.ctx)
-	if err != nil {
-		return nil, err
-	}
-	mirror, err := update_svc.Update().GetMirror(a.ctx)
-	if err != nil {
-		return nil, err
-	}
-	info, err := update_svc.Update().CheckForUpdate(channel, mirror)
-	if err != nil {
-		return nil, err
-	}
-	if err := update_svc.Update().SetLastUpdateCheck(a.ctx, time.Now().Unix()); err != nil {
-		logger.Ctx(a.ctx).Warn("persist last update check", zap.Error(err))
-	}
-	return info, nil
+	return update_svc.RunCheck(a.ctx, update_svc.TriggerManual)
+}
+
+// MaybeCheckForUpdate 受节流约束的检查入口，供前端在窗口重新获得焦点时调用。
+// 距上次检查不足 update_svc.AutoCheckInterval 时不发请求，返回 (nil, nil)。
+func (a *App) MaybeCheckForUpdate() (*update_svc.UpdateInfo, error) {
+	return update_svc.RunCheck(a.ctx, update_svc.TriggerFocus)
 }
 
 // DownloadAndInstallUpdate 下载并安装最新版本；进度通过 "update:progress" 事件推送。
@@ -85,47 +78,47 @@ func (a *App) SetDownloadMirror(mirror string) error {
 
 // RestartApp 的实现见 restart.go（跨平台逻辑）与 restart_{darwin,unix,windows}.go。
 
-// startAutoUpdateCheck 启动 5s 后做一次更新检查；24h 节流。
-// 有新版本时发送 "update:available" 事件供前端弹横幅。
+// startAutoUpdateCheck 启动 5s 后做首次判定，随后常驻 tick 直到应用退出。
+// 每次判定是否真的发请求由 update_svc 的节流决定。
 //
 // 仅在 Startup 中由 goroutine 调用，不阻塞主流程。
 func (a *App) startAutoUpdateCheck() {
-	time.Sleep(autoUpdateCheckDelay)
+	select {
+	case <-a.ctx.Done():
+		return
+	case <-time.After(autoUpdateCheckDelay):
+	}
+	a.emitUpdateCheck(update_svc.TriggerStartup)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ticker := time.NewTicker(autoUpdateCheckTick)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.emitUpdateCheck(update_svc.TriggerTick)
+		}
+	}
+}
 
-	last, err := update_svc.Update().GetLastUpdateCheck(ctx)
+// emitUpdateCheck 跑一次后台检查并把结果广播成 "update:checked"。
+//
+// 启动检查与 ticker 没有调用方可以接收返回值，状态栏胶囊只能靠这个事件知道
+// 「有新版本 / 已是最新 / 检查失败」。被节流跳过时什么都不广播 —— 「没查」
+// 不等于「已是最新」。
+func (a *App) emitUpdateCheck(trigger update_svc.CheckTrigger) {
+	info, err := update_svc.RunCheck(a.ctx, trigger)
+	if info == nil && err == nil {
+		return
+	}
+
+	outcome := update_svc.CheckOutcome{Trigger: string(trigger), Info: info}
 	if err != nil {
-		logger.Default().Warn("read last update check", zap.Error(err))
-		return
+		outcome.Error = err.Error()
+		// 自动检查失败是背景事件：不弹提示、不亮红点，只让胶囊显示失败并留下日志。
+		logger.Ctx(a.ctx).Info("app.emitUpdateCheck: check failed",
+			zap.String("trigger", string(trigger)), zap.Error(err))
 	}
-	if last > 0 && time.Since(time.Unix(last, 0)) < autoUpdateCheckInterval {
-		return
-	}
-
-	channel, err := update_svc.Update().GetChannel(ctx)
-	if err != nil {
-		logger.Default().Warn("read update channel", zap.Error(err))
-		return
-	}
-	mirror, err := update_svc.Update().GetMirror(ctx)
-	if err != nil {
-		logger.Default().Warn("read update mirror", zap.Error(err))
-		return
-	}
-
-	info, err := update_svc.Update().CheckForUpdate(channel, mirror)
-	if err != nil {
-		logger.Default().Info("auto update check failed", zap.Error(err))
-		return
-	}
-
-	if err := update_svc.Update().SetLastUpdateCheck(ctx, time.Now().Unix()); err != nil {
-		logger.Default().Warn("persist last update check", zap.Error(err))
-	}
-
-	if info.HasUpdate {
-		wailsruntime.EventsEmit(a.ctx, "update:available", info)
-	}
+	wailsruntime.EventsEmit(a.ctx, "update:checked", outcome)
 }

@@ -165,12 +165,15 @@ type SidebarButtonProps = Omit<
   "children"
 > & {
   active?: boolean;
+  /** 图标右上角的小圆点：表示这一项底下有新东西，不解释是什么。 */
+  badge?: boolean;
   icon: SidebarIcon;
   label: string;
 };
 
 function SidebarButton({
   active = false,
+  badge = false,
   className,
   icon,
   label,
@@ -190,7 +193,7 @@ function SidebarButton({
       aria-describedby={describedBy}
       aria-label={label}
       className={cn(
-        "group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
+        "group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
         active &&
           "bg-primary-soft text-sidebar-icon-active shadow-xs hover:bg-primary-soft hover:text-sidebar-icon-active",
         className,
@@ -198,6 +201,13 @@ function SidebarButton({
       {...props}
     >
       {renderSidebarIcon(icon)}
+      {badge ? (
+        <span
+          data-slot="sidebar-badge"
+          aria-hidden="true"
+          className="absolute right-1.5 top-1.5 size-[7px] rounded-full bg-primary ring-2 ring-rail"
+        />
+      ) : null}
       <span
         id={tooltipId}
         role="tooltip"

@@ -45,7 +45,7 @@ export function ProjectGlyph({
   if (!project) {
     return (
       <Glyph testId={testId} className={className}>
-        <MessagesSquare className="size-[60%] text-subtle-foreground" />
+        <MessagesSquare className="size-[60%] text-decorative-foreground" />
       </Glyph>
     );
   }

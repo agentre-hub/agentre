@@ -124,7 +124,7 @@ export function PermissionModePill({
             </span>
           </div>
           <kbd className="inline-flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-2xs text-foreground">
-            Shift<span className="text-subtle-foreground">+</span>Tab
+            Shift<span className="text-decorative-foreground">+</span>Tab
           </kbd>
         </div>
         <ul className="flex flex-col gap-0.5 p-1.5" role="listbox">
@@ -176,7 +176,7 @@ export function PermissionModePill({
                       <span className="text-xs font-semibold text-foreground">
                         {itemMeta.label}
                       </span>
-                      <span className="font-mono text-2xs text-subtle-foreground">
+                      <span className="font-mono text-2xs text-muted-foreground">
                         {itemMeta.key}
                       </span>
                       {active ? (

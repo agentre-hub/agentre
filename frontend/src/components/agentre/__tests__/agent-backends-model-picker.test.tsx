@@ -1869,7 +1869,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     expect(
       screen.getByRole("button", { name: "Remove claude-opus-4-8" }),
     ).toHaveClass(
-      "text-subtle-foreground",
+      "text-muted-foreground",
       "hover:bg-accent",
       "hover:text-foreground",
     );

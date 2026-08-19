@@ -331,7 +331,7 @@ function SettingsNav({
             className="flex min-w-0 flex-wrap gap-1 lg:flex-col lg:flex-nowrap lg:gap-0.5"
           >
             {showFullNav ? (
-              <div className="hidden px-2 pb-1.5 pt-1 font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-subtle-foreground lg:block">
+              <div className="hidden px-2 pb-1.5 pt-1 font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground lg:block">
                 {t(section.labelKey)}
               </div>
             ) : null}

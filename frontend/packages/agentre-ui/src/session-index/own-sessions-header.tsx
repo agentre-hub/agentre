@@ -48,7 +48,9 @@ export function OwnSessionsHeader({
       <span className="font-mono text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         {t("sessionIndex.ownSessions.label")}
       </span>
-      <span className="font-mono text-2xs text-subtle-foreground">{count}</span>
+      <span className="font-mono text-2xs text-decorative-foreground">
+        {count}
+      </span>
     </button>
   );
 }

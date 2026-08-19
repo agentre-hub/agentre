@@ -160,7 +160,7 @@ func (a *App) Startup(ctx context.Context) {
 
 	a.terminalSvc = newTerminalService(a.ctx)
 
-	//nolint:gosec // G118: background poll deliberately outlives request scope
+	// 更新检查:5s 后首次判定,随后常驻 tick 到 a.ctx 结束。
 	go a.startAutoUpdateCheck()
 
 	logger.Default().Info("app startup", zap.Any("info", a.Info()))

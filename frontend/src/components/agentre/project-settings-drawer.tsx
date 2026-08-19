@@ -645,7 +645,7 @@ function MemberRow({
       {/* cwd subrow — shown when a remote location is configured */}
       {location ? (
         <div className="mt-1 flex items-center gap-1.5 pl-7 text-2xs text-muted-foreground">
-          <span className="font-mono text-subtle-foreground">cwd</span>
+          <span className="font-mono text-muted-foreground">cwd</span>
           <span
             data-selectable-text="true"
             className="min-w-0 flex-1 truncate font-mono"
@@ -1047,7 +1047,7 @@ function LocationEditRow(props: {
         />
       ) : null}
       <div className="flex items-center justify-between">
-        <span className="text-2xs text-subtle-foreground">
+        <span className="text-2xs text-muted-foreground">
           {pathValid || path === ""
             ? t("projectSettings.locations.enterToSave")
             : t("projectSettings.locations.absolutePathRequired")}
@@ -1174,7 +1174,7 @@ function SectionLabel({
   label: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5 font-mono text-2xs font-semibold uppercase text-subtle-foreground">
+    <div className="flex items-center gap-1.5 font-mono text-2xs font-semibold uppercase text-muted-foreground">
       {icon}
       {label}
     </div>

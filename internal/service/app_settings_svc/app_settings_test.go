@@ -231,3 +231,26 @@ func TestUpdate_NotifyKeys(t *testing.T) {
 		})
 	})
 }
+
+func TestUpdate_SkippedUpdateVersion(t *testing.T) {
+	convey.Convey("Update 跳过版本 key", t, func() {
+		ctx, repo, gw, svc := setupSvcTest(t)
+
+		convey.Convey("版本号写入,不触发 gateway", func() {
+			repo.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			_, err := svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{
+				{Key: app_setting_entity.KeySkippedUpdateVersion, Value: "v0.9.2"},
+			}})
+			assert.NoError(t, err)
+			assert.Equal(t, int32(0), gw.restartCalls.Load(), "跳过版本不应触发 Restart")
+		})
+
+		convey.Convey("空串合法:表示撤销跳过", func() {
+			repo.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			_, err := svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{
+				{Key: app_setting_entity.KeySkippedUpdateVersion, Value: ""},
+			}})
+			assert.NoError(t, err)
+		})
+	})
+}

@@ -129,7 +129,7 @@ export function RowSecondaryLine({
           className="flex min-w-0 items-center gap-1"
         >
           {index > 0 ? (
-            <span aria-hidden="true" className="text-subtle-foreground">
+            <span aria-hidden="true" className="text-decorative-foreground">
               {DIMENSION_SEPARATOR}
             </span>
           ) : null}

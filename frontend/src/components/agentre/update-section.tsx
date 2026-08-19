@@ -38,22 +38,16 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 import { Info as FetchAppInfo } from "../../../wailsjs/go/app/App";
+import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
+import { useUpdateStore } from "@/stores/update-store";
+
 import {
-  BrowserOpenURL,
-  EventsOff,
-  EventsOn,
-} from "../../../wailsjs/runtime/runtime";
-import {
-  CHECKSUM_FETCH_ERROR_PREFIX,
-  checkForUpdate,
-  downloadAndInstallUpdate,
   getAvailableMirrors,
   getBugReportInfo,
   getDebugLogging,
   getDownloadMirror,
   getUpdateChannel,
   openLogsDir,
-  restartApp,
   setDebugLogging,
   setDownloadMirror,
   setUpdateChannel,
@@ -78,17 +72,6 @@ const REPOSITORY_URL = "https://github.com/agentre-ai/agentre";
 
 // MIRROR_CUSTOM_ID select 中"自定义"选项的特殊值；选中时显示 input。
 const MIRROR_CUSTOM_ID = "__custom__";
-
-type Phase =
-  | { kind: "idle" }
-  | { kind: "checking" }
-  | { kind: "uptodate" }
-  | { kind: "available"; info: UpdateInfo }
-  | { kind: "downloading"; info: UpdateInfo; progress: number }
-  | { kind: "installed"; info: UpdateInfo }
-  | { kind: "error"; message: string };
-
-type ChecksumPrompt = { open: boolean; reason: string };
 
 function formatVersion(v: string, unknownLabel: string): string {
   if (!v) return unknownLabel;
@@ -124,12 +107,12 @@ export function UpdateSection() {
   const [mirrorSelectValue, setMirrorSelectValue] =
     React.useState<string>("github");
   const [customMirror, setCustomMirror] = React.useState<string>("");
-  const [phase, setPhase] = React.useState<Phase>({ kind: "idle" });
   const [debugEnabled, setDebugEnabled] = React.useState<boolean>(false);
-  const [checksumPrompt, setChecksumPrompt] = React.useState<ChecksumPrompt>({
-    open: false,
-    reason: "",
-  });
+  // 更新状态是全局唯一一份：状态栏胶囊、更新面板与本页读的是同一个 store。
+  const phase = useUpdateStore((s) => s.phase);
+  const runCheck = useUpdateStore((s) => s.check);
+  const runDownload = useUpdateStore((s) => s.download);
+  const runRestart = useUpdateStore((s) => s.restart);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -172,37 +155,22 @@ export function UpdateSection() {
     };
   }, []);
 
-  React.useEffect(() => {
-    const handler = (payload: { downloaded?: number; total?: number }) => {
-      if (!payload || !payload.total || payload.total <= 0) return;
-      const pct = Math.min(
-        100,
-        Math.round(((payload.downloaded ?? 0) / payload.total) * 100),
-      );
-      setPhase((prev) => {
-        if (prev.kind === "downloading") {
-          return { ...prev, progress: pct };
-        }
-        return prev;
-      });
-    };
-    EventsOn("update:progress", handler);
-    return () => {
-      EventsOff("update:progress");
-    };
-  }, []);
-
-  const handleChannelChange = React.useCallback(async (next: string) => {
-    const value = next as UpdateChannel;
-    setChannel(value);
-    try {
-      await setUpdateChannel(value);
-      // 切通道后清掉先前的检查结果，避免误导。
-      setPhase({ kind: "idle" });
-    } catch (err) {
-      console.warn("save update channel failed", err);
-    }
-  }, []);
+  const handleChannelChange = React.useCallback(
+    async (next: string) => {
+      const value = next as UpdateChannel;
+      setChannel(value);
+      try {
+        await setUpdateChannel(value);
+      } catch (err) {
+        console.warn("save update channel failed", err);
+        return;
+      }
+      // 切通道是用户主动动作,此刻他在等结果:立刻按新通道重查一次(绕过节流),
+      // 而不是把先前的结果清成「未知」让他自己再点一次。
+      await runCheck("manual");
+    },
+    [runCheck],
+  );
 
   const persistMirror = React.useCallback(async (url: string) => {
     try {
@@ -232,67 +200,17 @@ export function UpdateSection() {
     await persistMirror(customMirror.trim());
   }, [customMirror, mirrorSelectValue, persistMirror]);
 
-  const handleCheck = React.useCallback(async () => {
-    setPhase({ kind: "checking" });
-    try {
-      const info = await checkForUpdate();
-      if (info.hasUpdate) {
-        setPhase({ kind: "available", info });
-      } else {
-        setPhase({ kind: "uptodate" });
-      }
-    } catch (err) {
-      setPhase({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, []);
-
-  const startDownload = React.useCallback(
-    async (info: UpdateInfo, skipChecksum: boolean) => {
-      setPhase({ kind: "downloading", info, progress: 0 });
-      try {
-        await downloadAndInstallUpdate(skipChecksum);
-        setPhase({ kind: "installed", info });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (message.startsWith(CHECKSUM_FETCH_ERROR_PREFIX)) {
-          const detail = message.slice(CHECKSUM_FETCH_ERROR_PREFIX.length);
-          setChecksumPrompt({ open: true, reason: detail });
-          setPhase({ kind: "available", info });
-          return;
-        }
-        setPhase({ kind: "error", message });
-      }
-    },
-    [],
-  );
+  const handleCheck = React.useCallback(() => {
+    void runCheck("manual");
+  }, [runCheck]);
 
   const handleDownload = React.useCallback(() => {
-    if (phase.kind !== "available") return;
-    void startDownload(phase.info, false);
-  }, [phase, startDownload]);
+    void runDownload(false);
+  }, [runDownload]);
 
-  const handleSkipChecksum = React.useCallback(() => {
-    if (phase.kind !== "available") {
-      setChecksumPrompt({ open: false, reason: "" });
-      return;
-    }
-    setChecksumPrompt({ open: false, reason: "" });
-    void startDownload(phase.info, true);
-  }, [phase, startDownload]);
-
-  const handleRestart = React.useCallback(async () => {
-    try {
-      await restartApp();
-    } catch (err) {
-      setPhase({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, []);
+  const handleRestart = React.useCallback(() => {
+    void runRestart();
+  }, [runRestart]);
 
   const handleReportBug = React.useCallback(async () => {
     const params = new URLSearchParams({
@@ -453,14 +371,34 @@ export function UpdateSection() {
       ) : null}
 
       {phase.kind === "error" ? <ErrorCard message={phase.message} /> : null}
-
-      <ChecksumDialog
-        open={checksumPrompt.open}
-        reason={checksumPrompt.reason}
-        onCancel={() => setChecksumPrompt({ open: false, reason: "" })}
-        onConfirm={handleSkipChecksum}
-      />
     </>
+  );
+}
+
+/**
+ * UpdateChecksumDialogHost 把「校验文件拉不到，仍要继续吗」这张确认对话挂在应用根上。
+ *
+ * 它不能留在本节里：下载也可以从状态栏的更新面板发起，那时设置页根本没被渲染，
+ * 对话连同「仍要继续」一起消失，用户只会看到下载莫名其妙地退回去。store 是唯一
+ * 真相，这张对话也只该有一处。
+ */
+export function UpdateChecksumDialogHost() {
+  const prompt = useUpdateStore((s) => s.checksumPrompt);
+  const dismiss = useUpdateStore((s) => s.dismissChecksumPrompt);
+  const download = useUpdateStore((s) => s.download);
+
+  const handleConfirm = React.useCallback(() => {
+    dismiss();
+    void download(true);
+  }, [dismiss, download]);
+
+  return (
+    <ChecksumDialog
+      open={prompt.open}
+      reason={prompt.reason}
+      onCancel={dismiss}
+      onConfirm={handleConfirm}
+    />
   );
 }
 

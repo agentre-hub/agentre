@@ -497,3 +497,25 @@ describe("Agentre foundation components", () => {
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
   });
 });
+
+describe("SidebarButton 角标", () => {
+  it("Given 有待处理的东西, When 渲染, Then 图标上出现角标且不进无障碍名", () => {
+    const { container } = render(
+      <SidebarButton label="设置" icon={MessageSquare} badge />,
+    );
+
+    expect(
+      container.querySelector("[data-slot='sidebar-badge']"),
+    ).not.toBeNull();
+    // 角标是纯装饰：信息由按钮自己的 aria-label 承载，别让读屏念一个圆点。
+    expect(screen.getByRole("button", { name: "设置" })).toBeInTheDocument();
+  });
+
+  it("Given 没有待处理的东西, When 渲染, Then 没有角标", () => {
+    const { container } = render(
+      <SidebarButton label="设置" icon={MessageSquare} />,
+    );
+
+    expect(container.querySelector("[data-slot='sidebar-badge']")).toBeNull();
+  });
+});

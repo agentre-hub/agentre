@@ -941,7 +941,7 @@ function ProviderManagement({
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {groups.map((group) => (
             <div key={group.type} className="mb-2">
-              <div className="px-1.5 pb-1 font-mono text-2xs font-semibold uppercase tracking-[0.08em] text-subtle-foreground">
+              <div className="px-1.5 pb-1 font-mono text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 {isProviderType(group.type)
                   ? t(`llmProviders.providerType.${group.type}.label`)
                   : group.type}

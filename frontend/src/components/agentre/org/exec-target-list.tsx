@@ -536,7 +536,7 @@ function AddTargetPanel(props: {
       <div className="max-h-72 overflow-y-auto py-1">
         {[...groups.entries()].map(([deviceId, backends]) => (
           <div key={deviceId || "local"}>
-            <div className="px-3 pb-1 pt-2 text-2xs font-semibold text-subtle-foreground">
+            <div className="px-3 pb-1 pt-2 text-2xs font-semibold text-muted-foreground">
               {deviceId
                 ? backends[0].deviceName ||
                   t("org.agent.execTargets.addPanel.unpaired")

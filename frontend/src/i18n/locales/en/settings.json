@@ -240,6 +240,43 @@
       "description": "Use an accelerated mirror when GitHub access is slow. Custom mirrors must keep the protocol prefix, for example https://your.mirror/.",
       "title": "Download Mirror"
     },
+    "panel": {
+      "availableMeta": "Released {{time}} · {{channel}} · current {{current}}",
+      "availableTitle": "Agentre {{version}} available",
+      "checkAgain": "Check again",
+      "checkedAt": "Checked {{time}}",
+      "downloadingMeta": "SHA256 is verified once the download finishes.",
+      "downloadingTitle": "Downloading {{version}}",
+      "errorMeta": "You can switch to a download mirror in Settings → Version & Updates.",
+      "errorTitle": "Update check failed",
+      "idleMeta": "Current {{current}} · {{channel}}",
+      "idleTitle": "Check for updates",
+      "installedMeta": "Takes effect after a restart. Running sessions will be ended, so you can wrap up first.",
+      "installedTitle": "{{version}} installed",
+      "later": "Later",
+      "neverChecked": "Not checked yet",
+      "openSettings": "Open update settings",
+      "releasePage": "Release page",
+      "retry": "Retry",
+      "skipVersion": "Skip this version",
+      "upToDateMeta": "Current {{current}} · {{channel}}",
+      "upToDateTitle": "You are up to date"
+    },
+    "pill": {
+      "aria": {
+        "available": "Update {{version}} available, open update panel",
+        "checking": "Checking for updates, current version {{version}}",
+        "downloading": "Downloading {{version}}, {{percent}}% done",
+        "failed": "Update check failed, current version {{version}}",
+        "idle": "Current version {{version}}, open update panel",
+        "installed": "{{version}} installed, restart to finish"
+      },
+      "available": "{{version}} available",
+      "checking": "Checking",
+      "downloading": "Downloading {{percent}}%",
+      "failed": "Check failed",
+      "restart": "Restart to finish"
+    },
     "release": {
       "available": "New version available: {{version}}",
       "noNotes": "This release has no notes.",
@@ -252,6 +289,12 @@
     },
     "status": {
       "upToDate": "You are on the latest version"
+    },
+    "toast": {
+      "action": "View update",
+      "body": "Currently on {{current}}",
+      "dismiss": "Dismiss update notice",
+      "title": "Agentre {{version}} available"
     },
     "version": {
       "unknown": "Unknown"

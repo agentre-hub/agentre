@@ -40,11 +40,11 @@ export function FileWriteContent({
             key={i}
             className="flex w-max min-w-full items-center px-3 py-0.5"
           >
-            <span className="w-8 shrink-0 text-right text-meta text-subtle-foreground">
+            <span className="w-8 shrink-0 text-right text-meta text-decorative-foreground">
               {i + 1}
             </span>
             <span
-              className="w-5 shrink-0 text-center text-meta text-subtle-foreground"
+              className="w-5 shrink-0 text-center text-meta text-decorative-foreground"
               aria-hidden="true"
             >
               {" "}

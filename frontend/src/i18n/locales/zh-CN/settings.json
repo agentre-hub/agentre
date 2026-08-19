@@ -240,6 +240,43 @@
       "description": "国内访问 GitHub 慢时可以走加速镜像。自定义需保留协议头（例如 https://your.mirror/）。",
       "title": "下载镜像"
     },
+    "panel": {
+      "availableMeta": "{{time}} 发布 · {{channel}} · 当前 {{current}}",
+      "availableTitle": "Agentre {{version}} 可更新",
+      "checkAgain": "重新检查",
+      "checkedAt": "{{time}} 检查过",
+      "downloadingMeta": "下载完成后会自动校验 SHA256。",
+      "downloadingTitle": "正在下载 {{version}}",
+      "errorMeta": "可在「设置 → 版本 & 更新」改用下载镜像。",
+      "errorTitle": "检查更新失败",
+      "idleMeta": "当前 {{current}} · {{channel}}",
+      "idleTitle": "检查新版本",
+      "installedMeta": "重启后生效。正在运行的会话会被结束，可以先收尾再重启。",
+      "installedTitle": "{{version}} 已安装",
+      "later": "稍后",
+      "neverChecked": "尚未检查过",
+      "openSettings": "打开更新设置",
+      "releasePage": "发布页",
+      "retry": "重试",
+      "skipVersion": "跳过此版本",
+      "upToDateMeta": "当前 {{current}} · {{channel}}",
+      "upToDateTitle": "已是最新版本"
+    },
+    "pill": {
+      "aria": {
+        "available": "有新版本 {{version}} 可更新,打开更新面板",
+        "checking": "正在检查更新,当前版本 {{version}}",
+        "downloading": "正在下载 {{version}},已完成 {{percent}}%",
+        "failed": "检查更新失败,当前版本 {{version}}",
+        "idle": "当前版本 {{version}},打开更新面板",
+        "installed": "{{version}} 已安装,重启以完成更新"
+      },
+      "available": "{{version}} 可更新",
+      "checking": "检查中",
+      "downloading": "下载中 {{percent}}%",
+      "failed": "检查失败",
+      "restart": "重启以完成更新"
+    },
     "release": {
       "available": "发现新版本 {{version}}",
       "noNotes": "本次发布暂无说明。",
@@ -252,6 +289,12 @@
     },
     "status": {
       "upToDate": "已是最新版本"
+    },
+    "toast": {
+      "action": "查看更新",
+      "body": "当前 {{current}}",
+      "dismiss": "关闭更新提示",
+      "title": "Agentre {{version}} 可更新"
     },
     "version": {
       "unknown": "未知"

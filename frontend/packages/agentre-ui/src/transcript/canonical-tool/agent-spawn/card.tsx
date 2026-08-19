@@ -561,7 +561,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
             data-testid="agent-spawn-progress"
             data-copyable-control-text="true"
             aria-label={progressAriaLabel}
-            className="inline-flex min-w-0 shrink items-center gap-1 overflow-hidden text-meta text-subtle-foreground"
+            className="inline-flex min-w-0 shrink items-center gap-1 overflow-hidden text-meta text-muted-foreground"
           >
             <Wrench className="size-2.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{progressTick}</span>
@@ -590,7 +590,7 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
             <span
               data-testid="agent-spawn-outcome"
               data-copyable-control-text="true"
-              className="shrink-0 text-meta text-subtle-foreground"
+              className="shrink-0 text-meta text-muted-foreground"
             >
               {outcomeSummary}
             </span>
@@ -938,7 +938,7 @@ function GroupedAgentSpawnCard({
             <span
               data-testid="agent-spawn-outcome"
               data-copyable-control-text="true"
-              className="shrink-0 text-meta text-subtle-foreground"
+              className="shrink-0 text-meta text-muted-foreground"
             >
               {outcomeSummary}
             </span>
@@ -1080,7 +1080,7 @@ function AgentSpawnRunGroup({
           )}
           aria-hidden="true"
         />
-        <span className="shrink-0 text-meta text-subtle-foreground">
+        <span className="shrink-0 text-meta text-muted-foreground">
           {run.index + 1}
         </span>
         <span
@@ -1192,7 +1192,7 @@ function AgentSpawnMetaItem({
 }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span className="text-subtle-foreground">{label}</span>
+      <span className="text-muted-foreground">{label}</span>
       <span data-testid={testId} className="text-foreground">
         {value}
       </span>
@@ -1216,7 +1216,7 @@ function AgentSpawnSection({
           {label}
         </span>
         {meta ? (
-          <span className="font-mono text-meta text-subtle-foreground">
+          <span className="font-mono text-meta text-muted-foreground">
             {meta}
           </span>
         ) : null}

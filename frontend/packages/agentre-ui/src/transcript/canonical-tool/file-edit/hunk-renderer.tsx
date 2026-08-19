@@ -71,7 +71,7 @@ function HunkBlock({ hunk }: { hunk: DiffHunk }) {
       <div className="w-max min-w-full bg-secondary px-3 py-1 font-mono text-meta font-semibold text-muted-foreground">
         @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
         {hunk.header ? (
-          <span className="ml-3 font-normal text-subtle-foreground">
+          <span className="ml-3 font-normal text-muted-foreground">
             {hunk.header}
           </span>
         ) : null}
@@ -95,15 +95,15 @@ function DiffLineRow({ line }: { line: DiffLine }) {
       ? "text-status-running"
       : line.op === "-"
         ? "text-destructive"
-        : "text-subtle-foreground";
+        : "text-decorative-foreground";
   return (
     // w-max + min-w-full:行盒撑到最长行的宽度,横向滚动后 +/- 的背景条
     // 才会一路铺到行尾,而不是断在卡片可视边缘。
     <div className={cn("flex w-max min-w-full items-center px-3 py-0.5", bg)}>
-      <span className="w-8 shrink-0 text-right text-meta text-subtle-foreground">
+      <span className="w-8 shrink-0 text-right text-meta text-decorative-foreground">
         {line.old ?? " "}
       </span>
-      <span className="w-8 shrink-0 text-right text-meta text-subtle-foreground">
+      <span className="w-8 shrink-0 text-right text-meta text-decorative-foreground">
         {line.new ?? " "}
       </span>
       <span

@@ -76,8 +76,8 @@ The "why" behind the constraints — apply these when shaping a screen.
 | `popover` | `#ffffff` | `#262931` | Floating layers (dropdown / tooltip / toast) surface |
 | `popover-foreground` | `#18181b` | `#e6e8eb` | Text in floating layers |
 | `rail` | `#e4e4e7` | `#0a0b0d` | Window chrome bands — title bar, icon rail, status bar (the recessed frame) |
-| `muted-foreground` | `#71717a` | `#8a8d94` | De-emphasized / descriptive text |
-| `subtle-foreground` | `#a1a1aa` | `#5a5d64` | Faintest text — placeholder glyphs, empty-state icons, line numbers |
+| `muted-foreground` | `#65656d` | `#909399` | De-emphasized / descriptive text — timestamps, counts, metadata labels, section headings. **This is the floor for anything a user has to read.** Its value is set by the *darkest* surface it lands on, not by `card`: the status bar and window controls put it on `rail`, where the old `#71717a` was only 3.81. Now 4.55 on `rail`, 5.26 on `secondary`/`code-surface`, 5.78 on `card`. Guarded per-surface by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
+| `decorative-foreground` | `#a1a1aa` | `#5a5d64` | **Glyphs that never carry information** — separator dots (`·` `/` `›`), diff/file line numbers, `aria-hidden` icons that merely accompany adjacent text, fallback glyphs. At ~2.5:1 it misses 3:1 in both themes **by design**. Was named `subtle-foreground`; that name read like "a weaker body text", so 97 metadata labels quietly ended up on it (2026-08-19 audit) — they all moved to `muted-foreground`. If the thing has to be *read*, it does not belong here |
 
 > Dark mode is a deliberate **5-level surface ladder**: `rail #0a0b0d` < `sidebar #111316` < `background #17191c` < `card #1d2025` < `popover #262931`. Pick the surface that matches the layer's height (§3.12).
 
@@ -104,7 +104,8 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | `secondary` | `#f4f4f5` | `#262931` | Secondary buttons / fills; the tab-strip band |
 | `secondary-foreground` | `#3f3f46` | `#c4c7cd` | Text on secondary |
 | `muted` | `#f4f4f5` | `#1d2025` | Muted background (group fills, placeholders) |
-| `accent` | `#f4f4f5` | `#383d47` | Hover / selected background (menu items, rows) |
+| `accent` | `#e0e0e3` | `#383d47` | **交互反馈** —— 内容表面上的 hover / 选中填充。刻意不等于任何静止表面：曾经是 `#f4f4f5`，与 `secondary`/`muted`/`sidebar` 同字节，86 处 `hover:bg-accent` 在那些面上渲染成 1.00:1。实测 card/popover 1.32、background 1.26、secondary 1.20。**外壳带上的 hover 用 `rail-accent`，不要用它** |
+| `rail-accent` | `#f7f7f8` | `#212429` | 窗口外壳带（标题栏 / 图标栏 / 状态栏，即所有 `bg-rail` 之上）的 hover / focus 反馈。`rail` 亮色是 `#e4e4e7`，比任何内容表面都暗得多，**一个值无法同时服务两边**：在白卡片上够深的填充落到 rail 上会被吃掉（2026-08-19 就这么把 rail 的 hover 压到过 1.028）。rail 是下沉的一层，所以 hover 是提亮而非压暗，与 `sidebar-active-bg` 一致。实测 rail 上 1.19 / 1.27 |
 | `accent-foreground` | `#18181b` | `#e6e8eb` | Text on accent |
 
 ### 3.4 Borders, inputs, ring
@@ -113,7 +114,7 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | --- | --- | --- | --- |
 | `border` | `#e4e4e7` | `#2a2d34` | Global borders (the `@layer base` reset gives every element `border-border`) |
 | `border-strong` | `#d4d4d8` | `#3a3e47` | Emphasized dividers / drag handles where `border` is too faint |
-| `input` | `#e4e4e7` | `#2a2d34` | Form-control borders |
+| `input` | `#cbcbd0` | `#4a4f59` | Field edges (`Input` / `Textarea` / `Select` / outline `Button`). Split off from `border` so a divider can stay quiet while a field edge stays legible. Target is "clearly visible", **not** WCAG's 3:1 — these controls carry their own fill and text, so the border is a supporting cue; controls whose border *is* the control use `control-border` below |
 | `input-bg` | `#ffffff` | `#17191c` | Form-control fill |
 | `control-border` | `#8a8a91` | `#70757f` | **Controls whose outline *is* the control** — an unchecked `Checkbox` has no fill, so losing the border loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.14 dark). Do **not** reach for `border`/`input` here: they are quiet dividers/field edges at ~1.1:1 against every surface, which is why the model table's header select-all used to vanish. Guarded by [`ui/__tests__/checkbox.test.tsx`](../frontend/src/components/ui/__tests__/checkbox.test.tsx) |
 
@@ -128,7 +129,23 @@ The heart of agentre's state language. Four states, each with a solid color (dot
 | `idle` | `#a1a1aa` → `#6a6d74` | *(uses `secondary`)* | gray dot; text falls to `muted-foreground` |
 | `error` | `#dc2626` → `#f87171` | *(uses `destructive-soft`)* | red dot / pill — turn failed |
 
-> `running` also has `--status-running-foreground` (`#ffffff` / `#04140c`) for text on the solid green. Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
+**Each state has up to four roles — do not mix them up:**
+
+| Role | Token | Renders as |
+| --- | --- | --- |
+| fill | `status-<state>` | dots, solid badges, progress |
+| soft fill | `status-<state>-bg` | the pill background |
+| on-fill text | `status-<state>-foreground` | text sitting **on** the saturated fill |
+| as text | `status-<state>-text` | the state rendered **as text** (on `status-*-bg` or a card) |
+
+| Token | Light | Dark | Why it exists |
+| --- | --- | --- | --- |
+| `status-running-foreground` | `#ffffff` | `#04140c` | Text on the solid green |
+| `status-waiting-foreground` | `#402b06` | *(same)* | Deep brown on the bright amber fill. Both themes keep a bright amber, so one value reads on either |
+| `status-running-text` | `#047857` | `#34d399` | The saturated fill is unreadable **as text** in light: `#10b981` on its own pill is 2.41. Dark already cleared the bar, so it reuses the fill value |
+| `status-waiting-text` | `#b45309` | `#fbbf24` | Same story: `#f59e0b` on its own pill is 2.07 |
+
+The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) (≥4.5 on both the pill and `card`, both themes). Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
 
 ### 3.6 Agent palette (16 identity colors)
 
@@ -144,6 +161,8 @@ Sixteen fixed hues give concurrent agents distinct, stable identities. Light use
 | `agent-6` | `#0891b2` | `#22d3ee` | | `agent-14` | `#ca8a04` | `#fde047` |
 | `agent-7` | `#c026d3` | `#e879f9` | | `agent-15` | `#64748b` | `#94a3b8` |
 | `agent-8` | `#65a30d` | `#a3e635` | | `agent-16` | `#9333ea` | `#c084fc` |
+
+> The initial glyph sitting **on** an agent fill uses `agent-foreground` (`#ffffff`, theme-invariant — the letter is white on all sixteen hues in both themes). Use `text-agent-foreground`, not a literal `text-white`.
 
 **How to apply a color.** The source of truth is the agent's `agentColor` token (e.g. `"agent-7"`), assigned by the backend — there is **no client-side hashing**. Map it through the helpers, never by hand:
 
@@ -168,6 +187,19 @@ The file-type icon uses a transparent 17px alignment slot containing a directly 
 | `file-neutral` | `#71717a` | `#8a8d94` | plain text / log, TOML, `*.lock`, unknown fallback |
 
 Use `text-file-<tone>` (exposed via `--color-file-*` in the `@theme inline` block); never write the hex directly. The slot has no background, border, radius, shadow or padding, and selected/hover backgrounds belong to the containing row or tab. High-recognition languages use the installed Tabler Brand Logo where available; formats use their file-type glyph. Directory rows remain separate and keep neutral `Folder` / `FolderOpen` plus Chevron icons. The icon itself is decorative (`aria-hidden`) — file names, Git status and actions keep carrying the semantics.
+
+### 3.6b Issue label tones (2 extra hues)
+
+The ten issue-label chips in [`components/agentre/issue-tones.ts`](../frontend/src/components/agentre/issue-tones.ts) are all "soft fill + a text color readable on that fill". Eight of them borrow an existing semantic family — `destructive-soft`/`destructive-text` (bug), `destructive` (critical), `secondary`/`secondary-foreground` (docs, ops), `status-running-*` (feature), `status-waiting-*` (perf), `primary-soft`/`primary-text` (hook, refactor). Two hues have no semantic home; they exist only to keep ten labels apart, so they get their own pair here.
+
+| Token / class | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `tone-blue-bg` | `#e9effd` | `#242d3a` | Soft blue chip fill (`auth`) |
+| `tone-blue-text` | `#1d4ed8` | `#60a5fa` | Text on `tone-blue-bg` |
+| `tone-violet-bg` | `#f2ebfd` | `#2b2b3a` | Soft violet chip fill (`ui`) |
+| `tone-violet-text` | `#6d28d9` | `#a78bfa` | Text on `tone-violet-bg` |
+
+**Do not reach into the agent palette for this.** These two used to be `bg-agent-1/10 text-agent-1` / `bg-agent-2/10 text-agent-2`, which broke twice over: the `--agent-*` hues are *identity* built for `bg-agent-N` + a white glyph (§3.6) — as text on a card, half the sixteen miss 4.5 — and a `/10` tint is transparent, so the chip's real fill (and its contrast) shifted with whatever surface it landed on: `auth` measured 4.49 on `card`, 4.33 on `background`, 4.06 on a hovered list row. The fills above are the opaque equivalent of what the old tint rendered on a card, so the chips look the same but no longer depend on what is underneath. Guarded by [`components/agentre/__tests__/issue-tones.test.ts`](../frontend/src/components/agentre/__tests__/issue-tones.test.ts), which reads the classes back out of `issue-tones.ts`, resolves them through `tokens.css`, and asserts ≥ 4.5 for every tone on every surface, both themes.
 
 ### 3.7 Sidebar
 
@@ -217,6 +249,7 @@ Don't restyle scrollbars per-container; the global rules in [`globals.css`](../f
 | `destructive` | `#dc2626` | `#f87171` | Dangerous / delete / error actions |
 | `destructive-foreground` | `#ffffff` | `#fafafa` | Text on solid destructive |
 | `destructive-soft` | `#fef2f2` | `#2a1414` | Soft red wash — error cards, error toasts, the `error` status pill |
+| `destructive-text` | `#b91c1c` | `#f87171` | **Red rendered as text** on `destructive-soft` / a card. The same fill-vs-text split as `status-*-text`: `destructive` on its own wash is only 4.41 in light. Keep `destructive` for fills, dots and icon marks; reach for this one whenever the red *is* the text. Dark already clears the bar on the wash (6.28), so it reuses the fill value |
 
 ### 3.11a Code / console surface
 
@@ -226,7 +259,7 @@ Monospace **console output** surfaces (hook stdout/stderr, local-command output)
 | --- | --- | --- | --- |
 | `code-surface` | `#f4f4f5` | `#121418` | Console/output box fill (`bg-code-surface`) |
 | `code-foreground` | `#3f3f46` | `#e6e8eb` | Primary monospace text on `code-surface` |
-| `code-muted-foreground` | `#71717a` | `#9aa0ab` | De-emphasized monospace text (stdout) |
+| `code-muted-foreground` | `#65656d` | `#9aa0ab` | De-emphasized monospace text (stdout) |
 
 ### 3.12 Elevation (surfaces & shadows)
 
@@ -238,9 +271,10 @@ Depth is primarily a **surface step**, not a shadow (Principle 5). Pick the surf
 | **Base** | `background` | none | Page content |
 | **Resting card** | `card` | none / `shadow-xs` | Cards, list rows, the active sidebar item (`shadow-xs`). Prefer a `border` over a shadow at rest. |
 | **Raised** | `popover` | `shadow-md` | Anchored floating layers — `DropdownMenu`, `Popover`, `HoverCard`, `Select`, the rail tooltip |
-| **Overlay** | `popover` | `shadow-lg` | Detached overlays that own the screen — `Dialog` |
+| **Overlay** | `card` | `shadow-overlay` | Detached overlays that own the screen — `Dialog`. The shadow comes from the `--overlay-shadow` token (light: a soft drop + dark hairline; dark: a heavier drop + **light** hairline), and the backdrop from `--overlay-scrim` (`bg-scrim`) |
 
-- **Shadows barely render in dark.** On the dark surfaces a black shadow is nearly invisible, so depth in dark relies on the surface step + the `border`. Keep the border; don't reach past `shadow-lg`. There are **no `--shadow-*` tokens** — use the Tailwind utilities sparingly and stay on this ladder.
+- **Shadows barely render in dark.** On the dark surfaces a black shadow is nearly invisible, so depth in dark relies on the surface step + the `border`. Keep the border; don't reach past `shadow-overlay`.
+- **The one shadow token is `--overlay-shadow` → `shadow-overlay`.** Root token is `--overlay-*` while the utility alias is `--shadow-*` on purpose: Tailwind v4's shadow namespace *is* `--shadow-*`, so a same-named root token would make the `@theme` mapping self-referential. Same reason for `--overlay-scrim` → `--color-scrim`. Anything shallower (`shadow-xs` / `shadow-md`) stays a plain Tailwind utility — don't invent more shadow tokens.
 - Pair elevation with the matching radius (§5): raised → `rounded-lg`, overlay → `rounded-xl`.
 
 ---
@@ -494,7 +528,7 @@ Every async flow covers loading / empty / error / success consistently. **Import
 | State | Convention today |
 | --- | --- |
 | **Loading** | A centered `Loader2` (`animate-spin`, `text-muted-foreground`) for whole regions, or an inline `Loader2 size-3.5 animate-spin` inside a disabled button for single actions. For lightweight "first load" copy, the `CenterNote` pattern (centered `text-xs text-muted-foreground`, e.g. [`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). No skeletons exist — add one only if you build the shared component. |
-| **Empty** | Centered icon (`Inbox` / `Sparkles` in `subtle-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/src/components/agentre/llm-providers.tsx)) and `IssuesEmpty` ([`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). |
+| **Empty** | Centered icon (`Inbox` / `Sparkles` in `decorative-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/src/components/agentre/llm-providers.tsx)) and `IssuesEmpty` ([`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). |
 | **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message, and an optional outline retry button. For page-level failures, centered `text-destructive` copy. |
 | **Success** | Transient → a Sonner `toast.success` (§6.5); a completed agent turn → the notification viewport. |
 | **In-progress** | No general-purpose `Progress` primitive in `components/ui/`. Agent background-task progress has a dedicated `TaskProgressBar` ([`task-progress/`](../frontend/src/components/agentre/task-progress/)) — a real bar + expandable task list with a `LoaderCircle` spinner tinted `text-status-waiting`. For other waits, a status-tinted spinner + readable copy. |
@@ -532,7 +566,7 @@ Friendly UX includes keyboard, screen-reader, low-vision, and motion-sensitive u
 ### Contrast
 
 - **Target WCAG AA:** ≥ 4.5:1 for normal text, ≥ 3:1 for large text and meaningful UI/icon edges. `foreground`, the status `*-fg` pairs, and brand `primary-text` pass comfortably.
-- **`muted-foreground` is the edge case** and `subtle-foreground` is fainter still — keep them for secondary/descriptive text, and use `foreground` for anything dense or critical. Don't stack small `muted-foreground` text on a `muted`/`secondary` fill.
+- **`muted-foreground` is the floor for readable text** — secondary/descriptive copy lives there; use `foreground` for anything dense or critical. `decorative-foreground` is fainter still and is **not** a text color: it is for glyphs that carry no information (§3.1). Both are guarded per-surface, so "it looks fine on a card" is no longer the test.
 - **Never encode meaning in color alone.** The agent palette is *identity*, not status — always pair an agent color with its name/initials, and every status color with its label/icon (`StatusPill` does both).
 
 ### Focus visibility

@@ -42,7 +42,7 @@ describe("ProjectGlyph", () => {
     // 自由会话没有身份可言，读屏不该把它念成一个项目。
     expect(screen.queryByRole("img")).toBeNull();
     const svg = container.querySelector("svg");
-    expect(svg?.getAttribute("class")).toContain("text-subtle-foreground");
+    expect(svg?.getAttribute("class")).toContain("text-decorative-foreground");
   });
 
   it("尺寸由调用方给：行里 14px、组头 24px 是同一枚字形的两种尺寸", () => {

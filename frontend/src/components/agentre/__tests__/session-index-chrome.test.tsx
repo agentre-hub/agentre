@@ -210,7 +210,7 @@ describe("RowLeadingSlot", () => {
     expect(slot.dataset.kind).toBe("free-glyph");
     expect(slot.className).toBe(projectSlotClass);
     expect(slot.querySelector("svg")?.getAttribute("class")).toContain(
-      "text-subtle-foreground",
+      "text-decorative-foreground",
     );
   });
 

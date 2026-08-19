@@ -9,7 +9,9 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock("../../../wailsjs/runtime/runtime", () => runtimeMocks);
 
-import { UpdateSection } from "./update-section";
+import { INITIAL_UPDATE_STATE, useUpdateStore } from "@/stores/update-store";
+
+import { UpdateChecksumDialogHost, UpdateSection } from "./update-section";
 
 const REPOSITORY_URL = "https://github.com/agentre-ai/agentre";
 
@@ -82,9 +84,9 @@ describe("UpdateSection repository address", () => {
 
     render(<UpdateSection />);
 
-    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+    // 等的是「仓库地址仍在」这件事本身，而不是某个恰好发生在它之前的副作用。
     expect(
-      screen.getByRole("link", { name: REPOSITORY_URL }),
+      await screen.findByRole("link", { name: REPOSITORY_URL }),
     ).toBeInTheDocument();
   });
 });
@@ -155,5 +157,61 @@ describe("UpdateSection debug logging", () => {
     fireEvent.click(screen.getByRole("switch"));
 
     await waitFor(() => expect(app.SetDebugLogging).toHaveBeenCalledWith(true));
+  });
+});
+
+describe("UpdateSection channel switch", () => {
+  it("Given the user switches update channel, When it persists, Then a fresh check runs against the new channel", async () => {
+    const app = installUpdateBindings();
+    app.SetUpdateChannel = vi.fn(() => Promise.resolve());
+    app.CheckForUpdate = vi.fn(() =>
+      Promise.resolve({ hasUpdate: false, currentVersion: "1.2.3" }),
+    );
+
+    render(<UpdateSection />);
+    await waitFor(() => expect(app.GetUpdateChannel).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("combobox", { name: /channel/i }));
+    fireEvent.click(await screen.findByRole("option", { name: /beta/i }));
+
+    await waitFor(() =>
+      expect(app.SetUpdateChannel).toHaveBeenCalledWith("beta"),
+    );
+    // 切完通道不该把结果清成「未知」让用户自己再点一次——他此刻就在等结果。
+    await waitFor(() => expect(app.CheckForUpdate).toHaveBeenCalled());
+  });
+});
+
+describe("UpdateChecksumDialogHost", () => {
+  const INFO = {
+    hasUpdate: true,
+    currentVersion: "0.9.1",
+    latestVersion: "v0.9.2",
+    releaseNotes: "",
+    releaseURL: "",
+    publishedAt: "",
+  };
+
+  it("Given the download was started from the status bar panel, When the checksum file cannot be fetched, Then the confirm dialog is still there without the settings page", async () => {
+    const app = installUpdateBindings();
+    app.DownloadAndInstallUpdate = vi.fn(() => Promise.resolve());
+    useUpdateStore.setState({
+      ...INITIAL_UPDATE_STATE,
+      phase: { kind: "available", info: INFO },
+      checksumPrompt: { open: true, reason: "404 SHA256SUMS.txt" },
+    });
+
+    // 设置页没有被渲染 —— 对话若还挂在那一节里,用户什么都看不到。
+    render(<UpdateChecksumDialogHost />);
+
+    expect(screen.getByText("404 SHA256SUMS.txt")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Skip Checksum and Continue/i }),
+    );
+
+    await waitFor(() =>
+      expect(app.DownloadAndInstallUpdate).toHaveBeenCalledWith(true),
+    );
+    expect(useUpdateStore.getState().checksumPrompt.open).toBe(false);
   });
 });

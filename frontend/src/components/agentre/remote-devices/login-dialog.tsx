@@ -359,7 +359,7 @@ export function LoginDialog({
               time: formatCountdown(remaining),
             })}
           </p>
-          <p className="text-center text-xs text-subtle-foreground">
+          <p className="text-center text-xs text-muted-foreground">
             {t("remoteDevices.login.waiting.autoClose")}
           </p>
         </div>

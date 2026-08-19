@@ -2036,7 +2036,7 @@ describe("ChatTranscript message meta", () => {
 
   it("renders the meta strip below the message, always visible without hover gating", () => {
     // 之前用 group-hover / React state 控制 meta 显隐，在 Wails WebKit 下
-    // 多次出现 meta 一直亮起的 bug。现在改成常驻显示，靠 text-subtle-foreground
+    // 多次出现 meta 一直亮起的 bug。现在改成常驻显示，靠 text-muted-foreground
     // + text-2xs 自身弱化样式，不再依赖任何 hover/focus 状态。
     render(
       <ChatTranscript

@@ -167,7 +167,8 @@
     "issues": "Issues",
     "org": "组织",
     "projects": "项目",
-    "settings": "设置"
+    "settings": "设置",
+    "settingsUpdateAvailable": "设置(有新版本)"
   },
   "notify": {
     "app": "Agentre",
