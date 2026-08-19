@@ -436,5 +436,26 @@
       "openInNewTab": "Open in new tab",
       "rename": "Rename"
     }
+  },
+  "sessionIndex": {
+    "axis": {
+      "title": "Group by",
+      "project": "Project",
+      "agent": "Agent",
+      "time": "Time",
+      "machine": "Machine"
+    },
+    "free": {
+      "name": "Quick chats",
+      "attention": "{{count}} quick chats need attention",
+      "newSession": "New quick chat"
+    },
+    "ownSessions": {
+      "label": "Sessions",
+      "toggle": "Toggle {{name}} sessions"
+    },
+    "machine": {
+      "offline": "Offline"
+    }
   }
 }

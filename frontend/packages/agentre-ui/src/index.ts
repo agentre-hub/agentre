@@ -69,8 +69,9 @@ export { isOpenInNewTabModifier } from "./lib/keyboard";
 export { StatusDot } from "./ui/status-dot";
 export type { StatusDotProps } from "./ui/status-dot";
 // ── 会话索引 ───────────────────────────────────────────────────────────────
-// 行与分组容器进包，**分组本身留宿主**（两端的轴天生不同，见
-// docs/specs/2026-08-16-unified-chat-index.md 决策 12）。
+// 行、分组容器，以及**轴投影本身**（规格 2026-08-18「共享包承载什么」把它收了
+// 进来：组怎么分、怎么排、兜底组摆在哪只该有一份实现）。留在宿主的是各端的取数与
+// 装配，以及**可选轴清单**——桌面端三档、server 控制台四档（决策 17）。
 export { SessionGroup } from "./session-index/session-group";
 export type { SessionGroupProps } from "./session-index/session-group";
 export { SessionRow } from "./session-index/session-row";
@@ -88,6 +89,40 @@ export {
   SIDEBAR_EXPANDED_KEY_PREFIX,
   writeSidebarExpanded,
 } from "./session-index/expanded-state";
+// 轴投影（纯函数）与组的形状契约 —— 两端共用的那一份。
+export {
+  buildAxisGroups,
+  UNASSIGNED_PROJECT_KEY,
+  UNKNOWN_MACHINE_KEY,
+  UNNAMED_AGENT_KEY,
+} from "./session-index/axis-groups";
+export type {
+  AgentInfo,
+  AxisInput,
+  GroupKind,
+  IndexAxis,
+  IndexGroup,
+  IndexGroupRow,
+  IndexRow,
+  MachineInfo,
+  ProjectNode,
+} from "./session-index/axis-groups";
+// 索引的零耦合呈现件：轴选择器、组头、行的前置槽与次行。
+export { AxisPicker } from "./session-index/axis-picker";
+export type { AxisPickerProps } from "./session-index/axis-picker";
+export { FreeGroupHeader } from "./session-index/free-group-header";
+export type { FreeGroupHeaderProps } from "./session-index/free-group-header";
+export { OwnSessionsHeader } from "./session-index/own-sessions-header";
+export type { OwnSessionsHeaderProps } from "./session-index/own-sessions-header";
+export { ProjectGlyph } from "./session-index/project-glyph";
+export type {
+  ProjectGlyphInfo,
+  ProjectGlyphProps,
+} from "./session-index/project-glyph";
+export { RowLeadingSlot } from "./session-index/row-leading-slot";
+export type { RowLeadingSlotProps } from "./session-index/row-leading-slot";
+export { RowSecondaryLine } from "./session-index/row-secondary-line";
+export type { RowSecondaryLineProps } from "./session-index/row-secondary-line";
 export {
   computeTerminalHeight,
   FALLBACK_CELL_PX,

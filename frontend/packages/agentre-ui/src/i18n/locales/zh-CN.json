@@ -436,5 +436,26 @@
       "openInNewTab": "新标签打开",
       "rename": "改名"
     }
+  },
+  "sessionIndex": {
+    "axis": {
+      "title": "分组方式",
+      "project": "项目",
+      "agent": "Agent",
+      "time": "时间",
+      "machine": "机器"
+    },
+    "free": {
+      "name": "随手对话",
+      "attention": "{{count}} 条随手对话需要关注",
+      "newSession": "新建随手对话"
+    },
+    "ownSessions": {
+      "label": "会话",
+      "toggle": "展开/收起 {{name}} 的会话"
+    },
+    "machine": {
+      "offline": "离线"
+    }
   }
 }

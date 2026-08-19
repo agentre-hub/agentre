@@ -1,0 +1,94 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+
+import { FreeGroupHeader } from "./free-group-header";
+
+describe("FreeGroupHeader", () => {
+  it("一条自由会话都没有时组头照在，＋ 也照在（决策 6）", async () => {
+    const user = userEvent.setup();
+    const onNewSession = vi.fn();
+    render(
+      <FreeGroupHeader
+        expanded
+        onToggle={vi.fn()}
+        attentionCount={0}
+        onNewSession={onNewSession}
+      />,
+    );
+
+    expect(screen.getByTestId("free-group-header")).toBeInTheDocument();
+    expect(screen.getByText("Quick chats")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "New quick chat" }));
+    expect(onNewSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("虚拟组没有可设置的东西，所以没有 ⋮（决策 6）", () => {
+    render(
+      <FreeGroupHeader
+        expanded
+        onToggle={vi.fn()}
+        attentionCount={1}
+        onNewSession={vi.fn()}
+      />,
+    );
+
+    // 虚拟组没有设置 / 子项目 / 合并 / 删除可言 —— 挂一个菜单上去是骗人。
+    // 组头上只该有两个按钮：折叠与 ＋。
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(2);
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      null,
+      "New quick chat",
+    ]);
+    // 而且组头里没有任何菜单接线。
+    const header = screen.getByTestId("free-group-header");
+    expect(
+      header.querySelector(
+        "[data-slot='dropdown-menu-trigger'],[data-slot='context-menu-trigger']",
+      ),
+    ).toBeNull();
+  });
+
+  it("点组头这一行就折叠 / 展开", async () => {
+    const user = userEvent.setup();
+    const onToggle = vi.fn();
+    render(
+      <FreeGroupHeader
+        expanded={false}
+        onToggle={onToggle}
+        attentionCount={0}
+        onNewSession={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { expanded: false }));
+
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("需要关注的条数带一枚圆点；0 条时连圆点都不摆", () => {
+    const { unmount } = render(
+      <FreeGroupHeader
+        expanded
+        onToggle={vi.fn()}
+        attentionCount={3}
+        onNewSession={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("free-group-attention")).toHaveTextContent("3");
+    unmount();
+
+    render(
+      <FreeGroupHeader
+        expanded
+        onToggle={vi.fn()}
+        attentionCount={0}
+        onNewSession={vi.fn()}
+      />,
+    );
+    // 组内总条数**不在**组头上：条数就在下面列着，写出来是复述。
+    expect(screen.queryByTestId("free-group-attention")).toBeNull();
+  });
+});
