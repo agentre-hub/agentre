@@ -47,7 +47,7 @@ export function TabOverflowMenu() {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={4} className="w-96 p-0">
-        <div className="px-3 py-2 font-mono text-2xs font-semibold uppercase tracking-wider text-subtle-foreground">
+        <div className="px-3 py-2 font-mono text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           {t("chatTabs.overflow.openTabs", { count: sortedTabs.length })}
         </div>
         <div className="flex flex-col py-1">

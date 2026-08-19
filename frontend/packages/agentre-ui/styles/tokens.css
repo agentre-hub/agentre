@@ -29,8 +29,16 @@
   --secondary: #f4f4f5;
   --secondary-foreground: #3f3f46;
   --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --subtle-foreground: #a1a1aa;
+  /* 弱化正文。取值由它落到的**最暗**表面决定：亮色是 --rail #e4e4e7（状态栏、
+     窗口控制按钮的标签都在那上面），#71717a 在那里只有 3.81。#65656d 让它在
+     rail 上 4.55、secondary / code-surface 上 5.26、card 上 5.78。
+     由 src/tokens.test.ts 的 TEXT_SURFACES 表逐面把关。 */
+  --muted-foreground: #65656d;
+  /* 纯装饰字形——分隔点、行号、aria-hidden 的伴随图标。**它永远不该承载信息**：
+     对 card 只有 2.56 / 2.48，两个主题都够不到 3:1。它此前的名字读起来像
+     「更弱的正文色」，于是 97 处元信息标签顺手用了它（2026-08-19 审计）。
+     改名就是为了让下一个写时间戳的人停一下。 */
+  --decorative-foreground: #a1a1aa;
   /* Interaction feedback (hover / selected fills) on the content surfaces —
      deliberately NOT equal to any resting surface. It used to be #f4f4f5, i.e.
      the same byte as --secondary, --muted and --sidebar, so all 86
@@ -125,7 +133,7 @@
      Light-adaptive: a light code surface in light theme, deep console near-black in dark. */
   --code-surface: #f4f4f5;
   --code-foreground: #3f3f46;
-  --code-muted-foreground: #71717a;
+  --code-muted-foreground: #65656d;
 
   /* Agent palette — 600-700 saturated shades hold up on light bg.
      agent-3 sky / agent-6 cyan avoid clash with status-running & primary teal. */
@@ -206,8 +214,9 @@
   --secondary: #262931;
   --secondary-foreground: #c4c7cd;
   --muted: #1d2025;
-  --muted-foreground: #8a8d94;
-  --subtle-foreground: #5a5d64;
+  /* 暗色最暗的落点是 --popover #262931（下拉里的分组标题），#8a8d94 在那里 4.38。 */
+  --muted-foreground: #909399;
+  --decorative-foreground: #5a5d64;
   --accent: #383d47;
   --accent-foreground: #e6e8eb;
   /* 1.27 on the dark --rail #0a0b0d. */
@@ -357,7 +366,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-subtle-foreground: var(--subtle-foreground);
+  --color-decorative-foreground: var(--decorative-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-rail-accent: var(--rail-accent);

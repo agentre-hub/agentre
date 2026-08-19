@@ -284,7 +284,9 @@ function AppTopBar({
         <span className="text-sm font-semibold">{appName}</span>
         {breadcrumb ? (
           <>
-            <span className="font-mono text-sm text-subtle-foreground">/</span>
+            <span className="font-mono text-sm text-decorative-foreground">
+              /
+            </span>
             <span className="min-w-0 truncate text-sm text-muted-foreground">
               {breadcrumb}
             </span>
@@ -389,7 +391,7 @@ function AppStatusBar({
         </>
       ) : null}
       <span className="min-w-0 flex-1" />
-      <span className="text-subtle-foreground">{version}</span>
+      <span className="text-muted-foreground">{version}</span>
     </footer>
   );
 }

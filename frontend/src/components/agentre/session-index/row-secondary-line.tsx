@@ -54,7 +54,7 @@ export function RowSecondaryLine({
         </>
       ) : null}
       {agentName && projectName ? (
-        <span aria-hidden="true" className="text-subtle-foreground">
+        <span aria-hidden="true" className="text-decorative-foreground">
           ·
         </span>
       ) : null}

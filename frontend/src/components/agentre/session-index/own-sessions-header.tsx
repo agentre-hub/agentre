@@ -45,7 +45,7 @@ export function OwnSessionsHeader({
       <span className="font-mono text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         {t("projects.session.group")}
       </span>
-      <span className="font-mono text-2xs text-subtle-foreground">{count}</span>
+      <span className="font-mono text-2xs text-muted-foreground">{count}</span>
     </button>
   );
 }

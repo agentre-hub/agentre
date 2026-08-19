@@ -158,6 +158,68 @@ describe("交互反馈色与静止表面必须分开", () => {
   );
 });
 
+/**
+ * 文字色 → 它**实际落在**的表面。
+ *
+ * 和 FEEDBACK_SURFACES 同一个道理，教训也同一个：取值必须由**最暗的那个落点**
+ * 决定，不是由 card 决定。--muted-foreground 曾经是 #71717a，在 card 上 4.83
+ * 看着很健康，但状态栏和窗口控制按钮的标签坐在 --rail #e4e4e7 上，那里只有 3.81。
+ *
+ * `--decorative-foreground` **刻意不在这张表里**：它按定义就不承载信息（分隔点、
+ * 行号、aria-hidden 的伴随图标），2.5:1 是它的设计意图。凡是要读的东西都不该用它
+ * ——真要往这张表里加它，说明用错 token 了。
+ */
+const TEXT_SURFACES: Array<[string, string[]]> = [
+  ["--foreground", ["--background", "--card", "--popover"]],
+  [
+    "--muted-foreground",
+    [
+      "--card",
+      "--background",
+      "--popover",
+      "--secondary",
+      "--muted",
+      "--sidebar",
+      "--rail",
+    ],
+  ],
+  ["--secondary-foreground", ["--secondary"]],
+  ["--card-foreground", ["--card"]],
+  ["--popover-foreground", ["--popover"]],
+  ["--sidebar-foreground", ["--sidebar"]],
+  ["--code-foreground", ["--code-surface"]],
+  ["--code-muted-foreground", ["--code-surface"]],
+  ["--primary-text", ["--card", "--background", "--primary-soft"]],
+  ["--destructive-text", ["--destructive-soft", "--card"]],
+];
+
+describe("正文色对它落到的每个表面都达标", () => {
+  it.each(
+    THEMES.flatMap(([scope, label, get]) =>
+      TEXT_SURFACES.map(
+        ([token, surfaces]) => [scope, label, token, surfaces, get] as const,
+      ),
+    ),
+  )("%s(%s)下 %s", (_scope, _label, token, surfaces, get) => {
+    const t = get();
+    expect(t[token], `tokens.css 里没有 ${token}`).toBeDefined();
+    for (const surface of surfaces) {
+      expect(
+        contrast(t[token], t[surface]),
+        `${token} ${t[token]} 落在 ${surface} ${t[surface]} 上`,
+      ).toBeGreaterThanOrEqual(TEXT_MIN);
+    }
+  });
+
+  it("装饰色没有混进正文表", () => {
+    // 它对每个表面都在 2.5 附近，进了这张表必然全红——真出现说明有人把
+    // 「要读的东西」判成了装饰，或者反过来。
+    expect(TEXT_SURFACES.map(([t]) => t)).not.toContain(
+      "--decorative-foreground",
+    );
+  });
+});
+
 describe("状态色的『文字』角色与『填充』角色分开", () => {
   // --status-running / --status-waiting 是饱和色，当点和底色是对的，当文字读不出来：
   // 亮色下它们在自己的胶囊底上只有 2.41 / 2.07。所以文字另立 --status-*-text。

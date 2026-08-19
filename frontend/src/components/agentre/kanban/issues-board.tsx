@@ -131,7 +131,7 @@ export function IssuesBoard({
                       <BoardCard key={issue.id} issue={issue} onEdit={onEdit} />
                     ))}
                     {items.length === 0 ? (
-                      <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-2xs text-subtle-foreground">
+                      <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-2xs text-muted-foreground">
                         {t("issues.board.emptyColumn")}
                       </p>
                     ) : null}

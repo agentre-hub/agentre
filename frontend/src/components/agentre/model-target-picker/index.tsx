@@ -563,7 +563,7 @@ export function ModelTargetPicker({
         data-testid="recent-chips"
         className="flex flex-nowrap items-center gap-[5px] overflow-x-auto px-2 pb-[5px] pt-[7px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <span className="shrink-0 pr-px text-[10px] uppercase tracking-[0.06em] text-subtle-foreground">
+        <span className="shrink-0 pr-px text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
           {t("modelTargetPicker.recentLabel")}
         </span>
         {recents.map((r) => (
@@ -612,7 +612,7 @@ export function ModelTargetPicker({
               aria-label={t("modelTargetPicker.removeRecent", {
                 label: r.label,
               })}
-              className="shrink-0 cursor-pointer rounded p-0.5 text-subtle-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               onClick={() => handleRemoveRecent(r.target)}
             >
               <X className="size-3" aria-hidden="true" />
@@ -838,7 +838,7 @@ export function ModelTargetPicker({
                           data-provider-key={opt.target.providerKey}
                           // 底色必须是 popover：bg-background 在暗色下比弹层更黑，
                           // 会在列表里拉出一条黑带（mockup .pgrp { background: var(--popover) }）。
-                          className="sticky top-0 z-10 flex items-center gap-1.5 bg-popover px-2 pb-1 pt-[9px] text-[10px] font-semibold uppercase tracking-[0.06em] text-subtle-foreground"
+                          className="sticky top-0 z-10 flex items-center gap-1.5 bg-popover px-2 pb-1 pt-[9px] text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground"
                         >
                           {opt.groupType ? (
                             <LlmProviderLogo
@@ -857,7 +857,7 @@ export function ModelTargetPicker({
                       ) : null}
                       {/* mockup .fixhdr：6px 8px 2px / 10px / 不加粗。 */}
                       {showFixedSection ? (
-                        <div className="px-2 pb-0.5 pt-1.5 text-[10px] text-subtle-foreground">
+                        <div className="px-2 pb-0.5 pt-1.5 text-[10px] text-muted-foreground">
                           {t("modelTargetPicker.fixedSection")}
                         </div>
                       ) : null}
@@ -994,7 +994,7 @@ export function ModelTargetPicker({
                             ) : null}
                             {opt.kind === "fixed" &&
                             (opt.contextWindow || opt.maxOutput) ? (
-                              <span className="shrink-0 font-mono text-[10px] text-subtle-foreground">
+                              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
                                 {t("modelTargetPicker.contextOutput", {
                                   ctx: formatTokens(opt.contextWindow ?? 0),
                                   out: formatTokens(opt.maxOutput ?? 0),

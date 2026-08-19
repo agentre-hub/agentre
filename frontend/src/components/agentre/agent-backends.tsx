@@ -797,7 +797,7 @@ function BackendRowBinding({
           <span className="shrink-0 font-medium">
             {t("agentBackends.row.bindingInvalid")}
           </span>
-          <span className="text-subtle-foreground" aria-hidden="true">
+          <span className="text-decorative-foreground" aria-hidden="true">
             ·
           </span>
           <span className="truncate">
@@ -815,7 +815,10 @@ function BackendRowBinding({
             className="size-3.5 shrink-0"
           />
           <span className="truncate">{backend.llmProviderName}</span>
-          <span className="shrink-0 text-subtle-foreground" aria-hidden="true">
+          <span
+            className="shrink-0 text-decorative-foreground"
+            aria-hidden="true"
+          >
             ›
           </span>
           <span className="truncate font-mono">
@@ -931,7 +934,7 @@ function BackendRow({
               {metaTail.map((part, i) => (
                 <React.Fragment key={i}>
                   <span
-                    className="mx-1 text-subtle-foreground"
+                    className="mx-1 text-decorative-foreground"
                     aria-hidden="true"
                   >
                     ·
@@ -3260,7 +3263,10 @@ function EffectiveConfigSummary({
           {deviceName}
           {cliPath.trim() !== "" ? (
             <>
-              <span className="mx-1 text-subtle-foreground" aria-hidden="true">
+              <span
+                className="mx-1 text-decorative-foreground"
+                aria-hidden="true"
+              >
                 ·
               </span>
               <span className="font-mono">{cliPath.trim()}</span>

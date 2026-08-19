@@ -460,7 +460,7 @@ function ExecTargetRowView(props: RowProps) {
           {...(drag?.attributes ?? {})}
           {...(drag?.listeners ?? {})}
           onKeyDown={onHandleKeyDown}
-          className="mt-0.5 shrink-0 cursor-grab touch-none select-none rounded-sm text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="mt-0.5 shrink-0 cursor-grab touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <GripVertical className="size-3.5" aria-hidden="true" />
         </button>
@@ -620,7 +620,7 @@ function AddTargetPanel(props: {
       <div className="max-h-72 overflow-y-auto py-1">
         {[...groups.entries()].map(([deviceId, backends]) => (
           <div key={deviceId || "local"}>
-            <div className="px-3 pb-1 pt-2 text-2xs font-semibold text-subtle-foreground">
+            <div className="px-3 pb-1 pt-2 text-2xs font-semibold text-muted-foreground">
               {deviceId
                 ? backends[0].deviceName ||
                   t("org.agent.execTargets.addPanel.unpaired")

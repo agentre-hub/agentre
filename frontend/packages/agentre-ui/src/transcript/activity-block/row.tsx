@@ -59,7 +59,7 @@ const NAME_CLASS: Record<string, string> = {
 
 const ICON_CLASS: Record<string, string> = {
   neutral: "text-muted-foreground",
-  read: "text-subtle-foreground",
+  read: "text-decorative-foreground",
   write: "text-foreground",
 };
 
@@ -141,7 +141,7 @@ export function ActivityRow({
           aria-hidden="true"
           data-testid="activity-chevron"
           className={cn(
-            "size-3 shrink-0 text-subtle-foreground transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",
+            "size-3 shrink-0 text-muted-foreground transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",
             !standalone &&
               "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
             expanded && "rotate-90 opacity-100",
@@ -164,7 +164,7 @@ export function ActivityRow({
           {name}
         </span>
         {summary ? (
-          <span className="min-w-0 flex-1 truncate text-subtle-foreground">
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
             {summary}
           </span>
         ) : (
@@ -226,7 +226,7 @@ function StepTrailing({ facts }: { facts: ReturnType<typeof stepFacts> }) {
         <span
           className={cn(
             "shrink-0",
-            facts.failed ? "text-status-error" : "text-subtle-foreground",
+            facts.failed ? "text-status-error" : "text-muted-foreground",
           )}
         >
           {t("activity.row.exit", { code: facts.exitCode })}
@@ -256,11 +256,11 @@ function StepTrailing({ facts }: { facts: ReturnType<typeof stepFacts> }) {
           ) : null}
         </span>
       ) : facts.failed ? null : facts.lines !== undefined ? (
-        <span className="shrink-0 text-subtle-foreground">
+        <span className="shrink-0 text-muted-foreground">
           {t("activity.row.lines", { count: facts.lines })}
         </span>
       ) : facts.preview ? (
-        <span className="max-w-56 shrink-0 truncate text-subtle-foreground">
+        <span className="max-w-56 shrink-0 truncate text-muted-foreground">
           {facts.preview}
         </span>
       ) : null}
@@ -289,7 +289,7 @@ function PendingMarker({ outcome }: { outcome: PendingOutcome }) {
       data-testid="activity-pending"
       className={cn(
         "shrink-0",
-        outcome === "failed" ? "text-status-error" : "text-subtle-foreground",
+        outcome === "failed" ? "text-status-error" : "text-muted-foreground",
       )}
     >
       {outcome === "failed"

@@ -40,7 +40,7 @@ export function ProjectGlyph({ project, className }: ProjectGlyphProps) {
           className,
         )}
       >
-        <MessagesSquare className="size-[60%] text-subtle-foreground" />
+        <MessagesSquare className="size-[60%] text-decorative-foreground" />
       </span>
     );
   }

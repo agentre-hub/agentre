@@ -76,8 +76,8 @@ The "why" behind the constraints — apply these when shaping a screen.
 | `popover` | `#ffffff` | `#262931` | Floating layers (dropdown / tooltip / toast) surface |
 | `popover-foreground` | `#18181b` | `#e6e8eb` | Text in floating layers |
 | `rail` | `#e4e4e7` | `#0a0b0d` | Window chrome bands — title bar, icon rail, status bar (the recessed frame) |
-| `muted-foreground` | `#71717a` | `#8a8d94` | De-emphasized / descriptive text |
-| `subtle-foreground` | `#a1a1aa` | `#5a5d64` | Faintest text — placeholder glyphs, empty-state icons, line numbers |
+| `muted-foreground` | `#65656d` | `#909399` | De-emphasized / descriptive text — timestamps, counts, metadata labels, section headings. **This is the floor for anything a user has to read.** Its value is set by the *darkest* surface it lands on, not by `card`: the status bar and window controls put it on `rail`, where the old `#71717a` was only 3.81. Now 4.55 on `rail`, 5.26 on `secondary`/`code-surface`, 5.78 on `card`. Guarded per-surface by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
+| `decorative-foreground` | `#a1a1aa` | `#5a5d64` | **Glyphs that never carry information** — separator dots (`·` `/` `›`), diff/file line numbers, `aria-hidden` icons that merely accompany adjacent text, fallback glyphs. At ~2.5:1 it misses 3:1 in both themes **by design**. Was named `subtle-foreground`; that name read like "a weaker body text", so 97 metadata labels quietly ended up on it (2026-08-19 audit) — they all moved to `muted-foreground`. If the thing has to be *read*, it does not belong here |
 
 > Dark mode is a deliberate **5-level surface ladder**: `rail #0a0b0d` < `sidebar #111316` < `background #17191c` < `card #1d2025` < `popover #262931`. Pick the surface that matches the layer's height (§3.12).
 
@@ -259,7 +259,7 @@ Monospace **console output** surfaces (hook stdout/stderr, local-command output)
 | --- | --- | --- | --- |
 | `code-surface` | `#f4f4f5` | `#121418` | Console/output box fill (`bg-code-surface`) |
 | `code-foreground` | `#3f3f46` | `#e6e8eb` | Primary monospace text on `code-surface` |
-| `code-muted-foreground` | `#71717a` | `#9aa0ab` | De-emphasized monospace text (stdout) |
+| `code-muted-foreground` | `#65656d` | `#9aa0ab` | De-emphasized monospace text (stdout) |
 
 ### 3.12 Elevation (surfaces & shadows)
 
@@ -528,7 +528,7 @@ Every async flow covers loading / empty / error / success consistently. **Import
 | State | Convention today |
 | --- | --- |
 | **Loading** | A centered `Loader2` (`animate-spin`, `text-muted-foreground`) for whole regions, or an inline `Loader2 size-3.5 animate-spin` inside a disabled button for single actions. For lightweight "first load" copy, the `CenterNote` pattern (centered `text-xs text-muted-foreground`, e.g. [`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). No skeletons exist — add one only if you build the shared component. |
-| **Empty** | Centered icon (`Inbox` / `Sparkles` in `subtle-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/src/components/agentre/llm-providers.tsx)) and `IssuesEmpty` ([`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). |
+| **Empty** | Centered icon (`Inbox` / `Sparkles` in `decorative-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/src/components/agentre/llm-providers.tsx)) and `IssuesEmpty` ([`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). |
 | **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message, and an optional outline retry button. For page-level failures, centered `text-destructive` copy. |
 | **Success** | Transient → a Sonner `toast.success` (§6.5); a completed agent turn → the notification viewport. |
 | **In-progress** | No general-purpose `Progress` primitive in `components/ui/`. Agent background-task progress has a dedicated `TaskProgressBar` ([`task-progress/`](../frontend/src/components/agentre/task-progress/)) — a real bar + expandable task list with a `LoaderCircle` spinner tinted `text-status-waiting`. For other waits, a status-tinted spinner + readable copy. |
@@ -566,7 +566,7 @@ Friendly UX includes keyboard, screen-reader, low-vision, and motion-sensitive u
 ### Contrast
 
 - **Target WCAG AA:** ≥ 4.5:1 for normal text, ≥ 3:1 for large text and meaningful UI/icon edges. `foreground`, the status `*-fg` pairs, and brand `primary-text` pass comfortably.
-- **`muted-foreground` is the edge case** and `subtle-foreground` is fainter still — keep them for secondary/descriptive text, and use `foreground` for anything dense or critical. Don't stack small `muted-foreground` text on a `muted`/`secondary` fill.
+- **`muted-foreground` is the floor for readable text** — secondary/descriptive copy lives there; use `foreground` for anything dense or critical. `decorative-foreground` is fainter still and is **not** a text color: it is for glyphs that carry no information (§3.1). Both are guarded per-surface, so "it looks fine on a card" is no longer the test.
 - **Never encode meaning in color alone.** The agent palette is *identity*, not status — always pair an agent color with its name/initials, and every status color with its label/icon (`StatusPill` does both).
 
 ### Focus visibility

@@ -235,7 +235,7 @@ export function LostChangeRow({
                     ? t("sync.lostChanges.restoring")
                     : t("sync.lostChanges.restore")}
                 </Button>
-                <span className="text-2xs text-subtle-foreground">
+                <span className="text-2xs text-muted-foreground">
                   {t("sync.lostChanges.restoreHint")}
                 </span>
               </>
