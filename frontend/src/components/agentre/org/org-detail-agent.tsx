@@ -1,18 +1,5 @@
 import * as React from "react";
-import {
-  AlertTriangle,
-  Bot,
-  Check,
-  CornerDownRight,
-  Info,
-  Network,
-  Plus,
-  Search,
-  Trash2,
-  Webhook,
-  Wrench,
-  X,
-} from "lucide-react";
+import { AlertTriangle, Info, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
@@ -27,11 +14,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -48,10 +30,15 @@ import {
   type agent_backend_svc,
 } from "../../../../wailsjs/go/models";
 
+import {
+  OrgPlacementField,
+  OrgToolList,
+  type OrgDepartmentModel,
+  type OrgPlacement,
+} from "@agentre-ai/agentre-ui";
+
 import { useBackendCapabilities } from "../capability/use-backend-capabilities";
-import { isValidOrgDrop } from "./org-drop";
 import { resolveReportTo } from "./reporting";
-import { buildToolList } from "./tool-catalog";
 import {
   iconForKey,
   safeAgentColor,
@@ -88,14 +75,6 @@ type ExecTargetEdit = {
 };
 
 const SYSTEM_BADGE = "DEFAULT";
-
-// 工具清单每一行行首的那个图标：清单是「一行只有图标、名字、需审批、一句话能力、
-// 动作按钮」，图标只用来在扫读时区分行，未登记的 key 落到通用的扳手上。
-const TOOL_ICONS: Record<string, typeof Network> = {
-  org: Network,
-  subagent: Bot,
-  hook: Webhook,
-};
 
 function execTargetsFromAgent(agent: OrgAgent): ExecTargetEdit[] {
   return (agent.execTargets ?? []).map((t) => ({
@@ -347,8 +326,6 @@ export function OrgDetailAgent(props: Props) {
     setDeletePromptOpen(false);
   };
 
-  const toolItems = buildToolList(props.availableTools ?? [], tools, t);
-  const grantedToolCount = toolItems.filter((it) => it.granted).length;
   const toggleToolGrant = (key: string) =>
     patch(
       {
@@ -363,11 +340,11 @@ export function OrgDetailAgent(props: Props) {
 
   // 归属：部门 / 上级 Agent 二选一，实体层的互斥由控件本身表达。
   const parentAgentId = props.agent.parentAgentId ?? 0;
-  const placement: Placement =
+  const placement: OrgPlacement =
     parentAgentId > 0
       ? { kind: "agent", id: parentAgentId }
       : { kind: "department", id: props.agent.departmentId ?? 0 };
-  const handlePlacementPick = (next: Placement) => {
+  const handlePlacementPick = (next: OrgPlacement) => {
     void wrap(() =>
       props.onMove(
         agent_svc.MoveAgentRequest.createFrom({
@@ -533,13 +510,25 @@ export function OrgDetailAgent(props: Props) {
                 ))}
               </div>
             </div>
-            <PlacementField
+            <OrgPlacementField
               agent={props.agent}
               agents={props.agents}
               departments={props.departments}
               placement={placement}
               reportTarget={reportTarget}
               onPick={handlePlacementPick}
+              renderAgentAvatar={(agent, className) => (
+                <AgentAvatar
+                  name={agent.name}
+                  color={safeAgentColor(agent.avatarColor ?? "")}
+                  avatarDataUrl={agent.avatarDataUrl}
+                  avatarIcon={agent.avatarIcon}
+                  className={className}
+                />
+              )}
+              renderDepartmentGlyph={(department) => (
+                <DepartmentGlyph department={department} />
+              )}
             />
           </section>
 
@@ -576,101 +565,11 @@ export function OrgDetailAgent(props: Props) {
             </div>
 
             {caps?.has("mcp_tools") && (
-              <div
-                className="min-w-0 space-y-2"
-                data-slot="agent-section-tools"
-              >
-                <div className="flex items-center gap-2">
-                  <h4 className="font-mono text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("org.agent.tools.sectionTitle")}
-                  </h4>
-                  <div className="flex-1" />
-                  <span className="font-mono text-2xs text-muted-foreground">
-                    {t("org.agent.tools.enabledCount", {
-                      count: grantedToolCount,
-                    })}
-                  </span>
-                </div>
-                {toolItems.length === 0 ? (
-                  <p className="text-2xs text-muted-foreground">
-                    {t("org.agent.tools.empty")}
-                  </p>
-                ) : (
-                  <ul
-                    aria-label={t("org.agent.tools.title")}
-                    className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border"
-                  >
-                    {toolItems.map((item, index) => {
-                      const Icon = TOOL_ICONS[item.key] ?? Wrench;
-                      return (
-                        <li
-                          key={item.key}
-                          data-granted={item.granted}
-                          className={cn(
-                            "flex min-w-0 items-start gap-2 px-2.5 py-2",
-                            index > 0 && "border-t border-border",
-                            item.granted ? "bg-primary-soft" : "bg-input-bg",
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "mt-0.5 shrink-0",
-                              item.granted
-                                ? "text-primary-text"
-                                : "text-muted-foreground",
-                            )}
-                            aria-hidden="true"
-                          >
-                            {item.granted ? (
-                              <Check className="size-3.5" />
-                            ) : (
-                              <Icon className="size-3.5" />
-                            )}
-                          </span>
-                          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                              <span className="truncate text-xs font-semibold">
-                                {item.name}
-                              </span>
-                              {item.approval && (
-                                <span className="inline-flex shrink-0 items-center rounded-sm bg-status-waiting-bg px-1.5 py-0.5 font-mono text-2xs text-status-waiting">
-                                  {t("org.agent.tools.approval")}
-                                </span>
-                              )}
-                            </span>
-                            <span className="min-w-0 break-words text-2xs text-muted-foreground">
-                              {item.description}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            aria-label={t(
-                              item.granted
-                                ? "org.agent.tools.revokeNamed"
-                                : "org.agent.tools.grantNamed",
-                              { name: item.name },
-                            )}
-                            title={t(
-                              item.granted
-                                ? "org.agent.tools.revokeNamed"
-                                : "org.agent.tools.grantNamed",
-                              { name: item.name },
-                            )}
-                            onClick={() => toggleToolGrant(item.key)}
-                            className="mt-0.5 shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                          >
-                            {item.granted ? (
-                              <X className="size-3.5" />
-                            ) : (
-                              <Plus className="size-3.5" />
-                            )}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
+              <OrgToolList
+                toolKeys={props.availableTools ?? []}
+                agentTools={tools}
+                onToggleGrant={toggleToolGrant}
+              />
             )}
           </section>
 
@@ -803,305 +702,11 @@ export function OrgDetailAgent(props: Props) {
   );
 }
 
-type Placement =
-  | { kind: "department"; id: number }
-  | { kind: "agent"; id: number };
-
-type PlacementOption = {
-  kind: "department" | "agent";
-  id: number;
-  label: string;
-  disabledReason?: string;
-  agent?: OrgAgent;
-  department?: OrgDepartment;
-};
-
-// PlacementField 是「归属」那一格：一个下拉、两组互斥选项，外加部门归属时那条
-// 只读的推导行。移动端改归属全靠它（索引里系统 Agent 行不接受落点，拖拽到不了
-// 顶层），所以它必须自足：能搜、能看清为什么某一项不能选。
-function PlacementField(props: {
-  agent: OrgAgent;
-  agents: OrgAgent[];
-  departments: OrgDepartment[];
-  placement: Placement;
-  reportTarget: OrgAgent | null;
-  onPick: (next: Placement) => void;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = React.useState(false);
-  const [query, setQuery] = React.useState("");
-  const isCEO = props.agent.systemBadge === SYSTEM_BADGE;
-  const departmentHeadingId = React.useId();
-  const agentHeadingId = React.useId();
-
-  const departmentById = React.useMemo(
-    () => new Map(props.departments.map((d) => [d.id, d])),
-    [props.departments],
-  );
-
-  // 子部门带上祖先路径：同名部门（「平台组」在两个事业部下各有一个）不带路径就是
-  // 两行一模一样的选项。
-  const departmentLabel = React.useCallback(
-    (department: OrgDepartment): string => {
-      const names: string[] = [department.name];
-      const seen = new Set<number>([department.id]);
-      let parentId = department.parentId ?? 0;
-      while (parentId > 0 && !seen.has(parentId)) {
-        const parent = departmentById.get(parentId);
-        if (!parent) break;
-        names.unshift(parent.name);
-        seen.add(parent.id);
-        parentId = parent.parentId ?? 0;
-      }
-      return names.join(" / ");
-    },
-    [departmentById],
-  );
-
-  // 置灰的判据与拖拽的非法落点是同一条：isValidOrgDrop 里的成环规则与服务端
-  // agent_svc.hasAgentCycle 逐字同规则。这里唯一不同的是系统 Agent —— 索引里它
-  // 不接受落点（挂上去读起来像顶层），而「回到顶层」正是要挂到它下面，只能走这个
-  // 下拉，所以对它单独放行，不再问落点判定。
-  const dropContext = React.useMemo(() => {
-    const agents = props.agents.some((a) => a.id === props.agent.id)
-      ? props.agents
-      : [...props.agents, props.agent];
-    return { agents, departments: props.departments };
-  }, [props.agents, props.agent, props.departments]);
-
-  const options: { departments: PlacementOption[]; agents: PlacementOption[] } =
-    React.useMemo(() => {
-      const q = query.trim().toLowerCase();
-      const match = (label: string) => !q || label.toLowerCase().includes(q);
-      const departments = props.departments
-        .map((department) => ({
-          kind: "department" as const,
-          id: department.id,
-          label: departmentLabel(department),
-          department,
-        }))
-        .filter((option) => match(option.label));
-      const agents = props.agents
-        .map((agent) => {
-          const isSelf = agent.id === props.agent.id;
-          const allowed =
-            !isSelf &&
-            (agent.systemBadge === SYSTEM_BADGE ||
-              isValidOrgDrop(
-                props.agent.id,
-                { kind: "agent", agentId: agent.id },
-                dropContext,
-              ));
-          return {
-            kind: "agent" as const,
-            id: agent.id,
-            label: agent.name,
-            agent,
-            disabledReason: allowed
-              ? undefined
-              : isSelf
-                ? t("org.agent.placement.reasonSelf")
-                : t("org.agent.placement.reasonCycle"),
-          };
-        })
-        .filter((option) => match(option.label));
-      return { departments, agents };
-    }, [
-      props.departments,
-      props.agents,
-      props.agent.id,
-      departmentLabel,
-      dropContext,
-      query,
-      t,
-    ]);
-
-  const selectedDepartment =
-    props.placement.kind === "department"
-      ? (departmentById.get(props.placement.id) ?? null)
-      : null;
-  const selectedAgent =
-    props.placement.kind === "agent"
-      ? (props.agents.find((a) => a.id === props.placement.id) ?? null)
-      : null;
-
-  const pick = (option: PlacementOption) => {
-    if (option.disabledReason) return;
-    setOpen(false);
-    setQuery("");
-    props.onPick({ kind: option.kind, id: option.id });
-  };
-
-  const renderOption = (option: PlacementOption) => {
-    const selected =
-      props.placement.kind === option.kind && props.placement.id === option.id;
-    return (
-      <button
-        key={`${option.kind}-${option.id}`}
-        type="button"
-        role="option"
-        aria-selected={selected}
-        aria-disabled={option.disabledReason ? true : undefined}
-        onClick={() => pick(option)}
-        className={cn(
-          "flex w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left",
-          option.disabledReason
-            ? "cursor-not-allowed opacity-50"
-            : "hover:bg-accent",
-          selected && "bg-accent",
-        )}
-      >
-        {option.agent ? (
-          <AgentAvatar
-            name={option.agent.name}
-            color={safeAgentColor(option.agent.avatarColor)}
-            avatarDataUrl={option.agent.avatarDataUrl}
-            avatarIcon={option.agent.avatarIcon}
-            className="size-5 shrink-0 rounded-sm text-2xs"
-          />
-        ) : (
-          <DepartmentGlyph department={option.department} />
-        )}
-        <span className="min-w-0 flex-1 truncate text-xs">{option.label}</span>
-        {option.disabledReason && (
-          <span className="shrink-0 font-mono text-2xs text-muted-foreground">
-            {option.disabledReason}
-          </span>
-        )}
-      </button>
-    );
-  };
-
-  return (
-    <div className="min-w-0 space-y-1.5" data-slot="agent-section-placement">
-      <label className="block text-2xs text-muted-foreground">
-        {t("org.agent.placement.label")}
-      </label>
-      <Popover
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) setQuery("");
-        }}
-      >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            role="combobox"
-            aria-expanded={open}
-            aria-label={t("org.agent.placement.label")}
-            disabled={isCEO}
-            className={cn(
-              "flex w-full min-w-0 items-center gap-2 rounded-md border border-border bg-input-bg px-2.5 py-2 text-left",
-              isCEO ? "cursor-not-allowed opacity-60" : "hover:bg-accent",
-            )}
-          >
-            {selectedAgent ? (
-              <AgentAvatar
-                name={selectedAgent.name}
-                color={safeAgentColor(selectedAgent.avatarColor)}
-                avatarDataUrl={selectedAgent.avatarDataUrl}
-                avatarIcon={selectedAgent.avatarIcon}
-                className="size-5 shrink-0 rounded-sm text-2xs"
-              />
-            ) : (
-              <DepartmentGlyph department={selectedDepartment ?? undefined} />
-            )}
-            <span className="min-w-0 flex-1 truncate text-xs">
-              {selectedAgent
-                ? selectedAgent.name
-                : selectedDepartment
-                  ? departmentLabel(selectedDepartment)
-                  : t("org.department.topLevel")}
-            </span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-72 p-0" align="start">
-          <div className="flex items-center gap-1.5 border-b border-border px-2.5 py-2">
-            <Search
-              className="size-3.5 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("org.agent.placement.searchPlaceholder")}
-              aria-label={t("org.agent.placement.searchAria")}
-              className="w-full min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-            />
-          </div>
-          <div
-            role="listbox"
-            aria-label={t("org.agent.placement.label")}
-            className="max-h-72 overflow-y-auto py-1"
-          >
-            {options.departments.length === 0 &&
-              options.agents.length === 0 && (
-                <p className="px-2.5 py-2 text-2xs text-muted-foreground">
-                  {t("org.agent.placement.noMatch")}
-                </p>
-              )}
-            {options.departments.length > 0 && (
-              <div role="group" aria-labelledby={departmentHeadingId}>
-                <div
-                  id={departmentHeadingId}
-                  className="px-2.5 pb-1 pt-1.5 font-mono text-2xs font-semibold text-subtle-foreground"
-                >
-                  {t("org.agent.placement.groupDepartment")}
-                </div>
-                {options.departments.map(renderOption)}
-              </div>
-            )}
-            {options.agents.length > 0 && (
-              <div role="group" aria-labelledby={agentHeadingId}>
-                <div
-                  id={agentHeadingId}
-                  className="px-2.5 pb-1 pt-1.5 font-mono text-2xs font-semibold text-subtle-foreground"
-                >
-                  {t("org.agent.placement.groupParent")}
-                </div>
-                {options.agents.map(renderOption)}
-              </div>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
-      {isCEO && (
-        <p className="font-mono text-2xs text-muted-foreground">
-          {t("org.agent.placement.systemLocked")}
-        </p>
-      )}
-      {/* 归属是部门时汇报对象是推导出来的（部门负责人），所以要说明它随负责人变动；
-          归属是上级 Agent 时汇报对象就等于归属本身，再说一遍是复述。 */}
-      {!isCEO &&
-        props.placement.kind === "department" &&
-        props.reportTarget && (
-          <div
-            className="flex min-w-0 flex-wrap items-center gap-1.5 text-2xs text-muted-foreground"
-            data-testid="org-agent-derived-manager"
-          >
-            <CornerDownRight className="size-3 shrink-0" aria-hidden="true" />
-            <span>{t("org.agent.reportsTo")}</span>
-            <span className="inline-flex min-w-0 items-center gap-1.5 rounded-sm bg-secondary px-1.5 py-0.5 font-mono text-foreground">
-              <AgentAvatar
-                name={props.reportTarget.name}
-                color={safeAgentColor(props.reportTarget.avatarColor)}
-                avatarDataUrl={props.reportTarget.avatarDataUrl}
-                avatarIcon={props.reportTarget.avatarIcon}
-                className="size-5 rounded-sm text-2xs"
-              />
-              <span className="truncate">{props.reportTarget.name}</span>
-            </span>
-            <span className="opacity-60">
-              {t("org.agent.placement.derivedManager")}
-            </span>
-          </div>
-        )}
-    </div>
-  );
-}
-
-function DepartmentGlyph({ department }: { department?: OrgDepartment }) {
+/**
+ * 归属那一格与部门字形都在共享包里 —— 身份怎么画（图标注册表 / 自定义头像图片）
+ * 是宿主的事，所以经 slot 递进去。
+ */
+function DepartmentGlyph({ department }: { department?: OrgDepartmentModel }) {
   const Icon = iconForKey(department?.icon ?? "puzzle");
   return (
     <span

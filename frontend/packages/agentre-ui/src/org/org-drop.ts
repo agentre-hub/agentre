@@ -1,5 +1,9 @@
-import { computeReorder } from "./reorder";
-import type { OrgAgent, OrgDepartment } from "./types";
+import { computeOrgReorder } from "./reorder";
+import {
+  ORG_SYSTEM_BADGE,
+  type OrgAgentModel,
+  type OrgDepartmentModel,
+} from "./types";
 
 // 索引里的三种落点，以及它们各自对应的那个**入参不变**的写操作。
 //
@@ -10,8 +14,6 @@ import type { OrgAgent, OrgDepartment } from "./types";
 // 成环判据与服务端逐字同规则（agent_svc.requireActivePlacement → hasAgentCycle）：
 // 沿**显式 parentAgentId 链**从新上级往上走，走回自己就是环。这里先拒，是为了让
 // 落点当场显示为拒绝态，而不是让用户放手后才吃一个后端错误。
-
-const SYSTEM_BADGE = "DEFAULT";
 
 export type OrgDropTarget =
   | {
@@ -28,8 +30,8 @@ export type OrgDropTarget =
 export type OrgDragSubject = { kind: "agent" | "department"; id: number };
 
 export type OrgDropContext = {
-  agents: OrgAgent[];
-  departments: OrgDepartment[];
+  agents: OrgAgentModel[];
+  departments: OrgDepartmentModel[];
 };
 
 export type OrgWriteOp =
@@ -47,24 +49,24 @@ export type OrgWriteOp =
     }
   | { op: "moveDepartment"; id: number; newParentId: number };
 
-function findAgent(ctx: OrgDropContext, id: number): OrgAgent | undefined {
+function findAgent(ctx: OrgDropContext, id: number): OrgAgentModel | undefined {
   return ctx.agents.find((a) => a.id === id);
 }
 
 function findDepartment(
   ctx: OrgDropContext,
   id: number,
-): OrgDepartment | undefined {
+): OrgDepartmentModel | undefined {
   return ctx.departments.find((d) => d.id === id);
 }
 
 // 从 from 沿显式上级链往上走，看看会不会走回 selfId。
 function agentChainReaches(
   ctx: OrgDropContext,
-  from: OrgAgent,
+  from: OrgAgentModel,
   selfId: number,
 ): boolean {
-  let current: OrgAgent | undefined = from;
+  let current: OrgAgentModel | undefined = from;
   const seen = new Set<number>();
   while (current && !seen.has(current.id)) {
     if (current.id === selfId) return true;
@@ -77,10 +79,10 @@ function agentChainReaches(
 
 function departmentChainReaches(
   ctx: OrgDropContext,
-  from: OrgDepartment,
+  from: OrgDepartmentModel,
   selfId: number,
 ): boolean {
-  let current: OrgDepartment | undefined = from;
+  let current: OrgDepartmentModel | undefined = from;
   const seen = new Set<number>();
   while (current && !seen.has(current.id)) {
     if (current.id === selfId) return true;
@@ -99,7 +101,7 @@ export function isValidOrgDrop(
 ): boolean {
   const agent = findAgent(ctx, agentId);
   // 系统 Agent 不可拖动，也不接受任何落点（服务端同样拒绝）。
-  if (!agent || agent.systemBadge === SYSTEM_BADGE) return false;
+  if (!agent || agent.systemBadge === ORG_SYSTEM_BADGE) return false;
 
   switch (target.kind) {
     case "reorder":
@@ -114,7 +116,7 @@ export function isValidOrgDrop(
       // 系统 Agent 不接受落点：它是那个「唯一合法的 dept == 0 且 parent == 0」，
       // 挂到它下面在索引里读起来像顶层，实际却是一条普通的上下级边。回到顶层走
       // 详情的「归属」下拉，不走拖拽。
-      if (parent.systemBadge === SYSTEM_BADGE) return false;
+      if (parent.systemBadge === ORG_SYSTEM_BADGE) return false;
       return !agentChainReaches(ctx, parent, agent.id);
     }
     case "department":
@@ -158,7 +160,11 @@ export function resolveOrgDrop(
         op: "reorderAgents",
         departmentId: target.departmentId,
         parentAgentId: target.parentAgentId,
-        orderedIds: computeReorder(target.orderedIds, subject.id, target.index),
+        orderedIds: computeOrgReorder(
+          target.orderedIds,
+          subject.id,
+          target.index,
+        ),
       };
     case "agent":
       return {

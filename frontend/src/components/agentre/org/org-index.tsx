@@ -13,7 +13,6 @@ import {
   ChevronDown,
   CornerDownRight,
   FolderPlus,
-  GripVertical,
   Plus,
   Search,
   Server,
@@ -32,23 +31,25 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import type { agent_backend_svc } from "../../../../wailsjs/go/models";
-import { AgentAvatar } from "../primitives";
-import { agentColorClassNames } from "../types";
 import {
+  buildOrgIndex,
+  buildOrgReportsToOptions,
   isValidOrgDepartmentDrop,
   isValidOrgDrop,
+  OrgAgentRow,
+  OrgGroupHeader,
+  OrgInsertLine,
   resolveOrgDrop,
   type OrgDragSubject,
   type OrgDropContext,
   type OrgDropTarget,
-} from "./org-drop";
-import {
-  buildOrgIndex,
-  buildReportsToOptions,
   type OrgIndexGroup,
   type OrgIndexRow,
-} from "./org-index-model";
+} from "@agentre-ai/agentre-ui";
+
+import type { agent_backend_svc } from "../../../../wailsjs/go/models";
+import { AgentAvatar } from "../primitives";
+import { agentColorClassNames } from "../types";
 import {
   iconForKey,
   safeAgentColor,
@@ -221,7 +222,7 @@ export function OrgIndex(props: OrgIndexProps) {
     [departments],
   );
   const reportsToOptions = React.useMemo(
-    () => buildReportsToOptions(agents, departments),
+    () => buildOrgReportsToOptions(agents, departments),
     [agents, departments],
   );
 
@@ -686,6 +687,12 @@ function FilterMenu(props: FilterMenuProps) {
   );
 }
 
+/**
+ * 三个呈现件都在共享包里（规格 2026-08-18「server 端的组织管理面」要两端同一批
+ * 组件）。留在这一层的只有**装配**：dnd-kit 的 `useDraggable` / `useDroppable`、
+ * 键盘那条候选落点链，以及桌面端自己的头像 / 图标注册表 —— 这些在 agentre-server
+ * 那侧要么不存在（Wails 头像），要么形态不同（浏览器不拖拽）。
+ */
 function InsertLine({
   id,
   target,
@@ -700,20 +707,11 @@ function InsertLine({
   // 解构而不是留着 `drop.` 前缀：把 setNodeRef 挂到 ref= 上会让整个返回对象被
   // react-hooks/refs 视作 ref，之后连 isOver 都读不得。
   const { isOver, setNodeRef } = useDroppable({ id, data: target });
-  const dropState = dropStateOf(valid, current || isOver);
   return (
-    <div
-      ref={setNodeRef}
-      data-testid={id}
-      data-slot="org-insert-line"
-      data-drop-kind="reorder"
-      data-drop-state={dropState}
-      aria-hidden="true"
-      className={cn(
-        "mx-5 h-0.5 rounded-full transition-colors",
-        dropState === "valid" ? "bg-primary" : "bg-border",
-        dropState === "invalid" && "bg-destructive",
-      )}
+    <OrgInsertLine
+      id={id}
+      dropRef={setNodeRef}
+      dropState={dropStateOf(valid, current || isOver)}
     />
   );
 }
@@ -738,7 +736,6 @@ function GroupHeader({
     subject: OrgDragSubject,
   ) => void;
 }) {
-  const { t } = useTranslation();
   const department = group.department;
   const subject: OrgDragSubject = { kind: "department", id: department.id };
   const { attributes, listeners, setActivatorNodeRef } = useDraggable({
@@ -749,51 +746,27 @@ function GroupHeader({
     id: `dept-drop-${department.id}`,
     data: { kind: "department", departmentId: department.id },
   });
-  const dropState = dropStateOf(valid, current || isOver);
-  const accent = safeAgentColor(department.accentColor);
-  const iconNode = React.createElement(iconForKey(department.icon), {
+  const accent = safeAgentColor(department.accentColor ?? "");
+  const iconNode = React.createElement(iconForKey(department.icon ?? ""), {
     className: "size-3.5",
     "aria-hidden": true,
   });
 
   return (
-    <div
-      ref={setNodeRef}
-      data-testid={`org-group-${department.id}`}
-      data-slot="org-group-header"
-      data-department-id={department.id}
-      data-depth={group.depth}
-      data-drop-kind={target ? "department" : undefined}
-      data-drop-state={dropState}
-      aria-current={selected ? "true" : undefined}
-      style={{ paddingLeft: 20 + group.depth * 16 }}
-      className={cn(
-        "flex items-center gap-2 border-b border-t bg-secondary/60 py-1.5 pr-5",
-        dropState === "valid" && "ring-2 ring-primary/60",
-        dropState === "invalid" && "ring-2 ring-destructive",
-        selected && "bg-primary-soft",
-      )}
-    >
-      <button
-        type="button"
-        ref={setActivatorNodeRef}
-        data-testid={`org-group-handle-${department.id}`}
-        aria-label={t("org.index.drag.departmentHandle", {
-          name: department.name,
-        })}
-        {...attributes}
-        {...listeners}
-        onKeyDown={(event) => onDragKeyDown(event, subject)}
-        className="shrink-0 cursor-grab touch-none select-none rounded-sm text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-      >
-        <GripVertical className="size-3.5" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        data-testid={`org-group-select-${department.id}`}
-        onClick={() => onSelect({ kind: "department", id: department.id })}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-      >
+    <OrgGroupHeader
+      group={group}
+      selected={selected}
+      onSelect={onSelect}
+      droppable={Boolean(target)}
+      dropState={dropStateOf(valid, current || isOver)}
+      dropRef={setNodeRef}
+      dragHandle={{
+        ref: setActivatorNodeRef,
+        attributes,
+        listeners,
+        onKeyDown: (event) => onDragKeyDown(event, subject),
+      }}
+      glyph={
         <span
           className={cn(
             "inline-flex size-5 shrink-0 items-center justify-center rounded-md text-white",
@@ -802,23 +775,8 @@ function GroupHeader({
         >
           {iconNode}
         </span>
-        <span className="truncate text-xs font-semibold">
-          {department.name}
-        </span>
-        {department.leadAgentName && (
-          <span className="inline-flex min-w-0 items-center gap-1 rounded-sm bg-card px-1.5 py-0.5 font-mono text-2xs font-semibold">
-            <span className="truncate">
-              {t("org.index.lead", { name: department.leadAgentName })}
-            </span>
-          </span>
-        )}
-        <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-          {t("org.department.departmentMemberCount", {
-            count: department.memberCount,
-          })}
-        </span>
-      </button>
-    </div>
+      }
+    />
   );
 }
 
@@ -844,7 +802,6 @@ function AgentRow({
     subject: OrgDragSubject,
   ) => void;
 }) {
-  const { t } = useTranslation();
   const agent = row.agent;
   const isSystem = agent.systemBadge === "DEFAULT";
   const subject: OrgDragSubject = { kind: "agent", id: agent.id };
@@ -858,88 +815,37 @@ function AgentRow({
     data: { kind: "agent", agentId: agent.id },
   });
 
-  const dropState = dropStateOf(valid, current || isOver);
   return (
-    <div
-      ref={setNodeRef}
-      data-testid={`org-row-${agent.id}`}
-      data-slot="org-index-row"
-      data-agent-id={agent.id}
-      // 下属与主管一律同级：缩进只由所在部门决定，从属关系写在行内。
-      data-indent={indent}
-      style={{ paddingLeft: 17 + indent * 16 }}
-      data-drop-kind={target ? "agent" : undefined}
-      data-drop-state={dropState}
-      aria-current={selected ? "true" : undefined}
-      className={cn(
-        "flex items-center gap-2 border-b border-l-[3px] border-border/60 py-2 pr-5 transition-colors",
-        selected ? "border-l-primary bg-primary-soft" : "border-l-transparent",
-        dropState === "valid" && "ring-2 ring-primary/60",
-        dropState === "invalid" && "ring-2 ring-destructive",
-      )}
-    >
-      {isSystem ? (
-        <span className="size-3.5 shrink-0" aria-hidden="true" />
-      ) : (
-        <button
-          type="button"
-          ref={setActivatorNodeRef}
-          data-testid={`org-row-handle-${agent.id}`}
-          aria-label={t("org.index.drag.agentHandle", { name: agent.name })}
-          {...attributes}
-          {...listeners}
-          onKeyDown={(event) => onDragKeyDown(event, subject)}
-          className="shrink-0 cursor-grab touch-none select-none rounded-sm text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          <GripVertical className="size-3.5" aria-hidden="true" />
-        </button>
-      )}
-      <button
-        type="button"
-        data-testid={`org-row-select-${agent.id}`}
-        onClick={() => onSelect({ kind: "agent", id: agent.id })}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
+    <OrgAgentRow
+      row={row}
+      indent={indent}
+      selected={selected}
+      onSelect={onSelect}
+      droppable={Boolean(target)}
+      dropState={dropStateOf(valid, current || isOver)}
+      dropRef={setNodeRef}
+      // 系统 Agent 不可拖动：不给绑定，包里画的就是那个等宽占位。
+      dragHandle={
+        isSystem
+          ? undefined
+          : {
+              ref: setActivatorNodeRef,
+              attributes,
+              listeners,
+              onKeyDown: (event) => onDragKeyDown(event, subject),
+            }
+      }
+      avatar={
         <AgentAvatar
           name={agent.name}
-          color={safeAgentColor(agent.avatarColor)}
+          color={safeAgentColor(agent.avatarColor ?? "")}
           size="md"
           avatarDataUrl={agent.avatarDataUrl}
           avatarIcon={agent.avatarIcon}
           className="size-8 shrink-0 rounded-lg"
         />
-        <span className="flex min-w-0 flex-col">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span
-              className={cn(
-                "truncate text-sm font-semibold",
-                selected && "text-primary-text",
-              )}
-            >
-              {agent.name}
-            </span>
-            {row.reportsToName && (
-              <span
-                data-slot="org-row-reports-to"
-                className="shrink-0 font-mono text-2xs text-muted-foreground"
-              >
-                {t("org.index.reportsToInline", { name: row.reportsToName })}
-              </span>
-            )}
-          </span>
-          {agent.description && (
-            <span className="truncate text-2xs text-muted-foreground">
-              {agent.description}
-            </span>
-          )}
-        </span>
-        {agent.backend?.name && (
-          <span className="shrink-0 rounded border border-transparent bg-secondary px-2 py-0.5 font-mono text-2xs">
-            {agent.backend.name}
-          </span>
-        )}
-      </button>
-    </div>
+      }
+    />
   );
 }
 

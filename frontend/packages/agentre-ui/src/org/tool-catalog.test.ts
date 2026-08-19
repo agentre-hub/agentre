@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
-import i18n from "@/i18n";
-import { APPROVAL_TOOLS, buildToolList } from "../tool-catalog";
+import i18n from "i18next";
 
-const t = i18n.getFixedT("en");
+import { AGENTRE_UI_NAMESPACE } from "../i18n";
+import { buildOrgToolList, ORG_APPROVAL_TOOLS } from "./tool-catalog";
 
-describe("buildToolList", () => {
+// 文案随清单一起进了包的 namespace，所以取的是包那棵树上的 t。
+const t = i18n.getFixedT("en", AGENTRE_UI_NAMESPACE);
+
+describe("buildOrgToolList", () => {
   it("maps tool keys with localized names and descriptions", () => {
-    const items = buildToolList(["org"], [{ key: "org", enabled: true }], t);
+    const items = buildOrgToolList(["org"], [{ key: "org", enabled: true }], t);
     expect(items[0].key).toBe("org");
     expect(items[0].name).toBe(t("org.agent.tools.names.org"));
     expect(items[0].description).toBe(t("org.agent.tools.descriptions.org"));
@@ -14,7 +17,7 @@ describe("buildToolList", () => {
   });
 
   it("puts granted tools first and keeps the given order inside each group", () => {
-    const items = buildToolList(
+    const items = buildOrgToolList(
       ["org", "subagent", "hook"],
       [
         { key: "org", enabled: false },
@@ -27,13 +30,13 @@ describe("buildToolList", () => {
   });
 
   it("marks unknown agent tools as not granted", () => {
-    const items = buildToolList(["org"], [], t);
+    const items = buildOrgToolList(["org"], [], t);
     expect(items[0].granted).toBe(false);
   });
 
   it("marks approval only on granted tools, and on both org and hook", () => {
-    expect([...APPROVAL_TOOLS].sort()).toEqual(["hook", "org"]);
-    const items = buildToolList(
+    expect([...ORG_APPROVAL_TOOLS].sort()).toEqual(["hook", "org"]);
+    const items = buildOrgToolList(
       ["org", "hook", "subagent"],
       [
         { key: "org", enabled: true },
@@ -48,7 +51,8 @@ describe("buildToolList", () => {
     expect(byKey.get("hook")?.approval).toBe(false);
     expect(byKey.get("subagent")?.approval).toBe(false);
     expect(
-      buildToolList(["hook"], [{ key: "hook", enabled: true }], t)[0].approval,
+      buildOrgToolList(["hook"], [{ key: "hook", enabled: true }], t)[0]
+        .approval,
     ).toBe(true);
   });
 });

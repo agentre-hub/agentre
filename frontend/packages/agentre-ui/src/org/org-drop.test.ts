@@ -6,20 +6,22 @@ import {
   resolveOrgDrop,
   type OrgDropContext,
   type OrgDropTarget,
-} from "../org-drop";
-import type { OrgAgent, OrgDepartment } from "../types";
+} from "./org-drop";
+import type { OrgAgentModel, OrgDepartmentModel } from "./types";
 
-function dept(p: Partial<OrgDepartment> & { id: number }): OrgDepartment {
+function dept(
+  p: Partial<OrgDepartmentModel> & { id: number },
+): OrgDepartmentModel {
   return {
     id: p.id,
     name: `d${p.id}`,
     parentId: p.parentId ?? 0,
     leadAgentId: 0,
     sortOrder: 0,
-  } as OrgDepartment;
+  } as OrgDepartmentModel;
 }
 
-function agent(p: Partial<OrgAgent> & { id: number }): OrgAgent {
+function agent(p: Partial<OrgAgentModel> & { id: number }): OrgAgentModel {
   return {
     id: p.id,
     name: `a${p.id}`,
@@ -27,7 +29,7 @@ function agent(p: Partial<OrgAgent> & { id: number }): OrgAgent {
     departmentId: p.departmentId ?? 0,
     parentAgentId: p.parentAgentId ?? 0,
     sortOrder: p.sortOrder ?? 0,
-  } as OrgAgent;
+  } as OrgAgentModel;
 }
 
 // CEO(1) ─ Eva(2, 工程部) ─ Bob(3, 汇报给 Eva) ─ Cid(4, 汇报给 Bob)

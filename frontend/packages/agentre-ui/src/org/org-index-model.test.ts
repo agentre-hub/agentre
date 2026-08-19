@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildOrgIndex,
-  buildReportsToOptions,
+  buildOrgReportsToOptions,
   EMPTY_ORG_FILTERS,
-} from "../org-index-model";
-import type { OrgAgent, OrgDepartment } from "../types";
+} from "./org-index-model";
+import type { OrgAgentModel, OrgDepartmentModel } from "./types";
 
-function dept(p: Partial<OrgDepartment> & { id: number }): OrgDepartment {
+function dept(
+  p: Partial<OrgDepartmentModel> & { id: number },
+): OrgDepartmentModel {
   return {
     id: p.id,
     name: p.name ?? `d${p.id}`,
@@ -23,10 +25,10 @@ function dept(p: Partial<OrgDepartment> & { id: number }): OrgDepartment {
     memberCount: 0,
     createtime: 0,
     updatetime: 0,
-  } as OrgDepartment;
+  } as OrgDepartmentModel;
 }
 
-function agent(p: Partial<OrgAgent> & { id: number }): OrgAgent {
+function agent(p: Partial<OrgAgentModel> & { id: number }): OrgAgentModel {
   return {
     id: p.id,
     name: p.name ?? `a${p.id}`,
@@ -43,7 +45,7 @@ function agent(p: Partial<OrgAgent> & { id: number }): OrgAgent {
     sortOrder: p.sortOrder ?? 0,
     prompt: [],
     skills: [],
-  } as unknown as OrgAgent;
+  } as unknown as OrgAgentModel;
 }
 
 const ceo = agent({ id: 1, name: "CEO 助手", systemBadge: "DEFAULT" });
@@ -234,11 +236,11 @@ describe("buildOrgIndex 筛选", () => {
   });
 });
 
-describe("buildReportsToOptions", () => {
+describe("buildOrgReportsToOptions", () => {
   it("候选只列真的当过上级的 Agent，按名字排", () => {
     const eva = agent({ id: 2, name: "Eva", departmentId: 1 });
     const bob = agent({ id: 3, name: "Bob", parentAgentId: 2 });
-    const options = buildReportsToOptions(
+    const options = buildOrgReportsToOptions(
       [ceo, eva, bob],
       [dept({ id: 1, leadAgentId: 2 })],
     );

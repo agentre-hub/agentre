@@ -55,8 +55,6 @@
         "clear": "清除条件 {{label}}",
         "clearAll": "清除全部条件"
       },
-      "lead": "Lead · {{name}}",
-      "reportsToInline": "↳ {{name}}",
       "noMatch": {
         "title": "未找到 Agent",
         "conditions": "当前同时生效：{{conditions}}"
@@ -68,8 +66,6 @@
         "addAgent": "添加 Agent"
       },
       "drag": {
-        "agentHandle": "拖拽 {{name}}（空格拾起）",
-        "departmentHandle": "拖拽部门 {{name}}（空格拾起）",
         "pickedUp": "已拾起 {{name}}。方向键选落点，回车放下，Esc 取消。",
         "dropped": "已放下 {{name}}。",
         "cancelled": "已取消拖拽。",
@@ -107,13 +103,7 @@
         "title": "执行目标",
         "add": "添加",
         "addFull": "添加执行目标",
-        "replace": "更换",
-        "remove": "移除",
-        "moveUp": "上移执行目标",
-        "moveDown": "下移执行目标",
-        "dragHandle": "拖拽排序（也可按 ↑ / ↓ 方向键）",
         "moved": "已移到第 {{position}} 位，共 {{total}} 位。",
-        "currentlyActive": "当前生效",
         "online": "在线",
         "offline": "离线",
         "localMachine": "本机",
@@ -126,21 +116,8 @@
           "alreadyInList": "已在列表中",
           "unpaired": "未配对"
         },
-        "reasons": {
-          "orphanBackend": "该执行目标引用的后端已不存在",
-          "backendRequiresProvider": "需指定 LLM Provider",
-          "providerInactive": "LLM 供应商未激活",
-          "remoteProviderMissing": "远端缺少 LLM 供应商",
-          "gatewayNotRunning": "本地网关未启动",
-          "remoteOpenclawUnavailable": "远端 OpenClaw 暂不可用",
-          "unknownBackend": "未知后端类型",
-          "unpaired": "这台电脑未配对它",
-          "offline": "离线",
-          "projectPathMissing": "这台机器上没有配置这个项目的路径"
-        },
         "loading": "正在加载执行目标…",
-        "emptyDescription": "绑定一个 Agent 后端后即可开始对话；内置后端需要额外的 LLM 供应商。",
-        "skillsToggle": "{{machine}} 的技能"
+        "emptyDescription": "绑定一个 Agent 后端后即可开始对话；内置后端需要额外的 LLM 供应商。"
       },
       "charCount": "{{count}} 字",
       "deleteDialog": {
@@ -156,7 +133,6 @@
         "justNow": "刚刚",
         "minutesAgo": "{{count}} 分钟前"
       },
-      "reportsTo": "汇报给",
       "savedAt": "已保存 · {{time}}",
       "skills": {
         "manage": "管理技能",
@@ -166,14 +142,9 @@
         "empty": "未授予技能包",
         "personalNote": "始终可用 · 个人技能（~/.claude/skills）不可单独开关",
         "summary": "{{enabled}} 启用 · {{disabled}} 禁用",
-        "title": "技能",
         "copyFrom": "复制自",
         "copyFromDisabledHint": "后端类型不同，包 ID 对不上",
         "offlineNote": "机器离线，列不出可添加的包 · 已授权的仍可移除"
-      },
-      "skillsGate": {
-        "title": "当前 backend 不支持技能",
-        "description": "技能是 Claude Code 原生能力 · 添加一档 Claude Code 类型的执行目标即可为它单独启用并配置"
       },
       "skillPicker": {
         "title": "添加技能 · Skill Packs",
@@ -181,25 +152,6 @@
         "subtitleForTarget": "第 {{index}} 档 · {{machine}} · {{backend}} —— 只影响这一档",
         "searchPlaceholder": "搜索技能包 / 描述…",
         "personalNote": "个人技能（~/.claude/skills）始终可用，CLI 不支持单独开关"
-      },
-      "tools": {
-        "title": "工具",
-        "sectionTitle": "工具 · TOOLS",
-        "enabledCount": "{{count}} 已启用",
-        "empty": "暂无可用工具",
-        "approval": "需审批",
-        "names": {
-          "org": "组织架构",
-          "subagent": "调用子 Agent",
-          "hook": "脚本 Hook"
-        },
-        "descriptions": {
-          "org": "允许该 Agent 查询并管理部门与成员（写操作需你审批）",
-          "subagent": "把子任务委派给另一个已配置的 Agent 执行并同步取回结果。子 Agent 在隔离的一次性会话中运行；用作子 Agent 的成员建议使用自动批准的权限模式。",
-          "hook": "允许该 Agent 编写、试运行并按 cron 调度脚本 Hook，定时产出事件（创建/修改/删除/执行均需你审批）"
-        },
-        "grantNamed": "授予 {{name}}",
-        "revokeNamed": "收回 {{name}}"
       },
       "skillCatalog": {
         "group": {
@@ -213,19 +165,7 @@
       },
       "systemPrompt": "系统提示词",
       "systemPromptHint": "风格 / 语气 / 边界都写进 system prompt — 不另设字段。",
-      "unsaved": "未保存",
-      "placement": {
-        "label": "归属",
-        "groupDepartment": "部门",
-        "groupParent": "上级 Agent",
-        "searchPlaceholder": "搜索部门或 Agent…",
-        "searchAria": "搜索归属选项",
-        "reasonSelf": "不能把自己当作自己的归属",
-        "reasonCycle": "不能挂到自己的下属之下",
-        "derivedManager": "随部门负责人变动",
-        "systemLocked": "系统 Agent 固定在顶层",
-        "noMatch": "没有匹配项"
-      }
+      "unsaved": "未保存"
     },
     "department": {
       "addGroup": "添加 Agent 或子部门",

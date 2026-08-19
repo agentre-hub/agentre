@@ -1,5 +1,9 @@
-import { buildReportToMap } from "./reporting";
-import type { OrgAgent, OrgDepartment } from "./types";
+import { buildOrgReportToMap } from "./reporting";
+import {
+  ORG_SYSTEM_BADGE,
+  type OrgAgentModel,
+  type OrgDepartmentModel,
+} from "./types";
 
 // 部门轴索引的投影：把「部门 + Agent」两张平表投成一串组头与行。
 //
@@ -10,8 +14,6 @@ import type { OrgAgent, OrgDepartment } from "./types";
 //
 // 筛选只决定**哪些行看得见**，不决定组头在不在（决策 13：空部门照常摆组头），
 // 也不决定桶的现序 —— 排序落点算的是完整现序，只看可见行会把隐藏的兄弟挤掉。
-
-const SYSTEM_BADGE = "DEFAULT";
 
 export type OrgIndexFilters = {
   search: string;
@@ -26,7 +28,7 @@ export const EMPTY_ORG_FILTERS: OrgIndexFilters = {
 };
 
 export type OrgIndexRow = {
-  agent: OrgAgent;
+  agent: OrgAgentModel;
   /** 该行现在挂在哪 —— 也就是 reorderAgents 的两个桶键。 */
   departmentId: number;
   parentAgentId: number;
@@ -39,7 +41,7 @@ export type OrgIndexRow = {
 };
 
 export type OrgIndexGroup = {
-  department: OrgDepartment;
+  department: OrgDepartmentModel;
   /** 子部门缩在父部门里，深度只由部门链决定。 */
   depth: number;
   rows: OrgIndexRow[];
@@ -54,20 +56,20 @@ export type OrgIndexModel = {
 };
 
 export type OrgIndexInput = {
-  agents: OrgAgent[];
-  departments: OrgDepartment[];
+  agents: OrgAgentModel[];
+  departments: OrgDepartmentModel[];
   filters: OrgIndexFilters;
 };
 
-function isSystem(agent: OrgAgent): boolean {
-  return agent.systemBadge === SYSTEM_BADGE;
+function isSystem(agent: OrgAgentModel): boolean {
+  return agent.systemBadge === ORG_SYSTEM_BADGE;
 }
 
 function bySortOrder(a: { sortOrder?: number; id: number }, b: typeof a) {
   return (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id;
 }
 
-function bucketKeyOf(agent: OrgAgent): string {
+function bucketKeyOf(agent: OrgAgentModel): string {
   return `${agent.departmentId ?? 0}:${agent.parentAgentId ?? 0}`;
 }
 
@@ -78,7 +80,7 @@ export function buildOrgIndex(input: OrgIndexInput): OrgIndexModel {
 
   // ── 桶（不受筛选影响）与下属索引 ──
   const buckets = new Map<string, number[]>();
-  const childrenOf = new Map<number, OrgAgent[]>();
+  const childrenOf = new Map<number, OrgAgentModel[]>();
   for (const agent of ordered) {
     if (isSystem(agent)) continue;
     const key = bucketKeyOf(agent);
@@ -93,7 +95,7 @@ export function buildOrgIndex(input: OrgIndexInput): OrgIndexModel {
 
   const matched = matchedAgentIds(agents, departments, filters);
 
-  const makeRow = (agent: OrgAgent): OrgIndexRow => {
+  const makeRow = (agent: OrgAgentModel): OrgIndexRow => {
     const departmentId = agent.departmentId ?? 0;
     const parentAgentId = agent.parentAgentId ?? 0;
     const bucketOrderedIds = buckets.get(bucketKeyOf(agent)) ?? [];
@@ -112,7 +114,7 @@ export function buildOrgIndex(input: OrgIndexInput): OrgIndexModel {
   };
 
   const visited = new Set<number>();
-  const emit = (agent: OrgAgent, out: OrgIndexRow[]): void => {
+  const emit = (agent: OrgAgentModel, out: OrgIndexRow[]): void => {
     if (visited.has(agent.id)) return;
     visited.add(agent.id);
     if (matched.has(agent.id)) out.push(makeRow(agent));
@@ -120,7 +122,7 @@ export function buildOrgIndex(input: OrgIndexInput): OrgIndexModel {
   };
 
   // ── 组头：部门按 parent 递归，子部门缩在父部门里 ──
-  const childDepartments = new Map<number, OrgDepartment[]>();
+  const childDepartments = new Map<number, OrgDepartmentModel[]>();
   for (const department of [...departments].sort(bySortOrder)) {
     const parentId = department.parentId ?? 0;
     if (!childDepartments.has(parentId)) childDepartments.set(parentId, []);
@@ -172,8 +174,8 @@ export function buildOrgIndex(input: OrgIndexInput): OrgIndexModel {
 }
 
 function matchedAgentIds(
-  agents: OrgAgent[],
-  departments: OrgDepartment[],
+  agents: OrgAgentModel[],
+  departments: OrgDepartmentModel[],
   filters: OrgIndexFilters,
 ): Set<number> {
   const keyword = filters.search.trim().toLowerCase();
@@ -181,7 +183,7 @@ function matchedAgentIds(
   // 单一事实源在 ./reporting.ts。
   const reportTo =
     filters.reportsToId > 0
-      ? buildReportToMap(agents, departments)
+      ? buildOrgReportToMap(agents, departments)
       : new Map<number, number>();
   const matched = new Set<number>();
   for (const agent of agents) {
@@ -207,17 +209,17 @@ function matchedAgentIds(
 }
 
 /** 「汇报给」筛选的候选：真的当过某人有效上级的那些 Agent。 */
-export function buildReportsToOptions(
-  agents: OrgAgent[],
-  departments: OrgDepartment[],
-): OrgAgent[] {
+export function buildOrgReportsToOptions(
+  agents: OrgAgentModel[],
+  departments: OrgDepartmentModel[],
+): OrgAgentModel[] {
   const byId = new Map(agents.map((a) => [a.id, a]));
   const ids = new Set<number>();
-  for (const parentId of buildReportToMap(agents, departments).values()) {
+  for (const parentId of buildOrgReportToMap(agents, departments).values()) {
     if (parentId !== 0) ids.add(parentId);
   }
   return [...ids]
     .map((id) => byId.get(id))
-    .filter((a): a is OrgAgent => Boolean(a))
+    .filter((a): a is OrgAgentModel => Boolean(a))
     .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans"));
 }
