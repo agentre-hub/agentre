@@ -33,9 +33,10 @@ type SyncSvc interface {
 	NotifyLocalChange(ctx context.Context, ch LocalChange)
 	// SyncOnce 跑一次完整来回：先把出站队列推上去，再按游标拉下来。
 	SyncOnce(ctx context.Context) error
-	// Start 起 30 秒周期的轮询（R3）；重复调用只起一次。
+	// Start 起 30 秒周期的轮询（R3），并试着挂上账号级实时通道当第二个下行触发源；
+	// 重复调用只起一次。通道连不上时只剩轮询，那本身是一个完整可用的形态。
 	Start(ctx context.Context)
-	// Stop 停掉轮询。
+	// Stop 停掉轮询与实时通道，等它们真的退出才返回。
 	Stop()
 	// Status 设置里同步区要展示的状态。
 	Status(ctx context.Context) (*Status, error)
@@ -108,12 +109,24 @@ type service struct {
 	now      func() int64
 	// background 跑一次后台同步；默认 go f()，测试注入同步执行让断言可判。
 	background func(func())
+	// pollEvery 是轮询周期。生产恒为 PollInterval —— 规格写死「30 秒轮询保留，
+	// 不缩短也不删除」，它是通道的兜底，也是「不丢变更」的依据。这里留一个字段
+	// 只为让「通道死掉时轮询照样把变更带回来」那条守卫真的跑一遍循环，而不是
+	// 让测试等 30 秒或者只断言一句「没崩」。零值按 PollInterval 处理。
+	pollEvery time.Duration
+	// channelRetryWait 是账号级实时通道两次拨号之间的等待，返回 false 表示该收工。
+	// 同样只是时钟接缝：生产等 accountChannelRetry，测试立刻返回。
+	channelRetryWait func(ctx context.Context) bool
 
 	mu        sync.Mutex
 	transport Transport
 	emit      Emitter
 	lastErr   string
 	stopCh    chan struct{}
+	// doneCh 在轮询循环（连同它带起来的实时通道）真的退出之后关闭。Stop 等它：
+	// 一个「已经返回、后台却还在写」的 Stop 是句空话，测试也就无从在停机之后
+	// 如实读状态。
+	doneCh chan struct{}
 	// syncing 串行化上行/下行：轮询与「编辑当场上行」可能同时发生。
 	syncing sync.Mutex
 }
@@ -122,10 +135,12 @@ type service struct {
 // 但一行也不会发出去。
 func New(transport Transport) SyncSvc {
 	return &service{
-		adapters:   defaultAdapters(transport),
-		now:        func() int64 { return time.Now().UnixMilli() },
-		background: func(f func()) { go f() },
-		transport:  transport,
+		adapters:         defaultAdapters(transport),
+		now:              func() int64 { return time.Now().UnixMilli() },
+		background:       func(f func()) { go f() },
+		transport:        transport,
+		pollEvery:        PollInterval,
+		channelRetryWait: waitAccountChannelRetry,
 	}
 }
 
@@ -222,11 +237,26 @@ func (s *service) Start(ctx context.Context) {
 		return
 	}
 	stop := make(chan struct{})
-	s.stopCh = stop
+	done := make(chan struct{})
+	s.stopCh, s.doneCh = stop, done
 	s.mu.Unlock()
 
 	go func() {
-		ticker := time.NewTicker(PollInterval)
+		defer close(done)
+		// 账号级实时通道与这个 ticker **并行**跑：它是第二个下行触发源，不是替代品
+		// （规格「同步传播」：通道在时即时，通道断时最多 30 秒）。两者共用同一段
+		// 生命周期——收工时先取消通道、等它退干净，再宣告 done。
+		watchCtx, cancelWatch := context.WithCancel(ctx)
+		var watching sync.WaitGroup
+		defer watching.Wait()
+		defer cancelWatch()
+		watching.Add(1)
+		go func() {
+			defer watching.Done()
+			s.watchAccountChannel(watchCtx)
+		}()
+
+		ticker := time.NewTicker(s.tickEvery())
 		defer ticker.Stop()
 		// 两条链路各退各的（R7/R16）：下行不通不该连带把本机路径上报也拖慢，反之亦然。
 		var syncOff, reportOff backoff
@@ -258,6 +288,14 @@ func (s *service) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// tickEvery 是轮询周期。零值（直接构造的引擎，包括测试替身）按生产的 30 秒算。
+func (s *service) tickEvery() time.Duration {
+	if s.pollEvery > 0 {
+		return s.pollEvery
+	}
+	return PollInterval
 }
 
 // maxBackoffTicks 是退让的上限，按轮询周期计：30s × 60 = 30 分钟。有上限是必须的
@@ -294,13 +332,18 @@ func (b *backoff) fail() {
 
 func (b *backoff) succeed() { b.streak, b.pending = 0, 0 }
 
+// Stop 停掉轮询与实时通道，并**等它们真的退出**才返回。
 func (s *service) Stop() {
 	s.mu.Lock()
+	done := s.doneCh
 	if s.stopCh != nil {
 		close(s.stopCh)
-		s.stopCh = nil
+		s.stopCh, s.doneCh = nil, nil
 	}
 	s.mu.Unlock()
+	if done != nil {
+		<-done
+	}
 }
 
 // SyncOnce 跑一次完整来回。上行在前：本端刚做的改动先出去，再拉别人的回来，

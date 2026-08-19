@@ -133,3 +133,26 @@ type LocalPathReportItem struct {
 	ProjectSyncID string
 	Path          string
 }
+
+// ── 账号级实时通道 ─────────────────────────────────────────────────────────
+
+// AccountChannelSyncVersion 是账号级实时通道上目前唯一的一种信号：这个账号的
+// 同步版本推进到了 AccountChannelFrame.Version。
+const AccountChannelSyncVersion = "sync_version"
+
+// AccountChannelFrame 是账号级实时通道（server 的 GET /v1/account/channel）上的
+// 一帧，也是这条通道的**全部**线上契约：一个 JSON 文本帧。
+//
+// 这是 server 侧 accountchan_svc.Frame 的手抄件——两仓没有共享 Go 模块，
+// 结构改动必须两边各改一份，字段名与 json 标签逐字对齐。
+//
+// 通道**只送信号，不送对象内容**：收到之后照常走 Pull。因此漏帧、乱序、重复都
+// 无害，通道断了也只退化成 30 秒轮询（规格「账号级实时通道 · 失败处理」）。
+type AccountChannelFrame struct {
+	// Type 是信号种类，取值见 AccountChannelSyncVersion。不认识的种类一律忽略：
+	// 通道日后会承载别的通知，旧客户端不该因此断连。
+	Type string `json:"type"`
+	// Version 是该账号同步版本序列推进到的位置。它**只**用于「该拉了」的判断——
+	// 拉哪些由本端自己的游标决定，绝不拿它当游标用，否则乱序信号就会跳过变更。
+	Version int64 `json:"version"`
+}
