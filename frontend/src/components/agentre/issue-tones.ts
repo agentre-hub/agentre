@@ -15,10 +15,10 @@ export const labelToneClassNames: Record<IssueLabelTone, string> = {
   bug: "bg-destructive-soft text-destructive",
   critical: "bg-destructive text-destructive-foreground",
   docs: "bg-secondary text-muted-foreground",
-  feature: "bg-status-running-bg text-status-running",
+  feature: "bg-status-running-bg text-status-running-text",
   hook: "bg-primary-soft text-primary-text",
   ops: "bg-secondary text-muted-foreground",
-  perf: "bg-status-waiting-bg text-status-waiting",
+  perf: "bg-status-waiting-bg text-status-waiting-text",
   refactor: "bg-primary-soft text-primary-text",
   ui: "bg-agent-2/10 text-agent-2",
 };

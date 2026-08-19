@@ -94,6 +94,26 @@ describe("SessionRow navigation seam", () => {
     );
   });
 
+  it("Given a selected row, When it renders, Then selection is not carried by color alone", () => {
+    render(
+      <SessionRow
+        status="idle"
+        title="session-1"
+        trailingLabel="5m"
+        href="/s/1"
+        selected
+      />,
+    );
+
+    // 亮色下选中底 --primary-soft 落在侧栏上只有 1.01:1，比 hover 的 1.10 还弱 ——
+    // 「选中」比「鼠标停着」更弱，读起来是反的。颜色在这里撑不住，必须另有一个
+    // 非颜色线索（WCAG 1.4.1 Use of Color）。这里钉的是那条竖条的存在，
+    // 而不是它的颜色：改色可以，去掉不行。
+    expect(screen.getByRole("link", { name: /session-1/ }).className).toMatch(
+      /before:w-\[3px\]/,
+    );
+  });
+
   it("Given a collapsed group, When its link rows render, Then they are not reachable by keyboard (a link has no disabled attribute to lean on)", () => {
     render(
       <SessionGroup

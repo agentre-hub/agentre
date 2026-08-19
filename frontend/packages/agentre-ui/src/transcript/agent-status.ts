@@ -23,14 +23,14 @@ export const statusConfig: Record<AgentStatus, AgentStatusStyle> = {
   running: {
     label: "RUNNING",
     dotClassName: "bg-status-running",
-    textClassName: "text-status-running",
-    pillClassName: "bg-status-running-bg text-status-running",
+    textClassName: "text-status-running-text",
+    pillClassName: "bg-status-running-bg text-status-running-text",
   },
   waiting: {
     label: "WAITING",
     dotClassName: "bg-status-waiting",
-    textClassName: "text-status-waiting",
-    pillClassName: "bg-status-waiting-bg text-status-waiting",
+    textClassName: "text-status-waiting-text",
+    pillClassName: "bg-status-waiting-bg text-status-waiting-text",
   },
   idle: {
     label: "IDLE",

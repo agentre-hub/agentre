@@ -104,7 +104,7 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | `secondary` | `#f4f4f5` | `#262931` | Secondary buttons / fills; the tab-strip band |
 | `secondary-foreground` | `#3f3f46` | `#c4c7cd` | Text on secondary |
 | `muted` | `#f4f4f5` | `#1d2025` | Muted background (group fills, placeholders) |
-| `accent` | `#f4f4f5` | `#383d47` | Hover / selected background (menu items, rows) |
+| `accent` | `#e7e7ea` | `#383d47` | **Interaction feedback** — hover / selected fills (menu items, table rows). Deliberately not equal to any resting surface: it used to be `#f4f4f5`, the same byte as `secondary` / `muted` / `sidebar`, so all 86 `hover:bg-accent` sites rendered at 1.00:1 on those surfaces. Not `#e4e4e7` either — that byte belongs to `border`/`rail`. Guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
 | `accent-foreground` | `#18181b` | `#e6e8eb` | Text on accent |
 
 ### 3.4 Borders, inputs, ring
@@ -113,7 +113,7 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | --- | --- | --- | --- |
 | `border` | `#e4e4e7` | `#2a2d34` | Global borders (the `@layer base` reset gives every element `border-border`) |
 | `border-strong` | `#d4d4d8` | `#3a3e47` | Emphasized dividers / drag handles where `border` is too faint |
-| `input` | `#e4e4e7` | `#2a2d34` | Form-control borders |
+| `input` | `#cbcbd0` | `#4a4f59` | Field edges (`Input` / `Textarea` / `Select` / outline `Button`). Split off from `border` so a divider can stay quiet while a field edge stays legible. Target is "clearly visible", **not** WCAG's 3:1 — these controls carry their own fill and text, so the border is a supporting cue; controls whose border *is* the control use `control-border` below |
 | `input-bg` | `#ffffff` | `#17191c` | Form-control fill |
 | `control-border` | `#8a8a91` | `#70757f` | **Controls whose outline *is* the control** — an unchecked `Checkbox` has no fill, so losing the border loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.14 dark). Do **not** reach for `border`/`input` here: they are quiet dividers/field edges at ~1.1:1 against every surface, which is why the model table's header select-all used to vanish. Guarded by [`ui/__tests__/checkbox.test.tsx`](../frontend/src/components/ui/__tests__/checkbox.test.tsx) |
 
@@ -128,7 +128,23 @@ The heart of agentre's state language. Four states, each with a solid color (dot
 | `idle` | `#a1a1aa` → `#6a6d74` | *(uses `secondary`)* | gray dot; text falls to `muted-foreground` |
 | `error` | `#dc2626` → `#f87171` | *(uses `destructive-soft`)* | red dot / pill — turn failed |
 
-> `running` also has `--status-running-foreground` (`#ffffff` / `#04140c`) for text on the solid green. Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
+**Each state has up to four roles — do not mix them up:**
+
+| Role | Token | Renders as |
+| --- | --- | --- |
+| fill | `status-<state>` | dots, solid badges, progress |
+| soft fill | `status-<state>-bg` | the pill background |
+| on-fill text | `status-<state>-foreground` | text sitting **on** the saturated fill |
+| as text | `status-<state>-text` | the state rendered **as text** (on `status-*-bg` or a card) |
+
+| Token | Light | Dark | Why it exists |
+| --- | --- | --- | --- |
+| `status-running-foreground` | `#ffffff` | `#04140c` | Text on the solid green |
+| `status-waiting-foreground` | `#402b06` | *(same)* | Deep brown on the bright amber fill. Both themes keep a bright amber, so one value reads on either |
+| `status-running-text` | `#047857` | `#34d399` | The saturated fill is unreadable **as text** in light: `#10b981` on its own pill is 2.41. Dark already cleared the bar, so it reuses the fill value |
+| `status-waiting-text` | `#b45309` | `#fbbf24` | Same story: `#f59e0b` on its own pill is 2.07 |
+
+The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) (≥4.5 on both the pill and `card`, both themes). Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
 
 ### 3.6 Agent palette (16 identity colors)
 
@@ -144,6 +160,8 @@ Sixteen fixed hues give concurrent agents distinct, stable identities. Light use
 | `agent-6` | `#0891b2` | `#22d3ee` | | `agent-14` | `#ca8a04` | `#fde047` |
 | `agent-7` | `#c026d3` | `#e879f9` | | `agent-15` | `#64748b` | `#94a3b8` |
 | `agent-8` | `#65a30d` | `#a3e635` | | `agent-16` | `#9333ea` | `#c084fc` |
+
+> The initial glyph sitting **on** an agent fill uses `agent-foreground` (`#ffffff`, theme-invariant — the letter is white on all sixteen hues in both themes). Use `text-agent-foreground`, not a literal `text-white`.
 
 **How to apply a color.** The source of truth is the agent's `agentColor` token (e.g. `"agent-7"`), assigned by the backend — there is **no client-side hashing**. Map it through the helpers, never by hand:
 
@@ -238,9 +256,10 @@ Depth is primarily a **surface step**, not a shadow (Principle 5). Pick the surf
 | **Base** | `background` | none | Page content |
 | **Resting card** | `card` | none / `shadow-xs` | Cards, list rows, the active sidebar item (`shadow-xs`). Prefer a `border` over a shadow at rest. |
 | **Raised** | `popover` | `shadow-md` | Anchored floating layers — `DropdownMenu`, `Popover`, `HoverCard`, `Select`, the rail tooltip |
-| **Overlay** | `popover` | `shadow-lg` | Detached overlays that own the screen — `Dialog` |
+| **Overlay** | `card` | `shadow-overlay` | Detached overlays that own the screen — `Dialog`. The shadow comes from the `--overlay-shadow` token (light: a soft drop + dark hairline; dark: a heavier drop + **light** hairline), and the backdrop from `--overlay-scrim` (`bg-scrim`) |
 
-- **Shadows barely render in dark.** On the dark surfaces a black shadow is nearly invisible, so depth in dark relies on the surface step + the `border`. Keep the border; don't reach past `shadow-lg`. There are **no `--shadow-*` tokens** — use the Tailwind utilities sparingly and stay on this ladder.
+- **Shadows barely render in dark.** On the dark surfaces a black shadow is nearly invisible, so depth in dark relies on the surface step + the `border`. Keep the border; don't reach past `shadow-overlay`.
+- **The one shadow token is `--overlay-shadow` → `shadow-overlay`.** Root token is `--overlay-*` while the utility alias is `--shadow-*` on purpose: Tailwind v4's shadow namespace *is* `--shadow-*`, so a same-named root token would make the `@theme` mapping self-referential. Same reason for `--overlay-scrim` → `--color-scrim`. Anything shallower (`shadow-xs` / `shadow-md`) stays a plain Tailwind utility — don't invent more shadow tokens.
 - Pair elevation with the matching radius (§5): raised → `rounded-lg`, overlay → `rounded-xl`.
 
 ---

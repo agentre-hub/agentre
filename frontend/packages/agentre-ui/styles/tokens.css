@@ -31,13 +31,24 @@
   --muted: #f4f4f5;
   --muted-foreground: #71717a;
   --subtle-foreground: #a1a1aa;
-  --accent: #f4f4f5;
+  /* Interaction feedback (hover / selected fills) — deliberately NOT equal to any
+     resting surface. It used to be #f4f4f5, i.e. the same byte as --secondary,
+     --muted and --sidebar, so all 86 `hover:bg-accent` call sites rendered at
+     1.00:1 on those surfaces. Not #e4e4e7 either: that byte belongs to --border
+     and --rail, which would just move the collision. 1.23 on --card, 1.18 on
+     --background. Guarded by src/tokens.test.ts. */
+  --accent: #e7e7ea;
   --accent-foreground: #18181b;
 
   /* Border / Input */
   --border: #e4e4e7;
   --border-strong: #d4d4d8;
-  --input: #e4e4e7;
+  /* Field edges (input / textarea / select / outline button). Split off from
+     --border so a divider can stay quiet while a field edge stays legible.
+     Target here is "clearly visible", not WCAG's 3:1 — these controls carry
+     their own fill and text, so the border is a supporting cue. Controls whose
+     border IS the control use --control-border below. */
+  --input: #cbcbd0;
   --input-bg: #ffffff;
   /* Control boundary — for controls whose outline IS the whole control
      (unchecked checkbox has no fill: lose the border and the control is gone).
@@ -60,12 +71,23 @@
   --sidebar-icon-active: #3b6896;
   --sidebar-ring: #3b6896;
 
-  /* Status */
+  /* Status — three roles per state, do not mix them up:
+       --status-X             saturated fill: dots, solid badges, progress
+       --status-X-bg          soft tinted pill background
+       --status-X-foreground  text sitting ON the saturated fill
+       --status-X-text        the state rendered AS text (on --status-X-bg or a card)
+     The last one exists because the saturated fill is unreadable as text in light:
+     #10b981 on its own pill is 2.41, #f59e0b is 2.07. Guarded by src/tokens.test.ts. */
   --status-running: #10b981;
   --status-running-foreground: #ffffff;
   --status-running-bg: #ecfdf5;
+  --status-running-text: #047857;
   --status-waiting: #f59e0b;
+  /* Deep brown on the bright amber fill. Both themes keep a bright amber, so the
+     same value reads on either — hence no .dark override. */
+  --status-waiting-foreground: #402b06;
   --status-waiting-bg: #fffbeb;
+  --status-waiting-text: #b45309;
   --status-idle: #a1a1aa;
   --status-error: #dc2626;
 
@@ -73,6 +95,19 @@
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
   --destructive-soft: #fef2f2;
+
+  /* The initial glyph on a project / agent avatar. The fill underneath comes from
+     the --agent-1…16 palette; the letter is white on every one of them, in both
+     themes — so this is theme-invariant and has no .dark override. */
+  --agent-foreground: #ffffff;
+
+  /* Elevation for detached overlays (Dialog / Sheet) and the scrim behind them.
+     Named --overlay-shadow rather than --shadow-overlay because Tailwind v4's
+     shadow namespace IS --shadow-*: same name would make the @theme mapping
+     self-referential. Same reason for --overlay-scrim. */
+  --overlay-shadow:
+    0 24px 64px -12px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --overlay-scrim: rgba(15, 23, 42, 0.4);
 
   /* Code / console surfaces — monospace output (hook logs, command output).
      Light-adaptive: a light code surface in light theme, deep console near-black in dark. */
@@ -153,7 +188,8 @@
   /* Border / Input */
   --border: #2a2d34;
   --border-strong: #3a3e47;
-  --input: #2a2d34;
+  /* Field edges — see :root. 1.99 on --card, 1.77 on --secondary. */
+  --input: #4a4f59;
   --input-bg: #17191c;
   /* 3.14 on --secondary #262931, 3.53 on --card. Sits between --status-idle
      #6a6d74 and --muted-foreground #8a8d94 on the existing neutral ladder. */
@@ -176,8 +212,12 @@
   --status-running: #34d399;
   --status-running-foreground: #04140c;
   --status-running-bg: #0f2218;
+  /* Already clears the bar on dark surfaces (8.65 on its pill, 8.50 on --card),
+     so the text role reuses the fill value here. The split matters in light. */
+  --status-running-text: #34d399;
   --status-waiting: #fbbf24;
   --status-waiting-bg: #261d0d;
+  --status-waiting-text: #fbbf24;
   --status-idle: #6a6d74;
   --status-error: #f87171;
 
@@ -185,6 +225,12 @@
   --destructive: #f87171;
   --destructive-foreground: #fafafa;
   --destructive-soft: #2a1414;
+
+  /* Dark needs a heavier drop shadow to read as a layer, and a light hairline
+     instead of a dark one. */
+  --overlay-shadow:
+    0 24px 64px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --overlay-scrim: rgba(0, 0, 0, 0.7);
 
   /* Code / console surfaces */
   --code-surface: #121418;
@@ -317,10 +363,18 @@
   --color-status-running: var(--status-running);
   --color-status-running-foreground: var(--status-running-foreground);
   --color-status-running-bg: var(--status-running-bg);
+  --color-status-running-text: var(--status-running-text);
   --color-status-waiting: var(--status-waiting);
+  --color-status-waiting-foreground: var(--status-waiting-foreground);
   --color-status-waiting-bg: var(--status-waiting-bg);
+  --color-status-waiting-text: var(--status-waiting-text);
   --color-status-idle: var(--status-idle);
   --color-status-error: var(--status-error);
+  --color-agent-foreground: var(--agent-foreground);
+  /* Root token is --overlay-*, alias is --shadow-* / --color-scrim: see the
+     naming note in :root. Utilities generated: shadow-overlay, bg-scrim. */
+  --shadow-overlay: var(--overlay-shadow);
+  --color-scrim: var(--overlay-scrim);
   --color-traffic-close: var(--traffic-close);
   --color-traffic-minimize: var(--traffic-minimize);
   --color-traffic-zoom: var(--traffic-zoom);
