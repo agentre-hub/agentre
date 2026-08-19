@@ -342,6 +342,9 @@ function UpdateStatusPill({
 
   let content: React.ReactNode;
   let tone = "text-subtle-foreground hover:bg-accent hover:text-foreground";
+  // 无障碍名单独给：胶囊里的文案是缩写（「检查中」「下载中 42%」），
+  // 读屏要听到的是「什么状态 + 哪个版本」。
+  let ariaLabel = t("update.pill.aria.idle", { version });
 
   switch (phase.kind) {
     case "checking":
@@ -355,6 +358,7 @@ function UpdateStatusPill({
         </>
       );
       tone = "text-muted-foreground";
+      ariaLabel = t("update.pill.aria.checking", { version });
       break;
     case "available":
       content = (
@@ -365,6 +369,9 @@ function UpdateStatusPill({
       );
       tone =
         "border border-primary/25 bg-primary-soft text-primary-text hover:bg-primary-soft/80";
+      ariaLabel = t("update.pill.aria.available", {
+        version: phase.info.latestVersion,
+      });
       break;
     case "downloading":
       content = (
@@ -375,6 +382,10 @@ function UpdateStatusPill({
       );
       tone =
         "border border-primary/25 bg-primary-soft text-primary-text hover:bg-primary-soft/80";
+      ariaLabel = t("update.pill.aria.downloading", {
+        version: phase.info.latestVersion,
+        percent: phase.progress,
+      });
       break;
     case "installed":
       content = (
@@ -385,6 +396,9 @@ function UpdateStatusPill({
       );
       tone =
         "border border-status-running/30 bg-status-running-bg text-status-running hover:opacity-90";
+      ariaLabel = t("update.pill.aria.installed", {
+        version: phase.info.latestVersion,
+      });
       break;
     case "error":
       content = (
@@ -395,6 +409,7 @@ function UpdateStatusPill({
       );
       tone =
         "border border-destructive/30 bg-destructive-soft text-destructive hover:opacity-90";
+      ariaLabel = t("update.pill.aria.failed", { version });
       break;
     default:
       // idle 与 uptodate：和今天完全一样的一段灰字，只是可以点开看看。
@@ -407,6 +422,7 @@ function UpdateStatusPill({
       <PopoverTrigger asChild>
         <button
           type="button"
+          aria-label={ariaLabel}
           disabled={phase.kind === "checking"}
           className={cn(
             base,
@@ -423,7 +439,7 @@ function UpdateStatusPill({
         sideOffset={8}
         className="w-[380px] p-0"
       >
-        <UpdatePanel onOpenSettings={onOpenSettings} />
+        <UpdatePanel version={version} onOpenSettings={onOpenSettings} />
       </PopoverContent>
     </Popover>
   );

@@ -36,7 +36,14 @@ export type UpdatePhase =
   | { kind: "checking" }
   | { kind: "uptodate" }
   | { kind: "available"; info: UpdateInfo }
-  | { kind: "downloading"; info: UpdateInfo; progress: number }
+  | {
+      kind: "downloading";
+      info: UpdateInfo;
+      progress: number;
+      /** 已下载 / 总字节数；首个进度事件到达前未知，面板此时只显示百分比。 */
+      downloaded?: number;
+      total?: number;
+    }
   | { kind: "installed"; info: UpdateInfo }
   | { kind: "error"; message: string };
 
@@ -157,7 +164,14 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         );
         set((s) =>
           s.phase.kind === "downloading"
-            ? { phase: { ...s.phase, progress: pct } }
+            ? {
+                phase: {
+                  ...s.phase,
+                  progress: pct,
+                  downloaded: p.downloaded ?? 0,
+                  total: p.total,
+                },
+              }
             : {},
         );
       },

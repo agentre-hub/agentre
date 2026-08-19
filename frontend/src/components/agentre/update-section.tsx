@@ -110,10 +110,8 @@ export function UpdateSection() {
   const [debugEnabled, setDebugEnabled] = React.useState<boolean>(false);
   // 更新状态是全局唯一一份：状态栏胶囊、更新面板与本页读的是同一个 store。
   const phase = useUpdateStore((s) => s.phase);
-  const checksumPrompt = useUpdateStore((s) => s.checksumPrompt);
   const runCheck = useUpdateStore((s) => s.check);
   const runDownload = useUpdateStore((s) => s.download);
-  const dismissChecksumPrompt = useUpdateStore((s) => s.dismissChecksumPrompt);
   const runRestart = useUpdateStore((s) => s.restart);
 
   React.useEffect(() => {
@@ -209,11 +207,6 @@ export function UpdateSection() {
   const handleDownload = React.useCallback(() => {
     void runDownload(false);
   }, [runDownload]);
-
-  const handleSkipChecksum = React.useCallback(() => {
-    dismissChecksumPrompt();
-    void runDownload(true);
-  }, [dismissChecksumPrompt, runDownload]);
 
   const handleRestart = React.useCallback(() => {
     void runRestart();
@@ -378,14 +371,34 @@ export function UpdateSection() {
       ) : null}
 
       {phase.kind === "error" ? <ErrorCard message={phase.message} /> : null}
-
-      <ChecksumDialog
-        open={checksumPrompt.open}
-        reason={checksumPrompt.reason}
-        onCancel={dismissChecksumPrompt}
-        onConfirm={handleSkipChecksum}
-      />
     </>
+  );
+}
+
+/**
+ * UpdateChecksumDialogHost 把「校验文件拉不到，仍要继续吗」这张确认对话挂在应用根上。
+ *
+ * 它不能留在本节里：下载也可以从状态栏的更新面板发起，那时设置页根本没被渲染，
+ * 对话连同「仍要继续」一起消失，用户只会看到下载莫名其妙地退回去。store 是唯一
+ * 真相，这张对话也只该有一处。
+ */
+export function UpdateChecksumDialogHost() {
+  const prompt = useUpdateStore((s) => s.checksumPrompt);
+  const dismiss = useUpdateStore((s) => s.dismissChecksumPrompt);
+  const download = useUpdateStore((s) => s.download);
+
+  const handleConfirm = React.useCallback(() => {
+    dismiss();
+    void download(true);
+  }, [dismiss, download]);
+
+  return (
+    <ChecksumDialog
+      open={prompt.open}
+      reason={prompt.reason}
+      onCancel={dismiss}
+      onConfirm={handleConfirm}
+    />
   );
 }
 

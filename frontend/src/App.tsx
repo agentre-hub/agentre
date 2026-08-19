@@ -64,6 +64,7 @@ import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
 import { useChatAgents } from "@/hooks/use-chat-agents";
 import { deriveAppStatusBarState } from "@/lib/app-status-bar";
+import { UpdateChecksumDialogHost } from "@/components/agentre/update-section";
 import {
   unskippedUpdate,
   useUpdateStore,
@@ -761,6 +762,10 @@ function AppLayout() {
   useUpdateWatch();
   // 齿轮红点只认「还没被跳过的新版本」;状态栏胶囊不受跳过影响,那是两码事。
   const hasPendingUpdate = useUpdateStore((s) => unskippedUpdate(s) !== null);
+  // 红点是纯装饰(aria-hidden),它的信息由设置按钮自己的可读名承载。
+  const settingsLabel = hasPendingUpdate
+    ? t("nav.settingsUpdateAvailable")
+    : t(settingsNavItem.labelKey);
   const openUpdateSettings = useCallback(() => {
     navigate("/settings", { state: { settingsPage: "version-logs" } });
   }, [navigate]);
@@ -850,7 +855,7 @@ function AppLayout() {
                       />
                       <SidebarButton
                         data-testid="nav-settings"
-                        label={t(settingsNavItem.labelKey)}
+                        label={settingsLabel}
                         icon={settingsNavItem.icon}
                         badge={hasPendingUpdate}
                         active={isNavItemActive(
@@ -949,6 +954,9 @@ function App() {
       <NotificationToastViewport />
       {/* 退出二次确认:常驻订阅 "app:quit-blocked",活跃会话存在时拦截退出弹框。*/}
       <QuitConfirmDialog />
+      {/* 校验文件拉不到时的「仍要继续」确认:下载可以从设置页,也可以从状态栏的
+          更新面板发起,对话只挂一处才两边都在。*/}
+      <UpdateChecksumDialogHost />
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/chat" element={<SessionIndexPage />} />

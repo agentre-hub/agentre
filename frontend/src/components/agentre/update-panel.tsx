@@ -30,6 +30,16 @@ function formatVersion(v: string, unknown: string): string {
   return v.startsWith("v") ? v : `v${v}`;
 }
 
+/**
+ * formatBytes 给下载进度配一行「已下载/总量」。
+ *
+ * 单位是符号不是 UI 文案，跟着数字一起算出来，不进 i18n。
+ */
+function formatBytes(n: number): string {
+  const mb = n / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(1)} MB`;
+}
+
 /** 只取日期部分：发布时间精确到秒对用户没有意义，且会把副行挤到第二行。 */
 function formatPublished(raw: string, unknown: string): string {
   if (!raw) return unknown;
@@ -83,8 +93,11 @@ function PanelHeader({
  * 面板只提供一个通往那里的入口。
  */
 export function UpdatePanel({
+  version,
   onOpenSettings,
 }: {
+  /** 正在运行的版本，由状态栏透传：没有 UpdateInfo 的几个态也要说得出「当前版本」。 */
+  version: string;
   onOpenSettings: () => void;
 }) {
   const { t } = useTranslation();
@@ -94,6 +107,7 @@ export function UpdatePanel({
   const download = useUpdateStore((s) => s.download);
   const skipCurrentVersion = useUpdateStore((s) => s.skipCurrentVersion);
   const restart = useUpdateStore((s) => s.restart);
+  const setPanelOpen = useUpdateStore((s) => s.setPanelOpen);
 
   // 通道不进 store：后端才是它的真源，设置页与这里各自读一次，不做第二份状态。
   const [channel, setChannel] = React.useState<UpdateChannel>("stable");
@@ -158,8 +172,13 @@ export function UpdatePanel({
                 style={{ width: `${phase.progress}%` }}
               />
             </div>
-            <div className="flex justify-end font-mono text-2xs text-muted-foreground">
-              {`${phase.progress}%`}
+            <div className="flex items-center justify-between font-mono text-2xs text-muted-foreground">
+              <span>
+                {phase.total
+                  ? `${formatBytes(phase.downloaded ?? 0)} / ${formatBytes(phase.total)}`
+                  : ""}
+              </span>
+              <span>{`${phase.progress}%`}</span>
             </div>
           </div>
         ) : (
@@ -227,9 +246,14 @@ export function UpdatePanel({
             <RotateCw aria-hidden="true" className="size-3.5" />
             {t("update.actions.restartNow")}
           </Button>
-          <span className="text-2xs text-muted-foreground">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setPanelOpen(false)}
+          >
             {t("update.panel.later")}
-          </span>
+          </Button>
         </div>
       </div>
     );
@@ -284,11 +308,11 @@ export function UpdatePanel({
           <>
             {checked
               ? t("update.panel.upToDateMeta", {
-                  current: t("update.version.unknown"),
+                  current: formatVersion(version, unknownVersion),
                   channel: channelLabel,
                 })
               : t("update.panel.idleMeta", {
-                  current: t("update.version.unknown"),
+                  current: formatVersion(version, unknownVersion),
                   channel: channelLabel,
                 })}
             <br />

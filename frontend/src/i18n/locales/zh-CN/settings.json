@@ -263,6 +263,14 @@
       "upToDateTitle": "已是最新版本"
     },
     "pill": {
+      "aria": {
+        "available": "有新版本 {{version}} 可更新,打开更新面板",
+        "checking": "正在检查更新,当前版本 {{version}}",
+        "downloading": "正在下载 {{version}},已完成 {{percent}}%",
+        "failed": "检查更新失败,当前版本 {{version}}",
+        "idle": "当前版本 {{version}},打开更新面板",
+        "installed": "{{version}} 已安装,重启以完成更新"
+      },
       "available": "{{version}} 可更新",
       "checking": "检查中",
       "downloading": "下载中 {{percent}}%",

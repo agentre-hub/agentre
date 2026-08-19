@@ -263,6 +263,14 @@
       "upToDateTitle": "You are up to date"
     },
     "pill": {
+      "aria": {
+        "available": "Update {{version}} available, open update panel",
+        "checking": "Checking for updates, current version {{version}}",
+        "downloading": "Downloading {{version}}, {{percent}}% done",
+        "failed": "Update check failed, current version {{version}}",
+        "idle": "Current version {{version}}, open update panel",
+        "installed": "{{version}} installed, restart to finish"
+      },
       "available": "{{version}} available",
       "checking": "Checking",
       "downloading": "Downloading {{percent}}%",

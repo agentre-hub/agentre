@@ -9,7 +9,9 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock("../../../wailsjs/runtime/runtime", () => runtimeMocks);
 
-import { UpdateSection } from "./update-section";
+import { INITIAL_UPDATE_STATE, useUpdateStore } from "@/stores/update-store";
+
+import { UpdateChecksumDialogHost, UpdateSection } from "./update-section";
 
 const REPOSITORY_URL = "https://github.com/agentre-ai/agentre";
 
@@ -177,5 +179,39 @@ describe("UpdateSection channel switch", () => {
     );
     // 切完通道不该把结果清成「未知」让用户自己再点一次——他此刻就在等结果。
     await waitFor(() => expect(app.CheckForUpdate).toHaveBeenCalled());
+  });
+});
+
+describe("UpdateChecksumDialogHost", () => {
+  const INFO = {
+    hasUpdate: true,
+    currentVersion: "0.9.1",
+    latestVersion: "v0.9.2",
+    releaseNotes: "",
+    releaseURL: "",
+    publishedAt: "",
+  };
+
+  it("Given the download was started from the status bar panel, When the checksum file cannot be fetched, Then the confirm dialog is still there without the settings page", async () => {
+    const app = installUpdateBindings();
+    app.DownloadAndInstallUpdate = vi.fn(() => Promise.resolve());
+    useUpdateStore.setState({
+      ...INITIAL_UPDATE_STATE,
+      phase: { kind: "available", info: INFO },
+      checksumPrompt: { open: true, reason: "404 SHA256SUMS.txt" },
+    });
+
+    // 设置页没有被渲染 —— 对话若还挂在那一节里,用户什么都看不到。
+    render(<UpdateChecksumDialogHost />);
+
+    expect(screen.getByText("404 SHA256SUMS.txt")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Skip Checksum and Continue/i }),
+    );
+
+    await waitFor(() =>
+      expect(app.DownloadAndInstallUpdate).toHaveBeenCalledWith(true),
+    );
+    expect(useUpdateStore.getState().checksumPrompt.open).toBe(false);
   });
 });

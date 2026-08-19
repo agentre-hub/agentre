@@ -206,7 +206,7 @@ describe("update-store 主动检查", () => {
 });
 
 describe("update-store 下载与进度", () => {
-  it("Given 有新版本, When 开始下载, Then 进度事件推进 downloading 百分比", async () => {
+  it("Given 有新版本, When 开始下载, Then 进度事件推进百分比并带上已下载/总量", async () => {
     await useUpdateStore.getState().init();
     useUpdateStore.setState({ phase: { kind: "available", info: INFO } });
 
@@ -214,10 +214,13 @@ describe("update-store 下载与进度", () => {
     const pending = useUpdateStore.getState().download(false);
     emitProgress(50, 200);
 
+    // 字节数一起留在阶段里：面板要说「12.0 MB / 48.0 MB」，百分比说不出还要等多久。
     expect(useUpdateStore.getState().phase).toEqual({
       kind: "downloading",
       info: INFO,
       progress: 25,
+      downloaded: 50,
+      total: 200,
     });
 
     await pending;

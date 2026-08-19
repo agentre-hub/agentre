@@ -9,7 +9,11 @@ vi.mock("../../../../wailsjs/runtime/runtime", async () => {
 });
 
 import { AppStatusBar } from "@/components/agentre";
-import { INITIAL_UPDATE_STATE, useUpdateStore } from "@/stores/update-store";
+import {
+  INITIAL_UPDATE_STATE,
+  useUpdateStore,
+  type UpdatePhase,
+} from "@/stores/update-store";
 
 const INFO = {
   hasUpdate: true,
@@ -116,6 +120,49 @@ describe("状态栏更新胶囊", () => {
       await screen.findByRole("button", { name: /Download and install/i }),
     ).toBeInTheDocument();
   });
+
+  // 胶囊里的文案是缩写(「检查中」「下载中 42%」),读屏得听到状态与版本。
+  const ARIA_CASES: Array<[string, UpdatePhase, RegExp]> = [
+    ["从未检查过", { kind: "idle" }, /Current version v0\.9\.1/i],
+    [
+      "检查中",
+      { kind: "checking" },
+      /Checking for updates, current version v0\.9\.1/i,
+    ],
+    [
+      "有新版本",
+      { kind: "available", info: INFO },
+      /Update v0\.9\.2 available/i,
+    ],
+    [
+      "下载中",
+      { kind: "downloading", info: INFO, progress: 42 },
+      /Downloading v0\.9\.2, 42%/i,
+    ],
+    [
+      "已安装待重启",
+      { kind: "installed", info: INFO },
+      /v0\.9\.2 installed, restart to finish/i,
+    ],
+    [
+      "检查失败",
+      { kind: "error", message: "i/o timeout" },
+      /Update check failed, current version v0\.9\.1/i,
+    ],
+  ];
+
+  it.each(ARIA_CASES)(
+    "Given %s, When 读胶囊的无障碍名, Then 状态与版本都在里面",
+    (_state, phase, expected) => {
+      useUpdateStore.setState({ phase });
+
+      renderStatusBar();
+
+      expect(
+        screen.getByRole("button", { name: expected }),
+      ).toBeInTheDocument();
+    },
+  );
 
   it("Given 状态栏容器, When 渲染, Then 高度仍是 h-7 且未新增行", () => {
     useUpdateStore.setState({ phase: { kind: "available", info: INFO } });

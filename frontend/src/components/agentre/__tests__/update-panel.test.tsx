@@ -58,7 +58,7 @@ describe("更新面板 · 有新版本", () => {
   });
 
   it("Given 有新版本, When 打开面板, Then 版本号、发布时间、当前通道与更新说明都在", async () => {
-    render(<UpdatePanel onOpenSettings={() => {}} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     expect(await screen.findByText(/v0\.9\.2/)).toBeInTheDocument();
     expect(screen.getByText(/2026-08-17/)).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe("更新面板 · 有新版本", () => {
 
   it("Given 面板打开, When 点下载并安装, Then 走 store 的下载动作", async () => {
     const app = installBindings();
-    render(<UpdatePanel onOpenSettings={() => {}} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Download/i }));
 
@@ -78,7 +78,7 @@ describe("更新面板 · 有新版本", () => {
   });
 
   it("Given 面板打开, When 点跳过此版本, Then 胶囊陈述不变、只压制通告", async () => {
-    render(<UpdatePanel onOpenSettings={() => {}} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Skip/i }));
 
@@ -95,7 +95,7 @@ describe("更新面板 · 有新版本", () => {
     installBindings({
       UpdateAppSettings: vi.fn(() => Promise.reject(new Error("db closed"))),
     });
-    render(<UpdatePanel onOpenSettings={() => {}} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Skip/i }));
 
@@ -104,7 +104,7 @@ describe("更新面板 · 有新版本", () => {
   });
 
   it("Given 面板打开, When 点发布页, Then 用外部浏览器打开", async () => {
-    render(<UpdatePanel onOpenSettings={() => {}} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     fireEvent.click(
       screen.getByRole("button", { name: /Release notes|Release page/i }),
@@ -115,14 +115,22 @@ describe("更新面板 · 有新版本", () => {
 });
 
 describe("更新面板 · 其余四态", () => {
-  it("Given 正在下载, When 渲染, Then 显示进度而不是下载按钮", () => {
+  it("Given 正在下载, When 渲染, Then 显示已下载/总量与百分比而不是下载按钮", () => {
     useUpdateStore.setState({
-      phase: { kind: "downloading", info: INFO, progress: 42 },
+      phase: {
+        kind: "downloading",
+        info: INFO,
+        progress: 42,
+        downloaded: 12 * 1024 * 1024,
+        total: 48 * 1024 * 1024,
+      },
     });
 
-    render(<UpdatePanel onOpenSettings={() => {}} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     expect(screen.getByText("42%")).toBeInTheDocument();
+    // 百分比说不出「还要等多久」,字节数才说得出。
+    expect(screen.getByText("12.0 MB / 48.0 MB")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Download and install/i }),
     ).not.toBeInTheDocument();
@@ -131,7 +139,7 @@ describe("更新面板 · 其余四态", () => {
   it("Given 已安装待重启, When 渲染, Then 给出重启入口并说明会结束运行中的会话", () => {
     useUpdateStore.setState({ phase: { kind: "installed", info: INFO } });
 
-    render(<UpdatePanel onOpenSettings={() => {}} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
 
     expect(
       screen.getByRole("button", { name: /Restart now/i }),
@@ -139,11 +147,35 @@ describe("更新面板 · 其余四态", () => {
     expect(screen.getByText(/running sessions/i)).toBeInTheDocument();
   });
 
+  it("Given 已安装待重启, When 点稍后, Then 收起面板而不是重启", () => {
+    useUpdateStore.setState({
+      phase: { kind: "installed", info: INFO },
+      panelOpen: true,
+    });
+
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Later/i }));
+
+    expect(useUpdateStore.getState().panelOpen).toBe(false);
+    expect(useUpdateStore.getState().phase).toEqual({
+      kind: "installed",
+      info: INFO,
+    });
+  });
+
+  it("Given 已是最新, When 渲染, Then 副行给出真的当前版本而不是「未知」", async () => {
+    useUpdateStore.setState({ phase: { kind: "uptodate" } });
+
+    render(<UpdatePanel version="0.9.1" onOpenSettings={() => {}} />);
+
+    expect(await screen.findByText(/Current v0\.9\.1/)).toBeInTheDocument();
+  });
+
   it("Given 已是最新, When 点重新检查, Then 走绕过节流的检查", async () => {
     const app = installBindings();
     useUpdateStore.setState({ phase: { kind: "uptodate" } });
 
-    render(<UpdatePanel onOpenSettings={() => {}} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /Check again/i }));
 
     await waitFor(() => expect(app.CheckForUpdate).toHaveBeenCalled());
@@ -157,7 +189,9 @@ describe("更新面板 · 其余四态", () => {
       },
     });
 
-    const { container } = render(<UpdatePanel onOpenSettings={() => {}} />);
+    const { container } = render(
+      <UpdatePanel version="v0.9.1" onOpenSettings={() => {}} />,
+    );
 
     const detail = screen.getByText(/dial tcp 140\.82\.114\.6:443/);
     expect(detail.closest("[data-selectable-text='true']")).not.toBeNull();
@@ -168,7 +202,7 @@ describe("更新面板 · 其余四态", () => {
     const onOpenSettings = vi.fn();
     useUpdateStore.setState({ phase: { kind: "uptodate" } });
 
-    render(<UpdatePanel onOpenSettings={onOpenSettings} />);
+    render(<UpdatePanel version="v0.9.1" onOpenSettings={onOpenSettings} />);
     fireEvent.click(screen.getByRole("button", { name: /update settings/i }));
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);

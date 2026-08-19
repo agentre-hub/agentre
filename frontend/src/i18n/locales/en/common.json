@@ -167,7 +167,8 @@
     "issues": "Issues",
     "org": "Organization",
     "projects": "Projects",
-    "settings": "Settings"
+    "settings": "Settings",
+    "settingsUpdateAvailable": "Settings (update available)"
   },
   "notify": {
     "app": "Agentre",
