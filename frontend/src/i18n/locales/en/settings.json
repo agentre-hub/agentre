@@ -240,6 +240,13 @@
       "description": "Use an accelerated mirror when GitHub access is slow. Custom mirrors must keep the protocol prefix, for example https://your.mirror/.",
       "title": "Download Mirror"
     },
+    "pill": {
+      "available": "{{version}} available",
+      "checking": "Checking",
+      "downloading": "Downloading {{percent}}%",
+      "failed": "Check failed",
+      "restart": "Restart to finish"
+    },
     "release": {
       "available": "New version available: {{version}}",
       "noNotes": "This release has no notes.",

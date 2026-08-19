@@ -240,6 +240,13 @@
       "description": "国内访问 GitHub 慢时可以走加速镜像。自定义需保留协议头（例如 https://your.mirror/）。",
       "title": "下载镜像"
     },
+    "pill": {
+      "available": "{{version}} 可更新",
+      "checking": "检查中",
+      "downloading": "下载中 {{percent}}%",
+      "failed": "检查失败",
+      "restart": "重启以完成更新"
+    },
     "release": {
       "available": "发现新版本 {{version}}",
       "noNotes": "本次发布暂无说明。",

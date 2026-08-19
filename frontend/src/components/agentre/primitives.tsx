@@ -165,12 +165,15 @@ type SidebarButtonProps = Omit<
   "children"
 > & {
   active?: boolean;
+  /** 图标右上角的小圆点：表示这一项底下有新东西，不解释是什么。 */
+  badge?: boolean;
   icon: SidebarIcon;
   label: string;
 };
 
 function SidebarButton({
   active = false,
+  badge = false,
   className,
   icon,
   label,
@@ -198,6 +201,13 @@ function SidebarButton({
       {...props}
     >
       {renderSidebarIcon(icon)}
+      {badge ? (
+        <span
+          data-slot="sidebar-badge"
+          aria-hidden="true"
+          className="absolute right-1.5 top-1.5 size-[7px] rounded-full bg-primary ring-2 ring-rail"
+        />
+      ) : null}
       <span
         id={tooltipId}
         role="tooltip"

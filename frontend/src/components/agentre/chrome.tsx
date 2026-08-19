@@ -1,14 +1,19 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import {
+  ArrowUp,
   ChevronUp,
   CircleAlert,
+  Download,
+  Loader2,
   Minus,
   Monitor,
   Moon,
+  RotateCw,
   Search,
   Square,
   Sun,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -17,6 +22,7 @@ import logoMarkUrl from "@/assets/images/logo-mark.png";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useUpdateStore } from "@/stores/update-store";
 import type { AgentStatus } from "@/stores/types";
 import {
   Quit,
@@ -303,6 +309,102 @@ function AppTopBar({
   );
 }
 
+/**
+ * UpdateStatusPill 占据状态栏右下角原先那段版本号的位置。
+ *
+ * 只读 store、只回调，不订阅任何东西 —— 订阅挂在 App 层（useUpdateWatch），
+ * 否则每个渲染状态栏的测试都要先造一套 wails runtime。
+ *
+ * 没有更新时它退回今天的灰色版本号：「有更新」要是一次真的状态跃迁，
+ * 而不是一直挂在那的装饰。
+ */
+function UpdateStatusPill({
+  version,
+  onClick,
+}: {
+  version: string;
+  onClick?: () => void;
+}) {
+  const { t } = useTranslation();
+  const phase = useUpdateStore((s) => s.phase);
+
+  const base =
+    "wails-no-drag inline-flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
+
+  let content: React.ReactNode;
+  let tone = "text-subtle-foreground hover:bg-accent hover:text-foreground";
+
+  switch (phase.kind) {
+    case "checking":
+      content = (
+        <>
+          <Loader2
+            className="size-3 shrink-0 animate-spin"
+            aria-hidden="true"
+          />
+          {t("update.pill.checking")}
+        </>
+      );
+      tone = "text-muted-foreground";
+      break;
+    case "available":
+      content = (
+        <>
+          <ArrowUp className="size-3 shrink-0" aria-hidden="true" />
+          {t("update.pill.available", { version: phase.info.latestVersion })}
+        </>
+      );
+      tone =
+        "border border-primary/25 bg-primary-soft text-primary-text hover:bg-primary-soft/80";
+      break;
+    case "downloading":
+      content = (
+        <>
+          <Download className="size-3 shrink-0" aria-hidden="true" />
+          {t("update.pill.downloading", { percent: phase.progress })}
+        </>
+      );
+      tone =
+        "border border-primary/25 bg-primary-soft text-primary-text hover:bg-primary-soft/80";
+      break;
+    case "installed":
+      content = (
+        <>
+          <RotateCw className="size-3 shrink-0" aria-hidden="true" />
+          {t("update.pill.restart")}
+        </>
+      );
+      tone =
+        "border border-status-running/30 bg-status-running-bg text-status-running hover:opacity-90";
+      break;
+    case "error":
+      content = (
+        <>
+          <TriangleAlert className="size-3 shrink-0" aria-hidden="true" />
+          {t("update.pill.failed")}
+        </>
+      );
+      tone =
+        "border border-destructive/30 bg-destructive-soft text-destructive hover:opacity-90";
+      break;
+    default:
+      // idle 与 uptodate：和今天完全一样的一段灰字，只是可以点开看看。
+      content = version;
+      break;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={phase.kind === "checking"}
+      className={cn(base, tone, phase.kind === "checking" && "cursor-default")}
+    >
+      {content}
+    </button>
+  );
+}
+
 type AppStatusBarProps = React.ComponentProps<"footer"> & {
   agentCount: number;
   runningCount: number;
@@ -310,6 +412,8 @@ type AppStatusBarProps = React.ComponentProps<"footer"> & {
   unreadCount: number;
   attentionIds: number[];
   onAttentionClick: (sessionId: number) => void;
+  /** 点状态栏右下角的版本/更新胶囊。 */
+  onVersionClick?: () => void;
   status: AgentStatus;
   version: string;
 };
@@ -322,6 +426,7 @@ function AppStatusBar({
   attentionIds,
   className,
   onAttentionClick,
+  onVersionClick,
   status,
   version,
   ...props
@@ -389,7 +494,7 @@ function AppStatusBar({
         </>
       ) : null}
       <span className="min-w-0 flex-1" />
-      <span className="text-subtle-foreground">{version}</span>
+      <UpdateStatusPill version={version} onClick={onVersionClick} />
     </footer>
   );
 }

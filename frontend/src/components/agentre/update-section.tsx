@@ -111,7 +111,6 @@ export function UpdateSection() {
   // 更新状态是全局唯一一份：状态栏胶囊、更新面板与本页读的是同一个 store。
   const phase = useUpdateStore((s) => s.phase);
   const checksumPrompt = useUpdateStore((s) => s.checksumPrompt);
-  const initUpdates = useUpdateStore((s) => s.init);
   const runCheck = useUpdateStore((s) => s.check);
   const runDownload = useUpdateStore((s) => s.download);
   const dismissChecksumPrompt = useUpdateStore((s) => s.dismissChecksumPrompt);
@@ -157,14 +156,6 @@ export function UpdateSection() {
       cancelled = true;
     };
   }, []);
-
-  React.useEffect(() => {
-    let dispose: (() => void) | undefined;
-    void initUpdates().then((d) => {
-      dispose = d;
-    });
-    return () => dispose?.();
-  }, [initUpdates]);
 
   const handleChannelChange = React.useCallback(
     async (next: string) => {

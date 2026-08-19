@@ -1,3 +1,4 @@
+import * as React from "react";
 import { create } from "zustand";
 
 import { GetAppSetting, UpdateAppSettings } from "../../wailsjs/go/app/App";
@@ -239,3 +240,37 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     }
   },
 }));
+
+/**
+ * useUpdateWatch 把「更新这件事」接上宿主：挂事件订阅，并在窗口重新获得焦点时
+ * 补一次受节流的检查。
+ *
+ * 挂在 App 层而不是胶囊里：胶囊只负责显示，订阅是宿主职责——否则每个渲染状态栏的
+ * 测试都要先造一套 wails runtime。回窗刷新的写法与 use-remote-devices.ts 一致。
+ */
+export function useUpdateWatch(): void {
+  const init = useUpdateStore((s) => s.init);
+  const check = useUpdateStore((s) => s.check);
+
+  React.useEffect(() => {
+    let dispose: (() => void) | undefined;
+    let unmounted = false;
+    void init().then((d) => {
+      if (unmounted) {
+        d();
+        return;
+      }
+      dispose = d;
+    });
+    return () => {
+      unmounted = true;
+      dispose?.();
+    };
+  }, [init]);
+
+  React.useEffect(() => {
+    const onFocus = () => void check("focus");
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [check]);
+}

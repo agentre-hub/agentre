@@ -1,3 +1,4 @@
+import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeMocks = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ import {
   pendingAnnouncement,
   unskippedUpdate,
   useUpdateStore,
+  useUpdateWatch,
   type UpdateCheckOutcome,
 } from "../update-store";
 
@@ -325,5 +327,32 @@ describe("update-store 跳过版本", () => {
     await useUpdateStore.getState().init();
 
     expect(useUpdateStore.getState().skippedVersion).toBe("v0.9.2");
+  });
+});
+
+describe("useUpdateWatch 回窗补检", () => {
+  it("Given 已挂载, When 窗口重新获得焦点, Then 走受节流的入口补查一次", async () => {
+    const app = installBindings();
+    renderHook(() => useUpdateWatch());
+    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+
+    window.dispatchEvent(new Event("focus"));
+
+    await waitFor(() =>
+      expect(app.MaybeCheckForUpdate).toHaveBeenCalledTimes(1),
+    );
+    // 回窗不该绕过节流 —— 频繁切窗口不能变成对 GitHub 的高频请求。
+    expect(app.CheckForUpdate).not.toHaveBeenCalled();
+  });
+
+  it("Given 已卸载, When 窗口获得焦点, Then 不再补查", async () => {
+    const app = installBindings();
+    const { unmount } = renderHook(() => useUpdateWatch());
+    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+
+    unmount();
+    window.dispatchEvent(new Event("focus"));
+
+    expect(app.MaybeCheckForUpdate).not.toHaveBeenCalled();
   });
 });

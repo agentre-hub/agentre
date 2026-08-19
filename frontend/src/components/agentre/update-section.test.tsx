@@ -82,9 +82,9 @@ describe("UpdateSection repository address", () => {
 
     render(<UpdateSection />);
 
-    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+    // 等的是「仓库地址仍在」这件事本身，而不是某个恰好发生在它之前的副作用。
     expect(
-      screen.getByRole("link", { name: REPOSITORY_URL }),
+      await screen.findByRole("link", { name: REPOSITORY_URL }),
     ).toBeInTheDocument();
   });
 });
