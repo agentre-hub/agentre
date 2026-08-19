@@ -2,9 +2,9 @@
 
 <!-- File: docs/specs/2026-08-18-org-index-convergence.md -->
 
-> Status: **Draft**（未批准）
+> Status: **Approved**
 > Owner: 组织架构 / 会话索引 / 共享前端层（跨 `agentre` 与 `agentre-server`）
-> Last updated: 2026-08-18
+> Last updated: 2026-08-19
 > Mockup（本地产物，不在 Git 里）：`.dev-kit/artifacts/2026-08-18-org-index-convergence/mockups/`
 
 **Objective:** 桌面端 `/org` 从「画布 + 列表两个视图」换成**一套索引 + 主区详情**；
@@ -56,7 +56,7 @@
 
 7. **索引的组形状与呈现在两端各写了一份。**
    桌面端 `components/agentre/session-index/` 2863 行；`agentre-server` 的
-   `SessionIndex.tsx` 874 + `lib/sessionAxes.ts` 446 = 1320 行；共享包
+   `SessionIndex.tsx` 868 + `lib/sessionAxes.ts` 411 = 1279 行；共享包
    `agentre-ui/session-index/` 只有 `session-row` / `session-group` / `expanded-state` / `types`。
 
 ## Actors and user stories
@@ -94,7 +94,7 @@
 | 13 | **空部门照常摆组头** | 部门是被管理的对象，也是「换部门」的落点；隐藏空部门会让刚建出来的部门当场消失。否决「沿用会话索引『组头只代表这里真有东西』」—— 那条规则是给查询结果分组用的 |
 | 14 | **键盘拖拽不回退** | 两个视图今天都挂了 `KeyboardSensor`（`org-tree.tsx:531`、`org-list.tsx:205`），是既有能力 |
 | 15 | **共享包承载「组的形状 + 呈现」，不承载取数** | `axis-picker` / `free-group-header` / `own-sessions-header` / `project-glyph` / `row-leading-slot` / `row-secondary-line` 共 440 行**零 Wails、零 store 耦合**，可直接抽；其余都是装配层 |
-| 16 | **轴投影收成共享包一份纯函数，取数各留各的** | `buildAxisGroups(axis, input)`（`lib/sessionAxes.ts:362`）是纯函数，`input` 就是「已经在手的行」，不关心怎么来、是不是全量。桌面端保留「每轴一条查询 + 分页」，只把拿到的那批行喂进同一个函数 |
+| 16 | **轴投影收成共享包一份纯函数，取数各留各的** | `buildAxisGroups(axis, input)`（`lib/sessionAxes.ts:350`）是纯函数，`input` 就是「已经在手的行」，不关心怎么来、是不是全量。桌面端保留「每轴一条查询 + 分页」，只把拿到的那批行喂进同一个函数 |
 | 17 | **摆哪几根轴由宿主决定**（只影响会话索引；组织面无轴选择器） | 共享投影支持四个轴，桌面端今天只摆三根（`lib/session-axis.ts` 无 machine）。桌面端本轮**不新增机器轴**，否则「行为不变」这条验收标准就毁了 |
 | 18 | **实时通道只送信号，不送数据** | 推一条「这个账号的同步版本推进到 V」，客户端收到就去 `Pull`。于是漏一条推送只退化成 30 秒轮询而**不丢数据**（版本游标本就是权威），因此**不需要送达保证、顺序、重放或 ACK**。否决「用通道直接下发对象内容」：那要求可靠投递与顺序，失败处理的成本高一个量级，而收益只是省一次 `Pull` |
 | 19 | **通道是账号级的，与中继分开** | 中继是**点对点**（一个客户端找**指定**的一台 daemon，Redis 路由键 `(account, fingerprint) → instanceID` + per-target Stream）；推送是**一对多广播**（任一副本写入后通知该账号所有在线连接）。两者扇出拓扑不同，广播需要 per-account 的 Pub/Sub。否决「复用 `/v1/relay/client`」：它必须指定目标 daemon，没有 daemon 时根本连不上 |
@@ -310,6 +310,9 @@
 
 - **组的形状契约** —— `IndexGroup` / `IndexGroupRow` / `GroupKind` 这组类型，
   以及兜底组各自独立、兜底组排最后这几条规则的实现。
+  当前的 `GroupKind` 是六个：`project` / `agent` / `machine` / `all` /
+  `unassignedProject` / `unnamedAgent` —— 会话镜像落地后「解析不出来的行」
+  不复存在，原先的 `unresolved` 组已从投影里删除，共享包按这六个抽。
   `IndexGroup` 增加一个**可选的总数字段**，承接桌面端「查看全部 N」的分页呈现；
   不传即没有分页，server 侧行为不变。
 - **轴投影纯函数** —— 由 server 现有的 `buildAxisGroups` 迁入，两端共用；
