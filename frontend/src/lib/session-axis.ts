@@ -10,9 +10,16 @@
 // 会话的**分桶**不在这里：三个轴各有自己的分页查询（ListChatIndexSessions 的
 // recent / free / project 三个 scope），会话拿回来时已经分好组了。这里只剩「组的
 // 顺序」这一件事，而它对项目轴就是把树摊平。
+import type { IndexAxis as SharedIndexAxis } from "@agentre-ai/agentre-ui";
+
 import type { app } from "../../wailsjs/go/models";
 
-export type IndexAxis = "project" | "agent" | "time";
+/**
+ * 桌面端 offer 的三档。**清单归宿主、词汇表归包**（决策 17）：共享投影认得四根轴
+ * （多一根 machine），桌面端只摆得出三根，所以这里从包的词汇表里挑，而不是另写一份
+ * 字面量 —— 挑的写法让「桌面端的轴一定是投影认得的轴」成为编译期的事实。
+ */
+export type IndexAxis = Extract<SharedIndexAxis, "project" | "agent" | "time">;
 
 export type ProjectOrder = { id: number; depth: number }[];
 

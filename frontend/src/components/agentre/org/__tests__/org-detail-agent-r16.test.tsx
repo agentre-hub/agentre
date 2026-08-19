@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -121,6 +127,11 @@ function availabilityStub(
 }
 
 afterEach(() => {
+  // 先卸载再撤桩：一次「移除档位」在测试结束后还会有一次保存回调引发的重渲染，
+  // 此时列表已从多档变回单档，行会重新挂载并再问一次 backend 能力（技能折在行内，
+  // 行自己要知道这一档支不支持技能）。撤桩排在卸载之前的话，那一问就打在空的
+  // window.go 上。
+  cleanup();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete (window as any).go;
 });
@@ -139,6 +150,7 @@ function renderPanel(
         isLeadOf={null}
         availableTools={[]}
         onUpdate={onUpdate}
+        onMove={vi.fn().mockResolvedValue(undefined)}
         onDelete={vi.fn().mockResolvedValue(undefined)}
         onUploadAvatar={vi.fn().mockResolvedValue(undefined)}
         onDeleteAvatar={vi.fn().mockResolvedValue(undefined)}

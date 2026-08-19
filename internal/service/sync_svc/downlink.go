@@ -6,12 +6,14 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
 	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
 	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
 )
@@ -489,3 +491,96 @@ func (s *service) gcDeferred(ctx context.Context, accountID int64) error {
 	}
 	return nil
 }
+
+// ── 账号级实时通道：第二个下行触发源 ───────────────────────────────────────
+
+// watchAccountChannel 把账号级实时通道（server 的 GET /v1/account/channel）接成
+// 30 秒轮询之外的**第二个**下行触发源。通道上只流信号「这个账号的同步版本推进了」，
+// 不流对象内容，因此收到之后照常走 SyncOnce（规格「实时通道只送信号，不送数据」）。
+//
+// 这条通道的设计前提就是它可以不可靠：
+//
+//   - 出入口根本没有它（单机构建、旧版 server、测试替身）：直接返回，只剩轮询，
+//     而那本身是一个完整可用的形态；
+//   - 连不上 / 断开：隔 accountChannelRetry 再试一次，不重试到底、不阻塞任何操作；
+//   - 建连成功（首次与重连一视同仁）：立刻主动 Pull 一次，而不是等服务端补发——
+//     通道不保存未送达的信号，断线期间的变更由这一次 Pull 补齐；
+//   - 漏帧、乱序、重复：都无害。版本号只用于「该拉了」的判断，拉哪些由本端自己的
+//     游标决定（cursor.go），重复信号最多多拉一页空的。
+func (s *service) watchAccountChannel(ctx context.Context) {
+	dialer, ok := s.getTransport().(AccountChannelDialer)
+	if !ok {
+		return
+	}
+	for ctx.Err() == nil {
+		signals, err := dialer.DialAccountChannel(ctx)
+		if err != nil {
+			// 连不上不是同步失败：不进 lastErr、不影响轮询的退避，界面上什么都不该变。
+			logger.Ctx(ctx).Debug("sync_svc.watchAccountChannel: unavailable, polling only",
+				zap.Error(err))
+			if !s.waitBeforeRedial(ctx) {
+				return
+			}
+			continue
+		}
+		s.syncOnceForSignal(ctx, "connected")
+		s.consumeAccountSignals(ctx, signals)
+		if !s.waitBeforeRedial(ctx) {
+			return
+		}
+	}
+}
+
+// consumeAccountSignals 消费一条已经建起来的信号流，直到它断开或收工。
+func (s *service) consumeAccountSignals(ctx context.Context, signals <-chan syncwire.AccountChannelFrame) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case frame, ok := <-signals:
+			if !ok {
+				// 断开。回到外层重连，重连成功会再主动 Pull 一次补齐这段空窗。
+				return
+			}
+			if frame.Type != syncwire.AccountChannelSyncVersion {
+				// 通道日后会承载别的通知，帧上带类型标记正是为此：不认识的种类忽略，
+				// 但**不断连**——旧客户端不该被一条新通知踢下线。
+				continue
+			}
+			s.syncOnceForSignal(ctx, "signal")
+		}
+	}
+}
+
+// syncOnceForSignal 跑一次通道触发的同步。失败只记日志：轮询会照常再试，通道上的
+// 一次失败没有资格打断这条常连。
+func (s *service) syncOnceForSignal(ctx context.Context, cause string) {
+	if err := s.SyncOnce(ctx); err != nil {
+		logger.Ctx(ctx).Debug("sync_svc.watchAccountChannel: triggered sync failed",
+			zap.String("cause", cause), zap.Error(err))
+	}
+}
+
+// waitBeforeRedial 等到该重连了；返回 false 表示该收工。
+func (s *service) waitBeforeRedial(ctx context.Context) bool {
+	if wait := s.channelRetryWait; wait != nil {
+		return wait(ctx)
+	}
+	return waitAccountChannelRetry(ctx)
+}
+
+// waitAccountChannelRetry 是两次拨号之间的等待（生产时钟）。
+func waitAccountChannelRetry(ctx context.Context) bool {
+	timer := time.NewTimer(accountChannelRetry)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// accountChannelRetry 是通道断开或连不上之后，隔多久再试一次。与轮询周期同一个
+// 节奏：通道只是优化，重连不该比兜底本身还急。
+const accountChannelRetry = PollInterval

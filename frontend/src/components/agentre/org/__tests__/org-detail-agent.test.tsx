@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -110,6 +116,7 @@ function renderPanel(
         isLeadOf={null}
         availableTools={availableTools}
         onUpdate={onUpdate}
+        onMove={vi.fn().mockResolvedValue(undefined)}
         onDelete={onDelete}
         onUploadAvatar={onUploadAvatar}
         onDeleteAvatar={onDeleteAvatar}
@@ -227,6 +234,17 @@ describe("OrgDetailAgent", () => {
     expect(screen.getByText(/Claude Code · Claude Code/)).toBeInTheDocument();
   });
 
+  // 决策 11：不写「向用户解释我们设计」的说明文字，systemPromptHint 点名要删。
+  // 「风格 / 语气 / 边界都写进 system prompt —— 不另设字段」讲的是我们没做什么，
+  // 用户此刻做决定用不上它；约束该由控件表达。保留的是当下要用的信息（离线说明、
+  // 不可用原因、部门删除两策略），它们各有自己的守卫。
+  it("Given the behavior column, When it renders, Then the system prompt carries no design-explaining hint", () => {
+    renderPanel();
+    expect(screen.getByLabelText("System Prompt")).toBeInTheDocument();
+    expect(screen.queryByText(/No separate fields are used/)).toBeNull();
+    expect(screen.queryByText(/Put style, tone, and boundaries/)).toBeNull();
+  });
+
   it("counts non-whitespace chars in system prompt", async () => {
     const user = userEvent.setup();
     renderPanel({ prompt: [] });
@@ -282,15 +300,21 @@ describe("OrgDetailAgent", () => {
     expect(onUploadAvatar).not.toHaveBeenCalled();
   });
 
-  it("shows the skills section for a claudecode backend (CapSkills)", async () => {
+  // 技能不再是独立的一节：它折在执行目标那一行里（单档默认展开），所以断言从
+  // 「有没有技能区标题」改成「这一行里能不能管技能」——判据没变，位置变了。
+  it("folds the skills of a claudecode target into its own execution-target row (CapSkills)", async () => {
     withCaps(["skills", "mcp_tools"]);
     renderPanel({ agentBackendId: 5 }, [
       backend({ id: 5, type: "claudecode" }),
     ]);
-    expect(await screen.findByText("Skills · Skill Packs")).toBeInTheDocument();
+    const row = await screen.findByTestId("exec-target-row-0");
     expect(
-      screen.getByRole("button", { name: "Manage skills" }),
+      await within(row).findByRole("button", { name: /Skills/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(row).getByRole("button", { name: "Manage skills" }),
     ).toBeInTheDocument();
+    expect(screen.queryByText("Skills · Skill Packs")).toBeNull();
   });
 
   it("shows the gating box for a non-claudecode backend", async () => {
@@ -310,7 +334,7 @@ describe("OrgDetailAgent", () => {
     expect(screen.getByText("frontend-design")).toBeInTheDocument();
   });
 
-  it("renders the Tools section heading + Add Tool button (no switch)", async () => {
+  it("renders the Tools section as one list with no second entry point (no switch, no Add Tool dialog)", async () => {
     withCaps(["skills", "mcp_tools"]);
     renderPanel(
       { tools: [], agentBackendId: 5 },
@@ -319,12 +343,13 @@ describe("OrgDetailAgent", () => {
     );
     expect(await screen.findByText("Tools · TOOLS")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Add Tool" }),
+      await screen.findByRole("list", { name: "Tools" }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Tool" })).toBeNull();
     expect(screen.queryByRole("switch", { name: /Org Structure/i })).toBeNull();
   });
 
-  it("grants the org tool via the tool picker and saves it", async () => {
+  it("grants the org tool from its row in the tool list and saves it", async () => {
     withCaps(["skills", "mcp_tools"]);
     const user = userEvent.setup();
     const { onUpdate } = renderPanel(
@@ -332,11 +357,9 @@ describe("OrgDetailAgent", () => {
       [backend({ id: 5, type: "claudecode" })],
       ["org"],
     );
-    await user.click(await screen.findByRole("button", { name: "Add Tool" }));
     await user.click(
-      await screen.findByRole("checkbox", { name: "Org Structure" }),
+      await screen.findByRole("button", { name: "Grant Org Structure" }),
     );
-    await user.click(screen.getByText("Done"));
     await waitFor(() => expect(onUpdate).toHaveBeenCalled());
     expect(onUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -399,6 +422,7 @@ describe("OrgDetailAgent", () => {
           isLeadOf={null}
           availableTools={[]}
           onUpdate={vi.fn().mockResolvedValue(undefined)}
+          onMove={vi.fn().mockResolvedValue(undefined)}
           onDelete={vi.fn().mockResolvedValue(undefined)}
           onUploadAvatar={vi.fn().mockResolvedValue(undefined)}
           onDeleteAvatar={vi.fn().mockResolvedValue(undefined)}

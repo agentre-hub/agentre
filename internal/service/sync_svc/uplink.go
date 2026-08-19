@@ -246,8 +246,9 @@ func (s *service) applyPushResult(
 			PayloadJSON:         string(res.OverwrittenPayload),
 			ProjectSyncID:       item.ProjectSyncID,
 			AgentredFingerprint: item.AgentredFingerprint,
-			OriginDevice:        strconv.FormatInt(res.OverwrittenDeviceID, 10),
-			OccurredAt:          now,
+			// 0 = 服务端直写（浏览器改的组织架构），不是设备 #0，见 originDeviceOf。
+			OriginDevice: originDeviceOf(res.OverwrittenDeviceID),
+			OccurredAt:   now,
 		}); err != nil {
 			return err
 		}

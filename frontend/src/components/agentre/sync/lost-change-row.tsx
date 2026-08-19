@@ -31,6 +31,16 @@ type LostChangeRowProps = {
 type Busy = "restore" | "recreate" | "discard" | null;
 
 /**
+ * server 直写(浏览器在控制台上建 / 改 / 删组织架构)的行,来源设备记 `0`
+ * (规格 2026-08-18「server 端的组织管理面」决策 21);后端把它记成哨兵 `server`,
+ * 而这个字段落在本地库里,本次改动之前写下的行仍是 `"0"`。两种写法说的是同一件事。
+ *
+ * **必须显式认出它们**:`"0"` 在 JavaScript 里是真值,不认就照常走进
+ * 「来自「{{device}}」」那一支,把覆盖方说成一台并不存在的「设备 0」。
+ */
+const SERVER_ORIGIN_DEVICES = new Set(["server", "0"]);
+
+/**
  * 「没能同步的改动」列表的一行(R5)。默认给「恢复为我的版本」;点击恢复后
  * server 按 R4a 判定目标已被删除时,`onRestore` 的返回值带 `TargetDeleted`,
  * 这一行**就地**切换成 R5a 的「已被删除」态 —— 标题加删除线、行尾角标、
@@ -54,10 +64,14 @@ export function LostChangeRow({
   const time = relativeTime(row.OccurredAt, now, t);
   const reason = reasonLabel(row.Reason, t);
 
+  const originDevice = SERVER_ORIGIN_DEVICES.has(row.OriginDevice)
+    ? t("sync.lostChanges.originServer")
+    : row.OriginDevice;
+
   const subtitleParts = [time, reason];
-  if (row.Reason === "overwritten" && row.OriginDevice) {
+  if (row.Reason === "overwritten" && originDevice) {
     subtitleParts.push(
-      t("sync.lostChanges.overwrittenFrom", { device: row.OriginDevice }),
+      t("sync.lostChanges.overwrittenFrom", { device: originDevice }),
     );
   } else if (row.Reason === "discarded") {
     subtitleParts.push(t("sync.lostChanges.discardedDetail"));
@@ -167,10 +181,10 @@ export function LostChangeRow({
               />
               <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-xs font-semibold">
-                  {row.OriginDevice
+                  {originDevice
                     ? t("sync.lostChanges.deletedTitle", {
                         entity: entityLabel(row.EntityType, t),
-                        device: row.OriginDevice,
+                        device: originDevice,
                       })
                     : t("sync.lostChanges.deletedTitleUnknownDevice", {
                         entity: entityLabel(row.EntityType, t),

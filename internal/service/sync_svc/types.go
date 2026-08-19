@@ -44,6 +44,22 @@ type Transport interface {
 	avatarTransport
 }
 
+// AccountChannelDialer 是账号级实时通道的**可选**出入口：Transport 的实现带上它，
+// 引擎就在 30 秒轮询之外多一个下行触发源；不带（单机构建、旧版 server、单元测试里
+// 的替身）就只剩轮询，而那本身是一个完整可用的形态。
+//
+// 刻意不并进 Transport：通道是优化，不是关键路径。把它写进 Transport 等于要求每一个
+// 实现都提供它，也就等于宣称「没有通道就不算能同步」——恰恰是规格否掉的那个方向
+// （「把通道整个关掉，所有功能仍然正确，只是变慢到 30 秒」）。
+type AccountChannelDialer interface {
+	// DialAccountChannel 建立一条账号级实时通道，返回信号流。
+	//
+	// 连接断开时实现方**关闭**返回的 channel——调用方据此重连，并在重连成功后
+	// 主动 Pull 一次补齐断线期间的变更。ctx 结束时同样关闭。
+	// 建不起来时返回错误，调用方退回轮询，不重试到底、不阻塞任何操作。
+	DialAccountChannel(ctx context.Context) (<-chan syncwire.AccountChannelFrame, error)
+}
+
 // LocalChange 是一次本地增删改的同步侧描述。域服务在改动**落库成功之后**交出它，
 // 由同步层决定入队与上行；同步层的任何失败都不回传给域服务（R8）。
 type LocalChange struct {

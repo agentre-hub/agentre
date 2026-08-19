@@ -391,3 +391,72 @@ export type {
   TerminalTransport,
   TerminalUnsubscribe,
 } from "./terminal/transport";
+// ── 组织面：部门轴索引 + 主区三栏详情 ─────────────────────────────────────
+// 规格 2026-08-18「server 端的组织管理面」要求两端「索引与详情同形、同一批共享
+// 组件」。所以进来的是**只吃 props** 的那一层：索引投影、落点判据、行与组头、
+// 归属下拉、工具清单、执行目标行。留在宿主的是取数、拖拽传感器与它们的 DnD 装配、
+// store，以及身份怎么画（头像 / 图标注册表，经 slot 注入）。
+export {
+  buildOrgIndex,
+  buildOrgReportsToOptions,
+  EMPTY_ORG_FILTERS,
+} from "./org/org-index-model";
+export type {
+  OrgIndexFilters,
+  OrgIndexGroup,
+  OrgIndexInput,
+  OrgIndexModel,
+  OrgIndexRow,
+} from "./org/org-index-model";
+export { buildOrgReportToMap, resolveOrgReportTo } from "./org/reporting";
+export { computeOrgReorder } from "./org/reorder";
+export {
+  isValidOrgDepartmentDrop,
+  isValidOrgDrop,
+  resolveOrgDrop,
+} from "./org/org-drop";
+export type {
+  OrgDragSubject,
+  OrgDropContext,
+  OrgDropTarget,
+  OrgWriteOp,
+} from "./org/org-drop";
+export { isOrgSystemAgent, ORG_SYSTEM_BADGE } from "./org/types";
+export type {
+  OrgAgentBackendSummary,
+  OrgAgentModel,
+  OrgBackendModel,
+  OrgDepartmentModel,
+  OrgSelection,
+} from "./org/types";
+export type {
+  OrgDragHandleBinding,
+  OrgDropState,
+  OrgSortableRowBinding,
+} from "./org/drag-binding";
+export { OrgAgentRow } from "./org/org-agent-row";
+export type { OrgAgentRowProps } from "./org/org-agent-row";
+export { OrgGroupHeader } from "./org/org-group-header";
+export type { OrgGroupHeaderProps } from "./org/org-group-header";
+export { OrgInsertLine } from "./org/org-insert-line";
+export type { OrgInsertLineProps } from "./org/org-insert-line";
+export { OrgPlacementField } from "./org/org-placement-field";
+export type {
+  OrgPlacement,
+  OrgPlacementFieldProps,
+} from "./org/org-placement-field";
+export { OrgToolList } from "./org/org-tool-list";
+export type { OrgToolListProps } from "./org/org-tool-list";
+export { buildOrgToolList, ORG_APPROVAL_TOOLS } from "./org/tool-catalog";
+export type { OrgAgentTool, OrgToolListItem } from "./org/tool-catalog";
+export { OrgExecTargetRow } from "./org/org-exec-target-row";
+export type {
+  OrgExecTargetRowProps,
+  OrgExecTargetStatus,
+} from "./org/org-exec-target-row";
+export {
+  ORG_EXEC_TARGET_DESTRUCTIVE_REASONS,
+  orgBackendTypeLabel,
+  orgExecTargetMachineLabel,
+  orgExecTargetReasonLabel,
+} from "./org/exec-target-reasons";

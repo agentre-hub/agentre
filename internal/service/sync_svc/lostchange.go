@@ -3,12 +3,32 @@ package sync_svc
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
 	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
 )
+
+// OriginDeviceServer 是「这一版是被**服务端**覆盖掉的」这个来源标识。
+//
+// server 的组织管理面让浏览器直接建 / 改 / 删组织架构，那些行在 server 上记的
+// SourceDeviceID 是 0（server 侧决策 21：0 = 不是任何一台设备推上来的）。冲突应答
+// 因此会带回 0，而 R5 要向用户交代覆盖方是谁 —— 记成 "0" 就成了「设备 #0」这台
+// 并不存在的机器，记成空串又会落到「不知道被谁」那一支。这个哨兵值让呈现层能把
+// 它译成「服务端（浏览器）」（sync.lostChanges.originServer）。
+//
+// 它不会与真的设备撞：这个字段只由 originDeviceOf 产出，另一支永远是十进制数字。
+const OriginDeviceServer = "server"
+
+// originDeviceOf 把冲突应答里的来源设备标识翻成留存记录里的那一格。
+func originDeviceOf(deviceID int64) string {
+	if deviceID == 0 {
+		return OriginDeviceServer
+	}
+	return strconv.FormatInt(deviceID, 10)
+}
 
 // Status 同步区要展示的状态。未登录时 Enabled 为 false —— 界面据此让整个同步项
 // 不存在（R12）。

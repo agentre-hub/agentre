@@ -1089,9 +1089,12 @@ describe("App", () => {
     expect(descInput).toBeInTheDocument();
   });
 
-  it("uses the same fixed detail panel in organization list mode", async () => {
+  // 画布与列表两个视图收敛成一套索引后，`agentre.orgView.mode` 作废：存量里的旧值
+  // 只应被忽略 —— 既不报错、不改变渲染，也不顺手清掉其他状态。
+  it("ignores the retired organization view-mode value and keeps the detail in the main area", async () => {
     const user = userEvent.setup();
     localStorage.setItem("agentre.orgView.mode", "list");
+    localStorage.setItem("agentre.orgTree.collapse", '{"1":true}');
     mockOrgData();
     const { container } = render(<App />);
 
@@ -1106,7 +1109,12 @@ describe("App", () => {
       '[data-slot="org-detail-panel"]',
     );
     expect(detailPanel).toBeInTheDocument();
-    expect(detailPanel).toHaveClass("w-[380px]", "shrink-0", "border-l");
+    // 详情占主区（索引是左边固定宽的一列）：三栏详情在 380px 的右抽屉里装不下。
+    expect(detailPanel).toHaveClass("flex-1", "min-w-0");
+    expect(container.querySelector('[data-slot="org-index-pane"]')).toHaveClass(
+      "w-[300px]",
+      "shrink-0",
+    );
     expect(
       container.querySelector('[data-slot="org-detail-drawer"]'),
     ).toBeNull();
@@ -1115,6 +1123,14 @@ describe("App", () => {
         "Select a department or agent to view details",
       ),
     ).toBeInTheDocument();
+
+    // 旧值不影响渲染：只有一套索引，没有视图切换开关
+    expect(screen.queryByRole("button", { name: "List view" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tree view" })).toBeNull();
+    expect(container.querySelector('[data-slot="org-index"]')).not.toBeNull();
+    // 也没有被顺手抹掉，更没有连累同期存下来的选中态
+    expect(localStorage.getItem("agentre.orgView.mode")).toBe("list");
+    expect(localStorage.getItem("agentre.orgTree.collapse")).toBe('{"1":true}');
 
     const evaRow = screen.getByText("Eva").closest("button");
     if (!evaRow) throw new Error("Eva row not found");

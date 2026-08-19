@@ -21,10 +21,8 @@ export type OrgAgentColor =
   | "agent-16"
   | "neutral";
 
-export type OrgSelection =
-  | { kind: "agent"; id: number }
-  | { kind: "department"; id: number }
-  | null;
+// 选中态的形状与共享包同源：索引与详情两端共用的呈现件都按它收 onSelect。
+export type { OrgSelection } from "@agentre-ai/agentre-ui";
 
 export const iconForKey = iconForKeyShared;
 

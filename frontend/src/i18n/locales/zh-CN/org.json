@@ -30,21 +30,58 @@
         "description": "选择父级、图标和主题色，创建后会出现在组织架构中。",
         "iconAria": "新部门图标"
       },
-      "summary": {
-        "list": "{{count}} 个 Agent · 列表视图",
-        "tree": "{{departments}} 部门 · {{subDepartments}} 子部门 · {{agents}} Agent"
+      "summary": "{{departments}} 部门 · {{subDepartments}} 子部门 · {{agents}} Agent",
+      "title": "组织架构"
+    },
+    "detail": {
+      "columns": {
+        "behavior": "行为",
+        "execution": "执行",
+        "identity": "身份",
+        "structure": "结构"
+      }
+    },
+    "index": {
+      "search": {
+        "aria": "搜索 Agent",
+        "placeholder": "搜索 Agent 或描述"
       },
-      "title": "组织架构",
-      "view": {
-        "list": "列表",
-        "listAria": "列表视图",
-        "tree": "树状",
-        "treeAria": "树状视图"
+      "filters": {
+        "entry": "筛选",
+        "entryAria": "筛选 Agent",
+        "backendAria": "按后端筛选",
+        "reportsToAria": "按汇报对象筛选",
+        "backendLabel": "后端：{{name}}",
+        "reportsToLabel": "汇报给：{{name}}",
+        "searchLabel": "搜索：{{value}}",
+        "clear": "清除条件 {{label}}",
+        "clearAll": "清除全部条件"
       },
-      "zoom": {
-        "in": "放大",
-        "out": "缩小",
-        "reset": "重置缩放"
+      "noMatch": {
+        "title": "未找到 Agent",
+        "conditions": "当前同时生效：{{conditions}}"
+      },
+      "emptyDepartments": {
+        "title": "未创建部门",
+        "description": "可新建部门，或把新 Agent 挂到 CEO 助手下。",
+        "newDepartment": "新建部门",
+        "addAgent": "添加 Agent"
+      },
+      "drag": {
+        "pickedUp": "已拾起 {{name}}。方向键选落点，回车放下，Esc 取消。",
+        "dropped": "已放下 {{name}}。",
+        "cancelled": "已取消拖拽。",
+        "zoneReorder": "排序 · 放到 {{name}} 之前",
+        "zoneReorderEnd": "排序 · 放到末位",
+        "zoneAgent": "改汇报对象 · 汇报给 {{name}}",
+        "zoneDepartment": "换部门 · 移入 {{name}}",
+        "refused": "{{zone}} —— 不可放置：{{reason}}",
+        "reasonCycle": "不能挂到自己的下属下",
+        "reasonDepartmentCycle": "不能移到自己的子部门下",
+        "reasonBucket": "只能在同一部门、同一上级内排序",
+        "reasonSystem": "系统 Agent 不可移动",
+        "reasonSystemTarget": "系统 Agent 不接受落点",
+        "reasonGeneric": "这个落点不接受它"
       }
     },
     "agent": {
@@ -59,8 +96,6 @@
         "configureProvider": "去配置 LLM 供应商",
         "goAgentBackendSettings": "去 Agent 后端设置",
         "inactiveSuffix": "（已停用）",
-        "noBackendDescription": "绑定一个 Agent 后端后即可开始对话；内置后端需要额外的 LLM 供应商。",
-        "noBackendTitle": "这个 Agent 还不能对话",
         "providerGapDescription": "内置 SDK 后端通过 LLM 供应商执行任务，当前还没有已激活的供应商。",
         "providerGapTitle": "还需要一个 LLM 供应商",
         "title": "AGENT 后端",
@@ -70,17 +105,11 @@
         "title": "执行目标",
         "add": "添加",
         "addFull": "添加执行目标",
-        "replace": "更换",
-        "remove": "移除",
-        "moveUp": "上移执行目标",
-        "moveDown": "下移执行目标",
-        "dragHandle": "拖拽排序（也可按 ↑ / ↓ 方向键）",
         "moved": "已移到第 {{position}} 位，共 {{total}} 位。",
-        "currentlyActive": "当前生效",
         "online": "在线",
         "offline": "离线",
         "localMachine": "本机",
-        "emptyTitle": "还没有执行目标",
+        "emptyTitle": "这个 Agent 还不能对话",
         "emptyHint": "至少要有一项，这个 Agent 才能起会话。",
         "saveRejected": "保存被拒：请至少添加一个执行目标。",
         "allUnavailableTitle": "「{{name}}」现在没有可用的执行机器",
@@ -89,29 +118,16 @@
           "alreadyInList": "已在列表中",
           "unpaired": "未配对"
         },
-        "reasons": {
-          "orphanBackend": "该执行目标引用的后端已不存在",
-          "backendRequiresProvider": "需指定 LLM Provider",
-          "providerInactive": "LLM 供应商未激活",
-          "remoteProviderMissing": "远端缺少 LLM 供应商",
-          "gatewayNotRunning": "本地网关未启动",
-          "remoteOpenclawUnavailable": "远端 OpenClaw 暂不可用",
-          "unknownBackend": "未知后端类型",
-          "unpaired": "这台电脑未配对它",
-          "offline": "离线",
-          "projectPathMissing": "这台机器上没有配置这个项目的路径"
-        },
-        "loading": "正在加载执行目标…"
+        "loading": "正在加载执行目标…",
+        "emptyDescription": "绑定一个 Agent 后端后即可开始对话；内置后端需要额外的 LLM 供应商。"
       },
-      "basicInfo": "基本信息",
       "charCount": "{{count}} 字",
       "deleteDialog": {
         "description": "该 Agent 的对话、技能与状态记录都会一并清除，该操作不可撤销。",
         "title": "确认删除 Agent「{{name}}」？"
       },
       "departmentLead": "{{name}} 部门长",
-      "descriptionHint": "可选 · 显示在卡片副标题",
-      "dragHierarchyHint": "· 拖拽卡片可调整层级",
+      "descriptionHint": "可选 · 显示在索引行的副标题",
       "fallbackName": "Agent",
       "relativeTime": {
         "daysAgo": "{{count}} 天前",
@@ -119,10 +135,8 @@
         "justNow": "刚刚",
         "minutesAgo": "{{count}} 分钟前"
       },
-      "reportsTo": "汇报给",
       "savedAt": "已保存 · {{time}}",
       "skills": {
-        "sectionTitle": "技能 · SKILL PACKS",
         "manage": "管理技能",
         "count": "继承 {{inherit}} · 强制开 {{on}} · 强制关 {{off}}",
         "countCompact": "继承 {{inherit}} · 开 {{on}} · 关 {{off}}",
@@ -130,15 +144,9 @@
         "empty": "未授予技能包",
         "personalNote": "始终可用 · 个人技能（~/.claude/skills）不可单独开关",
         "summary": "{{enabled}} 启用 · {{disabled}} 禁用",
-        "title": "技能",
         "copyFrom": "复制自",
         "copyFromDisabledHint": "后端类型不同，包 ID 对不上",
         "offlineNote": "机器离线，列不出可添加的包 · 已授权的仍可移除"
-      },
-      "skillsGate": {
-        "pill": "backend 不支持",
-        "title": "当前 backend 不支持技能",
-        "description": "技能是 Claude Code 原生能力 · 添加一档 Claude Code 类型的执行目标即可为它单独启用并配置"
       },
       "skillPicker": {
         "title": "添加技能 · Skill Packs",
@@ -146,29 +154,6 @@
         "subtitleForTarget": "第 {{index}} 档 · {{machine}} · {{backend}} —— 只影响这一档",
         "searchPlaceholder": "搜索技能包 / 描述…",
         "personalNote": "个人技能（~/.claude/skills）始终可用，CLI 不支持单独开关"
-      },
-      "tools": {
-        "title": "工具",
-        "sectionTitle": "工具 · TOOLS",
-        "enabledCount": "{{count}} 已启用",
-        "add": "添加工具",
-        "empty": "暂无可用工具",
-        "approval": "需审批",
-        "names": {
-          "org": "组织架构",
-          "subagent": "调用子 Agent",
-          "hook": "脚本 Hook"
-        },
-        "descriptions": {
-          "org": "允许该 Agent 查询并管理部门与成员（写操作需你审批）",
-          "subagent": "把子任务委派给另一个已配置的 Agent 执行并同步取回结果。子 Agent 在隔离的一次性会话中运行；用作子 Agent 的成员建议使用自动批准的权限模式。",
-          "hook": "允许该 Agent 编写、试运行并按 cron 调度脚本 Hook，定时产出事件（创建/修改/删除/执行均需你审批）"
-        }
-      },
-      "toolPicker": {
-        "title": "添加工具",
-        "subtitle": "工具调用经 MCP 注入 · 写操作需审批",
-        "searchPlaceholder": "搜索工具 / 描述…"
       },
       "skillCatalog": {
         "group": {
@@ -181,7 +166,6 @@
         "globalDisabled": "全局未启用"
       },
       "systemPrompt": "系统提示词",
-      "systemPromptHint": "风格 / 语气 / 边界都写进 system prompt — 不另设字段。",
       "unsaved": "未保存"
     },
     "department": {
@@ -221,47 +205,9 @@
       "viewDepartment": "查看部门 {{name}}"
     },
     "list": {
-      "empty": "未找到 Agent",
-      "filters": {
-        "backendAria": "后端过滤",
-        "backendPrefix": "后端：",
-        "clearReportsTo": "清除汇报给过滤",
-        "reportsToAria": "汇报给过滤",
-        "reportsToPrefix": "汇报给："
-      },
-      "search": {
-        "aria": "搜索 Agent",
-        "placeholder": "搜索 Agent 或描述"
-      },
-      "skills": {
-        "enabledOnly": "{{count}} 启用"
-      },
       "sort": {
-        "aria": "排序方式",
-        "asc": "升序",
-        "desc": "降序",
-        "hierarchy": "层级",
-        "label": "排序",
         "status": "状态"
-      },
-      "table": {
-        "active": "活跃",
-        "agent": "Agent",
-        "sortByAgent": "按 Agent 排序"
       }
-    },
-    "tree": {
-      "collapse": "折叠 {{name}}",
-      "collapsedSuffix": "（已折叠）",
-      "empty": {
-        "addAgent": "添加 Agent",
-        "description": "可新建部门，或把新 Agent 挂到 CEO 助手下。",
-        "newDepartment": "新建部门",
-        "title": "未创建部门"
-      },
-      "expand": "展开 {{name}}",
-      "lead": "Lead · {{name}}",
-      "memberCount": "{{count}} 名成员"
     },
     "reorderFailed": "排序保存失败，请重试"
   }
