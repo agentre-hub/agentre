@@ -1552,7 +1552,7 @@ describe("AgentSpawnCard steps region as an activity block", () => {
     const outcome = screen.getByTestId("agent-spawn-outcome");
     expect(outcome.textContent).toBe("5 steps · 2.4K tok · 12.0s");
     // 次级信息:不占用状态色,也不占用品牌色。
-    expect(outcome.className).toContain("text-subtle-foreground");
+    expect(outcome.className).toContain("text-muted-foreground");
   });
 
   it("Given any dispatch state, When rendered, Then the subagent name and icon are neutral rather than brand-colored and non-success keeps its pill", () => {

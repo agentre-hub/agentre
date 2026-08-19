@@ -351,13 +351,13 @@ export function ProviderWorkspace({
               : t("llmProviders.row.noApiKey")}
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-subtle-foreground">
+            <span className="text-muted-foreground">
               {t("llmProviders.workspace.metaDefaultModel")}
             </span>
             <span>{defaultModelName}</span>
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-subtle-foreground">
+            <span className="text-muted-foreground">
               {t("llmProviders.workspace.metaReferenced")}
             </span>
             <span>{refsText || "—"}</span>

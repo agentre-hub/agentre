@@ -408,10 +408,10 @@ function QuotaMeter({
     data.reason === "auth_expired" || data.reason === "device_offline";
   // 灰态占位没有可信数值,整块压成 subtle;有数值时两个窗口各自取色。
   const fiveTone = offline
-    ? "text-subtle-foreground"
+    ? "text-muted-foreground"
     : QUOTA_METER_TONE[quotaLevel(fiveH)];
   const sevenTone = offline
-    ? "text-subtle-foreground"
+    ? "text-muted-foreground"
     : QUOTA_METER_TONE[quotaLevel(sevenD)];
 
   return (
@@ -429,7 +429,7 @@ function QuotaMeter({
             "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
             "hover:border-border hover:bg-accent",
             "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",
-            offline ? "text-subtle-foreground" : "text-muted-foreground",
+            offline ? "text-muted-foreground" : "text-muted-foreground",
           )}
           aria-label={t("chat.quota.aria", {
             device: deviceLabel || "local",
@@ -448,7 +448,7 @@ function QuotaMeter({
             </span>
             {showNumbers && fiveH !== null ? `${fiveH}%` : "—%"}
           </span>
-          <span className="text-subtle-foreground">·</span>
+          <span className="text-decorative-foreground">·</span>
           <span className={sevenTone}>
             <span
               data-quota-prefix="7d"
@@ -517,7 +517,7 @@ function QuotaRow({
       <div className="flex items-baseline gap-1.5 text-2xs">
         <span className="font-medium text-foreground">{label}</span>
         {remaining ? (
-          <span className="font-mono text-subtle-foreground">
+          <span className="font-mono text-muted-foreground">
             {t("chat.quota.resetRemaining", { time: remaining }).trim()}
           </span>
         ) : null}
@@ -566,7 +566,7 @@ function QuotaPanel({
         <span className="text-xs font-semibold text-foreground">
           {t("chat.quota.panel.title")}
         </span>
-        <span className="ml-auto truncate font-mono text-2xs text-subtle-foreground">
+        <span className="ml-auto truncate font-mono text-2xs text-muted-foreground">
           {device}
         </span>
       </div>
@@ -648,7 +648,7 @@ function ContextMeter({ used, max }: { used: number; max: number }) {
         <span className="font-medium text-foreground">
           {formatTokens(safeUsed)}
         </span>
-        <span className="text-subtle-foreground"> / </span>
+        <span className="text-decorative-foreground"> / </span>
         <span>{formatTokens(max)}</span>
       </span>
       <span
@@ -1115,7 +1115,7 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, ChatComposerProps>(
                 </>
               ) : null}
               {/* 快捷键提示是一次性教学文案,空间不足时第一个让位。 */}
-              <span className="shrink-0 font-mono text-meta leading-none whitespace-nowrap text-subtle-foreground @max-[1000px]/composer:hidden">
+              <span className="shrink-0 font-mono text-meta leading-none whitespace-nowrap text-muted-foreground @max-[1000px]/composer:hidden">
                 {editing
                   ? t("chat.composer.shortcuts.edit")
                   : t("chat.composer.shortcuts.send")}

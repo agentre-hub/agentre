@@ -386,7 +386,7 @@ export const PlanCard: React.FC<CanonicalCardProps> = ({
             className="text-sm"
           />
           <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-meta text-subtle-foreground">
+            <span className="font-mono text-meta text-muted-foreground">
               {t("canonical.plan.feedback.charCount", {
                 count: feedback.length,
               })}

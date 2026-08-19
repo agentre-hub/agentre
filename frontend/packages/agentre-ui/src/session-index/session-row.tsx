@@ -141,7 +141,11 @@ function SessionRow({
     twoLine ? "items-start" : "items-center",
     // 有行尾操作时行成为 flex 子项，宽度交给容器；否则照旧独占一行。
     rowActions ? "min-w-0 flex-1" : "w-full",
-    selected && "bg-primary-soft text-primary-text",
+    // 选中除了底色，还要有一条 primary 竖条：亮色下 --primary-soft 落在侧栏上只有
+    // 1.01:1，比 hover 的 1.10 还弱，光靠颜色「选中」会输给「鼠标停着」。
+    // 竖条压在行左侧的内边距里（px-2 = 8px，条宽 3px），不挤内容也不产生跳动。
+    selected &&
+      "relative bg-primary-soft text-primary-text before:absolute before:top-1 before:bottom-1 before:left-0 before:w-[3px] before:rounded-full before:bg-primary before:content-['']",
     className,
   );
 

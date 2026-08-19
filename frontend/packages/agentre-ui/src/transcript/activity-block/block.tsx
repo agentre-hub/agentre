@@ -130,13 +130,13 @@ export function ActivityBlock({
         <ChevronRight
           aria-hidden="true"
           className={cn(
-            "size-3 shrink-0 text-subtle-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
+            "size-3 shrink-0 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
             expanded && "rotate-90",
           )}
         />
         <Layers
           aria-hidden="true"
-          className="size-3 shrink-0 text-subtle-foreground"
+          className="size-3 shrink-0 text-decorative-foreground"
         />
         {running ? (
           <span
@@ -153,7 +153,7 @@ export function ActivityBlock({
           <span
             data-testid="activity-live-tail"
             aria-live="polite"
-            className="min-w-0 flex-1 truncate font-mono text-subtle-foreground"
+            className="min-w-0 flex-1 truncate font-mono text-muted-foreground"
           >
             {currentStepLabel(t, steps, cwd)}
           </span>
@@ -167,7 +167,7 @@ export function ActivityBlock({
             // 这个数字是**整轮**耗时(块级没有来源),tooltip 把它说清楚,
             // 免得一条消息里的两个活动块看起来各自跑了这么久。
             title={t("activity.header.durationTitle")}
-            className="shrink-0 font-mono text-subtle-foreground"
+            className="shrink-0 font-mono text-muted-foreground"
           >
             {durationLabel}
           </span>
@@ -244,11 +244,11 @@ function ElidedSteps({
     >
       <ChevronRight
         aria-hidden="true"
-        className="size-3 shrink-0 text-subtle-foreground"
+        className="size-3 shrink-0 text-decorative-foreground"
       />
       <Ellipsis
         aria-hidden="true"
-        className="size-3 shrink-0 text-subtle-foreground"
+        className="size-3 shrink-0 text-decorative-foreground"
       />
       <span className="shrink-0">
         {t("activity.elided.steps", { count: steps.length })}
@@ -285,7 +285,7 @@ function SummaryText({ summary }: { summary: ActivitySummary }) {
   return (
     <span
       data-testid="activity-summary"
-      className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap font-mono text-subtle-foreground"
+      className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap font-mono text-muted-foreground"
     >
       {parts.map((part, idx) => (
         <React.Fragment key={part.category}>

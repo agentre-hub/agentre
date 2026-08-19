@@ -137,7 +137,7 @@ function NotificationToastCard({
               aria-hidden="true"
             />
           </button>
-          <span className="font-mono text-[10px] text-subtle-foreground">
+          <span className="font-mono text-[10px] text-muted-foreground">
             {t("notify.justNow")}
           </span>
         </div>

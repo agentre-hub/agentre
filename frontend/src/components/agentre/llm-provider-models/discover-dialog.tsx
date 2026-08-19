@@ -405,7 +405,7 @@ export function DiscoverDialog({
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-6 text-center">
               <Inbox
-                className="size-5 text-subtle-foreground"
+                className="size-5 text-decorative-foreground"
                 aria-hidden="true"
               />
               <p className="text-xs font-semibold text-foreground">

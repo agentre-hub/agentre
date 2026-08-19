@@ -262,7 +262,7 @@ function SessionGroup({
                 className="flex items-center gap-1.5 px-2 py-2 text-2xs text-muted-foreground"
               >
                 <Inbox
-                  className="size-3 text-subtle-foreground"
+                  className="size-3 text-decorative-foreground"
                   aria-hidden="true"
                 />
                 <span>{resolvedEmptyLabel}</span>

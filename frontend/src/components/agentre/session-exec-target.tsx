@@ -368,7 +368,7 @@ export function NewSessionExecTargetLine(props: NewSessionExecTargetLineProps) {
         {t("chatPanel.execTarget.willRunSuffix")}
       </span>
       {dropped && candidates[0] && (
-        <p className="w-full text-center text-2xs text-subtle-foreground">
+        <p className="w-full text-center text-2xs text-muted-foreground">
           {reasonLabel(candidates[0].reason, t)}
         </p>
       )}
@@ -455,7 +455,7 @@ function ExecTargetReselectPopover(props: {
         <span className="text-2xs font-semibold">
           {t("chatPanel.execTarget.pickerTitle")}
         </span>
-        <span className="text-2xs text-subtle-foreground">
+        <span className="text-2xs text-muted-foreground">
           {t("chatPanel.execTarget.pickerScope")}
         </span>
       </div>
@@ -504,7 +504,7 @@ function ExecTargetReselectPopover(props: {
               <span
                 data-testid="exec-target-project-path"
                 title={c.projectPath}
-                className="truncate font-mono text-2xs text-subtle-foreground"
+                className="truncate font-mono text-2xs text-muted-foreground"
               >
                 {c.projectPath}
               </span>

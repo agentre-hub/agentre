@@ -159,7 +159,7 @@ export function PeerPanel({
         <span className="font-medium text-foreground">
           {title || deviceName}
         </span>
-        <span className="text-subtle-foreground">
+        <span className="text-muted-foreground">
           {t("peerPanel.header.remote", { device: deviceName })}
         </span>
         <span
@@ -223,7 +223,7 @@ export function PeerPanel({
           <div className="max-w-md text-xs text-muted-foreground">
             {t("peerPanel.error.description", { device: deviceName })}
           </div>
-          <div className="text-xs text-subtle-foreground">{session?.error}</div>
+          <div className="text-xs text-muted-foreground">{session?.error}</div>
         </div>
       ) : (
         <div className="min-h-0 flex-1">

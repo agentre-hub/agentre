@@ -163,7 +163,7 @@ export function ProjectGroupHeader({
               className={cn(
                 "min-w-0 flex-1 truncate text-left",
                 isDeep
-                  ? "font-mono text-[9px] font-medium uppercase tracking-widest text-subtle-foreground"
+                  ? "font-mono text-[9px] font-medium uppercase tracking-widest text-muted-foreground"
                   : isSub
                     ? "font-mono text-2xs font-semibold uppercase tracking-wider text-muted-foreground"
                     : "text-[15px] font-semibold",
@@ -394,7 +394,7 @@ function NewSessionMenu({ project, onPick }: NewSessionMenuProps) {
         // 已经被 ChatPanelHost 接管，让 Radix 抢回 trigger 会直接抹掉那次 focus。
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        <div className="px-2 py-1.5 font-mono text-2xs uppercase tracking-wider text-subtle-foreground">
+        <div className="px-2 py-1.5 font-mono text-2xs uppercase tracking-wider text-muted-foreground">
           {t("projects.session.pickAgent")}
         </div>
         {activeLoadState.status === "loading" ? (

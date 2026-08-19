@@ -223,7 +223,7 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
       </div>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-2xs font-semibold uppercase tracking-[0.08em] text-subtle-foreground">
+        <h2 className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {t("shortcuts.sections.global")}
         </h2>
         {globalDefs.map((def) => (
@@ -243,7 +243,7 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-2xs font-semibold uppercase tracking-[0.08em] text-subtle-foreground">
+        <h2 className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {t("shortcuts.sections.chat")}
         </h2>
         <ShortcutRow

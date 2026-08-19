@@ -114,7 +114,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.minimize")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground"
         onClick={() => runWindowAction(WindowMinimise)}
       >
         <Minus className="size-4" aria-hidden="true" />
@@ -122,7 +122,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.maximize")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground"
         onClick={() => runWindowAction(WindowToggleMaximise)}
       >
         <Square className="size-3.5" aria-hidden="true" />
@@ -130,7 +130,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.close")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:bg-destructive focus-visible:text-destructive-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:bg-destructive focus-visible:text-destructive-foreground dark:hover:bg-destructive/60 dark:focus-visible:bg-destructive/60"
         onClick={() => runWindowAction(Quit)}
       >
         <X className="size-4" aria-hidden="true" />
@@ -224,7 +224,7 @@ function ThemeToggle({
       variant="ghost"
       size="icon"
       className={cn(
-        "wails-no-drag group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
+        "wails-no-drag group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
         className,
       )}
       aria-label={t("theme.toggle", {
@@ -296,7 +296,9 @@ function AppTopBar({
         <span className="text-sm font-semibold">{appName}</span>
         {breadcrumb ? (
           <>
-            <span className="font-mono text-sm text-subtle-foreground">/</span>
+            <span className="font-mono text-sm text-decorative-foreground">
+              /
+            </span>
             <span className="min-w-0 truncate text-sm text-muted-foreground">
               {breadcrumb}
             </span>
@@ -341,7 +343,7 @@ function UpdateStatusPill({
     "wails-no-drag inline-flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
 
   let content: React.ReactNode;
-  let tone = "text-subtle-foreground hover:bg-accent hover:text-foreground";
+  let tone = "text-muted-foreground hover:bg-accent hover:text-foreground";
   // 无障碍名单独给：胶囊里的文案是缩写（「检查中」「下载中 42%」），
   // 读屏要听到的是「什么状态 + 哪个版本」。
   let ariaLabel = t("update.pill.aria.idle", { version });
@@ -522,7 +524,7 @@ function AppStatusBar({
               summary: attentionSummary,
             })}
             title={attentionSummary}
-            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 truncate">{attentionSummary}</span>

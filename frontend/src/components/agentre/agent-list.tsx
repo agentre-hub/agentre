@@ -29,7 +29,7 @@ function AgentPanelSection({
   return (
     <div
       className={cn(
-        "flex items-center gap-1 px-2 pb-0.5 font-mono text-2xs font-semibold text-subtle-foreground",
+        "flex items-center gap-1 px-2 pb-0.5 font-mono text-2xs font-semibold text-muted-foreground",
         className,
       )}
       {...props}

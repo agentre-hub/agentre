@@ -348,7 +348,7 @@ function FilterTab({
     >
       <Icon className="size-3.5" aria-hidden="true" />
       {label}
-      <span className="font-mono text-2xs text-subtle-foreground">{count}</span>
+      <span className="font-mono text-2xs text-muted-foreground">{count}</span>
     </button>
   );
 }
