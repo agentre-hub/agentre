@@ -234,6 +234,19 @@ describe("OrgDetailAgent", () => {
     expect(screen.getByText(/Claude Code · Claude Code/)).toBeInTheDocument();
   });
 
+  // 决策 11：不写「向用户解释我们设计」的说明文字，systemPromptHint 点名要删。
+  // 「风格 / 语气 / 边界都写进 system prompt —— 不另设字段」讲的是我们没做什么，
+  // 用户此刻做决定用不上它；约束该由控件表达。保留的是当下要用的信息（离线说明、
+  // 不可用原因、部门删除两策略），它们各有自己的守卫。
+  it("Given the behavior column, When it renders, Then the system prompt carries no design-explaining hint", () => {
+    renderPanel();
+    expect(screen.getByLabelText("System Prompt")).toBeInTheDocument();
+    expect(screen.queryByText(/No separate fields are used/)).toBeNull();
+    expect(
+      screen.queryByText(/Put style, tone, and boundaries/),
+    ).toBeNull();
+  });
+
   it("counts non-whitespace chars in system prompt", async () => {
     const user = userEvent.setup();
     renderPanel({ prompt: [] });

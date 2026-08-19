@@ -47,6 +47,8 @@
         "placeholder": "Search agents or descriptions"
       },
       "filters": {
+        "entry": "Filter",
+        "entryAria": "Filter agents",
         "backendAria": "Filter by backend",
         "reportsToAria": "Filter by manager",
         "backendLabel": "Backend: {{name}}",
@@ -164,7 +166,6 @@
         "globalDisabled": "Globally disabled"
       },
       "systemPrompt": "System Prompt",
-      "systemPromptHint": "Put style, tone, and boundaries in the system prompt. No separate fields are used.",
       "unsaved": "Unsaved"
     },
     "department": {

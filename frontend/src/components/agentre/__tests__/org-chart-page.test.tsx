@@ -154,15 +154,19 @@ beforeEach(() => {
 });
 
 describe("OrgChartPage 一屏之内", () => {
-  it("搜索、按后端 / 按汇报对象两项筛选与新建部门同屏在场", () => {
+  it("搜索、筛选入口与新建部门同屏在场（两项筛选都收在那一个入口里）", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderPage();
 
     expect(screen.getByLabelText("Search agents")).toBeInTheDocument();
-    expect(screen.getByLabelText("Filter by backend")).toBeInTheDocument();
-    expect(screen.getByLabelText("Filter by manager")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "New Department" }),
     ).toBeInTheDocument();
+
+    // 顶栏只摆一个筛选入口（决策 12 否决了常驻两个下拉），两维在里面各是一组。
+    await user.click(screen.getByLabelText("Filter agents"));
+    expect(await screen.findByText("Filter by backend")).toBeInTheDocument();
+    expect(screen.getByText("Filter by manager")).toBeInTheDocument();
   });
 
   it("画布与列表的两套开关都不在了：没有视图切换，也没有缩放", () => {

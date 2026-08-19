@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AlertTriangle, Info, Trash2, X } from "lucide-react";
+import { AlertTriangle, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
@@ -556,12 +556,6 @@ export function OrgDetailAgent(props: Props) {
                 aria-label={t("org.agent.systemPrompt")}
                 className="min-h-[160px] w-full font-mono text-xs"
               />
-              <div className="flex items-start gap-1.5 text-2xs text-muted-foreground">
-                <Info className="mt-px size-3 shrink-0" aria-hidden="true" />
-                <span className="min-w-0">
-                  {t("org.agent.systemPromptHint")}
-                </span>
-              </div>
             </div>
 
             {caps?.has("mcp_tools") && (

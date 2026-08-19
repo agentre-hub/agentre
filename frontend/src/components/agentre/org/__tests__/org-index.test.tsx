@@ -149,12 +149,26 @@ async function moveUntil(
 }
 
 describe("OrgIndex 一屏之内", () => {
-  it("搜索框与两个筛选入口同屏在场", () => {
+  // 决策 12「筛选不常驻占位」：顶栏只有搜索框与**一个**筛选入口，两维筛选都收在
+  // 那个入口里。否决过的正是「常驻两个下拉」——未筛选时它们既不说明用途也占掉一行。
+  it("顶栏只有搜索框与一个筛选入口：两维不各占一个常驻下拉", () => {
     setup();
 
     expect(screen.getByLabelText("Search agents")).toBeInTheDocument();
-    expect(screen.getByTestId("org-filter-backend")).toBeInTheDocument();
-    expect(screen.getByTestId("org-filter-reportsTo")).toBeInTheDocument();
+    expect(screen.getByTestId("org-filter-entry")).toBeInTheDocument();
+    expect(screen.queryByTestId("org-filter-backend")).toBeNull();
+    expect(screen.queryByTestId("org-filter-reportsTo")).toBeNull();
+  });
+
+  it("两维筛选都在那一个入口里：打开就能各选各的", async () => {
+    const { user } = setup();
+
+    await user.click(screen.getByTestId("org-filter-entry"));
+
+    expect(
+      await screen.findByTestId("org-filter-backend-option-6"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("org-filter-reportsTo-option-2")).toBeInTheDocument();
   });
 
   it("没筛选时 chip 不占行，命中后长出可清除的 chip", async () => {
@@ -162,7 +176,7 @@ describe("OrgIndex 一屏之内", () => {
 
     expect(screen.queryByTestId("org-index-chips")).toBeNull();
 
-    await user.click(screen.getByTestId("org-filter-backend"));
+    await user.click(screen.getByTestId("org-filter-entry"));
     await user.click(await screen.findByTestId("org-filter-backend-option-6"));
 
     const chip = await screen.findByRole("button", {
@@ -259,7 +273,7 @@ describe("OrgIndex 两种空态", () => {
   it("搜索无结果时说出哪些条件同时生效，并一键清除", async () => {
     const { user } = setup();
 
-    await user.click(screen.getByTestId("org-filter-backend"));
+    await user.click(screen.getByTestId("org-filter-entry"));
     await user.click(await screen.findByTestId("org-filter-backend-option-6"));
     await user.type(screen.getByLabelText("Search agents"), "zzz");
 

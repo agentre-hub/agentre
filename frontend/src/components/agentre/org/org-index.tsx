@@ -16,6 +16,7 @@ import {
   Plus,
   Search,
   Server,
+  SlidersHorizontal,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -24,8 +25,10 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -472,29 +475,29 @@ export function OrgIndex(props: OrgIndexProps) {
           />
         </div>
 
-        <FilterMenu
-          testId="org-filter-backend"
-          ariaLabel={t("org.index.filters.backendAria")}
-          label={t("org.index.filters.backendLabel", {
-            name: backendName || t("common.all"),
-          })}
-          active={backendId > 0}
-          icon={<Server className="size-3.5" aria-hidden="true" />}
-          value={String(backendId)}
-          onValueChange={(value) => setBackendId(Number(value))}
-          options={backends.map((b) => ({ id: b.id, label: b.name }))}
-        />
-        <FilterMenu
-          testId="org-filter-reportsTo"
-          ariaLabel={t("org.index.filters.reportsToAria")}
-          label={t("org.index.filters.reportsToLabel", {
-            name: reportsToName || t("common.all"),
-          })}
-          active={reportsToId > 0}
-          icon={<CornerDownRight className="size-3.5" aria-hidden="true" />}
-          value={String(reportsToId)}
-          onValueChange={(value) => setReportsToId(Number(value))}
-          options={reportsToOptions.map((a) => ({ id: a.id, label: a.name }))}
+        <FilterEntry
+          activeCount={filterChips.length}
+          sections={[
+            {
+              key: "backend",
+              heading: t("org.index.filters.backendAria"),
+              icon: <Server className="size-3.5" aria-hidden="true" />,
+              value: String(backendId),
+              onValueChange: (value) => setBackendId(Number(value)),
+              options: backends.map((b) => ({ id: b.id, label: b.name })),
+            },
+            {
+              key: "reportsTo",
+              heading: t("org.index.filters.reportsToAria"),
+              icon: <CornerDownRight className="size-3.5" aria-hidden="true" />,
+              value: String(reportsToId),
+              onValueChange: (value) => setReportsToId(Number(value)),
+              options: reportsToOptions.map((a) => ({
+                id: a.id,
+                label: a.name,
+              })),
+            },
+          ]}
         />
       </div>
 
@@ -629,59 +632,76 @@ function dropStateOf(
   return valid ? "valid" : "invalid";
 }
 
-type FilterMenuProps = {
-  testId: string;
-  ariaLabel: string;
-  label: string;
-  active: boolean;
+// 筛选是**一个**入口，两维都收在里面（决策 12「筛选不常驻占位」明确否决了
+// 「常驻两个下拉」：未筛选时它们既不说明用途也占掉一整行）。命中之后说话的是
+// 下面那排可清除的 chip，不是顶栏上一直摆着的两个「后端：全部」。
+type FilterSection = {
+  key: string;
+  heading: string;
   icon: React.ReactNode;
   value: string;
   onValueChange: (value: string) => void;
   options: Array<{ id: number; label: string }>;
 };
 
-function FilterMenu(props: FilterMenuProps) {
+function FilterEntry(props: {
+  activeCount: number;
+  sections: FilterSection[];
+}) {
   const { t } = useTranslation();
+  const active = props.activeCount > 0;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          data-testid={props.testId}
-          aria-label={props.ariaLabel}
+          data-testid="org-filter-entry"
+          aria-label={t("org.index.filters.entryAria")}
           className={cn(
             "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50",
-            props.active
+            active
               ? "border-primary bg-primary-soft text-primary-text"
               : "border-border text-muted-foreground",
           )}
         >
-          {props.icon}
-          <span className="max-w-[160px] truncate">{props.label}</span>
+          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+          <span>{t("org.index.filters.entry")}</span>
+          {active ? (
+            <span className="font-mono text-2xs">{props.activeCount}</span>
+          ) : null}
           <ChevronDown className="size-3 opacity-70" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-64 overflow-auto">
-        <DropdownMenuRadioGroup
-          value={props.value}
-          onValueChange={props.onValueChange}
-        >
-          <DropdownMenuRadioItem
-            value="0"
-            data-testid={`${props.testId}-option-0`}
-          >
-            {t("common.all")}
-          </DropdownMenuRadioItem>
-          {props.options.map((option) => (
-            <DropdownMenuRadioItem
-              key={option.id}
-              value={String(option.id)}
-              data-testid={`${props.testId}-option-${option.id}`}
+      <DropdownMenuContent align="start" className="max-h-80 overflow-auto">
+        {props.sections.map((section, index) => (
+          <React.Fragment key={section.key}>
+            {index > 0 ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuLabel className="flex items-center gap-1.5 text-muted-foreground">
+              {section.icon}
+              {section.heading}
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={section.value}
+              onValueChange={section.onValueChange}
             >
-              {option.label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+              <DropdownMenuRadioItem
+                value="0"
+                data-testid={`org-filter-${section.key}-option-0`}
+              >
+                {t("common.all")}
+              </DropdownMenuRadioItem>
+              {section.options.map((option) => (
+                <DropdownMenuRadioItem
+                  key={option.id}
+                  value={String(option.id)}
+                  data-testid={`org-filter-${section.key}-option-${option.id}`}
+                >
+                  {option.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </React.Fragment>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

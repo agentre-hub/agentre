@@ -47,6 +47,8 @@
         "placeholder": "搜索 Agent 或描述"
       },
       "filters": {
+        "entry": "筛选",
+        "entryAria": "筛选 Agent",
         "backendAria": "按后端筛选",
         "reportsToAria": "按汇报对象筛选",
         "backendLabel": "后端：{{name}}",
@@ -164,7 +166,6 @@
         "globalDisabled": "全局未启用"
       },
       "systemPrompt": "系统提示词",
-      "systemPromptHint": "风格 / 语气 / 边界都写进 system prompt — 不另设字段。",
       "unsaved": "未保存"
     },
     "department": {
