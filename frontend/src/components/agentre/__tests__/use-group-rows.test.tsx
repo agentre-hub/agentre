@@ -127,4 +127,47 @@ describe("useGroupRows", () => {
     expect(first.sessions).toEqual([]);
     expect(result.current).toBe(first);
   });
+
+  it("Given a read error only in the attention pool, When the regular list and the pool are passed separately, Then it stays out of both (sess-1819 regression)", () => {
+    seed(11, { lastMessageAt: 3000, lastReadAt: 3000 });
+    seed(12, { lastMessageAt: 2000, lastReadAt: 2000 });
+    seed(
+      1819,
+      { lastMessageAt: 1000, lastReadAt: 1000 },
+      { agentStatus: "error" },
+    );
+
+    const { result } = renderHook(() =>
+      useGroupRows(
+        [11, 12], // 常规列表 = 前 5 条
+        0,
+        t,
+        { attentionPoolIDs: [11, 12, 1819] }, // attention 池 = 前 5 + error
+      ),
+    );
+
+    // 常规列表只有前 5 条，已读 error 不漏进去。
+    expect(result.current.sessions.map((s) => s.id)).toEqual(["11", "12"]);
+    // 气泡也不进（error + 已读 → null）。
+    expect(result.current.attentionSessions).toEqual([]);
+  });
+
+  it("Given an unread error in the attention pool, When the pool feeds the bubble, Then it still surfaces there (pool still powers attention)", () => {
+    seed(11, { lastMessageAt: 3000, lastReadAt: 3000 });
+    seed(
+      1819,
+      { lastMessageAt: 1000, lastReadAt: 500 },
+      { agentStatus: "error" },
+    );
+
+    const { result } = renderHook(() =>
+      useGroupRows([11], 0, t, { attentionPoolIDs: [11, 1819] }),
+    );
+
+    // 常规列表不含池里的未读 error（它不属于前 5 条常规列表）。
+    expect(result.current.sessions.map((s) => s.id)).toEqual(["11"]);
+    // 但气泡里它在 —— 未读 error 依然需要用户去看。
+    expect(result.current.attentionSessions.map((s) => s.id)).toEqual(["1819"]);
+    expect(result.current.attentionSessions[0].attentionRank).toBe("error");
+  });
 });

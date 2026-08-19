@@ -32,13 +32,23 @@ export function useGroupRows(
   sessionIDs: readonly number[],
   selectedSessionID: number,
   t: TFunction,
+  opts?: {
+    /**
+     * 气泡候选池：缺省 = sessionIDs。agent 轴把「前 5 条常规列表」与
+     * attention 池（前 5 + running/waiting/error）分开传 —— 已读 error 只可能被
+     * 气泡的 unread 闸门放行，而不会从池里漏进常规列表（规格问题，sess-1819）。
+     */
+    attentionPoolIDs?: readonly number[];
+  },
 ): GroupRows {
   const metas = useSessionMetaStore((s) => s.metas);
   const statuses = useSessionStatusStore((s) => s.statuses);
-  const attentionItems = useSessionAttentionList(sessionIDs);
+  // 气泡只从 attention 池算；常规列表只用 sessionIDs。两者合一（其余轴）时行为不变。
+  const poolIDs = opts?.attentionPoolIDs ?? sessionIDs;
+  const attentionItems = useSessionAttentionList(poolIDs);
 
   return React.useMemo(() => {
-    if (sessionIDs.length === 0) return EMPTY;
+    if (poolIDs.length === 0) return EMPTY;
 
     const reasons = new Map(
       attentionItems.map((item) => [item.sessionId, item.reason]),
@@ -81,7 +91,7 @@ export function useGroupRows(
     // 「我现在开着哪条」的地方。rank 用 "selected"，展开态包会把它剔回常规列表。
     if (
       selectedSessionID > 0 &&
-      sessionIDs.includes(selectedSessionID) &&
+      poolIDs.includes(selectedSessionID) &&
       !reasons.has(selectedSessionID)
     ) {
       const anchor = build(selectedSessionID, "selected");
@@ -94,5 +104,13 @@ export function useGroupRows(
     });
 
     return { sessions, attentionSessions };
-  }, [sessionIDs, attentionItems, metas, statuses, selectedSessionID, t]);
+  }, [
+    sessionIDs,
+    poolIDs,
+    attentionItems,
+    metas,
+    statuses,
+    selectedSessionID,
+    t,
+  ]);
 }

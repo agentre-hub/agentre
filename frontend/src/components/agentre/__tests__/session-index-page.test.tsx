@@ -110,6 +110,7 @@ import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
+import { reloadSidebarSources } from "@/stores/sidebar-reload";
 
 import { SessionIndexPage } from "../session-index/index-page";
 import type { app } from "../../../../wailsjs/go/models";
@@ -136,6 +137,7 @@ type SeedAgent = {
   blockReason?: string;
   pinned?: boolean;
   sessions?: SeedSession[];
+  attentionSessions?: SeedSession[];
 };
 
 /**
@@ -172,11 +174,21 @@ function seedIndexSessions(sessions: SeedSession[]) {
   );
 }
 
+function toChatSessionLite(s: SeedSession) {
+  return {
+    lastMessageAt: 0,
+    lastReadAt: 0,
+    needsAttention: false,
+    projectId: 0,
+    status: "idle",
+    ...s,
+  };
+}
+
 function seedAgents(agents: SeedAgent[]) {
   appMocks.ListChatAgents.mockResolvedValue({
     agents: agents.map((a) => ({
       activeCount: 0,
-      attentionSessions: [],
       avatarColor: "agent-1",
       backendType: "builtin",
       blockReason: "",
@@ -185,14 +197,8 @@ function seedAgents(agents: SeedAgent[]) {
       recentCount: a.sessions?.length ?? 0,
       totalSessions: a.sessions?.length ?? 0,
       ...a,
-      sessions: (a.sessions ?? []).map((s) => ({
-        lastMessageAt: 0,
-        lastReadAt: 0,
-        needsAttention: false,
-        projectId: 0,
-        status: "idle",
-        ...s,
-      })),
+      sessions: (a.sessions ?? []).map(toChatSessionLite),
+      attentionSessions: (a.attentionSessions ?? []).map(toChatSessionLite),
     })),
   });
 }
@@ -949,6 +955,52 @@ describe("SessionIndexPage agent groups", () => {
     });
   });
 
+  it("Given a read error session that only the attention pool knows about, When the agent group is expanded, Then it stays out of the bubble and the conversation list (regression: read errors leaked into the regular list)", async () => {
+    expandGroups("agent:7");
+    seedAgents([
+      {
+        id: 7,
+        name: "Eng",
+        sessions: [
+          {
+            id: 11,
+            title: "Recent one",
+            lastMessageAt: 3000,
+            lastReadAt: 3000,
+          },
+          {
+            id: 12,
+            title: "Recent two",
+            lastMessageAt: 2000,
+            lastReadAt: 2000,
+          },
+        ],
+        // 只出现在 attention 池里、且已读的 error —— 类似 sess-1819：
+        // 后端因为 agent_status='error' 把它塞进 attentionSessions，
+        // 但已读让它不该在任何地方冒泡。
+        attentionSessions: [
+          {
+            id: 1819,
+            title: "Stale error",
+            status: "error",
+            lastMessageAt: 1000,
+            lastReadAt: 1000,
+          },
+        ],
+      },
+    ]);
+    renderIndex();
+
+    // 前 5 条常规列表正常渲染。
+    expect(await screen.findByText("Recent one")).toBeInTheDocument();
+
+    // 已读 error：既不进气泡，也不进常规列表（它不是 unread / running / waiting）。
+    expect(querySessionRow("Stale error")).toBeNull();
+    expect(
+      document.querySelector('[data-slot="agent-attention-bubble"]'),
+    ).toBeNull();
+  });
+
   it("Given a non-chattable agent, When its ＋ is clicked, Then the reason dialog explains it and no session tab is created", async () => {
     const user = setupUser();
     seedAgents([
@@ -1358,3 +1410,78 @@ function walkSources(dir: string, out: string[] = []): string[] {
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
+
+// ── 刷新是「校准」不是「重载」 ──────────────────────────────────────────────
+//
+// 侧栏的统一刷新入口 reloadSidebarSources() 在每轮对话起手 / 落定各被调一次(自主续轮、
+// 后台活动轮还会再加)。这条路必须做到: 数据没变就一个 DOM 节点都别动, 数据变了也只
+// 原地改那几个字节。
+//
+// 之前不是这样 —— 项目树在发 RPC 前先把自己清空(`cache = {tree: [], loaded: false}`),
+// 而同一个 tick 里 chat-agents-store / session-index-store 的 loading 写入必然触发一次
+// 重渲染, 那一帧读到空树: 整个项目轴塌成只剩「随手对话」, RPC 回来再重建。会话行因此
+// 每轮都被拆掉重挂载 —— 肉眼就是「列表刷新了一遍」。
+describe("SessionIndexPage refresh churn", () => {
+  const tree = [projectNode({ id: 1, name: "Agentre" })];
+  const seed: SeedSession[] = [
+    {
+      id: 11,
+      title: "Root work",
+      agentId: 7,
+      projectId: 1,
+      lastMessageAt: 100,
+      status: "idle",
+    },
+  ];
+
+  async function bootIndex(sessions: SeedSession[] = seed) {
+    seedTree(tree);
+    seedIndexSessions(sessions);
+    seedAgents([{ id: 7, name: "Eng", sessions }]);
+    expandGroups("project:1");
+    renderIndex();
+    return screen.findByRole("button", { name: /Root work/ });
+  }
+
+  async function refreshWith(sessions: SeedSession[]) {
+    seedIndexSessions(sessions);
+    seedAgents([{ id: 7, name: "Eng", sessions }]);
+    await act(async () => {
+      reloadSidebarSources();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
+
+  it("Given a turn ends without changing anything the sidebar shows, When it refreshes, Then not a single DOM node is touched", async () => {
+    await bootIndex();
+    const records: MutationRecord[] = [];
+    const observer = new MutationObserver((list) => records.push(...list));
+    observer.observe(document.body, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+
+    await refreshWith(seed);
+
+    observer.disconnect();
+    expect(records).toEqual([]);
+  });
+
+  it("Given a session started running, When the sidebar refreshes, Then the row is updated in place instead of rebuilt", async () => {
+    const row = await bootIndex();
+    const search = screen.getByPlaceholderText(/Search sessions/i);
+    search.focus();
+    fireEvent.change(search, { target: { value: "Root" } });
+
+    await refreshWith([{ ...seed[0], status: "running", lastMessageAt: 200 }]);
+
+    // 同一个 DOM 节点 = 没被拆掉重建: CSS 过渡不重放、hover / 焦点不丢, 正在输入的
+    // 搜索框也不会被打断。行内容该变的照变(状态点 / 相对时间), 那是数据真的变了。
+    expect(screen.getByRole("button", { name: /Root work/ })).toBe(row);
+    expect(screen.getByPlaceholderText(/Search sessions/i)).toBe(search);
+    expect((search as HTMLInputElement).value).toBe("Root");
+    expect(document.activeElement).toBe(search);
+  });
+});

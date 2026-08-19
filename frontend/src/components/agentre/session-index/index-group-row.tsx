@@ -105,15 +105,23 @@ export function IndexGroupRow({
   const { t } = useTranslation();
   const metas = useSessionMetaStore((s) => s.metas);
 
+  // 常规列表只铺「最近会话」（agent 轴 = 前 5 条，recentIDs）；attention 池单独喂气泡。
+  // 否则池里已读的 error 会漏进常规列表（sess-1819 那类：读过也永远挂着）。
   const sessionIDs = React.useMemo(() => {
     if (!visibleSessionIDs) return group.sessionIDs;
     return group.sessionIDs.filter((id) => visibleSessionIDs.has(id));
   }, [group.sessionIDs, visibleSessionIDs]);
+  const recentIDs = React.useMemo(() => {
+    const base = group.recentIDs ?? group.sessionIDs;
+    if (!visibleSessionIDs) return base;
+    return base.filter((id) => visibleSessionIDs.has(id));
+  }, [group.recentIDs, group.sessionIDs, visibleSessionIDs]);
 
   const { sessions, attentionSessions } = useGroupRows(
-    sessionIDs,
+    recentIDs,
     selectedSessionID,
     t,
+    { attentionPoolIDs: sessionIDs },
   );
   // 折叠态专用气泡：整棵子树的 attention。展开时包会改用上面那份（只有自己的），
   // 避免与下方递归渲染出来的子项目行重复。

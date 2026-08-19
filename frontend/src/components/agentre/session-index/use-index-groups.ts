@@ -40,6 +40,12 @@ export type IndexGroup = {
   depth: number;
   /** 已加载的会话 id，最近活动优先。 */
   sessionIDs: number[];
+  /**
+   * 常规列表专用 id（agent 轴 = ListChatAgents 的「前 5 条」；其余轴缺省 = sessionIDs）。
+   * 气泡候选池始终是 sessionIDs —— agent 轴的 attention 池（running/waiting/error）只该
+   * 喂气泡，不能把已读的 error 一起摊进常规列表（规格「每组的会话 = 前 5 条 + attention」）。
+   */
+  recentIDs?: number[];
   /** 该组的会话总数。大于已加载数时渲染「查看全部 N」。 */
   total: number;
 };
@@ -99,6 +105,11 @@ function agentSessionIDs(
     (a, b) =>
       (metas.get(b)?.lastMessageAt ?? 0) - (metas.get(a)?.lastMessageAt ?? 0),
   );
+}
+
+/** agent 名下「常规列表」的会话 id：只有 ListChatAgents 给的前 5 条，不含 attention 池。 */
+function agentRegularIDs(agent: { sessions?: { id: number }[] }): number[] {
+  return (agent.sessions ?? []).map((s) => s.id);
 }
 
 export function useIndexGroups(
@@ -161,6 +172,7 @@ export function useIndexGroups(
             refID: id,
             depth: 0,
             sessionIDs: agentSessionIDs(agent, metas),
+            recentIDs: agentRegularIDs(agent),
             total: Number(agent.totalSessions ?? 0),
           },
         ];
