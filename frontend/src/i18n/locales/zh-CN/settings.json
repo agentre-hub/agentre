@@ -282,6 +282,12 @@
     "status": {
       "upToDate": "已是最新版本"
     },
+    "toast": {
+      "action": "查看更新",
+      "body": "当前 {{current}}",
+      "dismiss": "关闭更新提示",
+      "title": "Agentre {{version}} 可更新"
+    },
     "version": {
       "unknown": "未知"
     }

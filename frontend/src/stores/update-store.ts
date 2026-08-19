@@ -50,6 +50,15 @@ export type UpdateSnapshot = {
   lastCheckedAt: number | null;
   /** 被「跳过此版本」压制的版本号；空串表示没有跳过任何版本。 */
   skippedVersion: string;
+  /**
+   * 已经主动弹过一次到达提示的版本号（仅本进程内）。
+   *
+   * 不持久化：跨重启的压制归「跳过此版本」管，那才是用户表达的意图。受 24h 节流
+   * 约束，重开应用最多每天再见一次同一版本。
+   */
+  announcedVersion: string;
+  /** 更新面板是否展开。到达提示的「查看更新」靠它把面板拉开。 */
+  panelOpen: boolean;
   checksumPrompt: ChecksumPrompt;
 };
 
@@ -58,6 +67,8 @@ export const INITIAL_UPDATE_STATE: UpdateSnapshot = {
   lastTrigger: null,
   lastCheckedAt: null,
   skippedVersion: "",
+  announcedVersion: "",
+  panelOpen: false,
   checksumPrompt: { open: false, reason: "" },
 };
 
@@ -81,7 +92,9 @@ export function unskippedUpdate(s: UpdateSnapshot): UpdateInfo | null {
  */
 export function pendingAnnouncement(s: UpdateSnapshot): UpdateInfo | null {
   if (s.lastTrigger === null || s.lastTrigger === "manual") return null;
-  return unskippedUpdate(s);
+  const info = unskippedUpdate(s);
+  if (info === null || info.latestVersion === s.announcedVersion) return null;
+  return info;
 }
 
 /**
@@ -113,6 +126,9 @@ type UpdateStore = UpdateSnapshot & {
   check: (trigger: "manual" | "focus") => Promise<void>;
   download: (skipChecksum: boolean) => Promise<void>;
   dismissChecksumPrompt: () => void;
+  /** 记下「这一版已经主动提示过了」，同一版本不再自动弹。 */
+  markAnnounced: () => void;
+  setPanelOpen: (open: boolean) => void;
   skipCurrentVersion: () => Promise<void>;
   restart: () => Promise<void>;
 };
@@ -210,6 +226,14 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
 
   dismissChecksumPrompt: () =>
     set({ checksumPrompt: { open: false, reason: "" } }),
+
+  markAnnounced: () => {
+    const phase = get().phase;
+    if (phase.kind !== "available") return;
+    set({ announcedVersion: phase.info.latestVersion });
+  },
+
+  setPanelOpen: (open) => set({ panelOpen: open }),
 
   skipCurrentVersion: async () => {
     const phase = get().phase;

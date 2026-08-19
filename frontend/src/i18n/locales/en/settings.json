@@ -282,6 +282,12 @@
     "status": {
       "upToDate": "You are on the latest version"
     },
+    "toast": {
+      "action": "View update",
+      "body": "Currently on {{current}}",
+      "dismiss": "Dismiss update notice",
+      "title": "Agentre {{version}} available"
+    },
     "version": {
       "unknown": "Unknown"
     }

@@ -333,6 +333,9 @@ function UpdateStatusPill({
 }) {
   const { t } = useTranslation();
   const phase = useUpdateStore((s) => s.phase);
+  // 面板开合放在 store 里:到达提示的「查看更新」要能把它拉开。
+  const open = useUpdateStore((s) => s.panelOpen);
+  const setPanelOpen = useUpdateStore((s) => s.setPanelOpen);
 
   const base =
     "wails-no-drag inline-flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
@@ -400,7 +403,7 @@ function UpdateStatusPill({
   }
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setPanelOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
