@@ -810,17 +810,20 @@ func applySetClause(row map[string]any, sql string, vars []any) {
 //
 // 取材还必须**有界**:补齐会为每条会话装一个消费方、加一份池连接引用、开一条自主轮
 // 监视,而这条查询原本返回「历史上曾远端执行过的每一条」会话 —— 用得久了就是几千条。
-// 仍停在 running / waiting 的行不受时间窗限制并排在最前 —— 只有 daemon 能给它们判据,
-// 漏掉它们就是界面上一条永远转圈的会话,这条依据还在。时间窗当初与 daemon 的通知日志
-// 留存窗口对齐(更老的会话补齐能拿回来的是空的);agentred 现在永久保存通知日志、不再
-// 回收(规格决策 8),这条依据已经不成立。
+// 界只剩条数(catchUpLimit),不再有时间截止:时间窗当初与 daemon 的通知日志留存窗口
+// 对齐(更老的会话补齐回来是空的),agentred 现在永久保存通知日志、不再回收(规格
+// 决策 8),那条依据随之消失 —— 一条本地停在 idle、远端却由后台任务续过轮的老会话,
+// 日志今天还在,不该因为「上次本地写它是 40 天前」就永远补不回来。
+//
+// 因此这里连**带不带** updatetime 截止一起钉:多出那半个条件就是把还能补的内容挡在
+// 外面。排序仍把 running / waiting 排在最前 —— 条数上限砍谁由它决定,只有 daemon 能
+// 给那些行判据,漏掉一条就是界面上一条永远转圈的会话。
 func TestSessionRepo_ListRemoteExecSessions(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 
 	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE exec_device_id > \\? AND exec_daemon_fingerprint <> \\? AND status = \\? "+
-		"AND \\(agent_status IN \\(\\?,\\?\\) OR updatetime >= \\?\\) "+
 		"ORDER BY CASE WHEN agent_status IN \\('running','waiting'\\) THEN 0 ELSE 1 END, updatetime DESC, id DESC LIMIT \\?").
-		WithArgs(int64(0), "", consts.ACTIVE, "running", "waiting", sqlmock.AnyArg(), 200).
+		WithArgs(int64(0), "", consts.ACTIVE, 200).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "agent_status", "status", "exec_device_id", "exec_daemon_fingerprint", "event_cursor"}).
 			AddRow(1, 7, "running", consts.ACTIVE, 3, "sha256:beef", 17).
 			AddRow(2, 7, "idle", consts.ACTIVE, 4, "sha256:cafe", 0))

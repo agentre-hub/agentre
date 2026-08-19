@@ -98,10 +98,12 @@ type SessionRepo interface {
 	// 实例标识为空的行一并排除:游标只在它所属的那条通知日志里有意义,标识为空时
 	// LoadCursor 一律判失效,对它发起补齐只是白跑一轮 RPC。
 	//
-	// 取材是**有界**的(见 catchUpWindow / catchUpLimit):补齐会为每条会话装一个轮次
-	// 消费方、加一份池连接引用、开一条自主轮监视,所以它不能返回「历史上曾远端执行过的
-	// 每一条」。落在界外的会话不会被补齐、也不会被判定(一行都不碰),下次用户在它上面
-	// 发消息时照常走 borrow → attach,该拉的日志一条不少。
+	// 取材是**有界**的(见 catchUpLimit):补齐会为每条会话装一个轮次消费方、加一份池
+	// 连接引用、开一条自主轮监视,所以它不能返回「历史上曾远端执行过的每一条」。界是
+	// 条数,不是时间 —— 一条本地停在 idle、远端却由后台任务续过轮的老会话,日志今天还
+	// 在(agentred 不再回收),按时间挡掉它就是永远补不回来。落在界外的会话不会被补齐、
+	// 也不会被判定(一行都不碰),下次用户在它上面发消息时照常走 borrow → attach,该拉
+	// 的日志一条不少。
 	ListRemoteExecSessions(ctx context.Context) ([]*chat_entity.Session, error)
 	// MarkRead 单调推进 last_read_at: 仅当 ts 严格大于当前值时写入。
 	// 避免 stream-done 与 LoadSession 乱序时把已读时间冲回旧值。
@@ -563,28 +565,23 @@ func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, dev
 		}).Error
 }
 
-// catchUpWindow 启动补齐回头看多久:早于这个窗口的远端会话不进入取材范围(仍停在
-// running/waiting 的行不受它限制,见下方查询)。这个值原先与 daemon 的通知日志留存
-// 窗口对齐;agentred 现在永久保存通知日志、不再回收(规格决策 8:两端都不设保留期),
-// 这条依据已经不成立。
-const catchUpWindow = 30 * 24 * time.Hour
-
 // catchUpLimit 一次启动补齐最多认领多少条会话。补齐会为**每条**会话装一个轮次消费方、
-// 加一份池连接引用、开一条自主轮监视 goroutine,所以取材必须有上界;200 条已经远超
-// 「一台 daemon 上还可能有新内容的会话」的实际量级,同时把收尾那一步的 id 数压在
-// SQLite 最保守的参数上限(999)以内。
+// 加一份池连接引用、开一条自主轮监视 goroutine,而 releaseCatchUpRefs 只还得掉 daemon
+// 说不在跑的那些 —— 剩下的引用要占到进程退出,开销随「历史上远端跑过的会话数」线性
+// 增长。那个数如今没有上界(通知日志不再回收、会话也不过期),所以这条上限是取材唯一
+// 的界,不能跟着时间窗一起去掉。
+//
+// 200 条远超「一台 daemon 上还可能有新内容的会话」的实际量级。收尾那一步的 SQL 参数
+// 上限与它无关,由 resetIDChunk 自己分片扛住。
 const catchUpLimit = 200
 
 func (r *sessionRepo) ListRemoteExecSessions(ctx context.Context) ([]*chat_entity.Session, error) {
 	var rows []*chat_entity.Session
-	cutoff := time.Now().Add(-catchUpWindow).UnixMilli()
 	err := db.Ctx(ctx).
-		// 时间窗之外的会话没有可补的日志了;但仍停在 running / waiting 的行不受它限制
-		// —— 只有 daemon 能给它们判据,漏掉一条就是界面上一条永远转圈的会话。
-		Where("exec_device_id > ? AND exec_daemon_fingerprint <> ? AND status = ? "+
-			"AND (agent_status IN ? OR updatetime >= ?)",
-			int64(0), "", consts.ACTIVE, []string{"running", "waiting"}, cutoff).
-		// 排序决定上限砍掉谁:等判据的排最前,其余按最近活动。
+		Where("exec_device_id > ? AND exec_daemon_fingerprint <> ? AND status = ?",
+			int64(0), "", consts.ACTIVE).
+		// 排序决定上限砍掉谁:等判据的排最前(只有 daemon 能给它们判据,漏掉一条就是
+		// 界面上一条永远转圈的会话),其余按最近活动。
 		Order("CASE WHEN agent_status IN ('running','waiting') THEN 0 ELSE 1 END, updatetime DESC, id DESC").
 		Limit(catchUpLimit).
 		Find(&rows).Error
