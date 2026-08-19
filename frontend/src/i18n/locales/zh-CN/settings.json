@@ -240,6 +240,28 @@
       "description": "国内访问 GitHub 慢时可以走加速镜像。自定义需保留协议头（例如 https://your.mirror/）。",
       "title": "下载镜像"
     },
+    "panel": {
+      "availableMeta": "{{time}} 发布 · {{channel}} · 当前 {{current}}",
+      "availableTitle": "Agentre {{version}} 可更新",
+      "checkAgain": "重新检查",
+      "checkedAt": "{{time}} 检查过",
+      "downloadingMeta": "下载完成后会自动校验 SHA256。",
+      "downloadingTitle": "正在下载 {{version}}",
+      "errorMeta": "可在「设置 → 版本 & 更新」改用下载镜像。",
+      "errorTitle": "检查更新失败",
+      "idleMeta": "当前 {{current}} · {{channel}}",
+      "idleTitle": "检查新版本",
+      "installedMeta": "重启后生效。正在运行的会话会被结束，可以先收尾再重启。",
+      "installedTitle": "{{version}} 已安装",
+      "later": "稍后",
+      "neverChecked": "尚未检查过",
+      "openSettings": "打开更新设置",
+      "releasePage": "发布页",
+      "retry": "重试",
+      "skipVersion": "跳过此版本",
+      "upToDateMeta": "当前 {{current}} · {{channel}}",
+      "upToDateTitle": "已是最新版本"
+    },
     "pill": {
       "available": "{{version}} 可更新",
       "checking": "检查中",

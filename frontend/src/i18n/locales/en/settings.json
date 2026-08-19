@@ -240,6 +240,28 @@
       "description": "Use an accelerated mirror when GitHub access is slow. Custom mirrors must keep the protocol prefix, for example https://your.mirror/.",
       "title": "Download Mirror"
     },
+    "panel": {
+      "availableMeta": "Released {{time}} · {{channel}} · current {{current}}",
+      "availableTitle": "Agentre {{version}} available",
+      "checkAgain": "Check again",
+      "checkedAt": "Checked {{time}}",
+      "downloadingMeta": "SHA256 is verified once the download finishes.",
+      "downloadingTitle": "Downloading {{version}}",
+      "errorMeta": "You can switch to a download mirror in Settings → Version & Updates.",
+      "errorTitle": "Update check failed",
+      "idleMeta": "Current {{current}} · {{channel}}",
+      "idleTitle": "Check for updates",
+      "installedMeta": "Takes effect after a restart. Running sessions will be ended, so you can wrap up first.",
+      "installedTitle": "{{version}} installed",
+      "later": "Later",
+      "neverChecked": "Not checked yet",
+      "openSettings": "Open update settings",
+      "releasePage": "Release page",
+      "retry": "Retry",
+      "skipVersion": "Skip this version",
+      "upToDateMeta": "Current {{current}} · {{channel}}",
+      "upToDateTitle": "You are up to date"
+    },
     "pill": {
       "available": "{{version}} available",
       "checking": "Checking",

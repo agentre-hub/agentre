@@ -7,12 +7,7 @@ const runtimeMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../wailsjs/runtime/runtime", () => runtimeMocks);
-vi.mock("../../../wailsjs/go/app/App", () => ({
-  GetAppSetting: vi.fn(),
-  UpdateAppSettings: vi.fn(),
-}));
 
-import { GetAppSetting, UpdateAppSettings } from "../../../wailsjs/go/app/App";
 import {
   INITIAL_UPDATE_STATE,
   pendingAnnouncement,
@@ -21,9 +16,6 @@ import {
   useUpdateWatch,
   type UpdateCheckOutcome,
 } from "../update-store";
-
-const getSettingMock = vi.mocked(GetAppSetting);
-const updateSettingsMock = vi.mocked(UpdateAppSettings);
 
 const INFO = {
   hasUpdate: true,
@@ -44,6 +36,8 @@ function installBindings(overrides?: AppMock): AppMock {
     MaybeCheckForUpdate: vi.fn(() => Promise.resolve(INFO)),
     DownloadAndInstallUpdate: vi.fn(() => Promise.resolve()),
     RestartApp: vi.fn(() => Promise.resolve()),
+    GetAppSetting: vi.fn(() => Promise.reject(new Error("AppSettingNotFound"))),
+    UpdateAppSettings: vi.fn(() => Promise.resolve({})),
     ...overrides,
   };
   Object.defineProperty(window, "go", {
@@ -76,8 +70,6 @@ function emitProgress(downloaded: number, total: number) {
 beforeEach(() => {
   vi.clearAllMocks();
   useUpdateStore.setState({ ...INITIAL_UPDATE_STATE });
-  getSettingMock.mockRejectedValue(new Error("AppSettingNotFound"));
-  updateSettingsMock.mockResolvedValue({} as never);
   installBindings();
 });
 
@@ -270,11 +262,12 @@ describe("update-store 下载与进度", () => {
 
 describe("update-store 跳过版本", () => {
   it("Given 有新版本, When 跳过, Then 持久化版本号且状态栏陈述不变", async () => {
+    const app = installBindings();
     useUpdateStore.setState({ phase: { kind: "available", info: INFO } });
 
     await useUpdateStore.getState().skipCurrentVersion();
 
-    expect(updateSettingsMock).toHaveBeenCalledWith({
+    expect(app.UpdateAppSettings).toHaveBeenCalledWith({
       entries: [{ key: "update.skipped_version", value: "v0.9.2" }],
     });
     expect(useUpdateStore.getState().phase).toEqual({
@@ -319,10 +312,11 @@ describe("update-store 跳过版本", () => {
   });
 
   it("Given init 时已持久化跳过版本, When 载入, Then 读进 store", async () => {
-    getSettingMock.mockResolvedValue({
-      key: "update.skipped_version",
-      value: "v0.9.2",
-    } as never);
+    installBindings({
+      GetAppSetting: vi.fn(() =>
+        Promise.resolve({ key: "update.skipped_version", value: "v0.9.2" }),
+      ),
+    });
 
     await useUpdateStore.getState().init();
 

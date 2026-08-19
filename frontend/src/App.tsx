@@ -891,7 +891,7 @@ function AppLayout() {
                     status={statusBarState.indicatorStatus}
                     version={appVersion}
                     onAttentionClick={(sessionId) => openSession(sessionId)}
-                    onVersionClick={openUpdateSettings}
+                    onOpenUpdateSettings={openUpdateSettings}
                   />
                   <PaletteScopeBridge />
                   <CommandPalette />

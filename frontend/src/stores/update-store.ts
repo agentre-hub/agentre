@@ -1,20 +1,17 @@
 import * as React from "react";
 import { create } from "zustand";
 
-import { GetAppSetting, UpdateAppSettings } from "../../wailsjs/go/app/App";
-import type { app_settings_svc } from "../../wailsjs/go/models";
 import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
 import {
   CHECKSUM_FETCH_ERROR_PREFIX,
   checkForUpdate,
   downloadAndInstallUpdate,
+  getSkippedUpdateVersion,
   maybeCheckForUpdate,
   restartApp,
+  setSkippedUpdateVersion,
   type UpdateInfo,
 } from "../components/agentre/update-api";
-
-// SKIPPED_VERSION_KEY 与后端 app_setting_entity.KeySkippedUpdateVersion 一致。
-const SKIPPED_VERSION_KEY = "update.skipped_version";
 
 // UpdateCheckOutcome 与后端 update_svc.CheckOutcome 对齐。它只出现在 wails 事件
 // payload 里、不在任何绑定签名中，所以 wailsjs/go/models.ts 不会生成它 —— 与
@@ -150,13 +147,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       },
     );
 
-    try {
-      const item = await GetAppSetting({ key: SKIPPED_VERSION_KEY });
-      set({ skippedVersion: item?.value ?? "" });
-    } catch {
-      // 从未跳过时后端返回 AppSettingNotFound，是常态而不是故障。
-      set({ skippedVersion: "" });
-    }
+    set({ skippedVersion: await getSkippedUpdateVersion() });
 
     return () => {
       EventsOff("update:checked");
@@ -225,9 +216,13 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     if (phase.kind !== "available") return;
     const version = phase.info.latestVersion;
 
-    await UpdateAppSettings({
-      entries: [{ key: SKIPPED_VERSION_KEY, value: version }],
-    } as app_settings_svc.UpdateRequest);
+    try {
+      await setSkippedUpdateVersion(version);
+    } catch (err) {
+      // 存不下就别谎称已跳过：下次启动它会照样弹，状态与磁盘保持一致。
+      console.warn("persist skipped update version failed", err);
+      return;
+    }
     // 只压制通告与红点：phase 不动，胶囊继续陈述「有 v0.9.2 可用」。
     set({ skippedVersion: version });
   },

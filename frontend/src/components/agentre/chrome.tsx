@@ -20,6 +20,11 @@ import type { LucideIcon } from "lucide-react";
 
 import logoMarkUrl from "@/assets/images/logo-mark.png";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useUpdateStore } from "@/stores/update-store";
@@ -31,6 +36,7 @@ import {
 } from "../../../wailsjs/runtime/runtime";
 
 import { StatusDot } from "./primitives";
+import { UpdatePanel } from "./update-panel";
 import { formatChord } from "./shortcuts/format";
 import { useOptionalShortcutsContext } from "./shortcuts/shortcuts-provider";
 
@@ -320,10 +326,10 @@ function AppTopBar({
  */
 function UpdateStatusPill({
   version,
-  onClick,
+  onOpenSettings,
 }: {
   version: string;
-  onClick?: () => void;
+  onOpenSettings: () => void;
 }) {
   const { t } = useTranslation();
   const phase = useUpdateStore((s) => s.phase);
@@ -394,14 +400,29 @@ function UpdateStatusPill({
   }
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={phase.kind === "checking"}
-      className={cn(base, tone, phase.kind === "checking" && "cursor-default")}
-    >
-      {content}
-    </button>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={phase.kind === "checking"}
+          className={cn(
+            base,
+            tone,
+            phase.kind === "checking" && "cursor-default",
+          )}
+        >
+          {content}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="top"
+        sideOffset={8}
+        className="w-[380px] p-0"
+      >
+        <UpdatePanel onOpenSettings={onOpenSettings} />
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -412,8 +433,8 @@ type AppStatusBarProps = React.ComponentProps<"footer"> & {
   unreadCount: number;
   attentionIds: number[];
   onAttentionClick: (sessionId: number) => void;
-  /** 点状态栏右下角的版本/更新胶囊。 */
-  onVersionClick?: () => void;
+  /** 更新面板里的「打开更新设置」——宿主负责深链到设置页。 */
+  onOpenUpdateSettings?: () => void;
   status: AgentStatus;
   version: string;
 };
@@ -426,7 +447,7 @@ function AppStatusBar({
   attentionIds,
   className,
   onAttentionClick,
-  onVersionClick,
+  onOpenUpdateSettings,
   status,
   version,
   ...props
@@ -494,7 +515,10 @@ function AppStatusBar({
         </>
       ) : null}
       <span className="min-w-0 flex-1" />
-      <UpdateStatusPill version={version} onClick={onVersionClick} />
+      <UpdateStatusPill
+        version={version}
+        onOpenSettings={onOpenUpdateSettings ?? (() => {})}
+      />
     </footer>
   );
 }

@@ -20,7 +20,7 @@ const INFO = {
   publishedAt: "",
 };
 
-function renderStatusBar(onVersionClick?: () => void) {
+function renderStatusBar(onOpenUpdateSettings?: () => void) {
   return render(
     <AppStatusBar
       agentCount={4}
@@ -31,7 +31,7 @@ function renderStatusBar(onVersionClick?: () => void) {
       onAttentionClick={() => {}}
       status="running"
       version="v0.9.1"
-      onVersionClick={onVersionClick}
+      onOpenUpdateSettings={onOpenUpdateSettings}
     />,
   );
 }
@@ -105,14 +105,16 @@ describe("状态栏更新胶囊", () => {
     expect(screen.getByRole("button", { name: /failed/i })).toBeInTheDocument();
   });
 
-  it("Given 有新版本, When 点击胶囊, Then 通知宿主打开更新去处", () => {
-    const onVersionClick = vi.fn();
+  it("Given 有新版本, When 点击胶囊, Then 就地展开更新面板", async () => {
     useUpdateStore.setState({ phase: { kind: "available", info: INFO } });
 
-    renderStatusBar(onVersionClick);
+    renderStatusBar();
     fireEvent.click(screen.getByRole("button", { name: /v0\.9\.2/ }));
 
-    expect(onVersionClick).toHaveBeenCalledTimes(1);
+    // 面板就在胶囊上方展开,不必先跳到设置页。
+    expect(
+      await screen.findByRole("button", { name: /Download and install/i }),
+    ).toBeInTheDocument();
   });
 
   it("Given 状态栏容器, When 渲染, Then 高度仍是 h-7 且未新增行", () => {
