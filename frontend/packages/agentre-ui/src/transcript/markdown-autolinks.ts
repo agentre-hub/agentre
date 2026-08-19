@@ -65,6 +65,18 @@ function pathWithoutLineSuffix(value: string): string {
   return match ? value.slice(0, match.index) : value;
 }
 
+// 枚举式多段「a/b/c」:各段都是单字符、末段无扩展名且不以分隔符结尾。
+// 几乎总是「a/b/c 三处」这类并列枚举,而不是真实目录;frontend/src/components、
+// x/y/z.txt 等真实多段路径不受影响。
+function isSingleCharEnumeration(path: string): boolean {
+  if (/[\\/]$/.test(path)) return false;
+  const segments = path.split(/[\\/]/).filter(Boolean);
+  if (segments.length < 2) return false;
+  const basename = segments[segments.length - 1];
+  if (basename.includes(".")) return false;
+  return segments.every((segment) => segment.length === 1);
+}
+
 function isRelativeTarget(value: string, cwd?: string): boolean {
   if (!cwd || SCHEME.test(value) || value.startsWith("#")) return false;
 
@@ -77,6 +89,7 @@ function isRelativeTarget(value: string, cwd?: string): boolean {
 
   const separators = path.match(/[\\/]/g)?.length ?? 0;
   if (separators === 0) return previewKind(path) !== null;
+  if (isSingleCharEnumeration(path)) return false;
   if (/[\\/]$/.test(path) || separators >= 2) return true;
 
   const basename = path.split(/[\\/]/).pop() ?? "";
@@ -86,6 +99,9 @@ function isRelativeTarget(value: string, cwd?: string): boolean {
 
 function isMarkdownAutoLinkTarget(value: string, cwd?: string): boolean {
   if (value === "") return false;
+  // 根目录单字符(/ 或 \)是「A / B」并列或口语里的根路径引用,不是可点击目标:
+  // doSend / Regenerate 中间的斜杠会被误渲染成目录。
+  if (value === "/" || value === "\\") return false;
   if (URL_PREFIX.test(value) || WWW_PREFIX.test(value)) {
     return !/\s/.test(value);
   }
@@ -157,7 +173,10 @@ function candidateEnd(text: string, start: number): number {
   while (end < text.length) {
     const char = text[end];
     if (/\s/.test(char) || char === '"' || char === "'") break;
-    if (end > start && HARD_END_BOUNDARY.has(char)) break;
+    // 开括号(ASCII + 全角)也是硬边界:它们既允许紧跟在后面的目标(起始边界),
+    // 也会在 token 中途出现——「四条已落地（#1/#2/#5/#6）」里的（ 不能被吞进候选,
+    // 否则整句会被当成相对路径渲染成目录。
+    if (end > start && isBoundaryPunctuation(char)) break;
     if (!urlTarget && (char === ":" || char === "?")) {
       const schemeColon = fileTarget && end === start + "file".length;
       const driveColon = windowsTarget && end === start + 1;

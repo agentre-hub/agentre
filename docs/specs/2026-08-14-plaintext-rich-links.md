@@ -17,8 +17,8 @@
 
 ## Problem
 
-1. **纯文本本地路径不会进入富链接路径。** `frontend/src/lib/link-classify.ts` 当前只分类 URL、`file://`、POSIX 绝对路径和 Windows 绝对路径；`frontend/src/lib/link-classify.test.ts` 明确把 `internal/foo.go` 断言为 `unknown`。因此 `frontend/src/chat.tsx:42`、`README.md` 等 AI 常见输出无法解析为会话 cwd 下的文件目标。
-2. **富链接只接管已经解析出的 Markdown `<a>`。** `frontend/src/components/agentre/markdown-text.tsx` 仅在 React Markdown 的 `a` 组件映射中调用 `RichLink`；普通文本节点原样渲染。用户已确认 AI 输出可能只是文本，不保证使用 `[xx](xx)` 形式。
+1. **纯文本本地路径不会进入富链接路径。** `frontend/packages/agentre-ui/src/lib/link-classify.ts` 当前只分类 URL、`file://`、POSIX 绝对路径和 Windows 绝对路径；`frontend/packages/agentre-ui/src/lib/link-classify.test.ts` 明确把 `internal/foo.go` 断言为 `unknown`。因此 `frontend/src/chat.tsx:42`、`README.md` 等 AI 常见输出无法解析为会话 cwd 下的文件目标。
+2. **富链接只接管已经解析出的 Markdown `<a>`。** `frontend/packages/agentre-ui/src/transcript/markdown-text.tsx` 仅在 React Markdown 的 `a` 组件映射中调用 `RichLink`；普通文本节点原样渲染。用户已确认 AI 输出可能只是文本，不保证使用 `[xx](xx)` 形式。
 3. **AI 常用行内代码表达路径。** 现有内联装饰器为避免污染源码而整体跳过 `code` / `pre` 子树；若原样复用于路径识别，`` `README.md` `` 和 `` `frontend/src/chat.tsx:42` `` 仍不可点击。用户已确认行内代码路径应识别，而 fenced code block 必须保持不变。
 4. **宽泛正则会造成明显误识别风险。** 文件名与无协议域名、相对路径与日期/分数、带空格路径与普通句子存在歧义。用户已确认采用严格规则：无协议域名不识别，带空格路径必须由引号或反引号包裹，单文件名只识别可信文件类型。
 
@@ -61,7 +61,7 @@ Markdown 解析产生已有链接、图片、普通文本、行内代码和块�
 - Windows 绝对路径：`C:\work\project\main.go`；
 - 显式相对路径：`./docs/guide.md`、`../README.md`；
 - 带文件后缀的相对路径：`frontend/src/chat.tsx`；
-- 明确的多段目录路径：至少有两个路径分隔符，或以分隔符结尾，并且不能是纯数字日期/分数，例如 `frontend/src/components`、`frontend/src/`；
+- 明确的多段目录路径：至少有两个路径分隔符，或以分隔符结尾，并且不能是纯数字日期/分数，也不能是「各段均为单字符、末段无扩展名且不以分隔符结尾」的枚举形态（如 `a/b/c`、`A/B/C`），例如 `frontend/src/components`、`frontend/src/`；
 - 单文件名：后缀属于项目现有可预览文件类型，例如 `README.md`、`main.go`、`package.json`；
 - 上述文件或路径末尾可带既有 `:line` / `:line:column`，例如 `main.go:42`、`frontend/src/chat.tsx:42:7`。
 
@@ -71,6 +71,7 @@ Markdown 解析产生已有链接、图片、普通文本、行内代码和块�
 - `docs` 等没有后缀、没有分隔符的单目录名；
 - 未命中可信文件类型的单段 `foo.bar`；
 - `2026/08/14`、`1/2` 等纯数字日期或分数；
+- `a/b/c`、`A/B/C` 等全单字符多段枚举（各段均为单字符、末段无扩展名且不以分隔符结尾，例如「改动 a/b/c 三处」）；
 - 没有 cwd 时出现的相对路径或单文件名；
 - `javascript:`、`data:` 和其它未允许协议；
 - `#L42` 等本轮未纳入的行号语法。
@@ -120,23 +121,23 @@ Markdown 解析产生已有链接、图片、普通文本、行内代码和块�
 
 | Seam | What it verifies | Prior art |
 |---|---|---|
-| 纯文本目标 tokenizer | 普通 URL、绝对路径、显式相对路径、多段路径、可信单文件名、`:line[:column]`、中英文外围标点和配对引号；日期、分数、未知 `foo.bar`、无协议域名、无 cwd 相对路径不命中 | `frontend/src/lib/link-classify.test.ts` 的路径与 URL 等价类 |
-| 路径分类 | 相对路径和单文件名在有 cwd 时解析为项目内绝对目标，Windows 分隔符与 file URL 保持既有行为，无 cwd 时不伪造相对 href | `frontend/src/lib/link-classify.test.ts` |
-| `MarkdownText` 组件 | 纯文本中的多个目标渲染为 `RichLink`；已有 Markdown 链接不嵌套；外围标点/引号和原文可见文本不变；点击相对路径时 `OpenPath` 收到解析后的绝对路径 | `frontend/src/components/agentre/markdown-text.test.tsx`、`rich-link.test.tsx` |
-| 行内代码与 fenced code block | 整段为路径的行内代码可点击且保留 code 样式；混合命令的行内代码和 fenced code block 不转换 | `frontend/src/components/agentre/markdown-text.test.tsx` 的 code block 与 decorator 测试 |
-| 内联装饰器组合 | mention token 与自动链接可出现在同一文本中，彼此不吞文本、不嵌套交互节点；已有 token 不再次扫描 | `frontend/src/components/agentre/chat-input/mentions/__tests__/transcript.test.tsx` |
-| `StreamingMarkdown` | 目标在 chunk 补全后出现，半截候选不破坏 Markdown；稳定段不因尾部追加退化为全量重解析 | `frontend/src/lib/streaming-markdown.test.ts` 与 `markdown-text.tsx` 的 memo 边界 |
-| 安全回归 | `javascript:` / `data:` / 未知 scheme 不生成自动链接；已有 Markdown href 白名单结果不变 | `frontend/src/components/agentre/markdown-text.test.tsx` 的 URL whitelist 测试 |
+| 纯文本目标 tokenizer | 普通 URL、绝对路径、显式相对路径、多段路径、可信单文件名、`:line[:column]`、中英文外围标点和配对引号；日期、分数、全单字符多段枚举（`a/b/c`）、未知 `foo.bar`、无协议域名、无 cwd 相对路径不命中 | `frontend/packages/agentre-ui/src/lib/link-classify.test.ts` 的路径与 URL 等价类 |
+| 路径分类 | 相对路径和单文件名在有 cwd 时解析为项目内绝对目标，Windows 分隔符与 file URL 保持既有行为，无 cwd 时不伪造相对 href | `frontend/packages/agentre-ui/src/lib/link-classify.test.ts` |
+| `MarkdownText` 组件 | 纯文本中的多个目标渲染为 `RichLink`；已有 Markdown 链接不嵌套；外围标点/引号和原文可见文本不变；点击相对路径时 `OpenPath` 收到解析后的绝对路径 | `frontend/packages/agentre-ui/src/transcript/markdown-text.test.tsx`、`frontend/packages/agentre-ui/src/transcript/rich-link.test.tsx` |
+| 行内代码与 fenced code block | 整段为路径的行内代码可点击且保留 code 样式；混合命令的行内代码和 fenced code block 不转换 | `frontend/packages/agentre-ui/src/transcript/markdown-text.test.tsx` 的 code block 与 decorator 测试 |
+| 内联装饰器组合 | mention token 与自动链接可出现在同一文本中，彼此不吞文本、不嵌套交互节点；已有 token 不再次扫描 | `frontend/packages/agentre-ui/src/chat-input/mentions/transcript.test.tsx` |
+| `StreamingMarkdown` | 目标在 chunk 补全后出现，半截候选不破坏 Markdown；稳定段不因尾部追加退化为全量重解析 | `frontend/packages/agentre-ui/src/lib/streaming-markdown.test.ts` 与 `markdown-text.tsx` 的 memo 边界 |
+| 安全回归 | `javascript:` / `data:` / 未知 scheme 不生成自动链接；已有 Markdown href 白名单结果不变 | `frontend/packages/agentre-ui/src/transcript/markdown-text.test.tsx` 的 URL whitelist 测试 |
 | 前端类型与静态门禁 | React 组件类型、现有 transcript typography token 和 lint 规则不回归 | `pnpm exec tsc -b --noEmit`、相关 guard tests、frontend lint |
 
 链接在真实对话流中的视觉密度、浅色/深色主题下的可读性，以及带中文标点的实际 AI 回复可由收尾 runtime observation 补充；自动化测试负责识别、DOM 结构、点击目标和安全边界，不以截图替代这些行为测试。
 
 ## Relevant links
 
-- 富链接渲染：`frontend/src/components/agentre/rich-link.tsx`
-- 路径与 URL 分类：`frontend/src/lib/link-classify.ts`
-- Markdown 渲染与内联装饰接缝：`frontend/src/components/agentre/markdown-text.tsx`
-- 流式 Markdown 切分：`frontend/src/lib/streaming-markdown.ts`
-- 可信可预览文件类型：`frontend/src/components/agentre/chat-context-sidebar/previewable.ts`
+- 富链接渲染：`frontend/packages/agentre-ui/src/transcript/rich-link.tsx`
+- 路径与 URL 分类：`frontend/packages/agentre-ui/src/lib/link-classify.ts`
+- Markdown 渲染与内联装饰接缝：`frontend/packages/agentre-ui/src/transcript/markdown-text.tsx`
+- 流式 Markdown 切分：`frontend/packages/agentre-ui/src/lib/streaming-markdown.ts`
+- 可信可预览文件类型：`frontend/packages/agentre-ui/src/lib/previewable.ts`
 - 前端约束：[`../frontend.md`](../frontend.md)
 - 测试设计：[`../testing.md`](../testing.md)

@@ -84,6 +84,27 @@ describe("tokenizeMarkdownAutoLinks", () => {
     expect(visibleText(text, CWD)).toBe(text);
   });
 
+  it("Given prose using a bare slash as a separator, when tokenized, then the bare root slash is not linked while real file targets still are", () => {
+    expect(linkValues("doSend / Regenerate", CWD)).toEqual([]);
+    expect(visibleText("doSend / Regenerate", CWD)).toBe("doSend / Regenerate");
+    expect(linkValues("README.md / LICENSE", CWD)).toEqual(["README.md"]);
+  });
+
+  it("Given a parenthesized slash-separated list, when tokenized, then the whole phrase stays plain text", () => {
+    const text = "四条已落地（#1/#2/#5/#6）";
+    expect(linkValues(text, CWD)).toEqual([]);
+    expect(visibleText(text, CWD)).toBe(text);
+  });
+
+  it("Given an enumeration of single-character segments, when tokenized, then it stays plain text while real multi-segment paths still link", () => {
+    expect(linkValues("改动 a/b/c 三处", CWD)).toEqual([]);
+    expect(visibleText("改动 a/b/c 三处", CWD)).toBe("改动 a/b/c 三处");
+    expect(linkValues("按 A/B/C 排序", CWD)).toEqual([]);
+    expect(
+      linkValues("改动 frontend/src/components 与 x/y/z.txt", CWD),
+    ).toEqual(["frontend/src/components", "x/y/z.txt"]);
+  });
+
   it("Given ambiguous or unsafe text, when tokenized, then it remains plain text", () => {
     const text =
       "example.com github.com/owner/repo docs foo.bar 2026/08/14 1/2 javascript:alert(1) data:text/plain,x file://server/share/a.go #L42";
