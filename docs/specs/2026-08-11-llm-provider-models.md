@@ -44,7 +44,7 @@
 |---|---|---|
 | 1 | Provider 与 Model 真正拆表，Provider 保存连接配置和 `default_model_key`，Model 保存稳定 `model_key` 与实际 `model_id`。 | Provider 连接与模型生命周期不同。拒绝继续在 Provider 行追加模型数组 JSON，因为无法建立稳定引用、唯一约束和引用保护。 |
 | 2 | `model_key` 创建后不可修改；`model_id` 可编辑，有引用时必须展示影响并二次确认。 | 稳定引用不能依赖可修改或可重名的上游 ID。拒绝直接用 Model ID 作跨实体主键，也拒绝完全禁止运维修正 Model ID。 |
-| 3 | Provider 与 Model 使用独立 `enabled` 表示可运行状态，既有 `status` 只承担软删除。 | 已批准“有引用可停用但不可删除”，单一 status 无法表达。拒绝把停用伪装成删除。 |
+| 3 | Provider 与 Model 使用独立 `enabled` 表示可运行状态，既有 `status` 只承担软删除。 | 停用可恢复、删除不可恢复，是两件事，单一 status 无法表达。拒绝把停用伪装成删除。 |
 | 4 | ModelTarget 只持久化 `providerKey/modelKey`，不持久化可推导的 mode。 | 避免 mode 与空 key 组合自相矛盾。拒绝保存冗余枚举。 |
 | 5 | Backend 支持 `native/provider-default/fixed-model`；Chat 支持 `inherit-agent/provider-default/fixed-model`；Claude Route 支持 `inherit-main/provider-default/fixed-model`。 | 三处复用同一 Picker，但顶部继承来源不同。拒绝为每个场景维护独立选择器和不同模型语义。 |
 | 6 | 已有会话延续 #39：运行中可选择、立即原子持久化、当前轮不受影响、下一轮生效。 | 用户明确批准，且当前代码已有 token 路由、进程重建与 notice 基础。拒绝首条消息后锁死，也拒绝立即中断当前轮。 |
@@ -58,7 +58,7 @@
 | 14 | Claude Route 在同一 TEXT 列中保存结构化 target；alias 缺失表示 inherit-main。旧字符串数据一次性 migration，运行时不保留旧 parser。 | 功能尚未发布，长期双格式没有用户价值。拒绝为三个固定 alias 增加分散列，也拒绝永久兼容旧字符串。 |
 | 15 | 模型发现只是人工导入建议，不自动覆盖、停用或删除本地模型。 | `/models` 可能分页、过滤或短暂缺失。拒绝把一次上游响应当完整同步快照。 |
 | 16 | Provider 顶部测试默认模型与 Model 行内测试使用同一测试能力。 | 凭证可用不代表每个模型有权限，但不需要两套测试系统。拒绝只测试目录接口。 |
-| 17 | 有引用的 Model 禁止硬删除；有引用的 Provider 可停用但不可删除；默认模型必须先替换。 | 保留稳定引用并提供可恢复路径。拒绝删除后让 Backend/Session/Route 静默悬空。 |
+| 17 | 被引用的 Model 与 Provider 都可以删除，但删除前必须披露引用影响并二次确认；删除后引用保持原样，降级为「目标已失效」。默认模型仍必须先替换。 | 2026-08-19 修订（原文：有引用不可删除、只能停用）。原理由「拒绝删除后让 Backend/Session/Route 静默悬空」不成立：停用本就无条件放行且在所有消费侧产生同一失效态，而悬空并不静默——决策 7 的失效语义已明确承接（fixed-model 严格阻止下一轮、provider-default 回退 Agent 绑定、路由解析失败显式报错）。拒绝：删除时清理引用方——一次删除静默改写多张表多行，用户反而失去按失效提示重选的线索。 |
 | 18 | 修改 Provider 默认模型只做影响确认并从下一轮动态生效，不向所有会话批量写 switch notice。 | provider-default 本身承诺动态跟随，批量旁白会污染历史并产生时序问题。拒绝 fan-out 更新会话。 |
 | 19 | 最近使用只存本机 localStorage，按执行设备隔离，成功持久化后才记录。 | 它是 UI 偏好而非业务实体。拒绝进入账号同步或存储名称、ModelID、凭据快照。 |
 | 20 | Provider/Models/API Key 不进入账号同步；Server 只透明传递业务对象中的稳定字符串引用。 | 保持既定本地化和安全边界。拒绝在 agentre-server 新建 LLM 配置中心。 |
@@ -67,7 +67,7 @@
 
 ## Domain model and lifecycle
 
-一条未删除的 Provider 始终在管理页可见。`enabled=false` 表示它不可被新选择、不会用于执行，但仍可编辑和重新启用；软删除只在没有有效 Backend、Session 或 Route 引用时允许。Provider 启用前必须至少拥有一个启用 Model，且 `default_model_key` 必须指向属于该 Provider 的启用 Model。
+一条未删除的 Provider 始终在管理页可见。`enabled=false` 表示它不可被新选择、不会用于执行，但仍可编辑和重新启用；软删除不被引用阻挡：存在有效 Backend、Session 或 Route 引用时需要显式二次确认，删除后这些引用保持原样并降级为「目标已失效」。Provider 启用前必须至少拥有一个启用 Model，且 `default_model_key` 必须指向属于该 Provider 的启用 Model。
 
 一条 Model 使用永久稳定的 `model_key` 承担 Backend、Session 与 Route 引用。`model_id` 是执行时发送给上游的字符串；同一 Provider 内按精确、大小写敏感的 ModelID 去重，不跨 Provider 合并同名模型。用户修改被引用 Model 的 ModelID 时，界面先展示受影响 Backend、Session 与 Route 数量，确认后从下一轮生效，当前回合保持旧配置。
 

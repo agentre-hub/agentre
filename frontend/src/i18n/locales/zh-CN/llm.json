@@ -193,9 +193,6 @@
       "delete": "删除",
       "deleteNamed": "删除 {{name}}",
       "deleteTitle": "删除供应商（需二次确认）",
-      "deleteBlockedReferenced": "被 {{count}} 处引用，无法删除；可以先停用",
-      "deleteBlockedReferenced_one": "被 {{count}} 处引用，无法删除；可以先停用",
-      "deleteBlockedReferenced_other": "被 {{count}} 处引用，无法删除；可以先停用",
       "cannotEnableNoDefault": "未设置可用的启用默认模型，无法启用该供应商",
       "testConnection": "测试连接",
       "more": "更多",
@@ -247,7 +244,6 @@
       "references": "引用",
       "enableColumn": "启用",
       "moreModelNamed": "{{model}} 的更多操作",
-      "deleteBlockedReferenced": "被 {{count}} 处引用，无法删除",
       "batch": {
         "selectedCount": "已选 {{selected}} / {{total}}",
         "selectAll": "全选",
@@ -255,11 +251,9 @@
         "enable": "批量启用",
         "disable": "批量停用",
         "delete": "批量删除",
-        "referencesPending": "请等待引用检查完成后再删除",
-        "referencesUnavailable": "引用状态不可用，无法安全删除",
         "rowCanDelete": "可删除",
         "rowDefaultBlocked": "默认模型不可删除",
-        "rowReferencedBlocked": "引用 {{count}} 处不可删除"
+        "rowReferenced": "被 {{count}} 处引用，删除后失效"
       }
     },
     "delete": {
@@ -268,9 +262,10 @@
       "providerDescription": "删除会同时移除该供应商下的全部模型。",
       "modelDescription": "删除模型前会检查引用影响。",
       "checking": "正在检查引用影响…",
-      "blockedTitle": "删除被阻止",
-      "blockedProviderDetail": "该供应商正被 Backend / 会话 / 路由引用。你可以停用它，但不能删除它。",
-      "blockedModelDetail": "该模型正被 {{refs}} 引用，无法删除。",
+      "impactLabel": "删除会影响",
+      "impactProviderHint": "删除后这些绑定会失效，需要重新指向新的目标；它们的其它配置不变。删除同时移除该供应商下的全部模型。",
+      "impactModelHint": "删除后这些绑定会失效，需要重新指向新的目标；它们的其它配置不变。",
+      "refsUnavailable": "引用影响没查到。仍然可以删除；正在使用它的绑定会失效。",
       "providerConfirmHint": "该供应商没有被引用。删除会同时移除其全部模型，且已使用的 ProviderKey / ModelKey 不会复用。",
       "modelConfirmHint": "该模型没有被引用。删除后已保存的 fixed-model 目标会失效。",
       "providerConfirmButton": "删除供应商",

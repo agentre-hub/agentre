@@ -24,12 +24,12 @@ const (
 	LLMProviderFetchModels                         // 拉取模型列表失败
 	LLMProviderDisabled                            // LLM 供应商已停用
 	LLMProviderNoEnabledDefault                    // 启用前必须设置属于该供应商的启用默认模型
-	LLMProviderReferenced                          // 供应商被 Backend/Session/Route 引用，不能删除
+	LLMProviderReferenced                          // 供应商被 Backend/Session/Route 引用，删除需二次确认
 	LLMProviderModelNotFound                       // 模型不存在
 	LLMProviderModelNotOwned                       // 模型不属于该供应商
 	LLMProviderModelDisabled                       // 模型已停用
 	LLMProviderModelIsDefault                      // 默认模型不能停用或删除，请先指定其它默认模型
-	LLMProviderModelReferenced                     // 模型被 Backend/Session/Route 引用，不能删除
+	LLMProviderModelReferenced                     // 模型被 Backend/Session/Route 引用，删除需二次确认
 	LLMProviderModelConfirmRequired                // 修改被引用模型的 model_id 需要二次确认
 	LLMProviderDefaultModelInvalid                 // 供应商未配置可用的默认模型
 	LLMProviderModelTargetInvalid                  // 固定模型目标已失效（Provider/模型缺失/停用/不兼容）

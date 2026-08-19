@@ -193,9 +193,6 @@
       "delete": "Delete",
       "deleteNamed": "Delete {{name}}",
       "deleteTitle": "Delete provider (requires confirmation)",
-      "deleteBlockedReferenced": "Referenced by {{count}}: cannot delete, disable it instead",
-      "deleteBlockedReferenced_one": "Referenced by {{count}}: cannot delete, disable it instead",
-      "deleteBlockedReferenced_other": "Referenced by {{count}}: cannot delete, disable it instead",
       "cannotEnableNoDefault": "Set an enabled default model before enabling this provider",
       "testConnection": "Test Connection",
       "more": "More",
@@ -247,7 +244,6 @@
       "references": "References",
       "enableColumn": "Enable",
       "moreModelNamed": "More actions for {{model}}",
-      "deleteBlockedReferenced": "Referenced by {{count}}, cannot be deleted",
       "batch": {
         "selectedCount": "Selected {{selected}} / {{total}}",
         "selectAll": "Select all",
@@ -255,11 +251,9 @@
         "enable": "Enable selected",
         "disable": "Disable selected",
         "delete": "Delete selected",
-        "referencesPending": "Wait for reference checks to finish before deleting",
-        "referencesUnavailable": "Reference status unavailable: cannot delete safely",
         "rowCanDelete": "Can delete",
         "rowDefaultBlocked": "Default model: cannot delete",
-        "rowReferencedBlocked": "Referenced by {{count}}: cannot delete"
+        "rowReferenced": "Referenced by {{count}}: becomes invalid after deletion"
       }
     },
     "delete": {
@@ -268,9 +262,10 @@
       "providerDescription": "Deleting also removes every model under this provider.",
       "modelDescription": "Reference impact is checked before deletion.",
       "checking": "Checking reference impact…",
-      "blockedTitle": "Deletion blocked",
-      "blockedProviderDetail": "This provider is referenced by backends, sessions or routes. You can disable it, but not delete it.",
-      "blockedModelDetail": "This model is referenced by {{refs}} and cannot be deleted.",
+      "impactLabel": "Deleting affects",
+      "impactProviderHint": "These bindings become invalid after deletion and must be pointed at a new target; nothing else about them changes. Deleting also removes every model under this provider.",
+      "impactModelHint": "These bindings become invalid after deletion and must be pointed at a new target; nothing else about them changes.",
+      "refsUnavailable": "Reference impact could not be loaded. You can still delete; any binding in use will become invalid.",
       "providerConfirmHint": "This provider has no references. Deleting also removes all its models, and the used ProviderKey / ModelKey are never reused.",
       "modelConfirmHint": "This model has no references. Saved fixed-model targets pointing at it will become invalid.",
       "providerConfirmButton": "Delete provider",

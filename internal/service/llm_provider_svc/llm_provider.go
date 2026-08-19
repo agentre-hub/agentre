@@ -3,7 +3,8 @@
 // 编排规则（全部落在 service 层，仓储只做原子落库）：
 //   - 创建 = 连接配置 + 选中 Models + 默认模型一个业务操作（CreateWithModels 事务）；
 //   - 发现只做人工导入建议，永不自动删改本地模型；
-//   - 默认 / 删除 / 修改被引用 ModelID 前先做引用保护；
+//   - 改默认 / 删除 / 修改被引用 ModelID 前先算引用影响：改默认与删除只要求二次确认，
+//     删除后引用方保持原样并降级为「目标已失效」；
 //   - 启用 Provider 必须已有属于它的启用默认模型；
 //   - 展示 DTO 只带掩码 key，明文 key 只存在于执行侧契约 ResolvedModel。
 package llm_provider_svc
@@ -275,7 +276,9 @@ func (s *llmProviderSvc) SetProviderEnabled(ctx context.Context, req *SetProvide
 	return &SetProviderEnabledResponse{Item: toItem(p)}, nil
 }
 
-// Delete 软删除 Provider 及其全部 Models；被 Backend / Session / Route 引用时拒绝。
+// Delete 软删除 Provider 及其全部 Models。被 Backend / Session / Route 引用不阻止删除，
+// 只要求 ConfirmReference=true —— 调用方先看过影响再删；删除后引用方一行不改，由既有的
+// 「目标已失效」语义承接（fixed-model 严格阻止下一轮、provider-default 回退 Agent 绑定）。
 func (s *llmProviderSvc) Delete(ctx context.Context, req *DeleteProviderRequest) (*DeleteProviderResponse, error) {
 	p, err := llm_provider_repo.LLMProvider().Find(ctx, req.ID)
 	if err != nil {
@@ -289,17 +292,21 @@ func (s *llmProviderSvc) Delete(ctx context.Context, req *DeleteProviderRequest)
 	if err != nil {
 		return nil, err
 	}
-	if refs.Backends > 0 || refs.Sessions > 0 || refs.Routes > 0 {
+	referenced := refs.Backends > 0 || refs.Sessions > 0 || refs.Routes > 0
+	if referenced && !req.ConfirmReference {
 		return nil, i18n.NewError(ctx, code.LLMProviderReferenced)
 	}
 
-	// 无引用：Provider 与其 Models 在同一事务内一并软删除（spec 决策 17：不留半批）。
+	// Provider 与其 Models 在同一事务内一并软删除，不留半批。
 	if err := llm_provider_repo.LLMProvider().DeleteWithModels(ctx, p.ID); err != nil {
 		return nil, err
 	}
 	logger.Ctx(ctx).Info("llmProviderSvc.Delete: provider deleted",
 		zap.Int64("id", p.ID),
-		zap.String("providerKey", p.ProviderKey))
+		zap.String("providerKey", p.ProviderKey),
+		zap.Int64("refBackends", refs.Backends),
+		zap.Int64("refSessions", refs.Sessions),
+		zap.Int64("refRoutes", refs.Routes))
 	return &DeleteProviderResponse{}, nil
 }
 
@@ -546,7 +553,9 @@ func (s *llmProviderSvc) SetModelEnabled(ctx context.Context, req *SetModelEnabl
 	return &SetModelEnabledResponse{Item: toModelItem(m, p)}, nil
 }
 
-// DeleteModel 软删除一个模型；默认模型或被 Backend / Session / Route 引用时拒绝。
+// DeleteModel 软删除一个模型。默认模型始终拒绝（Provider 自身不变量：删了它，该 Provider
+// 下所有 provider-default 目标都解析不出模型）；被 Backend / Session / Route 引用不阻止删除，
+// 只要求 ConfirmReference=true。
 func (s *llmProviderSvc) DeleteModel(ctx context.Context, req *DeleteModelRequest) (*DeleteModelResponse, error) {
 	m, err := llm_provider_repo.LLMProvider().FindModel(ctx, req.ID)
 	if err != nil {
@@ -569,7 +578,8 @@ func (s *llmProviderSvc) DeleteModel(ctx context.Context, req *DeleteModelReques
 	if err != nil {
 		return nil, err
 	}
-	if refs.Backends > 0 || refs.Sessions > 0 || refs.Routes > 0 {
+	referenced := refs.Backends > 0 || refs.Sessions > 0 || refs.Routes > 0
+	if referenced && !req.ConfirmReference {
 		return nil, i18n.NewError(ctx, code.LLMProviderModelReferenced)
 	}
 	if err := llm_provider_repo.LLMProvider().DeleteModel(ctx, m.ID); err != nil {
@@ -577,7 +587,10 @@ func (s *llmProviderSvc) DeleteModel(ctx context.Context, req *DeleteModelReques
 	}
 	logger.Ctx(ctx).Info("llmProviderSvc.DeleteModel: model deleted",
 		zap.Int64("id", m.ID),
-		zap.String("modelKey", m.ModelKey))
+		zap.String("modelKey", m.ModelKey),
+		zap.Int64("refBackends", refs.Backends),
+		zap.Int64("refSessions", refs.Sessions),
+		zap.Int64("refRoutes", refs.Routes))
 	return &DeleteModelResponse{}, nil
 }
 

@@ -97,7 +97,6 @@ export function LlmProvidersPanel({
   const [modelRefCounts, setModelRefCounts] = React.useState<
     Map<string, ReferenceCounts>
   >(new Map());
-  const [modelRefsLoading, setModelRefsLoading] = React.useState(false);
   // 行内「已通过」是会话内瞬时态：后端不持久化测试结果，刷新即消失。
   const [passedModelTests, setPassedModelTests] = React.useState<
     Map<number, string>
@@ -227,12 +226,8 @@ export function LlmProvidersPanel({
   React.useEffect(() => {
     const keys = models.map((m) => m.modelKey);
     setModelRefCounts(new Map());
-    if (keys.length === 0) {
-      setModelRefsLoading(false);
-      return;
-    }
+    if (keys.length === 0) return;
     let cancelled = false;
-    setModelRefsLoading(true);
     void (async () => {
       const entries = await Promise.all(
         keys.map(async (key): Promise<[string, ReferenceCounts] | null> => {
@@ -257,7 +252,6 @@ export function LlmProvidersPanel({
             ),
           ),
         );
-        setModelRefsLoading(false);
       }
     })();
     return () => {
@@ -656,7 +650,7 @@ export function LlmProvidersPanel({
     [refreshModels, refreshProviders, t],
   );
 
-  // 被引用挡住删除时的第三条出路：弹窗自己完成停用，这里只负责说出结果并刷新，
+  // 弹窗里「改为停用」的落点：停用由弹窗自己完成，这里只负责说出结果并刷新，
   // 否则后端已经停用而工作区还停在旧的启用态。
   const handleDisabled = React.useCallback(
     (target: DeleteTarget) => {
@@ -750,7 +744,6 @@ export function LlmProvidersPanel({
               passedModelTests={passedModelTests}
               providerRefCounts={providerRefCounts}
               modelRefCounts={modelRefCounts}
-              modelRefsLoading={modelRefsLoading}
               onTestProvider={handleTestProvider}
               onTestModel={handleTestModel}
               onEditConnection={() => {
@@ -854,7 +847,6 @@ function ProviderManagement({
   onBatchDeleteCompleted,
   providerRefCounts,
   modelRefCounts,
-  modelRefsLoading,
 }: {
   providers: Provider[];
   selectedId: number | null;
@@ -883,7 +875,6 @@ function ProviderManagement({
   onBatchDeleteCompleted: (result: BatchDeleteResult) => void;
   providerRefCounts: ReferenceCounts | null;
   modelRefCounts: Map<string, ReferenceCounts>;
-  modelRefsLoading: boolean;
 }) {
   const { t } = useTranslation();
   const [navSearch, setNavSearch] = React.useState("");
@@ -1035,7 +1026,6 @@ function ProviderManagement({
             onBatchDeleteCompleted={onBatchDeleteCompleted}
             providerRefCounts={providerRefCounts}
             modelRefCounts={modelRefCounts}
-            modelRefsLoading={modelRefsLoading}
           />
         ) : null}
       </div>

@@ -24,7 +24,7 @@ func (a *App) SetLLMProviderEnabled(req *llm_provider_svc.SetProviderEnabledRequ
 	return llm_provider_svc.LLMProvider().SetProviderEnabled(a.ctx, req)
 }
 
-// DeleteLLMProvider 软删除供应商（被 Backend / Session / Route 引用时拒绝）。
+// DeleteLLMProvider 软删除供应商；被 Backend / Session / Route 引用时需 ConfirmReference=true。
 func (a *App) DeleteLLMProvider(req *llm_provider_svc.DeleteProviderRequest) (*llm_provider_svc.DeleteProviderResponse, error) {
 	return llm_provider_svc.LLMProvider().Delete(a.ctx, req)
 }
@@ -59,7 +59,7 @@ func (a *App) SetLLMModelEnabled(req *llm_provider_svc.SetModelEnabledRequest) (
 	return llm_provider_svc.LLMProvider().SetModelEnabled(a.ctx, req)
 }
 
-// DeleteLLMModel 软删除一个模型；默认模型或被引用模型拒绝。
+// DeleteLLMModel 软删除一个模型；默认模型拒绝，被引用时需 ConfirmReference=true。
 func (a *App) DeleteLLMModel(req *llm_provider_svc.DeleteModelRequest) (*llm_provider_svc.DeleteModelResponse, error) {
 	return llm_provider_svc.LLMProvider().DeleteModel(a.ctx, req)
 }

@@ -20,6 +20,7 @@ import {
   type ReferenceCounts,
   errMessage,
   modelDeleteability,
+  totalReferences,
 } from "./index";
 
 export type BatchDeleteResult = {
@@ -57,30 +58,26 @@ export function BatchDeleteDialog({
 
   const groups = React.useMemo(() => {
     const list = models ?? [];
-    const deletable: Model[] = [];
+    // 只有默认模型仍被保护；被引用的模型照删，引用数改为标在「将删除」行上。
+    const deletable: { model: Model; note: string | null }[] = [];
     const protectedItems: { model: Model; reason: string }[] = [];
     for (const model of list) {
       const del = modelDeleteability(model, defaultModelKey, modelRefCounts);
-      if (del.kind === "ok") {
-        deletable.push(model);
-      } else if (del.kind === "default") {
+      if (del.kind === "default") {
         protectedItems.push({
           model,
           reason: t("llmProviders.modelsTable.batch.rowDefaultBlocked"),
         });
-      } else if (del.kind === "referenced") {
-        protectedItems.push({
-          model,
-          reason: t("llmProviders.modelsTable.batch.rowReferencedBlocked", {
-            count: del.count,
-          }),
-        });
-      } else {
-        protectedItems.push({
-          model,
-          reason: t("llmProviders.modelsTable.batch.referencesUnavailable"),
-        });
+        continue;
       }
+      const refs = totalReferences(modelRefCounts.get(model.modelKey));
+      deletable.push({
+        model,
+        note:
+          refs > 0
+            ? t("llmProviders.modelsTable.batch.rowReferenced", { count: refs })
+            : null,
+      });
     }
     return { deletable, protectedItems };
   }, [defaultModelKey, models, modelRefCounts, t]);
@@ -90,10 +87,14 @@ export function BatchDeleteDialog({
     setError(null);
     let deleted = 0;
     let failure: string | null = null;
-    for (const model of groups.deletable) {
+    for (const { model } of groups.deletable) {
       try {
         await DeleteLLMModel(
-          new llm_provider_svc.DeleteModelRequest({ id: model.id }),
+          // 弹窗已逐行披露引用影响，这里带上服务层要求的二次确认标记。
+          new llm_provider_svc.DeleteModelRequest({
+            id: model.id,
+            confirmReference: true,
+          }),
         );
         deleted += 1;
       } catch (err) {
@@ -147,12 +148,16 @@ export function BatchDeleteDialog({
               </p>
             ) : (
               <ul className="flex flex-col gap-1">
-                {groups.deletable.map((model) => (
-                  <li
-                    key={model.id}
-                    className="truncate font-mono text-2xs text-foreground"
-                  >
-                    {model.name || model.modelId}
+                {groups.deletable.map(({ model, note }) => (
+                  <li key={model.id} className="flex flex-col gap-0.5">
+                    <span className="truncate font-mono text-2xs text-foreground">
+                      {model.name || model.modelId}
+                    </span>
+                    {note ? (
+                      <span className="text-2xs text-status-waiting">
+                        {note}
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>

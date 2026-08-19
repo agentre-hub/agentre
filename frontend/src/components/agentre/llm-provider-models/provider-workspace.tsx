@@ -93,7 +93,6 @@ export function ProviderWorkspace({
   passedModelTests,
   providerRefCounts,
   modelRefCounts,
-  modelRefsLoading,
 }: {
   provider: Provider;
   models: Model[];
@@ -105,7 +104,6 @@ export function ProviderWorkspace({
   passedModelTests: ReadonlyMap<number, string>;
   providerRefCounts: ReferenceCounts | null;
   modelRefCounts: Map<string, ReferenceCounts>;
-  modelRefsLoading: boolean;
 } & WorkspaceHandlers) {
   const { t } = useTranslation();
   const [search, setSearch] = React.useState("");
@@ -135,11 +133,6 @@ export function ProviderWorkspace({
     : models;
 
   const selectedModels = visible.filter((m) => selected.has(m.id));
-  const selectedDeleteabilityKnown = selectedModels.every(
-    (model) =>
-      model.modelKey === provider.defaultModelKey ||
-      modelRefCounts.has(model.modelKey),
-  );
   const allVisibleSelected =
     visible.length > 0 && visible.every((m) => selected.has(m.id));
 
@@ -189,17 +182,6 @@ export function ProviderWorkspace({
     );
   }
   const refsText = refParts.join(" · ");
-
-  // 供应商删除与模型行同一条规则：做不到的操作在点击之前就禁用并写明原因。
-  // 引用计数未知（仍在加载）时不抢先禁用，弹窗会再复查一次。
-  const providerRefTotal = totalReferences(providerRefCounts);
-  const providerDeleteBlocked =
-    providerRefCounts !== null && providerRefTotal > 0;
-  const providerDeleteBlockedReason = providerDeleteBlocked
-    ? t("llmProviders.workspace.deleteBlockedReferenced", {
-        count: providerRefTotal,
-      })
-    : undefined;
 
   return (
     <div
@@ -328,8 +310,6 @@ export function ProviderWorkspace({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   variant="destructive"
-                  disabled={providerDeleteBlocked}
-                  title={providerDeleteBlockedReason}
                   onSelect={onDeleteProvider}
                 >
                   <Trash2 className="size-3.5" aria-hidden="true" />
@@ -417,14 +397,6 @@ export function ProviderWorkspace({
               size="sm"
               className="h-[30px] gap-1.5 px-3 text-xs"
               onClick={handleBatchDelete}
-              disabled={modelRefsLoading || !selectedDeleteabilityKnown}
-              title={
-                modelRefsLoading
-                  ? t("llmProviders.modelsTable.batch.referencesPending")
-                  : !selectedDeleteabilityKnown
-                    ? t("llmProviders.modelsTable.batch.referencesUnavailable")
-                    : undefined
-              }
             >
               {t("llmProviders.modelsTable.batch.delete")}
             </Button>
@@ -585,19 +557,10 @@ export function ProviderWorkspace({
                   provider.defaultModelKey,
                   modelRefCounts,
                 );
-                const deleteBlocked = del.kind !== "ok";
-                const deleteBlockedReason =
-                  del.kind === "default"
-                    ? t("llmProviders.modelsTable.deleteBlockedDefault")
-                    : del.kind === "referenced"
-                      ? t("llmProviders.modelsTable.deleteBlockedReferenced", {
-                          count: del.count,
-                        })
-                      : del.kind === "references-unknown"
-                        ? t(
-                            "llmProviders.modelsTable.batch.referencesUnavailable",
-                          )
-                        : undefined;
+                const deleteBlocked = del.kind === "default";
+                const deleteBlockedReason = deleteBlocked
+                  ? t("llmProviders.modelsTable.deleteBlockedDefault")
+                  : undefined;
                 return (
                   <TableRow
                     key={model.id}
@@ -668,27 +631,25 @@ export function ProviderWorkspace({
                             <span
                               className={cn(
                                 "text-2xs",
-                                del.kind === "ok"
-                                  ? "text-status-running"
-                                  : "text-status-error",
+                                del.kind === "default"
+                                  ? "text-status-error"
+                                  : refCount > 0
+                                    ? "text-status-waiting"
+                                    : "text-status-running",
                               )}
                             >
-                              {del.kind === "ok"
+                              {del.kind === "default"
                                 ? t(
-                                    "llmProviders.modelsTable.batch.rowCanDelete",
+                                    "llmProviders.modelsTable.batch.rowDefaultBlocked",
                                   )
-                                : del.kind === "default"
+                                : refCount > 0
                                   ? t(
-                                      "llmProviders.modelsTable.batch.rowDefaultBlocked",
+                                      "llmProviders.modelsTable.batch.rowReferenced",
+                                      { count: refCount },
                                     )
-                                  : del.kind === "referenced"
-                                    ? t(
-                                        "llmProviders.modelsTable.batch.rowReferencedBlocked",
-                                        { count: del.count },
-                                      )
-                                    : t(
-                                        "llmProviders.modelsTable.batch.referencesUnavailable",
-                                      )}
+                                  : t(
+                                      "llmProviders.modelsTable.batch.rowCanDelete",
+                                    )}
                             </span>
                           ) : null}
                         </div>
