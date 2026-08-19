@@ -1091,7 +1091,7 @@ describe("App", () => {
 
   // 画布与列表两个视图收敛成一套索引后，`agentre.orgView.mode` 作废：存量里的旧值
   // 只应被忽略 —— 既不报错、不改变渲染，也不顺手清掉其他状态。
-  it("ignores the retired organization view-mode value and keeps the same fixed detail panel", async () => {
+  it("ignores the retired organization view-mode value and keeps the detail in the main area", async () => {
     const user = userEvent.setup();
     localStorage.setItem("agentre.orgView.mode", "list");
     localStorage.setItem("agentre.orgTree.collapse", '{"1":true}');
@@ -1109,7 +1109,12 @@ describe("App", () => {
       '[data-slot="org-detail-panel"]',
     );
     expect(detailPanel).toBeInTheDocument();
-    expect(detailPanel).toHaveClass("w-[380px]", "shrink-0", "border-l");
+    // 详情占主区（索引是左边固定宽的一列）：三栏详情在 380px 的右抽屉里装不下。
+    expect(detailPanel).toHaveClass("flex-1", "min-w-0");
+    expect(container.querySelector('[data-slot="org-index-pane"]')).toHaveClass(
+      "w-[300px]",
+      "shrink-0",
+    );
     expect(
       container.querySelector('[data-slot="org-detail-drawer"]'),
     ).toBeNull();

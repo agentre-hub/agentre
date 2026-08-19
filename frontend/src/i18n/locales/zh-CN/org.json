@@ -33,6 +33,14 @@
       "summary": "{{departments}} 部门 · {{subDepartments}} 子部门 · {{agents}} Agent",
       "title": "组织架构"
     },
+    "detail": {
+      "columns": {
+        "behavior": "行为",
+        "execution": "执行",
+        "identity": "身份",
+        "structure": "结构"
+      }
+    },
     "index": {
       "search": {
         "aria": "搜索 Agent",
@@ -90,8 +98,6 @@
         "configureProvider": "去配置 LLM 供应商",
         "goAgentBackendSettings": "去 Agent 后端设置",
         "inactiveSuffix": "（已停用）",
-        "noBackendDescription": "绑定一个 Agent 后端后即可开始对话；内置后端需要额外的 LLM 供应商。",
-        "noBackendTitle": "这个 Agent 还不能对话",
         "providerGapDescription": "内置 SDK 后端通过 LLM 供应商执行任务，当前还没有已激活的供应商。",
         "providerGapTitle": "还需要一个 LLM 供应商",
         "title": "AGENT 后端",
@@ -111,7 +117,7 @@
         "online": "在线",
         "offline": "离线",
         "localMachine": "本机",
-        "emptyTitle": "还没有执行目标",
+        "emptyTitle": "这个 Agent 还不能对话",
         "emptyHint": "至少要有一项，这个 Agent 才能起会话。",
         "saveRejected": "保存被拒：请至少添加一个执行目标。",
         "allUnavailableTitle": "「{{name}}」现在没有可用的执行机器",
@@ -132,9 +138,10 @@
           "offline": "离线",
           "projectPathMissing": "这台机器上没有配置这个项目的路径"
         },
-        "loading": "正在加载执行目标…"
+        "loading": "正在加载执行目标…",
+        "emptyDescription": "绑定一个 Agent 后端后即可开始对话；内置后端需要额外的 LLM 供应商。",
+        "skillsToggle": "{{machine}} 的技能"
       },
-      "basicInfo": "基本信息",
       "charCount": "{{count}} 字",
       "deleteDialog": {
         "description": "该 Agent 的对话、技能与状态记录都会一并清除，该操作不可撤销。",
@@ -142,7 +149,6 @@
       },
       "departmentLead": "{{name}} 部门长",
       "descriptionHint": "可选 · 显示在索引行的副标题",
-      "dragHierarchyHint": "· 拖拽索引里的行可调整层级",
       "fallbackName": "Agent",
       "relativeTime": {
         "daysAgo": "{{count}} 天前",
@@ -153,7 +159,6 @@
       "reportsTo": "汇报给",
       "savedAt": "已保存 · {{time}}",
       "skills": {
-        "sectionTitle": "技能 · SKILL PACKS",
         "manage": "管理技能",
         "count": "继承 {{inherit}} · 强制开 {{on}} · 强制关 {{off}}",
         "countCompact": "继承 {{inherit}} · 开 {{on}} · 关 {{off}}",
@@ -167,7 +172,6 @@
         "offlineNote": "机器离线，列不出可添加的包 · 已授权的仍可移除"
       },
       "skillsGate": {
-        "pill": "backend 不支持",
         "title": "当前 backend 不支持技能",
         "description": "技能是 Claude Code 原生能力 · 添加一档 Claude Code 类型的执行目标即可为它单独启用并配置"
       },
@@ -182,7 +186,6 @@
         "title": "工具",
         "sectionTitle": "工具 · TOOLS",
         "enabledCount": "{{count}} 已启用",
-        "add": "添加工具",
         "empty": "暂无可用工具",
         "approval": "需审批",
         "names": {
@@ -194,12 +197,9 @@
           "org": "允许该 Agent 查询并管理部门与成员（写操作需你审批）",
           "subagent": "把子任务委派给另一个已配置的 Agent 执行并同步取回结果。子 Agent 在隔离的一次性会话中运行；用作子 Agent 的成员建议使用自动批准的权限模式。",
           "hook": "允许该 Agent 编写、试运行并按 cron 调度脚本 Hook，定时产出事件（创建/修改/删除/执行均需你审批）"
-        }
-      },
-      "toolPicker": {
-        "title": "添加工具",
-        "subtitle": "工具调用经 MCP 注入 · 写操作需审批",
-        "searchPlaceholder": "搜索工具 / 描述…"
+        },
+        "grantNamed": "授予 {{name}}",
+        "revokeNamed": "收回 {{name}}"
       },
       "skillCatalog": {
         "group": {
@@ -213,7 +213,19 @@
       },
       "systemPrompt": "系统提示词",
       "systemPromptHint": "风格 / 语气 / 边界都写进 system prompt — 不另设字段。",
-      "unsaved": "未保存"
+      "unsaved": "未保存",
+      "placement": {
+        "label": "归属",
+        "groupDepartment": "部门",
+        "groupParent": "上级 Agent",
+        "searchPlaceholder": "搜索部门或 Agent…",
+        "searchAria": "搜索归属选项",
+        "reasonSelf": "不能把自己当作自己的归属",
+        "reasonCycle": "不能挂到自己的下属之下",
+        "derivedManager": "随部门负责人变动",
+        "systemLocked": "系统 Agent 固定在顶层",
+        "noMatch": "没有匹配项"
+      }
     },
     "department": {
       "addGroup": "添加 Agent 或子部门",

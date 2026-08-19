@@ -150,6 +150,7 @@ export function OrgChartPage() {
     moveDepartment,
     deleteDepartment,
     updateAgent,
+    moveAgent,
     deleteAgent,
     uploadAgentAvatar,
     deleteAgentAvatar,
@@ -213,8 +214,14 @@ export function OrgChartPage() {
         </Button>
       </header>
 
+      {/* 索引收成左边固定宽的一列，详情吃掉主区：三栏详情要的是主区那么宽的容器，
+          380px 的右抽屉里放不下（规格「详情出现在主区，分三栏」）。 */}
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-1 overflow-hidden">
+        <div
+          className="flex w-[300px] shrink-0 overflow-hidden border-r"
+          data-slot="org-index-pane"
+          data-testid="org-index-pane"
+        >
           <OrgIndex
             departments={departments}
             agents={agents}
@@ -255,12 +262,13 @@ export function OrgChartPage() {
           />
         </div>
 
-        <aside
-          className="relative w-[380px] shrink-0 overflow-y-auto border-l bg-sidebar"
+        <div
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           data-slot="org-detail-panel"
+          data-testid="org-detail-main"
         >
           {detailContent}
-        </aside>
+        </div>
       </div>
 
       <NewDepartmentDialog
@@ -311,6 +319,7 @@ type RenderDetailArgs = {
   moveDepartment: ReturnType<typeof useOrgData>["moveDepartment"];
   deleteDepartment: ReturnType<typeof useOrgData>["deleteDepartment"];
   updateAgent: ReturnType<typeof useOrgData>["updateAgent"];
+  moveAgent: ReturnType<typeof useOrgData>["moveAgent"];
   deleteAgent: ReturnType<typeof useOrgData>["deleteAgent"];
   uploadAgentAvatar: ReturnType<typeof useOrgData>["uploadAgentAvatar"];
   deleteAgentAvatar: ReturnType<typeof useOrgData>["deleteAgentAvatar"];
@@ -354,6 +363,7 @@ function renderDetail(args: RenderDetailArgs): React.ReactNode {
           args.departments.find((d) => d.leadAgentId === selected.id) ?? null
         }
         onUpdate={(req) => args.updateAgent(req)}
+        onMove={(req) => args.moveAgent(req)}
         onDelete={(req) => args.deleteAgent(req)}
         onUploadAvatar={(req) => args.uploadAgentAvatar(req)}
         onDeleteAvatar={(req) => args.deleteAgentAvatar(req)}
@@ -363,7 +373,7 @@ function renderDetail(args: RenderDetailArgs): React.ReactNode {
   }
   return (
     <div
-      className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground"
+      className="flex h-full min-w-0 items-center justify-center p-8 text-center text-sm text-muted-foreground"
       data-slot="org-detail-empty"
     >
       {args.t("org.chart.detail.empty")}

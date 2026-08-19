@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExecTargetList } from "../exec-target-list";
 import type {
@@ -78,8 +78,30 @@ function availabilityStub(
 
 let availability = new Map<number, chat_svc.ExecTargetAvailabilityView>();
 
+// 技能折在行内，所以每一行都要知道自己那一档的 backend 支不支持技能（R15e 的
+// ExecTargetSkillsBlock 一直是这么问的，只是现在由行来问）：claudecode 支持，
+// 其余类型不支持。
+beforeEach(() => {
+  window.go = {
+    app: {
+      App: {
+        GetBackendCapabilities: vi
+          .fn()
+          .mockImplementation((req: { backendType?: string }) =>
+            Promise.resolve({
+              capabilities: req?.backendType === "claudecode" ? ["skills"] : [],
+              permissionModeMeta: null,
+            }),
+          ),
+        ListAgentSkillPacks: vi.fn().mockResolvedValue({ packs: [] }),
+      },
+    },
+  };
+});
+
 afterEach(() => {
   availability = new Map();
+  delete window.go;
 });
 
 describe("ExecTargetList", () => {
@@ -93,6 +115,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend()]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     expect(await screen.findByText("Local machine")).toBeInTheDocument();
@@ -120,6 +144,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -143,6 +169,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     expect(await screen.findByText("Currently active")).toBeInTheDocument();
@@ -165,6 +193,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend()]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     expect(
@@ -190,6 +220,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend({ deviceId: fingerprint, deviceName: "" })]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
 
@@ -216,6 +248,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend({ online: false })]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     expect(
@@ -226,6 +260,8 @@ describe("ExecTargetList", () => {
     expect(screen.getAllByText("Offline").length).toBeGreaterThan(0);
   });
 
+  // 空态是**一条**提示：它同时说明「不能对话」与「至少要有一项」，不再由面板
+  // 另起一条 Alert 说同一件事（规格「今天说了两遍的状态」）。
   it("empty list: shows the CTA and, when saveRejected, the rejection message", () => {
     render(
       <ExecTargetList
@@ -235,10 +271,15 @@ describe("ExecTargetList", () => {
         backends={[localBackend()]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
         saveRejected
       />,
     );
-    expect(screen.getByText("No execution targets yet")).toBeInTheDocument();
+    expect(screen.getByText("This agent can't chat yet")).toBeInTheDocument();
+    expect(
+      screen.getByText(/At least one is required before this agent/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/Save rejected: add at least one execution target\./),
     ).toBeInTheDocument();
@@ -259,6 +300,8 @@ describe("ExecTargetList", () => {
         ]}
         onChange={onChange}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -292,6 +335,8 @@ describe("ExecTargetList", () => {
         ]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
 
@@ -317,6 +362,8 @@ describe("ExecTargetList", () => {
         ]}
         onChange={onChange}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -340,6 +387,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={onChange}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -365,6 +414,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={onChange}
         onReorder={onReorder}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -402,6 +453,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={vi.fn()}
         onReorder={onReorder}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -435,6 +488,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={vi.fn()}
         onReorder={viaKeyboard}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -452,6 +507,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={vi.fn()}
         onReorder={viaButton}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -476,6 +533,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={vi.fn()}
         onReorder={onReorder}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -495,11 +554,13 @@ describe("ExecTargetList", () => {
         backends={[localBackend()]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
         loading
       />,
     );
     expect(screen.getByTestId("exec-target-skeleton")).toBeInTheDocument();
-    expect(screen.queryByText("No execution targets yet")).toBeNull();
+    expect(screen.queryByText("This agent can't chat yet")).toBeNull();
     expect(screen.queryByText(/At least one is required/)).toBeNull();
     // 骨架期间不给增删入口：此刻列表还不知道自己有哪些档，基于空列表的一次「添加」
     // 会把账号级集合整份写成新加的那一项。
@@ -524,6 +585,8 @@ describe("ExecTargetList", () => {
         backends={[localBackend(), remoteBackend()]}
         onChange={vi.fn()}
         onReorder={vi.fn()}
+        agentId={7}
+        onSkillsChange={vi.fn()}
       />,
     );
     await screen.findByText("Local machine");
@@ -533,5 +596,161 @@ describe("ExecTargetList", () => {
       screen.queryByRole("button", { name: /Restore account default order/ }),
     ).toBeNull();
     expect(screen.queryByText(/not synced to other devices/i)).toBeNull();
+  });
+});
+
+// 一档一行、技能折在行内：四种行状态各自可辨 —— 当前生效、不支持技能（无展开
+// 入口）、离线（能展开，只减不增）、不可用（留在列表里并给出原因）。
+describe("ExecTargetList rows fold their own skills", () => {
+  const renderList = (
+    props: Partial<Parameters<typeof ExecTargetList>[0]> = {},
+  ) =>
+    render(
+      <ExecTargetList
+        agentId={7}
+        availability={availability}
+        agentName="开发"
+        targets={[{ agentBackendId: 51, skills: [] }]}
+        backends={[localBackend()]}
+        onChange={vi.fn()}
+        onReorder={vi.fn()}
+        onSkillsChange={vi.fn()}
+        {...props}
+      />,
+    );
+
+  it("Given a backend that supports skills, When the row's skills fold opens, Then its own grants are managed inside the row", async () => {
+    availabilityStub([
+      { agentBackendId: 51, available: true },
+      { agentBackendId: 52, available: true },
+    ]);
+    const user = userEvent.setup();
+    renderList({
+      targets: [
+        { agentBackendId: 51, skills: [{ id: "opsctl@x", enabled: true }] },
+        { agentBackendId: 52, skills: [] },
+      ],
+      backends: [localBackend(), remoteBackend()],
+    });
+    const row = screen.getByTestId("exec-target-row-0");
+    const toggle = await within(row).findByRole("button", { name: /Skills/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await within(row).findByText("opsctl")).toBeInTheDocument();
+    expect(
+      within(row).getByRole("button", { name: "Manage skills" }),
+    ).toBeInTheDocument();
+  });
+
+  // 单档时折叠没有意义：一档没有「先扫一眼列表」这一步，默认就展开
+  // （R20：单档退化成今天的样子，今天的技能区本来就是直接铺开的）。
+  it("Given a single target, When the row renders, Then its skills are already unfolded", async () => {
+    availabilityStub([{ agentBackendId: 51, available: true }]);
+    renderList({
+      targets: [
+        { agentBackendId: 51, skills: [{ id: "opsctl@x", enabled: true }] },
+      ],
+    });
+    const toggle = await screen.findByRole("button", { name: /Skills/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByText("opsctl")).toBeInTheDocument();
+  });
+
+  it("Given a backend without skills support, When the row renders, Then it has no fold to open and says why", async () => {
+    availabilityStub([{ agentBackendId: 53, available: true }]);
+    renderList({
+      targets: [{ agentBackendId: 53, skills: [] }],
+      backends: [backend({ id: 53, type: "codex", name: "gpt-5-codex" })],
+    });
+    expect(
+      await screen.findByText("This backend doesn't support skills"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Skills/ })).toBeNull();
+  });
+
+  it("Given an offline target, When its fold opens, Then granted skills can be removed but no new one can be added", async () => {
+    availabilityStub([
+      { agentBackendId: 54, available: false, reason: "exec-target-offline" },
+    ]);
+    const user = userEvent.setup();
+    const onSkillsChange = vi.fn();
+    renderList({
+      targets: [
+        { agentBackendId: 54, skills: [{ id: "opsctl@x", enabled: true }] },
+      ],
+      backends: [remoteBackend({ id: 54, online: false, type: "claudecode" })],
+      onSkillsChange,
+    });
+    const row = screen.getByTestId("exec-target-row-0");
+    // 单档默认已展开，离线的一档照样能展开看已授权的技能。
+    expect(
+      await within(row).findByRole("button", { name: /Skills/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      await within(row).findByRole("button", { name: "Manage skills" }),
+    ).toBeDisabled();
+    await user.click(
+      within(row).getByRole("button", { name: "Remove opsctl" }),
+    );
+    expect(onSkillsChange).toHaveBeenCalledWith(54, []);
+  });
+
+  it("Given the four row states, When they are rendered together, Then each is told apart on its own row", async () => {
+    availabilityStub([
+      { agentBackendId: 51, available: true },
+      { agentBackendId: 53, available: true },
+      { agentBackendId: 54, available: false, reason: "exec-target-offline" },
+      {
+        agentBackendId: 55,
+        available: false,
+        reason: "backend-requires-provider",
+      },
+    ]);
+    renderList({
+      targets: [
+        { agentBackendId: 51, skills: [] },
+        { agentBackendId: 53, skills: [] },
+        { agentBackendId: 54, skills: [] },
+        { agentBackendId: 55, skills: [] },
+      ],
+      backends: [
+        localBackend(),
+        backend({ id: 53, type: "codex", name: "gpt-5-codex" }),
+        remoteBackend({ id: 54, online: false, type: "claudecode" }),
+        backend({ id: 55, type: "builtin", name: "built-in" }),
+      ],
+    });
+    await screen.findAllByText("Local machine");
+    // ① 当前生效
+    expect(
+      within(screen.getByTestId("exec-target-row-0")).getByText(
+        "Currently active",
+      ),
+    ).toBeInTheDocument();
+    // ② 不支持技能：没有展开入口
+    const unsupported = screen.getByTestId("exec-target-row-1");
+    await waitFor(() =>
+      expect(
+        within(unsupported).getByText("This backend doesn't support skills"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      within(unsupported).queryByRole("button", { name: /Skills/ }),
+    ).toBeNull();
+    // ③ 离线：仍可展开
+    const offline = screen.getByTestId("exec-target-row-2");
+    expect(within(offline).getByText("Offline")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(offline).getByRole("button", { name: /Skills/ }),
+      ).toBeInTheDocument(),
+    );
+    // ④ 不可用：留在列表里并给出原因
+    expect(
+      within(screen.getByTestId("exec-target-row-3")).getByText(
+        "An LLM provider must be specified",
+      ),
+    ).toBeInTheDocument();
   });
 });

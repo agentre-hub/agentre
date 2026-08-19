@@ -14,7 +14,16 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { ChevronDown, ChevronUp, GripVertical, Plus, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  GripVertical,
+  Plus,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -28,19 +37,35 @@ import { cn } from "@/lib/utils";
 import type {
   agent_backend_svc,
   chat_svc,
+  department_svc,
 } from "../../../../wailsjs/go/models";
+
+import { useBackendCapabilities } from "../capability/use-backend-capabilities";
 
 import { execTargetReasonLabel } from "./exec-target-reasons";
 import { moveItem } from "./exec-target-reorder";
+import {
+  ExecTargetSkillsBlock,
+  type CopySource,
+} from "./exec-target-skills-block";
 
-// ExecTargetRow 是 ExecTargetList 编辑态的一项：这里只关心 agentBackendId——
-// 技能授权（ExecTargetInputDTO.skills）由 org-detail-agent.tsx 在同一个数组元素上
-// 一并持有，ExecTargetList 不读也不写那部分，靠 agentBackendId 在 targets 数组内
-// 唯一这条不变量对齐（前端"+ 添加"面板与后端 agent_svc.buildExecTargets 都靠它
-// 判重）。
-export type ExecTargetRow = { agentBackendId: number };
+// ExecTargetRow 是 ExecTargetList 编辑态的一项：agentBackendId 定位这一档，在
+// targets 数组内唯一（前端"+ 添加"面板与后端 agent_svc.buildExecTargets 都靠它
+// 判重）。skills 是这一档自己的技能授权，因为技能折在行内，列表要读得到它；
+// 但**写回**仍然只经 onSkillsChange，列表自己不改这份数组。
+export type ExecTargetRow = {
+  agentBackendId: number;
+  skills?: department_svc.AgentSkillDTO[];
+};
+
+// 顺序 / 集合两条写路径回给调用方的都是「只有 agentBackendId」的行：技能不由这两条
+// 路径搬运，把它捎带出去会让调用方分不清这一次到底改了什么。
+function orderOnly(rows: ExecTargetRow[]): ExecTargetRow[] {
+  return rows.map((r) => ({ agentBackendId: r.agentBackendId }));
+}
 
 type Props = {
+  agentId: number;
   agentName: string;
   // availability 由面板自己那一份 useExecTargetAvailability 下传，列表不再自持一份。
   // 两处各读一次不只是白发一趟 Wails 调用：两份副本各自独立地从「加载中」走到
@@ -56,6 +81,12 @@ type Props = {
   // onReorder = 顺序变更（拖拽 / 拖拽柄方向键 / 上移下移），只写本端顺序。
   // 两条写路径由列表自己分开给出，而不是让调用方回头比对数组去猜刚才发生了什么。
   onReorder: (next: ExecTargetRow[]) => void;
+  // onSkillsChange = 某一档自己的技能授权变了（第三条写路径，按 backend id 定位，
+  // 不按下标：行序是本端解析后的顺序，账号级集合的下标与它不是一回事）。
+  onSkillsChange: (
+    agentBackendId: number,
+    next: department_svc.AgentSkillDTO[],
+  ) => void;
   saveRejected?: boolean;
   // loading = 顺序数据尚未到达，渲染骨架行。它与「这个 Agent 没有执行目标」的空态
   // 是两件事：混在一起就会同时说出两句互相否定的话。
@@ -124,7 +155,7 @@ export function ExecTargetList(props: Props) {
   const move = (from: number, to: number) => {
     const next = moveItem(props.targets, from, to);
     if (next === props.targets) return;
-    props.onReorder(next);
+    props.onReorder(orderOnly(next));
     setAnnouncement(
       t("org.agent.execTargets.moved", {
         position: to + 1,
@@ -134,11 +165,14 @@ export function ExecTargetList(props: Props) {
   };
 
   const removeAt = (idx: number) => {
-    props.onChange(props.targets.filter((_, i) => i !== idx));
+    props.onChange(orderOnly(props.targets.filter((_, i) => i !== idx)));
   };
 
   const appendBackend = (backendId: number) => {
-    props.onChange([...props.targets, { agentBackendId: backendId }]);
+    props.onChange([
+      ...orderOnly(props.targets),
+      { agentBackendId: backendId },
+    ]);
     setAddOpen(false);
   };
 
@@ -168,11 +202,37 @@ export function ExecTargetList(props: Props) {
     move(from, to);
   };
 
+  // 技能「从别的档抄一份」的可选来源：同一份列表里除自己以外的档，类型不同的
+  // 置灰（包 id 对不上）。列表自己就握着 targets + backends，不必再从外面传进来。
+  const copySourcesFor = (index: number): CopySource[] => {
+    const own = backendById.get(props.targets[index]?.agentBackendId ?? 0);
+    return props.targets
+      .map((target, i) => ({ target, i }))
+      .filter(({ i }) => i !== index)
+      .map(({ target, i }) => {
+        const b = backendById.get(target.agentBackendId);
+        return {
+          index: i,
+          label: `${i + 1} · ${machineLabel(
+            b,
+            t("org.agent.execTargets.localMachine"),
+            t("org.agent.execTargets.reasons.unpaired"),
+          )}`,
+          skills: target.skills ?? [],
+          sameType: Boolean(b && own && b.type === own.type),
+        };
+      });
+  };
+
   const rowPropsFor = (target: ExecTargetRow, index: number): RowProps => ({
     index,
     total: props.targets.length,
+    agentId: props.agentId,
     backend: backendById.get(target.agentBackendId),
     status: byBackendId.get(target.agentBackendId),
+    skills: target.skills ?? [],
+    onSkillsChange: (next) => props.onSkillsChange(target.agentBackendId, next),
+    copySources: copySourcesFor(index),
     // R20：只有一项时「当前生效」徽标不出现——一档时它零信息量，
     // 与序号/拖拽柄/排序说明同批隐去。
     isFirstAvailable: !single && index === firstAvailableIndex,
@@ -224,9 +284,18 @@ export function ExecTargetList(props: Props) {
       {props.loading ? (
         <ExecTargetSkeleton />
       ) : props.targets.length === 0 ? (
-        <div className="rounded-md border border-border bg-input-bg px-3 py-5 text-center">
-          <p className="text-sm text-muted-foreground">
+        // 「没有执行目标」只说这一条：它同时讲清「不能对话」与「至少要有一项」。
+        // 面板此前另有一条 noBackendBound 的 Alert 说同一个条件，两条一起出现。
+        <div
+          className="rounded-md border border-status-waiting/40 bg-status-waiting-bg px-3 py-4 text-center"
+          data-testid="exec-target-empty"
+        >
+          <p className="flex items-center justify-center gap-1.5 text-sm font-semibold">
+            <AlertTriangle className="size-3.5" aria-hidden="true" />
             {t("org.agent.execTargets.emptyTitle")}
+          </p>
+          <p className="mt-1 text-2xs text-muted-foreground">
+            {t("org.agent.execTargets.emptyDescription")}
           </p>
           <p className="mt-1 text-2xs text-muted-foreground">
             {t("org.agent.execTargets.emptyHint")}
@@ -401,8 +470,12 @@ function SortableExecTargetRow(props: { id: string; row: RowProps }) {
 type RowProps = {
   index: number;
   total: number;
+  agentId: number;
   backend: agent_backend_svc.BackendItem | undefined;
   status: { available: boolean; reason: string } | undefined;
+  skills: department_svc.AgentSkillDTO[];
+  onSkillsChange: (next: department_svc.AgentSkillDTO[]) => void;
+  copySources: CopySource[];
   isFirstAvailable: boolean;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
@@ -447,95 +520,179 @@ function ExecTargetRowView(props: RowProps) {
       ref={drag?.setNodeRef}
       style={drag?.style}
       className={cn(
-        "flex items-start gap-2 border-border bg-input-bg px-2.5 py-2",
+        "flex min-w-0 flex-col border-border bg-input-bg px-2.5 py-2",
         props.index < props.total - 1 && "border-b",
+        // 当前生效的一档在视觉上与其余区分：左侧一道色条，不只靠徽标。
+        props.isFirstAvailable && "border-l-2 border-l-status-running",
       )}
       data-testid={`exec-target-row-${props.index}`}
     >
-      {!single && (
-        <button
-          type="button"
-          ref={drag?.setActivatorNodeRef}
-          aria-label={t("org.agent.execTargets.dragHandle")}
-          {...(drag?.attributes ?? {})}
-          {...(drag?.listeners ?? {})}
-          onKeyDown={onHandleKeyDown}
-          className="mt-0.5 shrink-0 cursor-grab touch-none select-none rounded-sm text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          <GripVertical className="size-3.5" aria-hidden="true" />
-        </button>
-      )}
-      {!single && (
-        <span className="mt-px inline-flex size-5 shrink-0 items-center justify-center rounded-sm bg-secondary font-mono text-2xs text-muted-foreground">
-          {props.index + 1}
-        </span>
-      )}
-      {/* 详情面板只有 380px 宽：长机器名在行内截断，不换行把行撑高、也不把面板顶出
+      <div className="flex min-w-0 items-start gap-2">
+        {!single && (
+          <button
+            type="button"
+            ref={drag?.setActivatorNodeRef}
+            aria-label={t("org.agent.execTargets.dragHandle")}
+            {...(drag?.attributes ?? {})}
+            {...(drag?.listeners ?? {})}
+            onKeyDown={onHandleKeyDown}
+            className="mt-0.5 shrink-0 cursor-grab touch-none select-none rounded-sm text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <GripVertical className="size-3.5" aria-hidden="true" />
+          </button>
+        )}
+        {!single && (
+          <span className="mt-px inline-flex size-5 shrink-0 items-center justify-center rounded-sm bg-secondary font-mono text-2xs text-muted-foreground">
+            {props.index + 1}
+          </span>
+        )}
+        {/* 详情面板只有 380px 宽：长机器名在行内截断，不换行把行撑高、也不把面板顶出
           横向滚动。 */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-xs font-semibold">{local}</span>
-        <span className="truncate font-mono text-2xs text-muted-foreground">
-          {sub}
-        </span>
-      </div>
-      {!single && (
-        <div className="flex shrink-0 flex-col">
-          <button
-            type="button"
-            aria-label={t("org.agent.execTargets.moveUp")}
-            disabled={!props.onMoveUp}
-            onClick={props.onMoveUp}
-            className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-          >
-            <ChevronUp className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            aria-label={t("org.agent.execTargets.moveDown")}
-            disabled={!props.onMoveDown}
-            onClick={props.onMoveDown}
-            className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-          >
-            <ChevronDown className="size-3.5" />
-          </button>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-xs font-semibold">{local}</span>
+          <span className="truncate font-mono text-2xs text-muted-foreground">
+            {sub}
+          </span>
         </div>
-      )}
-      <StatusBadge
-        status={props.status}
-        isFirstAvailable={props.isFirstAvailable}
-        isRemote={Boolean(b?.deviceId)}
-      />
-      {props.onRemove && (
-        <button
-          type="button"
-          aria-label={t("org.agent.execTargets.remove")}
-          onClick={props.onRemove}
-          className="shrink-0 text-muted-foreground hover:text-destructive"
-        >
-          <X className="size-3.5" />
-        </button>
-      )}
-      {props.replaceBackends && props.onReplacePick && (
-        <Popover open={replaceOpen} onOpenChange={setReplaceOpen}>
-          <PopoverTrigger asChild>
+        {!single && (
+          <div className="flex shrink-0 flex-col">
             <button
               type="button"
-              className="shrink-0 text-2xs text-muted-foreground hover:underline"
+              aria-label={t("org.agent.execTargets.moveUp")}
+              disabled={!props.onMoveUp}
+              onClick={props.onMoveUp}
+              className="text-muted-foreground hover:text-foreground disabled:opacity-30"
             >
-              {t("org.agent.execTargets.replace")}
+              <ChevronUp className="size-3.5" />
             </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-72 p-0">
-            <AddTargetPanel
-              backends={props.replaceBackends}
-              usedIds={new Set()}
-              onPick={(id) => {
-                props.onReplacePick?.(id);
-                setReplaceOpen(false);
-              }}
-            />
-          </PopoverContent>
-        </Popover>
+            <button
+              type="button"
+              aria-label={t("org.agent.execTargets.moveDown")}
+              disabled={!props.onMoveDown}
+              onClick={props.onMoveDown}
+              className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+            >
+              <ChevronDown className="size-3.5" />
+            </button>
+          </div>
+        )}
+        <StatusBadge
+          status={props.status}
+          isFirstAvailable={props.isFirstAvailable}
+          isRemote={Boolean(b?.deviceId)}
+        />
+        {props.onRemove && (
+          <button
+            type="button"
+            aria-label={t("org.agent.execTargets.remove")}
+            onClick={props.onRemove}
+            className="shrink-0 text-muted-foreground hover:text-destructive"
+          >
+            <X className="size-3.5" />
+          </button>
+        )}
+        {props.replaceBackends && props.onReplacePick && (
+          <Popover open={replaceOpen} onOpenChange={setReplaceOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="shrink-0 text-2xs text-muted-foreground hover:underline"
+              >
+                {t("org.agent.execTargets.replace")}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-0">
+              <AddTargetPanel
+                backends={props.replaceBackends}
+                usedIds={new Set()}
+                onPick={(id) => {
+                  props.onReplacePick?.(id);
+                  setReplaceOpen(false);
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        )}
+      </div>
+      <ExecTargetSkills
+        agentId={props.agentId}
+        index={props.index}
+        total={props.total}
+        backend={props.backend}
+        skills={props.skills}
+        onSkillsChange={props.onSkillsChange}
+        copySources={props.copySources}
+      />
+    </div>
+  );
+}
+
+// ExecTargetSkills 是折在行内的那一小块技能：
+//   · backend 不支持技能 —— 不给展开入口，只留一句话说明为什么（展开后给一句
+//     空话是这一轮要去掉的东西）；
+//   · 支持 —— 一个可折叠的入口，展开后就是 R15e 那一块（离线时只减不增）。
+// 单档时默认展开：一档没有「扫一眼列表」的需求，折起来只是多一次点击。
+function ExecTargetSkills(props: {
+  agentId: number;
+  index: number;
+  total: number;
+  backend: agent_backend_svc.BackendItem | undefined;
+  skills: department_svc.AgentSkillDTO[];
+  onSkillsChange: (next: department_svc.AgentSkillDTO[]) => void;
+  copySources: CopySource[];
+}) {
+  const { t } = useTranslation();
+  const { caps } = useBackendCapabilities(props.backend?.type);
+  const [expanded, setExpanded] = React.useState(props.total === 1);
+  // caps 还没到 / 拉失败都按「不支持」渲染（与 R15e 的 ExecTargetSkillsBlock 同一
+  // 判据），不给一个点开是空的入口。
+  const skillsCapOn = caps?.has("skills") ?? false;
+  const machine = machineLabel(
+    props.backend,
+    t("org.agent.execTargets.localMachine"),
+    t("org.agent.execTargets.reasons.unpaired"),
+  );
+
+  if (!skillsCapOn) {
+    return (
+      <p
+        className="mt-1 flex items-center gap-1 pl-0.5 font-mono text-2xs text-muted-foreground"
+        title={t("org.agent.skillsGate.description")}
+      >
+        <Ban className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">{t("org.agent.skillsGate.title")}</span>
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-1 min-w-0">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label={t("org.agent.execTargets.skillsToggle", { machine })}
+        onClick={() => setExpanded((v) => !v)}
+        className="inline-flex items-center gap-1 rounded-sm font-mono text-2xs text-muted-foreground hover:text-foreground"
+      >
+        {expanded ? (
+          <ChevronDown className="size-3" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="size-3" aria-hidden="true" />
+        )}
+        <span>{t("org.agent.skills.title")}</span>
+      </button>
+      {expanded && (
+        <div className="mt-1 min-w-0">
+          <ExecTargetSkillsBlock
+            agentId={props.agentId}
+            index={props.index}
+            total={props.total}
+            backend={props.backend}
+            skills={props.skills}
+            onSkillsChange={props.onSkillsChange}
+            copySources={props.copySources}
+          />
+        </div>
       )}
     </div>
   );

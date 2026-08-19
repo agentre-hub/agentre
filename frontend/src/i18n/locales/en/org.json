@@ -33,6 +33,14 @@
       "summary": "{{departments}} departments · {{subDepartments}} sub-departments · {{agents}} agents",
       "title": "Org Chart"
     },
+    "detail": {
+      "columns": {
+        "behavior": "Behavior",
+        "execution": "Execution",
+        "identity": "Identity",
+        "structure": "Structure"
+      }
+    },
     "index": {
       "search": {
         "aria": "Search agents",
@@ -90,8 +98,6 @@
         "configureProvider": "Configure LLM providers",
         "goAgentBackendSettings": "Go to Agent backend settings",
         "inactiveSuffix": " (disabled)",
-        "noBackendDescription": "Bind an agent backend to start chatting; the built-in backend also needs an LLM provider.",
-        "noBackendTitle": "This agent can't chat yet",
         "providerGapDescription": "The built-in SDK backend runs tasks through an LLM provider, but no active provider is linked yet.",
         "providerGapTitle": "An LLM provider is still needed",
         "title": "Agent Backend",
@@ -111,7 +117,7 @@
         "online": "Online",
         "offline": "Offline",
         "localMachine": "Local machine",
-        "emptyTitle": "No execution targets yet",
+        "emptyTitle": "This agent can't chat yet",
         "emptyHint": "At least one is required before this agent can start a session.",
         "saveRejected": "Save rejected: add at least one execution target.",
         "allUnavailableTitle": "\"{{name}}\" has no available execution target right now",
@@ -132,9 +138,10 @@
           "offline": "Offline",
           "projectPathMissing": "This machine has no configured path for this project"
         },
-        "loading": "Loading execution targets…"
+        "loading": "Loading execution targets…",
+        "emptyDescription": "Bind an agent backend to start chatting; the built-in backend also needs an LLM provider.",
+        "skillsToggle": "Skills for {{machine}}"
       },
-      "basicInfo": "Basic Info",
       "charCount": "{{count}} chars",
       "deleteDialog": {
         "description": "This also clears the agent's conversations, skills, and state records. This action cannot be undone.",
@@ -142,7 +149,6 @@
       },
       "departmentLead": "{{name}} department lead",
       "descriptionHint": "Optional · shown as the row subtitle in the index",
-      "dragHierarchyHint": "· Drag rows in the index to adjust hierarchy",
       "fallbackName": "Agent",
       "relativeTime": {
         "daysAgo": "{{count}} days ago",
@@ -153,7 +159,6 @@
       "reportsTo": "Reports to",
       "savedAt": "Saved · {{time}}",
       "skills": {
-        "sectionTitle": "Skills · Skill Packs",
         "manage": "Manage skills",
         "count": "{{inherit}} inherited · {{on}} on · {{off}} off",
         "countCompact": "{{inherit}} inherited · {{on}} on · {{off}} off",
@@ -167,7 +172,6 @@
         "offlineNote": "Machine is offline, can't list packs to add · already-granted ones can still be removed"
       },
       "skillsGate": {
-        "pill": "Unsupported",
         "title": "This backend doesn't support skills",
         "description": "Skills are a Claude Code native capability. Add a Claude Code execution target to enable and configure them for that target."
       },
@@ -182,7 +186,6 @@
         "title": "Tools",
         "sectionTitle": "Tools · TOOLS",
         "enabledCount": "{{count}} enabled",
-        "add": "Add Tool",
         "empty": "No tools available",
         "approval": "Approval",
         "names": {
@@ -194,12 +197,9 @@
           "org": "Allow this agent to read and manage departments and members (writes require your approval)",
           "subagent": "Delegate a subtask to another configured agent and get its result back synchronously. The sub-agent runs in an isolated one-shot session; agents used as sub-agents should use an auto-approving permission mode.",
           "hook": "Let this agent author, dry-run and schedule script Hooks on a cron to emit events (create/update/delete/run all require your approval)"
-        }
-      },
-      "toolPicker": {
-        "title": "Add Tools",
-        "subtitle": "Tool calls are injected over MCP; writes need approval",
-        "searchPlaceholder": "Search tools / descriptions…"
+        },
+        "grantNamed": "Grant {{name}}",
+        "revokeNamed": "Revoke {{name}}"
       },
       "skillCatalog": {
         "group": {
@@ -213,7 +213,19 @@
       },
       "systemPrompt": "System Prompt",
       "systemPromptHint": "Put style, tone, and boundaries in the system prompt. No separate fields are used.",
-      "unsaved": "Unsaved"
+      "unsaved": "Unsaved",
+      "placement": {
+        "label": "Placement",
+        "groupDepartment": "Departments",
+        "groupParent": "Parent agent",
+        "searchPlaceholder": "Search departments or agents…",
+        "searchAria": "Search placement options",
+        "reasonSelf": "An agent can't be its own manager",
+        "reasonCycle": "An agent can't report to its own subordinate",
+        "derivedManager": "changes with the department lead",
+        "systemLocked": "The system agent always stays at the top level",
+        "noMatch": "No match"
+      }
     },
     "department": {
       "addGroup": "Add agent or sub-department",
