@@ -4,7 +4,7 @@
 
 > Status: **Approved**（2026-08-19，用户裁决「可以」）
 > Owner: 桌面端（`agentre`，前端；会话行在共享包 `@agentre-ai/agentre-ui` 里）
-> Last updated: 2026-08-19
+> Last updated: 2026-08-19（决策 8 于同日补入：计数数字改用状态的文字角色色）
 > Mockup（本地产物，`.dev-kit/` 在 Git 之外）：`.dev-kit/artifacts/2026-08-19-sidebar-selection-cues/mockups/`
 > —— `?view=now` 现状（含悬停态）、`?view=options` 三方案对比、`?view=matrix` 同一行四态、
 > `?view=header` 组头四种画法、`?view=bubble` 琥珀括号去留、`?view=final` 定稿方向。
@@ -78,6 +78,7 @@
 | 5 | 组头记号取色规则：把组内每条 attention 会话过 `reasonToDisplayStatus`，按 **error(红) > waiting(琥珀) > running(绿)** 取最强 | 与行自己的点同源同色，组头与行不再对不上。优先级按「谁更需要你动手」排：出错要看、等你回最挡路、在跑只是通报。Rejected：沿用 `computeAttention` 的会话内优先级（`needs_attention > running > error > ...`）——那是单条会话选 reason 的顺序，把 error 排在 running 之后，用作组级取色会让红被绿盖住 |
 | 6 | attention 气泡的琥珀 `border-l-2` **保留** | 用户裁决。它框的是「需要你看的这几条」这一**段**，是分组括号而非某一行的选中记号，与前两根条不同义（`?view=bubble` 两种都画了） |
 | 7 | 既有的「选中不能只靠颜色」守卫**改写而非删除** | 该断言今天钉的是 `before:w-[3px]` 的存在（`session-row.test.tsx:97-115`），注释里明写「改色可以，去掉不行」。竖条撤走后，非颜色线索由**亮度方向**（选中压深 / hover 提亮，灰度下也分得开）、**标题字重 `font-medium`**、**`aria-current="true"`** 三者共同承担，守卫改钉这三样。Rejected：直接删掉这条测试——那等于把 WCAG 1.4.1 的约束一并删掉 |
+| 8 | 数字用 `statusConfig[tone].textClassName`（状态的**文字**角色），不沿用今天的 `text-status-running`（**填充**角色） | 已验证：`--status-running` `#10b981` 落在 `--sidebar` `#f4f4f5` 上只有 **2.31:1**，tokens.css 自己写明饱和填充色在亮色下当文字不可读；换成 `--status-running-text` 是 **4.99**、`--status-waiting-text` **4.57**。这不是新增要求，而是照抄旧写法会把既有缺陷搬进新代码。已知例外：`--status-error` `#dc2626` 在侧栏上 **4.39**，差一点到 4.5——这是既有 token 缺口（今天每一行行尾的 `error` 标签同值），本轮沿用同一套投影、不新增偏差，补 token 另开一轮 |
 
 ## 会话行的选中态
 
@@ -107,8 +108,10 @@
 
 **前提**：一个项目组头，其子树里有需要关注的会话。
 **动作**：渲染组头。
-**结果**：名称右侧一枚 `size-1.5` 圆点 + `font-mono text-2xs` 的条数，
-两者同色，色值由决策 5 的规则得出。组头**没有**左侧竖条，
+**结果**：名称右侧一枚 `size-1.5` 圆点 + `font-mono text-2xs` 的条数。
+档位由决策 5 的规则得出，两者取该档在 `statusConfig` 里的**两个不同角色**：
+点用饱和填充色（`dotClassName`），数字用该状态的文字色（`textClassName`）——
+与会话行的「行首状态点 + 行尾短标签」逐字同一套投影。组头**没有**左侧竖条，
 **没有**因「子树在跑」而改变的整行底色——组头的底色只剩 hover 一种状态。
 
 **前提**：子树里没有需要关注的会话。
@@ -139,6 +142,8 @@
 - **`notification-toast.tsx:94,177` 的 3px 侧条**：那是 toast 的类型色带，不在会话索引里。
 - **`chat-tabs/tab.tsx`、`file-preview/preview-tab-strip.tsx` 的边框**：标签页不是列表选中，本轮不动。
 - **`computeAttention` 里 error 排在 running 之后**：决策 5 只改组级取色，不动单条会话的 reason 判定。
+- **`--status-error` 缺一个「作为文字」的角色色**（在 `--sidebar` 上 4.39，见决策 8）：
+  补它要动 token 表并回归全部用到 `text-status-error` 的地方，属于独立一轮。
 
 ## Testing decisions
 
