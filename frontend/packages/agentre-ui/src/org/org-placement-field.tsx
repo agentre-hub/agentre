@@ -265,7 +265,7 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
               <div role="group" aria-labelledby={departmentHeadingId}>
                 <div
                   id={departmentHeadingId}
-                  className="px-2.5 pb-1 pt-1.5 font-mono text-2xs font-semibold text-subtle-foreground"
+                  className="px-2.5 pb-1 pt-1.5 font-mono text-2xs font-semibold text-muted-foreground"
                 >
                   {t("org.agent.placement.groupDepartment")}
                 </div>
@@ -276,7 +276,7 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
               <div role="group" aria-labelledby={agentHeadingId}>
                 <div
                   id={agentHeadingId}
-                  className="px-2.5 pb-1 pt-1.5 font-mono text-2xs font-semibold text-subtle-foreground"
+                  className="px-2.5 pb-1 pt-1.5 font-mono text-2xs font-semibold text-muted-foreground"
                 >
                   {t("org.agent.placement.groupParent")}
                 </div>
