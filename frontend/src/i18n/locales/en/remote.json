@@ -348,6 +348,7 @@
         "rejected": "Upload timed out"
       },
       "overwrittenFrom": "from \"{{device}}\"",
+      "originServer": "the server (browser)",
       "discardedDetail": "A dependency didn't arrive in time",
       "rejectedDetail": "Offline for more than 30 days; the server's version was kept",
       "entity": {

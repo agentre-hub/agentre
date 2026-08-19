@@ -348,6 +348,7 @@
         "rejected": "超时未上传"
       },
       "overwrittenFrom": "来自「{{device}}」",
+      "originServer": "服务端（浏览器）",
       "discardedDetail": "依赖的对象超期未到达本机",
       "rejectedDetail": "设备离线超过 30 天，已按服务端为准",
       "entity": {
