@@ -242,9 +242,7 @@ describe("OrgDetailAgent", () => {
     renderPanel();
     expect(screen.getByLabelText("System Prompt")).toBeInTheDocument();
     expect(screen.queryByText(/No separate fields are used/)).toBeNull();
-    expect(
-      screen.queryByText(/Put style, tone, and boundaries/),
-    ).toBeNull();
+    expect(screen.queryByText(/Put style, tone, and boundaries/)).toBeNull();
   });
 
   it("counts non-whitespace chars in system prompt", async () => {

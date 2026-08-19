@@ -168,7 +168,9 @@ describe("OrgIndex 一屏之内", () => {
     expect(
       await screen.findByTestId("org-filter-backend-option-6"),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("org-filter-reportsTo-option-2")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("org-filter-reportsTo-option-2"),
+    ).toBeInTheDocument();
   });
 
   it("没筛选时 chip 不占行，命中后长出可清除的 chip", async () => {

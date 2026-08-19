@@ -60,15 +60,19 @@ export function OrgChartPage() {
     createAgent,
   } = useOrgData();
   const view = useOrgIndexView();
+  // setSelected 单独解出来再进依赖：写成 `view.setSelected` 时 exhaustive-deps 看到的
+  // 是成员访问，只能要求整个 `view` 进依赖（而 view.selected 每次选中都变，那会让这个
+  // effect 在每次选中后重跑一遍，把 location.state 里的旧选择又写回去）。
+  const { setSelected } = view;
   const location = useLocation();
 
   React.useEffect(() => {
     const selection = (location.state as { orgSelection?: OrgSelection } | null)
       ?.orgSelection;
     if (selection?.kind && selection.id > 0) {
-      view.setSelected(selection);
+      setSelected(selection);
     }
-  }, [location.state, view.setSelected]);
+  }, [location.state, setSelected]);
 
   const [newDeptOpen, setNewDeptOpen] = React.useState(false);
   const [newAgentOpen, setNewAgentOpen] = React.useState(false);
