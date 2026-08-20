@@ -388,6 +388,27 @@ describe("OrgExecTargetRow（只吃 props）", () => {
     expect(screen.queryByRole("button", { name: /Reorder target/ })).toBeNull();
   });
 
+  it("多档里钉住不动的那一档没有柄，但留一枚等宽占位保住左缘", () => {
+    render(
+      // 一个重排回调都不给 = 这一档钉在原位（agentre-server 的本机相对引用档就是
+      // 这样：浏览器排不了它）。
+      <OrgExecTargetRow
+        index={1}
+        total={3}
+        backend={backend}
+        status={undefined}
+        isFirstAvailable={false}
+        skillsSupported={false}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Reorder target/ })).toBeNull();
+    const row = screen.getByTestId("exec-target-row-1");
+    expect(
+      row.querySelector("span.size-3\\.5[aria-hidden='true']"),
+    ).not.toBeNull();
+  });
+
   it("拖拽柄上的 ↑ / ↓ 直接移动这一行，不必先提起", async () => {
     const user = userEvent.setup();
     const onMoveDown = vi.fn();

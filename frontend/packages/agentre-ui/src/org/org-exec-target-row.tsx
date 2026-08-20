@@ -124,6 +124,12 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
             <GripVertical className="size-3.5" aria-hidden="true" />
           </button>
         )}
+        {!single && !reorderable && (
+          // 钉住不动的那一档（宿主两个重排回调都没给）不画柄 —— 没有可做的事就不该
+          // 有控件。但要留一枚等宽占位：少画一个柄会让这一行的左缘比邻居往左缩，整列
+          // 参差（与 OrgAgentRow 对不可拖动行的处理同一条判据）。
+          <span className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        )}
         {!single && (
           <span className="mt-px inline-flex size-5 shrink-0 items-center justify-center rounded-sm bg-secondary font-mono text-2xs text-muted-foreground">
             {props.index + 1}
