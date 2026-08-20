@@ -82,6 +82,7 @@ These are the conventions with a real check behind them. Everything else in thes
 | Static `t("…")` keys must resolve, and both locales expose the same key set | Add the key to both locale files | `frontend/src/__tests__/i18n.test.ts` | — |
 | Go formatting and import grouping | `gofmt` + `goimports` | golangci-lint `formatters`, run by `make lint-backend` | `.claude`, `.dev-kit`, `frontend` (excluded paths) |
 | The daemon's `agentruntime` registry keeps every backend registered | Keep the `init` imports in `internal/daemon/runtime_imports.go` | `internal/daemon/runtime_imports_test.go` | — |
+| `wails dev` macOS identity stays distinct from the installed app | Keep `Info.dev.plist` identifier as production + `.dev` and mark the Dock name `(Dev)` | `internal/desktop/darwin_bundle_test.go` | — |
 | Transcript typography stays on the shared token scale | Use the tokens `globals.css` exposes | `frontend/src/components/agentre/__tests__/transcript-typography-guard.test.ts` + `frontend/src/__tests__/design-tokens.test.ts` | — |
 | The shared UI package imports no host code, and declares every npm package it imports | Take host capability through a port / prop; add real dependencies to the package's `package.json` | `frontend/packages/agentre-ui/src/boundary.test.ts` | — |
 | Every static `t("…")` key in the shared package resolves in **both** of its bundles | Add the key to `packages/agentre-ui/src/i18n/locales/{en,zh-CN}.json` | `frontend/packages/agentre-ui/src/i18n/i18n.test.tsx` | — |

@@ -141,7 +141,7 @@ All desktop persistence is centralized in **AppDataDir**:
 | Windows | `%AppData%\agentre\`                                    |
 | Linux   | `~/.config/agentre/`                                    |
 
-The table is the installed-app default. `wails dev` / `make dev` uses the sibling leaf `agentre-dev/` instead, so development never touches production state. `AGENTRE_DATA_DIR` has highest precedence and overrides both during testing or troubleshooting.
+The table is the installed-app default. `wails dev` / `make dev` uses the sibling leaf `agentre-dev/` instead, so development never touches production state. `AGENTRE_DATA_DIR` has highest precedence and overrides both during testing or troubleshooting. On macOS it is also a different app: `build/darwin/Info.dev.plist` sets `CFBundleIdentifier` to `com.wails.{{.Name}}.dev` and marks `CFBundleName` / `CFBundleDisplayName` with `(Dev)`, so Dock, Spaces and fullscreen do not treat it as `/Applications/Agentre.app`.
 
 ```text
 <AppDataDir>/

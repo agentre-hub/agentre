@@ -116,6 +116,7 @@ A **guard test** pins a convention that has no natural home in ordinary tests �
 | Guard | What it pins |
 |---|---|
 | `internal/daemon/runtime_imports_test.go` | The backends registered in the daemon's `agentruntime` registry — stops someone deleting the empty `init` import file |
+| `internal/desktop/darwin_bundle_test.go` | `wails dev` macOS identity (`Info.dev.plist`) stays distinct from the installed app — stops Dock/Spaces swallowing the hidden startup window |
 | `frontend/src/__tests__/i18n.test.ts` | Static `t("…")` keys resolve, and `zh-CN` / `en` expose the same key set |
 | `frontend/src/__tests__/eslint-i18n.test.ts` | The i18n ESLint rule is really loaded, at the right severity and scope |
 | `frontend/src/__tests__/design-tokens.test.ts` | Color tokens are used instead of literal colors |

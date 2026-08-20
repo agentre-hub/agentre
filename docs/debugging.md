@@ -95,6 +95,8 @@ Missing ids ⇒ relaunch the app to run `RunMigrations`; never hand-insert into 
 
 **"App won't start"** → read `error.log` last 50 lines first. Mostly `mkdir … file exists` or `database is locked` style messages from root `main.go` and `internal/bootstrap/`.
 
+**"make dev started but there is no window"** → Dock should show a separate **Agentre (Dev)** next to the installed Agentre (`com.wails.Agentre.dev` vs `com.wails.Agentre`). The native window is `StartHidden` until the frontend calls `WindowShow`; if Vite is still 502ing, that call never happens — check `agentre-dev/logs/agentre.log` for `app startup` and `devProxyRetryMiddleware`.
+
 ## Common Mistakes
 
 - **Forgetting to quote the macOS path.** The space in `Application Support` makes shell word-splitting pass the wrong filename/arguments to sqlite3 — always `"$DB"`.
