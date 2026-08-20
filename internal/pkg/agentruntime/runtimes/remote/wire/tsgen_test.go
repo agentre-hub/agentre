@@ -122,6 +122,10 @@ func tsRootTypes() []reflect.Type {
 		reflect.TypeOf(SessionAttachResult{}),
 		reflect.TypeOf(SessionDeleteParams{}),
 		reflect.TypeOf(SessionDeleteResult{}),
+		reflect.TypeOf(SkillAuthorization{}),
+		reflect.TypeOf(SkillCatalogParams{}),
+		reflect.TypeOf(SkillPackSummary{}),
+		reflect.TypeOf(SkillCatalogResult{}),
 		reflect.TypeOf(EventFrame{}),
 		reflect.TypeOf(RunResultDoneFrame{}),
 		reflect.TypeOf(AutonomousTurnStartedFrame{}),
@@ -158,6 +162,7 @@ func tsConstDecls() []tsConstDecl {
 		{"MethodSessionPendingWaiters", MethodSessionPendingWaiters},
 		{"MethodSessionAttach", MethodSessionAttach},
 		{"MethodSessionDelete", MethodSessionDelete},
+		{"MethodSkillsCatalog", MethodSkillsCatalog},
 		{"NotifyEvent", NotifyEvent},
 		{"NotifyRunResultDone", NotifyRunResultDone},
 		{"MethodMCPProxy", MethodMCPProxy},
@@ -176,6 +181,9 @@ func tsConstDecls() []tsConstDecl {
 		{"SessionLifecycleInterrupted", SessionLifecycleInterrupted},
 		{"DefaultSessionPullLimit", DefaultSessionPullLimit},
 		{"MaxSessionPullLimit", MaxSessionPullLimit},
+		{"SkillDiscoveryOK", SkillDiscoveryOK},
+		{"SkillDiscoveryUnavailable", SkillDiscoveryUnavailable},
+		{"SkillDiscoveryUnsupported", SkillDiscoveryUnsupported},
 	}
 }
 

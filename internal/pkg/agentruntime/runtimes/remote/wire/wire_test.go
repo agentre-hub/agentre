@@ -382,3 +382,69 @@ func TestProviderSummary_ModelSummaries(t *testing.T) {
 
 func ptrString(v string) *string { return &v }
 func ptrInt(v int) *int          { return &v }
+
+// TestSkillsCatalogMethod_Stable 钉住技能目录方法名。浏览器要用它替掉「手打 skill id」,
+// 名字一旦发布就不能改 —— 老浏览器会拿着旧名字打过来。
+func TestSkillsCatalogMethod_Stable(t *testing.T) {
+	assert.Equal(t, "skills.catalog", MethodSkillsCatalog)
+	assert.Equal(t, "ok", SkillDiscoveryOK)
+	assert.Equal(t, "unavailable", SkillDiscoveryUnavailable)
+	assert.Equal(t, "unsupported", SkillDiscoveryUnsupported)
+}
+
+// TestSkillCatalogParams_FieldShape 钉住请求的字节形状:一次问的是**一档**执行目标
+// (R15e「一档一块」),所以授权集随请求一起来 —— 执行端上没有组织架构库,答不出
+// 「这一档授权了什么」,那份真相在调用方手里。
+func TestSkillCatalogParams_FieldShape(t *testing.T) {
+	b, err := json.Marshal(SkillCatalogParams{
+		BackendType: "claudecode",
+		CLIPath:     "/usr/local/bin/claude",
+		Authorized: []SkillAuthorization{
+			{ID: "superpowers@claude-plugins-official", Enabled: true},
+		},
+	})
+	require.NoError(t, err)
+	for _, want := range []string{
+		`"backendType":"claudecode"`,
+		`"cliPath":"/usr/local/bin/claude"`,
+		`"authorized":[{"id":"superpowers@claude-plugins-official","enabled":true}]`,
+	} {
+		assert.Contains(t, string(b), want)
+	}
+}
+
+// TestSkillCatalogResult_DiscoveryIsAlwaysOnTheWire 是本方法最要紧的一条:发现失败 /
+// 机器离线时**不能用空目录冒充「这台机器上没有技能」**。discovery 因此没有 omitempty,
+// 空目录必须自带一个说明它为什么空的判别值。
+func TestSkillCatalogResult_DiscoveryIsAlwaysOnTheWire(t *testing.T) {
+	b, err := json.Marshal(SkillCatalogResult{Packs: []SkillPackSummary{}, Discovery: SkillDiscoveryUnavailable})
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"discovery":"unavailable"`)
+	assert.Contains(t, string(b), `"packs":[]`)
+
+	// 零值同样带着 discovery 键出场 —— 解码方永远不必猜「没这个键算什么」。
+	b2, err := json.Marshal(SkillCatalogResult{})
+	require.NoError(t, err)
+	assert.Contains(t, string(b2), `"discovery":`)
+}
+
+// TestSkillPackSummary_RoundTrip 钉住浏览器画一行要读的那几格(见 agentre 的
+// skillPacksToCatalog → CatalogItem):id / name / description / 包内内容 /
+// 是否已装 / 这一档是否已授权 / 全局是否已启用。
+func TestSkillPackSummary_RoundTrip(t *testing.T) {
+	in := SkillPackSummary{
+		ID:              "superpowers@claude-plugins-official",
+		Name:            "superpowers",
+		Description:     "brainstorming and TDD",
+		Skills:          []string{"brainstorming", "test-driven-development"},
+		Installed:       true,
+		Enabled:         true,
+		GloballyEnabled: true,
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	var out SkillPackSummary
+	require.NoError(t, json.Unmarshal(b, &out))
+	assert.Equal(t, in, out)
+	assert.Contains(t, string(b), `"skills":["brainstorming","test-driven-development"]`)
+}

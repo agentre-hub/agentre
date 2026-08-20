@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/agentre-ai/agentre/internal/daemon/handlers"
 	"github.com/agentre-ai/agentre/internal/daemon/rpc"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-ai/agentre/internal/service/chat_svc"
@@ -97,6 +98,7 @@ func RegisterInboundMethods(registry *rpc.Registry) {
 	registry.Register(wire.MethodSessionPull, requireAccount(pullSession))
 	registry.Register(wire.MethodSessionPendingWaiters, requireAccount(pendingSessionWaiters))
 	registry.Register(wire.MethodSessionDelete, requireAccount(deleteSession))
+	registry.Register(wire.MethodSkillsCatalog, requireAccount(skillsCatalog))
 	registry.Register(wire.MethodRun, requireAccount(runSession))
 	registry.Register(wire.MethodSteer, requireAccount(steerSession))
 	registry.Register(wire.MethodSubmitAnswer, requireAccount(submitAnswer))
@@ -118,6 +120,26 @@ func authenticateAccount(ctx context.Context, raw json.RawMessage) (any, error) 
 	}
 	conn.SetAuth(rpc.AuthState{Authenticated: true, DeviceFingerprint: params.DeviceFingerprint})
 	return rpc.ConnectResult{OK: true}, nil
+}
+
+// skillsCatalog answers "which skill packs live on this machine" for one exec
+// target. agentred serves the same method (daemon.registry) with the same
+// handler, and that symmetry is the point: an exec target's backend may be
+// claimed by this desktop's own fingerprint (R13) instead of an agentred, and a
+// browser addressing it by fingerprint must not have to know which kind of
+// process answered.
+//
+// It deliberately does not go through skill_svc even though this process has the
+// org database: the wire contract says the caller names the authorizations
+// (there is no agent id or exec-target id on the wire, because agentred has no
+// row to look one up in). Answering the same question two different ways
+// depending on who is asking is exactly how the two ends drift apart.
+func skillsCatalog(ctx context.Context, raw json.RawMessage) (any, error) {
+	var params wire.SkillCatalogParams
+	if err := json.Unmarshal(raw, &params); err != nil || params.BackendType == "" {
+		return nil, rpc.ErrInvalidParams
+	}
+	return handlers.NewSkillsHandlers().Catalog(ctx, params)
 }
 
 func requireAccount(next rpc.HandlerFunc) rpc.HandlerFunc {

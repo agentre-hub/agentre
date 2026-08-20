@@ -912,6 +912,12 @@ func (d *Daemon) registerMethods() {
 	skillsH := handlers.NewSkillsHandlers()
 	d.registry.Register("skills.list", wrapGuarded(skillsH.List))
 
+	// skills.catalog:同一台机器的技能包,但答的是**画得出界面的那一份**目录
+	// (已装 + 推荐,逐行标注调用方带来的那一档授权),给没有本地发现器、也拿不到
+	// 推荐表的浏览器控制台用 —— 它此前只能让用户手打 skill id。
+	// 与 skills.list 并存而不是替换它:desktop 要的是原始发现结果,它自己合并。
+	d.registry.Register(wire.MethodSkillsCatalog, wrapGuarded(skillsH.Catalog))
+
 	// 断连重连的补齐族(清单 / 拉取 / 待决策)。静态注册而不是随 bindConn 挂 ——
 	// 它们按**对端**限定、读的是库,与「哪条连接」无关;而且它们**不**过
 	// trackSessionOwner:看一眼有哪些会话、把历史拉回来,都不该顺带把实时流改指向自己。

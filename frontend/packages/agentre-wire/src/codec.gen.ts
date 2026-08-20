@@ -1120,6 +1120,143 @@ export function encodeSessionDeleteResult(v: SessionDeleteResult): string {
 }
 
 /**
+ * SkillAuthorization 是这一档执行目标上的一条技能授权(桌面端 agent_exec_targets
+ * 那一行的 skills_json 里的一项,字段名逐字相同,好让调用方原样搬运)。
+ */
+export interface SkillAuthorization extends WireObject {
+  id: string;
+  enabled: boolean;
+}
+
+export function decodeSkillAuthorization(v: unknown): SkillAuthorization {
+  return decodeWire<SkillAuthorization>(v, "SkillAuthorization", (o) => {
+    o.id = reqStr(o.id, "SkillAuthorization.id");
+    o.enabled = reqBool(o.enabled, "SkillAuthorization.enabled");
+  });
+}
+
+export function encodeSkillAuthorization(v: SkillAuthorization): string {
+  return encodeWire(v);
+}
+
+/**
+ * SkillCatalogParams 是 MethodSkillsCatalog 的请求。
+ *
+ * 请求里没有 agentId / execTargetId:执行端上没有组织架构库,那两个号码在它这里
+ * 什么都指不到。要答的那一档由**调用方**限定 —— 它连的这台机器 + 它带上来的这份
+ * 授权集,合起来就是「一档」。
+ */
+export interface SkillCatalogParams extends WireObject {
+  /** BackendType 决定用哪个发现器、以及推荐包那半边取哪一张表。 */
+  backendType: string;
+
+  /**
+   * Authorized 是这一档已经授权的包(可为空 = 一个都没授权)。它只用来给目录的每
+   * 一行盖上 Enabled,不会被写到任何地方 —— 执行端不持有授权,只是照着标注。
+   */
+  authorized?: SkillAuthorization[];
+
+  /** CLIPath 一般留空,由执行端自己解析本机 CLI 路径(调用方不知道对面的 claude 在哪)。 */
+  cliPath?: string;
+}
+
+export function decodeSkillCatalogParams(v: unknown): SkillCatalogParams {
+  return decodeWire<SkillCatalogParams>(v, "SkillCatalogParams", (o) => {
+    o.backendType = reqStr(o.backendType, "SkillCatalogParams.backendType");
+    o.authorized = optArrOf(
+      o.authorized,
+      "SkillCatalogParams.authorized",
+      decodeSkillAuthorization,
+    );
+    o.cliPath = optStr(o.cliPath, "SkillCatalogParams.cliPath");
+  });
+}
+
+export function encodeSkillCatalogParams(v: SkillCatalogParams): string {
+  return encodeWire(v);
+}
+
+/**
+ * SkillPackSummary 是目录里的一行 —— 恰好是画一行要读的那几格(桌面端
+ * skillPacksToCatalog → CapabilityPicker 的 CatalogItem)。
+ *
+ * 它刻意**不是** skill_svc.SkillPackDTO 的照搬:source / recommended /
+ * effectiveEnabled 都是桌面端内部口径,浏览器一格也没读,搬过来只会变成两份要同步
+ * 的真相。
+ */
+export interface SkillPackSummary extends WireObject {
+  id: string;
+  name: string;
+
+  /** Description 是包的一句话说明。 */
+  description?: string;
+
+  /** Skills 是包内的 skill 名 —— 界面用它给出条数、展开时列出内容。 */
+  skills?: string[];
+
+  /**
+   * Installed 这台机器上装了没有。没装的行只能看不能授权(要先去装),这是分组
+   * 「可安装 / 可启用 / 已继承」的第一根轴。
+   */
+  installed?: boolean;
+
+  /** Enabled 这一档显式授权了没有(= 请求里 Authorized 带的那份)。 */
+  enabled?: boolean;
+
+  /**
+   * GloballyEnabled CLI 全局启用态(claude plugin list --json 的 enabled)。三态
+   * 「继承全局 / 强制开 / 强制关」里的「继承」指的就是它。
+   */
+  globallyEnabled?: boolean;
+}
+
+export function decodeSkillPackSummary(v: unknown): SkillPackSummary {
+  return decodeWire<SkillPackSummary>(v, "SkillPackSummary", (o) => {
+    o.id = reqStr(o.id, "SkillPackSummary.id");
+    o.name = reqStr(o.name, "SkillPackSummary.name");
+    o.description = optStr(o.description, "SkillPackSummary.description");
+    o.skills = optArr(o.skills, "SkillPackSummary.skills");
+    o.installed = optBool(o.installed, "SkillPackSummary.installed");
+    o.enabled = optBool(o.enabled, "SkillPackSummary.enabled");
+    o.globallyEnabled = optBool(
+      o.globallyEnabled,
+      "SkillPackSummary.globallyEnabled",
+    );
+  });
+}
+
+export function encodeSkillPackSummary(v: SkillPackSummary): string {
+  return encodeWire(v);
+}
+
+/**
+ * SkillCatalogResult 是 MethodSkillsCatalog 的应答。
+ *
+ * Discovery **没有 omitempty**:它必须每次都在字节流里。可选字段缺席时解出零值,
+ * 而这里的零值是空串 —— 调用方就得替它猜一个含义,猜错的方向恰恰是最危险的那个
+ * (把「问不出来」当成「没有包」)。
+ */
+export interface SkillCatalogResult extends WireObject {
+  packs: SkillPackSummary[];
+  discovery: string;
+}
+
+export function decodeSkillCatalogResult(v: unknown): SkillCatalogResult {
+  return decodeWire<SkillCatalogResult>(v, "SkillCatalogResult", (o) => {
+    o.packs = reqArrOf(
+      o.packs,
+      "SkillCatalogResult.packs",
+      decodeSkillPackSummary,
+    );
+    o.discovery = reqStr(o.discovery, "SkillCatalogResult.discovery");
+  });
+}
+
+export function encodeSkillCatalogResult(v: SkillCatalogResult): string {
+  return encodeWire(v);
+}
+
+/**
  * EventFrame wraps a single agentruntime.Event for delivery over NotifyEvent.
  * SessionID is transport metadata so the receiving end can route by session;
  * Event payload is the JSON output of one of the 19 sealed Event types

@@ -2,7 +2,9 @@
 // daemon handlers 和 client *remote.Runtime 共享同一组类型,避免两边手抄 JSON shape 时漂移。
 //
 // 命名约定:
-//   - 所有 RPC 方法都在 "runtime.*" 命名空间下,与 agentruntime.Runtime + 子接口一一对应。
+//   - 与 agentruntime.Runtime + 子接口一一对应的方法都在 "runtime.*" 命名空间下。
+//     不属于「跑一轮」的方法另开自己的命名空间(如 "skills.*" 是这台机器上装了
+//     什么技能包,与任何一轮执行无关),免得 runtime.* 变成一个什么都往里塞的箩筐。
 //   - 字段名一律 lowerCamelCase。
 //   - 错误码 -32010..-32014 是 agentruntime 标准 sentinel 的稳定 wire 值;
 //     ToJSONRPCError / FromJSONRPCError 双向翻译,让 errors.Is(err, agentruntime.ErrXxx)
@@ -66,6 +68,19 @@ const (
 	// method-not-found,调用方据此判定「这台机器这辈子都答不了」并如实降级(判据见
 	// ErrSessionDeleteUnsupported),而不是把一条永远失败的删除重试到天荒地老。
 	MethodSessionDelete = "runtime.session.delete"
+
+	// MethodSkillsCatalog 列出**这台机器上**某一档执行目标的技能目录:已装包(含全局
+	// 启用态)并上 agentre 的推荐包,逐行标注这一档授权了没有。它替掉浏览器控制台里
+	// 「手打 skill id」——浏览器此前没有任何办法知道那台机器上到底装了什么。
+	//
+	// 它**不在** runtime.* 下:技能装在机器上,与任何一轮执行无关,问它不需要、也不该
+	// 需要一条会话。
+	//
+	// 授权集由**调用方随请求带上**(SkillCatalogParams.Authorized),而不是执行端自己去
+	// 查:执行目标与它的技能授权(R15e「一档一块」)存在组织架构库里,agentred 上没有
+	// 那个库 —— 让它猜等于让它拿别的档、或者干脆拿空授权来答。谁掌握那一档的授权谁
+	// 就得说出来,这样「一档一块」在协议上就是显式的,不靠两边默契。
+	MethodSkillsCatalog = "skills.catalog"
 
 	// daemon → client 通知。
 	NotifyEvent         = "runtime.event"
@@ -623,6 +638,80 @@ type SessionDeleteParams struct {
 // 只有后置条件才是两边都答得准的同一件事。
 type SessionDeleteResult struct {
 	Deleted bool `json:"deleted"`
+}
+
+// ── 技能目录 ────────────────────────────────────────────────────────────────
+
+// 发现的结果判别值(SkillCatalogResult.Discovery)。**空目录必须自带理由**:
+// 「这台机器上真的一个包都没有」与「压根没问出来」对用户是两回事 —— 前者该请他去
+// 装包,后者该告诉他这台机器现在答不了、已授权的仍然可以移除。此前 desktop 侧的
+// 远端发现器把拨号失败软降级成空列表(agent_backend_svc.RemoteSkillDiscoverer),
+// 界面上因此看不出区别;这条 wire 不重复那个错误。
+const (
+	// SkillDiscoveryOK 目录是问出来的,可以照它增删。
+	SkillDiscoveryOK = "ok"
+	// SkillDiscoveryUnavailable 这台机器此刻答不出:CLI 找不到、枚举失败。
+	// 目录为空**不代表**没有包,调用方不得据此认为可添加集是空的。
+	SkillDiscoveryUnavailable = "unavailable"
+	// SkillDiscoveryUnsupported 这个 backend 类型没有技能这一说(builtin / piagent /
+	// openclaw 都不声明 CapSkills)。与 unavailable 不同,它是**稳定**的答案:再问一次、
+	// 等机器空闲了再问,结果都一样。
+	SkillDiscoveryUnsupported = "unsupported"
+)
+
+// SkillAuthorization 是这一档执行目标上的一条技能授权(桌面端 agent_exec_targets
+// 那一行的 skills_json 里的一项,字段名逐字相同,好让调用方原样搬运)。
+type SkillAuthorization struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+// SkillCatalogParams 是 MethodSkillsCatalog 的请求。
+//
+// 请求里没有 agentId / execTargetId:执行端上没有组织架构库,那两个号码在它这里
+// 什么都指不到。要答的那一档由**调用方**限定 —— 它连的这台机器 + 它带上来的这份
+// 授权集,合起来就是「一档」。
+type SkillCatalogParams struct {
+	// BackendType 决定用哪个发现器、以及推荐包那半边取哪一张表。
+	BackendType string `json:"backendType"`
+	// Authorized 是这一档已经授权的包(可为空 = 一个都没授权)。它只用来给目录的每
+	// 一行盖上 Enabled,不会被写到任何地方 —— 执行端不持有授权,只是照着标注。
+	Authorized []SkillAuthorization `json:"authorized,omitempty"`
+	// CLIPath 一般留空,由执行端自己解析本机 CLI 路径(调用方不知道对面的 claude 在哪)。
+	CLIPath string `json:"cliPath,omitempty"`
+}
+
+// SkillPackSummary 是目录里的一行 —— 恰好是画一行要读的那几格(桌面端
+// skillPacksToCatalog → CapabilityPicker 的 CatalogItem)。
+//
+// 它刻意**不是** skill_svc.SkillPackDTO 的照搬:source / recommended /
+// effectiveEnabled 都是桌面端内部口径,浏览器一格也没读,搬过来只会变成两份要同步
+// 的真相。
+type SkillPackSummary struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Description 是包的一句话说明。
+	Description string `json:"description,omitempty"`
+	// Skills 是包内的 skill 名 —— 界面用它给出条数、展开时列出内容。
+	Skills []string `json:"skills,omitempty"`
+	// Installed 这台机器上装了没有。没装的行只能看不能授权(要先去装),这是分组
+	// 「可安装 / 可启用 / 已继承」的第一根轴。
+	Installed bool `json:"installed,omitempty"`
+	// Enabled 这一档显式授权了没有(= 请求里 Authorized 带的那份)。
+	Enabled bool `json:"enabled,omitempty"`
+	// GloballyEnabled CLI 全局启用态(claude plugin list --json 的 enabled)。三态
+	// 「继承全局 / 强制开 / 强制关」里的「继承」指的就是它。
+	GloballyEnabled bool `json:"globallyEnabled,omitempty"`
+}
+
+// SkillCatalogResult 是 MethodSkillsCatalog 的应答。
+//
+// Discovery **没有 omitempty**:它必须每次都在字节流里。可选字段缺席时解出零值,
+// 而这里的零值是空串 —— 调用方就得替它猜一个含义,猜错的方向恰恰是最危险的那个
+// (把「问不出来」当成「没有包」)。
+type SkillCatalogResult struct {
+	Packs     []SkillPackSummary `json:"packs"`
+	Discovery string             `json:"discovery"`
 }
 
 // ── Notification frames ─────────────────────────────────────────────────────

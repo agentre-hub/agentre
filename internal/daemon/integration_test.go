@@ -1656,6 +1656,44 @@ func TestIntegration_SkillsList(t *testing.T) {
 	require.Equal(t, "opsctl@opskat", resp.Packs[1].ID)
 }
 
+// TestIntegration_SkillsCatalog 端到端验证 skills.catalog:浏览器控制台配一档执行
+// 目标的技能时,靠它替掉「手打 skill id」——问的是**这台机器上**装了什么,答的是
+// 一份能直接渲染的目录(已装 + 推荐,逐行标注这一档授权了没有)。
+func TestIntegration_SkillsCatalog(t *testing.T) {
+	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, rigSkillDisc{packs: []agentskill.SkillPack{
+		{
+			ID: "superpowers@claude-plugins-official", Name: "superpowers",
+			Description: "TDD 与头脑风暴", Skills: []string{"brainstorming"},
+			Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true,
+		},
+	}})
+	t.Cleanup(restore)
+	handlers.SetResolveCLIPathFunc(func(string) (string, bool, error) { return "/daemon/bin/claude", true, nil })
+	t.Cleanup(handlers.ResetResolveCLIPathFunc)
+
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var resp wire.SkillCatalogResult
+	require.NoError(t, rig.cli.Call(ctx, wire.MethodSkillsCatalog, wire.SkillCatalogParams{
+		BackendType: "claudecode",
+		Authorized:  []wire.SkillAuthorization{{ID: "superpowers@claude-plugins-official", Enabled: true}},
+	}, &resp))
+
+	require.Equal(t, wire.SkillDiscoveryOK, resp.Discovery)
+	byID := map[string]wire.SkillPackSummary{}
+	for _, p := range resp.Packs {
+		byID[p.ID] = p
+	}
+	got := byID["superpowers@claude-plugins-official"]
+	require.Equal(t, "superpowers", got.Name)
+	require.Equal(t, []string{"brainstorming"}, got.Skills)
+	require.True(t, got.Installed)
+	require.True(t, got.Enabled, "请求里带的那一档授权必须原样落回目录")
+	require.True(t, got.GloballyEnabled)
+}
+
 func TestIntegration_HealthPing(t *testing.T) {
 	d, stop := startTestDaemon(t)
 	defer stop()

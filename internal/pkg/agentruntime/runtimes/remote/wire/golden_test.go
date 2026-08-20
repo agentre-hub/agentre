@@ -250,6 +250,47 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 				},
 			},
 		},
+		// 技能目录:一档执行目标问「这台机器上有什么技能包」。三条样本各钉一种
+		// discovery —— 空目录必须能被区分开,这正是本方法存在的理由。
+		{
+			name: "skill-catalog-params",
+			body: SkillCatalogParams{
+				BackendType: "claudecode",
+				Authorized: []SkillAuthorization{
+					{ID: "superpowers@claude-plugins-official", Enabled: true},
+					{ID: "dev-kit@claude-plugins-official", Enabled: false},
+				},
+			},
+		},
+		{
+			name: "skill-catalog-result",
+			body: SkillCatalogResult{
+				Discovery: SkillDiscoveryOK,
+				Packs: []SkillPackSummary{
+					{
+						ID:              "superpowers@claude-plugins-official",
+						Name:            "superpowers",
+						Description:     "头脑风暴与 TDD 工作流",
+						Skills:          []string{"brainstorming", "test-driven-development"},
+						Installed:       true,
+						Enabled:         true,
+						GloballyEnabled: true,
+					},
+					// 没装的推荐包:只能看不能授权,界面据此提示「需先安装」。
+					{
+						ID:          "dataviz@claude-plugins-official",
+						Name:        "dataviz",
+						Description: "数据可视化",
+						Skills:      []string{"dataviz"},
+					},
+				},
+			},
+		},
+		// 机器答不出时的样本:目录空,但 discovery 说清了它为什么空。
+		{
+			name: "skill-catalog-result-unavailable",
+			body: SkillCatalogResult{Packs: []SkillPackSummary{}, Discovery: SkillDiscoveryUnavailable},
+		},
 		{name: "event-frame", body: EventFrame{SessionID: sid, Event: textDelta, Seq: 11}},
 		{name: "run-result-done-frame", body: runResultDone},
 		{

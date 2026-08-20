@@ -83,6 +83,21 @@ export const MethodSessionAttach = "runtime.session.attach";
  */
 export const MethodSessionDelete = "runtime.session.delete";
 
+/**
+ * MethodSkillsCatalog 列出**这台机器上**某一档执行目标的技能目录:已装包(含全局
+ * 启用态)并上 agentre 的推荐包,逐行标注这一档授权了没有。它替掉浏览器控制台里
+ * 「手打 skill id」——浏览器此前没有任何办法知道那台机器上到底装了什么。
+ *
+ * 它**不在** runtime.* 下:技能装在机器上,与任何一轮执行无关,问它不需要、也不该
+ * 需要一条会话。
+ *
+ * 授权集由**调用方随请求带上**(SkillCatalogParams.Authorized),而不是执行端自己去
+ * 查:执行目标与它的技能授权(R15e「一档一块」)存在组织架构库里,agentred 上没有
+ * 那个库 —— 让它猜等于让它拿别的档、或者干脆拿空授权来答。谁掌握那一档的授权谁
+ * 就得说出来,这样「一档一块」在协议上就是显式的,不靠两边默契。
+ */
+export const MethodSkillsCatalog = "skills.catalog";
+
 /** daemon → client 通知。 */
 export const NotifyEvent = "runtime.event";
 
@@ -149,3 +164,19 @@ export const SessionLifecycleInterrupted = "interrupted";
 export const DefaultSessionPullLimit = 200;
 
 export const MaxSessionPullLimit = 1000;
+
+/** SkillDiscoveryOK 目录是问出来的,可以照它增删。 */
+export const SkillDiscoveryOK = "ok";
+
+/**
+ * SkillDiscoveryUnavailable 这台机器此刻答不出:CLI 找不到、枚举失败。
+ * 目录为空**不代表**没有包,调用方不得据此认为可添加集是空的。
+ */
+export const SkillDiscoveryUnavailable = "unavailable";
+
+/**
+ * SkillDiscoveryUnsupported 这个 backend 类型没有技能这一说(builtin / piagent /
+ * openclaw 都不声明 CapSkills)。与 unavailable 不同,它是**稳定**的答案:再问一次、
+ * 等机器空闲了再问,结果都一样。
+ */
+export const SkillDiscoveryUnsupported = "unsupported";

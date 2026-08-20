@@ -104,71 +104,6 @@ func (s *Service) authorizedSkillsForTarget(
 	return targets[0].GetSkills(), nil
 }
 
-// mergeResult 合并后的包列表及对应的 enabled 标注。
-type mergeResult struct {
-	packs            []agentskill.SkillPack
-	enabled          []bool
-	effectiveEnabled []bool
-}
-
-// merge 推荐 + 发现 按 id 去重,标注 enabled。
-// installed 先入,recommended 后 OR 入 Recommended 旗标。
-func merge(recommended, installed []agentskill.SkillPack, overrides []agent_entity.AgentSkillItem) mergeResult {
-	overrideByID := map[string]bool{}
-	for _, override := range overrides {
-		overrideByID[override.ID] = override.Enabled
-	}
-	type entry struct {
-		pack agentskill.SkillPack
-		idx  int
-	}
-	byID := map[string]*entry{}
-	order := []string{}
-
-	add := func(p agentskill.SkillPack) {
-		if ex, ok := byID[p.ID]; ok {
-			if p.Recommended {
-				ex.pack.Recommended = true
-			}
-			if p.Installed {
-				ex.pack.Installed = true
-				ex.pack.Source = agentskill.SourceInstalled
-			}
-			return
-		}
-		idx := len(order)
-		cp := p
-		byID[cp.ID] = &entry{pack: cp, idx: idx}
-		order = append(order, cp.ID)
-	}
-
-	for _, p := range installed {
-		add(p)
-	}
-	for _, p := range recommended {
-		add(p)
-	}
-
-	packs := make([]agentskill.SkillPack, len(order))
-	enabledFlags := make([]bool, len(order))
-	effectiveFlags := make([]bool, len(order))
-	for _, id := range order {
-		e := byID[id]
-		packs[e.idx] = e.pack
-		override, overridden := overrideByID[id]
-		enabledFlags[e.idx] = overridden && override
-		effectiveFlags[e.idx] = e.pack.Installed && e.pack.GloballyEnabled
-		if overridden {
-			effectiveFlags[e.idx] = e.pack.Installed && override
-		}
-	}
-	return mergeResult{
-		packs:            packs,
-		enabled:          enabledFlags,
-		effectiveEnabled: effectiveFlags,
-	}
-}
-
 // ListAgentSkillPacks 合并推荐 + 发现 + agent 授权,产出目录。refresh 预留(未来强制重发现),当前忽略。
 func (s *Service) ListAgentSkillPacks(ctx context.Context, agentID int64, _ bool) (SkillCatalogDTO, error) {
 	a, err := s.agent.Find(ctx, agentID)
@@ -190,20 +125,20 @@ func (s *Service) ListAgentSkillPacks(ctx context.Context, agentID int64, _ bool
 // 逐字相同过，只有取包与取授权的来源不同——合并与映射只留这一份，免得两边各改
 // 各的又漂开。
 func catalogOf(discovered discoveryResult, authorized []agent_entity.AgentSkillItem) SkillCatalogDTO {
-	mr := merge(agentskill.RecommendedFor(discovered.backendType), discovered.packs, authorized)
-	dto := make([]SkillPackDTO, 0, len(mr.packs))
-	for i, p := range mr.packs {
+	entries := agentskill.MergeCatalog(agentskill.RecommendedFor(discovered.backendType), discovered.packs, authorized)
+	dto := make([]SkillPackDTO, 0, len(entries))
+	for _, e := range entries {
 		dto = append(dto, SkillPackDTO{
-			ID:               p.ID,
-			Name:             p.Name,
-			Description:      p.Description,
-			Skills:           p.Skills,
-			Source:           string(p.Source),
-			Recommended:      p.Recommended,
-			Installed:        p.Installed,
-			Enabled:          mr.enabled[i],
-			GloballyEnabled:  p.GloballyEnabled,
-			EffectiveEnabled: mr.effectiveEnabled[i],
+			ID:               e.Pack.ID,
+			Name:             e.Pack.Name,
+			Description:      e.Pack.Description,
+			Skills:           e.Pack.Skills,
+			Source:           string(e.Pack.Source),
+			Recommended:      e.Pack.Recommended,
+			Installed:        e.Pack.Installed,
+			Enabled:          e.Enabled,
+			GloballyEnabled:  e.Pack.GloballyEnabled,
+			EffectiveEnabled: e.EffectiveEnabled,
 		})
 	}
 	return SkillCatalogDTO{Packs: dto}
@@ -258,7 +193,7 @@ func (s *Service) ListAgentSkillCommands(ctx context.Context, agentID int64, cwd
 		return SkillCommandCatalogDTO{}, err
 	}
 
-	mr := merge(agentskill.RecommendedFor(discovered.backendType), discovered.packs, authorized)
+	entries := agentskill.MergeCatalog(agentskill.RecommendedFor(discovered.backendType), discovered.packs, authorized)
 	commands := make([]SkillCommandDTO, 0)
 	seen := map[string]struct{}{}
 	appendCommand := func(name, description string) {
@@ -276,10 +211,11 @@ func (s *Service) ListAgentSkillCommands(ctx context.Context, agentID int64, cwd
 		})
 	}
 
-	for i, pack := range mr.packs {
-		if !mr.effectiveEnabled[i] {
+	for _, entry := range entries {
+		if !entry.EffectiveEnabled {
 			continue
 		}
+		pack := entry.Pack
 		for _, rawSkill := range pack.Skills {
 			skill := strings.TrimSpace(rawSkill)
 			if skill == "" {

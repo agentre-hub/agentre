@@ -130,6 +130,13 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	require.NotNil(t, unauthenticatedWaiters.Error)
 	assert.Equal(t, rpc.ErrUnauthorized.Code, unauthenticatedWaiters.Error.Code)
 
+	unauthenticatedCatalog := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`14`), Method: wire.MethodSkillsCatalog,
+		Params: mustJSON(t, wire.SkillCatalogParams{BackendType: "claudecode"}),
+	})
+	require.NotNil(t, unauthenticatedCatalog.Error, "技能目录不能绕过账号鉴权")
+	assert.Equal(t, rpc.ErrUnauthorized.Code, unauthenticatedCatalog.Error.Code)
+
 	authenticated := relayRequest(t, ws, "desktop-peer", rpc.Frame{
 		JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "auth.account",
 		Params: mustJSON(t, rpc.AccountParams{Credential: "same-account-device-jwt", DeviceFingerprint: "sha256:peer"}),
@@ -142,6 +149,25 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	})
 	require.Nil(t, capabilities.Error)
 	assert.NotEmpty(t, capabilities.Result, "the existing runtime method must reach the desktop peer registry")
+
+	// 技能目录:一档执行目标的 backend 认领了本机指纹时(R13),浏览器连到的是这台
+	// **桌面**而不是 agentred —— 两种执行端必须答同一个方法、同一个形状,不然浏览器
+	// 得先猜对面是哪一种。未鉴权照样先被挡下。
+	catalog := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`61`), Method: wire.MethodSkillsCatalog,
+		Params: mustJSON(t, wire.SkillCatalogParams{BackendType: "claudecode"}),
+	})
+	require.Nil(t, catalog.Error, "桌面端必须认识 skills.catalog,不能回 method-not-found")
+	var catalogResult wire.SkillCatalogResult
+	require.NoError(t, json.Unmarshal(catalog.Result, &catalogResult))
+	assert.NotEmpty(t, catalogResult.Discovery, "空目录必须自带一个说明它为什么空的判别值")
+	assert.NotNil(t, catalogResult.Packs)
+
+	missingCatalogParams := relayRequest(t, ws, "desktop-peer", rpc.Frame{
+		JSONRPC: "2.0", ID: json.RawMessage(`62`), Method: wire.MethodSkillsCatalog,
+	})
+	require.NotNil(t, missingCatalogParams.Error)
+	assert.Equal(t, rpc.ErrInvalidParams.Code, missingCatalogParams.Error.Code)
 
 	// The desktop session adapter uses the established runtime.session.* wire
 	// family. JSON-RPC permits omitting params for a parameterless method, while

@@ -1,0 +1,25 @@
+{
+  "packs": [
+    {
+      "id": "superpowers@claude-plugins-official",
+      "name": "superpowers",
+      "description": "头脑风暴与 TDD 工作流",
+      "skills": [
+        "brainstorming",
+        "test-driven-development"
+      ],
+      "installed": true,
+      "enabled": true,
+      "globallyEnabled": true
+    },
+    {
+      "id": "dataviz@claude-plugins-official",
+      "name": "dataviz",
+      "description": "数据可视化",
+      "skills": [
+        "dataviz"
+      ]
+    }
+  ],
+  "discovery": "ok"
+}
