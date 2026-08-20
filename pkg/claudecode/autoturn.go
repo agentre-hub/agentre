@@ -43,9 +43,11 @@ type SubagentActivity struct {
 // activeTurn 是 readLoop 当前正在投递帧的那一轮 —— 可能是用户发起的 Turn,也可能
 // 是自主轮。一刻只有一个(CLI 串行 emit 各轮,每轮以 result 收尾,从不交错)。
 type activeTurn struct {
-	ch         chan Event    // 投递事件给消费方;result/EOF 时由 readLoop close
+	// events 是本轮的事件出口。刻意是 pipe 而不是裸 channel:readLoop 既是投递者
+	// 又是唯一的 close 者,它在投递上阻塞就会和「等着被 close」的消费方结成死锁
+	// (sess-3110,见 pipe 的注释)。收尾 = events.close();消费方放弃 = events.abandon()。
+	events     *pipe[Event]
 	done       chan struct{} // readLoop 在本轮收尾(result/EOF)时 close,唤醒 Turn 的 waiter
-	abandon    chan struct{} // Turn 的 waiter 在 ctx 取消时 close;readLoop 据此停止投递、丢弃余帧
 	autonomous bool          // 自主轮 = true(经 AutonomousTurns 吐出,无对应 Turn 调用)
 	// subagentToolUseID 非空 = 本轮是「后台 subagent 活动轮」,值为发起该 subagent 的 Agent
 	// 工具 tool_use_id。用于:readLoop 在收到后台完成 task_notification 时识别要收尾的是活动轮。
@@ -75,13 +77,29 @@ func (at *activeTurn) launchedOnThisTurn(id string) bool {
 	return ok
 }
 
-// newActiveTurn 造一轮的投递三件套。ch 带缓冲削峰(单一消费方实时 drain)。
+// newActiveTurn 造一轮的投递两件套。
 func newActiveTurn(autonomous bool) *activeTurn {
 	return &activeTurn{
-		ch:         make(chan Event, 16),
+		events:     newPipe[Event](),
 		done:       make(chan struct{}),
-		abandon:    make(chan struct{}),
 		autonomous: autonomous,
+	}
+}
+
+// feed 把一帧解析出的事件投给本轮。永不阻塞(见 activeTurn.events)。
+func (at *activeTurn) feed(events []Event) {
+	for _, ev := range events {
+		at.events.push(ev)
+	}
+}
+
+// finish 收尾本轮:关出口(唤醒消费方 range)+ 关 done(唤醒 Turn 的 waiter)。幂等。
+func (at *activeTurn) finish() {
+	at.events.close()
+	select {
+	case <-at.done:
+	default:
+		close(at.done)
 	}
 }
 

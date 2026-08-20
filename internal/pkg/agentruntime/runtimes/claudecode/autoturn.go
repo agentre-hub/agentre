@@ -74,6 +74,14 @@ func (r *Runtime) AutonomousTurns(sessionID int64) <-chan agentruntime.Autonomou
 // 每个 SubagentActivity 复用 drainStream(同 translator / control 协议 / tasks 聚合)。本桥接
 // 按活动顺序 **inline** drain —— subagent 活动轮之间不重叠。
 //
+// 串行是**延迟**上的取舍,不再是正确性前提:一主线轮里同时挂多路活动轮时,后来的几路
+// 要等前一路被 close 才轮得到,期间它们的帧攒在 Session 那边。这曾经是死锁 ——
+// claudecode.Session 的 readLoop 既投递又是唯一的 close 者,串行消费方一停,它就被
+// 焊死在投递/交出上(sess-3110,冻了五个多小时)。现在 Session 侧的出口是非阻塞
+// pipe(见 pkg/claudecode/pipe.go),readLoop 的推进不再依赖这里的节奏。
+// 真要让多路活动实时并行渲染,得先让 chat_svc.driveSubagentActivity 能安全并发写
+// **同一条发起消息**(AppendSubagentChildren / PatchSubagentProgress 是读-改-写)。
+//
 // 事件出口与应答回投的规则同 AutonomousTurns 的注释。
 //
 // sessionID 未 spawn / 已 evict → 返回一个立即 close 的 channel。子进程退出时底层

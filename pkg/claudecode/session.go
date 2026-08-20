@@ -89,10 +89,14 @@ type Session struct {
 	//
 	// 后台 subagent 的内部活动**与主线真正并发**,不占 active 槽:见 sideActivities。
 	sinkMu       sync.Mutex
-	active       *activeTurn            // 当前正在投递帧的主线轮;nil = 轮间空闲
-	pendingTurns chan *activeTurn       // 已写 stdin、等待其帧到达的 user Turn(FIFO)
-	autoCh       chan *AutoTurn         // AutonomousTurns() 返回的 channel;子进程退出时 close
-	subagentCh   chan *SubagentActivity // 后台 subagent 活动轮的出口(无消费方时缓冲兜底)
+	active       *activeTurn      // 当前正在投递帧的主线轮;nil = 轮间空闲
+	pendingTurns chan *activeTurn // 已写 stdin、等待其帧到达的 user Turn(FIFO)
+	autoCh       chan *AutoTurn   // AutonomousTurns() 返回的 channel;子进程退出时 close
+	// subagentCh 是旁路活动轮的出口。刻意是 pipe:同一主线轮里可以同时挂多路
+	// 活动轮,而消费方是串行认领的 —— 有界 channel 灌满就把 readLoop 焊死在交出
+	// 途中(sess-3110)。autoCh 不需要,自主续轮由 active 单槽位严格串行,交出第
+	// N+1 轮时第 N 轮必然已被 close,消费方永远走得下去。
+	subagentCh *pipe[*SubagentActivity]
 
 	// sideActivities 是主线轮活跃期间、按 owner(Agent 工具 tool_use_id)并行开着的
 	// 后台 subagent 活动轮。key 为 owner,一个 owner 一路。
@@ -203,7 +207,7 @@ func newSession(p *process, rawSink func([]byte), sessionID string) *Session {
 		sessionID:    sessionID,
 		pendingTurns: make(chan *activeTurn, 4),
 		autoCh:       make(chan *AutoTurn, 8),
-		subagentCh:   make(chan *SubagentActivity, 8),
+		subagentCh:   newPipe[*SubagentActivity](),
 		readerDone:   make(chan struct{}),
 
 		sideActivities: make(map[string]*activeTurn),
@@ -244,6 +248,7 @@ func (s *Session) Turn(ctx context.Context, prompt string, images ...Image) (<-c
 
 	if _, err := fmt.Fprintf(s.proc.stdin, "%s\n", enc); err != nil {
 		s.unregisterPendingTurn(at) // 没写进去 = 本轮的帧永远不会来,别留在队里错配下一轮
+		at.finish()                 // 它的帧永远不会来,顺手收掉出口,别漏一条 pump
 		s.stdinMu.Unlock()
 		s.turnMu.Unlock()
 		// broken pipe 几乎一定意味着子进程已经死了 —— 这种情况下用 reaper
@@ -264,21 +269,24 @@ func (s *Session) Turn(ctx context.Context, prompt string, images ...Image) (<-c
 		case <-ctx.Done():
 			// 消费方放弃:标记 abandon 让 reader 停投递、丢弃余帧;等 reader 真正
 			// 读到本轮 result(或子进程 EOF)关 done 后再放 turnMu,避免下一轮帧串味。
-			s.markAbandoned(at)
+			at.events.abandon()
 			<-at.done
 		}
 	}()
-	return at.ch, nil
+	return at.events.out(), nil
 }
 
 // AutonomousTurns 返回 CLI 自主续轮(后台任务完成续轮)的 channel。子进程退出
 // (scanner EOF / Close)时 close。消费方 range 它,每个 *AutoTurn 是一轮独立的
-// 事件流。无消费方时缓冲(8)兜底,满后 readLoop 在投递下一轮时阻塞(back-pressure)。
+// 事件流。缓冲(8)满后 readLoop 在交出下一轮时阻塞 —— 这里的 back-pressure 是安全的:
+// 自主续轮由 active 单槽位严格串行,交出第 N+1 轮时第 N 轮必然已在 finishActiveTurn
+// 里收尾,消费方永远能自己走完,不会和 readLoop 结成闭环(对比 subagentCh)。
 func (s *Session) AutonomousTurns() <-chan *AutoTurn { return s.autoCh }
 
 // SubagentActivity 返回「后台 subagent 活动轮」的 channel。子进程退出时 close。消费方 range
-// 它,每个 *SubagentActivity 是一轮独立事件流(见类型注释)。无消费方时缓冲(8)兜底。
-func (s *Session) SubagentActivity() <-chan *SubagentActivity { return s.subagentCh }
+// 它,每个 *SubagentActivity 是一轮独立事件流(见类型注释)。出口非阻塞(见 subagentCh):
+// 同一主线轮里可以并发挂多路活动,消费方串行认领也不会把 readLoop 卡住。
+func (s *Session) SubagentActivity() <-chan *SubagentActivity { return s.subagentCh.out() }
 
 // readLoop 占住 scanner 整个子进程生命周期,把每帧 demux 到当前活跃轮。
 // 归属:某轮以「后台型 task_notification」开头 → 自主轮(经 AutonomousTurns 吐出);
@@ -321,7 +329,7 @@ func (s *Session) route(f rawFrame, events []Event, done bool) {
 			}
 		}
 	}
-	s.feed(at, events)
+	at.feed(events)
 	if done {
 		s.finishActiveTurn(at)
 	}
@@ -402,7 +410,7 @@ func (s *Session) currentTurn(f rawFrame) *activeTurn {
 			at.subagentToolUseID = owner
 			s.sideActivities[owner] = at
 			s.sinkMu.Unlock()
-			s.subagentCh <- &SubagentActivity{ToolUseID: owner, Events: at.ch, SessionID: s.sessionID}
+			s.subagentCh.push(&SubagentActivity{ToolUseID: owner, Events: at.events.out(), SessionID: s.sessionID})
 			return at // 首帧(子 agent 内部活动)要喂进这一路
 		}
 	}
@@ -437,7 +445,7 @@ func (s *Session) currentTurn(f rawFrame) *activeTurn {
 		s.active = at
 		s.sinkMu.Unlock()
 		s.autoCh <- &AutoTurn{
-			Events:    at.ch,
+			Events:    at.events.out(),
 			SessionID: s.sessionID,
 			Trigger:   triggerBackgroundTask,
 			CompletedTask: &CompletedBackgroundTask{
@@ -473,7 +481,7 @@ func (s *Session) currentTurn(f rawFrame) *activeTurn {
 		at.subagentToolUseID = owner
 		s.active = at
 		s.sinkMu.Unlock()
-		s.subagentCh <- &SubagentActivity{ToolUseID: owner, Events: at.ch, SessionID: s.sessionID}
+		s.subagentCh.push(&SubagentActivity{ToolUseID: owner, Events: at.events.out(), SessionID: s.sessionID})
 		return at // 与 AutoTurn 不同:首帧(子 agent 内部活动)要喂进活动轮
 	}
 	if isIdleBackgroundSubagentFrame(f) {
@@ -593,18 +601,7 @@ func isIdleBackgroundSubagentFrame(f rawFrame) bool {
 	return f.Type == "system" && f.Subtype == "task_notification"
 }
 
-// feed 把事件投给 at.ch;at 已被消费方放弃(abandon)时丢弃余帧,避免 reader 阻塞。
-func (s *Session) feed(at *activeTurn, events []Event) {
-	for _, ev := range events {
-		select {
-		case at.ch <- ev:
-		case <-at.abandon:
-			return
-		}
-	}
-}
-
-// finishActiveTurn 收尾一轮:清 active 槽 + close ch(唤醒消费方 range)+ close done(唤醒 waiter)。
+// finishActiveTurn 收尾一轮:清 active 槽 + 收尾本轮(唤醒消费方 range 与 waiter)。
 //
 // 收尾的是**主线轮**(subagentToolUseID == "")时,与它并发的旁路活动轮一并收尾:主线一轮
 // 结束即这批后台活动的天然分段点,消费方(subagent 卡片)据此结帐。subagent 若仍在跑,
@@ -623,21 +620,9 @@ func (s *Session) finishActiveTurn(at *activeTurn) {
 		}
 	}
 	s.sinkMu.Unlock()
-	close(at.ch)
-	close(at.done)
+	at.finish()
 	for _, side := range sides {
-		close(side.ch)
-		close(side.done)
-	}
-}
-
-// markAbandoned 标记某轮消费方已放弃(Turn 的 ctx 取消)。close abandon 让 feed 停
-// 投递;done 仍由 readLoop 在 result/EOF 时 close。幂等。
-func (s *Session) markAbandoned(at *activeTurn) {
-	select {
-	case <-at.abandon:
-	default:
-		close(at.abandon)
+		side.finish()
 	}
 }
 
@@ -658,21 +643,18 @@ func (s *Session) shutdownReader() {
 	}
 	s.sinkMu.Unlock()
 	if at != nil {
-		close(at.ch)
-		close(at.done)
+		at.finish()
 	}
 	for _, side := range sides { // 与主线并发的旁路活动轮同样要唤醒消费方
-		close(side.ch)
-		close(side.done)
+		side.finish()
 	}
 	for {
 		select {
 		case p := <-s.pendingTurns:
-			close(p.ch)
-			close(p.done)
+			p.finish()
 		default:
 			close(s.autoCh)
-			close(s.subagentCh)
+			s.subagentCh.close()
 			return
 		}
 	}
