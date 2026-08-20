@@ -20,8 +20,10 @@ const departments: OrgDepartmentModel[] = [
 ];
 
 const agents: OrgAgentModel[] = [
+  { id: 1, name: "CEO", systemBadge: "DEFAULT" },
   { id: 2, name: "Eva", description: "Head of engineering", departmentId: 1 },
   { id: 3, name: "Bob", parentAgentId: 2, backend: { name: "Claude Code" } },
+  { id: 4, name: "Doc", departmentId: 1, noExecTarget: true },
 ];
 
 function model() {
@@ -82,6 +84,89 @@ describe("OrgAgentRow（只吃 props）", () => {
     expect(onKeyDown).toHaveBeenCalled();
   });
 
+  it("行是内缩的圆角块：没有通栏的下边框，也没有左竖条", () => {
+    const row = model().groups[0].rows[0];
+
+    render(
+      <OrgAgentRow row={row} indent={0} selected={false} onSelect={vi.fn()} />,
+    );
+
+    const node = screen.getByTestId(`org-row-${row.agent.id}`);
+    expect(node.className).toContain("rounded-md");
+    expect(node.className).not.toContain("border-b");
+    expect(node.className).not.toContain("border-l-");
+  });
+
+  it("选中的一行压进选中面，而不是靠左竖条转主色", () => {
+    const row = model().groups[0].rows[0];
+
+    render(<OrgAgentRow row={row} indent={0} selected onSelect={vi.fn()} />);
+
+    const node = screen.getByTestId(`org-row-${row.agent.id}`);
+    expect(node.className).toContain("bg-sidebar-selected-bg");
+    expect(node.className).not.toContain("border-l-primary");
+  });
+
+  it("索引里的行不带描述第二行：那句话在详情里", () => {
+    const row = model().groups[0].rows.find((r) => r.agent.id === 2)!;
+
+    render(
+      <OrgAgentRow row={row} indent={0} selected={false} onSelect={vi.fn()} />,
+    );
+
+    expect(screen.queryByText("Head of engineering")).toBeNull();
+  });
+
+  it("系统 Agent 带一枚「系统」徽标", () => {
+    const system = model().topRows.find((r) => r.agent.id === 1)!;
+    const plain = model().groups[0].rows.find((r) => r.agent.id === 2)!;
+
+    const { rerender } = render(
+      <OrgAgentRow row={system} indent={0} selected={false} onSelect={vi.fn()} />,
+    );
+    expect(screen.getByText("System")).toBeInTheDocument();
+
+    rerender(
+      <OrgAgentRow row={plain} indent={0} selected={false} onSelect={vi.fn()} />,
+    );
+    expect(screen.queryByText("System")).toBeNull();
+  });
+
+  it("宿主明说没有执行目标，行尾才画成拒绝色的「无目标」", () => {
+    const doc = model().groups[0].rows.find((r) => r.agent.id === 4)!;
+
+    render(
+      <OrgAgentRow row={doc} indent={0} selected={false} onSelect={vi.fn()} />,
+    );
+
+    const tail = screen.getByTestId("org-row-tail-4");
+    expect(tail).toHaveTextContent("No target");
+    expect(tail.className).toContain("text-destructive");
+  });
+
+  it("宿主没喂 backend 也没说「没有目标」时，行尾什么都不画", () => {
+    const eva = model().groups[0].rows.find((r) => r.agent.id === 2)!;
+
+    render(
+      <OrgAgentRow row={eva} indent={0} selected={false} onSelect={vi.fn()} />,
+    );
+
+    // 「没喂」不等于「没有」——不能拿缺省当告警。
+    expect(screen.queryByTestId("org-row-tail-2")).toBeNull();
+  });
+
+  it("行尾的机器名是纯文字，不是填色方块", () => {
+    const bob = model().groups[0].rows.find((r) => r.agent.id === 3)!;
+
+    render(
+      <OrgAgentRow row={bob} indent={0} selected={false} onSelect={vi.fn()} />,
+    );
+
+    const tail = screen.getByTestId("org-row-tail-3");
+    expect(tail).toHaveTextContent("Claude Code");
+    expect(tail.className).not.toContain("bg-secondary");
+  });
+
   it("点行把选中交回宿主，选中态与落点态都只由 props 决定", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
@@ -140,6 +225,73 @@ describe("OrgGroupHeader（只吃 props）", () => {
 
     await user.click(screen.getByTestId("org-group-select-2"));
     expect(onSelect).toHaveBeenCalledWith({ kind: "department", id: 2 });
+  });
+});
+
+describe("OrgGroupHeader 的收放与动作（都归宿主）", () => {
+  it("组头不是通栏灰带：无底色、圆角块", () => {
+    render(
+      <OrgGroupHeader
+        group={model().groups[0]}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const node = screen.getByTestId("org-group-1");
+    expect(node.className).toContain("rounded-md");
+    expect(node.className).not.toContain("bg-secondary");
+    expect(node.className).not.toContain("border-b");
+  });
+
+  it("给了 onToggleExpanded 才长出收放三角；状态是宿主给的，包只画它并回调", async () => {
+    const user = userEvent.setup();
+    const onToggleExpanded = vi.fn();
+
+    const { rerender } = render(
+      <OrgGroupHeader
+        group={model().groups[0]}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("org-group-toggle-1")).toBeNull();
+
+    rerender(
+      <OrgGroupHeader
+        group={model().groups[0]}
+        selected={false}
+        onSelect={vi.fn()}
+        expanded={false}
+        onToggleExpanded={onToggleExpanded}
+      />,
+    );
+
+    const toggle = screen.getByTestId("org-group-toggle-1");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(onToggleExpanded).toHaveBeenCalledTimes(1);
+  });
+
+  it("动作插槽由宿主填，包里不硬编码任何动作语义", () => {
+    const { rerender } = render(
+      <OrgGroupHeader
+        group={model().groups[0]}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("gh-action")).toBeNull();
+
+    rerender(
+      <OrgGroupHeader
+        group={model().groups[0]}
+        selected={false}
+        onSelect={vi.fn()}
+        actions={<button data-testid="gh-action">add</button>}
+      />,
+    );
+    expect(screen.getByTestId("gh-action")).toBeInTheDocument();
   });
 });
 

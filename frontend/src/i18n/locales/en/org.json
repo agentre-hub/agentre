@@ -67,6 +67,7 @@
         "newDepartment": "New Department",
         "addAgent": "Add Agent"
       },
+      "addAgentToDepartment": "Add agent to {{name}}",
       "drag": {
         "pickedUp": "Picked up {{name}}. Arrow keys choose a target, Enter drops, Esc cancels.",
         "dropped": "Dropped {{name}}.",

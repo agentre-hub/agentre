@@ -151,9 +151,11 @@ describe("ExecTargetList", () => {
     await screen.findByText("Local machine");
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
+    // 排序控件是**一个柄**，不是一对上下箭头（mockup 的一档一行只有 ⣿）。
     expect(
-      screen.getAllByRole("button", { name: /Move target down/ }),
+      screen.getAllByRole("button", { name: /Reorder target/ }),
     ).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Move target down/ })).toBeNull();
   });
 
   it("shows Currently active for the first available target and Online for a later available remote target", async () => {
@@ -398,7 +400,7 @@ describe("ExecTargetList", () => {
 
   // 重排与增删是两条写路径：重排只写本端顺序（onReorder），增删/更换写账号级执行
   // 目标集合（onChange）。列表知道刚才发生的是哪一件事，不让调用方去猜。
-  it("keyboard equivalent: clicking Move target down reorders via onReorder (never the set) and announces via role=status", async () => {
+  it("keyboard equivalent: ArrowDown on the handle reorders via onReorder (never the set) and announces via role=status", async () => {
     availabilityStub([
       { agentBackendId: 51, available: true },
       { agentBackendId: 52, available: true },
@@ -419,10 +421,8 @@ describe("ExecTargetList", () => {
       />,
     );
     await screen.findByText("Local machine");
-    const moveDown = screen.getAllByRole("button", {
-      name: /Move target down/,
-    })[0];
-    await user.click(moveDown);
+    screen.getAllByRole("button", { name: /Reorder target/ })[0].focus();
+    await user.keyboard("{ArrowDown}");
     expect(onReorder).toHaveBeenCalledWith([
       { agentBackendId: 52 },
       { agentBackendId: 51 },
@@ -473,7 +473,7 @@ describe("ExecTargetList", () => {
     );
   });
 
-  it("Given a multi-target list, When the second row's drag handle is focused and ArrowUp is pressed, Then it produces the same order the Move-up button does", async () => {
+  it("Given a multi-target list, When the second row's drag handle is focused and ArrowUp is pressed, Then it produces the same order the first row's ArrowDown does", async () => {
     availabilityStub([
       { agentBackendId: 51, available: true },
       { agentBackendId: 52, available: true },
@@ -512,9 +512,9 @@ describe("ExecTargetList", () => {
       />,
     );
     await screen.findByText("Local machine");
-    await user.click(
-      screen.getAllByRole("button", { name: /Move target up/ })[1],
-    );
+    screen.getAllByRole("button", { name: /Reorder target/ })[0].focus();
+    await user.keyboard("{ArrowDown}");
+    // 第 1 档下移与第 2 档上移是同一次重排，两条手势必须给出同一个新次序。
     expect(viaButton.mock.calls[0][0]).toEqual(viaKeyboard.mock.calls[0][0]);
   });
 

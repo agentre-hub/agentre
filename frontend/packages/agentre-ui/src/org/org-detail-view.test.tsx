@@ -136,7 +136,60 @@ describe("OrgToolList（只吃 props）", () => {
       "false",
     ]);
     expect(screen.getAllByText("Approval")).toHaveLength(2);
-    expect(screen.getByText("2 enabled")).toBeInTheDocument();
+    // 区头带分母：「已授权 2 / 3」，光说 2 不知道还剩几项没授。
+    expect(screen.getByText("2 / 3 granted")).toBeInTheDocument();
+  });
+
+  it("动作是文字按钮（授权 / 已授权），不是一个光秃秃的图标钮", () => {
+    render(
+      <OrgToolList
+        toolKeys={toolKeys}
+        agentTools={[
+          { key: "org", enabled: true },
+          { key: "hook", enabled: false },
+          { key: "subagent", enabled: false },
+        ]}
+        onToggleGrant={vi.fn()}
+      />,
+    );
+
+    // 授一次权与拨一次开关的分量不同：按钮上写着这一下会发生什么。
+    expect(
+      screen.getByRole("button", { name: "Revoke Org Structure" }),
+    ).toHaveTextContent("Granted");
+    expect(
+      screen.getByRole("button", { name: "Grant Script Hooks" }),
+    ).toHaveTextContent("Grant");
+  });
+
+  it("已授权的行上 ✓ 与工具图标并存：认得出是哪个工具", () => {
+    render(
+      <OrgToolList
+        toolKeys={["org"]}
+        agentTools={[{ key: "org", enabled: true }]}
+        onToggleGrant={vi.fn()}
+      />,
+    );
+
+    const row = screen.getAllByRole("listitem")[0];
+    expect(row.querySelector('[data-slot="org-tool-granted-mark"]')).not.toBeNull();
+    expect(row.querySelector('[data-slot="org-tool-icon"]')).not.toBeNull();
+  });
+
+  it("一句话能力与名字同一行，不掉到第二行", () => {
+    render(
+      <OrgToolList
+        toolKeys={["subagent"]}
+        agentTools={[]}
+        onToggleGrant={vi.fn()}
+      />,
+    );
+
+    const row = screen.getAllByRole("listitem")[0];
+    expect(row.className).toContain("items-center");
+    expect(row.querySelector(".flex-col")).toBeNull();
+    // 一句话能力，不是一整段说明。
+    expect(screen.getByText("Delegate a subtask to another agent")).toBeInTheDocument();
   });
 
   it("未授权的工具不标需审批（还没有写操作可言），清单以外没有第二处入口", async () => {
@@ -235,6 +288,104 @@ describe("OrgExecTargetRow（只吃 props）", () => {
       screen.getByRole("button", { name: "Skills for Local machine" }),
     );
     expect(screen.queryByText("skills body")).toBeNull();
+  });
+
+  it("行上只有一个排序控件：没有另画一对上下箭头按钮", () => {
+    render(
+      <OrgExecTargetRow
+        index={0}
+        total={2}
+        backend={backend}
+        status={undefined}
+        isFirstAvailable={false}
+        skillsSupported={false}
+        onMoveUp={vi.fn()}
+        onMoveDown={vi.fn()}
+        drag={{ handle: {} }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Move target up" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Move target down" }),
+    ).toBeNull();
+  });
+
+  it("接了拖拽：柄是拖拽激活器，标注同时说明可以拖也可以按方向键", () => {
+    render(
+      <OrgExecTargetRow
+        index={0}
+        total={2}
+        backend={backend}
+        status={undefined}
+        isFirstAvailable={false}
+        skillsSupported={false}
+        onMoveDown={vi.fn()}
+        drag={{ handle: {} }}
+      />,
+    );
+
+    const handle = screen.getByRole("button", {
+      name: "Reorder target (drag, or press the up / down arrow keys)",
+    });
+    expect(handle.className).toContain("cursor-grab");
+  });
+
+  it("没接拖拽：柄照画（键盘重排不回退），但如实标成方向键控件，不假装能拖", () => {
+    render(
+      <OrgExecTargetRow
+        index={0}
+        total={2}
+        backend={backend}
+        status={undefined}
+        isFirstAvailable={false}
+        skillsSupported={false}
+        onMoveUp={vi.fn()}
+        onMoveDown={vi.fn()}
+      />,
+    );
+
+    const handle = screen.getByRole("button", {
+      name: "Reorder target (press the up / down arrow keys)",
+    });
+    // 拿不到 setNodeRef / listeners 的柄不该顶着 cursor-grab —— 拖它什么都不会
+    // 发生，那是个假手感。
+    expect(handle.className).not.toContain("cursor-grab");
+  });
+
+  it("没接拖拽时方向键照样重排：这是那一端唯一的排序入口", async () => {
+    const user = userEvent.setup();
+    const onMoveUp = vi.fn();
+    render(
+      <OrgExecTargetRow
+        index={1}
+        total={2}
+        backend={backend}
+        status={undefined}
+        isFirstAvailable={false}
+        skillsSupported={false}
+        onMoveUp={onMoveUp}
+      />,
+    );
+
+    screen.getByRole("button", { name: /Reorder target/ }).focus();
+    await user.keyboard("{ArrowUp}");
+    expect(onMoveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("这一行根本不能排序（单档）时才没有柄", () => {
+    render(
+      <OrgExecTargetRow
+        index={0}
+        total={1}
+        backend={backend}
+        status={undefined}
+        isFirstAvailable={false}
+        skillsSupported={false}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Reorder target/ })).toBeNull();
   });
 
   it("拖拽柄上的 ↑ / ↓ 直接移动这一行，不必先提起", async () => {

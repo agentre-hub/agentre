@@ -462,6 +462,9 @@
     "index": {
       "lead": "Lead · {{name}}",
       "reportsToInline": "↳ {{name}}",
+      "systemBadge": "系统",
+      "noExecTarget": "无目标",
+      "toggleGroup": "{{name}} 的收放",
       "drag": {
         "agentHandle": "拖拽 {{name}}（空格拾起）",
         "departmentHandle": "拖拽部门 {{name}}（空格拾起）"
@@ -487,8 +490,7 @@
       },
       "tools": {
         "title": "工具",
-        "sectionTitle": "工具 · TOOLS",
-        "enabledCount": "{{count}} 已启用",
+        "sectionTitle": "工具",
         "empty": "暂无可用工具",
         "approval": "需审批",
         "names": {
@@ -497,12 +499,15 @@
           "hook": "脚本 Hook"
         },
         "descriptions": {
-          "org": "允许该 Agent 查询并管理部门与成员（写操作需你审批）",
-          "subagent": "把子任务委派给另一个已配置的 Agent 执行并同步取回结果。子 Agent 在隔离的一次性会话中运行；用作子 Agent 的成员建议使用自动批准的权限模式。",
-          "hook": "允许该 Agent 编写、试运行并按 cron 调度脚本 Hook，定时产出事件（创建/修改/删除/执行均需你审批）"
+          "org": "查询并管理部门与成员",
+          "subagent": "把子任务委派给另一个 Agent",
+          "hook": "编写、试运行并按 cron 调度脚本"
         },
         "grantNamed": "授予 {{name}}",
-        "revokeNamed": "收回 {{name}}"
+        "revokeNamed": "收回 {{name}}",
+        "grantedCount": "已授权 {{granted}} / {{total}}",
+        "grant": "授权",
+        "granted": "已授权"
       },
       "skills": {
         "title": "技能"
@@ -513,6 +518,7 @@
       },
       "execTargets": {
         "dragHandle": "拖拽排序（也可按 ↑ / ↓ 方向键）",
+        "keyboardHandle": "按 ↑ / ↓ 方向键排序",
         "moveUp": "上移执行目标",
         "moveDown": "下移执行目标",
         "remove": "移除",

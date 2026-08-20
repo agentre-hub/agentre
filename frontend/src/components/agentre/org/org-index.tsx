@@ -52,9 +52,7 @@ import {
 
 import type { agent_backend_svc } from "../../../../wailsjs/go/models";
 import { AgentAvatar } from "../primitives";
-import { agentColorClassNames } from "../types";
 import {
-  iconForKey,
   safeAgentColor,
   type OrgAgent,
   type OrgDepartment,
@@ -85,8 +83,13 @@ export type OrgIndexProps = {
     orderedIds: number[],
   ) => void;
   onCreateDepartment: () => void;
-  /** 没有任何可挂载节点时不给这条出路（新 Agent 挂不上去）。 */
-  onCreateAgent?: () => void;
+  /**
+   * 没有任何可挂载节点时不给这条出路（新 Agent 挂不上去）。
+   *
+   * 带部门 id：组头上的 ＋ 说的是「往**这个**部门加」，空态那个说的是「随便加一个」
+   * （给 0）。调用方忽略这个参数也合法，只是新建对话框不会预选部门。
+   */
+  onCreateAgent?: (departmentId: number) => void;
 };
 
 type DragState = {
@@ -203,15 +206,53 @@ export function OrgIndex(props: OrgIndexProps) {
   const [reportsToId, setReportsToId] = React.useState(0);
   const [drag, setDrag] = React.useState<DragState | null>(null);
   const [announcement, setAnnouncement] = React.useState("");
+  // 收起哪些部门归宿主（共享包的组头只画三角、发回调）。默认全展开：一进来就看见
+  // 全貌，收起是用户自己做的减法。
+  const [collapsed, setCollapsed] = React.useState<ReadonlySet<number>>(
+    () => new Set<number>(),
+  );
 
   const filters = React.useMemo(
     () => ({ search, backendId, reportsToId }),
     [search, backendId, reportsToId],
   );
-  const model = React.useMemo(
-    () => buildOrgIndex({ agents, departments, filters }),
-    [agents, departments, filters],
+  // 「一档执行目标都没有」是宿主算的，不由包从 backend 缺席反推（见共享包
+  // types.ts 的 noExecTarget）。LoadOrg 每个 Agent 都带 execTargets（空也是 `[]`），
+  // 所以这里只在**真的收到了一个空列表**时才说没有。
+  const indexAgents = React.useMemo(
+    () =>
+      agents.map((a) => ({
+        ...a,
+        noExecTarget: Array.isArray(a.execTargets) && a.execTargets.length === 0,
+      })),
+    [agents],
   );
+  const model = React.useMemo(
+    () => buildOrgIndex({ agents: indexAgents, departments, filters }),
+    [indexAgents, departments, filters],
+  );
+  // 收起一个部门连它的子部门一起收走：组是 DFS 前序 + depth，遇到收起的那一个就把
+  // 后面所有更深的组跳掉 —— 只收一层会让子部门浮在收起的父部门下面。
+  const visibleGroups = React.useMemo(() => {
+    const out: OrgIndexGroup[] = [];
+    let hiddenBelow = -1;
+    for (const group of model.groups) {
+      if (hiddenBelow >= 0 && group.depth > hiddenBelow) continue;
+      hiddenBelow = -1;
+      out.push(group);
+      if (collapsed.has(group.department.id)) hiddenBelow = group.depth;
+    }
+    return out.map((group) =>
+      collapsed.has(group.department.id) ? { ...group, rows: [] } : group,
+    );
+  }, [model.groups, collapsed]);
+  const toggleCollapsed = React.useCallback((departmentId: number) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(departmentId)) next.add(departmentId);
+      return next;
+    });
+  }, []);
   const ctx = React.useMemo<OrgDropContext>(
     () => ({ agents, departments }),
     [agents, departments],
@@ -230,8 +271,8 @@ export function OrgIndex(props: OrgIndexProps) {
   );
 
   const units = React.useMemo(
-    () => buildUnits(model.topRows, model.groups, drag),
-    [model, drag],
+    () => buildUnits(model.topRows, visibleGroups, drag),
+    [model.topRows, visibleGroups, drag],
   );
   const candidates = React.useMemo(
     () =>
@@ -533,8 +574,10 @@ export function OrgIndex(props: OrgIndexProps) {
         {announcement}
       </p>
 
+      {/* 行与组头是**内缩的圆角块**而不是通栏条，所以左右内缩由这一层给
+          （mockup `.rows { padding: 2px 6px 8px }`）——包里的行只管自己那点内边距。 */}
       <div
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 pt-0.5"
         data-slot="org-index-body"
       >
         {noMatch ? (
@@ -589,6 +632,9 @@ export function OrgIndex(props: OrgIndexProps) {
                     }
                     onSelect={props.onSelect}
                     onDragKeyDown={handleDragKeyDown}
+                    expanded={!collapsed.has(unit.group.department.id)}
+                    onToggleExpanded={toggleCollapsed}
+                    onCreateAgent={props.onCreateAgent}
                   />
                 );
               }
@@ -744,6 +790,9 @@ function GroupHeader({
   selected,
   onSelect,
   onDragKeyDown,
+  expanded,
+  onToggleExpanded,
+  onCreateAgent,
 }: {
   group: OrgIndexGroup;
   target?: OrgDropTarget;
@@ -755,7 +804,11 @@ function GroupHeader({
     event: React.KeyboardEvent<HTMLElement>,
     subject: OrgDragSubject,
   ) => void;
+  expanded: boolean;
+  onToggleExpanded: (departmentId: number) => void;
+  onCreateAgent?: (departmentId: number) => void;
 }) {
+  const { t } = useTranslation();
   const department = group.department;
   const subject: OrgDragSubject = { kind: "department", id: department.id };
   const { attributes, listeners, setActivatorNodeRef } = useDraggable({
@@ -766,12 +819,6 @@ function GroupHeader({
     id: `dept-drop-${department.id}`,
     data: { kind: "department", departmentId: department.id },
   });
-  const accent = safeAgentColor(department.accentColor ?? "");
-  const iconNode = React.createElement(iconForKey(department.icon ?? ""), {
-    className: "size-3.5",
-    "aria-hidden": true,
-  });
-
   return (
     <OrgGroupHeader
       group={group}
@@ -786,15 +833,24 @@ function GroupHeader({
         listeners,
         onKeyDown: (event) => onDragKeyDown(event, subject),
       }}
-      glyph={
-        <span
-          className={cn(
-            "inline-flex size-5 shrink-0 items-center justify-center rounded-md text-white",
-            agentColorClassNames[accent],
-          )}
-        >
-          {iconNode}
-        </span>
+      expanded={expanded}
+      onToggleExpanded={() => onToggleExpanded(department.id)}
+      actions={
+        onCreateAgent ? (
+          <button
+            type="button"
+            aria-label={t("org.index.addAgentToDepartment", {
+              name: department.name,
+            })}
+            title={t("org.index.addAgentToDepartment", {
+              name: department.name,
+            })}
+            onClick={() => onCreateAgent(department.id)}
+            className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground motion-reduce:transition-none"
+          >
+            <Plus className="size-3" aria-hidden="true" />
+          </button>
+        ) : undefined
       }
     />
   );
@@ -856,13 +912,15 @@ function AgentRow({
             }
       }
       avatar={
+        // 索引这一枚是 18px（mockup `.av`）：32px 会把行高从 ≈28 顶到 ≥48，一屏
+        // 少装一半的 Agent。详情里那枚仍是大的，两处不是同一个用途。
         <AgentAvatar
           name={agent.name}
           color={safeAgentColor(agent.avatarColor ?? "")}
-          size="md"
+          size="sm"
           avatarDataUrl={agent.avatarDataUrl}
           avatarIcon={agent.avatarIcon}
-          className="size-8 shrink-0 rounded-lg"
+          className="size-4.5 shrink-0 rounded-[5px] text-[10px]"
         />
       }
     />
@@ -874,7 +932,7 @@ function EmptyDepartments({
   onCreateAgent,
 }: {
   onCreateDepartment: () => void;
-  onCreateAgent?: () => void;
+  onCreateAgent?: (departmentId: number) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -905,7 +963,7 @@ function EmptyDepartments({
             variant="outline"
             size="sm"
             className="h-7 px-2.5 text-2xs"
-            onClick={onCreateAgent}
+            onClick={() => onCreateAgent(0)}
           >
             <Plus className="size-3" aria-hidden="true" />
             {t("org.index.emptyDepartments.addAgent")}

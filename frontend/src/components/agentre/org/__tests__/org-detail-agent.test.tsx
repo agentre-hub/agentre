@@ -341,7 +341,7 @@ describe("OrgDetailAgent", () => {
       [backend({ id: 5, type: "claudecode" })],
       ["org"],
     );
-    expect(await screen.findByText("Tools · TOOLS")).toBeInTheDocument();
+    expect(await screen.findByText("Tools")).toBeInTheDocument();
     expect(
       await screen.findByRole("list", { name: "Tools" }),
     ).toBeInTheDocument();
@@ -377,7 +377,7 @@ describe("OrgDetailAgent", () => {
       [backend({ id: 5, type: "claudecode" })],
       ["org"],
     );
-    await screen.findByText("Tools · TOOLS");
+    await screen.findByText("Tools");
     expect(screen.getByText("Org Structure")).toBeInTheDocument();
   });
 

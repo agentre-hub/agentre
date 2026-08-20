@@ -67,6 +67,7 @@
         "newDepartment": "新建部门",
         "addAgent": "添加 Agent"
       },
+      "addAgentToDepartment": "往 {{name}} 加 Agent",
       "drag": {
         "pickedUp": "已拾起 {{name}}。方向键选落点，回车放下，Esc 取消。",
         "dropped": "已放下 {{name}}。",

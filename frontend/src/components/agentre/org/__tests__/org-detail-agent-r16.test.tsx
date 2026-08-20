@@ -199,8 +199,10 @@ describe("OrgDetailAgent execution targets (single list)", () => {
     renderPanel(onUpdate);
 
     const user = userEvent.setup();
-    const moveDown = await screen.findAllByLabelText(/Move target down/);
-    await user.click(moveDown[0]);
+    // 排序控件只有柄一个：聚焦它按 ↓ 就是「下移一格」。
+    const handles = await screen.findAllByLabelText(/Reorder target/);
+    handles[0].focus();
+    await user.keyboard("{ArrowDown}");
 
     await waitFor(() => expect(onUpdate).toHaveBeenCalled());
     expect(onUpdate).toHaveBeenCalledTimes(1);

@@ -42,6 +42,9 @@ function agent(p: Partial<OrgAgent> & { id: number }): OrgAgent {
     sortOrder: p.sortOrder ?? 0,
     prompt: [],
     skills: [],
+    // LoadOrg 每个 Agent 都带这一份（`make(..., 0, n)`，空也是 `[]` 不是 null），
+    // 「一档都没有」因此是可信的事实而不是缺省。
+    execTargets: p.execTargets ?? [{ id: 1, agentBackendId: 5, skills: [] }],
   } as unknown as OrgAgent;
 }
 
@@ -81,6 +84,13 @@ const agents = [
     agentBackendId: 6,
   }),
   agent({ id: 6, name: "Ann", departmentId: 2, sortOrder: 1 }),
+  agent({
+    id: 7,
+    name: "Doc",
+    departmentId: 3,
+    sortOrder: 1,
+    execTargets: [],
+  } as Partial<OrgAgent> & { id: number }),
 ];
 
 function setup(overrides: Partial<OrgIndexProps> = {}) {
@@ -268,6 +278,80 @@ describe("OrgIndex 组头与行", () => {
 
     await user.click(screen.getByTestId("org-group-select-3"));
     expect(props.onSelect).toHaveBeenCalledWith({ kind: "department", id: 3 });
+  });
+});
+
+describe("OrgIndex 组头上的入口与收放", () => {
+  // 「新建部门 / 加 Agent」今天只在空态里出现，有了部门之后索引里就没有入口了。
+  // 组头的 ＋ 补的正是这个（规格决策 12 也不允许把它顶到顶栏上）。
+  it("每个组头上都有「往这个部门加 Agent」，不必回空态去找", async () => {
+    const { props, user } = setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "Add agent to 工程部" }),
+    );
+
+    expect(props.onCreateAgent).toHaveBeenCalledWith(1);
+  });
+
+  it("宿主不给这条能力时组头上就没有那个 ＋", () => {
+    setup({ onCreateAgent: undefined });
+
+    expect(
+      screen.queryByRole("button", { name: "Add agent to 工程部" }),
+    ).toBeNull();
+  });
+
+  it("收起一个部门：它自己的行与子部门整块收走，组头留在原地", async () => {
+    const { user } = setup();
+
+    expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
+    expect(screen.getByTestId("org-group-2")).toBeInTheDocument();
+
+    const toggle = screen.getByTestId("org-group-toggle-1");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(toggle);
+
+    expect(screen.getByTestId("org-group-1")).toBeInTheDocument();
+    expect(screen.getByTestId("org-group-toggle-1")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.queryByTestId("org-row-2")).toBeNull();
+    // 子部门连同它的行一起收走：只收一层会让「质量」浮在收起的「研发」下面。
+    expect(screen.queryByTestId("org-group-2")).toBeNull();
+    expect(screen.queryByTestId("org-row-6")).toBeNull();
+    // 别的部门不受影响
+    expect(screen.getByTestId("org-group-3")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("org-group-toggle-1"));
+    expect(screen.getByTestId("org-row-2")).toBeInTheDocument();
+  });
+});
+
+describe("OrgIndex 行的密度", () => {
+  it("一档执行目标都没有的 Agent，行尾标出「无目标」", () => {
+    setup();
+
+    expect(screen.getByTestId("org-row-tail-7")).toHaveTextContent("No target");
+    // 有档的那些行尾画的是机器名，不是告警
+    expect(screen.queryByTestId("org-row-tail-2")).toBeNull();
+  });
+
+  it("索引里的头像是 18px 的小方块，不是详情里那枚 32px", () => {
+    setup();
+
+    const avatar = screen
+      .getByTestId("org-row-2")
+      .querySelector('[role="img"]');
+    expect(avatar?.className).toContain("size-4.5");
+    expect(avatar?.className).not.toContain("size-8");
+  });
+
+  it("索引里的行不带描述第二行", () => {
+    setup();
+
+    expect(screen.queryByText("工程总监")).toBeNull();
   });
 });
 

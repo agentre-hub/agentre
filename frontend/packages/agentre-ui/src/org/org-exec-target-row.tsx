@@ -1,12 +1,5 @@
 import * as React from "react";
-import {
-  Ban,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  GripVertical,
-  X,
-} from "lucide-react";
+import { Ban, ChevronDown, ChevronRight, GripVertical, X } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
@@ -41,6 +34,10 @@ export type OrgExecTargetRowProps = {
   backend: OrgBackendModel | undefined;
   status: OrgExecTargetStatus | undefined;
   isFirstAvailable: boolean;
+  /**
+   * 上移 / 下移一格。**行上不为它们各画一个按钮**（mockup 的行只有一个柄）——
+   * 它们是柄上方向键的落点，也是「这一行能不能排序」的判据：给了任一个，柄就画。
+   */
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   onRemove?: () => void;
@@ -62,10 +59,18 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
   const single = props.total === 1;
   const drag = props.drag;
   const handle = drag?.handle;
+  // 这一行能不能排序，看的是宿主给没给重排回调 —— 不是「档数 > 1」：首档没有
+  // `onMoveUp`、末档没有 `onMoveDown`，但两者都能动。
+  const reorderable = Boolean(props.onMoveUp || props.onMoveDown);
 
-  // R15 的键盘等价物：拖拽柄聚焦后直接按 ↑/↓ 就移动这一行，不必先按空格「提起」。
+  // R15 的键盘等价物：柄聚焦后直接按 ↑/↓ 就移动这一行，不必先按空格「提起」。
   // 空格提起后的方向键仍走宿主的 KeyboardSensor（listeners 里的那份），两条路径
   // 最终都落到同一个重排上。
+  //
+  // 行上**只有柄这一个排序控件**（mockup：一档一行，行首一个 ⣿，没有上下箭头），
+  // 所以柄不能随「宿主接没接拖拽」消失 —— 那样不拖拽的宿主就一个排序入口都没有。
+  // 它因此有两副面孔：接了拖拽是拖拽激活器（cursor-grab + listeners），没接就是一枚
+  // **纯键盘**的重排控件，光标与无障碍名都如实说明它只吃方向键，不假装能拖。
   const onHandleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
     if (!drag?.isDragging && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
@@ -99,15 +104,22 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
       data-testid={`exec-target-row-${props.index}`}
     >
       <div className="flex min-w-0 items-start gap-2">
-        {!single && (
+        {reorderable && (
           <button
             type="button"
             ref={handle?.ref}
-            aria-label={t("org.agent.execTargets.dragHandle")}
+            aria-label={t(
+              drag
+                ? "org.agent.execTargets.dragHandle"
+                : "org.agent.execTargets.keyboardHandle",
+            )}
             {...(handle?.attributes ?? {})}
             {...(handle?.listeners ?? {})}
             onKeyDown={onHandleKeyDown}
-            className="mt-0.5 shrink-0 cursor-grab touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className={cn(
+              "mt-0.5 shrink-0 touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              drag && "cursor-grab",
+            )}
           >
             <GripVertical className="size-3.5" aria-hidden="true" />
           </button>
@@ -125,28 +137,6 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
             {sub}
           </span>
         </div>
-        {!single && (
-          <div className="flex shrink-0 flex-col">
-            <button
-              type="button"
-              aria-label={t("org.agent.execTargets.moveUp")}
-              disabled={!props.onMoveUp}
-              onClick={props.onMoveUp}
-              className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronUp className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              aria-label={t("org.agent.execTargets.moveDown")}
-              disabled={!props.onMoveDown}
-              onClick={props.onMoveDown}
-              className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronDown className="size-3.5" />
-            </button>
-          </div>
-        )}
         <ExecTargetStatusBadge
           status={props.status}
           isFirstAvailable={props.isFirstAvailable}

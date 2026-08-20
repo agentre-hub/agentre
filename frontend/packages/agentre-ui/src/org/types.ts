@@ -30,6 +30,16 @@ export type OrgAgentModel = {
   agentBackendId?: number;
   sortOrder?: number;
   backend?: OrgAgentBackendSummary;
+  /**
+   * 这个 Agent **确定**一档执行目标都没有 —— 行尾因此画成拒绝色的「无目标」。
+   *
+   * 刻意不从 `backend` 为空反推：`backend` 只是「行尾那枚徽标读哪个字段」，宿主
+   * **没喂**与「真的没有」在包里长得一模一样，而这两件事的后果相反 —— 后者是
+   * 「这个 Agent 起不了会话」。按文件头那条判据（这一维是画出来的，还是宿主自己
+   * 算的），它属于后者：桌面端读 `agent.execTargets.length === 0`，agentre-server
+   * 读它自己那份 DTO。**宿主不说就不画**，缺省永远不当告警。
+   */
+  noExecTarget?: boolean;
 };
 
 export type OrgDepartmentModel = {

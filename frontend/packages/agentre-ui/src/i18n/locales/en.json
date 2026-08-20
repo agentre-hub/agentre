@@ -462,6 +462,9 @@
     "index": {
       "lead": "Lead · {{name}}",
       "reportsToInline": "↳ {{name}}",
+      "systemBadge": "System",
+      "noExecTarget": "No target",
+      "toggleGroup": "Toggle {{name}}",
       "drag": {
         "agentHandle": "Drag {{name}} (press Space to pick up)",
         "departmentHandle": "Drag department {{name}} (press Space to pick up)"
@@ -487,8 +490,7 @@
       },
       "tools": {
         "title": "Tools",
-        "sectionTitle": "Tools · TOOLS",
-        "enabledCount": "{{count}} enabled",
+        "sectionTitle": "Tools",
         "empty": "No tools available",
         "approval": "Approval",
         "names": {
@@ -497,12 +499,15 @@
           "hook": "Script Hooks"
         },
         "descriptions": {
-          "org": "Allow this agent to read and manage departments and members (writes require your approval)",
-          "subagent": "Delegate a subtask to another configured agent and get its result back synchronously. The sub-agent runs in an isolated one-shot session; agents used as sub-agents should use an auto-approving permission mode.",
-          "hook": "Let this agent author, dry-run and schedule script Hooks on a cron to emit events (create/update/delete/run all require your approval)"
+          "org": "Query and manage departments and members",
+          "subagent": "Delegate a subtask to another agent",
+          "hook": "Author, dry-run and cron-schedule scripts"
         },
         "grantNamed": "Grant {{name}}",
-        "revokeNamed": "Revoke {{name}}"
+        "revokeNamed": "Revoke {{name}}",
+        "grantedCount": "{{granted}} / {{total}} granted",
+        "grant": "Grant",
+        "granted": "Granted"
       },
       "skills": {
         "title": "Skills"
@@ -513,6 +518,7 @@
       },
       "execTargets": {
         "dragHandle": "Reorder target (drag, or press the up / down arrow keys)",
+        "keyboardHandle": "Reorder target (press the up / down arrow keys)",
         "moveUp": "Move target up",
         "moveDown": "Move target down",
         "remove": "Remove",
