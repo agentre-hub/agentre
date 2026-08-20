@@ -2178,3 +2178,76 @@ func TestSession_MainThreadFramesInterleavedWithSubagentActivity(t *testing.T) {
 	// 修复前:主线正文被交错的 subagent 帧挤掉,这里拿不到完整文本。
 	assert.Equal(t, "echo:beta-tail", drainTextWithin(t, ch2, 3*time.Second))
 }
+
+const fakeFgSubAgentTU = "toolu_fg_agent"
+
+// fakeForegroundSubagent 复刻 sess-3090:主线轮里派 run_in_background:false 的 Agent,
+// 子 agent 的内部帧(parent_tool_use_id=Agent tool_use_id)在 Agent 自己的 tool_result
+// 之前就到达。与后台 subagent(先 tool_result「异步启动」,再在空闲/下一轮吐内部活动)
+// 不同 —— 前台子步骤必须留在当前主线轮,否则 chat_svc.driveSubagentActivity 找不到
+// 尚未落库的发起消息,会把子工具 drain 丢掉,卡片只剩「无子步骤」。
+func fakeForegroundSubagent(stdin io.Reader, stdout io.Writer) {
+	const sid = "sess-fgsubagent"
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+	for sc.Scan() {
+		reply := extractTextField(sc.Text())
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a1","content":[{"type":"tool_use","id":%q,"name":"Agent","input":{"subagent_type":"general-purpose","description":"spec-axis","prompt":"verify","run_in_background":false}}]}}`, fakeFgSubAgentTU)
+		writeFrame(stdout, `{"type":"system","subtype":"task_started","task_id":"fg1","tool_use_id":%q,"description":"spec-axis","subagent_type":"general-purpose","task_type":"local_agent"}`, fakeFgSubAgentTU)
+		// 现场第一帧子活动是带 parent 的 user prompt,随后才是内部 Read/Bash。
+		writeFrame(stdout, `{"type":"user","parent_tool_use_id":%q,"message":{"content":[{"type":"text","text":"verify the spec"}]}}`, fakeFgSubAgentTU)
+		writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s1","content":[{"type":"tool_use","id":"sub_read","name":"Read","input":{"file_path":"SPEC.md"}}]}}`, fakeFgSubAgentTU)
+		writeFrame(stdout, `{"type":"user","parent_tool_use_id":%q,"message":{"content":[{"type":"tool_result","tool_use_id":"sub_read","content":"# spec"}]}}`, fakeFgSubAgentTU)
+		writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s2","content":[{"type":"tool_use","id":"sub_bash","name":"Bash","input":{"command":"git log"}}]}}`, fakeFgSubAgentTU)
+		writeFrame(stdout, `{"type":"user","parent_tool_use_id":%q,"message":{"content":[{"type":"tool_result","tool_use_id":"sub_bash","content":"abc123"}]}}`, fakeFgSubAgentTU)
+		writeFrame(stdout, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":%q,"content":"status: complete"}]}}`, fakeFgSubAgentTU)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a2","content":[{"type":"text","text":"done:%s"}]}}`, reply)
+		writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+	}
+}
+
+// TestSession_ForegroundSubagentNestedFramesStayOnMainTurn 锁定 sess-3090:
+// 前台 Agent 的内部工具帧必须出现在发起它的那条主线轮上,且不得另开 SubagentActivity。
+func TestSession_ForegroundSubagentNestedFramesStayOnMainTurn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeForegroundSubagent))
+	sess, err := c.OpenSession(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	ch, err := sess.Turn(ctx, "alpha")
+	require.NoError(t, err)
+
+	var text strings.Builder
+	var nested []string
+	var sawOuterAgent bool
+	for ev := range ch {
+		if ev.Kind == EventTextDelta {
+			text.WriteString(ev.Text)
+		}
+		if ev.Kind != EventPreToolUse || ev.Tool == nil {
+			continue
+		}
+		if ev.ParentToolUseID == "" && ev.Tool.ID == fakeFgSubAgentTU {
+			sawOuterAgent = true
+			continue
+		}
+		if ev.ParentToolUseID == fakeFgSubAgentTU {
+			nested = append(nested, ev.Tool.ID)
+		}
+	}
+	assert.Equal(t, "done:alpha", text.String())
+	assert.True(t, sawOuterAgent, "主线轮应含外层 Agent tool_use")
+	assert.Equal(t, []string{"sub_read", "sub_bash"}, nested,
+		"前台 subagent 的内部工具必须留在主线轮,不能被旁路进 SubagentActivity")
+
+	select {
+	case act, ok := <-sess.SubagentActivity():
+		if ok {
+			t.Fatalf("前台 subagent 不得另开 SubagentActivity, got ToolUseID=%s", act.ToolUseID)
+		}
+	default:
+	}
+}

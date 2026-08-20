@@ -314,6 +314,13 @@ func (s *Session) route(f rawFrame, events []Event, done bool) {
 		// (control_response / status):均无归属轮,本帧事件不下发。
 		return
 	}
+	if at.subagentToolUseID == "" {
+		for _, ev := range events {
+			if ev.Kind == EventPreToolUse && ev.ParentToolUseID == "" && ev.Tool != nil {
+				at.rememberMainToolUse(ev.Tool.ID)
+			}
+		}
+	}
 	s.feed(at, events)
 	if done {
 		s.finishActiveTurn(at)
@@ -374,10 +381,19 @@ func isMainThreadTurnFrame(f rawFrame) bool {
 func (s *Session) currentTurn(f rawFrame) *activeTurn {
 	s.sinkMu.Lock()
 	// 旁路(sess-2980):主线轮(user 轮 / 自主续轮,subagentToolUseID == "")活跃期间,
-	// 后台 subagent 的内部活动帧既不抢 active 槽也不喂进主线轮 —— 按 owner 各开一路
+	// 上一轮后台 subagent 的内部活动帧既不抢 active 槽也不喂进主线轮 —— 按 owner 各开一路
 	// 并发活动轮。主线轮收尾时由 finishActiveTurn 一并收尾(见 sideActivities)。
+	//
+	// 例外(sess-3090):owner 是本轮刚派的 Agent/Task(含 run_in_background:false 的前台
+	// spawn)时,内部帧必须留在当前主线轮。此时发起消息还在 inflight accumulator,进
+	// subagentCh 会被 driveSubagentActivity 因找不到 launch 消息而 drain 丢光子步骤。
 	if s.active != nil && s.active.subagentToolUseID == "" {
 		if owner := subagentOwnerID(f); owner != "" && isIdleBackgroundSubagentFrame(f) {
+			if s.active.launchedOnThisTurn(owner) {
+				at := s.active
+				s.sinkMu.Unlock()
+				return at
+			}
 			if at := s.sideActivities[owner]; at != nil {
 				s.sinkMu.Unlock()
 				return at
@@ -562,8 +578,8 @@ func isCompactingStatusFrame(f rawFrame) bool {
 // 真 CLI 2.1.185 抓帧实测:后台 subagent 起一轮后主 agent 即 result 收尾、会话转空闲,
 // 子 agent 的内部子对话随后在空闲态实时流出。两类需要在此拦下:
 //   - assistant / user 帧带 parent_tool_use_id:子 agent 内部 API 轮的文本 / 工具调用 /
-//     工具结果。前台 subagent 的同类帧由 active 轮承接(currentTurn 在 active!=nil 时已
-//     先返回),所以空闲到达者必属后台 subagent。
+//     工具结果。前台 subagent 的同类帧由 currentTurn 在 owner 属于当前主线轮 tool_use
+//     时拦下、留给 active 轮(sess-3090);空闲到达者 / 上一轮后台 subagent 的交错帧才走旁路。
 //   - 非后台型 task_notification:子 agent 内层 bash 完成通知(output_file 为空)等。后台
 //     型(output_file 非空、无 subagent_type)已被 isBackgroundTaskNotification 先认领,
 //     故走到这里的 task_notification 一律非后台型。

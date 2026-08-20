@@ -50,6 +50,29 @@ type activeTurn struct {
 	// subagentToolUseID 非空 = 本轮是「后台 subagent 活动轮」,值为发起该 subagent 的 Agent
 	// 工具 tool_use_id。用于:readLoop 在收到后台完成 task_notification 时识别要收尾的是活动轮。
 	subagentToolUseID string
+	// mainToolUseIDs 是本主线轮已经见到的外层 tool_use id(ParentToolUseID 为空)。
+	// 前台 Agent 的内部帧 parent_tool_use_id 落在这个集合里,必须留在当前主线轮
+	// (sess-3090);上一轮后台 subagent 的 parent 不在集合里,继续走 sideActivities
+	// (sess-2980)。
+	mainToolUseIDs map[string]struct{}
+}
+
+func (at *activeTurn) rememberMainToolUse(id string) {
+	if at == nil || id == "" || at.subagentToolUseID != "" {
+		return
+	}
+	if at.mainToolUseIDs == nil {
+		at.mainToolUseIDs = make(map[string]struct{})
+	}
+	at.mainToolUseIDs[id] = struct{}{}
+}
+
+func (at *activeTurn) launchedOnThisTurn(id string) bool {
+	if at == nil || id == "" {
+		return false
+	}
+	_, ok := at.mainToolUseIDs[id]
+	return ok
 }
 
 // newActiveTurn 造一轮的投递三件套。ch 带缓冲削峰(单一消费方实时 drain)。
