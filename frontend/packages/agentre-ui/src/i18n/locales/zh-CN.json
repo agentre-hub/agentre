@@ -226,6 +226,9 @@
       "prompt": "发送 (prompt)",
       "reasoning": "思考",
       "tokenDetails": "token 用量明细",
+      "firstToken": "首 token",
+      "outputSpeed": "输出速度",
+      "tokensPerSec": "{{value}} tok/s",
       "usage": "用量",
       "usageUnavailable": "后端未上报"
     },

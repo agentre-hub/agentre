@@ -53,7 +53,8 @@ export {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-export { formatDuration } from "./lib/format-duration";
+export { formatDuration, formatTurnDuration } from "./lib/format-duration";
+export type { LiveTurnInput } from "./transcript/turn-stats";
 export { classifyLink, isLocalFileURL } from "./lib/link-classify";
 export type { LinkClass, LocalPathKind } from "./lib/link-classify";
 export {

@@ -18,6 +18,7 @@ import {
   prepareMentionText,
 } from "../chat-input/mentions/transcript";
 import { useUiTranslation } from "../i18n";
+import { formatTokensPerSec, formatTurnDuration } from "../lib/format-duration";
 import { cn } from "../lib/utils";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -41,6 +42,7 @@ import { useOptionalPort } from "./ports-context";
 import { ThinkingBlock } from "./thinking-block";
 import { ToolApprovalCard } from "./tool-approval/card";
 import type { TranscriptRow, TranscriptRowItem } from "./transcript-rows";
+import { computeLiveTurnStats, type LiveTurnInput } from "./turn-stats";
 
 // ─── 会话级静态渲染依赖 ───────────────────────────────────────────────────────
 
@@ -161,73 +163,129 @@ type MessageMetaProps = {
   cachedTokens?: number;
   completionTokens: number;
   durationMs: number;
+  firstTokenMs?: number;
+  liveTurn?: LiveTurnInput | null;
   model: string;
   onRerun?: () => void;
   promptTokens: number;
   reasoningTokens?: number;
+  tokensPerSec?: number;
 };
+
+function useNow(enabled: boolean): number {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 200);
+    return () => window.clearInterval(id);
+  }, [enabled]);
+  return now;
+}
 
 function MessageMeta({
   cacheCreationTokens = 0,
   cachedTokens = 0,
   completionTokens,
   durationMs,
+  firstTokenMs = 0,
+  liveTurn,
   model,
   onRerun,
   promptTokens,
   reasoningTokens = 0,
+  tokensPerSec = 0,
 }: MessageMetaProps) {
   const { t } = useUiTranslation();
-  const durationLabel = `${(durationMs / 1000).toFixed(1)}s`;
+  const now = useNow(liveTurn != null);
+  const live = liveTurn ? computeLiveTurnStats({ ...liveTurn, now }) : null;
+  const displayModel = live?.model || model;
+  const displayDurationMs = live?.durationMs ?? durationMs;
+  const displayPrompt = live?.promptTokens ?? promptTokens;
+  const displayCompletion = live?.completionTokens ?? completionTokens;
+  const displayCached = live?.cachedTokens ?? cachedTokens;
+  const displayCacheCreation = live?.cacheCreationTokens ?? cacheCreationTokens;
+  const displayReasoning = live?.reasoningTokens ?? reasoningTokens;
+  const waitingFirstToken = live?.waitingFirstToken ?? false;
+  const displayFirstTokenMs = waitingFirstToken
+    ? (live?.firstTokenMs ?? 0)
+    : (live?.firstTokenMs ?? firstTokenMs);
+  const displayTokensPerSec = live?.tokensPerSec ?? tokensPerSec;
+  const completionApprox = live?.completionApprox ?? false;
+  const durationLabel = formatTurnDuration(displayDurationMs);
   // 后端一个 token 数都没上报时（如 OpenClaw 网关不发 usage 帧），渲染「↑0 ↓0」
   // 等于把「没上报」说成「用了 0 个 token」。这种情况整块隐藏计数，只留耗时。
   const hasUsage =
-    promptTokens > 0 ||
-    completionTokens > 0 ||
-    cachedTokens > 0 ||
-    cacheCreationTokens > 0 ||
-    reasoningTokens > 0;
+    displayPrompt > 0 ||
+    displayCompletion > 0 ||
+    displayCached > 0 ||
+    displayCacheCreation > 0 ||
+    displayReasoning > 0;
+
+  const approxMark = completionApprox ? "~" : "";
+  const showFirstToken =
+    waitingFirstToken ||
+    (!liveTurn && firstTokenMs > 0) ||
+    (liveTurn != null && !waitingFirstToken);
+  const showSpeed = displayTokensPerSec > 0;
+  const firstTokenLabel = waitingFirstToken
+    ? durationLabel
+    : formatTurnDuration(displayFirstTokenMs);
+  const speedLabel = `${approxMark}${t("chat.meta.tokensPerSec", {
+    value: formatTokensPerSec(displayTokensPerSec),
+  })}`;
 
   // tooltip 里需要拆分展示，所以这里给一个稳定的 row 渲染器避免重复。
   const rows: { label: string; value: string }[] = [
-    { label: t("chat.meta.model"), value: model || "—" },
+    { label: t("chat.meta.model"), value: displayModel || "—" },
   ];
   if (hasUsage) {
     rows.push(
       {
         label: t("chat.meta.prompt"),
-        value: promptTokens.toLocaleString(),
+        value: displayPrompt > 0 ? displayPrompt.toLocaleString() : "—",
       },
       {
         label: t("chat.meta.completion"),
-        value: completionTokens.toLocaleString(),
+        value: `${approxMark}${displayCompletion.toLocaleString()}`,
       },
     );
-  } else {
+  } else if (!liveTurn) {
     rows.push({
       label: t("chat.meta.usage"),
       value: t("chat.meta.usageUnavailable"),
     });
   }
-  if (cachedTokens > 0) {
+  if (displayCached > 0) {
     rows.push({
       label: t("chat.meta.cacheHit"),
-      value: cachedTokens.toLocaleString(),
+      value: displayCached.toLocaleString(),
     });
   }
-  if (cacheCreationTokens > 0) {
+  if (displayCacheCreation > 0) {
     rows.push({
       label: t("chat.meta.cacheWrite"),
-      value: cacheCreationTokens.toLocaleString(),
+      value: displayCacheCreation.toLocaleString(),
     });
   }
-  if (reasoningTokens > 0) {
+  if (displayReasoning > 0) {
     rows.push({
       label: t("chat.meta.reasoning"),
-      value: reasoningTokens.toLocaleString(),
+      value: displayReasoning.toLocaleString(),
+    });
+  }
+  if (showFirstToken) {
+    rows.push({
+      label: t("chat.meta.firstToken"),
+      value: waitingFirstToken
+        ? durationLabel
+        : formatTurnDuration(displayFirstTokenMs),
     });
   }
   rows.push({ label: t("chat.meta.duration"), value: durationLabel });
+  if (showSpeed) {
+    rows.push({ label: t("chat.meta.outputSpeed"), value: speedLabel });
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -238,9 +296,9 @@ function MessageMeta({
             className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/60"
             aria-label={t("chat.meta.tokenDetails")}
           >
-            {model ? (
+            {displayModel ? (
               <>
-                <span>{model}</span>
+                <span>{displayModel}</span>
                 <span className="text-border-strong">·</span>
               </>
             ) : null}
@@ -249,18 +307,35 @@ function MessageMeta({
                 data-testid="message-token-counts"
                 className="inline-flex items-center gap-1.5"
               >
-                <span className="inline-flex items-center gap-0.5">
-                  <ArrowUp className="size-2.5" aria-hidden="true" />
-                  {promptTokens.toLocaleString()}
-                </span>
+                {displayPrompt > 0 ? (
+                  <span className="inline-flex items-center gap-0.5">
+                    <ArrowUp className="size-2.5" aria-hidden="true" />
+                    {displayPrompt.toLocaleString()}
+                  </span>
+                ) : null}
                 <span className="inline-flex items-center gap-0.5">
                   <ArrowDown className="size-2.5" aria-hidden="true" />
-                  {completionTokens.toLocaleString()}
+                  {approxMark}
+                  {displayCompletion.toLocaleString()}
                 </span>
                 <span className="text-border-strong">·</span>
               </span>
             ) : null}
-            <span>{durationLabel}</span>
+            {waitingFirstToken ? null : <span>{durationLabel}</span>}
+            {showFirstToken ? (
+              <span data-testid="message-first-token">
+                {waitingFirstToken ? null : (
+                  <span className="text-border-strong">· </span>
+                )}
+                {firstTokenLabel}
+              </span>
+            ) : null}
+            {showSpeed ? (
+              <span data-testid="message-tokens-per-sec">
+                <span className="text-border-strong">· </span>
+                {speedLabel}
+              </span>
+            ) : null}
           </button>
         </TooltipTrigger>
         <TooltipContent className="font-mono text-meta">
@@ -300,10 +375,13 @@ type AssistantMessageActionsProps = {
   completionTokens: number;
   copyText: string;
   durationMs: number;
+  firstTokenMs?: number;
+  liveTurn?: LiveTurnInput | null;
   model: string;
   onRerun?: () => void;
   promptTokens: number;
   reasoningTokens?: number;
+  tokensPerSec?: number;
 };
 
 function AssistantMessageActions({
@@ -312,16 +390,19 @@ function AssistantMessageActions({
   completionTokens,
   copyText,
   durationMs,
+  firstTokenMs,
+  liveTurn,
   model,
   onRerun,
   promptTokens,
   reasoningTokens,
+  tokensPerSec,
 }: AssistantMessageActionsProps) {
   const { t } = useUiTranslation();
 
   return (
     <>
-      {durationMs > 0 ? (
+      {durationMs > 0 || liveTurn != null ? (
         <MessageMeta
           model={model}
           promptTokens={promptTokens}
@@ -330,6 +411,9 @@ function AssistantMessageActions({
           cacheCreationTokens={cacheCreationTokens}
           reasoningTokens={reasoningTokens}
           durationMs={durationMs}
+          firstTokenMs={firstTokenMs}
+          tokensPerSec={tokensPerSec}
+          liveTurn={liveTurn}
           onRerun={onRerun}
         />
       ) : null}
@@ -837,6 +921,10 @@ export type TranscriptRowViewProps = {
   /** showIndicator && reconnecting → 渲染 DisconnectedIndicator。通道断了就先说通道:
    *  压缩与否此刻都观察不到,断连形态优先于压缩形态。*/
   reconnecting: boolean;
+  /** 流式中的本轮统计。非 live 行传 null，避免 memo 失配。 */
+  liveTurn?: LiveTurnInput | null;
+  /** 占位消息 model 为空时，用会话当前模型。 */
+  fallbackModel?: string;
 };
 
 // 行级 memo 是流式期间的重渲边界:persisted 消息的行对象来自 WeakMap 缓存(引用
@@ -849,6 +937,8 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
   showIndicator,
   compacting,
   reconnecting,
+  liveTurn = null,
+  fallbackModel = "",
 }: TranscriptRowViewProps) {
   const ctx = React.useContext(TranscriptRenderContext);
   // local_command 行无 message 引用,独立成卡(无头像/footer chrome)在此提前返回。
@@ -901,15 +991,18 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
   ) : null;
 
   const meta = !row.isLastOfMessage ? undefined : isAssistant &&
-    (m.durationMs > 0 || copyText) ? (
+    (m.durationMs > 0 || copyText || liveTurn != null) ? (
     <AssistantMessageActions
-      model={m.model}
+      model={m.model || liveTurn?.model || fallbackModel}
       promptTokens={m.promptTokens}
       completionTokens={m.completionTokens}
       cachedTokens={m.cachedTokens}
       cacheCreationTokens={m.cacheCreationTokens}
       reasoningTokens={m.reasoningTokens}
       durationMs={m.durationMs}
+      firstTokenMs={m.firstTokenMs}
+      tokensPerSec={m.tokensPerSec}
+      liveTurn={liveTurn}
       onRerun={rerunHandler}
       copyText={copyText}
     />

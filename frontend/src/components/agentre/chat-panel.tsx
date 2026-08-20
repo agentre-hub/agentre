@@ -472,6 +472,19 @@ function liveContentByMessageId(
       liveThinkingStartedAt: s.streamStartedAt,
       liveBlocks: s.liveBlocks,
       liveRetry: s.liveRetry,
+      liveTurn: {
+        startedAt: s.streamStartedAt,
+        firstTokenAt: s.firstTokenAt,
+        generationMs: s.generationMs,
+        burstStartedAt: s.burstStartedAt,
+        promptTokens: s.liveUsage?.promptTokens ?? 0,
+        completionTokens: s.turnCompletionTokens,
+        cachedTokens: s.liveUsage?.cachedTokens ?? 0,
+        cacheCreationTokens: s.liveUsage?.cacheCreationTokens ?? 0,
+        reasoningTokens: s.turnReasoningTokens,
+        model: "",
+        liveText: s.liveDelta,
+      },
     });
   }
   return out;
@@ -2887,6 +2900,7 @@ function ChatPanel({
                         active={active}
                         messages={messages}
                         liveByMessageId={liveByMessageId}
+                        fallbackModel={providerPill.modelKey}
                         streaming={streaming}
                         liveCompacting={liveCompacting}
                         reconnecting={reconnecting}

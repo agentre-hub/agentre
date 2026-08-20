@@ -291,6 +291,8 @@ export interface TranscriptMessage {
   reasoningTokens: number;
   totalInputTokens: number;
   durationMs: number;
+  firstTokenMs?: number;
+  tokensPerSec?: number;
   errorText: string;
   seq: number;
   createtime: number;

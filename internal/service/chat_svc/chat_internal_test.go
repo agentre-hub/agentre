@@ -117,6 +117,8 @@ func TestToChatMessage_TokenFields(t *testing.T) {
 		CacheCreationTokens: 20,
 		ReasoningTokens:     10,
 		DurationMs:          1234,
+		FirstTokenMs:        420,
+		TokensPerSec:        48.5,
 	}
 	cm, err := toChatMessage(m)
 	require.NoError(t, err)
@@ -126,6 +128,8 @@ func TestToChatMessage_TokenFields(t *testing.T) {
 	assert.Equal(t, 20, cm.CacheCreationTokens)
 	assert.Equal(t, 10, cm.ReasoningTokens)
 	assert.Equal(t, 1234, cm.DurationMs)
+	assert.Equal(t, 420, cm.FirstTokenMs)
+	assert.Equal(t, 48.5, cm.TokensPerSec)
 }
 
 // TestToChatMessage_NestedToolUse pins replay 把 subagent 内层 ToolUse 投影成

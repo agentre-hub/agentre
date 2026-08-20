@@ -6,3 +6,18 @@ export function formatDuration(ms: number): string {
   const s = Math.floor((ms % 60000) / 1000);
   return `${m}m ${s}s`;
 }
+
+// formatTurnDuration 是消息脚注的耗时：最小单位秒、最大单位分钟，不用 ms / h。
+export function formatTurnDuration(ms: number): string {
+  const safe = Number.isFinite(ms) && ms > 0 ? ms : 0;
+  if (safe < 60000) return `${(safe / 1000).toFixed(1)}s`;
+  const m = Math.floor(safe / 60000);
+  const s = Math.floor((safe % 60000) / 1000);
+  return `${m}m ${s}s`;
+}
+
+export function formatTokensPerSec(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  if (n < 10) return n.toFixed(1);
+  return String(Math.round(n));
+}

@@ -1039,6 +1039,8 @@ func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
 		ReasoningTokens:     m.ReasoningTokens,
 		TotalInputTokens:    m.TotalInputTokens,
 		DurationMs:          m.DurationMs,
+		FirstTokenMs:        m.FirstTokenMs,
+		TokensPerSec:        m.TokensPerSec,
 		ErrorText:           m.ErrorText,
 		Seq:                 m.Seq,
 		Createtime:          m.Createtime,
@@ -4324,7 +4326,7 @@ func (s *chatSvc) runTurn(
 		pendingSteers = nil
 		nextAssistant, payload, perr := s.persistConsumedSteers(
 			ctx, sess, be, assistantMsg, acc, segmentStart,
-			assistantMsg.Model, steers,
+			assistantMsg.Model, steers, turnCtx,
 		)
 		if perr != nil {
 			logger.Ctx(ctx).Warn("chat_svc: streamStopErr set by persistConsumedSteers",
@@ -4448,15 +4450,23 @@ func (s *chatSvc) runTurn(
 	expiredAsks := handlers.MarkUnansweredUserAsksExpired(finalBlocks)
 
 	assistantMsg.DurationMs = int(time.Since(segmentStart).Milliseconds())
+	turnCtx.PauseGeneration()
+	assistantMsg.FirstTokenMs = turnCtx.FirstTokenMs()
 	stopErr := streamStopErr
 	var anchorPersistErr error
 	if result != nil {
 		if result.Usage != nil {
 			assistantMsg.PromptTokens = result.Usage.PromptTokens
-			assistantMsg.CompletionTokens = result.Usage.CompletionTokens
 			assistantMsg.CachedTokens = result.Usage.CachedTokens
 			assistantMsg.CacheCreationTokens = result.Usage.CacheCreationTokens
-			assistantMsg.ReasoningTokens = result.Usage.ReasoningTokens
+			// completion / reasoning 由 usage 帧按调用累加；Done 的 usage 是最后一跳，
+			// 不能覆盖合计。没有 usage 帧时才用 result 兜底。
+			if assistantMsg.CompletionTokens == 0 {
+				assistantMsg.CompletionTokens = result.Usage.CompletionTokens
+			}
+			if assistantMsg.ReasoningTokens == 0 {
+				assistantMsg.ReasoningTokens = result.Usage.ReasoningTokens
+			}
 		}
 		// runner 上报的实际模型 id 覆盖创建时的占位值：
 		//   - builtin: 与原值相同（都来自解析出的 ModelID）→ 不变
@@ -4518,6 +4528,7 @@ func (s *chatSvc) runTurn(
 			})
 		}
 	}
+	assistantMsg.TokensPerSec = turnCtx.TokensPerSec(assistantMsg.CompletionTokens)
 	_ = assistantMsg.SetBlocks(finalBlocks)
 	// aborted 已在 acc.Finalize() 之后取出(见上方 MarkRunningSubagentsCancelled 调用)；
 	// 这里的判定决定 StreamAborted vs StreamError/Done,以及 abort 路径跳过自动接续。
@@ -4855,6 +4866,7 @@ func (s *chatSvc) persistConsumedSteers(
 	segmentStart time.Time,
 	model string,
 	steers []agentruntime.ConsumedSteer,
+	turnCtx *turn.TurnContext,
 ) (*chat_entity.Message, *ChatStreamEvent, error) {
 	steers = s.withPeerSteerSources(nonEmptyConsumedSteers(steers))
 	if len(steers) == 0 {
@@ -4863,6 +4875,9 @@ func (s *chatSvc) persistConsumedSteers(
 
 	_ = current.SetBlocks(acc.Finalize())
 	current.DurationMs = int(time.Since(segmentStart).Milliseconds())
+	current.FirstTokenMs = turnCtx.FirstTokenMs()
+	turnCtx.PauseGeneration()
+	current.TokensPerSec = turnCtx.TokensPerSec(current.CompletionTokens)
 
 	userMsgs := make([]*chat_entity.Message, 0, len(steers))
 	nextAssistant := &chat_entity.Message{

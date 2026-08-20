@@ -37,13 +37,15 @@ type Message struct {
 	// TotalInputTokens runtime translator 按 family 聚合的本次 API call 输入大小;
 	// Anthropic = prompt+cached+cacheCreation;OpenAI = prompt(cached 是 prompt 子集)。
 	// 替代前端"自行家族判断"硬编码;chat_svc UsageUpdate handler 直接写。
-	TotalInputTokens int    `gorm:"column:total_input_tokens;type:int;not null;default:0"`
-	DurationMs       int    `gorm:"column:duration_ms;type:int;not null;default:0"`
-	ForkAnchor       string `gorm:"column:fork_anchor;type:text;not null;default:''"`
-	ErrorText        string `gorm:"column:error_text;type:text;not null;default:''"`
-	Seq              int    `gorm:"column:seq;type:int;not null;default:0"`
-	Createtime       int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime       int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	TotalInputTokens int     `gorm:"column:total_input_tokens;type:int;not null;default:0"`
+	DurationMs       int     `gorm:"column:duration_ms;type:int;not null;default:0"`
+	FirstTokenMs     int     `gorm:"column:first_token_ms;type:int;not null;default:0"`
+	TokensPerSec     float64 `gorm:"column:tokens_per_sec;type:real;not null;default:0"`
+	ForkAnchor       string  `gorm:"column:fork_anchor;type:text;not null;default:''"`
+	ErrorText        string  `gorm:"column:error_text;type:text;not null;default:''"`
+	Seq              int     `gorm:"column:seq;type:int;not null;default:0"`
+	Createtime       int64   `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime       int64   `gorm:"column:updatetime;type:bigint;not null;default:0"`
 }
 
 func (*Message) TableName() string { return "chat_messages" }

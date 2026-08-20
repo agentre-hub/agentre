@@ -51,6 +51,7 @@ import {
   TranscriptCard,
   TranscriptUIStateProvider,
   type LiveRowContent,
+  type LiveTurnInput,
   type PlanActionStream,
   type TranscriptRow,
 } from "@agentre-ai/agentre-ui";
@@ -1204,6 +1205,7 @@ const TRANSCRIPT_VIRTUAL_OVERSCAN = 6;
  */
 export type TranscriptLiveContent = LiveRowContent & {
   liveRetry?: RetryNotice | null;
+  liveTurn?: LiveTurnInput | null;
 };
 
 type ChatTranscriptProps = {
@@ -1253,6 +1255,8 @@ type ChatTranscriptProps = {
   onStopLocalCommand?: (terminalId: string) => void | Promise<void>;
   /** Stable mounted chat tab key for UI drafts that survive route/tab remounts. */
   tabStateKey?: string;
+  /** 占位 assistant 的 model 为空时，脚注用会话当前模型。 */
+  fallbackModel?: string;
 };
 
 type ChatTranscriptHandle = {
@@ -1336,6 +1340,7 @@ const ChatTranscript = React.forwardRef<
     streaming = false,
     liveCompacting = false,
     reconnecting = false,
+    fallbackModel = "",
   },
   ref,
 ) {
@@ -1600,10 +1605,19 @@ const ChatTranscript = React.forwardRef<
           showIndicator={showIndicator}
           compacting={showIndicator && isLiveTail && liveCompacting}
           reconnecting={showIndicator && reconnecting}
+          liveTurn={isLiveTail ? (live?.liveTurn ?? null) : null}
+          fallbackModel={fallbackModel}
         />
       );
     },
-    [lastAssistantId, liveByMessageId, liveCompacting, reconnecting, streaming],
+    [
+      fallbackModel,
+      lastAssistantId,
+      liveByMessageId,
+      liveCompacting,
+      reconnecting,
+      streaming,
+    ],
   );
 
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual intentionally owns mutable measurement callbacks.

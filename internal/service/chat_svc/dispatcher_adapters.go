@@ -3,6 +3,7 @@ package chat_svc
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
@@ -52,10 +53,10 @@ func (usageWriterAdapter) WriteUsage(msg any, u *agentruntime.UsageUpdate) {
 		return
 	}
 	m.PromptTokens = u.Usage.PromptTokens
-	m.CompletionTokens = u.Usage.CompletionTokens
+	m.CompletionTokens += u.Usage.CompletionTokens
 	m.CachedTokens = u.Usage.CachedTokens
 	m.CacheCreationTokens = u.Usage.CacheCreationTokens
-	m.ReasoningTokens = u.Usage.ReasoningTokens
+	m.ReasoningTokens += u.Usage.ReasoningTokens
 	if u.TotalInputTokens > 0 {
 		m.TotalInputTokens = u.TotalInputTokens
 	}
@@ -265,6 +266,7 @@ func (s *chatSvc) newTurnContext(
 		Stream:               stream,
 		BackendType:          backendType,
 		LaunchPermissionMode: launch,
+		StartedAt:            time.Now(),
 		MessageUpdater:       messageUpdaterAdapter{},
 		SessionUpdater:       sessionUpdaterAdapter{},
 		SessionTransitioner:  sessionTransitionerAdapter{svc: s},

@@ -69,6 +69,37 @@ describe("chat-streams-store", () => {
     expect(s.liveContextWindow).toBe(258000);
   });
 
+  it("Given two usage frames, When patched, Then completion accumulates and prompt is the latest", () => {
+    const { openStream, patchLiveUsage } = useChatStreamsStore.getState();
+    openStream(baseStream(7));
+    patchLiveUsage(7, 1, {
+      promptTokens: 12000,
+      completionTokens: 200,
+      reasoningTokens: 10,
+      totalInputTokens: 12000,
+    });
+    patchLiveUsage(7, 1, {
+      promptTokens: 22000,
+      completionTokens: 400,
+      reasoningTokens: 5,
+      totalInputTokens: 22000,
+    });
+    const s = live(7)!;
+    expect(s.liveUsage?.promptTokens).toBe(22000);
+    expect(s.turnCompletionTokens).toBe(600);
+    expect(s.turnReasoningTokens).toBe(15);
+  });
+
+  it("Given the first text delta, When appended, Then firstTokenAt is recorded once", () => {
+    const { openStream, appendLiveText } = useChatStreamsStore.getState();
+    openStream(baseStream(7));
+    appendLiveText(7, 1, "hello");
+    const first = live(7)!.firstTokenAt;
+    expect(first).toBeTruthy();
+    appendLiveText(7, 1, " world");
+    expect(live(7)!.firstTokenAt).toBe(first);
+  });
+
   it("appendLiveText appends to liveDelta (not yet frozen)", () => {
     const { openStream, appendLiveText } = useChatStreamsStore.getState();
     openStream(baseStream(7));

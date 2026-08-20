@@ -226,6 +226,9 @@
       "prompt": "Sent (prompt)",
       "reasoning": "Reasoning",
       "tokenDetails": "Token usage details",
+      "firstToken": "First token",
+      "outputSpeed": "Output speed",
+      "tokensPerSec": "{{value}} tok/s",
       "usage": "Usage",
       "usageUnavailable": "Not reported by the backend"
     },

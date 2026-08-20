@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"time"
 
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
 )
@@ -78,6 +79,14 @@ type TurnContext struct {
 	// SubagentFlipper 把一个「不属于本轮」的后台任务终态,落到它派遣卡真正所在的那条
 	// 更早的消息上。nil 时 handler 退回静默忽略。chat_svc 在 newTurnContext 注入。
 	SubagentFlipper SubagentFlipper
+
+	// 本轮可见输出计时。StartedAt 是这一段 assistant 开始的时刻；FirstTokenAt 是
+	// 第一帧 thinking/chunk；BurstStartedAt 是当前这一跳开始吐字的时刻；Generation
+	// 是已经结束的各跳生成时长之和。工具空档不计入。
+	StartedAt      time.Time
+	FirstTokenAt   time.Time
+	BurstStartedAt time.Time
+	Generation     time.Duration
 }
 
 // MessageUpdater handler 在 UsageUpdate / Error 等场景下写 assistantMsg 走这条。

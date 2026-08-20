@@ -17,6 +17,7 @@ import (
 type ToolCallHandler struct{}
 
 func (ToolCallHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
+	tc.PauseGeneration()
 	tc2 := ev.(agentruntime.ToolCall)
 	var input map[string]any
 	if len(tc2.Input) > 0 {

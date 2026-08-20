@@ -79,6 +79,15 @@ export type LiveStream = {
   // 在 appendLiveCompactBoundary / finishStream / consumeSteer 自动清回 false,
   // 不依赖 CLI 再推一帧 status:"" 来清旗。
   liveCompacting: boolean;
+  // 本轮可见输出的计时：firstTokenAt 第一次 chunk/thinking；burstStartedAt 当前
+  // 这一跳开始吐字的时刻；generationMs 已经结束的各跳生成时长之和。工具空档不计入。
+  firstTokenAt: number | null;
+  burstStartedAt: number | null;
+  generationMs: number;
+  // turnCompletionTokens / turnReasoningTokens 按 usage 帧累加（每帧是该次 API call
+  // 的快照，不是增量）。liveUsage 仍是最近一帧，Composer 上下文条读它的 totalInputTokens。
+  turnCompletionTokens: number;
+  turnReasoningTokens: number;
 };
 
 // State.streams 是 **两层** Map:sessionId → (assistantMessageId → LiveStream)。
@@ -110,6 +119,11 @@ type Actions = {
       | "liveUsage"
       | "liveContextWindow"
       | "liveCompacting"
+      | "firstTokenAt"
+      | "burstStartedAt"
+      | "generationMs"
+      | "turnCompletionTokens"
+      | "turnReasoningTokens"
     >,
   ) => void;
   closeStream: (sessionId: number, assistantMessageId: number) => void;
@@ -282,6 +296,23 @@ type Actions = {
 // liveBlocks 前 —— 工具循环里后几轮的 thinking 被全堆到最顶(用户可见症状:
 // 「思考完成过程都在最顶部叠加」)。这里改为在 tool_use/plan/ask 等边界一并
 // 把 liveThinking 落成 thinking block,让 liveBlocks 保持真实时间顺序。
+function noteVisibleToken(s: LiveStream, now: number): LiveStream {
+  return {
+    ...s,
+    firstTokenAt: s.firstTokenAt ?? now,
+    burstStartedAt: s.burstStartedAt ?? now,
+  };
+}
+
+function pauseBurst(s: LiveStream, now: number): LiveStream {
+  if (s.burstStartedAt == null) return s;
+  return {
+    ...s,
+    generationMs: s.generationMs + Math.max(0, now - s.burstStartedAt),
+    burstStartedAt: null,
+  };
+}
+
 function flushLiveSegment(s: LiveStream): LiveStream {
   if (s.liveDelta.length === 0 && s.liveThinking.length === 0) return s;
   const nextBlocks = [...s.liveBlocks];
@@ -423,6 +454,11 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         liveUsage: null,
         liveContextWindow: 0,
         liveCompacting: false,
+        firstTokenAt: null,
+        burstStartedAt: null,
+        generationMs: 0,
+        turnCompletionTokens: 0,
+        turnReasoningTokens: 0,
       });
       streams.set(s.sessionId, perMessage);
       return { streams };
@@ -434,14 +470,24 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
   appendLiveText: (sessionId, assistantMessageId, delta) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) =>
-        delta ? { ...cur, liveDelta: cur.liveDelta + delta } : null,
+        delta
+          ? noteVisibleToken(
+              { ...cur, liveDelta: cur.liveDelta + delta },
+              Date.now(),
+            )
+          : null,
       ),
     ),
 
   appendLiveThinking: (sessionId, assistantMessageId, delta) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) =>
-        delta ? { ...cur, liveThinking: cur.liveThinking + delta } : null,
+        delta
+          ? noteVisibleToken(
+              { ...cur, liveThinking: cur.liveThinking + delta },
+              Date.now(),
+            )
+          : null,
       ),
     ),
 
@@ -468,11 +514,18 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         ) {
           return null;
         }
-        return {
-          ...cur,
-          liveUsage: usage,
-          liveContextWindow: nextContextWindow,
-        };
+        return pauseBurst(
+          {
+            ...cur,
+            liveUsage: usage,
+            liveContextWindow: nextContextWindow,
+            turnCompletionTokens:
+              cur.turnCompletionTokens + (usage.completionTokens ?? 0),
+            turnReasoningTokens:
+              cur.turnReasoningTokens + (usage.reasoningTokens ?? 0),
+          },
+          Date.now(),
+        );
       }),
     ),
 
@@ -512,7 +565,7 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
   appendLiveToolUse: (sessionId, assistantMessageId, block) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const flushed = flushLiveSegment(cur);
+        const flushed = pauseBurst(flushLiveSegment(cur), Date.now());
         return {
           ...flushed,
           liveBlocks: [
@@ -896,6 +949,11 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
           liveRetry: null,
           // 新 assistant 段开始 → 清掉上一段的 compacting chip。
           liveCompacting: false,
+          firstTokenAt: null,
+          burstStartedAt: null,
+          generationMs: 0,
+          turnCompletionTokens: 0,
+          turnReasoningTokens: 0,
         });
         streams = new Map(state.streams);
         streams.set(sessionId, nextPerMessage);

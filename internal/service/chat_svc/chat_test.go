@@ -4893,13 +4893,12 @@ func TestSend_StreamRetryEventIsForwardedWithoutFailingTurn(t *testing.T) {
 // TestSend_StreamUsageEventsAreForwardedAndPersisted —— turn 内每次 EventUsage 都应：
 //  1. emit 一条 StreamUsage（payload 字段一致），让前端 Composer 进度条实时刷新；
 //  2. patch assistantMsg 的 token 列（per-frame Update 落库）；
-//  3. turn 末尾的 RunResult.Usage 仍然覆盖一次（兜底口径不变）。
+//  3. prompt/cache 取最后一帧，completion 按调用累加。Done 的 last-call usage 不再覆盖合计。
 func TestSend_StreamUsageEventsAreForwardedAndPersisted(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
 
 	// 一个吐两帧 EventUsage 的 fake runner —— 模拟 turn 内两次内部 API call 的边界。
-	// 第二帧 token 比第一帧大，断言「最终态 = 第二帧」就能验证累积语义没颠倒。
 	runner := scriptedRunner{events: []agentruntime.RuntimeEvent{
 		{Kind: agentruntime.EventTextDelta, Text: "thinking..."},
 		{Kind: agentruntime.EventUsage, Usage: &provider.Usage{
@@ -4973,14 +4972,13 @@ func TestSend_StreamUsageEventsAreForwardedAndPersisted(t *testing.T) {
 	assert.Equal(t, 50, usages[1].Usage.CacheCreationTokens)
 
 	// assistantMsg 至少被 Update 了 (per-frame 两次 + turn 末尾一次) = 3 次。
-	// 最终落库的快照必须是第二帧（更晚到达，覆盖了第一帧）。
 	require.GreaterOrEqual(t, len(assistantSnaps), 3,
 		"两帧 EventUsage 各 Update 一次 + turn 末尾再 Update 一次")
 	final := assistantSnaps[len(assistantSnaps)-1]
-	assert.Equal(t, 50, final.PromptTokens, "末态应为最后一帧 EventUsage 的 PromptTokens")
+	assert.Equal(t, 50, final.PromptTokens, "↑ 取最后一次调用的 prompt")
 	assert.Equal(t, 10300, final.CachedTokens)
 	assert.Equal(t, 50, final.CacheCreationTokens)
-	assert.Equal(t, 20, final.CompletionTokens)
+	assert.Equal(t, 70, final.CompletionTokens, "↓ 为本轮各次 completion 之和")
 }
 
 // scriptedRunner 按预设序列吐 RuntimeEvent 字面量(老 fixture 风格),内部转 NEW
