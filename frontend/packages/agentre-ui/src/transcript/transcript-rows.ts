@@ -1053,8 +1053,10 @@ export function estimateRowSize(row: TranscriptRow): number {
 // (类型差异已经在 estimateRowSize 里算过了)。
 const OLD_ROW_END_PADDING_PX = 20; // 重构前 pb-5(消息末行)
 const OLD_ROW_MID_PADDING_PX = 8; // 重构前 pb-2(消息内分片行)
-const NEW_ROW_END_PADDING_PX = 28; // chat.tsx rowWrapperPad 的 pb-7
-const NEW_ROW_MID_PADDING_PX = 10; // chat.tsx rowWrapperPad 的 pb-2.5
+// 这两个值与下面的 ROW_*_PAD_CLASS 是同一件事的两种写法(px 给虚拟化估高、类名给
+// 实际渲染),导出是为了让 transcript-rows.test.ts 能把这层对应关系钉成断言。
+export const NEW_ROW_END_PADDING_PX = 28; // 对应 ROW_END_PAD_CLASS 的 pb-7
+export const NEW_ROW_MID_PADDING_PX = 10; // 对应 ROW_MID_PAD_CLASS 的 pb-2.5
 
 /** 消息末行间距增量,≈5.6px(28 - 20×ROW_SIZE_SCALE)。 */
 export const ROW_END_PADDING_DELTA =
@@ -1080,6 +1082,28 @@ export function isLastRowOfMessage(
 // estimateRowSize 只负责按 item 类型估内容高度,这里再按 isLastRowOfMessage 补上
 // 对应的间距增量(消息末行 / 块内行)。index 越界(row 不存在)时回退到与旧
 // chat.tsx:estimateSize 兜底值一致的 148。
+/** 消息末行的下间距类名(28px)。与 NEW_ROW_END_PADDING_PX 是同一件事。 */
+export const ROW_END_PAD_CLASS = "pb-7";
+/** 消息内分片行的下间距类名(10px)。与 NEW_ROW_MID_PADDING_PX 是同一件事。 */
+export const ROW_MID_PAD_CLASS = "pb-2.5";
+
+// transcriptRowPadClass:一行的下间距类名。收 (rows, index) 而不是一个算好的
+// boolean —— 桌面端按虚拟 index 走、agentre-server 按行走,只要入口是同一个,两端
+// 就不可能把「是不是消息末行」算成两个答案。此前类名由两个宿主各写一份,而边界
+// 判断(isLastRowOfMessage)是共用的,于是「判断同源、类名不同源」这半截同源比
+// 两边都自己写更难发现。
+//
+// 一条助手消息会摊成好几行(思考 / 正文 / 工具卡各一行):两档拉开才分得清「还是
+// 刚才那条」还是「换人了」。
+export function transcriptRowPadClass(
+  rows: readonly TranscriptRow[],
+  index: number,
+): string {
+  return isLastRowOfMessage(rows, index)
+    ? ROW_END_PAD_CLASS
+    : ROW_MID_PAD_CLASS;
+}
+
 export function estimateRowSizeWithSpacing(
   rows: readonly TranscriptRow[],
   index: number,

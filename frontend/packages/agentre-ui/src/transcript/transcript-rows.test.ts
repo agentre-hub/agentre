@@ -9,8 +9,13 @@ import {
   estimateRowSize,
   estimateRowSizeWithSpacing,
   isLastRowOfMessage,
+  NEW_ROW_END_PADDING_PX,
+  NEW_ROW_MID_PADDING_PX,
+  ROW_END_PAD_CLASS,
   ROW_END_PADDING_DELTA,
+  ROW_MID_PAD_CLASS,
   ROW_MID_PADDING_DELTA,
+  transcriptRowPadClass,
   summarizeActivity,
   type TranscriptRow,
   type TranscriptRowItem,
@@ -1753,5 +1758,66 @@ describe("活动块聚合", () => {
     // 折叠态组头是单行,与折叠态 thinking 同档,比整张卡片矮。
     expect(estimateRowSize(activityRow)).toBe(45);
     expect(estimateRowSize(activityRow)).toBeLessThan(estimateRowSize(cardRow));
+  });
+});
+
+// transcriptRowPadClass:行间距的**类名**此前由两个宿主各写一份(agentre-server 的
+// Transcript.tsx、桌面端 chat.tsx 的 rowWrapperPad),而它与上面那两个 px 常量的
+// 对应关系只活在一句注释里(「chat.tsx rowWrapperPad 的 pb-2.5」)。改了 px 值,
+// 虚拟化估高会跟着动、两处实际渲染的 padding 却不会 —— 那正是这两个常量当初要
+// 消灭的系统性偏差,只是换了个方向重新长出来。这一组把对应关系钉成断言。
+describe("transcriptRowPadClass", () => {
+  function makeRow(messageId: number, key: string): TranscriptRow {
+    return {
+      autonomous: false,
+      isFirstOfMessage: false,
+      isLastOfMessage: false,
+      item: { text: "x", type: "text", uiStateKey: key },
+      key,
+      messageId,
+    };
+  }
+
+  it("消息末行取 pb-7,消息内的分片行取 pb-2.5", () => {
+    const rows = [makeRow(1, "a"), makeRow(1, "b"), makeRow(2, "c")];
+
+    expect(transcriptRowPadClass(rows, 0)).toBe("pb-2.5");
+    expect(transcriptRowPadClass(rows, 1)).toBe("pb-7");
+    expect(transcriptRowPadClass(rows, 2)).toBe("pb-7");
+  });
+
+  it("与 isLastRowOfMessage 的结论恒一致:两处不许各算各的边界", () => {
+    const rows = [
+      makeRow(1, "a"),
+      makeRow(1, "b"),
+      makeRow(2, "c"),
+      makeRow(3, "d"),
+      makeRow(3, "e"),
+    ];
+
+    for (let i = 0; i < rows.length; i++) {
+      const expected = isLastRowOfMessage(rows, i)
+        ? ROW_END_PAD_CLASS
+        : ROW_MID_PAD_CLASS;
+      expect(transcriptRowPadClass(rows, i)).toBe(expected);
+    }
+  });
+
+  it("越界 index 与 isLastRowOfMessage 一样按末行处理,不抛错", () => {
+    const rows = [makeRow(1, "a")];
+
+    expect(transcriptRowPadClass(rows, 9)).toBe(ROW_END_PAD_CLASS);
+    expect(transcriptRowPadClass([], 0)).toBe(ROW_END_PAD_CLASS);
+  });
+
+  it("类名的 Tailwind 刻度 ×4 必须等于对应的 px 常量:改一边不改另一边当场红", () => {
+    // Tailwind 间距刻度 1 = 0.25rem = 4px。两仓均未改根字号(设计 token 那一轮
+    // 已核实),所以这个换算是确定的。
+    const px = (cls: string) => Number(cls.replace(/^pb-/, "")) * 4;
+
+    expect(px(ROW_END_PAD_CLASS)).toBe(NEW_ROW_END_PADDING_PX);
+    expect(px(ROW_MID_PAD_CLASS)).toBe(NEW_ROW_MID_PADDING_PX);
+    // 末行必须比块内行疏,否则「还是刚才那条」与「换人了」读不出差别。
+    expect(px(ROW_END_PAD_CLASS)).toBeGreaterThan(px(ROW_MID_PAD_CLASS));
   });
 });

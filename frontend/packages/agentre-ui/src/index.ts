@@ -319,6 +319,7 @@ export {
   buildTranscriptRows,
   estimateRowSizeWithSpacing,
   isLastRowOfMessage,
+  transcriptRowPadClass,
 } from "./transcript/transcript-rows";
 export type {
   LiveRowContent,
