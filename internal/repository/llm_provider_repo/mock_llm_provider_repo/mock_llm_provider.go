@@ -319,3 +319,17 @@ func (mr *MockLLMProviderRepoMockRecorder) UpdateModel(ctx, m any) *gomock.Call 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateModel", reflect.TypeOf((*MockLLMProviderRepo)(nil).UpdateModel), ctx, m)
 }
+
+// UpsertFromSync mocks base method.
+func (m *MockLLMProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertFromSync", ctx, p, models)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertFromSync indicates an expected call of UpsertFromSync.
+func (mr *MockLLMProviderRepoMockRecorder) UpsertFromSync(ctx, p, models any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertFromSync", reflect.TypeOf((*MockLLMProviderRepo)(nil).UpsertFromSync), ctx, p, models)
+}

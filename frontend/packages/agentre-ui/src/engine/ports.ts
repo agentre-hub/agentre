@@ -62,6 +62,7 @@ export type BackendView = {
   openClawDefaultModel?: string;
   hasToken?: boolean;
   deviceId?: string;
+  modelRoutes?: Record<string, { providerKey: string; modelKey: string }>;
   sandbox?: string;
   approval?: string;
   envJson?: string;
@@ -172,6 +173,10 @@ export interface EngineSettingsPorts {
   discoverModels?(providerKey: string): Promise<DiscoveredModel[]>;
   scanBackends?(): Promise<BackendView[]>;
   scanBackendResults?(): Promise<BackendScanResult[]>;
+  /** Host may expose the desktop-only EnvJSON editor. */
+  canEditEnvJSON?: boolean;
+  /** Browser hosts disable local-only built-in backend creation. */
+  canCreateBuiltin?: boolean;
   cliPath?: {
     get(backendSyncId: string): Promise<string | null>;
     set(backendSyncId: string, path: string): Promise<void>;

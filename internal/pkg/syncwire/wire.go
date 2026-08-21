@@ -22,6 +22,8 @@ const (
 	KindAgentExecTarget = "agent_exec_target"
 	KindProjectAgent    = "project_agent"
 	KindProjectLocation = "project_location"
+	KindLLMProvider     = "llm_provider"
+	KindAgentBackendCLI = "agent_backend_cli"
 )
 
 // 一条上行的处置结果（server 的 sync_svc 常量）。

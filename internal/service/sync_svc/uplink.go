@@ -163,7 +163,7 @@ func (s *service) buildPushItem(ctx context.Context, p *pending) (*syncwire.Push
 		return nil, false, nil
 	}
 	// 上行前的守卫：载荷里绝不出现本地自增 ID 或 provider 正文（R2、决策 6）。
-	if err := syncwire.GuardPayload(out.Payload); err != nil {
+	if err := syncwire.GuardPayload(p.kind, out.Payload); err != nil {
 		logger.Ctx(ctx).Error("sync_svc.buildPushItem: payload rejected by guard",
 			zap.String("kind", p.kind), zap.String("syncId", p.syncID), zap.Error(err))
 		return nil, false, nil

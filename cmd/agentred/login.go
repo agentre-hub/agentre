@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/agentre-ai/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-ai/agentre/internal/daemon/rpc"
 	"github.com/agentre-ai/agentre/internal/daemon/state"
 	"github.com/agentre-ai/agentre/internal/pkg/paths"
@@ -232,6 +233,22 @@ func login(cmd *cobra.Command, deps loginDeps, st *state.State, serverURL string
 	})
 	if err := st.Save(); err != nil {
 		return fmt.Errorf("save account claim: %w", err)
+	}
+	engineSnapshot := enginesnapshot.New(enginesnapshot.Options{
+		State: st,
+		ServerURL: func() string {
+			return serverURL
+		},
+		AccessToken: func() string {
+			return st.Snapshot().Credential.AccessToken
+		},
+		HTTPClient: deps.http,
+	})
+	if err := engineSnapshot.Pull(cmd.Context()); err != nil {
+		// The account claim is already durable. Engine configuration is a
+		// best-effort post-login refresh and must not turn a successful device
+		// authorization into a failed login; relay/channel triggers retry it.
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: engine snapshot could not be refreshed; the daemon will retry after it connects.")
 	}
 	_, _ = fmt.Fprintln(out, "Logged in and claimed this daemon.")
 	return nil

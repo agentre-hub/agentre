@@ -4,8 +4,8 @@
 // agent_exec_targets——各自匿名内嵌 SyncMeta，GORM 按约定把它的字段提升进宿主表的
 // schema，六列在这七张表里同名同型。
 //
-// 本包目前只提供数据落地与两条纯判定（NewSyncID / EligibleForSync）；真正的
-// 上行 / 下行 / 冲突落地是后续任务，这里只给它们留位置。
+// llm_providers also embeds SyncMeta, using provider_key as its stable sync ID;
+// its models travel inside the provider payload rather than becoming a second kind.
 package syncmeta_entity
 
 import (

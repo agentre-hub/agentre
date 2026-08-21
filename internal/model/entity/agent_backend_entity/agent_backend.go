@@ -105,6 +105,24 @@ type AgentBackend struct {
 // TableName 绑定表名。
 func (*AgentBackend) TableName() string { return "agent_backends" }
 
+// CLIOverlay is the local projection of one per-device CLI override. Its
+// backend_sync_id and fingerprint form the natural key; missing or empty paths
+// mean PATH resolution. It deliberately has its own SyncMeta because the
+// overlay is a separate account-sync object, not a backend identity field.
+type CLIOverlay struct {
+	ID                       int64  `gorm:"column:id;primaryKey;autoIncrement"`
+	BackendSyncID            string `gorm:"column:backend_sync_id;type:text;not null;default:''"`
+	AgentredFingerprint      string `gorm:"column:agentred_fingerprint;type:text;not null;default:''"`
+	CLIPath                  string `gorm:"column:cli_path;type:text;not null;default:''"`
+	Status                   int    `gorm:"column:status;type:int;not null;default:1"`
+	Createtime               int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime               int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	syncmeta_entity.SyncMeta `gorm:"embedded"`
+}
+
+func (*CLIOverlay) TableName() string { return "agent_backend_cli_overlays" }
+func (o *CLIOverlay) IsActive() bool  { return o != nil && o.Status == consts.ACTIVE }
+
 // IsActive 是否处于启用态（未被软删除）。
 func (b *AgentBackend) IsActive() bool { return b != nil && b.Status == consts.ACTIVE }
 

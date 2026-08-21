@@ -21,6 +21,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/agentre-ai/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-ai/agentre/internal/daemon/handlers"
 	daemonmigrations "github.com/agentre-ai/agentre/internal/daemon/migrations"
 	"github.com/agentre-ai/agentre/internal/daemon/notifier"
@@ -64,13 +65,14 @@ type Options struct {
 
 // Daemon assembles and runs all agentred sub-systems.
 type Daemon struct {
-	opts     Options
-	state    *state.State
-	gateway  *httpgateway.Gateway
-	pairing  *pairing.Manager
-	ratelim  *pairing.RateLimiter
-	registry *rpc.Registry
-	auth     *rpc.AuthHandlers
+	opts           Options
+	state          *state.State
+	gateway        *httpgateway.Gateway
+	pairing        *pairing.Manager
+	ratelim        *pairing.RateLimiter
+	registry       *rpc.Registry
+	auth           *rpc.AuthHandlers
+	engineSnapshot *enginesnapshot.Manager
 
 	// db is agentred's own SQLite handle (session durability: daemon_sessions
 	// + daemon_notification_logs — see internal/daemon/migrations). Deliberately
@@ -776,6 +778,11 @@ func New(opts Options) (*Daemon, error) {
 		AccessTokenProvider: d.currentAccessToken,
 	})
 	d.mux = rpc.NewMultiplexer(d.hub)
+	d.engineSnapshot = enginesnapshot.New(enginesnapshot.Options{
+		State:       d.state,
+		ServerURL:   d.relayServerURL,
+		AccessToken: d.currentAccessToken,
+	})
 	d.catchup = handlers.NewSessionCatchupHandlers(handlers.SessionCatchupDeps{
 		Sessions:         d.sessionStore,
 		Journal:          journalReader{db: gormDB},
@@ -997,6 +1004,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// running sessions. HubLink owns logging, heartbeats, and retry for Run's
 	// whole lifetime; the multiplexer consumes its raw-frame seam separately.
 	hubCtx, hubCancel := context.WithCancel(ctx)
+	d.startEngineSnapshotPulls(hubCtx)
 	go func() { _ = d.hub.Run(hubCtx) }()
 	// 凭据续期与吊销拉取都以「手上已经有凭据」为前提,所以要等认领落地再挂起来 ——
 	// 见 runAccountJobsWhenClaimed。中转链路本身不必等:它每次 dial 重新解析端点,
@@ -1045,6 +1053,26 @@ const claimPollInterval = 5 * time.Second
 // 两者都以「手上已经有凭据」为前提:refresher 见到空的 refresh token 会记一行日志
 // 后**永久返回**。未认领时直接起等于把它废掉 —— 之后即使登录成功,访问令牌也没人
 // 续期,15 分钟后链路带着过期令牌掉线,再也回不来。
+func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
+	if d.engineSnapshot == nil {
+		return
+	}
+	// A successful physical relay dial means the daemon is back online after
+	// any outage. Pull asynchronously so snapshot latency/failure cannot block
+	// relay registration or an in-flight round.
+	d.hub.AddLifecycleListener(func() {
+		d.engineSnapshot.PullAsync(ctx, "relay_connected")
+	}, nil)
+	// The account channel is an independent signal-only connection. It starts
+	// only after a claim exists; unclaimed daemons therefore retain their LAN
+	// pairing and llm.upsert behavior without making account requests.
+	go func() {
+		if d.awaitClaim(ctx) {
+			d.engineSnapshot.WatchAccountChannel(ctx)
+		}
+	}()
+}
+
 func (d *Daemon) runAccountJobsWhenClaimed(ctx, hubCtx context.Context, stopRelay context.CancelFunc) {
 	if !d.awaitClaim(ctx) {
 		return
@@ -1528,6 +1556,7 @@ func (d *Daemon) bindConn(c *rpc.Conn) {
 		Lookup:             NewProviderLookup(d.state),
 		ClaimedAccountID:   d.claimedAccountID,
 		GenerationRegistry: d.generations,
+		CLIPathForBackend:  d.engineSnapshot.ResolveCLIPath,
 	})
 	d.runtimeMu.Lock()
 	d.runtimeHandlers[c] = rh

@@ -49,6 +49,20 @@ func (a *App) CancelTestAgentBackend(req *agent_backend_svc.CancelTestBackendReq
 	return agent_backend_svc.AgentBackend().CancelTest(a.ctx, req)
 }
 
+// ListAgentBackendCLIOverlays lists overlay statuses only; absolute paths remain
+// behind the local get/set methods below.
+func (a *App) ListAgentBackendCLIOverlays() (*agent_backend_svc.ListCLIOverlaysResponse, error) {
+	return agent_backend_svc.AgentBackend().ListCLIOverlays(a.ctx, &agent_backend_svc.ListCLIOverlaysRequest{})
+}
+
+func (a *App) GetAgentBackendCLIOverlay(req *agent_backend_svc.GetCLIOverlayRequest) (*agent_backend_svc.GetCLIOverlayResponse, error) {
+	return agent_backend_svc.AgentBackend().GetCLIOverlay(a.ctx, req)
+}
+
+func (a *App) SetAgentBackendCLIOverlay(req *agent_backend_svc.SetCLIOverlayRequest) (*agent_backend_svc.SetCLIOverlayResponse, error) {
+	return agent_backend_svc.AgentBackend().SetCLIOverlay(a.ctx, req)
+}
+
 // ResolveAgentBackendCLIPath 用 $PATH 查找 claudecode / codex 后端的可执行文件路径，
 // 让前端 BackendEditor 在用户切换类型时自动填入识别到的绝对路径。
 func (a *App) ResolveAgentBackendCLIPath(req *agent_backend_svc.ResolveCLIPathRequest) (*agent_backend_svc.ResolveCLIPathResponse, error) {

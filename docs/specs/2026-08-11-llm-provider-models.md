@@ -11,8 +11,8 @@
 **Hard invariants:**
 
 1. 延续 #39 已发布到当前主线的会话切换语义：已有会话在运行中也可选择新 Provider/Model，选择立即保存，当前正在运行的回合不受影响，新目标从下一轮生效。
-2. Provider、Models、BaseURL 与 API Key 保持执行侧本地化；`agentre-server` 不成为 LLM 配置中心，也不保存 API Key 或 Provider/Model 行正文。
-3. 向远端 agentred 复制 Provider 凭证必须由用户显式确认；选择模型本身不得静默同步 API Key。
+2. Provider、Models、BaseURL 与 API Key 由账号同步托管；`agentre-server` 的 `llm_provider` 同步对象保存完整 Provider/Model 正文，并且只向设备 JWT 下行明文 Key。
+3. 已登录账号的桌面端与 agentred 自动接收账号凭据；不再有逐机「复制凭据到这台机器」确认。浏览器永不回显明文 API Key。
 4. OpenClaw 继续使用 Gateway-native agent/model 数据源，不消费 Agentre ProviderModel。
 5. 所有执行路径通过唯一的 EffectiveLLMConfig 解析口决定实际 Provider 与 Model，不允许 Runtime、Gateway、Goal 或展示路径各自重新拼装优先级。
 
@@ -61,7 +61,7 @@
 | 17 | 被引用的 Model 与 Provider 都可以删除，但删除前必须披露引用影响并二次确认；删除后引用保持原样，降级为「目标已失效」。默认模型仍必须先替换。 | 2026-08-19 修订（原文：有引用不可删除、只能停用）。原理由「拒绝删除后让 Backend/Session/Route 静默悬空」不成立：停用本就无条件放行且在所有消费侧产生同一失效态，而悬空并不静默——决策 7 的失效语义已明确承接（fixed-model 严格阻止下一轮、provider-default 回退 Agent 绑定、路由解析失败显式报错）。拒绝：删除时清理引用方——一次删除静默改写多张表多行，用户反而失去按失效提示重选的线索。 |
 | 18 | 修改 Provider 默认模型只做影响确认并从下一轮动态生效，不向所有会话批量写 switch notice。 | provider-default 本身承诺动态跟随，批量旁白会污染历史并产生时序问题。拒绝 fan-out 更新会话。 |
 | 19 | 最近使用只存本机 localStorage，按执行设备隔离，成功持久化后才记录。 | 它是 UI 偏好而非业务实体。拒绝进入账号同步或存储名称、ModelID、凭据快照。 |
-| 20 | Provider/Models/API Key 不进入账号同步；Server 只透明传递业务对象中的稳定字符串引用。 | 保持既定本地化和安全边界。拒绝在 agentre-server 新建 LLM 配置中心。 |
+| 20 | Provider/Models/API Key 通过 `llm_provider` 同步对象进入账号；浏览器只见掩码，设备 JWT 可接收明文 Key。 | 账号同步让控制台与已登录设备共享同一份配置。 |
 | 21 | 功能尚未发布，不增加 Bundle/Sync V2 兼容层；本地开发数据通过追加 migration 搬迁，旧运行时格式直接退出。 | 用户明确允许破坏未发布格式。拒绝制造无实际消费者的版本兼容债务。 |
 | 22 | OpenClaw 保持 Gateway-native 模型语义，只复用基础视觉，不进入 Agentre ModelTarget 数据源。 | OpenClaw 的 agent/model 和认证生命周期由 Gateway 拥有。拒绝把不同所有权的数据伪装成 ProviderModel。 |
 
@@ -145,9 +145,9 @@ Provider 默认模型或被引用 ModelID 的全局修改只做影响确认和�
 
 ## Account sync, Server and bundles
 
-Provider、Models、BaseURL 与 API Key 不进入账号同步。Agent Backend 等已同步业务对象只携带稳定 ProviderKey、ModelKey 和结构化 Route 字符串引用；目标设备若没有对应本地配置，按失效或远端同步流程处理。
+Provider、Models、BaseURL 与 API Key 作为一个 `llm_provider` 账号同步对象传播；ProviderKey 是同步标识，模型目录嵌套在载荷中。Agent Backend 身份继续只携带稳定 ProviderKey、ModelKey 和结构化 Route 字符串引用。
 
-agentre-server 不新增 Provider/Model 业务表。其 payload 守卫继续拒绝 api_key 与 Provider 行正文，并明确允许字符串 model_key；relay 不解析或补全本地 LLM 配置。
+agentre-server 以 `sync_objects` 承载 Provider/Model 正文；payload 守卫只对 `llm_provider` 放行 api_key，并拒绝 backend 身份中的 cli_path。浏览器响应不含明文 Key。
 
 该功能尚未发布，Bundle 与同步 DTO 直接切换到新 Provider+Models+defaultModelKey 和类型化 ModelTarget 形状，不增加 V2 或旧格式运行时兼容层。预发布旧 Server 同步数据可以清理并重新同步。
 

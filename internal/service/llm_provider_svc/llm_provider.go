@@ -29,10 +29,13 @@ import (
 
 	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-ai/agentre/internal/pkg/code"
 	"github.com/agentre-ai/agentre/internal/pkg/llmcatalog"
 	"github.com/agentre-ai/agentre/internal/pkg/llmurl"
+	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
 	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-ai/agentre/internal/service/sync_svc"
 )
 
 // 默认 endpoint。BaseURL 留空时使用。
@@ -126,6 +129,8 @@ func (s *llmProviderSvc) Create(ctx context.Context, req *CreateProviderRequest)
 		Createtime:  now,
 		Updatetime:  now,
 	}
+	// provider_key is the stable sync identity; never mint a second ID for it.
+	p.SyncMeta = syncmeta_entity.SyncMeta{SyncID: p.ProviderKey}
 	if err := p.Check(ctx); err != nil {
 		return nil, err
 	}
@@ -150,6 +155,7 @@ func (s *llmProviderSvc) Create(ctx context.Context, req *CreateProviderRequest)
 	if err := llm_provider_repo.LLMProvider().CreateWithModels(ctx, p, models, defaultKey); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyCreate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.Create: provider created",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -229,6 +235,7 @@ func (s *llmProviderSvc) Update(ctx context.Context, req *UpdateProviderRequest)
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.Update: provider updated",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -269,6 +276,7 @@ func (s *llmProviderSvc) SetProviderEnabled(ctx context.Context, req *SetProvide
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetProviderEnabled: provider toggled",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -301,6 +309,7 @@ func (s *llmProviderSvc) Delete(ctx context.Context, req *DeleteProviderRequest)
 	if err := llm_provider_repo.LLMProvider().DeleteWithModels(ctx, p.ID); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyDelete(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.Delete: provider deleted",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -405,6 +414,7 @@ func (s *llmProviderSvc) ImportModels(ctx context.Context, req *ImportModelsRequ
 	for _, row := range all {
 		items = append(items, toModelItem(row, p))
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.ImportModels: models imported",
 		zap.Int64("providerID", p.ID),
 		zap.Int("imported", len(toImport)),
@@ -474,11 +484,27 @@ func (s *llmProviderSvc) UpdateModel(ctx context.Context, req *UpdateModelReques
 	if err := llm_provider_repo.LLMProvider().UpdateModel(ctx, m); err != nil {
 		return nil, err
 	}
+	s.notifyProviderUpdate(ctx, m.ProviderID)
 	logger.Ctx(ctx).Info("llmProviderSvc.UpdateModel: model updated",
 		zap.Int64("id", m.ID),
 		zap.String("modelKey", m.ModelKey),
 		zap.String("modelId", m.ModelID))
 	return &UpdateModelResponse{Item: toModelItem(m, nil)}, nil
+}
+
+// notifyProviderUpdate turns a nested model mutation into its parent provider
+// sync event. Service tests leave sync unassembled, so no needless parent read
+// occurs outside the real synchronization boundary.
+func (s *llmProviderSvc) notifyProviderUpdate(ctx context.Context, providerID int64) {
+	if !sync_svc.Active() {
+		return
+	}
+	provider, err := llm_provider_repo.LLMProvider().Find(ctx, providerID)
+	if err != nil || provider == nil {
+		logger.Ctx(ctx).Warn("llmProviderSvc.notifyProviderUpdate: provider unavailable after model mutation", zap.Int64("providerId", providerID), zap.Error(err))
+		return
+	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, provider.ID, provider.SyncMeta)
 }
 
 // SetModelDefault 把某 Provider 的一个启用模型设为默认，并顺带启用 Provider。
@@ -510,6 +536,7 @@ func (s *llmProviderSvc) SetModelDefault(ctx context.Context, req *SetModelDefau
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetModelDefault: default model set",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -546,6 +573,7 @@ func (s *llmProviderSvc) SetModelEnabled(ctx context.Context, req *SetModelEnabl
 	if err := llm_provider_repo.LLMProvider().UpdateModel(ctx, m); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetModelEnabled: model toggled",
 		zap.Int64("id", m.ID),
 		zap.String("modelKey", m.ModelKey),
@@ -585,6 +613,7 @@ func (s *llmProviderSvc) DeleteModel(ctx context.Context, req *DeleteModelReques
 	if err := llm_provider_repo.LLMProvider().DeleteModel(ctx, m.ID); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.DeleteModel: model deleted",
 		zap.Int64("id", m.ID),
 		zap.String("modelKey", m.ModelKey),

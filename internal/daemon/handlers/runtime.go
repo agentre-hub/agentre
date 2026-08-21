@@ -61,6 +61,10 @@ type RuntimeDeps struct {
 	Gateway      GatewayPort
 	Lookup       LLMProviderLookupPort
 	RuntimeFor   func(agent_backend_entity.BackendType) agentruntime.Runtime
+	// CLIPathForBackend resolves the claimed daemon's in-memory per-device
+	// overlay by account backend SyncID. false preserves paired-desktop behavior
+	// before any account snapshot exists; true with an empty path means PATH.
+	CLIPathForBackend func(backendSyncID string) (cliPath string, authoritative bool)
 	// ClaimedAccountID returns the daemon account authorized to target a
 	// non-caller origin peer in control requests.
 	ClaimedAccountID func() string
@@ -302,6 +306,14 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	}
 	if bt == agent_backend_entity.TypeOpenClaw {
 		return wire.RunAck{}, errors.New("openclaw backend not supported in agentred: remote secret enrollment is unavailable")
+	}
+	if h.deps.CLIPathForBackend != nil {
+		if cliPath, authoritative := h.deps.CLIPathForBackend(be.SyncID); authoritative {
+			// Account snapshots own the execution-side per-device overlay. An
+			// absent overlay authoritatively means PATH, so it also clears a
+			// desktop machine's absolute path from the wire payload.
+			be.CLIPath = cliPath
+		}
 	}
 
 	rt := h.lookupRuntimeByType(bt)
