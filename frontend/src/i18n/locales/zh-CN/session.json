@@ -107,6 +107,10 @@
       "name": "随手对话",
       "newSession": "新建随手对话"
     },
+    "machine": {
+      "empty": "这台机器上还没有对话",
+      "local": "本机"
+    },
     "search": {
       "aria": "搜索会话、项目或 Agent",
       "clear": "清除搜索",

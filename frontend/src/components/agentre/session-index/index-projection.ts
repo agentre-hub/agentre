@@ -26,13 +26,13 @@ import {
   type IndexRow,
 } from "@agentre-ai/agentre-ui";
 
-export type IndexGroupKind = "project" | "agent" | "free" | "flat";
+export type IndexGroupKind = "project" | "agent" | "free" | "flat" | "machine";
 
 export type IndexGroup = {
   /** React key，同时是折叠状态的 localStorage 命名空间（"project:7" / "agent:3"）。 */
   key: string;
   kind: IndexGroupKind;
-  /** 项目 id 或 agent id；free 与 flat 恒为 0。 */
+  /** 项目 id / agent id / 设备 id（0 = 本机）；free 与 flat 恒为 0。 */
   refID: number;
   /** 项目树的缩进层级；其余轴恒为 0。 */
   depth: number;
@@ -68,6 +68,10 @@ function sharedGroupKey(kind: IndexGroupKind, refID: number): string {
       return String(refID);
     case "agent":
       return String(refID);
+    case "machine":
+      // 共享投影的机器组键就是 `device-<设备标识>`（axis-groups 的 machineGroups）。
+      // 0 = 本机在这里没有任何特殊待遇 —— 它就是一台机器。
+      return `device-${refID}`;
     case "free":
       return UNASSIGNED_PROJECT_KEY;
     case "flat":
@@ -112,6 +116,9 @@ export function projectIndexGroups(
         // 查询），不必回头去猜 meta —— meta 还没到位的行会被猜到别的组里去。
         agentSyncId: slot.kind === "agent" ? groupKey : "",
         projectSyncId: slot.kind === "project" ? groupKey : "",
+        // 会话跑在哪台机器上同样是**取数时就知道**的（机器轴每台机器一条查询）。
+        // 别的轴不给这一维：那三条查询不按机器取数，猜一个会把行分到错的机器上。
+        deviceId: slot.kind === "machine" ? slot.refID : undefined,
         updatedAt: meta?.lastMessageAt ?? 0,
         title: meta?.title ?? "",
         // 运行态在 session-status-store，行渲染仍从那里现算（use-group-rows.ts）。
@@ -126,7 +133,8 @@ export function projectIndexGroups(
     rows,
     // 项目 / Agent 名单在投影里只用来给组**起名字、上色、排序**，而这三件事桌面端
     // 都不从这里拿：名字与颜色由 index-page 按 refID 查树与 agent 列表，顺序是下面
-    // 那句「骨架说了算」。机器轴桌面端没有。
+    // 那句「骨架说了算」。机器名单同理：组头的机器名与在线态由 index-group-row 从
+    // 名单（machine-roster.ts）自己查，投影只需要把行分进 `device-<id>` 里。
     projects: [],
     agents: [],
     machines: [],

@@ -107,6 +107,10 @@
       "name": "Quick chats",
       "newSession": "New quick chat"
     },
+    "machine": {
+      "empty": "No conversations on this machine yet",
+      "local": "This machine"
+    },
     "search": {
       "aria": "Search sessions, projects or agents",
       "clear": "Clear search",

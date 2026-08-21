@@ -7,6 +7,7 @@ vi.mock("../../../wailsjs/go/app/App", () => ({
 import { ListChatIndexSessions } from "../../../wailsjs/go/app/App";
 import {
   freeScope,
+  machineScope,
   projectScope,
   recentScope,
   scopeKey,
@@ -47,6 +48,40 @@ describe("session-index-store", () => {
     expect(scopeKey(freeScope())).toBe("free");
     expect(scopeKey(projectScope(7))).toBe("project:7");
     expect(scopeKey(projectScope(8))).not.toBe(scopeKey(projectScope(7)));
+  });
+
+  it("Given the machine axis, When a machine scope is keyed, Then the local machine is a machine like any other", () => {
+    // deviceID 0 是本机（chat_entity.Session 的约定），不是「不限机器」——
+    // 它必须有自己的一格页缓存，否则本机那一组会和别的组共用一份 id 列表。
+    expect(scopeKey(machineScope(0))).toBe("machine:0");
+    expect(scopeKey(machineScope(7))).toBe("machine:7");
+    expect(scopeKey(machineScope(0))).not.toBe(scopeKey(machineScope(7)));
+    expect(scopeKey(machineScope(0))).not.toBe(scopeKey(recentScope()));
+  });
+
+  it("Given a machine scope, When its first page loads, Then the RPC carries the device id", async () => {
+    listIndex.mockResolvedValueOnce({
+      sessions: [lite(3, { agentId: 1, projectId: 0 })],
+      total: 1,
+      hasMore: false,
+    });
+
+    await useSessionIndexStore.getState().loadFirstPage(machineScope(7));
+
+    expect(listIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "machine", deviceId: 7 }),
+    );
+  });
+
+  it("Given the local machine, When its first page loads, Then deviceId 0 goes out as 0 rather than being dropped", async () => {
+    // 0 是合法值。若这里因为 falsy 被吞成 undefined，服务端会当成漏传。
+    listIndex.mockResolvedValueOnce({ sessions: [], total: 0, hasMore: false });
+
+    await useSessionIndexStore.getState().loadFirstPage(machineScope(0));
+
+    expect(listIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "machine", deviceId: 0 }),
+    );
   });
 
   it("Given a page of sessions, When it loads, Then every row lands in the meta store carrying BOTH grouping dimensions", async () => {
@@ -129,6 +164,8 @@ describe("session-index-store", () => {
     expect(listIndex).toHaveBeenCalledWith({
       scope: "recent",
       projectId: 0,
+      // deviceId 与 projectId 同理：恒发，只在对应的 scope 下有意义。
+      deviceId: 0,
       offset: 0,
       limit: 3,
     });
@@ -152,6 +189,8 @@ describe("session-index-store", () => {
     expect(listIndex).toHaveBeenLastCalledWith({
       scope: "recent",
       projectId: 0,
+      // deviceId 与 projectId 同理：恒发，只在对应的 scope 下有意义。
+      deviceId: 0,
       offset: 2,
       limit: 2,
     });
@@ -188,6 +227,8 @@ describe("session-index-store", () => {
     expect(listIndex).toHaveBeenCalledWith({
       scope: "project",
       projectId: 7,
+      // deviceId 与 projectId 同理：恒发，只在对应的 scope 下有意义。
+      deviceId: 0,
       offset: 0,
       limit: 5,
     });

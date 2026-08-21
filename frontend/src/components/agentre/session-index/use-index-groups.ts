@@ -22,6 +22,7 @@ import { flattenProjectTree, type IndexAxis } from "@/lib/session-axis";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import {
   freeScope,
+  machineScope,
   projectScope,
   recentScope,
   scopeKey,
@@ -31,6 +32,7 @@ import {
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 
 import { projectIndexGroups, type IndexGroup } from "./index-projection";
+import type { MachineRosterEntry } from "./machine-roster";
 
 import type { app } from "../../../../wailsjs/go/models";
 
@@ -45,9 +47,13 @@ export const TIME_PAGE_SIZE = 30;
 export function scopesForAxis(
   axis: IndexAxis,
   projectIDs: readonly number[],
+  deviceIDs: readonly number[] = [],
 ): IndexScope[] {
   if (axis === "time") return [recentScope()];
   if (axis === "agent") return []; // Agent 轴的会话由 ListChatAgents 直接给
+  // 机器轴每台机器一条查询，与项目轴同形：组的总数只有取数方数得出来，
+  // 客户端把 recent 那一页分桶只能得到「这一页里恰好有几条」。
+  if (axis === "machine") return deviceIDs.map(machineScope);
   return [...projectIDs.map(projectScope), freeScope()];
 }
 
@@ -102,6 +108,8 @@ function agentRegularIDs(agent: { sessions?: { id: number }[] }): number[] {
 export function useIndexGroups(
   axis: IndexAxis,
   tree: app.ProjectTreeNode[],
+  /** 机器轴的机器名单（本机 + 配对的 daemon）。别的轴用不到，缺省空。 */
+  machines: readonly MachineRosterEntry[] = [],
 ): IndexGroup[] {
   const agents = useChatAgentsStore((s) => s.agents);
   const pages = useSessionIndexStore((s) => s.pages);
@@ -113,15 +121,19 @@ export function useIndexGroups(
     () => projectOrder.map((p) => p.id),
     [projectOrder],
   );
+  const deviceIDs = React.useMemo(
+    () => machines.map((m) => m.deviceId),
+    [machines],
+  );
 
   // 按需拉取当前轴要用到的 scope。已经有页缓存的不重拉 —— 刷新走
   // reloadSidebarSources，不由渲染驱动。
   const scopeSignature = React.useMemo(
-    () => scopesForAxis(axis, projectIDs).map(scopeKey).join("|"),
-    [axis, projectIDs],
+    () => scopesForAxis(axis, projectIDs, deviceIDs).map(scopeKey).join("|"),
+    [axis, projectIDs, deviceIDs],
   );
   React.useEffect(() => {
-    for (const scope of scopesForAxis(axis, projectIDs)) {
+    for (const scope of scopesForAxis(axis, projectIDs, deviceIDs)) {
       if (pages.has(scopeKey(scope))) continue;
       void loadFirstPage(
         scope,
@@ -130,7 +142,7 @@ export function useIndexGroups(
     }
     // pages 刻意不进依赖：它每次加载完都会变，进依赖会让这个 effect 自激。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeSignature, axis, projectIDs, loadFirstPage]);
+  }, [scopeSignature, axis, projectIDs, deviceIDs, loadFirstPage]);
 
   return React.useMemo(() => {
     // 先摆这一轴的**组骨架**：有哪些组、按什么顺序、每组已取到哪一页。这一段留在
@@ -149,6 +161,22 @@ export function useIndexGroups(
             total: page?.total ?? 0,
           },
         ];
+      }
+
+      if (axis === "machine") {
+        // 名单顺序说了算（本机最前，其余在线优先）—— 投影不重排组。
+        // 一条会话都没有的机器照样摆出来（决策 10）：刚配好的 daemon 得看得见。
+        return machines.map((m) => {
+          const page = pages.get(`machine:${m.deviceId}`);
+          return {
+            key: `machine:${m.deviceId}`,
+            kind: "machine" as const,
+            refID: m.deviceId,
+            depth: 0,
+            sessionIDs: page?.ids ?? [],
+            total: page?.total ?? 0,
+          };
+        });
       }
 
       if (axis === "agent") {
@@ -197,5 +225,5 @@ export function useIndexGroups(
 
     // 组内的分配、补齐与排序过共享投影，桌面端不再自己排一遍。
     return projectIndexGroups(axis, buildSlots(), metas);
-  }, [axis, agents, metas, pages, projectOrder]);
+  }, [axis, agents, metas, pages, projectOrder, machines]);
 }

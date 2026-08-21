@@ -64,6 +64,7 @@ import type { app } from "../../../../wailsjs/go/models";
 import { IndexGroupRow, type IndexGroupHandlers } from "./index-group-row";
 import type { ProjectGlyphInfo } from "./project-glyph";
 import { SessionActionDialogs, useSessionActions } from "./session-actions";
+import { useMachineRoster } from "./machine-roster";
 import { useIndexGroups, type IndexGroup } from "./use-index-groups";
 
 /** 筛选 chips：单选。null = 全部（决策 8）。 */
@@ -97,7 +98,16 @@ export function SessionIndexPage() {
   const axis = useSidebarAxisStore((s) => s.axis);
   const setAxis = useSidebarAxisStore((s) => s.setAxis);
 
-  const groups = useIndexGroups(axis, tree);
+  // 机器名单只在机器轴上拉 —— 别的轴不需要这份清单，不该为它多发一个 RPC。
+  const machines = useMachineRoster(
+    axis === "machine",
+    t("sessionIndex.machine.local"),
+  );
+  const groups = useIndexGroups(axis, tree, machines);
+  const machineByID = React.useMemo(
+    () => new Map(machines.map((m) => [m.deviceId, m])),
+    [machines],
+  );
   const groupByKey = React.useMemo(
     () => new Map(groups.map((g) => [g.key, g])),
     [groups],
@@ -497,6 +507,9 @@ export function SessionIndexPage() {
         }
         project={
           group.kind === "project" ? projectByID.get(group.refID) : undefined
+        }
+        machine={
+          group.kind === "machine" ? machineByID.get(group.refID) : undefined
         }
         agent={group.kind === "agent" ? agentByID.get(group.refID) : undefined}
         allLocalPathsMissing={allLocalPathsMissing}

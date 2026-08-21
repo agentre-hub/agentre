@@ -15,18 +15,28 @@ import type { IndexAxis as SharedIndexAxis } from "@agentre-ai/agentre-ui";
 import type { app } from "../../wailsjs/go/models";
 
 /**
- * 桌面端 offer 的三档。**清单归宿主、词汇表归包**（决策 17）：共享投影认得四根轴
- * （多一根 machine），桌面端只摆得出三根，所以这里从包的词汇表里挑，而不是另写一份
+ * 桌面端 offer 的四档。**清单归宿主、词汇表归包**：从包的词汇表里挑而不是另写一份
  * 字面量 —— 挑的写法让「桌面端的轴一定是投影认得的轴」成为编译期的事实。
+ *
+ * machine 是 2026-08-21 那一轮补上的：会话早就记着自己跑在哪台机器上
+ * （`chat_entity.Session.ExecDeviceID`，0 = 本机），此前索引却不按它分组。
  */
-export type IndexAxis = Extract<SharedIndexAxis, "project" | "agent" | "time">;
+export type IndexAxis = Extract<
+  SharedIndexAxis,
+  "project" | "agent" | "time" | "machine"
+>;
 
 /**
  * 桌面端摆出来的那几档，**按选择器里的顺序**。只有这一份：`AxisPicker` 拿它摆选项，
  * 持久化（`sidebar-axis-state.ts`）拿它校验读回来的值。两处各写一遍就会漂 ——
  * 多出来的那一档选得着，却在下次启动时被当非法值退回默认轴。
  */
-export const INDEX_AXES: readonly IndexAxis[] = ["project", "agent", "time"];
+export const INDEX_AXES: readonly IndexAxis[] = [
+  "project",
+  "agent",
+  "time",
+  "machine",
+];
 
 export type ProjectOrder = { id: number; depth: number }[];
 

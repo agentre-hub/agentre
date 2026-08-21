@@ -69,6 +69,28 @@ describe("scopesForAxis", () => {
     expect(scopesForAxis("agent", [1, 2])).toEqual([]);
   });
 
+  it("Given the machine axis, When scopes are resolved, Then every machine in the roster gets its own query", () => {
+    // 每台机器一条分页查询，与项目轴同形 —— 「查看全部 N」的 N 只有取数方数得出来。
+    const scopes = scopesForAxis("machine", [1, 2], [0, 7]);
+    expect(scopes.map((s) => s.kind)).toEqual(["machine", "machine"]);
+    expect(scopes).toEqual([
+      { kind: "machine", deviceID: 0 },
+      { kind: "machine", deviceID: 7 },
+    ]);
+  });
+
+  it("Given the machine axis with no paired daemon, When scopes are resolved, Then the local machine alone is still queried", () => {
+    expect(scopesForAxis("machine", [1, 2], [0])).toEqual([
+      { kind: "machine", deviceID: 0 },
+    ]);
+  });
+
+  it("Given a non-machine axis, When scopes are resolved, Then no machine query goes out", () => {
+    expect(
+      scopesForAxis("project", [1], [0, 7]).map((s) => s.kind),
+    ).not.toContain("machine");
+  });
+
   it("Given the project axis, When scopes are resolved, Then every project plus the free bucket is needed", () => {
     expect(scopesForAxis("project", [1, 2]).map((s) => s.kind)).toEqual([
       "project",

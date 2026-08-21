@@ -32,6 +32,21 @@ function freeSlot(sessionIDs: number[], total = sessionIDs.length): IndexGroup {
   return { key: "free", kind: "free", refID: 0, depth: 0, sessionIDs, total };
 }
 
+function machineSlot(
+  deviceID: number,
+  sessionIDs: number[],
+  total = sessionIDs.length,
+): IndexGroup {
+  return {
+    key: `machine:${deviceID}`,
+    kind: "machine",
+    refID: deviceID,
+    depth: 0,
+    sessionIDs,
+    total,
+  };
+}
+
 function agentSlot(
   id: number,
   sessionIDs: number[],
@@ -161,5 +176,65 @@ describe("projectIndexGroups", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].sessionIDs).toEqual([9, 8]);
     expect(groups[0].total).toBe(42);
+  });
+});
+
+describe("projectIndexGroups —— 机器轴", () => {
+  it("组骨架的顺序原样保留：本机在最前，投影不重排组", () => {
+    const out = projectIndexGroups(
+      "machine",
+      [machineSlot(0, [1]), machineSlot(7, [2]), machineSlot(3, [])],
+      metasOf([1, 100], [2, 200]),
+    );
+
+    expect(out.map((g) => g.refID)).toEqual([0, 7, 3]);
+  });
+
+  it("行按最近活动倒序落回它自己那一台机器，不串组", () => {
+    const out = projectIndexGroups(
+      "machine",
+      [machineSlot(0, [1, 3]), machineSlot(7, [2])],
+      metasOf([1, 100], [3, 300], [2, 200]),
+    );
+
+    expect(out[0].sessionIDs).toEqual([3, 1]);
+    expect(out[1].sessionIDs).toEqual([2]);
+  });
+
+  it("一条会话都没有的机器照样摆出来，空着（决策 10）", () => {
+    // 刚配好的一台 daemon 上没有会话，它也得在索引里看得见 —— 否则用户无从确认
+    // 配对生效了。
+    const out = projectIndexGroups(
+      "machine",
+      [machineSlot(0, [1]), machineSlot(9, [], 0)],
+      metasOf([1, 100]),
+    );
+
+    expect(out).toHaveLength(2);
+    expect(out[1].refID).toBe(9);
+    expect(out[1].sessionIDs).toEqual([]);
+  });
+
+  it("每组的总数从投影回来，「查看全部 N」不失真", () => {
+    const out = projectIndexGroups(
+      "machine",
+      [machineSlot(0, [1], 42)],
+      metasOf([1, 100]),
+    );
+
+    expect(out[0].total).toBe(42);
+  });
+
+  it("本机那一组的键是 device-0，不与「认不出机器」的兜底组撞上", () => {
+    // 0 是一台机器；共享投影的 UNKNOWN_MACHINE_KEY 是「这一行没有 deviceId」，
+    // 桌面端每条会话都有 exec_device_id，因此那个兜底组永远不该出现。
+    const out = projectIndexGroups(
+      "machine",
+      [machineSlot(0, [1])],
+      metasOf([1, 100]),
+    );
+
+    expect(out).toHaveLength(1);
+    expect(out[0].key).toBe("machine:0");
   });
 });

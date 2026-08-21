@@ -23,6 +23,8 @@ import type { ChatAgentItem } from "@/hooks/use-chat-agents";
 import type { app } from "../../../../wailsjs/go/models";
 
 import { agentIconNode } from "../primitives";
+import { MachineGroupHeader } from "./machine-group-header";
+import type { MachineRosterEntry } from "./machine-roster";
 import type { ProjectGlyphInfo } from "./project-glyph";
 import { ProjectGroupHeader } from "./project-group-header";
 import type { IndexGroup } from "./use-index-groups";
@@ -70,6 +72,8 @@ export type IndexGroupRowProps = {
   subtreeSessionIDs: readonly number[];
   project?: app.ProjectItem;
   agent?: ChatAgentItem;
+  /** 这一组对应的机器（仅机器轴）。名单归 index-page，这里只画。 */
+  machine?: MachineRosterEntry;
   allLocalPathsMissing: boolean;
   dragListeners?: Record<string, unknown>;
   /**
@@ -98,6 +102,7 @@ export function IndexGroupRow({
   subtreeSessionIDs,
   project,
   agent,
+  machine,
   allLocalPathsMissing,
   dragListeners,
   projectInfoOf,
@@ -273,6 +278,17 @@ export function IndexGroupRow({
     expanded: boolean;
     toggle: () => void;
   }): React.ReactNode => {
+    if (group.kind === "machine" && machine) {
+      return (
+        <MachineGroupHeader
+          machine={machine}
+          expanded={expanded}
+          onToggle={toggle}
+          attentionCount={attentionCount}
+          attentionTone={attentionTone}
+        />
+      );
+    }
     if (group.kind === "free") {
       return (
         <FreeGroupHeader
@@ -361,7 +377,13 @@ export function IndexGroupRow({
         )
       }
       emptyLabel={
-        group.kind === "free" ? t("sessionIndex.free.empty") : undefined
+        group.kind === "free"
+          ? t("sessionIndex.free.empty")
+          : // 空机器组照摆（决策 10），组内如实说一句：刚配好的一台 daemon
+            // 上没有会话，它也得在索引里看得见。
+            group.kind === "machine"
+            ? t("sessionIndex.machine.empty")
+            : undefined
       }
       {...rowHandlers}
     />

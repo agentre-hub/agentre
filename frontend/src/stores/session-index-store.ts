@@ -29,7 +29,8 @@ import type { AgentStatus, SessionStatusPatch } from "./types";
 export type IndexScope =
   | { kind: "recent" }
   | { kind: "free" }
-  | { kind: "project"; projectID: number };
+  | { kind: "project"; projectID: number }
+  | { kind: "machine"; deviceID: number };
 
 export function recentScope(): IndexScope {
   return { kind: "recent" };
@@ -40,10 +41,19 @@ export function freeScope(): IndexScope {
 export function projectScope(projectID: number): IndexScope {
   return { kind: "project", projectID };
 }
+/**
+ * 某一台机器上的会话。`deviceID = 0` 是**本机**（chat_entity.Session 的约定），
+ * 不是「不限机器」—— 它和别的机器一样是一格，只是绝大多数会话都落在它上面。
+ */
+export function machineScope(deviceID: number): IndexScope {
+  return { kind: "machine", deviceID };
+}
 
 /** 页缓存的键。项目之间必须互不相同，否则两个项目组会共用一份 id 列表。 */
 export function scopeKey(scope: IndexScope): string {
-  return scope.kind === "project" ? `project:${scope.projectID}` : scope.kind;
+  if (scope.kind === "project") return `project:${scope.projectID}`;
+  if (scope.kind === "machine") return `machine:${scope.deviceID}`;
+  return scope.kind;
 }
 
 export const INDEX_PAGE_SIZE = 20;
@@ -219,6 +229,9 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
         const resp = await ListChatIndexSessions({
           scope: scope.kind,
           projectId: scope.kind === "project" ? scope.projectID : 0,
+          // 0 是本机、是合法值：这里必须原样发出去，被吞成 undefined 会让服务端
+          // 当成漏传（它只拒负数）。
+          deviceId: scope.kind === "machine" ? scope.deviceID : 0,
           offset,
           limit,
         } as Parameters<typeof ListChatIndexSessions>[0]);
