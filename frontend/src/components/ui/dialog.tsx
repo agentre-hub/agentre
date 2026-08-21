@@ -1,131 +1,14 @@
-import * as React from "react";
-import { useTranslation } from "react-i18next";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { X } from "lucide-react";
-
-import { cn } from "@/lib/utils";
-
-const Dialog = DialogPrimitive.Root;
-const DialogTrigger = DialogPrimitive.Trigger;
-const DialogPortal = DialogPrimitive.Portal;
-const DialogClose = DialogPrimitive.Close;
-
-function DialogOverlay({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
-  return (
-    <DialogPrimitive.Overlay
-      data-slot="dialog-overlay"
-      className={cn(
-        "fixed inset-0 z-50 bg-slate-900/25 backdrop-blur-[3px] backdrop-saturate-150 dark:bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-function DialogContent({
-  className,
-  children,
-  showCloseButton = true,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean;
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <DialogPortal>
-      <DialogOverlay />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        className={cn(
-          "fixed left-[50%] top-[50%] z-50 grid w-full max-w-[520px] translate-x-[-50%] translate-y-[-50%] gap-0 rounded-xl border border-border bg-card text-card-foreground shadow-overlay outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-top-[2%] data-[state=open]:slide-in-from-top-[2%]",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-        {showCloseButton ? (
-          <DialogPrimitive.Close
-            aria-label={t("common.close")}
-            className="absolute right-3 top-3 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </DialogPrimitive.Close>
-        ) : null}
-      </DialogPrimitive.Content>
-    </DialogPortal>
-  );
-}
-
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="dialog-header"
-      className={cn(
-        "flex flex-col gap-1 border-b border-border px-5 py-4",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="dialog-body"
-      className={cn("max-h-[70vh] overflow-y-auto px-5 py-4", className)}
-      {...props}
-    />
-  );
-}
-
-function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="dialog-footer"
-      className={cn(
-        "flex items-center justify-end gap-2 border-t border-border bg-secondary/40 px-5 py-3",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-function DialogTitle({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Title>) {
-  return (
-    <DialogPrimitive.Title
-      data-slot="dialog-title"
-      className={cn(
-        "text-sm font-semibold tracking-tight text-foreground",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-function DialogDescription({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Description>) {
-  return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
-      className={cn("text-2xs text-muted-foreground", className)}
-      {...props}
-    />
-  );
-}
-
+// Dialog 的实现已经搬进共享包 @agentre-ai/agentre-ui(包内 src/ui/dialog.tsx)。
+//
+// 搬之前它有三份:本仓一份、agentre-server 一份、包内 engine/ui/ 还私藏一份给引擎
+// 面板用。三份逐行对应却各自漂了几处 —— 本仓与包内那份的遮罩是 bg-slate-900/25
+// 这样的调色板字面色,只有 agentre-server 那份是 bg-scrim;而窄视口下的
+// w-[calc(100%-2rem)] 又只有它有。合并后逐处取「更 token 化的那一份」,所以本仓
+// 的遮罩颜色与标题字号会随之变化,那是有意的收敛。
+//
+// 这一层转发是**刻意保留**的:21 个宿主文件从 "@/components/ui/dialog" 拿这组符号,
+// 把它们一次性改写成包路径会把搬迁的真实 diff 埋掉。新代码请直接从
+// "@agentre-ai/agentre-ui" 导入,这里只服务既有调用点。
 export {
   Dialog,
   DialogTrigger,
@@ -138,4 +21,4 @@ export {
   DialogFooter,
   DialogTitle,
   DialogDescription,
-};
+} from "@agentre-ai/agentre-ui";
