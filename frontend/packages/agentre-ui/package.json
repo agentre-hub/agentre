@@ -24,8 +24,8 @@
     "styles"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "prepare": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node ./scripts/copy-assets.mjs",
+    "prepare": "tsc -p tsconfig.build.json && node ./scripts/copy-assets.mjs",
     "test": "vitest run"
   },
   "peerDependencies": {
