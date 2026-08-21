@@ -1,6 +1,7 @@
+// Compatibility entry point for consumers of the former host-local picker.
 export {
   readRecentTargets,
-  recentStorageKey,
   recordRecentTarget,
   removeRecentTarget,
+  recentStorageKey,
 } from "@agentre-ai/agentre-ui";

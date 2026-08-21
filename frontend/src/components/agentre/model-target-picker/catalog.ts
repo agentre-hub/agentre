@@ -2,40 +2,10 @@ import * as React from "react";
 
 import { ListLLMModels } from "../../../../wailsjs/go/app/App";
 import { llm_provider_svc } from "../../../../wailsjs/go/models";
-
-import type { PickerModel, PickerProvider } from "./types";
-
-type ProviderItem = llm_provider_svc.ProviderItem;
-type ModelItem = llm_provider_svc.ModelItem;
-
-export function buildPickerCatalog(
-  providers: ProviderItem[],
-  modelsByProvider: Map<number, ModelItem[]>,
-): PickerProvider[] {
-  return providers.map((provider) => {
-    const models: PickerModel[] = (modelsByProvider.get(provider.id) ?? []).map(
-      (model) => ({
-        modelKey: model.modelKey,
-        modelId: model.modelId,
-        name: model.name,
-        enabled: model.enabled,
-        contextWindow: model.contextWindow,
-        maxOutput: model.maxOutput,
-      }),
-    );
-    return {
-      providerKey: provider.providerKey,
-      id: provider.id,
-      name: provider.name,
-      type: provider.type,
-      enabled: provider.enabled,
-      defaultModel: provider.defaultModelKey
-        ? models.find((model) => model.modelKey === provider.defaultModelKey) ?? null
-        : null,
-      models,
-    };
-  });
-}
+import {
+  buildPickerCatalog,
+  type PickerProvider,
+} from "@agentre-ai/agentre-ui";
 
 export type ModelTargetCatalogState = {
   catalog: PickerProvider[];
@@ -44,11 +14,15 @@ export type ModelTargetCatalogState = {
   refresh: () => void;
 };
 
+/**
+ * Desktop data adapter for the shared picker. The picker owns catalog shaping;
+ * only its Wails query remains at the host boundary.
+ */
 export function useModelTargetCatalog(
-  providers: ProviderItem[],
+  providers: llm_provider_svc.ProviderItem[],
 ): ModelTargetCatalogState {
   const [modelsByProvider, setModelsByProvider] = React.useState<
-    Map<number, ModelItem[]>
+    Map<number, llm_provider_svc.ModelItem[]>
   >(new Map());
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(false);
@@ -59,7 +33,7 @@ export function useModelTargetCatalog(
     setLoading(true);
     setError(false);
     void (async () => {
-      const next = new Map<number, ModelItem[]>();
+      const next = new Map<number, llm_provider_svc.ModelItem[]>();
       let anyFailed = false;
       let anyOk = false;
       await Promise.all(

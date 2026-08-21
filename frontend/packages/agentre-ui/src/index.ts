@@ -22,14 +22,19 @@ export {
 } from "./engine/ai-brand-logo";
 export { ModelTargetPicker } from "./engine/model-target-picker";
 export type { ModelTargetPickerProps } from "./engine/model-target-picker";
-export { useModelTargetCatalog } from "./engine/model-target-picker/catalog";
 export {
   readRecentTargets,
   recordRecentTarget,
   removeRecentTarget,
   recentStorageKey,
 } from "./engine/model-target-picker/recents";
-export { providerCompatibleForBackend } from "./engine/model-target-picker/types";
+export {
+  buildPickerCatalog,
+  isNativeTarget,
+  providerCompatibleForBackend,
+  sameTarget,
+  useModelTargetCatalog,
+} from "./engine/model-target-picker";
 export type {
   ModelTarget,
   PickerModel,
