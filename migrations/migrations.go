@@ -39,5 +39,8 @@ func migrationList() []*gormigrate.Migration {
 		migration202608150001(), // 删 agents 名唯一索引（与 R12a 的同名共存冲突）
 		migration202608150002(), // paired_agentreds 容纳「只有中转路径」的行（决策 1）
 		migration202608200001(), // chat_messages 首 token / 输出速度
+		// 两条分支各自占用了 202608200001。只往末尾追加：集成分支那条留原号，
+		// engine 这条顺延到 0002，避免 gormigrate 把其中一条当成已执行而跳过。
+		migration202608200002(), // 账号级 LLM Provider + 每设备 CLI 覆盖
 	}
 }
