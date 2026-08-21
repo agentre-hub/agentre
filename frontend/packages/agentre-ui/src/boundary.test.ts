@@ -113,6 +113,21 @@ function packageNameOf(specifier: string): string {
 }
 
 describe("agentre-ui package boundary", () => {
+  it("Given the engine settings source, When shared-package imports are scanned, Then it is present and has no host-only dependency", () => {
+    const engineSources = walkSourceFiles(join(sourceRoot, "engine"));
+
+    expect(engineSources.length).toBeGreaterThan(0);
+    const violations = collectImportSites()
+      .filter(({ file }) => file.startsWith("src/engine/"))
+      .flatMap(({ file, line, specifier }) => {
+        const rule = HOST_COUPLING_RULES.find((candidate) =>
+          candidate.matches(specifier),
+        );
+        return rule ? [`${file}:${line} "${specifier}" —— ${rule.label}`] : [];
+      });
+    expect(violations).toEqual([]);
+  });
+
   it("Given the shared package sources, When imports are scanned, Then no host-only module is referenced", () => {
     const violations = collectImportSites().flatMap(
       ({ file, line, specifier }) => {

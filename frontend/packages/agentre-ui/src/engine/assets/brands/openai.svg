@@ -1,0 +1,9 @@
+<!-- Official OpenAI mark. Brand reference: https://openai.com/brand/; vector source: Wikimedia Commons, retrieved 2026-08-10. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="238.00 225.97 1930.00 1954.06">
+  <path id="openai-arm" d="M1107.3 299.1c-198 0-373.9 127.3-435.2 315.3L650 743.5v427.9c0 21.4 11 40.4 29.4 51.4l344.5 198.5V833.3h.1v-27.9L1372.7 604c33.7-19.5 70.4-32.9 108.5-39.8l-33.6-113.9c-86.6-96.8-210.5-151.8-340.3-151.2zm0 117.5-.6.6c79.7 0 156.3 27.5 217.6 78.4-2.5 1.2-7.4 4.3-11 6.1L952.8 709.3c-18.4 10.4-29.4 30-29.4 51.4V1248l-155.1-89.4V755.8c-.1-187.1 151.6-338.9 339-339.2z" fill="currentColor"/>
+  <use href="#openai-arm" transform="rotate(60 1203 1203)"/>
+  <use href="#openai-arm" transform="rotate(120 1203 1203)"/>
+  <use href="#openai-arm" transform="rotate(180 1203 1203)"/>
+  <use href="#openai-arm" transform="rotate(240 1203 1203)"/>
+  <use href="#openai-arm" transform="rotate(300 1203 1203)"/>
+</svg>

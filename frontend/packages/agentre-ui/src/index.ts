@@ -13,6 +13,14 @@ export {
   useUiTranslation,
 } from "./i18n";
 export { cn } from "./lib/utils";
+export { LlmProvidersPanel, AgentBackendsPanel } from "./engine/panels";
+export type {
+  BackendView,
+  EngineID,
+  EngineSettingsPorts,
+  ModelView,
+  ProviderView,
+} from "./engine/ports";
 // agent 调色板的 token 词汇表（与 tokens.css 同源）+ token → css 变量。
 export { agentColorOrder, tokenToCssColor } from "./lib/agent-color";
 export type { AgentColor } from "./lib/agent-color";
