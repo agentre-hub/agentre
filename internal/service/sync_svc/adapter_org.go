@@ -380,8 +380,11 @@ func agentSyncIDOfLocalID(ctx context.Context, id int64) (string, error) {
 // ── backend ─────────────────────────────────────────────────────────────────
 
 // agentBackendPayload is account identity only. Provider configuration travels as
-// its own llm_provider object; CLI paths and device fingerprints are per-device
-// overlays and therefore never appear here.
+// its own llm_provider object; CLI paths are a per-device overlay and never
+// appear here. The device fingerprint is likewise never a payload key — it
+// travels on the outbound/push item's own agentred_fingerprint column instead
+// (同步与身份: the backend's device is part of account-level sync, not a
+// payload field).
 type agentBackendPayload struct {
 	Type                  string `json:"type"`
 	Name                  string `json:"name"`
@@ -431,14 +434,17 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 		return nil, err
 	}
 	return &outbound{
-		SyncID:    row.SyncID,
-		UpdatedAt: row.Updatetime,
-		Payload:   payload,
+		SyncID:              row.SyncID,
+		UpdatedAt:           row.Updatetime,
+		AgentredFingerprint: row.DeviceID,
+		Payload:             payload,
 	}, nil
 }
 
-// Backend identity has no machine reference. A missing overlay is PATH on this
-// installation, while its account identity remains fully usable everywhere.
+// Backend identity's machine reference (DeviceID) travels via the outbound's
+// fingerprint column, not as a blocking ref: there is no separate device
+// object to resolve here, and a missing CLI overlay is PATH on that
+// installation while the account identity remains fully usable everywhere.
 func (agentBackendAdapter) refs(*inbound) []ref { return nil }
 
 func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
@@ -453,9 +459,12 @@ func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[
 	}
 	row.Type, row.Name, row.LLMProviderKey = p.Type, p.Name, p.ProviderKey
 	row.LLMModelKey = p.ModelKey
-	// Keep the local execution cache untouched. The sync identity deliberately
-	// excludes both device_id and cli_path; their per-device overlay is applied
-	// by agentBackendCLIAdapter.
+	// The backend's device is account-level sync identity (同步与身份): it
+	// travels on the push item's own agentred_fingerprint column and lands
+	// straight on DeviceID, so a backend set up on one desktop points at the
+	// same machine on every other end and on the server. cli_path stays a
+	// per-device overlay applied separately by agentBackendCLIAdapter.
+	row.DeviceID = in.AgentredFingerprint
 	row.ModelRoutes = p.ModelRoutes
 	row.Sandbox, row.Approval, row.EnvJSON = p.Sandbox, p.Approval, p.EnvJSON
 	row.ReasoningEffort = p.ReasoningEffort

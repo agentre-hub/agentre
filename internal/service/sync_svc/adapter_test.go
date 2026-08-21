@@ -174,8 +174,10 @@ func TestAgentBackendCLIAdapter_LoadUsesOverlayNaturalKey(t *testing.T) {
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackendCLI, out.Payload))
 }
 
-// TestAgentBackendAdapter_LoadUsesProviderKeyOnly keeps machine-specific
-// fingerprint and CLI state out of the account identity payload.
+// TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly 后端的运行设备
+// 是账号级同步的一部分（同步与身份）：outbound 携带该行的 canonical fingerprint，
+// 走 push item 既有的 agentred_fingerprint 列——载荷 JSON 本身依旧不含 device_id
+// 键，传输走列不走载荷。
 func TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
@@ -195,14 +197,15 @@ func TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly(t *testing.T)
 	out, err := agentBackendAdapter{}.load(context.Background(), "be-1")
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Empty(t, out.AgentredFingerprint, "backend identity has no device fingerprint")
+	assert.Equal(t, "fp-builder", out.AgentredFingerprint,
+		"backend's device travels via the push item's fingerprint column")
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(out.Payload, &payload))
 	assert.Equal(t, "anthropic-main", payload["provider_key"])
 	assert.Equal(t, "anthropic-opus-01", payload["model_key"])
 	assert.NotContains(t, payload, "api_key")
-	assert.NotContains(t, payload, "device_id")
+	assert.NotContains(t, payload, "device_id", "the fingerprint travels via the column, never as a payload key")
 	assert.NotContains(t, payload, "cli_path")
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, out.Payload))
 }
@@ -234,8 +237,9 @@ func TestAgentBackendAdapter_ApplyMapsModelKeyToLLMModelKey(t *testing.T) {
 }
 
 // TestAgentBackendAdapter_GivenAnyLegacyMachineState_StillUploadsOneIdentity
-// Existing rows are promoted rather than skipped or merged; the separate CLI
-// overlay carries their machine-specific state.
+// Existing rows are promoted rather than skipped or merged: DeviceID now
+// travels with the identity via the outbound's fingerprint column, while the
+// CLI path stays behind in the separate CLI overlay.
 func TestAgentBackendAdapter_GivenAnyLegacyMachineState_StillUploadsOneIdentity(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
@@ -252,13 +256,14 @@ func TestAgentBackendAdapter_GivenAnyLegacyMachineState_StillUploadsOneIdentity(
 	out, err := agentBackendAdapter{}.load(context.Background(), "be-1")
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Empty(t, out.AgentredFingerprint)
+	assert.Equal(t, "3", out.AgentredFingerprint)
 	assert.NotContains(t, string(out.Payload), "cli_path")
 }
 
-// TestAgentBackendAdapter_ApplyIgnoresEnvelopeFingerprint asserts the backend
-// identity cannot accidentally regain a machine binding on downlink.
-func TestAgentBackendAdapter_ApplyIgnoresEnvelopeFingerprint(t *testing.T) {
+// TestAgentBackendAdapter_ApplyAppliesEnvelopeFingerprintToDeviceID 同步与身份：
+// 后端的运行设备是账号级同步的一部分，在任一端设置，其它端与服务端看到的是同一台
+// 机器——下行时 push item 的 agentred_fingerprint 落回 AgentBackend.DeviceID。
+func TestAgentBackendAdapter_ApplyAppliesEnvelopeFingerprintToDeviceID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
 	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-1", gomock.Any()).Return(false, nil)
@@ -275,7 +280,7 @@ func TestAgentBackendAdapter_ApplyIgnoresEnvelopeFingerprint(t *testing.T) {
 		Kind: syncwire.KindAgentBackend, SyncID: "be-1", AgentredFingerprint: "fp-other",
 		Payload: []byte(`{"type":"claudecode","name":"identity"}`),
 	}, nil))
-	assert.Empty(t, created.DeviceID)
+	assert.Equal(t, "fp-other", created.DeviceID, "the envelope fingerprint is the backend's device")
 	assert.Empty(t, created.CLIPath)
 }
 
