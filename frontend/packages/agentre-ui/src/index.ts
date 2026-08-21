@@ -14,6 +14,21 @@ export {
 } from "./i18n";
 export { cn } from "./lib/utils";
 export { LlmProvidersPanel, AgentBackendsPanel } from "./engine/panels";
+export { ModelTargetPicker } from "./engine/model-target-picker";
+export type { ModelTargetPickerProps } from "./engine/model-target-picker";
+export {
+  readRecentTargets,
+  recordRecentTarget,
+  removeRecentTarget,
+  recentStorageKey,
+} from "./engine/model-target-picker/recents";
+export { providerCompatibleForBackend } from "./engine/model-target-picker/types";
+export type {
+  ModelTarget,
+  PickerModel,
+  PickerProvider,
+  PickerScenario,
+} from "./engine/model-target-picker/types";
 export type {
   BackendView,
   EngineID,
