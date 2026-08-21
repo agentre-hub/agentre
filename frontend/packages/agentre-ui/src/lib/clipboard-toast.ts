@@ -57,6 +57,24 @@ function copyViaExecCommand(text: string): boolean {
   }
 }
 
+/**
+ * 复制本身，不带任何反馈。
+ *
+ * 调用方已经有就地反馈时（`AddDeviceGuide` 的复制按钮会翻成「已复制」）用这一层，
+ * 否则同一次点击会既翻按钮文案又弹一条 toast。要 toast 的走 `copyTextWithToast`。
+ *
+ * 返回 `false` 只表示「这个环境没有可用的复制通道」；Clipboard API 存在却拒绝
+ * （文档失焦、权限被拒）时 **抛出**，由调用方决定怎么说——两者不是一回事，
+ * 压成同一个 false 会让上层没法区分「不能复制」和「这次没复制成」。
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  return copyViaExecCommand(text);
+}
+
 export async function copyTextWithToast(
   text: string,
   {
@@ -66,9 +84,7 @@ export async function copyTextWithToast(
   }: CopyTextWithToastOptions,
 ): Promise<boolean> {
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else if (!copyViaExecCommand(text)) {
+    if (!(await copyTextToClipboard(text))) {
       throw new Error(
         i18n.t("clipboard.insecureContext", { ns: AGENTRE_UI_NAMESPACE }),
       );

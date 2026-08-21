@@ -54,6 +54,7 @@ export type { AgentColor } from "./lib/agent-color";
 export {
   COPY_TOAST_DURATION_MS,
   COPY_TOAST_ERROR_DURATION_MS,
+  copyTextToClipboard,
   copyTextWithToast,
 } from "./lib/clipboard-toast";
 export {

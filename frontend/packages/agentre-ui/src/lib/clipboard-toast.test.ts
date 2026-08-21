@@ -12,6 +12,7 @@ vi.mock("sonner", () => sonnerMocks);
 import {
   COPY_TOAST_DURATION_MS,
   COPY_TOAST_ERROR_DURATION_MS,
+  copyTextToClipboard,
   copyTextWithToast,
 } from "./clipboard-toast";
 
@@ -173,5 +174,67 @@ describe("copyTextWithToast", () => {
       }),
     );
     expect(document.body.querySelector("textarea")).toBeNull();
+  });
+});
+
+/**
+ * 不带 toast 的那一层。调用方自己有就地反馈（比如按钮上的「已复制」）时用它，
+ * 免得同一次点击既翻按钮文案又弹一条 toast。
+ */
+describe("copyTextToClipboard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: originalClipboard,
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: originalExecCommand,
+    });
+  });
+
+  it("Given a writable clipboard, When text is copied, Then it goes through the Clipboard API and reports success", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    installClipboard(writeText);
+
+    await expect(copyTextToClipboard("agentred run")).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith("agentred run");
+    expect(sonnerMocks.toast.success).not.toHaveBeenCalled();
+    expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it("Given no Clipboard API, When text is copied, Then execCommand copies the selection and success is reported", async () => {
+    removeClipboard();
+    const selectedAtCopy: string[] = [];
+    installExecCommand(
+      vi.fn((command: string) => {
+        if (command !== "copy") return false;
+        selectedAtCopy.push(
+          (document.activeElement as HTMLTextAreaElement | null)?.value ?? "",
+        );
+        return true;
+      }),
+    );
+
+    await expect(copyTextToClipboard("agentred run")).resolves.toBe(true);
+    expect(selectedAtCopy).toEqual(["agentred run"]);
+    expect(document.body.querySelector("textarea")).toBeNull();
+  });
+
+  it("Given neither Clipboard API nor a working execCommand, When text is copied, Then it reports failure instead of throwing", async () => {
+    removeClipboard();
+    installExecCommand(vi.fn().mockReturnValue(false));
+
+    await expect(copyTextToClipboard("agentred run")).resolves.toBe(false);
+  });
+
+  it("Given a clipboard that rejects, When text is copied, Then the rejection reaches the caller", async () => {
+    installClipboard(vi.fn().mockRejectedValue(new Error("denied")));
+
+    await expect(copyTextToClipboard("agentred run")).rejects.toThrow("denied");
   });
 });
