@@ -18,6 +18,13 @@ import {
 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -42,8 +49,11 @@ const i18n = {
 import { cn } from "../lib/utils";
 
 import {
+  accountDeviceOptions,
+  backendDeviceLocation,
   resolveModelTarget,
   truncateFlashText,
+  type DeviceOption,
   type ResolvedModelTarget,
 } from "./agent-backends-utils";
 import {
@@ -77,7 +87,7 @@ import {
   llm_provider_svc,
 } from "./port-bridge";
 import { bindEngineSettingsPorts, EventsOn } from "./port-bridge";
-import type { EngineSettingsPorts } from "./ports";
+import type { AccountDeviceView, EngineSettingsPorts } from "./ports";
 import { AgentreDialog } from "./app-dialog";
 import {
   ModelTargetPicker,
@@ -412,6 +422,10 @@ export function AgentBackendsPanel({
 }) {
   bindEngineSettingsPorts(ports);
   const { t } = useTranslation();
+  // 宿主有没有「本机」这个指代对象，全靠 localDeviceFingerprint 端口在不在席
+  // （规格决策 4）。桌面端接了它：本地是一个可选项，页级扫描默认就扫本机；浏览器
+  // 没接：既没有「本地」项，扫描也必须先点名一台机器。
+  const hasLocalDevice = Boolean(ports.localDeviceFingerprint);
   const [backends, setBackends] = React.useState<Backend[]>([]);
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -422,6 +436,8 @@ export function AgentBackendsPanel({
   const [flash, setFlash] = React.useState<FlashState>(null);
   const [testingId, setTestingId] = React.useState<number | null>(null);
   const [scanning, setScanning] = React.useState(false);
+  // 页级扫描的候选机器；只有没有本机可扫的宿主才需要它。
+  const [scanTargets, setScanTargets] = React.useState<DeviceOption[]>([]);
   // 当前正在跑的 TestAgentBackend 的 requestId；用户点取消时拿它去后端 CancelTest。
   // 用 ref 而不是 state，避免 await TestAgentBackend 拿到的是闭包里的旧值。
   const testReqIdRef = React.useRef<string | null>(null);
@@ -491,12 +507,22 @@ export function AgentBackendsPanel({
     }
   }
 
-  async function handleAutoScan() {
+  // 扫的是哪台机器不能由巧合决定：没有本机可扫时，device 是用户当场点名的那台，
+  // 结论也就按 (设备, 类型) 来读——同一类型在别的机器上已有后端，不构成在这台上
+  // 跳过的理由（规格决策 13，跳过的判定在宿主侧）。
+  async function handleAutoScan(device?: DeviceOption) {
     if (scanning) return;
     setScanning(true);
     setFlash(null);
+    const onDevice = (text: string) =>
+      device
+        ? t("agentBackends.autoScan.onDevice", {
+            device: device.name,
+            message: text,
+          })
+        : text;
     try {
-      const res = await ScanAndCreateAgentBackends();
+      const res = await ScanAndCreateAgentBackends(device?.value);
       const results = res?.results ?? [];
 
       const created = results.filter((r) => r.created);
@@ -509,20 +535,24 @@ export function AgentBackendsPanel({
           const skippedNames = skipped.map((r) => r.name).join(", ");
           setFlash({
             kind: "ok",
-            text: t("agentBackends.autoScan.partialFound", {
-              createdCount: created.length,
-              createdNames,
-              skippedCount: skipped.length,
-              skippedNames,
-            }),
+            text: onDevice(
+              t("agentBackends.autoScan.partialFound", {
+                createdCount: created.length,
+                createdNames,
+                skippedCount: skipped.length,
+                skippedNames,
+              }),
+            ),
           });
         } else {
           setFlash({
             kind: "ok",
-            text: t("agentBackends.autoScan.created", {
-              count: created.length,
-              names: createdNames,
-            }),
+            text: onDevice(
+              t("agentBackends.autoScan.created", {
+                count: created.length,
+                names: createdNames,
+              }),
+            ),
           });
         }
         await reload();
@@ -530,19 +560,21 @@ export function AgentBackendsPanel({
         const names = skipped.map((r) => r.name).join(", ");
         setFlash({
           kind: "ok",
-          text: t("agentBackends.autoScan.skipped", {
-            count: skipped.length,
-            names,
-          }),
+          text: onDevice(
+            t("agentBackends.autoScan.skipped", {
+              count: skipped.length,
+              names,
+            }),
+          ),
         });
       } else if (!foundAny) {
         setFlash({
           kind: "err",
-          text: t("agentBackends.autoScan.nothingFound"),
+          text: onDevice(t("agentBackends.autoScan.nothingFound")),
         });
       }
     } catch (err) {
-      setFlash({ kind: "err", text: messageFromError(err) });
+      setFlash({ kind: "err", text: onDevice(messageFromError(err)) });
     } finally {
       setScanning(false);
     }
@@ -586,36 +618,83 @@ export function AgentBackendsPanel({
     // reload is for explicit refreshes only; initial load runs directly
   }, []);
 
+  // 没有本机可扫的宿主要先点名一台机器，候选就是账号里的执行端设备。
+  // 有本机的宿主不拉这份清单：桌面端的 ServerListDevices 内部会写库收编设备，
+  // 为了一个用不上的菜单在页面挂载时触发那次写入是没有道理的。
+  React.useEffect(() => {
+    if (hasLocalDevice) return;
+    let cancelled = false;
+    void (async () => {
+      const rows = await ServerListDevices().catch(
+        () => [] as AccountDeviceView[],
+      );
+      if (!cancelled) setScanTargets(accountDeviceOptions(rows ?? []));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasLocalDevice]);
+
+  const scanButton = (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      className="h-[30px] gap-1.5 px-3 text-xs"
+      onClick={hasLocalDevice ? () => void handleAutoScan() : undefined}
+      disabled={scanning}
+      title={t("agentBackends.autoScan.buttonTitle")}
+    >
+      {scanning ? (
+        <Loader2
+          className="size-3.5 animate-spin"
+          data-icon="inline-start"
+          aria-hidden="true"
+        />
+      ) : (
+        <Radar
+          className="size-3.5"
+          data-icon="inline-start"
+          aria-hidden="true"
+        />
+      )}
+      {scanning
+        ? t("agentBackends.autoScan.scanning")
+        : t("agentBackends.autoScan.button")}
+    </Button>
+  );
+
   // 页级操作落在 H1 行。「新建后端」在空态下让位给空态自带的 CTA——全页始终只有一个
   // 新建入口；「自动识别」恰恰在空态最有用，所以一直留在标题行。
   const headerActions = (
     <>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className="h-[30px] gap-1.5 px-3 text-xs"
-        onClick={handleAutoScan}
-        disabled={scanning}
-        title={t("agentBackends.autoScan.buttonTitle")}
-      >
-        {scanning ? (
-          <Loader2
-            className="size-3.5 animate-spin"
-            data-icon="inline-start"
-            aria-hidden="true"
-          />
-        ) : (
-          <Radar
-            className="size-3.5"
-            data-icon="inline-start"
-            aria-hidden="true"
-          />
-        )}
-        {scanning
-          ? t("agentBackends.autoScan.scanning")
-          : t("agentBackends.autoScan.button")}
-      </Button>
+      {hasLocalDevice ? (
+        scanButton
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>{scanButton}</DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>
+              {t("agentBackends.autoScan.pickDevice")}
+            </DropdownMenuLabel>
+            {scanTargets.length === 0 ? (
+              <DropdownMenuItem disabled>
+                {t("agentBackends.device.noneAvailable")}
+              </DropdownMenuItem>
+            ) : (
+              scanTargets.map((device) => (
+                <DropdownMenuItem
+                  key={device.value}
+                  onSelect={() => void handleAutoScan(device)}
+                >
+                  {device.name}
+                  {device.online ? "" : t("agentBackends.device.offlineSuffix")}
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       {loading || backends.length === 0 ? null : (
         <Button
           type="button"
@@ -659,6 +738,7 @@ export function AgentBackendsPanel({
                 <BackendRow
                   key={b.id}
                   backend={b}
+                  hasLocalDevice={hasLocalDevice}
                   testing={testingId === b.id}
                   testDisabled={testingId !== null}
                   onTest={() => handleTestRow(b)}
@@ -686,6 +766,7 @@ export function AgentBackendsPanel({
             onOpenLlmProviders={onOpenLlmProviders}
             canEditEnvJSON={ports.canEditEnvJSON === true}
             canCreateBuiltin={ports.canCreateBuiltin === true}
+            hasLocalDevice={hasLocalDevice}
           />
         ) : null}
 
@@ -860,8 +941,32 @@ function BackendRowBinding({
   );
 }
 
+// 运行位置只说这一行知道的事：解析得到名字就报名字，解析不到就是那台机器已从账号
+// 撤销，没填设备则按宿主有没有本机分成「本机」与「未指定设备」。从前无论哪种都回落
+// 成「本机」——那是把三个不同的事实压成同一句话。
+function runtimeLocationLabel(
+  backend: Backend,
+  hasLocalDevice: boolean,
+  t: Translate,
+): string {
+  const deviceName = (backend.deviceName ?? "").trim();
+  switch (
+    backendDeviceLocation(backend.deviceId ?? "", deviceName, hasLocalDevice)
+  ) {
+    case "named":
+      return deviceName;
+    case "local":
+      return t("agentBackends.device.localShort");
+    case "revoked":
+      return t("agentBackends.device.revoked");
+    default:
+      return t("agentBackends.device.unspecified");
+  }
+}
+
 function BackendRow({
   backend,
+  hasLocalDevice,
   testing,
   testDisabled,
   onTest,
@@ -871,6 +976,7 @@ function BackendRow({
   onDelete,
 }: {
   backend: Backend;
+  hasLocalDevice: boolean;
   testing: boolean;
   testDisabled: boolean;
   onTest: () => void;
@@ -901,9 +1007,7 @@ function BackendRow({
   const metaTail: string[] = [
     openClaw && backend.openClawGatewayUrl
       ? backend.openClawGatewayUrl
-      : // deviceName 为空 = 未关联远端设备 = 跑在本机。
-        (backend.deviceName || "").trim() ||
-        t("agentBackends.device.localShort"),
+      : runtimeLocationLabel(backend, hasLocalDevice, t),
     backend.agentCount > 0
       ? t("agentBackends.row.agentCount", { count: backend.agentCount })
       : t("agentBackends.row.unused"),
@@ -1058,6 +1162,7 @@ function BackendEditor({
   onOpenLlmProviders,
   canEditEnvJSON,
   canCreateBuiltin,
+  hasLocalDevice,
 }: {
   state: EditorState;
   providers: Provider[];
@@ -1067,6 +1172,7 @@ function BackendEditor({
   onOpenLlmProviders?: () => void;
   canEditEnvJSON: boolean;
   canCreateBuiltin: boolean;
+  hasLocalDevice: boolean;
 }) {
   const { t } = useTranslation();
   const editing = state.kind === "edit" ? state.backend : null;
@@ -1134,9 +1240,9 @@ function BackendEditor({
   );
   const [devices, setDevices] = React.useState<DeviceView[]>([]);
   const [localFingerprint, setLocalFingerprint] = React.useState("");
-  const [accountDeviceNames, setAccountDeviceNames] = React.useState<
-    Map<string, string>
-  >(new Map());
+  const [accountDevices, setAccountDevices] = React.useState<
+    AccountDeviceView[]
+  >([]);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [pendingProviderSync, setPendingProviderSync] =
@@ -1234,6 +1340,9 @@ function BackendEditor({
   // 只有 CLI 引擎带设备前缀 —— 它们才能派到远端；内置 / 网关直接用类型名。
   function defaultBackendName(bt: BackendType, dev: string): string {
     if (!isCliBackend(bt)) return t(`agentBackends.backendType.${bt}.label`);
+    // 还没点名机器、宿主又没有本机可指代：名字里不塞一台不存在的机器。
+    if (dev === "" && !hasLocalDevice)
+      return t(`agentBackends.backendType.${bt}.label`);
     const deviceName = deviceDisplayName(dev);
     return t("agentBackends.name.deviceDefault", {
       device: deviceName,
@@ -1252,10 +1361,7 @@ function BackendEditor({
     setSaveResult(null);
     setType(nextType);
     if (!nameTouchedRef.current) {
-      // openclaw 会把 deviceId 清空，名字用同一个「清空后」的设备算，避免留下上一台机器。
-      setName(
-        defaultBackendName(nextType, nextType === "openclaw" ? "" : deviceId),
-      );
+      setName(defaultBackendName(nextType, deviceId));
     }
     setLlmProviderKey("");
     setLlmModelKey("");
@@ -1267,7 +1373,8 @@ function BackendEditor({
     setOpenClawToken("");
     setClearOpenClawToken(false);
     if (nextType === "openclaw") {
-      setDeviceId("");
+      // 网关后端同样要指明由哪台机器去拨它：配对用的设备身份种子就存在那台机器的
+      // keychain 里，配对关系本来就钉在一台机器上（规格决策 6）。
       setOpenClawGatewayURL(OPENCLAW_DEFAULT_GATEWAY_URL);
       setOpenClawAgentID("");
       setOpenClawDefaultModel("");
@@ -1354,26 +1461,20 @@ function BackendEditor({
     let cancelled = false;
     void (async () => {
       try {
-        const [fingerprint, accountDevices] = await Promise.all([
+        const [fingerprint, rowsFromAccount] = await Promise.all([
           RemoteDeviceFingerprint(),
-          ServerListDevices().catch(() => []),
+          ServerListDevices().catch(() => [] as AccountDeviceView[]),
         ]);
         const rows = await RemoteDeviceList();
         if (cancelled) return;
         setDevices((rows ?? []) as unknown as DeviceView[]);
         setLocalFingerprint(fingerprint ?? "");
-        setAccountDeviceNames(
-          new Map(
-            (accountDevices ?? [])
-              .filter((device) => device.Fingerprint)
-              .map((device) => [device.Fingerprint, device.Name] as const),
-          ),
-        );
+        setAccountDevices(rowsFromAccount ?? []);
       } catch {
         if (cancelled) return;
         setDevices([]);
         setLocalFingerprint("");
-        setAccountDeviceNames(new Map());
+        setAccountDevices([]);
       }
     })();
     return () => {
@@ -1415,23 +1516,48 @@ function BackendEditor({
   // 只有存在已配对的 agentred 行时，本机才真能把供应商同步过去；本机自身指纹与
   // 账号内其它桌面端都没有这条通道，不提供做不到的同步入口。
   const canSyncProvider = remoteDeviceID > 0;
+  // 有本机的宿主（桌面端）通过配对认识别的机器，选项就是那些配对行；没有本机的宿主
+  // 只能通过账号认识它们，选项就是账号里的执行端设备。这两条路互斥，因为它们本来
+  // 就是同一件事的两种知识来源。
+  const deviceOptions = React.useMemo<DeviceOption[]>(
+    () =>
+      hasLocalDevice
+        ? devices.map((device) => ({
+            value: pairedDeviceSelectValue(device),
+            name: device.name,
+            online: device.online,
+          }))
+        : accountDeviceOptions(accountDevices),
+    [accountDevices, devices, hasLocalDevice],
+  );
+  const accountDeviceNames = React.useMemo(
+    () =>
+      new Map(
+        accountDevices
+          .filter((device) => device.Fingerprint)
+          .map((device) => [device.Fingerprint, device.Name] as const),
+      ),
+    [accountDevices],
+  );
+  // 没有本机可指代时「本地」这一项根本不存在，于是空 deviceId 也没有对应的选项值。
+  const localSelectValue = hasLocalDevice ? LOCAL_DEVICE_SELECT_VALUE : "";
   const selectedDeviceValue = deviceSelectValue(
     deviceId,
     localFingerprint,
-    LOCAL_DEVICE_SELECT_VALUE,
+    localSelectValue,
   );
   const selectedDeviceKnown =
-    selectedDeviceValue === LOCAL_DEVICE_SELECT_VALUE ||
-    devices.some(
-      (candidate) => pairedDeviceSelectValue(candidate) === selectedDeviceValue,
-    );
+    (hasLocalDevice && selectedDeviceValue === LOCAL_DEVICE_SELECT_VALUE) ||
+    deviceOptions.some((option) => option.value === selectedDeviceValue);
   const deviceDisplayName = React.useCallback(
     (value: string) => {
       if (
         value === "" ||
         (localFingerprint !== "" && value === localFingerprint)
       ) {
-        return t("agentBackends.device.localShort");
+        return hasLocalDevice
+          ? t("agentBackends.device.localShort")
+          : t("agentBackends.device.unspecified");
       }
       return (
         devices.find(
@@ -1441,7 +1567,7 @@ function BackendEditor({
         value
       );
     },
-    [accountDeviceNames, devices, localFingerprint, t],
+    [accountDeviceNames, devices, hasLocalDevice, localFingerprint, t],
   );
   const [remoteProviders, setRemoteProviders] = React.useState<
     ProviderSummary[]
@@ -1522,12 +1648,7 @@ function BackendEditor({
       type,
       name,
       // builtin 后端只能在本地运行（无 HTTP 网关路由到 daemon），强制清空以防误保存。
-      deviceId:
-        type === "builtin"
-          ? ""
-          : type === "openclaw"
-            ? (editing?.deviceId ?? "")
-            : deviceId,
+      deviceId: type === "builtin" ? "" : deviceId,
       llmProviderKey: type === "openclaw" ? "" : effectiveLlmProviderKey,
       // openclaw 不绑定 Agentre ProviderModel（spec 决策 4/22）。
       llmModelKey: type === "openclaw" ? "" : llmModelKey.trim(),
@@ -2115,12 +2236,12 @@ function BackendEditor({
               handleDeviceChange(
                 persistedDeviceIdForSelection(
                   v,
-                  LOCAL_DEVICE_SELECT_VALUE,
+                  localSelectValue,
                   localFingerprint,
                 ),
               )
             }
-            disabled={type === "builtin" || type === "openclaw"}
+            disabled={type === "builtin"}
           >
             <SelectTrigger aria-label={t("agentBackends.fields.device")}>
               <SelectValue
@@ -2128,22 +2249,25 @@ function BackendEditor({
               />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={LOCAL_DEVICE_SELECT_VALUE}>
-                {t("agentBackends.device.local")}
-              </SelectItem>
-              {devices.map((d) => (
-                <SelectItem
-                  key={d.id}
-                  value={pairedDeviceSelectValue(d)}
-                  disabled={!d.online}
-                >
+              {hasLocalDevice ? (
+                <SelectItem value={LOCAL_DEVICE_SELECT_VALUE}>
+                  {t("agentBackends.device.local")}
+                </SelectItem>
+              ) : null}
+              {deviceOptions.map((d) => (
+                // 离线的机器照样能选：保存不依赖设备在线，只有测试连接 / 发现模型 /
+                // 自动扫描依赖。禁用它等于让刚登记或暂时掉线的机器配不了后端。
+                <SelectItem key={d.value} value={d.value}>
                   📡 {d.name}
                   {d.online ? "" : t("agentBackends.device.offlineSuffix")}
                 </SelectItem>
               ))}
               {!selectedDeviceKnown && deviceId ? (
                 <SelectItem value={deviceId} disabled>
-                  📡 {editing?.deviceName || deviceDisplayName(deviceId)}
+                  📡{" "}
+                  {editing?.deviceName ||
+                    accountDeviceNames.get(deviceId) ||
+                    t("agentBackends.device.revoked")}
                 </SelectItem>
               ) : null}
             </SelectContent>

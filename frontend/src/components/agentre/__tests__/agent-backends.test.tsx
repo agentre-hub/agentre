@@ -285,9 +285,10 @@ describe("AgentBackendsPanel runtime device list", () => {
     await waitFor(() => expect(mocks.RemoteDeviceList).toHaveBeenCalled());
   });
 
-  // 刚收编的那一行 watcher 才开始拨号，那一刻 online=false，下拉把它渲染成灰的
-  // 不可选项。在线态推送到了就该就地变可选，而不是等用户关掉弹窗重开。
-  it("Given an offline runtime device, When it comes online, Then its option becomes selectable in place", async () => {
+  // 刚收编的那一行 watcher 才开始拨号，那一刻 online=false，下拉把它标成离线。
+  // 在线态推送到了那个标记就该就地摘掉，而不是等用户关掉弹窗重开。
+  // 离线本身不再禁用选项：保存不依赖设备在线（规格 2026-08-21 决策 7）。
+  it("Given an offline runtime device, When it comes online, Then its offline marker clears in place", async () => {
     const user = userEvent.setup();
     installAppMock({
       RemoteDeviceList: vi.fn(() =>
@@ -307,7 +308,8 @@ describe("AgentBackendsPanel runtime device list", () => {
     );
 
     const offline = await screen.findByRole("option", { name: /linux-srv/ });
-    expect(offline).toHaveAttribute("aria-disabled", "true");
+    expect(offline).toHaveTextContent(/offline/i);
+    expect(offline).not.toHaveAttribute("aria-disabled", "true");
 
     act(() =>
       runtimeMocks.emit("remote.device.state", {
@@ -322,7 +324,7 @@ describe("AgentBackendsPanel runtime device list", () => {
     await waitFor(() =>
       expect(
         screen.getByRole("option", { name: /linux-srv/ }),
-      ).not.toHaveAttribute("aria-disabled", "true"),
+      ).not.toHaveTextContent(/offline/i),
     );
   });
 });

@@ -116,7 +116,18 @@ export type BackendScanResult = {
   skipped: boolean;
 };
 
-export type AccountDeviceView = { Fingerprint: string; Name: string };
+/**
+ * An account-scoped device row. `Kind` and `Online` are what a host without a
+ * local machine of its own has to go on: the panel keeps only the executable
+ * kinds (`desktop` / `agentred`), and marks an offline device in words rather
+ * than disabling it.
+ */
+export type AccountDeviceView = {
+  Fingerprint: string;
+  Name: string;
+  Kind?: string;
+  Online?: boolean;
+};
 export type GatewayStatusView = {
   status?: string;
   listenURL?: string;
@@ -185,7 +196,8 @@ export interface EngineSettingsPorts {
   testProvider?(providerKey: string, modelKey?: string): Promise<TestResult>;
   discoverModels?(providerKey: string): Promise<DiscoveredModel[]>;
   scanBackends?(): Promise<BackendView[]>;
-  scanBackendResults?(): Promise<BackendScanResult[]>;
+  /** `deviceId` names the machine to scan; hosts with a local machine omit it. */
+  scanBackendResults?(deviceId?: string): Promise<BackendScanResult[]>;
   /** Host may expose the desktop-only EnvJSON editor. */
   canEditEnvJSON?: boolean;
   /** Browser hosts disable local-only built-in backend creation. */

@@ -323,21 +323,21 @@ export async function TestAgentBackend(
   if (!ports().testBackend) throw new Error("Backend testing is unavailable");
   return ports().testBackend!(input);
 }
-export async function ScanAndCreateAgentBackends() {
+export async function ScanAndCreateAgentBackends(deviceId?: string) {
   if (ports().scanBackendResults)
-    return { results: await ports().scanBackendResults!() };
+    return { results: await ports().scanBackendResults!(deviceId) };
   if (!ports().scanBackends) throw new Error("Backend scanning is unavailable");
   return { items: await ports().scanBackends!() };
 }
 export async function ResolveAgentBackendCLIPath(
   input: agent_backend_svc.ResolveCLIPathRequest,
 ) {
-  return (
-    ports().resolveBackendCLIPath?.(input.type, input.deviceId) ?? {
-      path: "",
-      found: false,
-    }
-  );
+  // 端口缺席 = 这次探测**根本没有发出**，那是关于探测的陈述，不是关于目标机的。
+  // 从前的 `{found:false}` 缺省把「没问过」渲染成「没装」——一个凭空捏造的否定
+  // 结论。抛出去，让调用方落到「没探到」那一格。
+  const resolve = ports().resolveBackendCLIPath;
+  if (!resolve) throw new Error("CLI path probing is unavailable");
+  return resolve(input.type, input.deviceId);
 }
 export async function CancelTestAgentBackend(
   input: agent_backend_svc.CancelTestBackendRequest,

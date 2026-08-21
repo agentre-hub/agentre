@@ -1066,7 +1066,9 @@
       "buttonTitle": "Scan system PATH for Claude Code / Codex / Pi Agent CLI and auto-create backends",
       "created": "Created {{count}} backend(s): {{names}}",
       "nothingFound": "No claude / codex / pi executables found in system PATH",
+      "onDevice": "{{device}}: {{message}}",
       "partialFound": "Created {{createdCount}} backend(s): {{createdNames}}. {{skippedCount}} already exist(s): {{skippedNames}}",
+      "pickDevice": "Scan which device?",
       "scanning": "Scanning...",
       "skipped": "{{count}} backend(s) already exist: {{names}}"
     },
@@ -1120,8 +1122,11 @@
       "builtinLocalOnly": "Built-in backends can only run locally",
       "local": "📍 Local (this machine)",
       "localShort": "Local",
+      "noneAvailable": "No runtime device registered yet",
       "offlineSuffix": " · offline",
-      "placeholder": "Select runtime device"
+      "placeholder": "Select runtime device",
+      "revoked": "Device revoked",
+      "unspecified": "No runtime device"
     },
     "editor": {
       "createTitle": "New Agent Backend",

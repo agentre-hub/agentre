@@ -1066,7 +1066,9 @@
       "buttonTitle": "扫描系统 PATH 中的 Claude Code / Codex / Pi Agent CLI 并自动创建后端",
       "created": "已创建 {{count}} 个后端: {{names}}",
       "nothingFound": "未在系统 PATH 中找到 claude / codex / pi 可执行文件",
+      "onDevice": "{{device}}：{{message}}",
       "partialFound": "已创建 {{createdCount}} 个后端: {{createdNames}}。{{skippedCount}} 个已存在: {{skippedNames}}",
+      "pickDevice": "扫描哪台设备？",
       "scanning": "扫描中...",
       "skipped": "{{count}} 个后端已存在: {{names}}"
     },
@@ -1120,8 +1122,11 @@
       "builtinLocalOnly": "builtin 后端只能在本地运行",
       "local": "📍 本地（当前机器）",
       "localShort": "本机",
+      "noneAvailable": "账号下还没有可用的运行设备",
       "offlineSuffix": " · offline",
-      "placeholder": "选择运行设备"
+      "placeholder": "选择运行设备",
+      "revoked": "设备已撤销",
+      "unspecified": "未指定设备"
     },
     "editor": {
       "createTitle": "新增 Agent 后端",
