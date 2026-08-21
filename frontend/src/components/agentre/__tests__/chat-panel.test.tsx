@@ -4100,6 +4100,77 @@ describe("ChatPanel · launch command copy feedback", () => {
 
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
+// ─── turn 收尾:最后一轮不许先空掉再等 reload 回填 ─────────────────────────
+// finishStream 会同步删掉 LiveStream(liveDelta/liveBlocks 当场清零),而 messages
+// 里那条 assistant 还是发送时插的空占位 —— 若只靠异步 reloadSession 回填,这中间
+// 至少绘一帧「最后一轮正文整段消失」,长会话上 IPC 往返越久闪得越明显。
+// 后端在 done/aborted 事件里已经把最终 assistant 消息一起发过来了(chat.go 的
+// `ChatStreamEvent{Kind: StreamDone, Message: final}`),这里必须同步落表。
+
+describe("ChatPanel · turn 收尾不闪空", () => {
+  const placeholder = {
+    blocks: [],
+    createtime: 1,
+    id: 900,
+    role: "assistant",
+    seq: 0,
+    sessionId: 42,
+  };
+
+  function finalMessage() {
+    return {
+      ...placeholder,
+      blocks: [{ text: "final answer", type: "text" }],
+    };
+  }
+
+  it("Given a turn whose live stream just dropped, When done carries the final assistant message, Then it lands synchronously instead of waiting for the reload round trip", async () => {
+    resetStore();
+    useSessionStatusStore.getState().__reset();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = [placeholder];
+
+    render(<ChatPanel sessionId={42} active={false} />);
+    setMessagesSpy.mockClear();
+
+    const final = finalMessage();
+    act(() => {
+      useSessionStatusStore
+        .getState()
+        .bumpDone(42, { kind: "done", message: final as never });
+    });
+
+    await waitFor(() => expect(setMessagesSpy).toHaveBeenCalled());
+    const updater = setMessagesSpy.mock.calls.at(-1)?.[0] as (
+      prev: Array<Record<string, unknown>>,
+    ) => Array<Record<string, unknown>>;
+    expect(updater([placeholder])).toEqual([final]);
+  });
+
+  it("Given the user stopped the turn, When aborted carries the partial assistant message, Then the partial content lands synchronously too", async () => {
+    resetStore();
+    useSessionStatusStore.getState().__reset();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = [placeholder];
+
+    render(<ChatPanel sessionId={42} active={false} />);
+    setMessagesSpy.mockClear();
+
+    const partial = finalMessage();
+    act(() => {
+      useSessionStatusStore
+        .getState()
+        .bumpDone(42, { kind: "aborted", message: partial as never });
+    });
+
+    await waitFor(() => expect(setMessagesSpy).toHaveBeenCalled());
+    const updater = setMessagesSpy.mock.calls.at(-1)?.[0] as (
+      prev: Array<Record<string, unknown>>,
+    ) => Array<Record<string, unknown>>;
+    expect(updater([placeholder])).toEqual([partial]);
+  });
+});
+
 describe("ChatPanel · mark-read gated by active prop", () => {
   it("does not call MarkChatSessionRead when active=false and Done fires", async () => {
     resetStore();

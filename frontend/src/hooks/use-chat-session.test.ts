@@ -710,6 +710,121 @@ describe("useChatSession", () => {
     expect(result.current.messages.map((m) => m.id)).toEqual([40]);
   });
 
+  // 转录的行缓存是 WeakMap<消息对象, 行[]>(agentre-ui transcript-rows),键就是消息
+  // 对象本身。每次 turn 收尾都 reload 全量历史,若整表换成新 JSON 对象,缓存全表
+  // miss、行级 memo 全被击穿 —— 用户看到的就是「结束时整段转录重刷一遍」。
+  // 内容没变的消息必须原样保留旧对象引用;整表都没变时连数组引用一起保留。
+  it("Given a reload whose snapshot is unchanged, When it lands, Then every message keeps its object identity so the transcript row cache survives", async () => {
+    const snapshot = () => ({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "idle",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "hi" }],
+          seq: 1,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "yo" }],
+          seq: 2,
+        },
+      ],
+    });
+    // 每次 IPC 都是一份全新的对象树 —— mockResolvedValue 复用同一份会让测试假绿。
+    loadChatSession.mockImplementation(() =>
+      Promise.resolve(structuredClone(snapshot())),
+    );
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    const before = result.current.messages;
+
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(result.current.messages[0]).toBe(before[0]);
+    expect(result.current.messages[1]).toBe(before[1]);
+    expect(result.current.messages).toBe(before);
+  });
+
+  // 反面:内容真变了的那条必须换成新对象,否则缓存会把旧行一直钉在屏幕上。
+  it("Given one message whose blocks changed, When the reload lands, Then only that message gets a new object while its neighbours keep theirs", async () => {
+    loadChatSession.mockResolvedValueOnce({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "idle",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "hi" }],
+          seq: 1,
+        },
+        { id: 41, sessionId: 9, role: "assistant", blocks: [], seq: 2 },
+      ],
+    });
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    const before = result.current.messages;
+
+    loadChatSession.mockResolvedValueOnce({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "idle",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "hi" }],
+          seq: 1,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "final" }],
+          seq: 2,
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(result.current.messages[0]).toBe(before[0]);
+    expect(result.current.messages[1]).not.toBe(before[1]);
+    expect(result.current.messages[1].blocks?.[0]).toMatchObject({
+      text: "final",
+    });
+  });
+
   it("returns null when sessionId is 0", async () => {
     const { result } = renderHook(() => useChatSession(0));
     await waitFor(() => expect(result.current.loading).toBe(false));

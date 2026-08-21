@@ -1690,6 +1690,17 @@ function ChatPanel({
       onSidebarShouldReload?.();
     } else if (ev.kind === "done") {
       // 后端在发 done 前已经 chat_repo.Message().Update,reload 拿到最终顺序。
+      //
+      // 但不能只靠 reload:finishStream 是同步的,liveDelta / liveBlocks 当场清零,
+      // 而 messages 里那条 assistant 还是发送时插的空占位(blocks: [])——
+      // 中间那段 LoadChatSession 往返里,最后一轮的正文整段消失、行数塌陷,
+      // 响应回来才重新长出来。done 事件本身就带着最终 assistant 消息
+      // (chat_svc 的 `ChatStreamEvent{Kind: StreamDone, Message: final}`),
+      // 先同步落表,空窗就没了。reload 仍要发 —— 本轮可能还改了别的行
+      // (user 消息、subagent 子行、审批块),done 只覆盖 assistant 那一条。
+      if (ev.message) {
+        setMessages((prev) => upsertMessage(prev, ev.message!));
+      }
       void reloadSession();
       onSidebarShouldReload?.();
     } else if (ev.kind === "error") {
@@ -1704,8 +1715,12 @@ function ChatPanel({
       onSidebarShouldReload?.();
     } else if (ev.kind === "aborted") {
       // 用户主动「停止」：后端已经把 partial 内容写入 DB 且 errorText 为空。
-      // 走和 done 一样的 reload 路径即可，让 transcript 渲染 partial 结果；
+      // 走和 done 一样的路径:事件自带 partial 消息就先同步落表(同样是为了不
+      // 在等 reload 的这段里把已经生成的内容闪没),再 reload 兜其余的行；
       // 不调 MarkRead（abort 不是「用户已读完」语义）。
+      if (ev.message) {
+        setMessages((prev) => upsertMessage(prev, ev.message!));
+      }
       void reloadSession();
       onSidebarShouldReload?.();
     } else if (ev.kind === "closed") {

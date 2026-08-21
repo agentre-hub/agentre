@@ -4,6 +4,7 @@ import { LoadChatSession } from "../../wailsjs/go/app/App";
 import type { chat_svc } from "../../wailsjs/go/models";
 import { clientLog } from "@/lib/client-log";
 import { isNoticeOnlyMessage } from "@/lib/notice-message";
+import { samePayload } from "@/lib/same-payload";
 import {
   hasSessionStream,
   primaryStream,
@@ -52,6 +53,37 @@ function reconcileLoadedMessages(
   );
   if (insertedDuringLoad.length === 0) return loaded;
   return [...loaded, ...insertedDuringLoad];
+}
+
+// preserveMessageIdentity 让「内容没变的消息」保住它上一轮的对象引用。
+//
+// 每轮 turn 收尾都会 reload 一次全量历史,而转录的行缓存是
+// WeakMap<消息对象, 行[]>(agentre-ui 的 transcript-rows),键就是消息对象本身。
+// 整表换成 Wails 新反序列化出来的对象 → 全表 cache miss、行级 memo 全被击穿,
+// 用户看到的就是「每轮结束整段转录重刷一遍」。绝大多数轮次里,除了刚落定的那条
+// assistant 之外没有任何一行变过,把它们的引用还回去,缓存就能整片存活。
+//
+// 整表都没变时连数组引用一起保留 —— 下游按 messages 数组身份做记忆化。
+// 比较口径与侧栏三个数据源同源(samePayload),序列化不了就退化成「不相等」,
+// 后果只是多重渲一次。
+function preserveMessageIdentity(
+  prev: ChatMessage[],
+  next: ChatMessage[],
+): ChatMessage[] {
+  if (prev.length === 0) return next;
+  const prevByID = new Map(prev.map((m) => [m.id, m]));
+  let changed = prev.length !== next.length;
+  const merged = next.map((m, i) => {
+    const old = prevByID.get(m.id);
+    if (!old || !samePayload(old, m)) {
+      changed = true;
+      return m;
+    }
+    // 内容一致但位置挪了(编辑/重跑截断后重排),数组本身仍要换新。
+    if (prev[i] !== old) changed = true;
+    return old;
+  });
+  return changed ? merged : prev;
 }
 
 export function useChatSession(sessionId: number) {
@@ -289,7 +321,10 @@ export function useChatSession(sessionId: number) {
           );
       }
       setMessages((prev) =>
-        reconcileLoadedMessages(prev, loadedMessages, idsBeforeLoad),
+        preserveMessageIdentity(
+          prev,
+          reconcileLoadedMessages(prev, loadedMessages, idsBeforeLoad),
+        ),
       );
       // 注:不在这里 MarkRead。语义上"用户已读到 lastMessageAt"只能由
       // ChatPanel 根据 active prop 判断 —— 隐藏 tab 也会 mount useChatSession,
