@@ -85,6 +85,13 @@ function backendView(item: agent_backend_svc.BackendItem): BackendView {
     llmProviderActive: item.llmProviderActive,
     agentCount: item.agentCount,
     deviceName: item.deviceName,
+    modelRoutes: item.modelRoutes,
+    sandbox: item.sandbox,
+    approval: item.approval,
+    envJson: item.envJson,
+    reasoningEffort: item.reasoningEffort,
+    defaultPermissionMode: item.defaultPermissionMode,
+    defaultModel: item.defaultModel,
     openClawGatewayUrl: item.openClawGatewayUrl,
     openClawAgentId: item.openClawAgentId,
     openClawDefaultModel: item.openClawDefaultModel,
@@ -99,6 +106,8 @@ export function createDesktopEngineSettingsPorts(options: {
   onRuntimeDeviceState?: (listener: (payload: unknown) => void) => () => void;
 } = {}): EngineSettingsPorts {
   return {
+    canEditEnvJSON: true,
+    canCreateBuiltin: true,
     async listProviders() {
       return ((await ListLLMProviders()).items ?? []).map(providerView);
     },

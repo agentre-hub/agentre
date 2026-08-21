@@ -676,6 +676,8 @@ export function AgentBackendsPanel({
             }}
             onOpenProxySettings={onOpenProxySettings}
             onOpenLlmProviders={onOpenLlmProviders}
+            canEditEnvJSON={ports.canEditEnvJSON === true}
+            canCreateBuiltin={ports.canCreateBuiltin === true}
           />
         ) : null}
 
@@ -1046,6 +1048,8 @@ function BackendEditor({
   onSaved,
   onOpenProxySettings,
   onOpenLlmProviders,
+  canEditEnvJSON,
+  canCreateBuiltin,
 }: {
   state: EditorState;
   providers: Provider[];
@@ -1053,10 +1057,14 @@ function BackendEditor({
   onSaved: (message: string) => Promise<void> | void;
   onOpenProxySettings?: () => void;
   onOpenLlmProviders?: () => void;
+  canEditEnvJSON: boolean;
+  canCreateBuiltin: boolean;
 }) {
   const { t } = useTranslation();
   const editing = state.kind === "edit" ? state.backend : null;
-  const initialType: BackendType = (editing?.type as BackendType) ?? "builtin";
+  const initialType: BackendType =
+    (editing?.type as BackendType) ??
+    (canCreateBuiltin ? "builtin" : "claudecode");
 
   const [type, setType] = React.useState<BackendType>(initialType);
   const [name, setName] = React.useState(editing?.name ?? "");
@@ -2070,6 +2078,7 @@ function BackendEditor({
               value={type}
               onChange={handleTypeChange}
               probes={cliProbes}
+              canCreateBuiltin={canCreateBuiltin}
             />
           </div>
         )}
@@ -2244,6 +2253,7 @@ function BackendEditor({
             value={defaultPermissionMode}
             onChange={setDefaultPermissionMode}
             isRemote={remoteExecution}
+            canEditEnvJSON={canEditEnvJSON}
             hasIsSandbox={envEntries.some(
               (e) => e.key.trim() === "IS_SANDBOX" && e.value.trim() !== "",
             )}
@@ -2293,7 +2303,7 @@ function BackendEditor({
           />
         ) : null}
 
-        {cliBased ? (
+        {cliBased && canEditEnvJSON ? (
           <EnvJsonField
             entries={envEntries}
             onChange={setEnvEntries}
@@ -2402,19 +2412,24 @@ function BackendTypePicker({
   value,
   onChange,
   probes,
+  canCreateBuiltin,
 }: {
   value: BackendType;
   onChange: (v: BackendType) => void;
   probes: Partial<Record<BackendType, CLIProbe>>;
+  canCreateBuiltin: boolean;
 }) {
   const { t } = useTranslation();
   const groupRef = React.useRef<HTMLDivElement>(null);
+  const backendTypes = canCreateBuiltin
+    ? BACKEND_TYPE_ORDER
+    : BACKEND_TYPE_ORDER.filter((backendType) => backendType !== "builtin");
 
   // radiogroup 的键盘契约：方向键换选项并把焦点带过去（Tab 只进出整组）。
   function moveSelection(delta: number) {
-    const from = BACKEND_TYPE_ORDER.indexOf(value);
-    const total = BACKEND_TYPE_ORDER.length;
-    const next = BACKEND_TYPE_ORDER[(from + delta + total) % total];
+    const from = backendTypes.indexOf(value);
+    const total = backendTypes.length;
+    const next = backendTypes[(from + delta + total) % total];
     onChange(next);
     groupRef.current
       ?.querySelector<HTMLButtonElement>(`[data-backend-type="${next}"]`)
@@ -2439,7 +2454,7 @@ function BackendTypePicker({
         }
       }}
     >
-      {BACKEND_TYPE_ORDER.map((backendType) => {
+      {backendTypes.map((backendType) => {
         const checked = value === backendType;
         return (
           <button
@@ -3452,12 +3467,14 @@ function DefaultPermissionModeField({
   value,
   onChange,
   isRemote,
+  canEditEnvJSON,
   hasIsSandbox,
   onAddIsSandbox,
 }: {
   value: string;
   onChange: (v: string) => void;
   isRemote: boolean;
+  canEditEnvJSON: boolean;
   hasIsSandbox: boolean;
   onAddIsSandbox: () => void;
 }) {
@@ -3526,7 +3543,7 @@ function DefaultPermissionModeField({
           {t("agentBackends.permission.bypassWarning")}
         </span>
       ) : null}
-      {showRootHint ? (
+      {showRootHint && canEditEnvJSON ? (
         <div className="flex flex-wrap items-center gap-2 rounded border border-status-waiting/40 bg-status-waiting-bg px-2 py-1.5 text-2xs text-status-waiting">
           <span className="min-w-0 flex-1">
             {t("agentBackends.permission.remoteRootHintPrefix")}{" "}
