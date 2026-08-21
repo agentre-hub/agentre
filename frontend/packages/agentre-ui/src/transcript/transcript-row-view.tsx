@@ -21,7 +21,12 @@ import { useUiTranslation } from "../i18n";
 import { formatTokensPerSec, formatTurnDuration } from "../lib/format-duration";
 import { cn } from "../lib/utils";
 import { Button } from "../ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 
 import { ActivityBlock } from "./activity-block/block";
 import { AutoTriggerBanner } from "./auto-trigger-banner";
@@ -289,70 +294,75 @@ function MessageMeta({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/60"
-            aria-label={t("chat.meta.tokenDetails")}
-          >
-            {displayModel ? (
-              <>
-                <span>{displayModel}</span>
-                <span className="text-border-strong">·</span>
-              </>
-            ) : null}
-            {hasUsage ? (
-              <span
-                data-testid="message-token-counts"
-                className="inline-flex items-center gap-1.5"
-              >
-                {displayPrompt > 0 ? (
+      {/* 宿主(SaaS 前端等)不保证树上有 TooltipProvider,radix-ui 1.4 的 Root
+          没有祖先 Provider 会在 render 阶段直接抛错,所以这里自带一份。
+          delayDuration 取 200ms,与桌面端 chat.tsx 外层 Provider 一致。 */}
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/60"
+              aria-label={t("chat.meta.tokenDetails")}
+            >
+              {displayModel ? (
+                <>
+                  <span>{displayModel}</span>
+                  <span className="text-border-strong">·</span>
+                </>
+              ) : null}
+              {hasUsage ? (
+                <span
+                  data-testid="message-token-counts"
+                  className="inline-flex items-center gap-1.5"
+                >
+                  {displayPrompt > 0 ? (
+                    <span className="inline-flex items-center gap-0.5">
+                      <ArrowUp className="size-2.5" aria-hidden="true" />
+                      {displayPrompt.toLocaleString()}
+                    </span>
+                  ) : null}
                   <span className="inline-flex items-center gap-0.5">
-                    <ArrowUp className="size-2.5" aria-hidden="true" />
-                    {displayPrompt.toLocaleString()}
+                    <ArrowDown className="size-2.5" aria-hidden="true" />
+                    {approxMark}
+                    {displayCompletion.toLocaleString()}
                   </span>
-                ) : null}
-                <span className="inline-flex items-center gap-0.5">
-                  <ArrowDown className="size-2.5" aria-hidden="true" />
-                  {approxMark}
-                  {displayCompletion.toLocaleString()}
+                  <span className="text-border-strong">·</span>
                 </span>
-                <span className="text-border-strong">·</span>
-              </span>
-            ) : null}
-            {waitingFirstToken ? null : <span>{durationLabel}</span>}
-            {showFirstToken ? (
-              <span data-testid="message-first-token">
-                {waitingFirstToken ? null : (
+              ) : null}
+              {waitingFirstToken ? null : <span>{durationLabel}</span>}
+              {showFirstToken ? (
+                <span data-testid="message-first-token">
+                  {waitingFirstToken ? null : (
+                    <span className="text-border-strong">· </span>
+                  )}
+                  {firstTokenLabel}
+                </span>
+              ) : null}
+              {showSpeed ? (
+                <span data-testid="message-tokens-per-sec">
                   <span className="text-border-strong">· </span>
-                )}
-                {firstTokenLabel}
-              </span>
-            ) : null}
-            {showSpeed ? (
-              <span data-testid="message-tokens-per-sec">
-                <span className="text-border-strong">· </span>
-                {speedLabel}
-              </span>
-            ) : null}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent className="font-mono text-meta">
-          <table className="border-separate border-spacing-x-3 border-spacing-y-0.5">
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.label}>
-                  <td className="text-left text-muted-foreground">
-                    {row.label}
-                  </td>
-                  <td className="text-right tabular-nums">{row.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TooltipContent>
-      </Tooltip>
+                  {speedLabel}
+                </span>
+              ) : null}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="font-mono text-meta">
+            <table className="border-separate border-spacing-x-3 border-spacing-y-0.5">
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.label}>
+                    <td className="text-left text-muted-foreground">
+                      {row.label}
+                    </td>
+                    <td className="text-right tabular-nums">{row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       {onRerun ? (
         <Button
           type="button"
