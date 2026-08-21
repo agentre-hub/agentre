@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as React from "react";
 import { useUiTranslation as useTranslation } from "../../i18n";
 import { Info, Loader2, Plus } from "lucide-react";

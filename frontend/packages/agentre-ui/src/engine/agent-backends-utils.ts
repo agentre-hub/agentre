@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { PickerProvider } from "./model-target-picker";
 
 const FLASH_DISPLAY_LIMIT = 80;

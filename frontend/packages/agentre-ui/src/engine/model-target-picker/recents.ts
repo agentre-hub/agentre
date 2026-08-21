@@ -1,4 +1,3 @@
-// @ts-nocheck
 // 最近使用目标（spec「UI, accessibility and recent targets」决策 19）：
 //
 //   - 只存本机 localStorage，按执行位置指纹隔离（local / daemon:<deviceId>）；

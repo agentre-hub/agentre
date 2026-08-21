@@ -1,4 +1,3 @@
-// @ts-nocheck
 // ModelTargetPicker 共享类型（spec 2026-08-11-llm-provider-models「ModelTarget
 // contract / UI, accessibility and recent targets」）。
 //

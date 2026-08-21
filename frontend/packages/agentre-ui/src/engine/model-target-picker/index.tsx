@@ -1,4 +1,3 @@
-// @ts-nocheck
 // 共享 ModelTargetPicker（spec「UI, accessibility and recent targets」）。
 //
 // 三处复用同一主体，只替换顶部特殊项（scenario）：

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as React from "react";
 import { useUiTranslation as useTranslation } from "../../i18n";
 import { Loader2, RefreshCw } from "lucide-react";

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Host boundary for the shared engine-settings panels.
  *
@@ -7,7 +6,7 @@
  * Hosts that can edit a local CLI override expose that capability separately
  * through the optional `cliPath` port.
  */
-export type EngineID = string | number;
+export type EngineID = number;
 
 export type CliStatus = "recognized" | "path" | "unchecked";
 
@@ -56,11 +55,19 @@ export type BackendView = {
   llmProviderType?: string;
   llmProviderModel?: string;
   llmProviderActive?: boolean;
-  agentCount?: number;
+  agentCount: number;
   deviceName?: string;
   openClawGatewayUrl?: string;
   openClawAgentId?: string;
   openClawDefaultModel?: string;
+  hasToken?: boolean;
+  deviceId?: string;
+  sandbox?: string;
+  approval?: string;
+  envJson?: string;
+  reasoningEffort?: string;
+  defaultPermissionMode?: string;
+  defaultModel?: string;
   cliByDevice: CliByDeviceView[];
 };
 
@@ -75,15 +82,41 @@ export type TestResult = {
   message: string;
   latencyMs?: number;
   code?: string;
-  [key: string]: unknown;
+  openClawAgents: Array<{ id: string; name?: string; default?: boolean }>;
+  openClawModels: Array<{ id: string; name?: string; available?: boolean }>;
+  grantedScopes: string[];
+  gatewayVersion?: string;
+  protocol?: string | number;
 };
 
 export type DiscoveredModel = {
   id: string;
   name?: string;
-  contextWindow?: number;
-  maxOutput?: number;
+  vendor: string;
+  contextWindow: number;
+  maxOutput: number;
 };
+
+/** Host-neutral paired-runtime view used only by optional desktop capabilities. */
+export type RuntimeDeviceView = {
+  id: number;
+  name: string;
+  online: boolean;
+  daemonFingerprint?: string;
+  supportsLLMModelTarget?: boolean;
+};
+
+export type CliProbeResult = { path: string; found: boolean };
+
+export type BackendScanResult = {
+  name: string;
+  found: boolean;
+  created: boolean;
+  skipped: boolean;
+};
+
+export type AccountDeviceView = { Fingerprint: string; Name: string };
+export type GatewayStatusView = { status?: string; listenURL?: string; reason?: string };
 
 export type ProviderInput = {
   providerKey?: string;
@@ -138,8 +171,23 @@ export interface EngineSettingsPorts {
   testProvider?(providerKey: string, modelKey?: string): Promise<TestResult>;
   discoverModels?(providerKey: string): Promise<DiscoveredModel[]>;
   scanBackends?(): Promise<BackendView[]>;
+  scanBackendResults?(): Promise<BackendScanResult[]>;
   cliPath?: {
     get(backendSyncId: string): Promise<string | null>;
     set(backendSyncId: string, path: string): Promise<void>;
   };
+
+  /** Desktop-only runtime capabilities. Browser hosts omit these methods. */
+  resolveBackendCLIPath?(backendType: string, deviceId?: string): Promise<CliProbeResult>;
+  cancelBackendTest?(requestId: string): Promise<void>;
+  createOpenClawBackend?(input: BackendInput, token: string): Promise<BackendView>;
+  updateOpenClawBackend?(id: EngineID, input: BackendInput, token: string, clearToken: boolean): Promise<BackendView>;
+  testOpenClawBackend?(input: BackendInput, token: string): Promise<TestResult>;
+  gatewayStatus?(): Promise<GatewayStatusView>;
+  localDeviceFingerprint?(): Promise<string>;
+  listAccountDevices?(): Promise<AccountDeviceView[]>;
+  listRuntimeDevices?(): Promise<RuntimeDeviceView[]>;
+  listRuntimeDeviceProviders?(deviceID: number): Promise<unknown[]>;
+  syncRuntimeDeviceProvider?(deviceID: number, providerKey: string): Promise<void>;
+  onRuntimeDeviceState?(listener: (payload: unknown) => void): () => void;
 }

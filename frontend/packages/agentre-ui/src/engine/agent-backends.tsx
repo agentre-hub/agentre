@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as React from "react";
 import { useUiTranslation as useTranslation } from "../i18n";
 import {
@@ -31,7 +30,7 @@ import {
 } from "./ui/select";
 import { agentreUiResources } from "../i18n";
 
-const i18n = { t: (key: string) => key.split(".").reduce<unknown>((value, part) => (value as Record<string, unknown>)?.[part], agentreUiResources.en) as string ?? key };
+const i18n = { t: (key: string, _options?: Record<string, unknown>) => key.split(".").reduce<unknown>((value, part) => (value as Record<string, unknown>)?.[part], agentreUiResources.en) as string ?? key };
 import { cn } from "../lib/utils";
 
 import {
@@ -167,7 +166,7 @@ const backendTypeMeta: Record<
 type EditorState =
   | { kind: "closed" }
   | { kind: "create" }
-  | { kind: "edit"; backend: Backend; openBinding?: boolean };
+  | { kind: "edit"; backend: Backend; cliPath?: string; openBinding?: boolean };
 
 type FlashState =
   | { kind: "ok"; text: string }
@@ -290,7 +289,7 @@ function probeCLIPath(t: BackendType, deviceId: string) {
   return ResolveAgentBackendCLIPath({
     type: t,
     deviceId,
-  } as agent_backend_svc.ResolveCLIPathRequest);
+  } as unknown as agent_backend_svc.ResolveCLIPathRequest);
 }
 
 // parseRoutes 把后端 DTO 的类型化 modelRoutes 解析成三档 Record。
@@ -402,7 +401,7 @@ export function AgentBackendsPanel({
   // 页头由宿主渲染，面板把自己的页级操作（自动识别 / 新建后端）交进去：按钮要落在
   // H1 行，而它们开的创建弹窗、扫描进行态仍归面板持有。
   renderHeader?: (actions: React.ReactNode) => React.ReactNode;
-} = {}) {
+}) {
   bindEngineSettingsPorts(ports);
   const { t } = useTranslation();
   const [backends, setBackends] = React.useState<Backend[]>([]);
@@ -428,6 +427,11 @@ export function AgentBackendsPanel({
     } else {
       setFlash({ kind: "err", text: `❌ ${res.message}` });
     }
+  }
+
+  async function openEditor(backend: Backend, openBinding = false) {
+    const cliPath = await ports.cliPath?.get(backend.syncId) ?? "";
+    setEditor({ kind: "edit", backend, cliPath, openBinding });
   }
 
   async function handleTestRow(backend: Backend) {
@@ -651,10 +655,8 @@ export function AgentBackendsPanel({
                   testDisabled={testingId !== null}
                   onTest={() => handleTestRow(b)}
                   onCancelTest={handleCancelRow}
-                  onEdit={() => setEditor({ kind: "edit", backend: b })}
-                  onChangeBinding={() =>
-                    setEditor({ kind: "edit", backend: b, openBinding: true })
-                  }
+                  onEdit={() => void openEditor(b)}
+                  onChangeBinding={() => void openEditor(b, true)}
                   onDelete={() => setPendingDelete(b)}
                 />
               ))}
@@ -1058,7 +1060,9 @@ function BackendEditor({
 
   const [type, setType] = React.useState<BackendType>(initialType);
   const [name, setName] = React.useState(editing?.name ?? "");
-  const [cliPath, setCliPath] = React.useState(editing?.cliPath ?? "");
+  const [cliPath, setCliPath] = React.useState(
+    state.kind === "edit" ? state.cliPath ?? "" : "",
+  );
   const [llmProviderKey, setLlmProviderKey] = React.useState<string>(
     () =>
       (editing as unknown as { llmProviderKey?: string } | null)
@@ -3894,7 +3898,7 @@ function newRequestId(): string {
     typeof crypto !== "undefined" &&
     typeof crypto.randomUUID === "function"
   ) {
-    return crypto.randomUUID();
+    return crypto.randomUUID.call(crypto);
   }
   return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 export type PairedDeviceIdentity = {
   id: number;
   daemonFingerprint?: string;

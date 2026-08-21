@@ -1,9 +1,12 @@
 import {
+  CancelTestAgentBackend,
   CreateAgentBackend,
   CreateLLMProvider,
+  CreateOpenClawAgentBackend,
   DeleteAgentBackend,
   DeleteLLMModel,
   DeleteLLMProvider,
+  GetGatewayStatus,
   ImportLLMModels,
   LLMModelRefCounts,
   LLMProviderRefCounts,
@@ -12,13 +15,21 @@ import {
   ListLLMProviders,
   LookupLLMModel,
   PreviewLLMModels,
+  RemoteDeviceFingerprint,
+  RemoteDeviceList,
+  RemoteDeviceListProviders,
+  RemoteDeviceSyncProvider,
+  ResolveAgentBackendCLIPath,
   ScanAndCreateAgentBackends,
+  ServerListDevices,
   SetLLMModelDefault,
   SetLLMModelEnabled,
   SetLLMProviderEnabled,
   TestAgentBackend,
   TestLLMProvider,
+  TestOpenClawAgentBackend,
   UpdateAgentBackend,
+  UpdateOpenClawAgentBackend,
   UpdateLLMModel,
   UpdateLLMProvider,
 } from "../../../wailsjs/go/app/App";
@@ -78,6 +89,8 @@ function backendView(item: agent_backend_svc.BackendItem): BackendView {
     openClawGatewayUrl: item.openClawGatewayUrl,
     openClawAgentId: item.openClawAgentId,
     openClawDefaultModel: item.openClawDefaultModel,
+    hasToken: item.hasToken,
+    deviceId: item.deviceId,
     // The shared view never carries item.cliPath. Desktop keeps it in this
     // closure and exposes it only through the optional desktop-only port.
     cliByDevice: [{ deviceId: "desktop", status: item.cliPath ? "path" : "unchecked" }],
@@ -85,7 +98,9 @@ function backendView(item: agent_backend_svc.BackendItem): BackendView {
 }
 
 /** Wails-only wiring for the shared engine UI. */
-export function createDesktopEngineSettingsPorts(): EngineSettingsPorts {
+export function createDesktopEngineSettingsPorts(options: {
+  onRuntimeDeviceState?: (listener: (payload: unknown) => void) => () => void;
+} = {}): EngineSettingsPorts {
   const backendRows = new Map<EngineID, agent_backend_svc.BackendItem>();
 
   return {
@@ -116,8 +131,8 @@ export function createDesktopEngineSettingsPorts(): EngineSettingsPorts {
     },
     async createModels(providerID, models) {
       const response = await ImportLLMModels(new llm_provider_svc.ImportModelsRequest({
-        id: Number(providerID),
-        items: models.map((model) => new llm_provider_svc.ModelInput(model)),
+        providerId: Number(providerID),
+        models: models.map((model) => new llm_provider_svc.ModelInput(model)),
       }));
       return (response.items ?? []).map(modelView);
     },
@@ -129,7 +144,13 @@ export function createDesktopEngineSettingsPorts(): EngineSettingsPorts {
       await DeleteLLMModel(new llm_provider_svc.DeleteModelRequest({ id: Number(id) }));
     },
     async setDefaultModel(providerID, modelID) {
-      const response = await SetLLMModelDefault(new llm_provider_svc.SetModelDefaultRequest({ id: Number(providerID), modelId: Number(modelID) }));
+      const model = (await ListLLMModels(new llm_provider_svc.ListModelsRequest({ id: Number(providerID) }))).items
+        ?.find((item) => item.id === Number(modelID));
+      if (!model) throw new Error("Model not found");
+      const response = await SetLLMModelDefault(new llm_provider_svc.SetModelDefaultRequest({
+        providerId: Number(providerID),
+        modelKey: model.modelKey,
+      }));
       return providerView(response.item);
     },
     async providerReferenceCounts(providerKey) {
@@ -165,7 +186,17 @@ export function createDesktopEngineSettingsPorts(): EngineSettingsPorts {
       await DeleteAgentBackend(new agent_backend_svc.DeleteBackendRequest({ id: Number(id) }));
     },
     async testProvider(providerKey, modelKey) {
-      const response = await TestLLMProvider(new llm_provider_svc.TestConnectionRequest({ providerKey, modelKey }));
+      const provider = (await ListLLMProviders()).items?.find((item) => item.providerKey === providerKey);
+      if (!provider) throw new Error("Provider not found");
+      const response = await TestLLMProvider(new llm_provider_svc.TestConnectionRequest({
+        id: provider.id,
+        useDraft: false,
+        type: provider.type,
+        apiKey: "",
+        baseUrl: "",
+        modelKey: modelKey ?? "",
+        modelId: "",
+      }));
       return { ok: response.ok, message: response.message, latencyMs: response.latencyMs };
     },
     async discoverModels(providerKey) {
@@ -180,6 +211,7 @@ export function createDesktopEngineSettingsPorts(): EngineSettingsPorts {
       return (response.items ?? []).map((item) => ({
         id: item.id,
         name: item.vendor,
+        vendor: item.vendor,
         contextWindow: item.contextWindow,
         maxOutput: item.maxOutput,
       }));
@@ -191,10 +223,50 @@ export function createDesktopEngineSettingsPorts(): EngineSettingsPorts {
       for (const item of items) backendRows.set(item.id, item);
       return items.map(backendView);
     },
+    async scanBackendResults() {
+      return (await ScanAndCreateAgentBackends()).results ?? [];
+    },
     async testBackend(input) {
       const response = await TestAgentBackend(new agent_backend_svc.TestBackendRequest({ ...input, id: Number(input.id) }));
       return { ok: response.ok, message: response.message, latencyMs: response.latencyMs };
     },
+    async resolveBackendCLIPath(backendType, deviceId) {
+      return ResolveAgentBackendCLIPath({ type: backendType, deviceId } as agent_backend_svc.ResolveCLIPathRequest);
+    },
+    async cancelBackendTest(requestId) {
+      await CancelTestAgentBackend({ requestId } as agent_backend_svc.CancelTestBackendRequest);
+    },
+    async createOpenClawBackend(input, token) {
+      const response = await CreateOpenClawAgentBackend(new agent_backend_svc.CreateBackendRequest(input), token);
+      return backendView(response.item);
+    },
+    async updateOpenClawBackend(id, input, token, clearToken) {
+      const response = await UpdateOpenClawAgentBackend(new agent_backend_svc.UpdateBackendRequest({ ...input, id: Number(id) }), token, clearToken);
+      return backendView(response.item);
+    },
+    async testOpenClawBackend(input, token) {
+      const response = await TestOpenClawAgentBackend(new agent_backend_svc.TestBackendRequest({ ...input, id: Number(input.id) }), token);
+      return { ok: response.ok, message: response.message, latencyMs: response.latencyMs, code: response.code, ...response };
+    },
+    async gatewayStatus() {
+      return await GetGatewayStatus() as unknown as Record<string, unknown>;
+    },
+    async localDeviceFingerprint() {
+      return await RemoteDeviceFingerprint();
+    },
+    async listAccountDevices() {
+      return await ServerListDevices();
+    },
+    async listRuntimeDevices() {
+      return await RemoteDeviceList();
+    },
+    async listRuntimeDeviceProviders(deviceID) {
+      return await RemoteDeviceListProviders(deviceID);
+    },
+    async syncRuntimeDeviceProvider(deviceID, providerKey) {
+      await RemoteDeviceSyncProvider(deviceID, providerKey);
+    },
+    onRuntimeDeviceState: options.onRuntimeDeviceState,
     cliPath: {
       async get(backendSyncID) {
         return backendRows.get(Number(backendSyncID))?.cliPath || null;

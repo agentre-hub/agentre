@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { CSSProperties } from "react";
 
 import agentreLogo from "./assets/images/logo-mark.png";

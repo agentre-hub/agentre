@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as React from "react";
 import { useUiTranslation as useTranslation } from "../../i18n";
 import { AlertTriangle, Loader2, Lock, Trash2 } from "lucide-react";

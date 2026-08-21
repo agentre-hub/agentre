@@ -1,4 +1,3 @@
-// @ts-nocheck
 // OpenClaw 后端草稿的前端校验 + 错误码到 i18n key 的映射。
 //
 // 后端 entity.Check 对所有配置问题一律返回 code.InvalidParameter,跨 Wails 边界只剩

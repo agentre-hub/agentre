@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as React from "react";
 import { Checkbox as CheckboxPrimitive } from "radix-ui";
 import { Check } from "lucide-react";

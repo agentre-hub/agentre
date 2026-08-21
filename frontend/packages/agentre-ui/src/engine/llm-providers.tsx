@@ -1,4 +1,3 @@
-// @ts-nocheck
 import * as React from "react";
 import { useUiTranslation as useTranslation } from "../i18n";
 import {
@@ -72,7 +71,7 @@ export function LlmProvidersPanel({
   // 页头由宿主渲染，面板把自己的页级操作（新增供应商）交进去：按钮要落在 H1
   // 行，而它开的创建弹窗仍归面板持有。
   renderHeader?: (actions: React.ReactNode) => React.ReactNode;
-} = {}) {
+}) {
   bindEngineSettingsPorts(ports);
   const { t } = useTranslation();
   const [providers, setProviders] = React.useState<Provider[]>([]);

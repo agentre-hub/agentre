@@ -1,4 +1,3 @@
-// @ts-nocheck
 // 从 Provider/Model 展示 DTO 组装 Picker 目录（validated catalog）。
 //
 // 只消费脱敏 DTO（ProviderItem / ModelItem），绝不触碰 API Key / BaseURL 之外的敏感

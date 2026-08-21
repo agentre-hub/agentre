@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useUiTranslation as useTranslation } from "../i18n";
 import { RadioTower, ShieldCheck } from "lucide-react";
 
