@@ -23,7 +23,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../ui/dialog";
+} from "../../ui/dialog";
 import { Input } from "../ui/input";
 
 import { ImportLLMModels, PreviewLLMModels } from "../port-bridge";

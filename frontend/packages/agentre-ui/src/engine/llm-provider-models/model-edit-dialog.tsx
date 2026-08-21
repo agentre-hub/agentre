@@ -12,7 +12,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../ui/dialog";
+} from "../../ui/dialog";
 import { Input } from "../ui/input";
 
 import { LLMModelRefCounts, UpdateLLMModel } from "../port-bridge";

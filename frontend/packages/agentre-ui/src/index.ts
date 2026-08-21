@@ -63,8 +63,39 @@ export {
 } from "./lib/copyable-text";
 export { AgentAvatar } from "./ui/agent-avatar";
 export type { AgentAvatarProps, AgentAvatarSize } from "./ui/agent-avatar";
+export { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 export { Badge } from "./ui/badge";
 export { Button, buttonVariants } from "./ui/button";
+export {
+  Dialog,
+  DialogTrigger,
+  DialogPortal,
+  DialogOverlay,
+  DialogClose,
+  DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "./ui/dialog";
+export {
+  DropdownMenu,
+  DropdownMenuPortal,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from "./ui/dropdown-menu";
 export {
   ContextMenu,
   ContextMenuContent,

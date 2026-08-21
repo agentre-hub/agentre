@@ -11,7 +11,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../ui/dialog";
+} from "../../ui/dialog";
 
 import { LLMProviderRefCounts, SetLLMModelDefault } from "../port-bridge";
 import { llm_provider_svc } from "../port-bridge";

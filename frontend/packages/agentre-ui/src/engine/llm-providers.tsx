@@ -10,7 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "./ui/button";
 
 import {
