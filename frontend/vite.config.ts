@@ -44,6 +44,12 @@ export default defineConfig({
           import.meta.url,
         ),
       ),
+      "@agentre-ai/agentre-ui/base.css": fileURLToPath(
+        new URL("./packages/agentre-ui/styles/base.css", import.meta.url),
+      ),
+      "@agentre-ai/agentre-ui/toast.css": fileURLToPath(
+        new URL("./packages/agentre-ui/styles/toast.css", import.meta.url),
+      ),
       // 语言包的窄入口(同样必须排在包名之前)。宿主 src/i18n/index.ts 只要
       // namespace + 资源,走这里就不会把整个 barrel 拖进来 —— 那条路径会在测试
       // setup 期把包内所有模块装进缓存,让后续 vi.mock 打不中(见 src/i18n/index.ts)。

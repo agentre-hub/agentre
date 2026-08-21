@@ -2,12 +2,18 @@
 @import "tw-animate-css";
 @import "@agentre-ai/agentre-ui/tokens.css";
 @import "@agentre-ai/agentre-ui/code-highlight.css";
+/* 宿主外壳的基线：body 字体与底色、`border` 的默认色、可点元素的手型、滚动条与
+   .scrollbar-none。这些两端一模一样，所以住在包里，本文件只负责接上——排在
+   tokens.css 之后，因为里面每一条都在引 token。
+   滚动条还有另一半：App.tsx 调 useAutoHideScrollbars()，两样都要有才看得见。 */
+@import "@agentre-ai/agentre-ui/base.css";
+/* sonner 的语义配色。可选出口，只有开 richColors 的宿主需要；
+   不接的话 toast 退回 sonner 自带的饱和告警条。 */
+@import "@agentre-ai/agentre-ui/toast.css";
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-
+  /* 桌面端是一个窗口，不是一张网页：整页不滚动，滚动只发生在内部面板里。
+     浏览器端宿主没有这条（页面本来就该能滚），所以它留在本仓、不进包。 */
   html,
   body,
   #root {
@@ -17,9 +23,9 @@
     width: 100%;
   }
 
+  /* 桌面应用的默认观感是「界面不可选中」，只有真正的文本才放开——
+     下面几条就是那些豁免。同样是窗口专属的，浏览器端不需要。 */
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    margin: 0;
     -webkit-user-select: none;
     user-select: none;
   }
@@ -76,128 +82,4 @@
   .wails-no-drag {
     --wails-draggable: no-drag;
   }
-
-  /* 完全隐藏滚动条但保留滚动能力。
-     用于横向条带(tab strip 等)，避免滚动条占走固定高度容器的可视空间。 */
-  .scrollbar-none {
-    scrollbar-width: none;
-  }
-  .scrollbar-none::-webkit-scrollbar {
-    display: none;
-  }
 }
-
-/* 全局滚动条：CSS 变量驱动的自动隐藏。
-   WKWebView 对 ::-webkit-scrollbar 的类/属性选择器切换不重绘
-   （Apple Dev Forum #759675、WebKit bug #104412），但 CSS 自定义属性
-   值变化会触发 thumb 重绘——走"值查找路径"而非"选择器重匹配"。
-   - 默认 --sb-thumb 透明，thumb 不可见
-   - App.tsx 的 useAutoHideScrollbars 在滚动时把变量改成可见色，
-     停下 900ms 后清除 inline，退回 :root 的 transparent
-   - 不写 transition（WebKit 不响应；视觉上瞬时切换）
-   - Firefox 用标准 scrollbar-color 消费同一变量 */
-:root {
-  --sb-thumb: transparent;
-  --sb-thumb-strong: color-mix(
-    in oklab,
-    var(--muted-foreground) 45%,
-    transparent
-  );
-}
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--sb-thumb) transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-*::-webkit-scrollbar-track,
-*::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-  background-color: var(--sb-thumb);
-  border: 2px solid transparent;
-  border-radius: 9999px;
-  background-clip: padding-box;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background-color: var(--sb-thumb-strong);
-}
-
-*::-webkit-scrollbar-thumb:active {
-  background-color: color-mix(
-    in oklab,
-    var(--muted-foreground) 65%,
-    transparent
-  );
-}
-
-/* TipTap Placeholder：把空段落的 data-placeholder 渲染成占位文字。
-   依赖 @tiptap/extensions 的 Placeholder 在空 doc 上加 .is-editor-empty。 */
-.ProseMirror p.is-editor-empty:first-child::before {
-  content: attr(data-placeholder);
-  float: left;
-  height: 0;
-  pointer-events: none;
-  color: var(--color-muted-foreground);
-}
-
-/* Sonner toast：把 success / error / warning / info 的 bg + border 绑到
-   design tokens（status-running / destructive / status-waiting / primary），
-   text 走中性 foreground，icon 才用 saturated chroma。soft tinted bg 保持
-   Linear 风格，避免 richColors 默认那种饱和告警条；浅/深色随 :root / .dark
-   的 token 自动切换。 */
-[data-sonner-toaster][data-rich-colors="true"] {
-  --normal-bg: var(--popover);
-  --normal-text: var(--popover-foreground);
-  --normal-border: var(--border);
-
-  --success-bg: var(--status-running-bg);
-  --success-text: var(--foreground);
-  --success-border: color-mix(in oklab, var(--status-running) 32%, transparent);
-
-  --error-bg: var(--destructive-soft);
-  --error-text: var(--foreground);
-  --error-border: color-mix(in oklab, var(--destructive) 32%, transparent);
-
-  --warning-bg: var(--status-waiting-bg);
-  --warning-text: var(--foreground);
-  --warning-border: color-mix(in oklab, var(--status-waiting) 32%, transparent);
-
-  --info-bg: var(--primary-soft);
-  --info-text: var(--foreground);
-  --info-border: color-mix(in oklab, var(--primary) 28%, transparent);
-}
-
-[data-sonner-toaster][data-rich-colors="true"]
-  [data-sonner-toast][data-type="success"]
-  [data-icon] {
-  color: var(--status-running);
-}
-[data-sonner-toaster][data-rich-colors="true"]
-  [data-sonner-toast][data-type="error"]
-  [data-icon] {
-  color: var(--destructive);
-}
-[data-sonner-toaster][data-rich-colors="true"]
-  [data-sonner-toast][data-type="warning"]
-  [data-icon] {
-  color: var(--status-waiting);
-}
-[data-sonner-toaster][data-rich-colors="true"]
-  [data-sonner-toast][data-type="info"]
-  [data-icon] {
-  color: var(--primary);
-}
-
-[data-sonner-toaster] [data-sonner-toast] [data-description] {
-  color: var(--muted-foreground);
-}
-

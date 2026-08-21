@@ -11,6 +11,10 @@ import {
   TerminalTransportProvider,
   TranscriptLiveStateProvider,
   TranscriptPortsProvider,
+  // 与 base.css 里的滚动条规则是一对：那半边把滑块颜色绑到 --sb-thumb 并默认
+  // 透明，这半边在滚动时改值。此前这个 hook 就写在本文件里，agentre-server 那侧
+  // 因此没有滚动条样式；现在两端共用同一份。
+  useAutoHideScrollbars,
 } from "@agentre-ai/agentre-ui";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
@@ -497,73 +501,6 @@ function usePreventGlobalSelectAll(platform: DesktopPlatform) {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [platform]);
-}
-
-function useAutoHideScrollbars() {
-  useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-
-    // WKWebView 对 ::-webkit-scrollbar 的类/属性选择器切换不重绘，必须改 CSS
-    // 自定义属性的值才能触发 thumb 重绘。把 --sb-thumb 设到事件 target 上而非
-    // <html>，让变量沿 DOM 级联——只影响那一个滚动元素自己的 scrollbar，
-    // 不会让兄弟节点的 scrollbar 一起亮起。
-    const hideDelayMs = 900;
-    const visibleColor =
-      "color-mix(in oklab, var(--muted-foreground) 30%, transparent)";
-    const timers = new WeakMap<HTMLElement, number>();
-
-    const resolveTarget = (event: Event): HTMLElement | null => {
-      if (event.target instanceof HTMLElement) {
-        return event.target;
-      }
-      if (event.target instanceof Document) {
-        return event.target.documentElement;
-      }
-      return null;
-    };
-
-    const markScrolling = (event: Event) => {
-      const target = resolveTarget(event);
-      if (!target) {
-        return;
-      }
-
-      target.style.setProperty("--sb-thumb", visibleColor);
-
-      const previous = timers.get(target);
-      if (previous !== undefined) {
-        window.clearTimeout(previous);
-      }
-
-      const timer = window.setTimeout(() => {
-        target.style.removeProperty("--sb-thumb");
-        timers.delete(target);
-      }, hideDelayMs);
-
-      timers.set(target, timer);
-    };
-
-    const listenerOptions: AddEventListenerOptions = {
-      capture: true,
-      passive: true,
-    };
-
-    // scroll 是主信号；wheel / touchmove 兜底处理"已经到边界、不再产生
-    // scroll 事件"或者虚拟列表吞掉 scroll 的情况。
-    document.addEventListener("scroll", markScrolling, listenerOptions);
-    document.addEventListener("wheel", markScrolling, listenerOptions);
-    document.addEventListener("touchmove", markScrolling, listenerOptions);
-
-    return () => {
-      document.removeEventListener("scroll", markScrolling, { capture: true });
-      document.removeEventListener("wheel", markScrolling, { capture: true });
-      document.removeEventListener("touchmove", markScrolling, {
-        capture: true,
-      });
-    };
-  }, []);
 }
 
 function usePersistedWindowSize(runtimeMode: RuntimeMode) {
