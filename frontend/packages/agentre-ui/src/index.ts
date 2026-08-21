@@ -14,6 +14,12 @@ export {
 } from "./i18n";
 export { cn } from "./lib/utils";
 export { LlmProvidersPanel, AgentBackendsPanel } from "./engine/panels";
+export {
+  AgentBackendLogo,
+  LlmModelLogo,
+  LlmProviderLogo,
+  resolveModelBrand,
+} from "./engine/ai-brand-logo";
 export { ModelTargetPicker } from "./engine/model-target-picker";
 export type { ModelTargetPickerProps } from "./engine/model-target-picker";
 export {
@@ -22,7 +28,13 @@ export {
   removeRecentTarget,
   recentStorageKey,
 } from "./engine/model-target-picker/recents";
-export { providerCompatibleForBackend } from "./engine/model-target-picker/types";
+export {
+  buildPickerCatalog,
+  isNativeTarget,
+  providerCompatibleForBackend,
+  sameTarget,
+  useModelTargetCatalog,
+} from "./engine/model-target-picker";
 export type {
   ModelTarget,
   PickerModel,
