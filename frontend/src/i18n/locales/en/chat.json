@@ -49,8 +49,13 @@
       }
     },
     "context": {
-      "aria": "Context usage {{used}} / {{max}}",
-      "label": "Context"
+      "aria": "Context usage {{used}} / {{max}}, {{percent}}% used",
+      "panel": {
+        "nearLimit": "Close to the context window limit",
+        "note": "Counted from the latest model call's total input",
+        "remaining": "Remaining",
+        "title": "Context"
+      }
     },
     "image": {
       "attachmentAlt": "Image attachment"

@@ -369,6 +369,12 @@ const LEVEL_FILL_TONE: Record<QuotaLevel, string> = {
   warn: "bg-status-waiting",
   danger: "bg-status-error",
 };
+// 上下文的环画的是描边而不是填充,故与 LEVEL_FILL_TONE 同源分表(取值一一对应)。
+const LEVEL_STROKE_TONE: Record<QuotaLevel, string> = {
+  ok: "stroke-primary",
+  warn: "stroke-status-waiting",
+  danger: "stroke-status-error",
+};
 // 上下文计量器的文字色:正常态用 primary-text(它是底栏里唯一常驻的定量信息,
 // 该被看见),告警两档与配额一致。
 const CONTEXT_METER_TONE: Record<QuotaLevel, string> = {
@@ -621,6 +627,129 @@ function QuotaPanel({
   );
 }
 
+// 环的几何:14px 外径 + 2.5px 描边。端点用 butt 而不是 round —— round 在这个描边
+// 宽度下两端各多吃约 4% 弧长,94% 会画成一个闭合的圆,恰好在最该读准的那一档失真。
+const CONTEXT_RING_SIZE = 14;
+const CONTEXT_RING_STROKE = 2.5;
+
+// ContextRing 是计量器唯一的图形。它取代了原来那条 `h-1 w-24` 的线性条:那条要 96px,
+// 是底栏第二宽的元素,而且窄档(@max-[800px])整条隐藏 —— 最需要图形提示的时候反而
+// 没有图形。环只占 14px,可以全档常驻。
+function ContextRing({
+  used,
+  max,
+  pct,
+  level,
+}: {
+  used: number;
+  max: number;
+  pct: number;
+  level: QuotaLevel;
+}) {
+  const radius = (CONTEXT_RING_SIZE - CONTEXT_RING_STROKE) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const center = CONTEXT_RING_SIZE / 2;
+  return (
+    <svg
+      className="-rotate-90 shrink-0"
+      width={CONTEXT_RING_SIZE}
+      height={CONTEXT_RING_SIZE}
+      viewBox={`0 0 ${CONTEXT_RING_SIZE} ${CONTEXT_RING_SIZE}`}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={Math.min(used, max)}
+    >
+      <circle
+        className="fill-none stroke-border"
+        cx={center}
+        cy={center}
+        r={radius}
+        strokeWidth={CONTEXT_RING_STROKE}
+      />
+      <circle
+        data-slot="context-ring-arc"
+        className={cn(
+          "fill-none transition-[stroke-dashoffset]",
+          LEVEL_STROKE_TONE[level],
+        )}
+        cx={center}
+        cy={center}
+        r={radius}
+        strokeWidth={CONTEXT_RING_STROKE}
+        strokeLinecap="butt"
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference * (1 - Math.min(1, pct / 100))}
+      />
+    </svg>
+  );
+}
+
+// ContextPanel 是 HoverCard 的内容:token 绝对值从底栏搬到了这里。
+// 刻意只读 —— 不放"压缩 / 清空上下文"之类的动作入口。
+function ContextPanel({
+  used,
+  max,
+  pct,
+  level,
+  t,
+}: {
+  used: number;
+  max: number;
+  pct: number;
+  level: QuotaLevel;
+  t: TFunction;
+}) {
+  const remaining = Math.max(0, max - used);
+  const tone = CONTEXT_METER_TONE[level];
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
+        <Gauge
+          className="size-3.5 shrink-0 text-foreground"
+          aria-hidden="true"
+        />
+        <span className="text-xs font-semibold text-foreground">
+          {t("chat.context.panel.title")}
+        </span>
+      </div>
+      <div className="flex flex-col gap-2 px-3 py-2.5">
+        <div className="flex items-baseline gap-1 font-mono tabular-nums">
+          <span className="text-sm font-semibold text-foreground">
+            {formatTokens(used)}
+          </span>
+          <span className="text-2xs text-muted-foreground">
+            / {formatTokens(max)}
+          </span>
+          <span className={cn("ml-auto text-2xs font-medium", tone)}>
+            {pct}%
+          </span>
+        </div>
+        <div className="flex items-baseline gap-2 border-t border-border pt-2 text-2xs">
+          <span className="font-medium text-foreground">
+            {t("chat.context.panel.remaining")}
+          </span>
+          <span className={cn("ml-auto font-mono tabular-nums", tone)}>
+            {formatTokens(remaining)}
+          </span>
+        </div>
+      </div>
+      <div
+        className={cn(
+          "border-t border-border px-3 py-1.5 text-2xs",
+          level === "ok"
+            ? "bg-muted text-muted-foreground"
+            : "bg-status-waiting-bg text-status-waiting-text",
+        )}
+      >
+        {level === "ok"
+          ? t("chat.context.panel.note")
+          : t("chat.context.panel.nearLimit")}
+      </div>
+    </div>
+  );
+}
+
 function ContextMeter({ used, max }: { used: number; max: number }) {
   const { t } = useTranslation();
   const safeUsed = Math.max(0, used);
@@ -634,39 +763,36 @@ function ContextMeter({ used, max }: { used: number; max: number }) {
   // 而底栏配额的"正常"态要退到背景里 —— 与 QUOTA_METER_TONE / QUOTA_PANEL_TONE
   // 同源不同表。
   const tone = CONTEXT_METER_TONE[level];
-  const fill = LEVEL_FILL_TONE[level];
   return (
-    <div
-      className="flex min-w-0 items-center gap-2 overflow-hidden font-mono text-meta whitespace-nowrap text-muted-foreground"
-      aria-label={t("chat.context.aria", { max, used: safeUsed })}
+    <HoverCard
+      openDelay={QUOTA_HOVER_OPEN_DELAY_MS}
+      closeDelay={QUOTA_HOVER_CLOSE_DELAY_MS}
     >
-      <Gauge className="size-2.5 shrink-0" aria-hidden="true" />
-      {/* 中档起隐藏文字标签:图标 + 数字已足够辨识, 标签是最先该让位的冗余。 */}
-      <span className="font-sans @max-[1000px]/composer:hidden">
-        {t("chat.context.label")}
-      </span>
-      <span className="inline-flex items-center gap-0.5 tabular-nums">
-        <span className="font-medium text-foreground">
-          {formatTokens(safeUsed)}
-        </span>
-        <span className="text-decorative-foreground"> / </span>
-        <span>{formatTokens(max)}</span>
-      </span>
-      <span
-        // 窄档整条隐藏:它与紧邻的百分比表达同一个量,是行内最贵的冗余装饰。
-        className="h-1 w-24 shrink-0 overflow-hidden rounded-sm bg-border @max-[800px]/composer:hidden"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={max}
-        aria-valuenow={Math.min(safeUsed, max)}
-      >
-        <span
-          className={cn("block h-1 rounded-sm transition-[width]", fill)}
-          style={{ width: `${pct}%` }}
-        />
-      </span>
-      <span className={cn("font-medium tabular-nums", tone)}>{pct}%</span>
-    </div>
+      <HoverCardTrigger asChild>
+        {/* 触发器必须是可聚焦的 button:token 绝对值已经降级成"悬停才拿得到",
+            span 会让键盘用户永远读不到它们。与 QuotaMeter 同构。 */}
+        <button
+          type="button"
+          className={cn(
+            "flex min-w-0 cursor-default items-center gap-1.5 overflow-hidden rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
+            "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
+            "hover:border-border hover:bg-accent",
+            "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",
+          )}
+          aria-label={t("chat.context.aria", {
+            max: formatTokens(max),
+            percent: pct,
+            used: formatTokens(safeUsed),
+          })}
+        >
+          <ContextRing used={safeUsed} max={max} pct={pct} level={level} />
+          <span className={cn("font-medium tabular-nums", tone)}>{pct}%</span>
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent align="end" className="w-[228px] p-0">
+        <ContextPanel used={safeUsed} max={max} pct={pct} level={level} t={t} />
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 

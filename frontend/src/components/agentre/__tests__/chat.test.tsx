@@ -527,15 +527,119 @@ describe("ChatComposer context meter", () => {
       />,
     );
 
-    expect(screen.getByText("206k")).toBeInTheDocument();
-    expect(screen.getByText("258k")).toBeInTheDocument();
     const percent = screen.getByText("80%");
     expect(percent).toHaveClass("text-status-waiting");
 
     const progress = screen.getByRole("progressbar");
-    const fill = progress.firstElementChild;
-    expect(fill).toHaveClass("bg-status-waiting");
-    expect(fill).toHaveStyle({ width: "80%" });
+    expect(progress).toHaveAttribute("aria-valuenow", "206000");
+    expect(progress).toHaveAttribute("aria-valuemax", "258000");
+    // 环的弧段着色与配额条同源(LEVEL_* 分表), 不再是一条 bg-* 填充。
+    expect(
+      progress.querySelector("[data-slot='context-ring-arc']"),
+    ).toHaveClass("stroke-status-waiting");
+  });
+});
+
+describe("ChatComposer context meter", () => {
+  it("Given context usage, When the footer renders, Then only the ring and the percent stay inline", () => {
+    render(
+      <ChatComposer
+        contextUsage={{ used: 206000, max: 258000 }}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    // token 绝对值与「Context」标签都搬进了浮窗: 底栏那 96px 的进度条与两串数字
+    // 是宽度收缩时最先被牺牲的东西, 环把它们压成一枚常驻图形。
+    expect(screen.queryByText("206k")).toBeNull();
+    expect(screen.queryByText("258k")).toBeNull();
+    expect(screen.getByText("80%")).toBeInTheDocument();
+  });
+
+  it("Given the meter is rendered, When a keyboard user tabs to it, Then the trigger is a button carrying the full reading", () => {
+    render(
+      <ChatComposer
+        contextUsage={{ used: 206000, max: 258000 }}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    // 数字降级成悬停才能拿, 所以触发器必须可聚焦 —— 否则键盘用户永远读不到它们。
+    const trigger = screen.getByRole("button", { name: /Context usage/ });
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(trigger).toHaveAccessibleName("Context usage 206k / 258k, 80% used");
+  });
+
+  it("Given focus lands on the meter, When the hover card opens, Then it shows used, limit and remaining", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ChatComposer
+          contextUsage={{ used: 206000, max: 258000 }}
+          onSubmit={() => undefined}
+        />,
+      );
+
+      const trigger = screen.getByRole("button", { name: /Context usage/ });
+      act(() => {
+        fireEvent.focusIn(trigger);
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(screen.getByText("206k")).toBeInTheDocument();
+      expect(screen.getByText("/ 258k")).toBeInTheDocument();
+      expect(screen.getByText("52.0k")).toBeInTheDocument();
+      expect(screen.getByText("Remaining")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Given usage past the warning threshold, When the hover card opens, Then the footnote switches to the waiting tone", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ChatComposer
+          contextUsage={{ used: 206000, max: 258000 }}
+          onSubmit={() => undefined}
+        />,
+      );
+
+      act(() => {
+        fireEvent.focusIn(
+          screen.getByRole("button", { name: /Context usage/ }),
+        );
+        vi.advanceTimersByTime(500);
+      });
+
+      const note = screen.getByText(/Close to the context window limit/);
+      expect(note).toHaveClass("bg-status-waiting-bg");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Given usage below the thresholds, When the hover card opens, Then the footnote explains where the number comes from", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ChatComposer
+          contextUsage={{ used: 64000, max: 200000 }}
+          onSubmit={() => undefined}
+        />,
+      );
+
+      act(() => {
+        fireEvent.focusIn(
+          screen.getByRole("button", { name: /Context usage/ }),
+        );
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(screen.getByText(/latest model call/)).toHaveClass("bg-muted");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
