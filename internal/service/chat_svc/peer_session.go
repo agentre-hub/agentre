@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
 	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	"github.com/agentre-ai/agentre/internal/repository/project_repo"
 	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
 )
 
@@ -63,6 +64,12 @@ func (s *chatSvc) ListPeerSessions(ctx context.Context) (*wire.SessionListResult
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
+	// 项目的同步标识一次取齐:这份清单在一次列举里不会变,而下面是「每个 Agent ×
+	// 它的每条会话」两层循环,逐条回库查一次就是几百次往返。
+	projectSyncIDs, err := projectSyncIDByID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	result := &wire.SessionListResult{
 		Sessions:                make([]wire.SessionSummary, 0),
 		SupportsSessionMetadata: true,
@@ -76,7 +83,7 @@ func (s *chatSvc) ListPeerSessions(ctx context.Context) (*wire.SessionListResult
 			return nil, operationFailedWithCause(ctx, err)
 		}
 		for _, session := range sessions {
-			summary, err := peerSessionSummary(ctx, session, agent, fingerprint)
+			summary, err := peerSessionSummary(ctx, session, agent, fingerprint, projectSyncIDs)
 			if err != nil {
 				// 一行缺元数据只影响这一行（R5 仍然成立：跳过它，绝不补一个编出来的
 				// 摘要）。整份清单不能跟着完蛋——它是 web 控制台进入这台机器的唯一入口，
@@ -141,7 +148,28 @@ func (s *chatSvc) AttachPeerSession(ctx context.Context, params wire.SessionAtta
 	}, nil
 }
 
-func peerSessionSummary(ctx context.Context, session *chat_entity.Session, agent *agent_entity.Agent, fingerprint string) (wire.SessionSummary, error) {
+// projectSyncIDByID 是「本地项目主键 → 账号级同步标识」的查询表。
+//
+// 还没认领同步标识的项目(未登录期间建的行,R12a 之前)不进表:交出去的必须是账号
+// 认得的那个名字,拿本地主键凑一个只会在账号那边建出一个配不上真项目的组。
+func projectSyncIDByID(ctx context.Context) (map[int64]string, error) {
+	projects, err := project_repo.Project().List(ctx)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	out := make(map[int64]string, len(projects))
+	for _, p := range projects {
+		if p != nil && p.SyncID != "" {
+			out[p.ID] = p.SyncID
+		}
+	}
+	return out, nil
+}
+
+func peerSessionSummary(
+	ctx context.Context, session *chat_entity.Session, agent *agent_entity.Agent,
+	fingerprint string, projectSyncIDs map[int64]string,
+) (wire.SessionSummary, error) {
 	if session == nil || agent == nil || strings.TrimSpace(session.Title) == "" || strings.TrimSpace(agent.Name) == "" || agent.SyncID == "" {
 		return wire.SessionSummary{}, fmt.Errorf("%w: session %d", ErrPeerSessionMetadata, sessionID(session))
 	}
@@ -160,11 +188,13 @@ func peerSessionSummary(ctx context.Context, session *chat_entity.Session, agent
 		Title:             session.Title,
 		AgentSyncID:       agent.SyncID,
 		ProviderSessionID: session.ProviderSessionID,
-		BackendType:       backendType,
-		LifecycleState:    lifecycle,
-		WaitingForInput:   waiting,
-		LatestSeq:         0,
-		UpdatedAt:         session.LastMessageAt,
+		// 自由会话(ProjectID = 0)与还没认领同步标识的项目都留空,不猜。
+		ProjectSyncID:   projectSyncIDs[session.ProjectID],
+		BackendType:     backendType,
+		LifecycleState:  lifecycle,
+		WaitingForInput: waiting,
+		LatestSeq:       0,
+		UpdatedAt:       session.LastMessageAt,
 	}, nil
 }
 

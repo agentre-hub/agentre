@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
@@ -23,6 +24,8 @@ import (
 	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
 	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
 	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-ai/agentre/internal/repository/project_repo"
+	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
 	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
@@ -33,7 +36,12 @@ type peerSessionTestDeps struct {
 	session *mock_chat_repo.MockSessionRepo
 	message *mock_chat_repo.MockMessageRepo
 	device  *mock_remote_device_svc.MockRemoteDeviceSvc
+	project *mock_project_repo.MockProjectRepo
 	svc     *chatSvc
+	// projects 是这台电脑上的项目清单，由用例按需摆好；projectListCalls 记下它被
+	// 读了几次——「一次列举只读一遍」是这份清单唯一的性能约束，它得测得到。
+	projects         []*project_entity.Project
+	projectListCalls int
 }
 
 func setupPeerSessionTest(t *testing.T) *peerSessionTestDeps {
@@ -45,20 +53,30 @@ func setupPeerSessionTest(t *testing.T) *peerSessionTestDeps {
 		session: mock_chat_repo.NewMockSessionRepo(ctrl),
 		message: mock_chat_repo.NewMockMessageRepo(ctrl),
 		device:  mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl),
+		project: mock_project_repo.NewMockProjectRepo(ctrl),
 		svc:     NewChat(NoopEmitter{}).(*chatSvc),
 	}
 	prevAgent, prevBackend, prevSession, prevMessage, prevDevice := agent_repo.Agent(), agent_backend_repo.AgentBackend(), chat_repo.Session(), chat_repo.Message(), remote_device_svc.Default()
+	prevProject := project_repo.Project()
 	agent_repo.RegisterAgent(deps.agent)
 	agent_backend_repo.RegisterAgentBackend(deps.backend)
 	chat_repo.RegisterSession(deps.session)
 	chat_repo.RegisterMessage(deps.message)
 	remote_device_svc.SetDefault(deps.device)
+	project_repo.RegisterProject(deps.project)
+	// 项目清单是列会话时的一张查询表；不摆内容的用例读到的是空表。
+	deps.project.EXPECT().List(gomock.Any()).DoAndReturn(
+		func(context.Context) ([]*project_entity.Project, error) {
+			deps.projectListCalls++
+			return deps.projects, nil
+		}).AnyTimes()
 	t.Cleanup(func() {
 		agent_repo.RegisterAgent(prevAgent)
 		agent_backend_repo.RegisterAgentBackend(prevBackend)
 		chat_repo.RegisterSession(prevSession)
 		chat_repo.RegisterMessage(prevMessage)
 		remote_device_svc.SetDefault(prevDevice)
+		project_repo.RegisterProject(prevProject)
 		ctrl.Finish()
 	})
 	return deps
@@ -237,4 +255,88 @@ func TestAttachPeerSession_GivenInvalidOrMissingSession_ThenRejects(t *testing.T
 	deps.session.EXPECT().Find(gomock.Any(), int64(99)).Return(nil, nil)
 	_, err = deps.svc.AttachPeerSession(context.Background(), wire.SessionAttachParams{SessionID: 99}, subscriber)
 	assert.True(t, errors.Is(err, ErrPeerSessionNotFound))
+}
+
+// 桌面端的会话清单要把**它自己知道的项目归属**说出来。
+//
+// 这条对话属于哪个项目，在这台电脑上是一个明写在库里的事实（chat_sessions.project_id）。
+// 但它此前没有出口：清单只交出标题 / Agent / 后端 / 生命周期，server 那边于是只剩
+// 一条判法——拿 (指纹, cwd) 去比账号里 agentred 配的项目路径。桌面端在那条路上两头
+// 都对不上（它没有「这条会话的 cwd」这一列可报，它的本机路径也不在那份名单里），
+// 于是从这台机器保存进账号的每一条对话，在控制台项目轴上都掉进「随手对话」。
+//
+// 交出去的是**项目的同步标识**而不是本地自增主键：那是账号里跨机通用的那个名字，
+// 也正是 server 项目树上的键。
+func TestListPeerSessions_GivenSessionInAProject_ThenNamesTheProjectSyncID(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	deps.projects = []*project_entity.Project{{
+		ID: 3, Name: "dsp2b", Status: consts.ACTIVE,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXPROJECTIDENTITY000000000"},
+	}}
+	ctx := context.Background()
+	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
+	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
+		ID: 7, Name: "Release captain", Status: consts.ACTIVE,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
+	}}, nil)
+	deps.session.EXPECT().ListByAgentPagedIncludingGroups(ctx, int64(7), 0, math.MaxInt).
+		Return([]*chat_entity.Session{
+			{ID: 41, AgentID: 7, ProjectID: 3, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 42, AgentID: 7, Title: "Free chat", AgentStatus: "idle", Status: consts.ACTIVE},
+		}, nil)
+
+	got, err := deps.svc.ListPeerSessions(ctx)
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 2)
+	assert.Equal(t, "01HXPROJECTIDENTITY000000000", got.Sessions[0].ProjectSyncID)
+	assert.Empty(t, got.Sessions[1].ProjectSyncID, "自由会话不属于任何项目，如实留空")
+}
+
+// 项目还没拿到同步标识（未登录时建的行，R12a 认领之前）就如实留空，不拿本地主键
+// 凑一个：那个数字在账号里谁也不认识，server 会照它建出一个永远配不上真项目的幽灵组。
+func TestListPeerSessions_GivenProjectWithoutSyncID_ThenLeavesItBlank(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	deps.projects = []*project_entity.Project{{ID: 3, Name: "dsp2b", Status: consts.ACTIVE}}
+	ctx := context.Background()
+	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
+	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
+		ID: 7, Name: "Release captain", Status: consts.ACTIVE,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
+	}}, nil)
+	deps.session.EXPECT().ListByAgentPagedIncludingGroups(ctx, int64(7), 0, math.MaxInt).
+		Return([]*chat_entity.Session{
+			{ID: 41, AgentID: 7, ProjectID: 3, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
+		}, nil)
+
+	got, err := deps.svc.ListPeerSessions(ctx)
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 1)
+	assert.Empty(t, got.Sessions[0].ProjectSyncID)
+}
+
+// 项目清单只取一遍：一台电脑上几十个 Agent、几百条会话，逐条回库查一次项目就是
+// 几百次往返，而这份清单在一次列举里不会变。
+func TestListPeerSessions_ReadsTheProjectListOnce(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	deps.projects = []*project_entity.Project{{
+		ID: 3, Name: "dsp2b", Status: consts.ACTIVE,
+		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXPROJECTIDENTITY000000000"},
+	}}
+	ctx := context.Background()
+	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
+	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{
+		{ID: 7, Name: "A", Status: consts.ACTIVE, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-a"}},
+		{ID: 8, Name: "B", Status: consts.ACTIVE, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-b"}},
+	}, nil)
+	deps.session.EXPECT().ListByAgentPagedIncludingGroups(ctx, gomock.Any(), 0, math.MaxInt).
+		DoAndReturn(func(_ context.Context, agentID int64, _, _ int) ([]*chat_entity.Session, error) {
+			return []*chat_entity.Session{
+				{ID: agentID * 10, AgentID: agentID, ProjectID: 3, Title: "t", AgentStatus: "idle", Status: consts.ACTIVE},
+			}, nil
+		}).Times(2)
+
+	got, err := deps.svc.ListPeerSessions(ctx)
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 2)
+	assert.Equal(t, 1, deps.projectListCalls, "几百条会话逐条回库查项目就是几百次往返")
 }

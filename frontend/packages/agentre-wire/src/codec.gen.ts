@@ -784,6 +784,22 @@ export interface SessionSummary extends WireObject {
   agentSyncId?: string;
   providerSessionId?: string;
   cwd?: string;
+
+  /**
+   * ProjectSyncID 是这条会话所属项目的**账号级同步标识**,由**桌面端**交出。
+   *
+   * 这一维在两种执行端上不是同一件事:agentred 的会话有一个落库的 cwd,账号那边
+   * 拿 (指纹, cwd) 去比它给每台机器配的项目路径就判得出归属;桌面端没有「这条会话
+   * 的 cwd」这种东西 —— 工作目录是每轮按项目本机路径现算的 —— 而且它的本机路径
+   * 不流动、只存在账号的上报组里,压根不在那份名单中。两头都对不上,于是桌面端的
+   * 每一条对话在账号侧都只能落进「随手对话」。真正流动的事实是项目同步标识本身,
+   * 所以它自己说出来。
+   *
+   * 交出的是同步标识而不是本地自增主键:那是账号里跨机通用的那个名字。项目还没
+   * 认领同步标识时(未登录期间建的行,R12a 之前)如实留空 —— 拿本地主键凑一个,
+   * 账号那边会照它建出一个永远配不上真项目的组。自由会话同样留空。
+   */
+  projectSyncId?: string;
   backendType?: string;
   lifecycleState: string;
   waitingForInput?: boolean;
@@ -813,6 +829,7 @@ export function decodeSessionSummary(v: unknown): SessionSummary {
       "SessionSummary.providerSessionId",
     );
     o.cwd = optStr(o.cwd, "SessionSummary.cwd");
+    o.projectSyncId = optStr(o.projectSyncId, "SessionSummary.projectSyncId");
     o.backendType = optStr(o.backendType, "SessionSummary.backendType");
     o.lifecycleState = reqStr(
       o.lifecycleState,

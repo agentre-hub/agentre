@@ -33,6 +33,8 @@ import (
 	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
 	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
 	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-ai/agentre/internal/repository/project_repo"
+	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
 	"github.com/agentre-ai/agentre/internal/service/chat_svc"
 	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
@@ -394,13 +396,19 @@ func registerInboundPeerChat(t *testing.T) {
 	sessions := mock_chat_repo.NewMockSessionRepo(ctrl)
 	messages := mock_chat_repo.NewMockMessageRepo(ctrl)
 	device := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+	// 会话清单要交出每条对话的项目归属（账号那边的项目轴据此分组），因此项目仓储
+	// 也在这套桩里。这台电脑上没有项目：自由会话的那一维本来就该是空的。
+	projects := mock_project_repo.NewMockProjectRepo(ctrl)
+	projects.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
 	prevChat := chat_svc.Chat()
 	prevAgents := agent_repo.Agent()
 	prevBackends := agent_backend_repo.AgentBackend()
 	prevSessions := chat_repo.Session()
 	prevMessages := chat_repo.Message()
 	prevDevice := remote_device_svc.Default()
+	prevProjects := project_repo.Project()
 	agent_repo.RegisterAgent(agents)
+	project_repo.RegisterProject(projects)
 	agent_backend_repo.RegisterAgentBackend(backends)
 	chat_repo.RegisterSession(sessions)
 	chat_repo.RegisterMessage(messages)
@@ -413,6 +421,7 @@ func registerInboundPeerChat(t *testing.T) {
 		chat_repo.RegisterSession(prevSessions)
 		chat_repo.RegisterMessage(prevMessages)
 		remote_device_svc.SetDefault(prevDevice)
+		project_repo.RegisterProject(prevProjects)
 		ctrl.Finish()
 	})
 
