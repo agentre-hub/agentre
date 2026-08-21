@@ -1353,6 +1353,24 @@
       "tooMany": "最多可添加 {{count}} 张图片",
       "unsupported": "仅支持不超过 5 MB 的 PNG、JPEG 或 WebP 图片",
       "readFailed": "无法读取所选图片"
+    },
+    "dropHint": "松开以添加文件 / 文件夹路径",
+    "sending": "正在发送…",
+    "sendTitle": "发送 (Enter)",
+    "shortcuts": {
+      "send": "↵ 发送 · ⇧↵ 换行",
+      "edit": "↵ 保存 · Esc 取消"
+    },
+    "editing": {
+      "aria": "正在编辑消息",
+      "title": "编辑消息",
+      "description": "保存后此条之后的历史会被丢弃并重新生成",
+      "cancel": "取消编辑",
+      "cancelTitle": "取消编辑 (Esc)"
+    },
+    "command": {
+      "banner": "命令模式 · 在项目目录直接执行 · Enter 运行 · 删除 ! 退出",
+      "run": "运行命令"
     }
   },
   "contextMeter": {

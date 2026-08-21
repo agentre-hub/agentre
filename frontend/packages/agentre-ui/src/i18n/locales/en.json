@@ -1353,6 +1353,24 @@
       "tooMany": "You can attach up to {{count}} images",
       "unsupported": "Use PNG, JPEG, or WebP images up to 5 MB",
       "readFailed": "Could not read the selected image"
+    },
+    "dropHint": "Drop to add files / folder paths",
+    "sending": "Sending…",
+    "sendTitle": "Send (Enter)",
+    "shortcuts": {
+      "send": "↵ Send · ⇧↵ New line",
+      "edit": "↵ Save · Esc Cancel"
+    },
+    "editing": {
+      "aria": "Editing message",
+      "title": "Edit Message",
+      "description": "Saving discards later history and regenerates from this point.",
+      "cancel": "Cancel edit",
+      "cancelTitle": "Cancel edit (Esc)"
+    },
+    "command": {
+      "banner": "Command mode · runs in the project directory · Enter to run · delete ! to exit",
+      "run": "Run command"
     }
   },
   "contextMeter": {
