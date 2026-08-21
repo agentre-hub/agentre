@@ -1343,5 +1343,16 @@
     "test": {
       "passed": "测试通过 · {{latency}}ms · {{message}}"
     }
+  },
+  "chatComposer": {
+    "send": "发送",
+    "images": {
+      "add": "添加图片",
+      "attachmentAlt": "图片附件",
+      "remove": "移除图片 {{name}}",
+      "tooMany": "最多可添加 {{count}} 张图片",
+      "unsupported": "仅支持不超过 5 MB 的 PNG、JPEG 或 WebP 图片",
+      "readFailed": "无法读取所选图片"
+    }
   }
 }

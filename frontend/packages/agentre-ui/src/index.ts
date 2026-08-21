@@ -190,6 +190,14 @@ export type {
   AIChatInputHandle,
   LocalCommandSubmitHandler,
 } from "./chat-input/types";
+export { ChatComposer } from "./composer/chat-composer";
+export type {
+  ChatComposerProps,
+  ChatComposerSubmit,
+  ChatImageAttachment,
+} from "./composer/chat-composer";
+export { ComposerOptionPicker } from "./composer/composer-option-picker";
+export type { ComposerOption } from "./composer/composer-option-picker";
 export {
   buildEditorDocFromMessage,
   extractPlainText,

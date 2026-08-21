@@ -99,6 +99,17 @@ describe("assistant message meta token counts", () => {
     expect(screen.getByText("huu/gpt-5.6-sol")).toBeDefined();
   });
 
+  it("Given reported usage without duration, When the message is rendered, Then token counters remain visible", () => {
+    renderRow(
+      assistantRow({
+        promptTokens: 1200,
+        completionTokens: 340,
+        durationMs: 0,
+      }),
+    );
+    expect(screen.getByTestId("message-token-counts")).toBeDefined();
+  });
+
   // 只有缓存命中的轮次:prompt/completion 是 0 但确实上报过用量,不能当成「没上报」。
   it("Given only cached tokens, When the message is rendered, Then the counters remain visible", () => {
     renderRow(assistantRow({ cachedTokens: 1200 }));

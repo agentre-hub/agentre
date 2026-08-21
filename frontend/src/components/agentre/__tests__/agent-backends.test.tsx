@@ -17,7 +17,9 @@ const appMocks = vi.hoisted(() => ({
   CreateAgentBackend: vi.fn(),
   CreateOpenClawAgentBackend: vi.fn(),
   DeleteAgentBackend: vi.fn(),
+  GetAgentBackendCLIOverlay: vi.fn(),
   GetGatewayStatus: vi.fn(),
+  ListAgentBackendCLIOverlays: vi.fn(),
   ListAgentBackends: vi.fn(),
   ListLLMModels: vi.fn(),
   ListLLMProviders: vi.fn(),
@@ -28,6 +30,7 @@ const appMocks = vi.hoisted(() => ({
   ResolveAgentBackendCLIPath: vi.fn(),
   ScanAndCreateAgentBackends: vi.fn(),
   ServerListDevices: vi.fn(),
+  SetAgentBackendCLIOverlay: vi.fn(),
   TestAgentBackend: vi.fn(),
   TestOpenClawAgentBackend: vi.fn(),
   UpdateAgentBackend: vi.fn(),
@@ -85,9 +88,12 @@ function deferred<T>() {
 }
 
 type AppMockShape = {
+  ListAgentBackendCLIOverlays: AnyFn;
   ListAgentBackends: AnyFn;
   ListLLMProviders: AnyFn;
   ListLLMModels: AnyFn;
+  GetAgentBackendCLIOverlay?: AnyFn;
+  SetAgentBackendCLIOverlay?: AnyFn;
   CreateAgentBackend?: AnyFn;
   CreateOpenClawAgentBackend?: AnyFn;
   UpdateAgentBackend?: AnyFn;
@@ -134,6 +140,7 @@ function defaultModelsById(id: number) {
 
 function installAppMock(overrides: Partial<AppMockShape> = {}) {
   const base: AppMockShape = {
+    ListAgentBackendCLIOverlays: vi.fn(() => Promise.resolve({ items: [] })),
     ListAgentBackends: vi.fn(() =>
       Promise.resolve({
         items: [
@@ -178,6 +185,12 @@ function installAppMock(overrides: Partial<AppMockShape> = {}) {
       const req = args[0] as { id?: number } | undefined;
       return Promise.resolve({ items: defaultModelsById(Number(req?.id)) });
     }),
+    GetAgentBackendCLIOverlay: vi.fn(() =>
+      Promise.resolve({ cliPath: "", status: "unchecked" }),
+    ),
+    SetAgentBackendCLIOverlay: vi.fn(() =>
+      Promise.resolve({ cliPath: "", status: "unchecked" }),
+    ),
     CreateAgentBackend: vi.fn(() => Promise.resolve({ item: { id: 2 } })),
     CreateOpenClawAgentBackend: vi.fn(() =>
       Promise.resolve({ item: { id: 3 } }),

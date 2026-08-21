@@ -1343,5 +1343,16 @@
     "test": {
       "passed": "Test passed · {{latency}}ms · {{message}}"
     }
+  },
+  "chatComposer": {
+    "send": "Send",
+    "images": {
+      "add": "Add image",
+      "attachmentAlt": "Image attachment",
+      "remove": "Remove image {{name}}",
+      "tooMany": "You can attach up to {{count}} images",
+      "unsupported": "Use PNG, JPEG, or WebP images up to 5 MB",
+      "readFailed": "Could not read the selected image"
+    }
   }
 }

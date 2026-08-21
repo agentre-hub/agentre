@@ -399,10 +399,16 @@ function AssistantMessageActions({
   tokensPerSec,
 }: AssistantMessageActionsProps) {
   const { t } = useUiTranslation();
+  const hasUsage =
+    promptTokens > 0 ||
+    completionTokens > 0 ||
+    (cachedTokens ?? 0) > 0 ||
+    (cacheCreationTokens ?? 0) > 0 ||
+    (reasoningTokens ?? 0) > 0;
 
   return (
     <>
-      {durationMs > 0 || liveTurn != null ? (
+      {durationMs > 0 || liveTurn != null || hasUsage || model ? (
         <MessageMeta
           model={model}
           promptTokens={promptTokens}

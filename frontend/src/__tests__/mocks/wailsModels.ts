@@ -32,6 +32,8 @@ export const agent_backend_svc = {
   DeleteBackendRequest: ModelClass,
   TestBackendRequest: ModelClass,
   CancelTestBackendRequest: ModelClass,
+  GetCLIOverlayRequest: ModelClass,
+  SetCLIOverlayRequest: ModelClass,
   ResolveCLIPathRequest: ModelClass,
 };
 

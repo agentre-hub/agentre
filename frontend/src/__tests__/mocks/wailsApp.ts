@@ -91,6 +91,18 @@ export const LookupLLMModel = windowBackedMock("LookupLLMModel", () =>
 export const ListAgentBackends = windowBackedMock("ListAgentBackends", () =>
   Promise.resolve({ items: [] }),
 );
+export const ListAgentBackendCLIOverlays = windowBackedMock(
+  "ListAgentBackendCLIOverlays",
+  () => Promise.resolve({ items: [] }),
+);
+export const GetAgentBackendCLIOverlay = windowBackedMock(
+  "GetAgentBackendCLIOverlay",
+  () => Promise.resolve({ cliPath: "", status: "unchecked" }),
+);
+export const SetAgentBackendCLIOverlay = windowBackedMock(
+  "SetAgentBackendCLIOverlay",
+  () => Promise.resolve({ cliPath: "", status: "unchecked" }),
+);
 export const ListAgentExecTargetAvailability = windowBackedMock(
   "ListAgentExecTargetAvailability",
   () => Promise.resolve([]),

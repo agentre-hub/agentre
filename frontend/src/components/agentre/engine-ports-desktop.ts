@@ -18,6 +18,9 @@ import {
   LookupLLMModel,
   PreviewLLMModels,
   RemoteDeviceFingerprint,
+  RemoteDeviceList,
+  RemoteDeviceListProviders,
+  RemoteDeviceSyncProvider,
   ResolveAgentBackendCLIPath,
   ScanAndCreateAgentBackends,
   ServerListDevices,
@@ -454,6 +457,15 @@ export function createDesktopEngineSettingsPorts(
     },
     async listAccountDevices() {
       return await ServerListDevices();
+    },
+    async listRuntimeDevices() {
+      return await RemoteDeviceList();
+    },
+    async listRuntimeDeviceProviders(deviceID) {
+      return await RemoteDeviceListProviders(deviceID);
+    },
+    async syncRuntimeDeviceProvider(deviceID, providerKey) {
+      await RemoteDeviceSyncProvider(deviceID, providerKey);
     },
     onRuntimeDeviceState: options.onRuntimeDeviceState,
     cliPath: {
