@@ -69,14 +69,15 @@ describe("会话索引的轴投影", () => {
     expect(groups.map((g) => [g.key, g.depth])).toEqual([
       ["p-backend", 0],
       ["p-server", 1],
+      // 一条会话都没有，但它在调用方给的名单里：照摆，位置按 sortOrder 不变。
+      ["p-lonely", 0],
       ["__unassigned_project__", 0],
     ]);
     // 父项目自己没有会话，但它是子项目的组头，不能因为「本组为空」就消失。
     expect(groups[0].rows).toEqual([]);
     expect(groups[1].rows.map((r) => r.key)).toEqual(["a"]);
-    expect(groups[2].rows.map((r) => r.key)).toEqual(["b"]);
-    // 一条会话都没有的项目不摆出来。
-    expect(groups.map((g) => g.key)).not.toContain("p-lonely");
+    expect(groups[2].rows).toEqual([]);
+    expect(groups[3].rows.map((r) => r.key)).toEqual(["b"]);
   });
 
   it("项目轴：会话判进了一个名单里没有的项目时，那一行照样看得见（如实自成一组，与 Agent 轴同一条规则）", () => {
@@ -91,9 +92,16 @@ describe("会话索引的轴投影", () => {
 
     // 「未归项目」不收它：那个组的含义是「cwd 配不上任何项目路径」（决策 7），
     // 而这一条是判出来了、只是叫不出名字，两种可操作性不同。
-    expect(groups.map((g) => g.key)).toEqual(["p-ghost"]);
-    expect(groups[0].label).toBe("p-ghost");
-    expect(groups[0].rows.map((r) => r.key)).toEqual(["a"]);
+    // 名单里那三个（一条会话都没有）照摆在前，叫不出名字的这一组沉在最后。
+    expect(groups.map((g) => g.key)).toEqual([
+      "p-backend",
+      "p-server",
+      "p-lonely",
+      "p-ghost",
+    ]);
+    const ghost = groups[groups.length - 1];
+    expect(ghost.label).toBe("p-ghost");
+    expect(ghost.rows.map((r) => r.key)).toEqual(["a"]);
   });
 
   it("项目轴：父项目不在名单里时子树当根挂，会话不跟着一起消失", () => {
@@ -105,6 +113,35 @@ describe("会话索引的轴投影", () => {
           syncId: "p-child",
           name: "父被删了的子项目",
           parentSyncId: "p-gone",
+          // 排在名单里那三个之后：两个根同为 0 的话，次序就退到中文
+          // localeCompare 上，而这条用例验的不是排序。
+          sortOrder: 3,
+        },
+      ],
+      agents,
+      machines,
+    });
+
+    expect(groups.map((g) => [g.key, g.depth])).toEqual([
+      ["p-backend", 0],
+      ["p-server", 1],
+      ["p-lonely", 0],
+      ["p-child", 0],
+    ]);
+    expect(groups[groups.length - 1].rows.map((r) => r.key)).toEqual(["a"]);
+  });
+
+  it("项目轴：名单里的项目一个不落，空的父带着空的子一起摆（组头本身就是答案）", () => {
+    // 刚建出来、还一条对话都没有的项目：它在索引上必须看得见，否则挂在组头上的
+    // 「机器与路径…」就没有去处，而没配路径的项目恰恰开不出对话——看不见 = 配不了。
+    const groups = buildAxisGroups("project", {
+      rows: [],
+      projects: [
+        { syncId: "p-new", name: "刚建的", sortOrder: 0 },
+        {
+          syncId: "p-new-child",
+          name: "刚建的子项目",
+          parentSyncId: "p-new",
           sortOrder: 0,
         },
       ],
@@ -112,7 +149,25 @@ describe("会话索引的轴投影", () => {
       machines,
     });
 
-    expect(groups.map((g) => [g.key, g.depth])).toEqual([["p-child", 0]]);
+    expect(groups.map((g) => [g.key, g.depth])).toEqual([
+      ["p-new", 0],
+      ["p-new-child", 1],
+    ]);
+    expect(groups.every((g) => g.rows.length === 0)).toBe(true);
+  });
+
+  it("项目轴：调用方没给项目名单时行为一字不变——靠会话反推出来的项目仍然只在有行时出现", () => {
+    // 桌面端就是这一路：它有自己的组骨架，名单传空，只借这一层排行
+    // （index-projection.ts 的 `projects: []`）。名单为空 ⇒ 没有任何组会被
+    // 「名单里的照摆」这条留下来，因此上面那条新规则对它是彻底的空操作。
+    const groups = buildAxisGroups("project", {
+      rows: [row({ key: "a", projectSyncId: "p-ghost" })],
+      projects: [],
+      agents,
+      machines,
+    });
+
+    expect(groups.map((g) => [g.key, g.depth])).toEqual([["p-ghost", 0]]);
     expect(groups[0].rows.map((r) => r.key)).toEqual(["a"]);
   });
 
@@ -132,8 +187,8 @@ describe("会话索引的轴投影", () => {
     expect(groups[1].rows.map((r) => r.key)).toEqual(["b"]);
   });
 
-  it("一条会话都没有时四个轴都交白卷，由宿主的空态承接（决策 10）", () => {
-    for (const axis of ["project", "agent", "machine"] as const) {
+  it("一条会话都没有时 Agent 轴与机器轴交白卷（决策 10）；项目轴例外，名单里的项目照摆", () => {
+    for (const axis of ["agent", "machine"] as const) {
       const groups = buildAxisGroups(axis, {
         rows: [],
         projects,
@@ -142,6 +197,22 @@ describe("会话索引的轴投影", () => {
       });
       expect(groups, axis).toEqual([]);
     }
+
+    // 项目轴上「有哪些项目」这件事不是从会话推出来的，调用方直接给了名单：
+    // 一条会话都没有时它照样答得出，因此不交白卷（组一行不列，由宿主的空态
+    // 另说「还没有对话」）。
+    const projectGroups = buildAxisGroups("project", {
+      rows: [],
+      projects,
+      agents,
+      machines,
+    });
+    expect(projectGroups.map((g) => g.key)).toEqual([
+      "p-backend",
+      "p-server",
+      "p-lonely",
+    ]);
+    expect(projectGroups.every((g) => g.rows.length === 0)).toBe(true);
   });
 
   it("时间轴：不分组，单一平铺，按最后活动时间倒序", () => {
@@ -186,8 +257,14 @@ describe("会话索引的轴投影", () => {
     });
 
     // 同一条会话既判不出项目也没有 Agent 标识：项目轴上它只属于「未归项目」，
-    // 「未命名」是 Agent 轴的兜底，两者不在同一个轴上出现。
-    expect(groups.map((g) => g.key)).toEqual(["__unassigned_project__"]);
+    // 「未命名」是 Agent 轴的兜底，两者不在同一个轴上出现。名单里那三个项目
+    // 照摆（都空着），「未归项目」仍排在它们之后。
+    expect(groups.map((g) => g.key)).toEqual([
+      "p-backend",
+      "p-server",
+      "p-lonely",
+      "__unassigned_project__",
+    ]);
   });
 
   /**
@@ -336,7 +413,8 @@ describe("组的形状契约", () => {
     );
 
     expect(built.map((groups) => groups.map((g) => g.kind))).toEqual([
-      ["project", "project", "unassignedProject"],
+      // 三个 project 是名单里那三个（p-lonely 空着也摆），最后是「未归项目」。
+      ["project", "project", "project", "unassignedProject"],
       ["agent", "unnamedAgent"],
       ["all"],
     ]);
