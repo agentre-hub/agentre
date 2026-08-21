@@ -14,7 +14,8 @@ export function AgentBackendsPanel(props: {
   return (
     <SharedAgentBackendsPanel
       ports={createDesktopEngineSettingsPorts({
-        onRuntimeDeviceState: (listener) => EventsOn("remote.device.state", listener),
+        onRuntimeDeviceState: (listener) =>
+          EventsOn("remote.device.state", listener),
       })}
       {...props}
     />

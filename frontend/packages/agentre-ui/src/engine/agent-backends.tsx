@@ -30,7 +30,15 @@ import {
 } from "./ui/select";
 import { agentreUiResources } from "../i18n";
 
-const i18n = { t: (key: string, _options?: Record<string, unknown>) => key.split(".").reduce<unknown>((value, part) => (value as Record<string, unknown>)?.[part], agentreUiResources.en) as string ?? key };
+const i18n = {
+  t: (key: string, _options?: Record<string, unknown>) =>
+    (key
+      .split(".")
+      .reduce<unknown>(
+        (value, part) => (value as Record<string, unknown>)?.[part],
+        agentreUiResources.en,
+      ) as string) ?? key,
+};
 import { cn } from "../lib/utils";
 
 import {
@@ -430,7 +438,7 @@ export function AgentBackendsPanel({
   }
 
   async function openEditor(backend: Backend, openBinding = false) {
-    const cliPath = await ports.cliPath?.get(backend.syncId) ?? "";
+    const cliPath = (await ports.cliPath?.get(backend.syncId)) ?? "";
     setEditor({ kind: "edit", backend, cliPath, openBinding });
   }
 
@@ -1069,7 +1077,7 @@ function BackendEditor({
   const [type, setType] = React.useState<BackendType>(initialType);
   const [name, setName] = React.useState(editing?.name ?? "");
   const [cliPath, setCliPath] = React.useState(
-    state.kind === "edit" ? state.cliPath ?? "" : "",
+    state.kind === "edit" ? (state.cliPath ?? "") : "",
   );
   const [llmProviderKey, setLlmProviderKey] = React.useState<string>(
     () =>

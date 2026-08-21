@@ -155,7 +155,9 @@ describe("ExecTargetList", () => {
     expect(
       screen.getAllByRole("button", { name: /Reorder target/ }),
     ).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: /Move target down/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Move target down/ }),
+    ).toBeNull();
   });
 
   it("shows Currently active for the first available target and Online for a later available remote target", async () => {

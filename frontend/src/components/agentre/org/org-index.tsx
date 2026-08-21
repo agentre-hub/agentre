@@ -223,7 +223,8 @@ export function OrgIndex(props: OrgIndexProps) {
     () =>
       agents.map((a) => ({
         ...a,
-        noExecTarget: Array.isArray(a.execTargets) && a.execTargets.length === 0,
+        noExecTarget:
+          Array.isArray(a.execTargets) && a.execTargets.length === 0,
       })),
     [agents],
   );

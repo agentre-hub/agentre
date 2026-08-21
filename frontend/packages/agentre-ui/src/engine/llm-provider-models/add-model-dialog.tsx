@@ -14,10 +14,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 
-import {
-  ImportLLMModels,
-  LookupLLMModel,
-} from "../port-bridge";
+import { ImportLLMModels, LookupLLMModel } from "../port-bridge";
 import { llm_provider_svc } from "../port-bridge";
 import { type Provider, errMessage } from "./index";
 

@@ -70,7 +70,9 @@ describe("engine settings optional ports", () => {
     renderWithTranslations(<LlmProvidersPanel ports={createPorts()} />);
 
     await screen.findAllByText("Anthropic");
-    expect(screen.queryByRole("button", { name: /test connection/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /test connection/i }),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: /discover/i })).toBeNull();
   });
 

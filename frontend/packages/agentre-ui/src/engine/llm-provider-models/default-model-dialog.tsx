@@ -13,10 +13,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 
-import {
-  LLMProviderRefCounts,
-  SetLLMModelDefault,
-} from "../port-bridge";
+import { LLMProviderRefCounts, SetLLMModelDefault } from "../port-bridge";
 import { llm_provider_svc } from "../port-bridge";
 import {
   type Model,

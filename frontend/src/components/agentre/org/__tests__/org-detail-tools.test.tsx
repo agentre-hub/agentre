@@ -129,7 +129,9 @@ describe("OrgDetailAgent tool list", () => {
     expect(rows[2]).toHaveAttribute("data-granted", "false");
     // 一行里有名字、一句话能力和动作按钮 —— 能力是**一句话**，不是一整段说明
     // （规格决策 11）。
-    expect(rows[0]).toHaveTextContent("Author, dry-run and cron-schedule scripts");
+    expect(rows[0]).toHaveTextContent(
+      "Author, dry-run and cron-schedule scripts",
+    );
     expect(
       within(rows[0]).getByRole("button", { name: "Revoke Script Hooks" }),
     ).toBeInTheDocument();

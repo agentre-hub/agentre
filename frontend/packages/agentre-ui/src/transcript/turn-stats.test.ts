@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  computeLiveTurnStats,
-  estimateCompletionTokens,
-} from "./turn-stats";
+import { computeLiveTurnStats, estimateCompletionTokens } from "./turn-stats";
 
 describe("estimateCompletionTokens", () => {
   it("Given empty text, When estimated, Then it is 0", () => {

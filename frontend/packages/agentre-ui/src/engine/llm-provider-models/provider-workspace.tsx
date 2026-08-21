@@ -244,50 +244,54 @@ export function ProviderWorkspace({
               className="h-[18px] w-px shrink-0 bg-border"
               aria-hidden="true"
             />
-            {canTestProvider ? <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-[30px] gap-1.5 px-3 text-xs"
-              onClick={onTestProvider}
-              disabled={testingDefault}
-              aria-label={t("llmProviders.workspace.testNamed", {
-                name: provider.name,
-              })}
-              title={t("llmProviders.workspace.testTitle")}
-            >
-              {testingDefault ? (
-                <Loader2
-                  className="size-3.5 animate-spin"
-                  data-icon="inline-start"
-                  aria-hidden="true"
-                />
-              ) : (
-                <SendHorizontal
+            {canTestProvider ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-[30px] gap-1.5 px-3 text-xs"
+                onClick={onTestProvider}
+                disabled={testingDefault}
+                aria-label={t("llmProviders.workspace.testNamed", {
+                  name: provider.name,
+                })}
+                title={t("llmProviders.workspace.testTitle")}
+              >
+                {testingDefault ? (
+                  <Loader2
+                    className="size-3.5 animate-spin"
+                    data-icon="inline-start"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <SendHorizontal
+                    className="size-3.5"
+                    data-icon="inline-start"
+                    aria-hidden="true"
+                  />
+                )}
+                {t("llmProviders.workspace.testConnection")}
+              </Button>
+            ) : null}
+            {canDiscover ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-[30px] gap-1.5 px-3 text-xs"
+                onClick={onDiscover}
+                aria-label={t("llmProviders.workspace.discoverNamed", {
+                  name: provider.name,
+                })}
+              >
+                <RefreshCw
                   className="size-3.5"
                   data-icon="inline-start"
                   aria-hidden="true"
                 />
-              )}
-              {t("llmProviders.workspace.testConnection")}
-            </Button> : null}
-            {canDiscover ? <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-[30px] gap-1.5 px-3 text-xs"
-              onClick={onDiscover}
-              aria-label={t("llmProviders.workspace.discoverNamed", {
-                name: provider.name,
-              })}
-            >
-              <RefreshCw
-                className="size-3.5"
-                data-icon="inline-start"
-                aria-hidden="true"
-              />
-              {t("llmProviders.workspace.discover")}
-            </Button> : null}
+                {t("llmProviders.workspace.discover")}
+              </Button>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -489,20 +493,22 @@ export function ProviderWorkspace({
           </p>
           {/* 手动添加已常驻工具栏，空态只留「发现模型」这一条主路径 */}
           <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-{canDiscover ?             <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-[30px] gap-1.5 px-3 text-xs"
-              onClick={onDiscover}
-            >
-              <RefreshCw
-                className="size-3.5"
-                data-icon="inline-start"
-                aria-hidden="true"
-              />
-              {t("llmProviders.workspace.discoverModels")}
-            </Button> : null}
+            {canDiscover ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-[30px] gap-1.5 px-3 text-xs"
+                onClick={onDiscover}
+              >
+                <RefreshCw
+                  className="size-3.5"
+                  data-icon="inline-start"
+                  aria-hidden="true"
+                />
+                {t("llmProviders.workspace.discoverModels")}
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : (

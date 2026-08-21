@@ -117,7 +117,11 @@ export type BackendScanResult = {
 };
 
 export type AccountDeviceView = { Fingerprint: string; Name: string };
-export type GatewayStatusView = { status?: string; listenURL?: string; reason?: string };
+export type GatewayStatusView = {
+  status?: string;
+  listenURL?: string;
+  reason?: string;
+};
 
 export type ProviderInput = {
   providerKey?: string;
@@ -154,13 +158,22 @@ export interface EngineSettingsPorts {
   deleteProvider(id: EngineID): Promise<void>;
   setProviderEnabled(id: EngineID, enabled: boolean): Promise<ProviderView>;
   setModelEnabled(id: EngineID, enabled: boolean): Promise<ModelView>;
-  createModels(providerId: EngineID, models: Array<Partial<ModelView>>): Promise<ModelView[]>;
+  createModels(
+    providerId: EngineID,
+    models: Array<Partial<ModelView>>,
+  ): Promise<ModelView[]>;
   updateModel(id: EngineID, input: Partial<ModelView>): Promise<ModelView>;
   deleteModel(id: EngineID): Promise<void>;
-  setDefaultModel(providerId: EngineID, modelId: EngineID): Promise<ProviderView>;
+  setDefaultModel(
+    providerId: EngineID,
+    modelId: EngineID,
+  ): Promise<ProviderView>;
   providerReferenceCounts?(providerKey: string): Promise<ReferenceCounts>;
   modelReferenceCounts?(modelKey: string): Promise<ReferenceCounts>;
-  lookupModel?(providerId: EngineID, modelId: string): Promise<DiscoveredModel | null>;
+  lookupModel?(
+    providerId: EngineID,
+    modelId: string,
+  ): Promise<DiscoveredModel | null>;
 
   listBackends(): Promise<BackendView[]>;
   createBackend(input: BackendInput): Promise<BackendView>;
@@ -183,16 +196,30 @@ export interface EngineSettingsPorts {
   };
 
   /** Desktop-only runtime capabilities. Browser hosts omit these methods. */
-  resolveBackendCLIPath?(backendType: string, deviceId?: string): Promise<CliProbeResult>;
+  resolveBackendCLIPath?(
+    backendType: string,
+    deviceId?: string,
+  ): Promise<CliProbeResult>;
   cancelBackendTest?(requestId: string): Promise<void>;
-  createOpenClawBackend?(input: BackendInput, token: string): Promise<BackendView>;
-  updateOpenClawBackend?(id: EngineID, input: BackendInput, token: string, clearToken: boolean): Promise<BackendView>;
+  createOpenClawBackend?(
+    input: BackendInput,
+    token: string,
+  ): Promise<BackendView>;
+  updateOpenClawBackend?(
+    id: EngineID,
+    input: BackendInput,
+    token: string,
+    clearToken: boolean,
+  ): Promise<BackendView>;
   testOpenClawBackend?(input: BackendInput, token: string): Promise<TestResult>;
   gatewayStatus?(): Promise<GatewayStatusView>;
   localDeviceFingerprint?(): Promise<string>;
   listAccountDevices?(): Promise<AccountDeviceView[]>;
   listRuntimeDevices?(): Promise<RuntimeDeviceView[]>;
   listRuntimeDeviceProviders?(deviceID: number): Promise<unknown[]>;
-  syncRuntimeDeviceProvider?(deviceID: number, providerKey: string): Promise<void>;
+  syncRuntimeDeviceProvider?(
+    deviceID: number,
+    providerKey: string,
+  ): Promise<void>;
   onRuntimeDeviceState?(listener: (payload: unknown) => void): () => void;
 }

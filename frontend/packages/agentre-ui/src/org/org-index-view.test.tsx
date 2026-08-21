@@ -122,12 +122,22 @@ describe("OrgAgentRow（只吃 props）", () => {
     const plain = model().groups[0].rows.find((r) => r.agent.id === 2)!;
 
     const { rerender } = render(
-      <OrgAgentRow row={system} indent={0} selected={false} onSelect={vi.fn()} />,
+      <OrgAgentRow
+        row={system}
+        indent={0}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
     );
     expect(screen.getByText("System")).toBeInTheDocument();
 
     rerender(
-      <OrgAgentRow row={plain} indent={0} selected={false} onSelect={vi.fn()} />,
+      <OrgAgentRow
+        row={plain}
+        indent={0}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
     );
     expect(screen.queryByText("System")).toBeNull();
   });

@@ -9,5 +9,10 @@ export function LlmProvidersPanel(props: {
   onOpenAgentBackends?: () => void;
   renderHeader?: (actions: React.ReactNode) => React.ReactNode;
 }) {
-  return <SharedLlmProvidersPanel ports={createDesktopEngineSettingsPorts()} {...props} />;
+  return (
+    <SharedLlmProvidersPanel
+      ports={createDesktopEngineSettingsPorts()}
+      {...props}
+    />
+  );
 }

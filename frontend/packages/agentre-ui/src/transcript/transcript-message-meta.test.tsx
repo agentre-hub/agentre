@@ -126,9 +126,7 @@ describe("assistant message meta token counts", () => {
     });
 
     expect(screen.getByText("claude-sonnet-4")).toBeDefined();
-    expect(screen.getByTestId("message-first-token").textContent).toBe(
-      "0.8s",
-    );
+    expect(screen.getByTestId("message-first-token").textContent).toBe("0.8s");
     expect(screen.queryByTestId("message-token-counts")).toBeNull();
   });
 

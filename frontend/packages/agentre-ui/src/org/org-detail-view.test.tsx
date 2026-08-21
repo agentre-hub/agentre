@@ -172,7 +172,9 @@ describe("OrgToolList（只吃 props）", () => {
     );
 
     const row = screen.getAllByRole("listitem")[0];
-    expect(row.querySelector('[data-slot="org-tool-granted-mark"]')).not.toBeNull();
+    expect(
+      row.querySelector('[data-slot="org-tool-granted-mark"]'),
+    ).not.toBeNull();
     expect(row.querySelector('[data-slot="org-tool-icon"]')).not.toBeNull();
   });
 
@@ -189,7 +191,9 @@ describe("OrgToolList（只吃 props）", () => {
     expect(row.className).toContain("items-center");
     expect(row.querySelector(".flex-col")).toBeNull();
     // 一句话能力，不是一整段说明。
-    expect(screen.getByText("Delegate a subtask to another agent")).toBeInTheDocument();
+    expect(
+      screen.getByText("Delegate a subtask to another agent"),
+    ).toBeInTheDocument();
   });
 
   it("未授权的工具不标需审批（还没有写操作可言），清单以外没有第二处入口", async () => {

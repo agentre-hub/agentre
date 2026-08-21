@@ -29,11 +29,7 @@ import {
 } from "lucide-react";
 
 import { Input } from "../ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { cn } from "../../lib/utils";
 
 import { LlmModelLogo, LlmProviderLogo } from "../ai-brand-logo";
