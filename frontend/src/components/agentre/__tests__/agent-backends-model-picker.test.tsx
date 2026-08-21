@@ -1670,7 +1670,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     expect(group).toHaveClass("bg-popover");
     expect(group).not.toHaveClass("bg-background");
     expect(group).toHaveClass(
-      "text-[10px]",
+      "text-3xs",
       "font-semibold",
       "uppercase",
       "tracking-[0.06em]",

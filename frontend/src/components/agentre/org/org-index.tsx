@@ -921,7 +921,7 @@ function AgentRow({
           size="sm"
           avatarDataUrl={agent.avatarDataUrl}
           avatarIcon={agent.avatarIcon}
-          className="size-4.5 shrink-0 rounded-[5px] text-[10px]"
+          className="size-4.5 shrink-0 rounded-[5px] text-3xs"
         />
       }
     />

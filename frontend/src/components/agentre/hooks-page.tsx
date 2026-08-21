@@ -292,12 +292,12 @@ function HookListItem({
         <span className="truncate text-xs font-semibold text-foreground">
           {hook.name}
         </span>
-        <span className="truncate font-mono text-[10px] text-muted-foreground">
+        <span className="truncate font-mono text-3xs text-muted-foreground">
           {meta.abbrev} · {hook.scheduleExpr}
         </span>
       </span>
       {status === "disabled" ? (
-        <span className="font-mono text-[10px] font-bold text-muted-foreground/70">
+        <span className="font-mono text-3xs font-bold text-muted-foreground/70">
           {t("hooks.list.disabled")}
         </span>
       ) : (
@@ -355,7 +355,7 @@ function RunResultCard({ result, t }: { result: RunHookResult; t: TFunction }) {
               : t("hooks.run.failed", { code: result.exitCode })}
         </span>
         <span className="flex-1" />
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-3xs text-muted-foreground">
           {t("hooks.run.meta", {
             ms: result.durationMs,
             persist: result.persisted
@@ -380,12 +380,12 @@ function RunResultCard({ result, t }: { result: RunHookResult; t: TFunction }) {
         )}
         {result.stdout ? (
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-3xs text-muted-foreground">
               {t("hooks.run.stdout")}
             </span>
             <pre
               data-selectable-text="true"
-              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-[11px] leading-relaxed text-code-muted-foreground"
+              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-code-muted-foreground"
             >
               {result.stdout}
             </pre>
@@ -393,12 +393,12 @@ function RunResultCard({ result, t }: { result: RunHookResult; t: TFunction }) {
         ) : null}
         {result.stderr ? (
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-3xs text-muted-foreground">
               {t("hooks.run.stderr")}
             </span>
             <pre
               data-selectable-text="true"
-              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-[11px] leading-relaxed text-status-error"
+              className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-status-error"
             >
               {result.stderr}
             </pre>
@@ -431,10 +431,10 @@ function SectionCard({
           <Icon className="h-4 w-4" />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-[13px] font-semibold text-foreground">
+          <span className="text-aux font-semibold text-foreground">
             {title}
           </span>
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono text-3xs text-muted-foreground">
             {subtitle}
           </span>
         </span>
@@ -481,7 +481,7 @@ function ScriptTab({
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {t("hooks.trigger.cronLabel")}
             </span>
             <Input
@@ -494,7 +494,7 @@ function ScriptTab({
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {t("hooks.trigger.interpreter")}
             </span>
             <Select
@@ -516,7 +516,7 @@ function ScriptTab({
                   >
                     {t(`hooks.interp.${opt.key}`)}
                     {!opt.installed && (
-                      <span className="ml-1.5 text-[10px] text-muted-foreground">
+                      <span className="ml-1.5 text-3xs text-muted-foreground">
                         {t("hooks.interp.notInstalled")}
                       </span>
                     )}
@@ -526,7 +526,7 @@ function ScriptTab({
             </Select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {t("hooks.trigger.interpreterPath")}
             </span>
             <Input
@@ -546,7 +546,7 @@ function ScriptTab({
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-2xs text-muted-foreground">
               {t("hooks.trigger.timezone")}
             </span>
             <Select
@@ -577,7 +577,7 @@ function ScriptTab({
         subtitle={t("hooks.script.subtitle")}
       >
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-2xs text-muted-foreground">
             {t("hooks.script.name")}
           </span>
           <Input
@@ -606,7 +606,7 @@ function ScriptTab({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 font-mono text-[11px]"
+            className="h-7 font-mono text-2xs"
             onClick={() =>
               setEnv([...draft.env, { key: "", value: "", secret: false }])
             }
@@ -650,7 +650,7 @@ function ScriptTab({
                 aria-label={t("hooks.env.valuePlaceholder")}
                 className="flex-1 font-mono text-xs"
               />
-              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <label className="flex items-center gap-1.5 text-2xs text-muted-foreground">
                 <Switch
                   checked={row.secret}
                   onCheckedChange={(checked) =>
@@ -737,7 +737,7 @@ function RunLogTab({
                 {ev.title}
               </span>
             </span>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-3xs text-muted-foreground">
               {t("hooks.log.receivedAt", {
                 time: formatRelativeTime(ev.receivedAt, t),
               })}
@@ -769,19 +769,19 @@ function RunLogTab({
               {selected.dedupeKey ? (
                 <span
                   data-selectable-text="true"
-                  className="font-mono text-[10px] text-muted-foreground"
+                  className="font-mono text-3xs text-muted-foreground"
                 >
                   {t("hooks.log.dedupeKey")}: {selected.dedupeKey}
                 </span>
               ) : null}
             </div>
             <div className="flex flex-col gap-1">
-              <span className="font-mono text-[10px] text-muted-foreground">
+              <span className="font-mono text-3xs text-muted-foreground">
                 {t("hooks.log.payload")}
               </span>
               <pre
                 data-selectable-text="true"
-                className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-[11px] leading-relaxed text-code-muted-foreground"
+                className="overflow-x-auto rounded-md border border-border bg-code-surface p-3 font-mono text-2xs leading-relaxed text-code-muted-foreground"
               >
                 {selected.payloadJson}
               </pre>
@@ -1020,7 +1020,7 @@ export function HooksPage() {
             <span className="text-sm font-semibold text-foreground">
               {t("hooks.title")}
             </span>
-            <span className="font-mono text-[11px] text-muted-foreground">
+            <span className="font-mono text-2xs text-muted-foreground">
               {hooks.length}
             </span>
             <span className="flex-1" />
@@ -1052,13 +1052,13 @@ export function HooksPage() {
               <p className="text-xs text-muted-foreground">
                 {t("hooks.list.empty")}
               </p>
-              <p className="text-[11px] text-muted-foreground/70">
+              <p className="text-2xs text-muted-foreground/70">
                 {t("hooks.list.emptyHint")}
               </p>
             </div>
           ) : (
             <div className="flex flex-col gap-0.5">
-              <span className="px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase text-muted-foreground">
+              <span className="px-1.5 pb-1 pt-2 text-3xs font-semibold uppercase text-muted-foreground">
                 {t("hooks.list.groupScheduled")}
               </span>
               {filtered.map((hook) => (
@@ -1120,21 +1120,18 @@ export function HooksPage() {
                       {draft.name}
                     </span>
                     <span className="text-muted-foreground">·</span>
-                    <span className="text-[13px] font-medium text-muted-foreground">
+                    <span className="text-aux font-medium text-muted-foreground">
                       {t("hooks.header.kindLabel", {
                         interp: t(`hooks.interp.${draft.interpreter}`),
                       })}
                     </span>
                     {selectedHook ? (
-                      <Badge
-                        variant="secondary"
-                        className="font-mono text-[10px]"
-                      >
+                      <Badge variant="secondary" className="font-mono text-3xs">
                         {t(`hooks.status.${hookStatus(selectedHook)}`)}
                       </Badge>
                     ) : null}
                   </div>
-                  <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-2 font-mono text-3xs text-muted-foreground">
                     <span>{draft.scheduleExpr}</span>
                     {selectedHook ? (
                       <>
@@ -1229,7 +1226,7 @@ export function HooksPage() {
                   aria-selected={activeTab === tab}
                   onClick={() => setActiveTab(tab)}
                   className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-1.5 pb-2.5 pt-3 text-[13px] font-medium transition-colors",
+                    "flex items-center gap-1.5 border-b-2 px-1.5 pb-2.5 pt-3 text-aux font-medium transition-colors",
                     activeTab === tab
                       ? "border-primary text-foreground"
                       : "border-transparent text-muted-foreground",
@@ -1237,10 +1234,7 @@ export function HooksPage() {
                 >
                   {t(`hooks.tabs.${tab}`)}
                   {tab === "runLog" && events.length > 0 ? (
-                    <Badge
-                      variant="secondary"
-                      className="font-mono text-[10px]"
-                    >
+                    <Badge variant="secondary" className="font-mono text-3xs">
                       {events.length}
                     </Badge>
                   ) : null}

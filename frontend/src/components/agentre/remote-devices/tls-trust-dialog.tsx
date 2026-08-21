@@ -125,7 +125,7 @@ export function TLSTrustDialog({
                 <span className="text-sm font-medium">{t(m.labelKey)}</span>
                 {m.badgeKey ? (
                   <span
-                    className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                    className={`text-3xs uppercase tracking-wide px-1.5 py-0.5 rounded ${
                       m.danger
                         ? "bg-destructive/20 text-destructive"
                         : "bg-secondary text-secondary-foreground"

@@ -66,7 +66,7 @@ export function MachineGroupHeader({
         </span>
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-left text-[15px] font-semibold",
+            "min-w-0 flex-1 truncate text-left text-prose font-semibold",
             // 离线只是颜色上退一档，不改变它能不能被打开。
             !machine.online && "text-muted-foreground",
           )}

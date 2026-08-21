@@ -9,7 +9,7 @@ import { Button } from "../ui/button";
 // MESSAGE_AVATAR_CLASS：头像列的**尺寸契约**(以单聊为准)。MessageRow 自己不画头像,
 // 但整行的排版(以及后续分片行的幽灵 gutter)按这个尺寸对齐,所以调用方渲染头像时
 // 套上它 —— 杜绝两处各写 size-6 / size-7 的漂移。
-export const MESSAGE_AVATAR_CLASS = "size-7 rounded-lg text-[11px]";
+export const MESSAGE_AVATAR_CLASS = "size-7 rounded-lg text-2xs";
 
 type MessageRowProps = Omit<React.ComponentProps<"article">, "children"> & {
   /**

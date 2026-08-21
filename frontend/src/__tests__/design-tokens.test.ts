@@ -14,6 +14,8 @@ const TOKENS_CSS = path.resolve(
 );
 
 const REQUIRED_TOKENS: [string, string][] = [
+  ["--text-3xs", "0.625rem"],
+  ["--text-3xs--line-height", "0.875rem"],
   ["--text-prose", "0.9375rem"],
   ["--text-prose--line-height", "1.7"],
   ["--text-aux", "0.8125rem"],

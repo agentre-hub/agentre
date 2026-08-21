@@ -63,7 +63,7 @@ export function GitView({
           type="button"
           variant="outline"
           size="sm"
-          className="mt-2.5 h-7 text-[11px]"
+          className="mt-2.5 h-7 text-2xs"
           onClick={onRetry}
         >
           {t("chatContext.git.retry")}
@@ -119,7 +119,7 @@ export function GitView({
         />
       ))}
       {state.view.truncated ? (
-        <div className="py-1.5 pr-2.5 pl-2 text-[11px] text-muted-foreground">
+        <div className="py-1.5 pr-2.5 pl-2 text-2xs text-muted-foreground">
           {t("chatContext.git.truncated", { limit: rows.length })}
         </div>
       ) : null}
@@ -158,7 +158,7 @@ function Row({
             data-status-letter
             aria-hidden="true"
             className={cn(
-              "w-3 shrink-0 text-center font-mono text-[10px] font-bold",
+              "w-3 shrink-0 text-center font-mono text-3xs font-bold",
               meta.className,
             )}
           >
@@ -177,7 +177,7 @@ function Row({
           */}
           <span
             dir="rtl"
-            className="min-w-0 flex-1 shrink-[9999] truncate text-left font-mono text-[10px] opacity-55"
+            className="min-w-0 flex-1 shrink-[9999] truncate text-left font-mono text-3xs opacity-55"
           >
             {row.dir}
           </span>
@@ -196,7 +196,7 @@ function DiffBadge({ row }: { row: GitRow }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] font-medium"
+      className="inline-flex shrink-0 items-center gap-1 font-mono text-3xs font-medium"
     >
       {row.added > 0 ? (
         <span className="text-status-running">+{row.added}</span>

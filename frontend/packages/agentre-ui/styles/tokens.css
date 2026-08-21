@@ -364,6 +364,12 @@
      this up via the --text-* token convention → utility `text-2xs`. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
+  /* 再往下一档（10px）。两端加起来近 60 处在用它 —— 徽标、时间戳、行号、
+     移动端底栏的标签 —— 却是唯一一档完全没有 token 的尺寸，于是全部写成
+     text-[10px] 绕开阶梯。行高按 text-2xs 的 1rem/0.6875rem ≈ 1.45 同密度换算
+     后落在 0.125rem 网格上。 */
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: 0.875rem;
   /* 对话流排版阶梯 —— 4 级,替代此前散落的 9/10/11/12/13/14/15/16 八级。
      命名避开 secondary / muted 等已被 --color-* 占用的词:否则 text-secondary
      会同时是字号和文字颜色,产生歧义。 */

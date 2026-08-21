@@ -60,7 +60,7 @@ function ModeTab({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1 px-2 py-0.5 text-[10px] whitespace-nowrap transition-colors",
+        "inline-flex items-center gap-1 px-2 py-0.5 text-3xs whitespace-nowrap transition-colors",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
         active
           ? "bg-accent font-semibold text-foreground"
@@ -69,7 +69,7 @@ function ModeTab({
     >
       <span>{label}</span>
       {count != null ? (
-        <span className="font-mono text-[10px] opacity-75">{count}</span>
+        <span className="font-mono text-3xs opacity-75">{count}</span>
       ) : null}
     </button>
   );

@@ -77,7 +77,7 @@ function PanelHeader({
         <Icon className="size-[15px]" aria-hidden="true" />
       </span>
       <div className="min-w-0">
-        <div className="text-[13px] font-semibold">{title}</div>
+        <div className="text-aux font-semibold">{title}</div>
         <div className="mt-0.5 text-2xs leading-relaxed text-muted-foreground">
           {meta}
         </div>

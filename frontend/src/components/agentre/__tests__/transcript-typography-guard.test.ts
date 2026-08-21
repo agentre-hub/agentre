@@ -48,7 +48,7 @@ export const SCANNED: {
   root?: SourceRoot;
 }[] = [
   { file: "transcript-card.tsx", root: "package" },
-  // message-row.tsx 的 MESSAGE_AVATAR_CLASS 用 text-[11px] 画 28px 圆形头像里的
+  // message-row.tsx 的 MESSAGE_AVATAR_CLASS 用 text-2xs 画 28px 圆形头像里的
   // 姓名首字母字形,不是正文/元信息文字。那是头像专属尺寸,不归 12px text-meta 管。
   { file: "message-row.tsx", skip: ["type"], root: "package" },
   { file: "markdown-text.tsx", root: "package" },

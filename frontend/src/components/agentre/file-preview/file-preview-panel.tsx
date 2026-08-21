@@ -263,7 +263,7 @@ export function FilePreviewPanel({ sessionId }: Props) {
           </span>
           {dir !== "" ? (
             <span
-              className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground"
+              className="min-w-0 flex-1 truncate font-mono text-3xs text-muted-foreground"
               title={dir}
             >
               {dir}
@@ -282,7 +282,7 @@ export function FilePreviewPanel({ sessionId }: Props) {
                   aria-pressed={effectiveSegment === seg}
                   onClick={() => setPreviewSegment(sessionId, seg)}
                   className={cn(
-                    "rounded px-1.5 py-0.5 text-[10px] transition-colors duration-150",
+                    "rounded px-1.5 py-0.5 text-3xs transition-colors duration-150",
                     effectiveSegment === seg
                       ? "bg-accent font-semibold text-foreground"
                       : "text-muted-foreground hover:text-foreground",
@@ -443,7 +443,7 @@ function PanelBody({
     }
     return (
       <>
-        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-muted px-3 text-[10px] text-muted-foreground">
+        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-muted px-3 text-3xs text-muted-foreground">
           <span className="font-mono">
             {t("chatContext.filePreview.diffHeader")}
           </span>
@@ -530,7 +530,7 @@ function PreviewMessage({
         type="button"
         variant="outline"
         size="sm"
-        className="h-7 text-[11px]"
+        className="h-7 text-2xs"
         onClick={onRetry}
       >
         {t("chatContext.filePreview.retry")}

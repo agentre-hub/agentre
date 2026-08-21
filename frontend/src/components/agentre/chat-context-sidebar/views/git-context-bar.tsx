@@ -73,7 +73,7 @@ export function GitContextBar({
                   ? t("chatContext.git.baseline", { ref: baseRef })
                   : t("chatContext.git.pickBaseline")
               }
-              className="ml-auto inline-flex max-w-[108px] items-center gap-0.5 rounded-md px-1 py-0.5 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="ml-auto inline-flex max-w-[108px] items-center gap-0.5 rounded-md px-1 py-0.5 font-mono text-3xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               <GitBranch className="size-3 shrink-0" aria-hidden="true" />
               <span className="truncate">
@@ -96,7 +96,7 @@ export function GitContextBar({
                   <DropdownMenuRadioItem
                     key={branch.name}
                     value={branch.name}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   >
                     {branch.name}
                   </DropdownMenuRadioItem>
@@ -126,7 +126,7 @@ function ScopeTab({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "px-2 py-0.5 text-[10px] whitespace-nowrap transition-colors",
+        "px-2 py-0.5 text-3xs whitespace-nowrap transition-colors",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
         active
           ? "bg-accent font-semibold text-foreground"

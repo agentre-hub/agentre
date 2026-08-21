@@ -47,7 +47,7 @@ function DiffBadge({ plus, minus }: { plus: number; minus: number }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] font-medium"
+      className="inline-flex shrink-0 items-center gap-1 font-mono text-3xs font-medium"
     >
       {plus > 0 ? <span className="text-status-running">+{plus}</span> : null}
       {minus > 0 ? <span className="text-destructive">−{minus}</span> : null}

@@ -48,7 +48,7 @@ export function MentionPopover({
           return (
             <React.Fragment key={`${item.kind}-${item.refId}`}>
               {showHeader ? (
-                <div className="sticky top-0 z-10 bg-popover px-2 pt-1.5 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="sticky top-0 z-10 bg-popover px-2 pt-1.5 pb-0.5 text-3xs font-medium uppercase tracking-wide text-muted-foreground">
                   {item.kind === "agent"
                     ? t("mentions.group.agents")
                     : t("mentions.group.projects")}

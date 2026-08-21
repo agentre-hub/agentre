@@ -2655,7 +2655,7 @@ function ChatPanel({
                                     </TooltipTrigger>
                                     <TooltipContent
                                       side="bottom"
-                                      className="max-w-[480px] break-all font-mono text-[11px]"
+                                      className="max-w-[480px] break-all font-mono text-2xs"
                                     >
                                       {session.cwd}
                                     </TooltipContent>
@@ -2968,7 +2968,7 @@ function ChatPanel({
                           <span
                             data-testid="notice-detail"
                             data-selectable-text="true"
-                            className="min-w-0 break-words font-mono text-[11px] leading-snug opacity-80"
+                            className="min-w-0 break-words font-mono text-2xs leading-snug opacity-80"
                           >
                             {notice.detail}
                           </span>

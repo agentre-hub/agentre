@@ -67,7 +67,7 @@ export function FreeGroupHeader({
         >
           <MessagesSquare className="size-3.5" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold">
+        <span className="min-w-0 flex-1 truncate text-left text-prose font-semibold">
           {t("sessionIndex.free.name")}
         </span>
         {attentionCount > 0 && attentionTone ? (

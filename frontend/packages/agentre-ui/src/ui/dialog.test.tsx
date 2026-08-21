@@ -55,7 +55,8 @@ describe("Dialog", () => {
   });
 
   it("标题与描述走字号 token，不写字面像素", () => {
-    // agentre-server 那份是 text-[14px] / text-[11px]，取值相同但绕开了阶梯。
+    // 合并前 agentre-server 那份写的是字面像素（14 / 11），取值与这两档相同，
+    // 但绕开了阶梯：行高只能靠继承，同一档在不同父容器下高矮不一。
     openDialog();
 
     expect(screen.getByText("删除项目")).toHaveClass("text-sm");

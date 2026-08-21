@@ -106,7 +106,7 @@ function ServerOption({
         <span className="text-xs text-muted-foreground">{desc}</span>
       </span>
       {badge ? (
-        <span className="ml-auto shrink-0 rounded-full bg-status-running-bg px-2 py-0.5 text-[11px] font-semibold text-status-running">
+        <span className="ml-auto shrink-0 rounded-full bg-status-running-bg px-2 py-0.5 text-2xs font-semibold text-status-running">
           {badge}
         </span>
       ) : null}

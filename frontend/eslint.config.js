@@ -5,6 +5,8 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
+import { restrictedSyntax } from "./eslint-rules/design-tokens.js";
+
 export default tseslint.config(
   // packages/*/dist 是共享包 prepare 阶段 tsc 的产出物，与 dist / wailsjs 同属生成物。
   { ignores: ["dist", "wailsjs", "packages/*/dist"] },
@@ -44,6 +46,8 @@ export default tseslint.config(
           },
         },
       ],
+      // 设计 token 守卫。规则数据与守卫测试同源，见 eslint-rules/design-tokens.js。
+      "no-restricted-syntax": ["error", ...restrictedSyntax],
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": "off",
       "@typescript-eslint/no-unused-vars": [
@@ -52,6 +56,12 @@ export default tseslint.config(
       ],
       "react-hooks/set-state-in-effect": "off",
     },
+  },
+  {
+    // 规则数据文件本身要举例说明被禁的写法，否则规则无处可写。
+    // 新增豁免必须在这里写清理由。
+    files: ["eslint-rules/**"],
+    rules: { "no-restricted-syntax": "off" },
   },
   {
     files: [
@@ -65,6 +75,8 @@ export default tseslint.config(
     ],
     rules: {
       "i18next/no-literal-string": "off",
+      // 守卫测试要构造违规样本（字面像素字号），对它开这条规则会自相矛盾。
+      "no-restricted-syntax": "off",
     },
   },
   prettier,

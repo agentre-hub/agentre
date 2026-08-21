@@ -81,7 +81,7 @@ function PathChip({ path, t }: { path: DevicePath; t: TFunction }) {
       aria-label={aria}
       title={aria}
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full border px-2 text-[11px] leading-5",
+        "inline-flex shrink-0 items-center rounded-full border px-2 text-2xs leading-5",
         inUse
           ? "border-primary bg-primary-soft font-semibold text-primary-text"
           : "border-border-strong text-muted-foreground",

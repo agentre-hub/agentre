@@ -22,7 +22,7 @@ export function PanelNotice({ text, hint }: { text: string; hint?: string }) {
     <div className="px-3 py-6 text-center text-xs leading-relaxed text-muted-foreground">
       {text}
       {hint ? (
-        <span className="mt-1.5 block text-[11px] opacity-80">{hint}</span>
+        <span className="mt-1.5 block text-2xs opacity-80">{hint}</span>
       ) : null}
     </div>
   );

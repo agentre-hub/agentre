@@ -100,11 +100,11 @@ function NotificationToastCard({
             className="inline-flex size-6 shrink-0 items-center justify-center rounded-full"
             style={{ backgroundColor: avatar.color }}
           >
-            <span className="text-[11px] font-semibold text-white">
+            <span className="text-2xs font-semibold text-white">
               {avatar.letter}
             </span>
           </span>
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+          <span className="min-w-0 flex-1 truncate text-aux font-semibold text-foreground">
             {toast.title}
           </span>
           <button
@@ -129,7 +129,7 @@ function NotificationToastCard({
           <button
             type="button"
             onClick={onJump}
-            className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-2xs font-medium text-foreground hover:bg-accent"
           >
             {t("notify.openSession")}
             <ArrowRight
@@ -137,7 +137,7 @@ function NotificationToastCard({
               aria-hidden="true"
             />
           </button>
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono text-3xs text-muted-foreground">
             {t("notify.justNow")}
           </span>
         </div>
@@ -180,7 +180,7 @@ function UpdateToastCard() {
           <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
             <ArrowUp className="size-3.5" aria-hidden="true" />
           </span>
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+          <span className="min-w-0 flex-1 truncate text-aux font-semibold text-foreground">
             {t("update.toast.title", { version: info.latestVersion })}
           </span>
           <button
@@ -208,7 +208,7 @@ function UpdateToastCard() {
               setPanelOpen(true);
               markAnnounced();
             }}
-            className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-2xs font-medium text-foreground hover:bg-accent"
           >
             {t("update.toast.action")}
             <ArrowRight

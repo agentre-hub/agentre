@@ -115,7 +115,7 @@ export function IssuesBoard({
               >
                 <header className="flex items-center gap-2 px-1">
                   <Icon className={`size-3.5 ${stage.accent}`} aria-hidden />
-                  <h2 className="text-[13px] font-semibold">
+                  <h2 className="text-aux font-semibold">
                     {t(stage.labelKey)}
                   </h2>
                   <span className="font-mono text-2xs font-semibold text-muted-foreground">

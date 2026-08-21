@@ -308,7 +308,7 @@ export function DirectoryView({
           type="button"
           variant="outline"
           size="sm"
-          className="mt-2.5 h-7 text-[11px]"
+          className="mt-2.5 h-7 text-2xs"
           onClick={() => load(ROOT)}
         >
           {t("chatContext.directory.retry")}
@@ -354,7 +354,7 @@ export function DirectoryView({
                 data-status-letter
                 aria-hidden="true"
                 className={cn(
-                  "w-3 shrink-0 text-center font-mono text-[10px] font-bold",
+                  "w-3 shrink-0 text-center font-mono text-3xs font-bold",
                   meta.className,
                 )}
               >
@@ -456,7 +456,7 @@ export function DirectoryView({
                 data-testid="dir-subtree-count"
                 aria-hidden="true"
                 className={cn(
-                  "shrink-0 font-mono text-[10px] font-medium tabular-nums",
+                  "shrink-0 font-mono text-3xs font-medium tabular-nums",
                   GIT_STATUS_META.modified.className,
                 )}
               >
@@ -518,7 +518,7 @@ export function DirectoryView({
         {level.truncated ? (
           // 截断不静默：条目数就是后端这一层的实际上限（后端先过滤忽略项再截断）。
           <div
-            className="py-1.5 pr-2.5 text-[11px] text-muted-foreground"
+            className="py-1.5 pr-2.5 text-2xs text-muted-foreground"
             style={indentStyle(depth)}
           >
             {t("chatContext.directory.truncated", {

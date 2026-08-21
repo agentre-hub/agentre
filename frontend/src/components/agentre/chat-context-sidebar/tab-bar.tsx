@@ -82,9 +82,7 @@ function Tab({
     >
       <span className="truncate">{label}</span>
       {count != null ? (
-        <span className="shrink-0 font-mono text-[10px] opacity-80">
-          {count}
-        </span>
+        <span className="shrink-0 font-mono text-3xs opacity-80">{count}</span>
       ) : null}
     </button>
   );
