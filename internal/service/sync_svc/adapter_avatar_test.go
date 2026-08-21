@@ -73,7 +73,7 @@ func TestAgentAdapter_LoadEmitsAvatarHashNotContent(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Payload, &payload))
 	assert.Equal(t, avatarHash(testAvatarDataURL), payload["avatar_hash"])
 	assert.NotContains(t, payload, "avatar_data_url", "正文一律不进同步载荷")
-	assert.NoError(t, syncwire.GuardPayload(out.Payload), "守卫也认可这份载荷不带头像正文")
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgent, out.Payload), "守卫也认可这份载荷不带头像正文")
 
 	require.Len(t, avatar.putCalls, 1, "本机持有正文时应该单独推一次给对端")
 	assert.Equal(t, avatarHash(testAvatarDataURL), avatar.putCalls[0].Hash)

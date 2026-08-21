@@ -21,6 +21,7 @@ type RouteTarget struct {
 // BackendItem 单条 Agent 后端配置（已 join LLM Provider 摘要）。
 type BackendItem struct {
 	ID                int64  `json:"id"`
+	SyncID            string `json:"syncId"`
 	Type              string `json:"type"`
 	Name              string `json:"name"`
 	LLMProviderKey    string `json:"llmProviderKey"`
@@ -30,7 +31,6 @@ type BackendItem struct {
 	LLMProviderActive bool   `json:"llmProviderActive"`
 	// LLMModelKey 主绑定目标的稳定 ModelKey（空 = provider-default）。
 	LLMModelKey string `json:"llmModelKey"`
-	CLIPath     string `json:"cliPath"`
 	// ModelRoutes 类型化的 Claude Tier Route target（key = OPUS/SONNET/HAIKU）。
 	ModelRoutes     map[string]RouteTarget `json:"modelRoutes"`
 	Sandbox         string                 `json:"sandbox"`
@@ -204,6 +204,38 @@ type CancelTestBackendRequest struct {
 // CancelTestBackendResponse 返回是否真的命中了在跑的请求。
 type CancelTestBackendResponse struct {
 	Canceled bool `json:"canceled"`
+}
+
+type CLIOverlayItem struct {
+	BackendSyncID string `json:"backendSyncId"`
+	Fingerprint   string `json:"fingerprint"`
+	Status        string `json:"status"`
+}
+
+type ListCLIOverlaysRequest struct{}
+type ListCLIOverlaysResponse struct {
+	Items []*CLIOverlayItem `json:"items"`
+}
+
+// GetCLIOverlayRequest reads the current desktop's per-device CLI override.
+type GetCLIOverlayRequest struct {
+	BackendSyncID string `json:"backendSyncId" binding:"required"`
+}
+
+type GetCLIOverlayResponse struct {
+	CLIPath string `json:"cliPath"`
+	Status  string `json:"status"`
+}
+
+// SetCLIOverlayRequest updates the current desktop's per-device CLI override.
+type SetCLIOverlayRequest struct {
+	BackendSyncID string `json:"backendSyncId" binding:"required"`
+	CLIPath       string `json:"cliPath"`
+}
+
+type SetCLIOverlayResponse struct {
+	CLIPath string `json:"cliPath"`
+	Status  string `json:"status"`
 }
 
 // ResolveCLIPathRequest 探测前端选定 CLI 后端类型可用的 binary 绝对路径。

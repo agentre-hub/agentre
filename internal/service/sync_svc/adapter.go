@@ -68,9 +68,11 @@ func defaultAdapters(avatar avatarTransport) map[string]adapter {
 		&departmentAdapter{},
 		&agentAdapter{avatar: avatar},
 		&agentBackendAdapter{},
+		&agentBackendCLIAdapter{},
 		&agentExecTargetAdapter{},
 		&projectAgentAdapter{},
 		&projectLocationAdapter{},
+		&llmProviderAdapter{},
 	}
 	out := make(map[string]adapter, len(list))
 	for _, a := range list {
@@ -142,9 +144,11 @@ var syncKinds = []string{
 	syncwire.KindDepartment,
 	syncwire.KindAgent,
 	syncwire.KindAgentBackend,
+	syncwire.KindAgentBackendCLI,
 	syncwire.KindAgentExecTarget,
 	syncwire.KindProjectAgent,
 	syncwire.KindProjectLocation,
+	syncwire.KindLLMProvider,
 }
 
 // kindKnown 报告某个对象类型是否属于同步组。

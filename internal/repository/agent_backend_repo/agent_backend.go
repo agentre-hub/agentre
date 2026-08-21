@@ -30,6 +30,11 @@ type AgentBackendRepo interface {
 	ListByDevice(ctx context.Context, deviceID string) ([]*agent_backend_entity.AgentBackend, error)
 	List(ctx context.Context) ([]*agent_backend_entity.AgentBackend, error)
 	Delete(ctx context.Context, id int64) error
+	ListCLIOverlays(ctx context.Context) ([]*agent_backend_entity.CLIOverlay, error)
+	FindCLIOverlay(ctx context.Context, backendSyncID, fingerprint string) (*agent_backend_entity.CLIOverlay, error)
+	CreateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error
+	UpdateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error
+	DeleteCLIOverlay(ctx context.Context, id int64) error
 	ClaimRelative(ctx context.Context, fingerprint string) ([]RelativeClaim, error)
 }
 
@@ -119,6 +124,38 @@ func (r *agentBackendRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Model(&agent_backend_entity.AgentBackend{}).
 		Where("id = ?", id).
 		Update("status", consts.DELETE).Error
+}
+
+func (r *agentBackendRepo) ListCLIOverlays(ctx context.Context) ([]*agent_backend_entity.CLIOverlay, error) {
+	var rows []*agent_backend_entity.CLIOverlay
+	err := db.Ctx(ctx).Where("status = ?", consts.ACTIVE).Order("id ASC").Find(&rows).Error
+	return rows, err
+}
+
+func (r *agentBackendRepo) FindCLIOverlay(ctx context.Context, backendSyncID, fingerprint string) (*agent_backend_entity.CLIOverlay, error) {
+	out := &agent_backend_entity.CLIOverlay{}
+	err := db.Ctx(ctx).Where("backend_sync_id = ? AND agentred_fingerprint = ? AND status = ?", backendSyncID, fingerprint, consts.ACTIVE).First(out).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *agentBackendRepo) CreateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error {
+	overlay.EnsureSyncID()
+	return db.Ctx(ctx).Create(overlay).Error
+}
+
+func (r *agentBackendRepo) UpdateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error {
+	overlay.EnsureSyncID()
+	return db.Ctx(ctx).Save(overlay).Error
+}
+
+func (r *agentBackendRepo) DeleteCLIOverlay(ctx context.Context, id int64) error {
+	return db.Ctx(ctx).Model(&agent_backend_entity.CLIOverlay{}).Where("id = ?", id).Update("status", consts.DELETE).Error
 }
 
 // ClaimRelative clones every still-relative backend for fingerprint, fans out

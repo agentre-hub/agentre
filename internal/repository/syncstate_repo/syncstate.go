@@ -1,6 +1,7 @@
-// Package syncstate_repo 提供账号级七张表**同步元数据列**的统一访问。
+// Package syncstate_repo provides account-sync metadata access for identity
+// tables and the per-device CLI overlay projection.
 //
-// 为什么是一个包而不是七套方法：六列（sync_id / sync_account_id / sync_version /
+// 为什么是一个包而不是分散方法：六列（sync_id / sync_account_id / sync_version /
 // sync_updated_at / sync_origin / sync_deleted_at）由 syncmeta_entity.SyncMeta 匿名
 // 内嵌进七张表，同名同型——这正是它们能被一套 SQL 覆盖的原因。业务列仍然只由各自
 // 域的仓储写；这里只碰同步列，以及「按同步标识找到本机那一行」这一个跨域查询。
@@ -97,6 +98,10 @@ func tableOf(kind string) (string, error) {
 		return "project_agents", nil
 	case syncwire.KindProjectLocation:
 		return "project_locations", nil
+	case syncwire.KindLLMProvider:
+		return "llm_providers", nil
+	case syncwire.KindAgentBackendCLI:
+		return "agent_backend_cli_overlays", nil
 	}
 	return "", fmt.Errorf("%w: %s", ErrUnknownKind, kind)
 }

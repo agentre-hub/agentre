@@ -15,13 +15,10 @@ import (
 
 	"github.com/agentre-ai/agentre/internal/daemon/handlers"
 	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-ai/agentre/internal/pkg/code"
 	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
 	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
@@ -30,7 +27,6 @@ import (
 	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
 	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
 )
 
 func setupSvcTest(t *testing.T) (
@@ -190,7 +186,7 @@ func TestCreateBackend(t *testing.T) {
 			backendMock.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
 				DoAndReturn(func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
 					assert.Equal(t, string(agent_backend_entity.TypeClaudeCode), b.Type)
-					assert.Equal(t, "/usr/local/bin/claude", b.CLIPath)
+					assert.Empty(t, b.CLIPath, "CLI path belongs to a per-device overlay, not backend identity")
 					b.ID = 43
 					return nil
 				})
@@ -1187,45 +1183,50 @@ func setupSvcTestWithRemoteDevice(t *testing.T) (
 	return ctx, backendMock, providerMock, agentMock, rd, prober, svc
 }
 
-type recordingClaimSync struct {
-	sync_svc.SyncSvc
-	changes []sync_svc.LocalChange
-}
+func TestClaimRelativeBackends_PromotesExistingRowsWithoutCloningOrTombstoning(t *testing.T) {
+	ctx, _, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
 
-func (s *recordingClaimSync) NotifyRuntimeClaim(_ context.Context, change sync_svc.LocalChange) {
-	s.changes = append(s.changes, change)
-}
-
-func TestClaimRelativeBackends_ClonesAndTombstonesThroughNormalSyncMutations(t *testing.T) {
-	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
-	rd.EXPECT().DeviceFingerprint().Return("sha256:desktop-a", nil)
-	original := &agent_backend_entity.AgentBackend{ID: 1, DeviceID: "", SyncMeta: syncmeta_entity.SyncMeta{SyncID: "backend-old"}}
-	claimed := &agent_backend_entity.AgentBackend{ID: 2, DeviceID: "sha256:desktop-a", SyncMeta: syncmeta_entity.SyncMeta{SyncID: "backend-new"}}
-	oldTarget := &agent_entity.AgentExecTarget{ID: 3, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "target-old"}}
-	newTarget := &agent_entity.AgentExecTarget{ID: 4, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "target-new"}}
-	backendMock.EXPECT().ClaimRelative(ctx, "sha256:desktop-a").Return([]agent_backend_repo.RelativeClaim{{
-		OriginalBackend: original, ClaimedBackend: claimed,
-		OriginalTargets: []*agent_entity.AgentExecTarget{oldTarget}, ClaimedTargets: []*agent_entity.AgentExecTarget{newTarget},
-	}}, nil)
-	recorder := &recordingClaimSync{}
-	sync_svc.SetDefault(recorder)
-	t.Cleanup(func() { sync_svc.SetDefault(nil) })
-
+	// Given existing device-scoped backend rows, when startup promotes the
+	// account model, then it keeps every original identity. No type/name merge,
+	// clone, tombstone, or fingerprint lookup is allowed.
 	require.NoError(t, svc.ClaimRelativeBackends(ctx))
-	assert.Equal(t, []sync_svc.LocalChange{
-		{Kind: syncwire.KindAgentBackend, LocalID: 2, Op: sync_svc.OpCreate, Meta: claimed.SyncMeta},
-		{Kind: syncwire.KindAgentExecTarget, LocalID: 4, Op: sync_svc.OpCreate, Meta: newTarget.SyncMeta},
-		{Kind: syncwire.KindAgentExecTarget, LocalID: 3, Op: sync_svc.OpDelete, Meta: oldTarget.SyncMeta},
-		{Kind: syncwire.KindAgentBackend, LocalID: 1, Op: sync_svc.OpDelete, Meta: original.SyncMeta},
-	}, recorder.changes)
 }
 
-func TestClaimRelativeBackends_GivenFingerprintFailure_DoesNotMutate(t *testing.T) {
-	ctx, _, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
-	rd.EXPECT().DeviceFingerprint().Return("", errors.New("keychain unavailable"))
+func TestClaimRelativeBackends_GivenNoRemoteIdentity_StillDoesNotBlockStartup(t *testing.T) {
+	ctx, _, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
+	assert.NoError(t, svc.ClaimRelativeBackends(ctx))
+}
 
-	err := svc.ClaimRelativeBackends(ctx)
-	assert.EqualError(t, err, "keychain unavailable")
+// TestCLIOverlay_GivenNoExistingOverlay_CreatesLocalDeviceOverride verifies CLI
+// paths are persisted independently from the account backend identity.
+func TestCLIOverlay_GivenNoExistingOverlay_CreatesLocalDeviceOverride(t *testing.T) {
+	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	rd.EXPECT().DeviceFingerprint().Return("sha256:self", nil)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", "sha256:self").Return(nil, nil)
+	backendMock.EXPECT().CreateCLIOverlay(ctx, gomock.AssignableToTypeOf(&agent_backend_entity.CLIOverlay{})).DoAndReturn(
+		func(_ context.Context, overlay *agent_backend_entity.CLIOverlay) error {
+			assert.Equal(t, "backend-1", overlay.BackendSyncID)
+			assert.Equal(t, "sha256:self", overlay.AgentredFingerprint)
+			assert.Equal(t, "/opt/claude", overlay.CLIPath)
+			return nil
+		})
+
+	_, err := svc.SetCLIOverlay(ctx, &SetCLIOverlayRequest{BackendSyncID: "backend-1", CLIPath: "/opt/claude"})
+	require.NoError(t, err)
+}
+
+// TestCLIOverlay_GivenMissingOverlay_ReportsPATH makes missing and explicit
+// empty overlays equivalent at the Wails boundary without consulting CLIPath on
+// an agent_backends row.
+func TestCLIOverlay_GivenMissingOverlay_ReportsPATH(t *testing.T) {
+	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	rd.EXPECT().DeviceFingerprint().Return("sha256:self", nil)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", "sha256:self").Return(nil, nil)
+
+	response, err := svc.GetCLIOverlay(ctx, &GetCLIOverlayRequest{BackendSyncID: "backend-1"})
+	require.NoError(t, err)
+	assert.Empty(t, response.CLIPath)
+	assert.Equal(t, "path", response.Status)
 }
 
 func TestBackend_GivenCanonicalFingerprint_ResolvesPairedRowForRemoteProbe(t *testing.T) {

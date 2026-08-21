@@ -13,8 +13,6 @@ import (
 	"github.com/cago-frame/cago/configs"
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
-	"github.com/cago-frame/cago/pkg/logger"
-	"go.uber.org/zap"
 
 	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
@@ -53,6 +51,9 @@ type AgentBackendSvc interface {
 	ResolveCLIPath(ctx context.Context, req *ResolveCLIPathRequest) (*ResolveCLIPathResponse, error)
 	ScanAndCreateAgentBackends(ctx context.Context, req *ScanAndCreateAgentBackendsRequest) (*ScanAndCreateAgentBackendsResponse, error)
 	ClaimRelativeBackends(ctx context.Context) error
+	GetCLIOverlay(ctx context.Context, req *GetCLIOverlayRequest) (*GetCLIOverlayResponse, error)
+	SetCLIOverlay(ctx context.Context, req *SetCLIOverlayRequest) (*SetCLIOverlayResponse, error)
+	ListCLIOverlays(ctx context.Context, req *ListCLIOverlaysRequest) (*ListCLIOverlaysResponse, error)
 }
 
 type agentBackendSvc struct {
@@ -92,37 +93,106 @@ func RegisterGateway(g httpgateway.TokenIssuer) {
 // AgentBackend 取默认服务单例。
 func AgentBackend() AgentBackendSvc { return defaultAgentBackend }
 
-// ClaimRelativeBackends is the per-installation R13 upgrade step. It runs only
-// after remote_device_svc is initialized, so the fingerprint comes from this
-// desktop's keychain identity rather than server login state.
-func (s *agentBackendSvc) ClaimRelativeBackends(ctx context.Context) error {
+// ClaimRelativeBackends remains the bootstrap hook for historical callers. The
+// append-only migration now promotes rows in place: cloning by device or
+// merging by type/name would change their stable sync identities.
+func (s *agentBackendSvc) ClaimRelativeBackends(context.Context) error { return nil }
+
+// ListCLIOverlays exposes only non-sensitive status data for all account
+// overlays. Absolute paths stay behind GetCLIOverlay's desktop-only seam.
+// setCLIOverlayIfAvailable preserves existing Wails create/update request
+// shapes while moving their local path into a distinct overlay row. An
+// uninitialized remote service only occurs in narrow unit-test composition;
+// bootstrap always initializes it before public writes.
+func (s *agentBackendSvc) setCLIOverlayIfAvailable(ctx context.Context, backendSyncID, cliPath string) error {
+	if strings.TrimSpace(backendSyncID) == "" || remote_device_svc.Default() == nil {
+		return nil
+	}
+	_, err := s.SetCLIOverlay(ctx, &SetCLIOverlayRequest{BackendSyncID: backendSyncID, CLIPath: cliPath})
+	return err
+}
+
+func (s *agentBackendSvc) ListCLIOverlays(ctx context.Context, _ *ListCLIOverlaysRequest) (*ListCLIOverlaysResponse, error) {
+	rows, err := agent_backend_repo.AgentBackend().ListCLIOverlays(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]*CLIOverlayItem, 0, len(rows))
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		status := "path"
+		if row.CLIPath != "" {
+			status = "recognized"
+		}
+		items = append(items, &CLIOverlayItem{BackendSyncID: row.BackendSyncID, Fingerprint: row.AgentredFingerprint, Status: status})
+	}
+	return &ListCLIOverlaysResponse{Items: items}, nil
+}
+
+// GetCLIOverlay reads this desktop's overlay. Missing and empty both mean PATH.
+func (s *agentBackendSvc) GetCLIOverlay(ctx context.Context, req *GetCLIOverlayRequest) (*GetCLIOverlayResponse, error) {
+	if req == nil || strings.TrimSpace(req.BackendSyncID) == "" {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
 	remote := remote_device_svc.Default()
 	if remote == nil {
-		return errors.New("remote device service unavailable")
+		return &GetCLIOverlayResponse{Status: "path"}, nil
 	}
 	fingerprint, err := remote.DeviceFingerprint()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	claims, err := agent_backend_repo.AgentBackend().ClaimRelative(ctx, fingerprint)
+	overlay, err := agent_backend_repo.AgentBackend().FindCLIOverlay(ctx, req.BackendSyncID, fingerprint)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, claim := range claims {
-		sync_svc.NotifyRuntimeClaim(ctx, syncwire.KindAgentBackend, claim.ClaimedBackend.ID, sync_svc.OpCreate, claim.ClaimedBackend.SyncMeta)
-		for _, target := range claim.ClaimedTargets {
-			sync_svc.NotifyRuntimeClaim(ctx, syncwire.KindAgentExecTarget, target.ID, sync_svc.OpCreate, target.SyncMeta)
+	if overlay == nil || overlay.CLIPath == "" {
+		return &GetCLIOverlayResponse{Status: "path"}, nil
+	}
+	return &GetCLIOverlayResponse{CLIPath: overlay.CLIPath, Status: "recognized"}, nil
+}
+
+// SetCLIOverlay writes this desktop's own row only. The caller keeps editing a
+// backend identity through the normal API; this method is the local overlay seam.
+func (s *agentBackendSvc) SetCLIOverlay(ctx context.Context, req *SetCLIOverlayRequest) (*SetCLIOverlayResponse, error) {
+	if req == nil || strings.TrimSpace(req.BackendSyncID) == "" {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	remote := remote_device_svc.Default()
+	if remote == nil {
+		return nil, errors.New("remote device service unavailable")
+	}
+	fingerprint, err := remote.DeviceFingerprint()
+	if err != nil {
+		return nil, err
+	}
+	overlay, err := agent_backend_repo.AgentBackend().FindCLIOverlay(ctx, req.BackendSyncID, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	if overlay == nil {
+		overlay = &agent_backend_entity.CLIOverlay{
+			BackendSyncID: req.BackendSyncID, AgentredFingerprint: fingerprint,
+			CLIPath: strings.TrimSpace(req.CLIPath), Status: consts.ACTIVE,
 		}
-		for _, target := range claim.OriginalTargets {
-			sync_svc.NotifyRuntimeClaim(ctx, syncwire.KindAgentExecTarget, target.ID, sync_svc.OpDelete, target.SyncMeta)
+		if err := agent_backend_repo.AgentBackend().CreateCLIOverlay(ctx, overlay); err != nil {
+			return nil, err
 		}
-		sync_svc.NotifyRuntimeClaim(ctx, syncwire.KindAgentBackend, claim.OriginalBackend.ID, sync_svc.OpDelete, claim.OriginalBackend.SyncMeta)
+		sync_svc.NotifyCreate(ctx, syncwire.KindAgentBackendCLI, overlay.ID, overlay.SyncMeta)
+	} else {
+		overlay.CLIPath = strings.TrimSpace(req.CLIPath)
+		if err := agent_backend_repo.AgentBackend().UpdateCLIOverlay(ctx, overlay); err != nil {
+			return nil, err
+		}
+		sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackendCLI, overlay.ID, overlay.SyncMeta)
 	}
-	if len(claims) > 0 {
-		logger.Ctx(ctx).Info("agent_backend_svc.ClaimRelativeBackends: claimed relative backends",
-			zap.Int("count", len(claims)))
+	status := "path"
+	if overlay.CLIPath != "" {
+		status = "recognized"
 	}
-	return nil
+	return &SetCLIOverlayResponse{CLIPath: overlay.CLIPath, Status: status}, nil
 }
 
 func (s *agentBackendSvc) List(ctx context.Context, _ *ListBackendsRequest) (*ListBackendsResponse, error) {
@@ -180,7 +250,6 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		Name:                  strings.TrimSpace(req.Name),
 		LLMProviderKey:        strings.TrimSpace(req.LLMProviderKey),
 		LLMModelKey:           strings.TrimSpace(req.LLMModelKey),
-		CLIPath:               strings.TrimSpace(req.CLIPath),
 		ModelRoutes:           routes,
 		Sandbox:               strings.TrimSpace(req.Sandbox),
 		Approval:              strings.TrimSpace(req.Approval),
@@ -241,6 +310,9 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 	if err := agent_backend_repo.AgentBackend().Create(ctx, b); err != nil {
 		return nil, err
 	}
+	if err := s.setCLIOverlayIfAvailable(ctx, b.SyncID, req.CLIPath); err != nil {
+		return nil, err
+	}
 	if b.IsOpenClaw() && token != "" {
 		store := s.secretStore()
 		if store == nil {
@@ -296,7 +368,6 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	existing.Name = newName
 	existing.LLMProviderKey = strings.TrimSpace(req.LLMProviderKey)
 	existing.LLMModelKey = strings.TrimSpace(req.LLMModelKey)
-	existing.CLIPath = strings.TrimSpace(req.CLIPath)
 	routes, err := marshalRouteTargets(req.ModelRoutes)
 	if err != nil {
 		return nil, i18n.NewError(ctx, code.AgentBackendUnknownAlias)
@@ -346,6 +417,9 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	}
 
 	if err := agent_backend_repo.AgentBackend().Update(ctx, existing); err != nil {
+		return nil, err
+	}
+	if err := s.setCLIOverlayIfAvailable(ctx, existing.SyncID, req.CLIPath); err != nil {
 		return nil, err
 	}
 	if existing.IsOpenClaw() && (token != "" || clearToken) {
@@ -1016,11 +1090,11 @@ func (s *agentBackendSvc) validateRouteProviders(ctx context.Context, b *agent_b
 func (s *agentBackendSvc) toItem(ctx context.Context, b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider) *BackendItem {
 	item := &BackendItem{
 		ID:                    b.ID,
+		SyncID:                b.SyncID,
 		Type:                  b.Type,
 		Name:                  b.Name,
 		LLMProviderKey:        b.LLMProviderKey,
 		LLMModelKey:           b.LLMModelKey,
-		CLIPath:               b.CLIPath,
 		ModelRoutes:           routeTargetsFromEntity(b.ModelRoutes),
 		Sandbox:               b.Sandbox,
 		Approval:              b.Approval,

@@ -38,5 +38,6 @@ func migrationList() []*gormigrate.Migration {
 		migration202608130001(), // 本端执行目标顺序覆盖（R14，纯本地不同步）
 		migration202608150001(), // 删 agents 名唯一索引（与 R12a 的同名共存冲突）
 		migration202608150002(), // paired_agentreds 容纳「只有中转路径」的行（决策 1）
+		migration202608200001(), // 账号级 LLM Provider + 每设备 CLI 覆盖
 	}
 }
