@@ -48,15 +48,6 @@
         "run": "运行命令"
       }
     },
-    "context": {
-      "aria": "上下文用量 {{used}} / {{max}}，已用 {{percent}}%",
-      "panel": {
-        "nearLimit": "接近上下文窗口上限",
-        "note": "按最近一次模型调用的输入总量计",
-        "remaining": "剩余",
-        "title": "上下文"
-      }
-    },
     "image": {
       "attachmentAlt": "图片附件"
     },

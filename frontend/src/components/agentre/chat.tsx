@@ -5,7 +5,6 @@ import { useShallow } from "zustand/react/shallow";
 import {
   Check,
   EyeOff,
-  Gauge,
   ImagePlus,
   LoaderCircle,
   Pencil,
@@ -32,10 +31,14 @@ import type { Editor } from "@tiptap/react";
 import {
   AIChatInput,
   buildMentionSources,
+  ContextMeter,
   LOCAL_COMMAND_HISTORY_CLEAR_SELECTOR,
   resolveDroppedPaths,
+  transcriptRowPadClass,
   useFileDropZone,
+  usageLevel,
   type AIChatInputHandle,
+  type UsageLevel,
   type LocalCommandHistoryScope,
   type LocalCommandSubmitHandler,
   type SlashCommand,
@@ -47,7 +50,6 @@ import {
   buildSourceByMessageId,
   CodeBlock,
   estimateRowSizeWithSpacing,
-  isLastRowOfMessage,
   TranscriptCard,
   TranscriptUIStateProvider,
   type LiveRowContent,
@@ -292,28 +294,6 @@ function imageFilesFromClipboard(data: DataTransfer): File[] {
   );
 }
 
-// 把 token 数显示成 "42.3k / 1M" 这种紧凑形式，跟 inline 底栏的 10px 字号匹配。
-// 三档，k 与 M 同构（商小于阈值保 1 位小数、否则取整）：
-//   - < 1000        → 原样
-//   - [1e3, 1e6)    → k：商 >= 100 取整，否则 1 位小数
-//   - >= 1e6        → M：商 >= 10 取整，否则 1 位小数；整数时省掉 ".0"（1e6 → "1M"）
-// 额外一条：k 档取整后要是凑够 1000（999_999 → "1000k"），改按 M 档渲染 —— "1000k"
-// 这个字符串在任何输入下都不该出现，本来就是这次要消灭的东西。
-export function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) {
-    const v = n / 1000;
-    if (v < 100) return `${v.toFixed(1)}k`;
-    const rounded = Math.round(v);
-    if (rounded < 1000) return `${rounded}k`;
-    // 落到这里说明四舍五入把它顶进了 M 档，交给下面统一渲染。
-  }
-  const v = n / 1_000_000;
-  if (v >= 10) return `${Math.round(v)}M`;
-  const s = v.toFixed(1);
-  return `${s.endsWith(".0") ? s.slice(0, -2) : s}M`;
-}
-
 // formatResetIn 把"距离 ISO 时间点还有多久"渲染成紧凑的 XdYh / Xh / Xm 形式
 // (e.g. "4d21h", "3h", "40m"),用于 QuotaMeter tooltip。
 //   - 空串 / 无法解析的输入 → 空串(调用方自己决定是否显示括号)
@@ -340,47 +320,23 @@ export function formatResetIn(value: unknown, nowMs?: number): string {
   return `${days}d${hours}h`;
 }
 
-// quotaLevel 是配额告警阈值的唯一来源。每个窗口各自定级 —— 5h 告急不该把 7d
-// 一起染红,否则用户看不出该等 3 小时还是等 4 天。
-type QuotaLevel = "ok" | "warn" | "danger";
-
-function quotaLevel(percent: number | null): QuotaLevel {
-  if (percent === null) return "ok";
-  if (percent >= 90) return "danger";
-  if (percent >= 75) return "warn";
-  return "ok";
-}
-
 // 配色表共用 quotaLevel 定级。文字色分表是因为"正常"态各处诉求不同(底栏配额要退到
 // 背景里,面板与上下文里这个数字是主角);填充色三处一致,故只有一张表。
 // 分表而不是拿 class 字符串去比较判断。
-const QUOTA_METER_TONE: Record<QuotaLevel, string> = {
+const QUOTA_METER_TONE: Record<UsageLevel, string> = {
   ok: "text-muted-foreground",
   warn: "text-status-waiting",
   danger: "text-status-error",
 };
-const QUOTA_PANEL_TONE: Record<QuotaLevel, string> = {
+const QUOTA_PANEL_TONE: Record<UsageLevel, string> = {
   ok: "text-foreground",
   warn: "text-status-waiting",
   danger: "text-status-error",
 };
-const LEVEL_FILL_TONE: Record<QuotaLevel, string> = {
+const LEVEL_FILL_TONE: Record<UsageLevel, string> = {
   ok: "bg-primary",
   warn: "bg-status-waiting",
   danger: "bg-status-error",
-};
-// 上下文的环画的是描边而不是填充,故与 LEVEL_FILL_TONE 同源分表(取值一一对应)。
-const LEVEL_STROKE_TONE: Record<QuotaLevel, string> = {
-  ok: "stroke-primary",
-  warn: "stroke-status-waiting",
-  danger: "stroke-status-error",
-};
-// 上下文计量器的文字色:正常态用 primary-text(它是底栏里唯一常驻的定量信息,
-// 该被看见),告警两档与配额一致。
-const CONTEXT_METER_TONE: Record<QuotaLevel, string> = {
-  ok: "text-primary-text",
-  warn: "text-status-waiting",
-  danger: "text-status-error",
 };
 
 const QUOTA_HOVER_OPEN_DELAY_MS = 200;
@@ -416,10 +372,10 @@ function QuotaMeter({
   // 灰态占位没有可信数值,整块压成 subtle;有数值时两个窗口各自取色。
   const fiveTone = offline
     ? "text-muted-foreground"
-    : QUOTA_METER_TONE[quotaLevel(fiveH)];
+    : QUOTA_METER_TONE[usageLevel(fiveH)];
   const sevenTone = offline
     ? "text-muted-foreground"
-    : QUOTA_METER_TONE[quotaLevel(sevenD)];
+    : QUOTA_METER_TONE[usageLevel(sevenD)];
 
   return (
     <HoverCard
@@ -517,7 +473,7 @@ function QuotaRow({
   t: TFunction;
 }) {
   const pct = Math.round(percent);
-  const level = quotaLevel(pct);
+  const level = usageLevel(pct);
   const remaining = formatResetIn(resetsAt);
   return (
     <div className="flex flex-col gap-1">
@@ -624,175 +580,6 @@ function QuotaPanel({
         {foot.text}
       </div>
     </div>
-  );
-}
-
-// 环的几何:14px 外径 + 2.5px 描边。端点用 butt 而不是 round —— round 在这个描边
-// 宽度下两端各多吃约 4% 弧长,94% 会画成一个闭合的圆,恰好在最该读准的那一档失真。
-const CONTEXT_RING_SIZE = 14;
-const CONTEXT_RING_STROKE = 2.5;
-
-// ContextRing 是计量器唯一的图形。它取代了原来那条 `h-1 w-24` 的线性条:那条要 96px,
-// 是底栏第二宽的元素,而且窄档(@max-[800px])整条隐藏 —— 最需要图形提示的时候反而
-// 没有图形。环只占 14px,可以全档常驻。
-function ContextRing({
-  used,
-  max,
-  pct,
-  level,
-}: {
-  used: number;
-  max: number;
-  pct: number;
-  level: QuotaLevel;
-}) {
-  const radius = (CONTEXT_RING_SIZE - CONTEXT_RING_STROKE) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const center = CONTEXT_RING_SIZE / 2;
-  return (
-    <svg
-      className="-rotate-90 shrink-0"
-      width={CONTEXT_RING_SIZE}
-      height={CONTEXT_RING_SIZE}
-      viewBox={`0 0 ${CONTEXT_RING_SIZE} ${CONTEXT_RING_SIZE}`}
-      role="progressbar"
-      aria-valuemin={0}
-      aria-valuemax={max}
-      aria-valuenow={Math.min(used, max)}
-    >
-      <circle
-        className="fill-none stroke-border"
-        cx={center}
-        cy={center}
-        r={radius}
-        strokeWidth={CONTEXT_RING_STROKE}
-      />
-      <circle
-        data-slot="context-ring-arc"
-        className={cn(
-          "fill-none transition-[stroke-dashoffset]",
-          LEVEL_STROKE_TONE[level],
-        )}
-        cx={center}
-        cy={center}
-        r={radius}
-        strokeWidth={CONTEXT_RING_STROKE}
-        strokeLinecap="butt"
-        strokeDasharray={circumference}
-        strokeDashoffset={circumference * (1 - Math.min(1, pct / 100))}
-      />
-    </svg>
-  );
-}
-
-// ContextPanel 是 HoverCard 的内容:token 绝对值从底栏搬到了这里。
-// 刻意只读 —— 不放"压缩 / 清空上下文"之类的动作入口。
-function ContextPanel({
-  used,
-  max,
-  pct,
-  level,
-  t,
-}: {
-  used: number;
-  max: number;
-  pct: number;
-  level: QuotaLevel;
-  t: TFunction;
-}) {
-  const remaining = Math.max(0, max - used);
-  const tone = CONTEXT_METER_TONE[level];
-  return (
-    <div>
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
-        <Gauge
-          className="size-3.5 shrink-0 text-foreground"
-          aria-hidden="true"
-        />
-        <span className="text-xs font-semibold text-foreground">
-          {t("chat.context.panel.title")}
-        </span>
-      </div>
-      <div className="flex flex-col gap-2 px-3 py-2.5">
-        <div className="flex items-baseline gap-1 font-mono tabular-nums">
-          <span className="text-sm font-semibold text-foreground">
-            {formatTokens(used)}
-          </span>
-          <span className="text-2xs text-muted-foreground">
-            / {formatTokens(max)}
-          </span>
-          <span className={cn("ml-auto text-2xs font-medium", tone)}>
-            {pct}%
-          </span>
-        </div>
-        <div className="flex items-baseline gap-2 border-t border-border pt-2 text-2xs">
-          <span className="font-medium text-foreground">
-            {t("chat.context.panel.remaining")}
-          </span>
-          <span className={cn("ml-auto font-mono tabular-nums", tone)}>
-            {formatTokens(remaining)}
-          </span>
-        </div>
-      </div>
-      <div
-        className={cn(
-          "border-t border-border px-3 py-1.5 text-2xs",
-          level === "ok"
-            ? "bg-muted text-muted-foreground"
-            : "bg-status-waiting-bg text-status-waiting-text",
-        )}
-      >
-        {level === "ok"
-          ? t("chat.context.panel.note")
-          : t("chat.context.panel.nearLimit")}
-      </div>
-    </div>
-  );
-}
-
-function ContextMeter({ used, max }: { used: number; max: number }) {
-  const { t } = useTranslation();
-  const safeUsed = Math.max(0, used);
-  const ratio = max > 0 ? Math.min(1, safeUsed / max) : 0;
-  const pct = Math.round(ratio * 100);
-  // 阈值与配额共用 quotaLevel(≥90 危险 / ≥75 警告),别在这里再写一份 —— 同一个文件
-  // 里两套 90/75 常量迟早会改漏一处。传 ratio*100 而不是取整后的 pct,保持既有边界
-  // 行为不变(ratio 0.895 仍算 warning,不因四舍五入跳成 danger)。
-  const level = quotaLevel(ratio * 100);
-  // 调色板仍是上下文自己的:它的"正常"态是 primary 着色(这个数字是主角),
-  // 而底栏配额的"正常"态要退到背景里 —— 与 QUOTA_METER_TONE / QUOTA_PANEL_TONE
-  // 同源不同表。
-  const tone = CONTEXT_METER_TONE[level];
-  return (
-    <HoverCard
-      openDelay={QUOTA_HOVER_OPEN_DELAY_MS}
-      closeDelay={QUOTA_HOVER_CLOSE_DELAY_MS}
-    >
-      <HoverCardTrigger asChild>
-        {/* 触发器必须是可聚焦的 button:token 绝对值已经降级成"悬停才拿得到",
-            span 会让键盘用户永远读不到它们。与 QuotaMeter 同构。 */}
-        <button
-          type="button"
-          className={cn(
-            "flex min-w-0 cursor-default items-center gap-1.5 overflow-hidden rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
-            "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
-            "hover:border-border hover:bg-accent",
-            "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",
-          )}
-          aria-label={t("chat.context.aria", {
-            max: formatTokens(max),
-            percent: pct,
-            used: formatTokens(safeUsed),
-          })}
-        >
-          <ContextRing used={safeUsed} max={max} pct={pct} level={level} />
-          <span className={cn("font-medium tabular-nums", tone)}>{pct}%</span>
-        </button>
-      </HoverCardTrigger>
-      <HoverCardContent align="end" className="w-[228px] p-0">
-        <ContextPanel used={safeUsed} max={max} pct={pct} level={level} t={t} />
-      </HoverCardContent>
-    </HoverCard>
   );
 }
 
@@ -1739,7 +1526,7 @@ const ChatTranscript = React.forwardRef<
     count: rows.length,
     estimateSize: (index) =>
       // estimateRowSize(内容高度,按 132→148 等同源校准比例缩放)之上,再按
-      // isLastRowOfMessage 补上 rowWrapperPad 的间距增量(消息末行 pb-7=28px /
+      // isLastRowOfMessage 补上 transcriptRowPadClass 的间距增量(消息末行 pb-7=28px /
       // 块内行 pb-2.5=10px,与纯乘法缩放旧 padding 得到的 ≈22.4px/≈8.97px 有
       // ≈5.6px/≈1px 缺口——两处 padding 打在同一个 measureElement div 上,详见
       // transcript-rows.ts:estimateRowSizeWithSpacing 的注释)。
@@ -1967,8 +1754,6 @@ const ChatTranscript = React.forwardRef<
   // 打在行 wrapper 上,跟随 measureElement 一起计入行高 —— isLastRowOfMessage 与
   // estimateSize 里 estimateRowSizeWithSpacing 补间距增量共用同一份边界判断,避免
   // 两处"是否消息末行"各算各的而漂移。
-  const rowWrapperPad = (index: number): string =>
-    isLastRowOfMessage(rows, index) ? "pb-7" : "pb-2.5";
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -2001,7 +1786,7 @@ const ChatTranscript = React.forwardRef<
                           data-row-key={row.key}
                           className={cn(
                             "absolute left-0 top-0 w-full",
-                            rowWrapperPad(virtualItem.index),
+                            transcriptRowPadClass(rows, virtualItem.index),
                           )}
                           style={{
                             transform: `translateY(${virtualItem.start}px)`,
@@ -2019,7 +1804,7 @@ const ChatTranscript = React.forwardRef<
                   key={row.key}
                   data-message-id={row.messageId}
                   data-row-key={row.key}
-                  className={rowWrapperPad(index)}
+                  className={transcriptRowPadClass(rows, index)}
                 >
                   {renderRowView(row)}
                 </div>
