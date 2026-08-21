@@ -1,0 +1,63 @@
+/* sonner 的 token 映射。
+ *
+ * 宿主这样接（排在 tokens.css 之后，理由同 base.css）：
+ *
+ *     @import "@agentre-ai/agentre-ui/toast.css";
+ *
+ * **可选**：只有用 sonner 且开了 `richColors` 的宿主才需要它，所以单独一份、
+ * 不并进 base.css —— 合在一起会让「必需」和「可选」长得一样。sonner 本身是包的
+ * peerDependency，宿主不装它这份 CSS 也只是没有匹配的 DOM，不会出错。
+ *
+ * 不接的后果不是报错，是退回 sonner 自带的饱和配色：同一条「保存成功」在一端是
+ * 淡色面、另一端是一条绿条。agentre-server 此前就是这样。
+ *
+ * 形态：bg + border 绑到语义 token（status-running / destructive /
+ * status-waiting / primary），text 走中性 foreground，**只有 icon 用饱和
+ * chroma**。soft tinted 底保持 Linear 那种克制，避免 richColors 默认的告警条；
+ * 浅 / 深色随 :root / .dark 的 token 自动切换。 */
+[data-sonner-toaster][data-rich-colors="true"] {
+  --normal-bg: var(--popover);
+  --normal-text: var(--popover-foreground);
+  --normal-border: var(--border);
+
+  --success-bg: var(--status-running-bg);
+  --success-text: var(--foreground);
+  --success-border: color-mix(in oklab, var(--status-running) 32%, transparent);
+
+  --error-bg: var(--destructive-soft);
+  --error-text: var(--foreground);
+  --error-border: color-mix(in oklab, var(--destructive) 32%, transparent);
+
+  --warning-bg: var(--status-waiting-bg);
+  --warning-text: var(--foreground);
+  --warning-border: color-mix(in oklab, var(--status-waiting) 32%, transparent);
+
+  --info-bg: var(--primary-soft);
+  --info-text: var(--foreground);
+  --info-border: color-mix(in oklab, var(--primary) 28%, transparent);
+}
+
+[data-sonner-toaster][data-rich-colors="true"]
+  [data-sonner-toast][data-type="success"]
+  [data-icon] {
+  color: var(--status-running);
+}
+[data-sonner-toaster][data-rich-colors="true"]
+  [data-sonner-toast][data-type="error"]
+  [data-icon] {
+  color: var(--destructive);
+}
+[data-sonner-toaster][data-rich-colors="true"]
+  [data-sonner-toast][data-type="warning"]
+  [data-icon] {
+  color: var(--status-waiting);
+}
+[data-sonner-toaster][data-rich-colors="true"]
+  [data-sonner-toast][data-type="info"]
+  [data-icon] {
+  color: var(--primary);
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-description] {
+  color: var(--muted-foreground);
+}

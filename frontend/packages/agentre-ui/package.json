@@ -10,6 +10,8 @@
   "exports": {
     "./tokens.css": "./styles/tokens.css",
     "./code-highlight.css": "./styles/code-highlight.css",
+    "./base.css": "./styles/base.css",
+    "./toast.css": "./styles/toast.css",
     "./i18n": {
       "types": "./dist/i18n/index.d.ts",
       "default": "./dist/i18n/index.js"

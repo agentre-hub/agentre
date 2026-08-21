@@ -55,6 +55,12 @@ import type {
   ProseMirrorLikeNode,
 } from "./types";
 
+// 组件自带的样式:空编辑器那行占位文字由它的 `content: attr(data-placeholder)`
+// 画出来 —— TipTap 的 Placeholder 只加类名和属性,不产出可见文字。放在这里而不是
+// 让宿主 import,是因为组件离了它就是坏的,而漏 import 不会报错(agentre-server
+// 此前就是这样:文案拼好了,一个字都看不到)。守卫在 ./placeholder-style.test.ts。
+import "./chat-input.css";
+
 // 同 useSlashMenu 里的常量:行内 `[]` 默认值每次 render 都是新身份,会把 slash
 // 菜单的订阅 effect 变成「每次提交都重跑」。
 const EMPTY_SLASH_COMMANDS: SlashCommand[] = [];

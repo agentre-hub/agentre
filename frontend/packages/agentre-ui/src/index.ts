@@ -104,6 +104,9 @@ export type { PreviewKind } from "./lib/previewable";
 export { splitStreamingMarkdown } from "./lib/streaming-markdown";
 export type { SplitStreamingMarkdown } from "./lib/streaming-markdown";
 export { useCollapsible } from "./hooks/use-collapsible";
+// 与 `@agentre-ai/agentre-ui/base.css` 里的滚动条规则是一对：那半边把滑块颜色绑到
+// --sb-thumb 并默认透明，这半边在滚动时改值。宿主两样都要接。
+export { useAutoHideScrollbars } from "./hooks/use-auto-hide-scrollbars";
 export { isOpenInNewTabModifier } from "./lib/keyboard";
 export { StatusDot } from "./ui/status-dot";
 export type { StatusDotProps } from "./ui/status-dot";
