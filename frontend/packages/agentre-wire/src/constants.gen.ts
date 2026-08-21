@@ -98,6 +98,25 @@ export const MethodSessionDelete = "runtime.session.delete";
  */
 export const MethodSkillsCatalog = "skills.catalog";
 
+/**
+ * MethodProjectSetLocalPath / MethodProjectClearLocalPath 配置**这台机器上**某个
+ * 项目的本机路径（规格 agentre-server 2026-08-21「桌面端的项目路径也能从 web 配」）。
+ *
+ * 它们同样**不在** runtime.* 下,理由与 skills.catalog 同一条:项目落在机器上,
+ * 与任何一轮执行无关。
+ *
+ * **为什么必须由这台机器自己写**:桌面端的本机路径不参与同步,只按 30 秒内容指纹
+ * 单向上报给 server(整份快照替换)。server 往那份快照里直写一行,这台机器下一次
+ * 上报就把它冲掉——所以浏览器要改它,只能经中转喊到这里来。agentred 不同,它的
+ * 路径是账号级同步对象,server 直写即可,那条路不经过这两个方法。
+ *
+ * 项目按**同步标识**指代,不按本地自增 id:后者是各端私有的,而载荷里不出现任何
+ * 一端的本地 id 是同步协议本来就写死的边界(见 internal/pkg/syncwire 包注释)。
+ */
+export const MethodProjectSetLocalPath = "project.setLocalPath";
+
+export const MethodProjectClearLocalPath = "project.clearLocalPath";
+
 /** daemon → client 通知。 */
 export const NotifyEvent = "runtime.event";
 
@@ -146,6 +165,21 @@ export const ErrCodeSessionNotFound = -32014;
  * 应答里同时带类型化 data(accepted / historyAvailable / executionUnavailable)。
  */
 export const ErrCodePeerExecutionUnavailable = -32015;
+
+/**
+ * project.* 的三个码。段位刻意避开已经用掉的 -32030..-32035(remotefs)与
+ * -32040..-32042(workspacefs):同一条连接上跑着好几个方法族,码段重叠会让
+ * 客户端把别人的失败认成自己的。
+ *
+ * ErrCodeProjectNotSynced:这台机器上没有这个同步标识的项目。它与「写失败了」
+ * **必须分得开**——项目可以先在 web 上建出来,那一刻目标机器可能还没拉到这一行,
+ * 等一会儿就好;折进通用失败会让用户去查权限和磁盘。
+ */
+export const ErrCodeProjectNotSynced = -32050;
+
+export const ErrCodeProjectInvalidPath = -32051;
+
+export const ErrCodeProjectPathNotFound = -32052;
 
 /**
  * CapLLMModelTargetV1 是 daemon 在 health.ping 里公布的能力位：本 daemon 支持

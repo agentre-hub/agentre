@@ -50,6 +50,10 @@ type SyncSvc interface {
 	DiscardLostChange(ctx context.Context, id int64) error
 	// SetEmitter 注入「下行落地了」的通知函数；不注入就是静默（单机构建 / 单元测试）。
 	SetEmitter(emit Emitter)
+	// ReportLocalPathsNow 立刻上报一次本机路径整份快照（规格 2026-08-21 决策 4）。
+	// 与 R16 的 30 秒轮询共用同一条路径与同一枚内容指纹——内容没变时不发请求——
+	// 区别只在触发时机：从 web 改完本机路径那一刻，界面就要能读到新值。
+	ReportLocalPathsNow(ctx context.Context) error
 }
 
 // Emitter 把「这一轮下行落地了哪几类对象」推给上层（生产是 Wails EventsEmit，
@@ -74,6 +78,15 @@ func Notify(ctx context.Context, ch LocalChange) {
 	if s := defaultSvc; s != nil {
 		s.NotifyLocalChange(ctx, ch)
 	}
+}
+
+// ReportLocalPathsNow 是包级调用入口：同步未装配（单机构建 / 单元测试）时是空
+// 操作，写本机路径那条路径因此不需要知道同步存不存在（与 Notify 同一条口径）。
+func ReportLocalPathsNow(ctx context.Context) error {
+	if s := defaultSvc; s != nil {
+		return s.ReportLocalPathsNow(ctx)
+	}
+	return nil
 }
 
 // NotifyCreate / NotifyUpdate / NotifyDelete 是三个调用点糖：域服务在改动落库
