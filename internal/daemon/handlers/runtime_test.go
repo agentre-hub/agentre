@@ -652,6 +652,20 @@ func setupRuntimeTest(t *testing.T, rt agentruntime.Runtime) (
 	return context.Background(), notif, gw, lookup, h
 }
 
+func setupRuntimeTestWithCLIOverlay(t *testing.T, rt agentruntime.Runtime,
+	resolve func(string) (string, bool),
+) (context.Context, *recordingOutbound, *handlers.RuntimeHandlers) {
+	t.Helper()
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Journal: notif, Sessions: sess, SessionQuery: sess,
+		RuntimeFor:        func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+		CLIPathForBackend: resolve,
+	})
+	return context.Background(), notif, h
+}
+
 // setupRuntimeTestWithSessions 同 setupRuntimeTest,但把会话生命周期出口也交回来
 // 供断言用(其余用例不关心它,免得每个都多接一个返回值)。
 func setupRuntimeTestWithSessions(t *testing.T, rt agentruntime.Runtime) (
@@ -695,6 +709,44 @@ func backendJSON(t *testing.T, be agent_backend_entity.AgentBackend) json.RawMes
 }
 
 // ── Capabilities ────────────────────────────────────────────────────────────
+
+func TestRuntime_Run_GivenAccountCLIOverlay_WhenExecuting_ThenUsesOverlayWithoutPersistingItInBackendIdentity(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(syncID string) (string, bool) {
+		assert.Equal(t, "backend-sync-1", syncID)
+		return "/private/bin/claude", true
+	})
+	be := agent_backend_entity.AgentBackend{
+		Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/desktop/bin/claude",
+	}
+	be.SyncID = "backend-sync-1"
+
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 71})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	assert.Equal(t, "/private/bin/claude", runReqs[0].req.Backend.CLIPath)
+	assert.Equal(t, "/desktop/bin/claude", be.CLIPath, "the overlay is applied to the execution copy only")
+}
+
+func TestRuntime_Run_GivenNoSuccessfulAccountSnapshot_WhenExecuting_ThenKeepsPairedDesktopCLIPath(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(string) (string, bool) { return "", false })
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/paired/bin/claude"}
+
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 72})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	assert.Equal(t, "/paired/bin/claude", runReqs[0].req.Backend.CLIPath,
+		"unclaimed daemons and pre-snapshot paired desktop calls keep their existing execution path")
+}
 
 func TestRuntime_Capabilities_Found(t *testing.T) {
 	rt := &fullRT{cap: capability.Capabilities{}}

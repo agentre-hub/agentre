@@ -85,6 +85,45 @@ func TestStateLoadSave(t *testing.T) {
 			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 		})
 
+		convey.Convey("Given a complete engine snapshot, replacing providers deletes absent keys and persists the new catalog", func() {
+			st, _ := Load(dir)
+			st.Mutate(func(s *State) {
+				s.LLMProviders["removed"] = LLMProviderMeta{Name: "old", APIKey: "old-key"}
+			})
+			require.NoError(t, st.Save())
+
+			replacement := map[string]LLMProviderMeta{
+				"provider-1": {
+					Name: "Anthropic", Type: "anthropic", BaseURL: "https://api.example", APIKey: "new-key",
+					DefaultModelKey: "model-1",
+					Models:          []LLMModelMeta{{ModelKey: "model-1", ModelID: "claude-1", Name: "Claude", Enabled: true}},
+				},
+			}
+			require.NoError(t, st.ReplaceLLMProviders(replacement))
+
+			assert.Equal(t, replacement, st.Snapshot().LLMProviders)
+			reloaded, err := Load(dir)
+			require.NoError(t, err)
+			assert.Equal(t, replacement, reloaded.LLMProviders)
+			assert.NotContains(t, reloaded.LLMProviders, "removed")
+		})
+
+		convey.Convey("Given state.json cannot be replaced, replacing providers keeps the previous in-memory and on-disk map", func() {
+			st, _ := Load(dir)
+			previous := map[string]LLMProviderMeta{"provider-old": {Name: "Old", APIKey: "old-key"}}
+			st.Mutate(func(s *State) { s.LLMProviders = previous })
+			require.NoError(t, st.Save())
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "state.json.tmp"), 0o700))
+
+			err := st.ReplaceLLMProviders(map[string]LLMProviderMeta{"provider-new": {Name: "New", APIKey: "new-key"}})
+			require.Error(t, err)
+			assert.Equal(t, previous, st.Snapshot().LLMProviders)
+
+			reloaded, loadErr := Load(dir)
+			require.NoError(t, loadErr)
+			assert.Equal(t, previous, reloaded.LLMProviders)
+		})
+
 		// `agentred login` 是另一个进程：它把凭据写进 state.json 就退出。运行中的
 		// daemon 手里是启动时读到的内存副本，不重新读盘就永远看不到自己已被认领。
 		convey.Convey("AdoptClaimFromDisk picks up a claim written by another process", func() {

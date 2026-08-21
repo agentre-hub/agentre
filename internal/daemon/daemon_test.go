@@ -224,6 +224,87 @@ func TestDaemon_DatabaseHandlesAreIsolatedPerInstance(t *testing.T) {
 	assert.Empty(t, rows, "writing through d1's handle must not be visible through d2's handle")
 }
 
+func TestDaemon_GivenClaimedAccount_WhenRelayConnectsAndReconnects_ThenPullsEngineSnapshotEachTime(t *testing.T) {
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) {
+		s.AccountID = "account-1"
+		s.HubServerURL = "pending"
+		s.Credential = state.AccountCredential{AccessToken: "device-token"}
+	})
+	require.NoError(t, st.Save())
+
+	upgrader := websocket.Upgrader{}
+	relayConnections := make(chan *websocket.Conn, 2)
+	var snapshotPulls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer device-token", r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/v1/relay/daemon":
+			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+			if upgradeErr != nil {
+				t.Errorf("upgrade relay: %v", upgradeErr)
+				return
+			}
+			relayConnections <- conn
+			for {
+				if _, _, readErr := conn.ReadMessage(); readErr != nil {
+					return
+				}
+			}
+		case "/v1/account/channel":
+			http.Error(w, "channel unavailable in this relay test", http.StatusServiceUnavailable)
+		case "/v1/engine/snapshot":
+			pull := snapshotPulls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P","type":"anthropic","base_url":"","api_key":"key-%d","default_model_key":"","models":[]}],"cli_overlays":[]}`, pull, pull)
+		default:
+			t.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	d, err := New(Options{DataDir: dir, HubServerURL: server.URL})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+	require.NotNil(t, d.engineSnapshot)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	d.startEngineSnapshotPulls(ctx)
+	hubDone := make(chan error, 1)
+	go func() { hubDone <- d.hub.Run(ctx) }()
+
+	var first *websocket.Conn
+	select {
+	case first = <-relayConnections:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial relay connection was not established")
+	}
+	require.Eventually(t, func() bool { return snapshotPulls.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, first.Close())
+
+	select {
+	case second := <-relayConnections:
+		t.Cleanup(func() { _ = second.Close() })
+	case <-time.After(3 * time.Second):
+		t.Fatal("relay did not reconnect")
+	}
+	require.Eventually(t, func() bool { return snapshotPulls.Load() == 2 }, 2*time.Second, 10*time.Millisecond)
+	providers := d.state.Snapshot().LLMProviders
+	assert.Contains(t, providers, "provider-2")
+	assert.NotContains(t, providers, "provider-1", "the second complete snapshot deletes keys absent from it")
+
+	cancel()
+	select {
+	case runErr := <-hubDone:
+		require.NoError(t, runErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("hub link did not stop")
+	}
+}
+
 // TestDaemon_NewDoesNotLeakIntoGlobalDefaultDB 回归:New 绝不能调 db.SetDefault
 // ——那是 cago database/db 包级全局,会让 internal/daemon/integration_test.go
 // 同进程构造的多个 Daemon 静默共享同一个库(参见 db 字段注释)。写入经 d 自己的

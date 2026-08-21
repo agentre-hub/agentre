@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +62,10 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountClaim(t *testing.T) {
 			assert.Equal(t, http.MethodGet, r.Method)
 			assert.Empty(t, r.Header.Get("Authorization"), "public key distribution is unauthenticated")
 			_, _ = io.WriteString(w, `{"version":1,"current_kid":"current","keys":{"old":"old-key","current":"-----BEGIN PUBLIC KEY-----\ncached-key"},"public_key":"-----BEGIN PUBLIC KEY-----\ncached-key","max_token_lifetime_seconds":900}`)
+		case "/v1/engine/snapshot":
+			assert.Equal(t, http.MethodGet, r.Method)
+			assert.Equal(t, "Bearer "+accessToken, r.Header.Get("Authorization"))
+			_, _ = io.WriteString(w, `{"providers":[{"provider_key":"provider-login","name":"Login Provider","type":"anthropic","base_url":"https://api.example","api_key":"login-key","default_model_key":"model-login","models":[{"model_key":"model-login","model_id":"claude-login","name":"Claude Login","enabled":true}]}],"cli_overlays":[{"backend_sync_id":"backend-login","cli_path":"/private/bin/claude"}]}`)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -104,6 +110,61 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountClaim(t *testing.T) {
 	assert.NotZero(t, got.Credential.AccessTokenExpiresAt)
 	assert.NotZero(t, got.Credential.RefreshTokenExpiresAt)
 	assert.Equal(t, server.URL, got.HubServerURL, "successful login must persist the server used by service startup")
+	provider, ok := got.LLMProviders["provider-login"]
+	require.True(t, ok, "successful login must immediately pull the account engine snapshot")
+	assert.Equal(t, "login-key", provider.APIKey)
+	assert.Equal(t, "model-login", provider.DefaultModelKey)
+	onDisk, readErr := os.ReadFile(filepath.Join(dir, "state.json")) //nolint:gosec // G304: dir is this test's t.TempDir, not untrusted input.
+	require.NoError(t, readErr)
+	assert.NotContains(t, string(onDisk), "/private/bin/claude", "login must not persist absolute CLI overlays")
+}
+
+func TestLogin_GivenEngineSnapshotFailure_WhenClaimSucceeds_ThenKeepsPreviousProvidersAndReportsSuccess(t *testing.T) {
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) {
+		s.LLMProviders["provider-old"] = state.LLMProviderMeta{Name: "Old", APIKey: "old-key"}
+	})
+	require.NoError(t, st.Save())
+	accessToken := unsignedJWT(t, map[string]any{"uid": 42})
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		status := http.StatusOK
+		body := ""
+		switch r.URL.Path {
+		case "/v1/oauth/device/authorize":
+			body = `{"device_code":"code-1","user_code":"ABCD","verification_uri":"https://verify.example/device","verification_uri_complete":"https://verify.example/device?user_code=ABCD","interval":1,"expires_in":60}`
+		case "/v1/oauth/device/token":
+			body = `{"access_token":"` + accessToken + `","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh-token","refresh_expires_in":7200,"device_id":9}`
+		case "/v1/keys":
+			body = `{"current_kid":"current","keys":{"current":"PEM"},"max_token_lifetime_seconds":900}`
+		case "/v1/engine/snapshot":
+			status = http.StatusServiceUnavailable
+			body = `{"code":503,"msg":"temporarily unavailable"}`
+		default:
+			t.Fatalf("unexpected request %s", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: status, Status: http.StatusText(status), Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: r,
+		}, nil
+	})}
+	cmd := newLoginCmdWithDeps(loginDeps{
+		dataDir: func() (string, error) { return dir, nil }, http: client,
+		openBrowser: func(string) error { return nil }, wait: func(time.Duration) error { return nil },
+		platform: "linux", version: "dev", hostname: func() (string, error) { return "coding", nil },
+	})
+	var stderr bytes.Buffer
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--server", "http://account.example"})
+
+	require.NoError(t, cmd.Execute(), "snapshot refresh is post-login best effort")
+	got, loadErr := state.Load(dir)
+	require.NoError(t, loadErr)
+	assert.True(t, got.IsClaimed())
+	assert.Contains(t, got.LLMProviders, "provider-old")
+	assert.Contains(t, stderr.String(), "will retry")
 }
 
 func TestGivenInjectedBuildIdentityWhenLoginAuthorizesThenRegistersSameIdentity(t *testing.T) {
