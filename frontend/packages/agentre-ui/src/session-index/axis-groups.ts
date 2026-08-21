@@ -194,6 +194,9 @@ function projectGroups(
   projects: ProjectNode[],
 ): IndexGroup[] {
   const byId = new Map(projects.map((p) => [p.syncId, p]));
+  // 调用方给的名单里的项目，一条会话都没有也照摆（下面 walk 的收尾条件读它）。
+  // 必须在下面那一轮反推之前就取：反推进来的那些不算「名单里的」。
+  const listed = new Set(byId.keys());
   // 名单外但被会话引用到的标识如实自成一组，名字就用标识本身，不猜——与 Agent 轴
   // 同一条规则。排序键取最大，这类组因此沉在真项目之后。
   for (const row of rows) {
@@ -250,7 +253,11 @@ function projectGroups(
     );
     let kept = false;
     for (const child of children) kept = walk(child, depth + 1) || kept;
-    if (own.length === 0 && !kept) {
+    // 名单里的项目照摆，空着也摆：组头本身就是答案的一部分（「账号里有这个项目」）。
+    // 刚建出来的项目一条对话都没有，删掉它等于把挂在组头上的「机器与路径…」一并
+    // 删掉——而没配路径的项目恰恰开不出对话，于是它再也长不出行、再也回不来。
+    // 名单外、靠会话反推出来的那些不在此列：它们按构造必然有行，走不到这一句。
+    if (own.length === 0 && !kept && !listed.has(node.syncId)) {
       out.splice(at, 1);
       return false;
     }
