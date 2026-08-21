@@ -204,6 +204,7 @@ func TestMessageRepo_Create(t *testing.T) {
 		WithArgs(
 			int64(3), "", "user", "[]", "",
 			0, 0, 0, 0, 0, 0, 0,
+			0, 0.0, // first_token_ms, tokens_per_sec
 			"", "", 1,
 			sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
@@ -225,6 +226,7 @@ func TestMessageRepo_CreateReplacementStage(t *testing.T) {
 		WithArgs(
 			chat_repo.ReplacementStageSessionID(3), "", "user", "[]", "",
 			0, 0, 0, 0, 0, 0, 0,
+			0, 0.0, // first_token_ms, tokens_per_sec
 			"", "", 5,
 			sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
@@ -619,6 +621,7 @@ func TestMessageRepo_FlipSubagentStatus_FlipsMatchingBlock(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), // token 列
 			sqlmock.AnyArg(),                   // total_input_tokens
 			sqlmock.AnyArg(),                   // duration_ms
+			sqlmock.AnyArg(), sqlmock.AnyArg(), // first_token_ms / tokens_per_sec
 			sqlmock.AnyArg(),                   // fork_anchor
 			sqlmock.AnyArg(),                   // error_text
 			sqlmock.AnyArg(),                   // seq
@@ -797,6 +800,7 @@ func TestMessageRepo_AppendSubagentChildren_AppendsBlocks(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), // token 列
 			sqlmock.AnyArg(),                   // total_input_tokens
 			sqlmock.AnyArg(),                   // duration_ms
+			sqlmock.AnyArg(), sqlmock.AnyArg(), // first_token_ms / tokens_per_sec
 			sqlmock.AnyArg(),                   // fork_anchor
 			sqlmock.AnyArg(),                   // error_text
 			sqlmock.AnyArg(),                   // seq
