@@ -36,6 +36,10 @@ type ProjectSvc interface {
 	// SetLocalPath 就地指定「本机未配置路径」（R10）项目的本机路径，解除该状态；
 	// 路径必须存在。指定之后这个项目与本机创建的项目无任何差别（R10 末段）。
 	SetLocalPath(ctx context.Context, id int64, path string) (*project_entity.Project, error)
+	// ClearLocalPath 把这个项目打回「本机未配置路径」（规格 2026-08-21 决策 6）：
+	// 清掉本机路径并置上该状态。**机器上的目录一个字节都不动**，去掉的只是
+	// 「这个项目在本机落在哪」这条记录。已经是该状态时是幂等的。
+	ClearLocalPath(ctx context.Context, id int64) (*project_entity.Project, error)
 	// Merge 把 sourceID / targetID 两个本地项目行合并成一个（R11a）：沿用账号侧的
 	// 同步标识（两边都没有时沿用先创建的那个的），保留本机项目的本机路径；
 	// chat_sessions / project_agents / projects.parent_id / issues /
@@ -197,6 +201,26 @@ func (s *projectSvc) SetLocalPath(ctx context.Context, id int64, path string) (*
 	}
 	existing.Path = trimmed
 	existing.LocalPathMissing = false
+	if err := project_repo.Project().Update(ctx, existing); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+// ClearLocalPath 见 ProjectSvc 接口注释（规格 2026-08-21 决策 6）。
+//
+// 与 SetLocalPath 同样不调用 sync_svc.NotifyUpdate——本机路径本就不参与同步载荷，
+// 去掉它是纯本地事件，不该让这一行在账号侧显得「又改了」。
+func (s *projectSvc) ClearLocalPath(ctx context.Context, id int64) (*project_entity.Project, error) {
+	existing, err := project_repo.Project().Find(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, i18n.NewError(ctx, code.ProjectNotFound)
+	}
+	existing.Path = ""
+	existing.LocalPathMissing = true
 	if err := project_repo.Project().Update(ctx, existing); err != nil {
 		return nil, err
 	}

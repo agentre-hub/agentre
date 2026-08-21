@@ -1273,6 +1273,97 @@ export function encodeSkillCatalogResult(v: SkillCatalogResult): string {
   return encodeWire(v);
 }
 
+/** ProjectSetLocalPathParams 指定某个项目在**这台机器上**的本机路径。 */
+export interface ProjectSetLocalPathParams extends WireObject {
+  projectSyncId: string;
+  path: string;
+}
+
+export function decodeProjectSetLocalPathParams(
+  v: unknown,
+): ProjectSetLocalPathParams {
+  return decodeWire<ProjectSetLocalPathParams>(
+    v,
+    "ProjectSetLocalPathParams",
+    (o) => {
+      o.projectSyncId = reqStr(
+        o.projectSyncId,
+        "ProjectSetLocalPathParams.projectSyncId",
+      );
+      o.path = reqStr(o.path, "ProjectSetLocalPathParams.path");
+    },
+  );
+}
+
+export function encodeProjectSetLocalPathParams(
+  v: ProjectSetLocalPathParams,
+): string {
+  return encodeWire(v);
+}
+
+/**
+ * ProjectClearLocalPathParams 把某个项目在这台机器上打回「本机未配置路径」。
+ *
+ * **机器上的目录一个字节都不动**,去掉的只是「这个项目在本机落在哪」这条记录。
+ */
+export interface ProjectClearLocalPathParams extends WireObject {
+  projectSyncId: string;
+}
+
+export function decodeProjectClearLocalPathParams(
+  v: unknown,
+): ProjectClearLocalPathParams {
+  return decodeWire<ProjectClearLocalPathParams>(
+    v,
+    "ProjectClearLocalPathParams",
+    (o) => {
+      o.projectSyncId = reqStr(
+        o.projectSyncId,
+        "ProjectClearLocalPathParams.projectSyncId",
+      );
+    },
+  );
+}
+
+export function encodeProjectClearLocalPathParams(
+  v: ProjectClearLocalPathParams,
+): string {
+  return encodeWire(v);
+}
+
+/**
+ * ProjectLocalPathResult 是两个写方法共同的应答:生效之后的状态。
+ *
+ * 带回路径正文是刻意的:上报是 30 秒轮询,浏览器重新去 server 拉只会拿到旧快照。
+ * 调用方据此就地更新那一行,不必等下一轮。
+ */
+export interface ProjectLocalPathResult extends WireObject {
+  /** Path 是生效后的本机路径;清除之后为空。 */
+  path: string;
+
+  /** Configured 为假即这个项目在这台机器上处于「本机未配置路径」。 */
+  configured: boolean;
+}
+
+export function decodeProjectLocalPathResult(
+  v: unknown,
+): ProjectLocalPathResult {
+  return decodeWire<ProjectLocalPathResult>(
+    v,
+    "ProjectLocalPathResult",
+    (o) => {
+      o.path = reqStr(o.path, "ProjectLocalPathResult.path");
+      o.configured = reqBool(o.configured, "ProjectLocalPathResult.configured");
+    },
+  );
+}
+
+export function encodeProjectLocalPathResult(
+  v: ProjectLocalPathResult,
+): string {
+  return encodeWire(v);
+}
+
 /**
  * EventFrame wraps a single agentruntime.Event for delivery over NotifyEvent.
  * SessionID is transport metadata so the receiving end can route by session;

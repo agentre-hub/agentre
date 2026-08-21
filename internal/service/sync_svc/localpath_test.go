@@ -168,3 +168,39 @@ func TestReportLocalPathsOnce_GivenLoggedOut_DoesNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, h.transport.localPathReports)
 }
+
+// ReportLocalPathsNow 是「刚刚有人从 web 改了本机路径，别等 30 秒」那一下（规格
+// 2026-08-21 决策 4）。它与 R16 的轮询共用同一条上报路径与同一枚内容指纹，只是
+// 触发时机不同——web 上写完那一刻界面就要能读到新值，等一轮轮询会让人以为没生效。
+
+func TestReportLocalPathsNow_GivenChangedSnapshot_ThenReportsImmediately(t *testing.T) {
+	h := newHarness(t, true)
+	registerProjects(t, []*project_entity.Project{projectRow("proj-a", "/Users/me/a", false)})
+
+	require.NoError(t, h.svc.ReportLocalPathsNow(context.Background()))
+
+	require.Len(t, h.transport.localPathReports, 1)
+	assert.Equal(t, []syncwire.LocalPathReportItem{{ProjectSyncID: "proj-a", Path: "/Users/me/a"}},
+		h.transport.localPathReports[0])
+}
+
+// 它复用同一枚内容指纹：没变就不发，否则 web 上每点一次都会平白多一个请求。
+func TestReportLocalPathsNow_GivenUnchangedSnapshot_ThenSkips(t *testing.T) {
+	h := newHarness(t, true)
+	registerProjects(t, []*project_entity.Project{projectRow("proj-a", "/Users/me/a", false)})
+
+	require.NoError(t, h.svc.ReportLocalPathsNow(context.Background()))
+	require.NoError(t, h.svc.ReportLocalPathsNow(context.Background()))
+
+	assert.Len(t, h.transport.localPathReports, 1, "指纹没变，第二次不该再发")
+}
+
+// 包级入口在同步未装配时是空操作：单机构建 / 单元测试里没有同步引擎，
+// 写本机路径这条路径不该因此断掉（与 Notify 同一条口径）。
+func TestReportLocalPathsNowPackageEntry_GivenNoSvc_ThenNoop(t *testing.T) {
+	saved := defaultSvc
+	defaultSvc = nil
+	t.Cleanup(func() { defaultSvc = saved })
+
+	require.NoError(t, ReportLocalPathsNow(context.Background()))
+}

@@ -7,11 +7,21 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"github.com/cago-frame/cago/pkg/utils/httputils"
+	"go.uber.org/zap"
+
 	"github.com/agentre-ai/agentre/internal/daemon/handlers"
+	"github.com/agentre-ai/agentre/internal/daemon/remotefs"
 	"github.com/agentre-ai/agentre/internal/daemon/rpc"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
+	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-ai/agentre/internal/service/project_svc"
 	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-ai/agentre/internal/service/sync_svc"
 )
 
 type inboundSessionAdapter interface {
@@ -103,6 +113,15 @@ func RegisterInboundMethods(registry *rpc.Registry) {
 	registry.Register(wire.MethodSteer, requireAccount(steerSession))
 	registry.Register(wire.MethodSubmitAnswer, requireAccount(submitAnswer))
 	registry.Register(wire.MethodSubmitToolPermission, requireAccount(submitToolPermission))
+	registry.Register(wire.MethodProjectSetLocalPath, requireAccount(setProjectLocalPath))
+	registry.Register(wire.MethodProjectClearLocalPath, requireAccount(clearProjectLocalPath))
+	// remotefs.* 用的就是 agentred 那一份 handler 实现,只把守卫从 daemon 的
+	// requireAuth 换成这里的 requireAccount(浏览器出示的是账号凭据,不是配对码)。
+	//
+	// **复用而不是另写一份**:同一个问题两处实现迟早给出两个答案,而错误分类
+	// (拒绝访问 / 不存在 / 不是目录 / 条目截断)要在浏览器那一份界面上都对得上。
+	// skills.catalog 当初也是按这条理由让两端共用 handler 的。
+	remotefs.Register(registry, remotefs.NewHandlers(remotefs.Options{}), requireAccount)
 }
 
 // authenticateAccount completes the existing account-handshake vocabulary.
@@ -149,6 +168,93 @@ func requireAccount(next rpc.HandlerFunc) rpc.HandlerFunc {
 			return nil, rpc.ErrUnauthorized
 		}
 		return next(ctx, raw)
+	}
+}
+
+// setProjectLocalPath 与 clearProjectLocalPath 是浏览器配置**这台机器上**项目路径的
+// 两个入口(规格 agentre-server 2026-08-21)。
+//
+// 两者都在写成之后**当场重报一次整份快照**:上报本身是 30 秒内容指纹轮询,不催这一
+// 次的话服务端那份清单最多晚半分钟才追上,而浏览器刚点完就要看见结果。重报失败不
+// 改变这次写的成败——本地已经写成了,一次网络抖动不该让界面显示成没写。
+func setProjectLocalPath(ctx context.Context, raw json.RawMessage) (any, error) {
+	var params wire.ProjectSetLocalPathParams
+	if err := json.Unmarshal(raw, &params); err != nil || params.ProjectSyncID == "" {
+		return nil, rpc.ErrInvalidParams
+	}
+	id, err := localProjectID(ctx, params.ProjectSyncID)
+	if err != nil {
+		return nil, err
+	}
+	p, err := project_svc.Default().SetLocalPath(ctx, id, params.Path)
+	if err != nil {
+		return nil, projectPathError(err)
+	}
+	reportLocalPaths(ctx)
+	return wire.ProjectLocalPathResult{Path: p.Path, Configured: !p.LocalPathMissing}, nil
+}
+
+func clearProjectLocalPath(ctx context.Context, raw json.RawMessage) (any, error) {
+	var params wire.ProjectClearLocalPathParams
+	if err := json.Unmarshal(raw, &params); err != nil || params.ProjectSyncID == "" {
+		return nil, rpc.ErrInvalidParams
+	}
+	id, err := localProjectID(ctx, params.ProjectSyncID)
+	if err != nil {
+		return nil, err
+	}
+	p, err := project_svc.Default().ClearLocalPath(ctx, id)
+	if err != nil {
+		return nil, projectPathError(err)
+	}
+	reportLocalPaths(ctx)
+	return wire.ProjectLocalPathResult{Path: p.Path, Configured: !p.LocalPathMissing}, nil
+}
+
+// localProjectID 把浏览器给的同步标识翻成这台机器的本地行号。
+//
+// 查不到**不是**一个内部错误:项目可以先在 web 上建出来,那一刻这台机器可能还没把
+// 那一行拉下来。它有自己的码,浏览器据此说「那台机器还没同步到这个项目」而不是
+// 让人去查权限和磁盘。
+func localProjectID(ctx context.Context, syncID string) (int64, error) {
+	id, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindProject, syncID)
+	if err != nil {
+		return 0, rpc.ErrInternal
+	}
+	if id == 0 {
+		return 0, &rpc.Error{
+			Code: wire.ErrCodeProjectNotSynced, Message: "project not synced to this machine",
+		}
+	}
+	return id, nil
+}
+
+// projectPathError 把 project_svc 的业务码翻成这条连接上的 wire 码。
+//
+// **不在这里重做一遍校验**:路径非空、目录存在这两条判据住在 project_svc,桌面端
+// 自己的界面走的也是它。两处各判一次迟早会分岔,而分岔的那一天两个入口对同一个
+// 路径给出不同结论。
+func projectPathError(err error) error {
+	var httpErr *httputils.Error
+	if errors.As(err, &httpErr) {
+		switch httpErr.Code {
+		case code.ProjectNotFound:
+			return &rpc.Error{Code: wire.ErrCodeProjectNotSynced, Message: httpErr.Msg}
+		case code.ProjectInvalidPath:
+			return &rpc.Error{Code: wire.ErrCodeProjectInvalidPath, Message: httpErr.Msg}
+		case code.ProjectPathNotExist:
+			return &rpc.Error{Code: wire.ErrCodeProjectPathNotFound, Message: httpErr.Msg}
+		}
+	}
+	return rpc.ErrInternal
+}
+
+// reportLocalPaths 催一次本机路径上报。**路径正文绝不进日志**(与上报侧同一条口径:
+// 里面是这台机器上的绝对路径),失败只记一行说明这次没催成。
+func reportLocalPaths(ctx context.Context) {
+	if err := sync_svc.ReportLocalPathsNow(ctx); err != nil {
+		logger.Ctx(ctx).Debug("peer.reportLocalPaths: immediate report failed, polling will catch up",
+			zap.Error(err))
 	}
 }
 
