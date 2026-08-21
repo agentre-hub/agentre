@@ -22,6 +22,41 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
+/**
+ * 非安全上下文下的降级复制。
+ *
+ * Clipboard API 在规范里标了 `[SecureContext]`：页面不是 https / localhost 时
+ * `navigator.clipboard` **整个对象都不存在**——不是权限被拒，所以没有任何授权
+ * 可以去申请，弹不出授权框，也没有能点「允许」的地方。控制台被部署在
+ * `http://<局域网 IP>:port` 上时走的正是这条路。
+ *
+ * `execCommand("copy")` 虽已废弃，但不受安全上下文限制，是这类页面上唯一还能
+ * 把文本送进剪贴板的手段，所以留作兜底而不是直接报错了事。
+ */
+function copyViaExecCommand(text: string): boolean {
+  if (typeof document.execCommand !== "function") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  // 不能用 display:none / hidden：不在渲染树里的元素选不中，execCommand 会空手而归。
+  // 挪出视口 + readonly 才能既看不见、又不在移动端弹起键盘。
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+
+  try {
+    textarea.focus();
+    textarea.select();
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
 export async function copyTextWithToast(
   text: string,
   {
@@ -31,12 +66,13 @@ export async function copyTextWithToast(
   }: CopyTextWithToastOptions,
 ): Promise<boolean> {
   try {
-    if (!navigator.clipboard?.writeText) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else if (!copyViaExecCommand(text)) {
       throw new Error(
-        i18n.t("clipboard.unsupported", { ns: AGENTRE_UI_NAMESPACE }),
+        i18n.t("clipboard.insecureContext", { ns: AGENTRE_UI_NAMESPACE }),
       );
     }
-    await navigator.clipboard.writeText(text);
     toast.success(successTitle, {
       description: successDescription,
       duration: COPY_TOAST_DURATION_MS,

@@ -285,7 +285,7 @@
     }
   },
   "clipboard": {
-    "unsupported": "Clipboard is not supported in this environment"
+    "insecureContext": "Copying requires HTTPS or localhost"
   },
   "codeBlock": {
     "copyDone": "Code copied",
