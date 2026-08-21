@@ -49,15 +49,17 @@ describe("AgentAvatar", () => {
     it("拉丁多词名取前两词首字母并大写", () => {
       render(<AgentAvatar name="code reviewer" />);
 
-      expect(screen.getByRole("img", { name: "code reviewer" })).toHaveTextContent(
-        "CR",
-      );
+      expect(
+        screen.getByRole("img", { name: "code reviewer" }),
+      ).toHaveTextContent("CR");
     });
 
     it("三词以上只取前两词", () => {
       render(<AgentAvatar name="a b c" />);
 
-      expect(screen.getByRole("img", { name: "a b c" })).toHaveTextContent("AB");
+      expect(screen.getByRole("img", { name: "a b c" })).toHaveTextContent(
+        "AB",
+      );
     });
 
     it("非拉丁开头的名字取首字，不拼两个", () => {
@@ -142,7 +144,12 @@ describe("AgentAvatar", () => {
 
     it("className 仍能盖掉尺寸：索引行里那一枚今天就是这么画的", () => {
       render(
-        <AgentAvatar name="Agentre" size="sm" className="size-full" testId="override" />,
+        <AgentAvatar
+          name="Agentre"
+          size="sm"
+          className="size-full"
+          testId="override"
+        />,
       );
 
       expect(screen.getByTestId("override").className).toContain("size-full");

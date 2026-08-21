@@ -72,21 +72,20 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
     );
 
   const glyphOf = (department: OrgDepartmentModel | undefined) =>
-    props.renderDepartmentGlyph?.(department) ?? (
-      // 部门那一枚是**色片**不是身份字形：不写字母，也不报名字（部门名就在同一行的
-      // 文字里，再报一遍等于读两遍）。部门缺席时连色都没有，退回中性占位。
-      department ? (
-        <AgentAvatar
-          name=""
-          initials=""
-          color={department.accentColor}
-          size="xs"
-          className="size-5 shrink-0 rounded-sm"
-        />
-      ) : (
-        <NeutralGlyph className="size-5 shrink-0 rounded-sm" />
-      )
-    );
+    props.renderDepartmentGlyph?.(department) ??
+    // 部门那一枚是**色片**不是身份字形：不写字母，也不报名字（部门名就在同一行的
+    // 文字里，再报一遍等于读两遍）。部门缺席时连色都没有，退回中性占位。
+    (department ? (
+      <AgentAvatar
+        name=""
+        initials=""
+        color={department.accentColor}
+        size="xs"
+        className="size-5 shrink-0 rounded-sm"
+      />
+    ) : (
+      <NeutralGlyph className="size-5 shrink-0 rounded-sm" />
+    ));
 
   // 子部门带上祖先路径：同名部门（「平台组」在两个事业部下各有一个）不带路径就是
   // 两行一模一样的选项。

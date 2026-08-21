@@ -4,48 +4,29 @@ import type { IconifyIcon } from "@iconify/types";
 import { type LucideIcon } from "lucide-react";
 // StatusDot 随会话索引搬进了共享包（agentre-server 的会话列表要用同一个圆点）；
 // 这里转发，仓库内 7 个引用点不必改指包。
-import { StatusDot } from "@agentre-ai/agentre-ui";
+import {
+  AgentAvatar as UiAgentAvatar,
+  StatusDot,
+} from "@agentre-ai/agentre-ui";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { DeviceTag } from "./device-tag";
 import { hasIcon, iconForKey } from "./icon-registry";
-import {
-  agentColorClassNames,
-  type AgentColor,
-  type AgentStatus,
-  statusConfig,
-} from "./types";
+import { type AgentColor, type AgentStatus, statusConfig } from "./types";
 
+/**
+ * 身份方块的实现已经搬进共享包 `@agentre-ai/agentre-ui`（规格 2026-08-21
+ * 「身份字形归一」）—— 同一枚记号此前在桌面端、包里和 agentre-server 各有一份。
+ *
+ * 这里只剩**宿主那一半**：把 `avatarIcon` 这个 icon key 经 icon-registry 解成一个
+ * 画好的节点递进去。图标表是宿主的产品决定（383 行的 lucide 清单），不进包。
+ * 仓库内 26 个引用点因此一个字都不用改。
+ */
 type AgentAvatarSize = "sm" | "md" | "lg";
 
-const avatarSizeClassNames: Record<AgentAvatarSize, string> = {
-  sm: "size-6 rounded-md text-2xs",
-  md: "size-8 rounded-lg text-sm",
-  lg: "size-10 rounded-lg text-sm",
-};
-
-function getInitials(name: string) {
-  const trimmed = name.trim();
-
-  if (!trimmed) {
-    return "?";
-  }
-
-  const parts = trimmed.split(/\s+/);
-  if (parts.length > 1 && /^[a-z0-9]/i.test(parts[0])) {
-    return parts
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase();
-  }
-
-  return trimmed.slice(0, 1).toUpperCase();
-}
-
-type AgentAvatarProps = React.ComponentProps<"div"> & {
+type AgentAvatarProps = Omit<React.ComponentProps<"span">, "color"> & {
   name: string;
   initials?: string;
   color?: AgentColor;
@@ -54,73 +35,19 @@ type AgentAvatarProps = React.ComponentProps<"div"> & {
   avatarIcon?: string;
 };
 
-function AgentAvatar({
-  className,
-  color = "agent-1",
-  initials,
-  name,
-  size = "md",
-  avatarDataUrl,
-  avatarIcon,
-  ...props
-}: AgentAvatarProps) {
-  if (avatarDataUrl) {
-    return (
-      <div
-        role="img"
-        aria-label={name}
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center overflow-hidden bg-muted",
-          avatarSizeClassNames[size],
-          className,
-        )}
-        {...props}
-      >
-        <img
-          src={avatarDataUrl}
-          alt={name}
-          className="size-full object-cover"
-          draggable={false}
-        />
-      </div>
-    );
-  }
-  if (avatarIcon && hasIcon(avatarIcon)) {
-    const Icon = iconForKey(avatarIcon);
-    return (
-      <div
-        role="img"
-        aria-label={name}
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center text-white",
-          avatarSizeClassNames[size],
-          agentColorClassNames[color],
-          className,
-        )}
-        {...props}
-      >
-        {React.createElement(Icon, {
-          className: "size-[60%]",
-          "aria-hidden": true,
-        })}
-      </div>
-    );
-  }
-  return (
-    <div
-      role="img"
-      aria-label={name}
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center font-semibold text-white",
-        avatarSizeClassNames[size],
-        agentColorClassNames[color],
-        className,
-      )}
-      {...props}
-    >
-      {initials ?? getInitials(name)}
-    </div>
-  );
+/** icon key → 画好的图标节点；key 空或不在注册表里就没有节点（退回首字母）。 */
+export function agentIconNode(
+  avatarIcon: string | null | undefined,
+): React.ReactNode {
+  if (!avatarIcon || !hasIcon(avatarIcon)) return undefined;
+  return React.createElement(iconForKey(avatarIcon), {
+    className: "size-[60%]",
+    "aria-hidden": true,
+  });
+}
+
+function AgentAvatar({ avatarIcon, ...props }: AgentAvatarProps) {
+  return <UiAgentAvatar {...props} icon={agentIconNode(avatarIcon)} />;
 }
 
 type StatusPillProps = React.ComponentProps<"span"> & {

@@ -23,6 +23,8 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { AxisPicker } from "@agentre-ai/agentre-ui";
+
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -35,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { useChatAgents, type ChatAgentItem } from "@/hooks/use-chat-agents";
 import { useProjectTree } from "@/hooks/use-project-tree";
 import { NEW_CHAT_INITIAL_QUERY } from "@/components/agentre/shortcuts/registry";
+import { INDEX_AXES, type IndexAxis } from "@/lib/session-axis";
 import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
 import { cn } from "@/lib/utils";
 import { useSessionAttentionList } from "@/stores/attention-store";
@@ -58,7 +61,6 @@ import { SessionsPopover } from "../sessions-popover";
 import * as WailsApp from "../../../../wailsjs/go/app/App";
 import type { app } from "../../../../wailsjs/go/models";
 
-import { AxisPicker } from "./axis-picker";
 import { IndexGroupRow, type IndexGroupHandlers } from "./index-group-row";
 import type { ProjectGlyphInfo } from "./project-glyph";
 import { SessionActionDialogs, useSessionActions } from "./session-actions";
@@ -689,7 +691,14 @@ export function SessionIndexPage() {
             </DropdownMenu>
           </div>
           <div className="mt-2 flex items-center gap-1.5">
-            <AxisPicker value={axis} onChange={setAxis} />
+            <AxisPicker
+              value={axis}
+              axes={INDEX_AXES}
+              // 包的词汇表比桌面端 offer 的多一档（machine）。选择器只摆得出
+              // `axes` 里那几档，所以回来的一定是其中之一 —— 这里把它收回宿主
+              // 的窄类型，而不是把窄类型放宽到包的全集。
+              onChange={(next) => setAxis(next as IndexAxis)}
+            />
             <Chip
               testID="filter-chip-all"
               active={statusFilter === null}

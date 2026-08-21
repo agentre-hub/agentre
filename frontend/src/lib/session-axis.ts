@@ -21,6 +21,13 @@ import type { app } from "../../wailsjs/go/models";
  */
 export type IndexAxis = Extract<SharedIndexAxis, "project" | "agent" | "time">;
 
+/**
+ * 桌面端摆出来的那几档，**按选择器里的顺序**。只有这一份：`AxisPicker` 拿它摆选项，
+ * 持久化（`sidebar-axis-state.ts`）拿它校验读回来的值。两处各写一遍就会漂 ——
+ * 多出来的那一档选得着，却在下次启动时被当非法值退回默认轴。
+ */
+export const INDEX_AXES: readonly IndexAxis[] = ["project", "agent", "time"];
+
 export type ProjectOrder = { id: number; depth: number }[];
 
 /**

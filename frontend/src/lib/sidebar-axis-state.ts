@@ -3,7 +3,7 @@
 //
 // 与宽度不同的是这里**不带 key 命名空间**：合并之后只剩一个索引，
 // 分组维度是全局唯一的一份（决策 8 同理把侧栏宽度收敛到单个 "chat" 键）。
-import type { IndexAxis } from "@/lib/session-axis";
+import { INDEX_AXES, type IndexAxis } from "@/lib/session-axis";
 
 export const SIDEBAR_AXIS_KEY = "agentre.sidebarAxis";
 
@@ -12,10 +12,9 @@ export const SIDEBAR_AXIS_KEY = "agentre.sidebarAxis";
  */
 export const DEFAULT_INDEX_AXIS: IndexAxis = "project";
 
-const AXES: readonly IndexAxis[] = ["project", "agent", "time"];
-
 function isIndexAxis(value: string): value is IndexAxis {
-  return (AXES as readonly string[]).includes(value);
+  // 清单只有 session-axis.ts 那一份 —— 选择器摆得出的轴与这里认得的轴必须同源。
+  return (INDEX_AXES as readonly string[]).includes(value);
 }
 
 export function readSidebarAxis(): IndexAxis {

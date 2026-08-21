@@ -181,9 +181,11 @@ describe("IndexGroupRow regressions", () => {
     const glyph = line.querySelector("[data-kind='project-avatar']");
     expect(glyph).not.toBeNull();
     expect(glyph?.querySelector("svg")).not.toBeNull();
-    expect(glyph?.querySelector("[role='img']")?.className).toContain(
-      "bg-agent-3",
-    );
+    // 上色走 css 变量而不是 bg-agent-* 类名：类名要靠宿主的 Tailwind 扫到包源码
+    // 才生成得出来，消费方少配一条 content 路径字形就静默变透明。
+    expect(
+      glyph?.querySelector<HTMLElement>("[role='img']")?.style.backgroundColor,
+    ).toBe("var(--agent-3)");
   });
 
   it("Given a free session on the time axis, When its second line renders, Then the project half says 随手对话 with the muted glyph instead of going blank", () => {

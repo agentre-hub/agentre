@@ -124,7 +124,9 @@ export function AgentAvatar({
       className={cn(
         "inline-flex shrink-0 items-center justify-center font-semibold",
         // 中性面要跟着换前景色：白字落在浅色的 secondary 面上读不出来。
-        css ? "text-agent-foreground" : "bg-secondary text-secondary-foreground",
+        css
+          ? "text-agent-foreground"
+          : "bg-secondary text-secondary-foreground",
         sizeClassNames[size],
         className,
       )}

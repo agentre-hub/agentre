@@ -9,9 +9,12 @@ import { describe, expect, it, vi } from "vitest";
 import enCommon from "@/i18n/locales/en";
 import zhCommon from "@/i18n/locales/zh-CN";
 
-import { AxisPicker } from "../session-index/axis-picker";
-import { FreeGroupHeader } from "../session-index/free-group-header";
-import { RowLeadingSlot } from "../session-index/row-leading-slot";
+import { AxisPicker } from "@agentre-ai/agentre-ui";
+
+import { INDEX_AXES } from "@/lib/session-axis";
+import { FreeGroupHeader, RowLeadingSlot } from "@agentre-ai/agentre-ui";
+
+import { agentIconNode } from "../primitives";
 
 // Radix 菜单在 happy-dom 中需要关闭 pointerEvents 检查。
 function setupUser() {
@@ -22,7 +25,9 @@ describe("AxisPicker", () => {
   it("Given the project axis, When the agent option is picked, Then onChange reports the agent axis", async () => {
     const user = setupUser();
     const onChange = vi.fn();
-    render(<AxisPicker value="project" onChange={onChange} />);
+    render(
+      <AxisPicker value="project" axes={INDEX_AXES} onChange={onChange} />,
+    );
 
     await user.click(screen.getByTestId("axis-picker"));
     await user.click(await screen.findByTestId("axis-option-agent"));
@@ -33,7 +38,9 @@ describe("AxisPicker", () => {
   it("Given the project axis, When the time option is picked, Then onChange reports the time axis", async () => {
     const user = setupUser();
     const onChange = vi.fn();
-    render(<AxisPicker value="project" onChange={onChange} />);
+    render(
+      <AxisPicker value="project" axes={INDEX_AXES} onChange={onChange} />,
+    );
 
     await user.click(screen.getByTestId("axis-picker"));
     await user.click(await screen.findByTestId("axis-option-time"));
@@ -44,7 +51,7 @@ describe("AxisPicker", () => {
   it("Given the time axis, When the project option is picked, Then onChange reports the project axis", async () => {
     const user = setupUser();
     const onChange = vi.fn();
-    render(<AxisPicker value="time" onChange={onChange} />);
+    render(<AxisPicker value="time" axes={INDEX_AXES} onChange={onChange} />);
 
     await user.click(screen.getByTestId("axis-picker"));
     await user.click(await screen.findByTestId("axis-option-project"));
@@ -54,7 +61,7 @@ describe("AxisPicker", () => {
 
   it("Given the 288px sidebar row, When the picker is rendered, Then it shows only the current value — never the word 'Group' (decision 3)", async () => {
     const user = setupUser();
-    render(<AxisPicker value="agent" onChange={vi.fn()} />);
+    render(<AxisPicker value="agent" axes={INDEX_AXES} onChange={vi.fn()} />);
 
     // 行内像素只够「图标 + 当前值 + chevron」：带上标签这一行就会把「未读 N」
     // chip 挤到第二行。可发现性交给 title，它不占行内像素。
@@ -73,7 +80,7 @@ describe("AxisPicker", () => {
 
   it("Given the menu is open, When it renders, Then the grouping noun appears as the menu's own label — off the 288px row, where decision 3 has no quarrel with it", async () => {
     const user = setupUser();
-    render(<AxisPicker value="project" onChange={vi.fn()} />);
+    render(<AxisPicker value="project" axes={INDEX_AXES} onChange={vi.fn()} />);
 
     await user.click(screen.getByTestId("axis-picker"));
 
@@ -182,11 +189,11 @@ describe("FreeGroupHeader", () => {
 });
 
 describe("RowLeadingSlot", () => {
-  const agent = { agentName: "Atlas", agentColor: "agent-3" };
+  const agent = { name: "Atlas", color: "agent-3" };
   const project = { name: "Agentre", color: "agent-7", icon: "rocket" };
 
   it("Given grouping by project, When a row renders, Then the slot carries the agent avatar (decision 4)", () => {
-    render(<RowLeadingSlot axis="project" {...agent} project={project} />);
+    render(<RowLeadingSlot axis="project" agent={agent} project={project} />);
 
     const slot = screen.getByTestId("row-leading-slot");
     expect(slot.dataset.kind).toBe("agent-avatar");
@@ -196,12 +203,21 @@ describe("RowLeadingSlot", () => {
   it("Given grouping by agent, When a project-bound row renders, Then the slot carries that project's own icon and color — the same glyph its group header wears (decision 4)", () => {
     // 通用文件夹字形认不出**是哪个项目**：三个项目在行首长一个样，只有颜色不同。
     // 项目自己选的图标就是它在组头上的身份，行里必须是同一枚。
-    render(<RowLeadingSlot axis="agent" {...agent} project={project} />);
+    render(
+      <RowLeadingSlot
+        axis="agent"
+        agent={agent}
+        project={project}
+        projectGlyph={agentIconNode(project.icon)}
+      />,
+    );
 
     const slot = screen.getByTestId("row-leading-slot");
     expect(slot.dataset.kind).toBe("project-avatar");
     const glyph = screen.getByRole("img", { name: "Agentre" });
-    expect(glyph.className).toContain("bg-agent-7");
+    // 上色走 css 变量而不是 bg-agent-* 类名：类名要靠宿主的 Tailwind 扫到包源码
+    // 才生成得出来，消费方少配一条 content 路径字形就静默变透明。
+    expect(glyph.style.backgroundColor).toBe("var(--agent-7)");
     expect(glyph.querySelector("svg")).not.toBeNull();
   });
 
@@ -209,8 +225,9 @@ describe("RowLeadingSlot", () => {
     render(
       <RowLeadingSlot
         axis="agent"
-        {...agent}
-        project={{ ...project, icon: "" }}
+        agent={agent}
+        project={{ name: project.name, color: project.color }}
+        projectGlyph={agentIconNode("")}
       />,
     );
 
@@ -219,12 +236,12 @@ describe("RowLeadingSlot", () => {
 
   it("Given grouping by agent, When a free session renders, Then the slot stays and only the glyph is muted (decision 4)", () => {
     const { unmount } = render(
-      <RowLeadingSlot axis="project" {...agent} project={project} />,
+      <RowLeadingSlot axis="project" agent={agent} project={project} />,
     );
     const projectSlotClass = screen.getByTestId("row-leading-slot").className;
     unmount();
 
-    render(<RowLeadingSlot axis="agent" {...agent} project={null} />);
+    render(<RowLeadingSlot axis="agent" agent={agent} project={null} />);
 
     // 左缘必须对齐：不渲染字形会让这一行比邻居往左缩，整列参差。
     const slot = screen.getByTestId("row-leading-slot");
@@ -236,7 +253,7 @@ describe("RowLeadingSlot", () => {
   });
 
   it("Given grouping by time, When a row renders, Then the slot is absent because both dimensions live in the two-line row (decision 5)", () => {
-    render(<RowLeadingSlot axis="time" {...agent} project={project} />);
+    render(<RowLeadingSlot axis="time" agent={agent} project={project} />);
 
     expect(screen.queryByTestId("row-leading-slot")).toBeNull();
   });

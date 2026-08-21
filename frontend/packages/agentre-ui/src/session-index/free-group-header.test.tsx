@@ -13,6 +13,7 @@ describe("FreeGroupHeader", () => {
         expanded
         onToggle={vi.fn()}
         attentionCount={0}
+        attentionTone={null}
         onNewSession={onNewSession}
       />,
     );
@@ -30,6 +31,7 @@ describe("FreeGroupHeader", () => {
         expanded
         onToggle={vi.fn()}
         attentionCount={1}
+        attentionTone={null}
         onNewSession={vi.fn()}
       />,
     );
@@ -59,6 +61,7 @@ describe("FreeGroupHeader", () => {
         expanded={false}
         onToggle={onToggle}
         attentionCount={0}
+        attentionTone={null}
         onNewSession={vi.fn()}
       />,
     );
@@ -74,10 +77,11 @@ describe("FreeGroupHeader", () => {
         expanded
         onToggle={vi.fn()}
         attentionCount={3}
+        attentionTone="running"
         onNewSession={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("free-group-attention")).toHaveTextContent("3");
+    expect(screen.getByTestId("free-attention-mark")).toHaveTextContent("3");
     unmount();
 
     render(
@@ -85,10 +89,27 @@ describe("FreeGroupHeader", () => {
         expanded
         onToggle={vi.fn()}
         attentionCount={0}
+        attentionTone={null}
         onNewSession={vi.fn()}
       />,
     );
     // 组内总条数**不在**组头上：条数就在下面列着，写出来是复述。
-    expect(screen.queryByTestId("free-group-attention")).toBeNull();
+    expect(screen.queryByTestId("free-attention-mark")).toBeNull();
+  });
+
+  it("记号按最强 reason 着色，不写死绿色 —— 与项目组头同一枚记号", () => {
+    render(
+      <FreeGroupHeader
+        expanded
+        onToggle={vi.fn()}
+        attentionCount={2}
+        attentionTone="error"
+        onNewSession={vi.fn()}
+      />,
+    );
+
+    const mark = screen.getByTestId("free-attention-mark");
+    expect(mark.className).toContain("text-status-error");
+    expect(mark.querySelector("span")?.className).toContain("bg-status-error");
   });
 });

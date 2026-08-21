@@ -5,7 +5,13 @@
 // 都在包里，这里只负责挑组头、投影行、接线。
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { SessionGroup } from "@agentre-ai/agentre-ui";
+import {
+  FreeGroupHeader,
+  OwnSessionsHeader,
+  RowLeadingSlot,
+  RowSecondaryLine,
+  SessionGroup,
+} from "@agentre-ai/agentre-ui";
 
 import { strongestAttentionTone } from "@/lib/attention-display";
 import type { IndexAxis } from "@/lib/session-axis";
@@ -16,12 +22,9 @@ import type { AgentSession } from "../agent-list";
 import type { ChatAgentItem } from "@/hooks/use-chat-agents";
 import type { app } from "../../../../wailsjs/go/models";
 
-import { FreeGroupHeader } from "./free-group-header";
-import { OwnSessionsHeader } from "./own-sessions-header";
+import { agentIconNode } from "../primitives";
 import type { ProjectGlyphInfo } from "./project-glyph";
 import { ProjectGroupHeader } from "./project-group-header";
-import { RowLeadingSlot } from "./row-leading-slot";
-import { RowSecondaryLine } from "./row-secondary-line";
 import type { IndexGroup } from "./use-index-groups";
 import { useGroupRows } from "./use-group-rows";
 
@@ -147,9 +150,10 @@ export function IndexGroupRow({
           ...row,
           secondaryLabel: (
             <RowSecondaryLine
-              agentName={agentName}
-              agentColor={agentColor}
+              axis={axis}
+              agent={{ name: agentName, color: agentColor }}
               project={project}
+              projectGlyph={agentIconNode(project?.icon)}
               // 自由会话报「随手对话」而不是空 —— 它有去处，只是那个去处不是项目。
               freeLabel={t("sessionIndex.free.name")}
             />
@@ -161,9 +165,9 @@ export function IndexGroupRow({
         leading: (
           <RowLeadingSlot
             axis={axis}
-            agentName={agentName}
-            agentColor={agentColor}
+            agent={{ name: agentName, color: agentColor }}
             project={project}
+            projectGlyph={agentIconNode(project?.icon)}
           />
         ),
       };
