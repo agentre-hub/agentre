@@ -104,6 +104,9 @@ export function skillCommandsFromCatalog(
       name,
       label,
       trigger,
+      // 标成 Skill:claudecode / Pi 的 Skill 也走 /,与内置命令同一个触发键,
+      // 包里靠 trigger 分不出来。占位文案要据此说「/ 触发命令和 Skill」。
+      kind: "skill",
       description: source.description?.trim() || fallbackDescription,
       resolve(currentBackend) {
         return currentBackend === backendType

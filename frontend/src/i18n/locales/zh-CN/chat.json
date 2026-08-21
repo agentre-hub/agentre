@@ -35,10 +35,6 @@
         "unsupported": "仅支持 PNG、JPEG、WebP，单张不超过 5MB"
       },
       "dropHint": "松开以添加文件 / 文件夹路径",
-      "placeholder": "输入消息 · @ 引用 · / 触发命令 · ! 执行终端命令",
-      "placeholderClaude": "输入消息 · @ 引用 · / 触发命令和 Skill · ! 执行终端命令",
-      "placeholderCodex": "输入消息 · @ 引用 · / 触发命令 · $ 调用 Skill · ! 执行终端命令",
-      "placeholderPi": "输入消息 · @ 引用 · / 触发命令 · /skill:name 调用 Skill · ! 执行终端命令",
       "removeImage": "移除图片 {{name}}",
       "saveEdit": "保存编辑",
       "send": "发送",

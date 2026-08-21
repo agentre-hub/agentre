@@ -728,18 +728,6 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, ChatComposerProps>(
       () => listAvailable(backendType ?? "", skillCommands),
       [backendType, skillCommands],
     );
-    const resolvedPlaceholder =
-      placeholder ??
-      t(
-        backendType === "codex"
-          ? "chat.composer.placeholderCodex"
-          : backendType === "claudecode"
-            ? "chat.composer.placeholderClaude"
-            : backendType === "piagent"
-              ? "chat.composer.placeholderPi"
-              : "chat.composer.placeholder",
-      );
-
     // 发送失败草稿恢复:把用户刚提交的文本 + 图片原样放回输入框（父组件在 doSend
     // 的 catch 里调用）。loadDraft 走与编辑模式载入草稿同一路径,行为一致。
     React.useImperativeHandle(
@@ -1067,7 +1055,7 @@ const ChatComposer = React.forwardRef<ChatComposerHandle, ChatComposerProps>(
               localCommandHistoryScope={localCommandHistoryScope}
               sendOnEnter
               userMessageHistory={userMessageHistory}
-              placeholder={resolvedPlaceholder}
+              placeholder={placeholder}
               autoFocus={autoFocusOnMount}
               disabled={disabled}
               backendType={backendType}

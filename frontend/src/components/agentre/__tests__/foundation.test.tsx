@@ -478,10 +478,9 @@ describe("Agentre foundation components", () => {
     const editor = screen.getByRole("textbox");
     const emptyParagraph = editor.querySelector("p.is-editor-empty");
 
-    expect(emptyParagraph).toHaveAttribute(
-      "data-placeholder",
-      "Type a message · @ to mention · / for commands · ! to run in terminal",
-    );
+    // 一样能力都没接的裸 composer 只剩基础提示 —— 占位按**本次接上的能力**拼,
+    // 不再按 backendType 查表许诺 `@ / !`(见包内 chat-input/placeholder.ts)。
+    expect(emptyParagraph).toHaveAttribute("data-placeholder", "Type a message");
   });
 
   it("renders approval copy with explicit approve and reject actions", () => {

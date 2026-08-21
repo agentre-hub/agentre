@@ -544,5 +544,15 @@
         }
       }
     }
+  },
+  "chatInput": {
+    "placeholder": {
+      "base": "Type a message",
+      "mention": "@ to mention",
+      "slash": "/ for commands",
+      "slashWithSkill": "/ for commands and skills",
+      "skill": "$ for skills",
+      "localCommand": "! to run in terminal"
+    }
   }
 }

@@ -35,10 +35,6 @@
         "unsupported": "Only PNG, JPEG, and WebP are supported. Each image must be under 5 MB."
       },
       "dropHint": "Drop to add files / folder paths",
-      "placeholder": "Type a message · @ to mention · / for commands · ! to run in terminal",
-      "placeholderClaude": "Type a message · @ to mention · / for commands and skills · ! to run in terminal",
-      "placeholderCodex": "Type a message · @ to mention · / for commands · $ for skills · ! to run in terminal",
-      "placeholderPi": "Type a message · @ to mention · / for commands · /skill:name for skills · ! to run in terminal",
       "removeImage": "Remove image {{name}}",
       "saveEdit": "Save edit",
       "send": "Send",

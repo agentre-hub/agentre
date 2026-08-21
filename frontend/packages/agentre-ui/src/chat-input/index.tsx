@@ -18,10 +18,12 @@ import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 
+import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 
 import { parsePlainTextClipboard } from "./clipboard";
 import { extractPlainText } from "./content";
+import { composerCapabilities, composerPlaceholder } from "./placeholder";
 import {
   applyInputHistoryMessage,
   getInputHistoryNavigationState,
@@ -197,6 +199,35 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     }, [backendType, slashCommands]);
     const validNamesRef = useRef(validNames);
 
+    // ── 占位文案 ────────────────────────────────────────────────────────────
+    // 省略 `placeholder` 时由这里按**本次真正接上的能力**拼(见 placeholder.ts):
+    // 四样触发器启用没有,AIChatInput 自己比谁都清楚,不该让每个宿主再按
+    // backendType 猜一遍。显式传值仍然由调用方说了算。
+    const slashEnabled = !!(backendType && onSlashSelect);
+    const { t: uiT } = useUiTranslation();
+    const resolvedPlaceholder = useMemo(
+      () =>
+        placeholder ??
+        composerPlaceholder(
+          composerCapabilities({
+            mentionSources,
+            slashEnabled,
+            slashCommands,
+            localCommandsEnabled: !!onCommandSubmit,
+          }),
+          uiT,
+        ),
+      [
+        mentionSources,
+        onCommandSubmit,
+        placeholder,
+        slashCommands,
+        slashEnabled,
+        uiT,
+      ],
+    );
+    const placeholderRef = useRef(resolvedPlaceholder);
+
     const editor = useEditor({
       autofocus: autoFocus ? "end" : false,
       extensions: [
@@ -207,7 +238,9 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
         // 撤销/重做历史:ProseMirror 接管 contentEditable 后浏览器原生 Cmd/Ctrl+Z
         // 会失效,必须由该扩展提供 history 栈 + Mod-z/Mod-y/Shift-Mod-z 快捷键。
         UndoRedo,
-        Placeholder.configure({ placeholder: placeholder || "" }),
+        // 函数形式:编辑器只在挂载时建一次,而占位文案会变(skill 目录是挂载后
+        // 异步拉的、语言可切)。configure 里定死的话用户看到的永远是第一版。
+        Placeholder.configure({ placeholder: () => placeholderRef.current }),
         SlashHighlight.configure({
           getValidNames: () => validNamesRef.current,
         }),
@@ -398,6 +431,13 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       editor?.setEditable(!disabled);
     }, [editor, disabled]);
 
+    // 上面的 Placeholder 实时读 ref,但 decoration 只在 state 变化时重算 ——
+    // 空编辑器根本不会有 doc 变化来触发它。补一次空事务把它推一下。
+    useEffect(() => {
+      placeholderRef.current = resolvedPlaceholder;
+      if (editor) editor.view.dispatch(editor.state.tr);
+    }, [editor, resolvedPlaceholder]);
+
     // backendType 变化时,新的 validNames 已经写进 ref,但 ProseMirror plugin 只在
     // doc 变化或显式 meta 时重算 decoration —— 这里主动触发一次让旧文本立刻按
     // 新规则重新染色(例:claudecode → builtin 后 /compact 应该退回默认色)。
@@ -500,7 +540,6 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       },
       [editor],
     );
-    const slashEnabled = !!(backendType && onSlashSelect);
     const slashMenu = useSlashMenu({
       editor: slashEnabled ? (editor ?? null) : null,
       backendType: backendType ?? "",

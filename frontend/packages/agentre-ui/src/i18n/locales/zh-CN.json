@@ -544,5 +544,15 @@
         }
       }
     }
+  },
+  "chatInput": {
+    "placeholder": {
+      "base": "输入消息",
+      "mention": "@ 引用",
+      "slash": "/ 触发命令",
+      "slashWithSkill": "/ 触发命令和 Skill",
+      "skill": "$ 调用 Skill",
+      "localCommand": "! 执行终端命令"
+    }
   }
 }

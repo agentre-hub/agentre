@@ -238,32 +238,89 @@ function mockTextSelectionWithin(node: Node) {
 }
 
 describe("ChatComposer context meter", () => {
-  it("Given a Codex backend, When the composer is empty, Then its placeholder explains @ mentions, / commands, and $ skills", () => {
+  // 占位文案的判据是「这次渲染真正接上了什么」,不是 backendType 查表
+  // (见包内 chat-input/placeholder.ts)。宿主这边要验的是**接线**:
+  // Skill 目录拉回来后有没有标成 kind: "skill"、`!` 那段有没有跟着
+  // onRunCommand 走 —— 拼装规则本身由包的用例覆盖。
+  function placeholderText(): string {
+    return (
+      screen
+        .getByRole("textbox")
+        .querySelector("p")
+        ?.getAttribute("data-placeholder") ?? ""
+    );
+  }
+
+  function stubSkillCatalog(commands: { name: string }[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).go = {
+      app: {
+        App: {
+          ListAgentSkillCommands: vi.fn().mockResolvedValue({ commands }),
+        },
+      },
+    };
+  }
+
+  it("Given a Codex agent whose skills load, When the composer is empty, Then / and $ are offered separately", async () => {
+    stubSkillCatalog([{ name: "browser:browser" }]);
+    render(
+      <ChatComposer
+        backendType="codex"
+        agentId={7}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(placeholderText()).toBe(
+        "Type a message · / for commands · $ for skills",
+      ),
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).go;
+  });
+
+  it("Given a Claude Code agent whose skills load, When the composer is empty, Then / covers commands and skills in one segment", async () => {
+    // claudecode 的 Skill 也走 /,包里靠 trigger 分不出命令与 Skill ——
+    // 全靠这里把目录来的那批标成 kind: "skill"。
+    stubSkillCatalog([{ name: "brainstorm" }]);
+    render(
+      <ChatComposer
+        backendType="claudecode"
+        agentId={7}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(placeholderText()).toBe(
+        "Type a message · / for commands and skills",
+      ),
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).go;
+  });
+
+  it("Given no local-command handler, When the composer renders, Then the placeholder does not promise !", () => {
+    // 没传 onRunCommand 时 AIChatInput 会把 `!foo` **静默吞掉** —— 提示里写着、
+    // 按下去没反应,比不写更糟。
     render(<ChatComposer backendType="codex" onSubmit={() => undefined} />);
 
-    expect(screen.getByRole("textbox").querySelector("p")).toHaveAttribute(
-      "data-placeholder",
-      "Type a message · @ to mention · / for commands · $ for skills · ! to run in terminal",
-    );
+    expect(placeholderText()).not.toContain("!");
   });
 
-  it("Given a Claude Code backend, When the composer is empty, Then its placeholder explains @ mentions and that / includes commands and skills", () => {
+  it("Given a local-command handler, When the composer renders, Then the placeholder offers !", () => {
     render(
-      <ChatComposer backendType="claudecode" onSubmit={() => undefined} />,
+      <ChatComposer
+        backendType="codex"
+        onSubmit={() => undefined}
+        onRunCommand={() => undefined}
+      />,
     );
 
-    expect(screen.getByRole("textbox").querySelector("p")).toHaveAttribute(
-      "data-placeholder",
-      "Type a message · @ to mention · / for commands and skills · ! to run in terminal",
-    );
-  });
-
-  it("Given a Pi backend, When the composer is empty, Then its placeholder explains @ mentions, / commands, and /skill:name skills", () => {
-    render(<ChatComposer backendType="piagent" onSubmit={() => undefined} />);
-
-    expect(screen.getByRole("textbox").querySelector("p")).toHaveAttribute(
-      "data-placeholder",
-      "Type a message · @ to mention · / for commands · /skill:name for skills · ! to run in terminal",
+    expect(placeholderText()).toBe(
+      "Type a message · / for commands · ! to run in terminal",
     );
   });
 

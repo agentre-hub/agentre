@@ -31,6 +31,11 @@ export type SlashCommand = {
   // 触发字符:Claude Code/Pi Skill 和各 backend 内置命令用 /;
   // Codex Skill mention 按 CLI 协议用 $。
   trigger: "/" | "$";
+  // 这一项是命令还是 Skill。省略 = 命令。
+  // 触发字符区分不出来:claudecode 与 Pi 的 Skill 也走 /,与内置命令同一个触发键。
+  // 唯一的用处是占位文案 —— 「/ 触发命令」还是「/ 触发命令和 Skill」,
+  // 得由宿主(它才知道清单里哪些是从 Skill 目录拉来的)说了算。
+  kind?: "command" | "skill";
   // 一句话说明,会在下拉项右侧 muted 显示。**已经是可读文案而不是 i18n key** ——
   // 它同时是 `filterByQuery` 的 subtitle 评分来源,拿 key 去评分等于搜不到。
   description?: string;
