@@ -1354,5 +1354,14 @@
       "unsupported": "Use PNG, JPEG, or WebP images up to 5 MB",
       "readFailed": "Could not read the selected image"
     }
+  },
+  "contextMeter": {
+    "aria": "Context usage {{used}} / {{max}}, {{percent}}% used",
+    "panel": {
+      "title": "Context",
+      "remaining": "Remaining",
+      "note": "Counted from the latest model call's total input",
+      "nearLimit": "Close to the context window limit"
+    }
   }
 }

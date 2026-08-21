@@ -234,6 +234,11 @@ export type {
 } from "./composer/chat-composer";
 export { ComposerOptionPicker } from "./composer/composer-option-picker";
 export type { ComposerOption } from "./composer/composer-option-picker";
+export { ContextMeter } from "./composer/context-meter";
+export type { ContextMeterProps } from "./composer/context-meter";
+export { usageLevel } from "./composer/usage-level";
+export type { UsageLevel } from "./composer/usage-level";
+export { formatTokens } from "./lib/format-tokens";
 export {
   buildEditorDocFromMessage,
   extractPlainText,

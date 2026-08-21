@@ -1354,5 +1354,14 @@
       "unsupported": "仅支持不超过 5 MB 的 PNG、JPEG 或 WebP 图片",
       "readFailed": "无法读取所选图片"
     }
+  },
+  "contextMeter": {
+    "aria": "上下文用量 {{used}} / {{max}}，已用 {{percent}}%",
+    "panel": {
+      "title": "上下文",
+      "remaining": "剩余",
+      "note": "按最近一次模型调用的输入总量计",
+      "nearLimit": "接近上下文窗口上限"
+    }
   }
 }
