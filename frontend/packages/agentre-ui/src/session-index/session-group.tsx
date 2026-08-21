@@ -39,7 +39,8 @@ type SessionGroupProps = React.ComponentProps<"article"> & {
   // 因为「用什么元素跳」是宿主外壳的性质，不是某一行的性质。
   renderLink?: SessionRowLinkRenderer;
 
-  // 溢出 Popover：超过常规列表上限时显示「查看全部 N」入口，content 由调用方提供
+  // 溢出 Popover：超过常规列表上限时显示「查看全部 N」入口，content 由调用方提供。
+  // 只在打开时渲染 content —— 见下方渲染处的注释（常驻会把那一页钉死）。
   totalSessions?: number;
   renderSessionsPopover?: (close: () => void) => React.ReactNode;
 
@@ -248,7 +249,11 @@ function SessionGroup({
                     <ArrowRight className="size-3" aria-hidden="true" />
                   </button>
                 </PopoverTrigger>
-                {renderSessionsPopover
+                {/* 内容只在打开时渲染：它挂载时才去拉那一页（桌面端的
+                    SessionsPopover 在 mount effect 里 fetch）。常驻渲染的话，
+                    这一页会在**组渲染的那一刻**拉一次并从此不再更新，之后每次
+                    点开看到的都是那份旧快照（计数也一起旧）。 */}
+                {popoverOpen && renderSessionsPopover
                   ? renderSessionsPopover(() => setPopoverOpen(false))
                   : null}
               </Popover>

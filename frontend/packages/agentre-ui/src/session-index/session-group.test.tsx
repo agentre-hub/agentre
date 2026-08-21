@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import * as React from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { PopoverContent } from "../ui/popover";
 import { SessionGroup } from "./session-group";
 import type { SessionRowModel } from "./types";
 
@@ -187,5 +189,56 @@ describe("SessionGroup session row context menu", () => {
     const row = screen.getByRole("button", { name: /idle-2/ });
     await user.pointer({ keys: "[MouseRight]", target: row });
     expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+  });
+});
+
+describe("SessionGroup 「查看全部 N」溢出弹层", () => {
+  function OverflowProbe({ onMount }: { onMount: () => void }) {
+    // 弹层内容（桌面端是 SessionsPopover）在挂载时拉取会话列表：
+    // 挂载次数 = 拉取次数。
+    React.useEffect(() => {
+      onMount();
+    }, [onMount]);
+    return <PopoverContent>overflow</PopoverContent>;
+  }
+
+  function renderGroup(onMount: () => void) {
+    return render(
+      <SessionGroup
+        defaultExpanded
+        sessions={[ordinarySession(1)]}
+        totalSessions={12}
+        renderSessionsPopover={() => <OverflowProbe onMount={onMount} />}
+        renderHeader={({ toggle }) => (
+          <button type="button" onClick={toggle}>
+            header
+          </button>
+        )}
+      />,
+    );
+  }
+
+  function viewAllTrigger(): HTMLElement {
+    return screen.getByRole("button", { name: /View all|查看全部/ });
+  }
+
+  it("Given 一个带「查看全部 N」的组, When 还没点开溢出入口, Then 弹层内容不该挂载（挂载即拉取，会把列表钉死在组渲染的那一刻）", () => {
+    const mounted = vi.fn();
+    renderGroup(mounted);
+
+    expect(mounted).not.toHaveBeenCalled();
+  });
+
+  it("Given 弹层已经开过一次, When 关掉再打开, Then 内容重新挂载（每次打开都拿最新的一页，而不是复用上次那份）", async () => {
+    const user = userEvent.setup();
+    const mounted = vi.fn();
+    renderGroup(mounted);
+
+    await user.click(viewAllTrigger());
+    expect(mounted).toHaveBeenCalledTimes(1);
+
+    await user.keyboard("{Escape}");
+    await user.click(viewAllTrigger());
+    expect(mounted).toHaveBeenCalledTimes(2);
   });
 });
