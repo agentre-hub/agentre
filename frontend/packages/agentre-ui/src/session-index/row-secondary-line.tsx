@@ -3,7 +3,7 @@ import * as React from "react";
 import { useUiTranslation } from "../i18n";
 
 import type { IndexAxis } from "./axis-groups";
-import { Glyph, initialOf } from "./glyph";
+import { AgentAvatar } from "../ui/agent-avatar";
 import { ProjectGlyph, type ProjectGlyphInfo } from "./project-glyph";
 
 /**
@@ -61,13 +61,13 @@ export function RowSecondaryLine({
     agent && agent.name ? (
       <>
         <span className={GLYPH_SLOT_CLASS_NAME} data-kind="agent-avatar">
-          <Glyph
+          <AgentAvatar
+            name={agent.name}
             color={agent.color}
-            label={agent.name}
+            icon={agentGlyph}
+            size="xs"
             className={GLYPH_CLASS_NAME}
-          >
-            {agentGlyph ?? initialOf(agent.name, true)}
-          </Glyph>
+          />
         </span>
         <span className="truncate">{agent.name}</span>
       </>

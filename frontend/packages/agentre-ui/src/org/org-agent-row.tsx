@@ -3,7 +3,7 @@ import { GripVertical } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
-import { Glyph, initialOf } from "../session-index/glyph";
+import { AgentAvatar } from "../ui/agent-avatar";
 import type { OrgDragHandleBinding, OrgDropState } from "./drag-binding";
 import type { OrgIndexRow } from "./org-index-model";
 import { isOrgSystemAgent, type OrgSelection } from "./types";
@@ -113,12 +113,12 @@ export function OrgAgentRow({
         className="flex min-w-0 flex-1 items-center gap-[7px] text-left"
       >
         {avatar ?? (
-          <Glyph
+          <AgentAvatar
+            name={agent.name}
             color={agent.avatarColor}
+            size="xs"
             className="size-4.5 shrink-0 rounded-[5px] text-[10px]"
-          >
-            {initialOf(agent.name, true)}
-          </Glyph>
+          />
         )}
         <span
           className={cn(

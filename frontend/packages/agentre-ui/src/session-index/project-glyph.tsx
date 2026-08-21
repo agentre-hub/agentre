@@ -1,7 +1,8 @@
 import * as React from "react";
 import { MessagesSquare } from "lucide-react";
 
-import { Glyph, initialOf } from "./glyph";
+import { AgentAvatar } from "../ui/agent-avatar";
+import { NeutralGlyph, initialOf } from "./glyph";
 
 /**
  * 「项目」这一维在索引里的**唯一**字形。
@@ -13,6 +14,9 @@ import { Glyph, initialOf } from "./glyph";
  *
  * 自由会话（`project == null`）给中性面 + 「随手对话」那枚 MessagesSquare：
  * 槽位保留、字形置灰（决策 4），且与它在项目轴上的组头同源（决策 6/7）。
+ *
+ * 有身份的那一枚就是 `AgentAvatar`（规格 2026-08-21「身份字形归一」）：项目与 Agent
+ * 共用同一枚记号，只是喂进去的身份不同。
  *
  * 项目自己选的图标（`ProjectNode.icon`）**不在这里解**：把 icon key 换成图标的那张
  * 注册表是宿主的（桌面端的 icon-registry），包里没有。宿主要画它就把画好的节点从
@@ -44,20 +48,23 @@ export function ProjectGlyph({
 }: ProjectGlyphProps) {
   if (!project) {
     return (
-      <Glyph testId={testId} className={className}>
+      <NeutralGlyph testId={testId} className={className}>
         <MessagesSquare className="size-[60%] text-decorative-foreground" />
-      </Glyph>
+      </NeutralGlyph>
     );
   }
 
   return (
-    <Glyph
+    <AgentAvatar
       testId={testId}
+      name={project.name}
+      // 项目字形要的是**原样**首字（不大写），所以这一层自己给 initials，
+      // 不让 AgentAvatar 走它给 Agent 用的那套大写规则。
+      initials={initialOf(project.name)}
       color={project.color}
-      label={project.name}
+      icon={glyph}
+      size="xs"
       className={className}
-    >
-      {glyph ?? initialOf(project.name)}
-    </Glyph>
+    />
   );
 }

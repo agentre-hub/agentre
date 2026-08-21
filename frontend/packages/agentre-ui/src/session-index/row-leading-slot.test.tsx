@@ -46,12 +46,16 @@ describe("RowLeadingSlot", () => {
     expect(slot.className).toBe(projectSlotClass);
   });
 
-  it("这一维解析不出来时也保留槽位，字形置灰而不是编一个身份", () => {
+  it("没有 Agent 标识的老会话：槽位与字形都照画，但可及名为空（规格决策 5）", () => {
     render(<RowLeadingSlot axis="project" agent={null} project={project} />);
 
     const slot = screen.getByTestId("row-leading-slot");
     expect(slot.dataset.kind).toBe("agent-avatar");
-    expect(screen.queryByRole("img")).toBeNull();
+
+    // 以桌面端为准：画出来是 agent-1 底色 + 「?」，而不是一枚中性方块。
+    const glyph = screen.getByRole("img", { name: "" });
+    expect(glyph).toHaveTextContent("?");
+    expect(glyph.style.backgroundColor).toBe("var(--agent-1)");
   });
 
   it("按时间分组时没有槽位：两维都在第二行里（决策 5）", () => {

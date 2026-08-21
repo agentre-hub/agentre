@@ -3,7 +3,8 @@ import { CornerDownRight, Search } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
-import { Glyph, initialOf } from "../session-index/glyph";
+import { NeutralGlyph } from "../session-index/glyph";
+import { AgentAvatar } from "../ui/agent-avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { isValidOrgDrop } from "./org-drop";
 import {
@@ -62,17 +63,29 @@ export function OrgPlacementField(props: OrgPlacementFieldProps) {
 
   const avatarOf = (agent: OrgAgentModel, className: string) =>
     props.renderAgentAvatar?.(agent, className) ?? (
-      <Glyph color={agent.avatarColor} className={className}>
-        {initialOf(agent.name, true)}
-      </Glyph>
+      <AgentAvatar
+        name={agent.name}
+        color={agent.avatarColor}
+        size="xs"
+        className={className}
+      />
     );
 
   const glyphOf = (department: OrgDepartmentModel | undefined) =>
     props.renderDepartmentGlyph?.(department) ?? (
-      <Glyph
-        color={department?.accentColor}
-        className="size-5 shrink-0 rounded-sm"
-      />
+      // 部门那一枚是**色片**不是身份字形：不写字母，也不报名字（部门名就在同一行的
+      // 文字里，再报一遍等于读两遍）。部门缺席时连色都没有，退回中性占位。
+      department ? (
+        <AgentAvatar
+          name=""
+          initials=""
+          color={department.accentColor}
+          size="xs"
+          className="size-5 shrink-0 rounded-sm"
+        />
+      ) : (
+        <NeutralGlyph className="size-5 shrink-0 rounded-sm" />
+      )
     );
 
   // 子部门带上祖先路径：同名部门（「平台组」在两个事业部下各有一个）不带路径就是

@@ -61,6 +61,8 @@ export {
   hasTextSelectionWithin,
   shouldIgnoreClickForSelection,
 } from "./lib/copyable-text";
+export { AgentAvatar } from "./ui/agent-avatar";
+export type { AgentAvatarProps, AgentAvatarSize } from "./ui/agent-avatar";
 export { Badge } from "./ui/badge";
 export { Button, buttonVariants } from "./ui/button";
 export {

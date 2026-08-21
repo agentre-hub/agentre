@@ -1,7 +1,7 @@
 import * as React from "react";
 
+import { AgentAvatar } from "../ui/agent-avatar";
 import type { IndexAxis } from "./axis-groups";
-import { Glyph, initialOf } from "./glyph";
 import { ProjectGlyph, type ProjectGlyphInfo } from "./project-glyph";
 
 /**
@@ -68,13 +68,13 @@ export function RowLeadingSlot({
       data-kind="agent-avatar"
       className={SLOT_CLASS_NAME}
     >
-      <Glyph
+      <AgentAvatar
+        name={agent?.name ?? ""}
         color={agent?.color}
-        label={agent?.name || undefined}
+        icon={agentGlyph}
+        size="xs"
         className={GLYPH_CLASS_NAME}
-      >
-        {agentGlyph ?? (agent ? initialOf(agent.name, true) : undefined)}
-      </Glyph>
+      />
     </span>
   );
 }
