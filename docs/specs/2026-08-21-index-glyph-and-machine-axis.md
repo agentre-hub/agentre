@@ -4,7 +4,7 @@
 
 > Status: **Approved**
 > Owner: 会话索引 / 共享前端层（跨 `agentre` 与 `agentre-server`）
-> Last updated: 2026-08-21（决策 5 收窄：只有颜色缺失退 agent-1）
+> Last updated: 2026-08-21（决策 5 收窄；组顺序归宿主；补记项目首字不再大写）
 
 **Objective:** 桌面端会话索引剩下的六件呈现件改用共享包 `@agentre-ai/agentre-ui`；
 **身份字形以桌面端的 `AgentAvatar` 为准**收进包，成为两端唯一那一枚（`agentre-server`
@@ -106,10 +106,14 @@ content 路径字形就会静默变透明。
 （一个未命名的图形），不会被念成某个具体的 Agent。
 
 `agentre-server` 的 `AgentGlyph` 删除，四处调用改用共享件，`size="md"` 对应 `sm`、
-`size="sm"` 对应 `xs`。可观察变化只有两处，都源自决策 5/6：拉丁多词名的首字母从一个字
-变两个字；颜色**缺失**时从中性面变成 `agent-1` 底色（后者同样作用于 `ProjectGlyph`，
-因此一次都没设过颜色的项目在索引组头上会从灰方块变成蓝方块）。**选了 `neutral` 的
-项目与 Agent 仍旧是灰的** —— 那是调色板里的一个正当选项，不是「没有颜色」。
+`size="sm"` 对应 `xs`。画**项目**的那两处接 `ProjectGlyph` 而不是 `AgentAvatar` ——
+同一维用同一件。
+
+可观察变化三处，都源自决策 5/6：拉丁多词名的首字母从一个字变两个字；颜色**缺失**时
+从中性面变成 `agent-1` 底色（后者同样作用于 `ProjectGlyph`，因此一次都没设过颜色的项目
+在索引组头上会从灰方块变成蓝方块）；项目字形的首字**不再强制大写**（包里项目那一维走
+`initialOf`，与桌面端同源，`web` 这样的项目从 `W` 变 `w`）。**选了 `neutral` 的项目与
+Agent 仍旧是灰的** —— 那是调色板里的一个正当选项，不是「没有颜色」。
 
 ## 桌面端机器轴
 
@@ -127,7 +131,9 @@ daemon」各一条 scope，按需拉取、已有页缓存的不重拉，与项�
 **分组与补齐。** `index-projection.ts` 这一层继续做唯一的翻译：机器轴的组键是
 `device-<ExecDeviceID>`，行上的 `deviceId` 从组骨架来（取数时就知道，与 agent /
 project 两维同理），`machines` 名单从「本机 + `RemoteDeviceList()`」拼出来喂给
-`buildAxisGroups`。投影按「在线优先、再按名字」排组，本机恒为在线因而恒排最前。
+`buildAxisGroups`。**组的顺序归宿主**：桌面端的组骨架本就由宿主给（投影只把行分进组、
+不重排组，见 `index-projection.ts`），所以顺序落在名单本身 —— 本机最前，其余在线优先、
+同段内按名字。
 
 **组头。** 机器组头沿用桌面端组头的形（同高、同折叠记号、同 attention 气泡位），
 把项目字形那一格换成机器的在线状态点，组头文案是机器名，本机那一组的文案走 i18n。
