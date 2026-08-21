@@ -84,7 +84,7 @@ describe("ChatComposer command mode", () => {
       <ChatComposer
         editorRef={editorRef}
         onSubmit={() => undefined}
-        onRunCommand={onRunCommand}
+        onCommandSubmit={onRunCommand}
       />,
     );
 
@@ -105,7 +105,7 @@ describe("ChatComposer command mode", () => {
       <ChatComposer
         editorRef={editorRef}
         onSubmit={() => undefined}
-        onRunCommand={vi.fn()}
+        onCommandSubmit={vi.fn()}
       />,
     );
 
@@ -134,7 +134,7 @@ describe("ChatComposer command mode", () => {
       <ChatComposer
         editorRef={editorRef}
         onSubmit={() => undefined}
-        onRunCommand={vi.fn()}
+        onCommandSubmit={vi.fn()}
       />,
     );
 
@@ -166,7 +166,7 @@ describe("ChatComposer command mode", () => {
         editorRef={editorRef}
         localCommandHistoryScope={historyScope}
         onSubmit={() => undefined}
-        onRunCommand={vi.fn()}
+        onCommandSubmit={vi.fn()}
       />,
     );
 
@@ -202,7 +202,7 @@ describe("ChatComposer command mode", () => {
         editorRef={editorRef}
         localCommandHistoryScope={historyScope}
         onSubmit={onSubmit}
-        onRunCommand={onRunCommand}
+        onCommandSubmit={onRunCommand}
         onShiftTab={onShiftTab}
       />,
     );
@@ -254,7 +254,7 @@ describe("ChatComposer command mode", () => {
         editorRef={editorRef}
         onSubmit={() => undefined}
         onShiftTab={onShiftTab}
-        permissionModeSlot={
+        leadingControls={
           <button
             type="button"
             data-testid="consuming-control"
@@ -296,7 +296,7 @@ describe("ChatComposer command mode", () => {
         editorRef={editorRef}
         localCommandHistoryScope={historyScope}
         onSubmit={() => undefined}
-        onRunCommand={vi.fn()}
+        onCommandSubmit={vi.fn()}
         onShiftTab={onShiftTab}
       />,
     );
@@ -334,7 +334,7 @@ describe("ChatComposer command mode", () => {
         editorRef={editorRef}
         onSubmit={() => undefined}
         onShiftTab={onShiftTab}
-        permissionModeSlot={
+        leadingControls={
           <button type="button" data-testid="permission-control">
             Mode
           </button>
@@ -365,7 +365,7 @@ describe("ChatComposer command mode", () => {
         editorRef={editorRef}
         localCommandHistoryScope={newRemoteProjectScope}
         onSubmit={() => undefined}
-        onRunCommand={onRunCommand}
+        onCommandSubmit={onRunCommand}
       />,
     );
 
@@ -402,7 +402,7 @@ describe("ChatComposer command mode", () => {
         editorRef={editorRef}
         localCommandHistoryScope={newRemoteProjectScope}
         onSubmit={() => undefined}
-        onRunCommand={onRunCommand}
+        onCommandSubmit={onRunCommand}
       />,
     );
 

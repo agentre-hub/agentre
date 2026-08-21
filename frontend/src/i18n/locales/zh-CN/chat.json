@@ -20,37 +20,6 @@
     "actions": {
       "approve": "批准"
     },
-    "composer": {
-      "addImage": "添加图片",
-      "editing": {
-        "aria": "正在编辑消息",
-        "cancel": "取消编辑",
-        "cancelTitle": "取消编辑 (Esc)",
-        "description": "保存后此条之后的历史会被丢弃并重新生成",
-        "title": "编辑消息"
-      },
-      "imageErrors": {
-        "readFailed": "图片读取失败",
-        "tooMany": "最多添加 {{count}} 张图片",
-        "unsupported": "仅支持 PNG、JPEG、WebP，单张不超过 5MB"
-      },
-      "dropHint": "松开以添加文件 / 文件夹路径",
-      "removeImage": "移除图片 {{name}}",
-      "saveEdit": "保存编辑",
-      "send": "发送",
-      "sendTitle": "发送 (Enter)",
-      "shortcuts": {
-        "edit": "↵ 保存 · Esc 取消",
-        "send": "↵ 发送 · ⇧↵ 换行"
-      },
-      "command": {
-        "banner": "命令模式 · 在项目目录直接执行 · Enter 运行 · 删除 ! 退出",
-        "run": "运行命令"
-      }
-    },
-    "image": {
-      "attachmentAlt": "图片附件"
-    },
     "quota": {
       "aria": "Claude Code 配额 5h {{five}}% 7d {{seven}}% 来自 {{device}}",
       "panel": {

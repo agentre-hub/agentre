@@ -4,16 +4,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useShallow } from "zustand/react/shallow";
 import {
   Check,
-  EyeOff,
-  ImagePlus,
   LoaderCircle,
-  Pencil,
-  SendHorizontal,
-  SquareTerminal,
   Timer,
   TriangleAlert,
   Wrench,
-  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -27,22 +21,17 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { isNoticeOnlyMessage } from "@/lib/notice-message";
 import { cn } from "@/lib/utils";
 
-import type { Editor } from "@tiptap/react";
 import {
-  AIChatInput,
   buildMentionSources,
-  ContextMeter,
-  LOCAL_COMMAND_HISTORY_CLEAR_SELECTOR,
-  resolveDroppedPaths,
+  ChatComposer as SharedChatComposer,
   transcriptRowPadClass,
-  useFileDropZone,
   usageLevel,
-  type AIChatInputHandle,
-  type UsageLevel,
-  type LocalCommandHistoryScope,
-  type LocalCommandSubmitHandler,
+  type ChatComposerDropZone,
+  type ChatComposerHandle,
+  type ChatComposerProps as SharedChatComposerProps,
   type SlashCommand,
   type SlashExec,
+  type UsageLevel,
 } from "@agentre-ai/agentre-ui";
 import {
   applyLiveTranscriptRows,
@@ -183,116 +172,53 @@ function ApprovalGate({
   );
 }
 
-type ChatComposerProps = Omit<React.ComponentProps<"form">, "onSubmit"> & {
-  onSubmit?: (message: ChatComposerSubmit) => void;
-  placeholder?: string;
-  /** 历史消息文本，按时间倒序排列（最新在前），方向键 ↑↓ 浏览。 */
-  userMessageHistory?: string[];
-  /** 编辑模式：true 时输入框上方挂"正在编辑"提示条，发送按钮文案改为"保存"。 */
-  editing?: boolean;
-  /** 进入编辑模式时载入到输入框的初始草稿。每次切换编辑目标都会重新载入。 */
-  editDraft?: string;
-  /** 用户点击提示条上的"取消编辑"。父组件应清掉编辑状态并恢复正常输入。 */
-  onCancelEdit?: () => void;
-  /** 在输入框上方插入的内容（例：QueuedMessagesBar）。Composer 不关心内容，
-   *  只负责把节点放进 card 顶部，跟 editing banner 同位。空节点正常渲染（组件自决可见性）。 */
-  topSlot?: React.ReactNode;
-  /** 发送 RPC 在途（await SendChatMessage 未返回）。true 时发送按钮禁用并转 spinner。 */
-  sending?: boolean;
-  /** 上下文用量。max <= 0 时整块不渲染（未知模型 / 后端未配置）。 */
-  contextUsage?: { used: number; max: number };
-  /** Claude Code OAuth 5h/7d 配额。undefined / reason='no_credentials' 时整块不渲染。
-   *  由 chat-panel 通过 useCCUsage(deviceKey) 拉到后传入。 */
-  quotaUsage?: import("../../../wailsjs/go/models").cc_usage_svc.UsageState;
-  /** 配额对应的 device 友好名(local 或远端设备名),供 QuotaMeter HoverCard 文案使用。 */
-  quotaDeviceLabel?: string;
-  /** Permission mode 控件，仅在 claudecode 后端时由 chat-panel 注入。null 时整块不渲染。 */
-  permissionModeSlot?: React.ReactNode;
-  /** 模型切换控件，与 permissionModeSlot 并排（模型 pill 紧随其后）。null 时不渲染。 */
-  modelSlot?: React.ReactNode;
-  /** 焦点在 composer 内时按下 Shift+Tab 的钩子（用于循环切换 permission mode）。 */
-  onShiftTab?: () => void;
-  /** 挂载时自动 focus 输入框。新建会话场景下由 chat-panel 传 true，让用户一打开
-   *  就能直接打字、不用再点输入框一次。 */
-  autoFocusOnMount?: boolean;
-  /** 输入框只读禁用。新建会话场景下由 chat-panel 对不可对话 Agent 传入。 */
-  disabled?: boolean;
-  /** 当前会话 backend 类型;让 AIChatInput 启用 slash menu 并按 backend 过滤候选命令。
-   *  空串/省略 → 不启用 slash menu。 */
-  backendType?: string;
-  /** 当前会话或新会话的 agent id,用于加载该 agent 最终生效的 skill 命令。 */
+/**
+ * 桌面端 composer 的**装配面**。渲染住在 `@agentre-ai/agentre-ui` 的 ChatComposer
+ * 里，这里只负责把这一端独有的能力接上去：@ 提及的数据源、该 agent 生效的技能
+ * 命令、以及 Wails 的原生拖入通道。
+ *
+ * 这三样都是宿主耦合，包不得知道：`useChatAgents` / `useProjectList` 读的是本机
+ * 的清单，`ChatReadDroppedImages` 是 Wails 绑定。与 `agent-backends.tsx` /
+ * `llm-providers.tsx` 是同一种装配根，不是第二份实现。
+ */
+type DesktopChatComposerProps = Omit<
+  SharedChatComposerProps,
+  "mentionSources" | "slashCommands" | "onSlashSelect" | "dropZone"
+> & {
+  /** 当前会话或新会话的 agent id，用于加载该 agent 最终生效的 skill 命令。 */
   agentId?: number;
-  /** 当前会话/项目的工作目录,用于发现 project-scoped Skill。 */
+  /** 当前会话 / 项目的工作目录，用于发现 project-scoped Skill。 */
   cwd?: string;
-  /** 当前 backend 是否支持图片输入。false 时不渲染图片附件入口。 */
-  supportsImageInput?: boolean;
-  /** slash menu rpc 类命令的回调(literal_text 类由 AIChatInput 内部直接填回编辑器,
-   *  不自动发送,也不会冒泡到这里)。省略则 slash menu 不启用。 */
+  /** slash menu 里 rpc 类命令的回调（literal_text 由包内部填回编辑器）。 */
   onSlashRpc?: (
     cmd: SlashCommand,
     exec: Extract<SlashExec, { kind: "rpc" }>,
   ) => void;
-  /** 本地命令回调:启动命令后返回后端解析出的稳定设备与 cwd，供历史落盘。 */
-  onRunCommand?: LocalCommandSubmitHandler;
-  /** 进入 ! 模式时通知上层重新解析当前执行作用域。 */
-  onCommandModeChange?: (active: boolean) => void;
-  /** 当前执行设备与 cwd 组成的 Shell 历史隔离作用域。 */
-  localCommandHistoryScope?: LocalCommandHistoryScope;
-  /** 透传给内层 AIChatInput 的编辑器 ref,供测试驱动编辑器内容。 */
-  editorRef?: React.RefObject<Editor | null>;
 };
 
-export type ChatImageAttachment = {
-  dataUrl: string;
-  mediaType: string;
-  name: string;
+export type {
+  ChatComposerHandle,
+  ChatComposerSubmit,
+  ChatImageAttachment,
+} from "@agentre-ai/agentre-ui";
+
+// 落盘路径 → 图片附件。这是 Wails 绑定，是包里 resolveDroppedPaths 的 readImages
+// 端口在桌面端的实现；浏览器端拿不到绝对路径，所以那一端不注入这个通道。
+const DESKTOP_DROP_ZONE: ChatComposerDropZone = {
+  readImages: async (paths: string[]) => {
+    const resp = await ChatReadDroppedImages(
+      chat_svc.ReadDroppedImagesRequest.createFrom({ paths }),
+    );
+    return (resp.items ?? []).map((it) => ({
+      dataUrl: it.dataUrl,
+      kind: it.kind === "image" ? ("image" as const) : ("path" as const),
+      mediaType: it.mediaType,
+      name: it.name,
+      path: it.path,
+    }));
+  },
+  registerDropZone,
 };
-
-export type ChatComposerSubmit = {
-  images?: ChatImageAttachment[];
-  text: string;
-};
-
-// ChatComposer 的命令式句柄。restoreDraft 用于发送失败时把用户刚提交的文本 + 图片
-// 原样放回输入框（草稿恢复）；clearDraft 清空输入框 + 图片附件（丢弃草稿）。
-export type ChatComposerHandle = {
-  restoreDraft: (text: string, images: ChatImageAttachment[]) => void;
-  clearDraft: () => void;
-};
-
-const CHAT_IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
-const MAX_CHAT_IMAGE_COUNT = 4;
-const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
-
-function readImageFile(file: File): Promise<ChatImageAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-    reader.onload = () => {
-      if (typeof reader.result !== "string") {
-        reject(new Error("invalid image data"));
-        return;
-      }
-      resolve({
-        dataUrl: reader.result,
-        mediaType: file.type,
-        name: file.name,
-      });
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function imageFilesFromClipboard(data: DataTransfer): File[] {
-  const itemFiles = Array.from(data.items ?? [])
-    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => !!file);
-  if (itemFiles.length > 0) return itemFiles;
-  return Array.from(data.files ?? []).filter((file) =>
-    file.type.startsWith("image/"),
-  );
-}
 
 // formatResetIn 把"距离 ISO 时间点还有多久"渲染成紧凑的 XdYh / Xh / Xm 形式
 // (e.g. "4d21h", "3h", "40m"),用于 QuotaMeter tooltip。
@@ -352,7 +278,7 @@ const QUOTA_HOVER_CLOSE_DELAY_MS = 100;
 //
 // 详情(重置倒计时 / Sonnet / Opus 拆分 / 异常态)在 HoverCard 面板里,不再用原生
 // title —— 原生 title 不可键盘触达、不可着色、多行渲染跨平台不一致。
-function QuotaMeter({
+export function QuotaMeter({
   data,
   deviceLabel,
 }: {
@@ -583,510 +509,42 @@ function QuotaPanel({
   );
 }
 
-const ChatComposer = React.forwardRef<ChatComposerHandle, ChatComposerProps>(
-  function ChatComposer(
-    {
-      className,
-      onSubmit,
-      placeholder,
-      userMessageHistory,
-      editing = false,
-      editDraft,
-      onCancelEdit,
-      topSlot,
-      contextUsage,
-      quotaUsage,
-      quotaDeviceLabel,
-      permissionModeSlot,
-      modelSlot,
-      onShiftTab,
-      autoFocusOnMount = false,
-      backendType,
-      agentId = 0,
-      cwd = "",
-      supportsImageInput = true,
-      onSlashRpc,
-      onRunCommand,
-      onCommandModeChange,
-      localCommandHistoryScope,
-      editorRef,
-      onPasteCapture,
-      disabled = false,
-      sending = false,
-      ...props
-    }: ChatComposerProps,
-    ref,
-  ) {
-    const { t } = useTranslation();
-    const { agents } = useChatAgents();
-    const { projects } = useProjectList();
-    const mentionSources = React.useMemo(
-      () => buildMentionSources(agents, projects),
-      [agents, projects],
-    );
-    const inputRef = React.useRef<AIChatInputHandle>(null);
-    const fileInputRef = React.useRef<HTMLInputElement>(null);
-    const [isEmpty, setIsEmpty] = React.useState(true);
-    const [images, setImages] = React.useState<ChatImageAttachment[]>([]);
-    const [imageError, setImageError] = React.useState("");
-    const [commandMode, setCommandMode] = React.useState(false);
-    const skillCommands = useAgentSkillCommands(
-      agentId,
-      backendType ?? "",
-      cwd,
-    );
-    // 命令清单归宿主:静态注册表 + 该 agent 的技能命令,按 backend 过滤后交给
-    // composer。包内只负责触发检测/排序/渲染(见包的 chat-input/slash/types.ts)。
-    const availableSlashCommands = React.useMemo(
-      () => listAvailable(backendType ?? "", skillCommands),
-      [backendType, skillCommands],
-    );
-    // 发送失败草稿恢复:把用户刚提交的文本 + 图片原样放回输入框（父组件在 doSend
-    // 的 catch 里调用）。loadDraft 走与编辑模式载入草稿同一路径,行为一致。
-    React.useImperativeHandle(
-      ref,
-      () => ({
-        restoreDraft: (text: string, restoreImages: ChatImageAttachment[]) => {
-          inputRef.current?.loadDraft(text);
-          setImages(restoreImages);
-          setImageError("");
-        },
-        clearDraft: () => {
-          inputRef.current?.clear();
-          setImages([]);
-          setImageError("");
-        },
-      }),
-      [],
-    );
+const ChatComposer = React.forwardRef<
+  ChatComposerHandle,
+  DesktopChatComposerProps
+>(function ChatComposer({ agentId = 0, cwd = "", onSlashRpc, ...rest }, ref) {
+  const { agents } = useChatAgents();
+  const { projects } = useProjectList();
+  const mentionSources = React.useMemo(
+    () => buildMentionSources(agents, projects),
+    [agents, projects],
+  );
+  // 命令清单归宿主:静态注册表 + 该 agent 的技能命令,按 backend 过滤后交给包。
+  // 包内只负责触发检测 / 排序 / 渲染(见包的 chat-input/slash/types.ts)。
+  const skillCommands = useAgentSkillCommands(
+    agentId,
+    rest.backendType ?? "",
+    cwd,
+  );
+  const slashCommands = React.useMemo(
+    () => listAvailable(rest.backendType ?? "", skillCommands),
+    [rest.backendType, skillCommands],
+  );
 
-    // 切换到编辑模式（或换了编辑目标）时把目标文本载进 TipTap，并把光标抓回输入框；
-    // 退出编辑模式时清空输入，免得上一次的编辑残留干扰下一条新消息。
-    const wasEditingRef = React.useRef(false);
-    React.useEffect(() => {
-      if (editing) {
-        if (editDraft !== undefined) {
-          inputRef.current?.loadDraft(editDraft);
-        }
-        inputRef.current?.focus();
-      } else if (wasEditingRef.current) {
-        inputRef.current?.clear();
-      }
-      if (editing) {
-        setImages([]);
-        setImageError("");
-      }
-      wasEditingRef.current = editing;
-    }, [editing, editDraft]);
-
-    const wasAutoFocusOnMountRef = React.useRef(autoFocusOnMount);
-    React.useEffect(() => {
-      const wasAutoFocusOnMount = wasAutoFocusOnMountRef.current;
-      wasAutoFocusOnMountRef.current = autoFocusOnMount;
-      if (!autoFocusOnMount || wasAutoFocusOnMount) return;
-      inputRef.current?.focus();
-    }, [autoFocusOnMount]);
-
-    React.useEffect(() => {
-      if (supportsImageInput) return;
-      setImages([]);
-      setImageError("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }, [supportsImageInput]);
-
-    const dropRef = React.useRef<HTMLFormElement>(null);
-
-    const handleDroppedPaths = React.useCallback(
-      (paths: string[]) => {
-        if (disabled) return;
-        void (async () => {
-          const { attachments, text } = await resolveDroppedPaths(paths, {
-            allowImages: !editing && supportsImageInput,
-            remainingImageSlots: MAX_CHAT_IMAGE_COUNT - images.length,
-            readImages: async (imagePaths) => {
-              const resp = await ChatReadDroppedImages(
-                chat_svc.ReadDroppedImagesRequest.createFrom({
-                  paths: imagePaths,
-                }),
-              );
-              return (resp.items ?? []).map((it) => ({
-                path: it.path,
-                kind:
-                  it.kind === "image" ? ("image" as const) : ("path" as const),
-                name: it.name,
-                mediaType: it.mediaType,
-                dataUrl: it.dataUrl,
-              }));
-            },
-          });
-          if (attachments.length > 0) {
-            setImages((prev) => [...prev, ...attachments]);
-            setImageError("");
-          }
-          if (text) inputRef.current?.insertText(text);
-        })();
-      },
-      [disabled, editing, supportsImageInput, images.length],
-    );
-
-    const { isDragOver } = useFileDropZone({
-      ref: dropRef,
-      enabled: !disabled,
-      onPaths: handleDroppedPaths,
-      // 原生 drop 通道是桌面端能力(Wails OnFileDrop),由宿主注入。
-      registerDropZone,
-    });
-
-    function handleSend(text: string) {
-      if (disabled) return;
-      const trimmed = text.trim();
-      if (!trimmed && images.length === 0) return;
-      onSubmit?.(
-        images.length > 0 ? { images, text: trimmed } : { text: trimmed },
-      );
-      setImages([]);
-      setImageError("");
-    }
-
-    function handleFormSubmit(event: React.FormEvent<HTMLFormElement>) {
-      event.preventDefault();
-      if (disabled) return;
-      if (isEmpty && images.length > 0) {
-        handleSend("");
-        return;
-      }
-      inputRef.current?.submit();
-    }
-
-    async function handleImageFiles(files: FileList | readonly File[] | null) {
-      try {
-        if (disabled || !files || files.length === 0) return;
-        const nextFiles = Array.from(files);
-        if (images.length + nextFiles.length > MAX_CHAT_IMAGE_COUNT) {
-          setImageError(
-            t("chat.composer.imageErrors.tooMany", {
-              count: MAX_CHAT_IMAGE_COUNT,
-            }),
-          );
-          return;
-        }
-        const bad = nextFiles.find(
-          (file) =>
-            !CHAT_IMAGE_ACCEPT.split(",").includes(file.type) ||
-            file.size > MAX_CHAT_IMAGE_BYTES,
-        );
-        if (bad) {
-          setImageError(t("chat.composer.imageErrors.unsupported"));
-          return;
-        }
-        const attachments = await Promise.all(nextFiles.map(readImageFile));
-        setImages((prev) => [...prev, ...attachments]);
-        setImageError("");
-      } catch {
-        setImageError(t("chat.composer.imageErrors.readFailed"));
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
-    }
-
-    function handlePasteCapture(event: React.ClipboardEvent<HTMLFormElement>) {
-      onPasteCapture?.(event);
-      if (event.defaultPrevented || disabled || editing || !supportsImageInput)
-        return;
-      const pastedImages = imageFilesFromClipboard(event.clipboardData);
-      if (pastedImages.length === 0) return;
-      event.preventDefault();
-      void handleImageFiles(pastedImages);
-    }
-
-    // Esc 取消编辑。TipTap 的 handleKeyDown 不处理 Esc，所以这里在 form 层捕获；
-    // 非编辑态下不消费，让默认行为走。
-    //
-    // Shift+Tab 循环切换 permission mode —— 对齐 Claude TUI；focus 在 composer 内
-    // （TipTap editor / 普通按钮）时都会冒泡到 form，preventDefault 拦掉默认 tab 切换。
-    // 历史 Clear footer 保留原生反向焦点；编辑模式也不消费 Shift+Tab。
-    function handleFormKeyDown(event: React.KeyboardEvent<HTMLFormElement>) {
-      if (
-        !editing &&
-        isEmpty &&
-        images.length > 0 &&
-        event.key === "Enter" &&
-        !event.shiftKey &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.nativeEvent.isComposing
-      ) {
-        event.preventDefault();
-        handleSend("");
-        return;
-      }
-      if (editing && event.key === "Escape") {
-        event.preventDefault();
-        onCancelEdit?.();
-        return;
-      }
-      if (
-        !event.defaultPrevented &&
-        !editing &&
-        onShiftTab &&
-        event.key === "Tab" &&
-        event.shiftKey &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey
-      ) {
-        if (
-          event.target instanceof Element &&
-          event.target.closest(LOCAL_COMMAND_HISTORY_CLEAR_SELECTOR)
-        ) {
-          return;
-        }
-        event.preventDefault();
-        onShiftTab();
-      }
-    }
-
-    return (
-      <form
-        ref={dropRef}
-        className={cn(
-          // @container/composer:底栏按 composer 自身宽度分档降级 —— chat panel 的实际
-          // 宽度取决于侧栏 / 右侧面板开合,视口宽度读不到它。
-          "@container/composer relative w-full border-t border-border bg-background px-7 py-3.5",
-          className,
-        )}
-        onSubmit={handleFormSubmit}
-        onKeyDown={handleFormKeyDown}
-        onPasteCapture={handlePasteCapture}
-        {...props}
-      >
-        {isDragOver ? (
-          <div
-            className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-ring bg-background/85 text-sm font-medium text-foreground"
-            aria-hidden="true"
-          >
-            {t("chat.composer.dropHint")}
-          </div>
-        ) : null}
-        <div
-          className={cn(
-            "flex w-full flex-col overflow-hidden rounded-md border bg-card shadow-xs transition-colors",
-            "focus-within:ring-[3px] focus-within:ring-ring/50",
-            editing
-              ? "border-primary-text/45 focus-within:border-primary-text/70"
-              : "border-border focus-within:border-ring",
-          )}
-        >
-          {topSlot}
-          {editing ? (
-            <div
-              role="status"
-              aria-label={t("chat.composer.editing.aria")}
-              className="flex items-center gap-2 border-b border-primary-text/20 bg-primary-soft px-3 py-1.5 text-meta"
-            >
-              <Pencil
-                className="size-3 shrink-0 text-primary-text"
-                aria-hidden="true"
-              />
-              <span className="font-semibold text-primary-text">
-                {t("chat.composer.editing.title")}
-              </span>
-              <span className="text-muted-foreground">·</span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {t("chat.composer.editing.description")}
-              </span>
-              <button
-                type="button"
-                aria-label={t("chat.composer.editing.cancel")}
-                title={t("chat.composer.editing.cancelTitle")}
-                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                onClick={() => onCancelEdit?.()}
-              >
-                <X className="size-3" aria-hidden="true" />
-              </button>
-            </div>
-          ) : null}
-          {!editing && commandMode ? (
-            <div
-              role="status"
-              className="flex items-center gap-2 border-b border-primary-text/20 bg-primary-soft px-3 py-1.5 text-meta"
-            >
-              <SquareTerminal
-                className="size-3 shrink-0 text-primary-text"
-                aria-hidden="true"
-              />
-              <span className="min-w-0 flex-1 truncate font-medium text-primary-text">
-                {t("chat.composer.command.banner")}
-              </span>
-              <span className="inline-flex items-center gap-1 text-muted-foreground">
-                <EyeOff className="size-3" aria-hidden="true" />
-                {t("localCommand.notSharedWithAI")}
-              </span>
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-1 px-3.5 pt-2.5 pb-1">
-            {!editing && images.length > 0 ? (
-              <div className="flex flex-wrap gap-2 pb-1">
-                {images.map((img, idx) => (
-                  <div
-                    key={`${img.name}-${idx}`}
-                    className="group relative h-16 w-20 overflow-hidden rounded-md border border-border bg-muted"
-                  >
-                    <img
-                      src={img.dataUrl}
-                      alt={img.name || t("chat.image.attachmentAlt")}
-                      className="h-full w-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      aria-label={t("chat.composer.removeImage", {
-                        name: img.name || idx + 1,
-                      })}
-                      className="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-sm bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                      onClick={() => {
-                        setImages((prev) => prev.filter((_, i) => i !== idx));
-                        setImageError("");
-                      }}
-                    >
-                      <X className="size-3" aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <AIChatInput
-              ref={inputRef}
-              editorRef={editorRef}
-              onSubmit={handleSend}
-              onEmptyChange={setIsEmpty}
-              onCommandModeChange={(active) => {
-                setCommandMode(active);
-                onCommandModeChange?.(active);
-              }}
-              onCommandSubmit={onRunCommand}
-              localCommandHistoryScope={localCommandHistoryScope}
-              sendOnEnter
-              userMessageHistory={userMessageHistory}
-              placeholder={placeholder}
-              autoFocus={autoFocusOnMount}
-              disabled={disabled}
-              backendType={backendType}
-              mentionSources={mentionSources}
-              slashCommands={availableSlashCommands}
-              onSlashSelect={(cmd, exec) => {
-                // literal_text 由 AIChatInput 内部直接填回编辑器(不自动发送),
-                // 这里只接 rpc 类命令转交给父组件。
-                if (exec.kind === "rpc") onSlashRpc?.(cmd, exec);
-              }}
-            />
-            {imageError ? (
-              <div className="text-meta text-status-error" role="alert">
-                {imageError}
-              </div>
-            ) : null}
-            {/* 底栏恒为单行:靠 @container 分档隐藏装饰来适配窄宽,绝不允许内部文字
-              折行把行高顶高(Hard invariant 1),也绝不允许横向溢出把发送按钮裁出
-              可视区(Hard invariant 2)。
-              溢出优先级:按钮与两个 Pill 保持 shrink-0 不参与收缩,两个计量器是唯一
-              带 min-w-0 的让位者 —— 断点万一估窄,多出的宽度只吃掉计量器。 */}
-            <div className="flex flex-nowrap items-center gap-2">
-              {!editing && supportsImageInput ? (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept={CHAT_IMAGE_ACCEPT}
-                    multiple
-                    className="hidden"
-                    onChange={(event) =>
-                      void handleImageFiles(event.target.files)
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("chat.composer.addImage")}
-                    title={t("chat.composer.addImage")}
-                    disabled={disabled || images.length >= MAX_CHAT_IMAGE_COUNT}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <ImagePlus data-icon="only" aria-hidden="true" />
-                  </Button>
-                </>
-              ) : null}
-              {/* 快捷键提示是一次性教学文案,空间不足时第一个让位。 */}
-              <span className="shrink-0 font-mono text-meta leading-none whitespace-nowrap text-muted-foreground @max-[1000px]/composer:hidden">
-                {editing
-                  ? t("chat.composer.shortcuts.edit")
-                  : t("chat.composer.shortcuts.send")}
-              </span>
-              {!editing && (permissionModeSlot || modelSlot) ? (
-                <div className="flex shrink-0 items-center gap-1">
-                  {permissionModeSlot}
-                  {modelSlot}
-                </div>
-              ) : null}
-              <div className="min-w-0 flex-1" />
-              {!editing && !commandMode ? (
-                <QuotaMeter data={quotaUsage} deviceLabel={quotaDeviceLabel} />
-              ) : null}
-              {contextUsage &&
-              contextUsage.max > 0 &&
-              !editing &&
-              !commandMode ? (
-                <ContextMeter used={contextUsage.used} max={contextUsage.max} />
-              ) : null}
-              {!editing && commandMode ? (
-                <Button
-                  type="submit"
-                  size="icon-sm"
-                  aria-label={t("chat.composer.command.run")}
-                  title={t("chat.composer.command.run")}
-                >
-                  <SquareTerminal data-icon="only" aria-hidden="true" />
-                </Button>
-              ) : editing ? (
-                <Button
-                  type="submit"
-                  disabled={isEmpty}
-                  size="xs"
-                  aria-label={t("chat.composer.saveEdit")}
-                >
-                  <Check data-icon="inline-start" aria-hidden="true" />
-                  {t("common.save")}
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={
-                    disabled || sending || (isEmpty && images.length === 0)
-                  }
-                  size="icon-sm"
-                  aria-label={
-                    sending ? t("chatPanel.sending") : t("chat.composer.send")
-                  }
-                  title={t("chat.composer.sendTitle")}
-                >
-                  {sending ? (
-                    <LoaderCircle
-                      data-icon="only"
-                      className="animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <SendHorizontal data-icon="only" aria-hidden="true" />
-                  )}
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </form>
-    );
-  },
-);
+  return (
+    <SharedChatComposer
+      {...rest}
+      ref={ref}
+      dropZone={DESKTOP_DROP_ZONE}
+      mentionSources={mentionSources}
+      slashCommands={slashCommands}
+      onSlashSelect={(cmd, exec) => {
+        // literal_text 由包内部直接填回编辑器(不自动发送),这里只接 rpc 类。
+        if (exec.kind === "rpc") onSlashRpc?.(cmd, exec);
+      }}
+    />
+  );
+});
 
 // Generic tool card extension point: canonical-tool/raw/card.tsx handles
 // non-canonical tools; canonical-tool/<kind>/card.tsx handles canonical kinds.

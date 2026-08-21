@@ -389,6 +389,29 @@ describe("ChatComposer · bottom bar", () => {
   });
 });
 
+describe("ChatComposer · autofocus", () => {
+  it("Given autofocus is on at mount, When the composer appears, Then the editor already has focus", async () => {
+    render(<ChatComposer autoFocusOnMount onSubmit={vi.fn()} />);
+
+    // 新建会话进来就能直接打字,不用再点一次输入框。TipTap 的 autofocus 是异步的。
+    await waitFor(() => expect(screen.getByRole("textbox")).toHaveFocus());
+  });
+
+  it("Given autofocus turns on after mount, When it flips, Then the editor takes focus then", async () => {
+    const { rerender } = render(<ChatComposer onSubmit={vi.fn()} />);
+    expect(screen.getByRole("textbox")).not.toHaveFocus();
+
+    rerender(<ChatComposer autoFocusOnMount onSubmit={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("textbox")).toHaveFocus());
+  });
+
+  it("Given autofocus is off, When the composer mounts, Then focus is left where it was", () => {
+    render(<ChatComposer onSubmit={vi.fn()} />);
+    expect(screen.getByRole("textbox")).not.toHaveFocus();
+  });
+});
+
 describe("ChatComposer · top slot", () => {
   it("Given the host supplies a top slot, When rendered, Then it sits above the editor inside the card", () => {
     render(<ChatComposer topSlot={<div>queued</div>} onSubmit={vi.fn()} />);

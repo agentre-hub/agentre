@@ -20,37 +20,6 @@
     "actions": {
       "approve": "Approve"
     },
-    "composer": {
-      "addImage": "Add Image",
-      "editing": {
-        "aria": "Editing message",
-        "cancel": "Cancel edit",
-        "cancelTitle": "Cancel edit (Esc)",
-        "description": "Saving discards later history and regenerates from this point.",
-        "title": "Edit Message"
-      },
-      "imageErrors": {
-        "readFailed": "Failed to read image",
-        "tooMany": "Add at most {{count}} images",
-        "unsupported": "Only PNG, JPEG, and WebP are supported. Each image must be under 5 MB."
-      },
-      "dropHint": "Drop to add files / folder paths",
-      "removeImage": "Remove image {{name}}",
-      "saveEdit": "Save edit",
-      "send": "Send",
-      "sendTitle": "Send (Enter)",
-      "shortcuts": {
-        "edit": "↵ Save · Esc Cancel",
-        "send": "↵ Send · ⇧↵ New line"
-      },
-      "command": {
-        "banner": "Command mode · runs in the project directory · Enter to run · delete ! to exit",
-        "run": "Run command"
-      }
-    },
-    "image": {
-      "attachmentAlt": "Image attachment"
-    },
     "quota": {
       "aria": "Claude Code quota 5h {{five}}% 7d {{seven}}% from {{device}}",
       "panel": {

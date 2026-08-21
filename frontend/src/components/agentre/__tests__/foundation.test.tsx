@@ -435,7 +435,7 @@ describe("Agentre foundation components", () => {
   });
 
   it("autoFocusOnMount=true focuses the editor on first mount", async () => {
-    render(<ChatComposer autoFocusOnMount />);
+    render(<ChatComposer autoFocusOnMount onSubmit={() => undefined} />);
     // 新建会话进入时，ChatPanel 通过 newSessionAgent 传 true，让用户直接打字。
     // TipTap 的 autofocus 是 setTimeout(0) 异步执行的，所以 waitFor。
     await waitFor(() => {
@@ -444,11 +444,11 @@ describe("Agentre foundation components", () => {
   });
 
   it("Given a mounted composer, When new-session autofocus becomes enabled, Then the editor receives focus", async () => {
-    const { rerender } = render(<ChatComposer />);
+    const { rerender } = render(<ChatComposer onSubmit={() => undefined} />);
 
     expect(screen.getByRole("textbox")).not.toHaveFocus();
 
-    rerender(<ChatComposer autoFocusOnMount />);
+    rerender(<ChatComposer autoFocusOnMount onSubmit={() => undefined} />);
 
     await waitFor(() => {
       expect(screen.getByRole("textbox")).toHaveFocus();
@@ -456,13 +456,13 @@ describe("Agentre foundation components", () => {
   });
 
   it("autoFocusOnMount default (false) leaves focus untouched on mount", () => {
-    render(<ChatComposer />);
+    render(<ChatComposer onSubmit={() => undefined} />);
     // 续聊已有会话时不抢焦点，避免打断用户在侧栏的其它操作。
     expect(screen.getByRole("textbox")).not.toHaveFocus();
   });
 
   it("disables browser text assistance in the composer edit box", () => {
-    render(<ChatComposer />);
+    render(<ChatComposer onSubmit={() => undefined} />);
 
     const composer = screen.getByRole("textbox");
 
@@ -473,7 +473,7 @@ describe("Agentre foundation components", () => {
   });
 
   it("exposes the configured placeholder via data-placeholder for CSS rendering", () => {
-    render(<ChatComposer />);
+    render(<ChatComposer onSubmit={() => undefined} />);
 
     const editor = screen.getByRole("textbox");
     const emptyParagraph = editor.querySelector("p.is-editor-empty");

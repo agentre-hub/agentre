@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
   buildTranscriptRows,
+  ContextMeter,
   loadTranscriptScrollState,
   makeStreamDecoder,
   nextAutoFollow,
@@ -90,6 +91,7 @@ import { useSessionCapabilities } from "./capability/use-session-capabilities";
 import {
   ChatComposer,
   ChatTranscript,
+  QuotaMeter,
   type ChatComposerHandle,
   type ChatComposerSubmit,
   type ChatTranscriptHandle,
@@ -3044,27 +3046,44 @@ function ChatPanel({
                     ? t("chatPanel.newSession.guard.placeholder")
                     : undefined
                 }
-                contextUsage={composerContextUsage}
-                quotaUsage={quotaUsage}
-                quotaDeviceLabel={quotaDeviceLabel}
-                permissionModeSlot={
-                  isModeSwitchable ? (
-                    <PermissionModePill
-                      mode={permissionMode.mode}
-                      modes={permissionModeMeta.order}
-                      onSelect={permissionMode.setMode}
-                      errorMessage={permissionMode.error}
-                      disabled={modeSwitchingDisabled}
-                      runtimeKey={activeBackendType}
-                      permissionModeAtLaunch={
-                        permissionMode.permissionModeAtLaunch
-                      }
-                      hasActiveSession={permissionMode.hasActiveSession}
-                    />
+                // 底栏：设置项（pills）跟在快捷键提示后，计量器贴着提交键 ——
+                // 「发之前看一眼还剩多少」的读序，与 agentre-server 同一套。
+                leadingControls={
+                  isModeSwitchable || activeBackendType ? (
+                    <div className="flex shrink-0 items-center gap-1">
+                      {isModeSwitchable ? (
+                        <PermissionModePill
+                          mode={permissionMode.mode}
+                          modes={permissionModeMeta.order}
+                          onSelect={permissionMode.setMode}
+                          errorMessage={permissionMode.error}
+                          disabled={modeSwitchingDisabled}
+                          runtimeKey={activeBackendType}
+                          permissionModeAtLaunch={
+                            permissionMode.permissionModeAtLaunch
+                          }
+                          hasActiveSession={permissionMode.hasActiveSession}
+                        />
+                      ) : null}
+                      {activeBackendType ? (
+                        <ProviderPill {...providerPill} />
+                      ) : null}
+                    </div>
                   ) : null
                 }
-                modelSlot={
-                  activeBackendType ? <ProviderPill {...providerPill} /> : null
+                trailingControls={
+                  <>
+                    <QuotaMeter
+                      data={quotaUsage}
+                      deviceLabel={quotaDeviceLabel}
+                    />
+                    {composerContextUsage && composerContextUsage.max > 0 ? (
+                      <ContextMeter
+                        used={composerContextUsage.used}
+                        max={composerContextUsage.max}
+                      />
+                    ) : null}
+                  </>
                 }
                 onShiftTab={
                   isModeSwitchable && !modeSwitchingDisabled
@@ -3201,7 +3220,9 @@ function ChatPanel({
                 localCommandHistoryScope={localCommandHistoryScope}
                 onCommandModeChange={handleLocalCommandModeChange}
                 supportsImageInput={supportsImageInput}
-                onRunCommand={(command) => runLocalCommand(sessionId, command)}
+                onCommandSubmit={(command: string) =>
+                  runLocalCommand(sessionId, command)
+                }
                 onSlashRpc={(cmd) => {
                   console.warn(
                     `slash rpc not wired: cmd=${cmd.name} backend=${activeBackendType}`,

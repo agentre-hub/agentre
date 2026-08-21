@@ -228,6 +228,8 @@ export type {
 } from "./chat-input/types";
 export { ChatComposer } from "./composer/chat-composer";
 export type {
+  ChatComposerDropZone,
+  ChatComposerHandle,
   ChatComposerProps,
   ChatComposerSubmit,
   ChatImageAttachment,

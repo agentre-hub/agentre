@@ -489,6 +489,10 @@ export const ChatComposer = React.forwardRef<
         <AIChatInput
           {...inputProps}
           ref={inputRef}
+          // 挂载即聚焦走 TipTap 自己的 autofocus:它会等 view 附加到 DOM 之后再
+          // focus,绕开 mount 时 view 还没挂上的时序问题。下面那个 effect 只管
+          // 「挂载之后才被打开」这一档(宿主从 false 翻成 true),两条路都要有。
+          autoFocus={inputProps.autoFocus || autoFocusOnMount}
           disabled={disabled}
           onEmptyChange={setEmpty}
           onCommandModeChange={(active) => {

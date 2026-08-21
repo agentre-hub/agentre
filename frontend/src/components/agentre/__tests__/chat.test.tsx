@@ -80,6 +80,7 @@ import {
   type ChatComposerHandle,
   type ChatTranscriptHandle,
   formatResetIn,
+  QuotaMeter,
 } from "@/components/agentre/chat";
 import { ChatStreamsHost } from "@/components/agentre/chat-streams-host";
 import {
@@ -314,7 +315,7 @@ describe("ChatComposer context meter", () => {
       <ChatComposer
         backendType="codex"
         onSubmit={() => undefined}
-        onRunCommand={() => undefined}
+        onCommandSubmit={() => undefined}
       />,
     );
 
@@ -451,7 +452,7 @@ describe("ChatComposer context meter", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Add at most 4 images",
+      "You can attach up to 4 images",
     );
     expect(screen.queryByAltText("clip-0.png")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -481,7 +482,7 @@ describe("ChatComposer context meter", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Only PNG, JPEG, and WebP are supported. Each image must be under 5 MB.",
+      "Use PNG, JPEG, or WebP images up to 5 MB",
     );
     expect(input.value).toBe("");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -494,7 +495,7 @@ describe("ChatComposer context meter", () => {
     );
 
     expect(
-      screen.queryByRole("button", { name: "Add Image" }),
+      screen.queryByRole("button", { name: "Add image" }),
     ).not.toBeInTheDocument();
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
@@ -509,136 +510,13 @@ describe("ChatComposer context meter", () => {
       type: "image/png",
     });
 
-    expect(screen.getByRole("button", { name: "Add Image" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add image" })).toBeDisabled();
     fireEvent.change(input, { target: { files: [file] } });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByAltText("blocked.png")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(onSubmit).not.toHaveBeenCalled();
-  });
-
-  it("renders warning-level context usage with defined waiting color tokens", () => {
-    render(
-      <ChatComposer
-        contextUsage={{ used: 206000, max: 258000 }}
-        onSubmit={() => undefined}
-      />,
-    );
-
-    const percent = screen.getByText("80%");
-    expect(percent).toHaveClass("text-status-waiting");
-
-    const progress = screen.getByRole("progressbar");
-    expect(progress).toHaveAttribute("aria-valuenow", "206000");
-    expect(progress).toHaveAttribute("aria-valuemax", "258000");
-    // 环的弧段着色与配额条同源(LEVEL_* 分表), 不再是一条 bg-* 填充。
-    expect(
-      progress.querySelector("[data-slot='context-ring-arc']"),
-    ).toHaveClass("stroke-status-waiting");
-  });
-});
-
-describe("ChatComposer context meter", () => {
-  it("Given context usage, When the footer renders, Then only the ring and the percent stay inline", () => {
-    render(
-      <ChatComposer
-        contextUsage={{ used: 206000, max: 258000 }}
-        onSubmit={() => undefined}
-      />,
-    );
-
-    // token 绝对值与「Context」标签都搬进了浮窗: 底栏那 96px 的进度条与两串数字
-    // 是宽度收缩时最先被牺牲的东西, 环把它们压成一枚常驻图形。
-    expect(screen.queryByText("206k")).toBeNull();
-    expect(screen.queryByText("258k")).toBeNull();
-    expect(screen.getByText("80%")).toBeInTheDocument();
-  });
-
-  it("Given the meter is rendered, When a keyboard user tabs to it, Then the trigger is a button carrying the full reading", () => {
-    render(
-      <ChatComposer
-        contextUsage={{ used: 206000, max: 258000 }}
-        onSubmit={() => undefined}
-      />,
-    );
-
-    // 数字降级成悬停才能拿, 所以触发器必须可聚焦 —— 否则键盘用户永远读不到它们。
-    const trigger = screen.getByRole("button", { name: /Context usage/ });
-    expect(trigger.tagName).toBe("BUTTON");
-    expect(trigger).toHaveAccessibleName("Context usage 206k / 258k, 80% used");
-  });
-
-  it("Given focus lands on the meter, When the hover card opens, Then it shows used, limit and remaining", () => {
-    vi.useFakeTimers();
-    try {
-      render(
-        <ChatComposer
-          contextUsage={{ used: 206000, max: 258000 }}
-          onSubmit={() => undefined}
-        />,
-      );
-
-      const trigger = screen.getByRole("button", { name: /Context usage/ });
-      act(() => {
-        fireEvent.focusIn(trigger);
-        vi.advanceTimersByTime(500);
-      });
-
-      expect(screen.getByText("206k")).toBeInTheDocument();
-      expect(screen.getByText("/ 258k")).toBeInTheDocument();
-      expect(screen.getByText("52.0k")).toBeInTheDocument();
-      expect(screen.getByText("Remaining")).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("Given usage past the warning threshold, When the hover card opens, Then the footnote switches to the waiting tone", () => {
-    vi.useFakeTimers();
-    try {
-      render(
-        <ChatComposer
-          contextUsage={{ used: 206000, max: 258000 }}
-          onSubmit={() => undefined}
-        />,
-      );
-
-      act(() => {
-        fireEvent.focusIn(
-          screen.getByRole("button", { name: /Context usage/ }),
-        );
-        vi.advanceTimersByTime(500);
-      });
-
-      const note = screen.getByText(/Close to the context window limit/);
-      expect(note).toHaveClass("bg-status-waiting-bg");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("Given usage below the thresholds, When the hover card opens, Then the footnote explains where the number comes from", () => {
-    vi.useFakeTimers();
-    try {
-      render(
-        <ChatComposer
-          contextUsage={{ used: 64000, max: 200000 }}
-          onSubmit={() => undefined}
-        />,
-      );
-
-      act(() => {
-        fireEvent.focusIn(
-          screen.getByRole("button", { name: /Context usage/ }),
-        );
-        vi.advanceTimersByTime(500);
-      });
-
-      expect(screen.getByText(/latest model call/)).toHaveClass("bg-muted");
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 
@@ -2023,19 +1901,18 @@ describe("formatResetIn", () => {
   });
 });
 
-describe("ChatComposer quota meter", () => {
+describe("QuotaMeter", () => {
   const resetNow = Date.parse("2026-05-28T00:00:00Z");
 
   it("不渲染 QuotaMeter 当 quotaUsage 未传", () => {
-    render(<ChatComposer onSubmit={() => undefined} />);
+    render(<QuotaMeter data={undefined} />);
     expect(screen.queryByLabelText(/Claude.*quota/)).toBeNull();
   });
 
   it("不渲染 QuotaMeter 当 reason='no_credentials' (API key 用户)", () => {
     render(
-      <ChatComposer
-        onSubmit={() => undefined}
-        quotaUsage={{ reason: "no_credentials", fetchedAtMs: 1 } as never}
+      <QuotaMeter
+        data={{ reason: "no_credentials", fetchedAtMs: 1 } as never}
       />,
     );
     expect(screen.queryByLabelText(/Claude.*quota/)).toBeNull();
@@ -2043,9 +1920,8 @@ describe("ChatComposer quota meter", () => {
 
   it("正常渲染百分比文本 当 reason='ok'", () => {
     render(
-      <ChatComposer
-        onSubmit={() => undefined}
-        quotaUsage={
+      <QuotaMeter
+        data={
           {
             reason: "ok",
             data: { fiveHourPercent: 42.6, weeklyPercent: 18.2 },
@@ -2062,9 +1938,8 @@ describe("ChatComposer quota meter", () => {
 
   it("stale=true 时仍显示上次数字, 但不渲染可见的 stale 角标", () => {
     render(
-      <ChatComposer
-        onSubmit={() => undefined}
-        quotaUsage={
+      <QuotaMeter
+        data={
           {
             reason: "rate_limited",
             stale: true,
@@ -2085,9 +1960,8 @@ describe("ChatComposer quota meter", () => {
     vi.setSystemTime(resetNow);
     try {
       render(
-        <ChatComposer
-          onSubmit={() => undefined}
-          quotaUsage={
+        <QuotaMeter
+          data={
             {
               reason: "ok",
               data: {
@@ -2116,10 +1990,7 @@ describe("ChatComposer quota meter", () => {
 
   it("auth_expired 时渲染占位文本而不是数字", () => {
     render(
-      <ChatComposer
-        onSubmit={() => undefined}
-        quotaUsage={{ reason: "auth_expired", fetchedAtMs: 1 } as never}
-      />,
+      <QuotaMeter data={{ reason: "auth_expired", fetchedAtMs: 1 } as never} />,
     );
     expect(screen.getByLabelText(/Claude.*quota/)).toHaveTextContent("5h —%");
   });

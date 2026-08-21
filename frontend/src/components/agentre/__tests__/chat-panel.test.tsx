@@ -198,13 +198,15 @@ vi.mock("@/hooks/use-cc-usage", () => ({
 vi.mock("../chat", async () => {
   const React = await import("react");
   return {
+    QuotaMeter: () =>
+      React.createElement("div", { "data-testid": "quota-meter" }),
     ChatComposer: React.forwardRef(
       (
         props: {
           localCommandHistoryScope?: unknown;
           onSubmit?: (text: string) => void;
-          permissionModeSlot?: React.ReactNode;
-          modelSlot?: React.ReactNode;
+          leadingControls?: React.ReactNode;
+          trailingControls?: React.ReactNode;
           topSlot?: React.ReactNode;
         },
         ref: React.Ref<unknown>,
@@ -218,8 +220,8 @@ vi.mock("../chat", async () => {
           React.Fragment,
           null,
           props.topSlot,
-          props.permissionModeSlot,
-          props.modelSlot,
+          props.leadingControls,
+          props.trailingControls,
           componentMocks.localCommandMenuActive &&
             props.localCommandHistoryScope
             ? React.createElement("div", {
@@ -1425,7 +1427,7 @@ describe("ChatPanel · local command scope and execution", () => {
       expect(appMocks.ResolveLocalCommandScope).toHaveBeenCalledTimes(1);
     });
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toEqual({
       deviceId: "remote-9",
@@ -1447,7 +1449,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toEqual({
       deviceId: "remote-10",
@@ -1497,7 +1499,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     const panelA = render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1538,7 +1540,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     const panelA = render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1585,7 +1587,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("sleep 30")).resolves.toEqual({
       deviceId: "remote-12",
@@ -1626,7 +1628,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1662,7 +1664,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1705,7 +1707,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1772,7 +1774,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
       render(<ChatPanel sessionId={42} />);
       const runCommand = componentMocks.chatComposerProps.at(-1)
-        ?.onRunCommand as (command: string) => Promise<unknown>;
+        ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
       await expect(runCommand("printf done")).resolves.toEqual({
         deviceId: "remote-12",
@@ -1853,7 +1855,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
       render(<ChatPanel sessionId={42} />);
       const runCommand = componentMocks.chatComposerProps.at(-1)
-        ?.onRunCommand as (command: string) => Promise<unknown>;
+        ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
       await expect(runCommand("pwd")).resolves.toEqual({
         deviceId: "remote-12",
@@ -1907,7 +1909,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("missing-tool")).resolves.toEqual({
       deviceId: "remote-12",
@@ -1955,7 +1957,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     const panel = render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toEqual({
       deviceId: "remote-12",
@@ -2020,7 +2022,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toBeUndefined();
     expect(appMocks.TerminalRunCommand).toHaveBeenCalledTimes(1);
@@ -2065,7 +2067,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     const result = runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
@@ -2137,7 +2139,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toEqual({
       deviceId: "remote-12",
@@ -2210,7 +2212,7 @@ describe("ChatPanel · local command scope and execution", () => {
       />,
     );
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     let first!: Promise<unknown>;
     let second!: Promise<unknown>;
@@ -2308,7 +2310,7 @@ describe("ChatPanel · local command scope and execution", () => {
     appMocks.TerminalRunCommand.mockReturnValueOnce(terminalRun.promise);
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     const result = runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
@@ -2377,7 +2379,7 @@ describe("ChatPanel · local command scope and execution", () => {
     appMocks.TerminalRunCommand.mockReturnValueOnce(terminalRun.promise);
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     const result = runCommand("missing-tool");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
@@ -2419,7 +2421,7 @@ describe("ChatPanel · local command scope and execution", () => {
     appMocks.TerminalRunCommand.mockReturnValueOnce(terminalRun.promise);
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     const result = runCommand("pwd");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
@@ -2490,7 +2492,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("printf done");
 
     act(() => {
