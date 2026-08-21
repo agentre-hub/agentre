@@ -4,7 +4,7 @@
 
 > Status: **Approved**
 > Owner: 会话索引 / 共享前端层（跨 `agentre` 与 `agentre-server`）
-> Last updated: 2026-08-21
+> Last updated: 2026-08-21（决策 5 收窄：只有颜色缺失退 agent-1）
 
 **Objective:** 桌面端会话索引剩下的六件呈现件改用共享包 `@agentre-ai/agentre-ui`；
 **身份字形以桌面端的 `AgentAvatar` 为准**收进包，成为两端唯一那一枚（`agentre-server`
@@ -66,7 +66,7 @@
 | 2 | **身份字形以桌面端 `AgentAvatar` 为准收进包**，三档齐全（上传头像 ▸ 图标 ▸ 首字母） | 用户裁决：以桌面端 UI/UX 为准。桌面端是能力更全的那一端，包里的 `Glyph` 只是它的一个子集。Rejected: 只把包内 `Glyph` 公开出来 —— 那样桌面端索引之外的 25 个 `AgentAvatar` 调用点仍是第二份实现，「同一个记号只有一份」只兑现一半 |
 | 3 | 图标解析是**宿主端口**：包收 `icon?: ReactNode`，不收 icon key | icon-registry（`icon-registry.ts`，383 行、一张 lucide 图标表 + 分类 + 搜索）是宿主的产品决定，server 根本没有它。Rejected: 把注册表搬进包 —— 会把桌面端的图标集强加给所有宿主，且 server 的打包体积白付 |
 | 4 | 桌面端 `primitives.tsx` 的 `AgentAvatar` 退化成**转发器**，在转发时把 icon key 解成节点 | 26 个调用点入参一个不改，与包里既有的转发先例同形（`components/ui/button.tsx`、`input.tsx`、`spinner.tsx`）。Rejected: 全量改调用点 —— 与本轮无关的 diff，违反「不碰无关文件」 |
-| 5 | **字形兜底按桌面端**：颜色 token 缺失或非法 → `agent-1` 底色；名字为空 → `?` | 用户裁决。Rejected: 包里现行的「中性方块、不上色、不给名字」—— 它是更克制的读法，但会让桌面端出现可见变化，与本轮「切包＝行为不变」的验收标准冲突 |
+| 5 | **字形兜底按桌面端**：颜色**缺失**（空 / 未给）→ `agent-1` 底色；名字为空 → `?`。`neutral` 与任何解析不出的 token → 中性面 | 用户裁决「以桌面端为准」，而桌面端的 `agent-1` 只作用于空值（`primitives.tsx:59` 的默认参数）。`neutral` 是两端调色板里**用户能选的正当灰**（`project_entity.allowedColors` 十七个，server 侧同源于 `ProjectColorPicker.tsx:4`），把它一并退成 `agent-1` 会让用户选的灰渲染成蓝。Rejected: 「缺失或非法一律退 `agent-1`」—— 见上；Rejected: 「一律退中性面」（包里现行）—— 桌面端没颜色的 Agent 会从蓝变灰，与「切包＝行为不变」冲突 |
 | 6 | 首字母算法按桌面端 `getInitials`：拉丁多词名取前两词首字母并大写，其余取首字 | 同上。**这会让 server 出现可见变化**：「新对话」里的 `Code Reviewer` 从 `C` 变成 `CR`。尺寸与字号不变（server 的 `text-[11px]` 与桌面端 `text-2xs` 同为 0.6875rem，`tokens.css:365`） |
 | 7 | server 的 `AgentGlyph` **删除**，四处调用改用共享件 | 它是重复实现而不是宿主适配，留一个转发器只是把重复藏起来。Rejected: 保留为转发器 |
 | 8 | 机器这一维复用 `Session.ExecDeviceID`（`int64`，0 = 本机），**不**用 `ChatSessionLite.deviceID` | `ExecDeviceID` 是会话表上的一列，`0 = 本机` 的约定与包契约 `MachineInfo.deviceId: number` 天然对齐，无需换算、也没有「认不出机器」的兜底组。`ChatSessionLite.deviceID` 是 `string` 且**索引 RPC 根本没填**（`chat.go:574-589` 的 `sessionLiteFromEntity` 不写 device 三列），它是从 backend 推出来的另一件事。Rejected: 放宽包契约成 `number \| string` —— 为了迁就一个不该用的字段去动两端共用的契约 |
@@ -107,8 +107,9 @@ content 路径字形就会静默变透明。
 
 `agentre-server` 的 `AgentGlyph` 删除，四处调用改用共享件，`size="md"` 对应 `sm`、
 `size="sm"` 对应 `xs`。可观察变化只有两处，都源自决策 5/6：拉丁多词名的首字母从一个字
-变两个字；颜色 token 缺失或非法时从中性面变成 `agent-1` 底色（后者同样作用于
-`ProjectGlyph`，因此没有颜色的项目在索引组头上也会从灰方块变成蓝方块）。
+变两个字；颜色**缺失**时从中性面变成 `agent-1` 底色（后者同样作用于 `ProjectGlyph`，
+因此一次都没设过颜色的项目在索引组头上会从灰方块变成蓝方块）。**选了 `neutral` 的
+项目与 Agent 仍旧是灰的** —— 那是调色板里的一个正当选项，不是「没有颜色」。
 
 ## 桌面端机器轴
 
@@ -153,7 +154,7 @@ project 两维同理），`machines` 名单从「本机 + `RemoteDeviceList()`�
 
 | 缝 | 验证什么 | 既有先例 |
 |---|---|---|
-| 包 `AgentAvatar` | 三档各自渲染什么（头像 ▸ 图标节点 ▸ 首字母）；首字母算法在多词拉丁名 / 中文名 / 空名下的结果；颜色 token 缺失与非法时退回 `agent-1`；四档尺寸 | `packages/agentre-ui/src/session-index/project-glyph.test.tsx` |
+| 包 `AgentAvatar` | 三档各自渲染什么（头像 ▸ 图标节点 ▸ 首字母）；首字母算法在多词拉丁名 / 中文名 / 空名下的结果；颜色缺失时退回 `agent-1`，而 `neutral` 与解析不出的 token 退回中性面；四档尺寸 | `packages/agentre-ui/src/session-index/project-glyph.test.tsx` |
 | 包 `AxisPicker` | 只摆宿主传进来的那几档；四档各自的图标与选中态 | `packages/agentre-ui/src/session-index/axis-picker.test.tsx` |
 | 桌面端切包后的索引 | **行为不变**：三根既有轴的行首槽、第二行、折叠、气泡、「查看全部 N」与今天逐条一致 | `components/agentre/__tests__/session-index-chrome.test.tsx`、`index-group-row.test.tsx`、`use-group-rows.test.tsx`（**原样跑通，不改断言**） |
 | 桌面端 `AgentAvatar` 转发器 | icon key 在转发时解成节点；26 个调用点的入参形状不变 | 新增（今天没有转发器） |
