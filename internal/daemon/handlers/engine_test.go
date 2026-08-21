@@ -3,19 +3,28 @@ package handlers_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/agentre-ai/agentre/internal/daemon/handlers"
 	"github.com/agentre-ai/agentre/internal/daemon/state"
 	"github.com/agentre-ai/agentre/internal/pkg/cliprober"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 const engineProviderKey = "provider-key-must-not-return"
-const engineAPIKey = "engine-api-key-must-not-return"
+const engineAPIKey = "engine-api-key-must-not-return" //nolint:gosec // credential-shaped test fixture must exercise response redaction
+
+type countingHTTPDoer struct{ calls int }
+
+func (d *countingHTTPDoer) Do(*http.Request) (*http.Response, error) {
+	d.calls++
+	return nil, errors.New("must not call upstream")
+}
 
 func setupEngineTest(t *testing.T, scan func() []cliprober.CLIProbeResult) (*state.State, *handlers.EngineHandlers) {
 	t.Helper()
@@ -34,7 +43,7 @@ func TestEngineTest_GivenConfiguredProvider_WhenTestingDefaultModel_ThenUsesStat
 	t.Cleanup(server.Close)
 	st, h := setupEngineTest(t, nil)
 	st.Mutate(func(s *state.State) {
-		s.LLMProviders[engineProviderKey] = state.LLMProviderMeta{Type: "openai-chat", BaseURL: server.URL, APIKey: engineAPIKey, DefaultModelKey: "default-model-key", Models: []state.LLMModelMeta{{ModelKey: "default-model-key", ModelID: "gpt-test"}}}
+		s.LLMProviders[engineProviderKey] = state.LLMProviderMeta{Type: "openai-chat", BaseURL: server.URL, APIKey: engineAPIKey, DefaultModelKey: "default-model-key", Models: []state.LLMModelMeta{{ModelKey: "default-model-key", ModelID: "gpt-test", Enabled: true}}}
 	})
 
 	result, err := h.Test(context.Background(), handlers.EngineTestParams{ProviderKey: engineProviderKey})
@@ -46,6 +55,26 @@ func TestEngineTest_GivenConfiguredProvider_WhenTestingDefaultModel_ThenUsesStat
 	require.NoError(t, err)
 	assert.NotContains(t, string(payload), engineAPIKey)
 	assert.NotContains(t, string(payload), engineProviderKey)
+}
+
+func TestEngineTest_GivenDisabledModel_WhenTesting_ThenDoesNotCallUpstream(t *testing.T) {
+	st, err := state.Load(t.TempDir())
+	require.NoError(t, err)
+	doer := &countingHTTPDoer{}
+	h := handlers.NewEngineHandlers(handlers.EngineDeps{State: st, HTTPClient: doer})
+	st.Mutate(func(s *state.State) {
+		s.LLMProviders[engineProviderKey] = state.LLMProviderMeta{
+			Type: "openai-chat", BaseURL: "https://api.example", APIKey: engineAPIKey,
+			DefaultModelKey: "disabled-model",
+			Models:          []state.LLMModelMeta{{ModelKey: "disabled-model", ModelID: "gpt-disabled", Enabled: false}},
+		}
+	})
+
+	result, err := h.Test(context.Background(), handlers.EngineTestParams{ProviderKey: engineProviderKey})
+
+	require.NoError(t, err)
+	assert.False(t, result.OK)
+	assert.Zero(t, doer.calls, "a disabled model must not be sent to the upstream provider")
 }
 
 func TestEngineTest_GivenUnknownProvider_WhenTesting_ThenReportsFailureWithoutLeakingConfiguredCredentials(t *testing.T) {

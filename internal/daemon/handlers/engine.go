@@ -91,7 +91,7 @@ func (h *EngineHandlers) Test(ctx context.Context, params EngineTestParams) (Eng
 	result := EngineTestResult{LatencyMs: &latencyMs}
 	if err != nil {
 		result.Message = err.Error()
-		return result, nil
+		return result, nil //nolint:nilerr // upstream failure is returned as the caller-visible OK:false probe result
 	}
 	result.OK = true
 	result.Message = "connection succeeded"
@@ -153,7 +153,7 @@ func (h *EngineHandlers) providerAndModel(providerKey, modelKey string) (llmurl.
 		modelKey = meta.DefaultModelKey
 	}
 	for _, model := range meta.Models {
-		if model.ModelKey == modelKey && strings.TrimSpace(model.ModelID) != "" {
+		if model.ModelKey == modelKey && model.Enabled && strings.TrimSpace(model.ModelID) != "" {
 			return provider, model.ModelID, true
 		}
 	}

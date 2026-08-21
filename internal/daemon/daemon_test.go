@@ -2180,7 +2180,7 @@ func TestDaemon_GivenClaimedDaemon_WhenEngineRPCsAreCalled_ThenTheyUseLocalState
 		s.LLMProviders["provider-key"] = state.LLMProviderMeta{
 			Type: "openai-chat", BaseURL: server.URL, APIKey: "daemon-engine-secret",
 			DefaultModelKey: "model-key",
-			Models:          []state.LLMModelMeta{{ModelKey: "model-key", ModelID: "gpt-daemon"}},
+			Models:          []state.LLMModelMeta{{ModelKey: "model-key", ModelID: "gpt-daemon", Enabled: true}},
 		}
 	})
 	require.NoError(t, st.Save())
