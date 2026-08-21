@@ -129,6 +129,19 @@ describe("AIChatInput 的占位文案", () => {
     );
   });
 
+  it("宿主说了不能真执行本地命令时不提 !，哪怕接了 onCommandSubmit", () => {
+    // agentre-server 接 onCommandSubmit 只为兜住静默吞字（缺它时包会把 `!foo`
+    // clearContent 掉），那一端没有 PTY，真按下去执行不了。
+    const { container } = render(
+      <AIChatInput
+        onSubmit={() => {}}
+        onCommandSubmit={() => {}}
+        localCommandsEnabled={false}
+      />,
+    );
+    expect(placeholderOf(container)).toBe("Type a message");
+  });
+
   it("四样齐全时逐段拼出来", () => {
     const { container } = render(
       <AIChatInput

@@ -99,6 +99,12 @@ export interface AIChatInputProps {
   slashCommands?: SlashCommand[];
   /** 当前本地命令执行目标。设备与 cwd 共同隔离持久化 Shell 历史。 */
   localCommandHistoryScope?: LocalCommandHistoryScope;
+  /** `!` 是否真能执行。省略 = 按 `onCommandSubmit` 接没接推断。
+   *  显式传 false 是给这么一种宿主用的:它接 `onCommandSubmit` 只为兜住静默吞字
+   *  (缺这个回调时本组件会把 `!foo` clearContent 掉、既不发也不说),自己并没有
+   *  执行能力 —— agentre-server 的 wire 上就没有任何 PTY / 本地执行方法。
+   *  只影响占位文案:提示里写着、按下去没反应,比不写更糟。 */
+  localCommandsEnabled?: boolean;
 }
 
 const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
@@ -120,6 +126,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
       mentionSources,
       slashCommands = EMPTY_SLASH_COMMANDS,
       localCommandHistoryScope,
+      localCommandsEnabled,
     },
     ref,
   ) {
@@ -213,11 +220,12 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
             mentionSources,
             slashEnabled,
             slashCommands,
-            localCommandsEnabled: !!onCommandSubmit,
+            localCommandsEnabled: localCommandsEnabled ?? !!onCommandSubmit,
           }),
           uiT,
         ),
       [
+        localCommandsEnabled,
         mentionSources,
         onCommandSubmit,
         placeholder,
