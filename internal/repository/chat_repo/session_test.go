@@ -949,6 +949,52 @@ func TestSessionRepo_ListByProjectPaged(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestSessionRepo_ListByDevicePaged(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	// 与项目那条同一套可见性口径（ACTIVE + 非子 agent）、同一个排序，只是分组这一维
+	// 换成 exec_device_id。
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .exec_device_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
+		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "exec_device_id"}).
+			AddRow(int64(101), int64(42), int64(7)))
+
+	rows, err := chat_repo.NewSession().ListByDevicePaged(ctx, 7, 5, 5)
+	assert.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_ListByDevicePagedLocal(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	// deviceID = 0 是**本机**，不是「不限机器」：WHERE 里必须照样带上 exec_device_id，
+	// 否则本机那一组会翻出全部机器的会话。
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .exec_device_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
+		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "exec_device_id"}).
+			AddRow(int64(5), int64(0)))
+
+	rows, err := chat_repo.NewSession().ListByDevicePaged(ctx, 0, 0, 20)
+	assert.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.Equal(t, int64(0), rows[0].ExecDeviceID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountByDevice(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
+
+	n, err := chat_repo.NewSession().CountByDevice(ctx, 7)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(12), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestSessionRepo_CountByProject(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 

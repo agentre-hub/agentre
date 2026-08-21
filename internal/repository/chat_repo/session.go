@@ -38,11 +38,16 @@ type SessionRepo interface {
 	// 其余走「查看全部 N」——一次性拉一个项目的全部会话（ListByProject 的口径）在
 	// 侧栏这条路上没有必要。
 	ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error)
+	// ListByDevicePaged 是索引「按机器」轴那一组的分页查询：按会话**跑在哪台机器上**
+	// 取数（exec_device_id）。deviceID = 0 是**本机**，不是「没有机器」——
+	// chat_entity.Session 的约定如此，绝大多数会话都落在这一格。
+	ListByDevicePaged(ctx context.Context, deviceID int64, offset, limit int) ([]*chat_entity.Session, error)
 	// CountAll / CountFree / CountByProject 是上面几个列表各自的总数，
 	// 供「还有 N 条」与翻页终止判断。
 	CountAll(ctx context.Context) (int64, error)
 	CountFree(ctx context.Context) (int64, error)
 	CountByProject(ctx context.Context, projectID int64) (int64, error)
+	CountByDevice(ctx context.Context, deviceID int64) (int64, error)
 	// ReassignProject 把 project_id 从 fromProjectID 整批改挂到 toProjectID（R11a
 	// 的项目合并）。刻意**不带 status / purpose 过滤**：软删的会话与子 agent 委派
 	// 会话在 ListByProject 里都看不见（后者被 nonSubagentScope 排除），逐行改挂必然
@@ -386,10 +391,21 @@ func indexScope(projectFilter *int64) func(*gorm.DB) *gorm.DB {
 	}
 }
 
-func (r *sessionRepo) listIndexPaged(ctx context.Context, projectFilter *int64, offset, limit int) ([]*chat_entity.Session, error) {
+// indexDeviceScope 与 indexScope 同一套可见性口径（ACTIVE + 非子 agent），只是分组
+// 这一维换成 exec_device_id。单独一个 scope 而不是给 indexScope 再加一个指针参数：
+// 两维永远互斥（索引一次只按一根轴分组），并成一个函数只会让调用点读起来像是能同时给。
+func indexDeviceScope(deviceID int64) func(*gorm.DB) *gorm.DB {
+	return func(d *gorm.DB) *gorm.DB {
+		return d.
+			Where("exec_device_id = ? AND status = ?", deviceID, consts.ACTIVE).
+			Scopes(nonSubagentScope)
+	}
+}
+
+func (r *sessionRepo) listIndexPaged(ctx context.Context, scope func(*gorm.DB) *gorm.DB, offset, limit int) ([]*chat_entity.Session, error) {
 	var rows []*chat_entity.Session
 	err := db.Ctx(ctx).
-		Scopes(indexScope(projectFilter)).
+		Scopes(scope).
 		Order("last_message_at DESC, id DESC").
 		Offset(offset).
 		Limit(limit).
@@ -398,41 +414,50 @@ func (r *sessionRepo) listIndexPaged(ctx context.Context, projectFilter *int64, 
 	return rows, err
 }
 
-func (r *sessionRepo) countIndex(ctx context.Context, projectFilter *int64) (int64, error) {
+func (r *sessionRepo) countIndex(ctx context.Context, scope func(*gorm.DB) *gorm.DB) (int64, error) {
 	var n int64
 	err := db.Ctx(ctx).Model(&chat_entity.Session{}).
-		Scopes(indexScope(projectFilter)).
+		Scopes(scope).
 		Count(&n).Error
 	return n, err
 }
 
 // ListRecentPaged 见接口注释：不限 agent、不限项目的最近活动分页。
 func (r *sessionRepo) ListRecentPaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
-	return r.listIndexPaged(ctx, nil, offset, limit)
+	return r.listIndexPaged(ctx, indexScope(nil), offset, limit)
 }
 
 // ListFreePaged 见接口注释：仅 project_id = 0 的会话。
 func (r *sessionRepo) ListFreePaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
 	free := int64(0)
-	return r.listIndexPaged(ctx, &free, offset, limit)
+	return r.listIndexPaged(ctx, indexScope(&free), offset, limit)
 }
 
 // ListByProjectPaged 见接口注释：ListByProject 的分页版。
 func (r *sessionRepo) ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error) {
-	return r.listIndexPaged(ctx, &projectID, offset, limit)
+	return r.listIndexPaged(ctx, indexScope(&projectID), offset, limit)
 }
 
 func (r *sessionRepo) CountAll(ctx context.Context) (int64, error) {
-	return r.countIndex(ctx, nil)
+	return r.countIndex(ctx, indexScope(nil))
 }
 
 func (r *sessionRepo) CountFree(ctx context.Context) (int64, error) {
 	free := int64(0)
-	return r.countIndex(ctx, &free)
+	return r.countIndex(ctx, indexScope(&free))
 }
 
 func (r *sessionRepo) CountByProject(ctx context.Context, projectID int64) (int64, error) {
-	return r.countIndex(ctx, &projectID)
+	return r.countIndex(ctx, indexScope(&projectID))
+}
+
+// ListByDevicePaged 见接口注释：按 exec_device_id 取数，0 = 本机。
+func (r *sessionRepo) ListByDevicePaged(ctx context.Context, deviceID int64, offset, limit int) ([]*chat_entity.Session, error) {
+	return r.listIndexPaged(ctx, indexDeviceScope(deviceID), offset, limit)
+}
+
+func (r *sessionRepo) CountByDevice(ctx context.Context, deviceID int64) (int64, error) {
+	return r.countIndex(ctx, indexDeviceScope(deviceID))
 }
 
 // ReassignProject 见接口注释：WHERE 里只有 project_id，没有 status / purpose。

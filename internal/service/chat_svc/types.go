@@ -767,6 +767,13 @@ const (
 	// 旧的 ProjectListSessions 返回的是另一个形状（无 bgRunning、无 project_id），
 	// 正是「同一条会话在两个页面显示不一样」的根。
 	SessionScopeProject SessionIndexScope = "project"
+	// SessionScopeMachine 跑在某一台机器上的会话 —— 索引的「按机器」轴那一组
+	// （docs/specs/2026-08-21-index-glyph-and-machine-axis.md）。
+	//
+	// 分组这一维是 chat_entity.Session.ExecDeviceID，而**不是** ChatSessionLite 上那个
+	// 从 backend 推出来的 DeviceID：前者是会话表上的一列（取数时就分得开），后者索引
+	// 这条路根本没填。DeviceID = 0 是本机，是一台正当的机器。
+	SessionScopeMachine SessionIndexScope = "machine"
 )
 
 // ListIndexSessionsRequest 单一会话索引的分页查询。
@@ -775,8 +782,11 @@ type ListIndexSessionsRequest struct {
 	Scope SessionIndexScope `json:"scope"`
 	// ProjectID 仅在 Scope=project 时有意义，且必须 > 0：0 走 Scope=free。
 	ProjectID int64 `json:"projectId"`
-	Offset    int   `json:"offset"`
-	Limit     int   `json:"limit"`
+	// DeviceID 仅在 Scope=machine 时有意义。**0 合法**（本机），负数才是漏传 ——
+	// 与 ProjectID 的判据差这一格，因为 0 在那边有专门的 scope，在这边是一台机器。
+	DeviceID int64 `json:"deviceId"`
+	Offset   int   `json:"offset"`
+	Limit    int   `json:"limit"`
 }
 
 type ListIndexSessionsResponse struct {

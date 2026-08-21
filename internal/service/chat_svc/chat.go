@@ -483,6 +483,12 @@ func (s *chatSvc) ListIndexSessions(ctx context.Context, req *ListIndexSessionsR
 		if req.ProjectID <= 0 {
 			return nil, i18n.NewError(ctx, code.InvalidParameter)
 		}
+	case SessionScopeMachine:
+		// 这里**放行 0**：它是本机（chat_entity.Session 的约定），不是「没有机器」。
+		// 拒掉它，本机那一组就永远空着 —— 而绝大多数会话都在本机。
+		if req.DeviceID < 0 {
+			return nil, i18n.NewError(ctx, code.InvalidParameter)
+		}
 	default:
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
@@ -506,6 +512,13 @@ func (s *chatSvc) ListIndexSessions(ctx context.Context, req *ListIndexSessionsR
 		}
 		count = func(ctx context.Context) (int64, error) {
 			return chat_repo.Session().CountByProject(ctx, req.ProjectID)
+		}
+	case SessionScopeMachine:
+		list = func(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
+			return chat_repo.Session().ListByDevicePaged(ctx, req.DeviceID, offset, limit)
+		}
+		count = func(ctx context.Context) (int64, error) {
+			return chat_repo.Session().CountByDevice(ctx, req.DeviceID)
 		}
 	}
 

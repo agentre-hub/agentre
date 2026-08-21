@@ -146,6 +146,21 @@ func (mr *MockSessionRepoMockRecorder) CountByAgentsIncludingGroups(ctx, agentID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByAgentsIncludingGroups", reflect.TypeOf((*MockSessionRepo)(nil).CountByAgentsIncludingGroups), ctx, agentIDs)
 }
 
+// CountByDevice mocks base method.
+func (m *MockSessionRepo) CountByDevice(ctx context.Context, deviceID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountByDevice", ctx, deviceID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountByDevice indicates an expected call of CountByDevice.
+func (mr *MockSessionRepoMockRecorder) CountByDevice(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByDevice", reflect.TypeOf((*MockSessionRepo)(nil).CountByDevice), ctx, deviceID)
+}
+
 // CountByProject mocks base method.
 func (m *MockSessionRepo) CountByProject(ctx context.Context, projectID int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -308,6 +323,21 @@ func (m *MockSessionRepo) ListByAgentPagedIncludingGroups(ctx context.Context, a
 func (mr *MockSessionRepoMockRecorder) ListByAgentPagedIncludingGroups(ctx, agentID, offset, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAgentPagedIncludingGroups", reflect.TypeOf((*MockSessionRepo)(nil).ListByAgentPagedIncludingGroups), ctx, agentID, offset, limit)
+}
+
+// ListByDevicePaged mocks base method.
+func (m *MockSessionRepo) ListByDevicePaged(ctx context.Context, deviceID int64, offset, limit int) ([]*chat_entity.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByDevicePaged", ctx, deviceID, offset, limit)
+	ret0, _ := ret[0].([]*chat_entity.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByDevicePaged indicates an expected call of ListByDevicePaged.
+func (mr *MockSessionRepoMockRecorder) ListByDevicePaged(ctx, deviceID, offset, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByDevicePaged", reflect.TypeOf((*MockSessionRepo)(nil).ListByDevicePaged), ctx, deviceID, offset, limit)
 }
 
 // ListByProject mocks base method.

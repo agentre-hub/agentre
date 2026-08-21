@@ -178,3 +178,65 @@ func TestListIndexSessions_ProjectScopeRequiresPositiveID(t *testing.T) {
 		assert.Error(t, err, "projectID=%d 应被拒绝", id)
 	}
 }
+
+// ── machine scope ────────────────────────────────────────────────────────────
+//
+// 第四个 scope，给桌面端的「按机器」轴（docs/specs/2026-08-21-index-glyph-and-machine-axis.md）。
+// 分组这一维是 chat_entity.Session.ExecDeviceID —— 会话表上的一列，**0 = 本机执行**。
+// 与项目 scope 的判据差一格正是因为这个 0：项目那边 0 有专门的 free scope，这边 0 是
+// 一台正当的机器（本机），拒绝它就等于本机那一组永远取不到数。
+
+func TestListIndexSessions_MachineScope(t *testing.T) {
+	repo := withMockSessionRepo(t)
+	ctx := context.Background()
+
+	repo.EXPECT().ListByDevicePaged(ctx, int64(7), 0, 5).Return([]*chat_entity.Session{
+		{ID: 3, AgentID: 9, ProjectID: 7, ExecDeviceID: 7, Title: "跑在 7 号机上"},
+	}, nil)
+	repo.EXPECT().CountByDevice(ctx, int64(7)).Return(int64(9), nil)
+
+	svc := &chatSvc{}
+	got, err := svc.ListIndexSessions(ctx, &ListIndexSessionsRequest{
+		Scope: SessionScopeMachine, DeviceID: 7, Limit: 5,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 1)
+	assert.Equal(t, int64(9), got.Total)
+	assert.True(t, got.HasMore, "机器组同样分页，其余走「查看全部 N」")
+	assert.Equal(t, int64(7), got.Sessions[0].ProjectID)
+	assert.Equal(t, int64(9), got.Sessions[0].AgentID)
+}
+
+func TestListIndexSessions_MachineScopeAcceptsLocalDevice(t *testing.T) {
+	repo := withMockSessionRepo(t)
+	ctx := context.Background()
+
+	// ExecDeviceID = 0 是**本机**（chat_entity.Session 的约定），不是「没有机器」。
+	// 把它当非法值拒掉，本机那一组就永远空着 —— 而绝大多数会话都在本机。
+	repo.EXPECT().ListByDevicePaged(ctx, int64(0), 0, 20).Return([]*chat_entity.Session{
+		{ID: 1, AgentID: 2, ExecDeviceID: 0, Title: "本机的一条"},
+	}, nil)
+	repo.EXPECT().CountByDevice(ctx, int64(0)).Return(int64(1), nil)
+
+	svc := &chatSvc{}
+	got, err := svc.ListIndexSessions(ctx, &ListIndexSessionsRequest{
+		Scope: SessionScopeMachine, DeviceID: 0,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 1)
+	assert.False(t, got.HasMore)
+}
+
+func TestListIndexSessions_MachineScopeRejectsNegativeDevice(t *testing.T) {
+	ctx := context.Background()
+
+	withMockSessionRepo(t) // 不 EXPECT 任何调用
+	svc := &chatSvc{}
+	_, err := svc.ListIndexSessions(ctx, &ListIndexSessionsRequest{
+		Scope: SessionScopeMachine, DeviceID: -1,
+	})
+
+	assert.Error(t, err, "负的设备号不是任何一台机器")
+}
