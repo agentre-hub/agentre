@@ -4,11 +4,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   ARBITRARY_FONT_SIZE,
+  LITERAL_COLOR_CLASS,
+  RAW_COLOR_VALUE,
   restrictedSyntax,
 } from "../../eslint-rules/design-tokens.js";
 
 /**
- * 字号守卫的守卫。
+ * 设计 token 守卫的守卫（颜色 + 字号两组）。
  *
  * 两件事要钉住：
  *   1. **正则真的拦得住 / 放得过**。规则写错的表现不是报错，是它默默不生效——
@@ -16,11 +18,15 @@ import {
  *   2. **eslint.config.js 消费的是同一份来源**。规则数据单独成模块的全部理由就是
  *      这个：否则守卫测试可能在测一份和实际生效的配置不一样的正则。
  *
- * 判据是「这个尺寸有没有对应的 token」而不是「所有字面像素都禁」——8 / 9px 与
- * 展示字号目前没有档，放行是有意的（见 eslint-rules/design-tokens.js 的注释）。
+ * 字号那组的判据是「这个尺寸有没有对应的 token」而不是「所有字面像素都禁」——
+ * 8 / 9px 与展示字号目前没有档，放行是有意的（见 eslint-rules/design-tokens.js）。
+ * 颜色那组没有这种「暂时没档」的放行：调色板色名一律禁，确实拿不到 token 的地方
+ * （xterm 的 theme API）在 eslint.config.js 里按文件豁免并写明理由。
  */
 const FRONTEND_ROOT = path.resolve(__dirname, "../..");
 const matcher = new RegExp(ARBITRARY_FONT_SIZE);
+const colorClass = new RegExp(LITERAL_COLOR_CLASS);
+const rawColor = new RegExp(RAW_COLOR_VALUE);
 
 describe("字号阶梯的 lint 规则", () => {
   it.each([
@@ -64,5 +70,68 @@ describe("字号阶梯的 lint 规则", () => {
 
     expect(config).toContain("./eslint-rules/design-tokens.js");
     expect(config).toContain("...restrictedSyntax");
+  });
+});
+
+describe("调色板字面色类的 lint 规则", () => {
+  it.each([
+    ['className="bg-slate-900"', "带色阶"],
+    ['className="text-white"', "不带色阶"],
+    ['className="dark:bg-black/70"', "变体 + 不透明度"],
+    ['className="text-red-500/50"', "色阶 + 不透明度同时出现"],
+    ['className="flex items-center bg-zinc-100 p-2"', "夹在长串里"],
+    ['className="bg-neutral-600"', "身份色板缺中性档时的写法"],
+  ])("拦住 %s（%s）", (sample) => {
+    expect(colorClass.test(sample)).toBe(true);
+  });
+
+  it.each([
+    ['className="bg-background"', "语义 token"],
+    ['className="text-foreground"', "语义 token"],
+    ['className="bg-scrim"', "语义 token"],
+    ['className="text-agent-foreground"', "身份色上的前景"],
+    ['className="bg-agent-15"', "身份色板里的一档"],
+    ['className="text-status-waiting"', "语义 token"],
+  ])("放过 %s（%s）", (sample) => {
+    expect(colorClass.test(sample)).toBe(false);
+  });
+});
+
+describe("写死颜色值的 lint 规则", () => {
+  it.each([
+    ['const c = "#0f172a";', "六位十六进制"],
+    ['const c = "rgba(0, 0, 0, .5)";', "rgba()"],
+    ['const c = "hsl(210 40% 98%)";', "hsl()"],
+  ])("拦住 %s（%s）", (sample) => {
+    expect(rawColor.test(sample)).toBe(true);
+  });
+
+  it.each([
+    ['const c = "var(--background)";', "引 token"],
+    [
+      'const c = "color-mix(in oklab, var(--primary) 28%, transparent)";',
+      "由 token 混出",
+    ],
+  ])("放过 %s（%s）", (sample) => {
+    expect(rawColor.test(sample)).toBe(false);
+  });
+});
+
+describe("三组规则都有两种形态", () => {
+  it("字号与颜色各自都覆盖 Literal 与 TemplateElement", () => {
+    // 只拦 Literal 的话，模板字符串里的写法会绕过去。
+    const shapes = (source: string) =>
+      restrictedSyntax
+        .filter((rule) => rule.selector.includes(source))
+        .map((rule) => rule.selector.split("[")[0])
+        .sort();
+
+    for (const source of [
+      ARBITRARY_FONT_SIZE,
+      LITERAL_COLOR_CLASS,
+      RAW_COLOR_VALUE,
+    ]) {
+      expect(shapes(source)).toEqual(["Literal", "TemplateElement"]);
+    }
   });
 });

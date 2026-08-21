@@ -31,6 +31,10 @@ export const agentColorClassNames: Record<AgentColor, string> = {
   "agent-14": "bg-agent-14",
   "agent-15": "bg-agent-15",
   "agent-16": "bg-agent-16",
+  // 共享包的身份色板只有 --agent-1..16 和 --agent-foreground，**没有中性那一档**，
+  // 而 `neutral` 是 AgentColor 的正式成员。真正的修法是往包里补一个
+  // --agent-neutral（跨仓改动），在那之前这里只能写字面色。
+  // eslint-disable-next-line no-restricted-syntax
   neutral: "bg-neutral-600",
 };
 

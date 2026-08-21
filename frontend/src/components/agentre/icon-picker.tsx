@@ -65,7 +65,7 @@ export function IconPicker({
         >
           <span
             className={cn(
-              "inline-flex size-6 shrink-0 items-center justify-center rounded text-white",
+              "inline-flex size-6 shrink-0 items-center justify-center rounded text-agent-foreground",
               agentColorClassNames[accentColor],
             )}
             aria-hidden="true"
@@ -164,7 +164,7 @@ export function AgentAvatarPicker({
             type="button"
             aria-label={triggerAriaLabel ?? t("iconPicker.avatar.change")}
             className={cn(
-              "group relative inline-flex shrink-0 items-center justify-center overflow-hidden font-semibold text-white outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary",
+              "group relative inline-flex shrink-0 items-center justify-center overflow-hidden font-semibold text-agent-foreground outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary",
               triggerSizeClassNames[triggerSize],
               !avatarDataUrl && agentColorClassNames[avatarColor],
               !avatarDataUrl && avatarIcon && "rounded-lg",
@@ -189,7 +189,7 @@ export function AgentAvatarPicker({
             )}
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/40 text-white group-hover:flex"
+              className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-scrim text-agent-foreground group-hover:flex"
             >
               <Pencil className="size-3.5" />
             </span>
@@ -622,7 +622,7 @@ function LetterModePanel({ name, color }: { name: string; color: AgentColor }) {
       <div
         aria-hidden="true"
         className={cn(
-          "inline-flex size-16 shrink-0 items-center justify-center rounded-lg text-2xl font-semibold text-white",
+          "inline-flex size-16 shrink-0 items-center justify-center rounded-lg text-2xl font-semibold text-agent-foreground",
           agentColorClassNames[color],
         )}
       >

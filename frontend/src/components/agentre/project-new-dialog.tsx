@@ -278,7 +278,10 @@ function ProjectNewDialog({
                     )}
                   >
                     {form.color === c ? (
-                      <Check className="size-3 text-white" aria-hidden="true" />
+                      <Check
+                        className="size-3 text-agent-foreground"
+                        aria-hidden="true"
+                      />
                     ) : null}
                   </button>
                 ))}

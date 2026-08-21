@@ -23,6 +23,10 @@ export function avatarFromMeta(meta: AvatarMeta): {
 } {
   return {
     letter: firstLetter(meta?.agentName),
+    // meta 缺失时的兜底底色。同 types.ts 里的 `neutral`：共享包的身份色板没有
+    // 中性那一档，补 --agent-neutral 之前只能写字面色。两处的值目前还不一样
+    // （这里偏浅），补 token 时应当一并统一。
+    // eslint-disable-next-line no-restricted-syntax
     color: tokenToCssColor(meta?.agentColor) ?? "#94a3b8",
   };
 }

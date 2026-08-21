@@ -106,7 +106,7 @@ export const Tab = React.forwardRef<
           className="inline-flex size-4 items-center justify-center rounded-sm"
           style={{ backgroundColor: avatar.color }}
         >
-          <span className="text-[9px] font-semibold text-white">
+          <span className="text-[9px] font-semibold text-agent-foreground">
             {avatar.letter}
           </span>
         </span>

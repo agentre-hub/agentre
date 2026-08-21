@@ -100,7 +100,7 @@ function NotificationToastCard({
             className="inline-flex size-6 shrink-0 items-center justify-center rounded-full"
             style={{ backgroundColor: avatar.color }}
           >
-            <span className="text-2xs font-semibold text-white">
+            <span className="text-2xs font-semibold text-agent-foreground">
               {avatar.letter}
             </span>
           </span>

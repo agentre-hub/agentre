@@ -123,7 +123,7 @@ export function OrgDetailDepartment(props: Props) {
   const selectedLead =
     props.leadCandidates.find((a) => a.id === leadAgentId) ?? null;
   const iconNode = React.createElement(iconForKey(icon), {
-    className: "size-5 text-white",
+    className: "size-5 text-agent-foreground",
     "aria-hidden": true,
   });
 
@@ -698,7 +698,7 @@ function DepartmentIconBadge({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center justify-center text-white",
+        "inline-flex shrink-0 items-center justify-center text-agent-foreground",
         agentColorClassNames[safeAgentColor(accentColor)],
         className,
       )}

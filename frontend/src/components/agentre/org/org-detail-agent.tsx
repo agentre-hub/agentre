@@ -705,7 +705,7 @@ function DepartmentGlyph({ department }: { department?: OrgDepartmentModel }) {
   return (
     <span
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-white",
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-agent-foreground",
         agentColorClassNames[safeAgentColor(department?.accentColor ?? "")],
       )}
       aria-hidden="true"

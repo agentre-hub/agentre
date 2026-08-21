@@ -9,6 +9,15 @@
  * 有人红；这份声明是契约，改名会当场报错。
  */
 
+/** Tailwind 自带调色板的色名，形如 "red|orange|…"。 */
+export const PALETTE: string;
+
+/** 匹配「调色板字面色类」的正则源码。 */
+export const LITERAL_COLOR_CLASS: string;
+
+/** 匹配「写死的颜色值」（#hex / rgb() / hsl()）的正则源码。 */
+export const RAW_COLOR_VALUE: string;
+
 /** 阶梯上已有 token 的那几档像素值，形如 "10|11|12|13|14|15"。 */
 export const TOKENED_FONT_SIZES: string;
 

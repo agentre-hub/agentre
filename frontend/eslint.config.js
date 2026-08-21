@@ -58,6 +58,14 @@ export default tseslint.config(
     },
   },
   {
+    // xterm 的 theme API 收的是十六进制字符串，不是 CSS 类名 —— 那一层拿不到
+    // Tailwind 的 token。这份文件的职责恰恰是「把 token 翻译成 xterm 要的色值」，
+    // 所以它必须能写字面色；真正要守的是「除了这里，别处都不许写」。
+    // 新增豁免必须在这里写清理由。
+    files: ["packages/agentre-ui/src/terminal/terminal-theme.ts"],
+    rules: { "no-restricted-syntax": "off" },
+  },
+  {
     // 规则数据文件本身要举例说明被禁的写法，否则规则无处可写。
     // 新增豁免必须在这里写清理由。
     files: ["eslint-rules/**"],

@@ -741,7 +741,7 @@ function Avatar({ agent }: { agent: ChatAgentItem }) {
   return (
     <span
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold text-white",
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold text-agent-foreground",
         agentColorClassNames[(agent.avatarColor as AgentColor) || "agent-1"],
       )}
       aria-hidden="true"

@@ -283,7 +283,7 @@ function HookListItem({
       )}
     >
       <span
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-agent-foreground"
         style={{ backgroundColor: `var(--color-${meta.color})` }}
       >
         <Icon className="h-[15px] w-[15px]" />
@@ -1106,7 +1106,7 @@ export function HooksPage() {
               <div className="flex items-center gap-3.5">
                 {headerMeta ? (
                   <span
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-agent-foreground"
                     style={{
                       backgroundColor: `var(--color-${headerMeta.color})`,
                     }}

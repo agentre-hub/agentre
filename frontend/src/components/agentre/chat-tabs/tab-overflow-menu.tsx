@@ -74,7 +74,7 @@ export function TabOverflowMenu() {
                   className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm"
                   style={{ backgroundColor: t.avatar.color }}
                 >
-                  <span className="text-[9px] font-semibold text-white">
+                  <span className="text-[9px] font-semibold text-agent-foreground">
                     {t.avatar.letter}
                   </span>
                 </span>
