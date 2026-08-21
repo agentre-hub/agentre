@@ -1,9 +1,9 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
+import { useUiTranslation as useTranslation } from "../../i18n";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import {
   Dialog,
   DialogBody,
@@ -12,14 +12,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+} from "../ui/dialog";
+import { Input } from "../ui/input";
 
 import {
   LLMModelRefCounts,
   UpdateLLMModel,
-} from "../../../../wailsjs/go/app/App";
-import { llm_provider_svc } from "../../../../wailsjs/go/models";
+} from "../port-bridge";
+import { llm_provider_svc } from "../port-bridge";
 import {
   type Model,
   type ReferenceCounts,

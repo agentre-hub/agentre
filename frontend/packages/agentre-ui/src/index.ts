@@ -13,6 +13,36 @@ export {
   useUiTranslation,
 } from "./i18n";
 export { cn } from "./lib/utils";
+export { LlmProvidersPanel, AgentBackendsPanel } from "./engine/panels";
+export {
+  AgentBackendLogo,
+  LlmModelLogo,
+  LlmProviderLogo,
+  resolveModelBrand,
+} from "./engine/ai-brand-logo";
+export { ModelTargetPicker } from "./engine/model-target-picker";
+export type { ModelTargetPickerProps } from "./engine/model-target-picker";
+export { useModelTargetCatalog } from "./engine/model-target-picker/catalog";
+export {
+  readRecentTargets,
+  recordRecentTarget,
+  removeRecentTarget,
+  recentStorageKey,
+} from "./engine/model-target-picker/recents";
+export { providerCompatibleForBackend } from "./engine/model-target-picker/types";
+export type {
+  ModelTarget,
+  PickerModel,
+  PickerProvider,
+  PickerScenario,
+} from "./engine/model-target-picker/types";
+export type {
+  BackendView,
+  EngineID,
+  EngineSettingsPorts,
+  ModelView,
+  ProviderView,
+} from "./engine/ports";
 // agent 调色板的 token 词汇表（与 tokens.css 同源）+ token → css 变量。
 export { agentColorOrder, tokenToCssColor } from "./lib/agent-color";
 export type { AgentColor } from "./lib/agent-color";

@@ -292,13 +292,36 @@
     "copyFailed": "Failed to copy code"
   },
   "common": {
+    "add": "Add",
+    "all": "All",
+    "cancel": "Cancel",
     "close": "Close",
-    "copied": "Copied",
     "copy": "Copy",
+    "copied": "Copied",
     "copyFailed": "Copy failed",
+    "create": "Create",
+    "delete": "Delete",
+    "disable": "Disable",
     "edit": "Edit",
+    "enable": "Enable",
+    "errorOccurred": "Something went wrong",
+    "loading": "Loading...",
+    "moreActions": "More actions",
+    "operationCompleted": "Operation completed",
+    "operationFailed": "Operation failed",
+    "operationSucceeded": "Operation succeeded",
+    "optional": "Optional",
     "reject": "Reject",
-    "skip": "Skip"
+    "retry": "Retry",
+    "save": "Save",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "saving": "Saving...",
+    "skip": "Skip",
+    "unassigned": "Unassigned",
+    "unknownError": "Unknown error",
+    "unsavedChanges": "Unsaved changes",
+    "saveChanges": "Save changes"
   },
   "compactBoundary": {
     "aria": "Context compaction boundary",
@@ -553,6 +576,772 @@
       "slashWithSkill": "/ for commands and skills",
       "skill": "$ for skills",
       "localCommand": "! to run in terminal"
+    }
+  },
+  "engine": {
+    "loading": "Loading…",
+    "actions": {
+      "cancel": "Cancel",
+      "save": "Save",
+      "edit": "Edit",
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    },
+    "providers": {
+      "add": "Add provider",
+      "test": "Test connection",
+      "discover": "Discover models",
+      "models": "Models",
+      "empty": "No providers configured",
+      "openBackends": "Manage agent backends",
+      "noApiKey": "No API key",
+      "toggleModel": "Toggle {{name}}",
+      "form": {
+        "ariaLabel": "Provider editor",
+        "name": "Provider name",
+        "type": "Provider type",
+        "baseUrl": "Base URL",
+        "apiKey": "API key"
+      }
+    },
+    "backends": {
+      "add": "Add backend",
+      "scan": "Auto-detect",
+      "test": "Test backend",
+      "empty": "No agent backends configured",
+      "openProviders": "Manage LLM providers",
+      "list": "Agent backends",
+      "cliStatus": {
+        "recognized": "Recognized",
+        "path": "Use PATH",
+        "unchecked": "Unchecked"
+      },
+      "form": {
+        "ariaLabel": "Backend editor",
+        "name": "Backend name",
+        "type": "Backend type",
+        "providerKey": "Provider key",
+        "modelKey": "Model key",
+        "cliPath": "CLI path"
+      }
+    }
+  },
+  "llmProviders": {
+    "actions": {
+      "confirmDelete": "Confirm delete?",
+      "confirmDeleteNamed": "Confirm deleting {{name}}",
+      "deleteNamed": "Delete {{name}}",
+      "deleteTitle": "Delete (requires confirmation)",
+      "editNamed": "Edit {{name}}",
+      "testCall": "Test Call",
+      "testNamed": "Test {{name}}",
+      "testTitle": "Test call (send hi)",
+      "testing": "Testing"
+    },
+    "defaultSet": {
+      "title": "Set default model to {{model}} · {{provider}}",
+      "description": "Changing the provider default takes effect from the next turn; references using provider-default will follow it dynamically.",
+      "checking": "Checking reference impact…",
+      "confirmHint": "Make “{{model}}” the default model for “{{provider}}”?",
+      "impactTitle": "Dynamic impact",
+      "impactDetail": "This change dynamically affects {{refs}}; they will resolve the new default model on their next turn.",
+      "refBackends": "backend(s)",
+      "refSessions": "session(s)",
+      "refRoutes": "route(s)",
+      "noRefs": "no saved references",
+      "dynamicHint": "Saving does not rewrite these references or append notices to historical sessions; the current turn keeps the old model and the new default resolves from the next turn.",
+      "confirmButton": "Set as default"
+    },
+    "empty": {
+      "addFirst": "Add First Provider",
+      "chain": "LLM providers → Agent backends → Agent chats",
+      "description": "Add a provider such as Anthropic, OpenAI, or a compatible endpoint, then choose a default model.",
+      "goToBackend": "Go to Agent backends",
+      "title": "No LLM providers configured"
+    },
+    "fields": {
+      "apiKey": "API Key",
+      "apiKeyHint": "Enter a new value to replace it. Leave unchanged to keep the current key.",
+      "apiKeyMissingHint": "No API Key configured yet. Fill it in to add one.",
+      "apiKeyPlaceholder": "sk-... or self-hosted token. Leave empty for anonymous access.",
+      "baseUrl": "Base URL (optional)",
+      "baseUrlHint": "Leave empty to use default: {{url}}",
+      "contextWindow": "Context Window",
+      "copyProviderKey": "Copy Provider Key",
+      "copyProviderKeyDone": "Provider Key copied",
+      "copyProviderKeyFailed": "Failed to copy Provider Key",
+      "defaultModel": "Default Model",
+      "defaultModelHint": "Enter a model id manually, or fetch the provider list with the button on the right.",
+      "defaultModelNeedKey": "Enter an API Key before fetching models.",
+      "hideApiKey": "Hide API Key",
+      "maxOutput": "Max Output Tokens",
+      "name": "Name",
+      "namePlaceholder": "Example: production / local Ollama",
+      "providerDecides": "Provider decides",
+      "providerKey": "Provider Key",
+      "providerKeyHint": "Stable identifier used by agent backends and remote devices to reference this provider.",
+      "providerKeyPlaceholder": "Generated after saving",
+      "showApiKey": "Show API Key",
+      "type": "Type",
+      "typePlaceholder": "Select provider type",
+      "models": "Models",
+      "modelsDescription": "Discover or manually add the models created together with this provider.",
+      "fetchModels": "Fetch models",
+      "addModel": "Add model",
+      "noModels": "No models yet. Use Fetch models to discover from the remote, or Add model to enter one manually.",
+      "modelIdPlaceholder": "Example: claude-opus-4-7",
+      "ctxShort": "Context",
+      "outShort": "Output",
+      "removeModel": "Remove {{model}}",
+      "chooseDefaultHint": "Mark one model as the default; targets that follow the provider default resolve to it."
+    },
+    "flash": {
+      "created": "Provider \"{{name}}\" added",
+      "deleteFailed": "Delete failed: {{message}}",
+      "deleted": "Provider \"{{name}}\" deleted",
+      "loadFailed": "Load failed: {{message}}",
+      "saveFailed": "Save failed: {{message}}",
+      "testFailed": "Test failed: {{message}}",
+      "updated": "Provider \"{{name}}\" updated",
+      "defaultSet": "{{model}} is now the default model",
+      "modelEnabled": "Model {{model}} enabled",
+      "modelDisabled": "Model {{model}} disabled",
+      "providerEnabled": "Provider {{name}} enabled",
+      "providerDisabled": "Provider {{name}} disabled",
+      "imported": "Imported {{imported}} models, updated {{updated}}",
+      "modelUpdated": "Model {{model}} updated",
+      "modelDeleted": "Model {{model}} deleted",
+      "batchDeleted": "Deleted {{count}} models",
+      "batchDeleted_one": "Deleted {{count}} model",
+      "batchDeleted_other": "Deleted {{count}} models",
+      "batchDeletePartial": "Deleted {{deleted}} models · {{unprocessed}} not processed: {{message}}",
+      "batchDeletePartial_one": "Deleted {{deleted}} model · {{unprocessed}} not processed: {{message}}",
+      "batchDeletePartial_other": "Deleted {{deleted}} models · {{unprocessed}} not processed: {{message}}",
+      "batchEnabled": "Enabled {{count}} models",
+      "batchEnabled_one": "Enabled {{count}} model",
+      "batchEnabled_other": "Enabled {{count}} models",
+      "batchEnabledPartial": "Enabled {{done}} models · {{unprocessed}} not processed: {{message}}",
+      "batchEnabledPartial_one": "Enabled {{done}} model · {{unprocessed}} not processed: {{message}}",
+      "batchEnabledPartial_other": "Enabled {{done}} models · {{unprocessed}} not processed: {{message}}",
+      "batchDisabled": "Disabled {{count}} models",
+      "batchDisabled_one": "Disabled {{count}} model",
+      "batchDisabled_other": "Disabled {{count}} models",
+      "batchDisabledSkippedDefault": "Disabled {{count}} models (default model excluded)",
+      "batchDisabledSkippedDefault_one": "Disabled {{count}} model (default model excluded)",
+      "batchDisabledSkippedDefault_other": "Disabled {{count}} models (default model excluded)",
+      "batchDisabledPartial": "Disabled {{done}} models · {{unprocessed}} not processed: {{message}}",
+      "batchDisabledPartial_one": "Disabled {{done}} model · {{unprocessed}} not processed: {{message}}",
+      "batchDisabledPartial_other": "Disabled {{done}} models · {{unprocessed}} not processed: {{message}}"
+    },
+    "form": {
+      "createAriaLabel": "New LLM provider",
+      "createDescription": "Configure a set of LLM credentials. New providers can be used in chat immediately.",
+      "createTitle": "New LLM Provider",
+      "editAriaLabel": "Edit LLM provider",
+      "editDescription": "Update credentials or the default model. Leave API Key empty to keep the current value.",
+      "editTitle": "Edit connection · {{name}}",
+      "createSubmit": "Create"
+    },
+    "models": {
+      "empty": "The provider did not return any models. Enter the model id manually.",
+      "fetch": "Fetch provider models",
+      "needApiKey": "Enter an API Key first",
+      "noList": "Model list has not been fetched",
+      "placeholder": "Example: claude-opus-4-7 / gpt-4o-mini",
+      "viewList": "View model list"
+    },
+    "providerType": {
+      "anthropic": {
+        "description": "Native Claude API",
+        "label": "Anthropic"
+      },
+      "openai-chat": {
+        "description": "GPT or any OpenAI-compatible /v1/chat/completions protocol, including vLLM, Ollama, and Azure.",
+        "label": "OpenAI / Compatible (Chat)"
+      },
+      "openai-response": {
+        "description": "The newer /v1/responses protocol for o-series, gpt-5-codex, and other Responses-only models.",
+        "label": "OpenAI Responses"
+      }
+    },
+    "row": {
+      "noApiKey": "API Key not configured"
+    },
+    "table": {
+      "ariaLabel": "LLM provider list",
+      "endpointKey": "Endpoint / Key",
+      "name": "Name",
+      "type": "Type"
+    },
+    "test": {
+      "draftFailed": "Call failed",
+      "draftSuccess": "Call succeeded. Sent hi and received a model response.",
+      "failedTitle": "Test Failed",
+      "providerFailed": "\"{{name}}\" connection failed ({{duration}}): {{message}}",
+      "providerSuccess": "\"{{name}}\" call succeeded ({{duration}}). Sent hi and received a model response.",
+      "successTitle": "Test Passed",
+      "rowSuccess": "Model {{model}} call succeeded ({{duration}}). Sent hi and received a model response.",
+      "rowFailed": "Model {{model}} connection failed ({{duration}}): {{message}}"
+    },
+    "validation": {
+      "apiKeyRequired": "API Key is required",
+      "modelRequired": "Enter a default model first",
+      "nameRequired": "Name is required",
+      "modelIdRequired": "Model ID is required",
+      "duplicateModelId": "Model ID {{modelId}} is duplicated",
+      "defaultRequired": "Choose one model as the default"
+    },
+    "nav": {
+      "ariaLabel": "Provider list",
+      "searchPlaceholder": "Filter providers…",
+      "searchAria": "Filter providers",
+      "add": "Add Provider",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "noMatch": "No matching providers",
+      "modelCount": "{{count}} models"
+    },
+    "page": {
+      "add": "New Provider",
+      "loadingProviders": "Loading providers…"
+    },
+    "workspace": {
+      "ariaLabel": "{{name}} models",
+      "enableNamed": "Enable {{name}}",
+      "enabledShort": "Enabled",
+      "disabledShort": "Disabled",
+      "test": "Test",
+      "testNamed": "Test {{name}}",
+      "testTitle": "Test connection (sends a minimal request using the default model)",
+      "editConnection": "Edit connection",
+      "editConnectionNamed": "Edit {{name}} connection",
+      "discover": "Discover models",
+      "discoverNamed": "Discover models",
+      "delete": "Delete",
+      "deleteNamed": "Delete {{name}}",
+      "deleteTitle": "Delete provider (requires confirmation)",
+      "cannotEnableNoDefault": "Set an enabled default model before enabling this provider",
+      "testConnection": "Test Connection",
+      "more": "More",
+      "metaDefaultModel": "Default model",
+      "metaReferenced": "Referenced",
+      "refBackends": "{{count}} backends",
+      "refBackends_one": "{{count}} backend",
+      "refBackends_other": "{{count}} backends",
+      "refSessions": "{{count}} sessions",
+      "refSessions_one": "{{count}} session",
+      "refSessions_other": "{{count}} sessions",
+      "refRoutes": "{{count}} routes",
+      "refRoutes_one": "{{count}} route",
+      "refRoutes_other": "{{count}} routes",
+      "searchPlaceholder": "Filter model IDs…",
+      "searchAria": "Filter models",
+      "modelCount": "Showing {{shown}} / {{total}}",
+      "retry": "Retry",
+      "loadingModels": "Loading models…",
+      "noModelsTitle": "No models configured yet",
+      "noModelsDescription": "Discover and import models from the remote, or add a model ID manually.",
+      "discoverModels": "Discover models",
+      "addModelManual": "Add model manually"
+    },
+    "modelsTable": {
+      "ariaLabel": "Model list",
+      "modelId": "Model ID",
+      "context": "Context",
+      "maxOutput": "Max Output",
+      "default": "Default",
+      "defaultBadge": "Default",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "setDefaultAria": "Set {{model}} as default",
+      "currentDefaultAria": "{{model}} is default",
+      "testModelNamed": "Test {{model}}",
+      "testTitle": "Test this model (sends a minimal request)",
+      "editModelNamed": "Edit {{model}}",
+      "deleteModelNamed": "Delete {{model}}",
+      "deleteBlockedDefault": "Default model: set another default before deleting",
+      "deleteTitle": "Delete (requires confirmation)",
+      "testPassed": "Passed",
+      "testPassedHint": "Passed in this session · {{duration}}",
+      "disableBlockedDefault": "Default model: set another default before disabling",
+      "enableNamed": "Enable {{model}}",
+      "selectAll": "Select all models",
+      "selectModel": "Select {{model}}",
+      "model": "Model",
+      "references": "References",
+      "enableColumn": "Enable",
+      "moreModelNamed": "More actions for {{model}}",
+      "batch": {
+        "selectedCount": "Selected {{selected}} / {{total}}",
+        "selectAll": "Select all",
+        "clearSelection": "Clear selection",
+        "enable": "Enable selected",
+        "disable": "Disable selected",
+        "delete": "Delete selected",
+        "rowCanDelete": "Can delete",
+        "rowDefaultBlocked": "Default model: cannot delete",
+        "rowReferenced": "Referenced by {{count}}: becomes invalid after deletion"
+      }
+    },
+    "delete": {
+      "providerTitle": "Delete provider · {{name}}",
+      "modelTitle": "Delete model · {{model}}",
+      "providerDescription": "Deleting also removes every model under this provider.",
+      "modelDescription": "Reference impact is checked before deletion.",
+      "checking": "Checking reference impact…",
+      "impactLabel": "Deleting affects",
+      "impactProviderHint": "These bindings become invalid after deletion and must be pointed at a new target; nothing else about them changes. Deleting also removes every model under this provider.",
+      "impactModelHint": "These bindings become invalid after deletion and must be pointed at a new target; nothing else about them changes.",
+      "refsUnavailable": "Reference impact could not be loaded. You can still delete; any binding in use will become invalid.",
+      "providerConfirmHint": "This provider has no references. Deleting also removes all its models, and the used ProviderKey / ModelKey are never reused.",
+      "modelConfirmHint": "This model has no references. Saved fixed-model targets pointing at it will become invalid.",
+      "providerConfirmButton": "Delete provider",
+      "modelConfirmButton": "Delete model",
+      "disableInstead": "Disable instead",
+      "disableInsteadHint": "Disabling keeps every reference and can be undone at any time.",
+      "refBackends": "backends",
+      "refSessions": "sessions",
+      "refRoutes": "routes",
+      "noRefs": "no references"
+    },
+    "batchDelete": {
+      "title": "Delete the {{count}} selected models?",
+      "title_one": "Delete the {{count}} selected model?",
+      "title_other": "Delete the {{count}} selected models?",
+      "descriptionWithProtected": "{{protectedCount}} of them are protected and stay untouched, so only {{deletableCount}} will actually be deleted.",
+      "descriptionAllDeletable": "All {{count}} selected models will be deleted.",
+      "descriptionAllDeletable_one": "All {{count}} selected model will be deleted.",
+      "descriptionAllDeletable_other": "All {{count}} selected models will be deleted.",
+      "notTransactional": "Models are deleted one by one, not as a transaction: a failure stops the run and reports how many were deleted and how many are left unprocessed, so nothing is silently half-done.",
+      "willDelete": "Will be deleted",
+      "protected": "Protected (unchanged)",
+      "noneDeletable": "No deletable models",
+      "deleting": "Deleting…",
+      "confirmButton": "Delete {{count}} models",
+      "confirmButton_one": "Delete {{count}} model",
+      "confirmButton_other": "Delete {{count}} models"
+    },
+    "modelEdit": {
+      "ariaLabel": "Edit model",
+      "title": "Edit model · {{model}}",
+      "description": "Model ID is the string sent to the upstream; Model Key is the stable identifier and cannot be changed after creation.",
+      "modelKey": "Model Key",
+      "modelKeyHint": "Stable identifier referenced by agent backends, sessions and routes; cannot be changed after creation.",
+      "modelId": "Model ID",
+      "name": "Display name",
+      "namePlaceholder": "Optional",
+      "contextWindow": "Context Window",
+      "maxOutput": "Max Output Tokens",
+      "referenceImpactTitle": "This model is referenced",
+      "referenceImpactDescription": "Changing the Model ID affects {{backends}} backends, {{sessions}} sessions and {{routes}} routes; it takes effect from the next turn.",
+      "confirmLabel": "I understand the impact, confirm the change"
+    },
+    "discover": {
+      "title": "Discover and import models · {{name}}",
+      "description": "Models listed by the remote. Select and import in one batch; models with the same ID as a local one are skipped and keep their configuration.",
+      "searchPlaceholder": "Search model IDs…",
+      "searchAria": "Search remote models",
+      "count": "Remote {{remote}} · new {{new}} · existing {{existing}}",
+      "retry": "Retry",
+      "loading": "Scanning the model catalog…",
+      "empty": "The remote returned no models",
+      "selectAllNew": "Select all new models",
+      "selectAllHint": "Existing items are skipped",
+      "existingSkip": "Already exists · skip",
+      "new": "New",
+      "otherVendor": "Other",
+      "readOk": "Loaded",
+      "errorTitle": {
+        "auth": "Authentication failed ({{code}})",
+        "endpoint": "Endpoint not found ({{code}})",
+        "server": "Provider server error ({{code}})",
+        "status": "Request failed (HTTP {{code}})",
+        "network": "Cannot reach the provider",
+        "generic": "Could not read the model catalog"
+      },
+      "error": {
+        "auth": "The provider rejected the request. Check the API Key and credentials in the connection settings.",
+        "endpoint": "The provider endpoint could not be reached. Check the base URL.",
+        "server": "The provider returned a server error. Try again in a moment.",
+        "status": "The provider returned an error (HTTP {{code}}).",
+        "network": "Could not reach the provider. Check the network or endpoint.",
+        "generic": "Could not load the model catalog."
+      },
+      "goEditConnection": "Edit connection",
+      "viewRawResponse": "View raw response",
+      "importSummary": "Will import {{count}} new models",
+      "importSummaryExisting": "Existing models keep their name, context, default and reference settings.",
+      "importButton": "Import {{count}} models",
+      "importing": "Importing…",
+      "importButton_one": "Import {{count}} model",
+      "importButton_other": "Import {{count}} models"
+    },
+    "addModel": {
+      "ariaLabel": "Add model manually",
+      "title": "Add model · {{name}}",
+      "description": "Manually add a private, preview or proxy-alias model not listed upstream.",
+      "catalogMatched": "The built-in catalog matched this ID and filled in the context window and max output; both stay editable.",
+      "submit": "Add"
+    }
+  },
+  "modelTargetPicker": {
+    "special": {
+      "backend": "CLI login state",
+      "chat": "Follow agent binding",
+      "route": "Inherit main binding",
+      "backendSublabel": "Determined by the CLI's own login account"
+    },
+    "searchPlaceholder": "Search providers or models…",
+    "clearSearch": "Clear search",
+    "loading": "Loading model catalog…",
+    "error": "Failed to load model catalog",
+    "empty": "No available providers. Create one in LLM Providers first.",
+    "noCompatibleProviders": "No providers compatible with this backend type.",
+    "defaultLabel": "Follow default model",
+    "followDefault": "Follow this provider's default",
+    "defaultCurrentPrefix": "Currently",
+    "fixedSection": "Fixed to a specific model",
+    "contextOutput": "{{ctx}} ctx · {{out}} out",
+    "disabledModel": "This model is disabled",
+    "disabledProvider": "This provider is disabled",
+    "recentLabel": "Recently used",
+    "removeRecent": "Remove {{label}}",
+    "invalidTitle": "This target is no longer valid",
+    "invalidTarget": "The current selection \"{{target}}\" is no longer valid (its provider or model is missing, disabled, or deleted). The next run will be blocked, and it will not automatically fall back to another model. Choose again.",
+    "invalidHint": "This target is no longer valid (provider or model missing/disabled). Choose again.",
+    "invalidCurrent": "Current selection · no longer valid",
+    "invalidChip": "Invalid",
+    "remoteMissing": "Target device is missing this provider. Sync it first.",
+    "noDefaultModel": "No default model set",
+    "remoteSyncNeeded": "Local only — sync to this device first",
+    "fixedModelUnsupported": "This device does not support fixed models — upgrade agentred",
+    "remoteDeviceHeader": "Runs on {{device}} — that device's own configuration applies",
+    "providerOnDevice": "Already on this device",
+    "syncInline": "Sync over",
+    "syncFootnote": "Syncing copies the API key to that device and needs your explicit confirmation",
+    "syncProviderNamed": "Sync {{provider}} to this device",
+    "syncDialog": {
+      "title": "Sync provider to device",
+      "description": "Sync {{provider}} and its model catalog to the target device.",
+      "confirmation": "This copies the provider API key to the target device. Confirm before continuing.",
+      "confirm": "Confirm sync"
+    }
+  },
+  "agentBackends": {
+    "actions": {
+      "cancelTest": "Cancel Test",
+      "cancelTestNamed": "Cancel test for {{name}}",
+      "deleteNamed": "Delete {{name}}",
+      "editNamed": "Edit {{name}}",
+      "changeBinding": "Change binding",
+      "changeBindingNamed": "Change binding for {{name}}",
+      "rebind": "Reselect",
+      "rebindNamed": "Reselect binding for {{name}}",
+      "test": "Test Connection",
+      "testNamed": "Test connection for {{name}}"
+    },
+    "binding": {
+      "label": "Model binding",
+      "description": "Choose the model source first; Claude tier routes and CLI-only overrides follow this main binding.",
+      "cliLogin": "CLI login state",
+      "cliResolution": "Effective model is determined by the CLI's own login account",
+      "modeFollow": "Follow default",
+      "modeFixed": "Fixed",
+      "followResolution": "Effective model: {{model}} · follows default changes from the next turn",
+      "fixedResolution": "Effective model: {{model}} · unaffected by provider default changes",
+      "invalidTarget": "Invalid target · {{target}}",
+      "invalidResolution": "This target cannot run the next turn; choose another binding"
+    },
+    "approval": {
+      "hint": "Whether tool execution needs human approval",
+      "label": "Approval Policy",
+      "options": {
+        "never": "Never ask for human approval",
+        "on-request": "Ask when the model requests approval",
+        "untrusted": "Auto-run trusted tools only"
+      }
+    },
+    "autoScan": {
+      "button": "Auto Scan",
+      "buttonTitle": "Scan system PATH for Claude Code / Codex / Pi Agent CLI and auto-create backends",
+      "created": "Created {{count}} backend(s): {{names}}",
+      "nothingFound": "No claude / codex / pi executables found in system PATH",
+      "partialFound": "Created {{createdCount}} backend(s): {{createdNames}}. {{skippedCount}} already exist(s): {{skippedNames}}",
+      "scanning": "Scanning...",
+      "skipped": "{{count}} backend(s) already exist: {{names}}"
+    },
+    "backendType": {
+      "builtin": {
+        "badge": "Local only",
+        "label": "Built-in Agent"
+      },
+      "claudecode": {
+        "label": "Claude Code CLI",
+        "shortLabel": "Claude Code"
+      },
+      "codex": {
+        "label": "Codex CLI",
+        "shortLabel": "Codex"
+      },
+      "openclaw": {
+        "label": "OpenClaw Gateway"
+      },
+      "piagent": {
+        "label": "Pi Agent CLI",
+        "shortLabel": "Pi Agent"
+      },
+      "probe": {
+        "failed": "Probe failed",
+        "installed": "Installed",
+        "missing": "Not installed",
+        "probing": "Detecting"
+      }
+    },
+    "cli": {
+      "detect": "Detect",
+      "detectTitle": "Find {{bin}} in $PATH and fill it in",
+      "emptyHint": "Empty = {{bin}} from $PATH",
+      "explicitHint": "Explicit binary path",
+      "label": "CLI Path",
+      "notFound": "{{bin}} was not found in $PATH. Fill it in manually."
+    },
+    "defaultModel": {
+      "hint": "--model · leave empty to use the provider model / CLI default",
+      "label": "Custom Model",
+      "placeholder": "e.g. claude-fable-5 or an alias like opus/sonnet (used on CLI login)",
+      "cliOnlyDescription": "Only applies with CLI login state. It is retained but ignored after binding an Agentre provider.",
+      "ignoredDescription": "The custom CLI model is retained but ignored while an Agentre provider is bound."
+    },
+    "deleteDialog": {
+      "description": "Delete \"{{name}}\"? This is a soft delete and does not affect existing agent references.",
+      "title": "Delete Agent Backend"
+    },
+    "device": {
+      "builtinLocalOnly": "Built-in backends can only run locally",
+      "local": "📍 Local (this machine)",
+      "localShort": "Local",
+      "offlineSuffix": " · offline",
+      "placeholder": "Select runtime device"
+    },
+    "editor": {
+      "createTitle": "New Agent Backend",
+      "description": "Choose an execution engine and link an LLM provider. CLI backends route requests through the local HTTP proxy, so claude/codex login is not required.",
+      "editTitle": "Edit Agent Backend"
+    },
+    "empty": {
+      "addFirst": "Add First Backend",
+      "addProvider": "Configure LLM providers first",
+      "description": "Every agent must bind a backend to run tasks. The built-in SDK also needs an activated LLM provider; Claude Code / Codex can use their own CLI login state.",
+      "title": "No agent backends yet"
+    },
+    "env": {
+      "count": "{{count}} items",
+      "deleteKey": "Delete this key",
+      "empty": "No key-value pairs. Use + Add below to create one.",
+      "reservedDisabled": "Reserved keys disabled: {{keys}}",
+      "title": "Advanced · Custom Environment Variables"
+    },
+    "fields": {
+      "device": "Runtime Device",
+      "name": "Name",
+      "namePlaceholder": "Example: Local · Claude Code",
+      "type": "Type",
+      "typeLocked": "Cannot be changed after creation"
+    },
+    "flash": {
+      "close": "Close notice",
+      "created": "Agent backend added",
+      "deleted": "Deleted",
+      "providerSynced": "Remote provider synced",
+      "saved": "Saved"
+    },
+    "list": {
+      "ariaLabel": "Agent backend list"
+    },
+    "modelRoutes": {
+      "hint": "Claude Code sends requests in three tiers — OPUS / SONNET / HAIKU. Any tier you leave alone follows the main binding above (the CLI's ANTHROPIC_DEFAULT_*_MODEL).",
+      "defaultChip": "Usually no change needed",
+      "inheritMain": "Inherit main provider",
+      "inheritWithName": "Inherit main provider · {{name}}",
+      "label": "Model tier routes",
+      "tierAria": "Claude tier route",
+      "inheritsSummary": "main binding → {{target}}",
+      "fixedSummary": "fixed → {{target}}",
+      "invalid": "invalid target"
+    },
+    "name": {
+      "deviceDefault": "{{device}} · {{name}}"
+    },
+    "openclaw": {
+      "agent": "Agent",
+      "agentPlaceholder": "Use the Gateway default agent",
+      "clearToken": "Clear stored token",
+      "errors": {
+        "agentNotFound": "The selected agent does not exist on this Gateway.",
+        "authFailed": "Gateway authentication failed. Check the saved or newly entered token.",
+        "canceled": "The Gateway connection test was canceled.",
+        "connectionFailed": "Could not connect to the OpenClaw Gateway.",
+        "eventMissing": "The Gateway does not advertise the required event stream.",
+        "methodMissing": "The Gateway does not advertise all required RPC methods.",
+        "modelNotFound": "The selected model does not exist or is unavailable on this Gateway.",
+        "protocolMismatch": "The Gateway does not support OpenClaw protocol 4.",
+        "remoteUnavailable": "Remote OpenClaw is unavailable because a secure secret reference cannot cross the agentred wire yet.",
+        "scopeMissing": "The Gateway did not grant all required operator scopes.",
+        "secretUnavailable": "The local secure secret store is unavailable.",
+        "timeout": "The Gateway connection test timed out.",
+        "notPaired": "This Gateway requires device pairing before granting the requested scopes. Approve the device on the Gateway, then test again.",
+        "nameRequired": "Give the backend a name before testing the connection.",
+        "urlRequired": "Enter the Gateway WebSocket URL.",
+        "urlInvalid": "That is not a valid Gateway WebSocket URL.",
+        "urlScheme": "The Gateway URL must start with ws:// or wss://.",
+        "urlHost": "The Gateway URL must include a host.",
+        "urlCredentials": "The Gateway URL cannot contain credentials, a query string, or a fragment.",
+        "urlPlaintextRemote": "Plaintext ws:// is only allowed for loopback hosts. Use wss:// for any other host.",
+        "sessionModeInvalid": "Unsupported session mapping. OpenClaw uses one Gateway session per AgentRE chat."
+      },
+      "gatewayURL": "Gateway WebSocket URL",
+      "gatewayURLHint": "Loopback ws:// is allowed. Other hosts must use wss://.",
+      "localOnlyTitle": "Secure local Gateway connection",
+      "model": "Model",
+      "modelGatewayDefault": "Gateway default model",
+      "modelPlaceholder": "Use the Gateway default model",
+      "probePassed": "Gateway verified · {{latency}}ms",
+      "probeVerified": "Gateway connection verified",
+      "protocol": "Protocol {{protocol}}",
+      "remoteUnavailable": "Remote agentred support is unavailable until secure secret enrollment is implemented.",
+      "sessionMode": "Session mapping",
+      "sessionModeHint": "Each AgentRE chat session maps to one stable OpenClaw session key.",
+      "sessionPerAgentRE": "One OpenClaw session per AgentRE chat",
+      "token": "Gateway token",
+      "tokenHint": "The token is stored in the local secure secret store and is never returned to the UI.",
+      "tokenPlaceholder": "Optional token",
+      "tokenSavedHint": "The existing token is retained unless you replace or explicitly clear it.",
+      "tokenSavedPlaceholder": "Token is stored securely. Enter a new value to replace it.",
+      "modelOverrideUnauthorized": "This Gateway does not authorize model overrides for this operator connection, so the agent's own model is used."
+    },
+    "page": {
+      "add": "New Backend"
+    },
+    "permission": {
+      "addIsSandbox": "Add IS_SANDBOX=1",
+      "bypassWarning": "New sessions start by bypassing the permission gate. Runtime can still switch among the 4 modes. Use only in isolated sandboxes or CI.",
+      "hint": "--permission-mode · initial mode for new sessions",
+      "isSandboxConfigured": "Configured in env_json",
+      "label": "Default Permission Mode",
+      "options": {
+        "acceptEdits": "acceptEdits · Auto-accept edits",
+        "bypassPermissions": "bypassPermissions · Skip approvals",
+        "default": "default · Ask every time",
+        "inherit": "Default · acceptEdits",
+        "plan": "plan · Read-only analysis"
+      },
+      "remoteRootHintPrefix": "When remote agentred runs as root/sudo, claude CLI rejects bypassPermissions as --dangerously-skip-permissions. Set",
+      "remoteRootHintSuffix": "to let the CLI skip that check."
+    },
+    "provider": {
+      "clear": "Clear provider link",
+      "clearTitle": "Clear and use CLI login",
+      "cliLogin": "Use CLI login",
+      "configureCta": "Configure LLM providers",
+      "emptyTitle": "No LLM providers available yet",
+      "label": "LLM Provider",
+      "modelRequiredDescription": "This provider has no default model, so Pi cannot select it via --model. Set a default model on the LLM Providers page first, then save again.",
+      "modelRequiredTitle": "Provider has no default model",
+      "noMatchClaude": "Without a link, claude CLI uses its own login. Add an anthropic provider first if requests should route through the local proxy.",
+      "noMatchCodex": "Without a link, codex CLI uses its own login. Add an openai-response provider first if requests should route through the local proxy.",
+      "noMatchPiAgent": "Without a link, pi CLI uses its own login. Add an LLM provider first to bind a custom provider.",
+      "noMatchTitle": "No matching LLM providers",
+      "noModel": "(no model selected)",
+      "noneDescription": "Add an LLM provider on the LLM Providers page first, then return to configure the backend.",
+      "noneTitle": "No LLM providers",
+      "optionalSuffix": "· Optional",
+      "placeholderOptional": "No link (use CLI login)",
+      "placeholderRequired": "Select an LLM provider",
+      "selectProvider": "Select provider",
+      "staleDescription": "Choose an enabled provider below{{optionalClause}}.",
+      "staleOptionalClause": ", or clear the link to use CLI login",
+      "staleTitle": "The original LLM provider is disabled or does not match this type",
+      "strictMatch": "Strict match · {{type}}",
+      "unlinked": "No linked provider",
+      "followsDefault": "Follows the provider default model each turn",
+      "fixedNote": "Fixed to this model; provider default changes won't affect it"
+    },
+    "providerSync": {
+      "descriptionOnly": "Sync copies the provider's BaseURL, protocol, API key, default model and model catalog to the remote agentred state file. Other form changes are not saved.",
+      "descriptionSave": "The selected remote agentred does not have these providers configured. Sync copies the provider's BaseURL, protocol, API key, default model and model catalog to the remote agentred state file, then continues saving the agent backend.",
+      "failedTitle": "Sync Failed",
+      "inlineDescription": "This backend will run on remote agentred. You can sync the selected LLM provider to the remote state file first.",
+      "inlineTitle": "Remote Provider Sync",
+      "originalError": "Original error: {{message}}",
+      "requiredDescription": "The remote runtime can only read providers from its own state file. Unsynced providers trigger provider not configured.",
+      "requiredTitle": "Provider Sync Required",
+      "secretServiceAction": "Fix: upgrade and restart remote agentred. The current version writes directly to the agentred state file and no longer uses the keychain. If you cannot upgrade yet, install and start a Secret Service such as gnome-keyring or KWallet on the remote machine.",
+      "secretServiceMissing": "An older remote agentred is still writing to the system keychain, but remote Linux has no available Secret Service (org.freedesktop.secrets).",
+      "syncAndSave": "Sync and Save",
+      "syncRemote": "Sync to Remote",
+      "syncing": "Syncing...",
+      "title": "Sync Remote LLM Provider"
+    },
+    "proxy": {
+      "notRunning": "Local HTTP proxy is not running",
+      "openSettings": "Open Settings",
+      "running": "Requests route through the local HTTP proxy ({{url}}). Secrets stay inside the app.",
+      "stopped": "{{label}}{{reasonSuffix}}",
+      "unlinked": "No provider is linked. The CLI uses its own login state, and secrets do not pass through the app."
+    },
+    "reasoning": {
+      "codexHint": "codex CLI supports low / medium / high / xhigh. max is folded down to high.",
+      "label": "Reasoning Effort",
+      "options": {
+        "default": "Default (model decides)",
+        "high": "High · high",
+        "low": "Low · low",
+        "max": "Maximum · max",
+        "medium": "Medium · medium",
+        "xhigh": "Very high · xhigh"
+      }
+    },
+    "row": {
+      "agentCount": "{{count}} agents in use",
+      "needsAction": "Needs action",
+      "unused": "Not used by any agent",
+      "bindingCliLogin": "Use CLI login state",
+      "bindingInvalid": "Model binding is invalid",
+      "bindingInvalidReason": "{{provider}} · {{model}} is disabled or no longer available"
+    },
+    "summary": {
+      "title": "Effective configuration summary",
+      "runtime": "Runtime location",
+      "source": "Model source",
+      "model": "Effective model",
+      "routes": "Tier routes",
+      "references": "References",
+      "referenceCount": "{{count}} agents",
+      "saveReady": "Ready to save · all checks passed",
+      "cannotSaveReason": "Cannot save: {{reason}}",
+      "cliAccountModel": "Determined by CLI login account",
+      "unresolvedModel": "Unresolved",
+      "modeGateway": "Gateway selection",
+      "modeInvalid": "Invalid",
+      "modeCli": "CLI login",
+      "sources": {
+        "cli": "CLI login state",
+        "agentre": "Agentre provider · {{provider}}",
+        "openclaw": "OpenClaw Gateway"
+      },
+      "reasons": {
+        "nameRequired": "Enter a backend name",
+        "invalidTarget": "Choose a valid model binding",
+        "bindingRequired": "No compatible provider is available; configure one and select a model binding"
+      }
+    },
+    "sandbox": {
+      "defaultHint": "Empty = use codex CLI default",
+      "hint": "File-system isolation for codex subprocesses",
+      "label": "Sandbox"
+    },
+    "test": {
+      "passed": "Test passed · {{latency}}ms · {{message}}"
     }
   }
 }

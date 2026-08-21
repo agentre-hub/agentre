@@ -1,8 +1,8 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
+import { useUiTranslation as useTranslation } from "../../i18n";
 import { Info, Loader2, Plus } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "../ui/button";
 import {
   Dialog,
   DialogBody,
@@ -11,14 +11,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+} from "../ui/dialog";
+import { Input } from "../ui/input";
 
 import {
   ImportLLMModels,
   LookupLLMModel,
-} from "../../../../wailsjs/go/app/App";
-import { llm_provider_svc } from "../../../../wailsjs/go/models";
+} from "../port-bridge";
+import { llm_provider_svc } from "../port-bridge";
 import { type Provider, errMessage } from "./index";
 
 function Field({

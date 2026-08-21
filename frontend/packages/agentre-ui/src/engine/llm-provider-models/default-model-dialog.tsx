@@ -1,8 +1,8 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
+import { useUiTranslation as useTranslation } from "../../i18n";
 import { Loader2, RefreshCw } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "../ui/button";
 import {
   Dialog,
   DialogBody,
@@ -11,13 +11,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "../ui/dialog";
 
 import {
   LLMProviderRefCounts,
   SetLLMModelDefault,
-} from "../../../../wailsjs/go/app/App";
-import { llm_provider_svc } from "../../../../wailsjs/go/models";
+} from "../port-bridge";
+import { llm_provider_svc } from "../port-bridge";
 import {
   type Model,
   type Provider,

@@ -1,37 +1,46 @@
+// 从 Provider/Model 展示 DTO 组装 Picker 目录（validated catalog）。
+//
+// 只消费脱敏 DTO（ProviderItem / ModelItem），绝不触碰 API Key / BaseURL 之外的敏感
+// 字段；provider-default 项取 Provider 当前默认模型的解析结果（defaultModel），
+// fixed-model 列表取该 Provider 名下全部模型。
 import * as React from "react";
 
-import { ListLLMModels } from "../../../../wailsjs/go/app/App";
-import { llm_provider_svc } from "../../../../wailsjs/go/models";
+import { ListLLMModels } from "../port-bridge";
+import { llm_provider_svc } from "../port-bridge";
 
 import type { PickerModel, PickerProvider } from "./types";
 
 type ProviderItem = llm_provider_svc.ProviderItem;
 type ModelItem = llm_provider_svc.ModelItem;
 
+// buildPickerCatalog 把 providers + 每 Provider 的模型列表拼成 Picker 目录。
 export function buildPickerCatalog(
   providers: ProviderItem[],
   modelsByProvider: Map<number, ModelItem[]>,
 ): PickerProvider[] {
-  return providers.map((provider) => {
-    const models: PickerModel[] = (modelsByProvider.get(provider.id) ?? []).map(
-      (model) => ({
-        modelKey: model.modelKey,
-        modelId: model.modelId,
-        name: model.name,
-        enabled: model.enabled,
-        contextWindow: model.contextWindow,
-        maxOutput: model.maxOutput,
+  return providers.map((p) => {
+    const models: PickerModel[] = (modelsByProvider.get(p.id) ?? []).map(
+      (m) => ({
+        modelKey: m.modelKey,
+        modelId: m.modelId,
+        name: m.name,
+        enabled: m.enabled,
+        contextWindow: m.contextWindow,
+        maxOutput: m.maxOutput,
       }),
     );
+    let defaultModel: PickerModel | null = null;
+    if (p.defaultModelKey) {
+      defaultModel =
+        models.find((m) => m.modelKey === p.defaultModelKey) ?? null;
+    }
     return {
-      providerKey: provider.providerKey,
-      id: provider.id,
-      name: provider.name,
-      type: provider.type,
-      enabled: provider.enabled,
-      defaultModel: provider.defaultModelKey
-        ? models.find((model) => model.modelKey === provider.defaultModelKey) ?? null
-        : null,
+      providerKey: p.providerKey,
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      enabled: p.enabled,
+      defaultModel,
       models,
     };
   });
@@ -44,6 +53,8 @@ export type ModelTargetCatalogState = {
   refresh: () => void;
 };
 
+// useModelTargetCatalog 拉取每个 Provider 的模型目录并拼成 Picker 目录。
+// 单个 Provider 模型拉取失败容忍降级（其余 Provider 照常可选）；全部失败才置 error。
 export function useModelTargetCatalog(
   providers: ProviderItem[],
 ): ModelTargetCatalogState {
@@ -63,12 +74,12 @@ export function useModelTargetCatalog(
       let anyFailed = false;
       let anyOk = false;
       await Promise.all(
-        providers.map(async (provider) => {
+        providers.map(async (p) => {
           try {
-            const response = await ListLLMModels(
-              new llm_provider_svc.ListModelsRequest({ id: provider.id }),
+            const resp = await ListLLMModels(
+              new llm_provider_svc.ListModelsRequest({ id: p.id }),
             );
-            next.set(provider.id, response.items ?? []);
+            next.set(p.id, resp.items ?? []);
             anyOk = true;
           } catch {
             anyFailed = true;

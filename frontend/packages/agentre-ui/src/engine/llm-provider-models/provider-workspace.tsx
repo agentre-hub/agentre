@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
+import { useUiTranslation as useTranslation } from "../../i18n";
 import {
   Copy,
   Loader2,
@@ -13,17 +13,17 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Switch } from "@/components/ui/switch";
+} from "../ui/dropdown-menu";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
+import { Switch } from "../ui/switch";
 import {
   Table,
   TableBody,
@@ -31,10 +31,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "../ui/table";
 
 import { LlmModelLogo, LlmProviderLogo } from "../ai-brand-logo";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 import {
   type BatchDeleteResult,
   BatchDeleteDialog,
@@ -66,6 +66,8 @@ export type WorkspaceHandlers = {
   onToggleProviderEnabled: () => void;
   onBatchToggleEnabled: (models: Model[], enabled: boolean) => Promise<void>;
   onBatchDeleteCompleted: (result: BatchDeleteResult) => void;
+  canDiscover?: boolean;
+  canTestProvider?: boolean;
 };
 
 export function ProviderWorkspace({
@@ -88,6 +90,8 @@ export function ProviderWorkspace({
   onBatchToggleEnabled,
   onBatchDeleteCompleted,
   onRetryModels,
+  canDiscover = true,
+  canTestProvider = true,
   testingDefault,
   testingModelId,
   passedModelTests,
@@ -240,7 +244,7 @@ export function ProviderWorkspace({
               className="h-[18px] w-px shrink-0 bg-border"
               aria-hidden="true"
             />
-            <Button
+            {canTestProvider ? <Button
               type="button"
               variant="outline"
               size="sm"
@@ -266,8 +270,8 @@ export function ProviderWorkspace({
                 />
               )}
               {t("llmProviders.workspace.testConnection")}
-            </Button>
-            <Button
+            </Button> : null}
+            {canDiscover ? <Button
               type="button"
               variant="outline"
               size="sm"
@@ -283,7 +287,7 @@ export function ProviderWorkspace({
                 aria-hidden="true"
               />
               {t("llmProviders.workspace.discover")}
-            </Button>
+            </Button> : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -485,7 +489,7 @@ export function ProviderWorkspace({
           </p>
           {/* 手动添加已常驻工具栏，空态只留「发现模型」这一条主路径 */}
           <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-            <Button
+{canDiscover ?             <Button
               type="button"
               variant="outline"
               size="sm"
@@ -498,7 +502,7 @@ export function ProviderWorkspace({
                 aria-hidden="true"
               />
               {t("llmProviders.workspace.discoverModels")}
-            </Button>
+            </Button> : null}
           </div>
         </div>
       ) : (

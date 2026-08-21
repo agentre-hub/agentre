@@ -806,6 +806,18 @@ func requireAuth(ctx context.Context) error {
 	return nil
 }
 
+// requireClaimed restricts account-scoped operations to daemons that have been
+// claimed by an account. The nested handler retains the standard RPC auth and
+// panic handling provided by wrapGuarded.
+func (d *Daemon) requireClaimed(next rpc.HandlerFunc) rpc.HandlerFunc {
+	return func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if !d.state.IsClaimed() {
+			return nil, rpc.ErrUnauthorized
+		}
+		return next(ctx, raw)
+	}
+}
+
 // registerMethods installs all static (non-per-connection) RPC handlers.
 func (d *Daemon) registerMethods() {
 	d.registry.Register("auth.pair", func(ctx context.Context, p json.RawMessage) (any, error) {
@@ -889,6 +901,11 @@ func (d *Daemon) registerMethods() {
 	d.registry.Register("llm.upsert", wrapGuarded(llmH.Upsert))
 	d.registry.Register("llm.delete", wrapGuarded(llmH.Delete))
 	d.registry.Register("llm.list", wrapGuardedNoParams(llmH.List))
+
+	engineH := handlers.NewEngineHandlers(handlers.EngineDeps{State: d.state})
+	d.registry.Register("engine.test", d.requireClaimed(wrapGuarded(engineH.Test)))
+	d.registry.Register("engine.discover", d.requireClaimed(wrapGuarded(engineH.Discover)))
+	d.registry.Register("engine.scan", d.requireClaimed(wrapGuardedNoParams(engineH.Scan)))
 
 	cliH := handlers.NewCLIHandlers(d.gateway, NewProviderLookup(d.state))
 	d.registry.Register("cli.resolvePath", wrapGuarded(cliH.ResolvePath))

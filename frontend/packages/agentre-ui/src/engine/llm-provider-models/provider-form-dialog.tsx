@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
+import { useUiTranslation as useTranslation } from "../../i18n";
 import {
   CheckCircle2,
   Eye,
@@ -13,8 +13,8 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { Button } from "../ui/button";
 import {
   Dialog,
   DialogBody,
@@ -23,21 +23,21 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+} from "../ui/dialog";
+import { Input } from "../ui/input";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "../ui/select";
 
-import { PreviewLLMModels } from "../../../../wailsjs/go/app/App";
-import { llm_provider_svc } from "../../../../wailsjs/go/models";
+import { PreviewLLMModels } from "../port-bridge";
+import { llm_provider_svc } from "../port-bridge";
 import { LlmModelLogo, LlmProviderLogo } from "../ai-brand-logo";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 import {
   type Provider,
   errMessage,

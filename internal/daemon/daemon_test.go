@@ -2057,3 +2057,119 @@ func TestDaemon_GivenUnclaimedAtStartup_WhenLoginLandsOnDisk_ThenTheRelayLinkPic
 		"下一次 dial 重新解析时就该看到这次登录")
 	assert.Equal(t, "at-1", d.currentAccessToken(), "凭据也一并被采纳，dial 才带得上 Bearer")
 }
+
+func TestDaemon_GivenUnclaimedDaemon_WhenEngineRPCIsAuthenticated_ThenRejectsIt(t *testing.T) {
+	d := startEngineDaemon(t, Options{DataDir: engineDataDir(t), LANHost: "127.0.0.1", LANPort: 0})
+	conn, _ := pairDaemonClient(t, d, "sha256:engine-unclaimed")
+	t.Cleanup(func() { _ = conn.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for _, method := range []string{"engine.test", "engine.discover", "engine.scan"} {
+		err := conn.Call(ctx, method, map[string]any{"providerKey": "provider-key"}, &map[string]any{})
+		require.Error(t, err, "%s must reject an unclaimed daemon", method)
+		var rpcErr *rpc.Error
+		require.ErrorAs(t, err, &rpcErr)
+		assert.Equal(t, rpc.ErrUnauthorized.Code, rpcErr.Code, "%s must reject because it is unclaimed", method)
+	}
+}
+
+func TestDaemon_GivenClaimedDaemon_WhenEngineRPCsAreCalled_ThenTheyUseLocalStateAndKeepSecretsPrivate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			assert.Equal(t, "Bearer daemon-engine-secret", r.Header.Get("Authorization"))
+			_, err := w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+			require.NoError(t, err)
+		case "/models":
+			assert.Equal(t, "Bearer daemon-engine-secret", r.Header.Get("Authorization"))
+			_, err := w.Write([]byte(`{"data":[{"id":"gpt-daemon","name":"Daemon GPT"}]}`))
+			require.NoError(t, err)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	dir := engineDataDir(t)
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Claim("account-42", "cached-public-key", state.AccountCredential{AccessToken: "device-access-token"})
+	st.Mutate(func(s *state.State) {
+		s.LLMProviders["provider-key"] = state.LLMProviderMeta{
+			Type: "openai-chat", BaseURL: server.URL, APIKey: "daemon-engine-secret",
+			DefaultModelKey: "model-key",
+			Models:          []state.LLMModelMeta{{ModelKey: "model-key", ModelID: "gpt-daemon"}},
+		}
+	})
+	require.NoError(t, st.Save())
+
+	d := startEngineDaemon(t, Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0})
+
+	conn, _ := pairDaemonClient(t, d, "sha256:engine-claimed")
+	t.Cleanup(func() { _ = conn.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var testResult handlers.EngineTestResult
+	require.NoError(t, conn.Call(ctx, "engine.test", handlers.EngineTestParams{ProviderKey: "provider-key"}, &testResult))
+	assert.True(t, testResult.OK)
+	assert.NotContains(t, mustJSON(t, testResult), "daemon-engine-secret")
+	assert.NotContains(t, mustJSON(t, testResult), "provider-key")
+
+	var discovered handlers.EngineDiscoverResult
+	require.NoError(t, conn.Call(ctx, "engine.discover", handlers.EngineDiscoverParams{ProviderKey: "provider-key"}, &discovered))
+	assert.Equal(t, []handlers.EngineModel{{ModelID: "gpt-daemon", Name: "Daemon GPT"}}, discovered.Models)
+	assert.NotContains(t, mustJSON(t, discovered), "daemon-engine-secret")
+	assert.NotContains(t, mustJSON(t, discovered), "provider-key")
+
+	var scanned handlers.EngineScanResult
+	require.NoError(t, conn.Call(ctx, "engine.scan", nil, &scanned))
+	assert.Len(t, scanned.Items, 3)
+	assert.NotContains(t, mustJSON(t, scanned), "path")
+	assert.NotContains(t, mustJSON(t, scanned), "/")
+}
+
+func engineDataDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ard-engine-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func startEngineDaemon(t *testing.T, opts Options) *Daemon {
+	t.Helper()
+	d, err := New(opts)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	runErr := make(chan error, 1)
+	go func() { runErr <- d.Run(ctx) }()
+	require.Eventually(t, func() bool {
+		select {
+		case err := <-runErr:
+			t.Fatalf("daemon failed before listening: %v", err)
+		default:
+		}
+		d.mu.RLock()
+		defer d.mu.RUnlock()
+		return d.lan != nil && d.lan.Addr() != ""
+	}, 2*time.Second, 10*time.Millisecond)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-runErr:
+			require.NoError(t, err)
+		case <-time.After(3 * time.Second):
+			t.Error("daemon did not stop")
+		}
+	})
+	return d
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	body, err := json.Marshal(value)
+	require.NoError(t, err)
+	return string(body)
+}

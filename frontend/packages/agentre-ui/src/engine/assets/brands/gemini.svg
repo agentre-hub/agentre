@@ -1,0 +1,5 @@
+<!-- Official Gemini sparkle extracted from the Google Gemini wordmark. Brand reference: https://gemini.google.com/; vector source: Wikimedia Commons, retrieved 2026-08-10. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="208.50 -2.05 55.35 55.32">
+  <defs><linearGradient id="gemini-gradient" x1="210" y1="52" x2="262" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#439DDF"/><stop offset=".52" stop-color="#4F87ED"/><stop offset=".78" stop-color="#9476C5"/><stop offset="1" stop-color="#D6645D"/></linearGradient></defs>
+  <path fill="url(#gemini-gradient)" d="M234.123 41.22a25.45 25.45 0 0 0 2.049 9.986 25.32 25.32 0 0 0 1.984-9.986 25.3 25.3 0 0 0 5.504-8.128 25.3 25.3 0 0 0 8.129-5.441 25.46 25.46 0 0 0 9.985-2.048 25.37 25.37 0 0 0-9.985-1.984 25.37 25.37 0 0 0-8.129-5.505 25.3 25.3 0 0 0-5.504-8.129A25.36 25.36 0 0 0 236.172 0a25.45 25.45 0 0 0-2.049 9.985 25.3 25.3 0 0 0-5.44 8.129 25.36 25.36 0 0 0-8.129 5.505 25.37 25.37 0 0 0-9.985 1.984 25.46 25.46 0 0 0 9.985 2.048 25.3 25.3 0 0 0 8.129 5.441 25.3 25.3 0 0 0 5.44 8.128Z"/>
+</svg>

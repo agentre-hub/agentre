@@ -1,4 +1,4 @@
-import { llm_provider_svc } from "../../../../wailsjs/go/models";
+import { llm_provider_svc } from "../port-bridge";
 
 export type Provider = llm_provider_svc.ProviderItem;
 export type Model = llm_provider_svc.ModelItem;

@@ -5,14 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import enCommon from "@/i18n/locales/en";
 import zhCommon from "@/i18n/locales/zh-CN";
 
-import { ModelTargetPicker } from "../model-target-picker";
 import {
+  ModelTargetPicker,
+  providerCompatibleForBackend,
   readRecentTargets,
   recordRecentTarget,
   removeRecentTarget,
   recentStorageKey,
-} from "../model-target-picker/recents";
-import { providerCompatibleForBackend } from "../model-target-picker/types";
+} from "@agentre-ai/agentre-ui";
 
 function catalog() {
   return [
