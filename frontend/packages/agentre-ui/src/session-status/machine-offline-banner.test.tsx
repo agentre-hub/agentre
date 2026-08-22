@@ -54,11 +54,44 @@ describe("MachineOfflineBanner", () => {
     render(
       <MachineOfflineBanner
         machineName="m1"
-        lastSeen="3 hours ago"
+        lastSeen={{ text: "3 hours ago" }}
         onStartNew={() => {}}
       />,
     );
     expect(screen.getByText(/Last seen 3 hours ago/)).toBeTruthy();
+  });
+
+  it("Given 相对时间, When 宿主也给了精确时刻, Then 它挂在 <time> 上备查", () => {
+    // 「3 小时前」读起来快，但要对齐日志时得有准确值。相对文字是可见的那一层，
+    // 精确时刻挂在 title / dateTime 上——两者都由宿主格式化，包不认识时区与口径。
+    render(
+      <MachineOfflineBanner
+        machineName="m1"
+        lastSeen={{
+          text: "3 hours ago",
+          dateTime: "2026-08-21T06:32:07.000Z",
+          exact: "2026/8/21 14:32:07",
+        }}
+        onStartNew={() => {}}
+      />,
+    );
+    const time = screen.getByTestId("status-banner-last-seen");
+    expect(time.tagName).toBe("TIME");
+    expect(time.getAttribute("dateTime")).toBe("2026-08-21T06:32:07.000Z");
+    expect(time.getAttribute("title")).toBe("2026/8/21 14:32:07");
+  });
+
+  it("Given 只给了相对文字, When 渲染, Then 不编一个 dateTime", () => {
+    render(
+      <MachineOfflineBanner
+        machineName="m1"
+        lastSeen={{ text: "3 hours ago" }}
+        onStartNew={() => {}}
+      />,
+    );
+    const time = screen.getByTestId("status-banner-last-seen");
+    expect(time.hasAttribute("dateTime")).toBe(false);
+    expect(time.hasAttribute("title")).toBe(false);
   });
 
   it("Given 宿主没给「最后在线」, When 渲染, Then 不编一个时刻", () => {
@@ -109,6 +142,26 @@ describe("StatusBanner 外壳", () => {
     // 空槽会在窄容器下占一行高度，读者看到一块说不出用途的留白。
     render(<StatusBanner tone="settled" title="t" body="b" />);
     expect(screen.queryByTestId("status-banner-action")).toBeNull();
+  });
+
+  it("Given 宿主要给这一格做记号, When 透传 data-*, Then 它落在 alert 那一层", () => {
+    // 宿主自己的状态机比包知道的多（agentre-server 有九个视图状态、三档 tier），
+    // 它要能在 DOM 上说出「这一张现在说的是哪一档」——给测试、给截图脚本、给
+    // 将来的样式钩子。包不认识那些名字，所以不解释，只透传。
+    render(
+      <StatusBanner
+        tone="alarm"
+        title="t"
+        body="b"
+        data-session-status="machineOffline"
+        data-tier="blocking"
+      />,
+    );
+    const root = screen.getByRole("alert");
+    expect(root.getAttribute("data-session-status")).toBe("machineOffline");
+    expect(root.getAttribute("data-tier")).toBe("blocking");
+    // 透传不该把 tone 顶掉。
+    expect(root.dataset.tone).toBe("alarm");
   });
 
   it("Given sticky, When 渲染, Then 吸顶类在外层", () => {

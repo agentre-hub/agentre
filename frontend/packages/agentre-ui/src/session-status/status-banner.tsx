@@ -47,7 +47,14 @@ export type StatusBannerProps = {
   action?: React.ReactNode;
   sticky?: boolean;
   className?: string;
-};
+  /**
+   * 其余属性原样落到 alert 那一层。宿主自己的状态机通常比本包知道的多（agentre-server
+   * 有九个视图状态、三档 tier），它要能在 DOM 上说出「这一张现在说的是哪一档」，
+   * 给测试、截图脚本与将来的样式钩子用。包不认识那些名字，所以不解释，只透传。
+   *
+   * `title` 被排除：本包的 `title` 是一行结论（ReactNode），跟 div 的 tooltip 同名不同物。
+   */
+} & Omit<React.ComponentPropsWithoutRef<"div">, "title" | "className">;
 
 export function StatusBanner({
   tone,
@@ -58,6 +65,7 @@ export function StatusBanner({
   action,
   sticky = false,
   className,
+  ...rest
 }: StatusBannerProps) {
   return (
     // 外层只做容器查询的锚：同一个横幅会出现在 320px 左列、移动全宽、桌面详情区
@@ -66,6 +74,7 @@ export function StatusBanner({
       <div
         role="alert"
         aria-live="assertive"
+        {...rest}
         data-tone={tone}
         className={cn(
           "grid grid-cols-[1rem_1fr] items-start gap-x-2.5 gap-y-1 rounded-lg border px-3 py-2.5",

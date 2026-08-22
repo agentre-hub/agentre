@@ -1,3 +1,4 @@
+import * as React from "react";
 import { WifiOff } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
@@ -17,7 +18,8 @@ import { StatusBanner } from "./status-banner";
  *
  * 「最后在线」由宿主格式化好了传进来：相对时间的口径（几分钟前 / 昨天）跟着宿主
  * 自己那套走，本包不该多长出一份日期格式化，更不该为此吃一个 locale 参数。
- * 取不到就别传——不编一个时刻。
+ * 取不到就别传——不编一个时刻。精确时刻同理：`dateTime` 与 `exact` 也是宿主格式化
+ * 好的字符串，包只负责把它们挂到 <time> 上。
  *
  * 出口只有一个，而且是统一的那一个：「新建一个会话」。因此**按钮本身住在这里**
  * ——文案与形态两端一致，宿主只给「按下去往哪走」。（这也是它与 `StatusBanner`
@@ -30,25 +32,35 @@ import { StatusBanner } from "./status-banner";
 export type MachineOfflineBannerProps = {
   /** 那台机器的名字。取不到就不传，标题会退到通用说法。 */
   machineName?: string;
-  /** 已经格式化好的「最后在线」相对时间。 */
-  lastSeen?: string;
+  /**
+   * 「最后在线」。`text` 是可见的相对时间（「3 小时前」，读起来快）；`exact` 与
+   * `dateTime` 是可选的精确时刻，挂在 <time> 上备查——要跟日志对齐时才用得上。
+   * 三者都由宿主格式化好。
+   */
+  lastSeen?: { text: string; dateTime?: string; exact?: string };
   /**
    * 按下「新建一个会话」时宿主要做的事。两端路由不同（桌面端就地开一条新会话，
    * web 回到它自己的新建对话流），所以本包只回调、不导航。
    */
   onStartNew: () => void;
   sticky?: boolean;
-};
+  /** 其余属性透传给外壳（见 `StatusBanner`）。 */
+} & Omit<
+  React.ComponentPropsWithoutRef<"div">,
+  "title" | "className" | "action"
+>;
 
 export function MachineOfflineBanner({
   machineName,
   lastSeen,
   onStartNew,
   sticky,
+  ...rest
 }: MachineOfflineBannerProps) {
   const { t } = useUiTranslation();
   return (
     <StatusBanner
+      {...rest}
       tone="alarm"
       sticky={sticky}
       icon={<WifiOff className="size-4" aria-hidden />}
@@ -63,7 +75,13 @@ export function MachineOfflineBanner({
           <>
             {/* 排版符号，不是文案，因此不进 t()。 */}
             {" · "}
-            <span>{t("sessionStatus.lastSeen", { time: lastSeen })}</span>
+            <time
+              data-testid="status-banner-last-seen"
+              dateTime={lastSeen.dateTime}
+              title={lastSeen.exact}
+            >
+              {t("sessionStatus.lastSeen", { time: lastSeen.text })}
+            </time>
           </>
         ) : null
       }
