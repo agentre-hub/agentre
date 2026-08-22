@@ -2,6 +2,8 @@ import * as React from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
+import { groupAgentsForPicking } from "@agentre-ai/agentre-ui";
+
 import { Badge } from "@/components/ui/badge";
 import { useChatAgents, type ChatAgentItem } from "@/hooks/use-chat-agents";
 import i18n from "@/i18n";
@@ -34,35 +36,34 @@ export type NewChatItem = {
 // 排序：可对话组 lastAgent → pinned → others（历史行为不变）；
 // 不可对话组 pinned → others（lastAgentId 只在可对话组内冒泡）。
 // 两组同属 newChatSource，不可对话组用 subHeading 单列「需要先配置」。
+//
+// 分组与排序本身走共享包的 `groupAgentsForPicking`：agentre-server 的新对话列表
+// 是同一条规则（判据是 has_available_target 而不是 chattable，结论同名），两端
+// 此前各写了一份。呈现仍留在这里 —— 那边把「最近用过」单列一组带标题，这里冒泡
+// 进同一组，这是两个产品面的决定，不是同一条规则的两种写法。
 export function flattenAgents(
   agents: ChatAgentItem[],
   lastAgentId: number | null = null,
 ): NewChatItem[] {
-  const chattable = agents.filter((a) => a.chattable);
-  const pinned = chattable.filter((a) => a.pinned);
-  const others = chattable.filter((a) => !a.pinned);
-  let ordered = [...pinned, ...others];
-  if (lastAgentId != null) {
-    const idx = ordered.findIndex((a) => a.id === lastAgentId);
-    if (idx > 0) {
-      const [last] = ordered.splice(idx, 1);
-      ordered = [last, ...ordered];
-    }
-  }
-
-  const needSetup = agents.filter((a) => !a.chattable);
-  const needSetupPinned = needSetup.filter((a) => a.pinned);
-  const needSetupOthers = needSetup.filter((a) => !a.pinned);
+  const { recent, available, unavailable } = groupAgentsForPicking({
+    agents,
+    key: (a) => String(a.id),
+    available: (a) => a.chattable,
+    pinned: (a) => a.pinned,
+    // 本面只认「上次选过的那一个」，所以 recentKeys 至多一项 —— 它在这里的作用
+    // 就是冒泡到最前，与 server 那边「最近用过」是同一格。
+    recentKeys: lastAgentId != null ? [String(lastAgentId)] : [],
+  });
   const needSetupHeading = i18n.t("commandPalette.newChat.needSetup");
 
   return [
-    ...ordered.map((agent) => ({
+    ...[...recent, ...available].map((agent) => ({
       key: `new-chat-agent-${agent.id}`,
       agentId: agent.id,
       agent,
       isMember: true as const,
     })),
-    ...[...needSetupPinned, ...needSetupOthers].map((agent) => ({
+    ...unavailable.map((agent) => ({
       key: `new-chat-agent-${agent.id}`,
       agentId: agent.id,
       agent,
