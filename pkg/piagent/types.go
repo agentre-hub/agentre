@@ -50,6 +50,11 @@ type assistantMessage struct {
 	Usage        *usageWire      `json:"usage"`
 	StopReason   string          `json:"stopReason"`
 	ErrorMessage string          `json:"errorMessage,omitempty"`
+	// ResponseID 是一次 provider 响应的稳定身份(msg_2026…)。agent_end 会把本轮
+	// 每条 assistant 消息连同 usage 原样重发一遍,靠它认出「这条记过了」。
+	ResponseID string `json:"responseId,omitempty"`
+	// Timestamp 是 responseId 缺省时(老 pi / 某些 provider)的兜底身份材料。
+	Timestamp int64 `json:"timestamp,omitempty"`
 }
 
 type usageWire struct {
