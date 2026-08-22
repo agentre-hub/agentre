@@ -186,6 +186,16 @@ type permWaiter struct {
 }
 
 // Close 释放 claudeActive 持有的所有资源。幂等。
+// Kill 硬杀底层子进程(整组 SIGKILL),是 CLISessionPool 在优雅关闭超出宽限期后的
+// 升级口。Close 走的是「关 stdin 等 CLI 自己退出」,对卡在 MCP 初始化、根本不读
+// stdin 的 CLI 永不返回 —— 那种条目只能靠这一刀收尾。
+func (a *claudeActive) Kill(ctx context.Context) error {
+	if a == nil || a.handle == nil {
+		return nil
+	}
+	return a.handle.Kill(ctx)
+}
+
 func (a *claudeActive) Close(ctx context.Context) error {
 	if a.handle != nil {
 		_ = a.handle.Close(ctx)

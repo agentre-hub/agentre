@@ -214,3 +214,94 @@ func TestRunnerCache_Drop(t *testing.T) {
 	r.WaitClosed(t)
 	assert.True(t, r.IsClosed())
 }
+
+// wedgedSession 模拟「优雅关闭救不回来」的子进程:claudecode.Session.Close 是
+// 「关 stdin → 等子进程退出」,CLI 卡在 MCP 初始化、根本不读 stdin 时它永不返回。
+// 只有硬杀(整组 SIGKILL)能让它收尾 —— Kill 之后 Close 才放行。
+type wedgedSession struct {
+	killed   chan struct{}
+	closed   chan struct{}
+	killOnce sync.Once
+}
+
+func newWedgedSession() *wedgedSession {
+	return &wedgedSession{killed: make(chan struct{}), closed: make(chan struct{})}
+}
+
+func (w *wedgedSession) Close(_ context.Context) error {
+	<-w.killed
+	close(w.closed)
+	return nil
+}
+
+func (w *wedgedSession) Kill(_ context.Context) error {
+	w.killOnce.Do(func() { close(w.killed) })
+	return nil
+}
+
+// Given 一个优雅关闭永不返回的会话, When 池把它 evict 掉, Then 宽限期一过就升级到
+// 硬杀,进程不会被永久留下。
+//
+// 回归的是原来的 closeWithTimeout:名字里写着 timeout,实现却是
+// Close(context.Background()) —— 卡死的 CLI 会让那个 goroutine 和它的子进程一起
+// 永远留着,而 Kill() 就在旁边从没被用过。
+func TestCloseWithTimeout_GivenCloseNeverReturns_WhenGraceExpires_ThenSessionIsKilled(t *testing.T) {
+	restore := setCloseGraceForTest(20 * time.Millisecond)
+	defer restore()
+
+	p := NewCLISessionPool(8)
+	w := newWedgedSession()
+	p.Put("wedged", w)
+
+	p.Remove("wedged")
+
+	select {
+	case <-w.killed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("宽限期过后没有升级到硬杀:卡死的子进程会被永久留下")
+	}
+	select {
+	case <-w.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("硬杀之后 Close 仍未收尾")
+	}
+}
+
+// Given 一个正常关闭的会话, When 池把它 evict 掉, Then 不该被硬杀。
+func TestCloseWithTimeout_GivenCloseReturnsPromptly_WhenEvicted_ThenSessionIsNotKilled(t *testing.T) {
+	restore := setCloseGraceForTest(500 * time.Millisecond)
+	defer restore()
+
+	p := NewCLISessionPool(8)
+	s := newKillableSession()
+	p.Put("healthy", s)
+
+	p.Remove("healthy")
+
+	s.WaitClosed(t)
+	time.Sleep(50 * time.Millisecond)
+	assert.False(t, s.WasKilled(), "正常关闭的会话不该被硬杀")
+}
+
+type killableSession struct {
+	*fakeSession
+	mu     sync.Mutex
+	killed bool
+}
+
+func newKillableSession() *killableSession {
+	return &killableSession{fakeSession: newFakeSession("killable")}
+}
+
+func (k *killableSession) Kill(_ context.Context) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.killed = true
+	return nil
+}
+
+func (k *killableSession) WasKilled() bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.killed
+}

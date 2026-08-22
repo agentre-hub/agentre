@@ -4,12 +4,19 @@ import (
 	"container/list"
 	"context"
 	"sync"
+	"time"
 )
 
 // ctxCloser 是缓存条目能关闭子进程的最小接口。
 // cago claudecode.Session / codex.Session / claudecode.Runner / codex.Runner 都满足。
 type ctxCloser interface {
 	Close(context.Context) error
+}
+
+// ctxKiller 是缓存条目可选实现的硬杀口:优雅关闭在宽限期内没收住时,由 closeWithTimeout
+// 升级到它。claudecode / codex 的会话适配器都实现了它(底层是整组 SIGKILL)。
+type ctxKiller interface {
+	Kill(context.Context) error
 }
 
 // SessionCache 是 cago cliagent Session 的 per-chat-session LRU 缓存。
@@ -273,9 +280,45 @@ func (c *SessionCache) Len() int {
 	return c.ll.Len()
 }
 
-// closeWithTimeout 给被 evict 的 session 一个 background ctx 关闭机会。
-// cago Session.Close 通常立刻返回；这里不另设 timeout，避免遮蔽 cago 自身重试逻辑。
-func closeWithTimeout(c ctxCloser) { _ = c.Close(context.Background()) }
+// closeGracePeriod 是优雅关闭的宽限期,超时后升级到硬杀。单测覆写成毫秒级。
+var closeGracePeriod = 3 * time.Second
+
+// setCloseGraceForTest 覆写宽限期,返回还原函数。仅供单测使用。
+func setCloseGraceForTest(d time.Duration) func() {
+	old := closeGracePeriod
+	closeGracePeriod = d
+	return func() { closeGracePeriod = old }
+}
+
+// closeWithTimeout 关掉一个被 evict 的 session,优雅关闭救不回来时升级到硬杀。
+//
+// 优雅关闭对卡死的 CLI 无效:claudecode.Session.Close 是「关 stdin → 等子进程退出」,
+// 而卡在 MCP 初始化里的 CLI 根本不读 stdin,这一步永不返回 —— 从前这里传的是
+// context.Background(),于是 goroutine 连同它的整棵子进程树被永久留下。宽限期一到就
+// 调 Kill(整组 SIGKILL):进程死亡后 Close 那一路自然收尾。
+//
+// 不实现 ctxKiller 的实现体(测试替身、纯内存 Runner)退化成原来的行为:等 Close 自己
+// 返回,不做别的。
+func closeWithTimeout(c ctxCloser) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = c.Close(context.Background())
+	}()
+	killer, canKill := c.(ctxKiller)
+	if !canKill {
+		<-done
+		return
+	}
+	timer := time.NewTimer(closeGracePeriod)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		_ = killer.Kill(context.Background())
+		<-done
+	}
+}
 
 // RunnerCache 按 (backendID, updatetime) 缓存 cliagent.Runner-likes。
 // updatetime 变化 = entity 重配；老 Runner 关掉重建。
