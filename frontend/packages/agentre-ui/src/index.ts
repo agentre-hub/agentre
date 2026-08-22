@@ -80,6 +80,14 @@ export {
   DialogDescription,
 } from "./ui/dialog";
 export {
+  DialogShell,
+  DialogShellBody,
+  DialogShellFooter,
+  DialogShellHeader,
+  DialogShellSubmit,
+} from "./ui/dialog-shell";
+export type { DialogShellSaveState, DialogShellSize } from "./ui/dialog-shell";
+export {
   DropdownMenu,
   DropdownMenuPortal,
   DropdownMenuTrigger,
@@ -254,6 +262,11 @@ export type { ContextMeterProps } from "./composer/context-meter";
 export { usageLevel } from "./composer/usage-level";
 export type { UsageLevel } from "./composer/usage-level";
 export { formatTokens } from "./lib/format-tokens";
+export { groupAgentsForPicking } from "./lib/agent-picking";
+export type {
+  AgentPickingGroups,
+  AgentPickingInput,
+} from "./lib/agent-picking";
 export {
   buildEditorDocFromMessage,
   extractPlainText,
