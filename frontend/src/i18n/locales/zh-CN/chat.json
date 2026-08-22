@@ -314,9 +314,6 @@
       "stickyHint": "总是想用它？拖到第一位。",
       "goAdjust": "去调整",
       "allUnavailableTitle": "「{{name}}」现在没有可用的执行机器",
-      "offlineTitle": "{{name}} 当前离线",
-      "offlineHint": "上下文都在那台机器上，不会改派。等它上线，或用同样的开头新建一个会话。",
-      "offlineNewSession": "新建一个会话",
       "reasons": {
         "orphanBackend": "该执行目标引用的后端已不存在",
         "backendRequiresProvider": "需指定 LLM Provider",

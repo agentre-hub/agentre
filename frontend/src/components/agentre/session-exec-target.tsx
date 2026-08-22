@@ -3,7 +3,6 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
-import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -524,46 +523,6 @@ function ExecTargetReselectPopover(props: {
           {t("chatPanel.execTarget.goAdjust")}
         </button>
       </div>
-    </div>
-  );
-}
-
-// ── 聊天头「会话所在机器离线」提示（R15b）：会话钉住的那一档在远端且当前离线时，
-//    给一条走得通的路——不会改派，只能等它上线或用同样的开头新建一个会话。──────
-
-export type SessionOfflineBannerProps = {
-  deviceName: string;
-  onCreateNewSession: () => void;
-};
-
-export function SessionOfflineBanner(props: SessionOfflineBannerProps) {
-  const { t } = useTranslation();
-  return (
-    <div
-      data-testid="session-offline-banner"
-      className="mx-4 mb-2 flex flex-col gap-2 rounded-md border border-destructive bg-destructive-soft px-3 py-2.5"
-    >
-      <div className="flex gap-2">
-        <div className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-semibold">
-            {t("chatPanel.execTarget.offlineTitle", {
-              name: props.deviceName,
-            })}
-          </span>
-          <span className="text-2xs leading-relaxed text-muted-foreground">
-            {t("chatPanel.execTarget.offlineHint")}
-          </span>
-        </div>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="w-fit"
-        onClick={props.onCreateNewSession}
-      >
-        {t("chatPanel.execTarget.offlineNewSession")}
-      </Button>
     </div>
   );
 }

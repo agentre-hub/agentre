@@ -314,9 +314,6 @@
       "stickyHint": "Always want to use it? Drag it to first.",
       "goAdjust": "Adjust order",
       "allUnavailableTitle": "\"{{name}}\" has no available execution machine right now",
-      "offlineTitle": "{{name}} is currently offline",
-      "offlineHint": "The context lives on that machine — it won't be reassigned. Wait for it to come back online, or start a new session with the same opening message.",
-      "offlineNewSession": "Start a new session",
       "reasons": {
         "orphanBackend": "The backend this target refers to no longer exists",
         "backendRequiresProvider": "LLM provider required",

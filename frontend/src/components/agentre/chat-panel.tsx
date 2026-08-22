@@ -16,6 +16,7 @@ import {
   buildTranscriptRows,
   ContextMeter,
   loadTranscriptScrollState,
+  MachineOfflineBanner,
   makeStreamDecoder,
   nextAutoFollow,
   saveTranscriptScrollState,
@@ -110,10 +111,7 @@ import { computeComposerContextUsage } from "./chat-panel-context-usage";
 import { blockReasonToCta, navigateToTarget } from "./not-chattable";
 import { PermissionModePill, usePermissionMode } from "./permission-mode";
 import { ProviderPill, useProviderPill } from "./model-pill";
-import {
-  NewSessionExecTargetLine,
-  SessionOfflineBanner,
-} from "./session-exec-target";
+import { NewSessionExecTargetLine } from "./session-exec-target";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { AgentAvatar, DeviceTag, StatusDot } from "./primitives";
 import { QueuedMessagesBar } from "./queued-messages-bar";
@@ -3012,18 +3010,20 @@ function ChatPanel({
               {/* 会话所在机器离线（R15b）：钉住的档在远端且当前离线，续轮不会改派——
                   给一条走得通的路，而不是让用户对着卡死的输入框干等。 */}
               {session && session.deviceID && session.online === false ? (
-                <SessionOfflineBanner
-                  deviceName={session.deviceName || session.deviceID}
-                  onCreateNewSession={() =>
-                    useChatTabsStore
-                      .getState()
-                      .openNewSession(
-                        session.projectId ?? 0,
-                        session.agentId,
-                        "",
-                      )
-                  }
-                />
+                <div className="mx-4 mb-2">
+                  <MachineOfflineBanner
+                    machineName={session.deviceName || session.deviceID}
+                    onStartNew={() =>
+                      useChatTabsStore
+                        .getState()
+                        .openNewSession(
+                          session.projectId ?? 0,
+                          session.agentId,
+                          "",
+                        )
+                    }
+                  />
+                </div>
               ) : null}
 
               {/* ── Composer ── */}

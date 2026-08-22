@@ -4,10 +4,7 @@ import * as React from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  NewSessionExecTargetLine,
-  SessionOfflineBanner,
-} from "../session-exec-target";
+import { NewSessionExecTargetLine } from "../session-exec-target";
 
 // wailsjs/runtime/ 没有全局 vite alias（只有 go/app/App 与 go/models 有），渲染
 // 会订阅 remote.device.state 的组件必须 per-file mock 掉它，否则真实 runtime.js
@@ -680,24 +677,5 @@ describe("NewSessionExecTargetLine", () => {
     expect(within(line).getByText("构建机")).toBeInTheDocument();
     // chip 配色/图标沿用共享 DeviceTag 的机器归属语义（远端在线 → Server 图标）。
     expect(line.querySelector(".lucide-server")).not.toBeNull();
-  });
-});
-
-describe("SessionOfflineBanner", () => {
-  it("renders device name + hint and invokes the callback on click", async () => {
-    const onCreateNewSession = vi.fn();
-    render(
-      <SessionOfflineBanner
-        deviceName="构建机 · mac-mini-01"
-        onCreateNewSession={onCreateNewSession}
-      />,
-    );
-    expect(
-      screen.getByText("构建机 · mac-mini-01 is currently offline"),
-    ).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Start a new session" }),
-    );
-    expect(onCreateNewSession).toHaveBeenCalledTimes(1);
   });
 });

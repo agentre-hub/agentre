@@ -262,7 +262,6 @@ vi.mock("../session-exec-target", async () => {
       }, [onEffectiveTarget]);
       return null;
     },
-    SessionOfflineBanner: () => null,
   };
 });
 
@@ -5632,5 +5631,68 @@ describe("ChatPanel · send failure draft restore", () => {
     await waitFor(() =>
       expect(screen.queryByText(/Send failed — draft kept/)).toBeNull(),
     );
+  });
+});
+
+// ─── R15b: 会话所在机器离线 ───────────────────────────────────────────────────
+//
+// 这一档从桌面端本地的 `SessionOfflineBanner` 换成了共享包的 `MachineOfflineBanner`
+// （两端唯一都成立、也都各画过一份的一档）。此前两端说的不是同一件事：桌面端讲
+// 「为什么不会自动换机器」，agentre-server 讲「历史还读得到、消息不会排队」——
+// 同一个用户在两端遇到同一件事得到两种解释。正文因此取并集，住进包里。
+//
+// 桌面端在这里保留的只有「按下去往哪走」：就地开一条同项目同 Agent 的新会话。
+describe("ChatPanel · R15b 会话所在机器离线", () => {
+  function offlineSession() {
+    return makeSession({
+      id: 42,
+      agentId: 7,
+      projectId: 2,
+      deviceID: "remote-7",
+      deviceName: "Build box",
+      online: false,
+    });
+  }
+
+  it("Given 会话钉在一台离线的远端机器, When 渲染, Then 说的是包里那套并集文案", () => {
+    resetStore();
+    mockSessionStore.session = offlineSession();
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.getByText("Build box is offline")).toBeInTheDocument();
+    // 并集：server 那半（历史照常读 / 消息不排队）与桌面端那半（上下文在那台机器
+    // 上、不会改派）。少哪一半都是回归。
+    const body = screen.getByTestId("status-banner-body").textContent ?? "";
+    expect(body).toContain("History still reads");
+    expect(body).toContain("will not be reassigned");
+  });
+
+  it("Given 那张横幅, When 按下出口, Then 就地开一条同项目同 Agent 的新会话", async () => {
+    resetStore();
+    mockSessionStore.session = offlineSession();
+    const openNewSession = vi.fn();
+    useChatTabsStore.setState({ openNewSession });
+
+    render(<ChatPanel sessionId={42} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Start a new conversation" }),
+    );
+
+    expect(openNewSession).toHaveBeenCalledWith(2, 7, "");
+  });
+
+  it("Given 机器在线, When 渲染, Then 一个字都不出", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({
+      id: 42,
+      deviceID: "remote-7",
+      deviceName: "Build box",
+      online: true,
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.queryByText("Build box is offline")).toBeNull();
   });
 });
