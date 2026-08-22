@@ -42,18 +42,21 @@ func (h *execHandle) Stdout() io.Reader { return h.stdout }
 func (h *execHandle) Stderr() io.Reader { return h.stderr }
 func (h *execHandle) Wait() error       { return h.cmd.Wait() }
 
+// Kill 收掉整棵进程树:CLI 自己派生的孙进程握着 stdout 写端,只杀父进程会让读端
+// 永远等不到 EOF。
 func (h *execHandle) Kill() error {
 	if h.cmd.Process == nil {
 		return nil
 	}
-	return h.cmd.Process.Kill()
+	return killProcessTree(h.cmd.Process)
 }
 
+// Signal 同样按树投递(优雅中断要能传到孙进程),拒收时退回单进程。
 func (h *execHandle) Signal(sig os.Signal) error {
 	if h.cmd.Process == nil {
 		return nil
 	}
-	return h.cmd.Process.Signal(sig)
+	return signalProcessTree(h.cmd.Process, sig)
 }
 
 func Start(ctx context.Context, opts Options, binaryNotFound error) (Handle, error) {
@@ -76,6 +79,7 @@ func Start(ctx context.Context, opts Options, binaryNotFound error) (Handle, err
 	// ctx 每轮都会 cancel,绑上去等于每轮结束都 SIGKILL 掉池里留着复用的进程。
 	cmd := exec.Command(binary, opts.Args...)
 	procattr.ApplyNoConsoleWindow(cmd)
+	applyProcessGroup(cmd)
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}

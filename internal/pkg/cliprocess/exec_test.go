@@ -117,3 +117,43 @@ func TestStart_GivenContextCanceledBeforeSpawn_WhenStarting_ThenReturnsContextEr
 	require.Nil(t, h)
 	assert.ErrorIs(t, err, context.Canceled)
 }
+
+// 契约:Start 起的进程自成进程组,Kill 收掉的是整棵树 —— CLI 派生的孙进程
+// (MCP server / git / node 等)不留在外面。
+//
+// 观测点用 stdout 的 EOF:孙进程继承并握着 stdout 写端,只杀父进程时管道永远读不到
+// EOF,readLoop 收不了尾、Wait 也回不来。pkg/claudecode 与 pkg/piagent 都为此各自
+// 实现过一套组/树语义,只有走这个底座的 codex 漏了。
+func TestKill_GivenProcessSpawnedGrandchild_WhenKilling_ThenWholeTreeGoesDown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX process groups; Windows tears the tree down through taskkill")
+	}
+
+	binDir := t.TempDir()
+	spawner := filepath.Join(binDir, "agentre-test-spawner")
+	require.NoError(t, os.WriteFile(spawner, []byte("#!/bin/sh\nsleep 20 &\nprintf 'ready\\n'\ncat\n"), 0o755))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	h, err := Start(ctx, Options{Binary: spawner}, errors.New("missing"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = h.Kill() })
+
+	reader := bufio.NewReader(h.Stdout())
+	ready, readErr := reader.ReadString('\n')
+	require.NoError(t, readErr)
+	require.Equal(t, "ready", strings.TrimSpace(ready))
+
+	require.NoError(t, h.Kill())
+
+	drained := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, reader)
+		close(drained)
+	}()
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Kill 之后 stdout 仍未 EOF,说明孙进程还活着并握着管道写端")
+	}
+}
