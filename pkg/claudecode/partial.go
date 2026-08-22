@@ -19,12 +19,29 @@ type partialText struct {
 	// curMsgID 是最近一条 message_start 报的 message id。content_block_delta 自己
 	// 不带 message id,只能靠它归属。
 	curMsgID string
+	// started 记「这条 message 走的是 partial 模式」(见过它的 message_start)。
+	// 这类 message 的 merged assistant 帧带的 usage 是 message_start 的占位快照
+	// (实测 output_tokens 恒为 1,input/cache 与随后的 message_delta 相同),真实
+	// 用量在 message_delta 上,占位那份不能进上层的逐跳累加。
+	started  map[string]bool
 	text     map[string]bool
 	thinking map[string]bool
 }
 
 func (p *partialText) noteMessageStart(id string) {
 	p.curMsgID = id
+	if id == "" {
+		return
+	}
+	if p.started == nil {
+		p.started = map[string]bool{}
+	}
+	p.started[id] = true
+}
+
+// placeholderUsage 报告这条 message 的 merged 帧 usage 是否只是占位。
+func (p *partialText) placeholderUsage(msgID string) bool {
+	return msgID != "" && p.started[msgID]
 }
 
 // markText 记下 curMsgID 的正文已流出;curMsgID 为空(没见过 message_start)时返回
@@ -61,6 +78,7 @@ func (p *partialText) streamedThinking(msgID string) bool {
 
 func (p *partialText) reset() {
 	p.curMsgID = ""
+	p.started = nil
 	p.text = nil
 	p.thinking = nil
 }
@@ -122,4 +140,18 @@ func parseStreamEventFrame(f rawFrame, sid string, p *partialText, remember func
 		}}
 	}
 	return nil
+}
+
+// assistantMessageID 从 assistant 帧的 inner message 里取 message id。
+func assistantMessageID(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var m struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return ""
+	}
+	return m.ID
 }

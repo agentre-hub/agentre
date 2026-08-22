@@ -739,7 +739,8 @@ func (s *Session) parseLine(line []byte) ([]Event, bool) {
 		// 放在 stream_event message_delta 上,随后这条 merged assistant 帧的
 		// usage 字段是 message_start 状态的 0 拷贝。zero-clobber guard:全 0 视为
 		// "没新信息",不要覆盖已经从 stream_event 抓到的真值。
-		if usage != nil && f.ParentToolUseID == "" && !isZeroUsage(usage) {
+		if usage != nil && f.ParentToolUseID == "" && !isZeroUsage(usage) &&
+			!s.partials.placeholderUsage(assistantMessageID(f.Message)) {
 			s.lastAssistantUsage = usage
 			// 每个主 agent 帧附加一条 EventUsage，让上层在 turn 内实时刷新
 			// 「已用上下文」。EventDone 仍按 resolveDoneUsage 兜底，不变。

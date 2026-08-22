@@ -22,7 +22,7 @@ func partialTurnFrames() []string {
 		`{"type":"stream_event","session_id":"sx","parent_tool_use_id":null,"event":{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}}`,
 		`{"type":"stream_event","session_id":"sx","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"你"}}}`,
 		`{"type":"stream_event","session_id":"sx","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"好"}}}`,
-		`{"type":"assistant","parent_tool_use_id":null,"message":{"type":"message","id":"m1","role":"assistant","model":"claude-opus-5","content":[{"type":"thinking","thinking":"想一下"},{"type":"text","text":"你好"},{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"ls"}}],"usage":{"input_tokens":0,"output_tokens":0}}}`,
+		`{"type":"assistant","parent_tool_use_id":null,"message":{"type":"message","id":"m1","role":"assistant","model":"claude-opus-5","content":[{"type":"thinking","thinking":"想一下"},{"type":"text","text":"你好"},{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"ls"}}],"usage":{"input_tokens":2,"cache_creation_input_tokens":8131,"cache_read_input_tokens":16153,"output_tokens":1}}}`,
 		`{"type":"stream_event","session_id":"sx","parent_tool_use_id":null,"event":{"type":"content_block_stop","index":1}}`,
 		`{"type":"stream_event","session_id":"sx","parent_tool_use_id":null,"event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":1180,"output_tokens":61,"cache_read_input_tokens":34496}}}`,
 		`{"type":"stream_event","session_id":"sx","parent_tool_use_id":null,"event":{"type":"message_stop"}}`,
@@ -125,4 +125,39 @@ func TestSession_PartialDedupeIsPerTurn(t *testing.T) {
 	require.NotEmpty(t, evs)
 	collect(evs, &got)
 	assert.Equal(t, []string{"你", "好", "下一轮"}, got.text)
+}
+
+// TestSession_MergedFrameUsageDoesNotInflateCompletion —— partial 模式下 merged
+// assistant 帧带的 usage 是 message_start 的占位快照(实测 output_tokens 恒为 1,
+// input/cache 与随后的 message_delta 相同),不是这次 API call 的真实用量。上层对
+// completion 是逐跳累加的,这条占位每个 content block 都来一遍 → 每块白加 1 个
+// output token。真实用量由 message_delta 那条 EventUsage 承载,占位那条不再 emit。
+func TestSession_MergedFrameUsageDoesNotInflateCompletion(t *testing.T) {
+	s := &Session{}
+	var usages []Event
+	for _, line := range partialTurnFrames() {
+		evs, _ := s.parseLine([]byte(line))
+		for _, ev := range evs {
+			if ev.Kind == EventUsage {
+				usages = append(usages, ev)
+			}
+		}
+	}
+	require.Len(t, usages, 1, "一次 API call 只该有一条 usage —— message_delta 那条")
+	assert.Equal(t, 61, usages[0].Usage.CompletionTokens)
+	assert.Equal(t, 1180, usages[0].Usage.PromptTokens)
+}
+
+// 没开 partial(老 CLI / stub)时 merged 帧的 usage 就是这次 call 的真实用量,照旧 emit。
+func TestSession_MergedFrameUsageStillEmittedWithoutPartials(t *testing.T) {
+	s := &Session{}
+	var usages []Event
+	evs, _ := s.parseLine([]byte(`{"type":"assistant","parent_tool_use_id":null,"message":{"type":"message","id":"m9","role":"assistant","content":[{"type":"text","text":"整段"}],"usage":{"input_tokens":100,"output_tokens":20}}}`))
+	for _, ev := range evs {
+		if ev.Kind == EventUsage {
+			usages = append(usages, ev)
+		}
+	}
+	require.Len(t, usages, 1)
+	assert.Equal(t, 20, usages[0].Usage.CompletionTokens)
 }

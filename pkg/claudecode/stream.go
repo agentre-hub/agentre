@@ -279,7 +279,8 @@ func (d *frameDecoder) decodeLine(line []byte) ([]Event, bool) {
 		// 小上下文，明显错。
 		//
 		// zero-clobber guard:同 session.go 的 parseLine 注释。
-		if usage != nil && f.ParentToolUseID == "" && !isZeroUsage(usage) {
+		if usage != nil && f.ParentToolUseID == "" && !isZeroUsage(usage) &&
+			!d.partials.placeholderUsage(assistantMessageID(f.Message)) {
 			d.lastAssistantUsage = usage
 			// 每个主 agent 帧附加一条 EventUsage，让上层在 turn 内实时刷新
 			// 「已用上下文」。EventDone 仍按 resolveDoneUsage 兜底，不变。
