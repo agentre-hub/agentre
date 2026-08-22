@@ -334,7 +334,11 @@ func (r *Runtime) unregister(sessionID int64, expected *codexActive) {
 	r.mu.Unlock()
 }
 
-func sessionKey(id int64) string { return fmt.Sprintf("codex:%d", id) }
+// sessionKey 把 chat session ID 翻成池键。形状由 agentruntime 统一决定(见
+// SessionPoolKey):池是进程级单例,两个 CLI 后端共用同一个实例。
+func sessionKey(id int64) string {
+	return agentruntime.SessionPoolKey(agent_backend_entity.TypeCodex, id)
+}
 
 // Run 启动一轮 codex CLI 发送。语义同顶层 codex.go.Run,emit 类型从
 // RuntimeEvent 改为 sealed agentruntime.Event。

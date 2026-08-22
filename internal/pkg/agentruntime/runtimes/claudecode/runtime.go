@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,8 +96,12 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 // SetSteerInbox 由 bootstrap 在 gateway.Start() 后注入。
 func (r *Runtime) SetSteerInbox(ib *httpgateway.SteerInbox) { r.steer = ib }
 
-// sessionKey 把 chat session ID 翻成 cache key。
-func sessionKey(id int64) string { return strconv.FormatInt(id, 10) }
+// sessionKey 把 chat session ID 翻成池键。形状由 agentruntime 统一决定 —— 池是
+// 进程级单例,claudecode 与 codex 共用同一个实例,裸会话 id 会让两个后端上的同号
+// 会话互相顶掉。
+func sessionKey(id int64) string {
+	return agentruntime.SessionPoolKey(agent_backend_entity.TypeClaudeCode, id)
+}
 
 // Capabilities 返回 claudecode runtime 的能力矩阵 + permission mode 元数据。
 func (r *Runtime) Capabilities() capability.Capabilities {
