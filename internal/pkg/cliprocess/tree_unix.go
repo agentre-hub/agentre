@@ -90,21 +90,25 @@ func killProcessTree(process *os.Process) error {
 	if !ok {
 		return ignoreProcessDone(process.Kill())
 	}
-	switch err := syscall.Kill(-pgid, syscall.SIGKILL); {
-	case err == nil, errors.Is(err, syscall.ESRCH):
-		// nil = 投出去了;ESRCH = 这个组本来就没了。两者都不必退回单进程。
-	default:
+	// 第一刀投不出去(组已经没了 / 拒收)就退回单进程 —— 那条路自己会把「进程早就
+	// 不在了」当成收尾成功。
+	if syscall.Kill(-pgid, syscall.SIGKILL) != nil {
 		return ignoreProcessDone(process.Kill())
 	}
-	// 补投是 best-effort:错误一律不上报。组里只剩僵尸时,内核对整组投递会回 EPERM ——
-	// 那不是失败,那是「已经没有活着的成员了」。
+	redeliverGroupKill(pgid)
+	return nil
+}
+
+// redeliverGroupKill 对同一个组补投几刀,不上报任何结果:第一刀已经投出去了,这里补的
+// 是「挨刀那一瞬刚 fork 出来、赶不上那次枚举」的成员。投不动了(组里只剩僵尸时内核会
+// 回 EPERM)就到此为止。
+func redeliverGroupKill(pgid int) {
 	for attempt := 1; attempt < killTreeAttempts; attempt++ {
 		time.Sleep(killTreeRetryDelay)
-		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
-			return nil
+		if syscall.Kill(-pgid, syscall.SIGKILL) != nil {
+			return
 		}
 	}
-	return nil
 }
 
 // ignoreProcessDone 把「进程早就没了」当成收尾成功:Kill 是幂等的收尾动作。
