@@ -16,11 +16,10 @@ import (
 	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent/mcpbridge"
 	pkgpi "github.com/agentre-ai/agentre/pkg/piagent"
 )
 
-var defaultRuntime = New()
+var defaultRuntime = NewWithPool(agentruntime.DefaultCLISessionPool())
 
 func init() {
 	agentruntime.RegisterRuntime(agent_backend_entity.TypePiAgent, defaultRuntime)
@@ -42,6 +41,24 @@ type Runtime struct {
 	mu       sync.Mutex
 	active   map[int64]*activeSession
 	prepared map[int64]*preparedRun
+	// pool 让 RPC 会话跨轮活着。pi 的启动参数(--session/--append-system-prompt/
+	// --model/--thinking/--extension)在 spawn 时烤死且逐轮不变,每轮重起付的是进程
+	// 启动 + 扩展加载的钱,买到的是一模一样的东西。
+	pool *agentruntime.CLISessionPool
+	// launched 记每条池内会话的启动身份:任一项变化都必须 evict + 重 spawn,
+	// 否则复用的是拿旧参数起来的进程。
+	launched map[string]launchIdentity
+}
+
+// launchIdentity 是「这个 RPC 进程是拿什么参数起来的」。它们全是命令行参数,进程起来
+// 之后改不了 —— 变了就只能重开一个。
+type launchIdentity struct {
+	model        string
+	thinking     string
+	systemPrompt string
+	providerKey  string
+	cwd          string
+	mcpServers   string
 }
 
 type PreparedRun interface {
@@ -65,6 +82,7 @@ type preparedRun struct {
 	runtime           *Runtime
 	req               agentruntime.RunRequest
 	sess              sessionHandle
+	poolKey           string
 	prepared          preparedTurnStream
 	cwd               string
 	modelID           string
@@ -76,11 +94,99 @@ type preparedRun struct {
 	close   sync.Once
 }
 
+// New 造一个自带独立池的 runtime。默认实例用的是进程级共享池(见 defaultRuntime),
+// 单测要的是互不干扰。
 func New() *Runtime {
+	return NewWithPool(agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap))
+}
+
+func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
+	if pool == nil {
+		pool = agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap)
+	}
 	return &Runtime{
 		active:   map[int64]*activeSession{},
 		prepared: map[int64]*preparedRun{},
+		pool:     pool,
+		launched: map[string]launchIdentity{},
 	}
+}
+
+// sessionKey 把 chat session ID 翻成池键;形状由 agentruntime 统一决定。
+func sessionKey(id int64) string {
+	return agentruntime.SessionPoolKey(agent_backend_entity.TypePiAgent, id)
+}
+
+// identityOf 读出这一轮要求的启动身份。
+func identityOf(req agentruntime.RunRequest, cwd string) launchIdentity {
+	id := launchIdentity{systemPrompt: req.SystemPrompt, cwd: cwd, providerKey: req.EffectiveProviderKey()}
+	if req.Backend != nil {
+		id.thinking = req.Backend.ReasoningEffort
+	}
+	if req.Effective != nil {
+		id.model = req.Effective.ModelID
+	}
+	names := make([]string, 0, len(req.MCPServers))
+	for _, srv := range req.MCPServers {
+		names = append(names, srv.Name)
+	}
+	sort.Strings(names)
+	id.mcpServers = strings.Join(names, ",")
+	return id
+}
+
+// acquireSession 拿到这条会话的常驻 RPC 会话,必要时重开。返回的池键为空表示这一轮
+// 不进池(没有会话 id 的临时轮),由调用方自己收尾。
+func (r *Runtime) acquireSession(req agentruntime.RunRequest, env map[string]string, cwd string) (sessionHandle, string, error) {
+	if req.SessionID <= 0 {
+		sess, err := sessionFactory(req, env, cwd)
+		return sess, "", err
+	}
+	key := sessionKey(req.SessionID)
+	want := identityOf(req, cwd)
+	if v, ok := r.pool.Get(key); ok {
+		sess := v.(sessionHandle)
+		switch {
+		case r.identityChanged(key, want):
+			r.pool.Remove(key)
+			r.forgetIdentity(key)
+		case req.ProviderSessionID != "" && req.ProviderSessionID != sess.ID():
+			// 会话被换到了另一条原生 session(重生 / 外部改绑):池里那个进程是用
+			// --session 钉在旧的那条上的,复用它等于往错的会话里写。
+			r.pool.Remove(key)
+			r.forgetIdentity(key)
+		default:
+			r.pool.MarkActive(key)
+			return sess, key, nil
+		}
+	}
+	sess, err := sessionFactory(req, env, cwd)
+	if err != nil {
+		return nil, "", err
+	}
+	r.pool.Put(key, sess)
+	r.pool.MarkActive(key)
+	r.recordIdentity(key, want)
+	return sess, key, nil
+}
+
+func (r *Runtime) identityChanged(key string, want launchIdentity) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	got, ok := r.launched[key]
+	return ok && got != want
+}
+
+func (r *Runtime) recordIdentity(key string, want launchIdentity) {
+	r.mu.Lock()
+	r.launched[key] = want
+	r.mu.Unlock()
+}
+
+func (r *Runtime) forgetIdentity(key string) {
+	r.mu.Lock()
+	delete(r.launched, key)
+	r.mu.Unlock()
 }
 
 func (r *Runtime) Capabilities() capability.Capabilities {
@@ -134,7 +240,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 			env = agentruntime.BuildPiAgentProviderEnv(env, effective)
 		}
 	}
-	sess, err := sessionFactory(req, env, cwd)
+	sess, poolKey, err := r.acquireSession(req, env, cwd)
 	if err != nil {
 		logger.Ctx(ctx).Error("piagent runtime: session factory failed", zap.Int64("sessionID", req.SessionID), zap.String("cwd", cwd), providerKeyField(req), zap.Error(err))
 		return nil, err
@@ -144,6 +250,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 		runtime:           r,
 		req:               req,
 		sess:              sess,
+		poolKey:           poolKey,
 		cwd:               cwd,
 		modelID:           modelID,
 		providerSessionID: strings.TrimSpace(sess.ID()),
@@ -239,10 +346,57 @@ func (p *preparedRun) Start(ctx context.Context) (<-chan agentruntime.Event, *ag
 	go func() {
 		defer close(out)
 		defer p.runtime.unregister(p.req.SessionID, active)
-		defer func() { _ = p.Close(context.Background()) }()
+		defer func() { p.release(result, active) }()
 		drainStream(ctx, p.req, p.cwd, s, out, result, active)
 	}()
 	return out, result, nil
+}
+
+// release 收尾一轮:干净结束的轮把 RPC 会话还给池留给下一轮,其余一律连会话一起收掉。
+//
+// 保守是刻意的 —— 取消 / 中断 / 出错之后进程处在什么状态无从判断,复用它就是把上一轮
+// 的残留带进下一轮。异常路径因此退化成 pi 从前的行为(每轮一个进程),复用只发生在
+// 完全正常的那条路上。
+func (p *preparedRun) release(result *agentruntime.RunResult, active *activeSession) {
+	if p.poolKey != "" && p.reusable(result, active) {
+		if p.closeTurn(context.Background()) {
+			p.runtime.pool.MarkIdle(p.poolKey)
+		}
+		return
+	}
+	_ = p.Close(context.Background())
+}
+
+// reusable 判定这一轮是否干净结束。
+func (p *preparedRun) reusable(result *agentruntime.RunResult, active *activeSession) bool {
+	if result == nil || result.StopErr != nil {
+		return false
+	}
+	if active != nil {
+		active.mu.Lock()
+		aborted := active.abortRequested
+		active.mu.Unlock()
+		if aborted {
+			return false
+		}
+	}
+	return true
+}
+
+// closeTurn 只收这一轮:关掉本轮的 stream,注销 prepared 登记,RPC 进程留给池。
+// 返回值表示收尾时这一代**仍然是**这条会话的属主 —— 陈旧的收尾不得动池里的条目。
+func (p *preparedRun) closeTurn(ctx context.Context) bool {
+	p.startMu.Lock()
+	p.closed = true
+	p.startMu.Unlock()
+	owns := false
+	p.close.Do(func() {
+		if p.prepared != nil {
+			_ = p.prepared.Close(ctx)
+		}
+		owns = p.runtime.unregisterPrepared(p.req.SessionID, p)
+	})
+	return owns
 }
 
 func (p *preparedRun) Close(ctx context.Context) error {
@@ -257,14 +411,22 @@ func (p *preparedRun) Close(ctx context.Context) error {
 		if p.prepared != nil {
 			closeErr = p.prepared.Close(ctx)
 		}
+		// 归属守卫:一条会话上可能有一代已经被更新的一代顶掉(重连 / 抢跑),而池里那个
+		// 条目此刻属于**新的**那一代。陈旧的收尾只收自己那一轮的 stream,绝不能把还在
+		// 用的会话连同它的 RPC 进程和 MCP 配置一起收掉。
+		if !p.runtime.unregisterPrepared(p.req.SessionID, p) {
+			return
+		}
+		if p.poolKey != "" {
+			// 先把条目从池里摘掉,免得下一轮捡到一个正在被收尾的会话。池自己也会关它
+			// (带「优雅关闭 → 超时硬杀」的升级),但那是异步的。
+			p.runtime.pool.Remove(p.poolKey)
+			p.runtime.forgetIdentity(p.poolKey)
+		}
+		// 同步再关一次:失败路径要的是确定性的收尾,调用方返回时进程就该没了。
+		// Close 是幂等的。
 		if err := p.sess.Close(ctx); closeErr == nil && err != nil {
 			closeErr = err
-		}
-		ownsPreparedRegistration := p.runtime.unregisterPrepared(p.req.SessionID, p)
-		if ownsPreparedRegistration && len(p.req.MCPServers) > 0 {
-			if err := mcpbridge.RemoveConfig(p.req.SessionID); closeErr == nil && err != nil {
-				closeErr = err
-			}
 		}
 	})
 	return closeErr

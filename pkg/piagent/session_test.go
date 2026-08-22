@@ -62,12 +62,13 @@ func TestSession_GivenAClosedSession_WhenStartingATurn_ThenItFails(t *testing.T)
 // Given 一个会话上刚做完压缩, When 紧接着再跑一轮, Then 还是同一个进程 —— 压缩不该
 // 顺手把会话的进程收掉。
 func TestSession_GivenCompaction_WhenTheNextTurnRuns_ThenTheProcessSurvives(t *testing.T) {
-	compact := []string{
+	compact := make([]string, 0, 4+len(scriptedTurn()))
+	compact = append(compact,
 		`{"id":"session-state","type":"response","command":"get_state","success":true,"data":{"sessionId":"session-1"}}`,
 		`{"type":"agent_end","messages":[],"willRetry":false}`,
 		`{"type":"agent_settled"}`,
 		`{"type":"response","command":"get_session_stats","success":true,"data":{}}`,
-	}
+	)
 	lines := append(compact, scriptedTurn()...)
 	client, _, runner := newSingleProcessCaptureClient(strings.Join(append(lines, ""), "\n"))
 

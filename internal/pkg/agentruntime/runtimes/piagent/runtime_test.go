@@ -405,16 +405,21 @@ func TestRun_MapsMissingNativeSession(t *testing.T) {
 	})
 }
 
-func TestRun_ClosesSessionAfterDrain(t *testing.T) {
+// 一轮结束时会话的去向:干净收尾的留给池(下一轮复用),出了错的连会话一起收掉。
+//
+// 保守是刻意的 —— 出错之后 RPC 进程处在什么状态无从判断,复用它就是把上一轮的残留
+// 带进下一轮。异常路径因此退化成 pi 从前的行为(每轮一个进程)。
+func TestRun_GivenDrainedTurn_WhenItEnds_ThenTheSessionSurvivesOnlyIfTheTurnWasClean(t *testing.T) {
 	Convey("Given a pi-agent session", t, func() {
-		sess := &fakeSession{stream: &emptyStream{}, sid: "pi-session"}
-		restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
-			return sess, nil
-		})
-		defer restore()
+		Convey("When 这一轮干净收尾 Then 会话留给下一轮,不关", func() {
+			sess := &fakeSession{stream: &emptyStream{}, sid: "pi-session"}
+			restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
+				return sess, nil
+			})
+			defer restore()
 
-		Convey("When Run drains Then the session is closed", func() {
-			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+			pool := agentruntime.NewCLISessionPool(8)
+			events, _, err := NewWithPool(pool).Run(context.Background(), agentruntime.RunRequest{
 				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 				SessionID: 1,
 				Cwd:       t.TempDir(),
@@ -423,7 +428,40 @@ func TestRun_ClosesSessionAfterDrain(t *testing.T) {
 			So(err, ShouldBeNil)
 			for range events {
 			}
-			So(sess.closed, ShouldBeTrue)
+
+			So(sess.closed, ShouldBeFalse)
+			So(pool.IdleLen(), ShouldEqual, 1)
+		})
+
+		Convey("When 这一轮出错 Then 会话被收掉,不留给下一轮", func() {
+			closed := make(chan struct{})
+			sess := &fakeSession{
+				stream:       &scriptedStream{err: errors.New("stream failed")},
+				sid:          "pi-session",
+				closeStarted: closed,
+			}
+			restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
+				return sess, nil
+			})
+			defer restore()
+
+			pool := agentruntime.NewCLISessionPool(8)
+			events, _, err := NewWithPool(pool).Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
+				SessionID: 1,
+				Cwd:       t.TempDir(),
+				UserText:  "hello",
+			})
+			So(err, ShouldBeNil)
+			for range events {
+			}
+
+			select {
+			case <-closed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("出错的轮没有收掉会话:状态不明的进程会被下一轮捡去用")
+			}
+			So(pool.Len(), ShouldEqual, 0)
 		})
 	})
 }
@@ -435,8 +473,10 @@ func TestRun_StaleCleanupCannotUnregisterNewerGeneration(t *testing.T) {
 	releaseSecond := sync.OnceFunc(func() { close(secondRelease) })
 	defer releaseSecond()
 	secondInterrupted := make(chan struct{}, 1)
+	// 第一轮刻意以错误收尾:只有不可复用的轮才会连会话一起收掉(干净的轮把会话留给
+	// 池),而这个用例要的正是「A 的延迟收尾撞上 B」这个时序。
 	first := &fakeSession{
-		stream:       &emptyStream{},
+		stream:       &scriptedStream{err: errors.New("first turn failed")},
 		sid:          "shared-native-session",
 		closeStarted: firstCloseStarted,
 		allowClose:   allowFirstClose,
@@ -493,20 +533,20 @@ func TestRun_StaleCleanupCannotUnregisterNewerGeneration(t *testing.T) {
 	}
 }
 
-func TestPreparedRun_StaleCloseCannotRemoveNewerGenerationMCPConfig(t *testing.T) {
+// Given 一条会话上有一代已经被更新的一代顶掉, When 陈旧的那一代收尾, Then 新一代
+// 手上的 RPC 会话与它的 MCP 配置一个都不能动。
+//
+// 跨轮复用之后这条更要紧了:两代共用池里同一个会话,陈旧的收尾要是照样 Remove,
+// 摘掉的就是新一代正在用的那个进程。
+func TestPreparedRun_GivenStaleGeneration_WhenItCloses_ThenTheNewerGenerationKeepsItsSession(t *testing.T) {
 	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
-	first := &fakeSession{stream: &emptyStream{}, sid: "shared-native-session"}
-	second := &fakeSession{stream: &emptyStream{}, sid: "shared-native-session"}
-	created := 0
+	shared := &fakeSession{stream: &emptyStream{}, sid: "shared-native-session"}
 	restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
-		created++
-		if created == 1 {
-			return first, nil
-		}
-		return second, nil
+		return shared, nil
 	})
 	defer restore()
-	runtime := New()
+	pool := agentruntime.NewCLISessionPool(8)
+	runtime := NewWithPool(pool)
 	req := agentruntime.RunRequest{
 		Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
 		SessionID: 92,
@@ -516,18 +556,43 @@ func TestPreparedRun_StaleCloseCannotRemoveNewerGenerationMCPConfig(t *testing.T
 		}},
 	}
 
-	firstPrepared, err := runtime.PrepareRun(context.Background(), req)
+	stalePrepared, err := runtime.PrepareRun(context.Background(), req)
 	require.NoError(t, err)
-	secondPrepared, err := runtime.PrepareRun(context.Background(), req)
+	currentPrepared, err := runtime.PrepareRun(context.Background(), req)
 	require.NoError(t, err)
 	configPath, err := mcpbridge.RenderConfig(req.MCPServers, req.SessionID)
 	require.NoError(t, err)
 
-	require.NoError(t, firstPrepared.Close(context.Background()))
-	_, err = os.Stat(configPath)
-	require.NoError(t, err, "generation A must not remove generation B's MCP config")
+	require.NoError(t, stalePrepared.Close(context.Background()))
 
-	require.NoError(t, secondPrepared.Close(context.Background()))
+	assert.False(t, shared.closed, "陈旧一代不得关掉新一代还在用的会话")
+	assert.Equal(t, 1, pool.Len(), "陈旧一代不得把新一代的池条目摘掉")
+	_, err = os.Stat(configPath)
+	require.NoError(t, err, "陈旧一代不得删掉新一代的 MCP 配置")
+
+	require.NoError(t, currentPrepared.Close(context.Background()))
+	assert.True(t, shared.closed, "属主一代收尾时会话才该被关掉")
+	assert.Equal(t, 0, pool.Len())
+}
+
+// Given 一条会话渲染过 MCP 桥配置, When 它的 RPC 会话被关掉, Then 配置跟着一起没。
+//
+// 配置的寿命从「某一轮」改成了「进程」:进程跨轮活着,轮末删配置会把还在用的那份删掉。
+func TestClientAdapter_GivenMCPConfig_WhenTheSessionCloses_ThenTheConfigGoesWithIt(t *testing.T) {
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+	const chatSessionID = int64(93)
+	configPath, err := mcpbridge.RenderConfig([]agentruntime.MCPServerSpec{{
+		Name: "group", URL: "http://127.0.0.1:1/mcp/group/",
+	}}, chatSessionID)
+	require.NoError(t, err)
+
+	adapter := &clientAdapter{
+		client:        pkgpiagent.New(),
+		chatSessionID: chatSessionID,
+		ownsMCPConfig: true,
+	}
+	require.NoError(t, adapter.Close(context.Background()))
+
 	_, err = os.Stat(configPath)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
@@ -536,8 +601,10 @@ func TestRun_ClosesOutputAfterSessionClose(t *testing.T) {
 	Convey("Given a pi-agent session whose cleanup is still running", t, func() {
 		closeStarted := make(chan struct{})
 		allowClose := make(chan struct{})
+		// 以错误收尾的轮才会真的关会话(干净的轮把会话留给池),这个用例要的是
+		// 「收尾还没返回」这个时刻。
 		sess := &fakeSession{
-			stream:       &emptyStream{},
+			stream:       &scriptedStream{err: errors.New("turn failed")},
 			sid:          "pi-session",
 			closeStarted: closeStarted,
 			allowClose:   allowClose,
@@ -1095,22 +1162,25 @@ func TestProviderRunConfig(t *testing.T) {
 }
 
 type fakeSession struct {
-	stream        stream
-	sid           string
-	interrupter   interruptable
-	gotImages     []pkgpiagent.Image
-	gotPrompt     string
-	gotForkAnchor string
-	streamCall    int
-	streamErr     error
-	closed        bool
-	closeStarted  chan struct{}
-	allowClose    <-chan struct{}
+	stream           stream
+	sid              string
+	interrupter      interruptable
+	gotImages        []pkgpiagent.Image
+	gotPrompt        string
+	gotForkAnchor    string
+	streamCall       int
+	streamErr        error
+	closed           bool
+	closeStarted     chan struct{}
+	closeStartedOnce sync.Once
+	allowClose       <-chan struct{}
 }
 
+// Close 幂等:真适配器的 Close 也是(失败路径同步关一次、池的收尾又异步关一次),
+// 替身不跟上就会在第二次调用时 panic。
 func (s *fakeSession) Close(context.Context) error {
 	if s.closeStarted != nil {
-		close(s.closeStarted)
+		s.closeStartedOnce.Do(func() { close(s.closeStarted) })
 	}
 	if s.allowClose != nil {
 		<-s.allowClose
@@ -1409,6 +1479,90 @@ func TestCloseSession_GivenDeletedSession_WhenReleasing_ThenOnlyThatSessionIsRel
 			r.CloseSession(context.Background(), 21)
 			So(sessions[21].closed, ShouldBeTrue)
 			So(sessions[22].closed, ShouldBeFalse)
+		})
+	})
+}
+
+// Given 一条会话跑完了一轮, When 同一条会话再来一轮, Then 复用池里那个 RPC 会话,
+// 不再新建 —— 这正是 claudecode / codex 早就有的跨轮复用。
+//
+// pi 此前每轮一个进程、轮末就关:每轮开头都白付一次进程启动 + 扩展加载,而它的启动
+// 参数(--session/--append-system-prompt/--model/--thinking/--extension)逐轮不变。
+func TestRun_GivenIdleSessionInPool_WhenRunningAgain_ThenTheRPCSessionIsReused(t *testing.T) {
+	Convey("Given 一条 pi 会话已经跑过一轮", t, func() {
+		pool := agentruntime.NewCLISessionPool(8)
+		created := 0
+		restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
+			created++
+			return &fakeSession{stream: &scriptedStream{}, sid: "session-1"}, nil
+		})
+		defer restore()
+
+		r := NewWithPool(pool)
+		req := agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
+			SessionID: 31,
+			Cwd:       t.TempDir(),
+			UserText:  "one",
+		}
+		events, _, err := r.Run(context.Background(), req)
+		So(err, ShouldBeNil)
+		for range events {
+		}
+
+		Convey("When 同一条会话再来一轮 Then 复用池里那个,不再新建", func() {
+			req.UserText = "two"
+			events, _, err := r.Run(context.Background(), req)
+			So(err, ShouldBeNil)
+			for range events {
+			}
+
+			So(created, ShouldEqual, 1)
+			So(pool.Len(), ShouldEqual, 1)
+		})
+	})
+}
+
+// Given 池里留着一条会话, When 下一轮的启动身份变了(换模型), Then 旧的被收掉、重新
+// spawn —— pi 的模型是 --model 启动参数,复用旧进程就是拿旧模型跑新一轮。
+func TestRun_GivenLaunchIdentityChanged_WhenRunningAgain_ThenTheOldSessionIsEvicted(t *testing.T) {
+	Convey("Given 一条 pi 会话已经用某个模型跑过一轮", t, func() {
+		pool := agentruntime.NewCLISessionPool(8)
+		created := 0
+		firstClosed := make(chan struct{})
+		restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
+			created++
+			if created == 1 {
+				return &fakeSession{stream: &scriptedStream{}, sid: "session-1", closeStarted: firstClosed}, nil
+			}
+			return &fakeSession{stream: &scriptedStream{}, sid: "session-1"}, nil
+		})
+		defer restore()
+
+		r := NewWithPool(pool)
+		backend := &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}", ReasoningEffort: "low"}
+		req := agentruntime.RunRequest{Backend: backend, SessionID: 32, Cwd: t.TempDir(), UserText: "one"}
+		events, _, err := r.Run(context.Background(), req)
+		So(err, ShouldBeNil)
+		for range events {
+		}
+
+		Convey("When 下一轮换了推理档位 Then 旧会话被收掉并重新 spawn", func() {
+			next := *backend
+			next.ReasoningEffort = "high"
+			req.Backend = &next
+			req.UserText = "two"
+			events, _, err := r.Run(context.Background(), req)
+			So(err, ShouldBeNil)
+			for range events {
+			}
+
+			So(created, ShouldEqual, 2)
+			select {
+			case <-firstClosed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("被换掉的旧会话没有被收掉:它的 RPC 进程会一直留着")
+			}
 		})
 	})
 }
