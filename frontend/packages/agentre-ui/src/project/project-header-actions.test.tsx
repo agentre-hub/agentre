@@ -1,11 +1,20 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ProjectHeaderActions,
   ProjectHeaderContextMenu,
 } from "./project-header-actions";
-import type { ProjectHeaderActionsProps, ProjectHeaderMember } from "./project-header-actions";
+import type {
+  ProjectHeaderActionsProps,
+  ProjectHeaderMember,
+} from "./project-header-actions";
 
 /**
  * 组头上的三样动作，两端共用那一份（规格 2026-08-22 C 段，决策 5/10）。
@@ -23,7 +32,9 @@ const MEMBERS: ProjectHeaderMember[] = [
   { id: "a2", name: "Scout", inherited: true },
 ];
 
-function props(over: Partial<ProjectHeaderActionsProps> = {}): ProjectHeaderActionsProps {
+function props(
+  over: Partial<ProjectHeaderActionsProps> = {},
+): ProjectHeaderActionsProps {
   return {
     projectId: "p1",
     projectName: "Atlas",
@@ -130,7 +141,9 @@ describe("条目全集与能力开关", () => {
     openMenu(screen.getByTestId("project-menu-p1"));
     const menu = await screen.findByRole("menu");
     fireEvent.click(within(menu).getByTestId("project-menu-item-paths"));
-    await waitFor(() => expect(onOpenSettings).toHaveBeenCalledWith("p1", "paths"));
+    await waitFor(() =>
+      expect(onOpenSettings).toHaveBeenCalledWith("p1", "paths"),
+    );
   });
 
   it("一台机器上都没配路径时，「机器与路径…」照常在列 —— 它正是去配路径的地方", async () => {
@@ -185,7 +198,9 @@ describe("＋ 的成员浮层", () => {
   it("成员没读上来时说出来，不假装这个项目没有成员", async () => {
     render(
       <ProjectHeaderActions
-        {...props({ loadMembers: vi.fn(async () => Promise.reject(new Error("boom"))) })}
+        {...props({
+          loadMembers: vi.fn(async () => Promise.reject(new Error("boom"))),
+        })}
       />,
     );
     fireEvent.click(screen.getByTestId("project-add-p1"));
@@ -230,7 +245,9 @@ describe("「未配置」角标", () => {
   it("可点，与「机器与路径…」同一个去处 —— 不可点的话它只是个坏消息", async () => {
     const onOpenSettings = vi.fn();
     render(
-      <ProjectHeaderActions {...props({ unconfigured: true, onOpenSettings })} />,
+      <ProjectHeaderActions
+        {...props({ unconfigured: true, onOpenSettings })}
+      />,
     );
     fireEvent.click(screen.getByTestId("project-unconfigured-p1"));
     await waitFor(() =>

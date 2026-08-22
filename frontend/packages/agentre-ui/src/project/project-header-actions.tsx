@@ -308,7 +308,9 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
         <PopoverTrigger asChild>
           <span
             data-testid={`project-add-${props.projectId}`}
-            aria-label={t("projectHeader.add.aria", { name: props.projectName })}
+            aria-label={t("projectHeader.add.aria", {
+              name: props.projectName,
+            })}
             className={affordance}
             {...affordanceProps(handleAdd)}
           >
@@ -422,7 +424,9 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          aria-label={t("projectHeader.menu.label", { name: props.projectName })}
+          aria-label={t("projectHeader.menu.label", {
+            name: props.projectName,
+          })}
           onClick={(e) => e.stopPropagation()}
         >
           {items.map((item) => (

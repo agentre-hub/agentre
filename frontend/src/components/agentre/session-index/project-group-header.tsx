@@ -112,10 +112,12 @@ export function ProjectGroupHeader({
           m,
           inherited: false,
         })),
-        ...((detail.inheritedMembers ?? []) as ProjectMemberItem[]).map((m) => ({
-          m,
-          inherited: true,
-        })),
+        ...((detail.inheritedMembers ?? []) as ProjectMemberItem[]).map(
+          (m) => ({
+            m,
+            inherited: true,
+          }),
+        ),
       ];
       return rows.map(({ m, inherited }) => {
         const agent = byID.get(m.agentID);

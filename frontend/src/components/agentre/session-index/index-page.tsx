@@ -451,7 +451,6 @@ export function SessionIndexPage() {
       openTerminal,
       openCommandPalette,
       openCreateDialog,
-      refreshProjectData,
       sessionActions.requestRename,
       sessionActions.requestDelete,
       agentByID,

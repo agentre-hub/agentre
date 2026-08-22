@@ -456,9 +456,11 @@ describe("SessionIndexPage project tree rendering", () => {
     renderIndex();
 
     const missing = await screen.findByText("agentre-hub");
+    // 角标现在是包里那枚**可点**的（规格 C 段）：不可点的话它只是个坏消息。
     expect(
-      await screen.findAllByTestId("project-local-path-missing-badge"),
-    ).toHaveLength(1);
+      await screen.findByTestId("project-unconfigured-2"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("project-unconfigured-1")).toBeNull();
     expect(missing.className).not.toContain("text-muted-foreground");
     expect(screen.getByText("agentre").className).not.toContain(
       "text-muted-foreground",
@@ -478,7 +480,8 @@ describe("SessionIndexPage project tree rendering", () => {
     renderIndex();
 
     await screen.findByText("agentre-hub");
-    expect(screen.queryByTestId("project-local-path-missing-badge")).toBeNull();
+    expect(screen.queryByTestId("project-unconfigured-1")).toBeNull();
+    expect(screen.queryByTestId("project-unconfigured-2")).toBeNull();
     expect(screen.getByText("agentre").className).toContain(
       "text-muted-foreground",
     );
@@ -734,15 +737,13 @@ describe("SessionIndexPage project group actions", () => {
     );
   }
 
-  it("Given the ⋮ menu, When Project Settings is picked, Then that project's settings drawer opens", async () => {
+  it("Given the ⋮ menu, When Settings is picked, Then that project's settings dialog opens", async () => {
     const user = setupUser();
     renderIndex();
     await screen.findByText("Agentre");
 
     await openMore(user);
-    await user.click(
-      await screen.findByRole("menuitem", { name: "Project Settings" }),
-    );
+    await user.click(await screen.findByRole("menuitem", { name: "Settings" }));
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
@@ -769,7 +770,7 @@ describe("SessionIndexPage project group actions", () => {
     });
   });
 
-  it("Given an unconfigured project, When Specify path… picks a directory, Then it is saved and the tree reloads", async () => {
+  it("Given an unconfigured project, When 「未配置」 is clicked, Then settings opens straight at machines-and-paths", async () => {
     const user = setupUser();
     seedTree([
       projectNode({
@@ -778,27 +779,20 @@ describe("SessionIndexPage project group actions", () => {
         path: "",
         localPathMissing: true,
       }),
+      projectNode({ id: 2, name: "other" }),
     ]);
-    appMocks.SelectDirectory.mockResolvedValue("/Users/me/Code/agentre");
-    appMocks.ProjectSetLocalPath.mockResolvedValue({
-      id: 1,
-      localPathMissing: false,
-    });
     renderIndex();
     await screen.findByText("Agentre");
 
-    await openMore(user);
-    await user.click(await screen.findByText("Specify path…"));
+    /*
+      合并前这里点的是 ⋮ 里的「指定路径…」，它直接开一个原生目录对话框。那一条随
+      四标签页一起没了（决策 4）：「某台机器上的项目路径」只有一个位置 —— 设置弹窗
+      第三节那张表里的一行。角标与「机器与路径…」是同一个去处。
+    */
+    await user.click(await screen.findByTestId("project-unconfigured-1"));
 
-    await waitFor(() => {
-      expect(appMocks.ProjectSetLocalPath).toHaveBeenCalledWith({
-        id: 1,
-        path: "/Users/me/Code/agentre",
-      });
-    });
-    await waitFor(() => {
-      expect(appMocks.ProjectListTree.mock.calls.length).toBeGreaterThan(1);
-    });
+    const paths = await screen.findByTestId("project-section-paths");
+    expect(paths.dataset.focused).toBe("true");
   });
 
   it("Given an unconfigured project, When Merge into existing project… is picked, Then the dialog opens carrying the other projects as candidates", async () => {
@@ -820,7 +814,7 @@ describe("SessionIndexPage project group actions", () => {
         name: "More actions for agentre-hub",
       }),
     );
-    await user.click(await screen.findByText("Merge into existing project…"));
+    await user.click(await screen.findByText("Merge into an existing project"));
 
     expect(
       await screen.findByText("Merge into existing project"),
@@ -837,7 +831,7 @@ describe("SessionIndexPage project group actions", () => {
 
     await openMore(user);
     await user.click(
-      await screen.findByRole("menuitem", { name: "Delete Project" }),
+      await screen.findByRole("menuitem", { name: "Delete project" }),
     );
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
@@ -856,9 +850,11 @@ describe("SessionIndexPage project group actions", () => {
     renderIndex();
 
     await user.click(
-      await screen.findByRole("button", { name: "New session in Agentre" }),
+      await screen.findByRole("button", {
+        name: "New conversation in Agentre",
+      }),
     );
-    await user.click(await screen.findByText("Builder"));
+    await user.click(await screen.findByTestId("project-member-option-5"));
 
     await waitFor(() => {
       const state = useChatTabsStore.getState();
@@ -914,7 +910,9 @@ describe("SessionIndexPage top + menu", () => {
     await user.click(await screen.findByRole("button", { name: "New" }));
     await user.click(await screen.findByTestId("project-create-trigger"));
 
-    expect(await screen.findByTestId("project-create-name")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("project-create-name"),
+    ).toBeInTheDocument();
   });
 
   it("Given the top ＋, When New agent is picked, Then it navigates to the org chart and asks for the dialog", async () => {

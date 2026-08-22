@@ -287,7 +287,9 @@ describe("ProjectGroupHeader ＋ member picker", () => {
       screen.getByRole("button", { name: "New conversation in Atlas" }),
     );
 
-    expect(await screen.findByTestId("project-member-option-7")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("project-member-option-7"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Inherited")).toBeInTheDocument();
     expect(props.onNewSession).not.toHaveBeenCalled();
 
@@ -339,11 +341,15 @@ describe("ProjectGroupHeader ＋ member picker", () => {
     });
     await user.click(trigger);
     // 空的那次给的是一条去加成员的路，不是一句空话。
-    expect(await screen.findByTestId("project-add-empty-action")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("project-add-empty-action"),
+    ).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     await user.click(trigger);
-    expect(await screen.findByTestId("project-member-option-6")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("project-member-option-6"),
+    ).toBeInTheDocument();
   });
 });
 
