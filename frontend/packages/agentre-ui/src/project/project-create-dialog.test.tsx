@@ -175,25 +175,6 @@ describe("宿主能力：本机路径与 git 探测", () => {
     const note = await screen.findByTestId("project-create-git");
     expect(note.textContent).toBeTruthy();
   });
-
-  it("宿主声明本机路径必填时（那一端的后端拒空路径），空路径不放行", () => {
-    open({
-      ports: {
-        pickLocalDirectory: vi.fn(async () => null),
-        localPathRequired: true,
-      },
-    });
-    fireEvent.change(screen.getByTestId("project-create-name"), {
-      target: { value: "Atlas" },
-    });
-    // 名字填了也不行：这一端建不出没有路径的项目。
-    expect(
-      (screen.getByTestId("project-create-submit") as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    // 而且那一格上要说清它是必填的。
-    expect(screen.getByTestId("project-create-path-required")).toBeTruthy();
-  });
 });
 
 describe("失败", () => {

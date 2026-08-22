@@ -337,17 +337,6 @@ export interface ProjectCreatePorts {
    * 返回 null = 探不出来，此时什么都不标（编一个「不是仓库」比不说更糟）。
    */
   probeGitRepo?(path: string): Promise<ProjectGitInfo | null>;
-  /**
-   * 这一端的后端**建不出没有路径的项目**，所以本机路径是必填的。
-   *
-   * 规格决策 9 要的是「路径不必填」，两端同一套校验 —— 这个开关是那条决策今天在
-   * 桌面端**还落不了地**的如实记录，不是一个长期的产品选项：桌面端的
-   * `ProjectCreateRequest`（internal/app/project.go）没有 `LocalPathMissing` 这一格，
-   * 而 `Project.Check` 在它为 false 时要求 `Path` 非空，于是空路径必被后端拒。
-   * 让按钮亮着然后必然失败，比当场说「这一格得填」更糟。补齐要动 Go —— 本轮的硬
-   * 不变量禁止，所以先把这件事说出口。agentre-server 不设它。
-   */
-  localPathRequired?: boolean;
 }
 
 export interface ProjectDeletePorts {

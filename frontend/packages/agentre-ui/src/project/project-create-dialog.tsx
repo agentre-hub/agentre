@@ -126,8 +126,8 @@ export function ProjectCreateDialog({
 
   const trimmedName = name.trim();
   const trimmedPath = localPath.trim();
-  const pathMissing = !!ports.localPathRequired && !trimmedPath;
-  const canSubmit = !!trimmedName && !pathMissing && !busy;
+  // 名字是**唯一**必填的一格：路径不必填（决策 9），两端一套校验。
+  const canSubmit = !!trimmedName && !busy;
 
   async function handleBrowse() {
     const picked = await ports.pickLocalDirectory?.();
@@ -222,14 +222,6 @@ export function ProjectCreateDialog({
                 {t("projectSettings.create.browse")}
               </Button>
             </div>
-            {ports.localPathRequired ? (
-              <p
-                data-testid="project-create-path-required"
-                className="mt-1 text-2xs text-muted-foreground"
-              >
-                {t("projectSettings.create.localPathRequired")}
-              </p>
-            ) : null}
             {canProbeGit && trimmedPath ? (
               <GitNote info={git} probing={probing} />
             ) : null}
