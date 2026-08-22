@@ -181,6 +181,19 @@ describe("＋ 的成员浮层", () => {
     await waitFor(() => expect(onNewChat).toHaveBeenCalledWith("p1", "a2"));
   });
 
+  it("连点两下 ＋ 只开一次对话 —— 第二次打到的是同一个成员", async () => {
+    const onNewChat = vi.fn();
+    const loadMembers = vi.fn(async () => [{ id: "a1", name: "Reviewer" }]);
+    render(<ProjectHeaderActions {...props({ loadMembers, onNewChat })} />);
+    const trigger = screen.getByTestId("project-add-p1");
+    // 恰好一个成员时 ＋ 直接开对话，按下去在版面上没有任何立即反应 —— 最容易被连点，
+    // 而连点的结果是同一个 Agent 上开出两个草稿页。
+    fireEvent.click(trigger);
+    fireEvent.click(trigger);
+    await waitFor(() => expect(onNewChat).toHaveBeenCalled());
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+
   it("一个成员都没有时给一条去加成员的路，而不是一句空话", async () => {
     const onOpenSettings = vi.fn();
     render(

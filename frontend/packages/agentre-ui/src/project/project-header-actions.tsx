@@ -238,6 +238,13 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
    * 找回位置的唯一途径。所以只在挑完那一支拦，不是无条件拦。
    */
   const pickedRef = React.useRef(false);
+  /**
+   * 有一次「取成员」在飞。
+   *
+   * 恰好一个成员时 ＋ 直接开对话，按下去在版面上没有任何立即反应（浮层不弹、
+   * 新页要等宿主开）—— 最容易被连点，而连点的结果是同一个 Agent 上开出两个草稿页。
+   */
+  const loadingRef = React.useRef(false);
 
   const affordance = cn(
     "shrink-0 cursor-pointer rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -264,11 +271,12 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
   }
 
   const { loadMembers, onNewChat, projectId } = props;
-  function handleAdd() {
+  function beginLoadMembers() {
     setMembersFailed(false);
     setMembers(null);
     void loadMembers(projectId).then(
       (loaded) => {
+        loadingRef.current = false;
         // 恰好一个成员时不弹浮层，直接开对话。
         if (loaded.length === 1) {
           onNewChat(projectId, loaded[0].id);
@@ -278,6 +286,7 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
         setAddOpen(true);
       },
       () => {
+        loadingRef.current = false;
         // 读不上来不等于「这个项目没有成员」，说成空态会让人去加一个他已经加过的人。
         setMembersFailed(true);
         setAddOpen(true);
@@ -312,7 +321,28 @@ export function ProjectHeaderActions(props: ProjectHeaderActionsProps) {
               name: props.projectName,
             })}
             className={affordance}
-            {...affordanceProps(handleAdd)}
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              // preventDefault 同时把 Radix 自己那个「点一下就开」的处理器压住
+              // （它用 composeEventHandlers 检 defaultPrevented）—— 浮层要等成员
+              // 取回来再决定开不开。
+              e.stopPropagation();
+              e.preventDefault();
+              // 在飞的时候不再受理：这颗按下去版面上没有立即反应，最容易被连点，
+              // 而连点的结果是同一个 Agent 上开出两个草稿页。
+              if (loadingRef.current) return;
+              loadingRef.current = true;
+              beginLoadMembers();
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              e.stopPropagation();
+              if (loadingRef.current) return;
+              loadingRef.current = true;
+              beginLoadMembers();
+            }}
           >
             <Plus className="size-3" aria-hidden="true" />
           </span>
