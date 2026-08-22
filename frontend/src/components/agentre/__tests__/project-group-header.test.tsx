@@ -224,7 +224,8 @@ describe("ProjectGroupHeader running highlight", () => {
     const mark = screen.getByTestId("project-attention-mark");
     expect(mark.className).toMatch(/text-status-running-text/);
     expect(
-      mark.querySelector("[data-slot='project-attention-dot']")?.className,
+      // 记号已经归共享包的组头外壳，四种组头共用同一个 slot 名。
+      mark.querySelector("[data-slot='group-attention-dot']")?.className,
     ).toMatch(/bg-status-running/);
   });
 

@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { MachineGroupHeader } from "./machine-group-header";
 
-const online = { deviceId: 0, name: "本机", online: true };
-const offline = { deviceId: 7, name: "构建机", online: false };
+const online = { name: "本机", online: true };
+const offline = { name: "构建机", online: false };
 
 describe("MachineGroupHeader", () => {
   it("报机器名，并用状态点说在不在线", () => {
@@ -25,7 +25,23 @@ describe("MachineGroupHeader", () => {
     );
   });
 
-  it("离线的机器组头置灰，但**仍可展开** —— 本体在本地库里，离线只影响能不能继续跑", () => {
+  it("状态点那一格与项目组头的字形同尺寸 —— 几种组头的名字起始 x 要对齐", () => {
+    render(
+      <MachineGroupHeader
+        machine={online}
+        expanded
+        onToggle={vi.fn()}
+        attentionCount={0}
+        attentionTone={null}
+      />,
+    );
+
+    expect(screen.getByTestId("machine-group-status").className).toContain(
+      "size-6",
+    );
+  });
+
+  it("离线的机器组头置灰，但**仍可展开** —— 本体在库里，离线只影响能不能继续跑", () => {
     const onToggle = vi.fn();
     render(
       <MachineGroupHeader
@@ -37,9 +53,9 @@ describe("MachineGroupHeader", () => {
       />,
     );
 
-    const status = screen.getByTestId("machine-group-status");
-    expect(status.dataset.online).toBe("false");
-
+    expect(screen.getByTestId("machine-group-status").dataset.online).toBe(
+      "false",
+    );
     const toggle = screen.getByRole("button");
     expect(toggle).not.toBeDisabled();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -74,7 +90,6 @@ describe("MachineGroupHeader", () => {
     );
     const mark = screen.getByTestId("machine-attention-mark");
     expect(mark).toHaveTextContent("3");
-    // 与项目组头、随手对话组头同一套投影 —— 不写死一个颜色。
     expect(mark.className).toContain("text-status-error");
     unmount();
 
@@ -90,7 +105,7 @@ describe("MachineGroupHeader", () => {
     expect(screen.queryByTestId("machine-attention-mark")).toBeNull();
   });
 
-  it("虚拟组没有 ⋮：一台机器上没有设置 / 删除可言", () => {
+  it("一台机器没有设置 / 删除可言，所以不给就没有任何多余按钮", () => {
     render(
       <MachineGroupHeader
         machine={online}
@@ -102,5 +117,35 @@ describe("MachineGroupHeader", () => {
     );
 
     expect(screen.getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("宿主自己的角标与动作各就各位：角标跟名字走，动作在折叠按钮外", async () => {
+    const user = userEvent.setup();
+    const onToggle = vi.fn();
+    const onRetry = vi.fn();
+    render(
+      <MachineGroupHeader
+        machine={offline}
+        expanded
+        onToggle={onToggle}
+        attentionCount={0}
+        attentionTone={null}
+        badges={<span data-testid="badge">需升级</span>}
+        actions={
+          <button type="button" aria-label="Retry" onClick={onRetry}>
+            r
+          </button>
+        }
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { expanded: true });
+    expect(toggle.contains(screen.getByTestId("badge"))).toBe(true);
+    const retry = screen.getByRole("button", { name: "Retry" });
+    expect(toggle.contains(retry)).toBe(false);
+
+    await user.click(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onToggle).not.toHaveBeenCalled();
   });
 });

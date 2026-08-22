@@ -14,6 +14,11 @@ describe("会话索引的对外契约", () => {
     const missing = [
       "buildAxisGroups",
       "AxisPicker",
+      "IndexGroupHeader",
+      "groupGlyphClassName",
+      "ProjectGroupHeader",
+      "AgentGroupHeader",
+      "MachineGroupHeader",
       "FreeGroupHeader",
       "OwnSessionsHeader",
       "ProjectGlyph",

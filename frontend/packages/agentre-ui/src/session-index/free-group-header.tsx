@@ -1,8 +1,11 @@
-import { ChevronDown, MessagesSquare, Plus } from "lucide-react";
+import type * as React from "react";
+import { MessagesSquare, Plus } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
-import { statusConfig, type AgentStatus } from "../transcript/agent-status";
+import type { AgentStatus } from "../transcript/agent-status";
+
+import { IndexGroupHeader } from "./group-header";
 
 /**
  * 「按项目」档里那个虚拟的「随手对话」组头（不属于任何项目的那些会话）。
@@ -13,6 +16,10 @@ import { statusConfig, type AgentStatus } from "../transcript/agent-status";
  *
  * 组头有 `＋`（直接开一条不带项目上下文的会话），**绝对没有 `⋮`** —— 虚拟组没有
  * 设置 / 子项目 / 合并 / 删除可言，挂一个菜单上去是骗人。
+ *
+ * 外壳走 `IndexGroupHeader`（2026-08-22「组头归一」）：此前 agentre-server 那边照着
+ * 这一件手画了一份，画丢了那格 24px 的中性面，于是同一个组头在两端一个有底框一个
+ * 光秃一枚图标。
  */
 export type FreeGroupHeaderProps = {
   expanded: boolean;
@@ -29,8 +36,17 @@ export type FreeGroupHeaderProps = {
    * 与项目组头同一套 —— 同一枚记号在两种组头上不能一个说真话一个写死绿色。
    */
   attentionTone: AgentStatus | null;
-  onNewSession: () => void;
-};
+  /**
+   * 开一条不带项目上下文的会话。**可以不给**：决策 6 说的是「按项目轴下必须有这个
+   * 入口」，而 agentre-server 的控制台把发起收在页面自己的发起区里，组头上再挂一枚
+   * ＋ 是第二个入口。不给就不摆——不摆一个点了没反应的按钮。
+   */
+  onNewSession?: () => void;
+  /** 宿主自己的角标（跟着名字走）。 */
+  badges?: React.ReactNode;
+  /** 宿主查组头用的 id。不给就是这一件自己的名字。 */
+  testId?: string;
+} & Omit<React.ComponentProps<"div">, "onToggle">;
 
 export function FreeGroupHeader({
   expanded,
@@ -38,69 +54,53 @@ export function FreeGroupHeader({
   attentionCount,
   attentionTone,
   onNewSession,
+  badges,
+  testId = "free-group-header",
+  ...props
 }: FreeGroupHeaderProps) {
   const { t } = useUiTranslation();
 
   return (
-    <div
-      data-testid="free-group-header"
-      className="group/free flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs hover:bg-sidebar-active-bg"
-    >
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        onClick={onToggle}
-        aria-expanded={expanded}
-      >
-        <ChevronDown
+    <IndexGroupHeader
+      testId={testId}
+      expanded={expanded}
+      onToggle={onToggle}
+      glyph={(className) => (
+        // 尺寸与项目组头的字形一致，好让两种组头的名称起始 x 对齐；但这是个虚拟组，
+        // 没有身份色，用中性面。
+        <span
           className={cn(
-            "size-3.5 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
-            !expanded && "-rotate-90",
+            "inline-flex items-center justify-center bg-secondary text-muted-foreground",
+            className,
           )}
           aria-hidden="true"
-        />
-        {/* 尺寸与项目组头的字形一致，好让两种组头的名称起始 x 对齐；但这是个虚拟组，
-            没有身份色，用中性面。 */}
-        <span
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground"
-          aria-hidden="true"
         >
-          <MessagesSquare className="size-3.5" />
+          <MessagesSquare className="size-[60%]" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-left text-prose font-semibold">
-          {t("sessionIndex.free.name")}
-        </span>
-        {attentionCount > 0 && attentionTone ? (
-          <span
-            data-testid="free-attention-mark"
-            className={cn(
-              "inline-flex shrink-0 items-center gap-1 font-mono text-2xs",
-              // 数字用状态的文字角色、点用填充角色 —— 与项目组头、与行本身同一套投影。
-              statusConfig[attentionTone].textClassName,
-            )}
-            title={t("sessionIndex.free.attention", { count: attentionCount })}
+      )}
+      label={t("sessionIndex.free.name")}
+      attentionCount={attentionCount}
+      attentionTone={attentionTone}
+      attentionTestId="free-attention-mark"
+      attentionTitle={t("sessionIndex.free.attention", {
+        count: attentionCount,
+      })}
+      badges={badges}
+      actions={
+        onNewSession ? (
+          // 常驻可见（不像项目组头那样 hover 才现身）：决策 6 要的正是「入口一直在」。
+          <button
+            type="button"
+            aria-label={t("sessionIndex.free.newSession")}
+            title={t("sessionIndex.free.newSession")}
+            onClick={onNewSession}
+            className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground motion-reduce:transition-none"
           >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "inline-block size-1.5 rounded-full",
-                statusConfig[attentionTone].dotClassName,
-              )}
-            />
-            {attentionCount}
-          </span>
-        ) : null}
-      </button>
-      {/* 常驻可见（不像项目组头那样 hover 才现身）：决策 6 要的正是「入口一直在」。 */}
-      <button
-        type="button"
-        aria-label={t("sessionIndex.free.newSession")}
-        title={t("sessionIndex.free.newSession")}
-        onClick={onNewSession}
-        className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground motion-reduce:transition-none"
-      >
-        <Plus className="size-3" aria-hidden="true" />
-      </button>
-    </div>
+            <Plus className="size-3" aria-hidden="true" />
+          </button>
+        ) : undefined
+      }
+      {...props}
+    />
   );
 }

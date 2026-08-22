@@ -7,6 +7,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 import {
   FreeGroupHeader,
+  MachineGroupHeader,
   OwnSessionsHeader,
   RowLeadingSlot,
   RowSecondaryLine,
@@ -23,7 +24,6 @@ import type { ChatAgentItem } from "@/hooks/use-chat-agents";
 import type { app } from "../../../../wailsjs/go/models";
 
 import { agentIconNode } from "../primitives";
-import { MachineGroupHeader } from "./machine-group-header";
 import type { MachineRosterEntry } from "./machine-roster";
 import type { ProjectGlyphInfo } from "./project-glyph";
 import { ProjectGroupHeader } from "./project-group-header";

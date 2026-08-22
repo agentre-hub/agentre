@@ -9,7 +9,6 @@
 // 侧栏把每个动作以回调形式传进来，拖拽只交 dnd-kit 的 listeners（整行即把手）。
 import * as React from "react";
 import {
-  ChevronDown,
   FolderCog,
   GitMerge,
   MoreVertical,
@@ -40,16 +39,16 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ProjectGroupHeader as UiProjectGroupHeader } from "@agentre-ai/agentre-ui";
+
 import { cn } from "@/lib/utils";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 
 import type { AgentStatus } from "@/stores/types";
 
-import { AgentAvatar } from "../primitives";
+import { AgentAvatar, agentIconNode } from "../primitives";
 import { useRemoteDevices } from "../remote-devices/use-remote-devices";
-import { statusConfig, type AgentColor } from "../types";
-
-import { ProjectGlyph } from "./project-glyph";
+import type { AgentColor } from "../types";
 import * as WailsApp from "../../../../wailsjs/go/app/App";
 import type { app } from "../../../../wailsjs/go/models";
 
@@ -111,162 +110,107 @@ export function ProjectGroupHeader({
   onDelete,
 }: ProjectGroupHeaderProps) {
   const { t } = useTranslation();
-  // depth > 0 时仅靠 pl-1 (4px) 给一点缩进；层级表达全部由这里的 UPPERCASE mono
-  // section label + 字号 / 颜色差异承担 —— 不再用左竖线 / 大缩进。
-  const isSub = depth > 0;
-  const isDeep = depth >= 2;
-
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div
-          data-testid="project-group-header"
+        {/* 组头的形（chevron / 字形那一格 / 名字的字号阶梯 / attention 记号）已经
+            归共享包（规格 2026-08-22「组头归一」）：此前它与随手对话组头、机器组头、
+            agentre-server 那一份各画各的，同一条设计长出四种尺码。这里只剩宿主自己的
+            东西 —— 未配置角标、六个动作、拖拽把手。 */}
+        <UiProjectGroupHeader
+          project={{ name: project.name, color: project.color }}
+          glyph={agentIconNode(project.icon)}
+          depth={depth}
+          expanded={expanded}
+          onToggle={onToggle}
+          attentionCount={attentionCount}
+          attentionTone={attentionTone}
+          attentionTitle={t("projects.session.activeCount", {
+            count: attentionCount,
+          })}
+          // R10：全部未配置时逐行角标撤掉，改由名字变灰 + 树顶那一条整体说明来承担；
+          // 只有一部分未配置时反过来 —— 角标已经说清楚了，名字不再变灰。
+          labelMuted={project.localPathMissing && allLocalPathsMissing}
           className={cn(
-            "group/proj flex items-center gap-1.5 rounded-md text-xs hover:bg-sidebar-active-bg",
-            isSub ? "px-1.5 py-1" : "px-2 py-1.5",
+            "group/proj",
             dragListeners && "cursor-grab active:cursor-grabbing",
           )}
           {...(dragListeners ?? {})}
-        >
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 items-center gap-1.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            onClick={onToggle}
-            aria-expanded={expanded}
-          >
-            <ChevronDown
-              className={cn(
-                "text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
-                isSub ? "size-3" : "size-3.5",
-                !expanded && "-rotate-90",
-              )}
-              aria-hidden="true"
-            />
-            {/* 组头与行里的项目字形同一个组件 —— 两处各画各的正是「行里是文件夹、
-                组头是项目图标」的由来。 */}
-            <ProjectGlyph
-              project={{
-                name: project.name,
-                color: project.color,
-                icon: project.icon,
-              }}
-              className={cn(
-                isDeep
-                  ? "size-3.5 rounded-sm"
-                  : isSub
-                    ? "size-4 rounded-sm"
-                    : "size-6 rounded-md",
-              )}
-            />
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-left",
-                isDeep
-                  ? "font-mono text-[9px] font-medium uppercase tracking-widest text-muted-foreground"
-                  : isSub
-                    ? "font-mono text-2xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    : "text-prose font-semibold",
-                // R10：全部未配置时逐行角标撤掉，改由名字变灰 + 树顶那一条整体
-                // 说明来承担；只有一部分未配置时反过来——角标已经说清楚了，
-                // 名字不再变灰。
-                project.localPathMissing && allLocalPathsMissing
-                  ? "text-muted-foreground"
-                  : "",
-              )}
-            >
-              {project.name}
-            </span>
-            {attentionCount > 0 && attentionTone ? (
-              <span
-                data-testid="project-attention-mark"
-                className={cn(
-                  "inline-flex items-center gap-1 font-mono text-2xs",
-                  // 数字用状态的**文字**角色，不用饱和填充色：--status-running #10b981
-                  // 落在侧栏上只有 2.31:1。点用填充角色——与会话行的「行首点 + 行尾
-                  // 短标签」逐字同一套投影。
-                  statusConfig[attentionTone].textClassName,
-                )}
-                title={t("projects.session.activeCount", {
-                  count: attentionCount,
-                })}
-              >
-                <span
-                  data-slot="project-attention-dot"
-                  aria-hidden="true"
-                  className={cn(
-                    "inline-block size-1.5 rounded-full",
-                    statusConfig[attentionTone].dotClassName,
-                  )}
-                />
-                {attentionCount}
-              </span>
-            ) : null}
-            {project.localPathMissing && !allLocalPathsMissing ? (
+          badges={
+            project.localPathMissing && !allLocalPathsMissing ? (
               <span
                 data-testid="project-local-path-missing-badge"
                 className="inline-flex shrink-0 items-center rounded-sm border border-border px-1.5 py-0.5 text-2xs font-medium text-muted-foreground"
               >
                 {t("projects.localPath.badge")}
               </span>
-            ) : null}
-          </button>
-          <NewSessionMenu
-            project={project}
-            onPick={(agentID) => onNewSession(project.id, agentID)}
-          />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("projects.actions.more", {
-                  name: project.name,
-                })}
-                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/proj:opacity-100 focus:opacity-100 focus-visible:opacity-100"
-              >
-                <MoreVertical className="size-3" aria-hidden="true" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => onOpenSettings(project.id)}>
-                <Settings className="size-3.5" aria-hidden="true" />
-                {t("projectSettings.title")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onAddSubProject(project.id)}>
-                <Plus className="size-3.5" aria-hidden="true" />
-                {t("projects.actions.newSubProject")}
-              </DropdownMenuItem>
-              <NewTerminalSubMenu
-                projectID={project.id}
-                onPick={(deviceID, deviceName) =>
-                  onOpenTerminal(project.id, deviceID, deviceName ?? "")
-                }
+            ) : null
+          }
+          actions={
+            <>
+              <NewSessionMenu
+                project={project}
+                onPick={(agentID) => onNewSession(project.id, agentID)}
               />
-              {project.localPathMissing ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => onSpecifyPath(project.id)}>
-                    <FolderCog className="size-3.5" aria-hidden="true" />
-                    {t("projects.localPath.specifyPath")}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("projects.actions.more", {
+                      name: project.name,
+                    })}
+                    className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/proj:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                  >
+                    <MoreVertical className="size-3" aria-hidden="true" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => onOpenSettings(project.id)}>
+                    <Settings className="size-3.5" aria-hidden="true" />
+                    {t("projectSettings.title")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onSelect={() => onMergeInto(project.id, project.name)}
+                    onSelect={() => onAddSubProject(project.id)}
                   >
-                    <GitMerge className="size-3.5" aria-hidden="true" />
-                    {t("projects.localPath.mergeIntoExisting")}
+                    <Plus className="size-3.5" aria-hidden="true" />
+                    {t("projects.actions.newSubProject")}
                   </DropdownMenuItem>
-                </>
-              ) : null}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => onDelete(project.id, project.name)}
-              >
-                <Trash2 className="size-3.5" aria-hidden="true" />
-                {t("projects.actions.deleteProject")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+                  <NewTerminalSubMenu
+                    projectID={project.id}
+                    onPick={(deviceID, deviceName) =>
+                      onOpenTerminal(project.id, deviceID, deviceName ?? "")
+                    }
+                  />
+                  {project.localPathMissing ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => onSpecifyPath(project.id)}
+                      >
+                        <FolderCog className="size-3.5" aria-hidden="true" />
+                        {t("projects.localPath.specifyPath")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => onMergeInto(project.id, project.name)}
+                      >
+                        <GitMerge className="size-3.5" aria-hidden="true" />
+                        {t("projects.localPath.mergeIntoExisting")}
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => onDelete(project.id, project.name)}
+                  >
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                    {t("projects.actions.deleteProject")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          }
+        />
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-[180px]">
         <ContextMenuItem onSelect={() => onOpenSettings(project.id)}>
