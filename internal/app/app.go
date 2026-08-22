@@ -224,6 +224,12 @@ func (a *App) Shutdown(ctx context.Context) {
 		// 退出,那些 goroutine 连同优雅关闭一起消失 —— CLI 自带进程组、不会被连坐,
 		// 直接变成孤儿。KillAll 是一串信号投递,不等任何一个子进程退出。
 		agentruntime.DefaultCLISessionPool().KillAll()
+		// 不是每个后端都把进程放在池里:pi 是每轮一个进程、不进池的,只扫池的收尾
+		// 够不着它。给一个很短的上界 —— 它内部是「发信号 → 宽限 → 杀整棵树」,
+		// 上界到了就走硬杀那一支。
+		killCtx, cancelKill := context.WithTimeout(context.Background(), cliSessionQuitKillTimeout)
+		agentruntime.CloseAllSessionsEverywhere(killCtx)
+		cancelKill()
 		go a.shutdownCleanup(context.WithoutCancel(ctx))
 	})
 }
@@ -238,6 +244,10 @@ const cliSessionReleaseTimeout = 3 * time.Second
 
 // cliSessionSweepInterval 是 idle CLI 会话清扫的巡检间隔。
 const cliSessionSweepInterval = time.Minute
+
+// cliSessionQuitKillTimeout 是确认退出那条路上收掉池外子进程的上界。Shutdown 不得
+// 拖住退出(见 app_quit_test 的 100ms 契约),所以这里只留一个很短的窗口。
+const cliSessionQuitKillTimeout = 50 * time.Millisecond
 
 func (a *App) cleanupResources(ctx context.Context) {
 	a.stopInboundPeer(ctx)
@@ -274,6 +284,8 @@ func (a *App) cleanupResources(ctx context.Context) {
 	if err := agentruntime.DefaultCLISessionPool().CloseAll(closeCtx); err != nil {
 		logger.Ctx(ctx).Warn("app shutdown: release CLI sessions", zap.Error(err))
 	}
+	// 池外的后端(pi 每轮一个进程,不进池)由注册表广播收尾。
+	agentruntime.CloseAllSessionsEverywhere(closeCtx)
 	if a.terminalSvc != nil {
 		a.terminalSvc.Shutdown()
 	}

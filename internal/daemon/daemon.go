@@ -1639,6 +1639,8 @@ func (d *Daemon) shutdown(ctx context.Context) {
 	if err := agentruntime.DefaultCLISessionPool().CloseAll(ctx); err != nil {
 		log.Printf("daemon.shutdown: CLI session release failed errorType=%T", err)
 	}
+	// 池外的后端(pi 每轮一个进程,不进池)由注册表广播收尾。
+	agentruntime.CloseAllSessionsEverywhere(ctx)
 }
 
 func (d *Daemon) closeRuntimeConnections(ctx context.Context) error {

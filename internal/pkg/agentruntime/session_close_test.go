@@ -47,3 +47,25 @@ func TestCloseSessionEverywhere_GivenNonPositiveSessionID_WhenClosing_ThenNothin
 
 	assert.Empty(t, claimant.closed)
 }
+
+// closeAllRecordingRuntime 认领「批量收尾口」。
+type closeAllRecordingRuntime struct {
+	agentruntime.Runtime
+	calls int
+}
+
+func (r *closeAllRecordingRuntime) CloseAllSessions(context.Context) { r.calls++ }
+
+// Given 注册表里既有认领批量收尾口的 runtime 也有不认领的, When 宿主关机, Then 认领的
+// 都要收到,不认领的被跳过。
+//
+// 宿主此前只扫 CLISessionPool,而 pi 的进程根本不进池 —— 关机路径够不着它。
+func TestCloseAllSessionsEverywhere_GivenMixedRuntimes_WhenHostShutsDown_ThenOnlyClaimantsAreClosed(t *testing.T) {
+	claimant := &closeAllRecordingRuntime{}
+	defer agentruntime.SwapRuntimeForTest(agent_backend_entity.TypePiAgent, claimant)()
+	defer agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, plainRuntime{})()
+
+	agentruntime.CloseAllSessionsEverywhere(context.Background())
+
+	assert.Equal(t, 1, claimant.calls)
+}

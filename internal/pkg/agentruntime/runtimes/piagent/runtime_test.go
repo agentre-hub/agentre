@@ -1350,3 +1350,65 @@ func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
 		})
 	})
 }
+
+// Given 一个 pi 轮已经把 RPC 进程开起来了, When 宿主关机, Then 这个进程要被收掉。
+//
+// pi 的进程不进 CLISessionPool,而桌面退出路径只扫池:确认退出时正在跑的 pi 轮,
+// 收尾靠的是 Start 那个 goroutine 里的 defer Close —— 桌面进程先它一步退出,而 pi
+// 自带进程组、不会被连坐,于是留下一个孤儿。agentred 那边有 Pi generation 清理兜着,
+// 桌面这边没有。
+func TestCloseAllSessions_GivenInFlightRun_WhenHostShutsDown_ThenTheRPCProcessIsReleased(t *testing.T) {
+	Convey("Given 一个已经开起来的 pi 轮", t, func() {
+		sess := &fakeSession{stream: &scriptedStream{}, sid: "session-live"}
+		restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
+			return sess, nil
+		})
+		defer restore()
+
+		r := New()
+		_, err := r.PrepareRun(context.Background(), agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
+			SessionID: 11,
+			Cwd:       t.TempDir(),
+			UserText:  "hello",
+		})
+		So(err, ShouldBeNil)
+
+		Convey("When 宿主关机 Then 它的 RPC 进程被收掉", func() {
+			r.CloseAllSessions(context.Background())
+			So(sess.closed, ShouldBeTrue)
+		})
+	})
+}
+
+// Given 一条会话被删除, When 释放广播扫过每个 runtime, Then pi 也要放掉它在飞的那一轮 ——
+// 会话都没了,这个进程再也不会有人用。
+func TestCloseSession_GivenDeletedSession_WhenReleasing_ThenOnlyThatSessionIsReleased(t *testing.T) {
+	Convey("Given 两条会话各有一轮在飞", t, func() {
+		sessions := map[int64]*fakeSession{
+			21: {stream: &scriptedStream{}, sid: "session-21"},
+			22: {stream: &scriptedStream{}, sid: "session-22"},
+		}
+		restore := SetSessionFactoryForTest(func(req agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
+			return sessions[req.SessionID], nil
+		})
+		defer restore()
+
+		r := New()
+		for id := range sessions {
+			_, err := r.PrepareRun(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
+				SessionID: id,
+				Cwd:       t.TempDir(),
+				UserText:  "hello",
+			})
+			So(err, ShouldBeNil)
+		}
+
+		Convey("When 只删掉其中一条 Then 只有它被放掉", func() {
+			r.CloseSession(context.Background(), 21)
+			So(sessions[21].closed, ShouldBeTrue)
+			So(sessions[22].closed, ShouldBeFalse)
+		})
+	})
+}

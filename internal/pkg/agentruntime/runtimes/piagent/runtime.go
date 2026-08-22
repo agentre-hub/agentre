@@ -323,6 +323,43 @@ func (r *Runtime) unregister(sessionID int64, owner *activeSession) {
 	r.mu.Unlock()
 }
 
+// CloseSession 放掉某条会话此刻在飞的那一轮的 RPC 进程。会话被删除时由释放广播调到
+// (agentruntime.CloseSessionEverywhere):会话都没了,这个进程再也不会有人用。
+func (r *Runtime) CloseSession(ctx context.Context, sessionID int64) {
+	if sessionID <= 0 {
+		return
+	}
+	r.mu.Lock()
+	owner := r.prepared[sessionID]
+	r.mu.Unlock()
+	if owner == nil {
+		return
+	}
+	if err := owner.Close(ctx); err != nil {
+		logger.Ctx(ctx).Warn("piagent runtime: close session failed",
+			zap.Int64("sessionID", sessionID), zap.Error(err))
+	}
+}
+
+// CloseAllSessions 收掉此刻在飞的每一轮的 RPC 进程,宿主关机时调。
+//
+// pi 的进程不进 CLISessionPool(每轮一个,轮末就关),所以宿主那两条只扫池的收尾路径
+// 都够不着它:确认退出时正在跑的一轮,收尾靠的是 Start 那个 goroutine 里的 defer
+// Close —— 宿主进程先它一步退出,而 pi 自带进程组、不会被连坐,留下的就是孤儿。
+func (r *Runtime) CloseAllSessions(ctx context.Context) {
+	r.mu.Lock()
+	owners := make([]*preparedRun, 0, len(r.prepared))
+	for _, owner := range r.prepared {
+		owners = append(owners, owner)
+	}
+	r.mu.Unlock()
+	for _, owner := range owners {
+		if err := owner.Close(ctx); err != nil {
+			logger.Ctx(ctx).Warn("piagent runtime: close session failed on shutdown", zap.Error(err))
+		}
+	}
+}
+
 func (r *Runtime) registerPrepared(sessionID int64, owner *preparedRun) {
 	if sessionID <= 0 || owner == nil {
 		return

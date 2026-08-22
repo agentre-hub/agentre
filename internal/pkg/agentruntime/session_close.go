@@ -23,3 +23,22 @@ func CloseSessionEverywhere(ctx context.Context, sessionID int64) {
 		}
 	}
 }
+
+// AllSessionsCloser 是 runtime 可选实现的「批量收尾口」:把本机此刻还开着的子进程
+// 全部放掉。宿主关机时用。
+type AllSessionsCloser interface {
+	CloseAllSessions(ctx context.Context)
+}
+
+// CloseAllSessionsEverywhere 让每个认领了批量收尾口的已注册 runtime 收掉自己的子进程。
+//
+// 宿主的关机路径此前只扫 CLISessionPool,而不是每个后端都把进程放在池里 —— pi 是
+// 每轮一个进程、不进池的,于是只扫池的收尾够不着它,确认退出时在跑的那一轮直接变成
+// 孤儿(它自带进程组,不会被宿主退出连坐)。
+func CloseAllSessionsEverywhere(ctx context.Context) {
+	for _, rt := range RegisteredRuntimes() {
+		if closer, ok := rt.(AllSessionsCloser); ok {
+			closer.CloseAllSessions(ctx)
+		}
+	}
+}
