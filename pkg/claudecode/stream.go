@@ -321,7 +321,6 @@ func (d *frameDecoder) parseStreamEvent(f rawFrame) []Event {
 	})
 }
 
-
 // resolveDoneUsage 决定 EventDone 上吐哪一份 usage：
 //   - 优先用 lastAssistantUsage（本轮最后一次内部 API call 的 per-call 用量）——
 //     这是反映"模型当前看到的上下文大小"的正确口径，前端进度条需要的就是它；
