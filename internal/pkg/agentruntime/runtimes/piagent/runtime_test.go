@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -1313,4 +1314,39 @@ func (p *runtimeRPCProcess) stdinFrames() []map[string]any {
 		}
 	}
 	return frames
+}
+
+// TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID 与 claudecode 那条同源(2026-08-22
+// 的 AgentCwd(0) 报错):web 发起的对话在这里同样是 AgentID=0 + Cwd 空,兜底目录改由
+// 账号级 AgentSyncID 定。
+func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
+	Convey("Given 一条 web 发起的自由会话:AgentID=0、Cwd 空、只带账号级 AgentSyncID", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(
+			func(_ agentruntime.RunRequest, _ map[string]string, cwd string) (sessionHandle, error) {
+				gotCwd = cwd
+				return &fakeSession{stream: &scriptedStream{anchor: "new-user"}, sid: "session-new"}, nil
+			})
+		defer restore()
+
+		Convey("When 起这一轮, Then 起得来,工作目录落在该 Agent 的账号级同步标识下", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}",
+				},
+				SessionID:   1,
+				AgentID:     0,
+				AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
+				UserText:    "hi",
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+		})
+	})
 }

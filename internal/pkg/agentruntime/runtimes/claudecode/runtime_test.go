@@ -3,6 +3,7 @@ package claudecode
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1246,5 +1247,51 @@ func TestSubagentActivity_BridgesSessionActivity(t *testing.T) {
 func TestClaudeEventShowsProgressAfterError_SubagentModel(t *testing.T) {
 	Convey("claudeEventShowsProgressAfterError 应把 EventSubagentModel 视为错误后的进度(与 chat_svc 镜像一致)", t, func() {
 		So(claudeEventShowsProgressAfterError(claudecode.EventSubagentModel), ShouldBeTrue)
+	})
+}
+
+// TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID 是 2026-08-22 那条报错的回归:
+// 从 web 控制台发起一条**不钉项目**的对话,浏览器发 agentId: 0(它没有、也不该编一个
+// 桌面端本地自增主键,见 dispatch.ts)、cwd 空(没选项目就没有路径,见 workspace_svc
+// 的 chosenCwd),daemon 原样转给 runtime,兜底 AgentCwd(0) 直接拒 —— 界面上是
+// 「coding 已连接,但 Agent 启动失败:agentruntime: AgentCwd needs agentID > 0」。
+// 身份改由随请求一起到达的 AgentSyncID 承担。
+func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
+	Convey("Given 一条 web 发起的自由会话:AgentID=0、Cwd 空、只带账号级 AgentSyncID", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			gotCwd = spec.Cwd
+			return &fakeCCHandle{
+				id: "fake-sid",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		Convey("When 起这一轮, Then 起得来,工作目录落在该 Agent 的账号级同步标识下", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypeClaudeCode),
+				},
+				SessionID:   99,
+				AgentID:     0,
+				AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
+				UserText:    "hi",
+				Effective: &agentruntime.EffectiveLLMConfig{
+					ProviderKey: "pk", ProviderType: "anthropic", ModelID: "claude-haiku-4-5",
+				},
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+		})
 	})
 }

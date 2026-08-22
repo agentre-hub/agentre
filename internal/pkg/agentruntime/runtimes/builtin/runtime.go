@@ -211,9 +211,9 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 
 	cwd := req.Cwd
 	if cwd == "" {
-		cwd, err = agentruntime.AgentCwd(req.AgentID)
+		cwd, err = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
 		if err != nil {
-			logger.Ctx(ctx).Error("builtin runtime: AgentCwd resolve failed",
+			logger.Ctx(ctx).Error("builtin runtime: agent cwd resolve failed",
 				zap.Int64("sessionID", req.SessionID),
 				zap.Int64("agentID", req.AgentID), zap.Error(err))
 			return nil, nil, err

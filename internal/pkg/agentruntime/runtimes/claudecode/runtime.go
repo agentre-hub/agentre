@@ -614,7 +614,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 
 	cwd := req.Cwd
 	if cwd == "" {
-		cwd, err = agentruntime.AgentCwd(req.AgentID)
+		cwd, err = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
 		if err != nil {
 			return nil, "", err
 		}

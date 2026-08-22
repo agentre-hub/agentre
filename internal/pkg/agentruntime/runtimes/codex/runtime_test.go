@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1442,5 +1443,40 @@ func TestCodexPendingWaiters(t *testing.T) {
 			So(snap.ToolPermissions, ShouldBeEmpty)
 			So(snap.AskUserQuestions, ShouldBeEmpty)
 		}, ShouldNotPanic)
+	})
+}
+
+// TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID 与 claudecode / piagent 那两条同源
+// (2026-08-22 的 AgentCwd(0) 报错):web 发起的对话在这里同样是 AgentID=0 + Cwd 空,
+// 兜底目录改由账号级 AgentSyncID 定。
+func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
+	Convey("Given 一条 web 发起的自由会话:AgentID=0、Cwd 空、只带账号级 AgentSyncID", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(
+			func(_ agentruntime.RunRequest, _ map[string]string, cwd string) (cxSessionHandle, error) {
+				gotCwd = cwd
+				return &fakeRuntimeSession{stream: &emptyRuntimeStream{}, sid: "thread-web"}, nil
+			})
+		defer restore()
+
+		Convey("When 起这一轮, Then 起得来,工作目录落在该 Agent 的账号级同步标识下", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}",
+				},
+				SessionID:   1,
+				AgentID:     0,
+				AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
+				UserText:    "hi",
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+		})
 	})
 }
