@@ -29,6 +29,8 @@ import (
 type ProjectSvc interface {
 	Create(ctx context.Context, req *CreateProjectRequest) (*project_entity.Project, error)
 	Update(ctx context.Context, req *UpdateProjectRequest) (*project_entity.Project, error)
+	// Move 改父项目，含环检测。见 MoveProjectRequest。
+	Move(ctx context.Context, req *MoveProjectRequest) (*project_entity.Project, error)
 	Reorder(ctx context.Context, req *ReorderProjectsRequest) error
 	Delete(ctx context.Context, id int64) error
 	Get(ctx context.Context, id int64) (*ProjectDetail, error)
@@ -77,16 +79,24 @@ func New() ProjectSvc {
 
 func (s *projectSvc) Create(ctx context.Context, req *CreateProjectRequest) (*project_entity.Project, error) {
 	now := s.now()
+	path := strings.TrimSpace(req.Path)
 	p := &project_entity.Project{
 		ParentID:    req.ParentID,
 		Name:        strings.TrimSpace(req.Name),
 		Icon:        strings.TrimSpace(req.Icon),
 		Color:       strings.TrimSpace(req.Color),
 		Description: strings.TrimSpace(req.Description),
-		Path:        strings.TrimSpace(req.Path),
-		Status:      consts.ACTIVE,
-		Createtime:  now,
-		Updatetime:  now,
+		Path:        path,
+		// 路径不必填（规格 2026-08-22 决策 9）：没填就落成「本机未配置路径」那一档
+		// （R10），与从账号同步下来、本机还没配路径的项目行是**同一种状态**——
+		// 组头那枚可点的「未配置」角标就是它的出口。
+		//
+		// 由这里推导而不是让调用方传一个标志位：两者互斥（Check 保证 Path 非空与
+		// LocalPathMissing 不同时成立），多一个入参就多一种说不通的组合。
+		LocalPathMissing: path == "",
+		Status:           consts.ACTIVE,
+		Createtime:       now,
+		Updatetime:       now,
 	}
 	if err := p.Check(ctx); err != nil {
 		return nil, err
@@ -177,6 +187,84 @@ func (s *projectSvc) Update(ctx context.Context, req *UpdateProjectRequest) (*pr
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindProject, existing.ID, existing.SyncMeta)
 	return existing, nil
+}
+
+// Move 改父项目，含环检测（规格 2026-08-22 B 段「基本」里的「父项目」那一格）。
+//
+// 形状照部门那份 `department_svc.Move`：父级存在 + active + 环检测。同一条判据不该
+// 在两棵树上长出两个样子。
+//
+// 环检测**必须在服务端**：设置弹窗把自己从候选里剔掉了，但禁用一个下拉项拦不住
+// 直接打端点，而一个环会让每一端的树遍历都走不完。
+func (s *projectSvc) Move(ctx context.Context, req *MoveProjectRequest) (*project_entity.Project, error) {
+	if req == nil {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	existing, err := project_repo.Project().Find(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, i18n.NewError(ctx, code.ProjectNotFound)
+	}
+	if existing.ParentID == req.NewParentID {
+		return existing, nil
+	}
+	if req.NewParentID > 0 {
+		parent, err := project_repo.Project().Find(ctx, req.NewParentID)
+		if err != nil {
+			return nil, err
+		}
+		if parent == nil {
+			return nil, i18n.NewError(ctx, code.ProjectParentNotFound)
+		}
+		if !parent.IsActive() {
+			return nil, i18n.NewError(ctx, code.ProjectParentInactive)
+		}
+		all, err := project_repo.Project().List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if hasProjectCycle(all, req.NewParentID, existing.ID) {
+			return nil, i18n.NewError(ctx, code.ProjectCircularReference)
+		}
+	}
+	// 换了一层之后同级重名要重新判：原来那一层下不重名，不代表新的一层下也不重名。
+	dup, err := project_repo.Project().FindByName(ctx, req.NewParentID, existing.Name)
+	if err != nil {
+		return nil, err
+	}
+	if dup != nil && dup.ID != existing.ID {
+		return nil, i18n.NewError(ctx, code.ProjectNameDuplicated)
+	}
+	existing.ParentID = req.NewParentID
+	existing.Updatetime = s.now()
+	if err := project_repo.Project().Update(ctx, existing); err != nil {
+		return nil, err
+	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindProject, existing.ID, existing.SyncMeta)
+	return existing, nil
+}
+
+// hasProjectCycle 从 startParentID 沿 parent 链向上爬，命中 selfID 即成环。
+// 「挂到自己身上」是这条链上最短的那个环，不必单独判。
+func hasProjectCycle(all []*project_entity.Project, startParentID, selfID int64) bool {
+	index := make(map[int64]*project_entity.Project, len(all))
+	for _, p := range all {
+		index[p.ID] = p
+	}
+	cur := startParentID
+	for cur > 0 {
+		if cur == selfID {
+			return true
+		}
+		next, ok := index[cur]
+		if !ok {
+			return false
+		}
+		cur = next.ParentID
+	}
+	return false
 }
 
 // SetLocalPath 见 ProjectSvc 接口注释（R10）。

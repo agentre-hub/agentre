@@ -5,11 +5,10 @@
  * 成父项目候选，把 wails 那三个绑定（`ProjectCreate` / `SelectDirectory` /
  * `ProjectDetectGitRepo`）翻成 `ProjectCreatePorts`。
  *
- * **本机路径在这一端仍是必填**，用 `localPathRequired` 如实声明出来。规格决策 9 要的
- * 是两端都不必填，但这一端的后端今天建不出没有路径的项目：`ProjectCreateRequest`
- * （internal/app/project.go）没有 `LocalPathMissing` 这一格，而 `Project.Check` 在它
- * 为 false 时要求 `Path` 非空。让按钮亮着然后必然被后端拒，比当场说「这一格得填」
- * 更糟。补齐要动 Go —— 本轮的硬不变量禁止，所以先把这件事说出口。
+ * **路径不必填**（规格决策 9）。曾经在这一端必填，因为后端建不出没有路径的项目；
+ * 现在 `project_svc.Create` 把空路径落成「本机未配置路径」那一档（R10）——与从账号
+ * 同步下来、本机还没配路径的项目行是同一种状态，出口都是组头那枚可点的「未配置」
+ * 角标。所以这里不再声明 `localPathRequired`。
  */
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -109,7 +108,6 @@ function ProjectNewDialog({
           return null;
         }
       },
-      localPathRequired: true,
     }),
     [t],
   );

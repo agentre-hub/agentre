@@ -60,6 +60,56 @@ func TestProjectSvcCreate_Happy(t *testing.T) {
 	})
 }
 
+// 空路径建得出来，且这一行落成「本机未配置路径」（R10）。
+//
+// 规格 2026-08-22 决策 9：路径不必填，两端一套校验。web 上建项目的人可能一台机器
+// 都没在线，挡住他等于把「只有 agentred 也能管理」堵在第一步；桌面端跟着获得
+// 「先建起来、回头再配」这条路。此前这一支必被 Check 拒——它在
+// LocalPathMissing 为 false 时要求 Path 非空，而 Create 从不置这一位。
+func TestProjectSvcCreate_EmptyPath_MarksLocalPathMissing(t *testing.T) {
+	ctx, mp, _, _, svc := setupProjectSvc(t)
+	mp.EXPECT().FindByName(ctx, int64(0), "Agentre").Return(nil, nil)
+	mp.EXPECT().NextSortOrder(ctx, int64(0)).Return(1, nil)
+	mp.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, p *project_entity.Project) error {
+		p.ID = 7
+		return nil
+	})
+
+	got, err := svc.Create(ctx, &project_svc.CreateProjectRequest{
+		Name: "Agentre", Path: "", Color: "agent-1",
+	})
+	require.NoError(t, err)
+	assert.True(t, got.LocalPathMissing, "空路径建出来的项目应标为本机未配置路径")
+	assert.Empty(t, got.Path)
+}
+
+// 只有空白的路径与空路径同义——一个空格不是一个目录。
+func TestProjectSvcCreate_BlankPath_MarksLocalPathMissing(t *testing.T) {
+	ctx, mp, _, _, svc := setupProjectSvc(t)
+	mp.EXPECT().FindByName(ctx, int64(0), "Agentre").Return(nil, nil)
+	mp.EXPECT().NextSortOrder(ctx, int64(0)).Return(1, nil)
+	mp.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, p *project_entity.Project) error {
+		return nil
+	})
+
+	got, err := svc.Create(ctx, &project_svc.CreateProjectRequest{
+		Name: "Agentre", Path: "   ", Color: "agent-1",
+	})
+	require.NoError(t, err)
+	assert.True(t, got.LocalPathMissing)
+}
+
+// 填了路径就照旧校验它存在——决策 9 放宽的是「必填」，不是「填了也不查」。
+func TestProjectSvcCreate_NonEmptyPathStillChecked(t *testing.T) {
+	// 路径守卫排在重名检查之前，所以这里一个 repo 调用都到不了。
+	ctx, _, _, _, svc := setupProjectSvc(t)
+
+	_, err := svc.Create(ctx, &project_svc.CreateProjectRequest{
+		Name: "Agentre", Path: "/definitely/not/here", Color: "agent-1",
+	})
+	require.Error(t, err)
+}
+
 func TestProjectSvcCreate_DuplicateName(t *testing.T) {
 	ctx, mp, _, _, svc := setupProjectSvc(t)
 	tmp := t.TempDir()

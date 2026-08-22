@@ -87,13 +87,24 @@ describe("接缝", () => {
     );
   });
 
-  it("本机路径在这一端是必填的 —— 后端建不出没有路径的项目", () => {
-    renderDialog();
+  it("路径不必填了：只填名字就建得出来，送下去的 path 是空串", async () => {
+    // 规格决策 9：web 上建项目的人可能一台机器都没在线，桌面端跟着获得「先建
+    // 起来、回头再配」这条路。后端此前必拒（Project.Check 要求 Path 非空），现在
+    // 空路径落成「本机未配置路径」那一档（project_svc.Create）。
+    const { onCreated } = renderDialog();
     fireEvent.change(screen.getByTestId("project-create-name"), {
       target: { value: "Nebula" },
     });
-    expect(screen.getByTestId("project-create-submit")).toBeDisabled();
-    expect(screen.getByTestId("project-create-path-required")).toBeTruthy();
+    expect(screen.getByTestId("project-create-submit")).not.toBeDisabled();
+    expect(screen.queryByTestId("project-create-path-required")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() =>
+      expect(appMocks.ProjectCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Nebula", path: "" }),
+      ),
+    );
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(42));
   });
 
   it("挑完目录就地探 git，探到的分支标出来", async () => {
