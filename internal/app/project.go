@@ -129,6 +129,25 @@ func (a *App) ProjectUpdate(req *ProjectUpdateRequest) (*ProjectItem, error) {
 	return toProjectItem(p), nil
 }
 
+// ProjectMoveRequest 把项目挂到另一个父项目下（parentID = 0 即挂到根上）。
+type ProjectMoveRequest struct {
+	ID       int64 `json:"id"`
+	ParentID int64 `json:"parentID"`
+}
+
+// ProjectMove 改父项目。与 ProjectReorder 分开：那一条只在同一个父下排序。
+func (a *App) ProjectMove(req *ProjectMoveRequest) (*ProjectItem, error) {
+	var svcReq *project_svc.MoveProjectRequest
+	if req != nil {
+		svcReq = &project_svc.MoveProjectRequest{ID: req.ID, NewParentID: req.ParentID}
+	}
+	p, err := project_svc.Default().Move(a.ctx, svcReq)
+	if err != nil {
+		return nil, err
+	}
+	return toProjectItem(p), nil
+}
+
 // ProjectReorder 持久化同一父项目下的项目顺序。
 func (a *App) ProjectReorder(req *ProjectReorderRequest) error {
 	var svcReq *project_svc.ReorderProjectsRequest

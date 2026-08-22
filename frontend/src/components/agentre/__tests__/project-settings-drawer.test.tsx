@@ -10,6 +10,8 @@ const appMocks = vi.hoisted(() => ({
   ProjectLocationRemove: vi.fn(),
   ProjectLocationUpsert: vi.fn(),
   ProjectRemoveMember: vi.fn(),
+  ProjectListTree: vi.fn(),
+  ProjectMove: vi.fn(),
   ProjectSetLocalPath: vi.fn(),
   ProjectUpdate: vi.fn(),
   RemoteDeviceList: vi.fn(),
@@ -72,6 +74,8 @@ beforeEach(() => {
   appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
   appMocks.ProjectLocationList.mockResolvedValue([]);
   appMocks.RemoteDeviceList.mockResolvedValue([]);
+  appMocks.ProjectListTree.mockResolvedValue([]);
+  appMocks.ProjectMove.mockResolvedValue({ id: 1 });
   Element.prototype.scrollIntoView = vi.fn();
 });
 
@@ -301,14 +305,56 @@ describe("远端设备那几行", () => {
   });
 });
 
-describe("这一端没有的两格", () => {
-  it("父项目那一格不画 —— 这一端没有改父项目的绑定", async () => {
+describe("父项目", () => {
+  it("列出树上其余项目，改它经 ProjectMove", async () => {
     mockProject();
+    appMocks.ProjectListTree.mockResolvedValue([
+      { project: { id: 1, name: "agentre" }, children: [] },
+      { project: { id: 2, name: "platform" }, children: [] },
+    ]);
+
+    renderDrawer();
+
+    const select = (await screen.findByTestId(
+      "project-settings-parent",
+    )) as HTMLSelectElement;
+    // 候选里没有它自己 —— 指向自己是最短的那个环。
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["", "2"]);
+
+    fireEvent.change(select, { target: { value: "2" } });
+    await waitFor(() =>
+      expect(appMocks.ProjectMove).toHaveBeenCalledWith({ id: 1, parentID: 2 }),
+    );
+  });
+
+  it("改父项目不顺手把别的字段一起重写 —— ProjectUpdate 不该被叫到", async () => {
+    mockProject();
+    appMocks.ProjectListTree.mockResolvedValue([
+      { project: { id: 1, name: "agentre" }, children: [] },
+      { project: { id: 2, name: "platform" }, children: [] },
+    ]);
+
+    renderDrawer();
+
+    fireEvent.change(await screen.findByTestId("project-settings-parent"), {
+      target: { value: "2" },
+    });
+    await waitFor(() => expect(appMocks.ProjectMove).toHaveBeenCalled());
+    expect(appMocks.ProjectUpdate).not.toHaveBeenCalled();
+  });
+
+  it("树上只有它自己时那一格不画 —— 没有可选的父项目", async () => {
+    mockProject();
+    appMocks.ProjectListTree.mockResolvedValue([
+      { project: { id: 1, name: "agentre" }, children: [] },
+    ]);
     renderDrawer();
     await screen.findByTestId("project-section-basic");
     expect(screen.queryByTestId("project-settings-parent")).toBeNull();
   });
+});
 
+describe("这一端没有的那一格", () => {
   it("「危险」那一页没了，删除入口只剩组头 ⋮", async () => {
     mockProject();
     renderDrawer();

@@ -28,7 +28,9 @@ import {
 import {
   ProjectAddMember,
   ProjectGet,
+  ProjectListTree,
   ProjectLocationList,
+  ProjectMove,
   ProjectLocationRemove,
   ProjectLocationUpsert,
   ProjectRemoveMember,
@@ -56,6 +58,19 @@ type ProjectLocationView = {
   online: boolean;
 };
 type DeviceView = { id: number; name: string; online: boolean };
+
+/** 项目树拍平成父项目候选。深度只影响缩进，这一格暂不缩进。 */
+function flattenTree(
+  nodes: app.ProjectTreeNode[],
+): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  for (const n of nodes) {
+    if (!n.project) continue;
+    out.push({ id: String(n.project.id), name: n.project.name });
+    if (n.children) out.push(...flattenTree(n.children));
+  }
+  return out;
+}
 
 export type ProjectSettingsDrawerProps = {
   /** 0 = 关闭；>0 = 打开并加载该项目 */
@@ -102,6 +117,8 @@ function ProjectSettingsDrawer({
   );
   /** 候选里「这台设备还没配路径」那一档要看它，所以设置弹窗这一层就得知道。 */
   const [locations, setLocations] = React.useState<ProjectLocationView[]>([]);
+  /** 父项目下拉的候选。整棵树拍平，包会把「它自己」剔掉。 */
+  const [tree, setTree] = React.useState<{ id: string; name: string }[]>([]);
 
   const reload = React.useCallback(async () => {
     if (projectID <= 0) return;
@@ -113,8 +130,15 @@ function ProjectSettingsDrawer({
   }, [projectID]);
 
   React.useEffect(() => {
-    if (open) void reload();
-    else setDetail(null);
+    if (!open) {
+      setDetail(null);
+      return;
+    }
+    void reload();
+    void ProjectListTree()
+      .then((nodes) => setTree(flattenTree(nodes ?? [])))
+      // 读不到就不画那一格 —— 画一个空下拉比不画更让人以为「没有别的项目」。
+      .catch(() => setTree([]));
   }, [open, reload]);
 
   const project = detail?.project;
@@ -125,6 +149,16 @@ function ProjectSettingsDrawer({
         attempt(async () => {
           const p = project;
           if (!p) return;
+          // 换父项目走 ProjectMove，不走 ProjectUpdate：那一条只管重名，换一层还要
+          // 管父级在不在、停没停用、以及会不会成环（project_svc.Move）。
+          if (fields.parentId !== undefined) {
+            await ProjectMove({
+              id: p.id,
+              parentID: Number(fields.parentId || 0),
+            });
+            await reload();
+            return;
+          }
           // 桌面端的 ProjectUpdate 收整份字段，包只递改动的那几格 —— 在这里合。
           if (
             "name" in fields ||
@@ -278,14 +312,11 @@ function ProjectSettingsDrawer({
         description: project.description,
         icon: project.icon,
         color: project.color,
-        // 桌面端改不了父项目：`ProjectUpdateRequest` 没有 parentID，而
-        // `ProjectReorder` 的 SQL 带 `AND parent_id = ?`（只在同一个父下排序）。
-        // 递空候选，包会把那一格整格不画。
-        parentId: "",
+        parentId: String(project.parentID || ""),
         members,
         candidates,
       }}
-      parentOptions={[]}
+      parentOptions={tree}
       ports={ports}
       focus={focus}
       iconField={({ value, onPick }) => (
