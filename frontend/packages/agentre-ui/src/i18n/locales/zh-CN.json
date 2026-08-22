@@ -1495,5 +1495,30 @@
       "submit": "删除项目",
       "failed": "项目没删成。"
     }
+  },
+  "projectHeader": {
+    "menu": {
+      "aria": "{{name}} 的更多动作",
+      "label": "{{name}} 的动作",
+      "settings": "设置",
+      "newSubproject": "新建子项目",
+      "members": "成员…",
+      "paths": "机器与路径…",
+      "terminal": "新建终端",
+      "merge": "合并到已有项目",
+      "delete": "删除项目"
+    },
+    "add": {
+      "aria": "在 {{name}} 里新建对话",
+      "loading": "正在读成员…",
+      "failed": "这个项目的成员没读到。",
+      "noMembers": "这个项目还没有成员。",
+      "addMembers": "去加成员…",
+      "inherited": "继承"
+    },
+    "unconfigured": {
+      "badge": "未配置",
+      "aria": "{{name}} 在任何机器上都没有路径，去配一个"
+    }
   }
 }

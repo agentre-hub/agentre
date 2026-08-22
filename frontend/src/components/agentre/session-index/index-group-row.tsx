@@ -42,14 +42,17 @@ export type IndexGroupHandlers = {
   onNewSession: (projectID: number, agentID: number) => void;
   onOpenNotChattable: (agent: ChatAgentItem) => void;
   onTogglePin: (agentID: number, pinned: boolean) => void;
-  onOpenSettings: (projectID: number) => void;
+  onOpenSettings: (
+    projectID: number,
+    /** 直落设置弹窗的某一节；组头菜单的「成员…」「机器与路径…」用它。 */
+    focus?: "members" | "paths",
+  ) => void;
   onAddSubProject: (parentID: number) => void;
   onOpenTerminal: (
     projectID: number,
     deviceID: string,
     deviceName: string,
   ) => void;
-  onSpecifyPath: (projectID: number) => void;
   onMergeInto: (projectID: number, name: string) => void;
   onDeleteProject: (projectID: number, name: string) => void;
   renderSessionsPopover?: (
@@ -316,7 +319,6 @@ export function IndexGroupRow({
           onAddSubProject={handlers.onAddSubProject}
           onNewSession={handlers.onNewSession}
           onOpenTerminal={handlers.onOpenTerminal}
-          onSpecifyPath={handlers.onSpecifyPath}
           onMergeInto={handlers.onMergeInto}
           onDelete={handlers.onDeleteProject}
         />

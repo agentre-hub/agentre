@@ -545,6 +545,15 @@ export type {
 } from "./org/org-drop";
 export { DirectoryPicker } from "./project/directory-picker";
 export type { DirectoryPickerProps } from "./project/directory-picker";
+export {
+  ProjectHeaderActions,
+  ProjectHeaderContextMenu,
+} from "./project/project-header-actions";
+export type {
+  ProjectHeaderActionsProps,
+  ProjectHeaderMember,
+  ProjectMenuCapabilities,
+} from "./project/project-header-actions";
 export { ProjectCreateDialog } from "./project/project-create-dialog";
 export type { ProjectCreateDialogProps } from "./project/project-create-dialog";
 export { ProjectDeleteDialog } from "./project/project-delete-dialog";

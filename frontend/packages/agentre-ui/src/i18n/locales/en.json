@@ -1495,5 +1495,30 @@
       "submit": "Delete project",
       "failed": "Could not delete the project."
     }
+  },
+  "projectHeader": {
+    "menu": {
+      "aria": "More actions for {{name}}",
+      "label": "Actions for {{name}}",
+      "settings": "Settings",
+      "newSubproject": "New subproject",
+      "members": "Members…",
+      "paths": "Machines and paths…",
+      "terminal": "New terminal",
+      "merge": "Merge into an existing project",
+      "delete": "Delete project"
+    },
+    "add": {
+      "aria": "New conversation in {{name}}",
+      "loading": "Loading members…",
+      "failed": "Could not load this project's members.",
+      "noMembers": "This project has no members yet.",
+      "addMembers": "Add members…",
+      "inherited": "Inherited"
+    },
+    "unconfigured": {
+      "badge": "No path",
+      "aria": "{{name}} has no path on any machine — set one"
+    }
   }
 }

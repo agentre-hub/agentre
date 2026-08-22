@@ -37,7 +37,6 @@ const noopHandlers: IndexGroupHandlers = {
   onOpenSettings: vi.fn(),
   onAddSubProject: vi.fn(),
   onOpenTerminal: vi.fn(),
-  onSpecifyPath: vi.fn(),
   onMergeInto: vi.fn(),
   onDeleteProject: vi.fn(),
 };

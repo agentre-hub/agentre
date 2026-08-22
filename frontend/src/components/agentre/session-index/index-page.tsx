@@ -257,6 +257,11 @@ export function SessionIndexPage() {
   const [newDialogOpen, setNewDialogOpen] = React.useState(false);
   const [newDialogParent, setNewDialogParent] = React.useState(0);
   const [settingsProjectID, setSettingsProjectID] = React.useState(0);
+  /** 设置弹窗打开时直落哪一节。组头的「成员…」「机器与路径…」与「未配置」角标都
+      落在折叠线以下，打开在顶部等于没有入口。 */
+  const [settingsFocus, setSettingsFocus] = React.useState<
+    "members" | "paths" | undefined
+  >(undefined);
   const [deleteTarget, setDeleteTarget] =
     React.useState<DeleteProjectTarget | null>(null);
   const [mergeSource, setMergeSource] =
@@ -365,18 +370,13 @@ export function SessionIndexPage() {
         await WailsApp.SetAgentPinned({ id: agentID, pinned } as never);
         void useChatAgentsStore.getState().reload();
       },
-      onOpenSettings: setSettingsProjectID,
+      onOpenSettings: (projectID: number, focus?: "members" | "paths") => {
+        setSettingsProjectID(projectID);
+        setSettingsFocus(focus);
+      },
       onAddSubProject: openCreateDialog,
       onOpenTerminal: (projectID, deviceID, deviceName) =>
         openTerminal(projectID, deviceID, deviceName || undefined),
-      onSpecifyPath: async (projectID) => {
-        const path = await WailsApp.SelectDirectory(
-          t("projectNew.selectDirectory"),
-        );
-        if (!path) return;
-        await WailsApp.ProjectSetLocalPath({ id: projectID, path } as never);
-        refreshProjectData();
-      },
       onMergeInto: (projectID, name) => setMergeSource({ id: projectID, name }),
       onDeleteProject: (projectID, name) =>
         // 子项目数从树上数出来递进去：确认弹窗要逐条写清后果，「一并删掉几个」是
@@ -600,7 +600,11 @@ export function SessionIndexPage() {
       />
       <ProjectSettingsDrawer
         projectID={settingsProjectID}
-        onClose={() => setSettingsProjectID(0)}
+        focus={settingsFocus}
+        onClose={() => {
+          setSettingsProjectID(0);
+          setSettingsFocus(undefined);
+        }}
         onChanged={refreshProjectData}
       />
       <DeleteProjectDialog

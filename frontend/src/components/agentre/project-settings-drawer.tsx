@@ -60,6 +60,8 @@ type DeviceView = { id: number; name: string; online: boolean };
 export type ProjectSettingsDrawerProps = {
   /** 0 = 关闭；>0 = 打开并加载该项目 */
   projectID: number;
+  /** 直落到哪一节；组头菜单的「成员…」「机器与路径…」与「未配置」角标经它进来。 */
+  focus?: "members" | "paths";
   onClose: () => void;
   onChanged: () => void;
 };
@@ -88,6 +90,7 @@ async function attempt(
 
 function ProjectSettingsDrawer({
   projectID,
+  focus,
   onClose,
   onChanged,
 }: ProjectSettingsDrawerProps) {
@@ -284,6 +287,7 @@ function ProjectSettingsDrawer({
       }}
       parentOptions={[]}
       ports={ports}
+      focus={focus}
       iconField={({ value, onPick }) => (
         <IconKeyField value={value} onPick={onPick} />
       )}

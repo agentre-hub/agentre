@@ -65,7 +65,6 @@ function renderHeader(overrides: Partial<ProjectGroupHeaderProps> = {}) {
     onAddSubProject: vi.fn(),
     onNewSession: vi.fn(),
     onOpenTerminal: vi.fn(),
-    onSpecifyPath: vi.fn(),
     onMergeInto: vi.fn(),
     onDelete: vi.fn(),
     ...overrides,
@@ -99,47 +98,56 @@ describe("ProjectGroupHeader ⋮ menu", () => {
     appMocks.ServerListDevices.mockResolvedValue([]);
   });
 
-  it("Given a project whose local path is missing, When the ⋮ menu opens, Then all six actions are reachable", async () => {
+  it("Given a project whose local path is missing, When the ⋮ menu opens, Then the full item set shows in the package's order", async () => {
     const user = setupUser();
-    const props = renderHeader({
-      project: makeProject({ localPathMissing: true }),
-    });
+    renderHeader({ project: makeProject({ localPathMissing: true }) });
 
     await user.click(
       screen.getByRole("button", { name: "More actions for Atlas" }),
     );
-    await screen.findByRole("menuitem", { name: "Project Settings" });
+    await screen.findByRole("menuitem", { name: "Settings" });
 
     expect(menuItemLabels()).toEqual([
-      "Project Settings",
-      "New Sub-project",
+      "Settings",
+      "New subproject",
+      "Members…",
+      "Machines and paths…",
       "New Terminal",
-      "Specify path…",
-      "Merge into existing project…",
-      "Delete Project",
+      "Merge into an existing project",
+      "Delete project",
     ]);
-
-    await user.click(screen.getByRole("menuitem", { name: "Specify path…" }));
-    expect(props.onSpecifyPath).toHaveBeenCalledWith(1);
   });
 
-  it("Given a project with a configured local path, When the ⋮ menu opens, Then only the four always-on actions show", async () => {
+  it("Given a configured local path, When the ⋮ menu opens, Then merge drops out — it is an R10 way out, not an always-on action", async () => {
     const user = setupUser();
     renderHeader({ project: makeProject({ localPathMissing: false }) });
 
     await user.click(
       screen.getByRole("button", { name: "More actions for Atlas" }),
     );
-    await screen.findByRole("menuitem", { name: "Project Settings" });
+    await screen.findByRole("menuitem", { name: "Settings" });
 
     expect(menuItemLabels()).toEqual([
-      "Project Settings",
-      "New Sub-project",
+      "Settings",
+      "New subproject",
+      "Members…",
+      "Machines and paths…",
       "New Terminal",
-      "Delete Project",
+      "Delete project",
     ]);
-    expect(screen.queryByText("Specify path…")).toBeNull();
-    expect(screen.queryByText("Merge into existing project…")).toBeNull();
+  });
+
+  it("Given the ⋮ menu, When 「机器与路径…」 is picked, Then settings opens straight at that section", async () => {
+    const user = setupUser();
+    const props = renderHeader();
+
+    await user.click(
+      screen.getByRole("button", { name: "More actions for Atlas" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Machines and paths…" }),
+    );
+    expect(props.onOpenSettings).toHaveBeenCalledWith(1, "paths");
   });
 });
 
@@ -159,26 +167,27 @@ describe("ProjectGroupHeader context menu", () => {
     appMocks.ServerListDevices.mockResolvedValue([]);
   });
 
-  it("Given a project whose local path is missing, When the header is right-clicked, Then exactly four items show and neither specify-path nor merge is among them", async () => {
-    const props = renderHeader({
-      project: makeProject({ localPathMissing: true }),
-    });
+  it("Given the header is right-clicked, Then the menu is identical to ⋮ — one definition, two containers", async () => {
+    renderHeader({ project: makeProject({ localPathMissing: true }) });
 
     fireEvent.contextMenu(screen.getByText("Atlas"));
-    await screen.findByRole("menuitem", { name: "Project Settings" });
+    await screen.findByRole("menuitem", { name: "Settings" });
 
-    // 右键菜单比 ⋮ 少「指定本机路径」「合并到已有项目」—— 这是既有差异，
-    // 不是遗漏；守卫住它，别被「顺手补齐」。
+    /*
+      此前这里守的是**相反**的事：「右键菜单比 ⋮ 少两项，这是既有差异，别顺手补齐」。
+      规格 2026-08-22 决策 5 把那条差异判成 bug（问题 4）——两处各摆一遍就是两处各漏
+      一项的机会，而右键那份漏掉的正是「成员…」「机器与路径…」。条目现在只在包里
+      定义一次，两种容器各渲染一遍，所以这里改守「两处一模一样」。
+    */
     expect(menuItemLabels()).toEqual([
-      "Project Settings",
-      "New Sub-project",
+      "Settings",
+      "New subproject",
+      "Members…",
+      "Machines and paths…",
       "New Terminal",
-      "Delete Project",
+      "Merge into an existing project",
+      "Delete project",
     ]);
-    expect(screen.queryByText("Specify path…")).toBeNull();
-    expect(screen.queryByText("Merge into existing project…")).toBeNull();
-    expect(props.onSpecifyPath).not.toHaveBeenCalled();
-    expect(props.onMergeInto).not.toHaveBeenCalled();
   });
 });
 
@@ -247,7 +256,7 @@ describe("ProjectGroupHeader ＋ member picker", () => {
     appMocks.ServerListDevices.mockResolvedValue([]);
   });
 
-  it("Given the project has exactly one member, When ＋ is clicked, Then that member starts a session and the list never expands", async () => {
+  it("Given exactly one member, When ＋ is clicked, Then that member starts a session and no popover ever opens", async () => {
     const user = setupUser();
     appMocks.ProjectGet.mockResolvedValue({
       project: null,
@@ -257,19 +266,15 @@ describe("ProjectGroupHeader ＋ member picker", () => {
     const props = renderHeader();
 
     await user.click(
-      screen.getByRole("button", { name: "New session in Atlas" }),
+      screen.getByRole("button", { name: "New conversation in Atlas" }),
     );
 
-    await waitFor(() => {
-      expect(props.onNewSession).toHaveBeenCalledWith(1, 7);
-    });
-    await waitFor(() => {
-      expect(screen.queryByText("Choose an Agent")).toBeNull();
-    });
-    expect(screen.queryByRole("menuitem")).toBeNull();
+    await waitFor(() => expect(props.onNewSession).toHaveBeenCalledWith(1, 7));
+    // 成员在**打开之前**取出来，所以不再有「弹出来又自己关掉」那一闪。
+    expect(screen.queryByTestId("project-add-popover")).toBeNull();
   });
 
-  it("Given the project has two members, When ＋ is clicked, Then the picker lists both and marks the inherited one", async () => {
+  it("Given two members, When ＋ is clicked, Then both are listed and the inherited one is marked", async () => {
     const user = setupUser();
     appMocks.ProjectGet.mockResolvedValue({
       project: null,
@@ -279,21 +284,20 @@ describe("ProjectGroupHeader ＋ member picker", () => {
     const props = renderHeader();
 
     await user.click(
-      screen.getByRole("button", { name: "New session in Atlas" }),
+      screen.getByRole("button", { name: "New conversation in Atlas" }),
     );
 
-    expect(await screen.findByText("Choose an Agent")).toBeInTheDocument();
+    expect(await screen.findByTestId("project-member-option-7")).toBeInTheDocument();
     expect(screen.getByText("Inherited")).toBeInTheDocument();
     expect(props.onNewSession).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("menuitem", { name: /Relay/ }));
+    await user.click(screen.getByTestId("project-member-option-9"));
     expect(props.onNewSession).toHaveBeenCalledWith(1, 9);
   });
 
-  it("Given an agent is picked, When the menu closes, Then Radix does not pull focus back to ＋ — the new tab's editor has already claimed it", async () => {
-    // 回归：新建会话后输入框「拿到焦点又丢了」。Radix DropdownMenu 默认的
-    // onCloseAutoFocus 在关闭时把焦点还给 trigger，正好抹掉 ChatPanelHost
-    // setTimeout(0) 给编辑器的那次 focus。修复 = onCloseAutoFocus preventDefault。
+  it("Given an agent is picked, When the popover closes, Then focus is not pulled back to ＋ — the new tab's editor has already claimed it", async () => {
+    // 回归：新建会话后输入框「拿到焦点又丢了」。Radix 关闭时默认把焦点还给 trigger，
+    // 正好抹掉 ChatPanelHost setTimeout(0) 给编辑器的那次 focus。
     const user = setupUser();
     appMocks.ProjectGet.mockResolvedValue({
       project: null,
@@ -306,17 +310,15 @@ describe("ProjectGroupHeader ＋ member picker", () => {
     renderHeader();
 
     const trigger = screen.getByRole("button", {
-      name: "New session in Atlas",
+      name: "New conversation in Atlas",
     });
     await user.click(trigger);
-    await user.click(await screen.findByText("Builder"));
+    await user.click(await screen.findByTestId("project-member-option-5"));
 
-    await waitFor(() => {
-      expect(document.activeElement).not.toBe(trigger);
-    });
+    await waitFor(() => expect(document.activeElement).not.toBe(trigger));
   });
 
-  it("Given the member list was empty on first open, When ＋ is reopened, Then members are refetched instead of reusing the stale empty menu", async () => {
+  it("Given the member list was empty on first open, When ＋ is reopened, Then members are refetched", async () => {
     const user = setupUser();
     appMocks.ProjectGet.mockResolvedValueOnce({
       project: null,
@@ -333,24 +335,18 @@ describe("ProjectGroupHeader ＋ member picker", () => {
     renderHeader();
 
     const trigger = screen.getByRole("button", {
-      name: "New session in Atlas",
+      name: "New conversation in Atlas",
     });
     await user.click(trigger);
-    expect(await screen.findByText(/No members yet/)).toBeInTheDocument();
+    // 空的那次给的是一条去加成员的路，不是一句空话。
+    expect(await screen.findByTestId("project-add-empty-action")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
-    await waitFor(() => {
-      expect(screen.queryByText(/No members yet/)).not.toBeInTheDocument();
-    });
     await user.click(trigger);
-
-    expect(await screen.findByText("Reviewer")).toBeInTheDocument();
-    expect(appMocks.ProjectGet).toHaveBeenCalledTimes(2);
+    expect(await screen.findByTestId("project-member-option-6")).toBeInTheDocument();
   });
 });
 
-// 「新建终端」子菜单的设备矩阵。合并前它有一套组件级测试（靠一个只为测试存在的
-// DropdownMenu harness）；现在从组头的 ⋮ 菜单真实打开，不再为测试导出内部组件。
 describe("ProjectGroupHeader new-terminal submenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
