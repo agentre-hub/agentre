@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/agentre-ai/agentre/internal/pkg/cliprocess"
 )
@@ -53,38 +52,7 @@ func (r execAppServerRunner) Start(ctx context.Context, opts procOptions) (proce
 	return cliprocess.Start(ctx, opts, ErrBinaryNotFound)
 }
 
-const maxStderrTailBytes = 64 * 1024
-
-// lockedBuffer retains only the most recent stderr bytes. An app-server can be
-// alive for many turns, so retaining its full lifetime output is an unbounded
-// memory leak and makes a later ExitError unnecessarily likely to expose old
-// credentials.
-type lockedBuffer struct {
-	mu sync.Mutex
-	b  []byte
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if len(p) >= maxStderrTailBytes {
-		b.b = append(b.b[:0], p[len(p)-maxStderrTailBytes:]...)
-		return len(p), nil
-	}
-	over := len(b.b) + len(p) - maxStderrTailBytes
-	if over > 0 {
-		copy(b.b, b.b[over:])
-		b.b = b.b[:len(b.b)-over]
-	}
-	b.b = append(b.b, p...)
-	return len(p), nil
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return string(b.b)
-}
+type lockedBuffer = cliprocess.LockedBuffer
 
 var (
 	bearerCredentialRE = regexp.MustCompile(`(?i)(bearer\s+)[^\s,;"']+`)

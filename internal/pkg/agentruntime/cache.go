@@ -19,21 +19,6 @@ type ctxKiller interface {
 	Kill(context.Context) error
 }
 
-// SessionCache 是 cago cliagent Session 的 per-chat-session LRU 缓存。
-// 上限默认 8（agentre 同时活跃的 CLI 子进程兜底）；超出时 Close 并 evict 最老的。
-// 线程安全。Close 在 goroutine 内异步执行，不阻塞 Put。
-type SessionCache struct {
-	mu    sync.Mutex
-	cap   int
-	ll    *list.List
-	index map[string]*list.Element
-}
-
-type sessionEntry struct {
-	key string
-	val ctxCloser
-}
-
 type CLISessionState string
 
 const (
@@ -252,91 +237,6 @@ func (p *CLISessionPool) idleLenLocked() int {
 		}
 	}
 	return n
-}
-
-// NewSessionCache 构造 LRU 缓存；capacity<=0 自动按 1 处理。
-func NewSessionCache(capacity int) *SessionCache {
-	if capacity <= 0 {
-		capacity = 1
-	}
-	return &SessionCache{cap: capacity, ll: list.New(), index: map[string]*list.Element{}}
-}
-
-// Get 取一个 session；命中后被提到 LRU 最新位置。
-func (c *SessionCache) Get(key string) (ctxCloser, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	el, ok := c.index[key]
-	if !ok {
-		return nil, false
-	}
-	c.ll.MoveToFront(el)
-	return el.Value.(*sessionEntry).val, true
-}
-
-// Put 插入 / 替换。容量超限时关掉最老的并 evict。
-// 老条目通过 background goroutine 关闭，避免阻塞调用方；Close 错误丢弃。
-func (c *SessionCache) Put(key string, v ctxCloser) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if el, ok := c.index[key]; ok {
-		old := el.Value.(*sessionEntry).val
-		el.Value = &sessionEntry{key: key, val: v}
-		c.ll.MoveToFront(el)
-		go closeWithTimeout(old)
-		return
-	}
-	el := c.ll.PushFront(&sessionEntry{key: key, val: v})
-	c.index[key] = el
-	for c.ll.Len() > c.cap {
-		back := c.ll.Back()
-		if back == nil {
-			break
-		}
-		ent := back.Value.(*sessionEntry)
-		c.ll.Remove(back)
-		delete(c.index, ent.key)
-		go closeWithTimeout(ent.val)
-	}
-}
-
-// RemoveAll 原子地清空所有条目并 background-close 每个 value。
-// 语义与 Put 超容时一致：列表先腾空，Close 在 goroutine 里跑，不阻塞调用方。
-// 给 app shutdown 用——一次性把全部活着的 CLI 子进程释放掉。
-func (c *SessionCache) RemoveAll() {
-	c.mu.Lock()
-	olds := make([]ctxCloser, 0, c.ll.Len())
-	for el := c.ll.Front(); el != nil; el = el.Next() {
-		olds = append(olds, el.Value.(*sessionEntry).val)
-	}
-	c.ll.Init()
-	c.index = map[string]*list.Element{}
-	c.mu.Unlock()
-	for _, v := range olds {
-		go closeWithTimeout(v)
-	}
-}
-
-// Remove 删除一个 key 并关闭其 session；不存在则 no-op。
-func (c *SessionCache) Remove(key string) {
-	c.mu.Lock()
-	el, ok := c.index[key]
-	if !ok {
-		c.mu.Unlock()
-		return
-	}
-	ent := el.Value.(*sessionEntry)
-	c.ll.Remove(el)
-	delete(c.index, key)
-	c.mu.Unlock()
-	go closeWithTimeout(ent.val)
-}
-
-// Len 仅供测试 / 观测；不暴露的话外部测难写。
-func (c *SessionCache) Len() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.ll.Len()
 }
 
 // closeGracePeriod 是优雅关闭的宽限期,超时后升级到硬杀。单测覆写成毫秒级。
