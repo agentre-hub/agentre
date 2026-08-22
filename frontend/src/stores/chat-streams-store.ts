@@ -631,7 +631,10 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
           // 故意不 flush liveDelta:tool_use→tool_result 之间通常没有用户可见的文字,
           // 把累积的 liveDelta 留给"下一段文字 + 下次 tool_use"那个 flush 时机。
           ...resumed,
-          liveBlocks: [...resumed.liveBlocks, { ...block, type: "tool_result" }],
+          liveBlocks: [
+            ...resumed.liveBlocks,
+            { ...block, type: "tool_result" },
+          ],
         };
       }),
     ),
