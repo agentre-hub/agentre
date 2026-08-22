@@ -63,6 +63,19 @@ func (s *Session) prepare(ctx context.Context, prompt string, requireExactBounda
 	return s.client.prepareStreamOn(ctx, s.proc, false, prompt, requireExactBoundary, opts...)
 }
 
+// Compact 在本会话的进程上做一次压缩,语义同 Client.Compact。
+func (s *Session) Compact(ctx context.Context) (*Stream, error) {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return nil, errSessionClosed
+	}
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	return s.client.compactOn(ctx, s.proc, false)
+}
+
 // Close 终止本会话的 RPC 进程。重入安全。
 func (s *Session) Close(ctx context.Context) error {
 	s.mu.Lock()

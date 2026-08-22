@@ -303,14 +303,24 @@ func (c *Client) Compact(ctx context.Context, _ string) (*Stream, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 一次性用法:进程归这一轮所有,收尾时一起关掉。
+	return c.compactOn(ctx, proc, true)
+}
+
+// compactOn 在一个**已经起来的** RPC 进程上做一次压缩。ownsProcess 的含义同
+// prepareStreamOn。
+func (c *Client) compactOn(ctx context.Context, proc *rpcProcess, ownsProcess bool) (*Stream, error) {
 	startupCtx, cancelStartup := c.startupContext(ctx)
 	defer cancelStartup()
 	state, err := readSessionState(startupCtx, proc, c.session)
 	if err != nil {
-		_ = proc.terminate(context.Background(), c.killGrace)
+		if ownsProcess {
+			_ = proc.terminate(context.Background(), c.killGrace)
+		}
 		return nil, err
 	}
 	stream := newStream(proc, c.killGrace)
+	stream.ownsProcess = ownsProcess
 	stream.setSessionID(state.SessionID)
 	if err := stream.send(ctx, map[string]any{"type": "compact"}); err != nil {
 		_ = stream.Close(context.Background())

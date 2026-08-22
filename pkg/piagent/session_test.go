@@ -58,3 +58,33 @@ func TestSession_GivenAClosedSession_WhenStartingATurn_ThenItFails(t *testing.T)
 
 	require.Error(t, err)
 }
+
+// Given 一个会话上刚做完压缩, When 紧接着再跑一轮, Then 还是同一个进程 —— 压缩不该
+// 顺手把会话的进程收掉。
+func TestSession_GivenCompaction_WhenTheNextTurnRuns_ThenTheProcessSurvives(t *testing.T) {
+	compact := []string{
+		`{"id":"session-state","type":"response","command":"get_state","success":true,"data":{"sessionId":"session-1"}}`,
+		`{"type":"agent_end","messages":[],"willRetry":false}`,
+		`{"type":"agent_settled"}`,
+		`{"type":"response","command":"get_session_stats","success":true,"data":{}}`,
+	}
+	lines := append(compact, scriptedTurn()...)
+	client, _, runner := newSingleProcessCaptureClient(strings.Join(append(lines, ""), "\n"))
+
+	session, err := client.OpenSession(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+
+	compacted, err := session.Compact(context.Background())
+	require.NoError(t, err)
+	for compacted.Next() {
+	}
+	require.NoError(t, compacted.Err())
+
+	stream, err := session.Stream(context.Background(), "after compaction")
+	require.NoError(t, err, "压缩之后进程应当还在")
+	for stream.Next() {
+	}
+
+	assert.Equal(t, 1, runner.starts)
+}
