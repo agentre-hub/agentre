@@ -705,6 +705,91 @@ describe("ChatPanel · T17 breadcrumb 派生", () => {
   });
 });
 
+// ─── 转录脚注的模型回退值 ────────────────────────────────────────────────────
+//
+// 一轮还在跑时,占位 assistant 行的 model 是空的(后端真消息还没回来),脚注
+// 因此落到 fallbackModel。这个槽是**给人看的模型名**,不能塞会话的稳定
+// model_key —— 那是 uuid.NewString() 生成的引用键,画到脸上就是一串 UUID。
+describe("ChatPanel · 转录脚注的模型回退值", () => {
+  it("Given a session fixed to one model, When the transcript renders, Then the fallback model is the model ID rather than the stable model key", async () => {
+    resetStore();
+    onTestFinished(() => {
+      appMocks.ListLLMProviders.mockResolvedValue({ items: [] });
+    });
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          providerKey: "acme-anthropic",
+          name: "Acme Claude",
+          type: "anthropic",
+          enabled: true,
+          defaultModelKey: "",
+        },
+      ],
+    });
+    appMocks.ListLLMModels.mockResolvedValue({
+      items: [
+        {
+          modelKey: "c05987e3-c685-444c-945a-793eba176709",
+          modelId: "glm-5.3",
+          name: "glm-5.3",
+          enabled: true,
+        },
+      ],
+    });
+    mockSessionStore.session = makeSession({
+      id: 42,
+      providerKey: "acme-anthropic",
+      modelKey: "c05987e3-c685-444c-945a-793eba176709",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    await waitFor(() =>
+      expect(componentMocks.chatTranscriptProps.at(-1)?.fallbackModel).toBe(
+        "glm-5.3",
+      ),
+    );
+  });
+
+  it("Given the fixed model is gone from the catalog, When the transcript renders, Then the stable model key never reaches the fallback slot", async () => {
+    resetStore();
+    onTestFinished(() => {
+      appMocks.ListLLMProviders.mockResolvedValue({ items: [] });
+    });
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          providerKey: "acme-anthropic",
+          name: "Acme Claude",
+          type: "anthropic",
+          enabled: true,
+          defaultModelKey: "",
+        },
+      ],
+    });
+    appMocks.ListLLMModels.mockResolvedValue({ items: [] });
+    mockSessionStore.session = makeSession({
+      id: 42,
+      providerKey: "acme-anthropic",
+      modelKey: "c05987e3-c685-444c-945a-793eba176709",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    await waitFor(() => expect(appMocks.ListLLMModels).toHaveBeenCalled());
+    await act(async () => undefined);
+
+    // 目录里解析不出来时脚注宁可空着（画成「—」），也不能把引用键当模型名写出来。
+    // 断言扫过每一次渲染,而不只是最后一次:泄漏发生在解析完成前的任何一帧都算数。
+    expect(
+      componentMocks.chatTranscriptProps.map((props) => props.fallbackModel),
+    ).not.toContain("c05987e3-c685-444c-945a-793eba176709");
+  });
+});
+
 describe("ChatPanel · transcript cwd", () => {
   it("Given session has cwd, When transcript renders, Then cwd is passed through for local link classification", () => {
     resetStore();

@@ -2917,7 +2917,7 @@ function ChatPanel({
                         active={active}
                         messages={messages}
                         liveByMessageId={liveByMessageId}
-                        fallbackModel={providerPill.modelKey}
+                        fallbackModel={providerPill.resolvedModelLabel}
                         streaming={streaming}
                         liveCompacting={liveCompacting}
                         reconnecting={reconnecting}
