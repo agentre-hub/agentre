@@ -99,44 +99,15 @@
     }
   },
   "projects": {
-    "actions": {
-      "newProject": "New Project"
-    },
-    "empty": {
-      "description": "Register a local code repository as a project so multiple agents can collaborate here.",
-      "title": "No projects yet"
-    },
     "errors": {
-      "loadFailed": "Load failed: {{error}}",
       "reorderFailed": "Failed to save project order: {{error}}"
-    },
-    "filter": {
-      "chips": {
-        "all": "All",
-        "running": "Running"
-      }
     },
     "localPath": {
       "allMissingTitle": "This device hasn't configured a path for any project yet",
-      "allMissingDescription": "All {{count}} projects from your account are here — configure each one's directory to start chatting on this machine.",
-      "specifyFailed": "Failed to specify path: {{error}}"
-    },
-    "search": {
-      "aria": "Search projects / sessions",
-      "clear": "Clear filter",
-      "placeholder": "Search projects / sessions"
+      "allMissingDescription": "All {{count}} projects from your account are here — configure each one's directory to start chatting on this machine."
     },
     "session": {
-      "activeCount": "{{count}} active sessions including sub-projects",
-      "attentionAria": "{{name}} sessions needing attention",
-      "empty": "No sessions",
-      "group": "Sessions",
-      "groupToggle": "Toggle {{name}} sessions",
-      "untitled": "(Untitled session)"
-    },
-    "sidebar": {
-      "aria": "Project list",
-      "title": "Projects"
+      "activeCount": "{{count}} active sessions including sub-projects"
     },
     "terminal": {
       "deviceOffline": "Device offline",

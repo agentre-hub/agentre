@@ -99,44 +99,15 @@
     }
   },
   "projects": {
-    "actions": {
-      "newProject": "新建项目"
-    },
-    "empty": {
-      "description": "把一个本地代码仓库登记为项目，就可以让多个 Agent 在这里协作。",
-      "title": "还没有项目"
-    },
     "errors": {
-      "loadFailed": "加载失败：{{error}}",
       "reorderFailed": "项目顺序保存失败：{{error}}"
-    },
-    "filter": {
-      "chips": {
-        "all": "全部",
-        "running": "运行中"
-      }
     },
     "localPath": {
       "allMissingTitle": "这台设备还没有为任何项目配置路径",
-      "allMissingDescription": "账号里的 {{count}} 个项目都在，指定各自的目录后就能在本机开会话。",
-      "specifyFailed": "指定路径失败：{{error}}"
-    },
-    "search": {
-      "aria": "搜索项目 / 会话",
-      "clear": "清空筛选",
-      "placeholder": "搜索项目 / 会话"
+      "allMissingDescription": "账号里的 {{count}} 个项目都在，指定各自的目录后就能在本机开会话。"
     },
     "session": {
-      "activeCount": "{{count}} 个活跃会话（含子项目）",
-      "attentionAria": "{{name}} 待处理会话",
-      "empty": "暂无会话",
-      "group": "会话",
-      "groupToggle": "展开/收起 {{name}} 的会话",
-      "untitled": "(未命名会话)"
-    },
-    "sidebar": {
-      "aria": "项目列表",
-      "title": "项目"
+      "activeCount": "{{count}} 个活跃会话（含子项目）"
     },
     "terminal": {
       "deviceOffline": "设备离线",
