@@ -79,11 +79,14 @@ export type LiveStream = {
   // 在 appendLiveCompactBoundary / finishStream / consumeSteer 自动清回 false,
   // 不依赖 CLI 再推一帧 status:"" 来清旗。
   liveCompacting: boolean;
-  // 本轮可见输出的计时：firstTokenAt 第一次 chunk/thinking；burstStartedAt 当前
-  // 这一跳开始吐字的时刻；generationMs 已经结束的各跳生成时长之和。工具空档不计入。
+  // 本轮计时（与后端 turn/timing.go 同口径）：firstTokenAt 第一次 chunk/thinking
+  // （TTFT）；burstStartedAt 非 null 表示生成表正在走，值是本次开表时刻；
+  // generationMs 是已经停表的各段之和；pendingTools 是正在执行、把表按住的外层工具。
+  // 分母 = 整段墙钟 − 工具执行空档；不吐字只发工具调用的那一跳也照样计入。
   firstTokenAt: number | null;
   burstStartedAt: number | null;
   generationMs: number;
+  pendingTools: string[];
   // turnCompletionTokens / turnReasoningTokens 按 usage 帧累加（每帧是该次 API call
   // 的快照，不是增量）。liveUsage 仍是最近一帧，Composer 上下文条读它的 totalInputTokens。
   turnCompletionTokens: number;
@@ -122,6 +125,7 @@ type Actions = {
       | "firstTokenAt"
       | "burstStartedAt"
       | "generationMs"
+      | "pendingTools"
       | "turnCompletionTokens"
       | "turnReasoningTokens"
     >,
@@ -296,11 +300,15 @@ type Actions = {
 // liveBlocks 前 —— 工具循环里后几轮的 thinking 被全堆到最顶(用户可见症状:
 // 「思考完成过程都在最顶部叠加」)。这里改为在 tool_use/plan/ask 等边界一并
 // 把 liveThinking 落成 thinking block,让 liveBlocks 保持真实时间顺序。
+// noteVisibleToken 记首 token，并在表被按住时重新开表：模型开口说话 = 工具空档必然
+// 已经结束。这同时是「工具结果因中断/过滤没回来」时的自愈，免得表被永久按住、分母
+// 塌回几十毫秒。
 function noteVisibleToken(s: LiveStream, now: number): LiveStream {
   return {
     ...s,
     firstTokenAt: s.firstTokenAt ?? now,
     burstStartedAt: s.burstStartedAt ?? now,
+    pendingTools: s.pendingTools.length === 0 ? s.pendingTools : [],
   };
 }
 
@@ -310,6 +318,34 @@ function pauseBurst(s: LiveStream, now: number): LiveStream {
     ...s,
     generationMs: s.generationMs + Math.max(0, now - s.burstStartedAt),
     burstStartedAt: null,
+  };
+}
+
+/** suspendClock 停表：toolUseId 开始执行，模型这一跳的生成到此为止。 */
+function suspendClock(
+  s: LiveStream,
+  toolUseId: string,
+  now: number,
+): LiveStream {
+  const paused = pauseBurst(s, now);
+  return paused.pendingTools.includes(toolUseId)
+    ? paused
+    : { ...paused, pendingTools: [...paused.pendingTools, toolUseId] };
+}
+
+/** resumeClock 开表：并行工具全部回齐才真的开表。 */
+function resumeClock(
+  s: LiveStream,
+  toolUseId: string,
+  now: number,
+): LiveStream {
+  if (!s.pendingTools.includes(toolUseId)) return s;
+  const pendingTools = s.pendingTools.filter((id) => id !== toolUseId);
+  return {
+    ...s,
+    pendingTools,
+    burstStartedAt:
+      pendingTools.length === 0 ? (s.burstStartedAt ?? now) : s.burstStartedAt,
   };
 }
 
@@ -455,8 +491,10 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         liveContextWindow: 0,
         liveCompacting: false,
         firstTokenAt: null,
-        burstStartedAt: null,
+        // turn 开始即开表（工具空档由 tool 事件停/开）。
+        burstStartedAt: Date.now(),
         generationMs: 0,
+        pendingTools: [],
         turnCompletionTokens: 0,
         turnReasoningTokens: 0,
       });
@@ -514,18 +552,17 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         ) {
           return null;
         }
-        return pauseBurst(
-          {
-            ...cur,
-            liveUsage: usage,
-            liveContextWindow: nextContextWindow,
-            turnCompletionTokens:
-              cur.turnCompletionTokens + (usage.completionTokens ?? 0),
-            turnReasoningTokens:
-              cur.turnReasoningTokens + (usage.reasoningTokens ?? 0),
-          },
-          Date.now(),
-        );
+        // 不停表：usage 是某次内部 API call 的收尾，模型紧接着就发工具调用或
+        // 下一段正文。停表的唯一理由是工具开始执行（见 appendLiveToolUse）。
+        return {
+          ...cur,
+          liveUsage: usage,
+          liveContextWindow: nextContextWindow,
+          turnCompletionTokens:
+            cur.turnCompletionTokens + (usage.completionTokens ?? 0),
+          turnReasoningTokens:
+            cur.turnReasoningTokens + (usage.reasoningTokens ?? 0),
+        };
       }),
     ),
 
@@ -565,7 +602,13 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
   appendLiveToolUse: (sessionId, assistantMessageId, block) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const flushed = pauseBurst(flushLiveSegment(cur), Date.now());
+        // 内层（subagent 内部）工具不碰表 —— 派遣它的那个外层 Task 调用已经把表
+        // 按住了，内层再加减一遍只会在孤儿帧上留下按死表的挂账。
+        const segment = flushLiveSegment(cur);
+        const flushed =
+          block.parentToolUseId || !block.toolUseId
+            ? segment
+            : suspendClock(segment, block.toolUseId, Date.now());
         return {
           ...flushed,
           liveBlocks: [
@@ -578,12 +621,19 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
 
   appendLiveToolResult: (sessionId, assistantMessageId, block) =>
     set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => ({
-        // 故意不 flush liveDelta:tool_use→tool_result 之间通常没有用户可见的文字,
-        // 把累积的 liveDelta 留给"下一段文字 + 下次 tool_use"那个 flush 时机。
-        ...cur,
-        liveBlocks: [...cur.liveBlocks, { ...block, type: "tool_result" }],
-      })),
+      updateStream(state, sessionId, assistantMessageId, (cur) => {
+        // 工具跑完，模型要接着生成了 → 重新开表（并行工具全部回齐才真开）。
+        const resumed =
+          block.parentToolUseId || !block.toolUseId
+            ? cur
+            : resumeClock(cur, block.toolUseId, Date.now());
+        return {
+          // 故意不 flush liveDelta:tool_use→tool_result 之间通常没有用户可见的文字,
+          // 把累积的 liveDelta 留给"下一段文字 + 下次 tool_use"那个 flush 时机。
+          ...resumed,
+          liveBlocks: [...resumed.liveBlocks, { ...block, type: "tool_result" }],
+        };
+      }),
     ),
 
   appendLiveCompactBoundary: (sessionId, assistantMessageId, compact) =>
@@ -950,8 +1000,10 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
           // 新 assistant 段开始 → 清掉上一段的 compacting chip。
           liveCompacting: false,
           firstTokenAt: null,
-          burstStartedAt: null,
+          // 新 assistant 段开始 → 生成表重新开走。
+          burstStartedAt: Date.now(),
           generationMs: 0,
+          pendingTools: [],
           turnCompletionTokens: 0,
           turnReasoningTokens: 0,
         });
