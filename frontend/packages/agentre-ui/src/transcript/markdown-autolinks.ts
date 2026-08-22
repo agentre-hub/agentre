@@ -1,4 +1,4 @@
-import { isLocalFileURL } from "../lib/link-classify";
+import { HOME_ANCHORED, isLocalFileURL } from "../lib/link-classify";
 
 import { previewKind } from "../lib/previewable";
 
@@ -60,6 +60,12 @@ const HARD_END_BOUNDARY = new Set([
 ]);
 const TRAILING_PUNCTUATION = /[.?:]+$/;
 
+// 家目录目标必须带分隔符:光一个 "~" 是波浪号/约等号,不是可点击路径
+// (同 "/" 单字符不可点击的理由)。
+function isHomeAnchored(value: string): boolean {
+  return HOME_ANCHORED.test(value) && value !== "~";
+}
+
 function pathWithoutLineSuffix(value: string): string {
   const match = LINE_SUFFIX.exec(value);
   return match ? value.slice(0, match.index) : value;
@@ -113,7 +119,8 @@ function isMarkdownAutoLinkTarget(value: string, cwd?: string): boolean {
   if (
     isLocalFileURL(value) ||
     ABS_POSIX.test(value) ||
-    ABS_WINDOWS.test(value)
+    ABS_WINDOWS.test(value) ||
+    isHomeAnchored(value)
   ) {
     return true;
   }
@@ -297,7 +304,8 @@ export function tokenizeMarkdownAutoLinks(
       pathCandidate &&
       !isLocalFileURL(candidate) &&
       !ABS_POSIX.test(candidate) &&
-      !ABS_WINDOWS.test(candidate);
+      !ABS_WINDOWS.test(candidate) &&
+      !isHomeAnchored(candidate);
 
     if (
       candidate !== "" &&

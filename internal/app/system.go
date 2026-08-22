@@ -24,8 +24,11 @@ var runOpenCmd = func(name string, args ...string) error {
 
 var lineSuffixRe = regexp.MustCompile(`:\d+(?::\d+)?$`)
 
+// userHomeDir 是 os.UserHomeDir 的包级 indirection，测试可替换。
+var userHomeDir = os.UserHomeDir
+
 // OpenPath 用系统默认应用打开 path。
-// path 必须是绝对路径；包含 ".." 时拒绝（防御性，AI 输出基本不会有）。
+// path 必须是绝对路径或 "~" / "~/…" 家目录形式；包含 ".." 时拒绝（防御性，AI 输出基本不会有）。
 // 末尾 :line[:col] 后缀会被剥离 —— macOS open / xdg-open 不识别这种语法。
 // 行号未来若要支持，由"编辑器 URL scheme"设置项接管（见 spec 未来工作）。
 func (a *App) OpenPath(path string) error {
@@ -40,6 +43,10 @@ func validateOpenPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("OpenPath: path is empty")
 	}
+	path, err := expandHome(path)
+	if err != nil {
+		return "", err
+	}
 	if !isAbsolutePath(path) {
 		return "", fmt.Errorf("OpenPath: path must be absolute: %s", path)
 	}
@@ -50,6 +57,23 @@ func validateOpenPath(path string) (string, error) {
 		}
 	}
 	return cleaned, nil
+}
+
+// expandHome 把 "~" / "~/…" 展开成绝对路径。转录里的链接照原样把用户看到的
+// "~/Code/foo.go" 传下来（前端拿不到家目录，展开只能发生在这一侧）；"~alice/…"
+// 这种指别人家目录的形式不认，原样返回后被绝对路径检查拒掉。
+func expandHome(p string) (string, error) {
+	if p != "~" && !strings.HasPrefix(p, "~/") && !strings.HasPrefix(p, `~\`) {
+		return p, nil
+	}
+	home, err := userHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("OpenPath: resolve home dir: %w", err)
+	}
+	if p == "~" {
+		return home, nil
+	}
+	return home + p[1:], nil
 }
 
 func isAbsolutePath(p string) bool {

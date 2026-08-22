@@ -113,6 +113,19 @@ describe("tokenizeMarkdownAutoLinks", () => {
     expect(visibleText(text, CWD)).toBe(text);
   });
 
+  it("Given home-anchored targets, when tokenized, then ~/ paths link without cwd while a bare tilde stays plain text", () => {
+    const text = "\u770b\u770b ~/Code/agentre/frontend \u548c ~/notes.md:12";
+    expect(linkValues(text, undefined)).toEqual([
+      "~/Code/agentre/frontend",
+      "~/notes.md:12",
+    ]);
+    expect(visibleText(text, undefined)).toBe(text);
+
+    const plain = "~ \u4e0e ~~\u5220\u9664\u7ebf~~ \u4fdd\u6301\u539f\u6837";
+    expect(linkValues(plain, CWD)).toEqual([]);
+    expect(visibleText(plain, CWD)).toBe(plain);
+  });
+
   it("Given no cwd, when relative paths and trusted filenames appear, then only cwd-independent URLs are recognized", () => {
     expect(
       linkValues("README.md ./docs/guide.md https://example.com", undefined),

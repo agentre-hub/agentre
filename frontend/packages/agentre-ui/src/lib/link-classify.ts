@@ -23,6 +23,9 @@ const URL_PREFIX = /^(https?:|mailto:|tel:)/i;
 const WWW_PREFIX = /^www\./i;
 const ABS_POSIX = /^\//;
 const ABS_WINDOWS = /^[A-Za-z]:[\\/]/;
+// 家目录锚定形式。只认 "~" 与 "~/…"（"~alice/…" 指的是别人的家目录，前端无从
+// 解析，仍按老规则处理）。
+export const HOME_ANCHORED = /^~(?:$|[\\/])/;
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const LINE_SUFFIX = /:(\d+)(?::(\d+))?$/;
 
@@ -71,6 +74,7 @@ function classifyLocalPathKind(
   relativeSource?: string,
 ): LocalPathKind {
   if (cwd && fullPath === cwd) return "folder";
+  if (fullPath === "~") return "folder";
   if (/[\\/]$/.test(fullPath)) return "folder";
   if (relativeSource) {
     const base = relativeSource.split(/[\\/]/).pop() ?? "";
@@ -140,7 +144,14 @@ export function classifyLink(
   let relativeSource: string | undefined;
   if (isLocalFileURL(href)) {
     rawPath = fileURLToPath(href);
-  } else if (ABS_POSIX.test(href) || ABS_WINDOWS.test(href)) {
+  } else if (
+    ABS_POSIX.test(href) ||
+    ABS_WINDOWS.test(href) ||
+    HOME_ANCHORED.test(href)
+  ) {
+    // 家目录形式与绝对路径同一档：不拼到 cwd 上（那会造出
+    // "<cwd>/~/Code/foo.ts" 这种不存在的路径），原样保留 "~/…" 展示，
+    // 展开成真实家目录由宿主的 openPath 负责（前端拿不到家目录）。
     rawPath = decodeLocalPath(href);
   } else if (cwd && !SCHEME.test(href) && !href.startsWith("#")) {
     const relative = stripLineSuffix(decodeLocalPath(href));
@@ -155,7 +166,11 @@ export function classifyLink(
   const { path: fullPath, line, col } = stripLineSuffix(rawPath);
   const pathKind = classifyLocalPathKind(fullPath, cwd, relativeSource);
 
-  const relPath = cwd ? internalRelativePath(fullPath, cwd) : null;
+  // 家目录形式无法与 cwd 比较（cwd 是展开后的绝对路径），一律当作 cwd 外目标。
+  const relPath =
+    cwd && !HOME_ANCHORED.test(fullPath)
+      ? internalRelativePath(fullPath, cwd)
+      : null;
   if (relPath !== null) {
     return {
       kind: "local-internal",

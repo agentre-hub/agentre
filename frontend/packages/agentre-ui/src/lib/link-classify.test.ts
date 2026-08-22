@@ -243,6 +243,53 @@ describe("classifyLink", () => {
     });
   });
 
+  describe("Home-anchored paths", () => {
+    it("Given a ~/ path, when classified, then it stays home-anchored instead of being joined onto cwd", () => {
+      expect(classifyLink("~/Code/agentre/foo.ts", CWD)).toEqual({
+        kind: "local-external",
+        fullPath: "~/Code/agentre/foo.ts",
+        pathKind: "file",
+      });
+    });
+
+    it("Given a ~/ path with a line suffix, when classified, then the suffix is split off the home-anchored path", () => {
+      expect(classifyLink("~/foo.go:42:7", CWD)).toEqual({
+        kind: "local-external",
+        fullPath: "~/foo.go",
+        pathKind: "file",
+        line: 42,
+        col: 7,
+      });
+    });
+
+    it("Given the home directory itself, when classified, then it is a folder target", () => {
+      expect(classifyLink("~/Downloads/", CWD)).toMatchObject({
+        kind: "local-external",
+        fullPath: "~/Downloads/",
+        pathKind: "folder",
+      });
+      expect(classifyLink("~", CWD)).toMatchObject({
+        kind: "local-external",
+        fullPath: "~",
+        pathKind: "folder",
+      });
+    });
+
+    it("Given no cwd, when a ~/ path is classified, then it is still a local target", () => {
+      expect(classifyLink("~/foo.go", undefined)).toEqual({
+        kind: "local-external",
+        fullPath: "~/foo.go",
+        pathKind: "file",
+      });
+    });
+
+    it("Given another user's home form, when classified, then it is not treated as home-anchored", () => {
+      expect(classifyLink("~alice/notes.md", CWD)).toMatchObject({
+        kind: "local-internal",
+      });
+    });
+  });
+
   describe("Unknown forms", () => {
     it("when href is empty then kind=unknown", () => {
       expect(classifyLink(undefined, CWD)).toEqual({
