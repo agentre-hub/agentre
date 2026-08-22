@@ -81,6 +81,11 @@ type Session struct {
 	// 仅 readLoop(单 goroutine)读写,无需额外锁。
 	lastAssistantUsage *rawUsage
 
+	// partials 记录哪些 message 的正文/思考已由 stream_event 增量流出,merged
+	// assistant 帧据此跳过同一段文字。与 lastAssistantUsage 同 lifecycle(result
+	// 帧 reset),同样只由 readLoop 单 goroutine 读写。见 partial.go。
+	partials partialText
+
 	// —— 常驻 demux reader 状态(sinkMu 保护)——
 	// readLoop 占住 scanner 整个子进程生命周期,把每帧 demux 到「当前活跃轮」的 ch。
 	// 主线(user 轮 / 自主续轮)一刻只有一个,每轮 result 收尾;归属规则:某轮以「后台型
@@ -724,7 +729,7 @@ func (s *Session) parseLine(line []byte) ([]Event, bool) {
 				return []Event{ev}, false
 			}
 		}
-		events, usage := parseAssistantContentWithUsage(f.Message, s.sessionID, f.ParentToolUseID, f.IsAPIErrorMessage)
+		events, usage := parseAssistantContentWithUsage(f.Message, s.sessionID, f.ParentToolUseID, f.IsAPIErrorMessage, &s.partials)
 		// 仅记录主 agent 帧的 usage：parent_tool_use_id != "" 的帧来自 Task/Agent
 		// subagent 内部 API call，那是独立 Anthropic 会话（自己的 system prompt /
 		// context window），用它的用量覆盖主 agent 的会让进度条骤降到 subagent 的
@@ -760,8 +765,9 @@ func (s *Session) parseLine(line []byte) ([]Event, bool) {
 		}
 		ev := Event{Kind: EventDone, SessionID: s.sessionID, Model: s.model}
 		ev.Usage = resolveDoneUsage(s.lastAssistantUsage, f.Usage)
-		// 当前 turn 结束，下一轮重新累积 lastAssistantUsage。
+		// 当前 turn 结束，下一轮重新累积 lastAssistantUsage / 增量正文账本。
 		s.lastAssistantUsage = nil
+		s.partials.reset()
 		return []Event{ev}, true
 	case "control_response":
 		// 路由给在 ctrlPending 上等的 Interrupt 调用者；不产生 Event。
@@ -1156,7 +1162,7 @@ func (s *Session) removeSettings() {
 // subagent 过滤:沿用 assistant 帧的语义,parent_tool_use_id != "" 的 stream_event
 // 来自 Task/Agent 子会话,其 message_delta usage 不能影响主 agent 的进度条。
 func (s *Session) parseStreamEvent(f rawFrame) []Event {
-	return parseStreamEventUsage(f, s.sessionID, func(u *rawUsage) {
+	return parseStreamEventFrame(f, s.sessionID, &s.partials, func(u *rawUsage) {
 		s.lastAssistantUsage = u
 	})
 }
@@ -1207,7 +1213,9 @@ func firstAssistantText(raw json.RawMessage) string {
 	return ""
 }
 
-func parseAssistantContentWithUsage(raw json.RawMessage, sid, parentToolUseID string, isAPIErrorMessage bool) ([]Event, *rawUsage) {
+func parseAssistantContentWithUsage(
+	raw json.RawMessage, sid, parentToolUseID string, isAPIErrorMessage bool, partials *partialText,
+) ([]Event, *rawUsage) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -1219,12 +1227,13 @@ func parseAssistantContentWithUsage(raw json.RawMessage, sid, parentToolUseID st
 	for _, c := range m.Content {
 		switch c.Type {
 		case "text":
-			if c.Text == "" {
+			// 这一段已经按 text_delta 逐帧流过就跳过,否则转录里同一段话出现两遍。
+			if c.Text == "" || partials.streamedText(m.ID) {
 				continue
 			}
 			out = append(out, Event{Kind: EventTextDelta, SessionID: sid, Text: c.Text, ParentToolUseID: parentToolUseID})
 		case "thinking":
-			if c.Thinking == "" {
+			if c.Thinking == "" || partials.streamedThinking(m.ID) {
 				continue
 			}
 			out = append(out, Event{Kind: EventThinkingDelta, SessionID: sid, Text: c.Thinking, ParentToolUseID: parentToolUseID})

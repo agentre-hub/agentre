@@ -36,6 +36,9 @@ type frameDecoder struct {
 	// 的输入大小，所以 EventDone 优先吐 last per-call；不可得时再 fallback 到 result.usage
 	// （兼容老 CLI / 极简 stub）。
 	lastAssistantUsage *rawUsage
+	// partials 记录哪些 message 的正文已由 stream_event 增量流出,merged assistant
+	// 帧据此跳过同一段文字。见 partial.go。
+	partials partialText
 }
 
 const maxFrameBytes = 16 << 20 // 16MB 单行兜底（tool_result 内联可能很大）
@@ -176,12 +179,23 @@ type rawFrame struct {
 	IsAPIErrorMessage bool `json:"isApiErrorMessage,omitempty"`
 }
 
-// rawStreamEvent 是 stream_event.event 字段的解码壳。仅消费 type + usage,其他
-// 子结构(delta / message / content_block / index)用 json.RawMessage 占位,需要时
-// 再解 —— 当前 parser 用不到。
+// rawStreamEvent 是 stream_event.event 字段的解码壳。消费 type + usage + delta +
+// message.id;content_block / index 等其他子结构当前 parser 用不到,不解。
 type rawStreamEvent struct {
 	Type  string    `json:"type"`
 	Usage *rawUsage `json:"usage,omitempty"`
+	// Message 只取 id:message_start 报的这条 message id,是 content_block_delta
+	// 归属到哪条 assistant message 的唯一线索(delta 帧自己不带 id)。
+	Message struct {
+		ID string `json:"id"`
+	} `json:"message,omitempty"`
+	// Delta 是 content_block_delta 的增量载荷。type 为 text_delta / thinking_delta /
+	// input_json_delta;后者(工具入参)不消费,工具调用整块走 merged assistant 帧。
+	Delta struct {
+		Type     string `json:"type"`
+		Text     string `json:"text,omitempty"`
+		Thinking string `json:"thinking,omitempty"`
+	} `json:"delta,omitempty"`
 }
 
 // task_started / task_progress / task_notification 的 usage 字段格式与
@@ -258,7 +272,7 @@ func (d *frameDecoder) decodeLine(line []byte) ([]Event, bool) {
 				return []Event{ev}, true
 			}
 		}
-		events, usage := parseAssistantContentWithUsage(f.Message, d.sessionID, f.ParentToolUseID, f.IsAPIErrorMessage)
+		events, usage := parseAssistantContentWithUsage(f.Message, d.sessionID, f.ParentToolUseID, f.IsAPIErrorMessage, &d.partials)
 		// 仅记录主 agent 帧的 usage：parent_tool_use_id != "" 的帧来自 Task/Agent
 		// subagent 内部 API call，那是独立 Anthropic 会话（自己的 system prompt /
 		// context window），用它的用量覆盖主 agent 的会让进度条骤降到 subagent 的
@@ -290,6 +304,7 @@ func (d *frameDecoder) decodeLine(line []byte) ([]Event, bool) {
 			d.sessionID = f.SessionID
 		}
 		d.done = true
+		d.partials.reset()
 		ev := Event{Kind: EventDone, SessionID: d.sessionID, Model: d.model}
 		ev.Usage = resolveDoneUsage(d.lastAssistantUsage, f.Usage)
 		return []Event{ev}, true
@@ -301,36 +316,11 @@ func (d *frameDecoder) decodeLine(line []byte) ([]Event, bool) {
 // 等价(详见 session.go 同名方法注释);把 frameDecoder 改造成 receiver,与既有
 // d.lastAssistantUsage 状态共享同一个 lifecycle。
 func (d *frameDecoder) parseStreamEvent(f rawFrame) []Event {
-	return parseStreamEventUsage(f, d.sessionID, func(u *rawUsage) {
+	return parseStreamEventFrame(f, d.sessionID, &d.partials, func(u *rawUsage) {
 		d.lastAssistantUsage = u
 	})
 }
 
-func parseStreamEventUsage(f rawFrame, sid string, remember func(*rawUsage)) []Event {
-	if f.ParentToolUseID != "" || len(f.Event) == 0 {
-		return nil
-	}
-	var ev rawStreamEvent
-	if err := json.Unmarshal(f.Event, &ev); err != nil {
-		return nil
-	}
-	if ev.Type != "message_delta" || ev.Usage == nil || isZeroUsage(ev.Usage) {
-		return nil
-	}
-	if remember != nil {
-		remember(ev.Usage)
-	}
-	return []Event{{
-		Kind:      EventUsage,
-		SessionID: sid,
-		Usage: provider.Usage{
-			PromptTokens:        ev.Usage.InputTokens,
-			CompletionTokens:    ev.Usage.OutputTokens,
-			CachedTokens:        ev.Usage.CacheReadInputTokens,
-			CacheCreationTokens: ev.Usage.CacheCreationInputTokens,
-		},
-	}}
-}
 
 // resolveDoneUsage 决定 EventDone 上吐哪一份 usage：
 //   - 优先用 lastAssistantUsage（本轮最后一次内部 API call 的 per-call 用量）——
