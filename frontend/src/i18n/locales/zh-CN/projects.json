@@ -86,81 +86,21 @@
     }
   },
   "projectNew": {
-    "browse": "浏览…",
-    "create": "创建项目",
-    "descriptionPlaceholder": "一句话讲清这个项目用来干什么（可选）",
-    "detectingGit": "检测 Git 仓库…",
-    "gitDetected": "检测到 Git 仓库",
-    "gitSummary": "分支 {{branch}} · {{origin}}",
-    "localPath": "本地路径",
-    "noGit": "未检测到 Git 仓库",
-    "noOrigin": "无 origin remote",
-    "none": "— 无 —",
-    "parentProject": "父项目",
-    "selectDirectory": "选择项目目录",
-    "topLevel": "— 顶级项目 —",
-    "unknown": "(未知)"
+    "selectDirectory": "选择项目目录"
   },
   "projectSettings": {
     "basic": {
-      "browse": "浏览…",
-      "description": "描述",
       "iconKey": "图标 key",
       "iconPlaceholder": "folder / briefcase / 自定义 emoji",
-      "localPath": "本地路径",
-      "name": "项目名"
-    },
-    "danger": {
-      "confirmName": "输入项目名 \"{{name}}\" 以确认",
-      "deleteDescription": "软删除项目记录，**不会**删除本地代码仓库或会话内容。如果项目还有子项目或活跃会话，删除会被拒绝。",
-      "deleteProject": "删除项目"
-    },
-    "locations": {
-      "absolutePathRequired": "必须是绝对路径 (/开头)",
-      "addRemotePath": "添加远端路径",
-      "allDevicesConfigured": "所有已配对的远端设备都已配置路径",
-      "browseRemoteDir": "浏览远端目录",
-      "count": "远端路径 · {{count}}",
-      "deletePath": "删除路径",
-      "editPath": "编辑路径",
-      "empty": "还没有远端路径。加完路径后才能在「成员」tab 里添加该设备上的 Agent。",
-      "enterToSave": "Enter 保存",
-      "newPath": "新增路径",
-      "offlineSuffix": " · offline",
-      "pathPlaceholder": "/abs/path on remote (e.g. /home/me/proj)",
-      "remoteDevice": "远端设备",
-      "selectRemoteDevice": "选择远端设备"
+      "localPath": "本地路径"
     },
     "members": {
-      "addAgent": "添加 Agent",
-      "configureRemotePath": "⚠ 先去「远端路径」配置",
-      "directCount": "直接成员 · {{count}}",
-      "directEmpty": "还没有直接成员；可以从下面候选里加。",
-      "inheritedBadge": "⋯ 继承",
-      "inheritedCount": "继承自父项目 · {{count}}",
-      "inheritedFrom": "继承自 {{name}}",
-      "missingRemotePathTitle": "该设备未配置远端路径",
-      "noCandidates": "所有 Agent 都已经在本项目（或父项目继承）。",
-      "parentProject": "父项目",
-      "pickAgent": "选择 Agent",
-      "remoteHint": "远端 Agent 需要先在「远端路径」tab 配置该设备的路径",
-      "removeAgent": "移除 {{name}}"
-    },
-    "tabs": {
-      "basic": "基本",
-      "danger": "危险区",
-      "locations": "远端路径",
-      "members": "成员"
-    },
-    "title": "项目设置",
-    "titleSuffix": "· 项目设置"
+      "configureRemotePath": "⚠ 先去「远端路径」配置"
+    }
   },
   "projects": {
     "actions": {
-      "deleteProject": "删除项目",
-      "more": "{{name}} 更多操作",
-      "newProject": "新建项目",
-      "newSubProject": "新建子项目"
+      "newProject": "新建项目"
     },
     "empty": {
       "description": "把一个本地代码仓库登记为项目，就可以让多个 Agent 在这里协作。",
@@ -177,13 +117,9 @@
       }
     },
     "localPath": {
-      "badge": "未配置",
       "allMissingTitle": "这台设备还没有为任何项目配置路径",
       "allMissingDescription": "账号里的 {{count}} 个项目都在，指定各自的目录后就能在本机开会话。",
-      "specifyPath": "指定路径…",
-      "mergeIntoExisting": "合并到已有项目…",
-      "specifyFailed": "指定路径失败：{{error}}",
-      "unconfiguredHint": "这个项目从账号同步而来，指定目录后才能在本机开会话。"
+      "specifyFailed": "指定路径失败：{{error}}"
     },
     "search": {
       "aria": "搜索项目 / 会话",
@@ -196,13 +132,6 @@
       "empty": "暂无会话",
       "group": "会话",
       "groupToggle": "展开/收起 {{name}} 的会话",
-      "inherited": "继承",
-      "loadMembersFailed": "加载成员失败：{{error}}",
-      "loadingMembers": "加载成员中…",
-      "new": "新建会话",
-      "newForProject": "{{name}} 新建会话",
-      "noMembers": "还没添加成员，去项目设置加几个先。",
-      "pickAgent": "选一个 Agent",
       "untitled": "(未命名会话)"
     },
     "sidebar": {

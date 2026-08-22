@@ -86,81 +86,21 @@
     }
   },
   "projectNew": {
-    "browse": "Browse...",
-    "create": "Create Project",
-    "descriptionPlaceholder": "One sentence about what this project is for (optional)",
-    "detectingGit": "Detecting Git repository...",
-    "gitDetected": "Git repository detected",
-    "gitSummary": "Branch {{branch}} · {{origin}}",
-    "localPath": "Local path",
-    "noGit": "No Git repository detected",
-    "noOrigin": "No origin remote",
-    "none": "— None —",
-    "parentProject": "Parent project",
-    "selectDirectory": "Select project directory",
-    "topLevel": "— Top-level project —",
-    "unknown": "(unknown)"
+    "selectDirectory": "Select project directory"
   },
   "projectSettings": {
     "basic": {
-      "browse": "Browse...",
-      "description": "Description",
       "iconKey": "Icon key",
       "iconPlaceholder": "folder / briefcase / custom emoji",
-      "localPath": "Local path",
-      "name": "Project name"
-    },
-    "danger": {
-      "confirmName": "Enter project name \"{{name}}\" to confirm",
-      "deleteDescription": "Soft-delete the project record. This does not delete the local repository or chat sessions. Deletion is refused if the project still has child projects or active sessions.",
-      "deleteProject": "Delete Project"
-    },
-    "locations": {
-      "absolutePathRequired": "Must be an absolute path (starts with /)",
-      "addRemotePath": "Add Remote Path",
-      "allDevicesConfigured": "All paired remote devices already have paths",
-      "browseRemoteDir": "Browse remote directory",
-      "count": "Remote Paths · {{count}}",
-      "deletePath": "Delete Path",
-      "editPath": "Edit Path",
-      "empty": "No remote paths yet. Add a path before adding agents from that device on the Members tab.",
-      "enterToSave": "Enter to save",
-      "newPath": "New Path",
-      "offlineSuffix": " · offline",
-      "pathPlaceholder": "/abs/path on remote (e.g. /home/me/proj)",
-      "remoteDevice": "Remote device",
-      "selectRemoteDevice": "Select remote device"
+      "localPath": "Local path"
     },
     "members": {
-      "addAgent": "Add Agent",
-      "configureRemotePath": "⚠ Configure Remote Paths first",
-      "directCount": "Direct Members · {{count}}",
-      "directEmpty": "No direct members yet. Add one from the candidates below.",
-      "inheritedBadge": "⋯ inherited",
-      "inheritedCount": "Inherited from parent projects · {{count}}",
-      "inheritedFrom": "Inherited from {{name}}",
-      "missingRemotePathTitle": "This device has no remote path configured",
-      "noCandidates": "All agents are already in this project or inherited from a parent project.",
-      "parentProject": "parent project",
-      "pickAgent": "Choose Agent",
-      "remoteHint": "Remote agents need a path for that device configured on the Remote Paths tab first.",
-      "removeAgent": "Remove {{name}}"
-    },
-    "tabs": {
-      "basic": "Basic",
-      "danger": "Danger Zone",
-      "locations": "Remote Paths",
-      "members": "Members"
-    },
-    "title": "Project Settings",
-    "titleSuffix": "· Project Settings"
+      "configureRemotePath": "⚠ Configure Remote Paths first"
+    }
   },
   "projects": {
     "actions": {
-      "deleteProject": "Delete Project",
-      "more": "More actions for {{name}}",
-      "newProject": "New Project",
-      "newSubProject": "New Sub-project"
+      "newProject": "New Project"
     },
     "empty": {
       "description": "Register a local code repository as a project so multiple agents can collaborate here.",
@@ -177,13 +117,9 @@
       }
     },
     "localPath": {
-      "badge": "Not configured",
       "allMissingTitle": "This device hasn't configured a path for any project yet",
       "allMissingDescription": "All {{count}} projects from your account are here — configure each one's directory to start chatting on this machine.",
-      "specifyPath": "Specify path…",
-      "mergeIntoExisting": "Merge into existing project…",
-      "specifyFailed": "Failed to specify path: {{error}}",
-      "unconfiguredHint": "This project was synced from your account — specify a directory to start chatting on this machine."
+      "specifyFailed": "Failed to specify path: {{error}}"
     },
     "search": {
       "aria": "Search projects / sessions",
@@ -196,13 +132,6 @@
       "empty": "No sessions",
       "group": "Sessions",
       "groupToggle": "Toggle {{name}} sessions",
-      "inherited": "Inherited",
-      "loadMembersFailed": "Failed to load members: {{error}}",
-      "loadingMembers": "Loading members...",
-      "new": "New Session",
-      "newForProject": "New session in {{name}}",
-      "noMembers": "No members yet. Add a few in project settings first.",
-      "pickAgent": "Choose an Agent",
       "untitled": "(Untitled session)"
     },
     "sidebar": {
