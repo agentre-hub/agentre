@@ -114,6 +114,14 @@ func (a *ccClientAdapter) Kill(_ context.Context) error {
 	return nil
 }
 
+// PID 转发到底层 claudecode.Session.PID(池快照的排查字段)。
+func (a *ccClientAdapter) PID() int {
+	if a.sess == nil {
+		return 0
+	}
+	return a.sess.PID()
+}
+
 // StopTask 转发到底层 claudecode.Session.StopTask,写 control_request{stop_task}
 // 停单个后台任务。**子进程不动**;后台任务跨 turn 存活,空闲态也能停。
 func (a *ccClientAdapter) StopTask(ctx context.Context, taskID string) error {

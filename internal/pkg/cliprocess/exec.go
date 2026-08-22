@@ -42,6 +42,15 @@ func (h *execHandle) Stdout() io.Reader { return h.stdout }
 func (h *execHandle) Stderr() io.Reader { return h.stderr }
 func (h *execHandle) Wait() error       { return h.cmd.Wait() }
 
+// PID 交出子进程号,进程还没起来 / 已经没了时为 0。排查用:把机器上的 CLI 进程和
+// 界面上的会话对上,靠的就是这个号。
+func (h *execHandle) PID() int {
+	if h.cmd.Process == nil {
+		return 0
+	}
+	return h.cmd.Process.Pid
+}
+
 // Kill 收掉整棵进程树:CLI 自己派生的孙进程握着 stdout 写端,只杀父进程会让读端
 // 永远等不到 EOF。
 func (h *execHandle) Kill() error {

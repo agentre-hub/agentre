@@ -130,3 +130,21 @@ func TestClaudeActive_GivenPoolEscalatesAfterGrace_WhenKilled_ThenSubprocessGets
 		})
 	})
 }
+
+// Given 一条常驻会话正握着一个 claude 子进程, When 池的快照问它的进程号, Then 拿到
+// 的是那个子进程的号 —— 「机器上这堆 claude」和「界面上这些会话」靠它对上。
+func TestClaudeActive_GivenLiveSubprocess_WhenSnapshotAsksForPID_ThenItNamesTheChild(t *testing.T) {
+	Convey("claudeActive 作为池条目", t, func() {
+		active := &claudeActive{handle: &fakeCCHandle{pid: 4242}}
+
+		provider, ok := any(active).(interface{ PID() int })
+		So(ok, ShouldBeTrue)
+		So(provider.PID(), ShouldEqual, 4242)
+
+		Convey("handle 缺席时交回 0 而不是 panic", func() {
+			bare, ok := any(&claudeActive{}).(interface{ PID() int })
+			So(ok, ShouldBeTrue)
+			So(bare.PID(), ShouldEqual, 0)
+		})
+	})
+}

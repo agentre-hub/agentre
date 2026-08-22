@@ -143,6 +143,14 @@ func (p *process) exitErrIfDone() error {
 	return p.exitErr
 }
 
+// pid 交出子进程号;进程还没起来 / 已经没了时为 0。
+func (p *process) pid() int {
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
+
 // kill 给子进程所在进程组发 SIGKILL（不可被忽略），用于子进程卡死、优雅 Close(关 stdin)
 // 救不回来的场景（典型：CLI 卡在 MCP 初始化连不上、根本不读 stdin）。整组硬杀会连带
 // CLI 派生的孙进程（它们继承并握住 stdout pipe）一起终止，否则 reaper 的 io.Copy 等

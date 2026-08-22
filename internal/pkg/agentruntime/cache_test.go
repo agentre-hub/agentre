@@ -379,3 +379,30 @@ func TestPruneIdleOlderThan_GivenRecentlyIdledSession_WhenSweeping_ThenItStaysFo
 	assert.False(t, s.IsClosed())
 	assert.Equal(t, 1, p.Len())
 }
+
+// Given 池里同时有正在跑的和已经闲下来的会话, When 取快照, Then 每条都带上会话键、
+// 状态与闲置起点,顺序是 LRU 的新到旧。
+//
+// 排查「机器上怎么多了一堆 claude 进程」「这个会话怎么卡住了」此前只能翻日志:池
+// 本身对外一个字都不说,连「现在有几个」都要靠 Len 猜。
+func TestSnapshot_GivenMixedStates_WhenObserving_ThenEachEntryIsDescribed(t *testing.T) {
+	p := NewCLISessionPool(8)
+	p.Put("claudecode:1", newFakeSession("one"))
+	p.Put("codex:2", newFakeSession("two"))
+	p.MarkIdle("claudecode:1")
+
+	got := p.Snapshot()
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "claudecode:1", got[0].Key, "最近动过的排在最前")
+	assert.Equal(t, CLISessionIdle, got[0].State)
+	assert.False(t, got[0].IdleSince.IsZero(), "idle 条目要能看出闲了多久")
+	assert.Equal(t, "codex:2", got[1].Key)
+	assert.Equal(t, CLISessionActive, got[1].State)
+	assert.True(t, got[1].IdleSince.IsZero(), "非 idle 条目没有闲置起点")
+}
+
+// 边界:空池交回空快照,而不是 nil 之外的什么惊喜。
+func TestSnapshot_GivenEmptyPool_WhenObserving_ThenItIsEmpty(t *testing.T) {
+	assert.Empty(t, NewCLISessionPool(8).Snapshot())
+}

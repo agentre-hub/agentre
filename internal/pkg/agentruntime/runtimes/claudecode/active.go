@@ -186,6 +186,17 @@ type permWaiter struct {
 }
 
 // Close 释放 claudeActive 持有的所有资源。幂等。
+// PID 交出底层 CLI 子进程号,供池快照把进程与会话对上;拿不到时为 0。
+func (a *claudeActive) PID() int {
+	if a == nil || a.handle == nil {
+		return 0
+	}
+	if provider, ok := a.handle.(interface{ PID() int }); ok {
+		return provider.PID()
+	}
+	return 0
+}
+
 // Kill 硬杀底层子进程(整组 SIGKILL),是 CLISessionPool 在优雅关闭超出宽限期后的
 // 升级口。Close 走的是「关 stdin 等 CLI 自己退出」,对卡在 MCP 初始化、根本不读
 // stdin 的 CLI 永不返回 —— 那种条目只能靠这一刀收尾。

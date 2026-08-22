@@ -3,8 +3,12 @@ package agentruntime
 import (
 	"container/list"
 	"context"
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // ctxCloser 是缓存条目能关闭子进程的最小接口。
@@ -139,6 +143,57 @@ func (p *CLISessionPool) pruneLocked() []ctxCloser {
 	return closing
 }
 
+// CLISessionInfo 描述池里的一条常驻会话,供排查用。
+type CLISessionInfo struct {
+	// Key 是会话键(<backend>:<sessionID>,daemon 上是按对端隔离后的那个)。
+	Key string
+	// State 是它此刻算 active / waiting 还是 idle。
+	State CLISessionState
+	// IdleSince 是转入 idle 的时刻;非 idle 条目为零值。
+	IdleSince time.Time
+	// PID 是底层 CLI 子进程号;拿不到(条目不认领这一口 / 进程已退)时为 0。
+	// 有它才能把「机器上这堆 claude 进程」和「界面上这些会话」对上。
+	PID int
+}
+
+// Snapshot 交回池内每条会话的描述,顺序按 LRU 的新到旧。
+//
+// 排查「机器上怎么多了一堆 CLI 进程」「这个会话是不是卡住了」此前只能翻日志:池
+// 本身对外一个字都不说。
+func (p *CLISessionPool) Snapshot() []CLISessionInfo {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]CLISessionInfo, 0, p.ll.Len())
+	for el := p.ll.Front(); el != nil; el = el.Next() {
+		ent := el.Value.(*cliSessionEntry)
+		info := CLISessionInfo{Key: ent.key, State: ent.state, IdleSince: ent.idleAt}
+		if provider, ok := ent.val.(sessionPIDProvider); ok {
+			info.PID = provider.PID()
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
+// describeSessions 把快照压成一行行「会话键/pid/状态(/闲置时长)」,供 Debug 日志用。
+// 它是排查「机器上这堆 CLI 进程分别是谁」的唯一入口。
+func describeSessions(sessions []CLISessionInfo) []string {
+	out := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		line := fmt.Sprintf("%s pid=%d %s", s.Key, s.PID, s.State)
+		if !s.IdleSince.IsZero() {
+			line += fmt.Sprintf(" idleFor=%s", time.Since(s.IdleSince).Truncate(time.Second))
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// sessionPIDProvider 是缓存条目可选实现的进程号口。
+type sessionPIDProvider interface {
+	PID() int
+}
+
 // DefaultIdleSessionTTL 是一条 idle 会话在被清扫之前允许闲置的时长。
 //
 // 池的条数上限管的是「同时留着几个」,管不了「留多久」:一个开过一次就再没碰过的
@@ -184,7 +239,16 @@ func (p *CLISessionPool) StartIdleSweeper(ctx context.Context, ttl, interval tim
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				p.PruneIdleOlderThan(ttl)
+				released := p.PruneIdleOlderThan(ttl)
+				live := p.Snapshot()
+				if released > 0 {
+					logger.Ctx(ctx).Info("agentruntime.CLISessionPool.sweep: released idle CLI sessions",
+						zap.Int("released", released), zap.Int("remaining", len(live)))
+				}
+				if len(live) > 0 {
+					logger.Ctx(ctx).Debug("agentruntime.CLISessionPool.sweep: live CLI sessions",
+						zap.Strings("sessions", describeSessions(live)))
+				}
 			}
 		}
 	}()

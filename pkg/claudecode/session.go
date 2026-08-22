@@ -1079,6 +1079,15 @@ func newControlRequestID() string {
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
+// PID 交出这个会话背后的 CLI 子进程号,进程已退时为 0。排查用:把机器上的 claude
+// 进程和界面上的会话对上。
+func (s *Session) PID() int {
+	if s == nil {
+		return 0
+	}
+	return s.proc.pid()
+}
+
 // Kill 硬杀子进程（SIGKILL），用于 Close 的「关 stdin → 优雅退出」对卡死子进程
 // 无效的场景（CLI 卡在 MCP 初始化、阻塞在 socket 上、不读 stdin）。SIGKILL 不可
 // 被忽略 → 子进程死亡 → reaper 关 stdout pipe → readLoop 拿 EOF → shutdownReader

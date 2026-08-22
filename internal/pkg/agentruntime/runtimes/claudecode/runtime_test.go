@@ -387,7 +387,11 @@ type fakeCCHandle struct {
 	interruptErr error
 	// closeCalls 原子计数 Close 调用次数,断言 ErrInterruptPending 不走 Close+evict 兜底。
 	closeCalls int32
+	// pid 是这个替身上报的子进程号(池快照的排查字段)。
+	pid int
 }
+
+func (f *fakeCCHandle) PID() int { return f.pid }
 
 func (f *fakeCCHandle) ID() string { return f.id }
 func (f *fakeCCHandle) Close(context.Context) error {

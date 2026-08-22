@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -156,4 +157,28 @@ func TestKill_GivenProcessSpawnedGrandchild_WhenKilling_ThenWholeTreeGoesDown(t 
 	case <-time.After(5 * time.Second):
 		t.Fatal("Kill 之后 stdout 仍未 EOF,说明孙进程还活着并握着管道写端")
 	}
+}
+
+// Given 一个已经起来的进程, When 排查方问它的进程号, Then 拿到的是真的那个子进程 ——
+// 「机器上这堆 CLI 进程」要能和「界面上这些会话」对上,靠的就是这个号。
+func TestHandle_GivenRunningProcess_WhenAskedForPID_ThenItNamesTheChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ps fixture is a Unix behavior")
+	}
+
+	binDir := t.TempDir()
+	sleeper := filepath.Join(binDir, "agentre-test-sleeper")
+	require.NoError(t, os.WriteFile(sleeper, []byte("#!/bin/sh\ncat\n"), 0o755))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	h, err := Start(ctx, Options{Binary: sleeper}, errors.New("missing"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = h.Kill() })
+
+	provider, ok := h.(interface{ PID() int })
+	require.True(t, ok, "handle 必须能交出进程号")
+	pid := provider.PID()
+	require.Positive(t, pid)
+	require.NoError(t, syscall.Kill(pid, 0), "交出的进程号必须指向一个活着的进程")
 }
