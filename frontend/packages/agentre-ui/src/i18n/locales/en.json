@@ -1466,6 +1466,34 @@
       "invalidPath": "That path cannot be used.",
       "disconnected": "Lost the connection to that machine.",
       "unknown": "That change did not go through."
+    },
+    "create": {
+      "title": "New project",
+      "subtitleOf": "New project under {{name}}",
+      "submit": "Create",
+      "failed": "Could not create the project.",
+      "pathNote": "A path is not required now. Until this project has a path on at least one machine, no conversation can be started in it — the index will show a “No path” badge you can click to set one.",
+      "localPath": "Path on this machine",
+      "localPathRequired": "Required on this machine.",
+      "browse": "Browse…",
+      "detectingGit": "Checking whether this is a git repository…",
+      "gitDetected": "git repository · {{branch}}",
+      "gitOrigin": "origin {{origin}}",
+      "noGit": "Not a git repository. That is fine — it just means no branch or remote is shown.",
+      "unknownBranch": "unknown branch",
+      "noOrigin": "no remote"
+    },
+    "delete": {
+      "title": "Delete “{{name}}”?",
+      "children": "Its subprojects are deleted too ({{count}}).",
+      "noChildren": "It has no subprojects.",
+      "sessions": "No conversation is deleted — they move back to Loose conversations.",
+      "files": "Nothing on any machine is touched; only the record of where this project lives there is removed.",
+      "offline": "Currently offline, so they follow on their next connection: {{names}}.",
+      "noOffline": "Every machine that has this project is online, so they follow immediately.",
+      "confirmName": "Type “{{name}}” to confirm",
+      "submit": "Delete project",
+      "failed": "Could not delete the project."
     }
   }
 }

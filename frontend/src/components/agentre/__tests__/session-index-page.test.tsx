@@ -914,7 +914,7 @@ describe("SessionIndexPage top + menu", () => {
     await user.click(await screen.findByRole("button", { name: "New" }));
     await user.click(await screen.findByTestId("project-create-trigger"));
 
-    expect(await screen.findByTestId("project-new-name")).toBeInTheDocument();
+    expect(await screen.findByTestId("project-create-name")).toBeInTheDocument();
   });
 
   it("Given the top ＋, When New agent is picked, Then it navigates to the org chart and asks for the dialog", async () => {

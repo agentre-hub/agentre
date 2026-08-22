@@ -66,6 +66,8 @@ export interface ProjectSettingsDialogProps {
    */
   iconField?: (props: {
     value: string;
+    /** 当前选中的颜色 token：宿主的图标预览要跟着上色，否则同一枚图标两处两个色。 */
+    color: string;
     onPick: (iconKey: string) => void;
   }) => React.ReactNode;
   /** 机器一台都没有时给的那条出路（宿主自己的路由）。不给就只留那句说明。 */
@@ -253,6 +255,7 @@ export function ProjectSettingsDialog({
               <div>
                 {iconField({
                   value: project.icon ?? "",
+                  color: project.color ?? "",
                   onPick: (icon) => saveFields({ icon }),
                 })}
               </div>

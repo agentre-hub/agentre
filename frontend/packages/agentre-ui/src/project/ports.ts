@@ -300,3 +300,56 @@ export interface ProjectSettingsPorts {
    */
   pickLocalDirectory?(): Promise<string | null>;
 }
+
+// ─── 新建 / 删除 ─────────────────────────────────────────────────────────────
+
+/** 一次新建要送下去的东西。**只出现真的填了的键**，没填的不翻成空串。 */
+export interface ProjectCreateDraft {
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  parentId?: string;
+  /** 宿主挂了挑本机目录的能力才可能有它。 */
+  localPath?: string;
+}
+
+export type ProjectCreateOutcome =
+  | { ok: true; id: string }
+  | { ok: false; failure: ProjectWriteFailure };
+
+/** 本机 git 探测的结果。`isGitRepo` 为 false 时后两格无意义。 */
+export interface ProjectGitInfo {
+  isGitRepo: boolean;
+  branch?: string;
+  origin?: string;
+}
+
+export interface ProjectCreatePorts {
+  create(draft: ProjectCreateDraft): Promise<ProjectCreateOutcome>;
+  /**
+   * 宿主自己那台机器的原生目录对话框。**挂了才有「本机路径」那一格**，
+   * web 宿主不挂 —— 没有那个 port 就没有那个入口，不用 `isDesktop` 分支。
+   */
+  pickLocalDirectory?(): Promise<string | null>;
+  /**
+   * 探一探这个本机目录是不是 git 仓库。可选：只有摸得到本机文件系统的宿主挂得上。
+   * 返回 null = 探不出来，此时什么都不标（编一个「不是仓库」比不说更糟）。
+   */
+  probeGitRepo?(path: string): Promise<ProjectGitInfo | null>;
+  /**
+   * 这一端的后端**建不出没有路径的项目**，所以本机路径是必填的。
+   *
+   * 规格决策 9 要的是「路径不必填」，两端同一套校验 —— 这个开关是那条决策今天在
+   * 桌面端**还落不了地**的如实记录，不是一个长期的产品选项：桌面端的
+   * `ProjectCreateRequest`（internal/app/project.go）没有 `LocalPathMissing` 这一格，
+   * 而 `Project.Check` 在它为 false 时要求 `Path` 非空，于是空路径必被后端拒。
+   * 让按钮亮着然后必然失败，比当场说「这一格得填」更糟。补齐要动 Go —— 本轮的硬
+   * 不变量禁止，所以先把这件事说出口。agentre-server 不设它。
+   */
+  localPathRequired?: boolean;
+}
+
+export interface ProjectDeletePorts {
+  deleteProject(projectId: string): Promise<ProjectWriteOutcome>;
+}

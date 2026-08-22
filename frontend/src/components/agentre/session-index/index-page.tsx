@@ -379,7 +379,13 @@ export function SessionIndexPage() {
       },
       onMergeInto: (projectID, name) => setMergeSource({ id: projectID, name }),
       onDeleteProject: (projectID, name) =>
-        setDeleteTarget({ id: projectID, name }),
+        // 子项目数从树上数出来递进去：确认弹窗要逐条写清后果，「一并删掉几个」是
+        // 宿主的数据，包不去猜。
+        setDeleteTarget({
+          id: projectID,
+          name,
+          childCount: countDescendants(tree, projectID),
+        }),
       // 「查看全部 N」：组已经把一维填好了，翻页就沿着那一维继续拉。
       // Agent 组走既有的 ListChatAgentSessions，项目 / 随手对话走索引的同名 scope。
       renderSessionsPopover: (group, close) => (
@@ -450,6 +456,7 @@ export function SessionIndexPage() {
       sessionActions.requestDelete,
       agentByID,
       projectByID,
+      tree,
       t,
     ],
   );
@@ -912,4 +919,26 @@ function Chip({
       {children}
     </button>
   );
+}
+
+/**
+ * 这棵子树下还有几个项目（不含它自己）。
+ *
+ * 数的是**整棵子树**而不是直接子项目：删除是递归的，只说直接子项目会漏报。
+ */
+function countDescendants(
+  nodes: app.ProjectTreeNode[],
+  projectID: number,
+): number {
+  const sizeOf = (node: app.ProjectTreeNode): number =>
+    (node.children ?? []).reduce((n, c) => n + 1 + sizeOf(c), 0);
+  const find = (list: app.ProjectTreeNode[]): number | null => {
+    for (const node of list) {
+      if (node.project?.id === projectID) return sizeOf(node);
+      const hit = find(node.children ?? []);
+      if (hit !== null) return hit;
+    }
+    return null;
+  };
+  return find(nodes) ?? 0;
 }

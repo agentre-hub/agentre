@@ -1466,6 +1466,34 @@
       "invalidPath": "这个路径不能用。",
       "disconnected": "跟那台机器的连接断了。",
       "unknown": "这次改动没生效。"
+    },
+    "create": {
+      "title": "新建项目",
+      "subtitleOf": "在 {{name}} 下新建项目",
+      "submit": "创建",
+      "failed": "项目没建成。",
+      "pathNote": "现在不用填路径。但在至少一台机器上配好路径之前，这个项目里开不出对话——索引的组头上会挂一枚「未配路径」角标，点它就能去配。",
+      "localPath": "本机上的路径",
+      "localPathRequired": "这一端必须填。",
+      "browse": "浏览…",
+      "detectingGit": "正在看这是不是一个 git 仓库…",
+      "gitDetected": "git 仓库 · {{branch}}",
+      "gitOrigin": "远端 {{origin}}",
+      "noGit": "不是 git 仓库。没关系，只是不显示分支与远端而已。",
+      "unknownBranch": "分支不明",
+      "noOrigin": "没有远端"
+    },
+    "delete": {
+      "title": "删除「{{name}}」？",
+      "children": "它下面的子项目会一并删除（{{count}} 个）。",
+      "noChildren": "它没有子项目。",
+      "sessions": "对话一条都不删——它们会回到「随手对话」。",
+      "files": "机器上的代码目录一个字节都不动，删掉的只是「这台机器上这个项目在哪」这条记录。",
+      "offline": "这些机器此刻离线，要等下次上线才跟着删：{{names}}。",
+      "noOffline": "配了这个项目的机器都在线，会立刻跟着删。",
+      "confirmName": "输入「{{name}}」以确认",
+      "submit": "删除项目",
+      "failed": "项目没删成。"
     }
   }
 }

@@ -545,6 +545,10 @@ export type {
 } from "./org/org-drop";
 export { DirectoryPicker } from "./project/directory-picker";
 export type { DirectoryPickerProps } from "./project/directory-picker";
+export { ProjectCreateDialog } from "./project/project-create-dialog";
+export type { ProjectCreateDialogProps } from "./project/project-create-dialog";
+export { ProjectDeleteDialog } from "./project/project-delete-dialog";
+export type { ProjectDeleteDialogProps } from "./project/project-delete-dialog";
 export { ProjectSettingsDialog } from "./project/project-settings-dialog";
 export type { ProjectSettingsDialogProps } from "./project/project-settings-dialog";
 export { breadcrumbOf, joinPath } from "./project/ports";
@@ -558,7 +562,12 @@ export type {
   MkdirOutcome,
   PickerMachine,
   ProjectCandidateView,
+  ProjectCreateDraft,
+  ProjectCreateOutcome,
+  ProjectCreatePorts,
+  ProjectDeletePorts,
   ProjectFieldValues,
+  ProjectGitInfo,
   ProjectFsPort,
   ProjectMachineView,
   ProjectMemberView,
