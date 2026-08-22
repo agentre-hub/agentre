@@ -662,71 +662,82 @@ function MachineRow({
   return (
     <li
       data-testid={`project-path-row-${machine.id}`}
-      className="flex items-center gap-2 text-xs"
+      /*
+        窄屏换行成两行：机器名一行、路径与两个动作一行。
+
+        一行摆不下 —— 390px 的视口减去弹窗内边距只剩约 350px，机器名那一格占死
+        110px，两个动作再吃掉 85px，路径输入框只剩下九个字符的宽度，而路径**正是
+        这一行的正文**：读者看不出这台机器配的是哪个目录。宽屏（sm:）仍是一行。
+      */
+      className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs"
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          machine.online ? "bg-status-running" : "bg-muted-foreground/40",
+      <span className="flex min-w-0 flex-1 items-center gap-2 sm:w-[130px] sm:flex-none">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            machine.online ? "bg-status-running" : "bg-muted-foreground/40",
+          )}
+        />
+        {machine.kind === "agentred" ? (
+          <Server
+            className="size-3 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        ) : (
+          <MonitorSmartphone
+            className="size-3 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
         )}
-      />
-      {machine.kind === "agentred" ? (
-        <Server
-          className="size-3 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-      ) : (
-        <MonitorSmartphone
-          className="size-3 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-      )}
-      <span className="w-[110px] shrink-0 truncate" title={displayName}>
-        {displayName}
-      </span>
-      {showSelfBadge ? (
-        <span className="shrink-0 rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
-          {selfLabel}
+        <span className="min-w-0 truncate" title={displayName}>
+          {displayName}
         </span>
-      ) : null}
-      <Input
-        data-testid={`project-path-input-${machine.id}`}
-        aria-label={t("projectSettings.paths.path", { machine: displayName })}
-        value={path}
-        disabled={!writable}
-        placeholder={t("projectSettings.paths.noPath")}
-        onChange={(e) => setPath(e.target.value)}
-        onBlur={() => {
-          const next = path.trim();
-          if (next === machine.path) return;
-          onCommitPath(machine, next);
-        }}
-        className="h-7 min-w-0 flex-1 font-mono text-2xs"
-      />
-      <Button
-        data-testid={`project-path-choose-${machine.id}`}
-        variant="outline"
-        size="xs"
-        disabled={!browsable}
-        onClick={() => onChoose(machine)}
-      >
-        {t("projectSettings.paths.choose")}
-      </Button>
-      {machine.removable ? (
-        <button
-          type="button"
-          data-testid={`project-path-remove-${machine.id}`}
-          aria-label={t("projectSettings.paths.remove", {
-            machine: displayName,
-          })}
-          disabled={writing || !writable}
-          onClick={() => onClear(machine)}
-          className="rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-55"
+        {showSelfBadge ? (
+          <span className="shrink-0 rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
+            {selfLabel}
+          </span>
+        ) : null}
+      </span>
+      <span className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1">
+        <Input
+          data-testid={`project-path-input-${machine.id}`}
+          aria-label={t("projectSettings.paths.path", { machine: displayName })}
+          value={path}
+          disabled={!writable}
+          placeholder={t("projectSettings.paths.noPath")}
+          onChange={(e) => setPath(e.target.value)}
+          onBlur={() => {
+            const next = path.trim();
+            if (next === machine.path) return;
+            onCommitPath(machine, next);
+          }}
+          className="h-7 min-w-0 flex-1 font-mono text-2xs"
+        />
+        <Button
+          data-testid={`project-path-choose-${machine.id}`}
+          variant="outline"
+          size="xs"
+          disabled={!browsable}
+          onClick={() => onChoose(machine)}
         >
-          <X className="size-3.5" aria-hidden="true" />
-        </button>
-      ) : null}
+          {t("projectSettings.paths.choose")}
+        </Button>
+        {machine.removable ? (
+          <button
+            type="button"
+            data-testid={`project-path-remove-${machine.id}`}
+            aria-label={t("projectSettings.paths.remove", {
+              machine: displayName,
+            })}
+            disabled={writing || !writable}
+            onClick={() => onClear(machine)}
+            className="rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            <X className="size-3.5" aria-hidden="true" />
+          </button>
+        ) : null}
+      </span>
     </li>
   );
 }
