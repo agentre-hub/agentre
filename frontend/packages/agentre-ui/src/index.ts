@@ -263,6 +263,13 @@ export { usageLevel } from "./composer/usage-level";
 export type { UsageLevel } from "./composer/usage-level";
 export { formatTokens } from "./lib/format-tokens";
 export { groupAgentsForPicking } from "./lib/agent-picking";
+export { StatusBanner } from "./session-status/status-banner";
+export type {
+  StatusBannerProps,
+  StatusBannerTone,
+} from "./session-status/status-banner";
+export { MachineOfflineBanner } from "./session-status/machine-offline-banner";
+export type { MachineOfflineBannerProps } from "./session-status/machine-offline-banner";
 export type {
   AgentPickingGroups,
   AgentPickingInput,
@@ -538,6 +545,8 @@ export type {
 } from "./org/org-drop";
 export { DirectoryPicker } from "./project/directory-picker";
 export type { DirectoryPickerProps } from "./project/directory-picker";
+export { ProjectSettingsDialog } from "./project/project-settings-dialog";
+export type { ProjectSettingsDialogProps } from "./project/project-settings-dialog";
 export { breadcrumbOf, joinPath } from "./project/ports";
 export type {
   DirectoryEntry,
@@ -548,7 +557,16 @@ export type {
   ListDirResult,
   MkdirOutcome,
   PickerMachine,
+  ProjectCandidateView,
+  ProjectFieldValues,
   ProjectFsPort,
+  ProjectMachineView,
+  ProjectMemberView,
+  ProjectSettingsPorts,
+  ProjectSettingsView,
+  ProjectWriteFailure,
+  ProjectWriteFailureKind,
+  ProjectWriteOutcome,
 } from "./project/ports";
 export { isOrgSystemAgent, ORG_SYSTEM_BADGE } from "./org/types";
 export type {

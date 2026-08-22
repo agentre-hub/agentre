@@ -595,10 +595,6 @@ export function SessionIndexPage() {
         projectID={settingsProjectID}
         onClose={() => setSettingsProjectID(0)}
         onChanged={refreshProjectData}
-        onDeleted={() => {
-          setSettingsProjectID(0);
-          refreshProjectData();
-        }}
       />
       <DeleteProjectDialog
         target={deleteTarget}

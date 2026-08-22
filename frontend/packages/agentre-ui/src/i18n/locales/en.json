@@ -1416,5 +1416,56 @@
       "disconnected": "Lost the connection to {{machine}}.",
       "unknown": "Could not read this folder on {{machine}}. {{message}}"
     }
+  },
+  "sessionStatus": {
+    "machineOffline": {
+      "title": "{{machine}} is offline",
+      "titleUnknown": "This machine is offline",
+      "body": "History still reads and messages are not queued. The context lives on that machine and will not be reassigned — wait for it to come back, or start a new conversation from the same opening message.",
+      "startNew": "Start a new conversation"
+    },
+    "lastSeen": "Last seen {{time}}"
+  },
+  "projectSettings": {
+    "title": "Project settings",
+    "done": "Done",
+    "sections": {
+      "basic": "Basics",
+      "members": "Members",
+      "paths": "Machines and paths"
+    },
+    "field": {
+      "name": "Name",
+      "description": "Description",
+      "color": "Colour",
+      "icon": "Icon",
+      "parent": "Parent project",
+      "noParent": "None (top level)"
+    },
+    "members": {
+      "empty": "This project has no members yet.",
+      "noCandidates": "Every agent you have is already a member.",
+      "add": "Add {{name}}",
+      "remove": "Remove {{name}}",
+      "inherited": "Inherited",
+      "inheritedFrom": "Inherited from {{name}}"
+    },
+    "paths": {
+      "noPath": "No path yet",
+      "path": "Path on {{machine}}",
+      "choose": "Choose…",
+      "remove": "Remove the path on {{machine}}",
+      "thisMachine": "This machine",
+      "offline": "Offline",
+      "failed": "Could not load the machine list.",
+      "empty": "This account has no machines yet. A project's path lives on a machine — add one first."
+    },
+    "failure": {
+      "notSynced": "That machine has not synced this project yet — set the path once it has.",
+      "pathNotFound": "That machine has no such directory.",
+      "invalidPath": "That path cannot be used.",
+      "disconnected": "Lost the connection to that machine.",
+      "unknown": "That change did not go through."
+    }
   }
 }

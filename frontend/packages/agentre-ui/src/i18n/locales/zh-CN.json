@@ -1416,5 +1416,56 @@
       "disconnected": "与 {{machine}} 的连接断了。",
       "unknown": "读不到 {{machine}} 上的这个目录。{{message}}"
     }
+  },
+  "sessionStatus": {
+    "machineOffline": {
+      "title": "{{machine}} 离线",
+      "titleUnknown": "这台机器已离线",
+      "body": "历史照常读，消息不排队。上下文都在那台机器上、不会改派——等它上线，或用同样的开头新建一个会话。",
+      "startNew": "新建一个会话"
+    },
+    "lastSeen": "最后在线 {{time}}"
+  },
+  "projectSettings": {
+    "title": "项目设置",
+    "done": "完成",
+    "sections": {
+      "basic": "基本",
+      "members": "成员",
+      "paths": "机器与路径"
+    },
+    "field": {
+      "name": "名字",
+      "description": "简介",
+      "color": "颜色",
+      "icon": "图标",
+      "parent": "父项目",
+      "noParent": "无（挂在根上）"
+    },
+    "members": {
+      "empty": "这个项目还没有成员。",
+      "noCandidates": "你手上的 Agent 都已经在这个项目里了。",
+      "add": "把 {{name}} 加进来",
+      "remove": "移除 {{name}}",
+      "inherited": "继承",
+      "inheritedFrom": "继承自 {{name}}"
+    },
+    "paths": {
+      "noPath": "还没配路径",
+      "path": "{{machine}} 上的路径",
+      "choose": "选择…",
+      "remove": "移除 {{machine}} 上的路径",
+      "thisMachine": "本机",
+      "offline": "离线",
+      "failed": "机器清单没读到。",
+      "empty": "这个账号下还没有机器。项目的路径配在机器上，先添加一台。"
+    },
+    "failure": {
+      "notSynced": "那台机器还没同步到这个项目，等它同步完再配。",
+      "pathNotFound": "那台机器上没有这个目录。",
+      "invalidPath": "这个路径不能用。",
+      "disconnected": "跟那台机器的连接断了。",
+      "unknown": "这次改动没生效。"
+    }
   }
 }

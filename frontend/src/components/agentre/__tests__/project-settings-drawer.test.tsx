@@ -1,11 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const appMocks = vi.hoisted(() => ({
   ListChatAgents: vi.fn(),
   ProjectAddMember: vi.fn(),
-  ProjectDelete: vi.fn(),
   ProjectGet: vi.fn(),
   ProjectLocationList: vi.fn(),
   ProjectLocationRemove: vi.fn(),
@@ -26,8 +25,12 @@ import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { ProjectSettingsDrawer } from "../project-settings-drawer";
 
 /**
- * 抽屉自己的测试家。合并前它挂在 project-page.test.tsx 里，随那个文件一起删掉了 ——
- * 组件本身一行没动，覆盖却归零。这里把它接回来。
+ * 桌面端这一侧的**接缝**（规格 2026-08-22 B 段）。
+ *
+ * 弹窗本身住在共享包里、在那边测过了；这里只问一件事：wails 那几个绑定翻成
+ * `ProjectSettingsPorts` 有没有翻对。包的测试全绿证明不了宿主接对了
+ * （`docs/frontend.md`：a green package suite alone does not prove either host
+ * wired the ports correctly）。
  */
 
 function setupUser() {
@@ -40,10 +43,26 @@ function renderDrawer(onChanged = vi.fn()) {
       projectID={1}
       onClose={() => {}}
       onChanged={onChanged}
-      onDeleted={() => {}}
     />,
   );
   return { onChanged };
+}
+
+function mockProject(over: Record<string, unknown> = {}) {
+  appMocks.ProjectGet.mockResolvedValue({
+    project: {
+      color: "agent-1",
+      description: "",
+      icon: "folder",
+      id: 1,
+      name: "agentre",
+      path: "/Users/me/Code/agentre",
+      localPathMissing: false,
+      ...over,
+    },
+    directMembers: [],
+    inheritedMembers: [],
+  });
 }
 
 beforeEach(() => {
@@ -53,15 +72,16 @@ beforeEach(() => {
   appMocks.ListChatAgents.mockResolvedValue({ agents: [] });
   appMocks.ProjectLocationList.mockResolvedValue([]);
   appMocks.RemoteDeviceList.mockResolvedValue([]);
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterEach(() => {
   localStorage.clear();
 });
 
-describe("ProjectSettingsDrawer members", () => {
-  it("Given ProjectGet carries a member display name, Then it wins over the Agent #id fallback", async () => {
-    const user = setupUser();
+describe("成员", () => {
+  it("ProjectGet 带回来的显示名压过 Agent #id 那个兜底", async () => {
+    mockProject();
     appMocks.ProjectGet.mockResolvedValue({
       project: {
         color: "agent-1",
@@ -76,7 +96,6 @@ describe("ProjectSettingsDrawer members", () => {
           agentID: 5,
           agentName: "Builder",
           avatarColor: "agent-2",
-          avatarIcon: "hammer",
           inherited: false,
         },
       ],
@@ -85,87 +104,130 @@ describe("ProjectSettingsDrawer members", () => {
 
     renderDrawer();
 
-    await user.click(await screen.findByRole("button", { name: "Members" }));
-
     expect(await screen.findByText("Builder")).toBeInTheDocument();
     expect(screen.queryByText("Agent #5")).not.toBeInTheDocument();
   });
-});
 
-// 基本页签的本机路径字段 —— 已配置/未配置统一为一个可编辑输入，改动随「保存」落库。
-describe("ProjectSettingsDrawer basic tab local path", () => {
-  function mockConfiguredProject() {
+  it("移除成员经 ProjectRemoveMember，成员 id 翻回数字", async () => {
     appMocks.ProjectGet.mockResolvedValue({
       project: {
         color: "agent-1",
         description: "",
         icon: "folder",
         id: 1,
-        name: "agentre",
-        path: "/Users/me/Code/agentre",
-        localPathMissing: false,
+        name: "Agentre",
+        path: "",
       },
-      directMembers: [],
+      directMembers: [{ agentID: 5, agentName: "Builder", inherited: false }],
       inheritedMembers: [],
     });
-  }
-
-  it("Given a configured project, Then the path input is editable and offers the browse entry", async () => {
-    mockConfiguredProject();
 
     renderDrawer();
 
-    const input = await screen.findByDisplayValue("/Users/me/Code/agentre");
-    expect(input).not.toHaveAttribute("readonly");
-    expect(
-      await screen.findByRole("button", { name: "Browse..." }),
-    ).toBeInTheDocument();
+    fireEvent.click(await screen.findByTestId("project-member-remove-5"));
+    await waitFor(() =>
+      expect(appMocks.ProjectRemoveMember).toHaveBeenCalledWith(1, 5),
+    );
   });
 
-  it("Given a configured project, When the path is edited and saved, Then only ProjectSetLocalPath is called with the new path", async () => {
-    const user = setupUser();
-    mockConfiguredProject();
-    appMocks.ProjectSetLocalPath.mockResolvedValue({
-      id: 1,
-      localPathMissing: false,
+  it("远端 Agent 的那台设备还没配路径时，候选留在列表里并说出原因", async () => {
+    mockProject();
+    appMocks.ListChatAgents.mockResolvedValue({
+      agents: [
+        {
+          id: 7,
+          name: "Remote",
+          avatarColor: "agent-2",
+          deviceID: "42",
+          online: true,
+        },
+      ],
     });
+
+    renderDrawer();
+
+    const candidate = await screen.findByTestId("project-member-add-7");
+    // 静默消失比一行灰字更让人找不着北。
+    expect(candidate).toBeDisabled();
+    expect(candidate.textContent).toContain("Configure Remote Paths first");
+  });
+});
+
+describe("本机那一行", () => {
+  it("路径来自 project.path，改它走 ProjectSetLocalPath 而不是 ProjectUpdate", async () => {
+    const user = setupUser();
+    mockProject();
+    appMocks.ProjectSetLocalPath.mockResolvedValue({ id: 1 });
 
     renderDrawer();
 
     const input = await screen.findByDisplayValue("/Users/me/Code/agentre");
     await user.clear(input);
     await user.type(input, "/Users/me/Code/agentre-moved");
-    await user.click(await screen.findByRole("button", { name: "Save" }));
+    fireEvent.blur(input);
 
-    await waitFor(() => {
+    await waitFor(() =>
       expect(appMocks.ProjectSetLocalPath).toHaveBeenCalledWith({
         id: 1,
         path: "/Users/me/Code/agentre-moved",
-      });
-    });
+      }),
+    );
     expect(appMocks.ProjectUpdate).not.toHaveBeenCalled();
   });
 
-  it("Given a configured project, When only the name changes, Then ProjectSetLocalPath stays untouched", async () => {
+  it("只改名字时本机路径纹丝不动", async () => {
     const user = setupUser();
-    mockConfiguredProject();
+    mockProject();
+    appMocks.ProjectUpdate.mockResolvedValue({ id: 1 });
 
     renderDrawer();
 
-    const nameInput = await screen.findByDisplayValue("agentre");
-    await user.clear(nameInput);
-    await user.type(nameInput, "agentre2");
-    await user.click(await screen.findByRole("button", { name: "Save" }));
+    const name = await screen.findByTestId("project-settings-name");
+    await user.clear(name);
+    await user.type(name, "agentre2");
+    fireEvent.blur(name);
 
-    await waitFor(() => {
-      expect(appMocks.ProjectUpdate).toHaveBeenCalled();
-    });
+    await waitFor(() =>
+      // 包只递改动的那一格；这一端的 ProjectUpdate 收整份，adapter 负责合。
+      expect(appMocks.ProjectUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1, name: "agentre2", icon: "folder" }),
+      ),
+    );
     expect(appMocks.ProjectSetLocalPath).not.toHaveBeenCalled();
   });
 
-  it("Given a configured project, When the backend rejects the new path, Then the error surfaces", async () => {
+  it("「选择…」走系统原生对话框，挑完**立刻落库**（即时保存，不再等一颗「保存」）", async () => {
+    mockProject({ path: "", localPathMissing: true });
+    appMocks.SelectDirectory.mockResolvedValue("/Users/me/Code/agentre-hub");
+    appMocks.ProjectSetLocalPath.mockResolvedValue({ id: 1 });
+
+    const { onChanged } = renderDrawer();
+
+    fireEvent.click(await screen.findByTestId("project-path-choose-"));
+    await waitFor(() => expect(appMocks.SelectDirectory).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(appMocks.ProjectSetLocalPath).toHaveBeenCalledWith({
+        id: 1,
+        path: "/Users/me/Code/agentre-hub",
+      }),
+    );
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it("原生对话框被取消时什么都不写", async () => {
+    mockProject();
+    appMocks.SelectDirectory.mockResolvedValue("");
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByTestId("project-path-choose-"));
+    await waitFor(() => expect(appMocks.SelectDirectory).toHaveBeenCalled());
+    expect(appMocks.ProjectSetLocalPath).not.toHaveBeenCalled();
+  });
+
+  it("后端拒绝时那句原文就地透出 —— 桌面端分不出类，所以不折成一句", async () => {
     const user = setupUser();
-    mockConfiguredProject();
+    mockProject();
     appMocks.ProjectSetLocalPath.mockRejectedValue("path does not exist");
 
     renderDrawer();
@@ -173,52 +235,86 @@ describe("ProjectSettingsDrawer basic tab local path", () => {
     const input = await screen.findByDisplayValue("/Users/me/Code/agentre");
     await user.clear(input);
     await user.type(input, "/Users/me/Code/gone");
-    await user.click(await screen.findByRole("button", { name: "Save" }));
+    fireEvent.blur(input);
 
-    expect(await screen.findByText("path does not exist")).toBeInTheDocument();
+    expect(await screen.findByText(/path does not exist/)).toBeInTheDocument();
+  });
+});
+
+describe("远端设备那几行", () => {
+  it("写路径经 ProjectLocationUpsert；设备离线也配得了（位置表在本机的库里）", async () => {
+    const user = setupUser();
+    mockProject();
+    appMocks.RemoteDeviceList.mockResolvedValue([
+      { id: 42, name: "build-01", online: false },
+    ]);
+    appMocks.ProjectLocationUpsert.mockResolvedValue({});
+
+    renderDrawer();
+
+    const input = await screen.findByTestId("project-path-input-42");
+    expect(input).not.toBeDisabled();
+    await user.type(input, "/srv/work/atlas");
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(appMocks.ProjectLocationUpsert).toHaveBeenCalledWith(
+        1,
+        "42",
+        "/srv/work/atlas",
+      ),
+    );
   });
 
-  it("Given an unconfigured project, When a directory is picked and saved, Then it is saved and the change is announced", async () => {
-    const user = setupUser();
-    appMocks.ProjectGet.mockResolvedValue({
-      project: {
-        color: "agent-1",
-        description: "",
-        icon: "folder",
-        id: 1,
-        name: "agentre-hub",
-        path: "",
-        localPathMissing: true,
+  it("离线的设备答不出目录里有什么，所以只有「选择…」是停的", async () => {
+    mockProject();
+    appMocks.RemoteDeviceList.mockResolvedValue([
+      { id: 42, name: "build-01", online: false },
+    ]);
+
+    renderDrawer();
+
+    expect(await screen.findByTestId("project-path-choose-42")).toBeDisabled();
+  });
+
+  it("移除那台设备上的路径经 ProjectLocationRemove", async () => {
+    mockProject();
+    appMocks.RemoteDeviceList.mockResolvedValue([
+      { id: 42, name: "build-01", online: true },
+    ]);
+    appMocks.ProjectLocationList.mockResolvedValue([
+      {
+        deviceId: "42",
+        path: "/srv/work/atlas",
+        deviceName: "build-01",
+        online: true,
       },
-      directMembers: [],
-      inheritedMembers: [],
-    });
-    appMocks.SelectDirectory.mockResolvedValue("/Users/me/Code/agentre-hub");
-    appMocks.ProjectSetLocalPath.mockResolvedValue({
-      id: 1,
-      localPathMissing: false,
-    });
+    ]);
+    appMocks.ProjectLocationRemove.mockResolvedValue(undefined);
 
-    const { onChanged } = renderDrawer();
+    renderDrawer();
 
-    await screen.findByText(
-      "This project was synced from your account — specify a directory to start chatting on this machine.",
+    fireEvent.click(await screen.findByTestId("project-path-remove-42"));
+    await waitFor(() =>
+      expect(appMocks.ProjectLocationRemove).toHaveBeenCalledWith(1, "42"),
     );
-    await user.click(await screen.findByRole("button", { name: "Browse..." }));
+  });
+});
 
-    // 浏览只填入输入框，不落库；落库发生在「保存」。
+describe("这一端没有的两格", () => {
+  it("父项目那一格不画 —— 这一端没有改父项目的绑定", async () => {
+    mockProject();
+    renderDrawer();
+    await screen.findByTestId("project-section-basic");
+    expect(screen.queryByTestId("project-settings-parent")).toBeNull();
+  });
+
+  it("「危险」那一页没了，删除入口只剩组头 ⋮", async () => {
+    mockProject();
+    renderDrawer();
+    await screen.findByTestId("project-section-basic");
     expect(
-      await screen.findByDisplayValue("/Users/me/Code/agentre-hub"),
-    ).toBeInTheDocument();
-    expect(appMocks.ProjectSetLocalPath).not.toHaveBeenCalled();
-
-    await user.click(await screen.findByRole("button", { name: "Save" }));
-    await waitFor(() => {
-      expect(appMocks.ProjectSetLocalPath).toHaveBeenCalledWith({
-        id: 1,
-        path: "/Users/me/Code/agentre-hub",
-      });
-    });
-    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+      screen.queryByRole("button", { name: /Delete Project/i }),
+    ).toBeNull();
   });
 });
