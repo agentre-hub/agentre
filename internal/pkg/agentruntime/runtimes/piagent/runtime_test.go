@@ -1566,3 +1566,39 @@ func TestRun_GivenLaunchIdentityChanged_WhenRunningAgain_ThenTheOldSessionIsEvic
 		})
 	})
 }
+
+// Given 一条会话的 RPC 会话正闲置在池里(此刻没有在飞的轮), When 这条会话被删除,
+// Then 池里那个也要收掉 —— 会话都没了,它再也不会被谁用到。
+func TestCloseSession_GivenIdlePooledSession_WhenDeleted_ThenItIsReleased(t *testing.T) {
+	Convey("Given 一条跑完一轮、会话闲置在池里的 pi 会话", t, func() {
+		closed := make(chan struct{})
+		restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (sessionHandle, error) {
+			return &fakeSession{stream: &emptyStream{}, sid: "session-1", closeStarted: closed}, nil
+		})
+		defer restore()
+
+		pool := agentruntime.NewCLISessionPool(8)
+		r := NewWithPool(pool)
+		events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent), EnvJSON: "{}"},
+			SessionID: 41,
+			Cwd:       t.TempDir(),
+			UserText:  "hello",
+		})
+		So(err, ShouldBeNil)
+		for range events {
+		}
+		So(pool.IdleLen(), ShouldEqual, 1)
+
+		Convey("When 会话被删除 Then 池里那个被收掉", func() {
+			r.CloseSession(context.Background(), 41)
+
+			select {
+			case <-closed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("删掉会话之后池里那个 RPC 会话还留着")
+			}
+			So(pool.Len(), ShouldEqual, 0)
+		})
+	})
+}

@@ -494,13 +494,18 @@ func (r *Runtime) CloseSession(ctx context.Context, sessionID int64) {
 	r.mu.Lock()
 	owner := r.prepared[sessionID]
 	r.mu.Unlock()
-	if owner == nil {
+	if owner != nil {
+		if err := owner.Close(ctx); err != nil {
+			logger.Ctx(ctx).Warn("piagent runtime: close session failed",
+				zap.Int64("sessionID", sessionID), zap.Error(err))
+		}
 		return
 	}
-	if err := owner.Close(ctx); err != nil {
-		logger.Ctx(ctx).Warn("piagent runtime: close session failed",
-			zap.Int64("sessionID", sessionID), zap.Error(err))
-	}
+	// 没有在飞的轮时,这条会话的 RPC 会话正闲置在池里 —— 会话都被删了,它再也不会被
+	// 谁用到。
+	key := sessionKey(sessionID)
+	r.pool.Remove(key)
+	r.forgetIdentity(key)
 }
 
 // CloseAllSessions 收掉此刻在飞的每一轮的 RPC 进程,宿主关机时调。
