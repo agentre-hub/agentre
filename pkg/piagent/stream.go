@@ -13,6 +13,9 @@ type Stream struct {
 	proc      *rpcProcess
 	killGrace time.Duration
 	events    chan Event
+	// ownsProcess 决定这一轮收尾时要不要连 RPC 进程一起终止。一次性用法(Client.Stream)
+	// 归这一轮所有;跨轮复用(Session)时进程归会话,轮末只收这一轮。
+	ownsProcess bool
 
 	mu                  sync.RWMutex
 	sessionID           string
@@ -54,8 +57,10 @@ type agentEndOutcome struct {
 	err  error
 }
 
+// newStream 默认让这一轮拥有进程 —— 一次性用法(Client.Stream / Text / Compact)的
+// 既有语义。跨轮复用由 prepareStreamOn 显式改成 false。
 func newStream(proc *rpcProcess, killGrace time.Duration) *Stream {
-	return &Stream{proc: proc, killGrace: killGrace, events: make(chan Event, 64)}
+	return &Stream{proc: proc, killGrace: killGrace, ownsProcess: true, events: make(chan Event, 64)}
 }
 
 func (s *Stream) send(ctx context.Context, cmd map[string]any) error {
@@ -172,6 +177,9 @@ func (s *Stream) Diagnostics() StreamDiagnostics {
 func (s *Stream) Close(ctx context.Context) error {
 	var err error
 	s.closeOnce.Do(func() {
+		if !s.ownsProcess {
+			return
+		}
 		err = s.proc.terminate(ctx, s.killGrace)
 	})
 	if err != nil {
@@ -244,7 +252,7 @@ func (s *Stream) drain(ctx context.Context, pendingFrames ...[][]byte) {
 }
 
 func (s *Stream) terminateCanceledProcess(ctx context.Context) {
-	if s == nil || s.proc == nil || ctx.Err() == nil {
+	if s == nil || s.proc == nil || ctx.Err() == nil || !s.ownsProcess {
 		return
 	}
 	// Settlement has either completed or exhausted its bound. Kill the whole

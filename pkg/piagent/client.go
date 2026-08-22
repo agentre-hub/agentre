@@ -99,17 +99,35 @@ func (c *Client) PrepareStream(ctx context.Context, prompt string, opts ...RunOp
 }
 
 func (c *Client) prepareStream(ctx context.Context, prompt string, requireExactBoundary bool, opts ...RunOption) (*PreparedStream, error) {
+	// 参数校验必须在起进程之前:非法的 fork anchor 不该先把一个进程拉起来再拒。
+	if err := validateRunOptions(opts...); err != nil {
+		return nil, err
+	}
+	proc, err := c.startRPC(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// 一次性用法:进程归这一轮所有,轮末由 Stream.Close 终止。
+	return c.prepareStreamOn(ctx, proc, true, prompt, requireExactBoundary, opts...)
+}
+
+// prepareStreamOn 在一个**已经起来的** RPC 进程上开一轮。ownsProcess 决定这一轮结束时
+// 要不要连进程一起收掉:一次性用法(Client.Stream)归它自己,跨轮复用(Session)归会话。
+func (c *Client) prepareStreamOn(
+	ctx context.Context,
+	proc *rpcProcess,
+	ownsProcess bool,
+	prompt string,
+	requireExactBoundary bool,
+	opts ...RunOption,
+) (*PreparedStream, error) {
 	spec := runSpec{}
 	for _, o := range opts {
 		o(&spec)
 	}
 	// Session resume is wired at the Client level (WithSession → --session); the
 	// per-turn spec carries multimodal images透传到 prompt 帧。
-	if spec.forkAnchor != "" && strings.TrimSpace(spec.forkAnchor) != spec.forkAnchor {
-		return nil, errors.New("piagent: invalid fork anchor")
-	}
-	proc, err := c.startRPC(ctx)
-	if err != nil {
+	if err := validateRunOptions(opts...); err != nil {
 		return nil, err
 	}
 	startupCtx, cancelStartup := c.startupContext(ctx)
@@ -140,6 +158,7 @@ func (c *Client) prepareStream(ctx context.Context, prompt string, requireExactB
 		}
 	}
 	stream := newStream(proc, c.killGrace)
+	stream.ownsProcess = ownsProcess
 	stream.setSessionID(sessionID)
 	if state.Model != nil {
 		stream.setContextWindow(state.Model.ContextWindow)
@@ -177,6 +196,19 @@ func (c *Client) prepareStream(ctx context.Context, prompt string, requireExactB
 		frame["images"] = imgs
 	}
 	return &PreparedStream{stream: stream, frame: frame, startupTimeout: c.startupTimeout}, nil
+}
+
+// validateRunOptions 校验一轮的选项。单独拆出来是因为它必须能在起进程之前跑一遍:
+// 非法参数不该先把一个 RPC 进程拉起来再拒。
+func validateRunOptions(opts ...RunOption) error {
+	spec := runSpec{}
+	for _, o := range opts {
+		o(&spec)
+	}
+	if spec.forkAnchor != "" && strings.TrimSpace(spec.forkAnchor) != spec.forkAnchor {
+		return errors.New("piagent: invalid fork anchor")
+	}
+	return nil
 }
 
 func (p *PreparedStream) Start(ctx context.Context) (*Stream, error) {
