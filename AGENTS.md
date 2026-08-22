@@ -38,6 +38,7 @@ The following are hard rules. If the current task conflicts with them, **stop an
    - Static `t("...")` keys and locale coverage are validated by `frontend/src/__tests__/i18n.test.ts`; run the relevant tests when you change copy.
    - Do not translate dynamic output such as agent / user / terminal / code / markdown; it naturally never enters `t(...)`, and using a global text-rewrite fallback is forbidden.
    - All static UI copy is explicitly `t(...)`. See [docs/frontend.md](docs/frontend.md) for details.
+6. **Cross-host frontend concepts have one implementation.** Before adding or changing UI that also exists in `agentre-server`, inspect `frontend/packages/agentre-ui`. Shared components, view contracts, pure presentation helpers, copy and tokens belong there; desktop state, Wails, navigation and platform behavior stay in this host and connect through props or ports. Do not keep a desktop copy and a server copy in sync by hand. The extraction and cross-repository delivery order is mandatory; see [docs/frontend.md](docs/frontend.md#shared-ui-package-agentre-aiagentre-ui).
 
 ## SOLID (coding rules)
 

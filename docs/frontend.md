@@ -47,6 +47,38 @@ Four entry points, so a consumer can take the tokens without the component tree:
 
 **What belongs in it:** anything both hosts render — transcript components, the row model, the DTO contract, tokens. **What does not:** anything that needs the host's state, navigation, or platform. Reach for a port or a prop instead of importing the host.
 
+### Cross-host extraction and delivery
+
+Before adding or substantially changing a frontend component, view contract or pure
+presentation helper, search both the current host and this package. If the desktop and
+`agentre-server` render the same product concept, this package owns its rendering,
+interaction semantics, accessibility, shared copy and host-neutral data contract. Do not
+add a second implementation to one host or keep two existing copies synchronized by hand.
+
+Shared does not mean platform-agnostic by conditionals. Wails calls, desktop stores,
+navigation, HTTP/session clients and relay transports remain in their hosts. Express a
+real capability difference as an optional port or prop; no port means no affordance. If
+the two features only have similar names but different product contracts, keep them
+separate rather than adding `isDesktop` / `isWeb` branches to a shared component.
+
+When moving an existing `agentre-server` implementation here, use this order:
+
+1. Write the shared-package behavior or regression test and observe the required red
+   result before changing production code.
+2. Add or extract the host-neutral implementation here, export its public API, and wire
+   the desktop through a desktop-owned adapter where necessary.
+3. Run the package suite and the affected desktop host tests, then commit and push the
+   `agentre` repository. The consumer needs an immutable, remotely resolvable commit.
+4. In `agentre-server`, update its pinned Git revision, replace the local implementation
+   with the shared import and a server-owned adapter, then delete the duplicate component,
+   types, styles, copy and tests that exist only for that copy.
+5. Verify and commit `agentre-server` independently. The two repositories never form one
+   atomic Git commit, so do not remove the consumer copy before step 3 is available.
+
+Tests stay with the behavior they own: shared behavior is tested in this package; each
+host tests its adapter and integration boundary. A green package suite alone does not
+prove either host wired the ports or data contract correctly.
+
 **Copy inside the package uses `useUiTranslation()`, never a bare `useTranslation()`.** The package owns a separate namespace (`agentreUi`) so its keys cannot silently collide with the host's `common`; a bare call resolves against the host's default namespace, which *works* while a component is mid-migration and only breaks once the host key is deleted. The host merges the bundle at init — see `src/i18n/index.ts`.
 
 **Depending on a third-party package is a decision, not a detail.** The criterion for `peerDependencies` is one question: *does correctness depend on this being the same instance as the host?* React's hook dispatcher, the host's i18next instance, and anything holding module-level state say yes — a second copy fails at runtime, not at build. Pure rendering and pure functions say no, and a second copy only costs bytes. The current split and the reasoning per package live in the header comment of `packages/agentre-ui/src/boundary.test.ts`, next to the check that enforces it; read that rather than a copy here. `zustand` and `react-router-dom` are deliberately absent from both lists: state and navigation belong to the host.
