@@ -57,6 +57,11 @@ func (h *execHandle) Signal(sig os.Signal) error {
 }
 
 func Start(ctx context.Context, opts Options, binaryNotFound error) (Handle, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
 	extraEnv := envListToMap(opts.Env)
 	searchEnv := clienv.BuildEnv(extraEnv, opts.Binary)
 	binary, ok := clienv.ResolveBinaryForEnv(opts.Binary, searchEnv)
@@ -65,7 +70,11 @@ func Start(ctx context.Context, opts Options, binaryNotFound error) (Handle, err
 	}
 	// #nosec G204 -- callers pass the configured CLI binary plus fixed protocol
 	// flags; launching that subprocess is the intended behavior.
-	cmd := exec.CommandContext(ctx, binary, opts.Args...)
+	//
+	// 刻意用 exec.Command 而非 CommandContext:ctx 只守 spawn 阶段(上面那道
+	// 取消检查),进程一旦起来寿命就归调用方 —— CLI 会话跨轮常驻,而调用它的那一轮
+	// ctx 每轮都会 cancel,绑上去等于每轮结束都 SIGKILL 掉池里留着复用的进程。
+	cmd := exec.Command(binary, opts.Args...)
 	procattr.ApplyNoConsoleWindow(cmd)
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
