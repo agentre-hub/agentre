@@ -9,7 +9,7 @@
 //   - tool_result 不 flush liveDelta（紧跟 tool_use，不应中间插字）。
 //   - finishStream / failStream / closeStream 都会清空该 session 的 LiveStream，
 //     并把 doneTick 自增 → 订阅者据此 reload 持久化消息。
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   hasSessionStream,
@@ -88,6 +88,101 @@ describe("chat-streams-store", () => {
     expect(s.liveUsage?.promptTokens).toBe(22000);
     expect(s.turnCompletionTokens).toBe(600);
     expect(s.turnReasoningTokens).toBe(15);
+  });
+
+  // 生成计时（tok/s 的分母）与后端 turn/timing.go 同一口径：整段墙钟减去工具执行
+  // 空档。分子是整轮所有内部 API call 的 output 之和，包含「不吐字、直接发工具调用」
+  // 那些跳，所以分母不能只数看得见文字的时间（sess-3226 的 75331 tok/s 就是那么来的）。
+  describe("generation clock", () => {
+    it("Given a freshly opened stream, Then the clock is already running", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      useChatStreamsStore.getState().openStream(baseStream(7));
+      const s = live(7)!;
+      expect(s.burstStartedAt).toBe(1_000);
+      expect(s.generationMs).toBe(0);
+      vi.useRealTimers();
+    });
+
+    it("Given a tool call, Then the clock stops until its result comes back", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      const { openStream, appendLiveToolUse, appendLiveToolResult } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+
+      vi.setSystemTime(3_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      expect(live(7)!.burstStartedAt).toBeNull();
+      expect(live(7)!.generationMs).toBe(2_000);
+
+      vi.setSystemTime(9_000);
+      appendLiveToolResult(7, 1, { toolUseId: "t1", text: "ok" });
+      expect(live(7)!.burstStartedAt).toBe(9_000);
+      expect(live(7)!.generationMs).toBe(2_000);
+      vi.useRealTimers();
+    });
+
+    it("Given parallel tool calls, Then only the last result restarts the clock", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, appendLiveToolUse, appendLiveToolResult } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(1_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      appendLiveToolUse(7, 1, { toolUseId: "t2", toolName: "Read" });
+      vi.setSystemTime(3_000);
+      appendLiveToolResult(7, 1, { toolUseId: "t1", text: "ok" });
+      expect(live(7)!.burstStartedAt).toBeNull();
+      vi.setSystemTime(5_000);
+      appendLiveToolResult(7, 1, { toolUseId: "t2", text: "ok" });
+      expect(live(7)!.burstStartedAt).toBe(5_000);
+      expect(live(7)!.generationMs).toBe(1_000);
+      vi.useRealTimers();
+    });
+
+    it("Given a usage frame mid-turn, Then the clock keeps running", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, patchLiveUsage } = useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(2_000);
+      patchLiveUsage(7, 1, { completionTokens: 100, promptTokens: 10 });
+      expect(live(7)!.burstStartedAt).toBe(0);
+      expect(live(7)!.generationMs).toBe(0);
+      vi.useRealTimers();
+    });
+
+    it("Given a lost tool result, When the model speaks again, Then the clock restarts", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, appendLiveToolUse, appendLiveText } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(1_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      vi.setSystemTime(4_000);
+      appendLiveText(7, 1, "继续");
+      expect(live(7)!.burstStartedAt).toBe(4_000);
+      expect(live(7)!.generationMs).toBe(1_000);
+      vi.useRealTimers();
+    });
+
+    it("Given a nested subagent tool call, Then the clock is untouched", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, appendLiveToolUse } = useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(1_000);
+      appendLiveToolUse(7, 1, {
+        toolUseId: "n1",
+        toolName: "Read",
+        parentToolUseId: "t1",
+      });
+      expect(live(7)!.burstStartedAt).toBe(0);
+      vi.useRealTimers();
+    });
   });
 
   it("Given the first text delta, When appended, Then firstTokenAt is recorded once", () => {

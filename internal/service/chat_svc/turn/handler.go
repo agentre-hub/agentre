@@ -80,13 +80,15 @@ type TurnContext struct {
 	// 更早的消息上。nil 时 handler 退回静默忽略。chat_svc 在 newTurnContext 注入。
 	SubagentFlipper SubagentFlipper
 
-	// 本轮可见输出计时。StartedAt 是这一段 assistant 开始的时刻；FirstTokenAt 是
-	// 第一帧 thinking/chunk；BurstStartedAt 是当前这一跳开始吐字的时刻；Generation
-	// 是已经结束的各跳生成时长之和。工具空档不计入。
+	// 本轮计时。StartedAt 是这一段 assistant 开始的时刻;FirstTokenAt 是第一帧
+	// thinking/chunk(TTFT);BurstStartedAt 非零表示生成表正在走,值是本次开表时刻;
+	// Generation 是已经停表的各段之和;PendingTools 是正在执行、把表按住的工具。
+	// 口径与开关时机见 timing.go。
 	StartedAt      time.Time
 	FirstTokenAt   time.Time
 	BurstStartedAt time.Time
 	Generation     time.Duration
+	PendingTools   map[string]struct{}
 }
 
 // MessageUpdater handler 在 UsageUpdate / Error 等场景下写 assistantMsg 走这条。

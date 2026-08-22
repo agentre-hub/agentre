@@ -17,8 +17,12 @@ import (
 type ToolCallHandler struct{}
 
 func (ToolCallHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
-	tc.PauseGeneration()
 	tc2 := ev.(agentruntime.ToolCall)
+	// 模型这一跳到此为止,接下来是工具执行 —— 停表(内层工具不碰表,派遣它的外层
+	// Task 调用已经把表按住了)。口径见 turn/timing.go。
+	if tc2.ParentToolCallID == "" {
+		tc.SuspendGeneration(tc2.ID)
+	}
 	var input map[string]any
 	if len(tc2.Input) > 0 {
 		_ = json.Unmarshal(tc2.Input, &input)
@@ -71,6 +75,11 @@ type ToolResultHandler struct{}
 
 func (ToolResultHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
 	tr := ev.(agentruntime.ToolResult)
+
+	// 工具跑完,模型要接着生成了 —— 重新开表(并行工具全部回齐才真开)。
+	if tr.ParentToolCallID == "" {
+		tc.ResumeGeneration(tr.ToolCallID)
+	}
 
 	// 孤儿 tool_result 丢弃(spec §1.2): 没对应的 tool_use 直接忽略。
 	// 这里只查外层 cago.ToolUseBlock;内层 nested 的孤儿丢弃简化按"不严格判定"处理,

@@ -260,17 +260,19 @@ func (s *chatSvc) newTurnContext(
 	if sess != nil {
 		launch = sess.PermissionModeAtLaunch
 	}
-	return &turn.TurnContext{
+	tc := &turn.TurnContext{
 		AssistantMsg:         assistantMsg,
 		Session:              sess,
 		Stream:               stream,
 		BackendType:          backendType,
 		LaunchPermissionMode: launch,
-		StartedAt:            time.Now(),
 		MessageUpdater:       messageUpdaterAdapter{},
 		SessionUpdater:       sessionUpdaterAdapter{},
 		SessionTransitioner:  sessionTransitionerAdapter{svc: s},
 		Waits:                turn.NewWaitTracker(),
 		SubagentFlipper:      subagentFlipperAdapter{svc: s, sess: sess, stream: stream},
 	}
+	// 这一段 assistant 从此刻开始计时,生成表同时开走(工具空档由 tool 事件停/开)。
+	tc.StartGenerationAt(time.Now())
+	return tc
 }
