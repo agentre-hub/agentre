@@ -81,10 +81,14 @@ export type LiveStream = {
   liveCompacting: boolean;
   // 本轮计时（与后端 turn/timing.go 同口径）：firstTokenAt 第一次 chunk/thinking
   // （TTFT）；burstStartedAt 非 null 表示生成表正在走，值是本次开表时刻；
-  // generationMs 是已经停表的各段之和；pendingTools 是正在执行、把表按住的外层工具。
-  // 分母 = 整段墙钟 − 工具执行空档；不吐字只发工具调用的那一跳也照样计入。
+  // generationMs 是已经收口的各次 API call 生成窗口之和；callStartedAt 是当前这次
+  // call 最早可能开始生成的时刻（兜底窗口的左端）；sawVisibleToken 记这次 call 有没有
+  // 吐过字；pendingTools 是正在执行、把这一跳按住的外层工具。
+  // 分母 = 各次 call 的生成窗口之和：等首 token 的排队不算，工具执行不算。
   firstTokenAt: number | null;
   burstStartedAt: number | null;
+  callStartedAt: number | null;
+  sawVisibleToken: boolean;
   generationMs: number;
   pendingTools: string[];
   // turnCompletionTokens / turnReasoningTokens 按 usage 帧累加（每帧是该次 API call
@@ -124,6 +128,8 @@ type Actions = {
       | "liveCompacting"
       | "firstTokenAt"
       | "burstStartedAt"
+      | "callStartedAt"
+      | "sawVisibleToken"
       | "generationMs"
       | "pendingTools"
       | "turnCompletionTokens"
@@ -300,40 +306,61 @@ type Actions = {
 // liveBlocks 前 —— 工具循环里后几轮的 thinking 被全堆到最顶(用户可见症状:
 // 「思考完成过程都在最顶部叠加」)。这里改为在 tool_use/plan/ask 等边界一并
 // 把 liveThinking 落成 thinking block,让 liveBlocks 保持真实时间顺序。
-// noteVisibleToken 记首 token，并在表被按住时重新开表：模型开口说话 = 工具空档必然
-// 已经结束。这同时是「工具结果因中断/过滤没回来」时的自愈，免得表被永久按住、分母
-// 塌回几十毫秒。
+// noteVisibleToken 记首 token 并开表。表没在走就从这一刻起算生成 —— 之前那段是
+// 等首 token 的排队/prefill，不是生成。工具还挂着就说明它的结果丢了（中断/过滤），
+// 模型既然开口了就清账重新起算，否则表被永久按住、分母塌回几十毫秒。
 function noteVisibleToken(s: LiveStream, now: number): LiveStream {
+  const lostTools = s.pendingTools.length > 0;
   return {
     ...s,
     firstTokenAt: s.firstTokenAt ?? now,
     burstStartedAt: s.burstStartedAt ?? now,
-    pendingTools: s.pendingTools.length === 0 ? s.pendingTools : [],
+    callStartedAt: lostTools ? now : s.callStartedAt,
+    sawVisibleToken: true,
+    pendingTools: lostTools ? [] : s.pendingTools,
   };
 }
 
-function pauseBurst(s: LiveStream, now: number): LiveStream {
-  if (s.burstStartedAt == null) return s;
+/**
+ * endCall 收口当前这次 API call 的生成窗口。
+ *
+ * 吐过字 → 窗口是 [首个增量, 现在]；一个字没吐就甩了工具调用 → 没有增量能框窗口，
+ * 退回按这一跳的墙钟算（它的 output token 照样进分子，分母给 0 就是白嫖）。正卡在
+ * 工具执行里则什么都不加 —— 那段不是生成。
+ */
+function endCall(s: LiveStream, now: number): LiveStream {
+  let generationMs = s.generationMs;
+  if (s.burstStartedAt != null) {
+    generationMs += Math.max(0, now - s.burstStartedAt);
+  } else if (
+    !s.sawVisibleToken &&
+    s.pendingTools.length === 0 &&
+    s.callStartedAt != null
+  ) {
+    generationMs += Math.max(0, now - s.callStartedAt);
+  }
   return {
     ...s,
-    generationMs: s.generationMs + Math.max(0, now - s.burstStartedAt),
+    generationMs,
     burstStartedAt: null,
+    sawVisibleToken: false,
+    callStartedAt: now,
   };
 }
 
-/** suspendClock 停表：toolUseId 开始执行，模型这一跳的生成到此为止。 */
+/** suspendClock 收口这一跳：toolUseId 开始执行，模型这一跳说完了。 */
 function suspendClock(
   s: LiveStream,
   toolUseId: string,
   now: number,
 ): LiveStream {
-  const paused = pauseBurst(s, now);
-  return paused.pendingTools.includes(toolUseId)
-    ? paused
-    : { ...paused, pendingTools: [...paused.pendingTools, toolUseId] };
+  const ended = endCall(s, now);
+  return ended.pendingTools.includes(toolUseId)
+    ? ended
+    : { ...ended, pendingTools: [...ended.pendingTools, toolUseId] };
 }
 
-/** resumeClock 开表：并行工具全部回齐才真的开表。 */
+/** resumeClock 工具结果回来：下一跳从这一刻起算（并行工具全部回齐才算）。 */
 function resumeClock(
   s: LiveStream,
   toolUseId: string,
@@ -344,8 +371,8 @@ function resumeClock(
   return {
     ...s,
     pendingTools,
-    burstStartedAt:
-      pendingTools.length === 0 ? (s.burstStartedAt ?? now) : s.burstStartedAt,
+    callStartedAt: pendingTools.length === 0 ? now : s.callStartedAt,
+    sawVisibleToken: pendingTools.length === 0 ? false : s.sawVisibleToken,
   };
 }
 
@@ -491,8 +518,10 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         liveContextWindow: 0,
         liveCompacting: false,
         firstTokenAt: null,
-        // turn 开始即开表（工具空档由 tool 事件停/开）。
-        burstStartedAt: Date.now(),
+        // 表要等模型真的开口才走；这里只记下这一跳最早可能开始生成的时刻。
+        burstStartedAt: null,
+        callStartedAt: Date.now(),
+        sawVisibleToken: false,
         generationMs: 0,
         pendingTools: [],
         turnCompletionTokens: 0,
@@ -1003,8 +1032,10 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
           // 新 assistant 段开始 → 清掉上一段的 compacting chip。
           liveCompacting: false,
           firstTokenAt: null,
-          // 新 assistant 段开始 → 生成表重新开走。
-          burstStartedAt: Date.now(),
+          // 新 assistant 段开始 → 计时重来（表仍等模型开口才走）。
+          burstStartedAt: null,
+          callStartedAt: Date.now(),
+          sawVisibleToken: false,
           generationMs: 0,
           pendingTools: [],
           turnCompletionTokens: 0,

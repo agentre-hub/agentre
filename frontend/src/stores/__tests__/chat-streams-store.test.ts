@@ -90,63 +90,106 @@ describe("chat-streams-store", () => {
     expect(s.turnReasoningTokens).toBe(15);
   });
 
-  // 生成计时（tok/s 的分母）与后端 turn/timing.go 同一口径：整段墙钟减去工具执行
-  // 空档。分子是整轮所有内部 API call 的 output 之和，包含「不吐字、直接发工具调用」
-  // 那些跳，所以分母不能只数看得见文字的时间（sess-3226 的 75331 tok/s 就是那么来的）。
+  // 生成计时（tok/s 的分母）与后端 turn/timing.go 同一口径：各次内部 API call 的
+  // 生成窗口之和 —— 模型真的在吐 token 的那段。等首 token 的排队/prefill 不算，工具
+  // 执行不算。实测一轮 pi 9.6s 墙钟里只有 1.6s 在生成，按墙钟算会把 83 tok/s 报成 14。
   describe("generation clock", () => {
-    it("Given a freshly opened stream, Then the clock is already running", () => {
+    it("Given a freshly opened stream, Then the clock waits for the first token", () => {
       vi.useFakeTimers();
       vi.setSystemTime(1_000);
       useChatStreamsStore.getState().openStream(baseStream(7));
       const s = live(7)!;
-      expect(s.burstStartedAt).toBe(1_000);
+      expect(s.burstStartedAt).toBeNull();
       expect(s.generationMs).toBe(0);
       vi.useRealTimers();
     });
 
-    it("Given a tool call, Then the clock stops until its result comes back", () => {
+    it("Given a queue wait before the first token, Then it is not counted", () => {
       vi.useFakeTimers();
-      vi.setSystemTime(1_000);
-      const { openStream, appendLiveToolUse, appendLiveToolResult } =
+      vi.setSystemTime(0);
+      const { openStream, appendLiveText, appendLiveToolUse } =
         useChatStreamsStore.getState();
       openStream(baseStream(7));
+      vi.setSystemTime(4_400); // 排队 4.4s 才吐第一个字
+      appendLiveText(7, 1, "hi");
+      vi.setSystemTime(5_400);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      expect(live(7)!.generationMs).toBe(1_000);
+      vi.useRealTimers();
+    });
 
+    it("Given a tool call, Then the clock stops until the model speaks again", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const {
+        openStream,
+        appendLiveText,
+        appendLiveToolUse,
+        appendLiveToolResult,
+      } = useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(1_000);
+      appendLiveText(7, 1, "let me check");
       vi.setSystemTime(3_000);
       appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
       expect(live(7)!.burstStartedAt).toBeNull();
       expect(live(7)!.generationMs).toBe(2_000);
 
-      vi.setSystemTime(9_000);
+      vi.setSystemTime(10_000);
       appendLiveToolResult(7, 1, { toolUseId: "t1", text: "ok" });
-      expect(live(7)!.burstStartedAt).toBe(9_000);
+      expect(live(7)!.burstStartedAt).toBeNull(); // 工具回来了但模型还没开口
+      vi.setSystemTime(11_000);
+      appendLiveText(7, 1, "done");
+      expect(live(7)!.burstStartedAt).toBe(11_000);
       expect(live(7)!.generationMs).toBe(2_000);
       vi.useRealTimers();
     });
 
-    it("Given parallel tool calls, Then only the last result restarts the clock", () => {
+    it("Given a hop that only emits a tool call, Then its wall clock is counted", () => {
       vi.useFakeTimers();
       vi.setSystemTime(0);
-      const { openStream, appendLiveToolUse, appendLiveToolResult } =
-        useChatStreamsStore.getState();
+      const { openStream, appendLiveToolUse } = useChatStreamsStore.getState();
       openStream(baseStream(7));
+      vi.setSystemTime(1_000); // 一个字没吐,1s 内直接甩了工具调用
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      expect(live(7)!.generationMs).toBe(1_000);
+      vi.useRealTimers();
+    });
+
+    it("Given parallel tool calls, Then the tool window stays closed until all return", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const {
+        openStream,
+        appendLiveText,
+        appendLiveToolUse,
+        appendLiveToolResult,
+      } = useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      appendLiveText(7, 1, "hi");
       vi.setSystemTime(1_000);
       appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
       appendLiveToolUse(7, 1, { toolUseId: "t2", toolName: "Read" });
       vi.setSystemTime(3_000);
       appendLiveToolResult(7, 1, { toolUseId: "t1", text: "ok" });
-      expect(live(7)!.burstStartedAt).toBeNull();
+      expect(live(7)!.pendingTools).toEqual(["t2"]);
       vi.setSystemTime(5_000);
       appendLiveToolResult(7, 1, { toolUseId: "t2", text: "ok" });
-      expect(live(7)!.burstStartedAt).toBe(5_000);
-      expect(live(7)!.generationMs).toBe(1_000);
+      vi.setSystemTime(6_000);
+      appendLiveText(7, 1, "done");
+      vi.setSystemTime(7_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t3", toolName: "Bash" });
+      expect(live(7)!.generationMs).toBe(2_000); // (0→1000) + (6000→7000)
       vi.useRealTimers();
     });
 
     it("Given a usage frame mid-turn, Then the clock keeps running", () => {
       vi.useFakeTimers();
       vi.setSystemTime(0);
-      const { openStream, patchLiveUsage } = useChatStreamsStore.getState();
+      const { openStream, appendLiveText, patchLiveUsage } =
+        useChatStreamsStore.getState();
       openStream(baseStream(7));
+      appendLiveText(7, 1, "hi");
       vi.setSystemTime(2_000);
       patchLiveUsage(7, 1, { completionTokens: 100, promptTokens: 10 });
       expect(live(7)!.burstStartedAt).toBe(0);
@@ -157,14 +200,16 @@ describe("chat-streams-store", () => {
     it("Given a lost tool result, When the model speaks again, Then the clock restarts", () => {
       vi.useFakeTimers();
       vi.setSystemTime(0);
-      const { openStream, appendLiveToolUse, appendLiveText } =
+      const { openStream, appendLiveText, appendLiveToolUse } =
         useChatStreamsStore.getState();
       openStream(baseStream(7));
+      appendLiveText(7, 1, "hi");
       vi.setSystemTime(1_000);
       appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
       vi.setSystemTime(4_000);
       appendLiveText(7, 1, "继续");
       expect(live(7)!.burstStartedAt).toBe(4_000);
+      expect(live(7)!.pendingTools).toEqual([]);
       expect(live(7)!.generationMs).toBe(1_000);
       vi.useRealTimers();
     });
@@ -172,8 +217,10 @@ describe("chat-streams-store", () => {
     it("Given a nested subagent tool call, Then the clock is untouched", () => {
       vi.useFakeTimers();
       vi.setSystemTime(0);
-      const { openStream, appendLiveToolUse } = useChatStreamsStore.getState();
+      const { openStream, appendLiveText, appendLiveToolUse } =
+        useChatStreamsStore.getState();
       openStream(baseStream(7));
+      appendLiveText(7, 1, "hi");
       vi.setSystemTime(1_000);
       appendLiveToolUse(7, 1, {
         toolUseId: "n1",
@@ -181,6 +228,7 @@ describe("chat-streams-store", () => {
         parentToolUseId: "t1",
       });
       expect(live(7)!.burstStartedAt).toBe(0);
+      expect(live(7)!.pendingTools).toEqual([]);
       vi.useRealTimers();
     });
   });

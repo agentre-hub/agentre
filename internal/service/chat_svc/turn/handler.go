@@ -82,13 +82,16 @@ type TurnContext struct {
 
 	// 本轮计时。StartedAt 是这一段 assistant 开始的时刻;FirstTokenAt 是第一帧
 	// thinking/chunk(TTFT);BurstStartedAt 非零表示生成表正在走,值是本次开表时刻;
-	// Generation 是已经停表的各段之和;PendingTools 是正在执行、把表按住的工具。
-	// 口径与开关时机见 timing.go。
-	StartedAt      time.Time
-	FirstTokenAt   time.Time
-	BurstStartedAt time.Time
-	Generation     time.Duration
-	PendingTools   map[string]struct{}
+	// Generation 是已经收口的各次 API call 生成窗口之和;CallStartedAt 是当前这次
+	// call 最早可能开始生成的时刻(兜底窗口的左端);SawVisibleToken 记这次 call 有没有
+	// 吐过字;PendingTools 是正在执行、把这一跳按住的外层工具。口径见 timing.go。
+	StartedAt       time.Time
+	FirstTokenAt    time.Time
+	BurstStartedAt  time.Time
+	CallStartedAt   time.Time
+	SawVisibleToken bool
+	Generation      time.Duration
+	PendingTools    map[string]struct{}
 }
 
 // MessageUpdater handler 在 UsageUpdate / Error 等场景下写 assistantMsg 走这条。

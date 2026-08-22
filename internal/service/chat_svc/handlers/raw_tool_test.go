@@ -197,10 +197,11 @@ func TestToolResultHandler_WithPriorToolUse(t *testing.T) {
 // (subagent 内部)工具不碰表 —— 派遣它的那个外层 Task 调用已经把表按住了,内层再
 // 加减一遍只会在孤儿帧上留下按死表的挂账。
 func TestToolHandlers_DriveGenerationClock(t *testing.T) {
-	Convey("外层 tool_use 停表 / tool_result 开表", t, func() {
+	Convey("外层 tool_use 收口这一跳 / tool_result 起下一跳", t, func() {
 		acc := turn.New()
 		tc := &turn.TurnContext{}
 		tc.StartGenerationAt(time.UnixMilli(0))
+		tc.NoteVisibleTokenAt(time.UnixMilli(0))
 
 		So(ToolCallHandler{}.Apply(context.Background(),
 			agentruntime.ToolCall{ID: "tu-1", Name: "Bash"}, acc, nil, nil, tc), ShouldBeNil)
@@ -209,8 +210,10 @@ func TestToolHandlers_DriveGenerationClock(t *testing.T) {
 
 		So(ToolResultHandler{}.Apply(context.Background(),
 			agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"}, acc, nil, nil, tc), ShouldBeNil)
-		So(tc.BurstStartedAt.IsZero(), ShouldBeFalse)
 		So(tc.PendingTools, ShouldBeEmpty)
+		// 工具回来不等于模型在生成 —— 表要等下一个可见增量才走。
+		So(tc.BurstStartedAt.IsZero(), ShouldBeTrue)
+		So(tc.CallStartedAt.IsZero(), ShouldBeFalse)
 	})
 
 	Convey("内层 tool_use / tool_result 不动表", t, func() {
@@ -218,6 +221,7 @@ func TestToolHandlers_DriveGenerationClock(t *testing.T) {
 		tc := &turn.TurnContext{}
 		tc.StartGenerationAt(time.UnixMilli(0))
 
+		tc.NoteVisibleTokenAt(time.UnixMilli(0))
 		So(ToolCallHandler{}.Apply(context.Background(),
 			agentruntime.ToolCall{ID: "n-1", Name: "Read", ParentToolCallID: "tu-1"},
 			acc, nil, nil, tc), ShouldBeNil)
