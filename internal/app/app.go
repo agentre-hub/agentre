@@ -115,6 +115,10 @@ func (a *App) Startup(ctx context.Context) {
 	a.resetStaleSessionsOnStartup(ctx)
 	a.registerChatService()
 	a.hookPollerCancel = hook_svc.StartScheduler(ctx)
+	// 常驻 CLI 子进程的按时清扫:池的条数上限管不了「留多久」,一个开过一次就再没
+	// 碰过的会话能把 CLI 连同它的 MCP server 挂到退出为止。
+	agentruntime.DefaultCLISessionPool().StartIdleSweeper(ctx,
+		agentruntime.DefaultIdleSessionTTL, cliSessionSweepInterval)
 
 	// Server 联机：绑定 wails 事件源后启动 boot 协程（最长一次刷新）。
 	server_svc.Server().SetEmitter(func(payload any) {
@@ -231,6 +235,9 @@ func (a *App) Shutdown(ctx context.Context) {
 
 // cliSessionReleaseTimeout 是同步收尾常驻 CLI 子进程的上界。
 const cliSessionReleaseTimeout = 3 * time.Second
+
+// cliSessionSweepInterval 是 idle CLI 会话清扫的巡检间隔。
+const cliSessionSweepInterval = time.Minute
 
 func (a *App) cleanupResources(ctx context.Context) {
 	a.stopInboundPeer(ctx)

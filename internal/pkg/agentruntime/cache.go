@@ -50,6 +50,9 @@ type cliSessionEntry struct {
 	key   string
 	val   ctxCloser
 	state CLISessionState
+	// idleAt 是这条会话转入 idle 的时刻(非 idle 时为零值)。按时间清扫只看它,
+	// 所以正在跑一轮 / 正在等审批的会话永远不会被清扫碰到。
+	idleAt time.Time
 }
 
 func NewCLISessionPool(idleCap int) *CLISessionPool {
@@ -97,7 +100,13 @@ func (p *CLISessionPool) mark(key string, state CLISessionState, prune bool) {
 	var closing []ctxCloser
 	p.mu.Lock()
 	if el, ok := p.index[key]; ok {
-		el.Value.(*cliSessionEntry).state = state
+		ent := el.Value.(*cliSessionEntry)
+		ent.state = state
+		if state == CLISessionIdle {
+			ent.idleAt = time.Now()
+		} else {
+			ent.idleAt = time.Time{}
+		}
 		p.ll.MoveToFront(el)
 	}
 	if prune {
@@ -130,6 +139,58 @@ func (p *CLISessionPool) pruneLocked() []ctxCloser {
 	return closing
 }
 
+// DefaultIdleSessionTTL 是一条 idle 会话在被清扫之前允许闲置的时长。
+//
+// 池的条数上限管的是「同时留着几个」,管不了「留多久」:一个开过一次就再没碰过的
+// 会话只要 idle 条数不到上限,就能把 CLI 连同它的 MCP server 一直挂到宿主退出。
+// 跨轮复用的价值集中在用户连续对话的那几分钟内,这之后留着的只是常驻内存。
+const DefaultIdleSessionTTL = 15 * time.Minute
+
+// PruneIdleOlderThan 关掉闲置超过 ttl 的会话,返回清掉的条数。
+// 只看 idle 条目:正在跑一轮(active)和正在等审批(waiting)的一个都不动。
+func (p *CLISessionPool) PruneIdleOlderThan(ttl time.Duration) int {
+	deadline := time.Now().Add(-ttl)
+	var closing []ctxCloser
+	p.mu.Lock()
+	var next *list.Element
+	for el := p.ll.Front(); el != nil; el = next {
+		next = el.Next()
+		ent := el.Value.(*cliSessionEntry)
+		if ent.state != CLISessionIdle || ent.idleAt.After(deadline) {
+			continue
+		}
+		p.ll.Remove(el)
+		delete(p.index, ent.key)
+		closing = append(closing, ent.val)
+	}
+	p.mu.Unlock()
+	for _, old := range closing {
+		go closeWithTimeout(old)
+	}
+	return len(closing)
+}
+
+// StartIdleSweeper 起一个后台清扫,按 interval 反复调用 PruneIdleOlderThan(ttl),
+// ctx 结束即退出。宿主(桌面 App 启动 / agentred Run)各起一个。
+func (p *CLISessionPool) StartIdleSweeper(ctx context.Context, ttl, interval time.Duration) {
+	if ttl <= 0 || interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				p.PruneIdleOlderThan(ttl)
+			}
+		}
+	}()
+}
+
+// Remove 删除一个 key 并关闭其 session；不存在则 no-op。
 func (p *CLISessionPool) Remove(key string) {
 	p.mu.Lock()
 	el, ok := p.index[key]

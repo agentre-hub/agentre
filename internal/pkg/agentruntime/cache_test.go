@@ -331,3 +331,51 @@ func TestKillAll_GivenPooledSessions_WhenHostExitsNow_ThenEverySessionIsKilledSy
 	}
 	assert.Equal(t, 0, p.Len())
 }
+
+// Given 一个已经闲置超过存活期的会话, When 清扫跑过, Then 它被关掉并移出池。
+//
+// 池此前只有条数上限(8 条 idle),没有时间上限:一个开过一次就再没碰过的会话会把
+// claude / codex 子进程连同它的 MCP server 一直挂着 —— 只要 idle 条数不到 8,它可以
+// 活到宿主退出为止。
+func TestPruneIdleOlderThan_GivenIdleSessionPastItsTTL_WhenSweeping_ThenItIsReleased(t *testing.T) {
+	p := NewCLISessionPool(8)
+	s := newFakeSession("stale")
+	p.Put("stale", s)
+	p.MarkIdle("stale")
+
+	assert.Equal(t, 1, p.PruneIdleOlderThan(0))
+
+	s.WaitClosed(t)
+	assert.Equal(t, 0, p.Len())
+}
+
+// Given 正在跑一轮(active)和正在等审批(waiting)的会话, When 清扫跑过, Then 它们
+// 一个都不能动 —— 按时间清扫绝不能把正忙的子进程杀掉。
+func TestPruneIdleOlderThan_GivenBusySessions_WhenSweeping_ThenTheyAreUntouched(t *testing.T) {
+	p := NewCLISessionPool(8)
+	active := newFakeSession("active")
+	waiting := newFakeSession("waiting")
+	p.Put("active", active)
+	p.Put("waiting", waiting)
+	p.MarkWaiting("waiting")
+
+	assert.Equal(t, 0, p.PruneIdleOlderThan(0))
+
+	assert.False(t, active.IsClosed())
+	assert.False(t, waiting.IsClosed())
+	assert.Equal(t, 2, p.Len())
+}
+
+// Given 一个刚刚转入 idle 的会话, When 清扫按正常存活期跑过, Then 它留着 —— 跨轮复用
+// 正是池存在的理由。
+func TestPruneIdleOlderThan_GivenRecentlyIdledSession_WhenSweeping_ThenItStaysForReuse(t *testing.T) {
+	p := NewCLISessionPool(8)
+	s := newFakeSession("fresh")
+	p.Put("fresh", s)
+	p.MarkIdle("fresh")
+
+	assert.Equal(t, 0, p.PruneIdleOlderThan(time.Hour))
+
+	assert.False(t, s.IsClosed())
+	assert.Equal(t, 1, p.Len())
+}

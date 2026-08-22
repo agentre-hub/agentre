@@ -126,6 +126,9 @@ type Daemon struct {
 
 const daemonConnectionCleanupTimeout = 3 * time.Second
 
+// cliSessionSweepInterval 是 idle CLI 会话清扫的巡检间隔。
+const cliSessionSweepInterval = time.Minute
+
 // sessionKey 是 daemon 侧的会话身份(R16):(对端设备指纹, 对端会话 id)。会话 id 是
 // 各客户端本地自增的,两个对端各自持有同一个 id 时是两条互不相干的会话。
 type sessionKey struct {
@@ -1006,6 +1009,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// whole lifetime; the multiplexer consumes its raw-frame seam separately.
 	hubCtx, hubCancel := context.WithCancel(ctx)
 	d.startEngineSnapshotPulls(hubCtx)
+	// 常驻 CLI 子进程的按时清扫:daemon 一跑就是几周,池的条数上限管不了「留多久」。
+	agentruntime.DefaultCLISessionPool().StartIdleSweeper(ctx,
+		agentruntime.DefaultIdleSessionTTL, cliSessionSweepInterval)
 	go func() { _ = d.hub.Run(hubCtx) }()
 	// 凭据续期与吊销拉取都以「手上已经有凭据」为前提,所以要等认领落地再挂起来 ——
 	// 见 runAccountJobsWhenClaimed。中转链路本身不必等:它每次 dial 重新解析端点,
