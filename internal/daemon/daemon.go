@@ -34,6 +34,7 @@ import (
 	"github.com/agentre-ai/agentre/internal/daemon/state"
 	daemonworkspacefs "github.com/agentre-ai/agentre/internal/daemon/workspacefs"
 	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
 	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
@@ -1038,9 +1039,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	runErr := lan.Run(ctx)
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), daemonConnectionCleanupTimeout)
 	defer cancelCleanup()
-	if err := d.closeRuntimeConnections(cleanupCtx); err != nil {
-		log.Printf("daemon.Run: connection cleanup failed errorType=%T", err)
-	}
+	d.shutdown(cleanupCtx)
 	return runErr
 }
 
@@ -1618,6 +1617,22 @@ func (d *Daemon) bindConn(c *rpc.Conn) {
 		}
 		d.runtimeMu.Unlock()
 	}()
+}
+
+// shutdown 是关机时的资源收尾:先收每条连接名下的 Pi generation,再释放跨轮常驻的
+// claude / codex 子进程会话。
+//
+// 后一半此前是缺的。那些子进程自成进程组,不会被 daemon 退出时的 SIGHUP 连坐 ——
+// 每重启一次 agentred 就在机器上多留一批孤儿 CLI,还各自握着 MCP server 与网关 token。
+// 用 CloseAll 而不是 RemoveAll:关机需要的是「收干净了」的保证,而不是一堆随进程一起
+// 消失的 goroutine;ctx 是它的上界。
+func (d *Daemon) shutdown(ctx context.Context) {
+	if err := d.closeRuntimeConnections(ctx); err != nil {
+		log.Printf("daemon.shutdown: connection cleanup failed errorType=%T", err)
+	}
+	if err := agentruntime.DefaultCLISessionPool().CloseAll(ctx); err != nil {
+		log.Printf("daemon.shutdown: CLI session release failed errorType=%T", err)
+	}
 }
 
 func (d *Daemon) closeRuntimeConnections(ctx context.Context) error {

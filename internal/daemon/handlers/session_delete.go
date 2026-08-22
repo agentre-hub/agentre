@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-ai/agentre/internal/daemon/rpc"
+	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
 
@@ -67,6 +68,10 @@ func (h *SessionDeleteHandlers) Delete(ctx context.Context, p wire.SessionDelete
 		// 交出成功会让 server 把待办勾掉,那段转录就永远留在这台机器上了。
 		return wire.SessionDeleteResult{}, fmt.Errorf("purge session journal: %w", err)
 	}
+	// 会话已经不存在了,它在本机常驻的 CLI 子进程再也不会被任何一轮用到:不放掉的话
+	// 它只能等 idle 上限把自己挤出去,否则一直活到 daemon 退出。释放用的会话键与
+	// runtime.run 交给 backend 的是同一个(按对端隔离),否则放的是别人那条同号会话。
+	agentruntime.CloseSessionEverywhere(ctx, runtimeSessionID(peer, p.SessionID))
 	logger.Ctx(ctx).Info("handlers.SessionDeleteHandlers.Delete: session removed",
 		zap.Int64("sessionId", p.SessionID), zap.Int64("sessionRows", rows),
 		zap.Int64("journalRows", purged))

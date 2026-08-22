@@ -159,18 +159,56 @@ func (p *CLISessionPool) Remove(key string) {
 	go closeWithTimeout(ent.val)
 }
 
+// RemoveAll 摘空池并在后台关闭每个条目,不等收尾。需要「收干净了」的保证时用 CloseAll。
 func (p *CLISessionPool) RemoveAll() {
+	for _, v := range p.drainAll() {
+		go closeWithTimeout(v)
+	}
+}
+
+// CloseAll 同步收掉全部条目:每个条目走与 evict 相同的「优雅关闭 → 超时硬杀」路径,
+// 全部收尾后才返回。ctx 是关机路径的上界 —— 到期就如实回错,绝不让一个不认领硬杀口的
+// 卡死条目把关机挂住。
+//
+// 与 RemoveAll 的区别就是这一句保证:RemoveAll 是 fire-and-forget,宿主进程紧接着退出
+// 时那些 goroutine 连同子进程一起被留下。
+func (p *CLISessionPool) CloseAll(ctx context.Context) error {
+	olds := p.drainAll()
+	if len(olds) == 0 {
+		return nil
+	}
+	var wg sync.WaitGroup
+	for _, v := range olds {
+		wg.Add(1)
+		go func(c ctxCloser) {
+			defer wg.Done()
+			closeWithTimeout(c)
+		}(v)
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// drainAll 原子地摘空池并交回原来的条目。
+func (p *CLISessionPool) drainAll() []ctxCloser {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	olds := make([]ctxCloser, 0, p.ll.Len())
 	for el := p.ll.Front(); el != nil; el = el.Next() {
 		olds = append(olds, el.Value.(*cliSessionEntry).val)
 	}
 	p.ll.Init()
 	p.index = map[string]*list.Element{}
-	p.mu.Unlock()
-	for _, v := range olds {
-		go closeWithTimeout(v)
-	}
+	return olds
 }
 
 func (p *CLISessionPool) Len() int {

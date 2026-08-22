@@ -2254,3 +2254,45 @@ func mustJSON(t *testing.T, value any) string {
 	require.NoError(t, err)
 	return string(body)
 }
+
+// pooledSession 是一个假的常驻 CLI 会话:只记录自己有没有被关掉。
+type pooledSession struct {
+	once   sync.Once
+	closed chan struct{}
+}
+
+func newPooledSession() *pooledSession {
+	return &pooledSession{closed: make(chan struct{})}
+}
+
+func (p *pooledSession) Close(context.Context) error {
+	p.once.Do(func() { close(p.closed) })
+	return nil
+}
+
+// Given 这台 daemon 上还留着跨轮常驻的 claude / codex 子进程会话, When daemon 关机,
+// Then 它们必须被收掉。
+//
+// 从前关机只收 Pi generation(closeRuntimeConnections),CLISessionPool 里的 claude /
+// codex 子进程一个都不释放。它们自带进程组,不会被 daemon 退出时的 SIGHUP 连坐 ——
+// 于是每重启一次 agentred 就在机器上多留一批孤儿 CLI,还各自握着 MCP server 与网关 token。
+func TestDaemon_GivenPooledCLISessions_WhenShuttingDown_ThenTheyAreReleased(t *testing.T) {
+	dir := t.TempDir()
+	d, err := New(Options{DataDir: dir})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	session := newPooledSession()
+	agentruntime.DefaultCLISessionPool().Put("daemon-shutdown-test", session)
+	t.Cleanup(func() { agentruntime.DefaultCLISessionPool().Remove("daemon-shutdown-test") })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	d.shutdown(ctx)
+
+	select {
+	case <-session.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("关机没有释放常驻 CLI 子进程会话:daemon 退出后它们会变成孤儿")
+	}
+}

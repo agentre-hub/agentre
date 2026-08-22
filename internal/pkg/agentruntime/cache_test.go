@@ -305,3 +305,55 @@ func (k *killableSession) WasKilled() bool {
 	defer k.mu.Unlock()
 	return k.killed
 }
+
+// unkillableSession 的 Close 永不返回,而且不实现硬杀口 —— 关机不能被这种条目挂住。
+type unkillableSession struct{}
+
+func (unkillableSession) Close(context.Context) error {
+	select {}
+}
+
+// Given 池里既有正常会话也有卡死会话, When 关机路径调 CloseAll, Then 它要等到每个
+// 条目真的收尾(卡死的那个经硬杀)之后才返回,池清空。
+//
+// RemoveAll 是 fire-and-forget 的:调用方拿不到任何「收干净了」的保证,宿主进程紧接着
+// 退出时那些 goroutine 连同子进程一起被留下。关机路径要的是保证。
+func TestCloseAll_GivenWedgedAndHealthySessions_WhenClosingAll_ThenItWaitsForBoth(t *testing.T) {
+	restore := setCloseGraceForTest(20 * time.Millisecond)
+	defer restore()
+
+	p := NewCLISessionPool(8)
+	healthy := newFakeSession("healthy")
+	wedged := newWedgedSession()
+	p.Put("healthy", healthy)
+	p.Put("wedged", wedged)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, p.CloseAll(ctx))
+
+	assert.True(t, healthy.IsClosed(), "CloseAll 返回时正常会话应当已经关掉")
+	select {
+	case <-wedged.closed:
+	default:
+		t.Fatal("CloseAll 返回时卡死会话还没收尾")
+	}
+	assert.Equal(t, 0, p.Len())
+}
+
+// Given 一个连硬杀都救不回来的会话, When CloseAll 的 ctx 到期, Then 它如实返回
+// ctx 错误,而不是无限期挂住关机。
+func TestCloseAll_GivenSessionThatNeverSettles_WhenContextExpires_ThenItReportsTheDeadline(t *testing.T) {
+	restore := setCloseGraceForTest(10 * time.Millisecond)
+	defer restore()
+
+	p := NewCLISessionPool(8)
+	p.Put("stuck", &unkillableSession{}) // 不认领硬杀口,Close 永不返回
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := p.CloseAll(ctx)
+
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
