@@ -132,7 +132,10 @@ func TestKill_GivenProcessSpawnedGrandchild_WhenKilling_ThenWholeTreeGoesDown(t 
 
 	binDir := t.TempDir()
 	spawner := filepath.Join(binDir, "agentre-test-spawner")
-	require.NoError(t, os.WriteFile(spawner, []byte("#!/bin/sh\nsleep 20 &\nprintf 'ready\\n'\ncat\n"), 0o755))
+	// 用 wait 而不是再 fork 一个前台命令:这个用例钉的是「已经存在的孙进程随组一起死」,
+	// 不该顺带去赌「组成员正在 fork 时挨了一刀」那个内核层面的时序(那件事由
+	// killProcessTree 的补投缓解,但补投消不掉它)。
+	require.NoError(t, os.WriteFile(spawner, []byte("#!/bin/sh\nsleep 20 &\nprintf 'ready\\n'\nwait\n"), 0o755))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
