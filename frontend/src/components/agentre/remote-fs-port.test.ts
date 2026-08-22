@@ -64,15 +64,62 @@ describe("桌面端的 ProjectFsPort", () => {
     expect(outcome.result.entries[0].symlink).toBe(true);
   });
 
-  it("wails 抛错时交 unknown 并把原文带上，不去猜是哪一类", async () => {
-    // Go 那侧其实分好了类（code.RemoteFsPermDenied…），但跨 wails 只剩一句本地化
-    // 文本，没有码可读。按文案反猜分类一改文案就静默失灵，所以如实说分不出。
-    appMocks.RemoteFsListDir.mockRejectedValue(new Error("远端权限不足"));
+  /*
+    Go 那侧一直分好了类（code.RemoteFsPermDenied…），只是码过不了 wails 那座桥
+    —— `httputils.Error.Error()` 只返回 Msg。现在 internal/app 那层把它写成
+    `agentre-code:<码> <原文>`（coded_error.go），这一侧照码分类。
+
+    认的是**码**不是文案：反猜文案一改就静默失灵，而且中英要各猜一遍。
+  */
+  const CODED: [number, string][] = [
+    [20600, "refused"],
+    [20601, "denied"],
+    [20602, "notFound"],
+    [20603, "notDir"],
+    [20604, "disconnected"],
+    [20605, "exists"],
+    [20606, "invalidName"],
+  ];
+
+  for (const [code, kind] of CODED) {
+    it(`带码 ${code} 的错误落到 ${kind}，出路才说得具体`, async () => {
+      appMocks.RemoteFsListDir.mockRejectedValue(
+        new Error(`agentre-code:${code} 远端某句话`),
+      );
+      const outcome = await createRemoteFsPort().listDir("dev-1", "/root");
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) return;
+      expect(outcome.failure.kind).toBe(kind);
+    });
+  }
+
+  it("认不出的码仍交 unknown，并把原文带上 —— 编一个类比说「不知道」更糟", async () => {
+    appMocks.RemoteFsListDir.mockRejectedValue(
+      new Error("agentre-code:19999 某个还没映射的码"),
+    );
     const outcome = await createRemoteFsPort().listDir("dev-1", "/root");
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(outcome.failure.kind).toBe("unknown");
-    expect(outcome.failure.message).toContain("远端权限不足");
+    expect(outcome.failure.message).toContain("某个还没映射的码");
+  });
+
+  it("没有前缀的错误照旧交 unknown + 原文", async () => {
+    appMocks.RemoteFsListDir.mockRejectedValue(new Error("dial tcp: refused"));
+    const outcome = await createRemoteFsPort().listDir("dev-1", "/root");
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.failure.kind).toBe("unknown");
+    expect(outcome.failure.message).toContain("dial tcp: refused");
+  });
+
+  it("前缀被剥掉，用户看不到 agentre-code 这种内部记号", async () => {
+    appMocks.RemoteFsListDir.mockRejectedValue(
+      new Error("agentre-code:19999 某个还没映射的码"),
+    );
+    const outcome = await createRemoteFsPort().listDir("dev-1", "/root");
+    if (outcome.ok) return;
+    expect(outcome.failure.message).not.toContain("agentre-code");
   });
 
   it("mkdir 把三个参数原样递给那台机器", async () => {
@@ -90,8 +137,10 @@ describe("桌面端的 ProjectFsPort", () => {
     expect(outcome.ok).toBe(true);
   });
 
-  it("mkdir 失败同样交 unknown", async () => {
-    appMocks.RemoteFsMkdir.mockRejectedValue(new Error("目标已存在"));
+  it("mkdir 重名带回 exists —— 那一档的出路是换个名字，不是重试", async () => {
+    appMocks.RemoteFsMkdir.mockRejectedValue(
+      new Error("agentre-code:20605 同名目录已存在"),
+    );
     const outcome = await createRemoteFsPort().mkdir(
       "dev-1",
       "/srv/work",
@@ -99,6 +148,6 @@ describe("桌面端的 ProjectFsPort", () => {
     );
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
-    expect(outcome.failure.kind).toBe("unknown");
+    expect(outcome.failure.kind).toBe("exists");
   });
 });

@@ -4,17 +4,17 @@
  * 包里的目录选择器不认识 wails，也不认识中继——它只认 `ProjectFsPort`。这份 adapter
  * 就是把 wails 那两个绑定裹成那个契约，宿主专属的东西一件都不往包里漏。
  *
- * **关于错误分类的一处如实说明。** port 的契约是「交出判别式结果」，而 Go 那侧其实
- * 已经分好了类（`code.RemoteFsPermDenied` / `RemoteFsNotFound` / …）——但那个分类
- * **过不了 wails 边界**：到前端手里只剩一句本地化文本，没有码可读。按错误文案去反猜
- * 分类是错的做法（文案一改就静默失灵，而且中英两套要各猜一遍），所以这里一律交
- * `unknown` 并把那句原文带上，由包渲染成「读不到 X 上的这个目录。<原文>」。
+ * **错误分类靠码，不靠文案。** Go 那侧一直分好了类（`code.RemoteFsPermDenied` /
+ * `RemoteFsNotFound` / …），只是那个码过不了 wails 那座桥 —— cago 的
+ * `httputils.Error.Error()` 只返回 `Msg`。现在 `internal/app/coded_error.go` 把它写
+ * 成 `agentre-code:<码> <原文>`，这一侧照码分类。
  *
- * 代价：桌面端拿不到包里逐类写好的那几句出路（「换一个目录，或者在那台机器上放开
- * 权限」）。用户看到的仍是可分辨的句子（Go 那句），只是少了后半截建议。要补上得让
- * Go 侧把码带过 wails —— 本轮的硬不变量是「没有 Go 侧改动」，因此留到另一轮。
+ * 反过来按错误文案去猜分类是错的做法：文案一改就静默失灵，而且中英两套要各猜一遍。
+ * 这个前缀是**契约**，两端各有测试钉住它，改它会当场变红。
  */
 import type {
+  DirectoryFailure,
+  DirectoryFailureKind,
   ListDirOutcome,
   MkdirOutcome,
   ProjectFsPort,
@@ -37,9 +37,36 @@ type ListDirView = {
   truncated: boolean;
 };
 
-/** 分不出类就如实说分不出，不去猜。 */
-function unknown(err: unknown): { kind: "unknown"; message: string } {
-  return { kind: "unknown", message: String(err) };
+/** `internal/app/coded_error.go` 那一侧的同一条契约。 */
+const CODED_PREFIX = /^agentre-code:(\d+)\s?([\s\S]*)$/;
+
+/**
+ * 业务码 → 选择器认识的那一档。数值出处是 `internal/pkg/code/code.go` 的
+ * `20600~` 那一段（**稳定 wire 值**，与 agentre-server 读 JSON-RPC 码是同一条路子）。
+ */
+const KIND_BY_CODE: Record<number, DirectoryFailureKind> = {
+  20600: "refused", // RemoteFsPathRefused
+  20601: "denied", // RemoteFsPermDenied
+  20602: "notFound", // RemoteFsNotFound
+  20603: "notDir", // RemoteFsNotDir
+  20604: "disconnected", // RemoteFsDeviceOffline
+  20605: "exists", // RemoteFsMkdirExists
+  20606: "invalidName", // RemoteFsMkdirInvalidName
+};
+
+/**
+ * 把一次失败翻成可分辨的一类。
+ *
+ * 认得出码就用码；认不出（没有前缀、或码还没映射）一律 `unknown` 并把原文带上 ——
+ * 编一个类比说「不知道」更糟。前缀本身要剥掉：`agentre-code` 是内部记号，不该出现
+ * 在用户读到的那句话里。
+ */
+function toFailure(err: unknown): DirectoryFailure {
+  const raw = err instanceof Error ? err.message : String(err);
+  const m = CODED_PREFIX.exec(raw);
+  if (!m) return { kind: "unknown", message: raw };
+  const message = m[2];
+  return { kind: KIND_BY_CODE[Number(m[1])] ?? "unknown", message };
 }
 
 /**
@@ -67,7 +94,7 @@ export function createRemoteFsPort(): ProjectFsPort {
         const view = (await RemoteFsListDir(machineId, path)) as ListDirView;
         return { ok: true, result: toResult(view) };
       } catch (err) {
-        return { ok: false, failure: unknown(err) };
+        return { ok: false, failure: toFailure(err) };
       }
     },
 
@@ -76,7 +103,7 @@ export function createRemoteFsPort(): ProjectFsPort {
         await RemoteFsMkdir(machineId, parent, name);
         return { ok: true, result: undefined };
       } catch (err) {
-        return { ok: false, failure: unknown(err) };
+        return { ok: false, failure: toFailure(err) };
       }
     },
   };
