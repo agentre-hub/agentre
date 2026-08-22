@@ -15,6 +15,8 @@ describe("会话索引的对外契约", () => {
       "buildAxisGroups",
       "AxisPicker",
       "IndexGroupHeader",
+      "groupActionRevealClassName",
+      "groupActionRevealTouchClassName",
       "groupGlyphClassName",
       "ProjectGroupHeader",
       "AgentGroupHeader",

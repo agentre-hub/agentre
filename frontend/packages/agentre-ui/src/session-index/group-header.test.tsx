@@ -3,7 +3,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { IndexGroupHeader, groupGlyphClassName } from "./group-header";
+import {
+  IndexGroupHeader,
+  groupActionRevealClassName,
+  groupActionRevealTouchClassName,
+  groupGlyphClassName,
+} from "./group-header";
 
 /** 每个用例都要给的那几个必填项，省得每处重复写一遍。 */
 function renderHeader(
@@ -26,6 +31,30 @@ describe("IndexGroupHeader", () => {
     expect(groupGlyphClassName(1)).toContain("size-4");
     expect(groupGlyphClassName(2)).toContain("size-3.5");
     expect(groupGlyphClassName(5)).toContain("size-3.5");
+  });
+
+  /**
+   * 回归（2026-08-22）：宿主手抄显形类里的组名，组头换外壳时就断了——agentre-server
+   * 的 ＋/⋮ 在组头切进共享包后因 `group-hover/header` 对不上 `group/group-header`
+   * 永远隐身。所以显形类从这儿导出、和标记同源；守卫也按**配对**写：常量里的组名
+   * 必须是外壳真挂出来的那一枚，改名才不会静默分家。
+   */
+  it("导出的两档显形类与外壳挂的组名配得上对——分家就永远隐身", () => {
+    renderHeader();
+    const root = screen.getByTestId("group-header");
+    const marker = root.className.match(/group\/([\w-]+)/)?.[1];
+    expect(marker).toBeTruthy();
+    for (const cls of [
+      groupActionRevealClassName,
+      groupActionRevealTouchClassName,
+    ]) {
+      expect(cls).toContain(`group-hover/${marker}:opacity-100`);
+    }
+    // 两档各自的门槛也说清楚：桌面形态光标不在就藏，触屏形态窄屏常驻、sm 起才藏。
+    expect(groupActionRevealClassName).toContain("opacity-0");
+    expect(groupActionRevealTouchClassName).toContain(
+      "sm:group-hover/group-header:opacity-100",
+    );
   });
 
   it("字形是渲染函数：那一档的尺寸类由外壳给，调用方只说画什么", () => {

@@ -183,7 +183,12 @@ export type {
 // 索引的零耦合呈现件：轴选择器、组头、行的前置槽与次行。
 export { AxisPicker } from "./session-index/axis-picker";
 export type { AxisPickerProps } from "./session-index/axis-picker";
-export { IndexGroupHeader, groupGlyphClassName } from "./session-index/group-header";
+export {
+  IndexGroupHeader,
+  groupActionRevealClassName,
+  groupActionRevealTouchClassName,
+  groupGlyphClassName,
+} from "./session-index/group-header";
 export type { IndexGroupHeaderProps } from "./session-index/group-header";
 export { ProjectGroupHeader } from "./session-index/project-group-header";
 export type { ProjectGroupHeaderProps } from "./session-index/project-group-header";

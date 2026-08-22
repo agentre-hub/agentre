@@ -46,6 +46,23 @@ function groupLabelClassName(depth: number): string {
   return "text-prose font-semibold";
 }
 
+/**
+ * 折叠按钮外那排动作（＋ / ⋮ / 重试）的 hover 现身类，**从这儿导出、与根上那枚
+ * `group/group-header` 同源**——宿主手抄组名，组头换外壳时就断了（2026-08-22
+ * agentre-server 的 ＋/⋮ 就这么隐过身）。宿主把它与自己的观感类 `cn()` 在一起。
+ *
+ * 两档是宿主的**产品决定**，按目标挑一档：
+ *
+ * - `groupActionRevealClassName`：光标不在组头上就一个都不占地方（桌面端形态）。
+ * - `groupActionRevealTouchClassName`：有触屏目标的宿主用——窄屏常驻（触摸屏上
+ *   没有 hover，只挂 hover 等于完全够不到），`sm` 起才 hover 现身。
+ */
+export const groupActionRevealClassName =
+  "opacity-0 transition-opacity group-hover/group-header:opacity-100 focus:opacity-100 focus-visible:opacity-100";
+
+export const groupActionRevealTouchClassName =
+  "opacity-100 transition-opacity sm:opacity-0 sm:group-hover/group-header:opacity-100 sm:focus-visible:opacity-100";
+
 export type IndexGroupHeaderProps = Omit<
   React.ComponentProps<"div">,
   "onToggle"

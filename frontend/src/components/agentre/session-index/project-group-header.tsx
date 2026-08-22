@@ -39,7 +39,10 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ProjectGroupHeader as UiProjectGroupHeader } from "@agentre-ai/agentre-ui";
+import {
+  ProjectGroupHeader as UiProjectGroupHeader,
+  groupActionRevealClassName,
+} from "@agentre-ai/agentre-ui";
 
 import { cn } from "@/lib/utils";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
@@ -131,10 +134,9 @@ export function ProjectGroupHeader({
           // R10：全部未配置时逐行角标撤掉，改由名字变灰 + 树顶那一条整体说明来承担；
           // 只有一部分未配置时反过来 —— 角标已经说清楚了，名字不再变灰。
           labelMuted={project.localPathMissing && allLocalPathsMissing}
-          className={cn(
-            "group/proj",
-            dragListeners && "cursor-grab active:cursor-grabbing",
-          )}
+          className={
+            dragListeners ? "cursor-grab active:cursor-grabbing" : undefined
+          }
           {...(dragListeners ?? {})}
           badges={
             project.localPathMissing && !allLocalPathsMissing ? (
@@ -159,7 +161,10 @@ export function ProjectGroupHeader({
                     aria-label={t("projects.actions.more", {
                       name: project.name,
                     })}
-                    className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/proj:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                    className={cn(
+                      "inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground",
+                      groupActionRevealClassName,
+                    )}
                   >
                     <MoreVertical className="size-3" aria-hidden="true" />
                   </button>
@@ -336,7 +341,10 @@ function NewSessionMenu({ project, onPick }: NewSessionMenuProps) {
             name: project.name,
           })}
           title={t("projects.session.new")}
-          className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/proj:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+          className={cn(
+            "inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground",
+            groupActionRevealClassName,
+          )}
         >
           <Plus className="size-3" aria-hidden="true" />
         </button>
