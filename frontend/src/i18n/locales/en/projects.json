@@ -103,10 +103,11 @@
   },
   "projectSettings": {
     "basic": {
+      "browse": "Browse...",
       "description": "Description",
       "iconKey": "Icon key",
       "iconPlaceholder": "folder / briefcase / custom emoji",
-      "localPathReadonly": "Local path (read-only)",
+      "localPath": "Local path",
       "name": "Project name"
     },
     "danger": {
@@ -182,9 +183,7 @@
       "specifyPath": "Specify path…",
       "mergeIntoExisting": "Merge into existing project…",
       "specifyFailed": "Failed to specify path: {{error}}",
-      "unconfiguredInline": "This device hasn't configured one yet",
-      "unconfiguredHint": "This project was synced from your account — specify a directory to start chatting on this machine.",
-      "specifyShort": "Specify…"
+      "unconfiguredHint": "This project was synced from your account — specify a directory to start chatting on this machine."
     },
     "search": {
       "aria": "Search projects / sessions",

@@ -92,9 +92,9 @@ describe("ProjectSettingsDrawer members", () => {
   });
 });
 
-// R10：基本页签的本机路径字段 —— 已配置照旧只读，未配置换成可指定入口。
-describe("ProjectSettingsDrawer basic tab local path (R10)", () => {
-  it("Given a configured project, Then the path field stays a readonly input", async () => {
+// 基本页签的本机路径字段 —— 已配置/未配置统一为一个可编辑输入，改动随「保存」落库。
+describe("ProjectSettingsDrawer basic tab local path", () => {
+  function mockConfiguredProject() {
     appMocks.ProjectGet.mockResolvedValue({
       project: {
         color: "agent-1",
@@ -108,15 +108,77 @@ describe("ProjectSettingsDrawer basic tab local path (R10)", () => {
       directMembers: [],
       inheritedMembers: [],
     });
+  }
+
+  it("Given a configured project, Then the path input is editable and offers the browse entry", async () => {
+    mockConfiguredProject();
 
     renderDrawer();
 
     const input = await screen.findByDisplayValue("/Users/me/Code/agentre");
-    expect(input).toHaveAttribute("readonly");
-    expect(screen.queryByText("Specify…")).not.toBeInTheDocument();
+    expect(input).not.toHaveAttribute("readonly");
+    expect(
+      await screen.findByRole("button", { name: "Browse..." }),
+    ).toBeInTheDocument();
   });
 
-  it("Given an unconfigured project, When a directory is picked, Then it is saved and the change is announced", async () => {
+  it("Given a configured project, When the path is edited and saved, Then only ProjectSetLocalPath is called with the new path", async () => {
+    const user = setupUser();
+    mockConfiguredProject();
+    appMocks.ProjectSetLocalPath.mockResolvedValue({
+      id: 1,
+      localPathMissing: false,
+    });
+
+    renderDrawer();
+
+    const input = await screen.findByDisplayValue("/Users/me/Code/agentre");
+    await user.clear(input);
+    await user.type(input, "/Users/me/Code/agentre-moved");
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(appMocks.ProjectSetLocalPath).toHaveBeenCalledWith({
+        id: 1,
+        path: "/Users/me/Code/agentre-moved",
+      });
+    });
+    expect(appMocks.ProjectUpdate).not.toHaveBeenCalled();
+  });
+
+  it("Given a configured project, When only the name changes, Then ProjectSetLocalPath stays untouched", async () => {
+    const user = setupUser();
+    mockConfiguredProject();
+
+    renderDrawer();
+
+    const nameInput = await screen.findByDisplayValue("agentre");
+    await user.clear(nameInput);
+    await user.type(nameInput, "agentre2");
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(appMocks.ProjectUpdate).toHaveBeenCalled();
+    });
+    expect(appMocks.ProjectSetLocalPath).not.toHaveBeenCalled();
+  });
+
+  it("Given a configured project, When the backend rejects the new path, Then the error surfaces", async () => {
+    const user = setupUser();
+    mockConfiguredProject();
+    appMocks.ProjectSetLocalPath.mockRejectedValue("path does not exist");
+
+    renderDrawer();
+
+    const input = await screen.findByDisplayValue("/Users/me/Code/agentre");
+    await user.clear(input);
+    await user.type(input, "/Users/me/Code/gone");
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("path does not exist")).toBeInTheDocument();
+  });
+
+  it("Given an unconfigured project, When a directory is picked and saved, Then it is saved and the change is announced", async () => {
     const user = setupUser();
     appMocks.ProjectGet.mockResolvedValue({
       project: {
@@ -142,8 +204,15 @@ describe("ProjectSettingsDrawer basic tab local path (R10)", () => {
     await screen.findByText(
       "This project was synced from your account — specify a directory to start chatting on this machine.",
     );
-    await user.click(await screen.findByText("Specify…"));
+    await user.click(await screen.findByRole("button", { name: "Browse..." }));
 
+    // 浏览只填入输入框，不落库；落库发生在「保存」。
+    expect(
+      await screen.findByDisplayValue("/Users/me/Code/agentre-hub"),
+    ).toBeInTheDocument();
+    expect(appMocks.ProjectSetLocalPath).not.toHaveBeenCalled();
+
+    await user.click(await screen.findByRole("button", { name: "Save" }));
     await waitFor(() => {
       expect(appMocks.ProjectSetLocalPath).toHaveBeenCalledWith({
         id: 1,

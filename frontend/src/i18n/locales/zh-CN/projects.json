@@ -103,10 +103,11 @@
   },
   "projectSettings": {
     "basic": {
+      "browse": "浏览…",
       "description": "描述",
       "iconKey": "图标 key",
       "iconPlaceholder": "folder / briefcase / 自定义 emoji",
-      "localPathReadonly": "本地路径（只读）",
+      "localPath": "本地路径",
       "name": "项目名"
     },
     "danger": {
@@ -182,9 +183,7 @@
       "specifyPath": "指定路径…",
       "mergeIntoExisting": "合并到已有项目…",
       "specifyFailed": "指定路径失败：{{error}}",
-      "unconfiguredInline": "这台设备还没有配置",
-      "unconfiguredHint": "这个项目从账号同步而来，指定目录后才能在本机开会话。",
-      "specifyShort": "指定…"
+      "unconfiguredHint": "这个项目从账号同步而来，指定目录后才能在本机开会话。"
     },
     "search": {
       "aria": "搜索项目 / 会话",
