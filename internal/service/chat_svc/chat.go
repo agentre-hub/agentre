@@ -40,11 +40,11 @@ import (
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
 
 	// 显式 blank import 触发本地 runtime 子包 init() 把 *Runtime 注册到 RuntimeFor。
-	// remote 是显式构造,不参与全局注册;以下三种为本地后端,必须自注册才能被
-	// selectRunner 解析到。claudecodert 别名避免与 pkg/claudecode CLI 库名字撞车。
+	// remote 是显式构造,不参与全局注册;以下几种为本地后端,必须自注册才能被
+	// selectRunner 与 permissionModeMetaFor 解析到。
 	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/builtin"
-	claudecodert "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/claudecode"
-	codexrt "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/codex"
+	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/claudecode"
+	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/codex"
 	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/openclaw"
 	piagentrt "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
@@ -5392,8 +5392,9 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 		return nil, operationFailedWithCause(ctx, err)
 	}
 	// DB 已删，释放该 session 的常驻 CLI 子进程（best-effort，cache miss 时 no-op）。
-	claudecodert.Default().CloseSession(ctx, req.SessionID)
-	codexrt.Default().CloseSession(ctx, req.SessionID)
+	// 按 runtime 注册表广播而不是逐个后端点名：点名的写法每加一个有常驻子进程的
+	// 后端就会静默漏一处，漏掉的表现是机器上多一个永不退出的 CLI。
+	agentruntime.CloseSessionEverywhere(ctx, req.SessionID)
 	// 子进程已关，撤销并清掉它的常驻 gateway token（token 寿命跟随子进程）。
 	s.revokeChatToken(req.SessionID)
 	return &DeleteResponse{}, nil

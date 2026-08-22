@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-ai/agentre/internal/service/chat_svc"
 )
 
@@ -188,5 +190,46 @@ func TestOnBeforeClose_NilChatServiceFailsOpen(t *testing.T) {
 	// quitConfirmed defaults to false → OnBeforeClose has to count active sessions.
 	if prevent := a.OnBeforeClose(context.Background()); prevent {
 		t.Fatal("early quit before chat service registration must fail open (prevent=false)")
+	}
+}
+
+// killablePooledSession 是一个假的常驻 CLI 会话:记录自己有没有被硬杀。
+type killablePooledSession struct {
+	once   sync.Once
+	killed chan struct{}
+}
+
+func newKillablePooledSession() *killablePooledSession {
+	return &killablePooledSession{killed: make(chan struct{})}
+}
+
+func (k *killablePooledSession) Close(context.Context) error { return nil }
+
+func (k *killablePooledSession) Kill(context.Context) error {
+	k.once.Do(func() { close(k.killed) })
+	return nil
+}
+
+// Given 用户已确认退出、池里还留着常驻 CLI 子进程, When Shutdown 返回, Then 那些
+// 子进程必须已经被收掉。
+//
+// 这条路上 Shutdown 不等资源清理(见上一个用例:卡住的外部进程不得拖住退出),于是
+// 从前的 RemoveAll 是丢进 goroutine 的 —— 桌面进程紧接着退出,那些 goroutine 连同
+// 优雅关闭一起消失,而 CLI 自带进程组、不会被连坐,直接变成孤儿。
+func TestShutdown_GivenConfirmedQuitWithPooledCLISessions_WhenShutdownReturns_ThenSubprocessesAreGone(t *testing.T) {
+	session := newKillablePooledSession()
+	agentruntime.DefaultCLISessionPool().Put("app-shutdown-test", session)
+	t.Cleanup(func() { agentruntime.DefaultCLISessionPool().Remove("app-shutdown-test") })
+
+	a := NewApp()
+	a.quitConfirmed.Store(true)
+	a.shutdownCleanup = func(context.Context) {}
+
+	a.Shutdown(context.Background())
+
+	select {
+	case <-session.killed:
+	default:
+		t.Fatal("Shutdown 返回时常驻 CLI 子进程还活着:桌面进程一退它们就成了孤儿")
 	}
 }

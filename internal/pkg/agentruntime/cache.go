@@ -194,7 +194,28 @@ func (p *CLISessionPool) CloseAll(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
+		// 上界到了就撒手不管等于把「关机有上界」变成「关机会漏进程」:还没收尾的条目
+		// 在这里当场硬杀,收尾留给后台跑着的 closeWithTimeout。
+		for _, v := range olds {
+			if killer, ok := v.(ctxKiller); ok {
+				_ = killer.Kill(context.Background())
+			}
+		}
 		return ctx.Err()
+	}
+}
+
+// KillAll 摘空池并当场硬杀每个条目,不等任何一个 Close 返回。
+//
+// 给「宿主马上就要退出」那条路用:桌面端确认退出后 Shutdown 必须在 100ms 内返回
+// (见 internal/app 的退出契约),把优雅关闭放进异步 goroutine 等于进程先退、子进程
+// 被留下 —— 它们自带进程组,不会被连坐。收尾(Close)照旧在后台跑完。
+func (p *CLISessionPool) KillAll() {
+	for _, v := range p.drainAll() {
+		if killer, ok := v.(ctxKiller); ok {
+			_ = killer.Kill(context.Background())
+		}
+		go closeWithTimeout(v)
 	}
 }
 

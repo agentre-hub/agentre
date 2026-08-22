@@ -357,3 +357,49 @@ func TestCloseAll_GivenSessionThatNeverSettles_WhenContextExpires_ThenItReportsT
 
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
+
+// Given 一个优雅关闭救不回来的会话和一个短上界, When CloseAll 的 ctx 到期, Then 还没
+// 收尾的条目要在返回前被硬杀,而不是被留在外面。
+//
+// 上界到了就撒手不管等于把「关机有上界」变成「关机会漏进程」:宿主进程紧接着退出,
+// 那些子进程自带进程组,不会被连坐。
+func TestCloseAll_GivenContextExpiresBeforeGrace_WhenClosing_ThenOutstandingSessionsAreKilled(t *testing.T) {
+	restore := setCloseGraceForTest(10 * time.Second) // 宽限期远大于 ctx:只能靠 ctx 那一路兜底
+	defer restore()
+
+	p := NewCLISessionPool(8)
+	wedged := newWedgedSession()
+	p.Put("wedged", wedged)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := p.CloseAll(ctx)
+
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	select {
+	case <-wedged.killed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ctx 到期后没有硬杀掉还没收尾的会话:它会被留成孤儿")
+	}
+}
+
+// Given 池里有常驻会话, When 宿主要立刻退出而调 KillAll, Then 每个条目当场被硬杀、
+// 池清空,且调用方不必等任何一个 Close 返回。
+//
+// 桌面端「确认退出」这条路上 Shutdown 必须在 100ms 内返回(见 app_quit_test),优雅
+// 关闭放在异步 goroutine 里等于进程先退、子进程被留下 —— 那条路要的就是这一刀。
+func TestKillAll_GivenPooledSessions_WhenHostExitsNow_ThenEverySessionIsKilledSynchronously(t *testing.T) {
+	p := NewCLISessionPool(8)
+	wedged := newWedgedSession()
+	p.Put("wedged", wedged)
+
+	p.KillAll()
+
+	select {
+	case <-wedged.killed:
+	default:
+		t.Fatal("KillAll 返回时会话还没被硬杀")
+	}
+	assert.Equal(t, 0, p.Len())
+}

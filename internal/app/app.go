@@ -215,6 +215,11 @@ func (a *App) Shutdown(ctx context.Context) {
 		return
 	}
 	a.shutdownOnce.Do(func() {
+		// 确认退出后本方法不等资源清理(卡住的外部进程不得拖住退出),所以常驻 CLI
+		// 子进程必须在这里同步收掉:剩下的清理跑在 goroutine 里,而桌面进程紧接着
+		// 退出,那些 goroutine 连同优雅关闭一起消失 —— CLI 自带进程组、不会被连坐,
+		// 直接变成孤儿。KillAll 是一串信号投递,不等任何一个子进程退出。
+		agentruntime.DefaultCLISessionPool().KillAll()
 		go a.shutdownCleanup(context.WithoutCancel(ctx))
 	})
 }
@@ -223,6 +228,10 @@ func (a *App) Shutdown(ctx context.Context) {
 // the quit. Shutdown deliberately does not wait for this method: once the user
 // confirms quitting, a stuck external process or connection must not keep the
 // desktop process alive.
+
+// cliSessionReleaseTimeout 是同步收尾常驻 CLI 子进程的上界。
+const cliSessionReleaseTimeout = 3 * time.Second
+
 func (a *App) cleanupResources(ctx context.Context) {
 	a.stopInboundPeer(ctx)
 	// 关闭全部出站对端中继连接（R19：本端退出即结束接入，对端会话不受影响）。
@@ -250,8 +259,14 @@ func (a *App) cleanupResources(ctx context.Context) {
 			}
 		}
 	}
-	// 收尾常驻 CLI 子进程；pool.RemoveAll 异步 close，不阻塞 wails 退出。
-	agentruntime.DefaultCLISessionPool().RemoveAll()
+	// 收尾常驻 CLI 子进程。这条路(未确认退出 / 没有活跃会话)是同步跑的,所以给一个
+	// 明确的上界:上界内优雅关闭,到点还没收尾的当场硬杀,不留孤儿。确认退出那条路
+	// 已经在 Shutdown 里先 KillAll 过一遍,这里是 no-op。
+	closeCtx, cancelClose := context.WithTimeout(context.WithoutCancel(ctx), cliSessionReleaseTimeout)
+	defer cancelClose()
+	if err := agentruntime.DefaultCLISessionPool().CloseAll(closeCtx); err != nil {
+		logger.Ctx(ctx).Warn("app shutdown: release CLI sessions", zap.Error(err))
+	}
 	if a.terminalSvc != nil {
 		a.terminalSvc.Shutdown()
 	}
