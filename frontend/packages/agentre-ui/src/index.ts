@@ -536,6 +536,20 @@ export type {
   OrgDropTarget,
   OrgWriteOp,
 } from "./org/org-drop";
+export { DirectoryPicker } from "./project/directory-picker";
+export type { DirectoryPickerProps } from "./project/directory-picker";
+export { breadcrumbOf, joinPath } from "./project/ports";
+export type {
+  DirectoryEntry,
+  DirectoryFailure,
+  DirectoryFailureKind,
+  FsOutcome,
+  ListDirOutcome,
+  ListDirResult,
+  MkdirOutcome,
+  PickerMachine,
+  ProjectFsPort,
+} from "./project/ports";
 export { isOrgSystemAgent, ORG_SYSTEM_BADGE } from "./org/types";
 export type {
   OrgAgentBackendSummary,

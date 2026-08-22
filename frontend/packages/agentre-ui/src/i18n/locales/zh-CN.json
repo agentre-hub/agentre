@@ -1386,5 +1386,35 @@
       "note": "按最近一次模型调用的输入总量计",
       "nearLimit": "接近上下文窗口上限"
     }
+  },
+  "directoryPicker": {
+    "title": "选择目录 · {{machine}}",
+    "machines": "机器",
+    "offline": "离线",
+    "filterPlaceholder": "筛选…",
+    "showHidden": "隐藏项",
+    "reload": "重新读取",
+    "newFolder": "新建目录",
+    "newFolderName": "新目录名",
+    "create": "创建",
+    "cancel": "取消",
+    "chooseHere": "选择这里",
+    "retry": "重试",
+    "loading": "正在读取 {{machine}} 上的这个目录…",
+    "empty": "这个目录是空的。可以就选它，或者在这里新建一个。",
+    "noMatch": "没有匹配「{{query}}」的条目。",
+    "truncated": "这个目录条目太多，只显示了前面一部分。用筛选缩小范围。",
+    "git": "git",
+    "symlink": "符号链接",
+    "failure": {
+      "denied": "{{machine}} 没有权限读这个目录。换一个目录，或者在那台机器上放开权限。",
+      "notFound": "{{machine}} 上已经没有这个目录了。",
+      "notDir": "这不是一个目录。",
+      "refused": "{{machine}} 不允许浏览这条路径。",
+      "exists": "这里已经有同名目录了。",
+      "invalidName": "这个名字不能用作目录名。",
+      "disconnected": "与 {{machine}} 的连接断了。",
+      "unknown": "读不到 {{machine}} 上的这个目录。{{message}}"
+    }
   }
 }

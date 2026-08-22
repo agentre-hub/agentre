@@ -49,7 +49,9 @@ import {
 import type { chat_svc, app } from "../../../wailsjs/go/models";
 import { DeviceTag } from "./device-tag";
 import { AgentAvatar } from "./primitives";
-import { RemoteFsPicker } from "./remote-fs-picker";
+import { DirectoryPicker } from "@agentre-ai/agentre-ui";
+
+import { createRemoteFsPort } from "./remote-fs-port";
 import {
   agentColorClassNames,
   agentColorOrder,
@@ -98,6 +100,9 @@ export type ProjectSettingsDrawerProps = {
 };
 
 type TabKey = "basic" | "members" | "locations" | "danger";
+
+/** 无状态，建一次就够——每次渲染新建一个会让选择器那个 effect 每帧重跑。 */
+const fsPort = createRemoteFsPort();
 
 const tabs: { key: TabKey; labelKey: string }[] = [
   { key: "basic", labelKey: "projectSettings.tabs.basic" },
@@ -1025,14 +1030,27 @@ function LocationEditRow(props: {
         </button>
       </div>
       {deviceId ? (
-        <RemoteFsPicker
+        <DirectoryPicker
           open={pickerOpen}
           onOpenChange={setPickerOpen}
-          deviceID={deviceId}
-          deviceName={resolvedDeviceName}
-          mode="dir"
+          fs={fsPort}
+          // 这一行绑死在这台设备上（位置页是逐设备一行），所以只递它一台——
+          // 机器栏因此整栏不画。等本轮 B 段把位置页换成共享的「机器与路径」那张表，
+          // 递进来的就是账号里全部机器，那一栏才有意义。
+          machines={[
+            {
+              id: deviceId,
+              name: resolvedDeviceName,
+              kind: "desktop",
+              online: true,
+            },
+          ]}
+          initialMachineId={deviceId}
           initialPath={path || undefined}
-          onPick={(picked) => setPath(picked)}
+          onPick={(_machineId, picked) => {
+            setPath(picked);
+            setPickerOpen(false);
+          }}
         />
       ) : null}
       <div className="flex items-center justify-between">

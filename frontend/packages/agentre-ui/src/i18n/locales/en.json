@@ -1386,5 +1386,35 @@
       "note": "Counted from the latest model call's total input",
       "nearLimit": "Close to the context window limit"
     }
+  },
+  "directoryPicker": {
+    "title": "Choose a folder · {{machine}}",
+    "machines": "Machines",
+    "offline": "Offline",
+    "filterPlaceholder": "Filter…",
+    "showHidden": "Hidden items",
+    "reload": "Reload",
+    "newFolder": "New folder",
+    "newFolderName": "New folder name",
+    "create": "Create",
+    "cancel": "Cancel",
+    "chooseHere": "Choose this folder",
+    "retry": "Retry",
+    "loading": "Reading this folder on {{machine}}…",
+    "empty": "This folder is empty. You can choose it, or create a folder here.",
+    "noMatch": "Nothing here matches “{{query}}”.",
+    "truncated": "This folder has too many entries; only the first ones are shown. Use the filter to narrow it down.",
+    "git": "git",
+    "symlink": "Symbolic link",
+    "failure": {
+      "denied": "{{machine}} is not allowed to read this folder. Pick another one, or grant access on that machine.",
+      "notFound": "This folder no longer exists on {{machine}}.",
+      "notDir": "That is not a folder.",
+      "refused": "{{machine}} refuses to browse this path.",
+      "exists": "A folder with that name already exists here.",
+      "invalidName": "That name cannot be used for a folder.",
+      "disconnected": "Lost the connection to {{machine}}.",
+      "unknown": "Could not read this folder on {{machine}}. {{message}}"
+    }
   }
 }
