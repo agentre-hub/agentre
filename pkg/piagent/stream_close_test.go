@@ -541,23 +541,6 @@ func readPID(t *testing.T, path string) int {
 	return pid
 }
 
-func readPIDEventually(t *testing.T, path string) int {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(path) //nolint:gosec // G304: path is a test-owned file under t.TempDir.
-		if err == nil {
-			pid, convErr := strconv.Atoi(strings.TrimSpace(string(data)))
-			if convErr == nil && pid > 0 {
-				return pid
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("process pid file %s was not written", path)
-	return 0
-}
-
 func assertProcessGoneEventually(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
