@@ -48,9 +48,21 @@ ON agent_exec_targets(agent_id, sort_order)`).Error; err != nil {
 ON agent_exec_targets(agent_backend_id)`).Error; err != nil {
 				return err
 			}
-			return nil
+			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS agent_exec_target_overrides (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	agent_id INTEGER NOT NULL,
+	order_json TEXT NOT NULL DEFAULT '[]',
+	updatetime BIGINT NOT NULL DEFAULT 0
+)`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_exec_target_overrides_agent
+ON agent_exec_target_overrides(agent_id)`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Exec(`DROP TABLE IF EXISTS agent_exec_target_overrides`).Error; err != nil {
+				return err
+			}
 			return tx.Exec(`DROP TABLE IF EXISTS agent_exec_targets`).Error
 		},
 	}

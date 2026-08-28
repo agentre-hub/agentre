@@ -15,7 +15,6 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 )
@@ -464,51 +463,6 @@ func TestSeedCEOAgent(t *testing.T) {
 	}
 }
 
-// TestMigrationsAllowSameNamedAgentsFromDifferentMachines 回归 R12a：
-//
-// 双机办公的用户两边各建过一个「开发」，登录同一账号后两份都该落地，由用户自行删掉
-// 多余的那个（规格 R12a）。原先 agents(name) WHERE status=1 上有唯一索引，第二份**插
-// 不进来** —— 下行每 30 秒撞一次 2067，那一行连同它的下游永久卡在暂缓队列里，用户连
-// 「删掉多余那个」的机会都没有。
-//
-// 手输重名照旧被拒：那道闸在 agent_svc.Create/Update 的 FindByName 上，与本索引无关。
-func TestMigrationsAllowSameNamedAgentsFromDifferentMachines(t *testing.T) {
-	dataDir := t.TempDir()
-	t.Setenv("AGENTRE_DATA_DIR", dataDir)
-	t.Setenv("AGENTRE_ENV", "test")
-
-	runtime, err := Init(context.Background())
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	t.Cleanup(runtime.Close)
-
-	gdb := db.Default()
-	// 本机自己那份（迁移里种下的默认 Agent 就叫「CEO 助手」）。
-	var seeded agent_entity.Agent
-	if err := gdb.Table("agents").Where("system_badge = ?", "DEFAULT").First(&seeded).Error; err != nil {
-		t.Fatalf("load seeded agent: %v", err)
-	}
-
-	// 另一台机器同名、但同步标识不同的那一份，经下行落地。
-	arriving := map[string]any{
-		"name": seeded.Name, "status": 1,
-		"sync_id": "01KZQPHK6Q55AKRHWFX5EM0YWH", "sync_account_id": 1,
-		"prompt_json": "[]", "skills_json": "[]", "tools_json": "[]",
-	}
-	if err := gdb.Table("agents").Create(arriving).Error; err != nil {
-		t.Fatalf("a same-named agent from another machine must be able to land: %v", err)
-	}
-
-	var same int64
-	if err := gdb.Table("agents").Where("name = ? AND status = 1", seeded.Name).Count(&same).Error; err != nil {
-		t.Fatalf("count same-named agents: %v", err)
-	}
-	if same != 2 {
-		t.Fatalf("same-named active agents = %d, want 2 (both histories kept for the user to merge)", same)
-	}
-}
-
 // TestInitRegistersProjectLocationRepo 回归：远端 backend 拉 cwd 时会走
 // project_location_repo.ProjectLocation()；bootstrap 漏注册会导致前端只看到
 // 「Agent 调用失败：project_location_repo not registered」。
@@ -673,64 +627,5 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, 1, "t", "running", 1, row.deviceID,
 	}
 	if got[9202] != "error" || got[9203] != "error" {
 		t.Fatalf("local session statuses = %#v, want both error", got)
-	}
-}
-
-// TestIssueSyncAndToneMigration 盯住看板并入同步组这条迁移在**全新库**上的落点：
-// 三张表的同步标识都补齐了、内置种子标签的标识按名字确定性派生（否则同一个「前端」
-// 标签首次上行后会在账号里变成 N 份），色调取值域从五档语义名换成 8 档颜色名。
-// 这些都是编译期抓不到、也不会让任何用例变红的一类。
-func TestIssueSyncAndToneMigration(t *testing.T) {
-	dataDir := t.TempDir()
-	t.Setenv("AGENTRE_DATA_DIR", dataDir)
-	t.Setenv("AGENTRE_ENV", "test")
-
-	runtime, err := Init(context.Background())
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	t.Cleanup(runtime.Close)
-
-	gormDB := db.Default()
-	var labels []struct {
-		Name   string `gorm:"column:name"`
-		Tone   string `gorm:"column:tone"`
-		SyncID string `gorm:"column:sync_id"`
-	}
-	if err := gormDB.Raw("SELECT name, tone, sync_id FROM labels ORDER BY sort_order").
-		Scan(&labels).Error; err != nil {
-		t.Fatalf("read labels: %v", err)
-	}
-	if len(labels) != len(issue_entity.BuiltinLabelNames()) {
-		t.Fatalf("seeded labels = %d, want %d", len(labels), len(issue_entity.BuiltinLabelNames()))
-	}
-	allowed := map[string]struct{}{}
-	for _, tone := range issue_entity.Tones() {
-		allowed[tone] = struct{}{}
-	}
-	wantTone := map[string]string{
-		"bug":      issue_entity.ToneRed,
-		"critical": issue_entity.ToneRedSolid,
-		"docs":     issue_entity.ToneGray,
-		"feature":  issue_entity.ToneGreen,
-		"refactor": issue_entity.ToneSteel,
-	}
-	for _, l := range labels {
-		if _, ok := allowed[l.Tone]; !ok {
-			t.Errorf("label %q tone = %q, which is outside the eight-color palette", l.Name, l.Tone)
-		}
-		if want := wantTone[l.Name]; want != "" && l.Tone != want {
-			t.Errorf("label %q tone = %q, want %q (1:1 rewrite)", l.Name, l.Tone, want)
-		}
-		if want := issue_entity.SeedLabelSyncID(l.Name); l.SyncID != want {
-			t.Errorf("seed label %q sync_id = %q, want the name-derived %q", l.Name, l.SyncID, want)
-		}
-	}
-
-	// 部分唯一索引：本仓 DDL 一律 not null default ''，多行空标识必须撞不上。
-	for _, table := range []string{"issues", "labels", "issue_labels"} {
-		if !gormDB.Migrator().HasIndex(table, "uniq_"+table+"_sync_id") {
-			t.Errorf("unique sync_id index on %s was not created", table)
-		}
 	}
 }

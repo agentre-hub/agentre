@@ -59,8 +59,7 @@ ON projects(parent_id, status, sort_order, id)`).Error; err != nil {
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS project_locations (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id INTEGER NOT NULL,
-	device_id TEXT NOT NULL DEFAULT '',
-	daemon_fingerprint TEXT NOT NULL DEFAULT '',
+	device_fingerprint TEXT NOT NULL DEFAULT '',
 	path TEXT NOT NULL,
 	status INTEGER NOT NULL DEFAULT 1,
 	createtime INTEGER NOT NULL DEFAULT 0,
@@ -69,7 +68,7 @@ ON projects(parent_id, status, sort_order, id)`).Error; err != nil {
 				return err
 			}
 			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_project_locations_proj_fingerprint
-	ON project_locations(project_id, daemon_fingerprint) WHERE status = 1`).Error
+	ON project_locations(project_id, device_fingerprint) WHERE status = 1`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
 			if err := tx.Exec(`DROP TABLE IF EXISTS project_locations`).Error; err != nil {

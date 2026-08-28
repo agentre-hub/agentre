@@ -30,24 +30,29 @@ func migration202608080011() *gormigrate.Migration {
 	cwd TEXT NOT NULL DEFAULT '',
 	backend_type TEXT NOT NULL DEFAULT '',
 	lifecycle_state TEXT NOT NULL DEFAULT '',
-	created_at INTEGER NOT NULL DEFAULT 0,
-	updated_at INTEGER NOT NULL DEFAULT 0,
+	title TEXT NOT NULL DEFAULT '',
+	agent_sync_id TEXT NOT NULL DEFAULT '',
+	provider_session_id TEXT NOT NULL DEFAULT '',
+	provider_key TEXT NOT NULL DEFAULT '',
+	model_key TEXT NOT NULL DEFAULT '',
+	project_sync_id TEXT NOT NULL DEFAULT '',
+	createtime INTEGER NOT NULL DEFAULT 0,
+	last_message_at INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (peer_fingerprint, peer_session_id)
 )`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`CREATE TABLE IF NOT EXISTS daemon_notification_logs (
+			return tx.Exec(`CREATE TABLE IF NOT EXISTS daemon_notification_journal (
 	peer_fingerprint TEXT NOT NULL,
 	peer_session_id TEXT NOT NULL,
 	seq INTEGER NOT NULL,
-	method TEXT NOT NULL,
-	payload TEXT NOT NULL DEFAULT '',
-	created_at INTEGER NOT NULL DEFAULT 0,
+	payload BLOB NOT NULL,
+	createtime INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (peer_fingerprint, peer_session_id, seq)
 )`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			if err := tx.Exec(`DROP TABLE IF EXISTS daemon_notification_logs`).Error; err != nil {
+			if err := tx.Exec(`DROP TABLE IF EXISTS daemon_notification_journal`).Error; err != nil {
 				return err
 			}
 			return tx.Exec(`DROP TABLE IF EXISTS daemon_sessions`).Error

@@ -63,7 +63,7 @@ func migration202608080004() *gormigrate.Migration {
 SELECT
 	'CEO 助手', '默认入口 · 不可删除', 'agent-1', 'DEFAULT',
 	0, 0, '[]', '[]', '[{"key":"org","enabled":true}]',
-	1, strftime('%s','now'), strftime('%s','now')
+	1, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000
 WHERE NOT EXISTS (SELECT 1 FROM agents WHERE system_badge = 'DEFAULT')`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {

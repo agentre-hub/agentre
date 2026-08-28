@@ -43,7 +43,7 @@ func migration202608080006() *gormigrate.Migration {
 	model_key TEXT NOT NULL DEFAULT '',
 	exec_agent_backend_id BIGINT NOT NULL DEFAULT 0,
 	exec_device_id BIGINT NOT NULL DEFAULT 0,
-	exec_daemon_fingerprint TEXT NOT NULL DEFAULT '',
+	exec_device_fingerprint TEXT NOT NULL DEFAULT '',
 	event_cursor BIGINT NOT NULL DEFAULT 0,
 	cwd TEXT NOT NULL DEFAULT '',
 	status INTEGER NOT NULL DEFAULT 1,
@@ -56,13 +56,21 @@ func migration202608080006() *gormigrate.Migration {
 ON chat_sessions(agent_id, status, last_message_at)`).Error; err != nil {
 				return err
 			}
+			for _, stmt := range []string{
+				`CREATE INDEX IF NOT EXISTS idx_chat_sessions_status_last ON chat_sessions(status, last_message_at DESC, id DESC)`,
+				`CREATE INDEX IF NOT EXISTS idx_chat_sessions_project_status_last ON chat_sessions(project_id, status, last_message_at DESC, id DESC)`,
+				`CREATE INDEX IF NOT EXISTS idx_chat_sessions_device_status_last ON chat_sessions(exec_device_id, status, last_message_at DESC, id DESC)`,
+			} {
+				if err := tx.Exec(stmt).Error; err != nil {
+					return err
+				}
+			}
 
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS chat_messages (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	session_id INTEGER NOT NULL,
-	device_id TEXT NOT NULL DEFAULT '',
+	device_fingerprint TEXT NOT NULL DEFAULT '',
 	role TEXT NOT NULL,
-	blocks_json TEXT NOT NULL DEFAULT '[]',
 	model TEXT NOT NULL DEFAULT '',
 	prompt_tokens INTEGER NOT NULL DEFAULT 0,
 	completion_tokens INTEGER NOT NULL DEFAULT 0,
@@ -81,10 +89,35 @@ ON chat_sessions(agent_id, status, last_message_at)`).Error; err != nil {
 )`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session_seq
-ON chat_messages(session_id, seq)`).Error
+			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session_seq
+ON chat_messages(session_id, seq)`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS chat_message_blocks (
+	message_id INTEGER NOT NULL,
+	idx INTEGER NOT NULL,
+	type TEXT NOT NULL DEFAULT '',
+	tool_call_id TEXT NOT NULL DEFAULT '',
+	codec INTEGER NOT NULL DEFAULT 0,
+	data BLOB NOT NULL
+)`).Error; err != nil {
+				return err
+			}
+			for _, stmt := range []string{
+				`CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_message_blocks_message_idx ON chat_message_blocks(message_id, idx)`,
+				`CREATE INDEX IF NOT EXISTS idx_chat_message_blocks_tool_call ON chat_message_blocks(tool_call_id, type, message_id) WHERE tool_call_id != ''`,
+				`CREATE INDEX IF NOT EXISTS idx_chat_message_blocks_type_message ON chat_message_blocks(type, message_id)`,
+			} {
+				if err := tx.Exec(stmt).Error; err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Exec(`DROP TABLE IF EXISTS chat_message_blocks`).Error; err != nil {
+				return err
+			}
 			if err := tx.Exec(`DROP TABLE IF EXISTS chat_messages`).Error; err != nil {
 				return err
 			}

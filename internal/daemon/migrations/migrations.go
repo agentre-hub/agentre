@@ -10,8 +10,6 @@
 package migrations
 
 import (
-	"fmt"
-
 	"github.com/go-gormigrate/gormigrate/v2"
 	"gorm.io/gorm"
 )
@@ -24,43 +22,5 @@ func RunMigrations(db *gorm.DB) error {
 
 // migrationList 按时间升序列出全部迁移构造函数。
 func migrationList() []*gormigrate.Migration {
-	return []*gormigrate.Migration{
-		migration202608280001Baseline(),
-		migration202608280002(), // daemon_sessions.project_sync_id
-	}
-}
-
-// migration202608280001Baseline 是正式发布前压缩后的 agentred 数据库初始基线。
-// 各领域步骤保留独立实现，但 gormigrate 只记录这一条基线。
-func migration202608280001Baseline() *gormigrate.Migration {
-	steps := []*gormigrate.Migration{
-		migration202608080011(), // daemon_sessions + daemon_notification_logs
-		migration202608100001(), // R7 标题/Agent 同步标识 + 决策 8 provider_session_id
-		migration202608230001(), // 会话级 ModelTarget:provider_key + model_key
-		migration202608240001(), // Protobuf notification journal
-		migration202608270001(), // 命名对齐:createtime / last_message_at / notification journal
-	}
-
-	return &gormigrate.Migration{
-		ID: "202608280001",
-		Migrate: func(tx *gorm.DB) error {
-			for _, step := range steps {
-				if err := step.Migrate(tx); err != nil {
-					return fmt.Errorf("daemon migrations: apply baseline step %s: %w", step.ID, err)
-				}
-			}
-			return nil
-		},
-		Rollback: func(tx *gorm.DB) error {
-			for i := len(steps) - 1; i >= 0; i-- {
-				if steps[i].Rollback == nil {
-					continue
-				}
-				if err := steps[i].Rollback(tx); err != nil {
-					return fmt.Errorf("daemon migrations: rollback baseline step %s: %w", steps[i].ID, err)
-				}
-			}
-			return nil
-		},
-	}
+	return []*gormigrate.Migration{migration202608080011()}
 }

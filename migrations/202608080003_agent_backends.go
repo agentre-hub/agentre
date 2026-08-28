@@ -31,7 +31,7 @@ func migration202608080003() *gormigrate.Migration {
 	name TEXT NOT NULL,
 	llm_provider_key TEXT NOT NULL DEFAULT '',
 	model_key TEXT NOT NULL DEFAULT '',
-	device_id TEXT NOT NULL DEFAULT '',
+	device_fingerprint TEXT NOT NULL DEFAULT '',
 	cli_path TEXT NOT NULL DEFAULT '',
 	model_routes TEXT NOT NULL DEFAULT '{}',
 	sandbox TEXT NOT NULL DEFAULT '',
@@ -51,12 +51,12 @@ func migration202608080003() *gormigrate.Migration {
 	sync_account_id BIGINT NOT NULL DEFAULT 0,
 	sync_version BIGINT NOT NULL DEFAULT 0,
 	sync_updated_at BIGINT NOT NULL DEFAULT 0,
-	sync_origin TEXT NOT NULL DEFAULT '',
+	sync_origin_fingerprint TEXT NOT NULL DEFAULT '',
 	sync_deleted_at BIGINT NOT NULL DEFAULT 0
 )`).Error; err != nil {
 				return err
 			}
-			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_backends_device_id ON agent_backends(device_id) WHERE status = 1`).Error; err != nil {
+			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_backends_device_fingerprint ON agent_backends(device_fingerprint) WHERE status = 1`).Error; err != nil {
 				return err
 			}
 			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_backends_sync_id ON agent_backends(sync_id) WHERE sync_id != ''`).Error; err != nil {
@@ -74,7 +74,7 @@ func migration202608080003() *gormigrate.Migration {
 	sync_account_id BIGINT NOT NULL DEFAULT 0,
 	sync_version BIGINT NOT NULL DEFAULT 0,
 	sync_updated_at BIGINT NOT NULL DEFAULT 0,
-	sync_origin TEXT NOT NULL DEFAULT '',
+	sync_origin_fingerprint TEXT NOT NULL DEFAULT '',
 	sync_deleted_at BIGINT NOT NULL DEFAULT 0
 )`).Error; err != nil {
 				return err

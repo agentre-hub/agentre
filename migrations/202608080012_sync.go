@@ -28,7 +28,7 @@ var syncMetaColumns = []struct {
 	{"sync_account_id", "BIGINT NOT NULL DEFAULT 0"},
 	{"sync_version", "BIGINT NOT NULL DEFAULT 0"},
 	{"sync_updated_at", "BIGINT NOT NULL DEFAULT 0"},
-	{"sync_origin", "TEXT NOT NULL DEFAULT ''"},
+	{"sync_origin_fingerprint", "TEXT NOT NULL DEFAULT ''"},
 	{"sync_deleted_at", "BIGINT NOT NULL DEFAULT 0"},
 }
 
