@@ -16,9 +16,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
+	"github.com/agentre-hub/agentre/internal/daemon/identity"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 const (
@@ -40,6 +41,8 @@ type loginDeps struct {
 	// hostname 提供设备列表里的显示名。取不到时按空串上报，由服务端回退到指纹
 	// 缩写——一个取不到的显示名不该让整次登录失败。
 	hostname func() (string, error)
+	// daemonRunning 报告本机是否有 daemon 正持有 state.json（见 statefile.go）。
+	daemonRunning func() bool
 }
 
 type deviceAuthorizeResponse struct {
@@ -81,9 +84,10 @@ func newLoginCmd() *cobra.Command {
 			time.Sleep(delay)
 			return nil
 		},
-		platform: runtime.GOOS,
-		version:  agentredBuildIdentity(),
-		hostname: os.Hostname,
+		platform:      runtime.GOOS,
+		version:       agentredBuildIdentity(),
+		hostname:      os.Hostname,
+		daemonRunning: daemonIsRunning,
 	})
 }
 
@@ -93,6 +97,11 @@ func newLoginCmdWithDeps(deps loginDeps) *cobra.Command {
 		Short: "Claim this daemon through account device authorization",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// 闸门放在**网络之前**：设备流一旦发起就在服务端占了一个待批准的
+			// 授权，而这次登录的结果根本存不下来。
+			if err := requireNoRunningDaemon(deps.daemonRunning); err != nil {
+				return err
+			}
 			dir, err := deps.dataDir()
 			if err != nil {
 				return err
@@ -132,12 +141,12 @@ func login(cmd *cobra.Command, deps loginDeps, st *state.State, serverURL string
 	if _, err := doLoginJSON(cmd, deps.http, http.MethodPost, serverURL+"/v1/oauth/device/authorize", map[string]any{
 		"device_kind": "agentred",
 		// 账号侧的设备指纹与 auth.pair 交给桌面端做 TOFU 的那一个是同一个东西:
-		// rpc.DaemonFingerprint(instance uuid)。桌面端手上只有这个形态 —— 它按本地
+		// identity.DaemonFingerprint(instance uuid)。桌面端手上只有这个形态 —— 它按本地
 		// 配对行里的 DaemonFingerprint 向 server 点名中转目标(server 拿它查
 		// devices.fingerprint),也按它把 LAN 与账号两个来源合并成设备面板的一行。
 		// 登记裸 uuid 会让两边永远对不上:中转恒报「这台 daemon 从未登记过」,面板恒把
 		// 已认领的机器标成未认领。
-		"fingerprint": rpc.DaemonFingerprint(st.InstanceUUID()),
+		"fingerprint": identity.DaemonFingerprint(st.InstanceUUID()),
 		"platform":    deps.platform,
 		"version":     deps.version,
 		// 设备流是账号侧拿到这台机器名字的唯一途径：不带上它，设备列表里每台机器
@@ -224,6 +233,22 @@ func login(cmd *cobra.Command, deps loginDeps, st *state.State, serverURL string
 	})
 	if err := st.Save(); err != nil {
 		return fmt.Errorf("save account claim: %w", err)
+	}
+	engineSnapshot := enginesnapshot.New(enginesnapshot.Options{
+		State: st,
+		ServerURL: func() string {
+			return serverURL
+		},
+		AccessToken: func() string {
+			return st.Snapshot().Credential.AccessToken
+		},
+		HTTPClient: deps.http,
+	})
+	if err := engineSnapshot.Pull(cmd.Context()); err != nil {
+		// The account claim is already durable. Engine configuration is a
+		// best-effort post-login refresh and must not turn a successful device
+		// authorization into a failed login; relay/channel triggers retry it.
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: engine snapshot could not be refreshed; the daemon will retry after it connects.")
 	}
 	_, _ = fmt.Fprintln(out, "Logged in and claimed this daemon.")
 	return nil

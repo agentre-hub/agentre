@@ -22,7 +22,7 @@ it must never be written as if already released.
 
 Stage the files intended for the commit, then set `VERIFY_TREE="$(git write-tree)"`. **If `git grep <pattern> "$VERIFY_TREE" -- <path>` cannot find a fact in that proposed tree, don't claim it in the docs.** Use `git grep` / `git ls-tree` / `git show` / `git cat-file` against `$VERIFY_TREE`; do not use bare `rg` / `ls`, which include unstaged files. For a read-only audit of an already committed branch, set `VERIFY_TREE=HEAD` instead.
 
-> Cross-repo reminder: the optional multi-repository workspace wraps `agentre/`, `agentre-server/`, and `agentre-hub/` as **three mutually independent Git repositories**. This guide only covers `agentre/`; verify each sibling from inside its own repository. The desktop module path is `github.com/agentre-ai/agentre`, the hub is `github.com/agentre-ai/agentre-hub`, and the server remains the independent local module `agentre-server`.
+> Cross-repo reminder: the optional multi-repository workspace wraps `agentre/`, `agentre-server/`, and `agentre-hub/` as **three mutually independent Git repositories**. This guide only covers `agentre/`; verify each sibling from inside its own repository. The desktop module path is `github.com/agentre-hub/agentre`, the hub is `github.com/agentre-hub/agentre-hub`, and the server remains the independent module `github.com/agentre-hub/agentre-server`.
 
 ## Doc Set and Responsibilities (Don't Duplicate — Cross-Link)
 
@@ -31,19 +31,20 @@ Stage the files intended for the commit, then set `VERIFY_TREE="$(git write-tree
 | Workspace-root `AGENTS.md` (outside this repository, when using the multi-repo checkout) | Cross-repo facts and invariants (`go.work`, independent commits, the cago framework). |
 | [`../CLAUDE.md`](../CLAUDE.md) | Just `@import`s `AGENTS.md`; holds no content of its own. |
 | [`../AGENTS.md`](../AGENTS.md) | **Single source of truth for the agent guide**: engineering principles, high-priority constraints, high cohesion / low coupling, key constraints, common commands; also indexes the `docs/*` below. |
-| [`architecture.md`](./architecture.md) | Project layout, cago layering conventions, remote execution architecture, `AppDataDir` storage paths, database and migration flow, list of generated files. |
+| [`architecture.md`](./architecture.md) | Project layout, cago layering conventions, the shared frontend package's place in the layering (leaf, one-way dependency) and its host seams, remote execution architecture, `AppDataDir` storage paths, database and migration flow, list of generated files. |
 | [`develop.md`](./develop.md) | The concrete "how to": the Red→Green→Refactor loop, SOLID, high cohesion / low coupling, Fix Discipline, code style, the **enforced-rules table** (every convention with a real mechanical check), the persistent-data process, commit / PR flow, and the CI gate. |
 | [`testing.md`](./testing.md) | How a test is **designed**: the applicability gate, choosing a boundary, covering the behavior space, the test stack (`testutils.Database(t)` / `mockgen` / goconvey / vitest), guard tests, what not to write, and cleanup boundaries. |
 | [`observability.md`](./observability.md) | The **logging convention**: the single `cago/pkg/logger` entry point, level selection, where to instrument, the `package.Method:` message prefix and camelCase structured fields, and the never-log red line. Agentre has no metrics/tracing; commands live in [`debugging.md`](./debugging.md). |
-| [`frontend.md`](./frontend.md) | shadcn `@/components/ui/*` conventions, i18n, frontend structure, pnpm, formatting / lint, module path. |
+| [`frontend.md`](./frontend.md) | shadcn-from-`@agentre-hub/agentre-ui` conventions, i18n, frontend structure, working inside the shared `@agentre-hub/agentre-ui` package, pnpm, formatting / lint, module path. |
 | [`design.md`](./design.md) | The frontend **design system**: color tokens (light/dark values), the agent palette + run-status system, theming, the desktop window shell, component palette, motion, state patterns, accessibility, the new-page recipe. Owns the visual language; defers the enforced shadcn / i18n / lint rules to [`frontend.md`](./frontend.md). |
 | [`debugging.md`](./debugging.md) | Diagnosing runtime issues: SQLite / log commands, table → feature mapping, reproduction commands, common pitfalls. |
 | [`agent-backend.md`](./agent-backend.md) | The full path to wiring in a new AI Agent backend (entity / migration / runtime / translator / capability / daemon import / frontend gating). |
-| [`session-lifecycle.md`](./session-lifecycle.md) | Rules for creating and reusing `chat_sessions`, including future issue/hook dispatch and remote-execution ownership. |
+| [`session-lifecycle.md`](./session-lifecycle.md) | Creation, reuse, sidebar visibility, and remote-execution ownership for `chat_sessions`, including rules for future out-of-band producers. |
 | [`../e2e/README.md`](../e2e/README.md) | The E2E / verification **machine**: the independent hermetic Wails app, one automated runner/config with desktop/sync-client/remote-peer smoke boundaries, preflight/storage/process guards, protocol fakes, SQLite oracles, sanitized per-run artifacts, and the formal-main-only driven verification launcher/driver. What a real run must record remains [`verification.md`](./verification.md)'s. |
 | [`verification.md`](./verification.md) | The formal-main real-verification **route** and what a run must leave behind: when it is warranted, start → drive → record → stop, the `e2e/scratch/<scenario>/` evidence layout, real-dependency failure/unverified handling, `report.md` created before the run, authorization/redaction, honest reporting, and the one-place-only verdict table. Defers mechanics to [`../e2e/README.md`](../e2e/README.md). |
 | [`references/verification-report-template.md`](./references/verification-report-template.md) | The `report.md` shape itself — copied verbatim into a scenario directory. Filling-in discipline and embedding rules; the *when / where* is [`verification.md`](./verification.md)'s. |
 | [`documentation.md`](./documentation.md) | This guide: doc organization rules + fact-checking / anti-drift discipline. |
+| [`specs/`](./specs/) | Dated design and decision snapshots. They preserve scoped design context, but do not override current code or the owner documents above. |
 | [`README_zh.md`](./README_zh.md) / [`../README.md`](../README.md) | The user-facing Chinese / English project README — **not** a docs index; don't stuff contributor conventions into it. |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) / [`CONTRIBUTING_ZH.md`](./CONTRIBUTING_ZH.md) | The contributor guide (English / Chinese): setup, the GitHub fork / branch / PR workflow, a summary of the ground rules, commit style, PR checklist. It **links into** `AGENTS.md` / `docs/*` for the details — keep it a pointer, don't let facts fork from the docs that own them. |
 
@@ -77,7 +78,7 @@ Verify **every** concrete assertion against the code. Common assertion types and
 | repository uses the `Register` / accessor pattern | `git grep -n "^func Register" "$VERIFY_TREE" -- internal/repository` |
 | migration count / naming prefix (`YYYYMMDDNNNN`) | `git ls-tree -r --name-only "$VERIFY_TREE" migrations/` + `git grep -oE "migration[0-9]{12}" "$VERIFY_TREE" -- migrations/migrations.go` |
 | Counts ("N migrations", "N languages", "N tables") | Enumerate from the canonical list — don't trust prose, don't trust memory |
-| i18n locale language count | `git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/` (should contain `zh-CN/common.json` + `en/common.json`) |
+| i18n locale language count / module split | `git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/` (one `index.ts` barrel per language — `zh-CN` + `en` — each next to the same set of domain `*.json` modules) |
 | frontend path alias | `git show "$VERIFY_TREE":frontend/components.json` → the `aliases` block |
 | localStorage keys (`agentre.theme` / `windowSize` / `lastPath`) | `git grep -n -e 'agentre.theme' -e 'agentre.windowSize' -e 'agentre.lastPath' "$VERIFY_TREE" -- frontend/src` |
 | `AppDataDir` paths / database table names | Cross-check `migrations/` + the entity's GORM tags; for table structure use the live DB `.schema` (see [debugging.md](./debugging.md)), don't go from memory |
@@ -113,7 +114,8 @@ echo "== repository Register/accessor =="; git grep -n "^func Register" "$VERIFY
 echo "== migration count + registered identifiers =="
 git ls-tree -r --name-only "$VERIFY_TREE" migrations/ | grep -vE '_test\.go$|/migrations\.go$' | wc -l
 git grep -hoE "migration[0-9]{12}" "$VERIFY_TREE" -- migrations/migrations.go | sort -u
-echo "== i18n locale languages =="; git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/ | grep '/common.json$'
+echo "== i18n locale languages =="; git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/ | grep '/index.ts$'
+echo "== i18n locale modules =="; git ls-tree -r --name-only "$VERIFY_TREE" frontend/src/i18n/locales/en/ | grep '\.json$'
 echo "== frontend path aliases =="; git show "$VERIFY_TREE":frontend/components.json | grep -A6 '"aliases"'
 echo "== localStorage keys =="; git grep -nE "agentre\.(theme|windowSize|lastPath)" "$VERIFY_TREE" -- frontend/src
 echo "== golangci nilerr exception =="; git grep -n "nolint:nilerr" "$VERIFY_TREE" -- internal

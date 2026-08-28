@@ -6,18 +6,21 @@ import (
 	"errors"
 
 	"github.com/cago-frame/cago/pkg/i18n"
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/issue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 // Merge 见 ProjectSvc 接口注释（R11a）。
@@ -58,7 +61,7 @@ func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*pro
 		return nil, err
 	}
 
-	if err := chat_repo.Session().ReassignProject(ctx, drop.ID, keep.ID); err != nil {
+	if err := s.sessions.ReassignProject(ctx, drop.ID, keep.ID); err != nil {
 		return nil, err
 	}
 	if err := reassignProjectAgents(ctx, drop.ID, keep.ID); err != nil {
@@ -67,8 +70,15 @@ func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*pro
 	if err := reassignChildProjects(ctx, drop.ID, keep.ID); err != nil {
 		return nil, err
 	}
+	// 改挂之前先把它们读出来：project_id 是任务同步载荷里的 project_sync_id
+	// （sync_svc.issuePayload），整批改写之后不为每条任务各发一次上行，对端的卡
+	// 就还挂在这个马上要消失的项目上。标识只在行上，整批 UPDATE 不回传它们。
+	moved := issuesToReannounce(ctx, drop.ID)
 	if err := issue_repo.Issue().ReassignProject(ctx, drop.ID, keep.ID); err != nil {
 		return nil, err
+	}
+	for _, it := range moved {
+		sync_svc.NotifyUpdate(ctx, syncwire.KindIssue, it.ID, it.SyncMeta)
 	}
 	if err := s.reassignProjectLocations(ctx, keep, drop); err != nil {
 		return nil, err
@@ -78,6 +88,29 @@ func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*pro
 		return nil, err
 	}
 	return keep, nil
+}
+
+// issuesToReannounce 列出还挂在 projectID 名下的存活任务（整行，带同步标识）。
+//
+// 同步未装配时一次库都不查（与 project_svc.memberSyncMeta 同一口径）。软删的任务
+// 不在其中，也不需要：它们各自的墓碑早已上行，account 侧从此不再有活着的对象，
+// ReassignProject 那一下只是不让本机留下指向已消失项目的悬空引用。
+//
+// 读失败不回传：这一次读取只为同步层服务，同步层的任何失败都不该否决用户的合并
+// （R8，与 project_svc.memberSyncMeta / issue_svc.labelLinksBefore 同一口径）。此刻
+// 项目、会话、成员与子项目都已经改挂完毕，在这里返回错误只会留下一个半合并的库。
+// 最坏的结果是这一轮少发几条上行，任务下次被编辑时再对上。
+func issuesToReannounce(ctx context.Context, projectID int64) []*issue_entity.Issue {
+	if !sync_svc.Active() {
+		return nil
+	}
+	rows, err := issue_repo.Issue().List(ctx, issue_repo.ListFilter{ProjectIDs: []int64{projectID}})
+	if err != nil {
+		logger.Ctx(ctx).Warn("project_svc.issuesToReannounce: list issues failed",
+			zap.Int64("projectId", projectID), zap.Error(err))
+		return nil
+	}
+	return rows
 }
 
 // chooseMergeWinner 决定合并后保留哪一行的身份（R11a）：账号侧已认领的一方优先；
@@ -158,8 +191,8 @@ func (s *projectSvc) reassignProjectLocations(ctx context.Context, keep, drop *p
 		return err
 	}
 	for _, loc := range dropLocs {
-		if loc.DaemonFingerprint != "" {
-			existing, ferr := project_location_repo.ProjectLocation().FindByProjectAndFingerprint(ctx, keep.ID, loc.DaemonFingerprint)
+		if loc.DeviceFingerprint != "" {
+			existing, ferr := project_location_repo.ProjectLocation().FindByProjectAndFingerprint(ctx, keep.ID, loc.DeviceFingerprint)
 			if ferr != nil && !errors.Is(ferr, gorm.ErrRecordNotFound) {
 				return ferr
 			}
@@ -213,7 +246,7 @@ func (s *projectSvc) recordLostLocation(
 		Reason:              syncqueue_entity.ReasonOverwritten,
 		PayloadJSON:         string(payload),
 		ProjectSyncID:       keep.SyncID,
-		AgentredFingerprint: loser.DaemonFingerprint,
+		AgentredFingerprint: loser.DeviceFingerprint,
 		OccurredAt:          now,
 		Createtime:          now,
 	})

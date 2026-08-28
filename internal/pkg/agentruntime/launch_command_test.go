@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 )
 
 // agentCwdFor 直接复用 AgentCwd 在 t.TempDir() 下的产物，给 assert 提供期望路径。

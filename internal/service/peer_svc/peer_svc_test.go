@@ -2,26 +2,26 @@ package peer_svc_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/service/peer_svc"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/peer"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/peer_svc"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // ── 测试骨架：假对端 WebSocket + 假 dialer + spy emitter ────────────────────
@@ -30,34 +30,36 @@ import (
 // 挂上），返回可被 client.Dial 直连的 ws:// URL。传输与生产一致（同一套 rpc 子协议），
 // 只省去中继与账号握手——生产里握手由 server_svc.DialDesktopRelay 完成，本测试要验
 // 的是 peer_svc 的会话族编排与事件扇出，不是中继本身。
-func fakePeerServer(t *testing.T, register func(*rpc.Registry)) string {
+func fakePeerServer(t *testing.T, deps peer.ProtobufInboundDeps) string {
 	t.Helper()
-	upgrader := websocket.Upgrader{Subprotocols: []string{rpc.Subprotocol}}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ws, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		registry := rpc.NewRegistry()
-		register(registry)
-		conn := rpc.NewConn(rpc.NewWebSocketFrameConn(ws), registry)
-		go conn.Serve(context.Background())
-	}))
-	t.Cleanup(srv.Close)
-	return "ws" + strings.TrimPrefix(srv.URL, "http")
+	server := protorpc.NewLANServer(protorpc.LANOpts{Host: "127.0.0.1", Port: 0, Registry: peer.NewProtobufInboundRegistry(deps)})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { _ = server.Run(ctx) }()
+	require.Eventually(t, func() bool { return server.Addr() != "" }, time.Second, time.Millisecond)
+	t.Cleanup(cancel)
+	return server.URL()
 }
 
 // directDialer 是 peer_svc.Dialer 的测试实现：直接把 DialDesktopRelay 当作一次直连
 // 拨号（生产是 server_svc 经账号中继）。url 由 fakePeerServer 给出。
 type directDialer struct{ url string }
 
-func (d directDialer) DialDesktopRelay(_ context.Context, desktopFingerprint, peerFingerprint string) (*client.Client, error) {
+func (d directDialer) DialDesktopRelay(_ context.Context, desktopFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
 	if desktopFingerprint == "" || peerFingerprint == "" {
 		return nil, errors.New("empty fingerprint")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return client.Dial(ctx, client.Options{URL: d.url})
+	conn, err := client.DialProtobuf(ctx, client.Options{URL: d.url})
+	if err != nil {
+		return nil, err
+	}
+	_, err = protorpc.CallMethod(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{Credential: "test", DeviceFingerprint: peerFingerprint, ProtocolVersion: wireversion.Protocol}, func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 type spyEmitter struct {
@@ -102,31 +104,20 @@ func newTestSvc(t *testing.T, url string) (peer_svc.PeerSvc, *spyEmitter) {
 	return svc, emitter
 }
 
-func mustJSON(t *testing.T, v any) json.RawMessage {
-	t.Helper()
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-	return b
-}
-
 // Given a named desktop is the dispatch target, when this desktop dispatches a
 // fresh conversation, then agentSyncId + cwd are resolved locally and the peer's
 // real session id comes back (R18).
 func TestPeerSvc_GivenFreshDispatch_WhenRunFresh_ThenResolvesAgentAndCwdAndReturnsRemoteSession(t *testing.T) {
-	url := fakePeerServer(t, func(reg *rpc.Registry) {
-		reg.Register(wire.MethodRun, func(_ context.Context, raw json.RawMessage) (any, error) {
-			var p wire.RunParams
-			require.NoError(t, json.Unmarshal(raw, &p))
-			assert.True(t, p.FreshSession, "dispatch must demand a genuinely new session")
-			assert.Equal(t, "01HXAGENTIDENTITY0000000000", p.AgentSyncID)
-			assert.Equal(t, "/Users/wyz/agentre", p.Cwd)
-			assert.Equal(t, "帮我看看这个项目", p.UserText)
-			assert.Equal(t, "provider-key", p.LLMProviderKey, "the transient provider target must cross the desktop peer boundary")
-			assert.Equal(t, "model-key", p.LLMModelKey, "the transient fixed model target must cross the desktop peer boundary")
-			assert.Equal(t, "sha256:local-desktop", p.SourceDevice, "self fingerprint must travel as the source device")
-			return wire.RunAck{SessionID: 42}, nil
-		})
-	})
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{RunSession: func(_ context.Context, p wire.RunParams, _ chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
+		assert.True(t, p.FreshSession, "dispatch must demand a genuinely new session")
+		assert.Equal(t, "01HXAGENTIDENTITY0000000000", p.AgentSyncID)
+		assert.Equal(t, "/Users/wyz/agentre", p.Cwd)
+		assert.Equal(t, "帮我看看这个项目", p.UserText)
+		assert.Equal(t, "provider-key", p.LLMProviderKey, "the transient provider target must cross the desktop peer boundary")
+		assert.Equal(t, "model-key", p.LLMModelKey, "the transient fixed model target must cross the desktop peer boundary")
+		assert.Equal(t, "sha256:local-desktop", p.SourceDevice, "self fingerprint must travel as the source device")
+		return &chat_svc.SendResponse{SessionID: 42}, nil
+	}})
 	svc, _ := newTestSvc(t, url)
 
 	ack, err := svc.RunFresh(context.Background(), peer_svc.RunFreshRequest{
@@ -145,19 +136,16 @@ func TestPeerSvc_GivenFreshDispatch_WhenRunFresh_ThenResolvesAgentAndCwdAndRetur
 // Given the target desktop owns sessions, when this desktop lists them, then
 // full summaries come back (R19 / R4, no degraded fallback).
 func TestPeerSvc_GivenRemoteDesktopSessions_WhenList_ThenReturnFullSummaries(t *testing.T) {
-	url := fakePeerServer(t, func(reg *rpc.Registry) {
-		reg.Register(wire.MethodSessionList, func(_ context.Context, _ json.RawMessage) (any, error) {
-			return wire.SessionListResult{
-				Sessions: []wire.SessionSummary{{
-					SessionID: 7, PeerFingerprint: "sha256:peer-desktop", AgentID: 3,
-					Title: "Ship the release", AgentSyncID: "01HXAGENTIDENTITY0000000000",
-					BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning,
-					WaitingForInput: true, LatestSeq: 12, UpdatedAt: 1710000000000,
-				}},
-				SupportsSessionMetadata: true,
-			}, nil
-		})
-	})
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{ListSessions: func(context.Context) (*wire.SessionListResult, error) {
+		return &wire.SessionListResult{
+			Sessions: []wire.SessionSummary{{
+				SessionID: 7, PeerFingerprint: "sha256:peer-desktop", AgentID: 3,
+				Title: "Ship the release", AgentSyncID: "01HXAGENTIDENTITY0000000000",
+				BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning,
+				WaitingForInput: true, LatestSeq: 12, LastMessageAt: 1710000000000,
+			}},
+		}, nil
+	}})
 	svc, _ := newTestSvc(t, url)
 
 	result, err := svc.ListSessions(context.Background(), "sha256:peer-desktop")
@@ -167,26 +155,19 @@ func TestPeerSvc_GivenRemoteDesktopSessions_WhenList_ThenReturnFullSummaries(t *
 	assert.Equal(t, "Ship the release", result.Sessions[0].Title)
 	assert.True(t, result.Sessions[0].WaitingForInput)
 	assert.Equal(t, int64(12), result.Sessions[0].LatestSeq)
-	assert.True(t, result.SupportsSessionMetadata)
 }
 
 // Given a running target desktop, when this desktop attaches a remote session,
 // then the peer's live canonical events are re-emitted to the frontend with the
 // fingerprint for per-tab routing (R19 / R6).
 func TestPeerSvc_GivenAttachedRemoteSession_WhenPeerEmitsEvent_ThenEmitterReceivesRoutedFrame(t *testing.T) {
-	url := fakePeerServer(t, func(reg *rpc.Registry) {
-		reg.Register(wire.MethodSessionAttach, func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var p wire.SessionAttachParams
-			require.NoError(t, json.Unmarshal(raw, &p))
-			assert.Equal(t, int64(7), p.SessionID)
-			conn := rpc.ConnFromContext(ctx)
-			require.NotNil(t, conn)
-			require.NoError(t, conn.Notify(wire.NotifyEvent, wire.EventFrame{
-				SessionID: 7, Seq: 13, Event: mustJSON(t, map[string]any{"kind": "text_delta", "text": "hi"}),
-			}))
-			return wire.SessionAttachResult{SessionID: 7, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 12}, nil
-		})
-	})
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{AttachSession: func(_ context.Context, p wire.SessionAttachParams, subscriber chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
+		assert.Equal(t, int64(7), p.SessionID)
+		require.NoError(t, subscriber.Notify(wire.NotifyEvent, wire.EventFrame{
+			SessionID: 7, Seq: 13, Event: agentruntime.TextDelta{Text: "hi"},
+		}))
+		return wire.SessionAttachResult{SessionID: 7, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 12}, nil
+	}})
 	svc, emitter := newTestSvc(t, url)
 
 	att, err := svc.Attach(context.Background(), peer_svc.AttachRequest{
@@ -209,21 +190,17 @@ func TestPeerSvc_GivenAttachedRemoteSession_WhenPeerEmitsEvent_ThenEmitterReceiv
 // Given an attached session, when this desktop pulls history, then the journaled
 // page, cursor and oldest-seq come back on the same wire shape the browser uses.
 func TestPeerSvc_GivenAttachedRemoteSession_WhenPull_ThenReturnJournaledPage(t *testing.T) {
-	url := fakePeerServer(t, func(reg *rpc.Registry) {
-		reg.Register(wire.MethodSessionPull, func(_ context.Context, raw json.RawMessage) (any, error) {
-			var p wire.SessionPullParams
-			require.NoError(t, json.Unmarshal(raw, &p))
-			assert.Equal(t, int64(7), p.SessionID)
-			assert.Equal(t, int64(0), p.Cursor)
-			return wire.SessionPullResult{
-				Notifications: []wire.JournaledNotification{{
-					Seq: 1, Method: wire.NotifyEvent,
-					Params: mustJSON(t, wire.EventFrame{SessionID: 7, Seq: 1, Event: mustJSON(t, map[string]any{"kind": "user_message"})}),
-				}},
-				Cursor: 1, HasMore: false, OldestSeq: 1,
-			}, nil
-		})
-	})
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{PullSession: func(_ context.Context, p wire.SessionPullParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionPullResult, error) {
+		assert.Equal(t, int64(7), p.SessionID)
+		assert.Equal(t, int64(0), p.Cursor)
+		return wire.SessionPullResult{
+			Notifications: []wire.JournaledNotification{{
+				Seq: 1, Method: wire.NotifyEvent,
+				Params: &wire.EventFrame{SessionID: 7, Seq: 1, Event: agentruntime.UserMessageEvent{}},
+			}},
+			Cursor: 1, HasMore: false, OldestSeq: 1,
+		}, nil
+	}})
 	svc, _ := newTestSvc(t, url)
 
 	page, err := svc.Pull(context.Background(), peer_svc.PullRequest{
@@ -239,12 +216,10 @@ func TestPeerSvc_GivenAttachedRemoteSession_WhenPull_ThenReturnJournaledPage(t *
 // lands in the peer's existing steer path (R19 / R9).
 func TestPeerSvc_GivenAttachedRemoteSession_WhenSteer_ThenMessageLandsOnPeer(t *testing.T) {
 	var got wire.SteerParams
-	url := fakePeerServer(t, func(reg *rpc.Registry) {
-		reg.Register(wire.MethodSteer, func(_ context.Context, raw json.RawMessage) (any, error) {
-			require.NoError(t, json.Unmarshal(raw, &got))
-			return wire.OK{}, nil
-		})
-	})
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{SteerSession: func(_ context.Context, p wire.SteerParams, _ chat_svc.PeerSessionSource) error {
+		got = p
+		return nil
+	}})
 	svc, _ := newTestSvc(t, url)
 
 	require.NoError(t, svc.Steer(context.Background(), peer_svc.SteerRequest{
@@ -257,13 +232,13 @@ func TestPeerSvc_GivenAttachedRemoteSession_WhenSteer_ThenMessageLandsOnPeer(t *
 // Given another endpoint already answered the pending ask, when this desktop
 // submits the same decision, then alreadyHandled is surfaced (R10).
 func TestPeerSvc_GivenDecisionAlreadyHandled_WhenSubmitDecision_ThenAlreadyHandledSurfaced(t *testing.T) {
-	url := fakePeerServer(t, func(reg *rpc.Registry) {
-		reg.Register(wire.MethodSubmitAnswer, func(_ context.Context, _ json.RawMessage) (any, error) {
-			return wire.PeerSessionControlResult{AlreadyHandled: true}, nil
-		})
-		reg.Register(wire.MethodSubmitToolPermission, func(_ context.Context, _ json.RawMessage) (any, error) {
-			return wire.PeerSessionControlResult{AlreadyHandled: true}, nil
-		})
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{
+		SubmitAnswer: func(context.Context, wire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error) {
+			return chat_svc.PeerSessionControlResult{AlreadyHandled: true}, nil
+		},
+		SubmitToolPermission: func(context.Context, wire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error) {
+			return chat_svc.PeerSessionControlResult{AlreadyHandled: true}, nil
+		},
 	})
 	svc, _ := newTestSvc(t, url)
 
@@ -278,23 +253,6 @@ func TestPeerSvc_GivenDecisionAlreadyHandled_WhenSubmitDecision_ThenAlreadyHandl
 	})
 	require.NoError(t, err)
 	assert.True(t, permission.AlreadyHandled)
-}
-
-// Given a legacy peer returns the empty control result, when this desktop submits
-// a decision, then alreadyHandled stays false (task 5 compatibility).
-func TestPeerSvc_GivenLegacyPeerEmptyControlResult_WhenSubmitDecision_ThenAlreadyHandledStaysFalse(t *testing.T) {
-	url := fakePeerServer(t, func(reg *rpc.Registry) {
-		reg.Register(wire.MethodSubmitAnswer, func(_ context.Context, _ json.RawMessage) (any, error) {
-			return wire.PeerSessionControlResult{}, nil
-		})
-	})
-	svc, _ := newTestSvc(t, url)
-
-	result, err := svc.SubmitAnswer(context.Background(), peer_svc.SubmitAnswerRequest{
-		Fingerprint: "sha256:peer-desktop", SessionID: 7, RequestID: "req-1",
-	})
-	require.NoError(t, err)
-	assert.False(t, result.AlreadyHandled)
 }
 
 // Given the target desktop App is not running, when this desktop lists its
@@ -318,7 +276,7 @@ func TestPeerSvc_GivenTargetDesktopAppNotRunning_WhenList_ThenDesktopSentinelSur
 
 type offlineDialer struct{}
 
-func (offlineDialer) DialDesktopRelay(_ context.Context, _, _ string) (*client.Client, error) {
+func (offlineDialer) DialDesktopRelay(_ context.Context, _, _ string) (client.ProtobufConnection, error) {
 	return nil, server_svc.ErrDesktopAppNotRunning
 }
 
@@ -327,15 +285,11 @@ func (offlineDialer) DialDesktopRelay(_ context.Context, _, _ string) (*client.C
 // last one closes it (R19 close-detaches-only).
 func TestPeerSvc_GivenTwoAttachedSessions_WhenLastDetach_ThenConnectionClosed(t *testing.T) {
 	closed := make(chan struct{}, 1)
-	url := fakePeerServer(t, func(reg *rpc.Registry) {
-		reg.Register(wire.MethodSessionAttach, func(_ context.Context, raw json.RawMessage) (any, error) {
-			var p wire.SessionAttachParams
-			require.NoError(t, json.Unmarshal(raw, &p))
-			return wire.SessionAttachResult{SessionID: p.SessionID, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 0}, nil
-		})
-		reg.Register(wire.MethodSteer, func(_ context.Context, _ json.RawMessage) (any, error) {
-			return wire.OK{}, nil
-		})
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{
+		AttachSession: func(_ context.Context, p wire.SessionAttachParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
+			return wire.SessionAttachResult{SessionID: p.SessionID, LifecycleState: wire.SessionLifecycleIdle}, nil
+		},
+		SteerSession: func(context.Context, wire.SteerParams, chat_svc.PeerSessionSource) error { return nil },
 	})
 	_ = closed
 	svc, _ := newTestSvc(t, url)

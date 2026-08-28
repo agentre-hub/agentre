@@ -13,9 +13,9 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/hook_svc"
-	"github.com/agentre-ai/agentre/internal/service/hooktool_svc/mock_hooktool_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/hook_svc"
+	"github.com/agentre-hub/agentre/internal/service/hooktool_svc/mock_hooktool_svc"
 )
 
 // writeDeps 接齐写工具审批所需依赖(lookup + hooks + approval)。

@@ -1,0 +1,39 @@
+{
+  "notifications": [
+    {
+      "seq": 11,
+      "method": "runtime.event",
+      "params": {
+        "sessionId": 42,
+        "event": {
+          "kind": "text_delta",
+          "text": "你好"
+        }
+      }
+    },
+    {
+      "seq": 12,
+      "method": "runtime.runResultDone",
+      "params": {
+        "sessionId": 42,
+        "providerSessionId": "sess_abc123",
+        "usage": {
+          "promptTokens": 100,
+          "completionTokens": 50,
+          "reasoningTokens": 10,
+          "cachedTokens": 5,
+          "cacheCreationTokens": 2,
+          "totalTokens": 155
+        },
+        "userAnchor": "anchor-1",
+        "model": "claude-sonnet-4-5",
+        "contextWindow": 200000,
+        "turnToken": 9,
+        "seq": 12
+      }
+    }
+  ],
+  "cursor": 12,
+  "hasMore": false,
+  "oldestSeq": 1
+}

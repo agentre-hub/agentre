@@ -1,19 +1,24 @@
 // golden_test.go 生成 wire 协议的黄金样本(浏览器侧 TS 编解码的对照基准)。
 //
-// 黄金样本的用途是「与 Go 侧逐字段同构」:agentre-server/frontend 的 vitest 读同一批
-// 帧,断言 TS 编解码解出的结构与这里用真实 Go marshaler 序列化出来的逐字节一致。
-// 生成器住在本包(wire 类型旁),产物提交到 agentre-server/frontend/src/__tests__/
-// fixtures/wire/ 供 vitest 读 —— 跨仓资产,两边各自提交。
+// 黄金样本的用途是「与 Go 侧逐字段同构」:浏览器侧的 vitest 读同一批帧,断言 TS
+// 编解码解出的结构与这里用真实 Go marshaler 序列化出来的逐字节一致。生成器住在本包
+// (wire 类型旁),产物提交在本仓的 frontend/packages/agentre-wire/fixtures/,由零
+// 依赖数据包 @agentre-hub/agentre-wire 对外发布 —— 消费方装包取样本,不再跨仓搬运。
 //
-// 本测试自己同时充当自检:每一条样本都验证「确定性」(再 marshal 一次逐字节相同,
-// Go 的 map key 排序保证稳定)与「往返不丢字段」(map 形态解析再序列化逐字节相同)。
-// 带上 WIRE_GOLDEN_DIR 环境变量运行即把样本写成文件,不带则只自检、不写盘,让
-// `go test ./...` 保持干净:
+// 三个测试各司其职:
 //
-//	WIRE_GOLDEN_DIR=/path/to/agentre-server/frontend/src/__tests__/fixtures/wire \
-//	  GOWORK=off go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestGoldenSamples
+//   - TestGoldenSamples —— 自检:每条样本验证「确定性」(再 marshal 一次逐字节相同,
+//     Go 的 map key 排序保证稳定)与「往返不丢字段」(map 形态解析再序列化不丢键)。
+//   - TestGoldenFixturesFresh —— 新鲜度守卫,总是运行:把样本生成到临时目录,与包里
+//     已提交的副本比文件集 + 逐字节内容。给 wire 结构加字段却忘了重新生成,这里变红。
+//   - TestWriteGoldenSamples —— 重新生成这个动作本身,带 WIRE_GOLDEN_WRITE=1 才执行,
+//     让 `go test ./...` 不写盘。
 //
-// 命名约定:每条样本的名字就是 agentre-server 里那个 .json 文件的 basename,
+// 重新生成的命令:
+//
+//	WIRE_GOLDEN_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteGoldenSamples
+//
+// 命名约定:每条样本的名字就是 fixtures 目录里那个 .json 文件的 basename,
 // vitest 直接 import 同名文件。
 package wire
 
@@ -21,13 +26,21 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
+
+// goldenFixturesRel 黄金样本在本仓里的位置(相对仓库根)——
+// @agentre-hub/agentre-wire 这个零依赖数据包的 fixtures 目录。
+const goldenFixturesRel = "frontend/packages/agentre-wire/fixtures"
+
+// regenCmd 样本过期时重新生成的确切命令,原样出现在守卫的失败信息里。
+const regenCmd = "WIRE_GOLDEN_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteGoldenSamples"
 
 // goldenFrame 一条黄金样本:名字 + 用真实 Go marshaler 序列化出来的帧。
 // extraKeys 是注入的未知字段键名,自检时断言它们在序列化结果里确实存在。
@@ -87,7 +100,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		LifecycleState:    SessionLifecycleRunning,
 		WaitingForInput:   true,
 		LatestSeq:         12,
-		UpdatedAt:         1754800000000,
+		LastMessageAt:     1754800000000,
 	}
 	// 一条老会话:R7 未到达,标题 / Agent 标识 / provider_session_id 如实留空
 	// (omitempty 直接省略键,不填占位名)。
@@ -101,9 +114,11 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		LatestSeq:       5,
 	}
 
-	// 实时通知帧(EventFrame)的 event 载荷:真实 agentruntime 事件走它的
-	// MarshalJSON(拍平成 {"kind":...}),与 daemon handlers/runtime.go 同一来源。
-	textDelta := mustJSON(t, agentruntime.TextDelta{Text: "你好"})
+	// 实时通知帧(EventFrame)的 event 载荷:帧里装的是密封事件本身,线上形态由
+	// EventFrame.MarshalJSON 委托给事件自己的 MarshalJSON(拍平成 {"kind":...}),
+	// 与 daemon handlers/runtime.go 同一来源。黄金样本因此也是「帧改成装密封值
+	// 之后线上一个字节没变」的守卫。
+	textDelta := agentruntime.TextDelta{Text: "你好"}
 
 	runAck := RunAck{
 		SessionID:            sid,
@@ -183,13 +198,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		{name: "session-summary", body: newSummary},
 		{name: "session-summary-legacy", body: legacySummary},
 		{name: "session-list-result", body: SessionListResult{
-			Sessions:                []SessionSummary{newSummary, legacySummary},
-			SupportsSessionMetadata: true,
-		}},
-		// 未升级的 agentred 的应答:它不认识 SupportsSessionMetadata,omitempty 因此
-		// 直接省略这个键,客户端解出 false 并据此说明该机器需要升级(兼容性)。
-		{name: "session-list-result-legacy", body: SessionListResult{
-			Sessions: []SessionSummary{legacySummary},
+			Sessions: []SessionSummary{newSummary, legacySummary},
 		}},
 		{name: "session-pull-params", body: SessionPullParams{SessionID: sid, Cursor: 0, Limit: DefaultSessionPullLimit}},
 		{
@@ -237,6 +246,47 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 				},
 			},
 		},
+		// 技能目录:一档执行目标问「这台机器上有什么技能包」。三条样本各钉一种
+		// discovery —— 空目录必须能被区分开,这正是本方法存在的理由。
+		{
+			name: "skill-catalog-params",
+			body: SkillCatalogParams{
+				BackendType: "claudecode",
+				Authorized: []SkillAuthorization{
+					{ID: "superpowers@claude-plugins-official", Enabled: true},
+					{ID: "dev-kit@claude-plugins-official", Enabled: false},
+				},
+			},
+		},
+		{
+			name: "skill-catalog-result",
+			body: SkillCatalogResult{
+				Discovery: SkillDiscoveryOK,
+				Packs: []SkillPackSummary{
+					{
+						ID:              "superpowers@claude-plugins-official",
+						Name:            "superpowers",
+						Description:     "头脑风暴与 TDD 工作流",
+						Skills:          []string{"brainstorming", "test-driven-development"},
+						Installed:       true,
+						Enabled:         true,
+						GloballyEnabled: true,
+					},
+					// 没装的推荐包:只能看不能授权,界面据此提示「需先安装」。
+					{
+						ID:          "dataviz@claude-plugins-official",
+						Name:        "dataviz",
+						Description: "数据可视化",
+						Skills:      []string{"dataviz"},
+					},
+				},
+			},
+		},
+		// 机器答不出时的样本:目录空,但 discovery 说清了它为什么空。
+		{
+			name: "skill-catalog-result-unavailable",
+			body: SkillCatalogResult{Packs: []SkillPackSummary{}, Discovery: SkillDiscoveryUnavailable},
+		},
 		{name: "event-frame", body: EventFrame{SessionID: sid, Event: textDelta, Seq: 11}},
 		{name: "run-result-done-frame", body: runResultDone},
 		{
@@ -269,55 +319,61 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 			HasMore:   true,
 			OldestSeq: 1,
 		}, map[string]any{"serverVersion": "1.2.3"}),
-		// JSON-RPC 信封(daemon/rpc.Frame 同 shape;wire 包不反向依赖 daemon,这里用
-		// encoding/json 直接组装 —— 帧体仍是上面真实 marshaler 的字节)。
-		{
-			name: "frame-envelope-request",
-			body: map[string]any{
-				"jsonrpc": "2.0",
-				"id":      1,
-				"method":  MethodSessionPull,
-				"params":  mustJSON(t, SessionPullParams{SessionID: sid, Cursor: 0, Limit: DefaultSessionPullLimit}),
-			},
-		},
-		{
-			name: "frame-envelope-response",
-			body: map[string]any{
-				"jsonrpc": "2.0",
-				"id":      1,
-				"result": mustJSON(t, SessionListResult{
-					Sessions:                []SessionSummary{newSummary},
-					SupportsSessionMetadata: true,
-				}),
-			},
-		},
-		{
-			name: "frame-envelope-notification",
-			body: map[string]any{
-				"jsonrpc": "2.0",
-				"method":  NotifyEvent,
-				"params":  mustJSON(t, EventFrame{SessionID: sid, Event: textDelta, Seq: 11}),
-			},
-		},
-		{
-			name: "frame-envelope-error",
-			body: map[string]any{
-				"jsonrpc": "2.0",
-				"id":      2,
-				"error":   map[string]any{"code": ErrCodeSessionNotFound, "message": "session not found"},
-			},
-		},
 	}
 }
 
-// TestGoldenSamples 验证每条黄金样本的确定性 + 往返不丢字段;带上
-// WIRE_GOLDEN_DIR 时把样本写成文件(agentre-server/frontend 的 fixtures)。
-func TestGoldenSamples(t *testing.T) {
-	dir := os.Getenv("WIRE_GOLDEN_DIR")
-	if dir == "" {
-		t.Log("WIRE_GOLDEN_DIR 未设置:只做自检,不写盘")
-	}
+// goldenBytes 用真实 Go marshaler 把一条样本序列化成落盘字节。
+// 落盘与比对共用它,守卫比的就是生成器此刻会写出的东西。
+func goldenBytes(t *testing.T, gf goldenFrame) []byte {
+	t.Helper()
+	b, err := json.MarshalIndent(gf.body, "", "  ")
+	require.NoError(t, err, "帧 %s 序列化失败", gf.name)
+	return append(b, '\n')
+}
 
+// repoRoot 从当前工作目录向上找到带 go.mod 的仓库根。
+// 样本目录因此由本仓自己定位,不依赖任何兄弟 checkout 存在。
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		require.NotEqual(t, dir, parent, "从工作目录向上找不到 go.mod")
+		dir = parent
+	}
+}
+
+// writeGoldenSamples 把全部样本写进 dir(落盘与守卫的临时目录共用这一条路径)。
+func writeGoldenSamples(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o755), "创建黄金样本目录")
+	for _, gf := range buildGoldenFrames(t) {
+		out := filepath.Join(dir, gf.name+".json")
+		require.NoError(t, os.WriteFile(out, goldenBytes(t, gf), 0o644), "写黄金样本 %s", gf.name)
+	}
+}
+
+// listGoldenNames 列出目录里全部 .json 样本文件名(已排序)。
+func listGoldenNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err, "读黄金样本目录 %s", dir)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TestGoldenSamples 自检每条黄金样本的确定性 + 往返不丢字段。不写盘。
+func TestGoldenSamples(t *testing.T) {
 	for _, gf := range buildGoldenFrames(t) {
 		t.Run(gf.name, func(t *testing.T) {
 			b, err := json.MarshalIndent(gf.body, "", "  ")
@@ -344,16 +400,45 @@ func TestGoldenSamples(t *testing.T) {
 				_, ok := m[k]
 				require.True(t, ok, "帧 %s 应含未知字段 %q", gf.name, k)
 			}
-
-			if dir != "" {
-				// G703(路径来自污点输入)在这里不成立:dir 是开发者自己在命令行给的
-				// WIRE_GOLDEN_DIR(生成器的输出目录),文件名是本文件里写死的样本名 ——
-				// 没有外部输入能操纵路径,整段也只在测试里、且只在显式带上这个环境变量
-				// 时执行。
-				require.NoError(t, os.MkdirAll(dir, 0o755), "创建黄金样本目录") //nolint:gosec // 见上
-				out := filepath.Join(dir, gf.name+".json")
-				require.NoError(t, os.WriteFile(out, append(b, '\n'), 0o644), "写黄金样本") //nolint:gosec // 见上
-			}
 		})
 	}
+}
+
+// TestGoldenFixturesFresh 新鲜度守卫:已提交的样本必须就是生成器此刻会写出的东西。
+//
+// 只自检「当下构造出来的帧」是不够的 —— 给 wire 结构加个字段,自检照样绿,而包里
+// 已提交的样本还是旧形状,浏览器侧对着旧样本也照样绿,新字段就在 TS 侧静默消失了。
+// 这里把样本生成到临时目录,与包里的副本比文件集 + 逐字节内容,把那条缝焊死。
+//
+// 守卫单仓自足:样本目录由 repoRoot 定位,不读取也不探测任何兄弟仓库。
+func TestGoldenFixturesFresh(t *testing.T) {
+	committed := filepath.Join(repoRoot(t), goldenFixturesRel)
+	fresh := t.TempDir()
+	writeGoldenSamples(t, fresh)
+
+	// 文件集一致:删了生成器里的样本却留着 .json(或反过来)同样是漂移。
+	require.Equal(t, listGoldenNames(t, fresh), listGoldenNames(t, committed),
+		"%s 的样本文件集与生成器不一致,重新生成:\n\t%s", goldenFixturesRel, regenCmd)
+
+	for _, gf := range buildGoldenFrames(t) {
+		t.Run(gf.name, func(t *testing.T) {
+			// G304:路径由 repoRoot + 本文件里的常量目录 + 本文件里写死的样本名拼出,
+			// 没有外部输入参与,且只在测试里读本仓已提交的样本。
+			got, err := os.ReadFile(filepath.Join(committed, gf.name+".json")) //nolint:gosec // 见上
+			require.NoError(t, err, "读已提交的样本 %s", gf.name)
+			require.Equal(t, string(goldenBytes(t, gf)), string(got),
+				"黄金样本 %s 已过期(wire 结构改了但样本没重新生成),重新生成:\n\t%s", gf.name, regenCmd)
+		})
+	}
+}
+
+// TestWriteGoldenSamples 重新生成黄金样本,把产物写进本仓的 agentre-wire 包。
+// 写盘是显式动作:不带 WIRE_GOLDEN_WRITE=1 直接跳过,`go test ./...` 因此不写盘。
+func TestWriteGoldenSamples(t *testing.T) {
+	if os.Getenv("WIRE_GOLDEN_WRITE") != "1" {
+		t.Skip("设 WIRE_GOLDEN_WRITE=1 重新生成黄金样本")
+	}
+	dir := filepath.Join(repoRoot(t), goldenFixturesRel)
+	writeGoldenSamples(t, dir)
+	t.Logf("黄金样本已写入 %s", dir)
 }

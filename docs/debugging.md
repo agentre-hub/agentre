@@ -91,9 +91,11 @@ diff <(sqlite3 "$DB" "SELECT id FROM migrations ORDER BY id;") \
 ```
 Missing ids ⇒ relaunch the app to run `RunMigrations`; never hand-insert into `migrations`.
 
-**"A remote session on `agentred` produced nothing"** → the daemon writes plain `log.Printf` lines to stderr (wherever the operator redirected them), not into `agentre.log`, and it does **not** hand your chat session id to the backend: session ids are each client's own local primary key, so the daemon folds the peer's device fingerprint into that number before calling claude-code / codex. Grepping the daemon's output for the chat session id therefore finds only the daemon's own frames, never the backend's. The one line that joins both sides is `runtime.run: session started`, which prints `sid=` (the desktop's `chat_sessions.id`) next to `backendKey=` (what the backend's own `sessionID` field reports); grep that once, then follow `backendKey`. For the journal side, `agentred status` prints the daemon's database path and size.
+**"A remote session on `agentred` produced nothing"** → inspect `<AgentredDataDir>/logs/agentred.log` (and `error.log` for failures). `agentred run` also mirrors logs to stdout, while its remaining standard-library `log.Printf` sites are redirected into the same rolling files. The desktop and daemon share the desktop's positive `chat_sessions.id` as `sid`; the daemon isolates equal ids from different desktops by pairing that id with the authenticated peer fingerprint in its session and journal keys. Filter `agentred.log` for `sid=<id>` and the `runtime.run:` lifecycle lines, then compare the daemon-side `agentred.db` journal/session state. `agentred status` prints the daemon's database path and size. Turn on `agentred run --log-level debug` (or `AGENTRED_LOG_LEVEL=debug`) only for a bounded investigation because the daemon's debug stream is verbose.
 
 **"App won't start"** → read `error.log` last 50 lines first. Mostly `mkdir … file exists` or `database is locked` style messages from root `main.go` and `internal/bootstrap/`.
+
+**"make dev started but there is no window"** → Dock should show a separate **Agentre (Dev)** next to the installed Agentre (`com.wails.Agentre.dev` vs `com.wails.Agentre`). The native window is `StartHidden` until the frontend calls `WindowShow`; if Vite is still 502ing, that call never happens — check `agentre-dev/logs/agentre.log` for `app startup` and `devProxyRetryMiddleware`.
 
 ## Common Mistakes
 

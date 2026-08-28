@@ -13,14 +13,14 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/service/department_svc"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 const (
@@ -51,7 +51,7 @@ type agentSvc struct {
 	now func() int64
 }
 
-var defaultAgent AgentSvc = &agentSvc{now: func() int64 { return time.Now().Unix() }}
+var defaultAgent AgentSvc = &agentSvc{now: func() int64 { return time.Now().UnixMilli() }}
 
 func Agent() AgentSvc { return defaultAgent }
 
@@ -526,49 +526,30 @@ func toolsFromDTO(items []department_svc.AgentToolDTO) []agent_entity.AgentToolI
 	return out
 }
 
-// primaryTargetSkills 取 ①（sort_order 最小的那一档）的技能授权（R15e、决策 33）。
-//
-// 与 department_svc 列表页那个同名函数是同一条规则、两种入参形态：AgentItem 的
-// Skills 与 AgentBackendID 是同一个视图的两半，都只看 ①；多档的逐档授权在详情页
-// 一档一块地呈现，这里不做跨档并集。列表为空时为空。
-func primaryTargetSkills(targets []*agent_entity.AgentExecTarget) []department_svc.AgentSkillDTO {
-	out := []department_svc.AgentSkillDTO{}
-	if len(targets) == 0 || targets[0] == nil {
-		return out
-	}
-	for _, s := range targets[0].GetSkills() {
-		out = append(out, department_svc.AgentSkillDTO{ID: s.ID, Enabled: s.Enabled})
-	}
-	return out
-}
-
 // toItem 把 Agent 行 + 它当前的执行目标列表打平成前端 DTO。targets 由调用方给出
 // （通常是刚写完之后的 execTargetSnapshot 结果），避免这里重复查询。
 func toItem(a *agent_entity.Agent, targets []*agent_entity.AgentExecTarget) *AgentItem {
-	skills := primaryTargetSkills(targets)
 	rawTools := a.GetTools()
 	tools := make([]department_svc.AgentToolDTO, 0, len(rawTools))
 	for _, t := range rawTools {
 		tools = append(tools, department_svc.AgentToolDTO{Key: t.Key, Enabled: t.Enabled})
 	}
 	return &AgentItem{
-		ID:             a.ID,
-		Name:           a.Name,
-		Description:    a.Description,
-		AvatarColor:    a.AvatarColor,
-		AvatarIcon:     a.AvatarIcon,
-		AvatarDataURL:  a.AvatarDataURL,
-		SystemBadge:    a.SystemBadge,
-		DepartmentID:   a.DepartmentID,
-		ParentAgentID:  a.ParentAgentID,
-		AgentBackendID: a.AgentBackendID,
-		SortOrder:      a.SortOrder,
-		Prompt:         a.GetPrompt(),
-		Skills:         skills,
-		ExecTargets:    toAgentExecTargetItems(targets),
-		Tools:          tools,
-		Createtime:     a.Createtime,
-		Updatetime:     a.Updatetime,
+		ID:            a.ID,
+		Name:          a.Name,
+		Description:   a.Description,
+		AvatarColor:   a.AvatarColor,
+		AvatarIcon:    a.AvatarIcon,
+		AvatarDataURL: a.AvatarDataURL,
+		SystemBadge:   a.SystemBadge,
+		DepartmentID:  a.DepartmentID,
+		ParentAgentID: a.ParentAgentID,
+		SortOrder:     a.SortOrder,
+		Prompt:        a.GetPrompt(),
+		ExecTargets:   toAgentExecTargetItems(targets),
+		Tools:         tools,
+		Createtime:    a.Createtime,
+		Updatetime:    a.Updatetime,
 	}
 }
 

@@ -18,7 +18,6 @@ const baseLan: DeviceView = {
   lastSeenAt: 0,
   lastError: "",
   online: false,
-  daemonOutdated: false,
 };
 
 const baseDevice: DeviceRowModel = {
@@ -56,7 +55,7 @@ describe("DeviceRow", () => {
     renderRow(baseDevice);
     expect(screen.getByText("OS Default")).toBeInTheDocument();
   });
-  it("renders 尚未连接 when LastSeenAt = 0", () => {
+  it("renders 尚未连接 when lastSeenAt = 0", () => {
     renderRow(baseDevice);
     expect(screen.getByText(/Never connected/)).toBeInTheDocument();
   });
@@ -70,19 +69,6 @@ describe("DeviceRow", () => {
       screen.getByText(/identity fingerprint changed/),
     ).toBeInTheDocument();
   });
-  // R18：daemon 版本过旧时，说明落在这台设备自己那一行 —— 它是设备属性，
-  // 不是会话事件，也不是浮在聊天上的横幅。
-  it("explains an outdated daemon on the device row", () => {
-    const d = { ...baseDevice, lan: { ...baseLan, daemonOutdated: true } };
-    renderRow(d);
-    expect(screen.getByText(/Outdated daemon/)).toBeInTheDocument();
-  });
-
-  it("says nothing about the version when the daemon is current", () => {
-    renderRow(baseDevice);
-    expect(screen.queryByText(/Outdated daemon/)).not.toBeInTheDocument();
-  });
-
   it("fires onRemove from action menu", async () => {
     const user = userEvent.setup();
     const onRemove = vi.fn();
@@ -104,16 +90,16 @@ describe("DeviceRow", () => {
       ...baseDevice,
       online: true,
       account: {
-        ID: 10,
-        Name: "linux-srv",
-        Kind: "agentred",
-        Platform: "linux",
-        Version: "0.3.0",
-        Fingerprint: "fp",
-        LastSeenAt: 1,
-        Status: 1,
-        Online: true,
-        IsThisDevice: false,
+        id: 10,
+        name: "linux-srv",
+        kind: "agentred",
+        platform: "linux",
+        version: "0.3.0",
+        fingerprint: "fp",
+        lastSeenAt: 1,
+        status: 1,
+        online: true,
+        isThisDevice: false,
       },
       paths: [
         { kind: "lan", state: "in-use" },
@@ -142,16 +128,16 @@ describe("DeviceRow", () => {
     const d: DeviceRowModel = {
       ...baseDevice,
       account: {
-        ID: 10,
-        Name: "linux-srv",
-        Kind: "agentred",
-        Platform: "linux",
-        Version: "0.3.0",
-        Fingerprint: "fp",
-        LastSeenAt: 1,
-        Status: 1,
-        Online: true,
-        IsThisDevice: false,
+        id: 10,
+        name: "linux-srv",
+        kind: "agentred",
+        platform: "linux",
+        version: "0.3.0",
+        fingerprint: "fp",
+        lastSeenAt: 1,
+        status: 1,
+        online: true,
+        isThisDevice: false,
       },
       viaRelay: true,
       paths: [
@@ -196,16 +182,16 @@ describe("DeviceRow", () => {
       online: true,
       lastSeenAt: 1_700_000_000_000,
       account: {
-        ID: 21,
-        Name: "cloud-box",
-        Kind: "agentred",
-        Platform: "linux",
-        Version: "0.3.0",
-        Fingerprint: "fp-cloud",
-        LastSeenAt: 1_700_000_000_000,
-        Status: 1,
-        Online: true,
-        IsThisDevice: false,
+        id: 21,
+        name: "cloud-box",
+        kind: "agentred",
+        platform: "linux",
+        version: "0.3.0",
+        fingerprint: "fp-cloud",
+        lastSeenAt: 1_700_000_000_000,
+        status: 1,
+        online: true,
+        isThisDevice: false,
       },
       paths: [{ kind: "relay", state: "in-use" }],
       unclaimed: false,

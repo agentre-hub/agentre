@@ -9,8 +9,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // toolNameExitPlanMode CLI 计划审批 control_request 的 tool_name。

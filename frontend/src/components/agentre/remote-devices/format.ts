@@ -1,20 +1,18 @@
 import type { TFunction } from "i18next";
 
+import { formatRelativeTime } from "@agentre-hub/agentre-ui";
+
 // frontend/src/components/agentre/remote-devices/format.ts
+/**
+ * 档位阶梯与文案都在共享包里（`formatRelativeTime`）。设备列表要的是「刚刚」这一
+ * 档：秒级精度对「上次见到这台机器」没有意义。
+ */
 export function relativeTime(
   thenMs: number,
   nowMs: number,
   t: TFunction,
 ): string {
-  if (!thenMs) return t("remoteDevices.time.never");
-  const delta = Math.max(0, nowMs - thenMs);
-  if (delta < 60_000) return t("remoteDevices.time.justNow");
-  const minutes = Math.floor(delta / 60_000);
-  if (minutes < 60) return t("remoteDevices.time.minutesAgo", { minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("remoteDevices.time.hoursAgo", { hours });
-  const days = Math.floor(hours / 24);
-  return t("remoteDevices.time.daysAgo", { days });
+  return formatRelativeTime(thenMs, nowMs, t);
 }
 
 const IP_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
@@ -45,6 +43,13 @@ export function friendlyLastError(le: string, t: TFunction): string {
   if (!le) return "";
   if (le === "tofu_mismatch") return t("remoteDevices.errors.tofuMismatch");
   if (le === "unauthorized") return t("remoteDevices.errors.unauthorized");
+  // agentred 是用 `make agentred-deploy` 单独推到远端机器的,版本歪斜是常态。
+  // 「不认识这套协议」与「版本对不上」的处置一样(重装远端 agentred),但原因
+  // 不同,所以各说各的。
+  if (le === "protocol_unsupported")
+    return t("remoteDevices.errors.protocolUnsupported");
+  if (le === "protocol_mismatch")
+    return t("remoteDevices.errors.protocolMismatch");
   if (le.startsWith("dial_failed:"))
     return t("remoteDevices.errors.dialFailed", {
       message: le.slice("dial_failed:".length),

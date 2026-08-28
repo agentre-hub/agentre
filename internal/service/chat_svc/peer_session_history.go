@@ -13,12 +13,12 @@ import (
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 // peerSessionPublication owns the one ordered notification universe for a
@@ -138,13 +138,8 @@ func (s *chatSvc) PullPeerSession(_ context.Context, params wire.SessionPullPara
 			out.HasMore = true
 			break
 		}
-		paramsRaw, err := json.Marshal(frame)
-		if err != nil {
-			publication.mu.Unlock()
-			return wire.SessionPullResult{}, fmt.Errorf("marshal peer history frame: %w", err)
-		}
 		out.Notifications = append(out.Notifications, wire.JournaledNotification{
-			Seq: frame.Seq, Method: wire.NotifyEvent, Params: paramsRaw,
+			Seq: frame.Seq, Method: wire.NotifyEvent, Params: &frame,
 		})
 		out.Cursor = frame.Seq
 	}
@@ -220,19 +215,13 @@ func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, sub
 	return highWater, detach, nil
 }
 
+// publishPeerEvent 把一条密封事件挂进该会话的对端通知宇宙。
+//
+// 从前这里分成 publishPeerEvent / publishPeerEventRaw 两跳,中间隔着一次
+// json.Marshal —— 那次序列化只是为了填 EventFrame 上的 json.RawMessage;帧现在
+// 直接装密封值,两跳合成一跳。
 func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 	if sessionID <= 0 || event == nil {
-		return
-	}
-	raw, err := json.Marshal(event)
-	if err != nil {
-		return
-	}
-	s.publishPeerEventRaw(sessionID, raw)
-}
-
-func (s *chatSvc) publishPeerEventRaw(sessionID int64, raw json.RawMessage) {
-	if sessionID <= 0 || len(raw) == 0 {
 		return
 	}
 	value, ok := s.peerPublications.Load(sessionID)
@@ -242,7 +231,7 @@ func (s *chatSvc) publishPeerEventRaw(sessionID int64, raw json.RawMessage) {
 	publication := value.(*peerSessionPublication)
 	publication.mu.Lock()
 	publication.nextSeq++
-	frame := wire.EventFrame{SessionID: sessionID, Event: append(json.RawMessage(nil), raw...), Seq: publication.nextSeq}
+	frame := wire.EventFrame{SessionID: sessionID, Event: event, Seq: publication.nextSeq}
 	publication.history = append(publication.history, frame)
 	for _, subscription := range publication.subscribers {
 		// Queue only: the flush worker performs the (potentially blocking) relay
@@ -281,19 +270,7 @@ func synthesizePeerHistory(sessionID int64, messages []*chat_entity.Message) ([]
 	})
 	frames := make([]wire.EventFrame, 0)
 	appendEvent := func(event agentruntime.Event) error {
-		raw, err := json.Marshal(event)
-		if err != nil {
-			return err
-		}
-		frames = append(frames, wire.EventFrame{SessionID: sessionID, Event: raw})
-		return nil
-	}
-	appendRaw := func(raw any) error {
-		encoded, err := json.Marshal(raw)
-		if err != nil {
-			return err
-		}
-		frames = append(frames, wire.EventFrame{SessionID: sessionID, Event: encoded})
+		frames = append(frames, wire.EventFrame{SessionID: sessionID, Event: event})
 		return nil
 	}
 	for _, message := range sorted {
@@ -364,10 +341,13 @@ func synthesizePeerHistory(sessionID int64, messages []*chat_entity.Message) ([]
 				if err := appendEvent(event); err != nil {
 					return nil, err
 				}
-			} else if err := appendRaw(struct {
-				Kind  string                 `json:"kind"`
-				Block cagoblocks.StoredBlock `json:"block"`
-			}{Kind: "unrecognized_block", Block: block}); err != nil {
+				// 投射不出来的块原样往下送(R8)。它是一等的密封事件,所以既过得了
+				// 协议边界,又不必在这里对载荷做任何解释 —— 对端可能是认得这个
+				// blockType 的新版本。
+			} else if err := appendEvent(agentruntime.UnrecognizedBlock{
+				BlockType: block.Type,
+				Data:      append(json.RawMessage(nil), block.Data...),
+			}); err != nil {
 				return nil, err
 			}
 		}
@@ -440,14 +420,14 @@ func peerEventForStoredBlock(message *chat_entity.Message, block cagoblocks.Stor
 		return agentruntime.ToolCall{ID: data.ID, Name: data.Name, Input: data.Input}, true, nil
 	case "tool_result":
 		var data struct {
-			ToolUseID string                   `json:"tool_use_id"`
-			Content   []cagoblocks.StoredBlock `json:"content"`
-			IsError   bool                     `json:"is_error"`
+			ToolCallID string                   `json:"tool_use_id"`
+			Content    []cagoblocks.StoredBlock `json:"content"`
+			IsError    bool                     `json:"is_error"`
 		}
 		if err := json.Unmarshal(block.Data, &data); err != nil {
 			return nil, false, err
 		}
-		return agentruntime.ToolResult{ToolCallID: data.ToolUseID, Content: peerTextFromStoredBlocks(data.Content), IsError: data.IsError}, true, nil
+		return agentruntime.ToolResult{ToolCallID: data.ToolCallID, Content: peerTextFromStoredBlocks(data.Content), IsError: data.IsError}, true, nil
 	case "permission_mode_change":
 		var data chatblocks.PermissionModeChangeBlock
 		if err := json.Unmarshal(block.Data, &data); err != nil {

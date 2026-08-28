@@ -3,6 +3,21 @@ import { create } from "zustand";
 import type { ChatStreamEvent, ChatStreamUsage } from "@/hooks/use-chat-stream";
 
 import type { chat_svc, view } from "../../wailsjs/go/models";
+import {
+  appendCompactBoundaryBlock,
+  appendToolApprovalBlock,
+  appendToolPermissionRequestBlock,
+  appendToolResultBlock,
+  appendToolUseBlock,
+  markAskUserQuestionAnsweredBlocks,
+  markExecApprovalResolvedBlocks,
+  markToolApprovalResolvedBlocks,
+  markToolPermissionResolvedBlocks,
+  mergeSubagentMetaBlocks,
+  upsertExecApprovalBlock,
+  upsertPlanBlock,
+  findLastBlockIndex,
+} from "./chat-block-reducers";
 import { useSessionStatusStore, type DoneEvent } from "./session-status-store";
 import { useQueuedMessagesStore } from "./queued-messages-store";
 
@@ -79,6 +94,18 @@ export type LiveStream = {
   // 在 appendLiveCompactBoundary / finishStream / consumeSteer 自动清回 false,
   // 不依赖 CLI 再推一帧 status:"" 来清旗。
   liveCompacting: boolean;
+  // 本轮计时（与后端 turn/timing.go 同口径）：firstTokenAt 第一次 chunk/thinking
+  // （TTFT）；burstStartedAt 非 null 表示计时正在走，值是本次开表时刻；generationMs
+  // 是已经停表的各段之和；pendingTools 是正在执行、把表按住的外层工具。
+  // 分母 = 整轮耗时 − 工具执行空档；等首 token 的排队/prefill 计入。
+  firstTokenAt: number | null;
+  burstStartedAt: number | null;
+  generationMs: number;
+  pendingTools: string[];
+  // turnCompletionTokens / turnReasoningTokens 按 usage 帧累加（每帧是该次 API call
+  // 的快照，不是增量）。liveUsage 仍是最近一帧，Composer 上下文条读它的 totalInputTokens。
+  turnCompletionTokens: number;
+  turnReasoningTokens: number;
 };
 
 // State.streams 是 **两层** Map:sessionId → (assistantMessageId → LiveStream)。
@@ -110,6 +137,12 @@ type Actions = {
       | "liveUsage"
       | "liveContextWindow"
       | "liveCompacting"
+      | "firstTokenAt"
+      | "burstStartedAt"
+      | "generationMs"
+      | "pendingTools"
+      | "turnCompletionTokens"
+      | "turnReasoningTokens"
     >,
   ) => void;
   closeStream: (sessionId: number, assistantMessageId: number) => void;
@@ -123,6 +156,9 @@ type Actions = {
     assistantMessageId: number,
     delta: string,
   ) => void;
+  // noteOutputActivity 记首 token：后端 output_activity 事件（模型开始产出一个输出
+  // 块，含工具入参这类看不见的输出）。只记表不动表，见下方 noteFirstToken。
+  noteOutputActivity: (sessionId: number, assistantMessageId: number) => void;
   // 接受不带 type 的 partial:action 会统一 stamp 成 "tool_use" / "tool_result",
   // 避免每个 caller 都重复填同样的字段。
   appendLiveToolUse: (
@@ -282,6 +318,69 @@ type Actions = {
 // liveBlocks 前 —— 工具循环里后几轮的 thinking 被全堆到最顶(用户可见症状:
 // 「思考完成过程都在最顶部叠加」)。这里改为在 tool_use/plan/ask 等边界一并
 // 把 liveThinking 落成 thinking block,让 liveBlocks 保持真实时间顺序。
+// noteVisibleToken 记首 token，并在表被按住时重新开表：模型开口说话 = 工具空档必然
+// 已经结束。这同时是「工具结果因中断/过滤没回来」时的自愈，免得表被永久按住、分母
+// 塌回几十毫秒。
+function noteVisibleToken(s: LiveStream, now: number): LiveStream {
+  return {
+    ...s,
+    firstTokenAt: s.firstTokenAt ?? now,
+    burstStartedAt: s.burstStartedAt ?? now,
+    pendingTools: s.pendingTools.length === 0 ? s.pendingTools : [],
+  };
+}
+
+// noteFirstToken 只记首 token，不碰表。给「模型确实在产出输出 token，但产出的东西
+// 用户看不见」的信号用（output_activity；没有该事件的后端由 tool_use 兜底）。
+//
+// 与 noteVisibleToken 的区别是刻意的：那条要清挂账 + 重新开表（可见正文 = 工具空档
+// 必然已结束的自愈），这条只补一个时间戳，不让新信号动到已经钉死的 tok/s 分母口径。
+// 与后端 turn/timing.go 的 NoteOutputTokenAt 同口径。
+//
+// 没有它，一跳纯工具调用（一个字都不吐）时首 token 会一路推迟到模型终于开口说正文
+// 那一刻：sess-3241 里 190.1s 的一轮报出 166.6s 的首 token，而在那之前整整 23 跳里
+// 界面上的「首 token」就是一个不断增长的整轮耗时、tok/s 干脆不显示。
+function noteFirstToken(s: LiveStream, now: number): LiveStream {
+  return s.firstTokenAt == null ? { ...s, firstTokenAt: now } : s;
+}
+
+function pauseBurst(s: LiveStream, now: number): LiveStream {
+  if (s.burstStartedAt == null) return s;
+  return {
+    ...s,
+    generationMs: s.generationMs + Math.max(0, now - s.burstStartedAt),
+    burstStartedAt: null,
+  };
+}
+
+/** suspendClock 停表：toolUseId 开始执行，这段工具空档不算。 */
+function suspendClock(
+  s: LiveStream,
+  toolUseId: string,
+  now: number,
+): LiveStream {
+  const paused = pauseBurst(s, now);
+  return paused.pendingTools.includes(toolUseId)
+    ? paused
+    : { ...paused, pendingTools: [...paused.pendingTools, toolUseId] };
+}
+
+/** resumeClock 开表：并行工具全部回齐才真的开表。 */
+function resumeClock(
+  s: LiveStream,
+  toolUseId: string,
+  now: number,
+): LiveStream {
+  if (!s.pendingTools.includes(toolUseId)) return s;
+  const pendingTools = s.pendingTools.filter((id) => id !== toolUseId);
+  return {
+    ...s,
+    pendingTools,
+    burstStartedAt:
+      pendingTools.length === 0 ? (s.burstStartedAt ?? now) : s.burstStartedAt,
+  };
+}
+
 function flushLiveSegment(s: LiveStream): LiveStream {
   if (s.liveDelta.length === 0 && s.liveThinking.length === 0) return s;
   const nextBlocks = [...s.liveBlocks];
@@ -381,31 +480,6 @@ function dropStream(
   return { streams };
 }
 
-/**
- * findLastBlockIndex 倒序找最近一个满足 pred 的 live block。同一 id 在一轮里通常
- * 只出现一次,但倒序更稳 —— 能正确处理流式过程中尚未匹配到的边界态。
- */
-function findLastBlockIndex(
-  blocks: ChatBlockData[],
-  pred: (b: ChatBlockData) => boolean,
-): number {
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    if (pred(blocks[i])) return i;
-  }
-  return -1;
-}
-
-/** replaceBlock 返回把第 idx 块换成 next 的新数组。 */
-function replaceBlock(
-  blocks: ChatBlockData[],
-  idx: number,
-  next: ChatBlockData,
-): ChatBlockData[] {
-  const out = [...blocks];
-  out[idx] = next;
-  return out;
-}
-
 export const useChatStreamsStore = create<State & Actions>((set) => ({
   streams: new Map(),
 
@@ -423,6 +497,13 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         liveUsage: null,
         liveContextWindow: 0,
         liveCompacting: false,
+        firstTokenAt: null,
+        // turn 开始即开表（工具空档由 tool 事件停/开）。
+        burstStartedAt: Date.now(),
+        generationMs: 0,
+        pendingTools: [],
+        turnCompletionTokens: 0,
+        turnReasoningTokens: 0,
       });
       streams.set(s.sessionId, perMessage);
       return { streams };
@@ -434,14 +515,24 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
   appendLiveText: (sessionId, assistantMessageId, delta) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) =>
-        delta ? { ...cur, liveDelta: cur.liveDelta + delta } : null,
+        delta
+          ? noteVisibleToken(
+              { ...cur, liveDelta: cur.liveDelta + delta },
+              Date.now(),
+            )
+          : null,
       ),
     ),
 
   appendLiveThinking: (sessionId, assistantMessageId, delta) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) =>
-        delta ? { ...cur, liveThinking: cur.liveThinking + delta } : null,
+        delta
+          ? noteVisibleToken(
+              { ...cur, liveThinking: cur.liveThinking + delta },
+              Date.now(),
+            )
+          : null,
       ),
     ),
 
@@ -468,10 +559,16 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         ) {
           return null;
         }
+        // 不停表：usage 是某次内部 API call 的收尾，模型紧接着就发工具调用或
+        // 下一段正文。停表的唯一理由是工具开始执行（见 appendLiveToolUse）。
         return {
           ...cur,
           liveUsage: usage,
           liveContextWindow: nextContextWindow,
+          turnCompletionTokens:
+            cur.turnCompletionTokens + (usage.completionTokens ?? 0),
+          turnReasoningTokens:
+            cur.turnReasoningTokens + (usage.reasoningTokens ?? 0),
         };
       }),
     ),
@@ -509,28 +606,50 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
       ),
     ),
 
+  noteOutputActivity: (sessionId, assistantMessageId) =>
+    set((state) =>
+      updateStream(state, sessionId, assistantMessageId, (cur) =>
+        cur.firstTokenAt == null ? noteFirstToken(cur, Date.now()) : null,
+      ),
+    ),
+
   appendLiveToolUse: (sessionId, assistantMessageId, block) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) => {
-        const flushed = flushLiveSegment(cur);
+        // 内层（subagent 内部）工具不碰表 —— 派遣它的那个外层 Task 调用已经把表
+        // 按住了，内层再加减一遍只会在孤儿帧上留下按死表的挂账。
+        //
+        // 停表前先兜底记一次首 token：工具调用摆在这里，模型显然早就在产出 token
+        // 了。claudecode 有更早更准的 output_activity 事件，先到先得；没有等价帧的
+        // 后端（codex / piagent）靠这一条（sess-3241）。
+        const now = Date.now();
+        const segment = flushLiveSegment(cur);
+        const flushed =
+          block.parentToolUseId || !block.toolUseId
+            ? segment
+            : suspendClock(noteFirstToken(segment, now), block.toolUseId, now);
         return {
           ...flushed,
-          liveBlocks: [
-            ...flushed.liveBlocks,
-            { ...block, type: "tool_use" } as ChatBlockData,
-          ],
+          liveBlocks: appendToolUseBlock(flushed.liveBlocks, block),
         };
       }),
     ),
 
   appendLiveToolResult: (sessionId, assistantMessageId, block) =>
     set((state) =>
-      updateStream(state, sessionId, assistantMessageId, (cur) => ({
-        // 故意不 flush liveDelta:tool_use→tool_result 之间通常没有用户可见的文字,
-        // 把累积的 liveDelta 留给"下一段文字 + 下次 tool_use"那个 flush 时机。
-        ...cur,
-        liveBlocks: [...cur.liveBlocks, { ...block, type: "tool_result" }],
-      })),
+      updateStream(state, sessionId, assistantMessageId, (cur) => {
+        // 工具跑完，模型要接着生成了 → 重新开表（并行工具全部回齐才真开）。
+        const resumed =
+          block.parentToolUseId || !block.toolUseId
+            ? cur
+            : resumeClock(cur, block.toolUseId, Date.now());
+        return {
+          // 故意不 flush liveDelta:tool_use→tool_result 之间通常没有用户可见的文字,
+          // 把累积的 liveDelta 留给"下一段文字 + 下次 tool_use"那个 flush 时机。
+          ...resumed,
+          liveBlocks: appendToolResultBlock(resumed.liveBlocks, block),
+        };
+      }),
     ),
 
   appendLiveCompactBoundary: (sessionId, assistantMessageId, compact) =>
@@ -539,17 +658,7 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         const flushed = flushLiveSegment(cur);
         return {
           ...flushed,
-          liveBlocks: [
-            ...flushed.liveBlocks,
-            {
-              type: "compact_boundary",
-              compact: {
-                preTokens: compact.preTokens,
-                trigger: compact.trigger,
-                at: compact.at,
-              },
-            },
-          ],
+          liveBlocks: appendCompactBoundaryBlock(flushed.liveBlocks, compact),
           // compact_boundary 到达 = 压缩流程结束 → 自动清 liveCompacting,
           // 不依赖 CLI 显式再推一帧 status:"" 清旗。
           liveCompacting: false,
@@ -566,20 +675,9 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
           : text;
         if (!planText && canonical?.kind !== "plan.update") return null;
         const flushed = flushLiveSegment(cur);
-        const nextBlock: ChatBlockData = {
-          type: "plan",
-          text: planText,
-          canonical,
-        };
-        const targetIdx = flushed.liveBlocks.findIndex(
-          (b) => b.type === "plan" && b.canonical?.kind === "plan.update",
-        );
         return {
           ...flushed,
-          liveBlocks:
-            targetIdx >= 0
-              ? replaceBlock(flushed.liveBlocks, targetIdx, nextBlock)
-              : [...flushed.liveBlocks, nextBlock],
+          liveBlocks: upsertPlanBlock(flushed.liveBlocks, planText, canonical),
         };
       }),
     ),
@@ -616,27 +714,12 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
   ) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!payload || !payload.requestId) return null;
-        const targetIdx = findLastBlockIndex(
+        const liveBlocks = markAskUserQuestionAnsweredBlocks(
           cur.liveBlocks,
-          (b) =>
-            b.type === "ask_user_question" &&
-            b.askUserQuestion?.requestId === payload.requestId,
+          payload,
+          canonical,
         );
-        if (targetIdx < 0) return null;
-        const existing = cur.liveBlocks[targetIdx];
-        const merged: ChatBlockData = {
-          ...existing,
-          askUserQuestion: {
-            ...(existing.askUserQuestion ?? payload),
-            ...payload,
-          } as chat_svc.ChatBlockAskUserQuestion,
-          canonical: canonical ?? existing.canonical,
-        };
-        return {
-          ...cur,
-          liveBlocks: replaceBlock(cur.liveBlocks, targetIdx, merged),
-        };
+        return liveBlocks ? { ...cur, liveBlocks } : null;
       }),
     ),
 
@@ -652,14 +735,11 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         const flushed = flushLiveSegment(cur);
         return {
           ...flushed,
-          liveBlocks: [
-            ...flushed.liveBlocks,
-            {
-              type: "tool_permission_request",
-              toolPermission: payload,
-              canonical,
-            },
-          ],
+          liveBlocks: appendToolPermissionRequestBlock(
+            flushed.liveBlocks,
+            payload,
+            canonical,
+          ),
         };
       }),
     ),
@@ -672,63 +752,12 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
   ) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!payload || !payload.requestId) return null;
-        const targetIdx = findLastBlockIndex(
+        const liveBlocks = markToolPermissionResolvedBlocks(
           cur.liveBlocks,
-          (b) =>
-            b.type === "tool_permission_request" &&
-            b.toolPermission?.requestId === payload.requestId,
+          payload,
+          canonical,
         );
-        if (targetIdx < 0) return null;
-        const existing = cur.liveBlocks[targetIdx];
-        const mergedSidecar = {
-          ...(existing.toolPermission ?? payload),
-          ...payload,
-        } as chat_svc.ChatBlockToolPermission;
-        // canonical 同步更新,避免乐观更新 race —— 新卡读 canonical 为 truth。
-        // 调用方传了完整 canonical(后端 echo 路径)直接覆盖;否则按 existing canonical
-        // 拷出新对象,只推进 resolved/allowed/alwaysAllow 三个标志位(乐观更新路径)。
-        // toolPermission/planApprove 在对应 kind 下必填(后端 dispatcher_emitter 保证),
-        // 但 wails 生成 TS 类型为 optional + class 含 convertValues,所以用 cast
-        // 构造纯数据对象(运行时只用字段,不调 convertValues)。
-        let mergedCanonical = canonical ?? existing.canonical;
-        if (
-          !canonical &&
-          mergedCanonical?.kind === "tool.permission" &&
-          mergedCanonical.toolPermission
-        ) {
-          mergedCanonical = {
-            ...mergedCanonical,
-            toolPermission: {
-              ...mergedCanonical.toolPermission,
-              resolved: !!payload.resolved,
-              allowed: !!payload.allowed,
-              alwaysAllow: !!payload.alwaysAllow,
-            },
-          } as view.CanonicalDTO;
-        } else if (
-          !canonical &&
-          mergedCanonical?.kind === "plan.approve_request" &&
-          mergedCanonical.planApprove
-        ) {
-          mergedCanonical = {
-            ...mergedCanonical,
-            planApprove: {
-              ...mergedCanonical.planApprove,
-              resolved: !!payload.resolved,
-              allowed: !!payload.allowed,
-            },
-          } as view.CanonicalDTO;
-        }
-        const merged: ChatBlockData = {
-          ...existing,
-          toolPermission: mergedSidecar,
-          canonical: mergedCanonical,
-        };
-        return {
-          ...cur,
-          liveBlocks: replaceBlock(cur.liveBlocks, targetIdx, merged),
-        };
+        return liveBlocks ? { ...cur, liveBlocks } : null;
       }),
     ),
 
@@ -739,13 +768,7 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
         const flushed = flushLiveSegment(cur);
         return {
           ...flushed,
-          liveBlocks: [
-            ...flushed.liveBlocks,
-            {
-              type: "tool_approval",
-              toolApproval: payload,
-            },
-          ],
+          liveBlocks: appendToolApprovalBlock(flushed.liveBlocks, payload),
         };
       }),
     ),
@@ -753,27 +776,11 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
   markToolApprovalResolved: (sessionId, assistantMessageId, payload) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!payload || !payload.requestId) return null;
-        const targetIdx = findLastBlockIndex(
+        const liveBlocks = markToolApprovalResolvedBlocks(
           cur.liveBlocks,
-          (b) =>
-            b.type === "tool_approval" &&
-            b.toolApproval?.requestId === payload.requestId,
+          payload,
         );
-        // 未知 requestId no-op:不重建 Map,避免触发多余重渲染。
-        if (targetIdx < 0) return null;
-        const existing = cur.liveBlocks[targetIdx];
-        const merged: ChatBlockData = {
-          ...existing,
-          toolApproval: {
-            ...(existing.toolApproval ?? payload),
-            ...payload,
-          } as ToolApprovalData,
-        };
-        return {
-          ...cur,
-          liveBlocks: replaceBlock(cur.liveBlocks, targetIdx, merged),
-        };
+        return liveBlocks ? { ...cur, liveBlocks } : null;
       }),
     ),
 
@@ -787,78 +794,34 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
             block.type === "exec_approval" &&
             block.execApproval?.id === payload.id,
         );
-        if (existingIdx >= 0) {
-          const existing = cur.liveBlocks[existingIdx];
-          return {
-            ...cur,
-            liveBlocks: replaceBlock(cur.liveBlocks, existingIdx, {
-              ...existing,
-              execApproval: {
-                ...(existing.execApproval ?? payload),
-                ...payload,
-              } as ExecApprovalData,
-            }),
-          };
-        }
-        const flushed = flushLiveSegment(cur);
-        return {
-          ...flushed,
-          liveBlocks: [
-            ...flushed.liveBlocks,
-            { type: "exec_approval", execApproval: payload },
-          ],
-        };
+        // 只有真的要追加新卡片(找不到既有条目)才 flush:更新既有卡片状态不该把
+        // 尚未流完的正文提前冻结成 block。
+        const base = existingIdx >= 0 ? cur : flushLiveSegment(cur);
+        const liveBlocks = upsertExecApprovalBlock(base.liveBlocks, payload);
+        return liveBlocks ? { ...base, liveBlocks } : null;
       }),
     ),
 
   markExecApprovalResolved: (sessionId, assistantMessageId, payload) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!payload?.id) return null;
-        const targetIdx = findLastBlockIndex(
+        const liveBlocks = markExecApprovalResolvedBlocks(
           cur.liveBlocks,
-          (block) =>
-            block.type === "exec_approval" &&
-            block.execApproval?.id === payload.id,
+          payload,
         );
-        if (targetIdx < 0) return null;
-        const existing = cur.liveBlocks[targetIdx];
-        return {
-          ...cur,
-          liveBlocks: replaceBlock(cur.liveBlocks, targetIdx, {
-            ...existing,
-            execApproval: {
-              ...(existing.execApproval ?? payload),
-              ...payload,
-            } as ExecApprovalData,
-          }),
-        };
+        return liveBlocks ? { ...cur, liveBlocks } : null;
       }),
     ),
 
   mergeSubagentMeta: (sessionId, assistantMessageId, toolUseId, meta) =>
     set((state) =>
       updateStream(state, sessionId, assistantMessageId, (cur) => {
-        if (!toolUseId) return null;
-        const targetIdx = findLastBlockIndex(
+        const liveBlocks = mergeSubagentMetaBlocks(
           cur.liveBlocks,
-          (b) => b.type === "tool_use" && b.toolUseId === toolUseId,
+          toolUseId,
+          meta,
         );
-        if (targetIdx < 0) return null;
-        const target = cur.liveBlocks[targetIdx];
-        const { runs, ...patch } = meta;
-        const merged: ChatBlockData = {
-          ...target,
-          subagent: {
-            ...(target.subagent ?? {}),
-            ...patch,
-            ...(runs !== undefined ? { runs } : {}),
-          } as chat_svc.ChatBlockSubagent,
-        };
-        return {
-          ...cur,
-          liveBlocks: replaceBlock(cur.liveBlocks, targetIdx, merged),
-        };
+        return liveBlocks ? { ...cur, liveBlocks } : null;
       }),
     ),
 
@@ -896,6 +859,13 @@ export const useChatStreamsStore = create<State & Actions>((set) => ({
           liveRetry: null,
           // 新 assistant 段开始 → 清掉上一段的 compacting chip。
           liveCompacting: false,
+          firstTokenAt: null,
+          // 新 assistant 段开始 → 计时重新开走。
+          burstStartedAt: Date.now(),
+          generationMs: 0,
+          pendingTools: [],
+          turnCompletionTokens: 0,
+          turnReasoningTokens: 0,
         });
         streams = new Map(state.streams);
         streams.set(sessionId, nextPerMessage);

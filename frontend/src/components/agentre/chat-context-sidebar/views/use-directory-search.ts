@@ -60,6 +60,8 @@ export const INACTIVE_DIRECTORY_SEARCH: DirectorySearch = {
  */
 export function useDirectorySearch(
   sessionId: number,
+  /** 当前工作根的 root 实参（空串 = 会话 cwd）：搜索的范围就是当前这个根。 */
+  root: string,
   showIgnored: boolean,
 ): DirectorySearch {
   const [active, setActive] = React.useState(false);
@@ -68,12 +70,13 @@ export function useDirectorySearch(
   const [retryTick, setRetryTick] = React.useState(0);
   const genRef = React.useRef(0);
 
-  // 换会话：过滤态、查询串与结果整套重置，不带着上一个会话的搜索词进新会话。
+  // 换会话或换工作根：过滤态、查询串与结果整套重置——一个根下的命中列表放到
+  // 另一个根上是错的，查询词也不该悄悄地在新的根里再发一次。
   React.useEffect(() => {
     setActive(false);
     setQuery("");
     setState(IDLE);
-  }, [sessionId]);
+  }, [sessionId, root]);
 
   // 关闭过滤态（toggle 或 close）：查询串与结果一并清空，下次激活是全新的一次
   // 搜索；也覆盖了「换会话」那次 setActive(false) 之后的清理。
@@ -101,7 +104,7 @@ export function useDirectorySearch(
     // 搜索」，而不是上一次查询词残留的结果或空态。
     setState({ status: "loading" });
     const timer = window.setTimeout(() => {
-      WorkspaceFsSearchFiles(sessionId, query, showIgnored).then(
+      WorkspaceFsSearchFiles(sessionId, root, query, showIgnored).then(
         (res) => {
           if (genRef.current !== gen) return; // 更新的查询已发起，这次响应作废
           setState({
@@ -117,7 +120,7 @@ export function useDirectorySearch(
       );
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [active, query, sessionId, showIgnored, retryTick]);
+  }, [active, query, sessionId, root, showIgnored, retryTick]);
 
   return {
     active,

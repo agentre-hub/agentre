@@ -36,7 +36,7 @@ Agentre 采用标准的 GitHub fork 协作模式：
    ```bash
    git clone https://github.com/<your-username>/agentre.git
    cd agentre
-   git remote add upstream https://github.com/agentre-ai/agentre.git
+   git remote add upstream https://github.com/agentre-hub/agentre.git
    ```
 
 2. **基于 `main` 开新分支**，用有描述性的名字，例如 `feat/...` 或 `fix/...`：
@@ -77,7 +77,7 @@ Agentre 采用标准的 GitHub fork 协作模式：
 2. **先证明 Bug 存在再修。** 先写回归测试，看着它以正确的原因失败，再动手修。修产生坏值的源头——不要在每个消费方加防御代码。
 3. **保持 diff 聚焦。** 只改任务需要的文件。不顺手重构、不批量改名、不跑格式化、不做无关清理——它们会掩盖真正的改动并破坏 `git bisect`。
 4. **遵守分层。** 依赖单向流动：`internal/app → service → repository → model/entity`。service 只依赖 repository **接口**；新 repository 测试用 sqlmock，新 service 测试用 mockgen repository mock——都不连真实数据库（遗留的 service sqlmock 测试不是先例）。
-5. **前端可见文案必须走 i18n。** 新增可见文本用 `t(...)`，并同时更新 `zh-CN` 和 `en` 两份语言文件；表单控件统一用 shadcn `@/components/ui/*`。
+5. **前端可见文案必须走 i18n。** 新增可见文本用 `t(...)`，并同时更新 `zh-CN` 和 `en` 两份语言文件；表单控件统一用 `@agentre-hub/agentre-ui` 导出的 shadcn 基础组件。
 6. **迁移只追加。** 新迁移加到 `migrationList()` 末尾；禁止修改已有迁移。
 
 如果你的任务和这些规则冲突，请停下来在 Issue 或 PR 里提出，不要自行绕过。
@@ -102,7 +102,7 @@ Agentre 采用标准的 GitHub fork 协作模式：
 - [ ] 测试先于实现编写，覆盖主路径 + 至少一个边界/错误用例。
 - [ ] `make check` 通过（golangci-lint + ESLint + 后端 Go 测试 + 前端 Vitest）。
 - [ ] diff 只包含任务范围内的改动。
-- [ ] 新增的前端可见文案在 `frontend/src/i18n/locales/zh-CN/common.json` 和 `en/common.json` **两边**都有翻译。
+- [ ] 新增的前端可见文案在 `frontend/src/i18n/locales/zh-CN/` 和 `en/` **两边**都有翻译，且落在同一个按域拆分的模块文件里。
 - [ ] 提交信息符合上面的 gitmoji 规范。
 - [ ] 如果改了贡献者文档，遵循了 [documentation.md](./documentation.md)（链接可解析、事实已对照拟提交的暂存树核验）。
 

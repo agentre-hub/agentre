@@ -75,7 +75,7 @@ def check_workflow(path: str, prefix: str) -> None:
 def main() -> None:
     makefile = (ROOT / "Makefile").read_text()
     for token in (
-        "BUILDINFO_PKG := github.com/agentre-ai/agentre/internal/buildinfo",
+        "BUILDINFO_PKG := github.com/agentre-hub/agentre/internal/buildinfo",
         "-X $(BUILDINFO_PKG).CommitID=$(COMMIT_ID)",
         "agentred-package:",
         "agentred-$(VERSION)-$(AGENTRED_GOOS)-$(AGENTRED_GOARCH)",

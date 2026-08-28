@@ -2,6 +2,7 @@ package peer_svc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -11,9 +12,9 @@ import (
 
 	"github.com/cago-frame/cago/pkg/logger"
 
-	"github.com/agentre-ai/agentre/internal/peer"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/peer"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
 
 // freshSessionPlaceholder 是 wire runtime.run 的正整数、非零会话占位（对端按「本机
@@ -92,11 +93,18 @@ func (s *service) ensureConn(ctx context.Context, fingerprint string) (*connEntr
 		return nil, err
 	}
 	out.HandleEvent(func(f wire.EventFrame) error {
+		// 这里是**唯一**该把密封事件序列化成 JSON 的地方:再往前一步是 Wails
+		// 事件,前端只吃 JSON。传输链路本身(daemon ↔ 桌面)全程走 Protobuf,
+		// 不再经手中间那层 json.RawMessage。
+		raw, err := json.Marshal(f.Event)
+		if err != nil {
+			return err
+		}
 		s.emitter.Emit(PeerEvent{
 			Fingerprint: fingerprint,
 			SessionID:   f.SessionID,
 			Seq:         f.Seq,
-			Event:       f.Event,
+			Event:       raw,
 		})
 		return nil
 	})

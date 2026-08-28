@@ -1,0 +1,131 @@
+{
+  "sessionGroup": {
+    "empty": "暂无会话",
+    "viewAll": "查看全部 {{count}} 个会话"
+  },
+  "sessionRow": {
+    "menu": {
+      "delete": "删除",
+      "openInNewTab": "新标签打开",
+      "rename": "改名"
+    }
+  },
+  "sessionIndex": {
+    "axis": {
+      "title": "分组方式",
+      "project": "项目",
+      "agent": "Agent",
+      "time": "时间",
+      "machine": "机器"
+    },
+    "free": {
+      "name": "随手对话",
+      "attention": "{{count}} 条随手对话需要关注",
+      "newSession": "新建随手对话"
+    },
+    "ownSessions": {
+      "label": "会话",
+      "toggle": "展开/收起 {{name}} 的会话"
+    },
+    "machine": {
+      "offline": "离线"
+    }
+  },
+  "sessionStatus": {
+    "machineOffline": {
+      "title": "{{machine}} 离线",
+      "titleUnknown": "这台机器已离线",
+      "body": "历史照常读，消息不排队。上下文都在那台机器上、不会改派——等它上线，或用同样的开头新建一个会话。",
+      "startNew": "新建一个会话"
+    },
+    "lastSeen": "最后在线 {{time}}"
+  },
+  "importSession": {
+    "menuItem": "导入本地会话…",
+    "menuAria": "{{name}} 的更多操作",
+    "title": "导入本地会话",
+    "titleScoped": "导入本地会话 · {{scope}}",
+    "descriptionLocal": "列出这台机器上 claude / codex / pi 跑过的会话。",
+    "descriptionLocalScoped": "列出这台机器上 claude / codex / pi 在 {{path}} 跑过的会话。",
+    "descriptionDevice": "列出 {{device}} 上 claude / codex / pi 跑过的会话。",
+    "descriptionDeviceScoped": "列出 {{device}} 上 claude / codex / pi 在 {{path}} 跑过的会话。",
+    "listAria": "可导入的会话",
+    "previewAria": "转录预览",
+    "deviceAria": "从哪台机器上找",
+    "searchPlaceholder": "搜索标题",
+    "backendFilterAria": "按后端筛选",
+    "allBackends": "全部",
+    "untitled": "未命名会话",
+    "turns": "{{count}} 轮",
+    "turnsUnknown": "轮数未知",
+    "groups": {
+      "today": "今天",
+      "yesterday": "昨天",
+      "earlier": "更早"
+    },
+    "origin": {
+      "terminal": "终端",
+      "agentre": "agentre 起的"
+    },
+    "imported": {
+      "reason": "已在 agentre 里，不能再导一次",
+      "open": "打开"
+    },
+    "scan": {
+      "running": "正在扫描本地会话…",
+      "stop": "停止",
+      "stopped": "已停止扫描",
+      "rescan": "重新扫描"
+    },
+    "empty": {
+      "title": "没有可导入的会话",
+      "body": "claude / codex / pi 都没有在这台机器上留下会话记录。",
+      "bodyScoped": "claude / codex / pi 都没有在 {{path}} 里留下会话记录。",
+      "relax": "改为搜索全部目录"
+    },
+    "issue": {
+      "unavailableTitle": "这台机器此刻答不出",
+      "switchToLocal": "切换到本机",
+      "backendTitle": "{{backend}} 会话目录读不动",
+      "othersUnaffected": "其余后端的结果不受影响。"
+    },
+    "preview": {
+      "idle": "从左边选一条会话，这里会放出它的真实转录。",
+      "loading": "正在打开转录…",
+      "failedTitle": "这条转录打不开",
+      "alreadyImported": "这条会话已经导入过了。",
+      "tail": "…（预览到此，导入后是完整 {{count}} 轮）",
+      "tailComplete": "…（这条会话就这么长，已经全在上面）",
+      "tailUnknown": "…（预览到此，导入后是完整转录）"
+    },
+    "meta": {
+      "backend": "后端",
+      "cwd": "目录",
+      "time": "时间",
+      "content": "内容",
+      "toolCalls": "{{count}} 次工具调用",
+      "compactions": "{{count}} 次上下文压缩"
+    },
+    "cwdMissing": {
+      "title": "工作目录不存在",
+      "body": "{{path}} 已不在这台机器上。转录仍可导入，但无法继续对话 —— 续跑要在原目录启动 CLI。"
+    },
+    "adopt": {
+      "label": "导入为",
+      "agentAria": "选择接住这条会话的 Agent",
+      "pickAgent": "选一个 Agent",
+      "submit": "导入并可继续对话",
+      "submitReadOnly": "仅导入转录",
+      "cwdOk": "工作目录 {{path}} · 存在 · 下一轮从这里接着跑",
+      "cwdMissing": "工作目录 {{path}} 已不存在 · 仅导入转录（只读）",
+      "pickDirectory": "选择新目录…",
+      "cwdAdopted": "工作目录改为 {{path}} · 仅导入转录（只读）· 接着聊时从这里起"
+    },
+    "importing": {
+      "title": "正在导入「{{title}}」",
+      "progress": "已写入 {{done}} / {{total}} 轮",
+      "progressUnknown": "已写入 {{done}} 轮",
+      "cancel": "取消导入"
+    }
+  }
+}

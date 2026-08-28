@@ -13,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
 func assertResetActiveSessions(t *testing.T, ctx context.Context, mock sqlmock.Sqlmock, affectedRows int64) {
 	t.Helper()
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `chat_sessions` SET `agent_status`=\\?,`updatetime`=\\? WHERE agent_status IN \\(\\?,\\?\\) AND status = \\? "+
-		"AND \\(exec_device_id <= \\? OR exec_daemon_fingerprint = \\?\\)").
+		"AND \\(exec_device_id <= \\? OR exec_device_fingerprint = \\?\\)").
 		WithArgs("error", sqlmock.AnyArg(), "running", "waiting", consts.ACTIVE, int64(0), "").
 		WillReturnResult(sqlmock.NewResult(0, affectedRows))
 	mock.ExpectCommit()
@@ -187,25 +187,6 @@ func TestSessionRepo_ListIDsByAgents(t *testing.T) {
 	})
 }
 
-func TestSessionRepo_ListIDsByAgentsIncludingGroups(t *testing.T) {
-	t.Run("Given IncludingGroups variant, When listing ids for sidebar, Then it produces the same query as the plain variant", func(t *testing.T) {
-		ctx, _, mock := testutils.Database(t)
-
-		mock.ExpectQuery("SELECT agent_id, id FROM `chat_sessions` WHERE .agent_id IN \\(\\?,\\?\\) AND status = \\?. AND purpose <> \\? ORDER BY agent_id ASC, last_message_at DESC, id DESC").
-			WithArgs(int64(7), int64(8), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
-			WillReturnRows(sqlmock.NewRows([]string{"agent_id", "id"}).
-				AddRow(7, 12).
-				AddRow(7, 11).
-				AddRow(8, 21))
-
-		got, err := chat_repo.NewSession().ListIDsByAgentsIncludingGroups(ctx, []int64{7, 8})
-		assert.NoError(t, err)
-		assert.Equal(t, []int64{12, 11}, got[7])
-		assert.Equal(t, []int64{21}, got[8])
-		assert.NoError(t, mock.ExpectationsWereMet())
-	})
-}
-
 func TestSessionRepo_CountByAgents(t *testing.T) {
 	t.Run("批量返回每个 agent 的会话数；缺席 agent 在 map 里读出 0", func(t *testing.T) {
 		ctx, _, mock := testutils.Database(t)
@@ -232,22 +213,6 @@ func TestSessionRepo_CountByAgents(t *testing.T) {
 	})
 }
 
-func TestSessionRepo_CountByAgentsIncludingGroups(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-
-	mock.ExpectQuery("SELECT agent_id, COUNT\\(\\*\\) AS n FROM `chat_sessions` WHERE .agent_id IN \\(\\?,\\?\\) AND status = \\?. AND purpose <> \\? GROUP BY `agent_id`").
-		WithArgs(int64(1), int64(2), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
-		WillReturnRows(sqlmock.NewRows([]string{"agent_id", "n"}).
-			AddRow(1, 2).
-			AddRow(2, 1))
-
-	got, err := chat_repo.NewSession().CountByAgentsIncludingGroups(ctx, []int64{1, 2})
-	assert.NoError(t, err)
-	assert.Equal(t, int64(2), got[1])
-	assert.Equal(t, int64(1), got[2])
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestSessionRepo_CountByAgent(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 
@@ -261,19 +226,6 @@ func TestSessionRepo_CountByAgent(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestSessionRepo_CountByAgentIncludingGroups(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-
-	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions` WHERE .agent_id = \\? AND status = \\?. AND purpose <> \\?").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(43))
-
-	got, err := chat_repo.NewSession().CountByAgentIncludingGroups(ctx, 7)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(43), got)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestSessionRepo_Create(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 
@@ -282,9 +234,10 @@ func TestSessionRepo_Create(t *testing.T) {
 		WithArgs(
 			int64(7), "draft", "idle", int64(0), int64(0), "", // agent_id, title, agent_status, last_message_at, last_read_at, provider_session_id
 			int64(0),          // project_id
+			"",                // cwd —— 不钉工作目录,按老规矩每轮现算
 			"",                // purpose
 			0, "", "", "", "", // context_window, permission_mode, permission_mode_at_launch, provider_key, model_key
-			int64(0), "", int64(0), // exec_device_id, exec_daemon_fingerprint, event_cursor —— 新建会话默认本机执行、无游标
+			int64(0), "", int64(0), // exec_device_id, exec_device_fingerprint, event_cursor —— 新建会话默认本机执行、无游标
 			int64(0),                                          // exec_agent_backend_id —— 新建会话默认未钉住任何一档
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(), // status, createtime, updatetime
 		).
@@ -295,20 +248,6 @@ func TestSessionRepo_Create(t *testing.T) {
 	err := chat_repo.NewSession().Create(ctx, s)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(99), s.ID)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestSessionRepo_ListByProject(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .project_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "project_id"}).
-			AddRow(int64(101), int64(42), int64(7)).
-			AddRow(int64(102), int64(43), int64(7)))
-
-	rows, err := chat_repo.NewSession().ListByProject(ctx, 7)
-	assert.NoError(t, err)
-	assert.Len(t, rows, 2)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -469,39 +408,6 @@ func TestSessionRepo_ResetActiveSessionsByIDs(t *testing.T) {
 	})
 }
 
-// ListByAgentIncludingGroups 与 ListByAgent 目前产出相同的 SQL(仅无条件的 purpose
-// 过滤排除子 agent 会话);两个变体的公开方法名保留供调用方按语义选择。
-func TestSessionRepo_ListByAgentIncludingGroups(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .agent_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title"}).
-			AddRow(12, 7, "支付小队 / 后端"))
-
-	got, err := chat_repo.NewSession().ListByAgentIncludingGroups(ctx, 7, 5)
-	assert.NoError(t, err)
-	if assert.Len(t, got, 1) {
-		assert.Equal(t, int64(12), got[0].ID)
-	}
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-// 子 agent 委派会话(purpose='subagent_call')必须从 IncludingGroups 变体的侧栏查询里
-// 也被排除 —— 无条件的 purpose 过滤对两个变体都生效。
-func TestSessionRepo_ListByAgentIncludingGroups_FiltersSubagentSessions(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .agent_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id"}).AddRow(12, 7))
-
-	got, err := chat_repo.NewSession().ListByAgentIncludingGroups(ctx, 7, 5)
-	assert.NoError(t, err)
-	assert.Len(t, got, 1)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 // TestSessionRepo_UpdatePermissionModeAtLaunch 验证 spawn 时 runner 调用的
 // 单字段更新 SQL —— 不能把 permission_mode 一起冲掉。
 func TestSessionRepo_UpdatePermissionModeAtLaunch(t *testing.T) {
@@ -518,6 +424,27 @@ func TestSessionRepo_UpdatePermissionModeAtLaunch(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestSessionRepo_UpdateContextWindow 钉死 runtime 探到 model 上下文窗口时的单列写入。
+//
+// sess-2974:这一列此前是「改内存实体再 Update 整行」落库的,而带外轮(自主续轮 / 后台
+// subagent 活动轮)手里的实体是它起步时读出来的快照 —— 用户随后发的新一轮把 agent_status
+// 写成 running 之后,带外轮再收到一帧 context window 就把整行(含 agent_status、
+// last_message_at)拍回旧值,会话在库里退回 idle。改成单列 UPDATE 后,这条路径在结构上
+// 就碰不到别的列。
+func TestSessionRepo_UpdateContextWindow(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions` SET `context_window`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+		WithArgs(1000000, sqlmock.AnyArg(), int64(42), consts.ACTIVE).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.UpdateContextWindow(ctx, 42, 1000000))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestSessionRepo_UpdateExecDaemon 钉死「这条会话跑在哪台 daemon 上、钉在哪一档」的
 // 写入 SQL(R15b / 决策36)。关键不变式:(实例标识, 游标) 必须始终是同一条通知日志上
 // 的一对 —— 改绑到另一台 daemon 时,老游标指的是老 daemon 日志里的位置,必须在同一
@@ -528,7 +455,7 @@ func TestSessionRepo_UpdateExecDaemon(t *testing.T) {
 	repo := chat_repo.NewSession()
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `chat_sessions` SET `event_cursor`=CASE WHEN exec_daemon_fingerprint = \\? THEN event_cursor ELSE 0 END,`exec_agent_backend_id`=\\?,`exec_daemon_fingerprint`=\\?,`exec_device_id`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+	mock.ExpectExec("UPDATE `chat_sessions` SET `event_cursor`=CASE WHEN exec_device_fingerprint = \\? THEN event_cursor ELSE 0 END,`exec_agent_backend_id`=\\?,`exec_device_fingerprint`=\\?,`exec_device_id`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
 		WithArgs("sha256:beef", int64(51), "sha256:beef", int64(3), sqlmock.AnyArg(), int64(42), consts.ACTIVE).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -546,7 +473,7 @@ func TestSessionRepo_UpdateEventCursor(t *testing.T) {
 	repo := chat_repo.NewSession()
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `chat_sessions` SET `event_cursor`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\? AND exec_daemon_fingerprint = \\?").
+	mock.ExpectExec("UPDATE `chat_sessions` SET `event_cursor`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\? AND exec_device_fingerprint = \\?").
 		WithArgs(int64(17), sqlmock.AnyArg(), int64(42), consts.ACTIVE, "sha256:beef").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -566,7 +493,7 @@ func TestSessionRepo_UpdateEventCursor(t *testing.T) {
 // 刚落库的值盖回去。
 //
 // 后果不止丢三个字段:ListRemoteExecSessions 的取材条件是 exec_device_id > 0 且
-// exec_daemon_fingerprint 非空,空闲的远端会话因此永远进不了启动补齐 ——
+// exec_device_fingerprint 非空,空闲的远端会话因此永远进不了启动补齐 ——
 // 「退出桌面 App 之后下次打开能看到这段时间里发生的全部内容」对它们完全失效。
 //
 // 所以断言落在「这一行最后是什么」,而不是收尾那条 SQL 长什么样:缺陷出在两次写
@@ -580,7 +507,7 @@ func TestSessionRepo_UpdateKeepsRemoteExecColumns(t *testing.T) {
 	row := map[string]any{
 		"agent_status":            "running",
 		"exec_device_id":          int64(0),
-		"exec_daemon_fingerprint": "",
+		"exec_device_fingerprint": "",
 		"exec_agent_backend_id":   int64(0),
 		"event_cursor":            int64(0),
 	}
@@ -609,7 +536,7 @@ func TestSessionRepo_UpdateKeepsRemoteExecColumns(t *testing.T) {
 	require.NoError(t, repo.Update(ctx, sess))
 
 	assert.Equal(t, int64(2), row["exec_device_id"], "收尾不得把执行位置抹回本机")
-	assert.Equal(t, "sha256:beef", row["exec_daemon_fingerprint"], "收尾不得抹掉 daemon 实例标识")
+	assert.Equal(t, "sha256:beef", row["exec_device_fingerprint"], "收尾不得抹掉 daemon 实例标识")
 	assert.Equal(t, int64(51), row["exec_agent_backend_id"], "收尾不得把钉住的执行目标档抹回未钉住")
 	assert.Equal(t, int64(33), row["event_cursor"], "收尾不得把游标冲回 0")
 	assert.Equal(t, "idle", row["agent_status"], "收尾本来要写的状态照常落库")
@@ -617,7 +544,7 @@ func TestSessionRepo_UpdateKeepsRemoteExecColumns(t *testing.T) {
 }
 
 // TestSessionRepo_UpdateKeepsExecAgentBackendID 单独锁住会话粘性回归守卫
-// (R15b / 决策36):exec_agent_backend_id 是与 exec_device_id / exec_daemon_fingerprint
+// (R15b / 决策36):exec_agent_backend_id 是与 exec_device_id / exec_device_fingerprint
 // 并列的第四列,由同一条 UpdateExecDaemon 语句一并写入、一并加进 Update 的 Omit 清单;
 // 轮次收尾的整行 Save 用的是轮次开始时读出的旧实体(那时这一列还是 0),若它没被 Omit,
 // 收尾会把刚钉住的档抹回 0 —— 下一轮又变成重挑,直接违反决策36「不因为它离线就改派」
@@ -649,6 +576,32 @@ func TestSessionRepo_UpdateKeepsExecAgentBackendID(t *testing.T) {
 	require.NoError(t, repo.Update(ctx, sess))
 
 	assert.Equal(t, int64(51), row["exec_agent_backend_id"], "收尾不得把钉住的执行目标档抹回未钉住")
+	assert.Equal(t, "idle", row["agent_status"], "收尾本来要写的状态照常落库")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_UpdateKeepsCwd 回归:整行回写不得抹掉会话钉住的工作目录。
+//
+// cwd 由导入在建档时写入(spec 2026-08-26「续跑」:工作目录取磁盘转录里记录的 cwd),
+// 此后没有任何路径会再写它;而轮次收尾走的是整行 Save,手里那份实体可能是别处
+// 现造的(例如带外轮的旧快照)。不 Omit 的话它会把这一列拍成空串 —— 会话从此按
+// agent 默认目录起 CLI,那条 provider session id 在那儿根本不存在,续跑当场断掉。
+func TestSessionRepo_UpdateKeepsCwd(t *testing.T) {
+	ctx, gdb, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	row := map[string]any{"agent_status": "running", "cwd": "/Code/agentre"}
+	captureUpdatedRow(t, gdb, row)
+
+	// 手里这份实体没带 cwd(轮次开始时读出的旧快照 / 别处现造的都是这个形态)。
+	sess := &chat_entity.Session{ID: 42, AgentStatus: "idle", Status: consts.ACTIVE}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, repo.Update(ctx, sess))
+
+	assert.Equal(t, "/Code/agentre", row["cwd"], "整行回写不得把会话的工作目录抹成空串")
 	assert.Equal(t, "idle", row["agent_status"], "收尾本来要写的状态照常落库")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -745,6 +698,126 @@ func TestSessionRepo_UpdateKeepsModelTarget(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestSessionRepo_UpdateKeepsContextWindow 回归 Problem 18 / 决策 23:旧的 Omit
+// 黑名单漏了 context_window——它有专用窄写方法 UpdateContextWindow(运行时轮中
+// 上报),却不在 Omit 清单里。轮次收尾用的是**轮次开始时读出的旧实体**,那一刻
+// context_window 还是旧值;若整行 Save 把它一起写回去,就会把轮中刚探到的新窗口
+// 值拍回旧值(sess-2974 同款间歇性覆盖,只是这次是 context_window 而不是
+// agent_status)。改成白名单后,这一列不在「配置列」之列,不会出现在 SET 子句里。
+func TestSessionRepo_UpdateKeepsContextWindow(t *testing.T) {
+	ctx, gdb, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	row := map[string]any{"agent_status": "running", "context_window": 100}
+	captureUpdatedRow(t, gdb, row)
+
+	// 轮次开始时读出来的实体:上下文窗口还是旧值 100。
+	sess := &chat_entity.Session{ID: 42, AgentStatus: "running", Status: consts.ACTIVE, ContextWindow: 100}
+
+	// 写 1:轮中 runtime 探到新的窗口大小 500(contextWindowWriterAdapter 走窄写)。
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, repo.UpdateContextWindow(ctx, 42, 500))
+
+	// 写 2:running → idle 收尾,用的是上面那份**没跟着变**的内存实体(ContextWindow 仍是 100)。
+	sess.AgentStatus = "idle"
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, repo.Update(ctx, sess))
+
+	assert.Equal(t, 500, row["context_window"], "收尾不得把轮中上报的上下文窗口拍回旧值")
+	assert.Equal(t, "idle", row["agent_status"], "收尾本来要写的状态照常落库")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_UpdateWritesOnlyWhitelistedColumns 锁住决策 23 的白名单契约本身:
+// 整行回写只写「配置列」(agent_id/title/agent_status/last_message_at/
+// provider_session_id/project_id/purpose/updatetime),窄写方法已经覆盖的列——
+// exec_* 四列、permission_mode(_at_launch)、provider_key/model_key、cwd、
+// context_window,以及新纳入这一类的 status(SoftDelete 专用窄写)和
+// last_read_at(MarkRead 专用窄写)——一律不出现在 SET 子句里。漏了配置列,这条用例
+// 立刻红(那次写入不发生);混进了本该窄写的列,就是黑名单那套间歇性覆盖事故重演。
+func TestSessionRepo_UpdateWritesOnlyWhitelistedColumns(t *testing.T) {
+	ctx, gdb, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	// 库里那一行:配置列是「旧」值,窄写方法覆盖的列是各自的哨兵值。
+	row := map[string]any{
+		"agent_id":                  int64(1),
+		"title":                     "old title",
+		"agent_status":              "idle",
+		"last_message_at":           int64(1),
+		"provider_session_id":       "old-provider-session",
+		"project_id":                int64(1),
+		"purpose":                   "",
+		"permission_mode":           "sentinel-permission-mode",
+		"permission_mode_at_launch": "sentinel-permission-mode-at-launch",
+		"provider_key":              "sentinel-provider-key",
+		"model_key":                 "sentinel-model-key",
+		"cwd":                       "sentinel-cwd",
+		"context_window":            999,
+		"exec_device_id":            int64(77),
+		"exec_device_fingerprint":   "sentinel-fingerprint",
+		"exec_agent_backend_id":     int64(88),
+		"event_cursor":              int64(66),
+		"status":                    consts.DELETE,
+		"last_read_at":              int64(55),
+	}
+	captureUpdatedRow(t, gdb, row)
+
+	// 手里这份实体:配置列是新值(本次收尾要写的),窄写覆盖的列全是**不同于库里**的
+	// 陈旧值——如果它们混进了 SET 子句,断言会立刻抓到。
+	sess := &chat_entity.Session{
+		ID:                     42,
+		AgentID:                2,
+		Title:                  "new title",
+		AgentStatus:            "idle",
+		LastMessageAt:          2,
+		ProviderSessionID:      "new-provider-session",
+		ProjectID:              2,
+		Purpose:                "",
+		Status:                 consts.ACTIVE,
+		PermissionMode:         "stale-permission-mode",
+		PermissionModeAtLaunch: "stale-permission-mode-at-launch",
+		ProviderKey:            "stale-provider-key",
+		ModelKey:               "stale-model-key",
+		Cwd:                    "stale-cwd",
+		ContextWindow:          1,
+		ExecDeviceID:           1,
+		ExecDeviceFingerprint:  "stale-fingerprint",
+		ExecAgentBackendID:     1,
+		EventCursor:            1,
+		LastReadAt:             1,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, repo.Update(ctx, sess))
+
+	assert.Equal(t, int64(2), row["agent_id"], "配置列 agent_id 应当照常写入新值")
+	assert.Equal(t, "new title", row["title"], "配置列 title 应当照常写入新值")
+	assert.Equal(t, int64(2), row["last_message_at"], "配置列 last_message_at 应当照常写入新值")
+	assert.Equal(t, "new-provider-session", row["provider_session_id"], "配置列 provider_session_id 应当照常写入新值")
+	assert.Equal(t, int64(2), row["project_id"], "配置列 project_id 应当照常写入新值")
+
+	assert.Equal(t, "sentinel-permission-mode", row["permission_mode"], "permission_mode 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, "sentinel-permission-mode-at-launch", row["permission_mode_at_launch"], "permission_mode_at_launch 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, "sentinel-provider-key", row["provider_key"], "provider_key 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, "sentinel-model-key", row["model_key"], "model_key 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, "sentinel-cwd", row["cwd"], "cwd 只在建档时写入,整行回写不得碰它")
+	assert.Equal(t, 999, row["context_window"], "context_window 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, int64(77), row["exec_device_id"], "exec_device_id 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, "sentinel-fingerprint", row["exec_device_fingerprint"], "exec_device_fingerprint 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, int64(88), row["exec_agent_backend_id"], "exec_agent_backend_id 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, int64(66), row["event_cursor"], "event_cursor 有专用窄写,整行回写不得碰它")
+	assert.Equal(t, consts.DELETE, row["status"], "status 由 SoftDelete 专用窄写,整行回写不得把软删的会话拍回 ACTIVE")
+	assert.Equal(t, int64(55), row["last_read_at"], "last_read_at 由 MarkRead 专用窄写,整行回写不得碰它")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // captureUpdatedRow 把仓储实际发出的 UPDATE 语句应用到 row 上,补出 sqlmock 没有的
 // 行状态。取的是 GORM 生成的 SET 子句本身,不预设哪条语句该写哪些列。
 func captureUpdatedRow(t *testing.T, gdb *gorm.DB, row map[string]any) {
@@ -783,23 +856,27 @@ func applySetClause(row map[string]any, sql string, vars []any) {
 // 段时间发生的全部内容」直接不成立。
 //
 // 过滤条件的两半都是硬的:exec_device_id > 0 排除本机会话(它们的真相源是本地库,
-// 没有可补齐的远端日志),exec_daemon_fingerprint <> ” 排除没有实例标识的行 ——
+// 没有可补齐的远端日志),exec_device_fingerprint <> ” 排除没有实例标识的行 ——
 // 游标只在它所属的那条通知日志里有意义,标识为空时 LoadCursor 一律判失效,拿它去
 // attach 只会白发一轮 RPC。
 //
 // 取材还必须**有界**:补齐会为每条会话装一个消费方、加一份池连接引用、开一条自主轮
 // 监视,而这条查询原本返回「历史上曾远端执行过的每一条」会话 —— 用得久了就是几千条。
-// 两个上界都有依据:daemon 的通知日志只留 30 天(daemon.defaultJournalRetention),
-// 更老的会话补齐能拿回来的是空的;仍停在 running / waiting 的行不受时间窗限制并排在
-// 最前 —— 只有 daemon 能给它们判据,漏掉它们就是界面上一条永远转圈的会话。
+// 界只剩条数(catchUpLimit),不再有时间截止:时间窗当初与 daemon 的通知日志留存窗口
+// 对齐(更老的会话补齐回来是空的),agentred 现在永久保存通知日志、不再回收(规格
+// 决策 8),那条依据随之消失 —— 一条本地停在 idle、远端却由后台任务续过轮的老会话,
+// 日志今天还在,不该因为「上次本地写它是 40 天前」就永远补不回来。
+//
+// 因此这里连**带不带** updatetime 截止一起钉:多出那半个条件就是把还能补的内容挡在
+// 外面。排序仍把 running / waiting 排在最前 —— 条数上限砍谁由它决定,只有 daemon 能
+// 给那些行判据,漏掉一条就是界面上一条永远转圈的会话。
 func TestSessionRepo_ListRemoteExecSessions(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE exec_device_id > \\? AND exec_daemon_fingerprint <> \\? AND status = \\? "+
-		"AND \\(agent_status IN \\(\\?,\\?\\) OR updatetime >= \\?\\) "+
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE exec_device_id > \\? AND exec_device_fingerprint <> \\? AND status = \\? "+
 		"ORDER BY CASE WHEN agent_status IN \\('running','waiting'\\) THEN 0 ELSE 1 END, updatetime DESC, id DESC LIMIT \\?").
-		WithArgs(int64(0), "", consts.ACTIVE, "running", "waiting", sqlmock.AnyArg(), 200).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "agent_status", "status", "exec_device_id", "exec_daemon_fingerprint", "event_cursor"}).
+		WithArgs(int64(0), "", consts.ACTIVE, 200).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "agent_status", "status", "exec_device_id", "exec_device_fingerprint", "event_cursor"}).
 			AddRow(1, 7, "running", consts.ACTIVE, 3, "sha256:beef", 17).
 			AddRow(2, 7, "idle", consts.ACTIVE, 4, "sha256:cafe", 0))
 
@@ -807,10 +884,33 @@ func TestSessionRepo_ListRemoteExecSessions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, int64(3), got[0].ExecDeviceID)
-	assert.Equal(t, "sha256:beef", got[0].ExecDaemonFingerprint)
+	assert.Equal(t, "sha256:beef", got[0].ExecDeviceFingerprint)
 	assert.Equal(t, int64(17), got[0].EventCursor)
 	assert.Equal(t, int64(4), got[1].ExecDeviceID)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_ListExecAgentBackendRefs 回归决策 24:后端墓碑回收判据与悬空
+// 引用巡检都要知道"这个 backend id 有没有被任何会话提到过"——包含软删的会话
+// (不限 status),否则回收会把一个仍被某条(哪怕已软删的)会话记着的后端墓碑
+// 物理删掉,巡检也会漏报。
+func TestSessionRepo_ListExecAgentBackendRefs(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT id AS session_id, exec_agent_backend_id AS agent_backend_id FROM `chat_sessions` WHERE exec_agent_backend_id > \\?").
+		WithArgs(int64(0)).
+		WillReturnRows(sqlmock.NewRows([]string{"session_id", "agent_backend_id"}).
+			AddRow(int64(1), int64(51)).
+			AddRow(int64(2), int64(52)))
+
+	got, err := chat_repo.NewSession().ListExecAgentBackendRefs(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, int64(1), got[0].SessionID)
+	assert.Equal(t, int64(51), got[0].AgentBackendID)
+	assert.Equal(t, int64(2), got[1].SessionID)
+	assert.Equal(t, int64(52), got[1].AgentBackendID)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // TestSessionRepo_ReassignProject 钉死 R11a 的一句：合并后不允许留下任何指向已消失
@@ -826,5 +926,195 @@ func TestSessionRepo_ReassignProject(t *testing.T) {
 	mock.ExpectCommit()
 
 	require.NoError(t, chat_repo.NewSession().ReassignProject(ctx, 4, 9))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ── 会话索引：不限 agent 的分页 / 自由会话 ──────────────────────────────────
+//
+// 「对话 / 项目」合并成单一索引后，「按时间」这一档要的是**跨 agent、跨项目**的最近
+// 活动列表，而「随手对话」组要的是 project_id = 0 那一批。两者今天都没有查询能给出：
+// 按 agent 的变体各自只看一个 agent，ListByProject 又被服务层挡在 projectID > 0。
+// 见 docs/specs/2026-08-16-unified-chat-index.md。
+
+func TestSessionRepo_ListRecentPaged(t *testing.T) {
+	t.Run("Given sessions across agents and projects, When listing a page, Then it orders by last activity without filtering on agent or project", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20, 40).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "project_id", "last_message_at", "status"}).
+				AddRow(int64(9), int64(1), int64(3), 1700000090000, consts.ACTIVE).
+				AddRow(int64(8), int64(2), int64(0), 1700000080000, consts.ACTIVE))
+
+		rows, err := chat_repo.NewSession().ListRecentPaged(ctx, 40, 20)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 2)
+		assert.Equal(t, int64(9), rows[0].ID)
+		// 自由会话（project_id = 0）与挂了项目的会话在这一档同列。
+		assert.Equal(t, int64(0), rows[1].ProjectID)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given the first page, When listing, Then no OFFSET clause is emitted", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?$").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+
+		rows, err := chat_repo.NewSession().ListRecentPaged(ctx, 0, 20)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestSessionRepo_ListFreePaged(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .project_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
+		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id"}).
+			AddRow(int64(5), int64(0)))
+
+	rows, err := chat_repo.NewSession().ListFreePaged(ctx, 0, 20)
+	assert.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.Equal(t, int64(0), rows[0].ProjectID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountAll(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+		WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(37))
+
+	n, err := chat_repo.NewSession().CountAll(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(37), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountFree(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+
+	n, err := chat_repo.NewSession().CountFree(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(4), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_ListByProjectPaged(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .project_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
+		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "project_id"}).
+			AddRow(int64(101), int64(42), int64(7)))
+
+	rows, err := chat_repo.NewSession().ListByProjectPaged(ctx, 7, 5, 5)
+	assert.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_ListByDevicePaged(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	// 与项目那条同一套可见性口径（ACTIVE + 非子 agent）、同一个排序，只是分组这一维
+	// 换成 exec_device_id。
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .exec_device_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
+		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "exec_device_id"}).
+			AddRow(int64(101), int64(42), int64(7)))
+
+	rows, err := chat_repo.NewSession().ListByDevicePaged(ctx, 7, 5, 5)
+	assert.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_ListByDevicePagedLocal(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	// deviceID = 0 是**本机**，不是「不限机器」：WHERE 里必须照样带上 exec_device_id，
+	// 否则本机那一组会翻出全部机器的会话。
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .exec_device_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
+		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "exec_device_id"}).
+			AddRow(int64(5), int64(0)))
+
+	rows, err := chat_repo.NewSession().ListByDevicePaged(ctx, 0, 0, 20)
+	assert.NoError(t, err)
+	assert.Len(t, rows, 1)
+	assert.Equal(t, int64(0), rows[0].ExecDeviceID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountByDevice(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
+
+	n, err := chat_repo.NewSession().CountByDevice(ctx, 7)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(12), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountByProject(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
+
+	n, err := chat_repo.NewSession().CountByProject(ctx, 7)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(12), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_ListIDsByProviderSessions 钉死导入判重的读取口径（2026-08-26 导入
+// 本地会话 spec 决策 18）：**去重一律以库里的 provider_session_id 为准** —— pi 的会话
+// 文件在磁盘上没有任何来源标记，靠 entrypoint / originator 判重必漏。
+//
+// 两处刻意的取值：
+//   - 不挂 nonSubagentScope。这一问是「这条 provider session 是不是已经在库里」，
+//     子 agent 委派会话同样占着一个 provider_session_id，把它排除掉就会让同一条
+//     CLI 会话被导入第二次，两条 agentre 会话争同一个 --resume 目标。
+//   - 空串不进 WHERE。绝大多数会话的 provider_session_id 是空串（还没跑过第一轮），
+//     一个空串候选会把它们全部命中。
+func TestSessionRepo_ListIDsByProviderSessions(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT `provider_session_id`,`id` FROM `chat_sessions` WHERE provider_session_id IN \\(\\?,\\?\\) AND status = \\?").
+		WithArgs("sess-a", "sess-b", consts.ACTIVE).
+		WillReturnRows(sqlmock.NewRows([]string{"provider_session_id", "id"}).
+			AddRow("sess-a", 11).
+			AddRow("sess-b", 12))
+
+	got, err := chat_repo.NewSession().ListIDsByProviderSessions(ctx, []string{"sess-a", "", "sess-b", "sess-a"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int64{"sess-a": 11, "sess-b": 12}, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_ListIDsByProviderSessions_NoIDs 空列表（或只有空串）一条 SQL 都不发：
+// `WHERE provider_session_id IN ()` 在不同方言下要么语法错、要么退化成全表扫描。
+func TestSessionRepo_ListIDsByProviderSessions_NoIDs(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	got, err := chat_repo.NewSession().ListIDsByProviderSessions(ctx, []string{"", "   "})
+	require.NoError(t, err)
+	assert.Empty(t, got)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

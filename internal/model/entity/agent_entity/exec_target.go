@@ -3,11 +3,11 @@ package agent_entity
 import (
 	"encoding/json"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 )
 
 // AgentExecTarget 是 Agent 有序执行目标列表里的一项。列表的每一项是一个
-// backend；backend 自己的 device_id 决定这一档落在哪台机器上（空 = 当前桌面端，
+// backend；backend 自己的 device_fingerprint 决定这一档落在哪台机器上（空 = 当前桌面端，
 // 非空 = 那台 agentred）。
 //
 // SkillsJSON 是这一执行目标自己的技能授权：每个目标各自持有一份，

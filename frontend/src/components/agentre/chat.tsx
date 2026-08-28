@@ -4,59 +4,60 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useShallow } from "zustand/react/shallow";
 import {
   Check,
-  EyeOff,
-  Gauge,
-  ImagePlus,
   LoaderCircle,
-  Pencil,
-  SendHorizontal,
-  SquareTerminal,
   Timer,
   TriangleAlert,
   Wrench,
-  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
 import {
+  Button,
+  ChatComposer as SharedChatComposer,
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from "@/components/ui/hover-card";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { isNoticeOnlyMessage } from "@/lib/notice-message";
+  TooltipProvider,
+  autonomousTurnMessageIds,
+  buildMentionSources,
+  transcriptRowPadClass,
+  type ChatComposerDropZone,
+  type ChatComposerHandle,
+  type ChatComposerProps as SharedChatComposerProps,
+  type SlashCommand,
+  type SlashExec,
+  type UsageLevel,
+  usageLevel,
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
-import type { PlanActionStream } from "./canonical-tool/props";
-import type { Editor } from "@tiptap/react";
-import {
-  AIChatInput,
-  type AIChatInputHandle,
-  type LocalCommandHistoryScope,
-  type LocalCommandSubmitHandler,
-} from "./chat-input";
-import { CodeBlock } from "./code-block";
-import { CompactHistoryFold } from "./compact-history-fold";
-import { TranscriptCard } from "./transcript-card";
-import {
-  ChatMessage,
-  ErrorCard,
-  MessageMeta,
-  TranscriptRenderContext,
-  TranscriptRowView,
-  type TranscriptRenderContextValue,
-} from "./transcript-row-view";
 import {
   applyLiveTranscriptRows,
   buildSettledTranscriptRows,
   buildSourceByMessageId,
+  CodeBlock,
   estimateRowSizeWithSpacing,
-  isLastRowOfMessage,
+  indicatorHostMessageId,
+  TranscriptCard,
+  TranscriptUIStateProvider,
   type LiveRowContent,
+  type LiveTurnInput,
+  type PlanActionStream,
   type TranscriptRow,
-} from "./transcript-rows";
-import { TranscriptUIStateProvider } from "./transcript-ui-state";
+} from "@agentre-hub/agentre-ui";
+import { CompactHistoryFold } from "./compact-history-fold";
+import { useTranscriptCallbacks } from "./use-transcript-callbacks";
+import { EarlierMessagesLoader } from "./earlier-messages-loader";
+import {
+  ChatMessage,
+  ErrorCard,
+  MessageMeta,
+  MESSAGE_AVATAR_CLASS,
+  TranscriptRenderContext,
+  TranscriptRowView,
+  type TranscriptRenderContextValue,
+} from "@agentre-hub/agentre-ui";
+import { AgentAvatar } from "./primitives";
 import type { AgentColor, AgentStatus } from "./types";
 import { statusConfig } from "./types";
 import type { RetryNotice } from "@/stores/chat-streams-store";
@@ -68,11 +69,8 @@ import {
   RemoteDeviceFingerprint,
 } from "../../../wailsjs/go/app/App";
 import { chat_svc } from "../../../wailsjs/go/models";
-import { buildMentionSources } from "./chat-input/mentions/build-sources";
-import { LOCAL_COMMAND_HISTORY_CLEAR_SELECTOR } from "./chat-input/local-command-history/history-popover";
-import { resolveDroppedPaths } from "./chat-input/drop";
-import { useFileDropZone } from "./chat-input/use-file-drop";
-import { useAgentSkillCommands } from "./slash-commands";
+import { registerDropZone } from "@/lib/file-drop";
+import { listAvailable, useAgentSkillCommands } from "./slash-commands";
 
 type ToolCallProps = React.ComponentProps<"div"> & {
   path?: string;
@@ -175,138 +173,53 @@ function ApprovalGate({
   );
 }
 
-type ChatComposerProps = Omit<React.ComponentProps<"form">, "onSubmit"> & {
-  onSubmit?: (message: ChatComposerSubmit) => void;
-  placeholder?: string;
-  /** 历史消息文本，按时间倒序排列（最新在前），方向键 ↑↓ 浏览。 */
-  userMessageHistory?: string[];
-  /** 编辑模式：true 时输入框上方挂"正在编辑"提示条，发送按钮文案改为"保存"。 */
-  editing?: boolean;
-  /** 进入编辑模式时载入到输入框的初始草稿。每次切换编辑目标都会重新载入。 */
-  editDraft?: string;
-  /** 用户点击提示条上的"取消编辑"。父组件应清掉编辑状态并恢复正常输入。 */
-  onCancelEdit?: () => void;
-  /** 在输入框上方插入的内容（例：QueuedMessagesBar）。Composer 不关心内容，
-   *  只负责把节点放进 card 顶部，跟 editing banner 同位。空节点正常渲染（组件自决可见性）。 */
-  topSlot?: React.ReactNode;
-  /** 发送 RPC 在途（await SendChatMessage 未返回）。true 时发送按钮禁用并转 spinner。 */
-  sending?: boolean;
-  /** 上下文用量。max <= 0 时整块不渲染（未知模型 / 后端未配置）。 */
-  contextUsage?: { used: number; max: number };
-  /** Claude Code OAuth 5h/7d 配额。undefined / reason='no_credentials' 时整块不渲染。
-   *  由 chat-panel 通过 useCCUsage(deviceKey) 拉到后传入。 */
-  quotaUsage?: import("../../../wailsjs/go/models").cc_usage_svc.UsageState;
-  /** 配额对应的 device 友好名(local 或远端设备名),供 QuotaMeter HoverCard 文案使用。 */
-  quotaDeviceLabel?: string;
-  /** Permission mode 控件，仅在 claudecode 后端时由 chat-panel 注入。null 时整块不渲染。 */
-  permissionModeSlot?: React.ReactNode;
-  /** 模型切换控件，与 permissionModeSlot 并排（模型 pill 紧随其后）。null 时不渲染。 */
-  modelSlot?: React.ReactNode;
-  /** 焦点在 composer 内时按下 Shift+Tab 的钩子（用于循环切换 permission mode）。 */
-  onShiftTab?: () => void;
-  /** 挂载时自动 focus 输入框。新建会话场景下由 chat-panel 传 true，让用户一打开
-   *  就能直接打字、不用再点输入框一次。 */
-  autoFocusOnMount?: boolean;
-  /** 输入框只读禁用。新建会话场景下由 chat-panel 对不可对话 Agent 传入。 */
-  disabled?: boolean;
-  /** 当前会话 backend 类型;让 AIChatInput 启用 slash menu 并按 backend 过滤候选命令。
-   *  空串/省略 → 不启用 slash menu。 */
-  backendType?: string;
-  /** 当前会话或新会话的 agent id,用于加载该 agent 最终生效的 skill 命令。 */
+/**
+ * 桌面端 composer 的**装配面**。渲染住在 `@agentre-hub/agentre-ui` 的 ChatComposer
+ * 里，这里只负责把这一端独有的能力接上去：@ 提及的数据源、该 agent 生效的技能
+ * 命令、以及 Wails 的原生拖入通道。
+ *
+ * 这三样都是宿主耦合，包不得知道：`useChatAgents` / `useProjectList` 读的是本机
+ * 的清单，`ChatReadDroppedImages` 是 Wails 绑定。与 `agent-backends.tsx` /
+ * `llm-providers.tsx` 是同一种装配根，不是第二份实现。
+ */
+type DesktopChatComposerProps = Omit<
+  SharedChatComposerProps,
+  "mentionSources" | "slashCommands" | "onSlashSelect" | "dropZone"
+> & {
+  /** 当前会话或新会话的 agent id，用于加载该 agent 最终生效的 skill 命令。 */
   agentId?: number;
-  /** 当前会话/项目的工作目录,用于发现 project-scoped Skill。 */
+  /** 当前会话 / 项目的工作目录，用于发现 project-scoped Skill。 */
   cwd?: string;
-  /** 当前 backend 是否支持图片输入。false 时不渲染图片附件入口。 */
-  supportsImageInput?: boolean;
-  /** slash menu rpc 类命令的回调(literal_text 类由 AIChatInput 内部直接填回编辑器,
-   *  不自动发送,也不会冒泡到这里)。省略则 slash menu 不启用。 */
+  /** slash menu 里 rpc 类命令的回调（literal_text 由包内部填回编辑器）。 */
   onSlashRpc?: (
-    cmd: import("./slash-commands").SlashCommand,
-    exec: Extract<import("./slash-commands").SlashExec, { kind: "rpc" }>,
+    cmd: SlashCommand,
+    exec: Extract<SlashExec, { kind: "rpc" }>,
   ) => void;
-  /** 本地命令回调:启动命令后返回后端解析出的稳定设备与 cwd，供历史落盘。 */
-  onRunCommand?: LocalCommandSubmitHandler;
-  /** 进入 ! 模式时通知上层重新解析当前执行作用域。 */
-  onCommandModeChange?: (active: boolean) => void;
-  /** 当前执行设备与 cwd 组成的 Shell 历史隔离作用域。 */
-  localCommandHistoryScope?: LocalCommandHistoryScope;
-  /** 透传给内层 AIChatInput 的编辑器 ref,供测试驱动编辑器内容。 */
-  editorRef?: React.RefObject<Editor | null>;
 };
 
-export type ChatImageAttachment = {
-  dataUrl: string;
-  mediaType: string;
-  name: string;
+export type {
+  ChatComposerHandle,
+  ChatComposerSubmit,
+  ChatImageAttachment,
+} from "@agentre-hub/agentre-ui";
+
+// 落盘路径 → 图片附件。这是 Wails 绑定，是包里 resolveDroppedPaths 的 readImages
+// 端口在桌面端的实现；浏览器端拿不到绝对路径，所以那一端不注入这个通道。
+const DESKTOP_DROP_ZONE: ChatComposerDropZone = {
+  readImages: async (paths: string[]) => {
+    const resp = await ChatReadDroppedImages(
+      chat_svc.ReadDroppedImagesRequest.createFrom({ paths }),
+    );
+    return (resp.items ?? []).map((it) => ({
+      dataUrl: it.dataUrl,
+      kind: it.kind === "image" ? ("image" as const) : ("path" as const),
+      mediaType: it.mediaType,
+      name: it.name,
+      path: it.path,
+    }));
+  },
+  registerDropZone,
 };
-
-export type ChatComposerSubmit = {
-  images?: ChatImageAttachment[];
-  text: string;
-};
-
-// ChatComposer 的命令式句柄。restoreDraft 用于发送失败时把用户刚提交的文本 + 图片
-// 原样放回输入框（草稿恢复）；clearDraft 清空输入框 + 图片附件（丢弃草稿）。
-export type ChatComposerHandle = {
-  restoreDraft: (text: string, images: ChatImageAttachment[]) => void;
-  clearDraft: () => void;
-};
-
-const CHAT_IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
-const MAX_CHAT_IMAGE_COUNT = 4;
-const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
-
-function readImageFile(file: File): Promise<ChatImageAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-    reader.onload = () => {
-      if (typeof reader.result !== "string") {
-        reject(new Error("invalid image data"));
-        return;
-      }
-      resolve({
-        dataUrl: reader.result,
-        mediaType: file.type,
-        name: file.name,
-      });
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function imageFilesFromClipboard(data: DataTransfer): File[] {
-  const itemFiles = Array.from(data.items ?? [])
-    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => !!file);
-  if (itemFiles.length > 0) return itemFiles;
-  return Array.from(data.files ?? []).filter((file) =>
-    file.type.startsWith("image/"),
-  );
-}
-
-// 把 token 数显示成 "42.3k / 1M" 这种紧凑形式，跟 inline 底栏的 10px 字号匹配。
-// 三档，k 与 M 同构（商小于阈值保 1 位小数、否则取整）：
-//   - < 1000        → 原样
-//   - [1e3, 1e6)    → k：商 >= 100 取整，否则 1 位小数
-//   - >= 1e6        → M：商 >= 10 取整，否则 1 位小数；整数时省掉 ".0"（1e6 → "1M"）
-// 额外一条：k 档取整后要是凑够 1000（999_999 → "1000k"），改按 M 档渲染 —— "1000k"
-// 这个字符串在任何输入下都不该出现，本来就是这次要消灭的东西。
-export function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) {
-    const v = n / 1000;
-    if (v < 100) return `${v.toFixed(1)}k`;
-    const rounded = Math.round(v);
-    if (rounded < 1000) return `${rounded}k`;
-    // 落到这里说明四舍五入把它顶进了 M 档，交给下面统一渲染。
-  }
-  const v = n / 1_000_000;
-  if (v >= 10) return `${Math.round(v)}M`;
-  const s = v.toFixed(1);
-  return `${s.endsWith(".0") ? s.slice(0, -2) : s}M`;
-}
 
 // formatResetIn 把"距离 ISO 时间点还有多久"渲染成紧凑的 XdYh / Xh / Xm 形式
 // (e.g. "4d21h", "3h", "40m"),用于 QuotaMeter tooltip。
@@ -334,41 +247,23 @@ export function formatResetIn(value: unknown, nowMs?: number): string {
   return `${days}d${hours}h`;
 }
 
-// quotaLevel 是配额告警阈值的唯一来源。每个窗口各自定级 —— 5h 告急不该把 7d
-// 一起染红,否则用户看不出该等 3 小时还是等 4 天。
-type QuotaLevel = "ok" | "warn" | "danger";
-
-function quotaLevel(percent: number | null): QuotaLevel {
-  if (percent === null) return "ok";
-  if (percent >= 90) return "danger";
-  if (percent >= 75) return "warn";
-  return "ok";
-}
-
 // 配色表共用 quotaLevel 定级。文字色分表是因为"正常"态各处诉求不同(底栏配额要退到
 // 背景里,面板与上下文里这个数字是主角);填充色三处一致,故只有一张表。
 // 分表而不是拿 class 字符串去比较判断。
-const QUOTA_METER_TONE: Record<QuotaLevel, string> = {
+const QUOTA_METER_TONE: Record<UsageLevel, string> = {
   ok: "text-muted-foreground",
   warn: "text-status-waiting",
   danger: "text-status-error",
 };
-const QUOTA_PANEL_TONE: Record<QuotaLevel, string> = {
+const QUOTA_PANEL_TONE: Record<UsageLevel, string> = {
   ok: "text-foreground",
   warn: "text-status-waiting",
   danger: "text-status-error",
 };
-const LEVEL_FILL_TONE: Record<QuotaLevel, string> = {
+const LEVEL_FILL_TONE: Record<UsageLevel, string> = {
   ok: "bg-primary",
   warn: "bg-status-waiting",
   danger: "bg-status-error",
-};
-// 上下文计量器的文字色:正常态用 primary-text(它是底栏里唯一常驻的定量信息,
-// 该被看见),告警两档与配额一致。
-const CONTEXT_METER_TONE: Record<QuotaLevel, string> = {
-  ok: "text-primary-text",
-  warn: "text-status-waiting",
-  danger: "text-status-error",
 };
 
 const QUOTA_HOVER_OPEN_DELAY_MS = 200;
@@ -384,7 +279,7 @@ const QUOTA_HOVER_CLOSE_DELAY_MS = 100;
 //
 // 详情(重置倒计时 / Sonnet / Opus 拆分 / 异常态)在 HoverCard 面板里,不再用原生
 // title —— 原生 title 不可键盘触达、不可着色、多行渲染跨平台不一致。
-function QuotaMeter({
+export function QuotaMeter({
   data,
   deviceLabel,
 }: {
@@ -403,11 +298,11 @@ function QuotaMeter({
     data.reason === "auth_expired" || data.reason === "device_offline";
   // 灰态占位没有可信数值,整块压成 subtle;有数值时两个窗口各自取色。
   const fiveTone = offline
-    ? "text-subtle-foreground"
-    : QUOTA_METER_TONE[quotaLevel(fiveH)];
+    ? "text-muted-foreground"
+    : QUOTA_METER_TONE[usageLevel(fiveH)];
   const sevenTone = offline
-    ? "text-subtle-foreground"
-    : QUOTA_METER_TONE[quotaLevel(sevenD)];
+    ? "text-muted-foreground"
+    : QUOTA_METER_TONE[usageLevel(sevenD)];
 
   return (
     <HoverCard
@@ -424,7 +319,7 @@ function QuotaMeter({
             "font-mono text-meta tabular-nums transition-colors motion-reduce:transition-none",
             "hover:border-border hover:bg-accent",
             "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",
-            offline ? "text-subtle-foreground" : "text-muted-foreground",
+            offline ? "text-muted-foreground" : "text-muted-foreground",
           )}
           aria-label={t("chat.quota.aria", {
             device: deviceLabel || "local",
@@ -443,7 +338,7 @@ function QuotaMeter({
             </span>
             {showNumbers && fiveH !== null ? `${fiveH}%` : "—%"}
           </span>
-          <span className="text-subtle-foreground">·</span>
+          <span className="text-decorative-foreground">·</span>
           <span className={sevenTone}>
             <span
               data-quota-prefix="7d"
@@ -505,14 +400,14 @@ function QuotaRow({
   t: TFunction;
 }) {
   const pct = Math.round(percent);
-  const level = quotaLevel(pct);
+  const level = usageLevel(pct);
   const remaining = formatResetIn(resetsAt);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline gap-1.5 text-2xs">
         <span className="font-medium text-foreground">{label}</span>
         {remaining ? (
-          <span className="font-mono text-subtle-foreground">
+          <span className="font-mono text-muted-foreground">
             {t("chat.quota.resetRemaining", { time: remaining }).trim()}
           </span>
         ) : null}
@@ -561,7 +456,7 @@ function QuotaPanel({
         <span className="text-xs font-semibold text-foreground">
           {t("chat.quota.panel.title")}
         </span>
-        <span className="ml-auto truncate font-mono text-2xs text-subtle-foreground">
+        <span className="ml-auto truncate font-mono text-2xs text-muted-foreground">
           {device}
         </span>
       </div>
@@ -615,563 +510,42 @@ function QuotaPanel({
   );
 }
 
-function ContextMeter({ used, max }: { used: number; max: number }) {
-  const { t } = useTranslation();
-  const safeUsed = Math.max(0, used);
-  const ratio = max > 0 ? Math.min(1, safeUsed / max) : 0;
-  const pct = Math.round(ratio * 100);
-  // 阈值与配额共用 quotaLevel(≥90 危险 / ≥75 警告),别在这里再写一份 —— 同一个文件
-  // 里两套 90/75 常量迟早会改漏一处。传 ratio*100 而不是取整后的 pct,保持既有边界
-  // 行为不变(ratio 0.895 仍算 warning,不因四舍五入跳成 danger)。
-  const level = quotaLevel(ratio * 100);
-  // 调色板仍是上下文自己的:它的"正常"态是 primary 着色(这个数字是主角),
-  // 而底栏配额的"正常"态要退到背景里 —— 与 QUOTA_METER_TONE / QUOTA_PANEL_TONE
-  // 同源不同表。
-  const tone = CONTEXT_METER_TONE[level];
-  const fill = LEVEL_FILL_TONE[level];
-  return (
-    <div
-      className="flex min-w-0 items-center gap-2 overflow-hidden font-mono text-meta whitespace-nowrap text-muted-foreground"
-      aria-label={t("chat.context.aria", { max, used: safeUsed })}
-    >
-      <Gauge className="size-2.5 shrink-0" aria-hidden="true" />
-      {/* 中档起隐藏文字标签:图标 + 数字已足够辨识, 标签是最先该让位的冗余。 */}
-      <span className="font-sans @max-[1000px]/composer:hidden">
-        {t("chat.context.label")}
-      </span>
-      <span className="inline-flex items-center gap-0.5 tabular-nums">
-        <span className="font-medium text-foreground">
-          {formatTokens(safeUsed)}
-        </span>
-        <span className="text-subtle-foreground"> / </span>
-        <span>{formatTokens(max)}</span>
-      </span>
-      <span
-        // 窄档整条隐藏:它与紧邻的百分比表达同一个量,是行内最贵的冗余装饰。
-        className="h-1 w-24 shrink-0 overflow-hidden rounded-sm bg-border @max-[800px]/composer:hidden"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={max}
-        aria-valuenow={Math.min(safeUsed, max)}
-      >
-        <span
-          className={cn("block h-1 rounded-sm transition-[width]", fill)}
-          style={{ width: `${pct}%` }}
-        />
-      </span>
-      <span className={cn("font-medium tabular-nums", tone)}>{pct}%</span>
-    </div>
+const ChatComposer = React.forwardRef<
+  ChatComposerHandle,
+  DesktopChatComposerProps
+>(function ChatComposer({ agentId = 0, cwd = "", onSlashRpc, ...rest }, ref) {
+  const { agents } = useChatAgents();
+  const { projects } = useProjectList();
+  const mentionSources = React.useMemo(
+    () => buildMentionSources(agents, projects),
+    [agents, projects],
   );
-}
+  // 命令清单归宿主:静态注册表 + 该 agent 的技能命令,按 backend 过滤后交给包。
+  // 包内只负责触发检测 / 排序 / 渲染(见包的 chat-input/slash/types.ts)。
+  const skillCommands = useAgentSkillCommands(
+    agentId,
+    rest.backendType ?? "",
+    cwd,
+  );
+  const slashCommands = React.useMemo(
+    () => listAvailable(rest.backendType ?? "", skillCommands),
+    [rest.backendType, skillCommands],
+  );
 
-const ChatComposer = React.forwardRef<ChatComposerHandle, ChatComposerProps>(
-  function ChatComposer(
-    {
-      className,
-      onSubmit,
-      placeholder,
-      userMessageHistory,
-      editing = false,
-      editDraft,
-      onCancelEdit,
-      topSlot,
-      contextUsage,
-      quotaUsage,
-      quotaDeviceLabel,
-      permissionModeSlot,
-      modelSlot,
-      onShiftTab,
-      autoFocusOnMount = false,
-      backendType,
-      agentId = 0,
-      cwd = "",
-      supportsImageInput = true,
-      onSlashRpc,
-      onRunCommand,
-      onCommandModeChange,
-      localCommandHistoryScope,
-      editorRef,
-      onPasteCapture,
-      disabled = false,
-      sending = false,
-      ...props
-    }: ChatComposerProps,
-    ref,
-  ) {
-    const { t } = useTranslation();
-    const { agents } = useChatAgents();
-    const { projects } = useProjectList();
-    const mentionSources = React.useMemo(
-      () => buildMentionSources(agents, projects),
-      [agents, projects],
-    );
-    const inputRef = React.useRef<AIChatInputHandle>(null);
-    const fileInputRef = React.useRef<HTMLInputElement>(null);
-    const [isEmpty, setIsEmpty] = React.useState(true);
-    const [images, setImages] = React.useState<ChatImageAttachment[]>([]);
-    const [imageError, setImageError] = React.useState("");
-    const [commandMode, setCommandMode] = React.useState(false);
-    const skillCommands = useAgentSkillCommands(
-      agentId,
-      backendType ?? "",
-      cwd,
-    );
-    const resolvedPlaceholder =
-      placeholder ??
-      t(
-        backendType === "codex"
-          ? "chat.composer.placeholderCodex"
-          : backendType === "claudecode"
-            ? "chat.composer.placeholderClaude"
-            : backendType === "piagent"
-              ? "chat.composer.placeholderPi"
-              : "chat.composer.placeholder",
-      );
-
-    // 发送失败草稿恢复:把用户刚提交的文本 + 图片原样放回输入框（父组件在 doSend
-    // 的 catch 里调用）。loadDraft 走与编辑模式载入草稿同一路径,行为一致。
-    React.useImperativeHandle(
-      ref,
-      () => ({
-        restoreDraft: (text: string, restoreImages: ChatImageAttachment[]) => {
-          inputRef.current?.loadDraft(text);
-          setImages(restoreImages);
-          setImageError("");
-        },
-        clearDraft: () => {
-          inputRef.current?.clear();
-          setImages([]);
-          setImageError("");
-        },
-      }),
-      [],
-    );
-
-    // 切换到编辑模式（或换了编辑目标）时把目标文本载进 TipTap，并把光标抓回输入框；
-    // 退出编辑模式时清空输入，免得上一次的编辑残留干扰下一条新消息。
-    const wasEditingRef = React.useRef(false);
-    React.useEffect(() => {
-      if (editing) {
-        if (editDraft !== undefined) {
-          inputRef.current?.loadDraft(editDraft);
-        }
-        inputRef.current?.focus();
-      } else if (wasEditingRef.current) {
-        inputRef.current?.clear();
-      }
-      if (editing) {
-        setImages([]);
-        setImageError("");
-      }
-      wasEditingRef.current = editing;
-    }, [editing, editDraft]);
-
-    const wasAutoFocusOnMountRef = React.useRef(autoFocusOnMount);
-    React.useEffect(() => {
-      const wasAutoFocusOnMount = wasAutoFocusOnMountRef.current;
-      wasAutoFocusOnMountRef.current = autoFocusOnMount;
-      if (!autoFocusOnMount || wasAutoFocusOnMount) return;
-      inputRef.current?.focus();
-    }, [autoFocusOnMount]);
-
-    React.useEffect(() => {
-      if (supportsImageInput) return;
-      setImages([]);
-      setImageError("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }, [supportsImageInput]);
-
-    const dropRef = React.useRef<HTMLFormElement>(null);
-
-    const handleDroppedPaths = React.useCallback(
-      (paths: string[]) => {
-        if (disabled) return;
-        void (async () => {
-          const { attachments, text } = await resolveDroppedPaths(paths, {
-            allowImages: !editing && supportsImageInput,
-            remainingImageSlots: MAX_CHAT_IMAGE_COUNT - images.length,
-            readImages: async (imagePaths) => {
-              const resp = await ChatReadDroppedImages(
-                chat_svc.ReadDroppedImagesRequest.createFrom({
-                  paths: imagePaths,
-                }),
-              );
-              return (resp.items ?? []).map((it) => ({
-                path: it.path,
-                kind:
-                  it.kind === "image" ? ("image" as const) : ("path" as const),
-                name: it.name,
-                mediaType: it.mediaType,
-                dataUrl: it.dataUrl,
-              }));
-            },
-          });
-          if (attachments.length > 0) {
-            setImages((prev) => [...prev, ...attachments]);
-            setImageError("");
-          }
-          if (text) inputRef.current?.insertText(text);
-        })();
-      },
-      [disabled, editing, supportsImageInput, images.length],
-    );
-
-    const { isDragOver } = useFileDropZone({
-      ref: dropRef,
-      enabled: !disabled,
-      onPaths: handleDroppedPaths,
-    });
-
-    function handleSend(text: string) {
-      if (disabled) return;
-      const trimmed = text.trim();
-      if (!trimmed && images.length === 0) return;
-      onSubmit?.(
-        images.length > 0 ? { images, text: trimmed } : { text: trimmed },
-      );
-      setImages([]);
-      setImageError("");
-    }
-
-    function handleFormSubmit(event: React.FormEvent<HTMLFormElement>) {
-      event.preventDefault();
-      if (disabled) return;
-      if (isEmpty && images.length > 0) {
-        handleSend("");
-        return;
-      }
-      inputRef.current?.submit();
-    }
-
-    async function handleImageFiles(files: FileList | readonly File[] | null) {
-      try {
-        if (disabled || !files || files.length === 0) return;
-        const nextFiles = Array.from(files);
-        if (images.length + nextFiles.length > MAX_CHAT_IMAGE_COUNT) {
-          setImageError(
-            t("chat.composer.imageErrors.tooMany", {
-              count: MAX_CHAT_IMAGE_COUNT,
-            }),
-          );
-          return;
-        }
-        const bad = nextFiles.find(
-          (file) =>
-            !CHAT_IMAGE_ACCEPT.split(",").includes(file.type) ||
-            file.size > MAX_CHAT_IMAGE_BYTES,
-        );
-        if (bad) {
-          setImageError(t("chat.composer.imageErrors.unsupported"));
-          return;
-        }
-        const attachments = await Promise.all(nextFiles.map(readImageFile));
-        setImages((prev) => [...prev, ...attachments]);
-        setImageError("");
-      } catch {
-        setImageError(t("chat.composer.imageErrors.readFailed"));
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
-    }
-
-    function handlePasteCapture(event: React.ClipboardEvent<HTMLFormElement>) {
-      onPasteCapture?.(event);
-      if (event.defaultPrevented || disabled || editing || !supportsImageInput)
-        return;
-      const pastedImages = imageFilesFromClipboard(event.clipboardData);
-      if (pastedImages.length === 0) return;
-      event.preventDefault();
-      void handleImageFiles(pastedImages);
-    }
-
-    // Esc 取消编辑。TipTap 的 handleKeyDown 不处理 Esc，所以这里在 form 层捕获；
-    // 非编辑态下不消费，让默认行为走。
-    //
-    // Shift+Tab 循环切换 permission mode —— 对齐 Claude TUI；focus 在 composer 内
-    // （TipTap editor / 普通按钮）时都会冒泡到 form，preventDefault 拦掉默认 tab 切换。
-    // 历史 Clear footer 保留原生反向焦点；编辑模式也不消费 Shift+Tab。
-    function handleFormKeyDown(event: React.KeyboardEvent<HTMLFormElement>) {
-      if (
-        !editing &&
-        isEmpty &&
-        images.length > 0 &&
-        event.key === "Enter" &&
-        !event.shiftKey &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.nativeEvent.isComposing
-      ) {
-        event.preventDefault();
-        handleSend("");
-        return;
-      }
-      if (editing && event.key === "Escape") {
-        event.preventDefault();
-        onCancelEdit?.();
-        return;
-      }
-      if (
-        !event.defaultPrevented &&
-        !editing &&
-        onShiftTab &&
-        event.key === "Tab" &&
-        event.shiftKey &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey
-      ) {
-        if (
-          event.target instanceof Element &&
-          event.target.closest(LOCAL_COMMAND_HISTORY_CLEAR_SELECTOR)
-        ) {
-          return;
-        }
-        event.preventDefault();
-        onShiftTab();
-      }
-    }
-
-    return (
-      <form
-        ref={dropRef}
-        className={cn(
-          // @container/composer:底栏按 composer 自身宽度分档降级 —— chat panel 的实际
-          // 宽度取决于侧栏 / 右侧面板开合,视口宽度读不到它。
-          "@container/composer relative w-full border-t border-border bg-background px-7 py-3.5",
-          className,
-        )}
-        onSubmit={handleFormSubmit}
-        onKeyDown={handleFormKeyDown}
-        onPasteCapture={handlePasteCapture}
-        {...props}
-      >
-        {isDragOver ? (
-          <div
-            className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-ring bg-background/85 text-sm font-medium text-foreground"
-            aria-hidden="true"
-          >
-            {t("chat.composer.dropHint")}
-          </div>
-        ) : null}
-        <div
-          className={cn(
-            "flex w-full flex-col overflow-hidden rounded-md border bg-card shadow-xs transition-colors",
-            "focus-within:ring-[3px] focus-within:ring-ring/50",
-            editing
-              ? "border-primary-text/45 focus-within:border-primary-text/70"
-              : "border-border focus-within:border-ring",
-          )}
-        >
-          {topSlot}
-          {editing ? (
-            <div
-              role="status"
-              aria-label={t("chat.composer.editing.aria")}
-              className="flex items-center gap-2 border-b border-primary-text/20 bg-primary-soft px-3 py-1.5 text-meta"
-            >
-              <Pencil
-                className="size-3 shrink-0 text-primary-text"
-                aria-hidden="true"
-              />
-              <span className="font-semibold text-primary-text">
-                {t("chat.composer.editing.title")}
-              </span>
-              <span className="text-muted-foreground">·</span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {t("chat.composer.editing.description")}
-              </span>
-              <button
-                type="button"
-                aria-label={t("chat.composer.editing.cancel")}
-                title={t("chat.composer.editing.cancelTitle")}
-                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                onClick={() => onCancelEdit?.()}
-              >
-                <X className="size-3" aria-hidden="true" />
-              </button>
-            </div>
-          ) : null}
-          {!editing && commandMode ? (
-            <div
-              role="status"
-              className="flex items-center gap-2 border-b border-primary-text/20 bg-primary-soft px-3 py-1.5 text-meta"
-            >
-              <SquareTerminal
-                className="size-3 shrink-0 text-primary-text"
-                aria-hidden="true"
-              />
-              <span className="min-w-0 flex-1 truncate font-medium text-primary-text">
-                {t("chat.composer.command.banner")}
-              </span>
-              <span className="inline-flex items-center gap-1 text-muted-foreground">
-                <EyeOff className="size-3" aria-hidden="true" />
-                {t("localCommand.notSharedWithAI")}
-              </span>
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-1 px-3.5 pt-2.5 pb-1">
-            {!editing && images.length > 0 ? (
-              <div className="flex flex-wrap gap-2 pb-1">
-                {images.map((img, idx) => (
-                  <div
-                    key={`${img.name}-${idx}`}
-                    className="group relative h-16 w-20 overflow-hidden rounded-md border border-border bg-muted"
-                  >
-                    <img
-                      src={img.dataUrl}
-                      alt={img.name || t("chat.image.attachmentAlt")}
-                      className="h-full w-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      aria-label={t("chat.composer.removeImage", {
-                        name: img.name || idx + 1,
-                      })}
-                      className="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-sm bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                      onClick={() => {
-                        setImages((prev) => prev.filter((_, i) => i !== idx));
-                        setImageError("");
-                      }}
-                    >
-                      <X className="size-3" aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <AIChatInput
-              ref={inputRef}
-              editorRef={editorRef}
-              onSubmit={handleSend}
-              onEmptyChange={setIsEmpty}
-              onCommandModeChange={(active) => {
-                setCommandMode(active);
-                onCommandModeChange?.(active);
-              }}
-              onCommandSubmit={onRunCommand}
-              localCommandHistoryScope={localCommandHistoryScope}
-              sendOnEnter
-              userMessageHistory={userMessageHistory}
-              placeholder={resolvedPlaceholder}
-              autoFocus={autoFocusOnMount}
-              disabled={disabled}
-              backendType={backendType}
-              mentionSources={mentionSources}
-              skillCommands={skillCommands}
-              onSlashSelect={(cmd, exec) => {
-                // literal_text 由 AIChatInput 内部直接填回编辑器(不自动发送),
-                // 这里只接 rpc 类命令转交给父组件。
-                if (exec.kind === "rpc") onSlashRpc?.(cmd, exec);
-              }}
-            />
-            {imageError ? (
-              <div className="text-meta text-status-error" role="alert">
-                {imageError}
-              </div>
-            ) : null}
-            {/* 底栏恒为单行:靠 @container 分档隐藏装饰来适配窄宽,绝不允许内部文字
-              折行把行高顶高(Hard invariant 1),也绝不允许横向溢出把发送按钮裁出
-              可视区(Hard invariant 2)。
-              溢出优先级:按钮与两个 Pill 保持 shrink-0 不参与收缩,两个计量器是唯一
-              带 min-w-0 的让位者 —— 断点万一估窄,多出的宽度只吃掉计量器。 */}
-            <div className="flex flex-nowrap items-center gap-2">
-              {!editing && supportsImageInput ? (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept={CHAT_IMAGE_ACCEPT}
-                    multiple
-                    className="hidden"
-                    onChange={(event) =>
-                      void handleImageFiles(event.target.files)
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("chat.composer.addImage")}
-                    title={t("chat.composer.addImage")}
-                    disabled={disabled || images.length >= MAX_CHAT_IMAGE_COUNT}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <ImagePlus data-icon="only" aria-hidden="true" />
-                  </Button>
-                </>
-              ) : null}
-              {/* 快捷键提示是一次性教学文案,空间不足时第一个让位。 */}
-              <span className="shrink-0 font-mono text-meta leading-none whitespace-nowrap text-subtle-foreground @max-[1000px]/composer:hidden">
-                {editing
-                  ? t("chat.composer.shortcuts.edit")
-                  : t("chat.composer.shortcuts.send")}
-              </span>
-              {!editing && (permissionModeSlot || modelSlot) ? (
-                <div className="flex shrink-0 items-center gap-1">
-                  {permissionModeSlot}
-                  {modelSlot}
-                </div>
-              ) : null}
-              <div className="min-w-0 flex-1" />
-              {!editing && !commandMode ? (
-                <QuotaMeter data={quotaUsage} deviceLabel={quotaDeviceLabel} />
-              ) : null}
-              {contextUsage &&
-              contextUsage.max > 0 &&
-              !editing &&
-              !commandMode ? (
-                <ContextMeter used={contextUsage.used} max={contextUsage.max} />
-              ) : null}
-              {!editing && commandMode ? (
-                <Button
-                  type="submit"
-                  size="icon-sm"
-                  aria-label={t("chat.composer.command.run")}
-                  title={t("chat.composer.command.run")}
-                >
-                  <SquareTerminal data-icon="only" aria-hidden="true" />
-                </Button>
-              ) : editing ? (
-                <Button
-                  type="submit"
-                  disabled={isEmpty}
-                  size="xs"
-                  aria-label={t("chat.composer.saveEdit")}
-                >
-                  <Check data-icon="inline-start" aria-hidden="true" />
-                  {t("common.save")}
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={
-                    disabled || sending || (isEmpty && images.length === 0)
-                  }
-                  size="icon-sm"
-                  aria-label={
-                    sending ? t("chatPanel.sending") : t("chat.composer.send")
-                  }
-                  title={t("chat.composer.sendTitle")}
-                >
-                  {sending ? (
-                    <LoaderCircle
-                      data-icon="only"
-                      className="animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <SendHorizontal data-icon="only" aria-hidden="true" />
-                  )}
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </form>
-    );
-  },
-);
+  return (
+    <SharedChatComposer
+      {...rest}
+      ref={ref}
+      dropZone={DESKTOP_DROP_ZONE}
+      mentionSources={mentionSources}
+      slashCommands={slashCommands}
+      onSlashSelect={(cmd, exec) => {
+        // literal_text 由包内部直接填回编辑器(不自动发送),这里只接 rpc 类。
+        if (exec.kind === "rpc") onSlashRpc?.(cmd, exec);
+      }}
+    />
+  );
+});
 
 // Generic tool card extension point: canonical-tool/raw/card.tsx handles
 // non-canonical tools; canonical-tool/<kind>/card.tsx handles canonical kinds.
@@ -1191,6 +565,7 @@ const TRANSCRIPT_VIRTUAL_OVERSCAN = 6;
  */
 export type TranscriptLiveContent = LiveRowContent & {
   liveRetry?: RetryNotice | null;
+  liveTurn?: LiveTurnInput | null;
 };
 
 type ChatTranscriptProps = {
@@ -1240,6 +615,17 @@ type ChatTranscriptProps = {
   onStopLocalCommand?: (terminalId: string) => void | Promise<void>;
   /** Stable mounted chat tab key for UI drafts that survive route/tab remounts. */
   tabStateKey?: string;
+  /** 占位 assistant 的 model 为空时，脚注用会话当前模型。 */
+  fallbackModel?: string;
+  /**
+   * 还有更早的消息只拿到了元数据(正文没随本次加载下发,spec 2026-08-27 决策 6)。
+   * 为真时转录顶部给出「取回更早正文」的入口,并在用户滚回顶部时自动去取。
+   */
+  hasEarlierMessages?: boolean;
+  /** 更早那一段的正文正在取回来。 */
+  loadingEarlier?: boolean;
+  /** 取回更早那一段正文;未传 = 不给入口(只读调用方)。 */
+  onLoadEarlier?: () => void;
 };
 
 type ChatTranscriptHandle = {
@@ -1299,6 +685,14 @@ function useLocalDeviceFingerprint(): string | undefined {
   return fp;
 }
 
+// NO_LOADED_MESSAGES 是「一条正文都还没取到」时的稳定空表 —— 每次渲染新建 [] 会让
+// 下游按数组身份做的记忆化整片失效。
+const NO_LOADED_MESSAGES: chat_svc.ChatMessage[] = [];
+
+// EARLIER_MESSAGES_SCROLL_THRESHOLD_PX:滚到距顶多近就去取更早的正文。留一段余量,
+// 让用户在真正撞到顶之前就开始取,而不是先看见一段空白。
+const EARLIER_MESSAGES_SCROLL_THRESHOLD_PX = 240;
+
 const ChatTranscript = React.forwardRef<
   ChatTranscriptHandle,
   ChatTranscriptProps
@@ -1311,7 +705,7 @@ const ChatTranscript = React.forwardRef<
     scrollElement,
     virtualize = false,
     active = true,
-    messages,
+    messages: allMessages,
     liveByMessageId,
     onContinue,
     onRerun,
@@ -1323,24 +717,37 @@ const ChatTranscript = React.forwardRef<
     streaming = false,
     liveCompacting = false,
     reconnecting = false,
+    fallbackModel = "",
+    hasEarlierMessages = false,
+    loadingEarlier = false,
+    onLoadEarlier,
   },
   ref,
 ) {
-  // lastAssistantId:生成指示器(三个点)的宿主。只有当整个序列的「最后一条」就是
-  // assistant 时才挂 —— 正常 stream 流程下 doSend 同时插入 user + assistant 占位,
-  // 所以末尾一定是 assistant;末尾是 user(异常态或还没插占位)时不该在更早的
-  // assistant 上挂指示器误导用户,所以扫到的第一条不是 assistant 就返回 undefined。
-  // 只承载 notice 的旁白行在这里透明:轮中切换供应商会把一条 notice 消息追加在在跑的
-  // assistant 之后(pill 切完立刻 reloadSession),它若被当成末条 assistant,三个点就
-  // 跳到旁白行上、在跑的那条看着像已经停了。
-  const lastAssistantId = React.useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (isNoticeOnlyMessage(m)) continue;
-      return m.role === "assistant" ? m.id : undefined;
-    }
-    return undefined;
-  }, [messages]);
+  // 转录只渲染正文已经取全的消息。窗口外的消息手上只有元数据加派生视图点名的那几类
+  // 块(见 use-chat-session 的 DERIVED_VIEW_BLOCK_TYPES),把它们当整条渲染,用户看到
+  // 的是一份缺了工具结果 / 思考 / 嵌套卡的假转录 —— 宁可先不渲染,由顶部的入口取回来
+  // 之后自然接上。未取正文的消息永远是列表**前缀**(窗口取的是末尾一段),所以这里
+  // 切一刀就够;整表都已就绪时连数组引用一起原样传下去,下游的记忆化不被击穿。
+  const messages = React.useMemo(() => {
+    const first = allMessages.findIndex((m) => m.blocksLoaded !== false);
+    if (first === 0) return allMessages;
+    return first < 0 ? NO_LOADED_MESSAGES : allMessages.slice(first);
+  }, [allMessages]);
+
+  // onLoadEarlierRef 转发「取回更早正文」的回调,免得 chat-panel 每次重渲的 inline
+  // lambda 把滚动监听器反复摘挂;重复触发由调用方的在飞守卫吸收。
+  const onLoadEarlierRef = React.useRef(onLoadEarlier);
+  React.useEffect(() => {
+    onLoadEarlierRef.current = onLoadEarlier;
+  }, [onLoadEarlier]);
+  // lastAssistantId:生成指示器(三个点)的宿主。规则归共享包所有 ——
+  // agentre-server 的转录按同一条规则挂,两份实现必然漂移(它那边就漂过:往回找
+  // 最后一条 assistant,于是三点跳到上一轮的回复上)。判据见包里的注释。
+  const lastAssistantId = React.useMemo(
+    () => indicatorHostMessageId(messages),
+    [messages],
+  );
 
   // 折叠"压缩前"的旧消息:扫所有 messages.blocks,找最后一条 compact_boundary 所在的
   // (messageIdx, blockIdx);该位置之前的所有消息默认隐藏,该消息自己的更早 blocks 也
@@ -1373,72 +780,36 @@ const ChatTranscript = React.forwardRef<
   }, [folding, messages, fold]);
 
   // autonomousIds:自主续轮(CLI 后台任务完成后自主跑的一轮)的消息 id 集合。
-  // 判定:assistant 轮且其在**完整 messages**里紧邻的前一条不是 user —— 正常轮是
-  // user→assistant、auto-continue / steer 也是 user→assistant,只有自主续轮是
-  // assistant→assistant(无 user 行)。用完整 messages(而非 displayMessages)算,
-  // 避免 compact 折叠把首条 assistant 误判成自主轮。会话首条永不算(见下方 prevRole
-  // 的 undefined 初值)。
+  // 判定与它的全部理由归共享包的 transcript-turns 所有 —— 「什么算一轮」在界面上
+  // 有两个用处(这里给自主轮挂 banner、「回到底部」药丸报「下面还有 N 轮」),两处
+  // 各拼各的必然在自主续轮或旁白行这类边角上分家。
   //
-  // 只含 notice 块的消息(供应商切换/回退提示,规格决策 3)在这条判定里透明:它自己
-  // 永远不进 ids(单独 continue,连角色都不看),且在寻找「紧邻前一条」时被跳过(不
-  // 推进 prevRole)—— 否则它会插进两条真实 assistant 消息之间把回退提示误判成自主
-  // 续轮,也可能反过来垫在 assistant 与后续真实自主续轮之间把该有的判定拆断。
-  const autonomousIds = React.useMemo(() => {
-    const ids = new Set<number>();
-    let prevRole: string | undefined;
-    for (const m of messages) {
-      if (isNoticeOnlyMessage(m)) continue;
-      if (
-        prevRole !== undefined &&
-        m.role === "assistant" &&
-        prevRole !== "user"
-      ) {
-        ids.add(m.id);
-      }
-      prevRole = m.role;
-    }
-    return ids;
-  }, [messages]);
-
-  // useEvent 模式：把 onRerun/onEdit/onPlanActionStarted 包成稳定引用,让行组件的
-  // React.memo / TranscriptRenderContext 不会被 ChatPanel 传入的 inline lambda 击穿。
-  // 父侧每次重渲都换新函数,但 ref 内部更新后稳定代理捕获最新值,语义不变。
-  const onRerunRef = React.useRef(onRerun);
-  const onContinueRef = React.useRef(onContinue);
-  const onEditRef = React.useRef(onEdit);
-  const onPlanActionStartedRef = React.useRef(onPlanActionStarted);
-  const onStopSubagentRef = React.useRef(onStopSubagent);
-  const onStopLocalCommandRef = React.useRef(onStopLocalCommand);
-  React.useEffect(() => {
-    onRerunRef.current = onRerun;
-    onContinueRef.current = onContinue;
-    onEditRef.current = onEdit;
-    onPlanActionStartedRef.current = onPlanActionStarted;
-    onStopSubagentRef.current = onStopSubagent;
-    onStopLocalCommandRef.current = onStopLocalCommand;
-  });
-  const stableOnRerun = React.useCallback((id: number) => {
-    onRerunRef.current?.(id);
-  }, []);
-  const stableOnContinue = React.useCallback((id: number) => {
-    onContinueRef.current?.(id);
-  }, []);
-  const stableOnEdit = React.useCallback((id: number) => {
-    onEditRef.current?.(id);
-  }, []);
-  const stableOnPlanActionStarted = React.useCallback(
-    (stream: PlanActionStream, userText: string) => {
-      onPlanActionStartedRef.current?.(stream, userText);
-    },
-    [],
+  // 用完整消息表(而非 displayMessages,也不是切掉未取正文那段之后的 messages)算:
+  // 判据是「这一轮前面有没有用户消息」,而 compact 折叠与正文窗口都会切掉前缀 ——
+  // 切完之后首条 assistant 失去它的"前一条",会被误判成自主轮挂上 banner。
+  // 角色序列是元数据,窗口外的消息照样带着。
+  const autonomousIds = React.useMemo(
+    () => autonomousTurnMessageIds(allMessages),
+    [allMessages],
   );
-  const stableOnStopSubagent = React.useCallback((toolUseId: string) => {
-    onStopSubagentRef.current?.(toolUseId);
-  }, []);
-  const stableOnStopLocalCommand = React.useCallback((terminalId: string) => {
-    return onStopLocalCommandRef.current?.(terminalId);
-  }, []);
-  const hasStopLocalCommand = onStopLocalCommand !== undefined;
+
+  // 六个回调的稳定代理(useEvent 模式)住在 useTranscriptCallbacks 里。
+  const {
+    stableOnRerun,
+    stableOnContinue,
+    stableOnEdit,
+    stableOnPlanActionStarted,
+    stableOnStopSubagent,
+    stableOnStopLocalCommand,
+    hasStopLocalCommand,
+  } = useTranscriptCallbacks({
+    onRerun,
+    onContinue,
+    onEdit,
+    onPlanActionStarted,
+    onStopSubagent,
+    onStopLocalCommand,
+  });
 
   // displayMessages → 虚拟行。persisted 消息的行缓存在实例级 WeakMap(引用稳定
   // → 行组件 memo 恒命中);live 消息每 chunk 现场重建,重渲上限 = 可见窗口行数。
@@ -1493,8 +864,18 @@ const ChatTranscript = React.forwardRef<
 
   const renderCtx = React.useMemo<TranscriptRenderContextValue>(
     () => ({
-      agentColor,
       agentName,
+      // 头像节点由宿主给：包里的 MessageRow / ChatMessage 不认识桌面端的 16 色
+      // agent 调色板与 icon-registry，只借包的 MESSAGE_AVATAR_CLASS 对齐头像列尺寸。
+      agentAvatar: (
+        <AgentAvatar
+          name={agentName}
+          initials={agentName.charAt(0)}
+          color={agentColor}
+          size="md"
+          className={MESSAGE_AVATAR_CLASS}
+        />
+      ),
       cwd,
       // 只读调用方不传 onEdit/onRerun 时，上游 ref 为 undefined；
       // 此处有条件地传入稳定代理，让行视图能用 ctx?.onEdit 作存在性门控。
@@ -1577,10 +958,19 @@ const ChatTranscript = React.forwardRef<
           showIndicator={showIndicator}
           compacting={showIndicator && isLiveTail && liveCompacting}
           reconnecting={showIndicator && reconnecting}
+          liveTurn={isLiveTail ? (live?.liveTurn ?? null) : null}
+          fallbackModel={fallbackModel}
         />
       );
     },
-    [lastAssistantId, liveByMessageId, liveCompacting, reconnecting, streaming],
+    [
+      fallbackModel,
+      lastAssistantId,
+      liveByMessageId,
+      liveCompacting,
+      reconnecting,
+      streaming,
+    ],
   );
 
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual intentionally owns mutable measurement callbacks.
@@ -1588,7 +978,7 @@ const ChatTranscript = React.forwardRef<
     count: rows.length,
     estimateSize: (index) =>
       // estimateRowSize(内容高度,按 132→148 等同源校准比例缩放)之上,再按
-      // isLastRowOfMessage 补上 rowWrapperPad 的间距增量(消息末行 pb-7=28px /
+      // isLastRowOfMessage 补上 transcriptRowPadClass 的间距增量(消息末行 pb-7=28px /
       // 块内行 pb-2.5=10px,与纯乘法缩放旧 padding 得到的 ≈22.4px/≈8.97px 有
       // ≈5.6px/≈1px 缺口——两处 padding 打在同一个 measureElement div 上,详见
       // transcript-rows.ts:estimateRowSizeWithSpacing 的注释)。
@@ -1723,18 +1113,45 @@ const ChatTranscript = React.forwardRef<
       if (folding && messages.some((m) => m.id === messageId)) {
         setExpanded(true);
         setPendingScrollMessageId(messageId);
+        return;
+      }
+      // 目标是一条正文还没取回来的旧消息(大纲列的是**整条会话**的轮次,点它跳转是
+      // 常规动作)。先记下意图再去取,由下面那个 effect 在行真正出现后落位 ——
+      // 直接滚是滚不动的:此刻它还不在渲染的行里。
+      if (allMessages.some((m) => m.id === messageId)) {
+        setPendingScrollMessageId(messageId);
+        onLoadEarlierRef.current?.();
       }
     },
-    [firstRowIndexByMessageId, folding, messages, virtualizer],
+    [allMessages, firstRowIndexByMessageId, folding, messages, virtualizer],
   );
 
   React.useEffect(() => {
     if (pendingScrollMessageId == null) return;
     const index = firstRowIndexByMessageId.get(pendingScrollMessageId);
-    if (index == null) return;
+    if (index == null) {
+      const target = allMessages.find((m) => m.id === pendingScrollMessageId);
+      // 目标已经不在表里(被编辑/重跑截断了):这次跳转没有落点,收手。
+      if (!target) {
+        setPendingScrollMessageId(null);
+        return;
+      }
+      // 正文还没取到就继续往前取;取到头(没有更早的)时留着意图不动 ——
+      // 折叠展开那条路正是在这个窗口里等下一次重渲的。
+      if (target.blocksLoaded === false && hasEarlierMessages) {
+        onLoadEarlierRef.current?.();
+      }
+      return;
+    }
     virtualizer.scrollToIndex(index, { align: "start" });
     setPendingScrollMessageId(null);
-  }, [firstRowIndexByMessageId, pendingScrollMessageId, virtualizer]);
+  }, [
+    allMessages,
+    firstRowIndexByMessageId,
+    hasEarlierMessages,
+    pendingScrollMessageId,
+    virtualizer,
+  ]);
 
   const anchorRestoreFrameRef = React.useRef<number | null>(null);
   const cancelAnchorRestore = React.useCallback(() => {
@@ -1790,6 +1207,17 @@ const ChatTranscript = React.forwardRef<
   );
   React.useEffect(() => () => cancelAnchorRestore(), [cancelAnchorRestore]);
 
+  React.useEffect(() => {
+    const el = scrollElement;
+    if (!el || !hasEarlierMessages || !onLoadEarlier) return;
+    const handler = () => {
+      if (el.scrollTop > EARLIER_MESSAGES_SCROLL_THRESHOLD_PX) return;
+      onLoadEarlierRef.current?.();
+    };
+    el.addEventListener("scroll", handler, { passive: true });
+    return () => el.removeEventListener("scroll", handler);
+  }, [hasEarlierMessages, onLoadEarlier, scrollElement]);
+
   React.useImperativeHandle(
     ref,
     () => ({
@@ -1816,8 +1244,6 @@ const ChatTranscript = React.forwardRef<
   // 打在行 wrapper 上,跟随 measureElement 一起计入行高 —— isLastRowOfMessage 与
   // estimateSize 里 estimateRowSizeWithSpacing 补间距增量共用同一份边界判断,避免
   // 两处"是否消息末行"各算各的而漂移。
-  const rowWrapperPad = (index: number): string =>
-    isLastRowOfMessage(rows, index) ? "pb-7" : "pb-2.5";
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -1826,6 +1252,12 @@ const ChatTranscript = React.forwardRef<
           {/* 不再加 max-w-4xl —— 内部 ChatMessage 已经 cap 在 max-w-measure,
           这里再叠一层外层 max-w 没有任何收紧效果,只会留出 phantom 空白。 */}
           <div className={shouldVirtualize ? "min-h-full" : "flex flex-col"}>
+            {hasEarlierMessages && onLoadEarlier ? (
+              <EarlierMessagesLoader
+                loading={loadingEarlier}
+                onLoad={onLoadEarlier}
+              />
+            ) : null}
             {folding && foldedCount > 0 ? (
               <CompactHistoryFold
                 count={foldedCount}
@@ -1850,7 +1282,7 @@ const ChatTranscript = React.forwardRef<
                           data-row-key={row.key}
                           className={cn(
                             "absolute left-0 top-0 w-full",
-                            rowWrapperPad(virtualItem.index),
+                            transcriptRowPadClass(rows, virtualItem.index),
                           )}
                           style={{
                             transform: `translateY(${virtualItem.start}px)`,
@@ -1868,7 +1300,7 @@ const ChatTranscript = React.forwardRef<
                   key={row.key}
                   data-message-id={row.messageId}
                   data-row-key={row.key}
-                  className={rowWrapperPad(index)}
+                  className={transcriptRowPadClass(rows, index)}
                 >
                   {renderRowView(row)}
                 </div>

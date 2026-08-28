@@ -6,7 +6,7 @@ import (
 	"github.com/cago-frame/cago/database/db"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 )
 
 //go:generate mockgen -source exec_target.go -destination mock_agent_repo/mock_exec_target.go

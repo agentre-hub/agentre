@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 )
 
 // 仅做最小契约测试 — 详细分支已由 agent_backend_svc/prober_test.go 间接覆盖。

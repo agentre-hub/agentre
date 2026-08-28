@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 // ConfigEnvVar 是 bridge.mjs 读取配置文件路径的环境变量名。

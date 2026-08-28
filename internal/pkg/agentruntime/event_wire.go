@@ -7,7 +7,7 @@ import (
 
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 )
 
 // Event wire 编解码。Event 是 sealed interface，无法靠 stdlib 默认反序列化跨线传递；
@@ -78,6 +78,12 @@ func (e ThinkingDelta) MarshalJSON() ([]byte, error) {
 		Kind EventKind `json:"kind"`
 		Text string    `json:"text"`
 	}{EventThinkingDelta, e.Text})
+}
+
+func (e OutputActivity) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind EventKind `json:"kind"`
+	}{EventOutputActivity})
 }
 
 func (e ToolCall) MarshalJSON() ([]byte, error) {
@@ -286,6 +292,14 @@ func (e PlanUpdated) MarshalJSON() ([]byte, error) {
 	}{EventPlanUpdated, e.Plan})
 }
 
+func (e UnrecognizedBlock) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind      EventKind       `json:"kind"`
+		BlockType string          `json:"blockType,omitempty"`
+		Data      json.RawMessage `json:"data,omitempty"`
+	}{EventUnrecognizedBlock, e.BlockType, e.Data})
+}
+
 func (e Done) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Kind EventKind `json:"kind"`
@@ -338,6 +352,8 @@ func UnmarshalEvent(data []byte) (Event, error) {
 		return nil, errors.New("agentruntime: UnmarshalEvent: missing kind")
 	}
 	switch head.Kind {
+	case EventOutputActivity:
+		return OutputActivity{}, nil
 	case EventTextDelta:
 		var w struct {
 			Text string `json:"text"`
@@ -620,6 +636,15 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			return nil, err
 		}
 		return PlanUpdated{Plan: w.Plan}, nil
+	case EventUnrecognizedBlock:
+		var w struct {
+			BlockType string          `json:"blockType"`
+			Data      json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return UnrecognizedBlock{BlockType: w.BlockType, Data: w.Data}, nil
 	case EventDone:
 		return Done{}, nil
 	case EventUserMessage:

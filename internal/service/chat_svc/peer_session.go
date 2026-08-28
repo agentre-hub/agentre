@@ -7,13 +7,17 @@ import (
 	"math"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
+
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 var (
@@ -60,21 +64,36 @@ func (s *chatSvc) ListPeerSessions(ctx context.Context) (*wire.SessionListResult
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
+	// 项目的同步标识一次取齐:这份清单在一次列举里不会变,而下面是「每个 Agent ×
+	// 它的每条会话」两层循环,逐条回库查一次就是几百次往返。
+	projectSyncIDs, err := projectSyncIDByID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	result := &wire.SessionListResult{
-		Sessions:                make([]wire.SessionSummary, 0),
-		SupportsSessionMetadata: true,
+		Sessions: make([]wire.SessionSummary, 0),
+		// 桌面端就是 chat_sessions.provider_key / model_key 的落库方,如实声明。
 	}
 	for _, agent := range agents {
 		if agent == nil {
 			return nil, fmt.Errorf("%w: nil Agent", ErrPeerSessionMetadata)
 		}
-		sessions, err := chat_repo.Session().ListByAgentPagedIncludingGroups(ctx, agent.ID, 0, math.MaxInt)
+		sessions, err := chat_repo.Session().ListByAgentPaged(ctx, agent.ID, 0, math.MaxInt)
 		if err != nil {
 			return nil, operationFailedWithCause(ctx, err)
 		}
 		for _, session := range sessions {
-			summary, err := peerSessionSummary(ctx, session, agent, fingerprint)
+			summary, err := peerSessionSummary(ctx, session, agent, fingerprint, projectSyncIDs)
 			if err != nil {
+				// 一行缺元数据只影响这一行（R5 仍然成立：跳过它，绝不补一个编出来的
+				// 摘要）。整份清单不能跟着完蛋——它是 web 控制台进入这台机器的唯一入口，
+				// 这里报错，浏览器就只剩一个不会结束的「加载中」。
+				if errors.Is(err, ErrPeerSessionMetadata) {
+					logger.Ctx(ctx).Warn("chat_svc.ListPeerSessions: skipping unusable session row",
+						zap.Int64("sessionId", sessionID(session)),
+						zap.Int64("agentId", agent.ID), zap.Error(err))
+					continue
+				}
 				return nil, err
 			}
 			result.Sessions = append(result.Sessions, summary)
@@ -129,7 +148,28 @@ func (s *chatSvc) AttachPeerSession(ctx context.Context, params wire.SessionAtta
 	}, nil
 }
 
-func peerSessionSummary(ctx context.Context, session *chat_entity.Session, agent *agent_entity.Agent, fingerprint string) (wire.SessionSummary, error) {
+// projectSyncIDByID 是「本地项目主键 → 账号级同步标识」的查询表。
+//
+// 还没认领同步标识的项目(未登录期间建的行,R12a 之前)不进表:交出去的必须是账号
+// 认得的那个名字,拿本地主键凑一个只会在账号那边建出一个配不上真项目的组。
+func projectSyncIDByID(ctx context.Context) (map[int64]string, error) {
+	projects, err := project_repo.Project().List(ctx)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	out := make(map[int64]string, len(projects))
+	for _, p := range projects {
+		if p != nil && p.SyncID != "" {
+			out[p.ID] = p.SyncID
+		}
+	}
+	return out, nil
+}
+
+func peerSessionSummary(
+	ctx context.Context, session *chat_entity.Session, agent *agent_entity.Agent,
+	fingerprint string, projectSyncIDs map[int64]string,
+) (wire.SessionSummary, error) {
 	if session == nil || agent == nil || strings.TrimSpace(session.Title) == "" || strings.TrimSpace(agent.Name) == "" || agent.SyncID == "" {
 		return wire.SessionSummary{}, fmt.Errorf("%w: session %d", ErrPeerSessionMetadata, sessionID(session))
 	}
@@ -148,11 +188,18 @@ func peerSessionSummary(ctx context.Context, session *chat_entity.Session, agent
 		Title:             session.Title,
 		AgentSyncID:       agent.SyncID,
 		ProviderSessionID: session.ProviderSessionID,
-		BackendType:       backendType,
-		LifecycleState:    lifecycle,
-		WaitingForInput:   waiting,
-		LatestSeq:         0,
-		UpdatedAt:         session.LastMessageAt,
+		// 自由会话(ProjectID = 0)与还没认领同步标识的项目都留空,不猜。
+		ProjectSyncID:   projectSyncIDs[session.ProjectID],
+		BackendType:     backendType,
+		LifecycleState:  lifecycle,
+		WaitingForInput: waiting,
+		LatestSeq:       0,
+		LastMessageAt:   session.LastMessageAt,
+		// 会话级 ModelTarget 原样交出:这两列本来就是桌面端在写的(决策 2/3 与
+		// SetChatSessionModelTarget),浏览器此前只是读不到。空是有含义的值
+		// (跟随 Agent 绑定),不补默认、不猜。
+		ProviderKey: session.ProviderKey,
+		ModelKey:    session.ModelKey,
 	}, nil
 }
 

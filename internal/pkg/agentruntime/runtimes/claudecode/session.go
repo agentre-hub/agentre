@@ -10,8 +10,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // ccStream 是 pkg/claudecode.Stream 的窄接口,便于测试注入 fake。
@@ -112,6 +112,14 @@ func (a *ccClientAdapter) Kill(_ context.Context) error {
 	}
 	a.sess.Kill()
 	return nil
+}
+
+// PID 转发到底层 claudecode.Session.PID(池快照的排查字段)。
+func (a *ccClientAdapter) PID() int {
+	if a.sess == nil {
+		return 0
+	}
+	return a.sess.PID()
 }
 
 // StopTask 转发到底层 claudecode.Session.StopTask,写 control_request{stop_task}

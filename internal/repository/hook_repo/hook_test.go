@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
 )
 
 func TestHookRepo_ListDue(t *testing.T) {

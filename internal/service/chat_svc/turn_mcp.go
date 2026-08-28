@@ -3,8 +3,8 @@ package chat_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // TurnMCPProvider 按 (agent, session) 给 turn 注入额外 MCP server —— agent 级

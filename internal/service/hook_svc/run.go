@@ -12,10 +12,10 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/hook_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/hookexec"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/hookexec"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
 )
 
 const (

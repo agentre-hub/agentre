@@ -3,8 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge, Button } from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import { relativeTime } from "../remote-devices/format";
@@ -31,6 +30,16 @@ type LostChangeRowProps = {
 type Busy = "restore" | "recreate" | "discard" | null;
 
 /**
+ * server 直写(浏览器在控制台上建 / 改 / 删组织架构)的行,来源设备记 `0`
+ * (规格 2026-08-18「server 端的组织管理面」决策 21);后端把它记成哨兵 `server`,
+ * 而这个字段落在本地库里,本次改动之前写下的行仍是 `"0"`。两种写法说的是同一件事。
+ *
+ * **必须显式认出它们**:`"0"` 在 JavaScript 里是真值,不认就照常走进
+ * 「来自「{{device}}」」那一支,把覆盖方说成一台并不存在的「设备 0」。
+ */
+const SERVER_ORIGIN_DEVICES = new Set(["server", "0"]);
+
+/**
  * 「没能同步的改动」列表的一行(R5)。默认给「恢复为我的版本」;点击恢复后
  * server 按 R4a 判定目标已被删除时,`onRestore` 的返回值带 `TargetDeleted`,
  * 这一行**就地**切换成 R5a 的「已被删除」态 —— 标题加删除线、行尾角标、
@@ -51,24 +60,28 @@ export function LostChangeRow({
   const [busy, setBusy] = React.useState<Busy>(null);
 
   const title = lostChangeTitle(row, t);
-  const time = relativeTime(row.OccurredAt, now, t);
-  const reason = reasonLabel(row.Reason, t);
+  const time = relativeTime(row.occurredAt, now, t);
+  const reason = reasonLabel(row.reason, t);
+
+  const originDevice = SERVER_ORIGIN_DEVICES.has(row.originDevice)
+    ? t("sync.lostChanges.originServer")
+    : row.originDevice;
 
   const subtitleParts = [time, reason];
-  if (row.Reason === "overwritten" && row.OriginDevice) {
+  if (row.reason === "overwritten" && originDevice) {
     subtitleParts.push(
-      t("sync.lostChanges.overwrittenFrom", { device: row.OriginDevice }),
+      t("sync.lostChanges.overwrittenFrom", { device: originDevice }),
     );
-  } else if (row.Reason === "discarded") {
+  } else if (row.reason === "discarded") {
     subtitleParts.push(t("sync.lostChanges.discardedDetail"));
-  } else if (row.Reason === "rejected") {
+  } else if (row.reason === "rejected") {
     subtitleParts.push(t("sync.lostChanges.rejectedDetail"));
   }
 
   const handleRestore = async () => {
     setBusy("restore");
     try {
-      const outcome = await onRestore(row.ID);
+      const outcome = await onRestore(row.id);
       if (outcome.TargetDeleted) {
         setDeleted(true);
       } else {
@@ -86,7 +99,7 @@ export function LostChangeRow({
   const handleRecreate = async () => {
     setBusy("recreate");
     try {
-      await onRecreate(row.ID);
+      await onRecreate(row.id);
       toast.success(t("sync.lostChanges.recreateSucceeded"));
     } catch (e) {
       toast.error(t("sync.lostChanges.recreateFailed"), {
@@ -100,7 +113,7 @@ export function LostChangeRow({
   const handleDiscard = async () => {
     setBusy("discard");
     try {
-      await onDiscard(row.ID);
+      await onDiscard(row.id);
     } catch (e) {
       toast.error(t("sync.lostChanges.discardFailed"), {
         description: String(e),
@@ -167,13 +180,13 @@ export function LostChangeRow({
               />
               <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-xs font-semibold">
-                  {row.OriginDevice
+                  {originDevice
                     ? t("sync.lostChanges.deletedTitle", {
-                        entity: entityLabel(row.EntityType, t),
-                        device: row.OriginDevice,
+                        entity: entityLabel(row.entityType, t),
+                        device: originDevice,
                       })
                     : t("sync.lostChanges.deletedTitleUnknownDevice", {
-                        entity: entityLabel(row.EntityType, t),
+                        entity: entityLabel(row.entityType, t),
                       })}
                 </span>
                 <p className="text-2xs leading-relaxed text-muted-foreground">
@@ -190,7 +203,7 @@ export function LostChangeRow({
                 data-selectable-text="true"
                 className="overflow-x-auto rounded-md border border-border bg-code-surface p-2 font-mono text-xs whitespace-pre-wrap break-words text-code-foreground"
               >
-                {formatPayload(row.PayloadJSON)}
+                {formatPayload(row.payloadJSON)}
               </pre>
             </div>
           )}
@@ -235,7 +248,7 @@ export function LostChangeRow({
                     ? t("sync.lostChanges.restoring")
                     : t("sync.lostChanges.restore")}
                 </Button>
-                <span className="text-2xs text-subtle-foreground">
+                <span className="text-2xs text-muted-foreground">
                   {t("sync.lostChanges.restoreHint")}
                 </span>
               </>

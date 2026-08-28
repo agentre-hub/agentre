@@ -11,7 +11,7 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // 预定义的 key 常量。新增 key 时在这里登记，避免 service 层散写魔法字符串。
@@ -25,6 +25,9 @@ const (
 	KeyDownloadMirror = "update.download_mirror"
 	// KeyLastUpdateCheck 上次"检查更新"的 Unix 时间戳，启动自动检查用它做 24h 节流。
 	KeyLastUpdateCheck = "update.last_check"
+	// KeySkippedUpdateVersion 用户点「跳过此版本」的版本号；空串表示没有跳过任何版本。
+	// 只压制到达提示与设置入口红点，不影响状态栏常驻的「有新版本」陈述。
+	KeySkippedUpdateVersion = "update.skipped_version"
 
 	// KeyDebugLogging 是否开启 debug 级别日志（"true"/"false"）；缺省关闭。
 	// 取代旧的 AGENTRE_DEBUG 环境变量，由「设置 → 版本 & 更新」开关写入。

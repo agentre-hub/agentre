@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,11 +14,11 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // defaultRuntime 是包级单例,init() 时登记到 agentruntime.RuntimeFor 注册表。
@@ -97,8 +96,12 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 // SetSteerInbox 由 bootstrap 在 gateway.Start() 后注入。
 func (r *Runtime) SetSteerInbox(ib *httpgateway.SteerInbox) { r.steer = ib }
 
-// sessionKey 把 chat session ID 翻成 cache key。
-func sessionKey(id int64) string { return strconv.FormatInt(id, 10) }
+// sessionKey 把 chat session ID 翻成池键。形状由 agentruntime 统一决定 —— 池是
+// 进程级单例,claudecode 与 codex 共用同一个实例,裸会话 id 会让两个后端上的同号
+// 会话互相顶掉。
+func sessionKey(id int64) string {
+	return agentruntime.SessionPoolKey(agent_backend_entity.TypeClaudeCode, id)
+}
 
 // Capabilities 返回 claudecode runtime 的能力矩阵 + permission mode 元数据。
 func (r *Runtime) Capabilities() capability.Capabilities {
@@ -142,13 +145,24 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 
 // Steer 把 (queuedID, text) 投入到当前 turn 对应的 claude session UUID 的
 // SteerInbox。语义同顶层 claudecode.go.Steer。
+//
+// 活跃判据是 mainThreadBusy —— 「CLI 主线此刻正在跑一轮」,用户轮(inTurn)与自主
+// 续轮都算。插话只有插进主线那一轮才有意义:CLI 在跑轮时 PostToolUse hook 照常在
+// 工具边界 drain inbox,排队消息进得去。主线空闲(含只有后台 subagent 活动轮在流)
+// 时返 ErrNoActiveTurn,让调用方去正正经经起一轮。
+//
+// 曾经只认 inTurn(sess-3321):自主续轮期间的 Enqueue 被判成「无轮可插」,前端据此
+// 按「turn 已结束」回退成普通 Send,往一个正在跑轮的 CLI 里写 user 帧;CLI 把它并进
+// 当前那一轮而不单独起 init/result,于是 agentre 登记的 user 轮一帧都等不到,空转到
+// startup 看门狗超时杀掉健康子进程,界面留下一串空 assistant 气泡,回答却全堆在自主
+// 轮那条消息里。
 func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID, text string) error {
 	v, ok := r.cache.Get(sessionKey(sessionID))
 	if !ok {
 		return agentruntime.ErrNoActiveTurn
 	}
 	a := v.(*claudeActive)
-	if !a.inTurn.Load() {
+	if !a.mainThreadBusy() {
 		return agentruntime.ErrNoActiveTurn
 	}
 	if r.steer == nil {
@@ -337,23 +351,24 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 
 	a, launchMode, err := r.acquireSession(ctx, req)
 	if err != nil {
-		logger.Ctx(ctx).Error("claudecode runtime: acquireSession failed",
-			zap.Int64("sessionID", req.SessionID),
-			zap.Int64("agentID", req.AgentID),
+		logger.Ctx(ctx).Error("claudecode.Runtime: acquireSession failed",
+			zap.Int64("sessionId", req.SessionID),
+			zap.Int64("agentId", req.AgentID),
 			zap.String("cwd", req.Cwd),
 			zap.Error(err))
 		return nil, nil, err
 	}
-	logger.Ctx(ctx).Info("claudecode runtime: turn starting",
-		zap.Int64("sessionID", req.SessionID),
+	logger.Ctx(ctx).Info("claudecode.Runtime: turn started",
+		zap.Int64("sessionId", req.SessionID),
 		zap.String("launchPermissionMode", launchMode),
-		zap.String("providerSessionID", a.handle.ID()))
+		zap.String("providerSessionId", a.handle.ID()),
+		zap.String("cwd", req.Cwd), zap.Int("userTextBytes", len(req.UserText)))
 
 	stream, err := a.handle.Stream(ctx, req.UserText, extractImages(req.UserBlocks))
 	if err != nil {
-		logger.Ctx(ctx).Error("claudecode runtime: handle.Stream failed",
-			zap.Int64("sessionID", req.SessionID),
-			zap.String("providerSessionID", a.handle.ID()),
+		logger.Ctx(ctx).Error("claudecode.Runtime: handleStream failed",
+			zap.Int64("sessionId", req.SessionID),
+			zap.String("providerSessionId", a.handle.ID()),
 			zap.Error(err))
 		a.inTurn.Store(false)
 		if req.SessionID > 0 {
@@ -473,9 +488,14 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			}
 		}
 		// 最佳努力地从 JSONL 抽 UserAnchor。
+		//
+		// 走反向扫描而不是整文件解析:这段跑在 close(out) **之前**,chat_svc 的
+		// `for ev := range events` 要等它结束才能收尾,所以它的耗时是每轮实打实的
+		// 尾部空转。anchor 永远在文件末尾附近,实测真实的 70MB 转录上整文件解析
+		// 618ms/17MB,反向扫描 7.9ms/1.1MB。
 		if root := projectsRoot(); root != "" && result.ProviderSessionID != "" {
-			if msgs, err := claudecode.ReadSessionJSONL(root, result.ProviderSessionID); err == nil {
-				result.UserAnchor = claudecode.FindUserAnchorByText(msgs, req.UserText)
+			if anchor, err := claudecode.FindUserAnchorInSessionJSONL(root, result.ProviderSessionID, req.UserText); err == nil {
+				result.UserAnchor = anchor
 			}
 		}
 		// 生命周期边界:turn 收尾。结构化打 model / usage 让排查
@@ -493,8 +513,8 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 // 这里把每个字段单独抽出来打,grep 时不需要展开嵌套对象。
 func logTurnDone(ctx context.Context, req agentruntime.RunRequest, result *agentruntime.RunResult) {
 	fields := []zap.Field{
-		zap.Int64("sessionID", req.SessionID),
-		zap.String("providerSessionID", result.ProviderSessionID),
+		zap.Int64("sessionId", req.SessionID),
+		zap.String("providerSessionId", result.ProviderSessionID),
 		zap.String("model", result.Model),
 	}
 	if result.Usage != nil {
@@ -509,10 +529,10 @@ func logTurnDone(ctx context.Context, req agentruntime.RunRequest, result *agent
 	}
 	if result.StopErr != nil {
 		fields = append(fields, zap.Error(result.StopErr))
-		logger.Ctx(ctx).Warn("claudecode runtime: turn done with stopErr", fields...)
+		logger.Ctx(ctx).Warn("claudecode.Runtime: turn completed with stopErr", fields...)
 		return
 	}
-	logger.Ctx(ctx).Info("claudecode runtime: turn done", fields...)
+	logger.Ctx(ctx).Info("claudecode.Runtime: turn completed", fields...)
 }
 
 func consumedSteersFromInbox(items []httpgateway.SteerItem) []agentruntime.ConsumedSteer {
@@ -542,43 +562,18 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 	lk.Lock()
 	defer lk.Unlock()
 
+	identity := launchIdentity(req)
+
 	var cur *claudeActive
 	if req.SessionID > 0 {
-		if v, ok := r.cache.Get(key); ok {
+		// 身份不一致(含池里那条从没记过身份)由池当场驱逐:比对规则与另两个后端同源,
+		// 见 CLISessionPool.GetWithIdentity。
+		if v, ok := r.cache.GetWithIdentity(key, identity); ok {
 			cur = v.(*claudeActive)
 		}
 	}
 
 	if req.ForkAnchor != "" && cur != nil {
-		r.cache.Remove(key)
-		cur = nil
-	}
-
-	if cur != nil && cur.launchedEffort != req.Backend.ReasoningEffort {
-		r.cache.Remove(key)
-		cur = nil
-	}
-
-	// 模型是启动期 flag:effectiveModel(解析出的 ModelID / backend.DefaultModel)变化 →
-	// evict + 重 spawn(镜像上面 launchedEffort 先例)。模型未变则走下方复用分支,LRU
-	// 缓存保留。#26 会话级 override 已移除,effectiveModel 不再含 override。
-	if cur != nil && cur.launchedModel != claudeEffectiveModel(req) {
-		r.cache.Remove(key)
-		cur = nil
-	}
-
-	// ModelKey is part of the approved launch identity even when two stable
-	// Model rows currently resolve to the same upstream ModelID.
-	if cur != nil && cur.launchedModelKey != effectiveModelKey(req) {
-		r.cache.Remove(key)
-		cur = nil
-	}
-
-	// effectiveProviderKey 同是启动期参数(ANTHROPIC_BASE_URL/AUTH_TOKEN 只在 spawn
-	// 时下发一次):两个不同供应商可以配同一个 model id,只比 launchedModel 会漏掉换
-	// 供应商 —— 会话切换后网关路由虽已改,但复用的旧子进程手里没有指向新供应商的
-	// env,请求仍打旧的(spec 2026-08-10 决策 4)。
-	if cur != nil && cur.launchedProviderKey != req.EffectiveProviderKey() {
 		r.cache.Remove(key)
 		cur = nil
 	}
@@ -614,7 +609,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 
 	cwd := req.Cwd
 	if cwd == "" {
-		cwd, err = agentruntime.AgentCwd(req.AgentID)
+		cwd, err = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -660,24 +655,38 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 		}
 	}
 	cur = &claudeActive{
-		sessionUUID:         inboxKey,
-		handle:              handle,
-		steer:               r.steer,
-		pool:                r.cache,
-		poolKey:             key,
-		launchedEffort:      req.Backend.ReasoningEffort,
-		launchedModel:       claudeEffectiveModel(req),
-		launchedModelKey:    effectiveModelKey(req),
-		launchedProviderKey: req.EffectiveProviderKey(),
-		permissionMode:      runtimeMode,
-		tasks:               newTaskAggregator(),
+		sessionUUID:    inboxKey,
+		handle:         handle,
+		steer:          r.steer,
+		pool:           r.cache,
+		poolKey:        key,
+		permissionMode: runtimeMode,
+		tasks:          newTaskAggregator(),
 	}
 	if req.SessionID > 0 {
-		r.cache.Put(key, cur)
+		r.cache.PutWithIdentity(key, identity, cur)
 		r.cache.MarkActive(key)
 	}
 	cur.inTurn.Store(true)
 	return cur, resolvedLaunchMode, nil
+}
+
+// launchIdentity 拼出 claudecode 的启动身份:--effort、--model(effectiveModel)、
+// 稳定 ModelKey 与 effectiveProviderKey 都是 spawn 时一次性下发、运行时改不掉的参数
+// (ANTHROPIC_BASE_URL/AUTH_TOKEN 是启动期 env),而 CLI 子进程会被池跨轮复用 ——
+// 任何一项变了就必须重开一个,否则这一轮跑的是拿旧参数起来的进程:换了供应商仍打旧
+// 的、换了模型仍是旧模型(spec 2026-08-10 决策 4)。ModelKey 单列一项,因为两行不同的
+// 稳定模型可以解析到同一个上游 ModelID。
+//
+// 比对交给 CLISessionPool.GetWithIdentity —— 三个后端共用同一条规则,各自只决定自己
+// 的字段集。分隔符用 \x00:这些字段都是标识串,不会含 NUL,拼接不会互相串味。
+func launchIdentity(req agentruntime.RunRequest) string {
+	return strings.Join([]string{
+		req.Backend.ReasoningEffort,
+		claudeEffectiveModel(req),
+		effectiveModelKey(req),
+		req.EffectiveProviderKey(),
+	}, "\x00")
 }
 
 func effectiveModelKey(req agentruntime.RunRequest) string {

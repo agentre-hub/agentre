@@ -3,6 +3,8 @@ import * as React from "react";
 import { Loader2, MonitorUp, Pin, TerminalSquare, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { AgentAvatar, StatusDot } from "@agentre-hub/agentre-ui";
+
 import { cn } from "@/lib/utils";
 
 export type TabStatus = "idle" | "running" | "waiting" | "error";
@@ -21,13 +23,6 @@ export type TabProps = {
   onActivate: () => void;
   onClose: () => void;
   onDoublePromote: () => void;
-};
-
-const statusDotColor: Record<TabStatus, string | null> = {
-  idle: null,
-  running: "bg-status-running",
-  waiting: "bg-status-waiting",
-  error: "bg-destructive",
 };
 
 // forwardRef + 透传剩余 props,让 Radix Tooltip 的 `asChild`(及未来其它 Slot 风格
@@ -88,9 +83,11 @@ export const Tab = React.forwardRef<
           }}
         />
       ) : null}
-      {statusDotColor[status] ? (
-        <span className={cn("size-1.5 rounded-full", statusDotColor[status])} />
-      ) : null}
+      {/* 颜色与可及名都来自共享 statusConfig（规格 2026-08-23 决策 9 的同源要求）。
+          闲置维持今天的「没有记号」—— tab 条上一排灰点只是噪音。 */}
+      {status === "idle" ? null : (
+        <StatusDot data-testid="tab-status-dot" status={status} size="xs" />
+      )}
       {kind === "terminal" ? (
         <TerminalSquare
           className="size-4 text-muted-foreground"
@@ -102,14 +99,17 @@ export const Tab = React.forwardRef<
           aria-hidden="true"
         />
       ) : (
-        <span
-          className="inline-flex size-4 items-center justify-center rounded-sm"
+        // 身份方块是共享原语的最小档。底色由 use-tabs-view 那边已经解出来了
+        // （avatarFromMeta → tokenToCssColor），这里直接覆盖上去；方块本身仍是
+        // 装饰，可及名由旁边的标题给。
+        <AgentAvatar
+          testId="tab-avatar"
+          aria-hidden="true"
+          name=""
+          initials={avatar.letter}
+          size="xs"
           style={{ backgroundColor: avatar.color }}
-        >
-          <span className="text-[9px] font-semibold text-white">
-            {avatar.letter}
-          </span>
-        </span>
+        />
       )}
       {isPinned ? (
         <Pin

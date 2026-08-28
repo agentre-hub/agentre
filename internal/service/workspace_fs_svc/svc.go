@@ -24,12 +24,15 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs"
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs/wire"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // SessionWorkspaceResolver 把 sessionID 解析成 {deviceID, cwd}。deviceID 为 0
@@ -53,25 +56,35 @@ func RegisterSessionWorkspaceResolver(fn SessionWorkspaceResolver) { resolveWork
 
 // WorkspaceFsSvc 给 Wails 绑定层调。
 type WorkspaceFsSvc interface {
-	// ListDir 列出会话工作目录下 relPath 这一层(relPath 为空即工作目录本身)。
-	ListDir(ctx context.Context, sessionID int64, relPath string, includeIgnored bool) (*ListDirView, error)
+	// WorkRoots 列出本会话已认领的工作根集合(见 work_roots.go)。第一项恒是
+	// 会话 cwd 对应的根(IsPrimary)。
+	WorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error)
+	// ListDir 列出 root 下 relPath 这一层(relPath 为空即 root 本身)。root 为
+	// 空串表示会话 cwd;非空时必须命中本会话已认领的工作根集合,否则拒绝。
+	ListDir(ctx context.Context, sessionID int64, root, relPath string, includeIgnored bool) (*ListDirView, error)
 	// GitChanges 取 scope 档的 git 变动。baseRef 仅 scope=="branch" 时有意义,
 	// 为空或已失效时回落到远端 / 本机推断出的默认基线。
-	GitChanges(ctx context.Context, sessionID int64, scope, baseRef string) (*GitChangesView, error)
+	GitChanges(ctx context.Context, sessionID int64, root, scope, baseRef string) (*GitChangesView, error)
 	// GitBranches 取分支清单 + 当前分支 + 推断出的默认基线。
 	GitBranches(ctx context.Context, sessionID int64) (*GitBranchesView, error)
-	// ReadFile 读取会话工作目录下 relPath 所指文件的内容(会话级文件预览,纯读)。
+	// GitState 取只读 git 状态快照:分支 / worktree 短名 / 未提交数 / 领先
+	// 落后 / common git dir。root 为空时用会话解析出的 cwd;非空时必须命中本
+	// 会话已认领的工作根集合(与 ListDir 同一道闸门),多工作根场景据此问"另
+	// 一个已认领 root 的 git 状态",而不是永远只能问会话自己的 cwd。
+	GitState(ctx context.Context, sessionID int64, root string) (*GitStateView, error)
+	// ReadFile 读取 root(空串即会话 cwd)下 relPath 所指文件的内容(会话级
+	// 文件预览,纯读)。
 	// 文本为 UTF-8 正文;图片为 base64 内容 + contentType;binary/tooLarge 是
 	// 视图标志,不是错误(设计决策 5)。
-	ReadFile(ctx context.Context, sessionID int64, relPath string) (*ReadFileView, error)
+	ReadFile(ctx context.Context, sessionID int64, root, relPath string) (*ReadFileView, error)
 	// GitFileContent 取同一文件在 git HEAD 的版本(对比档左列);未跟踪/不在
 	// HEAD → 空基线(HasHead=false),非 git 仓库 → NotARepo,均不报错。
-	GitFileContent(ctx context.Context, sessionID int64, relPath string) (*GitFileContentView, error)
-	// SearchFiles 从会话工作目录递归搜索 basename 含 query 子串(不区分大小写)
+	GitFileContent(ctx context.Context, sessionID int64, root, relPath string) (*GitFileContentView, error)
+	// SearchFiles 从 root(空串即会话 cwd)递归搜索 basename 含 query 子串(不区分大小写)
 	// 的文件与目录。includeIgnored 取自前端「显示忽略项」开关:false 时被 git
 	// 忽略的目录整棵剪枝、被忽略的文件不计入。结果不完整(命中上限 / 目录数
 	// 预算)时 Truncated=true。
-	SearchFiles(ctx context.Context, sessionID int64, query string, includeIgnored bool) (*SearchFilesView, error)
+	SearchFiles(ctx context.Context, sessionID int64, root, query string, includeIgnored bool) (*SearchFilesView, error)
 }
 
 // ── views ───────────────────────────────────────────────────────────────────
@@ -121,6 +134,23 @@ type GitBranchesView struct {
 	Branches        []BranchView `json:"branches"`
 }
 
+// GitStateView 是 GitState 的返回值:只读 git 状态快照(分支 / worktree 短名 /
+// 未提交数 / 领先落后 / common git dir)。NotARepo 为 true 时其余字段恒为零值。
+//
+// CommonDir 是给下游任务(工作根认领,spec 任务 2)用的:同一主仓库的所有
+// worktree 共享同一个 CommonDir,前端/调用方据此判定"两个 root 指回同一主
+// 仓库",而不是去比较各 worktree 互不相同的自身路径。
+type GitStateView struct {
+	NotARepo    bool   `json:"notARepo"`
+	Branch      string `json:"branch"`
+	Worktree    string `json:"worktree"`
+	Dirty       int    `json:"dirty"`
+	Ahead       int    `json:"ahead"`
+	Behind      int    `json:"behind"`
+	HasUpstream bool   `json:"hasUpstream"`
+	CommonDir   string `json:"commonDir"`
+}
+
 // ReadFileView 是 ReadFile 的返回值:文本为 UTF-8 正文(content),图片为 base64
 // 内容 + contentType(如 image/png);binary/tooLarge 为 true 时 content 恒为空。
 // 这三个标志是视图字段,不新增错误码(spec 决策 5)。
@@ -161,9 +191,10 @@ var defaultSvc WorkspaceFsSvc = &workspaceFsImpl{}
 func Default() WorkspaceFsSvc { return defaultSvc }
 
 type workspaceFsImpl struct {
-	// rdSvc / resolver 默认走包级单例;单测注入 mock 与闭包。
-	rdSvc    remote_device_svc.RemoteDeviceSvc
-	resolver SessionWorkspaceResolver
+	// rdSvc / resolver / writtenPaths 默认走包级单例;单测注入 mock 与闭包。
+	rdSvc        remote_device_svc.RemoteDeviceSvc
+	resolver     SessionWorkspaceResolver
+	writtenPaths SessionWrittenPathsResolver
 }
 
 func (s *workspaceFsImpl) deviceSvc() remote_device_svc.RemoteDeviceSvc {
@@ -197,20 +228,22 @@ func (s *workspaceFsImpl) workspace(ctx context.Context, sessionID int64) (int64
 }
 
 // call 跑一次远端往返。租约在返回前释放,调用方不持有它。
-func (s *workspaceFsImpl) call(ctx context.Context, deviceID int64, method string, req, resp any) error {
+func callWorkspace[Req proto.Message, Resp proto.Message](ctx context.Context, s *workspaceFsImpl, deviceID int64, method agentrewire.RpcMethod, req Req, newResponse func() Resp) (Resp, error) {
+	var zero Resp
 	lease, err := s.deviceSvc().Pool().Borrow(ctx, deviceID)
 	if err != nil {
-		return mapBorrowErr(ctx, err)
+		return zero, mapBorrowErr(ctx, err)
 	}
 	defer lease.Release()
-	if cerr := lease.Client().Call(ctx, method, req, resp); cerr != nil {
-		return mapCallErr(ctx, cerr)
+	resp, cerr := protorpc.CallMethod(ctx, lease.Client().Conn(), uint32(method), req, newResponse)
+	if cerr != nil {
+		return zero, mapCallErr(ctx, cerr)
 	}
-	return nil
+	return resp, nil
 }
 
-func (s *workspaceFsImpl) ListDir(ctx context.Context, sessionID int64, relPath string, includeIgnored bool) (*ListDirView, error) {
-	deviceID, cwd, err := s.workspace(ctx, sessionID)
+func (s *workspaceFsImpl) ListDir(ctx context.Context, sessionID int64, root, relPath string, includeIgnored bool) (*ListDirView, error) {
+	deviceID, cwd, err := s.rootFor(ctx, sessionID, root)
 	if err != nil {
 		return nil, err
 	}
@@ -230,16 +263,15 @@ func (s *workspaceFsImpl) ListDir(ctx context.Context, sessionID int64, relPath 
 		return view, nil
 	}
 
-	var resp wire.ListDirResp
-	req := wire.ListDirReq{Root: cwd, RelPath: relPath, IncludeIgnored: includeIgnored}
-	if cerr := s.call(ctx, deviceID, wire.MethodListDir, req, &resp); cerr != nil {
+	resp, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_LIST_DIR, &agentrewire.WorkspaceFsListDirRequest{Root: cwd, RelPath: relPath, IncludeIgnored: includeIgnored}, func() *agentrewire.WorkspaceFsListDirResponse { return &agentrewire.WorkspaceFsListDirResponse{} })
+	if cerr != nil {
 		return nil, cerr
 	}
-	view := &ListDirView{Path: resp.Path, Entries: make([]EntryView, len(resp.Entries)), Truncated: resp.Truncated}
-	for i, e := range resp.Entries {
+	view := &ListDirView{Path: resp.GetPath(), Entries: make([]EntryView, len(resp.GetEntries())), Truncated: resp.GetTruncated()}
+	for i, e := range resp.GetEntries() {
 		view.Entries[i] = EntryView{
 			Name: e.Name, IsDir: e.IsDir, Size: e.Size,
-			Mtime: e.ModTime, Symlink: e.Symlink, GitIgnored: e.GitIgnored,
+			Mtime: e.GetModTime(), Symlink: e.GetSymlink(), GitIgnored: e.GetGitIgnored(),
 		}
 	}
 	return view, nil
@@ -254,11 +286,11 @@ func (s *workspaceFsImpl) GitBranches(ctx context.Context, sessionID int64) (*Gi
 }
 
 // ReadFile 按 deviceID 路由:本机直接调叶子包 internal/pkg/workspacefs.ReadFile;
-// 远端经租约调 workspacefs.readFile RPC(daemon 侧是同一份叶子实现)。cwd 由
-// workspace() 在服务层强制,前端只传 sessionID + relPath,路径边界由叶子包 /
-// daemon 强制(硬不变量 2)。
-func (s *workspaceFsImpl) ReadFile(ctx context.Context, sessionID int64, relPath string) (*ReadFileView, error) {
-	deviceID, cwd, err := s.workspace(ctx, sessionID)
+// 远端经租约调 workspacefs.readFile RPC(daemon 侧是同一份叶子实现)。root 由
+// rootFor 在服务层定夺(空串即会话 cwd,非空必须是已认领的工作根),前端因此
+// 拿不到"任意路径"这个入参;root 之内的越界由叶子包 / daemon 强制(硬不变量 2)。
+func (s *workspaceFsImpl) ReadFile(ctx context.Context, sessionID int64, root, relPath string) (*ReadFileView, error) {
+	deviceID, cwd, err := s.rootFor(ctx, sessionID, root)
 	if err != nil {
 		return nil, err
 	}
@@ -274,11 +306,11 @@ func (s *workspaceFsImpl) ReadFile(ctx context.Context, sessionID int64, relPath
 		}, nil
 	}
 
-	var resp wire.ReadFileResp
-	req := wire.ReadFileReq{Root: cwd, RelPath: relPath}
-	if cerr := s.call(ctx, deviceID, wire.MethodReadFile, req, &resp); cerr != nil {
+	response, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_READ_FILE, &agentrewire.WorkspaceFsReadFileRequest{Root: cwd, RelPath: relPath}, func() *agentrewire.WorkspaceFsReadFileResponse { return &agentrewire.WorkspaceFsReadFileResponse{} })
+	if cerr != nil {
 		return nil, cerr
 	}
+	resp := protowire.WorkspaceReadFileResponseFromProto(response)
 	return &ReadFileView{
 		Content: resp.Content, ContentType: resp.ContentType,
 		Binary: resp.Binary, TooLarge: resp.TooLarge,
@@ -287,8 +319,8 @@ func (s *workspaceFsImpl) ReadFile(ctx context.Context, sessionID int64, relPath
 
 // GitFileContent 按 deviceID 路由:本机直接调叶子包 workspacefs.GitFileContent;
 // 远端经租约调 workspacefs.gitFileContent RPC。notARepo / hasHead 是视图字段。
-func (s *workspaceFsImpl) GitFileContent(ctx context.Context, sessionID int64, relPath string) (*GitFileContentView, error) {
-	deviceID, cwd, err := s.workspace(ctx, sessionID)
+func (s *workspaceFsImpl) GitFileContent(ctx context.Context, sessionID int64, root, relPath string) (*GitFileContentView, error) {
+	deviceID, cwd, err := s.rootFor(ctx, sessionID, root)
 	if err != nil {
 		return nil, err
 	}
@@ -303,13 +335,14 @@ func (s *workspaceFsImpl) GitFileContent(ctx context.Context, sessionID int64, r
 		}, nil
 	}
 
-	var resp wire.GitFileContentResp
-	req := wire.GitFileContentReq{Root: cwd, RelPath: relPath}
-	if cerr := s.call(ctx, deviceID, wire.MethodGitFileContent, req, &resp); cerr != nil {
+	resp, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT, &agentrewire.WorkspaceFsGitFileContentRequest{Root: cwd, RelPath: relPath}, func() *agentrewire.WorkspaceFsGitFileContentResponse {
+		return &agentrewire.WorkspaceFsGitFileContentResponse{}
+	})
+	if cerr != nil {
 		return nil, cerr
 	}
 	return &GitFileContentView{
-		Content: resp.Content, NotARepo: resp.NotARepo, HasHead: resp.HasHead,
+		Content: string(resp.GetContent()), NotARepo: resp.GetNotARepo(), HasHead: resp.GetHasHead(),
 	}, nil
 }
 
@@ -320,14 +353,16 @@ func (s *workspaceFsImpl) GitFileContent(ctx context.Context, sessionID int64, r
 // 整跳套一层 searchTimeout:递归遍历是本方法族里唯一时长随仓库规模走的调用,
 // 前端每次输入防抖后都会打一发,不能让它无限期挂着占住租约。叶子包另有目录数
 // 预算兜底,两者共同保证遍历必然终止。
-func (s *workspaceFsImpl) SearchFiles(ctx context.Context, sessionID int64, query string, includeIgnored bool) (*SearchFilesView, error) {
-	deviceID, cwd, err := s.workspace(ctx, sessionID)
+func (s *workspaceFsImpl) SearchFiles(ctx context.Context, sessionID int64, root, query string, includeIgnored bool) (*SearchFilesView, error) {
+	// 超时套在最外层:工作根闸门自己也可能要向远端问 gitState,那一跳同样
+	// 不能无限期挂着占住租约。
+	ctx, cancel := context.WithTimeout(ctx, searchTimeout)
+	defer cancel()
+
+	deviceID, cwd, err := s.rootFor(ctx, sessionID, root)
 	if err != nil {
 		return nil, err
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, searchTimeout)
-	defer cancel()
 
 	view := &SearchFilesView{Hits: []SearchHitView{}}
 	if deviceID == 0 {
@@ -341,14 +376,15 @@ func (s *workspaceFsImpl) SearchFiles(ctx context.Context, sessionID int64, quer
 			view.Hits = append(view.Hits, SearchHitView{Path: hit.Path, IsDir: hit.IsDir})
 		}
 	} else {
-		var resp wire.SearchFilesResp
-		req := wire.SearchFilesReq{Root: cwd, Query: query, IncludeIgnored: includeIgnored}
-		if cerr := s.call(ctx, deviceID, wire.MethodSearchFiles, req, &resp); cerr != nil {
+		resp, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_SEARCH_FILES, &agentrewire.WorkspaceFsSearchFilesRequest{Root: cwd, Query: query, IncludeIgnored: includeIgnored}, func() *agentrewire.WorkspaceFsSearchFilesResponse {
+			return &agentrewire.WorkspaceFsSearchFilesResponse{}
+		})
+		if cerr != nil {
 			return nil, cerr
 		}
-		view.Truncated = resp.Truncated
-		for _, hit := range resp.Hits {
-			view.Hits = append(view.Hits, SearchHitView{Path: hit.Path, IsDir: hit.IsDir})
+		view.Truncated = resp.GetTruncated()
+		for _, hit := range resp.GetHits() {
+			view.Hits = append(view.Hits, SearchHitView{Path: hit.GetPath(), IsDir: hit.GetIsDir()})
 		}
 	}
 
@@ -382,28 +418,73 @@ func (s *workspaceFsImpl) gitBranches(ctx context.Context, deviceID int64, cwd s
 		return view, nil
 	}
 
-	var resp wire.GitBranchesResp
-	if cerr := s.call(ctx, deviceID, wire.MethodGitBranches, wire.GitBranchesReq{Root: cwd}, &resp); cerr != nil {
+	resp, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES, &agentrewire.WorkspaceFsGitBranchesRequest{Root: cwd}, func() *agentrewire.WorkspaceFsGitBranchesResponse {
+		return &agentrewire.WorkspaceFsGitBranchesResponse{}
+	})
+	if cerr != nil {
 		return nil, cerr
 	}
 	view := &GitBranchesView{
 		NotARepo:        resp.NotARepo,
 		CurrentBranch:   resp.CurrentBranch,
 		DefaultBaseline: resp.DefaultBaseline,
-		Branches:        make([]BranchView, len(resp.Branches)),
+		Branches:        make([]BranchView, len(resp.GetBranches())),
 	}
-	for i, b := range resp.Branches {
-		view.Branches[i] = BranchView{Name: b.Name, Remote: b.Remote}
+	for i, b := range resp.GetBranches() {
+		view.Branches[i] = BranchView{Name: b.GetName(), Remote: b.GetRemote()}
 	}
 	return view, nil
 }
 
-func (s *workspaceFsImpl) GitChanges(ctx context.Context, sessionID int64, scope, baseRef string) (*GitChangesView, error) {
+// GitState 按 deviceID 路由:本机直接调叶子包 workspacefs.GitState;远端经
+// 租约调 workspacefs.gitState RPC(daemon 侧是同一份叶子实现,spec 硬不变量
+// 5:本地会话与远端 agentred 会话行为一致)。root 非空时覆盖会话解析出的
+// cwd——多工作根场景下调用方可能要问的是"AI 写进的另一个已认领 root",而
+// deviceID 仍然要靠会话解析,同一台机器上不同 root 走同一条租约。
+//
+// root 与本方法族其余成员走同一道 rootFor 闸门(硬不变量 2)。这里不会成环:
+// 认领判定用的是私有的 gitStateAt,它不过闸门;成环的只会是"认领去调这个带
+// 闸门的 GitState"。少了闸门,这个方法就等于对外开了一条"随便指一个目录,报
+// 回它的分支 / 未提交数 / commonDir"的路径探测信道,远端会话下还会把那个路径
+// 发进别人机器的一跳 RPC。
+func (s *workspaceFsImpl) GitState(ctx context.Context, sessionID int64, root string) (*GitStateView, error) {
+	deviceID, dir, err := s.rootFor(ctx, sessionID, root)
+	if err != nil {
+		return nil, err
+	}
+	return s.gitStateAt(ctx, deviceID, dir)
+}
+
+// gitStateAt 按 deviceID 路由取 dir 的只读 git 状态快照。GitState 与工作根认领
+// 共用它 —— 两边因此在本地与远端走同一条判定,不会一边看本机、一边看远端。
+func (s *workspaceFsImpl) gitStateAt(ctx context.Context, deviceID int64, dir string) (*GitStateView, error) {
+	if deviceID == 0 {
+		res := workspacefs.GitState(ctx, dir)
+		return &GitStateView{
+			NotARepo: res.NotARepo, Branch: res.Branch, Worktree: res.Worktree,
+			Dirty: res.Dirty, Ahead: res.Ahead, Behind: res.Behind,
+			HasUpstream: res.HasUpstream, CommonDir: res.CommonDir,
+		}, nil
+	}
+
+	response, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_STATE, &agentrewire.WorkspaceFsGitStateRequest{Root: dir}, func() *agentrewire.WorkspaceFsGitStateResponse { return &agentrewire.WorkspaceFsGitStateResponse{} })
+	if cerr != nil {
+		return nil, cerr
+	}
+	resp := protowire.WorkspaceGitStateResponseFromProto(response)
+	return &GitStateView{
+		NotARepo: resp.NotARepo, Branch: resp.Branch, Worktree: resp.Worktree,
+		Dirty: resp.Dirty, Ahead: resp.Ahead, Behind: resp.Behind,
+		HasUpstream: resp.HasUpstream, CommonDir: resp.CommonDir,
+	}, nil
+}
+
+func (s *workspaceFsImpl) GitChanges(ctx context.Context, sessionID int64, root, scope, baseRef string) (*GitChangesView, error) {
 	sc, err := parseScope(ctx, scope)
 	if err != nil {
 		return nil, err
 	}
-	deviceID, cwd, err := s.workspace(ctx, sessionID)
+	deviceID, cwd, err := s.rootFor(ctx, sessionID, root)
 	if err != nil {
 		return nil, err
 	}
@@ -445,13 +526,13 @@ func (s *workspaceFsImpl) GitChanges(ctx context.Context, sessionID int64, scope
 		return view, nil
 	}
 
-	var resp wire.GitChangesResp
 	// scope 已经过 parseScope 校验,必是 wire.Scope* 之一,直接透传原串,不靠
 	// "叶子包 scope 与 wire scope 字面量恰好相等"这个隐含前提。
-	req := wire.GitChangesReq{Root: cwd, Scope: scope, BaseRef: usedBase}
-	if cerr := s.call(ctx, deviceID, wire.MethodGitChanges, req, &resp); cerr != nil {
+	response, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_CHANGES, &agentrewire.WorkspaceFsGitChangesRequest{Root: cwd, Scope: scope, BaseRef: usedBase}, func() *agentrewire.WorkspaceFsGitChangesResponse { return &agentrewire.WorkspaceFsGitChangesResponse{} })
+	if cerr != nil {
 		return nil, cerr
 	}
+	resp := protowire.WorkspaceGitChangesResponseFromProto(response)
 	view := &GitChangesView{
 		NotARepo: resp.NotARepo, BaseRef: usedBase,
 		Changes: make([]ChangeView, len(resp.Changes)), Truncated: resp.Truncated,
@@ -513,23 +594,17 @@ func mapBorrowErr(ctx context.Context, err error) error {
 	return i18n.NewError(ctx, code.WorkspaceFsDeviceOffline)
 }
 
-// mapCallErr 翻译远端调用错误。-32601 单独成一类:旧 agentred 根本没有
-// workspacefs.* 方法族,那是「升级 daemon」而不是「调用失败」,必须能在 UI 上
-// 区分开 —— 这正是新开方法族而不是给 remotefs.* 加字段的原因(设计决策 5)。
+// mapCallErr 翻译远端调用错误。
 func mapCallErr(ctx context.Context, err error) error {
-	if isMethodNotFound(err) {
-		return i18n.NewError(ctx, code.WorkspaceFsDaemonOutdated)
+	var rpcErr *protorpc.Error
+	if !errors.As(err, &rpcErr) {
+		return i18n.NewError(ctx, code.RemoteRunnerCallFailed)
 	}
-	switch wire.FromJSONRPCError(err) {
-	case wire.ErrPathRefused:
+	switch int(rpcErr.Code) {
+	case wire.ErrCodePathRefused:
 		return i18n.NewError(ctx, code.WorkspaceFsPathRefused)
-	case wire.ErrBaselineRequired:
+	case wire.ErrCodeBaselineRequired:
 		return i18n.NewError(ctx, code.WorkspaceFsBaselineRequired)
 	}
 	return i18n.NewError(ctx, code.RemoteRunnerCallFailed)
-}
-
-func isMethodNotFound(err error) bool {
-	var rpcErr *jsonrpc.Error
-	return errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.ErrMethodNotFound.Code
 }

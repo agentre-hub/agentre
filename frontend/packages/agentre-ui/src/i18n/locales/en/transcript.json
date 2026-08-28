@@ -1,0 +1,258 @@
+{
+  "activity": {
+    "header": {
+      "steps": "{{count}} steps",
+      "steps_one": "{{count}} step",
+      "steps_other": "{{count}} steps",
+      "running": "Running · {{count}} steps",
+      "running_one": "Running · {{count}} step",
+      "running_other": "Running · {{count}} steps",
+      "duration": "{{seconds}}s",
+      "durationTitle": "Turn duration"
+    },
+    "elided": {
+      "steps": "{{count}} earlier steps",
+      "steps_one": "{{count}} earlier step",
+      "steps_other": "{{count}} earlier steps"
+    },
+    "summary": {
+      "thinking": "Thinking {{count}}",
+      "read": "Read {{count}}",
+      "edit": "Edited {{count}} files",
+      "edit_one": "Edited {{count}} file",
+      "edit_other": "Edited {{count}} files",
+      "write": "Wrote {{count}}",
+      "command": "Commands {{count}}",
+      "other": "Other {{count}}",
+      "failures": "{{count}} failed"
+    },
+    "row": {
+      "thinking": "Thought",
+      "thinkingMeta": "{{count}} chars",
+      "exit": "exit {{code}}",
+      "failed": "failed",
+      "running": "running",
+      "canceled": "canceled",
+      "unknown": "unknown result",
+      "lines": "{{count}} lines",
+      "lines_one": "{{count}} line",
+      "lines_other": "{{count}} lines",
+      "sections": {
+        "params": "PARAMS",
+        "result": "RESULT",
+        "content": "CONTENT"
+      }
+    }
+  },
+  "canonical": {
+    "status": {
+      "done": "DONE",
+      "error": "ERROR",
+      "running": "RUNNING"
+    },
+    "agentSpawn": {
+      "aria": "Subagent {{name}}",
+      "groupedAria": "Subagents in {{mode}} mode",
+      "defaultName": "Agent",
+      "groupedName": "Agents",
+      "runToggle": "Toggle run {{index}}: {{name}}",
+      "stop": "Stop",
+      "emptyPrompt": "No prompt",
+      "emptyResult": "(empty result)",
+      "emptySteps": "No child steps",
+      "emptyStepsRunning": "Subagent has not called any tools yet...",
+      "emptySummary": "No summary",
+      "meta": {
+        "model": "Model",
+        "tools": "Tools",
+        "tokens": "Tokens",
+        "duration": "Duration"
+      },
+      "mode": {
+        "single": "Single",
+        "parallel": "Parallel",
+        "chain": "Chain"
+      },
+      "source": {
+        "project": "project",
+        "user": "user",
+        "both": "project + user"
+      },
+      "progressAria": {
+        "tools": "{{count}} tools",
+        "tools_one": "{{count}} tool",
+        "tools_other": "{{count}} tools",
+        "tokens": "{{value}} tokens"
+      },
+      "outcome": {
+        "steps": "{{count}} steps",
+        "steps_one": "{{count}} step",
+        "steps_other": "{{count}} steps"
+      },
+      "sections": {
+        "prompt": "TASK PROMPT",
+        "tasks": "TASKS",
+        "steps": "STEPS",
+        "output": "OUTPUT",
+        "summary": "SUMMARY"
+      },
+      "status": {
+        "done": "DONE",
+        "error": "ERROR",
+        "failed": "FAILED",
+        "partial": "PARTIAL",
+        "running": "RUNNING",
+        "waiting": "WAITING",
+        "skipped": "SKIPPED",
+        "unknown": "UNKNOWN",
+        "stopped": "STOPPED",
+        "withDuration": "{{status}} · {{duration}}"
+      },
+      "summaryRunning": "Subagent is still running. Results will return later...",
+      "waitingFirstStep": "Waiting for the first child call..."
+    },
+    "code": {
+      "copy": "Copy",
+      "copyAll": "Copy all",
+      "paramCount": "{{count}} params"
+    },
+    "fileEdit": {
+      "badge": {
+        "deleted": "DELETED",
+        "new": "NEW"
+      },
+      "fileCount": "{{count}} files",
+      "noChanges": "No actual changes",
+      "replay": {
+        "wholeWrite": "Whole-file write — not compared against the content before the write",
+        "truncatedCalls": "{{n}} of these calls were truncated by the agent — this diff is incomplete",
+        "emptyResult": "These changes cancel each other out: nothing differs from before the session",
+        "fallbackIntro": "These changes could not be merged into one continuous diff. Listed below in call order.",
+        "reason": {
+          "writeOverEdits": "A whole-file write landed after incremental edits, and the content before that write is unknowable.",
+          "anchorNotFound": "A change no longer matches the replayed content — the file was edited outside these tools.",
+          "ambiguousAnchor": "A change matches more than one place in the replayed content, so which one it edited is unknowable.",
+          "truncatedMidway": "A truncated call is followed by further changes, and the missing part leaves them unanchored."
+        },
+        "segmentLabel": "Change {{index}}",
+        "segmentTruncated": "Truncated by the agent — this change is incomplete",
+        "segmentWholeWrite": "Whole-file write — not compared against the content before the write"
+      },
+      "truncated": "Some lines are truncated · full diff has {{count}} lines (showing first {{shown}})"
+    },
+    "fileWrite": {
+      "copyDone": "Full content copied",
+      "copyFailed": "Failed to copy full content",
+      "copyFull": "Copy Full Content",
+      "empty": "Created empty file",
+      "truncated": "Content truncated · showing first {{lines}} lines"
+    },
+    "plan": {
+      "aria": "Plan",
+      "actions": {
+        "approve": "Approve Plan",
+        "approveAcceptEdits": "Approve and Switch to Auto Mode",
+        "approveBypass": "Approve and Bypass Permissions",
+        "approveManual": "Approve, Confirm Edits Manually",
+        "continue": "Continue",
+        "execute": "Execute Plan",
+        "refine": "Continue Planning",
+        "refineStandalone": "Refine Plan"
+      },
+      "charCount": "~{{count}} chars",
+      "empty": "(plan field is empty)",
+      "feedback": {
+        "charCount": "{{count}} chars",
+        "collapse": "Collapse Feedback",
+        "description": "(optional, sent to the current agent as feedback)",
+        "placeholder": "Example: step 2 is unnecessary / missing lint step / split too small...",
+        "sendWithFeedback": "Send Feedback and Continue Planning",
+        "sendWithoutFeedback": "Continue Planning Without Feedback",
+        "title": "Continue Planning with Feedback"
+      },
+      "refineDefaultPrompt": "Continue refining the plan above.",
+      "subtitle": {
+        "approved": "Start executing the plan",
+        "chooseAction": "Choose the next action, or send feedback to keep planning",
+        "refining": "AI received feedback and will keep planning",
+        "saved": "Plan saved"
+      },
+      "title": {
+        "approved": "Plan Approved",
+        "pending": "AI Submitted an Execution Plan",
+        "refining": "Continue Planning"
+      }
+    },
+    "raw": {
+      "allowed": "Allowed",
+      "allowedSession": "Allowed · session",
+      "approvedTitle": "This tool call has been approved",
+      "aria": "Tool call {{tool}}",
+      "emptyOutput": "(empty output)",
+      "emptyParams": "No parameters",
+      "emptyResult": "(empty result)",
+      "permission": {
+        "allow": "Allow",
+        "waiting": "Waiting for approval..."
+      },
+      "sections": {
+        "params": "Parameters",
+        "result": "Result"
+      },
+      "waitingResult": "Waiting for result",
+      "backgroundRunning": "Background"
+    },
+    "toolPermission": {
+      "allowOnce": "Allow Once",
+      "allowSession": "Always Allow This Session",
+      "allowed": "Allowed",
+      "allowedSession": "Allowed (this session)",
+      "denied": "Denied",
+      "submitFailed": "Approval submission failed"
+    },
+    "userAsk": {
+      "answered": "ANSWERED",
+      "expired": "EXPIRED",
+      "errors": {
+        "optionRequired": "Select an option before submitting",
+        "otherRequired": "Fill in the custom answer you selected",
+        "submitFailed": "Submit failed. Try again later.",
+        "expired": "This prompt has expired: the session ended or it was superseded by a newer message"
+      },
+      "multi": "Multiple",
+      "otherPlaceholder": "Custom answer - enter your own response...",
+      "skipped": "SKIPPED",
+      "single": "Single",
+      "submit": "Submit Reply",
+      "waiting": "WAITING · Awaiting reply"
+    }
+  },
+  "compactBoundary": {
+    "aria": "Context compaction boundary",
+    "label": "Context compacted",
+    "tokensBefore": "{{tokens}} tokens before compaction",
+    "trigger": {
+      "auto": "Automatic compaction",
+      "compressed": "Compacted",
+      "manual": "Manual /compact"
+    }
+  },
+  "thinking": {
+    "done": "Thought complete",
+    "meta": {
+      "charCount": "· {{count}} chars",
+      "withSeconds": "· {{seconds}}s · {{count}} chars"
+    },
+    "streaming": "Thinking…",
+    "toggleDone": "Toggle completed thought",
+    "toggleStreaming": "Toggle active thought"
+  },
+  "transcriptJump": {
+    "backToBottom": "Back to bottom",
+    "newCount": "{{count}} new",
+    "newSome": "New content",
+    "pendingCount": "{{count}} pending",
+    "title": "Jump to latest",
+    "turnsBelow": "{{count}} turns below"
+  }
+}

@@ -12,11 +12,11 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo/mock_server_state_repo"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
 )
 
 // setupServerSvc builds a ServerSvc wired to:

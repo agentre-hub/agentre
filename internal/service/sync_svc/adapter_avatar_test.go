@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
 )
 
 // stubAvatarTransport 是 avatarTransport 的替身：记下每一次 Put / Get，按脚本回应。
@@ -73,7 +73,7 @@ func TestAgentAdapter_LoadEmitsAvatarHashNotContent(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Payload, &payload))
 	assert.Equal(t, avatarHash(testAvatarDataURL), payload["avatar_hash"])
 	assert.NotContains(t, payload, "avatar_data_url", "正文一律不进同步载荷")
-	assert.NoError(t, syncwire.GuardPayload(out.Payload), "守卫也认可这份载荷不带头像正文")
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgent, out.Payload), "守卫也认可这份载荷不带头像正文")
 
 	require.Len(t, avatar.putCalls, 1, "本机持有正文时应该单独推一次给对端")
 	assert.Equal(t, avatarHash(testAvatarDataURL), avatar.putCalls[0].Hash)

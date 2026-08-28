@@ -3,7 +3,7 @@ package blocks
 import (
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // SubagentStateBlock 持久化 subagent 累计态。

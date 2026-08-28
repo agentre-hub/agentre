@@ -11,11 +11,12 @@ package mock_remote_device_svc
 
 import (
 	context "context"
-	json "encoding/json"
 	reflect "reflect"
 
-	agentruntime "github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	remote_device_svc "github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	client "github.com/agentre-hub/agentre/internal/daemon/client"
+	protorpc "github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	remote_device_svc "github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	agentrewire "github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -97,10 +98,10 @@ func (m *MockLease) EXPECT() *MockLeaseMockRecorder {
 }
 
 // Client mocks base method.
-func (m *MockLease) Client() agentruntime.DaemonClientPort {
+func (m *MockLease) Client() client.ProtobufConnection {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Client")
-	ret0, _ := ret[0].(agentruntime.DaemonClientPort)
+	ret0, _ := ret[0].(client.ProtobufConnection)
 	return ret0
 }
 
@@ -122,6 +123,21 @@ func (m *MockLease) Closed() <-chan struct{} {
 func (mr *MockLeaseMockRecorder) Closed() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Closed", reflect.TypeOf((*MockLease)(nil).Closed))
+}
+
+// LLMUpsert mocks base method.
+func (m *MockLease) LLMUpsert(arg0 context.Context, arg1 *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LLMUpsert", arg0, arg1)
+	ret0, _ := ret[0].(*agentrewire.LLMUpsertResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LLMUpsert indicates an expected call of LLMUpsert.
+func (mr *MockLeaseMockRecorder) LLMUpsert(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LLMUpsert", reflect.TypeOf((*MockLease)(nil).LLMUpsert), arg0, arg1)
 }
 
 // Release mocks base method.
@@ -160,20 +176,6 @@ func (m *MockpooledClient) EXPECT() *MockpooledClientMockRecorder {
 	return m.recorder
 }
 
-// Call mocks base method.
-func (m *MockpooledClient) Call(ctx context.Context, method string, params, result any) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Call", ctx, method, params, result)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Call indicates an expected call of Call.
-func (mr *MockpooledClientMockRecorder) Call(ctx, method, params, result any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Call", reflect.TypeOf((*MockpooledClient)(nil).Call), ctx, method, params, result)
-}
-
 // Close mocks base method.
 func (m *MockpooledClient) Close() error {
 	m.ctrl.T.Helper()
@@ -202,28 +204,16 @@ func (mr *MockpooledClientMockRecorder) Closed() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Closed", reflect.TypeOf((*MockpooledClient)(nil).Closed))
 }
 
-// Handle mocks base method.
-func (m *MockpooledClient) Handle(method string, fn func(context.Context, json.RawMessage) (any, error)) {
+// Conn mocks base method.
+func (m *MockpooledClient) Conn() *protorpc.Conn {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Handle", method, fn)
-}
-
-// Handle indicates an expected call of Handle.
-func (mr *MockpooledClientMockRecorder) Handle(method, fn any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handle", reflect.TypeOf((*MockpooledClient)(nil).Handle), method, fn)
-}
-
-// Notify mocks base method.
-func (m *MockpooledClient) Notify(method string, params any) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Notify", method, params)
-	ret0, _ := ret[0].(error)
+	ret := m.ctrl.Call(m, "Conn")
+	ret0, _ := ret[0].(*protorpc.Conn)
 	return ret0
 }
 
-// Notify indicates an expected call of Notify.
-func (mr *MockpooledClientMockRecorder) Notify(method, params any) *gomock.Call {
+// Conn indicates an expected call of Conn.
+func (mr *MockpooledClientMockRecorder) Conn() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Notify", reflect.TypeOf((*MockpooledClient)(nil).Notify), method, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Conn", reflect.TypeOf((*MockpooledClient)(nil).Conn))
 }

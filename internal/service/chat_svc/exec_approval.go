@@ -6,12 +6,12 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 type ResolveExecApprovalRequest struct {
@@ -76,5 +76,5 @@ func execApprovalBlockToDTO(block blocks.ExecApprovalBlock) *ChatBlockExecApprov
 }
 
 func execApprovalBlockToChatBlock(block blocks.ExecApprovalBlock) ChatBlock {
-	return ChatBlock{Type: "exec_approval", ExecApproval: execApprovalBlockToDTO(block)}
+	return ChatBlock{Type: ChatBlockTypeExecApproval, ExecApproval: execApprovalBlockToDTO(block)}
 }

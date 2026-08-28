@@ -62,18 +62,24 @@ export function runningSessionCount(): number {
   return queryCount("SELECT COUNT(*) AS n FROM chat_sessions WHERE agent_status = 'running'");
 }
 
+// 正文按「一块一行」存在 chat_message_blocks（迁移 202608270002 同时删掉了
+// chat_messages.blocks_json 那一列），所以按内容找消息要连到块表上。
+//
+// 只看 codec = 0 的块：超过 4 KiB 的块以 deflate 存储（chat_entity.EncodeBlockData），
+// 压缩字节里搜不到明文。E2E 的提示词与假回复都远小于阈值，恒为原样存储；真撞上一个
+// 大块时这里宁可漏计也不要给出一个看着对的错数。
+// COUNT(DISTINCT m.id)：一条消息有多个块，逐块匹配会把同一条消息数成好几条。
+const MESSAGE_BLOCK_MATCH = `SELECT COUNT(DISTINCT m.id) AS n
+     FROM chat_messages m
+     JOIN chat_message_blocks b ON b.message_id = m.id
+    WHERE m.role = ? AND b.codec = 0 AND b.data LIKE '%' || ? || '%'`;
+
 export function userMessageCountContaining(text: string): number {
-  return queryCount(
-    "SELECT COUNT(*) AS n FROM chat_messages WHERE role = 'user' AND blocks_json LIKE '%' || ? || '%'",
-    text,
-  );
+  return queryCount(MESSAGE_BLOCK_MATCH, "user", text);
 }
 
 export function assistantMessageCountContaining(text: string): number {
-  return queryCount(
-    "SELECT COUNT(*) AS n FROM chat_messages WHERE role = 'assistant' AND blocks_json LIKE '%' || ? || '%'",
-    text,
-  );
+  return queryCount(MESSAGE_BLOCK_MATCH, "assistant", text);
 }
 
 export function errorSessionCountContaining(errorText: string): number {
@@ -88,7 +94,7 @@ export type RemoteSession = {
   agent_status: string;
   provider_session_id: string;
   exec_device_id: number;
-  exec_daemon_fingerprint: string;
+  exec_device_fingerprint: string;
   event_cursor: number;
   error_text: string;
 };
@@ -96,12 +102,13 @@ export type RemoteSession = {
 export function remoteSessionByPrompt(prompt: string): RemoteSession | undefined {
   return query<RemoteSession>(
     `SELECT s.id, s.agent_status, s.provider_session_id, s.exec_device_id,
-            s.exec_daemon_fingerprint, s.event_cursor,
+            s.exec_device_fingerprint, s.event_cursor,
             COALESCE(a.error_text, '') AS error_text
        FROM chat_sessions s
        JOIN chat_messages u ON u.session_id = s.id AND u.role = 'user'
+       JOIN chat_message_blocks ub ON ub.message_id = u.id
   LEFT JOIN chat_messages a ON a.session_id = s.id AND a.role = 'assistant'
-      WHERE u.blocks_json LIKE '%' || ? || '%'
+      WHERE ub.codec = 0 AND ub.data LIKE '%' || ? || '%'
    ORDER BY s.id DESC, a.id DESC
       LIMIT 1`,
     prompt,

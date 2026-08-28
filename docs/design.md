@@ -1,8 +1,8 @@
 # Agentre Design System
 
-> **A reuse-oriented design reference.** It consolidates the visual language that lives in [`frontend/src/styles/globals.css`](../frontend/src/styles/globals.css) and the shadcn + `components/agentre` layers into one place you can copy from: **color tokens (full light/dark values), the theming mechanism, the component palette, the desktop window shell, motion, state patterns, accessibility, and an end-to-end new-page recipe.** Read this before building any new page, dialog, or block so it stays visually and behaviorally consistent with the rest of the app.
+> **A reuse-oriented design reference.** It consolidates the visual language provided by the shared token definitions in [`frontend/packages/agentre-ui/styles/tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css), the host stylesheet, and the shadcn + `components/agentre` layers into one place you can copy from: **color tokens (full light/dark values), the theming mechanism, the component palette, the desktop window shell, motion, state patterns, accessibility, and an end-to-end new-page recipe.** Read this before building any new page, dialog, or block so it stays visually and behaviorally consistent with the rest of the app.
 
-> **Stack in one line:** React 19 + shadcn/ui (Radix primitives, `new-york` style) + Tailwind CSS v4 + React Router (MemoryRouter) inside a **Wails desktop window**. Colors, fonts, and motion are defined in the `@theme inline` block of [`frontend/src/styles/globals.css`](../frontend/src/styles/globals.css). **There is no `tailwind.config.js`** (Tailwind v4, wired via `@tailwindcss/vite`); **class names have no prefix** (`bg-background`, not `tw-bg-background`); `cn()` lives at [`frontend/src/lib/utils.ts`](../frontend/src/lib/utils.ts); `baseColor` is `neutral` ([`components.json`](../frontend/components.json)).
+> **Stack in one line:** React 19 + shadcn/ui (Radix primitives, `new-york` style) + Tailwind CSS v4 + React Router (MemoryRouter) inside a **Wails desktop window**. Token values live in the shared package's [`styles/tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css), imported by the host [`globals.css`](../frontend/src/styles/globals.css); **class names have no prefix** (`bg-background`, not `tw-bg-background`); `cn()` lives at [`frontend/src/lib/utils.ts`](../frontend/src/lib/utils.ts); `baseColor` is `neutral` ([`components.json`](../frontend/components.json)).
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Owned here | Owned elsewhere |
 | --- | --- |
-| Color-token values, semantics, usage; the agent palette & status system | The enforced rules (shadcn `@/components/ui/*`-only, i18n, `lucide`/Iconify icons, lint, no hardcoded Chinese) → [`frontend.md`](./frontend.md) |
+| Color-token values, semantics, usage; the agent palette & status system | The enforced rules (shadcn-from-`@agentre-hub/agentre-ui`-only, i18n, `lucide`/Iconify icons, lint, no hardcoded Chinese) → [`frontend.md`](./frontend.md) |
 | Theming mechanism, `dark:` usage, the desktop window shell | Layering / dependency direction, `internal/app` ↔ service ↔ repository, storage paths → [`architecture.md`](./architecture.md) |
 | Component palette, variants, selection guidance | TDD / SOLID / commit style → [`develop.md`](./develop.md); test design → [`testing.md`](./testing.md) |
 | Elevation (surfaces & shadows), z-index, motion, state patterns, accessibility, page recipe | Doc fact-checking discipline → [`documentation.md`](./documentation.md) |
@@ -23,10 +23,10 @@ This doc restates the [`frontend.md`](./frontend.md) hard rules only where neede
 
 Every UI change must satisfy all of these. They are the bar for "consistent, friendly UI/UX" in this codebase.
 
-- **Use tokens, not literal colors — one value, one place.** Never write a hex (`#3b6896`), an `rgb()`, or a palette class (`text-blue-500`). Always use a semantic token — `bg-background`, `text-foreground`, `border-border`, `text-primary`, `text-primary-text`, `text-muted-foreground`, … (§3). All color values live in exactly one place — the token definitions in [`globals.css`](../frontend/src/styles/globals.css) — so the palette stays unified and a single edit re-skins everything. One semantic concept maps to **one** token: before adding a color, check §3 for an existing token and reuse it; don't introduce a near-duplicate. Only add a new token when the concept is genuinely new — with both light and dark values — and document it in §3.
+- **Use tokens, not literal colors — one value, one place.** Never write a hex (`#3b6896`), an `rgb()`, or a palette class (`text-blue-500`). Always use a semantic token — `bg-background`, `text-foreground`, `border-border`, `text-primary`, `text-primary-text`, `text-muted-foreground`, … (§3). All color values live in exactly one place — the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) — so the palette stays unified and a single edit re-skins everything. One semantic concept maps to **one** token: before adding a color, check §3 for an existing token and reuse it; don't introduce a near-duplicate. Only add a new token when the concept is genuinely new — with both light and dark values — and document it in §3.
 
   > **Sanctioned literal-color exceptions** (everything else must be a token): the xterm ANSI
-  > palette in [`terminal/terminal-theme.ts`](../frontend/src/components/agentre/terminal/terminal-theme.ts)
+  > palette in [`terminal/terminal-theme.ts`](../frontend/packages/agentre-ui/src/terminal/terminal-theme.ts)
   > (xterm.js can't consume CSS variables); the `#94a3b8` slate **avatar fallback** when agent meta is
   > missing (§3.6); neutral black-alpha **shadows/scrim** (`box-shadow rgba(0,0,0,…)`, the `Dialog`
   > backdrop) — there are no `--shadow-*` tokens by design (§3.12); and `bg-neutral-600` as the
@@ -35,11 +35,11 @@ Every UI change must satisfy all of these. They are the bar for "consistent, fri
 - **This is a desktop window, not a web page.** The shell is a fixed Wails frame — title bar → icon rail → resizable sidebar → tab strip → panel → status bar (§7). `html, body, #root` are `height:100%; overflow:hidden`, and the body defaults to `user-select:none`; text selection is **opted into** per region, not the default (§7). There is **no mobile breakpoint** and no `useIsMobile` — design for a resizable desktop window (min `860×640`), not a phone.
 - **No inline `style={{}}` for what Tailwind can express.** Compose utility classes via `cn()` (`clsx` + `tailwind-merge`); build variants with `class-variance-authority` (CVA). Inline styles only for genuinely dynamic values (a computed width, a per-agent `var(--agent-N)` color, a `display` toggle).
 - **Hover/focus are CSS, not state.** Express interactive visuals with pseudo-classes (`hover:bg-accent`, `focus-visible:ring-ring/50`). React state is for data/logic, not styling.
-- **Reuse components before building new ones.** Default to the shadcn primitives in [`frontend/src/components/ui/`](../frontend/src/components/ui/) (§6) and the project blocks in [`frontend/src/components/agentre/`](../frontend/src/components/agentre/); icons come from `lucide-react` (with `@iconify/react` for the agent icon registry) — don't hand-roll a control that already exists. When the same block appears in two or more places, extract one shared component instead of copy-pasting.
+- **Reuse components before building new ones.** Default to the shadcn primitives in [`frontend/packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) (§6) and the project blocks in [`frontend/src/components/agentre/`](../frontend/src/components/agentre/); icons come from `lucide-react` (with `@iconify/react` for the agent icon registry) — don't hand-roll a control that already exists. When the same block appears in two or more places, extract one shared component instead of copy-pasting.
 - **Keep motion restrained, and honor reduced motion.** Enter/leave in `150–200ms`, `ease-out`; reuse `tw-animate-css` utilities and Radix `data-state` rather than inlining keyframes; prefer `transition-colors`/`transition-transform` over `transition-all`. Every animation carries a `motion-reduce:` (or `motion-safe:`) modifier (§8).
 - **No silent operations.** Every async flow surfaces loading / empty / error / success. The user must always know whether their action worked (§9).
-- **All visible UI copy goes through i18n.** New text uses `react-i18next`'s `t(...)` and updates both `frontend/src/i18n/locales/zh-CN/common.json` and `.../en/common.json`. Do not hardcode Chinese (ESLint blocks it). Do **not** translate dynamic agent / user / terminal / markdown output. This is a [`frontend.md`](./frontend.md) hard rule — see it for details.
-- **Don't introduce new colors or fonts ad hoc.** New color → add a token in [`globals.css`](../frontend/src/styles/globals.css) (with both light and dark values) and document it here. New font → add a `--font-*` token; don't reference an unconfigured family.
+- **All visible UI copy goes through i18n.** New text uses `react-i18next`'s `t(...)` and updates both `frontend/src/i18n/locales/zh-CN/` and `.../en/` (domain modules merged by `index.ts`). Do not hardcode Chinese (ESLint blocks it). Do **not** translate dynamic agent / user / terminal / markdown output. This is a [`frontend.md`](./frontend.md) hard rule — see it for details.
+- **Don't introduce new colors or fonts ad hoc.** New color → add a token in the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) (with both light and dark values) and document it here. New font → add a `--font-*` token; don't reference an unconfigured family.
 
 ---
 
@@ -58,7 +58,7 @@ The "why" behind the constraints — apply these when shaping a screen.
 
 ## 3. Color Tokens (full light / dark values)
 
-**Single source:** [`frontend/src/styles/globals.css`](../frontend/src/styles/globals.css). `:root` defines light, `.dark` overrides for dark, and the `@theme inline` block exposes every `--token` as a Tailwind color (`--color-*`), so `bg-<token>` / `text-<token>` / `border-<token>` all work **and switch with the theme automatically**.
+**Single source:** shared token definitions in [`frontend/packages/agentre-ui/styles/tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css). The host [`globals.css`](../frontend/src/styles/globals.css) imports them and exposes the Tailwind mapping; `:root` defines light, `.dark` overrides for dark, so `bg-<token>` / `text-<token>` / `border-<token>` all switch with the theme automatically.
 
 **Usage:**
 - Background `bg-<token>`, text `text-<token>`, border `border-<token>`, focus ring `ring-ring`.
@@ -76,8 +76,8 @@ The "why" behind the constraints — apply these when shaping a screen.
 | `popover` | `#ffffff` | `#262931` | Floating layers (dropdown / tooltip / toast) surface |
 | `popover-foreground` | `#18181b` | `#e6e8eb` | Text in floating layers |
 | `rail` | `#e4e4e7` | `#0a0b0d` | Window chrome bands — title bar, icon rail, status bar (the recessed frame) |
-| `muted-foreground` | `#71717a` | `#8a8d94` | De-emphasized / descriptive text |
-| `subtle-foreground` | `#a1a1aa` | `#5a5d64` | Faintest text — placeholder glyphs, empty-state icons, line numbers |
+| `muted-foreground` | `#65656d` | `#909399` | De-emphasized / descriptive text — timestamps, counts, metadata labels, section headings. **This is the floor for anything a user has to read.** Its value is set by the *darkest* surface it lands on, not by `card`: the status bar and window controls put it on `rail`, where the old `#71717a` was only 3.81. Now 4.55 on `rail`, 5.26 on `secondary`/`code-surface`, 5.78 on `card`. Guarded per-surface by [`tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) |
+| `decorative-foreground` | `#a1a1aa` | `#5a5d64` | **Glyphs that never carry information** — separator dots (`·` `/` `›`), diff/file line numbers, `aria-hidden` icons that merely accompany adjacent text, fallback glyphs. At ~2.5:1 it misses 3:1 in both themes **by design**. Was named `subtle-foreground`; that name read like "a weaker body text", so 97 metadata labels quietly ended up on it (2026-08-19 audit) — they all moved to `muted-foreground`. If the thing has to be *read*, it does not belong here |
 
 > Dark mode is a deliberate **5-level surface ladder**: `rail #0a0b0d` < `sidebar #111316` < `background #17191c` < `card #1d2025` < `popover #262931`. Pick the surface that matches the layer's height (§3.12).
 
@@ -104,7 +104,8 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | `secondary` | `#f4f4f5` | `#262931` | Secondary buttons / fills; the tab-strip band |
 | `secondary-foreground` | `#3f3f46` | `#c4c7cd` | Text on secondary |
 | `muted` | `#f4f4f5` | `#1d2025` | Muted background (group fills, placeholders) |
-| `accent` | `#f4f4f5` | `#383d47` | Hover / selected background (menu items, rows) |
+| `accent` | `#e0e0e3` | `#383d47` | **交互反馈** —— 内容表面上的 hover / 选中填充。刻意不等于任何静止表面：曾经是 `#f4f4f5`，与 `secondary`/`muted`/`sidebar` 同字节，86 处 `hover:bg-accent` 在那些面上渲染成 1.00:1。实测 card/popover 1.32、background 1.26、secondary 1.20。**外壳带上的 hover 用 `rail-accent`，不要用它** |
+| `rail-accent` | `#f7f7f8` | `#212429` | 窗口外壳带（标题栏 / 图标栏 / 状态栏，即所有 `bg-rail` 之上）的 hover / focus 反馈。`rail` 亮色是 `#e4e4e7`，比任何内容表面都暗得多，**一个值无法同时服务两边**：在白卡片上够深的填充落到 rail 上会被吃掉（2026-08-19 就这么把 rail 的 hover 压到过 1.028）。rail 是下沉的一层，所以 hover 是提亮而非压暗，与 `sidebar-active-bg` 一致。实测 rail 上 1.19 / 1.27 |
 | `accent-foreground` | `#18181b` | `#e6e8eb` | Text on accent |
 
 ### 3.4 Borders, inputs, ring
@@ -113,8 +114,9 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 | --- | --- | --- | --- |
 | `border` | `#e4e4e7` | `#2a2d34` | Global borders (the `@layer base` reset gives every element `border-border`) |
 | `border-strong` | `#d4d4d8` | `#3a3e47` | Emphasized dividers / drag handles where `border` is too faint |
-| `input` | `#e4e4e7` | `#2a2d34` | Form-control borders |
+| `input` | `#cbcbd0` | `#4a4f59` | Field edges (`Input` / `Textarea` / `Select` / outline `Button`). Split off from `border` so a divider can stay quiet while a field edge stays legible. Target is "clearly visible", **not** WCAG's 3:1 — these controls carry their own fill and text, so the border is a supporting cue; controls whose border *is* the control use `control-border` below |
 | `input-bg` | `#ffffff` | `#17191c` | Form-control fill |
+| `control-border` | `#8a8a91` | `#70757f` | **Controls whose outline *is* the control** — an unchecked `Checkbox` has no fill, so losing the border loses the control. Sized to clear WCAG 3:1 on the worst surface a control lands on (`secondary`: 3.12 light / 3.14 dark). Do **not** reach for `border`/`input` here: they are quiet dividers/field edges at ~1.1:1 against every surface, which is why the model table's header select-all used to vanish. Guarded by [`src/ui/checkbox.test.tsx`](../frontend/packages/agentre-ui/src/ui/checkbox.test.tsx) |
 
 ### 3.5 Status colors (agent run state)
 
@@ -127,7 +129,23 @@ The heart of agentre's state language. Four states, each with a solid color (dot
 | `idle` | `#a1a1aa` → `#6a6d74` | *(uses `secondary`)* | gray dot; text falls to `muted-foreground` |
 | `error` | `#dc2626` → `#f87171` | *(uses `destructive-soft`)* | red dot / pill — turn failed |
 
-> `running` also has `--status-running-foreground` (`#ffffff` / `#04140c`) for text on the solid green. Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
+**Each state has up to four roles — do not mix them up:**
+
+| Role | Token | Renders as |
+| --- | --- | --- |
+| fill | `status-<state>` | dots, solid badges, progress |
+| soft fill | `status-<state>-bg` | the pill background |
+| on-fill text | `status-<state>-foreground` | text sitting **on** the saturated fill |
+| as text | `status-<state>-text` | the state rendered **as text** (on `status-*-bg` or a card) |
+
+| Token | Light | Dark | Why it exists |
+| --- | --- | --- | --- |
+| `status-running-foreground` | `#ffffff` | `#04140c` | Text on the solid green |
+| `status-waiting-foreground` | `#402b06` | *(same)* | Deep brown on the bright amber fill. Both themes keep a bright amber, so one value reads on either |
+| `status-running-text` | `#047857` | `#34d399` | The saturated fill is unreadable **as text** in light: `#10b981` on its own pill is 2.41. Dark already cleared the bar, so it reuses the fill value |
+| `status-waiting-text` | `#b45309` | `#fbbf24` | Same story: `#f59e0b` on its own pill is 2.07 |
+
+The `-text` split is guarded by [`packages/agentre-ui/src/tokens.test.ts`](../frontend/packages/agentre-ui/src/tokens.test.ts) (≥4.5 on both the pill and `card`, both themes). Render status only through `StatusDot` / `StatusPill` (§6.4) so the dot/pill/label stay in lockstep; labels are uppercase (`RUNNING`).
 
 ### 3.6 Agent palette (16 identity colors)
 
@@ -143,6 +161,8 @@ Sixteen fixed hues give concurrent agents distinct, stable identities. Light use
 | `agent-6` | `#0891b2` | `#22d3ee` | | `agent-14` | `#ca8a04` | `#fde047` |
 | `agent-7` | `#c026d3` | `#e879f9` | | `agent-15` | `#64748b` | `#94a3b8` |
 | `agent-8` | `#65a30d` | `#a3e635` | | `agent-16` | `#9333ea` | `#c084fc` |
+
+> The initial glyph sitting **on** an agent fill uses `agent-foreground` (`#ffffff`, theme-invariant — the letter is white on all sixteen hues in both themes). Use `text-agent-foreground`, not a literal `text-white`.
 
 **How to apply a color.** The source of truth is the agent's `agentColor` token (e.g. `"agent-7"`), assigned by the backend — there is **no client-side hashing**. Map it through the helpers, never by hand:
 
@@ -167,6 +187,19 @@ The file-type icon uses a transparent 17px alignment slot containing a directly 
 | `file-neutral` | `#71717a` | `#8a8d94` | plain text / log, TOML, `*.lock`, unknown fallback |
 
 Use `text-file-<tone>` (exposed via `--color-file-*` in the `@theme inline` block); never write the hex directly. The slot has no background, border, radius, shadow or padding, and selected/hover backgrounds belong to the containing row or tab. High-recognition languages use the installed Tabler Brand Logo where available; formats use their file-type glyph. Directory rows remain separate and keep neutral `Folder` / `FolderOpen` plus Chevron icons. The icon itself is decorative (`aria-hidden`) — file names, Git status and actions keep carrying the semantics.
+
+### 3.6b Issue label tones (2 extra hues)
+
+The ten issue-label chips in [`components/agentre/issue-tones.ts`](../frontend/src/components/agentre/issue-tones.ts) are all "soft fill + a text color readable on that fill". Eight of them borrow an existing semantic family — `destructive-soft`/`destructive-text` (bug), `destructive` (critical), `secondary`/`secondary-foreground` (docs, ops), `status-running-*` (feature), `status-waiting-*` (perf), `primary-soft`/`primary-text` (hook, refactor). Two hues have no semantic home; they exist only to keep ten labels apart, so they get their own pair here.
+
+| Token / class | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `tone-blue-bg` | `#e9effd` | `#242d3a` | Soft blue chip fill (`auth`) |
+| `tone-blue-text` | `#1d4ed8` | `#60a5fa` | Text on `tone-blue-bg` |
+| `tone-violet-bg` | `#f2ebfd` | `#2b2b3a` | Soft violet chip fill (`ui`) |
+| `tone-violet-text` | `#6d28d9` | `#a78bfa` | Text on `tone-violet-bg` |
+
+**Do not reach into the agent palette for this.** These two used to be `bg-agent-1/10 text-agent-1` / `bg-agent-2/10 text-agent-2`, which broke twice over: the `--agent-*` hues are *identity* built for `bg-agent-N` + a white glyph (§3.6) — as text on a card, half the sixteen miss 4.5 — and a `/10` tint is transparent, so the chip's real fill (and its contrast) shifted with whatever surface it landed on: `auth` measured 4.49 on `card`, 4.33 on `background`, 4.06 on a hovered list row. The fills above are the opaque equivalent of what the old tint rendered on a card, so the chips look the same but no longer depend on what is underneath. Guarded by [`components/agentre/__tests__/issue-tones.test.ts`](../frontend/src/components/agentre/__tests__/issue-tones.test.ts), which reads the classes back out of `issue-tones.ts`, resolves them through `tokens.css`, and asserts ≥ 4.5 for every tone on every surface, both themes.
 
 ### 3.7 Sidebar
 
@@ -207,7 +240,7 @@ The scrollbar auto-hides via a CSS variable rather than a class (a WKWebView rep
 | `--sb-thumb` | `transparent` (visible on scroll) | `transparent` (visible on scroll) |
 | `--sb-thumb-strong` | `color-mix(… muted-foreground 45%)` | same formula |
 
-Don't restyle scrollbars per-container; the global rules in [`globals.css`](../frontend/src/styles/globals.css) cover both the Firefox `scrollbar-*` properties and the WebKit pseudo-elements. To hide one entirely (e.g. a horizontal strip), add `.scrollbar-none`.
+Don't restyle scrollbars per-container; the shared rules in [`base.css`](../frontend/packages/agentre-ui/styles/base.css) cover both the Firefox `scrollbar-*` properties and the WebKit pseudo-elements. To hide one entirely (e.g. a horizontal strip), add `.scrollbar-none`.
 
 ### 3.11 Destructive
 
@@ -216,6 +249,7 @@ Don't restyle scrollbars per-container; the global rules in [`globals.css`](../f
 | `destructive` | `#dc2626` | `#f87171` | Dangerous / delete / error actions |
 | `destructive-foreground` | `#ffffff` | `#fafafa` | Text on solid destructive |
 | `destructive-soft` | `#fef2f2` | `#2a1414` | Soft red wash — error cards, error toasts, the `error` status pill |
+| `destructive-text` | `#b91c1c` | `#f87171` | **Red rendered as text** on `destructive-soft` / a card. The same fill-vs-text split as `status-*-text`: `destructive` on its own wash is only 4.41 in light. Keep `destructive` for fills, dots and icon marks; reach for this one whenever the red *is* the text. Dark already clears the bar on the wash (6.28), so it reuses the fill value |
 
 ### 3.11a Code / console surface
 
@@ -225,7 +259,7 @@ Monospace **console output** surfaces (hook stdout/stderr, local-command output)
 | --- | --- | --- | --- |
 | `code-surface` | `#f4f4f5` | `#121418` | Console/output box fill (`bg-code-surface`) |
 | `code-foreground` | `#3f3f46` | `#e6e8eb` | Primary monospace text on `code-surface` |
-| `code-muted-foreground` | `#71717a` | `#9aa0ab` | De-emphasized monospace text (stdout) |
+| `code-muted-foreground` | `#65656d` | `#9aa0ab` | De-emphasized monospace text (stdout) |
 
 ### 3.12 Elevation (surfaces & shadows)
 
@@ -237,9 +271,10 @@ Depth is primarily a **surface step**, not a shadow (Principle 5). Pick the surf
 | **Base** | `background` | none | Page content |
 | **Resting card** | `card` | none / `shadow-xs` | Cards, list rows, the active sidebar item (`shadow-xs`). Prefer a `border` over a shadow at rest. |
 | **Raised** | `popover` | `shadow-md` | Anchored floating layers — `DropdownMenu`, `Popover`, `HoverCard`, `Select`, the rail tooltip |
-| **Overlay** | `popover` | `shadow-lg` | Detached overlays that own the screen — `Dialog` |
+| **Overlay** | `card` | `shadow-overlay` | Detached overlays that own the screen — `Dialog`. The shadow comes from the `--overlay-shadow` token (light: a soft drop + dark hairline; dark: a heavier drop + **light** hairline), and the backdrop from `--overlay-scrim` (`bg-scrim`) |
 
-- **Shadows barely render in dark.** On the dark surfaces a black shadow is nearly invisible, so depth in dark relies on the surface step + the `border`. Keep the border; don't reach past `shadow-lg`. There are **no `--shadow-*` tokens** — use the Tailwind utilities sparingly and stay on this ladder.
+- **Shadows barely render in dark.** On the dark surfaces a black shadow is nearly invisible, so depth in dark relies on the surface step + the `border`. Keep the border; don't reach past `shadow-overlay`.
+- **The one shadow token is `--overlay-shadow` → `shadow-overlay`.** Root token is `--overlay-*` while the utility alias is `--shadow-*` on purpose: Tailwind v4's shadow namespace *is* `--shadow-*`, so a same-named root token would make the `@theme` mapping self-referential. Same reason for `--overlay-scrim` → `--color-scrim`. Anything shallower (`shadow-xs` / `shadow-md`) stays a plain Tailwind utility — don't invent more shadow tokens.
 - Pair elevation with the matching radius (§5): raised → `rounded-lg`, overlay → `rounded-xl`.
 
 ---
@@ -248,7 +283,7 @@ Depth is primarily a **surface step**, not a shadow (Principle 5). Pick the surf
 
 **Mechanism:** the theme switches by adding/removing `.dark` on `document.documentElement` (`@custom-variant dark (&:is(.dark *))` is what makes the `dark:` variant work). The toggle is `applyDocumentTheme(theme)` in [`frontend/src/App.tsx`](../frontend/src/App.tsx), which also sets `data-theme` and `style.colorScheme` for redundancy. Every token is defined under both `:root` and `.dark`, so toggling the class re-skins the whole app — no per-component color changes needed.
 
-**Preference & API.** There is **no `ThemeProvider`/`useTheme`**; theme is React state in `AppLayout`, passed down via the router `Outlet` context. The model (types in [`components/agentre/chrome.tsx`](../frontend/src/components/agentre/chrome.tsx)):
+**Preference & API.** Theme state is provided by the shared package's `ThemeProvider` and consumed with `useTheme`; the desktop host wraps the app with the provider and passes the resulting values to routed pages through the `Outlet` context. The model lives in the shared [`theme-context.tsx`](../frontend/packages/agentre-ui/src/theme/theme-context.tsx):
 
 ```ts
 type AppTheme = "light" | "dark";
@@ -284,14 +319,14 @@ type AppThemePreference = AppTheme | "system";   // user choice
 
 ### Fonts
 
-**System-font-only, zero webfonts** — declared as two tokens in the `@theme inline` block of [`globals.css`](../frontend/src/styles/globals.css). A desktop app must work offline and pays for every byte, so the type system is the platform's own fonts. Both stacks pin an **explicit CJK fallback** (`PingFang SC` / `Microsoft YaHei` / `Noto Sans SC`) because agentre is Chinese-first, and the sans stack pins emoji families so status badges don't drop emoji.
+**System-font-only, zero webfonts** — declared as two tokens in the `@theme inline` block of the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css). A desktop app must work offline and pays for every byte, so the type system is the platform's own fonts. Both stacks pin an **explicit CJK fallback** (`PingFang SC` / `Microsoft YaHei` / `Noto Sans SC`) because agentre is Chinese-first, and the sans stack pins emoji families so status badges don't drop emoji.
 
 | Token | Use |
 | --- | --- |
 | `font-sans` (`--font-sans`) | Body / UI text. Applied on `body` via `@apply font-sans`, so everything inherits it; you rarely write `font-sans` explicitly. Stack: `-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", Roboto, … sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"`. |
 | `font-mono` (`--font-mono`) | Code, model names, IDs, status pills, paths — anything monospaced (`font-mono`). Stack: `ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", Consolas, … "PingFang SC", "Microsoft YaHei", monospace`. |
 
-> **No `@font-face`, no CDN.** Don't reference a family that isn't actually packaged (it would silently fall back and mislead). Code-block syntax highlighting is styled in [`code-highlight.css`](../frontend/src/styles/code-highlight.css).
+> **No `@font-face`, no CDN.** Don't reference a family that isn't actually packaged (it would silently fall back and mislead). Code-block syntax highlighting is styled in [`code-highlight.css`](../frontend/packages/agentre-ui/styles/code-highlight.css).
 
 ### Type scale
 
@@ -327,11 +362,11 @@ The desktop frame uses fixed band heights — match them when extending the shel
 
 ## 6. Component palette & usage
 
-The shadcn primitives live in [`frontend/src/components/ui/`](../frontend/src/components/ui/) — `new-york` style, CSS variables enabled, no class prefix ([`components.json`](../frontend/components.json)). Icons are `lucide-react` (plus `@iconify/react` for the agent icon registry); class merging is `cn()` ([`frontend/src/lib/utils.ts`](../frontend/src/lib/utils.ts)); variants are CVA — the conventions you'll see in every primitive's source. The **enforced** shadcn-only / icon / i18n rules live in [`frontend.md`](./frontend.md), not repeated here. This section is "what exists and how to choose."
+The shadcn primitives live in [`frontend/packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) and are imported from `"@agentre-hub/agentre-ui"` — `new-york` style, CSS variables enabled, no class prefix ([`components.json`](../frontend/components.json)). Icons are `lucide-react` (plus `@iconify/react` for the agent icon registry); class merging is `cn()` ([`frontend/src/lib/utils.ts`](../frontend/src/lib/utils.ts)); variants are CVA — the conventions you'll see in every primitive's source. The **enforced** shadcn-only / icon / i18n rules live in [`frontend.md`](./frontend.md), not repeated here. This section is "what exists and how to choose."
 
 ### 6.1 Primitives — present vs. absent
 
-The palette is pruned to what's actually imported. **Present** (16) in [`components/ui/`](../frontend/src/components/ui/):
+The palette is pruned to what's actually imported. **Present** (18) in [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/):
 
 | File | Use |
 | --- | --- |
@@ -345,6 +380,7 @@ The palette is pruned to what's actually imported. **Present** (16) in [`compone
 | `dropdown-menu.tsx` / `context-menu.tsx` | Dropdown / right-click menu |
 | `popover.tsx` / `hover-card.tsx` / `tooltip.tsx` | Floating layers |
 | `table.tsx` | Table subcomponents |
+| `toggle.tsx` / `toggle-group.tsx` | Pressed-state toggle & exclusive/multi toggle group |
 
 **Absent** (commonly expected, but *not* in the codebase — don't import or assume them): `card`, `tabs`, `sheet`, `skeleton`, `progress`, `accordion`, `collapsible`, `sonner` (the `Toaster` is imported straight from `sonner`), `command` (there's a custom command palette), `form` (no form library — see §9).
 
@@ -352,7 +388,7 @@ The palette is pruned to what's actually imported. **Present** (16) in [`compone
 
 ### 6.2 Button variants / sizes
 
-Source: [`button.tsx`](../frontend/src/components/ui/button.tsx).
+Source: [`button.tsx`](../frontend/packages/agentre-ui/src/ui/button.tsx).
 
 - **variant:** `default` (solid `bg-primary`), `destructive`, `outline`, `secondary`, `ghost`, `link`
 - **size:** `default` (`h-9`), `xs` (`h-6`), `sm` (`h-8`), `lg` (`h-10`), `icon` (`size-9`), `icon-xs` (`size-6`), `icon-sm` (`size-8`), `icon-lg` (`size-10`)
@@ -360,7 +396,7 @@ Source: [`button.tsx`](../frontend/src/components/ui/button.tsx).
 A bare `<svg>` child auto-sizes to `size-4` (`size-3` at `xs`/`icon-xs`). The `default` variant is `bg-primary text-primary-foreground` — `primary` *is* the solid fill here (unlike a separate "primary-background"); reserve `text-primary`/`border-primary` for accent semantics.
 
 ```tsx
-import { Button } from "@/components/ui/button";
+import { Button } from "@agentre-hub/agentre-ui";
 import { Plus } from "lucide-react";
 
 <Button>Create</Button>                                   {/* primary action */}
@@ -371,7 +407,7 @@ import { Plus } from "lucide-react";
 
 ### 6.3 Badge variants
 
-Source: [`badge.tsx`](../frontend/src/components/ui/badge.tsx). Variants: `default` (`bg-primary`), `secondary`, `destructive`, `outline`, `ghost`, `link`. Badges are `rounded-full`, size-fixed (no size prop), with an auto `size-3` leading svg. For **agent run state**, prefer `StatusPill` (§6.4) over a hand-styled badge.
+Source: [`badge.tsx`](../frontend/packages/agentre-ui/src/ui/badge.tsx). Variants: `default` (`bg-primary`), `secondary`, `destructive`, `outline`, `ghost`, `link`. Badges are `rounded-full`, size-fixed (no size prop), with an auto `size-3` leading svg. For **agent run state**, prefer `StatusPill` (§6.4) over a hand-styled badge.
 
 ### 6.4 Agent & status primitives
 
@@ -391,7 +427,7 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 
 Two distinct systems — use the right one:
 
-- **Transient toasts → Sonner.** `<Toaster position="bottom-right" richColors theme={effectiveTheme} />` is mounted once in `AppLayout` ([`App.tsx`](../frontend/src/App.tsx)). Business code imports `toast` **directly from `sonner`** (`toast.success/error(title, { description, duration })`) — there is no `notify` wrapper. The toast colors are bound to design tokens in [`globals.css`](../frontend/src/styles/globals.css) (`[data-sonner-toaster][data-rich-colors="true"]`): success→`status-running-bg`, error→`destructive-soft`, warning→`status-waiting-bg`, info→`primary-soft`; neutral `foreground` text, saturated icon. See [`lib/clipboard-toast.ts`](../frontend/src/lib/clipboard-toast.ts) for the canonical call.
+- **Transient toasts → Sonner.** `<Toaster position="bottom-right" richColors theme={effectiveTheme} />` is mounted once in `AppLayout` ([`App.tsx`](../frontend/src/App.tsx)). Business code imports `toast` **directly from `sonner`** (`toast.success/error(title, { description, duration })`) — there is no `notify` wrapper. The toast colors are bound to design tokens in the shared [`toast.css`](../frontend/packages/agentre-ui/styles/toast.css) (`[data-sonner-toaster][data-rich-colors="true"]`): success→`status-running-bg`, error→`destructive-soft`, warning→`status-waiting-bg`, info→`primary-soft`; neutral `foreground` text, saturated icon. See [`lib/clipboard-toast.ts`](../frontend/packages/agentre-ui/src/lib/clipboard-toast.ts) for the canonical call.
 - **Agent turn-completion → the notification viewport.** `<NotificationToastViewport />` (custom, backed by a Zustand store [`stores/notification-toast-store.ts`](../frontend/src/stores/notification-toast-store.ts)) surfaces turn done / error / awaiting-approval events — up to 5 at once. Use it for *session lifecycle* signals, not generic feedback.
 
 ### 6.6 Selection guidance
@@ -436,7 +472,7 @@ There is **no `useIsMobile`, no `MOBILE_BREAKPOINT`, and no mobile re-shell.** R
 
 ### Long lists
 
-The chat transcript can hold thousands of rows and is windowed with **`@tanstack/react-virtual`** ([`chat.tsx`](../frontend/src/components/agentre/chat.tsx)): dynamic per-row size estimation, overscan, `anchorTo: "end"` stick-to-bottom, and `measureElement` for real heights (see [`transcript-rows.ts`](../frontend/src/components/agentre/transcript-rows.ts) + [`transcript-row-view.tsx`](../frontend/src/components/agentre/transcript-row-view.tsx)). Other lists (issues, org chart, settings) are bounded and render plainly — don't add virtualization unprompted, but **do** virtualize any new unbounded list rather than mounting every row.
+The chat transcript can hold thousands of rows and is windowed with **`@tanstack/react-virtual`** ([`chat.tsx`](../frontend/src/components/agentre/chat.tsx)): dynamic per-row size estimation, overscan, `anchorTo: "end"` stick-to-bottom, and `measureElement` for real heights (see [`transcript-rows.ts`](../frontend/packages/agentre-ui/src/transcript/transcript-rows.ts) + [`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)). Other lists (issues, org chart, settings) are bounded and render plainly — don't add virtualization unprompted, but **do** virtualize any new unbounded list rather than mounting every row.
 
 ### Layering (z-index)
 
@@ -455,7 +491,7 @@ Ties break by DOM/portal order, not a bespoke number. A new "always on top" need
 
 ## 8. Motion
 
-**Sources:** `tw-animate-css` (`@import` in [`globals.css`](../frontend/src/styles/globals.css) — provides `animate-in/out`, `fade-*`, `zoom-*`, `slide-*`) + Radix `data-state` + one custom keyframe (`typing-dot`). **No Framer Motion** — all motion is CSS.
+**Sources:** `tw-animate-css` (`@import` in the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) — provides `animate-in/out`, `fade-*`, `zoom-*`, `slide-*`) + Radix `data-state` + one custom keyframe (`typing-dot`). **No Framer Motion** — all motion is CSS.
 
 ### How to add motion that stays friendly
 
@@ -470,7 +506,7 @@ Ties break by DOM/portal order, not a bespoke number. A new "always on top" need
 
 | utility / pattern | Use |
 | --- | --- |
-| `animate-typing-dot` (`--animate-typing-dot`) | The chat typing/compacting indicator — three dots with staggered `[animation-delay:…]` (see `TypingIndicator` in [`transcript-row-view.tsx`](../frontend/src/components/agentre/transcript-row-view.tsx)). Keyframe `typing-dot` defined in [`globals.css`](../frontend/src/styles/globals.css). |
+| `animate-typing-dot` (`--animate-typing-dot`) | The chat typing/compacting indicator — three dots with staggered `[animation-delay:…]` (see `TypingIndicator` in [`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)). Keyframe `typing-dot` defined in the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css). |
 | `data-[state=open]:animate-in … fade-*/zoom-in-95/zoom-out-95/slide-*` | Dialog / Dropdown / Popover / HoverCard enter-leave (Radix-driven) |
 | `animate-spin` | `Loader2` / `RefreshCw` / `LoaderCircle` spinners |
 | `transition-colors` / `transition-transform` / `duration-150` | hover/focus color, chevron rotation |
@@ -493,10 +529,10 @@ Every async flow covers loading / empty / error / success consistently. **Import
 | State | Convention today |
 | --- | --- |
 | **Loading** | A centered `Loader2` (`animate-spin`, `text-muted-foreground`) for whole regions, or an inline `Loader2 size-3.5 animate-spin` inside a disabled button for single actions. For lightweight "first load" copy, the `CenterNote` pattern (centered `text-xs text-muted-foreground`, e.g. [`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). No skeletons exist — add one only if you build the shared component. |
-| **Empty** | Centered icon (`Inbox` / `Sparkles` in `subtle-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/src/components/agentre/llm-providers.tsx)) and `IssuesEmpty` ([`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). |
-| **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/src/components/agentre/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message, and an optional outline retry button. For page-level failures, centered `text-destructive` copy. |
+| **Empty** | Centered icon (`Inbox` / `Sparkles` in `decorative-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/src/components/agentre/llm-providers.tsx)) and `IssuesEmpty` ([`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). |
+| **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message, and an optional outline retry button. For page-level failures, centered `text-destructive` copy. |
 | **Success** | Transient → a Sonner `toast.success` (§6.5); a completed agent turn → the notification viewport. |
-| **In-progress** | No general-purpose `Progress` primitive in `components/ui/`. Agent background-task progress has a dedicated `TaskProgressBar` ([`task-progress/`](../frontend/src/components/agentre/task-progress/)) — a real bar + expandable task list with a `LoaderCircle` spinner tinted `text-status-waiting`. For other waits, a status-tinted spinner + readable copy. |
+| **In-progress** | No general-purpose `Progress` primitive in the shared package. Agent background-task progress has a dedicated `TaskProgressBar` ([`task-progress/`](../frontend/src/components/agentre/task-progress/)) — a real bar + expandable task list with a `LoaderCircle` spinner tinted `text-status-waiting`. For other waits, a status-tinted spinner + readable copy. |
 
 ### Forms & validation
 
@@ -531,7 +567,7 @@ Friendly UX includes keyboard, screen-reader, low-vision, and motion-sensitive u
 ### Contrast
 
 - **Target WCAG AA:** ≥ 4.5:1 for normal text, ≥ 3:1 for large text and meaningful UI/icon edges. `foreground`, the status `*-fg` pairs, and brand `primary-text` pass comfortably.
-- **`muted-foreground` is the edge case** and `subtle-foreground` is fainter still — keep them for secondary/descriptive text, and use `foreground` for anything dense or critical. Don't stack small `muted-foreground` text on a `muted`/`secondary` fill.
+- **`muted-foreground` is the floor for readable text** — secondary/descriptive copy lives there; use `foreground` for anything dense or critical. `decorative-foreground` is fainter still and is **not** a text color: it is for glyphs that carry no information (§3.1). Both are guarded per-surface, so "it looks fine on a card" is no longer the test.
 - **Never encode meaning in color alone.** The agent palette is *identity*, not status — always pair an agent color with its name/initials, and every status color with its label/icon (`StatusPill` does both).
 
 ### Focus visibility
@@ -566,7 +602,7 @@ When building a new page or dialog, run this checklist to stay consistent:
 - [ ] **Shell:** render inside the existing `AppLayout` frame — a routed `Outlet` page (title bar / rail / status bar are given). Add a `ResizableSidebar` only if the page needs a list/detail split (§7).
 - [ ] **Color** entirely from tokens (`bg-card` / `text-foreground` / `border-border` / `text-primary` / `bg-primary` …), no literals, verified on both themes (Constraints 1–2, §3–4).
 - [ ] **Agent/status surfaces** reuse `AgentAvatar` / `StatusDot` / `StatusPill` and the `agentColorClassNames` / `tokenToCssColor` helpers — never re-derive agent color or re-style status (Principle 1, §3.5–3.6, §6.4).
-- [ ] **Components** reuse first — search [`components/agentre/`](../frontend/src/components/agentre/) and [`components/ui/`](../frontend/src/components/ui/) before building; remember there's **no `card`/`tabs`/`sheet`/`skeleton`/`progress`** primitive — compose the inline card and the §9 state patterns; variants via CVA, classes via `cn()`, icons via `lucide-react` (§6).
+- [ ] **Components** reuse first — search [`components/agentre/`](../frontend/src/components/agentre/) and [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) before building; remember there's **no `card`/`tabs`/`sheet`/`skeleton`/`progress`** primitive — compose the inline card and the §9 state patterns; variants via CVA, classes via `cn()`, icons via `lucide-react` (§6).
 - [ ] **Cards** are inline `rounded-lg border border-border bg-card p-4`; pick the surface by elevation (§3.12) and pair with the matching radius.
 - [ ] **State:** loading / empty / error / success all covered, never silent (§9); extract a shared state block if it repeats.
 - [ ] **Motion** restrained (`150–200ms`, `ease-out`), hover/focus via pseudo-classes, enter/leave via `data-state`, and **a `motion-reduce:` modifier on every animation** (§8).
@@ -580,7 +616,7 @@ Page skeleton (tokens + existing primitives + the routed-page pattern):
 
 ```tsx
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
+import { Button } from "@agentre-hub/agentre-ui";
 
 export default function ExamplePage() {
   const { t } = useTranslation();
@@ -614,10 +650,10 @@ export default function ExamplePage() {
 
 **Implementation source of truth (read/edit these when changing the design):**
 
-- Color / font / motion / scrollbar tokens → [`frontend/src/styles/globals.css`](../frontend/src/styles/globals.css); code highlighting → [`code-highlight.css`](../frontend/src/styles/code-highlight.css)
+- Color / font / motion / scrollbar tokens → [`frontend/packages/agentre-ui/styles/tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) (imported by the host [`globals.css`](../frontend/src/styles/globals.css)); code highlighting → [`code-highlight.css`](../frontend/packages/agentre-ui/styles/code-highlight.css)
 - Theming + the app shell (title bar, rail, status bar, auto-hide scrollbars, window size) → [`frontend/src/App.tsx`](../frontend/src/App.tsx) + [`frontend/src/components/agentre/chrome.tsx`](../frontend/src/components/agentre/chrome.tsx)
 - Agent color / status model → [`frontend/src/components/agentre/types.ts`](../frontend/src/components/agentre/types.ts) + [`session-avatar.ts`](../frontend/src/components/agentre/session-avatar.ts); agent/status primitives → [`primitives.tsx`](../frontend/src/components/agentre/primitives.tsx)
-- Component primitives → [`frontend/src/components/ui/`](../frontend/src/components/ui/); shadcn config → [`components.json`](../frontend/components.json); `cn()` → [`frontend/src/lib/utils.ts`](../frontend/src/lib/utils.ts)
+- Component primitives → [`frontend/packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/); shadcn config → [`components.json`](../frontend/components.json); `cn()` → [`frontend/src/lib/utils.ts`](../frontend/src/lib/utils.ts)
 
 **Related docs:** UI hard rules (shadcn-only, i18n, lint, commit flow) → [`frontend.md`](./frontend.md); layering / dependency direction / storage → [`architecture.md`](./architecture.md); TDD / SOLID → [`develop.md`](./develop.md); test design → [`testing.md`](./testing.md); doc fact-checking → [`documentation.md`](./documentation.md).
 

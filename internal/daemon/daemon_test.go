@@ -20,22 +20,27 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/cago-frame/cago/configs"
 
-	"github.com/agentre-ai/agentre/internal/buildinfo"
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/notifier"
-	"github.com/agentre-ai/agentre/internal/daemon/repository/notification_repo"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentredipc"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	piagentrt "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/buildinfo"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/notifier"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
+	"github.com/agentre-hub/agentre/internal/daemon/repository/notification_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentredipc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // TestDaemon_OpensOwnDatabaseAndRunsMigrations 覆盖任务目标的第一句:agentred
@@ -51,7 +56,27 @@ func TestDaemon_OpensOwnDatabaseAndRunsMigrations(t *testing.T) {
 	}
 	require.NotNil(t, d.db)
 	assert.True(t, d.db.Migrator().HasTable("daemon_sessions"))
-	assert.True(t, d.db.Migrator().HasTable("daemon_notification_logs"))
+	// 决策 9/11/18:时间戳随工作区惯例叫 createtime、「会话最后活动时刻」叫
+	// last_message_at(它唯一的消费方就是会话摘要的那一格),通知日志与线格式的
+	// JournaledNotification 统一词根叫 journal。旧名不留兼容列(决策 22)。
+	assert.True(t, d.db.Migrator().HasTable("daemon_notification_journal"))
+	assert.False(t, d.db.Migrator().HasTable("daemon_notification_logs"))
+	for table, columns := range map[string][]string{
+		"daemon_sessions":             {"createtime", "last_message_at"},
+		"daemon_notification_journal": {"createtime"},
+	} {
+		for _, column := range columns {
+			assert.True(t, d.db.Migrator().HasColumn(table, column), "column %s.%s must exist", table, column)
+		}
+	}
+	for table, columns := range map[string][]string{
+		"daemon_sessions":             {"created_at", "updated_at"},
+		"daemon_notification_journal": {"created_at"},
+	} {
+		for _, column := range columns {
+			assert.False(t, d.db.Migrator().HasColumn(table, column), "legacy column %s.%s must not exist", table, column)
+		}
+	}
 }
 
 // TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter 钉死开库方式的
@@ -91,6 +116,29 @@ func TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter(t *tes
 	case <-time.After(2 * time.Second):
 		t.Fatal("streaming append is stuck behind an open catch-up read — the daemon database must be opened in WAL mode")
 	}
+}
+
+// TestDaemon_DatabaseUsesSynchronousNormalSoEveryStreamedEventDoesNotFsync 钉死
+// daemon 库的 synchronous 档位。
+//
+// 这个库的写侧是**每个流式事件一条同步事务**(handlers/runtime.go 的 fanout 对每个
+// agentruntime.Event 都 journal.Append 一条,包括每个 TextDelta)。SQLite 默认
+// synchronous=FULL,在 WAL 下意味着**每次提交都 fsync WAL** —— 实测 603µs/事件,
+// 而 NORMAL 档是 213µs,即每个 token 白付约 390µs。WAL + NORMAL 仍然崩溃安全:
+// 进程崩溃不损坏数据库,只在断电/内核崩溃时可能丢最后若干已提交事务 —— 对一份
+// 「随时可由桌面端重新拉取」的通知日志,这个取舍与 internal/bootstrap/cago.go
+// 的 sqliteDSN 完全同源。
+func TestDaemon_DatabaseUsesSynchronousNormalSoEveryStreamedEventDoesNotFsync(t *testing.T) {
+	d, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	// 1 = NORMAL。用 Raw 直接问库,而不是断言 DSN 字符串 —— DSN 只是手段,
+	// 「连接上真的生效了」才是这条测试要守的东西。
+	var synchronous int
+	require.NoError(t, d.db.Raw("PRAGMA synchronous").Scan(&synchronous).Error)
+	require.Equal(t, 1, synchronous,
+		"agentred 库必须以 synchronous=NORMAL 打开,否则每个流式事件都要 fsync 一次 WAL")
 }
 
 // TestDaemon_NewRegistersNotificationRepo 回归:New 是 agentred 的组装根,必须像
@@ -224,6 +272,87 @@ func TestDaemon_DatabaseHandlesAreIsolatedPerInstance(t *testing.T) {
 	assert.Empty(t, rows, "writing through d1's handle must not be visible through d2's handle")
 }
 
+func TestDaemon_GivenClaimedAccount_WhenRelayConnectsAndReconnects_ThenPullsEngineSnapshotEachTime(t *testing.T) {
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) {
+		s.AccountID = "account-1"
+		s.HubServerURL = "pending"
+		s.Credential = state.AccountCredential{AccessToken: "device-token"}
+	})
+	require.NoError(t, st.Save())
+
+	upgrader := websocket.Upgrader{}
+	relayConnections := make(chan *websocket.Conn, 2)
+	var snapshotPulls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer device-token", r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/v1/relay/daemon":
+			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+			if upgradeErr != nil {
+				t.Errorf("upgrade relay: %v", upgradeErr)
+				return
+			}
+			relayConnections <- conn
+			for {
+				if _, _, readErr := conn.ReadMessage(); readErr != nil {
+					return
+				}
+			}
+		case "/v1/account/channel":
+			http.Error(w, "channel unavailable in this relay test", http.StatusServiceUnavailable)
+		case "/v1/engine/snapshot":
+			pull := snapshotPulls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P","type":"anthropic","base_url":"","api_key":"key-%d","default_model_key":"","models":[]}],"cli_overlays":[]}`, pull, pull)
+		default:
+			t.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	d, err := New(Options{DataDir: dir, HubServerURL: server.URL})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+	require.NotNil(t, d.engineSnapshot)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	d.startEngineSnapshotPulls(ctx)
+	hubDone := make(chan error, 1)
+	go func() { hubDone <- d.hub.Run(ctx) }()
+
+	var first *websocket.Conn
+	select {
+	case first = <-relayConnections:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial relay connection was not established")
+	}
+	require.Eventually(t, func() bool { return snapshotPulls.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, first.Close())
+
+	select {
+	case second := <-relayConnections:
+		t.Cleanup(func() { _ = second.Close() })
+	case <-time.After(3 * time.Second):
+		t.Fatal("relay did not reconnect")
+	}
+	require.Eventually(t, func() bool { return snapshotPulls.Load() == 2 }, 2*time.Second, 10*time.Millisecond)
+	providers := d.state.Snapshot().LLMProviders
+	assert.Contains(t, providers, "provider-2")
+	assert.NotContains(t, providers, "provider-1", "the second complete snapshot deletes keys absent from it")
+
+	cancel()
+	select {
+	case runErr := <-hubDone:
+		require.NoError(t, runErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("hub link did not stop")
+	}
+}
+
 // TestDaemon_NewDoesNotLeakIntoGlobalDefaultDB 回归:New 绝不能调 db.SetDefault
 // ——那是 cago database/db 包级全局,会让 internal/daemon/integration_test.go
 // 同进程构造的多个 Daemon 静默共享同一个库(参见 db 字段注释)。写入经 d 自己的
@@ -256,17 +385,17 @@ func TestDaemon_NewDoesNotLeakIntoGlobalDefaultDB(t *testing.T) {
 
 // authedConn 造一条「已完成 auth.pair / auth.connect」的连接。ws 传 nil:登记表只读
 // AuthState 与 Done(),不碰底层 socket。
-func authedConn(fingerprint string) *rpc.Conn {
-	c := rpc.NewConn(nil, rpc.NewRegistry())
-	c.SetAuth(rpc.AuthState{Authenticated: true, DeviceFingerprint: fingerprint})
+func authedConn(fingerprint string) *protorpc.Conn {
+	c := protorpc.NewConn(nil, protorpc.NewRegistry())
+	c.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: fingerprint})
 	return c
 }
 
 // openWSConn 造一条**真** ws 的服务端视角连接(rpc.Conn 的 Close / Done 都要底层 socket,
 // nil ws 的连接永远关不掉 —— 挂在它 Done() 上的 goroutine 会一直漏着)。
-func openWSConn(t *testing.T) *rpc.Conn {
+func openWSConn(t *testing.T) *protorpc.Conn {
 	t.Helper()
-	upgrader := websocket.Upgrader{Subprotocols: []string{rpc.Subprotocol}}
+	upgrader := websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -277,21 +406,21 @@ func openWSConn(t *testing.T) *rpc.Conn {
 	}))
 	t.Cleanup(s.Close)
 	dialer := *websocket.DefaultDialer
-	dialer.Subprotocols = []string{rpc.Subprotocol}
+	dialer.Subprotocols = []string{protorpc.Subprotocol}
 	ws, resp, err := dialer.Dial("ws"+s.URL[len("http"):]+"/", nil)
 	require.NoError(t, err)
 	if resp != nil {
 		_ = resp.Body.Close()
 	}
-	return rpc.NewConn(ws, rpc.NewRegistry())
+	return protorpc.NewConn(protorpc.NewWebSocketFrameConn(ws), protorpc.NewRegistry())
 }
 
 // closedAuthedConn 造一条**已认证且已经关闭**的连接:模拟「登记 / 认领与 Done 监视赛跑,
 // 连接先关一步」的时序。
-func closedAuthedConn(t *testing.T, fingerprint string) *rpc.Conn {
+func closedAuthedConn(t *testing.T, fingerprint string) *protorpc.Conn {
 	t.Helper()
 	c := openWSConn(t)
-	c.SetAuth(rpc.AuthState{Authenticated: true, DeviceFingerprint: fingerprint})
+	c.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: fingerprint})
 	require.NoError(t, c.Close())
 	<-c.Done()
 	return c
@@ -306,9 +435,9 @@ func assertTarget(t *testing.T, want, got handlers.NotifierPort, msg string) {
 }
 
 // registerAuthed 造一条已认证连接并按「鉴权成功那一刻」登记它,返回连接与它的推送端口。
-func registerAuthed(r *connRegistry, fingerprint string) (*rpc.Conn, handlers.NotifierPort) {
+func registerAuthed(r *connRegistry, fingerprint string) (*protorpc.Conn, handlers.NotifierPort) {
 	c := authedConn(fingerprint)
-	n := notifier.New(c)
+	n := notifier.NewProtobuf(c)
 	r.add(c, n)
 	return c, n
 }
@@ -427,17 +556,17 @@ func TestConnRegistry_UnauthenticatedConnNeverEnters(t *testing.T) {
 	desktop, nDesktop := registerAuthed(&r, "fp-desktop")
 	r.claim(desktop, 7)
 
-	stray := rpc.NewConn(nil, rpc.NewRegistry()) // 从不认证
-	r.add(stray, notifier.New(stray))
+	stray := protorpc.NewConn(nil, protorpc.NewRegistry()) // 从不认证
+	r.add(stray, notifier.NewProtobuf(stray))
 	r.claim(stray, 7)
-	blank := rpc.NewConn(nil, rpc.NewRegistry())
-	blank.SetAuth(rpc.AuthState{Authenticated: true}) // 认证了但没有指纹
-	r.add(blank, notifier.New(blank))
+	blank := protorpc.NewConn(nil, protorpc.NewRegistry())
+	blank.SetAuth(protorpc.AuthState{Authenticated: true}) // 认证了但没有指纹
+	r.add(blank, notifier.NewProtobuf(blank))
 	r.claim(blank, 7)
-	spoof := rpc.NewConn(nil, rpc.NewRegistry())
+	spoof := protorpc.NewConn(nil, protorpc.NewRegistry())
 	// 报了指纹却没通过鉴权:身份是鉴权成功那一刻才成立的,光报不算。
-	spoof.SetAuth(rpc.AuthState{DeviceFingerprint: "fp-desktop"})
-	r.add(spoof, notifier.New(spoof))
+	spoof.SetAuth(protorpc.AuthState{DeviceFingerprint: "fp-desktop"})
+	r.add(spoof, notifier.NewProtobuf(spoof))
 	r.claim(spoof, 7)
 
 	assert.Nil(t, r.routerFor(""), "空指纹不是可匹配身份")
@@ -455,8 +584,8 @@ func TestConnRegistry_ReauthDropsClaimsOfThePreviousFingerprint(t *testing.T) {
 	r.claim(c, 7)
 	require.NotNil(t, r.ownerOf(sessionKey{peer: "fp-a", sid: 7}))
 
-	c.SetAuth(rpc.AuthState{Authenticated: true, DeviceFingerprint: "fp-b"})
-	r.add(c, notifier.New(c))
+	c.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "fp-b"})
+	r.add(c, notifier.NewProtobuf(c))
 
 	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-a", sid: 7}),
 		"改认指纹之后,旧对端的会话不得再解析到这条连接")
@@ -470,12 +599,25 @@ func TestConnRegistry_ClosedConnLeavesNoStaleEntry(t *testing.T) {
 	var r connRegistry
 	dead := closedAuthedConn(t, "fp-desktop")
 
-	r.add(dead, notifier.New(dead))
+	r.add(dead, notifier.NewProtobuf(dead))
 	r.claim(dead, 7)
 
 	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}), "已关闭的连接不得成为会话目标")
 	assert.Nil(t, r.routerFor("fp-desktop"))
 	assert.Nil(t, r.tunnelTargetFor("fp-desktop", 7), "MCP 反向隧道同样不得指向一条已关闭的连接")
+}
+
+// eventNotification / doneNotification 造一条推送用的会话通知 —— 出口收的是**已经
+// 转换好**的 Protobuf 通知(见 handlers.NotifierPort),会话路由与日志都从它自己解出。
+func eventNotification(sid, seq int64) *agentrewire.RpcNotification {
+	return &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{
+		RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: sid, Seq: seq,
+			Event: &agentrewire.RuntimeEventNotification_TextDelta{TextDelta: &agentrewire.TextDelta{Text: "hi"}}}}}
+}
+
+func doneNotification(sid int64) *agentrewire.RpcNotification {
+	return &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{
+		RunResultDone: &agentrewire.RunResultDoneNotification{SessionId: sid}}}
 }
 
 // recordingNotifier 记下推给它的通知,用来观察一条通知**实际落到了哪条连接**。
@@ -486,7 +628,8 @@ type recordingNotifier struct {
 	got []string
 }
 
-func (n *recordingNotifier) Notify(method string, _ any) error {
+func (n *recordingNotifier) Notify(notification *agentrewire.RpcNotification) error {
+	method := protowire.NotificationMethod(notification)
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.got = append(n.got, method)
@@ -517,15 +660,15 @@ func TestSessionRouter_RoutesByFrameSessionID(t *testing.T) {
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7}))
-	require.NoError(t, out.Notify(wire.NotifyRunResultDone, &wire.RunResultDoneFrame{SessionID: 8}))
+	require.NoError(t, out.Notify(eventNotification(7, 0)))
+	require.NoError(t, out.Notify(doneNotification(8)))
 	assert.Equal(t, []string{wire.NotifyEvent}, nA.methods(), "会话 7 的通知只落在发起它的那条连接")
 	assert.Equal(t, []string{wire.NotifyRunResultDone}, nB.methods(), "会话 8 的通知只落在发起它的那条连接")
 
-	assert.Error(t, out.Notify(wire.NotifyEvent, map[string]any{"sessionId": 7}),
-		"帧上取不到 sessionId 时必须报错点名类型,而不是猜一条连接推过去")
+	assert.Error(t, out.Notify(&agentrewire.RpcNotification{}),
+		"通知上取不到 sessionId 时必须报错,而不是猜一条连接推过去")
 	r.remove(connA)
-	assert.Error(t, out.Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7}),
+	assert.Error(t, out.Notify(eventNotification(7, 0)),
 		"属主断开后这条会话没有出口(通知已落库,等接管后补齐)")
 	assert.Equal(t, []string{wire.NotifyRunResultDone}, nB.methods(), "更不能改推给同设备的另一条连接")
 }
@@ -566,9 +709,9 @@ func claimedRegistry(accountID string) *connRegistry {
 
 // registerAccountAuthed 登记一条走 auth.account 认证的连接:账号门(任务 6)把 daemon
 // 此刻的归属账号写进 AuthState.AccountID,订阅资格拿它与 state.AccountID 比。
-func registerAccountAuthed(r *connRegistry, fingerprint, accountID string) (*rpc.Conn, *recordingNotifier) {
-	c := rpc.NewConn(nil, rpc.NewRegistry())
-	c.SetAuth(rpc.AuthState{Authenticated: true, DeviceFingerprint: fingerprint, AccountID: accountID})
+func registerAccountAuthed(r *connRegistry, fingerprint, accountID string) (*protorpc.Conn, *recordingNotifier) {
+	c := protorpc.NewConn(nil, protorpc.NewRegistry())
+	c.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: fingerprint, AccountID: accountID})
 	n := &recordingNotifier{}
 	r.add(c, n)
 	return c, n
@@ -585,7 +728,7 @@ func newBlockingNotifier() *blockingNotifier {
 	return &blockingNotifier{release: make(chan struct{}), entered: make(chan struct{}, 1)}
 }
 
-func (n *blockingNotifier) Notify(string, any) error {
+func (n *blockingNotifier) Notify(*agentrewire.RpcNotification) error {
 	select {
 	case n.entered <- struct{}{}:
 	default:
@@ -628,7 +771,7 @@ func TestConnRegistry_ClaimedDaemonFansOutSessionEventsToEveryConnOnThatSession(
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7, Seq: 1}))
+	require.NoError(t, out.Notify(eventNotification(7, 1)))
 
 	awaitMethods(t, nDesktop, []string{wire.NotifyEvent}, "发起会话的那条连接照收")
 	awaitMethods(t, nPhone, []string{wire.NotifyEvent}, "同账号的另一条连接同时收到同一条事件")
@@ -655,7 +798,7 @@ func TestConnRegistry_FanoutReachesOnlyTheConnsOnThatSession(t *testing.T) {
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7, Seq: 1}))
+	require.NoError(t, out.Notify(eventNotification(7, 1)))
 
 	awaitMethods(t, nDesktop, []string{wire.NotifyEvent}, "发起会话的那条连接照收")
 	assert.Never(t, func() bool { return len(nIdle.methods()) > 0 }, 200*time.Millisecond, 20*time.Millisecond,
@@ -675,7 +818,7 @@ func TestConnRegistry_AttachJoinsTheSessionFanout(t *testing.T) {
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7, Seq: 1}))
+	require.NoError(t, out.Notify(eventNotification(7, 1)))
 
 	awaitMethods(t, nPhone, []string{wire.NotifyEvent}, "接管方是属主,同步收")
 	awaitMethods(t, nDesktop, []string{wire.NotifyEvent}, "接管不把另一方踢下线,它仍是这条会话的订阅者")
@@ -697,7 +840,7 @@ func TestConnRegistry_UnclaimedDaemonKeepsPushingOnlyToTheOriginatingPeer(t *tes
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7}))
+	require.NoError(t, out.Notify(eventNotification(7, 0)))
 	assert.Never(t, func() bool { return len(nOther.methods()) > 0 }, 200*time.Millisecond, 20*time.Millisecond,
 		"未认领 daemon 上另一台已配对设备不得看到别人会话的事件")
 }
@@ -722,8 +865,8 @@ func TestConnRegistry_FanoutDoesNotBroadcastTheMCPTunnel(t *testing.T) {
 func TestConnRegistry_SlowSubscriberBlocksNeitherTheSessionNorItsPeers(t *testing.T) {
 	r := claimedRegistry("acct-1")
 	desktop, nDesktop := registerAccountAuthed(r, "fp-desktop", "acct-1")
-	stuck := rpc.NewConn(nil, rpc.NewRegistry())
-	stuck.SetAuth(rpc.AuthState{Authenticated: true, DeviceFingerprint: "fp-stuck", AccountID: "acct-1"})
+	stuck := protorpc.NewConn(nil, protorpc.NewRegistry())
+	stuck.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "fp-stuck", AccountID: "acct-1"})
 	blocking := newBlockingNotifier()
 	r.add(stuck, blocking)
 	defer close(blocking.release)
@@ -738,7 +881,7 @@ func TestConnRegistry_SlowSubscriberBlocksNeitherTheSessionNorItsPeers(t *testin
 	done := make(chan error, 1)
 	go func() {
 		for i := 0; i < 512; i++ {
-			if err := out.Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7, Seq: int64(i + 1)}); err != nil {
+			if err := out.Notify(eventNotification(7, int64(i+1))); err != nil {
 				done <- err
 				return
 			}
@@ -779,14 +922,14 @@ func TestConnRegistry_LosingOneSubscriberLeavesTheRestReceiving(t *testing.T) {
 	require.NotNil(t, out)
 
 	r.remove(phone)
-	require.NoError(t, out.Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7, Seq: 1}))
+	require.NoError(t, out.Notify(eventNotification(7, 1)))
 	awaitMethods(t, nDesktop, []string{wire.NotifyEvent}, "掉线的是别人,会话自己的连接照收")
 	awaitMethods(t, nTablet, []string{wire.NotifyEvent}, "另一个订阅者照收")
 	assert.Empty(t, nPhone.methods(), "掉线的那条不再收到任何东西")
 
 	r.remove(desktop)
 	require.NotNil(t, r.routerFor("fp-desktop"), "还有订阅者在,会话不算挂起")
-	require.NoError(t, r.routerFor("fp-desktop").Notify(wire.NotifyEvent, &wire.EventFrame{SessionID: 7, Seq: 2}))
+	require.NoError(t, r.routerFor("fp-desktop").Notify(eventNotification(7, 2)))
 	awaitMethods(t, nTablet, []string{wire.NotifyEvent, wire.NotifyEvent}, "发起端掉线后剩下的订阅者继续收")
 
 	r.remove(tablet)
@@ -808,7 +951,7 @@ func TestDaemon_BindConnDoesNotMakeUnauthenticatedConnATarget(t *testing.T) {
 	// 野连接:完成升级,从不认证。用真 ws 连接以便它能真的关闭 —— bindConn 会挂一个
 	// 等 Done 的 goroutine,连接永不关闭的话它就永远退不出去(测试进程里的泄漏)。
 	stray := openWSConn(t)
-	d.bindConn(stray)
+	d.bindProtobufConn(stray)
 	t.Cleanup(func() { _ = stray.Close() })
 
 	router := d.notifierForPeer("fp-desktop")
@@ -822,24 +965,6 @@ func TestDaemon_BindConnDoesNotMakeUnauthenticatedConnATarget(t *testing.T) {
 // TestDaemon_AuthRejectsEmptyDeviceFingerprint 回归:rpc/auth.go 的 HandlePair 不拒绝空
 // deviceFingerprint,配对下来会在 PairedPeers 里留一条空键的对端,之后任何连接都能顶着
 // 空指纹 auth.connect 成功。daemon 在入参处挡掉。
-func TestDaemon_AuthRejectsEmptyDeviceFingerprint(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir()})
-	require.NoError(t, err)
-	t.Cleanup(func() { closeDB(d.db) })
-
-	code, err := d.pairing.Generate()
-	require.NoError(t, err)
-
-	_, err = d.registry.Dispatch(context.Background(), "auth.pair",
-		json.RawMessage(`{"code":"`+code+`","deviceName":"nameless","deviceFingerprint":""}`))
-	require.Error(t, err, "auth.pair must reject an empty deviceFingerprint")
-	assert.NotContains(t, d.state.Snapshot().PairedPeers, "", "空指纹绝不能被配对进 PairedPeers")
-
-	_, err = d.registry.Dispatch(context.Background(), "auth.connect",
-		json.RawMessage(`{"deviceFingerprint":"","deviceToken":"whatever"}`))
-	require.Error(t, err, "auth.connect must reject an empty deviceFingerprint")
-}
-
 // TestDaemon_GivenClaimedAndUnavailableRelay_WhenRunning_ThenLANKeepsServing
 // covers R14's degradation boundary: a relay failure must stay in the outbound
 // background loop rather than preventing the daemon's direct LAN server from starting.
@@ -968,48 +1093,33 @@ func TestDaemon_TwoConnectionsKeepTerminalHandlersIsolated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	clientA, err := client.Dial(ctx, client.Options{URL: lanURL})
+	clientA, err := client.DialProtobuf(ctx, client.Options{URL: lanURL})
 	require.NoError(t, err)
 	defer func() { _ = clientA.Close() }()
-	var pairResp rpc.PairResult
-	require.NoError(t, clientA.Call(ctx, "auth.pair", rpc.PairParams{
-		Code:              pairCode,
-		DeviceName:        "connection-a",
-		DeviceFingerprint: "sha256:shared-device",
-	}, &pairResp))
+	pairResp, err := clientA.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: pairCode, DeviceName: "connection-a", DeviceFingerprint: "sha256:shared-device"})
+	require.NoError(t, err)
 
-	clientB, err := client.Dial(ctx, client.Options{URL: lanURL})
+	clientB, err := client.DialProtobuf(ctx, client.Options{URL: lanURL})
 	require.NoError(t, err)
 	defer func() { _ = clientB.Close() }()
-	require.NoError(t, clientB.Call(ctx, "auth.connect", rpc.ConnectParams{
-		DeviceFingerprint:         "sha256:shared-device",
-		DeviceToken:               pairResp.DeviceToken,
-		ExpectedDaemonFingerprint: pairResp.DaemonFingerprint,
-	}, nil))
+	_, err = clientB.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: "sha256:shared-device", DeviceToken: pairResp.GetDeviceToken(), ExpectedDaemonFingerprint: pairResp.GetDaemonFingerprint()})
+	require.NoError(t, err)
 
-	require.NoError(t, clientA.Call(ctx, "health.ping", nil, nil))
-	require.NoError(t, clientB.Call(ctx, "health.ping", nil, nil))
+	require.NoError(t, protorpc.CallMessage(ctx, clientA.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING), &agentrewire.HealthPingRequest{}, &agentrewire.HealthPingResponse{}))
+	require.NoError(t, protorpc.CallMessage(ctx, clientB.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING), &agentrewire.HealthPingRequest{}, &agentrewire.HealthPingResponse{}))
 
 	// Filling A's bounded pending-close tombstones exercises A's
 	// TerminalHandlers without opening a real platform PTY. B must retain a
 	// fresh handler set even after A reaches its own capacity and disconnects.
 	var capacityErr error
 	for i := 0; i < 1024 && capacityErr == nil; i++ {
-		capacityErr = clientA.Call(ctx, "terminal.close", map[string]any{
-			"terminalId":        fmt.Sprintf("connection-a-%d", i),
-			"cancelPendingOpen": true,
-		}, nil)
+		capacityErr = protorpc.CallMessage(ctx, clientA.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE), &agentrewire.TerminalCloseRequest{TerminalId: fmt.Sprintf("connection-a-%d", i), CancelPendingOpen: true}, &agentrewire.Empty{})
 	}
 	require.Error(t, capacityErr)
 	require.Contains(t, capacityErr.Error(), "capacity")
 	require.NoError(t, clientA.Close())
-	require.NoError(t, clientB.Call(ctx, "terminal.close", map[string]any{
-		"terminalId":        "connection-b-after-a-close",
-		"cancelPendingOpen": true,
-	}, nil))
+	require.NoError(t, protorpc.CallMessage(ctx, clientB.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE), &agentrewire.TerminalCloseRequest{TerminalId: "connection-b-after-a-close", CancelPendingOpen: true}, &agentrewire.Empty{}))
 
-	_, err = d.registry.Dispatch(context.Background(), "terminal.close", nil)
-	require.ErrorIs(t, err, rpc.ErrMethodNotFound, "bindConn must not mutate the bootstrap registry")
 }
 
 func localIPCClient(dataDir string) *http.Client {
@@ -1206,7 +1316,7 @@ func seedJournal(t *testing.T, ctx context.Context, peer, sid string, n int, cre
 	for i := 1; i <= n; i++ {
 		row := &notification_repo.NotificationLog{
 			PeerFingerprint: peer, PeerSessionID: sid,
-			Method: wire.NotifyEvent, Payload: fmt.Sprintf(`{"seq":%d}`, i), CreatedAt: createdAt,
+			Method: wire.NotifyEvent, Payload: fmt.Sprintf(`{"seq":%d}`, i), Createtime: createdAt,
 		}
 		require.NoError(t, repo.Append(ctx, row))
 		require.Equal(t, int64(i), row.Seq)
@@ -1233,111 +1343,18 @@ func journalSeqs(t *testing.T, ctx context.Context, peer, sid string) []int64 {
 	return out
 }
 
-// TestDaemon_CollectJournal_NeverReclaimsARangeThatCouldStillBeCaughtUp 钉死留存策略
-// 的判据。回收只碰**整个留存窗口内一条新通知都没有**的会话,而且永远保留它的高水位那一行:
-//
-//   - 还在产出的会话一行都不动 —— 哪怕它最老的那批日志早过了窗口。那段老前缀正是一个
-//     久未上线的客户端重连后要补齐的区间(R5:补齐序列与不断连逐条相等)。
-//   - 非终态(running)的会话一行都不动:它随时可能被接管接着跑。
-//   - 库里没有会话行的日志一行都不动:身份不明时一律保守。
-func TestDaemon_CollectJournal_NeverReclaimsARangeThatCouldStillBeCaughtUp(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir(), JournalRetention: 24 * time.Hour})
-	require.NoError(t, err)
-	t.Cleanup(func() { closeDB(d.db) })
-	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-
-	old := time.Now().Add(-90 * 24 * time.Hour).UnixMilli()
-	fresh := time.Now().UnixMilli()
-
-	// 安静了整个窗口的空闲会话:可回收。
-	seedSession(t, ctx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
-	seedJournal(t, ctx, "peerA", "1", 5, old)
-	// 老前缀 + 刚刚还在产出:一行都不能动。
-	seedSession(t, ctx, d.sessionStore, "peerA", "2", wire.SessionLifecycleIdle)
-	seedJournal(t, ctx, "peerA", "2", 3, old)
-	require.NoError(t, notification_repo.NewNotification().Append(ctx, &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "2", Method: wire.NotifyEvent, Payload: "{}", CreatedAt: fresh,
-	}))
-	// 还在跑的会话:安静再久也不动。
-	seedSession(t, ctx, d.sessionStore, "peerA", "3", wire.SessionLifecycleRunning)
-	seedJournal(t, ctx, "peerA", "3", 4, old)
-	// 没有会话行的孤儿日志:不动。
-	seedJournal(t, ctx, "peerB", "9", 4, old)
-
-	collected, err := d.collectJournal(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, int64(4), collected, "只该回收那条安静会话高水位以下的 4 行")
-
-	assert.Equal(t, []int64{5}, journalSeqs(t, ctx, "peerA", "1"),
-		"安静会话只留高水位那一行")
-	assert.Equal(t, []int64{1, 2, 3, 4}, journalSeqs(t, ctx, "peerA", "2"),
-		"还在产出的会话,连它窗口之外的老前缀也必须原封不动 —— 那正是久未上线的客户端要补齐的区间")
-	assert.Equal(t, []int64{1, 2, 3, 4}, journalSeqs(t, ctx, "peerA", "3"),
-		"非终态会话随时可能被接管接着跑,一行都不回收")
-	assert.Equal(t, []int64{1, 2, 3, 4}, journalSeqs(t, ctx, "peerB", "9"),
-		"库里没有会话行时身份不明,保守起见不回收")
-}
-
-// TestDaemon_CollectJournal_KeepsTheSeqTimelineIntact 覆盖回收之后这条会话**接得回去**:
-// 高水位不退、下一条通知接着往上排、落在高水位前一格的客户端仍拉得到那一条。
-//
-// 少了这条约束,回收就是在制造 8496c291 修掉的那种静默冻结:MAX(seq) 被抹掉后 Append
-// 从 1 重新分配,而客户端游标还停在旧高水位上,此后每一条实时通知都被当成重复丢弃 ——
-// 没有跳号、没有错误,会话就是再也不出字。
-func TestDaemon_CollectJournal_KeepsTheSeqTimelineIntact(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir(), JournalRetention: 24 * time.Hour})
-	require.NoError(t, err)
-	t.Cleanup(func() { closeDB(d.db) })
-	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-	repo := notification_repo.NewNotification()
-
-	seedSession(t, ctx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
-	seedJournal(t, ctx, "peerA", "1", 5, time.Now().Add(-90*24*time.Hour).UnixMilli())
-
-	_, err = d.collectJournal(context.Background())
-	require.NoError(t, err)
-
-	latest, err := repo.LatestSeq(ctx, "peerA", "1")
-	require.NoError(t, err)
-	assert.Equal(t, int64(5), latest, "高水位不因回收而后退")
-
-	next := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "1", Method: wire.NotifyEvent, Payload: "{}",
-	}
-	require.NoError(t, repo.Append(ctx, next))
-	assert.Equal(t, int64(6), next.Seq, "回收之后 seq 接着往上排,绝不从 1 重来")
-
-	rows, _, err := repo.ListSince(ctx, "peerA", "1", 4, 10)
-	require.NoError(t, err)
-	require.Len(t, rows, 2, "落在高水位前一格的客户端仍能按游标拉平")
-	assert.Equal(t, int64(5), rows[0].Seq)
-	assert.Equal(t, int64(6), rows[1].Seq)
-}
-
-// TestDaemon_CollectJournal_RetentionCanBeTurnedOff 覆盖留存窗口的开关:规格把
-// 「永久保留」写成了默认承诺,负数窗口因此必须让回收整个不发生(一行都不删)。
-func TestDaemon_CollectJournal_RetentionCanBeTurnedOff(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir(), JournalRetention: -1})
-	require.NoError(t, err)
-	t.Cleanup(func() { closeDB(d.db) })
-	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-
-	seedSession(t, ctx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
-	seedJournal(t, ctx, "peerA", "1", 5, time.Now().Add(-90*24*time.Hour).UnixMilli())
-
-	collected, err := d.collectJournal(context.Background())
-	require.NoError(t, err)
-	assert.Zero(t, collected)
-	assert.Len(t, journalSeqs(t, ctx, "peerA", "1"), 5, "关掉留存窗口时一行都不回收")
-}
-
-// TestDaemon_RunCollectsTheJournal 钉死接线:回收必须由 daemon 自己跑起来,而不是等
-// 谁来调 —— 没有调用方的回收路径等于没有回收路径,日志照旧无限增长。
-func TestDaemon_RunCollectsTheJournal(t *testing.T) {
-	dir, err := os.MkdirTemp("", "agentred-collect")
+// TestDaemon_RunNeverReclaimsTheJournal 钉死规格决策 8(两端都永久保存):agentred 不再
+// 回收通知日志,Run 起来之后哪怕一条会话早就是终态、且安静了很久(90 天),它高水位以下的
+// 每一行也原样留着——不止行数不变,连每一个 seq 都必须还在,后续 Append 接着从高水位往上
+// 排。这正是 8496c291 那次静默冻结要防住的东西(TestDaemon_CollectJournal_KeepsTheSeq
+// TimelineIntact 曾经就地钉过的教训,回收整段删除后随之搬到这里):一旦谁悄悄删掉了旧
+// 前缀,MAX(seq) 归零后 Append 会从 1 重新分配,客户端游标停在旧高水位上,此后每条实时
+// 通知都被当成重复丢弃——没有跳号、没有错误,会话就是再也不出字。
+func TestDaemon_RunNeverReclaimsTheJournal(t *testing.T) {
+	dir, err := os.MkdirTemp("", "agentred-no-collect")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, JournalRetention: time.Hour})
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0})
 	require.NoError(t, err)
 	dbCtx := dbpkg.WithContextDB(context.Background(), d.db)
 	seedSession(t, dbCtx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
@@ -1347,9 +1364,18 @@ func TestDaemon_RunCollectsTheJournal(t *testing.T) {
 	defer cancel()
 	go func() { _ = d.Run(ctx) }()
 
-	require.Eventually(t, func() bool {
-		return len(journalSeqs(t, dbCtx, "peerA", "1")) == 1
-	}, 3*time.Second, 20*time.Millisecond, "daemon 跑起来之后必须自己回收掉安静会话的日志前缀")
+	assert.Never(t, func() bool {
+		return len(journalSeqs(t, dbCtx, "peerA", "1")) != 5
+	}, 300*time.Millisecond, 20*time.Millisecond,
+		"daemon 跑起来之后不该再回收任何通知日志,哪怕会话早已安静终态")
+	assert.Equal(t, []int64{1, 2, 3, 4, 5}, journalSeqs(t, dbCtx, "peerA", "1"),
+		"高水位以下的每一行原样留着,不止行数不变")
+
+	next := &notification_repo.NotificationLog{
+		PeerFingerprint: "peerA", PeerSessionID: "1", Method: wire.NotifyEvent, Payload: "{}",
+	}
+	require.NoError(t, notification_repo.NewNotification().Append(dbCtx, next))
+	assert.Equal(t, int64(6), next.Seq, "序列接着从高水位往上排,绝不会被重排回 1")
 }
 
 func TestDaemon_VerificationKeysGivenEmergencyRetirementWhenRefreshedThenDropsOldKey(t *testing.T) {
@@ -1748,7 +1774,7 @@ func TestDaemon_RefreshLoop_RefreshesBeforeExpiryAndRelayDialUsesFreshToken(t *t
 	// refreshed access token, not the one captured at construction.
 	relayCtx, relayCancel := context.WithCancel(context.Background())
 	defer relayCancel()
-	link := rpc.NewHubLink(rpc.HubLinkOptions{
+	link := relaytransport.NewHubLink(relaytransport.HubLinkOptions{
 		ServerURL:           server.URL,
 		AccessToken:         "access-1", // stale static fallback; the provider must win
 		AccessTokenProvider: func() string { return st.Snapshot().Credential.AccessToken },
@@ -2003,8 +2029,9 @@ func TestDaemon_ShutdownClosesRunningPiGenerationBeforeReturning(t *testing.T) {
 	params.ProviderSessionID = ack.ProviderSessionID
 	callCtx, cancelCall := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelCall()
-	var startAck wire.RunAck
-	require.NoError(t, conn.Call(callCtx, wire.MethodRun, params, &startAck))
+	runRequest, err := protowire.RunRequestToProto(params)
+	require.NoError(t, err)
+	require.NoError(t, protorpc.CallMessage(callCtx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), runRequest, &agentrewire.RuntimeRunResponse{}))
 
 	cancelDaemon()
 	select {
@@ -2045,12 +2072,7 @@ func startTaskDaemon(t *testing.T) (*Daemon, func()) {
 	}
 }
 
-type daemonPairResult struct {
-	DeviceToken       string `json:"deviceToken"`
-	DaemonFingerprint string `json:"daemonFingerprint"`
-}
-
-func pairDaemonClient(t *testing.T, d *Daemon, fingerprint string) (*client.Client, daemonPairResult) {
+func pairDaemonClient(t *testing.T, d *Daemon, fingerprint string) (*client.ProtobufClient, *agentrewire.AuthPairResponse) {
 	t.Helper()
 	pairBody := readLocalPair(t, d)
 	code, _ := pairBody["code"].(string)
@@ -2059,32 +2081,26 @@ func pairDaemonClient(t *testing.T, d *Daemon, fingerprint string) (*client.Clie
 	url := d.lan.URL()
 	d.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := client.Dial(ctx, client.Options{URL: url})
+	t.Cleanup(cancel)
+	conn, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
-	var result daemonPairResult
-	require.NoError(t, conn.Call(ctx, "auth.pair", rpc.PairParams{
-		Code: code, DeviceName: "test-desktop", DeviceFingerprint: fingerprint,
-	}, &result))
-	require.NotEmpty(t, result.DeviceToken)
+	result, err := conn.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "test-desktop", DeviceFingerprint: fingerprint})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.GetDeviceToken())
 	return conn, result
 }
 
-func connectDaemonClient(t *testing.T, d *Daemon, fingerprint string, pair daemonPairResult) *client.Client {
+func connectDaemonClient(t *testing.T, d *Daemon, fingerprint string, pair *agentrewire.AuthPairResponse) *client.ProtobufClient {
 	t.Helper()
 	d.mu.RLock()
 	url := d.lan.URL()
 	d.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := client.Dial(ctx, client.Options{URL: url})
+	t.Cleanup(cancel)
+	conn, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
-	var result rpc.ConnectResult
-	require.NoError(t, conn.Call(ctx, "auth.connect", rpc.ConnectParams{
-		DeviceFingerprint:         fingerprint,
-		DeviceToken:               pair.DeviceToken,
-		ExpectedDaemonFingerprint: pair.DaemonFingerprint,
-	}, &result))
+	_, err = conn.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: fingerprint, DeviceToken: pair.GetDeviceToken(), ExpectedDaemonFingerprint: pair.GetDaemonFingerprint()})
+	require.NoError(t, err)
 	return conn
 }
 
@@ -2099,14 +2115,17 @@ func daemonPiRunParams(t *testing.T, sessionID int64, generation string) wire.Ru
 	}
 }
 
-func prepareDaemonPi(t *testing.T, conn *client.Client, params wire.RunParams) wire.RunAck {
+func prepareDaemonPi(t *testing.T, conn *client.ProtobufClient, params wire.RunParams) wire.RunAck {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	var registration wire.RunAck
-	require.NoError(t, conn.Call(ctx, wire.MethodRun, params, &registration))
-	var prepared wire.RunAck
-	require.NoError(t, conn.Call(ctx, wire.MethodRun, params, &prepared))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	request, err := protowire.RunRequestToProto(params)
+	require.NoError(t, err)
+	registration := &agentrewire.RuntimeRunResponse{}
+	require.NoError(t, protorpc.CallMessage(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, registration))
+	preparedPB := &agentrewire.RuntimeRunResponse{}
+	require.NoError(t, protorpc.CallMessage(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, preparedPB))
+	prepared := wire.RunAck{SessionID: preparedPB.GetSessionId(), ProviderSessionID: preparedPB.GetProviderSessionId()}
 	require.NotEmpty(t, prepared.ProviderSessionID)
 	return prepared
 }
@@ -2140,4 +2159,186 @@ func TestDaemon_GivenUnclaimedAtStartup_WhenLoginLandsOnDisk_ThenTheRelayLinkPic
 	assert.Equal(t, "https://server.example", d.relayServerURL(),
 		"下一次 dial 重新解析时就该看到这次登录")
 	assert.Equal(t, "at-1", d.currentAccessToken(), "凭据也一并被采纳，dial 才带得上 Bearer")
+}
+
+func TestDaemon_GivenUnclaimedDaemon_WhenEngineRPCIsAuthenticated_ThenRejectsIt(t *testing.T) {
+	d := startEngineDaemon(t, Options{DataDir: engineDataDir(t), LANHost: "127.0.0.1", LANPort: 0})
+	conn, _ := pairDaemonClient(t, d, "sha256:engine-unclaimed")
+	t.Cleanup(func() { _ = conn.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	calls := []struct {
+		name      string
+		id        uint32
+		req, resp proto.Message
+	}{
+		{"engine.test", uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_TEST), &agentrewire.EngineTestRequest{ProviderKey: "provider-key"}, &agentrewire.EngineTestResponse{}},
+		{"engine.discover", uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_DISCOVER), &agentrewire.EngineDiscoverRequest{ProviderKey: "provider-key"}, &agentrewire.EngineDiscoverResponse{}},
+		{"engine.scan", uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_SCAN), &agentrewire.EngineScanRequest{}, &agentrewire.EngineScanResponse{}},
+	}
+	for _, call := range calls {
+		err := protorpc.CallMessage(ctx, conn.Conn(), call.id, call.req, call.resp)
+		require.Error(t, err, "%s must reject an unclaimed daemon", call.name)
+		var rpcErr *protorpc.Error
+		require.ErrorAs(t, err, &rpcErr)
+		assert.Equal(t, int32(rpcerror.ErrUnauthorized.Code), rpcErr.Code, "%s must reject because it is unclaimed", call.name)
+	}
+}
+
+func TestDaemon_GivenClaimedDaemon_WhenEngineRPCsAreCalled_ThenTheyUseLocalStateAndKeepSecretsPrivate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			assert.Equal(t, "Bearer daemon-engine-secret", r.Header.Get("Authorization"))
+			_, err := w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+			require.NoError(t, err)
+		case "/models":
+			assert.Equal(t, "Bearer daemon-engine-secret", r.Header.Get("Authorization"))
+			_, err := w.Write([]byte(`{"data":[{"id":"gpt-daemon","name":"Daemon GPT"}]}`))
+			require.NoError(t, err)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	dir := engineDataDir(t)
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Claim("account-42", "cached-public-key", state.AccountCredential{AccessToken: "device-access-token"})
+	st.Mutate(func(s *state.State) {
+		s.LLMProviders["provider-key"] = state.LLMProviderMeta{
+			Type: "openai-chat", BaseURL: server.URL, APIKey: "daemon-engine-secret",
+			DefaultModelKey: "model-key",
+			Models:          []state.LLMModelMeta{{ModelKey: "model-key", ModelID: "gpt-daemon", Enabled: true}},
+		}
+	})
+	require.NoError(t, st.Save())
+
+	d := startEngineDaemon(t, Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0})
+
+	conn, _ := pairDaemonClient(t, d, "sha256:engine-claimed")
+	t.Cleanup(func() { _ = conn.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	testResult, err := protorpc.CallMethod(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_TEST), &agentrewire.EngineTestRequest{ProviderKey: "provider-key"}, func() *agentrewire.EngineTestResponse { return &agentrewire.EngineTestResponse{} })
+	require.NoError(t, err)
+	assert.True(t, testResult.GetOk())
+	assert.NotContains(t, mustJSON(t, testResult), "daemon-engine-secret")
+	assert.NotContains(t, mustJSON(t, testResult), "provider-key")
+
+	discovered, err := protorpc.CallMethod(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_DISCOVER), &agentrewire.EngineDiscoverRequest{ProviderKey: "provider-key"}, func() *agentrewire.EngineDiscoverResponse { return &agentrewire.EngineDiscoverResponse{} })
+	require.NoError(t, err)
+	require.Len(t, discovered.GetModels(), 1)
+	assert.Equal(t, "gpt-daemon", discovered.GetModels()[0].GetModelId())
+	assert.Equal(t, "Daemon GPT", discovered.GetModels()[0].GetName())
+	assert.NotContains(t, mustJSON(t, discovered), "daemon-engine-secret")
+	assert.NotContains(t, mustJSON(t, discovered), "provider-key")
+
+	scanned, err := protorpc.CallMethod(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_SCAN), &agentrewire.EngineScanRequest{}, func() *agentrewire.EngineScanResponse { return &agentrewire.EngineScanResponse{} })
+	require.NoError(t, err)
+	assert.Len(t, scanned.GetItems(), 3)
+	assert.NotContains(t, mustJSON(t, scanned), "path")
+	assert.NotContains(t, mustJSON(t, scanned), "/")
+}
+
+func engineDataDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ard-engine-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func startEngineDaemon(t *testing.T, opts Options) *Daemon {
+	t.Helper()
+	d, err := New(opts)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	runErr := make(chan error, 1)
+	go func() { runErr <- d.Run(ctx) }()
+	require.Eventually(t, func() bool {
+		select {
+		case err := <-runErr:
+			t.Fatalf("daemon failed before listening: %v", err)
+		default:
+		}
+		d.mu.RLock()
+		defer d.mu.RUnlock()
+		return d.lan != nil && d.lan.Addr() != ""
+	}, 2*time.Second, 10*time.Millisecond)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-runErr:
+			require.NoError(t, err)
+		case <-time.After(3 * time.Second):
+			t.Error("daemon did not stop")
+		}
+	})
+	return d
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	body, err := json.Marshal(value)
+	require.NoError(t, err)
+	return string(body)
+}
+
+// pooledSession 是一个假的常驻 CLI 会话:只记录自己有没有被关掉。
+type pooledSession struct {
+	once   sync.Once
+	closed chan struct{}
+}
+
+func newPooledSession() *pooledSession {
+	return &pooledSession{closed: make(chan struct{})}
+}
+
+func (p *pooledSession) Close(context.Context) error {
+	p.once.Do(func() { close(p.closed) })
+	return nil
+}
+
+// Given 这台 daemon 上还留着跨轮常驻的 claude / codex 子进程会话, When daemon 关机,
+// Then 它们必须被收掉。
+//
+// 从前关机只收 Pi generation(closeRuntimeConnections),CLISessionPool 里的 claude /
+// codex 子进程一个都不释放。它们自带进程组,不会被 daemon 退出时的 SIGHUP 连坐 ——
+// 于是每重启一次 agentred 就在机器上多留一批孤儿 CLI,还各自握着 MCP server 与网关 token。
+func TestDaemon_GivenPooledCLISessions_WhenShuttingDown_ThenTheyAreReleased(t *testing.T) {
+	dir := t.TempDir()
+	d, err := New(Options{DataDir: dir})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	session := newPooledSession()
+	agentruntime.DefaultCLISessionPool().Put("daemon-shutdown-test", session)
+	t.Cleanup(func() { agentruntime.DefaultCLISessionPool().Remove("daemon-shutdown-test") })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	d.shutdown(ctx)
+
+	select {
+	case <-session.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("关机没有释放常驻 CLI 子进程会话:daemon 退出后它们会变成孤儿")
+	}
+}
+
+// Given daemon 装配中继链路,When 读取它配下去的帧上限,Then 与直连那条 WebSocket
+// 同值。
+//
+// 两条路收的都是别的设备发来的字节。直连那条早就有界(protorpc/transport.go 的
+// SetReadLimit),中继这条一直没有 —— 对面说多大就分配多大。这条用例钉住的是
+// 「同一个数」:relaytransport 不 import protorpc(传输层不该反向依赖 RPC 层),
+// 所以同源只能在这个装配点上守。
+func TestDaemon_RelayLinkSharesTheDirectFrameBound(t *testing.T) {
+	require.Equal(t, protorpc.MaxFrameBytes, relayLinkOptions().MaxFrameBytes,
+		"中继与直连必须共用同一个帧上限")
+	require.Positive(t, relayLinkOptions().MaxFrameBytes)
 }

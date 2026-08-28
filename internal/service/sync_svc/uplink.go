@@ -3,16 +3,15 @@ package sync_svc
 import (
 	"context"
 	"errors"
-	"strconv"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // pending 是折叠后的一条待上行改动：同一行在队列里的多次改动只推最后一次，
@@ -29,7 +28,7 @@ type pending struct {
 //
 // 队列按入队顺序上行，一个批次一次请求——server 按顺序逐条处理，父行先落地、
 // 子行后落地的次序因此在对端也成立。
-func (s *service) flush(ctx context.Context, accountID, deviceID int64) error {
+func (s *service) flush(ctx context.Context, accountID int64, originFingerprint string) error {
 	rows, err := syncqueue_repo.OutboundQueue().ListByAccount(ctx, accountID)
 	if err != nil {
 		return err
@@ -44,7 +43,7 @@ func (s *service) flush(ctx context.Context, accountID, deviceID int64) error {
 		if end > len(items) {
 			end = len(items)
 		}
-		if err := s.pushBatch(ctx, accountID, deviceID, items[start:end], true); err != nil {
+		if err := s.pushBatch(ctx, accountID, originFingerprint, items[start:end], true); err != nil {
 			return err
 		}
 	}
@@ -76,7 +75,7 @@ func collapseQueue(rows []*syncqueue_entity.OutboundQueueItem) []*pending {
 // pushBatch 推一批并落实应答。allowResync 为 true 时，遇上「超窗口」先做一次全量
 // 重同步再重试（R6a）；重试那一次不再允许递归重同步。
 func (s *service) pushBatch(
-	ctx context.Context, accountID, deviceID int64, batch []*pending, allowResync bool,
+	ctx context.Context, accountID int64, originFingerprint string, batch []*pending, allowResync bool,
 ) error {
 	items := make([]syncwire.PushItem, 0, len(batch))
 	kept := make([]*pending, 0, len(batch))
@@ -118,7 +117,7 @@ func (s *service) pushBatch(
 			if len(survivors) == 0 {
 				return nil
 			}
-			return s.pushBatch(ctx, accountID, deviceID, survivors, false)
+			return s.pushBatch(ctx, accountID, originFingerprint, survivors, false)
 		}
 		return err
 	}
@@ -132,7 +131,7 @@ func (s *service) pushBatch(
 		if !ok {
 			continue
 		}
-		if err := s.applyPushResult(ctx, accountID, deviceID, p, items[i], res); err != nil {
+		if err := s.applyPushResult(ctx, accountID, originFingerprint, p, items[i], res); err != nil {
 			return err
 		}
 		if err := s.dropQueueRows(ctx, p.queueIDs); err != nil {
@@ -152,7 +151,7 @@ func (s *service) buildPushItem(ctx context.Context, p *pending) (*syncwire.Push
 		// 墓碑不带正文：本地行可能已经软删，读不回来也不需要。
 		return &syncwire.PushItem{
 			Kind: p.kind, SyncID: p.syncID, BaseVersion: p.baseVersion,
-			UpdatedAt: s.now(), Deleted: true,
+			UpdatedAt: s.now(), DeletedAt: s.now(),
 		}, true, nil
 	}
 	out, err := ad.load(ctx, p.syncID)
@@ -163,7 +162,7 @@ func (s *service) buildPushItem(ctx context.Context, p *pending) (*syncwire.Push
 		return nil, false, nil
 	}
 	// 上行前的守卫：载荷里绝不出现本地自增 ID 或 provider 正文（R2、决策 6）。
-	if err := syncwire.GuardPayload(out.Payload); err != nil {
+	if err := syncwire.GuardPayload(p.kind, out.Payload); err != nil {
 		logger.Ctx(ctx).Error("sync_svc.buildPushItem: payload rejected by guard",
 			zap.String("kind", p.kind), zap.String("syncId", p.syncID), zap.Error(err))
 		return nil, false, nil
@@ -192,11 +191,10 @@ func (s *service) buildPushItem(ctx context.Context, p *pending) (*syncwire.Push
 //     落墓碑，内容留进 R5 的列表，界面据此给「按这份内容新建」的出路（R5a）。
 //   - 路径记录被自然键合并掉时（R4b），落败的那一份同样进列表。
 func (s *service) applyPushResult(
-	ctx context.Context, accountID, deviceID int64,
+	ctx context.Context, accountID int64, originFingerprint string,
 	p *pending, item syncwire.PushItem, res syncwire.PushResult,
 ) error {
 	now := s.now()
-	origin := strconv.FormatInt(deviceID, 10)
 
 	if res.Status == syncwire.PushStatusRejected {
 		if res.Reason == syncwire.PushRejectReasonDeleted {
@@ -221,11 +219,11 @@ func (s *service) applyPushResult(
 	}
 
 	meta := syncmeta_entity.SyncMeta{
-		SyncID:        p.syncID,
-		SyncAccountID: accountID,
-		SyncVersion:   res.Version,
-		SyncUpdatedAt: item.UpdatedAt,
-		SyncOrigin:    origin,
+		SyncID:                p.syncID,
+		SyncAccountID:         accountID,
+		SyncVersion:           res.Version,
+		SyncUpdatedAt:         item.UpdatedAt,
+		SyncOriginFingerprint: originFingerprint,
 	}
 	if p.op == OpDelete {
 		meta.SyncDeletedAt = now
@@ -246,8 +244,9 @@ func (s *service) applyPushResult(
 			PayloadJSON:         string(res.OverwrittenPayload),
 			ProjectSyncID:       item.ProjectSyncID,
 			AgentredFingerprint: item.AgentredFingerprint,
-			OriginDevice:        strconv.FormatInt(res.OverwrittenDeviceID, 10),
-			OccurredAt:          now,
+			// 空串 = 服务端直写（浏览器改的组织架构），不是「不知道被谁」，见 originDeviceOf。
+			OriginDevice: originDeviceOf(res.OverwrittenOriginFingerprint),
+			OccurredAt:   now,
 		}); err != nil {
 			return err
 		}
@@ -348,12 +347,7 @@ func (s *service) resync(ctx context.Context, accountID int64) error {
 }
 
 func (s *service) dropQueueRows(ctx context.Context, ids []int64) error {
-	for _, id := range ids {
-		if err := syncqueue_repo.OutboundQueue().Delete(ctx, id); err != nil {
-			return err
-		}
-	}
-	return nil
+	return syncqueue_repo.OutboundQueue().DeleteMany(ctx, ids)
 }
 
 func (s *service) recordLostChange(ctx context.Context, accountID int64, row *syncqueue_entity.LostChange) error {

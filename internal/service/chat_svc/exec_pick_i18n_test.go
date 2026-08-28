@@ -8,13 +8,12 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // 本文件锁住 R15 的一条：全部不可用时逐档给出的说明是**用户可见文案**，必须走
@@ -34,9 +33,9 @@ func pickAllUnavailable(t *testing.T, lang string) (*chat_svc.ExecTargetNoneAvai
 		{ID: 2, AgentID: 70, AgentBackendID: 702, SortOrder: 1},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(701)).Return(&agent_backend_entity.AgentBackend{
-		ID: 701, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "77",
+		ID: 701, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: pickTestFingerprint(77),
 	}, nil)
-	m.remoteDevice.EXPECT().Get(ctx, int64(77)).Return(nil, gorm.ErrRecordNotFound)
+	m.pairedDevices()
 	m.backend.EXPECT().Find(ctx, int64(702)).Return(&agent_backend_entity.AgentBackend{
 		ID: 702, Type: string(agent_backend_entity.TypeClaudeCode),
 	}, nil)
@@ -70,10 +69,10 @@ func TestPickExecTarget_GivenAllUnavailable_ThenHintsComeFromTheCodeTable(t *tes
 
 	// Wails 边界只过 Error() 字符串：表头、机器名与行格式同样得跟着语言走。
 	assert.Contains(t, enText, i18n.T(enCtx, code.ChatAgentNoAvailableExecTarget))
-	assert.Contains(t, enText, i18n.T(enCtx, code.ChatExecTargetDeviceRemote, "77"))
+	assert.Contains(t, enText, i18n.T(enCtx, code.ChatExecTargetDeviceRemote, pickTestFingerprint(77)))
 	assert.Contains(t, enText, i18n.T(enCtx, code.ChatExecTargetDeviceLocal))
 	assert.Contains(t, enText, i18n.T(enCtx, code.ChatExecTargetLineFormat,
-		1, int64(701), i18n.T(enCtx, code.ChatExecTargetDeviceRemote, "77"), enErr.Reasons[0].Hint))
+		1, int64(701), i18n.T(enCtx, code.ChatExecTargetDeviceRemote, pickTestFingerprint(77)), enErr.Reasons[0].Hint))
 	assert.Contains(t, zhText, i18n.T(zhCtx, code.ChatExecTargetDeviceLocal))
 	assert.NotContains(t, enText, i18n.T(zhCtx, code.ChatExecTargetDeviceLocal))
 }

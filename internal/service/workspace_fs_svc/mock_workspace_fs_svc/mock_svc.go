@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	workspace_fs_svc "github.com/agentre-ai/agentre/internal/service/workspace_fs_svc"
+	workspace_fs_svc "github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -57,76 +57,106 @@ func (mr *MockWorkspaceFsSvcMockRecorder) GitBranches(ctx, sessionID any) *gomoc
 }
 
 // GitChanges mocks base method.
-func (m *MockWorkspaceFsSvc) GitChanges(ctx context.Context, sessionID int64, scope, baseRef string) (*workspace_fs_svc.GitChangesView, error) {
+func (m *MockWorkspaceFsSvc) GitChanges(ctx context.Context, sessionID int64, root, scope, baseRef string) (*workspace_fs_svc.GitChangesView, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GitChanges", ctx, sessionID, scope, baseRef)
+	ret := m.ctrl.Call(m, "GitChanges", ctx, sessionID, root, scope, baseRef)
 	ret0, _ := ret[0].(*workspace_fs_svc.GitChangesView)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GitChanges indicates an expected call of GitChanges.
-func (mr *MockWorkspaceFsSvcMockRecorder) GitChanges(ctx, sessionID, scope, baseRef any) *gomock.Call {
+func (mr *MockWorkspaceFsSvcMockRecorder) GitChanges(ctx, sessionID, root, scope, baseRef any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GitChanges", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).GitChanges), ctx, sessionID, scope, baseRef)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GitChanges", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).GitChanges), ctx, sessionID, root, scope, baseRef)
 }
 
 // GitFileContent mocks base method.
-func (m *MockWorkspaceFsSvc) GitFileContent(ctx context.Context, sessionID int64, relPath string) (*workspace_fs_svc.GitFileContentView, error) {
+func (m *MockWorkspaceFsSvc) GitFileContent(ctx context.Context, sessionID int64, root, relPath string) (*workspace_fs_svc.GitFileContentView, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GitFileContent", ctx, sessionID, relPath)
+	ret := m.ctrl.Call(m, "GitFileContent", ctx, sessionID, root, relPath)
 	ret0, _ := ret[0].(*workspace_fs_svc.GitFileContentView)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GitFileContent indicates an expected call of GitFileContent.
-func (mr *MockWorkspaceFsSvcMockRecorder) GitFileContent(ctx, sessionID, relPath any) *gomock.Call {
+func (mr *MockWorkspaceFsSvcMockRecorder) GitFileContent(ctx, sessionID, root, relPath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GitFileContent", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).GitFileContent), ctx, sessionID, relPath)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GitFileContent", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).GitFileContent), ctx, sessionID, root, relPath)
+}
+
+// GitState mocks base method.
+func (m *MockWorkspaceFsSvc) GitState(ctx context.Context, sessionID int64, root string) (*workspace_fs_svc.GitStateView, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GitState", ctx, sessionID, root)
+	ret0, _ := ret[0].(*workspace_fs_svc.GitStateView)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GitState indicates an expected call of GitState.
+func (mr *MockWorkspaceFsSvcMockRecorder) GitState(ctx, sessionID, root any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GitState", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).GitState), ctx, sessionID, root)
 }
 
 // ListDir mocks base method.
-func (m *MockWorkspaceFsSvc) ListDir(ctx context.Context, sessionID int64, relPath string, includeIgnored bool) (*workspace_fs_svc.ListDirView, error) {
+func (m *MockWorkspaceFsSvc) ListDir(ctx context.Context, sessionID int64, root, relPath string, includeIgnored bool) (*workspace_fs_svc.ListDirView, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDir", ctx, sessionID, relPath, includeIgnored)
+	ret := m.ctrl.Call(m, "ListDir", ctx, sessionID, root, relPath, includeIgnored)
 	ret0, _ := ret[0].(*workspace_fs_svc.ListDirView)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListDir indicates an expected call of ListDir.
-func (mr *MockWorkspaceFsSvcMockRecorder) ListDir(ctx, sessionID, relPath, includeIgnored any) *gomock.Call {
+func (mr *MockWorkspaceFsSvcMockRecorder) ListDir(ctx, sessionID, root, relPath, includeIgnored any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDir", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).ListDir), ctx, sessionID, relPath, includeIgnored)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDir", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).ListDir), ctx, sessionID, root, relPath, includeIgnored)
 }
 
 // ReadFile mocks base method.
-func (m *MockWorkspaceFsSvc) ReadFile(ctx context.Context, sessionID int64, relPath string) (*workspace_fs_svc.ReadFileView, error) {
+func (m *MockWorkspaceFsSvc) ReadFile(ctx context.Context, sessionID int64, root, relPath string) (*workspace_fs_svc.ReadFileView, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReadFile", ctx, sessionID, relPath)
+	ret := m.ctrl.Call(m, "ReadFile", ctx, sessionID, root, relPath)
 	ret0, _ := ret[0].(*workspace_fs_svc.ReadFileView)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ReadFile indicates an expected call of ReadFile.
-func (mr *MockWorkspaceFsSvcMockRecorder) ReadFile(ctx, sessionID, relPath any) *gomock.Call {
+func (mr *MockWorkspaceFsSvcMockRecorder) ReadFile(ctx, sessionID, root, relPath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).ReadFile), ctx, sessionID, relPath)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).ReadFile), ctx, sessionID, root, relPath)
 }
 
 // SearchFiles mocks base method.
-func (m *MockWorkspaceFsSvc) SearchFiles(ctx context.Context, sessionID int64, query string, includeIgnored bool) (*workspace_fs_svc.SearchFilesView, error) {
+func (m *MockWorkspaceFsSvc) SearchFiles(ctx context.Context, sessionID int64, root, query string, includeIgnored bool) (*workspace_fs_svc.SearchFilesView, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SearchFiles", ctx, sessionID, query, includeIgnored)
+	ret := m.ctrl.Call(m, "SearchFiles", ctx, sessionID, root, query, includeIgnored)
 	ret0, _ := ret[0].(*workspace_fs_svc.SearchFilesView)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // SearchFiles indicates an expected call of SearchFiles.
-func (mr *MockWorkspaceFsSvcMockRecorder) SearchFiles(ctx, sessionID, query, includeIgnored any) *gomock.Call {
+func (mr *MockWorkspaceFsSvcMockRecorder) SearchFiles(ctx, sessionID, root, query, includeIgnored any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchFiles", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).SearchFiles), ctx, sessionID, query, includeIgnored)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchFiles", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).SearchFiles), ctx, sessionID, root, query, includeIgnored)
+}
+
+// WorkRoots mocks base method.
+func (m *MockWorkspaceFsSvc) WorkRoots(ctx context.Context, sessionID int64) ([]workspace_fs_svc.WorkRootView, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WorkRoots", ctx, sessionID)
+	ret0, _ := ret[0].([]workspace_fs_svc.WorkRootView)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// WorkRoots indicates an expected call of WorkRoots.
+func (mr *MockWorkspaceFsSvcMockRecorder) WorkRoots(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WorkRoots", reflect.TypeOf((*MockWorkspaceFsSvc)(nil).WorkRoots), ctx, sessionID)
 }

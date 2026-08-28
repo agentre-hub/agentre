@@ -11,36 +11,44 @@ vi.mock("sonner", () => sonnerMocks);
 
 const listDirMock = vi.fn();
 vi.mock("@/../wailsjs/go/app/App", () => ({
+  // 多工作根：本组用例都是单根会话，认领集合恒为空 → 根切换器不渲染，
+  // 分支状态条整条收起，chrome 与本轮之前一致。
+  WorkspaceFsWorkRoots: () => Promise.resolve([]),
+  WorkspaceFsGitState: () =>
+    Promise.resolve({
+      branch: "",
+      worktree: "",
+      dirty: 0,
+      ahead: 0,
+      behind: 0,
+      hasUpstream: false,
+      notARepo: true,
+      commonDir: "",
+    }),
   OpenPath: vi.fn(),
   RevealPath: vi.fn(),
   WorkspaceFsSearchFiles: vi.fn(),
-  WorkspaceFsListDir: (sessionId: number, relPath: string, ignored: boolean) =>
-    listDirMock(sessionId, relPath, ignored),
+  WorkspaceFsListDir: (
+    sessionId: number,
+    _root: string,
+    relPath: string,
+    ignored: boolean,
+  ) => listDirMock(sessionId, relPath, ignored),
 }));
 
 import {
   selectActivePreviewTab,
-  useChatSidebarStore,
-} from "@/stores/chat-sidebar-store";
+  useFilePreviewTabsStore,
+} from "@/stores/file-preview-tabs-store";
 
 import { DirectorySearchPanel } from "../views/directory-search-panel";
 import { DirectoryView } from "../views/directory-view";
-import { FilesView } from "../views/files-view";
 import { GitView } from "../views/git-view";
 
-import type { FileEntry } from "../derive";
 import type { DirectorySearch } from "../views/use-directory-search";
 import type { GitChangesState } from "../views/use-git-changes";
 
 const CWD = "/Users/me/proj";
-
-// 「变动」模式的可见行序：internal/service（链压缩成一行）→ chat.go → turn.go
-// → README.md。层级 1 / 2 / 2 / 1。
-const files: FileEntry[] = [
-  { path: "internal/service/chat.go", plus: 5, minus: 2, lastTurn: 3 },
-  { path: "internal/service/turn.go", plus: 1, minus: 0, lastTurn: 3 },
-  { path: "README.md", plus: 0, minus: 0, lastTurn: 1 },
-];
 
 function setupUser() {
   return userEvent.setup({ pointerEventsCheck: 0 });
@@ -54,16 +62,42 @@ function listing(entries: ReturnType<typeof entry>[]) {
   return { path: CWD, entries, truncated: false };
 }
 
-function renderChanges() {
+function renderDirectory() {
   return render(
-    <FilesView
+    <DirectoryView
       sessionId={1}
-      files={files}
       cwd={CWD}
+      root=""
       remote={false}
-      onJumpToTurn={() => {}}
+      showIgnored={false}
     />,
   );
+}
+
+/**
+ * 树形键盘模型的取样对象是「目录」页（本轮之后它是侧栏里唯一的树）：一个目录
+ * 行 service（含两个文件）+ 一个根级文件 README.md，展开后可见行序
+ * service → chat.go → turn.go → README.md，层级 1 / 2 / 2 / 1。
+ */
+async function renderExpandedTree(
+  user: ReturnType<typeof setupUser>,
+): Promise<void> {
+  listDirMock.mockImplementation((_id: number, relPath: string) =>
+    Promise.resolve(
+      relPath === ""
+        ? listing([entry("service", true), entry("README.md")])
+        : listing([entry("chat.go"), entry("turn.go")]),
+    ),
+  );
+  renderDirectory();
+  await screen.findByText("service");
+  await user.click(
+    within(treeRows()[0]).getByRole("button", { name: /^Expand/ }),
+  );
+  await screen.findByText("chat.go");
+  // 展开是用鼠标点出来的，焦点因此停在那颗行内按钮上；键盘模型的用例都从
+  // 「焦点在列表之外」起步，这里把它交还给 body。
+  (document.activeElement as HTMLElement | null)?.blur();
 }
 
 function treeRows(): HTMLElement[] {
@@ -79,16 +113,16 @@ beforeEach(() => {
   listDirMock.mockReset();
   listDirMock.mockResolvedValue(listing([]));
   sonnerMocks.toast.success.mockReset();
-  useChatSidebarStore.setState({ previewTabsBySession: {} });
+  useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
 });
 
 describe("文件树的键盘模型", () => {
   it("整个列表是一个 Tab 停靠点，行是带 aria-level / aria-expanded 的 treeitem", async () => {
     const user = setupUser();
-    renderChanges();
+    await renderExpandedTree(user);
 
     const tree = screen.getByRole("tree", {
-      name: "Files changed in this session",
+      name: "Working directory files",
     });
     const items = within(tree).getAllByRole("treeitem");
     expect(namesOf(items)).toEqual([
@@ -124,7 +158,7 @@ describe("文件树的键盘模型", () => {
 
   it("↑ / ↓ 沿可见行序移动，Home / End 跳到首 / 末行", async () => {
     const user = setupUser();
-    renderChanges();
+    await renderExpandedTree(user);
 
     await user.tab();
     await user.keyboard("{ArrowDown}");
@@ -148,7 +182,7 @@ describe("文件树的键盘模型", () => {
 
   it("收起的子树不在可见行序里：↓ 从目录行直接到下一个同级行", async () => {
     const user = setupUser();
-    renderChanges();
+    await renderExpandedTree(user);
 
     await user.click(
       within(treeRows()[0]).getByRole("button", { name: /^Collapse/ }),
@@ -162,7 +196,7 @@ describe("文件树的键盘模型", () => {
 
   it("→ 展开目录行、已展开则移入首个子项；← 收起、已收起则移到父行", async () => {
     const user = setupUser();
-    renderChanges();
+    await renderExpandedTree(user);
 
     await user.tab();
     await user.keyboard("{ArrowLeft}");
@@ -185,7 +219,7 @@ describe("文件树的键盘模型", () => {
     expect(treeRows()[0]).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("目录模式：→ 触发这一层的懒加载，子项异步到达后焦点仍在目录行", async () => {
+  it("→ 触发这一层的懒加载，子项异步到达后焦点仍在目录行", async () => {
     let resolveChild: (value: unknown) => void = () => {};
     listDirMock.mockImplementation((_id: number, relPath: string) =>
       relPath === ""
@@ -199,6 +233,7 @@ describe("文件树的键盘模型", () => {
       <DirectoryView
         sessionId={1}
         cwd={CWD}
+        root=""
         remote={false}
         showIgnored={false}
       />,
@@ -227,7 +262,7 @@ describe("文件树的键盘模型", () => {
     expect(treeRows()[1]).toHaveAttribute("data-name", "app.go");
   });
 
-  it("目录模式：链压缩让链尾变深时，roving 落点仍留在这一行", async () => {
+  it("链压缩让链尾变深时，roving 落点仍留在这一行", async () => {
     listDirMock.mockImplementation((_id: number, relPath: string) => {
       if (relPath === "") {
         return Promise.resolve(
@@ -245,6 +280,7 @@ describe("文件树的键盘模型", () => {
       <DirectoryView
         sessionId={1}
         cwd={CWD}
+        root=""
         remote={false}
         showIgnored={false}
       />,
@@ -264,7 +300,7 @@ describe("文件树的键盘模型", () => {
 
   it("Enter 对文件行执行预览、对目录行执行展开收起", async () => {
     const user = setupUser();
-    renderChanges();
+    await renderExpandedTree(user);
 
     await user.tab();
     await user.keyboard("{Enter}");
@@ -274,16 +310,16 @@ describe("文件树的键盘模型", () => {
 
     await user.keyboard("{ArrowDown}{Enter}");
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 1),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
     ).toMatchObject({
-      path: "internal/service/chat.go",
+      path: "service/chat.go",
       isPreview: true,
     });
   });
 
   it("焦点在行内按钮上时（鼠标点过），Enter 只触发一次展开收起", async () => {
     const user = setupUser();
-    renderChanges();
+    await renderExpandedTree(user);
 
     await user.click(
       within(treeRows()[0]).getByRole("button", { name: /^Collapse/ }),
@@ -296,7 +332,7 @@ describe("文件树的键盘模型", () => {
 
   it("Shift+F10 打开该行的菜单", async () => {
     const user = setupUser();
-    renderChanges();
+    await renderExpandedTree(user);
 
     await user.tab();
     await user.keyboard("{ArrowDown}");
@@ -311,15 +347,11 @@ describe("文件树的键盘模型", () => {
     );
   });
 
-  it("菜单键同样打开该行的菜单；没有菜单的行不弹菜单", async () => {
+  it("菜单键同样打开该行的菜单", async () => {
     const user = setupUser();
-    renderChanges();
+    await renderExpandedTree(user);
 
-    // 「变动」模式的目录行没有 ⋯ 菜单（task 5 的取舍），菜单键对它无事发生。
     await user.tab();
-    await user.keyboard("{ContextMenu}");
-    expect(screen.queryByRole("menu")).toBeNull();
-
     await user.keyboard("{ArrowDown}{ContextMenu}");
     expect(
       within(await screen.findByRole("menu")).getByRole("menuitem", {
@@ -363,15 +395,13 @@ describe("扁平列表的键盘模型", () => {
         sessionId={1}
         cwd={CWD}
         remote={false}
-        scope="uncommitted"
-        baseRef=""
         state={gitState}
         onRetry={() => {}}
       />,
     );
   }
 
-  it("Git 页是 listbox / option（不是树）：无层级、无展开态", async () => {
+  it("未提交档是 listbox / option（不是树）：无层级、无展开态", async () => {
     const user = setupUser();
     renderGit();
 
@@ -397,7 +427,7 @@ describe("扁平列表的键盘模型", () => {
     expect(options[1]).toHaveFocus();
   });
 
-  it("Git 页：Enter 预览当前行，选中态以 aria-selected 表达", async () => {
+  it("未提交档：Enter 预览当前行，选中态以 aria-selected 表达", async () => {
     const user = setupUser();
     renderGit();
 
@@ -405,7 +435,7 @@ describe("扁平列表的键盘模型", () => {
     await user.keyboard("{Enter}");
 
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 1),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
     ).toMatchObject({ path: "internal/service/chat.go" });
     const options = screen.getAllByRole("option");
     expect(options[0]).toHaveAttribute("aria-selected", "true");

@@ -47,10 +47,6 @@ type DeviceView struct {
 	LastSeenAt        int64  `json:"lastSeenAt"`
 	LastError         string `json:"lastError"`
 	Online            bool   `json:"online"`
-	// DaemonOutdated 说明这台设备上的 agentred 版本过旧:它不认识会话持久化那组 RPC,
-	// 所以断连会直接结束当前这一轮(R18)。由桌面端连上后的能力探测得出,不落库 ——
-	// 它描述的是**当前这个 daemon 进程**,重启桌面后重新探。
-	DaemonOutdated bool `json:"daemonOutdated"`
 	// SupportsLLMModelTarget 说明这台 daemon 是否公布 llm-model-target-v1 能力位
 	// （决策 11）：不支持时远端 Picker 必须禁用 fixed-model，避免旧 daemon 静默降级。
 	// 来自 watcher 最近一次 health.ping 的能力位,进程内缓存,不落库。
@@ -62,6 +58,8 @@ type RemoteDeviceSvc interface {
 	List(ctx context.Context) ([]*DeviceView, error)
 	Get(ctx context.Context, id int64) (*DeviceView, error)
 	Add(ctx context.Context, req AddRequest) (*DeviceView, error)
+	// AdoptAccountDevices 收编账号里已有、本机没有本地记录的 agentred（见 adopt.go）。
+	AdoptAccountDevices(ctx context.Context, devices []AccountDevice) (int, error)
 	Remove(ctx context.Context, id int64) error
 	UpdateTLS(ctx context.Context, id int64, mode, pem string) (*DeviceView, error)
 	Refresh(ctx context.Context, id int64) (*DeviceView, error)
@@ -88,10 +86,6 @@ type RemoteDeviceSvc interface {
 	// SupportsLLMModelTarget reports whether deviceID's daemon advertises the
 	// llm-model-target-v1 capability（fixed-model 可被安全选择）。未探过 → false。
 	SupportsLLMModelTarget(deviceID int64) bool
-	// RecordDaemonOutdated 记下 R18 能力探测的结论:这台设备上的 daemon 认不认会话
-	// 持久化那组 RPC。结论随后出现在该设备的 DeviceView.DaemonOutdated 上。
-	// 由 chat_svc 在探测结论翻转时调用。
-	RecordDaemonOutdated(deviceID int64, outdated bool)
 	// SyncProvider copies one local LLM provider to the remote daemon state.
 	// The raw API key is sent only for this explicit sync operation.
 	SyncProvider(ctx context.Context, deviceID int64, providerKey string) error

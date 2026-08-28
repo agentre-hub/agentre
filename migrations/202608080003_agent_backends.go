@@ -30,6 +30,7 @@ func migration202608080003() *gormigrate.Migration {
 	type TEXT NOT NULL,
 	name TEXT NOT NULL,
 	llm_provider_key TEXT NOT NULL DEFAULT '',
+	model_key TEXT NOT NULL DEFAULT '',
 	device_id TEXT NOT NULL DEFAULT '',
 	cli_path TEXT NOT NULL DEFAULT '',
 	model_routes TEXT NOT NULL DEFAULT '{}',
@@ -45,13 +46,50 @@ func migration202608080003() *gormigrate.Migration {
 	openclaw_session_mode TEXT NOT NULL DEFAULT '',
 	status INTEGER NOT NULL DEFAULT 1,
 	createtime INTEGER NOT NULL DEFAULT 0,
-	updatetime INTEGER NOT NULL DEFAULT 0
+	updatetime INTEGER NOT NULL DEFAULT 0,
+	sync_id TEXT NOT NULL DEFAULT '',
+	sync_account_id BIGINT NOT NULL DEFAULT 0,
+	sync_version BIGINT NOT NULL DEFAULT 0,
+	sync_updated_at BIGINT NOT NULL DEFAULT 0,
+	sync_origin TEXT NOT NULL DEFAULT '',
+	sync_deleted_at BIGINT NOT NULL DEFAULT 0
 )`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_backends_device_id ON agent_backends(device_id) WHERE status = 1`).Error
+			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_backends_device_id ON agent_backends(device_id) WHERE status = 1`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_backends_sync_id ON agent_backends(sync_id) WHERE sync_id != ''`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS agent_backend_cli_overlays (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	backend_sync_id TEXT NOT NULL DEFAULT '',
+	agentred_fingerprint TEXT NOT NULL DEFAULT '',
+	cli_path TEXT NOT NULL DEFAULT '',
+	status INTEGER NOT NULL DEFAULT 1,
+	createtime BIGINT NOT NULL DEFAULT 0,
+	updatetime BIGINT NOT NULL DEFAULT 0,
+	sync_id TEXT NOT NULL DEFAULT '',
+	sync_account_id BIGINT NOT NULL DEFAULT 0,
+	sync_version BIGINT NOT NULL DEFAULT 0,
+	sync_updated_at BIGINT NOT NULL DEFAULT 0,
+	sync_origin TEXT NOT NULL DEFAULT '',
+	sync_deleted_at BIGINT NOT NULL DEFAULT 0
+)`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_backend_cli_overlays_natural
+ON agent_backend_cli_overlays(backend_sync_id, agentred_fingerprint) WHERE status = 1`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_backend_cli_overlays_sync_id
+ON agent_backend_cli_overlays(sync_id) WHERE sync_id != ''`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Exec(`DROP TABLE IF EXISTS agent_backend_cli_overlays`).Error; err != nil {
+				return err
+			}
 			return tx.Exec(`DROP TABLE IF EXISTS agent_backends`).Error
 		},
 	}

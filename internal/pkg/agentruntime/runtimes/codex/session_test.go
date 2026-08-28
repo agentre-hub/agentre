@@ -5,8 +5,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // TestGatewayDeps 锁住 codex 网关门控的唯一口径(spec 2026-08-10 决策 6):是否装配

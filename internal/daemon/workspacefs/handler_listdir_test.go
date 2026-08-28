@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/daemon/workspacefs"
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
 )
 
 func TestListDir_Happy(t *testing.T) {
@@ -49,14 +49,14 @@ func TestListDir_EmptyRoot_InvalidParams(t *testing.T) {
 	h := workspacefs.NewHandlers(workspacefs.Options{})
 	_, err := h.ListDir(context.Background(), wire.ListDirReq{Root: ""})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rpc.ErrInvalidParams))
+	assert.True(t, errors.Is(err, rpcerror.ErrInvalidParams))
 }
 
 func TestListDir_RelativeRoot_InvalidParams(t *testing.T) {
 	h := workspacefs.NewHandlers(workspacefs.Options{})
 	_, err := h.ListDir(context.Background(), wire.ListDirReq{Root: "relative/root"})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rpc.ErrInvalidParams))
+	assert.True(t, errors.Is(err, rpcerror.ErrInvalidParams))
 }
 
 func TestListDir_GitDirAlwaysHidden(t *testing.T) {

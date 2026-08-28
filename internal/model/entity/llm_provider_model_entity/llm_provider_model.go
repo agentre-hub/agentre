@@ -13,7 +13,7 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 const (

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Hammer } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 type UnderConstructionPageProps = React.ComponentProps<"section"> & {

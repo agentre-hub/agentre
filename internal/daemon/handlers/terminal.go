@@ -4,7 +4,6 @@ package handlers
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"sync"
@@ -12,8 +11,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 )
 
 //go:generate mockgen -source=terminal.go -destination=mock_handlers/mock_terminal.go -package=mock_handlers
@@ -38,12 +37,11 @@ type Emitter interface {
 	Emit(ctx context.Context, name string, payload any)
 }
 
-type EmitterFunc func(ctx context.Context, name string, payload any)
-
-func (f EmitterFunc) Emit(ctx context.Context, name string, payload any) {
-	if f != nil {
-		f(ctx, name, payload)
-	}
+// TerminalDataEvent is the transport-neutral daemon event. Data remains raw
+// bytes from the PTY producer through the Protobuf transport.
+type TerminalDataEvent struct {
+	TerminalID string `json:"terminalId"`
+	Data       []byte `json:"data"`
 }
 
 const (
@@ -166,6 +164,12 @@ func (h *TerminalHandlers) Open(ctx context.Context, p protocol.TerminalOpenPara
 	}
 }
 
+func newTerminalID() string {
+	var b [12]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
 func (h *TerminalHandlers) claimPendingOpen(ctx context.Context, id string) (*pendingTerminalOpen, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -218,9 +222,8 @@ func (h *TerminalHandlers) pump(ctx context.Context, id string, entry *terminalE
 	go func() {
 		defer close(done)
 		for data := range queue {
-			// base64 so multibyte UTF-8 split across PTY reads survives the
-			// WebSocket JSON hop instead of being mangled to U+FFFD. The desktop
-			// remote backend decodes it back to raw bytes.
+			// Preserve PTY chunks as raw bytes. A multibyte UTF-8 rune may span
+			// reads and must not be decoded at this boundary.
 			h.emitTerminalData(ctx, id, entry, data)
 		}
 	}()
@@ -310,8 +313,8 @@ func (h *TerminalHandlers) emitTerminalData(ctx context.Context, id string, entr
 	if !owned {
 		return
 	}
-	h.emitter.Emit(ctx, EventNameTerminalData, protocol.TerminalDataEvent{
-		TerminalID: id, Data: base64.StdEncoding.EncodeToString(data),
+	h.emitter.Emit(ctx, EventNameTerminalData, TerminalDataEvent{
+		TerminalID: id, Data: append([]byte(nil), data...),
 	})
 }
 
@@ -343,12 +346,6 @@ func (h *TerminalHandlers) emitTerminalExitAndDetach(
 		delete(h.terminals, id)
 	}
 	h.mu.Unlock()
-}
-
-func newTerminalID() string {
-	var b [12]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
 }
 
 type TerminalAck struct{}

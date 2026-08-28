@@ -6,9 +6,9 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // checkpointAssistantNew 中途 checkpoint(ToolResult 帧后调):把 acc.Snapshot

@@ -5,9 +5,9 @@ import (
 
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	pkgpi "github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	pkgpi "github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 func translate(ev pkgpi.Event) (events []agentruntime.Event, usage *provider.Usage, stopErr error) {

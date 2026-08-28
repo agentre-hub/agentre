@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 )
 
 // TestRunRequest_EffectiveProviderKey 钉死 claudecode/codex 复用的唯一 provider key

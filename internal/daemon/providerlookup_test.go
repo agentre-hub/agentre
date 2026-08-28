@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,8 +82,10 @@ func TestProviderLookup_ResolveModel(t *testing.T) {
 			Model:           "claude-sonnet-legacy", // 旧单模型字段
 			DefaultModelKey: "model-default",
 			Models: []state.LLMModelMeta{
-				{ModelKey: "model-default", ModelID: "claude-sonnet-4-6", Enabled: true},
-				{ModelKey: "model-opus", ModelID: "claude-opus-4-5", Enabled: true},
+				{ModelKey: "model-default", ModelID: "claude-sonnet-4-6", Enabled: true,
+					ContextWindow: ptrInt64(200000), MaxOutput: ptrInt64(8192)},
+				{ModelKey: "model-opus", ModelID: "claude-opus-4-5", Enabled: true,
+					ContextWindow: ptrInt64(500000), MaxOutput: ptrInt64(64000)},
 				{ModelKey: "model-disabled", ModelID: "claude-haiku-gone", Enabled: false},
 			},
 		}
@@ -96,6 +98,34 @@ func TestProviderLookup_ResolveModel(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "model-opus", eff.ModelKey)
 		assert.Equal(t, "claude-opus-4-5", eff.ModelID)
+	})
+
+	// 模型元数据必须一路带到执行侧配置里:daemon 曾在这里把 ContextWindow / MaxOutput
+	// 丢掉,同一套输入下 daemon 与桌面构造出的 EffectiveLLMConfig 因此不一致。
+	t.Run("resolved model carries context window and max output", func(t *testing.T) {
+		eff, err := lookup.ResolveModel(ctx, key, "model-opus")
+		require.NoError(t, err)
+		assert.Equal(t, 500000, eff.ContextWindow)
+		assert.Equal(t, 64000, eff.MaxOutput)
+
+		def, err := lookup.ResolveModel(ctx, key, "")
+		require.NoError(t, err)
+		assert.Equal(t, 200000, def.ContextWindow)
+		assert.Equal(t, 8192, def.MaxOutput)
+	})
+
+	t.Run("model without metadata resolves to zero", func(t *testing.T) {
+		bareModelKey := "prov-bare-model"
+		st.Mutate(func(s *state.State) {
+			s.LLMProviders[bareModelKey] = state.LLMProviderMeta{
+				Name: "bare", Type: "anthropic", APIKey: "k", DefaultModelKey: "m",
+				Models: []state.LLMModelMeta{{ModelKey: "m", ModelID: "id", Enabled: true}},
+			}
+		})
+		eff, err := lookup.ResolveModel(ctx, bareModelKey, "")
+		require.NoError(t, err)
+		assert.Zero(t, eff.ContextWindow)
+		assert.Zero(t, eff.MaxOutput)
 	})
 
 	t.Run("fixed-model missing rejects", func(t *testing.T) {
@@ -176,3 +206,5 @@ func TestProviderLookup_ResolveModel(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func ptrInt64(v int64) *int64 { return &v }

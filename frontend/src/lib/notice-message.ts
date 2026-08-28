@@ -1,29 +1,9 @@
-import type { chat_svc } from "../../wailsjs/go/models";
-
 /**
- * isNoticeOnlyMessage 判断一条消息是不是「只承载供应商切换 notice 的旁白行」。
+ * 「只承载供应商切换 notice 的旁白行」这个判定已经归共享包所有 ——
+ * agentre-server 的转录也要按同一条规则找生成指示器的宿主,两份实现必然漂移。
+ * 判据本身与它为什么长这样,见包里 `generating-indicator.ts` 的注释。
  *
- * 切换 notice 是独立落库的一条消息(session_provider.go 的
- * appendProviderSwitchNotice):role 是 assistant、块只有一个 notice,但它不是一轮
- * 对话 —— 它可以在任意时刻插进 transcript(pill 允许轮中切换,切完 chat-panel 立刻
- * reloadSession 把它拉进来),包括插在在跑的 assistant 之后。
- *
- * 所以凡是「找紧邻的前一条 / 末条**真实** assistant」的推导都必须跳过它,否则它会
- * 顶替真正那一条:自主续轮横幅错判、生成指示器跳到旁白行、LoadSession 的 pending
- * 审批 overlay 搬不到在跑的那条消息上(卡片永远 pending)。
- *
- * 判据是 noticeKind==="switch",而不是「块全是 notice」:回退 notice 由后端追加进
- * **这一轮自己**的 assistant 消息(chat_svc runTurn finalize),零内容收尾时那条消息
- * 的块正好只剩它 —— 按「块全是 notice」判,一轮真实对话就会被当成旁白行跳过。
- * 与后端 chat.go 的 noticeOnlyMessage 同一口径,两边必须同时改。
- *
- * 没有块 ≠ 旁白行:轮刚起时 assistant 行的 blocks 恒为 "[]",那是真实的一轮,
- * 判定必须认到它(横幅/指示器就该在那一刻出现)。
+ * 这里留一个再导出,而不是让调用点各自改 import：那几处（chat-panel 的审批
+ * overlay、use-chat-session 的续读）不在本次改动范围里。
  */
-export function isNoticeOnlyMessage(m: chat_svc.ChatMessage): boolean {
-  const blocks = m.blocks ?? [];
-  return (
-    blocks.length > 0 &&
-    blocks.every((b) => b.type === "notice" && b.noticeKind === "switch")
-  );
-}
+export { isNoticeOnlyMessage } from "@agentre-hub/agentre-ui";

@@ -10,19 +10,19 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo/mock_server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 // recordingSync 记下域服务交出来的每一条改动，并按脚本失败。
@@ -163,7 +163,8 @@ func (q *countingOutboundQueue) ListByAccount(context.Context, int64) ([]*syncqu
 	return out, nil
 }
 
-func (q *countingOutboundQueue) Delete(context.Context, int64) error { return nil }
+func (q *countingOutboundQueue) Delete(context.Context, int64) error       { return nil }
+func (q *countingOutboundQueue) DeleteMany(context.Context, []int64) error { return nil }
 
 type noopInboundQueue struct{}
 
@@ -194,6 +195,10 @@ func (emptySyncState) ClaimUnowned(context.Context, string, int64) ([]syncstate_
 func (emptySyncState) SaveMeta(context.Context, string, string, syncmeta_entity.SyncMeta) error {
 	return nil
 }
+func (emptySyncState) ResetVersions(context.Context, string, int64) error { return nil }
+func (emptySyncState) ListUnversioned(context.Context, string, int64) ([]string, error) {
+	return nil, nil
+}
 
 // memorySettings 是本地 key-value 设置表的替身（下行游标住在这里）。
 type memorySettings struct {
@@ -212,6 +217,16 @@ func (m *memorySettings) Set(_ context.Context, s *app_setting_entity.AppSetting
 	defer m.mu.Unlock()
 	m.rows[s.Key] = s
 	return nil
+}
+
+func (m *memorySettings) Delete(_ context.Context, key string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.rows[key]; !ok {
+		return 0, nil
+	}
+	delete(m.rows, key)
+	return 1, nil
 }
 
 func (m *memorySettings) List(context.Context) ([]*app_setting_entity.AppSetting, error) {

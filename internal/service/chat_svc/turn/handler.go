@@ -2,8 +2,9 @@ package turn
 
 import (
 	"context"
+	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // Handler 处理一种 agentruntime.Event 类型。
@@ -17,7 +18,8 @@ import (
 //   - turnCtx:本轮 turn 上下文(assistantMsg / session / stream),持久化和 emit 需要
 //
 // Handler 不直接依赖 chat_repo;持久化由 turnCtx 携带的接口或 handler 内通过 ctx
-// 值注入(具体接线见 chat_svc/chat.go runTurn)。
+// 值注入(具体接线见 chat_svc/dispatcher_adapters.go newTurnContext,以及
+// chat_svc/turn_run.go 与 autonomous_turn_run.go 的 consumeEvents)。
 type Handler interface {
 	Apply(ctx context.Context, ev agentruntime.Event, acc *Accumulator, emit Emitter, view View, turnCtx *TurnContext) error
 }
@@ -78,6 +80,16 @@ type TurnContext struct {
 	// SubagentFlipper 把一个「不属于本轮」的后台任务终态,落到它派遣卡真正所在的那条
 	// 更早的消息上。nil 时 handler 退回静默忽略。chat_svc 在 newTurnContext 注入。
 	SubagentFlipper SubagentFlipper
+
+	// 本轮计时。StartedAt 是这一段 assistant 开始的时刻;FirstTokenAt 是第一帧
+	// thinking/chunk(TTFT);BurstStartedAt 非零表示计时正在走,值是本次开表时刻;
+	// Generation 是已经停表的各段之和;PendingTools 是正在执行、把表按住的外层工具。
+	// 口径(整轮耗时减工具空档,排队计入)与开关时机见 timing.go。
+	StartedAt      time.Time
+	FirstTokenAt   time.Time
+	BurstStartedAt time.Time
+	Generation     time.Duration
+	PendingTools   map[string]struct{}
 }
 
 // MessageUpdater handler 在 UsageUpdate / Error 等场景下写 assistantMsg 走这条。
@@ -99,7 +111,7 @@ type SessionUpdater interface {
 // (那条路自己带跨消息翻转);但它同样可能在**别人的轮**进行中到达,那时 CLI 把这一帧
 // 并进当前活跃轮,handler 是该终态唯一的落点。
 type SubagentFlipper interface {
-	FlipSubagentStatus(ctx context.Context, toolUseID, status string) error
+	FlipSubagentStatus(ctx context.Context, toolCallID, status string) error
 }
 
 // SessionTransitioner 切 session 状态 — UserAskRequest/ToolPermissionRequest

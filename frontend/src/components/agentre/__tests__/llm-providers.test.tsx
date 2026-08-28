@@ -442,7 +442,7 @@ describe("LlmProvidersPanel", () => {
     expect(texts[7]).toBe("");
   });
 
-  it("Given reference counts are still loading, When a model is selected, Then batch delete stays blocked until deleteability is known", async () => {
+  it("Given reference counts are still loading, When a model is selected, Then batch delete is available at once — counts inform, they no longer gate", async () => {
     const user = userEvent.setup();
     let resolveReferences: ((value: unknown) => void) | undefined;
     installAppMock({
@@ -477,7 +477,7 @@ describe("LlmProvidersPanel", () => {
 
     expect(
       screen.getByRole("button", { name: "Delete selected" }),
-    ).toBeDisabled();
+    ).not.toBeDisabled();
 
     resolveReferences?.({
       counts: { backends: 0, sessions: 0, routes: 0 },
@@ -489,7 +489,7 @@ describe("LlmProvidersPanel", () => {
     });
   });
 
-  it("Given a reference lookup fails, When a model is selected, Then batch delete remains blocked instead of treating the model as unreferenced", async () => {
+  it("Given a reference lookup fails, When a model is selected, Then batch delete is still offered — a missing count is not a reason to block", async () => {
     const user = userEvent.setup();
     installAppMock({
       ListLLMProviders: vi.fn(() =>
@@ -521,14 +521,8 @@ describe("LlmProvidersPanel", () => {
     const deleteButton = screen.getByRole("button", {
       name: "Delete selected",
     });
-    await waitFor(() => expect(deleteButton).toBeDisabled());
-    expect(deleteButton).toHaveAttribute(
-      "title",
-      "Reference status unavailable: cannot delete safely",
-    );
-    expect(
-      screen.getByText("Reference status unavailable: cannot delete safely"),
-    ).toBeInTheDocument();
+    expect(deleteButton).not.toBeDisabled();
+    expect(deleteButton).not.toHaveAttribute("title");
   });
 
   it("Given models with and without references, When the table renders, Then the reference column shows the count and a placeholder for unreferenced models", async () => {
@@ -752,7 +746,7 @@ describe("LlmProvidersPanel", () => {
     expect(mocks.SetLLMModelEnabled).not.toHaveBeenCalled();
   });
 
-  it("Given a referenced model, When its More menu is opened, Then the delete item is disabled with a visible reason", async () => {
+  it("Given a referenced model, When its More menu is opened, Then the delete item is usable — the impact is disclosed in the dialog instead", async () => {
     const mocks = installAppMock({
       ListLLMProviders: vi.fn(() =>
         Promise.resolve({ items: [makeProvider()] }),
@@ -792,12 +786,9 @@ describe("LlmProvidersPanel", () => {
     const deleteItem = within(menu).getByRole("menuitem", {
       name: "Delete claude-opus-4-1",
     });
-    // 被引用的模型删除项禁用，并给出原因
-    expect(deleteItem).toHaveAttribute("aria-disabled", "true");
-    expect(deleteItem).toHaveAttribute(
-      "title",
-      expect.stringMatching(/referenced/i),
-    );
+    // 被引用不再挡住删除入口：只有默认模型才禁用
+    expect(deleteItem).not.toHaveAttribute("aria-disabled", "true");
+    expect(deleteItem).not.toHaveAttribute("title");
     expect(mocks.DeleteLLMModel).not.toHaveBeenCalled();
     // 引用计数按稳定 modelKey 查询
     expect(mocks.LLMModelRefCounts).toHaveBeenCalledWith(
@@ -1142,7 +1133,7 @@ describe("LlmProvidersPanel", () => {
     });
   });
 
-  it("Given a referenced provider, When the More menu is opened, Then Delete is already disabled with the reason, before any click", async () => {
+  it("Given a referenced provider, When the More menu is opened, Then Delete is usable — the reference count is shown as meta, not as a veto", async () => {
     const mocks = installAppMock({
       ListLLMProviders: vi.fn(() =>
         Promise.resolve({ items: [makeProvider()] }),
@@ -1166,18 +1157,15 @@ describe("LlmProvidersPanel", () => {
       "menuitem",
       { name: "Delete Anthropic" },
     );
-    expect(deleteItem).toHaveAttribute("aria-disabled", "true");
-    expect(deleteItem).toHaveAttribute(
-      "title",
-      expect.stringMatching(/referenced/i),
-    );
+    expect(deleteItem).not.toHaveAttribute("aria-disabled", "true");
+    expect(deleteItem).not.toHaveAttribute("title");
     expect(mocks.DeleteLLMProvider).not.toHaveBeenCalled();
     expect(mocks.LLMProviderRefCounts).toHaveBeenCalledWith(
       expect.objectContaining({ providerKey: "pk-1" }),
     );
   });
 
-  it("Given the reference count went stale, When the delete dialog reports the model is blocked, Then it offers Disable instead next to a disabled Delete", async () => {
+  it("Given the reference count went stale, When the delete dialog re-checks, Then it discloses the fresh impact and still offers both delete and disable", async () => {
     let referenced = false;
     const mocks = installAppMock({
       ListLLMProviders: vi.fn(() =>
@@ -1216,7 +1204,7 @@ describe("LlmProvidersPanel", () => {
     );
     await within(rowForModel("claude-opus-4-1")).findByText("Can delete");
 
-    // 打开删除弹窗时后端已有新引用：弹窗自己复查后转入 blocked
+    // 打开删除弹窗时后端已有新引用：弹窗自己复查，把新影响披露出来
     referenced = true;
     await user.click(
       screen.getByRole("button", { name: "More actions for claude-opus-4-1" }),
@@ -1226,13 +1214,14 @@ describe("LlmProvidersPanel", () => {
     );
 
     const dialog = await screen.findByRole("dialog", { name: /Delete model/ });
+    await within(dialog).findByText("1 backends · 2 sessions");
     const disableInstead = await within(dialog).findByRole("button", {
       name: "Disable instead",
     });
-    // 删除按钮仍在，但被禁用并给出原因（不是消失）
+    // 两条路并排：删除照常可用，停用作为可恢复的次要出口留着
     expect(
       within(dialog).getByRole("button", { name: "Delete model" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
 
     await user.click(disableInstead);
 
@@ -1759,7 +1748,7 @@ describe("LlmProvidersPanel", () => {
     // 被引用模型的标注依赖异步引用计数，等待其加载
     expect(
       await within(rowForModel("claude-opus-4-1")).findByText(
-        "Referenced by 3: cannot delete",
+        "Referenced by 3: becomes invalid after deletion",
       ),
     ).toBeInTheDocument();
     expect(
@@ -1772,7 +1761,7 @@ describe("LlmProvidersPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("Given selected models including protected ones, When batch delete is requested, Then the dialog splits into deletable and protected groups and the primary button states the real delete count", async () => {
+  it("Given selected models including the default one, When batch delete is requested, Then only the default model is protected and referenced models are listed for deletion with their impact", async () => {
     installThreeModels({
       "mk-opus": { backends: 1, sessions: 0, routes: 2 },
     });
@@ -1784,7 +1773,7 @@ describe("LlmProvidersPanel", () => {
       screen.getByRole("checkbox", { name: "Select all models" }),
     );
     await within(rowForModel("claude-opus-4-1")).findByText(
-      "Referenced by 3: cannot delete",
+      "Referenced by 3: becomes invalid after deletion",
     );
 
     await user.click(screen.getByRole("button", { name: "Delete selected" }));
@@ -1796,16 +1785,19 @@ describe("LlmProvidersPanel", () => {
     expect(
       within(dialog).getByText("Protected (unchanged)"),
     ).toBeInTheDocument();
-    // 可删除组包含 haiku；被保护组列出默认模型与被引用模型及其原因
+    // 可删除组包含 haiku 与被引用的 opus（后者带上引用影响）；受保护组只剩默认模型
     expect(within(dialog).getByText("claude-haiku")).toBeInTheDocument();
+    expect(within(dialog).getByText("claude-opus-4-1")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "Referenced by 3: becomes invalid after deletion",
+      ),
+    ).toBeInTheDocument();
     expect(
       within(dialog).getByText("Default model: cannot delete"),
     ).toBeInTheDocument();
-    expect(
-      within(dialog).getByText("Referenced by 3: cannot delete"),
-    ).toBeInTheDocument();
     const confirm = within(dialog).getByRole("button", {
-      name: "Delete 1 model",
+      name: "Delete 2 models",
     });
     expect(confirm).toBeEnabled();
   });
@@ -1822,7 +1814,7 @@ describe("LlmProvidersPanel", () => {
       screen.getByRole("checkbox", { name: "Select all models" }),
     );
     await within(rowForModel("claude-opus-4-1")).findByText(
-      "Referenced by 3: cannot delete",
+      "Referenced by 3: becomes invalid after deletion",
     );
     await user.click(screen.getByRole("button", { name: "Delete selected" }));
 
@@ -1832,7 +1824,7 @@ describe("LlmProvidersPanel", () => {
     });
     expect(
       within(dialog).getByText(
-        /2 of them are protected .* only 1 will actually be deleted/i,
+        /1 of them are protected .* only 2 will actually be deleted/i,
       ),
     ).toBeInTheDocument();
     // 非事务性提醒常驻
@@ -1840,7 +1832,7 @@ describe("LlmProvidersPanel", () => {
       within(dialog).getByText(/not as a transaction/i),
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByRole("button", { name: "Delete 1 model" }),
+      within(dialog).getByRole("button", { name: "Delete 2 models" }),
     ).toBeEnabled();
   });
 
@@ -1883,7 +1875,7 @@ describe("LlmProvidersPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("Given all selected models are protected, When batch delete is requested, Then the primary button is disabled and explains there is nothing to delete", async () => {
+  it("Given only the default model is selected, When batch delete is requested, Then the primary button is disabled and explains there is nothing to delete", async () => {
     installThreeModels({
       "mk-opus": { backends: 1, sessions: 0, routes: 2 },
     });
@@ -1891,21 +1883,18 @@ describe("LlmProvidersPanel", () => {
     render(<LlmProvidersPanel />);
 
     await waitForModelTable(/Anthropic models/);
-    // 只选中默认模型与被引用模型（均不可删除）
+    // 默认模型是唯一仍被保护的一档
     await user.click(
       screen.getByRole("checkbox", { name: "Select claude-sonnet-4-5" }),
     );
-    await user.click(
-      screen.getByRole("checkbox", { name: "Select claude-opus-4-1" }),
-    );
-    await within(rowForModel("claude-opus-4-1")).findByText(
-      "Referenced by 3: cannot delete",
+    await within(rowForModel("claude-sonnet-4-5")).findByText(
+      "Default model: cannot delete",
     );
 
     await user.click(screen.getByRole("button", { name: "Delete selected" }));
 
     const dialog = await screen.findByRole("dialog", {
-      name: /selected models/,
+      name: /Delete the 1 selected model/,
     });
     expect(within(dialog).getByText("No deletable models")).toBeInTheDocument();
     expect(

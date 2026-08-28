@@ -2,7 +2,6 @@ package server_svc_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,14 +11,17 @@ import (
 	"github.com/gorilla/websocket"
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo/mock_server_state_repo"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // relayEndpointServer 起一个假的中转服务端:校验 Bearer 头,把任何路径升级成
@@ -31,21 +33,29 @@ func relayEndpointServer(t *testing.T, bearer string) *httptest.Server {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		up := &websocket.Upgrader{}
+		up := &websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}
 		ws, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
 		defer func() { _ = ws.Close() }()
-		for {
-			var f rpc.Frame
-			if err := ws.ReadJSON(&f); err != nil {
-				return
-			}
-			_ = ws.WriteJSON(rpc.Frame{JSONRPC: "2.0", ID: f.ID, Result: json.RawMessage(`{"ok":true,"instanceUUID":"uuid-1"}`)})
-		}
+		serveProtobufAccount(ws)
 	}))
 	return srv
+}
+
+func serveProtobufAccount(ws *websocket.Conn) {
+	_, payload, err := ws.ReadMessage()
+	if err != nil {
+		return
+	}
+	var frame agentrewire.RpcFrame
+	if proto.Unmarshal(payload, &frame) != nil {
+		return
+	}
+	response, _ := proto.Marshal(&agentrewire.AuthAccountResponse{Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: wireversion.Protocol})
+	payload, _ = proto.Marshal(&agentrewire.RpcFrame{Id: frame.GetId(), Body: &agentrewire.RpcFrame_Response{Response: &agentrewire.Response{MethodId: frame.GetRequest().GetMethodId(), EncodedPayload: response}}})
+	_ = ws.WriteMessage(websocket.BinaryMessage, payload)
 }
 
 // setupRelaySvc wires a logged-in server_svc with the given repo row + access token.
@@ -87,20 +97,13 @@ func TestDialDaemonRelay_PreservesServerBasePath(t *testing.T) {
 				http.NotFound(w, r)
 				return
 			}
-			up := &websocket.Upgrader{}
+			up := &websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}
 			ws, err := up.Upgrade(w, r, nil)
 			if err != nil {
 				return
 			}
 			defer func() { _ = ws.Close() }()
-			for {
-				var f rpc.Frame
-				if err := ws.ReadJSON(&f); err != nil {
-					return
-				}
-				_ = ws.WriteJSON(rpc.Frame{JSONRPC: "2.0", ID: f.ID,
-					Result: json.RawMessage(`{"ok":true,"instanceUUID":"uuid-1"}`)})
-			}
+			serveProtobufAccount(ws)
 		}))
 		defer srv.Close()
 

@@ -6,7 +6,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 )
 
 func TestPiAgentKind(t *testing.T) {

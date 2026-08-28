@@ -2,19 +2,21 @@ import { useEffect, useState } from "react";
 import { ArrowRight, CircleCheck, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Button,
   Dialog,
   DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
+  Input,
+  Spinner,
+} from "@agentre-hub/agentre-ui";
 
 import { DesktopDeviceRow } from "./desktop-device-row";
 import { AgentredOnboarding } from "./agentred-onboarding";
@@ -120,7 +122,7 @@ export function RemoteDevicesPanel({
   const onlineCount = devices.filter((d) => d.online).length;
   // 账号设备清单里的桌面端（R19）：不参与 LAN 配对行合并，单独作为可展开行。
   const desktopDevices = (accountDevices ?? []).filter(
-    (d) => d.Kind === "desktop",
+    (d) => d.kind === "desktop",
   );
   // 决策 1:整页一行都没有时引导就是这一页(且无处可退,不给收起);只要页面上还有
   // 一行设备,它就默认收起,由页头那唯一一个入口召唤 —— 引导不自作主张展开。
@@ -247,6 +249,10 @@ export function RemoteDevicesPanel({
           {devices.map((d) => {
             // 用 const 接住,窄化才进得了下面那几个闭包。
             const lan = d.lan;
+            // 「刷新直连」与「TLS 信任」作用在**直连地址**上,不是在配对行上:账号
+            // 收编来的行(IsRelayOnly)有配对行、url 却是空的,给了这两个动作等于让
+            // 用户去刷新一条不存在的直连 —— 点下去只会拿到一个无意义的失败。
+            const hasLanAddress = !!lan?.url;
             return (
               <DeviceRow
                 key={d.key}
@@ -255,10 +261,14 @@ export function RemoteDevicesPanel({
                 actions={
                   lan
                     ? {
-                        onRefresh: () => void refresh(lan.id),
+                        onRefresh: hasLanAddress
+                          ? () => void refresh(lan.id)
+                          : undefined,
                         onRename: () =>
                           setRenameFor({ id: lan.id, draft: lan.name }),
-                        onEditTLS: () => setEditTLSFor(lan),
+                        onEditTLS: hasLanAddress
+                          ? () => setEditTLSFor(lan)
+                          : undefined,
                         onRemove: () => setRemoveFor(lan),
                       }
                     : undefined
@@ -274,7 +284,7 @@ export function RemoteDevicesPanel({
           {/* 账号设备清单里 kind=desktop 的行（R19）：正在运行的桌面端可展开出会话
               列表，未运行时按 R2 说明「Agentre 未运行」而不是「离线」。 */}
           {desktopDevices.map((d) => (
-            <DesktopDeviceRow key={d.ID} device={d} now={now} />
+            <DesktopDeviceRow key={d.id} device={d} now={now} />
           ))}
         </div>
       ) : null}

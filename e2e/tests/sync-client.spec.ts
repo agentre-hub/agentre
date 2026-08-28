@@ -23,12 +23,14 @@ const invalidName = `sync-invalid-${runID}`;
 async function createProject(page: Page, name: string) {
   const path = join(process.env.AGENTRE_DATA_DIR!, "projects", name);
   mkdirSync(path, { recursive: true });
-  await page.getByTestId("nav-projects").click();
+  // 「项目」不再是一个导航项 —— 它是会话索引的一个分组维度（规格决策 1）。
+  // 新建项目降为侧栏 ＋ 下拉里的次级项（决策 11）。
+  await page.getByTestId("new-chat-button").click();
   await page.getByTestId("project-create-trigger").click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByTestId("project-new-path").fill(path);
-  await dialog.getByTestId("project-new-name").fill(name);
-  await dialog.getByTestId("project-new-submit").click();
+  await dialog.getByTestId("project-create-path").fill(path);
+  await dialog.getByTestId("project-create-name").fill(name);
+  await dialog.getByTestId("project-create-submit").click();
   await expect(dialog).toBeHidden();
   await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
 }
@@ -91,7 +93,7 @@ test.describe.serial("sync client smoke", () => {
       {
         kind: "project",
         sync_id: remoteSyncID,
-        source_device_id: Number(process.env.AGENTRE_E2E_SYNC_PEER_DEVICE_ID),
+        origin_fingerprint: process.env.AGENTRE_E2E_SYNC_PEER_FINGERPRINT ?? "",
         payload: {
           name: remoteName,
           icon: "folder",

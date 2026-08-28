@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 )
 
 // 本文件是工作区多端同步的网络出入口：只做 HTTP 与编解码，一切判定（冲突、墓碑、
@@ -19,11 +19,15 @@ import (
 // 载荷内容一律不进日志：里面有项目路径、prompt 与 EnvJSON。
 
 type syncPushReqItem struct {
-	Kind                string `json:"kind"`
-	SyncID              string `json:"sync_id"`
-	BaseVersion         int64  `json:"base_version"`
-	UpdatedAt           int64  `json:"updated_at"`
-	Deleted             bool   `json:"deleted"`
+	Kind        string `json:"kind"`
+	SyncID      string `json:"sync_id"`
+	BaseVersion int64  `json:"base_version"`
+	UpdatedAt   int64  `json:"updated_at"`
+	// DeletedAt 非零 = 这是一条墓碑，值是本端记下的删除时刻（Unix 毫秒）。契约上是
+	// **时刻**而不是布尔：时刻在本端库、线格式与 server 库三处本来就都是时刻，压成
+	// 布尔之后 server 落地只能另行编造一个删除时间（规格
+	// 2026-08-27-schema-overhaul 决策 20）。
+	DeletedAt           int64  `json:"deleted_at"`
 	AgentredFingerprint string `json:"agentred_fingerprint"`
 	ProjectSyncID       string `json:"project_sync_id"`
 	// Payload 必须 omitempty：墓碑不带正文（buildPushItem 的 delete 分支），而
@@ -48,8 +52,11 @@ type syncPullRespItem struct {
 	Payload             json.RawMessage `json:"payload"`
 	Version             int64           `json:"version"`
 	UpdatedAt           int64           `json:"updated_at"`
-	SourceDeviceID      int64           `json:"source_device_id"`
-	Deleted             bool            `json:"deleted"`
+	// OriginFingerprint 是最后一次修改来自哪台机器（决策 14：跨机引用一律用指纹，
+	// server 的数值设备主键是它的本地键，本端离线创建的行没有它）。空串 = server 直写。
+	OriginFingerprint string `json:"origin_fingerprint"`
+	// DeletedAt 非零 = 墓碑，值是删除时刻（决策 20）。
+	DeletedAt int64 `json:"deleted_at"`
 }
 
 type syncPullResp struct {
@@ -77,7 +84,7 @@ func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]sy
 			SyncID:              it.SyncID,
 			BaseVersion:         it.BaseVersion,
 			UpdatedAt:           it.UpdatedAt,
-			Deleted:             it.Deleted,
+			DeletedAt:           it.DeletedAt,
 			AgentredFingerprint: it.AgentredFingerprint,
 			ProjectSyncID:       it.ProjectSyncID,
 			Payload:             json.RawMessage(it.Payload),
@@ -107,6 +114,11 @@ func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]sy
 }
 
 // SyncPull 按版本游标增量下行；cursor = 0 拉全量（R6a 的重同步用它）。
+//
+// server 判「这个游标超出本账号版本序列的头」时返回 CodeCursorUnknown，这里翻成
+// syncwire.ErrCursorUnknown——调用方据此重建整份历史并把 server 不认识的本地行重新
+// 上行。不翻的话它只是一句「rejected with code 30505」，与网络抖动无从区分，那台机器
+// 会安静地一直重试同一个死游标。
 func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncwire.PullPage, error) {
 	if err := s.requireLogin(ctx); err != nil {
 		return nil, err
@@ -121,6 +133,9 @@ func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncw
 	err := s.withAuth(ctx, func(ctx context.Context) error {
 		var env envelope[syncPullResp]
 		_, doErr := s.getClient().do(ctx, http.MethodGet, path, nil, &env)
+		if env.Code == syncwire.CodeCursorUnknown {
+			return syncwire.ErrCursorUnknown
+		}
 		if doErr != nil {
 			return doErr
 		}
@@ -137,8 +152,8 @@ func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncw
 				Payload:             []byte(it.Payload),
 				Version:             it.Version,
 				UpdatedAt:           it.UpdatedAt,
-				SourceDeviceID:      it.SourceDeviceID,
-				Deleted:             it.Deleted,
+				OriginFingerprint:   it.OriginFingerprint,
+				DeletedAt:           it.DeletedAt,
 			})
 		}
 		page.Items = items

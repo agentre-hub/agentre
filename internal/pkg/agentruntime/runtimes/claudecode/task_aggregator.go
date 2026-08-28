@@ -4,17 +4,17 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // taskAggregator 收编 claudecode CLI 的 TaskCreate / TaskUpdate 工具调用为
 // canonical.PlanUpdate 快照流。
 //
 // 背景:CLI 提供两套 plan 工具:
-//   - TodoWrite:bulk snapshot,一次性传完整 todos[],translator 直接走
-//     recognizeTodoWrite → canonical.PlanUpdate;
+//   - TodoWrite:bulk snapshot,一次性传完整 todos[],translator 经
+//     recognizeCanonical 委托 canonical.FromToolUse → canonical.PlanUpdate;
 //   - TaskCreate(单条新增)+ TaskUpdate(单条状态变更):增量,翻译层不能
 //     stateless 处理。本聚合器在每次工具事件后维护一份完整任务列表,合成
 //     EventPlanUpdated 推到事件流,下游(前端 task-progress-bar 等)只读最新
@@ -28,7 +28,7 @@ import (
 type taskAggregator struct {
 	mu      sync.Mutex
 	list    []canonical.PlanStep // 顺序与 TaskCreate 的到达顺序一致
-	pending map[string]string    // toolUseID → description(TaskCreate 等 ToolResult 绑 id)
+	pending map[string]string    // toolCallID → description(TaskCreate 等 ToolResult 绑 id)
 }
 
 func newTaskAggregator() *taskAggregator {
@@ -79,11 +79,11 @@ func (ta *taskAggregator) observePreToolUse(ev claudecode.Event) *canonical.Plan
 // 起作用 —— 此时 tool_result.meta.task.id 透出真实 id,把对应 pending 条目
 // 绑 id 并 push 进 list;返一份新快照。其它工具帧返 nil。
 //
-// 重复触发同一 toolUseID(罕见的 retry 场景):pending 已被 take,后续 ToolResult
+// 重复触发同一 toolCallID(罕见的 retry 场景):pending 已被 take,后续 ToolResult
 // 找不到 entry → silently skip。
 //
 // 注意 SDK 在 parseUserContent 里构造 PostToolUse 的 ToolEvent 不会填 Tool.Name
-// (只有 ID/Response/ResultMeta),所以这里不能按 Name 过滤,得拿 pending[toolUseID]
+// (只有 ID/Response/ResultMeta),所以这里不能按 Name 过滤,得拿 pending[toolCallID]
 // 做唯一门控 —— pending 只有 TaskCreate 的 Pre 阶段会写入,等价于"只对 TaskCreate
 // 的 ToolResult 生效"。
 func (ta *taskAggregator) observePostToolUse(ev claudecode.Event) *canonical.PlanUpdate {
@@ -99,7 +99,7 @@ func (ta *taskAggregator) observePostToolUse(ev claudecode.Event) *canonical.Pla
 	realID := taskIDFromResultMeta(ev.Tool.ResultMeta)
 	if realID == "" {
 		// pending 条目保留:CLI 偶尔会因 stop 提前结束而漏 task.id,
-		// 留着等下一次同 toolUseID 的 ToolResult 不至于状态错乱。
+		// 留着等下一次同 toolCallID 的 ToolResult 不至于状态错乱。
 		return nil
 	}
 	delete(ta.pending, ev.Tool.ID)

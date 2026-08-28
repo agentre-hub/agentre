@@ -1,14 +1,14 @@
 import { CheckCircle2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@agentre-hub/agentre-ui";
 
 export function ImportResultDialog({
   counts,

@@ -42,7 +42,7 @@ Agentre 把这套工作流放进一个桌面应用。每个 **Agent** 都有自�
 | 区域 | 用途 |
 | ---- | ---- |
 | **对话** | 驱动 Agent 会话、查看工具调用、审批动作、排队追问、继续被中断的任务。 |
-| **看板** | 跟踪 Issue，并把明确任务交给 Agent；在 Issue 下回复时可创建关联会话。 |
+| **看板** | 用四列跟踪任务，按项目子树收窄、筛选、就地编辑；任务上记着打算交给哪个 Agent、在哪台机器上、用什么模型。 |
 | **组织** | 用部门和子部门管理 Agent，配置负责人、颜色和角色资料。 |
 | **Hooks** | 把 Webhook、通知、定时器、消息等外部触发路由到 Agent 工作流。 |
 | **设置** | 配置 Agent 后端、远端设备、项目成员和会话权限模式。 |
@@ -55,7 +55,7 @@ Agentre 把这套工作流放进一个桌面应用。每个 **Agent** 都有自�
 | **部门** | Agent 的组织容器，支持多层嵌套，可设置负责人和主题色。 |
 | **会话** | 一次对话或任务执行，状态包括 `running`、`waiting`、`idle`。 |
 | **项目** | 围绕某个代码库或目标的工作范围，绑定成员、Agent 和会话。 |
-| **Issue** | 可分配给 Agent 的独立任务单，并可关联到具体会话。 |
+| **任务** | 看板上的一张卡：落在四列之一，可挂在项目下，带标签，并记着打算交给哪个 Agent、在哪台机器上、用什么模型。 |
 | **Hook** | 外部事件入口，可通过路由规则把工作派发给 Agent。 |
 
 ## 远端执行
@@ -65,7 +65,7 @@ Agentre 使用 `agentred` companion daemon，可以在局域网内另一台 macO
 在 macOS 或 Linux 上安装最新版本：
 
 ```bash
-curl -fsSL https://github.com/agentre-ai/agentre/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh
 agentred --version
 agentred service install --start
 agentred service status
@@ -74,7 +74,7 @@ agentred service status
 在 Windows PowerShell 中安装最新版本（无需管理员终端）：
 
 ```powershell
-irm https://github.com/agentre-ai/agentre/releases/latest/download/install.ps1 | iex
+irm https://github.com/agentre-hub/agentre/releases/latest/download/install.ps1 | iex
 agentred --version
 agentred service install --start
 agentred service status
@@ -89,7 +89,7 @@ agentred service status
 
 ## 桌面工作流
 
-- **64px 图标栏**：对话、看板、组织、Hooks、设置。
+- **56px 图标栏**：对话、看板、组织、Hooks、设置。
 - **Agent 会话列表**：置顶 Agent、活跃会话状态点、行内会话数。
 - **项目会话视图**：按项目扫描最近工作，而不是只能按 Agent 查找。
 - **权限模式选择**：会话开始改文件或运行工具前，先明确自主权限。

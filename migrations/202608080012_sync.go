@@ -13,7 +13,6 @@ var syncMetaTables = []string{
 	"projects",
 	"departments",
 	"agents",
-	"agent_backends",
 	"project_agents",
 	"project_locations",
 	"agent_exec_targets",

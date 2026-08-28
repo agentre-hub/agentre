@@ -7,13 +7,16 @@ import type { chat_svc } from "../../../../wailsjs/go/models";
 
 import { ResizableSidebar } from "../resizable-sidebar";
 
-import { deriveFiles, deriveOutline } from "./derive";
+import { deriveOutline, deriveSessionChanges } from "./derive";
+import { RootFollowNotice } from "./root-follow-notice";
+import { RootSwitcher } from "./root-switcher";
 import { TabBar } from "./tab-bar";
-import { FilesPanel } from "./views/files-panel";
-import { GitContextBar } from "./views/git-context-bar";
-import { GitView } from "./views/git-view";
+import { ChangesPanel } from "./views/changes-panel";
+import { DirectoryPanel } from "./views/directory-panel";
 import { OutlineView } from "./views/outline-view";
 import { useGitChanges } from "./views/use-git-changes";
+import { useGitState } from "./views/use-git-state";
+import { useWorkRoots } from "./views/use-work-roots";
 
 type Msg = chat_svc.ChatMessage;
 
@@ -46,10 +49,39 @@ export function ChatContextSidebar({
   const { t } = useTranslation();
   const activeTab = useChatSidebarStore((s) => s.activeTab);
   const setActiveTab = useChatSidebarStore((s) => s.setActiveTab);
-  const filesMode = useChatSidebarStore((s) => s.filesMode);
+  const changesScope = useChatSidebarStore((s) => s.changesScope);
+  const setChangesScope = useChatSidebarStore((s) => s.setChangesScope);
+  const setWorkRoot = useChatSidebarStore((s) => s.setWorkRoot);
+
+  // 工作根由这一层持有：「变更」页与「目录」页共享它，切一级 tab 不改变它
+  // （spec「工作根」）。root 是给绑定用的实参，workRoot 是拼绝对路径用的全路径。
+  const workRoots = useWorkRoots({ sessionId, cwd, messages });
+  const workRoot = workRoots.current;
+  const root = workRoots.rootArg;
+
+  // 预览面板是本侧栏的**兄弟节点**（chat-panel 并排渲染），没有共同父级能把
+  // 工作根当 prop 传过去，所以经 store 转发一份——侧栏仍是唯一的写入者。
+  React.useEffect(() => {
+    setWorkRoot(sessionId, workRoot);
+  }, [setWorkRoot, sessionId, workRoot]);
 
   const outline = React.useMemo(() => deriveOutline(messages), [messages]);
-  const files = React.useMemo(() => deriveFiles(messages), [messages]);
+  // 「本次会话」的行只从消息里的 canonical 块派生，当前工作根之外的路径在这里
+  // 就被挡掉（spec「归属过滤」）——不读 git，因此与有没有提交无关。
+  const sessionChanges = React.useMemo(
+    () => deriveSessionChanges(messages, workRoot),
+    [messages, workRoot],
+  );
+
+  // 根切换器上每个根各自的变更数（spec「呈现」）：与行用的是同一个派生函数，
+  // 数字因此和切过去之后看到的行数一致。
+  const changeCounts = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of workRoots.roots) {
+      counts.set(r.path, deriveSessionChanges(messages, r.path).length);
+    }
+    return counts;
+  }, [messages, workRoots.roots]);
 
   const turnToMessageId = React.useMemo(() => {
     const m = new Map<number, number>();
@@ -80,21 +112,29 @@ export function ChatContextSidebar({
       ? (messageIdToTurnUserId.get(activeMessageId) ?? null)
       : null;
 
-  // Git 页的取数挂在这一层：顶层 tab 的计数角标与 Git 页内容共用同一份状态；
-  // enabled 保证只有 Git 顶层 tab 可见时才打后端（决策 13），跟随 Git 从
-  // 「文件」页内一档提升为顶层 tab 而改挂在这里（此前挂在 FilesPanel 上）。
-  //
-  // 「目录」模式的 git 状态叠加也要「未提交」这份数据（served requirement
-  // 「目录模式的 git 状态叠加」），继续复用这一个 hook 实例、只多打
-  // overlayEnabled——activeTab 与 filesMode 互斥，Git 页可见与目录模式可见
-  // 从不同时为真，两个消费者因此永远只共享一次在途请求，不会因为各开一个
-  // useGitChanges 而重复打后端。
+  // git 取数挂在这一层：「变更」页的「未提交」档、它的 tab 角标、以及「目录」页
+  // 的状态叠加要的是同一份快照，共用一个 hook 实例就只会有一次在途请求
+  // （决策 13：只有需要它的页可见时才打后端）。
   const git = useGitChanges({
     sessionId,
     cwd,
-    enabled: activeTab === "git",
-    overlayEnabled: activeTab === "files" && filesMode === "directory",
+    root,
+    enabled: activeTab === "changes" || activeTab === "directory",
   });
+
+  // 分支状态只有「目录」页那一行需要（决策 7），因此只在它可见时取数。
+  const gitState = useGitState({
+    sessionId,
+    cwd,
+    root,
+    enabled: activeTab === "directory",
+  });
+
+  // 「未提交」档只在这个会话真有一个 git 工作目录时才存在（决策 11）：非 git
+  // 仓库下它失去意义，该行只剩「本次会话」一档，而不是留一个空页。持久化的
+  // 档位落在一个不存在的档上时同样钳回「本次会话」。
+  const uncommittedAvailable = cwd !== "" && !git.notARepo;
+  const scope = uncommittedAvailable ? changesScope : "session";
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
@@ -117,17 +157,28 @@ export function ChatContextSidebar({
       defaultWidth={240}
       className="h-full"
     >
+      <RootSwitcher
+        roots={workRoots.roots}
+        current={workRoot}
+        pinned={workRoots.pinned}
+        changeCounts={changeCounts}
+        onSelect={workRoots.select}
+      />
+      {workRoots.followedTo ? (
+        <RootFollowNotice
+          root={workRoots.followedTo}
+          onUndo={workRoots.stayInMain}
+        />
+      ) : null}
       <TabBar
         active={activeTab}
         onChange={setActiveTab}
         outlineCount={outline.length}
-        filesCount={files.length}
-        gitCount={git.count}
+        changesCount={scope === "session" ? sessionChanges.length : git.count}
       />
       {/*
-        「文件」页自带两档胶囊与上下文条，滚动容器在 FilesPanel 内部；「大纲」页
-        仍用这里的滚动容器（scrollRef 要拿它做 scrollIntoView）；「Git」页的上下文
-        条与现状一致（两档 + 基线），非 git 仓库时整条收起（mockup 板 C2）。
+        「变更」页与「目录」页各自带第二行 chrome，滚动容器在各自的面板内部；
+        「大纲」页仍用这里的滚动容器（scrollRef 要拿它做 scrollIntoView）。
       */}
       {activeTab === "outline" ? (
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
@@ -137,44 +188,34 @@ export function ChatContextSidebar({
             onSelect={onJumpToMessage}
           />
         </div>
-      ) : activeTab === "files" ? (
-        <FilesPanel
+      ) : activeTab === "changes" ? (
+        <ChangesPanel
           sessionId={sessionId}
-          files={files}
-          cwd={cwd}
+          rows={sessionChanges}
+          cwd={workRoot}
           remote={remote}
-          gitChanges={git.overlayChanges}
+          scope={scope}
+          onScopeChange={setChangesScope}
+          uncommittedAvailable={uncommittedAvailable}
+          git={git.state}
+          onRetry={git.reload}
           onJumpToTurn={(turn) => {
             const mid = turnToMessageId.get(turn);
             if (mid != null) onJumpToMessage(mid);
           }}
+        />
+      ) : (
+        <DirectoryPanel
+          sessionId={sessionId}
+          cwd={workRoot}
+          root={root}
+          remote={remote}
+          gitState={gitState}
+          gitChanges={git.overlayChanges}
           cwdUnavailableReason={cwdUnavailableReason}
           projectId={projectId}
           onCwdSpecified={onCwdSpecified}
         />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          {cwd !== "" && !git.notARepo ? (
-            <GitContextBar
-              scope={git.scope}
-              onScopeChange={git.setScope}
-              baseRef={git.baseRef}
-              branches={git.branches}
-              onSelectBaseline={git.selectBaseline}
-            />
-          ) : null}
-          <div className="min-h-0 flex-1 overflow-auto">
-            <GitView
-              sessionId={sessionId}
-              cwd={cwd}
-              remote={remote}
-              scope={git.scope}
-              baseRef={git.baseRef}
-              state={git.state}
-              onRetry={git.reload}
-            />
-          </div>
-        </div>
       )}
     </ResizableSidebar>
   );

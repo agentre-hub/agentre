@@ -3,8 +3,8 @@ package remote_device_svc
 import (
 	"sync"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 )
 
 type service struct {
@@ -21,11 +21,6 @@ type service struct {
 	// 与 providerCache 一样是进程内缓存:描述当前那个 daemon 进程,重启桌面后重新探。
 	capabilitiesMu sync.RWMutex
 	capabilities   map[int64][]string
-
-	// outdatedMu / outdated 记着「哪些设备上的 daemon 版本过旧」(R18)。与
-	// providerCache 一样是进程内缓存:它描述当前那个 daemon 进程,重启桌面后重新探。
-	outdatedMu sync.RWMutex
-	outdated   map[int64]bool
 }
 
 // New constructs a service. Production wiring lives in bootstrap; tests
@@ -38,22 +33,7 @@ func New(repo remote_device_repo.PairedAgentredRepo, dial DaemonDialPort, kc Key
 		pool:          pool,
 		providerCache: make(map[int64][]ProviderSummary),
 		capabilities:  make(map[int64][]string),
-		outdated:      make(map[int64]bool),
 	}
-}
-
-// RecordDaemonOutdated 记下该设备上 daemon 的版本探测结论(R18)。
-func (s *service) RecordDaemonOutdated(deviceID int64, outdated bool) {
-	s.outdatedMu.Lock()
-	s.outdated[deviceID] = outdated
-	s.outdatedMu.Unlock()
-}
-
-// daemonOutdated 交出该设备此刻的版本探测结论;没探过 → false。
-func (s *service) daemonOutdated(deviceID int64) bool {
-	s.outdatedMu.RLock()
-	defer s.outdatedMu.RUnlock()
-	return s.outdated[deviceID]
 }
 
 // RecordDeviceProviders overwrites the cached provider list for deviceID.

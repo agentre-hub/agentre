@@ -18,11 +18,11 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentprovider"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentprovider"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 )
 
 var defaultRuntime = New()
@@ -211,9 +211,9 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 
 	cwd := req.Cwd
 	if cwd == "" {
-		cwd, err = agentruntime.AgentCwd(req.AgentID)
+		cwd, err = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
 		if err != nil {
-			logger.Ctx(ctx).Error("builtin runtime: AgentCwd resolve failed",
+			logger.Ctx(ctx).Error("builtin runtime: agent cwd resolve failed",
 				zap.Int64("sessionID", req.SessionID),
 				zap.Int64("agentID", req.AgentID), zap.Error(err))
 			return nil, nil, err
@@ -274,8 +274,8 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		_ = sysApp.Close(ctx)
 		return nil, nil, sendErr
 	}
-	logger.Ctx(ctx).Info("builtin runtime: turn starting",
-		zap.Int64("sessionID", req.SessionID),
+	logger.Ctx(ctx).Info("builtin.Runtime: turn started",
+		zap.Int64("sessionId", req.SessionID),
 		zap.String("convID", convID),
 		zap.Int("historyLen", len(history)))
 
@@ -330,6 +330,12 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			}
 		}
 		flushSteers()
+		logger.Ctx(ctx).Info("builtin.Runtime: turn completed",
+			zap.Int64("sessionId", req.SessionID),
+			zap.String("providerSessionId", result.ProviderSessionID),
+			zap.String("model", result.Model),
+			zap.Bool("usageAvailable", result.Usage != nil),
+		)
 	}()
 	return out, result, nil
 }

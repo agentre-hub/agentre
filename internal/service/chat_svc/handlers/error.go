@@ -3,13 +3,15 @@ package handlers
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
-// ErrorWriter handler 通过这个把 error text patch 到 assistantMsg。
+// ErrorWriter handler 通过这个把 error text patch 到 assistantMsg **并落库**。
+// 落库收在接口里而不是走 TurnContext.MessageUpdater,理由同 UsageWriter:整行 Save
+// 会把 MB 级的 blocks_json 一起重写,而这里只存一个字符串。
 type ErrorWriter interface {
-	WriteErrorText(msg any, errText string)
+	WriteErrorText(ctx context.Context, msg any, errText string) error
 }
 
 type ErrorHandler struct {
@@ -25,10 +27,7 @@ func (h ErrorHandler) Apply(ctx context.Context, ev agentruntime.Event, _ *turn.
 		msg = e.Err.Error()
 	}
 	if tc != nil && h.Writer != nil && tc.AssistantMsg != nil && msg != "" {
-		h.Writer.WriteErrorText(tc.AssistantMsg, msg)
-	}
-	if tc != nil && tc.MessageUpdater != nil && tc.AssistantMsg != nil {
-		_ = tc.MessageUpdater.Update(context.WithoutCancel(ctx), tc.AssistantMsg)
+		_ = h.Writer.WriteErrorText(context.WithoutCancel(ctx), tc.AssistantMsg, msg)
 	}
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{

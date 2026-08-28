@@ -6,15 +6,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // ErrPoolClosed 在 Pool.Close 之后调 Borrow 返回。生产路径只在 bootstrap
@@ -46,7 +48,8 @@ type ConnPool interface {
 //     chat_svc 用它桥接 *remote.Runtime 失效。
 //   - Release() 幂等。
 type Lease interface {
-	Client() agentruntime.DaemonClientPort
+	Client() client.ProtobufConnection
+	LLMUpsert(context.Context, *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error)
 	Closed() <-chan struct{}
 	Release()
 }
@@ -113,7 +116,7 @@ type pool struct {
 // pooledClient 是 entry.client 的窄接口,允许 internal test 用 fake 替身。
 // 生产路径 = *client.Client(已实现 DaemonClientPort,即 pooledClient)。
 type pooledClient interface {
-	agentruntime.DaemonClientPort
+	client.ProtobufConnection
 }
 
 // entry 单 device 的活连接 + refcount。
@@ -135,8 +138,12 @@ type lease struct {
 	releaseOnce sync.Once
 }
 
-func (l *lease) Client() agentruntime.DaemonClientPort {
-	return noopCloseClient{DaemonClientPort: l.e.client}
+func (l *lease) Client() client.ProtobufConnection {
+	return noopCloseClient{ProtobufConnection: l.e.client}
+}
+func (l *lease) LLMUpsert(ctx context.Context, request *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
+	return protorpc.CallMethod(ctx, l.e.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT), request,
+		func() *agentrewire.LLMUpsertResponse { return &agentrewire.LLMUpsertResponse{} })
 }
 func (l *lease) Closed() <-chan struct{} { return l.e.closedCh }
 func (l *lease) Release() {
@@ -147,7 +154,7 @@ func (l *lease) Release() {
 // 防止 lease 持有者(尤其 *remote.Runtime.Close())把池子里的 conn 关掉。
 // 只有 Pool 自己持有 raw *client.Client。
 type noopCloseClient struct {
-	agentruntime.DaemonClientPort
+	client.ProtobufConnection
 }
 
 func (noopCloseClient) Close() error { return nil }
@@ -275,8 +282,18 @@ func (p *pool) accountCredential() string {
 //
 // 直连的凭据优先级：该指纹有本地配对就沿用 auth.connect（R2，行为不变）；没有配对
 // 才用账号凭据走 auth.account（R3）。中转路径恒用 auth.account，不受影响。
-func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string) (*client.Client, error) {
-	direct := func(ctx context.Context) (*client.Client, error) {
+func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string) (client.ProtobufConnection, error) {
+	// 账号来源收编的行没有 LAN 地址（paired_agentred_entity.IsRelayOnly）：直连不是
+	// 「拨了没通」而是**根本不存在**这条路。拿空地址去竞速只会白等一次拨号超时，
+	// 还会把「这台机器本来就没有 LAN 路径」包装成一条看起来像网络故障的失败原因。
+	if strings.TrimSpace(args.URL) == "" {
+		if p.relay == nil {
+			return nil, fmt.Errorf("device %s has no LAN address and no relay is configured",
+				args.ExpectedDaemonFingerprint)
+		}
+		return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, args.DeviceFingerprint)
+	}
+	direct := func(ctx context.Context) (client.ProtobufConnection, error) {
 		if args.DeviceToken != "" {
 			return p.dial.Open(ctx, args)
 		}
@@ -292,16 +309,16 @@ func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string)
 	if p.relay == nil {
 		return direct(ctx)
 	}
-	return client.Race(ctx,
-		client.Path{
+	return client.RaceProtobuf(ctx,
+		client.ProtobufPath{
 			Name:        "direct",
 			Fingerprint: args.DeviceFingerprint,
 			Dial:        direct,
 		},
-		client.Path{
+		client.ProtobufPath{
 			Name:        "relay",
 			Fingerprint: args.DeviceFingerprint,
-			Dial: func(ctx context.Context) (*client.Client, error) {
+			Dial: func(ctx context.Context) (client.ProtobufConnection, error) {
 				return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, args.DeviceFingerprint)
 			},
 		},

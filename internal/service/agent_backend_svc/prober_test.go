@@ -16,11 +16,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
 )
 
 func TestBuildClaudeCodeEnv(t *testing.T) {
@@ -436,5 +437,73 @@ func TestBuildCodexEnv(t *testing.T) {
 		assert.False(t, hasBase)
 		assert.False(t, hasKey)
 		assert.Equal(t, "acme", env["OPENAI_ORGANIZATION"])
+	})
+}
+
+// TestEffectiveLLMForProbe 钉死 Test 连通性与 chat run 的装配同源（agent-backend.md
+// §2.3 不变量）：探测用配置经共享构造口 agentruntime.NewEffectiveLLMConfig 装配，因此
+// Mode 由本轮请求的 ModelKey 决定（backend 钉了固定模型 → fixed-model），且模型元数据
+// ContextWindow / MaxOutput 一并带上 —— prober 从前手写这段并把 Mode 恒定写成
+// provider-default。
+func TestEffectiveLLMForProbe(t *testing.T) {
+	newProvider := func() *llm_provider_entity.LLMProvider {
+		return &llm_provider_entity.LLMProvider{
+			ProviderKey:     "key-pi",
+			Type:            string(llm_provider_entity.TypeOpenAIChat),
+			Name:            "PiProvider",
+			Enabled:         llm_provider_entity.EnabledOn,
+			DefaultModelKey: "mk-default",
+			APIKey:          "sk-pi-1",
+			BaseURL:         "https://pi.example",
+			Status:          consts.ACTIVE,
+		}
+	}
+	setup := func(t *testing.T) {
+		t.Helper()
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		repoMock := mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl)
+		llm_provider_repo.RegisterLLMProvider(repoMock)
+		repoMock.EXPECT().FindByKey(gomock.Any(), "key-pi").Return(newProvider(), nil).AnyTimes()
+		repoMock.EXPECT().FindModelByKey(gomock.Any(), "mk-default").Return(
+			&llm_provider_model_entity.LLMProviderModel{
+				ModelKey: "mk-default", ModelID: "deepseek-v3", ContextWindow: 128000, MaxOutput: 8192,
+				Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
+			}, nil).AnyTimes()
+		repoMock.EXPECT().FindModelByKey(gomock.Any(), "mk-fixed").Return(
+			&llm_provider_model_entity.LLMProviderModel{
+				ModelKey: "mk-fixed", ModelID: "deepseek-r2", ContextWindow: 64000, MaxOutput: 4096,
+				Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
+			}, nil).AnyTimes()
+	}
+
+	t.Run("provider-default 解析当前默认模型并带上元数据", func(t *testing.T) {
+		setup(t)
+		cfg, err := effectiveLLMForProbe(context.Background(), newProvider(), "")
+		assert.NoError(t, err)
+		assert.Equal(t, &agentruntime.EffectiveLLMConfig{
+			Mode:          agentruntime.EffectiveModeProviderDefault,
+			ProviderKey:   "key-pi",
+			ModelKey:      "mk-default",
+			ProviderType:  string(llm_provider_entity.TypeOpenAIChat),
+			ProviderName:  "PiProvider",
+			ModelID:       "deepseek-v3",
+			ContextWindow: 128000,
+			MaxOutput:     8192,
+			BaseURL:       "https://pi.example",
+			APIKey:        "sk-pi-1",
+			HasAPIKey:     true,
+		}, cfg)
+	})
+
+	t.Run("固定模型时 Mode 是 fixed-model", func(t *testing.T) {
+		setup(t)
+		cfg, err := effectiveLLMForProbe(context.Background(), newProvider(), " mk-fixed ")
+		assert.NoError(t, err)
+		assert.Equal(t, agentruntime.EffectiveModeFixedModel, cfg.Mode)
+		assert.Equal(t, "mk-fixed", cfg.ModelKey)
+		assert.Equal(t, "deepseek-r2", cfg.ModelID)
+		assert.Equal(t, 64000, cfg.ContextWindow)
+		assert.Equal(t, 4096, cfg.MaxOutput)
 	})
 }

@@ -1,19 +1,17 @@
 package chat_svc_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // ── R15 / 任务 12：组织架构页需要「每一档」的可用性，不只是最终派发到哪一档 ──
@@ -30,9 +28,9 @@ func TestListExecTargetAvailability_GivenAllUnavailable_ThenEvaluatesEveryTarget
 		{ID: 14, AgentID: 38, AgentBackendID: 96, SortOrder: 1},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(95)).Return(&agent_backend_entity.AgentBackend{
-		ID: 95, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "13",
+		ID: 95, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: pickTestFingerprint(13),
 	}, nil)
-	m.remoteDevice.EXPECT().Get(ctx, int64(13)).Return(nil, errors.New("not found"))
+	m.pairedDevices()
 	m.backend.EXPECT().Find(ctx, int64(96)).Return(&agent_backend_entity.AgentBackend{
 		ID: 96, Type: string(agent_backend_entity.TypeBuiltin), LLMProviderKey: "missing-key",
 	}, nil)
@@ -91,13 +89,12 @@ func TestListExecTargetAvailability_GivenProjectBound_ThenCarriesEachMachineProj
 		ID: 81, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "",
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(82)).Return(&agent_backend_entity.AgentBackend{
-		ID: 82, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceID: "13",
+		ID: 82, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceFingerprint: pickTestFingerprint(13),
 	}, nil)
 	m.project.EXPECT().Find(ctx, int64(900)).
 		Return(&project_entity.Project{ID: 900, Path: "/Users/me/code/app"}, nil).MinTimes(1)
-	m.remoteDevice.EXPECT().Get(ctx, int64(13)).
-		Return(&remote_device_svc.DeviceView{ID: 13, Online: true}, nil).MinTimes(1)
-	m.projectLocation.EXPECT().FindByProjectAndDevice(ctx, int64(900), "13").
+	m.pairedDevices(pairedDevice(13, true))
+	m.projectLocation.EXPECT().FindByProjectAndFingerprint(ctx, int64(900), pickTestFingerprint(13)).
 		Return(&project_location_entity.ProjectLocation{Path: "/srv/app"}, nil).MinTimes(1)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 41, 900)
@@ -120,11 +117,10 @@ func TestListExecTargetAvailability_GivenUnavailableTarget_ThenStillCarriesProje
 		{ID: 23, AgentID: 42, AgentBackendID: 83, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(83)).Return(&agent_backend_entity.AgentBackend{
-		ID: 83, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceID: "14",
+		ID: 83, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceFingerprint: pickTestFingerprint(14),
 	}, nil)
-	m.remoteDevice.EXPECT().Get(ctx, int64(14)).
-		Return(&remote_device_svc.DeviceView{ID: 14, Online: false}, nil).MinTimes(1)
-	m.projectLocation.EXPECT().FindByProjectAndDevice(ctx, int64(901), "14").
+	m.pairedDevices(pairedDevice(14, false))
+	m.projectLocation.EXPECT().FindByProjectAndFingerprint(ctx, int64(901), pickTestFingerprint(14)).
 		Return(&project_location_entity.ProjectLocation{Path: "/srv/offline-app"}, nil).MinTimes(1)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 42, 901)
@@ -149,13 +145,12 @@ func TestListExecTargetAvailability_GivenNoPathOnThatMachine_ThenProjectPathIsEm
 		ID: 84, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "",
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(85)).Return(&agent_backend_entity.AgentBackend{
-		ID: 85, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceID: "15",
+		ID: 85, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceFingerprint: pickTestFingerprint(15),
 	}, nil)
 	m.project.EXPECT().Find(ctx, int64(902)).
 		Return(&project_entity.Project{ID: 902, LocalPathMissing: true}, nil).MinTimes(1)
-	m.remoteDevice.EXPECT().Get(ctx, int64(15)).
-		Return(&remote_device_svc.DeviceView{ID: 15, Online: true}, nil).MinTimes(1)
-	m.projectLocation.EXPECT().FindByProjectAndDevice(ctx, int64(902), "15").
+	m.pairedDevices(pairedDevice(15, true))
+	m.projectLocation.EXPECT().FindByProjectAndFingerprint(ctx, int64(902), pickTestFingerprint(15)).
 		Return(nil, gorm.ErrRecordNotFound).MinTimes(1)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 43, 902)

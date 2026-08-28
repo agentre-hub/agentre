@@ -2,11 +2,13 @@ package sync_svc
 
 import (
 	"context"
+	"sort"
+	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // 队列与同步元数据这几个仓储在本包的测试里是**有状态的存储**：引擎的行为（折叠、
@@ -40,6 +42,21 @@ func (f *fakeOutboundQueue) Delete(_ context.Context, id int64) error {
 	kept := f.rows[:0]
 	for _, row := range f.rows {
 		if row.ID != id {
+			kept = append(kept, row)
+		}
+	}
+	f.rows = kept
+	return nil
+}
+
+func (f *fakeOutboundQueue) DeleteMany(_ context.Context, ids []int64) error {
+	drop := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		drop[id] = struct{}{}
+	}
+	kept := f.rows[:0]
+	for _, row := range f.rows {
+		if _, ok := drop[row.ID]; !ok {
 			kept = append(kept, row)
 		}
 	}
@@ -152,6 +169,35 @@ func (f *fakeSyncState) ClaimUnowned(_ context.Context, kind string, accountID i
 	return rows, nil
 }
 
+// ResetVersions 清掉某账号名下全部行的版本号（换了一套 server 之后旧序列的版本号
+// 既比不了大小，也会把新序列的快照挡在版本守卫外面）。墓碑标记不动。
+func (f *fakeSyncState) ResetVersions(_ context.Context, kind string, accountID int64) error {
+	for key, meta := range f.meta {
+		if !strings.HasPrefix(key, kind+":") || meta.SyncAccountID != accountID {
+			continue
+		}
+		meta.SyncVersion = 0
+		f.meta[key] = meta
+	}
+	return nil
+}
+
+// ListUnversioned 列出「server 从没给过版本号」的存活行：版本号为 0 且不是墓碑。
+func (f *fakeSyncState) ListUnversioned(_ context.Context, kind string, accountID int64) ([]string, error) {
+	var out []string
+	for key, meta := range f.meta {
+		if !strings.HasPrefix(key, kind+":") || meta.SyncAccountID != accountID {
+			continue
+		}
+		if meta.SyncVersion != 0 || meta.SyncDeletedAt != 0 || meta.SyncID == "" {
+			continue
+		}
+		out = append(out, meta.SyncID)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 func (f *fakeSyncState) key(kind, syncID string) string { return kind + ":" + syncID }
 
 func (f *fakeSyncState) FindLocalID(_ context.Context, kind, syncID string) (int64, error) {
@@ -200,6 +246,14 @@ func (f *fakeSettings) Get(_ context.Context, key string) (*app_setting_entity.A
 func (f *fakeSettings) Set(_ context.Context, s *app_setting_entity.AppSetting) error {
 	f.rows[s.Key] = s
 	return nil
+}
+
+func (f *fakeSettings) Delete(_ context.Context, key string) (int64, error) {
+	if _, ok := f.rows[key]; !ok {
+		return 0, nil
+	}
+	delete(f.rows, key)
+	return 1, nil
 }
 
 func (f *fakeSettings) List(context.Context) ([]*app_setting_entity.AppSetting, error) {

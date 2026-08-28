@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 )
 
 // TokenTarget 是 token 的可变路由目标（spec：ProviderKey + ModelKey）。

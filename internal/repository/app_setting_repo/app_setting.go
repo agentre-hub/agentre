@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
 )
 
 //go:generate mockgen -source app_setting.go -destination mock_app_setting_repo/mock_app_setting.go
@@ -22,6 +22,8 @@ type AppSettingRepo interface {
 	Set(ctx context.Context, s *app_setting_entity.AppSetting) error
 	// List 列出所有设置项；按 key 升序。
 	List(ctx context.Context) ([]*app_setting_entity.AppSetting, error)
+	// Delete 按 key 删除一行，返回被删掉的行数；未命中返回 0 而不是报错。
+	Delete(ctx context.Context, key string) (int64, error)
 }
 
 var defaultAppSetting AppSettingRepo
@@ -62,4 +64,12 @@ func (r *appSettingRepo) List(ctx context.Context) ([]*app_setting_entity.AppSet
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (r *appSettingRepo) Delete(ctx context.Context, key string) (int64, error) {
+	res := db.Ctx(ctx).Where("`key` = ?", key).Delete(&app_setting_entity.AppSetting{})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
 }

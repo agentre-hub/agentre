@@ -1,0 +1,86 @@
+{
+  "org": {
+    "index": {
+      "lead": "Lead · {{name}}",
+      "reportsToInline": "↳ {{name}}",
+      "systemBadge": "System",
+      "noExecTarget": "No target",
+      "toggleGroup": "Toggle {{name}}",
+      "drag": {
+        "agentHandle": "Drag {{name}} (press Space to pick up)",
+        "departmentHandle": "Drag department {{name}} (press Space to pick up)"
+      }
+    },
+    "department": {
+      "departmentMemberCount": "{{count}} members",
+      "topLevel": "Company top level (under CEO)"
+    },
+    "agent": {
+      "reportsTo": "Reports to",
+      "placement": {
+        "label": "Placement",
+        "groupDepartment": "Departments",
+        "groupParent": "Parent agent",
+        "searchPlaceholder": "Search departments or agents…",
+        "searchAria": "Search placement options",
+        "reasonSelf": "An agent can't be its own manager",
+        "reasonCycle": "An agent can't report to its own subordinate",
+        "derivedManager": "changes with the department lead",
+        "systemLocked": "The system agent always stays at the top level",
+        "noMatch": "No match"
+      },
+      "tools": {
+        "title": "Tools",
+        "sectionTitle": "Tools",
+        "empty": "No tools available",
+        "approval": "Approval",
+        "names": {
+          "org": "Org Structure",
+          "subagent": "Call Sub-agent",
+          "hook": "Script Hooks"
+        },
+        "descriptions": {
+          "org": "Query and manage departments and members",
+          "subagent": "Delegate a subtask to another agent",
+          "hook": "Author, dry-run and cron-schedule scripts"
+        },
+        "grantNamed": "Grant {{name}}",
+        "revokeNamed": "Revoke {{name}}",
+        "grantedCount": "{{granted}} / {{total}} granted",
+        "grant": "Grant",
+        "granted": "Granted"
+      },
+      "skills": {
+        "title": "Skills"
+      },
+      "skillsGate": {
+        "title": "No skill overrides on this target",
+        "description": "Per-target skill pack toggles work on Claude Code and Codex only. Other backends keep skills in their own config and Agentre does not manage them — whatever is active there is still callable with / in the composer."
+      },
+      "execTargets": {
+        "dragHandle": "Reorder target (drag, or press the up / down arrow keys)",
+        "keyboardHandle": "Reorder target (press the up / down arrow keys)",
+        "moveUp": "Move target up",
+        "moveDown": "Move target down",
+        "remove": "Remove",
+        "replace": "Replace",
+        "localMachine": "Local machine",
+        "currentlyActive": "Currently active",
+        "online": "Online",
+        "skillsToggle": "Skills for {{machine}}",
+        "reasons": {
+          "orphanBackend": "This execution target's backend no longer exists",
+          "backendRequiresProvider": "An LLM provider must be specified",
+          "providerInactive": "LLM provider is not active",
+          "remoteProviderMissing": "The remote device is missing this LLM provider",
+          "gatewayNotRunning": "Local gateway is not running",
+          "remoteOpenclawUnavailable": "Remote OpenClaw is unavailable",
+          "unknownBackend": "Unknown backend type",
+          "unpaired": "This computer isn't paired with it",
+          "offline": "Offline",
+          "projectPathMissing": "This machine has no configured path for this project"
+        }
+      }
+    }
+  }
+}

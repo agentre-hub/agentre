@@ -14,7 +14,11 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  TooltipProvider,
+  TranscriptRenderContext,
+  TranscriptRowView,
+} from "@agentre-hub/agentre-ui";
 import i18n from "@/i18n";
 
 const appMocks = vi.hoisted(() => ({
@@ -36,12 +40,8 @@ import {
   useProviderPill,
 } from "../model-pill";
 import { recentStorageKey } from "../model-target-picker/recents";
-import {
-  TranscriptRenderContext,
-  TranscriptRowView,
-} from "../transcript-row-view";
 import type { UseProviderPillOptions } from "../model-pill";
-import type { TranscriptRow } from "../transcript-rows";
+import type { TranscriptRow } from "@agentre-hub/agentre-ui";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -109,7 +109,7 @@ function renderSwitchNotice(block: SwitchNotice) {
   render(
     <TooltipProvider>
       <TranscriptRenderContext.Provider
-        value={{ agentName: "Agentre", agentColor: "agent-1", sessionId: 42 }}
+        value={{ agentName: "Agentre", agentAvatar: <span />, sessionId: 42 }}
       >
         <TranscriptRowView
           row={row}

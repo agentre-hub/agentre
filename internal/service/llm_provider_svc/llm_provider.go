@@ -3,7 +3,8 @@
 // 编排规则（全部落在 service 层，仓储只做原子落库）：
 //   - 创建 = 连接配置 + 选中 Models + 默认模型一个业务操作（CreateWithModels 事务）；
 //   - 发现只做人工导入建议，永不自动删改本地模型；
-//   - 默认 / 删除 / 修改被引用 ModelID 前先做引用保护；
+//   - 改默认 / 删除 / 修改被引用 ModelID 前先算引用影响：改默认与删除只要求二次确认，
+//     删除后引用方保持原样并降级为「目标已失效」；
 //   - 启用 Provider 必须已有属于它的启用默认模型；
 //   - 展示 DTO 只带掩码 key，明文 key 只存在于执行侧契约 ResolvedModel。
 package llm_provider_svc
@@ -26,12 +27,15 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/llmcatalog"
-	"github.com/agentre-ai/agentre/internal/pkg/llmurl"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/llmcatalog"
+	"github.com/agentre-hub/agentre/internal/pkg/llmurl"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 // 默认 endpoint。BaseURL 留空时使用。
@@ -83,7 +87,7 @@ type llmProviderSvc struct {
 
 var defaultLLMProvider LLMProviderSvc = &llmProviderSvc{
 	http: &http.Client{Timeout: 15 * time.Second},
-	now:  func() int64 { return time.Now().Unix() },
+	now:  func() int64 { return time.Now().UnixMilli() },
 }
 
 // LLMProvider 取默认服务单例。
@@ -125,6 +129,8 @@ func (s *llmProviderSvc) Create(ctx context.Context, req *CreateProviderRequest)
 		Createtime:  now,
 		Updatetime:  now,
 	}
+	// provider_key is the stable sync identity; never mint a second ID for it.
+	p.SyncMeta = syncmeta_entity.SyncMeta{SyncID: p.ProviderKey}
 	if err := p.Check(ctx); err != nil {
 		return nil, err
 	}
@@ -149,6 +155,7 @@ func (s *llmProviderSvc) Create(ctx context.Context, req *CreateProviderRequest)
 	if err := llm_provider_repo.LLMProvider().CreateWithModels(ctx, p, models, defaultKey); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyCreate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.Create: provider created",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -228,6 +235,7 @@ func (s *llmProviderSvc) Update(ctx context.Context, req *UpdateProviderRequest)
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.Update: provider updated",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -268,6 +276,7 @@ func (s *llmProviderSvc) SetProviderEnabled(ctx context.Context, req *SetProvide
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetProviderEnabled: provider toggled",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -275,7 +284,9 @@ func (s *llmProviderSvc) SetProviderEnabled(ctx context.Context, req *SetProvide
 	return &SetProviderEnabledResponse{Item: toItem(p)}, nil
 }
 
-// Delete 软删除 Provider 及其全部 Models；被 Backend / Session / Route 引用时拒绝。
+// Delete 软删除 Provider 及其全部 Models。被 Backend / Session / Route 引用不阻止删除，
+// 只要求 ConfirmReference=true —— 调用方先看过影响再删；删除后引用方一行不改，由既有的
+// 「目标已失效」语义承接（fixed-model 严格阻止下一轮、provider-default 回退 Agent 绑定）。
 func (s *llmProviderSvc) Delete(ctx context.Context, req *DeleteProviderRequest) (*DeleteProviderResponse, error) {
 	p, err := llm_provider_repo.LLMProvider().Find(ctx, req.ID)
 	if err != nil {
@@ -289,17 +300,22 @@ func (s *llmProviderSvc) Delete(ctx context.Context, req *DeleteProviderRequest)
 	if err != nil {
 		return nil, err
 	}
-	if refs.Backends > 0 || refs.Sessions > 0 || refs.Routes > 0 {
+	referenced := refs.Backends > 0 || refs.Sessions > 0 || refs.Routes > 0
+	if referenced && !req.ConfirmReference {
 		return nil, i18n.NewError(ctx, code.LLMProviderReferenced)
 	}
 
-	// 无引用：Provider 与其 Models 在同一事务内一并软删除（spec 决策 17：不留半批）。
+	// Provider 与其 Models 在同一事务内一并软删除，不留半批。
 	if err := llm_provider_repo.LLMProvider().DeleteWithModels(ctx, p.ID); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyDelete(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.Delete: provider deleted",
 		zap.Int64("id", p.ID),
-		zap.String("providerKey", p.ProviderKey))
+		zap.String("providerKey", p.ProviderKey),
+		zap.Int64("refBackends", refs.Backends),
+		zap.Int64("refSessions", refs.Sessions),
+		zap.Int64("refRoutes", refs.Routes))
 	return &DeleteProviderResponse{}, nil
 }
 
@@ -398,6 +414,7 @@ func (s *llmProviderSvc) ImportModels(ctx context.Context, req *ImportModelsRequ
 	for _, row := range all {
 		items = append(items, toModelItem(row, p))
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.ImportModels: models imported",
 		zap.Int64("providerID", p.ID),
 		zap.Int("imported", len(toImport)),
@@ -467,11 +484,27 @@ func (s *llmProviderSvc) UpdateModel(ctx context.Context, req *UpdateModelReques
 	if err := llm_provider_repo.LLMProvider().UpdateModel(ctx, m); err != nil {
 		return nil, err
 	}
+	s.notifyProviderUpdate(ctx, m.ProviderID)
 	logger.Ctx(ctx).Info("llmProviderSvc.UpdateModel: model updated",
 		zap.Int64("id", m.ID),
 		zap.String("modelKey", m.ModelKey),
 		zap.String("modelId", m.ModelID))
 	return &UpdateModelResponse{Item: toModelItem(m, nil)}, nil
+}
+
+// notifyProviderUpdate turns a nested model mutation into its parent provider
+// sync event. Service tests leave sync unassembled, so no needless parent read
+// occurs outside the real synchronization boundary.
+func (s *llmProviderSvc) notifyProviderUpdate(ctx context.Context, providerID int64) {
+	if !sync_svc.Active() {
+		return
+	}
+	provider, err := llm_provider_repo.LLMProvider().Find(ctx, providerID)
+	if err != nil || provider == nil {
+		logger.Ctx(ctx).Warn("llmProviderSvc.notifyProviderUpdate: provider unavailable after model mutation", zap.Int64("providerId", providerID), zap.Error(err))
+		return
+	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, provider.ID, provider.SyncMeta)
 }
 
 // SetModelDefault 把某 Provider 的一个启用模型设为默认，并顺带启用 Provider。
@@ -503,6 +536,7 @@ func (s *llmProviderSvc) SetModelDefault(ctx context.Context, req *SetModelDefau
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetModelDefault: default model set",
 		zap.Int64("id", p.ID),
 		zap.String("providerKey", p.ProviderKey),
@@ -539,6 +573,7 @@ func (s *llmProviderSvc) SetModelEnabled(ctx context.Context, req *SetModelEnabl
 	if err := llm_provider_repo.LLMProvider().UpdateModel(ctx, m); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.SetModelEnabled: model toggled",
 		zap.Int64("id", m.ID),
 		zap.String("modelKey", m.ModelKey),
@@ -546,7 +581,9 @@ func (s *llmProviderSvc) SetModelEnabled(ctx context.Context, req *SetModelEnabl
 	return &SetModelEnabledResponse{Item: toModelItem(m, p)}, nil
 }
 
-// DeleteModel 软删除一个模型；默认模型或被 Backend / Session / Route 引用时拒绝。
+// DeleteModel 软删除一个模型。默认模型始终拒绝（Provider 自身不变量：删了它，该 Provider
+// 下所有 provider-default 目标都解析不出模型）；被 Backend / Session / Route 引用不阻止删除，
+// 只要求 ConfirmReference=true。
 func (s *llmProviderSvc) DeleteModel(ctx context.Context, req *DeleteModelRequest) (*DeleteModelResponse, error) {
 	m, err := llm_provider_repo.LLMProvider().FindModel(ctx, req.ID)
 	if err != nil {
@@ -569,15 +606,20 @@ func (s *llmProviderSvc) DeleteModel(ctx context.Context, req *DeleteModelReques
 	if err != nil {
 		return nil, err
 	}
-	if refs.Backends > 0 || refs.Sessions > 0 || refs.Routes > 0 {
+	referenced := refs.Backends > 0 || refs.Sessions > 0 || refs.Routes > 0
+	if referenced && !req.ConfirmReference {
 		return nil, i18n.NewError(ctx, code.LLMProviderModelReferenced)
 	}
 	if err := llm_provider_repo.LLMProvider().DeleteModel(ctx, m.ID); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	logger.Ctx(ctx).Info("llmProviderSvc.DeleteModel: model deleted",
 		zap.Int64("id", m.ID),
-		zap.String("modelKey", m.ModelKey))
+		zap.String("modelKey", m.ModelKey),
+		zap.Int64("refBackends", refs.Backends),
+		zap.Int64("refSessions", refs.Sessions),
+		zap.Int64("refRoutes", refs.Routes))
 	return &DeleteModelResponse{}, nil
 }
 

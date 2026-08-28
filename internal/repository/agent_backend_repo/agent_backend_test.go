@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 )
 
 // setupAgentBackendRepoTest 起一个 sqlmock 数据库，返回 ctx / mock / repo。
@@ -105,6 +105,38 @@ func TestAgentBackendRepo_Find(t *testing.T) {
 	})
 }
 
+// TestAgentBackendRepo_ExistsByName 回归 Problem 19 / 决策 25:扫描创建的撞名判据
+// 只看 ACTIVE 行(FindByName),导致「扫描建 → 被删 → 再扫描建」每轮都留一条新墓碑。
+// ExistsByName 判据改成「同名行存在即为真,无论其状态」,ScanAndCreateAgentBackends
+// 用它在真正 Create 之前先行拦截同名墓碑。
+func TestAgentBackendRepo_ExistsByName(t *testing.T) {
+	convey.Convey("ExistsByName", t, func() {
+		ctx, mock, repo := setupAgentBackendRepoTest(t)
+
+		convey.Convey("同名墓碑存在时也算命中,不看 status", func() {
+			mock.ExpectQuery("SELECT count\\(\\*\\) FROM `agent_backends` WHERE name = \\?").
+				WithArgs("Claude Code CLI").
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+			got, err := repo.ExistsByName(ctx, "Claude Code CLI")
+			assert.NoError(t, err)
+			assert.True(t, got)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+
+		convey.Convey("任何状态下都没有同名行时返回 false", func() {
+			mock.ExpectQuery("SELECT count\\(\\*\\) FROM `agent_backends` WHERE name = \\?").
+				WithArgs("Codex CLI").
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+			got, err := repo.ExistsByName(ctx, "Codex CLI")
+			assert.NoError(t, err)
+			assert.False(t, got)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	})
+}
+
 func TestAgentBackendRepo_FindByName(t *testing.T) {
 	convey.Convey("FindByName", t, func() {
 		ctx, mock, repo := setupAgentBackendRepoTest(t)
@@ -174,10 +206,13 @@ func TestAgentBackendRepo_Delete(t *testing.T) {
 	convey.Convey("Delete", t, func() {
 		ctx, mock, repo := setupAgentBackendRepoTest(t)
 
-		convey.Convey("软删除：UPDATE status=DELETE WHERE id=?", func() {
+		convey.Convey("软删除：UPDATE status=DELETE,updatetime=now WHERE id=?", func() {
+			// updatetime 必须跟着软删一起写:决策 24 的墓碑回收要按"距被软删多久"
+			// 判定保留期,Delete 不落这个时间戳,回收就无从知道一条墓碑是刚产生的
+			// 还是躺了很久——软删前最后一次合法更新的旧 updatetime 不能代表这个。
 			mock.ExpectBegin()
-			mock.ExpectExec("UPDATE `agent_backends` SET `status`=\\?(,`updatetime`=\\?)? WHERE id = \\?").
-				WithArgs(consts.DELETE, int64(5)).
+			mock.ExpectExec("UPDATE `agent_backends` SET `status`=\\?,`updatetime`=\\? WHERE id = \\?").
+				WithArgs(consts.DELETE, sqlmock.AnyArg(), int64(5)).
 				WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectCommit()
 
@@ -187,8 +222,8 @@ func TestAgentBackendRepo_Delete(t *testing.T) {
 
 		convey.Convey("驱动报错时透传并回滚", func() {
 			mock.ExpectBegin()
-			mock.ExpectExec("UPDATE `agent_backends` SET `status`=\\? WHERE id = \\?").
-				WithArgs(consts.DELETE, int64(5)).
+			mock.ExpectExec("UPDATE `agent_backends` SET `status`=\\?,`updatetime`=\\? WHERE id = \\?").
+				WithArgs(consts.DELETE, sqlmock.AnyArg(), int64(5)).
 				WillReturnError(errors.New("write failed"))
 			mock.ExpectRollback()
 
@@ -202,9 +237,9 @@ func TestAgentBackendRepo_Delete(t *testing.T) {
 func TestAgentBackendRepo_ClaimRelative_ClonesTargetsAndTombstonesOriginals(t *testing.T) {
 	ctx, mock, repo := setupAgentBackendRepoTest(t)
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT \\* FROM `agent_backends` WHERE device_id = \\? AND status = \\? ORDER BY id ASC").
+	mock.ExpectQuery("SELECT \\* FROM `agent_backends` WHERE device_fingerprint = \\? AND status = \\? ORDER BY id ASC").
 		WithArgs("", consts.ACTIVE).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "name", "device_id", "status", "sync_id", "sync_account_id"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "name", "device_fingerprint", "status", "sync_id", "sync_account_id"}).
 			AddRow(int64(1), "claudecode", "Local Claude", "", consts.ACTIVE, "backend-old", int64(7)))
 	mock.ExpectQuery("SELECT \\* FROM `agent_exec_targets` WHERE agent_backend_id = \\? ORDER BY agent_id ASC, sort_order ASC, id ASC").
 		WithArgs(int64(1)).
@@ -219,7 +254,7 @@ func TestAgentBackendRepo_ClaimRelative_ClonesTargetsAndTombstonesOriginals(t *t
 	claims, err := repo.ClaimRelative(ctx, "sha256:desktop-a")
 	require.NoError(t, err)
 	require.Len(t, claims, 1)
-	assert.Equal(t, "sha256:desktop-a", claims[0].ClaimedBackend.DeviceID)
+	assert.Equal(t, "sha256:desktop-a", claims[0].ClaimedBackend.DeviceFingerprint)
 	assert.Equal(t, int64(2), claims[0].ClaimedBackend.ID)
 	require.Len(t, claims[0].ClaimedTargets, 1)
 	assert.Equal(t, int64(2), claims[0].ClaimedTargets[0].AgentBackendID)
@@ -247,4 +282,69 @@ func TestAgentBackendRepo_Update(t *testing.T) {
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
 	})
+}
+
+// TestAgentBackendRepo_ListTombstonesOlderThan 回归决策 24 回收判据的前一半:
+// 「墓碑 AND updatetime 早于 cutoff」。ACTIVE 行与 updatetime 落在 cutoff 之后的
+// 墓碑都不该出现在结果里。
+func TestAgentBackendRepo_ListTombstonesOlderThan(t *testing.T) {
+	ctx, mock, repo := setupAgentBackendRepoTest(t)
+
+	rows := sqlmock.NewRows([]string{"id", "type", "name", "status", "updatetime"}).
+		AddRow(int64(1), "claudecode", "Claude Code CLI", consts.DELETE, int64(1000))
+	mock.ExpectQuery("SELECT \\* FROM `agent_backends` WHERE status = \\? AND updatetime < \\? ORDER BY id ASC").
+		WithArgs(consts.DELETE, int64(5000)).
+		WillReturnRows(rows)
+
+	got, err := repo.ListTombstonesOlderThan(ctx, 5000)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(1), got[0].ID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestAgentBackendRepo_ListExecTargetBackendRefs 回归决策 24:回收判据与巡检都要
+// 知道"这个 backend id 有没有被任何执行目标提到过"。
+func TestAgentBackendRepo_ListExecTargetBackendRefs(t *testing.T) {
+	ctx, mock, repo := setupAgentBackendRepoTest(t)
+
+	rows := sqlmock.NewRows([]string{"id", "agent_backend_id"}).
+		AddRow(int64(3), int64(51))
+	mock.ExpectQuery("SELECT id, agent_backend_id FROM `agent_exec_targets` WHERE agent_backend_id > \\?").
+		WithArgs(int64(0)).
+		WillReturnRows(rows)
+
+	got, err := repo.ListExecTargetBackendRefs(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(3), got[0].ExecTargetID)
+	assert.Equal(t, int64(51), got[0].AgentBackendID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestAgentBackendRepo_PurgeTombstones 回归决策 24:回收 = 物理删除，且防御性地
+// 只删 status = DELETE 的行。
+func TestAgentBackendRepo_PurgeTombstones(t *testing.T) {
+	ctx, mock, repo := setupAgentBackendRepoTest(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `agent_backends` WHERE id IN \\(\\?,\\?\\) AND status = \\?").
+		WithArgs(int64(1), int64(2), consts.DELETE).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	n, err := repo.PurgeTombstones(ctx, []int64{1, 2})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestAgentBackendRepo_PurgeTombstones_EmptyIsNoop 空 id 集合不发起任何 SQL。
+func TestAgentBackendRepo_PurgeTombstones_EmptyIsNoop(t *testing.T) {
+	ctx, mock, repo := setupAgentBackendRepoTest(t)
+
+	n, err := repo.PurgeTombstones(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

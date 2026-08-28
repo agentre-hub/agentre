@@ -1,0 +1,525 @@
+/* Agentre 跨端 design tokens —— 桌面端与 agentre-server 共用的唯一一份。
+   宿主侧只需 `@import "@agentre-hub/agentre-ui/tokens.css";`（放在
+   `@import "tailwindcss";` 之后），token / dark 变体 / 对话流依赖的
+   keyframes 与 mention chip 样式一并到位。
+   宿主自己的 base / utilities 层（滚动条、user-select 等）留在宿主。 */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.5rem;
+
+  /* Surfaces — neutral zinc whites, pure white cards float on bg */
+  --background: #fafafa;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --rail: #e4e4e7;
+
+  /* Brand — steel-blue, muted cool tone distinct from the bright agent blues */
+  --primary: #3b6896;
+  --primary-foreground: #ffffff;
+  --primary-soft: #eef4fa;
+  --primary-text: #3b6896;
+  --ring: #3b6896;
+
+  /* Semantic surfaces & text hierarchy */
+  --secondary: #f4f4f5;
+  --secondary-foreground: #3f3f46;
+  --muted: #f4f4f5;
+  /* 弱化正文。取值由它落到的**最暗**表面决定：亮色是 --rail #e4e4e7（状态栏、
+     窗口控制按钮的标签都在那上面），#71717a 在那里只有 3.81。#65656d 让它在
+     rail 上 4.55、secondary / code-surface 上 5.26、card 上 5.78。
+     由 src/tokens.test.ts 的 TEXT_SURFACES 表逐面把关。 */
+  --muted-foreground: #65656d;
+  /* 纯装饰字形——分隔点、行号、aria-hidden 的伴随图标。**它永远不该承载信息**：
+     对 card 只有 2.56 / 2.48，两个主题都够不到 3:1。它此前的名字读起来像
+     「更弱的正文色」，于是 97 处元信息标签顺手用了它（2026-08-19 审计）。
+     改名就是为了让下一个写时间戳的人停一下。 */
+  --decorative-foreground: #a1a1aa;
+  /* Interaction feedback (hover / selected fills) on the content surfaces —
+     deliberately NOT equal to any resting surface. It used to be #f4f4f5, i.e.
+     the same byte as --secondary, --muted and --sidebar, so all 86
+     `hover:bg-accent` call sites rendered at 1.00:1 on those surfaces.
+     1.32 on --card/--popover, 1.26 on --background, 1.20 on --secondary.
+     Hover on the window chrome bands uses --rail-accent instead: --rail is
+     #e4e4e7, far darker than any content surface, and one value cannot serve
+     both (a fill dark enough to read on white is invisible on the rail).
+     Guarded by src/tokens.test.ts. */
+  --accent: #e0e0e3;
+  --accent-foreground: #18181b;
+  /* Hover / focus feedback on the window chrome bands (title bar, icon rail,
+     status bar — everything on --rail). Lighter rather than darker: the rail is
+     the recessed tier, so hovering lifts, matching --sidebar-active-bg. 1.19 on
+     --rail. */
+  --rail-accent: #f7f7f8;
+
+  /* Border / Input */
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  /* Field edges (input / textarea / select / outline button). Split off from
+     --border so a divider can stay quiet while a field edge stays legible.
+     Target here is "clearly visible", not WCAG's 3:1 — these controls carry
+     their own fill and text, so the border is a supporting cue. Controls whose
+     border IS the control use --control-border below. */
+  --input: #cbcbd0;
+  --input-bg: #ffffff;
+  /* Control boundary — for controls whose outline IS the whole control
+     (unchecked checkbox has no fill: lose the border and the control is gone).
+     Deliberately NOT --border/--input: those are quiet dividers/field edges and
+     sit at ~1.1:1 against every surface. This one is picked to clear WCAG 2.2
+     §1.4.11's 3:1 on the worst surface a control lands on (--secondary):
+     3.12 there, 3.43 on --card. */
+  --control-border: #8a8a91;
+
+  /* Sidebar — zinc-100 base with white active items */
+  --sidebar: #f4f4f5;
+  --sidebar-foreground: #18181b;
+  --sidebar-primary: #3b6896;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f4f4f5;
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-active-bg: #ffffff;
+  /* Selected row in the session index. Deliberately NOT --primary-soft: that one is
+     the brand INFO surface (rail active button, info toast), tuned to sit lightly on
+     a white card — landing on --sidebar it is 1.01, i.e. weaker than the 1.10 hover
+     right next to it, so "the row I picked" read fainter than "the row my cursor
+     happens to be over". This value goes the other way instead: hover lifts toward
+     white, selection sinks into a tint. 1.17 on --sidebar, 1.28 against the hover
+     fill. It cannot go darker while --muted-foreground stays #65656d — the time-axis
+     row's second line rides on this surface and needs 4.5 (it has 4.51 here).
+     Guarded by src/tokens.test.ts. */
+  --sidebar-selected-bg: #d7e5f3;
+  /* Muted text ON the selected fill (the time-axis row's two-line second line).
+     Same reason --status-*-text exists: change the surface underneath and the muted
+     role needs its own value. --muted-foreground #65656d only has 4.51 here, and in
+     dark it cannot work at all — see the .dark note. 4.94 on --sidebar-selected-bg. */
+  --sidebar-selected-muted: #5f5f67;
+  --sidebar-border: #e4e4e7;
+  --sidebar-icon: #71717a;
+  --sidebar-icon-active: #3b6896;
+  --sidebar-ring: #3b6896;
+
+  /* Status — three roles per state, do not mix them up:
+       --status-X             saturated fill: dots, solid badges, progress
+       --status-X-bg          soft tinted pill background
+       --status-X-foreground  text sitting ON the saturated fill
+       --status-X-text        the state rendered AS text (on --status-X-bg or a card)
+     The last one exists because the saturated fill is unreadable as text in light:
+     #10b981 on its own pill is 2.41, #f59e0b is 2.07. Guarded by src/tokens.test.ts. */
+  --status-running: #10b981;
+  --status-running-foreground: #ffffff;
+  --status-running-bg: #ecfdf5;
+  --status-running-text: #047857;
+  --status-waiting: #f59e0b;
+  /* Deep brown on the bright amber fill. Both themes keep a bright amber, so the
+     same value reads on either — hence no .dark override. */
+  --status-waiting-foreground: #402b06;
+  --status-waiting-bg: #fffbeb;
+  --status-waiting-text: #b45309;
+  --status-idle: #a1a1aa;
+  --status-error: #dc2626;
+
+  /* Destructive */
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #fef2f2;
+  /* Same split as --status-*-text: the saturated fill is unreadable AS TEXT on
+     its own soft wash (#dc2626 on #fef2f2 is 4.41). Use --destructive for fills,
+     dots and icon marks; use this one whenever red is the text itself. */
+  --destructive-text: #b91c1c;
+
+  /* The initial glyph on a project / agent avatar. The fill underneath comes from
+     the --agent-1…16 palette; the letter is white on every one of them, in both
+     themes — so this is theme-invariant and has no .dark override. */
+  --agent-foreground: #ffffff;
+
+  /* Elevation for detached overlays (Dialog / Sheet) and the scrim behind them.
+     Named --overlay-shadow rather than --shadow-overlay because Tailwind v4's
+     shadow namespace IS --shadow-*: same name would make the @theme mapping
+     self-referential. Same reason for --overlay-scrim. */
+  --overlay-shadow:
+    0 24px 64px -12px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --overlay-scrim: rgba(15, 23, 42, 0.4);
+
+  /* Code / console surfaces — monospace output (hook logs, command output).
+     Light-adaptive: a light code surface in light theme, deep console near-black in dark. */
+  --code-surface: #f4f4f5;
+  --code-foreground: #3f3f46;
+  --code-muted-foreground: #65656d;
+
+  /* Agent palette — 600-700 saturated shades hold up on light bg.
+     agent-3 sky / agent-6 cyan avoid clash with status-running & primary teal. */
+  --agent-1: #2563eb;
+  --agent-2: #7c3aed;
+  --agent-3: #0284c7;
+  --agent-4: #e11d48;
+  --agent-5: #d97706;
+  --agent-6: #0891b2;
+  --agent-7: #c026d3;
+  --agent-8: #65a30d;
+  --agent-9: #4f46e5;
+  --agent-10: #ea580c;
+  --agent-11: #059669;
+  --agent-12: #0d9488;
+  --agent-13: #db2777;
+  --agent-14: #ca8a04;
+  --agent-15: #64748b;
+  --agent-16: #9333ea;
+  /* The 17th slot of AgentColor: "no identity color". It is an ink, not a hue,
+     so it has no .dark override — the glyph on top is --agent-foreground white
+     in both themes, and lightening the fill for dark mode would sink it. */
+  --agent-neutral: #525252;
+
+  /* Label tones — the two hues in the issue-label vocabulary that have no
+     semantic family to borrow from. The other eight tones reuse destructive /
+     primary / status / secondary; these two exist only to keep ten labels
+     apart. They are NOT the --agent-1…16 identity palette: that one is built for
+     `bg-agent-N` + white glyph, and half of it misses 4.5 as text on a card —
+     `text-agent-1` on a 10% tint was 4.49 light. Soft fill + text role, like
+     every sibling tone. The fills reproduce what agent-1/2 at 10% used to render
+     on a card, so the chips look unchanged but no longer shift with the surface
+     under them. Guarded by src/components/agentre/__tests__/issue-tones.test.ts. */
+  --tone-blue-bg: #e9effd;
+  --tone-blue-text: #1d4ed8;
+  --tone-violet-bg: #f2ebfd;
+  --tone-violet-text: #6d28d9;
+
+  /* File identity — 8 semantic hues for Logo/glyph color in a transparent 17px
+     alignment slot. Light uses saturated 500-600 shades for readable marks;
+     glyph shape always provides the second, non-color cue. */
+  --file-blue: #2563eb;
+  --file-yellow: #ca8a04;
+  --file-cyan: #0891b2;
+  --file-purple: #7c3aed;
+  --file-orange: #ea580c;
+  --file-green: #16a34a;
+  --file-red: #dc2626;
+  --file-neutral: #71717a;
+
+  /* macOS traffic light */
+  --traffic-close: #ff5f57;
+  --traffic-minimize: #febc2e;
+  --traffic-zoom: #28c840;
+
+  /* Charts */
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+}
+
+.dark {
+  /* Surfaces — neutral cool gray, 5-level elevation: rail < sidebar < bg < card < popover */
+  --background: #17191c;
+  --foreground: #e6e8eb;
+  --card: #1d2025;
+  --card-foreground: #e6e8eb;
+  --popover: #262931;
+  --popover-foreground: #e6e8eb;
+  --rail: #0a0b0d;
+
+  /* Brand — steel-blue, muted cool tone distinct from the bright agent blues */
+  --primary: #5b8dbf;
+  --primary-foreground: #0a1420;
+  --primary-soft: #1a2738;
+  --primary-text: #8eb6dc;
+  --ring: #5b8dbf;
+
+  /* Semantic surfaces & text hierarchy */
+  --secondary: #262931;
+  --secondary-foreground: #c4c7cd;
+  --muted: #1d2025;
+  /* 暗色最暗的落点是 --popover #262931（下拉里的分组标题），#8a8d94 在那里 4.38。 */
+  --muted-foreground: #909399;
+  --decorative-foreground: #5a5d64;
+  --accent: #383d47;
+  --accent-foreground: #e6e8eb;
+  /* 1.27 on the dark --rail #0a0b0d. */
+  --rail-accent: #212429;
+
+  /* Border / Input */
+  --border: #2a2d34;
+  --border-strong: #3a3e47;
+  /* Field edges — see :root. 1.99 on --card, 1.77 on --secondary. */
+  --input: #4a4f59;
+  --input-bg: #17191c;
+  /* 3.14 on --secondary #262931, 3.53 on --card. Sits between --status-idle
+     #6a6d74 and --muted-foreground #8a8d94 on the existing neutral ladder. */
+  --control-border: #70757f;
+
+  /* Sidebar — deepest level, with elevated active items */
+  --sidebar: #111316;
+  --sidebar-foreground: #e6e8eb;
+  --sidebar-primary: #5b8dbf;
+  --sidebar-primary-foreground: #0a1420;
+  --sidebar-accent: #262931;
+  --sidebar-accent-foreground: #e6e8eb;
+  --sidebar-active-bg: #262931;
+  /* See :root. Dark has more room: 1.75 on --sidebar, 1.37 against the hover fill. */
+  --sidebar-selected-bg: #27405c;
+  /* Dark is where this token becomes unavoidable rather than merely tidy:
+     --muted-foreground #909399 clears 4.5 only on fills at or below luminance
+     0.0258, while beating the hover fill needs luminance above 0.0222 — a window
+     of "1.28-1.33 against --sidebar", i.e. a selected row indistinguishable from a
+     hovered one. Freeing the muted role frees the fill. 4.72 on the fill, and still
+     1.9x dimmer than --foreground, so it still reads as the quiet line. */
+  --sidebar-selected-muted: #a8adb7;
+  --sidebar-border: #2a2d34;
+  --sidebar-icon: #8a8d94;
+  --sidebar-icon-active: #5b8dbf;
+  --sidebar-ring: #5b8dbf;
+
+  /* Status */
+  --status-running: #34d399;
+  --status-running-foreground: #04140c;
+  --status-running-bg: #0f2218;
+  /* Already clears the bar on dark surfaces (8.65 on its pill, 8.50 on --card),
+     so the text role reuses the fill value here. The split matters in light. */
+  --status-running-text: #34d399;
+  --status-waiting: #fbbf24;
+  --status-waiting-bg: #261d0d;
+  --status-waiting-text: #fbbf24;
+  --status-idle: #6a6d74;
+  --status-error: #f87171;
+
+  /* Destructive */
+  --destructive: #f87171;
+  --destructive-foreground: #fafafa;
+  --destructive-soft: #2a1414;
+  /* Dark already clears the bar on the soft wash (6.28), so the text role reuses
+     the fill value here. The split matters in light. */
+  --destructive-text: #f87171;
+
+  /* Dark needs a heavier drop shadow to read as a layer, and a light hairline
+     instead of a dark one. */
+  --overlay-shadow:
+    0 24px 64px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --overlay-scrim: rgba(0, 0, 0, 0.7);
+
+  /* Code / console surfaces */
+  --code-surface: #121418;
+  --code-foreground: #e6e8eb;
+  --code-muted-foreground: #9aa0ab;
+
+  /* Agent palette — 300-400 light shades for dark bg.
+     agent-3 sky / agent-6 cyan avoid clash with status-running & primary teal. */
+  --agent-1: #60a5fa;
+  --agent-2: #a78bfa;
+  --agent-3: #38bdf8;
+  --agent-4: #fb7185;
+  --agent-5: #fbbf24;
+  --agent-6: #22d3ee;
+  --agent-7: #e879f9;
+  --agent-8: #a3e635;
+  --agent-9: #818cf8;
+  --agent-10: #fdba74;
+  --agent-11: #34d399;
+  --agent-12: #2dd4bf;
+  --agent-13: #f472b6;
+  --agent-14: #fde047;
+  --agent-15: #94a3b8;
+  --agent-16: #c084fc;
+
+  /* Label tones — see :root. Fills mirror the old agent-N/10 tint over --card. */
+  --tone-blue-bg: #242d3a;
+  --tone-blue-text: #60a5fa;
+  --tone-violet-bg: #2b2b3a;
+  --tone-violet-text: #a78bfa;
+
+  /* File identity glyph colors — lighter 400 shades for dark surfaces
+     (mirrors the agent palette light/dark split). */
+  --file-blue: #60a5fa;
+  --file-yellow: #facc15;
+  --file-cyan: #22d3ee;
+  --file-purple: #a78bfa;
+  --file-orange: #fb923c;
+  --file-green: #4ade80;
+  --file-red: #f87171;
+  --file-neutral: #8a8d94;
+
+  /* Charts */
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+}
+
+@theme inline {
+  /* System UI fonts per platform — macOS uses SF Pro + PingFang SC,
+     Windows uses Segoe UI + Microsoft YaHei, Linux falls back to
+     Roboto / Noto Sans SC. Emoji families pinned so status badges
+     don't drop emoji on systems with sparse fallback chains. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", Roboto,
+    "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol";
+  --font-mono:
+    ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", Consolas,
+    "Liberation Mono", "Courier New", "PingFang SC", "Microsoft YaHei",
+    monospace;
+  /* Extra-small step below Tailwind's text-xs (12px) for dense
+     metadata (chips, timestamps, line numbers). Tailwind v4 picks
+     this up via the --text-* token convention → utility `text-2xs`. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  /* 再往下一档（10px）。两端加起来近 60 处在用它 —— 徽标、时间戳、行号、
+     移动端底栏的标签 —— 却是唯一一档完全没有 token 的尺寸，于是全部写成
+     text-[10px] 绕开阶梯。行高按 text-2xs 的 1rem/0.6875rem ≈ 1.45 同密度换算
+     后落在 0.125rem 网格上。 */
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: 0.875rem;
+  /* 对话流排版阶梯 —— 4 级,替代此前散落的 9/10/11/12/13/14/15/16 八级。
+     命名避开 secondary / muted 等已被 --color-* 占用的词:否则 text-secondary
+     会同时是字号和文字颜色,产生歧义。 */
+  --text-prose: 0.9375rem;
+  --text-prose--line-height: 1.7;
+  --text-aux: 0.8125rem;
+  --text-aux--line-height: 1.65;
+  --text-meta: 0.75rem;
+  --text-meta--line-height: 1.25rem;
+  /* 对话流正文栏宽的上限,现在是「不封顶」:正文、工具卡与输入框一律吃满面板
+     可用宽度,宽窗口里不再留一条与内容无关的右侧空带。此前是 45rem,任何常见
+     窗口都顶得到,读起来就是写死的 720px。
+     token 留着不删:所有 max-w-measure 因此仍共用同一个开关,要把栏宽重新封顶
+     (或按端分档)只改这一行。
+     --container-* 是 Tailwind v4 的 max-w/w 命名空间 → 工具类 max-w-measure。 */
+  --container-measure: none;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-text: var(--primary-text);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-decorative-foreground: var(--decorative-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-rail-accent: var(--rail-accent);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-text: var(--destructive-text);
+  --color-code-surface: var(--code-surface);
+  --color-code-foreground: var(--code-foreground);
+  --color-code-muted-foreground: var(--code-muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-input-bg: var(--input-bg);
+  --color-control-border: var(--control-border);
+  --color-ring: var(--ring);
+  --color-rail: var(--rail);
+  --color-agent-1: var(--agent-1);
+  --color-agent-2: var(--agent-2);
+  --color-agent-3: var(--agent-3);
+  --color-agent-4: var(--agent-4);
+  --color-agent-5: var(--agent-5);
+  --color-agent-6: var(--agent-6);
+  --color-agent-7: var(--agent-7);
+  --color-agent-8: var(--agent-8);
+  --color-agent-9: var(--agent-9);
+  --color-agent-10: var(--agent-10);
+  --color-agent-11: var(--agent-11);
+  --color-agent-12: var(--agent-12);
+  --color-agent-13: var(--agent-13);
+  --color-agent-14: var(--agent-14);
+  --color-agent-15: var(--agent-15);
+  --color-agent-16: var(--agent-16);
+  --color-agent-neutral: var(--agent-neutral);
+  --color-tone-blue-bg: var(--tone-blue-bg);
+  --color-tone-blue-text: var(--tone-blue-text);
+  --color-tone-violet-bg: var(--tone-violet-bg);
+  --color-tone-violet-text: var(--tone-violet-text);
+  --color-file-blue: var(--file-blue);
+  --color-file-yellow: var(--file-yellow);
+  --color-file-cyan: var(--file-cyan);
+  --color-file-purple: var(--file-purple);
+  --color-file-orange: var(--file-orange);
+  --color-file-green: var(--file-green);
+  --color-file-red: var(--file-red);
+  --color-file-neutral: var(--file-neutral);
+  --color-status-running: var(--status-running);
+  --color-status-running-foreground: var(--status-running-foreground);
+  --color-status-running-bg: var(--status-running-bg);
+  --color-status-running-text: var(--status-running-text);
+  --color-status-waiting: var(--status-waiting);
+  --color-status-waiting-foreground: var(--status-waiting-foreground);
+  --color-status-waiting-bg: var(--status-waiting-bg);
+  --color-status-waiting-text: var(--status-waiting-text);
+  --color-status-idle: var(--status-idle);
+  --color-status-error: var(--status-error);
+  --color-agent-foreground: var(--agent-foreground);
+  /* Root token is --overlay-*, alias is --shadow-* / --color-scrim: see the
+     naming note in :root. Utilities generated: shadow-overlay, bg-scrim. */
+  --shadow-overlay: var(--overlay-shadow);
+  --color-scrim: var(--overlay-scrim);
+  --color-traffic-close: var(--traffic-close);
+  --color-traffic-minimize: var(--traffic-minimize);
+  --color-traffic-zoom: var(--traffic-zoom);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-active-bg: var(--sidebar-active-bg);
+  --color-sidebar-selected-bg: var(--sidebar-selected-bg);
+  --color-sidebar-selected-muted: var(--sidebar-selected-muted);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-icon: var(--sidebar-icon);
+  --color-sidebar-icon-active: var(--sidebar-icon-active);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --animate-typing-dot: typing-dot 1.2s ease-in-out infinite;
+  /* 断连指示器:同一 keyframe、同一曲线,周期慢一倍。"网络在等" 与 "agent 在想"
+     因此一眼可分,而不必再造一套动效或第五个状态色。 */
+  --animate-typing-dot-slow: typing-dot 2.4s ease-in-out infinite;
+}
+
+/* Typing 指示器三点跳动。chat.tsx 的 TypingIndicator 用 Tailwind arbitrary value 引用。 */
+@keyframes typing-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* @ mention chip, shared by the composer (rendered by the TipTap mention node)
+   and the transcript's MentionChip button. */
+.agentre-mention {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.375rem;
+  padding: 0 0.25rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--mention-color, var(--foreground));
+  background-color: color-mix(in oklab, var(--mention-color, var(--muted)) 15%, transparent);
+}

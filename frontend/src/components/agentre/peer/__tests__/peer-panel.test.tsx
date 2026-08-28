@@ -30,7 +30,7 @@ import {
   peerKeyOf,
   usePeerSessionsStore,
 } from "../../../../stores/peer-session-store";
-import { createPeerTranscript } from "../peer-transcript";
+import { createPeerTranscript, reducePeerEvent } from "../peer-transcript";
 
 const mockPerm = PeerSubmitToolPermission as unknown as ReturnType<
   typeof vi.fn
@@ -97,7 +97,6 @@ describe("PeerPanel", () => {
                 kind: "permission",
                 requestId: "p-1",
                 toolName: "Bash",
-                toolCallId: "t1",
               },
             ],
           },
@@ -153,7 +152,6 @@ describe("PeerPanel", () => {
                 kind: "permission",
                 requestId: "p-1",
                 toolName: "Bash",
-                toolCallId: "t1",
                 resolved: true,
                 allowed: true,
               },
@@ -176,5 +174,61 @@ describe("PeerPanel", () => {
 
     expect(screen.getByTestId("peer-permission-handled")).toBeTruthy();
     expect(screen.queryByText("Allow")).toBeNull();
+  });
+
+  // Given 归约器现在产出 plan / notice 这些 Peer Tab 从前一律落 raw 的块;When 面板把它们
+  // 喂给 ChatTranscript;Then 转录**真的画得出来**。此前那些块渲染成一行
+  // `(debug) unimplemented block type: raw`,载荷不可见 —— 光看归约结果看不出这件事,
+  // 所以这条断言落在渲染出来的文字上。
+  it("renders the block kinds the peer tab previously downgraded to raw", async () => {
+    const key = peerKeyOf("sha256:peer-desktop", 7);
+    let transcript = createPeerTranscript();
+    transcript = reducePeerEvent(transcript, {
+      fingerprint: "sha256:peer-desktop",
+      sessionId: 7,
+      seq: 1,
+      event: { kind: "compact_boundary", preTokens: 120000, trigger: "auto" },
+    });
+    transcript = reducePeerEvent(transcript, {
+      fingerprint: "sha256:peer-desktop",
+      sessionId: 7,
+      seq: 2,
+      event: { kind: "kind_from_a_newer_peer", detail: "payload-kept" },
+    } as never);
+    usePeerSessionsStore.setState({
+      sessions: {
+        [key]: {
+          key,
+          fingerprint: "sha256:peer-desktop",
+          sessionId: 7,
+          title: "t",
+          deviceName: "MacBook Pro",
+          status: "ready",
+          highWater: 0,
+          sending: false,
+          transcript,
+        },
+      },
+    });
+
+    render(
+      <PeerPanel
+        fingerprint="sha256:peer-desktop"
+        sessionId={7}
+        title="t"
+        deviceName="MacBook Pro"
+        active
+        onClose={() => {}}
+      />,
+    );
+
+    // 压缩边界从前是 raw,现在走包的 CompactBoundaryDivider。
+    expect(
+      await screen.findByLabelText("Context compaction boundary"),
+    ).toBeTruthy();
+    // 未知帧的载荷要**看得见**,这正是 raw 那条路藏起来的东西。
+    expect(screen.getByTestId("transcript-notice").textContent).toContain(
+      "payload-kept",
+    );
   });
 });

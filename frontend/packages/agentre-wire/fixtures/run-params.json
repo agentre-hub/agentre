@@ -1,0 +1,46 @@
+{
+  "backend": {
+    "backendType": "claudecode"
+  },
+  "agentId": 7,
+  "sessionId": 42,
+  "peerFingerprint": "fp-desktop",
+  "cwd": "/home/agent/proj",
+  "title": "重构登录页",
+  "agentSyncId": "01JZ7W2A8KZ4R5T6Y7U8I9O0P1Q",
+  "systemPrompt": "你是 AgentRe 的 Agent。",
+  "providerSessionId": "sess_abc123",
+  "userText": "把登录按钮改成蓝色",
+  "history": [
+    {
+      "role": "user",
+      "blocks": [
+        {
+          "type": "text",
+          "data": "上一轮的上下文"
+        }
+      ]
+    }
+  ],
+  "permissionMode": "default",
+  "collaborationMode": "manual",
+  "mcpServers": [
+    {
+      "Name": "org",
+      "URL": "http://127.0.0.1:8899/mcp/org/",
+      "Headers": {
+        "Authorization": "Bearer tok"
+      },
+      "Tools": [
+        "mcp__org__list"
+      ]
+    }
+  ],
+  "enabledPlugins": {
+    "auto-continue": true,
+    "dangerous": false
+  },
+  "llmProviderKey": "11111111-2222-3333-4444-555555555555",
+  "sourceDevice": "fp-web-1",
+  "sourceDeviceName": "Chrome · macOS"
+}

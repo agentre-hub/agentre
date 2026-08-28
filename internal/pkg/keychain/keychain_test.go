@@ -7,7 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 )
 
 func TestMemory(t *testing.T) {

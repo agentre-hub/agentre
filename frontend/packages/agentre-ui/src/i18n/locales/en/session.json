@@ -1,0 +1,131 @@
+{
+  "sessionGroup": {
+    "empty": "No sessions",
+    "viewAll": "View all {{count}} sessions"
+  },
+  "sessionRow": {
+    "menu": {
+      "delete": "Delete",
+      "openInNewTab": "Open in new tab",
+      "rename": "Rename"
+    }
+  },
+  "sessionIndex": {
+    "axis": {
+      "title": "Group by",
+      "project": "Project",
+      "agent": "Agent",
+      "time": "Time",
+      "machine": "Machine"
+    },
+    "free": {
+      "name": "Quick chats",
+      "attention": "{{count}} quick chats need attention",
+      "newSession": "New quick chat"
+    },
+    "ownSessions": {
+      "label": "Sessions",
+      "toggle": "Toggle {{name}} sessions"
+    },
+    "machine": {
+      "offline": "Offline"
+    }
+  },
+  "sessionStatus": {
+    "machineOffline": {
+      "title": "{{machine}} is offline",
+      "titleUnknown": "This machine is offline",
+      "body": "History still reads and messages are not queued. The context lives on that machine and will not be reassigned — wait for it to come back, or start a new conversation from the same opening message.",
+      "startNew": "Start a new conversation"
+    },
+    "lastSeen": "Last seen {{time}}"
+  },
+  "importSession": {
+    "menuItem": "Import local session…",
+    "menuAria": "More actions for {{name}}",
+    "title": "Import local session",
+    "titleScoped": "Import local session · {{scope}}",
+    "descriptionLocal": "Sessions that claude / codex / pi ran on this machine.",
+    "descriptionLocalScoped": "Sessions that claude / codex / pi ran in {{path}} on this machine.",
+    "descriptionDevice": "Sessions that claude / codex / pi ran on {{device}}.",
+    "descriptionDeviceScoped": "Sessions that claude / codex / pi ran in {{path}} on {{device}}.",
+    "listAria": "Importable sessions",
+    "previewAria": "Transcript preview",
+    "deviceAria": "Which machine to look on",
+    "searchPlaceholder": "Search titles",
+    "backendFilterAria": "Filter by backend",
+    "allBackends": "All",
+    "untitled": "Untitled session",
+    "turns": "{{count}} turns",
+    "turnsUnknown": "Turn count unknown",
+    "groups": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "earlier": "Earlier"
+    },
+    "origin": {
+      "terminal": "Terminal",
+      "agentre": "Started by agentre"
+    },
+    "imported": {
+      "reason": "Already in agentre, cannot import again",
+      "open": "Open"
+    },
+    "scan": {
+      "running": "Scanning local sessions…",
+      "stop": "Stop",
+      "stopped": "Scan stopped",
+      "rescan": "Scan again"
+    },
+    "empty": {
+      "title": "No sessions to import",
+      "body": "claude / codex / pi left no session records on this machine.",
+      "bodyScoped": "claude / codex / pi left no session records in {{path}}.",
+      "relax": "Search every directory instead"
+    },
+    "issue": {
+      "unavailableTitle": "This machine cannot answer right now",
+      "switchToLocal": "Switch to this machine",
+      "backendTitle": "Cannot read the {{backend}} session directory",
+      "othersUnaffected": "Results from the other backends are unaffected."
+    },
+    "preview": {
+      "idle": "Pick a session on the left to see its real transcript here.",
+      "loading": "Opening the transcript…",
+      "failedTitle": "This transcript cannot be opened",
+      "alreadyImported": "This session has already been imported.",
+      "tail": "… (preview ends here; the import covers all {{count}} turns)",
+      "tailComplete": "… (that is the whole session — all of it is above)",
+      "tailUnknown": "… (preview ends here; the import covers the whole transcript)"
+    },
+    "meta": {
+      "backend": "Backend",
+      "cwd": "Directory",
+      "time": "Time",
+      "content": "Content",
+      "toolCalls": "{{count}} tool calls",
+      "compactions": "{{count}} compactions"
+    },
+    "cwdMissing": {
+      "title": "Working directory is gone",
+      "body": "{{path}} is no longer on this machine. The transcript still imports, but the conversation cannot continue — resuming needs the CLI started in the original directory."
+    },
+    "adopt": {
+      "label": "Import as",
+      "agentAria": "Choose the agent that takes over this session",
+      "pickAgent": "Pick an agent",
+      "submit": "Import and keep chatting",
+      "submitReadOnly": "Import transcript only",
+      "cwdOk": "Working directory {{path}} · exists · the next turn resumes here",
+      "cwdMissing": "Working directory {{path}} is gone · transcript only (read-only)",
+      "pickDirectory": "Choose another directory…",
+      "cwdAdopted": "Working directory set to {{path}} · transcript only (read-only) · new turns start here"
+    },
+    "importing": {
+      "title": "Importing “{{title}}”",
+      "progress": "{{done}} / {{total}} turns written",
+      "progressUnknown": "{{done}} turns written",
+      "cancel": "Cancel import"
+    }
+  }
+}

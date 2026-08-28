@@ -73,7 +73,7 @@ test.describe.serial("remote peer smoke", () => {
     expect(remoteSessionByPrompt(SUCCESS_PROMPT)).toMatchObject({
       agent_status: "idle",
       provider_session_id: expect.stringContaining("e2e-remote-session-"),
-      exec_daemon_fingerprint: process.env.AGENTRE_E2E_REMOTE_DAEMON_FINGERPRINT,
+      exec_device_fingerprint: process.env.AGENTRE_E2E_REMOTE_DAEMON_FINGERPRINT,
       event_cursor: expect.any(Number),
     });
     expect(remoteSessionByPrompt(SUCCESS_PROMPT)!.exec_device_id).toBeGreaterThan(0);
@@ -89,7 +89,7 @@ test.describe.serial("remote peer smoke", () => {
     );
     expect(authenticatedConnections.size).toBeGreaterThanOrEqual(2);
     for (const auth of requests.filter((request) => request.method === "auth.connect")) {
-      expect(auth.params?.deviceToken).toBe("[REDACTED]");
+      expect(Object.values(auth.params ?? {})).toContain("[REDACTED]");
     }
     expect(JSON.stringify(requests)).not.toContain("e2e-peer-token-");
   });

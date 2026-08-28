@@ -10,7 +10,7 @@ import {
 } from "../../../../wailsjs/go/app/App";
 import { llm_provider_svc } from "../../../../wailsjs/go/models";
 import i18n from "@/i18n";
-import { resolveExecutionDevice } from "../device-identity";
+import { resolveExecutionDevice } from "@agentre-hub/agentre-ui";
 
 import {
   recordRecentTarget,
@@ -127,20 +127,11 @@ export interface UseProviderPillOptions {
   executionLocation?: string;
 }
 
-export type ProviderPillState = {
-  mode: "follow-agent" | "provider-default" | "fixed" | "invalid";
-  providerLabel: string;
-  providerType: string;
-  modelLabel: string;
-  resolutionLabel: string;
-  dynamic: boolean;
-  /**
-   * 确知该 Agent 后端没绑供应商 → 下一轮由 CLI 自身的登录账号决定模型。
-   * 只有 boundProviderKey 明确是空串才为真；undefined/null（会话详情或新建目标还没
-   * 到）是「还不知道」，绝不能当成「没绑」—— 否则加载中的一瞬会闪成「CLI 登录态」。
-   */
-  cliLogin: boolean;
-};
+// ProviderPillState 的定义住在共享包里：它是触发器那两格的入参，两端同一份。
+// 这里只再导出，宿主里的既有 import 路径不用动。
+export type { ProviderPillState } from "@agentre-hub/agentre-ui";
+import type { ProviderPillState } from "@agentre-hub/agentre-ui";
+import { resolveProviderPillState } from "@agentre-hub/agentre-ui";
 
 export interface UseProviderPillReturn {
   /** 当前选择的 provider key；空串 = 跟随 agent 绑定。新建会话是纯瞬态本地值，
@@ -184,6 +175,14 @@ export interface UseProviderPillReturn {
   effectiveKey: string;
   /** Composer 常驻 pill 的四态与解析结果。 */
   pillState: ProviderPillState;
+  /**
+   * 目录里真正解析出来的模型 ID；解析不出（目录还没到 / Provider 或 Model 被删停用）
+   * 时是空串，**绝不回落 model key**。给「需要一个人读模型名」的槽用（转录脚注在
+   * 消息自己的 model 为空时回退到它）——model key 是 uuid.NewString() 生成的引用键,
+   * 写到脸上就是一串 UUID。pillState.modelLabel 不承担这件事：失效态的 pill 要把
+   * 指向的那个键显示出来（「<key> · 目标已失效」），两者语义不同。
+   */
+  resolvedModelLabel: string;
   /** Picker 顶部「跟随 Agent 绑定」项的解析副行。 */
   boundResolutionLabel: string;
   /** 绑定供应商的类型（品牌标识判定用）；空串 = 目录里解析不出供应商。 */
@@ -345,84 +344,34 @@ export function useProviderPill({
         ? "noCompatibleProviders"
         : null;
 
+  // 绑定值那一态：pill 在「跟随 Agent 绑定」时的脸，也是 Picker 顶部那一项的副行。
+  // 推导本身住在共享包里 —— 它是 ProviderPillTrigger 那两格的入参算法，与被它喂的
+  // 呈现件分居两地时会漂（agentre-server 那份就漂成了另一套失效判定与模型脸）。
+  const boundState = React.useMemo(
+    () =>
+      resolveProviderPillState({
+        boundProviderKey,
+        boundModelKey,
+        target: { providerKey: "", modelKey: "" },
+        catalog,
+      }),
+    [boundModelKey, boundProviderKey, catalog],
+  );
+
+  const pillState = React.useMemo(
+    () =>
+      resolveProviderPillState({
+        boundProviderKey,
+        boundModelKey,
+        target: { providerKey, modelKey },
+        catalog,
+      }),
+    [boundModelKey, boundProviderKey, catalog, modelKey, providerKey],
+  );
+
   // invalid：选中了目标，但它在目录里解析不出来（Provider/Model 缺失/停用/被删）。
-  // 未选（inherit-agent / 空 target）恒不 invalid。
-  const invalid = React.useMemo(() => {
-    if (providerKey === "" && modelKey === "") return false;
-    const p = catalog.find((x) => x.providerKey === providerKey);
-    if (!p || !p.enabled) return true;
-    if (modelKey === "") return false; // provider-default：只要 provider 存在即可
-    const m = p.models.find((x) => x.modelKey === modelKey);
-    return !m || !m.enabled;
-  }, [catalog, providerKey, modelKey]);
-
-  const boundState = React.useMemo<ProviderPillState>(() => {
-    const provider = catalog.find(
-      (candidate) => candidate.providerKey === boundProviderKey,
-    );
-    const providerLabel = provider?.name ?? boundProviderKey ?? "";
-    const providerType = provider?.type ?? "";
-    // 空串是「已经知道了，就是没绑」；undefined/null 是「还没拿到」。只有前者能推出
-    // 「由 CLI 自身登录账号决定」，后者必须继续什么都不说。
-    const cliLogin = boundProviderKey === "";
-
-    // 新建会话没有 agent model key。即使目录能看见默认模型，也不能据此断言 agent
-    // 后端绑定的是 provider-default；它也可能固定到了另一个模型（决策 18）。
-    if (boundModelKey === undefined) {
-      return {
-        mode: "follow-agent",
-        providerLabel,
-        providerType,
-        modelLabel: "",
-        resolutionLabel: providerLabel,
-        dynamic: false,
-        cliLogin,
-      };
-    }
-
-    const fixedModel = boundModelKey
-      ? provider?.models.find((model) => model.modelKey === boundModelKey)
-      : undefined;
-    const resolvedModel = fixedModel ?? provider?.defaultModel ?? undefined;
-    const modelLabel = resolvedModel?.modelId ?? "";
-    return {
-      mode: "follow-agent",
-      providerLabel,
-      providerType,
-      modelLabel,
-      resolutionLabel: modelLabel
-        ? `${providerLabel} · ${modelLabel}`
-        : providerLabel,
-      dynamic: !fixedModel && !!resolvedModel,
-      cliLogin,
-    };
-  }, [boundModelKey, boundProviderKey, catalog]);
-
-  const pillState = React.useMemo<ProviderPillState>(() => {
-    if (providerKey === "" && modelKey === "") return boundState;
-
-    const provider = catalog.find(
-      (candidate) => candidate.providerKey === providerKey,
-    );
-    const providerLabel = provider?.name ?? providerKey;
-    const providerType = provider?.type ?? "";
-    const selectedModel = modelKey
-      ? provider?.models.find((model) => model.modelKey === modelKey)
-      : (provider?.defaultModel ?? undefined);
-    const modelLabel = selectedModel?.modelId ?? modelKey;
-    return {
-      mode: invalid ? "invalid" : modelKey ? "fixed" : "provider-default",
-      providerLabel,
-      providerType,
-      modelLabel,
-      resolutionLabel: modelLabel
-        ? `${providerLabel} · ${modelLabel}`
-        : providerLabel,
-      dynamic: !invalid && modelKey === "" && !!selectedModel,
-      // 会话自己选了目标，就不再由 CLI 登录账号决定。
-      cliLogin: false,
-    };
-  }, [boundState, catalog, invalid, modelKey, providerKey]);
+  // 未选（inherit-agent / 空 target）恒不 invalid —— 推导在那一路直接给跟随态。
+  const invalid = pillState.mode === "invalid";
 
   // ── 远端门控（gap 1）：目标执行设备是远端时，以 daemon 目录为可运行事实源。──────
   // executionLocation 可以是 canonical fingerprint，也兼容遗留 paired-row 数字 ID；
@@ -552,6 +501,7 @@ export function useProviderPill({
     unbound: !boundProviderKey,
     effectiveKey: providerKey || boundProviderKey || "",
     pillState,
+    resolvedModelLabel: invalid ? "" : pillState.modelLabel,
     boundResolutionLabel: boundState.resolutionLabel,
     boundProviderType: boundState.providerType,
     boundProviderLabel: boundState.providerLabel,

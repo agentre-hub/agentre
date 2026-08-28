@@ -14,14 +14,16 @@ package sync_svc
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 )
 
 // SyncSvc 桌面端同步引擎。
@@ -31,9 +33,10 @@ type SyncSvc interface {
 	NotifyLocalChange(ctx context.Context, ch LocalChange)
 	// SyncOnce 跑一次完整来回：先把出站队列推上去，再按游标拉下来。
 	SyncOnce(ctx context.Context) error
-	// Start 起 30 秒周期的轮询（R3）；重复调用只起一次。
+	// Start 起 30 秒周期的轮询（R3），并试着挂上账号级实时通道当第二个下行触发源；
+	// 重复调用只起一次。通道连不上时只剩轮询，那本身是一个完整可用的形态。
 	Start(ctx context.Context)
-	// Stop 停掉轮询。
+	// Stop 停掉轮询与实时通道，等它们真的退出才返回。
 	Stop()
 	// Status 设置里同步区要展示的状态。
 	Status(ctx context.Context) (*Status, error)
@@ -45,7 +48,26 @@ type SyncSvc interface {
 	RecreateFromLostChange(ctx context.Context, id int64) error
 	// DiscardLostChange 丢掉一条「没能同步的改动」。
 	DiscardLostChange(ctx context.Context, id int64) error
+	// BoardJoinNoticePending 报告「看板首次并入同步组」的一次性说明还欠着没给
+	// （规格「首次上行的后果要说在前面」）。Status 里也带着同一个值。
+	BoardJoinNoticePending(ctx context.Context) (bool, error)
+	// AcknowledgeBoardJoinNotice 记下那条说明已经给过：之后永不再出现。
+	AcknowledgeBoardJoinNotice(ctx context.Context) error
+	// SetEmitter 注入「下行落地了」的通知函数；不注入就是静默（单机构建 / 单元测试）。
+	SetEmitter(emit Emitter)
+	// ReportLocalPathsNow 立刻上报一次本机路径整份快照（规格 2026-08-21 决策 4）。
+	// 与 R16 的 30 秒轮询共用同一条路径与同一枚内容指纹——内容没变时不发请求——
+	// 区别只在触发时机：从 web 改完本机路径那一刻，界面就要能读到新值。
+	ReportLocalPathsNow(ctx context.Context) error
 }
+
+// Emitter 把「这一轮下行落地了哪几类对象」推给上层（生产是 Wails EventsEmit，
+// 单测是 spy）。只给类型不给条数：界面据此决定重拉哪几份数据，条数它不关心。
+type Emitter func(kinds []string)
+
+// AppliedEvent 是上面那条通知在 Wails 事件总线上的名字。常量放在这里而不是让
+// 两端各自手抄一个字符串 —— 前端 `stores/sync-applied.ts` 订阅的就是它。
+const AppliedEvent = "sync:applied"
 
 var defaultSvc SyncSvc
 
@@ -63,6 +85,15 @@ func Notify(ctx context.Context, ch LocalChange) {
 	}
 }
 
+// ReportLocalPathsNow 是包级调用入口：同步未装配（单机构建 / 单元测试）时是空
+// 操作，写本机路径那条路径因此不需要知道同步存不存在（与 Notify 同一条口径）。
+func ReportLocalPathsNow(ctx context.Context) error {
+	if s := defaultSvc; s != nil {
+		return s.ReportLocalPathsNow(ctx)
+	}
+	return nil
+}
+
 // NotifyCreate / NotifyUpdate / NotifyDelete 是三个调用点糖：域服务在改动落库
 // **成功之后**交出这一行的同步元数据（同步标识由仓储层的 EnsureSyncID 生成）。
 func NotifyCreate(ctx context.Context, kind string, localID int64, meta syncmeta_entity.SyncMeta) {
@@ -77,30 +108,29 @@ func NotifyDelete(ctx context.Context, kind string, localID int64, meta syncmeta
 	Notify(ctx, LocalChange{Kind: kind, LocalID: localID, Op: OpDelete, Meta: meta})
 }
 
-// NotifyRuntimeClaim records an R13 runtime-claim mutation through the same
-// queue path as ordinary changes. Unlike normal edits it must survive a logged
-// out startup, so account-less rows enter the existing queue under account 0
-// and are assigned to the first authenticated account before upload.
-func NotifyRuntimeClaim(ctx context.Context, kind string, localID int64, op string, meta syncmeta_entity.SyncMeta) {
-	if s := defaultSvc; s != nil {
-		if recorder, ok := s.(interface {
-			NotifyRuntimeClaim(context.Context, LocalChange)
-		}); ok {
-			recorder.NotifyRuntimeClaim(ctx, LocalChange{Kind: kind, LocalID: localID, Op: op, Meta: meta})
-		}
-	}
-}
-
 type service struct {
 	adapters map[string]adapter
 	now      func() int64
 	// background 跑一次后台同步；默认 go f()，测试注入同步执行让断言可判。
 	background func(func())
+	// pollEvery 是轮询周期。生产恒为 PollInterval —— 规格写死「30 秒轮询保留，
+	// 不缩短也不删除」，它是通道的兜底，也是「不丢变更」的依据。这里留一个字段
+	// 只为让「通道死掉时轮询照样把变更带回来」那条守卫真的跑一遍循环，而不是
+	// 让测试等 30 秒或者只断言一句「没崩」。零值按 PollInterval 处理。
+	pollEvery time.Duration
+	// channelRetryWait 是账号级实时通道两次拨号之间的等待，返回 false 表示该收工。
+	// 同样只是时钟接缝：生产等 accountChannelRetry，测试立刻返回。
+	channelRetryWait func(ctx context.Context) bool
 
 	mu        sync.Mutex
 	transport Transport
+	emit      Emitter
 	lastErr   string
 	stopCh    chan struct{}
+	// doneCh 在轮询循环（连同它带起来的实时通道）真的退出之后关闭。Stop 等它：
+	// 一个「已经返回、后台却还在写」的 Stop 是句空话，测试也就无从在停机之后
+	// 如实读状态。
+	doneCh chan struct{}
 	// syncing 串行化上行/下行：轮询与「编辑当场上行」可能同时发生。
 	syncing sync.Mutex
 }
@@ -109,10 +139,12 @@ type service struct {
 // 但一行也不会发出去。
 func New(transport Transport) SyncSvc {
 	return &service{
-		adapters:   defaultAdapters(transport),
-		now:        func() int64 { return time.Now().UnixMilli() },
-		background: func(f func()) { go f() },
-		transport:  transport,
+		adapters:         defaultAdapters(transport),
+		now:              func() int64 { return time.Now().UnixMilli() },
+		background:       func(f func()) { go f() },
+		transport:        transport,
+		pollEvery:        PollInterval,
+		channelRetryWait: waitAccountChannelRetry,
 	}
 }
 
@@ -120,7 +152,7 @@ func (s *service) NotifyRuntimeClaim(ctx context.Context, ch LocalChange) {
 	if !kindKnown(ch.Kind) || ch.Meta.SyncID == "" {
 		return
 	}
-	accountID, _, loggedIn := s.account(ctx)
+	accountID, _, _, loggedIn := s.account(ctx)
 	if loggedIn && !ch.Meta.EligibleForSync(accountID) {
 		return
 	}
@@ -152,6 +184,20 @@ func (s *service) getTransport() Transport {
 	return s.transport
 }
 
+// SetEmitter 由 App.Startup 在 wails ctx 就绪后绑定（与 server_svc / cc_usage_svc
+// 同一个套路）。装配之前的那几轮同步没有听众，静默是对的。
+func (s *service) SetEmitter(emit Emitter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.emit = emit
+}
+
+func (s *service) getEmitter() Emitter {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.emit
+}
+
 func (s *service) setLastErr(err error) {
 	s.mu.Lock()
 	if err == nil {
@@ -168,17 +214,22 @@ func (s *service) getLastErr() string {
 	return s.lastErr
 }
 
-// account 取当前登录账号与本机设备 ID；未登录返回 (0, 0, false)（R12）。
-func (s *service) account(ctx context.Context) (accountID, deviceID int64, ok bool) {
+// account 取当前登录账号、本机设备 ID 与本机指纹；未登录返回 ok = false（R12）。
+//
+// 指纹是「最后修改来自哪台机器」落库与上行时记的那个值（规格
+// 2026-08-27-schema-overhaul 决策 14）：server 的 devices.id 是它自己的本地主键，
+// 本机离线创建的行没有它，而本工作区其余跨机引用一律用指纹。设备 ID 仍然取着，
+// 它是日志里认这台机器的那一维。
+func (s *service) account(ctx context.Context) (accountID, deviceID int64, fingerprint string, ok bool) {
 	row, err := server_state_repo.ServerState().Get(ctx)
 	if err != nil {
 		logger.Ctx(ctx).Warn("sync_svc.account: read server state failed", zap.Error(err))
-		return 0, 0, false
+		return 0, 0, "", false
 	}
 	if row == nil || !row.IsLoggedIn() {
-		return 0, 0, false
+		return 0, 0, "", false
 	}
-	return row.ServerUserID, row.DeviceID, true
+	return row.ServerUserID, row.DeviceID, row.DeviceFingerprint, true
 }
 
 // Start 起 30 秒周期的轮询（R3），同一个节奏也驱动本机路径的整份快照上报（R16）。
@@ -195,11 +246,26 @@ func (s *service) Start(ctx context.Context) {
 		return
 	}
 	stop := make(chan struct{})
-	s.stopCh = stop
+	done := make(chan struct{})
+	s.stopCh, s.doneCh = stop, done
 	s.mu.Unlock()
 
 	go func() {
-		ticker := time.NewTicker(PollInterval)
+		defer close(done)
+		// 账号级实时通道与这个 ticker **并行**跑：它是第二个下行触发源，不是替代品
+		// （规格「同步传播」：通道在时即时，通道断时最多 30 秒）。两者共用同一段
+		// 生命周期——收工时先取消通道、等它退干净，再宣告 done。
+		watchCtx, cancelWatch := context.WithCancel(ctx)
+		var watching sync.WaitGroup
+		defer watching.Wait()
+		defer cancelWatch()
+		watching.Add(1)
+		go func() {
+			defer watching.Done()
+			s.watchAccountChannel(watchCtx)
+		}()
+
+		ticker := time.NewTicker(s.tickEvery())
 		defer ticker.Stop()
 		// 两条链路各退各的（R7/R16）：下行不通不该连带把本机路径上报也拖慢，反之亦然。
 		var syncOff, reportOff backoff
@@ -231,6 +297,14 @@ func (s *service) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// tickEvery 是轮询周期。零值（直接构造的引擎，包括测试替身）按生产的 30 秒算。
+func (s *service) tickEvery() time.Duration {
+	if s.pollEvery > 0 {
+		return s.pollEvery
+	}
+	return PollInterval
 }
 
 // maxBackoffTicks 是退让的上限，按轮询周期计：30s × 60 = 30 分钟。有上限是必须的
@@ -267,22 +341,28 @@ func (b *backoff) fail() {
 
 func (b *backoff) succeed() { b.streak, b.pending = 0, 0 }
 
+// Stop 停掉轮询与实时通道，并**等它们真的退出**才返回。
 func (s *service) Stop() {
 	s.mu.Lock()
+	done := s.doneCh
 	if s.stopCh != nil {
 		close(s.stopCh)
-		s.stopCh = nil
+		s.stopCh, s.doneCh = nil, nil
 	}
 	s.mu.Unlock()
+	if done != nil {
+		<-done
+	}
 }
 
 // SyncOnce 跑一次完整来回。上行在前：本端刚做的改动先出去，再拉别人的回来，
 // 少一个轮询周期的往返。
 func (s *service) SyncOnce(ctx context.Context) error {
+	started := time.Now()
 	s.syncing.Lock()
 	defer s.syncing.Unlock()
 
-	accountID, deviceID, ok := s.account(ctx)
+	accountID, deviceID, fingerprint, ok := s.account(ctx)
 	if !ok || s.getTransport() == nil {
 		return nil
 	}
@@ -294,15 +374,32 @@ func (s *service) SyncOnce(ctx context.Context) error {
 		s.setLastErr(err)
 		return err
 	}
-	if err := s.flush(ctx, accountID, deviceID); err != nil {
+	if err := s.flush(ctx, accountID, fingerprint); err != nil {
 		s.setLastErr(err)
 		return err
 	}
 	if err := s.pull(ctx, accountID); err != nil {
-		s.setLastErr(err)
-		return err
+		// server 不认识本端的游标：它的历史被重建过（或换了一套自建服务端）。这不是
+		// 一次可重试的失败——同一个游标下一轮还是死的——而是要求本端重建整份历史，
+		// 并把 server 不认识的本地行重新上行（rebase.go）。重推排在 rebase 之后而不是
+		// 交给下一个 30 秒周期：这条路径本来就是从「静默失联」里爬出来，没有理由再等。
+		if !errors.Is(err, syncwire.ErrCursorUnknown) {
+			s.setLastErr(err)
+			return err
+		}
+		if err := s.rebase(ctx, accountID); err != nil {
+			s.setLastErr(err)
+			return err
+		}
+		if err := s.flush(ctx, accountID, fingerprint); err != nil {
+			s.setLastErr(err)
+			return err
+		}
 	}
 	s.setLastErr(nil)
+	logger.Ctx(ctx).Debug("sync_svc.SyncOnce: completed",
+		zap.Int64("accountId", accountID), zap.Int64("deviceId", deviceID),
+		zap.Duration("duration", time.Since(started)))
 	return nil
 }
 

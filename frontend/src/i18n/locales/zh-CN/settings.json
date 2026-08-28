@@ -1,0 +1,303 @@
+{
+  "dataBackup": {
+    "actions": {
+      "create": "新建",
+      "duplicate": "复制为新",
+      "overwrite": "覆盖",
+      "skip": "跳过"
+    },
+    "description": "在多台设备之间导入导出 Agentre 的配置数据。",
+    "export": {
+      "action": "导出...",
+      "description": "选择要导出的范围，生成 JSON 文件。",
+      "failed": "导出失败",
+      "includeSecrets": "包含凭证",
+      "includeSecretsDescription": "勾选后导出 API Key / TLS 证书等明文。请妥善保管文件。",
+      "secretsWarning": "导出文件含明文凭证，任何拿到该文件的人都可使用你的账号。",
+      "selectOne": "请至少选择一个范围",
+      "success": "已导出 {{count}} 条数据",
+      "title": "导出"
+    },
+    "import": {
+      "chooseFile": "选择文件...",
+      "description": "选择 Agentre 导出的 JSON 文件，预览后再写入。",
+      "failed": "导入失败",
+      "parseFailed": "解析文件失败",
+      "title": "导入"
+    },
+    "importPreview": {
+      "action": "动作",
+      "apply": "应用",
+      "conflict": "冲突",
+      "dangling": "引用缺失",
+      "defaultStrategy": "冲突项默认策略",
+      "description": "选好策略后点「应用」执行，失败会整批回滚。",
+      "new": "新增",
+      "noSecrets": "此文件不含凭证，导入后需要手动重新填写 API Key 等敏感字段。",
+      "scope": "范围",
+      "title": "导入预览"
+    },
+    "importResult": {
+      "created": "新建",
+      "duplicated": "复制",
+      "ok": "知道了",
+      "overwrote": "覆盖",
+      "skipped": "跳过",
+      "title": "导入完成"
+    },
+    "scopes": {
+      "agent-backends": "Agent 后端",
+      "llm-providers": "LLM 供应商",
+      "organization": "组织架构",
+      "remote-devices": "远端设备"
+    },
+    "title": "数据 & 备份"
+  },
+  "settings": {
+    "agentBackend": {
+      "description": "配置 Agent 的执行引擎与对应模型。工作目录 / 权限模式等运行时参数下放到「组织架构 → Agent」单独配置。",
+      "title": "Agent 后端"
+    },
+    "appearance": {
+      "colorMode": {
+        "title": "配色模式"
+      },
+      "description": "主题偏好和语言保存在当前设备。",
+      "themeMode": {
+        "label": "主题模式"
+      },
+      "title": "外观"
+    },
+    "localProxy": {
+      "description": "给 App 内置的 LLM Gateway。claudecode / codex 子进程把所有 HTTP 请求打到这里，App 用临时 token 鉴权后转发到真实 LLM 供应商，密钥不出 App。",
+      "title": "本地 HTTP 代理"
+    },
+    "llmProvider": {
+      "description": "配置可用模型来源。保存后可拉取该账号下的可用模型，并自动补全各模型的能力参数。",
+      "gapBanner": {
+        "description": "部分 Agent 绑定的后端还没有关联已激活的 LLM 供应商。配置好供应商后，去组织架构给这些 Agent 选上即可。",
+        "goToOrg": "去组织架构",
+        "title": "还有 Agent 缺这个"
+      },
+      "title": "LLM 供应商"
+    },
+    "notifications": {
+      "pageTitle": "通知",
+      "pageDesc": "对话完成、出错或需要你输入时提醒你。",
+      "masterTitle": "通知",
+      "masterDesc": "总开关 —— 关闭后下面所有方式都不生效。",
+      "enableLabel": "启用通知",
+      "enableDesc": "一轮对话结束时主动提醒你。",
+      "onlyWhenUnfocusedLabel": "仅窗口未激活时通知",
+      "onlyWhenUnfocusedDesc": "默认开；关掉后，应用在前台时，完成的若不是你正在看的会话也会提醒。",
+      "channelsTitle": "通知方式",
+      "channelsDesc": "满足提醒条件时，用以下已开启的方式提醒。",
+      "systemLabel": "系统通知",
+      "systemDesc": "弹到 macOS 通知中心 / Windows 操作中心，应用在后台也能看到。",
+      "toastLabel": "应用内提示",
+      "toastDesc": "在应用右下角弹一条提示（仅应用在前台时可见）。",
+      "ruleTitle": "什么时候提醒",
+      "ruleDesc": "默认只在窗口未激活时提醒；关掉上面的开关后，前台时背景会话完成也会提醒。完成、出错、等你输入都会提醒，你手动停止的不会。"
+    },
+    "nav": {
+      "about": "关于",
+      "agentBackend": "Agent 后端",
+      "agentBackendDot": "有 Agent 还没配置后端",
+      "appearance": "外观",
+      "dataBackup": "数据 & 备份",
+      "engine": "引擎",
+      "general": "通用",
+      "integrations": "集成",
+      "keyboardShortcuts": "键盘快捷键",
+      "localProxy": "本地 HTTP 代理",
+      "llmProvider": "LLM 供应商",
+      "llmProviderDot": "有后端缺激活的 LLM 供应商",
+      "mcpServers": "MCP 服务器",
+      "notifications": "通知",
+      "remoteDevices": "远端",
+      "settings": "设置",
+      "skillsTools": "技能 / 工具",
+      "sync": "同步",
+      "versionLogs": "版本 & 更新"
+    },
+    "underConstruction": {
+      "mcpServers": {
+        "description": "MCP 服务器配置视图已预留，后续会在这里管理连接、授权和可用工具。",
+        "title": "MCP 服务器"
+      },
+      "skillsTools": {
+        "description": "技能和工具管理视图已预留，后续会在这里启用、停用和配置 Agent 能力。",
+        "title": "技能 / 工具"
+      }
+    }
+  },
+  "settingsProxy": {
+    "actions": {
+      "applyAndRestart": "应用并重启",
+      "copyUrl": "复制 URL",
+      "restart": "重启代理"
+    },
+    "flash": {
+      "applied": "已应用并重启代理",
+      "copyUrlDone": "已复制 URL",
+      "copyUrlFailed": "复制 URL 失败",
+      "restarted": "已重启本地 HTTP 代理",
+      "restartFailed": "代理仍未启动：{{reason}}",
+      "savedButStopped": "已保存设置，但代理未启动：{{reason}}"
+    },
+    "listener": {
+      "currentUrl": "当前 URL",
+      "currentUrlHint": "供 claudecode / codex 透传调用",
+      "description": "claudecode / codex 子进程的所有 LLM 请求都打到这里，App 用 token 路由到真实 LLM 供应商。",
+      "host": "监听地址",
+      "hostHint": "默认 127.0.0.1，loopback 仅本机可访问",
+      "port": "端口",
+      "portHint": "默认 52401；0 = 每次启动随机端口",
+      "title": "监听器"
+    },
+    "routes": {
+      "anthropicMessages": "Anthropic Messages（claudecode CLI）",
+      "chatCompletions": "OpenAI Chat Completions（codex wire_api=chat）",
+      "count": "{{count}} 条",
+      "description": "凭临时 token 验签后转发；token 仅在测试 / 运行期间内存存活。",
+      "mcpReserved": "本地 MCP 服务接入预留（未注册服务时 404）",
+      "openAIResponses": "OpenAI Responses（codex CLI 默认）",
+      "reserved": "预留",
+      "title": "路由暴露"
+    },
+    "security": {
+      "description": "LLM 供应商的真实密钥只在主进程内存里，CLI 子进程拿到的是 App 颁发的临时 token；token 仅 60 秒有效、测试结束后立即撤销，绝不写到 .env / config / 进程参数。",
+      "title": "密钥不出 App"
+    },
+    "status": {
+      "notStarted": "未启动{{reason}}",
+      "running": "运行中",
+      "stopped": "已停止"
+    },
+    "validation": {
+      "hostInvalid": "监听地址格式不合法",
+      "hostRequired": "监听地址不能为空",
+      "portNumeric": "端口必须为数字",
+      "portRange": "端口需在 0-65535 之间",
+      "portRequired": "端口不能为空"
+    }
+  },
+  "update": {
+    "actions": {
+      "check": "检查更新",
+      "checking": "检查中...",
+      "downloadAndInstall": "下载并安装",
+      "downloading": "下载中...",
+      "downloadingShort": "下载中",
+      "openLogs": "打开日志",
+      "reportBug": "Bug 反馈",
+      "restartNow": "立即重启"
+    },
+    "channel": {
+      "beta": {
+        "description": "尝鲜新特性，可能含少量已知问题。",
+        "label": "测试版"
+      },
+      "nightly": {
+        "description": "每日构建，更新最快，稳定性最低。",
+        "label": "每夜构建"
+      },
+      "stable": {
+        "description": "面向所有用户的正式版本，更新频率最低。",
+        "label": "稳定版"
+      },
+      "title": "更新通道"
+    },
+    "checksum": {
+      "confirm": "跳过校验继续",
+      "description": "SHA256SUMS.txt 获取不到，无法校验下载文件完整性。",
+      "title": "校验文件下载失败",
+      "warning": "继续下载将跳过完整性校验，请确认信任当前下载源。"
+    },
+    "currentVersion": {
+      "description": "通过 GitHub Releases 检查并安装新版本。",
+      "title": "当前版本"
+    },
+    "debug": {
+      "description": "开启后日志级别降为 debug，便于排查问题；问题解决后建议关闭。",
+      "disabledToast": "Debug 日志已关闭",
+      "enabledToast": "Debug 日志已开启",
+      "title": "Debug 日志"
+    },
+    "error": {
+      "title": "操作失败"
+    },
+    "header": {
+      "description": "启动时会自动后台检查一次新版本。也可以手动切换通道或选择下载镜像加速国内访问。",
+      "title": "版本 & 更新"
+    },
+    "installed": {
+      "description": "重启应用以加载新版本。",
+      "title": "{{version}} 已安装"
+    },
+    "mirror": {
+      "custom": "自定义...",
+      "description": "国内访问 GitHub 慢时可以走加速镜像。自定义需保留协议头（例如 https://your.mirror/）。",
+      "title": "下载镜像"
+    },
+    "panel": {
+      "availableMeta": "{{time}} 发布 · {{channel}} · 当前 {{current}}",
+      "availableTitle": "Agentre {{version}} 可更新",
+      "checkAgain": "重新检查",
+      "checkedAt": "{{time}} 检查过",
+      "downloadingMeta": "下载完成后会自动校验 SHA256。",
+      "downloadingTitle": "正在下载 {{version}}",
+      "errorMeta": "可在「设置 → 版本 & 更新」改用下载镜像。",
+      "errorTitle": "检查更新失败",
+      "idleMeta": "当前 {{current}} · {{channel}}",
+      "idleTitle": "检查新版本",
+      "installedMeta": "重启后生效。正在运行的会话会被结束，可以先收尾再重启。",
+      "installedTitle": "{{version}} 已安装",
+      "later": "稍后",
+      "neverChecked": "尚未检查过",
+      "openSettings": "打开更新设置",
+      "releasePage": "发布页",
+      "retry": "重试",
+      "skipVersion": "跳过此版本",
+      "upToDateMeta": "当前 {{current}} · {{channel}}",
+      "upToDateTitle": "已是最新版本"
+    },
+    "pill": {
+      "aria": {
+        "available": "有新版本 {{version}} 可更新,打开更新面板",
+        "checking": "正在检查更新,当前版本 {{version}}",
+        "downloading": "正在下载 {{version}},已完成 {{percent}}%",
+        "failed": "检查更新失败,当前版本 {{version}}",
+        "idle": "当前版本 {{version}},打开更新面板",
+        "installed": "{{version}} 已安装,重启以完成更新"
+      },
+      "available": "{{version}} 可更新",
+      "checking": "检查中",
+      "downloading": "下载中 {{percent}}%",
+      "failed": "检查失败",
+      "restart": "重启以完成更新"
+    },
+    "release": {
+      "available": "发现新版本 {{version}}",
+      "noNotes": "本次发布暂无说明。",
+      "publishedAt": "发布于 {{time}}",
+      "unknownTime": "未知时间"
+    },
+    "repository": {
+      "description": "查看源码、发布记录和 issue。",
+      "title": "仓库地址"
+    },
+    "status": {
+      "upToDate": "已是最新版本"
+    },
+    "toast": {
+      "action": "查看更新",
+      "body": "当前 {{current}}",
+      "dismiss": "关闭更新提示",
+      "title": "Agentre {{version}} 可更新"
+    },
+    "version": {
+      "unknown": "未知"
+    }
+  }
+}

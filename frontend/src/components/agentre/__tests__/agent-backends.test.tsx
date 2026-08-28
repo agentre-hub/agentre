@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -9,14 +10,14 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { truncateFlashText } from "../agent-backends-utils";
-
 const appMocks = vi.hoisted(() => ({
   CancelTestAgentBackend: vi.fn(),
   CreateAgentBackend: vi.fn(),
   CreateOpenClawAgentBackend: vi.fn(),
   DeleteAgentBackend: vi.fn(),
+  GetAgentBackendCLIOverlay: vi.fn(),
   GetGatewayStatus: vi.fn(),
+  ListAgentBackendCLIOverlays: vi.fn(),
   ListAgentBackends: vi.fn(),
   ListLLMModels: vi.fn(),
   ListLLMProviders: vi.fn(),
@@ -27,6 +28,7 @@ const appMocks = vi.hoisted(() => ({
   ResolveAgentBackendCLIPath: vi.fn(),
   ScanAndCreateAgentBackends: vi.fn(),
   ServerListDevices: vi.fn(),
+  SetAgentBackendCLIOverlay: vi.fn(),
   TestAgentBackend: vi.fn(),
   TestOpenClawAgentBackend: vi.fn(),
   UpdateAgentBackend: vi.fn(),
@@ -34,6 +36,28 @@ const appMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
+
+// remote.device.state 是 agentred 上下线的既有推送。运行设备下拉按 online 禁用选项，
+// 收编刚发生时那台机器还在拨号（online=false），没有订阅就只能靠关掉重开。
+const runtimeMocks = vi.hoisted(() => {
+  const handlers = new Map<string, Set<(payload: unknown) => void>>();
+  return {
+    handlers,
+    EventsOn: vi.fn((event: string, cb: (payload: unknown) => void) => {
+      const set = handlers.get(event) ?? new Set<(payload: unknown) => void>();
+      set.add(cb);
+      handlers.set(event, set);
+      return () => set.delete(cb);
+    }),
+    emit(event: string, payload: unknown) {
+      for (const cb of [...(handlers.get(event) ?? [])]) cb(payload);
+    },
+  };
+});
+
+vi.mock("../../../../wailsjs/runtime/runtime", () => ({
+  EventsOn: runtimeMocks.EventsOn,
+}));
 
 import { AgentBackendsPanel as AgentBackendsPanelBase } from "../agent-backends";
 
@@ -62,9 +86,12 @@ function deferred<T>() {
 }
 
 type AppMockShape = {
+  ListAgentBackendCLIOverlays: AnyFn;
   ListAgentBackends: AnyFn;
   ListLLMProviders: AnyFn;
   ListLLMModels: AnyFn;
+  GetAgentBackendCLIOverlay?: AnyFn;
+  SetAgentBackendCLIOverlay?: AnyFn;
   CreateAgentBackend?: AnyFn;
   CreateOpenClawAgentBackend?: AnyFn;
   UpdateAgentBackend?: AnyFn;
@@ -111,6 +138,7 @@ function defaultModelsById(id: number) {
 
 function installAppMock(overrides: Partial<AppMockShape> = {}) {
   const base: AppMockShape = {
+    ListAgentBackendCLIOverlays: vi.fn(() => Promise.resolve({ items: [] })),
     ListAgentBackends: vi.fn(() =>
       Promise.resolve({
         items: [
@@ -155,6 +183,12 @@ function installAppMock(overrides: Partial<AppMockShape> = {}) {
       const req = args[0] as { id?: number } | undefined;
       return Promise.resolve({ items: defaultModelsById(Number(req?.id)) });
     }),
+    GetAgentBackendCLIOverlay: vi.fn(() =>
+      Promise.resolve({ cliPath: "", status: "unchecked" }),
+    ),
+    SetAgentBackendCLIOverlay: vi.fn(() =>
+      Promise.resolve({ cliPath: "", status: "unchecked" }),
+    ),
     CreateAgentBackend: vi.fn(() => Promise.resolve({ item: { id: 2 } })),
     CreateOpenClawAgentBackend: vi.fn(() =>
       Promise.resolve({ item: { id: 3 } }),
@@ -222,6 +256,75 @@ function installAppMock(overrides: Partial<AppMockShape> = {}) {
 
 afterEach(() => {
   vi.clearAllMocks();
+  runtimeMocks.handlers.clear();
+});
+
+describe("AgentBackendsPanel runtime device list", () => {
+  // 收编发生在 ServerListDevices 内部（app.ServerListDevices → AdoptAccountDevices
+  // 写库）。两个调用并发时 RemoteDeviceList 大概率先返回，这一次就拿不到刚收编的
+  // 那一行，用户得关掉弹窗重开才看得见。
+  it("Given account devices are still loading, When the editor opens, Then the paired list is read only after adoption has run", async () => {
+    const user = userEvent.setup();
+    const gate = deferred<unknown[]>();
+    const mocks = installAppMock({
+      ServerListDevices: vi.fn(() => gate.promise),
+      RemoteDeviceList: vi.fn(() => Promise.resolve([])),
+    });
+    render(<AgentBackendsPanel />);
+
+    await screen.findByRole("list", { name: "Agent backend list" });
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    await screen.findByRole("dialog");
+
+    await waitFor(() => expect(mocks.ServerListDevices).toHaveBeenCalled());
+    expect(mocks.RemoteDeviceList).not.toHaveBeenCalled();
+
+    gate.resolve([]);
+    await waitFor(() => expect(mocks.RemoteDeviceList).toHaveBeenCalled());
+  });
+
+  // 刚收编的那一行 watcher 才开始拨号，那一刻 online=false，下拉把它标成离线。
+  // 在线态推送到了那个标记就该就地摘掉，而不是等用户关掉弹窗重开。
+  // 离线本身不再禁用选项：保存不依赖设备在线（规格 2026-08-21 决策 7）。
+  it("Given an offline runtime device, When it comes online, Then its offline marker clears in place", async () => {
+    const user = userEvent.setup();
+    installAppMock({
+      RemoteDeviceList: vi.fn(() =>
+        Promise.resolve([{ id: 7, name: "linux-srv", online: false }]),
+      ),
+    });
+    render(<AgentBackendsPanel />);
+
+    await screen.findByRole("list", { name: "Agent backend list" });
+    await user.click(screen.getByRole("button", { name: /New Backend/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("radio", { name: /Claude Code CLI/ }),
+    );
+    await user.click(
+      within(dialog).getByRole("combobox", { name: "Runtime Device" }),
+    );
+
+    const offline = await screen.findByRole("option", { name: /linux-srv/ });
+    expect(offline).toHaveTextContent(/offline/i);
+    expect(offline).not.toHaveAttribute("aria-disabled", "true");
+
+    act(() =>
+      runtimeMocks.emit("remote.device.state", {
+        id: 7,
+        name: "linux-srv",
+        online: true,
+        lastSeenAt: 1_700_000_000_000,
+        lastError: "",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("option", { name: /linux-srv/ }),
+      ).not.toHaveTextContent(/offline/i),
+    );
+  });
 });
 
 describe("AgentBackendsPanel", () => {
@@ -2054,8 +2157,8 @@ describe("AgentBackendsPanel", () => {
       ServerListDevices: vi.fn(() =>
         Promise.resolve([
           {
-            Fingerprint: "sha256:studio-desktop",
-            Name: "Studio Mac",
+            fingerprint: "sha256:studio-desktop",
+            name: "Studio Mac",
           },
         ]),
       ),
@@ -2118,7 +2221,7 @@ describe("AgentBackendsPanel", () => {
       RemoteDeviceList: vi.fn(() => Promise.resolve([])),
       ServerListDevices: vi.fn(() =>
         Promise.resolve([
-          { Fingerprint: "sha256:studio-desktop", Name: "Studio Mac" },
+          { fingerprint: "sha256:studio-desktop", name: "Studio Mac" },
         ]),
       ),
     });
@@ -2932,9 +3035,18 @@ describe("AgentBackendsPanel", () => {
       "Token is stored securely. Enter a new value to replace it.",
     );
 
-    await user.click(
-      within(dialog).getByRole("switch", { name: "Clear stored token" }),
+    const clearSwitch = within(dialog).getByRole("switch", {
+      name: "Clear stored token",
+    });
+    // 「清除 token」是「标签 + 开关」的一行，作者写的就是 orientation="horizontal"。
+    // 这一行此前被 engine 私拷的残次 Field 丢掉（它解构时漏了 orientation），于是
+    // 竖排渲染，与作者意图相反 —— 回并真版后横排生效（规格决策 5）。
+    expect(clearSwitch.closest('[data-slot="field"]')).toHaveAttribute(
+      "data-orientation",
+      "horizontal",
     );
+
+    await user.click(clearSwitch);
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => {
       expect(mocks.UpdateOpenClawAgentBackend).toHaveBeenCalledWith(
@@ -3463,28 +3575,5 @@ describe("Agent backend type picker", () => {
     expect(
       within(group).getByRole("radio", { name: /Pi Agent CLI/ }),
     ).toBeChecked();
-  });
-});
-
-describe("truncateFlashText", () => {
-  it("短文本原样返回，truncated=false", () => {
-    const r = truncateFlashText("✅ 128ms · pong");
-    expect(r.display).toBe("✅ 128ms · pong");
-    expect(r.truncated).toBe(false);
-    expect(r.full).toBe("✅ 128ms · pong");
-  });
-
-  it("超过 80 字时截断 + …，truncated=true，full 保留原文", () => {
-    const long = "a".repeat(300);
-    const r = truncateFlashText(long);
-    expect(r.truncated).toBe(true);
-    expect(r.display.endsWith("…")).toBe(true);
-    expect(r.display.length).toBeLessThanOrEqual(81); // 80 + …
-    expect(r.full).toBe(long);
-  });
-
-  it("换行/制表符压成单空格防止 flash 行高被撑起", () => {
-    const r = truncateFlashText("line1\nline2\t\tline3");
-    expect(r.display).toBe("line1 line2 line3");
   });
 });

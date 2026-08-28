@@ -2,7 +2,6 @@ package remote_test
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/internal/pkg/pty/remote"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/internal/pkg/pty/remote"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/stretchr/testify/require"
@@ -95,7 +94,7 @@ func (c *synchronousOpenClient) Call(_ context.Context, method string, params an
 	if c.subscribed.Load() {
 		c.data <- protocol.TerminalDataEvent{
 			TerminalID: op.TerminalID,
-			Data:       base64.StdEncoding.EncodeToString([]byte("fast-before-response")),
+			Data:       []byte("fast-before-response"),
 		}
 		c.exit <- protocol.TerminalExitEvent{
 			TerminalID: op.TerminalID,
@@ -441,9 +440,7 @@ func TestRemoteBackend_GivenMoreThanThirtyTwoFramesSynchronouslyEmittedBeforeOpe
 		for i := 0; i < frameCount; i++ {
 			if err := client.dispatch("terminal.data", protocol.TerminalDataEvent{
 				TerminalID: op.TerminalID,
-				Data: base64.StdEncoding.EncodeToString(
-					[]byte(fmt.Sprintf("startup-%03d", i)),
-				),
+				Data:       []byte(fmt.Sprintf("startup-%03d", i)),
 			}); err != nil {
 				return err
 			}
@@ -813,9 +810,9 @@ func TestRemoteBackend_Open_RPC_RoundTrip(t *testing.T) {
 	require.Equal(t, "/r", op.Cwd)
 	require.Equal(t, uint16(80), op.Cols)
 
-	// The daemon ships terminal data base64-encoded; the backend decodes it.
+	// The daemon ships terminal data as raw bytes.
 	fc.dataPush <- protocol.TerminalDataEvent{
-		TerminalID: "remote-1", Data: base64.StdEncoding.EncodeToString([]byte("xyz")),
+		TerminalID: "remote-1", Data: []byte("xyz"),
 	}
 
 	select {
@@ -826,12 +823,9 @@ func TestRemoteBackend_Open_RPC_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestRemoteBackend_Data_Base64DecodedAcrossSplit is the desktop-side regression
-// for the garbled-terminal bug: the daemon base64-encodes each PTY chunk, so the
-// backend must base64-decode it back to raw bytes. A multibyte char '─'
-// (E2 94 80) split across two daemon pushes must reassemble exactly — the old
-// []byte(ev.Data) reinterpreted the base64 text itself as bytes.
-func TestRemoteBackend_Data_Base64DecodedAcrossSplit(t *testing.T) {
+// TestRemoteBackend_Data_RawBytesPreservedAcrossSplit guards a multibyte rune
+// split across two daemon pushes without interpreting either byte chunk.
+func TestRemoteBackend_Data_RawBytesPreservedAcrossSplit(t *testing.T) {
 	fc := &fakeClient{
 		openParams: make(chan protocol.TerminalOpenParams, 1),
 		dataPush:   make(chan protocol.TerminalDataEvent, 2),
@@ -845,10 +839,10 @@ func TestRemoteBackend_Data_Base64DecodedAcrossSplit(t *testing.T) {
 
 	full := []byte("─") // E2 94 80
 	fc.dataPush <- protocol.TerminalDataEvent{
-		TerminalID: "remote-1", Data: base64.StdEncoding.EncodeToString(full[:1]),
+		TerminalID: "remote-1", Data: full[:1],
 	}
 	fc.dataPush <- protocol.TerminalDataEvent{
-		TerminalID: "remote-1", Data: base64.StdEncoding.EncodeToString(full[1:]),
+		TerminalID: "remote-1", Data: full[1:],
 	}
 
 	var got []byte
@@ -860,7 +854,7 @@ func TestRemoteBackend_Data_Base64DecodedAcrossSplit(t *testing.T) {
 			t.Fatalf("did not receive full data within 1s; got %x", got)
 		}
 	}
-	require.Equal(t, full, got, "split multibyte char must reassemble from base64 daemon pushes")
+	require.Equal(t, full, got, "split multibyte char must reassemble from raw daemon pushes")
 }
 
 func TestRemoteBackend_GivenOpenSubscriptionsWhenClosedThenEmitsKilledAndClosesChannels(t *testing.T) {
@@ -1017,11 +1011,10 @@ func TestRemoteBackend_GivenBufferedFinalFramesBeforeDaemonExit_WhenPumped_ThenD
 			exitPush:   make(chan protocol.TerminalExitEvent, 1),
 		}
 		fc.dataPush <- protocol.TerminalDataEvent{
-			TerminalID: "remote-1", Data: base64.StdEncoding.EncodeToString([]byte("final-one/")),
+			TerminalID: "remote-1", Data: []byte("final-one/"),
 		}
-		fc.dataPush <- protocol.TerminalDataEvent{TerminalID: "remote-1", Data: "malformed-base64"}
 		fc.dataPush <- protocol.TerminalDataEvent{
-			TerminalID: "remote-1", Data: base64.StdEncoding.EncodeToString([]byte("final-two")),
+			TerminalID: "remote-1", Data: []byte("final-two"),
 		}
 		fc.exitPush <- protocol.TerminalExitEvent{
 			TerminalID: "remote-1", Code: 23, Reason: "natural", Msg: "finished",
@@ -1085,9 +1078,7 @@ func TestRemoteBackend_GivenMoreThanHandleBufferFinalFramesQueuedBeforeHandleExi
 	for i := 0; i < frameCount; i++ {
 		fc.dataPush <- protocol.TerminalDataEvent{
 			TerminalID: "remote-final-burst",
-			Data: base64.StdEncoding.EncodeToString(
-				[]byte(fmt.Sprintf("final-%03d", i)),
-			),
+			Data:       []byte(fmt.Sprintf("final-%03d", i)),
 		}
 	}
 	close(fc.dataPush)
@@ -1124,9 +1115,7 @@ func TestRemoteBackend_GivenAcceptedAdapterFramesWhenConnectionClosesThenDrainsA
 	for i := 0; i < frameCount; i++ {
 		client.push(t, "terminal.data", protocol.TerminalDataEvent{
 			TerminalID: "connection-lost-burst",
-			Data: base64.StdEncoding.EncodeToString(
-				[]byte(fmt.Sprintf("connected-%03d", i)),
-			),
+			Data:       []byte(fmt.Sprintf("connected-%03d", i)),
 		})
 	}
 	require.NoError(t, adapter.Abort())
@@ -1275,7 +1264,7 @@ func (s *slowClient) Call(ctx context.Context, method string, params any, out an
 }
 
 func TestRemoteBackend_GivenLeasedOpenFailure_WhenOpened_ThenReleasesExactlyOnce(t *testing.T) {
-	openErr := &jsonrpc.Error{Code: -32603, Message: "terminal.open failed"}
+	openErr := &protorpc.Error{Code: protorpc.CodeInternal, Message: "terminal.open failed"}
 	fc := &fakeClient{
 		openParams: make(chan protocol.TerminalOpenParams, 1),
 		dataPush:   make(chan protocol.TerminalDataEvent),
@@ -1295,6 +1284,24 @@ func TestRemoteBackend_GivenLeasedOpenFailure_WhenOpened_ThenReleasesExactlyOnce
 	require.Equal(t, int32(1), fc.unsubscribeCalls.Load())
 	require.Equal(t, int32(1), releases.Load())
 	require.Zero(t, fc.abortCalls.Load())
+}
+
+func TestRemoteBackend_GivenProtobufRejectionRacingCancellation_WhenOpened_ThenKeepsAuthoritativeError(t *testing.T) {
+	openErr := &protorpc.Error{Code: protorpc.CodeInternal, Message: "terminal.open failed"}
+	fc := &fakeClient{
+		openParams: make(chan protocol.TerminalOpenParams, 1),
+		dataPush:   make(chan protocol.TerminalDataEvent),
+		exitPush:   make(chan protocol.TerminalExitEvent),
+		openErr:    openErr,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	h, err := remote.NewBackend(fc).Open(ctx, pty.Spec{TerminalID: "rejected-terminal", Cwd: "/r"})
+
+	require.Nil(t, h)
+	require.ErrorIs(t, err, openErr)
+	require.Zero(t, fc.closeCalls.Load(), "authoritative Protobuf RPC errors must not trigger pending-open cleanup")
 }
 
 func TestRemoteBackend_GivenLeasedConnectionLoss_WhenSubscriptionCloses_ThenReleasesExactlyOnce(t *testing.T) {

@@ -8,19 +8,19 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/buildinfo"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/buildinfo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 const (
@@ -39,7 +39,7 @@ func (s *dataSvc) Export(ctx context.Context, req *ExportRequest) (*ExportResult
 	bundle := BundleV1{
 		Format:          BundleFormat,
 		Version:         BundleVersion,
-		ExportedAt:      time.Unix(s.now(), 0).Format(time.RFC3339),
+		ExportedAt:      time.UnixMilli(s.now()).Format(time.RFC3339),
 		ExportedFrom:    BundleOrigin{Commit: buildinfo.CommitID},
 		Scopes:          req.Scopes,
 		SecretsIncluded: req.IncludeSecrets,
@@ -214,7 +214,7 @@ func toBundleDevice(d *paired_agentred_entity.PairedAgentred, secrets bool) Bund
 
 func backendsHaveDeviceID(backends []*agent_backend_entity.AgentBackend) bool {
 	for _, b := range backends {
-		if b != nil && remote_device_svc.TargetsAnotherMachine(b.DeviceID) {
+		if b != nil && remote_device_svc.TargetsAnotherMachine(b.DeviceFingerprint) {
 			return true
 		}
 	}
@@ -237,7 +237,7 @@ func toBundleBackend(b *agent_backend_entity.AgentBackend, exportKey string, dev
 	// 引用。R13 认领后本机 backend 的 DeviceID 是本机指纹，照抄会让导入侧在 devices
 	// 段里找不到它（本机不会和自己配对）而整条判 dangling ref —— 见
 	// remote_device_svc.ExternalDeviceID。
-	deviceID := remote_device_svc.ExternalDeviceID(b.DeviceID)
+	deviceID := remote_device_svc.ExternalDeviceID(b.DeviceFingerprint)
 	if uuid, ok := deviceUUIDByID[deviceID]; ok {
 		deviceID = uuid
 	}
@@ -293,7 +293,7 @@ func toBundleAgent(a *agent_entity.Agent, deptKey, agentKey, backendKey map[int6
 		Name:      a.Name, Description: a.Description,
 		AvatarColor: a.AvatarColor, AvatarIcon: a.AvatarIcon, AvatarDataURL: a.AvatarDataURL,
 		SystemBadge: a.SystemBadge,
-		SortOrder:   a.SortOrder, PromptJSON: a.PromptJSON, SkillsJSON: a.SkillsJSON,
+		SortOrder:   a.SortOrder, PromptJSON: a.PromptJSON,
 	}
 	if a.DepartmentID > 0 {
 		out.DepartmentKey = deptKey[a.DepartmentID]
@@ -301,11 +301,7 @@ func toBundleAgent(a *agent_entity.Agent, deptKey, agentKey, backendKey map[int6
 	if a.ParentAgentID > 0 {
 		out.ParentAgentKey = agentKey[a.ParentAgentID]
 	}
-	if a.AgentBackendID > 0 {
-		out.AgentBackendKey = backendKey[a.AgentBackendID]
-	}
-	// ExecTargets 一律写(哪怕是空数组):非 nil 是"新 bundle"的标记,导入侧据此
-	// 不再回落到上面的 AgentBackendKey / SkillsJSON（R15f）。targets 已经按
+	// ExecTargets 一律写，哪怕是空数组。targets 已经按
 	// sort_order 升序给出（agent_repo.AgentExecTarget().ListByAgents 的约定）。
 	out.ExecTargets = make([]BundleExecTarget, 0, len(targets))
 	for _, t := range targets {

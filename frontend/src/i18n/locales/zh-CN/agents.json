@@ -1,0 +1,390 @@
+{
+  "agentBackends": {
+    "actions": {
+      "cancelTest": "取消测试",
+      "cancelTestNamed": "取消测试 {{name}}",
+      "deleteNamed": "删除 {{name}}",
+      "editNamed": "编辑 {{name}}",
+      "changeBinding": "更换绑定",
+      "changeBindingNamed": "更换 {{name}} 的模型绑定",
+      "rebind": "重新选择",
+      "rebindNamed": "为 {{name}} 重新选择模型绑定",
+      "test": "测试连接",
+      "testNamed": "测试连接 {{name}}"
+    },
+    "binding": {
+      "label": "模型绑定",
+      "description": "先选择主模型来源；Claude 分级路由与 CLI 专属覆盖都从属于这项绑定。",
+      "cliLogin": "CLI 自身登录态",
+      "cliResolution": "生效模型由该 CLI 自身的登录账号决定",
+      "modeFollow": "跟随默认",
+      "modeFixed": "固定",
+      "followResolution": "生效模型：{{model}} · 默认变化会从下一轮起跟随",
+      "fixedResolution": "生效模型：{{model}} · 不受供应商默认变化影响",
+      "invalidTarget": "目标已失效 · {{target}}",
+      "invalidResolution": "该目标无法运行下一轮，请重新选择绑定"
+    },
+    "approval": {
+      "hint": "工具执行前是否人工确认",
+      "label": "Approval Policy",
+      "options": {
+        "never": "从不需要人工确认",
+        "on-request": "模型请求时人工确认",
+        "untrusted": "仅信任的工具自动执行"
+      }
+    },
+    "autoScan": {
+      "button": "自动扫描",
+      "buttonTitle": "扫描系统 PATH 中的 Claude Code / Codex / Pi Agent CLI 并自动创建后端",
+      "created": "已创建 {{count}} 个后端: {{names}}",
+      "nothingFound": "未在系统 PATH 中找到 claude / codex / pi 可执行文件",
+      "partialFound": "已创建 {{createdCount}} 个后端: {{createdNames}}。{{skippedCount}} 个已存在: {{skippedNames}}",
+      "scanning": "扫描中...",
+      "skipped": "{{count}} 个后端已存在: {{names}}"
+    },
+    "backendType": {
+      "builtin": {
+        "badge": "仅本机",
+        "label": "内置 Agent"
+      },
+      "claudecode": {
+        "label": "Claude Code CLI",
+        "shortLabel": "Claude Code"
+      },
+      "codex": {
+        "label": "Codex CLI",
+        "shortLabel": "Codex"
+      },
+      "openclaw": {
+        "label": "OpenClaw Gateway"
+      },
+      "piagent": {
+        "label": "Pi Agent CLI",
+        "shortLabel": "Pi Agent"
+      },
+      "probe": {
+        "failed": "探测失败",
+        "installed": "已安装",
+        "missing": "未安装",
+        "probing": "探测中"
+      }
+    },
+    "cli": {
+      "detect": "自动识别",
+      "detectTitle": "在 $PATH 中查找 {{bin}} 并覆盖填入",
+      "emptyHint": "空 = $PATH 中的 {{bin}}",
+      "explicitHint": "显式 binary 路径",
+      "label": "CLI 路径",
+      "notFound": "$PATH 中未找到 {{bin}}，请手动填写"
+    },
+    "defaultModel": {
+      "hint": "--model · 留空走供应商模型 / CLI 默认",
+      "label": "自定义模型",
+      "placeholder": "如 claude-fable-5 或别名 opus/sonnet（走 CLI 登录态时生效）",
+      "cliOnlyDescription": "仅在 CLI 自身登录态下生效；绑定 Agentre 供应商后会保留但被忽略。",
+      "ignoredDescription": "自定义 CLI 模型仍会保留，但绑定 Agentre 供应商期间会被忽略。"
+    },
+    "deleteDialog": {
+      "description": "确认删除「{{name}}」？该操作仅软删，不影响已存在的 Agent 引用。",
+      "title": "删除 Agent 后端"
+    },
+    "device": {
+      "builtinLocalOnly": "builtin 后端只能在本地运行",
+      "local": "📍 本地（当前机器）",
+      "localShort": "本机",
+      "offlineSuffix": " · offline",
+      "placeholder": "选择运行设备"
+    },
+    "editor": {
+      "createTitle": "新增 Agent 后端",
+      "description": "选择执行引擎并关联 LLM 供应商；CLI 后端通过本地 HTTP 代理转发请求，无需 claude/codex login。",
+      "editTitle": "编辑 Agent 后端"
+    },
+    "empty": {
+      "addFirst": "新增第一个后端",
+      "addProvider": "先配置 LLM 供应商",
+      "description": "每个 Agent 都要绑定一个后端才能执行任务；内置 SDK 还需要一个已激活的 LLM 供应商；Claude Code / Codex 也可直接用 CLI 登录态。",
+      "title": "还没有 Agent 后端"
+    },
+    "env": {
+      "count": "{{count}} 项",
+      "deleteKey": "删除此键",
+      "empty": "暂无键值；点下方「+ 新增」加一行。",
+      "reservedDisabled": "保留键禁用：{{keys}}",
+      "title": "高级 · 自定义环境变量"
+    },
+    "fields": {
+      "device": "运行设备",
+      "name": "名称",
+      "namePlaceholder": "例如：本机 · Claude Code",
+      "type": "类型",
+      "typeLocked": "创建后不可更改"
+    },
+    "flash": {
+      "close": "关闭提示",
+      "created": "已新增 Agent 后端",
+      "deleted": "已删除",
+      "providerSynced": "已同步远端 Provider",
+      "saved": "已保存"
+    },
+    "list": {
+      "ariaLabel": "Agent 后端列表"
+    },
+    "modelRoutes": {
+      "hint": "Claude Code 会把请求按 OPUS / SONNET / HAIKU 三档发出；没有单独设置的档位全部走上面的主绑定（对应 CLI 的 ANTHROPIC_DEFAULT_*_MODEL）。",
+      "defaultChip": "默认不用改",
+      "inheritMain": "继承主供应商",
+      "inheritWithName": "继承主供应商 · {{name}}",
+      "label": "模型分级路由",
+      "tierAria": "OPUS/SONNET/HAIKU 路由",
+      "inheritsSummary": "继承主绑定 → {{target}}",
+      "fixedSummary": "固定 → {{target}}",
+      "invalid": "目标失效"
+    },
+    "name": {
+      "deviceDefault": "{{device}} · {{name}}"
+    },
+    "openclaw": {
+      "agent": "Agent",
+      "agentPlaceholder": "使用 Gateway 默认 Agent",
+      "clearToken": "清除已保存 Token",
+      "errors": {
+        "agentNotFound": "所选 Agent 在该 Gateway 中不存在。",
+        "authFailed": "Gateway 认证失败，请检查已保存或新输入的 Token。",
+        "canceled": "已取消 Gateway 连接测试。",
+        "connectionFailed": "无法连接 OpenClaw Gateway。",
+        "eventMissing": "Gateway 未声明所需事件流。",
+        "methodMissing": "Gateway 未声明全部必需 RPC 方法。",
+        "modelNotFound": "所选模型在该 Gateway 中不存在或不可用。",
+        "protocolMismatch": "Gateway 不支持 OpenClaw protocol 4。",
+        "remoteUnavailable": "远端 OpenClaw 暂不可用，因为安全 secret reference 尚不能跨 agentred wire。",
+        "scopeMissing": "Gateway 未授予全部必需的 operator scopes。",
+        "secretUnavailable": "本机安全密钥存储不可用。",
+        "timeout": "Gateway 连接测试超时。",
+        "notPaired": "该 Gateway 需要先完成设备配对才会授予所申请的权限范围。请在 Gateway 上批准此设备后重试。",
+        "nameRequired": "请先填写后端名称再测试连接。",
+        "urlRequired": "请填写 Gateway WebSocket 地址。",
+        "urlInvalid": "不是合法的 Gateway WebSocket 地址。",
+        "urlScheme": "Gateway 地址必须以 ws:// 或 wss:// 开头。",
+        "urlHost": "Gateway 地址必须包含主机名。",
+        "urlCredentials": "Gateway 地址不能包含账号密码、查询参数或锚点。",
+        "urlPlaintextRemote": "明文 ws:// 仅允许环回地址,其它主机请使用 wss://。",
+        "sessionModeInvalid": "不支持的会话映射方式。OpenClaw 固定为每个 AgentRE 会话对应一个 Gateway 会话。"
+      },
+      "gatewayURL": "Gateway WebSocket 地址",
+      "gatewayURLHint": "本机回环地址可用 ws://；其它主机必须使用 wss://。",
+      "localOnlyTitle": "安全的本机 Gateway 连接",
+      "model": "模型",
+      "modelGatewayDefault": "Gateway 默认模型",
+      "modelPlaceholder": "使用 Gateway 默认模型",
+      "probePassed": "Gateway 验证通过 · {{latency}}ms",
+      "probeVerified": "Gateway 连接已验证",
+      "protocol": "Protocol {{protocol}}",
+      "remoteUnavailable": "安全密钥注册实现前，远端 agentred 暂不支持 OpenClaw。",
+      "sessionMode": "Session 映射",
+      "sessionModeHint": "每条 AgentRE 聊天会话稳定映射一条 OpenClaw session key。",
+      "sessionPerAgentRE": "每条 AgentRE 聊天对应一条 OpenClaw session",
+      "token": "Gateway Token",
+      "tokenHint": "Token 仅保存在本机安全密钥存储中，绝不会返回前端。",
+      "tokenPlaceholder": "可选 Token",
+      "tokenSavedHint": "除非输入新值替换或明确清除，否则保留已保存 Token。",
+      "tokenSavedPlaceholder": "Token 已安全保存；输入新值可替换。",
+      "modelOverrideUnauthorized": "该 Gateway 不允许当前 operator 连接覆盖模型,实际会使用 agent 自身的模型。"
+    },
+    "page": {
+      "add": "新增后端"
+    },
+    "permission": {
+      "addIsSandbox": "添加 IS_SANDBOX=1",
+      "bypassWarning": "会话起手即跳过 permission gate；运行时可在 4 档之间自由切换。仅建议在隔离沙箱 / CI 中使用。",
+      "hint": "--permission-mode · 新会话起手 mode",
+      "isSandboxConfigured": "已在 env_json 配置",
+      "label": "默认权限模式",
+      "options": {
+        "acceptEdits": "acceptEdits · 自动接受编辑",
+        "bypassPermissions": "bypassPermissions · 跳过审批",
+        "default": "default · 每次询问",
+        "inherit": "默认 · acceptEdits",
+        "plan": "plan · 只读分析"
+      },
+      "remoteRootHintPrefix": "远端 agentred 若以 root/sudo 运行，claude CLI 会拒绝 bypassPermissions（视同 --dangerously-skip-permissions）。设",
+      "remoteRootHintSuffix": "可让 CLI 跳过该检查。"
+    },
+    "provider": {
+      "clear": "清除供应商关联",
+      "clearTitle": "清除（走 CLI 自身登录）",
+      "cliLogin": "走 CLI 自身登录",
+      "configureCta": "去配置 LLM 供应商",
+      "emptyTitle": "还没有可用的 LLM 供应商",
+      "label": "LLM 供应商",
+      "modelRequiredDescription": "该供应商未配置默认 Model，Pi 无法通过 --model 选中它。请先在「LLM 供应商」页面为其设置默认模型，再回来保存。",
+      "modelRequiredTitle": "该供应商未配置默认模型",
+      "noMatchClaude": "未关联将走 claude CLI 自身登录态；如需通过本机代理转发请先新增 anthropic 类型供应商。",
+      "noMatchCodex": "未关联将走 codex CLI 自身登录态；如需通过本机代理转发请先新增 openai-response 类型供应商。",
+      "noMatchPiAgent": "未关联将走 pi CLI 自身登录态；如需绑定自定义供应商请先新增 LLM 供应商。",
+      "noMatchTitle": "没有匹配类型的 LLM 供应商",
+      "noModel": "（未选模型）",
+      "noneDescription": "请先到「LLM 供应商」页面新增一个，再回来配置后端。",
+      "noneTitle": "暂无 LLM 供应商",
+      "optionalSuffix": "· 可选",
+      "placeholderOptional": "不关联（走 CLI 自身登录）",
+      "placeholderRequired": "请选择 LLM 供应商",
+      "selectProvider": "选择供应商",
+      "staleDescription": "请从下方重新挑选一个启用中的供应商{{optionalClause}}。",
+      "staleOptionalClause": "，或清除关联走 CLI 自身登录",
+      "staleTitle": "原 LLM 供应商已停用或与当前类型不匹配",
+      "strictMatch": "严格匹配 · {{type}}",
+      "unlinked": "未关联供应商",
+      "followsDefault": "默认模型变化会从下一轮动态跟随",
+      "fixedNote": "已固定该模型，Provider 默认变化不会影响它"
+    },
+    "providerSync": {
+      "descriptionOnly": "同步会把该 Provider 的 BaseURL、协议、API Key、默认模型与模型目录复制到远端 agentred 状态文件；不会保存表单其它改动。",
+      "descriptionSave": "所选远端 agentred 尚未配置这些 Provider。同步会把 BaseURL、协议、API Key、默认模型与模型目录复制到远端 agentred 状态文件，然后继续保存 Agent 后端。",
+      "failedTitle": "同步失败",
+      "inlineDescription": "当前后端会在远端 agentred 运行；可先把所选 LLM Provider 同步到远端状态文件。",
+      "inlineTitle": "远端 Provider 同步",
+      "originalError": "原始错误：{{message}}",
+      "requiredDescription": "远端运行时只能读取它自己状态文件中的 Provider；未同步时会触发 provider not configured。",
+      "requiredTitle": "需要先同步 Provider",
+      "secretServiceAction": "处理方式：升级并重启远端 agentred；当前版本会直接写入 agentred 状态文件，不再使用 keychain。若暂时不能升级，请在远端安装并启动 gnome-keyring / KWallet 等 Secret Service。",
+      "secretServiceMissing": "旧版远端 agentred 仍在写系统 keychain，但远端 Linux 没有可用的 Secret Service（org.freedesktop.secrets）。",
+      "syncAndSave": "同步并保存",
+      "syncRemote": "同步到远端",
+      "syncing": "同步中...",
+      "title": "同步远端 LLM Provider"
+    },
+    "proxy": {
+      "notRunning": "本地 HTTP 代理未启动",
+      "openSettings": "前往设置",
+      "running": "通过本地 HTTP 代理 ({{url}}) 转发请求，密钥不出 App",
+      "stopped": "{{label}}{{reasonSuffix}}",
+      "unlinked": "未关联供应商，将直接使用 CLI 自身的 login 状态，密钥不经 App。"
+    },
+    "reasoning": {
+      "codexHint": "codex CLI 支持 low / medium / high / xhigh；max 将被折叠到 high。",
+      "label": "思考力度",
+      "options": {
+        "default": "默认（由模型决定）",
+        "high": "高 · high",
+        "low": "低 · low",
+        "max": "顶格 · max",
+        "medium": "中 · medium",
+        "xhigh": "极高 · xhigh"
+      }
+    },
+    "row": {
+      "agentCount": "{{count}} agents 使用中",
+      "needsAction": "需处理",
+      "unused": "暂未被 Agent 使用",
+      "bindingCliLogin": "走 CLI 自身登录态",
+      "bindingInvalid": "模型绑定已失效",
+      "bindingInvalidReason": "{{provider}} · {{model}} 已停用或不存在"
+    },
+    "summary": {
+      "title": "生效配置摘要",
+      "runtime": "运行位置",
+      "source": "模型来源",
+      "model": "生效模型",
+      "routes": "分级路由",
+      "references": "引用数量",
+      "referenceCount": "{{count}} 个 Agent",
+      "saveReady": "配置可保存 · 全部校验通过",
+      "cannotSaveReason": "无法保存：{{reason}}",
+      "cliAccountModel": "由 CLI 登录账号决定",
+      "unresolvedModel": "尚未解析",
+      "modeGateway": "Gateway 选择",
+      "modeInvalid": "失效",
+      "modeCli": "CLI 登录态",
+      "sources": {
+        "cli": "CLI 自身登录态",
+        "agentre": "Agentre 供应商 · {{provider}}",
+        "openclaw": "OpenClaw Gateway"
+      },
+      "reasons": {
+        "nameRequired": "请填写后端名称",
+        "invalidTarget": "请选择有效的模型绑定",
+        "bindingRequired": "当前没有兼容供应商，请先配置并选择模型绑定"
+      }
+    },
+    "sandbox": {
+      "defaultHint": "空 = 走 codex CLI 默认",
+      "hint": "codex 子进程文件系统隔离",
+      "label": "Sandbox"
+    },
+    "test": {
+      "passed": "测试通过 · {{latency}}ms · {{message}}"
+    }
+  },
+  "agentList": {
+    "attentionAria": "{{name}} 待处理会话",
+    "collapse": "折叠 {{name}}",
+    "expand": "展开 {{name}}",
+    "newSession": "新建 {{name}} 会话",
+    "openRecent": "打开 {{name}} 最近会话",
+    "pin": "置顶 {{name}}",
+    "pinned": "置顶",
+    "unpin": "取消置顶 {{name}}",
+    "running": "运行中",
+    "runningAria": "{{name}} 有运行中的会话",
+    "backendNotConfigured": "未配置后端",
+    "notConfigured": "未配置"
+  },
+  "modelTargetPicker": {
+    "special": {
+      "backend": "CLI 自身登录态",
+      "chat": "跟随 Agent 绑定",
+      "route": "继承主绑定",
+      "backendSublabel": "由 CLI 自身的登录账号决定"
+    },
+    "searchPlaceholder": "搜索供应商或模型…",
+    "clearSearch": "清空搜索",
+    "loading": "正在加载模型目录…",
+    "error": "模型目录加载失败",
+    "empty": "暂无可用供应商，请先到 LLM 供应商管理页创建。",
+    "noCompatibleProviders": "没有与当前后端类型兼容的供应商。",
+    "defaultLabel": "跟随默认模型",
+    "followDefault": "跟随该供应商默认",
+    "defaultCurrentPrefix": "当前",
+    "fixedSection": "固定到具体模型",
+    "contextOutput": "{{ctx}} 上下文 · {{out}} 输出",
+    "disabledModel": "模型已停用",
+    "disabledProvider": "供应商已停用",
+    "recentLabel": "最近使用",
+    "removeRecent": "移除 {{label}}",
+    "invalidTitle": "当前目标已失效",
+    "invalidTarget": "当前选择「{{target}}」已失效（供应商或模型缺失、停用或被删除）。下一轮会被阻止，且不会自动改用其它模型，请重新选择。",
+    "invalidHint": "该目标已失效（供应商或模型缺失/停用），请重新选择。",
+    "invalidCurrent": "当前选择 · 已失效",
+    "invalidChip": "失效",
+    "remoteMissing": "目标设备缺少该供应商，请在远端同步后再选择。",
+    "noDefaultModel": "未设置默认模型",
+    "remoteSyncNeeded": "本机独有，同步到该设备后可用",
+    "fixedModelUnsupported": "该设备不支持固定模型，请升级 agentred",
+    "remoteDeviceHeader": "在 {{device}} 上执行 —— 以该设备的配置为准",
+    "providerOnDevice": "设备上已有",
+    "syncInline": "同步过去",
+    "syncFootnote": "同步会把 API Key 复制到该设备，需要你明确确认",
+    "syncProviderNamed": "同步 {{provider}} 到该设备",
+    "syncDialog": {
+      "title": "同步供应商到设备",
+      "description": "将 {{provider}} 及其模型目录同步到目标设备。",
+      "confirmation": "此操作会把供应商 API Key 复制到目标设备，请确认后继续。",
+      "confirm": "确认同步"
+    }
+  },
+  "providerPill": {
+    "active": "生效中",
+    "aria": "供应商：{{provider}}",
+    "disabledNoCompatibleProviders": "没有与该后端类型匹配的可用供应商",
+    "disabledUnsupportedBackend": "该后端不使用 agentre 供应商",
+    "errorFetch": "供应商列表加载失败，请稍后重试",
+    "mode": {
+      "fixed": "固定模型",
+      "followDefault": "跟随供应商默认",
+      "invalid": "已失效"
+    },
+    "switchNote": "切换自下一轮生效，正在进行的回合不受影响",
+    "unselected": "选择供应商"
+  }
+}

@@ -16,11 +16,12 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
+	"github.com/agentre-hub/agentre/internal/daemon/identity"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // Fault controls the next runtime.run behavior through the loopback-only control API.
@@ -57,10 +58,10 @@ type session struct {
 	providerSessionID string
 	lifecycle         string
 	latestSeq         int64
-	notifications     []wire.JournaledNotification
+	notifications     []*agentrewire.JournaledNotification
 }
 
-// Server is a loopback WebSocket/JSON-RPC peer plus an authenticated control endpoint.
+// Server is a loopback binary Protobuf peer plus an authenticated control endpoint.
 type Server struct {
 	opts Options
 
@@ -68,7 +69,7 @@ type Server struct {
 	http     *http.Server
 
 	mu          sync.Mutex
-	connections map[int64]*rpc.Conn
+	connections map[int64]*protorpc.Conn
 	requests    []RecordedRequest
 	sessions    map[int64]*session
 	nextFault   Fault
@@ -89,7 +90,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	s := &Server{
 		opts:        opts,
 		listener:    listener,
-		connections: map[int64]*rpc.Conn{},
+		connections: map[int64]*protorpc.Conn{},
 		sessions:    map[int64]*session{},
 	}
 	mux := http.NewServeMux()
@@ -114,7 +115,7 @@ func (s *Server) URL() string { return "ws://" + s.listener.Addr().String() + "/
 func (s *Server) ControlURL() string { return "http://" + s.listener.Addr().String() + "/__control" }
 
 // DaemonFingerprint is the TOFU identity the desktop must seed.
-func (s *Server) DaemonFingerprint() string { return rpc.DaemonFingerprint(s.opts.InstanceUUID) }
+func (s *Server) DaemonFingerprint() string { return identity.DaemonFingerprint(s.opts.InstanceUUID) }
 
 // SetNextRunFault configures one deterministic boundary failure.
 func (s *Server) SetNextRunFault(fault Fault) {
@@ -140,11 +141,11 @@ func (s *Server) Close() error {
 		return nil
 	}
 	s.closed = true
-	connections := make([]*rpc.Conn, 0, len(s.connections))
+	connections := make([]*protorpc.Conn, 0, len(s.connections))
 	for _, conn := range s.connections {
 		connections = append(connections, conn)
 	}
-	s.connections = map[int64]*rpc.Conn{}
+	s.connections = map[int64]*protorpc.Conn{}
 	s.mu.Unlock()
 	for _, conn := range connections {
 		_ = conn.Close()
@@ -159,12 +160,12 @@ func (s *Server) Close() error {
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	requested := websocket.Subprotocols(r)
-	if len(requested) != 1 || requested[0] != rpc.Subprotocol {
+	if len(requested) != 1 || requested[0] != protorpc.Subprotocol {
 		http.Error(w, "required WebSocket subprotocol is missing", http.StatusBadRequest)
 		return
 	}
 	upgrader := websocket.Upgrader{
-		Subprotocols: []string{rpc.Subprotocol},
+		Subprotocols: []string{protorpc.Subprotocol},
 		CheckOrigin:  func(*http.Request) bool { return true },
 	}
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -172,8 +173,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := s.nextConnID.Add(1)
-	registry := rpc.NewRegistry()
-	conn := rpc.NewConn(rpc.NewWebSocketFrameConn(ws), registry)
+	registry := protorpc.NewRegistry()
+	conn := protorpc.NewConn(protorpc.NewWebSocketFrameConn(ws), registry)
 	s.register(conn, registry, id)
 	s.mu.Lock()
 	s.connections[id] = conn
@@ -186,74 +187,78 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-func (s *Server) register(conn *rpc.Conn, registry *rpc.Registry, connectionID int64) {
-	registry.Register("auth.connect", func(ctx context.Context, raw json.RawMessage) (any, error) {
-		s.record(connectionID, "auth.connect", raw)
-		var params rpc.ConnectParams
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, jsonrpc.ErrInvalidParams
+func (s *Server) register(conn *protorpc.Conn, registry *protorpc.Registry, connectionID int64) {
+	auth := func(ctx context.Context) error {
+		if !protorpc.ConnFromContext(ctx).Auth().Authenticated {
+			return &protorpc.Error{Code: -32001, Message: "unauthorized"}
 		}
-		if params.DeviceFingerprint != s.opts.DeviceFingerprint || params.DeviceToken != s.opts.DeviceToken ||
-			params.ExpectedDaemonFingerprint != s.DaemonFingerprint() {
-			return nil, jsonrpc.ErrUnauthorized
-		}
-		conn.SetAuth(rpc.AuthState{Authenticated: true, DeviceFingerprint: params.DeviceFingerprint})
-		return rpc.ConnectResult{OK: true, InstanceUUID: s.opts.InstanceUUID}, nil
-	})
-	register := func(method string, handler rpc.HandlerFunc) {
-		registry.Register(method, func(ctx context.Context, raw json.RawMessage) (any, error) {
-			s.record(connectionID, method, raw)
-			if !conn.Auth().Authenticated {
-				return nil, jsonrpc.ErrUnauthorized
-			}
-			return handler(ctx, raw)
-		})
+		return nil
 	}
-	register("health.ping", func(context.Context, json.RawMessage) (any, error) {
-		return map[string]any{
-			"instanceUUID": s.opts.InstanceUUID,
-			"serverTimeMs": time.Now().UnixMilli(),
-			"capabilities": []string{wire.CapLLMModelTargetV1},
-		}, nil
-	})
-	register(wire.MethodCapabilities, func(_ context.Context, raw json.RawMessage) (any, error) {
-		var params wire.CapabilitiesParams
-		if err := json.Unmarshal(raw, &params); err != nil || params.BackendType == "" {
-			return nil, jsonrpc.ErrInvalidParams
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT), func() *agentrewire.AuthConnectRequest { return &agentrewire.AuthConnectRequest{} }, func(ctx context.Context, req *agentrewire.AuthConnectRequest) (*agentrewire.AuthConnectResponse, error) {
+		s.record(connectionID, "auth.connect", req)
+		if req.DeviceFingerprint != s.opts.DeviceFingerprint || req.DeviceToken != s.opts.DeviceToken || req.ExpectedDaemonFingerprint != s.DaemonFingerprint() {
+			return nil, &protorpc.Error{Code: -32001, Message: "unauthorized"}
 		}
-		return wire.CapabilitiesResult{Capabilities: capability.Capabilities{
-			Set: map[capability.Capability]bool{capability.CapAbort: true},
-		}}, nil
+		protorpc.ConnFromContext(ctx).SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: req.DeviceFingerprint})
+		return &agentrewire.AuthConnectResponse{Ok: true, InstanceUuid: s.opts.InstanceUUID, ProtocolVersion: wireversion.Protocol}, nil
 	})
-	register(wire.MethodSessionList, func(context.Context, json.RawMessage) (any, error) {
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING), func() *agentrewire.HealthPingRequest { return &agentrewire.HealthPingRequest{} }, func(ctx context.Context, req *agentrewire.HealthPingRequest) (*agentrewire.HealthPingResponse, error) {
+		if err := auth(ctx); err != nil {
+			return nil, err
+		}
+		s.record(connectionID, "health.ping", req)
+		return &agentrewire.HealthPingResponse{InstanceUuid: s.opts.InstanceUUID, ServerTimeMs: time.Now().UnixMilli(), Capabilities: []string{wire.CapLLMModelTargetV1}}, nil
+	})
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES), func() *agentrewire.RuntimeCapabilitiesRequest { return &agentrewire.RuntimeCapabilitiesRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeCapabilitiesRequest) (*agentrewire.RuntimeCapabilitiesResponse, error) {
+		if err := auth(ctx); err != nil {
+			return nil, err
+		}
+		if req.BackendType == "" {
+			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "backend type required"}
+		}
+		s.record(connectionID, wire.MethodCapabilities, req)
+		return &agentrewire.RuntimeCapabilitiesResponse{Capabilities: []*agentrewire.CapabilityEntry{{Name: "abort", Enabled: true}}, PermissionMode: &agentrewire.PermissionModeMeta{}}, nil
+	})
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} }, func(ctx context.Context, req *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
+		if err := auth(ctx); err != nil {
+			return nil, err
+		}
+		s.record(connectionID, wire.MethodSessionList, req)
 		return s.sessionList(), nil
 	})
-	register(wire.MethodSessionAttach, func(_ context.Context, raw json.RawMessage) (any, error) {
-		var params wire.SessionAttachParams
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, jsonrpc.ErrInvalidParams
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), func() *agentrewire.SessionAttachRequest { return &agentrewire.SessionAttachRequest{} }, func(ctx context.Context, req *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error) {
+		if err := auth(ctx); err != nil {
+			return nil, err
 		}
-		return s.attach(params.SessionID)
+		s.record(connectionID, wire.MethodSessionAttach, req)
+		return s.attach(req.SessionId)
 	})
-	register(wire.MethodSessionPull, func(_ context.Context, raw json.RawMessage) (any, error) {
-		var params wire.SessionPullParams
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, jsonrpc.ErrInvalidParams
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), func() *agentrewire.SessionPullRequest { return &agentrewire.SessionPullRequest{} }, func(ctx context.Context, req *agentrewire.SessionPullRequest) (*agentrewire.SessionPullResponse, error) {
+		if err := auth(ctx); err != nil {
+			return nil, err
 		}
-		return s.pull(params), nil
+		s.record(connectionID, wire.MethodSessionPull, req)
+		return s.pull(req), nil
 	})
-	register(wire.MethodSessionPendingWaiters, func(context.Context, json.RawMessage) (any, error) {
-		return wire.SessionPendingWaitersResult{}, nil
-	})
-	register(wire.MethodRun, func(_ context.Context, raw json.RawMessage) (any, error) {
-		var params wire.RunParams
-		if err := json.Unmarshal(raw, &params); err != nil || params.SessionID <= 0 {
-			return nil, jsonrpc.ErrInvalidParams
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PENDING_WAITERS), func() *agentrewire.SessionPendingWaitersRequest { return &agentrewire.SessionPendingWaitersRequest{} }, func(ctx context.Context, req *agentrewire.SessionPendingWaitersRequest) (*agentrewire.SessionPendingWaitersResponse, error) {
+		if err := auth(ctx); err != nil {
+			return nil, err
 		}
-		fault := s.beginRun(params.SessionID)
-		providerSessionID := fmt.Sprintf("e2e-remote-session-%d", params.SessionID)
-		go s.streamRun(conn, params, providerSessionID, fault)
-		return wire.RunAck{SessionID: params.SessionID, ProviderSessionID: providerSessionID}, nil
+		s.record(connectionID, wire.MethodSessionPendingWaiters, req)
+		return &agentrewire.SessionPendingWaitersResponse{}, nil
+	})
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), func() *agentrewire.RuntimeRunRequest { return &agentrewire.RuntimeRunRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeRunRequest) (*agentrewire.RuntimeRunResponse, error) {
+		if err := auth(ctx); err != nil {
+			return nil, err
+		}
+		if req.SessionId <= 0 {
+			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "session id required"}
+		}
+		s.record(connectionID, wire.MethodRun, req)
+		fault := s.beginRun(req.SessionId)
+		provider := fmt.Sprintf("e2e-remote-session-%d", req.SessionId)
+		go s.streamRun(conn, req, provider, fault)
+		return &agentrewire.RuntimeRunResponse{SessionId: req.SessionId, ProviderSessionId: provider}, nil
 	})
 }
 
@@ -270,7 +275,7 @@ func (s *Server) beginRun(sessionID int64) Fault {
 	return fault
 }
 
-func (s *Server) streamRun(conn *rpc.Conn, params wire.RunParams, providerSessionID string, fault Fault) {
+func (s *Server) streamRun(conn *protorpc.Conn, params *agentrewire.RuntimeRunRequest, providerSessionID string, fault Fault) {
 	// Ensure runtime.run's response is written before the first notification.
 	time.Sleep(20 * time.Millisecond)
 	chunks := []string{"remote-peer-", "reply: ", params.UserText}
@@ -278,54 +283,37 @@ func (s *Server) streamRun(conn *rpc.Conn, params wire.RunParams, providerSessio
 		chunks = []string{"remote-peer-partial: " + params.UserText}
 	}
 	for _, chunk := range chunks {
-		eventRaw, err := json.Marshal(agentruntime.TextDelta{Text: chunk})
-		if err != nil {
-			return
-		}
-		frame := wire.EventFrame{SessionID: params.SessionID, Event: eventRaw}
-		s.appendNotification(params.SessionID, wire.NotifyEvent, &frame)
-		if err := conn.Notify(wire.NotifyEvent, frame); err != nil {
+		n := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: params.SessionId, Event: &agentrewire.RuntimeEventNotification_TextDelta{TextDelta: &agentrewire.TextDelta{Text: chunk}}}}}
+		s.appendNotification(params.SessionId, n)
+		if err := conn.Notify(n); err != nil {
 			return
 		}
 		if fault == FaultDisconnect {
-			s.setLifecycle(params.SessionID, wire.SessionLifecycleInterrupted)
+			s.setLifecycle(params.SessionId, wire.SessionLifecycleInterrupted)
 			_ = conn.Close()
 			return
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
 	if fault == FaultProtocol {
-		malformed := wire.EventFrame{SessionID: params.SessionID, Event: json.RawMessage(`{"kind":"e2e_unknown"}`)}
-		s.appendNotification(params.SessionID, wire.NotifyEvent, &malformed)
-		_ = conn.Notify(wire.NotifyEvent, malformed)
-		terminal := wire.RunResultDoneFrame{
-			SessionID: params.SessionID, ProviderSessionID: providerSessionID,
-			StopErrMsg: "e2e remote protocol failure",
-		}
-		s.appendNotification(params.SessionID, wire.NotifyRunResultDone, &terminal)
-		s.setLifecycle(params.SessionID, wire.SessionLifecycleIdle)
-		_ = conn.Notify(wire.NotifyRunResultDone, terminal)
+		n := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{SessionId: params.SessionId, ProviderSessionId: providerSessionID, StopErrorMessage: "e2e remote protocol failure"}}}
+		s.appendNotification(params.SessionId, n)
+		s.setLifecycle(params.SessionId, wire.SessionLifecycleIdle)
+		_ = conn.Notify(n)
 		return
 	}
-	doneRaw, err := json.Marshal(agentruntime.Done{})
-	if err != nil {
+	done := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: params.SessionId, Event: &agentrewire.RuntimeEventNotification_Done{Done: &agentrewire.Done{}}}}}
+	s.appendNotification(params.SessionId, done)
+	if err := conn.Notify(done); err != nil {
 		return
 	}
-	doneEvent := wire.EventFrame{SessionID: params.SessionID, Event: doneRaw}
-	s.appendNotification(params.SessionID, wire.NotifyEvent, &doneEvent)
-	if err := conn.Notify(wire.NotifyEvent, doneEvent); err != nil {
-		return
-	}
-	terminal := wire.RunResultDoneFrame{
-		SessionID: params.SessionID, ProviderSessionID: providerSessionID,
-		Model: "remote-peer-model",
-	}
-	s.appendNotification(params.SessionID, wire.NotifyRunResultDone, &terminal)
-	s.setLifecycle(params.SessionID, wire.SessionLifecycleIdle)
-	_ = conn.Notify(wire.NotifyRunResultDone, terminal)
+	terminal := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{SessionId: params.SessionId, ProviderSessionId: providerSessionID, Model: "remote-peer-model"}}}
+	s.appendNotification(params.SessionId, terminal)
+	s.setLifecycle(params.SessionId, wire.SessionLifecycleIdle)
+	_ = conn.Notify(terminal)
 }
 
-func (s *Server) appendNotification(sessionID int64, method string, frame interface{ SetSeq(int64) }) {
+func (s *Server) appendNotification(sessionID int64, notification *agentrewire.RpcNotification) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess := s.sessions[sessionID]
@@ -333,19 +321,13 @@ func (s *Server) appendNotification(sessionID int64, method string, frame interf
 		return
 	}
 	sess.latestSeq++
-	frame.SetSeq(sess.latestSeq)
-	raw, err := json.Marshal(frame)
-	if err != nil {
-		return
+	if event := notification.GetRuntimeEvent(); event != nil {
+		event.Seq = sess.latestSeq
 	}
-	var params map[string]any
-	if json.Unmarshal(raw, &params) == nil {
-		delete(params, "seq")
-		raw, _ = json.Marshal(params)
+	if done := notification.GetRunResultDone(); done != nil {
+		done.Seq = sess.latestSeq
 	}
-	sess.notifications = append(sess.notifications, wire.JournaledNotification{
-		Seq: sess.latestSeq, Method: method, Params: raw,
-	})
+	sess.notifications = append(sess.notifications, &agentrewire.JournaledNotification{Seq: sess.latestSeq, Payload: notification})
 }
 
 func (s *Server) setLifecycle(sessionID int64, lifecycle string) {
@@ -356,7 +338,7 @@ func (s *Server) setLifecycle(sessionID int64, lifecycle string) {
 	s.mu.Unlock()
 }
 
-func (s *Server) sessionList() wire.SessionListResult {
+func (s *Server) sessionList() *agentrewire.SessionListResponse {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ids := make([]int64, 0, len(s.sessions))
@@ -364,48 +346,48 @@ func (s *Server) sessionList() wire.SessionListResult {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	result := wire.SessionListResult{SupportsSessionMetadata: true}
+	result := &agentrewire.SessionListResponse{}
 	for _, id := range ids {
 		sess := s.sessions[id]
-		result.Sessions = append(result.Sessions, wire.SessionSummary{
-			SessionID: sess.id, ProviderSessionID: sess.providerSessionID,
+		result.Sessions = append(result.Sessions, &agentrewire.SessionSummary{
+			SessionId: sess.id, ProviderSessionId: sess.providerSessionID,
 			BackendType: "claudecode", LifecycleState: sess.lifecycle, LatestSeq: sess.latestSeq,
 		})
 	}
 	return result
 }
 
-func (s *Server) attach(sessionID int64) (any, error) {
+func (s *Server) attach(sessionID int64) (*agentrewire.SessionAttachResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess := s.sessions[sessionID]
 	if sess == nil {
-		return nil, &jsonrpc.Error{Code: wire.ErrCodeSessionNotFound, Message: agentruntime.ErrSessionNotFound.Error()}
+		return nil, &protorpc.Error{Code: wire.ErrCodeSessionNotFound, Message: agentruntime.ErrSessionNotFound.Error()}
 	}
 	if sess.lifecycle == wire.SessionLifecycleInterrupted {
-		return nil, &jsonrpc.Error{Code: wire.ErrCodeNoActiveTurn, Message: agentruntime.ErrNoActiveTurn.Error()}
+		return nil, &protorpc.Error{Code: wire.ErrCodeNoActiveTurn, Message: agentruntime.ErrNoActiveTurn.Error()}
 	}
-	return wire.SessionAttachResult{
-		SessionID: sessionID, BackendType: "claudecode",
+	return &agentrewire.SessionAttachResponse{
+		SessionId: sessionID, BackendType: "claudecode",
 		LifecycleState: sess.lifecycle, LatestSeq: sess.latestSeq,
 	}, nil
 }
 
-func (s *Server) pull(params wire.SessionPullParams) wire.SessionPullResult {
+func (s *Server) pull(params *agentrewire.SessionPullRequest) *agentrewire.SessionPullResponse {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess := s.sessions[params.SessionID]
+	sess := s.sessions[params.SessionId]
 	if sess == nil {
-		return wire.SessionPullResult{Cursor: params.Cursor}
+		return &agentrewire.SessionPullResponse{Cursor: params.Cursor}
 	}
-	limit := params.Limit
+	limit := int(params.Limit)
 	if limit <= 0 {
 		limit = wire.DefaultSessionPullLimit
 	}
 	if limit > wire.MaxSessionPullLimit {
 		limit = wire.MaxSessionPullLimit
 	}
-	result := wire.SessionPullResult{Cursor: params.Cursor}
+	result := &agentrewire.SessionPullResponse{Cursor: params.Cursor}
 	if len(sess.notifications) > 0 {
 		result.OldestSeq = sess.notifications[0].Seq
 	}
@@ -423,13 +405,10 @@ func (s *Server) pull(params wire.SessionPullParams) wire.SessionPullResult {
 	return result
 }
 
-func (s *Server) record(connectionID int64, method string, raw json.RawMessage) {
+func (s *Server) record(connectionID int64, method string, value any) {
+	raw, _ := json.Marshal(value)
 	var params any
-	if len(raw) > 0 && string(raw) != "null" {
-		if err := json.Unmarshal(raw, &params); err != nil {
-			params = map[string]any{"invalidJSON": true, "bytes": len(raw)}
-		}
-	}
+	_ = json.Unmarshal(raw, &params)
 	s.mu.Lock()
 	s.requests = append(s.requests, RecordedRequest{
 		ConnectionID: connectionID, Method: method, Params: sanitize(params),

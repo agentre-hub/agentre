@@ -8,8 +8,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 )
 
 // spyRecorder captures RecordDeviceProviders calls for assertion.
@@ -75,7 +74,7 @@ func TestWatcher_HealthPingProviders_PopulateCache(t *testing.T) {
 		repo.EXPECT().Get(gomock.Any(), int64(7)).Return(row, nil)
 		kc.EXPECT().Get("agentre-daemon-token-7").Return("tok", nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("fp", nil)
-		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(1_000_000), "").Return(nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -105,7 +104,7 @@ func TestWatcher_ProviderRecorder_NilSafe(t *testing.T) {
 		repo.EXPECT().Get(gomock.Any(), int64(7)).Return(fixtureRow(), nil)
 		kc.EXPECT().Get("agentre-daemon-token-7").Return("tok", nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("fp", nil)
-		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(1_000_000), "").Return(nil)
 
 		ctx, cancel := context.WithCancel(context.Background())

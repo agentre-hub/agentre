@@ -12,7 +12,7 @@
 // map 摘除,gateway token revoke。所有控制方法（Steer / Abort / ...）按
 // sessionID 查 backendType,再 type-assert backend runtime 拿对应的子接口,
 // 没实现就返 ErrUnsupported,session 不在就返 ErrNoActiveTurn —— 两者都被
-// wire.ToJSONRPCError 翻译成稳定 JSON-RPC error code 跨进程传递。
+// 协议适配层翻译成稳定的类型化 RPC error code 跨进程传递。
 package handlers
 
 import (
@@ -32,12 +32,14 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	piagentrt "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 )
 
 // RuntimeDeps are the explicit constructor inputs for RuntimeHandlers. All
@@ -61,6 +63,10 @@ type RuntimeDeps struct {
 	Gateway      GatewayPort
 	Lookup       LLMProviderLookupPort
 	RuntimeFor   func(agent_backend_entity.BackendType) agentruntime.Runtime
+	// CLIPathForBackend resolves the claimed daemon's in-memory per-device
+	// overlay by account backend SyncID. false preserves paired-desktop behavior
+	// before any account snapshot exists; true with an empty path means PATH.
+	CLIPathForBackend func(backendSyncID string) (cliPath string, authoritative bool)
 	// ClaimedAccountID returns the daemon account authorized to target a
 	// non-caller origin peer in control requests.
 	ClaimedAccountID func() string
@@ -77,11 +83,11 @@ type RuntimeDeps struct {
 // generation. The concrete in-memory sessions registry implements it without
 // adding a wire field or persistent state.
 type RuntimeGenerationRegistry interface {
-	ClaimRuntimeGeneration(connection *rpc.Conn, sessionID int64, generation string) bool
-	ReleaseRuntimeGeneration(connection *rpc.Conn, sessionID int64, generation string) bool
+	ClaimConnection(connection connection.Conn, sessionID int64, generation string) bool
+	ReleaseConnection(connection connection.Conn, sessionID int64, generation string) bool
 }
 
-// RuntimeHandlers groups the runtime.* JSON-RPC handlers and owns the
+// RuntimeHandlers groups the runtime.* RPC handlers and owns the
 // per-connection session map so control RPCs can resolve sessionID → backend.
 //
 // Lock invariant: h.mu is the only lock guarding h.sessions and every mutable
@@ -105,13 +111,15 @@ type RuntimeHandlers struct {
 	// SwapRuntimeFor (used by tests that need to flip the runtime registry
 	// after a session is already live).
 	runtimeFor func(agent_backend_entity.BackendType) agentruntime.Runtime
-	// sessionTokens 缓存每个 session 的常驻 gateway token(sessionID int64 → token string)。
+	// sessionTokens 是每个 session 的常驻 gateway token 缓存(与桌面共用
+	// agentruntime.SessionTokenCache:签一次 / 改道 / 撤销只有那一份实现)。
 	// 该 token 在 spawn 时烤进 daemon spawn 的 claude 子进程 env,子进程跨轮复用时
 	// env 不重建 —— 所以 token 必须签成永久(ttl=0)、跨轮稳定、且 **不在轮末撤销**。
 	// 旧实现每轮签 time.Hour token 并在 fanout 轮末撤销,而子进程手里还是首轮那个
 	// (已撤销)token → 第二轮起 PostToolUse hook 撞 401、SteerInbox drain 不到。
-	// daemon 侧没有 session 关闭钩子,token 随 daemon 进程退出释放(内存级、有界)。
-	sessionTokens sync.Map
+	// daemon 侧没有 session 关闭钩子(故不调用 Revoke),token 随 daemon 进程退出释放
+	// (内存级、有界)。
+	sessionTokens *agentruntime.SessionTokenCache
 	// autoSubs 防同一 session 重复起「自主续轮转发」goroutine(每会话一个)。
 	// goroutine 在真实 runtime 的 AutonomousTurns(sid) channel close(子进程 evict)时
 	// 退出并清这条,下次 Run 复用 / 重 spawn 时再起。
@@ -122,7 +130,7 @@ type runtimeSession struct {
 	backendType agent_backend_entity.BackendType
 	ctx         context.Context
 	cancel      context.CancelFunc
-	connection  *rpc.Conn
+	connection  connection.Conn
 	// adopted 标记这是 Adopt 放进来的**占位行**:它只为了让重连后的这条连接解得出
 	// 会话(见 Adopt),背后并没有一轮在跑。它必须与真正的 generation 属主区分开 ——
 	// 否则 Pi 那道「一条会话同时只有一个 generation」的闸门会把占位行当成在跑的一轮,
@@ -150,6 +158,10 @@ const (
 	runtimePiTerminalWaitTimeout    = 2 * time.Second
 )
 
+// GatewayPort 必须满足共享令牌缓存的路由端口 —— 编译期钉死,避免端口方法漂移后
+// 才在运行期发现会话 token 签不出来。
+var _ agentruntime.SessionTokenRouter = (GatewayPort)(nil)
+
 // NewRuntimeHandlers wires the dependencies and prepares the session map.
 func NewRuntimeHandlers(deps RuntimeDeps) *RuntimeHandlers {
 	if deps.RuntimeFor == nil {
@@ -158,12 +170,22 @@ func NewRuntimeHandlers(deps RuntimeDeps) *RuntimeHandlers {
 	if deps.SteerSource == nil {
 		deps.SteerSource = noopSteerSource{}
 	}
-	return &RuntimeHandlers{
+	h := &RuntimeHandlers{
 		deps:        deps,
 		sessions:    map[int64]*runtimeSession{},
 		runtimeFor:  deps.RuntimeFor,
 		cleanupDone: make(chan struct{}),
 	}
+	h.sessionTokens = agentruntime.NewSessionTokenCache(
+		"handlers.ensureSessionToken",
+		func() agentruntime.SessionTokenRouter {
+			if h.deps.Gateway == nil {
+				return nil
+			}
+			return h.deps.Gateway
+		},
+	)
+	return h
 }
 
 // noopSteerSource 是未注入 SteerSourcePort 时的空实现:单测 / 旧调用不记录任何来源,
@@ -303,6 +325,14 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	if bt == agent_backend_entity.TypeOpenClaw {
 		return wire.RunAck{}, errors.New("openclaw backend not supported in agentred: remote secret enrollment is unavailable")
 	}
+	if h.deps.CLIPathForBackend != nil {
+		if cliPath, authoritative := h.deps.CLIPathForBackend(be.SyncID); authoritative {
+			// Account snapshots own the execution-side per-device overlay. An
+			// absent overlay authoritatively means PATH, so it also clears a
+			// desktop machine's absolute path from the wire payload.
+			be.CLIPath = cliPath
+		}
+	}
 
 	rt := h.lookupRuntimeByType(bt)
 	if rt == nil {
@@ -342,7 +372,7 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 				return h.registerPiGeneration(ctx, em, p, &be)
 			}
 			ownsGeneration := piOwner.generationToken == strings.TrimSpace(p.PermissionMode)
-			ownsConnection := piOwner.connection == nil || piOwner.connection == rpc.ConnFromContext(ctx)
+			ownsConnection := piOwner.connection == nil || piOwner.connection == connection.FromContext(ctx)
 			if !ownsGeneration || !ownsConnection {
 				return wire.RunAck{}, errors.New("runtime.run: stale Pi generation request")
 			}
@@ -462,8 +492,13 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	}
 	// backendKey 是这条会话在 backend 那边的键(按对端隔离):claudecode / codex 的日志
 	// 里报的 sessionID 是它,这一行是把两边对上号的唯一地方。
-	log.Printf("runtime.run: session started sid=%d backendKey=%d backend=%s agentId=%d userTextBytes=%d",
-		p.SessionID, em.rid, be.Type, p.AgentID, len(p.UserText))
+	logger.Ctx(ctx).Info("handlers.RuntimeHandlers.Run: session started",
+		zap.Int64("sessionId", p.SessionID),
+		zap.Int64("runtimeSessionId", em.rid),
+		zap.String("backendType", be.Type),
+		zap.Int64("agentId", p.AgentID),
+		zap.String("peerFingerprint", runPeer),
+		zap.Int("userTextBytes", len(p.UserText)))
 	h.startSession(em, p, bt, providerSessionIDOf(result))
 	go h.fanout(em, owner, events, result, userMsg) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
 	// 真实 runtime 若支持自主续轮(claudecode),起每会话一个转发 goroutine 把
@@ -484,12 +519,15 @@ func (h *RuntimeHandlers) registerPiGeneration(
 	if generationToken == "" {
 		return wire.RunAck{}, errors.New("runtime.run: Pi generation owner is empty")
 	}
-	generationCtx, cancel := context.WithCancel(ctx)
+	// The generation outlives this RPC response. Protobuf request contexts are
+	// canceled as soon as the response frame is written, so retain values while
+	// giving the generation its own lifecycle.
+	generationCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	owner := &runtimeSession{
 		backendType:     agent_backend_entity.TypePiAgent,
 		ctx:             generationCtx,
 		cancel:          cancel,
-		connection:      rpc.ConnFromContext(ctx),
+		connection:      connection.FromContext(ctx),
 		generationToken: generationToken,
 		terminalDone:    make(chan struct{}),
 	}
@@ -497,7 +535,10 @@ func (h *RuntimeHandlers) registerPiGeneration(
 		cancel()
 		return wire.RunAck{}, errors.New("runtime.run: session already has an active generation")
 	}
-	log.Printf("runtime.run: Pi generation registered sid=%d backend=%s", p.SessionID, be.Type)
+	logger.Ctx(ctx).Debug("handlers.RuntimeHandlers.Run: Pi generation registered",
+		zap.Int64("sessionId", p.SessionID),
+		zap.String("backendType", be.Type),
+		zap.String("peerFingerprint", em.peer))
 	return wire.RunAck{SessionID: p.SessionID}, nil
 }
 
@@ -555,8 +596,11 @@ func (h *RuntimeHandlers) preparePi(
 		cleanupErr := h.finalizePiGeneration(context.Background(), em.rid, owner)
 		return wire.RunAck{}, errors.Join(prepareErr, cleanupErr)
 	}
-	log.Printf("runtime.run: Pi generation prepared sid=%d backend=%s providerSessionId=%s",
-		p.SessionID, be.Type, providerSessionID)
+	logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.Run: Pi generation prepared",
+		zap.Int64("sessionId", p.SessionID),
+		zap.String("backendType", be.Type),
+		zap.String("providerSessionId", providerSessionID),
+		zap.String("peerFingerprint", em.peer))
 	return wire.RunAck{SessionID: p.SessionID, ProviderSessionID: providerSessionID}, nil
 }
 
@@ -592,7 +636,12 @@ func (h *RuntimeHandlers) startPreparedPi(
 	if err != nil {
 		cleanupErr := h.finalizePiGeneration(context.Background(), em.rid, owner)
 		if cleanupErr != nil {
-			log.Printf("runtime.run: close failed sid=%d backend=%s errorType=%T", p.SessionID, be.Type, cleanupErr)
+			logger.Ctx(em.ctx).Warn("handlers.RuntimeHandlers.Run: generation close failed",
+				zap.Int64("sessionId", p.SessionID),
+				zap.String("backendType", be.Type),
+				zap.String("peerFingerprint", em.peer),
+				zap.String("errorType", fmt.Sprintf("%T", cleanupErr)),
+				zap.Error(cleanupErr))
 		}
 		return wire.RunAck{}, errors.Join(err, cleanupErr)
 	}
@@ -613,8 +662,11 @@ func (h *RuntimeHandlers) startPreparedPi(
 			ack.ProviderSessionID = strings.TrimSpace(result.ProviderSessionID)
 		}
 	}
-	log.Printf("runtime.run: Pi generation started sid=%d backendKey=%d backend=%s",
-		p.SessionID, em.rid, be.Type)
+	logger.Ctx(em.ctx).Info("handlers.RuntimeHandlers.Run: Pi generation started",
+		zap.Int64("sessionId", p.SessionID),
+		zap.Int64("runtimeSessionId", em.rid),
+		zap.String("backendType", be.Type),
+		zap.String("peerFingerprint", em.peer))
 	h.startSession(em, p, bt, providerSessionID)
 	go h.fanout(em, owner, events, result, userMessageFor(p))
 	return ack, nil
@@ -644,10 +696,16 @@ func (h *RuntimeHandlers) startSession(em *sessionEmitter, p wire.RunParams, bt 
 		LifecycleState:    wire.SessionLifecycleRunning,
 		Title:             p.Title,
 		AgentSyncID:       p.AgentSyncID,
+		ProjectSyncID:     p.ProjectSyncID,
 		ProviderSessionID: providerSessionID,
 	})
 	if err != nil {
-		log.Printf("runtime.run: record session failed sid=%d peer=%q err=%v", em.sid, em.peer, err)
+		logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.startSession: record session failed",
+			zap.Int64("sessionId", em.sid),
+			zap.String("peerFingerprint", em.peer),
+			zap.String("backendType", string(bt)),
+			zap.Int64("agentId", p.AgentID),
+			zap.Error(err))
 	}
 }
 
@@ -663,14 +721,20 @@ func providerSessionIDOf(result *agentruntime.RunResult) string {
 // runningSession 把会话推回 running(自主续轮开始)。
 func (h *RuntimeHandlers) runningSession(em *sessionEmitter) {
 	if err := h.deps.Sessions.Running(em.ctx, em.peer, em.peerSessionID); err != nil {
-		log.Printf("runtime.autonomousTurn: mark session running failed sid=%d err=%v", em.sid, err)
+		logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.runningSession: mark session running failed",
+			zap.Int64("sessionId", em.sid),
+			zap.String("peerFingerprint", em.peer),
+			zap.Error(err))
 	}
 }
 
 // finishSession 把会话落回 idle(一轮结束,等下一轮)。
 func (h *RuntimeHandlers) finishSession(em *sessionEmitter) {
 	if err := h.deps.Sessions.Finish(em.ctx, em.peer, em.peerSessionID); err != nil {
-		log.Printf("runtime.run: mark session idle failed sid=%d err=%v", em.sid, err)
+		logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.finishSession: mark session idle failed",
+			zap.Int64("sessionId", em.sid),
+			zap.String("peerFingerprint", em.peer),
+			zap.Error(err))
 	}
 }
 
@@ -692,22 +756,19 @@ func userMessageFor(p wire.RunParams) *agentruntime.UserMessageEvent {
 // 判 generation 是否仍归本属主(stale 丢弃,与循环里一致)→ em.emit 落库 + 推送。
 // 返回是否真的作为一条事件发出。
 func (h *RuntimeHandlers) emitPrelude(em *sessionEmitter, owner *runtimeSession, rid int64, prelude *agentruntime.UserMessageEvent) bool {
-	raw, err := json.Marshal(prelude)
-	if err != nil {
-		log.Printf("runtime.event: prelude marshal failed sid=%d err=%v", em.sid, err)
-		return false
-	}
 	current := h.isCurrent(rid, owner)
 	if owner.backendType == agent_backend_entity.TypePiAgent && owner.ctx != nil {
 		current = h.canDeliverPiEvent(rid, owner)
 	}
 	if !current {
-		log.Printf("runtime.event: stale prelude dropped sid=%d", em.sid)
+		logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.emitPrelude: stale prelude dropped",
+			zap.Int64("sessionId", em.sid),
+			zap.String("peerFingerprint", em.peer))
 		return false
 	}
 	return em.emit(wire.NotifyEvent, &wire.EventFrame{
 		SessionID: em.sid,
-		Event:     json.RawMessage(raw),
+		Event:     *prelude,
 	})
 }
 
@@ -715,6 +776,7 @@ func (h *RuntimeHandlers) emitPrelude(em *sessionEmitter, owner *runtimeSession,
 // runtime.runResultDone 终态帧。日志按事件 kind 计数,turn 结束时打一条汇总,
 // 排查 stuck-turn / 漏事件时方便对账 client 端实际收到几条。
 func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, prelude *agentruntime.UserMessageEvent) {
+	startedAt := time.Now()
 	sid, rid := em.sid, em.rid
 	count := 0
 	kindHist := map[string]int{}
@@ -733,12 +795,6 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		if sc, ok := ev.(agentruntime.SteerConsumed); ok {
 			ev = stampSteerSources(h.deps.SteerSource, sc)
 		}
-		raw, err := json.Marshal(ev)
-		if err != nil {
-			log.Printf("runtime.event: marshal failed sid=%d kind=%T errClass=%T errBytes=%d",
-				sid, ev, err, len(err.Error()))
-			continue
-		}
 		count++
 		kind := reflect.TypeOf(ev).Name()
 		kindHist[kind]++
@@ -747,15 +803,23 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 			current = h.canDeliverPiEvent(rid, owner)
 		}
 		if !current {
-			log.Printf("runtime.event: stale generation dropped sid=%d n=%d kind=%s", sid, count, kind)
+			logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.fanout: stale generation dropped",
+				zap.Int64("sessionId", sid),
+				zap.String("peerFingerprint", em.peer),
+				zap.Int("eventNumber", count),
+				zap.String("eventKind", kind))
 			continue
 		}
 		if em.emit(wire.NotifyEvent, &wire.EventFrame{
 			SessionID: sid,
-			Event:     json.RawMessage(raw),
+			Event:     ev,
 		}) && !isNoisyEventKind(kind) {
 			// text/thinking/usage 频率极高,kindHist 汇总即可,不逐条 log。
-			log.Printf("runtime.event: sid=%d n=%d kind=%s eventBytes=%d", sid, count, kind, len(raw))
+			logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.fanout: event delivered",
+				zap.Int64("sessionId", sid),
+				zap.String("peerFingerprint", em.peer),
+				zap.Int("eventNumber", count),
+				zap.String("eventKind", kind))
 		}
 	}
 	frame := runResultToFrame(sid, result)
@@ -773,8 +837,7 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		// 的子进程手里 token 失效。
 		removed := h.unregister(rid, owner)
 		em.emit(wire.NotifyRunResultDone, &frame)
-		log.Printf("runtime.run: session ended sid=%d currentGeneration=%t totalEvents=%d kinds=%v hasStopErr=%t stopErrBytes=%d stopErrCode=%d",
-			sid, removed, count, kindHist, frame.StopErrMsg != "", len(frame.StopErrMsg), frame.StopErrCode)
+		h.logFanoutSummary(em, owner, startedAt, removed, count, kindHist, frame)
 		return
 	}
 
@@ -788,11 +851,29 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		h.finishSession(em)
 		em.emit(wire.NotifyRunResultDone, &frame)
 		if cleanupErr := h.finalizePiGeneration(context.Background(), rid, owner); cleanupErr != nil {
-			log.Printf("runtime.run: finalization failed sid=%d currentGeneration=true errorType=%T", sid, cleanupErr)
+			logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.fanout: generation finalization failed",
+				zap.Int64("sessionId", sid),
+				zap.String("peerFingerprint", em.peer),
+				zap.String("errorType", fmt.Sprintf("%T", cleanupErr)),
+				zap.Error(cleanupErr))
 		}
 	}
-	log.Printf("runtime.run: session ended sid=%d currentGeneration=%t totalEvents=%d kinds=%v hasStopErr=%t stopErrBytes=%d stopErrCode=%d",
-		sid, current, count, kindHist, frame.StopErrMsg != "", len(frame.StopErrMsg), frame.StopErrCode)
+	h.logFanoutSummary(em, owner, startedAt, current, count, kindHist, frame)
+}
+
+func (h *RuntimeHandlers) logFanoutSummary(em *sessionEmitter, owner *runtimeSession, startedAt time.Time, current bool, count int, kindHist map[string]int, frame wire.RunResultDoneFrame) {
+	logger.Ctx(em.ctx).Info("handlers.RuntimeHandlers.fanout: session ended",
+		zap.Int64("sessionId", em.sid),
+		zap.Int64("runtimeSessionId", em.rid),
+		zap.String("peerFingerprint", em.peer),
+		zap.String("backendType", string(owner.backendType)),
+		zap.Bool("currentGeneration", current),
+		zap.Int("totalEvents", count),
+		zap.Any("eventKinds", kindHist),
+		zap.Bool("hasStopError", frame.StopErrMsg != ""),
+		zap.Int("stopErrorBytes", len(frame.StopErrMsg)),
+		zap.Int("stopErrorCode", frame.StopErrCode),
+		zap.Duration("duration", time.Since(startedAt)))
 }
 
 // stampSteerSources 把 Steer RPC 时记下的提交方来源盖回被消费的 steer 上(R17)。
@@ -854,16 +935,10 @@ func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentrunt
 	})
 	count := 0
 	for ev := range at.Events {
-		raw, err := json.Marshal(ev)
-		if err != nil {
-			log.Printf("runtime.autonomousTurn.event: marshal failed sid=%d kind=%T errClass=%T errBytes=%d",
-				sid, ev, err, len(err.Error()))
-			continue
-		}
 		count++
 		em.emit(wire.NotifyAutonomousTurnEvent, &wire.EventFrame{
 			SessionID: sid,
-			Event:     json.RawMessage(raw),
+			Event:     ev,
 		})
 	}
 	frame := runResultToFrame(sid, at.Result)
@@ -929,32 +1004,77 @@ func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, sid int64, peer str
 //     的连续 seq 就是完整序列(R3);
 //   - 推送失败:通知已经落库、seq 已经推进,记一条日志就继续下一条,不回滚不重试(R2)。
 func (e *sessionEmitter) emit(method string, frame seqFrame) bool {
-	payload, err := json.Marshal(frame)
+	notification, err := protowire.WireNotificationToProto(method, frame)
 	if err != nil {
-		log.Printf("%s: marshal failed sid=%d err=%v", method, e.sid, err)
+		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: protobuf conversion failed",
+			zap.Int64("sessionId", e.sid),
+			zap.String("peerFingerprint", e.peer),
+			zap.String("notificationMethod", method),
+			zap.Error(err))
 		return false
 	}
 	if e.journal == nil {
 		// 没接日志就没有「事实」可言,只能连推送一起停:宁可整条出口静默失败被一眼看见,
 		// 也不能一边推一边丢事实(那样断连补齐会缺条,而没人会发现)。
-		log.Printf("%s: journal not wired sid=%d; notification dropped", method, e.sid)
+		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: journal not wired",
+			zap.Int64("sessionId", e.sid),
+			zap.String("peerFingerprint", e.peer),
+			zap.String("notificationMethod", method))
 		return false
 	}
-	seq, err := e.journal.Append(e.ctx, e.peer, e.peerSessionID, method, payload)
+	protowire.SetNotificationSeq(notification, 0)
+	encoded, err := protowire.EncodeNotification(notification)
 	if err != nil {
-		log.Printf("%s: journal append failed sid=%d peer=%q err=%v", method, e.sid, e.peer, err)
+		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: protobuf encode failed",
+			zap.Int64("sessionId", e.sid),
+			zap.String("peerFingerprint", e.peer),
+			zap.String("notificationMethod", method),
+			zap.Error(err))
+		return false
+	}
+	seq, err := e.journal.Append(e.ctx, e.peer, e.peerSessionID, encoded)
+	if err != nil {
+		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: journal append failed",
+			zap.Int64("sessionId", e.sid),
+			zap.String("peerFingerprint", e.peer),
+			zap.String("notificationMethod", method),
+			zap.Int("payloadBytes", len(encoded)),
+			zap.Error(err))
 		return false
 	}
 	frame.SetSeq(seq)
+	// 推出去的是**刚才落库的那一条消息本身**,只多盖一个 seq —— 不重新转换一遍(转换要
+	// 对密封事件做一次 JSON 解码并重建整棵消息树,而这里跑的是每一个 token)。落库的
+	// 字节里 seq 仍是 0:它是日志行自己的属性,断连补齐时由行的 seq 列重新盖上。
+	protowire.SetNotificationSeq(notification, seq)
 	n := e.pushTarget()
 	if n == nil {
 		// 对端不在线:通知已经落库,等它重连后按游标补齐。
-		log.Printf("%s: no live peer sid=%d seq=%d; journaled only", method, e.sid, seq)
+		logger.Ctx(e.ctx).Debug("handlers.sessionEmitter.emit: notification journaled without live peer",
+			zap.Int64("sessionId", e.sid),
+			zap.String("peerFingerprint", e.peer),
+			zap.String("notificationMethod", method),
+			zap.Int64("seq", seq),
+			zap.Int("payloadBytes", len(encoded)))
 		return false
 	}
-	if err := n.Notify(method, frame); err != nil {
-		log.Printf("%s: notify failed sid=%d seq=%d err=%v", method, e.sid, seq, err)
+	if err := n.Notify(notification); err != nil {
+		logger.Ctx(e.ctx).Warn("handlers.sessionEmitter.emit: notification push failed after journaling",
+			zap.Int64("sessionId", e.sid),
+			zap.String("peerFingerprint", e.peer),
+			zap.String("notificationMethod", method),
+			zap.Int64("seq", seq),
+			zap.Int("payloadBytes", len(encoded)),
+			zap.Error(err))
 		return false
+	}
+	if method != wire.NotifyEvent && method != wire.NotifyAutonomousTurnEvent {
+		logger.Ctx(e.ctx).Debug("handlers.sessionEmitter.emit: notification journaled and pushed",
+			zap.Int64("sessionId", e.sid),
+			zap.String("peerFingerprint", e.peer),
+			zap.String("notificationMethod", method),
+			zap.Int64("seq", seq),
+			zap.Int("payloadBytes", len(encoded)))
 	}
 	return true
 }
@@ -968,10 +1088,10 @@ func (e *sessionEmitter) pushTarget() NotifierPort {
 }
 
 // peerFingerprint 取发起这轮的对端设备指纹 —— 会话身份的前半段(R16)。它只在请求
-// ctx 上有(auth.pair / auth.connect 成功后写进 rpc.AuthState),所以必须在 runtime.run
+// ctx 上有(auth.pair / auth.connect 成功后写进 rpcerror.AuthState),所以必须在 runtime.run
 // 处理期间取,fanout 的 goroutine 里已经拿不到连接了。
 func peerFingerprint(ctx context.Context) string {
-	if c := rpc.ConnFromContext(ctx); c != nil {
+	if c := connection.FromContext(ctx); c != nil {
 		return c.Auth().DeviceFingerprint
 	}
 	return ""
@@ -980,7 +1100,7 @@ func peerFingerprint(ctx context.Context) string {
 // peerName 取发起这条 RPC 的对端设备名(auth.pair 时上报;auth.account 路径为空)。
 // 与 peerFingerprint 一样只在请求 ctx 上有,必须在 RPC 处理期间取。
 func peerName(ctx context.Context) string {
-	if c := rpc.ConnFromContext(ctx); c != nil {
+	if c := connection.FromContext(ctx); c != nil {
 		return c.Auth().DeviceName
 	}
 	return ""
@@ -1024,7 +1144,7 @@ func runtimeSessionID(peer string, sessionID int64) int64 {
 // 它们仍计入 fanout 汇总(kindHist),只是不展开。
 func isNoisyEventKind(kind string) bool {
 	switch kind {
-	case "TextDelta", "ThinkingDelta", "UsageUpdate", "ContextWindowUpdated":
+	case "TextDelta", "ThinkingDelta", "OutputActivity", "UsageUpdate", "ContextWindowUpdated":
 		return true
 	}
 	return false
@@ -1054,8 +1174,8 @@ func runResultToFrame(sid int64, r *agentruntime.RunResult) wire.RunResultDoneFr
 	}
 	if r.StopErr != nil {
 		f.StopErrMsg = r.StopErr.Error()
-		if rpcErr := wire.ToJSONRPCError(r.StopErr); rpcErr != nil {
-			f.StopErrCode = rpcErr.Code
+		if rpcErr := wire.ToRPCError(r.StopErr); rpcErr != nil {
+			f.StopErrCode = int(rpcErr.Code)
 		}
 	}
 	return f
@@ -1527,8 +1647,8 @@ func (h *RuntimeHandlers) resolveTarget(
 	}
 	if modelKey != "" {
 		// fixed-model：Provider 缺失/非 active → 严格阻止，不降级、不回退。
-		return nil, nil, "", &rpc.Error{
-			Code:    rpc.ErrProviderMissing.Code,
+		return nil, nil, "", &rpcerror.Error{
+			Code:    rpcerror.ErrProviderMissing.Code,
 			Message: fmt.Sprintf("LLM provider %q not configured on remote daemon: %v", effectiveKey, err),
 		}
 	}
@@ -1537,8 +1657,8 @@ func (h *RuntimeHandlers) resolveTarget(
 	if be != nil && be.LLMProviderKey != "" && effectiveKey != be.LLMProviderKey {
 		bpv, berr := h.deps.Lookup.FindByKey(ctx, be.LLMProviderKey)
 		if berr != nil {
-			return nil, nil, "", &rpc.Error{
-				Code:    rpc.ErrProviderMissing.Code,
+			return nil, nil, "", &rpcerror.Error{
+				Code:    rpcerror.ErrProviderMissing.Code,
 				Message: fmt.Sprintf("LLM provider %q not configured on remote daemon: %v", be.LLMProviderKey, berr),
 			}
 		}
@@ -1553,8 +1673,8 @@ func (h *RuntimeHandlers) resolveTarget(
 	if be == nil || be.LLMProviderKey == "" {
 		return nil, nil, providerFallbackKey, nil
 	}
-	return nil, nil, "", &rpc.Error{
-		Code:    rpc.ErrProviderMissing.Code,
+	return nil, nil, "", &rpcerror.Error{
+		Code:    rpcerror.ErrProviderMissing.Code,
 		Message: fmt.Sprintf("LLM provider %q not configured on remote daemon: %v", effectiveKey, err),
 	}
 }
@@ -1562,28 +1682,29 @@ func (h *RuntimeHandlers) resolveTarget(
 // resolveEffectiveModel 在已解析的 provider 之上解析执行侧配置（EffectiveLLMConfig
 // v1 seam）：provider-default 取当前默认模型，fixed-model 取指定模型。模型缺失/停用
 // 由 Lookup.ResolveModel 报错，这里原样透出（调用方据此严格阻止本轮）。
+//
+// 装配本身走共享构造口 agentruntime.NewEffectiveLLMConfig —— 桌面与 daemon 同一套输入
+// 必须得到逐字段相同的配置，daemon 自己手写那份曾漏填 ContextWindow / MaxOutput。
 func (h *RuntimeHandlers) resolveEffectiveModel(
 	ctx context.Context, provider *llm_provider_entity.LLMProvider, modelKey string,
 ) (*agentruntime.EffectiveLLMConfig, error) {
-	mode := agentruntime.EffectiveModeProviderDefault
-	if strings.TrimSpace(modelKey) != "" {
-		mode = agentruntime.EffectiveModeFixedModel
-	}
 	eff, err := h.deps.Lookup.ResolveModel(ctx, provider.ProviderKey, modelKey)
 	if err != nil {
 		return nil, fmt.Errorf("resolve model for provider %q: %w", provider.ProviderKey, err)
 	}
-	return &agentruntime.EffectiveLLMConfig{
-		Mode:         mode,
-		ProviderKey:  provider.ProviderKey,
-		ModelKey:     eff.ModelKey,
-		ProviderType: provider.Type,
-		ProviderName: provider.Name,
-		ModelID:      eff.ModelID,
-		BaseURL:      provider.BaseURL,
-		APIKey:       provider.APIKey,
-		HasAPIKey:    provider.APIKey != "",
-	}, nil
+	return agentruntime.NewEffectiveLLMConfig(agentruntime.EffectiveLLMConfigInput{
+		ProviderKey:      provider.ProviderKey,
+		ProviderType:     provider.Type,
+		ProviderName:     provider.Name,
+		TargetModelKey:   modelKey,
+		ResolvedModelKey: eff.ModelKey,
+		ResolvedModelID:  eff.ModelID,
+		ContextWindow:    eff.ContextWindow,
+		MaxOutput:        eff.MaxOutput,
+		BaseURL:          provider.BaseURL,
+		APIKey:           provider.APIKey,
+		HasAPIKey:        provider.APIKey != "",
+	}), nil
 }
 
 // ensureSessionToken 返回某 session 的 gateway URL + 常驻 token:首轮签一个永久
@@ -1594,7 +1715,9 @@ func (h *RuntimeHandlers) resolveEffectiveModel(
 //
 // providerKey 是本轮解析出来的供应商(wire 的 effectiveProviderKey 自解、必要时已回退):
 // 首轮按它签发,之后每轮把既有 token 的路由目标对齐到它 —— 桌面端换供应商后,同一个
-// token 字符串继续有效,只是上游变了(决策 3/12)。
+// token 字符串继续有效,只是上游变了(决策 3/12)。签一次 / 改道 / 撤销的实现在
+// agentruntime.SessionTokenCache,与桌面共用;这里只保留 daemon 自己的可用性判据
+// (URL 为空 = 不签)。
 func (h *RuntimeHandlers) ensureSessionToken(
 	ctx context.Context, sid int64, be *agent_backend_entity.AgentBackend, providerKey, modelKey string,
 ) (string, string, error) {
@@ -1605,44 +1728,11 @@ func (h *RuntimeHandlers) ensureSessionToken(
 	if url == "" {
 		return "", "", nil
 	}
-	if sid > 0 {
-		if v, ok := h.sessionTokens.Load(sid); ok {
-			tok := v.(string)
-			h.routeSessionToken(ctx, sid, tok, providerKey, modelKey)
-			return url, tok, nil
-		}
-	}
-	tok, err := h.deps.Gateway.IssueTokenFor(ctx, be, providerKey, modelKey, 0)
+	tok, err := h.sessionTokens.EnsureToken(ctx, sid, be, providerKey, modelKey)
 	if err != nil {
-		return "", "", fmt.Errorf("gateway token: %w", err)
-	}
-	if sid > 0 {
-		// 并发首轮兜底:别的 goroutine 抢先签好就用它的,撤掉自己这条避免泄漏。
-		if actual, loaded := h.sessionTokens.LoadOrStore(sid, tok); loaded {
-			h.deps.Gateway.RevokeToken(tok)
-			return url, actual.(string), nil
-		}
+		return "", "", err
 	}
 	return url, tok, nil
-}
-
-// routeSessionToken 把会话常驻 token 的路由目标对齐到本轮的 ModelTarget;token 字符串
-// 不变,已烤进子进程 env 的那份继续可用。真的换了才记一条日志;找不到 entry = gateway 重启过
-// (token 表只在内存里),子进程手里那个也已失效,记 warn 供排查。
-func (h *RuntimeHandlers) routeSessionToken(ctx context.Context, sid int64, token, providerKey, modelKey string) {
-	previous, ok := h.deps.Gateway.SetTokenTarget(token, providerKey, modelKey)
-	if !ok {
-		logger.Ctx(ctx).Warn("handlers.routeSessionToken: session token missing from gateway",
-			zap.Int64("sessionId", sid),
-			zap.String("providerKey", providerKey))
-		return
-	}
-	if previous != providerKey {
-		logger.Ctx(ctx).Info("handlers.routeSessionToken: gateway token rerouted to new provider",
-			zap.Int64("sessionId", sid),
-			zap.String("previousProviderKey", previous),
-			zap.String("providerKey", providerKey))
-	}
 }
 
 func (h *RuntimeHandlers) lookupSession(sid int64) *runtimeSession {
@@ -1666,7 +1756,7 @@ func (h *RuntimeHandlers) register(sid int64, row *runtimeSession) {
 func (h *RuntimeHandlers) registerPiIfAbsent(sid int64, row *runtimeSession) bool {
 	claimed := false
 	if h.deps.GenerationRegistry != nil {
-		claimed = h.deps.GenerationRegistry.ClaimRuntimeGeneration(row.connection, sid, row.generationToken)
+		claimed = h.deps.GenerationRegistry.ClaimConnection(row.connection, sid, row.generationToken)
 		if !claimed {
 			return false
 		}
@@ -1708,7 +1798,7 @@ func (h *RuntimeHandlers) releaseGeneration(sid int64, owner *runtimeSession) {
 	if owner == nil || h.deps.GenerationRegistry == nil {
 		return
 	}
-	h.deps.GenerationRegistry.ReleaseRuntimeGeneration(owner.connection, sid, owner.generationToken)
+	h.deps.GenerationRegistry.ReleaseConnection(owner.connection, sid, owner.generationToken)
 }
 
 func (h *RuntimeHandlers) canDeliverPiEvent(sid int64, owner *runtimeSession) bool {

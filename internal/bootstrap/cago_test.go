@@ -13,10 +13,11 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 )
 
 func TestInitCreatesCagoRuntime(t *testing.T) {
@@ -81,6 +82,133 @@ func TestInitCreatesCagoRuntime(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(dataDir, "config.json")); !os.IsNotExist(err) {
 		t.Fatalf("config.json should not be created, stat error = %v", err)
+	}
+}
+
+// TestInitCreatesOnlyCurrentDatabaseSchema pins the unreleased database
+// baseline: a fresh install creates the current model directly, without first
+// materializing columns or migration ledger entries that only served old
+// development databases.
+func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	gormDB := db.Default()
+	for table, columns := range map[string][]string{
+		"llm_providers":              {"default_model_key", "sync_id", "sync_origin_fingerprint"},
+		"llm_provider_models":        {"model_key", "model_id"},
+		"agent_backends":             {"model_key", "sync_id", "device_fingerprint", "sync_origin_fingerprint"},
+		"agent_backend_cli_overlays": {"backend_sync_id", "agentred_fingerprint", "cli_path", "sync_origin_fingerprint"},
+		"agents":                     {"sync_origin_fingerprint"},
+		"agent_exec_targets":         {"sync_origin_fingerprint"},
+		"departments":                {"sync_origin_fingerprint"},
+		"projects":                   {"sync_origin_fingerprint"},
+		"project_agents":             {"sync_origin_fingerprint"},
+		"project_locations":          {"device_fingerprint", "sync_origin_fingerprint"},
+		"chat_sessions":              {"model_key", "exec_agent_backend_id", "cwd", "exec_device_fingerprint"},
+		"chat_messages":              {"first_token_ms", "tokens_per_sec", "device_fingerprint"},
+		"chat_message_blocks":        {"message_id", "idx", "type", "tool_call_id", "codec", "data"},
+		// 任务并入账号级同步组，三张表各带六列同步元数据；issues 另有执行归属三列。
+		"issues":       {"agent_backend_id", "llm_provider_key", "llm_model_key", "sync_id", "sync_origin_fingerprint"},
+		"labels":       {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
+		"issue_labels": {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
+	} {
+		if !gormDB.Migrator().HasTable(table) {
+			t.Errorf("current table %q was not created", table)
+			continue
+		}
+		for _, column := range columns {
+			if !gormDB.Migrator().HasColumn(table, column) {
+				t.Errorf("current column %s.%s was not created", table, column)
+			}
+		}
+	}
+
+	// 决策 14/16 的改名:机器指纹一律叫 device_fingerprint、同步来源一律叫
+	// sync_origin_fingerprint。三侧均未发布,旧名不保留兼容列(决策 22),因此
+	// 旧名在全新库上必须一个都不存在——这是编译期抓不到的那一类。
+	for table, columns := range map[string][]string{
+		"llm_providers": {"model", "max_output", "context_window", "sync_origin"},
+		// 正文改存 chat_message_blocks 一块一行,单列形态不再存在。
+		"chat_messages":              {"blocks_json", "device_id"},
+		"agent_backends":             {"device_id", "sync_origin"},
+		"agent_backend_cli_overlays": {"sync_origin"},
+		"agents":                     {"sync_origin"},
+		"agent_exec_targets":         {"sync_origin"},
+		"departments":                {"sync_origin"},
+		"projects":                   {"sync_origin"},
+		"project_agents":             {"sync_origin"},
+		"project_locations":          {"daemon_fingerprint", "sync_origin"},
+		"chat_sessions":              {"exec_daemon_fingerprint"},
+	} {
+		for _, column := range columns {
+			if gormDB.Migrator().HasColumn(table, column) {
+				t.Errorf("legacy column %s.%s must not exist in the fresh baseline", table, column)
+			}
+		}
+	}
+
+	// 块表的三个索引(spec 2026-08-27-schema-overhaul「改动清单一」):
+	// UNIQUE(message_id, idx) 决定重组顺序并按消息取块、(tool_call_id, type, message_id)
+	// 是块级操作的定位键、(type, message_id) 是派生视图「按类型取块」那一路。索引缺失
+	// 编译期抓不到,也不会让任何用例变红 —— 只是悄悄退回全表串扫,正是本轮要消灭的形态。
+	for _, index := range []string{
+		"ux_chat_message_blocks_message_idx",
+		"idx_chat_message_blocks_tool_call",
+		"idx_chat_message_blocks_type_message",
+	} {
+		if !gormDB.Migrator().HasIndex("chat_message_blocks", index) {
+			t.Errorf("index %q on chat_message_blocks was not created", index)
+		}
+	}
+
+	// 索引**存在**证明不了它会被用上,而「按定位键点查」正是拆块表要买到的那件东西。
+	// 定位键索引是部分索引且带 ORDER BY 那一列,两个条件各自都能让 SQLite 悄悄改选
+	// (type, message_id) 去扫遍全库的 subagent_state 块:
+	//   - 少了查询侧的 tool_call_id <> '',SQLite 证不出绑定变量满足部分索引的
+	//     WHERE 子句,这个索引根本不进候选集;
+	//   - 少了索引侧的第三列 message_id,它满足不了 ORDER BY message_id DESC,代价
+	//     模型据此改选顺带满足排序的那一个。
+	// 两处都是「用例全绿、库悄悄慢 250 倍」,所以这里对着真正的查询计划断言,而不是
+	// 只数索引名。查询与 chat_repo.findSubagentStateBlock 逐字同形。
+	var plan []struct {
+		Detail string `gorm:"column:detail"`
+	}
+	if err := gormDB.Raw(
+		"EXPLAIN QUERY PLAN SELECT * FROM `chat_message_blocks`"+
+			" JOIN `chat_messages` ON `chat_messages`.`id` = `chat_message_blocks`.`message_id`"+
+			" WHERE `chat_messages`.`session_id` = ? AND `chat_message_blocks`.`type` = ?"+
+			" AND `chat_message_blocks`.`tool_call_id` = ? AND `chat_message_blocks`.`tool_call_id` <> ''"+
+			" ORDER BY `chat_message_blocks`.`message_id` DESC LIMIT 1",
+		1, "subagent_state", "tu-1",
+	).Scan(&plan).Error; err != nil {
+		t.Fatalf("explain subagent_state locator query: %v", err)
+	}
+	var planText string
+	for _, row := range plan {
+		planText += row.Detail + "\n"
+	}
+	if !strings.Contains(planText, "idx_chat_message_blocks_tool_call") {
+		t.Errorf("subagent_state locator must be an index point lookup on idx_chat_message_blocks_tool_call, got plan:\n%s", planText)
+	}
+
+	var historicalMigrationCount int64
+	if err := gormDB.Table("migrations").Where("id IN ?", []string{
+		"202608110001", // legacy provider/model and route conversion
+		"202608200002", // legacy backend CLI/device conversion
+		"202608260001", // seconds-to-milliseconds data rewrite
+	}).Count(&historicalMigrationCount).Error; err != nil {
+		t.Fatalf("count historical migration ledger entries: %v", err)
+	}
+	if historicalMigrationCount != 0 {
+		t.Fatalf("historical migration ledger entries = %d, want 0", historicalMigrationCount)
 	}
 }
 
@@ -314,6 +442,71 @@ func TestSeedCEOAgent(t *testing.T) {
 	if deptCount != 0 {
 		t.Fatalf("departments count = %d, want 0 (no default seed)", deptCount)
 	}
+
+	// 回归 Problem 20 / 决策 26:202608080004 的 CEO agent 种子用
+	// strftime('%s','now')（秒），全仓其余时间戳统一 UnixMilli——那一行的
+	// createtime/updatetime 曾被解释成 1970 年附近。追加的补丁迁移把
+	// < 1e11 的种子时间戳换算成毫秒；在全新库上跑完整条迁移链后，这一行应当
+	// 已经是毫秒量级（> 1e11，即公元 1973 年之后）而不是秒量级。
+	const millisecondFloor = 100_000_000_000
+	var ceoCreatetime, ceoUpdatetime int64
+	if err := gdb.Table("agents").Where("system_badge = ?", "DEFAULT").
+		Select("createtime, updatetime").Row().Scan(&ceoCreatetime, &ceoUpdatetime); err != nil {
+		t.Fatalf("scan CEO agent timestamps: %v", err)
+	}
+	if ceoCreatetime < millisecondFloor {
+		t.Fatalf("CEO agent createtime = %d, want a millisecond epoch (> %d); seconds-to-milliseconds patch migration did not run",
+			ceoCreatetime, millisecondFloor)
+	}
+	if ceoUpdatetime < millisecondFloor {
+		t.Fatalf("CEO agent updatetime = %d, want a millisecond epoch (> %d); seconds-to-milliseconds patch migration did not run",
+			ceoUpdatetime, millisecondFloor)
+	}
+}
+
+// TestMigrationsAllowSameNamedAgentsFromDifferentMachines 回归 R12a：
+//
+// 双机办公的用户两边各建过一个「开发」，登录同一账号后两份都该落地，由用户自行删掉
+// 多余的那个（规格 R12a）。原先 agents(name) WHERE status=1 上有唯一索引，第二份**插
+// 不进来** —— 下行每 30 秒撞一次 2067，那一行连同它的下游永久卡在暂缓队列里，用户连
+// 「删掉多余那个」的机会都没有。
+//
+// 手输重名照旧被拒：那道闸在 agent_svc.Create/Update 的 FindByName 上，与本索引无关。
+func TestMigrationsAllowSameNamedAgentsFromDifferentMachines(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	gdb := db.Default()
+	// 本机自己那份（迁移里种下的默认 Agent 就叫「CEO 助手」）。
+	var seeded agent_entity.Agent
+	if err := gdb.Table("agents").Where("system_badge = ?", "DEFAULT").First(&seeded).Error; err != nil {
+		t.Fatalf("load seeded agent: %v", err)
+	}
+
+	// 另一台机器同名、但同步标识不同的那一份，经下行落地。
+	arriving := map[string]any{
+		"name": seeded.Name, "status": 1,
+		"sync_id": "01KZQPHK6Q55AKRHWFX5EM0YWH", "sync_account_id": 1,
+		"prompt_json": "[]", "skills_json": "[]", "tools_json": "[]",
+	}
+	if err := gdb.Table("agents").Create(arriving).Error; err != nil {
+		t.Fatalf("a same-named agent from another machine must be able to land: %v", err)
+	}
+
+	var same int64
+	if err := gdb.Table("agents").Where("name = ? AND status = 1", seeded.Name).Count(&same).Error; err != nil {
+		t.Fatalf("count same-named agents: %v", err)
+	}
+	if same != 2 {
+		t.Fatalf("same-named active agents = %d, want 2 (both histories kept for the user to merge)", same)
+	}
 }
 
 // TestInitRegistersProjectLocationRepo 回归：远端 backend 拉 cwd 时会走
@@ -452,7 +645,7 @@ func TestResetStaleActiveSessionsLeavesRemoteSessionsAlone(t *testing.T) {
 		{9203, 7, ""},            // 记了设备却没有实例标识:游标无从校验,按本机处理
 	}
 	for _, row := range rows {
-		if err := gdb.Exec(`INSERT INTO chat_sessions (id, agent_id, title, agent_status, status, exec_device_id, exec_daemon_fingerprint, createtime, updatetime)
+		if err := gdb.Exec(`INSERT INTO chat_sessions (id, agent_id, title, agent_status, status, exec_device_id, exec_device_fingerprint, createtime, updatetime)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, 1, "t", "running", 1, row.deviceID, row.fp, now, now).Error; err != nil {
 			t.Fatalf("insert session %d: %v", row.id, err)
 		}
@@ -480,5 +673,64 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, 1, "t", "running", 1, row.deviceID,
 	}
 	if got[9202] != "error" || got[9203] != "error" {
 		t.Fatalf("local session statuses = %#v, want both error", got)
+	}
+}
+
+// TestIssueSyncAndToneMigration 盯住看板并入同步组这条迁移在**全新库**上的落点：
+// 三张表的同步标识都补齐了、内置种子标签的标识按名字确定性派生（否则同一个「前端」
+// 标签首次上行后会在账号里变成 N 份），色调取值域从五档语义名换成 8 档颜色名。
+// 这些都是编译期抓不到、也不会让任何用例变红的一类。
+func TestIssueSyncAndToneMigration(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	gormDB := db.Default()
+	var labels []struct {
+		Name   string `gorm:"column:name"`
+		Tone   string `gorm:"column:tone"`
+		SyncID string `gorm:"column:sync_id"`
+	}
+	if err := gormDB.Raw("SELECT name, tone, sync_id FROM labels ORDER BY sort_order").
+		Scan(&labels).Error; err != nil {
+		t.Fatalf("read labels: %v", err)
+	}
+	if len(labels) != len(issue_entity.BuiltinLabelNames()) {
+		t.Fatalf("seeded labels = %d, want %d", len(labels), len(issue_entity.BuiltinLabelNames()))
+	}
+	allowed := map[string]struct{}{}
+	for _, tone := range issue_entity.Tones() {
+		allowed[tone] = struct{}{}
+	}
+	wantTone := map[string]string{
+		"bug":      issue_entity.ToneRed,
+		"critical": issue_entity.ToneRedSolid,
+		"docs":     issue_entity.ToneGray,
+		"feature":  issue_entity.ToneGreen,
+		"refactor": issue_entity.ToneSteel,
+	}
+	for _, l := range labels {
+		if _, ok := allowed[l.Tone]; !ok {
+			t.Errorf("label %q tone = %q, which is outside the eight-color palette", l.Name, l.Tone)
+		}
+		if want := wantTone[l.Name]; want != "" && l.Tone != want {
+			t.Errorf("label %q tone = %q, want %q (1:1 rewrite)", l.Name, l.Tone, want)
+		}
+		if want := issue_entity.SeedLabelSyncID(l.Name); l.SyncID != want {
+			t.Errorf("seed label %q sync_id = %q, want the name-derived %q", l.Name, l.SyncID, want)
+		}
+	}
+
+	// 部分唯一索引：本仓 DDL 一律 not null default ''，多行空标识必须撞不上。
+	for _, table := range []string{"issues", "labels", "issue_labels"} {
+		if !gormDB.Migrator().HasIndex(table, "uniq_"+table+"_sync_id") {
+			t.Errorf("unique sync_id index on %s was not created", table)
+		}
 	}
 }

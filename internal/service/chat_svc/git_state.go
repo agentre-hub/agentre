@@ -1,98 +1,24 @@
 package chat_svc
 
 import (
-	"bytes"
 	"context"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
-// runGitState 在 cwd 下连跑几条 git 命令汇成 ChatSessionGitState。
-// 任意一条 fork 失败时, 不冒泡 error: 把对应字段留 zero, NotARepo 兜底
-// 设 true, 让前端整段折叠。这样的容错语义是 by-design —— UI chip 不应该
-// 因为 git 异常而挂掉。
-func runGitState(ctx context.Context, cwd string) ChatSessionGitState {
-	st := ChatSessionGitState{UpdatedAt: time.Now().Unix()}
-	if cwd == "" {
-		st.NotARepo = true
-		return st
-	}
-
-	if _, err := gitOutput(ctx, cwd, "rev-parse", "--is-inside-work-tree"); err != nil {
-		st.NotARepo = true
-		return st
-	}
-
-	if br, err := gitOutput(ctx, cwd, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
-		st.Branch = strings.TrimSpace(br)
-	}
-
-	gitDir, _ := gitOutput(ctx, cwd, "rev-parse", "--git-dir")
-	commonDir, _ := gitOutput(ctx, cwd, "rev-parse", "--git-common-dir")
-	gitDir, commonDir = strings.TrimSpace(gitDir), strings.TrimSpace(commonDir)
-	if gitDir != "" && commonDir != "" && gitDir != commonDir {
-		// gitDir 形如 <common>/worktrees/<name>; 取尾段做短名。
-		st.Worktree = filepath.Base(gitDir)
-	}
-
-	if out, err := gitOutput(ctx, cwd, "status", "--porcelain=v1"); err == nil {
-		st.Dirty = countNonEmptyLines(out)
-	}
-
-	if out, err := gitOutput(ctx, cwd, "rev-list", "--left-right", "--count", "@{u}...HEAD"); err == nil {
-		parts := strings.Fields(strings.TrimSpace(out))
-		if len(parts) == 2 {
-			st.Behind, _ = strconv.Atoi(parts[0])
-			st.Ahead, _ = strconv.Atoi(parts[1])
-			st.HasUpstream = true
-		}
-	}
-
-	return st
-}
-
-func gitOutput(ctx context.Context, cwd string, args ...string) (string, error) {
-	// args 全部来自本文件内的硬编码 git 子命令,无 user input;binary "git" 固定。
-	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // G204: controlled args
-	procattr.ApplyNoConsoleWindow(cmd)
-
-	cmd.Dir = cwd
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
-
-func countNonEmptyLines(s string) int {
-	n := 0
-	for _, line := range strings.Split(s, "\n") {
-		if strings.TrimSpace(line) != "" {
-			n++
-		}
-	}
-	return n
-}
-
 // GetSessionGitState 拉某 session 的 git 状态快照。
-//   - 本地 backend: 调 runGitState 直接读 cwd。
-//   - 远端 backend (claudecode/codex on agentred): MVP 阶段返回 notARepo=true,
-//     daemon handler 留 follow-up PR。
 func (s *chatSvc) GetSessionGitState(ctx context.Context, req *GetSessionGitStateRequest) (*GetSessionGitStateResponse, error) {
 	if req == nil || req.SessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
@@ -118,22 +44,72 @@ func (s *chatSvc) GetSessionGitState(ctx context.Context, req *GetSessionGitStat
 	return s.getSessionGitStateForSession(ctx, sess, be)
 }
 
+// getSessionGitStateForSession 按 backend 走本地 / 远端两条路径:
+//   - 本地(含 R13 认领后的本机指纹档):直接调叶子包 workspacefs.GitState 读 cwd。
+//   - 远端(claudecode/codex on agentred):经设备连接池调 workspacefs.gitState
+//     RPC,daemon 侧调的是同一份叶子包实现(硬不变量 5:本地会话与远端 agentred
+//     会话行为一致)。
+//
+// 两条路径都遵循同一条容错约定:cwd 解析不出 / 设备未配对 / RPC 调用失败(含
+// 旧 daemon 报「方法不存在」)一律降级为 notARepo=true 让前端折叠 chip 区,不
+// 冒泡 error —— session git chip 是纯展示区域,不应该因为这些情形而挂掉。
 func (s *chatSvc) getSessionGitStateForSession(ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) (*GetSessionGitStateResponse, error) {
 	if beTargetsRemote(be) {
-		return notARepoResponse(), nil
+		return s.getSessionGitStateRemote(ctx, sess, be), nil
 	}
 	cwd, err := resolveSessionCwd(ctx, sess, be)
 	if err != nil || cwd == "" {
 		// by-design: cwd 解析失败时 UI chip 不应崩,降级为 notARepo 让前端折叠。
 		return notARepoResponse(), nil //nolint:nilerr // 见上方注释
 	}
-	st := runGitState(ctx, cwd)
-	return &GetSessionGitStateResponse{State: st}, nil
+	return &GetSessionGitStateResponse{State: viewFromGitState(workspacefs.GitState(ctx, cwd))}, nil
+}
+
+// getSessionGitStateRemote 走 workspacefs.gitState RPC 取远端机器上 cwd 的只读
+// git 状态快照。租约借不到(未配对/离线)、cwd 解析失败、RPC 调用失败(含旧
+// daemon 报「方法不存在」)一律降级为 notARepo,与本机分支的容错约定一致。
+func (s *chatSvc) getSessionGitStateRemote(ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) *GetSessionGitStateResponse {
+	deviceID, ok := localPairedDeviceID(ctx, be.DeviceFingerprint)
+	if !ok {
+		return notARepoResponse()
+	}
+	cwd, err := resolveSessionCwd(ctx, sess, be)
+	if err != nil || cwd == "" {
+		return notARepoResponse()
+	}
+
+	lease, err := s.pool().Borrow(ctx, deviceID)
+	if err != nil {
+		return notARepoResponse()
+	}
+	defer lease.Release()
+
+	response, err := protorpc.CallMethod(ctx, lease.Client().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_STATE), &agentrewire.WorkspaceFsGitStateRequest{Root: cwd}, func() *agentrewire.WorkspaceFsGitStateResponse { return &agentrewire.WorkspaceFsGitStateResponse{} })
+	if err != nil {
+		return notARepoResponse()
+	}
+	resp := protowire.WorkspaceGitStateResponseFromProto(response)
+	return &GetSessionGitStateResponse{State: ChatSessionGitState{
+		Branch: resp.Branch, Worktree: resp.Worktree, Dirty: resp.Dirty,
+		Ahead: resp.Ahead, Behind: resp.Behind, HasUpstream: resp.HasUpstream,
+		NotARepo: resp.NotARepo, UpdatedAt: time.Now().UnixMilli(),
+	}}
+}
+
+// viewFromGitState 把叶子包的 GitStateResult 映射成 session git chip 的
+// ChatSessionGitState。CommonDir 不在这个视图里——它是下游任务(工作根认领)
+// 才消费的字段,session git chip 只关心 branch/worktree/dirty/ahead·behind。
+func viewFromGitState(res workspacefs.GitStateResult) ChatSessionGitState {
+	return ChatSessionGitState{
+		Branch: res.Branch, Worktree: res.Worktree, Dirty: res.Dirty,
+		Ahead: res.Ahead, Behind: res.Behind, HasUpstream: res.HasUpstream,
+		NotARepo: res.NotARepo, UpdatedAt: time.Now().UnixMilli(),
+	}
 }
 
 func notARepoResponse() *GetSessionGitStateResponse {
 	return &GetSessionGitStateResponse{State: ChatSessionGitState{
 		NotARepo:  true,
-		UpdatedAt: time.Now().Unix(),
+		UpdatedAt: time.Now().UnixMilli(),
 	}}
 }

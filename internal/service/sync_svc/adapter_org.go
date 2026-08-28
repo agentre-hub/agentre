@@ -8,16 +8,15 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // ── 部门 ────────────────────────────────────────────────────────────────────
@@ -380,16 +379,17 @@ func agentSyncIDOfLocalID(ctx context.Context, id int64) (string, error) {
 
 // ── backend ─────────────────────────────────────────────────────────────────
 
-// agentBackendPayload 里的 provider 只有 provider_key / model_key 这两个字符串键：
-// llm_providers 整表（含 APIKey 与 Models 正文）不出本机（决策 6），跨机只传稳定的
-// ProviderKey / ModelKey 引用。model_routes 是结构化 Route target 的 JSON 字符串。
-// 指向哪台 agentred 走上行项顶层的指纹字段。
+// agentBackendPayload is account identity only. Provider configuration travels as
+// its own llm_provider object; CLI paths are a per-device overlay and never
+// appear here. The device fingerprint is likewise never a payload key — it
+// travels on the outbound/push item's own agentred_fingerprint column instead
+// (同步与身份: the backend's device is part of account-level sync, not a
+// payload field).
 type agentBackendPayload struct {
 	Type                  string `json:"type"`
 	Name                  string `json:"name"`
 	ProviderKey           string `json:"provider_key"`
 	ModelKey              string `json:"model_key"`
-	CLIPath               string `json:"cli_path"`
 	ModelRoutes           string `json:"model_routes"`
 	Sandbox               string `json:"sandbox"`
 	Approval              string `json:"approval"`
@@ -413,35 +413,11 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 	if err != nil || !found {
 		return nil, err
 	}
-	// DeviceID is the canonical target fingerprint, so a canonical value (sha256:…,
-	// or any non-numeric shape) crosses the sync boundary unchanged. A legacy
-	// numeric value is a LOCAL paired_agentreds row ID (the pre-R13 producer still
-	// submits those): it is resolved to its daemon's fingerprint on upload — a raw
-	// row ID must never cross as a fingerprint, it would resolve to a
-	// possibly-different paired row on the target desktop and dispatch to the
-	// wrong machine. A numeric value whose daemon is no longer paired cannot be
-	// expressed cross-machine, so the row is skipped (mirrors the pre-R13
-	// fingerprintOfLocalID behavior).
-	backendFingerprint := row.DeviceID
-	if legacyID, ok := (&agent_backend_entity.AgentBackend{DeviceID: row.DeviceID}).DeviceIDInt(); ok {
-		var skip bool
-		var ferr error
-		backendFingerprint, skip, ferr = backendFingerprintForSync(ctx, legacyID)
-		if ferr != nil {
-			return nil, ferr
-		}
-		if skip {
-			logger.Ctx(ctx).Debug("sync_svc.agentBackendAdapter: backend targets an unpaired agentred, skipping upload",
-				zap.String("syncId", syncID), zap.String("deviceId", row.DeviceID))
-			return nil, nil // 见上：不是失败，是这一条按设计不发
-		}
-	}
 	payload, err := json.Marshal(agentBackendPayload{
 		Type:                  row.Type,
 		Name:                  row.Name,
 		ProviderKey:           row.LLMProviderKey,
 		ModelKey:              row.LLMModelKey,
-		CLIPath:               row.CLIPath,
 		ModelRoutes:           row.ModelRoutes,
 		Sandbox:               row.Sandbox,
 		Approval:              row.Approval,
@@ -460,27 +436,15 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 	return &outbound{
 		SyncID:              row.SyncID,
 		UpdatedAt:           row.Updatetime,
-		AgentredFingerprint: backendFingerprint,
+		AgentredFingerprint: row.DeviceFingerprint,
 		Payload:             payload,
 	}, nil
 }
 
-// backendFingerprintForSync 把本地 paired_agentreds 的行 ID 翻成全局指纹（上行方向，
-// 旧 fingerprintOfLocalID 的语义）。翻不出（未配对 / 无指纹）时 skip=true —— 数值
-// 行 ID 只在本机有意义，带它过机就是对端错机派发的根因。
-func backendFingerprintForSync(ctx context.Context, id int64) (fingerprint string, skip bool, err error) {
-	row, err := remote_device_repo.PairedAgentred().Get(ctx, id)
-	if err != nil {
-		return "", false, err
-	}
-	if row == nil || row.DaemonFingerprint == "" {
-		return "", true, nil
-	}
-	return row.DaemonFingerprint, false, nil
-}
-
-// refs is empty: a backend stores the canonical target fingerprint directly.
-// A missing local pairing affects dispatch availability, not sync convergence.
+// Backend identity's machine reference (DeviceID) travels via the outbound's
+// fingerprint column, not as a blocking ref: there is no separate device
+// object to resolve here, and a missing CLI overlay is PATH on that
+// installation while the account identity remains fully usable everywhere.
 func (agentBackendAdapter) refs(*inbound) []ref { return nil }
 
 func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
@@ -488,7 +452,6 @@ func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
-	deviceID := in.AgentredFingerprint
 	row := &agent_backend_entity.AgentBackend{}
 	found, err := syncstate_repo.SyncState().FindRow(ctx, syncwire.KindAgentBackend, in.SyncID, row)
 	if err != nil {
@@ -496,7 +459,13 @@ func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[
 	}
 	row.Type, row.Name, row.LLMProviderKey = p.Type, p.Name, p.ProviderKey
 	row.LLMModelKey = p.ModelKey
-	row.DeviceID, row.CLIPath, row.ModelRoutes = deviceID, p.CLIPath, p.ModelRoutes
+	// The backend's device is account-level sync identity (同步与身份): it
+	// travels on the push item's own agentred_fingerprint column and lands
+	// straight on DeviceID, so a backend set up on one desktop points at the
+	// same machine on every other end and on the server. cli_path stays a
+	// per-device overlay applied separately by agentBackendCLIAdapter.
+	row.DeviceFingerprint = in.AgentredFingerprint
+	row.ModelRoutes = p.ModelRoutes
 	row.Sandbox, row.Approval, row.EnvJSON = p.Sandbox, p.Approval, p.EnvJSON
 	row.ReasoningEffort = p.ReasoningEffort
 	row.DefaultPermissionMode, row.DefaultModel = p.DefaultPermissionMode, p.DefaultModel

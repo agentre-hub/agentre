@@ -3,9 +3,9 @@ package app
 import (
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
-	"github.com/agentre-ai/agentre/internal/service/terminal_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/service/terminal_svc"
 )
 
 var errTerminalSvcNotInitialized = errors.New("terminal service not initialized")

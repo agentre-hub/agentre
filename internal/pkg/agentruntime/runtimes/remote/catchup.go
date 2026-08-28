@@ -20,7 +20,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
 
 // TriggerCatchUp 标记一轮是**补齐合成**出来的:内容来自 daemon 通知日志的重放,既不是
@@ -39,8 +39,6 @@ const TriggerCatchUp = "catchup"
 // 由重放自己写终态;一个字都没产出的会话没有任何东西会改写它,这份名单是它唯一的判据
 // (见 chat_svc.CatchUpRemoteSessions)。出错时 live 为空:什么都不知道就按今天的语义
 // 全部收尾,而不是把它们永远留在 running 上。
-//
-// 交出 ErrCatchUpUnsupported 表示对面是老 daemon(R18),调用方据此回落。
 func (r *Runtime) CatchUpSessions(ctx context.Context, sessionIDs []int64) (live []int64, err error) {
 	if len(sessionIDs) == 0 {
 		return nil, nil

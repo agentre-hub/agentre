@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 )
 
 func itoa(i int64) string { return strconv.FormatInt(i, 10) }
@@ -31,7 +31,6 @@ func (s *service) toView(p *paired_agentred_entity.PairedAgentred) *DeviceView {
 		LastSeenAt:             p.LastSeenAt,
 		LastError:              p.LastError,
 		Online:                 p.IsOnline(time.Now().UnixMilli()),
-		DaemonOutdated:         s.daemonOutdated(p.ID),
 		SupportsLLMModelTarget: s.SupportsLLMModelTarget(p.ID),
 	}
 }

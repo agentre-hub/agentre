@@ -50,7 +50,12 @@ func migration202608080009() *gormigrate.Migration {
 )`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_paired_agentreds_url ON paired_agentreds(url) WHERE status = 1`).Error
+			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_paired_agentreds_url
+ON paired_agentreds(url) WHERE status = 1 AND url != ''`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_paired_agentreds_fingerprint
+ON paired_agentreds(daemon_fingerprint) WHERE status = 1 AND daemon_fingerprint != ''`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
 			if err := tx.Exec(`DROP TABLE IF EXISTS paired_agentreds`).Error; err != nil {

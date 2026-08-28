@@ -1,7 +1,6 @@
 package chat_svc
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -9,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // Given a remote peer starts a desktop session turn, when its source is
@@ -31,11 +30,9 @@ func TestPeerSessionMessageSource_GivenRemoteAndLocalRows_ThenPersistsRemoteSour
 	history, err := synthesizePeerHistory(41, []*chat_entity.Message{remote})
 	require.NoError(t, err)
 	require.Len(t, history, 1)
-	var event agentruntime.UserMessageEvent
-	require.NoError(t, json.Unmarshal(history[0].Event, &event))
 	assert.Equal(t, agentruntime.UserMessageEvent{
 		Text: "ship it", SourceDevice: "sha256:phone", SourceDeviceName: "Pixel",
-	}, event)
+	}, history[0].Event)
 
 	local := &chat_entity.Message{SessionID: 41, Role: "user"}
 	require.NoError(t, local.SetBlocks([]cagoblocks.ContentBlock{&cagoblocks.TextBlock{Text: "ship it"}}))

@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/app"
+	"github.com/agentre-hub/agentre/internal/app"
 )
 
 func TestProductionDesktopOptionsAreExplicitlyInteractive(t *testing.T) {

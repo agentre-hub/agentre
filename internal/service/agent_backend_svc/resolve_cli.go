@@ -9,8 +9,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/cliprober"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // ResolveCLIPath 把 CLI 后端类型解析成「目标机」CLI 搜索路径中的可执行文件绝对路径。

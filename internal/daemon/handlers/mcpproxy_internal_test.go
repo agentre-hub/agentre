@@ -13,9 +13,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 func TestRewriteMCPServersForDaemon(t *testing.T) {
@@ -55,7 +56,7 @@ type fakeTunnelNotifier struct {
 	err       error
 }
 
-func (f *fakeTunnelNotifier) Notify(string, any) error { return nil }
+func (f *fakeTunnelNotifier) Notify(*agentrewire.RpcNotification) error { return nil }
 func (f *fakeTunnelNotifier) Request(_ context.Context, method string, params, result any) error {
 	f.gotMethod = method
 	f.gotParams = params
@@ -192,7 +193,7 @@ func TestMCPTunnelHandler_TargetLostMidCall_ReturnsReadableToolError(t *testing.
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	fn := &fakeTunnelNotifier{err: rpc.ErrConnClosed}
+	fn := &fakeTunnelNotifier{err: protorpc.ErrConnClosed}
 	h := NewMCPTunnelHandler(func(string, int64) NotifierPort { return fn })
 
 	body := `{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"org_get"}}`

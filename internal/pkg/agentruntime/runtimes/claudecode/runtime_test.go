@@ -3,6 +3,7 @@ package claudecode
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,10 +13,11 @@ import (
 	"github.com/cago-frame/agents/provider"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // TestRun_ModelChangeEvictsAndRespawns 锁住 claudecode 的模型 evict 语义:--model 是
@@ -386,7 +388,11 @@ type fakeCCHandle struct {
 	interruptErr error
 	// closeCalls 原子计数 Close 调用次数,断言 ErrInterruptPending 不走 Close+evict 兜底。
 	closeCalls int32
+	// pid 是这个替身上报的子进程号(池快照的排查字段)。
+	pid int
 }
+
+func (f *fakeCCHandle) PID() int { return f.pid }
 
 func (f *fakeCCHandle) ID() string { return f.id }
 func (f *fakeCCHandle) Close(context.Context) error {
@@ -797,7 +803,7 @@ func TestAutonomousTurns_BridgesCompletedTask(t *testing.T) {
 		for range got.Events {
 		}
 		So(got.CompletedTask, ShouldNotBeNil)
-		So(got.CompletedTask.ToolUseID, ShouldEqual, "tu1")
+		So(got.CompletedTask.ToolCallID, ShouldEqual, "tu1")
 		So(got.CompletedTask.TaskID, ShouldEqual, "task-1")
 		So(got.CompletedTask.Status, ShouldEqual, "completed")
 		So(got.CompletedTask.Summary, ShouldEqual, "sum")
@@ -1212,7 +1218,7 @@ func TestSubagentActivity_BridgesSessionActivity(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("expected a bridged SubagentActivity within 2s")
 		}
-		So(got.ToolUseID, ShouldEqual, "<agent tool id>")
+		So(got.ToolCallID, ShouldEqual, "<agent tool id>")
 
 		var gotParentToolCallID string
 		for ev := range got.Events {
@@ -1246,5 +1252,360 @@ func TestSubagentActivity_BridgesSessionActivity(t *testing.T) {
 func TestClaudeEventShowsProgressAfterError_SubagentModel(t *testing.T) {
 	Convey("claudeEventShowsProgressAfterError 应把 EventSubagentModel 视为错误后的进度(与 chat_svc 镜像一致)", t, func() {
 		So(claudeEventShowsProgressAfterError(claudecode.EventSubagentModel), ShouldBeTrue)
+	})
+}
+
+// TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID 是 2026-08-22 那条报错的回归:
+// 从 web 控制台发起一条**不钉项目**的对话,浏览器发 agentId: 0(它没有、也不该编一个
+// 桌面端本地自增主键,见 dispatch.ts)、cwd 空(没选项目就没有路径,见 workspace_svc
+// 的 chosenCwd),daemon 原样转给 runtime,兜底 AgentCwd(0) 直接拒 —— 界面上是
+// 「coding 已连接,但 Agent 启动失败:agentruntime: AgentCwd needs agentID > 0」。
+// 身份改由随请求一起到达的 AgentSyncID 承担。
+func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
+	Convey("Given 一条 web 发起的自由会话:AgentID=0、Cwd 空、只带账号级 AgentSyncID", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(func(spec ccLaunchSpec) (ccSessionHandle, error) {
+			gotCwd = spec.Cwd
+			return &fakeCCHandle{
+				id: "fake-sid",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		Convey("When 起这一轮, Then 起得来,工作目录落在该 Agent 的账号级同步标识下", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypeClaudeCode),
+				},
+				SessionID:   99,
+				AgentID:     0,
+				AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
+				UserText:    "hi",
+				Effective: &agentruntime.EffectiveLLMConfig{
+					ProviderKey: "pk", ProviderType: "anthropic", ModelID: "claude-haiku-4-5",
+				},
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+		})
+	})
+}
+
+// TestAutonomousTurns_GivenTurnInFlight_WhenIdleSweeperRuns_ThenSessionIsNotReleased
+// 钉死 sess-3244:CLI 自主跑的那一轮不经过 acquireSession,池里没人替它 MarkActive
+// —— 条目整轮都停在上一个用户轮结束时标下的 idle,idleFor 接着涨。生产里自主轮跑到
+// 第 15 分钟时被空闲清扫关掉 stdin:子进程照常跑完(拿到测试结果、提交了代码),
+// 宿主却从此一帧都收不到,界面永远停在最后一个没有 tool_result 的 tool_use,而且
+// 清扫不产生 StopErr,连报错都没有。
+func TestAutonomousTurns_GivenTurnInFlight_WhenIdleSweeperRuns_ThenSessionIsNotReleased(t *testing.T) {
+	Convey("自主续轮在飞时,空闲清扫不该释放这条会话", t, func() {
+		autoSrc := make(chan *claudecode.AutoTurn, 1)
+		h := &fakeCCHandle{
+			id:        "sess-3244",
+			autoTurns: autoSrc,
+			stream: &eventCCStream{events: []claudecode.Event{
+				{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+				{Kind: claudecode.EventDone},
+			}},
+		}
+		restore := SetSessionFactoryForTest(func(ccLaunchSpec) (ccSessionHandle, error) { return h, nil })
+		defer restore()
+
+		pool := agentruntime.NewCLISessionPool(8)
+		r := NewWithPool(pool)
+		ctx := context.Background()
+
+		// 用户轮跑完:池里这条转成 idle,清扫的计时从这一刻开始。
+		events, _, err := r.Run(ctx, agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+			SessionID: 3244,
+			Cwd:       t.TempDir(),
+			UserText:  "继续",
+		})
+		So(err, ShouldBeNil)
+		for range events { //nolint:revive // drain
+		}
+		snap := pool.Snapshot()
+		So(len(snap), ShouldEqual, 1)
+		So(snap[0].State, ShouldEqual, agentruntime.CLISessionIdle)
+
+		// 后台任务完成,CLI 自主跑一轮 —— 生产里这一轮光一条 vitest 就跑了三分半。
+		turns := r.AutonomousTurns(3244)
+		atEvents := make(chan claudecode.Event, 2)
+		autoSrc <- &claudecode.AutoTurn{Events: atEvents, SessionID: "sess-3244", Trigger: "background_task"}
+
+		var at agentruntime.AutonomousTurn
+		select {
+		case at = <-turns:
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected a bridged autonomous turn within 2s")
+		}
+		// 收到一帧翻译后的事件,确认这一轮确实在流(drainStream 已经跑起来了)。
+		atEvents <- claudecode.Event{Kind: claudecode.EventTextDelta, Text: "still working"}
+		select {
+		case ev := <-at.Events:
+			_, ok := ev.(agentruntime.TextDelta)
+			So(ok, ShouldBeTrue)
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected the autonomous turn to be streaming within 2s")
+		}
+
+		// 核心断言:这一轮在飞,清扫一个都不能动。
+		So(pool.PruneIdleOlderThan(0), ShouldEqual, 0)
+		So(atomic.LoadInt32(&h.closeCalls), ShouldEqual, 0)
+		So(pool.Len(), ShouldEqual, 1)
+
+		// 自主轮收尾后它才重新是一条普通的过期 idle 会话,清扫照常回收。
+		atEvents <- claudecode.Event{Kind: claudecode.EventDone}
+		close(atEvents)
+		close(autoSrc)
+		for range at.Events { //nolint:revive // drain
+		}
+		So(pool.PruneIdleOlderThan(0), ShouldEqual, 1)
+	})
+}
+
+// TestRuntime_Steer_OutOfBandTurn 钉死 sess-3321:Steer 的活跃判据必须与 Abort
+// 同一套 —— 「该会话此刻活跃的那一轮」既包括用户轮(inTurn)也包括带外轮
+// (自主续轮 / 后台 subagent 活动轮独占帧流期间 inTurn 仍是 false)。
+//
+// 旧判据只认 inTurn:自主续轮跑着的时候用户发消息,前端 Enqueue 拿到
+// ErrNoActiveTurn → 按「turn 已结束」回退成普通 Send → 往一个正在跑轮的 CLI 里
+// 写 user 帧。CLI 把它并进当前那一轮(不再单独起 init/result),于是 agentre 这边
+// 登记的 user 轮永远等不到帧:整轮空转到 startup 看门狗超时,把一个健康子进程
+// 杀掉,界面上留下一串空 assistant 气泡,而真正的回答全堆进了带外轮那条消息里。
+func TestRuntime_Steer_OutOfBandTurn(t *testing.T) {
+	Convey("仅带外轮活跃(inTurn=false, outOfBandActive=true) → 消息进 inbox", t, func() {
+		r := New()
+		r.SetSteerInbox(httpgateway.NewSteerInbox())
+		a := &claudeActive{handle: &fakeCCHandle{}, sessionUUID: "uuid-3321"}
+		a.enterOutOfBand()
+		r.cache.Put(sessionKey(521), a)
+
+		err := r.Steer(context.Background(), 521, "q-1", "直接交付")
+
+		So(err, ShouldBeNil)
+		items := r.steer.Drain("uuid-3321")
+		So(len(items), ShouldEqual, 1)
+		So(items[0].Text, ShouldEqual, "直接交付")
+	})
+
+	Convey("用户轮与带外轮都不活跃 → 契约不变,返回 ErrNoActiveTurn", t, func() {
+		r := New()
+		r.SetSteerInbox(httpgateway.NewSteerInbox())
+		a := &claudeActive{handle: &fakeCCHandle{}, sessionUUID: "uuid-idle"}
+		r.cache.Put(sessionKey(522), a)
+
+		err := r.Steer(context.Background(), 522, "q-1", "直接交付")
+
+		So(errors.Is(err, agentruntime.ErrNoActiveTurn), ShouldBeTrue)
+		So(len(r.steer.Drain("uuid-idle")), ShouldEqual, 0)
+	})
+}
+
+// TestRuntime_Steer_SubagentActivityIsNotMainThread 钉死放宽判据的**边界**:只有
+// 主线带外轮(自主续轮)才让 Steer 认账。后台 subagent 活动轮跑的是子 agent 的内部
+// 循环,CLI 主线此刻空闲 —— 用户新消息该正正经经起一轮(Session.currentTurn 的
+// sess-2974 分支会让位给排队的 user Turn),插进那个子 agent 的上下文里只会被它的
+// 工具循环吞掉,主线永远看不到。
+func TestRuntime_Steer_SubagentActivityIsNotMainThread(t *testing.T) {
+	Convey("只有后台 subagent 活动轮在流 → 仍返回 ErrNoActiveTurn,让调用方去起新一轮", t, func() {
+		r := New()
+		r.SetSteerInbox(httpgateway.NewSteerInbox())
+		a := &claudeActive{handle: &fakeCCHandle{}, sessionUUID: "uuid-activity"}
+		a.enterSubagentActivity()
+		r.cache.Put(sessionKey(523), a)
+
+		err := r.Steer(context.Background(), 523, "q-1", "直接交付")
+
+		So(errors.Is(err, agentruntime.ErrNoActiveTurn), ShouldBeTrue)
+		So(len(r.steer.Drain("uuid-activity")), ShouldEqual, 0)
+	})
+
+	Convey("自主续轮在流、期间又挂起一路 subagent 活动轮 → 主线仍忙,Steer 照常认账", t, func() {
+		r := New()
+		r.SetSteerInbox(httpgateway.NewSteerInbox())
+		a := &claudeActive{handle: &fakeCCHandle{}, sessionUUID: "uuid-both"}
+		a.enterOutOfBand()
+		a.enterSubagentActivity()
+		r.cache.Put(sessionKey(524), a)
+
+		err := r.Steer(context.Background(), 524, "q-1", "直接交付")
+
+		So(err, ShouldBeNil)
+		So(len(r.steer.Drain("uuid-both")), ShouldEqual, 1)
+	})
+}
+
+// TestAutonomousTurns_SurfacesConsumedSteer 钉死 sess-3321 归位链路的中间一环:自主
+// 续轮期间被 hook 从 inbox 取走的插话,必须以 SteerConsumed 事件出现在**这一轮**的
+// 事件流上。订阅只挂在 Run(用户轮)上是不够的 —— 纯自主轮期间根本没有 Run 在飞,
+// 那条插话就此无人记账:用户消息一行都不落库,前端排队 chip 等不到 StreamSteerConsumed
+// 永不消失,而 CLI 的回答照样堆进自主轮那条 assistant 里。
+func TestAutonomousTurns_SurfacesConsumedSteer(t *testing.T) {
+	Convey("自主续轮期间 inbox 被 drain → 本轮事件流上出现 SteerConsumed", t, func() {
+		autoSrc := make(chan *claudecode.AutoTurn, 1)
+		restore := SetSessionFactoryForTest(func(ccLaunchSpec) (ccSessionHandle, error) {
+			return &fakeCCHandle{
+				id:        "fake-sid",
+				autoTurns: autoSrc,
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		r := New()
+		r.SetSteerInbox(httpgateway.NewSteerInbox())
+		ctx := context.Background()
+		events, _, err := r.Run(ctx, agentruntime.RunRequest{
+			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+			SessionID: 78,
+			Cwd:       t.TempDir(),
+			UserText:  "go",
+		})
+		So(err, ShouldBeNil)
+		for range events { //nolint:revive // drain
+		}
+
+		turns := r.AutonomousTurns(78)
+
+		atEvents := make(chan claudecode.Event, 3)
+		autoSrc <- &claudecode.AutoTurn{Events: atEvents, SessionID: "fake-sid", Trigger: "background_task"}
+		close(autoSrc)
+
+		var at agentruntime.AutonomousTurn
+		select {
+		case at = <-turns:
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected a bridged autonomous turn within 2s")
+		}
+
+		// 自主轮在飞时用户插话 —— Steer 认账(主线正忙),随后 CLI 的 hook 在工具边界
+		// 把它取走,inbox 的 drain 通知就该落到这一轮上。
+		So(r.Steer(ctx, 78, "q-1", "直接交付"), ShouldBeNil)
+		cached, ok := r.cache.Get(sessionKey(78))
+		So(ok, ShouldBeTrue)
+		inboxKey := cached.(*claudeActive).sessionUUID
+		So(len(r.steer.Drain(inboxKey)), ShouldEqual, 1)
+
+		atEvents <- claudecode.Event{Kind: claudecode.EventDone}
+		close(atEvents)
+
+		var steered []agentruntime.ConsumedSteer
+		for ev := range at.Events {
+			if sc, ok := ev.(agentruntime.SteerConsumed); ok {
+				steered = append(steered, sc.Steers...)
+			}
+		}
+		So(len(steered), ShouldEqual, 1)
+		So(steered[0].Text, ShouldEqual, "直接交付")
+		So(steered[0].QueuedID, ShouldEqual, "q-1")
+
+		r.CloseAllSessions(ctx)
+	})
+}
+
+// Given 同一条会话两轮的推理强度不同, When 第二轮开跑, Then 驱逐并重新 spawn ——
+// --effort 与 --model 一样是启动期 flag,复用旧进程就是拿旧档位跑新一轮。
+//
+// 这一项此前只有 acquireSession 里那段内联比较,没有任何测试钉住;身份收进池之后它是
+// 身份串里最容易被漏掉的一段。
+func TestRun_ReasoningEffortChangeEvictsAndRespawns(t *testing.T) {
+	Convey("Given 同一 claudecode 会话两轮推理强度不同", t, func() {
+		var spawnCount int32
+		restore := SetSessionFactoryForTest(func(ccLaunchSpec) (ccSessionHandle, error) {
+			atomic.AddInt32(&spawnCount, 1)
+			return &fakeCCHandle{
+				id: "fake-sid",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		r := New()
+		run := func(effort string) {
+			events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), ReasoningEffort: effort},
+				Effective: &agentruntime.EffectiveLLMConfig{ProviderKey: "pk", ProviderType: "anthropic", ModelID: "same-model"},
+				SessionID: 92,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+		}
+
+		Convey("When 同档位再来一轮, Then 复用不重 spawn", func() {
+			run("low")
+			run("low")
+			So(atomic.LoadInt32(&spawnCount), ShouldEqual, 1)
+		})
+
+		Convey("When 档位变化, Then evict + 重 spawn", func() {
+			run("low")
+			run("high")
+			So(atomic.LoadInt32(&spawnCount), ShouldEqual, 2)
+		})
+	})
+}
+
+// Given 池里那条会话没有记录过启动身份, When 这条会话又来一轮, Then 按「已变」处理:
+// 驱逐并重新 spawn。
+//
+// 三个后端此前对「这个池键没被记录过」给出两种相反答案(codex 判已变、piagent 判未变)。
+// 规则收进池之后统一取「未记录即已变」:误判为变化的代价是多起一次进程,误判为未变化
+// 的代价是整轮跑在上一个供应商/模型上而无人发觉(spec 2026-08-26 决策 4)。
+func TestRun_UnrecordedLaunchIdentityEvictsAndRespawns(t *testing.T) {
+	Convey("Given 池里有一条没记录过启动身份的 claudecode 会话", t, func() {
+		var spawnCount int32
+		restore := SetSessionFactoryForTest(func(ccLaunchSpec) (ccSessionHandle, error) {
+			atomic.AddInt32(&spawnCount, 1)
+			return &fakeCCHandle{
+				id: "fresh-sid",
+				stream: &eventCCStream{events: []claudecode.Event{
+					{Kind: claudecode.EventUsage, Usage: provider.Usage{PromptTokens: 1}},
+					{Kind: claudecode.EventDone},
+				}},
+			}, nil
+		})
+		defer restore()
+
+		r := New()
+		stale := &claudeActive{handle: &fakeCCHandle{}, permissionMode: "default"}
+		r.cache.Put(sessionKey(91), stale)
+
+		Convey("When 这条会话又来一轮 Then 旧条目被驱逐、重新 spawn", func() {
+			events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				SessionID: 91,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+
+			So(atomic.LoadInt32(&spawnCount), ShouldEqual, 1)
+			v, ok := r.cache.Get(sessionKey(91))
+			So(ok, ShouldBeTrue)
+			So(v, ShouldNotEqual, stale)
+		})
 	})
 }

@@ -13,9 +13,9 @@ import (
 	context "context"
 	reflect "reflect"
 
-	client "github.com/agentre-ai/agentre/internal/daemon/client"
-	paired_agentred_entity "github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	remote_device_watcher_svc "github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
+	client "github.com/agentre-hub/agentre/internal/daemon/client"
+	paired_agentred_entity "github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	remote_device_watcher_svc "github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,10 +44,10 @@ func (m *MockDaemonDialPort) EXPECT() *MockDaemonDialPortMockRecorder {
 }
 
 // Open mocks base method.
-func (m *MockDaemonDialPort) Open(ctx context.Context, args remote_device_watcher_svc.OpenArgs) (*client.Client, error) {
+func (m *MockDaemonDialPort) Open(ctx context.Context, args remote_device_watcher_svc.OpenArgs) (client.ProtobufConnection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Open", ctx, args)
-	ret0, _ := ret[0].(*client.Client)
+	ret0, _ := ret[0].(client.ProtobufConnection)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

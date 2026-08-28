@@ -6,7 +6,7 @@ package blocks
 import (
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // UserAskBlock (旧名 AskUserQuestionBlock) 持久化 user.ask 交互全态:问题 + 答案 + 跳过。

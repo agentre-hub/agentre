@@ -2,10 +2,10 @@
 package chat_svc
 
 import (
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 // Chat Wails 事件名形如 "chat:event:<sessionID>:<assistantMessageID>"。
@@ -20,8 +20,12 @@ const AutonomousEventPrefix = "chat:autonomous"
 type ChatStreamEventKind string
 
 const (
-	StreamChunk            ChatStreamEventKind = "chunk"
-	StreamThinking         ChatStreamEventKind = "thinking"
+	StreamChunk    ChatStreamEventKind = "chunk"
+	StreamThinking ChatStreamEventKind = "thinking"
+	// StreamOutputActivity「模型开始产出一个输出块」的纯计时信号,不带任何载荷。
+	// 前端的 live「首 token」是自己按流事件算的,靠这条在没有可见正文的那些跳里
+	// 记表,与后端 turn/timing.go 保持同口径(sess-3241)。
+	StreamOutputActivity   ChatStreamEventKind = "output_activity"
 	StreamToolUse          ChatStreamEventKind = "tool_use"
 	StreamToolResult       ChatStreamEventKind = "tool_result"
 	StreamSteerConsumed    ChatStreamEventKind = "steer_consumed"
@@ -29,7 +33,7 @@ const (
 	StreamSubagentProgress ChatStreamEventKind = "subagent_progress"
 	StreamSubagentDone     ChatStreamEventKind = "subagent_done"
 	// StreamSubagentModel claudecode 从 subagent 内部 assistant 帧解析出实际模型时 emit
-	// (R2)。独立 kind,只带 ToolUseID + Model 两个字段——不复用 StreamSubagentProgress
+	// (R2)。独立 kind,只带 ToolCallID + Model 两个字段——不复用 StreamSubagentProgress
 	// 的整份 Subagent 快照,避免与已累计的 toolUses/totalTokens/status 混在一起经前端
 	// 浅合并时把已有状态覆盖掉(R4)。
 	StreamSubagentModel ChatStreamEventKind = "subagent_model"
@@ -129,9 +133,9 @@ type ChatStreamEvent struct {
 	AssistantMessage         *ChatMessage  `json:"assistantMessage,omitempty"`
 
 	// tool_use 事件填充（StreamToolUse）。
-	ToolUseID string         `json:"toolUseId,omitempty"`
-	ToolName  string         `json:"toolName,omitempty"`
-	ToolInput map[string]any `json:"toolInput,omitempty"`
+	ToolCallID string         `json:"toolUseId,omitempty"`
+	ToolName   string         `json:"toolName,omitempty"`
+	ToolInput  map[string]any `json:"toolInput,omitempty"`
 	// Canonical 是前端消费的统一工具识别投影 — runtime translator 算出来后,
 	// handler emit、dispatcher_emitter 转 wire CanonicalDTO。前端按
 	// CanonicalDTO.kind 分发到 canonical-tool/<kind>/card.tsx;不识别走 RawToolCard。
@@ -160,10 +164,10 @@ type ChatStreamEvent struct {
 	SubagentRunID string `json:"subagentRunId,omitempty"`
 
 	// StreamSubagent* 事件填充：外层 Agent.tool_use_id + 元数据快照。
-	// 前端按 ToolUseID 找到对应的 ChatBlock 并 merge Subagent 字段。
+	// 前端按 ToolCallID 找到对应的 ChatBlock 并 merge Subagent 字段。
 	Subagent *ChatBlockSubagent `json:"subagent,omitempty"`
 
-	// StreamSubagentModel 事件填充：ToolUseID(复用上方字段)关联到对应派遣，Model 是
+	// StreamSubagentModel 事件填充：ToolCallID(复用上方字段)关联到对应派遣，Model 是
 	// 子代理内部帧解析出的实际模型(R2 覆盖 R1 的入参别名)。只带这一个字段，不复用
 	// 上面的 Subagent 全量快照 —— SubagentStateBlock.Status 的 JSON 标签没有
 	// omitempty，若把整个快照甩给前端的浅合并，会把已有状态覆盖成空串。
@@ -204,7 +208,7 @@ type ChatStreamEvent struct {
 
 	// StreamSubagentActivityStarted 事件填充：LaunchMessageID 是后台 subagent 所属的
 	// 发起消息 ID,前端据此定位 AgentSpawnCard 并重开 per-turn 流(Stream 字段)。
-	// ToolUseID 复用上方字段,标识具体的 subagent tool_use block。
+	// ToolCallID 复用上方字段,标识具体的 subagent tool_use block。
 	// StreamAutonomousFinished 复用 LaunchMessageID 携带该收尾的 assistant / 发起消息
 	// ID,前端据此定位并兜底 finishStream 那条 per-turn 流。
 	LaunchMessageID int64 `json:"launchMessageId,omitempty"`
@@ -215,12 +219,12 @@ type ChatStreamEvent struct {
 }
 
 // CompletedTaskRef 标识触发本自主轮的后台命令身份。镜像 agentruntime.CompletedBackgroundTask
-// 中前端需要的字段:ToolUseID 关联到上一条消息里的 subagent_state 块,Status 指明
+// 中前端需要的字段:ToolCallID 关联到上一条消息里的 subagent_state 块,Status 指明
 // 该块要翻成的终态,Summary 是 CLI 下发的完成摘要文本（如退出码说明）。
 type CompletedTaskRef struct {
-	ToolUseID string `json:"toolUseId"`
-	Status    string `json:"status"`            // completed | failed
-	Summary   string `json:"summary,omitempty"` // CLI task_notification.summary
+	ToolCallID string `json:"toolUseId"`
+	Status     string `json:"status"`            // completed | failed
+	Summary    string `json:"summary,omitempty"` // CLI task_notification.summary
 }
 
 // ChatCompactBoundary 是 StreamCompactBoundary 事件的 payload。MessageID 是 boundary
@@ -308,9 +312,9 @@ type ChatBlock struct {
 	Image      *ChatBlockImage `json:"image,omitempty"`
 
 	// tool_use:
-	ToolUseID string         `json:"toolUseId,omitempty"`
-	ToolName  string         `json:"toolName,omitempty"`
-	ToolInput map[string]any `json:"toolInput,omitempty"`
+	ToolCallID string         `json:"toolUseId,omitempty"`
+	ToolName   string         `json:"toolName,omitempty"`
+	ToolInput  map[string]any `json:"toolInput,omitempty"`
 
 	// tool_result:
 	IsError bool `json:"isError,omitempty"`
@@ -372,7 +376,7 @@ type ChatBlockCompactBoundary struct {
 // ChatBlockAskUserQuestion 是前端渲染 AskUserQuestion 卡片需要的全部状态。
 //
 // RequestID 来自 control_request.request_id，是前端答题后回传 AnswerUserQuestion
-// 的句柄。ToolUseID 关联到同 turn 内 assistant 帧里的 tool_use 块；race 情况下
+// 的句柄。ToolCallID 关联到同 turn 内 assistant 帧里的 tool_use 块；race 情况下
 // （control_request 比 tool_use 先到）可能为空，前端按 RequestID 占位、等 tool_use
 // 帧到了 merge。
 //
@@ -467,11 +471,13 @@ type ChatMessage struct {
 	ReasoningTokens     int         `json:"reasoningTokens"`
 	// TotalInputTokens runtime translator 按 family 聚合好的本次 API call 输入大小。
 	// 前端 Composer 进度条「已用上下文」按此读,不再做 backend-family-specific 加法。
-	TotalInputTokens int    `json:"totalInputTokens"`
-	DurationMs       int    `json:"durationMs"`
-	ErrorText        string `json:"errorText"`
-	Seq              int    `json:"seq"`
-	Createtime       int64  `json:"createtime"`
+	TotalInputTokens int     `json:"totalInputTokens"`
+	DurationMs       int     `json:"durationMs"`
+	FirstTokenMs     int     `json:"firstTokenMs,omitempty"`
+	TokensPerSec     float64 `json:"tokensPerSec,omitempty"`
+	ErrorText        string  `json:"errorText"`
+	Seq              int     `json:"seq"`
+	Createtime       int64   `json:"createtime"`
 	// SourceDevice 是 R17 的「来源设备标识」:非本机发出的用户消息才带(为空=本机/未知)。
 	// 携带的是提交方设备指纹;前端拿它与本机指纹比对,相等就不渲染来源标识(本机不带,
 	// 单客户端界面零变化)。
@@ -479,10 +485,26 @@ type ChatMessage struct {
 	// SourceDeviceName 是对应设备的显示名(auth.pair 时上报),渲染「来自 <设备名>」;
 	// 空 = 无可用名字,前端回退到来源指纹/通用文案。
 	SourceDeviceName string `json:"sourceDeviceName,omitempty"`
+	// BlocksLoaded 说明 Blocks 是不是这条消息的**全部**正文。
+	//
+	// 读路径是「元数据全量 + 块按需取」(决策 6):LoadSession 只给最近一个窗口的完整
+	// 正文,更早的消息先只给元数据(BlocksLoaded=false,Blocks 空或只含派生视图点名的
+	// 那几类块),前端向上滚动时再经 LoadMessageBlocks 取回。转录只渲染
+	// BlocksLoaded=true 的消息 —— 把半份正文当整份渲染,用户看到的就是缺了工具结果的
+	// 假转录。
+	BlocksLoaded bool `json:"blocksLoaded"`
 }
 
 type ChatSessionLite struct {
-	ID             int64  `json:"id"`
+	ID int64 `json:"id"`
+	// AgentID / ProjectID 是会话的两个归属维度（ProjectID = 0 即未挂项目）。
+	//
+	// 单一会话索引按其中一维分组时，行首要放**另一维**（决策 4：按项目分组时行首是
+	// agent 头像，按 Agent 分组时是项目色文件夹字形；决策 5 的时间轴两维都给）。
+	// 此前 Lite 两个都不带 —— 项目归属只有 ChatSessionDetail 有，也就是「这条会话被
+	// 打开过」之后才知道，侧栏拿不到。
+	AgentID        int64  `json:"agentId"`
+	ProjectID      int64  `json:"projectId"`
 	Title          string `json:"title"`
 	Status         string `json:"status"`
 	NeedsAttention bool   `json:"needsAttention"`
@@ -707,6 +729,36 @@ type LoadSessionResponse struct {
 	Messages []ChatMessage     `json:"messages"`
 }
 
+// LoadMessageBlocksRequest 是「向上滚动继续取更早的正文」的入参。
+// BeforeSeq 是前端手上最早那条**已取到正文**的消息的 seq,取的是它之前的一段;
+// Limit<=0 时用 TranscriptBlockWindow。
+type LoadMessageBlocksRequest struct {
+	SessionID int64 `json:"sessionId"`
+	BeforeSeq int   `json:"beforeSeq"`
+	Limit     int   `json:"limit"`
+}
+
+// LoadMessageBlocksResponse 里的消息一律 BlocksLoaded=true;HasMore 说明这一段之前
+// 还有没有更早的消息可取。
+type LoadMessageBlocksResponse struct {
+	Messages []ChatMessage `json:"messages"`
+	HasMore  bool          `json:"hasMore"`
+}
+
+// LoadSessionBlocksByTypeRequest 是派生视图(后台任务面板 / 大纲 / 变更)的取数入参:
+// 点名它需要的**投影后**块类型,后端按块表的 type 列点查整条会话的这几类块。
+// Types 为空是错误 —— 那等于把整条转录再要一遍。
+type LoadSessionBlocksByTypeRequest struct {
+	SessionID int64    `json:"sessionId"`
+	Types     []string `json:"types"`
+}
+
+// LoadSessionBlocksByTypeResponse 覆盖整条会话的全部消息(元数据全量),每条只带点名
+// 类型的块,因此 BlocksLoaded 一律为 false:这是派生视图的取数,不是转录正文。
+type LoadSessionBlocksByTypeResponse struct {
+	Messages []ChatMessage `json:"messages"`
+}
+
 // LocalCommandScope 是本地命令历史与命令执行共享的稳定设备/cwd 作用域。
 // DeviceID 为空表示本机；Cwd 为空表示目标设备上的默认 Agent 工作目录。
 type LocalCommandScope struct {
@@ -730,6 +782,56 @@ type ListAgentSessionsRequest struct {
 	Limit   int   `json:"limit"`
 }
 type ListAgentSessionsResponse struct {
+	Sessions []ChatSessionLite `json:"sessions"`
+	Total    int64             `json:"total"`
+	HasMore  bool              `json:"hasMore"`
+}
+
+// SessionIndexScope 是单一会话索引的查询范围。
+//
+// 刻意用具名字符串而不是「projectID = -1 表示不限」这类哨兵：哨兵在 Wails 生成的
+// TS 签名里读不出含义，调用方迟早传错一个 0 进来。
+type SessionIndexScope = string
+
+const (
+	// SessionScopeRecent 全部会话按最近活动排序 —— 索引的「按时间」档。
+	// 它跨 agent、跨项目，是唯一能给出「全局最近」的查询：按 agent 的变体各自只看
+	// 一个 agent，并起来只是一个窗口。
+	SessionScopeRecent SessionIndexScope = "recent"
+	// SessionScopeFree 仅未挂项目（project_id = 0）的会话 —— 索引的「随手对话」组。
+	// 自由会话此前没有任何列表接口能拿到：ListSessions 被挡在 projectID > 0，
+	// 而 0 本来就不是一个项目。
+	SessionScopeFree SessionIndexScope = "free"
+	// SessionScopeProject 某个项目下的会话 —— 索引的项目组。
+	//
+	// 它与 free 只差一个 project_id，走同一条查询是有意的：索引三个轴拿到的是**同一种
+	// 载荷**（ChatSessionLite，带 agent / 项目 / bgRunning / 已读），前端一处投影就够。
+	// 旧的 ProjectListSessions 返回的是另一个形状（无 bgRunning、无 project_id），
+	// 正是「同一条会话在两个页面显示不一样」的根。
+	SessionScopeProject SessionIndexScope = "project"
+	// SessionScopeMachine 跑在某一台机器上的会话 —— 索引的「按机器」轴那一组
+	// （docs/specs/2026-08-21-index-glyph-and-machine-axis.md）。
+	//
+	// 分组这一维是 chat_entity.Session.ExecDeviceID，而**不是** ChatSessionLite 上那个
+	// 从 backend 推出来的 DeviceID：前者是会话表上的一列（取数时就分得开），后者索引
+	// 这条路根本没填。DeviceID = 0 是本机，是一台正当的机器。
+	SessionScopeMachine SessionIndexScope = "machine"
+)
+
+// ListIndexSessionsRequest 单一会话索引的分页查询。
+// Limit==0 时服务侧用默认页大小 20；上限 100（与 ListAgentSessions 同一口径）。
+type ListIndexSessionsRequest struct {
+	Scope SessionIndexScope `json:"scope"`
+	// ProjectID 仅在 Scope=project 时有意义，且必须 > 0：0 走 Scope=free。
+	ProjectID int64 `json:"projectId"`
+	// DeviceID 仅在 Scope=machine 时有意义。**0 合法**（本机），负数才是漏传 ——
+	// 与 ProjectID 的判据差这一格，因为 0 在那边有专门的 scope，在这边是一台机器。
+	DeviceID int64 `json:"deviceId"`
+	Offset   int   `json:"offset"`
+	Limit    int   `json:"limit"`
+}
+
+type ListIndexSessionsResponse struct {
 	Sessions []ChatSessionLite `json:"sessions"`
 	Total    int64             `json:"total"`
 	HasMore  bool              `json:"hasMore"`
@@ -973,12 +1075,12 @@ type StopResponse struct {
 	Stopped bool `json:"stopped"`
 }
 
-// StopBackgroundTaskRequest 用户点某条后台任务 / 子 agent 的「停止」。ToolUseID 是发起它
+// StopBackgroundTaskRequest 用户点某条后台任务 / 子 agent 的「停止」。ToolCallID 是发起它
 // 的 tool_use_id（前后端统一 join key）；chat_svc 据此从持久化 subagent_state 块读出 CLI
 // task_id 再下发 stop_task —— 停的是这一个后台任务，不是整个 turn。
 type StopBackgroundTaskRequest struct {
-	SessionID int64  `json:"sessionId"`
-	ToolUseID string `json:"toolUseId"`
+	SessionID  int64  `json:"sessionId"`
+	ToolCallID string `json:"toolUseId"`
 }
 
 // StopBackgroundTaskResponse Stopped=true 表示 stop_task 已下发（或任务已是终态 / 已被

@@ -7,9 +7,9 @@ import (
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 func TestSubagentLifecycle(t *testing.T) {
@@ -561,12 +561,12 @@ type fakeSubagentFlipper struct {
 }
 
 type flipCall struct {
-	toolUseID string
-	status    string
+	toolCallID string
+	status     string
 }
 
-func (f *fakeSubagentFlipper) FlipSubagentStatus(_ context.Context, toolUseID, status string) error {
-	f.calls = append(f.calls, flipCall{toolUseID: toolUseID, status: status})
+func (f *fakeSubagentFlipper) FlipSubagentStatus(_ context.Context, toolCallID, status string) error {
+	f.calls = append(f.calls, flipCall{toolCallID: toolCallID, status: status})
 	return f.err
 }
 
@@ -601,7 +601,7 @@ func TestSubagentDone_CrossTurn_FlipsEarlierMessage(t *testing.T) {
 			Convey("Then 该块经跨消息定向翻转落成终态,而不是被静默丢弃", func() {
 				So(err, ShouldBeNil)
 				So(flipper.calls, ShouldHaveLength, 1)
-				So(flipper.calls[0].toolUseID, ShouldEqual, "toolu-earlier-msg")
+				So(flipper.calls[0].toolCallID, ShouldEqual, "toolu-earlier-msg")
 				So(flipper.calls[0].status, ShouldEqual, "completed")
 				// 本轮 accumulator 不该被塞进一个孤儿 overlay(块不属于这条消息)。
 				So(acc.Finalize(), ShouldHaveLength, 1)
@@ -667,5 +667,85 @@ func TestSubagentDone_CrossTurn_NilFlipperNoPanic(t *testing.T) {
 				agentruntime.SubagentDone{ToolCallID: "toolu-earlier-msg"},
 				turn.New(), nil, nil, nil)
 		}, ShouldNotPanic)
+	})
+}
+
+// MarkRunningForegroundSubagentsCancelled 是**正常**收尾用的补救。后台任务(Agent
+// 默认后台 / run_in_background 的 Bash)有权活过发起它的那一轮,不能跟着前台 subagent
+// 一起判死 —— 否则卡片显示「已停止」而任务还在跑(sess-3275)。
+func TestMarkRunningForegroundSubagentsCancelled(t *testing.T) {
+	Convey("Given a clean turn end with both foreground and background subagents still running", t, func() {
+		acc := turn.New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{
+			ID: "agent-bg", Name: "Agent",
+			Input: map[string]any{"description": "Wrap-up code review axis"},
+		}, "")
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{
+			ID: "agent-fg", Name: "Agent",
+			Input: map[string]any{"run_in_background": false},
+		}, "")
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{
+			ID: "bash-bg", Name: "Bash",
+			Input: map[string]any{"command": "sleep 600", "run_in_background": true},
+		}, "")
+
+		bgAgent := &blocks.SubagentStateBlock{
+			ParentToolCallID: "agent-bg", Kind: "local_agent", Status: "running",
+			Runs: []agentruntime.SubagentRun{{ID: "run-0", Status: "running"}},
+		}
+		fgAgent := &blocks.SubagentStateBlock{
+			ParentToolCallID: "agent-fg", Kind: "local_agent", Status: "running",
+			Runs: []agentruntime.SubagentRun{{ID: "run-0", Status: "waiting"}},
+		}
+		bgBash := &blocks.SubagentStateBlock{
+			ParentToolCallID: "bash-bg", Kind: "local_bash", Status: "running",
+		}
+		// kind 未知的旧帧:判不出后台,按前台处理(宁可翻 canceled 也不让卡片永远转)。
+		unknown := &blocks.SubagentStateBlock{
+			ParentToolCallID: "legacy", Kind: "", Status: "running",
+		}
+		final := append(acc.Finalize(), bgAgent, fgAgent, bgBash, unknown)
+
+		MarkRunningForegroundSubagentsCancelled(acc, final)
+
+		Convey("Then background subagents keep running and only foreground ones are canceled", func() {
+			So(bgAgent.Status, ShouldEqual, "running")
+			So(bgAgent.Runs[0].Status, ShouldEqual, "running")
+			So(bgBash.Status, ShouldEqual, "running")
+			So(fgAgent.Status, ShouldEqual, "canceled")
+			So(fgAgent.Runs[0].Status, ShouldEqual, "canceled")
+			So(unknown.Status, ShouldEqual, "canceled")
+		})
+	})
+
+	Convey("Given a background Agent whose tool_use block is not in this turn", t, func() {
+		acc := turn.New()
+		orphan := &blocks.SubagentStateBlock{
+			ParentToolCallID: "agent-elsewhere", Kind: "local_agent", Status: "running",
+		}
+
+		MarkRunningForegroundSubagentsCancelled(acc, []cagoblocks.ContentBlock{orphan})
+
+		Convey("Then it is still treated as background (Agent defaults to background)", func() {
+			So(orphan.Status, ShouldEqual, "running")
+		})
+	})
+
+	Convey("Given terminal subagent evidence", t, func() {
+		acc := turn.New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{
+			ID: "agent-fg", Name: "Agent", Input: map[string]any{"run_in_background": false},
+		}, "")
+		done := &blocks.SubagentStateBlock{
+			ParentToolCallID: "agent-fg", Kind: "local_agent", Status: "completed",
+			Runs: []agentruntime.SubagentRun{{ID: "run-0", Status: "failed"}},
+		}
+
+		MarkRunningForegroundSubagentsCancelled(acc, []cagoblocks.ContentBlock{done})
+
+		Convey("Then it is preserved untouched", func() {
+			So(done.Status, ShouldEqual, "completed")
+			So(done.Runs[0].Status, ShouldEqual, "failed")
+		})
 	})
 }

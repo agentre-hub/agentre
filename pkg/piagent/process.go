@@ -4,19 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
-	"os"
 	"os/exec"
-	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 
-	"github.com/agentre-ai/agentre/internal/pkg/clienv"
-	"github.com/agentre-ai/agentre/internal/pkg/cliprocess"
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/cliprocess"
 )
 
 type ExitError struct {
@@ -239,155 +231,14 @@ type processRunner interface {
 	Start(ctx context.Context, opts procOptions) (processHandle, error)
 }
 
+// execProcessRunner 走公共底座:进程组、树杀/树信号、spawn 前的取消检查与 binary
+// 解析都归 internal/pkg/cliprocess,这里只负责把 piagent 的 sentinel 交给它。
 type execProcessRunner struct{}
 
-type treeProcessHandle struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	stderr io.ReadCloser
-}
-
-func (h *treeProcessHandle) Stdin() io.Writer  { return h.stdin }
-func (h *treeProcessHandle) Stdout() io.Reader { return h.stdout }
-func (h *treeProcessHandle) Stderr() io.Reader { return h.stderr }
-func (h *treeProcessHandle) Wait() error       { return h.cmd.Wait() }
-
-func (h *treeProcessHandle) Kill() error {
-	if h == nil || h.cmd == nil || h.cmd.Process == nil {
-		return nil
-	}
-	return killProcessTree(h.cmd.Process)
-}
-
-func (h *treeProcessHandle) Signal(sig os.Signal) error {
-	if h == nil || h.cmd == nil || h.cmd.Process == nil {
-		return nil
-	}
-	return signalProcessTree(h.cmd.Process, sig)
-}
-
 func (r execProcessRunner) Start(ctx context.Context, opts procOptions) (processHandle, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	extraEnv := processEnvListToMap(opts.Env)
-	searchEnv := clienv.BuildEnv(extraEnv, opts.Binary)
-	binary, ok := clienv.ResolveBinaryForEnv(opts.Binary, searchEnv)
-	if !ok {
-		return nil, ErrBinaryNotFound
-	}
-	// Do not bind the accepted Pi RPC process to the turn context. The stream owns
-	// a short post-cancel settlement window and then terminates this process group.
-	// #nosec G204 -- the configured Pi binary plus fixed RPC flags is intentionally launched.
-	cmd := exec.Command(binary, opts.Args...)
-	procattr.ApplyNoConsoleWindow(cmd)
-	applyProcessTreeAttributes(cmd)
-	if opts.Cwd != "" {
-		cmd.Dir = opts.Cwd
-	}
-	cmd.Env = clienv.BuildEnv(extraEnv, binary)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
-			return nil, ErrBinaryNotFound
-		}
-		return nil, err
-	}
-	return &treeProcessHandle{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr}, nil
-}
-
-func processEnvListToMap(items []string) map[string]string {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(items))
-	for _, item := range items {
-		key, value, ok := strings.Cut(item, "=")
-		if ok {
-			out[key] = value
-		}
-	}
-	return out
-}
-
-func applyProcessTreeAttributes(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
-	}
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	attrs := reflect.ValueOf(cmd.SysProcAttr)
-	if attrs.Kind() != reflect.Pointer || attrs.IsNil() {
-		return
-	}
-	attrs = attrs.Elem()
-	if runtime.GOOS == "windows" {
-		const createNewProcessGroup = 0x00000200
-		if field := attrs.FieldByName("CreationFlags"); field.IsValid() && field.CanSet() {
-			field.SetUint(field.Uint() | createNewProcessGroup)
-		}
-		return
-	}
-	if field := attrs.FieldByName("Setpgid"); field.IsValid() && field.CanSet() {
-		field.SetBool(true)
-	}
-}
-
-func signalProcessTree(process *os.Process, sig os.Signal) error {
-	if process == nil {
-		return nil
-	}
-	if runtime.GOOS == "windows" {
-		return process.Signal(sig)
-	}
-	signalNumber, ok := sig.(syscall.Signal)
-	if !ok {
-		return process.Signal(sig)
-	}
-	if err := signalTree(process.Pid, signalNumber); err == nil {
-		return nil
-	}
-	return process.Signal(sig)
-}
-
-func killProcessTree(process *os.Process) error {
-	if process == nil {
-		return nil
-	}
-	if runtime.GOOS == "windows" {
-		// #nosec G204 -- executable is fixed; PID is assigned by the OS.
-		if err := exec.Command("taskkill", "/PID", strconv.Itoa(process.Pid), "/T", "/F").Run(); err == nil {
-			return nil
-		}
-		return ignoreProcessDone(process.Kill())
-	}
-	if err := signalTree(process.Pid, syscall.SIGKILL); err == nil {
-		return nil
-	}
-	return ignoreProcessDone(process.Kill())
-}
-
-func ignoreProcessDone(err error) error {
-	if errors.Is(err, os.ErrProcessDone) {
-		return nil
-	}
-	return err
+	// 进程寿命不绑在轮 ctx 上:stream 自带一段取消后的 settlement 窗口,之后才由它
+	// 终结这棵进程树(见 rpcProcess.terminate)。cliprocess.Start 只用 ctx 守 spawn 阶段。
+	return cliprocess.Start(ctx, opts, ErrBinaryNotFound)
 }
 
 type lockedBuffer = cliprocess.LockedBuffer

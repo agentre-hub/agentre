@@ -8,21 +8,18 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 
 	// 显式 blank import 触发 NEW runtime 子包 init() 注册到 RuntimeFor。
 	// 不直接调子包的 Runtime 类型,只通过 agentruntime.RuntimeFor 反查。
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/builtin"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/claudecode"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/codex"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/openclaw"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/codex"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/openclaw"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // GetSessionCapabilitiesRequest 前端按 sessionID 询问当前会话的 backend 能力矩阵。
@@ -55,18 +52,18 @@ func GetSessionCapabilities(ctx context.Context, req *GetSessionCapabilitiesRequ
 	if req == nil || req.SessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	sess, err := chat_repo.Session().Find(ctx, req.SessionID)
+	sess, err := capabilitySessions.Find(ctx, req.SessionID)
 	if err != nil || sess == nil {
 		return nil, i18n.NewError(ctx, code.ChatSessionNotFound)
 	}
-	a, err := agent_repo.Agent().Find(ctx, sess.AgentID)
+	a, err := capabilityAgents.Find(ctx, sess.AgentID)
 	if err != nil || a == nil {
 		return nil, i18n.NewError(ctx, code.AgentNotFound)
 	}
 	if a.AgentBackendID <= 0 {
 		return nil, i18n.NewError(ctx, code.ChatAgentNoBackend)
 	}
-	be, err := agent_backend_repo.AgentBackend().Find(ctx, a.AgentBackendID)
+	be, err := capabilityBackends.Find(ctx, a.AgentBackendID)
 	if err != nil || be == nil {
 		return nil, i18n.NewError(ctx, code.AgentBackendNotFound)
 	}

@@ -124,3 +124,54 @@ describe("Tab 组件", () => {
     expect(onActivate).not.toHaveBeenCalled();
   });
 });
+
+// ─── 2026-08-23 对话页外壳收口 · tab 条回归共享原语 ──────────────────────────
+
+describe("Tab · 状态点与身份方块来自共享原语", () => {
+  const baseProps = {
+    title: "处理周一例会纪要",
+    avatar: { letter: "C", color: "var(--agent-1)" },
+    active: false,
+    isPreview: false,
+    isPinned: false,
+    status: "idle" as const,
+    projectColor: null as string | null,
+    worktree: false,
+    pillText: null as string | null,
+    onActivate: vi.fn(),
+    onClose: vi.fn(),
+    onDoublePromote: vi.fn(),
+  };
+
+  it.each([
+    ["running", "bg-status-running"],
+    ["waiting", "bg-status-waiting"],
+    ["error", "bg-status-error"],
+  ] as const)(
+    "Given status=%s, When 渲染, Then 状态点的颜色来自共享 statusConfig 而不是 tab 私有那张表",
+    (status, dotClass) => {
+      render(<Tab {...baseProps} status={status} />);
+
+      const dot = screen.getByTestId("tab-status-dot");
+      expect(dot).toHaveClass(dotClass);
+      // 共享 StatusDot 连可及名一起带来 —— 状态不再只靠颜色说。
+      expect(dot).toHaveAccessibleName(`${status} status`);
+    },
+  );
+
+  it("Given status=idle, When 渲染, Then 仍然不摆状态点（tab 条上闲置就是没记号）", () => {
+    render(<Tab {...baseProps} status="idle" />);
+
+    expect(screen.queryByTestId("tab-status-dot")).toBeNull();
+  });
+
+  it("Given 一个会话 tab, When 渲染, Then 身份方块是共享 AgentAvatar 的最小档而不是手搓的方块", () => {
+    render(<Tab {...baseProps} />);
+
+    const avatar = screen.getByTestId("tab-avatar");
+    // xs 档的签名：size-3.5 + rounded-sm。
+    expect(avatar).toHaveClass("size-3.5");
+    expect(avatar).toHaveClass("rounded-sm");
+    expect(avatar).toHaveTextContent("C");
+  });
+});

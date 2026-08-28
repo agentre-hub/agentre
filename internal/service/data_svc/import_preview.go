@@ -7,11 +7,11 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 )
 
 // PreviewImport 解析 raw,与本地数据对比,返回逐条 diff。不写库。
@@ -174,10 +174,12 @@ func (s *dataSvc) PreviewImport(ctx context.Context, raw []byte) (*ImportPreview
 				it.DanglingHint = "所属部门不在导入范围内"
 			}
 		}
-		if a.AgentBackendKey != "" && !it.Dangling {
-			if _, ok := bundleBackendKeys[a.AgentBackendKey]; !ok {
-				it.Dangling = true
-				it.DanglingHint = "绑定的 Agent 后端不在导入范围内"
+		for _, target := range a.ExecTargets {
+			if target.BackendKey != "" && !it.Dangling {
+				if _, ok := bundleBackendKeys[target.BackendKey]; !ok {
+					it.Dangling = true
+					it.DanglingHint = "绑定的 Agent 后端不在导入范围内"
+				}
 			}
 		}
 		if a.ParentAgentKey != "" && !it.Dangling {

@@ -3,7 +3,7 @@ package app
 import (
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 // RemoteDeviceList 返回当前已配对的全部 agentred（不含 keychain 秘密）。

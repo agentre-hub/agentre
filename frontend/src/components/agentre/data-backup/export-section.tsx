@@ -4,10 +4,13 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
+import {
+  Alert,
+  AlertDescription,
+  Button,
+  Checkbox,
+  Switch,
+} from "@agentre-hub/agentre-ui";
 
 import { ExportData } from "../../../../wailsjs/go/app/App";
 import type { Scope } from "./types";

@@ -3,22 +3,20 @@ import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ProjectMerge } from "../../../wailsjs/go/app/App";
-import { Button } from "@/components/ui/button";
 import {
+  Button,
   Dialog,
   DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@agentre-hub/agentre-ui";
 
 export type ProjectMergeCandidate = { id: number; name: string };
 export type ProjectMergeSource = { id: number; name: string };

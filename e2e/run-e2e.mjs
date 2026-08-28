@@ -114,7 +114,9 @@ async function main() {
       serverURL: "",
       userID: 7001,
       deviceID: 7101,
-      peerDeviceID: 7202,
+      // 「来源机器」在契约上是**指纹**，不是 server 的数值设备主键（规格
+      // 2026-08-27-schema-overhaul 决策 14）。
+      peerFingerprint: "sha256:e2e-peer-7202",
       deviceFingerprint: `sha256:${run.token}`,
       refreshToken: `e2e-refresh-${run.token.slice(16, 48)}`,
     };

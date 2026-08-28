@@ -2,7 +2,7 @@
 
 `agentred` is Agentre's headless compute daemon. It runs Claude Code and Codex
 subprocesses on a remote macOS, Linux, or Windows machine and connects to the
-desktop over JSON-RPC over WebSocket on the LAN.
+desktop over binary Protobuf RPC on WebSocket.
 
 The daemon is stateful: it keeps runtime/account configuration in `state.json`
 and durable session and notification journals in its own `agentred.db` SQLite
@@ -13,7 +13,7 @@ database.
 macOS or Linux (amd64/arm64):
 
 ```bash
-curl -fsSL https://github.com/agentre-ai/agentre/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh
 agentred --version
 agentred service install --start
 agentred service status
@@ -22,7 +22,7 @@ agentred service status
 Windows PowerShell (amd64/arm64, no administrator shell required):
 
 ```powershell
-irm https://github.com/agentre-ai/agentre/releases/latest/download/install.ps1 | iex
+irm https://github.com/agentre-hub/agentre/releases/latest/download/install.ps1 | iex
 agentred --version
 agentred service install --start
 agentred service status
@@ -89,11 +89,32 @@ listen or account-server settings.
 | `agentred llm remove --key=<uuid>` | Delete an LLM provider. |
 | `agentred claudecode <args...>` | Internal Claude Code hook passthrough used by spawned subprocesses. |
 
-`agentred run` accepts `--host`, `--port`, `--tls-cert`, `--tls-key`, and
-`--server`. Resolution order is explicit flag, environment, persisted state,
-then default. The corresponding environment variables are `AGENTRED_HOST`,
-`AGENTRED_PORT`, `AGENTRED_TLS_CERT`, `AGENTRED_TLS_KEY`, and
-`AGENTRED_SERVER_URL`.
+`agentred run` accepts `--host`, `--port`, `--tls-cert`, `--tls-key`,
+`--server`, and `--log-level`. Resolution order is explicit flag, environment,
+persisted state, then default. The corresponding environment variables are
+`AGENTRED_HOST`, `AGENTRED_PORT`, `AGENTRED_TLS_CERT`, `AGENTRED_TLS_KEY`,
+`AGENTRED_SERVER_URL`, and `AGENTRED_LOG_LEVEL`.
+
+## Logs
+
+`agentred run` writes JSON logs to `<AppDataDir>/logs/` and to stdout. The
+service managers do not capture stdout on macOS, so the files are the only
+record there:
+
+```text
+<AppDataDir>/logs/
+  agentred.log   everything at the active level
+  error.log      error and above only
+```
+
+The daemon's remaining standard-library `log.Printf` sites (panic recovery,
+shutdown failures, restart sweeps) are redirected into the same files.
+
+Both files roll at 30 MB, keep 10 backups and 30 days, and are not compressed —
+so each caps out around 330 MB on disk. `--log-level` (or `AGENTRED_LOG_LEVEL`)
+takes `debug`, `info` (default), `warn`, or `error`; an unknown value is a usage
+error rather than a silent fallback. Debug is verbose enough to fill and roll
+those files in minutes, so turn it on for an investigation, not permanently.
 
 ## Storage layout
 
@@ -111,6 +132,7 @@ Important files are:
 <AppDataDir>/
   state.json    runtime state, listen preferences, account claim, and LLM providers
   agentred.db   SQLite session and notification journals
+  logs/         rolling agentred.log and error.log (see Logs above)
 ```
 
 Local CLI IPC uses `agentred.sock` on Unix and a current-user named pipe on

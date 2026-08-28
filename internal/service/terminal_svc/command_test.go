@@ -21,11 +21,11 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	ptyremote "github.com/agentre-ai/agentre/internal/pkg/pty/remote"
-	"github.com/agentre-ai/agentre/internal/service/terminal_svc"
-	"github.com/agentre-ai/agentre/internal/service/terminal_svc/mocks"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	ptyremote "github.com/agentre-hub/agentre/internal/pkg/pty/remote"
+	"github.com/agentre-hub/agentre/internal/service/terminal_svc"
+	"github.com/agentre-hub/agentre/internal/service/terminal_svc/mocks"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 )
 
 type completedCommandHandle struct {

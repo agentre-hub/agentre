@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 )
 
 // listDevicesItem mirrors the hub's /v1/devices response item.

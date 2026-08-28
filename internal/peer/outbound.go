@@ -8,24 +8,25 @@ package peer
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // Outbound 是拨到另一台桌面端（或 agentred）的会话级客户端。调用方把
 // server_svc.DialDesktopRelay 产出的已握手 *client.Client 交给它，peer 指纹
 // 只在构造时记录为只读标识，不参与鉴权。
 type Outbound struct {
-	c  *client.Client
+	c  client.ProtobufConnection
 	fp string
 }
 
 // NewOutbound 包装一条已握手、已鉴权的对端中继连接。peerFingerprint 是该目标的
 // 设备指纹（DialDesktopRelay 的目标），仅用于会话清单的 PeerFingerprint 语义。
-func NewOutbound(c *client.Client, peerFingerprint string) *Outbound {
+func NewOutbound(c client.ProtobufConnection, peerFingerprint string) *Outbound {
 	return &Outbound{c: c, fp: peerFingerprint}
 }
 
@@ -42,30 +43,47 @@ func (o *Outbound) Close() error { return o.c.Close() }
 // wire.SessionSummary，标题、状态、等待输入、最后活动与 Agent 身份齐全，
 // 不存在轮 A 的退化形态。
 func (o *Outbound) ListSessions(ctx context.Context) (*wire.SessionListResult, error) {
-	var result wire.SessionListResult
-	if err := o.c.Call(ctx, wire.MethodSessionList, struct{}{}, &result); err != nil {
+	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), &agentrewire.SessionListRequest{}, func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
+	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	result := &wire.SessionListResult{}
+	for _, s := range response.Sessions {
+		result.Sessions = append(result.Sessions, wire.SessionSummary{SessionID: s.SessionId, PeerFingerprint: s.PeerFingerprint, AgentID: s.AgentId, Title: s.Title, AgentSyncID: s.AgentSyncId, ProviderSessionID: s.ProviderSessionId, Cwd: s.Cwd, ProjectSyncID: s.ProjectSyncId, BackendType: s.BackendType, LifecycleState: s.LifecycleState, WaitingForInput: s.WaitingForInput, LatestSeq: s.LatestSeq, LastMessageAt: s.LastMessageAt, ProviderKey: s.ProviderKey, ModelKey: s.ModelKey})
+	}
+	return result, nil
 }
 
 // Attach 把这条连接登记为某条远程会话的实时订阅者（R19 / R6）：此后对端把该会话
 // 的 canonical 事件经 runtime.event 推回本连接，直到 Close。LatestSeq 是补齐历史
 // 的高水位游标。
 func (o *Outbound) Attach(ctx context.Context, params wire.SessionAttachParams) (wire.SessionAttachResult, error) {
-	var result wire.SessionAttachResult
-	if err := o.c.Call(ctx, wire.MethodSessionAttach, params, &result); err != nil {
+	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{SessionId: params.SessionID, PeerFingerprint: params.PeerFingerprint}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
+	if err != nil {
+		var result wire.SessionAttachResult
 		return result, err
 	}
-	return result, nil
+	return wire.SessionAttachResult{SessionID: response.SessionId, BackendType: response.BackendType, LifecycleState: response.LifecycleState, LatestSeq: response.LatestSeq}, nil
 }
 
 // Pull 拉一页游标之后的 journaled 历史（R19 / R7）。桌面端的历史不回收，因此
 // OldestSeq 恒为第一条（空历史为 0），与 agentred 的回收语义区分。
 func (o *Outbound) Pull(ctx context.Context, params wire.SessionPullParams) (wire.SessionPullResult, error) {
-	var result wire.SessionPullResult
-	if err := o.c.Call(ctx, wire.MethodSessionPull, params, &result); err != nil {
+	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{SessionId: params.SessionID, PeerFingerprint: params.PeerFingerprint, Cursor: params.Cursor, Limit: int32(params.Limit)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+	if err != nil {
+		var result wire.SessionPullResult
 		return result, err
+	}
+	result := wire.SessionPullResult{Cursor: response.Cursor, HasMore: response.HasMore, OldestSeq: response.OldestSeq}
+	for _, e := range response.Notifications {
+		protowire.SetNotificationSeq(e.Payload, e.Seq)
+		method, value, x := protowire.ProtoNotificationToWire(e.Payload)
+		if x != nil {
+			return result, x
+		}
+		// 不在这里 marshal:Params 装帧本身,真正需要 JSON 的是再往前一步的 Wails
+		// 边界,那一跳由 JournaledNotification.MarshalJSON 落出同样的形状。
+		result.Notifications = append(result.Notifications, wire.JournaledNotification{Seq: e.Seq, Method: method, Params: value})
 	}
 	return result, nil
 }
@@ -77,47 +95,74 @@ func (o *Outbound) Pull(ctx context.Context, params wire.SessionPullParams) (wir
 // 也不许续，杜绝派活撞上挂账残留。
 func (o *Outbound) RunFresh(ctx context.Context, params wire.RunParams) (wire.RunAck, error) {
 	params.FreshSession = true
-	var ack wire.RunAck
-	if err := o.c.Call(ctx, wire.MethodRun, params, &ack); err != nil {
+	request, err := protowire.RunRequestToProto(params)
+	if err != nil {
+		return wire.RunAck{}, err
+	}
+	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	if err != nil {
+		var ack wire.RunAck
 		return ack, err
 	}
-	return ack, nil
+	return wire.RunAck{SessionID: response.SessionId, ProviderSessionID: response.ProviderSessionId, LaunchPermissionMode: response.LaunchPermissionMode, ProviderFallbackKey: response.ProviderFallbackKey}, nil
 }
 
 // Steer 往已接入的远程会话发一条新消息（R19 / R9），走对端既有发送路径。
 func (o *Outbound) Steer(ctx context.Context, params wire.SteerParams) error {
-	return o.c.Call(ctx, wire.MethodSteer, params, &wire.OK{})
+	_, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), &agentrewire.RuntimeSteerRequest{SessionId: params.SessionID, PeerFingerprint: params.PeerFingerprint, QueuedId: params.QueuedID, Text: params.Text}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
+	return err
 }
 
 // SubmitAnswer 回答对端会话上挂起的用户提问（R10）。AlreadyHandled 报告同一待决策
 // 已被别的端处理过；旧对端返回空对象时保持 false（task 5 的兼容语义）。
 func (o *Outbound) SubmitAnswer(ctx context.Context, params wire.SubmitAnswerParams) (wire.PeerSessionControlResult, error) {
-	var result wire.PeerSessionControlResult
-	if err := o.c.Call(ctx, wire.MethodSubmitAnswer, params, &result); err != nil {
+	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), &agentrewire.RuntimeSubmitAnswerRequest{SessionId: params.SessionID, PeerFingerprint: params.PeerFingerprint, RequestId: params.RequestID, Questions: protowire.AskQuestionsToProto(params.Questions), Answers: protowire.AskAnswersToProto(params.Answers), Skipped: params.Skipped}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
+	if err != nil {
+		var result wire.PeerSessionControlResult
 		return result, err
 	}
-	return result, nil
+	return wire.PeerSessionControlResult{AlreadyHandled: response.AlreadyHandled}, nil
 }
 
 // SubmitToolPermission 决定对端会话上挂起的工具权限（R10），AlreadyHandled 语义
 // 同 SubmitAnswer。
 func (o *Outbound) SubmitToolPermission(ctx context.Context, params wire.SubmitToolPermissionParams) (wire.PeerSessionControlResult, error) {
-	var result wire.PeerSessionControlResult
-	if err := o.c.Call(ctx, wire.MethodSubmitToolPermission, params, &result); err != nil {
+	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION), &agentrewire.RuntimeSubmitToolPermissionRequest{SessionId: params.SessionID, PeerFingerprint: params.PeerFingerprint, RequestId: params.RequestID, Allow: params.Allow, AlwaysAllowSession: params.AlwaysAllowSession, DenyReason: params.DenyReason}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
+	if err != nil {
+		var result wire.PeerSessionControlResult
 		return result, err
 	}
-	return result, nil
+	return wire.PeerSessionControlResult{AlreadyHandled: response.AlreadyHandled}, nil
 }
 
 // HandleEvent 注册 runtime.event 通知订阅：对端把 attached 会话的 canonical 事件
 // 帧推回本连接时，每帧解成 wire.EventFrame 交给 fn。每条连接只注册一次；返回值
 // 错误会以 RPC 应答错误形式回给对端（对端忽略通知应答）。
 func (o *Outbound) HandleEvent(fn func(wire.EventFrame) error) {
-	o.c.Handle(wire.NotifyEvent, func(_ context.Context, raw json.RawMessage) (any, error) {
-		var frame wire.EventFrame
-		if err := json.Unmarshal(raw, &frame); err != nil {
-			return nil, fmt.Errorf("peer.HandleEvent: decode event frame: %w", err)
+	o.c.Conn().Registry().SubscribeNotification(func(_ context.Context, notification *agentrewire.RpcNotification) error {
+		// 直接转换手上这条已经解好的通知。
+		//
+		// 不要退回「proto.Marshal 成 RpcFrame 再 UnmarshalEventNotification」那条:
+		// 它把上一层栈刚解完的消息重新序列化再反序列化一遍,只为复用一个按字节切入的
+		// helper。这里跑的是**每一个 token**。实测(M1,-benchmem):
+		//   TextDelta        1041 ns / 413 B / 12 allocs → 43 ns / 48 B / 2 allocs
+		//   64KB ToolResult  16.3 µs / 139.8 KB / 13 allocs → 57 ns / 128 B / 2 allocs
+		// 大载荷差 285 倍,是因为那条路径会把整个载荷在堆上多拷两遍。
+		// internal/daemon/notifier/protobuf.go 早就写明了同一件事:推的是已经转好的
+		// 那条消息,不重新转换。
+		method, value, err := protowire.ProtoNotificationToWire(notification)
+		if err != nil {
+			return err
 		}
-		return nil, fn(frame)
+		// 只要用户轮的事件帧。自主续轮的增量不进 Peer 转录(它在对端也不显示),
+		// 终态帧 / Started 走的是别的出口。
+		if method != wire.NotifyEvent {
+			return nil
+		}
+		frame, ok := value.(*wire.EventFrame)
+		if !ok || frame == nil {
+			return nil
+		}
+		return fn(*frame)
 	})
 }

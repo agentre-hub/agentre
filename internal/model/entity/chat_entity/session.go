@@ -7,7 +7,7 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // allowedAgentStatuses 枚举：
@@ -46,6 +46,17 @@ type Session struct {
 	NeedsAttention bool `gorm:"-"`
 	// ProjectID = 0 表示自由会话（保留老行为，spec Q5/B 兜底）；> 0 时受 project_svc 管控。
 	ProjectID int64 `gorm:"column:project_id;type:bigint;not null;default:0"`
+	// Cwd 是这条会话钉住的工作目录（chat_sessions.cwd）。空串 = 不钉，按老规矩
+	// 每轮现算（本地 project.Path / AgentCwd 兜底，远端 project_locations）。
+	//
+	// 它是**导入进来的会话**的落点（spec 2026-08-26「续跑」：工作目录取磁盘转录里
+	// 记录的 cwd）：claude 的 --resume 按 cwd 定位 project 目录，从 Agent / 机器 /
+	// 随手对话三个入口导进来的会话若按 agent 默认目录起 CLI，那条 provider session
+	// id 在那儿根本不存在。远端会话上它是**那台机器上的**路径。
+	//
+	// 只在建档时写入；chat_repo 的整行 Update 把它 Omit 掉，免得一份读得早的实体
+	// 把它抹成空串（与 exec_* 几列同一条理由）。
+	Cwd string `gorm:"column:cwd;type:text;not null;default:''"`
 	// Purpose 标识会话的内部用途；普通顶层会话为空串。子 agent 委派会话(agent_call)
 	// 落 SessionPurposeSubagent —— 这类会话一次性隔离、不是用户顶层会话，repo 层在所有
 	// 会话列表/计数里无条件隐藏它。
@@ -86,20 +97,20 @@ type Session struct {
 	// ExecDeviceID 执行该会话的配对 daemon(paired_agentreds.id)。0 = 本机执行 ——
 	// 也是老数据的默认值，语义与远端执行落地前完全一致。
 	ExecDeviceID int64 `gorm:"column:exec_device_id;type:bigint;not null;default:0"`
-	// ExecDaemonFingerprint 是上面那台 daemon 的实例标识：daemon 由自己的 instance
-	// uuid 派生出的 "sha256:<hex>"(见 internal/daemon/rpc.DaemonFingerprint)，与
+	// ExecDeviceFingerprint 是上面那台 daemon 的实例标识：daemon 由自己的 instance
+	// uuid 派生出的 "sha256:<hex>"(见 internal/daemon/identity.DaemonFingerprint)，与
 	// paired_agentreds.daemon_fingerprint 同值、与 auth.connect 的 TOFU pin 同一个身份。
 	// daemon 重装 / 换机 / 数据目录被清后它会变，届时 EventCursor 指向的是另一条通知日志。
-	ExecDaemonFingerprint string `gorm:"column:exec_daemon_fingerprint;type:text;not null;default:''"`
+	ExecDeviceFingerprint string `gorm:"column:exec_device_fingerprint;type:text;not null;default:''"`
 	// EventCursor 桌面端已消费到的 daemon 通知 seq(daemon 侧 journal 里单调递增)。
-	// 0 = 尚未消费。只有配合 ExecDaemonFingerprint 一起看才有意义，见 CursorValidFor。
+	// 0 = 尚未消费。只有配合 ExecDeviceFingerprint 一起看才有意义，见 CursorValidFor。
 	EventCursor int64 `gorm:"column:event_cursor;type:bigint;not null;default:0"`
 	// ExecAgentBackendID 是这条会话钉住的执行目标档（R15b / 决策36）：Agent 有序
 	// 执行目标列表（agent_exec_targets）里被选中的那一行的 agent_backend_id。
 	// 0 = 尚未钉住 —— 首轮与全部老会话的默认值；"落到"发生在第一轮实际起在哪台，
 	// 此后续轮一律回到这一档，不因排序里有更靠前的档现在可用而改派。
 	//
-	// 与 ExecDeviceID / ExecDaemonFingerprint 语义正交：那两列回答"哪台机器 /
+	// 与 ExecDeviceID / ExecDeviceFingerprint 语义正交：那两列回答"哪台机器 /
 	// 哪个 daemon 实例"，这一列回答"哪一档"——同一台机器上可以有多档，钉住的是档
 	// 本身（连带它的 backend 配置与技能授权），不是机器。三列由同一条专用单列
 	// 更新 UpdateExecDaemon 一并写入、一并加进 Update 的 Omit 清单，同生共死。
@@ -148,7 +159,7 @@ func (s *Session) RanOnDaemon() bool { return s != nil && s.ExecDeviceID > 0 }
 // daemonFingerprint 是本次连接上的 daemon 实例标识；与会话记录的不一致(daemon 重装、
 // 换机、数据目录被清)时，记录的游标指向的是另一条通知日志，必须判为失效而不是拿去拉。
 func (s *Session) CursorValidFor(daemonFingerprint string) bool {
-	return s != nil && daemonFingerprint != "" && s.ExecDaemonFingerprint == daemonFingerprint
+	return s != nil && daemonFingerprint != "" && s.ExecDeviceFingerprint == daemonFingerprint
 }
 
 func (s *Session) Check(ctx context.Context) error {

@@ -97,3 +97,38 @@ describe("TabTooltip", () => {
     expect(screen.queryAllByTestId("tooltip-folder-icon")).toHaveLength(0);
   });
 });
+
+// ─── 2026-08-23 对话页外壳收口 · 悬浮浮窗的状态点回归共享原语 ────────────────
+
+describe("TabTooltip · 状态点来自共享 statusConfig", () => {
+  it.each([
+    ["idle", "bg-status-idle"],
+    ["running", "bg-status-running"],
+    ["waiting", "bg-status-waiting"],
+    ["error", "bg-status-error"],
+  ] as const)(
+    "Given status=%s, When 浮窗展开, Then 那枚点的颜色与其余状态记号同源",
+    async (status, dotClass) => {
+      render(
+        <TabTooltip
+          title="处理周一例会纪要"
+          projectChain={null}
+          projectColor={null}
+          status={status}
+          sessionId={42}
+          worktreeBranch={null}
+          keyboardIndex={null}
+          delayDuration={0}
+        >
+          <button type="button">tab</button>
+        </TabTooltip>,
+      );
+      const user = setupUser();
+      await user.hover(screen.getByRole("button", { name: "tab" }));
+
+      // Radix 同时渲染可见浮窗与一份 aria 副本，取第一枚即可。
+      const dots = await screen.findAllByTestId("tab-tooltip-status-dot");
+      expect(dots[0]).toHaveClass(dotClass);
+    },
+  );
+});

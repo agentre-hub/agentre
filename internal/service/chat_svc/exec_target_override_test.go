@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 )
 
 // 本文件锁住 R15a「手动指定执行目标」的校验半边（validateExecTargetOverride）：
@@ -88,7 +88,8 @@ func TestLoadSession_PopulatesExecTargetCount_MultiTarget(t *testing.T) {
 	m.backend.EXPECT().Find(ctx, int64(81)).Return(&agent_backend_entity.AgentBackend{
 		ID: 81, Type: string(agent_backend_entity.TypeClaudeCode), Status: 1,
 	}, nil)
-	msgMock.EXPECT().List(ctx, int64(110)).Return(nil, nil)
+	msgMock.EXPECT().ListMeta(ctx, int64(110)).Return(nil, nil)
+	msgMock.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	resp, err := svc.LoadSession(ctx, &LoadSessionRequest{SessionID: 110})
 	require.NoError(t, err)

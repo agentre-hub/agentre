@@ -82,6 +82,19 @@ const (
 	// 同一子代理只认第一个实际模型（R3 first-wins）由上游累计态负责去重；本层每次
 	// 遇到都如实产出一条，不做去重判断。
 	EventSubagentModel EventKind = "subagent_model"
+	// EventContentBlockStart 来自 stream_event 的 Anthropic SSE content_block_start
+	// 帧:模型开始产出这一条 assistant message 的某个输出块。纯计时信号 —— 不带
+	// 内容,上层只拿它记「首 token」(TTFT)。
+	//
+	// 为什么需要它:text_delta / thinking_delta 只覆盖**看得见**的输出。一跳「一句话
+	// 不吐、直接甩工具调用」时,工具入参走 input_json_delta,而那条按设计不流(工具
+	// 调用整块由 merged assistant 帧产出,见 partial.go),于是整跳没有任何事件能证明
+	// 模型已经开口 —— 首 token 一路推迟到模型终于说正文的那一刻(sess-3241:190s 的
+	// 一轮报出 166s 的首 token)。content_block_start 对**所有**块类型都发,是这个
+	// 口径下唯一完整的开表点。
+	//
+	// 与 usage / 正文增量同规矩:parent_tool_use_id 非空的子代理内部帧不产出。
+	EventContentBlockStart EventKind = "content_block_start"
 )
 
 // ToolEvent 在 EventPreToolUse / EventPostToolUse 上携带。

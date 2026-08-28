@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	pkgpi "github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	pkgpi "github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 func TestTranslate_TextAndThinking(t *testing.T) {

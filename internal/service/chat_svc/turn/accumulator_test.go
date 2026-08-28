@@ -6,7 +6,7 @@ import (
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 func TestAccumulator_AddBlockAndMutate(t *testing.T) {

@@ -11,22 +11,23 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 // directRunRunner 记录下发的 RunRequest 并回一个固定实际模型，供 runTurn 直连测试用。
@@ -132,7 +133,7 @@ func TestRunTurn_ProviderFallbackAppendsPersistentNotice(t *testing.T) {
 		}).AnyTimes()
 
 	s.runTurn(ctx, sess, a, be, prov, nil, assistant, "stream", "", false, nil, turnExtras{
-		providerFallbackNotice: &blocks.NoticeBlock{Level: "info", Text: encodeProviderFallback("gone-provider", "")},
+		providerFallbackNotice: &blocks.NoticeBlock{Level: "info", Text: view.EncodeProviderFallback("gone-provider", "")},
 	})
 
 	select {
@@ -334,14 +335,15 @@ func TestLoadSession_OverlaysApprovalOntoInFlightTurnNotNoticeRow(t *testing.T) 
 
 	noticeRow := &chat_entity.Message{ID: 43, SessionID: 9, Role: "assistant", Seq: 3}
 	require.NoError(t, noticeRow.SetBlocks([]blocks.ContentBlock{blocks.NoticeBlock{
-		Level: "info", Text: encodeProviderSwitch("session-key", "", "中转 · GLM 5.2", ""),
+		Level: "info", Text: view.EncodeProviderSwitch("session-key", "", "中转 · GLM 5.2", ""),
 	}}))
 
 	m.session.EXPECT().Find(ctx, int64(9)).Return(&chat_entity.Session{
 		ID: 9, AgentID: 7, AgentStatus: "running", Status: consts.ACTIVE,
 	}, nil)
 	m.agent.EXPECT().Find(ctx, int64(7)).Return(nil, nil)
-	m.message.EXPECT().List(ctx, int64(9)).Return([]*chat_entity.Message{
+	m.message.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.message.EXPECT().ListMeta(ctx, int64(9)).Return([]*chat_entity.Message{
 		{ID: 41, SessionID: 9, Role: "user", BlocksJSON: "[]", Seq: 1},
 		{ID: 42, SessionID: 9, Role: "assistant", BlocksJSON: "[]", Seq: 2},
 		noticeRow,

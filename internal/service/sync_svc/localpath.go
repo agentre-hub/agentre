@@ -11,10 +11,10 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 )
 
 // localPathReportSettingKey 是「上次成功上报的内容指纹」的存放位置——与
@@ -106,6 +106,15 @@ func localPathSnapshotFingerprint(items []syncwire.LocalPathReportItem) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// ReportLocalPathsNow 见 SyncSvc 接口注释（规格 2026-08-21 决策 4）。
+//
+// 它就是 reportLocalPathsOnce，只是从轮询之外多开了一个调用点：内容指纹、跳过
+// 逻辑、失败时不推进指纹这三条一律照旧。**刻意不是另写一份「强制上报」**——
+// 同一件事两份实现迟早给出两个答案，而这里的答案是「服务端那份清单等不等于本地」。
+func (s *service) ReportLocalPathsNow(ctx context.Context) error {
+	return s.reportLocalPathsOnce(ctx)
+}
+
 // reportLocalPathsOnce 是本机路径上报的唯一入口（R16）：只被 Start 的 30 秒轮询
 // ticker 调用，NotifyLocalChange 触发的编辑当场上行绝不途经它——上报与「编辑当场
 // 上行」刻意解耦，见 Start 的注释。
@@ -114,7 +123,7 @@ func localPathSnapshotFingerprint(items []syncwire.LocalPathReportItem) string {
 // 跳过。上报失败时不推进已保存的指纹：下一轮（30 秒后）内容指纹依旧不同，自然
 // 重试，服务端保留的是它上一次成功收到的那份清单，不受影响。
 func (s *service) reportLocalPathsOnce(ctx context.Context) error {
-	accountID, _, ok := s.account(ctx)
+	accountID, _, _, ok := s.account(ctx)
 	transport := s.getTransport()
 	if !ok || transport == nil {
 		return nil
@@ -131,6 +140,8 @@ func (s *service) reportLocalPathsOnce(ctx context.Context) error {
 		return err
 	}
 	if st.Fingerprint == fingerprint {
+		logger.Ctx(ctx).Debug("sync_svc.reportLocalPathsOnce: unchanged snapshot skipped",
+			zap.Int64("accountId", accountID), zap.Int("itemCount", len(items)))
 		return nil
 	}
 
@@ -140,7 +151,12 @@ func (s *service) reportLocalPathsOnce(ctx context.Context) error {
 			zap.Int("itemCount", len(items)), zap.Error(err))
 		return err
 	}
-	return s.saveLocalPathReportState(ctx, localPathReportState{
+	if err := s.saveLocalPathReportState(ctx, localPathReportState{
 		AccountID: accountID, Fingerprint: fingerprint, ReportedAt: s.now(),
-	})
+	}); err != nil {
+		return err
+	}
+	logger.Ctx(ctx).Debug("sync_svc.reportLocalPathsOnce: completed",
+		zap.Int64("accountId", accountID), zap.Int("itemCount", len(items)))
+	return nil
 }

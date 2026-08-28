@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 )
 
 func setupExecTargetRepo(t *testing.T) (context.Context, sqlmock.Sqlmock, agent_repo.AgentExecTargetRepo) {

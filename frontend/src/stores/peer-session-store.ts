@@ -339,27 +339,40 @@ let subscribed = false;
 function ensureSubscribed() {
   if (subscribed) return;
   subscribed = true;
+  // 后端按 ~16ms 的窗口把帧攒成一批再广播(见 internal/app/peer_event_batch.go):
+  // 一批一次 Wails 广播、一次 setState,而不是一个 token 一次。
+  // 帧本身**不合并** —— 每帧带自己的 seq,下面按帧去重的口径因此和逐帧送达时一样。
+  // 一批里可以混着不同对端 / 不同会话的帧,所以要按 key 分别落。
   EventsOn(PEER_EVENT_CHANNEL, (payload: unknown) => {
-    const frame = payload as PeerEventFrame;
-    if (!frame || typeof frame !== "object") return;
-    const key = peerKeyOf(frame.fingerprint, frame.sessionId);
-    const session = usePeerSessionsStore.getState().sessions[key];
-    if (!session) return;
-    if (
-      session.status === "attaching" &&
-      (frame.seq ?? 0) <= session.highWater
-    ) {
-      return;
-    }
-    usePeerSessionsStore.setState((state) => ({
-      sessions: {
-        ...state.sessions,
-        [key]: {
-          ...state.sessions[key],
-          transcript: reducePeerEvent(state.sessions[key].transcript, frame),
-        },
-      },
-    }));
+    if (!Array.isArray(payload) || payload.length === 0) return;
+    const frames = payload as PeerEventFrame[];
+    usePeerSessionsStore.setState((state) => {
+      let sessions = state.sessions;
+      let changed = false;
+      for (const frame of frames) {
+        if (!frame || typeof frame !== "object") continue;
+        const key = peerKeyOf(frame.fingerprint, frame.sessionId);
+        // 从**已经应用过本批前面几帧**的那份里取,同一条会话的连续帧才能顺序累积。
+        const session = sessions[key];
+        if (!session) continue;
+        if (
+          session.status === "attaching" &&
+          (frame.seq ?? 0) <= session.highWater
+        ) {
+          continue;
+        }
+        if (!changed) {
+          sessions = { ...sessions };
+          changed = true;
+        }
+        sessions[key] = {
+          ...session,
+          transcript: reducePeerEvent(session.transcript, frame),
+        };
+      }
+      // 整批都被去重丢掉时保持同一个引用,不制造一次无意义的更新。
+      return changed ? { sessions } : state;
+    });
   });
 }
 

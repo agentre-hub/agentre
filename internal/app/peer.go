@@ -7,8 +7,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/peer"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/peer"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
 )
 
 // inboundPeer is the App-lifetime boundary for the desktop's relay presence.

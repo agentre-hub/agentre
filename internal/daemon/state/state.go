@@ -109,8 +109,8 @@ func (s *State) Claim(accountID, verificationPublicKeyPEM string, credential Acc
 }
 
 // ClaimWithKeySet records the versioned verification-key set distributed by the
-// account server. The legacy single-key field remains populated for downgrade
-// compatibility with older agentred binaries reading the same state file.
+// account server and caches the active key in the single-key field used by the
+// local verifier when no key ID is present.
 func (s *State) ClaimWithKeySet(accountID, currentKID string, publicKeys map[string]string,
 	maxTokenLifetimeSeconds int64, credential AccountCredential) {
 	s.Mutate(func(st *State) {
@@ -207,11 +207,9 @@ func (s *State) AdoptClaimFromDisk() (bool, error) {
 	return adopted, nil
 }
 
-// Snapshot returns a deep-ish copy safe for read-only callers. Maps are
-// shallow-copied since their value types are immutable structs in this
-// codebase (PairedPeer, LLMProviderMeta) — callers must not mutate the
-// returned maps in place. The returned value's internal mutex is nil; calling
-// Mutate or Save on a snapshot will panic by design (snapshots are read-only).
+// Snapshot returns a deep copy safe for read-only callers. The returned
+// value's internal mutex is nil; calling Mutate or Save on a snapshot will
+// panic by design (snapshots are read-only).
 func (s *State) Snapshot() State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -223,12 +221,19 @@ func (s *State) Snapshot() State {
 	for k, v := range s.PairedPeers {
 		out.PairedPeers[k] = v
 	}
-	out.LLMProviders = make(map[string]LLMProviderMeta, len(s.LLMProviders))
-	for k, v := range s.LLMProviders {
-		out.LLMProviders[k] = v
-	}
+	out.LLMProviders = cloneLLMProviders(s.LLMProviders)
 	out.RevokedJTIs = append([]string(nil), s.RevokedJTIs...)
 	out.VerificationPublicKeys = cloneStrings(s.VerificationPublicKeys)
+	return out
+}
+
+func cloneLLMProviders(in map[string]LLMProviderMeta) map[string]LLMProviderMeta {
+	out := make(map[string]LLMProviderMeta, len(in))
+	for key, provider := range in {
+		provider.Models = append([]LLMModelMeta(nil), provider.Models...)
+		provider.ModelRoutes = cloneStrings(provider.ModelRoutes)
+		out[key] = provider
+	}
 	return out
 }
 
@@ -243,18 +248,43 @@ func cloneStrings(in map[string]string) map[string]string {
 	return out
 }
 
+// ReplaceLLMProviders atomically replaces the complete provider snapshot in
+// memory and on disk. If persistence fails, the live map is left untouched.
+func (s *State) ReplaceLLMProviders(providers map[string]LLMProviderMeta) error {
+	if s.dir == "" {
+		return errors.New("state: dir not bound; load via Load(dir) first")
+	}
+	replacement := cloneLLMProviders(providers)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	next := *s
+	next.LLMProviders = replacement
+	if err := writeStateFile(s.dir, &next); err != nil {
+		return err
+	}
+	s.LLMProviders = replacement
+	return nil
+}
+
 // Save writes state.json atomically via a tmp-file + rename. Permissions: 0o600.
 func (s *State) Save() error {
 	if s.dir == "" {
 		return errors.New("state: dir not bound; load via Load(dir) first")
 	}
-	s.mu.RLock()
-	b, err := json.MarshalIndent(s, "", "  ")
-	s.mu.RUnlock()
+	// Save holds the write lock through rename so two whole-file writers cannot
+	// reorder stale snapshots on disk. Callers must not invoke Save from Mutate.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return writeStateFile(s.dir, s)
+}
+
+func writeStateFile(dir string, value *State) error {
+	b, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(s.dir, stateFileName)
+	path := filepath.Join(dir, stateFileName)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err

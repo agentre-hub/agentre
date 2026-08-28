@@ -1,4 +1,21 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
+import {
+  LocalCommandHistoryProvider,
+  LocalCommandsProvider,
+  TerminalTransportProvider,
+  TranscriptLiveStateProvider,
+  TranscriptPortsProvider,
+  // 与 base.css 里的滚动条规则是一对：那半边把滑块颜色绑到 --sb-thumb 并默认
+  // 透明，这半边在滚动时改值。此前这个 hook 就写在本文件里，agentre-server 那侧
+  // 因此没有滚动条样式；现在两端共用同一份。
+  useAutoHideScrollbars,
+} from "@agentre-hub/agentre-ui";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
 import {
@@ -12,7 +29,6 @@ import {
   useNavigate,
 } from "react-router-dom";
 import type { IconifyIcon } from "@iconify/types";
-import briefcaseIcon from "@iconify-icons/tabler/briefcase";
 import buildingCommunityIcon from "@iconify-icons/tabler/building-community";
 import layoutKanbanIcon from "@iconify-icons/tabler/layout-kanban";
 import messageCircleIcon from "@iconify-icons/tabler/message-circle";
@@ -22,7 +38,6 @@ import webhookIcon from "@iconify-icons/tabler/webhook";
 import {
   AppStatusBar,
   AppTopBar,
-  ChatPage,
   ChatStreamsHost,
   ChatTabsShortcuts,
   TurnCompleteNotifier,
@@ -30,11 +45,12 @@ import {
   CommandPalette,
   HooksPage,
   IssuesPage,
+  SessionIndexPage,
   OrgChartPage,
   PaletteScopeBridge,
-  ProjectsPage,
   QuitConfirmDialog,
   ShortcutsProvider,
+  SyncAppliedHost,
   SidebarButton,
   SettingsPage,
   ThemeToggle,
@@ -43,10 +59,22 @@ import {
   type AppThemePreference,
   type DesktopPlatform,
 } from "@/components/agentre";
+import { ThemeProvider, useTheme } from "@agentre-hub/agentre-ui";
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
+import { desktopLocalCommandHistoryAccess } from "@/components/agentre/local-command-history-access-desktop";
+import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
+import { desktopTranscriptLiveState } from "@/components/agentre/transcript-live-state-desktop";
+import { useDesktopTranscriptPorts } from "@/components/agentre/transcript-ports-desktop";
+import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal-transport-desktop";
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
 import { useChatAgents } from "@/hooks/use-chat-agents";
 import { deriveAppStatusBarState } from "@/lib/app-status-bar";
+import { UpdateChecksumDialogHost } from "@/components/agentre/update-section";
+import {
+  unskippedUpdate,
+  useUpdateStore,
+  useUpdateWatch,
+} from "@/stores/update-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
@@ -74,11 +102,6 @@ const navItems: NavItem[] = [
     icon: messageCircleIcon,
   },
   {
-    path: "/projects",
-    labelKey: "nav.projects",
-    icon: briefcaseIcon,
-  },
-  {
     path: "/issues",
     labelKey: "nav.issues",
     icon: layoutKanbanIcon,
@@ -103,14 +126,12 @@ const settingsNavItem: NavItem = {
 
 const pageBreadcrumbKeys: Record<string, string> = {
   "/chat": "nav.chat",
-  "/projects": "nav.projects",
   "/hooks": "nav.hooks",
   "/issues": "nav.issues",
   "/org": "nav.org",
   "/settings": "nav.settings",
 };
 
-const themeStorageKey = "agentre.theme";
 const windowSizeStorageKey = "agentre.windowSize";
 const lastPathStorageKey = "agentre.lastPath";
 const defaultPath = "/chat";
@@ -169,16 +190,6 @@ function hasWailsRuntime() {
   );
 }
 
-function isAppTheme(value: string | null): value is AppTheme {
-  return value === "light" || value === "dark";
-}
-
-function isAppThemePreference(
-  value: string | null,
-): value is AppThemePreference {
-  return value === "system" || isAppTheme(value);
-}
-
 function getBrowserStorage() {
   if (typeof window === "undefined") {
     return null;
@@ -188,36 +199,6 @@ function getBrowserStorage() {
     return window.localStorage;
   } catch {
     return null;
-  }
-}
-
-function readStoredThemePreference(): AppThemePreference | null {
-  const storage = getBrowserStorage();
-
-  if (typeof storage?.getItem !== "function") {
-    return null;
-  }
-
-  try {
-    const value = storage.getItem(themeStorageKey);
-
-    return isAppThemePreference(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredThemePreference(themePreference: AppThemePreference) {
-  const storage = getBrowserStorage();
-
-  if (typeof storage?.setItem !== "function") {
-    return;
-  }
-
-  try {
-    storage.setItem(themeStorageKey, themePreference);
-  } catch {
-    // Some embedded previews may block localStorage.
   }
 }
 
@@ -334,46 +315,6 @@ function writeStoredWindowSize(size: StoredWindowSize) {
   }
 }
 
-function prefersDarkTheme() {
-  if (
-    typeof window === "undefined" ||
-    typeof window.matchMedia !== "function"
-  ) {
-    return false;
-  }
-
-  try {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  } catch {
-    return false;
-  }
-}
-
-function getSystemTheme(): AppTheme {
-  return prefersDarkTheme() ? "dark" : "light";
-}
-
-function getInitialThemePreference(): AppThemePreference {
-  return readStoredThemePreference() ?? "system";
-}
-
-function resolveThemePreference(
-  themePreference: AppThemePreference,
-  systemTheme: AppTheme,
-): AppTheme {
-  return themePreference === "system" ? systemTheme : themePreference;
-}
-
-function applyDocumentTheme(theme: AppTheme) {
-  if (typeof document === "undefined") {
-    return;
-  }
-
-  document.documentElement.classList.toggle("dark", theme === "dark");
-  document.documentElement.dataset.theme = theme;
-  document.documentElement.style.colorScheme = theme;
-}
-
 function isNavItemActive(pathname: string, itemPath: string | undefined) {
   if (!itemPath) {
     return false;
@@ -482,73 +423,6 @@ function usePreventGlobalSelectAll(platform: DesktopPlatform) {
   }, [platform]);
 }
 
-function useAutoHideScrollbars() {
-  useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-
-    // WKWebView 对 ::-webkit-scrollbar 的类/属性选择器切换不重绘，必须改 CSS
-    // 自定义属性的值才能触发 thumb 重绘。把 --sb-thumb 设到事件 target 上而非
-    // <html>，让变量沿 DOM 级联——只影响那一个滚动元素自己的 scrollbar，
-    // 不会让兄弟节点的 scrollbar 一起亮起。
-    const hideDelayMs = 900;
-    const visibleColor =
-      "color-mix(in oklab, var(--muted-foreground) 30%, transparent)";
-    const timers = new WeakMap<HTMLElement, number>();
-
-    const resolveTarget = (event: Event): HTMLElement | null => {
-      if (event.target instanceof HTMLElement) {
-        return event.target;
-      }
-      if (event.target instanceof Document) {
-        return event.target.documentElement;
-      }
-      return null;
-    };
-
-    const markScrolling = (event: Event) => {
-      const target = resolveTarget(event);
-      if (!target) {
-        return;
-      }
-
-      target.style.setProperty("--sb-thumb", visibleColor);
-
-      const previous = timers.get(target);
-      if (previous !== undefined) {
-        window.clearTimeout(previous);
-      }
-
-      const timer = window.setTimeout(() => {
-        target.style.removeProperty("--sb-thumb");
-        timers.delete(target);
-      }, hideDelayMs);
-
-      timers.set(target, timer);
-    };
-
-    const listenerOptions: AddEventListenerOptions = {
-      capture: true,
-      passive: true,
-    };
-
-    // scroll 是主信号；wheel / touchmove 兜底处理"已经到边界、不再产生
-    // scroll 事件"或者虚拟列表吞掉 scroll 的情况。
-    document.addEventListener("scroll", markScrolling, listenerOptions);
-    document.addEventListener("wheel", markScrolling, listenerOptions);
-    document.addEventListener("touchmove", markScrolling, listenerOptions);
-
-    return () => {
-      document.removeEventListener("scroll", markScrolling, { capture: true });
-      document.removeEventListener("wheel", markScrolling, { capture: true });
-      document.removeEventListener("touchmove", markScrolling, {
-        capture: true,
-      });
-    };
-  }, []);
-}
-
 function usePersistedWindowSize(runtimeMode: RuntimeMode) {
   useLayoutEffect(() => {
     if (runtimeMode !== "interactive" || !hasWailsRuntime()) {
@@ -641,70 +515,20 @@ function AppLayout() {
   const [platform, setPlatform] = useState<DesktopPlatform>(
     detectBrowserPlatform,
   );
-  const [systemTheme, setSystemTheme] = useState<AppTheme>(getSystemTheme);
-  const [themePreference, setThemePreference] = useState<AppThemePreference>(
-    getInitialThemePreference,
-  );
   const [appVersion, setAppVersion] = useState<string>("dev");
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>("unknown");
   const location = useLocation();
   const navigate = useNavigate();
-  const effectiveTheme = resolveThemePreference(themePreference, systemTheme);
+  // 主题三态、存储与系统跟随都在共享包里（浏览器宿主同用一份）；这里只消费。
+  const { effectiveTheme, setThemePreference, themePreference } = useTheme();
 
   usePreventGlobalSelectAll(platform);
   usePersistedWindowSize(runtimeMode);
   useAutoHideScrollbars();
 
-  useLayoutEffect(() => {
-    applyDocumentTheme(effectiveTheme);
-    writeStoredThemePreference(themePreference);
-  }, [effectiveTheme, themePreference]);
-
   useEffect(() => {
     writeStoredLastPath(location.pathname);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (
-      typeof window === "undefined" ||
-      typeof window.matchMedia !== "function"
-    ) {
-      return;
-    }
-
-    let mediaQuery: MediaQueryList;
-
-    try {
-      mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    } catch {
-      return;
-    }
-
-    const handleColorSchemeChange = (event?: MediaQueryListEvent) => {
-      setSystemTheme((event?.matches ?? mediaQuery.matches) ? "dark" : "light");
-    };
-
-    handleColorSchemeChange();
-
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", handleColorSchemeChange);
-
-      return () => {
-        mediaQuery.removeEventListener("change", handleColorSchemeChange);
-      };
-    }
-
-    const legacyMediaQuery = mediaQuery as MediaQueryList & {
-      addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
-      removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
-    };
-
-    legacyMediaQuery.addListener?.(handleColorSchemeChange);
-
-    return () => {
-      legacyMediaQuery.removeListener?.(handleColorSchemeChange);
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -741,6 +565,18 @@ function AppLayout() {
     };
   }, []);
 
+  // 更新检查:订阅后台检查结果 + 窗口重新获得焦点时补一次(受 24h 节流)。
+  useUpdateWatch();
+  // 齿轮红点只认「还没被跳过的新版本」;状态栏胶囊不受跳过影响,那是两码事。
+  const hasPendingUpdate = useUpdateStore((s) => unskippedUpdate(s) !== null);
+  // 红点是纯装饰(aria-hidden),它的信息由设置按钮自己的可读名承载。
+  const settingsLabel = hasPendingUpdate
+    ? t("nav.settingsUpdateAvailable")
+    : t(settingsNavItem.labelKey);
+  const openUpdateSettings = useCallback(() => {
+    navigate("/settings", { state: { settingsPage: "version-logs" } });
+  }, [navigate]);
+
   // reconcileMissingSessions: 启动时用 ListChatAgents 拿到真实会话集，
   // 把 localStorage 恢复出来的 tabs 里已不存在的会话清掉。
   const { agents } = useChatAgents();
@@ -772,85 +608,125 @@ function AppLayout() {
 
   const breadcrumbKey = pageBreadcrumbKeys[location.pathname];
   const breadcrumb = breadcrumbKey ? t(breadcrumbKey) : "";
-  const hasChat =
-    location.pathname === "/chat" || location.pathname === "/projects";
+  const hasChat = location.pathname === "/chat";
+
+  const ports = useDesktopTranscriptPorts();
 
   return (
-    <ShortcutsProvider platform={platform}>
-      <ChatTabsShortcuts />
-      <div className="flex h-full min-h-full flex-col overflow-hidden bg-background text-foreground">
-        <AppTopBar
-          appName="Agentre"
-          breadcrumb={breadcrumb}
-          platform={platform}
-        />
+    // 端口挂在应用根而不是转录子树：markdown-text 被三棵树共用(转录、文件预览
+    // 面板、聊天输入的提及回显),它底下的 rich-link / markdown-image 要用宿主
+    // 能力(打开路径 / 外部链接 / 读工作区文件),只挂转录上另外两棵会取不到。
+    <TranscriptPortsProvider ports={ports}>
+      <TranscriptLiveStateProvider value={desktopTranscriptLiveState}>
+        {/* 终端传输同样挂在应用根：终端标签页由 ChatPanelHost 渲染，
+            而本地命令卡片(转录里)未来也要盯同一条 PTY。 */}
+        <TerminalTransportProvider transport={desktopTerminalTransport}>
+          {/* 本地命令接缝也挂应用根：卡片在转录里，而同一条命令 attach 到终端
+              标签后由 ChatPanelHost 渲染，两棵子树都要读得到。 */}
+          <LocalCommandsProvider access={desktopLocalCommandsAccess}>
+            {/* `!` Shell 历史是可选能力：桌面端挂上它，composer 才渲染历史弹层。 */}
+            <LocalCommandHistoryProvider
+              access={desktopLocalCommandHistoryAccess}
+            >
+              <ShortcutsProvider platform={platform}>
+                <ChatTabsShortcuts />
+                <div className="flex h-full min-h-full flex-col overflow-hidden bg-background text-foreground">
+                  <AppTopBar
+                    appName="Agentre"
+                    breadcrumb={breadcrumb}
+                    platform={platform}
+                  />
 
-        <div className="flex min-h-0 min-w-0 flex-1">
-          <aside
-            aria-label={t("app.navigationLabel")}
-            className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail px-2 py-3"
-          >
-            {navItems.map((item) => (
-              <SidebarButton
-                key={item.labelKey}
-                data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
-                label={t(item.labelKey)}
-                icon={item.icon}
-                active={isNavItemActive(location.pathname, item.path)}
-                onClick={item.path ? () => navigate(item.path!) : undefined}
-              />
-            ))}
-            <ThemeToggle
-              className="mt-auto"
-              effectiveTheme={effectiveTheme}
-              themePreference={themePreference}
-              onThemePreferenceChange={setThemePreference}
-            />
-            <SidebarButton
-              data-testid="nav-settings"
-              label={t(settingsNavItem.labelKey)}
-              icon={settingsNavItem.icon}
-              active={isNavItemActive(location.pathname, settingsNavItem.path)}
-              onClick={() => navigate(settingsNavItem.path!)}
-            />
-          </aside>
+                  <div className="flex min-h-0 min-w-0 flex-1">
+                    <aside
+                      aria-label={t("app.navigationLabel")}
+                      className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail px-2 py-3"
+                    >
+                      {navItems.map((item) => (
+                        <SidebarButton
+                          key={item.labelKey}
+                          data-testid={`nav-${item.path?.slice(1) ?? item.labelKey}`}
+                          label={t(item.labelKey)}
+                          icon={item.icon}
+                          active={isNavItemActive(location.pathname, item.path)}
+                          onClick={
+                            item.path ? () => navigate(item.path!) : undefined
+                          }
+                        />
+                      ))}
+                      {/* 外壳样式归宿主：wails-no-drag 与导航栏配色是桌面独有的，
+                          按钮说什么、点一下变成什么在共享包里。 */}
+                      <ThemeToggle className="wails-no-drag mt-auto size-10 rounded-lg text-sidebar-icon hover:bg-rail-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]" />
+                      <SidebarButton
+                        data-testid="nav-settings"
+                        label={settingsLabel}
+                        icon={settingsNavItem.icon}
+                        badge={hasPendingUpdate}
+                        active={isNavItemActive(
+                          location.pathname,
+                          settingsNavItem.path,
+                        )}
+                        onClick={() => navigate(settingsNavItem.path!)}
+                      />
+                    </aside>
 
-          <Outlet
-            context={{
-              effectiveTheme,
-              onThemePreferenceChange: setThemePreference,
-              themePreference,
-            }}
-          />
+                    <Outlet
+                      context={{
+                        effectiveTheme,
+                        onThemePreferenceChange: setThemePreference,
+                        themePreference,
+                      }}
+                    />
 
-          <div
-            data-page-has-chat={hasChat}
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
-            style={{ display: hasChat ? "flex" : "none" }}
-          >
-            <TabStrip />
-            <ChatPanelHost />
-          </div>
-        </div>
+                    <div
+                      data-page-has-chat={hasChat}
+                      className="flex min-h-0 min-w-0 flex-1 flex-col"
+                      style={{ display: hasChat ? "flex" : "none" }}
+                    >
+                      <TabStrip />
+                      <ChatPanelHost />
+                    </div>
+                  </div>
 
-        <AppStatusBar
-          agentCount={statusBarState.agentCount}
-          runningCount={statusBarState.runningCount}
-          approvalCount={statusBarState.approvalIds.length}
-          unreadCount={statusBarState.unreadIds.length}
-          attentionIds={[
-            ...statusBarState.approvalIds,
-            ...statusBarState.unreadIds,
-          ]}
-          status={statusBarState.indicatorStatus}
-          version={appVersion}
-          onAttentionClick={(sessionId) => openSession(sessionId)}
-        />
-        <PaletteScopeBridge />
-        <CommandPalette />
-        <Toaster position="bottom-right" richColors theme={effectiveTheme} />
-      </div>
-    </ShortcutsProvider>
+                  <AppStatusBar
+                    agentCount={statusBarState.agentCount}
+                    runningCount={statusBarState.runningCount}
+                    approvalCount={statusBarState.approvalIds.length}
+                    unreadCount={statusBarState.unreadIds.length}
+                    attentionIds={[
+                      ...statusBarState.approvalIds,
+                      ...statusBarState.unreadIds,
+                    ]}
+                    status={statusBarState.indicatorStatus}
+                    version={appVersion}
+                    onAttentionClick={(sessionId) => openSession(sessionId)}
+                    onOpenUpdateSettings={openUpdateSettings}
+                  />
+                  <PaletteScopeBridge />
+                  <CommandPalette />
+                  <Toaster
+                    position="bottom-right"
+                    richColors
+                    theme={effectiveTheme}
+                  />
+                </div>
+              </ShortcutsProvider>
+            </LocalCommandHistoryProvider>
+          </LocalCommandsProvider>
+        </TerminalTransportProvider>
+      </TranscriptLiveStateProvider>
+    </TranscriptPortsProvider>
+  );
+}
+
+/**
+ * `/projects` 的重定向。用组件而不是 `<Navigate to="/chat" />`：后者会把 query
+ * 丢掉，而 `?focus=<id>`（会话设置页点「项目」进来）正是靠 query 传项目 id 的。
+ */
+function RedirectToChat() {
+  const location = useLocation();
+  return (
+    <Navigate to={{ pathname: "/chat", search: location.search }} replace />
   );
 }
 
@@ -869,27 +745,40 @@ function SettingsRoute() {
 
 function App() {
   return (
-    <MemoryRouter initialEntries={[getInitialPath()]}>
-      {/* 跨路由长存的流式订阅器:用户切到 /projects 等页面时,/chat 整棵会
+    // 主题挂在最外层：<html> 上那次 class 写入要早于任何页面渲染，晚一帧就是一次白闪。
+    <ThemeProvider>
+      <MemoryRouter initialEntries={[getInitialPath()]}>
+        {/* 跨路由长存的流式订阅器:用户切到 /projects 等页面时,/chat 整棵会
           unmount,但这里继续维持 Wails EventsOn,把 chunk/tool 事件累到全局
           store,切回来时 ChatPanel 能从 store 还原完整流式状态。*/}
-      <ChatStreamsHost />
-      <TurnCompleteNotifier />
-      <NotificationToastViewport />
-      {/* 退出二次确认:常驻订阅 "app:quit-blocked",活跃会话存在时拦截退出弹框。*/}
-      <QuitConfirmDialog />
-      <Routes>
-        <Route element={<AppLayout />}>
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/issues" element={<IssuesPage />} />
-          <Route path="/hooks" element={<HooksPage />} />
-          <Route path="/org" element={<OrgChartPage />} />
-          <Route path="/settings" element={<SettingsRoute />} />
-          <Route path="*" element={<Navigate to="/chat" replace />} />
-        </Route>
-      </Routes>
-    </MemoryRouter>
+        <ChatStreamsHost />
+        <TurnCompleteNotifier />
+        {/* 多端同步落地什么就刷什么：项目树没有推送通道，此前靠项目页那条 1 秒
+          轮询兜着，轮询随单一会话索引一起删掉了。挂在根上，因为左栏的数据源
+          与当前路由无关。*/}
+        <SyncAppliedHost />
+        <NotificationToastViewport />
+        {/* 退出二次确认:常驻订阅 "app:quit-blocked",活跃会话存在时拦截退出弹框。*/}
+        <QuitConfirmDialog />
+        {/* 校验文件拉不到时的「仍要继续」确认:下载可以从设置页,也可以从状态栏的
+          更新面板发起,对话只挂一处才两边都在。*/}
+        <UpdateChecksumDialogHost />
+        <Routes>
+          <Route element={<AppLayout />}>
+            <Route path="/chat" element={<SessionIndexPage />} />
+            {/* 决策 1：「项目」不再是一个导航项，它退化成索引的一个分组维度。
+              保留重定向是因为会话设置页的「项目」入口发的是 /projects?focus=<id>，
+              query 必须原样带过去 —— 索引那边靠它打开项目设置抽屉。 */}
+            <Route path="/projects" element={<RedirectToChat />} />
+            <Route path="/issues" element={<IssuesPage />} />
+            <Route path="/hooks" element={<HooksPage />} />
+            <Route path="/org" element={<OrgChartPage />} />
+            <Route path="/settings" element={<SettingsRoute />} />
+            <Route path="*" element={<Navigate to="/chat" replace />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </ThemeProvider>
   );
 }
 

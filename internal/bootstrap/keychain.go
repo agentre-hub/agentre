@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 )
 
 // KeychainDirEnv 把 keychain 后端指向一个隔离的 file keychain 目录。独立 E2E main

@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
-	"github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 func init() {

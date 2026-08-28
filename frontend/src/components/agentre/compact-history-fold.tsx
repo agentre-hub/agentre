@@ -2,7 +2,7 @@ import { ChevronDown, History } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@agentre-hub/agentre-ui";
 
 // CompactHistoryFold 渲染 transcript 顶部"折叠的压缩前历史"提示条。
 // 点击按钮把状态委托回父组件 (ChatTranscript) 切换 expanded,展开后显示全部历史。

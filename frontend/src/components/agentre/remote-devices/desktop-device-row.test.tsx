@@ -9,18 +9,24 @@ vi.mock("../../../../wailsjs/go/app/App", () => ({
 
 import { PeerListSessions } from "../../../../wailsjs/go/app/App";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
-import { DesktopDeviceRow, type DesktopDevice } from "./desktop-device-row";
+import type { server_svc } from "../../../../wailsjs/go/models";
+import { DesktopDeviceRow } from "./desktop-device-row";
 
 const mockList = PeerListSessions as unknown as ReturnType<typeof vi.fn>;
 
-const runningDesktop = (over: Partial<DesktopDevice> = {}): DesktopDevice => ({
-  ID: 2,
-  Name: "MacBook Pro",
-  Kind: "desktop",
-  Fingerprint: "sha256:desktop-b",
-  Online: true,
-  LastSeenAt: 1_700_000_000_000,
-  IsThisDevice: false,
+const runningDesktop = (
+  over: Partial<server_svc.Device> = {},
+): server_svc.Device => ({
+  id: 2,
+  name: "MacBook Pro",
+  kind: "desktop",
+  platform: "darwin",
+  version: "v0.1.0",
+  fingerprint: "sha256:desktop-b",
+  status: 1,
+  online: true,
+  lastSeenAt: 1_700_000_000_000,
+  isThisDevice: false,
   ...over,
 });
 
@@ -46,7 +52,6 @@ describe("DesktopDeviceRow", () => {
           waitingForInput: false,
         },
       ],
-      supportsSessionMetadata: true,
     });
     render(
       <MemoryRouter>
@@ -74,7 +79,7 @@ describe("DesktopDeviceRow", () => {
     render(
       <MemoryRouter>
         <DesktopDeviceRow
-          device={runningDesktop({ Online: false })}
+          device={runningDesktop({ online: false })}
           now={1_700_000_100_000}
         />
       </MemoryRouter>,
@@ -92,7 +97,7 @@ describe("DesktopDeviceRow", () => {
     render(
       <MemoryRouter>
         <DesktopDeviceRow
-          device={runningDesktop({ IsThisDevice: true, Online: true })}
+          device={runningDesktop({ isThisDevice: true, online: true })}
           now={1_700_000_100_000}
         />
       </MemoryRouter>,

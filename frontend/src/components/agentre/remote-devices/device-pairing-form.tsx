@@ -2,16 +2,16 @@ import { useId, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
 import {
+  Button,
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
+  Input,
+  Spinner,
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import { deriveDeviceName } from "./format";

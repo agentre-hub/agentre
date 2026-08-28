@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // cause 存在时:Error() = 本地化 headline + 换行 + 原始 cause,让 Wails 边界能把详情带给前端。

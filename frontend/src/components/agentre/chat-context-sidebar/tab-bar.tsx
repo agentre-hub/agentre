@@ -8,24 +8,26 @@ type Props = {
   active: ChatSidebarTab;
   onChange: (tab: ChatSidebarTab) => void;
   outlineCount: number;
-  filesCount: number;
-  /** Git 段的角标：数据已加载时才有值，未加载 / 加载中传 null（不显示角标）。 */
-  gitCount: number | null;
+  /**
+   * 「变更」段的角标是**当前档**的文件数（spec「一级导航与页面 chrome」）；
+   * 「未提交」档的数据尚未加载时传 null（不显示角标）。
+   */
+  changesCount: number | null;
 };
 
 /**
- * TabBar 是侧栏的顶层三段：大纲 / 文件 / Git（Git 从「文件」页内的一档提升为
- * 顶层 tab，设计决策 1）。
+ * TabBar 是侧栏的顶层三段：大纲 / 变更 / 目录（设计决策 1——Git 不再是一级
+ * tab，它的两个视角分别并入「变更」页与「目录」页）。
  *
  * 三段等宽、不带图标：保留图标会让英文标签在 240px 下被截断（mockup 板 A3），
  * 去掉图标后中英双语在 240px 与 190px 下都能塞下且不换行（mockup 板 A2）。
+ * 「目录」段不显示计数——目录树的首要职责是找文件，一个总数没有意义。
  */
 export function TabBar({
   active,
   onChange,
   outlineCount,
-  filesCount,
-  gitCount,
+  changesCount,
 }: Props) {
   const { t } = useTranslation();
   return (
@@ -40,16 +42,16 @@ export function TabBar({
         onClick={() => onChange("outline")}
       />
       <Tab
-        label={t("chatContext.files.label")}
-        count={filesCount}
-        active={active === "files"}
-        onClick={() => onChange("files")}
+        label={t("chatContext.changes.label")}
+        count={changesCount}
+        active={active === "changes"}
+        onClick={() => onChange("changes")}
       />
       <Tab
-        label={t("chatContext.git.label")}
-        count={gitCount}
-        active={active === "git"}
-        onClick={() => onChange("git")}
+        label={t("chatContext.directory.label")}
+        count={null}
+        active={active === "directory"}
+        onClick={() => onChange("directory")}
       />
     </div>
   );
@@ -82,9 +84,7 @@ function Tab({
     >
       <span className="truncate">{label}</span>
       {count != null ? (
-        <span className="shrink-0 font-mono text-[10px] opacity-80">
-          {count}
-        </span>
+        <span className="shrink-0 font-mono text-3xs opacity-80">{count}</span>
       ) : null}
     </button>
   );

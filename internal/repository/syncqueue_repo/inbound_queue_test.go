@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 )
 
 func setupInboundQueueRepo(t *testing.T) (context.Context, sqlmock.Sqlmock, syncqueue_repo.InboundQueueRepo) {

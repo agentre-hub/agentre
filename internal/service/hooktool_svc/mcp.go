@@ -1,157 +1,57 @@
 package hooktool_svc
 
 import (
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
+	"context"
 	"encoding/json"
-	"net/http"
-	"slices"
-	"strconv"
-	"strings"
+	"errors"
+	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
-	"github.com/agentre-ai/agentre/internal/service/hook_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/hook_svc"
 )
 
-// hookRef 是 hook MCP token 绑定的 (agent, session)。
-type hookRef struct{ agentID, sessionID int64 }
-
-// hookMCP 是脚本 Hook 工具的 MCP-over-HTTP server(挂在 gateway /mcp/hook/)。
-// 身份模型与 orgMCP 一致:无状态签名 token `b64url(agent:session).b64url(HMAC(secret, agent:session))`,
-// 投递时塞进 mcp-config 的 Authorization header。lookup 只验签(无状态),工具开关由 tools/call 时
-// 实时查 DB(agentLookup.Find + ToolEnabled)判定——用户关掉开关后旧 token 立即失效。
-type hookMCP struct {
-	svc    *hooktoolSvc
-	secret []byte // per-process HMAC 签名密钥(本机回投,进程内即可)
-}
-
-func newHookMCP(svc *hooktoolSvc) *hookMCP {
-	return &hookMCP{svc: svc, secret: randSecret()}
-}
-
-// MintToken 为某 (agent, session) 签一个无状态签名 token(确定性,复用轮不重发)。
-func (h *hookMCP) MintToken(agentID, sessionID int64) string {
-	payload := strconv.FormatInt(agentID, 10) + ":" + strconv.FormatInt(sessionID, 10)
-	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + h.sign(payload)
-}
-
-func (h *hookMCP) sign(payload string) string {
-	mac := hmac.New(sha256.New, h.secret)
-	mac.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
-
-// lookup 验签并解出 token 绑定的 (agent, session);验签失败 / 格式非法 → !ok。
-func (h *hookMCP) lookup(tok string) (hookRef, bool) {
-	payloadB64, sig, ok := strings.Cut(tok, ".")
-	if !ok {
-		return hookRef{}, false
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(payloadB64)
-	if err != nil || !hmac.Equal([]byte(h.sign(string(payload))), []byte(sig)) {
-		return hookRef{}, false
-	}
-	aStr, sStr, ok := strings.Cut(string(payload), ":")
-	if !ok {
-		return hookRef{}, false
-	}
-	agentID, err1 := strconv.ParseInt(aStr, 10, 64)
-	sessionID, err2 := strconv.ParseInt(sStr, 10, 64)
-	if err1 != nil || err2 != nil {
-		return hookRef{}, false
-	}
-	return hookRef{agentID, sessionID}, true
-}
-
-func (h *hookMCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet { // 不推送 server→client SSE → 405(claude 容忍)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	var rpc struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-		Params struct {
-			ProtocolVersion string          `json:"protocolVersion"`
-			Name            string          `json:"name"`
-			Arguments       json.RawMessage `json:"arguments"`
-		} `json:"params"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&rpc); err != nil {
-		writeRPCError(w, nil, -32700, "parse error")
-		return
-	}
-	switch rpc.Method {
-	case "initialize":
-		pv := rpc.Params.ProtocolVersion
-		if pv == "" {
-			pv = "2025-06-18"
-		}
-		writeRPCResult(w, rpc.ID, map[string]any{
-			"protocolVersion": pv,
-			"serverInfo":      map[string]any{"name": "agentre-hook", "version": "1"},
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-		})
-	case "notifications/initialized":
-		w.WriteHeader(http.StatusAccepted)
-	case "tools/list":
-		writeRPCResult(w, rpc.ID, map[string]any{"tools": hookToolSchemas()})
-	case "tools/call":
-		ref, ok := h.lookup(bearer(r))
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if h.svc.agentLookup == nil || h.svc.hooks == nil { // bootstrap 窗口期保险闸
-			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		// 实时开关校验:用户关掉开关后旧 token 立即失效
-		a, err := h.svc.agentLookup.Find(r.Context(), ref.agentID)
-		if err != nil || a == nil || !a.ToolEnabled(agenttool.KeyHook) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		switch rpc.Params.Name {
-		case "hook_list":
-			h.svc.handleList(w, r, rpc.ID)
-		case "hook_get":
-			h.svc.handleGet(w, r, rpc.ID, rpc.Params.Arguments)
-		default:
-			if !isHookWriteTool(rpc.Params.Name) {
-				writeRPCError(w, rpc.ID, -32601, "unknown tool")
-				return
-			}
-			h.svc.handleWriteTool(w, r, rpc.ID, ref, rpc.Params.Name, rpc.Params.Arguments)
-		}
-	default:
-		writeRPCError(w, rpc.ID, -32601, "method not found")
-	}
-}
-
-func bearer(r *http.Request) string {
-	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-}
-
-// isHookWriteTool 判断 tool 是否是 hook server 暴露的写工具(注册表里除两个读工具之外的全部)。
-func isHookWriteTool(name string) bool {
-	def, ok := agenttool.Lookup(agenttool.KeyHook)
-	if !ok {
-		return false
-	}
-	return name != "hook_list" && name != "hook_get" && slices.Contains(def.ToolNames, name)
+// newMCPServer 把脚本 Hook 工具接到共享的 MCP server 骨架(挂在 gateway /mcp/hook/)。
+// 令牌签发与校验、JSON-RPC 信封与方法分支、GET 405、bootstrap 窗口 503、工具开关实时
+// 校验、写工具审批闸门全部归 internal/pkg/agenttool;本包只提供 schema、两个只读处理器
+// 与写工具分派。
+func (s *hooktoolSvc) newMCPServer() *agenttool.Server {
+	return agenttool.NewServer(agenttool.ServerConfig{
+		ToolKey:    agenttool.KeyHook,
+		ServerName: "agentre-hook",
+		Schemas:    hookToolSchemas(),
+		// bootstrap 窗口期(RegisterDeps 未执行)未就绪 → 503
+		Ready: func() bool { return s.agentLookup != nil && s.hooks != nil },
+		LookupAgent: func(ctx context.Context, agentID int64) (*agent_entity.Agent, error) {
+			return s.agentLookup.Find(ctx, agentID)
+		},
+		Read: map[string]agenttool.ReadHandler{
+			"hook_list": s.handleList,
+			"hook_get":  s.handleGet,
+		},
+		Write: &agenttool.WriteGate{
+			Timeout: func() time.Duration { return s.approvalTimeout },
+			Begin: func(ctx context.Context, sessionID int64, requestID, tool string, input map[string]any) (<-chan bool, error) {
+				return s.approval.BeginToolApproval(ctx, sessionID, &blocks.ToolApprovalBlock{
+					ToolKey: agenttool.KeyHook, RequestID: requestID, ToolName: tool, ToolInput: input, Status: "pending",
+				})
+			},
+			Finish: func(ctx context.Context, sessionID int64, requestID, status, result string) error {
+				return s.approval.FinishToolApproval(ctx, sessionID, requestID, status, result)
+			},
+			Exec: s.execWriteTool,
+		},
+	})
 }
 
 // ---- 读工具 ----
 
 // handleList 列全部 hook 的精简视图(无 command 正文 / 无 env 值,省 token)。
-func (s *hooktoolSvc) handleList(w http.ResponseWriter, r *http.Request, rpcID json.RawMessage) {
-	resp, err := s.hooks.Load(r.Context(), &hook_svc.LoadHooksRequest{})
+func (s *hooktoolSvc) handleList(ctx context.Context, _ agenttool.Ref, _ json.RawMessage) (string, error) {
+	resp, err := s.hooks.Load(ctx, &hook_svc.LoadHooksRequest{})
 	if err != nil {
-		writeRPCError(w, rpcID, -32000, err.Error())
-		return
+		return "", err
 	}
 	rows := make([]hookListRow, 0, len(resp.Hooks))
 	for _, h := range resp.Hooks {
@@ -163,21 +63,19 @@ func (s *hooktoolSvc) handleList(w http.ResponseWriter, r *http.Request, rpcID j
 		})
 	}
 	b, _ := json.Marshal(map[string]any{"hooks": rows})
-	writeRPCResult(w, rpcID, textResult(string(b)))
+	return string(b), nil
 }
 
 // handleGet 取单 hook 全文(command + 脱敏 env)+ 最近事件。
-func (s *hooktoolSvc) handleGet(w http.ResponseWriter, r *http.Request, rpcID json.RawMessage, rawArgs json.RawMessage) {
+func (s *hooktoolSvc) handleGet(ctx context.Context, _ agenttool.Ref, rawArgs json.RawMessage) (string, error) {
 	var args getHookArgs
 	_ = json.Unmarshal(rawArgs, &args)
 	if args.ID <= 0 {
-		writeRPCError(w, rpcID, -32602, "缺少 id")
-		return
+		return "", agenttool.InvalidParams("缺少 id")
 	}
-	resp, err := s.hooks.Load(r.Context(), &hook_svc.LoadHooksRequest{HookID: args.ID, Limit: 20})
+	resp, err := s.hooks.Load(ctx, &hook_svc.LoadHooksRequest{HookID: args.ID, Limit: 20})
 	if err != nil {
-		writeRPCError(w, rpcID, -32000, err.Error())
-		return
+		return "", err
 	}
 	var found *hook_svc.HookItem
 	for _, h := range resp.Hooks {
@@ -187,11 +85,10 @@ func (s *hooktoolSvc) handleGet(w http.ResponseWriter, r *http.Request, rpcID js
 		}
 	}
 	if found == nil {
-		writeRPCError(w, rpcID, -32000, "hook 不存在")
-		return
+		return "", errors.New("hook 不存在")
 	}
 	b, _ := json.Marshal(map[string]any{"hook": found, "events": resp.Events})
-	writeRPCResult(w, rpcID, textResult(string(b)))
+	return string(b), nil
 }
 
 // hookListRow 是 hook_list 的精简行(剔除 command 正文与 env,省 token)。
@@ -310,28 +207,4 @@ func hookToolSchemas() []any {
 			},
 		},
 	}
-}
-
-func writeRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
-}
-
-func writeRPCError(w http.ResponseWriter, id json.RawMessage, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": msg}})
-}
-
-// textResult 把一段文本包成 MCP tool result 结构。
-func textResult(text string) map[string]any {
-	return map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}}
-}
-
-// randSecret 生成本进程的 HMAC 签名密钥(32 字节)。crypto/rand 失败是不可恢复的灾难,必须 fail loud。
-func randSecret() []byte {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic("hooktool_svc: crypto/rand failed: " + err.Error())
-	}
-	return b
 }

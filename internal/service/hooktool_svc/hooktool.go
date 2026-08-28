@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 )
 
 type hooktoolSvc struct {
-	mcp             *hookMCP
+	mcp             *agenttool.Server
 	mcpOnce         sync.Once
 	gatewayBaseURL  string
 	approvalTimeout time.Duration
@@ -32,9 +32,9 @@ func (s *hooktoolSvc) RegisterDeps(h HookService, l AgentLookup, ap ApprovalGate
 	s.hooks, s.agentLookup, s.approval = h, l, ap
 }
 
-// mcpHandlerInit 懒初始化 hookMCP(per-process HMAC secret 首次访问时生成)。
-func (s *hooktoolSvc) mcpHandlerInit() *hookMCP {
-	s.mcpOnce.Do(func() { s.mcp = newHookMCP(s) })
+// mcpHandlerInit 懒初始化共享 MCP server(per-process HMAC secret 首次访问时生成)。
+func (s *hooktoolSvc) mcpHandlerInit() *agenttool.Server {
+	s.mcpOnce.Do(func() { s.mcp = s.newMCPServer() })
 	return s.mcp
 }
 

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 const testToken = "test-control-token"
@@ -61,6 +61,9 @@ func (f *fakeChat) FinalAssistantText(context.Context, int64) (string, error) {
 func (f *fakeChat) Stop(context.Context, *chat_svc.StopRequest) (*chat_svc.StopResponse, error) {
 	f.stopped = true
 	return &chat_svc.StopResponse{}, nil
+}
+func (f *fakeChat) SessionProjectID(context.Context, int64) (int64, error) {
+	return 0, nil
 }
 
 func newTestHandler(a *fakeAgents, p *fakeProjects, c *fakeChat) http.Handler {

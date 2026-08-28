@@ -4,37 +4,59 @@ package chat_repo
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/consts"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 )
 
 //go:generate mockgen -source session.go -destination mock_chat_repo/mock_session.go
 
+// SessionBackendRef 是一条「会话 → 它钉住的执行目标档」引用(决策 24)。
+type SessionBackendRef struct {
+	SessionID      int64 `gorm:"column:session_id"`
+	AgentBackendID int64 `gorm:"column:agent_backend_id"`
+}
+
 type SessionRepo interface {
 	Find(ctx context.Context, id int64) (*chat_entity.Session, error)
 	ListByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
-	ListByAgentIncludingGroups(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
 	ListByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error)
-	ListByAgentPagedIncludingGroups(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error)
 	ListIDsByAgents(ctx context.Context, agentIDs []int64) (map[int64][]int64, error)
-	ListIDsByAgentsIncludingGroups(ctx context.Context, agentIDs []int64) (map[int64][]int64, error)
 	ListAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
-	ListAttentionByAgentIncludingGroups(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
-	ListByProject(ctx context.Context, projectID int64) ([]*chat_entity.Session, error)
+	// ListRecentPaged 按 last_message_at DESC 翻页返回全部未删除会话，**不限 agent、
+	// 不限项目**。单一会话索引的「按时间」档要的就是这条跨维度的最近活动流 ——
+	// 按 agent 的变体各自只看一个 agent，把它们并起来只能得到一个窗口而不是全量。
+	ListRecentPaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error)
+	// ListFreePaged 同上，但只要**未挂项目**（project_id = 0）的会话，即索引里的
+	// 「随手对话」组。独立成方法是因为服务层刻意把
+	// ListSessions 挡在 projectID > 0：0 不是一个项目，不该从项目那条路进来。
+	ListFreePaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error)
+	// ListByProjectPaged 按项目分页返回未软删除会话。索引的项目组默认只展开前几条，
+	// 其余走「查看全部 N」——一次性拉一个项目的全部会话在
+	// 侧栏这条路上没有必要。
+	ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error)
+	// ListByDevicePaged 是索引「按机器」轴那一组的分页查询：按会话**跑在哪台机器上**
+	// 取数（exec_device_id）。deviceID = 0 是**本机**，不是「没有机器」——
+	// chat_entity.Session 的约定如此，绝大多数会话都落在这一格。
+	ListByDevicePaged(ctx context.Context, deviceID int64, offset, limit int) ([]*chat_entity.Session, error)
+	// CountAll / CountFree / CountByProject 是上面几个列表各自的总数，
+	// 供「还有 N 条」与翻页终止判断。
+	CountAll(ctx context.Context) (int64, error)
+	CountFree(ctx context.Context) (int64, error)
+	CountByProject(ctx context.Context, projectID int64) (int64, error)
+	CountByDevice(ctx context.Context, deviceID int64) (int64, error)
 	// ReassignProject 把 project_id 从 fromProjectID 整批改挂到 toProjectID（R11a
 	// 的项目合并）。刻意**不带 status / purpose 过滤**：软删的会话与子 agent 委派
-	// 会话在 ListByProject 里都看不见（后者被 nonSubagentScope 排除），逐行改挂必然
+	// 会话在项目会话列表里都看不见（被 nonSubagentScope 排除），逐行改挂必然
 	// 把它们漏在原地，而 R11a 要求合并后不留下任何指向已消失项目的引用。
 	ReassignProject(ctx context.Context, fromProjectID, toProjectID int64) error
 	CountByAgent(ctx context.Context, agentID int64) (int64, error)
-	CountByAgentIncludingGroups(ctx context.Context, agentID int64) (int64, error)
 	CountByAgents(ctx context.Context, agentIDs []int64) (map[int64]int64, error)
-	CountByAgentsIncludingGroups(ctx context.Context, agentIDs []int64) (map[int64]int64, error)
 	CountRunningByAgents(ctx context.Context, agentIDs []int64) (map[int64]int, error)
 	CountActiveByProject(ctx context.Context, projectID int64, agentStatuses []string) (int64, error)
 	CountActive(ctx context.Context, agentStatuses []string) (int64, error)
@@ -55,6 +77,12 @@ type SessionRepo interface {
 	// 不走整行 Save —— 后者会把并发轮次正在写的状态列一起盖掉。同理这两列都在 Update
 	// 的 Omit 清单里:轮次收尾的整行回写拿的是轮次开始时读出的旧实体。
 	UpdateModelTarget(ctx context.Context, sessionID int64, providerKey, modelKey string) error
+	// UpdateContextWindow 落库 runtime 探到的 model 上下文窗口。轮内随时可能到帧,
+	// 且**带外轮**(自主续轮 / 后台 subagent 活动轮)也会写它 —— 而带外轮手里的实体
+	// 是它起步时读出的快照。走整行 Save 的话,用户在带外轮进行中发的新一轮刚写好的
+	// agent_status=running / last_message_at 会被那份旧快照原样拍回去,会话在库里退
+	// 回 idle(sess-2974)。所以这里只碰 context_window 一列。
+	UpdateContextWindow(ctx context.Context, sessionID int64, tokens int) error
 	// UpdateExecDaemon 记录执行该会话的配对 daemon(paired_agentreds.id)及其实例标识
 	// (sha256:<hex>)、以及这条会话钉住的执行目标档(agentBackendID,R15b / 决策36)。
 	// deviceID=0 + 空标识表示回到本机执行；agentBackendID=0 表示尚未钉住。三列同一条
@@ -75,11 +103,19 @@ type SessionRepo interface {
 	// 实例标识为空的行一并排除:游标只在它所属的那条通知日志里有意义,标识为空时
 	// LoadCursor 一律判失效,对它发起补齐只是白跑一轮 RPC。
 	//
-	// 取材是**有界**的(见 catchUpWindow / catchUpLimit):补齐会为每条会话装一个轮次
-	// 消费方、加一份池连接引用、开一条自主轮监视,所以它不能返回「历史上曾远端执行过的
-	// 每一条」。落在界外的会话不会被补齐、也不会被判定(一行都不碰),下次用户在它上面
-	// 发消息时照常走 borrow → attach,该拉的日志一条不少。
+	// 取材是**有界**的(见 catchUpLimit):补齐会为每条会话装一个轮次消费方、加一份池
+	// 连接引用、开一条自主轮监视,所以它不能返回「历史上曾远端执行过的每一条」。界是
+	// 条数,不是时间 —— 一条本地停在 idle、远端却由后台任务续过轮的老会话,日志今天还
+	// 在(agentred 不再回收),按时间挡掉它就是永远补不回来。落在界外的会话不会被补齐、
+	// 也不会被判定(一行都不碰),下次用户在它上面发消息时照常走 borrow → attach,该拉
+	// 的日志一条不少。
 	ListRemoteExecSessions(ctx context.Context) ([]*chat_entity.Session, error)
+	// ListExecAgentBackendRefs 列出全部钉住了执行目标档的会话引用
+	// (exec_agent_backend_id > 0),不限会话自身 status —— 决策 24 的后端墓碑回收
+	// 判据("无任何会话/执行目标引用")与悬空引用巡检都要看"这个 backend id 有
+	// 没有被任何会话提到过"，而不只是活跃会话；软删的会话仍然算一次引用，回收
+	// 不能因为会话本身被删了就当作没人提过这个 backend。
+	ListExecAgentBackendRefs(ctx context.Context) ([]SessionBackendRef, error)
 	// MarkRead 单调推进 last_read_at: 仅当 ts 严格大于当前值时写入。
 	// 避免 stream-done 与 LoadSession 乱序时把已读时间冲回旧值。
 	// 会话不存在 / 已软删 / ts 不更新 都算成功（不返回 ErrRecordNotFound）。
@@ -106,6 +142,18 @@ type SessionRepo interface {
 	// 它是启动期清理在远端会话那一半的落点:补齐连上 daemon、拿到会话清单之后,
 	// daemon 说不在跑的那些才由它收尾。
 	ResetActiveSessionsByIDs(ctx context.Context, ids []int64) (int64, error)
+	// ListIDsByProviderSessions 回答「这些 provider session 是不是已经在库里」，
+	// 返回 provider_session_id → 会话 id（未命中的 key 不出现）。导入本地会话的判重
+	// 走它（2026-08-26 spec 决策 18：来源标记只用于展示，判重一律以库里的
+	// provider_session_id 为准）。
+	//
+	// 刻意**不挂 nonSubagentScope**：这一问不是「列表里该显示谁」，而是「这个 CLI
+	// 会话有没有被认领过」。子 agent 委派会话同样占着一个 provider_session_id，把它
+	// 排除掉就会让同一条 CLI 会话被导入第二次，两条 agentre 会话争同一个 resume 目标。
+	//
+	// 空串 / 全空白的入参被丢弃后才发 SQL：绝大多数会话的 provider_session_id 是空串
+	// （还没跑过第一轮），一个空串候选会把它们全部命中。
+	ListIDsByProviderSessions(ctx context.Context, providerSessionIDs []string) (map[string]int64, error)
 }
 
 var defaultSession SessionRepo
@@ -116,7 +164,7 @@ func NewSession() SessionRepo          { return &sessionRepo{} }
 
 // nonSubagentScope 排除子 agent 委派会话(purpose='subagent_call')。这类会话由 agent_call
 // 同步委派出来、一次性隔离, 不是用户顶层会话, 不应出现在任何 agent/项目的会话列表或计数里。
-// 本 scope 必须无条件挂在每个列表/计数查询上, 否则它会从侧栏(走 IncludingGroups 变体)漏出来。
+// 本 scope 必须无条件挂在每个列表/计数查询上, 否则子 agent 委派会话会从侧栏漏出来。
 func nonSubagentScope(db *gorm.DB) *gorm.DB {
 	return db.Where("purpose <> ?", chat_entity.SessionPurposeSubagent)
 }
@@ -137,14 +185,10 @@ func (r *sessionRepo) Find(ctx context.Context, id int64) (*chat_entity.Session,
 }
 
 func (r *sessionRepo) ListByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	return r.listByAgent(ctx, agentID, limit, true)
+	return r.listByAgent(ctx, agentID, limit)
 }
 
-func (r *sessionRepo) ListByAgentIncludingGroups(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	return r.listByAgent(ctx, agentID, limit, false)
-}
-
-func (r *sessionRepo) listByAgent(ctx context.Context, agentID int64, limit int, ordinaryOnly bool) ([]*chat_entity.Session, error) {
+func (r *sessionRepo) listByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -163,14 +207,10 @@ func (r *sessionRepo) listByAgent(ctx context.Context, agentID int64, limit int,
 // ListByAgentPaged 按 last_message_at DESC 翻页返回 agent 的未删除会话。
 // 服务层负责对 offset/limit 做边界裁剪；repo 只忠实按参数查。
 func (r *sessionRepo) ListByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error) {
-	return r.listByAgentPaged(ctx, agentID, offset, limit, true)
+	return r.listByAgentPaged(ctx, agentID, offset, limit)
 }
 
-func (r *sessionRepo) ListByAgentPagedIncludingGroups(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error) {
-	return r.listByAgentPaged(ctx, agentID, offset, limit, false)
-}
-
-func (r *sessionRepo) listByAgentPaged(ctx context.Context, agentID int64, offset, limit int, ordinaryOnly bool) ([]*chat_entity.Session, error) {
+func (r *sessionRepo) listByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error) {
 	var rows []*chat_entity.Session
 	q := db.Ctx(ctx).
 		Where("agent_id = ? AND status = ?", agentID, consts.ACTIVE).
@@ -185,14 +225,10 @@ func (r *sessionRepo) listByAgentPaged(ctx context.Context, agentID int64, offse
 }
 
 func (r *sessionRepo) ListIDsByAgents(ctx context.Context, agentIDs []int64) (map[int64][]int64, error) {
-	return r.listIDsByAgents(ctx, agentIDs, true)
+	return r.listIDsByAgents(ctx, agentIDs)
 }
 
-func (r *sessionRepo) ListIDsByAgentsIncludingGroups(ctx context.Context, agentIDs []int64) (map[int64][]int64, error) {
-	return r.listIDsByAgents(ctx, agentIDs, false)
-}
-
-func (r *sessionRepo) listIDsByAgents(ctx context.Context, agentIDs []int64, ordinaryOnly bool) (map[int64][]int64, error) {
+func (r *sessionRepo) listIDsByAgents(ctx context.Context, agentIDs []int64) (map[int64][]int64, error) {
 	out := make(map[int64][]int64, len(agentIDs))
 	if len(agentIDs) == 0 {
 		return out, nil
@@ -222,14 +258,10 @@ func (r *sessionRepo) listIDsByAgents(ctx context.Context, agentIDs []int64, ord
 // 当前需要用户关注的会话 —— 跑步中、等待用户输入/审批、或出错的。
 // 按 last_message_at DESC 排序；limit 由 service 传入（典型 20，防止异常数据撑爆 UI）。
 func (r *sessionRepo) ListAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	return r.listAttentionByAgent(ctx, agentID, limit, true)
+	return r.listAttentionByAgent(ctx, agentID, limit)
 }
 
-func (r *sessionRepo) ListAttentionByAgentIncludingGroups(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
-	return r.listAttentionByAgent(ctx, agentID, limit, false)
-}
-
-func (r *sessionRepo) listAttentionByAgent(ctx context.Context, agentID int64, limit int, ordinaryOnly bool) ([]*chat_entity.Session, error) {
+func (r *sessionRepo) listAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error) {
 	var rows []*chat_entity.Session
 	q := db.Ctx(ctx).
 		Where("agent_id = ? AND status = ? AND agent_status IN ?",
@@ -247,14 +279,10 @@ func (r *sessionRepo) listAttentionByAgent(ctx context.Context, agentID int64, l
 // 用于 ListAgents 一次把侧栏「查看全部 N 个会话」需要的总数都查出来，
 // 避免每个 agent 单独发一条 COUNT。
 func (r *sessionRepo) CountByAgents(ctx context.Context, agentIDs []int64) (map[int64]int64, error) {
-	return r.countByAgents(ctx, agentIDs, true)
+	return r.countByAgents(ctx, agentIDs)
 }
 
-func (r *sessionRepo) CountByAgentsIncludingGroups(ctx context.Context, agentIDs []int64) (map[int64]int64, error) {
-	return r.countByAgents(ctx, agentIDs, false)
-}
-
-func (r *sessionRepo) countByAgents(ctx context.Context, agentIDs []int64, ordinaryOnly bool) (map[int64]int64, error) {
+func (r *sessionRepo) countByAgents(ctx context.Context, agentIDs []int64) (map[int64]int64, error) {
 	out := make(map[int64]int64, len(agentIDs))
 	if len(agentIDs) == 0 {
 		return out, nil
@@ -282,14 +310,10 @@ func (r *sessionRepo) countByAgents(ctx context.Context, agentIDs []int64, ordin
 
 // CountByAgent 给 popover 拼 hasMore / "已加载 X / Y" 用。
 func (r *sessionRepo) CountByAgent(ctx context.Context, agentID int64) (int64, error) {
-	return r.countByAgent(ctx, agentID, true)
+	return r.countByAgent(ctx, agentID)
 }
 
-func (r *sessionRepo) CountByAgentIncludingGroups(ctx context.Context, agentID int64) (int64, error) {
-	return r.countByAgent(ctx, agentID, false)
-}
-
-func (r *sessionRepo) countByAgent(ctx context.Context, agentID int64, ordinaryOnly bool) (int64, error) {
+func (r *sessionRepo) countByAgent(ctx context.Context, agentID int64) (int64, error) {
 	var n int64
 	q := db.Ctx(ctx).
 		Model(&chat_entity.Session{}).
@@ -331,18 +355,89 @@ func (r *sessionRepo) CountRunningByAgents(ctx context.Context, agentIDs []int64
 	return out, nil
 }
 
-// ListByProject 返回该项目下的全部未软删除会话，按 last_message_at DESC 排。
-// 项目页 ChatProjectList 用它把 sessions 挂在 ProjectCard 下。
-// 子 agent 委派会话(purpose=subagent_call)仍被 nonSubagentScope 排除。
-func (r *sessionRepo) ListByProject(ctx context.Context, projectID int64) ([]*chat_entity.Session, error) {
+// indexScope 是「会话索引」几条查询共用的 WHERE：未软删 + 排除子 agent 委派会话，
+// 再按 projectFilter 收窄。ORDER 与分页由调用方拼，计数不需要它们。
+//
+// projectFilter 为 nil 表示不限项目（时间轴）；指向 0 即「随手对话」，指向正数即某个
+// 项目。用指针而不是 -1 之类的哨兵：0 是一个**有意义的取值**，哨兵会把它吃掉。
+func indexScope(projectFilter *int64) func(*gorm.DB) *gorm.DB {
+	return func(d *gorm.DB) *gorm.DB {
+		if projectFilter != nil {
+			d = d.Where("project_id = ? AND status = ?", *projectFilter, consts.ACTIVE)
+		} else {
+			d = d.Where("status = ?", consts.ACTIVE)
+		}
+		return d.Scopes(nonSubagentScope)
+	}
+}
+
+// indexDeviceScope 与 indexScope 同一套可见性口径（ACTIVE + 非子 agent），只是分组
+// 这一维换成 exec_device_id。单独一个 scope 而不是给 indexScope 再加一个指针参数：
+// 两维永远互斥（索引一次只按一根轴分组），并成一个函数只会让调用点读起来像是能同时给。
+func indexDeviceScope(deviceID int64) func(*gorm.DB) *gorm.DB {
+	return func(d *gorm.DB) *gorm.DB {
+		return d.
+			Where("exec_device_id = ? AND status = ?", deviceID, consts.ACTIVE).
+			Scopes(nonSubagentScope)
+	}
+}
+
+func (r *sessionRepo) listIndexPaged(ctx context.Context, scope func(*gorm.DB) *gorm.DB, offset, limit int) ([]*chat_entity.Session, error) {
 	var rows []*chat_entity.Session
 	err := db.Ctx(ctx).
-		Where("project_id = ? AND status = ?", projectID, consts.ACTIVE).
-		Scopes(nonSubagentScope).
+		Scopes(scope).
 		Order("last_message_at DESC, id DESC").
+		Offset(offset).
+		Limit(limit).
 		Find(&rows).Error
 	applySessionDerivedFields(rows)
 	return rows, err
+}
+
+func (r *sessionRepo) countIndex(ctx context.Context, scope func(*gorm.DB) *gorm.DB) (int64, error) {
+	var n int64
+	err := db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Scopes(scope).
+		Count(&n).Error
+	return n, err
+}
+
+// ListRecentPaged 见接口注释：不限 agent、不限项目的最近活动分页。
+func (r *sessionRepo) ListRecentPaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
+	return r.listIndexPaged(ctx, indexScope(nil), offset, limit)
+}
+
+// ListFreePaged 见接口注释：仅 project_id = 0 的会话。
+func (r *sessionRepo) ListFreePaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
+	free := int64(0)
+	return r.listIndexPaged(ctx, indexScope(&free), offset, limit)
+}
+
+// ListByProjectPaged 见接口注释：按项目分页返回未软删除会话。
+func (r *sessionRepo) ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error) {
+	return r.listIndexPaged(ctx, indexScope(&projectID), offset, limit)
+}
+
+func (r *sessionRepo) CountAll(ctx context.Context) (int64, error) {
+	return r.countIndex(ctx, indexScope(nil))
+}
+
+func (r *sessionRepo) CountFree(ctx context.Context) (int64, error) {
+	free := int64(0)
+	return r.countIndex(ctx, indexScope(&free))
+}
+
+func (r *sessionRepo) CountByProject(ctx context.Context, projectID int64) (int64, error) {
+	return r.countIndex(ctx, indexScope(&projectID))
+}
+
+// ListByDevicePaged 见接口注释：按 exec_device_id 取数，0 = 本机。
+func (r *sessionRepo) ListByDevicePaged(ctx context.Context, deviceID int64, offset, limit int) ([]*chat_entity.Session, error) {
+	return r.listIndexPaged(ctx, indexDeviceScope(deviceID), offset, limit)
+}
+
+func (r *sessionRepo) CountByDevice(ctx context.Context, deviceID int64) (int64, error) {
+	return r.countIndex(ctx, indexDeviceScope(deviceID))
 }
 
 // ReassignProject 见接口注释：WHERE 里只有 project_id，没有 status / purpose。
@@ -394,28 +489,42 @@ func (r *sessionRepo) Create(ctx context.Context, s *chat_entity.Session) error 
 	return err
 }
 
+// sessionUpdateWhitelist 是整行回写 Update 允许落库的「配置列」(决策 23)。
+//
+// Save 是整行回写:调用方通常只改了 title / agent_status / last_message_at 之类
+// 的一两个字段,却会把手上那份实体的**每一列**都写回去。这份清单曾经反过来写
+// (Omit 黑名单:枚举「不许写」的列),但黑名单是手工维护的、漏一列就是静默事故——
+// 它曾经漏了 context_window(有专用窄写方法 UpdateContextWindow,却不在 Omit 清单
+// 里),导致每轮收尾都把运行时刚探到的上下文窗口拍回轮次开始时读出的旧值。
+//
+// 现在反过来列「只许写」的列:凡是有专用窄写方法覆盖、或只在建档时写入一次的列,
+// 都不在这份白名单里,漏掉一个**配置**列的后果是那次写入不发生、测试立刻抓到,
+// 而不是像黑名单那样静默覆盖别人的并发写入:
+//   - permission_mode / permission_mode_at_launch —— 运行中切换的模式与 spawn 快照,
+//     由 UpdatePermissionMode(AtLaunch) 窄写;
+//   - exec_device_id / exec_device_fingerprint / exec_agent_backend_id /
+//     event_cursor(R12 / R15b)—— 轮次开始时读出的实体这四列还是零值,轮次中途
+//     UpdateExecDaemon / UpdateEventCursor 才把真值写进去,整行回写若碰它们会把
+//     「这条会话跑在哪台 daemon 上、钉在哪一档、消费到哪」一起抹成 0 / 空串 / 0;
+//   - provider_key / model_key —— 会话级 ModelTarget 允许在轮中切换(2026-08-10
+//     决策 8 / 2026-08-11 决策 1),由 UpdateModelTarget 窄写;
+//   - cwd —— 会话钉住的工作目录,只在建档时由导入写入(spec 2026-08-26「续跑」),
+//     此后没有第二个写入点;
+//   - context_window —— 由 UpdateContextWindow 窄写(Problem 18 的现存缺陷);
+//   - status —— 软删由 SoftDelete 窄写;整行回写若碰它,一份读得早、状态还是
+//     ACTIVE 的旧实体会把并发软删的会话拍回 ACTIVE;
+//   - last_read_at —— 由 MarkRead 窄写。
+//
+// 这份白名单里的列在服务层都有「写实体再整行 Update」的路径,Select 不会丢掉谁的
+// 写入。
+var sessionUpdateWhitelist = []string{
+	"agent_id", "title", "agent_status", "last_message_at",
+	"provider_session_id", "project_id", "purpose", "updatetime",
+}
+
 func (r *sessionRepo) Update(ctx context.Context, s *chat_entity.Session) error {
 	s.Updatetime = time.Now().UnixMilli()
-	// Save 是整行回写:调用方通常只改了 title / agent_status / last_message_at 之类
-	// 的一两个字段,却会把手上那份实体的**每一列**都写回去。凡是由专用单列更新负责的
-	// 列都必须在这里 Omit,否则一份读得早的实体会把它们盖回旧值:
-	//   - permission_mode / permission_mode_at_launch —— 运行中切换的模式与 spawn 快照;
-	//   - exec_device_id / exec_daemon_fingerprint / exec_agent_backend_id /
-	//     event_cursor(R12 / R15b)—— 轮次开始时读出的实体这四列还是零值,轮次中途
-	//     UpdateExecDaemon / UpdateEventCursor 才把真值写进去,收尾时的整行回写因此
-	//     会把「这条会话跑在哪台 daemon 上、钉在哪一档、消费到哪」一起抹成 0 / '' / 0,
-	//     空闲的远端会话从此落在 ListRemoteExecSessions 的取材条件之外,再也进不了
-	//     启动补齐;钉住的档也会被抹回未钉住,下一轮又变成重挑(决策36明确禁止)。
-	//   - provider_key / model_key —— 会话级 ModelTarget 允许在轮中切换(2026-08-10
-	//     决策 8 / 2026-08-11 决策 1),而收尾用的实体是轮次开始时读出的、带着旧 target
-	//     的那一份,不 Omit 就会把用户刚切好的 target 冲回去。新建会话的首次写入走
-	//     Create,不经这里。
-	// 这几列在服务层没有任何「写实体再 Update」的路径,Omit 不会丢掉谁的写入。
-	err := db.Ctx(ctx).Omit(
-		"permission_mode", "permission_mode_at_launch",
-		"exec_device_id", "exec_daemon_fingerprint", "exec_agent_backend_id", "event_cursor",
-		"provider_key", "model_key",
-	).Save(s).Error
+	err := db.Ctx(ctx).Select(sessionUpdateWhitelist).Save(s).Error
 	s.ApplyDerivedFields()
 	return err
 }
@@ -448,12 +557,21 @@ func (r *sessionRepo) UpdateModelTarget(ctx context.Context, sessionID int64, pr
 		}).Error
 }
 
+func (r *sessionRepo) UpdateContextWindow(ctx context.Context, sessionID int64, tokens int) error {
+	return db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Where("id = ? AND status = ?", sessionID, consts.ACTIVE).
+		Updates(map[string]any{
+			"context_window": tokens,
+			"updatetime":     time.Now().UnixMilli(),
+		}).Error
+}
+
 func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, deviceID int64, daemonFingerprint string, agentBackendID int64) error {
 	return db.Ctx(ctx).Model(&chat_entity.Session{}).
 		Where("id = ? AND status = ?", sessionID, consts.ACTIVE).
 		Updates(map[string]any{
 			"exec_device_id":          deviceID,
-			"exec_daemon_fingerprint": daemonFingerprint,
+			"exec_device_fingerprint": daemonFingerprint,
 			// 会话钉住的执行目标档(R15b / 决策36):与设备/实例标识同一条语句一并写,
 			// 三列同生共死,不拆成两个写入点。
 			"exec_agent_backend_id": agentBackendID,
@@ -461,32 +579,28 @@ func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, dev
 			// 老游标指的是老 daemon 通知日志里的位置,留着会被下次 LoadCursor 当成对新
 			// daemon 有效。SQL 的 SET 右值一律读改写前的行值,所以这里比的是老标识。
 			"event_cursor": gorm.Expr(
-				"CASE WHEN exec_daemon_fingerprint = ? THEN event_cursor ELSE 0 END", daemonFingerprint),
+				"CASE WHEN exec_device_fingerprint = ? THEN event_cursor ELSE 0 END", daemonFingerprint),
 			"updatetime": time.Now().UnixMilli(),
 		}).Error
 }
 
-// catchUpWindow 启动补齐回头看多久。与 daemon 的通知日志留存窗口对齐
-// (internal/daemon 的 defaultJournalRetention = 30 天):一条会话安静满 30 天,它高
-// 水位以下的日志已经被 daemon 回收,再对它发补齐拿回来的是空的。
-const catchUpWindow = 30 * 24 * time.Hour
-
 // catchUpLimit 一次启动补齐最多认领多少条会话。补齐会为**每条**会话装一个轮次消费方、
-// 加一份池连接引用、开一条自主轮监视 goroutine,所以取材必须有上界;200 条已经远超
-// 「一台 daemon 上还可能有新内容的会话」的实际量级,同时把收尾那一步的 id 数压在
-// SQLite 最保守的参数上限(999)以内。
+// 加一份池连接引用、开一条自主轮监视 goroutine,而 releaseCatchUpRefs 只还得掉 daemon
+// 说不在跑的那些 —— 剩下的引用要占到进程退出,开销随「历史上远端跑过的会话数」线性
+// 增长。那个数如今没有上界(通知日志不再回收、会话也不过期),所以这条上限是取材唯一
+// 的界,不能跟着时间窗一起去掉。
+//
+// 200 条远超「一台 daemon 上还可能有新内容的会话」的实际量级。收尾那一步的 SQL 参数
+// 上限与它无关,由 resetIDChunk 自己分片扛住。
 const catchUpLimit = 200
 
 func (r *sessionRepo) ListRemoteExecSessions(ctx context.Context) ([]*chat_entity.Session, error) {
 	var rows []*chat_entity.Session
-	cutoff := time.Now().Add(-catchUpWindow).UnixMilli()
 	err := db.Ctx(ctx).
-		// 时间窗之外的会话没有可补的日志了;但仍停在 running / waiting 的行不受它限制
-		// —— 只有 daemon 能给它们判据,漏掉一条就是界面上一条永远转圈的会话。
-		Where("exec_device_id > ? AND exec_daemon_fingerprint <> ? AND status = ? "+
-			"AND (agent_status IN ? OR updatetime >= ?)",
-			int64(0), "", consts.ACTIVE, []string{"running", "waiting"}, cutoff).
-		// 排序决定上限砍掉谁:等判据的排最前,其余按最近活动。
+		Where("exec_device_id > ? AND exec_device_fingerprint <> ? AND status = ?",
+			int64(0), "", consts.ACTIVE).
+		// 排序决定上限砍掉谁:等判据的排最前(只有 daemon 能给它们判据,漏掉一条就是
+		// 界面上一条永远转圈的会话),其余按最近活动。
 		Order("CASE WHEN agent_status IN ('running','waiting') THEN 0 ELSE 1 END, updatetime DESC, id DESC").
 		Limit(catchUpLimit).
 		Find(&rows).Error
@@ -494,9 +608,18 @@ func (r *sessionRepo) ListRemoteExecSessions(ctx context.Context) ([]*chat_entit
 	return rows, err
 }
 
+func (r *sessionRepo) ListExecAgentBackendRefs(ctx context.Context) ([]SessionBackendRef, error) {
+	var refs []SessionBackendRef
+	err := db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Select("id AS session_id, exec_agent_backend_id AS agent_backend_id").
+		Where("exec_agent_backend_id > ?", 0).
+		Find(&refs).Error
+	return refs, err
+}
+
 func (r *sessionRepo) UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint string, seq int64) error {
 	return db.Ctx(ctx).Model(&chat_entity.Session{}).
-		Where("id = ? AND status = ? AND exec_daemon_fingerprint = ?", sessionID, consts.ACTIVE, daemonFingerprint).
+		Where("id = ? AND status = ? AND exec_device_fingerprint = ?", sessionID, consts.ACTIVE, daemonFingerprint).
 		Updates(map[string]any{
 			"event_cursor": seq,
 			"updatetime":   time.Now().UnixMilli(),
@@ -516,7 +639,7 @@ func (r *sessionRepo) ResetActiveSessions(ctx context.Context) (int64, error) {
 	res := db.Ctx(ctx).Model(&chat_entity.Session{}).
 		// 后半截把远端跑的会话排除在启动期清理之外,理由见接口注释。判据与
 		// ListRemoteExecSessions 的取材条件互补:那边取的行,这边一行不碰。
-		Where("agent_status IN ? AND status = ? AND (exec_device_id <= ? OR exec_daemon_fingerprint = ?)",
+		Where("agent_status IN ? AND status = ? AND (exec_device_id <= ? OR exec_device_fingerprint = ?)",
 			[]string{"running", "waiting"}, consts.ACTIVE, int64(0), "").
 		Updates(map[string]any{
 			"agent_status": "error",
@@ -563,4 +686,45 @@ func applySessionDerivedFields(rows []*chat_entity.Session) {
 	for _, row := range rows {
 		row.ApplyDerivedFields()
 	}
+}
+
+func (r *sessionRepo) ListIDsByProviderSessions(ctx context.Context, providerSessionIDs []string) (map[string]int64, error) {
+	out := map[string]int64{}
+	// 去重 + 丢掉空串：见接口注释。顺序保持入参顺序，SQL 参数因此是可预期的。
+	keys := make([]string, 0, len(providerSessionIDs))
+	seen := make(map[string]struct{}, len(providerSessionIDs))
+	for _, id := range providerSessionIDs {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		keys = append(keys, id)
+	}
+	// 空列表天然一条 SQL 都不发（同 ResetActiveSessionsByIDs 的理由）。
+	for start := 0; start < len(keys); start += resetIDChunk {
+		var rows []struct {
+			ProviderSessionID string
+			ID                int64
+		}
+		err := db.Ctx(ctx).Model(&chat_entity.Session{}).
+			Select("provider_session_id", "id").
+			Where("provider_session_id IN ? AND status = ?",
+				keys[start:min(start+resetIDChunk, len(keys))], consts.ACTIVE).
+			Find(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			// 同一个 provider session 理论上只该有一行；真出现多行时取 id 最小的那条
+			// （最早认领的），让"打开"稳定指向同一条会话而不是随查询顺序漂移。
+			if prev, ok := out[row.ProviderSessionID]; ok && prev <= row.ID {
+				continue
+			}
+			out[row.ProviderSessionID] = row.ID
+		}
+	}
+	return out, nil
 }

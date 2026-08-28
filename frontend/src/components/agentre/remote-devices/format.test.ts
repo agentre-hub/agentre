@@ -13,15 +13,21 @@ import {
 
 const t = ((key: string, params?: Record<string, unknown>) => {
   const values: Record<string, string> = {
-    "remoteDevices.time.never": "从未",
-    "remoteDevices.time.justNow": "刚刚",
-    "remoteDevices.time.minutesAgo": `${params?.minutes} 分钟前`,
-    "remoteDevices.time.hoursAgo": `${params?.hours} 小时前`,
-    "remoteDevices.time.daysAgo": `${params?.days} 天前`,
+    // 相对时间的文案已搬进共享包的 agentreUi bundle，key 因此带 namespace 前缀，
+    // 插值变量也统一成 i18next 的 count。
+    "agentreUi:relativeTime.never": "从未",
+    "agentreUi:relativeTime.justNow": "刚刚",
+    "agentreUi:relativeTime.minutesAgo": `${params?.count} 分钟前`,
+    "agentreUi:relativeTime.hoursAgo": `${params?.count} 小时前`,
+    "agentreUi:relativeTime.daysAgo": `${params?.count} 天前`,
     "remoteDevices.errors.tofuMismatch":
       "服务端身份指纹已变化，请确认安全后重新配对",
     "remoteDevices.errors.unauthorized": "凭据已失效，请重新配对",
     "remoteDevices.errors.dialFailed": `连接失败：${params?.message}`,
+    "remoteDevices.errors.protocolUnsupported":
+      "这台机器上的 agentred 不认识桌面端的通信协议 —— 请重新部署 agentred，让它与桌面端同版本。",
+    "remoteDevices.errors.protocolMismatch":
+      "这台机器上的 agentred 与桌面端的通信协议版本不一致 —— 请重新部署 agentred，让它与桌面端同版本。",
     "remoteDevices.login.errors.unreachable":
       "无法连接服务器，请检查地址后重试。",
     "remoteDevices.login.errors.accessDenied": "登录已被拒绝。",
@@ -89,6 +95,18 @@ describe("friendlyLastError", () => {
   });
   it("returns empty for empty", () => {
     expect(friendlyLastError("", t)).toBe("");
+  });
+  // 协议不一致与网络失败在面板上必须说两句不同的话:一句让人去重装远端
+  // agentred,一句让人去查网络。落到 raw token 上就等于什么都没说。
+  it("explains a protocol disagreement instead of echoing the raw token", () => {
+    expect(friendlyLastError("protocol_unsupported", t)).toContain("agentred");
+    expect(friendlyLastError("protocol_mismatch", t)).toContain("agentred");
+    expect(friendlyLastError("protocol_unsupported", t)).not.toBe(
+      "protocol_unsupported",
+    );
+    expect(friendlyLastError("protocol_mismatch", t)).not.toBe(
+      "protocol_mismatch",
+    );
   });
 });
 

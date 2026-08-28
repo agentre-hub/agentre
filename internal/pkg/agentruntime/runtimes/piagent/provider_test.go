@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // testProviderCfg 构造一条执行侧配置（EffectiveLLMConfig v1 seam）供物化扩展测试用。

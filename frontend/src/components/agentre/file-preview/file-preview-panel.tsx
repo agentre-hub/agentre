@@ -2,30 +2,37 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { X } from "lucide-react";
+import {
+  Button,
+  MarkdownText,
+  ReplayedFileDiff,
+  collectReplayCalls,
+  previewKind,
+  replayPatches,
+  type PreviewKind,
+  type ReplayResult,
+} from "@agentre-hub/agentre-ui";
 
 import {
   WorkspaceFsGitFileContent,
   WorkspaceFsReadFile,
 } from "@/../wailsjs/go/app/App";
-import type { workspace_fs_svc } from "@/../wailsjs/go/models";
-import { Button } from "@/components/ui/button";
+import type { chat_svc, workspace_fs_svc } from "@/../wailsjs/go/models";
 import { cn } from "@/lib/utils";
+import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import {
   selectActivePreviewTab,
-  useChatSidebarStore,
+  useFilePreviewTabsStore,
   type FilePreviewSegment,
-} from "@/stores/chat-sidebar-store";
+} from "@/stores/file-preview-tabs-store";
 import { useSessionStatus } from "@/stores/session-status-store";
 
-import type { PreviewKind } from "../chat-context-sidebar/previewable";
-import { previewKind } from "../chat-context-sidebar/previewable";
 import {
   errorText,
   PanelNotice,
   PanelSkeleton,
 } from "../chat-context-sidebar/views/panel-feedback";
 import { FileTypeIcon } from "../file-type-icon";
-import { MarkdownText } from "../markdown-text";
 import { ResizableSidebar } from "../resizable-sidebar";
 
 import { CodePreview } from "./code-view";
@@ -47,43 +54,74 @@ type GitState =
 
 type Props = {
   sessionId: number;
+  /**
+   * 本会话的消息。只有「本次会话」档的工具 diff 用它：那一档的内容全部来自消息里
+   * 的 canonical 块，一次后端调用都不打（spec「与『有没有提交』无关」）。
+   */
+  messages?: chat_svc.ChatMessage[];
+  /**
+   * 会话工作目录。多工作根会话下真正生效的是侧栏当前选中的那个根（经
+   * chat-sidebar-store 转发），这里只是它的兜底。工具路径的归属判定与「变更」
+   * 行同源，行少算的调用 diff 也不能算。
+   */
+  cwd?: string;
 };
 
 /**
- * targetKey 是一次取数的目标身份：**哪个会话的哪个文件**。
+ * targetKey 是一次取数的目标身份：**哪个会话的哪个工作根下的哪个文件**。
  *
  * 必须带上 sessionId 而不只是 path——面板不随会话切换重挂载（chat-panel 把
  * sessionId 当普通 prop 传，没有 key），两个会话恰好都开着同一个 relPath 时，只看
  * path 的「结果已就位」闸门在切换的那一帧读起来是成立的，于是上一个工作目录的同名
- * 文件正文会真的被提交出去一帧。
+ * 文件正文会真的被提交出去一帧。多工作根会话下同一条 relPath 在两个根里各有
+ * 一个文件，切换工作根同样要走这道闸门，所以根也是身份的一部分。
  */
-function targetKey(sessionId: number, path: string): string {
-  return `${sessionId}\n${path}`;
+function targetKey(sessionId: number, root: string, path: string): string {
+  return `${sessionId}\n${root}\n${path}`;
 }
+
+/** 稳定的空数组：默认值写成行内 `[]` 会让重放的 memo 每次渲染都重算。 */
+const NO_MESSAGES: chat_svc.ChatMessage[] = [];
 
 /**
  * FilePreviewPanel 是会话「文件」面板的最右一栏预览面板（spec「状态与布局」）：
  * 仅在该会话开着预览标签时渲染，可拖拽调宽（ResizableSidebar edge="left"，独立
  * persistenceKey）。标签条（≥ 2 个标签才出现）回答「打开了哪些」，header 回答
  * 「当前这个是什么、怎么看」：markdown 三档（渲染/文本/双栏）；代码/文本无分段
- * 控件，首视图由入口模式决定（目录→内容、Git/变动→与 HEAD 对比，spec 决策 9）；
+ * 控件，首视图由入口模式决定（目录→内容、「未提交」→与 HEAD 对比，spec 决策 9）；
  * 图片无档。读取走 WorkspaceFsReadFile / WorkspaceFsGitFileContent（会话级
  * relPath，本机 / 远端同一绑定）；本会话轮次结束（doneTick）按 sourceMode 自动
  * 重读刷新。标签表按会话持久化，切换会话就是换一整张表（spec「多标签预览」）。
+ *
+ * 「本次会话」档（sourceMode = "session"）是唯一不走后端的入口：它画的是**工具
+ * diff** —— 该文件本会话每一次工具调用重放出的那一个连续 diff（spec 决策 4），
+ * 与该文件此后有没有被提交无关，因此不读文件、不读 git，也没有档位控件。
  */
-export function FilePreviewPanel({ sessionId }: Props) {
+export function FilePreviewPanel({
+  sessionId,
+  messages = NO_MESSAGES,
+  cwd = "",
+}: Props) {
   const { t } = useTranslation();
-  const activeTab = useChatSidebarStore((s) =>
+  const activeTab = useFilePreviewTabsStore((s) =>
     selectActivePreviewTab(s, sessionId),
   );
-  const tabCount = useChatSidebarStore(
+  const tabCount = useFilePreviewTabsStore(
     (s) => s.previewTabsBySession[sessionId]?.tabs.length ?? 0,
   );
+  // 侧栏是工作根的持有者，这里只读它转发的那一份；侧栏还没写过（例如侧栏被
+  // 收起）时回落到会话 cwd，也就是本轮之前的行为。
+  const workRoot = useChatSidebarStore(
+    (s) => s.workRootBySession[sessionId] ?? "",
+  );
+  const root = workRoot === "" ? cwd : workRoot;
+  // 绑定的 root 实参：当前根就是会话 cwd 时用空串（后端把空串解释成会话 cwd）。
+  const rootArg = root === cwd ? "" : root;
   const path = activeTab?.path;
   const storedSegment = activeTab?.segment ?? null;
   const sourceMode = activeTab?.sourceMode;
-  const setPreviewSegment = useChatSidebarStore((s) => s.setPreviewSegment);
-  const closePreviewTab = useChatSidebarStore((s) => s.closePreviewTab);
+  const setPreviewSegment = useFilePreviewTabsStore((s) => s.setPreviewSegment);
+  const closePreviewTab = useFilePreviewTabsStore((s) => s.closePreviewTab);
 
   // 关闭按钮关的是当前活动标签：还有别的标签时就地切过去，关掉最后一个才播 200ms
   // 出场动画把整个面板收起来。
@@ -123,10 +161,27 @@ export function FilePreviewPanel({ sessionId }: Props) {
       ? storedSegment
       : "render";
   }, [kind, storedSegment]);
-  // 代码 / 文本从 Git / 变动模式打开 → 直接展示与 git HEAD 的对比；目录模式打开
+  // 从「本次会话」点开的一行看的是**工具 diff**：把该文件本会话每一次工具调用
+  // 按调用先后重放成一个连续 diff（spec 决策 4）。这一档不读文件也不读 git ——
+  // 内容全部来自消息里的 canonical 块，因此 AI 中途提交、rebase 或 amend 都不
+  // 影响它；文件类型也不参与（markdown / 图片同样看这份 diff，档位控件随之隐藏）。
+  const isToolDiff = sourceMode === "session";
+  // 代码 / 文本从「未提交」档打开 → 直接展示与 git HEAD 的对比；目录模式打开
   // → 只读内容。markdown / 图片从任何模式都不对比（spec 决策 9）。
-  const showDiff =
-    kind === "code" && sourceMode != null && sourceMode !== "directory";
+  const showDiff = kind === "code" && sourceMode === "git";
+
+  // 归属判定与「变更」行同源（collectReplayCalls 里做一次路径解析）：同一个文件
+  // 被绝对与相对两种写法改过时行只有一条，这份 diff 也必须两次都算进去。
+  const replayCalls = React.useMemo(
+    () => (isToolDiff && path ? collectReplayCalls(messages, root, path) : []),
+    [isToolDiff, messages, root, path],
+  );
+  // 一次调用都没有 ≠ 改动互相抵消：前者是「这一档没有这个文件」，画一个空 diff
+  // 会把它说成后者。toolDiff 为 null 时由 PanelBody 出那句专门的说明。
+  const toolDiff: ReplayResult | null = React.useMemo(
+    () => (replayCalls.length > 0 ? replayPatches(replayCalls) : null),
+    [replayCalls],
+  );
 
   // doneTick 每次本会话轮次结束自增一次;轮次结束是「文件可能变了」的唯一强信号,
   // 面板开着时据此重读(不读缓存,spec 决策 11)。
@@ -144,7 +199,8 @@ export function FilePreviewPanel({ sessionId }: Props) {
   // readState/gitState 还是上一个目标的内容——若不加这道「结果必须匹配当前目标」
   // 的闸门,那一帧会把旧正文渲染在新标题之下(一帧错内容,spec 决策 12 的切文件
   // 场景)。目标的身份见 targetKey——它是会话 + 文件,不只是文件。
-  const target = path === undefined ? null : targetKey(sessionId, path);
+  const target =
+    path === undefined ? null : targetKey(sessionId, rootArg, path);
   const [readTarget, setReadTarget] = React.useState<string | null>(null);
   const [gitTarget, setGitTarget] = React.useState<string | null>(null);
 
@@ -152,10 +208,11 @@ export function FilePreviewPanel({ sessionId }: Props) {
     // 代际先于 return 自增:标签全关掉时此前在途的读取同样要作废。
     readGenRef.current += 1;
     const gen = readGenRef.current;
-    if (!path) return;
-    setReadTarget(targetKey(sessionId, path));
+    // 工具 diff 不看工作区里现在是什么样：这一档一次后端调用都不打。
+    if (!path || isToolDiff) return;
+    setReadTarget(targetKey(sessionId, rootArg, path));
     setReadState({ status: "loading" });
-    WorkspaceFsReadFile(sessionId, path).then(
+    WorkspaceFsReadFile(sessionId, rootArg, path).then(
       (view) => {
         if (readGenRef.current !== gen) return;
         setReadState({ status: "loaded", view });
@@ -165,7 +222,7 @@ export function FilePreviewPanel({ sessionId }: Props) {
         setReadState({ status: "error", message: errorText(err) });
       },
     );
-  }, [sessionId, path, doneTick, reloadKey]);
+  }, [sessionId, rootArg, path, isToolDiff, doneTick, reloadKey]);
 
   React.useEffect(() => {
     // 代际先于 return 自增:切到一个不做对比的标签(markdown / 图片 / 目录模式打
@@ -178,9 +235,9 @@ export function FilePreviewPanel({ sessionId }: Props) {
       setGitState({ status: "idle" });
       return;
     }
-    setGitTarget(targetKey(sessionId, path));
+    setGitTarget(targetKey(sessionId, rootArg, path));
     setGitState({ status: "loading" });
-    WorkspaceFsGitFileContent(sessionId, path).then(
+    WorkspaceFsGitFileContent(sessionId, rootArg, path).then(
       (view) => {
         if (gitGenRef.current !== gen) return;
         setGitState({ status: "loaded", view });
@@ -190,7 +247,7 @@ export function FilePreviewPanel({ sessionId }: Props) {
         setGitState({ status: "error", message: errorText(err) });
       },
     );
-  }, [sessionId, path, showDiff, doneTick, reloadKey]);
+  }, [sessionId, rootArg, path, showDiff, doneTick, reloadKey]);
 
   if (!path) return null;
 
@@ -198,7 +255,9 @@ export function FilePreviewPanel({ sessionId }: Props) {
   // 只有 markdown 有分段控件（渲染/文本/双栏）；代码 / 文本与图片都没有（首视图
   // 由入口模式决定，spec 决策 9）。
   const segments =
-    kind === "markdown" ? (["render", "text", "split"] as const) : [];
+    kind === "markdown" && !isToolDiff
+      ? (["render", "text", "split"] as const)
+      : [];
   const SEGMENT_LABEL_KEY: Record<FilePreviewSegment, string> = {
     render: "chatContext.filePreview.segmentRender",
     text: "chatContext.filePreview.segmentText",
@@ -209,16 +268,19 @@ export function FilePreviewPanel({ sessionId }: Props) {
 
   const readSettled = readTarget === target;
   const gitSettled = gitTarget === target;
+  // 工具 diff 是同步算出来的，没有在途取数可等 —— 骨架屏在这一档下永远不该出现，
+  // 否则上一个标签留下的 readTarget 会把它按在加载态上。
   const isLoading =
-    readState.status === "loading" ||
-    !readSettled ||
-    (showDiff &&
-      (gitState.status === "idle" ||
-        gitState.status === "loading" ||
-        !gitSettled));
+    !isToolDiff &&
+    (readState.status === "loading" ||
+      !readSettled ||
+      (showDiff &&
+        (gitState.status === "idle" ||
+          gitState.status === "loading" ||
+          !gitSettled)));
 
   // 正文容器按内容变化重挂载 → 150ms 淡入(motion-reduce 停用);骨架屏不参与。
-  const contentKey = `${path}|${effectiveSegment}|${showDiff}|${readState.status}|${gitState.status}`;
+  const contentKey = `${path}|${effectiveSegment}|${showDiff}|${isToolDiff}|${readState.status}|${gitState.status}`;
 
   return (
     <ResizableSidebar
@@ -261,7 +323,7 @@ export function FilePreviewPanel({ sessionId }: Props) {
           </span>
           {dir !== "" ? (
             <span
-              className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground"
+              className="min-w-0 flex-1 truncate font-mono text-3xs text-muted-foreground"
               title={dir}
             >
               {dir}
@@ -280,7 +342,7 @@ export function FilePreviewPanel({ sessionId }: Props) {
                   aria-pressed={effectiveSegment === seg}
                   onClick={() => setPreviewSegment(sessionId, seg)}
                   className={cn(
-                    "rounded px-1.5 py-0.5 text-[10px] transition-colors duration-150",
+                    "rounded px-1.5 py-0.5 text-3xs transition-colors duration-150",
                     effectiveSegment === seg
                       ? "bg-accent font-semibold text-foreground"
                       : "text-muted-foreground hover:text-foreground",
@@ -313,6 +375,8 @@ export function FilePreviewPanel({ sessionId }: Props) {
                 kind={kind}
                 segment={effectiveSegment}
                 showDiff={showDiff}
+                toolDiff={toolDiff}
+                isToolDiff={isToolDiff}
                 readState={readState}
                 gitState={gitState}
                 path={path}
@@ -330,6 +394,8 @@ function PanelBody({
   kind,
   segment,
   showDiff,
+  toolDiff,
+  isToolDiff,
   readState,
   gitState,
   path,
@@ -338,12 +404,39 @@ function PanelBody({
   kind: PreviewKind | null;
   segment: FilePreviewSegment | null;
   showDiff: boolean;
+  toolDiff: ReplayResult | null;
+  isToolDiff: boolean;
   readState: ReadState;
   gitState: GitState;
   path: string;
   onRetry: () => void;
 }) {
   const { t } = useTranslation();
+
+  if (isToolDiff) {
+    // 本会话没有一次工具调用动过这个文件（例如调用落在工作根子树之外，或消息
+    // 还没加载完）：说出来，而不是画一个看起来「没有差异」的空 diff。
+    if (!toolDiff) {
+      return (
+        <PanelNotice
+          text={t("chatContext.filePreview.noToolChanges")}
+          hint={t("chatContext.filePreview.noToolChangesHint")}
+        />
+      );
+    }
+    return (
+      <>
+        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-muted px-3 text-3xs text-muted-foreground">
+          <span className="font-mono">
+            {t("chatContext.filePreview.toolDiffHeader")}
+          </span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto text-xs">
+          <ReplayedFileDiff path={path} result={toolDiff} />
+        </div>
+      </>
+    );
+  }
 
   if (readState.status === "error") {
     return (
@@ -441,7 +534,7 @@ function PanelBody({
     }
     return (
       <>
-        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-muted px-3 text-[10px] text-muted-foreground">
+        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-muted px-3 text-3xs text-muted-foreground">
           <span className="font-mono">
             {t("chatContext.filePreview.diffHeader")}
           </span>
@@ -528,7 +621,7 @@ function PreviewMessage({
         type="button"
         variant="outline"
         size="sm"
-        className="h-7 text-[11px]"
+        className="h-7 text-2xs"
         onClick={onRetry}
       >
         {t("chatContext.filePreview.retry")}

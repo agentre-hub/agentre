@@ -15,7 +15,7 @@ EXE :=
 endif
 COMMIT_ID := $(shell git rev-parse --short HEAD 2>$(NULLDEV) || echo unknown)
 VERSION_PKG := github.com/cago-frame/cago/configs
-BUILDINFO_PKG := github.com/agentre-ai/agentre/internal/buildinfo
+BUILDINFO_PKG := github.com/agentre-hub/agentre/internal/buildinfo
 LDFLAGS := -s -w -X $(VERSION_PKG).Version=$(VERSION) -X $(BUILDINFO_PKG).CommitID=$(COMMIT_ID)
 FRONTEND_DIR := frontend
 BACKEND_PKGS := . ./cmd/... ./e2e/... ./internal/... ./migrations ./pkg/...
@@ -146,8 +146,11 @@ endif
 test: test-backend test-frontend
 
 # 运行后端测试
+# pkg/wire 是独立 module（wire 协议生成代码的唯一来源），父 module 的 ./pkg/... 不会
+# 走进它，因此单独跑一次，否则它的 descriptor 守卫永远不会被执行。
 test-backend:
 	go test $(BACKEND_PKGS)
+	go test -C pkg/wire ./...
 
 # 运行前端测试
 test-frontend: generate

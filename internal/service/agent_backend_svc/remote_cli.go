@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,10 +11,12 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // ErrRemoteDialFailed 把 dial 阶段任何失败（网络 / TLS / token 等）统一抽象成
@@ -48,11 +49,16 @@ func (realRemoteCLI) ResolveCLIPath(ctx context.Context, deviceID int64, backend
 	}
 	defer lease.Release()
 
-	var resp handlers.CLIResolvePathResult
-	if err := lease.Client().Call(ctx, "cli.resolvePath", handlers.CLIResolvePathParams{Type: backendType}, &resp); err != nil {
+	resp, err := resolveRemoteCLIPath(ctx, lease.Client().Conn(), backendType)
+	if err != nil {
 		return nil, fmt.Errorf("rpc cli.resolvePath: %w", err)
 	}
 	return &ResolveCLIPathResponse{Path: resp.Path, Found: resp.Found}, nil
+}
+
+func resolveRemoteCLIPath(ctx context.Context, conn *protorpc.Conn, backendType string) (*agentrewire.CLIResolvePathResponse, error) {
+	return protorpc.CallMethod(ctx, conn, uint32(agentrewire.RpcMethod_RPC_METHOD_CLI_RESOLVE_PATH),
+		&agentrewire.CLIResolvePathRequest{Type: backendType}, func() *agentrewire.CLIResolvePathResponse { return &agentrewire.CLIResolvePathResponse{} })
 }
 
 func (realRemoteCLI) Probe(ctx context.Context, deviceID int64, req handlers.CLIProbeParams) (*handlers.CLIProbeResult, error) {
@@ -65,11 +71,18 @@ func (realRemoteCLI) Probe(ctx context.Context, deviceID int64, req handlers.CLI
 	}
 	defer lease.Release()
 
-	var resp handlers.CLIProbeResult
-	if err := lease.Client().Call(ctx, "cli.probe", req, &resp); err != nil {
+	resp, err := probeRemoteCLI(ctx, lease.Client().Conn(), req)
+	if err != nil {
 		return nil, fmt.Errorf("rpc cli.probe: %w", err)
 	}
-	return &resp, nil
+	return &handlers.CLIProbeResult{Text: resp.Text}, nil
+}
+
+func probeRemoteCLI(ctx context.Context, conn *protorpc.Conn, request handlers.CLIProbeParams) (*agentrewire.CLIProbeResponse, error) {
+	return protorpc.CallMethod(ctx, conn, uint32(agentrewire.RpcMethod_RPC_METHOD_CLI_PROBE), &agentrewire.CLIProbeRequest{
+		BackendType: request.BackendType, LlmProviderKey: request.LLMProviderKey, CliPath: request.CLIPath,
+		Sandbox: request.Sandbox, Approval: request.Approval, Model: request.Model,
+	}, func() *agentrewire.CLIProbeResponse { return &agentrewire.CLIProbeResponse{} })
 }
 
 // probeRemote 在远端 device 上跑一次 cli.probe，把结果折叠回主进程 Test 的
@@ -115,17 +128,4 @@ func (s *agentBackendSvc) probeRemote(ctx context.Context, b *agent_backend_enti
 		return &TestBackendResponse{OK: false, Message: msg, LatencyMs: latency}, nil
 	}
 	return &TestBackendResponse{OK: true, Message: strings.TrimSpace(resp.Text), LatencyMs: latency}, nil
-}
-
-// parseRemoteDeviceID 把 AgentBackend.DeviceID（string）parse 成 int64。
-// 空串返回 (0, false, nil)；非法格式返回 (0, false, err)。
-func parseRemoteDeviceID(s string) (int64, bool, error) {
-	if s == "" {
-		return 0, false, nil
-	}
-	id, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, false, err
-	}
-	return id, true, nil
 }

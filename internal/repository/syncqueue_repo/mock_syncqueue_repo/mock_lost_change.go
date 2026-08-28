@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	syncqueue_entity "github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
+	syncqueue_entity "github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
 	gomock "go.uber.org/mock/gomock"
 )
 

@@ -9,8 +9,8 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 )
 
 // EventKind 统一事件离散类型。chat_svc 按这个枚举做 switch。
@@ -19,10 +19,13 @@ type EventKind string
 const (
 	EventTextDelta     EventKind = "text_delta"
 	EventThinkingDelta EventKind = "thinking_delta"
-	EventToolUseStart  EventKind = "tool_use_start"
-	EventToolUseEnd    EventKind = "tool_use_end"
-	EventToolResult    EventKind = "tool_result"
-	EventSteerConsumed EventKind = "steer_consumed"
+	// EventOutputActivity 模型开始产出一个输出块(含工具入参这类不可见输出)。
+	// 纯计时信号,只用于记首 token,见 event.go 的 OutputActivity。
+	EventOutputActivity EventKind = "output_activity"
+	EventToolUseStart   EventKind = "tool_use_start"
+	EventToolUseEnd     EventKind = "tool_use_end"
+	EventToolResult     EventKind = "tool_result"
+	EventSteerConsumed  EventKind = "steer_consumed"
 	// subagent 生命周期（claudecode 与 Pi runtime 产生；codex 不发）。
 	// Pi 的 stateful drain 在这里承载 parallel/chain 的 mode + runs 全量快照；
 	// claudecode 的 legacy 单运行生产者可继续不填 Runs。
@@ -84,6 +87,14 @@ const (
 	// event.go 的 UserMessageEvent)。它是 wire 事件流的一部分,走既有的
 	// runtime.event 通知 / journal / 补齐,不需要额外的通知通道。
 	EventUserMessage EventKind = "user_message"
+	// EventUnrecognizedBlock 携带一条发送方投射不出来的转录块,原样。
+	//
+	// 它存在是为了让「我读不懂这一块」本身过得了 wire,而不是被悄悄丢掉:接收方
+	// 可能是认得这个 block_type 的新版本;就算不认得,摆一块不透明的内容也好过
+	// 转录里凭空少一段(R8)。
+	//
+	// 只有历史合成会产出它 —— 实时事件流里的一切本来就是密封事件。
+	EventUnrecognizedBlock EventKind = "unrecognized_block"
 )
 
 // ToolUseEvent EventToolUseStart / End 携带。Input 是原始 JSON；chat_svc 自己 unmarshal 到 map。
@@ -108,7 +119,7 @@ type ToolUseEvent struct {
 // 顶层 tool_use_result；codex 当前不发）。原始 JSON,留给 chat_svc 落 ChatBlock,
 // 前端按工具语义 Unmarshal。无 meta 的工具留 nil。
 type ToolResultEvent struct {
-	ToolUseID        string
+	ToolCallID       string
 	Content          string
 	IsError          bool
 	ParentToolCallID string
@@ -190,9 +201,9 @@ type RuntimeEvent struct {
 	Retry      *RetryEvent
 	Err        error
 
-	// EventSubagent* 携带：Subagent 元数据；外层 Agent.tool_use_id 放在 ToolUseID。
-	Subagent  *SubagentInfo
-	ToolUseID string
+	// EventSubagent* 携带：Subagent 元数据；外层 Agent.tool_use_id 放在 ToolCallID。
+	Subagent   *SubagentInfo
+	ToolCallID string
 
 	// EventAskUserQuestion 携带：解析后的 question 列表 + backend 提供的
 	// requestID（claudecode 走 control_request.request_id；codex 走
@@ -274,11 +285,11 @@ type ToolPermissionSink interface {
 // RequestID 是 backend 私有的回写句柄（claudecode = control_request.request_id），
 // service 在调 AskAnswerSink.SubmitAnswer 时按它定位 waiter。
 //
-// ToolUseID 关联到 assistant 流里的 tool_use 块；race 时（control_request 比
+// ToolCallID 关联到 assistant 流里的 tool_use 块；race 时（control_request 比
 // tool_use 先到）允许为空，前端 merge 时按 RequestID 占位。
 type AskUserQuestionEvent struct {
 	RequestID        string
-	ToolUseID        string
+	ToolCallID       string
 	ParentToolCallID string
 	Questions        []AskQuestion
 	// Answered / Skipped / Answers 仅 EventAskUserQuestionAnswered 时填:
@@ -414,7 +425,11 @@ type RunRequest struct {
 	Title string
 	// AgentSyncID 是该会话所属 Agent 的账号级同步标识（块 1 决策 3 的 ULID，不是本地
 	// 自增 agent_id）。远端 daemon 落库并在会话列表里回传（R5 / R7）；本地 runner 不用它。
-	AgentSyncID       string
+	AgentSyncID string
+	// ProjectSyncID 是该会话所属项目的账号级同步标识。只有远端 runtime 用得上：它
+	// 随一轮过线，让对端把项目记进自己的会话行（本地 runtime 的会话行就在本机，
+	// 项目归属查得到，不需要携带）。空串 = 自由会话或项目还没认领标识。
+	ProjectSyncID     string
 	SystemPrompt      string
 	ProviderSessionID string // 空 = 新建；非空 = resume
 	// FreshSession 声明这一轮**必须起全新会话**(挂账修复 2026-08-11):即使远端 daemon
@@ -718,22 +733,22 @@ type AutonomousTurn struct {
 
 // CompletedBackgroundTask 见 AutonomousTurn.CompletedTask。
 type CompletedBackgroundTask struct {
-	ToolUseID string
-	TaskID    string
-	Status    string // "completed" | "failed"; 空 → 视为 completed（见 pkg/claudecode.CompletedBackgroundTask）
-	Summary   string // CLI task_notification.summary 透传；空 = CLI 没下发或 remote 路径暂不携带
+	ToolCallID string
+	TaskID     string
+	Status     string // "completed" | "failed"; 空 → 视为 completed（见 pkg/claudecode.CompletedBackgroundTask）
+	Summary    string // CLI task_notification.summary 透传；空 = CLI 没下发或 remote 路径暂不携带
 }
 
 // SubagentActivitySource 由能在轮间(空闲)产生「后台 subagent 内部活动流」的 runtime 实现
-// —— 当前仅 claudecode。事件流与 Run 同形,ToolUseID 是发起该 subagent 的 Agent 工具 tool_use_id。
+// —— 当前仅 claudecode。事件流与 Run 同形,ToolCallID 是发起该 subagent 的 Agent 工具 tool_use_id。
 type SubagentActivitySource interface {
 	SubagentActivity(sessionID int64) <-chan SubagentActivity
 }
 
 // SubagentActivity 镜像 claudecode.SubagentActivity:一轮后台 subagent 内部活动的事件流。
 type SubagentActivity struct {
-	ToolUseID string
-	Events    <-chan Event
+	ToolCallID string
+	Events     <-chan Event
 	// TurnToken 是本活动轮的 per-turn token,供 Abort 精确寻址(决策 1)。
 	TurnToken uint64
 }

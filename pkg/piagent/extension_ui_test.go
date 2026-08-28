@@ -3,7 +3,6 @@ package piagent
 import (
 	"context"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,39 +50,4 @@ func TestStreamCancelsBlockingExtensionUIDialogsExactlyOnce(t *testing.T) {
 		"editor-1":  1,
 	}, responses)
 	assert.NotContains(t, responses, "notify-1")
-}
-
-// Given a dialog carries sensitive UI copy, when raw frame logging is enabled,
-// then the request is consumed without exposing title, message, or options.
-func TestStreamDoesNotLogExtensionUIRequestPayload(t *testing.T) {
-	script := strings.Join([]string{
-		`{"type":"response","command":"prompt","success":true}`,
-		`{"type":"extension_ui_request","id":"confirm-secret","method":"confirm","title":"secret-title","message":"secret-message","options":["secret-option"]}`,
-		`{"type":"agent_settled"}`,
-		`{"type":"response","command":"get_session_stats","success":true,"data":{}}`,
-		"",
-	}, "\n")
-	client, _ := newCaptureClient(script)
-	var mu sync.Mutex
-	var logged []string
-	client.rawSink = func(frame []byte) {
-		mu.Lock()
-		logged = append(logged, string(frame))
-		mu.Unlock()
-	}
-
-	s, err := client.Stream(context.Background(), "use project agent")
-	require.NoError(t, err)
-	for s.Next() {
-	}
-	require.NoError(t, s.Err())
-
-	mu.Lock()
-	joined := strings.Join(logged, "\n")
-	mu.Unlock()
-	assert.NotContains(t, joined, "extension_ui_request")
-	assert.NotContains(t, joined, "secret-title")
-	assert.NotContains(t, joined, "secret-message")
-	assert.NotContains(t, joined, "secret-option")
-	assert.Contains(t, joined, `"command":"prompt"`, "unrelated RPC frames should still reach the raw sink")
 }

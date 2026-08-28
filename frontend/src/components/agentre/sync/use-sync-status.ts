@@ -19,7 +19,7 @@ export type RestoreOutcome = sync_svc.RestoreOutcome;
  * 的三个动作(恢复 / 按内容新建 / 丢弃)包成会自动 reload 的函数。
  *
  * `status` 为 `null` 时(初次加载中,或未登录 —— `Status()` 返回
- * `{Enabled:false}` 而不是抛错)由调用方据 `status?.Enabled` 判断整个「同步」
+ * `{enabled:false}` 而不是抛错)由调用方据 `status?.enabled` 判断整个「同步」
  * 入口存不存在(R12);这里不单独维护一个 loggedIn 布尔,避免两处判断登录态
  * 各自为政。
  */
@@ -59,7 +59,7 @@ export function useSyncStatus() {
     loading,
     reload,
     // retryNow 触发一次立即同步(「立即重试」按钮);失败是同步失败重试的正常
-    // 一部分,不在这里抛给调用方 —— reload() 之后 status.LastError 自然反映
+    // 一部分,不在这里抛给调用方 —— reload() 之后 status.lastError 自然反映
     // 最新结果。
     retryNow: async () => {
       try {

@@ -2,83 +2,86 @@ package app
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
+	"io"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/internal/pkg/pty/remote"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/internal/pkg/pty/remote"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 
 	"github.com/stretchr/testify/require"
 )
 
 type terminalWiringDaemonClient struct {
-	mu           sync.Mutex
-	handlers     map[string]func(context.Context, json.RawMessage) (any, error)
-	handlerCalls map[string]int
-	closed       chan struct{}
-	closeOnce    sync.Once
-	openErr      error
-	closeErrors  []error
-	closeCalls   int
+	mu          sync.Mutex
+	conn        *protorpc.Conn
+	server      *protorpc.Conn
+	closed      chan struct{}
+	closeOnce   sync.Once
+	openErr     error
+	closeErrors []error
+	closeCalls  int
 }
 
 func newTerminalWiringDaemonClient() *terminalWiringDaemonClient {
-	return &terminalWiringDaemonClient{
-		handlers:     map[string]func(context.Context, json.RawMessage) (any, error){},
-		handlerCalls: map[string]int{},
-		closed:       make(chan struct{}),
-	}
+	a, b := terminalWiringPipePair()
+	client := &terminalWiringDaemonClient{closed: make(chan struct{})}
+	serverRegistry := protorpc.NewRegistry()
+	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_OPEN), func() *agentrewire.TerminalOpenRequest { return &agentrewire.TerminalOpenRequest{} }, func(_ context.Context, request *agentrewire.TerminalOpenRequest) (*agentrewire.TerminalOpenResponse, error) {
+		client.mu.Lock()
+		defer client.mu.Unlock()
+		if client.openErr != nil {
+			return nil, client.openErr
+		}
+		return &agentrewire.TerminalOpenResponse{TerminalId: request.TerminalId}, nil
+	})
+	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_WRITE), func() *agentrewire.TerminalWriteRequest { return &agentrewire.TerminalWriteRequest{} }, func(context.Context, *agentrewire.TerminalWriteRequest) (*agentrewire.Empty, error) {
+		return &agentrewire.Empty{}, nil
+	})
+	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_RESIZE), func() *agentrewire.TerminalResizeRequest { return &agentrewire.TerminalResizeRequest{} }, func(context.Context, *agentrewire.TerminalResizeRequest) (*agentrewire.Empty, error) {
+		return &agentrewire.Empty{}, nil
+	})
+	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE), func() *agentrewire.TerminalCloseRequest { return &agentrewire.TerminalCloseRequest{} }, func(context.Context, *agentrewire.TerminalCloseRequest) (*agentrewire.Empty, error) {
+		client.mu.Lock()
+		defer client.mu.Unlock()
+		client.closeCalls++
+		if client.closeCalls <= len(client.closeErrors) {
+			return nil, client.closeErrors[client.closeCalls-1]
+		}
+		return &agentrewire.Empty{}, nil
+	})
+	client.conn = protorpc.NewConn(a, protorpc.NewRegistry())
+	client.server = protorpc.NewConn(b, serverRegistry)
+	go client.conn.Serve(context.Background())
+	go client.server.Serve(context.Background())
+	return client
 }
 
-func (c *terminalWiringDaemonClient) Call(_ context.Context, method string, params any, result any) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	switch method {
-	case "terminal.open":
-		if c.openErr != nil {
-			return c.openErr
-		}
-		result.(*protocol.TerminalOpenResult).TerminalID = params.(protocol.TerminalOpenParams).TerminalID
-	case "terminal.close":
-		c.closeCalls++
-		if c.closeCalls <= len(c.closeErrors) {
-			return c.closeErrors[c.closeCalls-1]
-		}
-	}
+func (c *terminalWiringDaemonClient) Conn() *protorpc.Conn    { return c.conn }
+func (c *terminalWiringDaemonClient) Closed() <-chan struct{} { return c.closed }
+
+func (c *terminalWiringDaemonClient) Close() error {
+	c.closeConnection()
 	return nil
 }
 
-func (c *terminalWiringDaemonClient) Handle(
-	method string,
-	fn func(context.Context, json.RawMessage) (any, error),
-) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.handlerCalls[method]++
-	c.handlers[method] = fn
-}
-
-func (c *terminalWiringDaemonClient) Closed() <-chan struct{} { return c.closed }
-
 func (c *terminalWiringDaemonClient) dispatch(method string, payload any) error {
-	c.mu.Lock()
-	fn := c.handlers[method]
-	c.mu.Unlock()
-	if fn == nil {
-		return errors.New("handler not registered")
+	var notification *agentrewire.RpcNotification
+	switch event := payload.(type) {
+	case protocol.TerminalDataEvent:
+		notification = &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_TerminalData{TerminalData: &agentrewire.TerminalDataNotification{TerminalId: event.TerminalID, Data: event.Data}}}
+	case protocol.TerminalExitEvent:
+		notification = &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_TerminalExit{TerminalExit: &agentrewire.TerminalExitNotification{TerminalId: event.TerminalID, Code: int32(event.Code), Reason: event.Reason, Message: event.Msg}}}
+	default:
+		return errors.New("unsupported terminal notification")
 	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	_, err = fn(context.Background(), raw)
-	return err
+	return c.server.Notify(notification)
 }
 
 func (c *terminalWiringDaemonClient) push(t *testing.T, method string, payload any) {
@@ -86,15 +89,47 @@ func (c *terminalWiringDaemonClient) push(t *testing.T, method string, payload a
 	require.NoError(t, c.dispatch(method, payload), "dispatch %s", method)
 }
 
-func (c *terminalWiringDaemonClient) handlerCallCount(method string) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.handlerCalls[method]
+func (c *terminalWiringDaemonClient) closeConnection() {
+	c.closeOnce.Do(func() {
+		close(c.closed)
+		_ = c.conn.Close()
+		_ = c.server.Close()
+	})
 }
 
-func (c *terminalWiringDaemonClient) closeConnection() {
-	c.closeOnce.Do(func() { close(c.closed) })
+type terminalWiringPipe struct {
+	in, out chan []byte
+	done    chan struct{}
+	once    *sync.Once
 }
+
+func terminalWiringPipePair() (*terminalWiringPipe, *terminalWiringPipe) {
+	a, b := make(chan []byte, 64), make(chan []byte, 64)
+	done := make(chan struct{})
+	once := &sync.Once{}
+	return &terminalWiringPipe{in: a, out: b, done: done, once: once}, &terminalWiringPipe{in: b, out: a, done: done, once: once}
+}
+
+func (p *terminalWiringPipe) ReadFrame() ([]byte, error) {
+	select {
+	case payload := <-p.in:
+		return payload, nil
+	case <-p.done:
+		return nil, io.EOF
+	}
+}
+
+func (p *terminalWiringPipe) WriteFrame(payload []byte) error {
+	select {
+	case p.out <- append([]byte(nil), payload...):
+		return nil
+	case <-p.done:
+		return io.EOF
+	}
+}
+
+func (p *terminalWiringPipe) Close() error          { p.once.Do(func() { close(p.done) }); return nil }
+func (p *terminalWiringPipe) Done() <-chan struct{} { return p.done }
 
 type terminalWiringBorrower struct {
 	mu       sync.Mutex
@@ -141,10 +176,9 @@ func requireTerminalWiringData(
 	data string,
 ) {
 	t.Helper()
-	encoded := base64.StdEncoding.EncodeToString([]byte(data))
 	require.NoError(t, client.dispatch("terminal.data", protocol.TerminalDataEvent{
 		TerminalID: terminalID,
-		Data:       encoded,
+		Data:       []byte(data),
 	}))
 	select {
 	case got := <-h.Data():
@@ -220,8 +254,6 @@ func TestTerminalProductionWiring_GivenTwoLiveTerminalsOnOneDaemonClient_WhenOpe
 	borrows, releases = borrower.counts()
 	require.Equal(t, 2, borrows)
 	require.Zero(t, releases, "live handles must retain their independent leases")
-	require.Equal(t, 1, client.handlerCallCount("terminal.data"))
-	require.Equal(t, 1, client.handlerCallCount("terminal.exit"))
 
 	requireTerminalWiringData(t, client, first, "terminal-first", "first")
 	requireTerminalWiringData(t, client, second, "terminal-second", "second")
@@ -270,8 +302,6 @@ func TestTerminalProductionWiring_GivenConcurrentOpensOnSharedClient_WhenStarted
 		require.NoError(t, result.err)
 		handles = append(handles, result.handle)
 	}
-	require.Equal(t, 1, client.handlerCallCount("terminal.data"))
-	require.Equal(t, 1, client.handlerCallCount("terminal.exit"))
 	borrows, releases := borrower.counts()
 	require.Equal(t, opens, borrows)
 	require.Zero(t, releases)
@@ -314,7 +344,7 @@ func TestTerminalProductionWiring_GivenRemoteOpenFails_WhenOpened_ThenReleasesBo
 	h, err := backend.Open(context.Background(), pty.Spec{TerminalID: "terminal-open-failure", Cwd: "/repo"})
 
 	require.Nil(t, h)
-	require.ErrorIs(t, err, openErr)
+	require.EqualError(t, err, openErr.Error())
 	borrows, releases := borrower.counts()
 	require.Equal(t, 1, borrows)
 	require.Equal(t, 1, releases)
@@ -332,7 +362,7 @@ func TestTerminalProductionWiring_GivenCloseFails_WhenRetried_ThenRetainsLeaseUn
 	h, err := backend.Open(context.Background(), pty.Spec{TerminalID: "terminal-close-retry", Cwd: "/repo"})
 	require.NoError(t, err)
 
-	require.ErrorIs(t, h.Close(), closeErr)
+	require.EqualError(t, h.Close(), closeErr.Error())
 	_, releases := borrower.counts()
 	require.Zero(t, releases)
 
@@ -368,10 +398,6 @@ func TestTerminalProductionWiring_GivenReplacementClientForSameDevice_WhenOpened
 	newHandle, err := newBackend.Open(context.Background(), pty.Spec{TerminalID: "terminal-new", Cwd: "/new"})
 	require.NoError(t, err)
 
-	require.Equal(t, 1, oldClient.handlerCallCount("terminal.data"))
-	require.Equal(t, 1, oldClient.handlerCallCount("terminal.exit"))
-	require.Equal(t, 1, newClient.handlerCallCount("terminal.data"))
-	require.Equal(t, 1, newClient.handlerCallCount("terminal.exit"))
 	cacheSize, generation := terminalWiringCachedGeneration(wiring, 42)
 	require.Equal(t, 1, cacheSize, "the cache keeps only the current generation per device")
 	require.Equal(t, (<-chan struct{})(newClient.closed), generation)

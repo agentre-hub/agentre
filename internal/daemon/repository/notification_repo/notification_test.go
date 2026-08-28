@@ -9,17 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/repository/notification_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/repository/notification_repo"
 )
 
 // appendSQLPattern 是 Append 必须发出的那条 SQL:分配 seq 与写入在同一条语句里
 // 完成。分成「先 SELECT MAX(seq)+1 再 INSERT」两条语句的实现会漏掉这个模式而失败
 // ——那种实现下两个并发写者会读到同一个 MAX(seq)、其中一条通知被静默丢弃
 // (见 daemon_test.go 的并发用例)。
-const appendSQLPattern = "INSERT INTO daemon_notification_logs " +
-	"\\(peer_fingerprint, peer_session_id, seq, method, payload, created_at\\) " +
-	"SELECT \\?, \\?, COALESCE\\(MAX\\(seq\\), 0\\) \\+ 1, \\?, \\?, \\? " +
-	"FROM daemon_notification_logs WHERE peer_fingerprint = \\? AND peer_session_id = \\? " +
+const appendSQLPattern = "INSERT INTO daemon_notification_journal " +
+	"\\(peer_fingerprint, peer_session_id, seq, payload, createtime\\) " +
+	"SELECT \\?, \\?, COALESCE\\(MAX\\(seq\\), 0\\) \\+ 1, \\?, \\? " +
+	"FROM daemon_notification_journal WHERE peer_fingerprint = \\? AND peer_session_id = \\? " +
 	"RETURNING seq"
 
 // TestNotificationRepo_Append_AllocatesNextSeqInOneStatement 覆盖任务目标的
@@ -30,15 +30,15 @@ func TestNotificationRepo_Append_AllocatesNextSeqInOneStatement(t *testing.T) {
 	repo := notification_repo.NewNotification()
 
 	mock.ExpectQuery(appendSQLPattern).
-		WithArgs("peerA", "s1", "runtime.event", "{}", sqlmock.AnyArg(), "peerA", "s1").
+		WithArgs("peerA", "s1", []byte{1, 2}, sqlmock.AnyArg(), "peerA", "s1").
 		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(7))
 
 	n := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "s1", Method: "runtime.event", Payload: "{}",
+		PeerFingerprint: "peerA", PeerSessionID: "s1", Payload: string([]byte{1, 2}),
 	}
 	require.NoError(t, repo.Append(ctx, n))
 	assert.Equal(t, int64(7), n.Seq, "库分配的 seq 必须回填到入参")
-	assert.NotZero(t, n.CreatedAt, "落库时间必须被填上")
+	assert.NotZero(t, n.Createtime, "落库时间必须被填上")
 
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -52,7 +52,7 @@ func TestNotificationRepo_Append_PropagatesError(t *testing.T) {
 	mock.ExpectQuery(appendSQLPattern).WillReturnError(errors.New("disk I/O error"))
 
 	n := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "s1", Method: "runtime.event", Payload: "{}",
+		PeerFingerprint: "peerA", PeerSessionID: "s1", Payload: string([]byte{1, 2}),
 	}
 	err := repo.Append(ctx, n)
 	require.Error(t, err)
@@ -73,11 +73,11 @@ func TestNotificationRepo_Append_IgnoresCallerSuppliedSeq(t *testing.T) {
 	repo := notification_repo.NewNotification()
 
 	mock.ExpectQuery(appendSQLPattern).
-		WithArgs("peerA", "s1", "runtime.event", `{"a":1}`, sqlmock.AnyArg(), "peerA", "s1").
+		WithArgs("peerA", "s1", []byte{1, 2}, sqlmock.AnyArg(), "peerA", "s1").
 		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(3))
 
 	n := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "s1", Seq: 99, Method: "runtime.event", Payload: `{"a":1}`,
+		PeerFingerprint: "peerA", PeerSessionID: "s1", Seq: 99, Payload: string([]byte{1, 2}),
 	}
 	require.NoError(t, repo.Append(ctx, n))
 	assert.Equal(t, int64(3), n.Seq, "入参里的 seq 必须被库分配到的那个覆盖掉")
@@ -92,7 +92,7 @@ func TestNotificationRepo_LatestSeq_ReadsMaxSeqFromTheLog(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := notification_repo.NewNotification()
 
-	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) FROM daemon_notification_logs WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) FROM daemon_notification_journal WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
 		WithArgs("peerA", "s1").
 		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(42))
 
@@ -109,7 +109,7 @@ func TestNotificationRepo_LatestSeqByPeer_GroupsPerSession(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := notification_repo.NewNotification()
 
-	mock.ExpectQuery("SELECT peer_session_id, MAX\\(seq\\) AS seq FROM daemon_notification_logs WHERE peer_fingerprint = \\? GROUP BY peer_session_id").
+	mock.ExpectQuery("SELECT peer_session_id, MAX\\(seq\\) AS seq FROM daemon_notification_journal WHERE peer_fingerprint = \\? GROUP BY peer_session_id").
 		WithArgs("peerA").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_session_id", "seq"}).
 			AddRow("s1", 42).
@@ -128,10 +128,10 @@ func TestNotificationRepo_ListSince_CursorBoundaries(t *testing.T) {
 	repo := notification_repo.NewNotification()
 
 	t.Run("cursor=0 返回从 seq=1 开始的全部通知", func(t *testing.T) {
-		rows := sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "seq", "method", "payload", "created_at"}).
+		rows := sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "seq", "method", "payload", "createtime"}).
 			AddRow("peerA", "s1", 1, "runtime.event", "{}", 100).
 			AddRow("peerA", "s1", 2, "runtime.event", "{}", 200)
-		mock.ExpectQuery("SELECT \\* FROM `daemon_notification_logs` WHERE peer_fingerprint = \\? AND peer_session_id = \\? AND seq > \\? ORDER BY seq ASC LIMIT \\?").
+		mock.ExpectQuery("SELECT \\* FROM `daemon_notification_journal` WHERE peer_fingerprint = \\? AND peer_session_id = \\? AND seq > \\? ORDER BY seq ASC LIMIT \\?").
 			WithArgs("peerA", "s1", int64(0), 11).
 			WillReturnRows(rows)
 
@@ -145,9 +145,9 @@ func TestNotificationRepo_ListSince_CursorBoundaries(t *testing.T) {
 	})
 
 	t.Run("cursor 大于最新 seq 返回空且 hasMore=false", func(t *testing.T) {
-		mock.ExpectQuery("SELECT \\* FROM `daemon_notification_logs` WHERE peer_fingerprint = \\? AND peer_session_id = \\? AND seq > \\? ORDER BY seq ASC LIMIT \\?").
+		mock.ExpectQuery("SELECT \\* FROM `daemon_notification_journal` WHERE peer_fingerprint = \\? AND peer_session_id = \\? AND seq > \\? ORDER BY seq ASC LIMIT \\?").
 			WithArgs("peerA", "s1", int64(999), 11).
-			WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "seq", "method", "payload", "created_at"}))
+			WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "seq", "method", "payload", "createtime"}))
 
 		got, hasMore, err := repo.ListSince(ctx, "peerA", "s1", 999, 10)
 		require.NoError(t, err)
@@ -157,11 +157,11 @@ func TestNotificationRepo_ListSince_CursorBoundaries(t *testing.T) {
 	})
 
 	t.Run("超过 limit 的剩余行触发 hasMore=true 且只返回 limit 条", func(t *testing.T) {
-		rows := sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "seq", "method", "payload", "created_at"}).
+		rows := sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "seq", "method", "payload", "createtime"}).
 			AddRow("peerA", "s1", 1, "runtime.event", "{}", 100).
 			AddRow("peerA", "s1", 2, "runtime.event", "{}", 200).
 			AddRow("peerA", "s1", 3, "runtime.event", "{}", 300)
-		mock.ExpectQuery("SELECT \\* FROM `daemon_notification_logs` WHERE peer_fingerprint = \\? AND peer_session_id = \\? AND seq > \\? ORDER BY seq ASC LIMIT \\?").
+		mock.ExpectQuery("SELECT \\* FROM `daemon_notification_journal` WHERE peer_fingerprint = \\? AND peer_session_id = \\? AND seq > \\? ORDER BY seq ASC LIMIT \\?").
 			WithArgs("peerA", "s1", int64(0), 3).
 			WillReturnRows(rows)
 
@@ -175,59 +175,14 @@ func TestNotificationRepo_ListSince_CursorBoundaries(t *testing.T) {
 	})
 }
 
-// TestNotificationRepo_SilentSessions_OnlyReportsSessionsWithNothingNewInTheWindow
-// 覆盖回收的取材面:「整个留存窗口内一条新通知都没有」的会话才进入候选,判据是该会话
-// **最新**一行的时间(不是最老那一行)—— 按单行时间取材会把一条还在被消费的会话的
-// 老前缀一起端走,而那正是重连客户端要补齐的区间(R5)。只有一行的会话不进候选:
-// 它那一行是高水位,回收要保留的就是它,取回来也无事可做。
-func TestNotificationRepo_SilentSessions_OnlyReportsSessionsWithNothingNewInTheWindow(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-	repo := notification_repo.NewNotification()
-
-	mock.ExpectQuery("SELECT peer_fingerprint, peer_session_id, MAX\\(seq\\) AS latest_seq "+
-		"FROM daemon_notification_logs GROUP BY peer_fingerprint, peer_session_id "+
-		"HAVING MAX\\(created_at\\) < \\? AND COUNT\\(\\*\\) > 1 LIMIT \\?").
-		WithArgs(int64(1000), 50).
-		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "latest_seq"}).
-			AddRow("peerA", "s1", 900).
-			AddRow("peerB", "s3", 12))
-
-	got, err := repo.SilentSessions(ctx, 1000, 50)
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assert.Equal(t, notification_repo.SilentSession{PeerFingerprint: "peerA", PeerSessionID: "s1", LatestSeq: 900}, got[0])
-	assert.Equal(t, notification_repo.SilentSession{PeerFingerprint: "peerB", PeerSessionID: "s3", LatestSeq: 12}, got[1])
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-// TestNotificationRepo_DeleteBelow_KeepsTheHighWaterRow 覆盖回收的删除面:删除**严格
-// 小于**给定 seq 的行,且只在这一条 (对端, 会话) 的范围内。删成 <= 会把该会话的高水位
-// 一起抹掉,MAX(seq) 归零后 Append 会从 1 重新分配 —— 客户端游标停在旧高水位上,此后
-// 每一条实时通知都被它当成重复丢弃,会话无声冻住。
-func TestNotificationRepo_DeleteBelow_KeepsTheHighWaterRow(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-	repo := notification_repo.NewNotification()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM `daemon_notification_logs` WHERE peer_fingerprint = \\? AND peer_session_id = \\? AND seq < \\?").
-		WithArgs("peerA", "s1", int64(900)).
-		WillReturnResult(sqlmock.NewResult(0, 899))
-	mock.ExpectCommit()
-
-	deleted, err := repo.DeleteBelow(ctx, "peerA", "s1", 900)
-	require.NoError(t, err)
-	assert.Equal(t, int64(899), deleted)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-// TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor 覆盖回收之后「这条会话的日志
-// 从哪一格开始还在」:补齐的客户端只有拿到这个下界,才分得清「游标之后那一条还没写」
-// 与「它已经被留存回收掉了」。分不清就只能一直等,会话静默冻住。
+// TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor 覆盖「这条会话的日志从哪一格
+// 开始还在」:补齐的客户端只有拿到这个下界,才分得清「游标之后那一条还没写」与「它
+// 已经不在这台机器上了」。分不清就只能一直等,会话静默冻住。
 func TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := notification_repo.NewNotification()
 
-	mock.ExpectQuery("SELECT COALESCE\\(MIN\\(seq\\), 0\\) FROM daemon_notification_logs "+
+	mock.ExpectQuery("SELECT COALESCE\\(MIN\\(seq\\), 0\\) FROM daemon_notification_journal "+
 		"WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
 		WithArgs("peerA", "s1").
 		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(900))
@@ -235,5 +190,44 @@ func TestNotificationRepo_OldestSeq_ReportsTheSurvivingFloor(t *testing.T) {
 	got, err := repo.OldestSeq(ctx, "peerA", "s1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(900), got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestNotificationRepo_DeleteAll_RemovesTheWholeSessionJournal 覆盖整条会话的日志
+// 清空(会话删除的另一半):删掉这一条 (对端, 会话) 的**全部**行,包括高水位那一条。
+//
+// 高水位那一行也必须删掉:留下它,那条会话的转录就永远清不干净。抹掉高水位带来的
+// seq 复位由镜像客户端按 dropCursorAboveHighWater 那条规则收口。
+func TestNotificationRepo_DeleteAll_RemovesTheWholeSessionJournal(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := notification_repo.NewNotification()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `daemon_notification_journal` WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("peerA", "s1").
+		WillReturnResult(sqlmock.NewResult(0, 900))
+	mock.ExpectCommit()
+
+	deleted, err := repo.DeleteAll(ctx, "peerA", "s1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(900), deleted)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestNotificationRepo_DeleteAll_LeavesOtherPeersSameSessionIDAlone 覆盖 R16 的
+// 复合键边界:同号会话属于另一个对端时一行都不能动。
+func TestNotificationRepo_DeleteAll_LeavesOtherPeersSameSessionIDAlone(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := notification_repo.NewNotification()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `daemon_notification_journal` WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("peerB", "s1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	deleted, err := repo.DeleteAll(ctx, "peerB", "s1")
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

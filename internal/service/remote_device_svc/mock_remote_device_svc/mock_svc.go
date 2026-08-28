@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	remote_device_svc "github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	remote_device_svc "github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -54,6 +54,21 @@ func (m *MockRemoteDeviceSvc) Add(ctx context.Context, req remote_device_svc.Add
 func (mr *MockRemoteDeviceSvcMockRecorder) Add(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Add), ctx, req)
+}
+
+// AdoptAccountDevices mocks base method.
+func (m *MockRemoteDeviceSvc) AdoptAccountDevices(ctx context.Context, devices []remote_device_svc.AccountDevice) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdoptAccountDevices", ctx, devices)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AdoptAccountDevices indicates an expected call of AdoptAccountDevices.
+func (mr *MockRemoteDeviceSvcMockRecorder) AdoptAccountDevices(ctx, devices any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdoptAccountDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).AdoptAccountDevices), ctx, devices)
 }
 
 // DeviceFingerprint mocks base method.
@@ -127,18 +142,6 @@ func (m *MockRemoteDeviceSvc) Pool() remote_device_svc.ConnPool {
 func (mr *MockRemoteDeviceSvcMockRecorder) Pool() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pool", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Pool))
-}
-
-// RecordDaemonOutdated mocks base method.
-func (m *MockRemoteDeviceSvc) RecordDaemonOutdated(deviceID int64, outdated bool) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RecordDaemonOutdated", deviceID, outdated)
-}
-
-// RecordDaemonOutdated indicates an expected call of RecordDaemonOutdated.
-func (mr *MockRemoteDeviceSvcMockRecorder) RecordDaemonOutdated(deviceID, outdated any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordDaemonOutdated", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).RecordDaemonOutdated), deviceID, outdated)
 }
 
 // RecordDeviceCapabilities mocks base method.

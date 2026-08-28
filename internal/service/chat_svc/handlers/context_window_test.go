@@ -6,13 +6,20 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
-type fakeCWWriter struct{ tokens int }
+type fakeCWWriter struct {
+	tokens int
+	calls  int
+}
 
-func (f *fakeCWWriter) WriteContextWindow(_ any, t int) { f.tokens = t }
+func (f *fakeCWWriter) WriteContextWindow(_ context.Context, _ any, t int) error {
+	f.tokens = t
+	f.calls++
+	return nil
+}
 
 func TestContextWindowUpdatedHandler(t *testing.T) {
 	Convey("ContextWindowUpdated 写 session.ContextWindow + emit patch", t, func() {
@@ -26,7 +33,12 @@ func TestContextWindowUpdatedHandler(t *testing.T) {
 			nil, emit, nil, tc)
 		So(err, ShouldBeNil)
 		So(wr.tokens, ShouldEqual, 200000)
-		So(su.calls, ShouldEqual, 1)
+		So(wr.calls, ShouldEqual, 1)
+
+		// sess-2974:落库只能走 Writer 的单列更新。整行回写 (SessionUpdater) 会把带外轮
+		// 手里那份起步时读出的旧快照连 agent_status / last_message_at 一起拍回库里 ——
+		// 用户在带外轮进行中发的新一轮刚写好的 running 就此被抹成 idle。
+		So(su.calls, ShouldEqual, 0)
 
 		p := emit.events[0].payload.(map[string]any)
 		ss := p["sessionStatus"].(map[string]any)
@@ -37,9 +49,11 @@ func TestContextWindowUpdatedHandler(t *testing.T) {
 func TestContextWindowUpdatedHandler_ZeroTokensNoOp(t *testing.T) {
 	Convey("Tokens=0 → no-op", t, func() {
 		emit := &fakeEmit{}
-		err := ContextWindowUpdatedHandler{}.Apply(context.Background(),
+		wr := &fakeCWWriter{}
+		err := ContextWindowUpdatedHandler{Writer: wr}.Apply(context.Background(),
 			agentruntime.ContextWindowUpdated{Tokens: 0}, nil, emit, nil, nil)
 		So(err, ShouldBeNil)
 		So(emit.events, ShouldHaveLength, 0)
+		So(wr.calls, ShouldEqual, 0)
 	})
 }

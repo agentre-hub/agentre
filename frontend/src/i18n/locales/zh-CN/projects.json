@@ -1,0 +1,70 @@
+{
+  "issues": {
+    "title": "看板",
+    "summary": {
+      "counts": "{{total}} 个任务 · {{doing}} 个进行中"
+    },
+    "actions": {
+      "newTask": "新建任务"
+    },
+    "labelsTitle": "标签管理",
+    "syncJoined": "看板已并入账号同步：任务与标签从现在起跟着账号在你的设备之间同步。",
+    "exec": {
+      "followAgent": "跟随 Agent 绑定",
+      "machineAria": "选择这条任务在哪台机器上跑",
+      "modelAria": "选择这条任务用什么模型",
+      "pickerTitle": "在哪台机器上跑",
+      "kinds": {
+        "local": "本机",
+        "desktop": "另一台桌面端",
+        "daemon": "agentred"
+      }
+    }
+  },
+  "projectMerge": {
+    "title": "合并到已有项目",
+    "description": "两个项目会变成一个。这个动作不能一键撤销。",
+    "pickTargetLabel": "合并到",
+    "pickTargetPlaceholder": "选择要合并到的项目…",
+    "noCandidates": "没有其它项目可以合并",
+    "keepPathNote": "保留本机项目的本机路径，会话照常能起。",
+    "reassignNote": "两边的会话、成员 Agent、子项目与远端路径记录都会归到合并后的项目下。",
+    "identityNote": "以账号里那一个为准：名称、图标、颜色、描述取账号侧的值。",
+    "confirm": "合并",
+    "cancel": "取消",
+    "errors": {
+      "mergeFailed": "合并失败：{{error}}"
+    }
+  },
+  "projectNew": {
+    "selectDirectory": "选择项目目录"
+  },
+  "projectSettings": {
+    "basic": {
+      "localPath": "本地路径"
+    },
+    "members": {
+      "configureRemotePath": "⚠ 先去「远端路径」配置"
+    }
+  },
+  "projects": {
+    "errors": {
+      "reorderFailed": "项目顺序保存失败：{{error}}"
+    },
+    "localPath": {
+      "allMissingTitle": "这台设备还没有为任何项目配置路径",
+      "allMissingDescription": "账号里的 {{count}} 个项目都在，指定各自的目录后就能在本机开会话。"
+    },
+    "session": {
+      "activeCount": "{{count}} 个活跃会话（含子项目）"
+    },
+    "terminal": {
+      "deviceOffline": "设备离线",
+      "local": "本地",
+      "new": "新建终端",
+      "offlineSuffix": " · 离线",
+      "pathMissingSuffix": " · 未配置路径",
+      "pathNotConfigured": "先在项目设置配置远端路径"
+    }
+  }
+}

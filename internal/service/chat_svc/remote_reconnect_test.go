@@ -12,18 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // recordingEmitter 收下 emit 出去的会话级事件。
@@ -83,24 +86,21 @@ func TestReconnectRemote_SwapsLeaseAndKeepsCacheEntry(t *testing.T) {
 
 	svc := &chatSvc{emitter: NoopEmitter{}}
 	svc.setConnPoolForTest(pool)
+	installPairedDevice(t, ctrl, 7)
+	installExecDaemonRecorder(t, ctrl)
 
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 	_, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	require.NoError(t, err)
 
-	svc.remoteMu.Lock()
-	entry := svc.remoteCache[7]
-	svc.remoteMu.Unlock()
+	entry, _ := svc.remotePool().SnapshotForTest(7)
 	require.NotNil(t, entry)
 
 	got, _, err := svc.reconnectRemote(context.Background(), 7, entry)
 	require.NoError(t, err)
 	assert.Same(t, client2, got, "重连必须交出新 lease 的连接")
 
-	svc.remoteMu.Lock()
-	still := svc.remoteCache[7]
-	swapped := entry.lease
-	svc.remoteMu.Unlock()
+	still, swapped := svc.remotePool().SnapshotForTest(7)
 	assert.Same(t, entry, still, "重连后 cache entry 必须还在")
 	assert.Same(t, lease2, swapped, "entry 必须持有新 lease")
 }
@@ -124,7 +124,7 @@ func TestBorrowRemoteRuntime_ReusesRuntimeWhilePooledConnLives(t *testing.T) {
 	lease1 := mock_remote_device_svc.NewMockLease(ctrl)
 	lease2 := mock_remote_device_svc.NewMockLease(ctrl)
 	for _, l := range []*mock_remote_device_svc.MockLease{lease1, lease2} {
-		l.EXPECT().Client().Return(client).AnyTimes()
+		l.EXPECT().Client().Return(protorpctest.WrapConnection(client)).AnyTimes()
 		l.EXPECT().Closed().Return(alive).AnyTimes()
 		l.EXPECT().Release().AnyTimes()
 	}
@@ -135,7 +135,9 @@ func TestBorrowRemoteRuntime_ReusesRuntimeWhilePooledConnLives(t *testing.T) {
 
 	svc := &chatSvc{emitter: NoopEmitter{}}
 	svc.setConnPoolForTest(pool)
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	installPairedDevice(t, ctrl, 7)
+	installExecDaemonRecorder(t, ctrl)
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 
 	first, release, err := svc.borrowRemoteRuntimeForTurn(context.Background(), be, 100)
 	require.NoError(t, err)
@@ -147,11 +149,9 @@ func TestBorrowRemoteRuntime_ReusesRuntimeWhilePooledConnLives(t *testing.T) {
 	assert.Same(t, first, second,
 		"连接还活着时,同一台设备只能有一个 *remote.Runtime —— 第二个会抢走它的通知 handler")
 
-	svc.remoteMu.Lock()
-	entry := svc.remoteCache[7]
-	svc.remoteMu.Unlock()
+	entry, held := svc.remotePool().SnapshotForTest(7)
 	require.NotNil(t, entry)
-	assert.Same(t, lease2, entry.lease, "重新借用必须把新 lease 装进同一个 entry")
+	assert.Same(t, lease2, held, "重新借用必须把新 lease 装进同一个 entry")
 }
 
 // Given 那条池化连接在两轮之间被回收了(空闲超时 / daemon 掉线),When 同一台设备再
@@ -179,7 +179,9 @@ func TestBorrowRemoteRuntime_RebuildsRuntimeAfterPooledConnEvicted(t *testing.T)
 
 	svc := &chatSvc{emitter: NoopEmitter{}}
 	svc.setConnPoolForTest(pool)
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	installPairedDevice(t, ctrl, 7)
+	installExecDaemonRecorder(t, ctrl)
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 
 	first, release, err := svc.borrowRemoteRuntimeForTurn(context.Background(), be, 100)
 	require.NoError(t, err)
@@ -221,7 +223,9 @@ func TestBorrowRemoteRuntime_RebuildsWhenBorrowLandsOnAnotherPooledConn(t *testi
 
 	svc := &chatSvc{emitter: NoopEmitter{}}
 	svc.setConnPoolForTest(pool)
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	installPairedDevice(t, ctrl, 7)
+	installExecDaemonRecorder(t, ctrl)
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 
 	first, release, err := svc.borrowRemoteRuntimeForTurn(context.Background(), be, 100)
 	require.NoError(t, err)
@@ -252,13 +256,61 @@ func TestBorrowRemoteRuntime_RebuildsWhenBorrowLandsOnAnotherPooledConn(t *testi
 // 把锁,归还方的 Release 与借用方的 Borrow 因此被串成一条 happens-before 边,-race
 // 看到的是「有序的」两次访问 —— 真竞态会被这把锁整个盖住。下面这对替身在归还路径与
 // 借用路径之间不共享任何同步对象,竞态才暴露得出来。
+// installLockFreePairedDevice 是 installPairedDevice + installExecDaemonRecorder 的
+// 手写版，给上面那两个竞态用例用：gomock 的 controller 在每一次打桩调用上过同一把
+// 锁，会在并发借用方之间连出一条 happens-before 边，把这两个用例要暴露的竞态整个
+// 盖住。这对替身不共享任何同步对象。
+func installLockFreePairedDevice(t *testing.T, deviceID int64) {
+	t.Helper()
+	prevSvc := remote_device_svc.Default()
+	remote_device_svc.SetDefault(staticPairedDevices{rows: []*remote_device_svc.DeviceView{
+		{ID: deviceID, DaemonFingerprint: testDeviceFingerprint(deviceID), Online: true},
+	}})
+	prevRepo := chat_repo.Session()
+	chat_repo.RegisterSession(noopExecDaemonRecorder{})
+	t.Cleanup(func() {
+		remote_device_svc.SetDefault(prevSvc)
+		chat_repo.RegisterSession(prevRepo)
+	})
+}
+
+// staticPairedDevices 只答「本机配对表里有哪些 daemon」；其余方法内嵌接口，被调到就
+// panic —— 用例不该走到那里。
+type staticPairedDevices struct {
+	remote_device_svc.RemoteDeviceSvc
+	rows []*remote_device_svc.DeviceView
+}
+
+func (s staticPairedDevices) List(context.Context) ([]*remote_device_svc.DeviceView, error) {
+	return s.rows, nil
+}
+
+func (s staticPairedDevices) Get(_ context.Context, deviceID int64) (*remote_device_svc.DeviceView, error) {
+	for _, row := range s.rows {
+		if row.ID == deviceID {
+			return row, nil
+		}
+	}
+	return nil, nil
+}
+
+// noopExecDaemonRecorder 吞掉借出成功后那次会话行写入（R15b），其余方法同上。
+type noopExecDaemonRecorder struct {
+	chat_repo.SessionRepo
+}
+
+func (noopExecDaemonRecorder) UpdateExecDaemon(context.Context, int64, int64, string, int64) error {
+	return nil
+}
+
 func TestReleaseRemoteRuntimeGeneration_ReleasesTheLeaseItHeld(t *testing.T) {
 	const rounds = 200
 	pool := &racePool{conn: make(chan struct{})} // 同一条池化连接:每次 Borrow 都落在它上面
 
 	svc := &chatSvc{emitter: NoopEmitter{}}
 	svc.setConnPoolForTest(pool)
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	installLockFreePairedDevice(t, 7)
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 
 	for range rounds {
 		_, release, err := svc.borrowRemoteRuntimeForTurn(context.Background(), be, 100)
@@ -331,7 +383,8 @@ func TestBorrowRemoteRuntime_ConcurrentColdPathsShareOneRuntime(t *testing.T) {
 		pool := &coldPathPool{conn: make(chan struct{}), gate: newMeetingPoint(callers)}
 		svc := &chatSvc{emitter: NoopEmitter{}}
 		svc.setConnPoolForTest(pool)
-		be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+		installLockFreePairedDevice(t, 7)
+		be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 
 		stop := make(chan struct{})
 		var hog sync.WaitGroup
@@ -344,9 +397,7 @@ func TestBorrowRemoteRuntime_ConcurrentColdPathsShareOneRuntime(t *testing.T) {
 					return
 				default:
 				}
-				svc.remoteMu.Lock()
-				time.Sleep(2 * time.Millisecond)
-				svc.remoteMu.Unlock()
+				svc.remotePool().HoldLockForTest(2 * time.Millisecond)
 			}
 		}()
 
@@ -418,12 +469,15 @@ type coldPathLease struct {
 	releases atomic.Int32
 }
 
-func (l *coldPathLease) Client() agentruntime.DaemonClientPort {
+func (l *coldPathLease) Client() client.ProtobufConnection {
 	l.gate.arrive()
 	return &noopDaemonClient{}
 }
 func (l *coldPathLease) Closed() <-chan struct{} { return l.conn }
 func (l *coldPathLease) Release()                { l.releases.Add(1) }
+func (l *coldPathLease) LLMUpsert(context.Context, *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
+	return &agentrewire.LLMUpsertResponse{}, nil
+}
 
 // coldPathPool 每次 Borrow 都交出同一条池化连接上的一条新 lease。
 type coldPathPool struct {
@@ -455,9 +509,12 @@ type raceLease struct {
 	releases atomic.Int32
 }
 
-func (l *raceLease) Client() agentruntime.DaemonClientPort { return &noopDaemonClient{} }
-func (l *raceLease) Closed() <-chan struct{}               { return l.conn }
-func (l *raceLease) Release()                              { l.releases.Add(1) }
+func (l *raceLease) Client() client.ProtobufConnection { return &noopDaemonClient{} }
+func (l *raceLease) Closed() <-chan struct{}           { return l.conn }
+func (l *raceLease) Release()                          { l.releases.Add(1) }
+func (l *raceLease) LLMUpsert(context.Context, *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
+	return &agentrewire.LLMUpsertResponse{}, nil
+}
 
 // racePool 每次 Borrow 都交出同一条池化连接上的一条新 lease。mu 只在借用侧被拿,
 // 归还侧一次都不碰它 —— 否则又会把要观察的那条竞态盖住。
@@ -501,6 +558,9 @@ func TestBorrowRemoteRuntime_CacheHit_StillRecordsExecDaemon(t *testing.T) {
 	pool.EXPECT().Borrow(gomock.Any(), int64(7)).Return(lease, nil).Times(1)
 
 	rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+	rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
+		{ID: 7, DaemonFingerprint: "sha256:beef"},
+	}, nil).AnyTimes()
 	rds.EXPECT().Get(gomock.Any(), int64(7)).
 		Return(&remote_device_svc.DeviceView{ID: 7, DaemonFingerprint: "sha256:beef"}, nil).AnyTimes()
 	prevSvc := remote_device_svc.Default()
@@ -517,7 +577,7 @@ func TestBorrowRemoteRuntime_CacheHit_StillRecordsExecDaemon(t *testing.T) {
 	svc := &chatSvc{emitter: NoopEmitter{}}
 	svc.setConnPoolForTest(pool)
 
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: "sha256:beef"}
 	first, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	require.NoError(t, err)
 	second, err := svc.borrowRemoteRuntime(context.Background(), be, 101)
@@ -559,9 +619,10 @@ func registerLoadSessionRepos(t *testing.T, ctrl *gomock.Controller, sessionID i
 	msgRepo := mock_chat_repo.NewMockMessageRepo(ctrl)
 	agtRepo := mock_agent_repo.NewMockAgentRepo(ctrl)
 	sessRepo.EXPECT().Find(gomock.Any(), sessionID).Return(sess, nil).AnyTimes()
-	msgRepo.EXPECT().List(gomock.Any(), sessionID).Return([]*chat_entity.Message{
+	msgRepo.EXPECT().ListMeta(gomock.Any(), sessionID).Return([]*chat_entity.Message{
 		{ID: 11, SessionID: sessionID, Role: "assistant", BlocksJSON: "[]", Seq: 1},
 	}, nil).AnyTimes()
+	msgRepo.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	agtRepo.EXPECT().Find(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	prevSess, prevMsg, prevAgent := chat_repo.Session(), chat_repo.Message(), agent_repo.Agent()
@@ -686,7 +747,7 @@ func TestRemoteRuntime_OldDaemon_MarksPairedDeviceOutdated(t *testing.T) {
 
 	client := newRecordingDaemonClient()
 	client.expect(wire.MethodSessionList, func(_, _ any) error {
-		return &jsonrpc.Error{Code: jsonrpc.ErrMethodNotFound.Code, Message: "Method not found"}
+		return &rpcerror.Error{Code: rpcerror.CodeMethodNotFound, Message: "Method not found"}
 	})
 	client.expect(wire.MethodRun, func(_, result any) error {
 		*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 100}
@@ -696,23 +757,26 @@ func TestRemoteRuntime_OldDaemon_MarksPairedDeviceOutdated(t *testing.T) {
 	pool := mock_remote_device_svc.NewMockConnPool(ctrl)
 	lease := mock_remote_device_svc.NewMockLease(ctrl)
 	pool.EXPECT().Borrow(gomock.Any(), int64(7)).Return(lease, nil).AnyTimes()
-	lease.EXPECT().Client().Return(client).AnyTimes()
+	lease.EXPECT().Client().Return(protorpctest.WrapConnection(client)).AnyTimes()
 	lease.EXPECT().Closed().Return(make(chan struct{})).AnyTimes()
 	lease.EXPECT().Release().AnyTimes()
 
 	rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-	// 指纹留空:本用例不碰游标归属,recordExecDaemon 因此不写库。
-	rds.EXPECT().Get(gomock.Any(), int64(7)).Return(&remote_device_svc.DeviceView{ID: 7}, nil).AnyTimes()
-	rds.EXPECT().RecordDaemonOutdated(int64(7), true).Times(1)
+	rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
+		{ID: 7, DaemonFingerprint: "sha256:beef"},
+	}, nil).AnyTimes()
+	rds.EXPECT().Get(gomock.Any(), int64(7)).
+		Return(&remote_device_svc.DeviceView{ID: 7, DaemonFingerprint: "sha256:beef"}, nil).AnyTimes()
 	prevSvc := remote_device_svc.Default()
 	remote_device_svc.SetDefault(rds)
 	t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
 	svc := &chatSvc{emitter: NoopEmitter{}}
 	svc.setConnPoolForTest(pool)
+	installExecDaemonRecorder(t, ctrl)
 
 	be := &agent_backend_entity.AgentBackend{
-		DeviceID: "7", Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "x",
+		DeviceFingerprint: "sha256:beef", Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "x",
 	}
 	rt, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	require.NoError(t, err)

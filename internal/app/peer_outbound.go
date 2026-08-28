@@ -3,16 +3,17 @@ package app
 import (
 	"context"
 	"errors"
+	"time"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/service/peer_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/service/peer_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -28,11 +29,19 @@ var peerSvcAccessor = peer_svc.Default
 // Wails EventsEmit（前端用 peer_svc.EventName 订阅）。在 Startup 里 server_svc /
 // remote_device_svc / agent_repo / project_repo 均已就绪后调用。
 func (a *App) registerPeerService() {
+	// 批量广播:一批帧一次 EventsEmit,而不是一帧一次。帧本身逐字不动、seq 与顺序
+	// 原样保留(理由见 peerEventBatcher),所以前端的去重口径不变,只是改成按批消费。
+	batcher := newPeerEventBatcher(
+		peerEventFlushWindow,
+		// 定时器一次性用完即弃(每批重新排一次),句柄没有人需要,丢掉即可。
+		func(d time.Duration, f func()) { _ = time.AfterFunc(d, f) },
+		func(batch []peer_svc.PeerEvent) {
+			wailsruntime.EventsEmit(a.ctx, peer_svc.EventName, batch)
+		},
+	)
 	svc := peer_svc.New(
 		serverSvcDialer{},
-		peerEmitterFunc(func(e peer_svc.PeerEvent) {
-			wailsruntime.EventsEmit(a.ctx, peer_svc.EventName, e)
-		}),
+		peerEmitterFunc(batcher.Emit),
 		remoteDeviceFingerprintProvider{},
 		agentRepoAccessor{},
 		projectRepoAccessor{},
@@ -45,7 +54,7 @@ func (a *App) registerPeerService() {
 // serverSvcDialer 是 peer_svc.Dialer 的生产实现：经账号中继拨号（DialDesktopRelay）。
 type serverSvcDialer struct{}
 
-func (serverSvcDialer) DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (*client.Client, error) {
+func (serverSvcDialer) DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
 	return server_svc.Server().DialDesktopRelay(ctx, desktopFingerprint, peerFingerprint)
 }
 

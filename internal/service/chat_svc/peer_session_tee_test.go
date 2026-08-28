@@ -19,11 +19,11 @@ func TestCanonicalEventLoops_GivenPeerSubscribers_ThenTeeBeforeLocalDispatcherAp
 		file string
 		name string
 	}{
-		{file: "chat.go", name: "runTurn"},
-		{file: "autonomous_turn.go", name: "driveAutonomousTurn"},
+		{file: "turn_run.go", name: "consumeEvents"},
+		{file: "autonomous_turn_run.go", name: "consumeEvents"},
 		{file: "subagent_activity.go", name: "driveSubagentActivity"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.file, func(t *testing.T) {
 			source, err := os.ReadFile(tc.file)
 			require.NoError(t, err)
 			file, err := parser.ParseFile(token.NewFileSet(), tc.file, source, 0)

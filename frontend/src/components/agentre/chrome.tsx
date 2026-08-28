@@ -1,22 +1,31 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import {
+  ArrowUp,
   ChevronUp,
   CircleAlert,
+  Download,
+  Loader2,
   Minus,
-  Monitor,
-  Moon,
+  RotateCw,
   Search,
   Square,
-  Sun,
+  TriangleAlert,
   X,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  ThemeToggle,
+} from "@agentre-hub/agentre-ui";
+import type { AppTheme, AppThemePreference } from "@agentre-hub/agentre-ui";
 
 import logoMarkUrl from "@/assets/images/logo-mark.png";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useUpdateStore } from "@/stores/update-store";
 import type { AgentStatus } from "@/stores/types";
 import {
   Quit,
@@ -25,33 +34,11 @@ import {
 } from "../../../wailsjs/runtime/runtime";
 
 import { StatusDot } from "./primitives";
+import { UpdatePanel } from "./update-panel";
 import { formatChord } from "./shortcuts/format";
 import { useOptionalShortcutsContext } from "./shortcuts/shortcuts-provider";
 
 type DesktopPlatform = "darwin" | "windows" | "linux" | "unknown";
-type AppTheme = "light" | "dark";
-type AppThemePreference = AppTheme | "system";
-
-const themePreferenceOrder: AppThemePreference[] = ["system", "light", "dark"];
-
-const themePreferenceMeta: Record<
-  AppThemePreference,
-  { icon: LucideIcon; labelKey: string }
-> = {
-  system: { icon: Monitor, labelKey: "theme.system" },
-  light: { icon: Sun, labelKey: "theme.lightMode" },
-  dark: { icon: Moon, labelKey: "theme.darkMode" },
-};
-
-function nextThemePreference(
-  themePreference: AppThemePreference,
-): AppThemePreference {
-  const currentIndex = themePreferenceOrder.indexOf(themePreference);
-  const nextIndex =
-    (currentIndex < 0 ? 0 : currentIndex + 1) % themePreferenceOrder.length;
-
-  return themePreferenceOrder[nextIndex];
-}
 
 function NativeWindowControlsInset({ className }: { className?: string }) {
   return (
@@ -102,7 +89,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.minimize")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground"
         onClick={() => runWindowAction(WindowMinimise)}
       >
         <Minus className="size-4" aria-hidden="true" />
@@ -110,7 +97,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.maximize")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:bg-rail-accent focus-visible:text-accent-foreground"
         onClick={() => runWindowAction(WindowToggleMaximise)}
       >
         <Square className="size-3.5" aria-hidden="true" />
@@ -118,7 +105,7 @@ function WindowsWindowControls({ className }: WindowsWindowControlsProps) {
       <button
         type="button"
         aria-label={t("app.window.close")}
-        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:bg-destructive focus-visible:text-destructive-foreground"
+        className="wails-no-drag inline-flex w-11 cursor-pointer items-center justify-center text-muted-foreground outline-none transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:bg-destructive focus-visible:text-destructive-foreground dark:hover:bg-destructive/60 dark:focus-visible:bg-destructive/60"
         onClick={() => runWindowAction(Quit)}
       >
         <X className="size-4" aria-hidden="true" />
@@ -171,62 +158,6 @@ function CommandPaletteTrigger({
         {shortcutLabel}
       </kbd>
     </button>
-  );
-}
-
-type ThemeToggleProps = {
-  className?: string;
-  effectiveTheme?: AppTheme;
-  onThemePreferenceChange?: (themePreference: AppThemePreference) => void;
-  themePreference?: AppThemePreference;
-};
-
-function ThemeToggle({
-  className,
-  effectiveTheme,
-  onThemePreferenceChange,
-  themePreference,
-}: ThemeToggleProps) {
-  const { t } = useTranslation();
-
-  if (!themePreference || !onThemePreferenceChange) {
-    return null;
-  }
-
-  const meta = themePreferenceMeta[themePreference];
-  const Icon = meta.icon;
-  const next = nextThemePreference(themePreference);
-  const nextMeta = themePreferenceMeta[next];
-  const currentDescription =
-    themePreference === "system" && effectiveTheme
-      ? t("theme.systemWithResolved", {
-          resolved:
-            effectiveTheme === "dark" ? t("theme.dark") : t("theme.light"),
-        })
-      : t(meta.labelKey);
-  const nextDescription = t(nextMeta.labelKey);
-
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      className={cn(
-        "wails-no-drag group relative size-10 overflow-visible rounded-lg text-sidebar-icon hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg:not([class*='size-'])]:size-[18px]",
-        className,
-      )}
-      aria-label={t("theme.toggle", {
-        current: currentDescription,
-        next: nextDescription,
-      })}
-      title={t("theme.toggleTitle", {
-        current: currentDescription,
-        next: nextDescription,
-      })}
-      onClick={() => onThemePreferenceChange(next)}
-    >
-      <Icon data-icon="only" aria-hidden="true" />
-    </Button>
   );
 }
 
@@ -284,7 +215,9 @@ function AppTopBar({
         <span className="text-sm font-semibold">{appName}</span>
         {breadcrumb ? (
           <>
-            <span className="font-mono text-sm text-subtle-foreground">/</span>
+            <span className="font-mono text-sm text-decorative-foreground">
+              /
+            </span>
             <span className="min-w-0 truncate text-sm text-muted-foreground">
               {breadcrumb}
             </span>
@@ -303,6 +236,136 @@ function AppTopBar({
   );
 }
 
+/**
+ * UpdateStatusPill 占据状态栏右下角原先那段版本号的位置。
+ *
+ * 只读 store、只回调，不订阅任何东西 —— 订阅挂在 App 层（useUpdateWatch），
+ * 否则每个渲染状态栏的测试都要先造一套 wails runtime。
+ *
+ * 没有更新时它退回今天的灰色版本号：「有更新」要是一次真的状态跃迁，
+ * 而不是一直挂在那的装饰。
+ */
+function UpdateStatusPill({
+  version,
+  onOpenSettings,
+}: {
+  version: string;
+  onOpenSettings: () => void;
+}) {
+  const { t } = useTranslation();
+  const phase = useUpdateStore((s) => s.phase);
+  // 面板开合放在 store 里:到达提示的「查看更新」要能把它拉开。
+  const open = useUpdateStore((s) => s.panelOpen);
+  const setPanelOpen = useUpdateStore((s) => s.setPanelOpen);
+
+  const base =
+    "wails-no-drag inline-flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
+
+  let content: React.ReactNode;
+  let tone = "text-muted-foreground hover:bg-accent hover:text-foreground";
+  // 无障碍名单独给：胶囊里的文案是缩写（「检查中」「下载中 42%」），
+  // 读屏要听到的是「什么状态 + 哪个版本」。
+  let ariaLabel = t("update.pill.aria.idle", { version });
+
+  switch (phase.kind) {
+    case "checking":
+      content = (
+        <>
+          <Loader2
+            className="size-3 shrink-0 animate-spin"
+            aria-hidden="true"
+          />
+          {t("update.pill.checking")}
+        </>
+      );
+      tone = "text-muted-foreground";
+      ariaLabel = t("update.pill.aria.checking", { version });
+      break;
+    case "available":
+      content = (
+        <>
+          <ArrowUp className="size-3 shrink-0" aria-hidden="true" />
+          {t("update.pill.available", { version: phase.info.latestVersion })}
+        </>
+      );
+      tone =
+        "border border-primary/25 bg-primary-soft text-primary-text hover:bg-primary-soft/80";
+      ariaLabel = t("update.pill.aria.available", {
+        version: phase.info.latestVersion,
+      });
+      break;
+    case "downloading":
+      content = (
+        <>
+          <Download className="size-3 shrink-0" aria-hidden="true" />
+          {t("update.pill.downloading", { percent: phase.progress })}
+        </>
+      );
+      tone =
+        "border border-primary/25 bg-primary-soft text-primary-text hover:bg-primary-soft/80";
+      ariaLabel = t("update.pill.aria.downloading", {
+        version: phase.info.latestVersion,
+        percent: phase.progress,
+      });
+      break;
+    case "installed":
+      content = (
+        <>
+          <RotateCw className="size-3 shrink-0" aria-hidden="true" />
+          {t("update.pill.restart")}
+        </>
+      );
+      tone =
+        "border border-status-running/30 bg-status-running-bg text-status-running hover:opacity-90";
+      ariaLabel = t("update.pill.aria.installed", {
+        version: phase.info.latestVersion,
+      });
+      break;
+    case "error":
+      content = (
+        <>
+          <TriangleAlert className="size-3 shrink-0" aria-hidden="true" />
+          {t("update.pill.failed")}
+        </>
+      );
+      tone =
+        "border border-destructive/30 bg-destructive-soft text-destructive hover:opacity-90";
+      ariaLabel = t("update.pill.aria.failed", { version });
+      break;
+    default:
+      // idle 与 uptodate：和今天完全一样的一段灰字，只是可以点开看看。
+      content = version;
+      break;
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setPanelOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={ariaLabel}
+          disabled={phase.kind === "checking"}
+          className={cn(
+            base,
+            tone,
+            phase.kind === "checking" && "cursor-default",
+          )}
+        >
+          {content}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="top"
+        sideOffset={8}
+        className="w-[380px] p-0"
+      >
+        <UpdatePanel version={version} onOpenSettings={onOpenSettings} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 type AppStatusBarProps = React.ComponentProps<"footer"> & {
   agentCount: number;
   runningCount: number;
@@ -310,6 +373,8 @@ type AppStatusBarProps = React.ComponentProps<"footer"> & {
   unreadCount: number;
   attentionIds: number[];
   onAttentionClick: (sessionId: number) => void;
+  /** 更新面板里的「打开更新设置」——宿主负责深链到设置页。 */
+  onOpenUpdateSettings?: () => void;
   status: AgentStatus;
   version: string;
 };
@@ -322,6 +387,7 @@ function AppStatusBar({
   attentionIds,
   className,
   onAttentionClick,
+  onOpenUpdateSettings,
   status,
   version,
   ...props
@@ -377,7 +443,7 @@ function AppStatusBar({
               summary: attentionSummary,
             })}
             title={attentionSummary}
-            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded font-medium text-status-waiting transition-colors hover:bg-rail-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 truncate">{attentionSummary}</span>
@@ -389,7 +455,10 @@ function AppStatusBar({
         </>
       ) : null}
       <span className="min-w-0 flex-1" />
-      <span className="text-subtle-foreground">{version}</span>
+      <UpdateStatusPill
+        version={version}
+        onOpenSettings={onOpenUpdateSettings ?? (() => {})}
+      />
     </footer>
   );
 }

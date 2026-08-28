@@ -17,19 +17,16 @@ const sonnerMocks = vi.hoisted(() => ({
 }));
 vi.mock("sonner", () => sonnerMocks);
 
-import {
-  LoginDialog,
-  DEFAULT_SERVER_URL,
-  type StartLoginResult,
-} from "./login-dialog";
+import type { server_svc } from "../../../../wailsjs/go/models";
+import { LoginDialog, DEFAULT_SERVER_URL } from "./login-dialog";
 
-const RESULT: StartLoginResult = {
-  DeviceCode: "device-abc",
-  UserCode: "ABCD-1234",
-  VerificationURI: "https://hub.example.com/device",
-  VerificationURIComplete: "https://hub.example.com/device?code=ABCD-1234",
-  Interval: 5,
-  ExpiresIn: 900,
+const RESULT: server_svc.StartLoginResult = {
+  deviceCode: "device-abc",
+  userCode: "ABCD-1234",
+  verificationURI: "https://hub.example.com/device",
+  verificationURIComplete: "https://hub.example.com/device?code=ABCD-1234",
+  interval: 5,
+  expiresIn: 900,
 };
 
 function renderDialog(
@@ -183,7 +180,7 @@ describe("LoginDialog", () => {
       expect(screen.getByText("Copied")).toBeInTheDocument();
     });
 
-    // 倒计时从 ExpiresIn 起,随时间递减显示剩余时间。
+    // 倒计时从 expiresIn 起,随时间递减显示剩余时间。
     it("shows a live countdown until the code expires", async () => {
       vi.useFakeTimers();
       const props = renderDialog();
@@ -258,10 +255,10 @@ describe("LoginDialog", () => {
     // 身份校验反而放行,轮询就此每 5s 跑到进程结束(还会把 onLoggedIn 打进已死的父组件)。
     it("does not leave a polling interval behind when it unmounts mid-start", async () => {
       vi.useFakeTimers();
-      let releaseStart: (r: StartLoginResult) => void = () => {};
+      let releaseStart: (r: server_svc.StartLoginResult) => void = () => {};
       const startLogin = vi.fn(
         () =>
-          new Promise<StartLoginResult>((resolve) => {
+          new Promise<server_svc.StartLoginResult>((resolve) => {
             releaseStart = resolve;
           }),
       );
@@ -422,15 +419,15 @@ describe("LoginDialog", () => {
       expect(pollLoginToken).not.toHaveBeenCalled();
     });
 
-    // grounding fact: expiry uses ExpiresIn — stop polling locally once the
+    // grounding fact: expiry uses expiresIn — stop polling locally once the
     // device code's lifetime has elapsed, even if the server never says so.
-    it("stops polling once ExpiresIn elapses without a successful poll", async () => {
+    it("stops polling once expiresIn elapses without a successful poll", async () => {
       vi.useFakeTimers();
       const pollLoginToken = vi.fn().mockResolvedValue(false);
       const startLogin = vi.fn().mockResolvedValue({
         ...RESULT,
-        Interval: 5,
-        ExpiresIn: 12,
+        interval: 5,
+        expiresIn: 12,
       });
       const props = renderDialog({ pollLoginToken, startLogin });
 

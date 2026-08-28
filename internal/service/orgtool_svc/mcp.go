@@ -1,156 +1,54 @@
 package orgtool_svc
 
 import (
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
+	"context"
 	"encoding/json"
-	"net/http"
-	"slices"
-	"strconv"
-	"strings"
+	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
-	"github.com/agentre-ai/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/department_svc"
 )
 
-// orgRef 是 org MCP token 绑定的 (agent, session)。
-type orgRef struct{ agentID, sessionID int64 }
-
-// orgMCP 是组织架构工具的 MCP-over-HTTP server(挂在 gateway /mcp/org/)。
-//
-// 身份: 无状态签名 token —— `b64url(agent:session).b64url(HMAC(secret, agent:session))`,
-// 投递时塞进 mcp-config 的 Authorization header。token 在 CLI spawn 时随 --mcp-config 注入、
-// 复用轮不重发,因此必须与子进程同寿命:确定性(同 (agent, session) 每次同值)。lookup 只验签
-// (无状态),工具开关由 tools/call 时实时查 DB(agentLookup.Find + ToolEnabled)判定 —— 用户
-// 关掉开关后旧 token 立即失效。
-type orgMCP struct {
-	svc    *orgtoolSvc
-	secret []byte // per-process HMAC 签名密钥(组织架构为本机回投,进程内即可)
+// newMCPServer 把组织架构工具接到共享的 MCP server 骨架(挂在 gateway /mcp/org/)。
+// 令牌签发与校验、JSON-RPC 信封与方法分支、GET 405、bootstrap 窗口 503、工具开关实时
+// 校验、写工具审批闸门全部归 internal/pkg/agenttool;本包只提供 schema、org_get 只读
+// 处理器与写工具分派。
+func (s *orgtoolSvc) newMCPServer() *agenttool.Server {
+	return agenttool.NewServer(agenttool.ServerConfig{
+		ToolKey:    agenttool.KeyOrg,
+		ServerName: "agentre-org",
+		Schemas:    orgToolSchemas(),
+		// bootstrap 窗口期(RegisterDeps 未执行)未就绪 → 503
+		Ready: func() bool { return s.agentLookup != nil },
+		LookupAgent: func(ctx context.Context, agentID int64) (*agent_entity.Agent, error) {
+			return s.agentLookup.Find(ctx, agentID)
+		},
+		Read: map[string]agenttool.ReadHandler{"org_get": s.handleOrgGet},
+		Write: &agenttool.WriteGate{
+			Timeout: func() time.Duration { return s.approvalTimeout },
+			Begin: func(ctx context.Context, sessionID int64, requestID, tool string, input map[string]any) (<-chan bool, error) {
+				return s.approval.BeginToolApproval(ctx, sessionID, &blocks.ToolApprovalBlock{
+					ToolKey: agenttool.KeyOrg, RequestID: requestID, ToolName: tool, ToolInput: input, Status: "pending",
+				})
+			},
+			Finish: func(ctx context.Context, sessionID int64, requestID, status, result string) error {
+				return s.approval.FinishToolApproval(ctx, sessionID, requestID, status, result)
+			},
+			Exec: s.execWriteTool,
+		},
+	})
 }
 
-func newOrgMCP(svc *orgtoolSvc) *orgMCP {
-	return &orgMCP{svc: svc, secret: randSecret()}
-}
-
-// MintToken 为某 (agent, session) 签一个无状态签名 token。同一 (agent, session) 每次返回
-// 相同值(确定性),保证被复用/恢复的子进程持有的 token 始终验签通过。
-func (h *orgMCP) MintToken(agentID, sessionID int64) string {
-	payload := strconv.FormatInt(agentID, 10) + ":" + strconv.FormatInt(sessionID, 10)
-	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + h.sign(payload)
-}
-
-func (h *orgMCP) sign(payload string) string {
-	mac := hmac.New(sha256.New, h.secret)
-	mac.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
-
-// lookup 验签并解出 token 绑定的 (agent, session)。仅做密码学校验(无状态);验签失败 /
-// 格式非法 → !ok。
-func (h *orgMCP) lookup(tok string) (orgRef, bool) {
-	payloadB64, sig, ok := strings.Cut(tok, ".")
-	if !ok {
-		return orgRef{}, false
+// handleOrgGet 是 org_get 的只读处理器:取全量组织架构并投影成 LLM 视图。
+func (s *orgtoolSvc) handleOrgGet(ctx context.Context, _ agenttool.Ref, _ json.RawMessage) (string, error) {
+	resp, err := s.orgQuery.Load(ctx, &department_svc.LoadOrgRequest{})
+	if err != nil {
+		return "", err
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(payloadB64)
-	if err != nil || !hmac.Equal([]byte(h.sign(string(payload))), []byte(sig)) {
-		return orgRef{}, false
-	}
-	aStr, sStr, ok := strings.Cut(string(payload), ":")
-	if !ok {
-		return orgRef{}, false
-	}
-	agentID, err1 := strconv.ParseInt(aStr, 10, 64)
-	sessionID, err2 := strconv.ParseInt(sStr, 10, 64)
-	if err1 != nil || err2 != nil {
-		return orgRef{}, false
-	}
-	return orgRef{agentID, sessionID}, true
-}
-
-func (h *orgMCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet { // claude 开 server→client SSE; 我们不推送 → 405(claude 容忍)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	var rpc struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-		Params struct {
-			ProtocolVersion string          `json:"protocolVersion"`
-			Name            string          `json:"name"`
-			Arguments       json.RawMessage `json:"arguments"`
-		} `json:"params"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&rpc); err != nil {
-		writeRPCError(w, nil, -32700, "parse error")
-		return
-	}
-	switch rpc.Method {
-	case "initialize":
-		pv := rpc.Params.ProtocolVersion
-		if pv == "" {
-			pv = "2025-06-18"
-		}
-		writeRPCResult(w, rpc.ID, map[string]any{
-			"protocolVersion": pv,
-			"serverInfo":      map[string]any{"name": "agentre-org", "version": "1"},
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-		})
-	case "notifications/initialized":
-		w.WriteHeader(http.StatusAccepted)
-	case "tools/list":
-		writeRPCResult(w, rpc.ID, map[string]any{"tools": orgToolSchemas()})
-	case "tools/call":
-		ref, ok := h.lookup(bearer(r))
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if h.svc.agentLookup == nil { // bootstrap 窗口期(RegisterDeps 未执行)的保险闸
-			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		// 实时开关校验:用户关掉开关后旧 token 立即失效
-		a, err := h.svc.agentLookup.Find(r.Context(), ref.agentID)
-		if err != nil || a == nil || !a.ToolEnabled(agenttool.KeyOrg) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		switch rpc.Params.Name {
-		case "org_get":
-			resp, err := h.svc.orgQuery.Load(r.Context(), &department_svc.LoadOrgRequest{})
-			if err != nil {
-				writeRPCError(w, rpc.ID, -32000, err.Error())
-				return
-			}
-			b, _ := json.Marshal(orgGetView(resp))
-			writeRPCResult(w, rpc.ID, map[string]any{"content": []any{map[string]any{"type": "text", "text": string(b)}}})
-		default:
-			if !isOrgWriteTool(rpc.Params.Name) {
-				writeRPCError(w, rpc.ID, -32601, "unknown tool")
-				return
-			}
-			h.svc.handleWriteTool(w, r, rpc.ID, ref, rpc.Params.Name, rpc.Params.Arguments)
-		}
-	default:
-		writeRPCError(w, rpc.ID, -32601, "method not found")
-	}
-}
-
-func bearer(r *http.Request) string {
-	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-}
-
-// isOrgWriteTool 判断 tool 是否是 org server 暴露的写工具(注册表里除 org_get 之外的全部)。
-func isOrgWriteTool(name string) bool {
-	def, ok := agenttool.Lookup(agenttool.KeyOrg)
-	if !ok {
-		return false
-	}
-	return name != "org_get" && slices.Contains(def.ToolNames, name)
+	b, _ := json.Marshal(orgGetView(resp))
+	return string(b), nil
 }
 
 // orgGetDeptView / orgGetAgentView 是 org_get 的 LLM 投影。LoadOrgResponse 是给 Wails
@@ -297,24 +195,4 @@ func orgToolSchemas() []any {
 			},
 		},
 	}
-}
-
-func writeRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
-}
-
-func writeRPCError(w http.ResponseWriter, id json.RawMessage, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": msg}})
-}
-
-// randSecret 生成本进程的 HMAC 签名密钥(32 字节)。crypto/rand 失败是不可恢复的灾难;
-// 签名密钥绝不能退化为可预测值, 必须 fail loud。
-func randSecret() []byte {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic("orgtool_svc: crypto/rand failed: " + err.Error())
-	}
-	return b
 }

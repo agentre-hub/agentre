@@ -7,8 +7,8 @@ import (
 	"github.com/cago-frame/agents/provider"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 type fakeMsgUpdater struct{ calls int }
@@ -20,8 +20,11 @@ type fakeUsageWriter struct {
 	msgID   int64
 }
 
-func (f *fakeUsageWriter) WriteUsage(_ any, u *agentruntime.UsageUpdate) { f.written = u }
-func (f *fakeUsageWriter) MessageID(_ any) int64                         { return f.msgID }
+func (f *fakeUsageWriter) WriteUsage(_ context.Context, _ any, u *agentruntime.UsageUpdate) error {
+	f.written = u
+	return nil
+}
+func (f *fakeUsageWriter) MessageID(_ any) int64 { return f.msgID }
 
 func TestUsageUpdateHandler(t *testing.T) {
 	Convey("UsageUpdate 调 Writer + Updater + emit usage", t, func() {
@@ -41,7 +44,9 @@ func TestUsageUpdateHandler(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(wr.written, ShouldNotBeNil)
 		So(wr.written.TotalInputTokens, ShouldEqual, 130)
-		So(mu.calls, ShouldEqual, 1)
+		// usage 落库归 Writer 单列写,handler 不得再整行回写 assistantMsg —— 整行会带上
+		// MB 级的 blocks_json,而这一帧只存 6 个整数。
+		So(mu.calls, ShouldEqual, 0)
 
 		p := emit.events[0].payload.(map[string]any)
 		So(p["kind"], ShouldEqual, "usage")

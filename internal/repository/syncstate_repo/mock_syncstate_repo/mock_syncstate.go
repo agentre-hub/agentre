@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	syncmeta_entity "github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	syncstate_repo "github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	syncmeta_entity "github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	syncstate_repo "github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -102,6 +102,35 @@ func (m *MockSyncStateRepo) FindVersion(ctx context.Context, kind, syncID string
 func (mr *MockSyncStateRepoMockRecorder) FindVersion(ctx, kind, syncID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindVersion", reflect.TypeOf((*MockSyncStateRepo)(nil).FindVersion), ctx, kind, syncID)
+}
+
+// ListUnversioned mocks base method.
+func (m *MockSyncStateRepo) ListUnversioned(ctx context.Context, kind string, accountID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUnversioned", ctx, kind, accountID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUnversioned indicates an expected call of ListUnversioned.
+func (mr *MockSyncStateRepoMockRecorder) ListUnversioned(ctx, kind, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnversioned", reflect.TypeOf((*MockSyncStateRepo)(nil).ListUnversioned), ctx, kind, accountID)
+}
+
+// ResetVersions mocks base method.
+func (m *MockSyncStateRepo) ResetVersions(ctx context.Context, kind string, accountID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetVersions", ctx, kind, accountID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ResetVersions indicates an expected call of ResetVersions.
+func (mr *MockSyncStateRepoMockRecorder) ResetVersions(ctx, kind, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetVersions", reflect.TypeOf((*MockSyncStateRepo)(nil).ResetVersions), ctx, kind, accountID)
 }
 
 // SaveMeta mocks base method.

@@ -10,11 +10,21 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc/mock_remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc/mock_remote_device_watcher_svc"
 )
+
+type watcherTestConnection struct{ conn *protorpc.Conn }
+
+func newWatcherTestConnection() client.ProtobufConnection {
+	return &watcherTestConnection{conn: protorpc.NewConn(nil, protorpc.NewRegistry())}
+}
+func (c *watcherTestConnection) Conn() *protorpc.Conn    { return c.conn }
+func (c *watcherTestConnection) Closed() <-chan struct{} { return c.conn.Done() }
+func (c *watcherTestConnection) Close() error            { return c.conn.Close() }
 
 type spyEmitter struct {
 	mu     sync.Mutex
@@ -75,7 +85,7 @@ func TestWatcher_DialOK_EmitsOnline_WritesLastSeen(t *testing.T) {
 		repo.EXPECT().Get(gomock.Any(), int64(7)).Return(fixtureRow(), nil)
 		kc.EXPECT().Get("agentre-daemon-token-7").Return("tok", nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("fp", nil)
-		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(1_000_000), "").Return(nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -103,7 +113,7 @@ func TestWatcher_DialTransientErr_BackoffThenRetry(t *testing.T) {
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("fp", nil).Times(2)
 		gomock.InOrder(
 			dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(nil, errors.New("ECONNREFUSED")),
-			dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil),
+			dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil),
 		)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(0), gomock.Any()).Return(nil)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), gomock.Any(), "").Return(nil)

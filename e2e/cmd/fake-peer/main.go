@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/agentre-ai/agentre/e2e/fakepeer"
+	"github.com/agentre-hub/agentre/e2e/fakepeer"
 )
 
 type ready struct {

@@ -562,11 +562,11 @@ To let a new backend run on the `agentred` daemon, change **only** `internal/dae
 
 ```go
 import (
-    _ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/builtin"
-    _ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/claudecode"
-    _ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/codex"
-    _ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-    _ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/myagent"   // ← add this line
+    _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
+    _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
+    _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/codex"
+    _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+    _ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/myagent"   // ← add this line
 )
 ```
 
@@ -586,7 +586,7 @@ Only touch this when adding new fields:
 ### 2.7 Frontend
 
 - `make generate` regenerates the `frontend/wailsjs/` bindings.
-- Editor UI (`frontend/src/components/agentre/agent-backends.tsx` + `agent-backends-utils.ts`): add the type option and new-field form controls — **use shadcn `@/components/ui/*` uniformly**, and do not add a native `<select>`.
+- Editor UI (`frontend/src/components/agentre/agent-backends.tsx` + `agent-backends-utils.ts`): add the type option and new-field form controls — **use the shadcn primitives from `@agentre-hub/agentre-ui` uniformly**, and do not add a native `<select>`.
 - Capability gating: the frontend hooks `useBackendCapabilities` / `useSessionCapabilities` (`frontend/src/components/agentre/capability/`) call the Wails bindings `GetBackendCapabilities` / `GetSessionCapabilities` (`internal/app/chat.go` → `chat_svc/ipc/capability.go`), returning `Capabilities.Set` + `PermissionModeMeta`. The component reads `caps.has("steer")` / `caps.has("set_permission_mode")` etc. to gate the steer chip / abort button / permission mode pill / ask_user_question card. After adding a new cap to the capability enum, there is no need to change the hook — only change the consuming end.
 - New-session provider selection: the composer's `ProviderPill` (`frontend/src/components/agentre/model-pill/`) renders **only for a new session (`sessionId===0`)** and only for the provider-consuming backends — builtin / claudecode / codex / piagent, gated by `isProviderSelectableBackend` in `frontend/src/components/agentre/model-pill/use-provider-pill.ts` (mirrored as `providerSelectableBackend` in `chat-panel.tsx`). It fetches `ListLLMProviders()` and filters by `isProviderCompatible`, which must stay in step with the backend-side `ProviderTypeMatch` — a backend left off the frontend list gets no pill and no provider fetch at all; OpenClaw never renders the pill. Existing sessions render no switcher (decision 7). The transient pick rides the first `Send` as `SendRequest.ProviderKey` and lands in `chat_sessions.provider_key` ([§2.4 J](#j-per-turn-model-provider-default-only-no-session-level-override)).
 - Session changed-file surfacing: the chat context sidebar's Files view is derived from persisted `ChatMessage.blocks` in `frontend/src/components/agentre/chat-context-sidebar/derive.ts`. Those blocks use the generated Wails field names `toolName` / `toolInput` (not backend-protocol names such as `name` / `input`). A backend that edits files must register its exact mutating tool name and path shape there and cover it with a fixture using the real `ChatBlock` wire shape; current mappings include Claude Code `Edit` / `Write` / `MultiEdit` with `file_path`, Codex `file_change` with `changes[].path` (plus legacy `apply_patch`), and Pi `edit` / `write` with `path`.
@@ -687,42 +687,14 @@ repo unit tests always use `testutils.Database(t)` + sqlmock, **never start a re
 
 ---
 
-## 7. 技能包（Skill Pack / plugin）注入 —— `CapSkills`
+## 7. Skill-pack / plugin injection (`CapSkills`)
 
-> 已落地，`CapSkills` 已并入 §0.5 矩阵。代码：`internal/pkg/agentskill`（leaf 目录域）+ `internal/service/skill_svc`（组合服务）+ `chat_svc/turn_skills.go`（注入接缝）+ `runtimes/claudecode/skills.go`（`--settings` 渲染）+ `runtimes/codex/session.go`（`--config plugins.*.enabled` 渲染）。
->
-> 给 agent 按 **plugin / skill-pack** 粒度配技能，是与 `CapMCPTools` 同构的 launch-time 注入：per-agent 配置 → spawn 时 CLI 配置覆盖 → 每会话子进程独立。
+`CapSkills` is a launch-time, per-agent plugin override. `RunRequest.EnabledPlugins` is sparse: listed values force a plugin on or off, while unlisted plugins inherit the user's CLI configuration. The current owning seams are:
 
-### 7.1 Claude Code CLI 控制机制（已实测，claude 2.1.174 —— 这部分是 CLI 客观事实）
+- catalog and discovery: `internal/pkg/agentskill`;
+- persistence and composition: `internal/service/skill_svc` and `chat_svc/turn_skills.go`;
+- Claude Code launch rendering: `runtimes/claudecode/skills.go`;
+- Codex launch rendering: `runtimes/codex/session.go`;
+- remote transport: `RunRequest.EnabledPlugins` in the runtime wire.
 
-| 关注点 | 结论（命令 / 实验） |
-| --- | --- |
-| 发现已装包 | `claude plugin list --json` → `[{id:"name@marketplace", enabled, scope}]`；`--available --json` 加 marketplace 可装项；`claude plugin details <id>` 列包内 skill 名 + token 成本 |
-| per-session 真相 | `--output-format stream-json` 的 `system.init` 帧带 `skills[]` / `plugins[]`（runtime 已解析此帧）。plugin skill 命名 `superpowers:brainstorming`，个人裸 skill `cago` |
-| 开关控制 | `--settings '{"enabledPlugins":{"<id>":true/false}}'` 在 **launch 时**完整控制 plugin 及其 skills。实测：关 `superpowers@claude-plugins-official` → init 帧 `skills` 从 32 降到 18（其 14 个整包消失，且从 `plugins[]` 移除） |
-| 粒度边界 | 只能按 **plugin** 开关；**单个 skill 不可**（`<name>@skills-dir:false` 无效）；个人 `~/.claude/skills/*` 裸 skill 不受 `enabledPlugins` 控制；`--disable-slash-commands` = 关全部 |
-| 叠加语义 | `--settings` 的 `enabledPlugins` 叠加（additional）到全局：注入**全量**（每个已装 plugin → 含 false）→ 与全局完全隔离；注入**稀疏子集** → 未列出沿用全局。agentre 取后者（继承，见 §7.2） |
-
-### 7.2 per-agent 独立怎么成立（共享安装也不冲突）
-
-同后端的多 agent 共用一份 `~/.claude/` 安装与 `settings.json`，但 agentre **不改共享文件**，而是**每次 spawn 子进程时单独传 `--settings`**：
-
-- 一 chat-session = 一 claude 子进程（LRU 按 `sessionKey(SessionID)`，`runtimes/claudecode/runtime.go`）；子 agent 各自持有独立 session。
-- 传 agent 的**显式覆盖** map（强制开=true / 强制关=false，**稀疏**）→ 未列出的 plugin 沿用全局 `~/.claude`（继承），agent 在全局基线上叠加自己的开关；同后端两 agent 可并发跑不同技能集。
-- 与已上线 org 工具（per-agent `MCPServers`→`--mcp-config`，`session.go` `ccBuildClientOpts`）**同模式**。
-- **caveat**：launch-time 生效，cache-hit 复用不重下发 → 改授权**下次 spawn** 生效（新会话即时；活跃缓存会话下次重启）。无 per-call gateway，纯 launch-time（对比 org 工具有 gateway 每次调用复检）。
-
-Codex 同样走 launch-time 覆盖：`codex plugin list --json` 发现已安装 plugin，`RunRequest.EnabledPlugins` 渲染为 `--config plugins."<id>".enabled=<bool>`。带 plugin 覆盖的 turn 会绕过 persistent app-server cache，确保本轮启动配置生效；未覆盖时仍继承用户全局 `~/.codex/config.toml`。
-
-### 7.3 接入的接口（已并入 §0.5 矩阵）
-
-| 接缝 | 形态 |
-| --- | --- |
-| 能力 | `capability.CapSkills`（claudecode / codex 声明）；前端 `caps.has("skills")` 门控技能区 |
-| RunRequest | `EnabledPlugins map[string]bool`（**稀疏**：仅 agent 显式覆盖；未列出沿用全局=继承）；仅 `CapSkills` runtime 消费，其它忽略（软降级，同 `MCPServers`/`CapMCPTools`） |
-| claudecode | 纯函数 `buildSkillsSettings(map, base) string`（`runtimes/claudecode/skills.go`）把 `{"enabledPlugins":…}` 合进 `--settings`；`acquireSession`（`runtime.go`）spawn 时调用 |
-| codex | 纯函数 `buildPluginConfig(map) []string`（`runtimes/codex/session.go`）把覆盖渲为 `plugins."<id>".enabled=<bool>`；带覆盖时绕过 session cache |
-| 目录域 | leaf `internal/pkg/agentskill`：`SkillPack` 类型 + `Recommended()` 静态精选 + `Discoverer` 按 backend 注册表（claudecode / codex 实现 = 解析各自 `plugin list --json`，blank import 注册，仿 runtime/prober） |
-| 服务 | `skill_svc`（消费者侧窄接口 `AgentLookup`/`BackendLookup` 注入）：`ListAgentSkillPacks`（推荐+发现合并去重，Wails 绑定 `App.ListAgentSkillPacks`）/ `EnabledPluginsMap`（注入用，回 agent 显式覆盖）；保存复用 `agent_svc.Update`（`agents.skills_json` 存 `{id,enabled}`，id=plugin id；迁移 `202606120001_agent_skills_reset` 把旧 `{label}` 清成 `{id}`） |
-| 注入点 | `chat_svc` `runTurn` 组 RunRequest 时按 `CapSkills` 填 `EnabledPlugins`（`turn_skills.go` 接缝，仿 `turn_mcp.go`） |
-| 远端 | `EnabledPlugins` 已随 remote wire 透传到 daemon runtime；目录发现仍在 `ListAgentSkillPacks` 所在进程执行，远端 CLI 不可在桌面访问时会软降级为空发现 |
+CLI plugin behavior is version-dependent. Verify discovery output and launch-override semantics against the supported CLI version before changing these seams; do not preserve a version-specific experiment or plugin count here as a timeless contract.

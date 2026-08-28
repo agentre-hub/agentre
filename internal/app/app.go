@@ -13,24 +13,25 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/bootstrap"
-	"github.com/agentre-ai/agentre/internal/buildinfo"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/service/agent_svc"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/data_svc"
-	"github.com/agentre-ai/agentre/internal/service/department_svc"
-	"github.com/agentre-ai/agentre/internal/service/hook_svc"
-	"github.com/agentre-ai/agentre/internal/service/hooktool_svc"
-	"github.com/agentre-ai/agentre/internal/service/orgtool_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	watcher "github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
-	"github.com/agentre-ai/agentre/internal/service/subagent_svc"
-	"github.com/agentre-ai/agentre/internal/service/terminal_svc"
+	"github.com/agentre-hub/agentre/internal/bootstrap"
+	"github.com/agentre-hub/agentre/internal/buildinfo"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/service/agent_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/data_svc"
+	"github.com/agentre-hub/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/hook_svc"
+	"github.com/agentre-hub/agentre/internal/service/hooktool_svc"
+	"github.com/agentre-hub/agentre/internal/service/orgtool_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	watcher "github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/service/subagent_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/service/terminal_svc"
 
 	"github.com/cago-frame/cago/configs"
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -114,6 +115,10 @@ func (a *App) Startup(ctx context.Context) {
 	a.resetStaleSessionsOnStartup(ctx)
 	a.registerChatService()
 	a.hookPollerCancel = hook_svc.StartScheduler(ctx)
+	// 常驻 CLI 子进程的按时清扫:池的条数上限管不了「留多久」,一个开过一次就再没
+	// 碰过的会话能把 CLI 连同它的 MCP server 挂到退出为止。
+	agentruntime.DefaultCLISessionPool().StartIdleSweeper(ctx,
+		agentruntime.DefaultIdleSessionTTL, cliSessionSweepInterval)
 
 	// Server 联机：绑定 wails 事件源后启动 boot 协程（最长一次刷新）。
 	server_svc.Server().SetEmitter(func(payload any) {
@@ -125,6 +130,15 @@ func (a *App) Startup(ctx context.Context) {
 	// 出站对端客户端（R18/R19）：接线后前端才能把对话派到另一台桌面端 / 接入其会话。
 	a.registerPeerService()
 	// 工作区多端同步的下行轮询（R3：30 秒一轮）。未登录时每一轮都是空操作（R12）。
+	//
+	// 落地什么要喊出来：项目树没有任何推送通道，另一台设备同步过来的项目此前靠
+	// 项目页那条 1 秒轮询才现身，轮询随单一会话索引一起删掉之后就只能干等下一次
+	// 别的交互。emitter 必须在 SyncBoot 之前绑好，否则第一轮下行没有听众。
+	if s := sync_svc.Default(); s != nil {
+		s.SetEmitter(func(kinds []string) {
+			wailsruntime.EventsEmit(a.ctx, sync_svc.AppliedEvent, kinds)
+		})
+	}
 	bootstrap.SyncBoot(context.Background())
 
 	// Remote device watcher：注入 wails 事件 emitter,Boot 拉起所有 ACTIVE 设备的 watcher。
@@ -150,7 +164,7 @@ func (a *App) Startup(ctx context.Context) {
 
 	a.terminalSvc = newTerminalService(a.ctx)
 
-	//nolint:gosec // G118: background poll deliberately outlives request scope
+	// 更新检查:5s 后首次判定,随后常驻 tick 到 a.ctx 结束。
 	go a.startAutoUpdateCheck()
 
 	logger.Default().Info("app startup", zap.Any("info", a.Info()))
@@ -164,7 +178,7 @@ func (a *App) catchUpRemoteSessions() {
 		return
 	}
 	if err := svc.CatchUpRemoteSessions(context.Background()); err != nil {
-		logger.Default().Warn("app startup: catch up remote sessions", zap.Error(err))
+		logger.Default().Warn("app.Startup: catch up remote sessions", zap.Error(err))
 	}
 }
 
@@ -194,30 +208,57 @@ func (a *App) onRemoteDeviceOnline(id int64, online bool) {
 
 func (a *App) resetStaleSessionsOnStartup(ctx context.Context) {
 	if err := resetStaleActiveSessions(ctx); err != nil {
-		logger.Ctx(ctx).Warn("app startup: reset stale active sessions", zap.Error(err))
+		logger.Ctx(ctx).Warn("app.Startup: reset stale active sessions", zap.Error(err))
 	}
 }
 
 // Shutdown is wired to wails OnShutdown.
 func (a *App) Shutdown(ctx context.Context) {
-	if !a.quitConfirmed.Load() {
-		a.shutdownCleanup(ctx)
-		return
-	}
+	quitConfirmed := a.quitConfirmed.Load()
+	logger.Ctx(ctx).Info("app.Shutdown: shutdown started",
+		zap.Bool("quitConfirmed", quitConfirmed))
 	a.shutdownOnce.Do(func() {
-		go a.shutdownCleanup(context.WithoutCancel(ctx))
+		logger.Ctx(ctx).Info("app.Shutdown: cleanup starting",
+			zap.Bool("quitConfirmed", quitConfirmed))
+		// Wails 接受退出后本方法不等资源清理(卡住的外部进程不得拖住退出),所以常驻 CLI
+		// 子进程必须在这里同步收掉:剩下的清理跑在 goroutine 里,而桌面进程紧接着
+		// 退出,那些 goroutine 连同优雅关闭一起消失 —— CLI 自带进程组、不会被连坐,
+		// 直接变成孤儿。KillAll 是一串信号投递,不等任何一个子进程退出。
+		agentruntime.DefaultCLISessionPool().KillAll()
+		// 不是每个后端都把进程放在池里:pi 是每轮一个进程、不进池的,只扫池的收尾
+		// 够不着它。给一个很短的上界 —— 它内部是「发信号 → 宽限 → 杀整棵树」,
+		// 上界到了就走硬杀那一支。
+		killCtx, cancelKill := context.WithTimeout(context.Background(), cliSessionQuitKillTimeout)
+		agentruntime.CloseAllSessionsEverywhere(killCtx)
+		cancelKill()
+		go func() {
+			logger.Ctx(ctx).Info("app.Shutdown: shutdown cleanup scheduled")
+			a.shutdownCleanup(context.WithoutCancel(ctx))
+			logger.Ctx(ctx).Info("app.Shutdown: shutdown cleanup completed")
+		}()
 	})
+	logger.Ctx(ctx).Info("app.Shutdown: shutdown returning")
 }
 
 // cleanupResources starts best-effort resource cleanup after Wails has accepted
-// the quit. Shutdown deliberately does not wait for this method: once the user
-// confirms quitting, a stuck external process or connection must not keep the
-// desktop process alive.
+// the quit. Shutdown deliberately does not wait for this method: a stuck
+// external process or connection must not keep the desktop process alive.
+
+// cliSessionReleaseTimeout 是同步收尾常驻 CLI 子进程的上界。
+const cliSessionReleaseTimeout = 3 * time.Second
+
+// cliSessionSweepInterval 是 idle CLI 会话清扫的巡检间隔。
+const cliSessionSweepInterval = time.Minute
+
+// cliSessionQuitKillTimeout 是确认退出那条路上收掉池外子进程的上界。Shutdown 不得
+// 拖住退出(见 app_quit_test 的 100ms 契约),所以这里只留一个很短的窗口。
+const cliSessionQuitKillTimeout = 50 * time.Millisecond
+
 func (a *App) cleanupResources(ctx context.Context) {
 	a.stopInboundPeer(ctx)
 	// 关闭全部出站对端中继连接（R19：本端退出即结束接入，对端会话不受影响）。
 	if err := a.PeerClose(); err != nil {
-		logger.Ctx(ctx).Warn("app shutdown: close outbound peer relay", zap.Error(err))
+		logger.Ctx(ctx).Warn("app.Shutdown: close outbound peer relay", zap.Error(err))
 	}
 	if a.hookPollerCancel != nil {
 		a.hookPollerCancel()
@@ -240,8 +281,16 @@ func (a *App) cleanupResources(ctx context.Context) {
 			}
 		}
 	}
-	// 收尾常驻 CLI 子进程；pool.RemoveAll 异步 close，不阻塞 wails 退出。
-	agentruntime.DefaultCLISessionPool().RemoveAll()
+	// 收尾常驻 CLI 子进程。这条路(未确认退出 / 没有活跃会话)是同步跑的,所以给一个
+	// 明确的上界:上界内优雅关闭,到点还没收尾的当场硬杀,不留孤儿。确认退出那条路
+	// 已经在 Shutdown 里先 KillAll 过一遍,这里是 no-op。
+	closeCtx, cancelClose := context.WithTimeout(context.WithoutCancel(ctx), cliSessionReleaseTimeout)
+	defer cancelClose()
+	if err := agentruntime.DefaultCLISessionPool().CloseAll(closeCtx); err != nil {
+		logger.Ctx(ctx).Warn("app.Shutdown: release CLI sessions", zap.Error(err))
+	}
+	// 池外的后端(pi 每轮一个进程,不进池)由注册表广播收尾。
+	agentruntime.CloseAllSessionsEverywhere(closeCtx)
 	if a.terminalSvc != nil {
 		a.terminalSvc.Shutdown()
 	}
@@ -253,12 +302,16 @@ func (a *App) cleanupResources(ctx context.Context) {
 // Returning true prevents the quit. If active sessions exist it emits
 // "app:quit-blocked" so the frontend can show a confirmation dialog.
 func (a *App) OnBeforeClose(ctx context.Context) (prevent bool) {
-	return shouldPreventQuit(ctx, a.quitConfirmed.Load(),
+	confirmed := a.quitConfirmed.Load()
+	logger.Ctx(ctx).Info("app.OnBeforeClose: close requested", zap.Bool("quitConfirmed", confirmed))
+	prevent = shouldPreventQuit(ctx, confirmed,
 		countActiveSessions,
 		func(n int) {
 			logger.Ctx(ctx).Info("app.OnBeforeClose: quit blocked by active sessions", zap.Int("count", n))
 			wailsruntime.EventsEmit(a.ctx, "app:quit-blocked", map[string]any{"count": n})
 		})
+	logger.Ctx(ctx).Info("app.OnBeforeClose: close decision", zap.Bool("prevent", prevent))
+	return prevent
 }
 
 // countActiveSessions reports the running/waiting session count for the quit gate.
@@ -301,14 +354,18 @@ func shouldPreventQuit(ctx context.Context, confirmed bool,
 // active sessions. It marks the quit as confirmed and triggers the real quit,
 // which re-enters OnBeforeClose and is allowed through.
 func (a *App) ConfirmQuit() {
+	logger.Default().Info("app.ConfirmQuit: confirmed quit requested")
 	a.quitConfirmed.Store(true)
 	a.finalQuitOnce.Do(func() {
 		go func() {
 			time.Sleep(a.forcedExitDelay)
+			logger.Default().Warn("app.ConfirmQuit: forced exit fallback", zap.Int("code", 0))
 			a.forceExit(0)
 		}()
 		go func() {
+			logger.Default().Info("app.ConfirmQuit: native quit started")
 			a.finalQuit(a.ctx)
+			logger.Default().Info("app.ConfirmQuit: native quit returned")
 		}()
 	})
 }
@@ -319,7 +376,11 @@ func (a *App) registerChatService() {
 	emitter := chat_svc.EmitterFunc(func(_ context.Context, name string, payload any) {
 		wailsruntime.EventsEmit(a.ctx, name, payload)
 	})
-	chat_svc.RegisterChat(chat_svc.NewChat(emitter))
+	// 合帧包一层:EventsEmit 每调一次就是一次 json.Marshal + 一次主线程 webview
+	// evaluateJavaScript,而流式文本是一个 token 一条。合帧只在高频时生效,不改变
+	// 事件的相对顺序(见 chat_svc.NewCoalescingEmitter)。
+	// 只包真正接 Wails 的这一处 —— 注入假 emitter 的单测仍逐条看到原始事件。
+	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NewCoalescingEmitter(emitter)))
 
 	// 注入 orgtool_svc 依赖:必须在 RegisterChat 之后执行,因为 chat_svc.Chat()
 	// 在此之前为 nil(chat 服务是懒注册的)。

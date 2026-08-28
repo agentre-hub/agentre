@@ -1,52 +1,34 @@
-import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  ProjectSetLocalPath,
-  SelectDirectory,
-  WorkspaceFsListDir,
-} from "@/../wailsjs/go/app/App";
-import { FileTypeIcon } from "@/components/agentre/file-type-icon";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
-import { useSessionStatus } from "@/stores/session-status-store";
+import { ProjectSetLocalPath, SelectDirectory } from "@/../wailsjs/go/app/App";
+import { Button, Spinner } from "@agentre-hub/agentre-ui";
 
-import type { workspace_fs_svc } from "@/../wailsjs/go/models";
-
-import { collapseDirChain, type ChainEntry } from "../derive";
-import {
-  type Change,
-  countSubtreeChanges,
-  GIT_STATUS_META,
-  gitStatusLabel,
-} from "../git-rows";
+import type { Change } from "../git-rows";
 
 import { DirectorySearchPanel } from "./directory-search-panel";
-import { errorText, PanelNotice, PanelSkeleton } from "./panel-feedback";
+import {
+  renderDirectoryLevel,
+  type DirectoryTreeContext,
+} from "./directory-tree-rows";
+import { PanelNotice, PanelSkeleton } from "./panel-feedback";
 import { SidebarList } from "./sidebar-list";
-import { SidebarRow } from "./sidebar-row";
-import { indentStyle } from "./tree-indent";
+import { ROOT, useDirectoryLevels, type Level } from "./use-directory-levels";
 import {
   INACTIVE_DIRECTORY_SEARCH,
   type DirectorySearch,
 } from "./use-directory-search";
 
-type Entry = workspace_fs_svc.EntryView;
-
-/** 一层目录的取数状态。已加载的层按「相对 cwd 的路径」缓存，根是空串。 */
-type Level =
-  | { status: "loading" }
-  | { status: "loaded"; entries: Entry[]; truncated: boolean }
-  | { status: "error"; message: string };
-
-const ROOT = "";
-
 type Props = {
   sessionId: number;
-  /** 会话工作目录；空串表示这个会话没有工作目录，直接出空态、不打后端。 */
+  /**
+   * 当前工作根的绝对路径（多根会话下不一定是会话 cwd）；空串表示这个会话没有
+   * 工作目录，直接出空态、不打后端。行的绝对路径与右键菜单都以它为基准。
+   */
   cwd: string;
+  /** 传给 workspacefs.* 绑定的 root 实参（空串 = 会话 cwd）。 */
+  root: string;
   remote: boolean;
   showIgnored: boolean;
   /**
@@ -78,7 +60,7 @@ type Props = {
 };
 
 /**
- * DirectoryView 是「文件」页的「目录」模式：会话工作目录的完整文件树。
+ * DirectoryView 是「目录」页的内容区：当前工作根的完整文件树。
  *
  * 树按目录懒加载，每次只列一层（设计决策 6）：大仓一次性递归会遍历几十万文件。
  * 已加载的层与展开集合只存在组件内、不持久化，切换会话时清空（决策 12）；数据是
@@ -91,6 +73,7 @@ type Props = {
 export function DirectoryView({
   sessionId,
   cwd,
+  root,
   remote,
   showIgnored,
   cwdUnavailableReason,
@@ -138,93 +121,16 @@ export function DirectoryView({
     }
   };
 
-  // gen 是取数代际：会话 / 忽略开关变化后，先前在途的响应必须丢弃，否则慢的那
-  // 一次会把新快照覆盖回旧数据。
-  const genRef = React.useRef(0);
-  const sessionRef = React.useRef(sessionId);
-
-  // 重取那一步需要「当前展开了哪些层」，但它不能把 expanded 放进依赖里（那样每次
-  // 展开都会重取整棵树），所以在这里把最新值镜像到 ref。
-  const expandedRef = React.useRef(expanded);
-  React.useEffect(() => {
-    expandedRef.current = expanded;
-  }, [expanded]);
-
-  // doneTick 每次本会话轮次结束自增一次；别的会话结束不会动它。轮次结束是「文件
-  // 可能变了」的唯一强信号，快照据此重拉（决策 13）。
-  const doneTick = useSessionStatus(sessionId)?.doneTick ?? 0;
-
-  const load = React.useCallback(
-    (relPath: string) => {
-      const gen = genRef.current;
-      setLevels((prev) => ({ ...prev, [relPath]: { status: "loading" } }));
-      WorkspaceFsListDir(sessionId, relPath, showIgnored).then(
-        (res) => {
-          if (genRef.current !== gen) return;
-          setLevels((prev) => ({
-            ...prev,
-            [relPath]: {
-              status: "loaded",
-              entries: res.entries ?? [],
-              truncated: res.truncated,
-            },
-          }));
-        },
-        (err: unknown) => {
-          if (genRef.current !== gen) return;
-          setLevels((prev) => ({
-            ...prev,
-            [relPath]: { status: "error", message: errorText(err) },
-          }));
-        },
-      );
-    },
-    [sessionId, showIgnored],
-  );
-
-  // 快照失效并重取：换会话时连展开态一起清空；「显示忽略项」变化或本会话轮次结束
-  // 时保留展开态，把根与每个已展开的层各重拉一遍（开关会改变后端返回的条目集合，
-  // 轮次结束则可能改变任意一层的内容）。
-  React.useEffect(() => {
-    if (cwd === "") return;
-    genRef.current += 1;
-    const sameSession = sessionRef.current === sessionId;
-    sessionRef.current = sessionId;
-    const keep = sameSession ? expandedRef.current : new Set<string>();
-    if (!sameSession) setExpanded(keep);
-    setLevels({});
-    for (const relPath of [ROOT, ...keep]) load(relPath);
-  }, [sessionId, showIgnored, cwd, load, doneTick]);
-
-  // chainChildrenOf 是 collapseDirChain 在这个懒加载数据源下的 childrenOf：只读
-  // 已经取回的 levels，未加载的层返回 null——链压缩因此只折叠「已经知道」的部
-  // 分，绝不会为了探链本身去发起额外请求（spec「树形模式的链压缩」）。
-  const chainChildrenOf = React.useCallback(
-    (relPath: string): Array<ChainEntry<string>> | null => {
-      const level = levels[relPath];
-      if (level === undefined || level.status !== "loaded") return null;
-      return level.entries.map((entry) => ({
-        name: entry.name,
-        isDir: entry.isDir,
-        cursor: relPath ? `${relPath}/${entry.name}` : entry.name,
-      }));
-    },
-    [levels],
-  );
-
-  // 一个用户「展开」动作要能揭示整条已经缓存到的链，而不是每次只多下一段、
-  // 逼用户对同一行反复点击（第二次点击只会把它收起）。这个 effect 在展开的
-  // 起点仍处于「链探到头但还不知道再往下」时补一次取数；链每深入一层，
-  // levels 变化会让它再检查一遍，直到链的真正末端解析出来（分支/文件/空目
-  // 录）或失败为止——用户展开一次，压缩链背后的多级懒加载对其不可见。
-  React.useEffect(() => {
-    for (const start of expanded) {
-      const chain = collapseDirChain(start, start, chainChildrenOf);
-      if (chain.children === null && levels[chain.cursor] === undefined) {
-        load(chain.cursor);
-      }
-    }
-  }, [expanded, levels, chainChildrenOf, load]);
+  const { load, chainChildrenOf } = useDirectoryLevels({
+    sessionId,
+    cwd,
+    root,
+    showIgnored,
+    levels,
+    setLevels,
+    expanded,
+    setExpanded,
+  });
 
   const toggleDir = (relPath: string) => {
     const isOpen = expanded.has(relPath);
@@ -296,19 +202,19 @@ export function DirectoryView({
     );
   }
 
-  const root = levels[ROOT];
-  if (root === undefined || root.status === "loading") {
+  const rootLevel = levels[ROOT];
+  if (rootLevel === undefined || rootLevel.status === "loading") {
     return <PanelSkeleton label={t("chatContext.directory.loading")} />;
   }
-  if (root.status === "error") {
+  if (rootLevel.status === "error") {
     return (
       <div className="px-3 py-6 text-center text-xs leading-relaxed text-muted-foreground">
-        <p>{root.message || t("chatContext.directory.readFailed")}</p>
+        <p>{rootLevel.message || t("chatContext.directory.readFailed")}</p>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="mt-2.5 h-7 text-[11px]"
+          className="mt-2.5 h-7 text-2xs"
           onClick={() => load(ROOT)}
         >
           {t("chatContext.directory.retry")}
@@ -317,217 +223,17 @@ export function DirectoryView({
     );
   }
 
-  const renderFile = (entry: Entry, relPath: string, depth: number) => {
-    // 未变动的文件在清单里没有条目，statusByPath 查不到 —— 不着色、不显示
-    // 字母（served requirement 明确要求两者只对「变动」文件出现）。
-    const status = gitStatusByPath.get(relPath);
-    const meta = status
-      ? (GIT_STATUS_META[status] ?? GIT_STATUS_META.modified)
-      : null;
-    return (
-      <SidebarRow
-        key={relPath}
-        sessionId={sessionId}
-        cwd={cwd}
-        remote={remote}
-        sourceMode="directory"
-        kind="file"
-        path={relPath}
-        name={entry.name}
-        nameClassName={meta?.className}
-        depth={depth}
-        title={relPath}
-        lead={
-          <>
-            {/* 与目录 chevron 等宽的槽位，让同级目录名 / 文件名对齐。 */}
-            <span className="size-3.5 shrink-0" aria-hidden="true" />
-            <FileTypeIcon path={relPath} />
-          </>
-        }
-        trailing={
-          meta ? (
-            <>
-              {/* 字母对读屏隐藏，文字标签走 sr-only（与 Git 页同一套无障碍约定，
-                  两者共用 gitStatusLabel/GIT_STATUS_META，不重复定义颜色语义）。
-                  不显示 +N/−N 角标（served requirement 明确排除）。 */}
-              <span
-                data-status-letter
-                aria-hidden="true"
-                className={cn(
-                  "w-3 shrink-0 text-center font-mono text-[10px] font-bold",
-                  meta.className,
-                )}
-              >
-                {meta.letter}
-              </span>
-              <span className="sr-only">{gitStatusLabel(t, status!)}</span>
-            </>
-          ) : undefined
-        }
-        testId="directory-row"
-        className={entry.gitIgnored ? "opacity-50" : undefined}
-        rowData={{
-          "data-git-ignored": entry.gitIgnored ? "true" : undefined,
-          "data-git-status": status,
-        }}
-      />
-    );
-  };
-
-  const renderDir = (entry: Entry, relPath: string, depth: number) => {
-    // 展开/收起状态与「点这一行触发的取数」按链首（这一行在父层里的位置）为
-    // 键，与压缩前完全一致：链变长变短不会让已经记下的展开态或缓存失效。
-    const isOpen = expanded.has(relPath);
-    const chain = collapseDirChain(entry.name, relPath, chainChildrenOf);
-    const label = chain.names.join("/");
-    const chainPrefix =
-      chain.names.length > 1
-        ? `${chain.names.slice(0, -1).join("/")}/`
-        : undefined;
-    const displayName = chain.names[chain.names.length - 1];
-    // 链尾（chain.cursor）与展开后要渲染的那一层是同一个：无论链吸收了几
-    // 段，子项都只比这一行多缩进一级（spec「其子项缩进只增加一级」）。
-    const frontierPath = chain.cursor;
-    const frontierLevel = levels[frontierPath];
-    // 压缩链的子树统计按**链首**（relPath）算，不是链尾：「中间段只有一个子目
-    // 录、不含文件」只对磁盘上还在的条目成立，listDir 看不到已删除的文件而 git
-    // 照报。被链吸收掉的那几段里的变动在整棵树上没有任何一行，这个数字是它们
-    // 唯一的出口；按链尾算会让同一行的数字在链变长的那一刻悄悄变小。
-    const subtreeCount = countSubtreeChanges(gitChangePaths, relPath);
-    return (
-      <div key={relPath} className="flex flex-col">
-        <SidebarRow
-          sessionId={sessionId}
-          cwd={cwd}
-          remote={remote}
-          sourceMode="directory"
-          kind="dir"
-          path={frontierPath}
-          // 链首是这一行的稳定身份：链会随着更深的层加载进来而变长，键盘落点
-          // 按链首记才不会在子项到达的那一刻被当成「这一行没了」。
-          rowKey={relPath}
-          name={displayName}
-          chainPrefix={chainPrefix}
-          depth={depth}
-          title={label}
-          expanded={isOpen}
-          onToggle={() => toggleDir(relPath)}
-          // 子树变动数的文字标签只能落在行的可访问名里：行的主按钮有显式
-          // aria-label，放进按钮内部的 sr-only 文本会被 accname 计算整个盖掉。
-          // 着色 + 裸数字因此不会成为唯一的信息载体（spec「键盘与无障碍」）。
-          ariaLabel={[
-            isOpen
-              ? t("chatContext.files.collapseFolder", { name: label })
-              : t("chatContext.files.expandFolder", { name: label }),
-            subtreeCount > 0
-              ? t("chatContext.directory.subtreeChanges", {
-                  count: subtreeCount,
-                })
-              : null,
-          ]
-            .filter((part) => part !== null)
-            .join(", ")}
-          lead={
-            <>
-              {frontierLevel?.status === "loading" ? (
-                <Spinner
-                  className="size-3.5 shrink-0"
-                  aria-label={t("chatContext.directory.loading")}
-                />
-              ) : isOpen ? (
-                <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
-              ) : (
-                <ChevronRight
-                  className="size-3.5 shrink-0"
-                  aria-hidden="true"
-                />
-              )}
-              <Folder className="size-3.5 shrink-0" aria-hidden="true" />
-            </>
-          }
-          trailing={
-            subtreeCount > 0 ? (
-              // 数量为零时不显示（served requirement）；非零时用与「modified」
-              // 同一份状态色，代表「这棵子树里有变动」，不区分具体是哪几类状态
-              // 的混合（子树可能同时含多种状态，见 mockup H2：单个数字用一种
-              // 状态色，不是 +N/−N 角标，也不逐类拆分）。数字对读屏隐藏，文字
-              // 标签在行的 ariaLabel 里（与 Git 状态字母同一套无障碍约定）。
-              <span
-                data-testid="dir-subtree-count"
-                aria-hidden="true"
-                className={cn(
-                  "shrink-0 font-mono text-[10px] font-medium tabular-nums",
-                  GIT_STATUS_META.modified.className,
-                )}
-              >
-                {subtreeCount}
-              </span>
-            ) : undefined
-          }
-          testId="directory-row"
-          className={entry.gitIgnored ? "opacity-50" : undefined}
-          rowData={{
-            "data-git-ignored": entry.gitIgnored ? "true" : undefined,
-          }}
-        />
-        {isOpen ? (
-          <div className="flex flex-col">
-            {renderLevel(frontierPath, depth + 1)}
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
-  // renderLevel 渲染一层已加载的条目。单层读取失败只让这一个节点出错误行，树的
-  // 其余部分照常可用。
-  const renderLevel = (parentPath: string, depth: number): React.ReactNode => {
-    const level = levels[parentPath];
-    if (level === undefined || level.status === "loading") return null;
-    if (level.status === "error") {
-      return (
-        <div
-          role="alert"
-          className="py-1.5 pr-2.5 text-xs text-destructive"
-          style={indentStyle(depth)}
-        >
-          {level.message || t("chatContext.directory.readFailed")}
-        </div>
-      );
-    }
-    if (level.entries.length === 0) {
-      return (
-        <div
-          className="py-1.5 pr-2.5 text-xs text-muted-foreground"
-          style={indentStyle(depth)}
-        >
-          {t("chatContext.directory.empty")}
-        </div>
-      );
-    }
-    return (
-      <>
-        {sortEntries(level.entries).map((entry) => {
-          const relPath = parentPath
-            ? `${parentPath}/${entry.name}`
-            : entry.name;
-          return entry.isDir
-            ? renderDir(entry, relPath, depth)
-            : renderFile(entry, relPath, depth);
-        })}
-        {level.truncated ? (
-          // 截断不静默：条目数就是后端这一层的实际上限（后端先过滤忽略项再截断）。
-          <div
-            className="py-1.5 pr-2.5 text-[11px] text-muted-foreground"
-            style={indentStyle(depth)}
-          >
-            {t("chatContext.directory.truncated", {
-              limit: level.entries.length,
-            })}
-          </div>
-        ) : null}
-      </>
-    );
+  const treeCtx: DirectoryTreeContext = {
+    sessionId,
+    cwd,
+    remote,
+    levels,
+    expanded,
+    gitStatusByPath,
+    gitChangePaths,
+    chainChildrenOf,
+    toggleDir,
+    t,
   };
 
   return (
@@ -536,15 +242,7 @@ export function DirectoryView({
       label={t("chatContext.directory.treeAria")}
       className="flex flex-col gap-0.5 px-2 py-2.5"
     >
-      {renderLevel(ROOT, 0)}
+      {renderDirectoryLevel(treeCtx, ROOT, 0)}
     </SidebarList>
   );
-}
-
-/** 目录在前、各自名称字母序（后端按 os.ReadDir 的文件名序返回，不分目录/文件）。 */
-function sortEntries(entries: Entry[]): Entry[] {
-  return [...entries].sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
 }

@@ -1,0 +1,12 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # The private, pre-release wire schema intentionally has one unversioned package.
+    - PACKAGE_VERSION_SUFFIX
+breaking:
+  use:
+    - FILE

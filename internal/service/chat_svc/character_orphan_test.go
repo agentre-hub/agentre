@@ -6,7 +6,7 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // §1.2 孤儿事件丢弃 — characterization tests
@@ -14,7 +14,7 @@ import (
 // 关键 pin:
 //  1. acc.HasToolUse(id) 对未知 id 返 false —— dispatcher 据此过滤孤儿 ToolResult,
 //     避免脏 tool_result 写库 / 推送幽灵 tool 卡。
-//  2. attachToolResultMeta 找不到匹配 ToolUseID 时静默丢弃 ToolResultMeta —— 不在
+//  2. attachToolResultMeta 找不到匹配 ToolCallID 时静默丢弃 ToolResultMeta —— 不在
 //     transcript 里追加单独的 meta block 污染前端。
 func TestCharacterization_Orphan_ToolResultDropped(t *testing.T) {
 	Convey("§1.2 ToolResult 找不到配对 tool_use 时 acc 不收", t, func() {

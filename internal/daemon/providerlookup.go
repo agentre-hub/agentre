@@ -9,9 +9,9 @@ import (
 
 	"github.com/cago-frame/cago/pkg/consts"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 )
 
 // ProviderLookup implements httpgateway.ProviderLookup: given a stable provider key,
@@ -67,7 +67,7 @@ func (l *ProviderLookup) ResolveModel(ctx context.Context, providerKey, modelKey
 		// 不沿用旧单模型字段 Model 的宽松 CLI 默认行为。
 		for _, m := range meta.Models {
 			if m.ModelKey == meta.DefaultModelKey && m.Enabled {
-				return handlers.EffectiveModel{ModelKey: m.ModelKey, ModelID: m.ModelID}, nil
+				return effectiveModelFrom(m), nil
 			}
 		}
 		return handlers.EffectiveModel{}, fmt.Errorf(
@@ -80,8 +80,26 @@ func (l *ProviderLookup) ResolveModel(ctx context.Context, providerKey, modelKey
 			if !m.Enabled {
 				return handlers.EffectiveModel{}, fmt.Errorf("model %q disabled on provider %q", modelKey, providerKey)
 			}
-			return handlers.EffectiveModel{ModelKey: m.ModelKey, ModelID: m.ModelID}, nil
+			return effectiveModelFrom(m), nil
 		}
 	}
 	return handlers.EffectiveModel{}, fmt.Errorf("model %q not configured on provider %q", modelKey, providerKey)
+}
+
+// effectiveModelFrom 把目录里的一条模型元数据翻成执行侧模型（含 ContextWindow /
+// MaxOutput —— 目录没记时为 0，与桌面解析口对齐）。
+func effectiveModelFrom(m state.LLMModelMeta) handlers.EffectiveModel {
+	return handlers.EffectiveModel{
+		ModelKey:      m.ModelKey,
+		ModelID:       m.ModelID,
+		ContextWindow: intFromPtr(m.ContextWindow),
+		MaxOutput:     intFromPtr(m.MaxOutput),
+	}
+}
+
+func intFromPtr(v *int64) int {
+	if v == nil {
+		return 0
+	}
+	return int(*v)
 }

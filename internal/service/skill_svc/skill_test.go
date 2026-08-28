@@ -7,12 +7,12 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/skill_svc/mock_skill_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/skill_svc/mock_skill_svc"
 )
 
 type fakeDisc struct{ packs []agentskill.SkillPack }
@@ -76,7 +76,7 @@ func TestListAgentSkillPacks_SelfFingerprintBackendUsesLocalDiscovery(t *testing
 		ag := &agent_entity.Agent{ID: 1, AgentBackendID: 9}
 		al.EXPECT().Find(gomock.Any(), int64(1)).Return(ag, nil).AnyTimes()
 		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:self",
+			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self",
 		}, nil).AnyTimes()
 
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
@@ -104,16 +104,25 @@ func TestListAgentSkillPacks_SelfFingerprintBackendUsesLocalDiscovery(t *testing
 }
 
 func TestListAgentSkillPacks_RemoteBackendUsesDaemonDiscovery(t *testing.T) {
-	Convey("远端 backend(DeviceID 非空)走 daemon 发现,不混入 desktop 本地发现", t, func() {
+	Convey("远端 backend(DeviceID 是别机指纹)走 daemon 发现,不混入 desktop 本地发现", t, func() {
 		ctrl := gomock.NewController(t)
 		al := mock_skill_svc.NewMockAgentLookup(ctrl)
 		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
 		ag := &agent_entity.Agent{ID: 1, AgentBackendID: 9}
 		al.EXPECT().Find(gomock.Any(), int64(1)).Return(ag, nil).AnyTimes()
-		// 远端 backend:Type=claudecode + DeviceID=7。
+		// 远端 backend:Type=claudecode + DeviceID=别机指纹。连接池按数值行 ID 建键,
+		// 所以发现前必须把指纹在本机配对表里解析成行 ID(=7)。
 		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "7",
+			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:daemon-x",
 		}, nil).AnyTimes()
+		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
+			{ID: 7, DaemonFingerprint: "sha256:daemon-x"},
+		}, nil).AnyTimes()
+		prevSvc := remote_device_svc.Default()
+		remote_device_svc.SetDefault(rds)
+		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 		// 本地发现器回一个独有包:若路由错跑了本地,它会冒出来。
 		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{[]agentskill.SkillPack{
 			{ID: "local-only@desktop", Name: "local-only", Installed: true, Source: agentskill.SourceInstalled},
@@ -425,7 +434,7 @@ func TestListAgentSkillCommands_SelfFingerprintBackendMergesNativeCommands(t *te
 		ag := &agent_entity.Agent{ID: 1, AgentBackendID: 9}
 		al.EXPECT().Find(gomock.Any(), int64(1)).Return(ag, nil).AnyTimes()
 		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:self",
+			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self",
 		}, nil).AnyTimes()
 
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)

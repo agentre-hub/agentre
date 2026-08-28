@@ -10,13 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // 本文件覆盖 docs/specs/2026-08-10-session-provider-switch.md 的会话级供应商切换
@@ -350,7 +350,8 @@ func TestLoadSession_DisplaysEffectiveProvider(t *testing.T) {
 	m.provider.EXPECT().FindModelByKey(ctx, "mk-session-key").Return(
 		&llm_provider_model_entity.LLMProviderModel{ProviderID: 34, ModelKey: "mk-session-key", ModelID: "claude-sonnet-4-6", ContextWindow: 222_000, Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE},
 		nil).AnyTimes()
-	m.message.EXPECT().List(ctx, int64(100)).Return(nil, nil)
+	expectTranscriptWindowFilled(m)
+	m.message.EXPECT().ListMeta(ctx, int64(100)).Return(nil, nil)
 
 	resp, err := m.svc.LoadSession(ctx, &chat_svc.LoadSessionRequest{SessionID: 100})
 	require.NoError(t, err)

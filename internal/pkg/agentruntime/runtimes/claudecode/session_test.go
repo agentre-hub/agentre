@@ -5,9 +5,9 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // TestCCBuildClientOpts_MCPServersInjectTool 锁住 AM2:RunRequest.MCPServers 非空时
@@ -65,7 +65,7 @@ func TestCCBuildClientOpts_ProviderModelDownToCLI(t *testing.T) {
 	Convey("解析出的 ModelID 非空 → Client.Model() = 该 ModelID", t, func() {
 		spec := ccLaunchSpec{
 			Req: agentruntime.RunRequest{
-				Backend:  &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
 				Effective: &agentruntime.EffectiveLLMConfig{ModelID: "glm-5.1"},
 			},
 		}
@@ -87,7 +87,7 @@ func TestCCBuildClientOpts_ProviderModelDownToCLI(t *testing.T) {
 	Convey("provider 非空但解析出的 ModelID 空(罕见配置) → 不下发 --model,留给 CLI 默认", t, func() {
 		spec := ccLaunchSpec{
 			Req: agentruntime.RunRequest{
-				Backend:  &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
 				Effective: &agentruntime.EffectiveLLMConfig{ModelID: "   "}, // 只有空白
 			},
 		}
@@ -106,7 +106,7 @@ func TestCCBuildClientOpts_EnvironmentDownToSettings(t *testing.T) {
 		spec := ccLaunchSpec{
 			Env: env,
 			Req: agentruntime.RunRequest{
-				Backend:  &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
 				Effective: &agentruntime.EffectiveLLMConfig{ModelID: "glm-test-model"},
 			},
 		}

@@ -1,0 +1,116 @@
+{
+  "hooks": {
+    "title": "Hooks",
+    "loading": "正在加载 Hooks…",
+    "list": {
+      "search": "搜索 Hook",
+      "groupScheduled": "定时任务",
+      "empty": "还没有 Hook",
+      "emptyHint": "点击右上角 + 新建一个脚本 Hook",
+      "addAria": "新建 Hook",
+      "disabled": "停用"
+    },
+    "header": {
+      "kindLabel": "{{interp}} Hook",
+      "run": "试运行",
+      "runNow": "立即运行",
+      "enable": "启用",
+      "disable": "停用",
+      "more": "更多操作",
+      "delete": "删除",
+      "lastRun": "上次运行 {{time}}",
+      "neverRun": "从未运行",
+      "totalEvents": "累计 {{count}} 事件"
+    },
+    "tabs": {
+      "script": "脚本",
+      "runLog": "运行日志"
+    },
+    "trigger": {
+      "title": "触发",
+      "subtitle": "cron 表达式 · 手动「试运行」随时可跑",
+      "cronLabel": "cron 表达式",
+      "interpreter": "解释器",
+      "interpreterPath": "二进制路径",
+      "interpreterPathAuto": "自动: {{path}}",
+      "interpreterPathPlaceholder": "留空 = 自动解析",
+      "timezone": "时区"
+    },
+    "script": {
+      "title": "脚本",
+      "subtitle": "env 注入 HOOK_STATE / 密钥 · stdout 输出 JSON:{ events, state }",
+      "name": "名称",
+      "namePlaceholder": "Hook 名称",
+      "commandPlaceholder": "# 在此编写脚本,向 stdout 打印 { events, state }",
+      "save": "保存",
+      "create": "创建"
+    },
+    "env": {
+      "title": "环境变量 / 密钥",
+      "subtitle": "注入为脚本的环境变量 · 密钥落库脱敏,UI 显示 ••••",
+      "add": "添加变量",
+      "keyPlaceholder": "变量名",
+      "valuePlaceholder": "值",
+      "secret": "密钥",
+      "remove": "删除变量",
+      "empty": "暂无环境变量"
+    },
+    "run": {
+      "ok": "试运行 · 退出码 {{code}}",
+      "failed": "试运行失败 · 退出码 {{code}}",
+      "timedOut": "超时",
+      "meta": "耗时 {{ms}}ms · {{persist}}",
+      "noPersist": "不写库",
+      "persisted": "已入库",
+      "summary": "解析到 {{events}} 个事件 · 去重后 {{new}} 个新事件将入库 · {{dup}} 个重复",
+      "parseError": "解析失败:{{error}}",
+      "stdout": "stdout",
+      "stderr": "stderr",
+      "running": "运行中…",
+      "empty": "点「试运行」执行一次,结果会显示在这里"
+    },
+    "log": {
+      "empty": "还没有产出事件",
+      "selectPrompt": "选择左侧事件查看 payload",
+      "dedupeKey": "去重键",
+      "payload": "Payload",
+      "receivedAt": "产出于 {{time}}",
+      "failureBadge": "失败"
+    },
+    "interp": {
+      "bash": "Bash",
+      "sh": "Shell",
+      "node": "Node",
+      "python": "Python",
+      "pwsh": "PowerShell",
+      "powershell": "Windows PowerShell",
+      "cmd": "CMD",
+      "notInstalled": "未安装"
+    },
+    "status": {
+      "ok": "正常",
+      "failed": "失败",
+      "running": "运行中",
+      "disabled": "停用",
+      "idle": "待运行"
+    },
+    "flash": {
+      "created": "已创建 Hook {{name}}",
+      "updated": "已保存 Hook {{name}}",
+      "deleted": "已删除 Hook {{name}}",
+      "enabled": "已启用",
+      "disabled": "已停用",
+      "saveFailed": "保存失败:{{error}}",
+      "runFailed": "运行失败:{{error}}"
+    },
+    "del": {
+      "title": "删除 Hook",
+      "description": "确定删除「{{name}}」?此操作不可撤销。",
+      "confirm": "删除",
+      "cancel": "取消"
+    },
+    "create": {
+      "defaultName": "新 Hook"
+    }
+  }
+}

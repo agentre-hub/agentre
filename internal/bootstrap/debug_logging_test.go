@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/cago-frame/cago/pkg/logger"
@@ -21,37 +20,6 @@ func TestLogsDir(t *testing.T) {
 	want := filepath.Join(dataDir, "logs")
 	if got != want {
 		t.Fatalf("LogsDir() = %q, want %q", got, want)
-	}
-}
-
-func TestRotatingFileCoreUsesThirtyMegabyteFiles(t *testing.T) {
-	logFile := filepath.Join(t.TempDir(), "agentre.log")
-	log := zap.New(newRotatingFileCore(zap.DebugLevel, logFile))
-	chunk := strings.Repeat("x", 1<<20)
-
-	// Given 29 one-megabyte debug records, When they are written, Then the
-	// active file remains above cago's old 2 MB limit without rotating.
-	for range 29 {
-		log.Debug("raw frame", zap.String("frame", chunk))
-	}
-	if err := log.Sync(); err != nil {
-		t.Fatalf("Sync() before boundary error = %v", err)
-	}
-	if backups, err := filepath.Glob(filepath.Join(filepath.Dir(logFile), "agentre-*.log")); err != nil {
-		t.Fatalf("Glob() before boundary error = %v", err)
-	} else if len(backups) != 0 {
-		t.Fatalf("rotated before 30 MB boundary: %v", backups)
-	}
-
-	// When the next record crosses 30 MB, Then the completed file is rotated.
-	log.Debug("raw frame", zap.String("frame", chunk))
-	if err := log.Sync(); err != nil {
-		t.Fatalf("Sync() after boundary error = %v", err)
-	}
-	if backups, err := filepath.Glob(filepath.Join(filepath.Dir(logFile), "agentre-*.log")); err != nil {
-		t.Fatalf("Glob() after boundary error = %v", err)
-	} else if len(backups) != 1 {
-		t.Fatalf("rotated backups = %v, want exactly one after crossing 30 MB", backups)
 	}
 }
 

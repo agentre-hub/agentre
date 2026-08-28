@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	agent_entity "github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
+	agent_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -98,20 +98,6 @@ func (mr *MockAgentRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockAgentRepo)(nil).Delete), ctx, id)
 }
 
-// DeleteByDepartment mocks base method.
-func (m *MockAgentRepo) DeleteByDepartment(ctx context.Context, departmentID int64) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteByDepartment", ctx, departmentID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteByDepartment indicates an expected call of DeleteByDepartment.
-func (mr *MockAgentRepoMockRecorder) DeleteByDepartment(ctx, departmentID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByDepartment", reflect.TypeOf((*MockAgentRepo)(nil).DeleteByDepartment), ctx, departmentID)
-}
-
 // Find mocks base method.
 func (m *MockAgentRepo) Find(ctx context.Context, id int64) (*agent_entity.Agent, error) {
 	m.ctrl.T.Helper()
@@ -170,21 +156,6 @@ func (m *MockAgentRepo) List(ctx context.Context) ([]*agent_entity.Agent, error)
 func (mr *MockAgentRepoMockRecorder) List(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockAgentRepo)(nil).List), ctx)
-}
-
-// ListByBackend mocks base method.
-func (m *MockAgentRepo) ListByBackend(ctx context.Context, backendID int64) ([]*agent_entity.Agent, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByBackend", ctx, backendID)
-	ret0, _ := ret[0].([]*agent_entity.Agent)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListByBackend indicates an expected call of ListByBackend.
-func (mr *MockAgentRepoMockRecorder) ListByBackend(ctx, backendID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByBackend", reflect.TypeOf((*MockAgentRepo)(nil).ListByBackend), ctx, backendID)
 }
 
 // ListByDepartment mocks base method.
@@ -301,20 +272,6 @@ func (m *MockAgentRepo) UpdateAvatar(ctx context.Context, id int64, avatarDataUR
 func (mr *MockAgentRepoMockRecorder) UpdateAvatar(ctx, id, avatarDataURL, updatetime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAvatar", reflect.TypeOf((*MockAgentRepo)(nil).UpdateAvatar), ctx, id, avatarDataURL, updatetime)
-}
-
-// UpdateDepartment mocks base method.
-func (m *MockAgentRepo) UpdateDepartment(ctx context.Context, id, departmentID int64, sortOrder int) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateDepartment", ctx, id, departmentID, sortOrder)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateDepartment indicates an expected call of UpdateDepartment.
-func (mr *MockAgentRepoMockRecorder) UpdateDepartment(ctx, id, departmentID, sortOrder any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDepartment", reflect.TypeOf((*MockAgentRepo)(nil).UpdateDepartment), ctx, id, departmentID, sortOrder)
 }
 
 // UpdatePlacement mocks base method.

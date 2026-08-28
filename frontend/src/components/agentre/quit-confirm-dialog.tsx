@@ -9,9 +9,8 @@ import { LogOut, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { AgentreDialog } from "@/components/agentre/app-dialog";
+import { AgentreDialog, Button } from "@agentre-hub/agentre-ui";
 import { AgentAvatar, StatusPill } from "@/components/agentre/primitives";
-import { Button } from "@/components/ui/button";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 

@@ -623,12 +623,12 @@ describe("App", () => {
   });
 
   it("restores the last opened page from localStorage on startup", async () => {
-    localStorage.setItem(lastPathStorageKey, "/projects");
+    localStorage.setItem(lastPathStorageKey, "/issues");
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Projects" })).toHaveAttribute(
+      expect(screen.getByRole("button", { name: "Board" })).toHaveAttribute(
         "aria-current",
         "page",
       );
@@ -636,6 +636,22 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Chat" })).not.toHaveAttribute(
       "aria-current",
     );
+  });
+
+  it("Given a stored /projects path, When the app starts, Then it lands on the merged index instead of a dead route", () => {
+    // 「项目」不再是一个导航项 —— 它退化成会话索引的一个分组维度（规格决策 1）。
+    // 老用户 localStorage 里存着 /projects，重定向必须把他们带到 /chat。
+    localStorage.setItem(lastPathStorageKey, "/projects");
+
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Projects" }),
+    ).not.toBeInTheDocument();
   });
 
   it("falls back to the chat page when the stored last path is unknown", async () => {
@@ -701,10 +717,9 @@ describe("App", () => {
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
 
-    expect(labels.slice(0, 5)).toEqual([
+    expect(labels.slice(0, 4)).toEqual([
       "Chat",
-      "Projects",
-      "Issues",
+      "Board",
       "Organization",
       "Hooks",
     ]);
@@ -863,7 +878,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Chat" }));
 
     const textareaEvent = fireSelectAllKey(
-      screen.getByPlaceholderText("Search Agent"),
+      screen.getByPlaceholderText("Search sessions, projects, agents"),
       "meta",
     );
 
@@ -907,9 +922,11 @@ describe("App", () => {
       screen.getByRole("button", { name: "Settings" }),
     ).not.toHaveAttribute("aria-current");
     expect(
-      screen.getByRole("complementary", { name: "Agent list" }),
+      screen.getByRole("complementary", { name: "Session index" }),
     ).toHaveStyle({ width: "320px" });
-    expect(screen.getByPlaceholderText("Search Agent")).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("Search sessions, projects, agents"),
+    ).toBeInTheDocument();
     // 空聊天态: 测试环境没有可对话 Agent (ListChatAgents 未 mock, agents=[]),
     // 因此显示 spec §7 组 1B 的两步配置引导空态而非旧占位。
     expect(
@@ -937,27 +954,29 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens the implemented Issues workspace from the left rail", async () => {
+  it("opens the implemented Board workspace from the left rail", async () => {
     const user = userEvent.setup();
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Issues" }));
+    await user.click(screen.getByRole("button", { name: "Board" }));
 
     const main = screen.getByRole("main");
 
-    expect(screen.getByRole("button", { name: "Issues" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Board" })).toHaveAttribute(
       "aria-current",
       "page",
     );
     // Real data layer: the default IssueList mock returns no issues, so the
     // workspace renders its empty state rather than the old static placeholder.
     expect(
-      await within(main).findByRole("heading", { name: "No issues yet" }),
+      await within(main).findByText("No tasks in this project yet"),
     ).toBeInTheDocument();
-    expect(within(main).getByText("0 open · 0 closed")).toBeInTheDocument();
     expect(
-      within(main).getAllByRole("button", { name: "New issue" }).length,
+      within(main).getByText("0 tasks · 0 in progress"),
+    ).toBeInTheDocument();
+    expect(
+      within(main).getAllByRole("button", { name: "New task" }).length,
     ).toBeGreaterThan(0);
     expect(
       within(main).queryByText("Under construction"),
@@ -1072,9 +1091,12 @@ describe("App", () => {
     expect(descInput).toBeInTheDocument();
   });
 
-  it("uses the same fixed detail panel in organization list mode", async () => {
+  // 画布与列表两个视图收敛成一套索引后，`agentre.orgView.mode` 作废：存量里的旧值
+  // 只应被忽略 —— 既不报错、不改变渲染，也不顺手清掉其他状态。
+  it("ignores the retired organization view-mode value and keeps the detail in the main area", async () => {
     const user = userEvent.setup();
     localStorage.setItem("agentre.orgView.mode", "list");
+    localStorage.setItem("agentre.orgTree.collapse", '{"1":true}');
     mockOrgData();
     const { container } = render(<App />);
 
@@ -1089,7 +1111,12 @@ describe("App", () => {
       '[data-slot="org-detail-panel"]',
     );
     expect(detailPanel).toBeInTheDocument();
-    expect(detailPanel).toHaveClass("w-[380px]", "shrink-0", "border-l");
+    // 详情占主区（索引是左边固定宽的一列）：三栏详情在 380px 的右抽屉里装不下。
+    expect(detailPanel).toHaveClass("flex-1", "min-w-0");
+    expect(container.querySelector('[data-slot="org-index-pane"]')).toHaveClass(
+      "w-[300px]",
+      "shrink-0",
+    );
     expect(
       container.querySelector('[data-slot="org-detail-drawer"]'),
     ).toBeNull();
@@ -1098,6 +1125,14 @@ describe("App", () => {
         "Select a department or agent to view details",
       ),
     ).toBeInTheDocument();
+
+    // 旧值不影响渲染：只有一套索引，没有视图切换开关
+    expect(screen.queryByRole("button", { name: "List view" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tree view" })).toBeNull();
+    expect(container.querySelector('[data-slot="org-index"]')).not.toBeNull();
+    // 也没有被顺手抹掉，更没有连累同期存下来的选中态
+    expect(localStorage.getItem("agentre.orgView.mode")).toBe("list");
+    expect(localStorage.getItem("agentre.orgTree.collapse")).toBe('{"1":true}');
 
     const evaRow = screen.getByText("Eva").closest("button");
     if (!evaRow) throw new Error("Eva row not found");

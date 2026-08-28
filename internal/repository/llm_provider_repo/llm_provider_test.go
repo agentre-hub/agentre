@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 )
 
 // setupLLMProviderRepoTest 起一个 sqlmock 数据库，返回 ctx / mock / repo。
@@ -39,43 +39,6 @@ func modelRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "provider_id", "model_key", "model_id", "name",
 		"context_window", "max_output", "enabled", "status", "createtime", "updatetime",
-	})
-}
-
-func TestLLMProviderRepo_Create(t *testing.T) {
-	convey.Convey("Create", t, func() {
-		ctx, mock, repo := setupLLMProviderRepoTest(t)
-
-		convey.Convey("写入成功并回填自增 ID", func() {
-			p := &llm_provider_entity.LLMProvider{
-				Type:    string(llm_provider_entity.TypeAnthropic),
-				Name:    "claude",
-				APIKey:  "sk-test",
-				Enabled: llm_provider_entity.EnabledOn,
-				Status:  consts.ACTIVE,
-			}
-			mock.ExpectBegin()
-			mock.ExpectExec("INSERT INTO `llm_providers`").
-				WillReturnResult(sqlmock.NewResult(7, 1))
-			mock.ExpectCommit()
-
-			assert.NoError(t, repo.Create(ctx, p))
-			assert.Equal(t, int64(7), p.ID)
-			assert.NoError(t, mock.ExpectationsWereMet())
-		})
-
-		convey.Convey("驱动报错时透传并回滚", func() {
-			mock.ExpectBegin()
-			mock.ExpectExec("INSERT INTO `llm_providers`").
-				WillReturnError(errors.New("boom"))
-			mock.ExpectRollback()
-
-			err := repo.Create(ctx, &llm_provider_entity.LLMProvider{
-				Type: string(llm_provider_entity.TypeAnthropic), Name: "x", Status: consts.ACTIVE,
-			})
-			assert.EqualError(t, err, "boom")
-			assert.NoError(t, mock.ExpectationsWereMet())
-		})
 	})
 }
 

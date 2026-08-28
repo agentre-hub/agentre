@@ -2,15 +2,15 @@ package remote
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/orderedpipe"
 )
 
 // autoSession 是某 chat session 的「自主续轮」(AutonomousTurnSource)本地镜像。
@@ -18,8 +18,10 @@ import (
 // (daemon 串行转发,任一时刻至多一轮)。按 sessionID 持久,跨 turn / 子进程 evict 复用,
 // conn close 时由 closeAllAutoSessions 统一拆。
 type autoSession struct {
-	id  int64
-	out chan agentruntime.AutonomousTurn
+	id int64
+	// out 交付给 chat_svc watcher 的自主续轮。走 orderedpipe 而不是有界 channel:
+	// 投递方是 protorpc 读循环,它绝不能因为「消费方还没接上」而停下,见 Push 处。
+	out *orderedpipe.Pipe[agentruntime.AutonomousTurn]
 
 	mu     sync.Mutex
 	cur    *autoTurn
@@ -29,7 +31,8 @@ type autoSession struct {
 // autoTurn 一轮自主续轮:events 是事件流(daemon 的 AutonomousTurnEvent 路由进来),
 // result 在 Done 帧到达时填好、events close 前可见(与 Run 的 RunResult 契约一致)。
 type autoTurn struct {
-	events chan agentruntime.Event
+	// events 这一轮的事件流。同样走 orderedpipe,理由同 autoSession.out。
+	events *orderedpipe.Pipe[agentruntime.Event]
 	result *agentruntime.RunResult
 	// catchUp 这一轮是**补齐合成**的:内容来自 daemon 通知日志的重放,不是 daemon
 	// 宣告的自主续轮。两者对上层是同一种东西(一轮没有 user 行的 assistant 轮),
@@ -45,8 +48,11 @@ type autoTurn struct {
 // 它那条 assistant 消息永久停在 running(界面上一张永远转圈的卡片),旁边又多出一张
 // 新卡片。App 重启后「回放一整段历史」是常态,这一幕随之从边角变成常见路径。
 //
-// a.out 有缓冲且轮次串行(daemon 任一时刻至多一轮、消费方独立 drain),送出几乎不
-// 阻塞;缓冲满时短暂阻塞读循环(既定 back-pressure 契约),不与 a.mu 形成锁环。
+// 投给消费方走 orderedpipe.Push:永不阻塞。这是硬要求而不是优化 —— 调用它的是
+// protorpc 读循环,而读循环停下,这条连接上所有会话的通知与所有在飞 RPC 的应答会
+// 一起停。旧实现在一个 4 格 channel 上做阻塞发送,消费方还没接上(App 刚起来、
+// watcher 未就位)第 5 轮就能把整条连接焊死,而且是**持着 a.mu** 焊死的 ——
+// 连断连清理(closeAllAutoSessions 也要 a.mu)都拆不开这个死结。
 func (a *autoSession) openTurnLocked(trigger string, catchUp bool, turnToken uint64) *autoTurn {
 	if a.closed {
 		return nil
@@ -62,17 +68,17 @@ func (a *autoSession) openTurnLocked(trigger string, catchUp bool, turnToken uin
 		a.finishCurLocked(cause)
 	}
 	turn := &autoTurn{
-		events:  make(chan agentruntime.Event, 64),
+		events:  orderedpipe.New[agentruntime.Event](),
 		result:  &agentruntime.RunResult{},
 		catchUp: catchUp,
 	}
 	a.cur = turn
-	a.out <- agentruntime.AutonomousTurn{
-		Events:    turn.events,
+	a.out.Push(agentruntime.AutonomousTurn{
+		Events:    turn.events.Out(),
 		Result:    turn.result,
 		Trigger:   trigger,
 		TurnToken: turnToken,
-	}
+	})
 	return turn
 }
 
@@ -87,7 +93,7 @@ func (a *autoSession) finishCurLocked(cause error) {
 	if cause != nil && cur.result != nil && cur.result.StopErr == nil {
 		cur.result.StopErr = cause
 	}
-	close(cur.events)
+	cur.events.Close()
 }
 
 // AutonomousTurns 实现 agentruntime.AutonomousTurnSource:返回该 session 的自主续轮
@@ -95,7 +101,7 @@ func (a *autoSession) finishCurLocked(cause error) {
 // 总在 Run 收尾后才发),handleAutonomousTurnStarted 也会把同一个 autoSession 建好,
 // 两边拿到同一个 out。
 func (r *Runtime) AutonomousTurns(sessionID int64) <-chan agentruntime.AutonomousTurn {
-	return r.getOrCreateAutoSession(sessionID).out
+	return r.getOrCreateAutoSession(sessionID).out.Out()
 }
 
 func (r *Runtime) getOrCreateAutoSession(sid int64) *autoSession {
@@ -104,7 +110,7 @@ func (r *Runtime) getOrCreateAutoSession(sid int64) *autoSession {
 	if a, ok := r.autoSessions[sid]; ok {
 		return a
 	}
-	a := &autoSession{id: sid, out: make(chan agentruntime.AutonomousTurn, 4)}
+	a := &autoSession{id: sid, out: orderedpipe.New[agentruntime.AutonomousTurn]()}
 	r.autoSessions[sid] = a
 	return a
 }
@@ -115,18 +121,17 @@ func (r *Runtime) lookupAutoSession(sid int64) *autoSession {
 	return r.autoSessions[sid]
 }
 
-func (r *Runtime) handleAutonomousTurnStarted(ctx context.Context, raw json.RawMessage) (any, error) {
-	var frame wire.AutonomousTurnStartedFrame
-	if err := json.Unmarshal(raw, &frame); err != nil {
-		logger.Ctx(ctx).Warn("remote runtime: autonomousTurn.started unmarshal failed", zap.Error(err))
+func (r *Runtime) handleAutonomousTurnStarted(ctx context.Context, params any) (any, error) {
+	frame, ok := notificationFrameOf[wire.AutonomousTurnStartedFrame](ctx, "remote.handleAutonomousTurnStarted", params)
+	if !ok {
 		return nil, nil
 	}
 	a := r.getOrCreateAutoSession(frame.SessionID)
 	logger.Ctx(ctx).Info("remote runtime: autonomous turn started",
 		zap.Int64("sid", frame.SessionID), zap.String("trigger", frame.Trigger))
-	// 持 a.mu 期间设 cur + 送 a.out —— 与 closeAllAutoSessions 的 close(a.out) 互斥,
-	// 杜绝 daemon 断连(watchClose 独立 goroutine)恰在投递新一轮期间关 channel 时的
-	// send-on-closed-channel panic。对齐 handleAutonomousTurnEvent 的同款纪律。
+	// a.mu 保护的是 a.cur 的读改写。投递本身走 pipe,已 Close 之后再 Push 只是丢弃,
+	// 所以断连(watchClose 独立 goroutine)与投递并发不再有 send-on-closed-channel
+	// 之虞,持锁期间也不会阻塞。
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.openTurnLocked(frame.Trigger, false, frame.TurnToken)
@@ -145,7 +150,7 @@ func (r *Runtime) handleAutonomousTurnStarted(ctx context.Context, raw json.RawM
 // 见的那张卡片上,总好过丢掉。
 func (r *Runtime) deliverToCatchUpTurn(ctx context.Context, sid int64, ev agentruntime.Event) bool {
 	a := r.getOrCreateAutoSession(sid)
-	// 送出与 close 都在 a.mu 下,理由同 handleAutonomousTurnEvent。
+	// 送出与 close 都在 a.mu 下(保护 a.cur),理由同 handleAutonomousTurnEvent。
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
@@ -158,7 +163,7 @@ func (r *Runtime) deliverToCatchUpTurn(ctx context.Context, sid int64, ev agentr
 			return false
 		}
 	}
-	a.cur.events <- ev
+	a.cur.events.Push(ev)
 	return true
 }
 
@@ -191,27 +196,23 @@ func (r *Runtime) closeCatchUpTurn(ctx context.Context, frame wire.RunResultDone
 	a.finishCurLocked(nil)
 }
 
-func (r *Runtime) handleAutonomousTurnEvent(ctx context.Context, raw json.RawMessage) (any, error) {
-	var frame wire.EventFrame
-	if err := json.Unmarshal(raw, &frame); err != nil {
-		logger.Ctx(ctx).Warn("remote runtime: autonomousTurn.event unmarshal failed", zap.Error(err))
+func (r *Runtime) handleAutonomousTurnEvent(ctx context.Context, params any) (any, error) {
+	frame, ok := notificationFrameOf[wire.EventFrame](ctx, "remote.handleAutonomousTurnEvent", params)
+	if !ok {
 		return nil, nil
 	}
 	a := r.lookupAutoSession(frame.SessionID)
 	if a == nil {
 		return nil, nil
 	}
-	ev, err := agentruntime.UnmarshalEvent(frame.Event)
-	if err != nil {
-		logger.Ctx(ctx).Warn("remote runtime: autonomousTurn UnmarshalEvent failed — dropped",
-			zap.Int64("sid", frame.SessionID), zap.Error(err))
-		return nil, nil
-	}
-	// 持 a.mu 期间送 —— 与 closeAllAutoSessions 的 close(cur.events) 互斥,杜绝
-	// daemon 断连(watchClose 独立 goroutine)恰在投递期间关 channel 时的
-	// send-on-closed-channel panic。对齐 per-Run 的 handleEvent 同款纪律。
-	// consumer(driveAutonomousTurn)独立 drain,缓冲满时这里短暂阻塞读循环(本就是
-	// 既定 back-pressure 契约),不与 a.mu 形成锁环。
+	ev := frame.Event
+	// 投递走 orderedpipe.Push:永不阻塞,且 Close 之后再 Push 只是丢弃 —— 断连
+	// (watchClose 独立 goroutine)与投递并发既不 panic 也不需要靠锁排开。
+	//
+	// 「不阻塞」在这里是硬要求:调用者是 protorpc 读循环,它同时还负责把 RPC 应答
+	// 交回等待方。旧实现在 64 格 channel 上阻塞发送,消费方(driveAutonomousTurn)
+	// 只要没跟上 —— 比如正卡在一次落库上 —— 读循环就停,而它一停,消费方在等的那个
+	// RPC 应答也回不来:闭环。runtime.go 的 per-Run handleEvent 早就写明了同一件事。
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed || a.cur == nil {
@@ -219,14 +220,13 @@ func (r *Runtime) handleAutonomousTurnEvent(ctx context.Context, raw json.RawMes
 			zap.Int64("sid", frame.SessionID), zap.String("eventType", fmt.Sprintf("%T", ev)))
 		return nil, nil
 	}
-	a.cur.events <- ev
+	a.cur.events.Push(ev)
 	return nil, nil
 }
 
-func (r *Runtime) handleAutonomousTurnDone(ctx context.Context, raw json.RawMessage) (any, error) {
-	var frame wire.RunResultDoneFrame
-	if err := json.Unmarshal(raw, &frame); err != nil {
-		logger.Ctx(ctx).Warn("remote runtime: autonomousTurn.done unmarshal failed", zap.Error(err))
+func (r *Runtime) handleAutonomousTurnDone(ctx context.Context, params any) (any, error) {
+	frame, ok := notificationFrameOf[wire.RunResultDoneFrame](ctx, "remote.handleAutonomousTurnDone", params)
+	if !ok {
 		return nil, nil
 	}
 	a := r.lookupAutoSession(frame.SessionID)
@@ -247,10 +247,10 @@ func (r *Runtime) handleAutonomousTurnDone(ctx context.Context, raw json.RawMess
 	if frame.Usage != nil {
 		cur.result.Usage = usageFromWire(frame.Usage)
 	}
-	cur.result.StopErr = stopErrFromFrame(frame)
+	cur.result.StopErr = stopErrFromFrame(*frame)
 	logger.Ctx(ctx).Info("remote runtime: autonomous turn done",
 		zap.Int64("sid", frame.SessionID), zap.String("model", frame.Model))
-	close(cur.events)
+	cur.events.Close()
 	return nil, nil
 }
 
@@ -285,5 +285,5 @@ func closeAutoSession(a *autoSession, cause error) {
 	}
 	a.closed = true
 	a.finishCurLocked(cause)
-	close(a.out)
+	a.out.Close()
 }

@@ -102,14 +102,14 @@ jobs:
         if: matrix.goos != 'windows'
         run: |
           if [ -n "${{ matrix.extra_tags }}" ]; then
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags "${{ matrix.extra_tags }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags "${{ matrix.extra_tags }}"
           else
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
           fi
 
       - name: Build desktop app (Windows)
         if: matrix.goos == 'windows'
-        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
+        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
 
       - name: Import Apple certificate
         if: matrix.goos == 'darwin'

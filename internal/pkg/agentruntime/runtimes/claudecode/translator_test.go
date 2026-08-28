@@ -2,15 +2,16 @@ package claudecode
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/cago-frame/agents/provider"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // TestTranslate_TextThinkingDelta 基本 emit 类型映射。
@@ -27,6 +28,15 @@ func TestTranslate_TextThinkingDelta(t *testing.T) {
 		out, _, _ := translate(claudecode.Event{Kind: claudecode.EventThinkingDelta, Text: "think"})
 		So(len(out), ShouldEqual, 1)
 		_, ok := out[0].(agentruntime.ThinkingDelta)
+		So(ok, ShouldBeTrue)
+	})
+
+	// content_block_start 是「一句话不吐、直接甩工具调用」那一跳唯一能证明模型
+	// 已经开口的信号,上层拿它记首 token(sess-3241)。
+	Convey("EventContentBlockStart → OutputActivity", t, func() {
+		out, _, _ := translate(claudecode.Event{Kind: claudecode.EventContentBlockStart})
+		So(len(out), ShouldEqual, 1)
+		_, ok := out[0].(agentruntime.OutputActivity)
 		So(ok, ShouldBeTrue)
 	})
 }
@@ -158,7 +168,7 @@ func TestRecognizeCanonical_FileWrite(t *testing.T) {
 	}
 
 	Convey("超 64KB 截断", t, func() {
-		big := make([]byte, writeContentByteCap+10)
+		big := make([]byte, canonical.WriteContentByteCap+10)
 		for i := range big {
 			big[i] = 'x'
 		}
@@ -167,8 +177,8 @@ func TestRecognizeCanonical_FileWrite(t *testing.T) {
 		fw, ok := r.(canonical.FileWrite)
 		So(ok, ShouldBeTrue)
 		So(fw.Truncated, ShouldBeTrue)
-		So(len(fw.Content), ShouldEqual, writeContentByteCap)
-		So(fw.Bytes, ShouldEqual, writeContentByteCap+10) // 原始字节数,不是截断后
+		So(len(fw.Content), ShouldEqual, canonical.WriteContentByteCap)
+		So(fw.Bytes, ShouldEqual, canonical.WriteContentByteCap+10) // 原始字节数,不是截断后
 	})
 
 	Convey("非 string content → nil", t, func() {
@@ -253,6 +263,87 @@ func TestRecognizeCanonical_TodoWrite(t *testing.T) {
 		raw := json.RawMessage(`{"todos":["bad","data"]}`)
 		So(recognizeCanonical("TodoWrite", raw), ShouldBeNil)
 	})
+}
+
+// TestRecognizeCanonical_MatchesCanonicalFromToolUse 同一个 tool_use 经 live emit
+// 路径(recognizeCanonical,本文件)与 replay 路径(canonical.FromToolUse,
+// chat_svc LoadSession 重放持久化的 tool_use 实体时调)必须产出同一张卡片 ——
+// 这正是 :198 注释「避免两边各搞一套漂移」要保住的不变量。覆盖 Problem 7 点名的
+// 三个识别器(Write/Edit/MultiEdit)加上迁入 canonical 的 TodoWrite。
+func TestRecognizeCanonical_MatchesCanonicalFromToolUse(t *testing.T) {
+	cases := []struct {
+		name     string
+		toolName string
+		input    string
+	}{
+		{
+			name:     "Write 正常内容",
+			toolName: "Write",
+			input:    `{"file_path":"/x.go","content":"line1\nline2\n"}`,
+		},
+		{
+			name:     "Write 超 64KB 截断",
+			toolName: "Write",
+			input:    `{"file_path":"/big.go","content":"` + strings.Repeat("x", canonical.WriteContentByteCap+10) + `"}`,
+		},
+		{
+			name:     "Edit single hunk",
+			toolName: "Edit",
+			input:    `{"file_path":"/x.go","old_string":"foo","new_string":"bar","replace_all":false}`,
+		},
+		{
+			name:     "Edit replace_all",
+			toolName: "Edit",
+			input:    `{"file_path":"/x.go","old_string":"foo","new_string":"bar","replace_all":true}`,
+		},
+		{
+			name:     "MultiEdit 两个 sub-edit",
+			toolName: "MultiEdit",
+			input: `{"file_path":"/x.go","edits":[` +
+				`{"old_string":"a","new_string":"A"},` +
+				`{"old_string":"b","new_string":"B"}` +
+				`]}`,
+		},
+		{
+			name:     "MultiEdit 空 edits",
+			toolName: "MultiEdit",
+			input:    `{"file_path":"/x.go","edits":[]}`,
+		},
+		{
+			name:     "TodoWrite 两条 todo",
+			toolName: "TodoWrite",
+			input: `{"todos":[` +
+				`{"id":"t1","content":"inspect","status":"completed"},` +
+				`{"id":"t2","content":"report","status":"in_progress"}` +
+				`]}`,
+		},
+		{
+			name:     "TodoWrite 全非 map 元素",
+			toolName: "TodoWrite",
+			input:    `{"todos":["bad","data"]}`,
+		},
+		{
+			name:     "Task 静态字段",
+			toolName: "Task",
+			input:    `{"description":"d","subagent_type":"st","prompt":"p"}`,
+		},
+	}
+	for _, c := range cases {
+		Convey("live 与 replay 同源 tool_use 一致: "+c.name, t, func() {
+			live := recognizeCanonical(c.toolName, json.RawMessage(c.input))
+
+			var m map[string]any
+			So(json.Unmarshal([]byte(c.input), &m), ShouldBeNil)
+			replay, ok := canonical.FromToolUse(c.toolName, m)
+
+			if live == nil {
+				So(ok, ShouldBeFalse)
+				return
+			}
+			So(ok, ShouldBeTrue)
+			So(replay, ShouldResemble, live)
+		})
+	}
 }
 
 // TestRecognizeCanonical_AgentSpawn Task 工具→canonical.AgentSpawn,只填静态字段
@@ -541,4 +632,65 @@ func TestSubagentInfoFromMeta_CarriesKind(t *testing.T) {
 	info := subagentInfoFromMeta(&claudecode.SubagentMeta{TaskType: "local_bash", TaskDescription: "sleep 5"})
 	assert.Equal(t, "local_bash", info.Kind)
 	assert.Equal(t, "sleep 5", info.TaskDescription)
+}
+
+// TestTranslate_PostToolUse_AsyncLaunchReceiptNotEmitted 回归:异步子代理的「启动
+// 回执」不是这次工具调用的结果,不得进入转录。
+//
+// 现场(sess-3333):CLI 派发异步 subagent 时,Agent 工具**立刻**回一条 tool_result:
+//
+//	"Async agent launched successfully. (This tool result is internal metadata —
+//	 never quote or paste any part of it, including the agentId below, into a
+//	 user-facing reply.)\nagentId: a1740ba7…\noutput_file: /private/tmp/…"
+//
+// 子代理真正的产出要几分钟后才随 task_notification 到达(落在 SubagentInfo.Summary
+// → subagent_state 块)。但这条回执被当成 Agent 工具的 tool_result 落进 blocks_json,
+// 前端 AgentSpawnCard 的 SUMMARY 区只看 tool_result.text,于是:
+//   - 派发那一瞬 SUMMARY 就被填满(卡片胶囊还是 RUNNING);
+//   - 跑完之后也不会被真摘要替换(card.tsx 里 resultBlock.text 优先级高于 run.summary);
+//   - agentId / output_file 这些明文标着「never paste into a user-facing reply」的
+//     内部元数据被原样显示给用户。
+//
+// 判据取 CLI 在 user 帧顶层 toolUseResult 里给的结构化标记 status="async_launched"
+// (而不是去匹配那段英文散文)。同步 Task/Agent 没有这个标记,其 tool_result 确实
+// 就是子代理的产出,必须照常入流。
+func TestTranslate_PostToolUse_AsyncLaunchReceiptNotEmitted(t *testing.T) {
+	Convey("Given Agent 工具回的是异步启动回执", t, func() {
+		ev := claudecode.Event{
+			Kind: claudecode.EventPostToolUse,
+			Tool: &claudecode.ToolEvent{
+				ID:       "toolu_async",
+				Name:     "Agent",
+				Response: "Async agent launched successfully. agentId: a1740ba7fecf79df8",
+				ResultMeta: json.RawMessage(
+					`{"isAsync":true,"status":"async_launched","agentId":"a1740ba7fecf79df8"}`),
+			},
+		}
+
+		Convey("When 翻译 Then 不产出 ToolResult", func() {
+			out, _, _ := translate(ev)
+			So(out, ShouldBeNil)
+		})
+	})
+
+	Convey("Given 同步 Agent 工具的 tool_result(无 async_launched 标记)", t, func() {
+		ev := claudecode.Event{
+			Kind: claudecode.EventPostToolUse,
+			Tool: &claudecode.ToolEvent{
+				ID:         "toolu_sync",
+				Name:       "Agent",
+				Response:   "## 1. Context facts\n…",
+				ResultMeta: json.RawMessage(`{"agentId":"a99","totalToolUseCount":12}`),
+			},
+		}
+
+		Convey("When 翻译 Then 照常入流,内容原样透传", func() {
+			out, _, _ := translate(ev)
+			So(len(out), ShouldEqual, 1)
+			tr, ok := out[0].(agentruntime.ToolResult)
+			So(ok, ShouldBeTrue)
+			So(tr.ToolCallID, ShouldEqual, "toolu_sync")
+			So(tr.Content, ShouldEqual, "## 1. Context facts\n…")
+		})
+	})
 }

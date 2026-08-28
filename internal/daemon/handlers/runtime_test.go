@@ -13,19 +13,26 @@ import (
 	"time"
 
 	"github.com/cago-frame/cago/pkg/consts"
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/handlers/mock_handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	piagentrt "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // ── fake Runtimes ───────────────────────────────────────────────────────────
@@ -122,6 +129,15 @@ type submitToolPermCall struct {
 
 type goalCall struct {
 	req agentruntime.GoalRequest
+}
+
+// eventText 把一条密封事件还原成它在 wire 上的 JSON 文本 —— 这些用例断言的是
+// 「转发出去的整串内容」,不关心具体事件类型。
+func eventText(t *testing.T, event agentruntime.Event) string {
+	t.Helper()
+	raw, err := json.Marshal(event)
+	require.NoError(t, err)
+	return string(raw)
 }
 
 func (r *fullRT) Capabilities() capability.Capabilities { return r.cap }
@@ -272,17 +288,23 @@ type recordingOutbound struct {
 	notifyC chan struct{}
 }
 
+// notifyFrame 是推出去的一条通知。notification 是端口实际收到的那条 Protobuf 消息;
+// params 是把它翻回 wire 形状之后的帧,断言读起来仍是领域语言(而且顺带证明推出去的
+// 那条消息本身是完整、可解的)。
 type notifyFrame struct {
-	method string
-	params any
+	method       string
+	params       any
+	notification *agentrewire.RpcNotification
 }
 
 // journalRow 是 fake 日志里的一行,形状对齐 daemon_notification_logs。
+// blob 是落库的原始字节(不含 seq),payload 是它翻回 wire 形状后的 JSON。
 type journalRow struct {
 	peer    string
 	session string
 	method  string
 	payload string
+	blob    []byte
 	seq     int64
 }
 
@@ -291,11 +313,23 @@ func newRecordingOutbound() *recordingOutbound {
 }
 
 // Append 模拟仓储的原子 seq 分配:每个 (对端, 会话) 从 1 起递增,失败时不推进。
-func (n *recordingOutbound) Append(_ context.Context, peer, session, method string, payload json.RawMessage) (int64, error) {
+func (n *recordingOutbound) Append(_ context.Context, peer, session string, payload []byte) (int64, error) {
 	n.mu.Lock()
 	defer n.unlockAndSignal()
+	notification, err := protowire.DecodeNotification(payload)
+	if err != nil {
+		return 0, err
+	}
+	method, value, err := protowire.ProtoNotificationToWire(notification)
+	if err != nil {
+		return 0, err
+	}
+	params, err := json.Marshal(value)
+	if err != nil {
+		return 0, err
+	}
 	if n.appendFail != nil {
-		if err := n.appendFail(method, payload); err != nil {
+		if err := n.appendFail(method, params); err != nil {
 			n.steps = append(n.steps, "append-failed:"+method)
 			return 0, err
 		}
@@ -303,7 +337,10 @@ func (n *recordingOutbound) Append(_ context.Context, peer, session, method stri
 	key := peer + "|" + session
 	n.nextSeq[key]++
 	seq := n.nextSeq[key]
-	n.rows = append(n.rows, journalRow{peer: peer, session: session, method: method, payload: string(payload), seq: seq})
+	n.rows = append(n.rows, journalRow{
+		peer: peer, session: session, method: method, payload: string(params),
+		blob: append([]byte(nil), payload...), seq: seq,
+	})
 	n.steps = append(n.steps, stepKey("append", method, seq))
 	return seq, nil
 }
@@ -332,17 +369,22 @@ func (n *recordingOutbound) setOffline(off bool) {
 	n.mu.Unlock()
 }
 
-func (n *recordingOutbound) Notify(method string, params any) error {
+func (n *recordingOutbound) Notify(notification *agentrewire.RpcNotification) error {
+	method, value, err := protowire.ProtoNotificationToWire(notification)
+	if err != nil {
+		return err
+	}
+	seq := protowire.NotificationSeq(notification)
 	n.mu.Lock()
 	defer n.unlockAndSignal()
 	if n.notifyFail != nil {
 		if err := n.notifyFail(method); err != nil {
-			n.steps = append(n.steps, stepKey("notify-failed", method, frameSeq(params)))
+			n.steps = append(n.steps, stepKey("notify-failed", method, seq))
 			return err
 		}
 	}
-	n.frames = append(n.frames, notifyFrame{method, params})
-	n.steps = append(n.steps, stepKey("notify", method, frameSeq(params)))
+	n.frames = append(n.frames, notifyFrame{method: method, params: framePointer(value), notification: notification})
+	n.steps = append(n.steps, stepKey("notify", method, seq))
 	return nil
 }
 
@@ -363,7 +405,7 @@ func stepKey(action, method string, seq int64) string {
 	return fmt.Sprintf("%s:%s#%d", action, method, seq)
 }
 
-// frameSeq 读出推送帧上盖的 seq。三个通知帧都以指针形式推送(SetSeq 是指针接收者)。
+// frameSeq 读出推送帧上盖的 seq。
 func frameSeq(params any) int64 {
 	switch f := params.(type) {
 	case *wire.EventFrame:
@@ -374,6 +416,20 @@ func frameSeq(params any) int64 {
 		return f.Seq
 	}
 	return -1
+}
+
+// framePointer 把 ProtoNotificationToWire 交回的值形帧换成指针形 —— 用例一律按指针
+// 断言(生产上推的也是指针帧)。
+func framePointer(value any) any {
+	switch v := value.(type) {
+	case wire.EventFrame:
+		return &v
+	case wire.RunResultDoneFrame:
+		return &v
+	case wire.AutonomousTurnStartedFrame:
+		return &v
+	}
+	return value
 }
 
 func (n *recordingOutbound) snapshot() []notifyFrame {
@@ -591,8 +647,9 @@ func countStep(steps []string, want string) int {
 }
 
 type lockedLogBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
+	mu   sync.Mutex
+	b    bytes.Buffer
+	logs *observer.ObservedLogs
 }
 
 func (b *lockedLogBuffer) Write(p []byte) (int, error) {
@@ -604,7 +661,15 @@ func (b *lockedLogBuffer) Write(p []byte) (int, error) {
 func (b *lockedLogBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.b.String()
+	var combined strings.Builder
+	combined.WriteString(b.b.String())
+	if b.logs != nil {
+		for _, entry := range b.logs.All() {
+			combined.WriteString(entry.Message)
+			_, _ = fmt.Fprint(&combined, entry.ContextMap())
+		}
+	}
+	return combined.String()
 }
 
 func captureRuntimeLogs(t *testing.T) *lockedLogBuffer {
@@ -612,11 +677,15 @@ func captureRuntimeLogs(t *testing.T) *lockedLogBuffer {
 	oldWriter := log.Writer()
 	oldFlags := log.Flags()
 	oldPrefix := log.Prefix()
-	captured := &lockedLogBuffer{}
+	core, observed := observer.New(zapcore.DebugLevel)
+	oldLogger := logger.Default()
+	logger.SetLogger(zap.New(core))
+	captured := &lockedLogBuffer{logs: observed}
 	log.SetOutput(captured)
 	log.SetFlags(0)
 	log.SetPrefix("")
 	t.Cleanup(func() {
+		logger.SetLogger(oldLogger)
 		log.SetOutput(oldWriter)
 		log.SetFlags(oldFlags)
 		log.SetPrefix(oldPrefix)
@@ -650,6 +719,20 @@ func setupRuntimeTest(t *testing.T, rt agentruntime.Runtime) (
 		},
 	})
 	return context.Background(), notif, gw, lookup, h
+}
+
+func setupRuntimeTestWithCLIOverlay(t *testing.T, rt agentruntime.Runtime,
+	resolve func(string) (string, bool),
+) (context.Context, *recordingOutbound, *handlers.RuntimeHandlers) {
+	t.Helper()
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Journal: notif, Sessions: sess, SessionQuery: sess,
+		RuntimeFor:        func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+		CLIPathForBackend: resolve,
+	})
+	return context.Background(), notif, h
 }
 
 // setupRuntimeTestWithSessions 同 setupRuntimeTest,但把会话生命周期出口也交回来
@@ -695,6 +778,44 @@ func backendJSON(t *testing.T, be agent_backend_entity.AgentBackend) json.RawMes
 }
 
 // ── Capabilities ────────────────────────────────────────────────────────────
+
+func TestRuntime_Run_GivenAccountCLIOverlay_WhenExecuting_ThenUsesOverlayWithoutPersistingItInBackendIdentity(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(syncID string) (string, bool) {
+		assert.Equal(t, "backend-sync-1", syncID)
+		return "/private/bin/claude", true
+	})
+	be := agent_backend_entity.AgentBackend{
+		Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/desktop/bin/claude",
+	}
+	be.SyncID = "backend-sync-1"
+
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 71})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	assert.Equal(t, "/private/bin/claude", runReqs[0].req.Backend.CLIPath)
+	assert.Equal(t, "/desktop/bin/claude", be.CLIPath, "the overlay is applied to the execution copy only")
+}
+
+func TestRuntime_Run_GivenNoSuccessfulAccountSnapshot_WhenExecuting_ThenKeepsPairedDesktopCLIPath(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(string) (string, bool) { return "", false })
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/paired/bin/claude"}
+
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 72})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	assert.Equal(t, "/paired/bin/claude", runReqs[0].req.Backend.CLIPath,
+		"unclaimed daemons and pre-snapshot paired desktop calls keep their existing execution path")
+}
 
 func TestRuntime_Capabilities_Found(t *testing.T) {
 	rt := &fullRT{cap: capability.Capabilities{}}
@@ -857,8 +978,7 @@ func TestRuntime_Run_NoProvider_EmitsEventsAndDone(t *testing.T) {
 	ef0, ok := frames[0].params.(*wire.EventFrame)
 	require.True(t, ok, "expected wire.EventFrame, got %T", frames[0].params)
 	assert.Equal(t, int64(42), ef0.SessionID)
-	assert.Contains(t, string(ef0.Event), `"kind":"text_delta"`)
-	assert.Contains(t, string(ef0.Event), `"text":"hi"`)
+	assert.Equal(t, agentruntime.TextDelta{Text: "hi"}, ef0.Event)
 
 	// Final frame carries the RunResult fields.
 	done, ok := frames[2].params.(*wire.RunResultDoneFrame)
@@ -923,9 +1043,9 @@ func TestRuntime_Run_ForwardsContentBearingEventsWithoutLoggingPayload(t *testin
 	for _, frame := range frames {
 		switch params := frame.params.(type) {
 		case wire.EventFrame:
-			forwarded.Write(params.Event)
+			forwarded.WriteString(eventText(t, params.Event))
 		case *wire.EventFrame:
-			forwarded.Write(params.Event)
+			forwarded.WriteString(eventText(t, params.Event))
 		case wire.RunResultDoneFrame:
 			forwarded.WriteString(params.StopErrMsg)
 		case *wire.RunResultDoneFrame:
@@ -937,7 +1057,7 @@ func TestRuntime_Run_ForwardsContentBearingEventsWithoutLoggingPayload(t *testin
 	}
 	require.Eventually(t, func() bool {
 		logs := captured.String()
-		return strings.Contains(logs, "runtime.run: session ended") &&
+		return strings.Contains(logs, "handlers.RuntimeHandlers.fanout: session ended") &&
 			strings.Contains(logs, "runtime.autonomousTurn: source closed")
 	}, time.Second, 10*time.Millisecond)
 	for _, sentinel := range []string{inputSentinel, resultSentinel, metaSentinel, taskSentinel, summarySentinel, runErrSentinel, stopErrSentinel} {
@@ -987,9 +1107,9 @@ func TestRuntime_Run_AutonomousPayloadAndStopErrorRemainForwardedButNotLogged(t 
 	for _, frame := range frames {
 		switch params := frame.params.(type) {
 		case wire.EventFrame:
-			forwarded.Write(params.Event)
+			forwarded.WriteString(eventText(t, params.Event))
 		case *wire.EventFrame:
-			forwarded.Write(params.Event)
+			forwarded.WriteString(eventText(t, params.Event))
 		case wire.RunResultDoneFrame:
 			forwarded.WriteString(params.StopErrMsg)
 		case *wire.RunResultDoneFrame:
@@ -1003,7 +1123,7 @@ func TestRuntime_Run_AutonomousPayloadAndStopErrorRemainForwardedButNotLogged(t 
 		logs := captured.String()
 		return strings.Contains(logs, "runtime.autonomousTurn: forwarded") &&
 			strings.Contains(logs, "runtime.autonomousTurn: source closed") &&
-			strings.Contains(logs, "runtime.run: session ended")
+			strings.Contains(logs, "handlers.RuntimeHandlers.fanout: session ended")
 	}, time.Second, 10*time.Millisecond)
 	for _, sentinel := range []string{resultSentinel, metaSentinel, stopErrSentinel} {
 		assert.NotContains(t, captured.String(), sentinel)
@@ -1069,7 +1189,7 @@ func TestRuntime_Run_ForwardsAutonomousTurn(t *testing.T) {
 	assert.Equal(t, int64(42), started.SessionID)
 	assert.Equal(t, "background_task", started.Trigger)
 	assert.Equal(t, int64(42), autoEvent.SessionID)
-	assert.Contains(t, string(autoEvent.Event), "autonomous:listing")
+	assert.Equal(t, agentruntime.TextDelta{Text: "autonomous:listing"}, autoEvent.Event)
 	assert.Equal(t, int64(42), autoDone.SessionID)
 	assert.Equal(t, "claude-sonnet-4-6", autoDone.Model)
 }
@@ -1107,15 +1227,16 @@ func TestRuntime_Run_UserMessageMarker(t *testing.T) {
 	ef0, ok := frames[0].params.(*wire.EventFrame)
 	require.True(t, ok, "expected EventFrame, got %T", frames[0].params)
 	assert.Equal(t, int64(42), ef0.SessionID)
-	assert.Contains(t, string(ef0.Event), `"kind":"user_message"`)
-	assert.Contains(t, string(ef0.Event), `"text":"浏览器发来的消息"`)
-	assert.Contains(t, string(ef0.Event), `"sourceDevice":"sha256:web-device"`)
-	assert.Contains(t, string(ef0.Event), `"sourceDeviceName":"Chrome · macOS"`)
+	assert.Equal(t, agentruntime.UserMessageEvent{
+		Text:             "浏览器发来的消息",
+		SourceDevice:     "sha256:web-device",
+		SourceDeviceName: "Chrome · macOS",
+	}, ef0.Event)
 
 	// 后续后端事件原样跟在标记之后。
 	ef1, ok := frames[1].params.(*wire.EventFrame)
 	require.True(t, ok)
-	assert.Contains(t, string(ef1.Event), `"kind":"text_delta"`)
+	assert.IsType(t, agentruntime.TextDelta{}, ef1.Event)
 }
 
 // TestRuntime_Run_NoUserMessageMarkerWhenNoSource: R18 单端零变化 —— 桌面端自己发消息
@@ -1140,8 +1261,7 @@ func TestRuntime_Run_NoUserMessageMarkerWhenNoSource(t *testing.T) {
 	frames := notif.waitFrames(t, 3)
 	ef0, ok := frames[0].params.(*wire.EventFrame)
 	require.True(t, ok)
-	assert.NotContains(t, string(ef0.Event), `"kind":"user_message"`)
-	assert.Contains(t, string(ef0.Event), `"kind":"text_delta"`)
+	assert.IsType(t, agentruntime.TextDelta{}, ef0.Event, "没有 SourceDevice 就不该注入 user_message 标记")
 }
 
 func TestRuntime_Run_BadBackendJSON_Errors(t *testing.T) {
@@ -1160,7 +1280,7 @@ func TestRuntime_Run_BuiltinBackend_Rejected(t *testing.T) {
 func TestRuntime_Run_OpenClawRemoteSecretUnavailable(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, nil)
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend:   backendJSON(t, agent_backend_entity.AgentBackend{ID: 9, Type: string(agent_backend_entity.TypeOpenClaw), DeviceID: "7"}),
+		Backend:   backendJSON(t, agent_backend_entity.AgentBackend{ID: 9, Type: string(agent_backend_entity.TypeOpenClaw), DeviceFingerprint: "7"}),
 		SessionID: 91,
 	})
 	require.Error(t, err)
@@ -1321,10 +1441,70 @@ func TestRuntime_Run_ProviderLookupMissing_ReturnsProviderMissingCode(t *testing
 	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be)})
 	require.Error(t, err)
 
-	var rpcErr *rpc.Error
+	var rpcErr *rpcerror.Error
 	require.ErrorAs(t, err, &rpcErr)
-	assert.Equal(t, rpc.ErrProviderMissing.Code, rpcErr.Code)
+	assert.Equal(t, rpcerror.ErrProviderMissing.Code, rpcErr.Code)
 	assert.Contains(t, rpcErr.Message, "missing-key")
+}
+
+// TestRuntime_Run_EffectiveConfig_MatchesDesktopFieldForField 钉死 spec 的收敛判据：
+// 相同输入下 daemon 与桌面构造出的 EffectiveLLMConfig **逐字段相同**。两端从此共用
+// agentruntime.NewEffectiveLLMConfig，桌面喂的是 llm_provider_svc.ResolveTarget 的解析
+// 结果、daemon 喂的是自家目录的解析结果，装配规则只有那一份 —— daemon 手写那份曾漏填
+// ContextWindow 与 MaxOutput。
+func TestRuntime_Run_EffectiveConfig_MatchesDesktopFieldForField(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, _, gw, lookup, h := setupRuntimeTest(t, rt)
+	be := agent_backend_entity.AgentBackend{
+		Type:           string(agent_backend_entity.TypeClaudeCode),
+		LLMProviderKey: "pk",
+		LLMModelKey:    "model-opus",
+	}
+	lookup.EXPECT().FindByKey(ctx, "pk").Return(&llm_provider_entity.LLMProvider{
+		ProviderKey: "pk",
+		Type:        string(llm_provider_entity.TypeAnthropic),
+		Name:        "Anthropic 主号",
+		BaseURL:     "https://api.example.com",
+		APIKey:      "sk-fixture",
+		Status:      consts.ACTIVE,
+	}, nil)
+	lookup.EXPECT().ResolveModel(ctx, "pk", "model-opus").Return(handlers.EffectiveModel{
+		ModelKey:      "model-opus",
+		ModelID:       "claude-opus-4-5",
+		ContextWindow: 500000,
+		MaxOutput:     64000,
+	}, nil)
+	gw.EXPECT().URL().Return("").AnyTimes()
+
+	_, err := h.Run(ctx, wire.RunParams{
+		Backend:        backendJSON(t, be),
+		SessionID:      42,
+		LLMProviderKey: "pk",
+		LLMModelKey:    "model-opus",
+	})
+	require.NoError(t, err)
+	require.Len(t, rt.runReqs, 1)
+
+	// 桌面同一套输入下会构造的那一份（同一个构造口，喂桌面解析口的等价字段）。
+	desktop := agentruntime.NewEffectiveLLMConfig(agentruntime.EffectiveLLMConfigInput{
+		ProviderKey:      "pk",
+		ProviderType:     string(llm_provider_entity.TypeAnthropic),
+		ProviderName:     "Anthropic 主号",
+		TargetModelKey:   "model-opus",
+		ResolvedModelKey: "model-opus",
+		ResolvedModelID:  "claude-opus-4-5",
+		ContextWindow:    500000,
+		MaxOutput:        64000,
+		BaseURL:          "https://api.example.com",
+		APIKey:           "sk-fixture",
+		HasAPIKey:        true,
+	})
+	assert.Equal(t, desktop, rt.runReqs[0].req.Effective, "daemon 与桌面必须逐字段相同")
 }
 
 func TestRuntime_Run_RuntimeReturnsErr_RevokesToken(t *testing.T) {
@@ -1739,9 +1919,7 @@ func TestRuntime_Fanout_StampsSteerConsumedSource(t *testing.T) {
 		}
 	}
 	require.NotNil(t, ef, "fanout must emit the SteerConsumed event frame")
-	ev, err := agentruntime.UnmarshalEvent(ef.Event)
-	require.NoError(t, err)
-	sc, ok := ev.(agentruntime.SteerConsumed)
+	sc, ok := ef.Event.(agentruntime.SteerConsumed)
 	require.True(t, ok)
 	require.Len(t, sc.Steers, 1)
 	assert.Equal(t, "q-live", sc.Steers[0].QueuedID)
@@ -2278,11 +2456,7 @@ func TestRuntime_AllEventsRoundTripThroughNotify(t *testing.T) {
 		ef, ok := f.params.(*wire.EventFrame)
 		require.True(t, ok, "frame %d: expected EventFrame, got %T", i, f.params)
 		assert.Equal(t, int64(100), ef.SessionID)
-		var head struct {
-			Kind string `json:"kind"`
-		}
-		require.NoError(t, json.Unmarshal(ef.Event, &head))
-		assert.NotEmpty(t, head.Kind, "frame %d kind must be present", i)
+		assert.NotNil(t, ef.Event, "frame %d must carry an event", i)
 	}
 }
 
@@ -2467,7 +2641,7 @@ func TestRuntime_Run_JournalFailureSkipsPushAndDoesNotAdvanceSeq(t *testing.T) {
 
 	for _, f := range frames {
 		if ef, ok := f.params.(*wire.EventFrame); ok {
-			assert.NotContains(t, string(ef.Event), "boom", "落库失败的通知不得推送")
+			assert.NotContains(t, eventText(t, ef.Event), "boom", "落库失败的通知不得推送")
 		}
 	}
 	assert.Equal(t, []int64{1, 2, 3}, []int64{
@@ -2814,23 +2988,6 @@ func (p *scriptedPreparedPiRun) finish() {
 	p.finishOnce.Do(func() { close(p.events) })
 }
 
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
-
 type trackingGenerationRegistry struct {
 	mu       sync.Mutex
 	owners   map[int64]string
@@ -2844,7 +3001,7 @@ func newTrackingGenerationRegistry() *trackingGenerationRegistry {
 	}
 }
 
-func (r *trackingGenerationRegistry) ClaimRuntimeGeneration(_ *rpc.Conn, sessionID int64, generation string) bool {
+func (r *trackingGenerationRegistry) ClaimConnection(_ connection.Conn, sessionID int64, generation string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.owners[sessionID] != "" {
@@ -2854,7 +3011,7 @@ func (r *trackingGenerationRegistry) ClaimRuntimeGeneration(_ *rpc.Conn, session
 	return true
 }
 
-func (r *trackingGenerationRegistry) ReleaseRuntimeGeneration(_ *rpc.Conn, sessionID int64, generation string) bool {
+func (r *trackingGenerationRegistry) ReleaseConnection(_ connection.Conn, sessionID int64, generation string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.owners[sessionID] != generation {
@@ -2904,12 +3061,12 @@ func (c *doneObservingContext) Done() <-chan struct{} {
 	return c.done
 }
 
-func (n *blockingTerminalNotifier) Notify(method string, params any) error {
-	if method == wire.NotifyRunResultDone {
+func (n *blockingTerminalNotifier) Notify(notification *agentrewire.RpcNotification) error {
+	if protowire.NotificationMethod(notification) == wire.NotifyRunResultDone {
 		n.once.Do(func() { close(n.entered) })
 		<-n.allow
 	}
-	return n.recording.Notify(method, params)
+	return n.recording.Notify(notification)
 }
 
 func TestRuntime_PiPendingGenerationIsAbortableBeforePreparationReturns(t *testing.T) {
@@ -3430,10 +3587,7 @@ func TestRuntime_ReadoptedPiSessionStillReleasesTheOverwrittenGeneration(t *test
 
 func TestRuntime_FanoutLogsEventClassificationWithoutSerializedPayload(t *testing.T) {
 	const secret = "secret-tool-input-and-private-prompt"
-	var logs lockedBuffer
-	previousWriter := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(previousWriter) })
+	logs := captureRuntimeLogs(t)
 
 	rt := &fullRT{}
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
@@ -3448,7 +3602,7 @@ func TestRuntime_FanoutLogsEventClassificationWithoutSerializedPayload(t *testin
 	require.NoError(t, err)
 	_ = notif.waitFrames(t, 2)
 
-	assert.Contains(t, logs.String(), "kind=ErrorEvent")
+	assert.Contains(t, logs.String(), "eventKind:ErrorEvent")
 	assert.NotContains(t, logs.String(), secret)
 	assert.NotContains(t, logs.String(), "payload=")
 }
@@ -3642,9 +3796,9 @@ func TestRuntime_Run_FixedModel_ProviderMissing_Blocks(t *testing.T) {
 		LLMModelKey:    "model-fixed",
 	})
 	require.Error(t, err)
-	var rpcErr *rpc.Error
+	var rpcErr *rpcerror.Error
 	require.ErrorAs(t, err, &rpcErr)
-	assert.Equal(t, rpc.ErrProviderMissing.Code, rpcErr.Code)
+	assert.Equal(t, rpcerror.ErrProviderMissing.Code, rpcErr.Code)
 	require.Len(t, rt.runReqs, 0)
 }
 
@@ -3763,4 +3917,32 @@ func TestRuntime_Run_ProviderDefault_ResolvesDefaultModel(t *testing.T) {
 	assert.Equal(t, agentruntime.EffectiveModeProviderDefault, req.Effective.Mode)
 	assert.Equal(t, "model-default", req.Effective.ModelKey)
 	assert.Equal(t, "claude-sonnet-4-6", req.Effective.ModelID)
+}
+
+// TestRuntime_Run_PersistsProjectSyncID 覆盖「项目在会话发起那一刻就落库」。
+//
+// 此前 agentred 只存 cwd,服务端按 (指纹, cwd) 反推项目。日活跃统计走的是一条不上行
+// 任何路径的纯计数通道,反推那条路在那里用不了 —— 项目必须随起手的这一轮记下来,而
+// 且和 Title / AgentSyncID 同批幂等覆盖(会话可以换项目)。
+func TestRuntime_Run_PersistsProjectSyncID(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event, 1)
+		ch <- agentruntime.Done{}
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	_, err := h.Run(ctx, wire.RunParams{
+		Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work",
+		ProjectSyncID: "01HXproj00000000000000000",
+	})
+	require.NoError(t, err)
+
+	notif.waitFrames(t, 2)
+	started := sess.started()
+	require.Len(t, started, 1)
+	assert.Equal(t, "01HXproj00000000000000000", started[0].ProjectSyncID,
+		"起手建行必须带上发起方报的项目同步标识")
 }

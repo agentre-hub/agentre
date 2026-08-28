@@ -12,23 +12,23 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo/mock_department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/service/data_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo/mock_department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/service/data_svc"
 )
 
 type dataSvcMocks struct {
@@ -554,7 +554,7 @@ func TestApplyImport_Backend_ResolvesRemoteDeviceRef(t *testing.T) {
 
 	m.backends.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
 		DoAndReturn(func(_ context.Context, bk *agent_backend_entity.AgentBackend) error {
-			So(bk.DeviceID, ShouldEqual, "5")
+			So(bk.DeviceFingerprint, ShouldEqual, "5")
 			bk.ID = 60
 			return nil
 		})
@@ -602,7 +602,7 @@ func TestApplyImport_Backend_FollowsDuplicatedRemoteDevice(t *testing.T) {
 		})
 	m.backends.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
 		DoAndReturn(func(_ context.Context, bk *agent_backend_entity.AgentBackend) error {
-			So(bk.DeviceID, ShouldEqual, "99")
+			So(bk.DeviceFingerprint, ShouldEqual, "99")
 			bk.ID = 60
 			return nil
 		})
@@ -618,13 +618,13 @@ func TestApplyImport_Backend_FollowsDuplicatedRemoteDevice(t *testing.T) {
 				{InstanceUUID: "uuid-1", Name: "Server1"},
 			},
 			AgentBackends: []data_svc.BundleAgentBackend{
-				{ExportKey: "ab-1", Type: "codex", Name: "Remote Codex", DeviceID: "5"},
+				{ExportKey: "ab-1", Type: "codex", Name: "Remote Codex", DeviceID: "uuid-1"},
 			},
 		},
 	}
 	raw, _ := json.Marshal(bundle)
 
-	Convey("旧包数字 deviceId 在远端设备 duplicate 后绑定新设备", t, func() {
+	Convey("稳定 deviceId 在远端设备 duplicate 后绑定新设备", t, func() {
 		res, err := m.svc.ApplyImport(m.ctx, &data_svc.ApplyImportRequest{
 			Raw: raw,
 			Actions: map[string]data_svc.ItemAction{
@@ -862,10 +862,10 @@ func TestPreviewImport_OrgScope_AgentsAndDepts(t *testing.T) {
 				{ExportKey: "dept-x", Name: "X", ParentKey: "dept-missing"},    // parent NOT in bundle → dangling
 			},
 			Agents: []data_svc.BundleAgent{
-				{ExportKey: "ag-1", Name: "A1", DepartmentKey: "dept-eng"},     // dept in bundle
-				{ExportKey: "ag-2", Name: "A2", DepartmentKey: "dept-gone"},    // dept NOT in bundle → dangling
-				{ExportKey: "ag-3", Name: "A3", AgentBackendKey: "ab-missing"}, // backend NOT in bundle → dangling
-				{ExportKey: "ag-4", Name: "A4", ParentAgentKey: "ag-gone"},     // parent NOT in bundle → dangling
+				{ExportKey: "ag-1", Name: "A1", DepartmentKey: "dept-eng"},                                            // dept in bundle
+				{ExportKey: "ag-2", Name: "A2", DepartmentKey: "dept-gone"},                                           // dept NOT in bundle → dangling
+				{ExportKey: "ag-3", Name: "A3", ExecTargets: []data_svc.BundleExecTarget{{BackendKey: "ab-missing"}}}, // backend NOT in bundle → dangling
+				{ExportKey: "ag-4", Name: "A4", ParentAgentKey: "ag-gone"},                                            // parent NOT in bundle → dangling
 			},
 		},
 	}
@@ -888,7 +888,7 @@ func TestPreviewImport_OrgScope_AgentsAndDepts(t *testing.T) {
 	})
 }
 
-func TestPreviewImport_BackendLegacyNumericDeviceIDMatchesLocalDevice(t *testing.T) {
+func TestPreviewImport_BackendNumericDeviceIDIsDangling(t *testing.T) {
 	m := setupDataSvcTest(t)
 	m.providers.EXPECT().List(gomock.Any()).Return(nil, nil)
 	m.devices.EXPECT().List(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
@@ -911,7 +911,7 @@ func TestPreviewImport_BackendLegacyNumericDeviceIDMatchesLocalDevice(t *testing
 	}
 	raw, _ := json.Marshal(bundle)
 
-	Convey("旧导出包里的数字 deviceId 能匹配本地已有远端设备", t, func() {
+	Convey("当 backend 使用非稳定的数字 deviceId，则预览将其标记为 dangling", t, func() {
 		pv, err := m.svc.PreviewImport(m.ctx, raw)
 		So(err, ShouldBeNil)
 		So(pv.Items, ShouldHaveLength, 2)
@@ -921,8 +921,8 @@ func TestPreviewImport_BackendLegacyNumericDeviceIDMatchesLocalDevice(t *testing
 				backend = it
 			}
 		}
-		So(backend.Dangling, ShouldBeFalse)
-		So(backend.DefaultAction, ShouldEqual, data_svc.ActionCreate)
+		So(backend.Dangling, ShouldBeTrue)
+		So(backend.DefaultAction, ShouldEqual, data_svc.ActionSkip)
 	})
 }
 
@@ -949,7 +949,7 @@ func TestExport_RemoteDevices(t *testing.T) {
 func TestExport_AgentBackends_RemoteDeviceUsesInstanceUUID(t *testing.T) {
 	m := setupDataSvcTest(t)
 	m.backends.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.AgentBackend{
-		{ID: 10, Type: "codex", Name: "Remote Codex", DeviceID: "7"},
+		{ID: 10, Type: "codex", Name: "Remote Codex", DeviceFingerprint: "7"},
 	}, nil)
 	m.devices.EXPECT().List(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
 		{ID: 7, InstanceUUID: "uuid-7", Name: "Server7"},
@@ -1612,11 +1612,11 @@ func TestExport_BackendKey_SharedBetweenScopes(t *testing.T) {
 		So(b.Items.AgentBackends, ShouldHaveLength, 1)
 		So(b.Items.Agents, ShouldHaveLength, 1)
 
-		// The agent's agentBackendKey must equal the backend's exportKey.
+		// The agent's execution target must reference the backend's exportKey.
 		backendExportKey := b.Items.AgentBackends[0].ExportKey
-		agentBackendKey := b.Items.Agents[0].AgentBackendKey
 		So(backendExportKey, ShouldNotBeEmpty)
-		So(agentBackendKey, ShouldEqual, backendExportKey) // line 220: key round-trip assertion
+		So(b.Items.Agents[0].ExecTargets, ShouldHaveLength, 1)
+		So(b.Items.Agents[0].ExecTargets[0].BackendKey, ShouldEqual, backendExportKey)
 	})
 }
 
@@ -1729,10 +1729,7 @@ func TestExportImport_RoundTrip_PreservesExecTargetOrderAndPerTargetSkills(t *te
 	}
 }
 
-// TestApplyImport_Agent_LegacyBundleWithoutExecTargets_FallsBackToSingleElementList
-// 覆盖"老 bundle(不含执行目标数组)按 agentBackendKey + skillsJSON 落成单元素列表
-// 且 sort_order = 0"——与迁移共用 agent_entity.PrimaryExecTargets 同一份转换。
-func TestApplyImport_Agent_LegacyBundleWithoutExecTargets_FallsBackToSingleElementList(t *testing.T) {
+func TestApplyImport_AgentWithoutExecTargetsImportsEmptyTargetList(t *testing.T) {
 	m := setupDataSvcTest(t)
 	m.providers.EXPECT().List(gomock.Any()).Return(nil, nil).Times(2)
 	m.devices.EXPECT().List(gomock.Any()).Return(nil, nil).Times(2)
@@ -1748,11 +1745,11 @@ func TestApplyImport_Agent_LegacyBundleWithoutExecTargets_FallsBackToSingleEleme
 	m.agents.EXPECT().ListByDepartment(gomock.Any(), int64(0)).Return([]*agent_entity.Agent{}, nil)
 	m.agents.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_entity.Agent{})).
 		DoAndReturn(func(_ context.Context, a *agent_entity.Agent) error {
-			if a.AgentBackendID != 30 {
-				t.Errorf("expected AgentBackendID=30 derived from agentBackendKey, got %d", a.AgentBackendID)
+			if a.AgentBackendID != 0 {
+				t.Errorf("expected no primary backend without execTargets, got %d", a.AgentBackendID)
 			}
-			if a.SkillsJSON != `[{"id":"legacy-pack","enabled":true}]` {
-				t.Errorf("expected legacy skillsJSON passed through, got %q", a.SkillsJSON)
+			if a.SkillsJSON != "" {
+				t.Errorf("expected no primary skills without execTargets, got %q", a.SkillsJSON)
 			}
 			a.ID = 40
 			return nil
@@ -1776,7 +1773,7 @@ func TestApplyImport_Agent_LegacyBundleWithoutExecTargets_FallsBackToSingleEleme
 			Agents: []data_svc.BundleAgent{
 				// 注意:不设置 ExecTargets —— 序列化后 JSON 里没有 execTargets 这个 key,
 				// 模拟本条规则加入之前导出的老 bundle。
-				{ExportKey: "ag-1", Name: "Solo", AgentBackendKey: "ab-1", SkillsJSON: `[{"id":"legacy-pack","enabled":true}]`},
+				{ExportKey: "ag-1", Name: "Solo"},
 			},
 		},
 	}
@@ -1792,14 +1789,8 @@ func TestApplyImport_Agent_LegacyBundleWithoutExecTargets_FallsBackToSingleEleme
 	if res.Counts["created"] != 2 {
 		t.Fatalf("expected 2 created rows (1 backend + 1 agent), got %v", res.Counts)
 	}
-	if len(gotTargets) != 1 {
-		t.Fatalf("expected a single-element exec target list, got %d", len(gotTargets))
-	}
-	if gotTargets[0].AgentBackendID != 30 {
-		t.Fatalf("expected the single target to point at the legacy backend 30, got %d", gotTargets[0].AgentBackendID)
-	}
-	if gotTargets[0].SkillsJSON != `[{"id":"legacy-pack","enabled":true}]` {
-		t.Fatalf("expected the legacy skillsJSON to land on that one target, got %q", gotTargets[0].SkillsJSON)
+	if len(gotTargets) != 0 {
+		t.Fatalf("expected no exec targets when the current field is absent, got %d", len(gotTargets))
 	}
 }
 
@@ -1838,7 +1829,7 @@ func TestApplyImport_Agent_LegacyBundleEmptyBackendKey_FallsBackToEmptyList(t *t
 		Scopes: []string{string(data_svc.ScopeOrganization)},
 		Items: data_svc.BundleItems{
 			Agents: []data_svc.BundleAgent{
-				{ExportKey: "ag-1", Name: "Unassigned", AgentBackendKey: ""},
+				{ExportKey: "ag-1", Name: "Unassigned"},
 			},
 		},
 	}
@@ -1859,11 +1850,7 @@ func TestApplyImport_Agent_LegacyBundleEmptyBackendKey_FallsBackToEmptyList(t *t
 	}
 }
 
-// TestApplyImport_Agent_ExecTargetsPresent_IgnoresLegacyBackendKeyAndSkillsJSON
-// 锁住"execTargets 数组存在时,agentBackendKey / skillsJSON 不再被导入侧读取"——
-// legacy 字段故意指向另一个 backend 与另一份技能,断言最终落库的执行目标只反映
-// execTargets 数组本身。
-func TestApplyImport_Agent_ExecTargetsPresent_IgnoresLegacyBackendKeyAndSkillsJSON(t *testing.T) {
+func TestApplyImport_AgentExecTargetsAreSourceOfTruth(t *testing.T) {
 	m := setupDataSvcTest(t)
 	m.providers.EXPECT().List(gomock.Any()).Return(nil, nil).Times(2)
 	m.devices.EXPECT().List(gomock.Any()).Return(nil, nil).Times(2)
@@ -1883,14 +1870,6 @@ func TestApplyImport_Agent_ExecTargetsPresent_IgnoresLegacyBackendKeyAndSkillsJS
 	m.agents.EXPECT().ListByDepartment(gomock.Any(), int64(0)).Return([]*agent_entity.Agent{}, nil)
 	m.agents.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_entity.Agent{})).
 		DoAndReturn(func(_ context.Context, a *agent_entity.Agent) error {
-			// 守卫（R15f）：遗留的 agentBackendKey / skillsJSON 不能从 Agent 行这条
-			// 路溜进来 —— agents 的这两个保留列只能是 ① 的镜像，取自 execTargets。
-			if a.SkillsJSON == `[{"id":"decoy-pack","enabled":true}]` {
-				t.Errorf("agent row carries legacy skillsJSON: %q", a.SkillsJSON)
-			}
-			if a.AgentBackendID == 61 {
-				t.Errorf("agent row carries legacy agentBackendKey → decoy backend id %d", a.AgentBackendID)
-			}
 			a.ID = 70
 			return nil
 		})
@@ -1916,9 +1895,6 @@ func TestApplyImport_Agent_ExecTargetsPresent_IgnoresLegacyBackendKeyAndSkillsJS
 			Agents: []data_svc.BundleAgent{
 				{
 					ExportKey: "ag-1", Name: "Solo",
-					// 遗留字段故意指向 decoy backend 与一份假技能 —— 期望被忽略。
-					AgentBackendKey: "ab-decoy",
-					SkillsJSON:      `[{"id":"decoy-pack","enabled":true}]`,
 					ExecTargets: []data_svc.BundleExecTarget{
 						{BackendKey: "ab-real", SortOrder: 0, SkillsJSON: `[{"id":"real-pack","enabled":true}]`},
 					},
@@ -1942,7 +1918,7 @@ func TestApplyImport_Agent_ExecTargetsPresent_IgnoresLegacyBackendKeyAndSkillsJS
 		t.Fatalf("expected 1 exec target, got %d", len(gotTargets))
 	}
 	if gotTargets[0].SkillsJSON != `[{"id":"real-pack","enabled":true}]` {
-		t.Fatalf("expected skillsJSON from execTargets (not the legacy skillsJSON field), got %q", gotTargets[0].SkillsJSON)
+		t.Fatalf("expected skillsJSON from execTargets, got %q", gotTargets[0].SkillsJSON)
 	}
 	// "ab-real" 在 bundle 里排第一个,拿到的本地 backend id 必须是它,不是 decoy。
 	if mCreatedOrder[0] != "Real" {
@@ -1950,7 +1926,7 @@ func TestApplyImport_Agent_ExecTargetsPresent_IgnoresLegacyBackendKeyAndSkillsJS
 	}
 	wantBackendID := int64(60) // 59 + 1,第一次 Create
 	if gotTargets[0].AgentBackendID != wantBackendID {
-		t.Fatalf("expected exec target backend id resolved from execTargets[].backendKey (ab-real=%d), got %d (legacy agentBackendKey 泄漏进来了)",
+		t.Fatalf("expected exec target backend id resolved from execTargets[].backendKey (ab-real=%d), got %d",
 			wantBackendID, gotTargets[0].AgentBackendID)
 	}
 }

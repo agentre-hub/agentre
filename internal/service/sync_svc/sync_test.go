@@ -11,15 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo/mock_server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // ── 测试替身 ────────────────────────────────────────────────────────────────
@@ -31,6 +31,9 @@ type fakeTransport struct {
 	pages    []*syncwire.PullPage
 	pulledAt []int64
 	pullErr  error
+	// pullErrs 按调用次序消耗一次：第 i 次 SyncPull 取 pullErrs[i]，非 nil 就返回它。
+	// 与 pullErr（每一次都返回）互补——server 只在第一次拒绝，之后照常应答。
+	pullErrs []error
 
 	// 本机路径上报（R16）与头像（R16a）的替身状态。
 	localPathReports [][]syncwire.LocalPathReportItem
@@ -70,6 +73,13 @@ func (f *fakeTransport) SyncPush(_ context.Context, items []syncwire.PushItem) (
 
 func (f *fakeTransport) SyncPull(_ context.Context, cursor int64, _ int) (*syncwire.PullPage, error) {
 	f.pulledAt = append(f.pulledAt, cursor)
+	if len(f.pullErrs) > 0 {
+		err := f.pullErrs[0]
+		f.pullErrs = f.pullErrs[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	if f.pullErr != nil {
 		return nil, f.pullErr
 	}
@@ -351,11 +361,11 @@ func TestFlush_GivenOfflineBacklog_UploadsInOrderOnce(t *testing.T) {
 // 顺序下最终版本相同——版本号较大者胜，先到的更大版本不被后到的旧版本盖掉。
 func TestApplyInbound_ConvergesUnderBothArrivalOrders(t *testing.T) {
 	older := syncwire.PullItem{
-		Kind: "project", SyncID: "p-1", Version: 5, SourceDeviceID: 1,
+		Kind: "project", SyncID: "p-1", Version: 5, OriginFingerprint: "fp-1",
 		Payload: []byte(`{"name":"from-A"}`),
 	}
 	newer := syncwire.PullItem{
-		Kind: "project", SyncID: "p-1", Version: 6, SourceDeviceID: 2,
+		Kind: "project", SyncID: "p-1", Version: 6, OriginFingerprint: "fp-2",
 		Payload: []byte(`{"name":"from-B"}`),
 	}
 
@@ -376,6 +386,54 @@ func TestApplyInbound_ConvergesUnderBothArrivalOrders(t *testing.T) {
 			assert.Equal(t, int64(6), h.state.meta["project:p-1"].SyncVersion)
 		})
 	}
+}
+
+// TestPull_GivenSomethingLanded_AnnouncesTheKinds 下行落地后要有人喊一声。
+//
+// 界面没有别的办法知道「另一台设备刚建了个项目」：项目树没有任何推送通道，此前
+// 全靠项目页那条 1 秒轮询兜着，轮询随单一会话索引一起删掉之后，同步过来的项目
+// 会一直不出现，直到用户碰巧做了点别的事。
+func TestPull_GivenSomethingLanded_AnnouncesTheKinds(t *testing.T) {
+	h := newHarness(t, true)
+	var announced [][]string
+	h.svc.SetEmitter(func(kinds []string) {
+		announced = append(announced, kinds)
+	})
+	h.transport.pages = []*syncwire.PullPage{{
+		Items: []syncwire.PullItem{{
+			Kind: "project", SyncID: "p-1", Version: 5, Payload: []byte(`{"name":"A"}`),
+		}},
+		NextCursor: 5,
+	}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, announced, 1, "落地了就喊一声")
+	assert.Equal(t, []string{"project"}, announced[0])
+}
+
+// TestPull_GivenNothingLanded_StaysQuiet 空转的那些轮次不喊 —— 30 秒一次的轮询
+// 如果每轮都喊，界面就会每 30 秒无谓地重拉一遍项目树。
+func TestPull_GivenNothingLanded_StaysQuiet(t *testing.T) {
+	h := newHarness(t, true)
+	var announced [][]string
+	h.svc.SetEmitter(func(kinds []string) {
+		announced = append(announced, kinds)
+	})
+	item := syncwire.PullItem{
+		Kind: "project", SyncID: "p-1", Version: 5, Payload: []byte(`{"name":"A"}`),
+	}
+	h.transport.pages = []*syncwire.PullPage{
+		{Items: []syncwire.PullItem{item}, NextCursor: 5},
+		{Items: []syncwire.PullItem{item}, NextCursor: 5},
+	}
+	ctx := context.Background()
+
+	require.NoError(t, h.svc.SyncOnce(ctx))
+	require.NoError(t, h.svc.SyncOnce(ctx))
+
+	// 第二轮是重复投递，被版本守卫挡下——它没有改变本机任何东西，也就没什么可喊的。
+	assert.Len(t, announced, 1, "只有真落地的那一轮喊")
 }
 
 // TestApplyInbound_GivenDuplicateDelivery_AppliesOnce R7：重复投递只应用一次。
@@ -406,7 +464,7 @@ func TestApplyInbound_GivenTombstone_RemovesLocalRow(t *testing.T) {
 	h.adapter.rows["p-1"] = "Alpha"
 	h.state.meta["project:p-1"] = syncmeta_entity.SyncMeta{SyncID: "p-1", SyncVersion: 4}
 	h.transport.pages = []*syncwire.PullPage{{
-		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "p-1", Version: 9, Deleted: true}},
+		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "p-1", Version: 9, DeletedAt: 1700}},
 		NextCursor: 9,
 	}}
 
@@ -423,7 +481,7 @@ func TestApplyInbound_GivenTombstoneForUnknownRow_DoesNothing(t *testing.T) {
 	h := newHarness(t, true)
 	h.adapter.needRef = ref{Kind: "project", SyncID: "parent-1"} // 本机解析不出
 	h.transport.pages = []*syncwire.PullPage{{
-		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "ghost", Version: 9, Deleted: true}},
+		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "ghost", Version: 9, DeletedAt: 1700}},
 		NextCursor: 9,
 	}}
 
@@ -560,7 +618,7 @@ func TestPull_GivenNaturalKeyMergeLoss_RecordsOverwritten(t *testing.T) {
 	h.transport.pages = []*syncwire.PullPage{{
 		Items: []syncwire.PullItem{
 			{Kind: syncwire.KindProjectLocation, SyncID: "loc-mine", Version: 10,
-				ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", Deleted: true},
+				ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", DeletedAt: 1700},
 			{Kind: syncwire.KindProjectLocation, SyncID: "loc-winner", Version: 11,
 				ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder",
 				Payload: []byte(`{"path":"/srv/theirs"}`)},
@@ -597,7 +655,7 @@ func TestPull_GivenPlainTombstone_RecordsNothing(t *testing.T) {
 	h.transport.pages = []*syncwire.PullPage{{
 		Items: []syncwire.PullItem{{
 			Kind: syncwire.KindProjectLocation, SyncID: "loc-mine", Version: 10,
-			ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", Deleted: true,
+			ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", DeletedAt: 1700,
 		}},
 		NextCursor: 10,
 	}}
@@ -785,7 +843,7 @@ func TestFlush_GivenConflict_RecordsOverwrittenChange(t *testing.T) {
 	h.transport.results = func(items []syncwire.PushItem) ([]syncwire.PushResult, error) {
 		return []syncwire.PushResult{{
 			SyncID: items[0].SyncID, Kind: items[0].Kind, Version: 12,
-			Status: syncwire.PushStatusConflict, OverwrittenVersion: 11, OverwrittenDeviceID: 5,
+			Status: syncwire.PushStatusConflict, OverwrittenVersion: 11, OverwrittenOriginFingerprint: "fp-5",
 		}}, nil
 	}
 
@@ -796,7 +854,7 @@ func TestFlush_GivenConflict_RecordsOverwrittenChange(t *testing.T) {
 	require.Len(t, h.lost.rows, 1)
 	assert.Equal(t, syncqueue_entity.ReasonOverwritten, h.lost.rows[0].Reason)
 	assert.Equal(t, int64(11), h.lost.rows[0].BaseVersion)
-	assert.Equal(t, "5", h.lost.rows[0].OriginDevice)
+	assert.Equal(t, "fp-5", h.lost.rows[0].OriginDevice)
 	assert.Equal(t, int64(12), h.state.meta["project:p-1"].SyncVersion, "本次上行照常生效")
 }
 

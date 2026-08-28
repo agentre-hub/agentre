@@ -2,7 +2,6 @@ package handlers_test
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"runtime"
@@ -12,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 
 	"github.com/stretchr/testify/require"
 )
@@ -228,11 +227,10 @@ func requireNoStaleTerminalEvents(
 	staleReason string,
 ) {
 	t.Helper()
-	encodedStaleData := base64.StdEncoding.EncodeToString([]byte(staleData))
 	for _, event := range recorder.snapshot() {
 		switch payload := event.Payload.(type) {
-		case protocol.TerminalDataEvent:
-			require.NotEqual(t, encodedStaleData, payload.Data)
+		case handlers.TerminalDataEvent:
+			require.NotEqual(t, []byte(staleData), payload.Data)
 		case protocol.TerminalExitEvent:
 			require.NotEqual(t, staleReason, payload.Reason)
 		}
@@ -270,19 +268,6 @@ func TestTerminalOpen_GivenSuppliedIDAndFastBackendWhenOpenedWithoutSubscribersT
 	require.NoError(t, err)
 	require.Equal(t, "desktop-terminal-1", result.TerminalID)
 	require.Equal(t, int32(1), calls.Load())
-}
-
-func TestTerminalOpen_GivenEmptyLegacyIDWhenOpenedThenGeneratesDaemonID(t *testing.T) {
-	handle := newTrackedTerminalHandle()
-	h := handlers.NewTerminalHandlers(terminalBackendFunc(func(context.Context, pty.Spec) (handlers.PTYHandle, error) {
-		return handle, nil
-	}), &recordingEmitter{})
-	t.Cleanup(h.CloseAll)
-
-	result, err := h.Open(context.Background(), protocol.TerminalOpenParams{Cols: 80, Rows: 24})
-
-	require.NoError(t, err)
-	require.NotEmpty(t, result.TerminalID)
 }
 
 func TestTerminalOpen_GivenUnsafeOrOversizedSuppliedIDWhenOpenedThenRejectsBeforeBackend(t *testing.T) {

@@ -10,10 +10,10 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/hook_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/hookexec"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/hookexec"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
 )
 
 const (
@@ -43,7 +43,7 @@ type hookSvc struct {
 var defaultHook HookSvc = newHookSvc()
 
 func newHookSvc() *hookSvc {
-	return &hookSvc{now: func() int64 { return time.Now().Unix() }, runner: hookexec.NewOSRunner()}
+	return &hookSvc{now: func() int64 { return time.Now().UnixMilli() }, runner: hookexec.NewOSRunner()}
 }
 
 func Hook() HookSvc { return defaultHook }

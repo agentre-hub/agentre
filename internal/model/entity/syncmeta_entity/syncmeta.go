@@ -4,8 +4,8 @@
 // agent_exec_targets——各自匿名内嵌 SyncMeta，GORM 按约定把它的字段提升进宿主表的
 // schema，六列在这七张表里同名同型。
 //
-// 本包目前只提供数据落地与两条纯判定（NewSyncID / EligibleForSync）；真正的
-// 上行 / 下行 / 冲突落地是后续任务，这里只给它们留位置。
+// llm_providers also embeds SyncMeta, using provider_key as its stable sync ID;
+// its models travel inside the provider payload rather than becoming a second kind.
 package syncmeta_entity
 
 import (
@@ -34,9 +34,9 @@ type SyncMeta struct {
 	// SyncUpdatedAt 最后一次修改的本地时间（毫秒 epoch），只用于展示与 30 天窗口
 	// 计算，不参与胜负比较（决策 19/27）。
 	SyncUpdatedAt int64 `gorm:"column:sync_updated_at;type:bigint;not null;default:0"`
-	// SyncOrigin 最后一次修改来自哪台设备（决策 4 的字典序打破平局用它）；空串
-	// 表示这一行还没有被同步层标记过来源。
-	SyncOrigin string `gorm:"column:sync_origin;type:text;not null;default:''"`
+	// SyncOriginFingerprint 最后一次修改来自哪台设备——存的是那台设备的规范指纹
+	// （与本工作区其余跨机引用同一种表示）；空串表示这一行还没有被同步层标记过来源。
+	SyncOriginFingerprint string `gorm:"column:sync_origin_fingerprint;type:text;not null;default:''"`
 	// SyncDeletedAt 墓碑时间（毫秒 epoch，R6）；0 = 未删除。与各表既有的 status 软
 	// 删语义正交——status 是本地可见性，这一列是跨机墓碑标记，由后续任务的删除
 	// 路径一并写入。

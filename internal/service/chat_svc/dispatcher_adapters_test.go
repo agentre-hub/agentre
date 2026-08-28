@@ -1,11 +1,15 @@
 package chat_svc
 
 import (
+	"context"
+
 	"testing"
 
+	"github.com/cago-frame/agents/provider"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 func TestNewTurnContext_PopulatesAllAdapters(t *testing.T) {
@@ -37,5 +41,22 @@ func TestUsageWriterAdapter_PatchesMessage(t *testing.T) {
 		usageH, _, _, _, _, _ := buildHandlersWithAdapters(nil)
 		So(usageH.Writer, ShouldEqual, wr)
 		_ = m
+	})
+}
+
+func TestUsageWriterAdapter_AccumulatesCompletionAcrossCalls(t *testing.T) {
+	Convey("两次 per-call usage：prompt 取最近一次，completion 累加", t, func() {
+		m := &chat_entity.Message{}
+		wr := usageWriterAdapter{}
+		// ID=0(消息尚未落库)时 adapter 只 patch 内存实体、不碰 DB,所以这里无需 mock repo。
+		So(wr.WriteUsage(context.Background(), m, &agentruntime.UsageUpdate{
+			Usage: &provider.Usage{PromptTokens: 12000, CompletionTokens: 200, ReasoningTokens: 10},
+		}), ShouldBeNil)
+		So(wr.WriteUsage(context.Background(), m, &agentruntime.UsageUpdate{
+			Usage: &provider.Usage{PromptTokens: 22000, CompletionTokens: 400, ReasoningTokens: 5},
+		}), ShouldBeNil)
+		So(m.PromptTokens, ShouldEqual, 22000)
+		So(m.CompletionTokens, ShouldEqual, 600)
+		So(m.ReasoningTokens, ShouldEqual, 15)
 	})
 }

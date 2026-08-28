@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/agentre-ai/agentre/pkg/codex"
+	"github.com/agentre-hub/agentre/pkg/codex"
 )
 
 func probeCodex(ctx context.Context, req ProbeRequest) (*ProbeResponse, error) {

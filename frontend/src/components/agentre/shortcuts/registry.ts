@@ -55,9 +55,10 @@ const NAV_REGISTRY: ShortcutDef[] = [
   ),
 ];
 
-// SESSION_CHIP_IDS —— 历史侧边栏会话快捷键 id。
-// id 字符串保持 `chat.session.N` 以兼容旧 localStorage 绑定；
-// 实际动作已由 chat.tab.N（TabsScope）接管，SessionScope 仅作回退。
+// SESSION_CHIP_IDS —— 侧边栏会话快捷键 id。⌘1-9 优先由 chat.tab.N（TabsScope）
+// 接管，没挂 TabsScope 时才落到这一档（shortcuts-provider.findIdForChord）。
+// 这些 id 不进 localStorage：rebindable=false ⇒ 绑定永远等于默认值，
+// 而 saveShortcutsState 只写「与默认不同」的那些。
 export const SESSION_CHIP_IDS: string[] = Array.from(
   { length: 9 },
   (_, i) => `chat.session.${i + 1}`,

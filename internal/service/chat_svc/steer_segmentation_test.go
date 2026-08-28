@@ -9,13 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // steerBeforeToolResultRunner 复刻真实事故序列(sess-2833):claudecode 的
@@ -155,8 +155,8 @@ func TestSend_SteerConsumedKeepsInFlightToolResultWithItsToolUse(t *testing.T) {
 		assert.Equal(t, []string{"tool_use", "tool_result"}, blockTypes(prev),
 			"收口的 assistant 必须同时留下 tool_use 和它的 tool_result")
 		if assert.Len(t, prev, 2) {
-			assert.Equal(t, "tu-1", prev[0].ToolUseID)
-			assert.Equal(t, "tu-1", prev[1].ToolUseID)
+			assert.Equal(t, "tu-1", prev[0].ToolCallID)
+			assert.Equal(t, "tu-1", prev[1].ToolCallID)
 			assert.Equal(t, "no matches found", prev[1].Text)
 		}
 	}

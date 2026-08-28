@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 )
 
 // hitPaths 把命中列表折成"路径 → 是否目录",断言时按集合看而不依赖切片下标。

@@ -435,7 +435,7 @@ describe("Agentre foundation components", () => {
   });
 
   it("autoFocusOnMount=true focuses the editor on first mount", async () => {
-    render(<ChatComposer autoFocusOnMount />);
+    render(<ChatComposer autoFocusOnMount onSubmit={() => undefined} />);
     // 新建会话进入时，ChatPanel 通过 newSessionAgent 传 true，让用户直接打字。
     // TipTap 的 autofocus 是 setTimeout(0) 异步执行的，所以 waitFor。
     await waitFor(() => {
@@ -444,11 +444,11 @@ describe("Agentre foundation components", () => {
   });
 
   it("Given a mounted composer, When new-session autofocus becomes enabled, Then the editor receives focus", async () => {
-    const { rerender } = render(<ChatComposer />);
+    const { rerender } = render(<ChatComposer onSubmit={() => undefined} />);
 
     expect(screen.getByRole("textbox")).not.toHaveFocus();
 
-    rerender(<ChatComposer autoFocusOnMount />);
+    rerender(<ChatComposer autoFocusOnMount onSubmit={() => undefined} />);
 
     await waitFor(() => {
       expect(screen.getByRole("textbox")).toHaveFocus();
@@ -456,13 +456,13 @@ describe("Agentre foundation components", () => {
   });
 
   it("autoFocusOnMount default (false) leaves focus untouched on mount", () => {
-    render(<ChatComposer />);
+    render(<ChatComposer onSubmit={() => undefined} />);
     // 续聊已有会话时不抢焦点，避免打断用户在侧栏的其它操作。
     expect(screen.getByRole("textbox")).not.toHaveFocus();
   });
 
   it("disables browser text assistance in the composer edit box", () => {
-    render(<ChatComposer />);
+    render(<ChatComposer onSubmit={() => undefined} />);
 
     const composer = screen.getByRole("textbox");
 
@@ -473,14 +473,16 @@ describe("Agentre foundation components", () => {
   });
 
   it("exposes the configured placeholder via data-placeholder for CSS rendering", () => {
-    render(<ChatComposer />);
+    render(<ChatComposer onSubmit={() => undefined} />);
 
     const editor = screen.getByRole("textbox");
     const emptyParagraph = editor.querySelector("p.is-editor-empty");
 
+    // 一样能力都没接的裸 composer 只剩基础提示 —— 占位按**本次接上的能力**拼,
+    // 不再按 backendType 查表许诺 `@ / !`(见包内 chat-input/placeholder.ts)。
     expect(emptyParagraph).toHaveAttribute(
       "data-placeholder",
-      "Type a message · @ to mention · / for commands · ! to run in terminal",
+      "Type a message",
     );
   });
 
@@ -495,5 +497,27 @@ describe("Agentre foundation components", () => {
     expect(screen.getByText("需要你的确认")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+  });
+});
+
+describe("SidebarButton 角标", () => {
+  it("Given 有待处理的东西, When 渲染, Then 图标上出现角标且不进无障碍名", () => {
+    const { container } = render(
+      <SidebarButton label="设置" icon={MessageSquare} badge />,
+    );
+
+    expect(
+      container.querySelector("[data-slot='sidebar-badge']"),
+    ).not.toBeNull();
+    // 角标是纯装饰：信息由按钮自己的 aria-label 承载，别让读屏念一个圆点。
+    expect(screen.getByRole("button", { name: "设置" })).toBeInTheDocument();
+  });
+
+  it("Given 没有待处理的东西, When 渲染, Then 没有角标", () => {
+    const { container } = render(
+      <SidebarButton label="设置" icon={MessageSquare} />,
+    );
+
+    expect(container.querySelector("[data-slot='sidebar-badge']")).toBeNull();
   });
 });

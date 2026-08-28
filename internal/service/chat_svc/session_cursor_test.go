@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 )
 
 // setupSessionCursorTest 注入 session repo mock 并返回 agentruntime 侧已注册的游标端口。
@@ -37,7 +37,7 @@ func TestSessionCursorPort_LoadCursor(t *testing.T) {
 	t.Run("Given 跑在某台 daemon 上的会话, When 实例标识与记录一致, Then 交出已记录的游标", func(t *testing.T) {
 		sessRepo, port := setupSessionCursorTest(t)
 		sessRepo.EXPECT().Find(gomock.Any(), int64(42)).Return(&chat_entity.Session{
-			ID: 42, ExecDeviceID: 3, ExecDaemonFingerprint: "sha256:beef", EventCursor: 17,
+			ID: 42, ExecDeviceID: 3, ExecDeviceFingerprint: "sha256:beef", EventCursor: 17,
 		}, nil)
 
 		seq, ok, err := port.LoadCursor(context.Background(), 42, "sha256:beef")
@@ -49,7 +49,7 @@ func TestSessionCursorPort_LoadCursor(t *testing.T) {
 	t.Run("Given 同一条会话, When daemon 实例标识变了(重装/换机/数据目录被清), Then 游标判失效", func(t *testing.T) {
 		sessRepo, port := setupSessionCursorTest(t)
 		sessRepo.EXPECT().Find(gomock.Any(), int64(42)).Return(&chat_entity.Session{
-			ID: 42, ExecDeviceID: 3, ExecDaemonFingerprint: "sha256:beef", EventCursor: 17,
+			ID: 42, ExecDeviceID: 3, ExecDeviceFingerprint: "sha256:beef", EventCursor: 17,
 		}, nil)
 
 		seq, ok, err := port.LoadCursor(context.Background(), 42, "sha256:cafe")
@@ -91,7 +91,7 @@ func TestSessionCursorPort_LoadCursor(t *testing.T) {
 func TestSessionCursorPort_SaveCursorThenLoad(t *testing.T) {
 	sessRepo, port := setupSessionCursorTest(t)
 
-	stored := &chat_entity.Session{ID: 42, ExecDeviceID: 3, ExecDaemonFingerprint: "sha256:beef", EventCursor: 17}
+	stored := &chat_entity.Session{ID: 42, ExecDeviceID: 3, ExecDeviceFingerprint: "sha256:beef", EventCursor: 17}
 	sessRepo.EXPECT().UpdateEventCursor(gomock.Any(), int64(42), "sha256:beef", int64(23)).
 		DoAndReturn(func(_ context.Context, _ int64, _ string, seq int64) error {
 			stored.EventCursor = seq

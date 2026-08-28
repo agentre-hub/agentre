@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	agentruntime "github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	agentruntime "github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	gomock "go.uber.org/mock/gomock"
 )
 

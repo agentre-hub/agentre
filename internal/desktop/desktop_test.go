@@ -7,8 +7,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/agentre-ai/agentre/internal/app"
-	"github.com/agentre-ai/agentre/internal/bootstrap"
+	"github.com/agentre-hub/agentre/internal/app"
+	"github.com/agentre-hub/agentre/internal/bootstrap"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 )

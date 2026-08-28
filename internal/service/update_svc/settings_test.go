@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo/mock_app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo/mock_app_setting_repo"
 )
 
 // setupSettingsTest 注入 mock_app_setting_repo，所有 settings.go 里的 Get/Set 都走 mock。

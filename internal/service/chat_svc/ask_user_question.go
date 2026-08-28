@@ -7,14 +7,14 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 // askUserQuestionBlockToChatBlock 把持久化的 blocks.UserAskBlock 投影到前端
@@ -22,7 +22,7 @@ import (
 // 前端 CanonicalToolRouter 与 live 路径共用一份渲染入口(UserAskCard)。
 func askUserQuestionBlockToChatBlock(b blocks.UserAskBlock) ChatBlock {
 	return ChatBlock{
-		Type: "ask_user_question",
+		Type: ChatBlockTypeAskUserQuestion,
 		AskUserQuestion: &ChatBlockAskUserQuestion{
 			RequestID: b.RequestID,
 			Questions: b.Questions,

@@ -5,7 +5,8 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 // activeStreamName backs LoadSession.ActiveStream: when a turn is in-flight, a frontend
@@ -74,7 +75,7 @@ func TestActiveStreamName(t *testing.T) {
 	t.Run("turn carrying only a fallback notice is still a real turn", func(t *testing.T) {
 		fallback := &chat_entity.Message{ID: 3, Role: "assistant"}
 		if err := fallback.SetBlocks([]blocks.ContentBlock{blocks.NoticeBlock{
-			Level: "info", Text: encodeProviderFallback("gone-provider", ""),
+			Level: "info", Text: view.EncodeProviderFallback("gone-provider", ""),
 		}}); err != nil {
 			t.Fatalf("SetBlocks: %v", err)
 		}
@@ -95,7 +96,7 @@ func noticeOnlyAssistantMessage(t *testing.T, id int64) *chat_entity.Message {
 	t.Helper()
 	m := &chat_entity.Message{ID: id, Role: "assistant"}
 	if err := m.SetBlocks([]blocks.ContentBlock{blocks.NoticeBlock{
-		Level: "info", Text: encodeProviderSwitch("session-key", "", "中转 · GLM 5.2", ""),
+		Level: "info", Text: view.EncodeProviderSwitch("session-key", "", "中转 · GLM 5.2", ""),
 	}}); err != nil {
 		t.Fatalf("SetBlocks: %v", err)
 	}

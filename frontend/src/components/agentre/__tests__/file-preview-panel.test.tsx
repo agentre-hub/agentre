@@ -8,10 +8,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const readFileMock = vi.fn();
 const gitFileContentMock = vi.fn();
 vi.mock("@/../wailsjs/go/app/App", () => ({
-  WorkspaceFsReadFile: (sessionId: number, relPath: string) =>
+  WorkspaceFsReadFile: (sessionId: number, _root: string, relPath: string) =>
     readFileMock(sessionId, relPath),
-  WorkspaceFsGitFileContent: (sessionId: number, relPath: string) =>
-    gitFileContentMock(sessionId, relPath),
+  WorkspaceFsGitFileContent: (
+    sessionId: number,
+    _root: string,
+    relPath: string,
+  ) => gitFileContentMock(sessionId, relPath),
 }));
 
 // Monaco 接缝:面板内的 CodePreview / DiffPreview / MarkdownSourceView 在 happy-dom
@@ -72,11 +75,12 @@ function createFakeMonaco(): FakeMonaco {
 
 let fakeMonaco: FakeMonaco;
 
+import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import {
   selectActivePreviewTab,
-  useChatSidebarStore,
+  useFilePreviewTabsStore,
   type PreviewSourceMode,
-} from "@/stores/chat-sidebar-store";
+} from "@/stores/file-preview-tabs-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { FilePreviewPanel } from "../file-preview/file-preview-panel";
@@ -92,11 +96,10 @@ beforeEach(() => {
   localStorage.clear();
   useChatSidebarStore.setState({
     open: true,
-    activeTab: "files",
-    filesMode: "changes",
+    activeTab: "changes",
     showIgnored: false,
-    previewTabsBySession: {},
   });
+  useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   readFileMock.mockReset();
   gitFileContentMock.mockReset();
@@ -114,7 +117,7 @@ function openPreview(
   sessionId = 7,
   sourceMode: PreviewSourceMode = "directory",
 ) {
-  useChatSidebarStore.getState().openPreview(sessionId, path, sourceMode);
+  useFilePreviewTabsStore.getState().openPreview(sessionId, path, sourceMode);
 }
 
 describe("FilePreviewPanel", () => {
@@ -269,27 +272,6 @@ describe("FilePreviewPanel", () => {
     expect(within(panel).queryByRole("button", { name: "Diff" })).toBeNull();
   });
 
-  it("shows a changes-mode code file as a diff too", async () => {
-    readFileMock.mockResolvedValue(textView("package main\n"));
-    gitFileContentMock.mockResolvedValue({
-      content: "package main\n// old\n",
-      notARepo: false,
-      hasHead: true,
-    });
-    openPreview("main.go", 7, "changes");
-    renderPanel();
-
-    const panel = await screen.findByRole("complementary", {
-      name: "File preview",
-    });
-    await waitFor(() =>
-      expect(gitFileContentMock).toHaveBeenCalledWith(7, "main.go"),
-    );
-    expect(
-      within(panel).getByText("Diff · HEAD → working tree"),
-    ).toBeInTheDocument();
-  });
-
   it("renders the no-git-baseline empty state for a git-opened code file outside a repo", async () => {
     readFileMock.mockResolvedValue(textView("hello"));
     gitFileContentMock.mockResolvedValue({
@@ -421,7 +403,7 @@ describe("FilePreviewPanel", () => {
 
     await waitFor(() => {
       expect(
-        useChatSidebarStore.getState().previewTabsBySession[7],
+        useFilePreviewTabsStore.getState().previewTabsBySession[7],
       ).toBeUndefined();
     });
   });
@@ -438,12 +420,12 @@ describe("FilePreviewPanel", () => {
       within(panel).getByRole("button", { name: "Close preview" }),
     );
     // 200ms 出场动画期间打开另一个文件:旧 timer 不能把新选择清掉。
-    useChatSidebarStore.getState().openPreview(7, "b.md", "directory");
+    useFilePreviewTabsStore.getState().openPreview(7, "b.md", "directory");
 
     // 等关闭动画的 timer 跑完,断言 b.md 仍然选中、面板仍然开着。
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 7),
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7),
     ).toMatchObject({
       path: "b.md",
       segment: null,
@@ -466,13 +448,13 @@ describe("FilePreviewPanel", () => {
           resolveHead = resolve;
         }),
     );
-    useChatSidebarStore.getState().openPreviewInNewTab(7, "main.go", "git");
+    useFilePreviewTabsStore.getState().openPreviewInNewTab(7, "main.go", "git");
     renderPanel();
     await waitFor(() => expect(gitFileContentMock).toHaveBeenCalledTimes(1));
 
     // HEAD 还没回来就切到 markdown 标签：那次读取就此被放弃。
     await act(async () => {
-      useChatSidebarStore
+      useFilePreviewTabsStore
         .getState()
         .openPreviewInNewTab(7, "README.md", "directory");
     });
@@ -493,15 +475,15 @@ describe("FilePreviewPanel", () => {
 
     await screen.findByRole("complementary", { name: "File preview" });
     // 打开第二个文件(同模式,面板保持打开,markdown 档位保留)。
-    useChatSidebarStore.getState().setPreviewSegment(7, "text");
-    useChatSidebarStore.getState().openPreview(7, "b.md", "directory");
+    useFilePreviewTabsStore.getState().setPreviewSegment(7, "text");
+    useFilePreviewTabsStore.getState().openPreview(7, "b.md", "directory");
     rerender(<FilePreviewPanel sessionId={7} />);
 
     await waitFor(() => {
       expect(readFileMock).toHaveBeenLastCalledWith(7, "b.md");
     });
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 7)?.segment,
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7)?.segment,
     ).toBe("text");
   });
 
@@ -527,7 +509,7 @@ describe("FilePreviewPanel", () => {
     expect(gitFileContentMock).not.toHaveBeenCalled();
 
     // 换到 Git 模式重开同一文件 → 首视图变对比。
-    useChatSidebarStore.getState().openPreview(7, "a.go", "git");
+    useFilePreviewTabsStore.getState().openPreview(7, "a.go", "git");
     rerender(<FilePreviewPanel sessionId={7} />);
 
     await waitFor(() =>
@@ -553,7 +535,7 @@ describe("FilePreviewPanel", () => {
       ).toBeNull();
     });
     expect(
-      selectActivePreviewTab(useChatSidebarStore.getState(), 7)?.path,
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7)?.path,
     ).toBe("README.md");
 
     // 切回来还是原来那个标签。
@@ -653,7 +635,7 @@ describe("FilePreviewPanel", () => {
   });
 
   describe("tab strip", () => {
-    const store = () => useChatSidebarStore.getState();
+    const store = () => useFilePreviewTabsStore.getState();
 
     async function openTwoTabs() {
       readFileMock.mockResolvedValue(textView("# a"));
@@ -924,7 +906,7 @@ describe("FilePreviewPanel", () => {
   });
 
   describe("shared file type icon identity", () => {
-    const store = () => useChatSidebarStore.getState();
+    const store = () => useFilePreviewTabsStore.getState();
 
     async function openCodeAndMarkdownTabs() {
       readFileMock.mockResolvedValue(textView("# a"));

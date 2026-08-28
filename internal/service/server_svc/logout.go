@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 )
 
 // Logout best-effort revokes server-side, then unconditionally clears local state.

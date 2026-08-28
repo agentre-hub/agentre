@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 )
 
 // ReplyPrefix 是所有假回复的前缀,前端据此断言并与用户消息区分。

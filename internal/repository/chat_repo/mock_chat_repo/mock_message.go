@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	chat_entity "github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	chat_repo "github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	chat_entity "github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	chat_repo "github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -43,17 +43,17 @@ func (m *MockMessageRepo) EXPECT() *MockMessageRepoMockRecorder {
 }
 
 // AppendSubagentChildren mocks base method.
-func (m *MockMessageRepo) AppendSubagentChildren(ctx context.Context, sessionID int64, parentToolUseID, childBlocksJSON string, childIDs []string) error {
+func (m *MockMessageRepo) AppendSubagentChildren(ctx context.Context, sessionID int64, parentToolCallID, childBlocksJSON string, childIDs []string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AppendSubagentChildren", ctx, sessionID, parentToolUseID, childBlocksJSON, childIDs)
+	ret := m.ctrl.Call(m, "AppendSubagentChildren", ctx, sessionID, parentToolCallID, childBlocksJSON, childIDs)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AppendSubagentChildren indicates an expected call of AppendSubagentChildren.
-func (mr *MockMessageRepoMockRecorder) AppendSubagentChildren(ctx, sessionID, parentToolUseID, childBlocksJSON, childIDs any) *gomock.Call {
+func (mr *MockMessageRepoMockRecorder) AppendSubagentChildren(ctx, sessionID, parentToolCallID, childBlocksJSON, childIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendSubagentChildren", reflect.TypeOf((*MockMessageRepo)(nil).AppendSubagentChildren), ctx, sessionID, parentToolUseID, childBlocksJSON, childIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendSubagentChildren", reflect.TypeOf((*MockMessageRepo)(nil).AppendSubagentChildren), ctx, sessionID, parentToolCallID, childBlocksJSON, childIDs)
 }
 
 // Create mocks base method.
@@ -85,6 +85,34 @@ func (mr *MockMessageRepoMockRecorder) DeleteFromSeq(ctx, sessionID, fromSeq any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFromSeq", reflect.TypeOf((*MockMessageRepo)(nil).DeleteFromSeq), ctx, sessionID, fromSeq)
 }
 
+// FillBlocks mocks base method.
+func (m *MockMessageRepo) FillBlocks(ctx context.Context, msgs []*chat_entity.Message) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FillBlocks", ctx, msgs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FillBlocks indicates an expected call of FillBlocks.
+func (mr *MockMessageRepoMockRecorder) FillBlocks(ctx, msgs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FillBlocks", reflect.TypeOf((*MockMessageRepo)(nil).FillBlocks), ctx, msgs)
+}
+
+// FillBlocksByType mocks base method.
+func (m *MockMessageRepo) FillBlocksByType(ctx context.Context, msgs []*chat_entity.Message, types []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FillBlocksByType", ctx, msgs, types)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FillBlocksByType indicates an expected call of FillBlocksByType.
+func (mr *MockMessageRepoMockRecorder) FillBlocksByType(ctx, msgs, types any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FillBlocksByType", reflect.TypeOf((*MockMessageRepo)(nil).FillBlocksByType), ctx, msgs, types)
+}
+
 // Find mocks base method.
 func (m *MockMessageRepo) Find(ctx context.Context, id int64) (*chat_entity.Message, error) {
 	m.ctrl.T.Helper()
@@ -100,25 +128,25 @@ func (mr *MockMessageRepoMockRecorder) Find(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockMessageRepo)(nil).Find), ctx, id)
 }
 
-// FindAssistantBySubagentToolUseID mocks base method.
-func (m *MockMessageRepo) FindAssistantBySubagentToolUseID(ctx context.Context, sessionID int64, toolUseID string) (*chat_entity.Message, error) {
+// FindAssistantBySubagentToolCallID mocks base method.
+func (m *MockMessageRepo) FindAssistantBySubagentToolCallID(ctx context.Context, sessionID int64, toolCallID string) (*chat_entity.Message, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAssistantBySubagentToolUseID", ctx, sessionID, toolUseID)
+	ret := m.ctrl.Call(m, "FindAssistantBySubagentToolCallID", ctx, sessionID, toolCallID)
 	ret0, _ := ret[0].(*chat_entity.Message)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindAssistantBySubagentToolUseID indicates an expected call of FindAssistantBySubagentToolUseID.
-func (mr *MockMessageRepoMockRecorder) FindAssistantBySubagentToolUseID(ctx, sessionID, toolUseID any) *gomock.Call {
+// FindAssistantBySubagentToolCallID indicates an expected call of FindAssistantBySubagentToolCallID.
+func (mr *MockMessageRepoMockRecorder) FindAssistantBySubagentToolCallID(ctx, sessionID, toolCallID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAssistantBySubagentToolUseID", reflect.TypeOf((*MockMessageRepo)(nil).FindAssistantBySubagentToolUseID), ctx, sessionID, toolUseID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAssistantBySubagentToolCallID", reflect.TypeOf((*MockMessageRepo)(nil).FindAssistantBySubagentToolCallID), ctx, sessionID, toolCallID)
 }
 
 // FindSubagentState mocks base method.
-func (m *MockMessageRepo) FindSubagentState(ctx context.Context, sessionID int64, toolUseID string) (string, string, bool, error) {
+func (m *MockMessageRepo) FindSubagentState(ctx context.Context, sessionID int64, toolCallID string) (string, string, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindSubagentState", ctx, sessionID, toolUseID)
+	ret := m.ctrl.Call(m, "FindSubagentState", ctx, sessionID, toolCallID)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(bool)
@@ -127,23 +155,23 @@ func (m *MockMessageRepo) FindSubagentState(ctx context.Context, sessionID int64
 }
 
 // FindSubagentState indicates an expected call of FindSubagentState.
-func (mr *MockMessageRepoMockRecorder) FindSubagentState(ctx, sessionID, toolUseID any) *gomock.Call {
+func (mr *MockMessageRepoMockRecorder) FindSubagentState(ctx, sessionID, toolCallID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindSubagentState", reflect.TypeOf((*MockMessageRepo)(nil).FindSubagentState), ctx, sessionID, toolUseID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindSubagentState", reflect.TypeOf((*MockMessageRepo)(nil).FindSubagentState), ctx, sessionID, toolCallID)
 }
 
 // FlipSubagentStatus mocks base method.
-func (m *MockMessageRepo) FlipSubagentStatus(ctx context.Context, sessionID int64, toolUseID, status, summary string) error {
+func (m *MockMessageRepo) FlipSubagentStatus(ctx context.Context, sessionID int64, toolCallID, status, summary string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FlipSubagentStatus", ctx, sessionID, toolUseID, status, summary)
+	ret := m.ctrl.Call(m, "FlipSubagentStatus", ctx, sessionID, toolCallID, status, summary)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // FlipSubagentStatus indicates an expected call of FlipSubagentStatus.
-func (mr *MockMessageRepoMockRecorder) FlipSubagentStatus(ctx, sessionID, toolUseID, status, summary any) *gomock.Call {
+func (mr *MockMessageRepoMockRecorder) FlipSubagentStatus(ctx, sessionID, toolCallID, status, summary any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlipSubagentStatus", reflect.TypeOf((*MockMessageRepo)(nil).FlipSubagentStatus), ctx, sessionID, toolUseID, status, summary)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlipSubagentStatus", reflect.TypeOf((*MockMessageRepo)(nil).FlipSubagentStatus), ctx, sessionID, toolCallID, status, summary)
 }
 
 // LatestAssistant mocks base method.
@@ -176,6 +204,21 @@ func (mr *MockMessageRepoMockRecorder) List(ctx, sessionID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockMessageRepo)(nil).List), ctx, sessionID)
 }
 
+// ListMeta mocks base method.
+func (m *MockMessageRepo) ListMeta(ctx context.Context, sessionID int64) ([]*chat_entity.Message, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMeta", ctx, sessionID)
+	ret0, _ := ret[0].([]*chat_entity.Message)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListMeta indicates an expected call of ListMeta.
+func (mr *MockMessageRepoMockRecorder) ListMeta(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMeta", reflect.TypeOf((*MockMessageRepo)(nil).ListMeta), ctx, sessionID)
+}
+
 // NextSeq mocks base method.
 func (m *MockMessageRepo) NextSeq(ctx context.Context, sessionID int64) (int, error) {
 	m.ctrl.T.Helper()
@@ -192,17 +235,17 @@ func (mr *MockMessageRepoMockRecorder) NextSeq(ctx, sessionID any) *gomock.Call 
 }
 
 // PatchSubagentProgress mocks base method.
-func (m *MockMessageRepo) PatchSubagentProgress(ctx context.Context, sessionID int64, toolUseID string, p chat_repo.SubagentProgress) error {
+func (m *MockMessageRepo) PatchSubagentProgress(ctx context.Context, sessionID int64, toolCallID string, p chat_repo.SubagentProgress) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchSubagentProgress", ctx, sessionID, toolUseID, p)
+	ret := m.ctrl.Call(m, "PatchSubagentProgress", ctx, sessionID, toolCallID, p)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // PatchSubagentProgress indicates an expected call of PatchSubagentProgress.
-func (mr *MockMessageRepoMockRecorder) PatchSubagentProgress(ctx, sessionID, toolUseID, p any) *gomock.Call {
+func (mr *MockMessageRepoMockRecorder) PatchSubagentProgress(ctx, sessionID, toolCallID, p any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchSubagentProgress", reflect.TypeOf((*MockMessageRepo)(nil).PatchSubagentProgress), ctx, sessionID, toolUseID, p)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchSubagentProgress", reflect.TypeOf((*MockMessageRepo)(nil).PatchSubagentProgress), ctx, sessionID, toolCallID, p)
 }
 
 // Update mocks base method.
@@ -217,4 +260,32 @@ func (m_2 *MockMessageRepo) Update(ctx context.Context, m *chat_entity.Message) 
 func (mr *MockMessageRepoMockRecorder) Update(ctx, m any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockMessageRepo)(nil).Update), ctx, m)
+}
+
+// UpdateErrorText mocks base method.
+func (m *MockMessageRepo) UpdateErrorText(ctx context.Context, id int64, text string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateErrorText", ctx, id, text)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateErrorText indicates an expected call of UpdateErrorText.
+func (mr *MockMessageRepoMockRecorder) UpdateErrorText(ctx, id, text any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateErrorText", reflect.TypeOf((*MockMessageRepo)(nil).UpdateErrorText), ctx, id, text)
+}
+
+// UpdateUsage mocks base method.
+func (m *MockMessageRepo) UpdateUsage(ctx context.Context, id int64, u chat_repo.MessageUsage) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUsage", ctx, id, u)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateUsage indicates an expected call of UpdateUsage.
+func (mr *MockMessageRepoMockRecorder) UpdateUsage(ctx, id, u any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUsage", reflect.TypeOf((*MockMessageRepo)(nil).UpdateUsage), ctx, id, u)
 }

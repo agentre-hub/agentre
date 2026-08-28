@@ -14,11 +14,9 @@ import { useTranslation } from "react-i18next";
 import {
   ContextMenuItem,
   ContextMenuSeparator,
-} from "@/components/ui/context-menu";
-import {
   DropdownMenuItem,
   DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
+} from "@agentre-hub/agentre-ui";
 
 /**
  * 一行菜单的全部输入。文件行与目录行共用这一个模型：`kind` 决定项集合，三个

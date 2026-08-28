@@ -6,32 +6,49 @@ Agentre's code organization, layering conventions, remote execution architecture
 
 ```text
 main.go                        (wails bootstrap; GUI-only — no CLI subcommands)
-cmd/agentred/                  (headless daemon binary — main.go / root.go / run.go / pair.go / status.go / client.go / claudecode.go / llm.go)
+cmd/agentred/                  (headless daemon binary: run, pair/login, status, service management, and local client commands)
 cmd/agrctl/                    (companion CLI binary: `claudecode` hook shim + `ctl` control CLI)
 internal/
   app/                         (Wails bindings — one file per domain: app.go / agent.go / chat.go / project.go / …,
                                 methods only do parse → svc.Xxx().Method(ctx, …) → return)
   bootstrap/                   (startup order: dataDir → cago memory config → logger → SQLite → migrations)
   cli/{claudecodecmd,ctlcmd}/  (subcommand implementations, compiled into the agrctl binary)
-  daemon/                      (agentred-side daemon: client / handlers / migrations / notifier / pairing / remotefs / repository / rpc / sessions / state / workspacefs)
+  daemon/                      (agentred-side daemon: authentication, connection/relay transport, Protobuf RPC,
+                                handlers, persistence, sessions, engine snapshots, and remote workspaces)
   service/<domain>_svc/        (business logic; interface + singleton accessor + private implementation)
   repository/<domain>_repo/    (data access; interface + Register/accessor, uniformly going through db.Ctx(ctx))
     mock_<domain>_repo/        (mockgen output, injected into service unit tests)
   model/entity/<domain>_entity/(rich domain entity; GORM tag + business methods)
-  pkg/                         (cross-cutting internal packages: agentprovider / agentruntime / agentskill / agenttool /
-                                agrctlinstall / ccoauth / claudecodehook / clienv / cliprober / cliprocess / code (i18n error
-                                codes) / ctlendpoint / diff / hookexec / httpgateway / jsonrpc / keychain / llmcatalog /
-                                llmurl / openclawgateway / paths / procattr / pty / remotefs / sysnotify / workspacefs)
+  pkg/                         (single-responsibility cross-cutting packages for runtimes, protocols, CLI processes,
+                                logging, credentials, filesystems, notifications, and other shared infrastructure)
   buildinfo/                   (CommitID ldflag target)
 migrations/                    (gormigrate sequential migrations, filename prefix YYYYMMDDNNNN)
-pkg/                           (externally reusable packages: claudecode / codex / piagent —— independently maintained CLI subprocess wrappers;
-                                agentred/protocol —— shared agentred wire protocol)
+pkg/                           (externally reusable packages: agentred, claudecode, codex, piagent, and the shared wire module)
 frontend/                      (React 19 + TS + Vite + Tailwind; wailsjs/ is wails-generated, gitignored)
+  packages/agentre-ui/         (@agentre-hub/agentre-ui —— the shared frontend layer, also consumed by agentre-server;
+                                design tokens + transcript renderer + data contract. See below and frontend.md)
+  packages/agentre-wire/       (@agentre-hub/agentre-wire —— the wire protocol's TS side: codec + golden samples, both
+                                generated from internal/pkg/agentruntime/runtimes/remote/wire. See frontend.md)
 e2e/                           (independent hermetic Wails app/composition + one Playwright runner/config;
                                 formal agentre/agentred dependency graphs do not import it)
 ```
 
 The `App` struct lives in `internal/app/app.go` (lifecycle + common methods), with domain methods spread across sibling files (`agent.go`, `chat.go`, …). **Keep these bindings thin — logic inside `App` is unreachable from `go test`; always put business logic in `service/`.**
+
+## The shared frontend package (`@agentre-hub/agentre-ui`)
+
+`frontend/packages/agentre-ui` is the React presentation layer shared by the desktop app and `agentre-server`: primitives and tokens, host-neutral view contracts, and rendering/interaction semantics for product concepts used by both hosts. The desktop consumes it through a Vite alias to the package **source**; `agentre-server` installs it as a dependency and consumes the built `dist/`.
+
+**It is a leaf layer, the frontend counterpart of `internal/pkg/`.** Every layer may import it; it imports no host code — no `@/` alias, no `wailsjs/`, no zustand store. That direction is not a convention held by review: `packages/agentre-ui/src/boundary.test.ts` scans the package sources as text and fails on any of them, because a host coupling still *resolves* on the desktop (the alias is there) and only breaks when the server builds.
+
+Host state, navigation, Wails calls, and transport stay outside the package. A shared feature receives a narrow prop, port, or feature-owned context instead. The transcript subsystem illustrates the pattern with two seams:
+
+- **`TranscriptPorts`** — actions with a side effect (answer a permission, resolve a plan action, open a path). A plain object of functions; the desktop wires it to Wails in `src/components/agentre/transcript-ports-desktop.ts`, the server wires it to relay RPC. Missing **optional** ports mean "this host lacks the capability", and the component hides the affordance rather than rendering a dead control.
+- **`TranscriptLiveState`** — reactive reads of the host's in-flight stream, plus the optimistic write that pairs with them. Separate from ports because `useIsStreamActive` must be a **hook**: hanging it off the ports constant would return the value at call time with nothing to re-render when the stream ends. Unlike ports it has a working default, since "this host has no live streams" is a legitimate shape rather than a wiring gap.
+
+Consumption rules, the entry points, and the i18n namespace are [`frontend.md`](frontend.md)'s.
+
+`frontend/packages/agentre-wire` is the second shared package and deliberately a separate one: it carries the host-neutral wire contracts, codecs and golden samples, so protocol code stays out of `agentre-ui`, whose React / tiptap peer dependencies have nothing to do with binary frames. New WebSocket contracts use the package's `.proto` files as their single source and generate both TypeScript and Go; the existing remote-runtime JSON contracts continue to generate TypeScript from their owning Go `wire.go` until their own Protobuf migration. Its rules live in [`frontend.md`](frontend.md#shared-wire-package-agentre-hubagentre-wire).
 
 ## Remote execution (remote chat)
 
@@ -41,16 +58,18 @@ The desktop app can dispatch a single chat to an `agentred` daemon on the LAN fo
 UI
   → internal/app Wails binding
   → chat_svc
-  → internal/daemon/client (JSON-RPC client)
+  → internal/daemon/client (binary Protobuf RPC client)
   → agentred (internal/daemon/{rpc,handlers,repository})
   → claude-code / codex subprocess
 ```
 
 - Tool approval / ask-user-question are still rendered by the desktop UI.
 - A dropped daemon connection no longer aborts the chat: the desktop client backs off and reconnects, then replays missed notifications from a cursor; an error is only injected into the turn once reconnection is abandoned (`internal/pkg/agentruntime/runtimes/remote/reconnect.go`). See [`session-lifecycle.md`](session-lifecycle.md#remote-execution) for session ownership and cursor semantics.
-- `agentred` keeps its own SQLite store (`agentred.db` in its own data directory, schema in `internal/daemon/migrations`, access in `internal/daemon/repository`): every notification is journaled with a gap-free monotonic `seq` before being pushed, so a dead connection suspends pushing without losing the record. The journal is swept on a retention window (30 days by default) that only reclaims the prefix below the high-water mark of terminal sessions that have gone quiet for the whole window; the database's path and size are reported by `agentred status` and `/local/status`; the LAN `health.ping` reports only the size, since the absolute path usually carries the host's OS user name.
+- `agentred` keeps its own SQLite store (`agentred.db` in its own data directory, schema in `internal/daemon/migrations`, access in `internal/daemon/repository`): every notification is journaled with a gap-free monotonic `seq` before being pushed, so a dead connection suspends pushing without losing the record. The journal is kept forever — `agentred` does not reclaim any of it, so its local database grows without bound and cleanup is left to a future pass; the database's path and size are reported by `agentred status` and `/local/status`; the LAN `health.ping` reports only the size, since the absolute path usually carries the host's OS user name.
 - Reopening the desktop app catches up on what ran while it was closed: `chat_svc.CatchUpRemoteSessions` reads the execution-position columns on `chat_sessions`, asks each paired daemon which of those sessions it is still running, and replays the journal into synthesized turns. Details — push-target ownership, cursor validity and the startup cleanup split — are in [`session-lifecycle.md`](session-lifecycle.md#remote-execution).
 - pairing / device status go through `internal/pkg/remotefs` + `remote_device_svc`.
+- A claimed daemon exposes authenticated `engine.test`, `engine.discover`, and `engine.scan` RPCs for account engine settings. They read provider credentials only from daemon `state.json`; their receipts contain neither API keys nor CLI paths. `engine.scan` maps a locally found CLI to `recognized` and an absent CLI to `unchecked`. An unclaimed daemon rejects all three methods, while its existing paired-desktop `llm.*` RPCs remain available.
+- A logged-in `agentred` is a narrow engine-snapshot consumer, not a `sync_objects` client. Login success, every successful relay connection/reconnection, and account-channel `sync_version` signals pull device-JWT `GET /v1/engine/snapshot`. Each successful pull atomically replaces `state.json`'s complete `llmProviders` map (so absent keys are deleted); a failed pull retains the previous map and is isolated from running rounds. Per-device CLI overlays remain in daemon memory and are applied only while resolving a backend for execution—absolute paths never enter `state.json`. Before the first successful account snapshot, paired-desktop `llm.upsert` and its supplied execution path keep their existing behavior.
 
 ## Layering conventions (cago framework style)
 
@@ -71,13 +90,14 @@ UI
 
 ## Dependency direction (verifiable invariants)
 
-Dependencies flow **one way**: `internal/app → service → repository → model/entity`. `internal/pkg` is the cross-cutting leaf: every layer may import it, and it may use shared model/entity types, but it must never reverse-import `service` or `repository`. These are not aspirations — each invariant below is checkable and currently holds:
+Dependencies flow **one way**: `internal/app → service → repository → model/entity`. Production code under `internal/pkg` is the cross-cutting leaf: every layer may import it, and it may use shared model/entity types, but it must never reverse-import `service` or `repository`. Generator/guard tests may inspect an owning higher layer when an import-free AST check is not practical; the current exception is the wire TypeScript generator's chat view-vocabulary guard. These invariants are mechanically checked:
 
 ```bash
 VERIFY_TREE="${VERIFY_TREE:-$(git write-tree)}"   # staged proposal; set VERIFY_TREE=HEAD for a committed-tree audit
 
-# internal/pkg must never reverse-import service / repository  → expect 0
-git grep -l 'agentre/internal/\(service\|repository\)' "$VERIFY_TREE" -- 'internal/pkg/*' | wc -l
+# production internal/pkg must never reverse-import service / repository → expect 0
+git grep -l 'agentre/internal/\(service\|repository\)' "$VERIFY_TREE" -- internal/pkg \
+  | grep -v '_test\.go$' | wc -l
 
 # a service must not hand-assemble queries; only two shapes are legitimate:
 #   db.Ctx(ctx).Transaction(...)                       — a transaction spanning repo calls
@@ -119,10 +139,10 @@ All desktop persistence is centralized in **AppDataDir**:
 | Platform | AppDataDir                                              |
 | ------- | ------------------------------------------------------- |
 | macOS   | `~/Library/Application Support/agentre/`                |
-| Windows | `%AppData%\agentre\`                                    |
+| Windows | `%LOCALAPPDATA%\agentre\`                               |
 | Linux   | `~/.config/agentre/`                                    |
 
-The table is the installed-app default. `wails dev` / `make dev` uses the sibling leaf `agentre-dev/` instead, so development never touches production state. `AGENTRE_DATA_DIR` has highest precedence and overrides both during testing or troubleshooting.
+The table is the installed-app default. `wails dev` / `make dev` uses the sibling leaf `agentre-dev/` instead, so development never touches production state. `AGENTRE_DATA_DIR` has highest precedence and overrides both during testing or troubleshooting. On macOS it is also a different app: `build/darwin/Info.dev.plist` sets `CFBundleIdentifier` to `com.wails.{{.Name}}.dev` and marks `CFBundleName` / `CFBundleDisplayName` with `(Dev)`, so Dock, Spaces and fullscreen do not treat it as `/Applications/Agentre.app`.
 
 ```text
 <AppDataDir>/
@@ -164,11 +184,10 @@ Adding a migration:
 | Path                                | Producer                                 | Regenerate                  |
 | ----------------------------------- | ---------------------------------------- | --------------------------- |
 | `frontend/wailsjs/**`               | Wails (from `App` bindings + Go structs) | `make generate`             |
-| `frontend/package.json.md5`         | Wails frontend package tracking          | `make dev` / `wails build` |
 | `build/windows/installer/wails_tools.nsh` | Wails Windows installer tooling | Windows `wails build -nsis` |
 | `internal/**/mock_*/`, `internal/**/mocks/`, co-located `mock_*_test.go` | `mockgen` | `make mock` |
 | `frontend/dist/`                    | Vite (embedded via `//go:embed`)         | `wails build`               |
-| `<AppDataDir>/agentre.db`           | gorm + gormigrate                        | auto-migrated on startup    |
+| `<AppDataDir>/agentre.db`           | gorm + gormigrate                        | migrations run on startup   |
 | `<AppDataDir>/logs/*.log`           | cago logger                              | rolled at runtime           |
 
 Lockfiles —— never hand-edit; use `go mod tidy` / `pnpm add|remove|install`. `frontend/wailsjs/` is gitignored.

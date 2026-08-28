@@ -4,11 +4,13 @@ import { Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
+  StatusDot,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agentre-hub/agentre-ui";
+
 import { relativeTime } from "@/lib/relative-time";
 
 type Props = {
@@ -26,13 +28,6 @@ type Props = {
   children: React.ReactNode;
 };
 
-const statusLabel: Record<Props["status"], { color: string; text: string }> = {
-  idle: { color: "bg-muted-foreground", text: "idle" },
-  running: { color: "bg-status-running", text: "running" },
-  waiting: { color: "bg-status-waiting", text: "waiting" },
-  error: { color: "bg-destructive", text: "error" },
-};
-
 export function TabTooltip({
   title,
   projectChain,
@@ -46,11 +41,10 @@ export function TabTooltip({
   children,
 }: Props) {
   const { t } = useTranslation();
-  const sLabel = statusLabel[status];
   const ago =
     lastMessageAt && lastMessageAt > 0 ? relativeTime(lastMessageAt) : "";
   const meta = [
-    t(`chatTabs.status.${sLabel.text}`),
+    t(`chatTabs.status.${status}`),
     ago ? t("chatTabs.tooltip.ago", { time: ago }) : null,
     t("chatTabs.tooltip.session", { id: sessionId }),
     worktreeBranch
@@ -87,8 +81,10 @@ export function TabTooltip({
             {title}
           </div>
           <div className="flex items-center gap-1.5 truncate font-mono text-2xs text-muted-foreground">
-            <span
-              className={`size-1.5 shrink-0 rounded-full ${sLabel.color}`}
+            <StatusDot
+              data-testid="tab-tooltip-status-dot"
+              status={status}
+              size="xs"
             />
             <span className="truncate">{meta}</span>
           </div>

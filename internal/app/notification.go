@@ -3,7 +3,7 @@ package app
 import (
 	"strconv"
 
-	"github.com/agentre-ai/agentre/internal/service/notification_svc"
+	"github.com/agentre-hub/agentre/internal/service/notification_svc"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"

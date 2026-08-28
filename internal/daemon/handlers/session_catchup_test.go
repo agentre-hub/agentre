@@ -10,12 +10,28 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/handlers/mock_handlers"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
+
+func journalPayload(t *testing.T, method string, params any) []byte {
+	t.Helper()
+	notification, err := protowire.WireNotificationToProto(method, params)
+	require.NoError(t, err)
+	payload, err := protowire.EncodeNotification(notification)
+	require.NoError(t, err)
+	return payload
+}
+
+func textDeltaFrame(t *testing.T, sessionID int64, text string) wire.EventFrame {
+	t.Helper()
+	event := agentruntime.TextDelta{Text: text}
+	return wire.EventFrame{SessionID: sessionID, Event: event}
+}
 
 // setupCatchupTest 组装重连补齐这一族 handler:会话清单 / 增量拉取 / 待决策查询 /
 // 显式接管。两个存储端口用 mockgen 注入,backend runtime 用测试替身。
@@ -105,7 +121,7 @@ func TestSessionCatchup_List_ReportsLastActivity(t *testing.T) {
 	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
 	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning,
-			UpdatedAt: 1754800000000},
+			LastMessageAt: 1754800000000},
 		// 老会话:daemon 没记过活动时间,如实留 0,由客户端表达为「未知」而不是猜一个。
 		{PeerSessionID: "2", BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
@@ -114,23 +130,8 @@ func TestSessionCatchup_List_ReportsLastActivity(t *testing.T) {
 	got, err := h.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2)
-	assert.Equal(t, int64(1754800000000), got.Sessions[0].UpdatedAt)
-	assert.Zero(t, got.Sessions[1].UpdatedAt, "没有活动时间的会话如实留 0")
-}
-
-// TestSessionCatchup_List_AnnouncesSessionMetadataSupport 覆盖「老 agentred 兼容」:
-// 升级过的 daemon 在应答里如实声明自己落库并回传 R7 / 决策 8 的那几列,未升级的
-// agentred 不认识这个字段、解出来恒为 false。浏览器据此如实说明「该机器需要升级」,
-// 而不是把发消息静默发出去、上下文却续不上(规格「安全、隐私与兼容性」:不得静默失败)。
-func TestSessionCatchup_List_AnnouncesSessionMetadataSupport(t *testing.T) {
-	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return(nil, nil)
-	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
-
-	got, err := h.List(ctx)
-	require.NoError(t, err)
-	assert.True(t, got.SupportsSessionMetadata,
-		"升级过的 daemon 必须声明支持,否则浏览器无法把它与未升级的 agentred 区分开")
+	assert.Equal(t, int64(1754800000000), got.Sessions[0].LastMessageAt)
+	assert.Zero(t, got.Sessions[1].LastMessageAt, "没有活动时间的会话如实留 0")
 }
 
 // TestSessionCatchup_List_WaitingForInputIsOverlaidLive 覆盖 R11:「是否正在等待
@@ -216,8 +217,8 @@ func TestSessionCatchup_Pull_ReturnsPageAndAdvancesCursor(t *testing.T) {
 	ctx, _, journal, h := setupCatchupTest(t, bareRT{})
 	journal.EXPECT().ListSince(gomock.Any(), "", "5", int64(0), wire.DefaultSessionPullLimit).
 		Return([]handlers.JournalRow{
-			{Seq: 1, Method: wire.NotifyEvent, Payload: json.RawMessage(`{"sessionId":5}`)},
-			{Seq: 2, Method: wire.NotifyRunResultDone, Payload: json.RawMessage(`{"sessionId":5}`)},
+			{Seq: 1, Payload: journalPayload(t, wire.NotifyEvent, textDeltaFrame(t, 5, "x"))},
+			{Seq: 2, Payload: journalPayload(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: 5})},
 		}, true, nil)
 	journal.EXPECT().OldestSeq(gomock.Any(), "", "5").Return(int64(1), nil)
 
@@ -226,23 +227,26 @@ func TestSessionCatchup_Pull_ReturnsPageAndAdvancesCursor(t *testing.T) {
 	require.Len(t, got.Notifications, 2)
 	assert.Equal(t, int64(1), got.Notifications[0].Seq)
 	assert.Equal(t, wire.NotifyEvent, got.Notifications[0].Method)
-	assert.JSONEq(t, `{"sessionId":5}`, string(got.Notifications[0].Params))
+	// Params 是帧本身,不再是一段待解析的字节。
+	frame, ok := got.Notifications[0].Params.(*wire.EventFrame)
+	require.True(t, ok, "got %T", got.Notifications[0].Params)
+	assert.Equal(t, int64(5), frame.SessionID)
 	assert.Equal(t, int64(2), got.Cursor, "新游标 = 本页最后一条的 seq")
 	assert.True(t, got.HasMore)
 }
 
-// TestSessionCatchup_Pull_ReportsTheSurvivingFloor 覆盖留存回收之后的那一半:一页补齐
+// TestSessionCatchup_Pull_ReportsTheSurvivingFloor 覆盖老前缀不在了的那一半:一页补齐
 // 除了内容,还要交出这条会话此刻**现存最老**的 seq。
 //
-// 日志的老前缀会被 daemon.collectJournal 回收,而一个离线超过整个留存窗口的客户端,
-// 游标正落在被回收掉的那一段里。不报下界,它拉到的每一页第一条都比 游标+1 大,只能当成
+// agentred 自己已经不回收日志(规格 2026-08-18 决策 8),但库可能被从外部恢复或截断,
+// 游标正落在消失了的那一段里。不报下界,它拉到的每一页第一条都比 游标+1 大,只能当成
 // 跳号丢弃、再拉一次同一页 —— 游标永远推不动,此后连实时通知也全被判成跳号,会话没有
 // 错误、没有跳号地冻住。报了它,客户端就知道那截尾巴是真的没有了,复位游标接着补。
 func TestSessionCatchup_Pull_ReportsTheSurvivingFloor(t *testing.T) {
 	ctx, _, journal, h := setupCatchupTest(t, bareRT{})
 	journal.EXPECT().ListSince(gomock.Any(), "", "5", int64(7), wire.DefaultSessionPullLimit).
 		Return([]handlers.JournalRow{
-			{Seq: 10, Method: wire.NotifyEvent, Payload: json.RawMessage(`{"sessionId":5}`)},
+			{Seq: 10, Payload: journalPayload(t, wire.NotifyEvent, textDeltaFrame(t, 5, "x"))},
 		}, false, nil)
 	journal.EXPECT().OldestSeq(gomock.Any(), "", "5").Return(int64(10), nil)
 
@@ -252,11 +256,11 @@ func TestSessionCatchup_Pull_ReportsTheSurvivingFloor(t *testing.T) {
 		"游标之后的 8、9 已被回收,客户端只有拿到这个下界才不会一直等它们")
 }
 
-// TestSessionCatchup_Pull_FloorNeverExceedsTheRowsInTheSamePage 钉死两次读之间跑了一轮
-// 留存回收时的那一半:交出去的下界不得高于**同一页里**的行。
+// TestSessionCatchup_Pull_FloorNeverExceedsTheRowsInTheSamePage 钉死两次读之间老前缀
+// 恰好消失时的那一半:交出去的下界不得高于**同一页里**的行。
 //
 // 客户端拿 oldestSeq 复位游标,而复位跑在这一页重放**之前**(否则第一条当场被判成跳号)。
-// 下界若是回收之后的那个高水位,而页里还留着更低的行,这些已经拿到手的行就会被当成重复
+// 下界若是老前缀消失之后的那个高水位,而页里还留着更低的行,这些已经拿到手的行会被当成重复
 // 全部丢掉 —— 一整页转录凭空消失,而它们本来是读得到的。所以下界要先读:先读的下界只会
 // 偏小,偏小最多让客户端少复位一次,不会丢内容。
 func TestSessionCatchup_Pull_FloorNeverExceedsTheRowsInTheSamePage(t *testing.T) {
@@ -267,8 +271,8 @@ func TestSessionCatchup_Pull_FloorNeverExceedsTheRowsInTheSamePage(t *testing.T)
 		DoAndReturn(func(context.Context, string, string, int64, int) ([]handlers.JournalRow, bool, error) {
 			swept = true
 			return []handlers.JournalRow{
-				{Seq: 10, Method: wire.NotifyEvent, Payload: json.RawMessage(`{"sessionId":5}`)},
-				{Seq: 20, Method: wire.NotifyEvent, Payload: json.RawMessage(`{"sessionId":5}`)},
+				{Seq: 10, Payload: journalPayload(t, wire.NotifyEvent, textDeltaFrame(t, 5, "x"))},
+				{Seq: 20, Payload: journalPayload(t, wire.NotifyEvent, textDeltaFrame(t, 5, "y"))},
 			}, false, nil
 		})
 	journal.EXPECT().OldestSeq(gomock.Any(), "", "5").
@@ -457,4 +461,64 @@ func TestSessionCatchup_Attach_InterruptedSession_CannotBeResumed(t *testing.T) 
 
 	_, err := h.Attach(ctx, wire.SessionAttachParams{SessionID: 5})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
+}
+
+// TestSessionCatchup_List_ReportsSessionModelTarget 覆盖「会话级模型目标随清单回传」:
+// providerKey/modelKey 两格组合成 ModelTarget 契约的三态(两者皆空 = 跟随 Agent 绑定,
+// provider 非空 + model 空 = 供应商默认,两者非空 = 固定模型),与桌面端 chat_sessions
+// 的那两列逐字同义。
+//
+// 老会话这两格本来就是空的 —— 空在契约里**有含义**(跟随绑定)。
+func TestSessionCatchup_List_ReportsSessionModelTarget(t *testing.T) {
+	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
+	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+		// 固定模型。
+		{PeerSessionID: "1", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning,
+			ProviderKey: "prov-anthropic", ModelKey: "sonnet-4-6"},
+		// 供应商默认:钉了供应商,模型跟着它当前的默认走。
+		{PeerSessionID: "2", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle,
+			ProviderKey: "prov-anthropic"},
+		// 跟随 Agent 绑定:两格都空,这是个**有含义**的值,不是「没答」。
+		{PeerSessionID: "3", BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
+	}, nil)
+	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
+
+	got, err := h.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 3)
+
+	assert.Equal(t, "prov-anthropic", got.Sessions[0].ProviderKey)
+	assert.Equal(t, "sonnet-4-6", got.Sessions[0].ModelKey)
+
+	assert.Equal(t, "prov-anthropic", got.Sessions[1].ProviderKey)
+	assert.Empty(t, got.Sessions[1].ModelKey, "供应商默认:模型这一格就该是空的")
+
+	assert.Empty(t, got.Sessions[2].ProviderKey, "跟随 Agent 绑定:两格都空")
+	assert.Empty(t, got.Sessions[2].ModelKey)
+}
+
+// TestSessionCatchup_List_ReturnsProjectSyncID 覆盖「项目归属随清单回传」。
+//
+// 服务端此前只能按 (指纹, cwd) 反推 agentred 会话的项目;日活跃统计走的是一条不上
+// 行任何路径的纯计数通道,反推那条路在那里用不了。项目因此在发起时就落了库,这里
+// 守它确实回得去 —— 落了库却不回传,等于没落。
+//
+// 老会话没落过这一列,如实留空:空 = 发起方没报,不是「未知待推导」。
+func TestSessionCatchup_List_ReturnsProjectSyncID(t *testing.T) {
+	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
+	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+		{PeerSessionID: "1", AgentID: 7, Cwd: "/work", BackendType: "claudecode",
+			LifecycleState: wire.SessionLifecycleRunning,
+			ProjectSyncID:  "01HXproj00000000000000000",
+		},
+		{PeerSessionID: "2", AgentID: 8, Cwd: "/other", BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
+	}, nil)
+	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
+
+	got, err := h.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 2)
+
+	assert.Equal(t, "01HXproj00000000000000000", got.Sessions[0].ProjectSyncID)
+	assert.Empty(t, got.Sessions[1].ProjectSyncID, "老会话缺项目标识时如实留空")
 }

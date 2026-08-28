@@ -1,22 +1,28 @@
 package remote_test
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty/remote"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/pty/remote"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type stubDaemonClient struct {
+	conn      *protorpc.Conn
+	server    *protorpc.Conn
 	mu        sync.Mutex
 	handlers  map[string]func(context.Context, json.RawMessage) (any, error)
 	callFn    func(context.Context, string, any, any) error
@@ -25,12 +31,66 @@ type stubDaemonClient struct {
 	closeErr  error
 }
 
-func newStubDaemonClient() *stubDaemonClient {
-	return &stubDaemonClient{
-		handlers: map[string]func(context.Context, json.RawMessage) (any, error){},
-		closed:   make(chan struct{}),
+type adapterTestPipe struct {
+	in, out chan []byte
+	done    chan struct{}
+	once    *sync.Once
+}
+
+func adapterTestPipePair() (*adapterTestPipe, *adapterTestPipe) {
+	a, b := make(chan []byte, 16), make(chan []byte, 16)
+	d := make(chan struct{})
+	o := &sync.Once{}
+	return &adapterTestPipe{a, b, d, o}, &adapterTestPipe{b, a, d, o}
+}
+func (p *adapterTestPipe) ReadFrame() ([]byte, error) {
+	select {
+	case b := <-p.in:
+		return b, nil
+	case <-p.done:
+		return nil, io.EOF
 	}
 }
+func (p *adapterTestPipe) WriteFrame(b []byte) error {
+	select {
+	case p.out <- append([]byte(nil), b...):
+		return nil
+	case <-p.done:
+		return io.EOF
+	}
+}
+func (p *adapterTestPipe) Close() error          { p.once.Do(func() { close(p.done) }); return nil }
+func (p *adapterTestPipe) Done() <-chan struct{} { return p.done }
+
+func newStubDaemonClient() *stubDaemonClient {
+	a, b := adapterTestPipePair()
+	serverRegistry := protorpc.NewRegistry()
+	clientConn := protorpc.NewConn(a, protorpc.NewRegistry())
+	s := &stubDaemonClient{conn: clientConn, closed: make(chan struct{}), handlers: map[string]func(context.Context, json.RawMessage) (any, error){}}
+	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_OPEN), func() *agentrewire.TerminalOpenRequest { return &agentrewire.TerminalOpenRequest{} }, func(ctx context.Context, request *agentrewire.TerminalOpenRequest) (*agentrewire.TerminalOpenResponse, error) {
+		result := protocol.TerminalOpenResult{}
+		err := s.Call(ctx, "terminal.open", protocol.TerminalOpenParams{TerminalID: request.TerminalId, SessionID: request.SessionId, Cwd: request.Cwd, Shell: request.Shell, Command: request.Command, Env: request.Env, Cols: uint16(request.Cols), Rows: uint16(request.Rows)}, &result)
+		return &agentrewire.TerminalOpenResponse{TerminalId: result.TerminalID}, err
+	})
+	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE), func() *agentrewire.TerminalCloseRequest { return &agentrewire.TerminalCloseRequest{} }, func(ctx context.Context, request *agentrewire.TerminalCloseRequest) (*agentrewire.Empty, error) {
+		err := s.Call(ctx, "terminal.close", protocol.TerminalCloseParams{TerminalID: request.TerminalId, CancelPendingOpen: request.CancelPendingOpen}, &struct{}{})
+		return &agentrewire.Empty{}, err
+	})
+	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_WRITE), func() *agentrewire.TerminalWriteRequest { return &agentrewire.TerminalWriteRequest{} }, func(context.Context, *agentrewire.TerminalWriteRequest) (*agentrewire.Empty, error) {
+		return &agentrewire.Empty{}, nil
+	})
+	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_RESIZE), func() *agentrewire.TerminalResizeRequest { return &agentrewire.TerminalResizeRequest{} }, func(context.Context, *agentrewire.TerminalResizeRequest) (*agentrewire.Empty, error) {
+		return &agentrewire.Empty{}, nil
+	})
+	serverConn := protorpc.NewConn(b, serverRegistry)
+	s.server = serverConn
+	ctx := context.Background()
+	go clientConn.Serve(ctx)
+	go serverConn.Serve(ctx)
+	return s
+}
+
+func (s *stubDaemonClient) Conn() *protorpc.Conn { return s.conn }
 
 func (s *stubDaemonClient) Call(ctx context.Context, method string, params any, out any) error {
 	s.mu.Lock()
@@ -63,7 +123,7 @@ func (s *stubDaemonClient) Close() error {
 	if closeErr != nil {
 		return closeErr
 	}
-	s.closeOnce.Do(func() { close(s.closed) })
+	s.closeOnce.Do(func() { close(s.closed); _ = s.conn.Close() })
 	return nil
 }
 
@@ -74,23 +134,42 @@ func (s *stubDaemonClient) setCloseError(err error) {
 }
 
 func (s *stubDaemonClient) dispatch(method string, payload any) error {
-	s.mu.Lock()
-	fn := s.handlers[method]
-	s.mu.Unlock()
-	if fn == nil {
-		return fmt.Errorf("handler not registered for %s", method)
+	var notification *agentrewire.RpcNotification
+	switch event := payload.(type) {
+	case protocol.TerminalDataEvent:
+		notification = &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_TerminalData{TerminalData: &agentrewire.TerminalDataNotification{TerminalId: event.TerminalID, Data: event.Data}}}
+	case protocol.TerminalExitEvent:
+		notification = &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_TerminalExit{TerminalExit: &agentrewire.TerminalExitNotification{TerminalId: event.TerminalID, Code: int32(event.Code), Reason: event.Reason, Message: event.Msg}}}
+	default:
+		return fmt.Errorf("unsupported notification payload %T for %s", payload, method)
 	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
+	err := s.server.Notify(notification)
+	if errors.Is(err, protorpc.ErrConnClosed) {
+		return nil
 	}
-	_, err = fn(context.Background(), raw)
+	if err == nil {
+		time.Sleep(50 * time.Microsecond)
+	}
 	return err
 }
 
 func (s *stubDaemonClient) push(t *testing.T, method string, payload any) {
 	t.Helper()
-	require.NoError(t, s.dispatch(method, payload))
+	var notification *agentrewire.RpcNotification
+	switch event := payload.(type) {
+	case protocol.TerminalDataEvent:
+		notification = &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_TerminalData{TerminalData: &agentrewire.TerminalDataNotification{TerminalId: event.TerminalID, Data: event.Data}}}
+	case protocol.TerminalExitEvent:
+		notification = &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_TerminalExit{TerminalExit: &agentrewire.TerminalExitNotification{TerminalId: event.TerminalID, Code: int32(event.Code), Reason: event.Reason, Message: event.Msg}}}
+	default:
+		t.Fatalf("unsupported notification payload %T for %s", payload, method)
+	}
+	err := s.server.Notify(notification)
+	if errors.Is(err, protorpc.ErrConnClosed) {
+		return
+	}
+	require.NoError(t, err)
+	time.Sleep(50 * time.Microsecond)
 }
 
 func TestClientAdapter_GivenWrappedConnectionCloseFailureWhenAbortedThenReportsFailure(t *testing.T) {
@@ -129,18 +208,18 @@ func TestClientAdapter_GivenAtomicSubscriptionsWhenDataArrivesThenDemuxesByTermi
 	subA := a.Subscribe("term-a")
 	subB := a.Subscribe("term-b")
 
-	c.push(t, "terminal.data", protocol.TerminalDataEvent{TerminalID: "term-a", Data: "alpha"})
-	c.push(t, "terminal.data", protocol.TerminalDataEvent{TerminalID: "term-b", Data: "beta"})
+	c.push(t, "terminal.data", protocol.TerminalDataEvent{TerminalID: "term-a", Data: []byte("alpha")})
+	c.push(t, "terminal.data", protocol.TerminalDataEvent{TerminalID: "term-b", Data: []byte("beta")})
 
 	select {
 	case ev := <-subA.Data:
-		assert.Equal(t, "alpha", ev.Data)
+		assert.Equal(t, []byte("alpha"), ev.Data)
 	case <-time.After(time.Second):
 		t.Fatal("no data for term-a")
 	}
 	select {
 	case ev := <-subB.Data:
-		assert.Equal(t, "beta", ev.Data)
+		assert.Equal(t, []byte("beta"), ev.Data)
 	case <-time.After(time.Second):
 		t.Fatal("no data for term-b")
 	}
@@ -158,7 +237,7 @@ func TestClientAdapter_GivenFastStartupBurstBeforeConsumerStartsWhenExitArrivesT
 		for i := 0; i < frameCount; i++ {
 			if err := c.dispatch("terminal.data", protocol.TerminalDataEvent{
 				TerminalID: "term-fast-startup",
-				Data:       fmt.Sprintf("frame-%03d", i),
+				Data:       []byte(fmt.Sprintf("frame-%03d", i)),
 			}); err != nil {
 				producerDone <- err
 				return
@@ -187,7 +266,7 @@ func TestClientAdapter_GivenFastStartupBurstBeforeConsumerStartsWhenExitArrivesT
 		select {
 		case ev, ok := <-sub.Data:
 			require.Truef(t, ok, "data closed after %d of %d frames", i, frameCount)
-			require.Equal(t, fmt.Sprintf("frame-%03d", i), ev.Data)
+			require.Equal(t, []byte(fmt.Sprintf("frame-%03d", i)), ev.Data)
 		case <-time.After(time.Second):
 			t.Fatalf("timed out waiting for frame %d of %d", i, frameCount)
 		}
@@ -224,7 +303,7 @@ func TestClientAdapter_GivenBlockedConsumerAndOverCapBurstWhenExitArrivesThenBou
 		for i := 0; i < frameCount; i++ {
 			if err := c.dispatch("terminal.data", protocol.TerminalDataEvent{
 				TerminalID: "term-over-cap",
-				Data:       fmt.Sprintf("frame-%04d", i),
+				Data:       []byte(fmt.Sprintf("frame-%04d", i)),
 			}); err != nil {
 				producerDone <- err
 				return
@@ -252,18 +331,18 @@ func TestClientAdapter_GivenBlockedConsumerAndOverCapBurstWhenExitArrivesThenBou
 		"the bounded queue may have at most one frame already handed to its worker")
 	require.NotEmpty(t, events)
 
-	throttleData := base64.StdEncoding.EncodeToString([]byte("\r\n[--- output throttled ---]\r\n"))
+	throttleData := []byte("\r\n[--- output throttled ---]\r\n")
 	markerCount := 0
 	markerIndex := -1
 	lastFrame := -1
 	for i, ev := range events {
-		if ev.Data == throttleData {
+		if bytes.Equal(ev.Data, throttleData) {
 			markerCount++
 			markerIndex = i
 			continue
 		}
 		var frame int
-		_, err := fmt.Sscanf(ev.Data, "frame-%04d", &frame)
+		_, err := fmt.Sscanf(string(ev.Data), "frame-%04d", &frame)
 		require.NoError(t, err)
 		require.Greater(t, frame, lastFrame, "retained data must stay FIFO around the marker")
 		lastFrame = frame
@@ -316,12 +395,12 @@ func TestClientAdapter_GivenStaleUnsubscribeWhenANewGenerationExistsThenKeepsNew
 	a.Unsubscribe("term-generation", first)
 	c.push(t, "terminal.data", protocol.TerminalDataEvent{
 		TerminalID: "term-generation",
-		Data:       "current",
+		Data:       []byte("current"),
 	})
 
 	select {
 	case ev := <-second.Data:
-		assert.Equal(t, "current", ev.Data)
+		assert.Equal(t, []byte("current"), ev.Data)
 	case <-time.After(time.Second):
 		t.Fatal("stale unsubscribe removed the current generation")
 	}
@@ -365,7 +444,7 @@ func TestClientAdapter_GivenUnknownTerminalFloodWhenDeliveredThenDoesNotReplayOr
 	t.Cleanup(func() { _ = a.Abort() })
 	for i := 0; i < unknownCount; i++ {
 		terminalID := fmt.Sprintf("ghost-%04d", i)
-		c.push(t, "terminal.data", protocol.TerminalDataEvent{TerminalID: terminalID, Data: "ignored"})
+		c.push(t, "terminal.data", protocol.TerminalDataEvent{TerminalID: terminalID, Data: []byte("ignored")})
 		c.push(t, "terminal.exit", protocol.TerminalExitEvent{TerminalID: terminalID, Reason: "natural"})
 	}
 
@@ -391,7 +470,7 @@ func TestClientAdapter_GivenUnreadSpoolWhenUnsubscribedThenCancelsWorkerAndDisca
 	for i := 0; i < frameCount; i++ {
 		c.push(t, "terminal.data", protocol.TerminalDataEvent{
 			TerminalID: "term-unsubscribe",
-			Data:       fmt.Sprintf("queued-%03d", i),
+			Data:       []byte(fmt.Sprintf("queued-%03d", i)),
 		})
 	}
 	c.push(t, "terminal.exit", protocol.TerminalExitEvent{
@@ -425,7 +504,7 @@ func TestClientAdapter_GivenAcceptedBurstWhenConnectionClosesThenDrainsDataBefor
 	for i := 0; i < frameCount; i++ {
 		c.push(t, "terminal.data", protocol.TerminalDataEvent{
 			TerminalID: "term-connection-close",
-			Data:       fmt.Sprintf("accepted-%03d", i),
+			Data:       []byte(fmt.Sprintf("accepted-%03d", i)),
 		})
 	}
 
@@ -447,7 +526,7 @@ func TestClientAdapter_GivenAcceptedBurstWhenConnectionClosesThenDrainsDataBefor
 		select {
 		case ev, ok := <-sub.Data:
 			require.Truef(t, ok, "data closed after %d of %d accepted frames", i, frameCount)
-			require.Equal(t, fmt.Sprintf("accepted-%03d", i), ev.Data)
+			require.Equal(t, []byte(fmt.Sprintf("accepted-%03d", i)), ev.Data)
 		case <-time.After(time.Second):
 			t.Fatalf("timed out waiting for accepted frame %d of %d", i, frameCount)
 		}
@@ -474,7 +553,7 @@ func TestClientAdapter_GivenDeliveryExitUnsubscribeAndWatchCloseRacesThenNeverUs
 	c := newStubDaemonClient()
 	a := remote.NewClientAdapter(c)
 	dataHandler := func(id string) error {
-		return c.dispatch("terminal.data", protocol.TerminalDataEvent{TerminalID: id, Data: "chunk"})
+		return c.dispatch("terminal.data", protocol.TerminalDataEvent{TerminalID: id, Data: []byte("chunk")})
 	}
 	exitHandler := func(id string) error {
 		return c.dispatch("terminal.exit", protocol.TerminalExitEvent{TerminalID: id, Reason: "natural"})

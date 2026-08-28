@@ -16,12 +16,12 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/bootstrap"
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/bootstrap"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 // The local end-to-end sync suite needs this app to come up already connected to

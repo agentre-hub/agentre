@@ -10,7 +10,7 @@ import * as React from "react";
 import { Loader2, MonitorUp, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import {
@@ -35,23 +35,20 @@ export type PeerPanelProps = {
   onClose: () => void;
 };
 
-// peerMessageToChatMessage 把 peer 归约消息转成 ChatTranscript 吃的 chat_svc.ChatMessage
-// 形状（复用既有 message-row / transcript-row-view 的渲染）。
+// peerMessageToChatMessage 把归约出来的共享 DTO 贴回 ChatTranscript 的入参类型。
+//
+// 两者形状逐字相同（dto.ts 就是照着 Wails 生成的 chat_svc.ChatMessage 手写的，
+// transcript-dto-contract 那条编译期守卫钉着这件事），所以这里只是换个类型名。
+//
+// sessionId 对不上才复制一份：归约器填的是帧里带的那个，与本 Tab 的对端会话 id
+// 一致时（正常路径）**必须原样交还同一个引用** —— 转录行缓存以消息对象为 WeakMap
+// 键，在这里无条件 `{...m}` 会让上游增量投影省下的那次重建白做。
 function peerMessageToChatMessage(
   m: PeerChatMessage,
   sessionId: number,
 ): chat_svc.ChatMessage {
-  return {
-    id: m.id,
-    sessionId,
-    role: m.role,
-    blocks: m.blocks as unknown as chat_svc.ChatBlock[],
-    seq: m.seq,
-    createtime: m.createtime,
-    errorText: m.errorText,
-    sourceDevice: m.sourceDevice,
-    sourceDeviceName: m.sourceDeviceName,
-  } as chat_svc.ChatMessage;
+  const aligned = m.sessionId === sessionId ? m : { ...m, sessionId };
+  return aligned as unknown as chat_svc.ChatMessage;
 }
 
 export function PeerPanel({
@@ -159,7 +156,7 @@ export function PeerPanel({
         <span className="font-medium text-foreground">
           {title || deviceName}
         </span>
-        <span className="text-subtle-foreground">
+        <span className="text-muted-foreground">
           {t("peerPanel.header.remote", { device: deviceName })}
         </span>
         <span
@@ -223,7 +220,7 @@ export function PeerPanel({
           <div className="max-w-md text-xs text-muted-foreground">
             {t("peerPanel.error.description", { device: deviceName })}
           </div>
-          <div className="text-xs text-subtle-foreground">{session?.error}</div>
+          <div className="text-xs text-muted-foreground">{session?.error}</div>
         </div>
       ) : (
         <div className="min-h-0 flex-1">

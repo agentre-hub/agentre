@@ -1,11 +1,8 @@
 import { useEffect } from "react";
 
-import {
-  useChatAgentsStore,
-  type ChatAgentItem,
-} from "@/stores/chat-agents-store";
+import { useChatAgentsStore, type AgentSlim } from "@/stores/chat-agents-store";
 
-export type { ChatAgentItem };
+export type { AgentSlim };
 
 // useChatAgents 是 chat-agents-store 的薄包装: 订阅 store 字段 + 首次 mount
 // 触发 reload。所有调用方共享同一份 agents 数据 (sidebar / 命令面板 / App 顶层),

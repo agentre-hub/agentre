@@ -1,5 +1,7 @@
 package claudecode
 
+import "github.com/agentre-hub/agentre/internal/pkg/orderedpipe"
+
 // AutoTurn 是 CLI 在没有新 user 输入的情况下自主跑的一轮 —— 当前唯一来源是
 // run_in_background Bash 任务完成后,CLI 自主注入 <task-notification> 并跑完整
 // 一轮(列目录之类)。Events 与普通 Turn 的事件流同形:result 帧到达后 close。
@@ -43,22 +45,63 @@ type SubagentActivity struct {
 // activeTurn 是 readLoop 当前正在投递帧的那一轮 —— 可能是用户发起的 Turn,也可能
 // 是自主轮。一刻只有一个(CLI 串行 emit 各轮,每轮以 result 收尾,从不交错)。
 type activeTurn struct {
-	ch         chan Event    // 投递事件给消费方;result/EOF 时由 readLoop close
+	// events 是本轮的事件出口。刻意是 pipe 而不是裸 channel:readLoop 既是投递者
+	// 又是唯一的 close 者,它在投递上阻塞就会和「等着被 close」的消费方结成死锁
+	// (sess-3110,见 pipe 的注释)。收尾 = events.Close();消费方放弃 = events.Abandon()。
+	events     *orderedpipe.Pipe[Event]
 	done       chan struct{} // readLoop 在本轮收尾(result/EOF)时 close,唤醒 Turn 的 waiter
-	abandon    chan struct{} // Turn 的 waiter 在 ctx 取消时 close;readLoop 据此停止投递、丢弃余帧
 	autonomous bool          // 自主轮 = true(经 AutonomousTurns 吐出,无对应 Turn 调用)
 	// subagentToolUseID 非空 = 本轮是「后台 subagent 活动轮」,值为发起该 subagent 的 Agent
 	// 工具 tool_use_id。用于:readLoop 在收到后台完成 task_notification 时识别要收尾的是活动轮。
 	subagentToolUseID string
+	// mainToolUseIDs 是本主线轮已经见到的外层 tool_use id(ParentToolUseID 为空)。
+	// 前台 Agent 的内部帧 parent_tool_use_id 落在这个集合里,必须留在当前主线轮
+	// (sess-3090);上一轮后台 subagent 的 parent 不在集合里,继续走 sideActivities
+	// (sess-2980)。
+	mainToolUseIDs map[string]struct{}
 }
 
-// newActiveTurn 造一轮的投递三件套。ch 带缓冲削峰(单一消费方实时 drain)。
+func (at *activeTurn) rememberMainToolUse(id string) {
+	if at == nil || id == "" || at.subagentToolUseID != "" {
+		return
+	}
+	if at.mainToolUseIDs == nil {
+		at.mainToolUseIDs = make(map[string]struct{})
+	}
+	at.mainToolUseIDs[id] = struct{}{}
+}
+
+func (at *activeTurn) launchedOnThisTurn(id string) bool {
+	if at == nil || id == "" {
+		return false
+	}
+	_, ok := at.mainToolUseIDs[id]
+	return ok
+}
+
+// newActiveTurn 造一轮的投递两件套。
 func newActiveTurn(autonomous bool) *activeTurn {
 	return &activeTurn{
-		ch:         make(chan Event, 16),
+		events:     orderedpipe.New[Event](),
 		done:       make(chan struct{}),
-		abandon:    make(chan struct{}),
 		autonomous: autonomous,
+	}
+}
+
+// feed 把一帧解析出的事件投给本轮。永不阻塞(见 activeTurn.events)。
+func (at *activeTurn) feed(events []Event) {
+	for _, ev := range events {
+		at.events.Push(ev)
+	}
+}
+
+// finish 收尾本轮:关出口(唤醒消费方 range)+ 关 done(唤醒 Turn 的 waiter)。幂等。
+func (at *activeTurn) finish() {
+	at.events.Close()
+	select {
+	case <-at.done:
+	default:
+		close(at.done)
 	}
 }
 

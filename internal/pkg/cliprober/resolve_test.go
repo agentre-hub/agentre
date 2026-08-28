@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/clienv"
+	"github.com/agentre-hub/agentre/internal/pkg/clienv"
 )
 
 func writeExecutable(t *testing.T, dir, name, body string) string {

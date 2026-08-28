@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { ChatAgentItem } from "@/hooks/use-chat-agents";
+import type { AgentSlim } from "@/hooks/use-chat-agents";
 
 // 命令面板「New chat with …」的项目上下文。
 // project-page mount 时写入；命令面板 NewChatSource / ContextBar 读取以决定：
@@ -13,10 +13,7 @@ export type ProjectContext = {
   projectName: string;
 };
 
-export type NewSelectionHandler = (
-  projectID: number,
-  agent: ChatAgentItem,
-) => void;
+export type NewSelectionHandler = (projectID: number, agent: AgentSlim) => void;
 
 type State = {
   projectContext: ProjectContext | null;

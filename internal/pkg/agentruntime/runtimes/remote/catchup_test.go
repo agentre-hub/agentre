@@ -2,7 +2,6 @@ package remote
 
 import (
 	"context"
-	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
 
 // ── rig:App 刚启动、本进程内一轮都没有在跑 ─────────────────────────────────
@@ -68,7 +67,7 @@ func newRestartRuntime(t *testing.T, conn *fakeConn, cursorAt int64) (*Runtime, 
 	cursor.setLoad(func(int64, string) (int64, bool, error) { return cursorAt, true, nil })
 	obs := &connStateRecorder{}
 	rt := New(conn,
-		WithReconnect(ReconnectFunc(func(context.Context) (agentruntime.DaemonClientPort, string, error) {
+		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),
 		WithDaemonFingerprint(rigFingerprint),
@@ -346,24 +345,6 @@ func TestCatchUpSessions_SessionListDecidesWhoNeedsPulling(t *testing.T) {
 		"空闲且追平的会话与不在清单里的会话都不该发 attach;还在跑的必须接管推送流")
 }
 
-// Given 对面是不认识补齐族 RPC 的老 daemon,When App 启动后发起补齐,
-// Then 立刻判定不支持并交出哨兵,不再逐条 attach(R18)。
-func TestCatchUpSessions_OldDaemon_ReportsUnsupported(t *testing.T) {
-	conn := newFakeConn()
-	conn.script(func(method string, _, _ any) error {
-		if method == wire.MethodSessionList {
-			return &jsonrpc.Error{Code: jsonrpc.ErrMethodNotFound.Code, Message: "Method not found"}
-		}
-		return nil
-	})
-	rt, _, _ := newRestartRuntime(t, conn, 3)
-
-	_, err := rt.CatchUpSessions(context.Background(), []int64{rigSessionID})
-	require.ErrorIs(t, err, ErrCatchUpUnsupported)
-	assert.Empty(t, conn.methodCalls(wire.MethodSessionAttach),
-		"老 daemon 上不该继续发补齐族的其余方法")
-}
-
 // Given 一段补齐正在写进合成轮,When 重放到一条 autonomousTurn.started(daemon 在
 // 那之后自主起了新的一轮),Then 先把手上这一轮收尾再开新的。
 //
@@ -378,9 +359,7 @@ func TestAutonomousTurnStarted_ClosesTheOpenTurnFirst(t *testing.T) {
 	turns := rt.AutonomousTurns(rigSessionID)
 
 	// 一条带 seq、却不属于本进程任何在飞轮次的事件 —— 它开出一轮合成轮。
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "replayed"})
-	require.NoError(t, err)
-	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 1})
+	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: agentruntime.TextDelta{Text: "replayed"}, Seq: 1})
 	first := takeTurn(t, turns)
 
 	conn.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
@@ -394,8 +373,8 @@ func TestAutonomousTurnStarted_ClosesTheOpenTurnFirst(t *testing.T) {
 	assert.NotEqual(t, TriggerCatchUp, second.Trigger)
 }
 
-// Given 客户端离线的时间超过了 daemon 的整个日志留存窗口,它游标之后的那截尾巴已经被
-// 回收(daemon.collectJournal 只保住高水位那一行),When 它回来补齐,
+// Given daemon 那边游标之后的那截尾巴已经不在了(agentred 自己不再回收日志 —— 规格
+// 2026-08-18 决策 8 —— 但库可能被从外部恢复或截断),When 客户端回来补齐,
 // Then 按 daemon 交回的「现存最老 seq」把游标复位,现存的那段照常重放进转录。
 //
 // 不复位的后果不是「少几条」而是这条会话就此静默冻住:每一页的第一条都比 游标+1 大,

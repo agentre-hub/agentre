@@ -1,0 +1,9 @@
+{
+  "sessionId": 8,
+  "peerFingerprint": "fp-desktop",
+  "agentId": 3,
+  "cwd": "/var/proj",
+  "backendType": "codex",
+  "lifecycleState": "idle",
+  "latestSeq": 5
+}

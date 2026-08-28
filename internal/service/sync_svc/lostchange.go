@@ -4,16 +4,34 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
+
+// OriginDeviceServer 是「这一版是被**服务端**覆盖掉的」这个来源标识。
+//
+// server 的组织管理面让浏览器直接建 / 改 / 删组织架构，那些行在 server 上记的
+// origin_fingerprint 是空串（server 侧决策 21：不是任何一台机器推上来的）。冲突应答
+// 因此会带回空串，而 R5 要向用户交代覆盖方是谁 —— 留空会落到「不知道被谁」那一支。
+// 这个哨兵值让呈现层能把它译成「服务端（浏览器）」（sync.lostChanges.originServer）。
+//
+// 它不会与真的机器撞：指纹是内容哈希，不会等于这四个字母。
+const OriginDeviceServer = "server"
+
+// originDeviceOf 把冲突应答里的来源机器指纹翻成留存记录里的那一格。
+func originDeviceOf(originFingerprint string) string {
+	if originFingerprint == "" {
+		return OriginDeviceServer
+	}
+	return originFingerprint
+}
 
 // Status 同步区要展示的状态。未登录时 Enabled 为 false —— 界面据此让整个同步项
 // 不存在（R12）。
 func (s *service) Status(ctx context.Context) (*Status, error) {
-	accountID, _, ok := s.account(ctx)
+	accountID, _, _, ok := s.account(ctx)
 	if !ok {
 		return &Status{}, nil
 	}
@@ -33,6 +51,10 @@ func (s *service) Status(ctx context.Context) (*Status, error) {
 	if err != nil {
 		return nil, err
 	}
+	boardNotice, err := s.BoardJoinNoticePending(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &Status{
 		Enabled:         true,
 		AccountID:       accountID,
@@ -42,13 +64,15 @@ func (s *service) Status(ctx context.Context) (*Status, error) {
 		DeferredCount:   len(deferred),
 		LostChangeCount: len(lost),
 		LastError:       s.getLastErr(),
+
+		BoardJoinNoticePending: boardNotice,
 	}, nil
 }
 
 // ListLostChanges 「没能同步的改动」列表（R5）：三种原因共用一份，只列当前账号的
 // ——上一个账号的记录留在本地，但不在新账号下展示（R13a）。
 func (s *service) ListLostChanges(ctx context.Context) ([]*LostChangeView, error) {
-	accountID, _, ok := s.account(ctx)
+	accountID, _, _, ok := s.account(ctx)
 	if !ok {
 		return []*LostChangeView{}, nil
 	}
@@ -78,7 +102,7 @@ func (s *service) ListLostChanges(ctx context.Context) ([]*LostChangeView, error
 // server 按基版本判定拒绝。两种情况都返回 TargetDeleted，界面据此说明「恢复不会
 // 让它回来」并给出「按这份内容新建」。
 func (s *service) RestoreLostChange(ctx context.Context, id int64) (*RestoreOutcome, error) {
-	accountID, _, ok := s.account(ctx)
+	accountID, _, _, ok := s.account(ctx)
 	if !ok {
 		return nil, ErrNotLoggedIn
 	}
@@ -133,7 +157,7 @@ func (s *service) RestoreLostChange(ctx context.Context, id int64) (*RestoreOutc
 // RecreateFromLostChange 按这份内容新建一个对象（R5a）：分配新的同步标识，作为一个
 // 新对象正常上行——它不是复活，原来那个仍然是墓碑（R6 不被破坏）。
 func (s *service) RecreateFromLostChange(ctx context.Context, id int64) error {
-	accountID, _, ok := s.account(ctx)
+	accountID, _, _, ok := s.account(ctx)
 	if !ok {
 		return ErrNotLoggedIn
 	}
@@ -158,7 +182,7 @@ func (s *service) RecreateFromLostChange(ctx context.Context, id int64) error {
 
 // DiscardLostChange 丢掉一条记录（用户看过了、不想要了）。
 func (s *service) DiscardLostChange(ctx context.Context, id int64) error {
-	accountID, _, ok := s.account(ctx)
+	accountID, _, _, ok := s.account(ctx)
 	if !ok {
 		return ErrNotLoggedIn
 	}

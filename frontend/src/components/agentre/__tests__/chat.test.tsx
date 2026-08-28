@@ -1,13 +1,50 @@
 import {
   act,
   fireEvent,
-  render,
+  render as rtlRender,
   screen,
   waitFor,
   within,
+  type RenderOptions,
 } from "@testing-library/react";
+import {
+  LocalCommandsProvider,
+  TranscriptPortsProvider,
+} from "@agentre-hub/agentre-ui";
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
+
+import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
+
+// 转录里的审批/回答卡片从 TranscriptPortsProvider 取动作端口,而 Provider 由宿主
+// (App.tsx)挂载。本文件渲染的是 ChatTranscript 子树,所以自己补一个 ——
+// 这些用例只验渲染,不验动作,端口给 no-op 即可。
+const testTranscriptPorts = {
+  answerToolPermission: async () => {},
+  answerUserQuestion: async () => {},
+  answerToolApproval: async () => {},
+  resolveExecApproval: async () => ({ status: "resolved" }),
+  resolvePlanAction: async () => ({}),
+};
+
+// 本地命令卡片同样是转录里的一张卡,它从 LocalCommandsProvider 取宿主状态接缝;
+// 这里用桌面实现(而不是替身),因为用例正是拿 useLocalCommandsStore 造条目的。
+function PortsWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <TranscriptPortsProvider ports={testTranscriptPorts}>
+      <LocalCommandsProvider access={desktopLocalCommandsAccess}>
+        {children}
+      </LocalCommandsProvider>
+    </TranscriptPortsProvider>
+  );
+}
+
+function render(
+  ui: React.ReactElement,
+  options?: Omit<RenderOptions, "wrapper">,
+) {
+  return rtlRender(ui, { wrapper: PortsWrapper, ...options });
+}
 
 const sonnerMocks = vi.hoisted(() => ({
   toast: {
@@ -43,7 +80,7 @@ import {
   type ChatComposerHandle,
   type ChatTranscriptHandle,
   formatResetIn,
-  formatTokens,
+  QuotaMeter,
 } from "@/components/agentre/chat";
 import { ChatStreamsHost } from "@/components/agentre/chat-streams-host";
 import {
@@ -201,32 +238,89 @@ function mockTextSelectionWithin(node: Node) {
 }
 
 describe("ChatComposer context meter", () => {
-  it("Given a Codex backend, When the composer is empty, Then its placeholder explains @ mentions, / commands, and $ skills", () => {
+  // 占位文案的判据是「这次渲染真正接上了什么」,不是 backendType 查表
+  // (见包内 chat-input/placeholder.ts)。宿主这边要验的是**接线**:
+  // Skill 目录拉回来后有没有标成 kind: "skill"、`!` 那段有没有跟着
+  // onRunCommand 走 —— 拼装规则本身由包的用例覆盖。
+  function placeholderText(): string {
+    return (
+      screen
+        .getByRole("textbox")
+        .querySelector("p")
+        ?.getAttribute("data-placeholder") ?? ""
+    );
+  }
+
+  function stubSkillCatalog(commands: { name: string }[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).go = {
+      app: {
+        App: {
+          ListAgentSkillCommands: vi.fn().mockResolvedValue({ commands }),
+        },
+      },
+    };
+  }
+
+  it("Given a Codex agent whose skills load, When the composer is empty, Then / and $ are offered separately", async () => {
+    stubSkillCatalog([{ name: "browser:browser" }]);
+    render(
+      <ChatComposer
+        backendType="codex"
+        agentId={7}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(placeholderText()).toBe(
+        "Type a message · / for commands · $ for skills",
+      ),
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).go;
+  });
+
+  it("Given a Claude Code agent whose skills load, When the composer is empty, Then / covers commands and skills in one segment", async () => {
+    // claudecode 的 Skill 也走 /,包里靠 trigger 分不出命令与 Skill ——
+    // 全靠这里把目录来的那批标成 kind: "skill"。
+    stubSkillCatalog([{ name: "brainstorm" }]);
+    render(
+      <ChatComposer
+        backendType="claudecode"
+        agentId={7}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(placeholderText()).toBe(
+        "Type a message · / for commands and skills",
+      ),
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).go;
+  });
+
+  it("Given no local-command handler, When the composer renders, Then the placeholder does not promise !", () => {
+    // 没传 onRunCommand 时 AIChatInput 会把 `!foo` **静默吞掉** —— 提示里写着、
+    // 按下去没反应,比不写更糟。
     render(<ChatComposer backendType="codex" onSubmit={() => undefined} />);
 
-    expect(screen.getByRole("textbox").querySelector("p")).toHaveAttribute(
-      "data-placeholder",
-      "Type a message · @ to mention · / for commands · $ for skills · ! to run in terminal",
-    );
+    expect(placeholderText()).not.toContain("!");
   });
 
-  it("Given a Claude Code backend, When the composer is empty, Then its placeholder explains @ mentions and that / includes commands and skills", () => {
+  it("Given a local-command handler, When the composer renders, Then the placeholder offers !", () => {
     render(
-      <ChatComposer backendType="claudecode" onSubmit={() => undefined} />,
+      <ChatComposer
+        backendType="codex"
+        onSubmit={() => undefined}
+        onCommandSubmit={() => undefined}
+      />,
     );
 
-    expect(screen.getByRole("textbox").querySelector("p")).toHaveAttribute(
-      "data-placeholder",
-      "Type a message · @ to mention · / for commands and skills · ! to run in terminal",
-    );
-  });
-
-  it("Given a Pi backend, When the composer is empty, Then its placeholder explains @ mentions, / commands, and /skill:name skills", () => {
-    render(<ChatComposer backendType="piagent" onSubmit={() => undefined} />);
-
-    expect(screen.getByRole("textbox").querySelector("p")).toHaveAttribute(
-      "data-placeholder",
-      "Type a message · @ to mention · / for commands · /skill:name for skills · ! to run in terminal",
+    expect(placeholderText()).toBe(
+      "Type a message · / for commands · ! to run in terminal",
     );
   });
 
@@ -358,7 +452,7 @@ describe("ChatComposer context meter", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Add at most 4 images",
+      "You can attach up to 4 images",
     );
     expect(screen.queryByAltText("clip-0.png")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -388,7 +482,7 @@ describe("ChatComposer context meter", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Only PNG, JPEG, and WebP are supported. Each image must be under 5 MB.",
+      "Use PNG, JPEG, or WebP images up to 5 MB",
     );
     expect(input.value).toBe("");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -401,7 +495,7 @@ describe("ChatComposer context meter", () => {
     );
 
     expect(
-      screen.queryByRole("button", { name: "Add Image" }),
+      screen.queryByRole("button", { name: "Add image" }),
     ).not.toBeInTheDocument();
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
@@ -416,32 +510,13 @@ describe("ChatComposer context meter", () => {
       type: "image/png",
     });
 
-    expect(screen.getByRole("button", { name: "Add Image" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add image" })).toBeDisabled();
     fireEvent.change(input, { target: { files: [file] } });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByAltText("blocked.png")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(onSubmit).not.toHaveBeenCalled();
-  });
-
-  it("renders warning-level context usage with defined waiting color tokens", () => {
-    render(
-      <ChatComposer
-        contextUsage={{ used: 206000, max: 258000 }}
-        onSubmit={() => undefined}
-      />,
-    );
-
-    expect(screen.getByText("206k")).toBeInTheDocument();
-    expect(screen.getByText("258k")).toBeInTheDocument();
-    const percent = screen.getByText("80%");
-    expect(percent).toHaveClass("text-status-waiting");
-
-    const progress = screen.getByRole("progressbar");
-    const fill = progress.firstElementChild;
-    expect(fill).toHaveClass("bg-status-waiting");
-    expect(fill).toHaveStyle({ width: "80%" });
   });
 });
 
@@ -1780,37 +1855,6 @@ describe("ChatTranscript message tail attachments", () => {
   });
 });
 
-describe("formatTokens", () => {
-  it("小于 1000 原样输出", () => {
-    expect(formatTokens(0)).toBe("0");
-    expect(formatTokens(999)).toBe("999");
-  });
-
-  it("[1e3, 1e6) 走 k 档: 商 >=100 取整, 否则一位小数", () => {
-    expect(formatTokens(1_000)).toBe("1.0k");
-    expect(formatTokens(12_340)).toBe("12.3k");
-    expect(formatTokens(120_500)).toBe("121k");
-    expect(formatTokens(999_000)).toBe("999k");
-  });
-
-  it(">=1e6 走 M 档: 商 >=10 取整, 否则一位小数", () => {
-    expect(formatTokens(1_000_000)).toBe("1M");
-    expect(formatTokens(1_200_000)).toBe("1.2M");
-    expect(formatTokens(9_900_000)).toBe("9.9M");
-    expect(formatTokens(10_000_000)).toBe("10M");
-    expect(formatTokens(12_500_000)).toBe("13M");
-  });
-
-  it("k 档取整到 1000 就进 M: 1000k 在任何输入下都不出现", () => {
-    // 999_999 按量级本该落 k 档, 但商四舍五入后是 1000 —— 那正是本轮要消灭的字符串。
-    expect(formatTokens(999_999)).toBe("1M");
-    expect(formatTokens(999_500)).toBe("1M");
-    // 边界另一侧: 取整后还是 999, 仍留在 k 档。
-    expect(formatTokens(999_499)).toBe("999k");
-    expect(formatTokens(1_000_000)).toBe("1M");
-  });
-});
-
 describe("formatResetIn", () => {
   const now = Date.parse("2026-05-28T00:00:00Z");
 
@@ -1857,19 +1901,18 @@ describe("formatResetIn", () => {
   });
 });
 
-describe("ChatComposer quota meter", () => {
+describe("QuotaMeter", () => {
   const resetNow = Date.parse("2026-05-28T00:00:00Z");
 
   it("不渲染 QuotaMeter 当 quotaUsage 未传", () => {
-    render(<ChatComposer onSubmit={() => undefined} />);
+    render(<QuotaMeter data={undefined} />);
     expect(screen.queryByLabelText(/Claude.*quota/)).toBeNull();
   });
 
   it("不渲染 QuotaMeter 当 reason='no_credentials' (API key 用户)", () => {
     render(
-      <ChatComposer
-        onSubmit={() => undefined}
-        quotaUsage={{ reason: "no_credentials", fetchedAtMs: 1 } as never}
+      <QuotaMeter
+        data={{ reason: "no_credentials", fetchedAtMs: 1 } as never}
       />,
     );
     expect(screen.queryByLabelText(/Claude.*quota/)).toBeNull();
@@ -1877,9 +1920,8 @@ describe("ChatComposer quota meter", () => {
 
   it("正常渲染百分比文本 当 reason='ok'", () => {
     render(
-      <ChatComposer
-        onSubmit={() => undefined}
-        quotaUsage={
+      <QuotaMeter
+        data={
           {
             reason: "ok",
             data: { fiveHourPercent: 42.6, weeklyPercent: 18.2 },
@@ -1896,9 +1938,8 @@ describe("ChatComposer quota meter", () => {
 
   it("stale=true 时仍显示上次数字, 但不渲染可见的 stale 角标", () => {
     render(
-      <ChatComposer
-        onSubmit={() => undefined}
-        quotaUsage={
+      <QuotaMeter
+        data={
           {
             reason: "rate_limited",
             stale: true,
@@ -1919,9 +1960,8 @@ describe("ChatComposer quota meter", () => {
     vi.setSystemTime(resetNow);
     try {
       render(
-        <ChatComposer
-          onSubmit={() => undefined}
-          quotaUsage={
+        <QuotaMeter
+          data={
             {
               reason: "ok",
               data: {
@@ -1950,10 +1990,7 @@ describe("ChatComposer quota meter", () => {
 
   it("auth_expired 时渲染占位文本而不是数字", () => {
     render(
-      <ChatComposer
-        onSubmit={() => undefined}
-        quotaUsage={{ reason: "auth_expired", fetchedAtMs: 1 } as never}
-      />,
+      <QuotaMeter data={{ reason: "auth_expired", fetchedAtMs: 1 } as never} />,
     );
     expect(screen.getByLabelText(/Claude.*quota/)).toHaveTextContent("5h —%");
   });
@@ -1999,7 +2036,7 @@ describe("ChatTranscript message meta", () => {
 
   it("renders the meta strip below the message, always visible without hover gating", () => {
     // 之前用 group-hover / React state 控制 meta 显隐，在 Wails WebKit 下
-    // 多次出现 meta 一直亮起的 bug。现在改成常驻显示，靠 text-subtle-foreground
+    // 多次出现 meta 一直亮起的 bug。现在改成常驻显示，靠 text-muted-foreground
     // + text-2xs 自身弱化样式，不再依赖任何 hover/focus 状态。
     render(
       <ChatTranscript
@@ -3319,5 +3356,110 @@ describe("ChatTranscript read-only mode (no onRerun / no onEdit)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /edit/i }));
     expect(calls).toEqual([19]);
+  });
+});
+
+// 转录的正文窗口(spec 2026-08-27 决策 6)。
+//
+// 读路径改成「元数据全量 + 块按需取」之后,窗口外的消息手上只有派生视图点名的那几类
+// 块(text / tool_use),工具结果、思考、嵌套卡都还没取。把这样一条消息当整条渲染,
+// 用户看到的是一份缺了工具结果的**假**转录 —— 所以它们不进转录,顶部改为给出继续
+// 往上取的入口;取回来之后自然接上。
+describe("ChatTranscript block window", () => {
+  it("keeps partially loaded messages out of the transcript and offers to load them", async () => {
+    const onLoadEarlier = vi.fn();
+    render(
+      <ChatTranscript
+        agentColor="agent-1"
+        agentName="CEO 助手"
+        hasEarlierMessages
+        messages={[
+          {
+            ...textMessage(1, "user", "very old question"),
+            blocksLoaded: false,
+          } as chat_svc.ChatMessage,
+          textMessage(2, "assistant", "latest answer"),
+        ]}
+        onLoadEarlier={onLoadEarlier}
+        sessionId={1}
+      />,
+    );
+
+    expect(await screen.findByText("latest answer")).toBeTruthy();
+    expect(screen.queryByText("very old question")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /load earlier/i }));
+    expect(onLoadEarlier).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer the entry once every message carries its full body", () => {
+    render(
+      <ChatTranscript
+        agentColor="agent-1"
+        agentName="CEO 助手"
+        messages={[textMessage(2, "assistant", "latest answer")]}
+        sessionId={1}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /load earlier/i })).toBeNull();
+  });
+
+  it("fetches earlier bodies when jumping to a message whose body is not loaded", () => {
+    const onLoadEarlier = vi.fn();
+    const handleRef = React.createRef<ChatTranscriptHandle>();
+    render(
+      <ChatTranscript
+        agentColor="agent-1"
+        agentName="CEO 助手"
+        hasEarlierMessages
+        messages={[
+          {
+            ...textMessage(1, "user", "very old question"),
+            blocksLoaded: false,
+          } as chat_svc.ChatMessage,
+          textMessage(2, "assistant", "latest answer"),
+        ]}
+        onLoadEarlier={onLoadEarlier}
+        ref={handleRef}
+        sessionId={1}
+      />,
+    );
+    onLoadEarlier.mockClear();
+
+    // 大纲列的是整条会话的轮次,点一条正文还没取回来的旧轮次是常规动作。
+    act(() => {
+      handleRef.current?.scrollToMessage(1);
+    });
+    expect(onLoadEarlier).toHaveBeenCalled();
+  });
+
+  it("fetches earlier bodies when the user scrolls back to the top", () => {
+    const onLoadEarlier = vi.fn();
+    const scroller = document.createElement("div");
+    document.body.appendChild(scroller);
+    try {
+      render(
+        <ChatTranscript
+          agentColor="agent-1"
+          agentName="CEO 助手"
+          hasEarlierMessages
+          messages={[
+            {
+              ...textMessage(1, "user", "very old question"),
+              blocksLoaded: false,
+            } as chat_svc.ChatMessage,
+            textMessage(2, "assistant", "latest answer"),
+          ]}
+          onLoadEarlier={onLoadEarlier}
+          scrollElement={scroller}
+          sessionId={1}
+        />,
+      );
+      onLoadEarlier.mockClear();
+      fireEvent.scroll(scroller);
+      expect(onLoadEarlier).toHaveBeenCalled();
+    } finally {
+      scroller.remove();
+    }
   });
 });

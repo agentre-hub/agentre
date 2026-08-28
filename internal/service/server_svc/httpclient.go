@@ -12,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // serverClient 是一个薄薄的 net/http 封装，给 server_svc 各方法复用。
@@ -69,6 +72,7 @@ func (e *httpErr) HTTPStatus() int { return e.status }
 // do 发起一次请求；out 若非 nil，会把响应 JSON 解码进去。返回 HTTP 状态码与错误。
 // 网络层失败统一返回 ErrServerUnreachable，便于上层一处处理。
 func (c *serverClient) do(ctx context.Context, method, path string, body any, out any) (int, error) {
+	started := time.Now()
 	u, err := url.Parse(c.baseURL + path)
 	if err != nil {
 		return 0, err
@@ -121,5 +125,8 @@ func (c *serverClient) do(ctx context.Context, method, path string, body any, ou
 	if resp.StatusCode >= 400 {
 		return resp.StatusCode, &httpErr{status: resp.StatusCode, body: http.StatusText(resp.StatusCode)}
 	}
+	logger.Ctx(ctx).Debug("server_svc.serverClient.do: request completed",
+		zap.String("method", method), zap.String("path", u.Path),
+		zap.Int("statusCode", resp.StatusCode), zap.Duration("duration", time.Since(started)))
 	return resp.StatusCode, nil
 }

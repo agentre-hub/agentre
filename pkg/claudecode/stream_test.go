@@ -774,22 +774,57 @@ func TestStream_APIErrorMessageFrameBecomesEventError(t *testing.T) {
 	}
 }
 
-// TestStream_RawSinkReceivesEveryRawLine 校验 frameDecoder 把每一行非空原始 stdout
-// (未解析的 stream-json 帧)原样喂给 rawSink —— debug 级原始帧转储的底座。
-func TestStream_RawSinkReceivesEveryRawLine(t *testing.T) {
-	const lines = `{"type":"system","subtype":"init","session_id":"s","model":"m"}` + "\n" +
-		`{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"hi"}]}}` + "\n" +
-		`{"type":"result","subtype":"success","session_id":"s","usage":{"input_tokens":1,"output_tokens":1}}` + "\n"
+// TestStream_ApiErrorMessage_SnakeCaseFlag 钉住 CLI 实测帧形。
+//
+// 现场（agentred 0.1.0/82ae872 + Claude Code 2.1.224，上游网关 403）抓到的 stdout
+// 里，合成 API 错误帧顶层打的是 **snake_case** 的 `is_api_error_message`，不是
+// rawFrame 上写着的 `isApiErrorMessage`——后者只在 CLI 自己的 `~/.claude/projects/
+// *.jsonl` 里还是驼峰（两份序列化器，各走各的）。标志解不出来，这一帧就当普通模型
+// 正文走，"API Error: ..." 既不成 EventError、也不成 stopErr。
+//
+// 用户侧的症状：一轮跑起来又安静结束，转录里只有自己刚说的那句话，一个字的解释都
+// 没有（agentred 日志：totalEvents=1 kinds=map[UserMessage:1] hasStopErr=false）。
+func TestStream_ApiErrorMessage_SnakeCaseFlag(t *testing.T) {
+	line := `{"type":"assistant","message":{"id":"m1","model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"Failed to authenticate. API Error: 403"}]},"parent_tool_use_id":null,"session_id":"sess-403","error":"authentication_failed","is_api_error_message":true}` + "\n"
 
-	var got []string
-	d := newFrameDecoder(strings.NewReader(lines))
-	d.rawSink = func(b []byte) { got = append(got, string(b)) }
-	for d.Next() { //nolint:revive // 只为驱动 decode,事件本身不看
+	d := newFrameDecoder(strings.NewReader(line))
+	var events []Event
+	for d.Next() {
+		events = append(events, d.Event())
 	}
 	require.NoError(t, d.Err())
 
-	require.Len(t, got, 3)
-	assert.Contains(t, got[0], `"subtype":"init"`)
-	assert.Contains(t, got[1], `"type":"assistant"`)
-	assert.Contains(t, got[2], `"type":"result"`)
+	require.Len(t, events, 1)
+	assert.Equal(t, EventError, events[0].Kind)
+	require.NotNil(t, events[0].Err)
+	assert.Contains(t, events[0].Err.Error(), "403")
+}
+
+// TestStream_ResultIsError 钉住 result 帧那一半。
+//
+// 同一次现场里，终态帧是 `{"subtype":"success","is_error":true,"result":"Failed to
+// authenticate. API Error: 403 ...","terminal_reason":"api_error"}`——subtype 说
+// success，is_error 说不是。`is_error` 在 rawFrame 上根本没有对应字段（同名的那个
+// 在 rawContentBlock 上，是工具结果的），于是这一轮以一个干净的 EventDone 收场。
+//
+// 这是**第二道**没兜住的地方：就算上面那条错误帧因为别的原因没解出来，终态帧自己
+// 也说了这一轮是错的，不该翻成一个成功的 Done。
+func TestStream_ResultIsError(t *testing.T) {
+	line := `{"type":"result","subtype":"success","is_error":true,"terminal_reason":"api_error","api_error_status":403,"result":"Failed to authenticate. API Error: 403","session_id":"sess-403"}` + "\n"
+
+	d := newFrameDecoder(strings.NewReader(line))
+	var events []Event
+	for d.Next() {
+		events = append(events, d.Event())
+	}
+	require.NoError(t, d.Err())
+
+	var errEvent *Event
+	for i := range events {
+		if events[i].Kind == EventError {
+			errEvent = &events[i]
+		}
+	}
+	require.NotNil(t, errEvent, "is_error:true 的 result 帧必须交出一条 EventError")
+	assert.Contains(t, errEvent.Err.Error(), "403")
 }

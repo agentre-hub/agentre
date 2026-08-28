@@ -180,7 +180,7 @@ func (s *Stream) handleInbound(ctx context.Context, in appInbound, preSeen map[s
 				message += ": " + n.Error.AdditionalDetails
 			}
 		}
-		s.emitError(fmt.Errorf("codex app-server: %s", sanitizeDiagnostic(message)), in.Params)
+		s.emitError(fmt.Errorf("codex app-server: %s", message), in.Params)
 	}
 	return false
 }

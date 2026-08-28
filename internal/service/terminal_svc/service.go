@@ -12,8 +12,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 )
 
 // Output coalescing: PTY stdout accumulates and is flushed to the emitter at

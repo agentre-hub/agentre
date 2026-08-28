@@ -3,8 +3,8 @@ package chat_svc
 import (
 	"encoding/json"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 )
 
 // convertOldEventToNew 旧 RuntimeEvent → 新 Event,仅留给 chat_svc_test 包的
@@ -51,7 +51,7 @@ func convertOldEventToNew(ev agentruntime.RuntimeEvent) agentruntime.Event {
 			return nil
 		}
 		return agentruntime.ToolResult{
-			ToolCallID:       ev.ToolResult.ToolUseID,
+			ToolCallID:       ev.ToolResult.ToolCallID,
 			Content:          ev.ToolResult.Content,
 			IsError:          ev.ToolResult.IsError,
 			ParentToolCallID: ev.ToolResult.ParentToolCallID,
@@ -66,7 +66,7 @@ func convertOldEventToNew(ev agentruntime.RuntimeEvent) agentruntime.Event {
 		}
 		return agentruntime.UserAskRequest{
 			RequestID:        ev.AskUserQuestion.RequestID,
-			ToolCallID:       ev.AskUserQuestion.ToolUseID,
+			ToolCallID:       ev.AskUserQuestion.ToolCallID,
 			ParentToolCallID: ev.AskUserQuestion.ParentToolCallID,
 			Questions:        ev.AskUserQuestion.Questions,
 		}
@@ -103,11 +103,11 @@ func convertOldEventToNew(ev agentruntime.RuntimeEvent) agentruntime.Event {
 	case agentruntime.EventPermissionModeChanged:
 		return agentruntime.PermissionModeChanged{Mode: ev.PermissionMode}
 	case agentruntime.EventSubagentStarted:
-		return agentruntime.SubagentStarted{ToolCallID: ev.ToolUseID, Info: subagentInfoFromPtrForConvert(ev.Subagent)}
+		return agentruntime.SubagentStarted{ToolCallID: ev.ToolCallID, Info: subagentInfoFromPtrForConvert(ev.Subagent)}
 	case agentruntime.EventSubagentProgress:
-		return agentruntime.SubagentProgress{ToolCallID: ev.ToolUseID, Info: subagentInfoFromPtrForConvert(ev.Subagent)}
+		return agentruntime.SubagentProgress{ToolCallID: ev.ToolCallID, Info: subagentInfoFromPtrForConvert(ev.Subagent)}
 	case agentruntime.EventSubagentDone:
-		return agentruntime.SubagentDone{ToolCallID: ev.ToolUseID, Info: subagentInfoFromPtrForConvert(ev.Subagent)}
+		return agentruntime.SubagentDone{ToolCallID: ev.ToolCallID, Info: subagentInfoFromPtrForConvert(ev.Subagent)}
 	case agentruntime.EventRetry:
 		if ev.Retry == nil {
 			return nil

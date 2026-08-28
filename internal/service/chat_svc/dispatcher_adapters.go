@@ -3,13 +3,14 @@ package chat_svc
 import (
 	"context"
 	"strings"
+	"time"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/handlers"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/handlers"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // dispatcher_adapters.go 给 turn dispatcher 注入持久化 + 数据写入能力。
@@ -43,22 +44,37 @@ func (sessionUpdaterAdapter) Update(ctx context.Context, sess any) error {
 }
 
 // usageWriterAdapter 实现 handlers.UsageWriter:把 agentruntime.UsageUpdate
-// patch 到 *chat_entity.Message 的 token 列。
+// patch 到 *chat_entity.Message 的 token 列,再单列落库。
+//
+// 累加语义(CompletionTokens / ReasoningTokens 是 +=)留在内存实体上,落库只写最终值,
+// 因此这里必须先 patch 再取值。不要改成 SQL 侧自增:实体是本轮的唯一真源,自增会在
+// 重试/补齐路径上重复计数。
 type usageWriterAdapter struct{}
 
-func (usageWriterAdapter) WriteUsage(msg any, u *agentruntime.UsageUpdate) {
+func (usageWriterAdapter) WriteUsage(ctx context.Context, msg any, u *agentruntime.UsageUpdate) error {
 	m, ok := msg.(*chat_entity.Message)
 	if !ok || m == nil || u == nil || u.Usage == nil {
-		return
+		return nil
 	}
 	m.PromptTokens = u.Usage.PromptTokens
-	m.CompletionTokens = u.Usage.CompletionTokens
+	m.CompletionTokens += u.Usage.CompletionTokens
 	m.CachedTokens = u.Usage.CachedTokens
 	m.CacheCreationTokens = u.Usage.CacheCreationTokens
-	m.ReasoningTokens = u.Usage.ReasoningTokens
+	m.ReasoningTokens += u.Usage.ReasoningTokens
 	if u.TotalInputTokens > 0 {
 		m.TotalInputTokens = u.TotalInputTokens
 	}
+	if m.ID == 0 {
+		return nil
+	}
+	return chat_repo.Message().UpdateUsage(ctx, m.ID, chat_repo.MessageUsage{
+		PromptTokens:        m.PromptTokens,
+		CompletionTokens:    m.CompletionTokens,
+		CachedTokens:        m.CachedTokens,
+		CacheCreationTokens: m.CacheCreationTokens,
+		ReasoningTokens:     m.ReasoningTokens,
+		TotalInputTokens:    m.TotalInputTokens,
+	})
 }
 
 func (usageWriterAdapter) MessageID(msg any) int64 {
@@ -69,26 +85,34 @@ func (usageWriterAdapter) MessageID(msg any) int64 {
 	return m.ID
 }
 
-// errorWriterAdapter 实现 handlers.ErrorWriter。
+// errorWriterAdapter 实现 handlers.ErrorWriter:patch 内存实体 + 单列落库。
 type errorWriterAdapter struct{}
 
-func (errorWriterAdapter) WriteErrorText(msg any, errText string) {
+func (errorWriterAdapter) WriteErrorText(ctx context.Context, msg any, errText string) error {
 	m, ok := msg.(*chat_entity.Message)
 	if !ok || m == nil {
-		return
+		return nil
 	}
 	m.ErrorText = errText
+	if m.ID == 0 {
+		return nil
+	}
+	return chat_repo.Message().UpdateErrorText(ctx, m.ID, errText)
 }
 
-// contextWindowWriterAdapter 实现 handlers.ContextWindowWriter。
+// contextWindowWriterAdapter 实现 handlers.ContextWindowWriter:同步内存中的
+// sess.ContextWindow + 调 chat_repo.Session().UpdateContextWindow(column-only,理由见
+// 该接口注释:整行回写会让带外轮的旧快照把 agent_status 拍回 idle)。
+// 值与实体一致时跳过,避免每帧多一次 UPDATE。
 type contextWindowWriterAdapter struct{}
 
-func (contextWindowWriterAdapter) WriteContextWindow(sess any, tokens int) {
+func (contextWindowWriterAdapter) WriteContextWindow(ctx context.Context, sess any, tokens int) error {
 	s, ok := sess.(*chat_entity.Session)
-	if !ok || s == nil {
-		return
+	if !ok || s == nil || s.ContextWindow == tokens {
+		return nil
 	}
 	s.ContextWindow = tokens
+	return chat_repo.Session().UpdateContextWindow(ctx, s.ID, tokens)
 }
 
 // permissionModeWriterAdapter 实现 handlers.PermissionModeWriter:
@@ -223,23 +247,23 @@ type subagentFlipperAdapter struct {
 	stream string
 }
 
-func (a subagentFlipperAdapter) FlipSubagentStatus(ctx context.Context, toolUseID, status string) error {
-	if a.svc == nil || a.sess == nil || a.sess.ID <= 0 || toolUseID == "" {
+func (a subagentFlipperAdapter) FlipSubagentStatus(ctx context.Context, toolCallID, status string) error {
+	if a.svc == nil || a.sess == nil || a.sess.ID <= 0 || toolCallID == "" {
 		return nil
 	}
 	// summary 留空:CLI 的完成摘要目前没走到 SubagentInfo,FlipSubagentStatus 对空
 	// summary 保持原值不动。
-	if err := chat_repo.Message().FlipSubagentStatus(ctx, a.sess.ID, toolUseID, status, ""); err != nil {
+	if err := chat_repo.Message().FlipSubagentStatus(ctx, a.sess.ID, toolCallID, status, ""); err != nil {
 		return err
 	}
 	// 镜像到**会话级**流:派遣卡随更早那条消息早已落库,不在任何 liveBlocks 里,
 	// per-turn 流那一路合并必然落空(同 subagentActivityEmitter 的理由)。
 	(&dispatcherEmitter{svc: a.svc}).Emit(ctx, AutonomousStreamName(a.sess.ID), map[string]any{
 		"kind":      string(StreamSubagentDone),
-		"toolUseId": toolUseID,
+		"toolUseId": toolCallID,
 		"info":      agentruntime.SubagentInfo{Status: status},
 	})
-	a.svc.reconcileBgRunningOnComplete(ctx, a.sess, toolUseID, a.stream)
+	a.svc.reconcileBgRunningOnComplete(ctx, a.sess, toolCallID, a.stream)
 	return nil
 }
 
@@ -255,7 +279,7 @@ func (s *chatSvc) newTurnContext(
 	if sess != nil {
 		launch = sess.PermissionModeAtLaunch
 	}
-	return &turn.TurnContext{
+	tc := &turn.TurnContext{
 		AssistantMsg:         assistantMsg,
 		Session:              sess,
 		Stream:               stream,
@@ -267,4 +291,7 @@ func (s *chatSvc) newTurnContext(
 		Waits:                turn.NewWaitTracker(),
 		SubagentFlipper:      subagentFlipperAdapter{svc: s, sess: sess, stream: stream},
 	}
+	// 这一段 assistant 从此刻开始计时,生成表同时开走(工具空档由 tool 事件停/开)。
+	tc.StartGenerationAt(time.Now())
+	return tc
 }

@@ -5,12 +5,18 @@ package local_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/internal/pkg/pty/local"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
 
 	"github.com/stretchr/testify/require"
 )
@@ -137,6 +143,77 @@ func TestLocalBackend_Close_EmitsKilledExit(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not receive exit info within 2s")
 	}
+}
+
+func TestLocalBackend_GivenShellWaitsForStubbornChild_WhenHandleCloses_ThenProcessTreeExitsWithinDeadline(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	command := fmt.Sprintf(
+		`/bin/sh -c 'trap "" HUP TERM; printf "%%s %%s" "$$" "$PPID" > %q; while :; do sleep 1; done'`+"\n",
+		pidFile,
+	)
+	h, err := local.NewBackend().Open(context.Background(), pty.Spec{
+		Cwd:   os.TempDir(),
+		Shell: "/bin/sh",
+		Cols:  80,
+		Rows:  24,
+	})
+	require.NoError(t, err)
+	_, err = h.Write([]byte(command))
+	require.NoError(t, err)
+
+	var childPID, shellPID int
+	require.Eventually(t, func() bool {
+		rawPID, readErr := os.ReadFile(pidFile) //nolint:gosec // G304: pidFile is test-owned under t.TempDir.
+		if readErr != nil {
+			return false
+		}
+		fields := strings.Fields(string(rawPID))
+		if len(fields) != 2 {
+			return false
+		}
+		childPID, readErr = strconv.Atoi(fields[0])
+		if readErr != nil {
+			return false
+		}
+		shellPID, readErr = strconv.Atoi(fields[1])
+		return readErr == nil && childPID > 0 && shellPID > 0
+	}, time.Second, 10*time.Millisecond, "shell did not publish its child PID")
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		_ = syscall.Kill(childPID, syscall.SIGKILL)
+		_ = syscall.Kill(shellPID, syscall.SIGKILL)
+	})
+
+	closeStarted := time.Now()
+	closeReturned := make(chan error, 1)
+	go func() { closeReturned <- h.Close() }()
+	select {
+	case closeErr := <-closeReturned:
+		require.NoError(t, closeErr)
+	case <-time.After(time.Second):
+		_ = syscall.Kill(childPID, syscall.SIGKILL)
+		_ = syscall.Kill(shellPID, syscall.SIGKILL)
+		select {
+		case <-closeReturned:
+		case <-time.After(time.Second):
+		}
+		t.Fatal("Close did not return within one second while the shell waited for its child")
+	}
+	require.Less(t, time.Since(closeStarted), time.Second, "Close must have a final deadline")
+	require.Eventually(t, func() bool {
+		return !localProcessAlive(childPID)
+	}, time.Second, 10*time.Millisecond, "Close left the shell's child process alive")
+}
+
+func localProcessAlive(pid int) bool {
+	output, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output() //nolint:gosec // G204: fixed executable with a test-owned PID.
+	if err != nil {
+		return false
+	}
+	state := strings.TrimSpace(string(output))
+	return state != "" && !strings.ContainsAny(state, "ZE")
 }
 
 func TestLocalBackend_NaturalExit_EmitsNatural(t *testing.T) {

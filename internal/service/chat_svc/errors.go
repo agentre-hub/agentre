@@ -9,7 +9,7 @@ import (
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 type localizedCauseError struct {

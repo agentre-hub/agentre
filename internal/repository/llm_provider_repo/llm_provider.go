@@ -9,9 +9,9 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/repository/repoquery"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/repository/repoquery"
 )
 
 //go:generate mockgen -source llm_provider.go -destination mock_llm_provider_repo/mock_llm_provider.go
@@ -41,7 +41,6 @@ type ModelRefCounts struct {
 // 承担脱敏边界）。
 type LLMProviderRepo interface {
 	// ── Provider CRUD ──
-	Create(ctx context.Context, p *llm_provider_entity.LLMProvider) error
 	Update(ctx context.Context, p *llm_provider_entity.LLMProvider) error
 	Find(ctx context.Context, id int64) (*llm_provider_entity.LLMProvider, error)
 	FindByKey(ctx context.Context, key string) (*llm_provider_entity.LLMProvider, error)
@@ -51,6 +50,10 @@ type LLMProviderRepo interface {
 	// DeleteWithModels 在同一事务内软删除一个 Provider 及其全部 Models（spec 决策 17：
 	// 无引用 Provider 的删除事务同时移除其 Models，任一步失败整体回滚，不留半批）。
 	DeleteWithModels(ctx context.Context, id int64) error
+	// UpsertFromSync replaces one provider's account payload and nested model
+	// catalog atomically. provider_key is its sync identity; missing local models
+	// are soft-deleted rather than left as stale entries.
+	UpsertFromSync(ctx context.Context, p *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel) error
 
 	// ── Provider + Models 原子操作（成功或失败，不留半批） ──
 	// CreateWithModels 在同一事务内写 Provider、其全部 Models 并落 default_model_key。
@@ -90,11 +93,8 @@ type llmProviderRepo struct{}
 // NewLLMProvider 构造默认 GORM 实现。
 func NewLLMProvider() LLMProviderRepo { return &llmProviderRepo{} }
 
-func (r *llmProviderRepo) Create(ctx context.Context, p *llm_provider_entity.LLMProvider) error {
-	return db.Ctx(ctx).Create(p).Error
-}
-
 func (r *llmProviderRepo) Update(ctx context.Context, p *llm_provider_entity.LLMProvider) error {
+	p.SyncID = p.ProviderKey
 	return db.Ctx(ctx).Save(p).Error
 }
 
@@ -165,6 +165,7 @@ func (r *llmProviderRepo) DeleteWithModels(ctx context.Context, id int64) error 
 
 // CreateWithModels 事务内原子写入 Provider + Models + 默认模型。
 func (r *llmProviderRepo) CreateWithModels(ctx context.Context, p *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel, defaultModelKey string) error {
+	p.SyncID = p.ProviderKey
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		ctx = db.WithContextDB(ctx, tx)
 		if err := db.Ctx(ctx).Create(p).Error; err != nil {
@@ -179,6 +180,60 @@ func (r *llmProviderRepo) CreateWithModels(ctx context.Context, p *llm_provider_
 		return db.Ctx(ctx).Model(&llm_provider_entity.LLMProvider{}).
 			Where("id = ?", p.ID).
 			Update("default_model_key", defaultModelKey).Error
+	})
+}
+
+// UpsertFromSync applies the complete nested provider payload as one transaction.
+// Model keys are stable and global, so existing rows are updated in place; any
+// active local model not present in the authoritative payload becomes deleted.
+func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel) error {
+	p.SyncID = p.ProviderKey
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing llm_provider_entity.LLMProvider
+		err := tx.Where("provider_key = ?", p.ProviderKey).First(&existing).Error
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if err := tx.Create(p).Error; err != nil {
+				return err
+			}
+		case err != nil:
+			return err
+		default:
+			p.ID = existing.ID
+			if err := tx.Save(p).Error; err != nil {
+				return err
+			}
+		}
+
+		keys := make([]string, 0, len(models))
+		for _, model := range models {
+			if model == nil {
+				continue
+			}
+			model.ProviderID = p.ID
+			keys = append(keys, model.ModelKey)
+			var current llm_provider_model_entity.LLMProviderModel
+			err := tx.Where("model_key = ?", model.ModelKey).First(&current).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				if err := tx.Create(model).Error; err != nil {
+					return err
+				}
+			case err != nil:
+				return err
+			default:
+				model.ID = current.ID
+				if err := tx.Save(model).Error; err != nil {
+					return err
+				}
+			}
+		}
+		missing := tx.Model(&llm_provider_model_entity.LLMProviderModel{}).
+			Where("provider_id = ? AND status = ?", p.ID, consts.ACTIVE)
+		if len(keys) > 0 {
+			missing = missing.Where("model_key NOT IN ?", keys)
+		}
+		return missing.Update("status", consts.DELETE).Error
 	})
 }
 

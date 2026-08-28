@@ -13,22 +13,22 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 // ProjectSvc Project 模块的应用服务。
 type ProjectSvc interface {
 	Create(ctx context.Context, req *CreateProjectRequest) (*project_entity.Project, error)
 	Update(ctx context.Context, req *UpdateProjectRequest) (*project_entity.Project, error)
+	// Move 改父项目，含环检测。见 MoveProjectRequest。
+	Move(ctx context.Context, req *MoveProjectRequest) (*project_entity.Project, error)
 	Reorder(ctx context.Context, req *ReorderProjectsRequest) error
 	Delete(ctx context.Context, id int64) error
 	Get(ctx context.Context, id int64) (*ProjectDetail, error)
@@ -36,6 +36,10 @@ type ProjectSvc interface {
 	// SetLocalPath 就地指定「本机未配置路径」（R10）项目的本机路径，解除该状态；
 	// 路径必须存在。指定之后这个项目与本机创建的项目无任何差别（R10 末段）。
 	SetLocalPath(ctx context.Context, id int64, path string) (*project_entity.Project, error)
+	// ClearLocalPath 把这个项目打回「本机未配置路径」（规格 2026-08-21 决策 6）：
+	// 清掉本机路径并置上该状态。**机器上的目录一个字节都不动**，去掉的只是
+	// 「这个项目在本机落在哪」这条记录。已经是该状态时是幂等的。
+	ClearLocalPath(ctx context.Context, id int64) (*project_entity.Project, error)
 	// Merge 把 sourceID / targetID 两个本地项目行合并成一个（R11a）：沿用账号侧的
 	// 同步标识（两边都没有时沿用先创建的那个的），保留本机项目的本机路径；
 	// chat_sessions / project_agents / projects.parent_id / issues /
@@ -43,7 +47,6 @@ type ProjectSvc interface {
 	Merge(ctx context.Context, req *MergeProjectsRequest) (*project_entity.Project, error)
 	AddMember(ctx context.Context, projectID, agentID int64) error
 	RemoveMember(ctx context.Context, projectID, agentID int64) error
-	ListSessions(ctx context.Context, projectID int64) ([]*chat_entity.Session, error)
 	DetectGitRepo(ctx context.Context, path string) (*GitRepoInfo, error)
 
 	// cwd
@@ -52,10 +55,12 @@ type ProjectSvc interface {
 }
 
 type projectSvc struct {
-	now func() int64
+	now      func() int64
+	sessions SessionPort
+	agents   AgentPort
 }
 
-var defaultProject ProjectSvc = &projectSvc{now: func() int64 { return time.Now().UnixMilli() }}
+var defaultProject ProjectSvc = New()
 
 // Default 取默认服务单例。
 func Default() ProjectSvc { return defaultProject }
@@ -63,9 +68,26 @@ func Default() ProjectSvc { return defaultProject }
 // SetDefault 注入服务实现（测试用 / bootstrap 替换 stub git client 时用）。
 func SetDefault(svc ProjectSvc) { defaultProject = svc }
 
+// Option 定制 New 构造出的实例；未给出的窄依赖落到生产仓储单例(ISP,决策 5)。
+type Option func(*projectSvc)
+
+// WithSessionPort 供测试注入窄 chat_repo.SessionRepo mock。
+func WithSessionPort(p SessionPort) Option { return func(s *projectSvc) { s.sessions = p } }
+
+// WithAgentPort 供测试注入窄 agent_repo.AgentRepo mock。
+func WithAgentPort(p AgentPort) Option { return func(s *projectSvc) { s.agents = p } }
+
 // New 构造默认实现。
-func New() ProjectSvc {
-	return &projectSvc{now: func() int64 { return time.Now().UnixMilli() }}
+func New(opts ...Option) ProjectSvc {
+	s := &projectSvc{
+		now:      func() int64 { return time.Now().UnixMilli() },
+		sessions: sessionRepoDelegate{},
+		agents:   agentRepoDelegate{},
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -74,16 +96,24 @@ func New() ProjectSvc {
 
 func (s *projectSvc) Create(ctx context.Context, req *CreateProjectRequest) (*project_entity.Project, error) {
 	now := s.now()
+	path := strings.TrimSpace(req.Path)
 	p := &project_entity.Project{
 		ParentID:    req.ParentID,
 		Name:        strings.TrimSpace(req.Name),
 		Icon:        strings.TrimSpace(req.Icon),
 		Color:       strings.TrimSpace(req.Color),
 		Description: strings.TrimSpace(req.Description),
-		Path:        strings.TrimSpace(req.Path),
-		Status:      consts.ACTIVE,
-		Createtime:  now,
-		Updatetime:  now,
+		Path:        path,
+		// 路径不必填（规格 2026-08-22 决策 9）：没填就落成「本机未配置路径」那一档
+		// （R10），与从账号同步下来、本机还没配路径的项目行是**同一种状态**——
+		// 组头那枚可点的「未配置」角标就是它的出口。
+		//
+		// 由这里推导而不是让调用方传一个标志位：两者互斥（Check 保证 Path 非空与
+		// LocalPathMissing 不同时成立），多一个入参就多一种说不通的组合。
+		LocalPathMissing: path == "",
+		Status:           consts.ACTIVE,
+		Createtime:       now,
+		Updatetime:       now,
 	}
 	if err := p.Check(ctx); err != nil {
 		return nil, err
@@ -176,6 +206,84 @@ func (s *projectSvc) Update(ctx context.Context, req *UpdateProjectRequest) (*pr
 	return existing, nil
 }
 
+// Move 改父项目，含环检测（规格 2026-08-22 B 段「基本」里的「父项目」那一格）。
+//
+// 形状照部门那份 `department_svc.Move`：父级存在 + active + 环检测。同一条判据不该
+// 在两棵树上长出两个样子。
+//
+// 环检测**必须在服务端**：设置弹窗把自己从候选里剔掉了，但禁用一个下拉项拦不住
+// 直接打端点，而一个环会让每一端的树遍历都走不完。
+func (s *projectSvc) Move(ctx context.Context, req *MoveProjectRequest) (*project_entity.Project, error) {
+	if req == nil {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	existing, err := project_repo.Project().Find(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, i18n.NewError(ctx, code.ProjectNotFound)
+	}
+	if existing.ParentID == req.NewParentID {
+		return existing, nil
+	}
+	if req.NewParentID > 0 {
+		parent, err := project_repo.Project().Find(ctx, req.NewParentID)
+		if err != nil {
+			return nil, err
+		}
+		if parent == nil {
+			return nil, i18n.NewError(ctx, code.ProjectParentNotFound)
+		}
+		if !parent.IsActive() {
+			return nil, i18n.NewError(ctx, code.ProjectParentInactive)
+		}
+		all, err := project_repo.Project().List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if hasProjectCycle(all, req.NewParentID, existing.ID) {
+			return nil, i18n.NewError(ctx, code.ProjectCircularReference)
+		}
+	}
+	// 换了一层之后同级重名要重新判：原来那一层下不重名，不代表新的一层下也不重名。
+	dup, err := project_repo.Project().FindByName(ctx, req.NewParentID, existing.Name)
+	if err != nil {
+		return nil, err
+	}
+	if dup != nil && dup.ID != existing.ID {
+		return nil, i18n.NewError(ctx, code.ProjectNameDuplicated)
+	}
+	existing.ParentID = req.NewParentID
+	existing.Updatetime = s.now()
+	if err := project_repo.Project().Update(ctx, existing); err != nil {
+		return nil, err
+	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindProject, existing.ID, existing.SyncMeta)
+	return existing, nil
+}
+
+// hasProjectCycle 从 startParentID 沿 parent 链向上爬，命中 selfID 即成环。
+// 「挂到自己身上」是这条链上最短的那个环，不必单独判。
+func hasProjectCycle(all []*project_entity.Project, startParentID, selfID int64) bool {
+	index := make(map[int64]*project_entity.Project, len(all))
+	for _, p := range all {
+		index[p.ID] = p
+	}
+	cur := startParentID
+	for cur > 0 {
+		if cur == selfID {
+			return true
+		}
+		next, ok := index[cur]
+		if !ok {
+			return false
+		}
+		cur = next.ParentID
+	}
+	return false
+}
+
 // SetLocalPath 见 ProjectSvc 接口注释（R10）。
 //
 // 校验与 Create 的路径守卫一致：非空 + 目录存在。不调用 sync_svc.NotifyUpdate——
@@ -198,6 +306,26 @@ func (s *projectSvc) SetLocalPath(ctx context.Context, id int64, path string) (*
 	}
 	existing.Path = trimmed
 	existing.LocalPathMissing = false
+	if err := project_repo.Project().Update(ctx, existing); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+// ClearLocalPath 见 ProjectSvc 接口注释（规格 2026-08-21 决策 6）。
+//
+// 与 SetLocalPath 同样不调用 sync_svc.NotifyUpdate——本机路径本就不参与同步载荷，
+// 去掉它是纯本地事件，不该让这一行在账号侧显得「又改了」。
+func (s *projectSvc) ClearLocalPath(ctx context.Context, id int64) (*project_entity.Project, error) {
+	existing, err := project_repo.Project().Find(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, i18n.NewError(ctx, code.ProjectNotFound)
+	}
+	existing.Path = ""
+	existing.LocalPathMissing = true
 	if err := project_repo.Project().Update(ctx, existing); err != nil {
 		return nil, err
 	}
@@ -257,12 +385,21 @@ func (s *projectSvc) Delete(ctx context.Context, id int64) error {
 		return i18n.NewError(ctx, code.ProjectHasChildren)
 	}
 	// 还有 running / waiting 会话时拒绝；idle / error 等允许（用户主动归档）。
-	n, err := chat_repo.Session().CountActiveByProject(ctx, id, []string{"running", "waiting"})
+	n, err := s.sessions.CountActiveByProject(ctx, id, []string{"running", "waiting"})
 	if err != nil {
 		return err
 	}
 	if n > 0 {
 		return i18n.NewError(ctx, code.ProjectHasActiveSessions)
+	}
+	// 名下幸存的（idle / error）会话改挂成自由会话，而不是留下指向已删项目的悬空
+	// project_id。ReassignProject 刻意不带 status / purpose 过滤（见 chat_repo 那边
+	// 的注释），软删会话与子 agent 委派会话一并摘干净，与 R11a 合并同一条要求。
+	//
+	// 顺序是「先摘引用、再删项目行」：中途失败时项目还在，用户可以重试；反过来会
+	// 留下一批指向不存在项目的会话。失败即整体失败，不留半个状态。
+	if err := s.sessions.ReassignProject(ctx, id, 0); err != nil {
+		return err
 	}
 	if err := project_repo.Project().Delete(ctx, id); err != nil {
 		return err
@@ -288,7 +425,7 @@ func (s *projectSvc) Get(ctx context.Context, id int64) (*ProjectDetail, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := hydrateMemberAgents(ctx, direct, inherited); err != nil {
+	if err := s.hydrateMemberAgents(ctx, direct, inherited); err != nil {
 		return nil, err
 	}
 	return &ProjectDetail{Project: p, DirectMembers: direct, InheritedMembers: inherited}, nil
@@ -321,13 +458,6 @@ func (s *projectSvc) ListTree(ctx context.Context) ([]*ProjectNode, error) {
 	return roots, nil
 }
 
-func (s *projectSvc) ListSessions(ctx context.Context, projectID int64) ([]*chat_entity.Session, error) {
-	if projectID <= 0 {
-		return nil, i18n.NewError(ctx, code.InvalidParameter)
-	}
-	return chat_repo.Session().ListByProject(ctx, projectID)
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Members
 // ──────────────────────────────────────────────────────────────────────────────
@@ -343,7 +473,7 @@ func (s *projectSvc) AddMember(ctx context.Context, projectID, agentID int64) er
 	if p == nil {
 		return i18n.NewError(ctx, code.ProjectNotFound)
 	}
-	a, err := agent_repo.Agent().Find(ctx, agentID)
+	a, err := s.agents.Find(ctx, agentID)
 	if err != nil {
 		return err
 	}

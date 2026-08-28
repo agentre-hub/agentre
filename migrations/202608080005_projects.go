@@ -28,6 +28,7 @@ func migration202608080005() *gormigrate.Migration {
 	color TEXT NOT NULL DEFAULT '',
 	description TEXT NOT NULL DEFAULT '',
 	path TEXT NOT NULL,
+	local_path_missing BOOLEAN NOT NULL DEFAULT 0,
 	sort_order INTEGER NOT NULL DEFAULT 0,
 	status INTEGER NOT NULL DEFAULT 1,
 	createtime INTEGER NOT NULL DEFAULT 0,
@@ -59,6 +60,7 @@ ON projects(parent_id, status, sort_order, id)`).Error; err != nil {
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id INTEGER NOT NULL,
 	device_id TEXT NOT NULL DEFAULT '',
+	daemon_fingerprint TEXT NOT NULL DEFAULT '',
 	path TEXT NOT NULL,
 	status INTEGER NOT NULL DEFAULT 1,
 	createtime INTEGER NOT NULL DEFAULT 0,
@@ -66,8 +68,8 @@ ON projects(parent_id, status, sort_order, id)`).Error; err != nil {
 )`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_project_locations_proj_device
-	ON project_locations(project_id, device_id) WHERE status = 1`).Error
+			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_project_locations_proj_fingerprint
+	ON project_locations(project_id, daemon_fingerprint) WHERE status = 1`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
 			if err := tx.Exec(`DROP TABLE IF EXISTS project_locations`).Error; err != nil {

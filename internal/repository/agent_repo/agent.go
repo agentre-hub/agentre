@@ -11,7 +11,7 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 )
 
 //go:generate mockgen -source agent.go -destination mock_agent_repo/mock_agent.go
@@ -33,18 +33,15 @@ type AgentRepo interface {
 	List(ctx context.Context) ([]*agent_entity.Agent, error)
 	ListByDepartment(ctx context.Context, departmentID int64) ([]*agent_entity.Agent, error)
 	ListByParent(ctx context.Context, parentAgentID int64) ([]*agent_entity.Agent, error)
-	ListByBackend(ctx context.Context, backendID int64) ([]*agent_entity.Agent, error)
 	CountByBackends(ctx context.Context, backendIDs []int64) (map[int64]int64, error)
 	NextSortOrder(ctx context.Context, departmentID int64) (int, error)
 	NextSortOrderByParent(ctx context.Context, parentAgentID int64) (int, error)
-	UpdateDepartment(ctx context.Context, id, departmentID int64, sortOrder int) error
 	UpdatePlacement(ctx context.Context, id, departmentID, parentAgentID int64, sortOrder int) error
 	UpdateAvatar(ctx context.Context, id int64, avatarDataURL string, updatetime int64) error
 	SetPinned(ctx context.Context, id int64, pinned bool) error
 	ReparentChildren(ctx context.Context, fromParentAgentID, toDepartmentID, toParentAgentID int64) error
 	ClearLeadOfDepartment(ctx context.Context, agentID int64) error
 	Delete(ctx context.Context, id int64) error
-	DeleteByDepartment(ctx context.Context, departmentID int64) error
 	ReorderSiblings(ctx context.Context, departmentID, parentAgentID int64, orderedIDs []int64) error
 }
 
@@ -168,19 +165,6 @@ func (r *agentRepo) ListByParent(ctx context.Context, parentAgentID int64) ([]*a
 	return rows, hydrateExecTargets(ctx, rows)
 }
 
-// ListByBackend 列出执行目标里引用了该 backend 的活跃 Agent。
-func (r *agentRepo) ListByBackend(ctx context.Context, backendID int64) ([]*agent_entity.Agent, error) {
-	var rows []*agent_entity.Agent
-	err := db.Ctx(ctx).
-		Where("id IN (SELECT agent_id FROM agent_exec_targets WHERE agent_backend_id = ?) AND status = ?",
-			backendID, consts.ACTIVE).
-		Find(&rows).Error
-	if err != nil {
-		return rows, err
-	}
-	return rows, hydrateExecTargets(ctx, rows)
-}
-
 // CountByBackends 统计每个 backend 被多少个活跃 Agent 的执行目标引用。同一个 Agent
 // 即便把同一个 backend 排了两档也只算一次。
 func (r *agentRepo) CountByBackends(ctx context.Context, backendIDs []int64) (map[int64]int64, error) {
@@ -229,10 +213,6 @@ func (r *agentRepo) NextSortOrderByParent(ctx context.Context, parentAgentID int
 	return maxOrder + 1, nil
 }
 
-func (r *agentRepo) UpdateDepartment(ctx context.Context, id, departmentID int64, sortOrder int) error {
-	return r.UpdatePlacement(ctx, id, departmentID, 0, sortOrder)
-}
-
 func (r *agentRepo) UpdatePlacement(ctx context.Context, id, departmentID, parentAgentID int64, sortOrder int) error {
 	return db.Ctx(ctx).Model(&agent_entity.Agent{}).
 		Where("id = ?", id).
@@ -244,7 +224,7 @@ func (r *agentRepo) UpdatePlacement(ctx context.Context, id, departmentID, paren
 }
 
 func (r *agentRepo) ReorderSiblings(ctx context.Context, departmentID, parentAgentID int64, orderedIDs []int64) error {
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		for idx, id := range orderedIDs {
 			sortOrder := idx + 1
@@ -296,11 +276,5 @@ func (r *agentRepo) ClearLeadOfDepartment(ctx context.Context, agentID int64) er
 func (r *agentRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Model(&agent_entity.Agent{}).
 		Where("id = ?", id).
-		Update("status", consts.DELETE).Error
-}
-
-func (r *agentRepo) DeleteByDepartment(ctx context.Context, departmentID int64) error {
-	return db.Ctx(ctx).Model(&agent_entity.Agent{}).
-		Where("department_id = ? AND status = ?", departmentID, consts.ACTIVE).
 		Update("status", consts.DELETE).Error
 }

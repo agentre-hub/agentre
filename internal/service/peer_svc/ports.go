@@ -12,10 +12,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
 
 //go:generate mockgen -source ports.go -destination mock_peer_svc/mock_ports.go
@@ -23,7 +23,7 @@ import (
 // Dialer 拨到一台具名桌面端。真实现是 server_svc.ServerSvc（DialDesktopRelay）；
 // 单测注入直连假对端的 dialer。
 type Dialer interface {
-	DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (*client.Client, error)
+	DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (client.ProtobufConnection, error)
 }
 
 // Emitter 把 Attach 后的实时事件帧推给上层（生产是 Wails EventsEmit，单测是 spy）。

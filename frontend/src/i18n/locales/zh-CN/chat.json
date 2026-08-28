@@ -1,0 +1,559 @@
+{
+  "capability": {
+    "picker": {
+      "rescan": "重新扫描",
+      "done": "完成",
+      "loading": "加载中…",
+      "empty": "暂无可用项",
+      "searchEmpty": "无匹配项",
+      "selected": "已选 {{count}} 项 · 保存后下次起新会话生效",
+      "remove": "移除 {{name}}",
+      "close": "关闭"
+    },
+    "triState": {
+      "inherit": "继承",
+      "on": "开",
+      "off": "关"
+    }
+  },
+  "chat": {
+    "actions": {
+      "approve": "批准"
+    },
+    "quota": {
+      "aria": "Claude Code 配额 5h {{five}}% 7d {{seven}}% 来自 {{device}}",
+      "panel": {
+        "fiveHour": "5 小时窗口",
+        "opusWeekly": "Opus 7 天",
+        "sonnetWeekly": "Sonnet 7 天",
+        "title": "Claude 订阅用量",
+        "usedNote": "百分比为已用比例 · 每 5 分钟刷新",
+        "weekly": "7 天窗口"
+      },
+      "resetRemaining": " (重置剩 {{time}})",
+      "title": {
+        "authExpired": "Claude Code OAuth 已过期 · 请在 {{device}} 上运行 'claude /login'",
+        "deviceOffline": "{{device}} 离线",
+        "network": "Claude Code 配额 · {{device}}(网络错误, 显示上次值)",
+        "rateLimited": "Claude Code 配额 · {{device}}(429 退避中, 显示上次值)"
+      }
+    }
+  },
+  "chatContext": {
+    "files": {
+      "openFailed": "打开文件失败：{{error}}",
+      "expandFolder": "展开 {{name}}",
+      "collapseFolder": "收起 {{name}}"
+    },
+    "directory": {
+      "label": "目录",
+      "showIgnored": "显示忽略项",
+      "showIgnoredOn": "隐藏被忽略的文件",
+      "showIgnoredOff": "显示被忽略的文件",
+      "search": "搜索",
+      "searchOn": "关闭搜索",
+      "searchOff": "搜索文件",
+      "loading": "正在读取目录…",
+      "empty": "这个目录是空的",
+      "truncated": "只显示了前 {{limit}} 项",
+      "noCwd": "这个会话没有工作目录",
+      "readFailed": "读取目录失败",
+      "retry": "重试",
+      "localPathMissingTitle": "这台电脑还没有为这个项目配置路径",
+      "localPathMissingHint": "这个项目是从账号里同步来的，文件面板需要一个本机工作目录才能列出内容。",
+      "localPathMissingAction": "指定本机路径",
+      "treeAria": "工作目录文件",
+      "subtreeChanges": "{{count}} 个文件有变动",
+      "subtreeChanges_one": "{{count}} 个文件有变动",
+      "subtreeChanges_other": "{{count}} 个文件有变动"
+    },
+    "search": {
+      "placeholder": "按文件名搜索…",
+      "hitCount": "{{count}} 个结果",
+      "clear": "清除搜索",
+      "hint": "输入以按文件名搜索",
+      "empty": "没有匹配“{{query}}”的文件",
+      "emptyHint": "默认不搜索被忽略的文件",
+      "truncatedEmptyHint": "搜索没走完就停了，这不是完整结果",
+      "truncated": "只显示了前 {{limit}} 个结果",
+      "loading": "正在搜索…",
+      "readFailed": "搜索失败",
+      "resultsAria": "搜索结果"
+    },
+    "git": {
+      "loading": "正在读取 git 变动…",
+      "cleanUncommitted": "工作区干净，没有未提交的改动",
+      "readFailed": "读取 git 变动失败",
+      "retry": "重试",
+      "truncated": "只显示了前 {{limit}} 个变动文件",
+      "listAria": "Git 变动文件",
+      "status": {
+        "modified": "已修改",
+        "added": "新增",
+        "deleted": "已删除",
+        "renamed": "已重命名",
+        "untracked": "未跟踪"
+      }
+    },
+    "filePreview": {
+      "panelAria": "文件预览",
+      "close": "关闭预览",
+      "tabsAria": "预览标签",
+      "tabLimit": "预览标签已满（最多 {{limit}} 个），请先关闭一个",
+      "closeAll": "全部关闭",
+      "loading": "正在读取文件…",
+      "readFailed": "读取文件失败",
+      "retry": "重试",
+      "binary": "二进制文件，无法预览",
+      "binaryHint": "该文件类型不支持预览",
+      "tooLarge": "文件过大，无法预览",
+      "tooLargeTextHint": "文本超过 1 MiB",
+      "tooLargeImageHint": "图片超过 10 MiB",
+      "noGitBaseline": "没有可对比的 git 基准",
+      "noGitBaselineHint": "该目录不是 git 仓库",
+      "segmentGroup": "视图档位",
+      "segmentRender": "渲染",
+      "segmentText": "文本",
+      "segmentSplit": "双栏",
+      "diffHeader": "对比 · HEAD → 工作区",
+      "diffLegendAdded": "新增",
+      "diffLegendDeleted": "删除",
+      "toolDiffHeader": "工具 diff · 动手之前 → 最后一次动完",
+      "noToolChanges": "本会话没有工具改过这个文件",
+      "noToolChangesHint": "这一档只看本会话的工具调用，不读 git",
+      "sourceAria": "{{name}} 的原始源码",
+      "codeAria": "{{name}} 代码预览",
+      "diffAria": "{{name}} 与 HEAD 的对比"
+    },
+    "outline": {
+      "empty": "本会话还没有消息",
+      "label": "大纲",
+      "turn": "第 {{turn}} 轮"
+    },
+    "changes": {
+      "label": "变更",
+      "scope": {
+        "label": "变更范围",
+        "session": "本次会话",
+        "uncommitted": "未提交"
+      },
+      "empty": "本会话还没有工具改动过文件",
+      "listAria": "本次会话改动的文件",
+      "status": {
+        "created": "新建",
+        "modified": "已修改",
+        "deleted": "已删除",
+        "written": "已写入"
+      }
+    },
+    "row": {
+      "menu": "更多操作",
+      "preview": "预览",
+      "previewInNewTab": "在新标签页预览",
+      "jumpToTurn": "跳到对应轮次",
+      "openWith": "用默认应用打开",
+      "reveal": "在文件管理器中显示",
+      "revealFailed": "在文件管理器中显示失败：{{error}}",
+      "copyRelPath": "复制相对路径",
+      "copyAbsPath": "复制绝对路径",
+      "copyFileName": "复制文件名",
+      "expand": "展开",
+      "collapse": "收起"
+    },
+    "sidebar": "对话上下文",
+    "workRoots": {
+      "mainRepo": "主仓库",
+      "worktree": "worktree",
+      "pinned": "已固定",
+      "followed": "已切到 AI 正在改的 worktree：{{name}}",
+      "followedRepo": "已切到 AI 正在改的仓库：{{name}}",
+      "stayInMain": "留在主仓库"
+    },
+    "gitStatus": {
+      "ahead": "领先上游 {{count}} 个提交",
+      "ahead_one": "领先上游 {{count}} 个提交",
+      "ahead_other": "领先上游 {{count}} 个提交",
+      "behind": "落后上游 {{count}} 个提交",
+      "behind_one": "落后上游 {{count}} 个提交",
+      "behind_other": "落后上游 {{count}} 个提交",
+      "dirty": "{{count}} 个文件未提交",
+      "dirty_one": "{{count}} 个文件未提交",
+      "dirty_other": "{{count}} 个文件未提交"
+    }
+  },
+  "chatPage": {
+    "add": {
+      "aria": "新建",
+      "newAgent": "新建 Agent",
+      "newAgentChat": "新建 Agent 会话",
+      "newAgentHint": "在组织架构里创建新的助手/员工"
+    },
+    "empty": {
+      "title": "还没有对话",
+      "description": "创建一个 Agent，开始协作。",
+      "cta": "创建第一个 Agent"
+    },
+    "filter": {
+      "chips": {
+        "all": "全部",
+        "running": "运行中",
+        "unread": "未读"
+      },
+      "open": "筛选侧栏",
+      "options": {
+        "running": "运行中",
+        "unread": "未读"
+      }
+    },
+    "newChat": "新建会话",
+    "notChattable": {
+      "actions": {
+        "backendSettings": "去 Agent 后端设置",
+        "configureBackend": "去配置 Agent 后端",
+        "configureProvider": "去配置 LLM 供应商",
+        "configureRemoteDevice": "去配置远端设备",
+        "startGateway": "去启动本地网关"
+      },
+      "chain": {
+        "aria": "对话配置链条",
+        "backend": "Agent 后端",
+        "provider": "LLM 供应商",
+        "states": {
+          "configured": "已配置",
+          "inactive": "未激活",
+          "missing": "未配置",
+          "possible": "可能需要",
+          "unknown": "未知",
+          "unavailable": "暂不可用"
+        }
+      },
+      "defaultHint": "该 Agent 还没配置后端，请在组织架构页选择一个 Agent 后端",
+      "info": {
+        "title": "内置后端需要额外的 LLM 供应商"
+      },
+      "message": "暂不可对话 — {{hint}}",
+      "reasons": {
+        "noBackend": {
+          "title": "{{name}} 暂时不能对话",
+          "description": "这个 Agent 还没有配置 Agent 后端。绑定一个后端后，就可以开始对话了。",
+          "short": "还没配置 Agent 后端"
+        },
+        "backendRequiresProvider": {
+          "title": "需要先配置 LLM 供应商",
+          "description": "内置 Agent 后端需要一个已激活的 LLM 供应商才能执行任务。",
+          "short": "需要配置 LLM 供应商"
+        },
+        "providerInactive": {
+          "title": "需要先激活 LLM 供应商",
+          "description": "当前绑定的 LLM 供应商还没有激活，可能缺少 API Key 或尚未启用。",
+          "short": "LLM 供应商未激活"
+        },
+        "remoteProviderMissing": {
+          "title": "需要配置远端 LLM 供应商",
+          "description": "远端 agentred 上没有配置当前 Agent 后端需要的 LLM 供应商。",
+          "short": "远端缺少 LLM 供应商"
+        },
+        "gatewayNotRunning": {
+          "title": "本地网关尚未启动",
+          "description": "当前 CLI 后端依赖本地网关转发请求，启动网关后才能开始对话。",
+          "short": "本地网关未启动"
+        },
+        "remoteOpenclawUnavailable": {
+          "title": "远端 OpenClaw 暂不可用",
+          "description": "当前 Agent 的远端 OpenClaw 网关暂不可用，请检查远端设备连接和配置。",
+          "short": "远端 OpenClaw 不可用"
+        },
+        "unknownBackend": {
+          "title": "Agent 后端暂不可用",
+          "description": "当前 Agent 使用了无法识别的后端类型，请检查 Agent 后端配置。",
+          "short": "后端类型未知"
+        }
+      }
+    },
+    "pin": {
+      "pin": "置顶",
+      "pinAria": "置顶 {{name}}",
+      "unpin": "取消置顶",
+      "unpinAria": "取消置顶 {{name}}"
+    },
+    "search": {
+      "aria": "搜索 Agent",
+      "clear": "清空筛选",
+      "noMatches": "没有匹配 \"{{query}}\" 的 Agent",
+      "placeholder": "搜索 Agent"
+    },
+    "sections": {
+      "agents": "AGENTS",
+      "pinned": "PINNED"
+    },
+    "sidebar": "Agent 列表",
+    "untitledSession": "(未命名会话)"
+  },
+  "chatPanel": {
+    "actions": {
+      "rename": "重命名"
+    },
+    "compact": {
+      "imageUnsupported": "/compact 不能和图片一起发送",
+      "needsSession": "请先发送一条消息让 Codex 会话启动后再压缩",
+      "waitForTurn": "当前回复结束后再压缩"
+    },
+    "deleteDialog": {
+      "description": "删除后此会话的所有消息会被一并清除，且无法恢复。",
+      "title": "删除会话"
+    },
+    "errors": {
+      "cancelQueued": "撤回失败：{{msg}}",
+      "compact": "压缩上下文失败：{{msg}}",
+      "copyLaunchCommand": "复制启动命令失败：{{msg}}",
+      "edit": "编辑失败：{{msg}}",
+      "enqueue": "插入消息失败：{{msg}}",
+      "imageUnsupported": "当前 Agent 后端不支持图片输入",
+      "imageWhileStreaming": "当前对话正在运行，图片请等本轮结束后发送",
+      "goal": "目标操作失败：{{msg}}",
+      "noActiveConversation": "没有进行中的对话",
+      "noActiveTurnToStop": "没有正在进行的对话可停止",
+      "regenerate": "重新生成失败：{{msg}}",
+      "rename": "重命名失败：{{msg}}",
+      "send": "发送失败：{{msg}}",
+      "stop": "停止失败：{{msg}}",
+      "stopBackgroundTask": "停止后台任务失败：{{msg}}",
+      "loadFailed": "加载会话失败：{{msg}}"
+    },
+    "execTarget": {
+      "willRunPrefix": "将在",
+      "willRunSuffix": "上运行",
+      "droppedPrefix": "{{name}}不可用，将在",
+      "pickChipAria": "选择在哪台机器上跑：{{label}}",
+      "pickerTitle": "在哪台机器上跑",
+      "pickerScope": "只影响这一次",
+      "stickyHint": "总是想用它？拖到第一位。",
+      "goAdjust": "去调整",
+      "allUnavailableTitle": "「{{name}}」现在没有可用的执行机器",
+      "reasons": {
+        "orphanBackend": "该执行目标引用的后端已不存在",
+        "backendRequiresProvider": "需指定 LLM Provider",
+        "providerInactive": "LLM 供应商未激活",
+        "remoteProviderMissing": "远端缺少 LLM 供应商",
+        "gatewayNotRunning": "本地网关未启动",
+        "remoteOpenclawUnavailable": "远端 OpenClaw 暂不可用",
+        "unknownBackend": "未知后端类型",
+        "unpaired": "这台电脑未配对它",
+        "offline": "离线",
+        "projectPathMissing": "这台机器上没有配置这个项目的路径",
+        "desktopNotRunning": "那台电脑上的 Agentre 没有运行"
+      }
+    },
+    "header": {
+      "newSessionTitle": "新对话 · {{name}}",
+      "unavailableTitle": "会话不可用"
+    },
+    "launchCommand": {
+      "copy": "复制启动命令",
+      "copyDescription": "含 token，直接粘贴到终端即可运行；本地网关重启后 token 失效需重新复制",
+      "copyDone": "已复制启动命令",
+      "copyFailed": "复制启动命令失败"
+    },
+    "goal": {
+      "cleared": "目标已清除",
+      "current": "当前目标：{{objective}}（{{status}}，{{tokens}} tokens）",
+      "empty": "当前没有目标",
+      "imageUnsupported": "/goal 不能和图片一起发送",
+      "needsSession": "请先发送一条消息让 Codex 会话启动后再设置目标",
+      "waitForTurn": "请等本轮结束后再修改目标",
+      "updated": "目标已更新",
+      "updatedWithObjective": "目标已更新：{{objective}}"
+    },
+    "localDevice": "本机",
+    "newSession": {
+      "title": "和 {{name}} 开始对话",
+      "guard": {
+        "title": "配置完成后即可与 {{name}} 对话",
+        "placeholder": "请先配置 Agent 后端"
+      }
+    },
+    "newProjectSession": {
+      "title": "在 {{projectName}} 中和 {{agentName}} 开始项目对话"
+    },
+    "notice": {
+      "close": "关闭提示"
+    },
+    "regenerateDialog": {
+      "confirm": "确认重新生成",
+      "description": "重新生成会永久丢失这条回复及之后的所有会话内容，且无法恢复。agent 会基于上一条 user 消息生成新的回复。",
+      "title": "重新生成回复"
+    },
+    "renameDialog": {
+      "nameAria": "会话名称",
+      "placeholder": "输入新名称",
+      "title": "重命名会话"
+    },
+    "backgroundTasks": {
+      "chip": "{{count}} 运行中",
+      "completedChip": "{{count}} 已完成",
+      "title": "后台任务",
+      "running": "运行中",
+      "completed": "已完成",
+      "failed": "失败",
+      "canceled": "已停止",
+      "empty": "暂无后台任务",
+      "bash": "bash",
+      "subagent": "子代理",
+      "aria": "后台任务",
+      "clearCompleted": "清理已完成",
+      "stop": "停止"
+    },
+    "toolbar": {
+      "aria": "会话工具栏",
+      "contextSidebar": "上下文侧栏",
+      "hideContextSidebar": "隐藏上下文侧栏",
+      "showContextSidebar": "显示上下文侧栏",
+      "stop": "停止",
+      "stopActiveTitle": "停止当前对话",
+      "stopInactiveTitle": "当前没有进行中的对话",
+      "terminalTitle": "终端 (⌘`)"
+    },
+    "untitled": "(未命名)",
+    "loadError": {
+      "title": "无法加载会话",
+      "retry": "重试",
+      "close": "关闭会话",
+      "notFoundHint": "此会话不存在或已被删除。"
+    },
+    "sending": "正在发送…",
+    "sendRetry": {
+      "restored": "发送失败，草稿已保留",
+      "retry": "重试发送",
+      "discard": "放弃草稿"
+    },
+    "loading": {
+      "aria": "正在加载会话…"
+    }
+  },
+  "chatTabs": {
+    "actions": {
+      "closeOthers": "关闭其他",
+      "closeRight": "关闭右侧",
+      "closeTab": "关闭 Tab",
+      "pin": "置顶",
+      "unpin": "取消置顶"
+    },
+    "empty": {
+      "description": "在左侧 sidebar 选一个，或派发新任务给指定 Agent · ⌘P 打开命令面板",
+      "shortcuts": {
+        "close": "关闭 Tab",
+        "openInNewTab": "在新 Tab 打开",
+        "switch": "切换 Tab"
+      },
+      "title": "选一个 Agent 或项目下的会话开始",
+      "setupGuide": {
+        "title": "开始前，先完成两步配置",
+        "stepBackend": {
+          "title": "配置 Agent 后端",
+          "description": "给 Agent 选一个执行后端（内置 SDK / Claude Code / Codex…）",
+          "action": "去设置 → Agent 后端"
+        },
+        "stepProvider": {
+          "title": "配置 LLM 供应商",
+          "description": "内置后端需要一个已激活的供应商（API Key + 默认模型）",
+          "action": "去设置 → LLM 供应商"
+        }
+      },
+      "unconfigured": {
+        "count": "{{count}} 个 Agent 未配置后端",
+        "goOrg": "去组织架构配置 →"
+      }
+    },
+    "fallbackSession": "(会话)",
+    "missingAgent": {
+      "detail": "Agent #{{id}} 可能已被删除，或列表还没有同步。",
+      "loadFailed": "加载 Agent 信息失败",
+      "loading": "正在加载 Agent 信息…",
+      "notFound": "找不到这个 Agent"
+    },
+    "overflow": {
+      "openMenu": "打开 Tab 菜单",
+      "openTabs": "打开的 Tab ({{count}})"
+    },
+    "status": {
+      "error": "error",
+      "errorLabel": "出错",
+      "idle": "idle",
+      "running": "running",
+      "waiting": "waiting"
+    },
+    "terminal": {
+      "title": "终端",
+      "titleWithCommand": "命令:{{command}}",
+      "titleWithDevice": "终端 · {{deviceName}}"
+    },
+    "tooltip": {
+      "ago": "{{time}} ago",
+      "hint": "激活 · 点 ✕ 关闭",
+      "session": "sess-{{id}}",
+      "worktree": "worktree {{branch}}"
+    },
+    "peer": {
+      "title": "远端会话",
+      "titleWithDevice": "远端 · {{deviceName}}"
+    }
+  },
+  "transcriptWindow": {
+    "loadEarlier": "加载更早的消息",
+    "loadingEarlier": "正在加载更早的消息…"
+  },
+  "compactHistory": {
+    "viewPrevious": "查看压缩前的 {{count}} 条消息"
+  },
+  "localCommand": {
+    "notSharedWithAI": "不发送给 AI"
+  },
+  "queuedMessages": {
+    "aria": "排队中的消息",
+    "cancelOne": "撤回这条排队消息",
+    "cancelOneTitle": "撤回 (尚未被 AI 取走时有效)",
+    "clear": "清空",
+    "clearAria": "清空排队消息",
+    "clearTitle": "清空全部排队消息",
+    "codexNoCancel": "codex 不支持撤回",
+    "codexNoCancelTitle": "codex 后端不支持撤回",
+    "count": "排队中 · {{count}} 条",
+    "insertAfterAI": "AI 完成后插入",
+    "notCancellable": "不可撤回（codex 后端）",
+    "notCancellableTitle": "codex turn/steer 协议一发即不可撤",
+    "dropped": {
+      "title": "回合结束时 {{count}} 条消息未发送",
+      "restore": "恢复为草稿",
+      "discard": "丢弃"
+    }
+  },
+  "slashCommands": {
+    "compact": {
+      "description": "压缩对话上下文,只保留摘要"
+    },
+    "goal": {
+      "description": "设置或查看 Codex 当前目标"
+    },
+    "new": {
+      "description": "开一个相同配置的全新对话"
+    },
+    "skill": {
+      "claudeDescription": "调用 Claude Code Skill",
+      "codexDescription": "调用 Codex Skill",
+      "piDescription": "调用 Pi Skill"
+    }
+  },
+  "taskProgress": {
+    "allCompleted": "全部完成",
+    "completed": "已完成",
+    "current": "当前",
+    "status": {
+      "cancelled": "CANCELLED",
+      "completed": "DONE",
+      "failed": "FAILED",
+      "queued": "QUEUED",
+      "running": "RUNNING"
+    },
+    "title": "任务进度"
+  }
+}

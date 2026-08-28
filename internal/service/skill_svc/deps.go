@@ -3,9 +3,9 @@ package skill_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
 )
 
 //go:generate mockgen -source deps.go -destination mock_skill_svc/mock_deps.go -package mock_skill_svc

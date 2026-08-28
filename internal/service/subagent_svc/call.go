@@ -6,26 +6,25 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
-// subagentRef 是 subagent MCP token 绑定的 (agent, session) —— 即发起调用的父 agent 与其会话。
-type subagentRef struct{ agentID, sessionID int64 }
-
 // callAgent 解析目标 agent → 环检测 → 继承调用方项目建一次性隔离会话 → 阻塞起轮 → 回灌最终文本。
-// 返回 tool result 文本或错误(错误文本回给调用 agent, 供其纠正/重试)。
-func (s *subagentSvc) callAgent(ctx context.Context, ref subagentRef, agentName, prompt string) (string, error) {
+// 返回 tool result 文本或错误(错误文本回给调用 agent, 供其纠正/重试)。ref 是 subagent MCP
+// token 绑定的 (agent, session) —— 即发起调用的父 agent 与其会话。
+func (s *subagentSvc) callAgent(ctx context.Context, ref agenttool.Ref, agentName, prompt string) (string, error) {
 	callee, err := s.agents.FindByName(ctx, agentName)
 	if err != nil || callee == nil {
 		return "", fmt.Errorf("未找到名为 %q 的 agent,请先用 agent_list 查看可调用 agent", agentName)
 	}
-	chain, reason, ok := s.resolveChain(ref.sessionID, ref.agentID, callee.ID)
+	chain, reason, ok := s.resolveChain(ref.SessionID, ref.AgentID, callee.ID)
 	if !ok {
 		return "", errors.New(reason)
 	}
 
 	// 继承调用方会话的项目/工作目录, 让子 agent 在同一项目里干活(读不到 project 时回落 0)。
-	projectID, _ := s.chat.SessionProjectID(ctx, ref.sessionID)
+	projectID, _ := s.chat.SessionProjectID(ctx, ref.SessionID)
 	resp, err := s.chat.EnsureSession(ctx, &chat_svc.EnsureSessionRequest{
 		Purpose:   chat_svc.SessionPurposeSubagentCall,
 		AgentID:   callee.ID,

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-release_base_url=${AGENTRED_RELEASE_BASE_URL:-https://github.com/agentre-ai/agentre/releases/latest/download}
+release_base_url=${AGENTRED_RELEASE_BASE_URL:-https://github.com/agentre-hub/agentre/releases/latest/download}
 system_install_dir=${AGENTRED_SYSTEM_INSTALL_DIR:-/usr/local/bin}
 
 die() {

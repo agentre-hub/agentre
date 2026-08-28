@@ -13,10 +13,10 @@ import (
 	context "context"
 	reflect "reflect"
 
-	agent_entity "github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	agent_svc "github.com/agentre-ai/agentre/internal/service/agent_svc"
-	blocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	department_svc "github.com/agentre-ai/agentre/internal/service/department_svc"
+	agent_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	agent_svc "github.com/agentre-hub/agentre/internal/service/agent_svc"
+	blocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	department_svc "github.com/agentre-hub/agentre/internal/service/department_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 

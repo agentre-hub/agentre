@@ -11,7 +11,13 @@ import { useRef, type ComponentProps } from "react";
 
 import type { Editor } from "@tiptap/react";
 
-import { AIChatInput, type AIChatInputHandle } from "../../chat-input";
+import {
+  AIChatInput,
+  type AIChatInputHandle,
+  type SlashCommand,
+} from "@agentre-hub/agentre-ui";
+
+import { listAvailable } from "../registry";
 
 // 包一层把 editorRef 暴露给 test driver 做编程式插入。
 function Harness({
@@ -23,7 +29,7 @@ function Harness({
   onSubmit: (text: string) => void;
   backendType?: string;
   onSlashSelect?: ComponentProps<typeof AIChatInput>["onSlashSelect"];
-  skillCommands?: ComponentProps<typeof AIChatInput>["skillCommands"];
+  skillCommands?: SlashCommand[];
 }) {
   const editorRef = useRef<Editor | null>(null);
   const handleRef = useRef<AIChatInputHandle>(null);
@@ -73,7 +79,8 @@ function Harness({
         editorRef={editorRef}
         backendType={backendType}
         onSlashSelect={onSlashSelect}
-        skillCommands={skillCommands}
+        // 清单归宿主:静态注册表 + 技能命令合并后按 backend 过滤,与 chat.tsx 同路。
+        slashCommands={listAvailable(backendType, skillCommands)}
         autoFocus
       />
     </>

@@ -6,7 +6,7 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // §1.12 Plan mode 空 turn 兜底 — characterization test

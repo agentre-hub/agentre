@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	agent_backend_entity "github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	agent_backend_repo "github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
+	agent_backend_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	agent_backend_repo "github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -86,6 +86,20 @@ func (mr *MockAgentBackendRepoMockRecorder) Create(ctx, b any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockAgentBackendRepo)(nil).Create), ctx, b)
 }
 
+// CreateCLIOverlay mocks base method.
+func (m *MockAgentBackendRepo) CreateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCLIOverlay", ctx, overlay)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateCLIOverlay indicates an expected call of CreateCLIOverlay.
+func (mr *MockAgentBackendRepoMockRecorder) CreateCLIOverlay(ctx, overlay any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCLIOverlay", reflect.TypeOf((*MockAgentBackendRepo)(nil).CreateCLIOverlay), ctx, overlay)
+}
+
 // Delete mocks base method.
 func (m *MockAgentBackendRepo) Delete(ctx context.Context, id int64) error {
 	m.ctrl.T.Helper()
@@ -98,6 +112,35 @@ func (m *MockAgentBackendRepo) Delete(ctx context.Context, id int64) error {
 func (mr *MockAgentBackendRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockAgentBackendRepo)(nil).Delete), ctx, id)
+}
+
+// DeleteCLIOverlay mocks base method.
+func (m *MockAgentBackendRepo) DeleteCLIOverlay(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCLIOverlay", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteCLIOverlay indicates an expected call of DeleteCLIOverlay.
+func (mr *MockAgentBackendRepoMockRecorder) DeleteCLIOverlay(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCLIOverlay", reflect.TypeOf((*MockAgentBackendRepo)(nil).DeleteCLIOverlay), ctx, id)
+}
+
+// ExistsByName mocks base method.
+func (m *MockAgentBackendRepo) ExistsByName(ctx context.Context, name string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExistsByName", ctx, name)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExistsByName indicates an expected call of ExistsByName.
+func (mr *MockAgentBackendRepoMockRecorder) ExistsByName(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExistsByName", reflect.TypeOf((*MockAgentBackendRepo)(nil).ExistsByName), ctx, name)
 }
 
 // Find mocks base method.
@@ -130,6 +173,21 @@ func (mr *MockAgentBackendRepoMockRecorder) FindByName(ctx, name any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByName", reflect.TypeOf((*MockAgentBackendRepo)(nil).FindByName), ctx, name)
 }
 
+// FindCLIOverlay mocks base method.
+func (m *MockAgentBackendRepo) FindCLIOverlay(ctx context.Context, backendSyncID, fingerprint string) (*agent_backend_entity.CLIOverlay, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindCLIOverlay", ctx, backendSyncID, fingerprint)
+	ret0, _ := ret[0].(*agent_backend_entity.CLIOverlay)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindCLIOverlay indicates an expected call of FindCLIOverlay.
+func (mr *MockAgentBackendRepoMockRecorder) FindCLIOverlay(ctx, backendSyncID, fingerprint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindCLIOverlay", reflect.TypeOf((*MockAgentBackendRepo)(nil).FindCLIOverlay), ctx, backendSyncID, fingerprint)
+}
+
 // List mocks base method.
 func (m *MockAgentBackendRepo) List(ctx context.Context) ([]*agent_backend_entity.AgentBackend, error) {
 	m.ctrl.T.Helper()
@@ -160,6 +218,66 @@ func (mr *MockAgentBackendRepoMockRecorder) ListByDevice(ctx, deviceID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByDevice", reflect.TypeOf((*MockAgentBackendRepo)(nil).ListByDevice), ctx, deviceID)
 }
 
+// ListCLIOverlays mocks base method.
+func (m *MockAgentBackendRepo) ListCLIOverlays(ctx context.Context) ([]*agent_backend_entity.CLIOverlay, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCLIOverlays", ctx)
+	ret0, _ := ret[0].([]*agent_backend_entity.CLIOverlay)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCLIOverlays indicates an expected call of ListCLIOverlays.
+func (mr *MockAgentBackendRepoMockRecorder) ListCLIOverlays(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCLIOverlays", reflect.TypeOf((*MockAgentBackendRepo)(nil).ListCLIOverlays), ctx)
+}
+
+// ListExecTargetBackendRefs mocks base method.
+func (m *MockAgentBackendRepo) ListExecTargetBackendRefs(ctx context.Context) ([]agent_backend_repo.ExecTargetBackendRef, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExecTargetBackendRefs", ctx)
+	ret0, _ := ret[0].([]agent_backend_repo.ExecTargetBackendRef)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExecTargetBackendRefs indicates an expected call of ListExecTargetBackendRefs.
+func (mr *MockAgentBackendRepoMockRecorder) ListExecTargetBackendRefs(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExecTargetBackendRefs", reflect.TypeOf((*MockAgentBackendRepo)(nil).ListExecTargetBackendRefs), ctx)
+}
+
+// ListTombstonesOlderThan mocks base method.
+func (m *MockAgentBackendRepo) ListTombstonesOlderThan(ctx context.Context, cutoff int64) ([]*agent_backend_entity.AgentBackend, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTombstonesOlderThan", ctx, cutoff)
+	ret0, _ := ret[0].([]*agent_backend_entity.AgentBackend)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTombstonesOlderThan indicates an expected call of ListTombstonesOlderThan.
+func (mr *MockAgentBackendRepoMockRecorder) ListTombstonesOlderThan(ctx, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTombstonesOlderThan", reflect.TypeOf((*MockAgentBackendRepo)(nil).ListTombstonesOlderThan), ctx, cutoff)
+}
+
+// PurgeTombstones mocks base method.
+func (m *MockAgentBackendRepo) PurgeTombstones(ctx context.Context, ids []int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeTombstones", ctx, ids)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeTombstones indicates an expected call of PurgeTombstones.
+func (mr *MockAgentBackendRepoMockRecorder) PurgeTombstones(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeTombstones", reflect.TypeOf((*MockAgentBackendRepo)(nil).PurgeTombstones), ctx, ids)
+}
+
 // Update mocks base method.
 func (m *MockAgentBackendRepo) Update(ctx context.Context, b *agent_backend_entity.AgentBackend) error {
 	m.ctrl.T.Helper()
@@ -172,4 +290,18 @@ func (m *MockAgentBackendRepo) Update(ctx context.Context, b *agent_backend_enti
 func (mr *MockAgentBackendRepoMockRecorder) Update(ctx, b any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockAgentBackendRepo)(nil).Update), ctx, b)
+}
+
+// UpdateCLIOverlay mocks base method.
+func (m *MockAgentBackendRepo) UpdateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCLIOverlay", ctx, overlay)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCLIOverlay indicates an expected call of UpdateCLIOverlay.
+func (mr *MockAgentBackendRepoMockRecorder) UpdateCLIOverlay(ctx, overlay any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCLIOverlay", reflect.TypeOf((*MockAgentBackendRepo)(nil).UpdateCLIOverlay), ctx, overlay)
 }

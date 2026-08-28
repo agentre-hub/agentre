@@ -15,17 +15,17 @@ import (
 
 	"github.com/cago-frame/cago/pkg/consts"
 
-	"github.com/agentre-ai/agentre/e2e/fakes"
-	"github.com/agentre-ai/agentre/e2e/preflight"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/service/agent_backend_svc"
-	"github.com/agentre-ai/agentre/internal/service/agent_svc"
+	"github.com/agentre-hub/agentre/e2e/fakes"
+	"github.com/agentre-hub/agentre/e2e/preflight"
+	daemonidentity "github.com/agentre-hub/agentre/internal/daemon/identity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
+	"github.com/agentre-hub/agentre/internal/service/agent_svc"
 )
 
 const (
@@ -97,7 +97,7 @@ func FromPreflight(config preflight.Config) (Config, error) {
 		DeviceToken:       strings.TrimSpace(os.Getenv(remoteDeviceTokenEnv)),
 	}
 	if !isLoopbackRPC(remote.URL) || remote.DaemonFingerprint == "" || remote.InstanceUUID == "" ||
-		remote.DeviceToken == "" || remote.DaemonFingerprint != rpc.DaemonFingerprint(remote.InstanceUUID) {
+		remote.DeviceToken == "" || remote.DaemonFingerprint != daemonidentity.DaemonFingerprint(remote.InstanceUUID) {
 		return Config{}, fmt.Errorf("e2e composition requires a loopback fake remote peer identity")
 	}
 	return Config{Config: config, Identity: identity, Remote: remote}, nil

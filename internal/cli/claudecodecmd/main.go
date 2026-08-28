@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/agentre-ai/agentre/internal/pkg/claudecodehook"
+	"github.com/agentre-hub/agentre/internal/pkg/claudecodehook"
 )
 
 // Main is the entry point. It runs the subcommand and exits the process.
@@ -41,18 +41,9 @@ func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer, lookupEnv
 		return 2
 	}
 	event := args[0]
-	// AGENTRE_GATEWAY_* 是 agentre runtime 永远会设的专用 env（CLI 登录模式也设），
-	// 给 hook 子进程访问 /hook/v1/inbox 用。不复用 ANTHROPIC_* 是因为后者会强迫
-	// claude CLI 用 Bearer 覆盖 OAuth 走 LLM 转发，CLI 登录模式下转发端没 provider
-	// 配置，请求会直接挂。ANTHROPIC_* fallback 保留给：
-	//   1. 老 agentre 二进制（hook settings.json 里写的还是老路径）；
-	//   2. 用户手动用 launch-command 拷贝命令出来跑，且 backend 有 LLM provider。
+	// AGENTRE_GATEWAY_* 是 agentre runtime 为 hook 子进程设置的专用 env。
 	base, _ := lookupEnv("AGENTRE_GATEWAY_URL")
 	tok, _ := lookupEnv("AGENTRE_GATEWAY_TOKEN")
-	if base == "" || tok == "" {
-		base, _ = lookupEnv("ANTHROPIC_BASE_URL")
-		tok, _ = lookupEnv("ANTHROPIC_AUTH_TOKEN")
-	}
 	if base == "" || tok == "" {
 		claudecodehook.EmitNoop(event, stdout)
 		return 0

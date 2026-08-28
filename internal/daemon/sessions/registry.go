@@ -8,7 +8,8 @@ package sessions
 import (
 	"sync"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
+	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 )
 
 // Registry is the sync.Mutex-guarded generation ownership table.
@@ -18,7 +19,7 @@ type Registry struct {
 }
 
 type runtimeGenerationOwner struct {
-	connection *rpc.Conn
+	connection connection.Conn
 	generation string
 }
 
@@ -32,7 +33,11 @@ func NewRegistry() *Registry {
 // connection and opaque Pi generation token that created it. A reconnect must
 // wait for the old owner to finish cleanup rather than racing a SessionID-only
 // Abort against the new process.
-func (r *Registry) ClaimRuntimeGeneration(connection *rpc.Conn, sessionID int64, generation string) bool {
+func (r *Registry) ClaimProtobufRuntimeGeneration(conn *protorpc.Conn, sessionID int64, generation string) bool {
+	return r.ClaimConnection(connection.Protobuf(conn), sessionID, generation)
+}
+
+func (r *Registry) ClaimConnection(connection connection.Conn, sessionID int64, generation string) bool {
 	if connection == nil || sessionID <= 0 || generation == "" {
 		return false
 	}
@@ -51,7 +56,11 @@ func (r *Registry) ClaimRuntimeGeneration(connection *rpc.Conn, sessionID int64,
 // ReleaseRuntimeGeneration removes only the exact connection/generation claim.
 // A delayed cleanup from an old socket therefore cannot release a reconnect's
 // generation even when both use the same Agentre and provider session IDs.
-func (r *Registry) ReleaseRuntimeGeneration(connection *rpc.Conn, sessionID int64, generation string) bool {
+func (r *Registry) ReleaseProtobufRuntimeGeneration(conn *protorpc.Conn, sessionID int64, generation string) bool {
+	return r.ReleaseConnection(connection.Protobuf(conn), sessionID, generation)
+}
+
+func (r *Registry) ReleaseConnection(connection connection.Conn, sessionID int64, generation string) bool {
 	if connection == nil || sessionID <= 0 || generation == "" {
 		return false
 	}

@@ -6,7 +6,7 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 	. "github.com/smartystreets/goconvey/convey"
 
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 // §1.5 Audience 边界 — characterization tests

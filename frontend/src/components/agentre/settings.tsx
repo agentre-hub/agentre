@@ -18,16 +18,18 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Button,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 import { LANGUAGE_STORAGE_KEY, type SupportedLanguage } from "@/i18n";
 
@@ -331,7 +333,7 @@ function SettingsNav({
             className="flex min-w-0 flex-wrap gap-1 lg:flex-col lg:flex-nowrap lg:gap-0.5"
           >
             {showFullNav ? (
-              <div className="hidden px-2 pb-1.5 pt-1 font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-subtle-foreground lg:block">
+              <div className="hidden px-2 pb-1.5 pt-1 font-mono text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground lg:block">
                 {t(section.labelKey)}
               </div>
             ) : null}
@@ -695,12 +697,12 @@ function SettingsPage({
   );
 
   // R12:未登录时「同步」这一项整个不存在——不是灰掉、不是点进去提示先登录。
-  // `Status()` 未登录时返回 `{Enabled:false}` 而不是抛错,`status` 初始为
+  // `Status()` 未登录时返回 `{enabled:false}` 而不是抛错,`status` 初始为
   // `null`(加载中)同样按「不存在」处理,避免先出现再消失的闪烁。首次加载
   // 完成之前不做重定向判断——否则一个合法已登录用户深链到 "sync" 会在
   // `syncEnabled` 还没来得及从初始的 false 变 true 之前就被赶回「外观」。
   const { status: syncStatus, loading: syncStatusLoading } = useSyncStatus();
-  const syncEnabled = syncStatus?.Enabled === true;
+  const syncEnabled = syncStatus?.enabled === true;
   React.useEffect(() => {
     if (syncStatusLoading) return;
     if (activePage === "sync" && !syncEnabled) setActivePage("appearance");

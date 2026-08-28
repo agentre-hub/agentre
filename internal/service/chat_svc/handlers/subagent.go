@@ -5,18 +5,38 @@ import (
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // MarkRunningSubagentsCancelled 在 turn abort 收尾时把外层累计态和 normalized runs
 // 中仍未终止的 waiting/running 状态改成 canceled。已完成、失败、取消、跳过或 unknown
 // 的证据原样保留，避免 abort 覆盖已经到达的终态。
+//
+// 这一版不加区分:轮被中断/截断时 CLI 已经不在了,后台任务同样等不到 SubagentDone。
+// 正常收尾请用 MarkRunningForegroundSubagentsCancelled。
 func MarkRunningSubagentsCancelled(finalBlocks []cagoblocks.ContentBlock) {
+	markRunningSubagentsCancelled(finalBlocks, func(*blocks.SubagentStateBlock) bool { return true })
+}
+
+// MarkRunningForegroundSubagentsCancelled 是**正常**收尾用的同款补救,但只翻前台
+// subagent。后台任务(Agent 默认后台 / run_in_background 的 Bash)本就有权活过发起
+// 它的那一轮 —— runtime 随后另开旁路活动轮继续收它的帧 —— 跟着一起翻成 canceled 会
+// 让派遣卡显示「已停止」、后台任务胶囊算进「已完成」,而任务其实还在跑(sess-3275)。
+//
+// 判据与前端 background-tasks/derive.ts 的 isBackground 同源,读的是发起它的
+// tool_use 入参;判不出来(kind 未知)时按前台处理,宁可翻 canceled 也不让卡片永远转。
+func MarkRunningForegroundSubagentsCancelled(acc *turn.Accumulator, finalBlocks []cagoblocks.ContentBlock) {
+	markRunningSubagentsCancelled(finalBlocks, func(sb *blocks.SubagentStateBlock) bool {
+		return !isBackgroundSubagent(acc, sb)
+	})
+}
+
+func markRunningSubagentsCancelled(finalBlocks []cagoblocks.ContentBlock, cancel func(*blocks.SubagentStateBlock) bool) {
 	for _, b := range finalBlocks {
 		sb, ok := b.(*blocks.SubagentStateBlock)
-		if !ok {
+		if !ok || !cancel(sb) {
 			continue
 		}
 		if isNonTerminalSubagentStatus(sb.Status) {
@@ -28,6 +48,39 @@ func MarkRunningSubagentsCancelled(finalBlocks []cagoblocks.ContentBlock) {
 			}
 		}
 	}
+}
+
+// isBackgroundSubagent 判定 overlay 背后的任务是否后台。两种工具的默认相反:
+//   - local_agent(Agent):默认后台,只有显式 run_in_background==false 才是前台
+//     (真实 CLI 实测:后台 Agent 根本不带此入参);
+//   - local_bash(Bash):默认前台,只有显式 run_in_background==true 才是后台。
+//
+// 其它 kind(含空 kind 的旧帧)一律按前台处理。
+func isBackgroundSubagent(acc *turn.Accumulator, sb *blocks.SubagentStateBlock) bool {
+	switch sb.Kind {
+	case subagentKindLocalAgent:
+		bg, explicit := runInBackgroundInput(acc, sb.ParentToolCallID)
+		return !explicit || bg
+	case subagentKindLocalBash:
+		bg, explicit := runInBackgroundInput(acc, sb.ParentToolCallID)
+		return explicit && bg
+	default:
+		return false
+	}
+}
+
+// runInBackgroundInput 读发起 toolCallID 的 tool_use 入参 run_in_background,
+// explicit 区分「显式给了布尔值」与「缺省/找不到那块 tool_use」。
+func runInBackgroundInput(acc *turn.Accumulator, toolCallID string) (bg bool, explicit bool) {
+	if acc == nil {
+		return false, false
+	}
+	input, ok := acc.ToolUseInput(toolCallID)
+	if !ok {
+		return false, false
+	}
+	v, isBool := input["run_in_background"].(bool)
+	return v, isBool
 }
 
 func isNonTerminalSubagentStatus(status string) bool {
@@ -55,8 +108,12 @@ func mergeNormalizedSnapshot(b *blocks.SubagentStateBlock, info agentruntime.Sub
 	}
 }
 
-// subagentKindLocalBash 是 CLI task_type 里后台 bash 的取值(对应 SubagentStateBlock.Kind)。
-const subagentKindLocalBash = "local_bash"
+// subagentKindLocalBash / subagentKindLocalAgent 是 CLI task_type 里 bash / subagent
+// 的取值(对应 SubagentStateBlock.Kind)。
+const (
+	subagentKindLocalBash  = "local_bash"
+	subagentKindLocalAgent = "local_agent"
+)
 
 // trackSubagentState 判定这次 task 帧是否该建/维护 SubagentStateBlock overlay。
 // 真实 CLI 对*每一次* Bash 都发 task_type:"local_bash" 帧,但只有 run_in_background

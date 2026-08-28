@@ -42,7 +42,7 @@ Agentre gives that workflow one desktop home. Each **Agent** has a role, avatar,
 | Area | What it is for |
 | ---- | -------------- |
 | **Chat** | Drive agent sessions, inspect tool calls, approve actions, queue follow-up messages, and resume interrupted work. |
-| **Board** | Track issues and hand off focused tasks to agents; replying on an issue can create a linked session. |
+| **Board** | Track tasks across four columns, narrow the board to a project subtree, filter and edit in place; tasks record which agent, machine and model they are meant for. |
 | **Org** | Model agents as departments and sub-departments, with leads, colors, and role-specific profiles. |
 | **Hooks** | Route external triggers such as webhooks, notifications, timers, or messages into agent workflows. |
 | **Settings** | Configure agent backends, remote devices, project membership, and session permission modes. |
@@ -55,7 +55,7 @@ Agentre gives that workflow one desktop home. Each **Agent** has a role, avatar,
 | **Department** | A nested organizational container for agents, with an optional lead and theme color. |
 | **Session** | One conversation or task run, with states such as `running`, `waiting`, and `idle`. |
 | **Project** | A workspace scope for a codebase or initiative, bundling members, agents, and sessions. |
-| **Issue** | A standalone ticket that can be assigned to an agent and linked to a session. |
+| **Task** | A card on the board: one of four columns, optionally under a project, with labels and an intended agent, machine and model. |
 | **Hook** | An external event source that can dispatch work to agents through routing rules. |
 
 ## Remote Execution
@@ -65,7 +65,7 @@ Agentre uses `agentred`, a companion daemon for running sessions on another macO
 Install the latest release on macOS or Linux:
 
 ```bash
-curl -fsSL https://github.com/agentre-ai/agentre/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh
 agentred --version
 agentred service install --start
 agentred service status
@@ -74,7 +74,7 @@ agentred service status
 Install the latest release from PowerShell on Windows (no administrator shell required):
 
 ```powershell
-irm https://github.com/agentre-ai/agentre/releases/latest/download/install.ps1 | iex
+irm https://github.com/agentre-hub/agentre/releases/latest/download/install.ps1 | iex
 agentred --version
 agentred service install --start
 agentred service status
@@ -89,7 +89,7 @@ Then connect it to the desktop app:
 
 ## Desktop Workflow
 
-- **64px icon rail** for Chat, Board, Org, Hooks, and Settings.
+- **56px icon rail** for Chat, Board, Org, Hooks, and Settings.
 - **Agent chat list** with pinned agents, active-session dots, and inline session counts.
 - **Project sessions view** for scanning recent work by project instead of by agent.
 - **Permission mode chooser** before a session starts touching files or running tools.

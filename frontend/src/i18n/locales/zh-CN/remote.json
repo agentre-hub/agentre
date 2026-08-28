@@ -1,0 +1,378 @@
+{
+  "peerPanel": {
+    "header": {
+      "remote": "在 {{device}} 上"
+    },
+    "status": {
+      "connecting": "连接中…",
+      "ready": "已接入",
+      "unavailable": "不可用"
+    },
+    "error": {
+      "title": "无法接入远端会话",
+      "description": "无法连接到 {{device}} 上的 Agentre。请确认那台电脑上的 Agentre 正在运行。"
+    },
+    "composerPlaceholder": "发送消息到远端会话…",
+    "sendFailed": "发送失败，请重试",
+    "alreadyHandled": "该决策已被处理，状态已刷新",
+    "decision": {
+      "askTitle": "远端会话在等待你的回答",
+      "answer": "回答",
+      "askAnswered": "该提问已被回答",
+      "askSkipped": "该提问已被跳过",
+      "permissionTitle": "{{tool}} 请求工具权限",
+      "allow": "允许",
+      "deny": "拒绝",
+      "permissionAllowed": "该工具权限已允许",
+      "permissionDenied": "该工具权限已拒绝"
+    }
+  },
+  "remoteDevices": {
+    "onboarding": {
+      "commands": {
+        "daemonRunning": "Daemon running",
+        "foregroundRun": "agentred run",
+        "installUnix": "curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh",
+        "installWindows": "irm https://github.com/agentre-hub/agentre/releases/latest/download/install.ps1 | iex",
+        "listenAddress": "ws://…:7456/rpc",
+        "pair": "agentred pair",
+        "serviceInstall": "agentred service install --start",
+        "serviceRestart": "agentred service restart",
+        "serviceStatus": "agentred service status",
+        "version": "agentred --version"
+      },
+      "complete": {
+        "action": "配置 Agent 后端",
+        "description": "选择这台设备上的 Claude Code、Codex 或 Pi。",
+        "title": "远端已连接"
+      },
+      "copyLabel": "复制{{label}}",
+      "copySuccess": "命令已复制",
+      "dismiss": "收起引导",
+      "install": {
+        "archHint": "架构将自动识别",
+        "description": "选择远端操作系统，然后在它的终端中运行安装命令。",
+        "linux": "Linux",
+        "macos": "macOS",
+        "manual": "手动安装",
+        "next": "我已安装，下一步",
+        "osLabel": "远端操作系统",
+        "powershell": "PowerShell",
+        "recommended": "推荐安装命令",
+        "terminal": "远端终端",
+        "verify": "验证安装",
+        "windows": "Windows",
+        "title": "安装 agentred"
+      },
+      "pair": {
+        "back": "返回服务",
+        "commandLabel": "获取配对信息",
+        "description": "在远端运行配对命令，然后填写连接地址和一次性配对码。",
+        "submit": "配对并验证",
+        "title": "连接这台远端机器"
+      },
+      "service": {
+        "background": "后台服务（推荐）",
+        "description": "需要长期在线的机器建议使用后台服务。",
+        "diagnostics": {
+          "first": "运行 <command>{{command}}</command>，确认出现 <status>{{status}}</status>。",
+          "second": "确认监听地址包含 <address>{{address}}</address>。",
+          "third": "保持服务运行，然后继续配对。"
+        },
+        "diagnosticsHint": "在远端终端执行",
+        "diagnosticsTitle": "确认服务已运行",
+        "foreground": "前台临时运行",
+        "foregroundDescription": "保持终端开启；关闭终端会停止 agentred。",
+        "installLabel": "安装并启动服务",
+        "modeHint": "建议使用后台服务",
+        "modeLabel": "运行方式",
+        "next": "服务已运行",
+        "restartLabel": "重启服务",
+        "statusLabel": "查看状态",
+        "title": "启动远端服务"
+      },
+      "stepLabel": "步骤 {{current}} / {{total}}",
+      "steps": {
+        "install": {
+          "done": "已完成",
+          "subtitle": "约 1 分钟",
+          "title": "安装 agentred"
+        },
+        "navLabel": "第 {{number}} 步:{{title}}",
+        "pair": {
+          "subtitle": "一次性验证码",
+          "title": "配对并验证"
+        },
+        "service": {
+          "done": "正在运行",
+          "subtitle": "保持在线",
+          "title": "启动远端服务"
+        }
+      }
+    },
+    "actions": {
+      "addAgentred": "添加 agentred",
+      "editTls": "编辑 TLS 信任",
+      "refreshStatus": "刷新状态",
+      "removeConfirm": "解除配对 \"{{name}}\"？本桌面将清空对该 agentred 的 token 与 fingerprint pin；远端 agentred 的 state.json.pairedPeers 不会自动清理。",
+      "removePairing": "解除配对",
+      "rename": "重命名",
+      "renamePrompt": "重命名为"
+    },
+    "add": {
+      "advancedTls": "高级 — TLS 信任（{{mode}}）",
+      "errors": {
+        "pairFailed": "配对失败"
+      },
+      "fields": {
+        "displayName": "显示名称（可选）",
+        "displayNamePlaceholder": "留空则自动从地址派生",
+        "pairingCode": "配对码",
+        "pairingCodeHint": "6 字符配对码",
+        "url": "地址",
+        "urlInvalid": "地址需以 /rpc 结尾，例如 ws://192.168.1.100:7456/rpc",
+        "codeInvalid": "配对码必须是 6 位字符"
+      },
+      "pair": "配对",
+      "pairing": "配对中…"
+    },
+    "errors": {
+      "dialFailed": "连接失败：{{message}}",
+      "protocolMismatch": "这台机器上的 agentred 与桌面端的通信协议版本不一致 —— 请在那台机器上重新部署 agentred，让它与桌面端保持同一版本。",
+      "protocolUnsupported": "这台机器上的 agentred 不认识桌面端的通信协议 —— 请在那台机器上重新部署 agentred，让它与桌面端保持同一版本。",
+      "tofuMismatch": "服务端身份指纹已变化，请确认安全后重新配对",
+      "unauthorized": "凭据已失效，请重新配对"
+    },
+    "load": {
+      "errorDescription": "请检查连接后重试。",
+      "errorTitle": "无法加载远端设备",
+      "loading": "正在加载远端设备"
+    },
+    "login": {
+      "actions": {
+        "connecting": "连接中…",
+        "continue": "继续",
+        "openBrowser": "打开浏览器",
+        "signOut": "退出登录",
+        "copyCode": "复制",
+        "copied": "已复制"
+      },
+      "description": "把这台桌面连接到你的账号，让其它设备能发现它。",
+      "errors": {
+        "accessDenied": "登录已被拒绝。",
+        "expired": "验证码已过期，请重新登录。",
+        "generic": "登录失败。",
+        "inProgress": "已有登录流程正在进行。",
+        "unreachable": "无法连接服务器，请检查地址后重试。"
+      },
+      "fields": {
+        "url": "服务器地址"
+      },
+      "servers": {
+        "official": "Agentre Cloud",
+        "officialDesc": "官方托管服务 · app.agentrehub.com",
+        "recommended": "推荐",
+        "custom": "自定义服务器",
+        "customDesc": "连接自建或私有部署的 agentrehub"
+      },
+      "signIn": "登录",
+      "status": {
+        "signedIn": "已登录 {{server}}",
+        "serverOffline": "服务端离线",
+        "serverOfflineHint": "连不上服务端，正在自动重试。登录状态保留着，无需重新登录。"
+      },
+      "title": "登录账号",
+      "waiting": {
+        "userCode": "你的验证码",
+        "verificationUrl": "前往",
+        "expiresIn": "验证码将于 {{time}} 后过期",
+        "autoClose": "批准后自动完成登录 · 已登录会话可随时在「远端」面板退出"
+      }
+    },
+    "panel": {
+      "description": "管理远程 agentred 计算端 — desktop 远程驱动；LAN 同网段直连，Cloud 中转跨网段（v0.3+）。",
+      "stats": "{{paired}} 已配对 · {{online}} 在线",
+      "title": "远端"
+    },
+    "path": {
+      "inUseAria": "{{path}} · 在用",
+      "lan": "直连",
+      "relay": "中转",
+      "unreachableAria": "{{path}} · 不可达",
+      "unreachableLabel": "{{path}} · 不可达"
+    },
+    "providers": {
+      "copyAria": "复制修复命令 {{key}}",
+      "copyCommand": "复制命令",
+      "copyDescription": "粘贴到远端 agentred 所在终端执行",
+      "copyDone": "已复制修复命令",
+      "copyFailed": "复制修复命令失败",
+      "empty": "该设备上没有关联任何本地 Agent 后端 Provider。",
+      "loadFailed": "加载失败：{{message}}",
+      "loading": "正在加载 Provider 同步状态…",
+      "missing": "缺失",
+      "synced": "已同步",
+      "title": "Provider 同步状态",
+      "unsynced": "未同步"
+    },
+    "status": {
+      "lastConnected": "上次连接 {{time}}",
+      "neverConnected": "尚未连接",
+      "offline": "离线",
+      "online": "在线",
+      "viaRelay": "经中转"
+    },
+    "unclaimed": {
+      "claim": "认领到账号",
+      "instructions": "在这台远端机器上运行 `agentred login` 把它认领到你的账号（本桌面需先登录账号）。认领后，你账号下的其它设备就能看到它并直接连上。",
+      "label": "未认领",
+      "note": "仅本机配对 —— 其它设备看不到它"
+    },
+    "tls": {
+      "apply": "应用",
+      "badges": {
+        "notRecommended": "不推荐",
+        "recommended": "推荐"
+      },
+      "description": "如何验证 agentred 的 TLS 证书",
+      "errors": {
+        "pemInvalid": "PEM 格式不正确：缺少 BEGIN/END CERTIFICATE 标记",
+        "pemRequired": "请粘贴 PEM 内容"
+      },
+      "modes": {
+        "caBundle": {
+          "description": "信任指定 CA 签发的证书；适合企业 PKI 未装到 OS 信任库",
+          "label": "CA 证书包"
+        },
+        "default": {
+          "description": "走 OS 信任库；适用 mkcert -install / Let's Encrypt / 企业 CA",
+          "label": "OS 默认"
+        },
+        "pinCert": {
+          "description": "Pin agentred 的 leaf 证书；适合自签证书，不走 CA 框架",
+          "label": "Pin 证书"
+        },
+        "skipVerify": {
+          "description": "禁用 TLS 校验；任何能访问到 agentred 的人都能冒充它，仅调试用",
+          "label": "跳过校验"
+        }
+      },
+      "pem": {
+        "caBundle": "CA 证书包（PEM）",
+        "cert": "证书（PEM）"
+      },
+      "title": "TLS 信任"
+    },
+    "desktop": {
+      "kindBadge": "桌面端",
+      "thisDevice": "本机",
+      "running": "正在运行",
+      "notRunning": "这台电脑上的 Agentre 没有运行",
+      "lastSeen": "上次在线 {{time}}",
+      "sessionsToggleAria": "展开/收起这台桌面端的会话",
+      "loadingSessions": "正在加载会话…",
+      "noSessions": "这台桌面端上还没有会话",
+      "untitledSession": "未命名会话",
+      "session": {
+        "running": "运行中",
+        "waiting": "等待输入",
+        "interrupted": "已中断",
+        "idle": "空闲"
+      }
+    }
+  },
+  "remoteFs": {
+    "actions": {
+      "cancel": "取消",
+      "newFolder": "新建",
+      "selectCurrent": "选择此目录"
+    },
+    "create": {
+      "placeholder": "folder name"
+    },
+    "empty": "（空）",
+    "entry": {
+      "enter": "进入",
+      "enterNamed": "进入 {{name}}",
+      "symlink": "符号链接"
+    },
+    "errors": {
+      "invalidName": "非法名字"
+    },
+    "filter": {
+      "ariaLabel": "筛选当前目录",
+      "placeholder": "筛选当前目录…"
+    },
+    "hidden": {
+      "ariaLabel": "显示隐藏文件",
+      "label": "隐藏"
+    },
+    "loading": "加载中…",
+    "title": "选择目录",
+    "truncated": "还有未列出的项，请用筛选缩小范围"
+  },
+  "sync": {
+    "title": "同步",
+    "description": "你的 Agent、部门、项目和项目路径，在所有已登录的桌面端之间保持一致。",
+    "status": {
+      "title": "同步状态",
+      "description": "改动会在 30 秒内送到你的其他桌面端。",
+      "badge": {
+        "upToDate": "已是最新",
+        "pending": "{{count}} 项待同步",
+        "unreachable": "连不上"
+      },
+      "lastSuccess": "上次成功同步",
+      "pending": "待同步",
+      "pendingCount": "{{count}} 项",
+      "unreachableTitle": "连不上账号服务器",
+      "unreachableDetail": "本地改动照常保存，连上后会自动补上去。正在按退避重试。",
+      "errorTitle": "同步失败",
+      "retry": "立即重试",
+      "retrying": "重试中…"
+    },
+    "lostChanges": {
+      "title": "没能同步的改动",
+      "description": "本地改动没能生效时，那个版本保留在这里 30 天，可随时恢复。",
+      "count": "{{count}} 条",
+      "empty": "所有改动都同步成功了。",
+      "reason": {
+        "overwritten": "被覆盖",
+        "discarded": "引用丢失",
+        "rejected": "超时未上传"
+      },
+      "overwrittenFrom": "来自「{{device}}」",
+      "originServer": "服务端（浏览器）",
+      "discardedDetail": "依赖的对象超期未到达本机",
+      "rejectedDetail": "设备离线超过 30 天，已按服务端为准",
+      "entity": {
+        "project": "项目",
+        "department": "部门",
+        "agent": "Agent",
+        "agentBackend": "Agent 后端",
+        "execTarget": "执行目标",
+        "projectMember": "项目成员",
+        "projectLocation": "项目路径"
+      },
+      "content": "内容",
+      "restore": "恢复为我的版本",
+      "restoreHint": "恢复是一次普通修改，会照常同步到其他机器。",
+      "restoring": "恢复中…",
+      "restoreSucceeded": "已恢复",
+      "restoreFailed": "恢复失败",
+      "deletedBadge": "已被删除",
+      "deletedTitle": "这个 {{entity}} 已在「{{device}}」上被删除，恢复不会让它回来。",
+      "deletedTitleUnknownDevice": "这个 {{entity}} 已被删除，恢复不会让它回来。",
+      "deletedDescription": "恢复会把已删除的对象重新推上去，其他设备上它会无缘无故重新出现。你可以按下面这份内容新建一个——内容一模一样，但它是一个新对象。",
+      "recreate": "按这份内容新建",
+      "recreating": "新建中…",
+      "recreateSucceeded": "已新建",
+      "recreateFailed": "新建失败",
+      "discard": "丢弃这条记录",
+      "discarding": "丢弃中…",
+      "discardFailed": "丢弃失败",
+      "toggleExpand": "展开查看",
+      "toggleCollapse": "收起"
+    }
+  }
+}

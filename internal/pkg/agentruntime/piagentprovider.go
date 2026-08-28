@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 )
 
 // piProviderAPIByType 把 llm_provider_entity 的三种供应商 Type 映射到 Pi 原生

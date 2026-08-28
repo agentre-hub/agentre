@@ -1,23 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  avatarFromMeta,
-  firstLetter,
-  tokenToCssColor,
-} from "../session-avatar";
+import { avatarFromMeta, firstLetter } from "../session-avatar";
 
-describe("tokenToCssColor", () => {
-  it("把 agent token 映射成 css 变量", () => {
-    expect(tokenToCssColor("agent-1")).toBe("var(--agent-1)");
-    expect(tokenToCssColor("agent-10")).toBe("var(--agent-10)");
-    expect(tokenToCssColor("agent-16")).toBe("var(--agent-16)");
-  });
-  it("空 / 非 agent token → null", () => {
-    expect(tokenToCssColor(null)).toBeNull();
-    expect(tokenToCssColor(undefined)).toBeNull();
-    expect(tokenToCssColor("nope")).toBeNull();
-  });
-});
+// tokenToCssColor 已随颜色 token 词汇表搬进 @agentre-hub/agentre-ui，
+// 它的用例跟着去了 packages/agentre-ui/src/lib/agent-color.test.ts。
 
 describe("firstLetter", () => {
   it("取名字首字符", () => {

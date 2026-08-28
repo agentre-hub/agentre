@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@agentre-hub/agentre-ui";
 
 import { LostChangeRow } from "./lost-change-row";
 import type { LostChangeView, RestoreOutcome } from "./use-sync-status";
@@ -76,10 +76,10 @@ export function LostChangesCard({
       ) : (
         lostChanges.map((row) => (
           <LostChangeRow
-            key={row.ID}
+            key={row.id}
             row={row}
-            expanded={expandedIds.has(row.ID)}
-            onToggleExpand={() => toggle(row.ID)}
+            expanded={expandedIds.has(row.id)}
+            onToggleExpand={() => toggle(row.id)}
             onRestore={onRestore}
             onRecreate={onRecreate}
             onDiscard={onDiscard}

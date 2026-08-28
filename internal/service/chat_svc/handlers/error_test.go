@@ -7,13 +7,16 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 type fakeErrorWriter struct{ text string }
 
-func (f *fakeErrorWriter) WriteErrorText(_ any, s string) { f.text = s }
+func (f *fakeErrorWriter) WriteErrorText(_ context.Context, _ any, s string) error {
+	f.text = s
+	return nil
+}
 
 func TestErrorHandler(t *testing.T) {
 	Convey("ErrorHandler patch ErrorText + emit error", t, func() {
@@ -27,7 +30,8 @@ func TestErrorHandler(t *testing.T) {
 			nil, emit, nil, tc)
 		So(err, ShouldBeNil)
 		So(wr.text, ShouldEqual, "boom")
-		So(mu.calls, ShouldEqual, 1)
+		// 同 usage:error_text 走单列写,不整行回写。
+		So(mu.calls, ShouldEqual, 0)
 
 		p := emit.events[0].payload.(map[string]any)
 		So(p["kind"], ShouldEqual, "error")

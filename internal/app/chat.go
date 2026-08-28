@@ -3,9 +3,9 @@ package app
 import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/ipc"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 )
 
 // ListChatAgents 聚合返回左栏 Agent 列表（含每个 Agent 的最近会话和可对话状态）。
@@ -16,6 +16,12 @@ func (a *App) ListChatAgents() (*chat_svc.ListAgentsResponse, error) {
 // ListChatAgentSessions 给「查看全部 N 个会话」popover 翻页拉数据。
 func (a *App) ListChatAgentSessions(req *chat_svc.ListAgentSessionsRequest) (*chat_svc.ListAgentSessionsResponse, error) {
 	return chat_svc.Chat().ListAgentSessions(a.ctx, req)
+}
+
+// ListChatIndexSessions 给单一会话索引翻页：scope="recent" 是跨 agent、跨项目的全局
+// 最近活动（「按时间」档），scope="free" 是未挂项目的会话（「随手对话」组）。
+func (a *App) ListChatIndexSessions(req *chat_svc.ListIndexSessionsRequest) (*chat_svc.ListIndexSessionsResponse, error) {
+	return chat_svc.Chat().ListIndexSessions(a.ctx, req)
 }
 
 // ListAgentExecTargetAvailability 逐档判定 R15 执行目标列表的可用性，供组织架构页
@@ -44,6 +50,18 @@ func (a *App) LoadChatSession(req *chat_svc.LoadSessionRequest) (*chat_svc.LoadS
 	return chat_svc.Chat().LoadSession(a.ctx, req)
 }
 
+// LoadChatMessageBlocks 取回更早一段消息的正文 —— LoadChatSession 只给最近一个窗口的
+// 完整正文,前端向上滚动时靠它续接转录。
+func (a *App) LoadChatMessageBlocks(req *chat_svc.LoadMessageBlocksRequest) (*chat_svc.LoadMessageBlocksResponse, error) {
+	return chat_svc.Chat().LoadMessageBlocks(a.ctx, req)
+}
+
+// LoadChatSessionBlocksByType 按块类型点查整条会话的那一类块,供后台任务面板 / 大纲 /
+// 变更这些派生视图取数,免得为了算它们把整条转录搬到前端。
+func (a *App) LoadChatSessionBlocksByType(req *chat_svc.LoadSessionBlocksByTypeRequest) (*chat_svc.LoadSessionBlocksByTypeResponse, error) {
+	return chat_svc.Chat().LoadSessionBlocksByType(a.ctx, req)
+}
+
 // GetChatLaunchCommand 把当前 session 的 CLI 后端配置拼成可在终端粘贴运行的命令。
 // 仅 claudecode / codex / piagent 有效；builtin 返回 ChatLaunchCommandNotAvailable。
 // 命令中的 gateway token 故意写成占位符 <TOKEN>，不发放实际 token，用户自行替换。
@@ -52,8 +70,10 @@ func (a *App) GetChatLaunchCommand(req *chat_svc.LaunchCommandRequest) (*chat_sv
 }
 
 // GetSessionGitState 拉某 session 对应 cwd 的 git 状态快照, 供右侧上下文侧栏的
-// branch / worktree / dirty / ahead·behind 几个 chip 用。远端 backend 当前
-// 返回 notARepo=true 让前端折叠 chip 区, daemon handler 留作 follow-up。
+// branch / worktree / dirty / ahead·behind 几个 chip 用。本地与远端(agentred)
+// backend 都取真实快照(远端经 workspacefs.gitState RPC);设备未配对 / cwd
+// 解析不出 / 调用失败(含旧 daemon 的方法不存在)一律降级为 notARepo=true,
+// 让前端折叠 chip 区,而不是把异常暴露给这个纯展示区域。
 func (a *App) GetSessionGitState(req *chat_svc.GetSessionGitStateRequest) (*chat_svc.GetSessionGitStateResponse, error) {
 	return chat_svc.Chat().GetSessionGitState(a.ctx, req)
 }

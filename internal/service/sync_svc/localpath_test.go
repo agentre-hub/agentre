@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
 )
 
 // registerProjects 装配一个 project_repo 桩，只期望 List 被调用一次——本机路径
@@ -167,4 +167,40 @@ func TestReportLocalPathsOnce_GivenLoggedOut_DoesNothing(t *testing.T) {
 	err := h.svc.reportLocalPathsOnce(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, h.transport.localPathReports)
+}
+
+// ReportLocalPathsNow 是「刚刚有人从 web 改了本机路径，别等 30 秒」那一下（规格
+// 2026-08-21 决策 4）。它与 R16 的轮询共用同一条上报路径与同一枚内容指纹，只是
+// 触发时机不同——web 上写完那一刻界面就要能读到新值，等一轮轮询会让人以为没生效。
+
+func TestReportLocalPathsNow_GivenChangedSnapshot_ThenReportsImmediately(t *testing.T) {
+	h := newHarness(t, true)
+	registerProjects(t, []*project_entity.Project{projectRow("proj-a", "/Users/me/a", false)})
+
+	require.NoError(t, h.svc.ReportLocalPathsNow(context.Background()))
+
+	require.Len(t, h.transport.localPathReports, 1)
+	assert.Equal(t, []syncwire.LocalPathReportItem{{ProjectSyncID: "proj-a", Path: "/Users/me/a"}},
+		h.transport.localPathReports[0])
+}
+
+// 它复用同一枚内容指纹：没变就不发，否则 web 上每点一次都会平白多一个请求。
+func TestReportLocalPathsNow_GivenUnchangedSnapshot_ThenSkips(t *testing.T) {
+	h := newHarness(t, true)
+	registerProjects(t, []*project_entity.Project{projectRow("proj-a", "/Users/me/a", false)})
+
+	require.NoError(t, h.svc.ReportLocalPathsNow(context.Background()))
+	require.NoError(t, h.svc.ReportLocalPathsNow(context.Background()))
+
+	assert.Len(t, h.transport.localPathReports, 1, "指纹没变，第二次不该再发")
+}
+
+// 包级入口在同步未装配时是空操作：单机构建 / 单元测试里没有同步引擎，
+// 写本机路径这条路径不该因此断掉（与 Notify 同一条口径）。
+func TestReportLocalPathsNowPackageEntry_GivenNoSvc_ThenNoop(t *testing.T) {
+	saved := defaultSvc
+	defaultSvc = nil
+	t.Cleanup(func() { defaultSvc = saved })
+
+	require.NoError(t, ReportLocalPathsNow(context.Background()))
 }

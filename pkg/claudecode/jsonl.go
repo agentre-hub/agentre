@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,38 +59,11 @@ func ReadSessionJSONL(root, sessionID string) ([]SessionMessage, error) {
 		if len(line) == 0 {
 			continue
 		}
-		var raw struct {
-			Type       string `json:"type"`
-			UUID       string `json:"uuid"`
-			ParentUUID string `json:"parentUuid"`
-			Message    struct {
-				Role    string `json:"role"`
-				Content []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal(line, &raw); err != nil {
+		msg, ok := parseSessionMessageLine(line)
+		if !ok {
 			continue // 跳过坏行；JSONL 里偶发部分写入，不致命
 		}
-		role := raw.Message.Role
-		if role == "" {
-			role = raw.Type
-		}
-		var text string
-		for _, c := range raw.Message.Content {
-			if c.Type == "text" && c.Text != "" {
-				text = c.Text
-				break
-			}
-		}
-		out = append(out, SessionMessage{
-			UUID:       raw.UUID,
-			ParentUUID: raw.ParentUUID,
-			Role:       role,
-			Text:       text,
-		})
+		out = append(out, msg)
 	}
 	if err := scanner.Err(); err != nil {
 		return out, err
@@ -161,4 +135,136 @@ func FindUserAnchorByText(msgs []SessionMessage, userText string) string {
 		return ""
 	}
 	return ""
+}
+
+// parseSessionMessageLine 解一行 JSONL。ok=false 表示坏行(部分写入),调用方跳过即可。
+func parseSessionMessageLine(line []byte) (SessionMessage, bool) {
+	var raw struct {
+		Type       string `json:"type"`
+		UUID       string `json:"uuid"`
+		ParentUUID string `json:"parentUuid"`
+		Message    struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(line, &raw); err != nil {
+		return SessionMessage{}, false
+	}
+	role := raw.Message.Role
+	if role == "" {
+		role = raw.Type
+	}
+	var text string
+	for _, c := range raw.Message.Content {
+		if c.Type == "text" && c.Text != "" {
+			text = c.Text
+			break
+		}
+	}
+	return SessionMessage{
+		UUID:       raw.UUID,
+		ParentUUID: raw.ParentUUID,
+		Role:       role,
+		Text:       text,
+	}, true
+}
+
+// FindUserAnchorInSessionJSONL 是 ReadSessionJSONL + FindUserAnchorByText 的等价
+// 替代,但**从文件尾往回读、拿到答案就停**。
+//
+// 为什么要它:anchor 永远在文件末尾附近(就是刚发出去的那轮),而整文件路径要把整个
+// 会话转录解析成 []SessionMessage 才开始往回找。实测 ~/.claude/projects 下一个
+// 73.5MB 的 JSONL 要 483ms(warm)~984ms(cold),而这段是在 runtime 收尾里、
+// **close(out) 之前**跑的 —— chat_svc 的 `for ev := range events` 因此每轮都要多等
+// 这么久才能收尾。转录随对话增长,单会话累计代价是 O(轮数²)。
+//
+// 语义与旧路径逐字相同:取**最后一条**文本匹配的 user,再往回找最近的 assistant;
+// 找不到匹配的 user、或它前面没有 assistant,都返回空串(nil error)。
+func FindUserAnchorInSessionJSONL(root, sessionID, userText string) (string, error) {
+	if sessionID == "" {
+		return "", fmt.Errorf("claudecode: empty session id")
+	}
+	path, err := findSessionJSONL(root, sessionID)
+	if err != nil {
+		return "", err
+	}
+
+	var (
+		seenUser bool
+		anchor   string
+	)
+	if err := scanLinesBackward(path, func(line []byte) bool {
+		msg, ok := parseSessionMessageLine(line)
+		if !ok {
+			return false
+		}
+		if !seenUser {
+			// 反向遇到的第一条文本匹配 user,就是正向意义上的「最后一条」。
+			if msg.Role == "user" && msg.Text == userText {
+				seenUser = true
+			}
+			return false
+		}
+		if msg.Role == "assistant" {
+			anchor = msg.UUID
+			return true
+		}
+		return false
+	}); err != nil {
+		return "", err
+	}
+	return anchor, nil
+}
+
+// backwardChunkBytes 是反向扫描每次回读的块大小。命中通常发生在第一块内。
+const backwardChunkBytes = 256 << 10
+
+// scanLinesBackward 从文件末尾向开头逐行回调 fn,fn 返回 true 即停止。
+// 行内容不含结尾换行;空行跳过。跨块的半行由 carry 拼回,因此单行长度不受块大小限制
+// (也正因如此,它不像 bufio.Scanner 那样有 maxFrameBytes 上限)。
+func scanLinesBackward(path string, fn func(line []byte) bool) error {
+	f, err := os.Open(path) // #nosec G304 -- path 来自 findSessionJSONL(root + sid 拼接),root 由 caller 控制
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	st, err := f.Stat()
+	if err != nil {
+		return err
+	}
+
+	pos := st.Size()
+	var carry []byte // 属于「起点在更早块里」的那半行
+	for pos > 0 {
+		n := int64(backwardChunkBytes)
+		if n > pos {
+			n = pos
+		}
+		pos -= n
+		buf := make([]byte, n, n+int64(len(carry)))
+		if _, err := f.ReadAt(buf, pos); err != nil {
+			return err
+		}
+		buf = append(buf, carry...)
+		for {
+			i := bytes.LastIndexByte(buf, '\n')
+			if i < 0 {
+				break
+			}
+			if line := buf[i+1:]; len(line) > 0 && fn(line) {
+				return nil
+			}
+			buf = buf[:i]
+		}
+		carry = buf
+	}
+	if len(carry) > 0 {
+		fn(carry)
+	}
+	return nil
 }

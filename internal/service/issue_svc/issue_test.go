@@ -9,10 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/issue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/issue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/issue_repo/mock_issue_repo"
-	"github.com/agentre-ai/agentre/internal/service/issue_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/issue_repo/mock_issue_repo"
+	"github.com/agentre-hub/agentre/internal/service/issue_svc"
 )
 
 func setupIssueSvc(t *testing.T) (
@@ -125,29 +126,6 @@ func TestIssueSvcUpdate_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestIssueSvcSetState_Close(t *testing.T) {
-	ctx, mi, ml, mil, svc := setupIssueSvc(t)
-	mi.EXPECT().Find(ctx, int64(3)).Return(&issue_entity.Issue{ID: 3, State: issue_entity.StateOpen}, nil)
-	mi.EXPECT().Update(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, i *issue_entity.Issue) error {
-		assert.Equal(t, issue_entity.StateClosed, i.State)
-		assert.NotZero(t, i.ClosedAt)
-		return nil
-	})
-	mil.EXPECT().ListByIssue(ctx, int64(3)).Return(nil, nil)
-	ml.EXPECT().ListByIDs(ctx, gomock.Nil()).Return(nil, nil)
-
-	got, err := svc.SetState(ctx, 3, issue_entity.StateClosed)
-	require.NoError(t, err)
-	assert.True(t, got.Issue.IsClosed())
-}
-
-func TestIssueSvcSetState_InvalidState(t *testing.T) {
-	ctx, _, _, _, svc := setupIssueSvc(t)
-	// 非法 state 在 Find 之前被拦截，无任何 mock 调用。
-	_, err := svc.SetState(ctx, 3, "weird")
-	assert.Error(t, err)
-}
-
 func TestIssueSvcDelete_NotFound(t *testing.T) {
 	ctx, mi, _, _, svc := setupIssueSvc(t)
 	mi.EXPECT().Find(ctx, int64(404)).Return(nil, nil)
@@ -158,10 +136,11 @@ func TestIssueSvcDelete_NotFound(t *testing.T) {
 }
 
 func TestIssueSvcList(t *testing.T) {
-	ctx, mi, ml, mil, svc := setupIssueSvc(t)
-	req := &issue_svc.ListIssuesRequest{State: issue_entity.StateOpen, ProjectID: 7, Sort: "updated"}
+	ctx, mi, ml, mil, mp, svc := setupBoard(t)
+	req := &issue_svc.ListIssuesRequest{Scope: issue_svc.ScopeProject, ProjectID: 7, Sort: "updated"}
+	mp.EXPECT().List(ctx).Return([]*project_entity.Project{{ID: 7}}, nil)
 	mi.EXPECT().List(ctx, issue_repo.ListFilter{
-		State: issue_entity.StateOpen, ProjectID: 7, LabelIDs: nil, Sort: "updated",
+		ProjectIDs: []int64{7}, Sort: "updated",
 	}).Return([]*issue_entity.Issue{
 		{ID: 1, State: issue_entity.StateOpen},
 		{ID: 2, State: issue_entity.StateOpen},
@@ -171,19 +150,25 @@ func TestIssueSvcList(t *testing.T) {
 		2: {10, 20},
 	}, nil)
 	ml.EXPECT().List(ctx).Return([]*issue_entity.Label{
-		{ID: 10, Name: "bug", Tone: "bug"},
-		{ID: 20, Name: "feature", Tone: "feature"},
+		{ID: 10, Name: "bug", Tone: issue_entity.ToneRed},
+		{ID: 20, Name: "feature", Tone: issue_entity.ToneGreen},
 	}, nil)
-	mi.EXPECT().CountByState(ctx, int64(7)).Return(int64(2), int64(5), nil)
-	mi.EXPECT().StageCounts(ctx, issue_repo.ListFilter{ProjectID: 7, LabelIDs: nil}).
-		Return(map[string]int64{issue_entity.StageTodo: 2}, nil)
+	// 命中数与全部数各量一次；这个用例没有别的筛选条件，两把尺子形状相同，按声明
+	// 顺序先命中后全部。
+	gomock.InOrder(
+		mi.EXPECT().StageCounts(ctx, issue_repo.ListFilter{ProjectIDs: []int64{7}}).
+			Return(map[string]int64{issue_entity.StageTodo: 2}, nil),
+		mi.EXPECT().StageCounts(ctx, issue_repo.ListFilter{ProjectIDs: []int64{7}}).
+			Return(map[string]int64{issue_entity.StageTodo: 9}, nil),
+	)
+	mi.EXPECT().CountUnfinishedByProject(ctx).Return(map[int64]int64{7: 4}, nil)
 
 	got, err := svc.List(ctx, req)
 	require.NoError(t, err)
 	require.Len(t, got.Issues, 2)
-	assert.Equal(t, int64(2), got.OpenCount)
-	assert.Equal(t, int64(5), got.ClosedCount)
 	assert.Equal(t, int64(2), got.StageCounts[issue_entity.StageTodo])
+	assert.Equal(t, int64(9), got.StageTotals[issue_entity.StageTodo])
+	assert.Equal(t, int64(4), got.ProjectCounts[7])
 
 	require.Len(t, got.Issues[0].Labels, 1)
 	assert.Equal(t, int64(10), got.Issues[0].Labels[0].ID)
@@ -194,7 +179,8 @@ func TestIssueSvcList(t *testing.T) {
 
 // 防御：确保 List 在底层仓储报错时把错误透传出来。
 func TestIssueSvcList_RepoError(t *testing.T) {
-	ctx, mi, _, _, svc := setupIssueSvc(t)
+	ctx, mi, _, _, mp, svc := setupBoard(t)
+	mp.EXPECT().List(ctx).Return(nil, nil)
 	mi.EXPECT().List(ctx, gomock.Any()).Return(nil, errors.New("boom"))
 
 	_, err := svc.List(ctx, &issue_svc.ListIssuesRequest{})
@@ -262,37 +248,6 @@ func TestIssueSvcDelete_Happy(t *testing.T) {
 
 	err := svc.Delete(ctx, 5)
 	require.NoError(t, err)
-}
-
-func TestIssueSvcSetState_Reopen(t *testing.T) {
-	ctx, mi, ml, mil, svc := setupIssueSvc(t)
-	mi.EXPECT().Find(ctx, int64(3)).
-		Return(&issue_entity.Issue{ID: 3, State: issue_entity.StateClosed, ClosedAt: 123}, nil)
-	mi.EXPECT().Update(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, i *issue_entity.Issue) error {
-		assert.Equal(t, issue_entity.StateOpen, i.State)
-		assert.Equal(t, int64(0), i.ClosedAt)
-		return nil
-	})
-	mil.EXPECT().ListByIssue(ctx, int64(3)).Return(nil, nil)
-	ml.EXPECT().ListByIDs(ctx, gomock.Nil()).Return(nil, nil)
-
-	got, err := svc.SetState(ctx, 3, issue_entity.StateOpen)
-	require.NoError(t, err)
-	assert.True(t, got.Issue.IsOpen())
-}
-
-func TestIssueSvcListLabels(t *testing.T) {
-	ctx, _, ml, _, svc := setupIssueSvc(t)
-	ml.EXPECT().List(ctx).Return([]*issue_entity.Label{
-		{ID: 10, Name: "bug", Tone: "bug"},
-		{ID: 20, Name: "feature", Tone: "feature"},
-	}, nil)
-
-	got, err := svc.ListLabels(ctx)
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assert.Equal(t, int64(10), got[0].ID)
-	assert.Equal(t, int64(20), got[1].ID)
 }
 
 func TestIssueSvcCreate_DefaultsStageAndAppendsPosition(t *testing.T) {

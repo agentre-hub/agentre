@@ -9,15 +9,16 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 // 会话级 LLM 供应商：切换入口 + 有效供应商解析的唯一口径。
@@ -44,7 +45,7 @@ func effectiveProviderKey(sess *chat_entity.Session, be *agent_backend_entity.Ag
 	if be != nil {
 		agentKey = be.LLMProviderKey
 	}
-	return firstNonEmpty(sessKey, agentKey)
+	return view.FirstNonEmpty(sessKey, agentKey)
 }
 
 // providerKeyOf 是「本轮解析出来的这家供应商的 key」，nil（CLI 自身登录态，没有任何
@@ -162,7 +163,7 @@ func (s *chatSvc) SetChatSessionModelTarget(ctx context.Context, req *SetChatSes
 		zap.String("modelKey", modelKey),
 		zap.String("agentProviderKey", be.LLMProviderKey),
 		zap.String("backendType", be.Type))
-	s.appendProviderSwitchNotice(ctx, sess, be, providerKey, modelKey, providerDisplayName(prov), modelDisplayName(model))
+	s.appendProviderSwitchNotice(ctx, sess, be, providerKey, modelKey, view.ProviderDisplayName(prov), view.ModelDisplayName(model))
 	return &SetChatSessionModelTargetResponse{
 		ProviderKey: providerKey, ModelKey: modelKey,
 		AgentProviderKey: be.LLMProviderKey, AgentModelKey: be.LLMModelKey,
@@ -259,14 +260,14 @@ func (s *chatSvc) appendProviderSwitchNotice(
 	modelName string,
 ) {
 	msg := &chat_entity.Message{
-		SessionID:  sess.ID,
-		DeviceID:   be.DeviceID,
-		Role:       "assistant",
-		BlocksJSON: "[]",
+		SessionID:         sess.ID,
+		DeviceFingerprint: be.DeviceFingerprint,
+		Role:              "assistant",
+		BlocksJSON:        "[]",
 	}
 	if err := msg.SetBlocks([]blocks.ContentBlock{blocks.NoticeBlock{
 		Level: "info",
-		Text:  encodeProviderSwitch(providerKey, modelKey, providerName, modelName),
+		Text:  view.EncodeProviderSwitch(providerKey, modelKey, providerName, modelName),
 	}}); err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.appendProviderSwitchNotice: encode notice failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(err))

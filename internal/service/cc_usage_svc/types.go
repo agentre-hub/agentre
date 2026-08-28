@@ -12,7 +12,7 @@ package cc_usage_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
 )
 
 // DeviceKey 是 per-device 状态的索引。约定:

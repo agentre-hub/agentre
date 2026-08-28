@@ -26,7 +26,7 @@ try {
     $FixtureBinary = Join-Path $ArchiveDir "agentred.exe"
     Push-Location $RepoRoot
     try {
-        & go build "-ldflags=-s -w -X github.com/cago-frame/cago/configs.Version=$Version -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=$Commit" -o $FixtureBinary ./cmd/agentred
+        & go build "-ldflags=-s -w -X github.com/cago-frame/cago/configs.Version=$Version -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=$Commit" -o $FixtureBinary ./cmd/agentred
         if ($LASTEXITCODE -ne 0) { throw "fixture agentred build failed" }
     } finally {
         Pop-Location

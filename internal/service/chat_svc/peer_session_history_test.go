@@ -7,20 +7,31 @@ import (
 	"testing"
 	"time"
 
-	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
 
-// Given persisted desktop transcript blocks, when a peer snapshot is made,
-// then its canonical events retain readable semantics and unknown blocks remain
-// opaque raw objects rather than being discarded or decoded as sealed events.
-func TestSynthesizePeerHistory_GivenPersistedBlocks_ThenMapsReadableEventsAndPreservesUnknownRawBlock(t *testing.T) {
+// Given 一段里夹着本仓认不出的转录块的持久化记录,When 合成对端快照,Then 认不出
+// 的那个**如实送到对端**(R8),而不是被丢掉或伪造成一条送不出去的帧。
+//
+// 这条边界踩过两次坑,都记在这里:
+//
+//   - 一开始它伪造一条 kind 为 "unrecognized_block" 的事件。那个判别值不在密封
+//     词表里,接收侧 UnmarshalEvent 报 unknown kind,而 flushPeerSubscribers 把
+//     Notify 的错误当成「这个订阅者不行了」直接摘掉 —— 一个认不出的块会让整条
+//     实时流无声中断。
+//   - 于是先改成跳过。流是保住了,但 R8 丢了:对端连「这里有一块我读不懂的东西」
+//     都看不到。
+//
+// 现在它是真的密封事件类型:带自己的 EventKind、proto 字段与两端生成产物,既送
+// 得出去,又如实。
+func TestSynthesizePeerHistory_GivenPersistedBlocks_ThenForwardsUnrecognizedBlockVerbatim(t *testing.T) {
 	messages := []*chat_entity.Message{
 		{SessionID: 41, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"ship it"}}]`},
 		{SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: `[{"type":"thinking","data":{"text":"checking"}},{"type":"tool_use","data":{"id":"tool-1","name":"Read","input":{"path":"README.md"}}},{"type":"tool_result","data":{"tool_use_id":"tool-1","content":[{"type":"text","data":{"text":"ok"}}]}},{"type":"future_block","data":{"nested":{"keep":true}}}]`, ErrorText: "provider stopped"},
@@ -28,22 +39,32 @@ func TestSynthesizePeerHistory_GivenPersistedBlocks_ThenMapsReadableEventsAndPre
 
 	events, err := synthesizePeerHistory(41, messages)
 	require.NoError(t, err)
-	require.Len(t, events, 7)
 
-	assertPeerEventKind(t, events[0], agentruntime.EventUserMessage)
-	assertPeerEventKind(t, events[1], agentruntime.EventThinkingDelta)
-	assertPeerEventKind(t, events[2], agentruntime.EventToolUseStart)
-	assertPeerEventKind(t, events[3], agentruntime.EventToolResult)
+	kinds := make([]agentruntime.EventKind, 0, len(events))
+	for _, event := range events {
+		kinds = append(kinds, peerEventKind(t, event.Event))
+	}
+	assert.Equal(t, []agentruntime.EventKind{
+		agentruntime.EventUserMessage,
+		agentruntime.EventThinkingDelta,
+		agentruntime.EventToolUseStart,
+		agentruntime.EventToolResult,
+		agentruntime.EventUnrecognizedBlock,
+		agentruntime.EventError,
+		agentruntime.EventDone,
+	}, kinds)
+	// 原样:块类型与载荷字节一个都不改,对端才有可能认出本仓认不出的东西。
+	assert.Equal(t, agentruntime.UnrecognizedBlock{
+		BlockType: "future_block",
+		Data:      json.RawMessage(`{"nested":{"keep":true}}`),
+	}, events[4].Event)
 
-	var unknown map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(events[4].Event, &unknown))
-	assert.Equal(t, json.RawMessage(`"unrecognized_block"`), unknown["kind"])
-	var raw cagoblocks.StoredBlock
-	require.NoError(t, json.Unmarshal(unknown["block"], &raw))
-	assert.Equal(t, cagoblocks.StoredBlock{Type: "future_block", Data: json.RawMessage(`{"nested":{"keep":true}}`)}, raw,
-		"the fallback must retain the original StoredBlock envelope exactly")
-	assertPeerEventKind(t, events[5], agentruntime.EventError)
-	assertPeerEventKind(t, events[6], agentruntime.EventDone)
+	// 每一帧都必须真能过协议边界 —— 从前那条伪造事件正是卡在这里,而当时没有
+	// 任何用例走到这一步。
+	for i, frame := range events {
+		_, err := protowire.WireNotificationToProto(wire.NotifyEvent, frame)
+		require.NoErrorf(t, err, "第 %d 帧送不出去,整条实时流会被摘掉", i)
+	}
 }
 
 // Given an attached peer and a frozen history, when live canonical events
@@ -69,11 +90,7 @@ func TestSynthesizePeerHistory_GivenFinalControlAndSnapshotBlocks_ThenEmitsReduc
 	require.NoError(t, err)
 	kinds := make([]agentruntime.EventKind, 0, len(events))
 	for _, event := range events {
-		var head struct {
-			Kind agentruntime.EventKind `json:"kind"`
-		}
-		require.NoError(t, json.Unmarshal(event.Event, &head))
-		kinds = append(kinds, head.Kind)
+		kinds = append(kinds, peerEventKind(t, event.Event))
 	}
 	assert.Equal(t, []agentruntime.EventKind{
 		agentruntime.EventAskUserQuestion,
@@ -419,13 +436,17 @@ func agentForPeerSession() *agent_entity.Agent {
 	return &agent_entity.Agent{ID: 7, AgentBackendID: 11}
 }
 
-func assertPeerEventKind(t *testing.T, frame wire.EventFrame, kind agentruntime.EventKind) {
+// peerEventKind 读出一条密封事件在 wire 上的判别值 —— 走的是事件自己的
+// MarshalJSON,与真正推出去的那份字节同源。
+func peerEventKind(t *testing.T, event agentruntime.Event) agentruntime.EventKind {
 	t.Helper()
+	raw, err := json.Marshal(event)
+	require.NoError(t, err)
 	var head struct {
 		Kind agentruntime.EventKind `json:"kind"`
 	}
-	require.NoError(t, json.Unmarshal(frame.Event, &head))
-	assert.Equal(t, kind, head.Kind)
+	require.NoError(t, json.Unmarshal(raw, &head))
+	return head.Kind
 }
 
 func assertPeerNotificationSeqs(t *testing.T, notifications []wire.JournaledNotification, want ...int64) {

@@ -13,20 +13,20 @@ import (
 	"github.com/cago-frame/agents/provider"
 	"github.com/cago-frame/agents/provider/providertest"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // peerRunAdapter 是从 web 把新对话派到这台桌面端上（R17）的入口形状：runtime.run
@@ -105,6 +105,10 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 	t.Cleanup(chat_svc.ResetProviderBuilderForTest)
 
 	// send（SessionID=0）内部：resolveProjectContext 校验项目 + agent 成员。
+	projMock.EXPECT().Find(gomock.Any(), int64(5)).Return(proj, nil)
+	// 第二次是 buildRunRequest 取项目的同步标识——远端一轮要带着它，好让对端把项目
+	// 记进自己的会话行。刻意不与上面那次合并：resolveProjectContext 只在 SessionID=0
+	// 的首轮跑，而续轮同样要报项目，合并会让续轮报空。
 	projMock.EXPECT().Find(gomock.Any(), int64(5)).Return(proj, nil)
 	projAgentMock.EXPECT().ListByProjects(gomock.Any(), []int64{5}).
 		Return(map[int64][]*project_entity.ProjectAgent{5: {{ProjectID: 5, AgentID: 7}}}, nil)

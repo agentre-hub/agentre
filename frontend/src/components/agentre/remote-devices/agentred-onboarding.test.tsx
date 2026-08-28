@@ -23,7 +23,7 @@ describe("AgentredOnboarding", () => {
       screen.getByRole("link", { name: "Manual installation" }),
     ).toHaveAttribute(
       "href",
-      "https://github.com/agentre-ai/agentre/releases/latest",
+      "https://github.com/agentre-hub/agentre/releases/latest",
     );
     expect(screen.getByText("agentred --version")).toHaveAttribute(
       "data-selectable-text",

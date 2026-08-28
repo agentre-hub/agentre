@@ -14,10 +14,13 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/pathguard"
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/wire"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/pathguard"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // RemoteFsSvc 给 Wails 绑定层调,deviceID 字符串化(与 ProjectLocationSvc 一致)。
@@ -90,10 +93,12 @@ func (s *remoteFsImpl) ListDir(ctx context.Context, deviceID, path string) (*Lis
 	}
 	defer lease.Release()
 
-	var resp wire.ListDirResp
-	if cerr := lease.Client().Call(ctx, wire.MethodListDir, wire.ListDirReq{Path: path}, &resp); cerr != nil {
+	protoResp, cerr := protorpc.CallMethod(ctx, lease.Client().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_LIST_DIR),
+		&agentrewire.RemoteFsListDirRequest{Path: path}, func() *agentrewire.RemoteFsListDirResponse { return &agentrewire.RemoteFsListDirResponse{} })
+	if cerr != nil {
 		return nil, mapCallErr(ctx, cerr)
 	}
+	resp := protowire.RemoteFsListResponseFromProto(protoResp)
 	view := &ListDirView{
 		Path:      resp.Path,
 		Entries:   make([]EntryView, len(resp.Entries)),
@@ -130,11 +135,12 @@ func (s *remoteFsImpl) Mkdir(ctx context.Context, deviceID, parent, name string)
 	}
 	defer lease.Release()
 
-	var resp wire.MkdirResp
-	if cerr := lease.Client().Call(ctx, wire.MethodMkdir, wire.MkdirReq{Parent: parent, Name: name}, &resp); cerr != nil {
+	resp, cerr := protorpc.CallMethod(ctx, lease.Client().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_MKDIR),
+		&agentrewire.RemoteFsMkdirRequest{Parent: parent, Name: name}, func() *agentrewire.RemoteFsMkdirResponse { return &agentrewire.RemoteFsMkdirResponse{} })
+	if cerr != nil {
 		return nil, mapCallErr(ctx, cerr)
 	}
-	return &MkdirView{Path: resp.Path}, nil
+	return &MkdirView{Path: resp.GetPath()}, nil
 }
 
 // noopHome 让 host 侧 ResolvePath 在 path != "" 分支不触发 home lookup。
@@ -152,7 +158,7 @@ func mapBorrowErr(ctx context.Context, err error) error {
 }
 
 func mapCallErr(ctx context.Context, err error) error {
-	switch wire.FromJSONRPCError(err) {
+	switch wire.FromRPCError(err) {
 	case wire.ErrPathRefused:
 		return i18n.NewError(ctx, code.RemoteFsPathRefused)
 	case wire.ErrPermDenied:

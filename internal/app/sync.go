@@ -1,6 +1,6 @@
 package app
 
-import "github.com/agentre-ai/agentre/internal/service/sync_svc"
+import "github.com/agentre-hub/agentre/internal/service/sync_svc"
 
 // SyncStatus 返回设置里同步区要展示的状态：上次成功同步时间、待同步条目数与
 // 不可达原因（R12：未登录时 Enabled 为 false，界面据此让「同步」这一项整个
@@ -37,4 +37,12 @@ func (a *App) SyncDiscardLostChange(id int64) error {
 // 30 秒周期跑（R3）；这只是提前触发一次，结果反映在下一次 SyncStatus 里。
 func (a *App) SyncNow() error {
 	return sync_svc.Default().SyncOnce(a.ctx)
+}
+
+// SyncAcknowledgeBoardJoinNotice 销掉「看板首次并入同步组」那条一次性说明：
+// 两台机器各自积累的历史任务在首次同步后会合并到同一个账号下，且不可逆，所以
+// 说明要给在前面（Status.BoardJoinNoticePending 报出它）。界面把它展示过一次
+// 之后调这个绑定，此后永不再出现。
+func (a *App) SyncAcknowledgeBoardJoinNotice() error {
+	return sync_svc.Default().AcknowledgeBoardJoinNotice(a.ctx)
 }

@@ -1,52 +1,24 @@
 import * as React from "react";
-import {
-  ArrowDown,
-  ArrowRight,
-  Folder,
-  MoreHorizontal,
-  PanelRight,
-  PanelRightClose,
-  Square,
-  TriangleAlert,
-  X,
-} from "lucide-react";
+import { Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
-import { Badge } from "@/components/ui/badge";
-
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
+  ContextMeter,
+  MachineOfflineBanner,
+  PermissionModePill,
   TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  TranscriptJumpControl,
+  TranscriptSkeleton,
+  buildTranscriptRows,
+  type PlanActionStream,
+  useTranscriptScroll,
+} from "@agentre-hub/agentre-ui";
+
 import { useCCUsage } from "@/hooks/use-cc-usage";
 import { useChatSession } from "@/hooks/use-chat-session";
-import { useChatStream, type ChatStreamEvent } from "@/hooks/use-chat-stream";
 import { useProjectTree } from "@/hooks/use-project-tree";
 import { useVisibleMessageId } from "@/hooks/use-visible-message-id";
-import i18n from "@/i18n";
 import { reasonToDisplayStatus } from "@/lib/attention-display";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
 import { splitErrorDetail } from "@/lib/error-detail";
-import { isNoticeOnlyMessage } from "@/lib/notice-message";
 import {
   findProjectColorToken,
   findProjectPath,
@@ -58,7 +30,6 @@ import { useSessionAttention } from "@/stores/attention-store";
 import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-tasks-store";
 import {
   sessionStreamMap,
-  streamForMessage,
   useChatStreamsStore,
   type ChatBlockData,
   type LiveStream,
@@ -68,490 +39,69 @@ import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
 import { useSessionConnectionState } from "@/stores/session-conn-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
-import {
-  localCommandRuntimeStore,
-  type LocalCommandRuntimeController,
-} from "@/stores/local-command-runtime-store";
 
 import { useBackendCapabilities } from "./capability/use-backend-capabilities";
 import { useSessionCapabilities } from "./capability/use-session-capabilities";
-import type { PlanActionStream } from "./canonical-tool/props";
 import {
   ChatComposer,
   ChatTranscript,
+  QuotaMeter,
   type ChatComposerHandle,
-  type ChatComposerSubmit,
   type ChatTranscriptHandle,
-  type ChatImageAttachment,
-  type TranscriptLiveContent,
 } from "./chat";
-import type { LocalCommandHistoryScope } from "./chat-input";
 import { ChatContextSidebar } from "./chat-context-sidebar";
+import { ChatPanelHeader } from "./chat-panel/chat-panel-header";
+import { ChatPanelConfirmDialogs } from "./chat-panel/confirm-dialogs";
+import { NewSessionChatGuard } from "./chat-panel/new-session-chat-guard";
+import type { ChatPanelNotice } from "./chat-panel/notice";
+import { ChatPanelNoticeAlert } from "./chat-panel/notice-alert";
+import {
+  markSessionRunning,
+  optimisticAssistantPlaceholder,
+  optimisticUser,
+} from "./chat-panel/optimistic";
+import { SessionLoadError } from "./chat-panel/session-load-error";
+import {
+  applySteerConsumed,
+  applyStreamError,
+  liveContentByMessageId,
+  upsertMessage,
+} from "./chat-panel/stream-view";
+import { useAutonomousTurnEvents } from "./chat-panel/use-autonomous-turn-events";
+import { useChatActions } from "./chat-panel/use-chat-actions";
+import { useLocalCommandLauncher } from "./chat-panel/use-local-command-launcher";
+import { useMessageActions } from "./chat-panel/use-message-actions";
 import { FilePreviewPanel } from "./file-preview/file-preview-panel";
 import {
   clearCatchUp,
   registerTranscriptRowCounter,
   useCatchUpSummary,
-  type CatchUpSummary,
 } from "./chat-panel-catchup-state";
 import { computeComposerContextUsage } from "./chat-panel-context-usage";
-import { blockReasonToCta, navigateToTarget } from "./not-chattable";
-import { PermissionModePill, usePermissionMode } from "./permission-mode";
+import { usePermissionMode } from "./permission-mode";
 import { ProviderPill, useProviderPill } from "./model-pill";
-import {
-  NewSessionExecTargetLine,
-  SessionOfflineBanner,
-} from "./session-exec-target";
+import { NewSessionExecTargetLine } from "./session-exec-target";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
-import { AgentAvatar, DeviceTag, StatusDot } from "./primitives";
 import { QueuedMessagesBar } from "./queued-messages-bar";
-import { BackgroundTasksChip } from "./background-tasks/background-tasks-chip";
-import {
-  loadTranscriptScrollState,
-  nextAutoFollow,
-  saveTranscriptScrollState,
-} from "./chat-panel-scroll-state";
 import { deriveBackgroundTasks } from "./background-tasks/derive";
-import {
-  flipSubagentStatusInMessages,
-  mergeSubagentMetaInMessages,
-} from "./background-tasks/flip-subagent-status";
 import { deriveTaskProgress } from "./task-progress/derive";
 import { TaskProgressBar } from "./task-progress/task-progress-bar";
-import { buildTranscriptRows } from "./transcript-rows";
 import type { AgentColor, AgentStatus } from "./types";
-import { agentTextColorClassName, statusConfig } from "./types";
+import { agentTextColorClassName } from "./types";
 
 import {
-  CancelQueuedChatMessage,
-  ClearChatGoal,
-  CompactChatSession,
-  DeleteChatSession,
-  EditChatMessage,
-  EnqueueChatMessage,
-  GetChatGoal,
-  GetChatLaunchCommand,
   MarkChatSessionRead,
-  PeerRunFresh,
-  EnsureChatSession,
-  RegenerateChatMessage,
-  RenameChatSession,
-  ResolveLocalCommandScope,
-  SendChatMessage,
-  SetChatGoal,
-  StartChatGoal,
   StopBackgroundTask,
-  StopChatMessage,
-  TerminalClose,
-  TerminalRunCommand,
 } from "../../../wailsjs/go/app/App";
-import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
-import { chat_svc } from "../../../wailsjs/go/models";
-import { useLocalCommandsStore } from "@/stores/local-commands-store";
-import { makeStreamDecoder } from "./local-command/decode";
+import type { chat_svc } from "../../../wailsjs/go/models";
 
-type SvcChatMessage = chat_svc.ChatMessage;
 type ChatAgentItem = chat_svc.ChatAgentItem;
 
-type TranscriptScrollSnapshot = {
-  atBottom: boolean;
-  scrollTop: number;
-  // 非贴底时记的锚点:视口顶部那一行的消息 id + 行顶边在视口顶上方的 px +
-  // 行身份(行级虚拟化下长消息拆多行,rowKey 才能钉回同一行)。
-  // 见 computeTopVisibleAnchor / ChatTranscriptHandle.scrollToAnchor。
-  anchorId?: number;
-  anchorOffset?: number;
-  anchorRowKey?: string;
-};
-
-type ScrollMetrics = {
-  clientHeight: number;
-  maxScrollTop: number;
-  scrollHeight: number;
-  scrollTop: number;
-};
-
-type CollapsedScrollRestoreGuard = TranscriptScrollSnapshot & {
-  key: string;
-  minMaxScrollTop: number;
-  until: number;
-};
-
-const TRANSCRIPT_BOTTOM_THRESHOLD = 32;
-export const COLLAPSED_RESTORE_GUARD_MS = 3_000;
-
-function readScrollMetrics(el: HTMLElement): ScrollMetrics {
-  const { clientHeight, scrollHeight, scrollTop } = el;
-  return {
-    clientHeight,
-    maxScrollTop: Math.max(0, scrollHeight - clientHeight),
-    scrollHeight,
-    scrollTop,
-  };
-}
-
-function isTranscriptAtBottom(metrics: ScrollMetrics): boolean {
-  return (
-    metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <=
-    TRANSCRIPT_BOTTOM_THRESHOLD
-  );
-}
-
-function isCollapsedBelowGuard(
-  metrics: ScrollMetrics,
-  guard: CollapsedScrollRestoreGuard,
-): boolean {
-  return (
-    Date.now() <= guard.until && metrics.maxScrollTop < guard.minMaxScrollTop
-  );
-}
-
-// computeTopVisibleAnchor 找滚动容器内"视口顶部那条消息"——即第一条底边已越过视口顶
-// 的 [data-message-id] 行(虚拟列表里 DOM 顺序≈消息顺序,故首条命中即视口顶那条),
-// 返回其 id 与顶边在视口顶上方的 px。非贴底保存时记下它,路由重挂后据此 scrollToAnchor
-// 钉回该消息,避免仅凭像素 scrollTop 在"整列还是 estimate 高度"时落到错消息的漂移。
-// 找不到(无消息行 / 容器未布局)返回 null,调用方退回纯像素快照。
-export function computeTopVisibleAnchor(el: HTMLElement): {
-  anchorId: number;
-  anchorOffset: number;
-  anchorRowKey?: string;
-} | null {
-  const containerTop = el.getBoundingClientRect().top;
-  const rows = el.querySelectorAll<HTMLElement>("[data-message-id]");
-  for (const row of rows) {
-    const rect = row.getBoundingClientRect();
-    if (rect.bottom <= containerTop) continue; // 完全在视口上方,跳过
-    const id = Number(row.getAttribute("data-message-id"));
-    if (!Number.isFinite(id)) continue;
-    // 行级虚拟化下一条消息拆成多行,offset 相对的是「这一行」的顶边 —— 把行身份
-    // (data-row-key)一并记下,恢复端才能钉回同一行而不是塌到消息首行。
-    const rowKey = row.getAttribute("data-row-key");
-    return {
-      anchorId: id,
-      anchorOffset: Math.max(0, containerTop - rect.top),
-      ...(rowKey ? { anchorRowKey: rowKey } : {}),
-    };
-  }
-  return null;
-}
-
-// ─── Optimistic message helpers ─────────────────────────────────────────────
-
-function textOfChatMessage(m: SvcChatMessage): string {
-  for (const b of m.blocks ?? []) {
-    if ((b as { type?: string }).type === "text") {
-      return (b as { text?: string }).text ?? "";
-    }
-  }
-  return "";
-}
-
-// isChatSteerNoActiveError 用 i18n 文案前缀匹配。Wails 把 service 端的
-// i18n.NewError 透传成普通 Error，没有结构化 code，只能按字串识别。
-function isChatSteerNoActiveError(msg: string): boolean {
-  return (
-    msg.includes(
-      i18n.t("chatPanel.errors.noActiveConversation", { lng: "zh-CN" }),
-    ) ||
-    msg.includes(i18n.t("chatPanel.errors.noActiveConversation", { lng: "en" }))
-  );
-}
-
-// isChatStopNoActiveError 同上：后端 ChatStopNoActive 错误码的中英文文案。
-// Stop 与 turn 自然完成发生 race 时（用户点击之后、后端已自清 activeCancels）
-// 会返这条；属于无害的「太晚了」，UI 不弹错。
-function isChatStopNoActiveError(msg: string): boolean {
-  return (
-    msg.includes(
-      i18n.t("chatPanel.errors.noActiveTurnToStop", { lng: "zh-CN" }),
-    ) ||
-    msg.includes(i18n.t("chatPanel.errors.noActiveTurnToStop", { lng: "en" }))
-  );
-}
-
-const TERMINAL_NOT_OPEN_ERROR = "terminal not open";
-
-function isTerminalNotOpenError(error: unknown): boolean {
-  return (
-    error === TERMINAL_NOT_OPEN_ERROR ||
-    (error instanceof Error && error.message === TERMINAL_NOT_OPEN_ERROR)
-  );
-}
-
-function isExactCompactCommand(text: string): boolean {
-  return text.trim() === "/compact";
-}
-
-function isExactNewCommand(text: string): boolean {
-  return text.trim() === "/new";
-}
-
-type GoalCommand =
-  | { kind: "get" }
-  | { kind: "clear" }
-  | { kind: "set"; objective: string }
-  | { kind: "status"; status: "active" | "paused" | "complete" };
-
-function parseGoalCommand(text: string): GoalCommand | null {
-  const trimmed = text.trim();
-  if (trimmed === "/goal") return { kind: "get" };
-  if (!trimmed.startsWith("/goal ")) return null;
-  const arg = trimmed.slice("/goal ".length).trim();
-  if (!arg) return { kind: "get" };
-  switch (arg) {
-    case "clear":
-      return { kind: "clear" };
-    case "pause":
-      return { kind: "status", status: "paused" };
-    case "resume":
-      return { kind: "status", status: "active" };
-    case "complete":
-      return { kind: "status", status: "complete" };
-    default:
-      return { kind: "set", objective: arg };
-  }
-}
-
 const EMPTY_CLEARED: string[] = [];
-
-function optimisticUser(
-  id: number,
-  sid: number,
-  text: string,
-  images: ChatImageAttachment[] = [],
-): SvcChatMessage {
-  const blocks: Array<Record<string, unknown>> = [];
-  if (text) blocks.push({ type: "text", text });
-  for (const image of images) {
-    blocks.push({
-      type: "image",
-      image: {
-        dataUrl: image.dataUrl,
-        mediaType: image.mediaType,
-        name: image.name,
-      },
-    });
-  }
-  return {
-    id,
-    sessionId: sid,
-    role: "user",
-    blocks,
-    model: "",
-    promptTokens: 0,
-    completionTokens: 0,
-    durationMs: 0,
-    errorText: "",
-    seq: 0,
-    createtime: Date.now(),
-  } as unknown as SvcChatMessage;
-}
-
-// markSessionStatus 乐观补一刀 session 状态 —— 后端在这两条路上都没有
-// session_status 事件可跟, 不补的话 tab / toolbar / sidebar 读
-// session-status-store 会一直停在上一状态:
-//   - "running": Send / Regenerate / Edit 成功返回后。后端落库已经是 running,
-//     但 turn 起手不 emit session_status, 不补就停在 idle。
-//   - "error": 自主续轮落库失败时后端只把 error 落了库、经会话级流推一条 error
-//     事件(那条轮压根没有 per-turn 流), 不补就停在 running 空转。
-// permissionMode 取 store 当前值, 避免覆盖刚 set 的 plan/default 等。
-function markSessionStatus(sessionId: number, agentStatus: AgentStatus): void {
-  if (!sessionId) return;
-  const prev = useSessionStatusStore.getState().statuses.get(sessionId);
-  useSessionStatusStore.getState().upsert(sessionId, {
-    agentStatus,
-    needsAttention: false,
-    permissionMode: prev?.permissionMode,
-  });
-}
-
-function markSessionRunning(sessionId: number): void {
-  markSessionStatus(sessionId, "running");
-}
-
-function optimisticAssistantPlaceholder(
-  id: number,
-  sid: number,
-): SvcChatMessage {
-  return {
-    id,
-    sessionId: sid,
-    role: "assistant",
-    blocks: [],
-    model: "",
-    promptTokens: 0,
-    completionTokens: 0,
-    durationMs: 0,
-    errorText: "",
-    seq: 0,
-    createtime: Date.now(),
-  } as unknown as SvcChatMessage;
-}
-
-function upsertMessage(
-  messages: SvcChatMessage[],
-  next: SvcChatMessage,
-): SvcChatMessage[] {
-  const updated = [...messages];
-  const idx = updated.findIndex((m) => m.id === next.id);
-  if (idx >= 0) updated[idx] = next;
-  else updated.push(next);
-  return updated;
-}
-
-function applySteerConsumed(
-  messages: SvcChatMessage[],
-  event: ChatStreamEvent,
-): SvcChatMessage[] {
-  const additions = [
-    ...(event.userMessages ?? []),
-    ...(event.assistantMessage ? [event.assistantMessage] : []),
-  ];
-  const additionIDs = new Set(additions.map((m) => m.id));
-  const next = messages.filter((m) => !additionIDs.has(m.id));
-
-  let anchorIdx = -1;
-  if (event.previousAssistantMessage) {
-    anchorIdx = next.findIndex(
-      (m) => m.id === event.previousAssistantMessage!.id,
-    );
-    if (anchorIdx >= 0) {
-      next[anchorIdx] = event.previousAssistantMessage;
-    } else {
-      next.push(event.previousAssistantMessage);
-      anchorIdx = next.length - 1;
-    }
-  }
-
-  const insertAt = anchorIdx >= 0 ? anchorIdx + 1 : next.length;
-  next.splice(insertAt, 0, ...additions);
-  return next;
-}
-
-function applyStreamError(
-  messages: SvcChatMessage[],
-  message?: SvcChatMessage,
-  error?: string,
-): SvcChatMessage[] {
-  if (message) return upsertMessage(messages, message);
-  if (!error) return messages;
-
-  // 末条**真实** assistant:供应商切换 notice 的旁白行跳过(与 use-chat-session /
-  // ChatTranscript / 后端 lastTurnAssistantIndex 同一口径)。轮中切换供应商会把它排在
-  // 在跑的那条之后,errorText 落到旁白行 = 出错的那一轮看着没出错、旁白行反而红了。
-  let idx = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (isNoticeOnlyMessage(messages[i])) continue;
-    if (messages[i].role === "assistant") {
-      idx = i;
-      break;
-    }
-  }
-  if (idx < 0) return messages;
-
-  const updated = [...messages];
-  updated[idx] = { ...updated[idx], errorText: error } as SvcChatMessage;
-  return updated;
-}
-
-// liveContentByMessageId 把该会话此刻在流的内容摊成「assistant 消息 id → 流式内容」。
-// 渲染路径与补齐行数快照路径共用一份 —— 后者拿的是 store 的即时快照(见
-// registerTranscriptRowCounter 处的注释),两处若各拼各的,数出来的行与画出来的行
-// 就会在某个细节上分家。
-function liveContentByMessageId(
-  sessionStreams: ReadonlyMap<number, LiveStream> | null,
-): Map<number, TranscriptLiveContent> {
-  const out = new Map<number, TranscriptLiveContent>();
-  if (!sessionStreams) return out;
-  for (const s of sessionStreams.values()) {
-    out.set(s.assistantMessageId, {
-      liveTail: s.liveDelta,
-      liveThinking: s.liveThinking,
-      liveThinkingStartedAt: s.streamStartedAt,
-      liveBlocks: s.liveBlocks,
-      liveRetry: s.liveRetry,
-    });
-  }
-  return out;
-}
 
 // EMPTY_AUTONOMOUS_IDS:行数快照不关心「哪条消息是自主续轮」——那只影响首行要不要
 // 挂 banner,不改行数。渲染路径自己会算真值。
 const EMPTY_AUTONOMOUS_IDS: ReadonlySet<number> = new Set<number>();
-
-// TranscriptJumpControl 是转录区底部浮出的那枚控件。
-//
-// 没有未看的补齐时,它就是原来的「回到底部」圆钮;补齐把内容悄悄堆高之后,它长成
-// 一枚带文字的药丸,写明新增了多少条 —— 用户的滚动位置没被夺走,但他得看得见
-// 下面多了东西。补齐里还有没回答的待决策时再补一段「N 项待处理」:待决策一旦
-// 埋进上百条补齐内容中间,不写在这里就等于没人知道。
-// 那段必须是文字:状态色点只是修饰,颜色不能是信息的唯一载体(docs/design.md 无障碍)。
-//
-// newRows 为 0 的那一支同样浮出控件:补齐把上千条 delta 全追加进了还在流的那一行,
-// 行数没变但内容确实多了(R14 只要求「补齐产生了新内容」)。此时报不出条数,就只说
-// 有新内容 —— 与其编一个数字,不如少说一句。
-function TranscriptJumpControl({
-  catchUp,
-  onJump,
-}: {
-  catchUp: CatchUpSummary | null;
-  onJump: () => void;
-}): React.ReactElement {
-  const { t } = useTranslation();
-  const floating =
-    "sticky bottom-4 z-20 ml-auto flex rounded-full bg-background shadow-md hover:shadow-lg dark:bg-background animate-in fade-in slide-in-from-bottom-1 duration-200 ease-out motion-reduce:animate-none";
-
-  if (!catchUp) {
-    return (
-      <Button
-        type="button"
-        data-testid="back-to-bottom-button"
-        variant="outline"
-        size="icon-sm"
-        aria-label={t("chatPanel.scroll.backToBottom")}
-        title={t("chatPanel.scroll.backToBottom")}
-        onClick={onJump}
-        className={floating}
-      >
-        <ArrowDown data-icon="only" aria-hidden="true" />
-      </Button>
-    );
-  }
-
-  // 不加 aria-label:按钮的可访问名就是这些文字本身,条数与待处理项数因此一并被读出。
-  return (
-    <Button
-      type="button"
-      data-testid="jump-to-latest-button"
-      variant="outline"
-      size="sm"
-      title={t("chatPanel.scroll.jumpToLatest")}
-      onClick={onJump}
-      className={cn(floating, "w-fit")}
-    >
-      <ArrowDown aria-hidden="true" />
-      <span>
-        {catchUp.newRows > 0
-          ? t("chatPanel.scroll.caughtUpCount", { count: catchUp.newRows })
-          : t("chatPanel.scroll.caughtUpSome")}
-      </span>
-      {catchUp.pendingDecisions > 0 ? (
-        <span
-          data-testid="jump-to-latest-pending"
-          className="flex items-center gap-1 text-status-waiting"
-        >
-          <span
-            aria-hidden="true"
-            className="size-1.5 rounded-full bg-status-waiting"
-          />
-          {t("chatPanel.scroll.pendingCount", {
-            count: catchUp.pendingDecisions,
-          })}
-        </span>
-      ) : null}
-    </Button>
-  );
-}
 
 // ─── ChatPanel ───────────────────────────────────────────────────────────────
 
@@ -589,59 +139,6 @@ type ChatPanelProps = {
   /** 当前 mounted tab 的稳定 id。用于跨路由 remount 恢复滚动；关闭 tab 后新 id 不复用。*/
   scrollStateKey?: string;
 };
-
-/** 不可对话 Agent 新会话 tab 的内联引导块（组 4B）：复用任务 2 的徽标 / 原因 / CTA
- *  文案与跳转语义，渲染在输入框上方；按钮走 navigateToTarget 与引导弹窗一致。 */
-function NewSessionChatGuard({ agent }: { agent: ChatAgentItem }) {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const cta = blockReasonToCta(agent.blockReason ?? "");
-  const reasonKey = cta.copyKey;
-  return (
-    <div
-      className="mx-5 mb-2 flex flex-col items-start gap-2 rounded-lg border border-status-waiting/40 bg-status-waiting-bg px-4 py-3"
-      data-testid="new-session-guard"
-      role="alert"
-      aria-live="polite"
-    >
-      <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-        <Badge
-          variant="outline"
-          className="border-status-waiting/40 bg-background px-1.5 py-0 text-2xs text-foreground"
-        >
-          {agent.blockReason === "no-backend"
-            ? t("agentList.backendNotConfigured")
-            : t("agentList.notConfigured")}
-        </Badge>
-        {t("chatPanel.newSession.guard.title", { name: agent.name })}
-      </div>
-      <div className="text-xs leading-relaxed text-muted-foreground">
-        {t(`${reasonKey}.description`, { name: agent.name })}
-      </div>
-      <div className="flex items-center gap-4">
-        <Button
-          type="button"
-          size="sm"
-          onClick={() =>
-            navigateToTarget(navigate, cta.primaryTarget, agent.id)
-          }
-        >
-          {t(cta.primaryLabel)}
-        </Button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 text-xs font-medium text-primary-text hover:underline"
-          onClick={() =>
-            navigateToTarget(navigate, "settings:agent-backend", agent.id)
-          }
-        >
-          {t(cta.secondaryLabel)}
-          <ArrowRight className="size-3" aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function ChatPanel({
   sessionId,
@@ -690,41 +187,7 @@ function ChatPanel({
   const doneTick = liveStatus?.doneTick ?? 0;
   const lastDoneEvent = liveStatus?.lastDoneEvent ?? null;
 
-  const [pendingRegenId, setPendingRegenId] = React.useState<number | null>(
-    null,
-  );
-  const [pendingDeleteId, setPendingDeleteId] = React.useState<number | null>(
-    null,
-  );
-  // pendingRename 取代旧 window.prompt：null = 未弹窗；非空 = 显示 Dialog + Input。
-  // draft 跟随用户在 Input 里的输入；提交时调 RenameChatSession，关闭时清空。
-  const [pendingRename, setPendingRename] = React.useState<{
-    id: number;
-    draft: string;
-  } | null>(null);
-  // notice 取代旧 window.alert：所有 RPC 失败 / 重要提示统一渲染成 composer 上方的内联 Alert。
-  // kind=info 用于成功后的提醒（带 token 复制等），error 用于失败；用户点 × 关闭即可。
-  const [notice, setNotice] = React.useState<{
-    kind: "error" | "info";
-    text: string;
-    detail?: string;
-    // 发送失败草稿保留后的补救动作:Retry 重发同一条消息,Discard 清掉恢复的草稿。
-    actions?: {
-      retry: () => void;
-      discard: () => void;
-    };
-  } | null>(null);
-  // 「编辑用户消息」：点编辑后把目标消息文本直接载入 Composer。带 sessionId 在切换会话
-  // 时自动失效，免得弄个 useEffect 在会话切换时手动 setState 一遍。
-  const [editingMessage, setEditingMessage] = React.useState<{
-    sessionId: number;
-    messageId: number;
-    text: string;
-  } | null>(null);
-  const activeEditing =
-    editingMessage && editingMessage.sessionId === sessionId
-      ? editingMessage
-      : null;
+  const [notice, setNotice] = React.useState<ChatPanelNotice | null>(null);
   // R15a 手动指定执行目标：只在空会话态（showNewSessionPrompt）生效的瞬态选择，
   // 随首发 Send 透传给后端（SendRequest.ExecTargetOverride，与 ModelOverride 同一
   // 条规则）。每个 tab 独立的 ChatPanel 实例天然随 tab 切换重新挂载，不需要额外
@@ -757,172 +220,26 @@ function ChatPanel({
     loading: sessionLoading,
     error: sessionError,
     reload: reloadSession,
+    hasEarlierBlocks,
+    loadingEarlierBlocks,
+    loadEarlierBlocks,
   } = useChatSession(sessionId);
   // ChatComposer 命令式句柄:doSend 失败时用它恢复草稿（restoreDraft）/ 丢弃草稿
   // （clearDraft）。ChatComposer 内部已清空输入框,不恢复用户刚打的内容会永久丢失。
   const composerRef = React.useRef<ChatComposerHandle>(null);
-  // 发送 RPC 在途标记:传给 ChatComposer 让发送按钮禁用 + spinner（乐观反馈的
-  // 轻量实现;真正的乐观气泡需要临时行回收,在本文件消息模型下风险过高,见任务说明）。
+  // 发送 RPC 在途时禁用发送按钮并显示 spinner。
   const [sendInFlight, setSendInFlight] = React.useState(false);
-  const ensuredLocalCommandSessionRef = React.useRef<{
-    agentId: number;
-    projectId: number;
-    promise: Promise<number>;
-    requestId: number;
-  } | null>(null);
-  const ensuredLocalCommandSessionRequestRef = React.useRef(0);
-  const handleStopLocalCommand = React.useCallback(
-    async (terminalId: string) => {
-      const delegated = await localCommandRuntimeStore.stop(terminalId);
-      if (
-        !delegated &&
-        useLocalCommandsStore.getState().get(terminalId)?.status === "running"
-      ) {
-        console.error(
-          "[chat] stop local command failed: runtime controller missing",
-          { terminalId },
-        );
-      }
-    },
-    [],
-  );
 
   const { reason: attentionReason } = useSessionAttention(sessionId);
 
-  // ── 自主续轮(后台任务完成,CLI 自主跑的一轮)的会话级旁路订阅 ──
-  // per-turn 流名只有用户 Send 才会从后端响应里拿到;自主轮没有这个入口,所以后端
-  // 经会话级事件 "chat:autonomous:<sessionId>"(后端 AutonomousEventPrefix)推一帧
-  // StreamAutonomousStarted。收到后:乐观翻 running + 插入新 assistant 行 + openStream
-  // 订阅该自主轮的 per-turn 流,让它像普通 turn 一样实时渲染。后续 chunk/done 与
-  // StreamDone→reloadSession 都复用既有路径,自主轮无需任何特殊渲染分支。
-  // completedTask: 若事件携带后台任务身份,立即把对应 live tool_use block 的
-  // subagent.status 翻成终态,刷新后台任务面板胶囊。
-  // subagent_activity_started: 后台 subagent 开始产生内部活动(本地 claudecode 专有)。
-  // 重开发起消息已有的 per-turn 流把嵌套块渲染回 AgentSpawnCard;不新建消息行,
-  // session 保持 idle 态。remote claudecode 目前不发此事件。
-  const onAutonomousEvent = React.useCallback(
-    (ev: ChatStreamEvent) => {
-      // subagent_activity_started: 后台 subagent 开始产生内部活动。
-      // 只重开发起消息的流（openStream 绑到已存在的 launchMessageId）；
-      // 不插入新消息行，不把 session 翻成 running（后台工作保持 idle 态）。
-      if (ev.kind === "subagent_activity_started") {
-        if (!ev.stream || !ev.launchMessageId) return;
-        openStream({
-          name: ev.stream,
-          sessionId,
-          assistantMessageId: ev.launchMessageId,
-          streamStartedAt: Date.now(),
-        });
-        return;
-      }
-      // subagent_started/progress/done:后端在 per-turn 流之外镜像到会话级流的那一份。
-      // 空闲态后台 subagent 的派遣卡早已落进 messages，ChatStreamsHost 那条只翻
-      // liveBlocks 的路径必然落空 —— 卡片上的工具数 / token 会一直停在派遣那一刻
-      // (sess-2275)。这里就地合并进 messages，与 completedTask 翻状态同一套做法。
-      if (
-        ev.kind === "subagent_started" ||
-        ev.kind === "subagent_progress" ||
-        ev.kind === "subagent_done"
-      ) {
-        if (!ev.toolUseId || !ev.subagent) return;
-        const { toolUseId, subagent } = ev;
-        setMessages((prev) =>
-          mergeSubagentMetaInMessages(prev, toolUseId, subagent),
-        );
-        return;
-      }
-      // subagent_model:同上,会话级流镜像的模型事件(R2)只带 toolUseId + model 两个
-      // 字段(不复用整份 Subagent 快照)——避免浅合并把已累计的 toolUses/totalTokens/
-      // status 覆盖成空值(R4)。
-      if (ev.kind === "subagent_model") {
-        if (!ev.toolUseId || !ev.model) return;
-        const { toolUseId, model } = ev;
-        setMessages((prev) =>
-          mergeSubagentMetaInMessages(prev, toolUseId, {
-            model,
-          } as chat_svc.ChatBlockSubagent),
-        );
-        return;
-      }
-      // autonomous_finished:自主轮 / 后台 subagent 活动轮收尾时会话级流补发的终态兜底。
-      // per-turn 流的 openStream(ChatPanel)与 EventsOn 订阅(ChatStreamsHost)跨 render 解耦,
-      // 短轮的 per-turn done/closed 可能赶在订阅注册前发完被漏掉 → LiveStream 永远留在 store
-      // → streaming 卡死(发不出消息 / 空 assistant 行不回填)。会话级流常驻订阅、无此 race,
-      // 据 launchMessageId 兜底 finishStream。幂等:per-turn done 已被收到时该流已不在,
-      // streamForMessage 命中空直接跳过,不重复 bumpDone。
-      if (ev.kind === "autonomous_finished") {
-        const mid = ev.launchMessageId;
-        if (!mid) return;
-        const streamsState = useChatStreamsStore.getState();
-        if (streamForMessage(streamsState, sessionId, mid)) {
-          streamsState.finishStream(sessionId, mid, { kind: "done" });
-        }
-        return;
-      }
-      // error:自主续轮的 assistant 消息落库最终失败,后端已把会话翻 error、丢弃这一轮
-      // 并中断 CLI 那一轮(见 docs/specs/2026-08-07-autonomous-turn-resilience.md
-      // 「自主续轮落库失败时的可观察结果」)。失败的正是**建 assistant 行**那次写,所以
-      // 这一轮既没有消息行也没有 per-turn 流 —— ChatStreamsHost 按 assistantMessageId
-      // 收口的 error 路径接不住,只能就地渲染成 composer 上方的 notice。文案是后端
-      // mapTurnError 给的动态文本(与用户发起的轮次同一套),不进 i18n。
-      if (ev.kind === "error") {
-        if (!ev.error) return;
-        const { msg, detail } = splitErrorDetail(ev.error);
-        setNotice({ kind: "error", text: msg, detail });
-        markSessionStatus(sessionId, "error");
-        return;
-      }
-      if (ev.kind !== "autonomous_started") {
-        return;
-      }
-      // 先翻转后台任务状态 (completedTask 可能在没有 assistantMessage 时也存在)。
-      // 后台任务完成是跨轮的:发起它的主轮早已结束,那条 tool_use block 已从 liveBlocks
-      // 落进 messages。mergeSubagentMeta 只翻 liveBlocks(覆盖极少数仍在流的竞态),真正
-      // 命中的是 messages —— 必须一并翻,否则面板胶囊 + 行内 pill 永远 spin (bug #2)。
-      if (ev.completedTask?.toolUseId) {
-        const { toolUseId, status, summary } = ev.completedTask;
-        // 发起该后台任务的那条 tool_use 可能还挂在本会话任意一条在流的消息上
-        // (哪条不确定,后台任务是跨轮的),逐条流试着翻一遍;真正命中的多半是
-        // 下面的 messages。store 对未知 toolUseId 是 no-op。
-        const streamsState = useChatStreamsStore.getState();
-        for (const mid of streamsState.streams.get(sessionId)?.keys() ?? []) {
-          streamsState.mergeSubagentMeta(sessionId, mid, toolUseId, {
-            status,
-            summary,
-          } as chat_svc.ChatBlockSubagent);
-        }
-        setMessages((prev) =>
-          flipSubagentStatusInMessages(prev, toolUseId, status, summary),
-        );
-      }
-      if (!ev.assistantMessage || !ev.stream) {
-        return;
-      }
-      const amsg = ev.assistantMessage;
-      markSessionRunning(sessionId);
-      openStream({
-        name: ev.stream,
-        sessionId,
-        assistantMessageId: amsg.id,
-        streamStartedAt: Date.now(),
-      });
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === amsg.id)) return prev;
-        // R18:浏览器在空闲会话上「开新一轮」跑起的一轮,daemon 把发起方用户消息随
-        // StreamAutonomousStarted 的 userMessages 带出 —— 先插 user 行再插 assistant,
-        // 否则桌面端看到的又是「没有提问的回复」。来源标识在消息 DTO 上,转录渲染层
-        // 复用 chat.message.fromDevice 的 inline pill(本机消息无 sourceDevice,零变化)。
-        const userMsgs = ev.userMessages ?? [];
-        const additions = [...userMsgs, amsg];
-        return [...prev, ...additions];
-      });
-    },
-    [sessionId, openStream, setMessages],
-  );
-  useChatStream(
-    sessionId ? `chat:autonomous:${sessionId}` : null,
-    onAutonomousEvent,
-  );
+  // 自主续轮(后台任务完成后 CLI 自己跑的一轮)与后台 subagent 活动轮的会话级旁路
+  // 订阅整块住在 useAutonomousTurnEvents 里。
+  useAutonomousTurnEvents({
+    sessionId,
+    openStream,
+    setMessages,
+    setNotice,
+  });
 
   // ── 内部派生 breadcrumb（从 session.projectId + useProjectTree）──
   const { tree } = useProjectTree();
@@ -966,236 +283,12 @@ function ChatPanel({
   // 由用户决定去留。真正的删除流（confirmDelete）才调 onSessionDeleted。
 
   // ── Transcript 滚动跟随 ──
-  // atBottomRef = 用户上次滚动后是否停在底部附近（32px 容差）。
-  // 新内容到达时只有"在底部"才自动跟随，否则保持当前位置不打扰用户阅读。
-  const transcriptRef = React.useRef<HTMLElement>(null);
+  // 滚动几何(贴底跟随意图 / 折叠恢复守卫 / 快照存取 / 回到底部 / 下面还有 N 轮)整块
+  // 住在共享包的 useTranscriptScroll 里 —— 那是纯 DOM 工作,不认 Wails 也不认 store。
+  // 这里只留转录渲染器的句柄;接线在下面 liveByMessageId 备好之后。
   const transcriptHandleRef = React.useRef<ChatTranscriptHandle>(null);
-  const [transcriptElement, setTranscriptElement] =
-    React.useState<HTMLElement | null>(null);
-  const atBottomRef = React.useRef(true);
-  // autoFollowRef = 「贴底跟随意图」,与 atBottomRef(纯位置:距底 ≤32px)不同 ——
-  // 它对「内容增长把底部推远」免疫,只有用户主动上滚才置 false、滚回底部再置 true。
-  // 流式逐 chunk 的贴底必须用它做闸:位置式 atBottomRef 在内容增长快过滚动时(正是
-  // 流式)会被误判成"用户离开了底部"而永久关掉跟随,导致转录区冻结、输出沉到折叠线下。
-  const autoFollowRef = React.useRef(true);
-  // 记录上一次滚动后的 scrollTop,用来区分「用户上滚(scrollTop 变小)」与「内容增长/
-  // 程序化贴底(scrollTop 不变或变大)」—— 只有前者才解除 autoFollow。
-  const lastScrollTopRef = React.useRef(0);
-  const [showBackToBottom, setShowBackToBottom] = React.useState(() => {
-    const saved = loadTranscriptScrollState(scrollStateKey);
-    return Boolean(saved && !saved.atBottom);
-  });
-  const restoredScrollStateKeyRef = React.useRef<string | null>(null);
-  const pendingScrollRestoreRef = React.useRef<{
-    key: string;
-    scrollTop: number;
-  } | null>(null);
-  const collapsedScrollSaveGuardRef =
-    React.useRef<CollapsedScrollRestoreGuard | null>(null);
-  const collapsedRestoreFrameRef = React.useRef<number | null>(null);
-  const collapsedRestoreTimerRef = React.useRef<number | null>(null);
   const sidebarOpen = useChatSidebarStore((s) => s.open);
   const setSidebarOpen = useChatSidebarStore((s) => s.setOpen);
-  // 右侧 outline 高亮联动：跟踪 transcript 当前视野焦点对应的 message id。
-  const activeMessageId = useVisibleMessageId(transcriptRef);
-
-  const cancelCollapsedRestoreFrame = React.useCallback(() => {
-    if (collapsedRestoreFrameRef.current == null) return;
-    window.cancelAnimationFrame(collapsedRestoreFrameRef.current);
-    collapsedRestoreFrameRef.current = null;
-  }, []);
-
-  const setTranscriptPaintSuppressed = React.useCallback(
-    (suppressed: boolean) => {
-      const el = transcriptRef.current;
-      if (!el) return;
-      el.style.visibility = suppressed ? "hidden" : "";
-    },
-    [],
-  );
-
-  const cancelCollapsedRestoreTimer = React.useCallback(() => {
-    if (collapsedRestoreTimerRef.current == null) return;
-    window.clearTimeout(collapsedRestoreTimerRef.current);
-    collapsedRestoreTimerRef.current = null;
-  }, []);
-
-  // releaseCollapsedGuard 是「结束这次抑制」的唯一出口:清 guard、让转录区恢复可见、
-  // 停掉 rAF 收敛循环与期限定时器。收尾以前在两个分支里逐行重复,漏一行就会把
-  // 转录区留在 visibility:hidden 上。
-  const releaseCollapsedGuard = React.useCallback(() => {
-    collapsedScrollSaveGuardRef.current = null;
-    setTranscriptPaintSuppressed(false);
-    cancelCollapsedRestoreFrame();
-    cancelCollapsedRestoreTimer();
-  }, [
-    cancelCollapsedRestoreFrame,
-    cancelCollapsedRestoreTimer,
-    setTranscriptPaintSuppressed,
-  ]);
-
-  const saveScrollSnapshot = React.useCallback(
-    (snapshot: TranscriptScrollSnapshot) => {
-      atBottomRef.current = snapshot.atBottom;
-      setShowBackToBottom(!snapshot.atBottom);
-      saveTranscriptScrollState(scrollStateKey, snapshot);
-    },
-    [scrollStateKey],
-  );
-
-  const restoreCollapsedScrollPosition = React.useCallback(() => {
-    const guard = collapsedScrollSaveGuardRef.current;
-    if (!guard || guard.key !== scrollStateKey) return false;
-    const el = transcriptRef.current;
-    if (!el) return false;
-    const metrics = readScrollMetrics(el);
-    if (metrics.maxScrollTop >= guard.minMaxScrollTop) {
-      const nextScrollTop = guard.atBottom
-        ? metrics.maxScrollTop
-        : guard.scrollTop;
-      el.scrollTop = nextScrollTop;
-      saveScrollSnapshot({
-        atBottom: guard.atBottom,
-        scrollTop: nextScrollTop,
-      });
-      releaseCollapsedGuard();
-      return true;
-    }
-    if (Date.now() <= guard.until) return false;
-    releaseCollapsedGuard();
-    return false;
-  }, [releaseCollapsedGuard, scrollStateKey, saveScrollSnapshot]);
-
-  const startCollapsedRestoreLoop = React.useCallback(() => {
-    cancelCollapsedRestoreFrame();
-    const tick = () => {
-      collapsedRestoreFrameRef.current = null;
-      const guard = collapsedScrollSaveGuardRef.current;
-      if (!guard || guard.key !== scrollStateKey) return;
-      if (restoreCollapsedScrollPosition()) return;
-      if (collapsedScrollSaveGuardRef.current?.key !== scrollStateKey) return;
-      collapsedRestoreFrameRef.current = window.requestAnimationFrame(tick);
-    };
-    collapsedRestoreFrameRef.current = window.requestAnimationFrame(tick);
-  }, [
-    cancelCollapsedRestoreFrame,
-    scrollStateKey,
-    restoreCollapsedScrollPosition,
-  ]);
-
-  React.useEffect(
-    () => () => {
-      cancelCollapsedRestoreFrame();
-      cancelCollapsedRestoreTimer();
-    },
-    [cancelCollapsedRestoreFrame, cancelCollapsedRestoreTimer],
-  );
-
-  const saveBottomScrollPosition = React.useCallback(
-    (metrics: ScrollMetrics) => {
-      const el = transcriptRef.current;
-      if (!el) return;
-      el.scrollTop = metrics.maxScrollTop;
-      saveScrollSnapshot({ atBottom: true, scrollTop: el.scrollTop });
-    },
-    [saveScrollSnapshot],
-  );
-
-  const skipWhileCollapsedHeight = React.useCallback(
-    (metrics: ScrollMetrics) => {
-      const guard = collapsedScrollSaveGuardRef.current;
-      if (!guard || guard.key !== scrollStateKey) return false;
-      return isCollapsedBelowGuard(metrics, guard);
-    },
-    [scrollStateKey],
-  );
-
-  const armCollapsedScrollRestore = React.useCallback(
-    (saved: TranscriptScrollSnapshot) => {
-      const guard: CollapsedScrollRestoreGuard = {
-        atBottom: saved.atBottom,
-        key: scrollStateKey ?? "",
-        minMaxScrollTop: Math.max(
-          0,
-          saved.scrollTop - TRANSCRIPT_BOTTOM_THRESHOLD,
-        ),
-        scrollTop: saved.scrollTop,
-        until: Date.now() + COLLAPSED_RESTORE_GUARD_MS,
-      };
-      collapsedScrollSaveGuardRef.current = guard;
-      setTranscriptPaintSuppressed(true);
-      startCollapsedRestoreLoop();
-      // guard.until 只在 restoreCollapsedScrollPosition 里被比较,而那个函数只有两个
-      // 调用方:rAF 收敛循环,和用户滚动。rAF 在窗口被遮挡 / 不在前台时会整段停摆
-      // (本地实测 Chromium 停过 6.4s,同期 longtask 最长 143ms —— 是节流不是阻塞),
-      // 于是期限永远等不到被检查:转录区无限期停在 visibility:hidden,只有用户滚一下
-      // 才解除。所以期限得有自己的定时器 —— setTimeout 同样会被节流,但只是被钳到
-      // ~1s 量级,不会停摆。
-      cancelCollapsedRestoreTimer();
-      collapsedRestoreTimerRef.current = window.setTimeout(() => {
-        collapsedRestoreTimerRef.current = null;
-        // 期间又 arm 过一次(切走再切回)→ 那次有自己的定时器,这枚过期的不许收尾。
-        if (collapsedScrollSaveGuardRef.current !== guard) return;
-        releaseCollapsedGuard();
-      }, COLLAPSED_RESTORE_GUARD_MS);
-    },
-    [
-      cancelCollapsedRestoreTimer,
-      releaseCollapsedGuard,
-      scrollStateKey,
-      setTranscriptPaintSuppressed,
-      startCollapsedRestoreLoop,
-    ],
-  );
-
-  const handleTranscriptScroll = React.useCallback(() => {
-    const el = transcriptRef.current;
-    if (!el) return;
-    const metrics = readScrollMetrics(el);
-    // prevScrollTop 留给 nextAutoFollow 区分「用户上滚」与「内容增长/程序化贴底」。
-    const prevScrollTop = lastScrollTopRef.current;
-    lastScrollTopRef.current = metrics.scrollTop;
-    const guard = collapsedScrollSaveGuardRef.current;
-    if (guard && guard.key === scrollStateKey) {
-      if (restoreCollapsedScrollPosition()) return;
-      if (skipWhileCollapsedHeight(metrics)) return;
-    }
-    const saved = loadTranscriptScrollState(scrollStateKey);
-    if (
-      saved?.atBottom &&
-      metrics.maxScrollTop > saved.scrollTop + TRANSCRIPT_BOTTOM_THRESHOLD &&
-      metrics.scrollTop <= saved.scrollTop + TRANSCRIPT_BOTTOM_THRESHOLD
-    ) {
-      el.scrollTop = metrics.maxScrollTop;
-      saveScrollSnapshot({ atBottom: true, scrollTop: metrics.maxScrollTop });
-      autoFollowRef.current = true;
-      lastScrollTopRef.current = metrics.maxScrollTop;
-      return;
-    }
-    const atBottom = isTranscriptAtBottom(metrics);
-    autoFollowRef.current = nextAutoFollow({
-      prev: autoFollowRef.current,
-      prevScrollTop,
-      scrollTop: metrics.scrollTop,
-      atBottom,
-    });
-    // 非贴底才记锚点(贴底走 followOnAppend / 结构性 follow 还原,不需要)。
-    const anchor = atBottom ? null : computeTopVisibleAnchor(el);
-    saveScrollSnapshot({
-      atBottom,
-      scrollTop: metrics.scrollTop,
-      ...(anchor ?? {}),
-    });
-  }, [
-    restoreCollapsedScrollPosition,
-    saveScrollSnapshot,
-    scrollStateKey,
-    skipWhileCollapsedHeight,
-  ]);
-  const setTranscriptNode = React.useCallback((node: HTMLElement | null) => {
-    transcriptRef.current = node;
-    setTranscriptElement(node);
-  }, []);
 
   // ── 当前选中会话的派生视图 ──
   // 没有 LiveStream entry 表示该会话当前不在生成中；UI 的 typing indicator /
@@ -1207,6 +300,33 @@ function ChatPanel({
     () => liveContentByMessageId(sessionStreams),
     [sessionStreams],
   );
+
+  // 宿主只递 tab / 活跃态 / 消息与流式内容的身份进去,并把锚点恢复转交给转录渲染器
+  // (只有虚拟器知道某条消息此刻落在哪一行)。
+  const {
+    followBottom: followTranscriptBottom,
+    onScroll: handleTranscriptScroll,
+    scrollElement: transcriptElement,
+    scrollRef: transcriptRef,
+    scrollToBottom: handleBackToBottom,
+    setScrollElement: setTranscriptNode,
+    showBackToBottom,
+    turnsBelow,
+  } = useTranscriptScroll({
+    active,
+    liveRevision: liveByMessageId,
+    messages,
+    scrollToAnchor: (anchorId, anchorOffset, anchorRowKey) =>
+      transcriptHandleRef.current?.scrollToAnchor(
+        anchorId,
+        anchorOffset,
+        anchorRowKey,
+      ) ?? false,
+    sessionId,
+    tabKey: scrollStateKey,
+  });
+  // 右侧 outline 高亮联动：跟踪 transcript 当前视野焦点对应的 message id。
+  const activeMessageId = useVisibleMessageId(transcriptRef);
   // 全部在流的 liveBlocks 拍平 —— 后台任务面板 / task-progress 是**会话级**视图,
   // 用户轮和后台流里起的任务都要收进来。
   const allLiveBlocks = React.useMemo(() => {
@@ -1238,76 +358,23 @@ function ChatPanel({
   // (已存在的会话),sessionId=0 新建态回退到 newSessionAgent —— 否则远端 agent 起的
   // 新会话还没发送时,quotaDeviceKey 会落到 "local" 把桌面本机配额错画上去。
   const activeDeviceID = session?.deviceID ?? newSessionAgent?.deviceID ?? "";
-  const [localCommandHistoryScope, setLocalCommandHistoryScope] =
-    React.useState<LocalCommandHistoryScope>();
-  const [localCommandScopeRefreshTick, setLocalCommandScopeRefreshTick] =
-    React.useState(0);
-  const localCommandScopeResolutionRef = React.useRef(0);
-  const commandScopeSessionId = sessionId > 0 ? sessionId : 0;
-  const commandScopeAgentId =
-    commandScopeSessionId === 0 ? (newSessionAgent?.id ?? 0) : 0;
-  const commandScopeProjectId =
-    commandScopeSessionId === 0 ? (newSessionContext?.projectId ?? 0) : 0;
-  const commandScopeTargetAgentId =
-    commandScopeSessionId > 0 ? (session?.agentId ?? 0) : commandScopeAgentId;
-  const commandScopeTargetBackendType =
-    commandScopeSessionId > 0
-      ? (session?.backendType ?? "")
-      : (newSessionAgent?.backendType ?? "");
-  const commandScopeTargetCwd =
-    commandScopeSessionId > 0 ? (session?.cwd ?? "") : composerCwd;
-  const commandScopeTargetDeviceId =
-    commandScopeSessionId > 0
-      ? (session?.deviceID ?? "")
-      : (newSessionAgent?.deviceID ?? "");
-  const commandScopeTargetProjectId =
-    commandScopeSessionId > 0
-      ? (session?.projectId ?? 0)
-      : commandScopeProjectId;
-  React.useLayoutEffect(() => {
-    const resolutionID = ++localCommandScopeResolutionRef.current;
-    setLocalCommandHistoryScope(undefined);
-    if (commandScopeSessionId <= 0 && commandScopeAgentId <= 0) return;
-
-    const request: chat_svc.ResolveLocalCommandScopeRequest = {
-      sessionId: commandScopeSessionId,
-      agentId: commandScopeAgentId,
-      projectId: commandScopeProjectId,
-    };
-    void (async () => {
-      try {
-        const scope = await ResolveLocalCommandScope(request);
-        if (localCommandScopeResolutionRef.current !== resolutionID) return;
-        setLocalCommandHistoryScope({
-          deviceId: scope.deviceId,
-          cwd: scope.cwd,
-        });
-      } catch {
-        if (localCommandScopeResolutionRef.current !== resolutionID) return;
-        setLocalCommandHistoryScope(undefined);
-      }
-    })();
-    return () => {
-      if (localCommandScopeResolutionRef.current === resolutionID) {
-        localCommandScopeResolutionRef.current += 1;
-      }
-    };
-  }, [
-    // These target scalars are refresh signals only. History scope is always
-    // the resolver response above, never a frontend-derived device/cwd fallback.
-    commandScopeAgentId,
-    commandScopeProjectId,
-    commandScopeSessionId,
-    commandScopeTargetAgentId,
-    commandScopeTargetBackendType,
-    commandScopeTargetCwd,
-    commandScopeTargetDeviceId,
-    commandScopeTargetProjectId,
-    localCommandScopeRefreshTick,
-  ]);
-  const handleLocalCommandModeChange = React.useCallback((active: boolean) => {
-    if (active) setLocalCommandScopeRefreshTick((tick) => tick + 1);
-  }, []);
+  // 本地命令那一族(起停 PTY、命令卡结算、命令历史检索范围、未首发会话的惰性建会
+  // 话)整块住在 useLocalCommandLauncher 里。
+  const {
+    localCommandHistoryScope,
+    handleLocalCommandModeChange,
+    handleStopLocalCommand,
+    runLocalCommand,
+  } = useLocalCommandLauncher({
+    sessionId,
+    session,
+    newSessionAgent,
+    newSessionProjectId: newSessionContext?.projectId,
+    composerCwd,
+    onSessionCreated,
+    onSidebarShouldReload,
+    setNotice,
+  });
   const activeDeviceName =
     session?.deviceName ?? newSessionAgent?.deviceName ?? "";
   const quotaDeviceKey =
@@ -1454,163 +521,76 @@ function ChatPanel({
     onSwitched: () => void reloadSession(),
   });
 
+  // 重生成 / 编辑 / 删除 / 改名这一族(确认弹窗 state + RPC + 乐观截断重排)整块
+  // 住在 useMessageActions 里。
+  const {
+    pendingRegenId,
+    setPendingRegenId,
+    handleRegenerate,
+    confirmRegenerate,
+    pendingDeleteId,
+    setPendingDeleteId,
+    handleDelete,
+    confirmDelete,
+    pendingRename,
+    setPendingRename,
+    confirmRename,
+    activeEditing,
+    setEditingMessage,
+    handleEdit,
+    confirmEdit,
+  } = useMessageActions({
+    sessionId,
+    messages,
+    setMessages,
+    isModeSwitchable,
+    permissionModeValue: permissionMode.mode,
+    followTranscriptBottom,
+    openStream,
+    onSessionDeleted,
+    onSidebarShouldReload,
+    setNotice,
+  });
+
+  // composer / 头部触发的那一族会话 RPC(首发与续发、压缩、goal、排队与撤销、软中断、
+  // 复制启动命令)与回车的分派整块住在 useChatActions 里。
+  const {
+    doSend,
+    doStop,
+    doCancelQueued,
+    handleCopyLaunchCommand,
+    handleComposerSubmit,
+  } = useChatActions({
+    sessionId,
+    session,
+    newSessionAgent,
+    newSessionContext,
+    setMessages,
+    reloadSession,
+    openStream,
+    followTranscriptBottom,
+    composerRef,
+    setSendInFlight,
+    setNotice,
+    onSessionCreated,
+    onPeerSessionCreated,
+    onSidebarShouldReload,
+    streaming,
+    activeBackendType,
+    isModeSwitchable,
+    permissionModeValue: permissionMode.mode,
+    supportsImageInput,
+    supportsCompactRPC,
+    execTargetOverride,
+    effectiveTarget,
+    providerKey: providerPill.providerKey,
+    modelKey: providerPill.modelKey,
+    editing: activeEditing !== null,
+    confirmEdit,
+  });
+
   // prop 优先，无 prop 时降级到内部派生值。
   const effectiveTopline = headerTopline ?? derivedTopline;
-
-  React.useLayoutEffect(() => {
-    const el = transcriptRef.current;
-    if (!el || !scrollStateKey) {
-      return;
-    }
-    if (
-      restoredScrollStateKeyRef.current === scrollStateKey &&
-      pendingScrollRestoreRef.current?.key !== scrollStateKey
-    ) {
-      return;
-    }
-    const saved = loadTranscriptScrollState(scrollStateKey);
-    if (!saved || saved.atBottom) {
-      pendingScrollRestoreRef.current = null;
-      restoredScrollStateKeyRef.current = scrollStateKey;
-      return;
-    }
-    atBottomRef.current = false;
-    // 优先锚点恢复:让虚拟器把保存时视口顶那条消息钉回原处,并随逐行复测收敛——
-    // 不受"路由重挂时整列还是 estimate 高度→像素 scrollTop 落到错消息"的冷启动漂移。
-    if (saved.anchorId != null) {
-      if (
-        transcriptHandleRef.current?.scrollToAnchor(
-          saved.anchorId,
-          saved.anchorOffset ?? 0,
-          saved.anchorRowKey,
-        )
-      ) {
-        pendingScrollRestoreRef.current = null;
-        restoredScrollStateKeyRef.current = scrollStateKey;
-        return;
-      }
-      // 锚点消息尚未加载进 displayMessages:先用 scrollTop 占位(避免顶部闪一下),
-      // 留 pending 等下次 messages 变化(消息到位)再由 scrollToAnchor 精确钉回。
-      pendingScrollRestoreRef.current = {
-        key: scrollStateKey,
-        scrollTop: saved.scrollTop,
-      };
-      el.scrollTop = saved.scrollTop;
-      return;
-    }
-    // 回退:旧快照无锚点(贴底时存的 / 保存时无消息行)时,沿用像素恢复 + 逐渲染重试。
-    pendingScrollRestoreRef.current = {
-      key: scrollStateKey,
-      scrollTop: saved.scrollTop,
-    };
-    el.scrollTop = saved.scrollTop;
-    const metrics = readScrollMetrics(el);
-    if (metrics.maxScrollTop < saved.scrollTop) {
-      return;
-    }
-    pendingScrollRestoreRef.current = null;
-    restoredScrollStateKeyRef.current = scrollStateKey;
-  }, [messages, liveByMessageId, scrollStateKey, sessionId, transcriptElement]);
-
-  React.useLayoutEffect(() => {
-    if (pendingScrollRestoreRef.current?.key === scrollStateKey) {
-      return;
-    }
-    if (!atBottomRef.current) {
-      return;
-    }
-    const el = transcriptRef.current;
-    if (!el) {
-      return;
-    }
-    // 整个 chat 区被 display:none 收起时(App.tsx 在非 /chat·/projects 路由上这么做)
-    // clientHeight=0、scrollHeight 也是 0;此时设 scrollTop=0 会让回来时停在顶部。
-    // 跳过,等回到 /chat 后由 active 切换恢复逻辑兜底滚到底部。
-    // 注意这挡不住「隐藏 tab」—— 非活跃面板是 visibility:hidden + absolute inset-0
-    // (chat-panel-host.tsx:panelFrameClassName),照常参与布局,clientHeight 不为 0。
-    if (el.clientHeight === 0) {
-      return;
-    }
-    saveBottomScrollPosition(readScrollMetrics(el));
-    // 依赖里只留 messages(结构性变化:首屏加载 / 发送乐观追加 / turn 落定 reload)。
-    // 流式逐 chunk 的贴底由下面单独的 effect 接管(挂 liveDelta/liveThinking/...)。
-  }, [messages, scrollStateKey, saveBottomScrollPosition]);
-
-  // 流式逐 chunk 贴底。曾经把这件事完全交给虚拟器的 anchorTo:"end"(见 chat.tsx),
-  // 但那条路只在「距底 ≤ 32px 钉底容差」时才钉:turn 开头结构性 follow 滚到的是
-  // 占位行 estimate 高度的底部,真实流式文本测量出来更高 → 首帧就落后 >32px →
-  // anchorTo:"end" 再也咬不回来,整轮转录区冻结、最新输出沉到折叠线下面(回归 bug)。
-  // 这里改成「意图驱动」:只要 autoFollowRef(贴底跟随意图,对内容增长免疫、仅用户上滚
-  // 才解除,见 nextAutoFollow)为真,就随每个流式增量把滚动钉到真实底部。读的是已提交 DOM
-  // 的实时 scrollHeight(readScrollMetrics 同步触发 reflow),不是慢一帧的虚拟器 getTotalSize
-  // 估值,故不掉队;钉到真实底部后虚拟器的 anchorTo:"end" 也回到容差内、自然协同而非互抢。
-  React.useLayoutEffect(() => {
-    if (pendingScrollRestoreRef.current?.key === scrollStateKey) {
-      return;
-    }
-    if (!autoFollowRef.current) {
-      return;
-    }
-    const el = transcriptRef.current;
-    if (!el || el.clientHeight === 0) {
-      return;
-    }
-    saveBottomScrollPosition(readScrollMetrics(el));
-  }, [liveByMessageId, scrollStateKey, saveBottomScrollPosition]);
-
-  // 面板重新变成活跃 tab 时，由父层 HostedPanel 传入的 active 信号驱动恢复：
-  // 若用户切走前停在底部，就补一次 scrollTop=scrollHeight。上面那个 useLayoutEffect
-  // 在整个 chat 区被路由 display:none 收起期间会被 clientHeight===0 跳过，回来时靠这里补。
-  const prevActiveRef = React.useRef(active);
-  React.useLayoutEffect(() => {
-    const prev = prevActiveRef.current;
-    prevActiveRef.current = active;
-    if (!active || prev) return;
-    const saved = loadTranscriptScrollState(scrollStateKey);
-    if (saved && saved.scrollTop > 0) {
-      armCollapsedScrollRestore(saved);
-    }
-    if (!atBottomRef.current) {
-      return;
-    }
-    const el = transcriptRef.current;
-    if (!el) {
-      return;
-    }
-    const metrics = readScrollMetrics(el);
-    if (skipWhileCollapsedHeight(metrics)) {
-      return;
-    }
-    saveBottomScrollPosition(metrics);
-  }, [
-    active,
-    armCollapsedScrollRestore,
-    saveBottomScrollPosition,
-    scrollStateKey,
-    skipWhileCollapsedHeight,
-  ]);
-
-  // 切换会话时回到底部
-  React.useEffect(() => {
-    const saved = loadTranscriptScrollState(scrollStateKey);
-    if (saved && !saved.atBottom) {
-      atBottomRef.current = false;
-      autoFollowRef.current = false;
-      return;
-    }
-    atBottomRef.current = true;
-    autoFollowRef.current = true;
-    restoredScrollStateKeyRef.current = null;
-    pendingScrollRestoreRef.current = null;
-  }, [scrollStateKey, sessionId]);
-
-  const handleBackToBottom = React.useCallback(() => {
-    const el = transcriptRef.current;
-    if (!el) return;
-    // 用户主动点「回到底部」= 明确想跟随,恢复 autoFollow(上滚解除后由此重新咬合)。
-    autoFollowRef.current = true;
-    saveBottomScrollPosition(readScrollMetrics(el));
-  }, [saveBottomScrollPosition]);
 
   // ── 补齐落定后的「跳到最新」──
   // 摘要由 ChatStreamsHost 在补齐落定那一发记下,这里只负责供转录行数、读与销账。
@@ -1672,6 +652,17 @@ function ChatPanel({
       onSidebarShouldReload?.();
     } else if (ev.kind === "done") {
       // 后端在发 done 前已经 chat_repo.Message().Update,reload 拿到最终顺序。
+      //
+      // 但不能只靠 reload:finishStream 是同步的,liveDelta / liveBlocks 当场清零,
+      // 而 messages 里那条 assistant 还是发送时插的空占位(blocks: [])——
+      // 中间那段 LoadChatSession 往返里,最后一轮的正文整段消失、行数塌陷,
+      // 响应回来才重新长出来。done 事件本身就带着最终 assistant 消息
+      // (chat_svc 的 `ChatStreamEvent{Kind: StreamDone, Message: final}`),
+      // 先同步落表,空窗就没了。reload 仍要发 —— 本轮可能还改了别的行
+      // (user 消息、subagent 子行、审批块),done 只覆盖 assistant 那一条。
+      if (ev.message) {
+        setMessages((prev) => upsertMessage(prev, ev.message!));
+      }
       void reloadSession();
       onSidebarShouldReload?.();
     } else if (ev.kind === "error") {
@@ -1680,14 +671,18 @@ function ChatPanel({
       if (ev.message) {
         setMessages((prev) => upsertMessage(prev, ev.message!));
       } else if (ev.error) {
-        setMessages((prev) => applyStreamError(prev, undefined, ev.error));
+        setMessages((prev) => applyStreamError(prev, ev.error));
       }
       void reloadSession();
       onSidebarShouldReload?.();
     } else if (ev.kind === "aborted") {
       // 用户主动「停止」：后端已经把 partial 内容写入 DB 且 errorText 为空。
-      // 走和 done 一样的 reload 路径即可，让 transcript 渲染 partial 结果；
+      // 走和 done 一样的路径:事件自带 partial 消息就先同步落表(同样是为了不
+      // 在等 reload 的这段里把已经生成的内容闪没),再 reload 兜其余的行；
       // 不调 MarkRead（abort 不是「用户已读完」语义）。
+      if (ev.message) {
+        setMessages((prev) => upsertMessage(prev, ev.message!));
+      }
       void reloadSession();
       onSidebarShouldReload?.();
     } else if (ev.kind === "closed") {
@@ -1722,880 +717,34 @@ function ChatPanel({
     useSessionReadStore.getState().markRead(sessionId, sessionLastMessageAt);
   }, [active, sessionId, sessionLastMessageAt]);
 
-  async function doSend(
-    targetSessionId: number,
-    agentId: number,
-    message: ChatComposerSubmit,
-    permissionModeOverride?: string,
-  ) {
-    const text = message.text.trim();
-    const images = message.images ?? [];
-    // 发送消息时强制跟随到底部，无论用户当前在哪里
-    atBottomRef.current = true;
-    setShowBackToBottom(false);
-    setSendInFlight(true);
-    // 调用点都是 void doSend(...) fire-and-forget；这里必须自吞错误成 notice，
-    // 否则 RPC 失败时 UI 完全无声（用户在 composer 干瞪眼）。doEnqueue 的 fallback
-    // 也走这里，set notice 后不 rethrow，正好顶替 doEnqueue 原本的 setNotice。
-    try {
-      // R18 桌面派发：空会话态且生效目标是另一台桌面端（kind=desktop）时，新建会话
-      // 走 peer RunFresh（对端真实会话 id 回传），不走本地 EnsureChatSession/Send。
-      // agentred 与本机行为不变（R22）。
-      if (
-        targetSessionId === 0 &&
-        effectiveTarget?.kind === "desktop" &&
-        effectiveTarget.deviceId
-      ) {
-        const ack = await PeerRunFresh({
-          fingerprint: effectiveTarget.deviceId,
-          agentId,
-          projectId: newSessionContext?.projectId ?? 0,
-          title: text,
-          text,
-          permissionMode:
-            permissionModeOverride ??
-            (isModeSwitchable ? permissionMode.mode : ""),
-          ...(providerPill.providerKey
-            ? {
-                providerKey: providerPill.providerKey,
-                modelKey: providerPill.modelKey,
-              }
-            : {}),
-        } as Parameters<typeof PeerRunFresh>[0]);
-        onPeerSessionCreated?.({
-          fingerprint: effectiveTarget.deviceId,
-          sessionId: ack?.sessionId ?? 0,
-          title: text,
-          deviceName: effectiveTarget.deviceName,
-        });
-        onSidebarShouldReload?.();
-        return;
+  // handlePlanActionStarted 不做 memo:它经 useTranscriptCallbacks 的 useEvent 代理
+  // 进转录(每渲染更新 ref、对外恒是同一个稳定引用),父侧引用变不变都到不了行组件。
+  function handlePlanActionStarted(resp: PlanActionStream, userText: string) {
+    if (!resp.stream || !resp.sessionId || !resp.assistantMessageId) return;
+    followTranscriptBottom();
+    setMessages((prev) => {
+      const next = [...prev];
+      if (!next.some((m) => m.id === resp.userMessageId)) {
+        next.push(optimisticUser(resp.userMessageId, resp.sessionId, userText));
       }
-      // 新建会话路径：把项目上下文带上（仅 targetSessionId=0 时生效）；
-      // 已存在会话续发：projectId 在 Send 端被忽略，传 0 也无害。
-      const sendPayload: Record<string, unknown> = {
-        sessionId: targetSessionId,
-        agentId,
-        text,
-        projectId:
-          targetSessionId === 0 ? (newSessionContext?.projectId ?? 0) : 0,
-        permissionMode:
-          permissionModeOverride ??
-          (isModeSwitchable ? permissionMode.mode : ""),
-        // 新建会话首发前预选：瞬态 ModelTarget 随 SendRequest.ProviderKey/ModelKey 透传,
-        // 与 Session 一同落库（spec 2026-08-11「新建与已有会话流程」）。已有会话后端忽略
-        // 该字段（改 target 走 SetChatSessionModelTarget）。
-        ...(targetSessionId === 0 && providerPill.providerKey
-          ? {
-              providerKey: providerPill.providerKey,
-              modelKey: providerPill.modelKey,
-            }
-          : {}),
-        // R15a 手动指定执行目标：同一条规则，仅新建会话生效；0/未选时不传，
-        // 后端按 R15 顺序自动挑第一个可用的档。
-        ...(targetSessionId === 0 && execTargetOverride
-          ? { execTargetOverride }
-          : {}),
-      };
-      if (images.length > 0) {
-        sendPayload.images = images.map((image) => ({
-          name: image.name,
-          dataUrl: image.dataUrl,
-        }));
-      }
-      const resp = await SendChatMessage(
-        chat_svc.SendRequest.createFrom(sendPayload),
-      );
-      // 新建会话路径：通知父级把 selectedSessionId 切到新 id。
-      if (targetSessionId === 0 && resp.sessionId) {
-        onSessionCreated?.(resp.sessionId, agentId);
-      }
-      setMessages((prev) => [
-        ...prev,
-        optimisticUser(resp.userMessageId, resp.sessionId, text, images),
-        optimisticAssistantPlaceholder(resp.assistantMessageId, resp.sessionId),
-      ]);
-      // 乐观写 running: 后端 Send 已把 sess.AgentStatus="running" 落库, 但 turn
-      // 起手没 emit session_status 事件, tab / 详情 toolbar 单纯读 store 会停在
-      // 上一轮的 idle。这里同步翻成 running, 让所有订阅者一帧内看到运行态。
-      markSessionRunning(resp.sessionId);
-      openStream({
-        name: resp.stream,
-        sessionId: resp.sessionId,
-        assistantMessageId: resp.assistantMessageId,
-        streamStartedAt: Date.now(),
-      });
-      // 创建新会话时后端在 RPC 内已写入 AgentStatus="running" 并落库，
-      // 立刻 reload 让左侧 sidebar 同步出现新会话 + running 状态，不用等 turn 结束。
-      onSidebarShouldReload?.();
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      console.error("[chat] send failed", e);
-      // 发送失败:ChatComposer 已清空输入框,这里把文本 + 图片原样放回(草稿保留),
-      // 并给 notice 挂 Retry / Discard 动作。Retry 用同一份 message 重新 doSend;
-      // Discard 清掉恢复的草稿。msg(headline)拼进 notice 文本让用户知道为什么失败,
-      // cause(detail)按既有规则只在存在时渲染成详情块。
-      composerRef.current?.restoreDraft(text, images);
-      const retryMessage: ChatComposerSubmit =
-        images.length > 0 ? { text, images } : { text };
-      setNotice({
-        kind: "error",
-        text: `${t("chatPanel.sendRetry.restored")} · ${msg}`,
-        detail,
-        actions: {
-          retry: () => {
-            setNotice(null);
-            void doSend(
-              targetSessionId,
-              agentId,
-              retryMessage,
-              permissionModeOverride,
-            );
-          },
-          discard: () => {
-            composerRef.current?.clearDraft();
-            setNotice(null);
-          },
-        },
-      });
-    } finally {
-      setSendInFlight(false);
-    }
-  }
-
-  const launchLocalCommand = React.useCallback(
-    async (
-      sid: number,
-      command: string,
-    ): Promise<LocalCommandHistoryScope | undefined> => {
-      const terminalId = crypto.randomUUID();
-      const dataEvent = `terminal:${terminalId}:data`;
-      const exitEvent = `terminal:${terminalId}:exit`;
-      const cleanupRetryInitialDelayMs = 100;
-      const cleanupRetryMaxDelayMs = 5_000;
-      type ListenerRegistration = {
-        event: string;
-        off?: () => void;
-        cleaned: boolean;
-      };
-      type ListenerGeneration = {
-        listeners: ListenerRegistration[];
-        guardianTimer?: number;
-        retryDelayMs: number;
-      };
-      let activeGeneration: ListenerGeneration | undefined;
-      let settled = false;
-      let closePromise: Promise<void> | undefined;
-      let automaticCloseRequired = false;
-      let automaticCloseGuardianTimer: number | undefined;
-      let automaticCloseRetryDelayMs = cleanupRetryInitialDelayMs;
-      let userStopRequested = false;
-      const cleanupListeners = (generation: ListenerGeneration): boolean => {
-        let cleaned = true;
-        for (const listener of generation.listeners) {
-          if (listener.cleaned) continue;
-          try {
-            if (listener.off) listener.off();
-            else EventsOff(listener.event);
-            listener.cleaned = true;
-          } catch {
-            try {
-              EventsOff(listener.event);
-              listener.cleaned = true;
-            } catch {
-              cleaned = false;
-            }
-          }
-        }
-        return cleaned;
-      };
-      const cleanupListenersSynchronously = (
-        generation: ListenerGeneration,
-      ): boolean =>
-        cleanupListeners(generation) || cleanupListeners(generation);
-      const stopCleanupGuardian = (generation: ListenerGeneration) => {
-        if (generation.guardianTimer === undefined) return;
-        window.clearTimeout(generation.guardianTimer);
-        generation.guardianTimer = undefined;
-      };
-      const scheduleCleanupGuardian = (generation: ListenerGeneration) => {
-        if (generation.guardianTimer !== undefined) return;
-        // Keep ownership outside React lifecycle so panel unmount cannot abandon a Wails listener.
-        generation.guardianTimer = window.setTimeout(() => {
-          generation.guardianTimer = undefined;
-          if (cleanupListenersSynchronously(generation)) return;
-          generation.retryDelayMs = Math.min(
-            generation.retryDelayMs * 2,
-            cleanupRetryMaxDelayMs,
-          );
-          scheduleCleanupGuardian(generation);
-        }, generation.retryDelayMs);
-      };
-      const ensureListenersCleaned = (
-        generation = activeGeneration,
-      ): boolean => {
-        if (!generation) return true;
-        const cleaned = cleanupListenersSynchronously(generation);
-        if (cleaned) stopCleanupGuardian(generation);
-        else scheduleCleanupGuardian(generation);
-        return cleaned;
-      };
-      const clearAutomaticCloseTimer = () => {
-        if (automaticCloseGuardianTimer === undefined) return;
-        window.clearTimeout(automaticCloseGuardianTimer);
-        automaticCloseGuardianTimer = undefined;
-      };
-      const stopAutomaticCloseGuardian = () => {
-        automaticCloseRequired = false;
-        clearAutomaticCloseTimer();
-      };
-      const appendFailure = (error: unknown) => {
-        if (settled) return;
-        const commands = useLocalCommandsStore.getState();
-        if (commands.get(terminalId)?.status === "running") {
-          commands.appendOutput(terminalId, String(error));
-        }
-      };
-      const settle = (
-        status: "done" | "failed" | "stopped",
-        exitCode?: number,
-      ) => {
-        if (settled) {
-          ensureListenersCleaned();
-          return;
-        }
-        settled = true;
-        stopAutomaticCloseGuardian();
-        const commands = useLocalCommandsStore.getState();
-        if (commands.get(terminalId)?.status === "running") {
-          if (exitCode === undefined) commands.finish(terminalId, status);
-          else commands.finish(terminalId, status, exitCode);
-        }
-        ensureListenersCleaned();
-        localCommandRuntimeStore.unregister(terminalId, controller);
-      };
-      const fail = (error: unknown) => {
-        if (settled) {
-          ensureListenersCleaned();
-          return;
-        }
-        appendFailure(error);
-        settle("failed", -1);
-      };
-      const scheduleAutomaticCloseGuardian = () => {
-        if (
-          settled ||
-          !automaticCloseRequired ||
-          automaticCloseGuardianTimer !== undefined
-        ) {
-          return;
-        }
-        const retryDelayMs = automaticCloseRetryDelayMs;
-        automaticCloseRetryDelayMs = Math.min(
-          automaticCloseRetryDelayMs * 2,
-          cleanupRetryMaxDelayMs,
-        );
-        automaticCloseGuardianTimer = window.setTimeout(() => {
-          automaticCloseGuardianTimer = undefined;
-          void requestTerminalClose("automatic");
-        }, retryDelayMs);
-      };
-      const requestTerminalClose = (
-        ownership: "automatic" | "user",
-      ): Promise<void> => {
-        if (ownership === "user") {
-          userStopRequested = true;
-          clearAutomaticCloseTimer();
-        }
-        if (settled) return Promise.resolve();
-        if (closePromise) return closePromise;
-        const pending = (async () => {
-          let authoritative = false;
-          try {
-            await TerminalClose(terminalId);
-            authoritative = true;
-          } catch (error: unknown) {
-            if (isTerminalNotOpenError(error)) authoritative = true;
-            else if (!automaticCloseRequired) appendFailure(error);
-          }
-          if (authoritative) {
-            if (userStopRequested) settle("stopped");
-            else settle("failed", -1);
-            return;
-          }
-          scheduleAutomaticCloseGuardian();
-        })();
-        closePromise = pending;
-        void pending.finally(() => {
-          if (closePromise === pending) closePromise = undefined;
-        });
-        return pending;
-      };
-      const startAutomaticCloseGuardian = () => {
-        if (settled) return;
-        if (!automaticCloseRequired) {
-          automaticCloseRetryDelayMs = cleanupRetryInitialDelayMs;
-        }
-        automaticCloseRequired = true;
-        void requestTerminalClose("automatic");
-      };
-      const decode = makeStreamDecoder();
-      const handleData = (p: { data: string }) => {
-        if (settled) return;
-        useLocalCommandsStore
-          .getState()
-          .appendOutput(terminalId, decode(p.data));
-      };
-      const handleExit = (p: { code: number; reason: string }) => {
-        const status =
-          p.reason === "killed" ? "stopped" : p.code === 0 ? "done" : "failed";
-        settle(status, p.code);
-      };
-      const controller: LocalCommandRuntimeController = {
-        stop: () => requestTerminalClose("user"),
-      };
-      localCommandRuntimeStore.register(terminalId, controller);
-      useLocalCommandsStore.getState().start({
-        id: terminalId,
-        sessionId: sid,
-        command,
-        createdAt: Date.now(),
-      });
-      let observerError: unknown;
-      let observersReady = false;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const attemptGeneration: ListenerGeneration = {
-          listeners: [],
-          retryDelayMs: cleanupRetryInitialDelayMs,
-        };
-        try {
-          const dataListener: ListenerRegistration = {
-            event: dataEvent,
-            cleaned: false,
-          };
-          attemptGeneration.listeners.push(dataListener);
-          dataListener.off = EventsOn(dataEvent, handleData);
-          const exitListener: ListenerRegistration = {
-            event: exitEvent,
-            cleaned: false,
-          };
-          attemptGeneration.listeners.push(exitListener);
-          exitListener.off = EventsOn(exitEvent, handleExit);
-          activeGeneration = attemptGeneration;
-          observersReady = true;
-          break;
-        } catch (error: unknown) {
-          observerError = error;
-          if (!ensureListenersCleaned(attemptGeneration)) break;
-        }
-      }
-      try {
-        const response = await TerminalRunCommand(
-          terminalId,
-          sid,
-          command,
-          80,
-          24,
-        );
-        if (response.startError) fail(response.startError);
-        else if (!observersReady) {
-          appendFailure(observerError);
-          startAutomaticCloseGuardian();
-        }
-        return {
-          deviceId: response.scope.deviceId,
-          cwd: response.scope.cwd,
-        };
-      } catch (error: unknown) {
-        if (observersReady) fail(error);
-        else {
-          appendFailure(error);
-          startAutomaticCloseGuardian();
-        }
-        return undefined;
-      }
-    },
-    [],
-  );
-
-  React.useEffect(() => {
-    if (
-      sessionId > 0 ||
-      !newSessionAgent ||
-      ensuredLocalCommandSessionRef.current?.agentId !== newSessionAgent.id ||
-      ensuredLocalCommandSessionRef.current?.projectId !==
-        (newSessionContext?.projectId ?? 0)
-    ) {
-      ensuredLocalCommandSessionRef.current = null;
-    }
-  }, [newSessionAgent, newSessionContext?.projectId, sessionId]);
-
-  function ensureLocalCommandSession(): Promise<number> {
-    if (!newSessionAgent) return Promise.resolve(0);
-    const agentId = newSessionAgent.id;
-    const projectId = newSessionContext?.projectId ?? 0;
-    const current = ensuredLocalCommandSessionRef.current;
-    if (current?.agentId === agentId && current.projectId === projectId) {
-      return current.promise;
-    }
-
-    const requestId = ++ensuredLocalCommandSessionRequestRef.current;
-    const promise = (async () => {
-      try {
-        const sid = await EnsureChatSession(agentId, projectId);
-        if (!sid) {
-          if (ensuredLocalCommandSessionRef.current?.requestId === requestId) {
-            ensuredLocalCommandSessionRef.current = null;
-          }
-          return 0;
-        }
-        onSessionCreated?.(sid, agentId);
-        onSidebarShouldReload?.();
-        return sid;
-      } catch (e: unknown) {
-        if (ensuredLocalCommandSessionRef.current?.requestId === requestId) {
-          ensuredLocalCommandSessionRef.current = null;
-        }
-        const { msg, detail } = splitErrorDetail(e);
-        setNotice({
-          kind: "error",
-          text: t("chatPanel.errors.send", { msg }),
-          detail,
-        });
-        return 0;
-      }
-    })();
-    ensuredLocalCommandSessionRef.current = {
-      agentId,
-      projectId,
-      promise,
-      requestId,
-    };
-    return promise;
-  }
-
-  async function runLocalCommand(
-    targetSessionId: number,
-    command: string,
-  ): Promise<LocalCommandHistoryScope | undefined> {
-    let sid = targetSessionId;
-    if (!sid) sid = await ensureLocalCommandSession();
-    if (!sid) return undefined;
-    return launchLocalCommand(sid, command);
-  }
-
-  async function doCompact(sid: number) {
-    if (!sid) return;
-    try {
-      atBottomRef.current = true;
-      setShowBackToBottom(false);
-      const resp = await CompactChatSession({ sessionId: sid });
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === resp.assistantMessageId)) return prev;
-        return [
-          ...prev,
+      if (!next.some((m) => m.id === resp.assistantMessageId)) {
+        next.push(
           optimisticAssistantPlaceholder(
             resp.assistantMessageId,
             resp.sessionId,
           ),
-        ];
-      });
-      markSessionRunning(resp.sessionId);
-      openStream({
-        name: resp.stream,
-        sessionId: resp.sessionId,
-        assistantMessageId: resp.assistantMessageId,
-        streamStartedAt: Date.now(),
-      });
-      onSidebarShouldReload?.();
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      console.error("[chat] compact failed", e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.compact", { msg }),
-        detail,
-      });
-    }
-  }
-
-  async function doGoal(sid: number, agentId: number, cmd: GoalCommand) {
-    if (!sid) return;
-    try {
-      if (cmd.kind === "get") {
-        const resp = await GetChatGoal({ sessionId: sid });
-        const goal = resp.goal;
-        setNotice({
-          kind: "info",
-          text: goal
-            ? t("chatPanel.goal.current", {
-                objective: goal.objective,
-                status: goal.status,
-                tokens: goal.tokensUsed ?? 0,
-              })
-            : t("chatPanel.goal.empty"),
-        });
-        return;
+        );
       }
-      if (cmd.kind === "clear") {
-        await ClearChatGoal({ sessionId: sid });
-        setNotice({ kind: "info", text: t("chatPanel.goal.cleared") });
-        return;
-      }
-      const payload =
-        cmd.kind === "set"
-          ? { sessionId: sid, objective: cmd.objective, status: "active" }
-          : { sessionId: sid, status: cmd.status };
-      const resp = await SetChatGoal(payload);
-      setNotice({
-        kind: "info",
-        text: resp.goal
-          ? t("chatPanel.goal.updatedWithObjective", {
-              objective: resp.goal.objective,
-            })
-          : t("chatPanel.goal.updated"),
-      });
-      if (cmd.kind === "set") {
-        await doSend(sid, agentId, { text: cmd.objective });
-      }
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      console.error("[chat] goal failed", e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.goal", { msg }),
-        detail,
-      });
-    }
-  }
-
-  async function doStartGoal(
-    agentId: number,
-    cmd: Extract<GoalCommand, { kind: "set" }>,
-  ) {
-    try {
-      const resp = await StartChatGoal({
-        agentId,
-        projectId: newSessionContext?.projectId ?? 0,
-        objective: cmd.objective,
-        status: "active",
-        permissionMode: isModeSwitchable ? permissionMode.mode : "",
-      });
-      if (resp.sessionId) {
-        onSessionCreated?.(resp.sessionId, agentId);
-      }
-      onSidebarShouldReload?.();
-      setNotice({
-        kind: "info",
-        text: resp.goal
-          ? t("chatPanel.goal.updatedWithObjective", {
-              objective: resp.goal.objective,
-            })
-          : t("chatPanel.goal.updated"),
-      });
-      if (resp.sessionId) {
-        await doSend(resp.sessionId, agentId, { text: cmd.objective });
-      }
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      console.error("[chat] start goal failed", e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.goal", { msg }),
-        detail,
-      });
-    }
-  }
-
-  function notifyCompactNeedsSession() {
-    setNotice({
-      kind: "info",
-      text: t("chatPanel.compact.needsSession"),
+      return next;
     });
-  }
-
-  function notifyCompactWaitForTurn() {
-    setNotice({ kind: "info", text: t("chatPanel.compact.waitForTurn") });
-  }
-
-  const handlePlanActionStarted = React.useCallback(
-    (resp: PlanActionStream, userText: string) => {
-      if (!resp.stream || !resp.sessionId || !resp.assistantMessageId) return;
-      atBottomRef.current = true;
-      setShowBackToBottom(false);
-      setMessages((prev) => {
-        const next = [...prev];
-        if (!next.some((m) => m.id === resp.userMessageId)) {
-          next.push(
-            optimisticUser(resp.userMessageId, resp.sessionId, userText),
-          );
-        }
-        if (!next.some((m) => m.id === resp.assistantMessageId)) {
-          next.push(
-            optimisticAssistantPlaceholder(
-              resp.assistantMessageId,
-              resp.sessionId,
-            ),
-          );
-        }
-        return next;
-      });
-      markSessionRunning(resp.sessionId);
-      openStream({
-        name: resp.stream,
-        sessionId: resp.sessionId,
-        assistantMessageId: resp.assistantMessageId,
-        streamStartedAt: Date.now(),
-      });
-      onSidebarShouldReload?.();
-    },
-    [onSidebarShouldReload, openStream, setMessages],
-  );
-
-  // doEnqueue：streaming 中按回车走这里。把新消息推到当前 turn 的排队队列，
-  // 等 AI 跑到下一个安全点（claudecode PreToolUse hook / codex turn/steer RPC 即刻 /
-  // builtin cago safe-point）才注入。
-  async function doEnqueue(sid: number, agentId: number, text: string) {
-    try {
-      const resp = await EnqueueChatMessage({ sessionId: sid, text });
-      useQueuedMessagesStore.getState().append(sid, {
-        id: resp.queuedId,
-        text,
-        cancellable: resp.cancellable,
-      });
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      if (isChatSteerNoActiveError(msg)) {
-        // turn 已结束（done/closed 事件即将到 / 已到），按普通 send 重新起一轮。
-        await doSend(sid, agentId, { text });
-        return;
-      }
-      console.error("[chat] enqueue failed", e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.enqueue", { msg }),
-        detail,
-      });
-    }
-  }
-
-  async function doCancelQueued(sid: number, queuedId: string) {
-    try {
-      const resp = await CancelQueuedChatMessage({ sessionId: sid, queuedId });
-      useQueuedMessagesStore.getState().consume(sid, resp.removed);
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      console.error("[chat] cancel queued failed", e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.cancelQueued", { msg }),
-        detail,
-      });
-    }
-  }
-
-  // doStop 软中断当前 turn。后端会按 backend 分别走 control_request{interrupt}
-  // /turn/interrupt/ctx-cancel，子进程都保留，发个 StreamAborted 事件让 store
-  // bump tick → reload 拿 partial 内容。这里不做乐观 UI，等 aborted 事件回来。
-  async function doStop(sid: number) {
-    try {
-      await StopChatMessage({ sessionId: sid });
-      // 「重启遗孤」会话(DB 卡在 running/waiting 但本地无活跃 stream):后端已把它
-      // reconcile 回 idle,但这类会话没有活跃 stream 不会推 aborted 事件,doneTick
-      // effect 也不会触发 reload —— 必须主动 reload 才能让那颗一直亮着的「停止」按钮
-      // 回灰。正常活跃 turn 的 abort 仍由 aborted 事件驱动 reload,这里多一次读无害。
-      await reloadSession();
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      // turn 已自然完成与点击 Stop 发生 race —— 后端 activeCancels 已经清掉了，
-      // 不算错，静默即可（用户的意图是「让这轮停下」，结果已经停了）。但前端视图可能
-      // 还停在 running,reload 一次把 DB 的终态拉回来,避免按钮一直亮着点了没反应。
-      if (isChatStopNoActiveError(msg)) {
-        console.warn("[chat] stop race-lost (turn already finished)");
-        await reloadSession();
-        return;
-      }
-      console.error("[chat] stop failed", e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.stop", { msg }),
-        detail,
-      });
-    }
-  }
-
-  function handleRegenerate(messageId: number) {
-    if (!sessionId) return;
-    setPendingRegenId(messageId);
-  }
-
-  async function confirmRegenerate() {
-    const messageId = pendingRegenId;
-    if (messageId == null || !sessionId) {
-      setPendingRegenId(null);
-      return;
-    }
-    setPendingRegenId(null);
-
-    const snapshot = messages;
-    const targetIdx = snapshot.findIndex((m) => m.id === messageId);
-    if (targetIdx < 0) return;
-    let userIdx = -1;
-    for (let i = targetIdx - 1; i >= 0; i--) {
-      if (snapshot[i].role === "user") {
-        userIdx = i;
-        break;
-      }
-    }
-    if (userIdx < 0) return;
-    const userText = textOfChatMessage(snapshot[userIdx]);
-
-    try {
-      atBottomRef.current = true;
-      setShowBackToBottom(false);
-      const resp = await RegenerateChatMessage({
-        sessionId,
-        messageId,
-        permissionMode: isModeSwitchable ? permissionMode.mode : "",
-      });
-      markSessionRunning(resp.sessionId);
-      openStream({
-        name: resp.stream,
-        sessionId: resp.sessionId,
-        assistantMessageId: resp.assistantMessageId,
-        streamStartedAt: Date.now(),
-      });
-      setMessages([
-        ...snapshot.slice(0, userIdx),
-        optimisticUser(resp.userMessageId, resp.sessionId, userText),
-        optimisticAssistantPlaceholder(resp.assistantMessageId, resp.sessionId),
-      ]);
-      onSidebarShouldReload?.();
-    } catch (e: unknown) {
-      console.error("[chat] regenerate failed", e);
-      const { msg, detail } = splitErrorDetail(e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.regenerate", { msg }),
-        detail,
-      });
-    }
-  }
-
-  async function confirmRename() {
-    if (!pendingRename) return;
-    const next = pendingRename.draft.trim();
-    if (!next) {
-      setPendingRename(null);
-      return;
-    }
-    const id = pendingRename.id;
-    setPendingRename(null);
-    try {
-      await RenameChatSession({ sessionId: id, title: next });
-      onSidebarShouldReload?.();
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      console.error("[chat] rename failed", e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.rename", { msg }),
-        detail,
-      });
-    }
-  }
-
-  function handleDelete(id: number) {
-    setPendingDeleteId(id);
-  }
-
-  async function handleCopyLaunchCommand(sid: number) {
-    try {
-      const resp = await GetChatLaunchCommand({ sessionId: sid });
-      await copyTextWithToast(resp.command, {
-        errorTitle: t("chatPanel.launchCommand.copyFailed"),
-        successTitle: t("chatPanel.launchCommand.copyDone"),
-        successDescription: t("chatPanel.launchCommand.copyDescription"),
-      });
-    } catch (e: unknown) {
-      const { msg, detail } = splitErrorDetail(e);
-      console.error("[chat] copy launch command failed", e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.copyLaunchCommand", { msg }),
-        detail,
-      });
-    }
-  }
-
-  async function confirmDelete() {
-    const id = pendingDeleteId;
-    if (id == null) return;
-    setPendingDeleteId(null);
-    await DeleteChatSession({ sessionId: id });
-    onSessionDeleted?.();
+    markSessionRunning(resp.sessionId);
+    openStream({
+      name: resp.stream,
+      sessionId: resp.sessionId,
+      assistantMessageId: resp.assistantMessageId,
+      streamStartedAt: Date.now(),
+    });
     onSidebarShouldReload?.();
-  }
-
-  function handleEdit(messageId: number) {
-    if (!sessionId) return;
-    const target = messages.find((m) => m.id === messageId);
-    if (!target || target.role !== "user") return;
-    setEditingMessage({
-      sessionId,
-      messageId,
-      text: textOfChatMessage(target),
-    });
-  }
-
-  async function confirmEdit(newText: string) {
-    const pending = activeEditing;
-    if (pending == null || !sessionId) {
-      setEditingMessage(null);
-      return;
-    }
-    const trimmed = newText.trim();
-    if (!trimmed) {
-      setEditingMessage(null);
-      return;
-    }
-    setEditingMessage(null);
-
-    const snapshot = messages;
-    const targetIdx = snapshot.findIndex((m) => m.id === pending.messageId);
-    if (targetIdx < 0) return;
-
-    try {
-      atBottomRef.current = true;
-      setShowBackToBottom(false);
-      const resp = await EditChatMessage({
-        sessionId,
-        messageId: pending.messageId,
-        text: trimmed,
-        permissionMode: isModeSwitchable ? permissionMode.mode : "",
-      });
-      markSessionRunning(resp.sessionId);
-      openStream({
-        name: resp.stream,
-        sessionId: resp.sessionId,
-        assistantMessageId: resp.assistantMessageId,
-        streamStartedAt: Date.now(),
-      });
-      setMessages([
-        ...snapshot.slice(0, targetIdx),
-        optimisticUser(resp.userMessageId, resp.sessionId, trimmed),
-        optimisticAssistantPlaceholder(resp.assistantMessageId, resp.sessionId),
-      ]);
-      onSidebarShouldReload?.();
-    } catch (e: unknown) {
-      console.error("[chat] edit failed", e);
-      const { msg, detail } = splitErrorDetail(e);
-      setNotice({
-        kind: "error",
-        text: t("chatPanel.errors.edit", { msg }),
-        detail,
-      });
-    }
   }
 
   // ── render ──
@@ -2607,6 +756,55 @@ function ChatPanel({
   );
   const showEmpty = !sessionId && !newSessionAgent;
 
+  // ── 头部 ──
+  // 头部在「已有会话 / 新建未首发 / 加载中 / 加载失败」四态都渲染，高度写死为两行
+  // 标题的高度、内容整块垂直居中：首发消息落地、切 tab、标题长短都不再顶动版面
+  // （规格 2026-08-23 决策 2/3）。
+  const headerStatus = reasonToDisplayStatus(
+    attentionReason,
+    (session?.agentStatus as AgentStatus) || "idle",
+  );
+  // canStop 双源：
+  //   1. currentStream !== null —— 本客户端刚起的 turn，openStream 是同步 store 写，
+  //      比 useChatSession.reload 早；解决 Regenerate / Edit / Send-existing 的「服务端
+  //      已 running 但前端 agentStatus 还是上轮 idle」窗口。
+  //   2. status === running/waiting —— 服务端权威态，覆盖「app 重启时另一会话仍在跑」
+  //      场景（store 里没 entry）。
+  const canStop =
+    currentStream !== null ||
+    headerStatus === "running" ||
+    headerStatus === "waiting";
+  const headerTitle = session
+    ? session.title || t("chatPanel.untitled")
+    : showNewSessionPrompt
+      ? t("chatPanel.header.newSessionTitle", { name: newSessionAgent.name })
+      : sessionError
+        ? t("chatPanel.header.unavailableTitle")
+        : t("chatPanel.loading.aria");
+  // meta 行的三段：项目/分支 · 谁在跑 · 多久没动（新建态换成将要用的后端与模型）。
+  const headerToplineNode =
+    effectiveTopline ??
+    (showNewSessionPrompt && newSessionProjectName
+      ? newSessionProjectName
+      : null);
+  const headerAgentName = session
+    ? session.agentName
+    : showNewSessionPrompt
+      ? newSessionAgent.name
+      : "";
+  // 输入带的边界只在真的有转录可滚时才有话说：新建会话未首发时没有转录，
+  // 上一条会话残留的滚动位置不该在这里画一条线。
+  const showBandEdge = showBackToBottom && !showNewSessionPrompt;
+  // 还没有任何转录可看：加载中且既无会话也无消息。骨架与滚动带的 busy 语义共用
+  // 这一个判定，两者因此不会各说各话。
+  const awaitingTranscript =
+    sessionLoading && !session && messages.length === 0;
+  const headerMetaTail = session
+    ? relativeTime(session.lastMessageAt)
+    : showNewSessionPrompt
+      ? providerPill.resolvedModelLabel || newSessionAgent.backendType
+      : "";
+
   return (
     <TooltipProvider delayDuration={200}>
       {/* Wails 事件订阅器现在挂在 App 顶层的 <ChatStreamsHost />,跨路由长存,
@@ -2617,222 +815,37 @@ function ChatPanel({
       ) : (
         // 关键：showNewSessionPrompt → 已有会话 切换时，<ChatComposer> 必须保持挂载，
         // 否则 TipTap editor 实例随子树卸载重建，用户刚发完首条消息焦点就跑了。
-        // 布局：toolbar 整行铺顶（无 newSessionPrompt 时），下面 flex row 分两栏 ——
+        // 布局：头部整行铺顶（四种会话情形都在），下面 flex row 分两栏 ——
         //   左栏 flex-col：transcript（或新会话占位）+ notice + ChatComposer，
         //   右栏：ChatContextSidebar 占满整高（从 toolbar 下沿一直到底）。
         //   ChatComposer 固定在左栏的最后一个 child 位置，跨分支保持同一 React 实例。
         <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          {/* ── Toolbar / Header ── */}
-          {/* 单行 meta：breadcrumb · dot+agent · relativeTime · device(tooltip cwd)。
-              原先三行 (breadcrumb / agent+RUNNING / device+cwd) 在 44-52px 内压缩到
-              一行；状态文案 (RUNNING/WAITING) 用裸 dot 的颜色携带，去掉大写 mono 标签。
-              cwd 太长不适合常驻一行，挪到 DeviceTag 的 tooltip。 */}
-          {showNewSessionPrompt ? null : (
-            <div
-              role="toolbar"
-              aria-label={t("chatPanel.toolbar.aria")}
-              className="flex min-h-[44px] shrink-0 items-center gap-3 border-b border-border px-5 py-1.5"
-            >
-              {session
-                ? (() => {
-                    const rawStatus: AgentStatus =
-                      (session.agentStatus as AgentStatus) || "idle";
-                    const toolbarStatus = reasonToDisplayStatus(
-                      attentionReason,
-                      rawStatus,
-                    );
-                    const statusTone =
-                      statusConfig[toolbarStatus].textClassName;
-                    return (
-                      <>
-                        <AgentAvatar
-                          name={session.agentName}
-                          initials={session.agentName.charAt(0)}
-                          color={
-                            (session.agentColor as AgentColor) || "agent-1"
-                          }
-                          size="md"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div
-                            className="line-clamp-2 break-words text-sm font-semibold leading-snug"
-                            title={session.title || t("chatPanel.untitled")}
-                          >
-                            {session.title || t("chatPanel.untitled")}
-                          </div>
-                          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0 font-mono text-2xs text-muted-foreground">
-                            {effectiveTopline ? (
-                              <>
-                                <span className="inline-flex min-w-0 items-center text-primary-text">
-                                  {effectiveTopline}
-                                </span>
-                                <span className="text-border-strong">·</span>
-                              </>
-                            ) : null}
-                            <span className="inline-flex shrink-0 items-center gap-1">
-                              <StatusDot status={toolbarStatus} size="xs" />
-                              <span className={cn(statusTone)}>
-                                {session.agentName}
-                              </span>
-                            </span>
-                            <span className="text-border-strong">·</span>
-                            <span className="shrink-0">
-                              {relativeTime(session.lastMessageAt)}
-                            </span>
-                            {/* 机器 chip 守卫（R15/R20）：远端会话今天就显示；
-                                多档 Agent（execTargetCount > 1）的本机会话也总是
-                                显示——本机走 DeviceTag 既有的 deviceId === "" 分支
-                                （组件本来就实现了这一支，只是这里以前没调用）。
-                                单档 Agent 的本机会话维持今天"什么都不显示"的行为。 */}
-                            {session.deviceID || session.execTargetCount > 1 ? (
-                              <>
-                                <span className="text-border-strong">·</span>
-                                {session.cwd ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <DeviceTag
-                                        deviceId={session.deviceID}
-                                        deviceName={
-                                          session.deviceName || session.deviceID
-                                        }
-                                        online={session.online ?? true}
-                                      />
-                                    </TooltipTrigger>
-                                    <TooltipContent
-                                      side="bottom"
-                                      className="max-w-[480px] break-all font-mono text-[11px]"
-                                    >
-                                      {session.cwd}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  <DeviceTag
-                                    deviceId={session.deviceID}
-                                    deviceName={
-                                      session.deviceName || session.deviceID
-                                    }
-                                    online={session.online ?? true}
-                                  />
-                                )}
-                              </>
-                            ) : null}
-                          </div>
-                        </div>
-                        {/* 后台任务胶囊：有运行中任务时显示，点击展开只读弹层 */}
-                        <BackgroundTasksChip
-                          tasks={backgroundTasks}
-                          onClearCompleted={handleClearCompleted}
-                          onStopTask={
-                            canStopBackgroundTask
-                              ? (task) => handleStopSubagent(task.toolUseId)
-                              : undefined
-                          }
-                        />
-                        {(() => {
-                          // canStop 双源：
-                          //   1. currentStream !== null —— 本客户端刚起的 turn，
-                          //      openStream 是同步 store 写，比 useChatSession.reload
-                          //      早；解决 Regenerate / Edit / Send-existing 的「服务端
-                          //      已 running 但前端 agentStatus 还是上轮 idle」窗口。
-                          //   2. status === running/waiting —— 服务端权威态，覆盖
-                          //      「app 重启时另一会话仍在跑」场景（store 里没 entry）。
-                          const canStop =
-                            currentStream !== null ||
-                            toolbarStatus === "running" ||
-                            toolbarStatus === "waiting";
-                          return (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={!canStop}
-                              onClick={() => void doStop(session.id)}
-                              title={
-                                canStop
-                                  ? t("chatPanel.toolbar.stopActiveTitle")
-                                  : t("chatPanel.toolbar.stopInactiveTitle")
-                              }
-                            >
-                              <Square
-                                data-icon="inline-start"
-                                aria-hidden="true"
-                              />
-                              {t("chatPanel.toolbar.stop")}
-                            </Button>
-                          );
-                        })()}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon-sm"
-                          aria-label={t("chatPanel.toolbar.contextSidebar")}
-                          onClick={() => setSidebarOpen(!sidebarOpen)}
-                          title={
-                            sidebarOpen
-                              ? t("chatPanel.toolbar.hideContextSidebar")
-                              : t("chatPanel.toolbar.showContextSidebar")
-                          }
-                        >
-                          {sidebarOpen ? (
-                            <PanelRightClose
-                              data-icon="only"
-                              aria-hidden="true"
-                            />
-                          ) : (
-                            <PanelRight data-icon="only" aria-hidden="true" />
-                          )}
-                        </Button>
-                        {/* Pencil Ozwj8 — More dropdown */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon-sm"
-                              aria-label={t("common.moreActions")}
-                            >
-                              <MoreHorizontal
-                                data-icon="only"
-                                aria-hidden="true"
-                              />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() =>
-                                setPendingRename({
-                                  id: session.id,
-                                  draft: session.title,
-                                })
-                              }
-                            >
-                              {t("chatPanel.actions.rename")}
-                            </DropdownMenuItem>
-                            {(session.backendType === "claudecode" ||
-                              session.backendType === "codex" ||
-                              session.backendType === "piagent") && (
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  void handleCopyLaunchCommand(session.id)
-                                }
-                              >
-                                {t("chatPanel.launchCommand.copy")}
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => void handleDelete(session.id)}
-                            >
-                              {t("common.delete")}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </>
-                    );
-                  })()
-                : null}
-            </div>
-          )}
+          <ChatPanelHeader
+            session={session}
+            newSessionAgent={newSessionAgent}
+            showNewSessionPrompt={Boolean(showNewSessionPrompt)}
+            title={headerTitle}
+            status={headerStatus}
+            topline={headerToplineNode}
+            agentName={headerAgentName}
+            metaTail={headerMetaTail}
+            backgroundTasks={backgroundTasks}
+            onClearCompletedTasks={handleClearCompleted}
+            onStopTask={
+              canStopBackgroundTask
+                ? (task) => handleStopSubagent(task.toolUseId)
+                : undefined
+            }
+            canStop={canStop}
+            onStop={(id) => void doStop(id)}
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            onRename={(target) =>
+              setPendingRename({ id: target.id, draft: target.title })
+            }
+            onCopyLaunchCommand={(id) => void handleCopyLaunchCommand(id)}
+            onDelete={(id) => handleDelete(id)}
+          />
 
           {/* ── Body row: 左栏 chat / 右栏 sidebar 占满整高 ──
               输入框宽度 = transcript 宽度,与对话流同列;sidebar 从 toolbar 下沿一路顶到底。 */}
@@ -2870,81 +883,18 @@ function ChatPanel({
                   ref={setTranscriptNode}
                   data-testid="chat-transcript-scroll"
                   onScroll={handleTranscriptScroll}
-                  className="min-h-0 flex-1 overflow-auto px-7 py-6"
+                  // 「下面还会变」由这一条 busy 说，骨架自己对读屏隐身（决策 9）。
+                  aria-busy={awaitingTranscript}
+                  className="min-h-0 flex-1 overflow-auto px-7 pt-6"
                 >
                   {sessionError ? (
-                    (() => {
-                      const loadMsg = splitErrorDetail(sessionError).msg;
-                      // 后端 ChatSessionNotFound 的 zh 文案。不写字面量,用码点拼 ——
-                      // i18n 守卫会把任何 Han 字符串字面量当硬编码 UI copy 拦下;
-                      // 这是匹配动态后端错误文本,不是 UI copy,不进 t()。
-                      const chatSessionNotFoundZh = String.fromCharCode(
-                        0x4f1a, // 会
-                        0x8bdd, // 话
-                        0x4e0d, // 不
-                        0x5b58, // 存
-                        0x5728, // 在
-                      );
-                      const loadNotFound =
-                        loadMsg.includes("Chat session not found") ||
-                        loadMsg.includes(chatSessionNotFoundZh);
-                      return (
-                        <div
-                          role="alert"
-                          aria-label={t("chatPanel.loadError.title")}
-                          className="flex w-full max-w-measure flex-col gap-3 rounded-lg border border-status-error/40 bg-destructive-soft px-4 py-4"
-                        >
-                          <div className="flex items-center gap-2">
-                            <TriangleAlert
-                              className="size-4 shrink-0 text-status-error"
-                              aria-hidden="true"
-                            />
-                            <span className="text-sm font-semibold text-status-error">
-                              {t("chatPanel.loadError.title")}
-                            </span>
-                          </div>
-                          <p
-                            data-selectable-text="true"
-                            className="text-aux text-status-error"
-                          >
-                            {loadMsg}
-                          </p>
-                          {loadNotFound ? (
-                            <p className="text-meta text-status-error">
-                              {t("chatPanel.loadError.notFoundHint")}
-                            </p>
-                          ) : null}
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              size="xs"
-                              onClick={() => void reloadSession()}
-                            >
-                              {t("chatPanel.loadError.retry")}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="ghost"
-                              onClick={() => onSessionDeleted?.()}
-                            >
-                              {t("chatPanel.loadError.close")}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })()
-                  ) : sessionLoading && !session && messages.length === 0 ? (
-                    <div
-                      role="status"
-                      aria-label={t("chatPanel.loading.aria")}
-                      className="flex flex-col gap-3 py-2"
-                    >
-                      <div className="h-10 w-2/3 rounded-lg bg-muted" />
-                      <div className="h-6 w-1/2 rounded-md bg-muted" />
-                      <div className="h-24 w-full rounded-lg bg-muted" />
-                      <div className="h-6 w-3/4 rounded-md bg-muted" />
-                    </div>
+                    <SessionLoadError
+                      error={sessionError}
+                      onRetry={() => void reloadSession()}
+                      onClose={() => onSessionDeleted?.()}
+                    />
+                  ) : awaitingTranscript ? (
+                    <TranscriptSkeleton className="ml-10 max-w-measure py-2" />
                   ) : (
                     <>
                       <ChatTranscript
@@ -2959,7 +909,11 @@ function ChatPanel({
                         virtualize
                         active={active}
                         messages={messages}
+                        hasEarlierMessages={hasEarlierBlocks}
+                        loadingEarlier={loadingEarlierBlocks}
+                        onLoadEarlier={() => void loadEarlierBlocks()}
                         liveByMessageId={liveByMessageId}
+                        fallbackModel={providerPill.resolvedModelLabel}
                         streaming={streaming}
                         liveCompacting={liveCompacting}
                         reconnecting={reconnecting}
@@ -2969,9 +923,7 @@ function ChatPanel({
                             text: "continue",
                           });
                         }}
-                        onRerun={(messageId) =>
-                          void handleRegenerate(messageId)
-                        }
+                        onRerun={(messageId) => handleRegenerate(messageId)}
                         onEdit={(messageId) => handleEdit(messageId)}
                         onPlanActionStarted={handlePlanActionStarted}
                         onStopSubagent={
@@ -2983,7 +935,13 @@ function ChatPanel({
                       {showBackToBottom ? (
                         <TranscriptJumpControl
                           catchUp={catchUp}
+                          turnsBelow={turnsBelow}
                           onJump={handleBackToBottom}
+                          // 这一端的转录列靠左（滚动容器是整面板宽的 px-7，列本身
+                          // 让出 40px 头像 gutter 再封顶 max-w-measure，没有
+                          // mx-auto）。药丸要与消息正文、输入框共用一条中线，就得
+                          // 按这条列算 —— 与 chat-composer-column 同一组类名。
+                          className="ml-10 max-w-measure"
                         />
                       ) : null}
                     </>
@@ -2991,267 +949,161 @@ function ChatPanel({
                 </section>
               )}
 
-              {/* ── Inline notice (取代 window.alert)。
-                    error / info 两种态共用一个 slot，最多挂一条；右侧 × 关闭。
-                    info 用 default Alert 样式（中性），error 用 destructive。 */}
-              {notice ? (
-                <div className="border-t border-border bg-background px-5 pt-2">
-                  <Alert
-                    variant={
-                      notice.kind === "error" ? "destructive" : "default"
-                    }
-                    className="py-2 pr-2"
-                  >
-                    <TriangleAlert aria-hidden="true" />
-                    <AlertDescription className="flex min-w-0 items-start gap-2">
-                      <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <span className="min-w-0 break-words text-xs leading-snug">
-                          {notice.text}
-                        </span>
-                        {notice.detail ? (
-                          <span
-                            data-testid="notice-detail"
-                            data-selectable-text="true"
-                            className="min-w-0 break-words font-mono text-[11px] leading-snug opacity-80"
-                          >
-                            {notice.detail}
-                          </span>
-                        ) : null}
-                        {notice.actions ? (
-                          <div className="flex shrink-0 items-center gap-2 pt-1">
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="outline"
-                              onClick={notice.actions.retry}
-                            >
-                              {t("chatPanel.sendRetry.retry")}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="ghost"
-                              onClick={notice.actions.discard}
-                            >
-                              {t("chatPanel.sendRetry.discard")}
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={t("chatPanel.notice.close")}
-                        onClick={() => setNotice(null)}
-                        className="-mr-1 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-current opacity-70 transition-opacity hover:opacity-100"
-                      >
-                        <X className="size-3" aria-hidden="true" />
-                      </button>
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              ) : null}
+              {/* ── 输入带 ──
+                    转录、通知、离线横幅、守卫、输入框共用同一条列（决策 5）：左右
+                    内边距与转录同值，内容让出 28px 头像列 + gap-3 再封顶
+                    --container-measure —— 输入框的第一个字符与消息正文的第一个字符
+                    落在同一条竖线上。
+                    边界跟随贴底（决策 6）：贴底 = 一整片，没有分隔线也没有渐隐；
+                    未贴底 = border-top + 一段向上渐隐把末行压掉一半，读作"下面还有"。
+                    信号复用 showBackToBottom（与「回到底部」浮层同条件），零新状态。 */}
+              <div
+                data-testid="chat-composer-band"
+                data-scrolled={showBandEdge ? "true" : "false"}
+                className={cn(
+                  "relative shrink-0 px-7 pt-2 pb-4",
+                  showBandEdge && "border-t border-border",
+                )}
+              >
+                {showBandEdge ? (
+                  <div
+                    data-testid="chat-composer-band-fade"
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 -top-3.5 h-3.5 bg-gradient-to-t from-background to-transparent"
+                  />
+                ) : null}
+                <div
+                  data-testid="chat-composer-column"
+                  className="ml-10 flex max-w-measure flex-col gap-2"
+                >
+                  {notice ? (
+                    <ChatPanelNoticeAlert
+                      notice={notice}
+                      onDismiss={() => setNotice(null)}
+                    />
+                  ) : null}
 
-              {/* 会话所在机器离线（R15b）：钉住的档在远端且当前离线，续轮不会改派——
+                  {/* 会话所在机器离线（R15b）：钉住的档在远端且当前离线，续轮不会改派——
                   给一条走得通的路，而不是让用户对着卡死的输入框干等。 */}
-              {session && session.deviceID && session.online === false ? (
-                <SessionOfflineBanner
-                  deviceName={session.deviceName || session.deviceID}
-                  onCreateNewSession={() =>
-                    useChatTabsStore
-                      .getState()
-                      .openNewSession(
-                        session.projectId ?? 0,
-                        session.agentId,
-                        "",
-                      )
-                  }
-                />
-              ) : null}
+                  {session && session.deviceID && session.online === false ? (
+                    <MachineOfflineBanner
+                      machineName={session.deviceName || session.deviceID}
+                      onStartNew={() =>
+                        useChatTabsStore
+                          .getState()
+                          .openNewSession(
+                            session.projectId ?? 0,
+                            session.agentId,
+                            "",
+                          )
+                      }
+                    />
+                  ) : null}
 
-              {/* ── Composer ── */}
-              {showNewSessionGuard && newSessionAgent ? (
-                <NewSessionChatGuard agent={newSessionAgent} />
-              ) : null}
-              <ChatComposer
-                ref={composerRef}
-                sending={sendInFlight}
-                editing={activeEditing !== null}
-                editDraft={activeEditing?.text}
-                onCancelEdit={() => setEditingMessage(null)}
-                // 新建会话场景下，ChatPanel 的 key 变化让 Composer 重新挂载 → 自动抓焦点，
-                // 用户一进来就能直接打字。续聊已有会话不抢焦点，避免打断侧栏切换的鼠标交互。
-                // 不可对话 Agent 的输入框已禁用，不再抢焦点。
-                autoFocusOnMount={!!newSessionAgent && !showNewSessionGuard}
-                disabled={showNewSessionGuard}
-                placeholder={
-                  showNewSessionGuard
-                    ? t("chatPanel.newSession.guard.placeholder")
-                    : undefined
-                }
-                contextUsage={composerContextUsage}
-                quotaUsage={quotaUsage}
-                quotaDeviceLabel={quotaDeviceLabel}
-                permissionModeSlot={
-                  isModeSwitchable ? (
-                    <PermissionModePill
-                      mode={permissionMode.mode}
-                      modes={permissionModeMeta.order}
-                      onSelect={permissionMode.setMode}
-                      errorMessage={permissionMode.error}
-                      disabled={modeSwitchingDisabled}
-                      runtimeKey={activeBackendType}
-                      permissionModeAtLaunch={
-                        permissionMode.permissionModeAtLaunch
-                      }
-                      hasActiveSession={permissionMode.hasActiveSession}
-                    />
-                  ) : null
-                }
-                modelSlot={
-                  activeBackendType ? <ProviderPill {...providerPill} /> : null
-                }
-                onShiftTab={
-                  isModeSwitchable && !modeSwitchingDisabled
-                    ? permissionMode.cycleMode
-                    : undefined
-                }
-                topSlot={
-                  <>
-                    <TaskProgressBar progress={taskProgress} />
-                    <QueuedMessagesBar
-                      queued={currentQueued ?? []}
-                      onCancel={(id) => void doCancelQueued(sessionId, id)}
-                      onClearAll={() => void doCancelQueued(sessionId, "")}
-                      dropped={
-                        droppedQueue && droppedQueue.sessionId === sessionId
-                          ? droppedQueue
-                          : null
-                      }
-                      onRestoreDropped={() =>
-                        useQueuedMessagesStore.getState().restoreDropped()
-                      }
-                      onDiscardDropped={() =>
-                        useQueuedMessagesStore.getState().dismissDropped()
-                      }
-                    />
-                  </>
-                }
-                onSubmit={(message: ChatComposerSubmit | string) => {
-                  message =
-                    typeof message === "string" ? { text: message } : message;
-                  const text = message.text.trim();
-                  const images = message.images ?? [];
-                  if (images.length > 0 && !supportsImageInput) {
-                    setNotice({
-                      kind: "error",
-                      text: t("chatPanel.errors.imageUnsupported"),
-                    });
-                    return;
-                  }
-                  if (activeEditing) {
-                    void confirmEdit(text);
-                    return;
-                  }
-                  // `/new`:沿用当前会话(或未首发新 tab)的 agent / 项目,新开一个全新
-                  // 空白会话 tab 并跳转过去;当前会话完全不受影响(不发消息、不压缩)。
-                  // 真正的 DB 会话由新 tab 首发消息时惰性创建,与「+ / ⌘N 新建会话」一致。
-                  if (isExactNewCommand(text)) {
-                    const newAgentId =
-                      session?.agentId ?? newSessionAgent?.id ?? 0;
-                    if (newAgentId > 0) {
-                      const newProjectId =
-                        session?.projectId ?? newSessionContext?.projectId ?? 0;
-                      useChatTabsStore
-                        .getState()
-                        .openNewSession(newProjectId, newAgentId, "");
+                  {/* ── Composer ── */}
+                  {showNewSessionGuard && newSessionAgent ? (
+                    <NewSessionChatGuard agent={newSessionAgent} />
+                  ) : null}
+                  <ChatComposer
+                    ref={composerRef}
+                    sending={sendInFlight}
+                    editing={activeEditing !== null}
+                    editDraft={activeEditing?.text}
+                    onCancelEdit={() => setEditingMessage(null)}
+                    // 新建会话场景下，ChatPanel 的 key 变化让 Composer 重新挂载 → 自动抓焦点，
+                    // 用户一进来就能直接打字。续聊已有会话不抢焦点，避免打断侧栏切换的鼠标交互。
+                    // 不可对话 Agent 的输入框已禁用，不再抢焦点。
+                    autoFocusOnMount={!!newSessionAgent && !showNewSessionGuard}
+                    disabled={showNewSessionGuard}
+                    placeholder={
+                      showNewSessionGuard
+                        ? t("chatPanel.newSession.guard.placeholder")
+                        : undefined
                     }
-                    return;
-                  }
-                  const goalCommand =
-                    activeBackendType === "codex"
-                      ? parseGoalCommand(text)
-                      : null;
-                  if (goalCommand) {
-                    if (images.length > 0) {
-                      setNotice({
-                        kind: "error",
-                        text: t("chatPanel.goal.imageUnsupported"),
-                      });
-                      return;
+                    // 底栏：设置项（pills）跟在快捷键提示后，计量器贴着提交键 ——
+                    // 「发之前看一眼还剩多少」的读序，与 agentre-server 同一套。
+                    leadingControls={
+                      isModeSwitchable || activeBackendType ? (
+                        <div className="flex shrink-0 items-center gap-1">
+                          {isModeSwitchable ? (
+                            <PermissionModePill
+                              mode={permissionMode.mode}
+                              modes={permissionModeMeta.order}
+                              onSelect={permissionMode.setMode}
+                              errorMessage={permissionMode.error}
+                              disabled={modeSwitchingDisabled}
+                              runtimeKey={activeBackendType}
+                              permissionModeAtLaunch={
+                                permissionMode.permissionModeAtLaunch
+                              }
+                              hasActiveSession={permissionMode.hasActiveSession}
+                            />
+                          ) : null}
+                          {activeBackendType ? (
+                            <ProviderPill {...providerPill} />
+                          ) : null}
+                        </div>
+                      ) : null
                     }
-                    if (streaming) {
-                      setNotice({
-                        kind: "info",
-                        text: t("chatPanel.goal.waitForTurn"),
-                      });
-                      return;
+                    trailingControls={
+                      <>
+                        <QuotaMeter
+                          data={quotaUsage}
+                          deviceLabel={quotaDeviceLabel}
+                        />
+                        {composerContextUsage &&
+                        composerContextUsage.max > 0 ? (
+                          <ContextMeter
+                            used={composerContextUsage.used}
+                            max={composerContextUsage.max}
+                          />
+                        ) : null}
+                      </>
                     }
-                    if (!sessionId) {
-                      if (newSessionAgent && goalCommand.kind === "set") {
-                        void doStartGoal(newSessionAgent.id, goalCommand);
-                        return;
-                      }
-                      setNotice({
-                        kind: "info",
-                        text: t("chatPanel.goal.needsSession"),
-                      });
-                      return;
+                    onShiftTab={
+                      isModeSwitchable && !modeSwitchingDisabled
+                        ? permissionMode.cycleMode
+                        : undefined
                     }
-                    void doGoal(sessionId, session?.agentId ?? 0, goalCommand);
-                    return;
-                  }
-                  if (supportsCompactRPC && isExactCompactCommand(text)) {
-                    if (!sessionId) {
-                      notifyCompactNeedsSession();
-                      return;
+                    topSlot={
+                      <>
+                        <TaskProgressBar progress={taskProgress} />
+                        <QueuedMessagesBar
+                          queued={currentQueued ?? []}
+                          onCancel={(id) => void doCancelQueued(sessionId, id)}
+                          onClearAll={() => void doCancelQueued(sessionId, "")}
+                          dropped={
+                            droppedQueue && droppedQueue.sessionId === sessionId
+                              ? droppedQueue
+                              : null
+                          }
+                          onRestoreDropped={() =>
+                            useQueuedMessagesStore.getState().restoreDropped()
+                          }
+                          onDiscardDropped={() =>
+                            useQueuedMessagesStore.getState().dismissDropped()
+                          }
+                        />
+                      </>
                     }
-                    if (streaming) {
-                      notifyCompactWaitForTurn();
-                      return;
+                    onSubmit={handleComposerSubmit}
+                    backendType={activeBackendType}
+                    agentId={session?.agentId ?? newSessionAgent?.id ?? 0}
+                    cwd={composerCwd}
+                    localCommandHistoryScope={localCommandHistoryScope}
+                    onCommandModeChange={handleLocalCommandModeChange}
+                    supportsImageInput={supportsImageInput}
+                    onCommandSubmit={(command: string) =>
+                      runLocalCommand(sessionId, command)
                     }
-                    if (images.length > 0) {
-                      setNotice({
-                        kind: "error",
-                        text: t("chatPanel.compact.imageUnsupported"),
-                      });
-                      return;
-                    }
-                    void doCompact(sessionId);
-                    return;
-                  }
-                  // 新建会话首发：targetSessionId=0，由 doSend 内的 RPC 返回真实 sessionId
-                  // 并通过 onSessionCreated 回填到父 store；此时 composer 不会卸载（结构稳定）。
-                  if (!sessionId && newSessionAgent) {
-                    void doSend(0, newSessionAgent.id, message);
-                    return;
-                  }
-                  if (streaming && sessionId > 0) {
-                    if (images.length > 0) {
-                      setNotice({
-                        kind: "error",
-                        text: t("chatPanel.errors.imageWhileStreaming"),
-                      });
-                      return;
-                    }
-                    // streaming 中：按回车走 Enqueue，把消息排队等下一个安全点注入。
-                    void doEnqueue(sessionId, session?.agentId ?? 0, text);
-                    return;
-                  }
-                  void doSend(sessionId, session?.agentId ?? 0, message);
-                }}
-                backendType={activeBackendType}
-                agentId={session?.agentId ?? newSessionAgent?.id ?? 0}
-                cwd={composerCwd}
-                localCommandHistoryScope={localCommandHistoryScope}
-                onCommandModeChange={handleLocalCommandModeChange}
-                supportsImageInput={supportsImageInput}
-                onRunCommand={(command) => runLocalCommand(sessionId, command)}
-                onSlashRpc={(cmd) => {
-                  console.warn(
-                    `slash rpc not wired: cmd=${cmd.name} backend=${activeBackendType}`,
-                  );
-                }}
-              />
+                    onSlashRpc={(cmd) => {
+                      console.warn(
+                        `slash rpc not wired: cmd=${cmd.name} backend=${activeBackendType}`,
+                      );
+                    }}
+                  />
+                </div>
+              </div>
             </div>
             {!showNewSessionPrompt && sidebarOpen ? (
               <ChatContextSidebar
@@ -3270,126 +1122,25 @@ function ChatPanel({
             ) : null}
             {/* 最右一栏:文件预览面板。仅在选中了可预览文件时渲染(内部自行返回
                 null),打开占位、关闭释放宽度;宽高记忆独立 persistenceKey。 */}
-            <FilePreviewPanel sessionId={session?.id ?? 0} />
+            <FilePreviewPanel
+              sessionId={session?.id ?? 0}
+              messages={messages}
+              cwd={session?.cwd ?? ""}
+            />
           </div>
         </main>
       )}
-      <Dialog
-        open={pendingRegenId !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingRegenId(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("chatPanel.regenerateDialog.title")}</DialogTitle>
-          </DialogHeader>
-          <DialogBody>
-            <p className="text-sm text-muted-foreground">
-              {t("chatPanel.regenerateDialog.description")}
-            </p>
-          </DialogBody>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPendingRegenId(null)}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button size="sm" onClick={() => void confirmRegenerate()}>
-              {t("chatPanel.regenerateDialog.confirm")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={pendingDeleteId !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingDeleteId(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("chatPanel.deleteDialog.title")}</DialogTitle>
-          </DialogHeader>
-          <DialogBody>
-            <p className="text-sm text-muted-foreground">
-              {t("chatPanel.deleteDialog.description")}
-            </p>
-          </DialogBody>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPendingDeleteId(null)}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => void confirmDelete()}
-            >
-              {t("common.delete")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {/* Rename Dialog 取代旧 window.prompt：把 draft 提到 state 上，
-          DialogClose 由 onOpenChange 统一管理（× / Esc / 取消 都走同一 setter）。 */}
-      <Dialog
-        open={pendingRename !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingRename(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("chatPanel.renameDialog.title")}</DialogTitle>
-          </DialogHeader>
-          <DialogBody>
-            <form
-              id="rename-session-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void confirmRename();
-              }}
-            >
-              <Input
-                autoFocus
-                value={pendingRename?.draft ?? ""}
-                onChange={(e) =>
-                  setPendingRename((prev) =>
-                    prev ? { ...prev, draft: e.target.value } : prev,
-                  )
-                }
-                placeholder={t("chatPanel.renameDialog.placeholder")}
-                aria-label={t("chatPanel.renameDialog.nameAria")}
-              />
-            </form>
-          </DialogBody>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPendingRename(null)}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button
-              type="submit"
-              form="rename-session-form"
-              size="sm"
-              disabled={
-                !pendingRename || pendingRename.draft.trim().length === 0
-              }
-            >
-              {t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ChatPanelConfirmDialogs
+        pendingRegenId={pendingRegenId}
+        setPendingRegenId={setPendingRegenId}
+        onConfirmRegenerate={() => void confirmRegenerate()}
+        pendingDeleteId={pendingDeleteId}
+        setPendingDeleteId={setPendingDeleteId}
+        onConfirmDelete={() => void confirmDelete()}
+        pendingRename={pendingRename}
+        setPendingRename={setPendingRename}
+        onConfirmRename={() => void confirmRename()}
+      />
     </TooltipProvider>
   );
 }

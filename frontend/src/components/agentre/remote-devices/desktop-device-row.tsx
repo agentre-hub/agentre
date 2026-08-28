@@ -15,28 +15,17 @@ import {
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge, Button } from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import { PeerListSessions } from "../../../../wailsjs/go/app/App";
-import type { wire } from "../../../../wailsjs/go/models";
+import type { server_svc, wire } from "../../../../wailsjs/go/models";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { relativeTime } from "./format";
 import { splitErrorDetail } from "@/lib/error-detail";
 
-export type DesktopDevice = {
-  ID: number;
-  Name: string;
-  Kind: string;
-  Fingerprint: string;
-  Online: boolean;
-  LastSeenAt: number;
-  IsThisDevice: boolean;
-};
-
 type Props = {
-  device: DesktopDevice;
+  device: server_svc.Device;
   now: number;
 };
 
@@ -49,8 +38,8 @@ export function DesktopDeviceRow({ device, now }: Props) {
   const [sessions, setSessions] = useState<wire.SessionSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isThis = device.IsThisDevice;
-  const running = device.Online;
+  const isThis = device.isThisDevice;
+  const running = device.online;
 
   const toggle = async () => {
     if (!running) return;
@@ -63,7 +52,7 @@ export function DesktopDeviceRow({ device, now }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const result = await PeerListSessions(device.Fingerprint);
+      const result = await PeerListSessions(device.fingerprint);
       setSessions(result?.sessions ?? []);
     } catch (e) {
       const { msg } = splitErrorDetail(e);
@@ -76,10 +65,10 @@ export function DesktopDeviceRow({ device, now }: Props) {
 
   const openSession = (s: wire.SessionSummary) => {
     openPeerTab({
-      fingerprint: device.Fingerprint,
+      fingerprint: device.fingerprint,
       sessionId: s.sessionId,
       title: s.title || t("remoteDevices.desktop.untitledSession"),
-      deviceName: device.Name,
+      deviceName: device.name,
     });
     navigate("/chat");
   };
@@ -107,7 +96,7 @@ export function DesktopDeviceRow({ device, now }: Props) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-medium">
-              {device.Name || device.Fingerprint}
+              {device.name || device.fingerprint}
             </span>
             <Badge variant="outline">
               {t("remoteDevices.desktop.kindBadge")}
@@ -122,8 +111,8 @@ export function DesktopDeviceRow({ device, now }: Props) {
             {running ? (
               t("remoteDevices.desktop.running", {
                 time:
-                  device.LastSeenAt > 0
-                    ? relativeTime(device.LastSeenAt, now, t)
+                  device.lastSeenAt > 0
+                    ? relativeTime(device.lastSeenAt, now, t)
                     : "",
               })
             ) : (
@@ -131,10 +120,10 @@ export function DesktopDeviceRow({ device, now }: Props) {
                 {t("remoteDevices.desktop.notRunning")}
               </span>
             )}
-            {device.LastSeenAt > 0 ? (
+            {device.lastSeenAt > 0 ? (
               <span className="ml-2">
                 {t("remoteDevices.desktop.lastSeen", {
-                  time: relativeTime(device.LastSeenAt, now, t),
+                  time: relativeTime(device.lastSeenAt, now, t),
                 })}
               </span>
             ) : null}

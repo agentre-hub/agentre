@@ -1,0 +1,14 @@
+version: v2
+clean: true
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt:
+      - target=ts
+  # 生成的 Go 直接落进独立 module github.com/agentre-hub/agentre/pkg/wire，不再经过
+  # 一次 cp 复制到宿主仓内。module= 把 go_package 前缀从输出文件名里剥掉，使产物就是
+  # <out>/wire.pb.go；out 必须是只含生成物的目录，因为上面的 clean: true 会先清空它。
+  - remote: buf.build/protocolbuffers/go:v1.36.12
+    out: ../../../pkg/wire/agentrewire
+    opt:
+      - module=github.com/agentre-hub/agentre/pkg/wire/agentrewire

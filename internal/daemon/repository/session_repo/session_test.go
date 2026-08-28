@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/utils/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/daemon/repository/session_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
 )
 
 // TestSessionRepo_Upsert_WritesRowAndIsRepeatable 覆盖「会话开始时建行」:一轮执行
@@ -29,8 +30,8 @@ func TestSessionRepo_Upsert_WritesRowAndIsRepeatable(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	require.NoError(t, repo.Upsert(ctx, row))
-	assert.NotZero(t, row.CreatedAt, "建行时间必须被填上")
-	assert.NotZero(t, row.UpdatedAt)
+	assert.NotZero(t, row.Createtime, "建行时间必须被填上")
+	assert.NotZero(t, row.LastMessageAt)
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO `daemon_sessions`.*ON DUPLICATE KEY UPDATE").
@@ -49,8 +50,8 @@ func TestSessionRepo_UpdateLifecycle_TouchesOnlyThatPeersRow(t *testing.T) {
 	repo := session_repo.NewSession()
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `daemon_sessions` SET `lifecycle_state`=\\?,`updated_at`=\\? WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
-		WithArgs("idle", sqlmock.AnyArg(), "peerA", "s1").
+	mock.ExpectExec("UPDATE `daemon_sessions` SET `last_message_at`=\\?,`lifecycle_state`=\\? WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs(sqlmock.AnyArg(), "idle", "peerA", "s1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -64,10 +65,10 @@ func TestSessionRepo_ListByPeer_ScopedToCaller(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := session_repo.NewSession()
 
-	rows := sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "agent_id", "cwd", "backend_type", "lifecycle_state", "title", "agent_sync_id", "provider_session_id", "created_at", "updated_at"}).
+	rows := sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "agent_id", "cwd", "backend_type", "lifecycle_state", "title", "agent_sync_id", "provider_session_id", "createtime", "last_message_at"}).
 		AddRow("peerA", "s1", 7, "/work", "claudecode", "running", "fix the bug", "01HXsync000000000000000000", "claude-abc123", 100, 200).
 		AddRow("peerA", "s2", 8, "/other", "codex", "idle", "", "", "", 100, 150)
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY updated_at DESC").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC").
 		WithArgs("peerA").
 		WillReturnRows(rows)
 
@@ -94,10 +95,10 @@ func TestSessionRepo_ListAll_ReturnsRowsAcrossPeers(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := session_repo.NewSession()
 
-	rows := sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "agent_id", "cwd", "backend_type", "lifecycle_state", "title", "agent_sync_id", "provider_session_id", "created_at", "updated_at"}).
+	rows := sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "agent_id", "cwd", "backend_type", "lifecycle_state", "title", "agent_sync_id", "provider_session_id", "createtime", "last_message_at"}).
 		AddRow("peerA", "s1", 7, "/work", "claudecode", "running", "", "", "", 100, 200).
 		AddRow("peerB", "s1", 8, "/other", "codex", "idle", "", "", "", 100, 150)
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` ORDER BY updated_at DESC").WillReturnRows(rows)
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` ORDER BY last_message_at DESC").WillReturnRows(rows)
 
 	got, err := repo.ListAll(ctx)
 	require.NoError(t, err)
@@ -154,8 +155,8 @@ func TestSessionRepo_InterruptAll_SweepsEveryNonTerminalRow(t *testing.T) {
 	repo := session_repo.NewSession()
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `daemon_sessions` SET `lifecycle_state`=\\?,`updated_at`=\\? WHERE lifecycle_state <> \\?").
-		WithArgs("interrupted", sqlmock.AnyArg(), "interrupted").
+	mock.ExpectExec("UPDATE `daemon_sessions` SET `last_message_at`=\\?,`lifecycle_state`=\\? WHERE lifecycle_state <> \\?").
+		WithArgs(sqlmock.AnyArg(), "interrupted", "interrupted").
 		WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectCommit()
 
@@ -182,5 +183,124 @@ func TestSessionRepo_CountByLifecycle_CountsOnlyThatState(t *testing.T) {
 	n, err := repo.CountByLifecycle(ctx, "running")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_Delete_ScopedToThatPeersRow 覆盖整条会话的删除:只删这一条
+// (对端, 会话),并交回真的删了几行。不带对端指纹的 DELETE 会把别的机器上同号的
+// 那条会话一起抹掉 —— 会话 id 是各客户端本地自增的,重号是常态。
+func TestSessionRepo_Delete_ScopedToThatPeersRow(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("peerA", "s1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	deleted, err := repo.Delete(ctx, "peerA", "s1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), deleted)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_Delete_MissingRowIsNotAnError 覆盖重复删除:会话行早就不在时删掉
+// 零行、不报错。报错会让调用方(server 那条删除待办)永远重放同一条指令。
+func TestSessionRepo_Delete_MissingRowIsNotAnError(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("peerA", "gone").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	deleted, err := repo.Delete(ctx, "peerA", "gone")
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_Upsert_LeavesTheSessionModelTargetAlone 是一条**纪律守卫**:
+// provider_key / model_key 绝不能出现在 Upsert 的赋值列里。
+//
+// Upsert 在**每一轮起手**都会跑,携带的是当轮 RunParams 里的元数据。会话级
+// ModelTarget 不在 RunParams 里,一旦它进了赋值列,每轮起手都会拿零值把用户轮中
+// 刚选好的模型冲回「跟随 Agent 绑定」——而且是静默的。桌面端 chat_entity 的
+// ModelKey 注释写的是同一条纪律的另一半(「普通 Session Save 必须 Omit 这一列」)。
+//
+// 断言方式是把整段赋值列钉死并锚到行尾:多出任何一列都匹配不上。
+func TestSessionRepo_Upsert_LeavesTheSessionModelTargetAlone(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("ON DUPLICATE KEY UPDATE `agent_id`=VALUES\\(`agent_id`\\),`cwd`=VALUES\\(`cwd`\\)," +
+		"`backend_type`=VALUES\\(`backend_type`\\),`lifecycle_state`=VALUES\\(`lifecycle_state`\\)," +
+		"`title`=VALUES\\(`title`\\),`agent_sync_id`=VALUES\\(`agent_sync_id`\\)," +
+		"`project_sync_id`=VALUES\\(`project_sync_id`\\)," +
+		"`provider_session_id`=VALUES\\(`provider_session_id`\\),`last_message_at`=VALUES\\(`last_message_at`\\)$").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.Upsert(ctx, &session_repo.DaemonSession{
+		PeerFingerprint: "peerA", PeerSessionID: "s1", BackendType: "claudecode",
+		LifecycleState: "running",
+		// 就算调用方糊里糊涂带上了它们,也不该被写进去。
+		ProviderKey: "should-not-be-assigned", ModelKey: "should-not-be-assigned",
+	}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestDaemonSessionEntity_PlainUpdatesNeverRewriteLastMessageAt 守 decision 10 的
+// 那句主张:「会话最后活动时刻」改名成 last_message_at 之后,GORM 把 UpdatedAt 认作
+// 行更新时刻、在每一次写入上自动改写它的陷阱随之消失——防御不再需要
+// autoUpdateTime:false 之类的标注,因为招来它的那个名字没有了。
+//
+// 这一格是会话清单的排序键与「最后活动」的唯一真相源(线格式
+// SessionSummary.last_message_at)。任何一次不指名它的普通更新都顶掉它,清单顺序就
+// 会被一次改模型、一次改标题这样的非活动写入打乱。断言用锚到行尾的赋值列:多出
+// 任何一列(尤其是自动补上的时刻列)都匹配不上。
+func TestDaemonSessionEntity_PlainUpdatesNeverRewriteLastMessageAt(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `daemon_sessions` SET `cwd`=\\? WHERE peer_fingerprint = \\? AND peer_session_id = \\?").
+		WithArgs("/work", "peerA", "s1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := db.Ctx(ctx).Model(&session_repo.DaemonSession{}).
+		Where("peer_fingerprint = ? AND peer_session_id = ?", "peerA", "s1").
+		Updates(map[string]any{"cwd": "/work"}).Error
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_Upsert_CarriesProjectSyncID 覆盖「会话发起那一刻就记下项目」。
+//
+// 此前 agentred 只存 cwd,项目归属由服务端按 (指纹, cwd) 反推(agent_sessions 决策
+// 12)。日活跃统计要按项目分组,而它走的是一条**不上行任何路径**的纯计数通道 ——
+// 反推那条路在那里用不了。项目因此必须在发起时随会话落库。
+//
+// 它和 title / agent_sync_id 同批:每轮起手携带当轮的值、幂等覆盖,所以既要出现在
+// 插入列里,也要出现在冲突更新列里 —— 只插不更新的话,会话换了项目就再也改不回来。
+func TestSessionRepo_Upsert_CarriesProjectSyncID(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO `daemon_sessions`.*`project_sync_id`.*ON DUPLICATE KEY UPDATE.*`project_sync_id`").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.Upsert(ctx, &session_repo.DaemonSession{
+		PeerFingerprint: "peerA", PeerSessionID: "s1",
+		Cwd: "/work", BackendType: "claudecode", LifecycleState: "running",
+		ProjectSyncID: "prj-9",
+	}))
+
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

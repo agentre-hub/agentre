@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	notification_repo "github.com/agentre-ai/agentre/internal/daemon/repository/notification_repo"
+	notification_repo "github.com/agentre-hub/agentre/internal/daemon/repository/notification_repo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -55,19 +55,19 @@ func (mr *MockNotificationRepoMockRecorder) Append(ctx, n any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Append", reflect.TypeOf((*MockNotificationRepo)(nil).Append), ctx, n)
 }
 
-// DeleteBelow mocks base method.
-func (m *MockNotificationRepo) DeleteBelow(ctx context.Context, peerFingerprint, peerSessionID string, seq int64) (int64, error) {
+// DeleteAll mocks base method.
+func (m *MockNotificationRepo) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteBelow", ctx, peerFingerprint, peerSessionID, seq)
+	ret := m.ctrl.Call(m, "DeleteAll", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// DeleteBelow indicates an expected call of DeleteBelow.
-func (mr *MockNotificationRepoMockRecorder) DeleteBelow(ctx, peerFingerprint, peerSessionID, seq any) *gomock.Call {
+// DeleteAll indicates an expected call of DeleteAll.
+func (mr *MockNotificationRepoMockRecorder) DeleteAll(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBelow", reflect.TypeOf((*MockNotificationRepo)(nil).DeleteBelow), ctx, peerFingerprint, peerSessionID, seq)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAll", reflect.TypeOf((*MockNotificationRepo)(nil).DeleteAll), ctx, peerFingerprint, peerSessionID)
 }
 
 // LatestSeq mocks base method.
@@ -129,19 +129,4 @@ func (m *MockNotificationRepo) OldestSeq(ctx context.Context, peerFingerprint, p
 func (mr *MockNotificationRepoMockRecorder) OldestSeq(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OldestSeq", reflect.TypeOf((*MockNotificationRepo)(nil).OldestSeq), ctx, peerFingerprint, peerSessionID)
-}
-
-// SilentSessions mocks base method.
-func (m *MockNotificationRepo) SilentSessions(ctx context.Context, cutoffMs int64, limit int) ([]notification_repo.SilentSession, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SilentSessions", ctx, cutoffMs, limit)
-	ret0, _ := ret[0].([]notification_repo.SilentSession)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SilentSessions indicates an expected call of SilentSessions.
-func (mr *MockNotificationRepoMockRecorder) SilentSessions(ctx, cutoffMs, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SilentSessions", reflect.TypeOf((*MockNotificationRepo)(nil).SilentSessions), ctx, cutoffMs, limit)
 }

@@ -5,11 +5,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 // selfFingerprint 取本机设备指纹（R5 硬不变量：与 LAN 配对 / 账号登录共用同一指纹）。
@@ -34,7 +34,7 @@ func (s *chatSvc) selfFingerprint(ctx context.Context) string {
 // 全仓一律用它 / TargetsAnotherMachine 提问，**不要再写 be.IsRemote()**：R13 认领后
 // 本机 backend 的 DeviceID 就是本机指纹，IsRemote() 单独用会把本机判成远端。
 func beTargetsRemote(be *agent_backend_entity.AgentBackend) bool {
-	return be != nil && remote_device_svc.TargetsAnotherMachine(be.DeviceID)
+	return be != nil && remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint)
 }
 
 // selfBackendIDs 找出一个 Agent 执行目标列表里指向本机（DeviceID == 本机指纹）的那

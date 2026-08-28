@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 )
 
 // TestDeviceFingerprint (R17 本机侧):DeviceFingerprint 交出与 LAN 配对 / 账号登录

@@ -3,10 +3,9 @@ package project_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 )
 
 // aggregateMembers 按 parent_id 链向上聚合成员：直接成员 + 全部祖先继承成员。
@@ -88,8 +87,8 @@ func (s *projectSvc) aggregateMembers(
 	return direct, inherited, nil
 }
 
-func hydrateMemberAgents(ctx context.Context, groups ...[]*ProjectAgentMember) error {
-	agents, err := agent_repo.Agent().List(ctx)
+func (s *projectSvc) hydrateMemberAgents(ctx context.Context, groups ...[]*ProjectAgentMember) error {
+	agents, err := s.agents.List(ctx)
 	if err != nil {
 		return err
 	}

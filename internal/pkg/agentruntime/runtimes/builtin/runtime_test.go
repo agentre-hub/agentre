@@ -5,7 +5,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 )
 
 // TestBuiltinCapabilities 钉死 builtin runtime 的能力矩阵 —— 与 Capabilities 描述

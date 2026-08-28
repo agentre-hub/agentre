@@ -35,7 +35,7 @@ Prerequisites are Go, Node 24+, pnpm, the Wails CLI, Chromium, and the platform 
 |---|---|
 | `tests/desktop.spec.ts` | Real UI/IPC/service/repository/migration path; unique persisted messages and SQLite `PRAGMA database_list` prove the oracle reads the manifest's `agentre.db`; deterministic streamed reply survives reload; runtime failure reaches an error terminal state. |
 | `tests/sync-client.spec.ts` | Desktop sync client against a loopback protocol recorder; push/pull identity, payload, version/cursor and UI/SQLite convergence; rejection/invalid-response queue retention and visible error state. |
-| `tests/remote-peer.spec.ts` | Desktop direct remote transport against a loopback JSON-RPC/WebSocket peer; auth/capability/session/run protocol, streamed persistence, reconnect/disconnect terminal state, protocol-error terminal state, and credential redaction. |
+| `tests/remote-peer.spec.ts` | Desktop direct remote transport against a loopback binary Protobuf RPC/WebSocket peer; auth/capability/session/run protocol, streamed persistence, reconnect/disconnect terminal state, protocol-error terminal state, and credential redaction. |
 
 No external Server, OAuth, PostgreSQL, Redis, daemon process, LAN discovery, relay, or real agent CLI is configured by this suite. Fakes bind only dynamic loopback ports and receive generated test identities and credentials.
 
@@ -79,7 +79,7 @@ The canonical automated check remains `make e2e`; passing only a focused fake or
 | `preflight/` | Manifest/token/path/permission safety gate. |
 | `composition/` | E2E-only dependency composition and run-scoped fake identity seeding. |
 | `fakes/` | Deterministic local runtime and login fixtures used only by the independent composition. |
-| `fakepeer/`, `cmd/fake-peer/` | Loopback remote JSON-RPC/WebSocket peer and executable. |
+| `fakepeer/`, `cmd/fake-peer/` | Loopback remote binary Protobuf RPC/WebSocket peer and executable. |
 | `lib/run-context.mjs` | Random run allocation, dynamic ports, process ownership, run-scoped evidence, artifact sanitization. |
 | `lib/fake-sync-server.mjs` | Loopback sync protocol fake and recorder. |
 | `lib/app-overlay.mjs` | Run-local deterministic failure directive for the E2E runtime source. |

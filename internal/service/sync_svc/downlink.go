@@ -4,16 +4,41 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
+	"sort"
+	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
+
+// appliedKinds 是一轮下行里**真正落地**的对象类型。用集合而不是计数：界面据此
+// 决定重拉哪几份数据，落了几条它不关心。
+type appliedKinds map[string]struct{}
+
+// announce 把这一轮的收获交给上层。没落地任何东西就不吭声 —— 30 秒一轮的轮询
+// 大多数轮次都是空转，每轮都喊等于让界面每 30 秒白拉一遍项目树。
+func (s *service) announce(ctx context.Context, landed appliedKinds) {
+	if len(landed) == 0 {
+		return
+	}
+	emit := s.getEmitter()
+	if emit == nil {
+		return
+	}
+	kinds := make([]string, 0, len(landed))
+	for kind := range landed {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	logger.Ctx(ctx).Debug("sync_svc.announce: inbound landed", zap.Strings("kinds", kinds))
+	emit(kinds)
+}
 
 // pull 按本端游标增量下行（R3：30 秒一轮）。
 func (s *service) pull(ctx context.Context, accountID int64) error {
@@ -34,6 +59,9 @@ func (s *service) pullFrom(ctx context.Context, accountID, cursor int64) error {
 		return nil
 	}
 	var losses []*mergeLoss
+	// 这一轮到底改变了本机什么。收工时交给 emitter —— 界面没有别的办法知道另一台
+	// 设备刚建了个项目（项目树没有推送通道，此前靠项目页那条 1 秒轮询兜着）。
+	landed := appliedKinds{}
 	for page := 0; page < maxPullPages; page++ {
 		p, err := transport.SyncPull(ctx, cursor, pullLimit)
 		if err != nil {
@@ -45,7 +73,11 @@ func (s *service) pullFrom(ctx context.Context, accountID, cursor int64) error {
 			if err != nil {
 				return err
 			}
-			if err := s.applyInbound(ctx, accountID, in); err != nil {
+			applied, err := s.applyInbound(ctx, accountID, in)
+			if applied {
+				landed[in.Kind] = struct{}{}
+			}
+			if err != nil {
 				// 单条隔离：一行落不了地不该把整页连同游标一起卡住，否则下一轮
 				// 从同一个游标拉回同一页、在同一行再断一次，那台机器从此收不到
 				// 任何下行。留进暂缓队列：下一轮照常重试，30 天等不到就按 R2a
@@ -80,7 +112,7 @@ func (s *service) pullFrom(ctx context.Context, accountID, cursor int64) error {
 			break
 		}
 	}
-	if err := s.replayDeferred(ctx, accountID); err != nil {
+	if err := s.replayDeferred(ctx, accountID, landed); err != nil {
 		return err
 	}
 	if err := s.recordMergeLosses(ctx, accountID, losses); err != nil {
@@ -89,7 +121,12 @@ func (s *service) pullFrom(ctx context.Context, accountID, cursor int64) error {
 	if err := s.gcDeferred(ctx, accountID); err != nil {
 		return err
 	}
-	return s.gcLostChanges(ctx, accountID)
+	if err := s.gcLostChanges(ctx, accountID); err != nil {
+		return err
+	}
+	// 放在最后：迟到重放（replayDeferred）落地的那些行也算这一轮的收获。
+	s.announce(ctx, landed)
+	return nil
 }
 
 // naturalKeyed 是「账号内除同步标识之外还有一个自然键」的对象类型——今天只有
@@ -114,7 +151,7 @@ type mergeLoss struct {
 // 它这边收到的仅仅是一份墓碑，和一次普通的远端删除长得一模一样。要分辨只能等
 // 胜者也落地——所以这里只做「留证」，判定推迟到整轮下行结束（recordMergeLosses）。
 func (s *service) captureMergeLoss(ctx context.Context, in *inbound) (*mergeLoss, error) {
-	if !in.Deleted {
+	if !in.IsTombstone() {
 		return nil, nil
 	}
 	ad, ok := s.adapters[in.Kind].(naturalKeyed)
@@ -198,20 +235,22 @@ func (s *service) gcLostChanges(ctx context.Context, accountID int64) error {
 //
 // 两道闸：**版本守卫**（本机已有同版本或更新的版本就不再落——重复投递只应用一次，
 // 任意到达顺序下结果相同，R4/R7）与**引用守卫**（引用目标还没到就暂缓落地，绝不写
-// 悬空引用，R2a）。引用守卫只管落地，不管删除——见下面 in.Deleted 那一段。
-func (s *service) applyInbound(ctx context.Context, accountID int64, in *inbound) error {
+// 悬空引用，R2a）。引用守卫只管落地，不管删除——见下面 in.IsTombstone() 那一段。
+// 返回值是「本机有没有真的因此改变」：版本守卫挡下的重复投递、无处可删的墓碑、
+// 等引用而暂缓的那些都是 false —— 界面据此决定要不要重拉，空转的轮次不该惊动它。
+func (s *service) applyInbound(ctx context.Context, accountID int64, in *inbound) (bool, error) {
 	ad := s.adapters[in.Kind]
 	if ad == nil {
-		return nil
+		return false, nil
 	}
 	version, _, found, err := syncstate_repo.SyncState().FindVersion(ctx, in.Kind, in.SyncID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if found && version >= in.Version {
-		return nil
+		return false, nil
 	}
-	if in.Deleted {
+	if in.IsTombstone() {
 		// 墓碑一到，同一个同步标识压在暂缓队列里的旧副本立刻作废。
 		//
 		// 少了这一步就有一条永久的复活路径：成员关系与执行目标是硬删，行没了之后
@@ -219,60 +258,55 @@ func (s *service) applyInbound(ctx context.Context, accountID int64, in *inbound
 		// 版本守卫对它们失忆；此后重放那份旧副本会把删掉的行原样建回来，而游标早已
 		// 越过这两版，谁也不会再纠正它（R6：删除不被复活）。
 		if err := s.dropDeferred(ctx, accountID, in.Kind, in.SyncID); err != nil {
-			return err
+			return false, err
 		}
 	}
-	if in.Deleted && !found {
+	if in.IsTombstone() && !found {
 		// 本机从来没有这一行：墓碑没有可删的东西，也不必为它等引用目标到达
 		// ——把删除挂进暂缓队列只会白等 30 天（R2a/R6）。
-		return nil
+		return false, nil
 	}
 
-	if in.Deleted {
+	if in.IsTombstone() {
 		// 删除不过引用守卫：adapter.remove 只按同步标识找本机那一行，一个引用也
 		// 不写（resolved 它根本不收）。让它等引用目标到达，等于本机没配对那台
 		// agentred 时一条 backend 的墓碑要在暂缓队列里空等 30 天再被当成「引用
 		// 丢失」丢掉——那一行在本机永远删不掉，而 R6 说删除必须到达各端。
 		if err := ad.remove(ctx, in); err != nil {
-			return err
+			return false, err
 		}
-		return s.saveInboundMeta(ctx, accountID, in)
+		return true, s.saveInboundMeta(ctx, accountID, in)
 	}
 
 	resolved, missing, err := resolveRefs(ctx, ad.refs(in))
 	if errors.Is(err, errRefMissing) {
-		return s.defer_(ctx, accountID, in, missing.key())
+		return false, s.defer_(ctx, accountID, in, missing.key())
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if err := ad.apply(ctx, in, resolved); err != nil {
 		if errors.Is(err, errRefMissing) {
-			return s.defer_(ctx, accountID, in, "")
+			return false, s.defer_(ctx, accountID, in, "")
 		}
-		return err
+		return false, err
 	}
-	return s.saveInboundMeta(ctx, accountID, in)
+	return true, s.saveInboundMeta(ctx, accountID, in)
 }
 
 // saveInboundMeta 记下这一行已经消费到哪一版（版本守卫下一次靠它）。
 func (s *service) saveInboundMeta(ctx context.Context, accountID int64, in *inbound) error {
 	return syncstate_repo.SyncState().SaveMeta(ctx, in.Kind, in.SyncID, syncmeta_entity.SyncMeta{
-		SyncID:        in.SyncID,
-		SyncAccountID: accountID,
-		SyncVersion:   in.Version,
-		SyncUpdatedAt: in.UpdatedAt,
-		SyncOrigin:    strconv.FormatInt(in.SourceDeviceID, 10),
-		SyncDeletedAt: deletedAtOf(in, s.now()),
+		SyncID:                in.SyncID,
+		SyncAccountID:         accountID,
+		SyncVersion:           in.Version,
+		SyncUpdatedAt:         in.UpdatedAt,
+		SyncOriginFingerprint: in.OriginFingerprint,
+		// 删除时刻由发起端记下、随下行原样到达（决策 20）：server 不再把墓碑压成布尔，
+		// 本端也就不必在落地时另编一个「现在」。
+		SyncDeletedAt: in.DeletedAt,
 	})
-}
-
-func deletedAtOf(in *inbound, now int64) int64 {
-	if in.Deleted {
-		return now
-	}
-	return 0
 }
 
 // defer_ 把一条暂缓落地的行存进入站队列（R2a）：保留 30 天，等引用目标到达后完成。
@@ -317,7 +351,7 @@ func (s *service) defer_(ctx context.Context, accountID int64, in *inbound, miss
 // 它走的是与 applyInbound 同一条路（同样的版本守卫、同样的引用守卫、同样的删除
 // 例外），区别只在失败之后：暂缓的行**留在队列里**等下一轮，不往上抛——一条重试
 // 不成功的行不该把同一轮里其它行的重放也一起中断。
-func (s *service) replayDeferred(ctx context.Context, accountID int64) error {
+func (s *service) replayDeferred(ctx context.Context, accountID int64, landed appliedKinds) error {
 	for round := 0; round < 8; round++ {
 		rows, err := syncqueue_repo.InboundQueue().ListByAccount(ctx, accountID)
 		if err != nil {
@@ -342,7 +376,10 @@ func (s *service) replayDeferred(ctx context.Context, accountID int64) error {
 			// 走 applyInbound 而不是自己再解析一遍引用：版本守卫也因此对重放生效。
 			// 少了它，一次迟到的重放会把已经落地的更新版本盖回旧版本，而游标早已
 			// 越过那一版——被盖掉的内容再也不会被重新投递，回退是永久的。
-			aerr := s.applyInbound(ctx, accountID, in)
+			applied, aerr := s.applyInbound(ctx, accountID, in)
+			if applied {
+				landed[in.Kind] = struct{}{}
+			}
 			if aerr != nil {
 				logger.Ctx(ctx).Error("sync_svc.replayDeferred: row still cannot land, keeping it queued",
 					zap.String("kind", in.Kind), zap.String("syncId", in.SyncID), zap.Error(aerr))
@@ -448,3 +485,96 @@ func (s *service) gcDeferred(ctx context.Context, accountID int64) error {
 	}
 	return nil
 }
+
+// ── 账号级实时通道：第二个下行触发源 ───────────────────────────────────────
+
+// watchAccountChannel 把账号级实时通道（server 的 GET /v1/account/channel）接成
+// 30 秒轮询之外的**第二个**下行触发源。通道上只流信号「这个账号的同步版本推进了」，
+// 不流对象内容，因此收到之后照常走 SyncOnce（规格「实时通道只送信号，不送数据」）。
+//
+// 这条通道的设计前提就是它可以不可靠：
+//
+//   - 出入口根本没有它（单机构建、旧版 server、测试替身）：直接返回，只剩轮询，
+//     而那本身是一个完整可用的形态；
+//   - 连不上 / 断开：隔 accountChannelRetry 再试一次，不重试到底、不阻塞任何操作；
+//   - 建连成功（首次与重连一视同仁）：立刻主动 Pull 一次，而不是等服务端补发——
+//     通道不保存未送达的信号，断线期间的变更由这一次 Pull 补齐；
+//   - 漏帧、乱序、重复：都无害。版本号只用于「该拉了」的判断，拉哪些由本端自己的
+//     游标决定（cursor.go），重复信号最多多拉一页空的。
+func (s *service) watchAccountChannel(ctx context.Context) {
+	dialer, ok := s.getTransport().(AccountChannelDialer)
+	if !ok {
+		return
+	}
+	for ctx.Err() == nil {
+		signals, err := dialer.DialAccountChannel(ctx)
+		if err != nil {
+			// 连不上不是同步失败：不进 lastErr、不影响轮询的退避，界面上什么都不该变。
+			logger.Ctx(ctx).Debug("sync_svc.watchAccountChannel: unavailable, polling only",
+				zap.Error(err))
+			if !s.waitBeforeRedial(ctx) {
+				return
+			}
+			continue
+		}
+		s.syncOnceForSignal(ctx, "connected")
+		s.consumeAccountSignals(ctx, signals)
+		if !s.waitBeforeRedial(ctx) {
+			return
+		}
+	}
+}
+
+// consumeAccountSignals 消费一条已经建起来的信号流，直到它断开或收工。
+func (s *service) consumeAccountSignals(ctx context.Context, signals <-chan syncwire.AccountChannelFrame) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case frame, ok := <-signals:
+			if !ok {
+				// 断开。回到外层重连，重连成功会再主动 Pull 一次补齐这段空窗。
+				return
+			}
+			if frame.Type != syncwire.AccountChannelSyncVersion {
+				// 通道日后会承载别的通知，帧上带类型标记正是为此：不认识的种类忽略，
+				// 但**不断连**——旧客户端不该被一条新通知踢下线。
+				continue
+			}
+			s.syncOnceForSignal(ctx, "signal")
+		}
+	}
+}
+
+// syncOnceForSignal 跑一次通道触发的同步。失败只记日志：轮询会照常再试，通道上的
+// 一次失败没有资格打断这条常连。
+func (s *service) syncOnceForSignal(ctx context.Context, cause string) {
+	if err := s.SyncOnce(ctx); err != nil {
+		logger.Ctx(ctx).Debug("sync_svc.watchAccountChannel: triggered sync failed",
+			zap.String("cause", cause), zap.Error(err))
+	}
+}
+
+// waitBeforeRedial 等到该重连了；返回 false 表示该收工。
+func (s *service) waitBeforeRedial(ctx context.Context) bool {
+	if wait := s.channelRetryWait; wait != nil {
+		return wait(ctx)
+	}
+	return waitAccountChannelRetry(ctx)
+}
+
+// waitAccountChannelRetry 是两次拨号之间的等待（生产时钟）。
+func waitAccountChannelRetry(ctx context.Context) bool {
+	timer := time.NewTimer(accountChannelRetry)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// accountChannelRetry 是通道断开或连不上之后，隔多久再试一次。与轮询周期同一个
+// 节奏：通道只是优化，重连不该比兜底本身还急。
+const accountChannelRetry = PollInterval

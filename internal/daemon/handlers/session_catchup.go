@@ -19,10 +19,12 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 )
 
 // SessionCatchupDeps 是 SessionCatchupHandlers 的显式构造入参。
@@ -91,8 +93,10 @@ func (h *SessionCatchupHandlers) List(ctx context.Context) (wire.SessionListResu
 	// 这台 daemon 认识 R7 / 决策 8 的那几列(它就是落库方),如实声明 —— 未升级的
 	// agentred 不认识这个字段,客户端解出来是 false,据此说明该机器需要升级。
 	out := wire.SessionListResult{
-		Sessions:                make([]wire.SessionSummary, 0, len(rows)),
-		SupportsSessionMetadata: true,
+		Sessions: make([]wire.SessionSummary, 0, len(rows)),
+		// 这台 daemon 落库并回传会话级 ModelTarget(它就是落库方),如实声明 ——
+		// 未升级的 agentred 不认识这个字段,客户端解出来是 false,据此说明这台机器
+		// 记不住模型选择,而不是把每条对话都显示成「跟随 Agent 绑定」。
 	}
 	for _, row := range rows {
 		sid, err := strconv.ParseInt(row.PeerSessionID, 10, 64)
@@ -113,13 +117,16 @@ func (h *SessionCatchupHandlers) List(ctx context.Context) (wire.SessionListResu
 			AgentID:           row.AgentID,
 			Title:             row.Title,
 			AgentSyncID:       row.AgentSyncID,
+			ProjectSyncID:     row.ProjectSyncID,
 			ProviderSessionID: row.ProviderSessionID,
 			Cwd:               row.Cwd,
 			BackendType:       row.BackendType,
 			LifecycleState:    row.LifecycleState,
 			WaitingForInput:   h.waitingForInput(ctx, row, sid),
 			LatestSeq:         latestSeq,
-			UpdatedAt:         row.UpdatedAt,
+			LastMessageAt:     row.LastMessageAt,
+			ProviderKey:       row.ProviderKey,
+			ModelKey:          row.ModelKey,
 		}
 		// Origin 只标在**别的对端**发起的那些会话上。空 origin 的语义是
 		// ResolveSessionPeer 的入口约定 ——「省略 = 调用方自己的对端」—— 而清单是客户端
@@ -141,8 +148,8 @@ func (h *SessionCatchupHandlers) List(ctx context.Context) (wire.SessionListResu
 // The optional origin peer is resolved at the account gate before it reaches
 // the composite journal key; omitted origin remains the caller's own peer.
 //
-// 现存最老的 seq 每页都报:日志的老前缀会被留存回收(daemon.collectJournal 只保住高水位
-// 那一行),一个离线超过整个留存窗口的客户端,它的游标正落在那段已经不存在的区间里。
+// 现存最老的 seq 每页都报:日志本身已经不回收了(规格 2026-08-18 决策 8),但库可能被从
+// 外部恢复或截断,客户端的游标于是落在一段已经不存在的区间里。
 // 不报下界,它拉到的每一页第一条都比 游标+1 大,只能当成跳号丢弃并再拉一次同一页 ——
 // 游标永远推不动,此后连实时通知也全被判成跳号,会话没有错误、没有跳号地冻住。
 // 读不出下界不让整页拉取失败:内容比下界重要,客户端按 0(=不知道)处理即可。
@@ -152,10 +159,10 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullPar
 		return wire.SessionPullResult{}, err
 	}
 	sid := strconv.FormatInt(p.SessionID, 10)
-	// 下界先读:两次读之间随时可能跑一轮留存回收。先读页、后读下界,回收就会让下界涨到
-	// 页里那些行**之上** —— 客户端拿它复位游标(复位跑在重放之前),这一整页已经拿到手
-	// 的行会被当成重复全部丢掉,一段本来读得到的转录凭空消失。反过来先读下界只会偏小,
-	// 偏小最多让客户端少复位一次,拉下一页时自然拿到新的下界。
+	// 下界先读:两次读之间老前缀随时可能消失(库被从外部恢复或截断)。先读页、后读下界,
+	// 下界就会涨到页里那些行**之上** —— 客户端拿它复位游标(复位跑在重放之前),这一整页
+	// 已经拿到手的行会被当成重复全部丢掉,一段本来读得到的转录凭空消失。反过来先读下界
+	// 只会偏小,偏小最多让客户端少复位一次,拉下一页时自然拿到新的下界。
 	oldest, err := h.deps.Journal.OldestSeq(ctx, peer, sid)
 	if err != nil {
 		oldest = 0
@@ -168,10 +175,19 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullPar
 	out := wire.SessionPullResult{Cursor: p.Cursor, HasMore: hasMore, OldestSeq: oldest}
 	out.Notifications = make([]wire.JournaledNotification, 0, len(rows))
 	for _, row := range rows {
+		notification, err := protowire.DecodeNotification(row.Payload)
+		if err != nil {
+			return wire.SessionPullResult{}, fmt.Errorf("decode notification seq %d: %w", row.Seq, err)
+		}
+		protowire.SetNotificationSeq(notification, row.Seq)
+		method, value, err := protowire.ProtoNotificationToWire(notification)
+		if err != nil {
+			return wire.SessionPullResult{}, fmt.Errorf("translate notification seq %d: %w", row.Seq, err)
+		}
 		out.Notifications = append(out.Notifications, wire.JournaledNotification{
 			Seq:    row.Seq,
-			Method: row.Method,
-			Params: row.Payload,
+			Method: method,
+			Params: value,
 		})
 		out.Cursor = row.Seq
 	}
@@ -253,7 +269,7 @@ func ResolveSessionPeer(ctx context.Context, originPeer string, claimedAccountID
 		return ownPeer, nil
 	}
 	if !hasClaimedAccount(ctx, claimedAccountID) {
-		return "", rpc.ErrUnauthorized
+		return "", rpcerror.ErrUnauthorized
 	}
 	return originPeer, nil
 }
@@ -266,7 +282,7 @@ func hasClaimedAccount(ctx context.Context, claimedAccountID func() string) bool
 	if claimed == "" {
 		return false
 	}
-	if c := rpc.ConnFromContext(ctx); c != nil {
+	if c := connection.FromContext(ctx); c != nil {
 		auth := c.Auth()
 		return auth.AccountID != "" && auth.AccountID == claimed
 	}

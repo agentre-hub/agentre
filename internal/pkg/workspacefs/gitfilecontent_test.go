@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 )
 
 func TestGitFileContent_ReadsHEADVersion(t *testing.T) {

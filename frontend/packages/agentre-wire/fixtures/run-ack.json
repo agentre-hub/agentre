@@ -1,0 +1,6 @@
+{
+  "sessionId": 42,
+  "providerSessionId": "sess_abc123",
+  "launchPermissionMode": "default",
+  "providerFallbackKey": "key-fallback"
+}

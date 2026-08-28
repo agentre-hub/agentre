@@ -6,7 +6,7 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	_ "github.com/agentre-ai/agentre/internal/pkg/code" // register i18n maps
+	_ "github.com/agentre-hub/agentre/internal/pkg/code" // register i18n maps
 )
 
 func TestMain(m *testing.M) {

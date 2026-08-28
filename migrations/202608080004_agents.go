@@ -55,10 +55,6 @@ func migration202608080004() *gormigrate.Migration {
 			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_agents_agent_backend_id ON agents(agent_backend_id)`).Error; err != nil {
 				return err
 			}
-			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agents_name_active ON agents(name) WHERE status = 1`).Error; err != nil {
-				return err
-			}
-
 			return tx.Exec(`INSERT INTO agents (
 	name, description, avatar_color, system_badge,
 	department_id, agent_backend_id, prompt_json, skills_json, tools_json,

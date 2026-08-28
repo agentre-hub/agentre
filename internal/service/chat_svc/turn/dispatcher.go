@@ -4,7 +4,7 @@ import (
 	"context"
 	"reflect"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // Dispatcher 按 agentruntime.Event 具体类型路由到注册的 Handler。

@@ -10,25 +10,29 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo/mock_project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
 )
 
 // TestProjectAdapter_LoadTranslatesParentToSyncIDAndOmitsLocalPath R2：项目的父项目
@@ -62,7 +66,7 @@ func TestProjectAdapter_LoadTranslatesParentToSyncIDAndOmitsLocalPath(t *testing
 	assert.Equal(t, "proj-parent", payload["parent_sync_id"])
 	assert.NotContains(t, payload, "path", "本机路径只上报、不同步（决策 6）")
 	assert.NotContains(t, payload, "parent_id", "载荷里不出现任何本地自增 ID")
-	assert.NoError(t, syncwire.GuardPayload(out.Payload))
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindProject, out.Payload))
 }
 
 // TestProjectAdapter_ApplyLandsAsLocalPathMissing R10：同步进来的项目不带源端本机
@@ -92,10 +96,88 @@ func TestProjectAdapter_ApplyLandsAsLocalPathMissing(t *testing.T) {
 	assert.Equal(t, consts.ACTIVE, created.Status)
 }
 
-// TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly R2：backend 指向的
-// agentred 在载荷外层用**指纹**表达，provider 只有 provider_key / model_key 这两个
-// 字符串键，llm_providers 的任何正文（含 APIKey）都不出本机。model_key 是主绑定
-// ModelTarget 的稳定模型引用，与 provider_key 一样只是字符串引用，不携带模型正文。
+// TestLLMProviderAdapter_LoadCarriesCredentialAndNestedModels verifies the new
+// account object keeps provider_key as its sync identity and nests its local
+// model catalog at the sync boundary.
+func TestLLMProviderAdapter_LoadCarriesCredentialAndNestedModels(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindLLMProvider, "provider-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			*dest.(*llm_provider_entity.LLMProvider) = llm_provider_entity.LLMProvider{
+				ID: 8, ProviderKey: "provider-1", Name: "Primary", Type: "anthropic",
+				APIKey: "sk-secret", BaseURL: "https://api.example", Enabled: llm_provider_entity.EnabledOn,
+				DefaultModelKey: "model-1", SyncMeta: syncmeta_entity.SyncMeta{SyncID: "provider-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+
+	providers := mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl)
+	providers.EXPECT().ListModels(gomock.Any(), int64(8)).Return([]*llm_provider_model_entity.LLMProviderModel{{
+		ModelKey: "model-1", ModelID: "claude-sonnet", Name: "Sonnet", ContextWindow: 200000,
+		MaxOutput: 8192, Enabled: llm_provider_model_entity.EnabledOn,
+	}}, nil)
+	llm_provider_repo.RegisterLLMProvider(providers)
+
+	out, err := llmProviderAdapter{}.load(context.Background(), "provider-1")
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, "provider-1", out.SyncID)
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindLLMProvider, out.Payload))
+	assert.JSONEq(t, `{"name":"Primary","type":"anthropic","base_url":"https://api.example","api_key":"sk-secret","default_model_key":"model-1","enabled":true,"models":[{"model_key":"model-1","model_id":"claude-sonnet","name":"Sonnet","enabled":true,"context_window":200000,"max_output":8192}]}`,
+		string(out.Payload))
+}
+
+// TestLLMProviderAdapter_ApplySplitsNestedModels verifies a server payload is
+// restored into the existing local provider/model tables by the repository
+// boundary rather than introducing a second local source of truth.
+func TestLLMProviderAdapter_ApplySplitsNestedModels(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	providers := mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl)
+	providers.EXPECT().UpsertFromSync(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, provider *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel) error {
+			assert.Equal(t, "provider-1", provider.ProviderKey)
+			assert.Equal(t, "sk-secret", provider.APIKey)
+			require.Len(t, models, 1)
+			assert.Equal(t, "model-1", models[0].ModelKey)
+			assert.Equal(t, "claude-sonnet", models[0].ModelID)
+			return nil
+		})
+	llm_provider_repo.RegisterLLMProvider(providers)
+
+	err := llmProviderAdapter{}.apply(context.Background(), &inbound{Kind: syncwire.KindLLMProvider, SyncID: "provider-1",
+		Payload: []byte(`{"name":"Primary","type":"anthropic","base_url":"https://api.example","api_key":"sk-secret","default_model_key":"model-1","enabled":true,"models":[{"model_key":"model-1","model_id":"claude-sonnet","enabled":true}]}`)}, nil)
+	require.NoError(t, err)
+}
+
+// TestAgentBackendCLIAdapter_LoadUsesOverlayNaturalKey verifies the overlay has
+// its own sync object while backend identity remains machine-independent.
+func TestAgentBackendCLIAdapter_LoadUsesOverlayNaturalKey(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackendCLI, "overlay-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
+			*dest.(*agent_backend_entity.CLIOverlay) = agent_backend_entity.CLIOverlay{
+				BackendSyncID: "backend-1", AgentredFingerprint: "sha256:self", CLIPath: "/opt/claude",
+				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "overlay-1"},
+			}
+			return true, nil
+		})
+	syncstate_repo.RegisterSyncState(state)
+
+	out, err := agentBackendCLIAdapter{}.load(context.Background(), "overlay-1")
+	require.NoError(t, err)
+	assert.Equal(t, "backend-1", out.ProjectSyncID)
+	assert.Equal(t, "sha256:self", out.AgentredFingerprint)
+	assert.JSONEq(t, `{"cli_path":"/opt/claude"}`, string(out.Payload))
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackendCLI, out.Payload))
+}
+
+// TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly 后端的运行设备
+// 是账号级同步的一部分（同步与身份）：outbound 携带该行的 canonical fingerprint，
+// 走 push item 既有的 agentred_fingerprint 列——载荷 JSON 本身依旧不含 device_id
+// 键，传输走列不走载荷。
 func TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
@@ -104,8 +186,8 @@ func TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly(t *testing.T)
 			row := dest.(*agent_backend_entity.AgentBackend)
 			*row = agent_backend_entity.AgentBackend{
 				ID: 9, Type: "claudecode", Name: "构建机 Claude", LLMProviderKey: "anthropic-main",
-				LLMModelKey: "anthropic-opus-01",
-				DeviceID:    "fp-builder", CLIPath: "/opt/claude", EnvJSON: `{"K":"V"}`,
+				LLMModelKey:       "anthropic-opus-01",
+				DeviceFingerprint: "fp-builder", CLIPath: "/opt/claude", EnvJSON: `{"K":"V"}`,
 				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "be-1", SyncVersion: 2},
 			}
 			return true, nil
@@ -115,15 +197,17 @@ func TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly(t *testing.T)
 	out, err := agentBackendAdapter{}.load(context.Background(), "be-1")
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, "fp-builder", out.AgentredFingerprint, "指向哪台机器用指纹表达（决策 20）")
+	assert.Equal(t, "fp-builder", out.AgentredFingerprint,
+		"backend's device travels via the push item's fingerprint column")
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(out.Payload, &payload))
 	assert.Equal(t, "anthropic-main", payload["provider_key"])
 	assert.Equal(t, "anthropic-opus-01", payload["model_key"])
 	assert.NotContains(t, payload, "api_key")
-	assert.NotContains(t, payload, "device_id")
-	assert.NoError(t, syncwire.GuardPayload(out.Payload))
+	assert.NotContains(t, payload, "device_id", "the fingerprint travels via the column, never as a payload key")
+	assert.NotContains(t, payload, "cli_path")
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackend, out.Payload))
 }
 
 // TestAgentBackendAdapter_ApplyMapsModelKeyToLLMModelKey 下行方向：载荷里的
@@ -152,108 +236,52 @@ func TestAgentBackendAdapter_ApplyMapsModelKeyToLLMModelKey(t *testing.T) {
 	assert.Equal(t, "anthropic-opus-01", created.LLMModelKey)
 }
 
-// TestAgentBackendAdapter_GivenLegacyNumericDeviceID_UploadsCanonicalFingerprint
-// 前端创建 agentred backend 时仍会提交本机 paired_agentreds 的数值行 ID（历史路径），
-// 但 wire 层的 AgentredFingerprint 字段语义是「全局指纹」。数值行 ID 跨机毫无意义——
-// 对端按同号解析会落到它自己那张表里另一台机器上（错机派发）。load 必须把它翻译成
-// 指向那台 daemon 的指纹再上行。
-func TestAgentBackendAdapter_GivenLegacyNumericDeviceID_UploadsCanonicalFingerprint(t *testing.T) {
+// TestAgentBackendAdapter_GivenAnyLegacyMachineState_StillUploadsOneIdentity
+// Existing rows are promoted rather than skipped or merged: DeviceID now
+// travels with the identity via the outbound's fingerprint column, while the
+// CLI path stays behind in the separate CLI overlay.
+func TestAgentBackendAdapter_GivenAnyLegacyMachineState_StillUploadsOneIdentity(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
 	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-1", gomock.Any()).
 		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
-			row := dest.(*agent_backend_entity.AgentBackend)
-			*row = agent_backend_entity.AgentBackend{
-				ID: 9, Type: "claudecode", Name: "构建机 Claude",
-				DeviceID: "3", SyncMeta: syncmeta_entity.SyncMeta{SyncID: "be-1", SyncVersion: 2},
+			*dest.(*agent_backend_entity.AgentBackend) = agent_backend_entity.AgentBackend{
+				ID: 9, Type: "claudecode", Name: "Legacy", DeviceFingerprint: "3", CLIPath: "/opt/claude",
+				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "be-1"},
 			}
 			return true, nil
 		})
 	syncstate_repo.RegisterSyncState(state)
-
-	paired := mock_remote_device_repo.NewMockPairedAgentredRepo(ctrl)
-	paired.EXPECT().Get(gomock.Any(), int64(3)).Return(&paired_agentred_entity.PairedAgentred{
-		ID: 3, DaemonFingerprint: "fp-builder",
-	}, nil)
-	remote_device_repo.RegisterPairedAgentred(paired)
 
 	out, err := agentBackendAdapter{}.load(context.Background(), "be-1")
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, "fp-builder", out.AgentredFingerprint,
-		"a numeric paired-row ID must never cross the wire as a fingerprint")
+	assert.Equal(t, "3", out.AgentredFingerprint)
+	assert.NotContains(t, string(out.Payload), "cli_path")
 }
 
-// TestAgentBackendAdapter_GivenLegacyNumericDeviceIDOfUnpairedDaemon_SkipsUpload
-// 数值行 ID 指向的 daemon 已解除配对时翻不出指纹。宁可这一条不上行（旧行为），
-// 也不能让数值行 ID 带着错机语义过机。
-func TestAgentBackendAdapter_GivenLegacyNumericDeviceIDOfUnpairedDaemon_SkipsUpload(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
-	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-1", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
-			row := dest.(*agent_backend_entity.AgentBackend)
-			*row = agent_backend_entity.AgentBackend{
-				ID: 9, Type: "claudecode", Name: "构建机 Claude",
-				DeviceID: "3", SyncMeta: syncmeta_entity.SyncMeta{SyncID: "be-1", SyncVersion: 2},
-			}
-			return true, nil
-		})
-	syncstate_repo.RegisterSyncState(state)
-
-	paired := mock_remote_device_repo.NewMockPairedAgentredRepo(ctrl)
-	paired.EXPECT().Get(gomock.Any(), int64(3)).Return(nil, nil)
-	remote_device_repo.RegisterPairedAgentred(paired)
-
-	out, err := agentBackendAdapter{}.load(context.Background(), "be-1")
-	require.NoError(t, err)
-	require.Nil(t, out, "an unexpressable numeric target must not be uploaded")
-}
-
-func TestAgentBackendAdapter_GivenCanonicalFingerprint_PreservesItWithoutPairLookup(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
-	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-desktop", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
-			row := dest.(*agent_backend_entity.AgentBackend)
-			*row = agent_backend_entity.AgentBackend{
-				ID: 8, Type: "claudecode", Name: "Desktop Claude", DeviceID: "sha256:desktop-a",
-				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "be-desktop"},
-			}
-			return true, nil
-		})
-	syncstate_repo.RegisterSyncState(state)
-
-	// A backend's persisted device ID is already the canonical fingerprint. The
-	// sync adapter must not treat it as a local paired-row ID.
-	remote_device_repo.RegisterPairedAgentred(
-		mock_remote_device_repo.NewMockPairedAgentredRepo(gomock.NewController(t)))
-
-	out, err := agentBackendAdapter{}.load(context.Background(), "be-desktop")
-	require.NoError(t, err)
-	require.NotNil(t, out)
-	assert.Equal(t, "sha256:desktop-a", out.AgentredFingerprint)
-}
-
-// TestAgentBackendAdapter_GivenUnpairedFingerprint_PersistsNamedTargetDirectly
-// R12: pairing affects dispatch availability, never the synced target identity.
-func TestAgentBackendAdapter_GivenUnpairedFingerprint_PersistsNamedTargetDirectly(t *testing.T) {
+// TestAgentBackendAdapter_ApplyAppliesEnvelopeFingerprintToDeviceID 同步与身份：
+// 后端的运行设备是账号级同步的一部分，在任一端设置，其它端与服务端看到的是同一台
+// 机器——下行时 push item 的 agentred_fingerprint 落回 AgentBackend.DeviceID。
+func TestAgentBackendAdapter_ApplyAppliesEnvelopeFingerprintToDeviceID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
 	state.EXPECT().FindRow(gomock.Any(), syncwire.KindAgentBackend, "be-1", gomock.Any()).Return(false, nil)
 	syncstate_repo.RegisterSyncState(state)
 	backends := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
 	var created *agent_backend_entity.AgentBackend
-	backends.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, row *agent_backend_entity.AgentBackend) error { created = row; return nil })
+	backends.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, row *agent_backend_entity.AgentBackend) error {
+		created = row
+		return nil
+	})
 	agent_backend_repo.RegisterAgentBackend(backends)
 
-	in := &inbound{Kind: syncwire.KindAgentBackend, SyncID: "be-1", AgentredFingerprint: "fp-unknown",
-		Payload: []byte(`{"type":"claudecode","name":"构建机"}`)}
-	assert.Empty(t, agentBackendAdapter{}.refs(in))
-	require.NoError(t, agentBackendAdapter{}.apply(context.Background(), in, nil))
-	require.NotNil(t, created)
-	assert.Equal(t, "fp-unknown", created.DeviceID)
+	require.NoError(t, agentBackendAdapter{}.apply(context.Background(), &inbound{
+		Kind: syncwire.KindAgentBackend, SyncID: "be-1", AgentredFingerprint: "fp-other",
+		Payload: []byte(`{"type":"claudecode","name":"identity"}`),
+	}, nil))
+	assert.Equal(t, "fp-other", created.DeviceFingerprint, "the envelope fingerprint is the backend's device")
+	assert.Empty(t, created.CLIPath)
 }
 
 // TestAgentExecTargetAdapter_TranslatesBothEndsToSyncIDs R2：执行目标的两端（它所属
@@ -290,7 +318,7 @@ func TestAgentExecTargetAdapter_TranslatesBothEndsToSyncIDs(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Payload, &payload))
 	assert.Equal(t, "agent-1", payload["agent_sync_id"])
 	assert.Equal(t, "be-1", payload["backend_sync_id"])
-	assert.NoError(t, syncwire.GuardPayload(out.Payload))
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentExecTarget, out.Payload))
 
 	// 落地：两个引用都翻回接收端的本地 ID。
 	targets := mock_agent_repo.NewMockAgentExecTargetRepo(ctrl)
@@ -359,7 +387,7 @@ func TestProjectAgentAdapter_TranslatesBothEnds(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Payload, &payload))
 	assert.Equal(t, "proj-1", payload["project_sync_id"])
 	assert.Equal(t, "agent-1", payload["agent_sync_id"])
-	assert.NoError(t, syncwire.GuardPayload(out.Payload))
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindProjectAgent, out.Payload))
 }
 
 // TestProjectLocationAdapter_CarriesNaturalKeyOutsidePayload R4b/决策 26：路径记录的
@@ -371,7 +399,7 @@ func TestProjectLocationAdapter_CarriesNaturalKeyOutsidePayload(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
 			row := dest.(*project_location_entity.ProjectLocation)
 			*row = project_location_entity.ProjectLocation{
-				ID: 6, ProjectID: 4, DaemonFingerprint: "fp-builder", Path: "/srv/repo",
+				ID: 6, ProjectID: 4, DeviceFingerprint: "fp-builder", Path: "/srv/repo",
 				SyncMeta: syncmeta_entity.SyncMeta{SyncID: "loc-1"},
 			}
 			return true, nil
@@ -389,7 +417,7 @@ func TestProjectLocationAdapter_CarriesNaturalKeyOutsidePayload(t *testing.T) {
 	assert.Equal(t, "proj-1", out.ProjectSyncID)
 	assert.Equal(t, "fp-builder", out.AgentredFingerprint)
 	assert.JSONEq(t, `{"path":"/srv/repo"}`, string(out.Payload))
-	assert.NoError(t, syncwire.GuardPayload(out.Payload))
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindProjectLocation, out.Payload))
 }
 
 // TestProjectLocationAdapter_ApplyResolvesDeviceIDWhenPaired 决策 26/34：device_id 是
@@ -427,7 +455,7 @@ func TestProjectLocationAdapter_ApplyResolvesDeviceIDWhenPaired(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, created)
 	assert.Equal(t, "9", created.DeviceID, "已配对：落地当场解析出本地缓存")
-	assert.Equal(t, "fp-builder", created.DaemonFingerprint, "身份仍然是指纹")
+	assert.Equal(t, "fp-builder", created.DeviceFingerprint, "身份仍然是指纹")
 }
 
 // TestProjectLocationAdapter_ApplyLeavesDeviceIDEmptyWhenUnpaired R2b：本机没配对
@@ -483,7 +511,7 @@ func TestProjectLocationAdapter_GivenNaturalKeyHeldLocally_TakesOverThatRow(t *t
 	locations := mock_project_location_repo.NewMockProjectLocationRepo(ctrl)
 	locations.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(4), "fp-builder").Return(
 		&project_location_entity.ProjectLocation{
-			ID: 11, ProjectID: 4, Path: "/old", DaemonFingerprint: "fp-builder",
+			ID: 11, ProjectID: 4, Path: "/old", DeviceFingerprint: "fp-builder",
 			SyncMeta: syncmeta_entity.SyncMeta{SyncID: "loc-local"},
 		}, nil)
 	var saved *project_location_entity.ProjectLocation

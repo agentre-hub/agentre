@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	session_repo "github.com/agentre-ai/agentre/internal/daemon/repository/session_repo"
+	session_repo "github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -54,6 +54,21 @@ func (m *MockSessionRepo) CountByLifecycle(ctx context.Context, state string) (i
 func (mr *MockSessionRepoMockRecorder) CountByLifecycle(ctx, state any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).CountByLifecycle), ctx, state)
+}
+
+// Delete mocks base method.
+func (m *MockSessionRepo) Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Delete", ctx, peerFingerprint, peerSessionID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockSessionRepoMockRecorder) Delete(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockSessionRepo)(nil).Delete), ctx, peerFingerprint, peerSessionID)
 }
 
 // Find mocks base method.
@@ -114,6 +129,21 @@ func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint string
 func (mr *MockSessionRepoMockRecorder) ListByPeer(ctx, peerFingerprint any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByPeer", reflect.TypeOf((*MockSessionRepo)(nil).ListByPeer), ctx, peerFingerprint)
+}
+
+// SetModelTarget mocks base method.
+func (m *MockSessionRepo) SetModelTarget(ctx context.Context, peerFingerprint, peerSessionID, providerKey, modelKey string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetModelTarget", ctx, peerFingerprint, peerSessionID, providerKey, modelKey)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetModelTarget indicates an expected call of SetModelTarget.
+func (mr *MockSessionRepoMockRecorder) SetModelTarget(ctx, peerFingerprint, peerSessionID, providerKey, modelKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetModelTarget", reflect.TypeOf((*MockSessionRepo)(nil).SetModelTarget), ctx, peerFingerprint, peerSessionID, providerKey, modelKey)
 }
 
 // UpdateLifecycle mocks base method.

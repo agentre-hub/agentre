@@ -3,6 +3,7 @@ package chat_svc_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/cago-frame/cago/pkg/utils/httputils"
@@ -11,25 +12,25 @@ import (
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo/mock_project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
 
 type pickExecTargetMocks struct {
@@ -92,6 +93,24 @@ func setupPickExecTargetTest(t *testing.T) (context.Context, *pickExecTargetMock
 	return context.Background(), m, chat_svc.NewChat(nil)
 }
 
+// pickTestFingerprint 是这批测试里「第 n 台 daemon」的规范指纹。backend 的 DeviceID
+// 只有指纹一种形态，可用性判据再把它拿到本机配对表里找那一行。
+func pickTestFingerprint(deviceID int64) string {
+	return fmt.Sprintf("sha256:device-%d", deviceID)
+}
+
+// pairedDevices 把给定几台机器登记成本机配对表的全部内容（不传 = 一台都没配对）。
+func (m *pickExecTargetMocks) pairedDevices(views ...*remote_device_svc.DeviceView) {
+	m.remoteDevice.EXPECT().List(gomock.Any()).Return(views, nil).AnyTimes()
+}
+
+// pairedDevice 造一行本机已配对 daemon。
+func pairedDevice(deviceID int64, online bool) *remote_device_svc.DeviceView {
+	return &remote_device_svc.DeviceView{
+		ID: deviceID, DaemonFingerprint: pickTestFingerprint(deviceID), Online: online,
+	}
+}
+
 func activeProvider(key string) *llm_provider_entity.LLMProvider {
 	return &llm_provider_entity.LLMProvider{ID: 1, ProviderKey: key, Type: string(llm_provider_entity.TypeAnthropic), Status: 1}
 }
@@ -124,10 +143,10 @@ func TestPickExecTarget_GivenFirstUnpaired_WhenSecondAvailable_ThenSkipsToSecond
 		{ID: 4, AgentID: 32, AgentBackendID: 62, SortOrder: 1},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(61)).Return(&agent_backend_entity.AgentBackend{
-		ID: 61, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "9",
+		ID: 61, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: pickTestFingerprint(9),
 	}, nil)
-	// 未配对：本地配对表里没有这一行 —— remote_device_svc.Get 报 not-found。
-	m.remoteDevice.EXPECT().Get(ctx, int64(9)).Return(nil, errors.New("remote device not found"))
+	// 未配对：本机配对表里没有这一行。
+	m.pairedDevices()
 	m.backend.EXPECT().Find(ctx, int64(62)).Return(&agent_backend_entity.AgentBackend{
 		ID: 62, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "",
 	}, nil)
@@ -145,9 +164,9 @@ func TestPickExecTarget_GivenFirstOffline_WhenSecondAvailable_ThenSkipsToSecond(
 		{ID: 6, AgentID: 33, AgentBackendID: 72, SortOrder: 1},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(71)).Return(&agent_backend_entity.AgentBackend{
-		ID: 71, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "10",
+		ID: 71, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: pickTestFingerprint(10),
 	}, nil)
-	m.remoteDevice.EXPECT().Get(ctx, int64(10)).Return(&remote_device_svc.DeviceView{ID: 10, Online: false}, nil)
+	m.pairedDevices(pairedDevice(10, false))
 	m.backend.EXPECT().Find(ctx, int64(72)).Return(&agent_backend_entity.AgentBackend{
 		ID: 72, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "",
 	}, nil)
@@ -179,6 +198,47 @@ func TestPickExecTarget_GivenFirstBlockedByExistingBlockReason_WhenSecondAvailab
 	assert.Equal(t, int64(82), choice.Backend.ID)
 }
 
+// backend 的删除是软删（status=DELETE），而引用它的执行目标行**留在原地**：本端发起的
+// 删除要等墓碑绕服务端一圈回来才由下行清掉，服务端发起的删除（设备离开账号时把指向它
+// 的 backend 落墓碑）则根本不会有对应的执行目标墓碑到达。这条用例钉住那个悬空档的既有
+// 兜底：Find 按 status 过滤后返回 nil，该档判不可用并跳到下一档 —— 派发因此不需要在下行
+// 侧再补一遍 R6 的级联。
+func TestPickExecTarget_GivenFirstBackendRowGone_WhenSecondAvailable_ThenSkipsToSecond(t *testing.T) {
+	ctx, m, svc := setupPickExecTargetTest(t)
+	m.execTarget.EXPECT().ListByAgent(ctx, int64(341)).Return([]*agent_entity.AgentExecTarget{
+		{ID: 71, AgentID: 341, AgentBackendID: 811, SortOrder: 0},
+		{ID: 72, AgentID: 341, AgentBackendID: 812, SortOrder: 1},
+	}, nil)
+	// 软删过的 backend：agent_backend_repo.Find 带 status = ACTIVE 条件，取不到行。
+	m.backend.EXPECT().Find(ctx, int64(811)).Return(nil, nil)
+	m.backend.EXPECT().Find(ctx, int64(812)).Return(&agent_backend_entity.AgentBackend{
+		ID: 812, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "",
+	}, nil)
+
+	choice, err := svc.PickExecTarget(ctx, 341, 0)
+	require.NoError(t, err)
+	require.NotNil(t, choice)
+	assert.Equal(t, int64(812), choice.Backend.ID)
+}
+
+// 悬空档是**唯一**一档时不静默失败，而是按 R15 逐档报原因——这一档的原因是
+// 「引用的后端已不存在」，与「这个 Agent 一档都没配」区分得开。
+func TestPickExecTarget_GivenOnlyTargetBackendRowGone_ThenReportsBackendGone(t *testing.T) {
+	ctx, m, svc := setupPickExecTargetTest(t)
+	m.execTarget.EXPECT().ListByAgent(ctx, int64(342)).Return([]*agent_entity.AgentExecTarget{
+		{ID: 73, AgentID: 342, AgentBackendID: 813, SortOrder: 0},
+	}, nil)
+	m.backend.EXPECT().Find(ctx, int64(813)).Return(nil, nil)
+
+	choice, err := svc.PickExecTarget(ctx, 342, 0)
+	require.Error(t, err)
+	assert.Nil(t, choice)
+	var noneAvailable *chat_svc.ExecTargetNoneAvailableError
+	require.ErrorAs(t, err, &noneAvailable)
+	require.Len(t, noneAvailable.Reasons, 1)
+	assert.Equal(t, chat_svc.BlockReasonNoBackend, noneAvailable.Reasons[0].Reason)
+}
+
 func TestPickExecTarget_GivenProjectBoundSession_WhenLocalPathMissing_ThenSkipsToRemoteWithPath(t *testing.T) {
 	ctx, m, svc := setupPickExecTargetTest(t)
 	m.execTarget.EXPECT().ListByAgent(ctx, int64(35)).Return([]*agent_entity.AgentExecTarget{
@@ -190,10 +250,10 @@ func TestPickExecTarget_GivenProjectBoundSession_WhenLocalPathMissing_ThenSkipsT
 	}, nil)
 	m.project.EXPECT().Find(ctx, int64(401)).Return(&project_entity.Project{ID: 401, LocalPathMissing: true}, nil)
 	m.backend.EXPECT().Find(ctx, int64(92)).Return(&agent_backend_entity.AgentBackend{
-		ID: 92, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceID: "11",
+		ID: 92, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceFingerprint: pickTestFingerprint(11),
 	}, nil)
-	m.remoteDevice.EXPECT().Get(ctx, int64(11)).Return(&remote_device_svc.DeviceView{ID: 11, Online: true}, nil)
-	m.projectLocation.EXPECT().FindByProjectAndDevice(ctx, int64(401), "11").
+	m.pairedDevices(pairedDevice(11, true))
+	m.projectLocation.EXPECT().FindByProjectAndFingerprint(ctx, int64(401), pickTestFingerprint(11)).
 		Return(&project_location_entity.ProjectLocation{Path: "/remote/401"}, nil)
 
 	choice, err := svc.PickExecTarget(ctx, 35, 401)
@@ -208,10 +268,10 @@ func TestPickExecTarget_GivenProjectBoundSession_WhenRemoteLocationMissing_ThenU
 		{ID: 11, AgentID: 36, AgentBackendID: 93, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(93)).Return(&agent_backend_entity.AgentBackend{
-		ID: 93, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceID: "12",
+		ID: 93, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "", DeviceFingerprint: pickTestFingerprint(12),
 	}, nil)
-	m.remoteDevice.EXPECT().Get(ctx, int64(12)).Return(&remote_device_svc.DeviceView{ID: 12, Online: true}, nil)
-	m.projectLocation.EXPECT().FindByProjectAndDevice(ctx, int64(402), "12").
+	m.pairedDevices(pairedDevice(12, true))
+	m.projectLocation.EXPECT().FindByProjectAndFingerprint(ctx, int64(402), pickTestFingerprint(12)).
 		Return(nil, gorm.ErrRecordNotFound)
 
 	choice, err := svc.PickExecTarget(ctx, 36, 402)
@@ -255,9 +315,9 @@ func TestPickExecTarget_GivenAllUnavailable_ThenReturnsErrorListingEachReason(t 
 		{ID: 14, AgentID: 38, AgentBackendID: 96, SortOrder: 1},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(95)).Return(&agent_backend_entity.AgentBackend{
-		ID: 95, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "13",
+		ID: 95, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: pickTestFingerprint(13),
 	}, nil)
-	m.remoteDevice.EXPECT().Get(ctx, int64(13)).Return(nil, errors.New("not found"))
+	m.pairedDevices()
 	m.backend.EXPECT().Find(ctx, int64(96)).Return(&agent_backend_entity.AgentBackend{
 		ID: 96, Type: string(agent_backend_entity.TypeBuiltin), LLMProviderKey: "missing-key",
 	}, nil)

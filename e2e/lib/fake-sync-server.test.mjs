@@ -53,7 +53,7 @@ test("Given a loopback fake, when refresh, multi-item push, pull, and local-path
       sync_id: "incidental-backend",
       base_version: 0,
       updated_at: 11,
-      deleted: false,
+      deleted_at: 0,
       payload: { name: "incidental" },
     },
     {
@@ -61,7 +61,7 @@ test("Given a loopback fake, when refresh, multi-item push, pull, and local-path
       sync_id: "project-local",
       base_version: 0,
       updated_at: 12,
-      deleted: false,
+      deleted_at: 0,
       payload: { name: "sync-smoke-local", sort_order: 0 },
     },
   ];
@@ -87,7 +87,7 @@ test("Given a loopback fake, when refresh, multi-item push, pull, and local-path
       description: "from peer",
       sort_order: 3,
     },
-    source_device_id: 7202,
+    origin_fingerprint: "fp-peer-7202",
   };
   const queued = await control(server, "/pull-items", {
     method: "POST",
@@ -101,7 +101,7 @@ test("Given a loopback fake, when refresh, multi-item push, pull, and local-path
   assert.equal(pull.status, 200);
   const pullBody = await pull.json();
   assert.equal(pullBody.data.items[0].sync_id, remote.sync_id);
-  assert.equal(pullBody.data.items[0].source_device_id, remote.source_device_id);
+  assert.equal(pullBody.data.items[0].origin_fingerprint, remote.origin_fingerprint);
   assert.equal(pullBody.data.next_cursor, queuedBody.items[0].version);
 
   const localPaths = await api(server, "/v1/sync/local-paths", {

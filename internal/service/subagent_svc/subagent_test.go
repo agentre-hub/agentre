@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 )
 
 func enabledAgent(id int64) *agent_entity.Agent {

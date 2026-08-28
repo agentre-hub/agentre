@@ -6,9 +6,10 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // RemoteSkillDiscoverer 经 device 连接池调 daemon skills.list,枚举远端 daemon 本机已装
@@ -34,14 +35,26 @@ func (*RemoteSkillDiscoverer) ListSkills(ctx context.Context, deviceID int64, ba
 	}
 	defer lease.Release()
 
-	var resp handlers.SkillsListResult
-	if err := lease.Client().Call(ctx, "skills.list", handlers.SkillsListParams{BackendType: backendType}, &resp); err != nil {
+	packs, err := listRemoteSkills(ctx, lease.Client().Conn(), backendType)
+	if err != nil {
 		logger.Ctx(ctx).Warn("agent_backend_svc.RemoteSkillDiscoverer.ListSkills: rpc failed",
 			zap.Int64("deviceID", deviceID), zap.Error(err))
 		return []agentskill.SkillPack{}, nil
 	}
-	if resp.Packs == nil {
-		return []agentskill.SkillPack{}, nil
+	return packs, nil
+}
+
+func listRemoteSkills(ctx context.Context, conn *protorpc.Conn, backendType string) ([]agentskill.SkillPack, error) {
+	response, err := protorpc.CallMethod(ctx, conn, uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_LIST),
+		&agentrewire.SkillsListRequest{BackendType: backendType}, func() *agentrewire.SkillsListResponse { return &agentrewire.SkillsListResponse{} })
+	if err != nil {
+		return nil, err
 	}
-	return resp.Packs, nil
+	packs := make([]agentskill.SkillPack, 0, len(response.Packs))
+	for _, pack := range response.Packs {
+		packs = append(packs, agentskill.SkillPack{ID: pack.Id, Name: pack.Name, Description: pack.Description,
+			Skills: append([]string(nil), pack.Skills...), Source: agentskill.Source(pack.Source), Recommended: pack.Recommended,
+			Installed: pack.Installed, GloballyEnabled: pack.GloballyEnabled})
+	}
+	return packs, nil
 }

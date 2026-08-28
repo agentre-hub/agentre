@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,50 +12,15 @@ import (
 	"github.com/cago-frame/agents/provider"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	pkgcodex "github.com/agentre-ai/agentre/pkg/codex"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	pkgcodex "github.com/agentre-hub/agentre/pkg/codex"
 )
 
 // TestCodexCapabilities 钉死 codex runtime 的能力矩阵 + permission mode 元数据。
 // 与 claudecode 的关键差异:CapCancelSteer/CapDrainSteer=false;
 // CapReportContextWindow=true;PermissionModeMeta 仅 default/plan,SwitchableDuringTurn=false。
-// TestRecordLaunchedModel_Bounded 锁住 launchedModel 的容量裁剪:池按 LRU 上限逐出
-// 空闲会话时不回调本包,若不加上限,map 会随进程内用过的会话数无界增长。裁掉的是
-// 最旧的 key —— 它若日后回池,spawnKeyChanged 只会误判一次无谓重 spawn,不产错误结果。
-func TestRecordLaunchedModel_Bounded(t *testing.T) {
-	Convey("Given 一个 codex runtime", t, func() {
-		r := New()
-
-		Convey("When 记录超过上限的会话数 Then map 被 FIFO 裁剪到上限以内", func() {
-			for i := 0; i < maxTrackedLaunchedModels+64; i++ {
-				r.recordLaunchedModel(fmt.Sprintf("sess-%d", i), launchedSpawnKey{model: "gpt-5.5"})
-			}
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			So(len(r.launchedModel), ShouldBeLessThanOrEqualTo, maxTrackedLaunchedModels)
-			So(len(r.launchedModelOrder), ShouldEqual, len(r.launchedModel))
-			// 最旧 64 个被裁掉,最新 512 个保留。
-			_, evicted := r.launchedModel["sess-0"]
-			_, kept := r.launchedModel[fmt.Sprintf("sess-%d", maxTrackedLaunchedModels+63)]
-			So(evicted, ShouldBeFalse)
-			So(kept, ShouldBeTrue)
-		})
-
-		Convey("When forgetLaunchedModel 剔除已记录 key Then map 与 FIFO 序同步删除", func() {
-			r.recordLaunchedModel("a", launchedSpawnKey{model: "m1"})
-			r.recordLaunchedModel("b", launchedSpawnKey{model: "m2"})
-			r.forgetLaunchedModel("a")
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			_, aGone := r.launchedModel["a"]
-			So(aGone, ShouldBeFalse)
-			So(r.launchedModelOrder, ShouldResemble, []string{"b"})
-		})
-	})
-}
-
 func TestCodexCapabilities(t *testing.T) {
 	Convey("codex Capabilities 矩阵", t, func() {
 		r := New()
@@ -1442,5 +1407,78 @@ func TestCodexPendingWaiters(t *testing.T) {
 			So(snap.ToolPermissions, ShouldBeEmpty)
 			So(snap.AskUserQuestions, ShouldBeEmpty)
 		}, ShouldNotPanic)
+	})
+}
+
+// TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID 与 claudecode / piagent 那两条同源
+// (2026-08-22 的 AgentCwd(0) 报错):web 发起的对话在这里同样是 AgentID=0 + Cwd 空,
+// 兜底目录改由账号级 AgentSyncID 定。
+func TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
+	Convey("Given 一条 web 发起的自由会话:AgentID=0、Cwd 空、只带账号级 AgentSyncID", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(
+			func(_ agentruntime.RunRequest, _ map[string]string, cwd string) (cxSessionHandle, error) {
+				gotCwd = cwd
+				return &fakeRuntimeSession{stream: &emptyRuntimeStream{}, sid: "thread-web"}, nil
+			})
+		defer restore()
+
+		Convey("When 起这一轮, Then 起得来,工作目录落在该 Agent 的账号级同步标识下", func() {
+			events, _, err := New().Run(context.Background(), agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}",
+				},
+				SessionID:   1,
+				AgentID:     0,
+				AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
+				UserText:    "hi",
+			})
+			So(err, ShouldBeNil)
+			for range events { //nolint:revive // drain
+			}
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+		})
+	})
+}
+
+// Given 池里那条 app-server 会话没有记录过启动身份, When 这条会话又来一轮, Then 按
+// 「已变」处理:驱逐并重新 spawn(spec 2026-08-26 决策 4)。
+func TestRun_UnrecordedLaunchIdentityEvictsAndRespawns(t *testing.T) {
+	Convey("Given 池里有一条没记录过启动身份的 codex 会话", t, func() {
+		pool := agentruntime.NewCLISessionPool(8)
+		stale := &countingRuntimeSession{sid: "thread-stale", streams: []cxStream{&emptyRuntimeStream{}}, closedCh: make(chan struct{})}
+		pool.Put(sessionKey(93), stale)
+
+		factoryCalls := 0
+		restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (cxSessionHandle, error) {
+			factoryCalls++
+			return &countingRuntimeSession{sid: "thread-fresh", streams: []cxStream{&emptyRuntimeStream{}}}, nil
+		})
+		defer restore()
+
+		r := NewWithPool(pool)
+
+		Convey("When 这条会话又来一轮 Then 旧条目被驱逐、重新 spawn", func() {
+			events, _, err := r.Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}"},
+				SessionID: 93,
+				Cwd:       t.TempDir(),
+				UserText:  "hi",
+			})
+			So(err, ShouldBeNil)
+			for range events {
+			}
+
+			So(factoryCalls, ShouldEqual, 1)
+			select {
+			case <-stale.closedCh:
+			case <-time.After(2 * time.Second):
+				t.Fatal("被驱逐的旧 app-server 没有被收掉")
+			}
+		})
 	})
 }

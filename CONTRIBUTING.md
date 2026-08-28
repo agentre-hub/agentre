@@ -36,7 +36,7 @@ Agentre follows the standard GitHub fork model:
    ```bash
    git clone https://github.com/<your-username>/agentre.git
    cd agentre
-   git remote add upstream https://github.com/agentre-ai/agentre.git
+   git remote add upstream https://github.com/agentre-hub/agentre.git
    ```
 
 2. **Create a branch off `main`** with a descriptive name such as `feat/...` or `fix/...`:
@@ -102,7 +102,7 @@ Before opening a PR, confirm:
 - [ ] Tests were written first and cover the happy path plus at least one boundary/error case.
 - [ ] `make check` passes (golangci-lint + ESLint + backend Go tests + frontend Vitest).
 - [ ] The diff only contains changes in scope for the task.
-- [ ] New visible frontend copy is translated in **both** `frontend/src/i18n/locales/zh-CN/common.json` and `en/common.json`.
+- [ ] New visible frontend copy is translated in **both** `frontend/src/i18n/locales/zh-CN/` and `en/`, in the same domain module file on each side.
 - [ ] Commits follow the gitmoji style above.
 - [ ] If you changed contributor docs, you followed [docs/documentation.md](./docs/documentation.md) (links resolve, facts verified against the proposed staged tree).
 

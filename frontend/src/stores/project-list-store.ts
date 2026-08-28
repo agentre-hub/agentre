@@ -22,6 +22,8 @@ export type ProjectFlat = {
   name: string;
   path: string;
   color: string;
+  /** icon-registry 的图标 key；看板的项目字形与范围选择器都要它。 */
+  icon: string;
   depth?: number;
 };
 
@@ -35,6 +37,7 @@ function flatten(nodes: app.ProjectTreeNode[]): ProjectFlat[] {
           name: n.project.name,
           path: n.project.path,
           color: n.project.color,
+          icon: n.project.icon,
           depth,
         });
       }

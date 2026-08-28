@@ -1,74 +1,52 @@
 // frontend/src/components/agentre/peer/peer-transcript.ts
 //
-// Peer Tab 的转录归约（R19 / R8）：把对端桌面端经 peer_svc 推来的 canonical 事件
-// 帧（wire EventFrame 同形，带 fingerprint / sessionId / seq）归约成本地可渲染的
-// ChatMessage[] + 挂起的待决策列表。桌面端自己的聊天页用 chat_svc.ChatMessage 渲染，
-// 这里复用同一批块形状（text / thinking / tool_use / tool_result），因此 Peer Tab
-// 直接喂给 ChatTranscript。ask_user_question / tool_permission_request 不进转录卡，
-// 归约成 PeerDecision 由 Peer Panel 自绘可操作控件（它们要走到 peer 绑定，而不是
-// 本地会话的 AnswerUserQuestion / AnswerToolApproval）。
+// Peer Tab 的**帧来源**（R19 / R8）：对端桌面端经 peer_svc 推来的 canonical 事件帧
+// （wire EventFrame 同形，带 fingerprint / sessionId / seq）在这里去重、累积，归约本身
+// 交给共享包的 `reduceFrames`。
 //
-// 事件 → 消息的边界规则：
-//   - user_message → 新开一条 user 消息（带来源标识，R21）。
-//   - text_delta / thinking_delta / tool_use_start / tool_result → 累计进当前
-//     assistant 消息（无则新建）。
-//   - done / error → 关闭当前 assistant 消息（下一条 assistant 事件另起一条）。
-//   - 其余未知 kind → 落成 raw 文本块（R8：不识别也不丢弃）。
+// 归约为什么不在这里：同一套 28 种 wire 事件的归约此前两个宿主各写了一份，更完整的
+// 那份在 agentre-server（归约到共享 TranscriptMessage/TranscriptBlock，含 canonical
+// 工具卡 / plan / exec-approval / compact 边界）。本文件从前只认五种块，其余一律落自造
+// 的 `raw` —— 而共享包的行模型根本没有 `raw` 这一档，那些块最终渲染成一行
+// `(debug) unimplemented block type: raw`，载荷连看都看不到。实现已搬进包
+// （packages/agentre-ui/src/transcript/frames.ts），两侧此后只保留各自的帧来源：
+// 本文件是 peer_svc 的 Wails 事件，agentre-server 那侧是它的 relay socket。
+//
+// 本文件因此只剩三件宿主自己的事：
+//   1. seq 去重（pull 补齐与实时推送会重复投递同一帧）与帧序列的累积；
+//   2. 待决策清单 —— ask_user_question / tool_permission_request 归约出的那两种块
+//      **不进 Peer Tab 的转录**：包里那两张卡按下去会调 TranscriptPorts，而桌面端
+//      在 App 顶层注入的是**本机**会话的 Wails 绑定，拿远端的 sessionId 去答本地
+//      会话是答错人。Peer Tab 自绘可操作卡片走 peer 绑定，见 peer-panel.tsx。
+//   3. waitingForInput —— 「对端此刻在等我」这枚灯是 Peer Tab 自己的 UI 状态
+//      （决定转录显不显示流式指示），不是转录内容。
 
-export const PEER_EVENT_KIND = {
-  TEXT_DELTA: "text_delta",
-  THINKING_DELTA: "thinking_delta",
-  USER_MESSAGE: "user_message",
-  TOOL_USE_START: "tool_use_start",
-  TOOL_USE_END: "tool_use_end",
-  TOOL_RESULT: "tool_result",
-  ERROR: "error",
-  DONE: "done",
-  ASK_USER_QUESTION: "ask_user_question",
-  ASK_USER_QUESTION_ANSWERED: "ask_user_question_answered",
-  TOOL_PERMISSION_REQUEST: "tool_permission_request",
-  TOOL_PERMISSION_RESOLVED: "tool_permission_resolved",
-} as const;
+import {
+  createTranscriptProjector,
+  type TranscriptFrame,
+  type TranscriptMessage,
+  type TranscriptProjector,
+} from "@agentre-hub/agentre-ui";
+import {
+  EventAskUserQuestion,
+  EventAskUserQuestionAnswered,
+  EventDone,
+  EventError,
+  EventToolPermissionRequest,
+  EventToolPermissionResolved,
+  EventUserMessage,
+  type EventKind,
+} from "@agentre-hub/agentre-wire";
 
 export type PeerEventFrame = {
   fingerprint: string;
   sessionId: number;
   seq?: number;
-  event: { kind: string } & Record<string, unknown>;
+  event: { kind: EventKind } & Record<string, unknown>;
 };
 
-export type PeerTextBlock = { type: "text"; text: string };
-export type PeerThinkingBlock = { type: "thinking"; text: string };
-export type PeerToolUseBlock = {
-  type: "tool_use";
-  toolUseId: string;
-  toolName: string;
-  toolInput?: Record<string, unknown>;
-};
-export type PeerToolResultBlock = {
-  type: "tool_result";
-  toolUseId: string;
-  text: string;
-  isError?: boolean;
-};
-export type PeerRawBlock = { type: "raw"; text: string };
-export type PeerBlock =
-  | PeerTextBlock
-  | PeerThinkingBlock
-  | PeerToolUseBlock
-  | PeerToolResultBlock
-  | PeerRawBlock;
-
-export type PeerChatMessage = {
-  id: number;
-  role: "user" | "assistant";
-  blocks: PeerBlock[];
-  seq: number;
-  createtime: number;
-  errorText?: string;
-  sourceDevice?: string;
-  sourceDeviceName?: string;
-};
+/** Peer Tab 的消息就是共享包的 DTO —— 转录渲染器吃的正是这一份。 */
+export type PeerChatMessage = TranscriptMessage;
 
 export type PeerAskQuestion = {
   id?: string;
@@ -92,28 +70,37 @@ export type PeerDecision =
       kind: "permission";
       requestId: string;
       toolName: string;
-      toolCallId: string;
       input?: Record<string, unknown>;
       resolved?: boolean;
       allowed?: boolean;
     };
 
 export type PeerTranscriptState = {
+  /** 已经摘掉待决策卡的转录，直接喂 ChatTranscript。 */
   messages: PeerChatMessage[];
   decisions: PeerDecision[];
+  /** 已归约到的最高 seq；≤ 它的帧是重复投递，丢弃。 */
   cursor: number;
-  nextId: number;
-  lifecycle: string;
   waitingForInput: boolean;
+  /** 去重后的帧序列 —— 归约的唯一输入。 */
+  frames: readonly TranscriptFrame[];
+  /**
+   * 增量投影器：只归约新到的那几帧，且只给被改到的那条消息换新身份。整段重算
+   * （reduceFrames）每帧都会换掉全部消息对象，而下游 TranscriptRowView 的行缓存
+   * 以消息对象为 WeakMap 键 —— 那等于每帧全表 miss。
+   *
+   * 首帧到达前拿不到 sessionId（store 建状态时还没 attach 完），因此惰性构造。
+   */
+  projector: TranscriptProjector | null;
 };
 
 export const createPeerTranscript = (): PeerTranscriptState => ({
   messages: [],
   decisions: [],
   cursor: 0,
-  nextId: 1,
-  lifecycle: "idle",
   waitingForInput: false,
+  frames: [],
+  projector: null,
 });
 
 export function reducePeerEvent(
@@ -125,132 +112,7 @@ export function reducePeerEvent(
   if (frame.seq != null && frame.seq > 0 && frame.seq <= state.cursor) {
     return state;
   }
-  const kind = frame.event?.kind;
-  const seq = frame.seq ?? 0;
-  const cursor = Math.max(state.cursor, seq);
-  const base = { ...state, cursor };
-
-  switch (kind) {
-    case PEER_EVENT_KIND.USER_MESSAGE: {
-      const text = String(frame.event.text ?? "");
-      const msg: PeerChatMessage = {
-        id: base.nextId,
-        role: "user",
-        blocks: [{ type: "text", text }],
-        seq,
-        createtime: seq,
-        sourceDevice: (frame.event.sourceDevice as string) || undefined,
-        sourceDeviceName: (frame.event.sourceDeviceName as string) || undefined,
-      };
-      return {
-        ...base,
-        nextId: base.nextId + 1,
-        messages: [...base.messages, msg],
-        waitingForInput: false,
-      };
-    }
-    case PEER_EVENT_KIND.TEXT_DELTA: {
-      const text = String(frame.event.text ?? "");
-      return appendToAssistant(base, (m) => appendText(m, text));
-    }
-    case PEER_EVENT_KIND.THINKING_DELTA: {
-      const text = String(frame.event.text ?? "");
-      return appendToAssistant(base, (m) => appendThinking(m, text));
-    }
-    case PEER_EVENT_KIND.TOOL_USE_START: {
-      const block: PeerToolUseBlock = {
-        type: "tool_use",
-        toolUseId: String(frame.event.id ?? ""),
-        toolName: String(frame.event.name ?? ""),
-        toolInput:
-          typeof frame.event.input === "object" && frame.event.input !== null
-            ? (frame.event.input as Record<string, unknown>)
-            : undefined,
-      };
-      return appendToAssistant(base, (m) => ({
-        ...m,
-        blocks: [...m.blocks, block],
-      }));
-    }
-    case PEER_EVENT_KIND.TOOL_USE_END: {
-      return base;
-    }
-    case PEER_EVENT_KIND.TOOL_RESULT: {
-      const toolCallId = String(frame.event.toolCallId ?? "");
-      const text = String(frame.event.content ?? "");
-      const isError = Boolean(frame.event.isError);
-      return {
-        ...base,
-        messages: appendToolResult(base.messages, toolCallId, text, isError),
-      };
-    }
-    case PEER_EVENT_KIND.ERROR: {
-      const errText = String(frame.event.message ?? "");
-      return {
-        ...base,
-        messages: closeLastAssistantWithError(base.messages, errText),
-        waitingForInput: false,
-      };
-    }
-    case PEER_EVENT_KIND.DONE: {
-      return { ...base, waitingForInput: false };
-    }
-    case PEER_EVENT_KIND.ASK_USER_QUESTION: {
-      const requestId = String(frame.event.requestId ?? "");
-      const questions = (frame.event.questions ?? []) as PeerAskQuestion[];
-      return {
-        ...base,
-        decisions: upsertAskDecision(base.decisions, requestId, questions),
-        waitingForInput: true,
-      };
-    }
-    case PEER_EVENT_KIND.ASK_USER_QUESTION_ANSWERED: {
-      const requestId = String(frame.event.requestId ?? "");
-      return {
-        ...base,
-        decisions: markAskAnswered(
-          base.decisions,
-          requestId,
-          Boolean(frame.event.skipped),
-        ),
-        waitingForInput: false,
-      };
-    }
-    case PEER_EVENT_KIND.TOOL_PERMISSION_REQUEST: {
-      const requestId = String(frame.event.requestId ?? "");
-      const decision: PeerDecision = {
-        kind: "permission",
-        requestId,
-        toolName: String(frame.event.toolName ?? ""),
-        toolCallId: String(frame.event.toolCallId ?? ""),
-        input:
-          typeof frame.event.input === "object" && frame.event.input !== null
-            ? (frame.event.input as Record<string, unknown>)
-            : undefined,
-      };
-      return {
-        ...base,
-        decisions: upsertPermissionDecision(base.decisions, decision),
-        waitingForInput: true,
-      };
-    }
-    case PEER_EVENT_KIND.TOOL_PERMISSION_RESOLVED: {
-      const requestId = String(frame.event.requestId ?? "");
-      return {
-        ...base,
-        decisions: markPermissionResolved(
-          base.decisions,
-          requestId,
-          Boolean(frame.event.allowed),
-        ),
-        waitingForInput: false,
-      };
-    }
-    default: {
-      // R8：不识别的块落成原始形态，不丢弃。
-      return appendRaw(base, frame);
-    }
-  }
+  return advance(state, [frame]);
 }
 
 // reducePeerPullPage 把一页 journaled 历史喂给同一归约器。每条 notification 的
@@ -262,167 +124,139 @@ export function reducePeerPullPage(
     params: { sessionId: number; event: unknown };
   }>,
 ): PeerTranscriptState {
-  let next = state;
+  const fresh: PeerEventFrame[] = [];
   for (const n of notifications ?? []) {
     const raw = n.params as unknown as {
       sessionId?: number;
       event?: { kind: string };
     };
-    const frame: PeerEventFrame = {
+    if (n.seq > 0 && n.seq <= state.cursor) continue;
+    // 这里只能**断言**成 EventKind 而不是校验:日志行来自对端,运行期照样可能
+    // 送来一个词表外的字符串(比本仓新的桌面端、坏行)。兜住它的是共享归约器
+    // switch 的 default —— 那一档如实落 notice,不吞掉也不抛。
+    fresh.push({
       fingerprint: "",
       sessionId: raw?.sessionId ?? 0,
       seq: n.seq,
-      event: raw?.event ?? { kind: "" },
-    };
-    next = reducePeerEvent(next, frame);
+      event: (raw?.event ?? { kind: "" }) as PeerEventFrame["event"],
+    });
   }
-  return next;
+  if (fresh.length === 0) return state;
+  return advance(state, fresh);
 }
 
-// appendToAssistant 把一条消息变换应用到「当前 assistant 消息」上；没有当前
-// assistant 消息时新开一条（id 用 state.nextId，块从空开始）。
-function appendToAssistant(
+function advance(
   state: PeerTranscriptState,
-  mutate: (m: PeerChatMessage) => PeerChatMessage,
+  incoming: PeerEventFrame[],
 ): PeerTranscriptState {
-  const last = state.messages.at(-1);
-  if (last && last.role === "assistant") {
-    const messages = [...state.messages];
-    messages[messages.length - 1] = mutate(last);
-    return { ...state, messages };
+  const frames = [...state.frames, ...incoming];
+  const sessionId = incoming[0]?.sessionId ?? 0;
+  const projector = state.projector ?? createTranscriptProjector(sessionId);
+  const reduced = projector.project(frames);
+
+  let cursor = state.cursor;
+  let waitingForInput = state.waitingForInput;
+  for (const frame of incoming) {
+    cursor = Math.max(cursor, frame.seq ?? 0);
+    waitingForInput = nextWaiting(waitingForInput, frame.event?.kind);
   }
-  const fresh: PeerChatMessage = {
-    id: state.nextId,
-    role: "assistant",
-    blocks: [],
-    seq: state.cursor,
-    createtime: state.cursor,
-  };
+
   return {
-    ...state,
-    nextId: state.nextId + 1,
-    messages: [...state.messages, mutate(fresh)],
+    messages: visibleMessages(reduced),
+    decisions: collectDecisions(reduced),
+    cursor,
+    waitingForInput,
+    frames,
+    projector,
   };
 }
 
-function appendText(m: PeerChatMessage, text: string): PeerChatMessage {
-  const blocks = [...m.blocks];
-  const last = blocks.at(-1);
-  if (last && last.type === "text") {
-    blocks[blocks.length - 1] = {
-      ...last,
-      text: (last as PeerTextBlock).text + text,
-    };
-  } else {
-    blocks.push({ type: "text", text });
+/**
+ * 「对端在等我」这枚灯。ask / 授权请求点亮，答复、结束与新的用户消息熄灭；其余
+ * kind 一概不动 —— 遥测帧夹在中间不该把灯打灭。
+ */
+function nextWaiting(current: boolean, kind: string | undefined): boolean {
+  switch (kind) {
+    case EventAskUserQuestion:
+    case EventToolPermissionRequest:
+      return true;
+    case EventAskUserQuestionAnswered:
+    case EventToolPermissionResolved:
+    case EventUserMessage:
+    case EventDone:
+    case EventError:
+      return false;
+    default:
+      return current;
   }
-  return { ...m, blocks };
 }
 
-function appendThinking(m: PeerChatMessage, text: string): PeerChatMessage {
-  const blocks = [...m.blocks];
-  const last = blocks.at(-1);
-  if (last && last.type === "thinking") {
-    blocks[blocks.length - 1] = {
-      ...last,
-      text: (last as PeerThinkingBlock).text + text,
-    };
-  } else {
-    blocks.push({ type: "thinking", text });
-  }
-  return { ...m, blocks };
-}
+const HOSTED_BY_PANEL = new Set([
+  "ask_user_question",
+  "tool_permission_request",
+]);
 
-function appendToolResult(
-  messages: PeerChatMessage[],
-  toolUseId: string,
-  text: string,
-  isError: boolean,
-): PeerChatMessage[] {
-  if (messages.length === 0) return messages;
-  const last = messages[messages.length - 1];
-  const idx = last.blocks.findIndex(
-    (b) => b.type === "tool_use" && b.toolUseId === toolUseId,
-  );
-  if (idx < 0) return messages;
-  const out = [...messages];
-  out[out.length - 1] = {
-    ...last,
-    blocks: [...last.blocks, { type: "tool_result", toolUseId, text, isError }],
-  };
+/**
+ * 摘掉由 Peer Panel 自绘的那两种交互卡后的转录。
+ *
+ * 缓存以**源消息对象**为键：投影器对没变过的消息交还同一个引用，摘完之后必须还是
+ * 同一个引用，否则下游的 WeakMap 行缓存每帧全表 miss —— 投影器省下的那次重建就白做了。
+ */
+const visibleCache = new WeakMap<TranscriptMessage, TranscriptMessage>();
+
+function visibleMessages(messages: TranscriptMessage[]): PeerChatMessage[] {
+  const out: PeerChatMessage[] = [];
+  for (const msg of messages) {
+    const cached = visibleCache.get(msg);
+    if (cached !== undefined) {
+      if (cached.blocks.length > 0 || cached.errorText) out.push(cached);
+      continue;
+    }
+    const blocks = msg.blocks.filter((b) => !HOSTED_BY_PANEL.has(b.type));
+    const next = blocks.length === msg.blocks.length ? msg : { ...msg, blocks };
+    visibleCache.set(msg, next);
+    // 摘空之后只剩一条没有正文的助手消息(比如整轮只有一张提问卡)——那会渲染成
+    // 一个空气泡。归约器本身也会为纯消息级帧(usage)开一条空消息,同理不显示。
+    if (next.blocks.length > 0 || next.errorText) out.push(next);
+  }
   return out;
 }
 
-function closeLastAssistantWithError(
-  messages: PeerChatMessage[],
-  errText: string,
-): PeerChatMessage[] {
-  if (messages.length === 0) return messages;
-  const last = messages[messages.length - 1];
-  if (last.role !== "assistant") return messages;
-  const out = [...messages];
-  out[out.length - 1] = {
-    ...last,
-    errorText: errText,
-    blocks: [...last.blocks, { type: "raw", text: errText }],
-  };
-  return out;
-}
-
-function appendRaw(
-  state: PeerTranscriptState,
-  frame: PeerEventFrame,
-): PeerTranscriptState {
-  const text = JSON.stringify(frame.event ?? {});
-  return appendToAssistant(state, (m) => ({
-    ...m,
-    blocks: [...m.blocks, { type: "raw", text }],
-  }));
-}
-
-function upsertAskDecision(
-  decisions: PeerDecision[],
-  requestId: string,
-  questions: PeerAskQuestion[],
-): PeerDecision[] {
-  const existing = decisions.findIndex(
-    (d) => d.kind === "ask" && d.requestId === requestId,
-  );
-  if (existing >= 0) return decisions;
-  return [...decisions, { kind: "ask", requestId, questions }];
-}
-
-function markAskAnswered(
-  decisions: PeerDecision[],
-  requestId: string,
-  skipped: boolean,
-): PeerDecision[] {
-  return decisions.map((d) =>
-    d.kind === "ask" && d.requestId === requestId
-      ? { ...d, answered: true, skipped }
-      : d,
-  );
-}
-
-function upsertPermissionDecision(
-  decisions: PeerDecision[],
-  decision: PeerDecision,
-): PeerDecision[] {
-  const existing = decisions.findIndex(
-    (d) => d.kind === "permission" && d.requestId === decision.requestId,
-  );
-  if (existing >= 0) return decisions;
-  return [...decisions, decision];
-}
-
-function markPermissionResolved(
-  decisions: PeerDecision[],
-  requestId: string,
-  allowed: boolean,
-): PeerDecision[] {
-  return decisions.map((d) =>
-    d.kind === "permission" && d.requestId === requestId
-      ? { ...d, resolved: true, allowed }
-      : d,
-  );
+/**
+ * 待决策清单：从归约结果里把两种交互卡摘出来，按出现顺序排。
+ *
+ * 判据取块本身而不是另记一份事件账 —— 决议帧回填的是**那张卡**，卡上的
+ * answered / resolved 就是权威，两处各记一遍必然漂移。
+ */
+function collectDecisions(messages: TranscriptMessage[]): PeerDecision[] {
+  const decisions: PeerDecision[] = [];
+  for (const msg of messages) {
+    for (const block of msg.blocks) {
+      const ask = block.askUserQuestion;
+      if (ask) {
+        decisions.push({
+          kind: "ask",
+          requestId: ask.requestId,
+          questions: (Array.isArray(ask.questions)
+            ? ask.questions
+            : []) as PeerAskQuestion[],
+          answered: ask.answered,
+          skipped: ask.skipped,
+        });
+        continue;
+      }
+      const perm = block.toolPermission;
+      if (perm) {
+        decisions.push({
+          kind: "permission",
+          requestId: perm.requestId,
+          toolName: perm.toolName,
+          input: perm.toolInput,
+          resolved: perm.resolved,
+          allowed: perm.allowed,
+        });
+      }
+    }
+  }
+  return decisions;
 }

@@ -5,8 +5,8 @@ import (
 	"embed"
 	"log"
 
-	"github.com/agentre-ai/agentre/internal/app"
-	"github.com/agentre-ai/agentre/internal/desktop"
+	"github.com/agentre-hub/agentre/internal/app"
+	"github.com/agentre-hub/agentre/internal/desktop"
 )
 
 //go:embed all:frontend/dist

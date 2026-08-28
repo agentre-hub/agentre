@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   collapseDirChain,
-  deriveFileTree,
-  deriveFiles,
+  deriveLatestWriteRoot,
   deriveOutline,
-  type FileEntry,
+  deriveSessionChanges,
 } from "../derive";
 
 import type { chat_svc } from "../../../../../wailsjs/go/models";
@@ -52,7 +51,12 @@ function assistantWithEdits(id: number, files: string[], errored = false): Msg {
 function editBlock(
   toolName: string,
   file_path: string,
-  canonicalFiles: Array<{ path: string; plus?: number; minus?: number }>,
+  canonicalFiles: Array<{
+    path: string;
+    kind?: string;
+    plus?: number;
+    minus?: number;
+  }>,
 ) {
   return {
     type: "tool_use",
@@ -62,7 +66,7 @@ function editBlock(
       kind: "file.edit",
       fileEdit: {
         files: canonicalFiles.map((f) => ({
-          kind: "patch",
+          kind: f.kind ?? "modified",
           hunks: [],
           path: f.path,
           plus: f.plus,
@@ -140,316 +144,291 @@ describe("deriveOutline", () => {
   });
 });
 
-describe("deriveFiles", () => {
-  it("sums plus/minus from file.edit canonical across hunks and files", () => {
-    const msgs = [
-      userMsg(1, "u1"),
-      assistantWithBlocks(2, [
-        editBlock("Edit", "a.go", [
-          { path: "a.go", plus: 5, minus: 2 },
-          { path: "a.go", plus: 3, minus: 0 },
-          { path: "b.go", plus: 1, minus: 1 },
-        ]),
-      ]),
-    ];
-    const files = deriveFiles(msgs);
-    const a = files.find((f: FileEntry) => f.path === "a.go")!;
-    const b = files.find((f: FileEntry) => f.path === "b.go")!;
-    expect(a.plus).toBe(8);
-    expect(a.minus).toBe(2);
-    expect(a.lastTurn).toBe(1);
-    expect(b.plus).toBe(1);
-    expect(b.minus).toBe(1);
-  });
+describe("deriveSessionChanges", () => {
+  const ROOT = "/Users/me/proj";
 
-  it("counts file.write canonical lines as plus for that path", () => {
-    const msgs = [
-      userMsg(1, "u1"),
-      assistantWithBlocks(2, [writeBlock("Write", "new.go", 42)]),
-    ];
-    const files = deriveFiles(msgs);
-    const f = files.find((x: FileEntry) => x.path === "new.go")!;
-    expect(f.plus).toBe(42);
-    expect(f.minus).toBe(0);
-    expect(f.lastTurn).toBe(1);
-  });
-
-  it("keeps legacy blocks without canonical but with 0 plus/minus", () => {
-    const msgs = [
-      userMsg(1, "u1"),
-      assistantWithBlocks(2, [
-        {
-          type: "tool_use",
-          toolName: "Edit",
-          toolInput: { file_path: "a.go" },
-        },
-      ]),
-    ];
-    const files = deriveFiles(msgs);
-    const a = files.find((f: FileEntry) => f.path === "a.go")!;
-    expect(a.plus).toBe(0);
-    expect(a.minus).toBe(0);
-    expect(a.lastTurn).toBe(1);
-  });
-
-  it("ignores empty raw and canonical paths so malformed tool blocks cannot create an openable project-directory row", () => {
-    const msgs = [
-      userMsg(1, "u1"),
-      assistantWithBlocks(2, [
-        {
-          type: "tool_use",
-          toolName: "Edit",
-          toolInput: { file_path: "" },
-          canonical: {
-            kind: "file.edit",
-            fileEdit: {
-              files: [
-                {
-                  kind: "patch",
-                  hunks: [],
-                  path: "",
-                  plus: 1,
-                  minus: 0,
-                },
-              ],
-            },
-          },
-        },
-      ]),
-    ];
-
-    expect(deriveFiles(msgs)).toEqual([]);
-  });
-
-  it("keeps read-tool paths in the list with 0 plus/minus", () => {
-    const msgs = [
-      userMsg(1, "u1"),
-      assistantWithBlocks(2, [
-        { type: "tool_use", toolName: "read", toolInput: { path: "a.go" } },
-      ]),
-    ];
-    const files = deriveFiles(msgs);
-    const a = files.find((f: FileEntry) => f.path === "a.go")!;
-    expect(a.plus).toBe(0);
-    expect(a.minus).toBe(0);
-    expect(a.lastTurn).toBe(1);
-  });
-
-  it("sorts by plus+minus desc, ties broken by lastTurn desc", () => {
+  it("lists one row per file the tools touched, biggest change first", () => {
     const msgs = [
       userMsg(1, "u1"),
       assistantWithBlocks(2, [
         editBlock("Edit", "a.go", [{ path: "a.go", plus: 1, minus: 1 }]),
+        editBlock("Edit", "b.go", [{ path: "b.go", plus: 3, minus: 0 }]),
+      ]),
+      userMsg(3, "u2"),
+      assistantWithBlocks(4, [writeBlock("Write", "c.go", 5)]),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT).map((r) => r.path)).toEqual([
+      "c.go",
+      "b.go",
+      "a.go",
+    ]);
+  });
+
+  it("breaks a size tie by path so the order never depends on transcript order", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "z.go", [{ path: "z.go", plus: 2, minus: 0 }]),
+        editBlock("Edit", "a.go", [{ path: "a.go", plus: 2, minus: 0 }]),
+      ]),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT).map((r) => r.path)).toEqual([
+      "a.go",
+      "z.go",
+    ]);
+  });
+
+  it("takes the status from the file's last file.edit patch kind", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "new.go", [
+          { path: "new.go", kind: "created", plus: 4 },
+        ]),
+        editBlock("Edit", "gone.go", [
+          { path: "gone.go", kind: "deleted", minus: 9 },
+        ]),
+        editBlock("Edit", "old.go", [
+          { path: "old.go", kind: "modified", plus: 1, minus: 1 },
+        ]),
+      ]),
+    ];
+
+    const byPath = new Map(
+      deriveSessionChanges(msgs, ROOT).map((r) => [r.path, r.status]),
+    );
+    expect(byPath.get("new.go")).toBe("created");
+    expect(byPath.get("gone.go")).toBe("deleted");
+    expect(byPath.get("old.go")).toBe("modified");
+  });
+
+  it("keeps only the last call's kind when a file is created and then modified", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "a.go", [{ path: "a.go", kind: "created", plus: 4 }]),
       ]),
       userMsg(3, "u2"),
       assistantWithBlocks(4, [
-        editBlock("Edit", "b.go", [{ path: "b.go", plus: 3, minus: 0 }]),
-      ]),
-      userMsg(5, "u3"),
-      assistantWithBlocks(6, [
-        editBlock("Edit", "c.go", [{ path: "c.go", plus: 2, minus: 0 }]),
+        editBlock("Edit", "a.go", [
+          { path: "a.go", kind: "modified", plus: 1, minus: 2 },
+        ]),
       ]),
     ];
-    const files = deriveFiles(msgs);
-    expect(files.map((f) => f.path)).toEqual(["b.go", "c.go", "a.go"]);
+
+    const [row] = deriveSessionChanges(msgs, ROOT);
+    expect(row.status).toBe("modified");
+    expect(row.plus).toBe(5);
+    expect(row.minus).toBe(2);
+    expect(row.lastTurn).toBe(2);
   });
 
-  it("Given Claude mutation blocks, When files are derived, Then Edit, Write, and MultiEdit paths are listed", () => {
-    const toolNames = ["Edit", "Write", "MultiEdit"];
+  it("gives a file whose last call is a full write its own status instead of created or modified", () => {
     const msgs = [
       userMsg(1, "u1"),
-      {
-        id: 2,
-        role: "assistant",
-        sessionId: 1,
-        blocks: toolNames.map((toolName, index) => ({
-          type: "tool_use",
-          toolName,
-          toolInput: { file_path: `${index}.go` },
-        })),
-        model: "",
-        promptTokens: 0,
-        completionTokens: 0,
-        durationMs: 0,
-        errorText: "",
-        seq: 0,
-        createtime: 0,
-      } as unknown as Msg,
+      assistantWithBlocks(2, [
+        editBlock("Edit", "a.go", [
+          { path: "a.go", kind: "modified", plus: 1, minus: 1 },
+        ]),
+      ]),
+      userMsg(3, "u2"),
+      assistantWithBlocks(4, [writeBlock("Write", "a.go", 40)]),
     ];
 
-    expect(deriveFiles(msgs).map((f) => f.path)).toEqual([
-      "0.go",
-      "1.go",
-      "2.go",
-    ]);
+    const [row] = deriveSessionChanges(msgs, ROOT);
+    expect(row.status).toBe("written");
   });
 
-  it("Given a Codex file_change block, When files are derived, Then every changed path is listed", () => {
+  it("counts a full write as added lines only", () => {
     const msgs = [
       userMsg(1, "u1"),
-      {
-        id: 2,
-        role: "assistant",
-        sessionId: 1,
-        blocks: [
-          {
-            type: "tool_use",
-            toolName: "file_change",
-            toolInput: {
-              changes: [{ path: "a.go" }, { path: "b.go" }],
-            },
-          },
-        ],
-        model: "",
-        promptTokens: 0,
-        completionTokens: 0,
-        durationMs: 0,
-        errorText: "",
-        seq: 0,
-        createtime: 0,
-      } as unknown as Msg,
+      assistantWithBlocks(2, [writeBlock("Write", "a.go", 40)]),
     ];
 
-    expect(deriveFiles(msgs).map((f) => f.path)).toEqual(["a.go", "b.go"]);
-  });
-
-  it("returns empty array for empty input", () => {
-    expect(deriveFiles([])).toEqual([]);
-  });
-});
-
-describe("deriveFileTree", () => {
-  const e = (path: string): FileEntry => ({
-    path,
-    plus: 0,
-    minus: 0,
-    lastTurn: 1,
-  });
-
-  it("builds nested dir/file hierarchy, dirs before files, files in input order", () => {
-    const tree = deriveFileTree([e("a/b/c.go"), e("a/d.go"), e("e.go")]);
-    expect(tree).toEqual([
-      {
-        kind: "dir",
-        name: "a",
-        children: [
-          {
-            kind: "dir",
-            name: "b",
-            children: [
-              {
-                kind: "file",
-                entry: { path: "a/b/c.go", plus: 0, minus: 0, lastTurn: 1 },
-              },
-            ],
-          },
-          {
-            kind: "file",
-            entry: { path: "a/d.go", plus: 0, minus: 0, lastTurn: 1 },
-          },
-        ],
-      },
-      { kind: "file", entry: { path: "e.go", plus: 0, minus: 0, lastTurn: 1 } },
-    ]);
-  });
-
-  it("sorts dir nodes alphabetically, keeps file input order", () => {
-    const files = [
-      e("x/b.go"),
-      e("a/c.go"),
-      e("m/f.go"),
-      e("a/z.go"),
-      e("a/a.go"),
-    ];
-    const tree = deriveFileTree(files);
-    expect(tree.filter((n) => n.kind === "dir").map((n) => n.name)).toEqual([
-      "a",
-      "m",
-      "x",
-    ]);
-    const a = tree.find((n) => n.kind === "dir" && n.name === "a")!;
-    expect(a.kind).toBe("dir");
-    if (a.kind === "dir") {
-      expect(
-        a.children.map((n) => (n.kind === "file" ? n.entry.path : n.name)),
-      ).toEqual(["a/c.go", "a/z.go", "a/a.go"]);
-    }
-  });
-
-  it("splits Windows path separators into collapsible directories", () => {
-    expect(deriveFileTree([e("src\\components\\file.tsx")])).toEqual([
-      {
-        kind: "dir",
-        name: "src",
-        children: [
-          {
-            kind: "dir",
-            name: "components",
-            children: [
-              {
-                kind: "file",
-                entry: {
-                  path: "src\\components\\file.tsx",
-                  plus: 0,
-                  minus: 0,
-                  lastTurn: 1,
-                },
-              },
-            ],
-          },
-        ],
-      },
-    ]);
-  });
-
-  it("keeps root files as root-level file nodes", () => {
-    expect(deriveFileTree([e("only.go")])).toEqual([
-      {
-        kind: "file",
-        entry: { path: "only.go", plus: 0, minus: 0, lastTurn: 1 },
-      },
-    ]);
-  });
-
-  it("handles deep paths with nested dirs at every level", () => {
-    const tree = deriveFileTree([e("a/b/c/d/f.go")]);
-    expect(tree[0]).toEqual({
-      kind: "dir",
-      name: "a",
-      children: [
-        {
-          kind: "dir",
-          name: "b",
-          children: [
-            {
-              kind: "dir",
-              name: "c",
-              children: [
-                {
-                  kind: "dir",
-                  name: "d",
-                  children: [
-                    {
-                      kind: "file",
-                      entry: {
-                        path: "a/b/c/d/f.go",
-                        plus: 0,
-                        minus: 0,
-                        lastTurn: 1,
-                      },
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      ],
+    expect(deriveSessionChanges(msgs, ROOT)[0]).toMatchObject({
+      status: "written",
+      plus: 40,
+      minus: 0,
     });
   });
 
-  it("returns empty array for empty input", () => {
-    expect(deriveFileTree([])).toEqual([]);
+  it("gives a write-last row the written line count alone, with no minus carried over from the edits before it", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "a.go", [
+          { path: "a.go", kind: "modified", plus: 5, minus: 3 },
+        ]),
+      ]),
+      userMsg(3, "u2"),
+      assistantWithBlocks(4, [writeBlock("Write", "a.go", 40)]),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT)[0]).toMatchObject({
+      status: "written",
+      plus: 40,
+      minus: 0,
+    });
+  });
+
+  it("counts edits made after a full write on top of the written lines", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [writeBlock("Write", "a.go", 40)]),
+      userMsg(3, "u2"),
+      assistantWithBlocks(4, [
+        editBlock("Edit", "a.go", [
+          { path: "a.go", kind: "modified", plus: 2, minus: 1 },
+        ]),
+      ]),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT)[0]).toMatchObject({
+      status: "modified",
+      plus: 42,
+      minus: 1,
+    });
+  });
+
+  it("falls back to modified when a patch carries an unknown kind", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("file_change", "a.go", [
+          { path: "a.go", kind: "", plus: 1, minus: 0 },
+        ]),
+      ]),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT)[0].status).toBe("modified");
+  });
+
+  it("splits every row into a basename and a directory suffix", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "internal/service/chat.go", [
+          { path: "internal/service/chat.go", plus: 2 },
+        ]),
+        editBlock("Edit", "main.go", [{ path: "main.go", plus: 1 }]),
+      ]),
+    ];
+
+    const rows = deriveSessionChanges(msgs, ROOT);
+    expect(rows[0]).toMatchObject({
+      path: "internal/service/chat.go",
+      name: "chat.go",
+      dir: "internal/service",
+    });
+    expect(rows[1]).toMatchObject({
+      path: "main.go",
+      name: "main.go",
+      dir: "",
+    });
+  });
+
+  it("normalizes an absolute path inside the work root into one root-relative row", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", `${ROOT}/internal/a.go`, [
+          { path: `${ROOT}/internal/a.go`, plus: 2, minus: 0 },
+        ]),
+      ]),
+      userMsg(3, "u2"),
+      assistantWithBlocks(4, [
+        editBlock("Edit", "internal/a.go", [
+          { path: "internal/a.go", plus: 1, minus: 0 },
+        ]),
+      ]),
+    ];
+
+    const rows = deriveSessionChanges(msgs, ROOT);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ path: "internal/a.go", plus: 3 });
+  });
+
+  it("drops every path resolving outside the work root, whatever its shape", () => {
+    const outside = [
+      "/tmp/patch.diff",
+      "~/notes.md",
+      "/Users/me/other-repo/main.go",
+      "../sibling/main.go",
+    ];
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(
+        2,
+        outside.map((p) => editBlock("Edit", p, [{ path: p, plus: 3 }])),
+      ),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT)).toEqual([]);
+  });
+
+  it("keeps the work root's own path out of the list", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", ROOT, [{ path: ROOT, plus: 1 }]),
+      ]),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT)).toEqual([]);
+  });
+
+  it("cannot judge membership without a work root, so it keeps the tool's own paths", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "/tmp/patch.diff", [
+          { path: "/tmp/patch.diff", plus: 3 },
+        ]),
+      ]),
+    ];
+
+    expect(deriveSessionChanges(msgs, "").map((r) => r.path)).toEqual([
+      "/tmp/patch.diff",
+    ]);
+  });
+
+  it("ignores read tools and mutation blocks that carry no canonical payload", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        {
+          type: "tool_use",
+          toolName: "Read",
+          toolInput: { file_path: "a.go" },
+        },
+        {
+          type: "tool_use",
+          toolName: "Edit",
+          toolInput: { file_path: "b.go" },
+        },
+        { type: "text", text: "done" },
+      ]),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT)).toEqual([]);
+  });
+
+  it("ignores empty canonical paths so a malformed block cannot open the work root itself", () => {
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "", [{ path: "", plus: 1 }]),
+        writeBlock("Write", "", 3),
+      ]),
+    ];
+
+    expect(deriveSessionChanges(msgs, ROOT)).toEqual([]);
+  });
+
+  it("returns an empty array for an empty transcript", () => {
+    expect(deriveSessionChanges([], ROOT)).toEqual([]);
   });
 });
 
@@ -599,5 +578,72 @@ describe("collapseDirChain", () => {
     expect(result.names).toEqual(["internal"]);
     expect(result.cursor).toBe("internal");
     expect(result.children).toBeNull();
+  });
+});
+
+describe("deriveLatestWriteRoot", () => {
+  const MAIN = "/Users/me/proj";
+  const WT = "/Users/me/proj-ia";
+  const roots = [MAIN, WT];
+
+  it("Given the last tool write landed in a claimed worktree, When the latest root is derived, Then it is that worktree", () => {
+    const msgs = [
+      userMsg(1, "go"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", `${MAIN}/a.go`, [{ path: `${MAIN}/a.go` }]),
+        editBlock("Edit", `${WT}/b.go`, [{ path: `${WT}/b.go` }]),
+      ]),
+    ];
+
+    expect(deriveLatestWriteRoot(msgs, roots)).toBe(WT);
+  });
+
+  it("Given the last write landed back in the main repo, When the latest root is derived, Then it is the main repo, not the worktree touched earlier", () => {
+    const msgs = [
+      userMsg(1, "go"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", `${WT}/b.go`, [{ path: `${WT}/b.go` }]),
+      ]),
+      userMsg(3, "again"),
+      assistantWithBlocks(4, [writeBlock("Write", `${MAIN}/c.md`, 4)]),
+    ];
+
+    expect(deriveLatestWriteRoot(msgs, roots)).toBe(MAIN);
+  });
+
+  it("Given every write landed outside the claimed roots, When the latest root is derived, Then nothing is claimed and the caller keeps its current root", () => {
+    const msgs = [
+      userMsg(1, "go"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "/tmp/patch.diff", [{ path: "/tmp/patch.diff" }]),
+      ]),
+    ];
+
+    expect(deriveLatestWriteRoot(msgs, roots)).toBeNull();
+  });
+
+  it("Given nested roots, When a write falls in both subtrees, Then the most specific root wins", () => {
+    const nested = [MAIN, `${MAIN}/vendored`];
+    const msgs = [
+      userMsg(1, "go"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", `${MAIN}/vendored/x.go`, [
+          { path: `${MAIN}/vendored/x.go` },
+        ]),
+      ]),
+    ];
+
+    expect(deriveLatestWriteRoot(msgs, nested)).toBe(`${MAIN}/vendored`);
+  });
+
+  it("Given a relative tool path, When the roots cannot disambiguate it, Then no root is claimed by it", () => {
+    const msgs = [
+      userMsg(1, "go"),
+      assistantWithBlocks(2, [
+        editBlock("Edit", "internal/turn.go", [{ path: "internal/turn.go" }]),
+      ]),
+    ];
+
+    expect(deriveLatestWriteRoot(msgs, roots)).toBeNull();
   });
 });

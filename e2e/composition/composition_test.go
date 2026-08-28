@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/agentre-ai/agentre/e2e/preflight"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
+	"github.com/agentre-hub/agentre/e2e/preflight"
+	daemonidentity "github.com/agentre-hub/agentre/internal/daemon/identity"
 )
 
 func setValidRunnerIdentity(t *testing.T) {
@@ -18,7 +18,7 @@ func setValidRunnerIdentity(t *testing.T) {
 	t.Setenv(syncDeviceFPEnv, "sha256:test-device")
 	t.Setenv(syncRefreshTokenEnv, "test-refresh-token")
 	t.Setenv(remotePeerURLEnv, "ws://127.0.0.1:43211/rpc")
-	t.Setenv(remoteDaemonFPEnv, rpc.DaemonFingerprint("test-daemon-instance"))
+	t.Setenv(remoteDaemonFPEnv, daemonidentity.DaemonFingerprint("test-daemon-instance"))
 	t.Setenv(remoteInstanceUUIDEnv, "test-daemon-instance")
 	t.Setenv(remoteDeviceTokenEnv, "test-pairing-token")
 }
@@ -40,7 +40,7 @@ func TestFromPreflightGivenRunnerIdentityReturnsLoggedInLoopbackConfig(t *testin
 		t.Fatalf("identity = %+v", got.Identity)
 	}
 	if got.Remote.URL != "ws://127.0.0.1:43211/rpc" ||
-		got.Remote.DaemonFingerprint != rpc.DaemonFingerprint("test-daemon-instance") ||
+		got.Remote.DaemonFingerprint != daemonidentity.DaemonFingerprint("test-daemon-instance") ||
 		got.Remote.InstanceUUID != "test-daemon-instance" || got.Remote.DeviceToken != "test-pairing-token" {
 		t.Fatalf("remote = %+v", got.Remote)
 	}

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/agentre-ai/agentre/internal/cli/claudecodecmd"
-	"github.com/agentre-ai/agentre/internal/cli/ctlcmd"
+	"github.com/agentre-hub/agentre/internal/cli/claudecodecmd"
+	"github.com/agentre-hub/agentre/internal/cli/ctlcmd"
 )
 
 const usageText = `agrctl — Agentre companion CLI

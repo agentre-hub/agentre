@@ -18,7 +18,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 )
 
 // stateRunning / stateStopped Gateway 当前生命周期阶段。

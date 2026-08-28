@@ -3,8 +3,8 @@ package server_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 )
 
 // GetState returns the current server_state row. When no row is persisted yet

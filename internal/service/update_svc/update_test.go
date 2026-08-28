@@ -150,20 +150,28 @@ func TestSplitPreRelease(t *testing.T) {
 	})
 }
 
-func TestFetchChecksumsErrorPrefix(t *testing.T) {
-	convey.Convey("校验文件获取失败返回特定前缀", t, func() {
-		convey.Convey("空 assets 返回 nil（兼容旧版本）", func() {
+// TestFetchChecksums_GivenAReleaseWithoutChecksums_WhenFetched_ThenItIsAnError
+// 钉住「没有 SHA256SUMS.txt 就不装」这条线:早先这里回 (nil, nil),而调用方对
+// nil 校验表的处理是**静默跳过校验** —— 一个没带校验文件的 release 会被无声地
+// 装上去。项目未发布,不存在缺这个资产的历史 release,缺了就是异常。
+//
+// 交出错误而不是自己中止:DownloadAndUpdate 把它包成 ChecksumFetchError 前缀,
+// 前端据此提示用户,由用户显式选择 skipChecksum=true 才继续 —— 跳过校验必须是
+// 用户按下的那一下,不是代码替他做的默认。
+func TestFetchChecksums_GivenAReleaseWithoutChecksums_WhenFetched_ThenItIsAnError(t *testing.T) {
+	convey.Convey("release 里没有 SHA256SUMS.txt", t, func() {
+		convey.Convey("空 assets 报错,而不是回一张 nil 校验表", func() {
 			checksums, err := FetchChecksums(nil)
-			assert.NoError(t, err)
+			assert.Error(t, err)
 			assert.Nil(t, checksums)
 		})
 
-		convey.Convey("无 SHA256SUMS.txt asset 返回 nil", func() {
+		convey.Convey("有资产但没有校验文件同样报错", func() {
 			assets := []ReleaseAsset{
 				{Name: "agentre-v1.0.0-darwin-arm64.dmg", BrowserDownloadURL: "https://example.com/file.dmg"},
 			}
 			checksums, err := FetchChecksums(assets)
-			assert.NoError(t, err)
+			assert.Error(t, err)
 			assert.Nil(t, checksums)
 		})
 	})
@@ -172,8 +180,8 @@ func TestFetchChecksumsErrorPrefix(t *testing.T) {
 func TestReleaseInfoDownloadURL(t *testing.T) {
 	convey.Convey("release-info.json URL 构造", t, func() {
 		convey.Convey("使用当前发布仓库", func() {
-			assert.Equal(t, "agentre-ai/agentre", githubRepo)
-			assert.Equal(t, "https://api.github.com/repos/agentre-ai/agentre", apiBaseURL)
+			assert.Equal(t, "agentre-hub/agentre", githubRepo)
+			assert.Equal(t, "https://api.github.com/repos/agentre-hub/agentre", apiBaseURL)
 		})
 
 		convey.Convey("stable 通道", func() {

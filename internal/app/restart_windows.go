@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/procattr"
 )
 
 // startRelaunchHelper 用隐藏窗口的 PowerShell 先 Wait-Process 等旧进程 PID 退出,

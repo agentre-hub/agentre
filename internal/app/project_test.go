@@ -3,33 +3,9 @@ package app
 import (
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
 )
-
-func TestProjectSessionItemsIncludeLastReadAt(t *testing.T) {
-	t.Parallel()
-
-	got := toProjectSessionItems([]*chat_entity.Session{
-		{
-			ID:             11,
-			AgentID:        7,
-			Title:          "Read state",
-			AgentStatus:    "idle",
-			LastMessageAt:  2000,
-			LastReadAt:     3000,
-			NeedsAttention: false,
-		},
-	})
-
-	if len(got) != 1 {
-		t.Fatalf("expected one project session item, got %d", len(got))
-	}
-	if got[0].LastReadAt != 3000 {
-		t.Fatalf("expected lastReadAt to be mapped from chat session, got %d", got[0].LastReadAt)
-	}
-}
 
 func TestProjectMemberItemsIncludeAgentDisplayFields(t *testing.T) {
 	t.Parallel()

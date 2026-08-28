@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+
 	. "github.com/smartystreets/goconvey/convey"
 )
 
@@ -22,6 +24,7 @@ func (f *fakeClient) Notify(string, any) error                     { return nil 
 func (f *fakeClient) Handle(string, func(context.Context, json.RawMessage) (any, error)) {
 }
 func (f *fakeClient) Closed() <-chan struct{} { return f.closed }
+func (f *fakeClient) Conn() *protorpc.Conn    { return protorpc.NewConn(nil, protorpc.NewRegistry()) }
 func (f *fakeClient) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

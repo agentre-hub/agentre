@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatAgentItem } from "@/hooks/use-chat-agents";
+import type { AgentSlim } from "@/hooks/use-chat-agents";
 import {
   clearLastAgentId,
   readLastAgentId,
@@ -15,7 +15,7 @@ import {
 } from "./new-project-chat-source";
 import type { OnSelectCtx } from "../types";
 
-function mkAgent(over: Partial<ChatAgentItem> = {}): ChatAgentItem {
+function mkAgent(over: Partial<AgentSlim> = {}): AgentSlim {
   return {
     id: 1,
     name: "Agent",
@@ -32,7 +32,7 @@ function mkAgent(over: Partial<ChatAgentItem> = {}): ChatAgentItem {
     sessions: [],
     attentionSessions: [],
     ...over,
-  } as ChatAgentItem;
+  } as AgentSlim;
 }
 
 function mkItem(over: Partial<NewProjectChatItem> = {}): NewProjectChatItem {
@@ -46,13 +46,12 @@ function mkItem(over: Partial<NewProjectChatItem> = {}): NewProjectChatItem {
   };
 }
 
-function mkCtx(pathname = "/projects") {
+function mkCtx() {
   return {
     navigate: vi.fn(),
     close: vi.fn(),
     openSession: vi.fn(),
     openNewSession: vi.fn(),
-    pathname,
   } as unknown as OnSelectCtx & {
     navigate: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
@@ -63,7 +62,7 @@ function mkCtx(pathname = "/projects") {
 
 describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
   it("only chattable agents are kept", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "Yes", chattable: true }),
       mkAgent({
         id: 2,
@@ -77,7 +76,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
   });
 
   it("with no members set: all marked isMember=true (项目页未选项目时的退化形态)", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A" }),
       mkAgent({ id: 2, name: "B" }),
     ];
@@ -86,7 +85,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
   });
 
   it("pinned-first holds within the 'no members' branch", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", pinned: false }),
       mkAgent({ id: 2, name: "B", pinned: true }),
     ];
@@ -95,7 +94,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
   });
 
   it("with members set: groups members first, non-members after; non-members marked isMember=false", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A" }),
       mkAgent({ id: 2, name: "B" }),
       mkAgent({ id: 3, name: "C" }),
@@ -110,7 +109,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
   });
 
   it("with members set: pinned-non-member still goes to non-member group", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", pinned: true }),
       mkAgent({ id: 2, name: "B", pinned: false }),
     ];
@@ -128,7 +127,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
   });
 
   it("无 members（退化模式）：lastAgentId 命中冒泡到组首", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", pinned: true }),
       mkAgent({ id: 2, name: "B", pinned: false }),
       mkAgent({ id: 3, name: "C", pinned: false }),
@@ -138,7 +137,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
   });
 
   it("有 members：lastAgentId 是 member 时冒泡到 member 组首", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A", pinned: true }),
       mkAgent({ id: 2, name: "B" }),
       mkAgent({ id: 3, name: "C" }),
@@ -153,7 +152,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
   });
 
   it("有 members：lastAgentId 不是 member 时不冒泡（members-first 是更强语义）", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({ id: 1, name: "A" }),
       mkAgent({ id: 2, name: "B" }),
       mkAgent({ id: 3, name: "C" }),
@@ -169,9 +168,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
 
   describe("paths arg (device-aware path preview)", () => {
     it("local agent · resolves to paths.localPath", () => {
-      const agents: ChatAgentItem[] = [
-        mkAgent({ id: 1, name: "L", deviceID: "" }),
-      ];
+      const agents: AgentSlim[] = [mkAgent({ id: 1, name: "L", deviceID: "" })];
       const items = flattenAgents(agents, null, null, {
         localPath: "/Code/foo",
       });
@@ -179,7 +176,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
     });
 
     it("remote agent · resolves to paths.byDeviceID[deviceID]", () => {
-      const agents: ChatAgentItem[] = [
+      const agents: AgentSlim[] = [
         mkAgent({ id: 1, name: "R", deviceID: "7", deviceName: "linux-srv" }),
       ];
       const items = flattenAgents(agents, null, null, {
@@ -189,7 +186,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
     });
 
     it("remote agent · missing location maps to undefined (UI 渲染时跳过 cwd 预览)", () => {
-      const agents: ChatAgentItem[] = [
+      const agents: AgentSlim[] = [
         mkAgent({ id: 1, name: "R", deviceID: "7" }),
       ];
       const items = flattenAgents(agents, null, null, { byDeviceID: {} });
@@ -197,7 +194,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
     });
 
     it("paths=undefined · 全部不带 locationPath(退化/无 project context)", () => {
-      const agents: ChatAgentItem[] = [
+      const agents: AgentSlim[] = [
         mkAgent({ id: 1, name: "L", deviceID: "" }),
         mkAgent({ id: 2, name: "R", deviceID: "7" }),
       ];
@@ -208,7 +205,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
 
   describe("subHeading (两段分组)", () => {
     it("projectName 提供时:成员的 subHeading 是 '在 {N} 中新建 chat',非成员是 '其它 Agent'", () => {
-      const agents: ChatAgentItem[] = [
+      const agents: AgentSlim[] = [
         mkAgent({ id: 1, name: "A" }),
         mkAgent({ id: 2, name: "B" }),
       ];
@@ -221,7 +218,7 @@ describe("flattenAgents (NewProjectChatSource · 项目分组)", () => {
     });
 
     it("projectName=undefined 时所有 item 不带 subHeading(单组)", () => {
-      const agents: ChatAgentItem[] = [
+      const agents: AgentSlim[] = [
         mkAgent({ id: 1, name: "A" }),
         mkAgent({ id: 2, name: "B" }),
       ];
@@ -237,22 +234,11 @@ describe("newProjectChatSource — metadata", () => {
     expect(newProjectChatSource.modes).toEqual(["command"]);
   });
 
-  it("activeFor returns true for /projects routes only", () => {
-    expect(newProjectChatSource.activeFor?.({ pathname: "/projects" })).toBe(
+  it("activeFor 只认项目上下文，不认路由", () => {
+    expect(newProjectChatSource.activeFor?.({ hasProjectContext: true })).toBe(
       true,
     );
-    expect(newProjectChatSource.activeFor?.({ pathname: "/projects/42" })).toBe(
-      true,
-    );
-    expect(
-      newProjectChatSource.activeFor?.({ pathname: "/projects/42/foo" }),
-    ).toBe(true);
-  });
-
-  it("activeFor returns false for non-/projects routes (互斥于 newChatSource)", () => {
-    expect(newProjectChatSource.activeFor?.({ pathname: "/chat" })).toBe(false);
-    expect(newProjectChatSource.activeFor?.({ pathname: "/" })).toBe(false);
-    expect(newProjectChatSource.activeFor?.({ pathname: "/issues" })).toBe(
+    expect(newProjectChatSource.activeFor?.({ hasProjectContext: false })).toBe(
       false,
     );
   });
@@ -324,10 +310,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
       .setContext({ projectID: 42, projectName: "X" });
     useNewChatContextStore.getState().setNewSelectionHandler(handler);
     const agent = mkAgent({ id: 77 });
-    newProjectChatSource.onSelect(
-      mkItem({ agent, isMember: true }),
-      mkCtx("/projects"),
-    );
+    newProjectChatSource.onSelect(mkItem({ agent, isMember: true }), mkCtx());
     expect(readLastAgentId()).toBe(77);
 
     // 退化自由会话（member, 无 project context）也写
@@ -335,7 +318,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     clearLastAgentId();
     newProjectChatSource.onSelect(
       mkItem({ agent: mkAgent({ id: 88 }), isMember: true }),
-      mkCtx("/projects"),
+      mkCtx(),
     );
     expect(readLastAgentId()).toBe(88);
   });
@@ -349,7 +332,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
 
     const agent = mkAgent({ id: 9, name: "设计师" });
     const item = mkItem({ agent, isMember: false });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(ctx.close).not.toHaveBeenCalled();
@@ -360,18 +343,9 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     expect(useNewChatContextStore.getState().projectContext).not.toBeNull();
   });
 
-  it("defense: if pathname is somehow not /projects → free chat fallback (activeFor 已经过滤了，这里只是兜底)", () => {
+  it("上下文在选中与回车之间被清掉 → 退化成自由会话", () => {
     const item = mkItem({ agent: mkAgent({ id: 7 }) });
-    const ctx = mkCtx("/chat");
-    newProjectChatSource.onSelect(item, ctx);
-
-    expect(ctx.openNewSession).toHaveBeenCalledWith(7);
-    expect(ctx.navigate).toHaveBeenCalledWith("/chat");
-  });
-
-  it("with no project context (tree not yet selected) → free chat fallback", () => {
-    const item = mkItem({ agent: mkAgent({ id: 7 }) });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(ctx.openNewSession).toHaveBeenCalledWith(7);
@@ -388,7 +362,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
 
     const agent = mkAgent({ id: 7, name: "CEO" });
     const item = mkItem({ agent, isMember: true });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(ctx.close).toHaveBeenCalledTimes(1);
@@ -406,7 +380,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     // handler intentionally not set
 
     const item = mkItem({ agent: mkAgent({ id: 7 }), isMember: true });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(ctx.openNewSession).toHaveBeenCalledWith(7);
@@ -422,10 +396,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     useNewChatContextStore.getState().setNewSelectionHandler(handler);
 
     const agent = mkAgent({ id: 7 });
-    newProjectChatSource.onSelect(
-      mkItem({ agent, isMember: true }),
-      mkCtx("/projects/42"),
-    );
+    newProjectChatSource.onSelect(mkItem({ agent, isMember: true }), mkCtx());
     expect(handler).toHaveBeenCalledWith(42, agent);
   });
 
@@ -448,7 +419,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
       online: false,
     });
     const item = mkItem({ agent, isMember: true });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(handler).toHaveBeenCalledWith(42, agent);
@@ -471,7 +442,7 @@ describe("newProjectChatSource.onSelect — 项目作用域分发", () => {
     });
     // locationPath 缺失 = 这台机器没配这个项目的路径。
     const item = mkItem({ agent, isMember: true, locationPath: undefined });
-    const ctx = mkCtx("/projects");
+    const ctx = mkCtx();
     newProjectChatSource.onSelect(item, ctx);
 
     expect(handler).toHaveBeenCalledWith(42, agent);

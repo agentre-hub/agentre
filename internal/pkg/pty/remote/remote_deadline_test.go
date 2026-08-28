@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	pkgpty "github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	pkgpty "github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 
 	"github.com/stretchr/testify/require"
 )

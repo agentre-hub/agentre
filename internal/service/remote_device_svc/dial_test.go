@@ -2,7 +2,6 @@ package remote_device_svc_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +11,14 @@ import (
 
 	"github.com/gorilla/websocket"
 	. "github.com/smartystreets/goconvey/convey"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/identity"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // fakeAccountJWT 是测试用的假账号凭据(真实现是 server 签发的 RS256 JWT)。
@@ -26,49 +30,99 @@ type fakeDaemon struct {
 	srv *httptest.Server
 
 	mu     sync.Mutex
-	frames []rpc.Frame
+	frames []*agentrewire.Request
 }
 
-func newFakeDaemon(t *testing.T, instanceUUID string, reject *rpc.Error) *fakeDaemon {
+// newFakeDaemonAtVersion 是一台只在「报什么协议版本」上与本机不同的 agentred。
+func newFakeDaemonAtVersion(t *testing.T, instanceUUID, protocolVersion string) *fakeDaemon {
+	t.Helper()
+	return newFakeDaemonWith(t, instanceUUID, nil, protocolVersion)
+}
+
+func newFakeDaemon(t *testing.T, instanceUUID string, reject *rpcerror.Error) *fakeDaemon {
+	t.Helper()
+	return newFakeDaemonWith(t, instanceUUID, reject, wireversion.Protocol)
+}
+
+func newFakeDaemonWith(t *testing.T, instanceUUID string, reject *rpcerror.Error, protocolVersion string) *fakeDaemon {
 	t.Helper()
 	d := &fakeDaemon{}
 	d.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		ws, err := (&websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}).Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
 		defer func() { _ = ws.Close() }()
 		for {
-			var f rpc.Frame
-			if err := ws.ReadJSON(&f); err != nil {
+			kind, payload, err := ws.ReadMessage()
+			if err != nil || kind != websocket.BinaryMessage {
 				return
 			}
-			d.record(f)
-			out := rpc.Frame{JSONRPC: "2.0", ID: f.ID}
-			if reject != nil {
-				out.Error = reject
-			} else {
-				out.Result = json.RawMessage(`{"ok":true,"instanceUUID":"` + instanceUUID + `"}`)
+			var f agentrewire.RpcFrame
+			if proto.Unmarshal(payload, &f) != nil || f.GetRequest() == nil {
+				return
 			}
-			_ = ws.WriteJSON(out)
+			d.record(f.GetRequest())
+			out := &agentrewire.RpcFrame{Id: f.GetId()}
+			if reject != nil {
+				out.Body = &agentrewire.RpcFrame_Error{Error: &agentrewire.RpcError{Code: int32(reject.Code), Message: reject.Message}}
+			} else {
+				var response []byte
+				switch agentrewire.RpcMethod(f.GetRequest().GetMethodId()) {
+				case agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR:
+					response, _ = proto.Marshal(&agentrewire.AuthPairResponse{DeviceToken: "device-token", DaemonFingerprint: identity.DaemonFingerprint(instanceUUID), InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion})
+				case agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT:
+					response, _ = proto.Marshal(&agentrewire.AuthConnectResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion})
+				default:
+					response, _ = proto.Marshal(&agentrewire.AuthAccountResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion})
+				}
+				out.Body = &agentrewire.RpcFrame_Response{Response: &agentrewire.Response{MethodId: f.GetRequest().GetMethodId(), EncodedPayload: response}}
+			}
+			payload, _ = proto.Marshal(out)
+			_ = ws.WriteMessage(websocket.BinaryMessage, payload)
 		}
 	}))
 	t.Cleanup(d.srv.Close)
 	return d
 }
 
+func TestRealDial_PairAndConnectUseTypedProtobufMethods(t *testing.T) {
+	Convey("pair and connect send their stable typed protobuf payloads", t, func() {
+		d := newFakeDaemon(t, "uuid-1", nil)
+		dial := remote_device_svc.NewDaemonDial()
+		pair, err := dial.Pair(context.Background(), remote_device_svc.PairArgs{URL: d.url(), Code: "123456", DeviceName: "desktop", DeviceFingerprint: "sha256:desktop"})
+		So(err, ShouldBeNil)
+		So(pair.DeviceToken, ShouldEqual, "device-token")
+		So(pair.InstanceUUID, ShouldEqual, "uuid-1")
+		connected, err := dial.Connect(context.Background(), remote_device_svc.ConnectArgs{URL: d.url(), DeviceFingerprint: "sha256:desktop", DeviceToken: "device-token", ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1")})
+		So(err, ShouldBeNil)
+		So(connected.InstanceUUID, ShouldEqual, "uuid-1")
+
+		frames := d.received()
+		So(len(frames), ShouldEqual, 2)
+		So(frames[0].GetMethodId(), ShouldEqual, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR))
+		var pairRequest agentrewire.AuthPairRequest
+		So(proto.Unmarshal(frames[0].GetEncodedPayload(), &pairRequest), ShouldBeNil)
+		So(pairRequest.GetCode(), ShouldEqual, "123456")
+		So(frames[1].GetMethodId(), ShouldEqual, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT))
+		var connectRequest agentrewire.AuthConnectRequest
+		So(proto.Unmarshal(frames[1].GetEncodedPayload(), &connectRequest), ShouldBeNil)
+		So(connectRequest.GetExpectedDaemonFingerprint(), ShouldEqual, identity.DaemonFingerprint("uuid-1"))
+	})
+}
+
 func (d *fakeDaemon) url() string { return "ws" + strings.TrimPrefix(d.srv.URL, "http") + "/rpc" }
 
-func (d *fakeDaemon) record(f rpc.Frame) {
+func (d *fakeDaemon) record(f *agentrewire.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.frames = append(d.frames, f)
 }
 
-func (d *fakeDaemon) received() []rpc.Frame {
+func (d *fakeDaemon) received() []*agentrewire.Request {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return append([]rpc.Frame(nil), d.frames...)
+	return append([]*agentrewire.Request(nil), d.frames...)
 }
 
 // 直连的账号握手就是一次 auth.account:daemon 侧全靠缓存的公钥本地验签(R3),
@@ -82,7 +136,7 @@ func TestRealDial_OpenAccount_PresentsCredentialInOneRoundTrip(t *testing.T) {
 			TLSMode:                   "default",
 			Credential:                fakeAccountJWT,
 			DeviceFingerprint:         "sha256:desktop",
-			ExpectedDaemonFingerprint: rpc.DaemonFingerprint("uuid-1"),
+			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
 		})
 		So(err, ShouldBeNil)
 		So(c, ShouldNotBeNil)
@@ -90,11 +144,11 @@ func TestRealDial_OpenAccount_PresentsCredentialInOneRoundTrip(t *testing.T) {
 
 		frames := d.received()
 		So(len(frames), ShouldEqual, 1)
-		So(frames[0].Method, ShouldEqual, "auth.account")
-		var p rpc.AccountParams
-		So(json.Unmarshal(frames[0].Params, &p), ShouldBeNil)
-		So(p.Credential, ShouldEqual, "acct-jwt")
-		So(p.DeviceFingerprint, ShouldEqual, "sha256:desktop")
+		So(frames[0].GetMethodId(), ShouldEqual, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT))
+		var p agentrewire.AuthAccountRequest
+		So(proto.Unmarshal(frames[0].GetEncodedPayload(), &p), ShouldBeNil)
+		So(p.GetCredential(), ShouldEqual, "acct-jwt")
+		So(p.GetDeviceFingerprint(), ShouldEqual, "sha256:desktop")
 	})
 }
 
@@ -102,14 +156,14 @@ func TestRealDial_OpenAccount_PresentsCredentialInOneRoundTrip(t *testing.T) {
 // 统一映射成 ErrUnauthorized,让 ConnPool 继续把它判成终止条件。
 func TestRealDial_OpenAccount_DaemonRejects_MapsToUnauthorized(t *testing.T) {
 	Convey("daemon rejects the account credential → ErrUnauthorized", t, func() {
-		d := newFakeDaemon(t, "uuid-1", &rpc.Error{Code: rpc.ErrUnauthorized.Code, Message: "account credential revoked"})
+		d := newFakeDaemon(t, "uuid-1", &rpcerror.Error{Code: rpcerror.CodeUnauthorized, Message: "account credential revoked"})
 
 		c, err := remote_device_svc.NewDaemonDial().OpenAccount(context.Background(), remote_device_svc.AccountArgs{
 			URL:                       d.url(),
 			TLSMode:                   "default",
 			Credential:                fakeAccountJWT,
 			DeviceFingerprint:         "sha256:desktop",
-			ExpectedDaemonFingerprint: rpc.DaemonFingerprint("uuid-1"),
+			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
 		})
 		So(c, ShouldBeNil)
 		So(errors.Is(err, remote_device_svc.ErrUnauthorized), ShouldBeTrue)
@@ -127,7 +181,7 @@ func TestRealDial_OpenAccount_OtherDaemon_MapsToTOFUMismatch(t *testing.T) {
 			TLSMode:                   "default",
 			Credential:                fakeAccountJWT,
 			DeviceFingerprint:         "sha256:desktop",
-			ExpectedDaemonFingerprint: rpc.DaemonFingerprint("uuid-1"),
+			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
 		})
 		So(c, ShouldBeNil)
 		So(errors.Is(err, remote_device_svc.ErrTOFUMismatch), ShouldBeTrue)
@@ -144,5 +198,52 @@ func TestRealDial_OpenAccount_OtherDaemon_MapsToTOFUMismatch(t *testing.T) {
 		})
 		So(c, ShouldBeNil)
 		So(errors.Is(err, remote_device_svc.ErrTOFUMismatch), ShouldBeTrue)
+	})
+}
+
+// Given a real agentred that refuses the subprotocol outright (426), When the
+// desktop pairs, Then the dial port must hand the service its protocol sentinel
+// — otherwise the panel says "check network and port" about a version problem.
+func TestRealDial_GivenDaemonRefusesTheSubprotocol_WhenPairing_ThenReturnsProtocolUnsupported(t *testing.T) {
+	Convey("426 折成 ErrProtocolUnsupported", t, func() {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusUpgradeRequired)
+		}))
+		defer server.Close()
+		url := "ws" + strings.TrimPrefix(server.URL, "http") + "/rpc"
+
+		dial := remote_device_svc.NewDaemonDial()
+		_, err := dial.Pair(context.Background(), remote_device_svc.PairArgs{URL: url, Code: "123456", DeviceFingerprint: "sha256:desktop"})
+
+		So(errors.Is(err, remote_device_svc.ErrProtocolUnsupported), ShouldBeTrue)
+	})
+}
+
+// Given a real agentred from another revision, When the desktop connects, Then
+// the version disagreement arrives as its own sentinel rather than as a generic
+// dial failure.
+func TestRealDial_GivenDaemonSpeaksAnotherVersion_WhenConnecting_ThenReturnsProtocolVersionMismatch(t *testing.T) {
+	Convey("版本对不上折成 ErrProtocolVersionMismatch", t, func() {
+		d := newFakeDaemonAtVersion(t, "uuid-1", "0.0.9")
+		dial := remote_device_svc.NewDaemonDial()
+
+		_, err := dial.Connect(context.Background(), remote_device_svc.ConnectArgs{
+			URL: d.url(), DeviceFingerprint: "sha256:desktop", DeviceToken: "device-token",
+			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
+		})
+
+		So(errors.Is(err, remote_device_svc.ErrProtocolVersionMismatch), ShouldBeTrue)
+	})
+
+	Convey("更老的 agentred 压根不报版本,同样折成 ErrProtocolVersionMismatch", t, func() {
+		d := newFakeDaemonAtVersion(t, "uuid-1", "")
+		dial := remote_device_svc.NewDaemonDial()
+
+		_, err := dial.Connect(context.Background(), remote_device_svc.ConnectArgs{
+			URL: d.url(), DeviceFingerprint: "sha256:desktop", DeviceToken: "device-token",
+			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
+		})
+
+		So(errors.Is(err, remote_device_svc.ErrProtocolVersionMismatch), ShouldBeTrue)
 	})
 }

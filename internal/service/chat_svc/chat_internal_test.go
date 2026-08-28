@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -16,23 +17,28 @@ import (
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 
-	daemonrpc "github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo/mock_project_location_repo"
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
+	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/goal"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
 
 type prepareTurnRuntime struct{}
@@ -64,12 +70,12 @@ func TestToChatMessage_BlockTypes(t *testing.T) {
 	assert.Equal(t, "let me think", cm.Blocks[1].Text)
 
 	assert.Equal(t, "tool_use", cm.Blocks[2].Type)
-	assert.Equal(t, "toolu_1", cm.Blocks[2].ToolUseID)
+	assert.Equal(t, "toolu_1", cm.Blocks[2].ToolCallID)
 	assert.Equal(t, "shell", cm.Blocks[2].ToolName)
 	assert.Equal(t, "ls", cm.Blocks[2].ToolInput["cmd"])
 
 	assert.Equal(t, "tool_result", cm.Blocks[3].Type)
-	assert.Equal(t, "toolu_1", cm.Blocks[3].ToolUseID)
+	assert.Equal(t, "toolu_1", cm.Blocks[3].ToolCallID)
 	assert.Equal(t, "file.txt", cm.Blocks[3].Text)
 	assert.False(t, cm.Blocks[3].IsError)
 
@@ -117,6 +123,8 @@ func TestToChatMessage_TokenFields(t *testing.T) {
 		CacheCreationTokens: 20,
 		ReasoningTokens:     10,
 		DurationMs:          1234,
+		FirstTokenMs:        420,
+		TokensPerSec:        48.5,
 	}
 	cm, err := toChatMessage(m)
 	require.NoError(t, err)
@@ -126,6 +134,8 @@ func TestToChatMessage_TokenFields(t *testing.T) {
 	assert.Equal(t, 20, cm.CacheCreationTokens)
 	assert.Equal(t, 10, cm.ReasoningTokens)
 	assert.Equal(t, 1234, cm.DurationMs)
+	assert.Equal(t, 420, cm.FirstTokenMs)
+	assert.Equal(t, 48.5, cm.TokensPerSec)
 }
 
 // TestToChatMessage_NestedToolUse pins replay 把 subagent 内层 ToolUse 投影成
@@ -148,7 +158,7 @@ func TestToChatMessage_NestedToolUse(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cm.Blocks, 1)
 	assert.Equal(t, "tool_use", cm.Blocks[0].Type)
-	assert.Equal(t, "nested-1", cm.Blocks[0].ToolUseID)
+	assert.Equal(t, "nested-1", cm.Blocks[0].ToolCallID)
 	assert.Equal(t, "Read", cm.Blocks[0].ToolName)
 	assert.Equal(t, "/x.go", cm.Blocks[0].ToolInput["file_path"])
 	assert.Equal(t, "task-outer-1", cm.Blocks[0].ParentToolCallID)
@@ -157,7 +167,7 @@ func TestToChatMessage_NestedToolUse(t *testing.T) {
 }
 
 // TestToChatMessage_NestedToolResult 同上,镜像 NestedToolResultBlock 路径:
-// ToolUseID = ToolCallID、Content 拍平进 Text、ParentToolCallID 透传。
+// ToolCallID 原样落到块上、Content 拍平进 Text、ParentToolCallID 透传。
 func TestToChatMessage_NestedToolResult(t *testing.T) {
 	m := &chat_entity.Message{ID: 1, SessionID: 9, Role: "assistant"}
 	require.NoError(t, m.SetBlocks([]blocks.ContentBlock{
@@ -174,7 +184,7 @@ func TestToChatMessage_NestedToolResult(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cm.Blocks, 1)
 	assert.Equal(t, "tool_result", cm.Blocks[0].Type)
-	assert.Equal(t, "nested-1", cm.Blocks[0].ToolUseID)
+	assert.Equal(t, "nested-1", cm.Blocks[0].ToolCallID)
 	assert.Equal(t, "hello\n", cm.Blocks[0].Text)
 	assert.True(t, cm.Blocks[0].IsError)
 	assert.Equal(t, "task-outer-1", cm.Blocks[0].ParentToolCallID)
@@ -232,7 +242,7 @@ func TestToChatMessage_SubagentStateMergedOntoToolUseBlock(t *testing.T) {
 
 	tb := cm.Blocks[0]
 	assert.Equal(t, "tool_use", tb.Type)
-	assert.Equal(t, "tu1", tb.ToolUseID)
+	assert.Equal(t, "tu1", tb.ToolCallID)
 
 	require.NotNil(t, tb.Subagent, "tool_use 块必须携带 .Subagent 元数据")
 	assert.Equal(t, "local_bash", tb.Subagent.Kind)
@@ -307,7 +317,7 @@ func TestConvertOldEventToNew_PreservesSubagentRunID(t *testing.T) {
 	result := convertOldEventToNew(agentruntime.RuntimeEvent{
 		Kind: agentruntime.EventToolResult,
 		ToolResult: &agentruntime.ToolResultEvent{
-			ToolUseID: "child", ParentToolCallID: "outer", SubagentRunID: "run-1",
+			ToolCallID: "child", ParentToolCallID: "outer", SubagentRunID: "run-1",
 		},
 	}).(agentruntime.ToolResult)
 	assert.Equal(t, "run-1", result.SubagentRunID)
@@ -358,9 +368,9 @@ func TestToChatMessage_NoticeBlockProjectionDecodesProviderSwitch(t *testing.T) 
 		modelKey     string
 		modelName    string
 	}{
-		{name: "切到某个供应商(provider-default)", text: encodeProviderSwitch("key-99", "", "中转 · GLM 5.2", ""), providerKey: "key-99", providerName: "中转 · GLM 5.2"},
-		{name: "切到 fixed-model", text: encodeProviderSwitch("key-99", "mk-haiku", "中转 · GLM 5.2", "GLM 5.2"), providerKey: "key-99", providerName: "中转 · GLM 5.2", modelKey: "mk-haiku", modelName: "GLM 5.2"},
-		{name: "切回跟随 agent 绑定", text: encodeProviderSwitch("", "", "", ""), providerKey: "", providerName: ""},
+		{name: "切到某个供应商(provider-default)", text: view.EncodeProviderSwitch("key-99", "", "中转 · GLM 5.2", ""), providerKey: "key-99", providerName: "中转 · GLM 5.2"},
+		{name: "切到 fixed-model", text: view.EncodeProviderSwitch("key-99", "mk-haiku", "中转 · GLM 5.2", "GLM 5.2"), providerKey: "key-99", providerName: "中转 · GLM 5.2", modelKey: "mk-haiku", modelName: "GLM 5.2"},
+		{name: "切回跟随 agent 绑定", text: view.EncodeProviderSwitch("", "", "", ""), providerKey: "", providerName: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -388,7 +398,7 @@ func TestToChatMessage_NoticeBlockProjectionDecodesProviderSwitch(t *testing.T) 
 func TestToChatMessage_NoticeBlockProjectionKeepsFallbackKindEmpty(t *testing.T) {
 	m := &chat_entity.Message{ID: 1, SessionID: 9, Role: "assistant"}
 	require.NoError(t, m.SetBlocks([]blocks.ContentBlock{
-		blocks.NoticeBlock{Level: "info", Text: encodeProviderFallback("gone-provider", "")},
+		blocks.NoticeBlock{Level: "info", Text: view.EncodeProviderFallback("gone-provider", "")},
 	}))
 
 	cm, err := toChatMessage(m)
@@ -433,7 +443,7 @@ func TestCreatePermissionMode_DefaultFallback(t *testing.T) {
 			Type:                  string(agent_backend_entity.TypeClaudeCode),
 			DefaultPermissionMode: "plan",
 		}
-		mode, err := createPermissionMode(ctx, be, "", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "plan", mode)
 	})
@@ -443,7 +453,7 @@ func TestCreatePermissionMode_DefaultFallback(t *testing.T) {
 		be := &agent_backend_entity.AgentBackend{
 			Type: string(agent_backend_entity.TypeClaudeCode),
 		}
-		mode, err := createPermissionMode(ctx, be, "", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "", mode)
 	})
@@ -454,7 +464,7 @@ func TestCreatePermissionMode_DefaultFallback(t *testing.T) {
 			Type:                  string(agent_backend_entity.TypeClaudeCode),
 			DefaultPermissionMode: "plan",
 		}
-		mode, err := createPermissionMode(ctx, be, "bypassPermissions", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "bypassPermissions", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "bypassPermissions", mode)
 	})
@@ -474,7 +484,7 @@ func TestCreatePermissionMode_BypassDefaultStartsInPlan(t *testing.T) {
 			Type:                  string(agent_backend_entity.TypeClaudeCode),
 			DefaultPermissionMode: "bypassPermissions",
 		}
-		mode, err := createPermissionMode(ctx, be, "", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "plan", mode)
 	})
@@ -485,7 +495,7 @@ func TestCreatePermissionMode_BypassDefaultStartsInPlan(t *testing.T) {
 			Type:                  string(agent_backend_entity.TypeClaudeCode),
 			DefaultPermissionMode: "bypassPermissions",
 		}
-		mode, err := createPermissionMode(ctx, be, "", false)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "", false)
 		assert.NoError(t, err)
 		assert.Equal(t, "bypassPermissions", mode)
 	})
@@ -496,7 +506,7 @@ func TestCreatePermissionMode_BypassDefaultStartsInPlan(t *testing.T) {
 			Type:                  string(agent_backend_entity.TypeClaudeCode),
 			DefaultPermissionMode: "bypassPermissions",
 		}
-		mode, err := createPermissionMode(ctx, be, "acceptEdits", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "acceptEdits", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "acceptEdits", mode)
 	})
@@ -509,7 +519,7 @@ func TestCreatePermissionMode_BypassDefaultStartsInPlan(t *testing.T) {
 			Type:                  string(agent_backend_entity.TypeCodex),
 			DefaultPermissionMode: "bypassPermissions",
 		}
-		mode, err := createPermissionMode(ctx, be, "", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "", true)
 		// codex 不允许 bypassPermissions, validate 会回 ChatPermissionModeInvalid;
 		// 关键是这里没有走 plan 分支, 错误从 validateRequestedPermissionMode 抛出。
 		assert.Error(t, err)
@@ -531,7 +541,7 @@ func TestCreatePermissionMode_CrossTypeOverrideFallsBack(t *testing.T) {
 		be := &agent_backend_entity.AgentBackend{
 			Type: string(agent_backend_entity.TypeCodex),
 		}
-		mode, err := createPermissionMode(ctx, be, "acceptEdits", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "acceptEdits", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "default", mode)
 	})
@@ -541,7 +551,7 @@ func TestCreatePermissionMode_CrossTypeOverrideFallsBack(t *testing.T) {
 		be := &agent_backend_entity.AgentBackend{
 			Type: string(agent_backend_entity.TypeCodex),
 		}
-		mode, err := createPermissionMode(ctx, be, "bypassPermissions", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "bypassPermissions", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "default", mode)
 	})
@@ -551,7 +561,7 @@ func TestCreatePermissionMode_CrossTypeOverrideFallsBack(t *testing.T) {
 		be := &agent_backend_entity.AgentBackend{
 			Type: string(agent_backend_entity.TypeCodex),
 		}
-		mode, err := createPermissionMode(ctx, be, "plan", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "plan", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "plan", mode)
 	})
@@ -561,7 +571,7 @@ func TestCreatePermissionMode_CrossTypeOverrideFallsBack(t *testing.T) {
 		be := &agent_backend_entity.AgentBackend{
 			Type: string(agent_backend_entity.TypeBuiltin),
 		}
-		mode, err := createPermissionMode(ctx, be, "acceptEdits", true)
+		mode, err := ipc.CreatePermissionMode(ctx, be, "acceptEdits", true)
 		assert.NoError(t, err)
 		assert.Equal(t, "", mode)
 	})
@@ -575,7 +585,7 @@ func TestResolveSessionCwd_LocalUsesCwdResolver(t *testing.T) {
 		return "/Users/me/proj", nil
 	}
 	sess := &chat_entity.Session{ID: 1, ProjectID: 10, AgentID: 7}
-	be := &agent_backend_entity.AgentBackend{DeviceID: ""} // local
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: ""} // local
 	cwd, err := resolveSessionCwd(context.Background(), sess, be)
 	require.NoError(t, err)
 	assert.Equal(t, "/Users/me/proj", cwd)
@@ -604,12 +614,12 @@ func TestResolveSessionCwd_RemoteHitsProjectLocation(t *testing.T) {
 	project_location_repo.RegisterProjectLocation(mockRepo)
 	t.Cleanup(func() { project_location_repo.RegisterProjectLocation(prevRepo) })
 
-	mockRepo.EXPECT().FindByProjectAndDevice(gomock.Any(), int64(10), "7").Return(
-		&project_location_entity.ProjectLocation{ID: 42, ProjectID: 10, DeviceID: "7", Path: "/home/me/proj"}, nil,
+	mockRepo.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(10), testDeviceFingerprint(7)).Return(
+		&project_location_entity.ProjectLocation{ID: 42, ProjectID: 10, DeviceID: testDeviceFingerprint(7), Path: "/home/me/proj"}, nil,
 	)
 
 	sess := &chat_entity.Session{ID: 1, ProjectID: 10}
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"} // remote
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)} // remote
 	cwd, err := resolveSessionCwd(context.Background(), sess, be)
 	require.NoError(t, err)
 	assert.Equal(t, "/home/me/proj", cwd)
@@ -628,7 +638,7 @@ func TestResolveSessionCwd_RemoteFreeSessionSkipsRepo(t *testing.T) {
 	t.Cleanup(func() { project_location_repo.RegisterProjectLocation(prevRepo) })
 
 	sess := &chat_entity.Session{ID: 1, ProjectID: 0, AgentID: 7}
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"} // remote
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)} // remote
 	cwd, err := resolveSessionCwd(context.Background(), sess, be)
 	require.NoError(t, err)
 	assert.Equal(t, "", cwd)
@@ -644,10 +654,10 @@ func TestResolveSessionCwd_RemoteMissingLocation(t *testing.T) {
 	project_location_repo.RegisterProjectLocation(mockRepo)
 	t.Cleanup(func() { project_location_repo.RegisterProjectLocation(prevRepo) })
 
-	mockRepo.EXPECT().FindByProjectAndDevice(gomock.Any(), int64(10), "7").Return(nil, gorm.ErrRecordNotFound)
+	mockRepo.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(10), testDeviceFingerprint(7)).Return(nil, gorm.ErrRecordNotFound)
 
 	sess := &chat_entity.Session{ID: 1, ProjectID: 10}
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 	_, err := resolveSessionCwd(context.Background(), sess, be)
 	var httpErr *httputils.Error
 	require.ErrorAs(t, err, &httpErr)
@@ -657,7 +667,7 @@ func TestResolveSessionCwd_RemoteMissingLocation(t *testing.T) {
 // TestResolveSessionCwd_LocalPropagatesLocalPathMissing 验证 R10:CwdResolver
 // (project_svc.ResolveSessionCwd)对「本机未配置路径」返回的确定错误经
 // resolveSessionCwd 原样透出 —— 不折叠成 ProjectLocationMissing / WorkspaceFsNoCwd,
-// 也不是 ("", nil)。chat_svc/chat.go 的全部读取点都经这条路径取 cwd,因此这里
+// 也不是 ("", nil)。chat_svc 的全部读取点都经这条路径取 cwd,因此这里
 // 通过即代表它们随解析点自动生效(R11)。
 func TestResolveSessionCwd_LocalPropagatesLocalPathMissing(t *testing.T) {
 	prev := resolveCwdFn
@@ -666,7 +676,7 @@ func TestResolveSessionCwd_LocalPropagatesLocalPathMissing(t *testing.T) {
 		return "", i18n.NewError(ctx, code.ProjectLocalPathMissing)
 	}
 	sess := &chat_entity.Session{ID: 1, ProjectID: 10, AgentID: 7}
-	be := &agent_backend_entity.AgentBackend{DeviceID: ""} // local
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: ""} // local
 	cwd, err := resolveSessionCwd(context.Background(), sess, be)
 	require.Error(t, err)
 	assert.Equal(t, "", cwd)
@@ -692,7 +702,14 @@ func TestCwdUnavailableReasonFor(t *testing.T) {
 
 // ── noopDaemonClient ─────────────────────────────────────────────────────────
 
-type noopDaemonClient struct{}
+type noopDaemonClient struct{ conn *protorpc.Conn }
+
+func (c *noopDaemonClient) Conn() *protorpc.Conn {
+	if c.conn == nil {
+		c.conn = protorpc.NewConn(nil, protorpc.NewRegistry())
+	}
+	return c.conn
+}
 
 func (*noopDaemonClient) Call(_ context.Context, _ string, _, _ any) error { return nil }
 func (*noopDaemonClient) Notify(_ string, _ any) error                     { return nil }
@@ -763,11 +780,49 @@ func installMockPool(t *testing.T, ctrl *gomock.Controller, svc *chatSvc, device
 		client: &noopDaemonClient{},
 	}
 	m.pool.EXPECT().Borrow(gomock.Any(), deviceID).Return(m.lease, nil).AnyTimes()
-	m.lease.EXPECT().Client().Return(m.client).AnyTimes()
+	m.lease.EXPECT().Client().Return(protorpctest.WrapConnection(m.client)).AnyTimes()
 	m.lease.EXPECT().Closed().Return(make(chan struct{})).AnyTimes()
 	m.lease.EXPECT().Release().AnyTimes()
 	svc.setConnPoolForTest(m.pool)
+	installPairedDevice(t, ctrl, deviceID)
+	installExecDaemonRecorder(t, ctrl)
 	return m
+}
+
+// installExecDaemonRecorder 给「借出成功即写 (设备, 实例标识) 到会话行」（R15b）装一
+// 个宽松桩：只借运行时的测试不关心那次写入，但不装等于让 borrow 在 nil repo 上崩。
+func installExecDaemonRecorder(t *testing.T, ctrl *gomock.Controller) {
+	t.Helper()
+	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
+	sessRepo.EXPECT().UpdateExecDaemon(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).AnyTimes()
+	prev := chat_repo.Session()
+	chat_repo.RegisterSession(sessRepo)
+	t.Cleanup(func() { chat_repo.RegisterSession(prev) })
+}
+
+// testDeviceFingerprint 是这批测试里「第 n 台已配对 daemon」的规范指纹。backend 的
+// DeviceID 只有指纹一种形态，派发边界再把它在本机配对表里解析成行 ID。
+func testDeviceFingerprint(deviceID int64) string {
+	return fmt.Sprintf("sha256:device-%d", deviceID)
+}
+
+// installPairedDevice 把 deviceID 那台机器登记成本机已配对 daemon，使
+// testDeviceFingerprint(deviceID) 解析得出这一行。
+func installPairedDevice(t *testing.T, ctrl *gomock.Controller, deviceID int64) *mock_remote_device_svc.MockRemoteDeviceSvc {
+	t.Helper()
+	view := &remote_device_svc.DeviceView{
+		ID: deviceID, DaemonFingerprint: testDeviceFingerprint(deviceID), Online: true,
+	}
+	rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+	rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+	rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{view}, nil).AnyTimes()
+	rds.EXPECT().Get(gomock.Any(), deviceID).Return(view, nil).AnyTimes()
+	rds.EXPECT().ListDeviceProviders(gomock.Any()).Return(nil).AnyTimes()
+	prev := remote_device_svc.Default()
+	remote_device_svc.SetDefault(rds)
+	t.Cleanup(func() { remote_device_svc.SetDefault(prev) })
+	return rds
 }
 
 // TestPrepareTurnRun_RemoteSendsEffectiveProviderKey 钉死决策 9 桌面侧:远端 backend
@@ -784,7 +839,7 @@ func TestPrepareTurnRun_RemoteSendsEffectiveProviderKey(t *testing.T) {
 	a := &agent_entity.Agent{ID: 7, AgentBackendID: 12}
 	be := &agent_backend_entity.AgentBackend{
 		ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "agent-bound-key",
-		DeviceID: "7",
+		DeviceFingerprint: testDeviceFingerprint(7),
 	}
 
 	prepared, err := svc.prepareTurnRun(context.Background(), sess, a, be, nil, nil, nil, "", false, false)
@@ -807,7 +862,7 @@ func TestPrepareTurnRun_RemoteNoSessionProviderKeyFallsBackToAgentBinding(t *tes
 	a := &agent_entity.Agent{ID: 7, AgentBackendID: 12}
 	be := &agent_backend_entity.AgentBackend{
 		ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "agent-bound-key",
-		DeviceID: "7",
+		DeviceFingerprint: testDeviceFingerprint(7),
 	}
 
 	prepared, err := svc.prepareTurnRun(context.Background(), sess, a, be, nil, nil, nil, "", false, false)
@@ -847,7 +902,7 @@ func TestPrepareTurnRun_GivenSelfFingerprintBackend_ThenRunsLocally(t *testing.T
 	a := &agent_entity.Agent{ID: 7, AgentBackendID: 12}
 	be := &agent_backend_entity.AgentBackend{
 		ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "",
-		DeviceID: "sha256:self",
+		DeviceFingerprint: "sha256:self",
 	}
 
 	prepared, err := svc.prepareTurnRun(context.Background(), sess, a, be, nil, nil, nil, "", false, false)
@@ -864,7 +919,7 @@ func TestBorrowRemoteRuntime_SharesConnAcrossSessions(t *testing.T) {
 	svc := &chatSvc{}
 	installMockPool(t, ctrl, svc, 7)
 
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 
 	r1, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	require.NoError(t, err)
@@ -881,6 +936,36 @@ func TestBorrowRemoteRuntime_SharesConnAcrossSessions(t *testing.T) {
 	assert.Equal(t, 0, svc.remoteRuntimeCount(7))
 }
 
+// TestBorrowRemoteRuntimeForTurn_DialFailure_HoldsNothingAndReleaseIsANoop 钉死
+// borrowRemoteRuntimeForTurn 的错误契约:借用失败时它一件资源都没占住,交回的
+// release 是可安全调用的 no-op(而不是 nil,也不是一个必须被调用的真释放)。
+//
+// 上游 selectTurnRunner 在 err != nil 时直接 return,那条路径上永远不会调 release;
+// 只要这里的契约成立,那就不是租约泄漏。若哪天池改成「先记引用再报错」,或改成在
+// 错误路径上交回一个真 release,这条测试立刻红 —— 泄漏就是从那一刻开始的。
+func TestBorrowRemoteRuntimeForTurn_DialFailure_HoldsNothingAndReleaseIsANoop(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	svc := &chatSvc{}
+	pool := mock_remote_device_svc.NewMockConnPool(ctrl)
+	pool.EXPECT().Borrow(gomock.Any(), int64(7)).Return(nil, errors.New("daemon offline")).AnyTimes()
+	svc.setConnPoolForTest(pool)
+	installPairedDevice(t, ctrl, 7)
+	installExecDaemonRecorder(t, ctrl)
+
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
+
+	rt, release, err := svc.borrowRemoteRuntimeForTurn(context.Background(), be, 100)
+	require.Error(t, err)
+	assert.Nil(t, rt)
+	require.NotNil(t, release, "错误路径也必须交回一个可调用的 release")
+	assert.Equal(t, 0, svc.remoteRuntimeCount(7), "借用失败不得留下任何会话引用")
+
+	assert.NotPanics(t, release)
+	assert.Equal(t, 0, svc.remoteRuntimeCount(7), "no-op release 不改变任何计数")
+}
+
 // TestBorrowRemoteRuntime_PrefetchesCapabilities_OncePerDevice 钉死 Plan B
 // 行为:cold path borrow 时同步发一发 runtime.capabilities,缓存到 *remote.Runtime
 // 内;同 device 后续 borrow 命中 cache,不再发 RPC。
@@ -892,16 +977,18 @@ func TestBorrowRemoteRuntime_PrefetchesCapabilities_OncePerDevice(t *testing.T) 
 	pool := mock_remote_device_svc.NewMockConnPool(ctrl)
 	lease := mock_remote_device_svc.NewMockLease(ctrl)
 	pool.EXPECT().Borrow(gomock.Any(), int64(7)).Return(lease, nil).AnyTimes()
-	lease.EXPECT().Client().Return(rec).AnyTimes()
+	lease.EXPECT().Client().Return(protorpctest.WrapConnection(rec)).AnyTimes()
 	lease.EXPECT().Closed().Return(make(chan struct{})).AnyTimes()
 	lease.EXPECT().Release().AnyTimes()
 
 	svc := &chatSvc{}
 	svc.setConnPoolForTest(pool)
+	installPairedDevice(t, ctrl, 7)
+	installExecDaemonRecorder(t, ctrl)
 
 	be := &agent_backend_entity.AgentBackend{
-		Type:     string(agent_backend_entity.TypeClaudeCode),
-		DeviceID: "7",
+		Type:              string(agent_backend_entity.TypeClaudeCode),
+		DeviceFingerprint: testDeviceFingerprint(7),
 	}
 	_, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	require.NoError(t, err)
@@ -940,45 +1027,47 @@ func TestGoal_RemoteReleasesRuntimeAfterOneShotRPC(t *testing.T) {
 	pool := mock_remote_device_svc.NewMockConnPool(ctrl)
 	lease := mock_remote_device_svc.NewMockLease(ctrl)
 	pool.EXPECT().Borrow(gomock.Any(), int64(7)).Return(lease, nil)
-	lease.EXPECT().Client().Return(rec).AnyTimes()
+	lease.EXPECT().Client().Return(protorpctest.WrapConnection(rec)).AnyTimes()
 	lease.EXPECT().Closed().Return(make(chan struct{})).AnyTimes()
 	lease.EXPECT().Release().AnyTimes()
 
 	svc := &chatSvc{}
 	svc.setConnPoolForTest(pool)
+	installPairedDevice(t, ctrl, 7)
+	installExecDaemonRecorder(t, ctrl)
 	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, nil)
 	t.Cleanup(restore)
 
 	be := &agent_backend_entity.AgentBackend{
-		ID:       12,
-		Type:     string(agent_backend_entity.TypeCodex),
-		DeviceID: "7",
-		Status:   1,
+		ID:                12,
+		Type:              string(agent_backend_entity.TypeCodex),
+		DeviceFingerprint: testDeviceFingerprint(7),
+		Status:            1,
 	}
 	sess := &chat_entity.Session{ID: 100, AgentID: 7, ProviderSessionID: "codex-thread-123"}
 	objective := "ship remote goal"
 	status := "active"
 
-	resp, release, err := svc.setGoalOnSession(context.Background(), sess, &agent_entity.Agent{ID: 7}, be, nil, &SetGoalRequest{
-		SessionID: 100,
-		Objective: &objective,
-		Status:    &status,
-	})
+	g, release, err := svc.goals().SetOnSessionForTest(
+		context.Background(), sess, &agent_entity.Agent{ID: 7}, be, nil, goal.Patch{
+			Objective: &objective,
+			Status:    &status,
+		})
 	require.NoError(t, err)
 	defer release()
-	require.NotNil(t, resp.Goal)
-	assert.Equal(t, "ship remote goal", resp.Goal.Objective)
+	require.NotNil(t, g)
+	assert.Equal(t, "ship remote goal", g.Objective)
 
 	release()
 	assert.Equal(t, 0, svc.remoteRuntimeCount(7), "one-shot remote goal RPC must release its remote runtime lease")
 	assert.Equal(t, 1, rec.count(wire.MethodSetGoal))
 }
 
-// TestBorrowRemoteRuntime_InvalidDevice 当 be.DeviceIDInt() 解析失败时立即返回
+// TestBorrowRemoteRuntime_InvalidDevice 当 DeviceID 不是规范指纹时立即返回
 // AgentBackendInvalidDevice — 不去摸 Pool。
 func TestBorrowRemoteRuntime_InvalidDevice(t *testing.T) {
 	svc := &chatSvc{}
-	be := &agent_backend_entity.AgentBackend{DeviceID: "not-a-number"}
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: "not-a-number"}
 	_, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	var httpErr *httputils.Error
 	require.ErrorAs(t, err, &httpErr)
@@ -1021,8 +1110,8 @@ func TestBorrowRemoteRuntime_GivenFingerprintDeviceID_ResolvesPairedRowAndBorrow
 	svc.setConnPoolForTest(pool)
 
 	be := &agent_backend_entity.AgentBackend{
-		Type:     string(agent_backend_entity.TypeClaudeCode),
-		DeviceID: "sha256:daemon-x",
+		Type:              string(agent_backend_entity.TypeClaudeCode),
+		DeviceFingerprint: "sha256:daemon-x",
 	}
 	rt, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	require.NoError(t, err)
@@ -1050,7 +1139,7 @@ func TestBorrowRemoteRuntime_GivenUnpairedFingerprintDeviceID_RejectsWithInvalid
 	svc := &chatSvc{}
 	svc.setConnPoolForTest(pool)
 
-	be := &agent_backend_entity.AgentBackend{DeviceID: "sha256:not-paired-here"}
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: "sha256:not-paired-here"}
 	_, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	var httpErr *httputils.Error
 	require.ErrorAs(t, err, &httpErr)
@@ -1068,8 +1157,9 @@ func TestBorrowRemoteRuntime_DialFailure(t *testing.T) {
 
 	svc := &chatSvc{}
 	svc.setConnPoolForTest(mockPool)
+	installPairedDevice(t, ctrl, 7)
 
-	be := &agent_backend_entity.AgentBackend{DeviceID: "7"}
+	be := &agent_backend_entity.AgentBackend{DeviceFingerprint: testDeviceFingerprint(7)}
 	_, err := svc.borrowRemoteRuntime(context.Background(), be, 100)
 	var httpErr *httputils.Error
 	require.ErrorAs(t, err, &httpErr)
@@ -1082,8 +1172,8 @@ func TestMapTurnError_RemoteProviderMissing(t *testing.T) {
 	svc := &chatSvc{}
 	err := svc.mapTurnError(context.Background(), nil, &agent_backend_entity.AgentBackend{
 		LLMProviderKey: "provider-key-1",
-	}, &daemonrpc.Error{
-		Code:    daemonrpc.ErrProviderMissing.Code,
+	}, &rpcerror.Error{
+		Code:    rpcerror.ErrProviderMissing.Code,
 		Message: "LLM provider provider-key-1 not configured",
 	})
 
@@ -1096,8 +1186,8 @@ func TestMapTurnError_RemoteProviderMissing(t *testing.T) {
 func TestSelectRunner_LocalReturnsRegistry(t *testing.T) {
 	svc := &chatSvc{}
 	be := &agent_backend_entity.AgentBackend{
-		Type:     string(agent_backend_entity.TypeClaudeCode),
-		DeviceID: "", // local
+		Type:              string(agent_backend_entity.TypeClaudeCode),
+		DeviceFingerprint: "", // local
 	}
 	runner, err := svc.selectRunner(context.Background(), be, 100)
 	require.NoError(t, err)
@@ -1116,8 +1206,8 @@ func TestSelectRunner_RemoteBorrows(t *testing.T) {
 	installMockPool(t, ctrl, svc, 7)
 
 	be := &agent_backend_entity.AgentBackend{
-		Type:     string(agent_backend_entity.TypeClaudeCode),
-		DeviceID: "7",
+		Type:              string(agent_backend_entity.TypeClaudeCode),
+		DeviceFingerprint: testDeviceFingerprint(7),
 	}
 	runner, err := svc.selectRunner(context.Background(), be, 100)
 	require.NoError(t, err)
@@ -1135,8 +1225,8 @@ func TestSelectRunner_RemoteIdempotent(t *testing.T) {
 	installMockPool(t, ctrl, svc, 7)
 
 	be := &agent_backend_entity.AgentBackend{
-		Type:     string(agent_backend_entity.TypeClaudeCode),
-		DeviceID: "7",
+		Type:              string(agent_backend_entity.TypeClaudeCode),
+		DeviceFingerprint: testDeviceFingerprint(7),
 	}
 	r1, err := svc.selectRunner(context.Background(), be, 100)
 	require.NoError(t, err)

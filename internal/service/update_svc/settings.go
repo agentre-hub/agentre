@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 )
 
 // GetChannel 读取持久化的更新通道；未设置时返回 DefaultUpdateChannel。
@@ -31,7 +31,7 @@ func SetChannel(ctx context.Context, channel string) error {
 	return app_setting_repo.AppSetting().Set(ctx, &app_setting_entity.AppSetting{
 		Key:        app_setting_entity.KeyUpdateChannel,
 		Value:      channel,
-		Updatetime: time.Now().Unix(),
+		Updatetime: time.Now().UnixMilli(),
 	})
 }
 
@@ -53,11 +53,11 @@ func SetMirror(ctx context.Context, mirror string) error {
 	return app_setting_repo.AppSetting().Set(ctx, &app_setting_entity.AppSetting{
 		Key:        app_setting_entity.KeyDownloadMirror,
 		Value:      strings.TrimSpace(mirror),
-		Updatetime: time.Now().Unix(),
+		Updatetime: time.Now().UnixMilli(),
 	})
 }
 
-// GetLastUpdateCheck 读取上次"检查更新"的 Unix 时间戳；未设置或非法返回 0。
+// GetLastUpdateCheck 读取上次"检查更新"的毫秒 epoch 时间戳；未设置或非法返回 0。
 func GetLastUpdateCheck(ctx context.Context) (int64, error) {
 	item, err := app_setting_repo.AppSetting().Get(ctx, app_setting_entity.KeyLastUpdateCheck)
 	if err != nil {
@@ -74,11 +74,11 @@ func GetLastUpdateCheck(ctx context.Context) (int64, error) {
 	return ts, nil
 }
 
-// SetLastUpdateCheck 写入上次"检查更新"的 Unix 时间戳。
+// SetLastUpdateCheck 写入上次"检查更新"的毫秒 epoch 时间戳。
 func SetLastUpdateCheck(ctx context.Context, ts int64) error {
 	return app_setting_repo.AppSetting().Set(ctx, &app_setting_entity.AppSetting{
 		Key:        app_setting_entity.KeyLastUpdateCheck,
 		Value:      strconv.FormatInt(ts, 10),
-		Updatetime: time.Now().Unix(),
+		Updatetime: time.Now().UnixMilli(),
 	})
 }

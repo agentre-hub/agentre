@@ -2,14 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Copy } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  AgentreDialog,
+  Button,
+  Input,
+  RadioGroup,
+  RadioGroupItem,
+  copyTextWithToast,
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
 
-import { AgentreDialog } from "../app-dialog";
 import { BrowserOpenURL } from "../../../../wailsjs/runtime/runtime";
+import type { server_svc } from "../../../../wailsjs/go/models";
 import { formatCountdown, friendlyLoginError } from "./format";
 
 /** 官方 Hub 地址 —— 新用户 / 未记住自建地址时登录的默认目标。 */
@@ -39,20 +43,9 @@ function initialMode(initialUrl: string): { mode: ServerMode; url: string } {
   return { mode: "official", url: "" };
 }
 
-// 本地类型 — mirrors server_svc.StartLoginResult; avoids transitive
-// wailsjs import (same precedent as AddRequest in device-pairing-form.tsx).
-export type StartLoginResult = {
-  DeviceCode: string;
-  UserCode: string;
-  VerificationURI: string;
-  VerificationURIComplete: string;
-  Interval: number;
-  ExpiresIn: number;
-};
-
 type Phase = "form" | "starting" | "waiting";
 
-// RFC 8628 device flow: Interval is the server-mandated poll cadence in
+// RFC 8628 device flow: interval is the server-mandated poll cadence in
 // seconds; a floor guards against a degenerate 0/negative value hammering
 // the server.
 const MIN_INTERVAL_MS = 1000;
@@ -66,7 +59,7 @@ type Props = {
   /** Called once PollLoginToken reports completion, before onClose. */
   onLoggedIn: () => void;
   checkURL: (url: string) => Promise<string>;
-  startLogin: (url: string) => Promise<StartLoginResult>;
+  startLogin: (url: string) => Promise<server_svc.StartLoginResult>;
   pollLoginToken: (deviceCode: string) => Promise<boolean>;
   cancelLogin: () => Promise<void>;
 };
@@ -106,7 +99,7 @@ function ServerOption({
         <span className="text-xs text-muted-foreground">{desc}</span>
       </span>
       {badge ? (
-        <span className="ml-auto shrink-0 rounded-full bg-status-running-bg px-2 py-0.5 text-[11px] font-semibold text-status-running">
+        <span className="ml-auto shrink-0 rounded-full bg-status-running-bg px-2 py-0.5 text-2xs font-semibold text-status-running">
           {badge}
         </span>
       ) : null}
@@ -130,7 +123,7 @@ export function LoginDialog({
   );
   const [url, setUrl] = useState(() => initialMode(initialUrl).url);
   const [phase, setPhase] = useState<Phase>("form");
-  const [login, setLogin] = useState<StartLoginResult | null>(null);
+  const [login, setLogin] = useState<server_svc.StartLoginResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -237,12 +230,12 @@ export function LoginDialog({
       if (stale()) return;
       setLogin(res);
       setPhase("waiting");
-      setRemaining(Math.max(0, res.ExpiresIn || 0));
-      deadlineRef.current = Date.now() + Math.max(0, res.ExpiresIn || 0) * 1000;
+      setRemaining(Math.max(0, res.expiresIn || 0));
+      deadlineRef.current = Date.now() + Math.max(0, res.expiresIn || 0) * 1000;
       const intervalMs =
-        Math.max(1, res.Interval || FALLBACK_INTERVAL_S) * 1000;
+        Math.max(1, res.interval || FALLBACK_INTERVAL_S) * 1000;
       timerRef.current = window.setInterval(
-        () => void poll(res.DeviceCode, attempt),
+        () => void poll(res.deviceCode, attempt),
         Math.max(MIN_INTERVAL_MS, intervalMs),
       );
     } catch (e: unknown) {
@@ -254,7 +247,7 @@ export function LoginDialog({
 
   const copyCode = async () => {
     if (!login) return;
-    const ok = await copyTextWithToast(login.UserCode, {
+    const ok = await copyTextWithToast(login.userCode, {
       successTitle: t("remoteDevices.login.actions.copied"),
     });
     if (ok) {
@@ -316,7 +309,7 @@ export function LoginDialog({
             </span>
             <div className="flex items-center gap-2">
               <span className="font-mono text-2xl font-semibold tracking-widest">
-                {login.UserCode}
+                {login.userCode}
               </span>
               <Button
                 type="button"
@@ -340,7 +333,7 @@ export function LoginDialog({
             <span className="text-xs text-muted-foreground">
               {t("remoteDevices.login.waiting.verificationUrl")}
             </span>
-            <code className="break-all text-xs">{login.VerificationURI}</code>
+            <code className="break-all text-xs">{login.verificationURI}</code>
           </div>
           <Button
             type="button"
@@ -348,7 +341,7 @@ export function LoginDialog({
             className="w-full"
             onClick={() =>
               BrowserOpenURL(
-                login.VerificationURIComplete || login.VerificationURI,
+                login.verificationURIComplete || login.verificationURI,
               )
             }
           >
@@ -359,7 +352,7 @@ export function LoginDialog({
               time: formatCountdown(remaining),
             })}
           </p>
-          <p className="text-center text-xs text-subtle-foreground">
+          <p className="text-center text-xs text-muted-foreground">
             {t("remoteDevices.login.waiting.autoClose")}
           </p>
         </div>

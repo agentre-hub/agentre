@@ -1,0 +1,238 @@
+{
+  "chat": {
+    "message": {
+      "fromDevice": "From {{device}}",
+      "me": "Me"
+    },
+    "meta": {
+      "cacheHit": "Cache hit",
+      "cacheWrite": "Cache write",
+      "completion": "Received (completion)",
+      "duration": "Duration",
+      "model": "Model",
+      "prompt": "Sent (prompt)",
+      "reasoning": "Reasoning",
+      "tokenDetails": "Token usage details",
+      "firstToken": "First token",
+      "outputSpeed": "Output speed",
+      "tokensPerSec": "{{value}} tok/s",
+      "usage": "Usage",
+      "usageUnavailable": "Not reported by the backend"
+    },
+    "errorCard": {
+      "continue": "Continue",
+      "message": "Agent call failed: {{text}}",
+      "regenerate": "↻ Regenerate"
+    },
+    "retry": {
+      "aria": "Retrying",
+      "defaultMessage": "Upstream connection interrupted temporarily",
+      "title": "Retrying",
+      "titleWithAttempt": "Retrying {{attempt}}",
+      "titleWithMax": "Retrying {{attempt}}/{{max}}"
+    },
+    "typing": {
+      "aria": "Generating"
+    },
+    "compacting": {
+      "aria": "Compacting context",
+      "label": "Compacting context..."
+    },
+    "disconnected": {
+      "aria": "Connection lost, reconnecting",
+      "label": "Connection lost, reconnecting · the remote is still running"
+    },
+    "notice": {
+      "providerFallback": {
+        "sentence": "Selected provider {{provider}} is unavailable; fell back to the agent binding"
+      },
+      "providerSwitch": {
+        "fixedModel": "Fixed model · {{provider}} · {{model}} from here",
+        "followAgentBinding": "Follow agent binding from here",
+        "sentence": "Follow provider default · {{provider}} from here"
+      }
+    },
+    "debug": {
+      "unknownBlock": "(debug) unimplemented block type: {{type}}"
+    },
+    "actions": {
+      "copyOutput": "Copy AI output",
+      "copyOutputDone": "AI output copied",
+      "copyOutputFailed": "Failed to copy AI output",
+      "regenerate": "Regenerate"
+    },
+    "image": {
+      "alt": "Image"
+    }
+  },
+  "chatPanel": {
+    "autonomous": {
+      "banner": "Background task finished · auto-continued",
+      "aria": "Auto-continued response"
+    }
+  },
+  "clipboard": {
+    "insecureContext": "Copying requires HTTPS or localhost"
+  },
+  "codeBlock": {
+    "copyDone": "Code copied",
+    "copyFailed": "Failed to copy code"
+  },
+  "localCommand": {
+    "localChip": "Local command",
+    "notSharedWithAI": "Not sent to AI",
+    "status": {
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "exitCode": "Exit {{code}}",
+    "stop": "Stop",
+    "openInTerminal": "Open in terminal",
+    "dismiss": "Dismiss command",
+    "noOutput": "No output",
+    "expand": "Expand output",
+    "collapse": "Collapse output"
+  },
+  "localCommandHistory": {
+    "aria": "Shell command history",
+    "clearCurrentScope": "Clear history for current directory",
+    "clearFailed": "Couldn’t clear command history. Try again."
+  },
+  "markdownImage": {
+    "cannotPreview": "Cannot preview",
+    "tooLarge": "Image too large"
+  },
+  "mentions": {
+    "chip": {
+      "agentTitle": "Agent: {{name}}",
+      "projectTitle": "Project: {{name}}"
+    },
+    "aria": "Mention a project or agent",
+    "group": {
+      "agents": "Agents",
+      "projects": "Projects"
+    }
+  },
+  "openclawExecApproval": {
+    "title": "Execution approval",
+    "command": "Command",
+    "host": "Host",
+    "node": "Node",
+    "agent": "Agent",
+    "resolvedBy": "Resolved by",
+    "loading": "Submitting decision…",
+    "submitFailed": "Could not submit the approval decision.",
+    "status": {
+      "pending": "Pending",
+      "resolved": "Resolved",
+      "expired": "Expired"
+    },
+    "decision": {
+      "allow-once": "Allow once",
+      "allow-always": "Always allow",
+      "deny": "Deny"
+    },
+    "decisionResult": {
+      "allow-once": "Allowed once",
+      "allow-always": "Always allowed",
+      "deny": "Denied"
+    }
+  },
+  "richLink": {
+    "localFile": "Local File",
+    "localFileExternal": "Local File · Outside Project",
+    "localFolder": "Local Folder",
+    "localFolderExternal": "Local Folder · Outside Project",
+    "openFailed": "Open failed: {{error}}",
+    "openInBrowser": "Click to open in the system browser",
+    "openWithDefaultApp": "Click to open with the default system app",
+    "outsideCwd": "Path is outside the current cwd, so the project root segment is not shown.",
+    "projectRoot": "Project Root",
+    "relative": "Relative",
+    "url": "URL"
+  },
+  "terminal": {
+    "banner": {
+      "connectionLost": "Connection lost — terminal session cannot be recovered"
+    },
+    "toast": {
+      "agentredClosed": "agentred has shut down",
+      "connectionLost": "Terminal connection lost",
+      "shellExited": "Shell exited (code {{code}})",
+      "startFailed": "Terminal failed to start: {{message}}"
+    },
+    "unknown": "unknown"
+  },
+  "toolApproval": {
+    "title": "Org structure operation approval",
+    "approve": "Approve",
+    "deny": "Reject",
+    "submitFailed": "Approval submission failed",
+    "status": {
+      "approved": "Approved",
+      "denied": "Rejected",
+      "expired": "Expired"
+    },
+    "tools": {
+      "org_create_department": "Create department",
+      "org_update_department": "Update department",
+      "org_delete_department": "Delete department",
+      "org_create_agent": "Create agent",
+      "org_update_agent": "Update agent",
+      "org_delete_agent": "Delete agent"
+    }
+  },
+  "slashCommands": {
+    "aria": "Command and skill suggestions"
+  },
+  "chatInput": {
+    "placeholder": {
+      "base": "Type a message",
+      "mention": "@ to mention",
+      "slash": "/ for commands",
+      "slashWithSkill": "/ for commands and skills",
+      "skill": "$ for skills",
+      "localCommand": "! to run in terminal"
+    }
+  },
+  "chatComposer": {
+    "send": "Send",
+    "images": {
+      "add": "Add image",
+      "attachmentAlt": "Image attachment",
+      "remove": "Remove image {{name}}",
+      "tooMany": "You can attach up to {{count}} images",
+      "unsupported": "Use PNG, JPEG, or WebP images up to 5 MB",
+      "readFailed": "Could not read the selected image"
+    },
+    "dropHint": "Drop to add files / folder paths",
+    "sending": "Sending…",
+    "sendTitle": "Send (Enter)",
+    "shortcuts": {
+      "send": "↵ Send · ⇧↵ New line",
+      "edit": "↵ Save · Esc Cancel"
+    },
+    "editing": {
+      "aria": "Editing message",
+      "title": "Edit Message",
+      "description": "Saving discards later history and regenerates from this point.",
+      "cancel": "Cancel edit",
+      "cancelTitle": "Cancel edit (Esc)"
+    },
+    "command": {
+      "banner": "Command mode · runs in the project directory · Enter to run · delete ! to exit",
+      "run": "Run command"
+    }
+  },
+  "contextMeter": {
+    "aria": "Context usage {{used}} / {{max}}, {{percent}}% used",
+    "panel": {
+      "title": "Context",
+      "remaining": "Remaining",
+      "note": "Counted from the latest model call's total input",
+      "nearLimit": "Close to the context window limit"
+    }
+  }
+}

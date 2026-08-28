@@ -5,14 +5,14 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 // toolPermissionBlockToChatBlock 历史回放路径：把 cago 持久化的
@@ -21,7 +21,7 @@ import (
 // 与 live 路径共用 PlanApproveCard。
 func toolPermissionBlockToChatBlock(b blocks.ToolPermissionBlock) ChatBlock {
 	cb := ChatBlock{
-		Type: "tool_permission_request",
+		Type: ChatBlockTypeToolPermissionRequest,
 		ToolPermission: &ChatBlockToolPermission{
 			RequestID:   b.RequestID,
 			ToolName:    b.ToolName,

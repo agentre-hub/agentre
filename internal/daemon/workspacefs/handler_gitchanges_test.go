@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/daemon/workspacefs"
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
 )
 
 // runGit 在 dir 下执行 git args。测试 helper,失败直接 t.Fatal。与
@@ -83,7 +83,7 @@ func TestGitChanges_UnknownScope_InvalidParams(t *testing.T) {
 
 	_, err := h.GitChanges(context.Background(), wire.GitChangesReq{Root: dir, Scope: "bogus"})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rpc.ErrInvalidParams))
+	assert.True(t, errors.Is(err, rpcerror.ErrInvalidParams))
 }
 
 func TestGitChanges_NonRepo_Degrades(t *testing.T) {

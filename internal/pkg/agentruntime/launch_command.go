@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 )
 
 // LaunchCommandTokenPlaceholder 是 gateway token 的字面量占位符，

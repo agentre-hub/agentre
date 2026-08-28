@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -287,4 +288,57 @@ func mustStartFakeResumeMissing(t *testing.T, ctx context.Context) *process {
 	})
 	require.NoError(t, err)
 	return p
+}
+
+// 契约:startProcess 收下的 ctx 只守 spawn 阶段 —— 进程一旦起来,寿命由调用方显式
+// 结束(Close 关 stdin / kill),不随这个 ctx 取消而终止。
+//
+// 常驻会话正是靠这条:OpenSession 目前特地传 context.Background() 绕开
+// exec.CommandContext,而绕开的前提是每个调用方都记得这么做。把契约落到这一层,
+// 传进来的是哪个 ctx 就都不再有区别 —— codex 那边正是忘了这件事,池里留下的是一个
+// 在建它那一轮结束时就被 SIGKILL 的死进程。
+func TestProcess_GivenStartContextCanceledAfterSpawn_WhenWriting_ThenProcessStaysAlive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	p, err := startProcess(ctx, processSpec{
+		binary: "/bin/sh",
+		args:   []string{"-c", "while IFS= read -r line; do printf '%s\\n' \"$line\"; done"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(p.kill)
+
+	cancel()
+
+	_, writeErr := io.WriteString(p.stdin, "ping\n")
+	require.NoError(t, writeErr, "cancel 之后进程应当还能收到 stdin")
+
+	line := make(chan string, 1)
+	go func() {
+		text, readErr := bufio.NewReader(p.stdout).ReadString('\n')
+		if readErr != nil {
+			close(line)
+			return
+		}
+		line <- strings.TrimSpace(text)
+	}()
+	select {
+	case got, ok := <-line:
+		require.True(t, ok, "cancel 之后 stdout 读到 EOF,说明进程已被 ctx 杀掉")
+		assert.Equal(t, "ping", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancel 之后进程没有回显,疑似已被 ctx 杀掉")
+	}
+}
+
+// 边界:ctx 在 startProcess 之前就取消 —— spawn 阶段仍归它管,一个进程都不该起来。
+func TestProcess_GivenContextCanceledBeforeSpawn_ThenNothingStarts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	p, err := startProcess(ctx, processSpec{binary: "/bin/sh", args: []string{"-c", "cat"}})
+
+	if p != nil {
+		p.kill()
+	}
+	require.Nil(t, p, "ctx 已取消时不该起进程")
+	assert.ErrorIs(t, err, context.Canceled)
 }

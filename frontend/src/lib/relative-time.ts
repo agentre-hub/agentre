@@ -1,12 +1,7 @@
-export function relativeTime(ms: number, now: number = Date.now()): string {
-  if (!ms || ms <= 0) return "";
-  const delta = Math.max(0, now - ms);
-  const sec = Math.floor(delta / 1000);
-  if (sec < 60) return "now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h`;
-  const day = Math.floor(hr / 24);
-  return `${day}d`;
-}
+// 紧凑相对时间的实现已经搬进共享包 @agentre-hub/agentre-ui（包内
+// src/lib/relative-time.ts，与 i18n 形态、Intl 形态同一套档位阶梯）。
+//
+// 这一层转发是**刻意保留**的：8 个调用点从 "@/lib/relative-time" 取 relativeTime，
+// 一次性改写它们会把搬迁的真实 diff 埋掉。新代码请直接从
+// "@agentre-hub/agentre-ui" 导入 formatCompactRelativeTime。
+export { formatCompactRelativeTime as relativeTime } from "@agentre-hub/agentre-ui";

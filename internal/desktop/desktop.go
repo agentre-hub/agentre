@@ -10,9 +10,9 @@ import (
 	"io/fs"
 	"runtime"
 
-	"github.com/agentre-ai/agentre/internal/app"
-	"github.com/agentre-ai/agentre/internal/bootstrap"
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/app"
+	"github.com/agentre-hub/agentre/internal/bootstrap"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/wailsapp/wails/v2"
@@ -76,15 +76,6 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// NewOptions exposes the Wails options seam for focused entrypoint tests.
-func NewOptions(opts Options) *options.App {
-	appInst := opts.App
-	if appInst == nil {
-		appInst = app.NewApp(opts.RuntimeMode)
-	}
-	return newWailsOptions(appInst, opts.Assets, opts.GOOS, opts.DataDir)
-}
-
 func newWailsOptions(a *app.App, assets fs.FS, goos, dataDir string) *options.App {
 	appOptions := &options.App{
 		Title:            windowTitle(),
@@ -109,11 +100,16 @@ func newWailsOptions(a *app.App, assets fs.FS, goos, dataDir string) *options.Ap
 		appOptions.SingleInstanceLock = &options.SingleInstanceLock{
 			UniqueId: singleInstanceUniqueID(dataDir),
 			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {
-				logger.Default().Info("desktop: second instance launch",
+				logger.Default().Info("desktop.Run: second instance launch",
 					zap.Strings("args", secondInstanceData.Args),
 					zap.String("workingDirectory", secondInstanceData.WorkingDirectory))
 			},
 		}
+	} else {
+		// Wails dev only: the asset proxy dials vite and can hit a burst of
+		// `connection reset by peer` on first load (upstream wails#4556, unfixed
+		// in v2). Retry GET 5xx so the webview never lands on a black shell.
+		appOptions.AssetServer.Middleware = devProxyRetryMiddleware
 	}
 
 	configurePlatformWindowOptions(appOptions, goos)

@@ -55,23 +55,22 @@ const lanDevice = (over: Partial<DeviceView> = {}): DeviceView => ({
   lastSeenAt: 1_700_000_000_000,
   lastError: "",
   online: true,
-  daemonOutdated: false,
   ...over,
 });
 
 const accountDevice = (
   over: Partial<server_svc.Device> = {},
 ): server_svc.Device => ({
-  ID: 10,
-  Name: "linux-srv",
-  Kind: "agentred",
-  Platform: "linux",
-  Version: "0.3.0",
-  Fingerprint: "fp-1",
-  LastSeenAt: 1_700_000_000_000,
-  Status: 1, // ACTIVE
-  Online: true, // 中继在线登记(R20)
-  IsThisDevice: false,
+  id: 10,
+  name: "linux-srv",
+  kind: "agentred",
+  platform: "linux",
+  version: "0.3.0",
+  fingerprint: "fp-1",
+  lastSeenAt: 1_700_000_000_000,
+  status: 1, // ACTIVE
+  online: true, // 中继在线登记(R20)
+  isThisDevice: false,
   ...over,
 });
 
@@ -83,7 +82,7 @@ describe("mergeDeviceSources (R15)", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].name).toBe("linux-srv");
-    expect(rows[0].account?.Fingerprint).toBe("fp-1");
+    expect(rows[0].account?.fingerprint).toBe("fp-1");
     expect(rows[0].unclaimed).toBe(false);
     expect(rows[0].viaRelay).toBe(false);
     // LAN 在线 → 直连在用,中转可用。
@@ -104,6 +103,31 @@ describe("mergeDeviceSources (R15)", () => {
       { kind: "lan", state: "dead" },
       { kind: "relay", state: "in-use" },
     ]);
+  });
+
+  // 收编自账号的行没有 LAN 地址(url 为空 = 后端的 IsRelayOnly)。它确实有一行本地
+  // 记录——那正是让它能被选成「运行设备」的东西——但它**没有** LAN 路径。照 LAN 行
+  // 渲染会画出一条根本不存在的直连路径,把「本机从没配对过这台机器」说成「直连在用」。
+  it("does not invent a LAN path for a row adopted from the account (no url)", () => {
+    const rows = mergeDeviceSources([lanDevice({ url: "" })], {
+      known: true,
+      devices: [accountDevice()],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].paths).toEqual([{ kind: "relay", state: "in-use" }]);
+    expect(rows[0].viaRelay).toBe(true);
+    expect(rows[0].online).toBe(true);
+    expect(rows[0].unclaimed).toBe(false);
+  });
+
+  // 收编行 + 账号侧中继离线 = 这台机器此刻真的够不着,不能因为本地有一行就报在线。
+  it("an adopted row whose relay presence is gone is offline with a dead relay path", () => {
+    const rows = mergeDeviceSources([lanDevice({ url: "" })], {
+      known: true,
+      devices: [accountDevice({ online: false })],
+    });
+    expect(rows[0].paths).toEqual([{ kind: "relay", state: "dead" }]);
+    expect(rows[0].online).toBe(false);
   });
 
   it("marks a LAN-only device unclaimed when the account list is known", () => {
@@ -145,7 +169,7 @@ describe("mergeDeviceSources (R15)", () => {
   it("treats a daemon with no relay presence as a dead relay path", () => {
     const rows = mergeDeviceSources([lanDevice()], {
       known: true,
-      devices: [accountDevice({ Online: false })],
+      devices: [accountDevice({ online: false })],
     });
     expect(rows[0].viaRelay).toBe(false);
     expect(rows[0].paths).toEqual([
@@ -160,7 +184,7 @@ describe("mergeDeviceSources (R15)", () => {
   it("does not claim a relay path from the account authorization flag alone", () => {
     const rows = mergeDeviceSources([lanDevice({ online: false })], {
       known: true,
-      devices: [accountDevice({ Status: 1, Online: false })],
+      devices: [accountDevice({ status: 1, online: false })],
     });
     expect(rows[0].viaRelay).toBe(false);
     expect(rows[0].paths).toEqual([
@@ -170,11 +194,11 @@ describe("mergeDeviceSources (R15)", () => {
   });
 
   // 反向:授权已撤销但机器此刻仍挂在中转上 —— 路径标记跟随可达性,
-  // 撤销后 daemon 无法续期在线登记,Online 自然落回 false。
+  // 撤销后 daemon 无法续期在线登记,online 自然落回 false。
   it("reports a reachable relay path even when the account row is not ACTIVE", () => {
     const rows = mergeDeviceSources([lanDevice({ online: false })], {
       known: true,
-      devices: [accountDevice({ Status: 2, Online: true })],
+      devices: [accountDevice({ status: 2, online: true })],
     });
     expect(rows[0].viaRelay).toBe(true);
     expect(rows[0].paths).toEqual([
@@ -202,11 +226,11 @@ describe("mergeDeviceSources (R15)", () => {
   it("emits a row for an account-only agentred that was never paired over LAN", () => {
     const rows = mergeDeviceSources([], {
       known: true,
-      devices: [accountDevice({ Fingerprint: "fp-cloud", Name: "cloud-box" })],
+      devices: [accountDevice({ fingerprint: "fp-cloud", name: "cloud-box" })],
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].name).toBe("cloud-box");
-    expect(rows[0].account?.Fingerprint).toBe("fp-cloud");
+    expect(rows[0].account?.fingerprint).toBe("fp-cloud");
     // 没有本机配对行 —— 这一行在类型上就没有 LAN 来源。
     expect(rows[0].lan).toBeUndefined();
     // 只有中转一条可达路径。
@@ -222,9 +246,9 @@ describe("mergeDeviceSources (R15)", () => {
       known: true,
       devices: [
         accountDevice({
-          Fingerprint: "fp-cloud",
-          Name: "cloud-box",
-          Online: false,
+          fingerprint: "fp-cloud",
+          name: "cloud-box",
+          online: false,
         }),
       ],
     });
@@ -244,11 +268,11 @@ describe("mergeDeviceSources (R15)", () => {
       {
         known: true,
         devices: [
-          accountDevice({ ID: 10, Fingerprint: "fp-1" }),
+          accountDevice({ id: 10, fingerprint: "fp-1" }),
           accountDevice({
-            ID: 11,
-            Name: "cloud-box",
-            Fingerprint: "fp-acct-only",
+            id: 11,
+            name: "cloud-box",
+            fingerprint: "fp-acct-only",
           }),
         ],
       },
@@ -256,7 +280,7 @@ describe("mergeDeviceSources (R15)", () => {
     expect(rows.map((r) => r.name)).toEqual(["linux-srv", "pi", "cloud-box"]);
     expect(rows.map((r) => r.lan?.id)).toEqual([1, 2, undefined]);
     // 两边都有的那台只占一行,不因为参与合并而被复制成两行。
-    expect(rows.filter((r) => r.account?.Fingerprint === "fp-1")).toHaveLength(
+    expect(rows.filter((r) => r.account?.fingerprint === "fp-1")).toHaveLength(
       1,
     );
     expect(rows[1].unclaimed).toBe(true);
@@ -270,11 +294,11 @@ describe("mergeDeviceSources (R15)", () => {
       known: true,
       devices: [
         accountDevice({
-          ID: 12,
-          Kind: "desktop",
-          Name: "my-mac",
-          Fingerprint: "fp-desktop",
-          IsThisDevice: true,
+          id: 12,
+          kind: "desktop",
+          name: "my-mac",
+          fingerprint: "fp-desktop",
+          isThisDevice: true,
         }),
       ],
     });
@@ -286,7 +310,7 @@ describe("mergeDeviceSources (R15)", () => {
     const rows = mergeDeviceSources([lanDevice({ id: 10 })], {
       known: true,
       devices: [
-        accountDevice({ ID: 10, Name: "cloud-box", Fingerprint: "fp-cloud" }),
+        accountDevice({ id: 10, name: "cloud-box", fingerprint: "fp-cloud" }),
       ],
     });
     expect(rows).toHaveLength(2);
@@ -366,7 +390,8 @@ describe("useRemoteDevices", () => {
   });
 
   it("loads devices on mount", async () => {
-    mockList.mockResolvedValueOnce([{ id: 1, name: "a" }]);
+    // url 必须写出来:它现在是「这一行有没有 LAN 路径」的标记,省略即表示收编行。
+    mockList.mockResolvedValueOnce([{ id: 1, name: "a", url: "ws://a/rpc" }]);
     const { result } = renderHook(() => useRemoteDevices());
     await waitFor(() => expect(result.current.loadState).toBe("ready"));
     expect(result.current.devices[0].name).toBe("a");
@@ -408,8 +433,22 @@ describe("useRemoteDevices", () => {
 
   it("merges remote.device.state events into devices by id", async () => {
     mockList.mockResolvedValueOnce([
-      { id: 1, name: "a", online: false, lastSeenAt: 0, lastError: "" },
-      { id: 2, name: "b", online: false, lastSeenAt: 0, lastError: "" },
+      {
+        id: 1,
+        name: "a",
+        url: "ws://a/rpc",
+        online: false,
+        lastSeenAt: 0,
+        lastError: "",
+      },
+      {
+        id: 2,
+        name: "b",
+        url: "ws://b/rpc",
+        online: false,
+        lastSeenAt: 0,
+        lastError: "",
+      },
     ]);
     const handlers: Record<string, (p: unknown) => void> = {};
     mockEventsOn.mockImplementation(

@@ -6,7 +6,7 @@ import (
 
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 )
 
 // Event 是 sealed interface,所有 typed event case 必须实现 isEvent()。
@@ -23,6 +23,20 @@ type TextDelta struct{ Text string }
 
 // ThinkingDelta 流式思考片段(Anthropic 协议把它放在 turn 开头并保住 signature)。
 type ThinkingDelta struct{ Text string }
+
+// OutputActivity「模型开始产出一个输出块」的纯计时信号,不带内容。turn 内可以来
+// 多条(每个输出块一条),chat_svc 只拿它记首 token(TTFT),不进 accumulator、不落库、
+// 不推 UI 内容。
+//
+// 存在理由:TextDelta / ThinkingDelta 只覆盖**看得见**的输出。一跳「一句话不吐、
+// 直接甩工具调用」时,模型早就在产出 token(工具入参),但没有任何可见增量事件 ——
+// 首 token 于是一路推迟到模型终于说正文那一刻(sess-3241:190s 的一轮报出 166s
+// 的首 token,前面 23 跳工具全程无人记表)。
+//
+// 当前唯一生产者是 claudecode(SSE content_block_start,见 pkg/claudecode 的
+// EventContentBlockStart);codex / piagent 没有等价帧,由 ToolCall 兜底记表 ——
+// 精度略差(merged 帧要等整块生成完才到),但同样不会再漏整跳。
+type OutputActivity struct{}
 
 // ToolCall 携带原始工具名 + input;Canonical 在 translator 识别成功时填,nil 表示
 // 非 canonical (走 raw tool_use 路径)。同 ToolCallID 多次 emit 视为增量更新
@@ -220,6 +234,14 @@ type UserMessageEvent struct {
 	SourceDeviceName string
 }
 
+// UnrecognizedBlock 一条发送方投射不出来的转录块,原样往下送(见
+// EventUnrecognizedBlock)。BlockType 是存储层记的块类型,Data 是它的载荷字节 ——
+// 两者都不解释、不重新序列化:发送方读不懂的东西,只有原样传下去才有被读懂的机会。
+type UnrecognizedBlock struct {
+	BlockType string
+	Data      json.RawMessage
+}
+
 // Done turn 正常结束。
 type Done struct{}
 
@@ -228,6 +250,7 @@ type ErrorEvent struct{ Err error }
 
 func (TextDelta) isEvent()              {}
 func (ThinkingDelta) isEvent()          {}
+func (OutputActivity) isEvent()         {}
 func (ToolCall) isEvent()               {}
 func (ToolResult) isEvent()             {}
 func (SteerConsumed) isEvent()          {}
@@ -249,6 +272,7 @@ func (PlanUpdated) isEvent()            {}
 func (CompactBoundary) isEvent()        {}
 func (RuntimeStatus) isEvent()          {}
 func (UserMessageEvent) isEvent()       {}
+func (UnrecognizedBlock) isEvent()      {}
 func (Done) isEvent()                   {}
 func (ErrorEvent) isEvent()             {}
 

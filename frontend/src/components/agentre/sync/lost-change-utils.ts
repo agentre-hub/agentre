@@ -48,8 +48,8 @@ export function payloadTitleDetail(payloadJSON: string): string {
 }
 
 export function lostChangeTitle(row: LostChangeView, t: TFunction): string {
-  const label = entityLabel(row.EntityType, t);
-  const detail = payloadTitleDetail(row.PayloadJSON);
+  const label = entityLabel(row.entityType, t);
+  const detail = payloadTitleDetail(row.payloadJSON);
   return detail ? `${label} · ${detail}` : label;
 }
 

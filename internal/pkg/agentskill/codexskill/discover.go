@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
-	"github.com/agentre-ai/agentre/pkg/codex"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/pkg/clienv"
+	"github.com/agentre-hub/agentre/pkg/codex"
 )
 
 func init() {
@@ -38,12 +39,26 @@ func (d Discoverer) skills(ctx context.Context, binary, cwd string, config []str
 	return codex.New(opts...).ListSkills(ctx, []string{cwd}, true)
 }
 
+// runner 取命令执行器:未注入 → 真实 exec 调用(生产默认)。
+//
+// 必须经 clienv 解析 binary 并补齐 PATH,不能把裸名字丢给 exec:Finder / Dock 起的
+// app bundle 只继承 launchd 的最小 PATH,而 codex 常装在 ~/.local/bin、Homebrew、
+// volta 之类的目录里。本进程 PATH 查不到 → Discover 软降级成空发现 → 插件包整段
+// 消失。跑 CLI 的 cliprocess 早就是这么解析的,发现这条路必须同源。
 func (d Discoverer) runner() commandRunner {
 	if d.run != nil {
 		return d.run
 	}
 	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return exec.CommandContext(ctx, name, args...).Output() //nolint:gosec // G204: name 为用户配置的 CLI 路径,非请求输入
+		searchEnv := clienv.BuildEnv(nil, name)
+		binary, ok := clienv.ResolveBinaryForEnv(name, searchEnv)
+		if !ok {
+			return nil, exec.ErrNotFound
+		}
+		//nolint:gosec // G204: binary 来自 agent backend 配置的 CLIPath(或类型默认名),经 clienv 解析,非请求输入
+		cmd := exec.CommandContext(ctx, binary, args...)
+		cmd.Env = clienv.BuildEnv(nil, binary)
+		return cmd.Output()
 	}
 }
 

@@ -10,8 +10,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/openclawgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
 )
 
 const gatewayCancelledStatus = "cancelled" //nolint:misspell // OpenClaw may emit this British spelling.

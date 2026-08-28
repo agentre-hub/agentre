@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	issue_entity "github.com/agentre-ai/agentre/internal/model/entity/issue_entity"
+	issue_entity "github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -41,6 +41,34 @@ func (m *MockLabelRepo) EXPECT() *MockLabelRepoMockRecorder {
 	return m.recorder
 }
 
+// Create mocks base method.
+func (m *MockLabelRepo) Create(ctx context.Context, l *issue_entity.Label) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, l)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockLabelRepoMockRecorder) Create(ctx, l any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockLabelRepo)(nil).Create), ctx, l)
+}
+
+// Delete mocks base method.
+func (m *MockLabelRepo) Delete(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Delete", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockLabelRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockLabelRepo)(nil).Delete), ctx, id)
+}
+
 // Find mocks base method.
 func (m *MockLabelRepo) Find(ctx context.Context, id int64) (*issue_entity.Label, error) {
 	m.ctrl.T.Helper()
@@ -54,6 +82,21 @@ func (m *MockLabelRepo) Find(ctx context.Context, id int64) (*issue_entity.Label
 func (mr *MockLabelRepoMockRecorder) Find(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockLabelRepo)(nil).Find), ctx, id)
+}
+
+// FindByName mocks base method.
+func (m *MockLabelRepo) FindByName(ctx context.Context, name string) (*issue_entity.Label, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByName", ctx, name)
+	ret0, _ := ret[0].(*issue_entity.Label)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindByName indicates an expected call of FindByName.
+func (mr *MockLabelRepoMockRecorder) FindByName(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByName", reflect.TypeOf((*MockLabelRepo)(nil).FindByName), ctx, name)
 }
 
 // List mocks base method.
@@ -86,6 +129,20 @@ func (mr *MockLabelRepoMockRecorder) ListByIDs(ctx, ids any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByIDs", reflect.TypeOf((*MockLabelRepo)(nil).ListByIDs), ctx, ids)
 }
 
+// Update mocks base method.
+func (m *MockLabelRepo) Update(ctx context.Context, l *issue_entity.Label) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Update", ctx, l)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockLabelRepoMockRecorder) Update(ctx, l any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockLabelRepo)(nil).Update), ctx, l)
+}
+
 // MockIssueLabelRepo is a mock of IssueLabelRepo interface.
 type MockIssueLabelRepo struct {
 	ctrl     *gomock.Controller
@@ -108,6 +165,49 @@ func NewMockIssueLabelRepo(ctrl *gomock.Controller) *MockIssueLabelRepo {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockIssueLabelRepo) EXPECT() *MockIssueLabelRepoMockRecorder {
 	return m.recorder
+}
+
+// CountByLabel mocks base method.
+func (m *MockIssueLabelRepo) CountByLabel(ctx context.Context) (map[int64]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountByLabel", ctx)
+	ret0, _ := ret[0].(map[int64]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountByLabel indicates an expected call of CountByLabel.
+func (mr *MockIssueLabelRepoMockRecorder) CountByLabel(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByLabel", reflect.TypeOf((*MockIssueLabelRepo)(nil).CountByLabel), ctx)
+}
+
+// DeleteByLabel mocks base method.
+func (m *MockIssueLabelRepo) DeleteByLabel(ctx context.Context, labelID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteByLabel", ctx, labelID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteByLabel indicates an expected call of DeleteByLabel.
+func (mr *MockIssueLabelRepoMockRecorder) DeleteByLabel(ctx, labelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByLabel", reflect.TypeOf((*MockIssueLabelRepo)(nil).DeleteByLabel), ctx, labelID)
+}
+
+// DeleteBySyncID mocks base method.
+func (m *MockIssueLabelRepo) DeleteBySyncID(ctx context.Context, syncID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteBySyncID", ctx, syncID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteBySyncID indicates an expected call of DeleteBySyncID.
+func (mr *MockIssueLabelRepoMockRecorder) DeleteBySyncID(ctx, syncID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBySyncID", reflect.TypeOf((*MockIssueLabelRepo)(nil).DeleteBySyncID), ctx, syncID)
 }
 
 // ListByIssue mocks base method.
@@ -140,6 +240,21 @@ func (mr *MockIssueLabelRepoMockRecorder) ListByIssues(ctx, issueIDs any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByIssues", reflect.TypeOf((*MockIssueLabelRepo)(nil).ListByIssues), ctx, issueIDs)
 }
 
+// ListRowsByIssue mocks base method.
+func (m *MockIssueLabelRepo) ListRowsByIssue(ctx context.Context, issueID int64) ([]*issue_entity.IssueLabel, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRowsByIssue", ctx, issueID)
+	ret0, _ := ret[0].([]*issue_entity.IssueLabel)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRowsByIssue indicates an expected call of ListRowsByIssue.
+func (mr *MockIssueLabelRepoMockRecorder) ListRowsByIssue(ctx, issueID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRowsByIssue", reflect.TypeOf((*MockIssueLabelRepo)(nil).ListRowsByIssue), ctx, issueID)
+}
+
 // SetLabels mocks base method.
 func (m *MockIssueLabelRepo) SetLabels(ctx context.Context, issueID int64, labelIDs []int64) error {
 	m.ctrl.T.Helper()
@@ -152,4 +267,18 @@ func (m *MockIssueLabelRepo) SetLabels(ctx context.Context, issueID int64, label
 func (mr *MockIssueLabelRepoMockRecorder) SetLabels(ctx, issueID, labelIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLabels", reflect.TypeOf((*MockIssueLabelRepo)(nil).SetLabels), ctx, issueID, labelIDs)
+}
+
+// UpsertFromSync mocks base method.
+func (m *MockIssueLabelRepo) UpsertFromSync(ctx context.Context, row *issue_entity.IssueLabel) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertFromSync", ctx, row)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertFromSync indicates an expected call of UpsertFromSync.
+func (mr *MockIssueLabelRepoMockRecorder) UpsertFromSync(ctx, row any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertFromSync", reflect.TypeOf((*MockIssueLabelRepo)(nil).UpsertFromSync), ctx, row)
 }

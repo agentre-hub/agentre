@@ -9,17 +9,25 @@ const probe = vi.hoisted(() => ({
   renders: new Map<string, number>(),
 }));
 
-vi.mock("@/components/agentre/activity-block/block", () => ({
-  ActivityBlock: ({
-    steps,
-  }: {
-    steps: { toolBlock?: { toolUseId?: string } }[];
-  }) => {
-    const key = steps[0]?.toolBlock?.toolUseId ?? "?";
-    probe.renders.set(key, (probe.renders.get(key) ?? 0) + 1);
-    return <div data-testid="probe-tool-card" data-tool={key} />;
-  },
-}));
+// 探针必须钉在 ActivityBlock 的**模块本身**,不能钉在包的 barrel 上:渲染它的
+// transcript-row-view 现在也住在包里,走的是相对路径 `./activity-block/block`,
+// 压根不经过 barrel —— 替掉 barrel 的导出对它毫无作用(这条路走过一次,表现是
+// 探针一个都渲染不出来)。这也意味着本文件知道一点包的内部结构,是被守卫的
+// 性质(行级 memo 的隔离性)决定的:探针必须落在真正被 memo 的那个组件上。
+vi.mock(
+  "../../../../packages/agentre-ui/src/transcript/activity-block/block",
+  () => ({
+    ActivityBlock: ({
+      steps,
+    }: {
+      steps: { toolBlock?: { toolUseId?: string } }[];
+    }) => {
+      const key = steps[0]?.toolBlock?.toolUseId ?? "?";
+      probe.renders.set(key, (probe.renders.get(key) ?? 0) + 1);
+      return <div data-testid="probe-tool-card" data-tool={key} />;
+    },
+  }),
+);
 
 import { ChatTranscript } from "@/components/agentre/chat";
 import type { ChatBlockData } from "@/stores/chat-streams-store";

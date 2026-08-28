@@ -344,29 +344,16 @@ func TestAgentBackendTypeHelpers(t *testing.T) {
 }
 
 func TestAgentBackend_IsLocalIsRemote(t *testing.T) {
-	Convey("IsLocal / IsRemote / DeviceIDInt", t, func() {
+	Convey("IsLocal / IsRemote", t, func() {
 		Convey("empty device → local", func() {
-			b := &AgentBackend{DeviceID: ""}
+			b := &AgentBackend{DeviceFingerprint: ""}
 			So(b.IsLocal(), ShouldBeTrue)
 			So(b.IsRemote(), ShouldBeFalse)
-			id, ok := b.DeviceIDInt()
-			So(ok, ShouldBeFalse)
-			So(id, ShouldEqual, 0)
 		})
-		Convey("numeric device → remote", func() {
-			b := &AgentBackend{DeviceID: "7"}
+		Convey("fingerprint device → remote", func() {
+			b := &AgentBackend{DeviceFingerprint: "sha256:remote"}
 			So(b.IsLocal(), ShouldBeFalse)
 			So(b.IsRemote(), ShouldBeTrue)
-			id, ok := b.DeviceIDInt()
-			So(ok, ShouldBeTrue)
-			So(id, ShouldEqual, 7)
-		})
-		Convey("garbage device → DeviceIDInt returns false but IsRemote stays true", func() {
-			b := &AgentBackend{DeviceID: "abc"}
-			So(b.IsRemote(), ShouldBeTrue) // 字段非空就算"绑了远端意图"
-			id, ok := b.DeviceIDInt()
-			So(ok, ShouldBeFalse)
-			So(id, ShouldEqual, 0)
 		})
 		Convey("nil receiver", func() {
 			var b *AgentBackend

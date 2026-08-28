@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildTranscriptRows } from "@/components/agentre/transcript-rows";
+import { buildTranscriptRows } from "@agentre-hub/agentre-ui";
 import type { ChatBlockData } from "@/stores/chat-streams-store";
 import type { LocalCommandEntry } from "@/stores/local-commands-store";
 import type { chat_svc } from "../../../../wailsjs/go/models";

@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/pkg/claudecode"
-	"github.com/agentre-ai/agentre/pkg/codex"
-	"github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/pkg/codex"
+	"github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 func TestProbe_UnknownType(t *testing.T) {

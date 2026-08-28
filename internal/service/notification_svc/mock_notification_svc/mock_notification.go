@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	notification_svc "github.com/agentre-ai/agentre/internal/service/notification_svc"
+	notification_svc "github.com/agentre-hub/agentre/internal/service/notification_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 

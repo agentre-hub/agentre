@@ -7,7 +7,7 @@ package agent_backend_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 )
 
 // RouteTarget 是 Claude Tier Route 的结构化目标（spec 决策 14）。
@@ -21,6 +21,7 @@ type RouteTarget struct {
 // BackendItem 单条 Agent 后端配置（已 join LLM Provider 摘要）。
 type BackendItem struct {
 	ID                int64  `json:"id"`
+	SyncID            string `json:"syncId"`
 	Type              string `json:"type"`
 	Name              string `json:"name"`
 	LLMProviderKey    string `json:"llmProviderKey"`
@@ -30,7 +31,6 @@ type BackendItem struct {
 	LLMProviderActive bool   `json:"llmProviderActive"`
 	// LLMModelKey 主绑定目标的稳定 ModelKey（空 = provider-default）。
 	LLMModelKey string `json:"llmModelKey"`
-	CLIPath     string `json:"cliPath"`
 	// ModelRoutes 类型化的 Claude Tier Route target（key = OPUS/SONNET/HAIKU）。
 	ModelRoutes     map[string]RouteTarget `json:"modelRoutes"`
 	Sandbox         string                 `json:"sandbox"`
@@ -206,6 +206,38 @@ type CancelTestBackendResponse struct {
 	Canceled bool `json:"canceled"`
 }
 
+type CLIOverlayItem struct {
+	BackendSyncID string `json:"backendSyncId"`
+	Fingerprint   string `json:"fingerprint"`
+	Status        string `json:"status"`
+}
+
+type ListCLIOverlaysRequest struct{}
+type ListCLIOverlaysResponse struct {
+	Items []*CLIOverlayItem `json:"items"`
+}
+
+// GetCLIOverlayRequest reads the current desktop's per-device CLI override.
+type GetCLIOverlayRequest struct {
+	BackendSyncID string `json:"backendSyncId" binding:"required"`
+}
+
+type GetCLIOverlayResponse struct {
+	CLIPath string `json:"cliPath"`
+	Status  string `json:"status"`
+}
+
+// SetCLIOverlayRequest updates the current desktop's per-device CLI override.
+type SetCLIOverlayRequest struct {
+	BackendSyncID string `json:"backendSyncId" binding:"required"`
+	CLIPath       string `json:"cliPath"`
+}
+
+type SetCLIOverlayResponse struct {
+	CLIPath string `json:"cliPath"`
+	Status  string `json:"status"`
+}
+
 // ResolveCLIPathRequest 探测前端选定 CLI 后端类型可用的 binary 绝对路径。
 //
 // Type 必填，仅接受 "claudecode" / "codex"；其它值返回 AgentBackendInvalidType。
@@ -246,6 +278,35 @@ type ScanAndCreateAgentBackendsRequest struct{}
 // ScanAndCreateAgentBackendsResponse 报告扫描与自动创建结果。
 type ScanAndCreateAgentBackendsResponse struct {
 	Results []*ScanResultItem `json:"results"`
+}
+
+// ReclaimTombstonedBackendsRequest 入参占位。
+type ReclaimTombstonedBackendsRequest struct{}
+
+// ReclaimTombstonedBackendsResponse 报告一次墓碑回收的结果(决策 24)。
+type ReclaimTombstonedBackendsResponse struct {
+	// ReclaimedIDs 被物理删除的墓碑 id(墓碑 AND 无引用 AND 超过保留期)。
+	ReclaimedIDs []int64 `json:"reclaimedIds"`
+	// KeptReferencedIDs 早过了保留期、但仍被至少一条会话/执行目标引用而保留的
+	// 墓碑 id —— 这些是 SurveyDanglingBackendReferences 会报出的那一半。
+	KeptReferencedIDs []int64 `json:"keptReferencedIds"`
+}
+
+// DanglingBackendReference 描述一条指向非 ACTIVE 后端的引用(决策 24)。巡检只
+// 报出,不改写 —— Kind 标出引用来自哪张表,RefID 是那一行自己的 id。
+type DanglingBackendReference struct {
+	Kind      string `json:"kind"` // "session" | "exec_target"
+	RefID     int64  `json:"refId"`
+	BackendID int64  `json:"backendId"`
+}
+
+// SurveyDanglingBackendReferencesRequest 入参占位。
+type SurveyDanglingBackendReferencesRequest struct{}
+
+// SurveyDanglingBackendReferencesResponse 报告全部悬空引用,供人工排查(决策 24
+// 明确拒绝"顺手改写")。
+type SurveyDanglingBackendReferencesResponse struct {
+	Dangling []DanglingBackendReference `json:"dangling"`
 }
 
 //go:generate mockgen -source types.go -destination mock_prober_test.go -package agent_backend_svc -mock_names Prober=mockProber

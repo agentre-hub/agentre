@@ -6,8 +6,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // TestPackageDispatcher_AllEventTypesRegistered 验证 dispatcher 装配完整:
@@ -21,6 +21,7 @@ func TestPackageDispatcher_AllEventTypesRegistered(t *testing.T) {
 		events := []agentruntime.Event{
 			agentruntime.TextDelta{},
 			agentruntime.ThinkingDelta{},
+			agentruntime.OutputActivity{},
 			agentruntime.ToolCall{},
 			agentruntime.ToolResult{},
 			agentruntime.UserAskRequest{},

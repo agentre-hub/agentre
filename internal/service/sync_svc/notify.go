@@ -6,10 +6,10 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // NotifyLocalChange 入队 + 当场触发一次上行（R3）。
@@ -21,7 +21,7 @@ func (s *service) NotifyLocalChange(ctx context.Context, ch LocalChange) {
 	if !kindKnown(ch.Kind) || ch.Meta.SyncID == "" {
 		return
 	}
-	accountID, _, ok := s.account(ctx)
+	accountID, _, _, ok := s.account(ctx)
 	if !ok {
 		// 未登录：本规格引入的一切都不存在（R12）。
 		return
@@ -82,6 +82,10 @@ func (s *service) claimUnowned(ctx context.Context, accountID int64) error {
 		}
 		if len(rows) == 0 {
 			continue
+		}
+		if isBoardKind(kind) {
+			// 看板刚被并进这个账号：合并的后果要说在前面（一次性说明）。
+			s.markBoardJoinNotice(ctx)
 		}
 		for _, row := range rows {
 			// 基版本沿用行上那一个：server 从没见过的行是 0，按 R4a 当新建处理。

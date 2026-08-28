@@ -1,0 +1,238 @@
+{
+  "chat": {
+    "message": {
+      "fromDevice": "来自 {{device}}",
+      "me": "我"
+    },
+    "meta": {
+      "cacheHit": "缓存命中",
+      "cacheWrite": "缓存写入",
+      "completion": "接收 (completion)",
+      "duration": "耗时",
+      "model": "模型",
+      "prompt": "发送 (prompt)",
+      "reasoning": "思考",
+      "tokenDetails": "token 用量明细",
+      "firstToken": "首 token",
+      "outputSpeed": "输出速度",
+      "tokensPerSec": "{{value}} tok/s",
+      "usage": "用量",
+      "usageUnavailable": "后端未上报"
+    },
+    "errorCard": {
+      "continue": "继续",
+      "message": "Agent 调用失败：{{text}}",
+      "regenerate": "↻ 重新生成"
+    },
+    "retry": {
+      "aria": "正在重试",
+      "defaultMessage": "上游连接暂时中断",
+      "title": "正在重试",
+      "titleWithAttempt": "正在重试 {{attempt}}",
+      "titleWithMax": "正在重试 {{attempt}}/{{max}}"
+    },
+    "typing": {
+      "aria": "正在生成"
+    },
+    "compacting": {
+      "aria": "正在压缩上下文",
+      "label": "正在压缩上下文…"
+    },
+    "disconnected": {
+      "aria": "连接中断,重连中",
+      "label": "连接中断,重连中 · 远端仍在运行"
+    },
+    "notice": {
+      "providerFallback": {
+        "sentence": "所选供应商 {{provider}} 不可用，已回退 agent 绑定"
+      },
+      "providerSwitch": {
+        "fixedModel": "自此固定模型 · {{provider}} · {{model}}",
+        "followAgentBinding": "自此跟随 Agent 绑定",
+        "sentence": "自此跟随供应商默认 · {{provider}}"
+      }
+    },
+    "debug": {
+      "unknownBlock": "(debug) 未实现 block 类型：{{type}}"
+    },
+    "actions": {
+      "copyOutput": "复制 AI 输出原文",
+      "copyOutputDone": "已复制 AI 输出原文",
+      "copyOutputFailed": "复制 AI 输出原文失败",
+      "regenerate": "重新生成"
+    },
+    "image": {
+      "alt": "图片"
+    }
+  },
+  "chatPanel": {
+    "autonomous": {
+      "banner": "后台任务完成 · 自动继续",
+      "aria": "自动继续的回复"
+    }
+  },
+  "clipboard": {
+    "insecureContext": "复制需要通过 HTTPS 或 localhost 访问"
+  },
+  "codeBlock": {
+    "copyDone": "已复制代码",
+    "copyFailed": "复制代码失败"
+  },
+  "localCommand": {
+    "localChip": "本地命令",
+    "notSharedWithAI": "不发送给 AI",
+    "status": {
+      "running": "运行中",
+      "done": "完成",
+      "failed": "失败",
+      "stopped": "已停止"
+    },
+    "exitCode": "退出码 {{code}}",
+    "stop": "停止",
+    "openInTerminal": "在终端中打开",
+    "dismiss": "移除此命令",
+    "noOutput": "无输出",
+    "expand": "展开输出",
+    "collapse": "折叠输出"
+  },
+  "localCommandHistory": {
+    "aria": "Shell 命令历史",
+    "clearCurrentScope": "清空当前目录历史",
+    "clearFailed": "无法清空命令历史，请重试。"
+  },
+  "markdownImage": {
+    "cannotPreview": "无法预览",
+    "tooLarge": "图片过大"
+  },
+  "mentions": {
+    "chip": {
+      "agentTitle": "Agent：{{name}}",
+      "projectTitle": "项目：{{name}}"
+    },
+    "aria": "提及项目或 agent",
+    "group": {
+      "agents": "Agent",
+      "projects": "项目"
+    }
+  },
+  "openclawExecApproval": {
+    "title": "执行审批",
+    "command": "命令",
+    "host": "执行主机",
+    "node": "节点",
+    "agent": "Agent",
+    "resolvedBy": "决策方",
+    "loading": "正在提交决策…",
+    "submitFailed": "无法提交审批决策。",
+    "status": {
+      "pending": "待审批",
+      "resolved": "已决策",
+      "expired": "已过期"
+    },
+    "decision": {
+      "allow-once": "仅本次允许",
+      "allow-always": "始终允许",
+      "deny": "拒绝"
+    },
+    "decisionResult": {
+      "allow-once": "已允许一次",
+      "allow-always": "已始终允许",
+      "deny": "已拒绝"
+    }
+  },
+  "richLink": {
+    "localFile": "本地文件",
+    "localFileExternal": "本地文件 · 项目外",
+    "localFolder": "本地文件夹",
+    "localFolderExternal": "本地文件夹 · 项目外",
+    "openFailed": "打开失败: {{error}}",
+    "openInBrowser": "点击在系统浏览器中打开",
+    "openWithDefaultApp": "点击用系统默认应用打开",
+    "outsideCwd": "路径不在当前 cwd 之下，不展示项目根分段。",
+    "projectRoot": "项目根",
+    "relative": "相对",
+    "url": "URL"
+  },
+  "terminal": {
+    "banner": {
+      "connectionLost": "连接已断开 — 终端会话不可恢复"
+    },
+    "toast": {
+      "agentredClosed": "agentred 已关闭",
+      "connectionLost": "终端连接已断开",
+      "shellExited": "shell 退出 (code {{code}})",
+      "startFailed": "终端启动失败: {{message}}"
+    },
+    "unknown": "unknown"
+  },
+  "toolApproval": {
+    "title": "组织架构操作审批",
+    "approve": "批准",
+    "deny": "拒绝",
+    "submitFailed": "审批提交失败",
+    "status": {
+      "approved": "已批准",
+      "denied": "已拒绝",
+      "expired": "已过期"
+    },
+    "tools": {
+      "org_create_department": "创建部门",
+      "org_update_department": "修改部门",
+      "org_delete_department": "删除部门",
+      "org_create_agent": "创建 Agent",
+      "org_update_agent": "修改 Agent",
+      "org_delete_agent": "删除 Agent"
+    }
+  },
+  "slashCommands": {
+    "aria": "命令与 Skill 提示"
+  },
+  "chatInput": {
+    "placeholder": {
+      "base": "输入消息",
+      "mention": "@ 引用",
+      "slash": "/ 触发命令",
+      "slashWithSkill": "/ 触发命令和 Skill",
+      "skill": "$ 调用 Skill",
+      "localCommand": "! 执行终端命令"
+    }
+  },
+  "chatComposer": {
+    "send": "发送",
+    "images": {
+      "add": "添加图片",
+      "attachmentAlt": "图片附件",
+      "remove": "移除图片 {{name}}",
+      "tooMany": "最多可添加 {{count}} 张图片",
+      "unsupported": "仅支持不超过 5 MB 的 PNG、JPEG 或 WebP 图片",
+      "readFailed": "无法读取所选图片"
+    },
+    "dropHint": "松开以添加文件 / 文件夹路径",
+    "sending": "正在发送…",
+    "sendTitle": "发送 (Enter)",
+    "shortcuts": {
+      "send": "↵ 发送 · ⇧↵ 换行",
+      "edit": "↵ 保存 · Esc 取消"
+    },
+    "editing": {
+      "aria": "正在编辑消息",
+      "title": "编辑消息",
+      "description": "保存后此条之后的历史会被丢弃并重新生成",
+      "cancel": "取消编辑",
+      "cancelTitle": "取消编辑 (Esc)"
+    },
+    "command": {
+      "banner": "命令模式 · 在项目目录直接执行 · Enter 运行 · 删除 ! 退出",
+      "run": "运行命令"
+    }
+  },
+  "contextMeter": {
+    "aria": "上下文用量 {{used}} / {{max}}，已用 {{percent}}%",
+    "panel": {
+      "title": "上下文",
+      "remaining": "剩余",
+      "note": "按最近一次模型调用的输入总量计",
+      "nearLimit": "接近上下文窗口上限"
+    }
+  }
+}

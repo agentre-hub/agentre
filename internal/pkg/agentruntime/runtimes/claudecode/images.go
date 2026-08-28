@@ -3,7 +3,7 @@ package claudecode
 import (
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // extractImages 从本轮用户 blocks 里抽出 ImageBlock,转成 claudecode.Image

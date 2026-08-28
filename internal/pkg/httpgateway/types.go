@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 )
 
 // GatewayStatus 是 gateway 对外暴露的状态。

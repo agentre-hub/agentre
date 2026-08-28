@@ -3,8 +3,8 @@ package remote_device_watcher_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 )
 
 //go:generate mockgen -source ports.go -destination mock_remote_device_watcher_svc/mock_ports.go
@@ -12,7 +12,7 @@ import (
 // DaemonDialPort 与 remote_device_svc.DaemonDialPort 同语义,watcher_svc 单独声明
 // 以走自己的 consumer-side interface(避免反向依赖)。生产实现是同一份。
 type DaemonDialPort interface {
-	Open(ctx context.Context, args OpenArgs) (*client.Client, error)
+	Open(ctx context.Context, args OpenArgs) (client.ProtobufConnection, error)
 }
 
 // OpenArgs 复用 remote_device_svc 的 ConnectArgs 字段集。watcher 单独命名是为了

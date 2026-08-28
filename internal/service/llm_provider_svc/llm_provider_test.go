@@ -15,11 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
 )
 
 type fakeDoer struct {
@@ -287,7 +287,7 @@ func TestDeleteProvider(t *testing.T) {
 			assert.NoError(t, err)
 		})
 
-		convey.Convey("被 Backend 引用 → 拒绝删除", func() {
+		convey.Convey("被 Backend 引用 + 未确认 → 要求二次确认，不删", func() {
 			mockRepo.EXPECT().Find(gomock.Any(), int64(1)).Return(&llm_provider_entity.LLMProvider{
 				ID: 1, ProviderKey: "pk", Status: 1,
 			}, nil)
@@ -296,6 +296,18 @@ func TestDeleteProvider(t *testing.T) {
 			}, nil)
 			_, err := svc.Delete(ctx, &DeleteProviderRequest{ID: 1})
 			assertCode(t, err, code.LLMProviderReferenced)
+		})
+
+		convey.Convey("被 Backend / 会话 / 路由引用 + 已确认 → 照删，引用不阻止删除", func() {
+			mockRepo.EXPECT().Find(gomock.Any(), int64(1)).Return(&llm_provider_entity.LLMProvider{
+				ID: 1, ProviderKey: "pk", Status: 1,
+			}, nil)
+			mockRepo.EXPECT().CountProviderReferences(gomock.Any(), "pk").Return(llm_provider_repo.ProviderRefCounts{
+				Backends: 1, Sessions: 2, Routes: 3,
+			}, nil)
+			mockRepo.EXPECT().DeleteWithModels(gomock.Any(), int64(1)).Return(nil)
+			_, err := svc.Delete(ctx, &DeleteProviderRequest{ID: 1, ConfirmReference: true})
+			assert.NoError(t, err)
 		})
 
 		convey.Convey("供应商不存在", func() {
@@ -615,7 +627,7 @@ func TestDeleteModel(t *testing.T) {
 			assertCode(t, err, code.LLMProviderModelIsDefault)
 		})
 
-		convey.Convey("被引用 → 拒绝", func() {
+		convey.Convey("被引用 + 未确认 → 要求二次确认，不删", func() {
 			mockRepo.EXPECT().FindModel(gomock.Any(), int64(1)).Return(&llm_provider_model_entity.LLMProviderModel{
 				ID: 1, ProviderID: 1, ModelKey: "mk1", Status: 1,
 			}, nil)
@@ -625,6 +637,32 @@ func TestDeleteModel(t *testing.T) {
 			mockRepo.EXPECT().CountModelReferences(gomock.Any(), "mk1").Return(llm_provider_repo.ModelRefCounts{Routes: 1}, nil)
 			_, err := svc.DeleteModel(ctx, &DeleteModelRequest{ID: 1})
 			assertCode(t, err, code.LLMProviderModelReferenced)
+		})
+
+		convey.Convey("被引用 + 已确认 → 照删，引用不阻止删除", func() {
+			mockRepo.EXPECT().FindModel(gomock.Any(), int64(1)).Return(&llm_provider_model_entity.LLMProviderModel{
+				ID: 1, ProviderID: 1, ModelKey: "mk1", Status: 1,
+			}, nil)
+			mockRepo.EXPECT().Find(gomock.Any(), int64(1)).Return(&llm_provider_entity.LLMProvider{
+				ID: 1, DefaultModelKey: "other", Status: 1,
+			}, nil)
+			mockRepo.EXPECT().CountModelReferences(gomock.Any(), "mk1").Return(llm_provider_repo.ModelRefCounts{
+				Backends: 1, Sessions: 1, Routes: 1,
+			}, nil)
+			mockRepo.EXPECT().DeleteModel(gomock.Any(), int64(1)).Return(nil)
+			_, err := svc.DeleteModel(ctx, &DeleteModelRequest{ID: 1, ConfirmReference: true})
+			assert.NoError(t, err)
+		})
+
+		convey.Convey("默认模型 + 已确认 → 仍拒绝，二次确认放不开这条", func() {
+			mockRepo.EXPECT().FindModel(gomock.Any(), int64(1)).Return(&llm_provider_model_entity.LLMProviderModel{
+				ID: 1, ProviderID: 1, ModelKey: "mk1", Status: 1,
+			}, nil)
+			mockRepo.EXPECT().Find(gomock.Any(), int64(1)).Return(&llm_provider_entity.LLMProvider{
+				ID: 1, DefaultModelKey: "mk1", Status: 1,
+			}, nil)
+			_, err := svc.DeleteModel(ctx, &DeleteModelRequest{ID: 1, ConfirmReference: true})
+			assertCode(t, err, code.LLMProviderModelIsDefault)
 		})
 	})
 }

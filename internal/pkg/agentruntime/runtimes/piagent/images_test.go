@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pkgpi "github.com/agentre-ai/agentre/pkg/piagent"
+	pkgpi "github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 // 用户 turn 里的 ImageBlock（inline 字节）应被抽成 pkgpi.Image，透传给 Pi prompt。

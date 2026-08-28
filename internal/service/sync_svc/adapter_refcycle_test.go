@@ -7,22 +7,25 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 )
 
-// allRefFieldsPayload 把七种载荷用到的**全部**引用字段名塞进同一个 JSON 对象。
+// allRefFieldsPayload 把每种载荷用到的**全部**引用字段名塞进同一个 JSON 对象。
 // 每个适配器的 refs 只反序列化自己认得的那几个键，所以一份公共载荷就能把每种
 // 对象类型的引用一次性全部激活。
 func allRefFieldsPayload(t *testing.T) json.RawMessage {
 	t.Helper()
 	body, err := json.Marshal(map[string]string{
-		"parent_sync_id":       "other-1",
-		"lead_agent_sync_id":   "other-2",
-		"department_sync_id":   "other-3",
-		"parent_agent_sync_id": "other-4",
-		"agent_sync_id":        "other-5",
-		"backend_sync_id":      "other-6",
-		"project_sync_id":      "other-7",
+		"parent_sync_id":        "other-1",
+		"lead_agent_sync_id":    "other-2",
+		"department_sync_id":    "other-3",
+		"parent_agent_sync_id":  "other-4",
+		"agent_sync_id":         "other-5",
+		"backend_sync_id":       "other-6",
+		"project_sync_id":       "other-7",
+		"agent_backend_sync_id": "other-8",
+		"issue_sync_id":         "other-9",
+		"label_sync_id":         "other-10",
 	})
 	require.NoError(t, err)
 	return body

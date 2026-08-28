@@ -11,9 +11,10 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/service/department_svc"
-	"github.com/agentre-ai/agentre/internal/service/orgtool_svc/mock_orgtool_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/orgtool_svc/mock_orgtool_svc"
 )
 
 // newTestSvc 构造一个全新的 orgtoolSvc(避免 Default() 单例跨测试串台),只接 AgentLookup
@@ -185,7 +186,7 @@ func TestOrgMCP_OrgGetReturnsLoadResult(t *testing.T) {
 }
 
 func TestOrgMCP_WriteToolRouting(t *testing.T) {
-	Convey("写工具经 handleWriteTool(登记审批);非组织工具 → JSON-RPC error(-32601 unknown tool)", t, func() {
+	Convey("写工具经共享审批闸门(登记审批);非组织工具 → JSON-RPC error(-32601 unknown tool)", t, func() {
 		Convey("org 写工具 → 走审批编排(BeginToolApproval 被调到),拒绝后返回成功体", func() {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
@@ -229,9 +230,9 @@ func TestOrgMCP_BuildTurnMCP(t *testing.T) {
 			So(len(specs[0].Tools), ShouldEqual, 7)
 			// header 里的 token 应能被本 handler 验签解出 (7, 99)
 			tok := strings.TrimPrefix(specs[0].Headers["Authorization"], "Bearer ")
-			ref, ok := s.mcpHandlerInit().lookup(tok)
+			ref, ok := s.mcpHandlerInit().Lookup(tok)
 			So(ok, ShouldBeTrue)
-			So(ref, ShouldResemble, orgRef{agentID: 7, sessionID: 99})
+			So(ref, ShouldResemble, agenttool.Ref{AgentID: 7, SessionID: 99})
 		})
 
 		Convey("org 开关 OFF → nil", func() {

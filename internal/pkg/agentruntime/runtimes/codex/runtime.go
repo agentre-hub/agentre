@@ -14,10 +14,10 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/pkg/codex"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/pkg/codex"
 )
 
 var defaultRuntime = NewWithPool(agentruntime.DefaultCLISessionPool())
@@ -25,8 +25,6 @@ var defaultRuntime = NewWithPool(agentruntime.DefaultCLISessionPool())
 func init() {
 	agentruntime.RegisterRuntime(agent_backend_entity.TypeCodex, defaultRuntime)
 }
-
-func Default() *Runtime { return defaultRuntime }
 
 // codexActive 一个 chat session 当前的 codex stream 状态。
 //   - stream:turn/steer 入口(*codex.Stream 实现)
@@ -74,37 +72,24 @@ type Runtime struct {
 	mu     sync.Mutex
 	active map[int64]*codexActive
 	pool   *agentruntime.CLISessionPool
-
-	// launchedModel 记录每个 chat 会话(spawn 时)下发的启动期参数快照
-	// (launchedSpawnKey:effectiveModel + ModelKey + effectiveProviderKey),key 与
-	// CLISessionPool 一致(sessionKey)。--model 与 model_provider/base_url(-c 覆盖项)
-	// 都是启动期 flag(绑定在 Client 创建时),app-server 进程又会被池跨轮复用 ——
-	// 解析出的 ModelID、稳定 ModelKey 或 effectiveProviderKey 任一变化都必须 evict +
-	// 重 spawn(镜像 claudecode 的 launchedEffort 先例;比对三者的完整启动身份,
-	// 否则同 ModelID 的不同稳定模型或不同供应商会漏判,复用旧进程打到旧目标)。
-	// 否则下一轮复用旧参数进程,新供应商/模型不生效(RunResult.Model 仍旧模型)。
-	//
-	// 池按 LRU 上限(MarkIdle 的 prune)逐出空闲会话时不会回调这里,故条目可能只增不减
-	// (逐出后该 key 再 spawn 会被 recordLaunchedModel 覆盖)。为防长驻进程里 map 随
-	// 会话累积无界增长,recordLaunchedModel 用 FIFO 上限裁剪:被裁掉的 key 若日后回到
-	// 池,spawnKeyChanged 只会把它当成「未记录」,最多导致一次无谓重 spawn,绝不产生错误结果。
-	launchedModel map[string]launchedSpawnKey
-	// launchedModelOrder 是 launchedModel 的 FIFO 插入序,用于容量裁剪。
-	launchedModelOrder []string
 }
 
-// launchedSpawnKey 是 spawn 时下发给 codex CLI 的启动期参数快照,决定 evict 比对。
-// ProviderKey + ModelKey + resolved ModelID are the approved identity; any
-// change requires evict + respawn, even when two ModelKeys resolve to the same ID.
-type launchedSpawnKey struct {
-	model       string
-	modelKey    string
-	providerKey string
+// launchIdentity 拼出 codex 的启动身份:--model(解析出的 ModelID)、稳定 ModelKey 与
+// effectiveProviderKey(model_provider/base_url 的 -c 覆盖项)都绑定在 Client 创建时,
+// 而 app-server 进程会被池跨轮复用 —— 任一变化都必须驱逐重开,否则这一轮复用的是拿旧
+// 参数起来的进程:换了供应商仍打旧的、换了模型 RunResult.Model 仍是旧模型。ModelKey
+// 单列一项,因为两行不同的稳定模型可以解析到同一个上游 ModelID。
+//
+// 比对与「未记录即已变」的判定都交给 CLISessionPool.GetWithIdentity,身份随条目消失
+// —— 此前这里是一张旁路表,池自行淘汰条目时不回调本包,只能靠 512 条 FIFO 上限兜底。
+// 分隔符用 \x00:这些字段都是标识串,不会含 NUL。
+func launchIdentity(req agentruntime.RunRequest) string {
+	return strings.Join([]string{
+		codexEffectiveModel(req),
+		codexEffectiveModelKey(req),
+		req.EffectiveProviderKey(),
+	}, "\x00")
 }
-
-// maxTrackedLaunchedModels 是 launchedModel 的上限。池空闲容量 8,同时活跃的 key
-// 远小于此;超过上限的多是已被池逐出的死 key,裁掉只省内存、不影响判定。
-const maxTrackedLaunchedModels = 512
 
 func New() *Runtime {
 	return NewWithPool(agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap))
@@ -115,55 +100,9 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 		pool = agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap)
 	}
 	return &Runtime{
-		active:             map[int64]*codexActive{},
-		pool:               pool,
-		launchedModel:      map[string]launchedSpawnKey{},
-		launchedModelOrder: []string{},
+		active: map[int64]*codexActive{},
+		pool:   pool,
 	}
-}
-
-// spawnKeyChanged 报告该会话已 spawn 的完整启动身份
-// (resolved ModelID + ModelKey + ProviderKey)是否与新一轮不同。
-// 新会话(未记录过)视为未变化,正常创建。
-func (r *Runtime) spawnKeyChanged(key string, want launchedSpawnKey) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.launchedModel[key] != want
-}
-
-// recordLaunchedModel 在 spawn 成功后记录本次下发的启动期参数快照。
-// 超过 maxTrackedLaunchedModels 时按 FIFO 裁掉最旧条目(池逐出会话不回调本包,
-// 必须在这里兜底防 map 无界增长)。
-func (r *Runtime) recordLaunchedModel(key string, spawn launchedSpawnKey) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, exists := r.launchedModel[key]; !exists {
-		r.launchedModelOrder = append(r.launchedModelOrder, key)
-	}
-	r.launchedModel[key] = spawn
-	for len(r.launchedModelOrder) > maxTrackedLaunchedModels {
-		oldest := r.launchedModelOrder[0]
-		r.launchedModelOrder = r.launchedModelOrder[1:]
-		delete(r.launchedModel, oldest)
-	}
-}
-
-// forgetLaunchedModel 在池逐出会话时清理记录,避免只增不减。
-func (r *Runtime) forgetLaunchedModel(key string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.launchedModel, key)
-	r.launchedModelOrder = removeOrderKey(r.launchedModelOrder, key)
-}
-
-// removeOrderKey 从 FIFO 序里剔除 key(可空切片,返回新切片)。
-func removeOrderKey(order []string, key string) []string {
-	for i, k := range order {
-		if k == key {
-			return append(order[:i], order[i+1:]...)
-		}
-	}
-	return order
 }
 
 // Capabilities 返回 codex runtime 的能力矩阵。
@@ -334,7 +273,11 @@ func (r *Runtime) unregister(sessionID int64, expected *codexActive) {
 	r.mu.Unlock()
 }
 
-func sessionKey(id int64) string { return fmt.Sprintf("codex:%d", id) }
+// sessionKey 把 chat session ID 翻成池键。形状由 agentruntime 统一决定(见
+// SessionPoolKey):池是进程级单例,两个 CLI 后端共用同一个实例。
+func sessionKey(id int64) string {
+	return agentruntime.SessionPoolKey(agent_backend_entity.TypeCodex, id)
+}
 
 // Run 启动一轮 codex CLI 发送。语义同顶层 codex.go.Run,emit 类型从
 // RuntimeEvent 改为 sealed agentruntime.Event。
@@ -345,9 +288,9 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 	cwd := req.Cwd
 	if cwd == "" {
 		var err error
-		cwd, err = agentruntime.AgentCwd(req.AgentID)
+		cwd, err = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
 		if err != nil {
-			logger.Ctx(ctx).Error("codex runtime: AgentCwd resolve failed",
+			logger.Ctx(ctx).Error("codex runtime: agent cwd resolve failed",
 				zap.Int64("sessionID", req.SessionID),
 				zap.Int64("agentID", req.AgentID), zap.Error(err))
 			return nil, nil, err
@@ -407,19 +350,17 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		if requiresEphemeralSession(req) {
 			closeEphemeralSession(req, sess)
 		} else if req.SessionID > 0 {
-			key := sessionKey(req.SessionID)
-			r.pool.Remove(key)
-			r.forgetLaunchedModel(key)
+			r.pool.Remove(sessionKey(req.SessionID))
 		}
-		logger.Ctx(ctx).Error("codex runtime: session run failed",
-			zap.Int64("sessionID", req.SessionID),
+		logger.Ctx(ctx).Error("codex.Runtime: sessionRun failed",
+			zap.Int64("sessionId", req.SessionID),
 			zap.Bool("compact", req.Compact),
 			zap.String("collaborationMode", req.CollaborationMode), zap.Error(err))
 		return nil, nil, err
 	}
-	logger.Ctx(ctx).Info("codex runtime: turn starting",
-		zap.Int64("sessionID", req.SessionID),
-		zap.String("providerSessionID", sess.ID()),
+	logger.Ctx(ctx).Info("codex.Runtime: turn started",
+		zap.Int64("sessionId", req.SessionID),
+		zap.String("providerSessionId", sess.ID()),
 		zap.String("collaborationMode", req.CollaborationMode))
 
 	key := ""
@@ -483,7 +424,6 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 				r.pool.MarkIdle(key)
 			} else {
 				r.pool.Remove(key)
-				r.forgetLaunchedModel(key)
 			}
 		}
 	}()
@@ -495,19 +435,14 @@ func (r *Runtime) acquireSession(req agentruntime.RunRequest, env map[string]str
 	if requiresEphemeralSession(req) {
 		return cxSessionFactory(req, env, cwd)
 	}
+	identity := launchIdentity(req)
 	if req.SessionID > 0 {
 		key := sessionKey(req.SessionID)
-		if v, ok := r.pool.Get(key); ok {
-			// resolved ModelID / ModelKey / effectiveProviderKey 都属于启动身份:
-			// 任一变化 → evict + 重 spawn；三者都未变才复用池内 app-server。
-			want := launchedSpawnKey{model: codexEffectiveModel(req), modelKey: codexEffectiveModelKey(req), providerKey: req.EffectiveProviderKey()}
-			if r.spawnKeyChanged(key, want) {
-				r.pool.Remove(key)
-				r.forgetLaunchedModel(key)
-			} else {
-				r.pool.MarkActive(key)
-				return v.(cxSessionHandle), nil
-			}
+		// 启动身份未变才复用池内 app-server;变了(含池里那条从没记过身份)由池当场
+		// 驱逐,见 CLISessionPool.GetWithIdentity。
+		if v, ok := r.pool.GetWithIdentity(key, identity); ok {
+			r.pool.MarkActive(key)
+			return v.(cxSessionHandle), nil
 		}
 	}
 	sess, err := cxSessionFactory(req, env, cwd)
@@ -516,9 +451,8 @@ func (r *Runtime) acquireSession(req agentruntime.RunRequest, env map[string]str
 	}
 	if req.SessionID > 0 {
 		key := sessionKey(req.SessionID)
-		r.pool.Put(key, sess)
+		r.pool.PutWithIdentity(key, identity, sess)
 		r.pool.MarkActive(key)
-		r.recordLaunchedModel(key, launchedSpawnKey{model: codexEffectiveModel(req), modelKey: codexEffectiveModelKey(req), providerKey: req.EffectiveProviderKey()})
 	}
 	return sess, nil
 }
@@ -538,17 +472,11 @@ func (r *Runtime) CloseSession(_ context.Context, sessionID int64) {
 	if sessionID <= 0 {
 		return
 	}
-	key := sessionKey(sessionID)
-	r.pool.Remove(key)
-	r.forgetLaunchedModel(key)
+	r.pool.Remove(sessionKey(sessionID))
 }
 
 func (r *Runtime) CloseAllSessions(_ context.Context) {
 	r.pool.RemoveAll()
-	r.mu.Lock()
-	r.launchedModel = map[string]launchedSpawnKey{}
-	r.launchedModelOrder = []string{}
-	r.mu.Unlock()
 }
 
 // Abort 软中断当前 turn。语义同顶层 codex.go.Abort。

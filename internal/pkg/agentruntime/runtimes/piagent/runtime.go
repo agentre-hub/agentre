@@ -13,14 +13,13 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent/mcpbridge"
-	pkgpi "github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	pkgpi "github.com/agentre-hub/agentre/pkg/piagent"
 )
 
-var defaultRuntime = New()
+var defaultRuntime = NewWithPool(agentruntime.DefaultCLISessionPool())
 
 func init() {
 	agentruntime.RegisterRuntime(agent_backend_entity.TypePiAgent, defaultRuntime)
@@ -42,6 +41,10 @@ type Runtime struct {
 	mu       sync.Mutex
 	active   map[int64]*activeSession
 	prepared map[int64]*preparedRun
+	// pool 让 RPC 会话跨轮活着。pi 的启动参数(--session/--append-system-prompt/
+	// --model/--thinking/--extension)在 spawn 时烤死且逐轮不变,每轮重起付的是进程
+	// 启动 + 扩展加载的钱,买到的是一模一样的东西。
+	pool *agentruntime.CLISessionPool
 }
 
 type PreparedRun interface {
@@ -65,6 +68,7 @@ type preparedRun struct {
 	runtime           *Runtime
 	req               agentruntime.RunRequest
 	sess              sessionHandle
+	poolKey           string
 	prepared          preparedTurnStream
 	cwd               string
 	modelID           string
@@ -76,11 +80,88 @@ type preparedRun struct {
 	close   sync.Once
 }
 
+// New 造一个自带独立池的 runtime。默认实例用的是进程级共享池(见 defaultRuntime),
+// 单测要的是互不干扰。
 func New() *Runtime {
+	return NewWithPool(agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap))
+}
+
+func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
+	if pool == nil {
+		pool = agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap)
+	}
 	return &Runtime{
 		active:   map[int64]*activeSession{},
 		prepared: map[int64]*preparedRun{},
+		pool:     pool,
 	}
+}
+
+// sessionKey 把 chat session ID 翻成池键;形状由 agentruntime 统一决定。
+func sessionKey(id int64) string {
+	return agentruntime.SessionPoolKey(agent_backend_entity.TypePiAgent, id)
+}
+
+// launchIdentity 拼出「这个 RPC 进程是拿什么参数起来的」:model / thinking /
+// system prompt / 供应商 / cwd / 挂上的 MCP server 全是 --model、--thinking、
+// --append-system-prompt、--extension 这类命令行参数,进程起来之后改不了 —— 任一项
+// 变了就只能重开一个,否则这一轮跑的是拿旧参数起来的进程。
+//
+// 比对与「未记录即已变」的判定都交给 CLISessionPool.GetWithIdentity(三个后端共用同
+// 一条规则,各自只决定自己的字段集),身份随条目一起消失 —— 此前这里是一张无上限的
+// 旁路表,池自行淘汰条目时不回调本包,条目只增不减。分隔符用 \x00:这些字段里 system
+// prompt 是自由文本,用它才不会与内容串味。
+func launchIdentity(req agentruntime.RunRequest, cwd string) string {
+	thinking, model := "", ""
+	if req.Backend != nil {
+		thinking = req.Backend.ReasoningEffort
+	}
+	if req.Effective != nil {
+		model = req.Effective.ModelID
+	}
+	names := make([]string, 0, len(req.MCPServers))
+	for _, srv := range req.MCPServers {
+		names = append(names, srv.Name)
+	}
+	sort.Strings(names)
+	return strings.Join([]string{
+		model,
+		thinking,
+		req.SystemPrompt,
+		req.EffectiveProviderKey(),
+		cwd,
+		strings.Join(names, ","),
+	}, "\x00")
+}
+
+// acquireSession 拿到这条会话的常驻 RPC 会话,必要时重开。返回的池键为空表示这一轮
+// 不进池(没有会话 id 的临时轮),由调用方自己收尾。
+func (r *Runtime) acquireSession(req agentruntime.RunRequest, env map[string]string, cwd string) (sessionHandle, string, error) {
+	if req.SessionID <= 0 {
+		sess, err := sessionFactory(req, env, cwd)
+		return sess, "", err
+	}
+	key := sessionKey(req.SessionID)
+	identity := launchIdentity(req, cwd)
+	// 启动身份变了(含池里那条从没记过身份)由池当场驱逐,见 GetWithIdentity。
+	if v, ok := r.pool.GetWithIdentity(key, identity); ok {
+		sess := v.(sessionHandle)
+		if req.ProviderSessionID != "" && req.ProviderSessionID != sess.ID() {
+			// 会话被换到了另一条原生 session(重生 / 外部改绑):池里那个进程是用
+			// --session 钉在旧的那条上的,复用它等于往错的会话里写。
+			r.pool.Remove(key)
+		} else {
+			r.pool.MarkActive(key)
+			return sess, key, nil
+		}
+	}
+	sess, err := sessionFactory(req, env, cwd)
+	if err != nil {
+		return nil, "", err
+	}
+	r.pool.PutWithIdentity(key, identity, sess)
+	r.pool.MarkActive(key)
+	return sess, key, nil
 }
 
 func (r *Runtime) Capabilities() capability.Capabilities {
@@ -112,7 +193,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 	cwd := req.Cwd
 	if cwd == "" {
 		var err error
-		cwd, err = agentruntime.AgentCwd(req.AgentID)
+		cwd, err = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
 		if err != nil {
 			return nil, err
 		}
@@ -134,7 +215,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 			env = agentruntime.BuildPiAgentProviderEnv(env, effective)
 		}
 	}
-	sess, err := sessionFactory(req, env, cwd)
+	sess, poolKey, err := r.acquireSession(req, env, cwd)
 	if err != nil {
 		logger.Ctx(ctx).Error("piagent runtime: session factory failed", zap.Int64("sessionID", req.SessionID), zap.String("cwd", cwd), providerKeyField(req), zap.Error(err))
 		return nil, err
@@ -144,6 +225,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 		runtime:           r,
 		req:               req,
 		sess:              sess,
+		poolKey:           poolKey,
 		cwd:               cwd,
 		modelID:           modelID,
 		providerSessionID: strings.TrimSpace(sess.ID()),
@@ -226,23 +308,70 @@ func (p *preparedRun) Start(ctx context.Context) (<-chan agentruntime.Event, *ag
 	result := &agentruntime.RunResult{ProviderSessionID: providerSessionID, Model: p.modelID, TurnToken: active.turnToken.Add(1)}
 	logFields := make([]zap.Field, 0, 7)
 	logFields = append(logFields,
-		zap.Int64("sessionID", p.req.SessionID),
-		zap.Int64("agentID", p.req.AgentID),
+		zap.Int64("sessionId", p.req.SessionID),
+		zap.Int64("agentId", p.req.AgentID),
 		zap.String("cwd", p.cwd),
-		zap.String("providerSessionID", result.ProviderSessionID),
+		zap.String("providerSessionId", result.ProviderSessionID),
 		zap.String("model", result.Model),
 		zap.Bool("compact", p.req.Compact),
 	)
 	logFields = append(logFields, providerKeyField(p.req))
-	logger.Ctx(ctx).Info("piagent runtime: turn starting", logFields...)
+	logger.Ctx(ctx).Info("piagent.Runtime: turn started", logFields...)
 
 	go func() {
 		defer close(out)
 		defer p.runtime.unregister(p.req.SessionID, active)
-		defer func() { _ = p.Close(context.Background()) }()
+		defer func() { p.release(result, active) }()
 		drainStream(ctx, p.req, p.cwd, s, out, result, active)
 	}()
 	return out, result, nil
+}
+
+// release 收尾一轮:干净结束的轮把 RPC 会话还给池留给下一轮,其余一律连会话一起收掉。
+//
+// 保守是刻意的 —— 取消 / 中断 / 出错之后进程处在什么状态无从判断,复用它就是把上一轮
+// 的残留带进下一轮。异常路径因此退化成 pi 从前的行为(每轮一个进程),复用只发生在
+// 完全正常的那条路上。
+func (p *preparedRun) release(result *agentruntime.RunResult, active *activeSession) {
+	if p.poolKey != "" && p.reusable(result, active) {
+		if p.closeTurn(context.Background()) {
+			p.runtime.pool.MarkIdle(p.poolKey)
+		}
+		return
+	}
+	_ = p.Close(context.Background())
+}
+
+// reusable 判定这一轮是否干净结束。
+func (p *preparedRun) reusable(result *agentruntime.RunResult, active *activeSession) bool {
+	if result == nil || result.StopErr != nil {
+		return false
+	}
+	if active != nil {
+		active.mu.Lock()
+		aborted := active.abortRequested
+		active.mu.Unlock()
+		if aborted {
+			return false
+		}
+	}
+	return true
+}
+
+// closeTurn 只收这一轮:关掉本轮的 stream,注销 prepared 登记,RPC 进程留给池。
+// 返回值表示收尾时这一代**仍然是**这条会话的属主 —— 陈旧的收尾不得动池里的条目。
+func (p *preparedRun) closeTurn(ctx context.Context) bool {
+	p.startMu.Lock()
+	p.closed = true
+	p.startMu.Unlock()
+	owns := false
+	p.close.Do(func() {
+		if p.prepared != nil {
+			_ = p.prepared.Close(ctx)
+		}
+		owns = p.runtime.unregisterPrepared(p.req.SessionID, p)
+	})
+	return owns
 }
 
 func (p *preparedRun) Close(ctx context.Context) error {
@@ -257,14 +386,21 @@ func (p *preparedRun) Close(ctx context.Context) error {
 		if p.prepared != nil {
 			closeErr = p.prepared.Close(ctx)
 		}
+		// 归属守卫:一条会话上可能有一代已经被更新的一代顶掉(重连 / 抢跑),而池里那个
+		// 条目此刻属于**新的**那一代。陈旧的收尾只收自己那一轮的 stream,绝不能把还在
+		// 用的会话连同它的 RPC 进程和 MCP 配置一起收掉。
+		if !p.runtime.unregisterPrepared(p.req.SessionID, p) {
+			return
+		}
+		if p.poolKey != "" {
+			// 先把条目从池里摘掉,免得下一轮捡到一个正在被收尾的会话。池自己也会关它
+			// (带「优雅关闭 → 超时硬杀」的升级),但那是异步的。
+			p.runtime.pool.Remove(p.poolKey)
+		}
+		// 同步再关一次:失败路径要的是确定性的收尾,调用方返回时进程就该没了。
+		// Close 是幂等的。
 		if err := p.sess.Close(ctx); closeErr == nil && err != nil {
 			closeErr = err
-		}
-		ownsPreparedRegistration := p.runtime.unregisterPrepared(p.req.SessionID, p)
-		if ownsPreparedRegistration && len(p.req.MCPServers) > 0 {
-			if err := mcpbridge.RemoveConfig(p.req.SessionID); closeErr == nil && err != nil {
-				closeErr = err
-			}
 		}
 	})
 	return closeErr
@@ -321,6 +457,46 @@ func (r *Runtime) unregister(sessionID int64, owner *activeSession) {
 		delete(r.active, sessionID)
 	}
 	r.mu.Unlock()
+}
+
+// CloseSession 放掉某条会话此刻在飞的那一轮的 RPC 进程。会话被删除时由释放广播调到
+// (agentruntime.CloseSessionEverywhere):会话都没了,这个进程再也不会有人用。
+func (r *Runtime) CloseSession(ctx context.Context, sessionID int64) {
+	if sessionID <= 0 {
+		return
+	}
+	r.mu.Lock()
+	owner := r.prepared[sessionID]
+	r.mu.Unlock()
+	if owner != nil {
+		if err := owner.Close(ctx); err != nil {
+			logger.Ctx(ctx).Warn("piagent runtime: close session failed",
+				zap.Int64("sessionID", sessionID), zap.Error(err))
+		}
+		return
+	}
+	// 没有在飞的轮时,这条会话的 RPC 会话正闲置在池里 —— 会话都被删了,它再也不会被
+	// 谁用到。
+	r.pool.Remove(sessionKey(sessionID))
+}
+
+// CloseAllSessions 收掉此刻在飞的每一轮的 RPC 进程,宿主关机时调。
+//
+// pi 的进程不进 CLISessionPool(每轮一个,轮末就关),所以宿主那两条只扫池的收尾路径
+// 都够不着它:确认退出时正在跑的一轮,收尾靠的是 Start 那个 goroutine 里的 defer
+// Close —— 宿主进程先它一步退出,而 pi 自带进程组、不会被连坐,留下的就是孤儿。
+func (r *Runtime) CloseAllSessions(ctx context.Context) {
+	r.mu.Lock()
+	owners := make([]*preparedRun, 0, len(r.prepared))
+	for _, owner := range r.prepared {
+		owners = append(owners, owner)
+	}
+	r.mu.Unlock()
+	for _, owner := range owners {
+		if err := owner.Close(ctx); err != nil {
+			logger.Ctx(ctx).Warn("piagent runtime: close session failed on shutdown", zap.Error(err))
+		}
+	}
 }
 
 func (r *Runtime) registerPrepared(sessionID int64, owner *preparedRun) {
@@ -394,6 +570,9 @@ func drainStream(ctx context.Context, req agentruntime.RunRequest, _ string, s s
 	var usage *provider.Usage
 	var stopErr error
 	trackers := make(map[string]*subagentTracker)
+	// 实时流这一侧的 sink 就是"塞进 out";通道由 runtime 的读方并发消费,阻塞发送
+	// 在这里是背压而不是死锁。闭包提到循环外,免得每条事件各造一个。
+	emitEvent := func(ev agentruntime.Event) { out <- ev }
 	for s.Next() {
 		raw := s.Event()
 		if raw.Kind == pkgpi.EventUserMessage {
@@ -420,7 +599,7 @@ func drainStream(ctx context.Context, req agentruntime.RunRequest, _ string, s s
 			// emit agentruntime.Done，避免向 chat_svc 重复发送 message_end。
 			continue
 		}
-		if handleSubagentToolEvent(raw, out, trackers) {
+		if handleSubagentToolEvent(raw, emitEvent, trackers) {
 			continue
 		}
 		if raw.Model != "" {
@@ -469,7 +648,7 @@ func drainStream(ctx context.Context, req agentruntime.RunRequest, _ string, s s
 		return
 	}
 	finalizeIncompleteSubagents(out, trackers, false)
-	logger.Ctx(ctx).Info("piagent.drainStream: turn done", piTurnLogFields(req, result, nil)...)
+	logger.Ctx(ctx).Info("piagent.Runtime: turn completed", piTurnLogFields(req, result, nil)...)
 	out <- agentruntime.Done{}
 }
 
@@ -501,7 +680,12 @@ func finalizeTrackedSubagents(out chan<- agentruntime.Event, trackers map[string
 	}
 }
 
-func handleSubagentToolEvent(raw pkgpi.Event, out chan<- agentruntime.Event, trackers map[string]*subagentTracker) bool {
+// handleSubagentToolEvent 把一条工具事件按子代理语义展开,展开出来的事件逐条交给
+// emit。**收件方是一个 sink 而不是通道**:这里推的条数没有上限(consumeFinal 会把
+// 子代理的每条内部消息各翻成一到两条事件,十几次工具调用是常态),而调用方未必有
+// 并发消费者 —— 磁盘转录回放就是单线程边推边落的,给它一个有限容量的通道等于给
+// 它设一个"推满就永久卡住"的上限。实时流那一侧自己把 sink 写成"塞进通道"。
+func handleSubagentToolEvent(raw pkgpi.Event, emit func(agentruntime.Event), trackers map[string]*subagentTracker) bool {
 	switch raw.Kind {
 	case pkgpi.EventPreToolUse:
 		tracker, spawn := defaultSubagentSelector.selectCandidate(raw.Tool.Name, raw.Tool.ID, raw.Tool.Input)
@@ -513,9 +697,9 @@ func handleSubagentToolEvent(raw pkgpi.Event, out chan<- agentruntime.Event, tra
 			call.Canonical = *spawn
 			trackers[raw.Tool.ID] = tracker
 		}
-		out <- call
+		emit(call)
 		if tracker != nil {
-			out <- agentruntime.SubagentStarted{ToolCallID: raw.Tool.ID, Info: tracker.info()}
+			emit(agentruntime.SubagentStarted{ToolCallID: raw.Tool.ID, Info: tracker.info()})
 		}
 		return true
 	case pkgpi.EventToolUseUpdate:
@@ -525,10 +709,10 @@ func handleSubagentToolEvent(raw pkgpi.Event, out chan<- agentruntime.Event, tra
 		}
 		events, changed := tracker.consumeUpdate(raw.Tool.PartialResult)
 		for _, event := range events {
-			out <- event
+			emit(event)
 		}
 		if changed {
-			out <- agentruntime.SubagentProgress{ToolCallID: raw.Tool.ID, Info: tracker.info()}
+			emit(agentruntime.SubagentProgress{ToolCallID: raw.Tool.ID, Info: tracker.info()})
 		}
 		return true
 	case pkgpi.EventPostToolUse:
@@ -538,14 +722,14 @@ func handleSubagentToolEvent(raw pkgpi.Event, out chan<- agentruntime.Event, tra
 		}
 		events, changed := tracker.consumeFinal(raw.Tool.Details, raw.Tool.IsError, raw.Tool.Content)
 		for _, event := range events {
-			out <- event
+			emit(event)
 		}
 		if changed {
-			out <- agentruntime.SubagentProgress{ToolCallID: raw.Tool.ID, Info: tracker.info()}
+			emit(agentruntime.SubagentProgress{ToolCallID: raw.Tool.ID, Info: tracker.info()})
 		}
-		out <- agentruntime.SubagentDone{ToolCallID: raw.Tool.ID, Info: tracker.info()}
+		emit(agentruntime.SubagentDone{ToolCallID: raw.Tool.ID, Info: tracker.info()})
 		delete(trackers, raw.Tool.ID)
-		out <- agentruntime.ToolResult{ToolCallID: raw.Tool.ID, Content: raw.Tool.Content, IsError: raw.Tool.IsError}
+		emit(agentruntime.ToolResult{ToolCallID: raw.Tool.ID, Content: raw.Tool.Content, IsError: raw.Tool.IsError})
 		return true
 	default:
 		return false

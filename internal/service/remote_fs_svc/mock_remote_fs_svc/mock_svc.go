@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	remote_fs_svc "github.com/agentre-ai/agentre/internal/service/remote_fs_svc"
+	remote_fs_svc "github.com/agentre-hub/agentre/internal/service/remote_fs_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 

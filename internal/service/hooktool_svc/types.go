@@ -1,6 +1,6 @@
 package hooktool_svc
 
-import "github.com/agentre-ai/agentre/internal/service/hook_svc"
+import "github.com/agentre-hub/agentre/internal/service/hook_svc"
 
 // 写工具参数 struct。create 用值类型(全量提供);update 用指针区分"不传(沿用现值)"
 // 与"显式置空";env 用 *[]EnvVar 区分"不动 env"与"整体替换"。

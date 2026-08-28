@@ -4,8 +4,7 @@ import { Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge, Button } from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import { DeviceActionMenu } from "./device-action-menu";
@@ -15,9 +14,14 @@ import type { DevicePath, DeviceRowModel } from "./use-remote-devices";
 
 /** 作用在 LAN 配对行(paired_agentreds)上的那组动作。 */
 export type DeviceRowActions = {
-  onRefresh: () => void;
+  /**
+   * 「刷新直连」与「TLS 信任」两项只在这一行真的有 LAN 地址时才给得出来:
+   * 账号收编来的行(IsRelayOnly)也有配对行,但没有可拨的地址、也没有可信任的直连
+   * 端点 —— 给了只会点出一个无意义的失败。不传就不画。
+   */
+  onRefresh?: () => void;
   onRename: () => void;
-  onEditTLS: () => void;
+  onEditTLS?: () => void;
   onRemove: () => void;
 };
 
@@ -76,7 +80,7 @@ function PathChip({ path, t }: { path: DevicePath; t: TFunction }) {
       aria-label={aria}
       title={aria}
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full border px-2 text-[11px] leading-5",
+        "inline-flex shrink-0 items-center rounded-full border px-2 text-2xs leading-5",
         inUse
           ? "border-primary bg-primary-soft font-semibold text-primary-text"
           : "border-border-strong text-muted-foreground",
@@ -193,12 +197,6 @@ export function DeviceRow({ device, now, actions }: Props) {
           className={`text-xs ${isTofu ? "text-destructive" : "text-muted-foreground"}`}
         >
           {friendlyErr}
-        </div>
-      ) : null}
-      {/* R18：daemon 版本过旧是这台设备的固有属性，说明就落在这台设备这一行。 */}
-      {lan?.daemonOutdated ? (
-        <div className="text-xs text-status-waiting">
-          {t("remoteDevices.status.daemonOutdated")}
         </div>
       ) : null}
       {showProviders && lan ? <DeviceProvidersSync deviceId={lan.id} /> : null}

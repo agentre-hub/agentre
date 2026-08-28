@@ -7,7 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 )
 
 func TestBackoff(t *testing.T) {

@@ -6,13 +6,13 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 )
 
 type subagentSvc struct {
-	mcp            *subagentMCP
+	mcp            *agenttool.Server
 	mcpOnce        sync.Once
 	gatewayBaseURL string
 
@@ -33,8 +33,8 @@ func (s *subagentSvc) RegisterDeps(agents AgentGateway, chat ChatGateway) {
 	s.agents, s.chat = agents, chat
 }
 
-func (s *subagentSvc) mcpHandlerInit() *subagentMCP {
-	s.mcpOnce.Do(func() { s.mcp = newSubagentMCP(s) })
+func (s *subagentSvc) mcpHandlerInit() *agenttool.Server {
+	s.mcpOnce.Do(func() { s.mcp = s.newMCPServer() })
 	return s.mcp
 }
 

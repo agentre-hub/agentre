@@ -5,14 +5,14 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 
 	// 触发 NEW runtime 子包 init() 注册到 RuntimeFor 表
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/builtin"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/claudecode"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/codex"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/codex"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 )
 
 // TestRuntimeFor_AllSubpackagesRegistered 钉死 Plan C Session 3k 的注册契约:

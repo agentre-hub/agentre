@@ -4,7 +4,7 @@ package remote_device_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
 )
 
 //go:generate mockgen -source ports.go -destination mock_remote_device_svc/mock_ports.go
@@ -20,8 +20,8 @@ import (
 type DaemonDialPort interface {
 	Pair(ctx context.Context, args PairArgs) (PairResult, error)
 	Connect(ctx context.Context, args ConnectArgs) (ConnectResult, error)
-	Open(ctx context.Context, args ConnectArgs) (*client.Client, error)
-	OpenAccount(ctx context.Context, args AccountArgs) (*client.Client, error)
+	Open(ctx context.Context, args ConnectArgs) (client.ProtobufConnection, error)
+	OpenAccount(ctx context.Context, args AccountArgs) (client.ProtobufConnection, error)
 }
 
 // PairArgs 是 auth.pair 的入参。
@@ -76,7 +76,7 @@ type ConnectResult struct {
 type RelayDialPort interface {
 	// Open 经账号中转连接指定指纹的 daemon，并在该通道上完成 auth.account 握手，
 	// 呈现 peerFingerprint——与 LAN 路径 auth.connect 呈现的是同一值（R5）。
-	Open(ctx context.Context, daemonFingerprint, peerFingerprint string) (*client.Client, error)
+	Open(ctx context.Context, daemonFingerprint, peerFingerprint string) (client.ProtobufConnection, error)
 }
 
 // AccountCredentialPort 提供当前账号凭据（access token）。ConnPool 在本机对目标

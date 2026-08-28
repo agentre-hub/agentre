@@ -4,7 +4,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 // localClient dials the daemon's platform-local endpoint so CLI subcommands

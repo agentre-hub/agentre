@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/agentre-ai/agentre/e2e/composition"
-	"github.com/agentre-ai/agentre/e2e/preflight"
-	"github.com/agentre-ai/agentre/internal/app"
-	"github.com/agentre-ai/agentre/internal/bootstrap"
-	"github.com/agentre-ai/agentre/internal/desktop"
+	"github.com/agentre-hub/agentre/e2e/composition"
+	"github.com/agentre-hub/agentre/e2e/preflight"
+	"github.com/agentre-hub/agentre/internal/app"
+	"github.com/agentre-hub/agentre/internal/bootstrap"
+	"github.com/agentre-hub/agentre/internal/desktop"
 )
 
 var assets = os.DirFS("frontend/dist")

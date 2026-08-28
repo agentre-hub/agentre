@@ -64,6 +64,27 @@ jobs:
       - name: Lint
         run: cd frontend && pnpm run lint
 
+  wire-proto:
+    name: Wire Proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+      # Lints the schema, rejects wire-incompatible changes against the frozen
+      # baseline, regenerates, and requires the checked-in TS/Go products —
+      # including the desktop's internal copy — to already match.
+      - name: Check wire protobuf
+        run: cd frontend/packages/agentre-wire && pnpm run proto:check
+
   frontend-test:
     name: Frontend Test
     runs-on: ubuntu-latest

@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/bootstrap"
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/bootstrap"
+	"github.com/agentre-hub/agentre/internal/pkg/procattr"
 )
 
 // BugReportInfo 是「Bug 反馈」预填 GitHub issue 模板用的诊断信息。

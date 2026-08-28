@@ -1,0 +1,559 @@
+{
+  "capability": {
+    "picker": {
+      "rescan": "Rescan",
+      "done": "Done",
+      "loading": "Loading…",
+      "empty": "Nothing available",
+      "searchEmpty": "No matches",
+      "selected": "{{count}} selected · applies on the agent's next new session after save",
+      "remove": "Remove {{name}}",
+      "close": "Close"
+    },
+    "triState": {
+      "inherit": "Inherit",
+      "on": "On",
+      "off": "Off"
+    }
+  },
+  "chat": {
+    "actions": {
+      "approve": "Approve"
+    },
+    "quota": {
+      "aria": "Claude Code quota 5h {{five}}% 7d {{seven}}% from {{device}}",
+      "panel": {
+        "fiveHour": "5-hour window",
+        "opusWeekly": "Opus 7-day",
+        "sonnetWeekly": "Sonnet 7-day",
+        "title": "Claude subscription usage",
+        "usedNote": "Percentages are usage · refreshed every 5 minutes",
+        "weekly": "7-day window"
+      },
+      "resetRemaining": " (resets in {{time}})",
+      "title": {
+        "authExpired": "Claude Code OAuth expired · run 'claude /login' on {{device}}",
+        "deviceOffline": "{{device}} offline",
+        "network": "Claude Code quota · {{device}} (network error, showing last value)",
+        "rateLimited": "Claude Code quota · {{device}} (429 backoff, showing last value)"
+      }
+    }
+  },
+  "chatContext": {
+    "files": {
+      "openFailed": "Failed to open file: {{error}}",
+      "expandFolder": "Expand {{name}}",
+      "collapseFolder": "Collapse {{name}}"
+    },
+    "directory": {
+      "label": "Directory",
+      "showIgnored": "Show ignored",
+      "showIgnoredOn": "Hide ignored files",
+      "showIgnoredOff": "Show ignored files",
+      "search": "Search",
+      "searchOn": "Close search",
+      "searchOff": "Search files",
+      "loading": "Loading directory…",
+      "empty": "This directory is empty",
+      "truncated": "Showing the first {{limit}} entries only",
+      "noCwd": "This session has no working directory",
+      "readFailed": "Failed to read the directory",
+      "retry": "Retry",
+      "localPathMissingTitle": "This computer hasn't configured a path for this project yet",
+      "localPathMissingHint": "This project was synced from your account — the file panel needs a local working directory to list its contents.",
+      "localPathMissingAction": "Specify local path",
+      "treeAria": "Working directory files",
+      "subtreeChanges": "{{count}} changed files",
+      "subtreeChanges_one": "{{count}} changed file",
+      "subtreeChanges_other": "{{count}} changed files"
+    },
+    "search": {
+      "placeholder": "Search files by name…",
+      "hitCount": "{{count}} results",
+      "clear": "Clear search",
+      "hint": "Type to search files by name",
+      "empty": "No files match \"{{query}}\"",
+      "emptyHint": "Ignored files are excluded from search by default",
+      "truncatedEmptyHint": "The search stopped before it finished, so this is not the whole picture",
+      "truncated": "Showing the first {{limit}} results only",
+      "loading": "Searching…",
+      "readFailed": "Search failed",
+      "resultsAria": "Search results"
+    },
+    "git": {
+      "loading": "Loading git changes…",
+      "cleanUncommitted": "The working tree is clean, nothing uncommitted",
+      "readFailed": "Failed to read git changes",
+      "retry": "Retry",
+      "truncated": "Showing the first {{limit}} changed files only",
+      "listAria": "Git changed files",
+      "status": {
+        "modified": "Modified",
+        "added": "Added",
+        "deleted": "Deleted",
+        "renamed": "Renamed",
+        "untracked": "Untracked"
+      }
+    },
+    "filePreview": {
+      "panelAria": "File preview",
+      "close": "Close preview",
+      "tabsAria": "Preview tabs",
+      "tabLimit": "Preview tabs are full (max {{limit}}). Close one first.",
+      "closeAll": "Close All",
+      "loading": "Reading file…",
+      "readFailed": "Failed to read file",
+      "retry": "Retry",
+      "binary": "Binary file, cannot preview",
+      "binaryHint": "This file type cannot be previewed",
+      "tooLarge": "File too large to preview",
+      "tooLargeTextHint": "Text larger than 1 MiB",
+      "tooLargeImageHint": "Image larger than 10 MiB",
+      "noGitBaseline": "No git baseline to compare",
+      "noGitBaselineHint": "This directory is not a git repository",
+      "segmentGroup": "View mode",
+      "segmentRender": "Render",
+      "segmentText": "Text",
+      "segmentSplit": "Split",
+      "diffHeader": "Diff · HEAD → working tree",
+      "diffLegendAdded": "Added",
+      "diffLegendDeleted": "Deleted",
+      "toolDiffHeader": "Tool diff · before the session → after the last call",
+      "noToolChanges": "No tool call in this session changed this file",
+      "noToolChangesHint": "This view is built from the session's tool calls, not from git",
+      "sourceAria": "Raw source of {{name}}",
+      "codeAria": "Code preview of {{name}}",
+      "diffAria": "{{name}} compared with HEAD"
+    },
+    "outline": {
+      "empty": "No messages in this session",
+      "label": "Outline",
+      "turn": "Turn {{turn}}"
+    },
+    "changes": {
+      "label": "Changes",
+      "scope": {
+        "label": "Change scope",
+        "session": "This session",
+        "uncommitted": "Uncommitted"
+      },
+      "empty": "No files have been changed by tools in this session",
+      "listAria": "Files changed in this session",
+      "status": {
+        "created": "Created",
+        "modified": "Modified",
+        "deleted": "Deleted",
+        "written": "Written"
+      }
+    },
+    "row": {
+      "menu": "More actions",
+      "preview": "Preview",
+      "previewInNewTab": "Preview in a new tab",
+      "jumpToTurn": "Jump to turn",
+      "openWith": "Open with default app",
+      "reveal": "Show in file manager",
+      "revealFailed": "Failed to show in file manager: {{error}}",
+      "copyRelPath": "Copy relative path",
+      "copyAbsPath": "Copy absolute path",
+      "copyFileName": "Copy file name",
+      "expand": "Expand",
+      "collapse": "Collapse"
+    },
+    "sidebar": "Chat context",
+    "workRoots": {
+      "mainRepo": "Main repo",
+      "worktree": "worktree",
+      "pinned": "Pinned",
+      "followed": "Switched to the worktree the agent is editing: {{name}}",
+      "followedRepo": "Switched to the repo the agent is editing: {{name}}",
+      "stayInMain": "Stay in the main repo"
+    },
+    "gitStatus": {
+      "ahead": "{{count}} commit ahead of upstream",
+      "ahead_one": "{{count}} commit ahead of upstream",
+      "ahead_other": "{{count}} commits ahead of upstream",
+      "behind": "{{count}} commit behind upstream",
+      "behind_one": "{{count}} commit behind upstream",
+      "behind_other": "{{count}} commits behind upstream",
+      "dirty": "{{count}} uncommitted file",
+      "dirty_one": "{{count}} uncommitted file",
+      "dirty_other": "{{count}} uncommitted files"
+    }
+  },
+  "chatPage": {
+    "add": {
+      "aria": "New",
+      "newAgent": "New agent",
+      "newAgentChat": "New agent chat",
+      "newAgentHint": "Create a new assistant/employee in the org chart"
+    },
+    "empty": {
+      "title": "No conversations yet",
+      "description": "Create an agent to start collaborating.",
+      "cta": "Create your first agent"
+    },
+    "filter": {
+      "chips": {
+        "all": "All",
+        "running": "Running",
+        "unread": "Unread"
+      },
+      "open": "Filter sidebar",
+      "options": {
+        "running": "Running",
+        "unread": "Unread"
+      }
+    },
+    "newChat": "New chat",
+    "notChattable": {
+      "actions": {
+        "backendSettings": "Go to Agent backend settings",
+        "configureBackend": "Configure Agent backend",
+        "configureProvider": "Configure LLM provider",
+        "configureRemoteDevice": "Configure remote device",
+        "startGateway": "Start local gateway"
+      },
+      "chain": {
+        "aria": "Chat configuration chain",
+        "backend": "Agent backend",
+        "provider": "LLM provider",
+        "states": {
+          "configured": "Configured",
+          "inactive": "Inactive",
+          "missing": "Not configured",
+          "possible": "May be needed",
+          "unknown": "Unknown",
+          "unavailable": "Unavailable"
+        }
+      },
+      "defaultHint": "Bind a built-in backend to this Agent on the org chart page first",
+      "info": {
+        "title": "Built-in backends need an additional LLM provider"
+      },
+      "message": "Not available for chat — {{hint}}",
+      "reasons": {
+        "noBackend": {
+          "title": "{{name}} cannot chat yet",
+          "description": "This Agent has no Agent backend configured. Bind a backend to start chatting.",
+          "short": "No agent backend configured"
+        },
+        "backendRequiresProvider": {
+          "title": "Configure an LLM provider first",
+          "description": "The built-in Agent backend needs an active LLM provider to run tasks.",
+          "short": "An LLM provider is required"
+        },
+        "providerInactive": {
+          "title": "Activate the LLM provider first",
+          "description": "The LLM provider bound to this Agent is inactive, possibly because its API key is missing or it is disabled.",
+          "short": "LLM provider not active"
+        },
+        "remoteProviderMissing": {
+          "title": "Configure the remote LLM provider",
+          "description": "The remote agentred does not have the LLM provider required by this Agent backend.",
+          "short": "Remote LLM provider missing"
+        },
+        "gatewayNotRunning": {
+          "title": "The local gateway is not running",
+          "description": "This CLI backend uses the local gateway to forward requests. Start it before chatting.",
+          "short": "Local gateway not running"
+        },
+        "remoteOpenclawUnavailable": {
+          "title": "Remote OpenClaw is unavailable",
+          "description": "The remote OpenClaw gateway for this Agent is unavailable. Check the remote device connection and configuration.",
+          "short": "Remote OpenClaw unavailable"
+        },
+        "unknownBackend": {
+          "title": "The Agent backend is unavailable",
+          "description": "This Agent uses an unrecognized backend type. Check the Agent backend configuration.",
+          "short": "Unknown backend type"
+        }
+      }
+    },
+    "pin": {
+      "pin": "Pin",
+      "pinAria": "Pin {{name}}",
+      "unpin": "Unpin",
+      "unpinAria": "Unpin {{name}}"
+    },
+    "search": {
+      "aria": "Search agents",
+      "clear": "Clear filter",
+      "noMatches": "No agents match \"{{query}}\"",
+      "placeholder": "Search Agent"
+    },
+    "sections": {
+      "agents": "AGENTS",
+      "pinned": "PINNED"
+    },
+    "sidebar": "Agent list",
+    "untitledSession": "(Untitled session)"
+  },
+  "chatPanel": {
+    "actions": {
+      "rename": "Rename"
+    },
+    "compact": {
+      "imageUnsupported": "/compact cannot be sent with images",
+      "needsSession": "Send one message first so the Codex session starts before compacting",
+      "waitForTurn": "Compact after the current response finishes"
+    },
+    "deleteDialog": {
+      "description": "Deleting this session also removes all of its messages and cannot be undone.",
+      "title": "Delete Session"
+    },
+    "errors": {
+      "cancelQueued": "Failed to cancel queued message: {{msg}}",
+      "compact": "Failed to compact context: {{msg}}",
+      "copyLaunchCommand": "Failed to copy launch command: {{msg}}",
+      "edit": "Edit failed: {{msg}}",
+      "enqueue": "Failed to insert message: {{msg}}",
+      "imageUnsupported": "The current agent backend does not support image input",
+      "imageWhileStreaming": "The current chat is running. Send images after this turn finishes.",
+      "goal": "Goal operation failed: {{msg}}",
+      "noActiveConversation": "No in-flight conversation",
+      "noActiveTurnToStop": "No in-flight turn to stop",
+      "regenerate": "Regeneration failed: {{msg}}",
+      "rename": "Rename failed: {{msg}}",
+      "send": "Send failed: {{msg}}",
+      "stop": "Stop failed: {{msg}}",
+      "stopBackgroundTask": "Failed to stop background task: {{msg}}",
+      "loadFailed": "Failed to load session: {{msg}}"
+    },
+    "execTarget": {
+      "willRunPrefix": "Will run on",
+      "willRunSuffix": "",
+      "droppedPrefix": "{{name}} is unavailable — will run on",
+      "pickChipAria": "Choose where it runs: {{label}}",
+      "pickerTitle": "Which machine to run on",
+      "pickerScope": "Only affects this session",
+      "stickyHint": "Always want to use it? Drag it to first.",
+      "goAdjust": "Adjust order",
+      "allUnavailableTitle": "\"{{name}}\" has no available execution machine right now",
+      "reasons": {
+        "orphanBackend": "The backend this target refers to no longer exists",
+        "backendRequiresProvider": "LLM provider required",
+        "providerInactive": "LLM provider not active",
+        "remoteProviderMissing": "Remote is missing this LLM provider",
+        "gatewayNotRunning": "Local gateway is not running",
+        "remoteOpenclawUnavailable": "Remote OpenClaw is not available yet",
+        "unknownBackend": "Unknown backend type",
+        "unpaired": "This computer isn't paired with it",
+        "offline": "Offline",
+        "projectPathMissing": "This machine has no path configured for this project",
+        "desktopNotRunning": "Agentre is not running on that computer"
+      }
+    },
+    "header": {
+      "newSessionTitle": "New chat · {{name}}",
+      "unavailableTitle": "Session unavailable"
+    },
+    "launchCommand": {
+      "copy": "Copy Launch Command",
+      "copyDescription": "Includes a token. Paste it into a terminal to run. Copy again after the local gateway restarts because the token expires.",
+      "copyDone": "Launch command copied",
+      "copyFailed": "Failed to copy launch command"
+    },
+    "goal": {
+      "cleared": "Goal cleared",
+      "current": "Current goal: {{objective}} ({{status}}, {{tokens}} tokens)",
+      "empty": "No current goal",
+      "imageUnsupported": "/goal cannot be sent with images",
+      "needsSession": "Send one message first so the Codex session starts before setting a goal",
+      "waitForTurn": "Wait for this turn to finish before changing the goal",
+      "updated": "Goal updated",
+      "updatedWithObjective": "Goal updated: {{objective}}"
+    },
+    "localDevice": "Local",
+    "newSession": {
+      "title": "Start a chat with {{name}}",
+      "guard": {
+        "title": "You can start chatting with {{name}} once configured",
+        "placeholder": "Configure the Agent backend first"
+      }
+    },
+    "newProjectSession": {
+      "title": "Start a project chat with {{agentName}} in {{projectName}}"
+    },
+    "notice": {
+      "close": "Close notice"
+    },
+    "regenerateDialog": {
+      "confirm": "Regenerate",
+      "description": "Regenerating permanently discards this reply and all later conversation history. The agent will generate a new response from the previous user message.",
+      "title": "Regenerate Reply"
+    },
+    "renameDialog": {
+      "nameAria": "Session name",
+      "placeholder": "Enter a new name",
+      "title": "Rename Session"
+    },
+    "backgroundTasks": {
+      "chip": "{{count}} running",
+      "completedChip": "{{count}} done",
+      "title": "Background tasks",
+      "running": "Running",
+      "completed": "Done",
+      "failed": "Failed",
+      "canceled": "Stopped",
+      "empty": "No background tasks",
+      "bash": "bash",
+      "subagent": "subagent",
+      "aria": "Background tasks",
+      "clearCompleted": "Clear completed",
+      "stop": "Stop"
+    },
+    "toolbar": {
+      "aria": "Session toolbar",
+      "contextSidebar": "Context sidebar",
+      "hideContextSidebar": "Hide context sidebar",
+      "showContextSidebar": "Show context sidebar",
+      "stop": "Stop",
+      "stopActiveTitle": "Stop current chat",
+      "stopInactiveTitle": "No chat is currently running",
+      "terminalTitle": "Terminal (⌘`)"
+    },
+    "untitled": "(Untitled)",
+    "loadError": {
+      "title": "Couldn't load session",
+      "retry": "Retry",
+      "close": "Close session",
+      "notFoundHint": "This session no longer exists or has been deleted."
+    },
+    "sending": "Sending…",
+    "sendRetry": {
+      "restored": "Send failed — draft kept",
+      "retry": "Retry send",
+      "discard": "Discard draft"
+    },
+    "loading": {
+      "aria": "Loading session…"
+    }
+  },
+  "chatTabs": {
+    "actions": {
+      "closeOthers": "Close Others",
+      "closeRight": "Close Tabs to the Right",
+      "closeTab": "Close Tab",
+      "pin": "Pin",
+      "unpin": "Unpin"
+    },
+    "empty": {
+      "description": "Choose one from the left sidebar, or dispatch a new task to an Agent · ⌘P opens the command palette",
+      "shortcuts": {
+        "close": "Close Tab",
+        "openInNewTab": "Open in New Tab",
+        "switch": "Switch Tab"
+      },
+      "title": "Choose an Agent or project session to start",
+      "setupGuide": {
+        "title": "Before you start, complete two setup steps",
+        "stepBackend": {
+          "title": "Configure Agent backend",
+          "description": "Pick an execution backend for your Agent (Built-in SDK / Claude Code / Codex…)",
+          "action": "Go to settings → Agent backend"
+        },
+        "stepProvider": {
+          "title": "Configure LLM provider",
+          "description": "The built-in backend needs an active provider (API Key + default model)",
+          "action": "Go to settings → LLM provider"
+        }
+      },
+      "unconfigured": {
+        "count": "{{count}} Agent(s) without a backend",
+        "goOrg": "Go to org chart setup →"
+      }
+    },
+    "fallbackSession": "(session)",
+    "missingAgent": {
+      "detail": "Agent #{{id}} may have been deleted, or the list has not synced yet.",
+      "loadFailed": "Failed to load Agent info",
+      "loading": "Loading Agent info...",
+      "notFound": "Agent not found"
+    },
+    "overflow": {
+      "openMenu": "Open Tab menu",
+      "openTabs": "Open Tabs ({{count}})"
+    },
+    "status": {
+      "error": "error",
+      "errorLabel": "Error",
+      "idle": "idle",
+      "running": "running",
+      "waiting": "waiting"
+    },
+    "terminal": {
+      "title": "Terminal",
+      "titleWithCommand": "Command: {{command}}",
+      "titleWithDevice": "Terminal · {{deviceName}}"
+    },
+    "tooltip": {
+      "ago": "{{time}} ago",
+      "hint": "Activate · click ✕ to close",
+      "session": "sess-{{id}}",
+      "worktree": "worktree {{branch}}"
+    },
+    "peer": {
+      "title": "Remote session",
+      "titleWithDevice": "Remote · {{deviceName}}"
+    }
+  },
+  "transcriptWindow": {
+    "loadEarlier": "Load earlier messages",
+    "loadingEarlier": "Loading earlier messages…"
+  },
+  "compactHistory": {
+    "viewPrevious": "View {{count}} messages before compaction"
+  },
+  "localCommand": {
+    "notSharedWithAI": "Not sent to AI"
+  },
+  "queuedMessages": {
+    "aria": "Queued messages",
+    "cancelOne": "Cancel this queued message",
+    "cancelOneTitle": "Cancel before AI picks it up",
+    "clear": "Clear",
+    "clearAria": "Clear queued messages",
+    "clearTitle": "Clear all queued messages",
+    "codexNoCancel": "codex does not support cancel",
+    "codexNoCancelTitle": "codex backend does not support cancel",
+    "count": "Queued · {{count}}",
+    "insertAfterAI": "Inserted after AI finishes",
+    "notCancellable": "Not cancellable (codex backend)",
+    "notCancellableTitle": "codex turn/steer protocol is not cancellable after send",
+    "dropped": {
+      "title": "{{count}} message(s) were not sent when the turn ended",
+      "restore": "Restore as draft",
+      "discard": "Discard"
+    }
+  },
+  "slashCommands": {
+    "compact": {
+      "description": "Compact the chat context and keep only the summary"
+    },
+    "goal": {
+      "description": "Set or view the current Codex goal"
+    },
+    "new": {
+      "description": "Start a new chat with the same setup"
+    },
+    "skill": {
+      "claudeDescription": "Invoke a Claude Code skill",
+      "codexDescription": "Invoke a Codex skill",
+      "piDescription": "Invoke a Pi skill"
+    }
+  },
+  "taskProgress": {
+    "allCompleted": "All done",
+    "completed": "Completed",
+    "current": "Current",
+    "status": {
+      "cancelled": "CANCELLED",
+      "completed": "DONE",
+      "failed": "FAILED",
+      "queued": "QUEUED",
+      "running": "RUNNING"
+    },
+    "title": "Task Progress"
+  }
+}

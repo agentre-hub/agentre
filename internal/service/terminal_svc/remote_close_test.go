@@ -2,15 +2,14 @@ package terminal_svc_test
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty/remote"
-	"github.com/agentre-ai/agentre/internal/service/terminal_svc"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/pkg/pty/remote"
+	"github.com/agentre-hub/agentre/internal/service/terminal_svc"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,7 +95,7 @@ func TestService_GivenRemoteCloseRPCFailsWhenRetriedThenRetainsSameSessionUntilS
 		"failed close must retain the same live remote handle for retry")
 	client.data <- protocol.TerminalDataEvent{
 		TerminalID: "terminal-retry",
-		Data:       base64.StdEncoding.EncodeToString([]byte("still-active")),
+		Data:       []byte("still-active"),
 	}
 	require.Eventually(t, func() bool {
 		return len(emitter.Snapshot()) == 1

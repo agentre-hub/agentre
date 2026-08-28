@@ -8,14 +8,14 @@ import {
   TranscriptCardBody,
   TranscriptCardHeader,
   TranscriptPill,
-} from "../transcript-card";
-import { ThinkingBlock } from "../thinking-block";
-import { AutoTriggerBanner } from "../auto-trigger-banner";
-import { CompactBoundaryDivider } from "../compact-boundary-divider";
+  ThinkingBlock,
+  CompactBoundaryDivider,
+} from "@agentre-hub/agentre-ui";
+import { AutoTriggerBanner } from "@agentre-hub/agentre-ui";
 import { CompactHistoryFold } from "../compact-history-fold";
-import { TranscriptRowView } from "../transcript-row-view";
+import { TranscriptRowView } from "@agentre-hub/agentre-ui";
 
-import type { TranscriptRow } from "../transcript-rows";
+import type { TranscriptRow } from "@agentre-hub/agentre-ui";
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
 describe("TranscriptCard", () => {
@@ -244,8 +244,9 @@ describe("断连期间的活信号 (R13)", () => {
   });
 
   it("慢一倍是 @theme 注册的同一 keyframe,不是另起一套动效", () => {
+    // 动效 token 与 keyframe 已随 design tokens 抽到共享包,globals.css 只剩 @import。
     const css = fs.readFileSync(
-      path.resolve(process.cwd(), "src/styles/globals.css"),
+      path.resolve(process.cwd(), "packages/agentre-ui/styles/tokens.css"),
       "utf8",
     );
     const shape = /typing-dot\s+([\d.]+)s\s+([a-z-]+)\s+infinite/;

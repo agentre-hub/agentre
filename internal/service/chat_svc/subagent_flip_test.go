@@ -8,9 +8,9 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 )
 
 // streamCapture 与 captureEmitter 的区别:保留 stream 名。跨轮翻转的镜像必须落在
@@ -72,7 +72,7 @@ func TestSubagentFlipperAdapter_PersistsAndMirrors(t *testing.T) {
 				So(mirror, ShouldNotBeNil)
 				// 会话级流:ChatPanel 常驻订阅它,能就地合并进已落库的那张派遣卡。
 				So(mirror.stream, ShouldEqual, AutonomousStreamName(42))
-				So(mirror.ev.ToolUseID, ShouldEqual, "toolu-earlier-msg")
+				So(mirror.ev.ToolCallID, ShouldEqual, "toolu-earlier-msg")
 				So(mirror.ev.Subagent, ShouldNotBeNil)
 				So(mirror.ev.Subagent.Status, ShouldEqual, "completed")
 

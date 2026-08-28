@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
 )
 
 // ManagerOpts 是 NewManager 的可选配置。

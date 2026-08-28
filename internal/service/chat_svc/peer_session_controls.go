@@ -9,18 +9,22 @@ import (
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/cago-frame/cago/pkg/utils/httputils"
+	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 // ErrPeerExecutionUnavailable is deliberately narrower than a generic remote
@@ -161,7 +165,7 @@ func resolvePeerProjectID(ctx context.Context, cwd string) (int64, error) {
 func (s *chatSvc) preflightPeerRemoteExecution(ctx context.Context, backend *agent_backend_entity.AgentBackend, sessionID int64) error {
 	_, err := s.selectRunner(ctx, backend, sessionID)
 	if err == nil {
-		if deviceID, ok := localPairedDeviceID(ctx, backend.DeviceID); ok {
+		if deviceID, ok := localPairedDeviceID(ctx, backend.DeviceFingerprint); ok {
 			s.releaseRemoteRuntime(deviceID, sessionID)
 		}
 		return nil
@@ -178,6 +182,120 @@ func (s *chatSvc) preflightPeerRemoteExecution(ctx context.Context, backend *age
 // queue for remote peers.
 func (s *chatSvc) EnqueuePeerSession(ctx context.Context, params wire.SteerParams, source PeerSessionSource) (*EnqueueResponse, error) {
 	return s.enqueue(ctx, &EnqueueRequest{SessionID: params.SessionID, Text: params.Text, peerSource: source.messageSource()})
+}
+
+// PendingPeerSessionWaiters 是 AnswerPeerToolPermission / AnswerPeerUserQuestion 这两个
+// 写侧的读侧（与 agentred 的 SessionCatchupHandlers.PendingWaiters 同一个方法、同一份
+// 载荷形状）。浏览器不订阅桌面端的 Wails 事件，它画审批卡 / 提问卡的数据源就是这份
+// 快照 —— 桌面端答不了它，托管在这台机器上的会话在浏览器上就永远没有卡可批。
+//
+// 快照来自 backend runtime 的进程内存而不是数据库：会话行只用来解「这条会话跑在哪个
+// backend 上」。答案随后由写侧用同一个会话键投回同一个 runner，读写两侧因此永远对得上。
+func (s *chatSvc) PendingPeerSessionWaiters(
+	ctx context.Context, params wire.SessionPendingWaitersParams,
+) (wire.SessionPendingWaitersResult, error) {
+	session, err := chat_repo.Session().Find(ctx, params.SessionID)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, operationFailedWithCause(ctx, err)
+	}
+	if session == nil {
+		return wire.SessionPendingWaitersResult{}, ErrPeerSessionNotFound
+	}
+	backend, err := s.peerSessionExecBackend(ctx, session)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, err
+	}
+	// 这一轮跑在另一台机器上:waiter 住在那台 agentred 的进程内存里，取它是一次会失败
+	// 的 RPC，因此走一条**带错误返回**的独立路径而不是塞进 WaiterLister 的无错形状
+	// （理由见 remote.Runtime.PendingWaiters）。
+	if beTargetsRemote(backend) {
+		return s.remotePendingSessionWaiters(ctx, backend, session.ID)
+	}
+	lister := localWaiterLister(backend)
+	if lister == nil {
+		return wire.SessionPendingWaitersResult{}, nil
+	}
+	snapshot := lister.PendingWaiters(ctx, session.ID)
+	return wire.SessionPendingWaitersResult{
+		ToolPermissions:  snapshot.ToolPermissions,
+		AskUserQuestions: snapshot.AskUserQuestions,
+	}, nil
+}
+
+// remotePendingSessionWaiters 只读地问「那台 agentred 上这条会话此刻卡在哪些决策上」。
+//
+// 只看本机**已经在跑的**那条连接（cachedRemoteRuntime），不为这次查询借新的：没有在跑
+// 的连接就意味着本机没有在那台设备上开着的轮次，那边也没有本机要照看的待决策；而借一条
+// 会顺带拨号、占住池引用并落一次库（recordExecDaemon）——「浏览器查一眼待决策」不该改
+// 会话的执行归属。
+//
+// 查询失败如实上报：降级成空快照等于告诉浏览器「没有待决策」，而远端 agent 正阻塞着等
+// 答复 —— 一条「看起来空闲、实际卡在审批」的会话比一次可见的加载失败糟得多。
+func (s *chatSvc) remotePendingSessionWaiters(
+	ctx context.Context, backend *agent_backend_entity.AgentBackend, sessionID int64,
+) (wire.SessionPendingWaitersResult, error) {
+	deviceID, ok := localPairedDeviceID(ctx, backend.DeviceFingerprint)
+	if !ok {
+		logger.Ctx(ctx).Warn("chat_svc.remotePendingSessionWaiters: exec device is not paired here",
+			zap.Int64("sessionId", sessionID), zap.String("deviceId", backend.DeviceFingerprint))
+		return wire.SessionPendingWaitersResult{}, nil
+	}
+	rt := s.cachedRemoteRuntime(deviceID)
+	if rt == nil {
+		logger.Ctx(ctx).Debug("chat_svc.remotePendingSessionWaiters: no live connection to that device",
+			zap.Int64("sessionId", sessionID), zap.Int64("deviceId", deviceID))
+		return wire.SessionPendingWaitersResult{}, nil
+	}
+	result, err := rt.PendingWaiters(ctx, sessionID)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, operationFailedWithCause(ctx, err,
+			zap.Int64("sessionId", sessionID), zap.Int64("deviceId", deviceID))
+	}
+	return result, nil
+}
+
+// localWaiterLister 解出本机 runtime 注册表里那一档的 waiter 读侧；没有读侧时回 nil。
+//
+// 没有审批协议的 backend 不实现 WaiterLister：R7 明写这一支回空列表而不是报错。
+func localWaiterLister(backend *agent_backend_entity.AgentBackend) agentruntime.WaiterLister {
+	runner := agentruntime.RuntimeFor(agent_backend_entity.BackendType(backend.Type))
+	if runner == nil {
+		return nil
+	}
+	lister, _ := runner.(agentruntime.WaiterLister)
+	return lister
+}
+
+// peerSessionExecBackend 解出这条会话此刻实际执行所在的那一档 backend。
+//
+// 解析与写侧 AnswerToolPermission 逐字一致（会话钉住哪一档就用哪一档）：读出来的
+// waiter 与提交答案的目标必须是同一个 runner，否则浏览器会照着一份别处的 requestID
+// 去答一个这里没有的问题。
+func (s *chatSvc) peerSessionExecBackend(
+	ctx context.Context, session *chat_entity.Session,
+) (*agent_backend_entity.AgentBackend, error) {
+	agent, err := agent_repo.Agent().Find(ctx, session.AgentID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("%w: agent %d", ErrPeerSessionNotFound, session.AgentID)
+	}
+	backendID := agent.AgentBackendID
+	if session.ExecAgentBackendID > 0 {
+		backendID = session.ExecAgentBackendID
+	}
+	if backendID <= 0 {
+		return nil, fmt.Errorf("%w: session %d has no agent backend", ErrPeerSessionMetadata, session.ID)
+	}
+	backend, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if backend == nil {
+		return nil, fmt.Errorf("%w: agent backend %d", ErrPeerSessionMetadata, backendID)
+	}
+	return backend, nil
 }
 
 func (s *chatSvc) AnswerPeerUserQuestion(ctx context.Context, params wire.SubmitAnswerParams) (PeerSessionControlResult, error) {

@@ -25,7 +25,7 @@ func newRootCmd() *cobra.Command {
 		Long: `agentred — headless agent compute daemon.
 
 Stateless executor that runs claude-code / codex subprocesses on behalf of
-remote desktops over a JSON-RPC over WebSocket control API on the LAN.`,
+remote desktops over a binary Protobuf RPC control API on WebSocket.`,
 		SilenceUsage:  true,
 		SilenceErrors: false,
 	}

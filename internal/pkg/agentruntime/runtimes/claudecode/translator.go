@@ -3,33 +3,24 @@ package claudecode
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/pkg/diff"
-	"github.com/agentre-ai/agentre/internal/pkg/llmcatalog"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/llmcatalog"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
-
-// writeContentByteCap canonical.FileWrite 内容字节上限。
-const writeContentByteCap = 64 * 1024
 
 // translate 把单帧 claudecode.Event 翻译成 0/1/n 个 sealed agentruntime.Event。
 //
-// emit canonical 识别:
-//   - Write 工具 → ToolCall.Canonical = canonical.FileWrite
-//   - Edit / MultiEdit → ToolCall.Canonical = canonical.FileEdit(走 diff.FromEdit/FromMultiEdit
-//     得到 diff.Payload,再降级到 canonical 表)
-//   - TodoWrite → ToolCall.Canonical = canonical.PlanUpdate
-//   - AskUserQuestion / ExitPlanMode 仍走 control_request 路径,
-//     此处保留 isAskUserQuestionToolName 过滤
-//   - Task → ToolCall.Canonical = canonical.AgentSpawn(只填 description/
-//     subagent_type/prompt 静态字段;运行时累计态由 SubagentStarted/Progress/
-//     Done 经 SubagentStateBlock 维护,前端 AgentSpawnCard 读 toolBlock.subagent
-//     overlay)
+// emit canonical 识别:全权委托给 canonical.FromToolUse(见 recognizeCanonical),
+// 覆盖 Write → FileWrite、Edit/MultiEdit → FileEdit、TodoWrite → PlanUpdate、
+// Task/Agent → AgentSpawn(只填 description/subagent_type/prompt 静态字段;
+// 运行时累计态由 SubagentStarted/Progress/Done 经 SubagentStateBlock 维护,
+// 前端 AgentSpawnCard 读 toolBlock.subagent overlay)。
+// AskUserQuestion / ExitPlanMode 仍走 control_request 路径,此处保留
+// isAskUserQuestionToolName 过滤,不进 recognizeCanonical。
 //
 // subagent 文本过滤:ParentToolUseID 非空的帧来自 Task/Agent 子会话。工具事件
 // (ToolCall / ToolResult)有 ParentToolCallID 字段承载这层归属,由下游渲染成派遣卡
@@ -53,6 +44,10 @@ func translate(ev claudecode.Event) (events []agentruntime.Event, usage *provide
 		if ev.ParentToolUseID == "" {
 			events = append(events, agentruntime.ThinkingDelta{Text: ev.Text})
 		}
+	case claudecode.EventContentBlockStart:
+		// 纯计时信号:pkg/claudecode 已经滤掉子代理内部帧(见 parseStreamEventFrame),
+		// 这里无脑透传成 host-neutral 的 OutputActivity。
+		events = append(events, agentruntime.OutputActivity{})
 	case claudecode.EventPreToolUse:
 		// AskUserQuestion 走独立的 control_request 路径 emit UserAskRequest,
 		// PreToolUse 这条会被前端再渲染成通用 ToolInvocationCard 重复一遍。
@@ -68,8 +63,10 @@ func translate(ev claudecode.Event) (events []agentruntime.Event, usage *provide
 		}
 	case claudecode.EventPostToolUse:
 		// 同 PreToolUse:AskUserQuestion 的 tool_result 由 UserAskRequest/Resolved
-		// 承载,这条 PostToolUse 不入流避免重复卡片。
-		if ev.Tool != nil && !isAskUserQuestionToolName(ev.Tool.Name) {
+		// 承载,这条 PostToolUse 不入流避免重复卡片。异步子代理的启动回执同理由
+		// SubagentStarted/Done 承载,见 isAsyncLaunchReceipt。
+		if ev.Tool != nil && !isAskUserQuestionToolName(ev.Tool.Name) &&
+			!isAsyncLaunchReceipt(ev.Tool.ResultMeta) {
 			isErr := ev.Tool.Err != nil
 			events = append(events, agentruntime.ToolResult{
 				ToolCallID:       ev.Tool.ID,
@@ -168,6 +165,10 @@ func translate(ev claudecode.Event) (events []agentruntime.Event, usage *provide
 
 // recognizeCanonical 按工具名 + raw input JSON 识别已知 canonical 形状。
 // 解析失败 / 工具不认识 → 返 nil,表示走 raw tool_use 路径(前端通用 ToolInvocationCard)。
+//
+// 识别本身全权委托给 canonical.FromToolUse —— live emit 路径(这里)和 replay
+// 路径(chat_svc LoadSession 重建 tool_use 实体时调 canonical.FromToolUse)共用
+// 同一份识别,避免两边各搞一套漂移。
 func recognizeCanonical(name string, rawInput json.RawMessage) canonical.CanonicalTool {
 	if len(rawInput) == 0 {
 		return nil
@@ -176,116 +177,43 @@ func recognizeCanonical(name string, rawInput json.RawMessage) canonical.Canonic
 	if err := json.Unmarshal(rawInput, &m); err != nil {
 		return nil
 	}
-	switch name {
-	case "Write":
-		return recognizeFileWrite(m)
-	case "Edit":
-		return recognizeFileEdit(m)
-	case "MultiEdit":
-		return recognizeMultiEdit(m)
-	case "TodoWrite":
-		return recognizeTodoWrite(m)
-	}
-	// Task/Agent 走 canonical 包的共享 helper —— live emit 路径(这里)和 replay
-	// 路径(canonical.FromToolUse)共用同一份识别,避免两边各搞一套漂移。
-	if canonical.IsAgentSpawnToolName(name) {
-		if as, ok := canonical.AgentSpawnFromInput(m); ok {
-			return as
-		}
+	if ct, ok := canonical.FromToolUse(name, m); ok {
+		return ct
 	}
 	return nil
-}
-
-func recognizeFileWrite(m map[string]any) canonical.CanonicalTool {
-	path, _ := m["file_path"].(string)
-	content, ok := m["content"].(string)
-	if !ok {
-		return nil
-	}
-	bytes := len(content)
-	truncated := false
-	if bytes > writeContentByteCap {
-		content = content[:writeContentByteCap]
-		truncated = true
-	}
-	lines := 0
-	if content != "" {
-		lines = strings.Count(content, "\n")
-		if !strings.HasSuffix(content, "\n") {
-			lines++
-		}
-	}
-	return canonical.FileWrite{
-		Path:      path,
-		Content:   content,
-		Lines:     lines,
-		Bytes:     bytes,
-		Truncated: truncated,
-	}
-}
-
-func recognizeFileEdit(m map[string]any) canonical.CanonicalTool {
-	payload := diff.FromEdit(m)
-	if len(payload.Files) == 0 {
-		return nil
-	}
-	replaceAll, _ := m["replace_all"].(bool)
-	patches := canonical.PatchesFromDiff(payload)
-	if replaceAll {
-		// Edit.replace_all 只对单文件 Edit 有效;MultiEdit 永远 false。
-		for i := range patches {
-			patches[i].ReplaceAll = true
-		}
-	}
-	return canonical.FileEdit{Files: patches}
-}
-
-func recognizeMultiEdit(m map[string]any) canonical.CanonicalTool {
-	payload := diff.FromMultiEdit(m)
-	if len(payload.Files) == 0 {
-		return nil
-	}
-	// diff.FromMultiEdit 即使 edits 为空也会返单 File(0 hunks)。这种空 patch
-	// 走 raw 路径更合适 —— 前端不需要为空 diff 起 DiffCard。
-	totalHunks := 0
-	for _, f := range payload.Files {
-		totalHunks += len(f.Hunks)
-	}
-	if totalHunks == 0 {
-		return nil
-	}
-	return canonical.FileEdit{Files: canonical.PatchesFromDiff(payload)}
-}
-
-func recognizeTodoWrite(m map[string]any) canonical.CanonicalTool {
-	todosRaw, _ := m["todos"].([]any)
-	if len(todosRaw) == 0 {
-		return nil
-	}
-	steps := make([]canonical.PlanStep, 0, len(todosRaw))
-	for _, t := range todosRaw {
-		todo, ok := t.(map[string]any)
-		if !ok {
-			continue
-		}
-		id, _ := todo["id"].(string)
-		content, _ := todo["content"].(string)
-		status, _ := todo["status"].(string)
-		steps = append(steps, canonical.PlanStep{
-			ID:     id,
-			Step:   content,
-			Status: canonical.PlanStepStatus(status),
-		})
-	}
-	if len(steps) == 0 {
-		return nil
-	}
-	return canonical.PlanUpdate{Steps: steps}
 }
 
 // isAskUserQuestionToolName 识别 AskUserQuestion 工具名(snake/Pascal 双写)。
 func isAskUserQuestionToolName(name string) bool {
 	return name == "AskUserQuestion" || name == "ask_user_question"
+}
+
+// asyncLaunchedStatus 是 CLI 在 user 帧顶层 toolUseResult 里给异步子代理启动回执打的
+// 标记(与之同行的还有 isAsync:true / agentId / output_file)。
+const asyncLaunchedStatus = "async_launched"
+
+// isAsyncLaunchReceipt 判定这条 tool_result 是不是「异步子代理已派发」的回执。
+//
+// 派发异步 subagent 时 Agent 工具**立刻**返回一段自称 internal metadata 的文本
+// (agentId / output_file / "never quote or paste any part of it … into a
+// user-facing reply"),而子代理真正的产出几分钟后才随 task_notification 到达、
+// 落在 SubagentInfo.Summary 上。两者是不同的事件,回执不是这次工具调用的结果,
+// 因此在这唯一的生产点就不 emit —— 否则它会占住 AgentSpawnCard 的 SUMMARY 区
+// (派发瞬间即填满,且永不被真摘要替换),还把内部元数据摊给用户看。
+//
+// 判据取结构化的 status 字段而非匹配那段英文散文。同步 Task/Agent 没有这个标记,
+// 其 tool_result 确实就是子代理的产出,照常入流。
+func isAsyncLaunchReceipt(meta json.RawMessage) bool {
+	if len(meta) == 0 {
+		return false
+	}
+	var probe struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(meta, &probe); err != nil {
+		return false
+	}
+	return probe.Status == asyncLaunchedStatus
 }
 
 // subagentInfoFromMeta 镜像顶层 claudecode.go 同名函数;返值类型从指针改为

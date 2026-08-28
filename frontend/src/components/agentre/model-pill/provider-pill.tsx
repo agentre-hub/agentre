@@ -1,8 +1,8 @@
 import * as React from "react";
-import { Loader2, RefreshCw, UserRound } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
 import {
+  Button,
   Dialog,
   DialogBody,
   DialogContent,
@@ -10,11 +10,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+  ProviderPillResolution,
+  ProviderPillTrigger,
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import type { UseProviderPillReturn } from "./use-provider-pill";
-import { LlmModelLogo, LlmProviderLogo } from "../ai-brand-logo";
 import { ModelTargetPicker } from "../model-target-picker";
 
 export type ProviderPillProps = UseProviderPillReturn;
@@ -73,115 +74,17 @@ export function ProviderPill({
     effectiveKey ||
     (unbound ? t("providerPill.unselected") : t("providerPill.unselected"));
 
-  const providerLogo = pillState.providerType ? (
-    <LlmProviderLogo
-      providerType={pillState.providerType}
-      providerName={pillState.providerLabel}
-      className="size-3.5"
+  // 触发器与「跟随 Agent 绑定」那一项的解析副行都住在共享包里：那两格是用户一眼
+  // 看到的东西，两端不同源就等于同一条对话在桌面端与浏览器里说两句话。宿主这边只
+  // 负责把视图模型递进去，以及同步弹窗、持久化与重载这些宿主自己的事。
+  const specialSublabel = (
+    <ProviderPillResolution
+      boundProviderType={boundProviderType}
+      boundProviderLabel={boundProviderLabel}
+      boundModelLabel={boundModelLabel}
+      boundCliLogin={boundCliLogin}
+      fallbackLabel={boundResolutionLabel}
     />
-  ) : null;
-  const modelLogo = pillState.modelLabel ? (
-    <LlmModelLogo
-      model={pillState.modelLabel}
-      providerType={pillState.providerType}
-      providerName={pillState.providerLabel}
-      className="size-3.5"
-    />
-  ) : (
-    providerLogo
-  );
-
-  // 脸上写的是「实际会跑哪个模型」：解析出模型就写模型 ID（标识符走等宽），只解析到
-  // 供应商（新建会话没有 agent model key）就退回供应商人读名；确知没绑供应商就写
-  // 「CLI 自身登录态」（那才是这一轮真正的模型来源）。三者都不成立 = 还不知道，不写。
-  const resolvedTarget = pillState.modelLabel ? (
-    <span className="font-mono">{pillState.modelLabel}</span>
-  ) : pillState.providerLabel ? (
-    pillState.providerLabel
-  ) : pillState.cliLogin ? (
-    t("modelTargetPicker.special.backend")
-  ) : null;
-  const triggerIcon =
-    pillState.mode === "follow-agent" ? (
-      <UserRound
-        data-testid="follow-agent-icon"
-        className="size-3.5 shrink-0 text-muted-foreground"
-        aria-hidden="true"
-      />
-    ) : pillState.mode === "invalid" ? null : (
-      // 失效态的警示三角由 Picker 的 invalid 分支画，这里不重复挂图标。
-      modelLogo
-    );
-  const modeMarker = pillState.dynamic ? (
-    <RefreshCw
-      data-testid="provider-pill-dynamic-icon"
-      className="size-3 shrink-0 text-primary-text"
-      aria-hidden="true"
-    />
-  ) : null;
-
-  // mockup ?view=chat 的四态 pill 都是单行：图标 → 文字 → 可选 ↻ → chevron。模式不再
-  // 写成一行字，而是由图标（人形 / 品牌标识 / 警示三角）加 ↻（跟随默认才有）表达，
-  // 省下来的一行让「实际会跑哪个模型」直接上脸。
-  const triggerText =
-    pillState.mode === "follow-agent" ? (
-      <>
-        {t("modelTargetPicker.special.chat")}
-        {resolvedTarget ? (
-          <>
-            {" · "}
-            {resolvedTarget}
-          </>
-        ) : null}
-      </>
-    ) : pillState.mode === "invalid" ? (
-      <>
-        {resolvedTarget}
-        {" · "}
-        {t("providerPill.mode.invalid")}
-      </>
-    ) : (
-      resolvedTarget
-    );
-
-  // 顶部「跟随 Agent 绑定」项的解析副行：箭头点出「解析到」，品牌标识让绑定的供应商
-  // 一眼可认，模型 ID 单独走等宽（标识符不跟人读名一起排）。目录里解析不出供应商时
-  // 回落纯文字 —— 宁可少画一个标识，也不画半个空标识。
-  const specialSublabel = boundProviderType ? (
-    <span
-      data-testid="special-resolution"
-      className="flex min-w-0 items-center gap-1"
-    >
-      <span aria-hidden="true">→</span>
-      <LlmProviderLogo
-        providerType={boundProviderType}
-        providerName={boundProviderLabel}
-        className="size-3.5"
-      />
-      <span className="min-w-0 truncate">
-        {boundProviderLabel}
-        {boundModelLabel ? (
-          <>
-            {" · "}
-            <span className="font-mono">{boundModelLabel}</span>
-          </>
-        ) : null}
-      </span>
-    </span>
-  ) : boundCliLogin ? (
-    // 确知没绑供应商：箭头保留（它解析成的就是「CLI 自身的登录账号」），但没有供应商
-    // 可认领，不画标识。
-    <span
-      data-testid="special-resolution"
-      className="flex min-w-0 items-center gap-1"
-    >
-      <span aria-hidden="true">→</span>
-      <span className="min-w-0 truncate">
-        {t("modelTargetPicker.special.backendSublabel")}
-      </span>
-    </span>
-  ) : (
-    boundResolutionLabel || undefined
   );
 
   return (
@@ -213,13 +116,7 @@ export function ProviderPill({
         remoteCatalog={remoteCatalog}
         supportsFixedModel={supportsFixedModel}
         remoteMissing={remoteMissing}
-        triggerLabel={
-          <>
-            {triggerIcon}
-            <span className="min-w-0 truncate">{triggerText}</span>
-            {modeMarker}
-          </>
-        }
+        triggerLabel={<ProviderPillTrigger state={pillState} />}
         title={disabledTitle ?? undefined}
         footer={t("providerPill.switchNote")}
         aria-label={t("providerPill.aria", { provider: ariaValue })}

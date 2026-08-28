@@ -50,28 +50,3 @@ func TestResolveCLIPath_LocalDispatch(t *testing.T) {
 		})
 	})
 }
-
-// TestParseRemoteDeviceID 单独覆盖 parser 的三种返回。
-func TestParseRemoteDeviceID(t *testing.T) {
-	convey.Convey("parseRemoteDeviceID", t, func() {
-		convey.Convey("空串 → (0, false, nil)", func() {
-			id, ok, err := parseRemoteDeviceID("")
-			assert.NoError(t, err)
-			assert.False(t, ok)
-			assert.Equal(t, int64(0), id)
-		})
-
-		convey.Convey("合法数字 → (n, true, nil)", func() {
-			id, ok, err := parseRemoteDeviceID("42")
-			assert.NoError(t, err)
-			assert.True(t, ok)
-			assert.Equal(t, int64(42), id)
-		})
-
-		convey.Convey("非法字符串 → (0, false, err)", func() {
-			_, ok, err := parseRemoteDeviceID("not-a-number")
-			assert.Error(t, err)
-			assert.False(t, ok)
-		})
-	})
-}

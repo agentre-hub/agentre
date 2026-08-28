@@ -7,8 +7,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 type captureEmitter struct{ events []ChatStreamEvent }
@@ -49,6 +49,17 @@ func TestDispatcherEmitter_Chunk(t *testing.T) {
 	})
 }
 
+// output_activity 是纯计时信号:没有任何附加字段,但必须转发 —— 前端的 live
+// 「首 token」就靠它记表(sess-3241)。落在 default 分支被丢弃 = 修了后端没修前端。
+func TestDispatcherEmitter_OutputActivity(t *testing.T) {
+	Convey("kind=output_activity → ChatStreamEvent{Kind:output_activity}", t, func() {
+		de, em := newTestDispatcherEmitter()
+		de.Emit(context.Background(), "s", map[string]any{"kind": "output_activity"})
+		So(em.events, ShouldHaveLength, 1)
+		So(em.events[0].Kind, ShouldEqual, StreamOutputActivity)
+	})
+}
+
 func TestDispatcherEmitter_ToolUse_PassthroughWithoutCanonical(t *testing.T) {
 	Convey("kind=tool_use 无 canonical key → ev 透传 toolUseId/toolName/toolInput,Canonical=nil", t, func() {
 		de, em := newTestDispatcherEmitter()
@@ -61,7 +72,7 @@ func TestDispatcherEmitter_ToolUse_PassthroughWithoutCanonical(t *testing.T) {
 		So(em.events, ShouldHaveLength, 1)
 		ev := em.events[0]
 		So(ev.Kind, ShouldEqual, StreamToolUse)
-		So(ev.ToolUseID, ShouldEqual, "tu-1")
+		So(ev.ToolCallID, ShouldEqual, "tu-1")
 		So(ev.ToolName, ShouldEqual, "Write")
 		So(ev.Canonical, ShouldBeNil) // 没有 canonical key → 不再用 toolUseToChatBlock 兜底
 	})
@@ -358,7 +369,7 @@ func TestDispatcherEmitter_SubagentNormalizedRunsAndChildGrouping(t *testing.T) 
 }
 
 func TestDispatcherEmitter_SubagentModel(t *testing.T) {
-	Convey("kind=subagent_model → ChatStreamEvent{ToolUseID, Model},Subagent 保持 nil", t, func() {
+	Convey("kind=subagent_model → ChatStreamEvent{ToolCallID, Model},Subagent 保持 nil", t, func() {
 		de, em := newTestDispatcherEmitter()
 		de.Emit(context.Background(), "s", map[string]any{
 			"kind":      "subagent_model",
@@ -368,7 +379,7 @@ func TestDispatcherEmitter_SubagentModel(t *testing.T) {
 		So(em.events, ShouldHaveLength, 1)
 		ev := em.events[0]
 		So(ev.Kind, ShouldEqual, StreamSubagentModel)
-		So(ev.ToolUseID, ShouldEqual, "task-1")
+		So(ev.ToolCallID, ShouldEqual, "task-1")
 		So(ev.Model, ShouldEqual, "claude-haiku-4-5-20251001")
 		So(ev.Subagent, ShouldBeNil)
 	})
