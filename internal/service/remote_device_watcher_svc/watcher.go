@@ -149,9 +149,12 @@ func (w *Watcher) dialOnce(ctx context.Context) (client.ProtobufConnection, *pai
 	if row == nil {
 		return nil, nil, errPermanentDeviceGone
 	}
-	token, err := w.keychain.Get(keychainTokenAccount(w.deviceID))
-	if err != nil || token == "" {
-		return nil, row, errPermanentUnauthorized
+	var token string
+	if !row.IsRelayOnly() {
+		token, err = w.keychain.Get(keychainTokenAccount(w.deviceID))
+		if err != nil || token == "" {
+			return nil, row, errPermanentUnauthorized
+		}
 	}
 	fp, err := w.keychain.Get(keychainFingerprintAccount)
 	if err != nil || fp == "" {

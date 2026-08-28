@@ -133,6 +133,38 @@ func TestWatcher_DialTransientErr_BackoffThenRetry(t *testing.T) {
 	})
 }
 
+func TestWatcher_RelayOnlyDeviceWithoutLocalPairingToken_UsesAccountRelay(t *testing.T) {
+	Convey("Server 收编的 relay-only 设备没有本地配对 token 时仍通过账号中转恢复 online", t, func() {
+		repo, dial, kc, emit, clock := setupWatcher(t)
+		row := fixtureRow()
+		row.URL = ""
+		opened := make(chan remote_device_watcher_svc.OpenArgs, 1)
+		repo.EXPECT().Get(gomock.Any(), int64(7)).Return(row, nil)
+		kc.EXPECT().Get("agentre-device-fingerprint").Return("desktop-fp", nil)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, args remote_device_watcher_svc.OpenArgs) (client.ProtobufConnection, error) {
+				opened <- args
+				return newWatcherTestConnection(), nil
+			},
+		)
+		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(1_000_000), "").Return(nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		w := remote_device_watcher_svc.NewWatcher(7, repo, dial, kc, emit, testCfg, clock, nil)
+		go w.Run(ctx)
+
+		waitFor(t, func() bool { return len(emit.snapshot()) >= 1 })
+		args := <-opened
+		So(args.URL, ShouldEqual, "")
+		So(args.DeviceFingerprint, ShouldEqual, "desktop-fp")
+		So(args.DeviceToken, ShouldEqual, "")
+		So(emit.snapshot()[0].Online, ShouldBeTrue)
+		So(emit.snapshot()[0].LastError, ShouldEqual, "")
+		cancel()
+		w.Wait()
+	})
+}
+
 func TestWatcher_StopReleases(t *testing.T) {
 	Convey("ctx cancel 后 Wait() 返回,goroutine 退出", t, func() {
 		repo, dial, kc, emit, clock := setupWatcher(t)
