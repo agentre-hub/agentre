@@ -20,6 +20,7 @@ export * from "./runtime";
 export * from "./account";
 export * from "./rpc";
 export * from "./rpc-methods";
+export * from "./protobuf-domain";
 export * from "./protocol-version";
 export * from "./constants.gen";
 export * from "./codec.gen";
