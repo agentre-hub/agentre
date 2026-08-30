@@ -45,7 +45,7 @@ export function sessionListFromProtobuf(
       ...(session.peerFingerprint
         ? { peerFingerprint: session.peerFingerprint }
         : {}),
-      ...(session.agentId !== 0n
+      ...(session.agentId !== undefined && session.agentId !== 0n
         ? { agentId: safeNumber(session.agentId, "SessionSummary.agentId") }
         : {}),
       ...(session.title ? { title: session.title } : {}),
@@ -57,7 +57,7 @@ export function sessionListFromProtobuf(
       ...(session.projectSyncId ? { projectSyncId: session.projectSyncId } : {}),
       ...(session.backendType ? { backendType: session.backendType } : {}),
       ...(session.waitingForInput ? { waitingForInput: true } : {}),
-      ...(session.lastMessageAt !== 0n
+      ...(session.lastMessageAt !== undefined && session.lastMessageAt !== 0n
         ? {
             lastMessageAt: safeNumber(
               session.lastMessageAt,
