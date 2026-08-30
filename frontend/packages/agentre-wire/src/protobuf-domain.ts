@@ -9,7 +9,7 @@ import {
   type SessionListResult,
 } from "./codec.gen";
 
-function safeNumber(value: bigint, what: string): number {
+function safeNumber(value: bigint | number, what: string): number {
   const result = Number(value);
   if (!Number.isSafeInteger(result)) {
     throw new TypeError(`wire: ${what} is not a safe integer`);
