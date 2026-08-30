@@ -89,6 +89,14 @@ function writeBlock(toolName: string, path: string, lines: number) {
   };
 }
 
+/** 在流的那一段：与 assistantWithBlocks 同一个 as-cast 口径，块字面量不必凑齐
+ * wails 生成类上的 convertValues。 */
+function liveBlocks(
+  ...blocks: unknown[]
+): Parameters<typeof deriveSessionChanges>[2] {
+  return blocks as unknown as Parameters<typeof deriveSessionChanges>[2];
+}
+
 function assistantWithBlocks(id: number, blocks: unknown[]): Msg {
   return {
     id,
@@ -425,6 +433,38 @@ describe("deriveSessionChanges", () => {
     ];
 
     expect(deriveSessionChanges(msgs, ROOT)).toEqual([]);
+  });
+
+  it("counts the running turn's live edits, which no persisted message carries yet", () => {
+    // 发送那一刻插进 messages 的 assistant 是 blocks 为空的占位,整轮的内容都在
+    // chat-streams-store 的 liveBlocks 里,直到 turn 落定才被真正的块替换。只读
+    // messages 就等于「AI 正在改文件时这一页恒为空」。
+    const msgs = [userMsg(1, "u1"), assistantWithBlocks(2, [])];
+    const live = liveBlocks(
+      editBlock("Edit", "a.go", [{ path: "a.go", plus: 3, minus: 1 }]),
+    );
+
+    expect(deriveSessionChanges(msgs, ROOT, live)[0]).toMatchObject({
+      path: "a.go",
+      status: "modified",
+      plus: 3,
+      minus: 1,
+      lastTurn: 1,
+    });
+  });
+
+  it("counts a tool call once when a mid-turn reload already persisted a block that is still live", () => {
+    // 轮次跑到一半重新装载会话时,后端已经把这一段块落库了,而同一批调用仍留在
+    // 在流里。按 toolUseId 去重,否则 ±行数在每次重载后翻倍。
+    const persisted = {
+      ...editBlock("Edit", "a.go", [{ path: "a.go", plus: 3, minus: 1 }]),
+      toolUseId: "call-1",
+    };
+    const msgs = [userMsg(1, "u1"), assistantWithBlocks(2, [persisted])];
+
+    const rows = deriveSessionChanges(msgs, ROOT, liveBlocks(persisted));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ plus: 3, minus: 1 });
   });
 
   it("returns an empty array for an empty transcript", () => {

@@ -47,6 +47,7 @@ import {
   selectActivePreviewTab,
   useFilePreviewTabsStore,
 } from "@/stores/file-preview-tabs-store";
+import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { ChatContextSidebar } from "../index";
@@ -174,6 +175,7 @@ beforeEach(() => {
   });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
+  useChatStreamsStore.setState({ streams: new Map() });
   listDirMock.mockReset();
   listDirMock.mockResolvedValue({ path: CWD, entries: [], truncated: false });
   gitChangesMock.mockReset();
@@ -228,6 +230,33 @@ describe("「变更」页 · 本次会话档", () => {
       "README.md",
       "docs/gone.md",
     ]);
+  });
+
+  it("正在跑的那一轮改到的文件当场进列表，不必等轮次落定", () => {
+    // 在流的内容不在 messages 里：发送那一刻插进去的 assistant 是空占位，整轮的
+    // 块都住在 chat-streams-store，落定时才被真正的消息替换。只读 messages 的话
+    // AI 改文件的**整个过程**中这一页都写着「本会话还没有工具改动过文件」。
+    useChatStreamsStore.getState().openStream({
+      name: "chat:7:live",
+      sessionId: 7,
+      assistantMessageId: 99,
+      streamStartedAt: 0,
+    });
+    useChatStreamsStore
+      .getState()
+      .appendLiveToolUse(
+        7,
+        99,
+        editBlock("live/only.go", "modified", 8, 2) as never,
+      );
+
+    renderSidebar();
+
+    const row = changeRow("live/only.go");
+    expect(within(row).getByText("only.go")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Changes/ })).toHaveTextContent(
+      /^Changes4$/,
+    );
   });
 
   it("行是扁平的：basename 主显 + 目录后缀，右端是本会话累计的 ±N", () => {

@@ -135,10 +135,20 @@ type Touch = {
   minus: number;
 };
 
+/**
+ * ChangeSourceBlock 是本档取数只需要读的最小结构：已落库的 `chat_svc.ChatBlock`
+ * 与在流的 `ChatBlockData`（= 同一个 wire 形状去掉 wails 注入的 convertValues）
+ * 都满足它，两段因此走同一条派生，不必各写一份。
+ */
+type ChangeSourceBlock = {
+  toolUseId?: string;
+  canonical?: chat_svc.ChatBlock["canonical"];
+};
+
 // canonicalTouches 把一个块的 canonical 载荷拆成若干次改动。行数由 producer 算好
 // （plus / minus / lines），前端不重复解析 diff；没有 canonical 的历史块产不出
 // 状态与行数，本档因此不收它们——「工具改了什么」的四种状态全部来自 canonical。
-function canonicalTouches(block: chat_svc.ChatBlock): Touch[] {
+function canonicalTouches(block: ChangeSourceBlock): Touch[] {
   const canonical = block.canonical;
   if (!canonical) return [];
   if (canonical.kind === "file.edit") {
@@ -167,8 +177,16 @@ function canonicalTouches(block: chat_svc.ChatBlock): Touch[] {
 }
 
 /**
- * deriveSessionChanges 回答「本次会话里工具改了什么」（spec 决策 3）：只读消息里
- * 的 canonical 块、不读 git，因此 AI 中途提交、事后 rebase 或 amend 都不影响它。
+ * deriveSessionChanges 回答「本次会话里工具改了什么」（spec 决策 3）：只读
+ * canonical 块、不读 git，因此 AI 中途提交、事后 rebase 或 amend 都不影响它。
+ *
+ * 取数是**已落库的消息 + 当前在流的 liveBlocks 两段**：发送那一刻插进 messages
+ * 的 assistant 是 blocks 为空的占位，正在跑的这一轮全部内容都在 liveBlocks 里，
+ * 只读 messages 就等于「AI 正在改文件时这一页恒为空」。live 的那一段归属当前
+ * 轮次（messages 里最后一条 user 消息那一轮）。
+ *
+ * 两段可能重叠：轮次跑到一半重新装载会话时，后端已把这一段块落库，而同一批调用
+ * 仍留在在流里 —— 按 toolUseId 去重，否则 ±行数每重载一次翻一倍。
  *
  * 一个文件一行，状态取**最后一次**调用（file.edit 取它的 kind，file.write 取
  * 「写入」），`±N` 累计本会话的调用、并在每一次全量写入处重新起算（见
@@ -177,44 +195,57 @@ function canonicalTouches(block: chat_svc.ChatBlock): Touch[] {
 export function deriveSessionChanges(
   messages: Msg[],
   root: string,
+  liveBlocks: readonly ChangeSourceBlock[] = [],
 ): ChangeRow[] {
   const rows = new Map<string, ChangeRow>();
+  const seenToolCalls = new Set<string>();
   let turn = 0;
+  const collect = (block: ChangeSourceBlock) => {
+    const toolUseId = block.toolUseId;
+    if (toolUseId) {
+      if (seenToolCalls.has(toolUseId)) return;
+      seenToolCalls.add(toolUseId);
+    }
+    for (const touch of canonicalTouches(block)) {
+      const path = resolveToolPathInRoot(touch.path, root);
+      if (path === null) continue;
+      const cut = path.lastIndexOf("/");
+      const row = rows.get(path) ?? {
+        path,
+        name: cut < 0 ? path : path.slice(cut + 1),
+        dir: cut < 0 ? "" : path.slice(0, cut),
+        status: touch.status,
+        plus: 0,
+        minus: 0,
+        lastTurn: 0,
+      };
+      row.status = touch.status;
+      if (touch.status === "written") {
+        // 全量写入把此前的累计一笔勾销：它不携带写入前的内容,把前面那些
+        // 增量的减数留在行上,等于说这次写入做过一次逐行对比——正是决策 14
+        // 要避免的那句谎话。写入之后的增量改动再在这个基数上累加。
+        row.plus = touch.plus;
+        row.minus = 0;
+      } else {
+        row.plus += touch.plus;
+        row.minus += touch.minus;
+      }
+      row.lastTurn = Math.max(row.lastTurn, turn);
+      rows.set(path, row);
+    }
+  };
+
   for (const m of messages) {
     if (m.role === "user") {
       turn += 1;
       continue;
     }
-    for (const block of m.blocks ?? []) {
-      for (const touch of canonicalTouches(block)) {
-        const path = resolveToolPathInRoot(touch.path, root);
-        if (path === null) continue;
-        const cut = path.lastIndexOf("/");
-        const row = rows.get(path) ?? {
-          path,
-          name: cut < 0 ? path : path.slice(cut + 1),
-          dir: cut < 0 ? "" : path.slice(0, cut),
-          status: touch.status,
-          plus: 0,
-          minus: 0,
-          lastTurn: 0,
-        };
-        row.status = touch.status;
-        if (touch.status === "written") {
-          // 全量写入把此前的累计一笔勾销：它不携带写入前的内容,把前面那些
-          // 增量的减数留在行上,等于说这次写入做过一次逐行对比——正是决策 14
-          // 要避免的那句谎话。写入之后的增量改动再在这个基数上累加。
-          row.plus = touch.plus;
-          row.minus = 0;
-        } else {
-          row.plus += touch.plus;
-          row.minus += touch.minus;
-        }
-        row.lastTurn = Math.max(row.lastTurn, turn);
-        rows.set(path, row);
-      }
-    }
+    for (const block of m.blocks ?? []) collect(block);
   }
+  // 在流的那一段属于当前轮次 —— turn 已经数到最后一条 user 消息，右键「跳到对应
+  // 轮次」因此落在这一轮的提问上，而不是上一轮。
+  for (const block of liveBlocks) collect(block);
+
   return [...rows.values()].sort((a, b) => {
     const size = b.plus + b.minus - (a.plus + a.minus);
     return size !== 0 ? size : a.path.localeCompare(b.path);

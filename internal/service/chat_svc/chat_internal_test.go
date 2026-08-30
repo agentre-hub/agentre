@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -141,7 +142,8 @@ func TestToChatMessage_TokenFields(t *testing.T) {
 // TestToChatMessage_NestedToolUse pins replay 把 subagent 内层 ToolUse 投影成
 // type=tool_use + ParentToolCallID(json: parentToolUseId)。前端 chat.tsx
 // collectChildren 据此把它从主流程移走、挂到外层 AgentSpawnCard.childBlocks。
-// canonical 故意不算 —— 内层是被父 agent.spawn 包住的 step。
+// Read 这类只读工具没有 canonical 形状,内层同样不凭空造一个(写工具走
+// TestToChatMessage_NestedToolUseCarriesCanonical 那一条)。
 func TestToChatMessage_NestedToolUse(t *testing.T) {
 	m := &chat_entity.Message{ID: 1, SessionID: 9, Role: "assistant"}
 	require.NoError(t, m.SetBlocks([]blocks.ContentBlock{
@@ -163,7 +165,42 @@ func TestToChatMessage_NestedToolUse(t *testing.T) {
 	assert.Equal(t, "/x.go", cm.Blocks[0].ToolInput["file_path"])
 	assert.Equal(t, "task-outer-1", cm.Blocks[0].ParentToolCallID)
 	assert.Equal(t, "run-1", cm.Blocks[0].SubagentRunID)
-	assert.Nil(t, cm.Blocks[0].Canonical, "内层 step 不走 canonical 路由,由父 agent.spawn 接管")
+	assert.Nil(t, cm.Blocks[0].Canonical, "Read 没有 canonical 形状,不该凭空造一个")
+}
+
+// TestToChatMessage_NestedToolUseCarriesCanonical pins subagent 内层的**写工具**在
+// replay 时同样带上 canonical。侧栏「变更」页与 AgentSpawnCard 组头的「改了几个
+// 文件 / ±行数」都只认 canonical(前端 tier.ts / transcript-rows.ts 明确不查工具名
+// 表),live 路径(handlers.ToolCallHandler)一直带着它 —— replay 不带就等于「会话
+// 重开之后,子代理改过的文件从这两处一起消失」。判据与 SessionWrittenPaths 同一
+// 条:嵌套调用也是 AI 的写入。
+func TestToChatMessage_NestedToolUseCarriesCanonical(t *testing.T) {
+	m := &chat_entity.Message{ID: 1, SessionID: 9, Role: "assistant"}
+	require.NoError(t, m.SetBlocks([]blocks.ContentBlock{
+		chatblocks.NestedToolUseBlock{
+			ID:   "nested-edit-1",
+			Name: "Edit",
+			Input: map[string]any{
+				"file_path":  "/repo/a.go",
+				"old_string": "old\n",
+				"new_string": "new\n",
+			},
+			ParentToolCallID: "task-outer-1",
+			SubagentRunID:    "run-1",
+		},
+	}))
+
+	cm, err := toChatMessage(m)
+	require.NoError(t, err)
+	require.Len(t, cm.Blocks, 1)
+	require.NotNil(t, cm.Blocks[0].Canonical)
+	assert.Equal(t, canonical.KindFileEdit, cm.Blocks[0].Canonical.Kind)
+	require.NotNil(t, cm.Blocks[0].Canonical.FileEdit)
+	require.Len(t, cm.Blocks[0].Canonical.FileEdit.Files, 1)
+	patch := cm.Blocks[0].Canonical.FileEdit.Files[0]
+	assert.Equal(t, "/repo/a.go", patch.Path)
+	assert.Equal(t, 1, patch.Plus)
+	assert.Equal(t, 1, patch.Minus)
 }
 
 // TestToChatMessage_NestedToolResult 同上,镜像 NestedToolResultBlock 路径:

@@ -141,7 +141,12 @@ func imageBlockToChatBlock(img blocks.ImageBlock) ChatBlock {
 // nestedToolUseToChatBlock 把 subagent 内层 ToolUse 投影到 wire ChatBlock。
 // 与外层 toolUseToChatBlock 的差别在于带 ParentToolCallID(json: parentToolUseId) +
 // 可选 SubagentRunID；前端据此先挂到外层 AgentSpawnCard，再按 normalized run 分组。
-// canonical 故意不算 —— 内层是被父 agent.spawn 包住的 step,不需要独立 canonical 路由。
+//
+// canonical 与外层同一条路子(canonical.FromToolUse)。内层不会因此多出一张独立
+// 卡 —— 前端 transcript-rows 见到 parentToolUseId 就把它归给父 AgentSpawnCard;
+// 但组头的「改了几个文件 / ±行数」和侧栏「变更」页只认 canonical、不查工具名表,
+// 内层不带就等于「会话重开之后子代理改过的文件全部消失」。live 路径
+// (handlers.ToolCallHandler)一直是带着 canonical 发的,这里补齐 replay 那一半。
 func nestedToolUseToChatBlock(b *chatblocks.NestedToolUseBlock) ChatBlock {
 	cb := ChatBlock{
 		Type:             ChatBlockTypeToolUse,
@@ -152,6 +157,9 @@ func nestedToolUseToChatBlock(b *chatblocks.NestedToolUseBlock) ChatBlock {
 	}
 	if len(b.Input) > 0 {
 		cb.ToolInput = b.Input
+	}
+	if c, ok := canonical.FromToolUse(b.Name, b.Input); ok {
+		cb.Canonical = view.FromCanonical(c)
 	}
 	return cb
 }

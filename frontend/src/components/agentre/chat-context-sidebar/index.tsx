@@ -2,6 +2,10 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
+import {
+  useChatStreamsStore,
+  type ChatBlockData,
+} from "@/stores/chat-streams-store";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
@@ -19,6 +23,8 @@ import { useGitState } from "./views/use-git-state";
 import { useWorkRoots } from "./views/use-work-roots";
 
 type Msg = chat_svc.ChatMessage;
+
+const EMPTY_LIVE_BLOCKS: ChatBlockData[] = [];
 
 type Props = {
   sessionId: number;
@@ -65,12 +71,25 @@ export function ChatContextSidebar({
     setWorkRoot(sessionId, workRoot);
   }, [setWorkRoot, sessionId, workRoot]);
 
+  // 正在跑的那一轮的块还没进 messages（发送时插的 assistant 是空占位，落定才被
+  // 真正的消息替换），它们住在 chat-streams-store。「变更」页读的是**会话级**
+  // 事实，用户轮 / 自主续轮 / 后台活动轮的在流一并收进来 —— 只读 messages 就等于
+  // AI 改文件的整个过程里这一页恒为空。直接订阅 store 而不是让 chat-panel 再传
+  // 一个 prop：本侧栏本就自持 sidebar / session-status 两个 store。
+  const sessionStreams = useChatStreamsStore((s) =>
+    sessionId ? (s.streams.get(sessionId) ?? null) : null,
+  );
+  const liveBlocks = React.useMemo(() => {
+    if (!sessionStreams) return EMPTY_LIVE_BLOCKS;
+    return Array.from(sessionStreams.values()).flatMap((s) => s.liveBlocks);
+  }, [sessionStreams]);
+
   const outline = React.useMemo(() => deriveOutline(messages), [messages]);
-  // 「本次会话」的行只从消息里的 canonical 块派生，当前工作根之外的路径在这里
-  // 就被挡掉（spec「归属过滤」）——不读 git，因此与有没有提交无关。
+  // 「本次会话」的行只从 canonical 块派生，当前工作根之外的路径在这里就被挡掉
+  // （spec「归属过滤」）——不读 git，因此与有没有提交无关。
   const sessionChanges = React.useMemo(
-    () => deriveSessionChanges(messages, workRoot),
-    [messages, workRoot],
+    () => deriveSessionChanges(messages, workRoot, liveBlocks),
+    [messages, workRoot, liveBlocks],
   );
 
   // 根切换器上每个根各自的变更数（spec「呈现」）：与行用的是同一个派生函数，
@@ -78,10 +97,13 @@ export function ChatContextSidebar({
   const changeCounts = React.useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of workRoots.roots) {
-      counts.set(r.path, deriveSessionChanges(messages, r.path).length);
+      counts.set(
+        r.path,
+        deriveSessionChanges(messages, r.path, liveBlocks).length,
+      );
     }
     return counts;
-  }, [messages, workRoots.roots]);
+  }, [messages, workRoots.roots, liveBlocks]);
 
   const turnToMessageId = React.useMemo(() => {
     const m = new Map<number, number>();
