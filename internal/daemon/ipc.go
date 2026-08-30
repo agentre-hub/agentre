@@ -68,16 +68,18 @@ func (d *Daemon) ipcStatus(w http.ResponseWriter, r *http.Request) {
 	// 体量在状态查询里看得见,用户据此自行判断何时该清理(见 Daemon.DBStat)。
 	dbStat := d.DBStat()
 	writeJSON(w, map[string]any{
-		"pid":              os.Getpid(),
-		"version":          BuildIdentity(),
-		"daemonUUID":       snap.DaemonInstanceUUID,
-		"listenURLs":       lanURLs(d),
-		"socketPath":       d.SocketPath(),
-		"pairedPeers":      summarizePeers(snap.PairedPeers),
-		"activeSessions":   d.activeSessionCount(r.Context()),
-		"llmProviderCount": len(snap.LLMProviders),
-		"dbPath":           dbStat.Path,
-		"dbSizeBytes":      dbStat.SizeBytes,
+		"pid":                   os.Getpid(),
+		"version":               BuildIdentity(),
+		"daemonUUID":            snap.DaemonInstanceUUID,
+		"listenURLs":            lanURLs(d),
+		"socketPath":            d.SocketPath(),
+		"pairedPeers":           summarizePeers(snap.PairedPeers),
+		"relayConnected":        d.hub != nil && d.hub.Connected(),
+		"clientConnectionCount": d.conns.connectionCount(),
+		"activeSessions":        d.activeSessionCount(r.Context()),
+		"llmProviderCount":      len(snap.LLMProviders),
+		"dbPath":                dbStat.Path,
+		"dbSizeBytes":           dbStat.SizeBytes,
 	})
 }
 

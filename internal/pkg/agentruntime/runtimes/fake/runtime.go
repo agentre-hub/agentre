@@ -36,6 +36,11 @@ const ContextWindowTokens = 1_000_000
 // SystemAssertDirectivePrefix 触发 system prompt 可观测断言:e2e-assert-system:<needle>。
 const SystemAssertDirectivePrefix = "e2e-assert-system:"
 
+// CwdAssertDirectivePrefix 触发本轮工作目录断言:e2e-assert-cwd:<absolute path>。
+// 它只回显 RunRequest.Cwd 是否命中，让 E2E 在 runtime 所拥有的边界观察项目路径；
+// chat_sessions.cwd 对项目会话可以为空，不能拿持久化字段替代执行时解析结果。
+const CwdAssertDirectivePrefix = "e2e-assert-cwd:"
+
 // SubagentCallDirectivePrefix 触发调用子 agent 的用户指令:
 // e2e-subagent-call:<子agent名>:<交给它的prompt>。需 agent 开启 subagent 工具
 // (注入 /mcp/subagent/);agent_call 无审批,同步阻塞到子 agent 跑完返回其文本。
@@ -150,6 +155,13 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			reply += "\ne2e-system-ok:" + needle
 		} else {
 			reply += "\ne2e-system-missing:" + needle
+		}
+	}
+	if expected, ok := parseOnePartDirective(req.UserText, CwdAssertDirectivePrefix); ok {
+		if req.Cwd == expected {
+			reply += "\ne2e-cwd-ok:" + expected
+		} else {
+			reply += "\ne2e-cwd-mismatch:" + req.Cwd
 		}
 	}
 	chunkDelay := configuredChunkDelay()

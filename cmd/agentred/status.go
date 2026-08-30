@@ -53,6 +53,13 @@ func printStatusDetails(w io.Writer, v map[string]any) {
 		_, _ = fmt.Fprintf(w, "  %v\n", u)
 	}
 	_, _ = fmt.Fprintf(w, "Paired devices: %d\n", len(toAnySlice(v["pairedPeers"])))
+	state := "disconnected"
+	if connected, _ := v["relayConnected"].(bool); connected {
+		state = "connected"
+	}
+	_, _ = fmt.Fprintf(w, "Relay: %s\n", state)
+	count, _ := v["clientConnectionCount"].(float64)
+	_, _ = fmt.Fprintf(w, "Client connections: %.0f\n", count)
 	_, _ = fmt.Fprintf(w, "Active sessions: %v\n", v["activeSessions"])
 	_, _ = fmt.Fprintf(w, "LLM providers: %v\n", v["llmProviderCount"])
 	if path, ok := v["dbPath"].(string); ok && path != "" {

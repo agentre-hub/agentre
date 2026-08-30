@@ -28,9 +28,10 @@ import (
 type Fault string
 
 const (
-	FaultNone       Fault = ""
-	FaultDisconnect Fault = "disconnect"
-	FaultProtocol   Fault = "protocol"
+	FaultNone                  Fault = ""
+	FaultDisconnect            Fault = "disconnect"
+	FaultRecoverableDisconnect Fault = "recoverable-disconnect"
+	FaultProtocol              Fault = "protocol"
 )
 
 // Options contains only generated E2E identity and loopback configuration.
@@ -51,6 +52,13 @@ type RecordedRequest struct {
 // Snapshot is a defensive, sanitized copy of the fake's observable protocol history.
 type Snapshot struct {
 	Requests []RecordedRequest `json:"requests"`
+	Sessions []SessionSnapshot `json:"sessions"`
+}
+
+// SessionSnapshot exposes only journal progress needed by the independent E2E oracle.
+type SessionSnapshot struct {
+	SessionID int64 `json:"sessionId"`
+	LatestSeq int64 `json:"latestSeq"`
 }
 
 type session struct {
@@ -128,9 +136,18 @@ func (s *Server) SetNextRunFault(fault Fault) {
 func (s *Server) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]RecordedRequest, len(s.requests))
-	copy(out, s.requests)
-	return Snapshot{Requests: out}
+	requests := make([]RecordedRequest, len(s.requests))
+	copy(requests, s.requests)
+	ids := make([]int64, 0, len(s.sessions))
+	for id := range s.sessions {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	sessions := make([]SessionSnapshot, 0, len(ids))
+	for _, id := range ids {
+		sessions = append(sessions, SessionSnapshot{SessionID: id, LatestSeq: s.sessions[id].latestSeq})
+	}
+	return Snapshot{Requests: requests, Sessions: sessions}
 }
 
 // Close stops listener and every upgraded socket. It is idempotent.
@@ -282,11 +299,19 @@ func (s *Server) streamRun(conn *protorpc.Conn, params *agentrewire.RuntimeRunRe
 	if fault == FaultDisconnect {
 		chunks = []string{"remote-peer-partial: " + params.UserText}
 	}
-	for _, chunk := range chunks {
+	disconnected := false
+	for index, chunk := range chunks {
 		n := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: params.SessionId, Event: &agentrewire.RuntimeEventNotification_TextDelta{TextDelta: &agentrewire.TextDelta{Text: chunk}}}}}
 		s.appendNotification(params.SessionId, n)
-		if err := conn.Notify(n); err != nil {
-			return
+		if !disconnected {
+			if err := conn.Notify(n); err != nil {
+				return
+			}
+		}
+		if fault == FaultRecoverableDisconnect && index == 0 {
+			disconnected = true
+			_ = conn.Close()
+			time.Sleep(25 * time.Millisecond)
 		}
 		if fault == FaultDisconnect {
 			s.setLifecycle(params.SessionId, wire.SessionLifecycleInterrupted)
@@ -304,12 +329,17 @@ func (s *Server) streamRun(conn *protorpc.Conn, params *agentrewire.RuntimeRunRe
 	}
 	done := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: params.SessionId, Event: &agentrewire.RuntimeEventNotification_Done{Done: &agentrewire.Done{}}}}}
 	s.appendNotification(params.SessionId, done)
-	if err := conn.Notify(done); err != nil {
-		return
+	if !disconnected {
+		if err := conn.Notify(done); err != nil {
+			return
+		}
 	}
 	terminal := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{SessionId: params.SessionId, ProviderSessionId: providerSessionID, Model: "remote-peer-model"}}}
 	s.appendNotification(params.SessionId, terminal)
 	s.setLifecycle(params.SessionId, wire.SessionLifecycleIdle)
+	if disconnected {
+		return
+	}
 	_ = conn.Notify(terminal)
 }
 
@@ -463,7 +493,7 @@ func (s *Server) handleFault(w http.ResponseWriter, r *http.Request) {
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&body) != nil || (body.Fault != FaultDisconnect && body.Fault != FaultProtocol) {
+	if decoder.Decode(&body) != nil || (body.Fault != FaultDisconnect && body.Fault != FaultRecoverableDisconnect && body.Fault != FaultProtocol) {
 		http.Error(w, "invalid fault", http.StatusBadRequest)
 		return
 	}

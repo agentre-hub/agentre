@@ -1169,6 +1169,8 @@ func TestGivenRunningDaemonWhenReadingIPCStatusThenReportsIdentityAndPairing(t *
 	require.NoError(t, json.Unmarshal(body, &v))
 	assert.NotEmpty(t, v["daemonUUID"])
 	assert.Equal(t, "v1.2.3 (abcdef1)", v["version"])
+	assert.Equal(t, false, v["relayConnected"])
+	assert.Equal(t, float64(0), v["clientConnectionCount"])
 	assert.NotContains(t, v, "keyStorage")
 
 	resp2, err := c.Get("http://daemon/local/pair")

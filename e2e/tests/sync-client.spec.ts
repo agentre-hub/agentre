@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import type { sync_svc } from "../../frontend/wailsjs/go/models";
+
 import {
   outboundQueueCountForSyncID,
   projectByName,
@@ -48,13 +50,7 @@ type WailsWindow = {
     app: {
       App: {
         SyncNow(): Promise<void>;
-        SyncStatus(): Promise<{
-          Enabled: boolean;
-          AccountID: number;
-          Cursor: number;
-          PendingCount: number;
-          LastError: string;
-        }>;
+        SyncStatus(): Promise<sync_svc.Status>;
       };
     };
   };
@@ -64,8 +60,8 @@ test.describe.serial("sync client smoke", () => {
   test("Given a logged-in isolated identity, when a project is created and a peer project is queued, then real push/pull carries identity, version/cursor, payload and converges in UI plus SQLite", async ({ page }) => {
     await page.goto("/");
     const initialStatus = await syncStatus(page);
-    expect(initialStatus.Enabled).toBe(true);
-    expect(initialStatus.AccountID).toBeGreaterThan(0);
+    expect(initialStatus.enabled).toBe(true);
+    expect(initialStatus.accountID).toBeGreaterThan(0);
 
     await createProject(page, localName);
     const local = await expect.poll(() => projectByName(localName)).not.toBeUndefined();
@@ -114,7 +110,7 @@ test.describe.serial("sync client smoke", () => {
       local_path_missing: 1,
     });
     const pulls = (await fakeSyncRequests()).filter((request) => request.path === "/v1/sync/pull");
-    expect(pulls.some((request) => Number(request.query.cursor) >= initialStatus.Cursor)).toBe(true);
+    expect(pulls.some((request) => Number(request.query.cursor) >= initialStatus.cursor)).toBe(true);
   });
 
   test("Given auth rejection or invalid sync responses, when local projects are created, then the existing object remains, queued work is retained, and the existing sync error contract is observable", async ({ page }) => {
@@ -126,7 +122,7 @@ test.describe.serial("sync client smoke", () => {
     void rejected;
     const rejectedRow = projectByName(rejectedName)!;
     await expect.poll(() => outboundQueueCountForSyncID(rejectedRow.sync_id)).toBeGreaterThan(0);
-    await expect.poll(async () => (await syncStatus(page)).LastError).not.toBe("");
+    await expect.poll(async () => (await syncStatus(page)).lastError).not.toBe("");
     expect(projectByName(rejectedName)?.name).toBe(rejectedName);
 
     await configureSyncFaults({ invalidPush: 1 });
@@ -136,18 +132,18 @@ test.describe.serial("sync client smoke", () => {
     const invalid = projectByName(invalidName)!;
     await expect.poll(() => outboundQueueCountForSyncID(invalid.sync_id)).toBeGreaterThan(0);
     const failedStatus = await expect.poll(async () => syncStatus(page)).toMatchObject({
-      Enabled: true,
-      PendingCount: expect.any(Number),
+      enabled: true,
+      pendingCount: expect.any(Number),
     });
     void failedStatus;
-    expect((await syncStatus(page)).PendingCount).toBeGreaterThan(0);
-    expect((await syncStatus(page)).LastError).not.toBe("");
+    expect((await syncStatus(page)).pendingCount).toBeGreaterThan(0);
+    expect((await syncStatus(page)).lastError).not.toBe("");
     expect(projectByName(invalidName)?.name).toBe(invalidName);
 
     await page.getByTestId("nav-settings").click();
     await page.getByTestId("settings-nav-sync").click();
     await expect(page.locator('[data-slot="sync-status-card"]')).toContainText(
-      (await syncStatus(page)).LastError,
+      (await syncStatus(page)).lastError,
     );
   });
 });

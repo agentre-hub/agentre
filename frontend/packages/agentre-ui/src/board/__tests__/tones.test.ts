@@ -8,7 +8,6 @@ import { ISSUE_TONES } from "../types";
 /**
  * 色板从五档语义名（`bug` / `critical` / …）改成 8 档颜色名之后，这里钉三件事：
  * **取值域**、**每一档具体落在哪对 token 上**、以及**那些 token 真的存在**。
- * 逐档在两个主题上的对比度实测由宿主那份 `__tests__/issue-tones.test.ts` 覆盖。
  */
 
 /** 与 boundary.test.ts / i18n.test.tsx 同一套定位法：宿主与包两个 cwd 都要能跑。 */

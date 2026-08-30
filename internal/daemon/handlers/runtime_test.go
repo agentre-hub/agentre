@@ -999,6 +999,40 @@ func TestRuntime_Run_NoProvider_EmitsEventsAndDone(t *testing.T) {
 	assert.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
+func TestRuntime_Run_GivenRPCContextEndsAfterAck_ThenNonPiTurnKeepsDelivering(t *testing.T) {
+	events := make(chan agentruntime.Event, 2)
+	var runCtx context.Context
+	rt := &fullRT{}
+	rt.runFn = func(ctx context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		runCtx = ctx
+		return events, &agentruntime.RunResult{}, nil
+	}
+	baseCtx, notif, _, _, h := setupRuntimeTest(t, rt)
+	rpcCtx, cancelRPC := context.WithCancel(baseCtx)
+
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	_, err := h.Run(rpcCtx, wire.RunParams{
+		Backend:   backendJSON(t, be),
+		SessionID: 43,
+		UserText:  "hello",
+	})
+	require.NoError(t, err)
+	cancelRPC() // Protobuf writes the ACK, then ends the per-request context.
+
+	select {
+	case <-runCtx.Done():
+		t.Fatal("runtime turn context ended with the acknowledged RPC")
+	default:
+	}
+	events <- agentruntime.TextDelta{Text: "assistant reply"}
+	events <- agentruntime.Done{}
+	close(events)
+
+	frames := notif.waitFrames(t, 3) // assistant + done + terminal result
+	assert.Equal(t, agentruntime.TextDelta{Text: "assistant reply"}, frames[0].params.(*wire.EventFrame).Event)
+	assert.Equal(t, wire.NotifyRunResultDone, frames[2].method)
+}
+
 func TestRuntime_Run_ForwardsContentBearingEventsWithoutLoggingPayload(t *testing.T) {
 	const (
 		inputSentinel   = "SENTINEL_DAEMON_TOOL_INPUT"

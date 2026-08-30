@@ -62,6 +62,54 @@ export function runningSessionCount(): number {
   return queryCount("SELECT COUNT(*) AS n FROM chat_sessions WHERE agent_status = 'running'");
 }
 
+export function seededLocalAgentID(): number {
+  const row = query<{ id: number }>(
+    `SELECT a.id
+       FROM agents a
+       JOIN agent_exec_targets t ON t.agent_id = a.id
+       JOIN agent_backends b ON b.id = t.agent_backend_id
+      WHERE b.name = 'E2E Local Backend' AND a.status = 1 AND b.status = 1
+   ORDER BY t.sort_order, a.id
+      LIMIT 1`,
+  )[0];
+  if (!row) throw new Error("E2E composition must seed the local agent");
+  return row.id;
+}
+
+export type LocalSession = {
+  id: number;
+  agent_status: string;
+  provider_session_id: string;
+  project_id: number;
+};
+
+export function sessionByPrompt(prompt: string): LocalSession | undefined {
+  return query<LocalSession>(
+    `SELECT s.id, s.agent_status, s.provider_session_id, s.project_id
+       FROM chat_sessions s
+       JOIN chat_messages m ON m.session_id = s.id AND m.role = 'user'
+       JOIN chat_message_blocks b ON b.message_id = m.id
+      WHERE b.codec = 0 AND b.data LIKE '%' || ? || '%'
+   ORDER BY s.id DESC
+      LIMIT 1`,
+    prompt,
+  )[0];
+}
+
+export function sessionMessageCounts(sessionID: number): { user: number; assistant: number } {
+  const counts = query<{ role: string; n: number }>(
+    `SELECT role, COUNT(*) AS n
+       FROM chat_messages
+      WHERE session_id = ? AND role IN ('user', 'assistant')
+   GROUP BY role`,
+    sessionID,
+  );
+  return {
+    user: counts.find((row) => row.role === "user")?.n ?? 0,
+    assistant: counts.find((row) => row.role === "assistant")?.n ?? 0,
+  };
+}
+
 // 正文按「一块一行」存在 chat_message_blocks（迁移 202608270002 同时删掉了
 // chat_messages.blocks_json 那一列），所以按内容找消息要连到块表上。
 //

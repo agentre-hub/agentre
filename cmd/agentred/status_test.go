@@ -56,6 +56,37 @@ func TestGivenOlderStatusWithoutVersionWhenPrintingThenStillRenders(t *testing.T
 	assert.NotContains(t, buf.String(), "Version:")
 }
 
+func TestGivenDaemonConnectionStateWhenPrintingThenShowsRelayAndClientConnections(t *testing.T) {
+	var buf bytes.Buffer
+	printStatus(&buf, map[string]any{
+		"pid":                   float64(1),
+		"listenURLs":            []any{},
+		"pairedPeers":           []any{},
+		"activeSessions":        float64(0),
+		"llmProviderCount":      float64(0),
+		"relayConnected":        true,
+		"clientConnectionCount": float64(2),
+	})
+
+	assert.Contains(t, buf.String(), "Relay: connected\n")
+	assert.Contains(t, buf.String(), "Client connections: 2\n")
+}
+
+func TestGivenZeroConnectionStateWhenPrintingThenNeverShowsLegacyUnknownCopy(t *testing.T) {
+	var buf bytes.Buffer
+	printStatus(&buf, map[string]any{
+		"pid":              float64(1),
+		"listenURLs":       []any{},
+		"pairedPeers":      []any{},
+		"activeSessions":   float64(0),
+		"llmProviderCount": float64(0),
+	})
+
+	assert.Contains(t, buf.String(), "Relay: disconnected\n")
+	assert.Contains(t, buf.String(), "Client connections: 0\n")
+	assert.NotContains(t, buf.String(), "unknown")
+}
+
 // TestPrintStatus_OmitsDatabaseLineWhenDaemonDoesNotReportIt 老 daemon 的状态应答里没有
 // dbPath,此时不能印一行空路径的 "Database:" —— 那会让人以为库文件丢了。
 func TestPrintStatus_OmitsDatabaseLineWhenDaemonDoesNotReportIt(t *testing.T) {

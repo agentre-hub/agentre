@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -68,6 +69,41 @@ func TestServerGivenTypedRuntimeRunThenStreamsAndJournalsBinaryNotifications(t *
 	pull, err := protorpc.CallMethod(ctx, cli.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{SessionId: 42}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
 	require.NoError(t, err)
 	require.NotEmpty(t, pull.Notifications)
+	assert.NotNil(t, pull.Notifications[len(pull.Notifications)-1].Payload.GetRunResultDone())
+}
+
+func TestServerGivenRecoverableDisconnectWhenClientReconnectsThenJournalCanBeAttachedAndPulledToTerminal(t *testing.T) {
+	server := startTestServer(t)
+	server.SetNextRunFault(FaultRecoverableDisconnect)
+	cli := authenticatedClient(t, server)
+	closed := cli.Closed()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := protorpc.CallMethod(ctx, cli.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), &agentrewire.RuntimeRunRequest{SessionId: 43, UserText: "recover"}, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	require.NoError(t, err)
+	select {
+	case <-closed:
+	case <-ctx.Done():
+		t.Fatal("recoverable fault did not disconnect the owning client")
+	}
+
+	reconnected := authenticatedClient(t, server)
+	var attached *agentrewire.SessionAttachResponse
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		var callErr error
+		attached, callErr = protorpc.CallMethod(ctx, reconnected.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{SessionId: 43}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
+		assert.NoError(collect, callErr)
+		if attached != nil {
+			assert.Equal(collect, wire.SessionLifecycleIdle, attached.LifecycleState)
+			assert.Equal(collect, int64(5), attached.LatestSeq)
+		}
+	}, time.Second, 10*time.Millisecond)
+
+	pull, err := protorpc.CallMethod(ctx, reconnected.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{SessionId: 43}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+	require.NoError(t, err)
+	require.Len(t, pull.Notifications, 5)
+	assert.Equal(t, int64(5), pull.Cursor)
+	assert.Equal(t, "remote-peer-", pull.Notifications[0].Payload.GetRuntimeEvent().GetTextDelta().Text)
 	assert.NotNil(t, pull.Notifications[len(pull.Notifications)-1].Payload.GetRunResultDone())
 }
 

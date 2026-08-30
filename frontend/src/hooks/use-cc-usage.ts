@@ -65,9 +65,3 @@ export function useCCUsage(deviceKey: string): UsageState | undefined {
 
   return useCCUsageFor(deviceKey);
 }
-
-// __resetCCUsageHookForTests 仅供单测在不同测试间清掉模块状态。
-export function __resetCCUsageHookForTests() {
-  subscribed = false;
-  initializedKeys.clear();
-}

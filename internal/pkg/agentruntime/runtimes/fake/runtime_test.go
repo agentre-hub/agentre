@@ -145,6 +145,37 @@ func TestRun_ReportsMissingSystemPromptNeedle(t *testing.T) {
 	assert.Contains(t, text, "e2e-system-missing:E2E_SYSTEM_SENTINEL")
 }
 
+func TestRun_ReportsWhetherCwdMatchesDirective(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		cwd      string
+		expected string
+	}{
+		{name: "when cwd matches, then reports the resolved project path", cwd: "/work/project", expected: "e2e-cwd-ok:/work/project"},
+		{name: "when cwd differs, then reports the actual runtime path", cwd: "/work/other", expected: "e2e-cwd-mismatch:/work/other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			events, _, err := New().Run(ctx, agentruntime.RunRequest{
+				SessionID: 22,
+				UserText:  "e2e-assert-cwd:/work/project",
+				Cwd:       tc.cwd,
+			})
+			require.NoError(t, err)
+
+			var text string
+			for ev := range events {
+				if delta, ok := ev.(agentruntime.TextDelta); ok {
+					text += delta.Text
+				}
+			}
+			assert.Contains(t, text, tc.expected)
+		})
+	}
+}
+
 // e2e-ask:<question> → fake emit 一条未答的 UserAskRequest(带问题/选项)后 Done。
 // chat_svc finalize 据此把 ask 标 expired(失效终态 e2e 的产出端)。
 func TestRun_EmitsUserAskRequestOnDirective(t *testing.T) {

@@ -10,7 +10,9 @@ const runID = process.env.AGENTRE_E2E_RUN_ID;
 if (!runID) throw new Error("remote peer smoke must be started by the E2E runner");
 const SUCCESS_PROMPT = `remote-peer-stream-${runID}`;
 const FAILURE_PROMPT = `remote-peer-disconnect-${runID}`;
+const RECOVERY_PROMPT = `remote-peer-recover-${runID}`;
 const SUCCESS_REPLY = `remote-peer-reply: ${SUCCESS_PROMPT}`;
+const RECOVERY_REPLY = `remote-peer-reply: ${RECOVERY_PROMPT}`;
 const REMOTE_AGENT = "E2E Remote Agent";
 
 async function createRemoteChat(page: Page) {
@@ -35,7 +37,7 @@ function remoteControl() {
   return { url, token };
 }
 
-async function configureNextFault(fault: "disconnect" | "protocol") {
+async function configureNextFault(fault: "disconnect" | "recoverable-disconnect" | "protocol") {
   const { url, token } = remoteControl();
   const response = await fetch(`${url}/fault`, {
     method: "POST",
@@ -56,6 +58,18 @@ async function remoteRequests(): Promise<Array<{
   });
   if (!response.ok) throw new Error(`remote fake recorder returned HTTP ${response.status}`);
   return ((await response.json()) as { requests: Array<{ connectionId: number; method: string; params?: Record<string, unknown> }> }).requests;
+}
+
+async function remoteHighWater(sessionID: number): Promise<number | undefined> {
+  const { url, token } = remoteControl();
+  const response = await fetch(`${url}/snapshot`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`remote fake recorder returned HTTP ${response.status}`);
+  const snapshot = (await response.json()) as {
+    sessions: Array<{ sessionId: number; latestSeq: number }>;
+  };
+  return snapshot.sessions.find((session) => session.sessionId === sessionID)?.latestSeq;
 }
 
 test.describe.serial("remote peer smoke", () => {
@@ -105,6 +119,32 @@ test.describe.serial("remote peer smoke", () => {
     await expect.poll(() => runningSessionCount(), { timeout: 30_000 }).toBe(0);
     await expect.poll(() => remoteSessionByPrompt(FAILURE_PROMPT)?.agent_status, { timeout: 30_000 }).toBe("error");
     expect(remoteSessionByPrompt(FAILURE_PROMPT)?.error_text).not.toBe("");
+  });
+
+  test("Given a recoverable mid-stream disconnect, when the peer finishes journaling while offline, then desktop reconnects, attaches, pulls, and persists one complete idle reply", async ({ page }) => {
+    await configureNextFault("recoverable-disconnect");
+    await page.goto("/");
+    await createRemoteChat(page);
+    await send(page, RECOVERY_PROMPT);
+
+    await expect(page.getByText(RECOVERY_REPLY)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("tab-spinner")).toHaveCount(0, { timeout: 30_000 });
+    await expect.poll(() => runningSessionCount(), { timeout: 30_000 }).toBe(0);
+    await expect.poll(() => assistantMessageCountContaining(RECOVERY_REPLY), { timeout: 30_000 }).toBe(1);
+    const session = await expect.poll(() => remoteSessionByPrompt(RECOVERY_PROMPT), { timeout: 30_000 }).not.toBeUndefined();
+    void session;
+    const recovered = remoteSessionByPrompt(RECOVERY_PROMPT)!;
+    expect(recovered.agent_status).toBe("idle");
+    expect(recovered.error_text).toBe("");
+    await expect.poll(() => remoteHighWater(recovered.id)).toBe(recovered.event_cursor);
+
+    const requests = await remoteRequests();
+    const run = requests.find((request) => request.method === "runtime.run" && request.params?.user_text === RECOVERY_PROMPT);
+    expect(run).toBeDefined();
+    const reconnectRequests = requests.filter((request) => request.connectionId !== run!.connectionId);
+    for (const method of ["auth.connect", "runtime.session.list", "runtime.session.attach", "runtime.session.pull"]) {
+      expect(reconnectRequests.some((request) => request.method === method)).toBe(true);
+    }
   });
 
   test("Given an unknown remote event followed by the protocol terminal result, when the desktop decodes the stream, then it surfaces the failure and does not remain running", async ({ page }) => {

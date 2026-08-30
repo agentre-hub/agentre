@@ -475,7 +475,11 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 		}
 	}
 
-	events, result, err := rt.Run(ctx, req)
+	// Protobuf 请求在 RunAck 写出后就会取消 ctx；真实 CLI 的 assistant/usage
+	// 事件在 ACK 之后才持续到达，不能把一轮 turn 的寿命绑在这次请求上。
+	// 保留账号、连接与日志等 value，由 runtime 的结果/Abort/daemon shutdown 收尾。
+	runCtx := context.WithoutCancel(ctx)
+	events, result, err := rt.Run(runCtx, req)
 	if err != nil {
 		return wire.RunAck{}, err
 	}

@@ -190,7 +190,7 @@ Use `text-file-<tone>` (exposed via `--color-file-*` in the `@theme inline` bloc
 
 ### 3.6b Issue label tones (2 extra hues)
 
-The ten issue-label chips in [`components/agentre/issue-tones.ts`](../frontend/src/components/agentre/issue-tones.ts) are all "soft fill + a text color readable on that fill". Eight of them borrow an existing semantic family — `destructive-soft`/`destructive-text` (bug), `destructive` (critical), `secondary`/`secondary-foreground` (docs, ops), `status-running-*` (feature), `status-waiting-*` (perf), `primary-soft`/`primary-text` (hook, refactor). Two hues have no semantic home; they exist only to keep ten labels apart, so they get their own pair here.
+The shared issue-tone palette in [`board/tones.ts`](../frontend/packages/agentre-ui/src/board/tones.ts) uses "soft fill + a text color readable on that fill". Most tones borrow an existing semantic family. Two hues have no semantic home, so they get their own pair here.
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
@@ -199,7 +199,7 @@ The ten issue-label chips in [`components/agentre/issue-tones.ts`](../frontend/s
 | `tone-violet-bg` | `#f2ebfd` | `#2b2b3a` | Soft violet chip fill (`ui`) |
 | `tone-violet-text` | `#6d28d9` | `#a78bfa` | Text on `tone-violet-bg` |
 
-**Do not reach into the agent palette for this.** These two used to be `bg-agent-1/10 text-agent-1` / `bg-agent-2/10 text-agent-2`, which broke twice over: the `--agent-*` hues are *identity* built for `bg-agent-N` + a white glyph (§3.6) — as text on a card, half the sixteen miss 4.5 — and a `/10` tint is transparent, so the chip's real fill (and its contrast) shifted with whatever surface it landed on: `auth` measured 4.49 on `card`, 4.33 on `background`, 4.06 on a hovered list row. The fills above are the opaque equivalent of what the old tint rendered on a card, so the chips look the same but no longer depend on what is underneath. Guarded by [`components/agentre/__tests__/issue-tones.test.ts`](../frontend/src/components/agentre/__tests__/issue-tones.test.ts), which reads the classes back out of `issue-tones.ts`, resolves them through `tokens.css`, and asserts ≥ 4.5 for every tone on every surface, both themes.
+**Do not reach into the agent palette for this.** The `--agent-*` hues are *identity* colors built for `bg-agent-N` plus a white glyph (§3.6), not text colors for soft chips. The issue-tone contract and token ownership are guarded in the shared package by [`board/__tests__/tones.test.ts`](../frontend/packages/agentre-ui/src/board/__tests__/tones.test.ts).
 
 ### 3.7 Sidebar
 

@@ -187,6 +187,15 @@ type connRegistry struct {
 	subs map[sessionKey]map[connection.Conn]struct{}
 }
 
+// connectionCount reports authenticated client connections that are live now.
+// PairedPeers is persisted trust and may remain populated while every client is
+// offline, so status must read the live registry instead of deriving from it.
+func (r *connRegistry) connectionCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.live)
+}
+
 // liveConn is an authenticated connection's push port.
 //
 // n 是同步端口,会话属主走它 —— 推送失败要如实回到 sessionEmitter(「只落库不推送」

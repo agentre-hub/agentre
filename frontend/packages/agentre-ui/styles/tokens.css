@@ -181,7 +181,7 @@
      `text-agent-1` on a 10% tint was 4.49 light. Soft fill + text role, like
      every sibling tone. The fills reproduce what agent-1/2 at 10% used to render
      on a card, so the chips look unchanged but no longer shift with the surface
-     under them. Guarded by src/components/agentre/__tests__/issue-tones.test.ts. */
+     under them. Token ownership is guarded by src/board/__tests__/tones.test.ts. */
   --tone-blue-bg: #e9effd;
   --tone-blue-text: #1d4ed8;
   --tone-violet-bg: #f2ebfd;
