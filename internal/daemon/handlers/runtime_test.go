@@ -2080,6 +2080,25 @@ func TestRuntime_Run_PersistsTitleAgentSyncIDAndProviderSessionID(t *testing.T) 
 	}}, sess.started(), "起手建行必须带上标题、Agent 同步标识与 daemon 收回的 provider_session_id")
 }
 
+// TestRuntime_Run_ForwardsAgentSyncIDToRuntime 覆盖 web 发起的随手对话:浏览器没有
+// daemon 本地自增 agentID,没选项目时 cwd 也为空,runtime 只能用账号级同步标识解析
+// Agent 工作目录。协议边界收到的 AgentSyncID 必须原样进入 RunRequest。
+func TestRuntime_Run_ForwardsAgentSyncIDToRuntime(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, _, h := setupRuntimeTestWithSessions(t, rt)
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+
+	_, err := h.Run(ctx, wire.RunParams{
+		Backend: backendJSON(t, be), SessionID: 5, AgentID: 0, Cwd: "",
+		AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
+	})
+	require.NoError(t, err)
+	notif.waitFrames(t, 1) // runResultDone
+	require.Len(t, rt.runReqs, 1)
+	assert.Equal(t, "01KZNE7YKJQ6A79YVDCMW1A63R", rt.runReqs[0].req.AgentSyncID,
+		"web 随手对话必须把协议里的 AgentSyncID 交给 runtime 解析兜底 cwd")
+}
+
 // TestRuntime_Run_ContinuationResolvesStoredProviderSessionID 覆盖决策 8:provider_session_id
 // 落库之后,续话不再需要调用方提供 —— 调用方空着字段发下一轮时,daemon 用自己落库的那
 // 份把它续上。

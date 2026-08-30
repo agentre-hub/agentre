@@ -16,6 +16,10 @@ import (
 // SystemBadgeDefault 标记不可删除的 CEO 助手。
 const SystemBadgeDefault = "DEFAULT"
 
+// DefaultAgentSyncID 是账号级默认 CEO 助手的固定同步身份。每台桌面端都会 seed
+// 自己的本地行，但它们登录同一账号后必须在 server 上汇成同一个 Agent。
+const DefaultAgentSyncID = "agent:system:default-ceo"
+
 // AgentSkillItem Agent 技能包(= Claude Code plugin)开关。ID 形如 "name@marketplace"。
 type AgentSkillItem struct {
 	ID      string `json:"id"`
@@ -62,6 +66,22 @@ func (*Agent) TableName() string { return "agents" }
 
 func (a *Agent) IsActive() bool { return a != nil && a.Status == consts.ACTIVE }
 func (a *Agent) IsSystem() bool { return a != nil && a.SystemBadge == SystemBadgeDefault }
+
+// EnsureSyncID 保证默认 CEO 在所有桌面端使用同一个账号级同步身份；普通 Agent
+// 继续沿用 SyncMeta 的随机 ULID，并保留已经生成的身份。
+func (a *Agent) EnsureSyncID() {
+	if a == nil {
+		return
+	}
+	if a.IsSystem() {
+		a.SyncID = DefaultAgentSyncID
+		return
+	}
+	if a.SyncID != "" {
+		return
+	}
+	a.SyncMeta.EnsureSyncID()
+}
 
 func (a *Agent) GetPrompt() []string {
 	out := []string{}

@@ -434,6 +434,15 @@ func TestSeedCEOAgent(t *testing.T) {
 		t.Fatalf("CEO agent count = %d, want 1", count)
 	}
 
+	var ceoSyncID string
+	if err := gdb.Table("agents").Where("system_badge = ?", "DEFAULT").
+		Select("sync_id").Row().Scan(&ceoSyncID); err != nil {
+		t.Fatalf("scan CEO agent sync ID: %v", err)
+	}
+	if ceoSyncID != agent_entity.DefaultAgentSyncID {
+		t.Fatalf("CEO agent sync ID = %q, want canonical %q", ceoSyncID, agent_entity.DefaultAgentSyncID)
+	}
+
 	var deptCount int64
 	if err := gdb.Table("departments").Count(&deptCount).Error; err != nil {
 		t.Fatalf("count departments: %v", err)

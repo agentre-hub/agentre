@@ -3,6 +3,8 @@ package migrations
 import (
 	"github.com/go-gormigrate/gormigrate/v2"
 	"gorm.io/gorm"
+
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 )
 
 // migration202608080004 建 agents 表并 seed 一条 CEO 助手。
@@ -42,7 +44,13 @@ func migration202608080004() *gormigrate.Migration {
 	pinned BOOLEAN NOT NULL DEFAULT 0,
 	status INTEGER NOT NULL DEFAULT 1,
 	createtime INTEGER NOT NULL DEFAULT 0,
-	updatetime INTEGER NOT NULL DEFAULT 0
+	updatetime INTEGER NOT NULL DEFAULT 0,
+	sync_id TEXT NOT NULL DEFAULT '',
+	sync_account_id BIGINT NOT NULL DEFAULT 0,
+	sync_version BIGINT NOT NULL DEFAULT 0,
+	sync_updated_at BIGINT NOT NULL DEFAULT 0,
+	sync_origin_fingerprint TEXT NOT NULL DEFAULT '',
+	sync_deleted_at BIGINT NOT NULL DEFAULT 0
 )`).Error; err != nil {
 				return err
 			}
@@ -55,16 +63,19 @@ func migration202608080004() *gormigrate.Migration {
 			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_agents_agent_backend_id ON agents(agent_backend_id)`).Error; err != nil {
 				return err
 			}
+			if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_agents_sync_id ON agents(sync_id) WHERE sync_id != ''`).Error; err != nil {
+				return err
+			}
 			return tx.Exec(`INSERT INTO agents (
 	name, description, avatar_color, system_badge,
 	department_id, agent_backend_id, prompt_json, skills_json, tools_json,
-	status, createtime, updatetime
+	status, createtime, updatetime, sync_id
 )
 SELECT
 	'CEO 助手', '默认入口 · 不可删除', 'agent-1', 'DEFAULT',
 	0, 0, '[]', '[]', '[{"key":"org","enabled":true}]',
-	1, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000
-WHERE NOT EXISTS (SELECT 1 FROM agents WHERE system_badge = 'DEFAULT')`).Error
+	1, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000, ?
+WHERE NOT EXISTS (SELECT 1 FROM agents WHERE system_badge = 'DEFAULT')`, agent_entity.DefaultAgentSyncID).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec(`DROP TABLE IF EXISTS agents`).Error

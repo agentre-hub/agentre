@@ -7,12 +7,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// syncMetaTables 是账号级七张表（R1、决策 3）：projects、departments、agents、
-// agent_backends、project_agents、project_locations、agent_exec_targets。
+// syncMetaTables 是尚未在建表迁移中直接创建同步列的账号级表（R1、决策 3）。
+// agents 与 agent_backends 已在各自建表迁移中包含最终同步结构，不在这里重复加列。
 var syncMetaTables = []string{
 	"projects",
 	"departments",
-	"agents",
 	"project_agents",
 	"project_locations",
 	"agent_exec_targets",
@@ -34,7 +33,7 @@ var syncMetaColumns = []struct {
 
 // migration202608080012 铺同步基础设施：
 //
-//  1. 账号级七张表各加六列同步元数据 + sync_id 部分唯一索引（R1/决策 3/4/19/27）：
+//  1. 给名单中的账号级表补齐六列同步元数据 + sync_id 部分唯一索引（R1/决策 3/4/19/27）：
 //     sync_id 是账号内全局唯一、终身不变的同步标识（ULID，决策 3），未登录期间创建
 //     的行也照常生成（R12a）。本仓 DDL 一律 not null default ”，因此唯一索引必须
 //     是 WHERE sync_id != ” 的部分索引——否则多行空标识互撞。sync_account_id 是
@@ -72,7 +71,6 @@ func migration202608080012() *gormigrate.Migration {
 					return fmt.Errorf("table %s: create sync_id index: %w", table, err)
 				}
 			}
-
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS sync_lost_changes (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	sync_account_id BIGINT NOT NULL DEFAULT 0,

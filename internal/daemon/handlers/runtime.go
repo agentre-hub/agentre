@@ -421,6 +421,7 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 		Provider:          provider,
 		Effective:         effective,
 		AgentID:           p.AgentID,
+		AgentSyncID:       p.AgentSyncID,
 		SessionID:         em.rid,
 		Cwd:               p.Cwd,
 		SystemPrompt:      p.SystemPrompt,
