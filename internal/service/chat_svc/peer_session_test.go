@@ -96,7 +96,7 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 	}
 	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
-	deps.session.EXPECT().ListByAgentPaged(ctx, int64(7), 0, math.MaxInt).
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
 			{ID: 41, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, ProviderSessionID: "provider-41", Status: consts.ACTIVE},
 			{ID: 42, AgentID: 7, Title: "Investigate timeout", AgentStatus: "error", LastMessageAt: 1710000001000, Status: consts.ACTIVE},
@@ -104,7 +104,7 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 		}, nil)
 	deps.backend.EXPECT().Find(ctx, int64(11)).Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
 
-	got, err := deps.svc.ListPeerSessions(ctx)
+	got, err := deps.svc.ListPeerSessions(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 3)
 
@@ -151,10 +151,10 @@ func TestListPeerSessions_GivenMissingTitleOrAgentIdentity_ThenOmitsRatherThanDe
 				ID: 7, Name: "Release captain", Status: consts.ACTIVE,
 				SyncMeta: syncmeta_entity.SyncMeta{SyncID: tc.agentSync},
 			}}, nil)
-			deps.session.EXPECT().ListByAgentPaged(ctx, int64(7), 0, math.MaxInt).
+			deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 				Return([]*chat_entity.Session{{ID: 41, AgentID: 7, Title: tc.title, AgentStatus: "idle", Status: consts.ACTIVE}}, nil)
 
-			got, err := deps.svc.ListPeerSessions(ctx)
+			got, err := deps.svc.ListPeerSessions(ctx, "")
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			assert.Empty(t, got.Sessions, "never emit a blank or guessed fallback summary")
@@ -174,7 +174,7 @@ func TestListPeerSessions_GivenOneCorruptRow_ThenServesEveryHealthyRow(t *testin
 		ID: 7, Name: "Release captain", Status: consts.ACTIVE, AgentBackendID: 11,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
 	}}, nil)
-	deps.session.EXPECT().ListByAgentPaged(ctx, int64(7), 0, math.MaxInt).
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
 			{ID: 40, AgentID: 7, Title: "", AgentStatus: "idle", Status: consts.ACTIVE},
 			{ID: 41, AgentID: 7, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
@@ -184,7 +184,7 @@ func TestListPeerSessions_GivenOneCorruptRow_ThenServesEveryHealthyRow(t *testin
 	deps.backend.EXPECT().Find(ctx, int64(11)).
 		Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
 
-	got, err := deps.svc.ListPeerSessions(ctx)
+	got, err := deps.svc.ListPeerSessions(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2, "an untitled row and an unknown-status row are dropped; the rest are served")
 	assert.Equal(t, int64(41), got.Sessions[0].SessionID)
@@ -202,13 +202,13 @@ func TestListPeerSessions_GivenRepositoryFailure_ThenStillFails(t *testing.T) {
 		ID: 7, Name: "Release captain", Status: consts.ACTIVE, AgentBackendID: 11,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
 	}}, nil)
-	deps.session.EXPECT().ListByAgentPaged(ctx, int64(7), 0, math.MaxInt).
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
 			{ID: 41, AgentID: 7, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 	deps.backend.EXPECT().Find(ctx, int64(11)).Return(nil, errors.New("database is gone"))
 
-	got, err := deps.svc.ListPeerSessions(ctx)
+	got, err := deps.svc.ListPeerSessions(ctx, "")
 	require.Error(t, err)
 	assert.Nil(t, got)
 }
@@ -279,13 +279,13 @@ func TestListPeerSessions_GivenSessionInAProject_ThenNamesTheProjectSyncID(t *te
 		ID: 7, Name: "Release captain", Status: consts.ACTIVE,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
 	}}, nil)
-	deps.session.EXPECT().ListByAgentPaged(ctx, int64(7), 0, math.MaxInt).
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
 			{ID: 41, AgentID: 7, ProjectID: 3, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
 			{ID: 42, AgentID: 7, Title: "Free chat", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 
-	got, err := deps.svc.ListPeerSessions(ctx)
+	got, err := deps.svc.ListPeerSessions(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2)
 	assert.Equal(t, "01HXPROJECTIDENTITY000000000", got.Sessions[0].ProjectSyncID)
@@ -303,12 +303,12 @@ func TestListPeerSessions_GivenProjectWithoutSyncID_ThenLeavesItBlank(t *testing
 		ID: 7, Name: "Release captain", Status: consts.ACTIVE,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
 	}}, nil)
-	deps.session.EXPECT().ListByAgentPaged(ctx, int64(7), 0, math.MaxInt).
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
 			{ID: 41, AgentID: 7, ProjectID: 3, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 
-	got, err := deps.svc.ListPeerSessions(ctx)
+	got, err := deps.svc.ListPeerSessions(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 1)
 	assert.Empty(t, got.Sessions[0].ProjectSyncID)
@@ -328,14 +328,15 @@ func TestListPeerSessions_ReadsTheProjectListOnce(t *testing.T) {
 		{ID: 7, Name: "A", Status: consts.ACTIVE, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-a"}},
 		{ID: 8, Name: "B", Status: consts.ACTIVE, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-b"}},
 	}, nil)
-	deps.session.EXPECT().ListByAgentPaged(ctx, gomock.Any(), 0, math.MaxInt).
-		DoAndReturn(func(_ context.Context, agentID int64, _, _ int) ([]*chat_entity.Session, error) {
+	deps.session.EXPECT().ListIndexPaged(ctx, gomock.Any(), 0, math.MaxInt).
+		DoAndReturn(func(_ context.Context, filter chat_repo.SessionIndexFilter, _, _ int) ([]*chat_entity.Session, error) {
+			agentID := *filter.AgentID
 			return []*chat_entity.Session{
 				{ID: agentID * 10, AgentID: agentID, ProjectID: 3, Title: "t", AgentStatus: "idle", Status: consts.ACTIVE},
 			}, nil
 		}).Times(2)
 
-	got, err := deps.svc.ListPeerSessions(ctx)
+	got, err := deps.svc.ListPeerSessions(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2)
 	assert.Equal(t, 1, deps.projectListCalls, "几百条会话逐条回库查项目就是几百次往返")
@@ -359,7 +360,7 @@ func TestListPeerSessions_GivenSessionModelTarget_ThenReportsItAndDeclaresSuppor
 	}
 	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
-	deps.session.EXPECT().ListByAgentPaged(ctx, int64(7), 0, math.MaxInt).
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
 			{ID: 41, AgentID: 7, Title: "Fixed model", AgentStatus: "idle", Status: consts.ACTIVE,
 				ProviderKey: "prov-anthropic", ModelKey: "sonnet-4-6"},
@@ -370,7 +371,7 @@ func TestListPeerSessions_GivenSessionModelTarget_ThenReportsItAndDeclaresSuppor
 	deps.backend.EXPECT().Find(ctx, int64(11)).
 		Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
 
-	got, err := deps.svc.ListPeerSessions(ctx)
+	got, err := deps.svc.ListPeerSessions(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 3)
 
@@ -383,4 +384,38 @@ func TestListPeerSessions_GivenSessionModelTarget_ThenReportsItAndDeclaresSuppor
 	assert.Empty(t, got.Sessions[2].ProviderKey, "跟随 Agent 绑定：两格都空")
 	assert.Empty(t, got.Sessions[2].ModelKey)
 
+}
+
+// peerListFilter 是 ListPeerSessions 每个 agent 那一问用的 filter。
+func peerListFilter(agentID int64, keyword string) chat_repo.SessionIndexFilter {
+	return chat_repo.SessionIndexFilter{AgentID: &agentID, Keyword: keyword}
+}
+
+// ── 清单的关键词收窄 ────────────────────────────────────────────────────────
+//
+// 桌面端是 session.list 的服务方之一(浏览器的机器轴打到它)。此前它把库里每个 agent
+// 的**全部**会话整份投影出去 —— 这台机器 3500 条会话就是 3500 份摘要过线。关键词
+// 因此下推到查询,而不是取回来再筛:后者省的只是带宽,库还是白读一遍。
+func TestListPeerSessions_NarrowsByKeyword(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	agent := &agent_entity.Agent{
+		ID:             7,
+		Name:           "Release captain",
+		SyncMeta:       syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
+		AgentBackendID: 11,
+		Status:         consts.ACTIVE,
+	}
+	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
+	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, "happy"), 0, math.MaxInt).
+		Return([]*chat_entity.Session{
+			{ID: 41, AgentID: 7, Title: "看看happy是怎么实现中继的", AgentStatus: "idle", Status: consts.ACTIVE},
+		}, nil)
+	deps.backend.EXPECT().Find(ctx, int64(11)).Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
+
+	got, err := deps.svc.ListPeerSessions(ctx, "happy")
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 1)
+	assert.Equal(t, int64(41), got.Sessions[0].SessionID)
 }

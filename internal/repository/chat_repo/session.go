@@ -28,28 +28,15 @@ type SessionRepo interface {
 	ListByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error)
 	ListIDsByAgents(ctx context.Context, agentIDs []int64) (map[int64][]int64, error)
 	ListAttentionByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
-	// ListRecentPaged 按 last_message_at DESC 翻页返回全部未删除会话，**不限 agent、
-	// 不限项目**。单一会话索引的「按时间」档要的就是这条跨维度的最近活动流 ——
-	// 按 agent 的变体各自只看一个 agent，把它们并起来只能得到一个窗口而不是全量。
-	ListRecentPaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error)
-	// ListFreePaged 同上，但只要**未挂项目**（project_id = 0）的会话，即索引里的
-	// 「随手对话」组。独立成方法是因为服务层刻意把
-	// ListSessions 挡在 projectID > 0：0 不是一个项目，不该从项目那条路进来。
-	ListFreePaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error)
-	// ListByProjectPaged 按项目分页返回未软删除会话。索引的项目组默认只展开前几条，
-	// 其余走「查看全部 N」——一次性拉一个项目的全部会话在
-	// 侧栏这条路上没有必要。
-	ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error)
-	// ListByDevicePaged 是索引「按机器」轴那一组的分页查询：按会话**跑在哪台机器上**
-	// 取数（exec_device_id）。deviceID = 0 是**本机**，不是「没有机器」——
-	// chat_entity.Session 的约定如此，绝大多数会话都落在这一格。
-	ListByDevicePaged(ctx context.Context, deviceID int64, offset, limit int) ([]*chat_entity.Session, error)
-	// CountAll / CountFree / CountByProject 是上面几个列表各自的总数，
-	// 供「还有 N 条」与翻页终止判断。
-	CountAll(ctx context.Context) (int64, error)
-	CountFree(ctx context.Context) (int64, error)
-	CountByProject(ctx context.Context, projectID int64) (int64, error)
-	CountByDevice(ctx context.Context, deviceID int64) (int64, error)
+	// ListIndexPaged 是会话索引全部收窄方式共用的分页查询：可见性口径（未软删 + 非
+	// 子 agent 委派）与排序（最近活动优先）恒定，变的只有 SessionIndexFilter。
+	// 「按时间」是空 filter，「随手对话」是 ProjectID = 0，机器轴是 DeviceID，
+	// agent 的会话列表是 AgentID，搜索则在任意一维之上再叠 Keyword。
+	ListIndexPaged(ctx context.Context, filter SessionIndexFilter, offset, limit int) ([]*chat_entity.Session, error)
+	// CountIndex 是 ListIndexPaged 在同一个 filter 下的总数，供「还有 N 条」与翻页
+	// 终止判断。两者必须收同一个 filter：拿未过滤的总数去配过滤后的列表，组头的
+	// 「会话 N」就会和它下面的行自相矛盾。
+	CountIndex(ctx context.Context, filter SessionIndexFilter) (int64, error)
 	// ReassignProject 把 project_id 从 fromProjectID 整批改挂到 toProjectID（R11a
 	// 的项目合并）。刻意**不带 status / purpose 过滤**：软删的会话与子 agent 委派
 	// 会话在项目会话列表里都看不见（被 nonSubagentScope 排除），逐行改挂必然
@@ -355,38 +342,78 @@ func (r *sessionRepo) CountRunningByAgents(ctx context.Context, agentIDs []int64
 	return out, nil
 }
 
-// indexScope 是「会话索引」几条查询共用的 WHERE：未软删 + 排除子 agent 委派会话，
-// 再按 projectFilter 收窄。ORDER 与分页由调用方拼，计数不需要它们。
+// SessionIndexFilter 是会话索引查询的收窄条件。每一维都可以缺省（nil / 空串），
+// 缺省即「这一维不收窄」。
 //
-// projectFilter 为 nil 表示不限项目（时间轴）；指向 0 即「随手对话」，指向正数即某个
-// 项目。用指针而不是 -1 之类的哨兵：0 是一个**有意义的取值**，哨兵会把它吃掉。
-func indexScope(projectFilter *int64) func(*gorm.DB) *gorm.DB {
+// 三个 id 维用指针而不是 -1 之类的哨兵：**0 在每一维上都是有意义的取值** ——
+// ProjectID = 0 是「随手对话」，DeviceID = 0 是本机（chat_entity.Session 的约定，
+// 绝大多数会话都在这一格）。哨兵会把它们连同「不收窄」一起吃掉。
+//
+// 三个 id 维在调用点上互斥（索引一次只按一根轴分组），但类型不去强制这一点：
+// Keyword 必须能叠在其中任意一维上，而「哪一维 + 关键词」的组合由调用方决定。
+type SessionIndexFilter struct {
+	// ProjectID 收窄到某个项目；指向 0 即未挂项目的「随手对话」。
+	ProjectID *int64
+	// DeviceID 收窄到会话**跑在哪台机器上**（exec_device_id）；指向 0 即本机。
+	DeviceID *int64
+	// AgentID 收窄到某个 agent 名下。
+	AgentID *int64
+	// Keyword 是索引搜索框里那个词。命中三个字段：会话标题、agent 名、项目名
+	// （合并前前端的口径，见规格决策 8）—— 后两维靠 LEFT JOIN 取回，所以语义
+	// 只有这一份，不再由调用方各自拼。空串 / 全空白 = 不搜。
+	Keyword string
+}
+
+// escapeLike 把用户输入里的 LIKE 元字符转成字面量。不转的话「100%」会退化成
+// 「1、0、0 加任意后缀」—— 搜得越具体反而命中越宽。
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
+// indexScope 是索引全部查询共用的 WHERE。列名一律带 `chat_sessions.` 前缀：
+// 关键词分支会 JOIN 上 agents / projects，而这两张表同样有 name / status / id 列，
+// 不限定表名的话 SQLite 直接报 ambiguous column。
+func indexScope(f SessionIndexFilter) func(*gorm.DB) *gorm.DB {
 	return func(d *gorm.DB) *gorm.DB {
-		if projectFilter != nil {
-			d = d.Where("project_id = ? AND status = ?", *projectFilter, consts.ACTIVE)
-		} else {
-			d = d.Where("status = ?", consts.ACTIVE)
+		if f.ProjectID != nil {
+			d = d.Where("chat_sessions.project_id = ?", *f.ProjectID)
 		}
-		return d.Scopes(nonSubagentScope)
-	}
-}
+		if f.DeviceID != nil {
+			d = d.Where("chat_sessions.exec_device_id = ?", *f.DeviceID)
+		}
+		if f.AgentID != nil {
+			d = d.Where("chat_sessions.agent_id = ?", *f.AgentID)
+		}
+		d = d.
+			Where("chat_sessions.status = ?", consts.ACTIVE).
+			Where("chat_sessions.purpose <> ?", chat_entity.SessionPurposeSubagent)
 
-// indexDeviceScope 与 indexScope 同一套可见性口径（ACTIVE + 非子 agent），只是分组
-// 这一维换成 exec_device_id。单独一个 scope 而不是给 indexScope 再加一个指针参数：
-// 两维永远互斥（索引一次只按一根轴分组），并成一个函数只会让调用点读起来像是能同时给。
-func indexDeviceScope(deviceID int64) func(*gorm.DB) *gorm.DB {
-	return func(d *gorm.DB) *gorm.DB {
+		kw := strings.TrimSpace(f.Keyword)
+		if kw == "" {
+			return d
+		}
+		like := "%" + escapeLike(kw) + "%"
+		// LEFT JOIN 而不是 INNER：agent / 项目档被删掉的会话照样要能按标题搜到。
 		return d.
-			Where("exec_device_id = ? AND status = ?", deviceID, consts.ACTIVE).
-			Scopes(nonSubagentScope)
+			Joins("LEFT JOIN agents ON agents.id = chat_sessions.agent_id").
+			Joins("LEFT JOIN projects ON projects.id = chat_sessions.project_id").
+			Where(`chat_sessions.title LIKE ? ESCAPE '\' OR agents.name LIKE ? ESCAPE '\' OR projects.name LIKE ? ESCAPE '\'`,
+				like, like, like)
 	}
 }
 
-func (r *sessionRepo) listIndexPaged(ctx context.Context, scope func(*gorm.DB) *gorm.DB, offset, limit int) ([]*chat_entity.Session, error) {
+// ListIndexPaged 见接口注释。
+func (r *sessionRepo) ListIndexPaged(ctx context.Context, filter SessionIndexFilter, offset, limit int) ([]*chat_entity.Session, error) {
 	var rows []*chat_entity.Session
-	err := db.Ctx(ctx).
-		Scopes(scope).
-		Order("last_message_at DESC, id DESC").
+	q := db.Ctx(ctx).Model(&chat_entity.Session{}).Scopes(indexScope(filter))
+	if strings.TrimSpace(filter.Keyword) != "" {
+		// JOIN 之后 `SELECT *` 会把 agents / projects 的 id、name、status 一起选出来
+		// 盖掉会话自己的列 —— 扫出来的 Session 会带着别人的 id。
+		q = q.Select("chat_sessions.*")
+	}
+	err := q.
+		Order("chat_sessions.last_message_at DESC, chat_sessions.id DESC").
 		Offset(offset).
 		Limit(limit).
 		Find(&rows).Error
@@ -394,50 +421,13 @@ func (r *sessionRepo) listIndexPaged(ctx context.Context, scope func(*gorm.DB) *
 	return rows, err
 }
 
-func (r *sessionRepo) countIndex(ctx context.Context, scope func(*gorm.DB) *gorm.DB) (int64, error) {
+// CountIndex 见接口注释。
+func (r *sessionRepo) CountIndex(ctx context.Context, filter SessionIndexFilter) (int64, error) {
 	var n int64
 	err := db.Ctx(ctx).Model(&chat_entity.Session{}).
-		Scopes(scope).
+		Scopes(indexScope(filter)).
 		Count(&n).Error
 	return n, err
-}
-
-// ListRecentPaged 见接口注释：不限 agent、不限项目的最近活动分页。
-func (r *sessionRepo) ListRecentPaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
-	return r.listIndexPaged(ctx, indexScope(nil), offset, limit)
-}
-
-// ListFreePaged 见接口注释：仅 project_id = 0 的会话。
-func (r *sessionRepo) ListFreePaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
-	free := int64(0)
-	return r.listIndexPaged(ctx, indexScope(&free), offset, limit)
-}
-
-// ListByProjectPaged 见接口注释：按项目分页返回未软删除会话。
-func (r *sessionRepo) ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error) {
-	return r.listIndexPaged(ctx, indexScope(&projectID), offset, limit)
-}
-
-func (r *sessionRepo) CountAll(ctx context.Context) (int64, error) {
-	return r.countIndex(ctx, indexScope(nil))
-}
-
-func (r *sessionRepo) CountFree(ctx context.Context) (int64, error) {
-	free := int64(0)
-	return r.countIndex(ctx, indexScope(&free))
-}
-
-func (r *sessionRepo) CountByProject(ctx context.Context, projectID int64) (int64, error) {
-	return r.countIndex(ctx, indexScope(&projectID))
-}
-
-// ListByDevicePaged 见接口注释：按 exec_device_id 取数，0 = 本机。
-func (r *sessionRepo) ListByDevicePaged(ctx context.Context, deviceID int64, offset, limit int) ([]*chat_entity.Session, error) {
-	return r.listIndexPaged(ctx, indexDeviceScope(deviceID), offset, limit)
-}
-
-func (r *sessionRepo) CountByDevice(ctx context.Context, deviceID int64) (int64, error) {
-	return r.countIndex(ctx, indexDeviceScope(deviceID))
 }
 
 // ReassignProject 见接口注释：WHERE 里只有 project_id，没有 status / purpose。

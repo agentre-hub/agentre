@@ -36,7 +36,7 @@ func atUTC(t *testing.T, value string) int64 {
 // 这不是实现细节,这就是那个开关向用户承诺的边界。
 func TestActivityRollup_CountsSessionsByDayAndDimensions(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", Title: "改一个 bug", Cwd: "/Users/me/secret",
 			AgentSyncID: "a1", BackendType: "claudecode", ProjectSyncID: "p1",
 			Createtime: atUTC(t, "2026-08-28 10:00"), LastMessageAt: atUTC(t, "2026-08-28 10:00")},
@@ -60,7 +60,7 @@ func TestActivityRollup_CountsSessionsByDayAndDimensions(t *testing.T) {
 func TestActivityRollup_BucketsInTheRequestedZone(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
 	// UTC 2026-08-27 23:30 = 上海 2026-08-28 07:30。
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-27 23:30"), LastMessageAt: atUTC(t, "2026-08-27 23:30")},
 	}, nil)
 
@@ -75,7 +75,7 @@ func TestActivityRollup_BucketsInTheRequestedZone(t *testing.T) {
 // 用户的数据去赌一件无关的事。
 func TestActivityRollup_UnknownZoneFallsBackToUTC(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-27 23:30"), LastMessageAt: atUTC(t, "2026-08-27 23:30")},
 	}, nil)
 
@@ -89,7 +89,7 @@ func TestActivityRollup_UnknownZoneFallsBackToUTC(t *testing.T) {
 // 再传一遍。下界是闭区间(当天的计数还会变)。
 func TestActivityRollup_SinceDayNarrowsTheAnswer(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-20 10:00"), LastMessageAt: atUTC(t, "2026-08-20 10:00")},
 		{PeerSessionID: "2", AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-28 10:00"), LastMessageAt: atUTC(t, "2026-08-28 10:00")},
 	}, nil)
@@ -110,7 +110,7 @@ func TestActivityRollup_SinceDayNarrowsTheAnswer(t *testing.T) {
 // 那天再也不回去 —— 一条用了三十天的对话会在服务端留下三十行、每行 1。
 func TestActivityRollup_TheDayComesFromWhenTheSessionWasCreated(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", AgentSyncID: "a1",
 			Createtime: atUTC(t, "2026-08-01 09:00"), LastMessageAt: atUTC(t, "2026-08-06 21:00")},
 	}, nil)
@@ -126,7 +126,7 @@ func TestActivityRollup_TheDayComesFromWhenTheSessionWasCreated(t *testing.T) {
 // 算成 1970-01-01 会在格子图最左端凭空长出一块假数据。
 func TestActivityRollup_SkipsSessionsWithoutACreationMoment(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", AgentSyncID: "a1",
 			Createtime: 0, LastMessageAt: atUTC(t, "2026-08-06 21:00")},
 	}, nil)

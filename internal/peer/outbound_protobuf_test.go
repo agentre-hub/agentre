@@ -23,7 +23,7 @@ func (c *outboundProtoClient) Close() error            { return c.conn.Close() }
 func TestOutboundUsesTypedProtobufSessionMethods(t *testing.T) {
 	var steered wire.SteerParams
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
-		ListSessions: func(context.Context) (*wire.SessionListResult, error) {
+		ListSessions: func(context.Context, string) (*wire.SessionListResult, error) {
 			return &wire.SessionListResult{Sessions: []wire.SessionSummary{{SessionID: 7, Title: "remote"}}}, nil
 		},
 		AttachSession: func(_ context.Context, p wire.SessionAttachParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {

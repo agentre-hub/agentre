@@ -74,14 +74,14 @@ describe("scopesForAxis", () => {
     const scopes = scopesForAxis("machine", [1, 2], [0, 7]);
     expect(scopes.map((s) => s.kind)).toEqual(["machine", "machine"]);
     expect(scopes).toEqual([
-      { kind: "machine", deviceID: 0 },
-      { kind: "machine", deviceID: 7 },
+      { kind: "machine", deviceID: 0, keyword: "" },
+      { kind: "machine", deviceID: 7, keyword: "" },
     ]);
   });
 
   it("Given the machine axis with no paired daemon, When scopes are resolved, Then the local machine alone is still queried", () => {
     expect(scopesForAxis("machine", [1, 2], [0])).toEqual([
-      { kind: "machine", deviceID: 0 },
+      { kind: "machine", deviceID: 0, keyword: "" },
     ]);
   });
 
@@ -97,6 +97,37 @@ describe("scopesForAxis", () => {
       "project",
       "free",
     ]);
+  });
+
+  // ── 搜索 ────────────────────────────────────────────────────────────────
+  //
+  // 关键词不换一条查询，它只是把每条轴本来就在发的那条查询收窄。所以每根轴的每个
+  // scope 都得带上它 —— 漏掉哪一个，那一组在搜索时给出的就是未过滤的列表，混在
+  // 过滤后的兄弟组之间。
+
+  it("Given a keyword, When scopes are resolved, Then every scope of the axis carries it", () => {
+    expect(
+      scopesForAxis("project", [1, 2], [], [], "happy").map((s) => s.keyword),
+    ).toEqual(["happy", "happy", "happy"]);
+    expect(
+      scopesForAxis("time", [1], [], [], "happy").map((s) => s.keyword),
+    ).toEqual(["happy"]);
+    // 机器轴此前没有任何搜索可言：它那一组的会话只有首屏那一页。
+    expect(scopesForAxis("machine", [], [0, 7], [], "happy")).toEqual([
+      { kind: "machine", deviceID: 0, keyword: "happy" },
+      { kind: "machine", deviceID: 7, keyword: "happy" },
+    ]);
+  });
+
+  it("Given the agent axis, When a keyword is active, Then each agent gets its own query — the top-five window is not enough to search", () => {
+    expect(scopesForAxis("agent", [1], [], [7, 8], "happy")).toEqual([
+      { kind: "agent", agentID: 7, keyword: "happy" },
+      { kind: "agent", agentID: 8, keyword: "happy" },
+    ]);
+  });
+
+  it("Given the agent axis with no keyword, When scopes are resolved, Then it still sends nothing — ListChatAgents already carries the sessions", () => {
+    expect(scopesForAxis("agent", [1], [], [7, 8])).toEqual([]);
   });
 });
 
@@ -147,6 +178,37 @@ describe("useIndexGroups", () => {
         ["project", 2],
         ["free", 0],
       ]),
+    );
+  });
+
+  // ── 搜索 ──────────────────────────────────────────────────────────────────
+
+  it("Given the project axis is searched, When it mounts, Then the keyword goes out with每个项目组的查询", async () => {
+    renderHook(() => useIndexGroups("project", [node(1)], [], "happy"));
+
+    await waitFor(() => expect(listIndex).toHaveBeenCalled());
+    for (const call of listIndex.mock.calls) {
+      expect(call[0].keyword).toBe("happy");
+    }
+  });
+
+  it("Given the agent axis is searched, When it renders, Then each agent group is filled from its own filtered query instead of the top-five window", async () => {
+    seedAgents({ id: 7, sessions: [{ id: 10 }], totalSessions: 44 });
+    listIndex.mockResolvedValue({
+      sessions: [{ id: 3495, agentId: 7, projectId: 1, title: "happy 那条" }],
+      total: 1,
+      hasMore: false,
+    });
+
+    const { result } = renderHook(() =>
+      useIndexGroups("agent", [], [], "happy"),
+    );
+
+    await waitFor(() => expect(result.current[0]?.sessionIDs).toEqual([3495]));
+    // 组头的计数也必须是过滤后的口径，否则「会话 44」下面挂着一行搜索结果。
+    expect(result.current[0]?.total).toBe(1);
+    expect(listIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "agent", agentId: 7, keyword: "happy" }),
     );
   });
 

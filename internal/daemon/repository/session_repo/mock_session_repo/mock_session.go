@@ -102,33 +102,33 @@ func (mr *MockSessionRepoMockRecorder) InterruptAll(ctx, interruptedState any) *
 }
 
 // ListAll mocks base method.
-func (m *MockSessionRepo) ListAll(ctx context.Context) ([]*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) ListAll(ctx context.Context, keyword string) ([]*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAll", ctx)
+	ret := m.ctrl.Call(m, "ListAll", ctx, keyword)
 	ret0, _ := ret[0].([]*session_repo.DaemonSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListAll indicates an expected call of ListAll.
-func (mr *MockSessionRepoMockRecorder) ListAll(ctx any) *gomock.Call {
+func (mr *MockSessionRepoMockRecorder) ListAll(ctx, keyword any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAll", reflect.TypeOf((*MockSessionRepo)(nil).ListAll), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAll", reflect.TypeOf((*MockSessionRepo)(nil).ListAll), ctx, keyword)
 }
 
 // ListByPeer mocks base method.
-func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint string) ([]*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint, keyword string) ([]*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByPeer", ctx, peerFingerprint)
+	ret := m.ctrl.Call(m, "ListByPeer", ctx, peerFingerprint, keyword)
 	ret0, _ := ret[0].([]*session_repo.DaemonSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListByPeer indicates an expected call of ListByPeer.
-func (mr *MockSessionRepoMockRecorder) ListByPeer(ctx, peerFingerprint any) *gomock.Call {
+func (mr *MockSessionRepoMockRecorder) ListByPeer(ctx, peerFingerprint, keyword any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByPeer", reflect.TypeOf((*MockSessionRepo)(nil).ListByPeer), ctx, peerFingerprint)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByPeer", reflect.TypeOf((*MockSessionRepo)(nil).ListByPeer), ctx, peerFingerprint, keyword)
 }
 
 // SetModelTarget mocks base method.

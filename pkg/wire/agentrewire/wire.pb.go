@@ -3276,8 +3276,17 @@ func (x *SkillsListResponse) GetPacks() []*InstalledSkillPack {
 	return nil
 }
 
+// SessionListRequest narrows the machine's session list at the source. Without
+// a keyword the peer answers with every session it holds, which is what makes
+// the machine axis expensive: the caller only wants the ones it is looking for.
 type SessionListRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// keyword narrows the list. The guaranteed floor is a case-insensitive
+	// substring match on SessionSummary.title; a host may additionally match the
+	// grouping names it owns (the desktop matches agent and project names, which
+	// agentred does not have — it stores agent_sync_id / project_sync_id, not
+	// names). Empty = no narrowing, the previous behaviour.
+	Keyword       string `protobuf:"bytes,1,opt,name=keyword,proto3" json:"keyword,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3310,6 +3319,13 @@ func (x *SessionListRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SessionListRequest.ProtoReflect.Descriptor instead.
 func (*SessionListRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *SessionListRequest) GetKeyword() string {
+	if x != nil {
+		return x.Keyword
+	}
+	return ""
 }
 
 type SessionListResponse struct {
@@ -13203,8 +13219,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\tinstalled\x18\a \x01(\bR\tinstalled\x12)\n" +
 	"\x10globally_enabled\x18\b \x01(\bR\x0fgloballyEnabled\"L\n" +
 	"\x12SkillsListResponse\x126\n" +
-	"\x05packs\x18\x01 \x03(\v2 .agentre.wire.InstalledSkillPackR\x05packs\"\x14\n" +
-	"\x12SessionListRequest\"O\n" +
+	"\x05packs\x18\x01 \x03(\v2 .agentre.wire.InstalledSkillPackR\x05packs\".\n" +
+	"\x12SessionListRequest\x12\x18\n" +
+	"\akeyword\x18\x01 \x01(\tR\akeyword\"O\n" +
 	"\x13SessionListResponse\x128\n" +
 	"\bsessions\x18\x01 \x03(\v2\x1c.agentre.wire.SessionSummaryR\bsessions\"\x98\x04\n" +
 	"\x0eSessionSummary\x12\x1d\n" +

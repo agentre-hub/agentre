@@ -131,7 +131,10 @@ type SessionLifecyclePort interface {
 // 对端指纹打头：查询一律限定在调用方自己的对端范围内，按会话 id 单独查的入口
 // 本层不提供。
 type SessionQueryPort interface {
-	List(ctx context.Context, peerFingerprint string) ([]SessionRecord, error)
+	// List 列出该对端的会话。keyword 非空时再按标题的大小写不敏感子串收窄
+	// (空串 / 全空白 = 不收窄)；它下推到存储而不是在内存里过一遍 —— 对端要的
+	// 往往只是其中几条,整份取出来再筛既白读一遍库,也没省下任何东西。
+	List(ctx context.Context, peerFingerprint, keyword string) ([]SessionRecord, error)
 	Find(ctx context.Context, peerFingerprint, peerSessionID string) (*SessionRecord, error)
 }
 

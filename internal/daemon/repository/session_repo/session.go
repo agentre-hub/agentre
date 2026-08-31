@@ -17,6 +17,7 @@ package session_repo
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/cago-frame/cago/database/db"
@@ -83,12 +84,18 @@ type SessionRepo interface {
 	// Find 取某个对端名下的一条会话;不存在返回 (nil, nil)。
 	Find(ctx context.Context, peerFingerprint, peerSessionID string) (*DaemonSession, error)
 
-	// ListByPeer 列出某个对端在本 daemon 上的全部会话,最近活动的在前。
-	ListByPeer(ctx context.Context, peerFingerprint string) ([]*DaemonSession, error)
+	// ListByPeer 列出某个对端在本 daemon 上的会话,最近活动的在前。
+	//
+	// keyword 非空时按标题的大小写不敏感子串再收窄一层(空串 / 全空白 = 不收窄)。
+	// 收窄放在这一层而不是调用方: 对端要的往往只是其中几条,整份回传既费带宽也把
+	// 无关会话的标题送了出去。匹配面只有 title —— daemon 存的是 agent_sync_id /
+	// project_sync_id,手上根本没有 agent 名与项目名。
+	ListByPeer(ctx context.Context, peerFingerprint, keyword string) ([]*DaemonSession, error)
 
-	// ListAll 列出所有对端的会话,最近活动的在前。账号可见性由上层鉴权后决定;
-	// 本仓储不改变复合主键,也不解释调用方是否有资格跨对端读取。
-	ListAll(ctx context.Context) ([]*DaemonSession, error)
+	// ListAll 列出所有对端的会话,最近活动的在前,keyword 语义同 ListByPeer。
+	// 账号可见性由上层鉴权后决定; 本仓储不改变复合主键,也不解释调用方是否有资格
+	// 跨对端读取。
+	ListAll(ctx context.Context, keyword string) ([]*DaemonSession, error)
 
 	// CountByLifecycle 数一数此刻停在某个生命周期上的会话有几条。
 	//
@@ -181,10 +188,27 @@ func (r *sessionRepo) Find(ctx context.Context, peerFingerprint, peerSessionID s
 	return row, nil
 }
 
-func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint string) ([]*DaemonSession, error) {
+// titleKeywordScope 把关键词变成标题上的 LIKE。空串 / 全空白不发这一段 ——
+// 一个只按了空格的搜索框不该把整台机器筛空。
+//
+// LIKE 元字符一律转成字面量: 不转的话「100%」会退化成「1、0、0 加任意后缀」,
+// 搜得越具体命中反而越宽。
+func titleKeywordScope(keyword string) func(*gorm.DB) *gorm.DB {
+	return func(d *gorm.DB) *gorm.DB {
+		kw := strings.TrimSpace(keyword)
+		if kw == "" {
+			return d
+		}
+		escaper := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+		return d.Where(`title LIKE ? ESCAPE '\'`, "%"+escaper.Replace(kw)+"%")
+	}
+}
+
+func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint, keyword string) ([]*DaemonSession, error) {
 	var rows []*DaemonSession
 	err := db.Ctx(ctx).
 		Where("peer_fingerprint = ?", peerFingerprint).
+		Scopes(titleKeywordScope(keyword)).
 		Order("last_message_at DESC").
 		Find(&rows).Error
 	if err != nil {
@@ -193,9 +217,12 @@ func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint string) ([
 	return rows, nil
 }
 
-func (r *sessionRepo) ListAll(ctx context.Context) ([]*DaemonSession, error) {
+func (r *sessionRepo) ListAll(ctx context.Context, keyword string) ([]*DaemonSession, error) {
 	var rows []*DaemonSession
-	err := db.Ctx(ctx).Order("last_message_at DESC").Find(&rows).Error
+	err := db.Ctx(ctx).
+		Scopes(titleKeywordScope(keyword)).
+		Order("last_message_at DESC").
+		Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

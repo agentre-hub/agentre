@@ -321,18 +321,18 @@ func (mr *MockSessionQueryPortMockRecorder) Find(ctx, peerFingerprint, peerSessi
 }
 
 // List mocks base method.
-func (m *MockSessionQueryPort) List(ctx context.Context, peerFingerprint string) ([]handlers.SessionRecord, error) {
+func (m *MockSessionQueryPort) List(ctx context.Context, peerFingerprint, keyword string) ([]handlers.SessionRecord, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", ctx, peerFingerprint)
+	ret := m.ctrl.Call(m, "List", ctx, peerFingerprint, keyword)
 	ret0, _ := ret[0].([]handlers.SessionRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockSessionQueryPortMockRecorder) List(ctx, peerFingerprint any) *gomock.Call {
+func (mr *MockSessionQueryPortMockRecorder) List(ctx, peerFingerprint, keyword any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSessionQueryPort)(nil).List), ctx, peerFingerprint)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSessionQueryPort)(nil).List), ctx, peerFingerprint, keyword)
 }
 
 // MockSessionDeletePort is a mock of SessionDeletePort interface.

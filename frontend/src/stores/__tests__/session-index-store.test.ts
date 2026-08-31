@@ -6,6 +6,7 @@ vi.mock("../../../wailsjs/go/app/App", () => ({
 
 import { ListChatIndexSessions } from "../../../wailsjs/go/app/App";
 import {
+  agentScope,
   freeScope,
   machineScope,
   projectScope,
@@ -164,8 +165,10 @@ describe("session-index-store", () => {
     expect(listIndex).toHaveBeenCalledWith({
       scope: "recent",
       projectId: 0,
-      // deviceId 与 projectId 同理：恒发，只在对应的 scope 下有意义。
+      // deviceId / agentId / keyword 与 projectId 同理：恒发，只在对应的 scope 下有意义。
       deviceId: 0,
+      agentId: 0,
+      keyword: "",
       offset: 0,
       limit: 3,
     });
@@ -189,8 +192,10 @@ describe("session-index-store", () => {
     expect(listIndex).toHaveBeenLastCalledWith({
       scope: "recent",
       projectId: 0,
-      // deviceId 与 projectId 同理：恒发，只在对应的 scope 下有意义。
+      // deviceId / agentId / keyword 与 projectId 同理：恒发，只在对应的 scope 下有意义。
       deviceId: 0,
+      agentId: 0,
+      keyword: "",
       offset: 2,
       limit: 2,
     });
@@ -227,8 +232,10 @@ describe("session-index-store", () => {
     expect(listIndex).toHaveBeenCalledWith({
       scope: "project",
       projectId: 7,
-      // deviceId 与 projectId 同理：恒发，只在对应的 scope 下有意义。
+      // deviceId / agentId / keyword 与 projectId 同理：恒发，只在对应的 scope 下有意义。
       deviceId: 0,
+      agentId: 0,
+      keyword: "",
       offset: 0,
       limit: 5,
     });
@@ -345,6 +352,113 @@ describe("session-index-store", () => {
     expect(listIndex).toHaveBeenCalledTimes(1);
     expect(listIndex).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "project", projectId: 7, offset: 0 }),
+    );
+  });
+
+  // ── 搜索：关键词是 scope 的一部分 ──────────────────────────────────────────
+  //
+  // 搜索此前只在前端已加载的那一页上做子串匹配，命中范围等于首屏窗口。把关键词并进
+  // scope 之后，列表 / 总数 / 翻页全都由服务端按过滤后的口径给出，前端不再有第二套
+  // 过滤逻辑 —— 也因此关键词必须进 key，否则搜索结果会盖掉未搜索的那份页缓存。
+
+  it("Given the same scope with and without a keyword, When both are keyed, Then the search page does not clobber the unfiltered one", () => {
+    expect(scopeKey(projectScope(7, "happy"))).not.toBe(
+      scopeKey(projectScope(7)),
+    );
+    expect(scopeKey(projectScope(7, "happy"))).not.toBe(
+      scopeKey(projectScope(7, "sad")),
+    );
+    expect(scopeKey(recentScope(""))).toBe(scopeKey(recentScope()));
+  });
+
+  it("Given the agent axis is searched, When an agent scope loads, Then the agent id and keyword travel with the request", async () => {
+    // Agent 轴平时的会话来自 ListChatAgents 的每 agent 前 5 条；一开搜那个窗口就
+    // 不够用了，得按 agent 各查一遍全量。
+    listIndex.mockResolvedValueOnce({ sessions: [], total: 0, hasMore: false });
+
+    await useSessionIndexStore.getState().loadFirstPage(agentScope(2, "happy"));
+
+    expect(listIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "agent", agentId: 2, keyword: "happy" }),
+    );
+  });
+
+  it("Given each axis is searched, When a page loads, Then the keyword rides along with that axis's own scope", async () => {
+    listIndex.mockResolvedValue({ sessions: [], total: 0, hasMore: false });
+
+    await useSessionIndexStore
+      .getState()
+      .loadFirstPage(machineScope(0, "happy"));
+    expect(listIndex).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "machine",
+        deviceId: 0,
+        keyword: "happy",
+      }),
+    );
+
+    await useSessionIndexStore.getState().loadFirstPage(freeScope("happy"));
+    expect(listIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "free", keyword: "happy" }),
+    );
+  });
+
+  it("Given a keyword is being typed, When the next keystroke loads, Then the previous keyword's pages are dropped instead of piling up", async () => {
+    listIndex.mockResolvedValue({ sessions: [], total: 0, hasMore: false });
+
+    await useSessionIndexStore.getState().loadFirstPage(projectScope(7, "hap"));
+    await useSessionIndexStore
+      .getState()
+      .loadFirstPage(projectScope(7, "happy"));
+
+    const keys = [...useSessionIndexStore.getState().pages.keys()];
+    expect(keys).toContain(scopeKey(projectScope(7, "happy")));
+    expect(keys).not.toContain(scopeKey(projectScope(7, "hap")));
+  });
+
+  it("Given an unfiltered page is cached, When a search runs, Then the unfiltered page survives so clearing the box needs no refetch", async () => {
+    listIndex.mockResolvedValue({ sessions: [], total: 0, hasMore: false });
+
+    await useSessionIndexStore.getState().loadFirstPage(projectScope(7));
+    await useSessionIndexStore
+      .getState()
+      .loadFirstPage(projectScope(7, "happy"));
+
+    expect([...useSessionIndexStore.getState().pages.keys()]).toContain(
+      scopeKey(projectScope(7)),
+    );
+  });
+
+  // 机器轴此前根本刷不动：reloadLoaded 把页 key 反解成 scope 时不认 `machine:`，
+  // 于是本机那一组每次刷新都去重拉 recent，自己永远停在首屏那一份。
+  it("Given a loaded machine scope, When the sidebar refreshes, Then that machine is refetched rather than recent", async () => {
+    listIndex.mockResolvedValue({ sessions: [], total: 0, hasMore: false });
+    await useSessionIndexStore.getState().loadFirstPage(machineScope(7));
+    listIndex.mockClear();
+
+    await useSessionIndexStore.getState().reloadLoaded();
+
+    expect(listIndex).toHaveBeenCalledTimes(1);
+    expect(listIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "machine", deviceId: 7, offset: 0 }),
+    );
+  });
+
+  it("Given a searched scope was loaded, When the sidebar refreshes, Then the keyword survives the refetch", async () => {
+    listIndex.mockResolvedValue({ sessions: [], total: 0, hasMore: false });
+    await useSessionIndexStore
+      .getState()
+      .loadFirstPage(projectScope(7, "happy"));
+    listIndex.mockClear();
+
+    await useSessionIndexStore.getState().reloadLoaded();
+
+    expect(listIndex).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "project",
+        projectId: 7,
+        keyword: "happy",
+      }),
     );
   });
 

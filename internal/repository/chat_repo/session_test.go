@@ -929,24 +929,28 @@ func TestSessionRepo_ReassignProject(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// ── 会话索引：不限 agent 的分页 / 自由会话 ──────────────────────────────────
+// ── 会话索引：一个 filter 一套查询 ──────────────────────────────────────────
 //
-// 「对话 / 项目」合并成单一索引后，「按时间」这一档要的是**跨 agent、跨项目**的最近
-// 活动列表，而「随手对话」组要的是 project_id = 0 那一批。两者今天都没有查询能给出：
-// 按 agent 的变体各自只看一个 agent，ListByProject 又被服务层挡在 projectID > 0。
+// 索引的四条轴（时间 / 项目 / 随手对话 / 机器）与 agent 的会话列表，问的是同一个问题
+// 的不同收窄：可见性口径（未软删 + 非子 agent 委派）与排序（最近活动优先）永远一样，
+// 变的只有「按哪一维收窄」和「标题/名字要不要命中关键词」。所以只有 ListIndexPaged /
+// CountIndex 这一对方法，收窄条件全部走 SessionIndexFilter —— 每加一维就多开两个方法
+// 的话，加上关键词这一维会直接翻倍。
 // 见 docs/specs/2026-08-16-unified-chat-index.md。
 
-func TestSessionRepo_ListRecentPaged(t *testing.T) {
-	t.Run("Given sessions across agents and projects, When listing a page, Then it orders by last activity without filtering on agent or project", func(t *testing.T) {
+func int64p(v int64) *int64 { return &v }
+
+func TestSessionRepo_ListIndexPaged(t *testing.T) {
+	t.Run("Given an empty filter, When listing a page, Then it orders by last activity without filtering on agent or project", func(t *testing.T) {
 		ctx, _, mock := testutils.Database(t)
 
-		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE chat_sessions.status = \\? AND chat_sessions.purpose <> \\? ORDER BY chat_sessions.last_message_at DESC, chat_sessions.id DESC LIMIT \\? OFFSET \\?").
 			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20, 40).
 			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "project_id", "last_message_at", "status"}).
 				AddRow(int64(9), int64(1), int64(3), 1700000090000, consts.ACTIVE).
 				AddRow(int64(8), int64(2), int64(0), 1700000080000, consts.ACTIVE))
 
-		rows, err := chat_repo.NewSession().ListRecentPaged(ctx, 40, 20)
+		rows, err := chat_repo.NewSession().ListIndexPaged(ctx, chat_repo.SessionIndexFilter{}, 40, 20)
 		assert.NoError(t, err)
 		assert.Len(t, rows, 2)
 		assert.Equal(t, int64(9), rows[0].ID)
@@ -958,129 +962,171 @@ func TestSessionRepo_ListRecentPaged(t *testing.T) {
 	t.Run("Given the first page, When listing, Then no OFFSET clause is emitted", func(t *testing.T) {
 		ctx, _, mock := testutils.Database(t)
 
-		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE status = \\? AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?$").
+		mock.ExpectQuery("ORDER BY chat_sessions.last_message_at DESC, chat_sessions.id DESC LIMIT \\?$").
 			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 
-		rows, err := chat_repo.NewSession().ListRecentPaged(ctx, 0, 20)
+		rows, err := chat_repo.NewSession().ListIndexPaged(ctx, chat_repo.SessionIndexFilter{}, 0, 20)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given ProjectID 0, When listing, Then it narrows to free sessions instead of dropping the dimension", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("WHERE chat_sessions.project_id = \\? AND chat_sessions.status = \\? AND chat_sessions.purpose <> \\?").
+			WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "project_id"}).AddRow(int64(5), int64(0)))
+
+		rows, err := chat_repo.NewSession().ListIndexPaged(ctx, chat_repo.SessionIndexFilter{ProjectID: int64p(0)}, 0, 20)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.Equal(t, int64(0), rows[0].ProjectID)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given a ProjectID, When listing, Then it narrows to that project", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("WHERE chat_sessions.project_id = \\? AND chat_sessions.status = \\? AND chat_sessions.purpose <> \\? ORDER BY .* LIMIT \\? OFFSET \\?").
+			WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5, 5).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "project_id"}).AddRow(int64(101), int64(42), int64(7)))
+
+		rows, err := chat_repo.NewSession().ListIndexPaged(ctx, chat_repo.SessionIndexFilter{ProjectID: int64p(7)}, 5, 5)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given DeviceID 0, When listing, Then exec_device_id stays in the WHERE — 0 is this machine, not 'any machine'", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("WHERE chat_sessions.exec_device_id = \\? AND chat_sessions.status = \\? AND chat_sessions.purpose <> \\?").
+			WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "exec_device_id"}).AddRow(int64(5), int64(0)))
+
+		rows, err := chat_repo.NewSession().ListIndexPaged(ctx, chat_repo.SessionIndexFilter{DeviceID: int64p(0)}, 0, 20)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.Equal(t, int64(0), rows[0].ExecDeviceID)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given an AgentID, When listing, Then it narrows to that agent", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("WHERE chat_sessions.agent_id = \\? AND chat_sessions.status = \\? AND chat_sessions.purpose <> \\?").
+			WithArgs(int64(42), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5, 5).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id"}).AddRow(int64(101), int64(42)))
+
+		rows, err := chat_repo.NewSession().ListIndexPaged(ctx, chat_repo.SessionIndexFilter{AgentID: int64p(42)}, 5, 5)
 		assert.NoError(t, err)
 		assert.Len(t, rows, 1)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 }
 
-func TestSessionRepo_ListFreePaged(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
+// TestSessionRepo_ListIndexPagedKeyword 钉死搜索的命中口径。它是这次修复的核心：
+// 搜索此前只在前端已加载的那一页上做子串匹配，命中范围等于「首屏窗口」而不是全量。
+//
+// 三个字段（会话标题 / agent 名 / 项目名）与合并前的前端口径同源（决策 8），但语义现在
+// 只有 SQL 这一份 —— 名字两维靠 LEFT JOIN 取回，所以 SELECT 必须显式收成
+// `chat_sessions.*`，否则 agents/projects 的 id、name、status 会覆盖掉会话自己的列。
+func TestSessionRepo_ListIndexPagedKeyword(t *testing.T) {
+	t.Run("Given a keyword, When listing, Then title, agent name and project name are all matched", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
 
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .project_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
-		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id"}).
-			AddRow(int64(5), int64(0)))
+		mock.ExpectQuery("SELECT chat_sessions.\\* FROM `chat_sessions` "+
+			"LEFT JOIN agents ON agents.id = chat_sessions.agent_id "+
+			"LEFT JOIN projects ON projects.id = chat_sessions.project_id "+
+			"WHERE chat_sessions.project_id = \\? AND chat_sessions.status = \\? AND chat_sessions.purpose <> \\? "+
+			"AND \\(chat_sessions.title LIKE \\? ESCAPE '\\\\' OR agents.name LIKE \\? ESCAPE '\\\\' OR projects.name LIKE \\? ESCAPE '\\\\'\\)").
+			WithArgs(int64(1), consts.ACTIVE, chat_entity.SessionPurposeSubagent, "%happy%", "%happy%", "%happy%", 50).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "title"}).AddRow(int64(3495), "看看happy是怎么实现中继的"))
 
-	rows, err := chat_repo.NewSession().ListFreePaged(ctx, 0, 20)
-	assert.NoError(t, err)
-	assert.Len(t, rows, 1)
-	assert.Equal(t, int64(0), rows[0].ProjectID)
-	assert.NoError(t, mock.ExpectationsWereMet())
+		rows, err := chat_repo.NewSession().ListIndexPaged(ctx,
+			chat_repo.SessionIndexFilter{ProjectID: int64p(1), Keyword: "happy"}, 0, 50)
+		assert.NoError(t, err)
+		require.Len(t, rows, 1)
+		assert.Equal(t, int64(3495), rows[0].ID)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given a keyword holding LIKE wildcards, When listing, Then they are escaped into literals", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		// 不转义的话「100%」会退化成「1、0、0 加任意后缀」，搜得越具体命中越宽。
+		mock.ExpectQuery("LEFT JOIN agents").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent,
+				"%100\\%\\_a\\\\b%", "%100\\%\\_a\\\\b%", "%100\\%\\_a\\\\b%", 20).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+		_, err := chat_repo.NewSession().ListIndexPaged(ctx,
+			chat_repo.SessionIndexFilter{Keyword: `100%_a\b`}, 0, 20)
+		assert.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given a blank keyword, When listing, Then no join and no LIKE are emitted at all", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+
+		mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE chat_sessions.status = \\? AND chat_sessions.purpose <> \\? ORDER BY").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+
+		rows, err := chat_repo.NewSession().ListIndexPaged(ctx,
+			chat_repo.SessionIndexFilter{Keyword: "   "}, 0, 20)
+		assert.NoError(t, err)
+		assert.Len(t, rows, 1)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
 }
 
-func TestSessionRepo_CountAll(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
+func TestSessionRepo_CountIndex(t *testing.T) {
+	t.Run("Given an empty filter, When counting, Then it counts every visible session", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
 
-	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
-		WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(37))
+		mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(37))
 
-	n, err := chat_repo.NewSession().CountAll(ctx)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(37), n)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
+		n, err := chat_repo.NewSession().CountIndex(ctx, chat_repo.SessionIndexFilter{})
+		assert.NoError(t, err)
+		assert.Equal(t, int64(37), n)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
 
-func TestSessionRepo_CountFree(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
+	t.Run("Given a device filter, When counting, Then it narrows to that machine", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
 
-	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
-		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+		mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions` WHERE chat_sessions.exec_device_id = \\?").
+			WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
 
-	n, err := chat_repo.NewSession().CountFree(ctx)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(4), n)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
+		n, err := chat_repo.NewSession().CountIndex(ctx, chat_repo.SessionIndexFilter{DeviceID: int64p(7)})
+		assert.NoError(t, err)
+		assert.Equal(t, int64(12), n)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
 
-func TestSessionRepo_ListByProjectPaged(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
+	// 总数必须和列表用同一个 filter 算：搜索生效时组头写的「会话 N」与「查看全部 N」
+	// 都是这个数，拿未过滤的总数去配过滤后的列表，就是 44 条的项目顶着一行搜索结果。
+	t.Run("Given a keyword, When counting, Then the same join and LIKE narrow the count", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
 
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .project_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "project_id"}).
-			AddRow(int64(101), int64(42), int64(7)))
+		mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions` "+
+			"LEFT JOIN agents ON agents.id = chat_sessions.agent_id "+
+			"LEFT JOIN projects ON projects.id = chat_sessions.project_id "+
+			"WHERE chat_sessions.status = \\? AND chat_sessions.purpose <> \\? AND \\(chat_sessions.title LIKE \\?").
+			WithArgs(consts.ACTIVE, chat_entity.SessionPurposeSubagent, "%happy%", "%happy%", "%happy%").
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(17))
 
-	rows, err := chat_repo.NewSession().ListByProjectPaged(ctx, 7, 5, 5)
-	assert.NoError(t, err)
-	assert.Len(t, rows, 1)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestSessionRepo_ListByDevicePaged(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-
-	// 与项目那条同一套可见性口径（ACTIVE + 非子 agent）、同一个排序，只是分组这一维
-	// 换成 exec_device_id。
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .exec_device_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 5, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "exec_device_id"}).
-			AddRow(int64(101), int64(42), int64(7)))
-
-	rows, err := chat_repo.NewSession().ListByDevicePaged(ctx, 7, 5, 5)
-	assert.NoError(t, err)
-	assert.Len(t, rows, 1)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestSessionRepo_ListByDevicePagedLocal(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-
-	// deviceID = 0 是**本机**，不是「不限机器」：WHERE 里必须照样带上 exec_device_id，
-	// 否则本机那一组会翻出全部机器的会话。
-	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE .exec_device_id = \\? AND status = \\?. AND purpose <> \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
-		WithArgs(int64(0), consts.ACTIVE, chat_entity.SessionPurposeSubagent, 20).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "exec_device_id"}).
-			AddRow(int64(5), int64(0)))
-
-	rows, err := chat_repo.NewSession().ListByDevicePaged(ctx, 0, 0, 20)
-	assert.NoError(t, err)
-	assert.Len(t, rows, 1)
-	assert.Equal(t, int64(0), rows[0].ExecDeviceID)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestSessionRepo_CountByDevice(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-
-	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
-
-	n, err := chat_repo.NewSession().CountByDevice(ctx, 7)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(12), n)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestSessionRepo_CountByProject(t *testing.T) {
-	ctx, _, mock := testutils.Database(t)
-
-	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions`").
-		WithArgs(int64(7), consts.ACTIVE, chat_entity.SessionPurposeSubagent).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
-
-	n, err := chat_repo.NewSession().CountByProject(ctx, 7)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(12), n)
-	assert.NoError(t, mock.ExpectationsWereMet())
+		n, err := chat_repo.NewSession().CountIndex(ctx, chat_repo.SessionIndexFilter{Keyword: "happy"})
+		assert.NoError(t, err)
+		assert.Equal(t, int64(17), n)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
 }
 
 // TestSessionRepo_ListIDsByProviderSessions 钉死导入判重的读取口径（2026-08-26 导入

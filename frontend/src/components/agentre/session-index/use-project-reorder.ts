@@ -16,7 +16,8 @@ import type { app } from "../../../../wailsjs/go/models";
 
 type UseProjectReorderOptions = {
   axis: IndexAxis;
-  visibleSessionIDs: ReadonlySet<number> | null;
+  /** 搜索或状态 chip 生效中。过滤后的列表里顺序没有意义（决策 9）。 */
+  filtering: boolean;
   projectByID: Map<number, app.ProjectItem>;
   refreshProjectData: () => void;
 };
@@ -33,14 +34,14 @@ type ProjectReorder = {
 // 失败提示。
 function useProjectReorder({
   axis,
-  visibleSessionIDs,
+  filtering,
   projectByID,
   refreshProjectData,
 }: UseProjectReorderOptions): ProjectReorder {
   const { t } = useTranslation();
   const [reorderError, setReorderError] = React.useState<string | null>(null);
 
-  const dragDisabled = axis !== "project" || visibleSessionIDs !== null;
+  const dragDisabled = axis !== "project" || filtering;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, {

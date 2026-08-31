@@ -40,7 +40,7 @@ import type { ProjectGlyphInfo } from "./project-glyph";
 import { useSessionActions } from "./session-actions";
 import { useMachineRoster } from "./machine-roster";
 import { useIndexDialogs } from "./use-index-dialogs";
-import { useIndexFilter } from "./use-index-filter";
+import { useIndexFilter, useIndexSearch } from "./use-index-filter";
 import { useIndexGroups, type IndexGroup } from "./use-index-groups";
 import { useProjectReorder } from "./use-project-reorder";
 
@@ -77,7 +77,10 @@ export function SessionIndexPage() {
     axis === "machine",
     t("sessionIndex.machine.local"),
   );
-  const groups = useIndexGroups(axis, tree, machines);
+  // 搜索词在组装组之前就要有：它是取数 scope 的一部分，不是摆好之后再过一遍的
+  // 前端过滤 —— 后者只看得见首屏那一页，正是「搜 happy 搜不出来」的根。
+  const { query, setQuery, needle, keyword, searching } = useIndexSearch();
+  const groups = useIndexGroups(axis, tree, machines, keyword);
   const machineByID = React.useMemo(
     () => new Map(machines.map((m) => [m.deviceId, m])),
     [machines],
@@ -131,16 +134,13 @@ export function SessionIndexPage() {
     openSession,
   );
 
-  // ── 搜索 / 筛选 ───────────────────────────────────────────────────────────
-  const {
-    query,
-    setQuery,
-    statusFilter,
-    setStatusFilter,
-    needle,
-    unreadCount,
-    visibleSessionIDs,
-  } = useIndexFilter({ groups, metas, projectByID });
+  // ── 状态 chips ────────────────────────────────────────────────────────────
+  const allSessionIDs = React.useMemo(
+    () => [...new Set(groups.flatMap((g) => g.sessionIDs))],
+    [groups],
+  );
+  const { statusFilter, setStatusFilter, unreadCount, visibleSessionIDs } =
+    useIndexFilter({ sessionIDs: allSessionIDs });
 
   // ── 命令面板的「新会话上下文」桥接 ─────────────────────────────────────────
   //
@@ -208,7 +208,9 @@ export function SessionIndexPage() {
   const { dragDisabled, sensors, handleDragEnd, reorderError } =
     useProjectReorder({
       axis,
-      visibleSessionIDs,
+      // 搜索与状态 chip 都让顺序失去意义（决策 9）—— 前者现在是取数级的过滤，
+      // 不再体现在 visibleSessionIDs 上，得单独报给拖拽。
+      filtering: searching || visibleSessionIDs !== null,
       projectByID,
       refreshProjectData,
     });
@@ -270,7 +272,10 @@ export function SessionIndexPage() {
                 : undefined,
           }}
           loader={async ({ offset, limit }) => {
-            if (group.kind === "agent") {
+            // 不搜索时 agent 组走它自己那条列表接口；一开搜就改走索引查询的
+            // agent scope —— 关键词只有那条路认得，弹层里翻出未过滤的下一页会让人
+            // 以为搜索漏了。
+            if (group.kind === "agent" && !keyword) {
               const resp = await WailsApp.ListChatAgentSessions({
                 agentId: group.refID,
                 offset,
@@ -287,9 +292,24 @@ export function SessionIndexPage() {
                 hasMore: resp?.hasMore ?? false,
               };
             }
+            // 机器组此前落进了 project 这一支，projectId 被填成 deviceID ——
+            // 本机的 0 会被服务端当成漏传直接拒掉，那一组的「查看全部 N」点不开。
             const resp = await WailsApp.ListChatIndexSessions({
-              scope: group.kind === "free" ? "free" : "project",
-              projectId: group.kind === "free" ? 0 : group.refID,
+              scope:
+                group.kind === "free"
+                  ? "free"
+                  : group.kind === "machine"
+                    ? "machine"
+                    : group.kind === "agent"
+                      ? "agent"
+                      : "project",
+              projectId:
+                group.kind === "project" || group.kind === "flat"
+                  ? group.refID
+                  : 0,
+              deviceId: group.kind === "machine" ? group.refID : 0,
+              agentId: group.kind === "agent" ? group.refID : 0,
+              keyword,
               offset,
               limit,
             } as never);
@@ -328,6 +348,7 @@ export function SessionIndexPage() {
       agentByID,
       projectByID,
       tree,
+      keyword,
       t,
     ],
   );
@@ -358,16 +379,21 @@ export function SessionIndexPage() {
   /** 筛选生效时这个项目还该不该出现（含后代命中与项目名自身命中）。 */
   const projectVisible = React.useCallback(
     (projectID: number): boolean => {
-      if (!visibleSessionIDs) return true;
+      if (!searching && !visibleSessionIDs) return true;
       const ids = subtreeSessionIDs.get(projectID) ?? [];
-      if (ids.some((sid) => visibleSessionIDs.has(sid))) return true;
+      // 搜索时列表本身已是过滤后的，所以「子树里还剩下行」就等于命中；状态 chip 是
+      // 前端派生态，得逐条比。
+      const hit = visibleSessionIDs
+        ? ids.some((sid) => visibleSessionIDs.has(sid))
+        : ids.length > 0;
+      if (hit) return true;
       // 一条会话都没有、但名字命中的空项目也要留下 —— 否则搜自己刚建的项目搜不到。
       return (
         needle.length > 0 &&
         (projectByID.get(projectID)?.name ?? "").toLowerCase().includes(needle)
       );
     },
-    [visibleSessionIDs, subtreeSessionIDs, needle, projectByID],
+    [searching, visibleSessionIDs, subtreeSessionIDs, needle, projectByID],
   );
 
   const renderGroup = React.useCallback(
@@ -515,7 +541,7 @@ export function SessionIndexPage() {
         <div className="min-h-0 flex-1 overflow-auto px-2 py-3">
           {isEmpty ? (
             <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-              {visibleSessionIDs
+              {searching || visibleSessionIDs
                 ? t("sessionIndex.empty.noMatch")
                 : t("sessionIndex.empty.nothing")}
             </p>

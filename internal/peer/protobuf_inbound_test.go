@@ -94,7 +94,7 @@ func TestProtobufInboundRegistryRejectsIncompleteAccountAuth(t *testing.T) {
 }
 
 func TestProtobufInboundRegistryServesPeerSessionList(t *testing.T) {
-	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{ListSessions: func(context.Context) (*remotewire.SessionListResult, error) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{ListSessions: func(context.Context, string) (*remotewire.SessionListResult, error) {
 		return &remotewire.SessionListResult{Sessions: []remotewire.SessionSummary{{SessionID: 7, Title: "remote"}}}, nil
 	}})
 	clientTransport, serverTransport := peerProtoPipePair()

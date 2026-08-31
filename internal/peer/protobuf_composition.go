@@ -36,8 +36,8 @@ func productionProtobufInboundDeps() ProtobufInboundDeps {
 			Skills: handlers.NewSkillsHandlers(), RemoteFS: remotefs.NewHandlers(remotefs.Options{}),
 			ProjectSetPath: protobufProjectSetPath, ProjectClearPath: protobufProjectClearPath,
 		},
-		ListSessions: func(ctx context.Context) (*remotewire.SessionListResult, error) {
-			return adapter().ListPeerSessions(ctx)
+		ListSessions: func(ctx context.Context, keyword string) (*remotewire.SessionListResult, error) {
+			return adapter().ListPeerSessions(ctx, keyword)
 		},
 		ActivityRollup: func(ctx context.Context, sinceDay, timeZone string) ([]activityrollup.Bucket, error) {
 			return adapter().ActivityRollup(ctx, sinceDay, timeZone)

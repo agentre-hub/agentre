@@ -22,7 +22,7 @@ import (
 )
 
 type inboundSessionAdapter interface {
-	ListPeerSessions(context.Context) (*wire.SessionListResult, error)
+	ListPeerSessions(ctx context.Context, keyword string) (*wire.SessionListResult, error)
 	ActivityRollup(context.Context, string, string) ([]activityrollup.Bucket, error)
 	AttachPeerSession(context.Context, wire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error)
 	PullPeerSession(context.Context, wire.SessionPullParams, chat_svc.PeerSessionSubscriber) (wire.SessionPullResult, error)

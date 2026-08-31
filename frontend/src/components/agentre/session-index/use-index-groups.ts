@@ -21,6 +21,7 @@ import * as React from "react";
 import { flattenProjectTree, type IndexAxis } from "@/lib/session-axis";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import {
+  agentScope,
   freeScope,
   machineScope,
   projectScope,
@@ -42,19 +43,48 @@ export type { IndexGroup, IndexGroupKind } from "./index-projection";
 export const GROUP_PAGE_SIZE = 5;
 /** 时间轴首屏条数。它没有组头吃掉纵向空间，可以多给一些。 */
 export const TIME_PAGE_SIZE = 30;
+/**
+ * 搜索时每组首屏条数。比 GROUP_PAGE_SIZE 大得多是有意的：搜索结果的「首屏」就是
+ * 答案本身，让人为了看第 6 条命中再点一次「查看全部」没有道理。超出的部分照旧走
+ * 「查看全部 N」，那个 N 此时也是过滤后的总数。
+ */
+export const SEARCH_PAGE_SIZE = 50;
 
-/** 某个轴要用到哪些 scope。effect 据此按需拉取，不多发一个 RPC。 */
+/** 某个 scope 首屏拉几条。 */
+function firstPageSize(scope: IndexScope): number {
+  if (scope.keyword) return SEARCH_PAGE_SIZE;
+  return scope.kind === "recent" ? TIME_PAGE_SIZE : GROUP_PAGE_SIZE;
+}
+
+/**
+ * 某个轴要用到哪些 scope。effect 据此按需拉取，不多发一个 RPC。
+ *
+ * `keyword` 与「按哪一维分组」正交：它不换查询，只把每条 scope 收窄，所以每一条都得
+ * 带上它 —— 漏掉哪一个，那一组在搜索时给出的就是未过滤的列表，混在过滤后的兄弟组
+ * 之间。搜索之所以必须走取数，是因为前端手上只有首屏那一页（项目组 5 条 / 时间轴
+ * 30 条），在那上面做匹配等于「只搜得到最近几条」。
+ */
 export function scopesForAxis(
   axis: IndexAxis,
   projectIDs: readonly number[],
   deviceIDs: readonly number[] = [],
+  agentIDs: readonly number[] = [],
+  keyword = "",
 ): IndexScope[] {
-  if (axis === "time") return [recentScope()];
-  if (axis === "agent") return []; // Agent 轴的会话由 ListChatAgents 直接给
+  if (axis === "time") return [recentScope(keyword)];
+  // Agent 轴平时的会话由 ListChatAgents 直接给（每个 agent 前 5 条），不必为了摆一屏
+  // 多发 N 个 RPC；一开搜那个窗口就不够用了，得按 agent 各查一遍全量。
+  if (axis === "agent") {
+    return keyword ? agentIDs.map((id) => agentScope(id, keyword)) : [];
+  }
   // 机器轴每台机器一条查询，与项目轴同形：组的总数只有取数方数得出来，
   // 客户端把 recent 那一页分桶只能得到「这一页里恰好有几条」。
-  if (axis === "machine") return deviceIDs.map(machineScope);
-  return [...projectIDs.map(projectScope), freeScope()];
+  if (axis === "machine")
+    return deviceIDs.map((id) => machineScope(id, keyword));
+  return [
+    ...projectIDs.map((id) => projectScope(id, keyword)),
+    freeScope(keyword),
+  ];
 }
 
 /**
@@ -110,6 +140,8 @@ export function useIndexGroups(
   tree: app.ProjectTreeNode[],
   /** 机器轴的机器名单（本机 + 配对的 daemon）。别的轴用不到，缺省空。 */
   machines: readonly MachineRosterEntry[] = [],
+  /** 搜索词（已 debounce、已归一）。空串 = 没在搜，取数与渲染都与从前一致。 */
+  keyword = "",
 ): IndexGroup[] {
   const agents = useChatAgentsStore((s) => s.agents);
   const pages = useSessionIndexStore((s) => s.pages);
@@ -125,24 +157,39 @@ export function useIndexGroups(
     () => machines.map((m) => m.deviceId),
     [machines],
   );
+  const agentIDs = React.useMemo(() => agents.map((a) => a.id), [agents]);
 
   // 按需拉取当前轴要用到的 scope。已经有页缓存的不重拉 —— 刷新走
   // reloadSidebarSources，不由渲染驱动。
   const scopeSignature = React.useMemo(
-    () => scopesForAxis(axis, projectIDs, deviceIDs).map(scopeKey).join("|"),
-    [axis, projectIDs, deviceIDs],
+    () =>
+      scopesForAxis(axis, projectIDs, deviceIDs, agentIDs, keyword)
+        .map(scopeKey)
+        .join("|"),
+    [axis, projectIDs, deviceIDs, agentIDs, keyword],
   );
   React.useEffect(() => {
-    for (const scope of scopesForAxis(axis, projectIDs, deviceIDs)) {
+    for (const scope of scopesForAxis(
+      axis,
+      projectIDs,
+      deviceIDs,
+      agentIDs,
+      keyword,
+    )) {
       if (pages.has(scopeKey(scope))) continue;
-      void loadFirstPage(
-        scope,
-        scope.kind === "recent" ? TIME_PAGE_SIZE : GROUP_PAGE_SIZE,
-      );
+      void loadFirstPage(scope, firstPageSize(scope));
     }
     // pages 刻意不进依赖：它每次加载完都会变，进依赖会让这个 effect 自激。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeSignature, axis, projectIDs, deviceIDs, loadFirstPage]);
+  }, [
+    scopeSignature,
+    axis,
+    projectIDs,
+    deviceIDs,
+    agentIDs,
+    keyword,
+    loadFirstPage,
+  ]);
 
   return React.useMemo(() => {
     // 先摆这一轴的**组骨架**：有哪些组、按什么顺序、每组已取到哪一页。这一段留在
@@ -150,7 +197,7 @@ export function useIndexGroups(
     // （决策 6）也只有宿主说得出，共享投影按决策 10 只摆有会话的组。
     const buildSlots = (): IndexGroup[] => {
       if (axis === "time") {
-        const page = pages.get("recent");
+        const page = pages.get(scopeKey(recentScope(keyword)));
         return [
           {
             key: "flat",
@@ -167,7 +214,7 @@ export function useIndexGroups(
         // 名单顺序说了算（本机最前，其余在线优先）—— 投影不重排组。
         // 一条会话都没有的机器照样摆出来（决策 10）：刚配好的 daemon 得看得见。
         return machines.map((m) => {
-          const page = pages.get(`machine:${m.deviceId}`);
+          const page = pages.get(scopeKey(machineScope(m.deviceId, keyword)));
           return {
             key: `machine:${m.deviceId}`,
             kind: "machine" as const,
@@ -184,6 +231,26 @@ export function useIndexGroups(
         return orderAgents(agents, metas).flatMap((id) => {
           const agent = byID.get(id);
           if (!agent) return [];
+          // 搜索时这一组的会话来自该 agent 自己那条过滤查询；不搜索时仍是
+          // ListChatAgents 顺带给的前 5 条 + attention 池。总数跟着同一处走 ——
+          // 拿未过滤的 totalSessions 去配过滤后的行，组头会写着「会话 44」而下面
+          // 只挂着一条搜索结果。
+          const page = keyword
+            ? pages.get(scopeKey(agentScope(id, keyword)))
+            : undefined;
+          if (keyword) {
+            return [
+              {
+                key: `agent:${id}`,
+                kind: "agent" as const,
+                refID: id,
+                depth: 0,
+                sessionIDs: page?.ids ?? [],
+                recentIDs: page?.ids ?? [],
+                total: page?.total ?? 0,
+              },
+            ];
+          }
           return [
             {
               key: `agent:${id}`,
@@ -199,7 +266,7 @@ export function useIndexGroups(
       }
 
       const groups: IndexGroup[] = projectOrder.map(({ id, depth }) => {
-        const page = pages.get(`project:${id}`);
+        const page = pages.get(scopeKey(projectScope(id, keyword)));
         return {
           key: `project:${id}`,
           kind: "project" as const,
@@ -211,7 +278,7 @@ export function useIndexGroups(
       });
       // 「随手对话」常驻，空态也在（决策 6）：否则一条自由会话都没有的用户，在项目
       // 轴下看不到任何「不属于项目」的入口。它排在全部项目之后。
-      const free = pages.get("free");
+      const free = pages.get(scopeKey(freeScope(keyword)));
       groups.push({
         key: "free",
         kind: "free",
@@ -225,5 +292,5 @@ export function useIndexGroups(
 
     // 组内的分配、补齐与排序过共享投影，桌面端不再自己排一遍。
     return projectIndexGroups(axis, buildSlots(), metas);
-  }, [axis, agents, metas, pages, projectOrder, machines]);
+  }, [axis, agents, metas, pages, projectOrder, machines, keyword]);
 }

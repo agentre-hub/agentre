@@ -25,35 +25,60 @@ import {
 } from "./session-status-store";
 import type { AgentStatus, SessionStatusPatch } from "./types";
 
-/** 与后端 `chat_svc.SessionIndexScope` 同源。 */
+/**
+ * 与后端 `chat_svc.SessionIndexScope` 同源。
+ *
+ * `keyword` 是索引搜索框里那个词，和「按哪一维分组」正交：它不换一条查询，只是把
+ * 同一条查询收窄。搜索走取数而不是前端过滤，是因为前端手上只有首屏那一页（项目组
+ * 5 条 / 时间轴 30 条），在那上面做匹配等于「只搜得到最近几条」。
+ */
 export type IndexScope =
-  | { kind: "recent" }
-  | { kind: "free" }
-  | { kind: "project"; projectID: number }
-  | { kind: "machine"; deviceID: number };
+  | { kind: "recent"; keyword: string }
+  | { kind: "free"; keyword: string }
+  | { kind: "project"; projectID: number; keyword: string }
+  | { kind: "machine"; deviceID: number; keyword: string }
+  | { kind: "agent"; agentID: number; keyword: string };
 
-export function recentScope(): IndexScope {
-  return { kind: "recent" };
+export function recentScope(keyword = ""): IndexScope {
+  return { kind: "recent", keyword };
 }
-export function freeScope(): IndexScope {
-  return { kind: "free" };
+export function freeScope(keyword = ""): IndexScope {
+  return { kind: "free", keyword };
 }
-export function projectScope(projectID: number): IndexScope {
-  return { kind: "project", projectID };
+export function projectScope(projectID: number, keyword = ""): IndexScope {
+  return { kind: "project", projectID, keyword };
 }
 /**
  * 某一台机器上的会话。`deviceID = 0` 是**本机**（chat_entity.Session 的约定），
  * 不是「不限机器」—— 它和别的机器一样是一格，只是绝大多数会话都落在它上面。
  */
-export function machineScope(deviceID: number): IndexScope {
-  return { kind: "machine", deviceID };
+export function machineScope(deviceID: number, keyword = ""): IndexScope {
+  return { kind: "machine", deviceID, keyword };
+}
+/**
+ * 某个 agent 名下的会话。**只在搜索时用**：不搜索时 Agent 轴的会话由 ListChatAgents
+ * 顺带给出（每个 agent 前 5 条），不必为了摆一屏多发 N 个 RPC；一开搜那个窗口就不够
+ * 用了，得按 agent 各查一遍全量。
+ */
+export function agentScope(agentID: number, keyword = ""): IndexScope {
+  return { kind: "agent", agentID, keyword };
 }
 
-/** 页缓存的键。项目之间必须互不相同，否则两个项目组会共用一份 id 列表。 */
+/**
+ * 页缓存的键。项目之间必须互不相同，否则两个项目组会共用一份 id 列表；
+ * 关键词同样进 key —— 否则搜索结果会盖掉未搜索的那份缓存，清空搜索框时整棵列表
+ * 会先塌成搜索结果再重拉。
+ */
 export function scopeKey(scope: IndexScope): string {
-  if (scope.kind === "project") return `project:${scope.projectID}`;
-  if (scope.kind === "machine") return `machine:${scope.deviceID}`;
-  return scope.kind;
+  const base =
+    scope.kind === "project"
+      ? `project:${scope.projectID}`
+      : scope.kind === "machine"
+        ? `machine:${scope.deviceID}`
+        : scope.kind === "agent"
+          ? `agent:${scope.agentID}`
+          : scope.kind;
+  return scope.keyword ? `${base}?q=${scope.keyword}` : base;
 }
 
 export const INDEX_PAGE_SIZE = 20;
@@ -61,6 +86,11 @@ export const INDEX_PAGE_SIZE = 20;
 const INDEX_MAX_LIMIT = 100;
 
 export type IndexPage = {
+  /**
+   * 这一页是哪个 scope 取回来的。刷新时照它原样重拉 —— 此前是把 key 反解回 scope，
+   * 而那个反解不认 `machine:`，机器组于是每次刷新都去重拉 recent、自己永远停在首屏。
+   */
+  scope: IndexScope;
   /** 已加载的会话 id，保持服务端给的顺序（最近活动优先）。 */
   ids: number[];
   total: number;
@@ -70,6 +100,7 @@ export type IndexPage = {
 };
 
 const emptyPage: IndexPage = {
+  scope: recentScope(),
   ids: [],
   total: 0,
   hasMore: false,
@@ -182,7 +213,7 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
    */
   function commitPage(
     key: string,
-    next: { ids: number[]; total: number; hasMore: boolean },
+    next: { scope: IndexScope; ids: number[]; total: number; hasMore: boolean },
   ): void {
     set((state) => {
       const prev = state.pages.get(key);
@@ -220,6 +251,11 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
     const existing = inflight.get(key);
     if (existing) return existing;
 
+    // 上一个关键词的结果不再有用：一边打字一边搜的话，每敲一个字符都会多留一份
+    // 页缓存。未搜索的那份（keyword 为空）刻意留着 —— 清空搜索框要立刻回到原列表，
+    // 不该再等一轮 RPC。
+    if (scope.keyword) pruneOtherKeywords(scope.keyword);
+
     // loading 的语义是「这一格首屏还没数据」, 不是「有个请求在飞」: 已经有页缓存时
     // (重拉 / 翻页都走这条)不再翻它 —— 换 pages Map 会让 useIndexGroups 重算全部组和行,
     // 而这个字段目前没有任何渲染处在读。
@@ -232,6 +268,8 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
           // 0 是本机、是合法值：这里必须原样发出去，被吞成 undefined 会让服务端
           // 当成漏传（它只拒负数）。
           deviceId: scope.kind === "machine" ? scope.deviceID : 0,
+          agentId: scope.kind === "agent" ? scope.agentID : 0,
+          keyword: scope.keyword,
           offset,
           limit,
         } as Parameters<typeof ListChatIndexSessions>[0]);
@@ -246,6 +284,7 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
         const ids = [...prev, ...incoming.filter((id) => !seen.has(id))];
 
         commitPage(key, {
+          scope,
           ids,
           total: resp?.total ?? ids.length,
           hasMore: resp?.hasMore ?? false,
@@ -261,6 +300,22 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
     return run;
   }
 
+  /** 丢掉「关键词不是 keep 的那一个」的搜索页。未搜索的页（keyword 为空）不动。 */
+  function pruneOtherKeywords(keep: string): void {
+    set((state) => {
+      let changed = false;
+      const pages = new Map(state.pages);
+      for (const [key, page] of pages) {
+        if (page.scope.keyword && page.scope.keyword !== keep) {
+          pages.delete(key);
+          inflight.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? { pages } : state;
+    });
+  }
+
   return {
     pages: new Map(),
 
@@ -274,14 +329,13 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
     },
 
     reloadLoaded: async () => {
-      const keys = [...get().pages.keys()];
+      const loaded = [...get().pages.values()];
       await Promise.all(
-        keys.map((key) => {
-          const page = get().pages.get(key);
+        loaded.map((page) => {
           // 重拉时把已经翻出来的那么多条一次拉回来，避免用户滚到一半被截回首屏。
           // 超过单次上限的部分会被截掉 —— 侧栏没有这么长的组，时间轴滚回去即可。
-          const limit = clampLimit(page?.ids.length ?? INDEX_PAGE_SIZE);
-          return fetchPage(parseScopeKey(key), 0, limit, false);
+          const limit = clampLimit(page.ids.length || INDEX_PAGE_SIZE);
+          return fetchPage(page.scope, 0, limit, false);
         }),
       );
     },
@@ -292,11 +346,3 @@ export const useSessionIndexStore = create<State & Actions>((set, get) => {
     },
   };
 });
-
-function parseScopeKey(key: string): IndexScope {
-  if (key === "free") return freeScope();
-  if (key.startsWith("project:")) {
-    return projectScope(Number(key.slice("project:".length)));
-  }
-  return recentScope();
-}

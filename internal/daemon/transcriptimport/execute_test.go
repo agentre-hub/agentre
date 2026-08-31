@@ -250,7 +250,7 @@ func (f *fakeSessionStore) Find(_ context.Context, _, peerSessionID string) (*ha
 	return &row, nil
 }
 
-func (f *fakeSessionStore) List(_ context.Context, _ string) ([]handlers.SessionRecord, error) {
+func (f *fakeSessionStore) List(_ context.Context, _, _ string) ([]handlers.SessionRecord, error) {
 	out := make([]handlers.SessionRecord, 0, len(f.rows))
 	for _, row := range f.rows {
 		out = append(out, row)

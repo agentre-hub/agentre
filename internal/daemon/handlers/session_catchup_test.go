@@ -63,13 +63,13 @@ func setupCatchupTest(t *testing.T, rt agentruntime.Runtime) (
 // 读它会让每条会话都报 0,客户端每次重连都重拉整段日志。一条通知都还没发出的会话报 0。
 func TestSessionCatchup_List_ReportsLatestSeqFromTheJournal(t *testing.T) {
 	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", AgentID: 7, Cwd: "/work", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning},
 		{PeerSessionID: "2", AgentID: 8, Cwd: "/other", BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
 	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(map[string]int64{"1": 42}, nil)
 
-	got, err := h.List(ctx)
+	got, err := h.List(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2)
 
@@ -89,7 +89,7 @@ func TestSessionCatchup_List_ReportsLatestSeqFromTheJournal(t *testing.T) {
 // 客户端;老会话缺这些字段时如实留空(空串,不猜、不填占位名)。
 func TestSessionCatchup_List_ReturnsTitleAgentSyncIDAndProviderSessionID(t *testing.T) {
 	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", AgentID: 7, Cwd: "/work", BackendType: "claudecode",
 			LifecycleState:    wire.SessionLifecycleRunning,
 			Title:             "fix the bug",
@@ -101,7 +101,7 @@ func TestSessionCatchup_List_ReturnsTitleAgentSyncIDAndProviderSessionID(t *test
 	}, nil)
 	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
 
-	got, err := h.List(ctx)
+	got, err := h.List(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2)
 
@@ -119,7 +119,7 @@ func TestSessionCatchup_List_ReturnsTitleAgentSyncIDAndProviderSessionID(t *test
 // R5 要求的四项里就少一项,而 R13 的「机器 · 时间」只能退回到别的时间来源。
 func TestSessionCatchup_List_ReportsLastActivity(t *testing.T) {
 	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning,
 			LastMessageAt: 1754800000000},
 		// 老会话:daemon 没记过活动时间,如实留 0,由客户端表达为「未知」而不是猜一个。
@@ -127,7 +127,7 @@ func TestSessionCatchup_List_ReportsLastActivity(t *testing.T) {
 	}, nil)
 	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
 
-	got, err := h.List(ctx)
+	got, err := h.List(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2)
 	assert.Equal(t, int64(1754800000000), got.Sessions[0].LastMessageAt)
@@ -146,18 +146,18 @@ func TestSessionCatchup_List_WaitingForInputIsOverlaidLive(t *testing.T) {
 	}
 
 	ctx, sessions, journal, h := setupCatchupTest(t, blocked)
-	sessions.EXPECT().List(gomock.Any(), "").Return(rows, nil)
+	sessions.EXPECT().List(gomock.Any(), "", "").Return(rows, nil)
 	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
-	got, err := h.List(ctx)
+	got, err := h.List(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 1)
 	assert.True(t, got.Sessions[0].WaitingForInput, "backend 有阻塞 waiter 时清单必须报正在等待输入")
 
 	// 同一份会话行,backend 此刻没有任何 waiter → 必须报 false。
 	ctx2, sessions2, journal2, h2 := setupCatchupTest(t, &fullRT{})
-	sessions2.EXPECT().List(gomock.Any(), "").Return(rows, nil)
+	sessions2.EXPECT().List(gomock.Any(), "", "").Return(rows, nil)
 	journal2.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
-	got2, err := h2.List(ctx2)
+	got2, err := h2.List(ctx2, "")
 	require.NoError(t, err)
 	require.Len(t, got2.Sessions, 1)
 	assert.False(t, got2.Sessions[0].WaitingForInput)
@@ -168,12 +168,12 @@ func TestSessionCatchup_List_WaitingForInputIsOverlaidLive(t *testing.T) {
 // 而不是让整个清单查询报错 —— 一个 backend 不支持枚举不该让客户端连清单都拿不到。
 func TestSessionCatchup_List_BackendWithoutApprovalProtocol_NotWaiting(t *testing.T) {
 	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", BackendType: "unknown", LifecycleState: wire.SessionLifecycleRunning},
 	}, nil)
 	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
 
-	got, err := h.List(ctx)
+	got, err := h.List(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 1)
 	assert.False(t, got.Sessions[0].WaitingForInput)
@@ -184,13 +184,13 @@ func TestSessionCatchup_List_BackendWithoutApprovalProtocol_NotWaiting(t *testin
 // 跳过它而不是让整份清单失败 —— 一条坏行不该让客户端连自己其余的会话都看不到。
 func TestSessionCatchup_List_SkipsRowsWithAnUnparseableSessionID(t *testing.T) {
 	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "not-a-number", LifecycleState: wire.SessionLifecycleIdle},
 		{PeerSessionID: "2", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
 	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
 
-	got, err := h.List(ctx)
+	got, err := h.List(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 1)
 	assert.Equal(t, int64(2), got.Sessions[0].SessionID)
@@ -201,9 +201,9 @@ func TestSessionCatchup_List_SkipsRowsWithAnUnparseableSessionID(t *testing.T) {
 // 客户端会据此把还活着的会话当成已消失。
 func TestSessionCatchup_List_StoreFailurePropagates(t *testing.T) {
 	ctx, sessions, _, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return(nil, errors.New("disk I/O error"))
+	sessions.EXPECT().List(gomock.Any(), "", "").Return(nil, errors.New("disk I/O error"))
 
-	_, err := h.List(ctx)
+	_, err := h.List(ctx, "")
 	require.Error(t, err)
 }
 
@@ -471,7 +471,7 @@ func TestSessionCatchup_Attach_InterruptedSession_CannotBeResumed(t *testing.T) 
 // 老会话这两格本来就是空的 —— 空在契约里**有含义**(跟随绑定)。
 func TestSessionCatchup_List_ReportsSessionModelTarget(t *testing.T) {
 	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		// 固定模型。
 		{PeerSessionID: "1", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning,
 			ProviderKey: "prov-anthropic", ModelKey: "sonnet-4-6"},
@@ -483,7 +483,7 @@ func TestSessionCatchup_List_ReportsSessionModelTarget(t *testing.T) {
 	}, nil)
 	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
 
-	got, err := h.List(ctx)
+	got, err := h.List(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 3)
 
@@ -506,7 +506,7 @@ func TestSessionCatchup_List_ReportsSessionModelTarget(t *testing.T) {
 // 老会话没落过这一列,如实留空:空 = 发起方没报,不是「未知待推导」。
 func TestSessionCatchup_List_ReturnsProjectSyncID(t *testing.T) {
 	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
-	sessions.EXPECT().List(gomock.Any(), "").Return([]handlers.SessionRecord{
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
 		{PeerSessionID: "1", AgentID: 7, Cwd: "/work", BackendType: "claudecode",
 			LifecycleState: wire.SessionLifecycleRunning,
 			ProjectSyncID:  "01HXproj00000000000000000",
@@ -515,10 +515,30 @@ func TestSessionCatchup_List_ReturnsProjectSyncID(t *testing.T) {
 	}, nil)
 	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
 
-	got, err := h.List(ctx)
+	got, err := h.List(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2)
 
 	assert.Equal(t, "01HXproj00000000000000000", got.Sessions[0].ProjectSyncID)
 	assert.Empty(t, got.Sessions[1].ProjectSyncID, "老会话缺项目标识时如实留空")
+}
+
+// ── 清单的关键词收窄 ────────────────────────────────────────────────────────
+//
+// session.list 此前整份回传这台机器上的会话。对端(浏览器的机器轴、桌面端的机器组)
+// 要的往往只是其中几条,整份拉回去再筛既费带宽,也把无关会话的标题送了出去。关键词
+// 因此下推到存储:handler 只负责把它原样带过去,不在内存里过一遍。
+
+func TestSessionCatchup_List_PushesKeywordDownToTheStore(t *testing.T) {
+	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
+	// 对端限定仍在:关键词是额外收窄,不是换一条查询。
+	sessions.EXPECT().List(gomock.Any(), "", "happy").Return([]handlers.SessionRecord{
+		{PeerSessionID: "1", AgentID: 7, Title: "看看happy是怎么实现中继的", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
+	}, nil)
+	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(map[string]int64{}, nil)
+
+	got, err := h.List(ctx, "happy")
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 1)
+	assert.Equal(t, int64(1), got.Sessions[0].SessionID)
 }

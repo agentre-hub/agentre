@@ -332,11 +332,11 @@ func (d *Daemon) registerProtobufMethods() {
 
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
 		func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} },
-		func(ctx context.Context, _ *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
+		func(ctx context.Context, request *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
 			if err := requireProtobufAuth(ctx); err != nil {
 				return nil, err
 			}
-			result, err := d.catchup.List(ctx)
+			result, err := d.catchup.List(ctx, request.GetKeyword())
 			if err != nil {
 				return nil, protobufError(err)
 			}

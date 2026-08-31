@@ -43,7 +43,7 @@ import (
 // 路径真正调用的那几个方法。
 type SessionStore interface {
 	Find(ctx context.Context, peerFingerprint, peerSessionID string) (*handlers.SessionRecord, error)
-	List(ctx context.Context, peerFingerprint string) ([]handlers.SessionRecord, error)
+	List(ctx context.Context, peerFingerprint, keyword string) ([]handlers.SessionRecord, error)
 	Start(ctx context.Context, rec handlers.SessionRecord) error
 }
 
@@ -169,7 +169,9 @@ func (h *Handlers) findImported(
 	ctx context.Context, peer, peerSessionID, providerSessionID string,
 ) (*handlers.SessionRecord, error) {
 	if providerSessionID != "" {
-		rows, err := h.sessions.List(ctx, peer)
+		// 判重要看这个对端的**全部**会话:命中与否取决于 provider_session_id,
+		// 用关键词收窄只会漏判,于是把同一份磁盘转录导入第二次。
+		rows, err := h.sessions.List(ctx, peer, "")
 		if err != nil {
 			return nil, fmt.Errorf("transcriptimport: list sessions: %w", err)
 		}

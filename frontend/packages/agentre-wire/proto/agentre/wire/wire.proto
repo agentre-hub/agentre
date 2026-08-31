@@ -262,7 +262,17 @@ message SkillsListRequest { string backend_type = 1; string cli_path = 2; }
 message InstalledSkillPack { string id = 1; string name = 2; string description = 3; repeated string skills = 4; string source = 5; bool recommended = 6; bool installed = 7; bool globally_enabled = 8; }
 message SkillsListResponse { repeated InstalledSkillPack packs = 1; }
 
-message SessionListRequest {}
+// SessionListRequest narrows the machine's session list at the source. Without
+// a keyword the peer answers with every session it holds, which is what makes
+// the machine axis expensive: the caller only wants the ones it is looking for.
+message SessionListRequest {
+  // keyword narrows the list. The guaranteed floor is a case-insensitive
+  // substring match on SessionSummary.title; a host may additionally match the
+  // grouping names it owns (the desktop matches agent and project names, which
+  // agentred does not have — it stores agent_sync_id / project_sync_id, not
+  // names). Empty = no narrowing, the previous behaviour.
+  string keyword = 1;
+}
 
 message SessionListResponse {
   repeated SessionSummary sessions = 1;

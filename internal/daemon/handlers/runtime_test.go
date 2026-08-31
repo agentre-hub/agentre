@@ -577,7 +577,7 @@ func (s *recordingSessions) Find(_ context.Context, peer, session string) (*hand
 	return &row, nil
 }
 
-func (s *recordingSessions) List(_ context.Context, peer string) ([]handlers.SessionRecord, error) {
+func (s *recordingSessions) List(_ context.Context, peer, _ string) ([]handlers.SessionRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []handlers.SessionRecord

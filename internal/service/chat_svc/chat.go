@@ -471,6 +471,11 @@ func (s *chatSvc) ListIndexSessions(ctx context.Context, req *ListIndexSessionsR
 		if req.DeviceID < 0 {
 			return nil, i18n.NewError(ctx, code.InvalidParameter)
 		}
+	case SessionScopeAgent:
+		// 与项目同一格判据：0 不是「不限 agent」，recent 才是。
+		if req.AgentID <= 0 {
+			return nil, i18n.NewError(ctx, code.InvalidParameter)
+		}
 	default:
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
@@ -482,33 +487,26 @@ func (s *chatSvc) ListIndexSessions(ctx context.Context, req *ListIndexSessionsR
 		limit = listAgentSessionsMaxLimit
 	}
 
-	list := chat_repo.Session().ListRecentPaged
-	count := chat_repo.Session().CountAll
+	// scope 挑「按哪一维收窄」，Keyword 与它正交地叠上去；列表与总数收同一个 filter，
+	// 组头计数因此不会和它下面的行打架。
+	filter := chat_repo.SessionIndexFilter{Keyword: req.Keyword}
 	switch req.Scope {
 	case SessionScopeFree:
-		list = chat_repo.Session().ListFreePaged
-		count = chat_repo.Session().CountFree
+		free := int64(0)
+		filter.ProjectID = &free
 	case SessionScopeProject:
-		list = func(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
-			return chat_repo.Session().ListByProjectPaged(ctx, req.ProjectID, offset, limit)
-		}
-		count = func(ctx context.Context) (int64, error) {
-			return chat_repo.Session().CountByProject(ctx, req.ProjectID)
-		}
+		filter.ProjectID = &req.ProjectID
 	case SessionScopeMachine:
-		list = func(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
-			return chat_repo.Session().ListByDevicePaged(ctx, req.DeviceID, offset, limit)
-		}
-		count = func(ctx context.Context) (int64, error) {
-			return chat_repo.Session().CountByDevice(ctx, req.DeviceID)
-		}
+		filter.DeviceID = &req.DeviceID
+	case SessionScopeAgent:
+		filter.AgentID = &req.AgentID
 	}
 
-	sessions, err := list(ctx, req.Offset, limit)
+	sessions, err := chat_repo.Session().ListIndexPaged(ctx, filter, req.Offset, limit)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
-	total, err := count(ctx)
+	total, err := chat_repo.Session().CountIndex(ctx, filter)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}

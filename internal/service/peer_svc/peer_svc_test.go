@@ -136,7 +136,7 @@ func TestPeerSvc_GivenFreshDispatch_WhenRunFresh_ThenResolvesAgentAndCwdAndRetur
 // Given the target desktop owns sessions, when this desktop lists them, then
 // full summaries come back (R19 / R4, no degraded fallback).
 func TestPeerSvc_GivenRemoteDesktopSessions_WhenList_ThenReturnFullSummaries(t *testing.T) {
-	url := fakePeerServer(t, peer.ProtobufInboundDeps{ListSessions: func(context.Context) (*wire.SessionListResult, error) {
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{ListSessions: func(context.Context, string) (*wire.SessionListResult, error) {
 		return &wire.SessionListResult{
 			Sessions: []wire.SessionSummary{{
 				SessionID: 7, PeerFingerprint: "sha256:peer-desktop", AgentID: 3,

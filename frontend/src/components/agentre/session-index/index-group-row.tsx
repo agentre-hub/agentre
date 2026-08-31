@@ -217,8 +217,12 @@ export function IndexGroupRow({
     () => strongestAttentionTone(attentionRows.map((s) => s.status)),
     [attentionRows],
   );
-  // 「查看全部 N」只在真的还有没加载的会话时出现；筛选生效时不出现 —— 翻页拉回来的
-  // 是未过滤的下一页，混进过滤后的列表只会让人以为筛选漏了。
+  // 「查看全部 N」只在真的还有没加载的会话时出现；**状态 chip** 生效时不出现 ——
+  // 翻页拉回来的是未过滤的下一页，混进过滤后的列表只会让人以为筛选漏了。
+  //
+  // 搜索不在此列：关键词是取数 scope 的一部分，翻页拿回来的下一页同样是命中项，
+  // group.total 也是命中总数。此前搜索时一并藏掉这个入口，等于把首屏窗口之外的
+  // 命中彻底锁死。
   const overflow =
     !visibleSessionIDs && group.total > group.sessionIDs.length
       ? group.total

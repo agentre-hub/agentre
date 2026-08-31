@@ -141,22 +141,54 @@ type SeedAgent = {
 };
 
 /**
- * ListChatIndexSessions 的假后端：一份会话表，按 scope 切三种视图 ——
- * 与真实实现同一口径（recent = 全部按活动倒序，free = project_id 0，
- * project = 该项目），这样「哪个轴看得到哪条」是被真的分出来的，而不是喂给测试的。
+ * ListChatIndexSessions 的假后端：一份会话表，按 scope 切视图，与真实实现同一口径
+ * （recent = 全部按活动倒序，free = project_id 0，project / agent / machine = 该维），
+ * 这样「哪个轴看得到哪条」是被真的分出来的，而不是喂给测试的。
+ *
+ * **分页与关键词也照做**：早先这个 fake 无视 limit 一次吐回全部会话，于是
+ * 「搜索只在首屏那一页上做匹配」这个 bug 在测试里根本显不出来 —— 屏幕上本来就
+ * 摆着全部会话。
+ *
+ * 关键词命中三个字段（会话标题 / agent 名 / 项目名），与 repo 的 SessionIndexFilter
+ * 同一口径；名字两维由 seedAgents / seedTree 那两份种子解析。
  */
 function seedIndexSessions(sessions: SeedSession[]) {
   const byActivity = [...sessions].sort(
     (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
   );
   appMocks.ListChatIndexSessions.mockImplementation(
-    async (req: { scope: string; projectId: number }) => {
-      const rows =
-        req.scope === "recent"
-          ? byActivity
-          : req.scope === "free"
-            ? byActivity.filter((s) => (s.projectId ?? 0) === 0)
-            : byActivity.filter((s) => (s.projectId ?? 0) === req.projectId);
+    async (req: {
+      scope: string;
+      projectId: number;
+      deviceId: number;
+      agentId: number;
+      keyword: string;
+      offset: number;
+      limit: number;
+    }) => {
+      const inScope = byActivity.filter((s) => {
+        if (req.scope === "recent") return true;
+        if (req.scope === "free") return (s.projectId ?? 0) === 0;
+        if (req.scope === "agent") return s.agentId === req.agentId;
+        if (req.scope === "machine") return true; // 种子里的会话都在本机
+        return (s.projectId ?? 0) === req.projectId;
+      });
+      const kw = (req.keyword ?? "").toLowerCase();
+      const matched = kw
+        ? inScope.filter((s) =>
+            [
+              s.title,
+              seededAgentName(s.agentId),
+              seededProjectName(s.projectId ?? 0),
+            ]
+              .join("\n")
+              .toLowerCase()
+              .includes(kw),
+          )
+        : inScope;
+      const offset = req.offset ?? 0;
+      const limit = req.limit ?? 20;
+      const rows = matched.slice(offset, offset + limit);
       return {
         sessions: rows.map((s) => ({
           bgRunning: false,
@@ -167,11 +199,21 @@ function seedIndexSessions(sessions: SeedSession[]) {
           status: "idle",
           ...s,
         })),
-        total: rows.length,
-        hasMore: false,
+        total: matched.length,
+        hasMore: offset + rows.length < matched.length,
       };
     },
   );
+}
+
+// 名字两维在真实实现里由 SQL 的 LEFT JOIN 取回；这里从同一批种子里读。
+let seededAgentNames = new Map<number, string>();
+let seededProjectNames = new Map<number, string>();
+function seededAgentName(agentID: number | undefined): string {
+  return seededAgentNames.get(agentID ?? 0) ?? "";
+}
+function seededProjectName(projectID: number): string {
+  return seededProjectNames.get(projectID) ?? "";
 }
 
 function toChatSessionLite(s: SeedSession) {
@@ -186,6 +228,7 @@ function toChatSessionLite(s: SeedSession) {
 }
 
 function seedAgents(agents: SeedAgent[]) {
+  seededAgentNames = new Map(agents.map((a) => [a.id, a.name]));
   appMocks.ListChatAgents.mockResolvedValue({
     agents: agents.map((a) => ({
       activeCount: 0,
@@ -221,6 +264,13 @@ function projectNode(
 }
 
 function seedTree(nodes: app.ProjectTreeNode[]) {
+  seededProjectNames = new Map();
+  const walk = (node: app.ProjectTreeNode) => {
+    const p = node.project;
+    if (p) seededProjectNames.set(p.id, p.name);
+    (node.children ?? []).forEach(walk);
+  };
+  nodes.forEach(walk);
   appMocks.ProjectListTree.mockResolvedValue(nodes);
 }
 
@@ -544,6 +594,38 @@ describe("SessionIndexPage search and filter chips", () => {
     ]);
   });
 
+  // 这条是这次修复的回归用例。搜索此前只在**前端已加载的那一页**上做子串匹配，
+  // 而每个项目组首屏只展开 GROUP_PAGE_SIZE 条 —— 于是库里更早的会话无论怎么搜都
+  // 出不来（真实数据里 17 条标题含 happy 的会话，只有最近的一两条搜得到）。
+  it("Given a matching session below the first page window, When it is searched, Then it is found rather than being invisible to the search box", async () => {
+    const many: SeedSession[] = Array.from({ length: 8 }, (_, i) => ({
+      id: 100 + i,
+      title: i === 7 ? "看看 happy 是怎么实现中继的" : `filler ${i}`,
+      agentId: 7,
+      projectId: 1,
+      lastMessageAt: 8000 - i * 100,
+    }));
+    seedTree([projectNode({ id: 1, name: "Agentre" })]);
+    seedIndexSessions(many);
+    seedAgents([{ id: 7, name: "Eng", sessions: many.slice(0, 5) }]);
+
+    const user = setupUser();
+    renderIndex();
+    await screen.findByRole("button", { name: /filler 0/ });
+    // 首屏那一页里根本没有它 —— 这正是搜索必须走取数的理由。
+    expect(querySessionRow("happy")).toBeNull();
+
+    await user.type(
+      screen.getByLabelText("Search sessions, projects or agents"),
+      "happy",
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /happy/ }),
+    ).toBeInTheDocument();
+    expect(querySessionRow("filler 0")).toBeNull();
+  });
+
   it("Given a query matching one session title, When it is typed, Then only that row survives and clearing brings the rest back", async () => {
     const user = setupUser();
     renderIndex();
@@ -554,8 +636,9 @@ describe("SessionIndexPage search and filter chips", () => {
       "Visual",
     );
 
+    // 搜索是一次取数（去抖 + RPC），不再是敲下去当帧就算完的前端过滤。
+    await waitFor(() => expect(querySessionRow("Running one")).toBeNull());
     expect(sessionRow("Visual pass")).toBeInTheDocument();
-    expect(querySessionRow("Running one")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Clear search" }));
     expect(
@@ -573,9 +656,72 @@ describe("SessionIndexPage search and filter chips", () => {
       "designer",
     );
 
+    await waitFor(() => expect(querySessionRow("Running one")).toBeNull());
     expect(sessionRow("Visual pass")).toBeInTheDocument();
-    expect(querySessionRow("Running one")).toBeNull();
     expect(querySessionRow("Background done")).toBeNull();
+  });
+
+  // 「查看全部 N」此前在搜索时被一并藏掉，理由是「翻页拿回来的是未过滤的下一页」。
+  // 关键词进了取数之后这条理由不成立了：下一页同样是命中项，N 也是命中总数 ——
+  // 继续藏着等于把首屏之外的命中锁死。
+  it("Given a search with more hits than fit the first page, When the group renders, Then 「查看全部」 still reaches them", async () => {
+    const many: SeedSession[] = Array.from({ length: 60 }, (_, i) => ({
+      id: 200 + i,
+      title: `happy ${i}`,
+      agentId: 7,
+      projectId: 1,
+      lastMessageAt: 9000 - i,
+    }));
+    seedTree([projectNode({ id: 1, name: "Agentre" })]);
+    seedIndexSessions(many);
+    seedAgents([{ id: 7, name: "Eng", sessions: many.slice(0, 5) }]);
+
+    const user = setupUser();
+    renderIndex();
+    await screen.findByRole("button", { name: /happy 0/ });
+
+    await user.type(
+      screen.getByLabelText("Search sessions, projects or agents"),
+      "happy",
+    );
+
+    // 60 条命中、首屏 SEARCH_PAGE_SIZE 条，入口写的是命中总数而不是项目总数。
+    expect(await screen.findByText("View all 60 sessions")).toBeInTheDocument();
+  });
+
+  // 机器组的「查看全部 N」此前落进了 project 那一支，projectId 被填成 deviceID ——
+  // 本机的 0 会被服务端当成漏传拒掉，那一组的弹层根本打不开。
+  it("Given the machine axis, When 「查看全部」 opens, Then it queries that machine rather than a project", async () => {
+    const many: SeedSession[] = Array.from({ length: 8 }, (_, i) => ({
+      id: 300 + i,
+      title: `on this box ${i}`,
+      agentId: 7,
+      projectId: 1,
+      lastMessageAt: 9000 - i,
+    }));
+    seedTree([projectNode({ id: 1, name: "Agentre" })]);
+    seedIndexSessions(many);
+    seedAgents([{ id: 7, name: "Eng", sessions: many.slice(0, 5) }]);
+    expandGroups("machine:0");
+    useSidebarAxisStore.getState().setAxis("machine");
+
+    const user = setupUser();
+    renderIndex();
+    const viewAll = await screen.findByText("View all 8 sessions");
+    // 组自己的首屏取数也命中 machine/0；清掉之后剩下的就只有弹层那一次。
+    appMocks.ListChatIndexSessions.mockClear();
+
+    await user.click(viewAll);
+
+    await waitFor(() =>
+      expect(appMocks.ListChatIndexSessions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: "machine",
+          deviceId: 0,
+          projectId: 0,
+        }),
+      ),
+    );
   });
 
   it("Given mixed statuses, When Running then Unread then All are picked, Then the rows narrow to that class and come back", async () => {
@@ -617,8 +763,8 @@ describe("SessionIndexPage search and filter chips", () => {
     );
 
     // Visual pass 命中搜索但不是 running；Running one 是 running 但不命中搜索。
+    await waitFor(() => expect(querySessionRow("Running one")).toBeNull());
     expect(querySessionRow("Visual pass")).toBeNull();
-    expect(querySessionRow("Running one")).toBeNull();
   });
 
   it("Given the 320px sidebar, When the filter row renders, Then the picker and three chips share one non-wrapping line (decision 3)", async () => {

@@ -47,7 +47,7 @@ type PeerSessionSubscriberKeyer interface {
 // ListPeerSessions projects every desktop-owned top-level chat session into
 // the existing runtime.session.list wire shape. AgentSyncID refers to the
 // account Agent record, where the caller resolves the stored name and avatar.
-func (s *chatSvc) ListPeerSessions(ctx context.Context) (*wire.SessionListResult, error) {
+func (s *chatSvc) ListPeerSessions(ctx context.Context, keyword string) (*wire.SessionListResult, error) {
 	device := remote_device_svc.Default()
 	if device == nil {
 		return nil, fmt.Errorf("desktop peer fingerprint: remote device service unavailable")
@@ -78,7 +78,12 @@ func (s *chatSvc) ListPeerSessions(ctx context.Context) (*wire.SessionListResult
 		if agent == nil {
 			return nil, fmt.Errorf("%w: nil Agent", ErrPeerSessionMetadata)
 		}
-		sessions, err := chat_repo.Session().ListByAgentPaged(ctx, agent.ID, 0, math.MaxInt)
+		// 关键词下推到查询而不是取回来再筛:后者省的只是带宽,库还是白读一遍。
+		// 命中面比 wire 承诺的底线(标题)宽一格 —— 桌面端手上有 agent 名与项目名,
+		// 与它自己侧栏的搜索同一口径;agentred 那一侧只有 title,所以协议只承诺 title。
+		agentID := agent.ID
+		sessions, err := chat_repo.Session().ListIndexPaged(ctx,
+			chat_repo.SessionIndexFilter{AgentID: &agentID, Keyword: keyword}, 0, math.MaxInt)
 		if err != nil {
 			return nil, operationFailedWithCause(ctx, err)
 		}

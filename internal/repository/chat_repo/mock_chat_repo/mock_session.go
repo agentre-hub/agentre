@@ -72,21 +72,6 @@ func (mr *MockSessionRepoMockRecorder) CountActiveByProject(ctx, projectID, agen
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveByProject", reflect.TypeOf((*MockSessionRepo)(nil).CountActiveByProject), ctx, projectID, agentStatuses)
 }
 
-// CountAll mocks base method.
-func (m *MockSessionRepo) CountAll(ctx context.Context) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountAll", ctx)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountAll indicates an expected call of CountAll.
-func (mr *MockSessionRepoMockRecorder) CountAll(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAll", reflect.TypeOf((*MockSessionRepo)(nil).CountAll), ctx)
-}
-
 // CountByAgent mocks base method.
 func (m *MockSessionRepo) CountByAgent(ctx context.Context, agentID int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -117,49 +102,19 @@ func (mr *MockSessionRepoMockRecorder) CountByAgents(ctx, agentIDs any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByAgents", reflect.TypeOf((*MockSessionRepo)(nil).CountByAgents), ctx, agentIDs)
 }
 
-// CountByDevice mocks base method.
-func (m *MockSessionRepo) CountByDevice(ctx context.Context, deviceID int64) (int64, error) {
+// CountIndex mocks base method.
+func (m *MockSessionRepo) CountIndex(ctx context.Context, filter chat_repo.SessionIndexFilter) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountByDevice", ctx, deviceID)
+	ret := m.ctrl.Call(m, "CountIndex", ctx, filter)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// CountByDevice indicates an expected call of CountByDevice.
-func (mr *MockSessionRepoMockRecorder) CountByDevice(ctx, deviceID any) *gomock.Call {
+// CountIndex indicates an expected call of CountIndex.
+func (mr *MockSessionRepoMockRecorder) CountIndex(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByDevice", reflect.TypeOf((*MockSessionRepo)(nil).CountByDevice), ctx, deviceID)
-}
-
-// CountByProject mocks base method.
-func (m *MockSessionRepo) CountByProject(ctx context.Context, projectID int64) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountByProject", ctx, projectID)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountByProject indicates an expected call of CountByProject.
-func (mr *MockSessionRepoMockRecorder) CountByProject(ctx, projectID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByProject", reflect.TypeOf((*MockSessionRepo)(nil).CountByProject), ctx, projectID)
-}
-
-// CountFree mocks base method.
-func (m *MockSessionRepo) CountFree(ctx context.Context) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountFree", ctx)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountFree indicates an expected call of CountFree.
-func (mr *MockSessionRepoMockRecorder) CountFree(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountFree", reflect.TypeOf((*MockSessionRepo)(nil).CountFree), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountIndex", reflect.TypeOf((*MockSessionRepo)(nil).CountIndex), ctx, filter)
 }
 
 // CountRunningByAgents mocks base method.
@@ -251,36 +206,6 @@ func (mr *MockSessionRepoMockRecorder) ListByAgentPaged(ctx, agentID, offset, li
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAgentPaged", reflect.TypeOf((*MockSessionRepo)(nil).ListByAgentPaged), ctx, agentID, offset, limit)
 }
 
-// ListByDevicePaged mocks base method.
-func (m *MockSessionRepo) ListByDevicePaged(ctx context.Context, deviceID int64, offset, limit int) ([]*chat_entity.Session, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByDevicePaged", ctx, deviceID, offset, limit)
-	ret0, _ := ret[0].([]*chat_entity.Session)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListByDevicePaged indicates an expected call of ListByDevicePaged.
-func (mr *MockSessionRepoMockRecorder) ListByDevicePaged(ctx, deviceID, offset, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByDevicePaged", reflect.TypeOf((*MockSessionRepo)(nil).ListByDevicePaged), ctx, deviceID, offset, limit)
-}
-
-// ListByProjectPaged mocks base method.
-func (m *MockSessionRepo) ListByProjectPaged(ctx context.Context, projectID int64, offset, limit int) ([]*chat_entity.Session, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByProjectPaged", ctx, projectID, offset, limit)
-	ret0, _ := ret[0].([]*chat_entity.Session)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListByProjectPaged indicates an expected call of ListByProjectPaged.
-func (mr *MockSessionRepoMockRecorder) ListByProjectPaged(ctx, projectID, offset, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByProjectPaged", reflect.TypeOf((*MockSessionRepo)(nil).ListByProjectPaged), ctx, projectID, offset, limit)
-}
-
 // ListExecAgentBackendRefs mocks base method.
 func (m *MockSessionRepo) ListExecAgentBackendRefs(ctx context.Context) ([]chat_repo.SessionBackendRef, error) {
 	m.ctrl.T.Helper()
@@ -294,21 +219,6 @@ func (m *MockSessionRepo) ListExecAgentBackendRefs(ctx context.Context) ([]chat_
 func (mr *MockSessionRepoMockRecorder) ListExecAgentBackendRefs(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExecAgentBackendRefs", reflect.TypeOf((*MockSessionRepo)(nil).ListExecAgentBackendRefs), ctx)
-}
-
-// ListFreePaged mocks base method.
-func (m *MockSessionRepo) ListFreePaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListFreePaged", ctx, offset, limit)
-	ret0, _ := ret[0].([]*chat_entity.Session)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListFreePaged indicates an expected call of ListFreePaged.
-func (mr *MockSessionRepoMockRecorder) ListFreePaged(ctx, offset, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFreePaged", reflect.TypeOf((*MockSessionRepo)(nil).ListFreePaged), ctx, offset, limit)
 }
 
 // ListIDsByAgents mocks base method.
@@ -341,19 +251,19 @@ func (mr *MockSessionRepoMockRecorder) ListIDsByProviderSessions(ctx, providerSe
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIDsByProviderSessions", reflect.TypeOf((*MockSessionRepo)(nil).ListIDsByProviderSessions), ctx, providerSessionIDs)
 }
 
-// ListRecentPaged mocks base method.
-func (m *MockSessionRepo) ListRecentPaged(ctx context.Context, offset, limit int) ([]*chat_entity.Session, error) {
+// ListIndexPaged mocks base method.
+func (m *MockSessionRepo) ListIndexPaged(ctx context.Context, filter chat_repo.SessionIndexFilter, offset, limit int) ([]*chat_entity.Session, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListRecentPaged", ctx, offset, limit)
+	ret := m.ctrl.Call(m, "ListIndexPaged", ctx, filter, offset, limit)
 	ret0, _ := ret[0].([]*chat_entity.Session)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListRecentPaged indicates an expected call of ListRecentPaged.
-func (mr *MockSessionRepoMockRecorder) ListRecentPaged(ctx, offset, limit any) *gomock.Call {
+// ListIndexPaged indicates an expected call of ListIndexPaged.
+func (mr *MockSessionRepoMockRecorder) ListIndexPaged(ctx, filter, offset, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRecentPaged", reflect.TypeOf((*MockSessionRepo)(nil).ListRecentPaged), ctx, offset, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIndexPaged", reflect.TypeOf((*MockSessionRepo)(nil).ListIndexPaged), ctx, filter, offset, limit)
 }
 
 // ListRemoteExecSessions mocks base method.

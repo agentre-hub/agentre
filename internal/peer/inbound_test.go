@@ -427,7 +427,7 @@ func registerInboundPeerChat(t *testing.T) {
 	}
 	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).Times(2)
 	agents.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{agent}, nil).Times(2)
-	sessions.EXPECT().ListByAgentPaged(gomock.Any(), int64(7), 0, gomock.Any()).Return([]*chat_entity.Session{{
+	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
 		ID: 1, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, Status: consts.ACTIVE,
 	}}, nil).Times(2)
 	sessions.EXPECT().Find(gomock.Any(), int64(1)).Return(&chat_entity.Session{

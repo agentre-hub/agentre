@@ -1,49 +1,76 @@
 import * as React from "react";
 
 import { useSessionAttentionList } from "@/stores/attention-store";
-import type { SessionMeta } from "@/stores/session-meta-store";
-
-import type { IndexGroup } from "./use-index-groups";
-
-import type { app } from "../../../../wailsjs/go/models";
 
 /** 筛选 chips：单选。null = 全部（决策 8）。 */
 type StatusFilter = "running" | "unread" | null;
 
+/**
+ * 搜索态。它与状态 chip 拆成两个 hook，因为改完之后两者落在取数的**两侧**：
+ * 关键词进查询（组装组之前就要有），状态 chip 过已经摆好的行（组装之后才算得出）。
+ */
+type IndexSearch = {
+  query: string;
+  setQuery: React.Dispatch<React.SetStateAction<string>>;
+  /** 小写化 + trim 后的搜索词，随输入即时变。空串 = 没在搜。*/
+  needle: string;
+  /**
+   * 喂给取数的搜索词：`needle` 去抖之后的值。搜索走的是服务端查询，每敲一个字符就
+   * 发一轮 RPC 没有必要。
+   */
+  keyword: string;
+  /** 搜索是否生效。拖拽排序、空态文案按它判断（决策 9）。 */
+  searching: boolean;
+};
+
 type UseIndexFilterOptions = {
-  groups: IndexGroup[];
-  metas: Map<number, SessionMeta>;
-  projectByID: Map<number, app.ProjectItem>;
+  /** 当前轴摆出来的全部会话 id（用于算未读读数与状态命中）。 */
+  sessionIDs: readonly number[];
 };
 
 type IndexFilter = {
-  query: string;
-  setQuery: React.Dispatch<React.SetStateAction<string>>;
   statusFilter: StatusFilter;
   setStatusFilter: React.Dispatch<React.SetStateAction<StatusFilter>>;
-  /** 小写化 + trim 后的搜索词。空串 = 没在搜。*/
-  needle: string;
   unreadCount: number;
-  /** 命中集合。`null` = 没有任何筛选，整棵列表原样渲染。*/
+  /**
+   * 状态 chip 的命中集合。`null` = 没按状态筛。
+   *
+   * **搜索不在这里**：关键词是取数 scope 的一部分（见 use-index-groups），列表本身
+   * 就已经是过滤后的，再在前端过一遍只会把「首屏窗口之外的命中」重新挡掉 —— 那正是
+   * 此前搜不到东西的原因。留在前端的只有 running / 未读，它们是 attention store 的
+   * 实时派生态，落不进 SQL。
+   */
   visibleSessionIDs: ReadonlySet<number> | null;
 };
 
-// useIndexFilter 收拢左栏的搜索 / 状态筛选:输入态、attention 读数,以及由两者
-// 算出的命中集合。
-function useIndexFilter({
-  groups,
-  metas,
-  projectByID,
-}: UseIndexFilterOptions): IndexFilter {
-  const [query, setQuery] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>(null);
-  const needle = query.trim().toLowerCase();
+/** 搜索去抖窗口。够短到打完一个词就出结果，够长到不会逐字符打 RPC。 */
+const SEARCH_DEBOUNCE_MS = 200;
 
-  const allSessionIDs = React.useMemo(
-    () => [...new Set(groups.flatMap((g) => g.sessionIDs))],
-    [groups],
-  );
-  const attentionItems = useSessionAttentionList(allSessionIDs);
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [settled, setSettled] = React.useState(value);
+  React.useEffect(() => {
+    if (settled === value) return;
+    const timer = setTimeout(() => setSettled(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs, settled]);
+  return settled;
+}
+
+// useIndexSearch 只管搜索框本身:输入态、归一化、去抖。它必须在组装组之前调用 ——
+// 关键词是取数 scope 的一部分。
+function useIndexSearch(): IndexSearch {
+  const [query, setQuery] = React.useState("");
+  const needle = query.trim().toLowerCase();
+  const keyword = useDebounced(needle, SEARCH_DEBOUNCE_MS);
+  return { query, setQuery, needle, keyword, searching: needle.length > 0 };
+}
+
+// useIndexFilter 管状态 chip:attention 读数与命中集合。它过的是已经摆好的行,
+// 所以在组装组之后调用。
+function useIndexFilter({ sessionIDs }: UseIndexFilterOptions): IndexFilter {
+  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>(null);
+
+  const attentionItems = useSessionAttentionList(sessionIDs);
   const reasonBySession = React.useMemo(
     () => new Map(attentionItems.map((i) => [i.sessionId, i.reason])),
     [attentionItems],
@@ -53,55 +80,17 @@ function useIndexFilter({
     [attentionItems],
   );
 
-  /**
-   * 命中集合。`null` = 没有任何筛选，整棵列表原样渲染。
-   *
-   * 搜索同时匹配**会话标题 / 项目名 / agent 名**（决策 8）。一条会话被留下的条件是
-   * 「它自己命中」**或**「它所属的组命中」—— 搜 agent 名时该 agent 名下的会话应该
-   * 全留（你在找那个 agent），搜某句标题时才收窄到那几条。
-   */
   const visibleSessionIDs = React.useMemo<ReadonlySet<number> | null>(() => {
-    if (!needle && statusFilter === null) return null;
+    if (statusFilter === null) return null;
     const hit = new Set<number>();
-    for (const sid of allSessionIDs) {
-      const meta = metas.get(sid);
-      if (!meta) continue;
-      if (statusFilter !== null && reasonBySession.get(sid) !== statusFilter) {
-        continue;
-      }
-      if (!needle) {
-        hit.add(sid);
-        continue;
-      }
-      const projectName =
-        meta.projectId && meta.projectId > 0
-          ? (projectByID.get(meta.projectId)?.name ?? "")
-          : "";
-      const haystack = [meta.title ?? "", meta.agentName ?? "", projectName]
-        .join("\n")
-        .toLowerCase();
-      if (haystack.includes(needle)) hit.add(sid);
+    for (const sid of sessionIDs) {
+      if (reasonBySession.get(sid) === statusFilter) hit.add(sid);
     }
     return hit;
-  }, [
-    needle,
-    statusFilter,
-    allSessionIDs,
-    metas,
-    reasonBySession,
-    projectByID,
-  ]);
+  }, [statusFilter, sessionIDs, reasonBySession]);
 
-  return {
-    query,
-    setQuery,
-    statusFilter,
-    setStatusFilter,
-    needle,
-    unreadCount,
-    visibleSessionIDs,
-  };
+  return { statusFilter, setStatusFilter, unreadCount, visibleSessionIDs };
 }
 
-export { useIndexFilter };
-export type { IndexFilter, StatusFilter };
+export { useIndexFilter, useIndexSearch };
+export type { IndexFilter, IndexSearch, StatusFilter };

@@ -819,6 +819,12 @@ const (
 	// 从 backend 推出来的 DeviceID：前者是会话表上的一列（取数时就分得开），后者索引
 	// 这条路根本没填。DeviceID = 0 是本机，是一台正当的机器。
 	SessionScopeMachine SessionIndexScope = "machine"
+	// SessionScopeAgent 某个 agent 名下的会话 —— 索引「按 agent」轴那一组。
+	//
+	// 不搜索时那条轴的会话由 ListAgents 顺带给出（每个 agent 前 5 条），不必为了摆一屏
+	// 多发 N 个 RPC；**搜索时**那个前 5 条的窗口就不够了，得按 agent 各查一遍全量，
+	// 这个 scope 就是为此存在的。AgentID 必须 > 0：0 不是「不限 agent」，recent 才是。
+	SessionScopeAgent SessionIndexScope = "agent"
 )
 
 // ListIndexSessionsRequest 单一会话索引的分页查询。
@@ -830,8 +836,17 @@ type ListIndexSessionsRequest struct {
 	// DeviceID 仅在 Scope=machine 时有意义。**0 合法**（本机），负数才是漏传 ——
 	// 与 ProjectID 的判据差这一格，因为 0 在那边有专门的 scope，在这边是一台机器。
 	DeviceID int64 `json:"deviceId"`
-	Offset   int   `json:"offset"`
-	Limit    int   `json:"limit"`
+	// AgentID 仅在 Scope=agent 时有意义，且必须 > 0。
+	AgentID int64 `json:"agentId"`
+	Offset  int   `json:"offset"`
+	Limit   int   `json:"limit"`
+	// Keyword 是索引搜索框里那个词，与 Scope 正交：命中口径（会话标题 / agent 名 /
+	// 项目名）由 repo 的 SessionIndexFilter 统一定义，每条轴都能叠。
+	//
+	// 它必须走取数而不是留给前端过滤：前端手上只有首屏那一页（项目组 5 条 / 时间轴
+	// 30 条），在那上面做匹配等于「只搜得到最近几条」。带上它之后 Total / HasMore
+	// 也一并是过滤后的口径，组头计数与翻页因此不会和列表打架。
+	Keyword string `json:"keyword"`
 }
 
 type ListIndexSessionsResponse struct {

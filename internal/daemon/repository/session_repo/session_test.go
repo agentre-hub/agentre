@@ -72,7 +72,7 @@ func TestSessionRepo_ListByPeer_ScopedToCaller(t *testing.T) {
 		WithArgs("peerA").
 		WillReturnRows(rows)
 
-	got, err := repo.ListByPeer(ctx, "peerA")
+	got, err := repo.ListByPeer(ctx, "peerA", "")
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, "s1", got[0].PeerSessionID)
@@ -100,7 +100,7 @@ func TestSessionRepo_ListAll_ReturnsRowsAcrossPeers(t *testing.T) {
 		AddRow("peerB", "s1", 8, "/other", "codex", "idle", "", "", "", 100, 150)
 	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` ORDER BY last_message_at DESC").WillReturnRows(rows)
 
-	got, err := repo.ListAll(ctx)
+	got, err := repo.ListAll(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, "peerA", got[0].PeerFingerprint)
@@ -302,5 +302,73 @@ func TestSessionRepo_Upsert_CarriesProjectSyncID(t *testing.T) {
 		ProjectSyncID: "prj-9",
 	}))
 
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ── 清单的关键词收窄 ────────────────────────────────────────────────────────
+//
+// session.list 此前把这台机器上的全部会话整份回传。对端（浏览器的机器轴、桌面端的
+// 机器组）真正要的往往只是其中几条,整份拉回去再筛既费带宽也把无关会话的标题送了出去。
+// 收窄放在**这一层**而不是调用方: daemon 手上只有 title(它存的是 agent_sync_id /
+// project_sync_id, 没有名字), 匹配口径因此只有一条,不必每个调用方各写一遍。
+
+func TestSessionRepo_ListByPeer_NarrowsByKeyword(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	// 对端限定必须**仍在**: 关键词是额外收窄,不是换一条查询。
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND title LIKE \\? ESCAPE '\\\\' ORDER BY last_message_at DESC").
+		WithArgs("peerA", "%happy%").
+		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "title"}).
+			AddRow("peerA", "s1", "看看happy是怎么实现中继的"))
+
+	got, err := repo.ListByPeer(ctx, "peerA", "happy")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "s1", got[0].PeerSessionID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_ListAll_NarrowsByKeyword(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE title LIKE \\? ESCAPE '\\\\' ORDER BY last_message_at DESC").
+		WithArgs("%happy%").
+		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id", "title"}).
+			AddRow("peerB", "s9", "happy path"))
+
+	got, err := repo.ListAll(ctx, "happy")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_List_KeywordEscapesWildcards(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	// 不转义的话「100%」会退化成「1、0、0 加任意后缀」—— 搜得越具体命中越宽。
+	mock.ExpectQuery("title LIKE").
+		WithArgs("peerA", "%100\\%\\_a\\\\b%").
+		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id"}))
+
+	_, err := repo.ListByPeer(ctx, "peerA", `100%_a\b`)
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_List_BlankKeywordEmitsNoLike(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	// 全空白与「没给关键词」等价: 一个只按了空格的搜索框不该把整台机器筛空。
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC$").
+		WithArgs("peerA").
+		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "peer_session_id"}).AddRow("peerA", "s1"))
+
+	got, err := repo.ListByPeer(ctx, "peerA", "   ")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

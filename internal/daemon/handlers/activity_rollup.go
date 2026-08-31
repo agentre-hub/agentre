@@ -40,7 +40,7 @@ func NewActivityHandlers(deps ActivityDeps) *ActivityHandlers {
 // 会话按账号维度读(不限对端):这台机器上的会话本来就都属于这一个账号,而统计是账号
 // 级的。
 func (h *ActivityHandlers) ActivityRollup(ctx context.Context, sinceDay, timeZone string) ([]activityrollup.Bucket, error) {
-	rows, err := h.deps.Sessions.List(ctx, "")
+	rows, err := h.deps.Sessions.List(ctx, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("list sessions for activity rollup: %w", err)
 	}

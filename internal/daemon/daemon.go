@@ -1660,8 +1660,8 @@ func (s daemonSessionStore) CountRunning(ctx context.Context) (int64, error) {
 		dbpkg.WithContextDB(ctx, s.db), wire.SessionLifecycleRunning)
 }
 
-func (s daemonSessionStore) List(ctx context.Context, peerFingerprint string) ([]handlers.SessionRecord, error) {
-	rows, err := session_repo.Session().ListByPeer(dbpkg.WithContextDB(ctx, s.db), peerFingerprint)
+func (s daemonSessionStore) List(ctx context.Context, peerFingerprint, keyword string) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListByPeer(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, keyword)
 	if err != nil {
 		return nil, err
 	}
@@ -1672,8 +1672,8 @@ func (s daemonSessionStore) List(ctx context.Context, peerFingerprint string) ([
 	return out, nil
 }
 
-func (s daemonSessionStore) ListAll(ctx context.Context) ([]handlers.SessionRecord, error) {
-	rows, err := session_repo.Session().ListAll(dbpkg.WithContextDB(ctx, s.db))
+func (s daemonSessionStore) ListAll(ctx context.Context, keyword string) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListAll(dbpkg.WithContextDB(ctx, s.db), keyword)
 	if err != nil {
 		return nil, err
 	}

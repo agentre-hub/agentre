@@ -23,7 +23,7 @@ import (
 type ProtobufInboundDeps struct {
 	Peripheral   protobufadapter.PeripheralDeps
 	Capabilities func(context.Context, string) (*agentrewire.RuntimeCapabilitiesResponse, error)
-	ListSessions func(context.Context) (*remotewire.SessionListResult, error)
+	ListSessions func(ctx context.Context, keyword string) (*remotewire.SessionListResult, error)
 	// ActivityRollup 交出按天 × 维度的会话计数。回包里没有标题、路径与内容。
 	ActivityRollup       func(context.Context, string, string) ([]activityrollup.Bucket, error)
 	AttachSession        func(context.Context, remotewire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionAttachResult, error)
@@ -148,11 +148,11 @@ func registerPeerSessionMethods(registry *protorpc.Registry, deps ProtobufInboun
 		}
 		return &agentrewire.Empty{}, nil
 	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, _ *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
 		if deps.ListSessions == nil {
 			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session list unavailable"}
 		}
-		value, err := deps.ListSessions(ctx)
+		value, err := deps.ListSessions(ctx, req.GetKeyword())
 		if err != nil {
 			return nil, protobufPeerError(err)
 		}
