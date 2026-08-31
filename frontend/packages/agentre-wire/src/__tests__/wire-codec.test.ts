@@ -497,6 +497,7 @@ describe("protobuf rpc envelope", () => {
         status: "running",
         mode: "parallel",
         runs: [],
+        summary: "task summary",
       },
     },
     {
@@ -515,6 +516,7 @@ describe("protobuf rpc envelope", () => {
         status: "running",
         mode: "parallel",
         runs: [],
+        summary: "task summary",
       },
     },
     {
@@ -533,6 +535,7 @@ describe("protobuf rpc envelope", () => {
         status: "completed",
         mode: "parallel",
         runs: [],
+        summary: "task summary",
       },
     },
     { case: "subagentModel", toolCallId: "t1", model: "gpt" },

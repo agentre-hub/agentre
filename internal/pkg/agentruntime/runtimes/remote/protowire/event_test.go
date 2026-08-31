@@ -108,6 +108,7 @@ func TestEventNotificationPreservesEveryField(t *testing.T) {
 		TaskID: "task-1", SubagentType: "explore", Kind: "local_agent",
 		TaskDescription: "look", Prompt: "go look", LastToolName: "Read",
 		ToolUses: 3, TotalTokens: 900, DurationMs: 1200, Status: "running", Mode: "parallel",
+		Summary: "task summary",
 		Runs: []agentruntime.SubagentRun{{
 			ID: "r1", Index: 2, Agent: "explore", Profile: "p", AgentSource: "src",
 			Task: "t", RequestedModel: "opus", Model: "opus-5", Status: "running",

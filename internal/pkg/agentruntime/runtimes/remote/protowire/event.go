@@ -293,7 +293,7 @@ func subagentEventToProto(toolCallID string, info agentruntime.SubagentInfo) *ag
 		TaskId: info.TaskID, SubagentType: info.SubagentType, Kind: info.Kind,
 		TaskDescription: info.TaskDescription, Prompt: info.Prompt, LastToolName: info.LastToolName,
 		ToolUses: int32(info.ToolUses), TotalTokens: int32(info.TotalTokens), DurationMs: int32(info.DurationMs),
-		Status: info.Status, Mode: info.Mode,
+		Status: info.Status, Mode: info.Mode, Summary: info.Summary,
 	}
 	for _, run := range info.Runs {
 		out.Runs = append(out.Runs, &agentrewire.SubagentRun{
@@ -311,7 +311,7 @@ func subagentInfoFromProto(info *agentrewire.SubagentInfo) agentruntime.Subagent
 		TaskID: info.GetTaskId(), SubagentType: info.GetSubagentType(), Kind: info.GetKind(),
 		TaskDescription: info.GetTaskDescription(), Prompt: info.GetPrompt(), LastToolName: info.GetLastToolName(),
 		ToolUses: int(info.GetToolUses()), TotalTokens: int(info.GetTotalTokens()), DurationMs: int(info.GetDurationMs()),
-		Status: info.GetStatus(), Mode: info.GetMode(),
+		Status: info.GetStatus(), Mode: info.GetMode(), Summary: info.GetSummary(),
 	}
 	for _, run := range info.GetRuns() {
 		out.Runs = append(out.Runs, agentruntime.SubagentRun{

@@ -916,6 +916,11 @@ message SubagentInfo {
   string task_id = 1; string subagent_type = 2; string kind = 3; string task_description = 4;
   string prompt = 5; string last_tool_name = 6; int32 tool_uses = 7; int32 total_tokens = 8;
   int32 duration_ms = 9; string status = 10; string mode = 11; repeated SubagentRun runs = 12;
+  // summary is the task's own conclusion (claudecode task_notification.summary):
+  // the subagent's report on success, the interruption reason on failure. Runs-less
+  // producers carry their conclusion here and nowhere else — a resumed run has no
+  // tool_result of its own, so dropping this loses the report entirely.
+  string summary = 13;
 }
 message SubagentEvent { string tool_call_id = 1; SubagentInfo info = 2; }
 message SubagentModel { string tool_call_id = 1; string model = 2; }

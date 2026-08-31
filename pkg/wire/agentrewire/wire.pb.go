@@ -12478,8 +12478,13 @@ type SubagentInfo struct {
 	Status          string                 `protobuf:"bytes,10,opt,name=status,proto3" json:"status,omitempty"`
 	Mode            string                 `protobuf:"bytes,11,opt,name=mode,proto3" json:"mode,omitempty"`
 	Runs            []*SubagentRun         `protobuf:"bytes,12,rep,name=runs,proto3" json:"runs,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// summary is the task's own conclusion (claudecode task_notification.summary):
+	// the subagent's report on success, the interruption reason on failure. Runs-less
+	// producers carry their conclusion here and nowhere else — a resumed run has no
+	// tool_result of its own, so dropping this loses the report entirely.
+	Summary       string `protobuf:"bytes,13,opt,name=summary,proto3" json:"summary,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SubagentInfo) Reset() {
@@ -12594,6 +12599,13 @@ func (x *SubagentInfo) GetRuns() []*SubagentRun {
 		return x.Runs
 	}
 	return nil
+}
+
+func (x *SubagentInfo) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
 }
 
 type SubagentEvent struct {
@@ -13999,7 +14011,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	" \x01(\tR\flastToolName\x12\x1b\n" +
 	"\ttool_uses\x18\v \x01(\x05R\btoolUses\x12\x18\n" +
 	"\asummary\x18\f \x01(\tR\asummary\x12#\n" +
-	"\rerror_message\x18\r \x01(\tR\ferrorMessage\"\x85\x03\n" +
+	"\rerror_message\x18\r \x01(\tR\ferrorMessage\"\x9f\x03\n" +
 	"\fSubagentInfo\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12#\n" +
 	"\rsubagent_type\x18\x02 \x01(\tR\fsubagentType\x12\x12\n" +
@@ -14014,7 +14026,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x06status\x18\n" +
 	" \x01(\tR\x06status\x12\x12\n" +
 	"\x04mode\x18\v \x01(\tR\x04mode\x12-\n" +
-	"\x04runs\x18\f \x03(\v2\x19.agentre.wire.SubagentRunR\x04runs\"a\n" +
+	"\x04runs\x18\f \x03(\v2\x19.agentre.wire.SubagentRunR\x04runs\x12\x18\n" +
+	"\asummary\x18\r \x01(\tR\asummary\"a\n" +
 	"\rSubagentEvent\x12 \n" +
 	"\ftool_call_id\x18\x01 \x01(\tR\n" +
 	"toolCallId\x12.\n" +
