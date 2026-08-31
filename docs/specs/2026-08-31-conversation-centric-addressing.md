@@ -252,7 +252,14 @@ Mode A/B 的 `AuthPairRequest` / `AuthConnectRequest` 的 `device_fingerprint` �
 `wireversion` 从单值变为一对：`Protocol`（本构建说的版本）与 `MinSupported`（本构建还接受的
 最老版本），本轮均为 `0.1.0`，并与 `frontend/packages/agentre-wire/package.json` 的
 `version` 保持逐字一致。三个握手的请求与响应各加 `min_supported_protocol_version`，
-`Match` 从逐字相等改为"对端的 `Protocol` 落在本方窗口内，且本方的 `Protocol` 落在对端窗口内"。
+`Match` 从逐字相等改为**双向下界**："对端的 `Protocol` 不低于本方的 `MinSupported`，且本方的
+`Protocol` 不低于对端的 `MinSupported`"。
+
+不取"各自落在对方 `[MinSupported, Protocol]` 闭区间内"这个更直观的写法，是因为它自我作废：
+本方 `Protocol` 要落进对端区间就必须不高于**对端的** `Protocol`，反向同理，两条合起来强制
+两端 `Protocol` 相等——窗口只在版本不同时才有意义，那个读法因此永远匹配不上，且与下一段
+的验收场景直接冲突。上界本来也不该存在：加字段是向后兼容的，旧端读新端只会忽略未知字段，
+真正需要判定的只有"对方是否还支持我这个版本"这一个方向。
 
 前置条件是"两端版本不同但都落在对方窗口内"，动作是"握手"，可观察结果是"握手成功且双方都能
 调用对方声明的全部方法"；前置条件是"对端版本落在窗口外"，动作是"握手"，可观察结果是"以
