@@ -32,6 +32,16 @@ export type CollapsedScrollRestoreGuard = TranscriptScrollState & {
 /** 距底 ≤32px 视为贴底。 */
 export const TRANSCRIPT_BOTTOM_THRESHOLD = 32;
 export const COLLAPSED_RESTORE_GUARD_MS = 3_000;
+/**
+ * 折叠恢复守卫的复查节拍。
+ *
+ * 销账条件("总高恢复了")本来只在 rAF 收敛循环里被比较,而 WKWebView / 被遮挡的
+ * 窗口会让 rAF 整段停摆(见 use-transcript-scroll 的 armCollapsedScrollRestore),
+ * 于是抑制只能等 COLLAPSED_RESTORE_GUARD_MS 到点 —— 用户看到整整 3 秒空屏。
+ * 定时器因此改成按这个节拍复查,而不只是到点兜底:后台节流最多把它钳到 ~1s 量级,
+ * 仍远好于干等 3s。
+ */
+export const COLLAPSED_RESTORE_POLL_MS = 50;
 
 export function readScrollMetrics(el: HTMLElement): ScrollMetrics {
   const { clientHeight, scrollHeight, scrollTop } = el;

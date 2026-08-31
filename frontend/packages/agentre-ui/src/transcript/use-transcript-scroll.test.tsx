@@ -421,6 +421,65 @@ describe("useTranscriptScroll", () => {
     vi.unstubAllGlobals();
   });
 
+  it("Given a tab resumes with the virtualized height still intact, Then it never suppresses paint at all", () => {
+    // 实测(隔离桌面端 CDP 采样):隐藏的面板行虽然卸载,spacer 仍保持虚拟器总高,
+    // 于是切回来的那一刻销账条件**已经满足**。此时还把转录区设成 hidden,就只能
+    // 等 rAF 或用户滚动来销账 —— WKWebView 里 rAF 会整段停摆,用户看到的是整整
+    // 3 秒空屏(COLLAPSED_RESTORE_GUARD_MS 兜底定时器到点才恢复)。
+    const height = 8_392;
+    const view = render(<Harness tabKey="tab-intact" />);
+    const el = scroller(view.container, () => height);
+
+    act(() => {
+      el.scrollTop = 7_912;
+      fireEvent.scroll(el);
+    });
+
+    view.rerender(<Harness active={false} tabKey="tab-intact" />);
+    view.rerender(<Harness tabKey="tab-intact" />);
+
+    expect(el.style.visibility).toBe("");
+    expect(height).toBe(8_392);
+  });
+
+  it("Given the height is collapsed and requestAnimationFrame never fires, When the height recovers, Then paint resumes without waiting out the whole deadline", async () => {
+    // 高度确实塌陷时仍要抑制,但销账不能只挂在 rAF 上:rAF 停摆时转录区会一直
+    // 空到 3s 期限。定时器要按固定节拍复查销账条件,而不只是到点兜底。
+    vi.useFakeTimers();
+    let height = 8_392;
+    const view = render(<Harness tabKey="tab-raf-poll" />);
+    const el = scroller(view.container, () => height);
+
+    act(() => {
+      el.scrollTop = 7_912;
+      fireEvent.scroll(el);
+    });
+
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+
+    view.rerender(<Harness active={false} tabKey="tab-raf-poll" />);
+    act(() => {
+      height = 200;
+      el.scrollTop = 0;
+    });
+    view.rerender(<Harness tabKey="tab-raf-poll" />);
+    expect(el.style.visibility).toBe("hidden");
+
+    act(() => {
+      height = 8_392;
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COLLAPSED_RESTORE_GUARD_MS / 10);
+    });
+
+    expect(el.style.visibility).toBe("");
+    expect(el.scrollTop).toBe(7_912);
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   it("Given a saved non-bottom snapshot with an anchor, When the panel remounts, Then it hands the anchor to the transcript instead of restoring raw pixels", () => {
     const view = render(<Harness tabKey="tab-anchor" />);
     const el = scroller(view.container);

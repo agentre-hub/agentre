@@ -10,6 +10,7 @@ import * as React from "react";
 
 import {
   COLLAPSED_RESTORE_GUARD_MS,
+  COLLAPSED_RESTORE_POLL_MS,
   TRANSCRIPT_BOTTOM_THRESHOLD,
   computeTopVisibleAnchor,
   isCollapsedBelowGuard,
@@ -136,6 +137,18 @@ export function useTranscriptScroll(
     [],
   );
 
+  // syncCollapsedPaintSuppression 把「此刻是否该藏着」重新算一遍:高度真塌在守卫
+  // 门槛之下才藏,恢复了(或期限已过)就露出来。isCollapsedBelowGuard 同时管期限,
+  // 所以到点之后即便还没恢复也不再抑制,与销账语义一致。
+  const syncCollapsedPaintSuppression = React.useCallback(() => {
+    const guard = collapsedScrollSaveGuardRef.current;
+    const el = transcriptRef.current;
+    if (!guard || guard.key !== scrollStateKey || !el) return;
+    setTranscriptPaintSuppressed(
+      isCollapsedBelowGuard(readScrollMetrics(el), guard),
+    );
+  }, [scrollStateKey, setTranscriptPaintSuppressed]);
+
   const cancelCollapsedRestoreTimer = React.useCallback(() => {
     if (collapsedRestoreTimerRef.current == null) return;
     window.clearTimeout(collapsedRestoreTimerRef.current);
@@ -203,6 +216,7 @@ export function useTranscriptScroll(
       if (!guard || guard.key !== scrollStateKey) return;
       if (restoreCollapsedScrollPosition()) return;
       if (collapsedScrollSaveGuardRef.current?.key !== scrollStateKey) return;
+      syncCollapsedPaintSuppression();
       collapsedRestoreFrameRef.current = window.requestAnimationFrame(tick);
     };
     collapsedRestoreFrameRef.current = window.requestAnimationFrame(tick);
@@ -210,6 +224,7 @@ export function useTranscriptScroll(
     cancelCollapsedRestoreFrame,
     scrollStateKey,
     restoreCollapsedScrollPosition,
+    syncCollapsedPaintSuppression,
   ]);
 
   React.useEffect(
@@ -239,6 +254,43 @@ export function useTranscriptScroll(
     [scrollStateKey],
   );
 
+  // startCollapsedRestoreTimer 按固定节拍复查销账条件,直到高度恢复或期限到点。
+  //
+  // 销账条件本来只在 rAF 收敛循环里被比较,而 rAF 在窗口被遮挡 / 不在前台 / 在
+  // WKWebView 里会整段停摆(本地实测 Chromium 停过 6.4s,同期 longtask 最长 143ms
+  // —— 是节流不是阻塞)。此前这枚定时器只做"到点兜底解除",于是 rAF 一停摆,转录区
+  // 就实打实空屏 COLLAPSED_RESTORE_GUARD_MS 那么久(sess-3504:切回 tab 空屏 3 秒,
+  // 用户滚一下立刻恢复 —— 滚动是另一条销账路径)。改成按 POLL 节拍复查后,rAF 停摆
+  // 时的空屏被压到一个节拍;setTimeout 同样会被节流,但只是被钳到 ~1s 量级,不会停摆。
+  // 期限本身仍由 restoreCollapsedScrollPosition 内部比较 guard.until 来落实。
+  const startCollapsedRestoreTimer = React.useCallback(
+    (guard: CollapsedScrollRestoreGuard) => {
+      cancelCollapsedRestoreTimer();
+      const poll = () => {
+        collapsedRestoreTimerRef.current = null;
+        // 期间又 arm 过一次(切走再切回)→ 那次有自己的定时器,这枚过期的不许接手。
+        if (collapsedScrollSaveGuardRef.current !== guard) return;
+        if (restoreCollapsedScrollPosition()) return;
+        // 期限到点时 restoreCollapsedScrollPosition 已经自行销账,guard 也就没了。
+        if (collapsedScrollSaveGuardRef.current !== guard) return;
+        syncCollapsedPaintSuppression();
+        collapsedRestoreTimerRef.current = window.setTimeout(
+          poll,
+          COLLAPSED_RESTORE_POLL_MS,
+        );
+      };
+      collapsedRestoreTimerRef.current = window.setTimeout(
+        poll,
+        COLLAPSED_RESTORE_POLL_MS,
+      );
+    },
+    [
+      cancelCollapsedRestoreTimer,
+      restoreCollapsedScrollPosition,
+      syncCollapsedPaintSuppression,
+    ],
+  );
+
   const armCollapsedScrollRestore = React.useCallback(
     (saved: TranscriptScrollState) => {
       const guard: CollapsedScrollRestoreGuard = {
@@ -252,28 +304,21 @@ export function useTranscriptScroll(
         until: Date.now() + COLLAPSED_RESTORE_GUARD_MS,
       };
       collapsedScrollSaveGuardRef.current = guard;
-      setTranscriptPaintSuppressed(true);
+      // 抑制绘制不再随守卫「一armed 就латch 到底」,而是跟着**当下**是否真塌陷走。
+      // 守卫本身管两件事:①塌陷期间的滚动事件不许覆盖存档(skipWhileCollapsedHeight)
+      // ②塌陷期间别让用户看见错位的一帧。①必须覆盖整个切回窗口(塌陷可能晚一两帧
+      // 才发生),②只在真塌陷时才有意义 —— 把两者绑在一起,就变成「总高根本没塌陷也
+      // 照样藏着,等 rAF 来销账」,而 WKWebView 的 rAF 会整段停摆,用户看到 3 秒空屏
+      // (sess-3504,滚一下立刻恢复 —— 滚动是另一条销账路径)。
+      syncCollapsedPaintSuppression();
       startCollapsedRestoreLoop();
-      // guard.until 只在 restoreCollapsedScrollPosition 里被比较,而那个函数只有两个
-      // 调用方:rAF 收敛循环,和用户滚动。rAF 在窗口被遮挡 / 不在前台时会整段停摆
-      // (本地实测 Chromium 停过 6.4s,同期 longtask 最长 143ms —— 是节流不是阻塞),
-      // 于是期限永远等不到被检查:转录区无限期停在 visibility:hidden,只有用户滚一下
-      // 才解除。所以期限得有自己的定时器 —— setTimeout 同样会被节流,但只是被钳到
-      // ~1s 量级,不会停摆。
-      cancelCollapsedRestoreTimer();
-      collapsedRestoreTimerRef.current = window.setTimeout(() => {
-        collapsedRestoreTimerRef.current = null;
-        // 期间又 arm 过一次(切走再切回)→ 那次有自己的定时器,这枚过期的不许收尾。
-        if (collapsedScrollSaveGuardRef.current !== guard) return;
-        releaseCollapsedGuard();
-      }, COLLAPSED_RESTORE_GUARD_MS);
+      startCollapsedRestoreTimer(guard);
     },
     [
-      cancelCollapsedRestoreTimer,
-      releaseCollapsedGuard,
       scrollStateKey,
-      setTranscriptPaintSuppressed,
       startCollapsedRestoreLoop,
+      startCollapsedRestoreTimer,
+      syncCollapsedPaintSuppression,
     ],
   );
 
