@@ -393,8 +393,6 @@ func TestPool_Borrow_NoLocalPairing_WithAccountCredential_DialsAccountHandshake(
 		So(got.Credential, ShouldEqual, "acct-jwt")
 		So(got.URL, ShouldEqual, "wss://example/rpc")
 		So(got.TLSMode, ShouldEqual, "skip-verify")
-		// R5 硬不变量:账号路径复用 keychain 里的 LAN 配对指纹,不另生成。
-		So(got.DeviceFingerprint, ShouldEqual, "fp-x")
 		So(got.ExpectedDaemonFingerprint, ShouldEqual, "sha256:abc")
 	})
 }
@@ -455,10 +453,13 @@ func TestPool_Borrow_NoLocalPairing_AccountRejected_StaysDeviceUnauthorized(t *t
 	})
 }
 
-// R5:未配对时两条路径并发,直连的 auth.account 与中转的 auth.account 呈现的
-// 是同一个对端标识 —— 路径切换不会在 daemon 眼里变成另一个对端。
+// R5:未配对时两条路径并发,直连与中转在 daemon 眼里是同一个对端 —— 路径切换不会
+// 变成另一个对端。决策 8 之后这件事的成立方式变了:身份不再由两条路径各自「出示」
+// 一个字符串然后指望它们相等,而是由**同一枚账号凭据**的 pfp claim 决定,daemon 从
+// 验过的凭据里取(见 daemon/auth 的 HandleAccount 测试)。所以这里钉的是:两条路径
+// 用的是同一份账号材料,且直连侧已经没有任何可自报的身份字段。
 func TestPool_Borrow_NoLocalPairing_BothPathsPresentSamePeerIdentity(t *testing.T) {
-	Convey("account credential on both paths: direct and relay present the same peer fingerprint", t, func() {
+	Convey("account credential on both paths: one credential decides the identity on both", t, func() {
 		var relayPeerFP string
 		f := newPoolFixture(t,
 			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}),
@@ -468,19 +469,19 @@ func TestPool_Borrow_NoLocalPairing_BothPathsPresentSamePeerIdentity(t *testing.
 			}}))
 		_ = f.kc.Delete("agentre-daemon-token-42")
 		c := stubClient()
-		var directPeerFP string
+		var directCredential string
 		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
 		f.dial.EXPECT().OpenAccount(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, args remote_device_svc.AccountArgs) (client.ProtobufConnection, error) {
-				directPeerFP = args.DeviceFingerprint
+				directCredential = args.Credential
 				return c, nil
 			})
 
 		lease, err := f.pool.Borrow(context.Background(), 42)
 		So(err, ShouldBeNil)
 		So(lease.Client(), ShouldNotBeNil)
-		So(directPeerFP, ShouldEqual, "fp-x")
-		So(relayPeerFP, ShouldEqual, directPeerFP)
+		So(directCredential, ShouldEqual, "acct-jwt")
+		So(relayPeerFP, ShouldEqual, "fp-x")
 	})
 }
 

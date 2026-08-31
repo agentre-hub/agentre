@@ -21,11 +21,13 @@ type Options struct {
 	TLSConfig *tls.Config
 }
 
+// RelayOptions 是中继客户端拨号的入参。它**没有**本端指纹:auth.account 的对端身份
+// 由响应方从 AccessToken 里验出来(决策 8),本端在这条连接上的身份从应答回写
+// (见 ProtobufClient.SelfFingerprint)。
 type RelayOptions struct {
-	URL               string
-	AccessToken       string
-	DeviceFingerprint string
-	TLSConfig         *tls.Config
+	URL         string
+	AccessToken string
+	TLSConfig   *tls.Config
 }
 
 var (
@@ -251,10 +253,7 @@ func DialRelayProtobuf(ctx context.Context, opts RelayOptions) (*ProtobufClient,
 		return nil, classifyRelayDialError(err, resp)
 	}
 	client := newProtobufClient(ctx, ws)
-	result, err := client.AuthAccount(ctx, &agentrewire.AuthAccountRequest{
-		Credential:        opts.AccessToken,
-		DeviceFingerprint: opts.DeviceFingerprint,
-	})
+	result, err := client.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: opts.AccessToken})
 	if err != nil {
 		_ = client.Close()
 		return nil, err
@@ -273,7 +272,6 @@ func DialRelayProtobuf(ctx context.Context, opts RelayOptions) (*ProtobufClient,
 // the one boundary every handshake passes through, and a caller that forgot to
 // advertise would look exactly like a pre-versioning peer to the daemon.
 func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.AuthAccountRequest) (*agentrewire.AuthAccountResponse, error) {
-	c.selfFP = request.GetDeviceFingerprint()
 	request.ProtocolVersion = wireversion.Protocol
 	request.MinSupportedProtocolVersion = wireversion.MinSupported
 	response, err := protorpc.CallMethod(
@@ -289,6 +287,10 @@ func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.A
 	if versionErr := peerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
+	// Mode C 的本端身份**由对端认定**:请求体里已经没有指纹可报,对端从已验签的凭据
+	// 取出身份后在应答里回写(决策 8)。这里不去自解自己的凭据 —— 那假定两端对 pfp
+	// claim 的读法永远一致,一旦不一致 conversation_id 会静默算错。
+	c.selfFP = response.GetPeerFingerprint()
 	return response, nil
 }
 

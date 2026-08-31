@@ -302,7 +302,6 @@ func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string)
 			TLSMode:                   args.TLSMode,
 			TLSCertPEM:                args.TLSCertPEM,
 			Credential:                credential,
-			DeviceFingerprint:         args.DeviceFingerprint,
 			ExpectedDaemonFingerprint: args.ExpectedDaemonFingerprint,
 		})
 	}

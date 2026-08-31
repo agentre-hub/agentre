@@ -147,7 +147,7 @@ func TestAuthAccount_GivenPeerOmitsTheProtocolVersion_WhenAuthenticating_ThenRej
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	_, err = c.AuthAccount(t.Context(), &agentrewire.AuthAccountRequest{Credential: "token", DeviceFingerprint: "sha256:desktop"})
+	_, err = c.AuthAccount(t.Context(), &agentrewire.AuthAccountRequest{Credential: "token"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrPeerProtocolVersionMismatch)
 	assert.Contains(t, err.Error(), "no protocol version")
@@ -178,7 +178,7 @@ func TestDialRelayProtobuf_GivenRelayPeerRefusesTheSubprotocol_WhenDialing_ThenF
 	}))
 	defer server.Close()
 
-	_, err := DialRelayProtobuf(t.Context(), RelayOptions{URL: "ws" + strings.TrimPrefix(server.URL, "http"), AccessToken: "token", DeviceFingerprint: "sha256:desktop"})
+	_, err := DialRelayProtobuf(t.Context(), RelayOptions{URL: "ws" + strings.TrimPrefix(server.URL, "http"), AccessToken: "token"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrPeerProtocolUnsupported)
 	assert.NotErrorIs(t, err, ErrRelayDaemonNotFound)

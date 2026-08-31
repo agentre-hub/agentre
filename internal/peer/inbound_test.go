@@ -53,6 +53,7 @@ import (
 // peer on the existing wire vocabulary, and disappears from the relay when the
 // App lifetime ends.
 func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilities_ThenItDispatchesAndUnregisters(t *testing.T) {
+	authorizeAccountCredentials(t)
 	var attempts atomic.Int32
 	secondConnection := make(chan *websocket.Conn, 1)
 	holdRelay := make(chan struct{})
@@ -149,7 +150,7 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 
 	authenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`2`), Method: "auth.account",
-		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt", DeviceFingerprint: "sha256:peer"}),
+		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt"}),
 	})
 	require.Nil(t, authenticated.Error)
 
@@ -272,7 +273,7 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 
 	authenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`2`), Method: "auth.account",
-		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt", DeviceFingerprint: "sha256:peer"}),
+		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt"}),
 	})
 	require.Nil(t, authenticated.Error)
 
@@ -318,8 +319,19 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 
 // startInboundPeer 起一台只接一条连接的假中继,并把桌面端 Inbound 挂上去,返回中继
 // 这一侧的那条连接。
+// authorizeAccountCredentials 把入站握手的凭据验证换成一个可控的结果:凭据由
+// agentre-server 签,集成测试造不出真的(决策 8 之后这条路上没有「自报指纹」可用),
+// 所以在这里注入「这枚凭据验过了,它说的对端是 sha256:peer」。
+func authorizeAccountCredentials(t *testing.T) {
+	t.Helper()
+	restore := peer.SwapAccountCredentialVerifierForTest(
+		func(context.Context, string) (string, error) { return "sha256:peer", nil })
+	t.Cleanup(restore)
+}
+
 func startInboundPeer(t *testing.T) *websocket.Conn {
 	t.Helper()
+	authorizeAccountCredentials(t)
 	upgrader := websocket.Upgrader{}
 	accepted := make(chan *websocket.Conn, 1)
 	hold := make(chan struct{})
@@ -383,12 +395,15 @@ func registerInboundPeerChatForDelete(t *testing.T) *mock_chat_repo.MockSessionR
 		ctrl.Finish()
 	})
 	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
-	// conversation_id → 本地主键的反查在落库前靠枚举本机会话重建(见
-	// chat_svc.ResolvePeerConversation);备忘录是进程级的,同一条对话在一次进程里
-	// 只重建一次,所以次数不定。
+	// conversation_id → 本地主键的反查走 chat_svc.ResolvePeerConversation:本机有的
+	// 那条如实交出,别的对话号一律「本机没有」(用例正是拿一个不存在的号试的)。
 	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
-		ID: 1, AgentID: 7, Title: "Ship the release", Status: consts.ACTIVE,
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", Status: consts.ACTIVE,
 	}}, nil).AnyTimes()
+	sessions.EXPECT().FindByConversationID(gomock.Any(), convID(1)).Return(&chat_entity.Session{
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	sessions.EXPECT().FindByConversationID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	return sessions
 }
 
@@ -436,10 +451,13 @@ func registerInboundPeerChat(t *testing.T) {
 	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
 	agents.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{agent}, nil).AnyTimes()
 	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
-		ID: 1, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, Status: consts.ACTIVE,
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, Status: consts.ACTIVE,
 	}}, nil).AnyTimes()
 	sessions.EXPECT().Find(gomock.Any(), int64(1)).Return(&chat_entity.Session{
-		ID: 1, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", Status: consts.ACTIVE,
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	sessions.EXPECT().FindByConversationID(gomock.Any(), convID(1)).Return(&chat_entity.Session{
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", Status: consts.ACTIVE,
 	}, nil).AnyTimes()
 	messages.EXPECT().List(gomock.Any(), int64(1)).Return(nil, nil)
 	agents.EXPECT().Find(gomock.Any(), int64(7)).Return(agent, nil).AnyTimes()

@@ -26,17 +26,23 @@ type ProtobufInboundDeps struct {
 	Capabilities func(context.Context, string) (*agentrewire.RuntimeCapabilitiesResponse, error)
 	ListSessions func(ctx context.Context, keyword string) (*remotewire.SessionListResult, error)
 	// ActivityRollup 交出按天 × 维度的会话计数。回包里没有标题、路径与内容。
-	ActivityRollup       func(context.Context, string, string) ([]activityrollup.Bucket, error)
-	AttachSession        func(context.Context, remotewire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionAttachResult, error)
-	PullSession          func(context.Context, remotewire.SessionPullParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionPullResult, error)
-	PendingWaiters       func(context.Context, remotewire.SessionPendingWaitersParams) (remotewire.SessionPendingWaitersResult, error)
-	DeleteSession        func(context.Context, string, string) error
-	SetModelTarget       func(context.Context, string, string, string) error
-	SetPermissionMode    func(context.Context, string, string) error
-	RunSession           func(context.Context, remotewire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
-	SteerSession         func(context.Context, remotewire.SteerParams, chat_svc.PeerSessionSource) error
-	SubmitAnswer         func(context.Context, remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
-	SubmitToolPermission func(context.Context, remotewire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error)
+	ActivityRollup func(context.Context, string, string) ([]activityrollup.Bucket, error)
+	// VerifyAccountCredential 验证入站对端出示的账号凭据,交出凭据里那个**已验签的**
+	// 对端身份(pfp claim,决策 8)。生产装配是 newAccountCredentialVerifier。
+	//
+	// 它是 nil 表示本进程此刻没有验证能力(未登录、公钥取不到、单测未装配):那时
+	// 握手一律拒绝。曾经这条路上凭据只需非空、指纹只需自报,任何人都能自称任何对端。
+	VerifyAccountCredential func(ctx context.Context, credential string) (string, error)
+	AttachSession           func(context.Context, remotewire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionAttachResult, error)
+	PullSession             func(context.Context, remotewire.SessionPullParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionPullResult, error)
+	PendingWaiters          func(context.Context, remotewire.SessionPendingWaitersParams) (remotewire.SessionPendingWaitersResult, error)
+	DeleteSession           func(context.Context, string, string) error
+	SetModelTarget          func(context.Context, string, string, string) error
+	SetPermissionMode       func(context.Context, string, string) error
+	RunSession              func(context.Context, remotewire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
+	SteerSession            func(context.Context, remotewire.SteerParams, chat_svc.PeerSessionSource) error
+	SubmitAnswer            func(context.Context, remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
+	SubmitToolPermission    func(context.Context, remotewire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error)
 }
 
 type protobufPeerSubscriber struct{ conn *protorpc.Conn }
@@ -88,15 +94,31 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 					zap.String("localMinSupportedProtocolVersion", wireversion.MinSupported))
 				return nil, &protorpc.Error{Code: rpcerror.CodeProtocolVersion, Message: reason}
 			}
-			if request.Credential == "" || request.DeviceFingerprint == "" {
-				return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "credential and device fingerprint required"}
+			if request.Credential == "" {
+				return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "credential required"}
 			}
 			conn := protorpc.ConnFromContext(ctx)
 			if conn == nil {
 				return nil, &protorpc.Error{Code: -32001, Message: "unauthorized"}
 			}
-			conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: request.DeviceFingerprint})
-			return &agentrewire.AuthAccountResponse{Ok: true, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, nil
+			// 决策 8:先验凭据,再从验过的凭据里取身份。没有验证能力就没有握手 ——
+			// 采信一个没验过的字符串,和不鉴权是同一件事。
+			if deps.VerifyAccountCredential == nil {
+				logger.Ctx(ctx).Warn("peer.authAccount: no credential verifier configured, refusing handshake")
+				return nil, &protorpc.Error{Code: -32001, Message: "unauthorized"}
+			}
+			fingerprint, err := deps.VerifyAccountCredential(ctx, request.Credential)
+			if err != nil || fingerprint == "" {
+				logger.Ctx(ctx).Warn("peer.authAccount: credential rejected", zap.Error(err))
+				return nil, &protorpc.Error{Code: -32001, Message: "unauthorized"}
+			}
+			conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: fingerprint})
+			// 回写对端认定的身份:调用方在请求体里已经报不了自己是谁,它在这条连接上
+			// 的身份(conversation_id 的派生输入)只能由这里说了算。
+			return &agentrewire.AuthAccountResponse{
+				Ok: true, PeerFingerprint: fingerprint,
+				ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported,
+			}, nil
 		})
 	protobufadapter.RegisterPeripheralMethods(registry, deps.Peripheral)
 	if deps.Capabilities != nil {

@@ -48,13 +48,10 @@ func TestAuth_AccountCredential_GivenClaimedDaemon_WhenValidCredential_ThenAuthe
 	st.Claim("42", publicKeyPEM, state.AccountCredential{})
 	credential := testAccountCredential(t, privateKey, int64(42), time.Now().Add(time.Hour))
 
-	result, err := ah.HandleAccount(context.Background(), AccountParams{
-		Credential:        credential,
-		DeviceFingerprint: "sha256:account-client",
-	})
+	result, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
 
 	require.NoError(t, err)
-	assert.Equal(t, &ConnectResult{OK: true, InstanceUUID: st.DaemonInstanceUUID}, result)
+	assert.Equal(t, &AccountResult{OK: true, InstanceUUID: st.DaemonInstanceUUID, PeerFingerprint: "sha256:account-client"}, result)
 }
 
 func TestAuth_AccountCredential_GivenVersionedKeySet_WhenVerifyingThenSelectsKIDAndEnforcesLifetime(t *testing.T) {
@@ -88,10 +85,10 @@ func TestAuth_AccountCredential_GivenCredentialWithinClockSkew_WhenAuthenticatin
 	st.Claim("42", publicKeyPEM, state.AccountCredential{})
 	credential := testAccountCredential(t, privateKey, int64(42), time.Now().Add(-30*time.Second))
 
-	result, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential, DeviceFingerprint: "sha256:account-client"})
+	result, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
 
 	require.NoError(t, err)
-	assert.Equal(t, &ConnectResult{OK: true, InstanceUUID: st.DaemonInstanceUUID}, result)
+	assert.Equal(t, &AccountResult{OK: true, InstanceUUID: st.DaemonInstanceUUID, PeerFingerprint: "sha256:account-client"}, result)
 }
 
 func TestAuth_AccountCredential_GivenExpiredCredential_WhenAuthenticating_ThenRejectsExpiry(t *testing.T) {
@@ -100,7 +97,7 @@ func TestAuth_AccountCredential_GivenExpiredCredential_WhenAuthenticating_ThenRe
 	st.Claim("42", publicKeyPEM, state.AccountCredential{})
 	credential := testAccountCredential(t, privateKey, int64(42), time.Now().Add(-61*time.Second))
 
-	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential, DeviceFingerprint: "sha256:account-client"})
+	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
 
 	assertAccountCredentialRejection(t, err, "account credential expired")
 }
@@ -112,7 +109,7 @@ func TestAuth_AccountCredential_GivenWrongSignature_WhenAuthenticating_ThenRejec
 	st.Claim("42", publicKeyPEM, state.AccountCredential{})
 	credential := testAccountCredential(t, wrongPrivateKey, int64(42), time.Now().Add(time.Hour))
 
-	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential, DeviceFingerprint: "sha256:account-client"})
+	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
 
 	assertAccountCredentialRejection(t, err, "account credential signature invalid")
 }
@@ -123,7 +120,7 @@ func TestAuth_AccountCredential_GivenDifferentAccount_WhenAuthenticating_ThenRej
 	st.Claim("42", publicKeyPEM, state.AccountCredential{})
 	credential := testAccountCredential(t, privateKey, int64(99), time.Now().Add(time.Hour))
 
-	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential, DeviceFingerprint: "sha256:account-client"})
+	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
 
 	assertAccountCredentialRejection(t, err, "account credential account mismatch")
 }
@@ -133,7 +130,7 @@ func TestAuth_AccountCredential_GivenUnclaimedDaemon_WhenAuthenticating_ThenReje
 	privateKey, _ := testRSAKeyPair(t)
 	credential := testAccountCredential(t, privateKey, int64(42), time.Now().Add(time.Hour))
 
-	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential, DeviceFingerprint: "sha256:account-client"})
+	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
 
 	assertAccountCredentialRejection(t, err, "account credential rejected: cached verification key unavailable")
 }
@@ -155,10 +152,7 @@ func TestAuth_AccountCredential_WhenVerifying_ThenMakesNoNetworkRoundTrip(t *tes
 	})
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	result, err := ah.HandleAccount(context.Background(), AccountParams{
-		Credential:        credential,
-		DeviceFingerprint: "sha256:account-client",
-	})
+	result, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
 
 	require.NoError(t, err)
 	assert.True(t, result.OK)
@@ -179,8 +173,7 @@ func TestAuth_AccountCredential_GivenRevokedJTI_WhenAuthenticating_ThenRejectsRe
 	credential := testAccountCredentialWithJTI(t, privateKey, int64(42), time.Now().Add(time.Hour), "01JREVOKED")
 
 	_, err := ah.HandleAccount(context.Background(), AccountParams{
-		Credential:        credential,
-		DeviceFingerprint: "sha256:account-client",
+		Credential: credential,
 	})
 
 	assertAccountCredentialRejection(t, err, "account credential revoked")
@@ -208,10 +201,7 @@ func TestAuth_AccountCredential_GivenJTIRevokedOnlyOnServer_WhenAuthenticating_T
 	})
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	result, err := ah.HandleAccount(context.Background(), AccountParams{
-		Credential:        credential,
-		DeviceFingerprint: "sha256:account-client",
-	})
+	result, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
 
 	require.NoError(t, err)
 	assert.True(t, result.OK)
@@ -221,6 +211,37 @@ func TestAuth_AccountCredential_GivenJTIRevokedOnlyOnServer_WhenAuthenticating_T
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestAuth_AccountCredential_GivenPeerFingerprintClaim_ThenIdentityComesFromTheCredential
+// 钉住决策 8:Mode C 的对端身份来自**已验签的凭据**,不是请求体。握手结果里那个
+// 指纹必须逐字等于凭据的 pfp claim。
+func TestAuth_AccountCredential_GivenPeerFingerprintClaim_ThenIdentityComesFromTheCredential(t *testing.T) {
+	ah, st, _ := setupAuthTest(t)
+	privateKey, publicKeyPEM := testRSAKeyPair(t)
+	st.Claim("42", publicKeyPEM, state.AccountCredential{})
+	credential := testAccountCredentialWithPeerFingerprint(t, privateKey, int64(42),
+		time.Now().Add(time.Hour), "sha256:from-credential")
+
+	result, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
+
+	require.NoError(t, err)
+	assert.Equal(t, "sha256:from-credential", result.PeerFingerprint)
+}
+
+// TestAuth_AccountCredential_GivenNoPeerFingerprintClaim_ThenRejectsUnauthorized
+// 缺 pfp 的凭据与签名不合法同一形态被拒 —— 不回退到请求体,因为回退等于这条要求
+// 不存在。
+func TestAuth_AccountCredential_GivenNoPeerFingerprintClaim_ThenRejectsUnauthorized(t *testing.T) {
+	ah, st, _ := setupAuthTest(t)
+	privateKey, publicKeyPEM := testRSAKeyPair(t)
+	st.Claim("42", publicKeyPEM, state.AccountCredential{})
+	credential := testAccountCredentialWithPeerFingerprint(t, privateKey, int64(42),
+		time.Now().Add(time.Hour), "")
+
+	_, err := ah.HandleAccount(context.Background(), AccountParams{Credential: credential})
+
+	assertAccountCredentialRejection(t, err, "account credential missing peer fingerprint")
+}
 
 func assertAccountCredentialRejection(t *testing.T, err error, reason string) {
 	t.Helper()
@@ -250,9 +271,31 @@ func testAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID a
 func testAccountCredentialWithJTI(t *testing.T, privateKey *rsa.PrivateKey, accountID any, expiresAt time.Time, jti string) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	payloadClaims := map[string]any{"uid": accountID, "exp": expiresAt.Unix()}
+	// pfp 是决策 8 之后每枚账号凭据都带的对端身份;没有它的凭据由
+	// testAccountCredentialWithPeerFingerprint 单独铸,那是「凭据没说自己是谁」那条。
+	payloadClaims := map[string]any{"uid": accountID, "exp": expiresAt.Unix(), "pfp": "sha256:account-client"}
 	if jti != "" {
 		payloadClaims["jti"] = jti
+	}
+	claims, err := json.Marshal(payloadClaims)
+	require.NoError(t, err)
+	payload := base64.RawURLEncoding.EncodeToString(claims)
+	signingInput := header + "." + payload
+	digest := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
+	require.NoError(t, err)
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+// testAccountCredentialWithPeerFingerprint 铸一枚带 pfp claim(决策 8 的对端身份)的
+// 凭据。空 pfp 省略该 claim —— 那正是「凭据没说自己是谁」的形态。
+func testAccountCredentialWithPeerFingerprint(t *testing.T, privateKey *rsa.PrivateKey, accountID any,
+	expiresAt time.Time, peerFingerprint string) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	payloadClaims := map[string]any{"uid": accountID, "exp": expiresAt.Unix()}
+	if peerFingerprint != "" {
+		payloadClaims["pfp"] = peerFingerprint
 	}
 	claims, err := json.Marshal(payloadClaims)
 	require.NoError(t, err)
@@ -272,6 +315,7 @@ func testVersionedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, ki
 	header := base64.RawURLEncoding.EncodeToString(headerJSON)
 	claimsJSON, err := json.Marshal(map[string]any{
 		"uid": accountID, "iat": issuedAt.Unix(), "exp": expiresAt.Unix(),
+		"pfp": "sha256:account-client",
 	})
 	require.NoError(t, err)
 	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)

@@ -35,6 +35,13 @@ import (
 // 的是 peer_svc 的会话族编排与事件扇出，不是中继本身。
 func fakePeerServer(t *testing.T, deps peer.ProtobufInboundDeps) string {
 	t.Helper()
+	// 决策 8 之后 auth.account 必须验凭据才给身份;假对端在这里注入一个可控的验证
+	// 结果("这枚凭据验过了,对端是 sha256:test-peer"),各用例只关心会话族方法。
+	if deps.VerifyAccountCredential == nil {
+		deps.VerifyAccountCredential = func(context.Context, string) (string, error) {
+			return "sha256:test-peer", nil
+		}
+	}
 	server := protorpc.NewLANServer(protorpc.LANOpts{Host: "127.0.0.1", Port: 0, Registry: peer.NewProtobufInboundRegistry(deps)})
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = server.Run(ctx) }()
@@ -57,7 +64,7 @@ func (d directDialer) DialDesktopRelay(_ context.Context, desktopFingerprint, pe
 	if err != nil {
 		return nil, err
 	}
-	_, err = protorpc.CallMethod(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{Credential: "test", DeviceFingerprint: peerFingerprint, ProtocolVersion: wireversion.Protocol}, func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
+	_, err = protorpc.CallMethod(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{Credential: "test", ProtocolVersion: wireversion.Protocol}, func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
 	if err != nil {
 		_ = conn.Close()
 		return nil, err

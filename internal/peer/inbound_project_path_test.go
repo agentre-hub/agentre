@@ -78,7 +78,7 @@ func authorizePeer(t *testing.T, ws *websocket.Conn, id string) {
 	t.Helper()
 	authenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(id), Method: "auth.account",
-		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt", DeviceFingerprint: "sha256:peer"}),
+		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt"}),
 	})
 	require.Nil(t, authenticated.Error)
 }

@@ -1021,9 +1021,8 @@ func (*AccountDevicePresence) Descriptor() ([]byte, []int) {
 }
 
 type AuthAccountRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Credential        string                 `protobuf:"bytes,1,opt,name=credential,proto3" json:"credential,omitempty"`
-	DeviceFingerprint string                 `protobuf:"bytes,2,opt,name=device_fingerprint,json=deviceFingerprint,proto3" json:"device_fingerprint,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Credential string                 `protobuf:"bytes,1,opt,name=credential,proto3" json:"credential,omitempty"`
 	// The wire protocol version the caller speaks — @agentre-hub/agentre-wire's
 	// package version.
 	ProtocolVersion string `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
@@ -1073,13 +1072,6 @@ func (x *AuthAccountRequest) GetCredential() string {
 	return ""
 }
 
-func (x *AuthAccountRequest) GetDeviceFingerprint() string {
-	if x != nil {
-		return x.DeviceFingerprint
-	}
-	return ""
-}
-
 func (x *AuthAccountRequest) GetProtocolVersion() string {
 	if x != nil {
 		return x.ProtocolVersion
@@ -1102,8 +1094,16 @@ type AuthAccountResponse struct {
 	ProtocolVersion string `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	// The oldest wire protocol version the daemon still accepts from the peer.
 	MinSupportedProtocolVersion string `protobuf:"bytes,4,opt,name=min_supported_protocol_version,json=minSupportedProtocolVersion,proto3" json:"min_supported_protocol_version,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// The identity the responder assigned to the caller, read out of the caller's
+	// verified credential. The caller records it as its own identity on this
+	// connection: it is the value the responder files the caller's sessions
+	// under, and therefore the conversation_id derivation input. The caller must
+	// not re-derive it by parsing its own credential — that assumes both ends
+	// read the claim identically forever, and a divergence would make
+	// conversation_id silently wrong.
+	PeerFingerprint string `protobuf:"bytes,5,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AuthAccountResponse) Reset() {
@@ -1160,6 +1160,13 @@ func (x *AuthAccountResponse) GetProtocolVersion() string {
 func (x *AuthAccountResponse) GetMinSupportedProtocolVersion() string {
 	if x != nil {
 		return x.MinSupportedProtocolVersion
+	}
+	return ""
+}
+
+func (x *AuthAccountResponse) GetPeerFingerprint() string {
+	if x != nil {
+		return x.PeerFingerprint
 	}
 	return ""
 }
@@ -13114,19 +13121,19 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x12AccountSyncVersion\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\"\x16\n" +
 	"\x14AccountMirrorChanged\"\x17\n" +
-	"\x15AccountDevicePresence\"\xd3\x01\n" +
+	"\x15AccountDevicePresence\"\xbe\x01\n" +
 	"\x12AuthAccountRequest\x12\x1e\n" +
 	"\n" +
 	"credential\x18\x01 \x01(\tR\n" +
-	"credential\x12-\n" +
-	"\x12device_fingerprint\x18\x02 \x01(\tR\x11deviceFingerprint\x12)\n" +
+	"credential\x12)\n" +
 	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12C\n" +
-	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersion\"\xba\x01\n" +
+	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersionJ\x04\b\x02\x10\x03R\x12device_fingerprint\"\xe5\x01\n" +
 	"\x13AuthAccountResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12#\n" +
 	"\rinstance_uuid\x18\x02 \x01(\tR\finstanceUuid\x12)\n" +
 	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12C\n" +
-	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersion\"\xe5\x01\n" +
+	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersion\x12)\n" +
+	"\x10peer_fingerprint\x18\x05 \x01(\tR\x0fpeerFingerprint\"\xe5\x01\n" +
 	"\x0fAuthPairRequest\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1f\n" +
 	"\vdevice_name\x18\x02 \x01(\tR\n" +

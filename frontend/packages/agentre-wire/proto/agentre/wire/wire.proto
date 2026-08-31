@@ -132,7 +132,11 @@ message AccountDevicePresence {}
 
 message AuthAccountRequest {
   string credential = 1;
-  string device_fingerprint = 2;
+  // 2 曾是 device_fingerprint:调用方自报的对端身份。它从来没有被任何东西验证过,
+  // 而对端身份现在只从已验签的凭据的 pfp claim 取(见 AuthAccountResponse
+  // .peer_fingerprint)。留一个「说了不算」的字段是下一个人踩的坑,故删而不是忽略。
+  reserved 2;
+  reserved "device_fingerprint";
   // The wire protocol version the caller speaks — @agentre-hub/agentre-wire's
   // package version.
   string protocol_version = 3;
@@ -150,6 +154,14 @@ message AuthAccountResponse {
   string protocol_version = 3;
   // The oldest wire protocol version the daemon still accepts from the peer.
   string min_supported_protocol_version = 4;
+  // The identity the responder assigned to the caller, read out of the caller's
+  // verified credential. The caller records it as its own identity on this
+  // connection: it is the value the responder files the caller's sessions
+  // under, and therefore the conversation_id derivation input. The caller must
+  // not re-derive it by parsing its own credential — that assumes both ends
+  // read the claim identically forever, and a divergence would make
+  // conversation_id silently wrong.
+  string peer_fingerprint = 5;
 }
 
 message AuthPairRequest {

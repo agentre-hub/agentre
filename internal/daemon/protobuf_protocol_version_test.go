@@ -135,7 +135,7 @@ func TestAuthAccount_GivenCallerOmitsTheProtocolVersion_WhenAuthenticating_ThenR
 	client, _, ctx := protobufHandshakeConns(t)
 
 	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
-		&agentrewire.AuthAccountRequest{Credential: "token", DeviceFingerprint: "device-1"},
+		&agentrewire.AuthAccountRequest{Credential: "token"},
 		func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
 
 	var rpcErr *protorpc.Error

@@ -637,7 +637,9 @@ func bootRigInDir(t *testing.T, dir string) *pairedTestRig {
 	require.NoError(t, err)
 	require.NotEmpty(t, pairResp.GetDeviceToken())
 
-	return &pairedTestRig{dir: dir, d: d, cli: cli, proto: cli, runner: remote.New(cli), token: pairResp.GetDeviceToken(), stop: stop}
+	return &pairedTestRig{dir: dir, d: d, cli: cli, proto: cli,
+		runner: remote.New(cli, remote.WithConversationIDResolver(convID)),
+		token:  pairResp.GetDeviceToken(), stop: stop}
 }
 
 // connectSameDevice 再开一条**同一台设备**的已认证连接(auth.connect,与桌面端的
@@ -1328,6 +1330,7 @@ func TestIntegration_SameDeviceHeartbeatDoesNotStealRuntimeHandler(t *testing.T)
 	// 只是让 callSession 的重挂重试生效 —— 真被调用就说明用例走错了路。
 	rtConn := rig.connectSameDeviceProtobuf(t)
 	rt := remote.New(rtConn,
+		remote.WithConversationIDResolver(convID),
 		remote.WithDaemonFingerprint(identity.DaemonFingerprint(rig.d.state.DaemonInstanceUUID)),
 		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
 			return nil, "", errors.New("连接一直是活的,这条用例不该触发重连")
@@ -2111,7 +2114,12 @@ func pairSecondDevice(t *testing.T, d *Daemon, fingerprint string) *client.Proto
 	return cli
 }
 
-func claimDaemonForIntegration(t *testing.T, d *Daemon, accountID string) string {
+// mintAccountCredential 为一个具名对端铸一枚该账号的凭据。决策 8 之后对端身份写在
+// 凭据的 pfp claim 里,不再由请求体自报 —— 因此「两个不同对端」在测试里也必须是
+// 两枚不同的凭据,而不是同一枚凭据配两个自报字符串。
+type mintAccountCredential func(peerFingerprint string) string
+
+func claimDaemonForIntegration(t *testing.T, d *Daemon, accountID string) mintAccountCredential {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -2120,18 +2128,23 @@ func claimDaemonForIntegration(t *testing.T, d *Daemon, accountID string) string
 	d.state.Claim(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), state.AccountCredential{})
 	require.NoError(t, d.state.Save())
 
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims, err := json.Marshal(map[string]any{"uid": accountID, "exp": time.Now().Add(time.Hour).Unix()})
-	require.NoError(t, err)
-	payload := base64.RawURLEncoding.EncodeToString(claims)
-	signingInput := header + "." + payload
-	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
-	require.NoError(t, err)
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+	return func(peerFingerprint string) string {
+		t.Helper()
+		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+		claims, err := json.Marshal(map[string]any{
+			"uid": accountID, "exp": time.Now().Add(time.Hour).Unix(), "pfp": peerFingerprint,
+		})
+		require.NoError(t, err)
+		payload := base64.RawURLEncoding.EncodeToString(claims)
+		signingInput := header + "." + payload
+		digest := sha256.Sum256([]byte(signingInput))
+		signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
+		require.NoError(t, err)
+		return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+	}
 }
 
-func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint, credential string) *client.ProtobufClient {
+func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint string, mint mintAccountCredential) *client.ProtobufClient {
 	t.Helper()
 	d.mu.RLock()
 	url := d.lan.URL()
@@ -2142,9 +2155,12 @@ func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint, credentia
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
 
-	result, err := cli.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: credential, DeviceFingerprint: fingerprint})
+	result, err := cli.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: mint(fingerprint)})
 	require.NoError(t, err)
 	require.True(t, result.GetOk())
+	// 决策 8:daemon 认定的对端身份逐字等于凭据的 pfp,并回写给调用方。
+	require.Equal(t, fingerprint, result.GetPeerFingerprint())
+	require.Equal(t, fingerprint, cli.SelfFingerprint())
 	return cli
 }
 
@@ -2171,7 +2187,7 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	st.Claim(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
 		state.AccountCredential{AccessToken: "relay-access-token"})
 	require.NoError(t, st.Save())
-	credential := signedAccountCredential(t, privateKey, accountID)
+	credential := signedAccountCredential(t, privateKey, accountID, "sha256:relay-client")
 
 	connections := make(chan *websocket.Conn, 1)
 	closeRelay := make(chan struct{})
@@ -2225,8 +2241,10 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 
 	channelID := "relay-client-1"
 	authResult := &agentrewire.AuthAccountResponse{}
-	relayProtoRequest(t, relayConn, channelID, 1, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{Credential: credential, DeviceFingerprint: "sha256:relay-client", ProtocolVersion: wireversion.Protocol}, authResult)
+	relayProtoRequest(t, relayConn, channelID, 1, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{Credential: credential, ProtocolVersion: wireversion.Protocol}, authResult)
 	assert.True(t, authResult.GetOk())
+	// 中转这条路上同样:身份来自凭据,daemon 把它认定的那个值回写。
+	assert.Equal(t, "sha256:relay-client", authResult.GetPeerFingerprint())
 
 	runtimeResult := &agentrewire.RuntimeCapabilitiesResponse{}
 	relayProtoRequest(t, relayConn, channelID, 2, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES), &agentrewire.RuntimeCapabilitiesRequest{BackendType: "claudecode"}, runtimeResult)
@@ -2246,10 +2264,12 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	}, time.Second, 10*time.Millisecond, "closed relay channel must be removed like a LAN connection")
 }
 
-func signedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID string) string {
+func signedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID, peerFingerprint string) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims := mustMarshal(t, map[string]any{"uid": accountID, "exp": time.Now().Add(time.Hour).Unix()})
+	claims := mustMarshal(t, map[string]any{
+		"uid": accountID, "exp": time.Now().Add(time.Hour).Unix(), "pfp": peerFingerprint,
+	})
 	payload := base64.RawURLEncoding.EncodeToString(claims)
 	signingInput := header + "." + payload
 	digest := sha256.Sum256([]byte(signingInput))
@@ -3263,6 +3283,7 @@ func (r *pairedTestRig) durableRunner(t *testing.T, rec *notifyRecorder, gate <-
 	r.proto = conn
 	rt := remote.New(
 		newRecordingClient(t, conn, rec),
+		remote.WithConversationIDResolver(convID),
 		remote.WithDaemonFingerprint(fp),
 		remote.WithSessionCursor(newMemCursor(fp)),
 		remote.WithCursorFlushInterval(0),

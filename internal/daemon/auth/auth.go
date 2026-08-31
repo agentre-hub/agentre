@@ -50,9 +50,24 @@ type ConnectResult struct {
 
 // AccountParams is the payload of an auth.account request (Mode C).
 // Credential is the account access-token JWT issued by agentre-server.
+//
+// 它**没有**对端指纹字段:Mode C 的对端身份只从已验签凭据的 pfp claim 取(决策 8)。
+// 请求体里自报的那个字符串从来没有被任何东西验证过,留着就等于「说了不算」。
 type AccountParams struct {
-	Credential        string `json:"credential"`
-	DeviceFingerprint string `json:"deviceFingerprint"`
+	Credential string `json:"credential"`
+}
+
+// AccountResult is returned after a successful Mode C handshake.
+//
+// 它与 ConnectResult 分开正是因为多出来的这个身份:Mode B 的指纹由 device token
+// 绑定、来自请求体,Mode C 的只能来自凭据。共用一个结构会让「哪一条路上的指纹被
+// 验过」这件事又变得看不出来。
+type AccountResult struct {
+	OK           bool   `json:"ok"`
+	InstanceUUID string `json:"instanceUUID"`
+	// PeerFingerprint 是凭据 pfp claim 里那个已验签的对端身份 —— 对端会话落进
+	// peer_fingerprint 的那个值,也回写给调用方(AuthAccountResponse.peer_fingerprint)。
+	PeerFingerprint string `json:"peerFingerprint"`
 }
 
 const (
@@ -62,6 +77,8 @@ const (
 	accountCredentialSignature      = "account credential signature invalid"
 	accountCredentialMismatch       = "account credential account mismatch"
 	accountCredentialRevoked        = "account credential revoked"
+	// 缺 pfp claim 与签名不合法同一形态(ErrUnauthorized),只是原因说得更准。
+	accountCredentialMissingPeerFingerprint = "account credential missing peer fingerprint"
 
 	accountCredentialClockSkew = time.Minute
 )
@@ -140,42 +157,82 @@ func (a *AuthHandlers) HandleConnect(ctx context.Context, p ConnectParams) (*Con
 // HandleAccount implements Mode C. It verifies an account credential entirely
 // from the daemon's cached public key and cached revocation list, without
 // contacting agentre-server.
-func (a *AuthHandlers) HandleAccount(ctx context.Context, p AccountParams) (*ConnectResult, error) {
+func (a *AuthHandlers) HandleAccount(ctx context.Context, p AccountParams) (*AccountResult, error) {
 	snapshot := a.st.Snapshot()
 	if snapshot.AccountID == "" || snapshot.VerificationPublicKeyPEM == "" {
 		return nil, accountCredentialError(accountCredentialKeyUnavailable)
 	}
-	publicKeyPEM := snapshot.VerificationPublicKeyPEM
-	if len(snapshot.VerificationPublicKeys) != 0 {
-		kid, err := accountCredentialKID(p.Credential)
-		if err != nil {
-			return nil, err
-		}
-		publicKeyPEM = snapshot.VerificationPublicKeys[kid]
-		if publicKeyPEM == "" {
-			return nil, accountCredentialError(accountCredentialInvalid)
-		}
-	}
-	publicKey, err := accountPublicKey(publicKeyPEM)
-	if err != nil {
-		return nil, accountCredentialError(accountCredentialKeyUnavailable)
-	}
-	accountID, jti, err := verifyAccountCredentialWithMaxLifetime(p.Credential, publicKey,
-		time.Duration(snapshot.MaxTokenLifetimeSeconds)*time.Second)
+	verified, err := VerifyAccountCredential(p.Credential, KeySet{
+		CurrentPEM:  snapshot.VerificationPublicKeyPEM,
+		ByKID:       snapshot.VerificationPublicKeys,
+		MaxLifetime: time.Duration(snapshot.MaxTokenLifetimeSeconds) * time.Second,
+	})
 	if err != nil {
 		return nil, err
 	}
-	if accountID != snapshot.AccountID {
+	if verified.AccountID != snapshot.AccountID {
 		return nil, accountCredentialError(accountCredentialMismatch)
 	}
 	// The revocation list is consulted from the cached snapshot only. A jti the
 	// daemon has not pulled yet still authenticates — that is R4's acknowledged
 	// delay (R19), and it is what keeps the handshake free of network round
 	// trips when the account server is unreachable (R3).
-	if isRevokedCredential(jti, snapshot.RevokedJTIs) {
+	if isRevokedCredential(verified.JTI, snapshot.RevokedJTIs) {
 		return nil, accountCredentialError(accountCredentialRevoked)
 	}
-	return &ConnectResult{OK: true, InstanceUUID: snapshot.DaemonInstanceUUID}, nil
+	return &AccountResult{
+		OK: true, InstanceUUID: snapshot.DaemonInstanceUUID,
+		PeerFingerprint: verified.PeerFingerprint,
+	}, nil
+}
+
+// KeySet 是验证一枚账号凭据所需的全部公开材料。ByKID 非空时按凭据头里的 kid 选钥,
+// 否则用 CurrentPEM(单钥时代的形态)。MaxLifetime 为零表示不额外限制凭据寿命。
+type KeySet struct {
+	CurrentPEM  string
+	ByKID       map[string]string
+	MaxLifetime time.Duration
+}
+
+// VerifyAccountCredential 是**两个 Mode C 入口共用的**凭据验证:agentred 的
+// HandleAccount 与桌面端入站对端注册表(internal/peer)都从这里出来,两条路上
+// 「什么算验过了」因此只有一处定义 —— 其中一条曾经只判凭据非空,那正是本轮要修的。
+//
+// 它验签名、算法、过期(±60s)、寿命上限,并交出凭据说了算的三样:账号、jti、以及
+// 决策 8 的对端身份。缺 pfp 的凭据在这里就被拒:它名不指人,而调用方绝不允许退回
+// 去采信请求体。
+//
+// 它**不查吊销列表**:吊销面是调用方各自的缓存(agentred 有 R4 的轮询快照,
+// 桌面端没有),由调用方在拿到 jti 后自己判定。
+func VerifyAccountCredential(credential string, keys KeySet) (VerifiedAccountCredential, error) {
+	publicKeyPEM := keys.CurrentPEM
+	if len(keys.ByKID) != 0 {
+		kid, err := accountCredentialKID(credential)
+		if err != nil {
+			return VerifiedAccountCredential{}, err
+		}
+		publicKeyPEM = keys.ByKID[kid]
+		if publicKeyPEM == "" {
+			return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
+		}
+	}
+	if publicKeyPEM == "" {
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialKeyUnavailable)
+	}
+	publicKey, err := accountPublicKey(publicKeyPEM)
+	if err != nil {
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialKeyUnavailable)
+	}
+	verified, err := verifyAccountCredentialWithMaxLifetime(credential, publicKey, keys.MaxLifetime)
+	if err != nil {
+		return VerifiedAccountCredential{}, err
+	}
+	// 决策 8:身份来自凭据。缺 pfp 与签名不合法同一形态被拒 —— 不回退到请求体,
+	// 回退等于这条要求不存在。
+	if verified.PeerFingerprint == "" {
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialMissingPeerFingerprint)
+	}
+	return verified, nil
 }
 
 func isRevokedCredential(jti string, revoked []string) bool {
@@ -210,58 +267,87 @@ func accountPublicKey(publicKeyPEM string) (*rsa.PublicKey, error) {
 	return publicKey, nil
 }
 
-// verifyAccountCredential returns the credential's account id and its jti (the
-// identity the account's revocation list refers to) once signature and expiry
-// hold. Verification is purely local — see HandleAccount.
+// VerifiedAccountCredential 是一枚已验签凭据里那几样说了算的东西:账号、吊销列表
+// 认的 jti,以及决策 8 的对端身份(pfp claim)。
+type VerifiedAccountCredential struct {
+	AccountID       string
+	JTI             string
+	PeerFingerprint string
+}
+
+// verifyAccountCredential returns the credential's account id, its jti (the
+// identity the account's revocation list refers to) and the peer identity its
+// pfp claim states, once signature and expiry hold. Verification is purely
+// local — see HandleAccount.
 func verifyAccountCredentialWithMaxLifetime(credential string, publicKey *rsa.PublicKey,
-	maxLifetime time.Duration) (string, string, error) {
+	maxLifetime time.Duration) (VerifiedAccountCredential, error) {
 	parts := strings.Split(credential, ".")
 	if len(parts) != 3 {
-		return "", "", accountCredentialError(accountCredentialInvalid)
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
 	}
 	var header map[string]json.RawMessage
 	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil || json.Unmarshal(headerJSON, &header) != nil {
-		return "", "", accountCredentialError(accountCredentialInvalid)
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
 	}
 	var algorithm string
 	if json.Unmarshal(header["alg"], &algorithm) != nil || algorithm != "RS256" {
-		return "", "", accountCredentialError(accountCredentialInvalid)
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", "", accountCredentialError(accountCredentialInvalid)
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
 	}
 	var claims map[string]json.RawMessage
 	if json.Unmarshal(payload, &claims) != nil {
-		return "", "", accountCredentialError(accountCredentialInvalid)
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return "", "", accountCredentialError(accountCredentialInvalid)
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
 	}
 	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
 	if rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, digest[:], signature) != nil {
-		return "", "", accountCredentialError(accountCredentialSignature)
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialSignature)
 	}
 	expiresAt, err := accountCredentialExpiry(claims)
 	if err != nil {
-		return "", "", err
+		return VerifiedAccountCredential{}, err
 	}
 	if time.Now().After(expiresAt.Add(accountCredentialClockSkew)) {
-		return "", "", accountCredentialError(accountCredentialExpired)
+		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialExpired)
 	}
 	if maxLifetime > 0 {
 		issuedAt, err := accountCredentialTime(claims, "iat")
 		if err != nil || expiresAt.Sub(issuedAt) > maxLifetime {
-			return "", "", accountCredentialError(accountCredentialInvalid)
+			return VerifiedAccountCredential{}, accountCredentialError(accountCredentialInvalid)
 		}
 	}
 	accountID, err := accountIDFromCredentialClaims(claims)
 	if err != nil {
-		return "", "", err
+		return VerifiedAccountCredential{}, err
 	}
-	return accountID, accountCredentialJTI(claims), nil
+	return VerifiedAccountCredential{
+		AccountID:       accountID,
+		JTI:             accountCredentialJTI(claims),
+		PeerFingerprint: accountCredentialPeerFingerprint(claims),
+	}, nil
+}
+
+// accountCredentialPeerFingerprint reads the pfp claim — the peer identity
+// agentre-server signed into this credential (decision 8). A credential without
+// one names nobody, and HandleAccount rejects it rather than falling back to
+// anything the caller said about itself.
+func accountCredentialPeerFingerprint(claims map[string]json.RawMessage) string {
+	raw, ok := claims["pfp"]
+	if !ok {
+		return ""
+	}
+	var fingerprint string
+	if json.Unmarshal(raw, &fingerprint) != nil {
+		return ""
+	}
+	return fingerprint
 }
 
 func accountCredentialKID(credential string) (string, error) {

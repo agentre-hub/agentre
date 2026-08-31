@@ -20,6 +20,10 @@ import (
 func productionProtobufInboundDeps() ProtobufInboundDeps {
 	adapter := func() inboundSessionAdapter { value, _ := chat_svc.Chat().(inboundSessionAdapter); return value }
 	return ProtobufInboundDeps{
+		// 决策 8:入站对端的身份从**已验签的凭据**取,而不是它自己说的那个。
+		VerifyAccountCredential: func(ctx context.Context, credential string) (string, error) {
+			return verifyInboundAccountCredential(ctx, credential)
+		},
 		Capabilities: func(_ context.Context, backendType string) (*agentrewire.RuntimeCapabilitiesResponse, error) {
 			runtime := agentruntime.RuntimeFor(agent_backend_entity.BackendType(backendType))
 			if runtime == nil {

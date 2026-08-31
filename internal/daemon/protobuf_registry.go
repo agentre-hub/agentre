@@ -118,15 +118,14 @@ func (d *Daemon) registerProtobufMethods() {
 			if err := requireProtocolVersion(ctx, request.ProtocolVersion, request.MinSupportedProtocolVersion); err != nil {
 				return nil, err
 			}
-			if request.DeviceFingerprint == "" {
-				return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "device fingerprint required"}
-			}
-			result, err := d.auth.HandleAccount(ctx, auth.AccountParams{Credential: request.Credential, DeviceFingerprint: request.DeviceFingerprint})
+			// 对端身份不再从请求体读(决策 8):HandleAccount 验签后交出凭据 pfp
+			// claim 里那个身份,这里只是把它记进连接。
+			result, err := d.auth.HandleAccount(ctx, auth.AccountParams{Credential: request.Credential})
 			if err != nil {
 				return nil, protobufError(err)
 			}
 			if conn := protorpc.ConnFromContext(ctx); conn != nil {
-				conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: request.DeviceFingerprint, AccountID: d.claimedAccountID()})
+				conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: result.PeerFingerprint, AccountID: d.claimedAccountID()})
 				d.conns.add(conn, notifier.NewProtobuf(conn))
 			}
 			return protobufAuthAccountResponse(result), nil
@@ -447,8 +446,16 @@ func (d *Daemon) registerProtobufMethods() {
 	})
 }
 
-func protobufAuthAccountResponse(result *auth.ConnectResult) *agentrewire.AuthAccountResponse {
-	return &agentrewire.AuthAccountResponse{Ok: result.OK, InstanceUuid: result.InstanceUUID, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}
+// protobufAuthAccountResponse 把握手结果折成线格式,并**回写对端身份**:调用方在
+// 请求体里已经给不出自己的身份了,它在这条连接上的身份只能由这里认定的这个值说了算
+// (conversation_id 的派生输入,见 client.ProtobufClient.SelfFingerprint)。
+func protobufAuthAccountResponse(result *auth.AccountResult) *agentrewire.AuthAccountResponse {
+	return &agentrewire.AuthAccountResponse{
+		Ok: result.OK, InstanceUuid: result.InstanceUUID,
+		PeerFingerprint:             result.PeerFingerprint,
+		ProtocolVersion:             wireversion.Protocol,
+		MinSupportedProtocolVersion: wireversion.MinSupported,
+	}
 }
 
 func (d *Daemon) requireProtobufClaimed(ctx context.Context) error {

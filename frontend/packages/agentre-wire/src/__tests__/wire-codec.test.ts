@@ -161,12 +161,11 @@ describe("protobuf rpc envelope", () => {
   it("given auth.account, when encoded by method ID, then the request has stable cross-language bytes", () => {
     const payload = encodeRpcMethodRequest(1n, rpcMethods.authAccount, {
       credential: "jwt",
-      deviceFingerprint: "fp",
     });
 
     expect(Array.from(payload)).toEqual([
-      0x08, 0x01, 0x12, 0x0d, 0x08, 0x01, 0x12, 0x09, 0x0a, 0x03, 0x6a, 0x77,
-      0x74, 0x12, 0x02, 0x66, 0x70,
+      0x08, 0x01, 0x12, 0x09, 0x08, 0x01, 0x12, 0x05, 0x0a, 0x03, 0x6a, 0x77,
+      0x74,
     ]);
     const decoded = ProtobufRpcCodec.decode(payload);
     expect(decoded.id).toBe(1n);
@@ -174,22 +173,23 @@ describe("protobuf rpc envelope", () => {
       case: "typedMethodRequest",
       methodId: 1,
       method: "authAccount",
-      value: expect.objectContaining({
-        credential: "jwt",
-        deviceFingerprint: "fp",
-      }),
+      value: expect.objectContaining({ credential: "jwt" }),
     });
   });
 
-  it("given auth.account success, when encoded by method ID, then the response keeps the request id and its bytes", () => {
+  // 应答里的 peerFingerprint 是「对端认定的本端身份」(决策 8):请求体里已经没有
+  // 指纹可报,这个回写值就是调用方在这条连接上的身份,也是 conversation_id 的派生
+  // 输入 —— 它跨语言的字节同样要钉死。
+  it("given auth.account success, when encoded by method ID, then the response keeps the request id and states the caller identity", () => {
     const payload = ProtobufRpcCodec.encodeTypedMethodResponse(
       1n,
       rpcMethods.authAccount,
-      { ok: true },
+      { ok: true, peerFingerprint: "fp" },
     );
 
     expect(Array.from(payload)).toEqual([
-      0x08, 0x01, 0x1a, 0x06, 0x08, 0x01, 0x12, 0x02, 0x08, 0x01,
+      0x08, 0x01, 0x1a, 0x0a, 0x08, 0x01, 0x12, 0x06, 0x08, 0x01, 0x2a, 0x02,
+      0x66, 0x70,
     ]);
     const decoded = ProtobufRpcCodec.decode(payload);
     expect(decoded.id).toBe(1n);
@@ -197,7 +197,7 @@ describe("protobuf rpc envelope", () => {
       case: "typedMethodResponse",
       methodId: 1,
       method: "authAccount",
-      value: expect.objectContaining({ ok: true }),
+      value: expect.objectContaining({ ok: true, peerFingerprint: "fp" }),
     });
   });
 

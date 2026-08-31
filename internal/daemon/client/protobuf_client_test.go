@@ -65,14 +65,13 @@ func TestDialProtobuf_GivenBinaryDaemon_WhenCallingTypedMethod_ThenNegotiatesPro
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
-	response, err := client.AuthAccount(t.Context(), &agentrewire.AuthAccountRequest{Credential: "token", DeviceFingerprint: "sha256:desktop"})
+	response, err := client.AuthAccount(t.Context(), &agentrewire.AuthAccountRequest{Credential: "token"})
 	require.NoError(t, err)
 	assert.True(t, response.GetOk())
 	assert.Equal(t, "uuid-1", response.GetInstanceUuid())
 	assert.Equal(t, protorpc.Subprotocol, <-gotSubprotocol)
 	request := <-gotRequest
 	assert.Equal(t, "token", request.GetCredential())
-	assert.Equal(t, "sha256:desktop", request.GetDeviceFingerprint())
 
 	close(closePeer)
 	select {
@@ -114,16 +113,14 @@ func TestDialRelayProtobuf_GivenAccountCredential_WhenAuthenticating_ThenUsesTyp
 	defer server.Close()
 
 	client, err := DialRelayProtobuf(context.Background(), RelayOptions{
-		URL:               "ws" + strings.TrimPrefix(server.URL, "http"),
-		AccessToken:       "relay-token",
-		DeviceFingerprint: "sha256:desktop",
+		URL:         "ws" + strings.TrimPrefix(server.URL, "http"),
+		AccessToken: "relay-token",
 	})
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
 	request := <-got
 	assert.Equal(t, "relay-token", request.GetCredential())
-	assert.Equal(t, "sha256:desktop", request.GetDeviceFingerprint())
 }
 
 func TestDialProtobuf_GivenInflightCall_WhenContextIsCanceled_ThenSendsMatchingCancelFrame(t *testing.T) {
@@ -217,7 +214,7 @@ func TestDialRelayProtobufClassifiesHandshakeFailures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tc.status) }))
 			defer server.Close()
-			_, err := DialRelayProtobuf(t.Context(), RelayOptions{URL: "ws" + strings.TrimPrefix(server.URL, "http"), AccessToken: "token", DeviceFingerprint: "sha256:desktop"})
+			_, err := DialRelayProtobuf(t.Context(), RelayOptions{URL: "ws" + strings.TrimPrefix(server.URL, "http"), AccessToken: "token"})
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tc.want)
 		})
@@ -293,4 +290,50 @@ func TestRaceProtobuf_GivenWinningPath_WhenDaemonSendsReverseRequest_ThenHandler
 	case <-time.After(5 * time.Second):
 		t.Fatal("reverse request never reached the handler")
 	}
+}
+
+// TestAuthAccount_GivenResponderStatesTheCallerIdentity_ThenSelfFingerprintComesFromTheResponse
+// 钉住决策 8 的客户端半边:auth.account 请求体里已经没有本端指纹可报了,本端在这条
+// 连接上的身份只能由**对端在应答里认定的那个值**说了算。它是 conversation_id 的派生
+// 输入(SelfFingerprint 的注释:「对端眼里的本端身份」),自解自己的凭据不行 —— 那假定
+// 两端对 claim 的读法永远一致。
+func TestAuthAccount_GivenResponderStatesTheCallerIdentity_ThenSelfFingerprintComesFromTheResponse(t *testing.T) {
+	upgrader := websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = ws.Close() }()
+		_, payload, err := ws.ReadMessage()
+		if err != nil {
+			return
+		}
+		var frame agentrewire.RpcFrame
+		if !assert.NoError(t, proto.Unmarshal(payload, &frame)) {
+			return
+		}
+		encodedResponse, err := proto.Marshal(&agentrewire.AuthAccountResponse{
+			Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: wireversion.Protocol,
+			PeerFingerprint: "sha256:as-the-peer-sees-me",
+		})
+		if err != nil {
+			return
+		}
+		response, err := proto.Marshal(&agentrewire.RpcFrame{Id: frame.GetId(), Body: &agentrewire.RpcFrame_Response{Response: &agentrewire.Response{MethodId: frame.GetRequest().GetMethodId(), EncodedPayload: encodedResponse}}})
+		if err != nil {
+			return
+		}
+		_ = ws.WriteMessage(websocket.BinaryMessage, response)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	client, err := DialProtobuf(t.Context(), Options{URL: "ws" + strings.TrimPrefix(server.URL, "http")})
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.AuthAccount(t.Context(), &agentrewire.AuthAccountRequest{Credential: "token"})
+	require.NoError(t, err)
+	assert.Equal(t, "sha256:as-the-peer-sees-me", client.SelfFingerprint())
 }

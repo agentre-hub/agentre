@@ -69,9 +69,8 @@ func (s *service) dialRelay(ctx context.Context, targetFingerprint, peerFingerpr
 		return nil, ErrNotLoggedIn
 	}
 	return client.DialRelayProtobuf(ctx, client.RelayOptions{
-		URL:               relayClientURL(c.baseURL, targetFingerprint),
-		AccessToken:       c.AccessToken(),
-		DeviceFingerprint: peerFingerprint,
+		URL:         relayClientURL(c.baseURL, targetFingerprint),
+		AccessToken: c.AccessToken(),
 	})
 }
 

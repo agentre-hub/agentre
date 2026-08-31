@@ -52,15 +52,14 @@ type ConnectArgs struct {
 }
 
 // AccountArgs 是直连 auth.account 的入参。Credential 是账号签发的访问凭据，
-// daemon 用缓存的公钥本地验签（R3，零网络往返）；DeviceFingerprint 与 auth.connect
-// 呈现的是同一值（R5）；ExpectedDaemonFingerprint 必填，与 auth.connect 一样把
-// 连接钉死在本地登记的那台 daemon 上。
+// daemon 用缓存的公钥本地验签（R3，零网络往返）并从中取出本端身份（决策 8，因此
+// 这里不再有 DeviceFingerprint 可报）；ExpectedDaemonFingerprint 必填，与
+// auth.connect 一样把连接钉死在本地登记的那台 daemon 上。
 type AccountArgs struct {
 	URL                       string
 	TLSMode                   string
 	TLSCertPEM                string
 	Credential                string
-	DeviceFingerprint         string
 	ExpectedDaemonFingerprint string
 }
 

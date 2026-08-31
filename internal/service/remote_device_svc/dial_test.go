@@ -74,7 +74,8 @@ func newFakeDaemonWith(t *testing.T, instanceUUID string, reject *rpcerror.Error
 				case agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT:
 					response, _ = proto.Marshal(&agentrewire.AuthConnectResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion})
 				default:
-					response, _ = proto.Marshal(&agentrewire.AuthAccountResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion})
+					// 回写对端认定的本端身份(决策 8):调用方在请求体里已经报不了。
+					response, _ = proto.Marshal(&agentrewire.AuthAccountResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion, PeerFingerprint: "sha256:as-the-daemon-sees-me"})
 				}
 				out.Body = &agentrewire.RpcFrame_Response{Response: &agentrewire.Response{MethodId: f.GetRequest().GetMethodId(), EncodedPayload: response}}
 			}
@@ -135,7 +136,6 @@ func TestRealDial_OpenAccount_PresentsCredentialInOneRoundTrip(t *testing.T) {
 			URL:                       d.url(),
 			TLSMode:                   "default",
 			Credential:                fakeAccountJWT,
-			DeviceFingerprint:         "sha256:desktop",
 			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
 		})
 		So(err, ShouldBeNil)
@@ -148,7 +148,9 @@ func TestRealDial_OpenAccount_PresentsCredentialInOneRoundTrip(t *testing.T) {
 		var p agentrewire.AuthAccountRequest
 		So(proto.Unmarshal(frames[0].GetEncodedPayload(), &p), ShouldBeNil)
 		So(p.GetCredential(), ShouldEqual, "acct-jwt")
-		So(p.GetDeviceFingerprint(), ShouldEqual, "sha256:desktop")
+		// 决策 8:请求体里没有对端身份可报了 —— daemon 从这枚凭据里取,并在应答里
+		// 回写它认定的那个值。
+		So(c.SelfFingerprint(), ShouldEqual, "sha256:as-the-daemon-sees-me")
 	})
 }
 
@@ -162,7 +164,6 @@ func TestRealDial_OpenAccount_DaemonRejects_MapsToUnauthorized(t *testing.T) {
 			URL:                       d.url(),
 			TLSMode:                   "default",
 			Credential:                fakeAccountJWT,
-			DeviceFingerprint:         "sha256:desktop",
 			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
 		})
 		So(c, ShouldBeNil)
@@ -180,7 +181,6 @@ func TestRealDial_OpenAccount_OtherDaemon_MapsToTOFUMismatch(t *testing.T) {
 			URL:                       d.url(),
 			TLSMode:                   "default",
 			Credential:                fakeAccountJWT,
-			DeviceFingerprint:         "sha256:desktop",
 			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
 		})
 		So(c, ShouldBeNil)
@@ -191,10 +191,9 @@ func TestRealDial_OpenAccount_OtherDaemon_MapsToTOFUMismatch(t *testing.T) {
 		d := newFakeDaemon(t, "uuid-1", nil)
 
 		c, err := remote_device_svc.NewDaemonDial().OpenAccount(context.Background(), remote_device_svc.AccountArgs{
-			URL:               d.url(),
-			TLSMode:           "default",
-			Credential:        fakeAccountJWT,
-			DeviceFingerprint: "sha256:desktop",
+			URL:        d.url(),
+			TLSMode:    "default",
+			Credential: fakeAccountJWT,
 		})
 		So(c, ShouldBeNil)
 		So(errors.Is(err, remote_device_svc.ErrTOFUMismatch), ShouldBeTrue)

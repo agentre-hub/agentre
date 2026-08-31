@@ -91,7 +91,7 @@ func (realDial) OpenAccount(ctx context.Context, args AccountArgs) (client.Proto
 	if err != nil {
 		return nil, translateProtocolError(err)
 	}
-	res, err := c.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: args.Credential, DeviceFingerprint: args.DeviceFingerprint})
+	res, err := c.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: args.Credential})
 	if err != nil {
 		_ = c.Close()
 		return nil, translateAccountRPCError(err)
