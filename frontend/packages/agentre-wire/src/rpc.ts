@@ -58,7 +58,13 @@ export interface RuntimeEventNotificationFrame {
         durationMs: number;
       }
     | { case: "runtimeStatus"; status: string }
-    | { case: "done" }
+    | {
+        case: "done";
+        model: string;
+        durationMs: number;
+        firstTokenMs: number;
+        tokensPerSec: number;
+      }
     | { case: "error"; message: string }
     | {
         case: "userMessage";
@@ -129,6 +135,9 @@ export interface RunResultDoneNotificationFrame {
   turnToken: bigint;
   stopErrorMessage: string;
   stopErrorCode: number;
+  durationMs: number;
+  firstTokenMs: number;
+  tokensPerSec: number;
 }
 export interface AutonomousTurnStartedNotificationFrame {
   case: "autonomousTurnStartedNotification";
@@ -325,7 +334,7 @@ function encodeRuntimeEvent(value: RuntimeEventNotificationFrame) {
       };
       break;
     case "done":
-      encodedEvent = { case: event.case, value: create(DoneSchema) };
+      encodedEvent = { case: event.case, value: create(DoneSchema, event) };
       break;
     case "error":
       encodedEvent = {
@@ -402,7 +411,13 @@ function decodeRuntimeEvent(
       decodedEvent = { case: event.case, status: event.value.status };
       break;
     case "done":
-      decodedEvent = { case: event.case };
+      decodedEvent = {
+        case: event.case,
+        model: event.value.model,
+        durationMs: event.value.durationMs,
+        firstTokenMs: event.value.firstTokenMs,
+        tokensPerSec: event.value.tokensPerSec,
+      };
       break;
     case "error":
       decodedEvent = { case: event.case, message: event.value.message };
@@ -542,6 +557,9 @@ function decodeNotification(
       turnToken: v.turnToken,
       stopErrorMessage: v.stopErrorMessage,
       stopErrorCode: v.stopErrorCode,
+      durationMs: v.durationMs,
+      firstTokenMs: v.firstTokenMs,
+      tokensPerSec: v.tokensPerSec,
     };
   }
   if (value.payload.case === "autonomousTurnStarted") {
@@ -570,6 +588,9 @@ function decodeNotification(
       turnToken: v.turnToken,
       stopErrorMessage: v.stopErrorMessage,
       stopErrorCode: v.stopErrorCode,
+      durationMs: v.durationMs,
+      firstTokenMs: v.firstTokenMs,
+      tokensPerSec: v.tokensPerSec,
     };
   }
   throw new TypeError("wire: 未知 RPC 通知");

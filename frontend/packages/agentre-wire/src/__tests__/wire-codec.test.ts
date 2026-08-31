@@ -306,7 +306,13 @@ describe("protobuf rpc envelope", () => {
       durationMs: 123,
     },
     { case: "runtimeStatus", status: "compacting" },
-    { case: "done" },
+    {
+      case: "done",
+      model: "",
+      durationMs: 0,
+      firstTokenMs: 0,
+      tokensPerSec: 0,
+    },
     { case: "error", message: "failed" },
     {
       case: "userMessage",
@@ -349,6 +355,9 @@ describe("protobuf rpc envelope", () => {
       turnToken: 3n,
       stopErrorMessage: "",
       stopErrorCode: 0,
+      durationMs: 0,
+      firstTokenMs: 0,
+      tokensPerSec: 0,
     },
     {
       case: "autonomousTurnStartedNotification",
@@ -378,6 +387,9 @@ describe("protobuf rpc envelope", () => {
         turnToken: 0n,
         stopErrorMessage: "aborted",
         stopErrorCode: -32013,
+        durationMs: 0,
+        firstTokenMs: 0,
+        tokensPerSec: 0,
       },
     };
     expect(ProtobufRpcCodec.decode(ProtobufRpcCodec.encode(frame))).toEqual(
@@ -844,6 +856,9 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       turnToken: 4n,
       stopErrorMessage: "",
       stopErrorCode: 0,
+      durationMs: 0,
+      firstTokenMs: 0,
+      tokensPerSec: 0,
     },
   ] as const)(
     "given autonomous notification $case, it does not collapse into the normal turn",
@@ -912,5 +927,60 @@ describe("SteerParams 形状契约(手写,待补黄金样本)", () => {
     ],
   ])("%s → 解码报错", (_what, bad) => {
     expect(() => decodeSteerParams(bad)).toThrow(TypeError);
+  });
+});
+
+/**
+ * 一轮的统计（模型 · 耗时 · 首字 · 速率）在两个载体上各走一遍。
+ *
+ * 两个生产者各填自己填得起的那一个：桌面端 chat_svc 在 runtime 之上收口，直接填
+ * `done` 事件；agentred 在事件流之上量表，知道结果时 `done` 早转发出去了，于是填
+ * `runtime.runResultDone` 终态帧。`rpc.ts` 是这条 Protobuf 传输的**手写**层，漏一
+ * 格的表现是静默丢字段 —— 转录上那一行 meta 空着，而 proto 与两侧 Go 都是对的。
+ */
+describe("turn stats on the wire", () => {
+  it("given a done event carrying turn stats, it round-trips", () => {
+    const frame = {
+      id: 0n,
+      body: {
+        case: "runtimeEventNotification" as const,
+        sessionId: 42,
+        seq: 11,
+        event: {
+          case: "done" as const,
+          model: "claude-sonnet-4-6",
+          durationMs: 9640,
+          firstTokenMs: 8010,
+          tokensPerSec: 14.25,
+        },
+      },
+    };
+    expect(ProtobufRpcCodec.decode(ProtobufRpcCodec.encode(frame))).toEqual(
+      frame,
+    );
+  });
+
+  it("given a run result done frame carrying turn stats, it round-trips", () => {
+    const frame = {
+      id: 0n,
+      body: {
+        case: "runResultDoneNotification" as const,
+        sessionId: 42,
+        seq: 12,
+        providerSessionId: "",
+        userAnchor: "",
+        model: "glm-5.3",
+        contextWindow: 0,
+        turnToken: 0n,
+        stopErrorMessage: "",
+        stopErrorCode: 0,
+        durationMs: 9640,
+        firstTokenMs: 8010,
+        tokensPerSec: 14.25,
+      },
+    };
+    expect(ProtobufRpcCodec.decode(ProtobufRpcCodec.encode(frame))).toEqual(
+      frame,
+    );
   });
 });
