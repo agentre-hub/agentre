@@ -589,3 +589,84 @@ func TestTurnFinishPaths_GivenPeerSubscribers_ThenPublishTurnDone(t *testing.T) 
 		})
 	}
 }
+
+/*
+一个卡住的订阅者不能拖住同一会话的其它订阅者。
+
+扇出此前是**串行**的:flushPeerPending 拿到一批 job 之后逐个订阅者调阻塞的
+Notify —— 而 Notify 写的是一条中继 websocket(跨副本时还要等一次 Redis 回执,
+最坏 5 秒)。于是一台卡住的机器会让同一条对话上其它所有端一起停在那里。
+
+agentred 那侧同一件事早就是每订阅者一条 goroutine + 有界队列
+(connRegistry 的 asyncNotifier / subscriberQueueDepth),桌面端承载时这一路
+没跟上。这条用例钉住的就是那条纪律。
+*/
+func TestPublishPeerEvent_GivenOneStalledSubscriber_ThenOthersStillReceive(t *testing.T) {
+	ctx := context.Background()
+	deps := setupPeerSessionTest(t)
+	deps.session.EXPECT().Find(ctx, int64(41)).Return(&chat_entity.Session{ID: 41, AgentID: 7, AgentStatus: "idle"}, nil).AnyTimes()
+	deps.agent.EXPECT().Find(ctx, int64(7)).Return(agentForPeerSession(), nil).AnyTimes()
+	deps.backend.EXPECT().Find(ctx, int64(11)).Return(nil, nil).AnyTimes()
+	deps.message.EXPECT().List(ctx, int64(41)).Return(nil, nil).AnyTimes()
+
+	stalled := &blockingPeerSubscriber{released: make(chan struct{}), notified: make(chan struct{}, 1)}
+	healthy := newRecordingPeerSubscriber()
+	for _, sub := range []PeerSessionSubscriber{stalled, healthy} {
+		_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, sub)
+		require.NoError(t, err)
+		_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Cursor: 0, Limit: 100}, sub)
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() { close(stalled.released) })
+
+	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "live"})
+
+	require.Eventually(t, func() bool { return len(healthy.notifications()) > 0 }, 2*time.Second, 10*time.Millisecond,
+		"卡住的那个订阅者不该拦住这一条实时帧送给别人")
+}
+
+/*
+落后的订阅者要有上限,而且代价只落在它自己身上。
+
+pending 此前是一个没有上限的 slice:一个写不动的对端会让它一直涨,直到内存吃光。
+中继是网络入口,「对面猛灌就能撑爆本机」不是一个可以留着的形状。
+
+满了之后丢帧是**可恢复**的:帧上带 seq,对端的闸门看到跳号会从游标发起一次补齐
+(见 relayClient 的 applyDedup 与 Go 侧 remote/reconnect.go 的同一套规则),而
+publication.history + PullPeerSession 就是补齐读的那份日志。
+*/
+func TestPublishPeerEvent_GivenSubscriberFallsBehind_ThenQueueStaysBounded(t *testing.T) {
+	ctx := context.Background()
+	deps := setupPeerSessionTest(t)
+	deps.session.EXPECT().Find(ctx, int64(41)).Return(&chat_entity.Session{ID: 41, AgentID: 7, AgentStatus: "idle"}, nil).AnyTimes()
+	deps.agent.EXPECT().Find(ctx, int64(7)).Return(agentForPeerSession(), nil).AnyTimes()
+	deps.backend.EXPECT().Find(ctx, int64(11)).Return(nil, nil).AnyTimes()
+	deps.message.EXPECT().List(ctx, int64(41)).Return(nil, nil).AnyTimes()
+
+	stalled := &blockingPeerSubscriber{released: make(chan struct{}), notified: make(chan struct{}, 1)}
+	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, stalled)
+	require.NoError(t, err)
+	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Cursor: 0, Limit: 100}, stalled)
+	require.NoError(t, err)
+	t.Cleanup(func() { close(stalled.released) })
+
+	for range peerSubscriberQueueDepth * 4 {
+		deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "flood"})
+	}
+
+	publication := deps.svc.peerPublication(41)
+	publication.mu.Lock()
+	queued := 0
+	for _, sub := range publication.subscribers {
+		queued += len(sub.pending)
+	}
+	publication.mu.Unlock()
+	assert.LessOrEqual(t, queued, peerSubscriberQueueDepth,
+		"落后的订阅者必须封顶,不能让对面猛灌就把本机撑爆")
+
+	// 而**日志**是完整的:丢掉的那些靠补齐拿得回来,这正是可以丢的前提。
+	publication.mu.Lock()
+	history := len(publication.history)
+	publication.mu.Unlock()
+	assert.Equal(t, peerSubscriberQueueDepth*4, history, "日志不参与丢弃")
+}

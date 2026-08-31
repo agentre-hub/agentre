@@ -45,11 +45,30 @@ type peerSessionPublication struct {
 	startOnce sync.Once
 }
 
+// peerSubscriberQueueDepth 是**每个订阅者**的投递缓冲深度。
+//
+// 从前 pending 没有上限:一个写不动的对端能让它一直涨到内存吃光 —— 中继是网络入口,
+// 「对面猛灌就能撑爆本机」不是可以留着的形状。
+//
+// 满了之后丢帧是可恢复的:帧上带 seq,对端的闸门看到跳号会从游标发起一次补齐,
+// 而 publication.history + PullPeerSession 正是补齐读的那份日志。日志不参与丢弃。
+//
+// 与 agentred 那侧同一个数(connRegistry 的 subscriberQueueDepth):同一条纪律,
+// 没有理由两边取不同的深度。
+const peerSubscriberQueueDepth = 256
+
 type peerSessionSubscription struct {
 	subscriber PeerSessionSubscriber
 	highWater  int64
 	cursor     int64
 	pending    []wire.EventFrame
+	// dropped 记这个订阅者被丢过帧。只用于日志:对端靠 seq 跳号自己发现并补齐,
+	// 不需要服务端告诉它。
+	dropped bool
+	// flushing 表示这个订阅者此刻有一条投递在飞。每个订阅者至多一条 —— 它保证
+	// 这个订阅者收到的帧仍然有序,同时让**不同**订阅者彼此独立:一个卡住的对端
+	// 不再拖住同一会话上的其他人。
+	flushing bool
 }
 
 func (s *chatSvc) peerPublication(sessionID int64) *peerSessionPublication {
@@ -71,42 +90,78 @@ func (s *chatSvc) peerFlushLoop(publication *peerSessionPublication) {
 	}
 }
 
-// flushPeerPending hands each ready subscriber its queued frames in order,
-// outside the publication lock. A subscriber is ready once its pull cursor has
-// reached the attach high-water mark; the pull path returns the history-covered
-// prefix in its response and signals this worker (a single wake) at catch-up, so
-// this queue only ever holds genuinely live frames and the worker is the only
-// goroutine that ever calls Notify for them.
+// flushPeerPending 把每个就绪订阅者排着的帧交出去。订阅者在拉取游标追上 attach
+// 高水位之后才算就绪;pull 那条路在应答里带回日志覆盖的前缀,并在追平时叫醒本
+// worker 一次,所以这个队列里只会有真正的实时帧。
+//
+// **每个订阅者一条独立的投递 goroutine**,而不是在这里逐个串行调阻塞的 Notify。
+// Notify 写的是一条中继 websocket(跨副本时还要等一次 Redis 回执,最坏 5 秒),
+// 串行意味着一台卡住的机器会让同一条对话上其它所有端一起停住。同一条纪律在
+// agentred 那侧是 connRegistry 的 asyncNotifier,这里是它的对称实现。
+//
+// 每个订阅者至多一条投递在飞(flushing),所以它收到的帧仍然有序;投递完成后
+// 如果队列里又攒了新的,worker 自己接着跑下一轮,不必再等一次 wake。
 func (s *chatSvc) flushPeerPending(publication *peerSessionPublication) {
-	type job struct {
-		key    string
-		sub    *peerSessionSubscription
-		frames []wire.EventFrame
-	}
 	publication.mu.Lock()
-	jobs := make([]job, 0, len(publication.subscribers))
+	starting := make([]string, 0, len(publication.subscribers))
 	for key, sub := range publication.subscribers {
-		if sub.cursor < sub.highWater || len(sub.pending) == 0 {
+		if sub.flushing || sub.cursor < sub.highWater || len(sub.pending) == 0 {
 			continue
 		}
-		frames := sub.pending
-		sub.pending = nil
-		jobs = append(jobs, job{key: key, sub: sub, frames: frames})
+		sub.flushing = true
+		starting = append(starting, key)
 	}
 	publication.mu.Unlock()
 
-	for _, j := range jobs {
-		for _, frame := range j.frames {
-			if err := j.sub.subscriber.Notify(wire.NotifyEvent, frame); err != nil {
+	for _, key := range starting {
+		go s.deliverPeerPending(publication, key)
+	}
+}
+
+// deliverPeerPending 是一个订阅者的投递循环:取走它排着的帧、在**锁外**逐条交付,
+// 交付期间新到的帧继续入队,交付完再看一轮。写失败即认为这个订阅者不行了,摘掉它
+// (与从前同一判据)。
+func (s *chatSvc) deliverPeerPending(publication *peerSessionPublication, key string) {
+	for {
+		publication.mu.Lock()
+		sub := publication.subscribers[key]
+		if sub == nil || len(sub.pending) == 0 {
+			if sub != nil {
+				sub.flushing = false
+			}
+			publication.mu.Unlock()
+			return
+		}
+		frames := sub.pending
+		sub.pending = nil
+		subscriber := sub.subscriber
+		publication.mu.Unlock()
+
+		for _, frame := range frames {
+			if err := subscriber.Notify(wire.NotifyEvent, frame); err != nil {
 				publication.mu.Lock()
-				if publication.subscribers[j.key] == j.sub {
-					delete(publication.subscribers, j.key)
+				if publication.subscribers[key] == sub {
+					delete(publication.subscribers, key)
 				}
+				sub.flushing = false
 				publication.mu.Unlock()
-				break
+				return
 			}
 		}
 	}
+}
+
+// enqueuePeerFrame 把一帧排给一个订阅者。**永不阻塞**,而且封顶。
+//
+// 队列满说明这个订阅者已经落后这么多帧了,继续排只会无界吃内存。此时丢掉最旧的
+// 那一批里的这一帧并记一次:对端按帧上的 seq 看到跳号,走既有的游标补齐把缺口
+// 拉回来 —— 日志(publication.history)是完整的,补得回来正是可以丢的前提。
+func enqueuePeerFrame(sub *peerSessionSubscription, frame wire.EventFrame) {
+	if len(sub.pending) >= peerSubscriberQueueDepth {
+		sub.dropped = true
+		return
+	}
+	sub.pending = append(sub.pending, frame)
 }
 
 // PullPeerSession serves the same runtime.session.pull contract used by
@@ -237,7 +292,7 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 		// Queue only: the flush worker performs the (potentially blocking) relay
 		// write. Never Notify inline from a canonical event loop — a stalled
 		// peer must not stall this desktop's own turn.
-		subscription.pending = append(subscription.pending, frame)
+		enqueuePeerFrame(subscription, frame)
 	}
 	publication.mu.Unlock()
 	select {
