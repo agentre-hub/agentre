@@ -76,6 +76,15 @@
    `protobuf_registry.go:98` 的 `HandleConnect` 里就对着 fingerprint 验过了，`:106` 只是再查
    `PairedPeers` 取 `DeviceName`——那一条是绑住的。
 
+   **7b. Mode C 有第二个入口，而且比上面那个更弱。**（2026-08-31 执行期发现，本规格初稿遗漏）
+   `internal/peer/protobuf_inbound.go:74` 的 `NewProtobufInboundRegistry`——桌面端的**入站对端**
+   注册表，别的对端经中继连进来时走它——另外注册了一份 `auth.account`，其处理器
+   （`:90-98`）只判断 `request.Credential == "" || request.DeviceFingerprint == ""`，
+   **既不验签名、不比账号、也不查吊销列表**，随即
+   `conn.SetAuth(AuthState{Authenticated: true, DeviceFingerprint: request.DeviceFingerprint})`。
+   也就是说这条路上凭据只需**非空**，指纹只需**自报**。daemon 那条路至少验了 JWT；这一条一样
+   都没有。决策 8 因此在这里不只是"换取值来源"，而是要先把验证补上。
+
 8. **凭据里有槽位但没填。** `agentre-server/internal/pkg/jwt/jwt.go:16` 的 `Claims`
    有 `DID`，而中继票只签 `{UID, Kind:"relay_client"}`
    （`internal/controller/device_ctr/device.go:122`），`DID` 恒为 0。浏览器不注册设备行，
@@ -162,7 +171,7 @@
 | 5 | **窗口绝不跨越方法集变更**：方法集指纹一变，`MinSupported` 必须等于 `Protocol`，由守卫测试强制 | Problem 第 13 条。窗口只对可加性变更（加字段、加枚举值）放宽。Rejected: **接受任意 N-1**——那是假承诺，会让 method-not-found 以运行期崩溃的形态回到第一次调用新方法的时刻 |
 | 6 | `agentruntime` 的进程内 `sessionID int64` **不动** | 它是进程本地的 runtime key，不上线；该子树 `sessionID int64` 命中 111 行，另有 **7 个** runtime 包，其中至少 6 个以 `map[int64]` 或 `sessionKey(id int64)` 为进程内会话键。改它与本轮目标无关。Rejected: **一路改成 string**——纯粹的连带成本 |
 | 7 | `runtimeSessionID` 删除对端指纹混入，改为直接哈希 `conversation_id` 得到进程内 int64 键 | `conversation_id` 全局唯一，Problem 第 3 条那类跨对端并轨**由构造消失**，不再需要防御性哈希。Rejected: 原样保留——留着一段其存在理由已经消失的代码，且它仍以 `peer` 为输入，会让 `peer_fingerprint` 继续兼任身份职责 |
-| 8 | 凭据新增 `pfp` claim（对端指纹）；`HandleAccount` 从已验签的凭据里取对端身份；`AuthAccountRequest.device_fingerprint` **删除** | 身份必须来自被验证的凭据而非请求体。删字段而非忽略字段：留一个"说了不算"的字段是下一个人踩的坑，且本轮本来就在破坏。Rejected: **把浏览器注册成 `devices` 行填 `DID`**——`relay_ticket_test.go:24` 那条边界是刻意的，浏览器不是可寻址设备，注册它会污染设备列表 |
+| 8 | 凭据新增 `pfp` claim（对端指纹）；**两个** Mode C 入口都从已验签的凭据里取对端身份——`daemon/auth` 的 `HandleAccount`，以及 `internal/peer` 的入站对端处理器（后者需先补上凭据验证，见 Problem 7b）；`AuthAccountRequest.device_fingerprint` **删除**；`AuthAccountResponse` 增加一个字段回写对端认定的本端身份 | 身份必须来自被验证的凭据而非请求体。删字段而非忽略字段：留一个"说了不算"的字段是下一个人踩的坑，且本轮本来就在破坏。删字段后 `ProtobufClient.selfFP` 失去来源，而它是 T2 落地的 `conversation_id` 派生输入（其注释要求"对端眼里的本端身份"），故由**应答回写**补上——不取"客户端自解自己的凭据"，那假定两端对 claim 的读法永远一致，一旦不一致 `conversation_id` 会静默算错。Rejected: **把浏览器注册成 `devices` 行填 `DID`**——`relay_ticket_test.go:24` 那条边界是刻意的，浏览器不是可寻址设备，注册它会污染设备列表 |
 | 9 | 浏览器的对端身份改为**账号级、服务端派生**，不再是 localStorage 里的随机数 | 修 Problem 第 9 条：跨浏览器、跨清缓存稳定。一个账号内的所有对端属于同一用户，A 落地后 `peer_fingerprint` 只剩授权与来源标注两个职责，不需要区分同一账号的两个浏览器。**这是一处刻意的行为变化**。Rejected: **每个浏览器一个服务端签发的标识**——要稳定就得让浏览器持久化它，于是清站点数据的问题原样回来；而它换来的"区分同一用户的两个浏览器"本轮没有任何消费者 |
 | 10 | 中继的路由目标从**连接级**降到**通道级**：`daemon_fingerprint` 移出 URL，每条虚拟通道开通时声明自己要接哪条对话或哪台机器 | 直接解决 Problem 第 10/11 条。Rejected: **保持连接级、由客户端自己把 uuid 解析成机器**——客户端仍需按机器建池，socket 数不变，等于只改了 UI 措辞。**这是一处刻意的行为变化** |
 | 11 | 按对话寻址**按入口分流**：已保存的对话走 `conversation:`，从机器轴点进去的走 `machine:`；Mode A/B（LAN 直连）整体保持机器寻址 | LAN 那条路上根本没有服务端去解析 uuid。机器轴列的是每台机器实时报的整份 `session.list`，其中"未保存的对话是大多数"（`SessionDetailView.tsx:465`、`:565` 的注释原文），它们在 `agent_session_saves` 里没有行，服务端解析不出承载机器。分流是自然的而非将就：**从机器轴进入时机器是用户刚选的、本来就在上下文里**，与决策 10 拒绝的"客户端自建 uuid→机器映射"不是一回事。两种通道共用同一条 socket，主要收益不受影响。Rejected: **server 为全部对话建只存指向的索引**——寻址统一，但 server 将知晓每条对话的存在，`savedsession/guard_test.go` 那句承诺要从"一个字都不落库"改写成"不落内容"，打穿 Hard invariant 2 |
