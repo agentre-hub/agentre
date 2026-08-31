@@ -346,9 +346,11 @@ RPC——那既违反 Hard invariant 5 的"变的只有它跑在哪条 socket �
 侧那条独立连接——它的消费者是 `enginesnapshot.Manager`（自带 dial + 重试循环，
 `internal/daemon/enginesnapshot/manager.go:202`，由 `daemon.go:906` 启动），改造面在那里。
 
-**三个 pre-upgrade 业务码要有 wire 对应物。** `internal/pkg/code/code.go:53-55` 那三个码
-（含 `AccountChannelUnavailable`）今天以 HTTP 返回；下沉到通道级之后，每一个都要指定对应的
-`rpcerror` 码，否则客户端分不清失败原因。`accountchan_svc`（per-account Redis Pub/Sub 这条**总线**）
+**四个 pre-upgrade 业务码要有 wire 对应物。** 是四个而非三个，且分属两个号段：
+`internal/pkg/code/code.go:53-55` 的 Relay 三码（`RelayDaemonNotFound` / `RelayDaemonOffline` /
+`RelayForwardFailed`，30400 段）与 `:117` 的 `AccountChannelUnavailable`（30700 段）。它们今天
+以 HTTP 返回；下沉到通道级之后每一个都要指定对应的 `rpcerror` 码，**并各自同步 `code/en.go`
+与 `code/zh_cn.go` 两条文案**，否则客户端分不清失败原因。`accountchan_svc`（per-account Redis Pub/Sub 这条**总线**）
 **保留不动**——本轮合并的是传输，不是总线。
 
 ## 迁移与回填
@@ -406,7 +408,7 @@ server 算出不同的 uuid，决策 2 由构造失败、镜像存量全体成�
 | `internal/pkg/wireversion/wireversion_test.go` | `Protocol` 与 `package.json` 的 `version` 逐字一致；新增的 `MinSupported` 同样被钉住 | 该文件现有的 `TestProtocol_GivenWirePackageJSON_...`（与方法集守卫是**两个文件、两件事**） |
 | daemon RPC 集成测试（Mode C 握手） | 客户端在请求体里给不出对端身份（字段已删）；凭据缺 `pfp` 时握手被拒；`AuthState` 里的对端身份等于凭据里的 `pfp` | `internal/daemon/integration_test.go`、`daemon/auth/auth_test.go` |
 | daemon 会话隔离测试 | 两个不同对端持不同 `conversation_id` 时，backend 会话互不并轨；旧的"同号会话"构造不再能构造出来 **没有**以 `runtimeSessionID` 为直接对象的现成测试（全仓库 `*_test.go` 零命中）。真正的先例是 `internal/daemon/integration_test.go:1066` 的 `keyedApprovalRunner`——其注释说明它按真实 backend 的方式索引会话，因此"两个对端的同号会话会不会撞成同一条"在它身上如实反映生产行为；另见 `daemon_test.go:791`、`:805` |
-| **`agentre-server` 的迁移测试** | 回填幂等；改键后行数与内容不变 | `agentre-server/migrations/migrations_test.go`（该仓库允许并已有先例） |
+| **`agentre-server` 的迁移测试** | 回填幂等；改键后行数与内容不变 | 该仓库**允许**迁移测试，但**先例比看上去弱**：`agentre-server/migrations/migrations_test.go` 现有的四个测试全是 `TestWithMigrationLock_*`（sqlmock 测 `GET_LOCK` 重试/超时/NULL），**没有任何测试执行 `migrationList()` 的 DDL**。所以这是新写一类测试，不是照抄现成形态 |
 | **`agentre` / agentred 的迁移：不写迁移测试** | 同上语义，但走该仓库规定的路线 | `agentre/AGENTS.md` 明令 **"Migrations carry no unit tests of their own — do not add a `migrations/*_test.go`"**。该仓库的既定路线是：`internal/bootstrap/cago_test.go` 只证明链条在**空库**上跑得干净，而回填与改键语义**对着有真实行的库手工验证**——`develop.md` "When Touching Persistent Data" 第 4 步要求同一条查询在迁移前后各跑一次（行数、边界值、NULL 数），并按 `verification.md` 留证。"空库上绿等于没跑过" |
 | UUIDv5 回填函数的纯单元测试 | 决策 2 的确定性：同一 `(peer_fingerprint, peer_session_id)` 在三个仓库独立算出同一 uuid | 这是**纯函数**，不是迁移，不受上一条限制。三个仓库各自对同一组向量断言同一批输出，是决策 2 唯一的机械保证 |
 | `relay_svc` 单元测试（mockgen） | 通道级路由：同一连接上两条通道落在两台机器；一条通道的目标离线不影响另一条；鉴权失效才关整条连接 | `internal/service/relay_svc/relay_test.go`、`framebus` 现有测试 |
