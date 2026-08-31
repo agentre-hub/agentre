@@ -8,7 +8,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/peer"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 // inboundPeer is the App-lifetime boundary for the desktop's relay presence.
@@ -24,7 +26,29 @@ var newInboundPeer = func(ctx context.Context) (inboundPeer, error) {
 	return peer.NewInbound(link), nil
 }
 
-// onServerStateEvent 按登录状态的变更维护这台桌面端的入站中转登记。
+// dropAccountChannel 把账号级实时通道踢掉重连。抽成变量供测试替换，与
+// newInboundPeer 同一模式；同步未装配（单机构建 / 单元测试）时是空操作。
+var dropAccountChannel = func() {
+	if s := sync_svc.Default(); s != nil {
+		s.DropAccountChannel()
+	}
+}
+
+// discardAdoptedDevices 去掉收编来的设备行。同样抽成变量供测试替换；设备服务未
+// 装配时是空操作。失败只记日志：它是清理，不该让登出这条路径本身失败。
+var discardAdoptedDevices = func(ctx context.Context) {
+	svc := remote_device_svc.Default()
+	if svc == nil {
+		return
+	}
+	if _, err := svc.DiscardAdoptedDevices(ctx); err != nil {
+		logger.Ctx(ctx).Warn("app.onServerStateEvent: discarding adopted account agentreds failed", zap.Error(err))
+	}
+}
+
+// onServerStateEvent 按登录状态的变更维护这台桌面端**挂在服务端上的两条连接**：
+// 入站中转登记与账号级实时通道。两条都在建立时绑定了服务端地址与设备凭据，因此
+// 都得跟着登录状态走。
 func (a *App) onServerStateEvent(payload any) {
 	state, ok := payload.(map[string]any)
 	if !ok {
@@ -36,10 +60,14 @@ func (a *App) onServerStateEvent(payload any) {
 		// 而登录事件恰恰意味着这两样可能都变了。跳过等于继续以上一次登录的身份挂在
 		// 上一个服务端上 —— 新账号那边看不到这台桌面端，旧账号那边它还在线。
 		a.restartInboundPeer(context.Background())
+		dropAccountChannel()
 	case "logged_out":
 		// 登记挂在 context.Background() 上，不主动停就要一直活到应用退出：已经登出的
 		// 桌面端仍以旧凭据在旧服务端上保持可寻址。
 		a.stopInboundPeer(context.Background())
+		dropAccountChannel()
+		// 收编来的设备行的依据就是「账号说有这台机器」，账号断了依据就没了。
+		discardAdoptedDevices(context.Background())
 	}
 }
 

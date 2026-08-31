@@ -3,10 +3,14 @@ package protorpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
@@ -29,6 +33,38 @@ func ConnFromContext(ctx context.Context) *Conn {
 	conn, _ := ctx.Value(connCtxKey{}).(*Conn)
 	return conn
 }
+
+// DefaultCallTimeout 是一次请求在**调用方自己没有设期限**时的兜底预算。
+//
+// 它兜的不是「对端没了」——那条由传输层的保活(见 transport.go)在 30 秒内探到。
+// 它兜的是「对端还活着但这一次请求回不来了」:handler 卡在慢 IO 上、应答帧在中继
+// 某一跳被吞掉。Wails binding 传下来的 ctx 没有 deadline,少了这层兜底,这类请求
+// 就是永久挂起,而 UI 上只是一个永远转不完的圈。
+//
+// 60 秒是「远比任何正常往返都长,又远短于用户的耐心」。真正可能跑更久的方法
+// (runtime.run 会准备远端工作区,mcp.proxy 代理一次 MCP 工具调用)用
+// WithoutCallTimeout 显式豁免,而不是把这个数一路调大。
+const DefaultCallTimeout = 60 * time.Second
+
+type noCallTimeoutKey struct{}
+
+// WithoutCallTimeout 让这一次调用豁免 DefaultCallTimeout,一直等到应答、调用方
+// 自己取消、或连接断开为止。**只给天生可能跑几分钟的方法用**,并在调用处写清楚
+// 为什么 —— 豁免名单短且可 grep 是这层兜底还有意义的前提。
+func WithoutCallTimeout(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noCallTimeoutKey{}, true)
+}
+
+func callTimeoutDisabled(ctx context.Context) bool {
+	disabled, _ := ctx.Value(noCallTimeoutKey{}).(bool)
+	return disabled
+}
+
+// ConnOption 调整一条连接的行为。生产用默认值,测试用它把时间尺度压到毫秒。
+type ConnOption func(*Conn)
+
+// WithCallTimeout 覆盖这条连接的默认请求预算;<=0 表示不设兜底。
+func WithCallTimeout(d time.Duration) ConnOption { return func(c *Conn) { c.callTimeout = d } }
 
 type AuthState struct {
 	Authenticated     bool
@@ -131,7 +167,13 @@ func (r *Registry) dispatchNotification(ctx context.Context, notification *agent
 	subscribers := append([]notificationSubscription(nil), r.notifications...)
 	r.notificationMu.RUnlock()
 	for _, subscriber := range subscribers {
-		_ = subscriber.handler(ctx, notification)
+		// 订阅者是在读循环里同步跑的:一个 panic 带走的不是一次投递,而是这条连接
+		// 上读应答 / 通知 / cancel 的那个 goroutine。逐个兜住,一个坏订阅者不影响
+		// 其它订阅者,也不影响连接。
+		func() {
+			defer recoverHandler("notification subscriber", nil)
+			_ = subscriber.handler(ctx, notification)
+		}()
 	}
 }
 
@@ -141,26 +183,31 @@ type result struct {
 }
 
 type Conn struct {
-	transport  FrameConn
-	registry   *Registry
-	nextID     atomic.Uint64
-	writeMu    sync.Mutex
-	pendingMu  sync.Mutex
-	pending    map[uint64]chan result
-	inflightMu sync.Mutex
-	inflight   map[uint64]context.CancelFunc
-	canceled   map[uint64]struct{}
-	closeOnce  sync.Once
-	closed     chan struct{}
-	authMu     sync.RWMutex
-	auth       AuthState
+	transport   FrameConn
+	registry    *Registry
+	nextID      atomic.Uint64
+	writeMu     sync.Mutex
+	pendingMu   sync.Mutex
+	pending     map[uint64]chan result
+	inflightMu  sync.Mutex
+	inflight    map[uint64]context.CancelFunc
+	canceled    map[uint64]struct{}
+	closeOnce   sync.Once
+	closed      chan struct{}
+	callTimeout time.Duration
+	authMu      sync.RWMutex
+	auth        AuthState
 }
 
-func NewConn(t FrameConn, r *Registry) *Conn {
+func NewConn(t FrameConn, r *Registry, opts ...ConnOption) *Conn {
 	if t == nil {
 		t = newDisconnectedFrameConn()
 	}
-	return &Conn{transport: t, registry: r, pending: map[uint64]chan result{}, inflight: map[uint64]context.CancelFunc{}, canceled: map[uint64]struct{}{}, closed: make(chan struct{})}
+	c := &Conn{transport: t, registry: r, pending: map[uint64]chan result{}, inflight: map[uint64]context.CancelFunc{}, canceled: map[uint64]struct{}{}, closed: make(chan struct{}), callTimeout: DefaultCallTimeout}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *Conn) Registry() *Registry   { return c.registry }
@@ -185,13 +232,30 @@ func (c *Conn) Serve(ctx context.Context) {
 	requestCtx, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRequests()
 	defer func() { _ = c.Close() }()
+	// 读循环退出就是这条连接的死亡时刻,而排障时「connection closed」之后的一切都
+	// 只能从这一行读到:退出原因,以及这条连接一生中丢过多少帧。一条连接一行,不在
+	// 循环里打。
+	var badFrames, unknownFrames int
+	var exitErr error
+	defer func() {
+		logger.Ctx(ctx).Debug("protorpc.Conn.Serve: read loop exited",
+			zap.Error(exitErr), zap.Int("badFrames", badFrames), zap.Int("unknownFrames", unknownFrames))
+	}()
 	for {
 		b, err := c.transport.ReadFrame()
 		if err != nil {
+			exitErr = err
 			return
 		}
 		var f agentrewire.RpcFrame
-		if proto.Unmarshal(b, &f) != nil {
+		if unmarshalErr := proto.Unmarshal(b, &f); unmarshalErr != nil {
+			// 只报第一条:坏帧往往是成串来的(协议错位 / 中继串包),按帧打就是在
+			// 读循环里打日志。总数进退出那一行。
+			badFrames++
+			if badFrames == 1 {
+				logger.Ctx(ctx).Warn("protorpc.Conn.Serve: dropped an undecodable frame",
+					zap.Error(unmarshalErr), zap.Int("frameBytes", len(b)))
+			}
 			continue
 		}
 		switch body := f.Body.(type) {
@@ -206,6 +270,13 @@ func (c *Conn) Serve(ctx context.Context) {
 			go c.handle(requestCtx, f.Id, body.Request)
 		case *agentrewire.RpcFrame_Notification:
 			c.registry.dispatchNotification(context.WithValue(requestCtx, connCtxKey{}, c), body.Notification)
+		default:
+			// 对端发来了本版本不认识的帧类型(协议漂移)。同样只报第一条。
+			unknownFrames++
+			if unknownFrames == 1 {
+				logger.Ctx(ctx).Warn("protorpc.Conn.Serve: dropped a frame with an unknown body",
+					zap.Uint64("frameId", f.GetId()))
+			}
 		}
 	}
 }
@@ -244,6 +315,13 @@ func (c *Conn) writeError(id uint64, err error) {
 func methodNotFound() error { return &Error{Code: CodeMethodNotFound, Message: "method not found"} }
 
 func (c *Conn) call(ctx context.Context, req *agentrewire.Request) (*agentrewire.Response, error) {
+	// 兜底只补给「没有任何期限」的调用方:调用方自己设过 deadline 就以它为准
+	// (兜底是地板不是天花板),显式豁免的长跑方法则一直等下去。
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && c.callTimeout > 0 && !callTimeoutDisabled(ctx) {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.callTimeout)
+		defer cancel()
+	}
 	id := c.nextID.Add(1)
 	ch := make(chan result, 1)
 	c.pendingMu.Lock()
@@ -286,7 +364,9 @@ func (c *Conn) write(f *agentrewire.RpcFrame) error {
 	default:
 	}
 	if e = c.transport.WriteFrame(b); e != nil {
-		return ErrConnClosed
+		// 哨兵要留(调用方按它分支),原因也要留:写超时、broken pipe、对端发了
+		// close 帧,在排障时是三件不同的事。
+		return fmt.Errorf("%w: %v", ErrConnClosed, e)
 	}
 	return nil
 }
@@ -294,11 +374,17 @@ func (c *Conn) deliver(id uint64, r result) {
 	c.pendingMu.Lock()
 	ch := c.pending[id]
 	c.pendingMu.Unlock()
-	if ch != nil {
-		select {
-		case ch <- r:
-		default:
-		}
+	if ch == nil {
+		// 没人等这个 id:调用方已经超时走了(应答其实回来了,只是晚了),或者对端
+		// 发了一条我们从没发过的应答。Debug 够用,但它必须留下来 —— 「超时了」和
+		// 「超时后其实答了」是两个不同的结论。
+		logger.Default().Debug("protorpc.Conn.deliver: dropped a response nobody is waiting for",
+			zap.Uint64("requestId", id))
+		return
+	}
+	select {
+	case ch <- r:
+	default:
 	}
 }
 

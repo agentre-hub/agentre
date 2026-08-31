@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -191,4 +192,102 @@ func TestStateLoadSave(t *testing.T) {
 			assert.Equal(t, "orig", st.LLMProviders["a"].Name)
 		})
 	})
+}
+
+// ── Unclaim 的语义：留下什么，而不是删掉什么 ────────────────────────────────
+//
+// 老写法逐个列举要清的字段，于是**新加的账号绑定字段默认被留下**——hubServerURL
+// 就是这么漏掉的（认领时由 login 写入，unclaim 从没清过），llmProviders 也是
+// （enginesnapshot 从账号拉下来的整份供应商配置，含 API key）。
+//
+// 这个用例把判据倒过来：只有下面这份「与账号无关的本机状态」允许存活，其余一律
+// 归零。往 State 上加字段时，它会逼着你在这里表态——默认答案是「跟着认领一起走」。
+func TestUnclaim_KeepsOnlyMachineLocalState(t *testing.T) {
+	survives := map[string]bool{
+		"SchemaVersion":      true, // 结构版本，与账号无关
+		"DaemonInstanceUUID": true, // 这台机器的身份，LAN 配对的指纹由它派生
+		"Listen":             true, // 运行时监听配置
+		"PairedPeers":        true, // LAN 配对：R19 说 unclaim 回到「只有配对」的状态
+		"Preferences":        true, // 本机偏好（日志级别、配对码 TTL…）
+	}
+
+	before := fullyPopulatedState(t)
+	st := fullyPopulatedState(t)
+	st.Unclaim()
+
+	value := reflect.ValueOf(st).Elem()
+	for i := 0; i < value.NumField(); i++ {
+		field := value.Type().Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		got := value.Field(i).Interface()
+		if survives[field.Name] {
+			assert.Equal(t, reflect.ValueOf(before).Elem().Field(i).Interface(), got,
+				"%s 是本机状态，unclaim 不该动它", field.Name)
+			continue
+		}
+		assert.True(t, carriesNothing(value.Field(i)),
+			"%s 没有被 unclaim 清掉。它要么是账号绑定的（那就该清），要么是本机状态"+
+				"（那就把它加进上面的 survives 并说明理由）——不要默认留下", field.Name)
+	}
+}
+
+// 两个具体的回归点，单独守一次：它们是这次真的漏掉的两个字段。
+func TestUnclaim_ClearsTheAccountServerURLAndItsProviderSnapshot(t *testing.T) {
+	convey.Convey("unclaim leaves no trace of the account the daemon just left", t, func() {
+		st := fullyPopulatedState(t)
+		st.Unclaim()
+
+		convey.Convey("the account server address goes with the claim", func() {
+			// 留着它，`run` 的持久化回退会在 unclaim 之后把 daemon 又指回旧 server。
+			assert.Empty(t, st.HubServerURL)
+		})
+		convey.Convey("so does the provider snapshot pulled from that account", func() {
+			// enginesnapshot 从账号拉下来的整份配置，含 API key：一台已经离开账号的
+			// 机器上不该留着上一个账号的凭证（与 revokedJTIs 同一条理由，R19）。
+			assert.Empty(t, st.LLMProviders)
+		})
+		convey.Convey("but the LAN pairings stay: unclaim returns to the pairing-only state", func() {
+			assert.Len(t, st.PairedPeers, 1)
+		})
+	})
+}
+
+// carriesNothing 判「这个字段不带任何内容」。map / slice 看长度而不是零值：清空后的
+// 表要保持非 nil（Load 保证这一条，daemon 侧的写入方直接往里赋值），非 nil 的空表
+// 不是零值，却确实什么都没带。
+func carriesNothing(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Map, reflect.Slice:
+		return v.Len() == 0
+	default:
+		return v.IsZero()
+	}
+}
+
+// fullyPopulatedState 造一份**每个字段都非零**的 state：这样「清掉了」与「本来就是
+// 零值」不会混为一谈。
+func fullyPopulatedState(t *testing.T) *State {
+	t.Helper()
+	st, err := Load(t.TempDir())
+	require.NoError(t, err)
+	st.Mutate(func(s *State) {
+		s.SchemaVersion = CurrentSchemaVersion
+		s.DaemonInstanceUUID = "uuid-1"
+		s.HubServerURL = "https://a.example"
+		s.Listen = ListenPrefs{LanHost: "0.0.0.0", LanPort: 7456}
+		s.PairedPeers = map[string]PairedPeer{"desktop": {DeviceName: "mac", DeviceToken: "t"}}
+		s.LLMProviders = map[string]LLMProviderMeta{"p": {Name: "OpenAI", APIKey: "sk-secret"}}
+		s.Preferences = Preferences{LogLevel: "info", LogRotateMB: 50}
+		s.AccountID = "account-a"
+		s.VerificationPublicKeyPEM = "pem"
+		s.VerificationCurrentKID = "kid-1"
+		s.VerificationPublicKeys = map[string]string{"kid-1": "pem"}
+		s.MaxTokenLifetimeSeconds = 3600
+		s.Credential = AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"}
+		s.RevokedJTIs = []string{"jti-1"}
+		s.RevocationsAsOf = 1700
+	})
+	return st
 }

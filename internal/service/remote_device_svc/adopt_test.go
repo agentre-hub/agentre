@@ -219,3 +219,46 @@ func TestAdoptAccountDevices_GivenRepositoryFailure_ThenReportsIt(t *testing.T) 
 		So(err, ShouldNotBeNil)
 	})
 }
+
+// ── 登出之后，收编来的那些行必须消失 ────────────────────────────────────────
+//
+// 收编行（IsRelayOnly）的全部依据就是「账号说有这台机器」：本机从没 LAN 配对过
+// 它，手上既没有它的地址也没有它的配对凭据。账号一断，这个依据就没了——留着的话
+// 设备面板与两个「运行设备」选择器上会一直挂着上一个账号的机器，而换到另一套
+// server 之后那些指纹在新账号里根本不存在，选中它只会拿到「先认领这台机器」。
+//
+// 硬删而不是软删：软删行是「用户不要这台机器」的墓碑（tombstonedFingerprints），
+// 会一直挡着下一次收编。登出不是拒绝，重新登录同一个账号时它们必须原样回来。
+func TestDiscardAdoptedDevices_GivenLogout_ThenRelayOnlyRowsArePurged(t *testing.T) {
+	Convey("logging out drops the rows that only existed because the account said so", t, func() {
+		repo, w, svc := adoptFixture(t)
+		repo.EXPECT().List(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
+			{ID: 3, DaemonFingerprint: "sha256:adopted"},                        // 收编来的：没有 URL
+			{ID: 4, URL: "wss://box.lan:7456", DaemonFingerprint: "sha256:lan"}, // 本机亲手配对的
+		}, nil)
+		repo.EXPECT().Delete(gomock.Any(), int64(3)).Return(nil)
+		repo.EXPECT().Purge(gomock.Any(), int64(3)).Return(nil)
+		w.EXPECT().Stop(int64(3))
+
+		n, err := svc.DiscardAdoptedDevices(context.Background())
+
+		So(err, ShouldBeNil)
+		So(n, ShouldEqual, 1)
+	})
+}
+
+// LAN 配对是本机自己的东西，与账号无关：登出不该动它。上面的用例已经用「只对 3
+// 有 Delete/Purge 期望」守住了这一点，这里再单独守一次空账号的情形。
+func TestDiscardAdoptedDevices_GivenOnlyLANPairings_ThenNothingIsRemoved(t *testing.T) {
+	Convey("a desktop that only ever paired over the LAN keeps every row", t, func() {
+		repo, _, svc := adoptFixture(t)
+		repo.EXPECT().List(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
+			{ID: 4, URL: "wss://box.lan:7456", DaemonFingerprint: "sha256:lan"},
+		}, nil)
+
+		n, err := svc.DiscardAdoptedDevices(context.Background())
+
+		So(err, ShouldBeNil)
+		So(n, ShouldEqual, 0)
+	})
+}

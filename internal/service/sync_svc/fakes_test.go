@@ -3,6 +3,7 @@ package sync_svc
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
@@ -224,6 +225,28 @@ func (f *fakeSyncState) SaveMeta(_ context.Context, kind, syncID string, meta sy
 	}
 	f.meta[f.key(kind, syncID)] = meta
 	return nil
+}
+
+// fakeSyncAccounts 是本地账号表的内存替身：把 (server 地址, 远端用户主键) 映射成
+// 本机的账号键。生产实现见 sync_account_repo —— 归属判定用的是这个键，不是 server
+// 那边的 user_id（两套自建部署的第一个用户都是 1）。
+type fakeSyncAccounts struct {
+	keys map[string]int64
+	next int64
+}
+
+func newFakeSyncAccounts() *fakeSyncAccounts {
+	return &fakeSyncAccounts{keys: map[string]int64{}}
+}
+
+func (f *fakeSyncAccounts) EnsureKey(_ context.Context, serverURL string, remoteUserID int64) (int64, error) {
+	key := serverURL + "|" + strconv.FormatInt(remoteUserID, 10)
+	if id, ok := f.keys[key]; ok {
+		return id, nil
+	}
+	f.next++
+	f.keys[key] = f.next
+	return f.next, nil
 }
 
 // fakeSettings 是本地 key-value 设置表的内存替身（游标住在这里）。

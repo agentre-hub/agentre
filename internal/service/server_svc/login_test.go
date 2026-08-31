@@ -252,3 +252,72 @@ func TestPollLoginToken_AccessDenied(t *testing.T) {
 		So(err, ShouldEqual, server_svc.ErrAccessDenied)
 	})
 }
+
+// ── 已登录时不许对另一套 server 发起登录 ────────────────────────────────────
+//
+// StartLogin 一进门就把 client 换成新地址、并把 access token 清空，authorize 成功
+// 之后又立刻把新 server_url 落库——而这一切发生在用户**还没批准**之前。已登录时
+// 走这条路的收场是一次静默登出：手上是 A 的 refresh_token，client 却指着 B，
+// 下一次 401 触发的刷新会被 B 判成 invalid_grant（凭据被明确拒绝），
+// withAuth 据此清掉本地登录。
+//
+// 界面现在挡着它（登录入口只在登出时出现），但那是前端在替后端守一条不变量。
+// agentred 那边同源的闸门（已认领必须先 unclaim）一直在后端。
+func TestStartLogin_GivenAlreadyLoggedIn_RefusesWithoutRepointingTheClient(t *testing.T) {
+	Convey("a desktop that is already signed in must sign out before pointing at another server", t, func() {
+		var hits atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hits.Add(1)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
+		server_state_repo.RegisterServerState(mRepo)
+		keychain.SetDefault(keychain.NewMemory())
+		// 已经登录在 A 上，手上有 A 的 access token。
+		mRepo.EXPECT().Get(gomock.Any()).Return(&server_state_entity.ServerState{
+			ID: 1, ServerURL: "https://a.example", ServerUserID: 7, DeviceID: 3, KeychainAccount: "k",
+		}, nil).AnyTimes()
+		svc := server_svc.New(server_svc.NewHTTPClient("https://a.example", "token-a"), nil)
+
+		res, err := svc.StartLogin(context.Background(), srv.URL)
+
+		So(err, ShouldEqual, server_svc.ErrAlreadyLoggedIn)
+		So(res, ShouldBeNil)
+		So(hits.Load(), ShouldEqual, 0) // 一个请求都不该发给新 server
+		So(svc.AccessToken(), ShouldEqual, "token-a")
+	})
+}
+
+// 登出之后照常能登另一套 server——闸门挡的是「已登录」，不是「换 server」本身。
+func TestStartLogin_GivenLoggedOut_ProceedsAgainstAnotherServer(t *testing.T) {
+	Convey("after signing out, pointing at another server is an ordinary login", t, func() {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/v1/healthz":
+				_, _ = w.Write([]byte(`{"code":0,"msg":"ok","data":{"version":"v0.1.0","status":"ok","db_ping":true,"redis":true}}`))
+			case "/v1/oauth/device/authorize":
+				_, _ = w.Write([]byte(`{"code":0,"msg":"ok","data":{"device_code":"dc","user_code":"A4F-7Q2","verification_uri":"http://h/device","verification_uri_complete":"http://h/device?user_code=A4F-7Q2","interval":5,"expires_in":600}}`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer srv.Close()
+
+		svc, mRepo, _ := setupServerSvc(t, srv.URL)
+		// 登出后的那一行：server_url 还留着上一套（Logout 刻意保留它），但登录字段已清。
+		mRepo.EXPECT().Get(gomock.Any()).Return(&server_state_entity.ServerState{
+			ID: 1, ServerURL: "https://a.example", DeviceFingerprint: "fp-existing",
+		}, nil).AnyTimes()
+		mRepo.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		res, err := svc.StartLogin(context.Background(), srv.URL)
+
+		So(err, ShouldBeNil)
+		So(res.DeviceCode, ShouldEqual, "dc")
+	})
+}

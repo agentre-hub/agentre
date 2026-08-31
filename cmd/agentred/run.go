@@ -92,6 +92,9 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := requireServerMatchesClaim(st, config.serverURL); err != nil {
+				return err
+			}
 			if config.hasOverrides {
 				st.Mutate(func(s *state.State) {
 					s.Listen = config.listen
@@ -175,6 +178,31 @@ func resolveLogLevel(cmd *cobra.Command, flagValue string) (string, error) {
 	default:
 		return "", newUsageError("--log-level must be one of debug, info, warn, error")
 	}
+}
+
+// requireServerMatchesClaim 挡住「已认领的 daemon 被 run 指到另一套 server」。
+//
+// 认领是一整套属于某个账号的东西：凭据、验签公钥、吊销表。把地址换掉而不动这些，
+// daemon 会拿 A 的凭据去 B 登记，B 一律拒；而拒绝的收场是
+// credentialRefresher 停掉中继续期并写一行日志（daemon.go），daemon 自己仍然认为
+// 「我已认领」，LAN 也照常——用户看到的只有「这台机器就是不上线」。
+//
+// 闸门与 login 那条路同源（已认领必须先 unclaim），措辞也保持一致：换 server 是
+// 一次重新认领，不是改一个配置项。
+//
+// 只在两边都有地址且**确实不同**时拒：认领时没记下地址的旧状态照常放行，让这一次
+// run 把地址补上。
+func requireServerMatchesClaim(st *state.State, serverURL string) error {
+	if !st.IsClaimed() {
+		return nil
+	}
+	claimed := strings.TrimRight(strings.TrimSpace(st.Snapshot().HubServerURL), "/")
+	if claimed == "" || serverURL == "" || claimed == serverURL {
+		return nil
+	}
+	return newUsageError(
+		"daemon is claimed through %s; run agentred unclaim before pointing it at %s",
+		claimed, serverURL)
 }
 
 func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string, flagPort int,

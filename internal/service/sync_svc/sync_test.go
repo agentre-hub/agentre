@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
@@ -196,6 +197,9 @@ type harness struct {
 	state          *fakeSyncState
 	nowMs          int64
 	backgroundRuns int
+	// row 是 server_state 那一行本身。测试可以就地改它（换 server / 换账号），
+	// mockgen 替身按 AnyTimes 返回同一个指针，因此改动对下一次读立即可见。
+	row *server_state_entity.ServerState
 }
 
 func newHarness(t *testing.T, loggedIn bool) *harness {
@@ -206,13 +210,19 @@ func newHarness(t *testing.T, loggedIn bool) *harness {
 	row := &server_state_entity.ServerState{ID: 1}
 	if loggedIn {
 		row = &server_state_entity.ServerState{
-			ID: 1, ServerUserID: 7, DeviceID: 3, KeychainAccount: "k",
+			ID: 1, ServerURL: serverA, ServerUserID: 7, DeviceID: 3, KeychainAccount: "k",
 		}
 	}
 	stateRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
 	server_state_repo.RegisterServerState(stateRepo)
 
 	app_setting_repo.RegisterAppSetting(newFakeSettings())
+	// 账号键的替身。播成 (serverA, 7) → 7，与迁移 202608080013 的播种同构：存量行
+	// 盖着的就是那个数，所有既有用例里的账号 7 因此原样继续成立。
+	accounts := newFakeSyncAccounts()
+	accounts.keys[serverA+"|7"] = 7
+	accounts.next = 7
+	sync_account_repo.RegisterSyncAccount(accounts)
 
 	h := &harness{
 		transport: &fakeTransport{},
@@ -222,6 +232,7 @@ func newHarness(t *testing.T, loggedIn bool) *harness {
 		lost:      &fakeLostChange{},
 		state:     newFakeSyncState(),
 		nowMs:     1_700_000_000_000,
+		row:       row,
 	}
 	syncqueue_repo.RegisterOutboundQueue(h.outbound)
 	syncqueue_repo.RegisterInboundQueue(h.inbound)

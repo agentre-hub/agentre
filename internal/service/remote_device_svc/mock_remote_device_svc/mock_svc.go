@@ -86,6 +86,21 @@ func (mr *MockRemoteDeviceSvcMockRecorder) DeviceFingerprint() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeviceFingerprint", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).DeviceFingerprint))
 }
 
+// DiscardAdoptedDevices mocks base method.
+func (m *MockRemoteDeviceSvc) DiscardAdoptedDevices(ctx context.Context) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DiscardAdoptedDevices", ctx)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DiscardAdoptedDevices indicates an expected call of DiscardAdoptedDevices.
+func (mr *MockRemoteDeviceSvcMockRecorder) DiscardAdoptedDevices(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardAdoptedDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).DiscardAdoptedDevices), ctx)
+}
+
 // Get mocks base method.
 func (m *MockRemoteDeviceSvc) Get(ctx context.Context, id int64) (*remote_device_svc.DeviceView, error) {
 	m.ctrl.T.Helper()

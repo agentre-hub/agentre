@@ -1274,43 +1274,6 @@ func TestDaemon_IPCStatus_CountsSessionsRunningRightNow(t *testing.T) {
 		"数的是此刻真的在跑的那些:空闲会话不算,别的对端在跑的算")
 }
 
-// TestRecoverHandlerPanic 验证 RPC handler panic 被吃掉,翻成
-// rpc.Error{ErrInternal} 让 daemon 进程不挂、客户端收到结构化错误,而不是
-// 看到 SIGSEGV 整个 agentred 进程死。回归 claudecode runtime nil deref 把整
-// 个 daemon 打挂 / 前端无任何提示 / 会话永远卡在「生成中」的旧 bug。
-//
-// 直接走 recoverHandlerPanic 而不是 wrapGuarded 是因为后者会先撞 requireAuth
-// (需要真 *rpc.Conn 注入),与本测想覆盖的 panic-recovery 边界正交。
-func TestRecoverHandlerPanic(t *testing.T) {
-	t.Run("panic 翻成 daemon handler panic 错误", func(t *testing.T) {
-		var err error
-		func() {
-			defer recoverHandlerPanic(&err)
-			panic("boom")
-		}()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "daemon handler panic")
-		assert.Contains(t, err.Error(), "boom")
-	})
-
-	t.Run("nil pointer deref panic 同样被回收(回归原始 SIGSEGV 场景)", func(t *testing.T) {
-		var err error
-		func() {
-			defer recoverHandlerPanic(&err)
-			var p *int
-			_ = *p
-		}()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "daemon handler panic")
-	})
-
-	t.Run("无 panic 时 err 保持 nil", func(t *testing.T) {
-		var err error
-		func() { defer recoverHandlerPanic(&err) }()
-		assert.NoError(t, err)
-	})
-}
-
 // seedJournal 给某会话灌 n 条日志(Append 依次分配 seq 1..n),全部盖上同一个落库时间。
 func seedJournal(t *testing.T, ctx context.Context, peer, sid string, n int, createdAt int64) {
 	t.Helper()

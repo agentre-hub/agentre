@@ -19,6 +19,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
+	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo/mock_sync_account_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
@@ -80,6 +82,11 @@ func TestProjectCreate_GivenServerUnreachable_StillSucceeds(t *testing.T) {
 		ID: 1, ServerUserID: 7, DeviceID: 3, KeychainAccount: "k",
 	}, nil).AnyTimes()
 	server_state_repo.RegisterServerState(stateRepo)
+	// 归属用的账号键由本地账号表分配（server 的 user_id 跨 server 不唯一，见
+	// sync_account_entity）。这里给它一个固定答案，注意力留在「改动有没有入队」上。
+	accountRepo := mock_sync_account_repo.NewMockSyncAccountRepo(ctrl)
+	accountRepo.EXPECT().EnsureKey(gomock.Any(), gomock.Any(), int64(7)).Return(int64(7), nil).AnyTimes()
+	sync_account_repo.RegisterSyncAccount(accountRepo)
 
 	queue := registerSyncQueues(t)
 	sync_svc.SetDefault(sync_svc.New(unreachableTransport{}))

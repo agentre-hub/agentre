@@ -24,9 +24,13 @@ type SyncMeta struct {
 	// DDL 一律 not null default ''，因此宿主表的唯一索引必须是 WHERE sync_id != ''
 	// 的部分索引，否则多行空标识会互撞。
 	SyncID string `gorm:"column:sync_id;type:text;not null;default:''"`
-	// SyncAccountID 这一行所属账号（server_state.ServerUserID 的值）。0 = 尚未
-	// 认领：未登录期间创建的行（R12）与迁移前已存在的历史行都落在这里，直到
-	// R12a 的首次登录把它们收进当前账号——认领本身是后续任务的事，这里只留字段。
+	// SyncAccountID 这一行所属账号。存的是**本机**为 (server 地址, 远端用户主键)
+	// 分配的账号键（sync_accounts.id，见 sync_account_entity），不是 server 那边的
+	// user_id —— 后者是各自库里的自增主键，两套自建部署的第一个用户都是 1，直接拿
+	// 它当归属，换一套 server 就会把上一个账号的行认成本账号的（迁移 202608080013）。
+	//
+	// 0 = 尚未认领：未登录期间创建的行（R12）与迁移前已存在的历史行都落在这里，
+	// 直到 R12a 的首次登录把它们收进当前账号。
 	SyncAccountID int64 `gorm:"column:sync_account_id;type:bigint;not null;default:0"`
 	// SyncVersion server 分配的账号级单调序列值（决策 27），本地只存不改；出站
 	// 队列另存每条改动的基版本（R4a），不复用这一列。

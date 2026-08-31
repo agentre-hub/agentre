@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -39,7 +38,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -1470,20 +1468,6 @@ func (d *Daemon) closeRuntimeConnections(ctx context.Context) error {
 // 接管不启动任何一轮执行,没有「记晚了首批事件会丢」的问题,而被拒的接管绝不能改变
 // 任何东西。接管与读高水位之间落库的那几条不会丢 —— 客户端随后按自己的游标 pull,
 // 那一轮 pull 发生在认领之后。
-// recoverHandlerPanic 是 RPC handler 的最后一道防线:把 panic 翻成 ErrInternal
-// 让 daemon 进程不挂、客户端收到结构化错误。stack trace 进日志方便事后定位。
-// 命名 err 返回值由调用方提供(`err *error`),defer 写回最终返回。
-func recoverHandlerPanic(errOut *error) {
-	if r := recover(); r != nil {
-		stack := debug.Stack()
-		log.Printf("daemon rpc handler panic: %v\n%s", r, stack)
-		*errOut = &rpcerror.Error{
-			Code:    rpcerror.ErrInternal.Code,
-			Message: fmt.Sprintf("daemon handler panic: %v", r),
-		}
-	}
-}
-
 // openDB opens agentred's own SQLite handle at <dataDir>/agentred.db (state.Load
 // already created dataDir with 0700 before this is called). Deliberately a
 // plain gorm.Open — not a cago db.Database() component — because cago's

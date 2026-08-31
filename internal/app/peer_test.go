@@ -214,3 +214,65 @@ func TestAppInboundPeer_GivenRegistration_WhenLoggedOut_ThenStops(t *testing.T) 
 		t.Fatal("登出必须停掉入站登记")
 	}
 }
+
+// 账号级实时通道与中继登记同理：它在建连那一刻就钉死了服务端地址与设备凭据，
+// 登录状态一变就必须踢掉重连，否则那条常连一直挂在上一套 server 上，新 server 的
+// 通道永远拨不起来（sync_svc.DropAccountChannel）。
+func TestAppOnServerStateEvent_GivenLoginChanges_ThenDropsTheAccountChannel(t *testing.T) {
+	previousPeer := newInboundPeer
+	newInboundPeer = func(context.Context) (inboundPeer, error) {
+		return &inboundPeerStub{started: make(chan struct{}), stopped: make(chan struct{})}, nil
+	}
+	t.Cleanup(func() { newInboundPeer = previousPeer })
+
+	drops := 0
+	previousDrop := dropAccountChannel
+	dropAccountChannel = func() { drops++ }
+	t.Cleanup(func() { dropAccountChannel = previousDrop })
+
+	app := &App{}
+	app.onServerStateEvent(map[string]any{"kind": "logged_in"})
+	if drops != 1 {
+		t.Fatalf("登录换了身份，旧通道必须断开重连；drops = %d", drops)
+	}
+
+	app.onServerStateEvent(map[string]any{"kind": "logged_out"})
+	if drops != 2 {
+		t.Fatalf("登出后不该还有一条挂在旧 server 上的常连；drops = %d", drops)
+	}
+
+	app.onServerStateEvent(map[string]any{"kind": "server_offline"})
+	if drops != 2 {
+		t.Fatalf("服务端够不着不是身份变化，通道自己重连即可；drops = %d", drops)
+	}
+}
+
+// 登出还要把收编来的设备行去掉：它们的依据就是「账号说有这台机器」，账号断了依据
+// 就没了（remote_device_svc.DiscardAdoptedDevices）。登录不清——那时账号还在，
+// 紧接着的一次设备清单刷新会按新账号重新收编。
+func TestAppOnServerStateEvent_GivenLoggedOut_ThenDiscardsAdoptedDevices(t *testing.T) {
+	previousPeer := newInboundPeer
+	newInboundPeer = func(context.Context) (inboundPeer, error) {
+		return &inboundPeerStub{started: make(chan struct{}), stopped: make(chan struct{})}, nil
+	}
+	t.Cleanup(func() { newInboundPeer = previousPeer })
+	previousDrop := dropAccountChannel
+	dropAccountChannel = func() {}
+	t.Cleanup(func() { dropAccountChannel = previousDrop })
+
+	discards := 0
+	previousDiscard := discardAdoptedDevices
+	discardAdoptedDevices = func(context.Context) { discards++ }
+	t.Cleanup(func() { discardAdoptedDevices = previousDiscard })
+
+	app := &App{}
+	app.onServerStateEvent(map[string]any{"kind": "logged_in"})
+	if discards != 0 {
+		t.Fatalf("登录时账号还在，收编行不该被清；discards = %d", discards)
+	}
+
+	app.onServerStateEvent(map[string]any{"kind": "logged_out"})
+	if discards != 1 {
+		t.Fatalf("登出必须清掉收编行；discards = %d", discards)
+	}
+}

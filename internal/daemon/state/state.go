@@ -123,22 +123,37 @@ func (s *State) ClaimWithKeySet(accountID, currentKID string, publicKeys map[str
 	})
 }
 
-// Unclaim removes all account-bound material and returns the daemon to its
-// pairing-only state. It is intentionally a state-only operation.
+// Unclaim returns the daemon to its pairing-only state (R19). It is
+// intentionally a state-only operation.
+//
+// 它按「留下什么」写，而不是「删掉什么」——这个方向不是风格问题。逐个列举要清的
+// 字段时，**新加的账号绑定字段默认被留下**，而那正是本方法两次漏掉东西的原因：
+// hubServerURL（认领时由 login 写入，unclaim 从没清过，于是 run 的持久化回退会把
+// 一台已经离开账号的机器又指回旧 server）与 llmProviders（enginesnapshot 从账号
+// 拉下来的整份供应商配置，含 API key）。倒过来写之后，往 State 上加字段的默认
+// 结局是「跟着认领一起走」，要留下必须在这里明写并说明理由。
+//
+// 留下的只有与账号无关的本机状态：结构版本、这台机器的身份、监听配置、LAN 配对
+// （R19 的「回到只有配对的状态」指的就是它）、本机偏好。
 func (s *State) Unclaim() {
 	s.Mutate(func(st *State) {
-		st.AccountID = ""
-		st.VerificationPublicKeyPEM = ""
-		st.VerificationCurrentKID = ""
-		st.VerificationPublicKeys = nil
-		st.MaxTokenLifetimeSeconds = 0
-		st.Credential = AccountCredential{}
-		// The cached revocation list is pulled from the claimed account and
-		// only ever consulted for that account's credentials, so it is part of
-		// the claim: leaving it behind would keep one account's data on a
-		// daemon that has returned to the unclaimed state (R19).
-		st.RevokedJTIs = nil
-		st.RevocationsAsOf = 0
+		kept := State{
+			SchemaVersion:      st.SchemaVersion,
+			DaemonInstanceUUID: st.DaemonInstanceUUID,
+			Listen:             st.Listen,
+			PairedPeers:        st.PairedPeers,
+			Preferences:        st.Preferences,
+			// 两个未导出字段是这份 State 与磁盘、与自己那把锁的绑定，不属于状态本身。
+			// 锁必须是同一个指针：Mutate 正持着它，换掉就解不开了。
+			mu:  st.mu,
+			dir: st.dir,
+		}
+		if kept.PairedPeers == nil {
+			kept.PairedPeers = map[string]PairedPeer{}
+		}
+		// Load 保证这两张表非 nil（调用方直接往里写），清空之后也得守住这条。
+		kept.LLMProviders = map[string]LLMProviderMeta{}
+		*st = kept
 	})
 }
 

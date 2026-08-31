@@ -21,7 +21,7 @@ func (s *service) NotifyLocalChange(ctx context.Context, ch LocalChange) {
 	if !kindKnown(ch.Kind) || ch.Meta.SyncID == "" {
 		return
 	}
-	accountID, _, _, ok := s.account(ctx)
+	accountID, _, _, _, ok := s.account(ctx)
 	if !ok {
 		// 未登录：本规格引入的一切都不存在（R12）。
 		return

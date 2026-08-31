@@ -54,7 +54,9 @@ export function sessionListFromProtobuf(
         ? { providerSessionId: session.providerSessionId }
         : {}),
       ...(session.cwd ? { cwd: session.cwd } : {}),
-      ...(session.projectSyncId ? { projectSyncId: session.projectSyncId } : {}),
+      ...(session.projectSyncId
+        ? { projectSyncId: session.projectSyncId }
+        : {}),
       ...(session.backendType ? { backendType: session.backendType } : {}),
       ...(session.waitingForInput ? { waitingForInput: true } : {}),
       ...(session.lastMessageAt !== undefined && session.lastMessageAt !== 0n

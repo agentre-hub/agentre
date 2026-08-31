@@ -199,3 +199,44 @@ func TestStart_GivenUnknownSignalType_IgnoresIt(t *testing.T) {
 
 // immediateRetry 是重连等待的测试时钟：立刻返回，ctx 结束时收工。
 func immediateRetry(ctx context.Context) bool { return ctx.Err() == nil }
+
+// ── 登录身份变了，实时通道必须跟着换 ────────────────────────────────────────
+//
+// 通道在建连那一刻就把服务端地址与设备凭据钉死了（server_svc.DialAccountChannel
+// 拨的是当时的 baseURL、带的是当时的 access token）。登录状态变了却不断开，这条
+// 常连就一直挂在**上一套 server** 上：新 server 的通道永远拨不起来，实时下行静默
+// 退化成 30 秒轮询，而界面上一切正常。
+//
+// 它与中继登记（app/peer.go 在 logged_in/logged_out 上停掉重建）是同一个道理，
+// 只是这条一直漏着。
+//
+// 注意本用例**不**注入 immediateRetry：重连等待保持生产的 30 秒，因此这里看到的
+// 第二次拨号只可能来自 Drop 本身，而不是等到了下一个重连窗口。
+func TestDropAccountChannel_GivenIdentityChanged_RedialsWithoutWaiting(t *testing.T) {
+	h := newHarness(t, true)
+	first := make(chan syncwire.AccountChannelFrame)
+	second := make(chan syncwire.AccountChannelFrame)
+	tr := h.withAccountChannel(func(attempt int) (<-chan syncwire.AccountChannelFrame, error) {
+		if attempt == 1 {
+			return first, nil
+		}
+		return second, nil
+	})
+
+	h.svc.Start(context.Background())
+	t.Cleanup(h.svc.Stop)
+	awaitPull(t, tr.pulls, "首次建连之后应当主动拉一次")
+
+	h.svc.DropAccountChannel()
+
+	awaitPull(t, tr.pulls, "换了身份之后应当立刻重连并补拉一次，而不是等 30 秒的重连窗口")
+	assert.GreaterOrEqual(t, tr.attempts.Load(), int64(2),
+		"旧连接必须被真的断开，否则新 server 的通道永远拨不起来")
+}
+
+// 没有连接时 Drop 也必须是安全的：登出事件可能落在通道正在重试的空窗里。
+func TestDropAccountChannel_GivenNoLiveChannel_IsSafe(t *testing.T) {
+	h := newHarness(t, true)
+	h.svc.DropAccountChannel()
+	h.svc.DropAccountChannel()
+}

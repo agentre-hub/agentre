@@ -25,7 +25,10 @@ func RegisterMethod[Req proto.Message, Resp proto.Message](
 	if _, exists := registry.methods[methodID]; exists {
 		panic(fmt.Sprintf("protorpc: duplicate method ID %d", methodID))
 	}
-	registry.methods[methodID] = func(ctx context.Context, payload []byte) ([]byte, error) {
+	registry.methods[methodID] = func(ctx context.Context, payload []byte) (_ []byte, err error) {
+		// 守卫挂在这里而不是每个 handler 里:handler 跑在自己的 goroutine 上,
+		// 漏一处就等于没有(见 recoverHandler)。
+		defer recoverHandler(fmt.Sprintf("method %d", methodID), &err)
 		request := newRequest()
 		if err := proto.Unmarshal(payload, request); err != nil {
 			return nil, &Error{Code: CodeInvalidParams, Message: err.Error()}

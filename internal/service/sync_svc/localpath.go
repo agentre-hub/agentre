@@ -123,7 +123,7 @@ func (s *service) ReportLocalPathsNow(ctx context.Context) error {
 // 跳过。上报失败时不推进已保存的指纹：下一轮（30 秒后）内容指纹依旧不同，自然
 // 重试，服务端保留的是它上一次成功收到的那份清单，不受影响。
 func (s *service) reportLocalPathsOnce(ctx context.Context) error {
-	accountID, _, _, ok := s.account(ctx)
+	accountID, _, _, _, ok := s.account(ctx)
 	transport := s.getTransport()
 	if !ok || transport == nil {
 		return nil

@@ -11,6 +11,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
@@ -39,6 +40,10 @@ func InitServer(ctx context.Context) error {
 
 	// 工作区多端同步：server_svc 充当网络出入口，域服务通过 sync_svc.Notify 交出
 	// 改动。未登录时同步引擎自己就是空操作（R12），因此这里无条件装配。
+	//
+	// sync_account_repo 是同步归属的身份来源：行 / 队列 / 游标上盖的账号键由它分配
+	// （server 的 user_id 跨 server 不唯一，见 sync_account_entity）。
+	sync_account_repo.RegisterSyncAccount(sync_account_repo.NewSyncAccount())
 	syncstate_repo.RegisterSyncState(syncstate_repo.NewSyncState())
 	sync_svc.SetDefault(sync_svc.New(svc))
 	logger.Ctx(ctx).Debug("bootstrap.InitServer: services initialized",

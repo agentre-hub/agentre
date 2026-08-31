@@ -99,6 +99,9 @@ func (o *Outbound) RunFresh(ctx context.Context, params wire.RunParams) (wire.Ru
 	if err != nil {
 		return wire.RunAck{}, err
 	}
+	// 豁免默认请求预算:对端那边这一条打到的是同一个 runtime.run(解析后端、准备
+	// 工作区、拉起 CLI)。截断它 = 本端判派活失败,而对端会话已经建好并开跑。
+	ctx = protorpc.WithoutCallTimeout(ctx)
 	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 	if err != nil {
 		var ack wire.RunAck

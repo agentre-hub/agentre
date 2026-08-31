@@ -195,3 +195,34 @@ func newOutboundOverProtoPipe(t *testing.T, registry *protorpc.Registry) (*Outbo
 	go serverConn.Serve(ctx)
 	return NewOutbound(&outboundProtoClient{conn: clientConn}, "sha256:peer"), ctx
 }
+
+// RunFresh 打到的是对端桌面上同一个 runtime.run:解析后端、准备工作区、拉起 CLI,
+// 几分钟是正常的。它必须豁免连接的默认请求预算 —— 被截断的话本端判派活失败,而对端
+// 那条会话已经建好并开跑了。
+func TestOutboundRunFresh_GivenARunSlowerThanTheCallBudget_WhenDispatched_ThenItIsNotTruncated(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
+		RunSession: func(ctx context.Context, _ wire.RunParams, _ chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
+			select {
+			case <-time.After(200 * time.Millisecond):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return &chat_svc.SendResponse{SessionID: 42}, nil
+		},
+	})
+	clientTransport, serverTransport := peerProtoPipePair()
+	clientConn := protorpc.NewConn(clientTransport, protorpc.NewRegistry(),
+		protorpc.WithCallTimeout(50*time.Millisecond))
+	serverConn := protorpc.NewConn(serverTransport, registry)
+	serverConn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go clientConn.Serve(ctx)
+	go serverConn.Serve(ctx)
+	ob := NewOutbound(&outboundProtoClient{conn: clientConn}, "sha256:peer")
+
+	ack, err := ob.RunFresh(context.Background(), wire.RunParams{SessionID: 99, UserText: "go"})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(42), ack.SessionID)
+}

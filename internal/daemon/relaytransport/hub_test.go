@@ -639,3 +639,34 @@ func TestHubLink_GivenAbnormalClosure_ThenStillCompoundsBackoff(t *testing.T) {
 	require.Equal(t, time.Second, <-retryDelays)
 	assert.Equal(t, 2*time.Second, <-retryDelays, "真的断连必须照常叠加退避")
 }
+
+type deadlineWriterStub struct {
+	deadlines []time.Time
+	writes    int
+	err       error
+}
+
+func (s *deadlineWriterStub) SetWriteDeadline(t time.Time) error {
+	s.deadlines = append(s.deadlines, t)
+	return nil
+}
+
+func (s *deadlineWriterStub) WriteMessage(int, []byte) error {
+	s.writes++
+	return s.err
+}
+
+// 中继链路上跑着这台机器全部会话的虚拟通道。对端(中继服务)不再读时,没有期限的
+// WriteMessage 会永久阻塞,而它持着 writeMu —— 连心跳 ping 都发不出去,这条链路上
+// 所有会话一起卡死且谁也发现不了。Given 一帧待发的中继帧,When 写出去,Then 这次写
+// 必须带期限。
+func TestHubLink_GivenAnOutboundRelayFrame_WhenWritten_ThenTheWriteIsBounded(t *testing.T) {
+	link := NewHubLink(HubLinkOptions{HeartbeatInterval: 15 * time.Second})
+	stub := &deadlineWriterStub{}
+
+	require.NoError(t, link.writeMessage(stub, websocket.BinaryMessage, []byte{1}))
+
+	require.Len(t, stub.deadlines, 1)
+	require.WithinDuration(t, time.Now().Add(30*time.Second), stub.deadlines[0], 2*time.Second)
+	require.Equal(t, 1, stub.writes)
+}

@@ -273,3 +273,63 @@ func TestGivenRunWhenStdlibLogIsUsedThenItAlsoLandsInTheLogFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "daemon rpc handler panic: smoke")
 }
+
+// ── 已认领的 daemon 不许被 run 悄悄指到另一套 server ─────────────────────────
+//
+// 凭据、验签公钥、吊销表全都是**上一套 server 签发的**：指到另一套之后，中继登记
+// 与刷新一律被拒，而 credentialRefresher 拿到 invalid_grant 只是停掉中继续期并写
+// 一行日志，daemon 自己仍然认为「我已认领」，LAN 照常。用户看到的只有「这台机器
+// 就是不上线」，线索全在日志里。
+//
+// login 那条路早有同一道闸门（已认领必须先 unclaim），run 这条一直没有——而
+// AGENTRED_SERVER_URL 留在 service 单元里正是它最容易被踩到的方式。
+func TestGivenClaimedDaemonWhenRunPointsAtAnotherServerThenItRefusesWithoutRepointingState(t *testing.T) {
+	clearRunEnvironment(t)
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.ClaimWithKeySet("account-a", "kid-1", map[string]string{"kid-1": "pem"}, 3600,
+		state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
+	st.Mutate(func(s *state.State) { s.HubServerURL = "https://a.example" })
+	require.NoError(t, st.Save())
+
+	got, err := executeRunForOptions(t, dir, "--server", "https://b.example")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unclaim", "错误要指出解法,而不是只说不行")
+	assert.Equal(t, daemon.Options{}, got, "daemon 一步都不该起")
+
+	reloaded, err := state.Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "https://a.example", reloaded.HubServerURL,
+		"被拒的这次不许改掉认领时记下的 server 地址")
+}
+
+// 同一套 server 照常启动：末尾斜杠这类写法差异不是「换 server」。
+func TestGivenClaimedDaemonWhenRunKeepsTheSameServerThenItStarts(t *testing.T) {
+	clearRunEnvironment(t)
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.ClaimWithKeySet("account-a", "kid-1", map[string]string{"kid-1": "pem"}, 3600,
+		state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
+	st.Mutate(func(s *state.State) { s.HubServerURL = "https://a.example" })
+	require.NoError(t, st.Save())
+
+	got, err := executeRunForOptions(t, dir, "--server", "https://a.example/")
+	require.NoError(t, err)
+	assert.Equal(t, "https://a.example", got.HubServerURL)
+}
+
+// 没认领的 daemon 随便指：它手上没有任何属于某个账号的东西，指到哪都只是配置。
+func TestGivenUnclaimedDaemonWhenRunPointsAtAnotherServerThenItStarts(t *testing.T) {
+	clearRunEnvironment(t)
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) { s.HubServerURL = "https://a.example" })
+	require.NoError(t, st.Save())
+
+	got, err := executeRunForOptions(t, dir, "--server", "https://b.example")
+	require.NoError(t, err)
+	assert.Equal(t, "https://b.example", got.HubServerURL)
+}

@@ -32,6 +32,10 @@ type Device struct {
 // server_svc 内部用的语义错误。Wails 绑定层会按错误把它们映射到 i18n.NewError。
 var (
 	ErrAlreadyInProgress = errors.New("server: login already in progress")
+	// ErrAlreadyLoggedIn 表示本机已经登录着，必须先 Logout 才能再登（哪怕是同一套
+	// server）。它守的是「一台桌面端同时只属于一个账号」这条不变量：登录会就地
+	// 换掉 client 的地址与凭据，在已登录状态下走一遍等于把手上那份登录弄成半吊子。
+	ErrAlreadyLoggedIn   = errors.New("server: already logged in")
 	ErrNotLoggedIn       = errors.New("server: not logged in")
 	ErrServerUnreachable = errors.New("server: unreachable")
 	ErrAccessDenied      = errors.New("server: access denied")

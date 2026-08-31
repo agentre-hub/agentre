@@ -31,7 +31,7 @@ func originDeviceOf(originFingerprint string) string {
 // Status 同步区要展示的状态。未登录时 Enabled 为 false —— 界面据此让整个同步项
 // 不存在（R12）。
 func (s *service) Status(ctx context.Context) (*Status, error) {
-	accountID, _, _, ok := s.account(ctx)
+	accountID, _, _, _, ok := s.account(ctx)
 	if !ok {
 		return &Status{}, nil
 	}
@@ -72,7 +72,7 @@ func (s *service) Status(ctx context.Context) (*Status, error) {
 // ListLostChanges 「没能同步的改动」列表（R5）：三种原因共用一份，只列当前账号的
 // ——上一个账号的记录留在本地，但不在新账号下展示（R13a）。
 func (s *service) ListLostChanges(ctx context.Context) ([]*LostChangeView, error) {
-	accountID, _, _, ok := s.account(ctx)
+	accountID, _, _, _, ok := s.account(ctx)
 	if !ok {
 		return []*LostChangeView{}, nil
 	}
@@ -102,7 +102,7 @@ func (s *service) ListLostChanges(ctx context.Context) ([]*LostChangeView, error
 // server 按基版本判定拒绝。两种情况都返回 TargetDeleted，界面据此说明「恢复不会
 // 让它回来」并给出「按这份内容新建」。
 func (s *service) RestoreLostChange(ctx context.Context, id int64) (*RestoreOutcome, error) {
-	accountID, _, _, ok := s.account(ctx)
+	accountID, _, _, _, ok := s.account(ctx)
 	if !ok {
 		return nil, ErrNotLoggedIn
 	}
@@ -157,7 +157,7 @@ func (s *service) RestoreLostChange(ctx context.Context, id int64) (*RestoreOutc
 // RecreateFromLostChange 按这份内容新建一个对象（R5a）：分配新的同步标识，作为一个
 // 新对象正常上行——它不是复活，原来那个仍然是墓碑（R6 不被破坏）。
 func (s *service) RecreateFromLostChange(ctx context.Context, id int64) error {
-	accountID, _, _, ok := s.account(ctx)
+	accountID, _, _, _, ok := s.account(ctx)
 	if !ok {
 		return ErrNotLoggedIn
 	}
@@ -182,7 +182,7 @@ func (s *service) RecreateFromLostChange(ctx context.Context, id int64) error {
 
 // DiscardLostChange 丢掉一条记录（用户看过了、不想要了）。
 func (s *service) DiscardLostChange(ctx context.Context, id int64) error {
-	accountID, _, _, ok := s.account(ctx)
+	accountID, _, _, _, ok := s.account(ctx)
 	if !ok {
 		return ErrNotLoggedIn
 	}

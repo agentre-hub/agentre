@@ -293,6 +293,11 @@ func (r *Runtime) callRun(ctx context.Context, params wire.RunParams) (wire.RunA
 	if err != nil {
 		return wire.RunAck{}, err
 	}
+	// 豁免默认请求预算:daemon 侧的 runtime.run 是同步的,它要解析后端、准备远端
+	// 工作区(可能是一次 clone)再把 CLI 拉起来。被预算截断的后果不是「慢了一点」:
+	// 桌面判这一轮失败,而 daemon 那边这一轮已经开跑,继续记日志、继续烧 token。
+	// 断连仍然由传输层收口(见 protorpc.WithoutCallTimeout)。
+	ctx = protorpc.WithoutCallTimeout(ctx)
 	response, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request,
 		func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 	if err != nil {

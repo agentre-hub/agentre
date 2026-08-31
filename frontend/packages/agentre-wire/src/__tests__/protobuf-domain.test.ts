@@ -6,7 +6,10 @@ import {
   SessionListResponseSchema,
   SessionSummarySchema,
 } from "../gen/agentre/wire/wire_pb";
-import { runAckFromProtobuf, sessionListFromProtobuf } from "../protobuf-domain";
+import {
+  runAckFromProtobuf,
+  sessionListFromProtobuf,
+} from "../protobuf-domain";
 
 describe("protobuf response to domain wire", () => {
   it("given a real session.list protobuf shape, then bigint fields become domain numbers", () => {

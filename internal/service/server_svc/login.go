@@ -91,6 +91,26 @@ func (s *service) StartLogin(ctx context.Context, serverURL string) (*StartLogin
 	logger.Ctx(ctx).Info("server_svc.StartLogin: device-flow authorize starting",
 		zap.String("serverURL", serverURL))
 
+	// 状态先读、闸门先过，**再**动 client：下面那行会就地把 client 换成新地址并清空
+	// access token，而此刻用户连批准都还没做。已登录时走完这一段的收场是一次静默
+	// 登出——手上是上一套 server 的 refresh_token，client 却指着新的，下一次 401
+	// 触发的刷新会被判成 invalid_grant（凭据被明确拒绝），withAuth 据此清掉本地登录。
+	//
+	// 界面现在也挡着它（登录入口只在登出时出现），但一条不变量不能只由界面守着；
+	// agentred 那边同源的闸门（已认领必须先 unclaim）一直在后端。
+	row, err := server_state_repo.ServerState().Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		row = &server_state_entity.ServerState{ID: 1}
+	}
+	if row.IsLoggedIn() {
+		logger.Ctx(ctx).Warn("server_svc.StartLogin: refused, this desktop is already signed in",
+			zap.String("currentServerURL", row.ServerURL), zap.String("requestedServerURL", serverURL))
+		return nil, ErrAlreadyLoggedIn
+	}
+
 	// rebuild client at the requested hub URL (the bootstrap-time client may be empty)
 	s.setClient(NewHTTPClient(serverURL, ""))
 
@@ -98,14 +118,6 @@ func (s *service) StartLogin(ctx context.Context, serverURL string) (*StartLogin
 		logger.Ctx(ctx).Warn("server_svc.StartLogin: hub Healthcheck failed",
 			zap.String("serverURL", serverURL), zap.Error(err))
 		return nil, err
-	}
-
-	row, err := server_state_repo.ServerState().Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if row == nil {
-		row = &server_state_entity.ServerState{ID: 1}
 	}
 	// R5 决策 8:桌面端指纹一律复用 LAN 配对 keychain 指纹,不另生成随机值。
 	// server_state 里的指纹必须与 keychain 一致(硬不变量),因此旧安装遗留的

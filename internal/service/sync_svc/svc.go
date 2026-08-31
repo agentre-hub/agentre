@@ -24,6 +24,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
 )
 
 // SyncSvc 桌面端同步引擎。
@@ -55,6 +56,9 @@ type SyncSvc interface {
 	AcknowledgeBoardJoinNotice(ctx context.Context) error
 	// SetEmitter 注入「下行落地了」的通知函数；不注入就是静默（单机构建 / 单元测试）。
 	SetEmitter(emit Emitter)
+	// DropAccountChannel 断开当前的账号级实时通道并立刻重连。登录身份变了就要调它
+	// ——通道在建连那一刻钉死了服务端地址与设备凭据（见 downlink.go）。
+	DropAccountChannel()
 	// ReportLocalPathsNow 立刻上报一次本机路径整份快照（规格 2026-08-21 决策 4）。
 	// 与 R16 的 30 秒轮询共用同一条路径与同一枚内容指纹——内容没变时不发请求——
 	// 区别只在触发时机：从 web 改完本机路径那一刻，界面就要能读到新值。
@@ -127,6 +131,10 @@ type service struct {
 	emit      Emitter
 	lastErr   string
 	stopCh    chan struct{}
+	// channelCancel 踢掉当前这一条账号级实时通道；channelRedialNow 让紧接着的那次
+	// 重连跳过重连窗口（DropAccountChannel）。
+	channelCancel    context.CancelFunc
+	channelRedialNow bool
 	// doneCh 在轮询循环（连同它带起来的实时通道）真的退出之后关闭。Stop 等它：
 	// 一个「已经返回、后台却还在写」的 Stop 是句空话，测试也就无从在停机之后
 	// 如实读状态。
@@ -152,7 +160,7 @@ func (s *service) NotifyRuntimeClaim(ctx context.Context, ch LocalChange) {
 	if !kindKnown(ch.Kind) || ch.Meta.SyncID == "" {
 		return
 	}
-	accountID, _, _, loggedIn := s.account(ctx)
+	accountID, _, _, _, loggedIn := s.account(ctx)
 	if loggedIn && !ch.Meta.EligibleForSync(accountID) {
 		return
 	}
@@ -214,22 +222,48 @@ func (s *service) getLastErr() string {
 	return s.lastErr
 }
 
-// account 取当前登录账号、本机设备 ID 与本机指纹；未登录返回 ok = false（R12）。
+// account 取当前登录账号、本机设备 ID、本机指纹与 server 地址；未登录返回
+// ok = false（R12）。
 //
 // 指纹是「最后修改来自哪台机器」落库与上行时记的那个值（规格
 // 2026-08-27-schema-overhaul 决策 14）：server 的 devices.id 是它自己的本地主键，
 // 本机离线创建的行没有它，而本工作区其余跨机引用一律用指纹。设备 ID 仍然取着，
 // 它是日志里认这台机器的那一维。
-func (s *service) account(ctx context.Context) (accountID, deviceID int64, fingerprint string, ok bool) {
+//
+// **accountID 不是 server 的 user_id**，而是本机为 (server 地址, 远端用户主键) 这
+// 一对分配的账号键（sync_account_repo）。server 的 user_id 是它自己库里的自增主键，
+// 两套自建部署的第一个用户都是 1；归属判定全落在这一个整数上，直接用它，换一套
+// server 之后本机就会把 B 的 1 号用户认成 A 的 1 号用户，上一个账号的行照常上行到
+// 新 server 里去（R13a 说的正是这些行不该参与同步）。
+//
+// server 地址一并返回：它与账号键一起构成 identity.go 那条「本机这套同步坐标属于
+// 谁」的判据，且必须与账号键来自同一次读，否则一次并发的登录/登出会让两者错配。
+//
+// 账号键取不到（DB 出错）时按未登录处置：这一轮什么都不做，下一轮再试——拿一个
+// 猜的键去动归属，比停一轮糟得多。
+func (s *service) account(ctx context.Context) (accountID, deviceID int64, fingerprint, serverURL string, ok bool) {
 	row, err := server_state_repo.ServerState().Get(ctx)
 	if err != nil {
 		logger.Ctx(ctx).Warn("sync_svc.account: read server state failed", zap.Error(err))
-		return 0, 0, "", false
+		return 0, 0, "", "", false
 	}
 	if row == nil || !row.IsLoggedIn() {
-		return 0, 0, "", false
+		return 0, 0, "", "", false
 	}
-	return row.ServerUserID, row.DeviceID, row.DeviceFingerprint, true
+	accounts := sync_account_repo.SyncAccount()
+	if accounts == nil {
+		// 仓储没装配 = 整个应用没 bootstrap（单机构建 / 只关心本地写入的单测）。
+		// 与 Notify 未装配时是空操作同一条口径：这一轮什么都不做。
+		return 0, 0, "", "", false
+	}
+	url := normalizeServerURL(row.ServerURL)
+	key, err := accounts.EnsureKey(ctx, url, row.ServerUserID)
+	if err != nil || key == 0 {
+		logger.Ctx(ctx).Warn("sync_svc.account: resolve local account key failed",
+			zap.String("serverURL", url), zap.Error(err))
+		return 0, 0, "", "", false
+	}
+	return key, row.DeviceID, row.DeviceFingerprint, url, true
 }
 
 // Start 起 30 秒周期的轮询（R3），同一个节奏也驱动本机路径的整份快照上报（R16）。
@@ -362,9 +396,16 @@ func (s *service) SyncOnce(ctx context.Context) error {
 	s.syncing.Lock()
 	defer s.syncing.Unlock()
 
-	accountID, deviceID, fingerprint, ok := s.account(ctx)
+	accountID, deviceID, fingerprint, serverURL, ok := s.account(ctx)
 	if !ok || s.getTransport() == nil {
 		return nil
+	}
+	// 先认身份再干活：本机存着的游标与版本号是**某一套 server 的版本序列**里的
+	// 坐标，换了 server（或换了账号）就必须先把它们摘掉，否则下面每一步都在拿
+	// 上一段历史的坐标跟新 server 对话（identity.go）。
+	if err := s.ensureServerIdentity(ctx, serverIdentity{ServerURL: serverURL, AccountID: accountID}); err != nil {
+		s.setLastErr(err)
+		return err
 	}
 	if err := s.claimAnonymousQueue(ctx, accountID); err != nil {
 		s.setLastErr(err)

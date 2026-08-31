@@ -507,8 +507,13 @@ func (s *service) watchAccountChannel(ctx context.Context) {
 		return
 	}
 	for ctx.Err() == nil {
-		signals, err := dialer.DialAccountChannel(ctx)
+		// 每一次拨号挂在自己的 ctx 上，DropAccountChannel 据此把**这一条**连接踢掉：
+		// 连接在建起来的那一刻就把服务端地址与设备凭据钉死了，登录身份一变它就该走。
+		dialCtx, cancel := context.WithCancel(ctx)
+		s.setChannelCancel(cancel)
+		signals, err := dialer.DialAccountChannel(dialCtx)
 		if err != nil {
+			cancel()
 			// 连不上不是同步失败：不进 lastErr、不影响轮询的退避，界面上什么都不该变。
 			logger.Ctx(ctx).Debug("sync_svc.watchAccountChannel: unavailable, polling only",
 				zap.Error(err))
@@ -518,11 +523,47 @@ func (s *service) watchAccountChannel(ctx context.Context) {
 			continue
 		}
 		s.syncOnceForSignal(ctx, "connected")
-		s.consumeAccountSignals(ctx, signals)
+		s.consumeAccountSignals(dialCtx, signals)
+		cancel()
 		if !s.waitBeforeRedial(ctx) {
 			return
 		}
 	}
+}
+
+// setChannelCancel 记下当前这一条连接的取消钩子，替换掉上一条的。
+func (s *service) setChannelCancel(cancel context.CancelFunc) {
+	s.mu.Lock()
+	s.channelCancel = cancel
+	s.mu.Unlock()
+}
+
+// DropAccountChannel 断开当前的账号级实时通道并立刻重连。
+//
+// 登录状态一变就要调它（app 层在 logged_in / logged_out 上调，与中继登记同一处）：
+// 通道拨号时钉死的地址与凭据都跟着变了，而 gorilla 的读循环只认连接断开，不认
+// 「身份过期」——不主动踢，这条常连会一直挂在上一套 server 上,新 server 的通道
+// 永远拨不起来，实时下行静默退化成 30 秒轮询。
+//
+// 重连不等那 30 秒的重连窗口：这次断开不是故障，而是我们自己知道该换一条了。
+func (s *service) DropAccountChannel() {
+	s.mu.Lock()
+	cancel := s.channelCancel
+	s.channelCancel = nil
+	s.channelRedialNow = true
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// takeRedialNow 取走并清掉「立刻重连」的标记。
+func (s *service) takeRedialNow() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.channelRedialNow
+	s.channelRedialNow = false
+	return now
 }
 
 // consumeAccountSignals 消费一条已经建起来的信号流，直到它断开或收工。
@@ -556,7 +597,13 @@ func (s *service) syncOnceForSignal(ctx context.Context, cause string) {
 }
 
 // waitBeforeRedial 等到该重连了；返回 false 表示该收工。
+//
+// DropAccountChannel 要求的重连不等：那次断开是我们自己发起的，等一个为「故障」
+// 设计的窗口只会让新身份白白晚 30 秒才连上。
 func (s *service) waitBeforeRedial(ctx context.Context) bool {
+	if s.takeRedialNow() {
+		return ctx.Err() == nil
+	}
 	if wait := s.channelRetryWait; wait != nil {
 		return wait(ctx)
 	}

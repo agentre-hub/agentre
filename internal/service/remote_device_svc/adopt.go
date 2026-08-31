@@ -181,3 +181,42 @@ func adoptedName(d AccountDevice, fingerprint string) string {
 	}
 	return "agentred-" + trimmed
 }
+
+// DiscardAdoptedDevices 把收编来的行（IsRelayOnly）全部去掉，返回去掉的台数。
+// 登出时调用它（app 层在 logged_out 上调，与停掉中继登记、踢掉实时通道同一处）。
+//
+// 为什么登出必须清：收编行的全部依据就是「账号说有这台机器」——本机从没 LAN 配对
+// 过它，手上既没有它的地址也没有它的配对凭据（add.go 只给 LAN 配对写 keychain）。
+// 账号一断，依据就没了，而那些行还挂在设备面板和两个「运行设备」选择器上；换到
+// 另一套 server 之后，那些指纹在新账号里根本不存在，选中只会拿到「先认领这台机器」。
+//
+// 硬删（Delete 再 Purge）而不是软删：软删行是「用户不要这台机器」的墓碑，
+// tombstonedFingerprints 会拿它一直挡住后续收编。登出不是拒绝——重新登录同一个
+// 账号时这些机器必须原样回来，所以这里不能留下任何痕迹。
+//
+// LAN 配对的行一行不动：它是本机自己握手得来的，与账号无关。
+func (s *service) DiscardAdoptedDevices(ctx context.Context) (int, error) {
+	rows, err := s.repo.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	discarded := 0
+	for _, row := range rows {
+		if row == nil || !row.IsRelayOnly() {
+			continue
+		}
+		if err := s.repo.Delete(ctx, row.ID); err != nil {
+			return discarded, err
+		}
+		if err := s.repo.Purge(ctx, row.ID); err != nil {
+			return discarded, err
+		}
+		if s.watcher != nil {
+			s.watcher.Stop(row.ID)
+		}
+		discarded++
+		logger.Ctx(ctx).Info("remote_device_svc.DiscardAdoptedDevices: dropped an adopted account agentred",
+			zap.String("fingerprint", row.DaemonFingerprint), zap.Int64("deviceID", row.ID))
+	}
+	return discarded, nil
+}

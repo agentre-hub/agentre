@@ -60,6 +60,9 @@ type RemoteDeviceSvc interface {
 	Add(ctx context.Context, req AddRequest) (*DeviceView, error)
 	// AdoptAccountDevices 收编账号里已有、本机没有本地记录的 agentred（见 adopt.go）。
 	AdoptAccountDevices(ctx context.Context, devices []AccountDevice) (int, error)
+	// DiscardAdoptedDevices 去掉全部收编来的行，返回台数。登出时调用：那些行的依据
+	// 就是「账号说有这台机器」，账号断了依据就没了（见 adopt.go）。
+	DiscardAdoptedDevices(ctx context.Context) (int, error)
 	Remove(ctx context.Context, id int64) error
 	UpdateTLS(ctx context.Context, id int64, mode, pem string) (*DeviceView, error)
 	Refresh(ctx context.Context, id int64) (*DeviceView, error)

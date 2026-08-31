@@ -440,9 +440,27 @@ func (l *HubLink) heartbeat(ctx context.Context, conn *websocket.Conn, stop <-ch
 	}
 }
 
-func (l *HubLink) writeMessage(conn *websocket.Conn, messageType int, payload []byte) error {
+// relayWriter 是一次中继写要用到的全部能力。收窄成接口而不是 *websocket.Conn,
+// 是为了让「这次写有没有期限」可被断言 —— 用真连接去验只能靠把内核发送缓冲塞满。
+type relayWriter interface {
+	SetWriteDeadline(time.Time) error
+	WriteMessage(int, []byte) error
+}
+
+// writeTimeout 与 protorpc 的写期限同一个数(2 倍心跳间隔,默认 30s)。同一条物理
+// 链路上两套判活节奏只会让排障时对不上账。
+func (l *HubLink) writeTimeout() time.Duration { return 2 * l.opts.HeartbeatInterval }
+
+func (l *HubLink) writeMessage(conn relayWriter, messageType int, payload []byte) error {
 	l.writeMu.Lock()
 	defer l.writeMu.Unlock()
+	// 没有期限的写会永久堵在写锁里,连心跳 ping 都发不出去(writeControl 用的是同一
+	// 把锁),这条链路上所有虚拟通道一起卡死且谁也发现不了。
+	if timeout := l.writeTimeout(); timeout > 0 {
+		if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+			return err
+		}
+	}
 	return conn.WriteMessage(messageType, payload)
 }
 
