@@ -8,8 +8,8 @@ import (
 )
 
 // ErrorWriter handler 通过这个把 error text patch 到 assistantMsg **并落库**。
-// 落库收在接口里而不是走 TurnContext.MessageUpdater,理由同 UsageWriter:整行 Save
-// 会把 MB 级的 blocks_json 一起重写,而这里只存一个字符串。
+// 落库收在接口里而不是把整条 assistantMsg 交回去整行 Save,理由同 UsageWriter:
+// 整行 Save 会把 MB 级的 blocks_json 一起重写,而这里只存一个字符串。
 type ErrorWriter interface {
 	WriteErrorText(ctx context.Context, msg any, errText string) error
 }

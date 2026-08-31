@@ -67,8 +67,8 @@ type TurnContext struct {
 	// 在 input["plan"] 为空时回退到这个字段。per-turn 单 goroutine 写入,无锁。
 	LastPlanWriteContent string
 
-	// Repo 提供持久化能力;avoid import cycle 用 any。具体 method set 由 chat_svc 注入。
-	MessageUpdater MessageUpdater
+	// SessionUpdater 提供持久化能力;avoid import cycle 用 any。具体 method set 由
+	// chat_svc 注入。
 	SessionUpdater SessionUpdater
 
 	// SessionTransitioner 切换 session waiting / running 状态。UserAsk /
@@ -113,11 +113,6 @@ func (tc *TurnContext) ResolveSubagentToolCall(toolCallID string) string {
 		return to
 	}
 	return toolCallID
-}
-
-// MessageUpdater handler 在 UsageUpdate / Error 等场景下写 assistantMsg 走这条。
-type MessageUpdater interface {
-	Update(ctx context.Context, msg any) error
 }
 
 // SessionUpdater handler 在 PermissionModeChanged / ContextWindowUpdated 等场景下

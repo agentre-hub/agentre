@@ -25,7 +25,6 @@ func TestNewTurnContext_PopulatesAllAdapters(t *testing.T) {
 		So(tc.Session, ShouldEqual, sess)
 		So(tc.Stream, ShouldEqual, "chat:event:1:2")
 		So(tc.BackendType, ShouldEqual, "claudecode")
-		So(tc.MessageUpdater, ShouldNotBeNil)
 		So(tc.SessionUpdater, ShouldNotBeNil)
 		So(tc.SessionTransitioner, ShouldNotBeNil)
 		// 少了它,后台 subagent 在别人的轮里完成时的终态就没有落点(sess-2825)。
