@@ -22,5 +22,9 @@ func RunMigrations(db *gorm.DB) error {
 
 // migrationList 按时间升序列出全部迁移构造函数。
 func migrationList() []*gormigrate.Migration {
-	return []*gormigrate.Migration{migration202608080011()}
+	return []*gormigrate.Migration{
+		migration202608080011(),
+		migration202609010001(),
+		migration202609010002(),
+	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"gorm.io/gorm"
 
 	"github.com/cago-frame/cago/configs"
 
@@ -81,6 +82,78 @@ func TestDaemon_OpensOwnDatabaseAndRunsMigrations(t *testing.T) {
 	}
 }
 
+// primaryKeyColumns 按 PRAGMA table_info 报的 pk 序号取出这张表的主键列(升序)。
+//
+// 它问的是**真实库上的约束**而不是 GORM 结构体上的 tag:换主键那一批改动里,只有真库
+// 能告诉你 ON CONFLICT 的目标列还落不落在一个 PK / UNIQUE 上 —— 仓储的 sqlmock 单测
+// 按 SQL 文本匹配,对面根本没有 schema,这类回归它天生看不见(见 session_repo.Upsert)。
+func primaryKeyColumns(t *testing.T, gdb *gorm.DB, table string) []string {
+	t.Helper()
+	var rows []struct {
+		Name string `gorm:"column:name"`
+		PK   int    `gorm:"column:pk"`
+	}
+	require.NoError(t, gdb.Raw("SELECT name, pk FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk", table).
+		Scan(&rows).Error)
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Name)
+	}
+	return out
+}
+
+// TestDaemon_MigrationsKeyBothTablesByConversationID 钉死身份键的收缩(规格「会话身份 /
+// 身份键收缩为一列」):conversation_id 是全局唯一的对话标识,两张表都只按它认人,
+// peer_fingerprint 退出主键、留作来源标注与授权的普通列,对端本地那一格 peer_session_id
+// 随之消失 —— 线上早已不再传它。
+func TestDaemon_MigrationsKeyBothTablesByConversationID(t *testing.T) {
+	d, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	assert.Equal(t, []string{"conversation_id"}, primaryKeyColumns(t, d.db, "daemon_sessions"))
+	assert.Equal(t, []string{"conversation_id", "seq"},
+		primaryKeyColumns(t, d.db, "daemon_notification_journal"))
+	for _, table := range []string{"daemon_sessions", "daemon_notification_journal"} {
+		assert.True(t, d.db.Migrator().HasColumn(table, "peer_fingerprint"),
+			"%s.peer_fingerprint 必须保留为普通列(来源标注与授权)", table)
+		assert.False(t, d.db.Migrator().HasColumn(table, "peer_session_id"),
+			"%s.peer_session_id 必须随身份键收缩一并消失", table)
+	}
+}
+
+// TestDaemon_SessionUpsertStaysIdempotentOnTheNewKey 在**真库**上钉住换主键那一批
+// 改动里最容易漏的一格:Upsert 的 ON CONFLICT 目标列必须跟着主键一起换。
+//
+// SQLite 要求冲突目标逐字落在一个 PK / UNIQUE 约束上,否则每一次起手都在运行期报
+// 「ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint」——
+// 会话从此一条也建不成。session_repo 的单测是 sqlmock + MySQL 方言,GORM 在那边把
+// OnConflict 渲染成不带列名的 ON DUPLICATE KEY UPDATE,对面又没有 schema,所以这类
+// 回归**只有真库看得见**。
+func TestDaemon_SessionUpsertStaysIdempotentOnTheNewKey(t *testing.T) {
+	d, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	conversationID, err := conversationid.New()
+	require.NoError(t, err)
+	ctx := dbpkg.WithContextDB(context.Background(), d.db)
+
+	require.NoError(t, d.sessionStore.Start(ctx, handlers.SessionRecord{
+		PeerFingerprint: "peerA", PeerSessionID: conversationID,
+		BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning, Title: "第一轮",
+	}))
+	require.NoError(t, d.sessionStore.Start(ctx, handlers.SessionRecord{
+		PeerFingerprint: "peerA", PeerSessionID: conversationID,
+		BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning, Title: "第二轮",
+	}), "同一条对话的第二轮起手必须更新同一行,而不是撞主键或落在一个不存在的约束上")
+
+	rows, err := d.sessionStore.List(ctx, "peerA", "")
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "同一条对话只能有一行")
+	assert.Equal(t, "第二轮", rows[0].Title, "冲突分支必须真的更新了那一行")
+}
+
 // TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter 钉死开库方式的
 // 可观察后果:通知日志的写是**每个流式事件一条**同步事务,而 session.pull 的补齐读是一段
 // 持续着的读事务。回滚日志模式下读事务持 SHARED 锁,写事务提交要 EXCLUSIVE —— 写者只能
@@ -94,7 +167,7 @@ func TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter(t *tes
 	ctx := dbpkg.WithContextDB(context.Background(), d.db)
 	repo := notification_repo.NewNotification()
 	require.NoError(t, repo.Append(ctx, &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "s1", Method: "runtime.event", Payload: "{}",
+		PeerFingerprint: "peerA", ConversationID: "s1", Method: "runtime.event", Payload: "{}",
 	}))
 
 	// 补齐侧:一次翻页拉取是一个开着的读事务(整段期间都持有读锁)。
@@ -109,7 +182,7 @@ func TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter(t *tes
 	done := make(chan error, 1)
 	go func() {
 		done <- repo.Append(ctx, &notification_repo.NotificationLog{
-			PeerFingerprint: "peerA", PeerSessionID: "s1", Method: "runtime.event", Payload: `{"delta":"x"}`,
+			PeerFingerprint: "peerA", ConversationID: "s1", Method: "runtime.event", Payload: `{"delta":"x"}`,
 		})
 	}()
 	select {
@@ -188,7 +261,7 @@ func TestDaemon_NotificationJournal_ConcurrentAppendsAreLosslessAndGapFree(t *te
 		go func() {
 			defer wg.Done()
 			errs[i] = repo.Append(ctx, &notification_repo.NotificationLog{
-				PeerFingerprint: "peerA", PeerSessionID: "s1",
+				PeerFingerprint: "peerA", ConversationID: "s1",
 				Method:  "runtime.event",
 				Payload: fmt.Sprintf(`{"n":%d}`, i),
 			})
@@ -210,12 +283,15 @@ func TestDaemon_NotificationJournal_ConcurrentAppendsAreLosslessAndGapFree(t *te
 		seen[row.Payload] = true
 	}
 
-	// R16:另一个对端持有同名会话 id 时是另一条会话,seq 空间从 1 重新开始。
+	// 身份键收缩之后:conversation_id 全局唯一,同一条对话即便换一个对端来驱动也还是
+	// 同一条 —— seq 空间是**整条对话**一份,续着往下发,而不是按写者各起一份。按写者
+	// 各起一份的实现会在这里撞上新主键 (conversation_id, seq) 直接报错。
 	other := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerB", PeerSessionID: "s1", Method: "runtime.event", Payload: "{}",
+		PeerFingerprint: "peerB", ConversationID: "s1", Method: "runtime.event", Payload: "{}",
 	}
-	require.NoError(t, repo.Append(ctx, other))
-	assert.Equal(t, int64(1), other.Seq, "another peer's same-named session must own a separate seq space")
+	require.NoError(t, repo.Append(ctx, other),
+		"同一条对话换一个对端驱动时,seq 必须续着分配,不能撞主键")
+	assert.Equal(t, int64(writers+1), other.Seq, "seq 空间按对话一份,不按写者一份")
 }
 
 // TestDaemon_NotificationJournal_AppendNeverReusesASeq 在真库(SQLite,生产方言)上钉死
@@ -232,11 +308,11 @@ func TestDaemon_NotificationJournal_AppendNeverReusesASeq(t *testing.T) {
 	repo := notification_repo.NewNotification()
 
 	first := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "s1", Seq: 1, Method: "runtime.event", Payload: `{"first":true}`,
+		PeerFingerprint: "peerA", ConversationID: "s1", Seq: 1, Method: "runtime.event", Payload: `{"first":true}`,
 	}
 	require.NoError(t, repo.Append(ctx, first))
 	second := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "s1", Seq: 1, Method: "runtime.event", Payload: `{"second":true}`,
+		PeerFingerprint: "peerA", ConversationID: "s1", Seq: 1, Method: "runtime.event", Payload: `{"second":true}`,
 	}
 	require.NoError(t, repo.Append(ctx, second), "入参里的 seq 撞车不该让写入失败")
 	assert.Equal(t, int64(1), first.Seq)
@@ -265,7 +341,7 @@ func TestDaemon_DatabaseHandlesAreIsolatedPerInstance(t *testing.T) {
 
 	ctx1 := dbpkg.WithContextDB(context.Background(), d1.db)
 	require.NoError(t, notification_repo.NewNotification().Append(ctx1, &notification_repo.NotificationLog{
-		PeerFingerprint: "peer", PeerSessionID: "s1", Method: "m", Payload: "{}",
+		PeerFingerprint: "peer", ConversationID: "s1", Method: "m", Payload: "{}",
 	}))
 
 	ctx2 := dbpkg.WithContextDB(context.Background(), d2.db)
@@ -368,7 +444,7 @@ func TestDaemon_NewDoesNotLeakIntoGlobalDefaultDB(t *testing.T) {
 
 	ctx := dbpkg.WithContextDB(context.Background(), d.db)
 	require.NoError(t, notification_repo.NewNotification().Append(ctx, &notification_repo.NotificationLog{
-		PeerFingerprint: "leak-guard-peer", PeerSessionID: "leak-guard-session", Method: "m", Payload: "{}",
+		PeerFingerprint: "leak-guard-peer", ConversationID: "leak-guard-session", Method: "m", Payload: "{}",
 	}))
 
 	func() {
@@ -1227,7 +1303,7 @@ func TestDaemon_IPCStatus_ReportsDatabasePathAndSize(t *testing.T) {
 	payload := `{"delta":"` + strings.Repeat("x", 4096) + `"}`
 	for range 200 {
 		require.NoError(t, repo.Append(dbCtx, &notification_repo.NotificationLog{
-			PeerFingerprint: "peerA", PeerSessionID: "s1", Method: wire.NotifyEvent, Payload: payload,
+			PeerFingerprint: "peerA", ConversationID: "s1", Method: wire.NotifyEvent, Payload: payload,
 		}))
 	}
 
@@ -1270,7 +1346,9 @@ func TestDaemon_IPCStatus_CountsSessionsRunningRightNow(t *testing.T) {
 	dbCtx := dbpkg.WithContextDB(context.Background(), d.db)
 	seedSession(t, dbCtx, d.sessionStore, "peerA", "1", wire.SessionLifecycleRunning)
 	seedSession(t, dbCtx, d.sessionStore, "peerA", "2", wire.SessionLifecycleIdle)
-	seedSession(t, dbCtx, d.sessionStore, "peerB", "1", wire.SessionLifecycleRunning)
+	// 第三条属于另一个对端 —— 身份键收缩之后对话号全局唯一,「两个对端各持一个同号
+	// 会话」已经构造不出来了,它必须是另一个 conversation_id。
+	seedSession(t, dbCtx, d.sessionStore, "peerB", "3", wire.SessionLifecycleRunning)
 
 	assert.Equal(t, float64(2), activeSessions(),
 		"数的是此刻真的在跑的那些:空闲会话不算,别的对端在跑的算")
@@ -1282,7 +1360,7 @@ func seedJournal(t *testing.T, ctx context.Context, peer, sid string, n int, cre
 	repo := notification_repo.NewNotification()
 	for i := 1; i <= n; i++ {
 		row := &notification_repo.NotificationLog{
-			PeerFingerprint: peer, PeerSessionID: sid,
+			PeerFingerprint: peer, ConversationID: sid,
 			Method: wire.NotifyEvent, Payload: fmt.Sprintf(`{"seq":%d}`, i), Createtime: createdAt,
 		}
 		require.NoError(t, repo.Append(ctx, row))
@@ -1339,7 +1417,7 @@ func TestDaemon_RunNeverReclaimsTheJournal(t *testing.T) {
 		"高水位以下的每一行原样留着,不止行数不变")
 
 	next := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", PeerSessionID: "1", Method: wire.NotifyEvent, Payload: "{}",
+		PeerFingerprint: "peerA", ConversationID: "1", Method: wire.NotifyEvent, Payload: "{}",
 	}
 	require.NoError(t, notification_repo.NewNotification().Append(dbCtx, next))
 	assert.Equal(t, int64(6), next.Seq, "序列接着从高水位往上排,绝不会被重排回 1")

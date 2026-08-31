@@ -1537,8 +1537,8 @@ type notificationJournal struct{ db *gorm.DB }
 
 func (j notificationJournal) Append(ctx context.Context, peerFingerprint, peerSessionID string, payload []byte) (int64, error) {
 	row := &notification_repo.NotificationLog{
+		ConversationID:  peerSessionID,
 		PeerFingerprint: peerFingerprint,
-		PeerSessionID:   peerSessionID,
 		Payload:         string(payload),
 	}
 	if err := notification_repo.Notification().Append(dbpkg.WithContextDB(ctx, j.db), row); err != nil {
@@ -1608,10 +1608,13 @@ var (
 	_ handlers.SessionQueryPort     = daemonSessionStore{}
 )
 
+// Start 建行 / 幂等覆盖一条会话。handlers.SessionRecord.PeerSessionID 装的就是线上那个
+// conversation_id(线格式上早已只有它),库里那一列因此直接由它填;handlers 那一侧的字段
+// 名还没跟着改,是本轮之外的一笔命名欠账。
 func (s daemonSessionStore) Start(ctx context.Context, rec handlers.SessionRecord) error {
 	return session_repo.Session().Upsert(dbpkg.WithContextDB(ctx, s.db), &session_repo.DaemonSession{
+		ConversationID:    rec.PeerSessionID,
 		PeerFingerprint:   rec.PeerFingerprint,
-		PeerSessionID:     rec.PeerSessionID,
 		AgentID:           rec.AgentID,
 		Cwd:               rec.Cwd,
 		BackendType:       rec.BackendType,
@@ -1690,7 +1693,7 @@ func (s daemonSessionStore) SetModelTarget(
 func sessionRecordOf(row *session_repo.DaemonSession) handlers.SessionRecord {
 	return handlers.SessionRecord{
 		PeerFingerprint:   row.PeerFingerprint,
-		PeerSessionID:     row.PeerSessionID,
+		PeerSessionID:     row.ConversationID,
 		AgentID:           row.AgentID,
 		Cwd:               row.Cwd,
 		BackendType:       row.BackendType,
