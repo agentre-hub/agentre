@@ -165,6 +165,9 @@ type Runtime struct {
 	convMu    sync.Mutex
 	convBySid map[int64]string
 	sidByConv map[string]int64
+	// conversations 是「本地会话键 → 线上 conversation_id」的注入式翻译,
+	// 见 conversation.go。
+	conversations ConversationIDResolver
 
 	stopOnce sync.Once
 	stopped  chan struct{}

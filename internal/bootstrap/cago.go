@@ -105,7 +105,15 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// convertToWAL。放在 migrations 之前，让迁移本身也跑在 WAL 上。
 	convertToWAL(ctx, db.Default())
 
-	if err := migrations.RunMigrations(db.Default()); err != nil {
+	// keychain 后端必须在迁移之前确立:存量对话回填 conversation_id 的派生输入是
+	// keychain 里那个设备指纹(见 desktopDeviceFingerprint)。它本身不碰数据库、
+	// 也不依赖任何服务,提前到这里是纯粹的顺序调整;装配 Server / Remote Device
+	// 时仍然捕获的是同一个实例。
+	if err := initKeychain(ctx); err != nil {
+		return nil, fmt.Errorf("init keychain: %w", err)
+	}
+
+	if err := migrations.RunMigrations(db.Default(), desktopDeviceFingerprint); err != nil {
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
@@ -150,13 +158,6 @@ func Init(ctx context.Context) (*Runtime, error) {
 
 	// 启动时按持久化的开关恢复 Debug 日志级别（取代旧 AGENTRE_DEBUG 环境变量）。
 	applyDebugLoggingOnBoot(ctx)
-
-	// 在装配 Server / Remote Device 之前确立 keychain 后端:设置 AGENTRE_KEYCHAIN_DIR
-	// 时在这里建立 file keychain,失败直接终止,绝不回退生产 system keychain
-	// (见 keychain.go)。
-	if err := initKeychain(ctx); err != nil {
-		return nil, fmt.Errorf("init keychain: %w", err)
-	}
 
 	// Server 接入：注册 server_state_repo + server_svc 默认实现。
 	// server_svc 此时的 emit 为 nil；app.go.startup 在 wails ctx 就绪后调 SetEmitter 绑定事件源。

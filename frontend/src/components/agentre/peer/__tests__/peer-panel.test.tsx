@@ -32,6 +32,10 @@ import {
 } from "../../../../stores/peer-session-store";
 import { createPeerTranscript, reducePeerEvent } from "../peer-transcript";
 
+// conv 是这些用例里那条对话的身份（uuid 字符串）——Peer Tab 按它寻址。
+const conv = (n: number) =>
+  `0198f4c1-a000-7c0d-8b21-${String(n).padStart(12, "0")}`;
+
 const mockPerm = PeerSubmitToolPermission as unknown as ReturnType<
   typeof vi.fn
 >;
@@ -57,7 +61,7 @@ describe("PeerPanel", () => {
     const { unmount } = render(
       <PeerPanel
         fingerprint="sha256:peer-desktop"
-        sessionId={7}
+        conversationId={conv(7)}
         title="t"
         deviceName="MacBook Pro"
         active
@@ -68,23 +72,23 @@ describe("PeerPanel", () => {
       expect(PeerAttach).toHaveBeenCalledWith(
         expect.objectContaining({
           fingerprint: "sha256:peer-desktop",
-          sessionId: 7,
+          conversationId: conv(7),
         }),
       );
     });
     unmount();
-    expect(mockDetach).toHaveBeenCalledWith("sha256:peer-desktop", 7);
+    expect(mockDetach).toHaveBeenCalledWith("sha256:peer-desktop", conv(7));
   });
 
   it("renders a pending tool-permission decision and shows the already-handled notice on submit", async () => {
     mockPerm.mockResolvedValue({ alreadyHandled: true });
-    const key = peerKeyOf("sha256:peer-desktop", 7);
+    const key = peerKeyOf("sha256:peer-desktop", conv(7));
     usePeerSessionsStore.setState({
       sessions: {
         [key]: {
           key,
           fingerprint: "sha256:peer-desktop",
-          sessionId: 7,
+          conversationId: conv(7),
           title: "t",
           deviceName: "MacBook Pro",
           status: "ready",
@@ -107,7 +111,7 @@ describe("PeerPanel", () => {
     render(
       <PeerPanel
         fingerprint="sha256:peer-desktop"
-        sessionId={7}
+        conversationId={conv(7)}
         title="t"
         deviceName="MacBook Pro"
         active
@@ -120,7 +124,7 @@ describe("PeerPanel", () => {
     expect(mockPerm).toHaveBeenCalledWith(
       expect.objectContaining({
         fingerprint: "sha256:peer-desktop",
-        sessionId: 7,
+        conversationId: conv(7),
         requestId: "p-1",
         allow: true,
       }),
@@ -133,13 +137,13 @@ describe("PeerPanel", () => {
   });
 
   it("renders a resolved permission as handled instead of buttons", async () => {
-    const key = peerKeyOf("sha256:peer-desktop", 7);
+    const key = peerKeyOf("sha256:peer-desktop", conv(7));
     usePeerSessionsStore.setState({
       sessions: {
         [key]: {
           key,
           fingerprint: "sha256:peer-desktop",
-          sessionId: 7,
+          conversationId: conv(7),
           title: "t",
           deviceName: "MacBook Pro",
           status: "ready",
@@ -164,7 +168,7 @@ describe("PeerPanel", () => {
     render(
       <PeerPanel
         fingerprint="sha256:peer-desktop"
-        sessionId={7}
+        conversationId={conv(7)}
         title="t"
         deviceName="MacBook Pro"
         active
@@ -181,17 +185,17 @@ describe("PeerPanel", () => {
   // `(debug) unimplemented block type: raw`,载荷不可见 —— 光看归约结果看不出这件事,
   // 所以这条断言落在渲染出来的文字上。
   it("renders the block kinds the peer tab previously downgraded to raw", async () => {
-    const key = peerKeyOf("sha256:peer-desktop", 7);
+    const key = peerKeyOf("sha256:peer-desktop", conv(7));
     let transcript = createPeerTranscript();
     transcript = reducePeerEvent(transcript, {
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       seq: 1,
       event: { kind: "compact_boundary", preTokens: 120000, trigger: "auto" },
     });
     transcript = reducePeerEvent(transcript, {
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       seq: 2,
       event: { kind: "kind_from_a_newer_peer", detail: "payload-kept" },
     } as never);
@@ -200,7 +204,7 @@ describe("PeerPanel", () => {
         [key]: {
           key,
           fingerprint: "sha256:peer-desktop",
-          sessionId: 7,
+          conversationId: conv(7),
           title: "t",
           deviceName: "MacBook Pro",
           status: "ready",
@@ -214,7 +218,7 @@ describe("PeerPanel", () => {
     render(
       <PeerPanel
         fingerprint="sha256:peer-desktop"
-        sessionId={7}
+        conversationId={conv(7)}
         title="t"
         deviceName="MacBook Pro"
         active

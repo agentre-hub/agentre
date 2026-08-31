@@ -134,7 +134,20 @@ func (s *service) deriveDisplayName(ctx context.Context, req AddRequest) (string
 }
 
 func (s *service) ensureDeviceFingerprint() (string, error) {
-	fp, err := s.keychain.Get(accountForDeviceFingerprint)
+	return EnsureDeviceFingerprint(s.keychain)
+}
+
+// EnsureDeviceFingerprint 读出(没有就铸一个并存下)本机唯一的设备指纹。
+//
+// 它是这个值在整个桌面端**唯一**的生成处 —— R5 决策 8:账号侧不得另生成指纹。
+// 导出出来是因为装配期有一个比本服务更早的消费者:存量对话回填 conversation_id 要
+// 拿它当派生输入(spec 2026-08-31 决策 2),而迁移跑在 InitRemoteDevice 之前。让那条
+// 路自己再写一份生成逻辑,两处一旦漂移,同一台机器就会有两个"唯一"指纹。
+func EnsureDeviceFingerprint(kc keychain.Keychain) (string, error) {
+	if kc == nil {
+		return "", errors.New("remote_device_svc: no keychain backend")
+	}
+	fp, err := kc.Get(accountForDeviceFingerprint)
 	if err == nil && fp != "" {
 		return fp, nil
 	}
@@ -148,7 +161,7 @@ func (s *service) ensureDeviceFingerprint() (string, error) {
 	sum := sha256.Sum256(raw)
 	// "sha256:" 前缀与 agentred spec §4.3 / state.json key 格式一致。
 	newFP := "sha256:" + hex.EncodeToString(sum[:])
-	if err := s.keychain.Set(accountForDeviceFingerprint, newFP); err != nil {
+	if err := kc.Set(accountForDeviceFingerprint, newFP); err != nil {
 		return "", err
 	}
 	return newFP, nil

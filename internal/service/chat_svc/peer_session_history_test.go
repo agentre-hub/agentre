@@ -41,7 +41,7 @@ func TestSynthesizePeerHistory_GivenPersistedBlocks_ThenForwardsUnrecognizedBloc
 		{SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: `[{"type":"thinking","data":{"text":"checking"}},{"type":"tool_use","data":{"id":"tool-1","name":"Read","input":{"path":"README.md"}}},{"type":"tool_result","data":{"tool_use_id":"tool-1","content":[{"type":"text","data":{"text":"ok"}}]}},{"type":"future_block","data":{"nested":{"keep":true}}}]`, ErrorText: "provider stopped"},
 	}
 
-	events, err := synthesizePeerHistory(41, messages)
+	events, err := synthesizePeerHistory(convID(41), messages)
 	require.NoError(t, err)
 
 	kinds := make([]agentruntime.EventKind, 0, len(events))
@@ -90,7 +90,7 @@ func TestSynthesizePeerHistory_GivenFinalControlAndSnapshotBlocks_ThenEmitsReduc
 			`]`,
 	}}
 
-	events, err := synthesizePeerHistory(41, messages)
+	events, err := synthesizePeerHistory(convID(41), messages)
 	require.NoError(t, err)
 	kinds := make([]agentruntime.EventKind, 0, len(events))
 	for _, event := range events {
@@ -492,7 +492,7 @@ func TestSynthesizePeerHistory_GivenTurnStats_ThenDoneCarriesThem(t *testing.T) 
 		},
 	}
 
-	events, err := synthesizePeerHistory(41, messages)
+	events, err := synthesizePeerHistory(convID(41), messages)
 	require.NoError(t, err)
 
 	var done agentruntime.Done
@@ -654,7 +654,7 @@ func TestPublishPeerEvent_GivenSubscriberFallsBehind_ThenQueueStaysBounded(t *te
 		deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "flood"})
 	}
 
-	publication := deps.svc.peerPublication(41)
+	publication := deps.svc.peerPublication(41, convID(41))
 	publication.mu.Lock()
 	queued := 0
 	for _, sub := range publication.subscribers {

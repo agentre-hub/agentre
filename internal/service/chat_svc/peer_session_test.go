@@ -72,13 +72,19 @@ func setupPeerSessionTest(t *testing.T) *peerSessionTestDeps {
 			deps.projectListCalls++
 			return deps.projects, nil
 		}).AnyTimes()
-	// conversation_id → 本地主键的反查在落库之前靠枚举本机会话重建(见
-	// ResolvePeerConversation):这两样是它的输入,次数不定(备忘录是进程级的)。
+	// 会话摘要上的 peer_fingerprint 报的是这台桌面端自己。
 	deps.device.EXPECT().DeviceFingerprint().Return(testDesktopFingerprint, nil).AnyTimes()
-	deps.session.EXPECT().ListIndexPaged(gomock.Any(), chat_repo.SessionIndexFilter{}, 0, math.MaxInt).
-		Return([]*chat_entity.Session{
-			{ID: 41, Status: consts.ACTIVE}, {ID: 42, Status: consts.ACTIVE}, {ID: 43, Status: consts.ACTIVE},
-		}, nil).AnyTimes()
+	// conversation_id → 本地主键的反查是 conversation_id 唯一索引上的一次查询
+	// (见 ResolvePeerConversation)。41/42/43 是这些用例里本机有的三条会话。
+	deps.session.EXPECT().FindByConversationID(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, conversationID string) (*chat_entity.Session, error) {
+			for _, id := range []int64{41, 42, 43} {
+				if conversationID == convID(id) {
+					return &chat_entity.Session{ID: id, ConversationID: conversationID, Status: consts.ACTIVE}, nil
+				}
+			}
+			return nil, nil
+		}).AnyTimes()
 	t.Cleanup(func() {
 		agent_repo.RegisterAgent(prevAgent)
 		agent_backend_repo.RegisterAgentBackend(prevBackend)
@@ -106,9 +112,9 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
-			{ID: 41, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, ProviderSessionID: "provider-41", Status: consts.ACTIVE},
-			{ID: 42, AgentID: 7, Title: "Investigate timeout", AgentStatus: "error", LastMessageAt: 1710000001000, Status: consts.ACTIVE},
-			{ID: 43, AgentID: 7, Title: "Document the release", AgentStatus: "idle", LastMessageAt: 1710000002000, Status: consts.ACTIVE},
+			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, ProviderSessionID: "provider-41", Status: consts.ACTIVE},
+			{ID: 42, ConversationID: convID(42), AgentID: 7, Title: "Investigate timeout", AgentStatus: "error", LastMessageAt: 1710000001000, Status: consts.ACTIVE},
+			{ID: 43, ConversationID: convID(43), AgentID: 7, Title: "Document the release", AgentStatus: "idle", LastMessageAt: 1710000002000, Status: consts.ACTIVE},
 		}, nil)
 	deps.backend.EXPECT().Find(ctx, int64(11)).Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
 
@@ -159,7 +165,7 @@ func TestListPeerSessions_GivenMissingTitleOrAgentIdentity_ThenOmitsRatherThanDe
 				SyncMeta: syncmeta_entity.SyncMeta{SyncID: tc.agentSync},
 			}}, nil)
 			deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
-				Return([]*chat_entity.Session{{ID: 41, AgentID: 7, Title: tc.title, AgentStatus: "idle", Status: consts.ACTIVE}}, nil)
+				Return([]*chat_entity.Session{{ID: 41, ConversationID: convID(41), AgentID: 7, Title: tc.title, AgentStatus: "idle", Status: consts.ACTIVE}}, nil)
 
 			got, err := deps.svc.ListPeerSessions(ctx, "")
 			require.NoError(t, err)
@@ -182,10 +188,10 @@ func TestListPeerSessions_GivenOneCorruptRow_ThenServesEveryHealthyRow(t *testin
 	}}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
-			{ID: 40, AgentID: 7, Title: "", AgentStatus: "idle", Status: consts.ACTIVE},
-			{ID: 41, AgentID: 7, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
-			{ID: 42, AgentID: 7, Title: "Investigate timeout", AgentStatus: "nonsense", Status: consts.ACTIVE},
-			{ID: 43, AgentID: 7, Title: "Document the release", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 40, ConversationID: convID(40), AgentID: 7, Title: "", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 42, ConversationID: convID(42), AgentID: 7, Title: "Investigate timeout", AgentStatus: "nonsense", Status: consts.ACTIVE},
+			{ID: 43, ConversationID: convID(43), AgentID: 7, Title: "Document the release", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 	deps.backend.EXPECT().Find(ctx, int64(11)).
 		Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
@@ -209,7 +215,7 @@ func TestListPeerSessions_GivenRepositoryFailure_ThenStillFails(t *testing.T) {
 	}}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
-			{ID: 41, AgentID: 7, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 	deps.backend.EXPECT().Find(ctx, int64(11)).Return(nil, errors.New("database is gone"))
 
@@ -289,8 +295,8 @@ func TestListPeerSessions_GivenSessionInAProject_ThenNamesTheProjectSyncID(t *te
 	}}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
-			{ID: 41, AgentID: 7, ProjectID: 3, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
-			{ID: 42, AgentID: 7, Title: "Free chat", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 41, ConversationID: convID(41), AgentID: 7, ProjectID: 3, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 42, ConversationID: convID(42), AgentID: 7, Title: "Free chat", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 
 	got, err := deps.svc.ListPeerSessions(ctx, "")
@@ -312,7 +318,7 @@ func TestListPeerSessions_GivenProjectWithoutSyncID_ThenLeavesItBlank(t *testing
 	}}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
-			{ID: 41, AgentID: 7, ProjectID: 3, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 41, ConversationID: convID(41), AgentID: 7, ProjectID: 3, Title: "Ship the release", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 
 	got, err := deps.svc.ListPeerSessions(ctx, "")
@@ -338,7 +344,7 @@ func TestListPeerSessions_ReadsTheProjectListOnce(t *testing.T) {
 		DoAndReturn(func(_ context.Context, filter chat_repo.SessionIndexFilter, _, _ int) ([]*chat_entity.Session, error) {
 			agentID := *filter.AgentID
 			return []*chat_entity.Session{
-				{ID: agentID * 10, AgentID: agentID, ProjectID: 3, Title: "t", AgentStatus: "idle", Status: consts.ACTIVE},
+				{ID: agentID * 10, ConversationID: convID(agentID * 10), AgentID: agentID, ProjectID: 3, Title: "t", AgentStatus: "idle", Status: consts.ACTIVE},
 			}, nil
 		}).Times(2)
 
@@ -367,11 +373,11 @@ func TestListPeerSessions_GivenSessionModelTarget_ThenReportsItAndDeclaresSuppor
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
-			{ID: 41, AgentID: 7, Title: "Fixed model", AgentStatus: "idle", Status: consts.ACTIVE,
+			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "Fixed model", AgentStatus: "idle", Status: consts.ACTIVE,
 				ProviderKey: "prov-anthropic", ModelKey: "sonnet-4-6"},
-			{ID: 42, AgentID: 7, Title: "Provider default", AgentStatus: "idle", Status: consts.ACTIVE,
+			{ID: 42, ConversationID: convID(42), AgentID: 7, Title: "Provider default", AgentStatus: "idle", Status: consts.ACTIVE,
 				ProviderKey: "prov-anthropic"},
-			{ID: 43, AgentID: 7, Title: "Follows the agent", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 43, ConversationID: convID(43), AgentID: 7, Title: "Follows the agent", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 	deps.backend.EXPECT().Find(ctx, int64(11)).
 		Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
@@ -414,7 +420,7 @@ func TestListPeerSessions_NarrowsByKeyword(t *testing.T) {
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, "happy"), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
-			{ID: 41, AgentID: 7, Title: "看看happy是怎么实现中继的", AgentStatus: "idle", Status: consts.ACTIVE},
+			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "看看happy是怎么实现中继的", AgentStatus: "idle", Status: consts.ACTIVE},
 		}, nil)
 	deps.backend.EXPECT().Find(ctx, int64(11)).Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
 
@@ -424,11 +430,9 @@ func TestListPeerSessions_NarrowsByKeyword(t *testing.T) {
 	assert.Equal(t, convID(41), got.Sessions[0].ConversationID)
 }
 
-// convID 是**这台桌面端**为它本机第 n 条会话交出去的对话身份 —— 与生产的
-// peerConversationID 同输入同算法(本机设备指纹 + 本地会话 id)。
-//
-// 写死一份等价实现是有意的:对端拿着这个值回来寻址时,桌面端要靠同一条派生把它翻回
-// 本地主键,用一个随手编的 uuid 这些用例就只在测试自己的世界里成立。
+// convID 是这些用例里本机第 n 条会话**落库的那个** conversation_id。取值形态无所谓
+// (库里存什么就是什么),这里沿用一个确定性派生,只是为了让「同一条会话」在用例的
+// 多处写出同一个字面值。
 const testDesktopFingerprint = "sha256:desktop"
 
 func convID(n int64) string {

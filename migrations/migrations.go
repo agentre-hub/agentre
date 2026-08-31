@@ -12,14 +12,26 @@ import (
 	"gorm.io/gorm"
 )
 
+// DeviceFingerprintFunc 交出本机设备指纹 —— 存量对话回填 conversation_id 的第一个
+// 输入(spec 2026-08-31 决策 2)。
+//
+// 做成惰性取值而不是直接收一个字符串,是因为**取值这件事本身有代价**:桌面端那个
+// 指纹住在 OS keychain 里,而它的注入方(InitRemoteDevice)按装配顺序排在迁移之后。
+// 交一个函数进来,迁移就能只在「确实有行要回填」时才去取它 —— 全新安装的库一行
+// 都没有,那里一次 keychain 都不该碰。migrations 包因此也不必认识 keychain。
+type DeviceFingerprintFunc func() (string, error)
+
 // RunMigrations 执行全部迁移。新增迁移时把构造函数追加到 migrationList 末尾。
-func RunMigrations(db *gorm.DB) error {
-	m := gormigrate.New(db, gormigrate.DefaultOptions, migrationList())
+//
+// deviceFingerprint 只被需要它的那些迁移使用(见 202608080015);传 nil 时,那些
+// 迁移在真的有行要回填时会失败 —— 而不是拿一个空指纹算出一批对不上的 uuid。
+func RunMigrations(db *gorm.DB, deviceFingerprint DeviceFingerprintFunc) error {
+	m := gormigrate.New(db, gormigrate.DefaultOptions, migrationList(deviceFingerprint))
 	return m.Migrate()
 }
 
 // migrationList 按时间升序列出全部迁移构造函数。
-func migrationList() []*gormigrate.Migration {
+func migrationList(deviceFingerprint DeviceFingerprintFunc) []*gormigrate.Migration {
 	return []*gormigrate.Migration{
 		migration202608080001(),
 		migration202608080002(),
@@ -34,5 +46,7 @@ func migrationList() []*gormigrate.Migration {
 		migration202608080011(),
 		migration202608080012(),
 		migration202608080013(),
+		migration202608080014(),
+		migration202608080015(deviceFingerprint),
 	}
 }

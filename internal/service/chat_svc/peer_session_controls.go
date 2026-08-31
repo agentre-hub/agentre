@@ -143,6 +143,9 @@ func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams
 	if err != nil {
 		return nil, err
 	}
+	// 号是对端铸的(v5/v7 都可能),本机派生不出来 —— 它随建行一起落进
+	// chat_sessions.conversation_id,此后这条对话的 attach / pull / 控制请求都靠
+	// 那一列的唯一索引寻址得到本机这一行,进程重启也不会丢。
 	out, err := s.send(ctx, &SendRequest{
 		AgentID:               agentID,
 		ProjectID:             projectID,
@@ -152,14 +155,10 @@ func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams
 		ModelKey:              params.LLMModelKey,
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
+		conversationID:        params.ConversationID,
 	}, sendOptions{})
 	if err != nil {
 		return nil, err
-	}
-	// 号是对端铸的(v5/v7 都可能),本机派生不出来 —— 只能在建行的这一刻记下对应关系,
-	// 此后这条对话的 attach / pull / 控制请求才寻址得到本机这一行。
-	if out != nil {
-		rememberPeerConversation(params.ConversationID, out.SessionID)
 	}
 	return out, nil
 }

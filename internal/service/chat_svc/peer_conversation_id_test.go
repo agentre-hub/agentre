@@ -1,6 +1,7 @@
 package chat_svc_test
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -17,17 +18,22 @@ import (
 // peerTestFingerprint 是这些用例里那台桌面端的设备指纹 —— 对话身份派生的第一个输入。
 const peerTestFingerprint = "sha256:self"
 
-// convID 是这台桌面端为它本机第 n 条会话交出去的对话身份,与生产的 peerConversationID
-// 同输入同算法(本机设备指纹 + 本地会话 id)。写死一份等价实现是有意的:用例断言的
-// 因此是**约定的值**,而不是"两边调了同一个函数"这种恒真命题。
+// convID 是这些用例里第 n 条本机会话落库的那个 conversation_id。取值形态无所谓
+// (库里存什么就是什么),这里沿用一个确定性派生,只是为了让用例里「同一条会话」
+// 在多处写出同一个字面值。
 func convID(n int64) string {
 	return conversationid.Derive(conversationid.Namespace, peerTestFingerprint, strconv.FormatInt(n, 10))
 }
 
-// wirePeerConversations 装上「conversation_id → 本地主键」反查要的两样东西:本机指纹,
-// 与一份本机会话清单。conversation_id 落库并建唯一索引之前,反查只能靠枚举本机会话重铸
-// 一遍身份(见 chat_svc.ResolvePeerConversation);备忘录是进程级的,同一条对话在一次
-// 进程里只重建一次,所以两个期望都用 AnyTimes。
+// peerSessionRow 是一条带对话身份的本机会话行 —— 落列之后,任何要被对端寻址的
+// 会话行都必须有它。
+func peerSessionRow(id int64) *chat_entity.Session {
+	return &chat_entity.Session{ID: id, ConversationID: convID(id), Status: consts.ACTIVE}
+}
+
+// wirePeerConversations 装上「conversation_id → 本地主键」反查:那是
+// chat_sessions.conversation_id 唯一索引上的一次查询(见 chat_svc.ResolvePeerConversation)。
+// 点名的 id 反查得到,其余一律「不在本机」。
 func wirePeerConversations(t *testing.T, sessions *mock_chat_repo.MockSessionRepo, ids ...int64) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
@@ -38,9 +44,15 @@ func wirePeerConversations(t *testing.T, sessions *mock_chat_repo.MockSessionRep
 	remote_device_svc.SetDefault(device)
 	t.Cleanup(func() { remote_device_svc.SetDefault(prev) })
 
-	rows := make([]*chat_entity.Session, 0, len(ids))
+	known := make(map[string]int64, len(ids))
 	for _, id := range ids {
-		rows = append(rows, &chat_entity.Session{ID: id, Status: consts.ACTIVE})
+		known[convID(id)] = id
 	}
-	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return(rows, nil).AnyTimes()
+	sessions.EXPECT().FindByConversationID(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, conversationID string) (*chat_entity.Session, error) {
+			if id, ok := known[conversationID]; ok {
+				return peerSessionRow(id), nil
+			}
+			return nil, nil
+		}).AnyTimes()
 }

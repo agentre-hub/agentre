@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
@@ -232,6 +233,7 @@ func TestSessionRepo_Create(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO `chat_sessions`").
 		WithArgs(
+			sqlmock.AnyArg(),                                  // conversation_id —— 建档那一刻铸的 uuid
 			int64(7), "draft", "idle", int64(0), int64(0), "", // agent_id, title, agent_status, last_message_at, last_read_at, provider_session_id
 			int64(0),          // project_id
 			"",                // cwd —— 不钉工作目录,按老规矩每轮现算
@@ -1162,5 +1164,97 @@ func TestSessionRepo_ListIDsByProviderSessions_NoIDs(t *testing.T) {
 	got, err := chat_repo.NewSession().ListIDsByProviderSessions(ctx, []string{"", "   "})
 	require.NoError(t, err)
 	assert.Empty(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 建档即有身份:conversation_id 由**建行的这一刻**铸出(spec 决策 1),而不是等
+// 第一次上线时现算 —— 现算的值取决于当时手上有哪个指纹,离线建的对话与它上线后
+// 报出去的身份就会是两个值。铸在仓储层是因为 chat_sessions 有 5 个建行调用方,
+// 逐个铸必然漏一个,而漏掉的那条对话在线上没有身份。
+func TestSessionRepo_Create_GivenNoConversationID_ThenMintsOne(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	var minted string
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO `chat_sessions`").
+		WithArgs(
+			sqlmock.AnyArg(), // conversation_id
+			int64(7), "draft", "idle", int64(0), int64(0), "",
+			int64(0),
+			"",
+			"",
+			0, "", "", "", "",
+			int64(0), "", int64(0),
+			int64(0),
+			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(99, 1))
+	mock.ExpectCommit()
+
+	s := &chat_entity.Session{AgentID: 7, Title: "draft", AgentStatus: "idle", Status: consts.ACTIVE}
+	require.NoError(t, chat_repo.NewSession().Create(ctx, s))
+	minted = s.ConversationID
+	require.NoError(t, conversationid.Validate(minted), "建档铸出来的必须是一条规范 uuid")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 号可以是别人铸的:浏览器把新对话派到这台桌面端上跑时(R17),v7 是浏览器铸的,
+// 本机这一行必须原样收下 —— 另铸一个会让同一条对话在两侧有两个身份。
+func TestSessionRepo_Create_GivenACallerSuppliedConversationID_ThenKeepsItVerbatim(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	const given = "018f4c1a-0000-7000-8000-0000000000ff"
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO `chat_sessions`").
+		WithArgs(
+			given,
+			int64(7), "draft", "idle", int64(0), int64(0), "",
+			int64(0),
+			"",
+			"",
+			0, "", "", "", "",
+			int64(0), "", int64(0),
+			int64(0),
+			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(99, 1))
+	mock.ExpectCommit()
+
+	s := &chat_entity.Session{ConversationID: given, AgentID: 7, Title: "draft", AgentStatus: "idle", Status: consts.ACTIVE}
+	require.NoError(t, chat_repo.NewSession().Create(ctx, s))
+	assert.Equal(t, given, s.ConversationID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 反向寻址走那一列上的唯一索引,而不是把本机会话枚举一遍再逐条派生 —— 后者是
+// 落列之前的过渡形态,浏览器铸号的对话在进程重启后就丢了映射。
+func TestSessionRepo_FindByConversationID(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE conversation_id = \\? AND status = \\? ORDER BY `chat_sessions`.`id` LIMIT \\?").
+		WithArgs("018f4c1a-0000-7000-8000-0000000000ff", consts.ACTIVE, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "agent_id", "agent_status", "status"}).
+			AddRow(11, "018f4c1a-0000-7000-8000-0000000000ff", 7, "waiting", consts.ACTIVE))
+
+	got, err := chat_repo.NewSession().FindByConversationID(ctx, "018f4c1a-0000-7000-8000-0000000000ff")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, int64(11), got.ID)
+	assert.True(t, got.NeedsAttention)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 库里没有这一行时交回 nil 而不是错误:调用方要区分「不是一条对话身份」(参数错)
+// 与「这条对话不在本机」(寻址失败),两者在 RPC 边界上是不同的错误码。
+func TestSessionRepo_FindByConversationID_GivenNoSuchRow_ThenReturnsNil(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE conversation_id = \\?").
+		WithArgs("018f4c1a-0000-7000-8000-0000000000ff", consts.ACTIVE, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+
+	got, err := chat_repo.NewSession().FindByConversationID(ctx, "018f4c1a-0000-7000-8000-0000000000ff")
+	require.NoError(t, err)
+	assert.Nil(t, got)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

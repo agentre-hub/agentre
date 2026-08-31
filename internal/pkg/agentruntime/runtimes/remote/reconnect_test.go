@@ -277,6 +277,7 @@ func newReconnectRigWithBackoff(t *testing.T, backoff []time.Duration) *reconnec
 		return nil
 	})
 	rig.rt = New(rig.conn1,
+		WithConversationIDResolver(convOf),
 		WithReconnect(ReconnectFunc(rig.reconnect)),
 		WithDaemonFingerprint(rigFingerprint),
 		WithSessionCursor(rig.cursor),
@@ -660,6 +661,7 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 	cursor := &fakeCursorPort{}
 	cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
 	rt := New(conn,
+		WithConversationIDResolver(convOf),
 		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),
@@ -1359,6 +1361,7 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 	cursor := &fakeCursorPort{}
 	cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
 	rt := New(conn,
+		WithConversationIDResolver(convOf),
 		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),

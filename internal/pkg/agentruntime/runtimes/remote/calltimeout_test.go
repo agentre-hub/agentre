@@ -78,7 +78,7 @@ func TestCallRun_GivenARunSlowerThanTheCallBudget_WhenDispatched_ThenItIsNotTrun
 	go desktopConn.Serve(ctx)
 	go daemonConn.Serve(ctx)
 
-	rt := New(&budgetConnection{conn: desktopConn})
+	rt := New(&budgetConnection{conn: desktopConn}, WithConversationIDResolver(convOf))
 	defer func() { _ = rt.Close() }()
 
 	ack, err := rt.callRun(context.Background(), wire.RunParams{

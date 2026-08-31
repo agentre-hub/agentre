@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/remotepool"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
@@ -54,6 +55,9 @@ func (h remotePoolHost) NewRuntime(
 ) *remote.Runtime {
 	return remote.New(conn,
 		remote.WithDaemonFingerprint(fingerprint),
+		// 出线的对话身份取自 chat_sessions.conversation_id 那一列(spec 决策 1/12):
+		// runtime 只认进程内的 int64 会话键,这条注入是它与那一列之间的唯一一座桥。
+		remote.WithConversationIDResolver(sessionConversationID),
 		remote.WithConnStateObserver(remote.ConnStateFunc(h.s.onRemoteConnState)),
 		remote.WithReconnect(remote.ReconnectFunc(func(rctx context.Context) (client.ProtobufConnection, string, error) {
 			return h.s.reconnectRemote(rctx, deviceID, entry)
@@ -144,3 +148,20 @@ func (s *chatSvc) remoteRuntimeCount(deviceID int64) int {
 
 // 编译期确认适配器满足端口。
 var _ remotepool.Host = remotePoolHost{}
+
+// sessionConversationID 交出这条本机会话在线上的身份。
+//
+// 没有调用方的 ctx:remote.Runtime 每条会话只问一次(问到就记在它自己的双向映射
+// 里),而这一问只读一列建档时就写死、此后不再改的数据,没有需要取消的长操作。
+// 行不在了(已软删)时交回空串 —— 由 runtime 按「说不出这条会话在线上叫什么」处理,
+// 而不是编一个指向不存在对话的身份发上线。
+func sessionConversationID(sessionID int64) string {
+	if sessionID <= 0 {
+		return ""
+	}
+	session, err := chat_repo.Session().Find(context.Background(), sessionID)
+	if err != nil || session == nil {
+		return ""
+	}
+	return session.ConversationID
+}

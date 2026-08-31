@@ -31,11 +31,20 @@ const SessionPurposeSubagent = "subagent_call"
 
 // Session is one open or historical chat thread scoped to a single Agent.
 type Session struct {
-	ID            int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	AgentID       int64  `gorm:"column:agent_id;type:bigint;not null;default:0"`
-	Title         string `gorm:"column:title;type:text;not null;default:''"`
-	AgentStatus   string `gorm:"column:agent_status;type:text;not null;default:'idle'"`
-	LastMessageAt int64  `gorm:"column:last_message_at;type:bigint;not null;default:0"`
+	ID int64 `gorm:"column:id;primaryKey;autoIncrement"`
+	// ConversationID 是这条对话的**全局身份**(uuid 字符串):同一条对话在桌面端、
+	// agentred 与 server 三套库以及线格式上都用这一个值指称。新对话在建档那一刻由
+	// chat_repo.Session().Create 铸 UUIDv7,存量行由迁移按 UUIDv5 确定性回填
+	// (spec 2026-08-31 决策 1/2)。
+	//
+	// 它与 ID 是两件事,不合并(决策 12):ID 是被 chat_messages 等表引用的本地主键,
+	// 只在本进程/本库内有意义;桌面端因此永久存在一层「conversation_id ↔ 本地主键」
+	// 的翻译。写一次就不再改 —— 所以它不在 sessionUpdateWhitelist 里。
+	ConversationID string `gorm:"column:conversation_id;type:text;not null;default:''"`
+	AgentID        int64  `gorm:"column:agent_id;type:bigint;not null;default:0"`
+	Title          string `gorm:"column:title;type:text;not null;default:''"`
+	AgentStatus    string `gorm:"column:agent_status;type:text;not null;default:'idle'"`
+	LastMessageAt  int64  `gorm:"column:last_message_at;type:bigint;not null;default:0"`
 	// LastReadAt 是会话上次被用户「看到」的时间戳（unix ms）。sidebar 折叠态 attention
 	// bubble 用 LastMessageAt > LastReadAt 判定「未读」；前端打开会话 + stream done 后
 	// 经由 chat_svc.MarkSessionRead 向后端推进；早期 localStorage 字段现在落到 DB。

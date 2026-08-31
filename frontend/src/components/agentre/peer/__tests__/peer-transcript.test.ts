@@ -28,6 +28,10 @@ import {
   type PeerEventFrame,
 } from "../peer-transcript";
 
+// conv 是这些用例里那条对话的身份（uuid 字符串）。
+const conv = (n: number) =>
+  `0198f4c1-a000-7c0d-8b21-${String(n).padStart(12, "0")}`;
+
 const frame = (
   seq: number,
   kind: EventKind,
@@ -35,7 +39,7 @@ const frame = (
 ) =>
   ({
     fingerprint: "sha256:peer-desktop",
-    sessionId: 7,
+    conversationId: conv(7),
     seq,
     event: { kind, ...extra },
   }) satisfies PeerEventFrame;
@@ -190,13 +194,16 @@ describe("peer-transcript", () => {
       {
         seq: 1,
         params: {
-          sessionId: 7,
+          conversationId: conv(7),
           event: { kind: "user_message", text: "历史第一句" },
         },
       },
       {
         seq: 2,
-        params: { sessionId: 7, event: { kind: "text_delta", text: "回复" } },
+        params: {
+          conversationId: conv(7),
+          event: { kind: "text_delta", text: "回复" },
+        },
       },
     ]);
     expect(s.messages).toHaveLength(2);
@@ -338,7 +345,7 @@ describe("peer-transcript 改用共享归约器后新出现的块", () => {
 
 // Given 对端要我批一次工具 / 回答一个问题;When 归约;Then 那张卡**不进转录**,只进
 // 待决策清单 —— 包里的交互卡按下去会调 TranscriptPorts,而桌面端顶层注入的是本机
-// 会话的 Wails 绑定,拿远端 sessionId 去答本地会话是答错人。Peer Panel 自绘的卡片
+// 会话的 Wails 绑定,拿远端的对话身份去答本地会话是答错人。Peer Panel 自绘的卡片
 // 走 peer 绑定,这条边界因此是故意的,不是漏渲染。
 describe("peer-transcript 交互卡归 Peer Panel", () => {
   it("提问卡不进转录,只进待决策清单", () => {

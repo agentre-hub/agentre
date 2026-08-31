@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,7 +112,7 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"projects":                   {"sync_origin_fingerprint"},
 		"project_agents":             {"sync_origin_fingerprint"},
 		"project_locations":          {"device_fingerprint", "sync_origin_fingerprint"},
-		"chat_sessions":              {"model_key", "exec_agent_backend_id", "cwd", "exec_device_fingerprint"},
+		"chat_sessions":              {"model_key", "exec_agent_backend_id", "cwd", "exec_device_fingerprint", "conversation_id"},
 		"chat_messages":              {"first_token_ms", "tokens_per_sec", "device_fingerprint"},
 		"chat_message_blocks":        {"message_id", "idx", "type", "tool_call_id", "codec", "data"},
 		// 任务并入账号级同步组，三张表各带六列同步元数据；issues 另有执行归属三列。
@@ -166,6 +167,13 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		if !gormDB.Migrator().HasIndex("chat_message_blocks", index) {
 			t.Errorf("index %q on chat_message_blocks was not created", index)
 		}
+	}
+
+	// 对话身份那一列上的唯一索引(spec 2026-08-31 决策 12):它既是「一条对话在本机
+	// 只有一行」的约束,也是 conversation_id → 本地主键那一次查询的走法。索引缺失
+	// 编译期抓不到,只会让反向寻址退回全表串扫、并放任重复行落库。
+	if !gormDB.Migrator().HasIndex("chat_sessions", "ux_chat_sessions_conversation_id") {
+		t.Error("unique index ux_chat_sessions_conversation_id on chat_sessions was not created")
 	}
 
 	// 索引**存在**证明不了它会被用上,而「按定位键点查」正是拆块表要买到的那件东西。
@@ -550,8 +558,9 @@ func TestResetStaleActiveSessionsMarksRunningAndWaitingAsError(t *testing.T) {
 		{9103, "idle"},
 	}
 	for _, row := range rows {
-		if err := gdb.Exec(`INSERT INTO chat_sessions (id, agent_id, title, agent_status, status, createtime, updatetime)
-VALUES (?, ?, ?, ?, ?, ?, ?)`, row.id, 1, row.status, row.status, 1, now, now).Error; err != nil {
+		// conversation_id 上有唯一索引:每一行都得有自己的身份,插空串会第二行就撞车。
+		if err := gdb.Exec(`INSERT INTO chat_sessions (id, conversation_id, agent_id, title, agent_status, status, createtime, updatetime)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, row.id, testConversationID(row.id), 1, row.status, row.status, 1, now, now).Error; err != nil {
 			t.Fatalf("insert %s session: %v", row.status, err)
 		}
 	}
@@ -608,8 +617,8 @@ func TestResetStaleActiveSessionsLeavesRemoteSessionsAlone(t *testing.T) {
 		{9203, 7, ""},            // 记了设备却没有实例标识:游标无从校验,按本机处理
 	}
 	for _, row := range rows {
-		if err := gdb.Exec(`INSERT INTO chat_sessions (id, agent_id, title, agent_status, status, exec_device_id, exec_device_fingerprint, createtime, updatetime)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, 1, "t", "running", 1, row.deviceID, row.fp, now, now).Error; err != nil {
+		if err := gdb.Exec(`INSERT INTO chat_sessions (id, conversation_id, agent_id, title, agent_status, status, exec_device_id, exec_device_fingerprint, createtime, updatetime)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, testConversationID(row.id), 1, "t", "running", 1, row.deviceID, row.fp, now, now).Error; err != nil {
 			t.Fatalf("insert session %d: %v", row.id, err)
 		}
 	}
@@ -637,4 +646,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, 1, "t", "running", 1, row.deviceID,
 	if got[9202] != "error" || got[9203] != "error" {
 		t.Fatalf("local session statuses = %#v, want both error", got)
 	}
+}
+
+// testConversationID 给手工插进 chat_sessions 的测试行造一个身份。取值形态无所谓,
+// 唯一索引只要求彼此不同 —— 生产上这个值由 chat_repo.Session().Create 铸(新行)或
+// 由迁移 202608080015 回填(存量行)。
+func testConversationID(id int64) string {
+	return fmt.Sprintf("0198f4c1-a000-7c0d-8b21-%012d", id)
 }

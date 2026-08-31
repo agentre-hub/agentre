@@ -28,7 +28,8 @@ import type { chat_svc } from "../../../../wailsjs/go/models";
 
 export type PeerPanelProps = {
   fingerprint: string;
-  sessionId: number;
+  /** 对端那条对话的全局身份（uuid），不是本机 chat_sessions.id。 */
+  conversationId: string;
   title?: string;
   deviceName: string;
   active: boolean;
@@ -40,27 +41,23 @@ export type PeerPanelProps = {
 // 两者形状逐字相同（dto.ts 就是照着 Wails 生成的 chat_svc.ChatMessage 手写的，
 // transcript-dto-contract 那条编译期守卫钉着这件事），所以这里只是换个类型名。
 //
-// sessionId 对不上才复制一份：归约器填的是帧里带的那个，与本 Tab 的对端会话 id
-// 一致时（正常路径）**必须原样交还同一个引用** —— 转录行缓存以消息对象为 WeakMap
-// 键，在这里无条件 `{...m}` 会让上游增量投影省下的那次重建白做。
-function peerMessageToChatMessage(
-  m: PeerChatMessage,
-  sessionId: number,
-): chat_svc.ChatMessage {
-  const aligned = m.sessionId === sessionId ? m : { ...m, sessionId };
-  return aligned as unknown as chat_svc.ChatMessage;
+// 归约器已经按 Peer Tab 的口径把 sessionId 填成 0（本机没有这条会话，见
+// peer-transcript.ts），所以这里**原样交还同一个引用** —— 转录行缓存以消息对象为
+// WeakMap 键，在这里复制一份会让上游增量投影省下的那次重建白做。
+function peerMessageToChatMessage(m: PeerChatMessage): chat_svc.ChatMessage {
+  return m as unknown as chat_svc.ChatMessage;
 }
 
 export function PeerPanel({
   fingerprint,
-  sessionId,
+  conversationId,
   title,
   deviceName,
   active,
   onClose,
 }: PeerPanelProps) {
   const { t } = useTranslation();
-  const key = peerKeyOf(fingerprint, sessionId);
+  const key = peerKeyOf(fingerprint, conversationId);
   const session = usePeerSessionsStore((s) => s.sessions[key]);
   const attach = usePeerSessionsStore((s) => s.attach);
   const detach = usePeerSessionsStore((s) => s.detach);
@@ -76,20 +73,25 @@ export function PeerPanel({
   } | null>(null);
 
   React.useEffect(() => {
-    void attach({ fingerprint, sessionId, title: title ?? "", deviceName });
-  }, [attach, fingerprint, sessionId, title, deviceName]);
+    void attach({
+      fingerprint,
+      conversationId,
+      title: title ?? "",
+      deviceName,
+    });
+  }, [attach, fingerprint, conversationId, title, deviceName]);
 
   React.useEffect(() => {
-    return () => detach(fingerprint, sessionId);
+    return () => detach(fingerprint, conversationId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fingerprint, sessionId]);
+  }, [fingerprint, conversationId]);
 
   const messages = React.useMemo<chat_svc.ChatMessage[]>(
     () =>
       (session?.transcript.messages ?? []).map((m) =>
-        peerMessageToChatMessage(m, sessionId),
+        peerMessageToChatMessage(m),
       ),
-    [session?.transcript.messages, sessionId],
+    [session?.transcript.messages],
   );
   const decisions = session?.transcript.decisions ?? [];
   const status = session?.status ?? "attaching";
@@ -101,7 +103,7 @@ export function PeerPanel({
       if (!text) return;
       setNotice(null);
       void (async () => {
-        const ok = await steer(fingerprint, sessionId, text);
+        const ok = await steer(fingerprint, conversationId, text);
         if (!ok) {
           composerRef.current?.restoreDraft(text, message.images ?? []);
           setNotice({
@@ -111,14 +113,14 @@ export function PeerPanel({
         }
       })();
     },
-    [steer, fingerprint, sessionId, t],
+    [steer, fingerprint, conversationId, t],
   );
 
   const handleAnswer = React.useCallback(
     async (decision: PeerDecision & { kind: "ask" }) => {
       const res = await submitAnswer({
         fingerprint,
-        sessionId,
+        conversationId,
         requestId: decision.requestId,
         answers: [],
         skipped: true,
@@ -129,14 +131,14 @@ export function PeerPanel({
         setNotice({ kind: "info", text: t("peerPanel.alreadyHandled") });
       }
     },
-    [submitAnswer, fingerprint, sessionId, t],
+    [submitAnswer, fingerprint, conversationId, t],
   );
 
   const handlePermission = React.useCallback(
     async (decision: PeerDecision & { kind: "permission" }, allow: boolean) => {
       const res = await submitToolPermission({
         fingerprint,
-        sessionId,
+        conversationId,
         requestId: decision.requestId,
         allow,
       });
@@ -146,7 +148,7 @@ export function PeerPanel({
         setNotice({ kind: "info", text: t("peerPanel.alreadyHandled") });
       }
     },
-    [submitToolPermission, fingerprint, sessionId, t],
+    [submitToolPermission, fingerprint, conversationId, t],
   );
 
   return (
@@ -228,7 +230,7 @@ export function PeerPanel({
             agentName={title || deviceName}
             agentColor="agent-3"
             cwd={undefined}
-            sessionId={sessionId}
+            sessionId={0}
             active={active}
             messages={messages}
             streaming={

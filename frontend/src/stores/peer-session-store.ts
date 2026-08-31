@@ -1,12 +1,12 @@
 // frontend/src/stores/peer-session-store.ts
 //
-// Peer Tab 的会话状态（R19）：一条 (fingerprint, sessionId) 对应一枚 Peer Tab。本 store
+// Peer Tab 的会话状态（R19）：一条 (fingerprint, conversationId) 对应一枚 Peer Tab。本 store
 // 负责 attach → pull 补齐 → 实时事件归约 的顺序处理（seq 去重：pull 从 0 拉到高水位，
 // attach 期间 ≤ 高水位的实时帧由 pull 覆盖、直接丢弃，> 高水位的立即归约；ready 之后
 // 由 reducePeerEvent 的游标去重兜底）。发送 / 回答 / 工具权限 / 关闭走 peer 绑定；
 // 关闭只 detach（不删除对端会话）。
 //
-// 事件通道是单条 Wails 广播（peer.event），按 fingerprint+sessionId 路由到各 Peer Tab。
+// 事件通道是单条 Wails 广播（peer.event），按 fingerprint+conversationId 路由到各 Peer Tab。
 
 import { create } from "zustand";
 
@@ -61,7 +61,7 @@ export type PeerAskQuestionView = {
 export type PeerSessionView = {
   key: string;
   fingerprint: string;
-  sessionId: number;
+  conversationId: string;
   title: string;
   deviceName: string;
   status: "attaching" | "ready" | "error";
@@ -77,19 +77,19 @@ type State = {
   sessions: Record<string, PeerSessionView>;
   attach: (args: {
     fingerprint: string;
-    sessionId: number;
+    conversationId: string;
     title: string;
     deviceName: string;
   }) => Promise<void>;
-  detach: (fingerprint: string, sessionId: number) => void;
+  detach: (fingerprint: string, conversationId: string) => void;
   steer: (
     fingerprint: string,
-    sessionId: number,
+    conversationId: string,
     text: string,
   ) => Promise<boolean>;
   submitAnswer: (args: {
     fingerprint: string;
-    sessionId: number;
+    conversationId: string;
     requestId: string;
     answers: Array<{
       questionIndex: number;
@@ -100,22 +100,22 @@ type State = {
   }) => Promise<{ alreadyHandled: boolean } | { error: string }>;
   submitToolPermission: (args: {
     fingerprint: string;
-    sessionId: number;
+    conversationId: string;
     requestId: string;
     allow: boolean;
     alwaysAllowSession?: boolean;
   }) => Promise<{ alreadyHandled: boolean } | { error: string }>;
 };
 
-export const peerKeyOf = (fingerprint: string, sessionId: number) =>
-  `${fingerprint}:${sessionId}`;
+export const peerKeyOf = (fingerprint: string, conversationId: string) =>
+  `${fingerprint}:${conversationId}`;
 
 export const usePeerSessionsStore = create<State>((set, get) => ({
   sessions: {},
 
-  attach: async ({ fingerprint, sessionId, title, deviceName }) => {
+  attach: async ({ fingerprint, conversationId, title, deviceName }) => {
     ensureSubscribed();
-    const key = peerKeyOf(fingerprint, sessionId);
+    const key = peerKeyOf(fingerprint, conversationId);
     if (get().sessions[key]) return;
 
     set((state) => ({
@@ -124,7 +124,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
         [key]: {
           key,
           fingerprint,
-          sessionId,
+          conversationId,
           title,
           deviceName,
           status: "attaching",
@@ -137,9 +137,10 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
 
     let highWater = 0;
     try {
-      const att = await PeerAttach({ fingerprint, sessionId } as Parameters<
-        typeof PeerAttach
-      >[0]);
+      const att = await PeerAttach({
+        fingerprint,
+        conversationId,
+      } as Parameters<typeof PeerAttach>[0]);
       highWater = att?.latestSeq ?? 0;
       set((state) => ({
         sessions: {
@@ -168,7 +169,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
       try {
         page = await PeerPull({
           fingerprint,
-          sessionId,
+          conversationId,
           cursor: pullCursor,
         } as Parameters<typeof PeerPull>[0]);
       } catch (e) {
@@ -199,7 +200,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
                 (page?.notifications ?? []).map((n) => ({
                   seq: n.seq,
                   params: n.params as unknown as {
-                    sessionId: number;
+                    conversationId: string;
                     event: unknown;
                   },
                 })),
@@ -235,8 +236,8 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     });
   },
 
-  detach: (fingerprint, sessionId) => {
-    const key = peerKeyOf(fingerprint, sessionId);
+  detach: (fingerprint, conversationId) => {
+    const key = peerKeyOf(fingerprint, conversationId);
     if (!get().sessions[key]) return;
     set((state) => {
       const sessions = { ...state.sessions };
@@ -244,11 +245,13 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
       return { sessions };
     });
     // 只结束本端接入，不删除对端会话（R19）。
-    void Promise.resolve(PeerDetach(fingerprint, sessionId)).catch(() => {});
+    void Promise.resolve(PeerDetach(fingerprint, conversationId)).catch(
+      () => {},
+    );
   },
 
-  steer: async (fingerprint, sessionId, text) => {
-    const key = peerKeyOf(fingerprint, sessionId);
+  steer: async (fingerprint, conversationId, text) => {
+    const key = peerKeyOf(fingerprint, conversationId);
     const session = get().sessions[key];
     if (!session) return false;
     set((state) => ({
@@ -258,7 +261,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
       },
     }));
     try {
-      await PeerSteer({ fingerprint, sessionId, text } as Parameters<
+      await PeerSteer({ fingerprint, conversationId, text } as Parameters<
         typeof PeerSteer
       >[0]);
       return true;
@@ -286,7 +289,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
 
   submitAnswer: async ({
     fingerprint,
-    sessionId,
+    conversationId,
     requestId,
     answers,
     skipped,
@@ -294,7 +297,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     try {
       const res = await PeerSubmitAnswer({
         fingerprint,
-        sessionId,
+        conversationId,
         requestId,
         answers,
         skipped,
@@ -307,7 +310,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
 
   submitToolPermission: async ({
     fingerprint,
-    sessionId,
+    conversationId,
     requestId,
     allow,
     alwaysAllowSession,
@@ -315,7 +318,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     try {
       const res = await PeerSubmitToolPermission({
         fingerprint,
-        sessionId,
+        conversationId,
         requestId,
         allow,
         alwaysAllowSession,
@@ -333,7 +336,7 @@ function errorMessage(e: unknown): string {
   return err?.message ?? String(e);
 }
 
-// 单条 Wails 广播订阅：peer.event → 按 fingerprint+sessionId 路由到各 Peer Tab。
+// 单条 Wails 广播订阅：peer.event → 按 fingerprint+conversationId 路由到各 Peer Tab。
 // attach 期间 ≤ 高水位的实时帧由 pull 覆盖、丢弃；ready 之后由游标去重兜底。
 let subscribed = false;
 function ensureSubscribed() {
@@ -351,7 +354,7 @@ function ensureSubscribed() {
       let changed = false;
       for (const frame of frames) {
         if (!frame || typeof frame !== "object") continue;
-        const key = peerKeyOf(frame.fingerprint, frame.sessionId);
+        const key = peerKeyOf(frame.fingerprint, frame.conversationId);
         // 从**已经应用过本批前面几帧**的那份里取,同一条会话的连续帧才能顺序累积。
         const session = sessions[key];
         if (!session) continue;

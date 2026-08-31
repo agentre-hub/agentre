@@ -2324,11 +2324,13 @@ func TestDaemon_PayloadBudgetMatchesTheRelayServer(t *testing.T) {
 		"信封头余量改了就要同时改 agentre-server 的 relayws.MaxEnvelopeBytes")
 }
 
-// convID 是 rig 里那台桌面端为它本机第 n 条会话交出去的对话身份 —— 与
-// remote.Runtime 出线时那条派生同输入同算法(本端设备指纹 + 本地会话 id)。
+// convID 是 rig 里那台桌面端为它本机第 n 条会话交出去的对话身份 —— **测试装置
+// 自己约定的值**:生产上这个值读自 chat_sessions.conversation_id 那一列(桌面端由
+// chat_svc 经 remote.WithConversationIDResolver 注入),而这里没有那张表,所以 rig
+// 把这个函数原样注入给 remote.Runtime,用例断言的就是它。
 //
-// 写死一份等价实现是有意的:用例断言的因此是**约定的值**,而不是"两边调了同一个
-// 函数"这种恒真命题。连接注册表那几个用例只要一个合法 uuid,用它同样合适。
+// 取值形态无所谓,只要是个合法且逐会话唯一的 uuid;连接注册表那几个用例只要一个
+// 合法 uuid,用它同样合适。
 func convID(n int64) string {
 	return conversationid.Derive(conversationid.Namespace, rigDeviceFingerprint, strconv.FormatInt(n, 10))
 }

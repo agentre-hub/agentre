@@ -266,14 +266,14 @@ const HostedPanel = React.memo(function HostedPanel({
   const handlePeerSessionCreated = React.useCallback(
     (peer: {
       fingerprint: string;
-      sessionId: number;
+      conversationId: string;
       title: string;
       deviceName: string;
     }) => {
       closeTab(tab.id);
       openPeerTab({
         fingerprint: peer.fingerprint,
-        sessionId: peer.sessionId,
+        conversationId: peer.conversationId,
         title: peer.title,
         deviceName: peer.deviceName,
       });
@@ -417,7 +417,7 @@ const HostedPeerPanel = React.memo(function HostedPeerPanel({
     >
       <PeerPanel
         fingerprint={meta.fingerprint}
-        sessionId={meta.sessionId}
+        conversationId={meta.conversationId}
         title={tab.title ?? ""}
         deviceName={meta.deviceName}
         active={active}

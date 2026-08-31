@@ -3587,8 +3587,10 @@ func TestSend_ClaudeCodeRemoteSkipsClientGatewayDeps(t *testing.T) {
 	t.Cleanup(func() { chat_svc.SetConnPoolForTest(m.svc, nil) })
 	pairChatTestDevices(t, 7)
 
-	sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", Status: consts.ACTIVE}
-	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil)
+	sess := &chat_entity.Session{ID: 100, ConversationID: convID(100), AgentID: 7, AgentStatus: "idle", Status: consts.ACTIVE}
+	// AnyTimes:远端 runtime 出线前还要读一次这一行,问它的 conversation_id
+	// (remote_pool.sessionConversationID)。
+	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, Name: "Claude Remote", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
 	}, nil)
@@ -7060,9 +7062,12 @@ func TestPiRestart_RemotePreparationPersistsForkIdentityBeforePromptStart(t *tes
 	t.Cleanup(func() { chat_svc.SetConnPoolForTest(m.svc, nil) })
 
 	sess := &chat_entity.Session{
-		ID: 100, AgentID: 7, ProviderSessionID: "pi-session-old", AgentStatus: "idle", Status: consts.ACTIVE,
+		ID: 100, ConversationID: convID(100), AgentID: 7, ProviderSessionID: "pi-session-old",
+		AgentStatus: "idle", Status: consts.ACTIVE,
 	}
-	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil)
+	// AnyTimes:远端 runtime 出线前还要读一次这一行,问它的 conversation_id
+	// (remote_pool.sessionConversationID)。
+	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
 	m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
 		ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("answer"),
 	}, nil)

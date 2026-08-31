@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -141,7 +139,7 @@ func (s *chatSvc) AttachPeerSession(ctx context.Context, params wire.SessionAtta
 		return wire.SessionAttachResult{}, err
 	}
 
-	latestSeq, detach, err := s.attachPeerTranscript(ctx, session.ID, subscriber)
+	latestSeq, detach, err := s.attachPeerTranscript(ctx, session.ID, session.ConversationID, subscriber)
 	if err != nil {
 		return wire.SessionAttachResult{}, err
 	}
@@ -182,6 +180,12 @@ func peerSessionSummary(
 	if session == nil || agent == nil || strings.TrimSpace(session.Title) == "" || strings.TrimSpace(agent.Name) == "" || agent.SyncID == "" {
 		return wire.SessionSummary{}, fmt.Errorf("%w: session %d", ErrPeerSessionMetadata, sessionID(session))
 	}
+	// 没有对话身份的行寻址不到:对端拿它去 attach / pull 只会得到「这条对话不在
+	// 本机」。列一条点不开的会话比不列它更糟,按缺元数据跳过(与 R5 同一条口径)。
+	// 迁移之后这不该发生 —— 每一行建档时就有身份。
+	if session.ConversationID == "" {
+		return wire.SessionSummary{}, fmt.Errorf("%w: session %d has no conversation id", ErrPeerSessionMetadata, session.ID)
+	}
 	backendType, err := peerSessionBackendType(ctx, session, agent)
 	if err != nil {
 		return wire.SessionSummary{}, err
@@ -191,7 +195,7 @@ func peerSessionSummary(
 		return wire.SessionSummary{}, err
 	}
 	return wire.SessionSummary{
-		ConversationID:    peerConversationID(fingerprint, session.ID),
+		ConversationID:    session.ConversationID,
 		PeerFingerprint:   fingerprint,
 		AgentID:           agent.ID,
 		Title:             session.Title,
@@ -268,97 +272,33 @@ func (s *chatSvc) peerSubscriberCount(sessionID int64) int {
 // 线上寻址的是 conversation_id;本机的主键仍是 chat_sessions.id(决策 12:两件事,
 // 不合并)。桌面端因此永久存在一层翻译,这里是它的**唯一**一处。
 //
-// 正向是纯函数:本机自己发起的对话按 (本机设备指纹, 本地会话 id) 确定性派生 ——
-// 与日后迁移回填对同一批行算出的值逐位相同。
+// 反向(conversation_id → 本地主键)是 chat_sessions.conversation_id 唯一索引上的
+// 一次查询,只在 RPC 边界上做一次;正向不再需要现场翻译 —— 对端通知宇宙
+// (peerSessionPublication)建立时就把这条对话的身份钉在自己身上,每一帧直接盖它。
 //
-// 反向没有反解法(派生是单向哈希),所以靠一张进程级备忘录:正向算过一次就记下,
-// 没记过就枚举一遍本机会话把它补齐。**这层枚举是过渡形态**:conversation_id 落库
-// 并建唯一索引之后,它由一次索引查询取代。备忘录是纯函数的缓存(键含指纹),条目
-// 只增不改,因此并发安全也不需要失效。
-var (
-	peerConversationIndex  sync.Map // conversation_id(string) → chat_sessions.id(int64)
-	peerConversationBySess sync.Map // chat_sessions.id(int64) → conversation_id(string)
-)
-
-// peerConversationID 交出这条本机会话的对话身份,并登记双向映射。
-func peerConversationID(fingerprint string, sessionID int64) string {
-	if sessionID <= 0 {
-		return ""
-	}
-	id := conversationid.Derive(conversationid.Namespace, fingerprint, strconv.FormatInt(sessionID, 10))
-	rememberPeerConversation(id, sessionID)
-	return id
-}
-
-// rememberPeerConversation 记下一条对话与本机会话行的对应关系。
-//
-// 除了正向派生,它还是 R17 那条路的登记点:浏览器把新对话派到这台桌面端上跑时,
-// 号是浏览器铸的 v7 —— 派生不出来,只能记下来。
-func rememberPeerConversation(conversationID string, sessionID int64) {
-	if conversationID == "" || sessionID <= 0 {
-		return
-	}
-	peerConversationIndex.Store(conversationID, sessionID)
-	peerConversationBySess.Store(sessionID, conversationID)
-}
-
-// peerConversationIDOf 交出这条本机会话在线上的身份。登记过的直接取(推送热路径
-// 上的每一帧都要它);没登记过的现取一次本机指纹派生 —— 那只发生在从没被列举 /
-// attach 过的会话上。
-func peerConversationIDOf(sessionID int64) string {
-	if id, ok := peerConversationBySess.Load(sessionID); ok {
-		return id.(string)
-	}
-	fingerprint, err := desktopPeerFingerprint()
-	if err != nil {
-		return ""
-	}
-	return peerConversationID(fingerprint, sessionID)
-}
+// 这一层从前是「按 (本机指纹, 本地会话 id) 现场派生 + 枚举本机会话补齐备忘录」,
+// 那是 conversation_id 落库之前的过渡形态。新对话的号是**铸**出来的(UUIDv7),
+// 派生算出的是另一个值 —— 落列之后必须一律以库里那一列为准,不能再算。
 
 // ResolvePeerConversation 把线上的 conversation_id 翻回本机 chat_sessions.id。
 //
-// 非法取值(空、旧的裸数字会话号、畸形 uuid)在这里就被挡下并给出明确错误 ——
+// 非法取值(空、旧的裸数字会话号、畸形 uuid)在碰库之前就被挡下并给出明确错误 ——
 // 它是 RPC 边界上「这不是一条对话身份」与「这条对话不在本机」的分界。
 func ResolvePeerConversation(ctx context.Context, conversationID string) (int64, error) {
 	if err := conversationid.Validate(conversationID); err != nil {
 		return 0, fmt.Errorf("%w: %s", ErrPeerSessionInvalidID, err)
 	}
-	if sid, ok := peerConversationIndex.Load(conversationID); ok {
-		return sid.(int64), nil
+	session, err := chat_repo.Session().FindByConversationID(ctx, conversationID)
+	if err != nil {
+		return 0, operationFailedWithCause(ctx, err)
 	}
-	if err := reindexPeerConversations(ctx); err != nil {
-		return 0, err
+	if session == nil {
+		return 0, ErrPeerSessionNotFound
 	}
-	if sid, ok := peerConversationIndex.Load(conversationID); ok {
-		return sid.(int64), nil
-	}
-	return 0, ErrPeerSessionNotFound
+	return session.ID, nil
 }
 
-// reindexPeerConversations 枚举本机每条会话并把它们的对话身份铸进备忘录。
-//
-// 走会话索引这一条查询(与 ListPeerSessions 同一个可见性口径),而不是再开一条只取
-// id 的路:这层枚举本来就是过渡形态,conversation_id 落库并建唯一索引之后它整个消失,
-// 不值得为它新增一个仓储方法。
-func reindexPeerConversations(ctx context.Context) error {
-	fingerprint, err := desktopPeerFingerprint()
-	if err != nil {
-		return err
-	}
-	rows, err := chat_repo.Session().ListIndexPaged(ctx, chat_repo.SessionIndexFilter{}, 0, math.MaxInt)
-	if err != nil {
-		return operationFailedWithCause(ctx, err)
-	}
-	for _, row := range rows {
-		if row != nil {
-			peerConversationID(fingerprint, row.ID)
-		}
-	}
-	return nil
-}
-
-// desktopPeerFingerprint 取本机设备指纹 —— 对话身份派生的第一个输入,也是这台桌面端
+// desktopPeerFingerprint 取本机设备指纹 —— 会话摘要上盖的来源标注,也是这台桌面端
 // 向对端出示的那个值(R5 决策 8:账号侧不得另生成指纹)。
 func desktopPeerFingerprint() (string, error) {
 	device := remote_device_svc.Default()

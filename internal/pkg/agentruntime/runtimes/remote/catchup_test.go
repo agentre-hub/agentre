@@ -67,6 +67,7 @@ func newRestartRuntime(t *testing.T, conn *fakeConn, cursorAt int64) (*Runtime, 
 	cursor.setLoad(func(int64, string) (int64, bool, error) { return cursorAt, true, nil })
 	obs := &connStateRecorder{}
 	rt := New(conn,
+		WithConversationIDResolver(convOf),
 		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),

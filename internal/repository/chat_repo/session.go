@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 )
 
 //go:generate mockgen -source session.go -destination mock_chat_repo/mock_session.go
@@ -24,6 +25,11 @@ type SessionBackendRef struct {
 
 type SessionRepo interface {
 	Find(ctx context.Context, id int64) (*chat_entity.Session, error)
+	// FindByConversationID 按对话的全局身份取本机这一行(spec 2026-08-31 决策 12 那
+	// 层「conversation_id ↔ 本地主键」翻译的唯一落点)。走 conversation_id 上的唯一
+	// 索引,一次查询;没有这一行时交回 (nil, nil) —— 「不是一条对话身份」由调用方
+	// 在 RPC 边界上先行校验,与「这条对话不在本机」是两个错误码。
+	FindByConversationID(ctx context.Context, conversationID string) (*chat_entity.Session, error)
 	ListByAgent(ctx context.Context, agentID int64, limit int) ([]*chat_entity.Session, error)
 	ListByAgentPaged(ctx context.Context, agentID int64, offset, limit int) ([]*chat_entity.Session, error)
 	ListIDsByAgents(ctx context.Context, agentIDs []int64) (map[int64][]int64, error)
@@ -161,6 +167,22 @@ type sessionRepo struct{}
 func (r *sessionRepo) Find(ctx context.Context, id int64) (*chat_entity.Session, error) {
 	out := &chat_entity.Session{}
 	err := db.Ctx(ctx).Where("id = ? AND status = ?", id, consts.ACTIVE).First(out).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out.ApplyDerivedFields()
+	return out, nil
+}
+
+func (r *sessionRepo) FindByConversationID(ctx context.Context, conversationID string) (*chat_entity.Session, error) {
+	if conversationID == "" {
+		return nil, nil
+	}
+	out := &chat_entity.Session{}
+	err := db.Ctx(ctx).Where("conversation_id = ? AND status = ?", conversationID, consts.ACTIVE).First(out).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -469,6 +491,17 @@ func (r *sessionRepo) CountActive(ctx context.Context, agentStatuses []string) (
 }
 
 func (r *sessionRepo) Create(ctx context.Context, s *chat_entity.Session) error {
+	// 建档即有身份(spec 2026-08-31 决策 1)。铸在这里而不是在 5 个建行调用方各铸
+	// 一次:漏掉的那一个不会有任何编译期或运行期症状,只是那条对话在线上没有身份。
+	// 调用方已经给了号(浏览器铸的 v7、导入交回的 id)时原样收下 —— 另铸一个会让
+	// 同一条对话在两侧有两个身份。铸号无 I/O、无网络,未登录 / 离线照样建得起。
+	if s.ConversationID == "" {
+		id, err := conversationid.New()
+		if err != nil {
+			return err
+		}
+		s.ConversationID = id
+	}
 	now := time.Now().UnixMilli()
 	if s.Createtime == 0 {
 		s.Createtime = now

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"testing"
 
 	"github.com/cago-frame/cago/pkg/consts"
@@ -17,7 +16,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
@@ -36,9 +34,17 @@ func registerPeerWaiterRepos(t *testing.T, ctrl *gomock.Controller, backend *age
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
 	agtRepo := mock_agent_repo.NewMockAgentRepo(ctrl)
 	beRepo := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
-	sessRepo.EXPECT().Find(gomock.Any(), int64(42)).Return(&chat_entity.Session{
-		ID: 42, AgentID: 7, Status: consts.ACTIVE,
-	}, nil).AnyTimes()
+	row := &chat_entity.Session{ID: 42, ConversationID: convID(42), AgentID: 7, Status: consts.ACTIVE}
+	sessRepo.EXPECT().Find(gomock.Any(), int64(42)).Return(row, nil).AnyTimes()
+	// conversation_id → 本地主键的反查:那一列上的唯一索引,一次查询(见
+	// ResolvePeerConversation)。别的对话身份一律「不在本机」。
+	sessRepo.EXPECT().FindByConversationID(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, conversationID string) (*chat_entity.Session, error) {
+			if conversationID == row.ConversationID {
+				return row, nil
+			}
+			return nil, nil
+		}).AnyTimes()
 	agtRepo.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
 		ID: 7, AgentBackendID: 12, Status: consts.ACTIVE,
 	}, nil).AnyTimes()
@@ -157,8 +163,9 @@ func TestPendingPeerSessionWaiters_GivenNoLiveRemoteRuntime_ThenEmptyWithoutDial
 	assert.Zero(t, svc.remoteRuntimeCount(7), "只读查询不得给任何会话记引用")
 }
 
-// execConvID 是**远端执行端**眼里那条对话的身份:本进程通过 remote.Runtime 出线时,
-// 派生输入是 (本端指纹, 本地会话 id),而测试替身连接从没握过手,指纹为空。
+// execConvID 是**远端执行端**眼里那条对话的身份 —— 也就是本机这一行
+// chat_sessions.conversation_id 的值:本进程通过 remote.Runtime 出线时把那一列
+// 原样带上去(见 remote_pool.sessionConversationID),两边因此逐字相同。
 func execConvID(n int64) string {
-	return conversationid.Derive(conversationid.Namespace, "", strconv.FormatInt(n, 10))
+	return convID(n)
 }

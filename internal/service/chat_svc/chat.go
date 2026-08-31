@@ -1066,6 +1066,8 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 			// 时不残留 running(否则空会话永久卡 running,还会 block 退出)。
 			AgentStatus: "idle",
 			Status:      consts.ACTIVE,
+			// 对端铸的号(R17)原样落库;本地发起时为空,由 chat_repo.Create 铸一个新的。
+			ConversationID: req.conversationID,
 		}
 		if err := chat_repo.Session().Create(ctx, sess); err != nil {
 			return nil, operationFailedWithCause(ctx, err)

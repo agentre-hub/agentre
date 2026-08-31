@@ -833,6 +833,13 @@ func installExecDaemonRecorder(t *testing.T, ctrl *gomock.Controller) {
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
 	sessRepo.EXPECT().UpdateExecDaemon(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
+	// 远端 runtime 每条会话要问一次「它在线上叫什么」——读 chat_sessions.conversation_id
+	// (见 remote_pool.sessionConversationID)。只借运行时的测试不关心取值,但不装
+	// 等于让那一问在 nil repo 上崩。
+	sessRepo.EXPECT().Find(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id int64) (*chat_entity.Session, error) {
+			return &chat_entity.Session{ID: id, ConversationID: convID(id)}, nil
+		}).AnyTimes()
 	prev := chat_repo.Session()
 	chat_repo.RegisterSession(sessRepo)
 	t.Cleanup(func() { chat_repo.RegisterSession(prev) })

@@ -30,6 +30,17 @@ func (a relayDialAdapter) Open(ctx context.Context, daemonFingerprint, peerFinge
 // 路径后,Borrow 会并发直连+中转选路(R6)。app.Shutdown 通过
 // remote_device_svc.Default().Pool().Close() 平滑回收所有 entries(见
 // internal/app/app.go)。
+// desktopDeviceFingerprint 交出本机设备指纹,给迁移回填存量对话的 conversation_id
+// 用(spec 2026-08-31 决策 2:派生输入是这条对话的发起端指纹 —— 也就是这台桌面端
+// 向对端出示、并被 server 存进 peer_fingerprint 的那一个值)。
+//
+// 它绕开 InitRemoteDevice 直接问 remote_device_svc 的生成函数,因为迁移跑在装配
+// 之前;走的仍是同一个 keychain 账号、同一把生成逻辑,所以先跑迁移不会让这台机器
+// 多出第二个"唯一"指纹。惰性调用:全新库上一行都不用回填,这里一次都不会被调到。
+func desktopDeviceFingerprint() (string, error) {
+	return remote_device_svc.EnsureDeviceFingerprint(keychain.Default())
+}
+
 func InitRemoteDevice(_ context.Context) error {
 	remote_device_repo.RegisterPairedAgentred(remote_device_repo.NewPairedAgentred())
 	repo := remote_device_repo.PairedAgentred()

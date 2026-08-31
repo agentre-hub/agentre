@@ -31,7 +31,12 @@ import {
   PeerSubmitToolPermission,
   PeerDetach,
 } from "../../../wailsjs/go/app/App";
-import { usePeerSessionsStore } from "../peer-session-store";
+import { usePeerSessionsStore, peerKeyOf } from "../peer-session-store";
+
+// conv 是这些用例里第 n 条对话的身份 —— 一个 uuid 字符串。Peer Tab 按它寻址,
+// 而不是按对端机器上那条会话的本地主键。
+const conv = (n: number) =>
+  `0198f4c1-a000-7c0d-8b21-${String(n).padStart(12, "0")}`;
 
 const frame = (
   seq: number,
@@ -39,7 +44,7 @@ const frame = (
   extra: Record<string, unknown> = {},
 ) => ({
   fingerprint: "sha256:peer-desktop",
-  sessionId: 7,
+  conversationId: conv(7),
   seq,
   event: { kind, ...extra },
 });
@@ -63,12 +68,15 @@ describe("peer-session-store", () => {
       notifications: [
         {
           seq: 1,
-          params: { sessionId: 7, event: { kind: "user_message", text: "hi" } },
+          params: {
+            conversationId: conv(7),
+            event: { kind: "user_message", text: "hi" },
+          },
         },
         {
           seq: 2,
           params: {
-            sessionId: 7,
+            conversationId: conv(7),
             event: { kind: "text_delta", text: "hello" },
           },
         },
@@ -80,12 +88,15 @@ describe("peer-session-store", () => {
 
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
-    const s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.status).toBe("ready");
     expect(s.transcript.messages).toHaveLength(2);
     expect(s.transcript.messages[0]).toMatchObject({
@@ -111,14 +122,17 @@ describe("peer-session-store", () => {
     });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
     // 高水位(2)之后的实时帧正常归约
     eventsOn.holder.handler?.([frame(3, "text_delta", { text: "live" })]);
-    let s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    let s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.transcript.messages[0].blocks[0]).toMatchObject({
       type: "text",
       text: "live",
@@ -127,7 +141,10 @@ describe("peer-session-store", () => {
     // 重复帧（≤ 游标）被去重丢弃
     eventsOn.holder.handler?.([frame(3, "text_delta", { text: "live" })]);
     eventsOn.holder.handler?.([frame(2, "text_delta", { text: "dup" })]);
-    s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.transcript.messages).toHaveLength(1);
     expect(s.transcript.messages[0].blocks[0]).toMatchObject({
       type: "text",
@@ -150,7 +167,7 @@ describe("peer-session-store", () => {
     });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
@@ -168,7 +185,10 @@ describe("peer-session-store", () => {
     unsubscribe();
 
     expect(updates).toBe(1);
-    const s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.transcript.messages[0].blocks[0]).toMatchObject({
       type: "text",
       text: "hello",
@@ -177,7 +197,7 @@ describe("peer-session-store", () => {
 
   it("一批里混着多条会话的帧,各自落到自己那条", async () => {
     // batcher 是全局的,一批里可以同时装着不同对端 / 不同会话的帧。
-    for (const sessionId of [7, 9]) {
+    for (const conversationId of [conv(7), conv(9)]) {
       (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
         latestSeq: 0,
         lifecycleState: "idle",
@@ -190,23 +210,25 @@ describe("peer-session-store", () => {
       });
       await usePeerSessionsStore.getState().attach({
         fingerprint: "sha256:peer-desktop",
-        sessionId,
+        conversationId,
         title: "t",
         deviceName: "d",
       });
     }
 
     eventsOn.holder.handler?.([
-      { ...frame(1, "text_delta", { text: "seven" }), sessionId: 7 },
-      { ...frame(1, "text_delta", { text: "nine" }), sessionId: 9 },
+      { ...frame(1, "text_delta", { text: "seven" }), conversationId: conv(7) },
+      { ...frame(1, "text_delta", { text: "nine" }), conversationId: conv(9) },
     ]);
 
     const sessions = usePeerSessionsStore.getState().sessions;
     expect(
-      sessions["sha256:peer-desktop:7"].transcript.messages[0].blocks[0],
+      sessions[peerKeyOf("sha256:peer-desktop", conv(7))].transcript.messages[0]
+        .blocks[0],
     ).toMatchObject({ type: "text", text: "seven" });
     expect(
-      sessions["sha256:peer-desktop:9"].transcript.messages[0].blocks[0],
+      sessions[peerKeyOf("sha256:peer-desktop", conv(9))].transcript.messages[0]
+        .blocks[0],
     ).toMatchObject({ type: "text", text: "nine" });
   });
 
@@ -221,19 +243,19 @@ describe("peer-session-store", () => {
     });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
     const ok = await usePeerSessionsStore
       .getState()
-      .steer("sha256:peer-desktop", 7, "接着干");
+      .steer("sha256:peer-desktop", conv(7), "接着干");
     expect(ok).toBe(true);
     expect(PeerSteer).toHaveBeenCalledWith(
       expect.objectContaining({
         fingerprint: "sha256:peer-desktop",
-        sessionId: 7,
+        conversationId: conv(7),
         text: "接着干",
       }),
     );
@@ -253,14 +275,14 @@ describe("peer-session-store", () => {
     );
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
     const res = await usePeerSessionsStore.getState().submitAnswer({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       requestId: "req-1",
       answers: [],
     });
@@ -281,14 +303,14 @@ describe("peer-session-store", () => {
     ).mockResolvedValue({ alreadyHandled: true });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
     const res = await usePeerSessionsStore.getState().submitToolPermission({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       requestId: "p-1",
       allow: true,
     });
@@ -306,16 +328,18 @@ describe("peer-session-store", () => {
     });
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
 
-    usePeerSessionsStore.getState().detach("sha256:peer-desktop", 7);
+    usePeerSessionsStore.getState().detach("sha256:peer-desktop", conv(7));
     expect(
-      usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"],
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ],
     ).toBeUndefined();
-    expect(PeerDetach).toHaveBeenCalledWith("sha256:peer-desktop", 7);
+    expect(PeerDetach).toHaveBeenCalledWith("sha256:peer-desktop", conv(7));
   });
 
   it("attach failure marks the session error instead of leaving it half-open", async () => {
@@ -324,11 +348,14 @@ describe("peer-session-store", () => {
     );
     await usePeerSessionsStore.getState().attach({
       fingerprint: "sha256:peer-desktop",
-      sessionId: 7,
+      conversationId: conv(7),
       title: "t",
       deviceName: "d",
     });
-    const s = usePeerSessionsStore.getState().sessions["sha256:peer-desktop:7"];
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
     expect(s.status).toBe("error");
     expect(s.error).toContain("not running");
   });

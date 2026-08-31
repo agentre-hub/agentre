@@ -122,7 +122,8 @@ type ChatPanelProps = {
   /** 新建会话派到一台远端桌面端（R18）成功后回调，父级关掉新建 Tab 并打开 Peer Tab。*/
   onPeerSessionCreated?: (peer: {
     fingerprint: string;
-    sessionId: number;
+    // 派到远端桌面端的那条对话按 conversation_id 寻址，不是本机 chat_sessions.id。
+    conversationId: string;
     title: string;
     deviceName: string;
   }) => void;

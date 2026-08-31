@@ -918,6 +918,11 @@ type SendRequest struct {
 	// peerSource is populated only by the account-peer adapter. Keeping it out
 	// of Wails JSON prevents a local caller from forging a source pill.
 	peerSource peerMessageSource
+	// conversationID 只由对端适配器填(R17:浏览器把新对话派到这台桌面端上跑,
+	// 号是浏览器铸的)。非空时新建的会话行就用这个身份落库 —— 本机另铸一个会让
+	// 同一条对话在两侧有两个身份,对端此后再也 attach 不上它。同样不进 Wails
+	// JSON:本地调用方不能指定一条对话的身份。已存在的会话忽略这个字段。
+	conversationID string
 }
 type SendImage struct {
 	Name    string `json:"name,omitempty"`

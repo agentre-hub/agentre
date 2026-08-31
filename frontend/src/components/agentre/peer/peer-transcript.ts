@@ -1,7 +1,7 @@
 // frontend/src/components/agentre/peer/peer-transcript.ts
 //
 // Peer Tab 的**帧来源**（R19 / R8）：对端桌面端经 peer_svc 推来的 canonical 事件帧
-// （wire EventFrame 同形，带 fingerprint / sessionId / seq）在这里去重、累积，归约本身
+// （wire EventFrame 同形，带 fingerprint / conversationId / seq）在这里去重、累积，归约本身
 // 交给共享包的 `reduceFrames`。
 //
 // 归约为什么不在这里：同一套 28 种 wire 事件的归约此前两个宿主各写了一份，更完整的
@@ -16,7 +16,7 @@
 //   1. seq 去重（pull 补齐与实时推送会重复投递同一帧）与帧序列的累积；
 //   2. 待决策清单 —— ask_user_question / tool_permission_request 归约出的那两种块
 //      **不进 Peer Tab 的转录**：包里那两张卡按下去会调 TranscriptPorts，而桌面端
-//      在 App 顶层注入的是**本机**会话的 Wails 绑定，拿远端的 sessionId 去答本地
+//      在 App 顶层注入的是**本机**会话的 Wails 绑定，拿远端的对话身份去答本地
 //      会话是答错人。Peer Tab 自绘可操作卡片走 peer 绑定，见 peer-panel.tsx。
 //   3. waitingForInput —— 「对端此刻在等我」这枚灯是 Peer Tab 自己的 UI 状态
 //      （决定转录显不显示流式指示），不是转录内容。
@@ -40,7 +40,8 @@ import {
 
 export type PeerEventFrame = {
   fingerprint: string;
-  sessionId: number;
+  /** 对话的全局身份（uuid 字符串），与 wire EventFrame 的 conversationId 逐字同义。 */
+  conversationId: string;
   seq?: number;
   event: { kind: EventKind } & Record<string, unknown>;
 };
@@ -89,10 +90,13 @@ export type PeerTranscriptState = {
    * （reduceFrames）每帧都会换掉全部消息对象，而下游 TranscriptRowView 的行缓存
    * 以消息对象为 WeakMap 键 —— 那等于每帧全表 miss。
    *
-   * 首帧到达前拿不到 sessionId（store 建状态时还没 attach 完），因此惰性构造。
+   * 首帧到达前不归约任何东西，因此惰性构造。
    */
   projector: TranscriptProjector | null;
 };
+
+// peerLocalSessionID 是 Peer Tab 在**本机**的会话号 —— 不存在,恒为 0。
+const peerLocalSessionID = 0;
 
 export const createPeerTranscript = (): PeerTranscriptState => ({
   messages: [],
@@ -121,13 +125,13 @@ export function reducePeerPullPage(
   state: PeerTranscriptState,
   notifications: Array<{
     seq: number;
-    params: { sessionId: number; event: unknown };
+    params: { conversationId: string; event: unknown };
   }>,
 ): PeerTranscriptState {
   const fresh: PeerEventFrame[] = [];
   for (const n of notifications ?? []) {
     const raw = n.params as unknown as {
-      sessionId?: number;
+      conversationId?: string;
       event?: { kind: string };
     };
     if (n.seq > 0 && n.seq <= state.cursor) continue;
@@ -136,7 +140,7 @@ export function reducePeerPullPage(
     // switch 的 default —— 那一档如实落 notice,不吞掉也不抛。
     fresh.push({
       fingerprint: "",
-      sessionId: raw?.sessionId ?? 0,
+      conversationId: raw?.conversationId ?? "",
       seq: n.seq,
       event: (raw?.event ?? { kind: "" }) as PeerEventFrame["event"],
     });
@@ -149,9 +153,20 @@ function advance(
   state: PeerTranscriptState,
   incoming: PeerEventFrame[],
 ): PeerTranscriptState {
-  const frames = [...state.frames, ...incoming];
-  const sessionId = incoming[0]?.sessionId ?? 0;
-  const projector = state.projector ?? createTranscriptProjector(sessionId);
+  // 共享归约器按**本机**会话号索引帧(TranscriptFrame.sessionId)。Peer Tab 渲染的
+  // 是另一台机器上的那条对话,本机根本没有这条会话,所以这里一律盖 0 —— 那个号只
+  // 用来读本机工作区文件 / 问本机流状态,拿远端的身份去填就是答错人。对话自己的
+  // 身份留在 PeerEventFrame.conversationId 上,由 store 用来路由到这枚 Tab。
+  const frames: TranscriptFrame[] = [
+    ...state.frames,
+    ...incoming.map((f) => ({
+      sessionId: peerLocalSessionID,
+      event: f.event,
+      seq: f.seq,
+    })),
+  ];
+  const projector =
+    state.projector ?? createTranscriptProjector(peerLocalSessionID);
   const reduced = projector.project(frames);
 
   let cursor = state.cursor;

@@ -12,6 +12,10 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import type { server_svc } from "../../../../wailsjs/go/models";
 import { DesktopDeviceRow } from "./desktop-device-row";
 
+// conv 是这些用例里第 n 条对话的身份（uuid 字符串）——设备页列出的会话按它寻址。
+const conv = (n: number) =>
+  `0198f4c1-a000-7c0d-8b21-${String(n).padStart(12, "0")}`;
+
 const mockList = PeerListSessions as unknown as ReturnType<typeof vi.fn>;
 
 const runningDesktop = (
@@ -40,13 +44,13 @@ describe("DesktopDeviceRow", () => {
     mockList.mockResolvedValue({
       sessions: [
         {
-          sessionId: 7,
+          conversationId: conv(7),
           title: "Ship the release",
           lifecycleState: "running",
           waitingForInput: true,
         },
         {
-          sessionId: 8,
+          conversationId: conv(8),
           title: "",
           lifecycleState: "idle",
           waitingForInput: false,
@@ -71,7 +75,7 @@ describe("DesktopDeviceRow", () => {
     expect(tabs[0].meta).toMatchObject({
       kind: "peer",
       fingerprint: "sha256:desktop-b",
-      sessionId: 7,
+      conversationId: conv(7),
     });
   });
 

@@ -66,7 +66,7 @@ export function DesktopDeviceRow({ device, now }: Props) {
   const openSession = (s: wire.SessionSummary) => {
     openPeerTab({
       fingerprint: device.fingerprint,
-      sessionId: s.sessionId,
+      conversationId: s.conversationId,
       title: s.title || t("remoteDevices.desktop.untitledSession"),
       deviceName: device.name,
     });
@@ -166,7 +166,7 @@ export function DesktopDeviceRow({ device, now }: Props) {
           ) : (
             sessions?.map((s) => (
               <button
-                key={s.sessionId}
+                key={s.conversationId}
                 type="button"
                 onClick={() => openSession(s)}
                 className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"

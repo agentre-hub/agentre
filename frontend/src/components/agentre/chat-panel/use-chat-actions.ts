@@ -70,7 +70,8 @@ type UseChatActionsOptions = {
   onSessionCreated?: (sessionId: number, agentId: number) => void;
   onPeerSessionCreated?: (peer: {
     fingerprint: string;
-    sessionId: number;
+    // 派到远端桌面端的那条对话按 conversation_id 寻址，不是本机 chat_sessions.id。
+    conversationId: string;
     title: string;
     deviceName: string;
   }) => void;
@@ -173,7 +174,7 @@ function useChatActions({
         } as Parameters<typeof PeerRunFresh>[0]);
         onPeerSessionCreated?.({
           fingerprint: effectiveTarget.deviceId,
-          sessionId: ack?.sessionId ?? 0,
+          conversationId: ack?.conversationId ?? "",
           title: text,
           deviceName: effectiveTarget.deviceName,
         });

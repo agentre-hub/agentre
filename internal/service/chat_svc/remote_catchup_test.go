@@ -124,8 +124,8 @@ func TestCatchUpRemoteSessions_ConnectsByExecDeviceAndRunsThreeSteps(t *testing.
 	t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
 	rows := []*chat_entity.Session{
-		{ID: behind, AgentID: 9, Status: consts.ACTIVE, ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 17},
-		{ID: caughtUp, AgentID: 9, Status: consts.ACTIVE, ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5},
+		{ID: behind, ConversationID: execConvID(behind), AgentID: 9, Status: consts.ACTIVE, ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 17},
+		{ID: caughtUp, ConversationID: execConvID(caughtUp), AgentID: 9, Status: consts.ACTIVE, ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5},
 	}
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
 	sessRepo.EXPECT().ListRemoteExecSessions(gomock.Any()).Return(rows, nil)
@@ -231,9 +231,9 @@ func TestCatchUpRemoteSessions_OnlyFailsSessionsTheDaemonIsNotRunning(t *testing
 	t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
 	rows := []*chat_entity.Session{
-		{ID: stillRun, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+		{ID: stillRun, ConversationID: execConvID(stillRun), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 			ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5},
-		{ID: longDone, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+		{ID: longDone, ConversationID: execConvID(longDone), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 			ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5},
 	}
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
@@ -314,9 +314,9 @@ func TestCatchUpRemoteSessions_DialFailureDoesNotJudgeSessions(t *testing.T) {
 	t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
 	rows := []*chat_entity.Session{
-		{ID: 100, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+		{ID: 100, ConversationID: execConvID(100), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 			ExecDeviceID: offline, ExecDeviceFingerprint: "sha256:beef", EventCursor: 5},
-		{ID: 200, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+		{ID: 200, ConversationID: execConvID(200), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 			ExecDeviceID: online, ExecDeviceFingerprint: fp, EventCursor: 5},
 	}
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
@@ -408,9 +408,9 @@ func TestCatchUpRemoteSessions_ReturnsPooledConnWhenNothingIsLive(t *testing.T) 
 	t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
 	rows := []*chat_entity.Session{
-		{ID: behind, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+		{ID: behind, ConversationID: execConvID(behind), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 			ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 17},
-		{ID: caughtUp, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+		{ID: caughtUp, ConversationID: execConvID(caughtUp), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 			ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5},
 	}
 	registerCatchUpRepos(t, ctrl, rows, func(sessRepo *mock_chat_repo.MockSessionRepo) {
@@ -475,9 +475,9 @@ func TestCatchUpRemoteSessions_KeepsPooledConnForSessionStillRunning(t *testing.
 	t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
 	rows := []*chat_entity.Session{
-		{ID: stillRun, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+		{ID: stillRun, ConversationID: execConvID(stillRun), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 			ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5},
-		{ID: longDone, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+		{ID: longDone, ConversationID: execConvID(longDone), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 			ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5},
 	}
 	registerCatchUpRepos(t, ctrl, rows, func(sessRepo *mock_chat_repo.MockSessionRepo) {
@@ -563,7 +563,7 @@ func TestCatchUpRemoteSessions_UnresolvedBackendSessionIsNotJudged(t *testing.T)
 	remote_device_svc.SetDefault(rds)
 	t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
-	row := &chat_entity.Session{ID: 100, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+	row := &chat_entity.Session{ID: 100, ConversationID: execConvID(100), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 		ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5}
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
 	sessRepo.EXPECT().ListRemoteExecSessions(gomock.Any()).Return([]*chat_entity.Session{row}, nil)
@@ -630,7 +630,7 @@ func TestCatchUpRemoteDevice_RetriesWhenDeviceComesBackOnline(t *testing.T) {
 	remote_device_svc.SetDefault(rds)
 	t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
-	row := &chat_entity.Session{ID: 100, AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
+	row := &chat_entity.Session{ID: 100, ConversationID: execConvID(100), AgentID: 9, AgentStatus: "running", Status: consts.ACTIVE,
 		ExecDeviceID: deviceID, ExecDeviceFingerprint: fp, EventCursor: 5}
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
 	// 启动那次一遍,设备回来那次一遍;补成之后的第三次不再读库。

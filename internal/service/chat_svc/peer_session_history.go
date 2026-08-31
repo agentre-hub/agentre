@@ -33,6 +33,11 @@ import (
 // peer (or the relay path to it) is slow. Frames are only ever queued by the
 // turn loop; the worker drains the queues outside the publication lock.
 type peerSessionPublication struct {
+	// conversationID 是这条会话在线上的身份(chat_sessions.conversation_id)。
+	// 建立这份宇宙的那一刻就定死,此后不再改 —— 每一帧都要盖它,而它是个不可变值,
+	// 所以不进锁、也不必回头查库。
+	conversationID string
+
 	mu          sync.Mutex
 	history     []wire.EventFrame
 	nextSeq     int64
@@ -71,10 +76,11 @@ type peerSessionSubscription struct {
 	flushing bool
 }
 
-func (s *chatSvc) peerPublication(sessionID int64) *peerSessionPublication {
+func (s *chatSvc) peerPublication(sessionID int64, conversationID string) *peerSessionPublication {
 	value, _ := s.peerPublications.LoadOrStore(sessionID, &peerSessionPublication{
-		subscribers: map[string]*peerSessionSubscription{},
-		wake:        make(chan struct{}, 1),
+		conversationID: conversationID,
+		subscribers:    map[string]*peerSessionSubscription{},
+		wake:           make(chan struct{}, 1),
 	})
 	publication := value.(*peerSessionPublication)
 	publication.startOnce.Do(func() { go s.peerFlushLoop(publication) })
@@ -175,7 +181,7 @@ func (s *chatSvc) PullPeerSession(ctx context.Context, params wire.SessionPullPa
 	if err != nil {
 		return wire.SessionPullResult{}, err
 	}
-	publication := s.peerPublication(sessionID)
+	publication := s.peerPublication(sessionID, params.ConversationID)
 	key := peerSubscriberKey(subscriber)
 	publication.mu.Lock()
 
@@ -231,8 +237,8 @@ func clampPeerPullLimit(limit int) int {
 	return limit
 }
 
-func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, subscriber PeerSessionSubscriber) (int64, func(), error) {
-	publication := s.peerPublication(sessionID)
+func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, conversationID string, subscriber PeerSessionSubscriber) (int64, func(), error) {
+	publication := s.peerPublication(sessionID, conversationID)
 	key := peerSubscriberKey(subscriber)
 	// Holding this lock across the initial repository read makes the synthesized
 	// prefix and registration one publication boundary: a live event is either
@@ -244,7 +250,7 @@ func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, sub
 			publication.mu.Unlock()
 			return 0, nil, operationFailedWithCause(ctx, err)
 		}
-		history, err := synthesizePeerHistory(sessionID, messages)
+		history, err := synthesizePeerHistory(conversationID, messages)
 		if err != nil {
 			publication.mu.Unlock()
 			return 0, nil, fmt.Errorf("synthesize desktop peer history: %w", err)
@@ -290,7 +296,7 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 	publication := value.(*peerSessionPublication)
 	publication.mu.Lock()
 	publication.nextSeq++
-	frame := wire.EventFrame{ConversationID: peerConversationIDOf(sessionID), Event: event, Seq: publication.nextSeq}
+	frame := wire.EventFrame{ConversationID: publication.conversationID, Event: event, Seq: publication.nextSeq}
 	publication.history = append(publication.history, frame)
 	for _, subscription := range publication.subscribers {
 		// Queue only: the flush worker performs the (potentially blocking) relay
@@ -335,7 +341,7 @@ func peerSubscriberKey(subscriber PeerSessionSubscriber) string {
 	return fmt.Sprintf("%T:%v", subscriber, subscriber)
 }
 
-func synthesizePeerHistory(sessionID int64, messages []*chat_entity.Message) ([]wire.EventFrame, error) {
+func synthesizePeerHistory(conversationID string, messages []*chat_entity.Message) ([]wire.EventFrame, error) {
 	sorted := append([]*chat_entity.Message(nil), messages...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i] == nil {
@@ -348,7 +354,7 @@ func synthesizePeerHistory(sessionID int64, messages []*chat_entity.Message) ([]
 	})
 	frames := make([]wire.EventFrame, 0)
 	appendEvent := func(event agentruntime.Event) error {
-		frames = append(frames, wire.EventFrame{ConversationID: peerConversationIDOf(sessionID), Event: event})
+		frames = append(frames, wire.EventFrame{ConversationID: conversationID, Event: event})
 		return nil
 	}
 	for _, message := range sorted {

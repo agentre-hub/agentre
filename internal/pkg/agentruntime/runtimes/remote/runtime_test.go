@@ -101,7 +101,7 @@ func setupRemote(t *testing.T) (
 	// Closed() 由 New() 调用一次起 watchClose goroutine;返回 nil 等价于"不监
 	// 听断连"——单测不需要触发断连分支,默认走纯 RPC 路径。
 	cli.EXPECT().Closed().Return(nil).AnyTimes()
-	rt := New(protorpctest.WrapConnection(cli))
+	rt := New(protorpctest.WrapConnection(cli), WithConversationIDResolver(convOf))
 	return ctrl, cli, capture, rt
 }
 
@@ -1616,7 +1616,7 @@ func TestWatchClose_InjectsStopErrAndClosesEvents(t *testing.T) {
 		}).AnyTimes()
 	closeCh := make(chan struct{})
 	cli.EXPECT().Closed().Return((<-chan struct{})(closeCh)).AnyTimes()
-	rt := New(protorpctest.WrapConnection(cli))
+	rt := New(protorpctest.WrapConnection(cli), WithConversationIDResolver(convOf))
 
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
@@ -1655,7 +1655,7 @@ func TestBuildRunParams_ForwardsMCPServers(t *testing.T) {
 		Headers: map[string]string{"Authorization": "Bearer t"},
 		Tools:   []string{"group_send"},
 	}}
-	params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
 		Backend:    &agent_backend_entity.AgentBackend{},
 		SessionID:  9,
 		MCPServers: specs,
@@ -1685,7 +1685,7 @@ func TestBuildRunParams_ForwardsMCPServers(t *testing.T) {
 // 本地 sess.ProviderSessionID 为空时置 RunRequest.FreshSession=true,必须随 wire 过线到
 // daemon —— 漏传则 daemon 拿落库旧 id 续话,regenerate / provider 会话失效恢复又变回坏路径。
 func TestBuildRunParams_ForwardsFreshSession(t *testing.T) {
-	params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
 		Backend:      &agent_backend_entity.AgentBackend{},
 		SessionID:    9,
 		FreshSession: true,
@@ -1718,7 +1718,7 @@ func TestBuildRunParams_ForwardsEnabledPlugins(t *testing.T) {
 		"browser@openai-bundled":     true,
 		"superpowers@openai-curated": false,
 	}
-	params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
 		Backend:        &agent_backend_entity.AgentBackend{},
 		SessionID:      9,
 		EnabledPlugins: plugins,
@@ -1747,7 +1747,7 @@ func TestBuildRunParams_ForwardsEnabledPlugins(t *testing.T) {
 // (会话 provider_key 优先的 effectiveProviderKey)必须随 buildRunParams 透传到
 // wire.RunParams.LLMProviderKey,daemon 才能按它自解。
 func TestBuildRunParams_ForwardsLLMProviderKey(t *testing.T) {
-	params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
 		Backend:        &agent_backend_entity.AgentBackend{},
 		SessionID:      9,
 		LLMProviderKey: "session-key",
@@ -1914,7 +1914,7 @@ func TestRun_DirectForkTurnAcceptsChangedProviderSessionID(t *testing.T) {
 // key），未提供时回落 backend 主绑定固定模型；两者皆空 = provider-default。
 func TestBuildRunParams_ForwardsLLMModelKey(t *testing.T) {
 	t.Run("from effective config", func(t *testing.T) {
-		params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
+		params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{LLMModelKey: "backend-model"},
 			SessionID: 9,
 			Effective: &agentruntime.EffectiveLLMConfig{
@@ -1927,7 +1927,7 @@ func TestBuildRunParams_ForwardsLLMModelKey(t *testing.T) {
 	})
 
 	t.Run("fallback to backend fixed model", func(t *testing.T) {
-		params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
+		params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{LLMModelKey: "backend-model"},
 			SessionID: 9,
 		})
@@ -1936,7 +1936,7 @@ func TestBuildRunParams_ForwardsLLMModelKey(t *testing.T) {
 	})
 
 	t.Run("provider-default stays empty", func(t *testing.T) {
-		params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
+		params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{LLMProviderKey: "pk"},
 			SessionID: 9,
 		})
@@ -1948,7 +1948,7 @@ func TestBuildRunParams_ForwardsLLMModelKey(t *testing.T) {
 		// spec 决策 1：会话钉了 Provider 且选 provider-default（ModelKey 空）时，即使
 		// backend 主绑定同家并固定了模型，wire 也必须保持空 model key（provider-default），
 		// 不能被 backend 的固定模型带偏 —— 远端与本地同一解析语义（sessionModelKeyFor）。
-		params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
+		params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{LLMProviderKey: "pk", LLMModelKey: "backend-model"},
 			SessionID: 9,
 			Effective: &agentruntime.EffectiveLLMConfig{
