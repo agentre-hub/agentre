@@ -6,6 +6,7 @@ import (
 
 	"github.com/cago-frame/cago/database/db"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 )
@@ -30,6 +31,38 @@ func replaceBlocks(ctx context.Context, messageID int64, blocksJSON string) erro
 		return err
 	}
 	return insertBlocks(ctx, messageID, blocksJSON)
+}
+
+// syncBlocks 把一条消息的块行按差分推到新版正文:变化的块 upsert,新版更短时截断残块。
+//
+// 与 replaceBlocks 的关系是「同一件事的两种代价」。replaceBlocks 无条件重写整份正文,
+// 用在一轮一次的收尾上代价可以接受;而轮内每个 ToolResult 之后都要 checkpoint 一次,
+// 那里整表替换就是 O(N²) —— 第 k 次 checkpoint 重写当时已有的全部 k 个块。实测用户库
+// 里一条最终 1723 块 / 2 MB 的消息被 checkpoint 840 次,DELETE 侧就重写了 723,550 行 /
+// 910 MB,WAL 因此涨到 1.4 GB、无关的单行读被拖到几十秒。
+//
+// upsert 走 (message_id, idx) 唯一索引:同一条语句既覆盖「就地改写」也覆盖「末尾新增」,
+// 不必先查再分流。
+func syncBlocks(ctx context.Context, messageID int64, prev, next string) error {
+	diff, err := chat_entity.DiffBlocks(messageID, prev, next)
+	if err != nil {
+		return err
+	}
+	if diff.TruncateFrom >= 0 {
+		if err := db.Ctx(ctx).Exec(
+			"DELETE FROM `chat_message_blocks` WHERE message_id = ? AND idx >= ?",
+			messageID, diff.TruncateFrom,
+		).Error; err != nil {
+			return err
+		}
+	}
+	if len(diff.Upserts) == 0 {
+		return nil
+	}
+	return db.Ctx(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "message_id"}, {Name: "idx"}},
+		DoUpdates: clause.AssignmentColumns([]string{"type", "tool_call_id", "codec", "data"}),
+	}).Create(&diff.Upserts).Error
 }
 
 // loadBlocksBatch 是一次 IN 查询里最多带几个 message id。SQLite 的绑定变量有上限

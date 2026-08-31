@@ -56,6 +56,20 @@ func (mr *MockMessageRepoMockRecorder) AppendSubagentChildren(ctx, sessionID, pa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendSubagentChildren", reflect.TypeOf((*MockMessageRepo)(nil).AppendSubagentChildren), ctx, sessionID, parentToolCallID, childBlocksJSON, childIDs)
 }
 
+// CheckpointBlocks mocks base method.
+func (m_2 *MockMessageRepo) CheckpointBlocks(ctx context.Context, m *chat_entity.Message, prevBlocksJSON string) error {
+	m_2.ctrl.T.Helper()
+	ret := m_2.ctrl.Call(m_2, "CheckpointBlocks", ctx, m, prevBlocksJSON)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CheckpointBlocks indicates an expected call of CheckpointBlocks.
+func (mr *MockMessageRepoMockRecorder) CheckpointBlocks(ctx, m, prevBlocksJSON any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckpointBlocks", reflect.TypeOf((*MockMessageRepo)(nil).CheckpointBlocks), ctx, m, prevBlocksJSON)
+}
+
 // Create mocks base method.
 func (m_2 *MockMessageRepo) Create(ctx context.Context, m *chat_entity.Message) error {
 	m_2.ctrl.T.Helper()

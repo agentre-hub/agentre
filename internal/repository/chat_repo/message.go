@@ -52,6 +52,13 @@ type MessageRepo interface {
 	NextSeq(ctx context.Context, sessionID int64) (int, error)
 	Create(ctx context.Context, m *chat_entity.Message) error
 	Update(ctx context.Context, m *chat_entity.Message) error
+	// CheckpointBlocks 把消息推进到 m 的当前状态,正文按差分只写变化的块行。
+	// prevBlocksJSON 是上一次落库的那份正文(调用方在 SetBlocks 覆写前留下来的)。
+	//
+	// 与 Update 的区别只在正文写法:Update 整表替换(DELETE 全部 + INSERT 全部),
+	// 用在一轮一次的收尾;CheckpointBlocks 用在轮内每个 ToolResult 之后的高频
+	// checkpoint —— 整表替换在那里是 O(N²),理由见 syncBlocks 的注释。
+	CheckpointBlocks(ctx context.Context, m *chat_entity.Message, prevBlocksJSON string) error
 	// UpdateUsage 只写 token 计数那几列。
 	//
 	// 不要退回 Update:整行 Save 会把调用方手上那份实体的正文一起重写(整批块行删了重插),
@@ -175,6 +182,18 @@ func (r *messageRepo) Create(ctx context.Context, m *chat_entity.Message) error 
 			return err
 		}
 		return insertBlocks(txCtx, m.ID, m.BlocksJSON)
+	})
+}
+
+// CheckpointBlocks 见接口注释:元数据整行 Save,正文只写差分。
+func (r *messageRepo) CheckpointBlocks(ctx context.Context, m *chat_entity.Message, prevBlocksJSON string) error {
+	m.Updatetime = time.Now().UnixMilli()
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := db.WithContextDB(ctx, tx)
+		if err := tx.Save(m).Error; err != nil {
+			return err
+		}
+		return syncBlocks(txCtx, m.ID, prevBlocksJSON, m.BlocksJSON)
 	})
 }
 

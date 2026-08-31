@@ -99,6 +99,10 @@ func expectSteerSegmentationTurn(t *testing.T, m *chatMocks) {
 
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例跑到 tool_result,两条路都要许可。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).AnyTimes()
 
 	m.dbMock.ExpectBegin()
 	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(3, nil)

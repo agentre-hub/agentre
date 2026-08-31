@@ -157,3 +157,67 @@ func TestMessageRepo_UpdateReplacesBlockRows(t *testing.T) {
 	require.NoError(t, chat_repo.NewMessage().Update(ctx, m))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestMessageRepo_CheckpointBlocksWritesOnlyTheDelta 钉住轮内 checkpoint 的写放大修复。
+//
+// 事故形态:turn 每收到一个 ToolResult 就 checkpoint 一次,而 checkpoint 走 Update →
+// replaceBlocks(DELETE 全部块 + INSERT 全部块),于是第 k 次 checkpoint 重写当时已有的
+// 全部 k 个块。用户库里消息 26382 最终 1723 块 / 2 MB,却被 checkpoint 840 次、
+// DELETE 侧重写 723,550 行 / 910 MB,WAL 涨到 1.4 GB。
+//
+// 这里断言的正是「只写增量」:追加一个块 → 一条 upsert、零条 DELETE。
+func TestMessageRepo_CheckpointBlocksWritesOnlyTheDelta(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	prev := `[{"type":"text","data":{"text":"a"}},{"type":"tool_use","data":{"id":"tu-1"}}]`
+	next := prev[:len(prev)-1] + `,{"type":"tool_result","data":{"tool_use_id":"tu-1"}}]`
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_messages`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO `chat_message_blocks`").
+		WithArgs(
+			int64(42), 2, "tool_result", "tu-1", chat_entity.BlockCodecRaw,
+			[]byte(`{"tool_use_id":"tu-1"}`),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	m := &chat_entity.Message{ID: 42, SessionID: 3, Role: "assistant", BlocksJSON: next, Seq: 1}
+	require.NoError(t, chat_repo.NewMessage().CheckpointBlocks(ctx, m, prev))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestMessageRepo_CheckpointBlocksTruncatesShrunkTail 证明新版更短时高位残块被删掉 ——
+// 整表替换天然没有残块问题,差分写必须自己补上这一刀。
+func TestMessageRepo_CheckpointBlocksTruncatesShrunkTail(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	prev := `[{"type":"text","data":{"text":"a"}},{"type":"text","data":{"text":"b"}}]`
+	next := `[{"type":"text","data":{"text":"a"}}]`
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_messages`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM `chat_message_blocks` WHERE message_id = \\? AND idx >= \\?").
+		WithArgs(int64(42), 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	m := &chat_entity.Message{ID: 42, SessionID: 3, Role: "assistant", BlocksJSON: next, Seq: 1}
+	require.NoError(t, chat_repo.NewMessage().CheckpointBlocks(ctx, m, prev))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestMessageRepo_CheckpointBlocksSkipsUnchangedBody 证明正文一个字节都没变时不发任何块语句。
+func TestMessageRepo_CheckpointBlocksSkipsUnchangedBody(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	same := `[{"type":"text","data":{"text":"a"}}]`
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_messages`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	m := &chat_entity.Message{ID: 42, SessionID: 3, Role: "assistant", BlocksJSON: same, Seq: 1}
+	require.NoError(t, chat_repo.NewMessage().CheckpointBlocks(ctx, m, same))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

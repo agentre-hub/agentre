@@ -175,3 +175,68 @@ func JoinBlocks(rows []*MessageBlock) (string, error) {
 	}
 	return string(buf), nil
 }
+
+// BlockDiff 是「把一条消息的正文从上一版推到新版」所需的最小写集合。
+//
+// Upserts 是内容真的变了(或新增)的块行,按 (message_id, idx) 覆写;
+// TruncateFrom >= 0 表示新版更短,idx >= TruncateFrom 的残块要删掉,-1 表示不必截断。
+type BlockDiff struct {
+	Upserts      []*MessageBlock
+	TruncateFrom int
+}
+
+// DiffBlocks 算出从 prev 推到 next 的最小写集合。
+//
+// 存在的理由是写放大:turn 里每个 ToolResult 都会 checkpoint 一次,而整表替换
+// (replaceBlocks)让第 k 次 checkpoint 重写当时已有的全部 k 个块 —— 单条消息 O(N²)。
+// 相邻两次 checkpoint 之间通常只有末尾几个块变化,按差分写就把每次 checkpoint 从
+// O(N) 降到 O(变化量)。
+//
+// 比较用的是**解码后**的正文(Type + 原始字节),不是落库形态:一来避免为了比较把
+// 每个未变化的块都重新 deflate 一遍(那正是要省掉的开销),二来编码是纯函数,
+// 逐字节相等的正文必然编出逐字节相等的行。
+func DiffBlocks(messageID int64, prev, next string) (BlockDiff, error) {
+	prevBlocks, err := decodeStoredBlocks(prev)
+	if err != nil {
+		return BlockDiff{}, err
+	}
+	nextBlocks, err := decodeStoredBlocks(next)
+	if err != nil {
+		return BlockDiff{}, err
+	}
+	diff := BlockDiff{TruncateFrom: -1}
+	for i := range nextBlocks {
+		if i < len(prevBlocks) && sameStoredBlock(prevBlocks[i], nextBlocks[i]) {
+			continue
+		}
+		codec, data := EncodeBlockData(nextBlocks[i].Data)
+		diff.Upserts = append(diff.Upserts, &MessageBlock{
+			MessageID:  messageID,
+			Idx:        i,
+			Type:       nextBlocks[i].Type,
+			ToolCallID: blockToolCallID(nextBlocks[i].Type, nextBlocks[i].Data),
+			Codec:      codec,
+			Data:       data,
+		})
+	}
+	if len(nextBlocks) < len(prevBlocks) {
+		diff.TruncateFrom = len(nextBlocks)
+	}
+	return diff, nil
+}
+
+// decodeStoredBlocks 把正文 JSON 解成块数组;空串按空数组处理(消息刚建时就是这样)。
+func decodeStoredBlocks(blocksJSON string) ([]blocks.StoredBlock, error) {
+	if blocksJSON == "" {
+		return nil, nil
+	}
+	var stored []blocks.StoredBlock
+	if err := json.Unmarshal([]byte(blocksJSON), &stored); err != nil {
+		return nil, err
+	}
+	return stored, nil
+}
+
+func sameStoredBlock(a, b blocks.StoredBlock) bool {
+	return a.Type == b.Type && bytes.Equal(a.Data, b.Data)
+}

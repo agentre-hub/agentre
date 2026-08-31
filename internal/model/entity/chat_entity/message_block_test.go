@@ -67,3 +67,85 @@ func TestEncodeBlockData(t *testing.T) {
 func TestMessageBlockTableName(t *testing.T) {
 	assert.Equal(t, "chat_message_blocks", (&chat_entity.MessageBlock{}).TableName())
 }
+
+// TestDiffBlocks 覆盖「按差分落块」的四种形态。
+//
+// 它存在的理由是一次实测事故:turn 每收到一个 ToolResult 就 checkpoint 一次,而
+// checkpoint 走的是「DELETE 全部块 + INSERT 全部块」,于是第 k 次 checkpoint 重写
+// 当时已有的全部 k 个块 —— 单条消息 O(N²)。用户库里消息 26382 最终只有 1723 块 /
+// 2 MB,却被 checkpoint 了 840 次、重写了 723,550 行 / 910 MB(DELETE 侧),
+// WAL 涨到 1.4 GB、无关的单行读被拖到几十秒。
+func TestDiffBlocks(t *testing.T) {
+	block := func(typ, text string) string {
+		return `{"type":"` + typ + `","data":{"text":"` + text + `"}}`
+	}
+	doc := func(parts ...string) string { return "[" + strings.Join(parts, ",") + "]" }
+
+	t.Run("末尾追加一个块时只产出那一个 upsert", func(t *testing.T) {
+		prev := doc(block("text", "a"), block("tool_use", "b"))
+		next := doc(block("text", "a"), block("tool_use", "b"), block("tool_result", "c"))
+
+		diff, err := chat_entity.DiffBlocks(7, prev, next)
+
+		require.NoError(t, err)
+		require.Len(t, diff.Upserts, 1, "未变化的块一个都不许重写")
+		assert.Equal(t, 2, diff.Upserts[0].Idx)
+		assert.Equal(t, "tool_result", diff.Upserts[0].Type)
+		assert.EqualValues(t, 7, diff.Upserts[0].MessageID)
+		assert.Equal(t, -1, diff.TruncateFrom, "只追加不截断")
+	})
+
+	t.Run("中间某块就地改写时只产出那一个 upsert", func(t *testing.T) {
+		prev := doc(block("text", "a"), block("subagent_state", "running"))
+		next := doc(block("text", "a"), block("subagent_state", "done"))
+
+		diff, err := chat_entity.DiffBlocks(7, prev, next)
+
+		require.NoError(t, err)
+		require.Len(t, diff.Upserts, 1)
+		assert.Equal(t, 1, diff.Upserts[0].Idx)
+		assert.Equal(t, -1, diff.TruncateFrom)
+	})
+
+	t.Run("完全没变化时不产出任何语句", func(t *testing.T) {
+		same := doc(block("text", "a"), block("tool_use", "b"))
+
+		diff, err := chat_entity.DiffBlocks(7, same, same)
+
+		require.NoError(t, err)
+		assert.Empty(t, diff.Upserts)
+		assert.Equal(t, -1, diff.TruncateFrom)
+	})
+
+	t.Run("新版更短时截断掉高位残块", func(t *testing.T) {
+		prev := doc(block("text", "a"), block("tool_use", "b"), block("tool_result", "c"))
+		next := doc(block("text", "a"))
+
+		diff, err := chat_entity.DiffBlocks(7, prev, next)
+
+		require.NoError(t, err)
+		assert.Empty(t, diff.Upserts, "留下的那块没变,不必重写")
+		assert.Equal(t, 1, diff.TruncateFrom, "idx >= 1 的残块必须删掉")
+	})
+
+	t.Run("上一版为空(首次 checkpoint)时整份都是 upsert", func(t *testing.T) {
+		next := doc(block("text", "a"), block("tool_use", "b"))
+
+		diff, err := chat_entity.DiffBlocks(7, "[]", next)
+
+		require.NoError(t, err)
+		assert.Len(t, diff.Upserts, 2)
+		assert.Equal(t, -1, diff.TruncateFrom)
+	})
+
+	t.Run("upsert 的正文按阈值编码,与整表落库口径一致", func(t *testing.T) {
+		big := strings.Repeat("agentre", 2000)
+		next := doc(block("text", big))
+
+		diff, err := chat_entity.DiffBlocks(7, "[]", next)
+
+		require.NoError(t, err)
+		require.Len(t, diff.Upserts, 1)
+		assert.Equal(t, chat_entity.BlockCodecDeflate, diff.Upserts[0].Codec)
+	})
+}

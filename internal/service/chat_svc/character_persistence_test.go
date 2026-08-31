@@ -59,8 +59,8 @@ func TestCharacterization_Persistence_CheckpointAssistantSurvivesCancel(t *testi
 		canceledCtx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		msgRepo.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
-			func(ctx context.Context, _ *chat_entity.Message) error {
+		msgRepo.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, _ *chat_entity.Message, _ string) error {
 				So(ctx.Err(), ShouldBeNil)
 				return nil
 			},

@@ -3798,6 +3798,14 @@ func TestSend_CodexPlanUpdatedPersistsVisiblePlanBlock(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+			cp := *msg
+			final = &cp
+			return nil
+		}).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		SessionID:      100,
@@ -3872,6 +3880,14 @@ func TestSend_UnansweredAskUserQuestionExpiresAtFinalize(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+			cp := *msg
+			final = &cp
+			return nil
+		}).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -3937,6 +3953,14 @@ func TestSend_CodexPlanItemTextPersistsVisiblePlanBlock(t *testing.T) {
 	var final *chat_entity.Message
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			cp := *msg
+			final = &cp
+			return nil
+		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4013,6 +4037,14 @@ func TestSend_ActionablePlanBlockMarksSessionWaiting(t *testing.T) {
 	var final *chat_entity.Message
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			cp := *msg
+			final = &cp
+			return nil
+		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4121,6 +4153,14 @@ func TestSend_TerminalDaemonDisconnectLandsErrorStatus(t *testing.T) {
 			final = &cp
 			return nil
 		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+			cp := *msg
+			final = &cp
+			return nil
+		}).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -4183,6 +4223,14 @@ func runStopErrTurnErrorText(t *testing.T, stop error) string {
 	var final *chat_entity.Message
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			cp := *msg
+			final = &cp
+			return nil
+		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -4342,6 +4390,14 @@ func TestSend_CodexPlanEmptyTurnPersistsFallbackText(t *testing.T) {
 	var final *chat_entity.Message
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			cp := *msg
+			final = &cp
+			return nil
+		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
 			cp := *msg
 			final = &cp
 			return nil
@@ -5164,6 +5220,11 @@ func standardSendMocks(t *testing.T, m *chatMocks, sessionID, agentID, backendID
 	t.Helper()
 	captured := standardSendMocksWithoutMessageUpdate(t, m, sessionID, agentID, backendID, providerKey)
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks)。这条兜底许可同样要覆盖它,否则任何跑到 tool_result
+	// 的用例都会撞上「未预期的调用」。想观察 checkpoint 内容的用例自己再挂捕获。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).AnyTimes()
 	return captured
 }
 
@@ -5426,6 +5487,15 @@ func TestSend_AskUserQuestionCheckpointsWaitingCard(t *testing.T) {
 			}
 			return nil
 		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
+			if msg.Role == "assistant" {
+				updates = append(updates, *msg)
+			}
+			return nil
+		}).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 104, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -5454,6 +5524,15 @@ func TestSend_ToolPermissionCheckpointsWaitingCard(t *testing.T) {
 	var updates []chat_entity.Message
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			if msg.Role == "assistant" {
+				updates = append(updates, *msg)
+			}
+			return nil
+		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
 			if msg.Role == "assistant" {
 				updates = append(updates, *msg)
 			}
@@ -5579,6 +5658,13 @@ func TestSend_CheckpointsAssistantWhenToolResultArrives(t *testing.T) {
 	var updates []chat_entity.Message
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			updates = append(updates, *msg)
+			return nil
+		}).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message, _ string) error {
 			updates = append(updates, *msg)
 			return nil
 		}).AnyTimes()
@@ -10726,6 +10812,10 @@ func TestSend_StreamToolUseCarriesCanonical(t *testing.T) {
 	m.message.EXPECT().List(gomock.Any(), int64(201)).Return(nil, nil).AnyTimes()
 	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 201, AgentID: 7, Text: "hi"})
 	require.NoError(t, err)
@@ -10867,6 +10957,10 @@ func TestSend_CoalescedStreamPreservesTextAndOrdering(t *testing.T) {
 	m.dbMock.ExpectCommit()
 	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
 	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// 轮内 checkpoint 已从 Update 改走 CheckpointBlocks(整表替换 → 差分写,见
+	// chat_repo.syncBlocks);这条用例盯的正是 checkpoint 落了什么,两条路都要收。
+	m.message.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).AnyTimes()
 	m.message.EXPECT().UpdateUsage(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
