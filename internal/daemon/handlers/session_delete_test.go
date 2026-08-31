@@ -44,10 +44,10 @@ func setupSessionDeleteTest(t *testing.T, claimedAccountID func() string) (
 // 的、会被复用,那段旧日志下一次就会被当成新会话的历史拉走。
 func TestSessionDelete_GivenOwnSession_ThenRemovesTheRowAndItsWholeJournal(t *testing.T) {
 	ctx, sessions, journal, h := setupSessionDeleteTest(t, nil)
-	sessions.EXPECT().Delete(gomock.Any(), "", "7").Return(int64(1), nil)
-	journal.EXPECT().DeleteAll(gomock.Any(), "", "7").Return(int64(42), nil)
+	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(1), nil)
+	journal.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(42), nil)
 
-	got, err := h.Delete(ctx, wire.SessionDeleteParams{SessionID: 7})
+	got, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
 	require.NoError(t, err)
 	assert.True(t, got.Deleted, "删除返回时这一端必须已经没有这条会话")
 }
@@ -57,10 +57,10 @@ func TestSessionDelete_GivenOwnSession_ThenRemovesTheRowAndItsWholeJournal(t *te
 // 「会话行已经没了、日志还剩着」正是上一次删到一半留下的样子,重试必须能收敛。
 func TestSessionDelete_GivenAlreadyDeletedSession_ThenSucceedsAndStillPurgesTheJournal(t *testing.T) {
 	ctx, sessions, journal, h := setupSessionDeleteTest(t, nil)
-	sessions.EXPECT().Delete(gomock.Any(), "", "7").Return(int64(0), nil)
-	journal.EXPECT().DeleteAll(gomock.Any(), "", "7").Return(int64(0), nil)
+	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(0), nil)
+	journal.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(0), nil)
 
-	got, err := h.Delete(ctx, wire.SessionDeleteParams{SessionID: 7})
+	got, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
 	require.NoError(t, err)
 	assert.True(t, got.Deleted, "重复删除同样以「这一端没有这条会话了」收尾")
 }
@@ -71,7 +71,7 @@ func TestSessionDelete_GivenAlreadyDeletedSession_ThenSucceedsAndStillPurgesTheJ
 func TestSessionDelete_GivenNamedOriginWithoutAccount_ThenRejectsWithoutTouchingAnything(t *testing.T) {
 	ctx, _, _, h := setupSessionDeleteTest(t, nil)
 
-	_, err := h.Delete(ctx, wire.SessionDeleteParams{SessionID: 7, PeerFingerprint: "sha256:someone-else"})
+	_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7), PeerFingerprint: "sha256:someone-else"})
 	require.ErrorIs(t, err, rpcerror.ErrUnauthorized)
 }
 
@@ -79,21 +79,29 @@ func TestSessionDelete_GivenNamedOriginWithoutAccount_ThenRejectsWithoutTouching
 // server 把待办勾掉,那段转录就永远留在这台机器上了。
 func TestSessionDelete_GivenJournalPurgeFails_ThenReportsFailure(t *testing.T) {
 	ctx, sessions, journal, h := setupSessionDeleteTest(t, nil)
-	sessions.EXPECT().Delete(gomock.Any(), "", "7").Return(int64(1), nil)
-	journal.EXPECT().DeleteAll(gomock.Any(), "", "7").Return(int64(0), errors.New("disk is gone"))
+	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(1), nil)
+	journal.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(0), errors.New("disk is gone"))
 
-	_, err := h.Delete(ctx, wire.SessionDeleteParams{SessionID: 7})
+	_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk is gone")
 }
 
-// Given 一个不成其为会话标识的 id, When 它被拿来删除, Then 直接拒绝 —— 会话 id 是
-// 正整数主键,0 / 负数只会静默删掉零行并报「删好了」。
-func TestSessionDelete_GivenNonPositiveSessionID_ThenRejects(t *testing.T) {
-	ctx, _, _, h := setupSessionDeleteTest(t, nil)
+// Given 一个不成其为对话身份的取值(空、旧的裸数字会话号、畸形 uuid),When 它被拿来
+// 删除,Then 在打库之前就以「参数不合法」拒绝 —— 这些取值删不到任何一行,却会让调用方
+// 收到「删好了」。判据从"正整数"换成 uuid 格式,是本轮换身份的直接后果。
+func TestSessionDelete_GivenSomethingThatIsNotAConversationID_ThenRejects(t *testing.T) {
+	for _, bad := range []string{"", "0", "7", "-1", "not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
+		t.Run(bad, func(t *testing.T) {
+			ctx, _, _, h := setupSessionDeleteTest(t, nil)
 
-	_, err := h.Delete(ctx, wire.SessionDeleteParams{SessionID: 0})
-	require.ErrorIs(t, err, rpcerror.ErrInvalidParams)
+			_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: bad})
+			var rpcErr *rpcerror.Error
+			require.ErrorAs(t, err, &rpcErr)
+			assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code,
+				"非法对话身份要给一个能与「这条对话不在本机」分开的错误码")
+		})
+	}
 }
 
 // sessionReleaseRecorder 是一个认领了会话释放口的 runtime 替身。
@@ -126,13 +134,13 @@ func TestSessionDelete_GivenPooledCLISession_WhenDeleted_ThenTheSubprocessIsRele
 	defer agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, recorder)()
 
 	ctx, sessions, journal, h := setupSessionDeleteTest(t, nil)
-	sessions.EXPECT().Delete(gomock.Any(), "", "7").Return(int64(1), nil)
-	journal.EXPECT().DeleteAll(gomock.Any(), "", "7").Return(int64(1), nil)
+	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(1), nil)
+	journal.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(1), nil)
 
-	_, err := h.Delete(ctx, wire.SessionDeleteParams{SessionID: 7})
+	_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
 	require.NoError(t, err)
 
-	// 释放用的会话键与 runtime.run 交给 backend 的是同一个(按对端隔离);本用例没有
-	// 对端身份,隔离键退化成裸 id。
-	assert.Equal(t, []int64{7}, recorder.Released())
+	// 释放用的会话键与 runtime.run 交给 backend 的是同一个 —— 由对话身份折算出来的
+	// 那个进程内键,而不是随手编的数字。
+	assert.Equal(t, []int64{handlers.RuntimeSessionKey(convID(7))}, recorder.Released())
 }

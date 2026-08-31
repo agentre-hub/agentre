@@ -267,17 +267,17 @@ func (mr *MockPeerSvcMockRecorder) Close() *gomock.Call {
 }
 
 // Detach mocks base method.
-func (m *MockPeerSvc) Detach(ctx context.Context, fingerprint string, sessionID int64) error {
+func (m *MockPeerSvc) Detach(ctx context.Context, fingerprint string, conversationID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Detach", ctx, fingerprint, sessionID)
+	ret := m.ctrl.Call(m, "Detach", ctx, fingerprint, conversationID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Detach indicates an expected call of Detach.
-func (mr *MockPeerSvcMockRecorder) Detach(ctx, fingerprint, sessionID any) *gomock.Call {
+func (mr *MockPeerSvcMockRecorder) Detach(ctx, fingerprint, conversationID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Detach", reflect.TypeOf((*MockPeerSvc)(nil).Detach), ctx, fingerprint, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Detach", reflect.TypeOf((*MockPeerSvc)(nil).Detach), ctx, fingerprint, conversationID)
 }
 
 // ListSessions mocks base method.

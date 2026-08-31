@@ -3,7 +3,7 @@
     "backendType": "claudecode"
   },
   "agentId": 7,
-  "sessionId": 42,
+  "conversationId": "00000000-0000-7000-8000-000000000042",
   "peerFingerprint": "fp-desktop",
   "cwd": "/home/agent/proj",
   "title": "重构登录页",

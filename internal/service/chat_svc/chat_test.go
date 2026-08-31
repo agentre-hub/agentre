@@ -3502,10 +3502,10 @@ func (c *preparedRemotePiClient) Call(_ context.Context, method string, params, 
 		c.mu.Unlock()
 		switch call {
 		case 1:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			return nil
 		case 2:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "pi-session-new"}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "pi-session-new"}
 			return nil
 		case 3:
 			if c.activated == nil || !c.activated() {
@@ -3514,12 +3514,12 @@ func (c *preparedRemotePiClient) Call(_ context.Context, method string, params, 
 			if rp.ProviderSessionID != "pi-session-new" {
 				return fmt.Errorf("remote Pi Start used provider session %q", rp.ProviderSessionID)
 			}
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "pi-session-new"}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "pi-session-new"}
 			if doneHandler == nil {
 				return errors.New("runtime.runResultDone handler not registered")
 			}
 			raw, err := json.Marshal(wire.RunResultDoneFrame{
-				SessionID: rp.SessionID, ProviderSessionID: "pi-session-new", UserAnchor: "pi-entry-new",
+				ConversationID: rp.ConversationID, ProviderSessionID: "pi-session-new", UserAnchor: "pi-entry-new",
 			})
 			if err != nil {
 				return err

@@ -17,7 +17,7 @@ func WireNotificationToProto(method string, params any) (*agentrewire.RpcNotific
 		if !ok {
 			return nil, fmt.Errorf("protowire: %s 参数类型为 %T", method, params)
 		}
-		out := &agentrewire.RuntimeEventNotification{SessionId: frame.SessionID, Seq: frame.Seq}
+		out := &agentrewire.RuntimeEventNotification{ConversationId: frame.ConversationID, Seq: frame.Seq}
 		if err := marshalEvent(out, frame.Event); err != nil {
 			return nil, err
 		}
@@ -46,7 +46,7 @@ func WireNotificationToProto(method string, params any) (*agentrewire.RpcNotific
 		if !ok {
 			return nil, fmt.Errorf("protowire: %s 参数类型为 %T", method, params)
 		}
-		return &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_AutonomousTurnStarted{AutonomousTurnStarted: &agentrewire.AutonomousTurnStartedNotification{SessionId: frame.SessionID, Seq: frame.Seq, Trigger: frame.Trigger, TurnToken: frame.TurnToken}}}, nil
+		return &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_AutonomousTurnStarted{AutonomousTurnStarted: &agentrewire.AutonomousTurnStartedNotification{ConversationId: frame.ConversationID, Seq: frame.Seq, Trigger: frame.Trigger, TurnToken: frame.TurnToken}}}, nil
 	default:
 		return nil, fmt.Errorf("protowire: 未知通知 %q", method)
 	}
@@ -69,21 +69,21 @@ func ProtoNotificationToWire(notification *agentrewire.RpcNotification) (string,
 		if err != nil {
 			return "", nil, err
 		}
-		return method, &wire.EventFrame{SessionID: frame.GetSessionId(), Seq: frame.GetSeq(), Event: event}, nil
+		return method, &wire.EventFrame{ConversationID: frame.GetConversationId(), Seq: frame.GetSeq(), Event: event}, nil
 	case *agentrewire.RpcNotification_RunResultDone:
 		return wire.NotifyRunResultDone, doneWire(payload.RunResultDone), nil
 	case *agentrewire.RpcNotification_AutonomousTurnDone:
 		return wire.NotifyAutonomousTurnDone, doneWire(payload.AutonomousTurnDone), nil
 	case *agentrewire.RpcNotification_AutonomousTurnStarted:
 		value := payload.AutonomousTurnStarted
-		return wire.NotifyAutonomousTurnStarted, &wire.AutonomousTurnStartedFrame{SessionID: value.GetSessionId(), Seq: value.GetSeq(), Trigger: value.GetTrigger(), TurnToken: value.GetTurnToken()}, nil
+		return wire.NotifyAutonomousTurnStarted, &wire.AutonomousTurnStartedFrame{ConversationID: value.GetConversationId(), Seq: value.GetSeq(), Trigger: value.GetTrigger(), TurnToken: value.GetTurnToken()}, nil
 	default:
 		return "", nil, fmt.Errorf("protowire: unknown typed notification")
 	}
 }
 
 func doneWire(value *agentrewire.RunResultDoneNotification) *wire.RunResultDoneFrame {
-	out := &wire.RunResultDoneFrame{SessionID: value.GetSessionId(), Seq: value.GetSeq(), ProviderSessionID: value.GetProviderSessionId(), UserAnchor: value.GetUserAnchor(), Model: value.GetModel(), ContextWindow: int(value.GetContextWindow()), TurnToken: value.GetTurnToken(), StopErrMsg: value.GetStopErrorMessage(), StopErrCode: int(value.GetStopErrorCode()), DurationMs: int(value.GetDurationMs()), FirstTokenMs: int(value.GetFirstTokenMs()), TokensPerSec: value.GetTokensPerSec()}
+	out := &wire.RunResultDoneFrame{ConversationID: value.GetConversationId(), Seq: value.GetSeq(), ProviderSessionID: value.GetProviderSessionId(), UserAnchor: value.GetUserAnchor(), Model: value.GetModel(), ContextWindow: int(value.GetContextWindow()), TurnToken: value.GetTurnToken(), StopErrMsg: value.GetStopErrorMessage(), StopErrCode: int(value.GetStopErrorCode()), DurationMs: int(value.GetDurationMs()), FirstTokenMs: int(value.GetFirstTokenMs()), TokensPerSec: value.GetTokensPerSec()}
 	if usage := value.GetUsage(); usage != nil {
 		out.Usage = &wire.UsageWire{PromptTokens: int(usage.GetPromptTokens()), CompletionTokens: int(usage.GetCompletionTokens()), ReasoningTokens: int(usage.GetReasoningTokens()), CachedTokens: int(usage.GetCachedTokens()), CacheCreationTokens: int(usage.GetCacheCreationTokens()), TotalTokens: int(usage.GetTotalTokens())}
 	}
@@ -125,7 +125,7 @@ func startedFrame(value any) (wire.AutonomousTurnStartedFrame, bool) {
 }
 
 func runResultDoneToProto(frame wire.RunResultDoneFrame) *agentrewire.RunResultDoneNotification {
-	out := &agentrewire.RunResultDoneNotification{SessionId: frame.SessionID, Seq: frame.Seq, ProviderSessionId: frame.ProviderSessionID, UserAnchor: frame.UserAnchor, Model: frame.Model, ContextWindow: int32(frame.ContextWindow), TurnToken: frame.TurnToken, StopErrorMessage: frame.StopErrMsg, StopErrorCode: int32(frame.StopErrCode), DurationMs: int32(frame.DurationMs), FirstTokenMs: int32(frame.FirstTokenMs), TokensPerSec: frame.TokensPerSec}
+	out := &agentrewire.RunResultDoneNotification{ConversationId: frame.ConversationID, Seq: frame.Seq, ProviderSessionId: frame.ProviderSessionID, UserAnchor: frame.UserAnchor, Model: frame.Model, ContextWindow: int32(frame.ContextWindow), TurnToken: frame.TurnToken, StopErrorMessage: frame.StopErrMsg, StopErrorCode: int32(frame.StopErrCode), DurationMs: int32(frame.DurationMs), FirstTokenMs: int32(frame.FirstTokenMs), TokensPerSec: frame.TokensPerSec}
 	if usage := frame.Usage; usage != nil {
 		out.Usage = &agentrewire.Usage{PromptTokens: int32(usage.PromptTokens), CompletionTokens: int32(usage.CompletionTokens), ReasoningTokens: int32(usage.ReasoningTokens), CachedTokens: int32(usage.CachedTokens), CacheCreationTokens: int32(usage.CacheCreationTokens), TotalTokens: int32(usage.TotalTokens)}
 	}

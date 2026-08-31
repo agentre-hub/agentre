@@ -224,7 +224,7 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 	t.Cleanup(restore)
 	rig := bootRemoteRig(t, nil)
 
-	execute := func(sessionID int64) wire.ExecuteResult {
+	execute := func(conversationID string) wire.ExecuteResult {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -232,7 +232,7 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 			uint32(agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE),
 			protowire.TranscriptExecuteParamsToProto(wire.ExecuteParams{
 				Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1",
-				SessionID: sessionID, AgentID: 7, AgentSyncID: "agent-sync-e2e",
+				ConversationID: conversationID, AgentID: 7, AgentSyncID: "agent-sync-e2e",
 			}),
 			func() *agentrewire.TranscriptImportExecuteResponse {
 				return &agentrewire.TranscriptImportExecuteResponse{}
@@ -241,8 +241,8 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 		return protowire.TranscriptExecuteResultFromProto(response)
 	}
 
-	imported := execute(4242)
-	assert.Equal(t, int64(4242), imported.SessionID)
+	imported := execute(convID(4242))
+	assert.Equal(t, convID(4242), imported.ConversationID)
 	assert.Equal(t, 2, imported.Turns)
 	assert.False(t, imported.AlreadyImported)
 
@@ -250,7 +250,7 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 	require.NoError(t, callRig(t, rig.cli, remotewire.MethodSessionList, nil, &list))
 	require.Len(t, list.Sessions, 1, "导入的会话归这台机器所有,清单里必须有它")
 	session := list.Sessions[0]
-	assert.Equal(t, int64(4242), session.SessionID)
+	assert.Equal(t, convID(4242), session.ConversationID)
 	assert.Equal(t, "/srv/imported", session.Cwd, "续跑要回到转录记的那个目录")
 	assert.Equal(t, "prov-e2e", session.ProviderSessionID, "续跑要对上那条 provider 原生会话")
 	assert.Equal(t, string(agent_backend_entity.TypeClaudeCode), session.BackendType)
@@ -259,7 +259,7 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 	assert.Equal(t, remotewire.SessionLifecycleIdle, session.LifecycleState, "导完在等下一轮,不是在跑")
 	assert.Equal(t, int64(8), session.LatestSeq, "最新 seq 取自通知日志:两轮各 4 条")
 
-	methods, events := pullTranscript(t, rig, 4242)
+	methods, events := pullTranscript(t, rig, convID(4242))
 	assert.Equal(t, []string{
 		remotewire.NotifyEvent, remotewire.NotifyEvent, remotewire.NotifyEvent, remotewire.NotifyRunResultDone,
 		remotewire.NotifyEvent, remotewire.NotifyEvent, remotewire.NotifyEvent, remotewire.NotifyRunResultDone,
@@ -273,9 +273,9 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 
 	// 同一条 provider 会话再导一次:指回库里那条,既不建第二条会话,也不往日志里
 	// 再叠一份转录 —— 叠上去客户端会把整段历史读成「又发生了一遍」。
-	again := execute(4243)
+	again := execute(convID(4243))
 	assert.True(t, again.AlreadyImported)
-	assert.Equal(t, int64(4242), again.SessionID)
+	assert.Equal(t, convID(4242), again.ConversationID)
 	assert.Equal(t, 0, again.Turns)
 
 	var after remotewire.SessionListResult
@@ -285,7 +285,7 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 }
 
 // pullTranscript 按游标把整段日志拉平,交回每一行的 method 与其中的事件。
-func pullTranscript(t *testing.T, rig *pairedTestRig, sessionID int64) ([]string, []agentruntime.Event) {
+func pullTranscript(t *testing.T, rig *pairedTestRig, conversationID string) ([]string, []agentruntime.Event) {
 	t.Helper()
 	var (
 		methods []string
@@ -296,7 +296,7 @@ func pullTranscript(t *testing.T, rig *pairedTestRig, sessionID int64) ([]string
 		require.Less(t, pages, 10, "翻页没有收敛")
 		var page remotewire.SessionPullResult
 		require.NoError(t, callRig(t, rig.cli, remotewire.MethodSessionPull,
-			remotewire.SessionPullParams{SessionID: sessionID, Cursor: cursor}, &page))
+			remotewire.SessionPullParams{ConversationID: conversationID, Cursor: cursor}, &page))
 		for _, notification := range page.Notifications {
 			methods = append(methods, notification.Method)
 			if notification.Method == remotewire.NotifyEvent {

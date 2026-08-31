@@ -17,14 +17,19 @@ import (
 func TestEventNotificationRoundTrip(t *testing.T) {
 	// Given 一个 sealed runtime event；When 经生产 Go 转换边界编码再解码；
 	// Then 字节与 TS fixture 一致，且不经过 JSON params。
-	got, err := MarshalEventNotification(42, 7, agentruntime.TextDelta{Text: "hello"}, false)
+	got, err := MarshalEventNotification(convID(42), 7, agentruntime.TextDelta{Text: "hello"}, false)
 	require.NoError(t, err)
-	require.Equal(t, []byte{0x22, 0x0f, 0x0a, 0x0d, 0x08, 0x2a, 0x10, 0x07, 0x1a, 0x07, 0x0a, 0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f}, got)
+	require.Equal(t, []byte{
+		0x22, 0x33, 0x0a, 0x31, 0x0a, 0x24, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x2d, 0x30,
+		0x30, 0x30, 0x30, 0x2d, 0x37, 0x30, 0x30, 0x30, 0x2d, 0x38, 0x30, 0x30, 0x30, 0x2d, 0x30, 0x30,
+		0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x32, 0x10, 0x07, 0x1a, 0x07, 0x0a, 0x05,
+		0x68, 0x65, 0x6c, 0x6c, 0x6f,
+	}, got)
 
 	decoded, autonomous, err := UnmarshalEventNotification(got)
 	require.NoError(t, err)
 	require.False(t, autonomous)
-	require.Equal(t, int64(42), decoded.SessionID)
+	require.Equal(t, convID(42), decoded.ConversationID)
 	require.Equal(t, int64(7), decoded.Seq)
 	require.Equal(t, agentruntime.TextDelta{Text: "hello"}, decoded.Event)
 }
@@ -35,7 +40,7 @@ func TestEventNotificationPlanUpdatedPreservesCanonicalPayload(t *testing.T) {
 		Text:    "## Plan\n- inspect",
 		Actions: []canonical.PlanAction{{ID: canonical.PlanActionIDExecute, Kind: canonical.PlanActionApprove, RequiresFeedback: true}},
 	}}
-	encoded, err := MarshalEventNotification(42, 7, want, false)
+	encoded, err := MarshalEventNotification(convID(42), 7, want, false)
 	require.NoError(t, err)
 	decoded, _, err := UnmarshalEventNotification(encoded)
 	require.NoError(t, err)
@@ -46,7 +51,7 @@ func TestEventNotificationSteerConsumedPreservesBatch(t *testing.T) {
 	want := agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{
 		QueuedID: "q-1", Text: "follow up", SourcePeer: "peer-1", SourceName: "Desktop",
 	}}}
-	encoded, err := MarshalEventNotification(42, 7, want, false)
+	encoded, err := MarshalEventNotification(convID(42), 7, want, false)
 	require.NoError(t, err)
 	decoded, _, err := UnmarshalEventNotification(encoded)
 	require.NoError(t, err)
@@ -65,7 +70,7 @@ func TestEventNotificationRejectsNonNotification(t *testing.T) {
 func TestEventNotificationAllSealedKindsRoundTrip(t *testing.T) {
 	for _, specimen := range sealedEventSpecimens() {
 		t.Run(fmt.Sprintf("%T", specimen), func(t *testing.T) {
-			encoded, err := MarshalEventNotification(42, 7, specimen, true)
+			encoded, err := MarshalEventNotification(convID(42), 7, specimen, true)
 			require.NoError(t, err)
 			decoded, autonomous, err := UnmarshalEventNotification(encoded)
 			require.NoError(t, err)
@@ -152,11 +157,18 @@ func TestEventNotificationPreservesEveryField(t *testing.T) {
 
 	for _, specimen := range specimens {
 		t.Run(fmt.Sprintf("%T", specimen), func(t *testing.T) {
-			encoded, err := MarshalEventNotification(42, 7, specimen, false)
+			encoded, err := MarshalEventNotification(convID(42), 7, specimen, false)
 			require.NoError(t, err)
 			decoded, _, err := UnmarshalEventNotification(encoded)
 			require.NoError(t, err)
 			require.Equal(t, specimen, decoded.Event)
 		})
 	}
+}
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
 }

@@ -68,7 +68,7 @@ func TestCallRun_GivenARunSlowerThanTheCallBudget_WhenDispatched_ThenItIsNotTrun
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
-			return &agentrewire.RuntimeRunResponse{SessionId: 7}, nil
+			return &agentrewire.RuntimeRunResponse{ConversationId: convOf(7)}, nil
 		})
 	desktopConn := protorpc.NewConn(desktopSide, protorpc.NewRegistry(),
 		protorpc.WithCallTimeout(50*time.Millisecond))
@@ -82,9 +82,12 @@ func TestCallRun_GivenARunSlowerThanTheCallBudget_WhenDispatched_ThenItIsNotTrun
 	defer func() { _ = rt.Close() }()
 
 	ack, err := rt.callRun(context.Background(), wire.RunParams{
-		SessionID: 7, AgentID: 1, Backend: json.RawMessage(`{}`),
+		ConversationID: convOf(7), AgentID: 1, Backend: json.RawMessage(`{}`),
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, int64(7), ack.SessionID)
+	require.Equal(t, convOf(7), ack.ConversationID)
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *budgetConnection) SelfFingerprint() string { return "" }

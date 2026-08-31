@@ -57,9 +57,9 @@ var (
 	ErrBackendUnavailable = errors.New("transcriptimport: backend unavailable on this device")
 	// ErrTranscriptOpen 定位符打不开:文件已删、已损坏,或越出读取器自己的根目录。
 	ErrTranscriptOpen = errors.New("transcriptimport: cannot open transcript")
-	// ErrSessionInUse 调用方铸的会话 id 已经被这台对端的**另一条**会话占着。会话 id
-	// 是各客户端本地自增的,复用一个还在跑的号会把那条会话的身份行改写成一份磁盘转录
-	// 的元信息,而它的通知日志还在继续涨 —— 两段互不相干的转录就此长在同一个号上。
+	// ErrSessionInUse 调用方铸的 conversation_id 已经被这台对端的**另一条**会话占着。
+	// 复用一个还在跑的 id 会把那条会话的身份行改写成一份磁盘转录的元信息,而它的通知
+	// 日志还在继续涨 —— 两段互不相干的转录就此长在同一个 id 上。
 	ErrSessionInUse = errors.New("transcriptimport: session id already in use")
 )
 
@@ -172,18 +172,18 @@ type TurnsResult struct {
 // ExecuteParams 是 MethodExecute 的请求:在这台机器上把 {后端, 定位符} 那份转录
 // 落成一条归本机执行的会话。
 //
-// SessionID 由**调用方**铸(与 runtime.run 同一条规矩:会话 id 是各客户端本地自增
-// 的主键,daemon 从不发号)。AgentID / AgentSyncID 是这条会话挂在哪个 Agent 名下,
+// ConversationID 由**调用方**铸(与 runtime.run 同一条规矩:发起端铸这条对话的
+// uuid,daemon 从不发号)。AgentID / AgentSyncID 是这条会话挂在哪个 Agent 名下,
 // 与每轮起手携带的那两格同义,原样落进身份行。
 //
 // 标题、工作目录与 provider 会话身份**不在入参里**:它们是转录自己的事实,由这台
 // 机器读出来写下去 —— 让调用方报一份等于给同一件事开第二个真相源。
 type ExecuteParams struct {
-	Backend     string `json:"backend"`
-	Locator     string `json:"locator"`
-	SessionID   int64  `json:"sessionId"`
-	AgentID     int64  `json:"agentId,omitempty"`
-	AgentSyncID string `json:"agentSyncId,omitempty"`
+	Backend        string `json:"backend"`
+	Locator        string `json:"locator"`
+	ConversationID string `json:"conversationId"`
+	AgentID        int64  `json:"agentId,omitempty"`
+	AgentSyncID    string `json:"agentSyncId,omitempty"`
 	// PeerFingerprint 把这条会话落在**点名的 origin**名下而不是调用方自己名下
 	// (与 runtime.run 的同名字段同义)。省略 = 调用方自己的对端;点名是账号级能力,
 	// 配对身份点名任何 origin 都会被拒。
@@ -193,10 +193,10 @@ type ExecuteParams struct {
 // ExecuteResult 是 MethodExecute 的应答。
 //
 // AlreadyImported 为真表示这条 provider 会话在这台对端名下已经有一条会话了,
-// SessionID 指的是**库里那条**(未必等于请求里铸的号),Turns 为 0 —— 日志一条都
-// 没再落。重复导入是可预期的正常分支,不是错误。
+// ConversationID 指的是**库里那条**(未必等于请求里铸的号),Turns 为 0 —— 日志一条
+// 都没再落。重复导入是可预期的正常分支,不是错误。
 type ExecuteResult struct {
-	SessionID         int64  `json:"sessionId"`
+	ConversationID    string `json:"conversationId"`
 	ProviderSessionID string `json:"providerSessionId,omitempty"`
 	Cwd               string `json:"cwd,omitempty"`
 	Title             string `json:"title,omitempty"`

@@ -188,3 +188,6 @@ func TestMkdir(t *testing.T) {
 		})
 	})
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *remoteFSTestConnection) SelfFingerprint() string { return "sha256:test-self" }

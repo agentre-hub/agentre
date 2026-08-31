@@ -69,7 +69,7 @@ func newStubDaemonClient() *stubDaemonClient {
 	s := &stubDaemonClient{conn: clientConn, closed: make(chan struct{}), handlers: map[string]func(context.Context, json.RawMessage) (any, error){}}
 	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_OPEN), func() *agentrewire.TerminalOpenRequest { return &agentrewire.TerminalOpenRequest{} }, func(ctx context.Context, request *agentrewire.TerminalOpenRequest) (*agentrewire.TerminalOpenResponse, error) {
 		result := protocol.TerminalOpenResult{}
-		err := s.Call(ctx, "terminal.open", protocol.TerminalOpenParams{TerminalID: request.TerminalId, SessionID: request.SessionId, Cwd: request.Cwd, Shell: request.Shell, Command: request.Command, Env: request.Env, Cols: uint16(request.Cols), Rows: uint16(request.Rows)}, &result)
+		err := s.Call(ctx, "terminal.open", protocol.TerminalOpenParams{TerminalID: request.TerminalId, Cwd: request.Cwd, Shell: request.Shell, Command: request.Command, Env: request.Env, Cols: uint16(request.Cols), Rows: uint16(request.Rows)}, &result)
 		return &agentrewire.TerminalOpenResponse{TerminalId: result.TerminalID}, err
 	})
 	protorpc.RegisterMethod(serverRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE), func() *agentrewire.TerminalCloseRequest { return &agentrewire.TerminalCloseRequest{} }, func(ctx context.Context, request *agentrewire.TerminalCloseRequest) (*agentrewire.Empty, error) {

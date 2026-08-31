@@ -18,7 +18,7 @@ func TestRunParamsProtobufDomainRoundTrip(t *testing.T) {
 	backendJSON, err := json.Marshal(backend)
 	require.NoError(t, err)
 	want := wire.RunParams{
-		Backend: backendJSON, AgentID: 3, SessionID: 42, PeerFingerprint: "fp", Cwd: "/work", Title: "title",
+		Backend: backendJSON, AgentID: 3, ConversationID: convID(42), PeerFingerprint: "fp", Cwd: "/work", Title: "title",
 		AgentSyncID: "01HXsync000000000000000000", ProjectSyncID: "01HXproj00000000000000000",
 		UserText: "hello", UserBlocks: []blocks.StoredBlock{{Type: "image", Data: json.RawMessage{0, 1, 255}}},
 		History:        []wire.HistoryMessageWire{{Role: "user", Blocks: []blocks.StoredBlock{{Type: "text", Data: json.RawMessage(`{"text":"hi"}`)}}}},
@@ -36,7 +36,7 @@ func TestRunParamsProtobufDomainRoundTrip(t *testing.T) {
 
 func TestGoalParamsProtobufPreservesOptionalZeroValues(t *testing.T) {
 	empty, zero := "", 0
-	want := wire.GoalParams{SessionID: 42, Objective: &empty, Status: &empty, TokenBudget: &zero}
+	want := wire.GoalParams{ConversationID: convID(42), Objective: &empty, Status: &empty, TokenBudget: &zero}
 	pb, err := GoalRequestToProto(want)
 	require.NoError(t, err)
 	got, err := GoalRequestFromProto(pb)

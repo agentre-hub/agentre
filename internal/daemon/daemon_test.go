@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,6 +40,7 @@ import (
 	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
@@ -449,11 +451,11 @@ func registerAuthed(r *connRegistry, fingerprint string) (*protorpc.Conn, handle
 func TestConnRegistry_SessionTargetIsTheConnThatStartedIt(t *testing.T) {
 	var r connRegistry
 	pool, nPool := registerAuthed(&r, "fp-desktop")
-	r.claim(pool, 7) // runtime.run 起会话 7
+	r.claim(pool, convID(7)) // runtime.run 起会话 7
 
 	_, nHeartbeat := registerAuthed(&r, "fp-desktop") // 心跳连接:同指纹,后认证,不发 runtime.*
 
-	target := r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7})
+	target := r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)})
 	assertTarget(t, nPool, target, "会话的通知只推给发起它的那条连接")
 	assert.NotSame(t, nHeartbeat, target, "同指纹的后来者不得抢走正在跑的会话")
 }
@@ -464,12 +466,12 @@ func TestConnRegistry_SessionTargetIsTheConnThatStartedIt(t *testing.T) {
 func TestConnRegistry_SameDeviceConnClosingLeavesTheSessionAlone(t *testing.T) {
 	var r connRegistry
 	pool, nPool := registerAuthed(&r, "fp-desktop")
-	r.claim(pool, 7)
+	r.claim(pool, convID(7))
 	heartbeat, _ := registerAuthed(&r, "fp-desktop")
 
 	r.remove(heartbeat)
 
-	assertTarget(t, nPool, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}),
+	assertTarget(t, nPool, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}),
 		"一条与会话无关的同设备连接来去,不得改变会话的推送目标")
 }
 
@@ -479,20 +481,20 @@ func TestConnRegistry_SameDeviceConnClosingLeavesTheSessionAlone(t *testing.T) {
 func TestConnRegistry_TakeoverIsPerSessionAndSameFingerprintOnly(t *testing.T) {
 	var r connRegistry
 	first, nFirst := registerAuthed(&r, "fp-desktop")
-	r.claim(first, 7)
-	r.claim(first, 8)
+	r.claim(first, convID(7))
+	r.claim(first, convID(8))
 
 	second, nSecond := registerAuthed(&r, "fp-desktop")
-	r.claim(second, 7) // 同指纹的新连接为会话 7 发了一次 runtime.*
+	r.claim(second, convID(7)) // 同指纹的新连接为会话 7 发了一次 runtime.*
 
-	assertTarget(t, nSecond, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}), "接管的是这一条会话")
-	assertTarget(t, nFirst, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 8}), "同设备的另一条会话不受牵连")
+	assertTarget(t, nSecond, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}), "接管的是这一条会话")
+	assertTarget(t, nFirst, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(8)}), "同设备的另一条会话不受牵连")
 
 	other, nOther := registerAuthed(&r, "fp-other")
-	r.claim(other, 7)
-	assertTarget(t, nSecond, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}),
+	r.claim(other, convID(7))
+	assertTarget(t, nSecond, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}),
 		"另一台设备报同一个会话 id 也接管不走 —— 那在 daemon 上是另一条会话(R16)")
-	assertTarget(t, nOther, r.ownerOf(sessionKey{peer: "fp-other", sid: 7}), "它自己那条会话归它")
+	assertTarget(t, nOther, r.ownerOf(sessionKey{peer: "fp-other", conversationID: convID(7)}), "它自己那条会话归它")
 }
 
 // TestConnRegistry_UndoClaimRestoresThePreviousOwner 覆盖被拒调用的还原(接管的凭据是
@@ -503,28 +505,28 @@ func TestConnRegistry_TakeoverIsPerSessionAndSameFingerprintOnly(t *testing.T) {
 func TestConnRegistry_UndoClaimRestoresThePreviousOwner(t *testing.T) {
 	var r connRegistry
 	owner, nOwner := registerAuthed(&r, "fp-desktop")
-	r.claim(owner, 7)
+	r.claim(owner, convID(7))
 
 	intruder, _ := registerAuthed(&r, "fp-desktop")
-	r.undoClaim(r.claim(intruder, 7))
-	assertTarget(t, nOwner, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}),
+	r.undoClaim(r.claim(intruder, convID(7)))
+	assertTarget(t, nOwner, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}),
 		"被拒的 runtime.* 不接管:属主还原成认领前的那条连接")
 
-	r.undoClaim(r.claim(intruder, 9))
-	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 9}),
+	r.undoClaim(r.claim(intruder, convID(9)))
+	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(9)}),
 		"认领前没有属主的会话,还原之后仍然没有属主")
 
-	rolled := r.claim(intruder, 7)
+	rolled := r.claim(intruder, convID(7))
 	later, nLater := registerAuthed(&r, "fp-desktop")
-	r.claim(later, 7) // 处理期间另一条连接接管了同一条会话
+	r.claim(later, convID(7)) // 处理期间另一条连接接管了同一条会话
 	r.undoClaim(rolled)
-	assertTarget(t, nLater, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}),
+	assertTarget(t, nLater, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}),
 		"迟到的还原不得回卷更晚落定的接管")
 
-	stale := r.claim(intruder, 7)
+	stale := r.claim(intruder, convID(7))
 	r.remove(later) // 前主在 handler 处理期间掉线
 	r.undoClaim(stale)
-	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}),
+	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}),
 		"前主已经不在线时,还原不得留下一条指向死连接的条目")
 }
 
@@ -534,17 +536,17 @@ func TestConnRegistry_UndoClaimRestoresThePreviousOwner(t *testing.T) {
 func TestConnRegistry_OwnerDeathSuspendsSessionUntilTakeover(t *testing.T) {
 	var r connRegistry
 	owner, _ := registerAuthed(&r, "fp-desktop")
-	r.claim(owner, 7)
+	r.claim(owner, convID(7))
 
 	r.remove(owner)
-	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}), "属主断开 → 会话挂起")
+	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}), "属主断开 → 会话挂起")
 	assert.Nil(t, r.routerFor("fp-desktop"), "该对端此刻没有持有会话的活连接 → 只落库不推送")
 
 	fresh, nFresh := registerAuthed(&r, "fp-desktop")
 	assert.Nil(t, r.routerFor("fp-desktop"), "光重连不接管:它还没为任何会话发过 runtime.*")
 
-	r.claim(fresh, 7)
-	assertTarget(t, nFresh, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}), "重连后发 runtime.* 即接管")
+	r.claim(fresh, convID(7))
+	assertTarget(t, nFresh, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}), "重连后发 runtime.* 即接管")
 	assert.NotNil(t, r.routerFor("fp-desktop"))
 }
 
@@ -554,25 +556,25 @@ func TestConnRegistry_OwnerDeathSuspendsSessionUntilTakeover(t *testing.T) {
 func TestConnRegistry_UnauthenticatedConnNeverEnters(t *testing.T) {
 	var r connRegistry
 	desktop, nDesktop := registerAuthed(&r, "fp-desktop")
-	r.claim(desktop, 7)
+	r.claim(desktop, convID(7))
 
 	stray := protorpc.NewConn(nil, protorpc.NewRegistry()) // 从不认证
 	r.add(stray, notifier.NewProtobuf(stray))
-	r.claim(stray, 7)
+	r.claim(stray, convID(7))
 	blank := protorpc.NewConn(nil, protorpc.NewRegistry())
 	blank.SetAuth(protorpc.AuthState{Authenticated: true}) // 认证了但没有指纹
 	r.add(blank, notifier.NewProtobuf(blank))
-	r.claim(blank, 7)
+	r.claim(blank, convID(7))
 	spoof := protorpc.NewConn(nil, protorpc.NewRegistry())
 	// 报了指纹却没通过鉴权:身份是鉴权成功那一刻才成立的,光报不算。
 	spoof.SetAuth(protorpc.AuthState{DeviceFingerprint: "fp-desktop"})
 	r.add(spoof, notifier.NewProtobuf(spoof))
-	r.claim(spoof, 7)
+	r.claim(spoof, convID(7))
 
 	assert.Nil(t, r.routerFor(""), "空指纹不是可匹配身份")
-	assert.Nil(t, r.ownerOf(sessionKey{peer: "", sid: 7}))
-	assertTarget(t, nDesktop, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}), "野连接顶不掉正主")
-	assertTarget(t, nDesktop, r.tunnelTargetFor("fp-desktop", 7), "MCP 反向隧道的目标同样只在已认证连接里取")
+	assert.Nil(t, r.ownerOf(sessionKey{peer: "", conversationID: convID(7)}))
+	assertTarget(t, nDesktop, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}), "野连接顶不掉正主")
+	assertTarget(t, nDesktop, r.tunnelTargetFor("fp-desktop", convID(7)), "MCP 反向隧道的目标同样只在已认证连接里取")
 }
 
 // TestConnRegistry_ReauthDropsClaimsOfThePreviousFingerprint 回归:一条连接先认证 fp-a
@@ -581,13 +583,13 @@ func TestConnRegistry_UnauthenticatedConnNeverEnters(t *testing.T) {
 func TestConnRegistry_ReauthDropsClaimsOfThePreviousFingerprint(t *testing.T) {
 	var r connRegistry
 	c, _ := registerAuthed(&r, "fp-a")
-	r.claim(c, 7)
-	require.NotNil(t, r.ownerOf(sessionKey{peer: "fp-a", sid: 7}))
+	r.claim(c, convID(7))
+	require.NotNil(t, r.ownerOf(sessionKey{peer: "fp-a", conversationID: convID(7)}))
 
 	c.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "fp-b"})
 	r.add(c, notifier.NewProtobuf(c))
 
-	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-a", sid: 7}),
+	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-a", conversationID: convID(7)}),
 		"改认指纹之后,旧对端的会话不得再解析到这条连接")
 	assert.Nil(t, r.routerFor("fp-a"))
 }
@@ -600,24 +602,24 @@ func TestConnRegistry_ClosedConnLeavesNoStaleEntry(t *testing.T) {
 	dead := closedAuthedConn(t, "fp-desktop")
 
 	r.add(dead, notifier.NewProtobuf(dead))
-	r.claim(dead, 7)
+	r.claim(dead, convID(7))
 
-	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}), "已关闭的连接不得成为会话目标")
+	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}), "已关闭的连接不得成为会话目标")
 	assert.Nil(t, r.routerFor("fp-desktop"))
-	assert.Nil(t, r.tunnelTargetFor("fp-desktop", 7), "MCP 反向隧道同样不得指向一条已关闭的连接")
+	assert.Nil(t, r.tunnelTargetFor("fp-desktop", convID(7)), "MCP 反向隧道同样不得指向一条已关闭的连接")
 }
 
 // eventNotification / doneNotification 造一条推送用的会话通知 —— 出口收的是**已经
 // 转换好**的 Protobuf 通知(见 handlers.NotifierPort),会话路由与日志都从它自己解出。
-func eventNotification(sid, seq int64) *agentrewire.RpcNotification {
+func eventNotification(conversationID string, seq int64) *agentrewire.RpcNotification {
 	return &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{
-		RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: sid, Seq: seq,
+		RuntimeEvent: &agentrewire.RuntimeEventNotification{ConversationId: conversationID, Seq: seq,
 			Event: &agentrewire.RuntimeEventNotification_TextDelta{TextDelta: &agentrewire.TextDelta{Text: "hi"}}}}}
 }
 
-func doneNotification(sid int64) *agentrewire.RpcNotification {
+func doneNotification(conversationID string) *agentrewire.RpcNotification {
 	return &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{
-		RunResultDone: &agentrewire.RunResultDoneNotification{SessionId: sid}}}
+		RunResultDone: &agentrewire.RunResultDoneNotification{ConversationId: conversationID}}}
 }
 
 // recordingNotifier 记下推给它的通知,用来观察一条通知**实际落到了哪条连接**。
@@ -655,20 +657,20 @@ func TestSessionRouter_RoutesByFrameSessionID(t *testing.T) {
 	nA, nB := &recordingNotifier{}, &recordingNotifier{}
 	r.add(connA, nA)
 	r.add(connB, nB)
-	r.claim(connA, 7)
-	r.claim(connB, 8)
+	r.claim(connA, convID(7))
+	r.claim(connB, convID(8))
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(eventNotification(7, 0)))
-	require.NoError(t, out.Notify(doneNotification(8)))
+	require.NoError(t, out.Notify(eventNotification(convID(7), 0)))
+	require.NoError(t, out.Notify(doneNotification(convID(8))))
 	assert.Equal(t, []string{wire.NotifyEvent}, nA.methods(), "会话 7 的通知只落在发起它的那条连接")
 	assert.Equal(t, []string{wire.NotifyRunResultDone}, nB.methods(), "会话 8 的通知只落在发起它的那条连接")
 
 	assert.Error(t, out.Notify(&agentrewire.RpcNotification{}),
 		"通知上取不到 sessionId 时必须报错,而不是猜一条连接推过去")
 	r.remove(connA)
-	assert.Error(t, out.Notify(eventNotification(7, 0)),
+	assert.Error(t, out.Notify(eventNotification(convID(7), 0)),
 		"属主断开后这条会话没有出口(通知已落库,等接管后补齐)")
 	assert.Equal(t, []string{wire.NotifyRunResultDone}, nB.methods(), "更不能改推给同设备的另一条连接")
 }
@@ -680,23 +682,23 @@ func TestConnRegistry_TunnelTargetForSession_RoutesOnlyToTheOriginatingPeer(t *t
 	var r connRegistry
 	peerA, notifierA := registerAuthed(&r, "fp-a")
 	peerB, notifierB := registerAuthed(&r, "fp-b")
-	r.claim(peerA, 7)
-	r.claim(peerB, 7)
+	r.claim(peerA, convID(7))
+	r.claim(peerB, convID(7))
 
-	assertTarget(t, notifierA, r.tunnelTargetFor("fp-a", 7),
+	assertTarget(t, notifierA, r.tunnelTargetFor("fp-a", convID(7)),
 		"peer A's local MCP request must return to peer A")
-	assertTarget(t, notifierB, r.tunnelTargetFor("fp-b", 7),
+	assertTarget(t, notifierB, r.tunnelTargetFor("fp-b", convID(7)),
 		"peer B's same numeric session must return to peer B")
 
 	// A same-account client may take over B's notification/control path, but
 	// the local CLI process still belongs to B's originating session.
-	r.claimFor(peerA, "fp-b", 7)
-	assertTarget(t, notifierB, r.tunnelTargetFor("fp-b", 7),
+	r.claimFor(peerA, "fp-b", convID(7))
+	assertTarget(t, notifierB, r.tunnelTargetFor("fp-b", convID(7)),
 		"an authorized cross-peer control must not reroute B's MCP tunnel to A")
 	r.remove(peerB)
-	assert.Nil(t, r.tunnelTargetFor("fp-b", 7),
+	assert.Nil(t, r.tunnelTargetFor("fp-b", convID(7)),
 		"the initiating peer offline remains unavailable even when the controller is live")
-	assert.Nil(t, r.tunnelTargetFor("fp-a", 8), "an unclaimed session has no fallback target")
+	assert.Nil(t, r.tunnelTargetFor("fp-a", convID(8)), "an unclaimed session has no fallback target")
 }
 
 // ── 多客户端扇出(用户流程「桌面与手机同时连着同一个会话」)────────────────────
@@ -761,17 +763,17 @@ func TestConnRegistry_ClaimedDaemonFansOutSessionEventsToEveryConnOnThatSession(
 	stranger, nStranger := registerAccountAuthed(r, "fp-stranger", "acct-2")
 	pairedOnly, nPairedOnly := authedConn("fp-lan"), &recordingNotifier{}
 	r.add(pairedOnly, nPairedOnly)
-	r.claim(desktop, 7)
+	r.claim(desktop, convID(7))
 	// 手机按 R12 接管这条会话 —— 「同时连着同一个会话」的那一步。别的账号的连接与只走
 	// LAN 配对的连接同样点名这条会话,验的就是它们过不了账号门。
-	r.claimFor(phone, "fp-desktop", 7)
-	r.claimFor(stranger, "fp-desktop", 7)
-	r.claimFor(pairedOnly, "fp-desktop", 7)
-	r.claim(desktop, 7) // 还原属主:接管只是为了进订阅者集合
+	r.claimFor(phone, "fp-desktop", convID(7))
+	r.claimFor(stranger, "fp-desktop", convID(7))
+	r.claimFor(pairedOnly, "fp-desktop", convID(7))
+	r.claim(desktop, convID(7)) // 还原属主:接管只是为了进订阅者集合
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(eventNotification(7, 1)))
+	require.NoError(t, out.Notify(eventNotification(convID(7), 1)))
 
 	awaitMethods(t, nDesktop, []string{wire.NotifyEvent}, "发起会话的那条连接照收")
 	awaitMethods(t, nPhone, []string{wire.NotifyEvent}, "同账号的另一条连接同时收到同一条事件")
@@ -794,11 +796,11 @@ func TestConnRegistry_FanoutReachesOnlyTheConnsOnThatSession(t *testing.T) {
 	r := claimedRegistry("acct-1")
 	desktop, nDesktop := registerAccountAuthed(r, "fp-desktop", "acct-1")
 	_, nIdle := registerAccountAuthed(r, "fp-idle", "acct-1")
-	r.claim(desktop, 7)
+	r.claim(desktop, convID(7))
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(eventNotification(7, 1)))
+	require.NoError(t, out.Notify(eventNotification(convID(7), 1)))
 
 	awaitMethods(t, nDesktop, []string{wire.NotifyEvent}, "发起会话的那条连接照收")
 	assert.Never(t, func() bool { return len(nIdle.methods()) > 0 }, 200*time.Millisecond, 20*time.Millisecond,
@@ -812,13 +814,13 @@ func TestConnRegistry_AttachJoinsTheSessionFanout(t *testing.T) {
 	r := claimedRegistry("acct-1")
 	desktop, nDesktop := registerAccountAuthed(r, "fp-desktop", "acct-1")
 	phone, nPhone := registerAccountAuthed(r, "fp-phone", "acct-1")
-	r.claim(desktop, 7)
+	r.claim(desktop, convID(7))
 	// 手机接管桌面端发起的那条会话:目标对端是桌面端的指纹(R12 的跨对端操作)。
-	r.claimFor(phone, "fp-desktop", 7)
+	r.claimFor(phone, "fp-desktop", convID(7))
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(eventNotification(7, 1)))
+	require.NoError(t, out.Notify(eventNotification(convID(7), 1)))
 
 	awaitMethods(t, nPhone, []string{wire.NotifyEvent}, "接管方是属主,同步收")
 	awaitMethods(t, nDesktop, []string{wire.NotifyEvent}, "接管不把另一方踢下线,它仍是这条会话的订阅者")
@@ -833,14 +835,14 @@ func TestConnRegistry_UnclaimedDaemonKeepsPushingOnlyToTheOriginatingPeer(t *tes
 	r.add(desktop, nDesktop)
 	other, nOther := authedConn("fp-phone"), &recordingNotifier{}
 	r.add(other, nOther)
-	r.claim(desktop, 7)
+	r.claim(desktop, convID(7))
 
-	assertTarget(t, nDesktop, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}),
+	assertTarget(t, nDesktop, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}),
 		"未认领时会话的推送端口就是发起连接自己的端口")
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
-	require.NoError(t, out.Notify(eventNotification(7, 0)))
+	require.NoError(t, out.Notify(eventNotification(convID(7), 0)))
 	assert.Never(t, func() bool { return len(nOther.methods()) > 0 }, 200*time.Millisecond, 20*time.Millisecond,
 		"未认领 daemon 上另一台已配对设备不得看到别人会话的事件")
 }
@@ -852,9 +854,9 @@ func TestConnRegistry_FanoutDoesNotBroadcastTheMCPTunnel(t *testing.T) {
 	r := claimedRegistry("acct-1")
 	desktop, nDesktop := registerAccountAuthed(r, "fp-desktop", "acct-1")
 	_, nPhone := registerAccountAuthed(r, "fp-phone", "acct-1")
-	r.claim(desktop, 7)
+	r.claim(desktop, convID(7))
 
-	assertTarget(t, nDesktop, r.tunnelTargetFor("fp-desktop", 7),
+	assertTarget(t, nDesktop, r.tunnelTargetFor("fp-desktop", convID(7)),
 		"隧道目标是发起端那一条连接本身,不是订阅者集合")
 	assert.Empty(t, nPhone.methods(), "同账号的另一条连接不参与隧道")
 }
@@ -871,17 +873,17 @@ func TestConnRegistry_SlowSubscriberBlocksNeitherTheSessionNorItsPeers(t *testin
 	r.add(stuck, blocking)
 	defer close(blocking.release)
 	phone, nPhone := registerAccountAuthed(r, "fp-phone", "acct-1")
-	r.claim(desktop, 7)
-	r.claimFor(stuck, "fp-desktop", 7)
-	r.claimFor(phone, "fp-desktop", 7)
-	r.claim(desktop, 7) // 还原属主
+	r.claim(desktop, convID(7))
+	r.claimFor(stuck, "fp-desktop", convID(7))
+	r.claimFor(phone, "fp-desktop", convID(7))
+	r.claim(desktop, convID(7)) // 还原属主
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
 	done := make(chan error, 1)
 	go func() {
 		for i := 0; i < 512; i++ {
-			if err := out.Notify(eventNotification(7, int64(i+1))); err != nil {
+			if err := out.Notify(eventNotification(convID(7), int64(i+1))); err != nil {
 				done <- err
 				return
 			}
@@ -913,28 +915,28 @@ func TestConnRegistry_LosingOneSubscriberLeavesTheRestReceiving(t *testing.T) {
 	desktop, nDesktop := registerAccountAuthed(r, "fp-desktop", "acct-1")
 	phone, nPhone := registerAccountAuthed(r, "fp-phone", "acct-1")
 	tablet, nTablet := registerAccountAuthed(r, "fp-tablet", "acct-1")
-	r.claim(desktop, 7)
-	r.claimFor(phone, "fp-desktop", 7)
-	r.claimFor(tablet, "fp-desktop", 7)
-	r.claim(desktop, 7) // 还原属主
+	r.claim(desktop, convID(7))
+	r.claimFor(phone, "fp-desktop", convID(7))
+	r.claimFor(tablet, "fp-desktop", convID(7))
+	r.claim(desktop, convID(7)) // 还原属主
 
 	out := r.routerFor("fp-desktop")
 	require.NotNil(t, out)
 
 	r.remove(phone)
-	require.NoError(t, out.Notify(eventNotification(7, 1)))
+	require.NoError(t, out.Notify(eventNotification(convID(7), 1)))
 	awaitMethods(t, nDesktop, []string{wire.NotifyEvent}, "掉线的是别人,会话自己的连接照收")
 	awaitMethods(t, nTablet, []string{wire.NotifyEvent}, "另一个订阅者照收")
 	assert.Empty(t, nPhone.methods(), "掉线的那条不再收到任何东西")
 
 	r.remove(desktop)
 	require.NotNil(t, r.routerFor("fp-desktop"), "还有订阅者在,会话不算挂起")
-	require.NoError(t, r.routerFor("fp-desktop").Notify(eventNotification(7, 2)))
+	require.NoError(t, r.routerFor("fp-desktop").Notify(eventNotification(convID(7), 2)))
 	awaitMethods(t, nTablet, []string{wire.NotifyEvent, wire.NotifyEvent}, "发起端掉线后剩下的订阅者继续收")
 
 	r.remove(tablet)
 	assert.Nil(t, r.routerFor("fp-desktop"), "订阅者全掉光 → 回到只落库不推送")
-	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}))
+	assert.Nil(t, r.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}))
 }
 
 // TestDaemon_BindConnDoesNotMakeUnauthenticatedConnATarget 钉死接线:bindConn 跑在鉴权
@@ -946,7 +948,7 @@ func TestDaemon_BindConnDoesNotMakeUnauthenticatedConnATarget(t *testing.T) {
 	t.Cleanup(func() { closeDB(d.db) })
 
 	desktop, nDesktop := registerAuthed(&d.conns, "fp-desktop")
-	d.conns.claim(desktop, 7)
+	d.conns.claim(desktop, convID(7))
 
 	// 野连接:完成升级,从不认证。用真 ws 连接以便它能真的关闭 —— bindConn 会挂一个
 	// 等 Done 的 goroutine,连接永不关闭的话它就永远退不出去(测试进程里的泄漏)。
@@ -956,9 +958,9 @@ func TestDaemon_BindConnDoesNotMakeUnauthenticatedConnATarget(t *testing.T) {
 
 	router := d.notifierForPeer("fp-desktop")
 	require.NotNil(t, router, "野连接接入后,正主的会话仍必须有推送出口")
-	assertTarget(t, nDesktop, d.conns.ownerOf(sessionKey{peer: "fp-desktop", sid: 7}),
+	assertTarget(t, nDesktop, d.conns.ownerOf(sessionKey{peer: "fp-desktop", conversationID: convID(7)}),
 		"野连接接入后,会话仍解析到发起它的那条连接")
-	assertTarget(t, nDesktop, d.tunnelTargetFor("fp-desktop", 7), "MCP 反向隧道目标同样不得被野连接顶掉")
+	assertTarget(t, nDesktop, d.tunnelTargetFor("fp-desktop", convID(7)), "MCP 反向隧道目标同样不得被野连接顶掉")
 	assert.Nil(t, d.notifierForPeer(""), "空指纹不是可匹配身份")
 }
 
@@ -1945,7 +1947,7 @@ func TestDaemon_ConnectionCleanupIsolatesReconnectWithSameSession(t *testing.T) 
 
 	first, pair := pairDaemonClient(t, d, "sha256:cleanup-first")
 	second := connectDaemonClient(t, d, "sha256:cleanup-first", pair)
-	params := daemonPiRunParams(t, 501, "generation-first")
+	params := daemonPiRunParams(t, convID(501), "generation-first")
 	prepareDaemonPi(t, first, params)
 
 	require.NoError(t, first.Close())
@@ -1989,7 +1991,7 @@ func TestDaemon_ShutdownClosesRunningPiGenerationBeforeReturning(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	conn, _ := pairDaemonClient(t, d, "sha256:shutdown")
-	params := daemonPiRunParams(t, 502, "generation-shutdown")
+	params := daemonPiRunParams(t, convID(502), "generation-shutdown")
 	ack := prepareDaemonPi(t, conn, params)
 	params.ProviderSessionID = ack.ProviderSessionID
 	callCtx, cancelCall := context.WithTimeout(context.Background(), 2*time.Second)
@@ -2069,14 +2071,14 @@ func connectDaemonClient(t *testing.T, d *Daemon, fingerprint string, pair *agen
 	return conn
 }
 
-func daemonPiRunParams(t *testing.T, sessionID int64, generation string) wire.RunParams {
+func daemonPiRunParams(t *testing.T, conversationID string, generation string) wire.RunParams {
 	t.Helper()
 	backend, err := json.Marshal(agent_backend_entity.AgentBackend{
 		Type: string(agent_backend_entity.TypePiAgent), Name: "pi",
 	})
 	require.NoError(t, err)
 	return wire.RunParams{
-		Backend: json.RawMessage(backend), SessionID: sessionID, PermissionMode: generation, Cwd: t.TempDir(), UserText: "hello",
+		Backend: json.RawMessage(backend), ConversationID: conversationID, PermissionMode: generation, Cwd: t.TempDir(), UserText: "hello",
 	}
 }
 
@@ -2090,7 +2092,7 @@ func prepareDaemonPi(t *testing.T, conn *client.ProtobufClient, params wire.RunP
 	require.NoError(t, protorpc.CallMessage(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, registration))
 	preparedPB := &agentrewire.RuntimeRunResponse{}
 	require.NoError(t, protorpc.CallMessage(ctx, conn.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, preparedPB))
-	prepared := wire.RunAck{SessionID: preparedPB.GetSessionId(), ProviderSessionID: preparedPB.GetProviderSessionId()}
+	prepared := wire.RunAck{ConversationID: preparedPB.GetConversationId(), ProviderSessionID: preparedPB.GetProviderSessionId()}
 	require.NotEmpty(t, prepared.ProviderSessionID)
 	return prepared
 }
@@ -2320,4 +2322,13 @@ func TestDaemon_PayloadBudgetMatchesTheRelayServer(t *testing.T) {
 		"载荷预算改了就要同时改 agentre-server 的 relayws.MaxPayloadBytes")
 	require.Equal(t, int64(2+128), relaytransport.MaxEnvelopeBytes,
 		"信封头余量改了就要同时改 agentre-server 的 relayws.MaxEnvelopeBytes")
+}
+
+// convID 是 rig 里那台桌面端为它本机第 n 条会话交出去的对话身份 —— 与
+// remote.Runtime 出线时那条派生同输入同算法(本端设备指纹 + 本地会话 id)。
+//
+// 写死一份等价实现是有意的:用例断言的因此是**约定的值**,而不是"两边调了同一个
+// 函数"这种恒真命题。连接注册表那几个用例只要一个合法 uuid,用它同样合适。
+func convID(n int64) string {
+	return conversationid.Derive(conversationid.Namespace, rigDeviceFingerprint, strconv.FormatInt(n, 10))
 }

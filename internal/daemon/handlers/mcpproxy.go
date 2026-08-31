@@ -11,6 +11,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 )
 
 // daemonGatewayBase 取 daemon 本机 gateway base URL;gateway 未装配(测试 / 未启)时返回空,
@@ -23,13 +24,16 @@ func daemonGatewayBase(g GatewayPort) string {
 }
 
 // rewriteMCPServersForDaemon rewrites each desktop MCP server URL to the daemon
-// gateway and embeds its originating (peerFingerprint, sessionId) query pair.
-// This lets the local tunnel resolve the initiating connection exactly rather
-// than guessing from a global active connection. Paths, headers, tools, and
-// names remain unchanged; desktop validates the original authorization token.
+// gateway and embeds its originating (peerFingerprint, conversationId) query
+// pair. This lets the local tunnel resolve the initiating connection exactly
+// rather than guessing from a global active connection. Paths, headers, tools,
+// and names remain unchanged; desktop validates the original authorization token.
 // 返回新 slice,不就地改入参;daemonBaseFn 惰性求值 —— 无 MCP server 时根本不取(也就不
 // 触碰 gateway),base 为空 / 解析失败时保守返回原 specs。
-func rewriteMCPServersForDaemon(specs []agentruntime.MCPServerSpec, daemonBaseFn func() string, peerFingerprint string, sessionID int64) []agentruntime.MCPServerSpec {
+//
+// 这条 URL 随 --mcp-config 交给 claude-code / codex 子进程:它是本轮唯一一处对话身份
+// 离开 daemon 进程边界的地方,写进去与解回来必须是同一个值(见 NewMCPTunnelHandler)。
+func rewriteMCPServersForDaemon(specs []agentruntime.MCPServerSpec, daemonBaseFn func() string, peerFingerprint string, conversationID string) []agentruntime.MCPServerSpec {
 	if len(specs) == 0 || daemonBaseFn == nil {
 		return specs
 	}
@@ -52,7 +56,7 @@ func rewriteMCPServersForDaemon(specs []agentruntime.MCPServerSpec, daemonBaseFn
 		u.Host = base.Host
 		query := u.Query()
 		query.Set("peerFingerprint", peerFingerprint)
-		query.Set("sessionId", strconv.FormatInt(sessionID, 10))
+		query.Set("conversationId", conversationID)
 		u.RawQuery = query.Encode()
 		out[i].URL = u.String()
 	}
@@ -87,10 +91,10 @@ func sanitizeTunnelHeaders(h http.Header) map[string][]string {
 // MCP HTTP 请求装包,经 NotifierPort 反向请求(MethodMCPProxy)隧道回 desktop 执行,再把
 // 应答原样写回 CLI。MCP-over-HTTP 是纯请求/应答,单帧足够。
 //
-// notifierFn resolves the peer/session identity embedded by the daemon in the
-// local MCP URL query. The exact (peerFingerprint, sessionId) pair selects its
-// originating live connection; malformed, unknown, or offline origins have no
-// fallback target and must not be cross-routed to another client.
+// notifierFn resolves the peer/conversation identity embedded by the daemon in
+// the local MCP URL query. The exact (peerFingerprint, conversationId) pair
+// selects its originating live connection; malformed, unknown, or offline
+// origins have no fallback target and must not be cross-routed to another client.
 //
 // 隧道够不着发起会话的桌面端时,不能回裸 HTTP 错误。够不着有两种:调用之前就解不出目标
 // (桌面端已离线),以及解出了目标、请求也发出去了,桌面端却在答复之前死掉(rpc.ErrConnClosed)
@@ -100,7 +104,7 @@ func sanitizeTunnelHeaders(h http.Header) map[string][]string {
 // 工具 MCP server(org/subagent/hooktool_svc 的 writeRPCError)在工具执行失败时使用的
 // 形状,MCP 客户端读它就是读一次普通的工具调用失败,原样喂给模型当 tool 输出——而不是让
 // CLI 报一个模型看不懂的基础设施错误。见 writeMCPTunnelUnavailable。
-func NewMCPTunnelHandler(notifierFn func(peerFingerprint string, sessionID int64) NotifierPort) http.Handler {
+func NewMCPTunnelHandler(notifierFn func(peerFingerprint string, conversationID string) NotifierPort) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -108,10 +112,10 @@ func NewMCPTunnelHandler(notifierFn func(peerFingerprint string, sessionID int64
 			return
 		}
 		peerFingerprint := r.URL.Query().Get("peerFingerprint")
-		sessionID, parseErr := strconv.ParseInt(r.URL.Query().Get("sessionId"), 10, 64)
+		conversationID := r.URL.Query().Get("conversationId")
 		var n NotifierPort
-		if parseErr == nil && peerFingerprint != "" && sessionID > 0 {
-			n = notifierFn(peerFingerprint, sessionID)
+		if peerFingerprint != "" && conversationid.Validate(conversationID) == nil {
+			n = notifierFn(peerFingerprint, conversationID)
 		}
 		if n == nil {
 			// 降级分支必须留痕(observability.md 强制埋点 3):这条应答只进 CLI 子进程,

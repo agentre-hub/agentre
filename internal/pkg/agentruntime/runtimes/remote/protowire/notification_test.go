@@ -13,11 +13,11 @@ import (
 
 func TestTypedNotificationEncodeDecodeAndSeqCoverAllJournalKinds(t *testing.T) {
 	cases := []*agentrewire.RpcNotification{
-		{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: 42}}},
-		{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{SessionId: 42}}},
-		{Payload: &agentrewire.RpcNotification_AutonomousTurnStarted{AutonomousTurnStarted: &agentrewire.AutonomousTurnStartedNotification{SessionId: 42}}},
-		{Payload: &agentrewire.RpcNotification_AutonomousTurnEvent{AutonomousTurnEvent: &agentrewire.RuntimeEventNotification{SessionId: 42}}},
-		{Payload: &agentrewire.RpcNotification_AutonomousTurnDone{AutonomousTurnDone: &agentrewire.RunResultDoneNotification{SessionId: 42}}},
+		{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{ConversationId: convID(42)}}},
+		{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{ConversationId: convID(42)}}},
+		{Payload: &agentrewire.RpcNotification_AutonomousTurnStarted{AutonomousTurnStarted: &agentrewire.AutonomousTurnStartedNotification{ConversationId: convID(42)}}},
+		{Payload: &agentrewire.RpcNotification_AutonomousTurnEvent{AutonomousTurnEvent: &agentrewire.RuntimeEventNotification{ConversationId: convID(42)}}},
+		{Payload: &agentrewire.RpcNotification_AutonomousTurnDone{AutonomousTurnDone: &agentrewire.RunResultDoneNotification{ConversationId: convID(42)}}},
 	}
 	for _, notification := range cases {
 		require.True(t, SetNotificationSeq(notification, 7))
@@ -25,7 +25,7 @@ func TestTypedNotificationEncodeDecodeAndSeqCoverAllJournalKinds(t *testing.T) {
 		require.NoError(t, err)
 		decoded, err := DecodeNotification(encoded)
 		require.NoError(t, err)
-		require.Equal(t, int64(42), NotificationSessionID(decoded))
+		require.Equal(t, convID(42), NotificationConversationID(decoded))
 		require.Equal(t, int64(7), NotificationSeq(decoded))
 	}
 }
@@ -36,16 +36,16 @@ func TestWireNotificationToProtoDirectlyConvertsTypedValues(t *testing.T) {
 		method string
 		params any
 	}{
-		{wire.NotifyEvent, &wire.EventFrame{SessionID: 42, Seq: 7, Event: event}},
-		{wire.NotifyRunResultDone, &wire.RunResultDoneFrame{SessionID: 42, Seq: 7}},
-		{wire.NotifyAutonomousTurnStarted, &wire.AutonomousTurnStartedFrame{SessionID: 42, Seq: 7}},
-		{wire.NotifyAutonomousTurnEvent, &wire.EventFrame{SessionID: 42, Seq: 7, Event: event}},
-		{wire.NotifyAutonomousTurnDone, &wire.RunResultDoneFrame{SessionID: 42, Seq: 7}},
+		{wire.NotifyEvent, &wire.EventFrame{ConversationID: convID(42), Seq: 7, Event: event}},
+		{wire.NotifyRunResultDone, &wire.RunResultDoneFrame{ConversationID: convID(42), Seq: 7}},
+		{wire.NotifyAutonomousTurnStarted, &wire.AutonomousTurnStartedFrame{ConversationID: convID(42), Seq: 7}},
+		{wire.NotifyAutonomousTurnEvent, &wire.EventFrame{ConversationID: convID(42), Seq: 7, Event: event}},
+		{wire.NotifyAutonomousTurnDone, &wire.RunResultDoneFrame{ConversationID: convID(42), Seq: 7}},
 	}
 	for _, tc := range cases {
 		n, err := WireNotificationToProto(tc.method, tc.params)
 		require.NoError(t, err)
-		require.Equal(t, int64(42), NotificationSessionID(n))
+		require.Equal(t, convID(42), NotificationConversationID(n))
 		require.Equal(t, int64(7), NotificationSeq(n))
 	}
 	_, err := WireNotificationToProto(wire.NotifyEvent, json.RawMessage(`{}`))
@@ -58,7 +58,7 @@ func TestTypedNotificationRejectsMissingPayloadAndSeqRejectsUnknownFuturePayload
 	_, err = DecodeNotification(nil)
 	require.ErrorContains(t, err, "缺少 payload")
 	require.False(t, SetNotificationSeq(&agentrewire.RpcNotification{}, 1))
-	require.Zero(t, NotificationSessionID(&agentrewire.RpcNotification{}))
+	require.Empty(t, NotificationConversationID(&agentrewire.RpcNotification{}))
 	require.Zero(t, NotificationSeq(&agentrewire.RpcNotification{}))
 }
 

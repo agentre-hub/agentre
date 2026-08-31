@@ -293,7 +293,7 @@ message SessionListResponse {
 }
 
 message SessionSummary {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
   int64 agent_id = 3;
   string title = 4;
@@ -355,19 +355,19 @@ message ActivityDailyBucket {
 message ActivityRollupResponse { repeated ActivityDailyBucket buckets = 1; }
 
 message SessionAttachRequest {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
 }
 
 message SessionAttachResponse {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string backend_type = 2;
   string lifecycle_state = 3;
   int64 latest_seq = 4;
 }
 
 message SessionPullRequest {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
   int64 cursor = 3;
   int32 limit = 4;
@@ -386,7 +386,7 @@ message JournaledNotification {
 }
 
 message SessionPendingWaitersRequest {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
 }
 
@@ -407,14 +407,14 @@ message PendingAskUserQuestion {
 }
 
 message SessionDeleteRequest {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
 }
 
 message SessionDeleteResponse { bool deleted = 1; }
 
 message SetModelTargetRequest {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
   string provider_key = 3;
   string model_key = 4;
@@ -438,17 +438,17 @@ message RuntimeCapabilitiesResponse {
   PermissionModeMeta permission_mode = 2;
 }
 
-message RuntimeSteerRequest { int64 session_id = 1; string peer_fingerprint = 2; string queued_id = 3; string text = 4; }
-message RuntimeCancelSteerRequest { int64 session_id = 1; string peer_fingerprint = 2; string queued_id = 3; }
+message RuntimeSteerRequest { string conversation_id = 1; string peer_fingerprint = 2; string queued_id = 3; string text = 4; }
+message RuntimeCancelSteerRequest { string conversation_id = 1; string peer_fingerprint = 2; string queued_id = 3; }
 message RuntimeCancelSteerResponse { repeated string removed = 1; }
-message RuntimeDrainPendingRequest { int64 session_id = 1; string peer_fingerprint = 2; }
+message RuntimeDrainPendingRequest { string conversation_id = 1; string peer_fingerprint = 2; }
 message RuntimeDrainPendingResponse { repeated ConsumedSteer steers = 1; }
-message RuntimeAbortRequest { int64 session_id = 1; string peer_fingerprint = 2; uint64 turn_token = 3; }
+message RuntimeAbortRequest { string conversation_id = 1; string peer_fingerprint = 2; uint64 turn_token = 3; }
 message RuntimeAbortResponse { string turn_kind = 1; }
-message RuntimeStopBackgroundTaskRequest { int64 session_id = 1; string peer_fingerprint = 2; string task_id = 3; }
-message RuntimeSetPermissionModeRequest { int64 session_id = 1; string peer_fingerprint = 2; string mode = 3; }
+message RuntimeStopBackgroundTaskRequest { string conversation_id = 1; string peer_fingerprint = 2; string task_id = 3; }
+message RuntimeSetPermissionModeRequest { string conversation_id = 1; string peer_fingerprint = 2; string mode = 3; }
 message RuntimeSubmitAnswerRequest {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
   string request_id = 3;
   repeated AskQuestion questions = 4;
@@ -456,7 +456,7 @@ message RuntimeSubmitAnswerRequest {
   bool skipped = 6;
 }
 message RuntimeSubmitToolPermissionRequest {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
   string request_id = 3;
   bool allow = 4;
@@ -506,7 +506,7 @@ message MCPServer {
 message RuntimeRunRequest {
   AgentBackend backend = 1;
   int64 agent_id = 2;
-  int64 session_id = 3;
+  string conversation_id = 3;
   string peer_fingerprint = 4;
   string cwd = 5;
   string title = 6;
@@ -538,14 +538,14 @@ message RuntimeRunRequest {
   string project_sync_id = 24;
 }
 message RuntimeRunResponse {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string provider_session_id = 2;
   string launch_permission_mode = 3;
   string provider_fallback_key = 4;
 }
 
 message RuntimeGoalRequest {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string peer_fingerprint = 2;
   int64 agent_id = 3;
   string provider_session_id = 4;
@@ -570,7 +570,7 @@ message Goal {
 message RuntimeGoalResponse { Goal goal = 1; }
 message RuntimeGoalClearResponse { bool cleared = 1; }
 
-message TerminalOpenRequest { string terminal_id = 1; int64 session_id = 2; string cwd = 3; string shell = 4; string command = 5; repeated string env = 6; uint32 cols = 7; uint32 rows = 8; }
+message TerminalOpenRequest { string terminal_id = 1; string conversation_id = 2; string cwd = 3; string shell = 4; string command = 5; repeated string env = 6; uint32 cols = 7; uint32 rows = 8; }
 message TerminalOpenResponse { string terminal_id = 1; }
 message TerminalWriteRequest { string terminal_id = 1; bytes data = 2; }
 message TerminalResizeRequest { string terminal_id = 1; uint32 cols = 2; uint32 rows = 3; }
@@ -706,7 +706,7 @@ message TranscriptImportImage {
 
 // events reuses RuntimeEventNotification purely as the sealed-event envelope:
 // it is the one per-field codec for agentruntime events, and a second copy of
-// that 27-branch oneof would drift. session_id / seq are unused here.
+// that 27-branch oneof would drift. conversation_id / seq are unused here.
 message TranscriptImportTurn {
   int32 index = 1;
   string user_text = 2;
@@ -734,25 +734,25 @@ message TranscriptImportTurnsResponse {
 // imported session like any other. agentre-server never owns sessions, it
 // mirrors them — so importing from the web console has to happen here.
 //
-// session_id is minted by the caller (same rule as runtime.run: the session id
-// is each client's local autoincrement key and the daemon never issues one).
+// conversation_id is minted by the caller (same rule as runtime.run: the
+// originator mints the conversation's UUID and the daemon never issues one).
 // Title, cwd and the provider session id are NOT inputs: they are the
 // transcript's own facts, read here and written down.
 message TranscriptImportExecuteRequest {
   string backend = 1;
   string locator = 2;
-  int64 session_id = 3;
+  string conversation_id = 3;
   int64 agent_id = 4;
   string agent_sync_id = 5;
   string peer_fingerprint = 6;
 }
 
 // already_imported means this provider session already has a session under that
-// peer: session_id is the one in the database (not necessarily the minted one)
-// and turns is 0 — nothing was appended. Re-importing is a normal branch, not
-// an error.
+// peer: conversation_id is the one in the database (not necessarily the minted
+// one) and turns is 0 — nothing was appended. Re-importing is a normal branch,
+// not an error.
 message TranscriptImportExecuteResponse {
-  int64 session_id = 1;
+  string conversation_id = 1;
   string provider_session_id = 2;
   string cwd = 3;
   string title = 4;
@@ -761,7 +761,7 @@ message TranscriptImportExecuteResponse {
 }
 
 message RuntimeEventNotification {
-  int64 session_id = 1;
+  string conversation_id = 1;
   int64 seq = 2;
 
   oneof event {
@@ -848,7 +848,7 @@ message Usage {
 }
 
 message RunResultDoneNotification {
-  int64 session_id = 1;
+  string conversation_id = 1;
   int64 seq = 2;
   string provider_session_id = 3;
   Usage usage = 4;
@@ -871,7 +871,7 @@ message RunResultDoneNotification {
 }
 
 message AutonomousTurnStartedNotification {
-  int64 session_id = 1;
+  string conversation_id = 1;
   int64 seq = 2;
   string trigger = 3;
   uint64 turn_token = 4;

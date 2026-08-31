@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -83,10 +84,22 @@ type PeerSessionRunResult struct {
 // 会话行/标题/转录都在这台机器上新建并跑首轮（见 runFreshPeerSession）。会话存在时
 // 原样续轮，行为不变。
 func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, source PeerSessionSource) (*SendResponse, error) {
-	if params.SessionID <= 0 || source.Device == "" {
+	if source.Device == "" {
 		return nil, fmt.Errorf("invalid peer session run")
 	}
-	session, err := chat_repo.Session().Find(ctx, params.SessionID)
+	if err := conversationid.Validate(params.ConversationID); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrPeerSessionInvalidID, err)
+	}
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil && !errors.Is(err, ErrPeerSessionNotFound) {
+		return nil, err
+	}
+	// 解析不出来的是对端**新铸**的对话(R17:浏览器把新对话派到这台桌面端上跑)。
+	// 新建的会话行与对端铸的号在这里对上,此后这条对话双向都寻址得到。
+	if sessionID == 0 {
+		return s.runFreshPeerSession(ctx, params, source)
+	}
+	session, err := chat_repo.Session().Find(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +143,7 @@ func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams
 	if err != nil {
 		return nil, err
 	}
-	return s.send(ctx, &SendRequest{
+	out, err := s.send(ctx, &SendRequest{
 		AgentID:               agentID,
 		ProjectID:             projectID,
 		Text:                  params.UserText,
@@ -140,6 +153,15 @@ func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
 	}, sendOptions{})
+	if err != nil {
+		return nil, err
+	}
+	// 号是对端铸的(v5/v7 都可能),本机派生不出来 —— 只能在建行的这一刻记下对应关系,
+	// 此后这条对话的 attach / pull / 控制请求才寻址得到本机这一行。
+	if out != nil {
+		rememberPeerConversation(params.ConversationID, out.SessionID)
+	}
+	return out, nil
 }
 
 // resolvePeerProjectID 把对端报告的 cwd（该桌面端自己上报过的本机项目路径）翻回本地
@@ -181,7 +203,11 @@ func (s *chatSvc) preflightPeerRemoteExecution(ctx context.Context, backend *age
 // to the normal consumed-steer persistence path rather than creating a second
 // queue for remote peers.
 func (s *chatSvc) EnqueuePeerSession(ctx context.Context, params wire.SteerParams, source PeerSessionSource) (*EnqueueResponse, error) {
-	return s.enqueue(ctx, &EnqueueRequest{SessionID: params.SessionID, Text: params.Text, peerSource: source.messageSource()})
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.enqueue(ctx, &EnqueueRequest{SessionID: sessionID, Text: params.Text, peerSource: source.messageSource()})
 }
 
 // PendingPeerSessionWaiters 是 AnswerPeerToolPermission / AnswerPeerUserQuestion 这两个
@@ -194,7 +220,11 @@ func (s *chatSvc) EnqueuePeerSession(ctx context.Context, params wire.SteerParam
 func (s *chatSvc) PendingPeerSessionWaiters(
 	ctx context.Context, params wire.SessionPendingWaitersParams,
 ) (wire.SessionPendingWaitersResult, error) {
-	session, err := chat_repo.Session().Find(ctx, params.SessionID)
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return wire.SessionPendingWaitersResult{}, err
+	}
+	session, err := chat_repo.Session().Find(ctx, sessionID)
 	if err != nil {
 		return wire.SessionPendingWaitersResult{}, operationFailedWithCause(ctx, err)
 	}
@@ -299,16 +329,24 @@ func (s *chatSvc) peerSessionExecBackend(
 }
 
 func (s *chatSvc) AnswerPeerUserQuestion(ctx context.Context, params wire.SubmitAnswerParams) (PeerSessionControlResult, error) {
-	_, err := s.AnswerUserQuestion(ctx, &AnswerUserQuestionRequest{
-		SessionID: params.SessionID, RequestID: params.RequestID,
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return PeerSessionControlResult{}, err
+	}
+	_, err = s.AnswerUserQuestion(ctx, &AnswerUserQuestionRequest{
+		SessionID: sessionID, RequestID: params.RequestID,
 		Answers: chatblocks.AnswersFromRuntime(params.Answers), Skipped: params.Skipped,
 	})
 	return peerSessionControlResult(err)
 }
 
 func (s *chatSvc) AnswerPeerToolPermission(ctx context.Context, params wire.SubmitToolPermissionParams) (PeerSessionControlResult, error) {
-	_, err := s.AnswerToolPermission(ctx, &AnswerToolPermissionRequest{
-		SessionID: params.SessionID, RequestID: params.RequestID, Allow: params.Allow,
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return PeerSessionControlResult{}, err
+	}
+	_, err = s.AnswerToolPermission(ctx, &AnswerToolPermissionRequest{
+		SessionID: sessionID, RequestID: params.RequestID, Allow: params.Allow,
 		AlwaysAllowSession: params.AlwaysAllowSession, DenyReason: params.DenyReason,
 	})
 	return peerSessionControlResult(err)

@@ -136,7 +136,10 @@ const cliSessionSweepInterval = time.Minute
 // 各客户端本地自增的,两个对端各自持有同一个 id 时是两条互不相干的会话。
 type sessionKey struct {
 	peer string
-	sid  int64
+	// conversationID 是这条对话的全局身份。从前这里是客户端本地自增的会话号,所以
+	// 必须与 peer 配对才唯一;对话身份本身已经全局唯一,peer 留着只承担授权与来源
+	// 标注(与 daemon_sessions 上那一列同一次降级)。
+	conversationID string
 }
 
 // connRegistry 记录 daemon 此刻能把通知推给谁,两张互补的表:
@@ -383,20 +386,20 @@ type claimTicket struct {
 
 // claim records a caller's own-peer session target. Account-authorized cross-peer
 // operations use claimFor after their origin discriminator has been checked.
-func (r *connRegistry) claim(raw any, sid int64) claimTicket {
+func (r *connRegistry) claim(raw any, conversationID string) claimTicket {
 	c := connection.Normalize(raw)
 	peer, ok := peerIdentity(c)
 	if !ok {
 		return claimTicket{}
 	}
-	return r.claimFor(c, peer, sid)
+	return r.claimFor(c, peer, conversationID)
 }
 
 // claimFor records an already-authorized target peer. Normal callers use
 // claim; account-level controls reach this only after ResolveSessionPeer.
-func (r *connRegistry) claimFor(raw any, peer string, sid int64) claimTicket {
+func (r *connRegistry) claimFor(raw any, peer string, conversationID string) claimTicket {
 	c := connection.Normalize(raw)
-	if peer == "" || sid == 0 {
+	if peer == "" || conversationID == "" {
 		return claimTicket{}
 	}
 	r.mu.Lock()
@@ -412,7 +415,7 @@ func (r *connRegistry) claimFor(raw any, peer string, sid int64) claimTicket {
 		r.claims = map[sessionKey]sessionClaim{}
 	}
 	r.seq++
-	k := sessionKey{peer: peer, sid: sid}
+	k := sessionKey{peer: peer, conversationID: conversationID}
 	prev := r.claims[k]
 	mcpConn := prev.mcpConn
 	if _, live := r.live[mcpConn]; !live {
@@ -621,37 +624,37 @@ func (r *connRegistry) routerFor(peer string) handlers.NotifierPort {
 // originating peer is an unavailable tool, not permission to cross-route it.
 // 会话通知的订阅者集合(见 subscribersLocked)在这里**没有**位置:内置工具的实现与数据
 // 在发起端本地,把工具请求扇出给同账号的其它客户端就是决策 9 明确否掉的那件事。
-func (r *connRegistry) tunnelTargetFor(peer string, sid int64) handlers.NotifierPort {
-	if peer == "" || sid <= 0 {
+func (r *connRegistry) tunnelTargetFor(peer string, conversationID string) handlers.NotifierPort {
+	if peer == "" || conversationID == "" {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	claim, ok := r.claims[sessionKey{peer: peer, sid: sid}]
+	claim, ok := r.claims[sessionKey{peer: peer, conversationID: conversationID}]
 	if !ok {
 		return nil
 	}
 	return r.live[claim.mcpConn].n
 }
 
-// sessionRouter 是某个对端的会话通知出口:按帧上的 sessionId 把每条通知交给发起该会话
-// 的那条连接。sessionId 本来就是通知帧上的会话路由字段(见 wire 包注释),daemon 侧按它
-// 解析没有引入任何协议内容。
+// sessionRouter 是某个对端的会话通知出口:按帧上的 conversationId 把每条通知交给发起
+// 该会话的那条连接。conversationId 本来就是通知帧上的会话路由字段(见 wire 包注释),
+// daemon 侧按它解析没有引入任何协议内容。
 type sessionRouter struct {
 	reg  *connRegistry
 	peer string
 }
 
 func (s sessionRouter) Notify(notification *agentrewire.RpcNotification) error {
-	sid := protowire.NotificationSessionID(notification)
-	if sid <= 0 {
-		return fmt.Errorf("daemon: cannot route %s: notification carries no sessionId",
+	conversationID := protowire.NotificationConversationID(notification)
+	if conversationID == "" {
+		return fmt.Errorf("daemon: cannot route %s: notification carries no conversationId",
 			protowire.NotificationMethod(notification))
 	}
-	n := s.reg.ownerOf(sessionKey{peer: s.peer, sid: sid})
+	n := s.reg.ownerOf(sessionKey{peer: s.peer, conversationID: conversationID})
 	if n == nil {
 		// 发起该会话的连接已经断开:通知已经落库,等同指纹的新连接接管后补齐。
-		return fmt.Errorf("daemon: session %d has no live connection", sid)
+		return fmt.Errorf("daemon: conversation %s has no live connection", conversationID)
 	}
 	return n.Notify(notification)
 }
@@ -670,8 +673,8 @@ func (d *Daemon) notifierForPeer(peer string) handlers.NotifierPort {
 
 // tunnelTargetFor resolves a daemon-local MCP request to its originating
 // session owner; no global active-connection heuristic is permitted.
-func (d *Daemon) tunnelTargetFor(peer string, sid int64) handlers.NotifierPort {
-	return d.conns.tunnelTargetFor(peer, sid)
+func (d *Daemon) tunnelTargetFor(peer string, conversationID string) handlers.NotifierPort {
+	return d.conns.tunnelTargetFor(peer, conversationID)
 }
 
 func (d *Daemon) claimedAccountID() string { return d.state.Snapshot().AccountID }

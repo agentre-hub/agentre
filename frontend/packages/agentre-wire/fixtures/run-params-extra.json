@@ -5,10 +5,10 @@
     "backendType": "claudecode"
   },
   "clientNote": "来自浏览器的自定义字段",
+  "conversationId": "00000000-0000-7000-8000-000000000042",
   "futureField": {
     "nested": true
   },
-  "sessionId": 42,
   "sourceDevice": "fp-web-1",
   "sourceDeviceName": "Chrome · macOS",
   "title": "重构登录页"

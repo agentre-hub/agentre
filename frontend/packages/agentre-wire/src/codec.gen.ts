@@ -136,7 +136,7 @@ export function encodePeerSessionControlResult(
 }
 
 export interface GoalParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   agentId?: number;
   providerSessionId: string;
@@ -157,7 +157,7 @@ export interface GoalParams extends WireObject {
 
 export function decodeGoalParams(v: unknown): GoalParams {
   return decodeWire<GoalParams>(v, "GoalParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "GoalParams.sessionId");
+    o.conversationId = reqStr(o.conversationId, "GoalParams.conversationId");
     o.peerFingerprint = optStr(o.peerFingerprint, "GoalParams.peerFingerprint");
     o.agentId = optNum(o.agentId, "GoalParams.agentId");
     o.providerSessionId = reqStr(
@@ -265,7 +265,7 @@ export function encodeHistoryMessageWire(v: HistoryMessageWire): string {
 export interface RunParams extends WireObject {
   backend: unknown;
   agentId: number;
-  sessionId: number;
+  conversationId: string;
 
   /**
    * PeerFingerprint 点名这一轮要落在**哪个对端**名下的那条会话上(R9)。会话键是
@@ -363,7 +363,7 @@ export interface RunParams extends WireObject {
 export function decodeRunParams(v: unknown): RunParams {
   return decodeWire<RunParams>(v, "RunParams", (o) => {
     o.agentId = reqNum(o.agentId, "RunParams.agentId");
-    o.sessionId = reqNum(o.sessionId, "RunParams.sessionId");
+    o.conversationId = reqStr(o.conversationId, "RunParams.conversationId");
     o.peerFingerprint = optStr(o.peerFingerprint, "RunParams.peerFingerprint");
     o.cwd = optStr(o.cwd, "RunParams.cwd");
     o.title = optStr(o.title, "RunParams.title");
@@ -475,7 +475,7 @@ export function encodeMCPProxyResponse(v: MCPProxyResponse): string {
  * notice(与本地 Q3 一致);空串 = 未回退。
  */
 export interface RunAck extends WireObject {
-  sessionId: number;
+  conversationId: string;
   providerSessionId?: string;
   launchPermissionMode?: string;
   providerFallbackKey?: string;
@@ -483,7 +483,7 @@ export interface RunAck extends WireObject {
 
 export function decodeRunAck(v: unknown): RunAck {
   return decodeWire<RunAck>(v, "RunAck", (o) => {
-    o.sessionId = reqNum(o.sessionId, "RunAck.sessionId");
+    o.conversationId = reqStr(o.conversationId, "RunAck.conversationId");
     o.providerSessionId = optStr(
       o.providerSessionId,
       "RunAck.providerSessionId",
@@ -505,7 +505,7 @@ export function encodeRunAck(v: RunAck): string {
 
 /** SteerParams 等同 agentruntime.Steerer.Steer 的入参。 */
 export interface SteerParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   queuedId?: string;
   text: string;
@@ -513,7 +513,7 @@ export interface SteerParams extends WireObject {
 
 export function decodeSteerParams(v: unknown): SteerParams {
   return decodeWire<SteerParams>(v, "SteerParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "SteerParams.sessionId");
+    o.conversationId = reqStr(o.conversationId, "SteerParams.conversationId");
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "SteerParams.peerFingerprint",
@@ -529,14 +529,17 @@ export function encodeSteerParams(v: SteerParams): string {
 
 /** CancelSteerParams 等同 agentruntime.SteerCanceler.CancelSteer 的入参。 */
 export interface CancelSteerParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   queuedId?: string;
 }
 
 export function decodeCancelSteerParams(v: unknown): CancelSteerParams {
   return decodeWire<CancelSteerParams>(v, "CancelSteerParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "CancelSteerParams.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "CancelSteerParams.conversationId",
+    );
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "CancelSteerParams.peerFingerprint",
@@ -569,13 +572,13 @@ export function encodeCancelSteerResult(v: CancelSteerResult): string {
 
 /** DrainParams 等同 agentruntime.SteerDrainer.DrainPending 的入参。 */
 export interface DrainParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
 }
 
 export function decodeDrainParams(v: unknown): DrainParams {
   return decodeWire<DrainParams>(v, "DrainParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "DrainParams.sessionId");
+    o.conversationId = reqStr(o.conversationId, "DrainParams.conversationId");
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "DrainParams.peerFingerprint",
@@ -610,14 +613,14 @@ export function encodeDrainResult(v: DrainResult): string {
  * TurnToken 语义同 agentruntime:0 = 中断当前活跃轮;非 0 = 仅当该轮仍是当前活跃轮才中断。
  */
 export interface AbortParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   turnToken?: number;
 }
 
 export function decodeAbortParams(v: unknown): AbortParams {
   return decodeWire<AbortParams>(v, "AbortParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "AbortParams.sessionId");
+    o.conversationId = reqStr(o.conversationId, "AbortParams.conversationId");
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "AbortParams.peerFingerprint",
@@ -647,7 +650,7 @@ export function encodeAbortResult(v: AbortResult): string {
 
 /** StopBackgroundTaskParams 等同 agentruntime.BackgroundTaskStopper.StopBackgroundTask 的入参。 */
 export interface StopBackgroundTaskParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   taskId: string;
 }
@@ -659,7 +662,10 @@ export function decodeStopBackgroundTaskParams(
     v,
     "StopBackgroundTaskParams",
     (o) => {
-      o.sessionId = reqNum(o.sessionId, "StopBackgroundTaskParams.sessionId");
+      o.conversationId = reqStr(
+        o.conversationId,
+        "StopBackgroundTaskParams.conversationId",
+      );
       o.peerFingerprint = optStr(
         o.peerFingerprint,
         "StopBackgroundTaskParams.peerFingerprint",
@@ -677,7 +683,7 @@ export function encodeStopBackgroundTaskParams(
 
 /** SetPermissionModeParams 等同 agentruntime.PermissionModeSetter.SetPermissionMode 的入参。 */
 export interface SetPermissionModeParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   mode: string;
 }
@@ -689,7 +695,10 @@ export function decodeSetPermissionModeParams(
     v,
     "SetPermissionModeParams",
     (o) => {
-      o.sessionId = reqNum(o.sessionId, "SetPermissionModeParams.sessionId");
+      o.conversationId = reqStr(
+        o.conversationId,
+        "SetPermissionModeParams.conversationId",
+      );
       o.peerFingerprint = optStr(
         o.peerFingerprint,
         "SetPermissionModeParams.peerFingerprint",
@@ -718,7 +727,7 @@ export function encodeSetPermissionModeParams(
  * 成功:那会让调用方以为下一轮会用新模型,而实际上一行都没写。
  */
 export interface SetModelTargetParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   providerKey?: string;
   modelKey?: string;
@@ -726,7 +735,10 @@ export interface SetModelTargetParams extends WireObject {
 
 export function decodeSetModelTargetParams(v: unknown): SetModelTargetParams {
   return decodeWire<SetModelTargetParams>(v, "SetModelTargetParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "SetModelTargetParams.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "SetModelTargetParams.conversationId",
+    );
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "SetModelTargetParams.peerFingerprint",
@@ -742,7 +754,7 @@ export function encodeSetModelTargetParams(v: SetModelTargetParams): string {
 
 /** SubmitAnswerParams 等同 agentruntime.AskAnswerSink.SubmitAnswer 的入参。 */
 export interface SubmitAnswerParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   requestId: string;
   questions?: unknown[];
@@ -752,7 +764,10 @@ export interface SubmitAnswerParams extends WireObject {
 
 export function decodeSubmitAnswerParams(v: unknown): SubmitAnswerParams {
   return decodeWire<SubmitAnswerParams>(v, "SubmitAnswerParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "SubmitAnswerParams.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "SubmitAnswerParams.conversationId",
+    );
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "SubmitAnswerParams.peerFingerprint",
@@ -770,7 +785,7 @@ export function encodeSubmitAnswerParams(v: SubmitAnswerParams): string {
 
 /** SubmitToolPermissionParams 等同 agentruntime.ToolPermissionSink.SubmitToolPermission 的入参。 */
 export interface SubmitToolPermissionParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   requestId: string;
   allow: boolean;
@@ -785,7 +800,10 @@ export function decodeSubmitToolPermissionParams(
     v,
     "SubmitToolPermissionParams",
     (o) => {
-      o.sessionId = reqNum(o.sessionId, "SubmitToolPermissionParams.sessionId");
+      o.conversationId = reqStr(
+        o.conversationId,
+        "SubmitToolPermissionParams.conversationId",
+      );
       o.peerFingerprint = optStr(
         o.peerFingerprint,
         "SubmitToolPermissionParams.peerFingerprint",
@@ -817,7 +835,7 @@ export function encodeSubmitToolPermissionParams(
  * 存的游标一比就知道断连期间落下了多少条。
  */
 export interface SessionSummary extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   agentId?: number;
 
@@ -875,7 +893,10 @@ export interface SessionSummary extends WireObject {
 
 export function decodeSessionSummary(v: unknown): SessionSummary {
   return decodeWire<SessionSummary>(v, "SessionSummary", (o) => {
-    o.sessionId = reqNum(o.sessionId, "SessionSummary.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "SessionSummary.conversationId",
+    );
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "SessionSummary.peerFingerprint",
@@ -937,7 +958,7 @@ export function encodeSessionListResult(v: SessionListResult): string {
  * Cursor 是**已经收到的**最后一个 seq(独占),所以首次补齐传 0。
  */
 export interface SessionPullParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
   cursor: number;
   limit?: number;
@@ -945,7 +966,10 @@ export interface SessionPullParams extends WireObject {
 
 export function decodeSessionPullParams(v: unknown): SessionPullParams {
   return decodeWire<SessionPullParams>(v, "SessionPullParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "SessionPullParams.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "SessionPullParams.conversationId",
+    );
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "SessionPullParams.peerFingerprint",
@@ -1031,7 +1055,7 @@ export function encodeSessionPullResult(v: SessionPullResult): string {
 
 /** SessionPendingWaitersParams 是 MethodSessionPendingWaiters 的请求。 */
 export interface SessionPendingWaitersParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
 }
 
@@ -1042,9 +1066,9 @@ export function decodeSessionPendingWaitersParams(
     v,
     "SessionPendingWaitersParams",
     (o) => {
-      o.sessionId = reqNum(
-        o.sessionId,
-        "SessionPendingWaitersParams.sessionId",
+      o.conversationId = reqStr(
+        o.conversationId,
+        "SessionPendingWaitersParams.conversationId",
       );
       o.peerFingerprint = optStr(
         o.peerFingerprint,
@@ -1097,13 +1121,16 @@ export function encodeSessionPendingWaitersResult(
 
 /** SessionAttachParams 是 MethodSessionAttach 的请求。 */
 export interface SessionAttachParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
 }
 
 export function decodeSessionAttachParams(v: unknown): SessionAttachParams {
   return decodeWire<SessionAttachParams>(v, "SessionAttachParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "SessionAttachParams.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "SessionAttachParams.conversationId",
+    );
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "SessionAttachParams.peerFingerprint",
@@ -1123,7 +1150,7 @@ export function encodeSessionAttachParams(v: SessionAttachParams): string {
  * 接管与读高水位之间落库的那几条会在同一轮 pull 里被带出来。
  */
 export interface SessionAttachResult extends WireObject {
-  sessionId: number;
+  conversationId: string;
   backendType?: string;
   lifecycleState: string;
   latestSeq: number;
@@ -1131,7 +1158,10 @@ export interface SessionAttachResult extends WireObject {
 
 export function decodeSessionAttachResult(v: unknown): SessionAttachResult {
   return decodeWire<SessionAttachResult>(v, "SessionAttachResult", (o) => {
-    o.sessionId = reqNum(o.sessionId, "SessionAttachResult.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "SessionAttachResult.conversationId",
+    );
     o.backendType = optStr(o.backendType, "SessionAttachResult.backendType");
     o.lifecycleState = reqStr(
       o.lifecycleState,
@@ -1152,13 +1182,16 @@ export function encodeSessionAttachResult(v: SessionAttachResult): string {
  * 别人的对话」,所以它绝不能自成一套宽松的范围规则。
  */
 export interface SessionDeleteParams extends WireObject {
-  sessionId: number;
+  conversationId: string;
   peerFingerprint?: string;
 }
 
 export function decodeSessionDeleteParams(v: unknown): SessionDeleteParams {
   return decodeWire<SessionDeleteParams>(v, "SessionDeleteParams", (o) => {
-    o.sessionId = reqNum(o.sessionId, "SessionDeleteParams.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "SessionDeleteParams.conversationId",
+    );
     o.peerFingerprint = optStr(
       o.peerFingerprint,
       "SessionDeleteParams.peerFingerprint",
@@ -1423,7 +1456,8 @@ export function encodeProjectLocalPathResult(
 
 /**
  * EventFrame wraps a single agentruntime.Event for delivery over NotifyEvent.
- * SessionID is transport metadata so the receiving end can route by session.
+ * ConversationID is transport metadata so the receiving end can route by
+ * conversation.
  *
  * Event 是**密封事件本身**,不是它的 JSON 字节。这条帧在进程内只被 protowire 读,
  * 而 protowire 要的就是 Event —— 中间摆一个 json.RawMessage 的后果是每帧在两端
@@ -1432,24 +1466,24 @@ export function encodeProjectLocalPathResult(
  * 通用容器。
  *
  * 线上形态一个字节都没变:下面的 MarshalJSON / UnmarshalJSON 仍旧落
- * {"sessionId":…,"event":{"kind":…},"seq":…},由各 Event 自己的 MarshalJSON 与
+ * {"conversationId":…,"event":{"kind":…},"seq":…},由各 Event 自己的 MarshalJSON 与
  * agentruntime.UnmarshalEvent 负责 —— 通知日志里的旧行、旧版本对端、黄金样本
  * 都照常读得出来。
  * json tag 在这里**不驱动序列化**(下面的 MarshalJSON / UnmarshalJSON 才是),
  * 但必须与 eventFrameWire 一字不差:TS 编解码生成器读的是 tag,读不到自定义
- * marshaler。两处一旦分家,生成出来的 decodeEventFrame 会去找 `SessionID` 这样
+ * marshaler。两处一旦分家,生成出来的 decodeEventFrame 会去找 `ConversationID` 这样
  * 根本不存在的键 —— 编译期无声,浏览器侧全线解码失败。
  * TestEventFrameWireTagsMatchMarshaler 守住这一致性。
  */
 export interface EventFrame extends WireObject {
-  sessionId: number;
+  conversationId: string;
   event: unknown;
   seq?: number;
 }
 
 export function decodeEventFrame(v: unknown): EventFrame {
   return decodeWire<EventFrame>(v, "EventFrame", (o) => {
-    o.sessionId = reqNum(o.sessionId, "EventFrame.sessionId");
+    o.conversationId = reqStr(o.conversationId, "EventFrame.conversationId");
     o.seq = optNum(o.seq, "EventFrame.seq");
   });
 }
@@ -1468,7 +1502,7 @@ export function encodeEventFrame(v: EventFrame): string {
  * = -32013 表示 ErrAborted;等等。
  */
 export interface RunResultDoneFrame extends WireObject {
-  sessionId: number;
+  conversationId: string;
   providerSessionId?: string;
   usage?: UsageWire | null;
   userAnchor?: string;
@@ -1494,7 +1528,10 @@ export interface RunResultDoneFrame extends WireObject {
 
 export function decodeRunResultDoneFrame(v: unknown): RunResultDoneFrame {
   return decodeWire<RunResultDoneFrame>(v, "RunResultDoneFrame", (o) => {
-    o.sessionId = reqNum(o.sessionId, "RunResultDoneFrame.sessionId");
+    o.conversationId = reqStr(
+      o.conversationId,
+      "RunResultDoneFrame.conversationId",
+    );
     o.providerSessionId = optStr(
       o.providerSessionId,
       "RunResultDoneFrame.providerSessionId",
@@ -1527,7 +1564,7 @@ export function encodeRunResultDoneFrame(v: RunResultDoneFrame): string {
  * (RunResultDoneFrame)填回该轮 RunResult 并 close。
  */
 export interface AutonomousTurnStartedFrame extends WireObject {
-  sessionId: number;
+  conversationId: string;
   trigger?: string;
   turnToken?: number;
   seq?: number;
@@ -1540,7 +1577,10 @@ export function decodeAutonomousTurnStartedFrame(
     v,
     "AutonomousTurnStartedFrame",
     (o) => {
-      o.sessionId = reqNum(o.sessionId, "AutonomousTurnStartedFrame.sessionId");
+      o.conversationId = reqStr(
+        o.conversationId,
+        "AutonomousTurnStartedFrame.conversationId",
+      );
       o.trigger = optStr(o.trigger, "AutonomousTurnStartedFrame.trigger");
       o.turnToken = optNum(o.turnToken, "AutonomousTurnStartedFrame.turnToken");
       o.seq = optNum(o.seq, "AutonomousTurnStartedFrame.seq");

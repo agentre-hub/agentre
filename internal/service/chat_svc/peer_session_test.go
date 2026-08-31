@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strconv"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -70,6 +72,13 @@ func setupPeerSessionTest(t *testing.T) *peerSessionTestDeps {
 			deps.projectListCalls++
 			return deps.projects, nil
 		}).AnyTimes()
+	// conversation_id → 本地主键的反查在落库之前靠枚举本机会话重建(见
+	// ResolvePeerConversation):这两样是它的输入,次数不定(备忘录是进程级的)。
+	deps.device.EXPECT().DeviceFingerprint().Return(testDesktopFingerprint, nil).AnyTimes()
+	deps.session.EXPECT().ListIndexPaged(gomock.Any(), chat_repo.SessionIndexFilter{}, 0, math.MaxInt).
+		Return([]*chat_entity.Session{
+			{ID: 41, Status: consts.ACTIVE}, {ID: 42, Status: consts.ACTIVE}, {ID: 43, Status: consts.ACTIVE},
+		}, nil).AnyTimes()
 	t.Cleanup(func() {
 		agent_repo.RegisterAgent(prevAgent)
 		agent_backend_repo.RegisterAgentBackend(prevBackend)
@@ -94,7 +103,6 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 		AgentBackendID: 11,
 		Status:         consts.ACTIVE,
 	}
-	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
@@ -109,7 +117,7 @@ func TestListPeerSessions_GivenDesktopSessions_ThenReturnsCompleteNonDegradedSum
 	require.Len(t, got.Sessions, 3)
 
 	assert.Equal(t, wire.SessionSummary{
-		SessionID:         41,
+		ConversationID:    convID(41),
 		PeerFingerprint:   "sha256:desktop",
 		AgentID:           7,
 		Title:             "Ship the release",
@@ -146,7 +154,6 @@ func TestListPeerSessions_GivenMissingTitleOrAgentIdentity_ThenOmitsRatherThanDe
 		t.Run(name, func(t *testing.T) {
 			deps := setupPeerSessionTest(t)
 			ctx := context.Background()
-			deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 			deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
 				ID: 7, Name: "Release captain", Status: consts.ACTIVE,
 				SyncMeta: syncmeta_entity.SyncMeta{SyncID: tc.agentSync},
@@ -169,7 +176,6 @@ func TestListPeerSessions_GivenMissingTitleOrAgentIdentity_ThenOmitsRatherThanDe
 func TestListPeerSessions_GivenOneCorruptRow_ThenServesEveryHealthyRow(t *testing.T) {
 	deps := setupPeerSessionTest(t)
 	ctx := context.Background()
-	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
 		ID: 7, Name: "Release captain", Status: consts.ACTIVE, AgentBackendID: 11,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
@@ -187,8 +193,8 @@ func TestListPeerSessions_GivenOneCorruptRow_ThenServesEveryHealthyRow(t *testin
 	got, err := deps.svc.ListPeerSessions(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 2, "an untitled row and an unknown-status row are dropped; the rest are served")
-	assert.Equal(t, int64(41), got.Sessions[0].SessionID)
-	assert.Equal(t, int64(43), got.Sessions[1].SessionID)
+	assert.Equal(t, convID(41), got.Sessions[0].ConversationID)
+	assert.Equal(t, convID(43), got.Sessions[1].ConversationID)
 }
 
 // Given the backend lookup fails for infrastructure reasons, when sessions are listed,
@@ -197,7 +203,6 @@ func TestListPeerSessions_GivenOneCorruptRow_ThenServesEveryHealthyRow(t *testin
 func TestListPeerSessions_GivenRepositoryFailure_ThenStillFails(t *testing.T) {
 	deps := setupPeerSessionTest(t)
 	ctx := context.Background()
-	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
 		ID: 7, Name: "Release captain", Status: consts.ACTIVE, AgentBackendID: 11,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
@@ -233,10 +238,10 @@ func TestAttachPeerSession_GivenLiveDesktopSession_ThenAddsAndCleansUpRemoteSubs
 	deps.message.EXPECT().List(ctx, int64(41)).Return(nil, nil)
 
 	subscriber := &recordingPeerSubscriber{done: make(chan struct{})}
-	got, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, subscriber)
+	got, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 	assert.Equal(t, wire.SessionAttachResult{
-		SessionID: 41, BackendType: string(agent_backend_entity.TypeClaudeCode), LifecycleState: wire.SessionLifecycleRunning,
+		ConversationID: convID(41), BackendType: string(agent_backend_entity.TypeClaudeCode), LifecycleState: wire.SessionLifecycleRunning,
 	}, got)
 	assert.Equal(t, 1, deps.svc.peerSubscriberCount(41), "remote attaches alongside the desktop UI; it must not replace a local subscriber")
 
@@ -252,9 +257,13 @@ func TestAttachPeerSession_GivenInvalidOrMissingSession_ThenRejects(t *testing.T
 	_, err := deps.svc.AttachPeerSession(context.Background(), wire.SessionAttachParams{}, subscriber)
 	require.Error(t, err)
 
-	deps.session.EXPECT().Find(gomock.Any(), int64(99)).Return(nil, nil)
-	_, err = deps.svc.AttachPeerSession(context.Background(), wire.SessionAttachParams{SessionID: 99}, subscriber)
+	// 本机没有这条对话:反查枚举完本机会话仍然对不上,在打库之前就报"不在这台机器上"。
+	_, err = deps.svc.AttachPeerSession(context.Background(), wire.SessionAttachParams{ConversationID: convID(99)}, subscriber)
 	assert.True(t, errors.Is(err, ErrPeerSessionNotFound))
+
+	// 不成其为对话身份的取值(空、旧的裸数字会话号)与"不在这台机器上"分开报。
+	_, err = deps.svc.AttachPeerSession(context.Background(), wire.SessionAttachParams{ConversationID: "99"}, subscriber)
+	assert.True(t, errors.Is(err, ErrPeerSessionInvalidID))
 }
 
 // 桌面端的会话清单要把**它自己知道的项目归属**说出来。
@@ -274,7 +283,6 @@ func TestListPeerSessions_GivenSessionInAProject_ThenNamesTheProjectSyncID(t *te
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXPROJECTIDENTITY000000000"},
 	}}
 	ctx := context.Background()
-	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
 		ID: 7, Name: "Release captain", Status: consts.ACTIVE,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
@@ -298,7 +306,6 @@ func TestListPeerSessions_GivenProjectWithoutSyncID_ThenLeavesItBlank(t *testing
 	deps := setupPeerSessionTest(t)
 	deps.projects = []*project_entity.Project{{ID: 3, Name: "dsp2b", Status: consts.ACTIVE}}
 	ctx := context.Background()
-	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{{
 		ID: 7, Name: "Release captain", Status: consts.ACTIVE,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
@@ -323,7 +330,6 @@ func TestListPeerSessions_ReadsTheProjectListOnce(t *testing.T) {
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXPROJECTIDENTITY000000000"},
 	}}
 	ctx := context.Background()
-	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{
 		{ID: 7, Name: "A", Status: consts.ACTIVE, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-a"}},
 		{ID: 8, Name: "B", Status: consts.ACTIVE, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "sync-b"}},
@@ -358,7 +364,6 @@ func TestListPeerSessions_GivenSessionModelTarget_ThenReportsItAndDeclaresSuppor
 		AgentBackendID: 11,
 		Status:         consts.ACTIVE,
 	}
-	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
@@ -406,7 +411,6 @@ func TestListPeerSessions_NarrowsByKeyword(t *testing.T) {
 		AgentBackendID: 11,
 		Status:         consts.ACTIVE,
 	}
-	deps.device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil)
 	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
 	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, "happy"), 0, math.MaxInt).
 		Return([]*chat_entity.Session{
@@ -417,5 +421,16 @@ func TestListPeerSessions_NarrowsByKeyword(t *testing.T) {
 	got, err := deps.svc.ListPeerSessions(ctx, "happy")
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 1)
-	assert.Equal(t, int64(41), got.Sessions[0].SessionID)
+	assert.Equal(t, convID(41), got.Sessions[0].ConversationID)
+}
+
+// convID 是**这台桌面端**为它本机第 n 条会话交出去的对话身份 —— 与生产的
+// peerConversationID 同输入同算法(本机设备指纹 + 本地会话 id)。
+//
+// 写死一份等价实现是有意的:对端拿着这个值回来寻址时,桌面端要靠同一条派生把它翻回
+// 本地主键,用一个随手编的 uuid 这些用例就只在测试自己的世界里成立。
+const testDesktopFingerprint = "sha256:desktop"
+
+func convID(n int64) string {
+	return conversationid.Derive(conversationid.Namespace, testDesktopFingerprint, strconv.FormatInt(n, 10))
 }

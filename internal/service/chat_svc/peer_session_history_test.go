@@ -127,14 +127,14 @@ func TestPeerSessionPull_GivenSnapshotAndEarlyLiveEvent_ThenKeepsOneOrderedSeqUn
 	deps.message.EXPECT().List(ctx, int64(41)).Return(messages, nil)
 
 	subscriber := newRecordingPeerSubscriber()
-	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, subscriber)
+	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), attached.LatestSeq, "history must be frozen as user_message, text, done")
 
 	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "live"})
 	assert.Empty(t, subscriber.notifications(), "live output must wait behind the frozen snapshot")
 
-	first, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Cursor: 0, Limit: 2}, subscriber)
+	first, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Cursor: 0, Limit: 2}, subscriber)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), first.OldestSeq)
 	assert.Equal(t, int64(2), first.Cursor)
@@ -142,7 +142,7 @@ func TestPeerSessionPull_GivenSnapshotAndEarlyLiveEvent_ThenKeepsOneOrderedSeqUn
 	assertPeerNotificationSeqs(t, first.Notifications, 1, 2)
 	assert.Empty(t, subscriber.notifications(), "cursor below H must retain live buffering")
 
-	second, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Cursor: first.Cursor, Limit: 2}, subscriber)
+	second, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Cursor: first.Cursor, Limit: 2}, subscriber)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), second.Cursor)
 	assert.False(t, second.HasMore)
@@ -169,16 +169,16 @@ func TestAttachPeerSession_GivenReconnectAfterLiveEvent_ThenRetainsLiveSeqForDed
 	deps.message.EXPECT().List(ctx, int64(41)).Return(messages, nil)
 
 	first := newRecordingPeerSubscriber()
-	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, first)
+	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, first)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), attached.LatestSeq)
 	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "live"})
 
 	second := newRecordingPeerSubscriber()
-	reconnected, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, second)
+	reconnected, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, second)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), reconnected.LatestSeq)
-	page, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Limit: 3}, second)
+	page, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Limit: 3}, second)
 	require.NoError(t, err)
 	assertPeerNotificationSeqs(t, page.Notifications, 1, 2, 3)
 }
@@ -194,9 +194,9 @@ func TestPeerSessionPull_GivenEmptyHistory_ThenReportsZeroOldestSeq(t *testing.T
 	deps.message.EXPECT().List(ctx, int64(41)).Return(nil, nil)
 
 	subscriber := newRecordingPeerSubscriber()
-	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, subscriber)
+	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
-	page, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41}, subscriber)
+	page, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), page.OldestSeq)
 	assert.Empty(t, page.Notifications)
@@ -217,11 +217,11 @@ func TestPublishPeerEvent_GivenStalledSubscriber_ThenLocalPublishDoesNotBlockAnd
 	released := make(chan struct{})
 	notified := make(chan struct{}, 2)
 	subscriber := &blockingPeerSubscriber{released: released, notified: notified}
-	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, subscriber)
+	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), attached.LatestSeq)
 	// 把游标抬到高水位，让该订阅进入「已拉平、收实时帧」的 ready 状态。
-	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41}, subscriber)
+	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 
 	published := make(chan struct{})
@@ -268,7 +268,7 @@ func TestPullPeerSession_GivenBufferedLiveFrameAndStalledNotify_ThenPublicationL
 	release := func() { releaseOnce.Do(func() { close(released) }) }
 	defer release()
 	subscriber := &stallingSeqSubscriber{blockSeq: 4, entered: make(chan struct{}), released: released}
-	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, subscriber)
+	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), attached.LatestSeq)
 
@@ -279,7 +279,7 @@ func TestPullPeerSession_GivenBufferedLiveFrameAndStalledNotify_ThenPublicationL
 	// pull 拉满历史并进入 catch-up：缓冲的实时帧在此刻交付。
 	pullDone := make(chan struct{})
 	go func() {
-		_, _ = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Cursor: 0, Limit: 5}, subscriber)
+		_, _ = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Cursor: 0, Limit: 5}, subscriber)
 		close(pullDone)
 	}()
 	select {
@@ -328,10 +328,10 @@ func TestPeerSessionLive_GivenWorkerStalledOnEarlierFrame_ThenPullDoesNotDeliver
 	release := func() { releaseOnce.Do(func() { close(released) }) }
 	defer release()
 	subscriber := &stallingSeqSubscriber{blockSeq: 1, entered: make(chan struct{}), released: released}
-	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, subscriber)
+	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), attached.LatestSeq)
-	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41}, subscriber)
+	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 
 	// 第一条实时帧（seq 1）：flush worker 进入投递并卡在对端写上。
@@ -344,7 +344,7 @@ func TestPeerSessionLive_GivenWorkerStalledOnEarlierFrame_ThenPullDoesNotDeliver
 
 	// 第二条实时帧（seq 2）到达后 peer 再 pull 一次：不得抢在 seq 1 之前交付。
 	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "second"})
-	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Cursor: 0}, subscriber)
+	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Cursor: 0}, subscriber)
 	require.NoError(t, err)
 	assert.Empty(t, subscriber.seenSeqs(), "a later live frame must not be delivered ahead of an earlier stalled one")
 
@@ -524,7 +524,7 @@ func TestPublishPeerTurnDone_GivenFinishedTurn_ThenPeersSeeTurnStats(t *testing.
 	deps.message.EXPECT().List(ctx, int64(41)).Return(nil, nil)
 
 	subscriber := newRecordingPeerSubscriber()
-	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, subscriber)
+	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 
 	deps.svc.publishPeerTurnDone(41, &chat_entity.Message{
@@ -612,9 +612,9 @@ func TestPublishPeerEvent_GivenOneStalledSubscriber_ThenOthersStillReceive(t *te
 	stalled := &blockingPeerSubscriber{released: make(chan struct{}), notified: make(chan struct{}, 1)}
 	healthy := newRecordingPeerSubscriber()
 	for _, sub := range []PeerSessionSubscriber{stalled, healthy} {
-		_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, sub)
+		_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, sub)
 		require.NoError(t, err)
-		_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Cursor: 0, Limit: 100}, sub)
+		_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Cursor: 0, Limit: 100}, sub)
 		require.NoError(t, err)
 	}
 	t.Cleanup(func() { close(stalled.released) })
@@ -644,9 +644,9 @@ func TestPublishPeerEvent_GivenSubscriberFallsBehind_ThenQueueStaysBounded(t *te
 	deps.message.EXPECT().List(ctx, int64(41)).Return(nil, nil).AnyTimes()
 
 	stalled := &blockingPeerSubscriber{released: make(chan struct{}), notified: make(chan struct{}, 1)}
-	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, stalled)
+	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, stalled)
 	require.NoError(t, err)
-	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{SessionID: 41, Cursor: 0, Limit: 100}, stalled)
+	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Cursor: 0, Limit: 100}, stalled)
 	require.NoError(t, err)
 	t.Cleanup(func() { close(stalled.released) })
 

@@ -1051,7 +1051,7 @@ func TestGoal_RemoteReleasesRuntimeAfterOneShotRPC(t *testing.T) {
 	rec.expect(wire.MethodSetGoal, func(params, result any) error {
 		gp, ok := params.(wire.GoalParams)
 		require.True(t, ok, "expected wire.GoalParams, got %T", params)
-		assert.Equal(t, int64(100), gp.SessionID)
+		assert.Equal(t, execConvID(100), gp.ConversationID)
 		assert.Equal(t, "codex-thread-123", gp.ProviderSessionID)
 		*(result.(*wire.GoalResult)) = wire.GoalResult{Goal: &agentruntime.Goal{
 			ThreadID:  "codex-thread-123",
@@ -1325,3 +1325,6 @@ func TestEventShowsProgressAfterError_SubagentModel(t *testing.T) {
 		convey.So(eventShowsProgressAfterError(ev), convey.ShouldBeTrue)
 	})
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:这个假连接从没握过手,本端指纹为空。
+func (c *noopDaemonClient) SelfFingerprint() string { return "" }

@@ -3,6 +3,7 @@ package transcriptimport_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -47,11 +48,11 @@ func TestExecute_OwnsTheSessionAndJournalsEveryTurn(t *testing.T) {
 
 	got, err := rig.handlers.Execute(context.Background(), wire.ExecuteParams{
 		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1",
-		SessionID: 907, AgentID: 42, AgentSyncID: "agent-sync-1",
+		ConversationID: convID(907), AgentID: 42, AgentSyncID: "agent-sync-1",
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, int64(907), got.SessionID)
+	assert.Equal(t, convID(907), got.ConversationID)
 	assert.Equal(t, "prov-1", got.ProviderSessionID)
 	assert.Equal(t, "/srv/work", got.Cwd)
 	assert.Equal(t, 2, got.Turns)
@@ -59,7 +60,7 @@ func TestExecute_OwnsTheSessionAndJournalsEveryTurn(t *testing.T) {
 
 	require.Len(t, rig.sessions.started, 1, "导入的会话归这台机器所有,身份行必须落库")
 	row := rig.sessions.started[0]
-	assert.Equal(t, "907", row.PeerSessionID)
+	assert.Equal(t, convID(907), row.PeerSessionID)
 	assert.Equal(t, "/srv/work", row.Cwd, "续跑要回到转录记的那个目录")
 	assert.Equal(t, "prov-1", row.ProviderSessionID, "续跑要对上那条 provider 原生会话")
 	assert.Equal(t, string(agent_backend_entity.TypeClaudeCode), row.BackendType)
@@ -90,7 +91,7 @@ func TestExecute_OwnsTheSessionAndJournalsEveryTurn(t *testing.T) {
 
 	dones := rig.journal.dones(t)
 	require.Len(t, dones, 2)
-	assert.Equal(t, int64(907), dones[0].SessionID)
+	assert.Equal(t, convID(907), dones[0].ConversationID)
 	assert.Equal(t, "prov-1", dones[0].ProviderSessionID)
 	assert.Equal(t, "claude-opus-5", dones[0].Model)
 	require.NotNil(t, dones[0].Usage)
@@ -107,19 +108,19 @@ func TestExecute_SecondImportOfTheSameProviderSessionReusesTheSession(t *testing
 		turns: makeTurns(2),
 	})
 	params := wire.ExecuteParams{
-		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", SessionID: 907, AgentID: 42,
+		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", ConversationID: convID(907), AgentID: 42,
 	}
 	first, err := rig.handlers.Execute(context.Background(), params)
 	require.NoError(t, err)
 	journaled := len(rig.journal.rows)
 
-	// 第二次连会话 id 都换了:判重的锚点是 provider 会话身份,不是调用方铸的号。
-	params.SessionID = 908
+	// 第二次连对话身份都换了:判重的锚点是 provider 会话身份,不是调用方铸的号。
+	params.ConversationID = convID(908)
 	second, err := rig.handlers.Execute(context.Background(), params)
 
 	require.NoError(t, err)
 	assert.True(t, second.AlreadyImported)
-	assert.Equal(t, first.SessionID, second.SessionID, "指回库里那条,不建第二条")
+	assert.Equal(t, first.ConversationID, second.ConversationID, "指回库里那条,不建第二条")
 	assert.Equal(t, 0, second.Turns)
 	assert.Len(t, rig.sessions.started, 1)
 	assert.Len(t, rig.journal.rows, journaled, "日志一条都不该再涨")
@@ -134,12 +135,12 @@ func TestExecute_RefusesToOverwriteAnotherSessionOnTheSameID(t *testing.T) {
 		turns: makeTurns(1),
 	})
 	rig.sessions.put(handlers.SessionRecord{
-		PeerSessionID: "907", ProviderSessionID: "prov-other", BackendType: "claudecode",
+		PeerSessionID: convID(907), ProviderSessionID: "prov-other", BackendType: "claudecode",
 		LifecycleState: runtimewire.SessionLifecycleRunning,
 	})
 
 	_, err := rig.handlers.Execute(context.Background(), wire.ExecuteParams{
-		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", SessionID: 907,
+		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", ConversationID: convID(907),
 	})
 
 	require.ErrorIs(t, err, wire.ErrSessionInUse)
@@ -155,14 +156,14 @@ func TestExecute_ClearsALeftoverJournalBeforeReplaying(t *testing.T) {
 		meta:  pkgimport.Meta{ProviderSessionID: "prov-1", Cwd: "/srv/work"},
 		turns: makeTurns(1),
 	})
-	rig.journal.rows = append(rig.journal.rows, journalEntry{peerSessionID: "907", payload: []byte("残留")})
+	rig.journal.rows = append(rig.journal.rows, journalEntry{peerSessionID: convID(907), payload: []byte("残留")})
 
 	_, err := rig.handlers.Execute(context.Background(), wire.ExecuteParams{
-		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", SessionID: 907,
+		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", ConversationID: convID(907),
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"907"}, rig.purged, "同号的残留日志先清")
+	assert.Equal(t, []string{convID(907)}, rig.purged, "同一条对话上的残留日志先清")
 	for _, row := range rig.journal.rows {
 		assert.NotEqual(t, []byte("残留"), row.payload)
 	}
@@ -179,7 +180,7 @@ func TestExecute_LeavesNoSessionWhenTheReplayFails(t *testing.T) {
 	})
 
 	_, err := rig.handlers.Execute(context.Background(), wire.ExecuteParams{
-		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", SessionID: 907,
+		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", ConversationID: convID(907),
 	})
 
 	require.Error(t, err)
@@ -336,4 +337,11 @@ func (f *fakeJournal) dones(t *testing.T) []runtimewire.RunResultDoneFrame {
 		}
 	}
 	return out
+}
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
 }

@@ -15,13 +15,13 @@ import (
 )
 
 type EventNotification struct {
-	SessionID int64
-	Seq       int64
-	Event     agentruntime.Event
+	ConversationID string
+	Seq            int64
+	Event          agentruntime.Event
 }
 
-func MarshalEventNotification(sessionID, seq int64, event agentruntime.Event, autonomous bool) ([]byte, error) {
-	n := &agentrewire.RuntimeEventNotification{SessionId: sessionID, Seq: seq}
+func MarshalEventNotification(conversationID string, seq int64, event agentruntime.Event, autonomous bool) ([]byte, error) {
+	n := &agentrewire.RuntimeEventNotification{ConversationId: conversationID, Seq: seq}
 	err := marshalEvent(n, event)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func UnmarshalEventNotification(data []byte) (EventNotification, bool, error) {
 	if err != nil {
 		return EventNotification{}, false, err
 	}
-	return EventNotification{SessionID: eventFrame.GetSessionId(), Seq: eventFrame.GetSeq(), Event: event}, autonomous, nil
+	return EventNotification{ConversationID: eventFrame.GetConversationId(), Seq: eventFrame.GetSeq(), Event: event}, autonomous, nil
 }
 
 // marshalEvent / unmarshalEvent 是 sealed Event 与 oneof 之间**逐字段**的一对

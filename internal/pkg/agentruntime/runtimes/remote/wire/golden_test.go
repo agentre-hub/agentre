@@ -81,7 +81,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 	t.Helper()
 
 	const (
-		sid       = int64(42)
+		sid       = "00000000-0000-7000-8000-000000000042"
 		agentID   = int64(7)
 		title     = "重构登录页"
 		agentSync = "01JZ7W2A8KZ4R5T6Y7U8I9O0P1Q"
@@ -90,7 +90,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 
 	// 一条带 R7 + 决策 8 全字段的会话(浏览器看到的「新」会话)。
 	newSummary := SessionSummary{
-		SessionID:         sid,
+		ConversationID:    sid,
 		AgentID:           agentID,
 		Title:             title,
 		AgentSyncID:       agentSync,
@@ -105,7 +105,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 	// 一条老会话:R7 未到达,标题 / Agent 标识 / provider_session_id 如实留空
 	// (omitempty 直接省略键,不填占位名)。
 	legacySummary := SessionSummary{
-		SessionID:       8,
+		ConversationID:  "00000000-0000-7000-8000-000000000008",
 		PeerFingerprint: "fp-desktop",
 		AgentID:         3,
 		Cwd:             "/var/proj",
@@ -121,13 +121,13 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 	textDelta := agentruntime.TextDelta{Text: "你好"}
 
 	runAck := RunAck{
-		SessionID:            sid,
+		ConversationID:       sid,
 		ProviderSessionID:    provSess,
 		LaunchPermissionMode: "default",
 		ProviderFallbackKey:  "key-fallback",
 	}
 	runResultDone := RunResultDoneFrame{
-		SessionID:         sid,
+		ConversationID:    sid,
 		ProviderSessionID: provSess,
 		Usage: &UsageWire{
 			PromptTokens:        100,
@@ -148,9 +148,9 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		{
 			name: "run-params",
 			body: RunParams{
-				Backend:   json.RawMessage(`{"backendType":"claudecode"}`),
-				AgentID:   agentID,
-				SessionID: sid,
+				Backend:        json.RawMessage(`{"backendType":"claudecode"}`),
+				AgentID:        agentID,
+				ConversationID: sid,
 				// 别的对端发起的那条会话上开新一轮(R9):origin 原样带回。
 				PeerFingerprint:   "fp-desktop",
 				Cwd:               "/home/agent/proj",
@@ -188,7 +188,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 			body: RunParams{
 				Backend:        json.RawMessage(`{"backendType":"claudecode"}`),
 				AgentID:        agentID,
-				SessionID:      sid,
+				ConversationID: sid,
 				Cwd:            "/home/agent/proj",
 				FreshSession:   true,
 				PermissionMode: "default",
@@ -200,13 +200,13 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		{name: "session-list-result", body: SessionListResult{
 			Sessions: []SessionSummary{newSummary, legacySummary},
 		}},
-		{name: "session-pull-params", body: SessionPullParams{SessionID: sid, Cursor: 0, Limit: DefaultSessionPullLimit}},
+		{name: "session-pull-params", body: SessionPullParams{ConversationID: sid, Cursor: 0, Limit: DefaultSessionPullLimit}},
 		{
 			name: "session-pull-result",
 			body: SessionPullResult{
 				Notifications: []JournaledNotification{
 					// 日志行上的 params 不含 seq —— seq 是日志行自己的列,补齐端盖上去。
-					{Seq: 11, Method: NotifyEvent, Params: mustJSON(t, EventFrame{SessionID: sid, Event: textDelta})},
+					{Seq: 11, Method: NotifyEvent, Params: mustJSON(t, EventFrame{ConversationID: sid, Event: textDelta})},
 					{Seq: 12, Method: NotifyRunResultDone, Params: mustJSON(t, runResultDone)},
 				},
 				Cursor:    12,
@@ -219,20 +219,20 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 			body: JournaledNotification{
 				Seq:    11,
 				Method: NotifyEvent,
-				Params: mustJSON(t, EventFrame{SessionID: sid, Event: textDelta}),
+				Params: mustJSON(t, EventFrame{ConversationID: sid, Event: textDelta}),
 			},
 		},
-		{name: "session-attach-params", body: SessionAttachParams{SessionID: sid}},
+		{name: "session-attach-params", body: SessionAttachParams{ConversationID: sid}},
 		{
 			name: "session-attach-result",
 			body: SessionAttachResult{
-				SessionID:      sid,
+				ConversationID: sid,
 				BackendType:    "claudecode",
 				LifecycleState: SessionLifecycleRunning,
 				LatestSeq:      12,
 			},
 		},
-		{name: "session-pending-waiters-params", body: SessionPendingWaitersParams{SessionID: sid}},
+		{name: "session-pending-waiters-params", body: SessionPendingWaitersParams{ConversationID: sid}},
 		{
 			name: "session-pending-waiters-result",
 			body: SessionPendingWaitersResult{
@@ -287,7 +287,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 			name: "skill-catalog-result-unavailable",
 			body: SkillCatalogResult{Packs: []SkillPackSummary{}, Discovery: SkillDiscoveryUnavailable},
 		},
-		{name: "event-frame", body: EventFrame{SessionID: sid, Event: textDelta, Seq: 11}},
+		{name: "event-frame", body: EventFrame{ConversationID: sid, Event: textDelta, Seq: 11}},
 		{name: "run-result-done-frame", body: runResultDone},
 		{
 			name: "usage-wire",
@@ -300,12 +300,12 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 				TotalTokens:         155,
 			},
 		},
-		{name: "autonomous-turn-started", body: AutonomousTurnStartedFrame{SessionID: sid, Trigger: "auto", TurnToken: 9, Seq: 13}},
+		{name: "autonomous-turn-started", body: AutonomousTurnStartedFrame{ConversationID: sid, Trigger: "auto", TurnToken: 9, Seq: 13}},
 		// 带未知字段的帧:验证 TS 解码不丢弃。
 		injectUnknown(t, "run-params-extra", RunParams{
 			Backend:          json.RawMessage(`{"backendType":"claudecode"}`),
 			AgentID:          agentID,
-			SessionID:        sid,
+			ConversationID:   sid,
 			Title:            title,
 			AgentSyncID:      agentSync,
 			SourceDevice:     "fp-web-1",
@@ -313,7 +313,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		}, map[string]any{"futureField": map[string]any{"nested": true}, "clientNote": "来自浏览器的自定义字段"}),
 		injectUnknown(t, "session-pull-result-extra", SessionPullResult{
 			Notifications: []JournaledNotification{
-				{Seq: 1, Method: NotifyEvent, Params: mustJSON(t, EventFrame{SessionID: sid, Event: textDelta, Seq: 1})},
+				{Seq: 1, Method: NotifyEvent, Params: mustJSON(t, EventFrame{ConversationID: sid, Event: textDelta, Seq: 1})},
 			},
 			Cursor:    1,
 			HasMore:   true,

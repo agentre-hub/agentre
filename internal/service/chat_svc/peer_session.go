@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -13,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
@@ -27,6 +30,10 @@ var (
 	// ErrPeerSessionMetadata means a corrupt local row cannot safely be exposed
 	// as a round-A-style unnamed fallback.
 	ErrPeerSessionMetadata = errors.New("desktop peer session is missing required metadata")
+	// ErrPeerSessionInvalidID 线上给来的不是一条合法的 conversation_id(空、旧的裸
+	// 数字会话号、畸形 uuid)。与"这条对话不在本机"分开:前者是调用方参数错了,
+	// 在 RPC 边界上要给出一个能分辨的错误码。
+	ErrPeerSessionInvalidID = errors.New("invalid conversation id")
 )
 
 // PeerSessionSubscriber is the remote-notification sink registered by an
@@ -48,16 +55,9 @@ type PeerSessionSubscriberKeyer interface {
 // the existing runtime.session.list wire shape. AgentSyncID refers to the
 // account Agent record, where the caller resolves the stored name and avatar.
 func (s *chatSvc) ListPeerSessions(ctx context.Context, keyword string) (*wire.SessionListResult, error) {
-	device := remote_device_svc.Default()
-	if device == nil {
-		return nil, fmt.Errorf("desktop peer fingerprint: remote device service unavailable")
-	}
-	fingerprint, err := device.DeviceFingerprint()
+	fingerprint, err := desktopPeerFingerprint()
 	if err != nil {
-		return nil, fmt.Errorf("desktop peer fingerprint: %w", err)
-	}
-	if fingerprint == "" {
-		return nil, fmt.Errorf("%w: desktop fingerprint", ErrPeerSessionMetadata)
+		return nil, err
 	}
 
 	agents, err := agent_repo.Agent().List(ctx)
@@ -111,10 +111,14 @@ func (s *chatSvc) ListPeerSessions(ctx context.Context, keyword string) (*wire.S
 // emitter used by the local desktop UI. The registration follows the RPC
 // connection's Done signal, so a disconnected peer can never remain present.
 func (s *chatSvc) AttachPeerSession(ctx context.Context, params wire.SessionAttachParams, subscriber PeerSessionSubscriber) (wire.SessionAttachResult, error) {
-	if params.SessionID <= 0 || subscriber == nil {
+	if subscriber == nil {
 		return wire.SessionAttachResult{}, fmt.Errorf("%w: attach parameters", ErrPeerSessionNotFound)
 	}
-	session, err := chat_repo.Session().Find(ctx, params.SessionID)
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return wire.SessionAttachResult{}, err
+	}
+	session, err := chat_repo.Session().Find(ctx, sessionID)
 	if err != nil {
 		return wire.SessionAttachResult{}, operationFailedWithCause(ctx, err)
 	}
@@ -146,7 +150,7 @@ func (s *chatSvc) AttachPeerSession(ctx context.Context, params wire.SessionAtta
 		detach()
 	}()
 	return wire.SessionAttachResult{
-		SessionID:      session.ID,
+		ConversationID: params.ConversationID,
 		BackendType:    backendType,
 		LifecycleState: lifecycle,
 		LatestSeq:      latestSeq,
@@ -187,7 +191,7 @@ func peerSessionSummary(
 		return wire.SessionSummary{}, err
 	}
 	return wire.SessionSummary{
-		SessionID:         session.ID,
+		ConversationID:    peerConversationID(fingerprint, session.ID),
 		PeerFingerprint:   fingerprint,
 		AgentID:           agent.ID,
 		Title:             session.Title,
@@ -257,4 +261,116 @@ func (s *chatSvc) peerSubscriberCount(sessionID int64) int {
 	publication.mu.Lock()
 	defer publication.mu.Unlock()
 	return len(publication.subscribers)
+}
+
+// ── 对话身份 ↔ 本地会话主键 ─────────────────────────────────────────────────
+//
+// 线上寻址的是 conversation_id;本机的主键仍是 chat_sessions.id(决策 12:两件事,
+// 不合并)。桌面端因此永久存在一层翻译,这里是它的**唯一**一处。
+//
+// 正向是纯函数:本机自己发起的对话按 (本机设备指纹, 本地会话 id) 确定性派生 ——
+// 与日后迁移回填对同一批行算出的值逐位相同。
+//
+// 反向没有反解法(派生是单向哈希),所以靠一张进程级备忘录:正向算过一次就记下,
+// 没记过就枚举一遍本机会话把它补齐。**这层枚举是过渡形态**:conversation_id 落库
+// 并建唯一索引之后,它由一次索引查询取代。备忘录是纯函数的缓存(键含指纹),条目
+// 只增不改,因此并发安全也不需要失效。
+var (
+	peerConversationIndex  sync.Map // conversation_id(string) → chat_sessions.id(int64)
+	peerConversationBySess sync.Map // chat_sessions.id(int64) → conversation_id(string)
+)
+
+// peerConversationID 交出这条本机会话的对话身份,并登记双向映射。
+func peerConversationID(fingerprint string, sessionID int64) string {
+	if sessionID <= 0 {
+		return ""
+	}
+	id := conversationid.Derive(conversationid.Namespace, fingerprint, strconv.FormatInt(sessionID, 10))
+	rememberPeerConversation(id, sessionID)
+	return id
+}
+
+// rememberPeerConversation 记下一条对话与本机会话行的对应关系。
+//
+// 除了正向派生,它还是 R17 那条路的登记点:浏览器把新对话派到这台桌面端上跑时,
+// 号是浏览器铸的 v7 —— 派生不出来,只能记下来。
+func rememberPeerConversation(conversationID string, sessionID int64) {
+	if conversationID == "" || sessionID <= 0 {
+		return
+	}
+	peerConversationIndex.Store(conversationID, sessionID)
+	peerConversationBySess.Store(sessionID, conversationID)
+}
+
+// peerConversationIDOf 交出这条本机会话在线上的身份。登记过的直接取(推送热路径
+// 上的每一帧都要它);没登记过的现取一次本机指纹派生 —— 那只发生在从没被列举 /
+// attach 过的会话上。
+func peerConversationIDOf(sessionID int64) string {
+	if id, ok := peerConversationBySess.Load(sessionID); ok {
+		return id.(string)
+	}
+	fingerprint, err := desktopPeerFingerprint()
+	if err != nil {
+		return ""
+	}
+	return peerConversationID(fingerprint, sessionID)
+}
+
+// ResolvePeerConversation 把线上的 conversation_id 翻回本机 chat_sessions.id。
+//
+// 非法取值(空、旧的裸数字会话号、畸形 uuid)在这里就被挡下并给出明确错误 ——
+// 它是 RPC 边界上「这不是一条对话身份」与「这条对话不在本机」的分界。
+func ResolvePeerConversation(ctx context.Context, conversationID string) (int64, error) {
+	if err := conversationid.Validate(conversationID); err != nil {
+		return 0, fmt.Errorf("%w: %s", ErrPeerSessionInvalidID, err)
+	}
+	if sid, ok := peerConversationIndex.Load(conversationID); ok {
+		return sid.(int64), nil
+	}
+	if err := reindexPeerConversations(ctx); err != nil {
+		return 0, err
+	}
+	if sid, ok := peerConversationIndex.Load(conversationID); ok {
+		return sid.(int64), nil
+	}
+	return 0, ErrPeerSessionNotFound
+}
+
+// reindexPeerConversations 枚举本机每条会话并把它们的对话身份铸进备忘录。
+//
+// 走会话索引这一条查询(与 ListPeerSessions 同一个可见性口径),而不是再开一条只取
+// id 的路:这层枚举本来就是过渡形态,conversation_id 落库并建唯一索引之后它整个消失,
+// 不值得为它新增一个仓储方法。
+func reindexPeerConversations(ctx context.Context) error {
+	fingerprint, err := desktopPeerFingerprint()
+	if err != nil {
+		return err
+	}
+	rows, err := chat_repo.Session().ListIndexPaged(ctx, chat_repo.SessionIndexFilter{}, 0, math.MaxInt)
+	if err != nil {
+		return operationFailedWithCause(ctx, err)
+	}
+	for _, row := range rows {
+		if row != nil {
+			peerConversationID(fingerprint, row.ID)
+		}
+	}
+	return nil
+}
+
+// desktopPeerFingerprint 取本机设备指纹 —— 对话身份派生的第一个输入,也是这台桌面端
+// 向对端出示的那个值(R5 决策 8:账号侧不得另生成指纹)。
+func desktopPeerFingerprint() (string, error) {
+	device := remote_device_svc.Default()
+	if device == nil {
+		return "", fmt.Errorf("desktop peer fingerprint: remote device service unavailable")
+	}
+	fingerprint, err := device.DeviceFingerprint()
+	if err != nil {
+		return "", fmt.Errorf("desktop peer fingerprint: %w", err)
+	}
+	if fingerprint == "" {
+		return "", fmt.Errorf("%w: desktop fingerprint", ErrPeerSessionMetadata)
+	}
+	return fingerprint, nil
 }

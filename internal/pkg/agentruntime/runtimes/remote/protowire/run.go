@@ -18,7 +18,7 @@ func RunRequestToProto(value wire.RunParams) (*agentrewire.RuntimeRunRequest, er
 	if err != nil {
 		return nil, err
 	}
-	out := &agentrewire.RuntimeRunRequest{Backend: backendToProto(backend), AgentId: value.AgentID, SessionId: value.SessionID, PeerFingerprint: value.PeerFingerprint, Cwd: value.Cwd, Title: value.Title, AgentSyncId: value.AgentSyncID, ProjectSyncId: value.ProjectSyncID, SystemPrompt: value.SystemPrompt, ProviderSessionId: value.ProviderSessionID, FreshSession: value.FreshSession, UserText: value.UserText, Compact: value.Compact, ForkAnchor: value.ForkAnchor, PermissionMode: value.PermissionMode, CollaborationMode: value.CollaborationMode, EnabledPlugins: value.EnabledPlugins, LlmProviderKey: value.LLMProviderKey, LlmModelKey: value.LLMModelKey, SourceDevice: value.SourceDevice, SourceDeviceName: value.SourceDeviceName}
+	out := &agentrewire.RuntimeRunRequest{Backend: backendToProto(backend), AgentId: value.AgentID, ConversationId: value.ConversationID, PeerFingerprint: value.PeerFingerprint, Cwd: value.Cwd, Title: value.Title, AgentSyncId: value.AgentSyncID, ProjectSyncId: value.ProjectSyncID, SystemPrompt: value.SystemPrompt, ProviderSessionId: value.ProviderSessionID, FreshSession: value.FreshSession, UserText: value.UserText, Compact: value.Compact, ForkAnchor: value.ForkAnchor, PermissionMode: value.PermissionMode, CollaborationMode: value.CollaborationMode, EnabledPlugins: value.EnabledPlugins, LlmProviderKey: value.LLMProviderKey, LlmModelKey: value.LLMModelKey, SourceDevice: value.SourceDevice, SourceDeviceName: value.SourceDeviceName}
 	out.UserBlocks = blocksToProto(value.UserBlocks)
 	for _, message := range value.History {
 		out.History = append(out.History, &agentrewire.HistoryMessage{Role: message.Role, Blocks: blocksToProto(message.Blocks)})
@@ -37,7 +37,7 @@ func RunRequestFromProto(value *agentrewire.RuntimeRunRequest) (wire.RunParams, 
 	if err != nil {
 		return wire.RunParams{}, err
 	}
-	out := wire.RunParams{Backend: backend, AgentID: value.GetAgentId(), SessionID: value.GetSessionId(), PeerFingerprint: value.GetPeerFingerprint(), Cwd: value.GetCwd(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProjectSyncID: value.GetProjectSyncId(), SystemPrompt: value.GetSystemPrompt(), ProviderSessionID: value.GetProviderSessionId(), FreshSession: value.GetFreshSession(), UserText: value.GetUserText(), UserBlocks: blocksFromProto(value.GetUserBlocks()), Compact: value.GetCompact(), ForkAnchor: value.GetForkAnchor(), PermissionMode: value.GetPermissionMode(), CollaborationMode: value.GetCollaborationMode(), EnabledPlugins: value.GetEnabledPlugins(), LLMProviderKey: value.GetLlmProviderKey(), LLMModelKey: value.GetLlmModelKey(), SourceDevice: value.GetSourceDevice(), SourceDeviceName: value.GetSourceDeviceName()}
+	out := wire.RunParams{Backend: backend, AgentID: value.GetAgentId(), ConversationID: value.GetConversationId(), PeerFingerprint: value.GetPeerFingerprint(), Cwd: value.GetCwd(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProjectSyncID: value.GetProjectSyncId(), SystemPrompt: value.GetSystemPrompt(), ProviderSessionID: value.GetProviderSessionId(), FreshSession: value.GetFreshSession(), UserText: value.GetUserText(), UserBlocks: blocksFromProto(value.GetUserBlocks()), Compact: value.GetCompact(), ForkAnchor: value.GetForkAnchor(), PermissionMode: value.GetPermissionMode(), CollaborationMode: value.GetCollaborationMode(), EnabledPlugins: value.GetEnabledPlugins(), LLMProviderKey: value.GetLlmProviderKey(), LLMModelKey: value.GetLlmModelKey(), SourceDevice: value.GetSourceDevice(), SourceDeviceName: value.GetSourceDeviceName()}
 	for _, message := range value.GetHistory() {
 		out.History = append(out.History, wire.HistoryMessageWire{Role: message.GetRole(), Blocks: blocksFromProto(message.GetBlocks())})
 	}
@@ -52,7 +52,7 @@ func GoalRequestToProto(value wire.GoalParams) (*agentrewire.RuntimeGoalRequest,
 	if err != nil {
 		return nil, err
 	}
-	return &agentrewire.RuntimeGoalRequest{SessionId: value.SessionID, PeerFingerprint: value.PeerFingerprint, AgentId: value.AgentID, ProviderSessionId: value.ProviderSessionID, Backend: backendToProto(backend), Cwd: value.Cwd, Objective: value.Objective, Status: value.Status, TokenBudget: intPtrTo32(value.TokenBudget), LlmProviderKey: value.LLMProviderKey, LlmModelKey: value.LLMModelKey}, nil
+	return &agentrewire.RuntimeGoalRequest{ConversationId: value.ConversationID, PeerFingerprint: value.PeerFingerprint, AgentId: value.AgentID, ProviderSessionId: value.ProviderSessionID, Backend: backendToProto(backend), Cwd: value.Cwd, Objective: value.Objective, Status: value.Status, TokenBudget: intPtrTo32(value.TokenBudget), LlmProviderKey: value.LLMProviderKey, LlmModelKey: value.LLMModelKey}, nil
 }
 
 func GoalRequestFromProto(value *agentrewire.RuntimeGoalRequest) (wire.GoalParams, error) {
@@ -67,7 +67,7 @@ func GoalRequestFromProto(value *agentrewire.RuntimeGoalRequest) (wire.GoalParam
 		}
 		backend = encoded
 	}
-	return wire.GoalParams{SessionID: value.GetSessionId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), ProviderSessionID: value.GetProviderSessionId(), Backend: backend, Cwd: value.GetCwd(), Objective: value.Objective, Status: value.Status, TokenBudget: int32PtrToInt(value.TokenBudget), LLMProviderKey: value.GetLlmProviderKey(), LLMModelKey: value.GetLlmModelKey()}, nil
+	return wire.GoalParams{ConversationID: value.GetConversationId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), ProviderSessionID: value.GetProviderSessionId(), Backend: backend, Cwd: value.GetCwd(), Objective: value.Objective, Status: value.Status, TokenBudget: int32PtrToInt(value.TokenBudget), LLMProviderKey: value.GetLlmProviderKey(), LLMModelKey: value.GetLlmModelKey()}, nil
 }
 
 func GoalResponseFromProto(value *agentrewire.RuntimeGoalResponse) *agentruntime.Goal {

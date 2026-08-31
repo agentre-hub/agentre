@@ -124,14 +124,14 @@ func TestPrepareRun_PiExposesIdentityBeforePromptAndStartsThroughExistingRunRPC(
 			switch call {
 			case 1:
 				assert.Equal(t, "pi-session-old", rp.ProviderSessionID)
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			case 2:
 				assert.Equal(t, "pi-session-old", rp.ProviderSessionID)
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "pi-session-new"}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "pi-session-new"}
 			case 3:
 				assert.Equal(t, "pi-session-new", rp.ProviderSessionID,
 					"Start must identify the exact prepared generation through the existing provider-session form")
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "pi-session-new"}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "pi-session-new"}
 			default:
 				t.Fatalf("unexpected runtime.run call %d", call)
 			}
@@ -165,7 +165,7 @@ func TestPrepareRun_PiExposesIdentityBeforePromptAndStartsThroughExistingRunRPC(
 	mu.Unlock()
 
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: 42, ProviderSessionID: "pi-session-new",
+		ConversationID: convOf(42), ProviderSessionID: "pi-session-new",
 	})
 	_, ok = <-events
 	assert.False(t, ok)
@@ -182,17 +182,17 @@ func TestPrepareRun_PreAckBurstReturnsAckBeforeConsumerDrainsAndPreservesOrder(t
 			rp := params.(wire.RunParams)
 			switch call {
 			case 1:
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			case 2:
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "pi-session-burst"}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "pi-session-burst"}
 			case 3:
 				for i := 0; i < burst; i++ {
 					capture.deliver(t, wire.NotifyEvent, wire.EventFrame{
-						SessionID: rp.SessionID,
-						Event:     agentruntime.TextDelta{Text: fmt.Sprintf("event-%03d", i)},
+						ConversationID: rp.ConversationID,
+						Event:          agentruntime.TextDelta{Text: fmt.Sprintf("event-%03d", i)},
 					})
 				}
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "pi-session-burst"}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "pi-session-burst"}
 			default:
 				t.Fatalf("unexpected runtime.run call %d", call)
 			}
@@ -233,7 +233,7 @@ func TestPrepareRun_PreAckBurstReturnsAckBeforeConsumerDrainsAndPreservesOrder(t
 		}()
 		got = <-started
 		capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-			SessionID: 164, ProviderSessionID: "pi-session-burst",
+			ConversationID: convOf(164), ProviderSessionID: "pi-session-burst",
 		})
 		t.Fatal("Start acknowledgement was blocked by the pre-ack event burst")
 	}
@@ -241,7 +241,7 @@ func TestPrepareRun_PreAckBurstReturnsAckBeforeConsumerDrainsAndPreservesOrder(t
 	require.NotNil(t, got.result)
 
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: 164, ProviderSessionID: "pi-session-burst",
+		ConversationID: convOf(164), ProviderSessionID: "pi-session-burst",
 	})
 	for i := 0; i < burst; i++ {
 		event, open := <-got.events
@@ -273,7 +273,7 @@ func TestPrepareRun_FinalizedGenerationDropsStaleFramesAndAllowsRetry(t *testing
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
 			rp := params.(wire.RunParams)
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "shared-native-session"}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "shared-native-session"}
 			return nil
 		}).AnyTimes()
 
@@ -286,11 +286,11 @@ func TestPrepareRun_FinalizedGenerationDropsStaleFramesAndAllowsRetry(t *testing
 	require.NoError(t, err)
 
 	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{
-		SessionID: sessionID,
-		Event:     agentruntime.TextDelta{Text: secret + "-first"},
+		ConversationID: convOf(sessionID),
+		Event:          agentruntime.TextDelta{Text: secret + "-first"},
 	})
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: sessionID, ProviderSessionID: "shared-native-session", Model: "first-model",
+		ConversationID: convOf(sessionID), ProviderSessionID: "shared-native-session", Model: "first-model",
 	})
 	for range firstEvents { //nolint:revive // 抽干到 close
 	}
@@ -302,8 +302,8 @@ func TestPrepareRun_FinalizedGenerationDropsStaleFramesAndAllowsRetry(t *testing
 
 	// 收尾之后、重试装上之前的迟到帧必须被丢掉,不能漏进新那一轮。
 	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{
-		SessionID: sessionID,
-		Event:     agentruntime.TextDelta{Text: secret + "-late"},
+		ConversationID: convOf(sessionID),
+		Event:          agentruntime.TextDelta{Text: secret + "-late"},
 	})
 
 	second, err := rt.PrepareRun(context.Background(), agentruntime.RunRequest{
@@ -314,11 +314,11 @@ func TestPrepareRun_FinalizedGenerationDropsStaleFramesAndAllowsRetry(t *testing
 	secondEvents, secondResult, err := second.Start(context.Background())
 	require.NoError(t, err)
 	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{
-		SessionID: sessionID,
-		Event:     agentruntime.TextDelta{Text: "retry-current"},
+		ConversationID: convOf(sessionID),
+		Event:          agentruntime.TextDelta{Text: "retry-current"},
 	})
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: sessionID, ProviderSessionID: "shared-native-session", Model: "retry-model",
+		ConversationID: convOf(sessionID), ProviderSessionID: "shared-native-session", Model: "retry-model",
 	})
 	event, open := <-secondEvents
 	require.True(t, open)
@@ -340,10 +340,10 @@ func TestPrepareRun_StopDuringRegistrationWaitsForOwnerAckThenAborts(t *testing.
 			close(registrationEntered)
 			<-allowRegistration
 			rp := params.(wire.RunParams)
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			return nil
 		})
-	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{SessionID: 72}, gomock.Any()).
+	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{ConversationID: convOf(72)}, gomock.Any()).
 		DoAndReturn(func(context.Context, string, any, any) error {
 			close(abortCalled)
 			return nil
@@ -389,14 +389,14 @@ func TestPrepareRun_PendingPiAbortCancelsTheRegisteredGeneration(t *testing.T) {
 			call++
 			rp := params.(wire.RunParams)
 			if call == 1 {
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 				return nil
 			}
 			close(entered)
 			<-ctx.Done()
 			return ctx.Err()
 		}).Times(2)
-	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{SessionID: 73}, gomock.Any()).
+	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{ConversationID: convOf(73)}, gomock.Any()).
 		Return(nil)
 
 	errC := make(chan error, 1)
@@ -427,14 +427,14 @@ func TestPrepareRun_RequestCancellationAbortsPendingDaemonGeneration(t *testing.
 			call++
 			rp := params.(wire.RunParams)
 			if call == 1 {
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 				return nil
 			}
 			close(entered)
 			<-ctx.Done()
 			return ctx.Err()
 		}).Times(2)
-	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{SessionID: 74}, gomock.Any()).
+	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{ConversationID: convOf(74)}, gomock.Any()).
 		DoAndReturn(func(context.Context, string, any, any) error {
 			close(abortCalled)
 			return nil
@@ -470,10 +470,10 @@ func TestPrepareRun_StartCancellationAbortsPromptAcknowledgement(t *testing.T) {
 			rp := params.(wire.RunParams)
 			switch call {
 			case 1:
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 				return nil
 			case 2:
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "pi-session-new"}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "pi-session-new"}
 				return nil
 			default:
 				close(startEntered)
@@ -481,7 +481,7 @@ func TestPrepareRun_StartCancellationAbortsPromptAcknowledgement(t *testing.T) {
 				return ctx.Err()
 			}
 		}).Times(3)
-	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{SessionID: 75}, gomock.Any()).
+	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{ConversationID: convOf(75)}, gomock.Any()).
 		DoAndReturn(func(context.Context, string, any, any) error {
 			close(abortCalled)
 			return nil
@@ -517,17 +517,17 @@ func TestPrepareRun_CurrentPiCompletionIsNotConsumedWhenAbortedOwnerEmitsNoTermi
 			rp := params.(wire.RunParams)
 			switch call {
 			case 1, 4:
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			case 2, 3, 5, 6:
 				*(result.(*wire.RunAck)) = wire.RunAck{
-					SessionID: rp.SessionID, ProviderSessionID: "shared-native-session",
+					ConversationID: rp.ConversationID, ProviderSessionID: "shared-native-session",
 				}
 			default:
 				t.Fatalf("unexpected runtime.run call %d", call)
 			}
 			return nil
 		}).Times(6)
-	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{SessionID: 83}, gomock.Any()).Return(nil)
+	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{ConversationID: convOf(83)}, gomock.Any()).Return(nil)
 
 	first, err := rt.PrepareRun(context.Background(), agentruntime.RunRequest{
 		Backend:           &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)},
@@ -551,12 +551,12 @@ func TestPrepareRun_CurrentPiCompletionIsNotConsumedWhenAbortedOwnerEmitsNoTermi
 	require.NoError(t, err)
 
 	currentEvent := agentruntime.TextDelta{Text: "current generation"}
-	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: 83, Event: currentEvent})
+	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(83), Event: currentEvent})
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: 83, ProviderSessionID: "shared-native-session", Model: "current-model",
+		ConversationID: convOf(83), ProviderSessionID: "shared-native-session", Model: "current-model",
 	})
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: 83, ProviderSessionID: "shared-native-session", Model: "duplicate-model",
+		ConversationID: convOf(83), ProviderSessionID: "shared-native-session", Model: "duplicate-model",
 	})
 
 	select {
@@ -592,17 +592,17 @@ func TestPrepareRun_StaleCloseCannotOverlapNewRegistrationWhenTerminalIdentityIs
 				if currentCall == 4 {
 					close(secondRegistrationEntered)
 				}
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			case 2, 3, 5, 6:
 				*(result.(*wire.RunAck)) = wire.RunAck{
-					SessionID: rp.SessionID, ProviderSessionID: "shared-native-session",
+					ConversationID: rp.ConversationID, ProviderSessionID: "shared-native-session",
 				}
 			default:
 				t.Fatalf("unexpected runtime.run call %d", currentCall)
 			}
 			return nil
 		}).Times(6)
-	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{SessionID: 82}, gomock.Any()).
+	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort, wire.AbortParams{ConversationID: convOf(82)}, gomock.Any()).
 		DoAndReturn(func(context.Context, string, any, any) error {
 			close(abortEntered)
 			<-allowAbort
@@ -622,7 +622,7 @@ func TestPrepareRun_StaleCloseCannotOverlapNewRegistrationWhenTerminalIdentityIs
 	go func() { closeErrC <- first.Close(context.Background()) }()
 	<-abortEntered
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: 82, Model: "completed-before-abort-response",
+		ConversationID: convOf(82), Model: "completed-before-abort-response",
 	})
 	_, open := <-firstEvents
 	assert.False(t, open)
@@ -659,12 +659,12 @@ func TestPrepareRun_StaleCloseCannotOverlapNewRegistrationWhenTerminalIdentityIs
 	secondEvents, result, err := second.Start(context.Background())
 	require.NoError(t, err)
 	currentEvent := agentruntime.TextDelta{Text: "current generation"}
-	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: 82, Event: currentEvent})
+	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(82), Event: currentEvent})
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: 82, Model: "current-model",
+		ConversationID: convOf(82), Model: "current-model",
 	})
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: 82, Model: "duplicate-model",
+		ConversationID: convOf(82), Model: "duplicate-model",
 	})
 
 	event, open := <-secondEvents
@@ -711,7 +711,7 @@ func TestHandleRunResultDone_LateFrameNeverLogsStopPayload(t *testing.T) {
 	const secret = "private-late-error-payload"
 
 	raw, err := json.Marshal(wire.RunResultDoneFrame{
-		SessionID: 903, StopErrMsg: secret, StopErrCode: wire.ErrCodeAborted,
+		ConversationID: convOf(903), StopErrMsg: secret, StopErrCode: wire.ErrCodeAborted,
 	})
 	require.NoError(t, err)
 	_, err = rt.handleRunResultDone(ctx, raw)
@@ -734,17 +734,17 @@ func TestRun_Success_DispatchesEventsThenCloses(t *testing.T) {
 			runCalls++
 			rp, ok := params.(wire.RunParams)
 			require.True(t, ok, "expected wire.RunParams, got %T", params)
-			assert.Equal(t, int64(42), rp.SessionID)
+			assert.Equal(t, convOf(42), rp.ConversationID)
 			assert.Equal(t, "hello", rp.UserText)
 			assert.True(t, rp.Compact)
 			switch runCalls {
 			case 1:
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			case 2:
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "psid-early"}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "psid-early"}
 			case 3:
 				assert.Equal(t, "psid-early", rp.ProviderSessionID)
-				*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "psid-early"}
+				*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "psid-early"}
 			}
 			return nil
 		}).Times(3)
@@ -761,9 +761,9 @@ func TestRun_Success_DispatchesEventsThenCloses(t *testing.T) {
 
 	// Deliver a TextDelta then a runResultDone with Usage + Model.
 	textJSON := agentruntime.TextDelta{Text: "hi"}
-	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: 42, Event: textJSON})
+	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(42), Event: textJSON})
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID:         42,
+		ConversationID:    convOf(42),
 		ProviderSessionID: "psid-early",
 		Model:             "claude-sonnet-4-6",
 		ContextWindow:     200000,
@@ -805,7 +805,7 @@ func TestAutonomousTurns_ReconstructsForwardedTurn(t *testing.T) {
 	turns := rt.AutonomousTurns(42)
 
 	capture.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: 42, Trigger: "background_task",
+		ConversationID: convOf(42), Trigger: "background_task",
 	})
 
 	var at agentruntime.AutonomousTurn
@@ -818,9 +818,9 @@ func TestAutonomousTurns_ReconstructsForwardedTurn(t *testing.T) {
 	require.NotNil(t, at.Result)
 
 	textJSON := agentruntime.TextDelta{Text: "autonomous:listing"}
-	capture.deliver(t, wire.NotifyAutonomousTurnEvent, wire.EventFrame{SessionID: 42, Event: textJSON})
+	capture.deliver(t, wire.NotifyAutonomousTurnEvent, wire.EventFrame{ConversationID: convOf(42), Event: textJSON})
 	capture.deliver(t, wire.NotifyAutonomousTurnDone, wire.RunResultDoneFrame{
-		SessionID: 42, ProviderSessionID: "psid-1", Model: "claude-sonnet-4-6",
+		ConversationID: convOf(42), ProviderSessionID: "psid-1", Model: "claude-sonnet-4-6",
 	})
 
 	select {
@@ -856,7 +856,7 @@ func TestAutonomousTurnEvent_ClosingRaceMustNotPanic(t *testing.T) {
 	_ = rt.AutonomousTurns(42)
 
 	capture.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: 42, Trigger: "background_task",
+		ConversationID: convOf(42), Trigger: "background_task",
 	})
 	require.Eventually(t, func() bool {
 		a := rt.lookupAutoSession(42)
@@ -869,7 +869,7 @@ func TestAutonomousTurnEvent_ClosingRaceMustNotPanic(t *testing.T) {
 	}, time.Second, time.Millisecond, "typed notification handler must install the autonomous turn")
 
 	newFrame := func() *wire.EventFrame {
-		return &wire.EventFrame{SessionID: 42, Event: agentruntime.TextDelta{Text: "x"}}
+		return &wire.EventFrame{ConversationID: convOf(42), Event: agentruntime.TextDelta{Text: "x"}}
 	}
 
 	// 八路并发投递,与断连收尾对撞。谁先谁后不确定,正是要覆盖的窗口。
@@ -905,7 +905,7 @@ func TestAutonomousTurnStarted_ClosingRaceMustNotPanic(t *testing.T) {
 
 	// 预 marshal 一次,goroutine 内复用,避免在非测试 goroutine 里调 testify。
 	startedFrame := &wire.AutonomousTurnStartedFrame{
-		SessionID: 42, Trigger: "background_task",
+		ConversationID: convOf(42), Trigger: "background_task",
 	}
 
 	panicked := make(chan any, 8)
@@ -937,8 +937,8 @@ func TestRun_DeliversEventArrivingBeforeRunAckReturns(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
 			rp, ok := params.(wire.RunParams)
 			require.True(t, ok, "expected wire.RunParams, got %T", params)
-			capture.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rp.SessionID, Event: textJSON})
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+			capture.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: rp.ConversationID, Event: textJSON})
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			return nil
 		})
 
@@ -958,14 +958,14 @@ func TestRun_DeliversEventArrivingBeforeRunAckReturns(t *testing.T) {
 		t.Fatal("early event was dropped before Run ack returned")
 	}
 
-	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: 42})
+	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(42)})
 }
 
 func TestRun_StopErrAborted_Rehydrates(t *testing.T) {
 	_, cli, capture, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 7}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(7)}
 			return nil
 		})
 	events, runResult, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -975,9 +975,9 @@ func TestRun_StopErrAborted_Rehydrates(t *testing.T) {
 	require.NoError(t, err)
 
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID:   7,
-		StopErrMsg:  "aborted by user",
-		StopErrCode: wire.ErrCodeAborted,
+		ConversationID: convOf(7),
+		StopErrMsg:     "aborted by user",
+		StopErrCode:    wire.ErrCodeAborted,
 	})
 	select {
 	case _, ok := <-events:
@@ -1011,7 +1011,7 @@ func TestRun_EventForUnknownSession_DroppedSilently(t *testing.T) {
 	// No Run call → no session known. Delivering an event must not panic
 	// nor produce an error from the handler.
 	textJSON := agentruntime.TextDelta{Text: "noise"}
-	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: 999, Event: textJSON})
+	capture.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(999), Event: textJSON})
 }
 
 func TestRuntimeNotificationLogsRedactFramesWhileDeliveryAndStopErrorStayLossless(t *testing.T) {
@@ -1030,7 +1030,7 @@ func TestRuntimeNotificationLogsRedactFramesWhileDeliveryAndStopErrorStayLossles
 	unknownEvent := agentruntime.ToolCall{
 		ID: "unknown-safe-id", Name: "subagent", Input: json.RawMessage(`{"task":"` + unknownSentinel + `"}`),
 	}
-	_, err := rt.handleEvent(ctx, &wire.EventFrame{SessionID: 999, Event: unknownEvent})
+	_, err := rt.handleEvent(ctx, &wire.EventFrame{ConversationID: convOf(999), Event: unknownEvent})
 	require.NoError(t, err)
 
 	// 载荷坏掉的那一档现在挡在**转换**这一步,进不了 handler 了(帧装的是密封值)。
@@ -1039,7 +1039,7 @@ func TestRuntimeNotificationLogsRedactFramesWhileDeliveryAndStopErrorStayLossles
 	// canonical 解不出来时不得把载荷抄进错误里。
 	_, _, conversionErr := protowire.ProtoNotificationToWire(&agentrewire.RpcNotification{
 		Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{
-			SessionId: 998, Seq: 1,
+			ConversationId: convOf(998), Seq: 1,
 			Event: &agentrewire.RuntimeEventNotification_ToolCall{ToolCall: &agentrewire.ToolCall{
 				Id: "bad-safe-id", Name: "subagent",
 				Input:     []byte(`{"payload":"` + malformedSentinel + `"}`),
@@ -1053,7 +1053,7 @@ func TestRuntimeNotificationLogsRedactFramesWhileDeliveryAndStopErrorStayLossles
 
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 7}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(7)}
 			return nil
 		})
 	events, runResult, err := rt.Run(ctx, agentruntime.RunRequest{
@@ -1066,7 +1066,7 @@ func TestRuntimeNotificationLogsRedactFramesWhileDeliveryAndStopErrorStayLossles
 		Content:    resultSentinel,
 		Meta:       json.RawMessage(`{"detail":"` + metaSentinel + `"}`),
 	}
-	capture.deliverContext(t, ctx, wire.NotifyEvent, wire.EventFrame{SessionID: 7, Event: forwardedEvent})
+	capture.deliverContext(t, ctx, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(7), Event: forwardedEvent})
 	select {
 	case event := <-events:
 		result, ok := event.(agentruntime.ToolResult)
@@ -1078,7 +1078,7 @@ func TestRuntimeNotificationLogsRedactFramesWhileDeliveryAndStopErrorStayLossles
 	}
 
 	_, err = rt.handleRunResultDone(ctx, &wire.RunResultDoneFrame{
-		SessionID: 7, StopErrMsg: stopErrSentinel,
+		ConversationID: convOf(7), StopErrMsg: stopErrSentinel,
 	})
 	require.NoError(t, err)
 	select {
@@ -1121,7 +1121,7 @@ func TestSteer_Success(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 9}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(9)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1134,7 +1134,7 @@ func TestSteer_Success(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _ string, params any, _ any) error {
 			sp, ok := params.(wire.SteerParams)
 			require.True(t, ok)
-			assert.Equal(t, int64(9), sp.SessionID)
+			assert.Equal(t, convOf(9), sp.ConversationID)
 			assert.Equal(t, "q-1", sp.QueuedID)
 			assert.Equal(t, "stop", sp.Text)
 			return nil
@@ -1152,7 +1152,7 @@ func TestSteer_ServerSentinel_Rehydrates(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 3}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(3)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1173,7 +1173,7 @@ func TestCancelSteer_HappyAndSentinel(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 1}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(1)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1201,7 +1201,7 @@ func TestDrainPending_ReturnsSteers(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 2}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(2)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1225,7 +1225,7 @@ func TestAbort_SuccessAndNoSession(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 4}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(4)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1252,7 +1252,7 @@ func TestAbort_PassesTurnTokenAndReturnsInterruptedTurnKind(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 4}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(4)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1263,7 +1263,7 @@ func TestAbort_PassesTurnTokenAndReturnsInterruptedTurnKind(t *testing.T) {
 
 	// 断言 AbortParams 携带 turnToken=42,并让 daemon 应答一个具体的被中断轮类型。
 	cli.EXPECT().Call(gomock.Any(), wire.MethodAbort,
-		gomock.Eq(wire.AbortParams{SessionID: 4, TurnToken: 42}), gomock.Any()).
+		gomock.Eq(wire.AbortParams{ConversationID: convOf(4), TurnToken: 42}), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
 			*(result.(*wire.AbortResult)) = wire.AbortResult{TurnKind: agentruntime.TurnKindAutonomous}
 			return nil
@@ -1277,7 +1277,7 @@ func TestStopBackgroundTask_SuccessAndNoSession(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 4}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(4)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1289,7 +1289,7 @@ func TestStopBackgroundTask_SuccessAndNoSession(t *testing.T) {
 	cli.EXPECT().Call(gomock.Any(), wire.MethodStopBackgroundTask, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, params any, _ any) error {
 			sp := params.(wire.StopBackgroundTaskParams)
-			assert.Equal(t, int64(4), sp.SessionID)
+			assert.Equal(t, convOf(4), sp.ConversationID)
 			assert.Equal(t, "b0n82mqaj", sp.TaskID)
 			return nil
 		})
@@ -1304,7 +1304,7 @@ func TestSetPermissionMode_Success(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 6}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(6)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1326,7 +1326,7 @@ func TestSubmitAnswer_Success(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 8}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(8)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1349,7 +1349,7 @@ func TestSubmitToolPermission_Success(t *testing.T) {
 	_, cli, _, rt := setupRemote(t)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 10}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(10)}
 			return nil
 		})
 	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1394,7 +1394,7 @@ func TestSubmitControls_GivenAlreadyHandledResult_WhenSubmitted_ThenReturnsWaite
 			_, cli, _, rt := setupRemote(t)
 			cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 				DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-					*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 18}
+					*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(18)}
 					return nil
 				})
 			_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
@@ -1431,14 +1431,14 @@ func peerOriginRig(t *testing.T) (*fakeConn, *Runtime) {
 		switch method {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{
-				{SessionID: peerSid, PeerFingerprint: "peer-A",
+				{ConversationID: convOf(peerSid), PeerFingerprint: "peer-A",
 					LifecycleState: wire.SessionLifecycleRunning},
-				{SessionID: ownSid, LifecycleState: wire.SessionLifecycleRunning},
+				{ConversationID: convOf(ownSid), LifecycleState: wire.SessionLifecycleRunning},
 			}}
 		case wire.MethodSessionAttach:
 			p := params.(wire.SessionAttachParams)
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID:      p.SessionID,
+				ConversationID: p.ConversationID,
 				LifecycleState: wire.SessionLifecycleRunning,
 			}
 		case wire.MethodSessionPull:
@@ -1586,7 +1586,7 @@ func TestRun_LaunchPermissionMode_PassThrough(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
 			rp := params.(wire.RunParams)
 			*(result.(*wire.RunAck)) = wire.RunAck{
-				SessionID:            rp.SessionID,
+				ConversationID:       rp.ConversationID,
 				LaunchPermissionMode: "bypassPermissions",
 			}
 			return nil
@@ -1621,7 +1621,7 @@ func TestWatchClose_InjectsStopErrAndClosesEvents(t *testing.T) {
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
 			rp := params.(wire.RunParams)
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID}
 			return nil
 		})
 
@@ -1655,7 +1655,7 @@ func TestBuildRunParams_ForwardsMCPServers(t *testing.T) {
 		Headers: map[string]string{"Authorization": "Bearer t"},
 		Tools:   []string{"group_send"},
 	}}
-	params, err := buildRunParams(agentruntime.RunRequest{
+	params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
 		Backend:    &agent_backend_entity.AgentBackend{},
 		SessionID:  9,
 		MCPServers: specs,
@@ -1685,7 +1685,7 @@ func TestBuildRunParams_ForwardsMCPServers(t *testing.T) {
 // 本地 sess.ProviderSessionID 为空时置 RunRequest.FreshSession=true,必须随 wire 过线到
 // daemon —— 漏传则 daemon 拿落库旧 id 续话,regenerate / provider 会话失效恢复又变回坏路径。
 func TestBuildRunParams_ForwardsFreshSession(t *testing.T) {
-	params, err := buildRunParams(agentruntime.RunRequest{
+	params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
 		Backend:      &agent_backend_entity.AgentBackend{},
 		SessionID:    9,
 		FreshSession: true,
@@ -1718,7 +1718,7 @@ func TestBuildRunParams_ForwardsEnabledPlugins(t *testing.T) {
 		"browser@openai-bundled":     true,
 		"superpowers@openai-curated": false,
 	}
-	params, err := buildRunParams(agentruntime.RunRequest{
+	params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
 		Backend:        &agent_backend_entity.AgentBackend{},
 		SessionID:      9,
 		EnabledPlugins: plugins,
@@ -1747,7 +1747,7 @@ func TestBuildRunParams_ForwardsEnabledPlugins(t *testing.T) {
 // (会话 provider_key 优先的 effectiveProviderKey)必须随 buildRunParams 透传到
 // wire.RunParams.LLMProviderKey,daemon 才能按它自解。
 func TestBuildRunParams_ForwardsLLMProviderKey(t *testing.T) {
-	params, err := buildRunParams(agentruntime.RunRequest{
+	params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
 		Backend:        &agent_backend_entity.AgentBackend{},
 		SessionID:      9,
 		LLMProviderKey: "session-key",
@@ -1780,7 +1780,7 @@ func TestRun_SurfacesProviderFallbackKeyFromAck(t *testing.T) {
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
 			rp := params.(wire.RunParams)
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderFallbackKey: "session-key"}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderFallbackKey: "session-key"}
 			return nil
 		}).Times(1)
 
@@ -1793,7 +1793,7 @@ func TestRun_SurfacesProviderFallbackKeyFromAck(t *testing.T) {
 	require.NotNil(t, runResult)
 	assert.Equal(t, "session-key", runResult.ProviderFallbackKey, "ack 的 ProviderFallbackKey 必须透进 RunResult")
 
-	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: 42})
+	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(42)})
 	_, ok := <-events
 	assert.False(t, ok)
 }
@@ -1818,7 +1818,7 @@ func TestGoal_DispatchesWireRPCsWithBackendMetadata(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
 			gp, ok := params.(wire.GoalParams)
 			require.True(t, ok, "expected wire.GoalParams, got %T", params)
-			assert.Equal(t, int64(42), gp.SessionID)
+			assert.Equal(t, convOf(42), gp.ConversationID)
 			assert.Equal(t, int64(7), gp.AgentID)
 			assert.Equal(t, "thread-goal", gp.ProviderSessionID)
 			assert.Equal(t, "/tmp/work", gp.Cwd)
@@ -1876,9 +1876,9 @@ func TestRun_DirectForkTurnAcceptsChangedProviderSessionID(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
 			rp, ok := params.(wire.RunParams)
 			require.True(t, ok, "expected wire.RunParams, got %T", params)
-			assert.Equal(t, int64(42), rp.SessionID)
+			assert.Equal(t, convOf(42), rp.ConversationID)
 			// A direct (non-Pi) run carries the resumed identity in the ack...
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rp.SessionID, ProviderSessionID: "orig-session"}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: rp.ConversationID, ProviderSessionID: "orig-session"}
 			return nil
 		}).Times(1)
 
@@ -1896,7 +1896,7 @@ func TestRun_DirectForkTurnAcceptsChangedProviderSessionID(t *testing.T) {
 	// runResultDone carries the forked session. That final frame must still
 	// finalize the run instead of being dropped as a stale generation.
 	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID:         42,
+		ConversationID:    convOf(42),
 		ProviderSessionID: "forked-session",
 	})
 
@@ -1914,7 +1914,7 @@ func TestRun_DirectForkTurnAcceptsChangedProviderSessionID(t *testing.T) {
 // key），未提供时回落 backend 主绑定固定模型；两者皆空 = provider-default。
 func TestBuildRunParams_ForwardsLLMModelKey(t *testing.T) {
 	t.Run("from effective config", func(t *testing.T) {
-		params, err := buildRunParams(agentruntime.RunRequest{
+		params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{LLMModelKey: "backend-model"},
 			SessionID: 9,
 			Effective: &agentruntime.EffectiveLLMConfig{
@@ -1927,7 +1927,7 @@ func TestBuildRunParams_ForwardsLLMModelKey(t *testing.T) {
 	})
 
 	t.Run("fallback to backend fixed model", func(t *testing.T) {
-		params, err := buildRunParams(agentruntime.RunRequest{
+		params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{LLMModelKey: "backend-model"},
 			SessionID: 9,
 		})
@@ -1936,7 +1936,7 @@ func TestBuildRunParams_ForwardsLLMModelKey(t *testing.T) {
 	})
 
 	t.Run("provider-default stays empty", func(t *testing.T) {
-		params, err := buildRunParams(agentruntime.RunRequest{
+		params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{LLMProviderKey: "pk"},
 			SessionID: 9,
 		})
@@ -1948,7 +1948,7 @@ func TestBuildRunParams_ForwardsLLMModelKey(t *testing.T) {
 		// spec 决策 1：会话钉了 Provider 且选 provider-default（ModelKey 空）时，即使
 		// backend 主绑定同家并固定了模型，wire 也必须保持空 model key（provider-default），
 		// 不能被 backend 的固定模型带偏 —— 远端与本地同一解析语义（sessionModelKeyFor）。
-		params, err := buildRunParams(agentruntime.RunRequest{
+		params, err := New(newFakeConn()).buildRunParams(agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{LLMProviderKey: "pk", LLMModelKey: "backend-model"},
 			SessionID: 9,
 			Effective: &agentruntime.EffectiveLLMConfig{

@@ -50,7 +50,7 @@ func (r *Runtime) CatchUpSessions(ctx context.Context, sessionIDs []int64) (live
 	need := make([]int64, 0, len(sessionIDs))
 	live = make([]int64, 0, len(sessionIDs))
 	for _, sid := range sessionIDs {
-		sum, known := summaries[sid]
+		sum, known := summaries[r.conversationID(sid)]
 		if !known {
 			// 不在这台 daemon 的清单里:它属于别的对端,或已被 daemon 的重启清扫掉。
 			// 连 attach 都不该发。

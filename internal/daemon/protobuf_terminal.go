@@ -62,7 +62,7 @@ func registerProtobufTerminalMethods(registry *protorpc.Registry, terminal *hand
 				return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "terminal dimensions exceed uint16"}
 			}
 			result, err := terminal.Open(ctx, protocol.TerminalOpenParams{
-				TerminalID: request.TerminalId, SessionID: request.SessionId, Cwd: request.Cwd,
+				TerminalID: request.TerminalId, Cwd: request.Cwd,
 				Shell: request.Shell, Command: request.Command, Env: append([]string(nil), request.Env...),
 				Cols: uint16(request.Cols), Rows: uint16(request.Rows),
 			})

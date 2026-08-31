@@ -150,12 +150,21 @@ type Runtime struct {
 	cursorTimer   *time.Timer
 	cursorFlushMu sync.Mutex
 
-	// originMu / origins 记录每条会话的发起对端 —— sessionSummaries 从清单里学到的
+	// originMu / origins 记录每条**对话**的发起对端 —— sessionSummaries 从清单里学到的
 	// SessionSummary.PeerFingerprint(R12 桌面侧)。已认领 daemon 上同账号客户端要操作
 	// 别的对端发起的会话,attach / pull / pendingWaiters / 控制请求必须把 origin 原样
 	// 带过去;空 = 自己对端(未认领 daemon 恒空),省略该字段即向后兼容。
+	//
+	// 键是 conversation_id 而不是裸会话号:同一个号在两个对端上是两条毫不相干的对话,
+	// 按号索引会让别的对端那条把自己的顶掉(那正是本轮由构造消灭掉的那类并轨)。
 	originMu sync.Mutex
-	origins  map[int64]string
+	origins  map[string]string
+
+	// convMu / convBySid / sidByConv 是进程内会话键与线上 conversation_id 的双向
+	// 映射,见 conversation.go。
+	convMu    sync.Mutex
+	convBySid map[int64]string
+	sidByConv map[string]int64
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -190,7 +199,9 @@ func New(c client.ProtobufConnection, opts ...Option) *Runtime {
 		caps:            map[agent_backend_entity.BackendType]capability.Capabilities{},
 		autoSessions:    map[int64]*autoSession{},
 		sessionState:    map[int64]*sessionSync{},
-		origins:         map[int64]string{},
+		origins:         map[string]string{},
+		convBySid:       map[int64]string{},
+		sidByConv:       map[string]int64{},
 		connGen:         1, // 0 留给 sessionSync 的零值:那表示「这条会话还没探过」
 		backoff:         defaultReconnectBackoff,
 		cursorFlush:     defaultCursorFlushInterval,
@@ -303,7 +314,7 @@ func (r *Runtime) callRun(ctx context.Context, params wire.RunParams) (wire.RunA
 	if err != nil {
 		return wire.RunAck{}, fromProtobufError(err)
 	}
-	return wire.RunAck{SessionID: response.GetSessionId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey()}, nil
+	return wire.RunAck{ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey()}, nil
 }
 
 // Capabilities 返回最近一次 Prefetch 的结果(任意 backendType 第一个命中的);
@@ -366,7 +377,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 	if req.Backend == nil || !req.Backend.IsPiAgent() {
 		return nil, errors.New("remote runtime: prepared runs are only supported for Pi Agent")
 	}
-	params, err := buildRunParams(req)
+	params, err := r.buildRunParams(req)
 	if err != nil {
 		return nil, err
 	}
@@ -405,9 +416,9 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 		_, _ = r.abortGeneration(ctx, sess, 0)
 		return nil, wire.FromRPCError(registrationErr)
 	}
-	if registrationAck.SessionID != req.SessionID {
+	if registrationAck.ConversationID != r.conversationID(req.SessionID) {
 		_, _ = r.abortGeneration(ctx, sess, 0)
-		return nil, fmt.Errorf("remote runtime: Pi registration returned session %d for %d", registrationAck.SessionID, req.SessionID)
+		return nil, fmt.Errorf("remote runtime: Pi registration returned conversation %q for %q", registrationAck.ConversationID, r.conversationID(req.SessionID))
 	}
 	if err := generationCtx.Err(); err != nil {
 		_, _ = r.abortGeneration(ctx, sess, 0)
@@ -422,9 +433,9 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 			zap.String("errorType", fmt.Sprintf("%T", err)))
 		return nil, wire.FromRPCError(err)
 	}
-	if ack.SessionID != req.SessionID {
+	if ack.ConversationID != r.conversationID(req.SessionID) {
 		_, _ = r.abortGeneration(ctx, sess, 0)
-		return nil, fmt.Errorf("remote runtime: Pi preparation returned session %d for %d", ack.SessionID, req.SessionID)
+		return nil, fmt.Errorf("remote runtime: Pi preparation returned conversation %q for %q", ack.ConversationID, r.conversationID(req.SessionID))
 	}
 	providerSessionID := strings.TrimSpace(ack.ProviderSessionID)
 	if providerSessionID == "" {
@@ -488,7 +499,7 @@ func (p *remotePreparedRun) Start(ctx context.Context) (<-chan agentruntime.Even
 		_, _ = p.runtime.abortGeneration(ctx, p.session, 0)
 		return nil, nil, wire.FromRPCError(err)
 	}
-	if ack.SessionID != p.session.id || strings.TrimSpace(ack.ProviderSessionID) != p.ProviderSessionID() {
+	if ack.ConversationID != p.runtime.conversationID(p.session.id) || strings.TrimSpace(ack.ProviderSessionID) != p.ProviderSessionID() {
 		_, _ = p.runtime.abortGeneration(ctx, p.session, 0)
 		return nil, nil, errors.New("remote runtime: Pi start acknowledged a different prepared generation")
 	}
@@ -497,7 +508,7 @@ func (p *remotePreparedRun) Start(ctx context.Context) (<-chan agentruntime.Even
 	p.session.result.ProviderFallbackKey = ack.ProviderFallbackKey
 	p.session.mu.Unlock()
 	logger.Ctx(ctx).Info("remote.Runtime: Pi generation started",
-		zap.Int64("sessionId", ack.SessionID),
+		zap.Int64("sessionId", p.session.id), zap.String("conversationId", ack.ConversationID),
 		zap.String("providerSessionId", ack.ProviderSessionID))
 	return p.session.events.Out(), p.session.result, nil
 }
@@ -514,7 +525,7 @@ func (p *remotePreparedRun) Close(ctx context.Context) error {
 }
 
 func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
-	params, err := buildRunParams(req)
+	params, err := r.buildRunParams(req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -546,23 +557,29 @@ func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<
 		return nil, nil, wire.FromRPCError(err)
 	}
 
+	// daemon 交回的对话身份就是本端送过去的那一个(它从不发号)。翻回本地会话键,
+	// 让「daemon 认下的会话」与本进程表里的那条对得上。
+	ackSid := r.localSessionID(ack.ConversationID)
+	if ackSid == 0 {
+		ackSid = req.SessionID
+	}
 	sess.mu.Lock()
-	sess.id = ack.SessionID
+	sess.id = ackSid
 	sess.providerSessionID = strings.TrimSpace(ack.ProviderSessionID)
 	sess.result.ProviderSessionID = ack.ProviderSessionID
 	sess.result.LaunchPermissionMode = ack.LaunchPermissionMode
 	sess.result.ProviderFallbackKey = ack.ProviderFallbackKey
 	sess.mu.Unlock()
-	if ack.SessionID != req.SessionID {
+	if ackSid != req.SessionID {
 		r.mu.Lock()
 		if r.sessions[req.SessionID] == sess {
 			delete(r.sessions, req.SessionID)
-			r.sessions[ack.SessionID] = sess
+			r.sessions[ackSid] = sess
 		}
 		r.mu.Unlock()
 	}
 	logger.Ctx(ctx).Info("remote.Runtime: session started",
-		zap.Int64("sessionId", ack.SessionID),
+		zap.Int64("sessionId", ackSid), zap.String("conversationId", ack.ConversationID),
 		zap.String("backend", req.Backend.Type))
 	return sess.events.Out(), sess.result, nil
 }
@@ -574,7 +591,7 @@ func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<
 // 故意不发 req.Provider / GatewayURL / GatewayToken —— 见 wire.RunParams 注释:
 // daemon 端在 handlers/runtime.go 里自家 ProviderLookup + 自家 Gateway 解出来,
 // desktop 那份是本机 127.0.0.1 + 含 APIKey 的明文,跨进程发过去既不可达也不安全。
-func buildRunParams(req agentruntime.RunRequest) (wire.RunParams, error) {
+func (r *Runtime) buildRunParams(req agentruntime.RunRequest) (wire.RunParams, error) {
 	backendJSON, err := json.Marshal(req.Backend)
 	if err != nil {
 		return wire.RunParams{}, fmt.Errorf("marshal backend: %w", err)
@@ -590,7 +607,7 @@ func buildRunParams(req agentruntime.RunRequest) (wire.RunParams, error) {
 	return wire.RunParams{
 		Backend:           backendJSON,
 		AgentID:           req.AgentID,
-		SessionID:         req.SessionID,
+		ConversationID:    r.conversationID(req.SessionID),
 		Cwd:               req.Cwd,
 		Title:             req.Title,
 		AgentSyncID:       req.AgentSyncID,
@@ -705,8 +722,10 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 	if !ok {
 		return nil, nil
 	}
+	// 线上身份是 conversation_id;本进程的会话表按 int64 索引(决策 6),翻译只在这里。
+	sid := r.localSessionID(frame.ConversationID)
 	r.mu.RLock()
-	sess := r.sessions[frame.SessionID]
+	sess := r.sessions[sid]
 	knownSids := make([]int64, 0, len(r.sessions))
 	for k := range r.sessions {
 		knownSids = append(knownSids, k)
@@ -718,7 +737,7 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 		// the untrusted payload.
 		fields := make([]zap.Field, 0, 4)
 		fields = append(fields,
-			zap.Int64("frameSid", frame.SessionID),
+			zap.Int64("frameSid", sid),
 			zap.Int64s("knownSids", knownSids),
 		)
 		fields = append(fields, remoteEventLogFields(frame.Event)...)
@@ -731,7 +750,7 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 		// 这一轮的 events,上一轮的 TextDelta 会一字不差地追加到用户刚发出的那条消息
 		// 的回答里 —— 用户看到的是一段答非所问的历史。它归补齐轮。
 		logger.Ctx(ctx).Debug("remote.Runtime: event from an ended turn — routed to catch-up",
-			zap.Int64("sessionId", frame.SessionID), zap.Int64("seq", frame.Seq),
+			zap.Int64("sessionId", sid), zap.Int64("seq", frame.Seq),
 			zap.Int64("turnStartSeq", sess.startSeq))
 		sess = nil
 	}
@@ -739,12 +758,12 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 		// 带 seq 的事件必定来自认得补齐族的 daemon:它要么是重放上来的历史,要么是
 		// 一条本进程还没有轮次去接的实时通知(App 刚重启)。两种都是用户没见过的
 		// 转录内容,交给补齐轮落成一轮,而不是像老 daemon 那样丢掉。
-		if frame.Seq > 0 && r.deliverToCatchUpTurn(ctx, frame.SessionID, ev) {
+		if frame.Seq > 0 && r.deliverToCatchUpTurn(ctx, sid, ev) {
 			return nil, nil
 		}
 		fields := make([]zap.Field, 0, 4)
 		fields = append(fields,
-			zap.Int64("frameSid", frame.SessionID),
+			zap.Int64("frameSid", sid),
 			zap.Int64s("knownSids", knownSids),
 		)
 		fields = append(fields, remoteEventLogFields(frame.Event)...)
@@ -755,14 +774,14 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 	if !sess.started {
 		sess.mu.Unlock()
 		logger.Ctx(ctx).Warn("remote.handleEvent: event before prepared generation start dropped",
-			zap.Int64("sessionId", frame.SessionID),
+			zap.Int64("sessionId", sid),
 			zap.String("eventType", fmt.Sprintf("%T", ev)))
 		return nil, nil
 	}
 	if sess.closed {
 		sess.mu.Unlock()
 		logger.Ctx(ctx).Warn("remote.handleEvent: event after session close dropped",
-			zap.Int64("sessionId", frame.SessionID),
+			zap.Int64("sessionId", sid),
 			zap.String("eventType", fmt.Sprintf("%T", ev)))
 		return nil, nil
 	}
@@ -779,7 +798,7 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 	sess.events.Push(ev)
 	sess.mu.Unlock()
 	logger.Ctx(ctx).Debug("remote.handleEvent: event delivered",
-		zap.Int64("sessionId", frame.SessionID),
+		zap.Int64("sessionId", sid),
 		zap.String("eventType", fmt.Sprintf("%T", ev)))
 	return nil, nil
 }
@@ -789,8 +808,9 @@ func (r *Runtime) handleRunResultDone(ctx context.Context, params any) (any, err
 	if !ok {
 		return nil, nil
 	}
+	sid := r.localSessionID(frame.ConversationID)
 	r.mu.RLock()
-	sess, ok := r.sessions[frame.SessionID]
+	sess, ok := r.sessions[sid]
 	r.mu.RUnlock()
 	if ok && frame.Seq > 0 && frame.Seq <= sess.startSeq {
 		// 补齐回放上来的、属于**已结束轮次**的终态帧:它在开轮之前就落库了,不可能是
@@ -802,7 +822,7 @@ func (r *Runtime) handleRunResultDone(ctx context.Context, params any) (any, err
 		// 判据分流,这一帧则是那一轮的收尾 —— 两者合起来,回放的每一轮都完整落成一张
 		// 自己的卡片,而不是揉进用户刚发起的这一轮里。
 		logger.Ctx(ctx).Warn("remote.Runtime: runResultDone from an ended turn — routed to catch-up",
-			zap.Int64("sessionId", frame.SessionID),
+			zap.Int64("sessionId", sid),
 			zap.Int64("seq", frame.Seq),
 			zap.Int64("turnStartSeq", sess.startSeq))
 		// 它是**那一轮**的收尾:补齐轮攒的正是那一轮的内容,到此为止。
@@ -811,7 +831,7 @@ func (r *Runtime) handleRunResultDone(ctx context.Context, params any) (any, err
 	}
 	if !ok {
 		logger.Ctx(ctx).Info("remote.handleRunResultDone: no live generation for terminal frame",
-			zap.Int64("sessionId", frame.SessionID),
+			zap.Int64("sessionId", sid),
 			zap.Int("stopErrCode", frame.StopErrCode))
 		// 本进程没有这一轮(App 重启后补齐回放的整轮就长这样):补齐轮攒到这里为止。
 		r.closeCatchUpTurn(ctx, *frame)
@@ -830,19 +850,19 @@ func (r *Runtime) handleRunResultDone(ctx context.Context, params any) (any, err
 	if piGeneration && expectedProviderSessionID != "" && frame.ProviderSessionID != "" &&
 		frame.ProviderSessionID != expectedProviderSessionID {
 		logger.Ctx(ctx).Warn("remote.handleRunResultDone: stale generation dropped",
-			zap.Int64("sessionId", frame.SessionID),
+			zap.Int64("sessionId", sid),
 			zap.Int("stopErrCode", frame.StopErrCode))
 		return nil, nil
 	}
 	r.mu.Lock()
-	if r.sessions[frame.SessionID] != sess {
+	if r.sessions[sid] != sess {
 		r.mu.Unlock()
 		logger.Ctx(ctx).Warn("remote.handleRunResultDone: replaced generation dropped",
-			zap.Int64("sessionId", frame.SessionID),
+			zap.Int64("sessionId", sid),
 			zap.Int("stopErrCode", frame.StopErrCode))
 		return nil, nil
 	}
-	delete(r.sessions, frame.SessionID)
+	delete(r.sessions, sid)
 	r.mu.Unlock()
 
 	sess.mu.Lock()
@@ -865,7 +885,7 @@ func (r *Runtime) handleRunResultDone(ctx context.Context, params any) (any, err
 	}
 	sess.mu.Unlock()
 	logger.Ctx(ctx).Info("remote.handleRunResultDone: session ended",
-		zap.Int64("sessionId", frame.SessionID),
+		zap.Int64("sessionId", sid),
 		zap.Bool("hasStopErr", frame.StopErrMsg != ""),
 		zap.Int("stopErrBytes", len(frame.StopErrMsg)),
 		zap.Int("stopErrCode", frame.StopErrCode))
@@ -889,7 +909,7 @@ func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID, text str
 		return agentruntime.ErrNoActiveTurn
 	}
 	return r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), wire.MethodSteer,
-		&agentrewire.RuntimeSteerRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID, Text: text}, &agentrewire.Empty{})
+		&agentrewire.RuntimeSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID, Text: text}, &agentrewire.Empty{})
 }
 
 func (r *Runtime) CancelSteer(ctx context.Context, sessionID int64, queuedID string) ([]string, error) {
@@ -898,7 +918,7 @@ func (r *Runtime) CancelSteer(ctx context.Context, sessionID int64, queuedID str
 	}
 	res := &agentrewire.RuntimeCancelSteerResponse{}
 	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), wire.MethodCancelSteer,
-		&agentrewire.RuntimeCancelSteerRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID}, res); err != nil {
+		&agentrewire.RuntimeCancelSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID}, res); err != nil {
 		return nil, err
 	}
 	return res.GetRemoved(), nil
@@ -910,7 +930,7 @@ func (r *Runtime) DrainPending(ctx context.Context, sessionID int64) []agentrunt
 	}
 	res := &agentrewire.RuntimeDrainPendingResponse{}
 	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING), wire.MethodDrainPending,
-		&agentrewire.RuntimeDrainPendingRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID)}, res); err != nil {
+		&agentrewire.RuntimeDrainPendingRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID)}, res); err != nil {
 		return nil
 	}
 	out := make([]agentruntime.ConsumedSteer, 0, len(res.GetSteers()))
@@ -935,7 +955,7 @@ func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) 
 	}
 	res := &agentrewire.RuntimeAbortResponse{}
 	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT), wire.MethodAbort,
-		&agentrewire.RuntimeAbortRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID), TurnToken: turnToken}, res); err != nil {
+		&agentrewire.RuntimeAbortRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), TurnToken: turnToken}, res); err != nil {
 		return agentruntime.AbortOutcome{}, err
 	}
 	return agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKind(res.GetTurnKind())}, nil
@@ -946,7 +966,7 @@ func (r *Runtime) StopBackgroundTask(ctx context.Context, sessionID int64, taskI
 		return agentruntime.ErrNoActiveTurn
 	}
 	return r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK), wire.MethodStopBackgroundTask,
-		&agentrewire.RuntimeStopBackgroundTaskRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID), TaskId: taskID}, &agentrewire.Empty{})
+		&agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), TaskId: taskID}, &agentrewire.Empty{})
 }
 
 func (r *Runtime) SetPermissionMode(ctx context.Context, sessionID int64, mode string) error {
@@ -954,7 +974,7 @@ func (r *Runtime) SetPermissionMode(ctx context.Context, sessionID int64, mode s
 		return agentruntime.ErrNoActiveTurn
 	}
 	return r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE), wire.MethodSetPermissionMode,
-		&agentrewire.RuntimeSetPermissionModeRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID), Mode: mode}, &agentrewire.Empty{})
+		&agentrewire.RuntimeSetPermissionModeRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), Mode: mode}, &agentrewire.Empty{})
 }
 
 func (r *Runtime) SubmitAnswer(ctx context.Context, sessionID int64, requestID string, questions []agentruntime.AskQuestion, answers []agentruntime.AskAnswer, skipped bool) error {
@@ -963,7 +983,7 @@ func (r *Runtime) SubmitAnswer(ctx context.Context, sessionID int64, requestID s
 	}
 	res := &agentrewire.PeerSessionControlResponse{}
 	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), wire.MethodSubmitAnswer,
-		&agentrewire.RuntimeSubmitAnswerRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Questions: protowire.AskQuestionsToProto(questions), Answers: protowire.AskAnswersToProto(answers), Skipped: skipped}, res); err != nil {
+		&agentrewire.RuntimeSubmitAnswerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Questions: protowire.AskQuestionsToProto(questions), Answers: protowire.AskAnswersToProto(answers), Skipped: skipped}, res); err != nil {
 		return err
 	}
 	return controlResultError(wire.PeerSessionControlResult{AlreadyHandled: res.GetAlreadyHandled()})
@@ -975,7 +995,7 @@ func (r *Runtime) SubmitToolPermission(ctx context.Context, sessionID int64, req
 	}
 	res := &agentrewire.PeerSessionControlResponse{}
 	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION), wire.MethodSubmitToolPermission,
-		&agentrewire.RuntimeSubmitToolPermissionRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Allow: allow, AlwaysAllowSession: alwaysAllowSession, DenyReason: denyReason}, res); err != nil {
+		&agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Allow: allow, AlwaysAllowSession: alwaysAllowSession, DenyReason: denyReason}, res); err != nil {
 		return err
 	}
 	return controlResultError(wire.PeerSessionControlResult{AlreadyHandled: res.GetAlreadyHandled()})
@@ -998,7 +1018,7 @@ func (r *Runtime) SubmitToolPermission(ctx context.Context, sessionID int64, req
 func (r *Runtime) PendingWaiters(ctx context.Context, sessionID int64) (wire.SessionPendingWaitersResult, error) {
 	res := &agentrewire.SessionPendingWaitersResponse{}
 	if err := r.callSentinel(ctx, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PENDING_WAITERS),
-		&agentrewire.SessionPendingWaitersRequest{SessionId: sessionID, PeerFingerprint: r.originFor(sessionID)}, res); err != nil {
+		&agentrewire.SessionPendingWaitersRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID)}, res); err != nil {
 		return wire.SessionPendingWaitersResult{}, err
 	}
 	return protowire.PendingWaitersResponseFromProto(res), nil
@@ -1069,7 +1089,7 @@ func (r *Runtime) goalParams(req agentruntime.GoalRequest) (wire.GoalParams, err
 		backendJSON = raw
 	}
 	return wire.GoalParams{
-		SessionID:         req.SessionID,
+		ConversationID:    r.conversationID(req.SessionID),
 		PeerFingerprint:   r.originFor(req.SessionID),
 		AgentID:           req.AgentID,
 		ProviderSessionID: req.ProviderSessionID,
@@ -1151,7 +1171,7 @@ func (r *Runtime) abortGeneration(ctx context.Context, sess *remoteSession, turn
 		abortCtx, cancel := context.WithTimeout(context.WithoutCancel(base), generationControlTimeout)
 		defer cancel()
 		res := &agentrewire.RuntimeAbortResponse{}
-		err := r.callSentinel(abortCtx, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT), &agentrewire.RuntimeAbortRequest{SessionId: sess.id, TurnToken: turnToken}, res)
+		err := r.callSentinel(abortCtx, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT), &agentrewire.RuntimeAbortRequest{ConversationId: r.conversationID(sess.id), TurnToken: turnToken}, res)
 		if errors.Is(err, agentruntime.ErrNoActiveTurn) {
 			err = nil
 		}

@@ -17,13 +17,13 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 )
 
@@ -102,10 +102,10 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, keyword string) (wire
 		// 记不住模型选择,而不是把每条对话都显示成「跟随 Agent 绑定」。
 	}
 	for _, row := range rows {
-		sid, err := strconv.ParseInt(row.PeerSessionID, 10, 64)
-		if err != nil {
-			// 会话 id 是客户端的本地自增主键,解不出来说明这一行不是本协议写的。
-			// 跳过而不是整份清单失败 —— 一条坏行不该让客户端连自己的会话都看不到。
+		conversationID := row.PeerSessionID
+		if conversationid.Validate(conversationID) != nil {
+			// 身份列存的不是一条对话 uuid,说明这一行不是本协议写的。跳过而不是整份
+			// 清单失败 —— 一条坏行不该让客户端连自己的会话都看不到。
 			continue
 		}
 		latestSeq := latest[row.PeerSessionID]
@@ -116,7 +116,7 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, keyword string) (wire
 			}
 		}
 		summary := wire.SessionSummary{
-			SessionID:         sid,
+			ConversationID:    conversationID,
 			AgentID:           row.AgentID,
 			Title:             row.Title,
 			AgentSyncID:       row.AgentSyncID,
@@ -125,7 +125,7 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, keyword string) (wire
 			Cwd:               row.Cwd,
 			BackendType:       row.BackendType,
 			LifecycleState:    row.LifecycleState,
-			WaitingForInput:   h.waitingForInput(ctx, row, sid),
+			WaitingForInput:   h.waitingForInput(ctx, row, conversationID),
 			LatestSeq:         latestSeq,
 			LastMessageAt:     row.LastMessageAt,
 			ProviderKey:       row.ProviderKey,
@@ -161,7 +161,10 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullPar
 	if err != nil {
 		return wire.SessionPullResult{}, err
 	}
-	sid := strconv.FormatInt(p.SessionID, 10)
+	if err := ErrInvalidConversationID(p.ConversationID); err != nil {
+		return wire.SessionPullResult{}, err
+	}
+	sid := p.ConversationID
 	// 下界先读:两次读之间老前缀随时可能消失(库被从外部恢复或截断)。先读页、后读下界,
 	// 下界就会涨到页里那些行**之上** —— 客户端拿它复位游标(复位跑在重放之前),这一整页
 	// 已经拿到手的行会被当成重复全部丢掉,一段本来读得到的转录凭空消失。反过来先读下界
@@ -203,14 +206,14 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullPar
 // 的、跑的是哪个 backend」。不属于调用方的会话、未实现审批协议的 backend,都回空列表
 // 而不是报错 —— 两者都是正常情况,报错会让客户端误判为故障。
 func (h *SessionCatchupHandlers) PendingWaiters(ctx context.Context, p wire.SessionPendingWaitersParams) (wire.SessionPendingWaitersResult, error) {
-	row, err := h.findSession(ctx, p.SessionID, p.PeerFingerprint)
+	row, err := h.findSession(ctx, p.ConversationID, p.PeerFingerprint)
 	if err != nil {
 		return wire.SessionPendingWaitersResult{}, err
 	}
 	if row == nil {
 		return wire.SessionPendingWaitersResult{}, nil
 	}
-	snap := h.pendingWaiters(ctx, *row, p.SessionID)
+	snap := h.pendingWaiters(ctx, *row, p.ConversationID)
 	return wire.SessionPendingWaitersResult{
 		ToolPermissions:  snap.ToolPermissions,
 		AskUserQuestions: snap.AskUserQuestions,
@@ -223,7 +226,7 @@ func (h *SessionCatchupHandlers) PendingWaiters(ctx context.Context, p wire.Sess
 // 把推送目标真正改到这条连接上的动作在 daemon.go 的注册处,且只在本方法**成功返回
 // 之后**执行 —— 被拒的接管不得改变任何东西。
 func (h *SessionCatchupHandlers) Attach(ctx context.Context, p wire.SessionAttachParams) (wire.SessionAttachResult, error) {
-	row, err := h.findSession(ctx, p.SessionID, p.PeerFingerprint)
+	row, err := h.findSession(ctx, p.ConversationID, p.PeerFingerprint)
 	if err != nil {
 		return wire.SessionAttachResult{}, err
 	}
@@ -242,7 +245,7 @@ func (h *SessionCatchupHandlers) Attach(ctx context.Context, p wire.SessionAttac
 		return wire.SessionAttachResult{}, fmt.Errorf("read latest seq: %w", err)
 	}
 	return wire.SessionAttachResult{
-		SessionID:      p.SessionID,
+		ConversationID: p.ConversationID,
 		BackendType:    row.BackendType,
 		LifecycleState: row.LifecycleState,
 		LatestSeq:      latest,
@@ -252,12 +255,15 @@ func (h *SessionCatchupHandlers) Attach(ctx context.Context, p wire.SessionAttac
 // findSession resolves an omitted origin to the caller's own peer, or an
 // authorized claimed-account origin to that peer's row. Every per-session
 // catch-up operation passes through this boundary.
-func (h *SessionCatchupHandlers) findSession(ctx context.Context, sessionID int64, originPeer string) (*SessionRecord, error) {
+func (h *SessionCatchupHandlers) findSession(ctx context.Context, conversationID string, originPeer string) (*SessionRecord, error) {
+	if err := ErrInvalidConversationID(conversationID); err != nil {
+		return nil, err
+	}
 	peer, err := ResolveSessionPeer(ctx, originPeer, h.deps.ClaimedAccountID)
 	if err != nil {
 		return nil, err
 	}
-	row, err := h.deps.Sessions.Find(ctx, peer, strconv.FormatInt(sessionID, 10))
+	row, err := h.deps.Sessions.Find(ctx, peer, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("find session: %w", err)
 	}
@@ -295,22 +301,20 @@ func hasClaimedAccount(ctx context.Context, claimedAccountID func() string) bool
 // waitingForInput 现算「这条会话是不是正在等用户操作」:问 backend 此刻有没有阻塞中的
 // waiter(R11)。它永远不落库 —— 落库的等待标志会活过 daemon 重启,变成一个没人能回答
 // 的问题(那一轮的子进程已经不在了)。
-func (h *SessionCatchupHandlers) waitingForInput(ctx context.Context, row SessionRecord, sessionID int64) bool {
-	snap := h.pendingWaiters(ctx, row, sessionID)
+func (h *SessionCatchupHandlers) waitingForInput(ctx context.Context, row SessionRecord, conversationID string) bool {
+	snap := h.pendingWaiters(ctx, row, conversationID)
 	return len(snap.ToolPermissions) > 0 || len(snap.AskUserQuestions) > 0
 }
 
 // pendingWaiters 问该会话的 backend 要一份 waiter 快照。backend 没注册、或没实现审批
 // 协议时回零值 —— 未实现者返回空列表而非报错是 R7 明写的。
 //
-// 问的是**按对端隔离过的会话键**(runtimeSessionID),不是客户端报的裸数字:backend 的 waiter
-// 表是进程内一份、只按会话 id 索引,而会话 id 各客户端本地自增、必然重号。拿裸 id 去问,
-// 拿回来的可能是别的对端那条同号会话的 requestID / 工具名 / 完整工具入参 —— 交出去等于
-// 泄漏别人的审批载荷,对方还能照着 requestID 替人回答(R16)。
+// 问的是**折算过的进程内会话键**(runtimeSessionID):backend 的 waiter 表是进程内一份、
+// 只按 int64 索引,而线上的身份是一个 uuid。
 //
 // 中断态会话一律不问 backend:那一轮的子进程随上一个 daemon 进程消亡了(R10),它不可能
 // 还有活的 waiter,任何答案都只会是别人的。
-func (h *SessionCatchupHandlers) pendingWaiters(ctx context.Context, row SessionRecord, sessionID int64) agentruntime.WaiterSnapshot {
+func (h *SessionCatchupHandlers) pendingWaiters(ctx context.Context, row SessionRecord, conversationID string) agentruntime.WaiterSnapshot {
 	if row.LifecycleState == wire.SessionLifecycleInterrupted {
 		return agentruntime.WaiterSnapshot{}
 	}
@@ -322,7 +326,7 @@ func (h *SessionCatchupHandlers) pendingWaiters(ctx context.Context, row Session
 	if !ok {
 		return agentruntime.WaiterSnapshot{}
 	}
-	return lister.PendingWaiters(ctx, runtimeSessionID(row.PeerFingerprint, sessionID))
+	return lister.PendingWaiters(ctx, runtimeSessionID(conversationID))
 }
 
 // clampPullLimit 把客户端报的单页条数收进 daemon 的上限。

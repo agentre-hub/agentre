@@ -69,7 +69,7 @@ func TestProtobufTerminalMethodsPreserveBinaryData(t *testing.T) {
 		go server.Serve(ctx)
 
 		opened, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_OPEN),
-			&agentrewire.TerminalOpenRequest{TerminalId: "term-1", SessionId: 9, Cols: 80, Rows: 24},
+			&agentrewire.TerminalOpenRequest{TerminalId: "term-1", Cols: 80, Rows: 24},
 			func() *agentrewire.TerminalOpenResponse { return &agentrewire.TerminalOpenResponse{} })
 		require.NoError(t, err)
 		require.Equal(t, "term-1", opened.TerminalId)

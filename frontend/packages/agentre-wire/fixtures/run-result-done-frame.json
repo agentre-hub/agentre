@@ -1,5 +1,5 @@
 {
-  "sessionId": 42,
+  "conversationId": "00000000-0000-7000-8000-000000000042",
   "providerSessionId": "sess_abc123",
   "usage": {
     "promptTokens": 100,

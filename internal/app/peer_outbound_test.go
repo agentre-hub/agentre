@@ -19,7 +19,7 @@ type stubPeerSvc struct {
 	lastSteer           peer_svc.SteerRequest
 	lastAnswer          peer_svc.SubmitAnswerRequest
 	lastPermission      peer_svc.SubmitToolPermissionRequest
-	lastDetachSession   int64
+	lastDetachSession   string
 	runFreshResult      wire.RunAck
 	listResult          *wire.SessionListResult
 	attachResult        *wire.SessionAttachResult
@@ -53,8 +53,8 @@ func (s *stubPeerSvc) SubmitToolPermission(_ context.Context, req peer_svc.Submi
 	s.lastPermission = req
 	return s.controlResult, s.err
 }
-func (s *stubPeerSvc) Detach(_ context.Context, _ string, sessionID int64) error {
-	s.lastDetachSession = sessionID
+func (s *stubPeerSvc) Detach(_ context.Context, _ string, conversationID string) error {
+	s.lastDetachSession = conversationID
 	return s.err
 }
 func (s *stubPeerSvc) Close() error { return nil }
@@ -64,8 +64,8 @@ func (s *stubPeerSvc) Close() error { return nil }
 // running sentinel surfaces unchanged.
 func TestAppPeerBindings_GivenWiredService_WhenCalled_ThenPassThrough(t *testing.T) {
 	stub := &stubPeerSvc{
-		listResult:    &wire.SessionListResult{Sessions: []wire.SessionSummary{{SessionID: 7}}},
-		attachResult:  &wire.SessionAttachResult{SessionID: 7, LatestSeq: 12},
+		listResult:    &wire.SessionListResult{Sessions: []wire.SessionSummary{{ConversationID: convID(7)}}},
+		attachResult:  &wire.SessionAttachResult{ConversationID: convID(7), LatestSeq: 12},
 		controlResult: &wire.PeerSessionControlResult{AlreadyHandled: true},
 	}
 	previous := peerSvcAccessor
@@ -81,19 +81,19 @@ func TestAppPeerBindings_GivenWiredService_WhenCalled_ThenPassThrough(t *testing
 	assert.Equal(t, "sha256:peer-desktop", stub.lastListFingerprint)
 	require.Len(t, list.Sessions, 1)
 
-	att, err := a.PeerAttach(peer_svc.AttachRequest{Fingerprint: "sha256:peer-desktop", SessionID: 7})
+	att, err := a.PeerAttach(peer_svc.AttachRequest{Fingerprint: "sha256:peer-desktop", ConversationID: convID(7)})
 	require.NoError(t, err)
 	assert.Equal(t, int64(12), att.LatestSeq)
 
-	require.NoError(t, a.PeerSteer(peer_svc.SteerRequest{Fingerprint: "sha256:peer-desktop", SessionID: 7, Text: "接着干"}))
+	require.NoError(t, a.PeerSteer(peer_svc.SteerRequest{Fingerprint: "sha256:peer-desktop", ConversationID: convID(7), Text: "接着干"}))
 	assert.Equal(t, "接着干", stub.lastSteer.Text)
 
-	res, err := a.PeerSubmitAnswer(peer_svc.SubmitAnswerRequest{Fingerprint: "sha256:peer-desktop", SessionID: 7, RequestID: "req-1"})
+	res, err := a.PeerSubmitAnswer(peer_svc.SubmitAnswerRequest{Fingerprint: "sha256:peer-desktop", ConversationID: convID(7), RequestID: "req-1"})
 	require.NoError(t, err)
 	assert.True(t, res.AlreadyHandled, "alreadyHandled must reach the binding caller")
 
-	require.NoError(t, a.PeerDetach("sha256:peer-desktop", 7))
-	assert.Equal(t, int64(7), stub.lastDetachSession)
+	require.NoError(t, a.PeerDetach("sha256:peer-desktop", convID(7)))
+	assert.Equal(t, convID(7), stub.lastDetachSession)
 }
 
 // Given the desktop App on the target is not running, when the binding calls

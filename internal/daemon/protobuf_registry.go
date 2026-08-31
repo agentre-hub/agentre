@@ -344,7 +344,7 @@ func (d *Daemon) registerProtobufMethods() {
 			}
 			response := &agentrewire.SessionListResponse{}
 			for _, session := range result.Sessions {
-				response.Sessions = append(response.Sessions, &agentrewire.SessionSummary{SessionId: session.SessionID, PeerFingerprint: session.PeerFingerprint, AgentId: session.AgentID, Title: session.Title, AgentSyncId: session.AgentSyncID, ProviderSessionId: session.ProviderSessionID, Cwd: session.Cwd, ProjectSyncId: session.ProjectSyncID, BackendType: session.BackendType, LifecycleState: session.LifecycleState, WaitingForInput: session.WaitingForInput, LatestSeq: session.LatestSeq, LastMessageAt: session.LastMessageAt, ProviderKey: session.ProviderKey, ModelKey: session.ModelKey})
+				response.Sessions = append(response.Sessions, &agentrewire.SessionSummary{ConversationId: session.ConversationID, PeerFingerprint: session.PeerFingerprint, AgentId: session.AgentID, Title: session.Title, AgentSyncId: session.AgentSyncID, ProviderSessionId: session.ProviderSessionID, Cwd: session.Cwd, ProjectSyncId: session.ProjectSyncID, BackendType: session.BackendType, LifecycleState: session.LifecycleState, WaitingForInput: session.WaitingForInput, LatestSeq: session.LatestSeq, LastMessageAt: session.LastMessageAt, ProviderKey: session.ProviderKey, ModelKey: session.ModelKey})
 			}
 			return response, nil
 		})
@@ -376,7 +376,7 @@ func (d *Daemon) registerProtobufMethods() {
 			if err := requireProtobufAuth(ctx); err != nil {
 				return nil, err
 			}
-			result, err := d.catchup.Pull(ctx, remotewire.SessionPullParams{SessionID: request.SessionId, PeerFingerprint: request.PeerFingerprint, Cursor: request.Cursor, Limit: int(request.Limit)})
+			result, err := d.catchup.Pull(ctx, remotewire.SessionPullParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint, Cursor: request.Cursor, Limit: int(request.Limit)})
 			if err != nil {
 				return nil, protobufError(err)
 			}
@@ -397,7 +397,7 @@ func (d *Daemon) registerProtobufMethods() {
 			if err := requireProtobufAuth(ctx); err != nil {
 				return nil, err
 			}
-			result, err := d.catchup.PendingWaiters(ctx, remotewire.SessionPendingWaitersParams{SessionID: request.SessionId, PeerFingerprint: request.PeerFingerprint})
+			result, err := d.catchup.PendingWaiters(ctx, remotewire.SessionPendingWaitersParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint})
 			if err != nil {
 				return nil, protobufError(err)
 			}
@@ -409,7 +409,7 @@ func (d *Daemon) registerProtobufMethods() {
 			if err := requireProtobufAuth(ctx); err != nil {
 				return nil, err
 			}
-			result, err := d.sessionDelete.Delete(ctx, remotewire.SessionDeleteParams{SessionID: request.SessionId, PeerFingerprint: request.PeerFingerprint})
+			result, err := d.sessionDelete.Delete(ctx, remotewire.SessionDeleteParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint})
 			if err != nil {
 				return nil, protobufError(err)
 			}
@@ -421,7 +421,7 @@ func (d *Daemon) registerProtobufMethods() {
 			if err := requireProtobufAuth(ctx); err != nil {
 				return nil, err
 			}
-			_, err := d.sessionModelTarget.SetModelTarget(ctx, remotewire.SetModelTargetParams{SessionID: request.SessionId, PeerFingerprint: request.PeerFingerprint, ProviderKey: request.ProviderKey, ModelKey: request.ModelKey})
+			_, err := d.sessionModelTarget.SetModelTarget(ctx, remotewire.SetModelTargetParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint, ProviderKey: request.ProviderKey, ModelKey: request.ModelKey})
 			if err != nil {
 				return nil, protobufError(err)
 			}

@@ -2,6 +2,7 @@ package fakepeer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -54,9 +55,9 @@ func TestServerGivenTypedRuntimeRunThenStreamsAndJournalsBinaryNotifications(t *
 	defer unsubscribe()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	response, err := protorpc.CallMethod(ctx, cli.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), &agentrewire.RuntimeRunRequest{SessionId: 42, UserText: "hello"}, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	response, err := protorpc.CallMethod(ctx, cli.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), &agentrewire.RuntimeRunRequest{ConversationId: convID(42), UserText: "hello"}, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 	require.NoError(t, err)
-	assert.Equal(t, int64(42), response.SessionId)
+	assert.Equal(t, convID(42), response.ConversationId)
 	finished := false
 	for !finished {
 		select {
@@ -66,7 +67,7 @@ func TestServerGivenTypedRuntimeRunThenStreamsAndJournalsBinaryNotifications(t *
 			t.Fatal("typed run did not finish")
 		}
 	}
-	pull, err := protorpc.CallMethod(ctx, cli.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{SessionId: 42}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+	pull, err := protorpc.CallMethod(ctx, cli.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{ConversationId: convID(42)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
 	require.NoError(t, err)
 	require.NotEmpty(t, pull.Notifications)
 	assert.NotNil(t, pull.Notifications[len(pull.Notifications)-1].Payload.GetRunResultDone())
@@ -79,7 +80,7 @@ func TestServerGivenRecoverableDisconnectWhenClientReconnectsThenJournalCanBeAtt
 	closed := cli.Closed()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, err := protorpc.CallMethod(ctx, cli.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), &agentrewire.RuntimeRunRequest{SessionId: 43, UserText: "recover"}, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	_, err := protorpc.CallMethod(ctx, cli.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), &agentrewire.RuntimeRunRequest{ConversationId: convID(43), UserText: "recover"}, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 	require.NoError(t, err)
 	select {
 	case <-closed:
@@ -91,7 +92,7 @@ func TestServerGivenRecoverableDisconnectWhenClientReconnectsThenJournalCanBeAtt
 	var attached *agentrewire.SessionAttachResponse
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		var callErr error
-		attached, callErr = protorpc.CallMethod(ctx, reconnected.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{SessionId: 43}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
+		attached, callErr = protorpc.CallMethod(ctx, reconnected.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{ConversationId: convID(43)}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
 		assert.NoError(collect, callErr)
 		if attached != nil {
 			assert.Equal(collect, wire.SessionLifecycleIdle, attached.LifecycleState)
@@ -99,7 +100,7 @@ func TestServerGivenRecoverableDisconnectWhenClientReconnectsThenJournalCanBeAtt
 		}
 	}, time.Second, 10*time.Millisecond)
 
-	pull, err := protorpc.CallMethod(ctx, reconnected.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{SessionId: 43}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+	pull, err := protorpc.CallMethod(ctx, reconnected.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{ConversationId: convID(43)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
 	require.NoError(t, err)
 	require.Len(t, pull.Notifications, 5)
 	assert.Equal(t, int64(5), pull.Cursor)
@@ -118,4 +119,11 @@ func TestServerGivenWrongTypedCredentialThenReturnsStableUnauthorized(t *testing
 	var rpcErr *protorpc.Error
 	require.ErrorAs(t, err, &rpcErr)
 	assert.Equal(t, int32(-32001), rpcErr.Code)
+}
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
 }

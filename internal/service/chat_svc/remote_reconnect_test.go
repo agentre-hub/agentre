@@ -750,7 +750,7 @@ func TestRemoteRuntime_OldDaemon_MarksPairedDeviceOutdated(t *testing.T) {
 		return &rpcerror.Error{Code: rpcerror.CodeMethodNotFound, Message: "Method not found"}
 	})
 	client.expect(wire.MethodRun, func(_, result any) error {
-		*(result.(*wire.RunAck)) = wire.RunAck{SessionID: 100}
+		*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convID(100)}
 		return nil
 	})
 

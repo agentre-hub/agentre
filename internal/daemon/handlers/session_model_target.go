@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -42,14 +41,14 @@ func NewSessionModelTargetHandlers(deps SessionModelTargetDeps) *SessionModelTar
 func (h *SessionModelTargetHandlers) SetModelTarget(
 	ctx context.Context, p wire.SetModelTargetParams,
 ) (wire.OK, error) {
-	if p.SessionID <= 0 {
-		return wire.OK{}, rpcerror.ErrInvalidParams
+	if err := ErrInvalidConversationID(p.ConversationID); err != nil {
+		return wire.OK{}, err
 	}
 	peer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.ClaimedAccountID)
 	if err != nil {
 		return wire.OK{}, err
 	}
-	sid := strconv.FormatInt(p.SessionID, 10)
+	sid := p.ConversationID
 	rows, err := h.deps.Sessions.SetModelTarget(ctx, peer, sid, p.ProviderKey, p.ModelKey)
 	if err != nil {
 		return wire.OK{}, fmt.Errorf("set session model target: %w", err)
@@ -59,7 +58,7 @@ func (h *SessionModelTargetHandlers) SetModelTarget(
 	}
 	// 只记 key,不记人读名 —— 那要回查供应商目录,而这条路径上没有它。
 	logger.Ctx(ctx).Info("handlers.SessionModelTargetHandlers.SetModelTarget: model target updated",
-		zap.Int64("sessionId", p.SessionID),
+		zap.String("conversationId", p.ConversationID),
 		zap.String("providerKey", p.ProviderKey), zap.String("modelKey", p.ModelKey))
 	return wire.OK{}, nil
 }

@@ -37,13 +37,13 @@ func atUTC(t *testing.T, value string) int64 {
 func TestActivityRollup_CountsSessionsByDayAndDimensions(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
 	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
-		{PeerSessionID: "1", Title: "改一个 bug", Cwd: "/Users/me/secret",
+		{PeerSessionID: convID(1), Title: "改一个 bug", Cwd: "/Users/me/secret",
 			AgentSyncID: "a1", BackendType: "claudecode", ProjectSyncID: "p1",
 			Createtime: atUTC(t, "2026-08-28 10:00"), LastMessageAt: atUTC(t, "2026-08-28 10:00")},
-		{PeerSessionID: "2", Title: "另一件事", Cwd: "/Users/me/other",
+		{PeerSessionID: convID(2), Title: "另一件事", Cwd: "/Users/me/other",
 			AgentSyncID: "a1", BackendType: "claudecode", ProjectSyncID: "p1",
 			Createtime: atUTC(t, "2026-08-28 18:00"), LastMessageAt: atUTC(t, "2026-08-28 18:00")},
-		{PeerSessionID: "3", AgentSyncID: "a2", BackendType: "codex",
+		{PeerSessionID: convID(3), AgentSyncID: "a2", BackendType: "codex",
 			Createtime: atUTC(t, "2026-08-27 09:00"), LastMessageAt: atUTC(t, "2026-08-27 09:00")},
 	}, nil)
 
@@ -61,7 +61,7 @@ func TestActivityRollup_BucketsInTheRequestedZone(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
 	// UTC 2026-08-27 23:30 = 上海 2026-08-28 07:30。
 	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
-		{PeerSessionID: "1", AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-27 23:30"), LastMessageAt: atUTC(t, "2026-08-27 23:30")},
+		{PeerSessionID: convID(1), AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-27 23:30"), LastMessageAt: atUTC(t, "2026-08-27 23:30")},
 	}, nil)
 
 	got, err := h.ActivityRollup(ctx, "", "Asia/Shanghai")
@@ -76,7 +76,7 @@ func TestActivityRollup_BucketsInTheRequestedZone(t *testing.T) {
 func TestActivityRollup_UnknownZoneFallsBackToUTC(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
 	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
-		{PeerSessionID: "1", AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-27 23:30"), LastMessageAt: atUTC(t, "2026-08-27 23:30")},
+		{PeerSessionID: convID(1), AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-27 23:30"), LastMessageAt: atUTC(t, "2026-08-27 23:30")},
 	}, nil)
 
 	got, err := h.ActivityRollup(ctx, "", "Mars/Olympus_Mons")
@@ -90,8 +90,8 @@ func TestActivityRollup_UnknownZoneFallsBackToUTC(t *testing.T) {
 func TestActivityRollup_SinceDayNarrowsTheAnswer(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
 	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
-		{PeerSessionID: "1", AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-20 10:00"), LastMessageAt: atUTC(t, "2026-08-20 10:00")},
-		{PeerSessionID: "2", AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-28 10:00"), LastMessageAt: atUTC(t, "2026-08-28 10:00")},
+		{PeerSessionID: convID(1), AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-20 10:00"), LastMessageAt: atUTC(t, "2026-08-20 10:00")},
+		{PeerSessionID: convID(2), AgentSyncID: "a1", Createtime: atUTC(t, "2026-08-28 10:00"), LastMessageAt: atUTC(t, "2026-08-28 10:00")},
 	}, nil)
 
 	got, err := h.ActivityRollup(ctx, "2026-08-28", "UTC")
@@ -111,7 +111,7 @@ func TestActivityRollup_SinceDayNarrowsTheAnswer(t *testing.T) {
 func TestActivityRollup_TheDayComesFromWhenTheSessionWasCreated(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
 	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
-		{PeerSessionID: "1", AgentSyncID: "a1",
+		{PeerSessionID: convID(1), AgentSyncID: "a1",
 			Createtime: atUTC(t, "2026-08-01 09:00"), LastMessageAt: atUTC(t, "2026-08-06 21:00")},
 	}, nil)
 
@@ -127,7 +127,7 @@ func TestActivityRollup_TheDayComesFromWhenTheSessionWasCreated(t *testing.T) {
 func TestActivityRollup_SkipsSessionsWithoutACreationMoment(t *testing.T) {
 	ctx, sessions, h := setupActivityTest(t)
 	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
-		{PeerSessionID: "1", AgentSyncID: "a1",
+		{PeerSessionID: convID(1), AgentSyncID: "a1",
 			Createtime: 0, LastMessageAt: atUTC(t, "2026-08-06 21:00")},
 	}, nil)
 

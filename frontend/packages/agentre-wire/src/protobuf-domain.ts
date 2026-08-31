@@ -20,7 +20,7 @@ function safeNumber(value: bigint | number, what: string): number {
 /** 把真实 Protobuf runtime.run 应答转成页面使用的 domain wire。 */
 export function runAckFromProtobuf(value: RuntimeRunResponse): RunAck {
   return decodeRunAck({
-    sessionId: safeNumber(value.sessionId, "RunAck.sessionId"),
+    conversationId: value.conversationId,
     ...(value.providerSessionId
       ? { providerSessionId: value.providerSessionId }
       : {}),
@@ -39,7 +39,7 @@ export function sessionListFromProtobuf(
 ): SessionListResult {
   return decodeSessionListResult({
     sessions: value.sessions.map((session) => ({
-      sessionId: safeNumber(session.sessionId, "SessionSummary.sessionId"),
+      conversationId: session.conversationId,
       lifecycleState: session.lifecycleState,
       latestSeq: safeNumber(session.latestSeq, "SessionSummary.latestSeq"),
       ...(session.peerFingerprint

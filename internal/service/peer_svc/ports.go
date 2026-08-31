@@ -50,10 +50,10 @@ type ProjectLookup interface {
 
 // PeerEvent 是一条推给前端的实时事件帧，带目标指纹供前端按 Peer Tab 路由。
 type PeerEvent struct {
-	Fingerprint string          `json:"fingerprint"`
-	SessionID   int64           `json:"sessionId"`
-	Seq         int64           `json:"seq,omitempty"`
-	Event       json.RawMessage `json:"event"`
+	Fingerprint    string          `json:"fingerprint"`
+	ConversationID string          `json:"conversationId"`
+	Seq            int64           `json:"seq,omitempty"`
+	Event          json.RawMessage `json:"event"`
 }
 
 // EventName 是 peer_svc → 前端的事件通道名（Wails EventsOn 用同名订阅）。
@@ -75,23 +75,23 @@ type RunFreshRequest struct {
 
 // AttachRequest 是「接入对端一条会话并开始接收实时流」（R19 / R6）的入参。
 type AttachRequest struct {
-	Fingerprint string `json:"fingerprint"`
-	SessionID   int64  `json:"sessionId"`
+	Fingerprint    string `json:"fingerprint"`
+	ConversationID string `json:"conversationId"`
 }
 
 // PullRequest 是「按游标拉一页对端会话历史」（R19 / R7）的入参。
 type PullRequest struct {
-	Fingerprint string `json:"fingerprint"`
-	SessionID   int64  `json:"sessionId"`
-	Cursor      int64  `json:"cursor"`
-	Limit       int    `json:"limit,omitempty"`
+	Fingerprint    string `json:"fingerprint"`
+	ConversationID string `json:"conversationId"`
+	Cursor         int64  `json:"cursor"`
+	Limit          int    `json:"limit,omitempty"`
 }
 
 // SteerRequest 是「向已接入的对端会话发一条新消息」（R19 / R9）的入参。
 type SteerRequest struct {
-	Fingerprint string `json:"fingerprint"`
-	SessionID   int64  `json:"sessionId"`
-	Text        string `json:"text"`
+	Fingerprint    string `json:"fingerprint"`
+	ConversationID string `json:"conversationId"`
+	Text           string `json:"text"`
 }
 
 // PeerAnswer 是回答提问时的一条答案（与前端 AskAnswerDTO 同形，questionIndex /
@@ -105,17 +105,17 @@ type PeerAnswer struct {
 // SubmitAnswerRequest 是「回答对端会话上挂起的用户提问」（R10）的入参。应答携带
 // AlreadyHandled：同一待决策已被别的端处理过时如实报告，而非报错或静默成功。
 type SubmitAnswerRequest struct {
-	Fingerprint string       `json:"fingerprint"`
-	SessionID   int64        `json:"sessionId"`
-	RequestID   string       `json:"requestId"`
-	Answers     []PeerAnswer `json:"answers,omitempty"`
-	Skipped     bool         `json:"skipped,omitempty"`
+	Fingerprint    string       `json:"fingerprint"`
+	ConversationID string       `json:"conversationId"`
+	RequestID      string       `json:"requestId"`
+	Answers        []PeerAnswer `json:"answers,omitempty"`
+	Skipped        bool         `json:"skipped,omitempty"`
 }
 
 // SubmitToolPermissionRequest 是「决定对端会话上挂起的工具权限」（R10）的入参。
 type SubmitToolPermissionRequest struct {
 	Fingerprint        string `json:"fingerprint"`
-	SessionID          int64  `json:"sessionId"`
+	ConversationID     string `json:"conversationId"`
 	RequestID          string `json:"requestId"`
 	Allow              bool   `json:"allow"`
 	AlwaysAllowSession bool   `json:"alwaysAllowSession,omitempty"`
@@ -142,7 +142,7 @@ type PeerSvc interface {
 	SubmitToolPermission(ctx context.Context, req SubmitToolPermissionRequest) (*wire.PeerSessionControlResult, error)
 	// Detach 结束本端对一条对端会话的接入（长连接）。只解除本地订阅，不删除对端会话
 	// （R19：关闭 Tab 只结束本端接入）。该指纹名下没有其它接入会话时关闭中继连接。
-	Detach(ctx context.Context, fingerprint string, sessionID int64) error
+	Detach(ctx context.Context, fingerprint string, conversationID string) error
 	// Close 关闭全部对端中继连接（App 退出）。
 	Close() error
 }

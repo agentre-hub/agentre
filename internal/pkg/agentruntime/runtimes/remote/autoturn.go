@@ -101,6 +101,10 @@ func (a *autoSession) finishCurLocked(cause error) {
 // 总在 Run 收尾后才发),handleAutonomousTurnStarted 也会把同一个 autoSession 建好,
 // 两边拿到同一个 out。
 func (r *Runtime) AutonomousTurns(sessionID int64) <-chan agentruntime.AutonomousTurn {
+	// 订阅即登记这条会话的对话身份:自主续轮是 daemon 主动推上来的,本进程此刻可能
+	// 一轮都没跑过(App 刚重启),没有登记过身份就翻不回这个 sessionID,推上来的轮次
+	// 会当成陌生对话丢掉。
+	r.conversationID(sessionID)
 	return r.getOrCreateAutoSession(sessionID).out.Out()
 }
 
@@ -126,9 +130,15 @@ func (r *Runtime) handleAutonomousTurnStarted(ctx context.Context, params any) (
 	if !ok {
 		return nil, nil
 	}
-	a := r.getOrCreateAutoSession(frame.SessionID)
+	sid := r.localSessionID(frame.ConversationID)
+	if sid == 0 {
+		logger.Ctx(ctx).Warn("remote runtime: autonomousTurn started for an unknown conversation — dropped",
+			zap.String("conversationId", frame.ConversationID))
+		return nil, nil
+	}
+	a := r.getOrCreateAutoSession(sid)
 	logger.Ctx(ctx).Info("remote runtime: autonomous turn started",
-		zap.Int64("sid", frame.SessionID), zap.String("trigger", frame.Trigger))
+		zap.Int64("sid", sid), zap.String("trigger", frame.Trigger))
 	// a.mu 保护的是 a.cur 的读改写。投递本身走 pipe,已 Close 之后再 Push 只是丢弃,
 	// 所以断连(watchClose 独立 goroutine)与投递并发不再有 send-on-closed-channel
 	// 之虞,持锁期间也不会阻塞。
@@ -173,7 +183,8 @@ func (r *Runtime) deliverToCatchUpTurn(ctx context.Context, sid int64, ev agentr
 // 只收补齐轮:在飞的自主续轮有它自己的 autonomousTurn.done 收尾,拿一条 per-Run 的
 // 终态帧把它关掉会让它凭空少半截。
 func (r *Runtime) closeCatchUpTurn(ctx context.Context, frame wire.RunResultDoneFrame) {
-	a := r.lookupAutoSession(frame.SessionID)
+	sid := r.localSessionID(frame.ConversationID)
+	a := r.lookupAutoSession(sid)
 	if a == nil {
 		return
 	}
@@ -192,7 +203,7 @@ func (r *Runtime) closeCatchUpTurn(ctx context.Context, frame wire.RunResultDone
 	}
 	a.cur.result.StopErr = stopErrFromFrame(frame)
 	logger.Ctx(ctx).Info("remote runtime: catch-up turn finished",
-		zap.Int64("sid", frame.SessionID), zap.String("model", frame.Model))
+		zap.Int64("sid", sid), zap.String("model", frame.Model))
 	a.finishCurLocked(nil)
 }
 
@@ -201,7 +212,8 @@ func (r *Runtime) handleAutonomousTurnEvent(ctx context.Context, params any) (an
 	if !ok {
 		return nil, nil
 	}
-	a := r.lookupAutoSession(frame.SessionID)
+	sid := r.localSessionID(frame.ConversationID)
+	a := r.lookupAutoSession(sid)
 	if a == nil {
 		return nil, nil
 	}
@@ -217,7 +229,7 @@ func (r *Runtime) handleAutonomousTurnEvent(ctx context.Context, params any) (an
 	defer a.mu.Unlock()
 	if a.closed || a.cur == nil {
 		logger.Ctx(ctx).Warn("remote runtime: autonomousTurn event with no active turn — dropped",
-			zap.Int64("sid", frame.SessionID), zap.String("eventType", fmt.Sprintf("%T", ev)))
+			zap.Int64("sid", sid), zap.String("eventType", fmt.Sprintf("%T", ev)))
 		return nil, nil
 	}
 	a.cur.events.Push(ev)
@@ -229,7 +241,8 @@ func (r *Runtime) handleAutonomousTurnDone(ctx context.Context, params any) (any
 	if !ok {
 		return nil, nil
 	}
-	a := r.lookupAutoSession(frame.SessionID)
+	sid := r.localSessionID(frame.ConversationID)
+	a := r.lookupAutoSession(sid)
 	if a == nil {
 		return nil, nil
 	}
@@ -249,7 +262,7 @@ func (r *Runtime) handleAutonomousTurnDone(ctx context.Context, params any) (any
 	}
 	cur.result.StopErr = stopErrFromFrame(*frame)
 	logger.Ctx(ctx).Info("remote runtime: autonomous turn done",
-		zap.Int64("sid", frame.SessionID), zap.String("model", frame.Model))
+		zap.Int64("sid", sid), zap.String("model", frame.Model))
 	cur.events.Close()
 	return nil, nil
 }

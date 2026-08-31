@@ -238,14 +238,21 @@ func (r *Runtime) dispatchNotification(
 	if !ok || head.Seq == 0 {
 		return h(r, ctx, frame)
 	}
-	ss := r.syncFor(ctx, head.SessionID)
+	// 序号闸门按**本进程认识的那条会话**记游标:线上身份是 conversation_id,进程内
+	// 的游标表仍按 int64 索引(决策 6)。翻不出来的对话本进程从未为它发过请求,没有
+	// 游标可言 —— 交给 handler 自己按未知会话处理。
+	sid := r.localSessionID(head.ConversationID)
+	if sid == 0 {
+		return h(r, ctx, frame)
+	}
+	ss := r.syncFor(ctx, sid)
 
 	ss.mu.Lock()
 	switch {
 	case head.Seq <= ss.cursor:
 		ss.mu.Unlock()
 		logger.Ctx(ctx).Debug("remote.Runtime: duplicate notification dropped",
-			zap.Int64("sessionId", head.SessionID), zap.Int64("seq", head.Seq),
+			zap.Int64("sessionId", sid), zap.Int64("seq", head.Seq),
 			zap.String("method", method))
 		return nil, nil
 	case head.Seq > ss.cursor+1:
@@ -253,9 +260,9 @@ func (r *Runtime) dispatchNotification(
 		ss.mu.Unlock()
 		// 只在真的起了一次拉取时打一行:一个洞后面跟着的每一条实时帧都会走到这里,
 		// 按帧打就是在通知循环里打日志(observability.md:「不要在循环内打日志」)。
-		if r.scheduleGapFill(head.SessionID, ss) {
+		if r.scheduleGapFill(sid, ss) {
 			logger.Ctx(ctx).Warn("remote.Runtime: notification seq gap, pulling",
-				zap.Int64("sessionId", head.SessionID), zap.Int64("cursor", cursor),
+				zap.Int64("sessionId", sid), zap.Int64("cursor", cursor),
 				zap.Int64("seq", head.Seq), zap.String("method", method))
 		}
 		return nil, nil
@@ -263,7 +270,7 @@ func (r *Runtime) dispatchNotification(
 	res, err := h(r, ctx, frame)
 	ss.cursor = head.Seq
 	// 待落库值与内存游标在同一把 ss.mu 之下更新,见 recordCursor。
-	r.recordCursor(head.SessionID, head.Seq)
+	r.recordCursor(sid, head.Seq)
 	ss.mu.Unlock()
 	// cursorFlush<=0 是同步落库模式(测试用)。轮末那一条则不能压在防抖窗口里:用户
 	// 拿到答案随手关窗(2 秒内进程就没了),库里的游标会停在这一轮的中段,下一轮的第
@@ -321,7 +328,7 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 
 		// 发 RPC 时绝不持 ss.mu,见 sessionSync 的纪律注释。
 		response, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL),
-			&agentrewire.SessionPullRequest{SessionId: sid, Cursor: before, PeerFingerprint: r.originFor(sid)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+			&agentrewire.SessionPullRequest{ConversationId: r.conversationID(sid), Cursor: before, PeerFingerprint: r.originFor(sid)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
 		if err != nil {
 			return replayed, fromProtobufError(err)
 		}
@@ -413,16 +420,23 @@ func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 // frameRoute 读出一条通知帧的路由信息。三类帧都带会话与序号,但它们是各自独立的
 // 结构体、没有公共接口 —— 按 ISP 在消费方做一次类型分派,wire 那边不必为此多长出
 // 一组访问器。
-func frameRoute(frame any) (struct{ SessionID, Seq int64 }, bool) {
+func frameRoute(frame any) (struct {
+	ConversationID string
+	Seq            int64
+}, bool) {
+	type route = struct {
+		ConversationID string
+		Seq            int64
+	}
 	switch f := frame.(type) {
 	case *wire.EventFrame:
-		return struct{ SessionID, Seq int64 }{f.SessionID, f.Seq}, true
+		return route{f.ConversationID, f.Seq}, true
 	case *wire.RunResultDoneFrame:
-		return struct{ SessionID, Seq int64 }{f.SessionID, f.Seq}, true
+		return route{f.ConversationID, f.Seq}, true
 	case *wire.AutonomousTurnStartedFrame:
-		return struct{ SessionID, Seq int64 }{f.SessionID, f.Seq}, true
+		return route{f.ConversationID, f.Seq}, true
 	}
-	return struct{ SessionID, Seq int64 }{}, false
+	return route{}, false
 }
 
 // stampSeq 把日志行自己的 seq 盖到帧上。
@@ -641,7 +655,7 @@ func (r *Runtime) catchUpSession(ctx context.Context, sid int64) error {
 // 本地游标有没有越界(见 dropCursorAboveHighWater)。失败时返 0。
 func (r *Runtime) attachSession(ctx context.Context, sid int64) (int64, error) {
 	att, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH),
-		&agentrewire.SessionAttachRequest{SessionId: sid, PeerFingerprint: r.originFor(sid)}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
+		&agentrewire.SessionAttachRequest{ConversationId: r.conversationID(sid), PeerFingerprint: r.originFor(sid)}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
 	if err == nil {
 		return att.GetLatestSeq(), nil
 	}
@@ -961,33 +975,30 @@ func (r *Runtime) turnStartFloor(ctx context.Context, sid int64) int64 {
 		return 0
 	}
 	// 清单里没有这条会话:它在这台 daemon 上还一条通知都没发过,高水位就是 0。
-	return ss.rememberFloor(gen, summaries[sid].LatestSeq)
+	return ss.rememberFloor(gen, summaries[r.conversationID(sid)].LatestSeq)
 }
 
 // sessionSummaries 是补齐三步的第一步:问一眼这个对端在这台 daemon 上有哪些会话、
 // 各自的生命周期状态、是否正在等输入、日志高水位到哪。规格明写它无副作用。
-func (r *Runtime) sessionSummaries(ctx context.Context) (map[int64]wire.SessionSummary, error) {
+func (r *Runtime) sessionSummaries(ctx context.Context) (map[string]wire.SessionSummary, error) {
 	res, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
 		&agentrewire.SessionListRequest{}, func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
 	if err != nil {
 		return nil, wire.FromRPCError(err)
 	}
-	out := make(map[int64]wire.SessionSummary, len(res.GetSessions()))
+	out := make(map[string]wire.SessionSummary, len(res.GetSessions()))
 	for _, value := range res.GetSessions() {
-		s := wire.SessionSummary{SessionID: value.GetSessionId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProviderSessionID: value.GetProviderSessionId(), Cwd: value.GetCwd(), ProjectSyncID: value.GetProjectSyncId(), BackendType: value.GetBackendType(), LifecycleState: value.GetLifecycleState(), WaitingForInput: value.GetWaitingForInput(), LatestSeq: value.GetLatestSeq(), LastMessageAt: value.GetLastMessageAt(), ProviderKey: value.GetProviderKey(), ModelKey: value.GetModelKey()}
-		// 账号级清单(R12)里两个对端各有一条**同号**会话是常态而非例外:会话 id 是各
-		// 客户端本地自增的主键。这张表按裸 id 索引,所以同号时必须让**自己**那条(daemon
-		// 在清单里把它的 origin 留空)胜出,别的对端那条不得覆盖它 —— R12 放宽的是可见性
-		// 的过滤条件,「会话主键结构不变」,主键仍是 (对端指纹, 会话 id) 两段。
-		//
-		// 覆盖了会同时坏两处:turnStartFloor 把别人的高水位当成自己会话的下限,自己此后
-		// 每一条通知都低于下限被判成重复丢弃(会话不报错地冻住);补齐三步则会带着别人的
-		// origin 去 attach / pull,把别人的通知日志重放进自己的转录。
-		if _, dup := out[s.SessionID]; dup && s.PeerFingerprint != "" {
+		s := wire.SessionSummary{ConversationID: value.GetConversationId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProviderSessionID: value.GetProviderSessionId(), Cwd: value.GetCwd(), ProjectSyncID: value.GetProjectSyncId(), BackendType: value.GetBackendType(), LifecycleState: value.GetLifecycleState(), WaitingForInput: value.GetWaitingForInput(), LatestSeq: value.GetLatestSeq(), LastMessageAt: value.GetLastMessageAt(), ProviderKey: value.GetProviderKey(), ModelKey: value.GetModelKey()}
+		if s.ConversationID == "" {
+			// 没有身份的行没法索引,也没法为它发 attach / pull。跳过它而不是让它顶掉
+			// 表里的零值格。
 			continue
 		}
-		out[s.SessionID] = s
-		r.rememberOrigin(s.SessionID, s.PeerFingerprint)
+		// 这张表按 conversation_id 索引。账号级清单(R12)里两个对端各有一条**同号**
+		// 会话曾经是常态,靠"自己那条胜出"的特判躲开并轨;对话身份全局唯一之后,那类
+		// 并轨由构造消失 —— 不是被更好地防住了,是没有了。
+		out[s.ConversationID] = s
+		r.rememberOrigin(s.ConversationID, s.PeerFingerprint)
 	}
 	return out, nil
 }
@@ -995,9 +1006,12 @@ func (r *Runtime) sessionSummaries(ctx context.Context) (map[int64]wire.SessionS
 // rememberOrigin 记下清单里学到的会话发起对端(R12 桌面侧)。下游的 attach / pull /
 // pendingWaiters / 控制请求都要按它把 PeerFingerprint 原样带过去,daemon 据此解析到
 // 发起对端;记到空值 = 未认领 daemon / 自己对端,请求省略该字段(向后兼容)。
-func (r *Runtime) rememberOrigin(sid int64, fp string) {
+func (r *Runtime) rememberOrigin(conversationID, fp string) {
+	if conversationID == "" {
+		return
+	}
 	r.originMu.Lock()
-	r.origins[sid] = fp
+	r.origins[conversationID] = fp
 	r.originMu.Unlock()
 }
 
@@ -1005,9 +1019,14 @@ func (r *Runtime) rememberOrigin(sid int64, fp string) {
 // 空串,调用方据此省略 PeerFingerprint —— 空 origin 在 daemon 侧解析为调用方自己对端,
 // 正好是自己发的会话,天然向后兼容。
 func (r *Runtime) originFor(sid int64) string {
+	return r.originForConversation(r.conversationID(sid))
+}
+
+// originForConversation 同上,但直接按对话身份问。
+func (r *Runtime) originForConversation(conversationID string) string {
 	r.originMu.Lock()
 	defer r.originMu.Unlock()
-	return r.origins[sid]
+	return r.origins[conversationID]
 }
 
 // ── 游标落库(防抖)─────────────────────────────────────────────────────────

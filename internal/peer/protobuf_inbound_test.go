@@ -95,7 +95,7 @@ func TestProtobufInboundRegistryRejectsIncompleteAccountAuth(t *testing.T) {
 
 func TestProtobufInboundRegistryServesPeerSessionList(t *testing.T) {
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{ListSessions: func(context.Context, string) (*remotewire.SessionListResult, error) {
-		return &remotewire.SessionListResult{Sessions: []remotewire.SessionSummary{{SessionID: 7, Title: "remote"}}}, nil
+		return &remotewire.SessionListResult{Sessions: []remotewire.SessionSummary{{ConversationID: convID(7), Title: "remote"}}}, nil
 	}})
 	clientTransport, serverTransport := peerProtoPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
@@ -109,15 +109,15 @@ func TestProtobufInboundRegistryServesPeerSessionList(t *testing.T) {
 	response, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), &agentrewire.SessionListRequest{}, func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
 	require.NoError(t, err)
 	require.Len(t, response.Sessions, 1)
-	require.Equal(t, int64(7), response.Sessions[0].SessionId)
+	require.Equal(t, convID(7), response.Sessions[0].ConversationId)
 }
 
 func TestProtobufInboundRegistryServesPeerSessionControlMethods(t *testing.T) {
 	var steered remotewire.SteerParams
 	deps := ProtobufInboundDeps{
 		AttachSession: func(_ context.Context, p remotewire.SessionAttachParams, _ chat_svc.PeerSessionSubscriber) (remotewire.SessionAttachResult, error) {
-			require.Equal(t, int64(7), p.SessionID)
-			return remotewire.SessionAttachResult{SessionID: 7, LatestSeq: 12}, nil
+			require.Equal(t, convID(7), p.ConversationID)
+			return remotewire.SessionAttachResult{ConversationID: convID(7), LatestSeq: 12}, nil
 		},
 		PullSession: func(_ context.Context, p remotewire.SessionPullParams, _ chat_svc.PeerSessionSubscriber) (remotewire.SessionPullResult, error) {
 			require.Equal(t, int64(3), p.Cursor)
@@ -151,22 +151,22 @@ func TestProtobufInboundRegistryServesPeerSessionControlMethods(t *testing.T) {
 	go client.Serve(ctx)
 	go server.Serve(ctx)
 
-	attach, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{SessionId: 7}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
+	attach, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{ConversationId: convID(7)}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
 	require.NoError(t, err)
 	require.Equal(t, int64(12), attach.LatestSeq)
-	pull, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{SessionId: 7, Cursor: 3}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+	pull, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{ConversationId: convID(7), Cursor: 3}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
 	require.NoError(t, err)
 	require.Equal(t, int64(4), pull.Cursor)
-	run, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), &agentrewire.RuntimeRunRequest{SessionId: 99, FreshSession: true, UserText: "go"}, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	run, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), &agentrewire.RuntimeRunRequest{ConversationId: convID(99), FreshSession: true, UserText: "go"}, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 	require.NoError(t, err)
-	require.Equal(t, int64(42), run.SessionId)
-	_, err = protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), &agentrewire.RuntimeSteerRequest{SessionId: 7, Text: "continue"}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
+	require.Equal(t, convID(99), run.ConversationId, "对话身份是发起端铸的那一个,对端不得改写")
+	_, err = protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), &agentrewire.RuntimeSteerRequest{ConversationId: convID(7), Text: "continue"}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
 	require.NoError(t, err)
 	require.Equal(t, "continue", steered.Text)
-	answer, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), &agentrewire.RuntimeSubmitAnswerRequest{SessionId: 7, RequestId: "answer"}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
+	answer, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: convID(7), RequestId: "answer"}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
 	require.NoError(t, err)
 	require.True(t, answer.AlreadyHandled)
-	permission, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION), &agentrewire.RuntimeSubmitToolPermissionRequest{SessionId: 7, RequestId: "permission", Allow: true}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
+	permission, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION), &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: convID(7), RequestId: "permission", Allow: true}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
 	require.NoError(t, err)
 	require.True(t, permission.AlreadyHandled)
 }

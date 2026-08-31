@@ -122,3 +122,6 @@ func TestPool_RedialsAfterDrop(t *testing.T) {
 		expectEntryEvictedAfterDrop(t, p, e, fc)
 	})
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *fakeClient) SelfFingerprint() string { return "sha256:test-self" }

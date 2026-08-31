@@ -230,7 +230,7 @@ func TranscriptTurnsResultFromProto(response *agentrewire.TranscriptImportTurnsR
 
 func TranscriptExecuteParamsToProto(params wire.ExecuteParams) *agentrewire.TranscriptImportExecuteRequest {
 	return &agentrewire.TranscriptImportExecuteRequest{
-		Backend: params.Backend, Locator: params.Locator, SessionId: params.SessionID,
+		Backend: params.Backend, Locator: params.Locator, ConversationId: params.ConversationID,
 		AgentId: params.AgentID, AgentSyncId: params.AgentSyncID,
 		PeerFingerprint: params.PeerFingerprint,
 	}
@@ -238,7 +238,7 @@ func TranscriptExecuteParamsToProto(params wire.ExecuteParams) *agentrewire.Tran
 
 func TranscriptExecuteParamsFromProto(request *agentrewire.TranscriptImportExecuteRequest) wire.ExecuteParams {
 	return wire.ExecuteParams{
-		Backend: request.GetBackend(), Locator: request.GetLocator(), SessionID: request.GetSessionId(),
+		Backend: request.GetBackend(), Locator: request.GetLocator(), ConversationID: request.GetConversationId(),
 		AgentID: request.GetAgentId(), AgentSyncID: request.GetAgentSyncId(),
 		PeerFingerprint: request.GetPeerFingerprint(),
 	}
@@ -246,7 +246,7 @@ func TranscriptExecuteParamsFromProto(request *agentrewire.TranscriptImportExecu
 
 func TranscriptExecuteResultToProto(result wire.ExecuteResult) *agentrewire.TranscriptImportExecuteResponse {
 	return &agentrewire.TranscriptImportExecuteResponse{
-		SessionId: result.SessionID, ProviderSessionId: result.ProviderSessionID,
+		ConversationId: result.ConversationID, ProviderSessionId: result.ProviderSessionID,
 		Cwd: result.Cwd, Title: result.Title, Turns: int32(result.Turns),
 		AlreadyImported: result.AlreadyImported,
 	}
@@ -254,7 +254,7 @@ func TranscriptExecuteResultToProto(result wire.ExecuteResult) *agentrewire.Tran
 
 func TranscriptExecuteResultFromProto(response *agentrewire.TranscriptImportExecuteResponse) wire.ExecuteResult {
 	return wire.ExecuteResult{
-		SessionID: response.GetSessionId(), ProviderSessionID: response.GetProviderSessionId(),
+		ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(),
 		Cwd: response.GetCwd(), Title: response.GetTitle(), Turns: int(response.GetTurns()),
 		AlreadyImported: response.GetAlreadyImported(),
 	}

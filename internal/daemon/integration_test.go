@@ -240,21 +240,21 @@ func TestIntegration_FullFlow(t *testing.T) {
 		"name": "test-backend",
 	})
 	request, err := protowire.RunRequestToProto(wire.RunParams{
-		Backend:   json.RawMessage(backendJSON),
-		SessionID: 42,
-		Cwd:       t.TempDir(),
-		UserText:  "hi",
+		Backend:        json.RawMessage(backendJSON),
+		ConversationID: convID(42),
+		Cwd:            t.TempDir(),
+		UserText:       "hi",
 	})
 	require.NoError(t, err)
 	ack, err := protorpc.CallMethod(ctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 	require.NoError(t, err)
-	assert.Equal(t, int64(42), ack.GetSessionId())
+	assert.Equal(t, convID(42), ack.GetConversationId())
 
 	// 8. Drain at least one text_delta frame.
 	got := drainEventFrames(t, events, 3*time.Second, 1)
 	var sawText bool
 	for _, f := range got {
-		assert.Equal(t, int64(42), f.SessionID)
+		assert.Equal(t, convID(42), f.ConversationID)
 		if _, ok := f.Event.(agentruntime.TextDelta); ok {
 			sawText = true
 		}
@@ -264,7 +264,7 @@ func TestIntegration_FullFlow(t *testing.T) {
 	// 9. runResultDone fires after the fake's channel closes.
 	select {
 	case f := <-done:
-		assert.Equal(t, int64(42), f.SessionID)
+		assert.Equal(t, convID(42), f.ConversationID)
 		assert.Empty(t, f.StopErrMsg)
 	case <-time.After(2 * time.Second):
 		t.Fatal("runResultDone not received")
@@ -1172,9 +1172,9 @@ func startRunAs(t *testing.T, cli client.ProtobufConnection, dir string, sid int
 	require.NoError(t, err)
 	var ack wire.RunAck
 	require.NoError(t, callRig(t, cli, wire.MethodRun, wire.RunParams{
-		Backend: be, AgentID: 1, SessionID: sid, Cwd: dir, UserText: userText,
+		Backend: be, AgentID: 1, ConversationID: convID(sid), Cwd: dir, UserText: userText,
 	}, &ack))
-	require.Equal(t, sid, ack.SessionID)
+	require.Equal(t, convID(sid), ack.ConversationID)
 }
 
 // awaitLifecycle 等某个对端名下那条会话进入指定生命周期状态。
@@ -1186,7 +1186,7 @@ func awaitLifecycle(t *testing.T, cli client.ProtobufConnection, sid int64, stat
 			return false
 		}
 		for _, s := range list.Sessions {
-			if s.SessionID == sid {
+			if s.ConversationID == convID(sid) {
 				return s.LifecycleState == state
 			}
 		}
@@ -1297,7 +1297,7 @@ func TestIntegration_RejectedRuntimeCallDoesNotSeizeSessionOwnership(t *testing.
 
 	second := rig.connectSameDevice(t)
 	var res map[string]any
-	abortErr := callRig(t, second, wire.MethodAbort, map[string]any{"sessionId": 802}, &res)
+	abortErr := callRig(t, second, wire.MethodAbort, map[string]any{"conversationId": convID(802)}, &res)
 	require.Error(t, abortErr,
 		"第二条连接的 handler 从不拥有 802 —— daemon 必须拒了这一条")
 	var abortRPCErr *protorpc.Error
@@ -1428,7 +1428,7 @@ func TestIntegration_MCPReverseTunnel(t *testing.T) {
 
 	// 模拟 daemon 上的 CLI 子进程:POST /mcp/org/,带 desktop 轮起手时签的 token。
 	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
-	httpReq, err := http.NewRequest(http.MethodPost, base+"/mcp/org/?peerFingerprint="+rigDeviceFingerprint+"&sessionId=601", strings.NewReader(reqBody))
+	httpReq, err := http.NewRequest(http.MethodPost, base+"/mcp/org/?peerFingerprint="+rigDeviceFingerprint+"&conversationId="+convID(601), strings.NewReader(reqBody))
 	require.NoError(t, err)
 	httpReq.Header.Set("Authorization", "Bearer desktop-signed-tok")
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -1578,7 +1578,7 @@ func TestIntegration_MCPReverseTunnel_NoTarget(t *testing.T) {
 		var list wire.SessionListResult
 		require.NoError(t, callRig(t, second, wire.MethodSessionList, nil, &list))
 		for _, s := range list.Sessions {
-			if s.SessionID == 950 {
+			if s.ConversationID == convID(950) {
 				return s.LifecycleState == wire.SessionLifecycleIdle
 			}
 		}
@@ -1946,7 +1946,7 @@ func callRig(t *testing.T, cli client.ProtobufConnection, method string, params,
 		if err != nil {
 			return err
 		}
-		*(result.(*wire.RunAck)) = wire.RunAck{SessionID: response.GetSessionId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey()}
+		*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey()}
 		return nil
 	}
 	if method == workspacefswire.MethodReadFile {
@@ -1973,7 +1973,7 @@ func callRig(t *testing.T, cli client.ProtobufConnection, method string, params,
 	}
 	if method == wire.MethodSessionPull {
 		value := params.(wire.SessionPullParams)
-		response, err := protorpc.CallMethod(ctx, cli.Conn(), 4, &agentrewire.SessionPullRequest{SessionId: value.SessionID, PeerFingerprint: value.PeerFingerprint, Cursor: value.Cursor, Limit: int32(value.Limit)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+		response, err := protorpc.CallMethod(ctx, cli.Conn(), 4, &agentrewire.SessionPullRequest{ConversationId: value.ConversationID, PeerFingerprint: value.PeerFingerprint, Cursor: value.Cursor, Limit: int32(value.Limit)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
 		if err != nil {
 			return err
 		}
@@ -2318,14 +2318,14 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 		var fromA, fromB wire.SessionListResult
 		require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &fromA))
 		require.NoError(t, callRig(t, other, wire.MethodSessionList, nil, &fromB))
-		require.Equal(t, []int64{101}, sessionIDs(fromA.Sessions))
-		require.Equal(t, []int64{202}, sessionIDs(fromB.Sessions))
+		require.Equal(t, []string{convID(101)}, sessionIDs(fromA.Sessions))
+		require.Equal(t, []string{convID(202)}, sessionIDs(fromB.Sessions))
 		require.Empty(t, fromA.Sessions[0].PeerFingerprint)
 		require.Empty(t, fromB.Sessions[0].PeerFingerprint)
 
 		var page wire.SessionPullResult
 		err := callRig(t, other, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: 101, PeerFingerprint: rigDeviceFingerprint,
+			ConversationID: convID(101), PeerFingerprint: rigDeviceFingerprint,
 		}, &page)
 		require.Error(t, err, "a paired peer on an unclaimed daemon must not name another origin")
 	})
@@ -2343,28 +2343,28 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 		var fromA, fromB wire.SessionListResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionList, nil, &fromA))
 		require.NoError(t, callRig(t, peerB, wire.MethodSessionList, nil, &fromB))
-		require.Equal(t, []int64{301, 302}, sessionIDs(fromA.Sessions))
-		require.Equal(t, []int64{301, 302}, sessionIDs(fromB.Sessions))
+		require.Equal(t, []string{convID(301), convID(302)}, sessionIDs(fromA.Sessions))
+		require.Equal(t, []string{convID(301), convID(302)}, sessionIDs(fromB.Sessions))
 		// Origin 是**相对调用方**的:自己发起的那条留空(「省略 = 调用方自己的对端」),
 		// 只有别的对端那条才带指纹。两个对端因此各自看到一份镜像的 origin 表。
-		require.Equal(t, map[int64]string{301: "", 302: "sha256:account-peer-b"}, sessionOrigins(fromA.Sessions))
-		require.Equal(t, map[int64]string{301: "sha256:account-peer-a", 302: ""}, sessionOrigins(fromB.Sessions))
+		require.Equal(t, map[string]string{convID(301): "", convID(302): "sha256:account-peer-b"}, sessionOrigins(fromA.Sessions))
+		require.Equal(t, map[string]string{convID(301): "sha256:account-peer-a", convID(302): ""}, sessionOrigins(fromB.Sessions))
 
 		var page wire.SessionPullResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: 302, PeerFingerprint: "sha256:account-peer-b",
+			ConversationID: convID(302), PeerFingerprint: "sha256:account-peer-b",
 		}, &page), "same-account peer must be able to target the other origin")
 		require.Error(t, callRig(t, rig.cli, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: 302, PeerFingerprint: "sha256:account-peer-b",
+			ConversationID: convID(302), PeerFingerprint: "sha256:account-peer-b",
 		}, &page), "a pairing-authenticated connection remains peer-scoped on a claimed daemon")
 
 		var attached wire.SessionAttachResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionAttach, wire.SessionAttachParams{
-			SessionID: 302, PeerFingerprint: "sha256:account-peer-b",
+			ConversationID: convID(302), PeerFingerprint: "sha256:account-peer-b",
 		}, &attached), "same-account peer must be able to attach the other origin")
 		var ok wire.OK
 		require.NoError(t, callRig(t, peerA, wire.MethodAbort, wire.AbortParams{
-			SessionID: 302, PeerFingerprint: "sha256:account-peer-b",
+			ConversationID: convID(302), PeerFingerprint: "sha256:account-peer-b",
 		}, &ok), "control resolution must use the named origin's runtime session key")
 	})
 
@@ -2390,7 +2390,7 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 		require.NoError(t, err)
 		var ack wire.RunAck
 		require.NoError(t, callRig(t, peerA, wire.MethodRun, wire.RunParams{
-			Backend: be, AgentID: 1, SessionID: 302, Cwd: rig.dir,
+			Backend: be, AgentID: 1, ConversationID: convID(302), Cwd: rig.dir,
 			PeerFingerprint: "sha256:account-peer-b", UserText: "from-a-on-b",
 		}, &ack))
 		awaitLifecycle(t, peerB, 302, wire.SessionLifecycleIdle)
@@ -2398,14 +2398,14 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 		// 清单里仍然只有 peerB 名下那一条 302 —— 没有在 peerA 名下另建同号会话。
 		var list wire.SessionListResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionList, nil, &list))
-		require.Equal(t, []int64{302}, sessionIDs(list.Sessions))
-		require.Equal(t, map[int64]string{302: "sha256:account-peer-b"}, sessionOrigins(list.Sessions),
+		require.Equal(t, []string{convID(302)}, sessionIDs(list.Sessions))
+		require.Equal(t, map[string]string{convID(302): "sha256:account-peer-b"}, sessionOrigins(list.Sessions),
 			"这一轮必须落在发起端那条会话上,而不是调用方自己名下那条同号会话")
 
 		// 这一轮的事件落在发起端那个 journal 分区里,发起端补齐时读得到。
 		var page wire.SessionPullResult
 		require.NoError(t, callRig(t, peerB, wire.MethodSessionPull, wire.SessionPullParams{
-			SessionID: 302, Cursor: 0, Limit: 200,
+			ConversationID: convID(302), Cursor: 0, Limit: 200,
 		}, &page))
 		require.NotEmpty(t, page.Notifications,
 			"别的端跑的这一轮必须扇出/落库在发起端这条会话上(R6 / R18 的前提)")
@@ -2434,13 +2434,13 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByClaimedAccount(t 
 
 		var list wire.SessionListResult
 		require.NoError(t, callRig(t, viaAccount, wire.MethodSessionList, nil, &list))
-		assert.Equal(t, map[int64]string{601: ""}, sessionOrigins(list.Sessions),
+		assert.Equal(t, map[string]string{convID(601): ""}, sessionOrigins(list.Sessions),
 			"调用方自己发起的会话,清单交出的 origin 必须为空")
 
 		// 路径切回直连:配对鉴权的那条连接把清单里学到的 origin 原样带回来。
 		var attached wire.SessionAttachResult
 		require.NoError(t, callRig(t, rig.cli, wire.MethodSessionAttach, wire.SessionAttachParams{
-			SessionID: 601, PeerFingerprint: sessionOrigins(list.Sessions)[601],
+			ConversationID: convID(601), PeerFingerprint: sessionOrigins(list.Sessions)[convID(601)],
 		}, &attached), "路径切换后必须还能按游标接回自己的会话")
 	})
 }
@@ -2526,13 +2526,13 @@ func subscribeEventFrames(t *testing.T, cli client.ProtobufConnection) <-chan wi
 
 // awaitEventOfType 等某条会话的某类事件到达这条连接;超时即失败(「收不到」正是会话被推去
 // 了别处 / 没有扇出时的表现:没有错误,只是永远没有下一条)。
-func awaitEventOfType[E agentruntime.Event](t *testing.T, frames <-chan wire.EventFrame, sid int64, msg string) {
+func awaitEventOfType[E agentruntime.Event](t *testing.T, frames <-chan wire.EventFrame, conversationID string, msg string) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
 		case f := <-frames:
-			if f.SessionID != sid {
+			if f.ConversationID != conversationID {
 				continue
 			}
 			if _, ok := f.Event.(E); ok {
@@ -2541,7 +2541,7 @@ func awaitEventOfType[E agentruntime.Event](t *testing.T, frames <-chan wire.Eve
 			}
 		case <-deadline:
 			var want E
-			t.Fatalf("%s: 会话 %d 的 %T 事件没有到达这条连接", msg, sid, want)
+			t.Fatalf("%s: 对话 %s 的 %T 事件没有到达这条连接", msg, conversationID, want)
 		}
 	}
 }
@@ -2569,26 +2569,26 @@ func TestIntegration_MultiClientLiveEvents_SameAccountConnsShareOneSessionStream
 
 	startRunAs(t, desktop, rig.dir, 501, "two-client")
 
-	awaitEventOfType[agentruntime.ToolPermissionRequest](t, desktopFrames, 501, "发起会话的那条连接")
+	awaitEventOfType[agentruntime.ToolPermissionRequest](t, desktopFrames, convID(501), "发起会话的那条连接")
 
 	// 手机接管这条会话(接管把推送目标改到手机那条连接上)并回答待决策。
 	var attached wire.SessionAttachResult
 	require.NoError(t, callRig(t, phone, wire.MethodSessionAttach, wire.SessionAttachParams{
-		SessionID: 501, PeerFingerprint: desktopFingerprint,
+		ConversationID: convID(501), PeerFingerprint: desktopFingerprint,
 	}, &attached))
 	var ok wire.OK
 	require.NoError(t, callRig(t, phone, wire.MethodSubmitToolPermission, wire.SubmitToolPermissionParams{
-		SessionID: 501, PeerFingerprint: desktopFingerprint, RequestID: twoClientRequestID, Allow: true,
+		ConversationID: convID(501), PeerFingerprint: desktopFingerprint, RequestID: twoClientRequestID, Allow: true,
 	}, &ok))
 
-	awaitEventOfType[agentruntime.ToolPermissionResolved](t, phoneFrames, 501, "回答的那一方")
-	awaitEventOfType[agentruntime.ToolPermissionResolved](t, desktopFrames, 501,
+	awaitEventOfType[agentruntime.ToolPermissionResolved](t, phoneFrames, convID(501), "回答的那一方")
+	awaitEventOfType[agentruntime.ToolPermissionResolved](t, desktopFrames, convID(501),
 		"另一方必须从事件流里看到这条待决策被解决")
 	awaitLifecycle(t, desktop, 501, wire.SessionLifecycleIdle)
 
 	select {
 	case f := <-bystanderFrames:
-		t.Fatalf("会话 %d 的事件推给了一条从没上过它的同账号连接", f.SessionID)
+		t.Fatalf("对话 %s 的事件推给了一条从没上过它的同账号连接", f.ConversationID)
 	case <-time.After(300 * time.Millisecond):
 	}
 }
@@ -2605,11 +2605,11 @@ func TestIntegration_MultiClientLiveEvents_UnclaimedDaemonKeepsEventsWithTheOrig
 	ownFrames := subscribeEventFrames(t, rig.cli)
 
 	startRunAs(t, rig.cli, rig.dir, 502, "two-client")
-	awaitEventOfType[agentruntime.ToolPermissionRequest](t, ownFrames, 502, "发起会话的那条连接")
+	awaitEventOfType[agentruntime.ToolPermissionRequest](t, ownFrames, convID(502), "发起会话的那条连接")
 
 	select {
 	case f := <-otherFrames:
-		t.Fatalf("未认领 daemon 把会话 %d 的事件推给了另一台配对设备", f.SessionID)
+		t.Fatalf("未认领 daemon 把对话 %s 的事件推给了另一台配对设备", f.ConversationID)
 	case <-time.After(300 * time.Millisecond):
 	}
 
@@ -2617,24 +2617,24 @@ func TestIntegration_MultiClientLiveEvents_UnclaimedDaemonKeepsEventsWithTheOrig
 	// 还往库里写(见 TestIntegration_SessionCatchup_AttachRepointsTheLiveStream)。
 	var ok wire.OK
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSubmitToolPermission, wire.SubmitToolPermissionParams{
-		SessionID: 502, RequestID: twoClientRequestID, Allow: true,
+		ConversationID: convID(502), RequestID: twoClientRequestID, Allow: true,
 	}, &ok))
 	awaitLifecycle(t, rig.cli, 502, wire.SessionLifecycleIdle)
 }
 
-func sessionIDs(sessions []wire.SessionSummary) []int64 {
-	ids := make([]int64, 0, len(sessions))
+func sessionIDs(sessions []wire.SessionSummary) []string {
+	ids := make([]string, 0, len(sessions))
 	for _, session := range sessions {
-		ids = append(ids, session.SessionID)
+		ids = append(ids, session.ConversationID)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	sort.Strings(ids)
 	return ids
 }
 
-func sessionOrigins(sessions []wire.SessionSummary) map[int64]string {
-	origins := make(map[int64]string, len(sessions))
+func sessionOrigins(sessions []wire.SessionSummary) map[string]string {
+	origins := make(map[string]string, len(sessions))
 	for _, session := range sessions {
-		origins[session.SessionID] = session.PeerFingerprint
+		origins[session.ConversationID] = session.PeerFingerprint
 	}
 	return origins
 }
@@ -2662,7 +2662,7 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &list))
 	require.Len(t, list.Sessions, 1, "跑过一轮的会话必须出现在清单里")
 	got := list.Sessions[0]
-	assert.Equal(t, int64(900), got.SessionID)
+	assert.Equal(t, convID(900), got.ConversationID)
 	assert.Equal(t, string(agent_backend_entity.TypeClaudeCode), got.BackendType)
 	assert.Equal(t, wire.SessionLifecycleIdle, got.LifecycleState, "轮结束后会话等待下一轮")
 	assert.False(t, got.WaitingForInput)
@@ -2678,7 +2678,7 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 	for {
 		var page wire.SessionPullResult
 		require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
-			wire.SessionPullParams{SessionID: 900, Cursor: cursor, Limit: 2}, &page))
+			wire.SessionPullParams{ConversationID: convID(900), Cursor: cursor, Limit: 2}, &page))
 		pages++
 		require.LessOrEqual(t, len(page.Notifications), 2, "单页条数必须被 limit 截断")
 		for _, n := range page.Notifications {
@@ -2703,7 +2703,7 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 	// 游标已追平最新 seq:空页,游标保持不变。
 	var tail wire.SessionPullResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 900, Cursor: cursor}, &tail))
+		wire.SessionPullParams{ConversationID: convID(900), Cursor: cursor}, &tail))
 	assert.Empty(t, tail.Notifications)
 	assert.False(t, tail.HasMore)
 	assert.Equal(t, cursor, tail.Cursor, "空页不得把游标回退")
@@ -2711,7 +2711,7 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 	// 起始游标大于最新 seq(客户端游标来自另一台 daemon 实例时会这样)同样是空页。
 	var past wire.SessionPullResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 900, Cursor: 9999}, &past))
+		wire.SessionPullParams{ConversationID: convID(900), Cursor: 9999}, &past))
 	assert.Empty(t, past.Notifications)
 	assert.False(t, past.HasMore)
 	assert.Equal(t, int64(9999), past.Cursor)
@@ -2719,7 +2719,7 @@ func TestIntegration_SessionCatchup_ListAndPullReplayTheWholeTurn(t *testing.T) 
 	// 待决策查询:这个 backend 不实现审批协议,必须回空列表而不是报错(R7)。
 	var waiters wire.SessionPendingWaitersResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: 900}, &waiters))
+		wire.SessionPendingWaitersParams{ConversationID: convID(900)}, &waiters))
 	assert.Empty(t, waiters.ToolPermissions)
 	assert.Empty(t, waiters.AskUserQuestions)
 }
@@ -2784,8 +2784,8 @@ func TestIntegration_SessionCatchup_AttachRepointsTheLiveStream(t *testing.T) {
 
 	var attached wire.SessionAttachResult
 	require.NoError(t, callRig(t, second, wire.MethodSessionAttach,
-		wire.SessionAttachParams{SessionID: 901}, &attached))
-	assert.Equal(t, int64(901), attached.SessionID)
+		wire.SessionAttachParams{ConversationID: convID(901)}, &attached))
+	assert.Equal(t, convID(901), attached.ConversationID)
 	assert.Equal(t, wire.SessionLifecycleRunning, attached.LifecycleState, "一轮还在跑")
 	assert.Positive(t, attached.LatestSeq, "接管要交回此刻的高水位供客户端接着补齐")
 
@@ -2833,15 +2833,15 @@ func TestIntegration_SessionCatchup_AttachRestoresControlOnTheNewConnection(t *t
 
 	var ok wire.OK
 	require.Error(t,
-		callRig(t, second, wire.MethodAbort, wire.AbortParams{SessionID: 904}, &ok),
+		callRig(t, second, wire.MethodAbort, wire.AbortParams{ConversationID: convID(904)}, &ok),
 		"接管之前,新连接的 handler 不认识这条会话")
 
 	var attached wire.SessionAttachResult
 	require.NoError(t, callRig(t, second, wire.MethodSessionAttach,
-		wire.SessionAttachParams{SessionID: 904}, &attached))
+		wire.SessionAttachParams{ConversationID: convID(904)}, &attached))
 
 	require.NoError(t,
-		callRig(t, second, wire.MethodAbort, wire.AbortParams{SessionID: 904}, &ok),
+		callRig(t, second, wire.MethodAbort, wire.AbortParams{ConversationID: convID(904)}, &ok),
 		"接管之后,控制 RPC 必须解得出会话并真的打到 backend")
 }
 
@@ -2870,17 +2870,17 @@ func TestIntegration_SessionCatchup_ScopedToTheCallersPeer(t *testing.T) {
 
 	var page wire.SessionPullResult
 	require.NoError(t, callRig(t, other, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 902}, &page))
+		wire.SessionPullParams{ConversationID: convID(902)}, &page))
 	assert.Empty(t, page.Notifications, "另一个对端点名拉同一个会话 id 也拉不到内容")
 
 	var waiters wire.SessionPendingWaitersResult
 	require.NoError(t, callRig(t, other, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: 902}, &waiters))
+		wire.SessionPendingWaitersParams{ConversationID: convID(902)}, &waiters))
 	assert.Empty(t, waiters.ToolPermissions)
 	assert.Empty(t, waiters.AskUserQuestions)
 
 	var attached wire.SessionAttachResult
-	err := callRig(t, other, wire.MethodSessionAttach, wire.SessionAttachParams{SessionID: 902}, &attached)
+	err := callRig(t, other, wire.MethodSessionAttach, wire.SessionAttachParams{ConversationID: convID(902)}, &attached)
 	require.Error(t, err, "接管改的是通知推给谁 —— 跨对端接管等于把别人的事件流引到自己连接上")
 	var rpcErr *protorpc.Error
 	require.ErrorAs(t, err, &rpcErr)
@@ -2908,7 +2908,7 @@ func TestIntegration_SessionDelete_ClearsTheSessionAndItsJournal(t *testing.T) {
 
 	var deleted wire.SessionDeleteResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionDelete,
-		wire.SessionDeleteParams{SessionID: 903}, &deleted))
+		wire.SessionDeleteParams{ConversationID: convID(903)}, &deleted))
 	assert.True(t, deleted.Deleted)
 
 	var after wire.SessionListResult
@@ -2917,14 +2917,14 @@ func TestIntegration_SessionDelete_ClearsTheSessionAndItsJournal(t *testing.T) {
 
 	var page wire.SessionPullResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 903}, &page))
+		wire.SessionPullParams{ConversationID: convID(903)}, &page))
 	assert.Empty(t, page.Notifications, "那条会话的通知日志必须一行不剩")
 	assert.Zero(t, page.OldestSeq)
 
 	// 再删一次:server 的删除待办会重放,报错会让它永远重放下去。
 	var again wire.SessionDeleteResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionDelete,
-		wire.SessionDeleteParams{SessionID: 903}, &again), "重复删除必须幂等")
+		wire.SessionDeleteParams{ConversationID: convID(903)}, &again), "重复删除必须幂等")
 	assert.True(t, again.Deleted)
 }
 
@@ -2943,7 +2943,7 @@ func TestIntegration_SessionDelete_ScopedToTheCallersPeer(t *testing.T) {
 	other := pairSecondDevice(t, rig.d, "sha256:other-device")
 	var stolen wire.SessionDeleteResult
 	require.NoError(t, callRig(t, other, wire.MethodSessionDelete,
-		wire.SessionDeleteParams{SessionID: 904}, &stolen), "删自己名下不存在的会话是幂等成功")
+		wire.SessionDeleteParams{ConversationID: convID(904)}, &stolen), "删自己名下不存在的会话是幂等成功")
 
 	var mine wire.SessionListResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionList, nil, &mine))
@@ -2951,63 +2951,76 @@ func TestIntegration_SessionDelete_ScopedToTheCallersPeer(t *testing.T) {
 
 	var page wire.SessionPullResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 904}, &page))
+		wire.SessionPullParams{ConversationID: convID(904)}, &page))
 	assert.NotEmpty(t, page.Notifications, "它的转录也必须原封不动")
 
 	// 配对身份点名别人的对端同样删不动(点名 origin 是账号级能力)。
 	var named wire.SessionDeleteResult
 	err := callRig(t, other, wire.MethodSessionDelete,
-		wire.SessionDeleteParams{SessionID: 904, PeerFingerprint: "sha256:desktop-test"}, &named)
+		wire.SessionDeleteParams{ConversationID: convID(904), PeerFingerprint: "sha256:desktop-test"}, &named)
 	require.Error(t, err)
 	var rpcErr *protorpc.Error
 	require.ErrorAs(t, err, &rpcErr)
 	assert.Equal(t, int32(rpcerror.ErrUnauthorized.Code), rpcErr.Code)
 }
 
-// TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeersOnTheSameSessionID
-// 覆盖 R16 里最难的那半:两个对端**各自持有同一个本地会话 id**。
+// TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeers 覆盖 R16,并钉住本轮
+// 换身份之后那条泄漏路径的形态。
 //
-// 会话 id 是各客户端本地自增的主键,两台设备的 42 号会话是两条毫不相干的会话。日志与
-// 游标已经按 (对端, 会话) 复合键存放,所以 List / Pull 天然隔离;待决策不在库里,它挂在
-// backend runtime 的内存里、只按会话 id 索引 —— 于是「按对端限定了行,再拿裸数字去问
-// backend」就成了一条跨对端的信息泄漏:
+// 待决策不在库里,它挂在 backend runtime 的内存里、只按一个 int64 会话键索引。从前
+// 那个键是**客户端报的裸数字**,而会话号是各客户端本地自增的主键 —— 两台设备的 42 号
+// 会话在 backend 那边并成一条:对端 A 只要自己也有一行 42,就能读到 B 那条正在跑的
+// 会话的 requestID、工具名与完整工具入参,还能照着 requestID 替 B 提交审批。
 //
-//   - 对端 A 只要自己也有一行 42(自己早先跑过就够),就能读到对端 B 那条正在跑的 42
-//     号会话的 requestID、工具名与**完整工具入参**;
-//   - 还能照着那个 requestID 替 B 提交审批 —— B 的子进程会当成机主本人点的允许。
+// 对话身份全局唯一之后,那种"同号会话"**由构造消失**:每个发起端各铸各的 uuid,daemon
+// 把它折成的 backend 会话键必然不同(见 runtimeSessionID)。这条用例因此改成两个对端
+// 各持**自己那条对话**,断言仍然缺一不可:A 查不到 B 的待决策,A 提交了也不会有任何
+// waiter 被回答,而正主自己仍然答得了自己那条(把所有人都挡掉同样能让前两条通过)。
 //
-// 所以这里两条断言缺一不可:A 查不到 B 的待决策,且 A 提交了也不会有任何 waiter 被回答。
-// 最后一段反过来钉住正主仍然答得了自己的那条 —— 把所有人都挡掉同样能让前两条通过。
-func TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeersOnTheSameSessionID(t *testing.T) {
-	const sharedSID = 42
+// keyedApprovalRunner 按 backend 自己那把会话键索引待决策,与真实 backend 一致
+// (claudecode 的 sessionKey(id)、codex 的 r.active[sessionID]),所以"会不会并轨"
+// 在它身上如实反映生产行为。
+func TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeers(t *testing.T) {
+	const (
+		ownerSID int64 = 42
+		otherSID int64 = 43
+	)
 
 	gate := make(chan struct{})
 	runner := newKeyedApprovalRunner(gate)
 	rig := bootKeyedApprovalRig(t, runner)
 
-	// 另一台**不同指纹**的已配对设备,先跑完自己的 42 号会话 —— 它因此有了一行 42,
-	// 但没有任何待决策。这正是泄漏的前提:findOwnSession 查得到行,于是继续去问 backend。
+	// 另一台**不同指纹**的已配对设备,先跑完它自己那条对话 —— 它因此在这台 daemon 上
+	// 有了一行,但没有任何待决策。这正是泄漏的前提:findOwnSession 查得到行,于是继续
+	// 去问 backend。
 	other := pairSecondDevice(t, rig.d, "sha256:other-device")
-	startRunAs(t, other, rig.dir, sharedSID, noApprovalText)
-	awaitLifecycle(t, other, sharedSID, wire.SessionLifecycleIdle)
+	startRunAs(t, other, rig.dir, otherSID, noApprovalText)
+	awaitLifecycle(t, other, otherSID, wire.SessionLifecycleIdle)
 
-	// 正主的 42 号会话此刻正卡在一条工具审批上。
-	events, _ := rig.startRun(t, sharedSID)
+	// 正主那条对话此刻正卡在一条工具审批上。
+	events, _ := rig.startRun(t, ownerSID)
 	awaitText(t, events, "blocked")
 	require.Eventually(t, func() bool { return runner.waiterCount() == 1 },
 		5*time.Second, 20*time.Millisecond, "正主那条会话应当卡在审批上")
 
 	var mine wire.SessionPendingWaitersResult
 	require.NoError(t, callRig(t, rig.cli, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: sharedSID}, &mine))
+		wire.SessionPendingWaitersParams{ConversationID: convID(ownerSID)}, &mine))
 	require.Len(t, mine.ToolPermissions, 1, "正主必须查得到自己那条待决策")
 
-	// ① 查询:另一个对端拿不到别人的 requestID / 工具名 / 工具入参。
+	// 两条对话在 backend 那边是两条:另一个对端问自己那条,拿到的是空,而不是正主那条。
+	var theirsOwn wire.SessionPendingWaitersResult
+	require.NoError(t, callRig(t, other, wire.MethodSessionPendingWaiters,
+		wire.SessionPendingWaitersParams{ConversationID: convID(otherSID)}, &theirsOwn))
+	assert.Empty(t, theirsOwn.ToolPermissions,
+		"两条对话在 backend 上并轨了 —— 另一个对端从自己那条会话读到了别人的审批载荷")
+
+	// ① 查询:另一个对端点名正主那条对话也拿不到任何东西(那一行不在它名下)。
 	var theirs wire.SessionPendingWaitersResult
 	require.NoError(t, callRig(t, other, wire.MethodSessionPendingWaiters,
-		wire.SessionPendingWaitersParams{SessionID: sharedSID}, &theirs))
+		wire.SessionPendingWaitersParams{ConversationID: convID(ownerSID)}, &theirs))
 	assert.Empty(t, theirs.ToolPermissions,
-		"另一个对端同号会话的待决策查询泄漏了别人的审批载荷")
+		"另一个对端点名别人的对话时泄漏了审批载荷")
 	assert.Empty(t, theirs.AskUserQuestions)
 
 	// ② 提交:另一个对端替不了别人答。daemon 侧按 R8 一律回成功(重连的客户端分不清
@@ -3015,15 +3028,25 @@ func TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeersOnTheSameSessio
 	var ok wire.OK
 	require.NoError(t, callRig(t, other, wire.MethodSubmitToolPermission,
 		wire.SubmitToolPermissionParams{
-			SessionID: sharedSID, RequestID: "req-of-the-owner", Allow: true,
+			ConversationID: convID(otherSID), RequestID: "req-of-the-owner", Allow: true,
 		}, &ok))
 	assert.Empty(t, runner.deliveredIDs(),
 		"另一个对端替正主提交了审批 —— 正主的子进程会把它当成机主本人点的允许")
 
-	// ③ 正主自己仍然答得了:隔离不是把所有人都挡掉。
+	// ③ 旧的「同号会话」构造已经构造不出:线上再也放不进一个裸会话号,RPC 边界以
+	// 「参数不合法」把它挡在解析之前 —— 那条泄漏路径不是被更好地防住了,是没有了。
+	var rejected wire.SessionPendingWaitersResult
+	err := callRig(t, other, wire.MethodSessionPendingWaiters,
+		wire.SessionPendingWaitersParams{ConversationID: "42"}, &rejected)
+	require.Error(t, err, "裸会话号不再是一条合法的对话身份")
+	var rpcErr *rpcerror.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code)
+
+	// ④ 正主自己仍然答得了:隔离不是把所有人都挡掉。
 	ownerCtx, ownerCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer ownerCancel()
-	require.NoError(t, rig.runner.SubmitToolPermission(ownerCtx, sharedSID, "req-of-the-owner", true, false, ""))
+	require.NoError(t, rig.runner.SubmitToolPermission(ownerCtx, ownerSID, "req-of-the-owner", true, false, ""))
 	assert.Equal(t, []string{"req-of-the-owner"}, runner.deliveredIDs(),
 		"正主对自己那条会话的提交必须真的送达 backend")
 
@@ -3074,12 +3097,12 @@ func TestIntegration_SessionCatchup_DaemonRestartMarksSessionsInterrupted(t *tes
 	// 历史可读。
 	var page wire.SessionPullResult
 	require.NoError(t, callRig(t, second.cli, wire.MethodSessionPull,
-		wire.SessionPullParams{SessionID: 903}, &page))
+		wire.SessionPullParams{ConversationID: convID(903)}, &page))
 	assert.Len(t, page.Notifications, int(wantSeq), "中断态会话的历史必须照样拉得出来")
 
 	// 不可续跑。
 	var attached wire.SessionAttachResult
-	err = callRig(t, second.cli, wire.MethodSessionAttach, wire.SessionAttachParams{SessionID: 903}, &attached)
+	err = callRig(t, second.cli, wire.MethodSessionAttach, wire.SessionAttachParams{ConversationID: convID(903)}, &attached)
 	require.Error(t, err, "中断态会话不可续跑")
 	var rpcErr *protorpc.Error
 	require.ErrorAs(t, err, &rpcErr)
@@ -3322,7 +3345,7 @@ func awaitJournalDepth(t *testing.T, r *pairedTestRig, sessionID, want int64) {
 	reader := journalReader{db: r.d.db}
 	require.Eventually(t, func() bool {
 		latest, err := reader.LatestSeq(context.Background(), rigDeviceFingerprint,
-			strconv.FormatInt(sessionID, 10))
+			convID(sessionID))
 		return err == nil && latest >= want
 	}, 10*time.Second, 10*time.Millisecond, "daemon 应在断连期间照常落库")
 }
@@ -3448,3 +3471,6 @@ func TestIntegration_ReconnectCatchUp_MatchesUninterruptedRun(t *testing.T) {
 		assert.Equal(t, baselineResult.StopErr, result.StopErr, "断连不得把终态污染成失败")
 	})
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *rigProtobufConnection) SelfFingerprint() string { return rigDeviceFingerprint }

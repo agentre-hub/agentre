@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"sort"
@@ -20,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
@@ -57,12 +57,12 @@ type Snapshot struct {
 
 // SessionSnapshot exposes only journal progress needed by the independent E2E oracle.
 type SessionSnapshot struct {
-	SessionID int64 `json:"sessionId"`
-	LatestSeq int64 `json:"latestSeq"`
+	ConversationID string `json:"conversationId"`
+	LatestSeq      int64  `json:"latestSeq"`
 }
 
 type session struct {
-	id                int64
+	id                string
 	providerSessionID string
 	lifecycle         string
 	latestSeq         int64
@@ -79,7 +79,7 @@ type Server struct {
 	mu          sync.Mutex
 	connections map[int64]*protorpc.Conn
 	requests    []RecordedRequest
-	sessions    map[int64]*session
+	sessions    map[string]*session
 	nextFault   Fault
 	closed      bool
 	nextConnID  atomic.Int64
@@ -99,7 +99,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		opts:        opts,
 		listener:    listener,
 		connections: map[int64]*protorpc.Conn{},
-		sessions:    map[int64]*session{},
+		sessions:    map[string]*session{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rpc", s.handleWebSocket)
@@ -138,14 +138,14 @@ func (s *Server) Snapshot() Snapshot {
 	defer s.mu.Unlock()
 	requests := make([]RecordedRequest, len(s.requests))
 	copy(requests, s.requests)
-	ids := make([]int64, 0, len(s.sessions))
+	ids := make([]string, 0, len(s.sessions))
 	for id := range s.sessions {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	sort.Strings(ids)
 	sessions := make([]SessionSnapshot, 0, len(ids))
 	for _, id := range ids {
-		sessions = append(sessions, SessionSnapshot{SessionID: id, LatestSeq: s.sessions[id].latestSeq})
+		sessions = append(sessions, SessionSnapshot{ConversationID: id, LatestSeq: s.sessions[id].latestSeq})
 	}
 	return Snapshot{Requests: requests, Sessions: sessions}
 }
@@ -248,7 +248,7 @@ func (s *Server) register(conn *protorpc.Conn, registry *protorpc.Registry, conn
 			return nil, err
 		}
 		s.record(connectionID, wire.MethodSessionAttach, req)
-		return s.attach(req.SessionId)
+		return s.attach(req.ConversationId)
 	})
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), func() *agentrewire.SessionPullRequest { return &agentrewire.SessionPullRequest{} }, func(ctx context.Context, req *agentrewire.SessionPullRequest) (*agentrewire.SessionPullResponse, error) {
 		if err := auth(ctx); err != nil {
@@ -268,25 +268,25 @@ func (s *Server) register(conn *protorpc.Conn, registry *protorpc.Registry, conn
 		if err := auth(ctx); err != nil {
 			return nil, err
 		}
-		if req.SessionId <= 0 {
-			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "session id required"}
+		if conversationid.Validate(req.ConversationId) != nil {
+			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
 		}
 		s.record(connectionID, wire.MethodRun, req)
-		fault := s.beginRun(req.SessionId)
-		provider := fmt.Sprintf("e2e-remote-session-%d", req.SessionId)
+		fault := s.beginRun(req.ConversationId)
+		provider := "e2e-remote-session-" + req.ConversationId
 		go s.streamRun(conn, req, provider, fault)
-		return &agentrewire.RuntimeRunResponse{SessionId: req.SessionId, ProviderSessionId: provider}, nil
+		return &agentrewire.RuntimeRunResponse{ConversationId: req.ConversationId, ProviderSessionId: provider}, nil
 	})
 }
 
-func (s *Server) beginRun(sessionID int64) Fault {
+func (s *Server) beginRun(conversationID string) Fault {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	fault := s.nextFault
 	s.nextFault = FaultNone
-	s.sessions[sessionID] = &session{
-		id:                sessionID,
-		providerSessionID: fmt.Sprintf("e2e-remote-session-%d", sessionID),
+	s.sessions[conversationID] = &session{
+		id:                conversationID,
+		providerSessionID: "e2e-remote-session-" + conversationID,
 		lifecycle:         wire.SessionLifecycleRunning,
 	}
 	return fault
@@ -301,8 +301,8 @@ func (s *Server) streamRun(conn *protorpc.Conn, params *agentrewire.RuntimeRunRe
 	}
 	disconnected := false
 	for index, chunk := range chunks {
-		n := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: params.SessionId, Event: &agentrewire.RuntimeEventNotification_TextDelta{TextDelta: &agentrewire.TextDelta{Text: chunk}}}}}
-		s.appendNotification(params.SessionId, n)
+		n := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{ConversationId: params.ConversationId, Event: &agentrewire.RuntimeEventNotification_TextDelta{TextDelta: &agentrewire.TextDelta{Text: chunk}}}}}
+		s.appendNotification(params.ConversationId, n)
 		if !disconnected {
 			if err := conn.Notify(n); err != nil {
 				return
@@ -314,39 +314,39 @@ func (s *Server) streamRun(conn *protorpc.Conn, params *agentrewire.RuntimeRunRe
 			time.Sleep(25 * time.Millisecond)
 		}
 		if fault == FaultDisconnect {
-			s.setLifecycle(params.SessionId, wire.SessionLifecycleInterrupted)
+			s.setLifecycle(params.ConversationId, wire.SessionLifecycleInterrupted)
 			_ = conn.Close()
 			return
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
 	if fault == FaultProtocol {
-		n := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{SessionId: params.SessionId, ProviderSessionId: providerSessionID, StopErrorMessage: "e2e remote protocol failure"}}}
-		s.appendNotification(params.SessionId, n)
-		s.setLifecycle(params.SessionId, wire.SessionLifecycleIdle)
+		n := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{ConversationId: params.ConversationId, ProviderSessionId: providerSessionID, StopErrorMessage: "e2e remote protocol failure"}}}
+		s.appendNotification(params.ConversationId, n)
+		s.setLifecycle(params.ConversationId, wire.SessionLifecycleIdle)
 		_ = conn.Notify(n)
 		return
 	}
-	done := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: params.SessionId, Event: &agentrewire.RuntimeEventNotification_Done{Done: &agentrewire.Done{}}}}}
-	s.appendNotification(params.SessionId, done)
+	done := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{ConversationId: params.ConversationId, Event: &agentrewire.RuntimeEventNotification_Done{Done: &agentrewire.Done{}}}}}
+	s.appendNotification(params.ConversationId, done)
 	if !disconnected {
 		if err := conn.Notify(done); err != nil {
 			return
 		}
 	}
-	terminal := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{SessionId: params.SessionId, ProviderSessionId: providerSessionID, Model: "remote-peer-model"}}}
-	s.appendNotification(params.SessionId, terminal)
-	s.setLifecycle(params.SessionId, wire.SessionLifecycleIdle)
+	terminal := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{ConversationId: params.ConversationId, ProviderSessionId: providerSessionID, Model: "remote-peer-model"}}}
+	s.appendNotification(params.ConversationId, terminal)
+	s.setLifecycle(params.ConversationId, wire.SessionLifecycleIdle)
 	if disconnected {
 		return
 	}
 	_ = conn.Notify(terminal)
 }
 
-func (s *Server) appendNotification(sessionID int64, notification *agentrewire.RpcNotification) {
+func (s *Server) appendNotification(conversationID string, notification *agentrewire.RpcNotification) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess := s.sessions[sessionID]
+	sess := s.sessions[conversationID]
 	if sess == nil {
 		return
 	}
@@ -360,9 +360,9 @@ func (s *Server) appendNotification(sessionID int64, notification *agentrewire.R
 	sess.notifications = append(sess.notifications, &agentrewire.JournaledNotification{Seq: sess.latestSeq, Payload: notification})
 }
 
-func (s *Server) setLifecycle(sessionID int64, lifecycle string) {
+func (s *Server) setLifecycle(conversationID string, lifecycle string) {
 	s.mu.Lock()
-	if sess := s.sessions[sessionID]; sess != nil {
+	if sess := s.sessions[conversationID]; sess != nil {
 		sess.lifecycle = lifecycle
 	}
 	s.mu.Unlock()
@@ -371,26 +371,26 @@ func (s *Server) setLifecycle(sessionID int64, lifecycle string) {
 func (s *Server) sessionList() *agentrewire.SessionListResponse {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ids := make([]int64, 0, len(s.sessions))
+	ids := make([]string, 0, len(s.sessions))
 	for id := range s.sessions {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	sort.Strings(ids)
 	result := &agentrewire.SessionListResponse{}
 	for _, id := range ids {
 		sess := s.sessions[id]
 		result.Sessions = append(result.Sessions, &agentrewire.SessionSummary{
-			SessionId: sess.id, ProviderSessionId: sess.providerSessionID,
+			ConversationId: sess.id, ProviderSessionId: sess.providerSessionID,
 			BackendType: "claudecode", LifecycleState: sess.lifecycle, LatestSeq: sess.latestSeq,
 		})
 	}
 	return result
 }
 
-func (s *Server) attach(sessionID int64) (*agentrewire.SessionAttachResponse, error) {
+func (s *Server) attach(conversationID string) (*agentrewire.SessionAttachResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess := s.sessions[sessionID]
+	sess := s.sessions[conversationID]
 	if sess == nil {
 		return nil, &protorpc.Error{Code: wire.ErrCodeSessionNotFound, Message: agentruntime.ErrSessionNotFound.Error()}
 	}
@@ -398,7 +398,7 @@ func (s *Server) attach(sessionID int64) (*agentrewire.SessionAttachResponse, er
 		return nil, &protorpc.Error{Code: wire.ErrCodeNoActiveTurn, Message: agentruntime.ErrNoActiveTurn.Error()}
 	}
 	return &agentrewire.SessionAttachResponse{
-		SessionId: sessionID, BackendType: "claudecode",
+		ConversationId: conversationID, BackendType: "claudecode",
 		LifecycleState: sess.lifecycle, LatestSeq: sess.latestSeq,
 	}, nil
 }
@@ -406,7 +406,7 @@ func (s *Server) attach(sessionID int64) (*agentrewire.SessionAttachResponse, er
 func (s *Server) pull(params *agentrewire.SessionPullRequest) *agentrewire.SessionPullResponse {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess := s.sessions[params.SessionId]
+	sess := s.sessions[params.ConversationId]
 	if sess == nil {
 		return &agentrewire.SessionPullResponse{Cursor: params.Cursor}
 	}

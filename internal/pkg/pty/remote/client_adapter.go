@@ -102,7 +102,9 @@ func (a *ClientAdapter) Call(ctx context.Context, method string, params any, out
 	switch method {
 	case "terminal.open":
 		request := params.(protocol.TerminalOpenParams)
-		response, err := protorpc.CallMethod(ctx, a.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_OPEN), &agentrewire.TerminalOpenRequest{TerminalId: request.TerminalID, SessionId: request.SessionID, Cwd: request.Cwd, Shell: request.Shell, Command: request.Command, Env: request.Env, Cols: uint32(request.Cols), Rows: uint32(request.Rows)}, func() *agentrewire.TerminalOpenResponse { return &agentrewire.TerminalOpenResponse{} })
+		// conversation_id 不置:LAN 直连这条路上的终端不挂在任何一条对话下(它一直是
+		// 零值,daemon 侧也从不读它),没有身份可报就如实留空,而不是编一个。
+		response, err := protorpc.CallMethod(ctx, a.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_OPEN), &agentrewire.TerminalOpenRequest{TerminalId: request.TerminalID, Cwd: request.Cwd, Shell: request.Shell, Command: request.Command, Env: request.Env, Cols: uint32(request.Cols), Rows: uint32(request.Rows)}, func() *agentrewire.TerminalOpenResponse { return &agentrewire.TerminalOpenResponse{} })
 		if err == nil {
 			out.(*protocol.TerminalOpenResult).TerminalID = response.TerminalId
 		}

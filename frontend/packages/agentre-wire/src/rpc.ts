@@ -35,7 +35,7 @@ import {
 
 export interface RuntimeEventNotificationFrame {
   case: "runtimeEventNotification";
-  sessionId: number;
+  conversationId: string;
   seq: number;
   event:
     | { case: "textDelta"; text: string }
@@ -125,7 +125,7 @@ export interface RpcUsage {
 }
 export interface RunResultDoneNotificationFrame {
   case: "runResultDoneNotification";
-  sessionId: number;
+  conversationId: string;
   seq: number;
   providerSessionId: string;
   usage?: RpcUsage;
@@ -141,7 +141,7 @@ export interface RunResultDoneNotificationFrame {
 }
 export interface AutonomousTurnStartedNotificationFrame {
   case: "autonomousTurnStartedNotification";
-  sessionId: number;
+  conversationId: string;
   seq: number;
   trigger: string;
   turnToken: bigint;
@@ -357,7 +357,7 @@ function encodeRuntimeEvent(value: RuntimeEventNotificationFrame) {
     payload: {
       case: "runtimeEvent",
       value: create(RuntimeEventNotificationSchema, {
-        sessionId: BigInt(value.sessionId),
+        conversationId: value.conversationId,
         seq: BigInt(value.seq),
         event: encodedEvent,
       }),
@@ -456,7 +456,7 @@ function decodeRuntimeEvent(
   }
   return {
     case: "runtimeEventNotification",
-    sessionId: safeNumber(value.payload.value.sessionId, "session_id"),
+    conversationId: value.payload.value.conversationId,
     seq: safeNumber(value.payload.value.seq, "seq"),
     event: decodedEvent,
   };
@@ -471,7 +471,7 @@ function encodeNotification(value: RpcNotificationBody) {
         case: "runResultDone",
         value: create(RunResultDoneNotificationSchema, {
           ...value,
-          sessionId: BigInt(value.sessionId),
+          conversationId: value.conversationId,
           seq: BigInt(value.seq),
           usage:
             value.usage === undefined
@@ -498,7 +498,7 @@ function encodeNotification(value: RpcNotificationBody) {
         case: "autonomousTurnDone",
         value: create(RunResultDoneNotificationSchema, {
           ...value,
-          sessionId: BigInt(value.sessionId),
+          conversationId: value.conversationId,
           seq: BigInt(value.seq),
           usage:
             value.usage === undefined
@@ -513,7 +513,7 @@ function encodeNotification(value: RpcNotificationBody) {
       case: "autonomousTurnStarted",
       value: create(AutonomousTurnStartedNotificationSchema, {
         ...value,
-        sessionId: BigInt(value.sessionId),
+        conversationId: value.conversationId,
         seq: BigInt(value.seq),
       }),
     },
@@ -536,7 +536,7 @@ function decodeNotification(
     const v = value.payload.value;
     return {
       case: "runResultDoneNotification",
-      sessionId: safeNumber(v.sessionId, "session_id"),
+      conversationId: v.conversationId,
       seq: safeNumber(v.seq, "seq"),
       providerSessionId: v.providerSessionId,
       ...(v.usage === undefined
@@ -566,7 +566,7 @@ function decodeNotification(
     const v = value.payload.value;
     return {
       case: "autonomousTurnStartedNotification",
-      sessionId: safeNumber(v.sessionId, "session_id"),
+      conversationId: v.conversationId,
       seq: safeNumber(v.seq, "seq"),
       trigger: v.trigger,
       turnToken: v.turnToken,
@@ -576,7 +576,7 @@ function decodeNotification(
     const v = value.payload.value;
     return {
       case: "autonomousTurnDoneNotification",
-      sessionId: safeNumber(v.sessionId, "session_id"),
+      conversationId: v.conversationId,
       seq: safeNumber(v.seq, "seq"),
       providerSessionId: v.providerSessionId,
       ...(v.usage === undefined

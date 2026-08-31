@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/cago-frame/cago/pkg/consts"
@@ -16,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
@@ -117,11 +119,11 @@ func TestPendingPeerSessionWaiters_GivenRemoteSessionBlockedOnDecision_ThenServe
 	require.NoError(t, err)
 	t.Cleanup(release)
 
-	got, err := svc.PendingPeerSessionWaiters(ctx, wire.SessionPendingWaitersParams{SessionID: 42})
+	got, err := svc.PendingPeerSessionWaiters(ctx, wire.SessionPendingWaitersParams{ConversationID: convID(42)})
 
 	require.NoError(t, err)
 	assert.Equal(t, want, got, "浏览器画审批卡的唯一数据源就是这份快照")
-	assert.Equal(t, int64(42), asked.SessionID,
+	assert.Equal(t, execConvID(42), asked.ConversationID,
 		"读侧问的会话键必须与写侧提交答案的那个一致,否则浏览器会照着别处的 requestID 去答")
 	assert.Equal(t, 1, client.count(wire.MethodSessionPendingWaiters),
 		"待决策要真的去那台 daemon 上问一次")
@@ -148,9 +150,15 @@ func TestPendingPeerSessionWaiters_GivenNoLiveRemoteRuntime_ThenEmptyWithoutDial
 	svc.setConnPoolForTest(pool)
 
 	got, err := svc.PendingPeerSessionWaiters(context.Background(),
-		wire.SessionPendingWaitersParams{SessionID: 42})
+		wire.SessionPendingWaitersParams{ConversationID: convID(42)})
 
 	require.NoError(t, err, "没有在跑的连接是正常态,不是故障")
 	assert.Equal(t, wire.SessionPendingWaitersResult{}, got)
 	assert.Zero(t, svc.remoteRuntimeCount(7), "只读查询不得给任何会话记引用")
+}
+
+// execConvID 是**远端执行端**眼里那条对话的身份:本进程通过 remote.Runtime 出线时,
+// 派生输入是 (本端指纹, 本地会话 id),而测试替身连接从没握过手,指纹为空。
+func execConvID(n int64) string {
+	return conversationid.Derive(conversationid.Namespace, "", strconv.FormatInt(n, 10))
 }

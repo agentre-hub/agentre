@@ -10,14 +10,12 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 )
 
 // SessionDeleteDeps 是 SessionDeleteHandlers 的显式构造入参。
@@ -50,15 +48,15 @@ func NewSessionDeleteHandlers(deps SessionDeleteDeps) *SessionDeleteHandlers {
 //
 // 幂等:会话早就不在时删掉零行、照样报成功(见 wire.SessionDeleteResult 的说明)。
 func (h *SessionDeleteHandlers) Delete(ctx context.Context, p wire.SessionDeleteParams) (wire.SessionDeleteResult, error) {
-	if p.SessionID <= 0 {
-		// 会话 id 是正整数主键。0 / 负数删不到任何东西,却会让调用方收到「删好了」。
-		return wire.SessionDeleteResult{}, rpcerror.ErrInvalidParams
+	if err := ErrInvalidConversationID(p.ConversationID); err != nil {
+		// 不是一条对话身份就删不到任何东西,却会让调用方收到「删好了」。
+		return wire.SessionDeleteResult{}, err
 	}
 	peer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.ClaimedAccountID)
 	if err != nil {
 		return wire.SessionDeleteResult{}, err
 	}
-	sid := strconv.FormatInt(p.SessionID, 10)
+	sid := p.ConversationID
 	rows, err := h.deps.Sessions.Delete(ctx, peer, sid)
 	if err != nil {
 		return wire.SessionDeleteResult{}, fmt.Errorf("delete session: %w", err)
@@ -70,10 +68,10 @@ func (h *SessionDeleteHandlers) Delete(ctx context.Context, p wire.SessionDelete
 	}
 	// 会话已经不存在了,它在本机常驻的 CLI 子进程再也不会被任何一轮用到:不放掉的话
 	// 它只能等 idle 上限把自己挤出去,否则一直活到 daemon 退出。释放用的会话键与
-	// runtime.run 交给 backend 的是同一个(按对端隔离),否则放的是别人那条同号会话。
-	agentruntime.CloseSessionEverywhere(ctx, runtimeSessionID(peer, p.SessionID))
+	// runtime.run 交给 backend 的是同一个,否则放的是另一条会话。
+	agentruntime.CloseSessionEverywhere(ctx, runtimeSessionID(p.ConversationID))
 	logger.Ctx(ctx).Info("handlers.SessionDeleteHandlers.Delete: session removed",
-		zap.Int64("sessionId", p.SessionID), zap.Int64("sessionRows", rows),
+		zap.String("conversationId", p.ConversationID), zap.Int64("sessionRows", rows),
 		zap.Int64("journalRows", purged))
 	return wire.SessionDeleteResult{Deleted: true}, nil
 }

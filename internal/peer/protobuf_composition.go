@@ -51,19 +51,31 @@ func productionProtobufInboundDeps() ProtobufInboundDeps {
 		PendingWaiters: func(ctx context.Context, params remotewire.SessionPendingWaitersParams) (remotewire.SessionPendingWaitersResult, error) {
 			return adapter().PendingPeerSessionWaiters(ctx, params)
 		},
-		DeleteSession: func(ctx context.Context, sessionID int64, peerFingerprint string) error {
+		DeleteSession: func(ctx context.Context, conversationID string, peerFingerprint string) error {
 			if err := requireOwnOrigin(peerFingerprint); err != nil {
 				return err
 			}
-			_, err := adapter().Delete(ctx, &chat_svc.DeleteRequest{SessionID: sessionID})
+			sessionID, err := chat_svc.ResolvePeerConversation(ctx, conversationID)
+			if err != nil {
+				return err
+			}
+			_, err = adapter().Delete(ctx, &chat_svc.DeleteRequest{SessionID: sessionID})
 			return err
 		},
-		SetModelTarget: func(ctx context.Context, sessionID int64, providerKey, modelKey string) error {
-			_, err := adapter().SetChatSessionModelTarget(ctx, &chat_svc.SetChatSessionModelTargetRequest{SessionID: sessionID, ProviderKey: providerKey, ModelKey: modelKey})
+		SetModelTarget: func(ctx context.Context, conversationID string, providerKey, modelKey string) error {
+			sessionID, err := chat_svc.ResolvePeerConversation(ctx, conversationID)
+			if err != nil {
+				return err
+			}
+			_, err = adapter().SetChatSessionModelTarget(ctx, &chat_svc.SetChatSessionModelTargetRequest{SessionID: sessionID, ProviderKey: providerKey, ModelKey: modelKey})
 			return err
 		},
-		SetPermissionMode: func(ctx context.Context, sessionID int64, mode string) error {
-			_, err := adapter().SetPermissionMode(ctx, &chat_svc.SetPermissionModeRequest{SessionID: sessionID, Mode: mode})
+		SetPermissionMode: func(ctx context.Context, conversationID string, mode string) error {
+			sessionID, err := chat_svc.ResolvePeerConversation(ctx, conversationID)
+			if err != nil {
+				return err
+			}
+			_, err = adapter().SetPermissionMode(ctx, &chat_svc.SetPermissionModeRequest{SessionID: sessionID, Mode: mode})
 			return err
 		},
 		RunSession: func(ctx context.Context, params remotewire.RunParams, source chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {

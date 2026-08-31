@@ -4,7 +4,7 @@
       "seq": 11,
       "method": "runtime.event",
       "params": {
-        "sessionId": 42,
+        "conversationId": "00000000-0000-7000-8000-000000000042",
         "event": {
           "kind": "text_delta",
           "text": "你好"
@@ -15,7 +15,7 @@
       "seq": 12,
       "method": "runtime.runResultDone",
       "params": {
-        "sessionId": 42,
+        "conversationId": "00000000-0000-7000-8000-000000000042",
         "providerSessionId": "sess_abc123",
         "usage": {
           "promptTokens": 100,

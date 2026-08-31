@@ -56,6 +56,7 @@ func (f *fakeWaiterRunner) PendingWaiters(_ context.Context, sessionID int64) ag
 // has for drawing an approval card.
 func TestPendingPeerSessionWaiters_GivenBlockedLocalBackend_ThenReturnsLiveSnapshot(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 42)
 
 	fake := &fakeWaiterRunner{snapshot: agentruntime.WaiterSnapshot{
 		ToolPermissions: []agentruntime.PendingToolPermission{{
@@ -79,7 +80,7 @@ func TestPendingPeerSessionWaiters_GivenBlockedLocalBackend_ThenReturnsLiveSnaps
 
 	adapter, ok := m.svc.(peerWaiterAdapter)
 	require.True(t, ok, "the desktop chat service must serve the pendingWaiters read half")
-	got, err := adapter.PendingPeerSessionWaiters(m.ctx, wire.SessionPendingWaitersParams{SessionID: 42})
+	got, err := adapter.PendingPeerSessionWaiters(m.ctx, wire.SessionPendingWaitersParams{ConversationID: convID(42)})
 
 	require.NoError(t, err)
 	assert.Equal(t, wire.SessionPendingWaitersResult{
@@ -96,6 +97,7 @@ func TestPendingPeerSessionWaiters_GivenBlockedLocalBackend_ThenReturnsLiveSnaps
 // case, and an error would make the browser show a failed load).
 func TestPendingPeerSessionWaiters_GivenBackendWithoutWaiterLister_ThenEmptyWithoutError(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 42)
 
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &fakePermRunner{}))
 
@@ -111,7 +113,7 @@ func TestPendingPeerSessionWaiters_GivenBackendWithoutWaiterLister_ThenEmptyWith
 
 	adapter, ok := m.svc.(peerWaiterAdapter)
 	require.True(t, ok)
-	got, err := adapter.PendingPeerSessionWaiters(m.ctx, wire.SessionPendingWaitersParams{SessionID: 42})
+	got, err := adapter.PendingPeerSessionWaiters(m.ctx, wire.SessionPendingWaitersParams{ConversationID: convID(42)})
 
 	require.NoError(t, err)
 	assert.Equal(t, wire.SessionPendingWaitersResult{}, got)
@@ -123,12 +125,11 @@ func TestPendingPeerSessionWaiters_GivenBackendWithoutWaiterLister_ThenEmptyWith
 // "nothing to approve".
 func TestPendingPeerSessionWaiters_GivenUnknownSession_ThenSessionNotFound(t *testing.T) {
 	m := setupChatTest(t)
-
-	m.session.EXPECT().Find(m.ctx, int64(90001)).Return(nil, nil)
+	wirePeerConversations(t, m.session, 42)
 
 	adapter, ok := m.svc.(peerWaiterAdapter)
 	require.True(t, ok)
-	_, err := adapter.PendingPeerSessionWaiters(m.ctx, wire.SessionPendingWaitersParams{SessionID: 90001})
+	_, err := adapter.PendingPeerSessionWaiters(m.ctx, wire.SessionPendingWaitersParams{ConversationID: convID(90001)})
 
 	require.ErrorIs(t, err, chat_svc.ErrPeerSessionNotFound)
 }

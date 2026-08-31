@@ -3430,7 +3430,7 @@ func (x *SessionListResponse) GetSessions() []*SessionSummary {
 
 type SessionSummary struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	SessionId         int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId    string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint   string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	AgentId           int64                  `protobuf:"varint,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	Title             string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
@@ -3479,11 +3479,11 @@ func (*SessionSummary) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{51}
 }
 
-func (x *SessionSummary) GetSessionId() int64 {
+func (x *SessionSummary) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *SessionSummary) GetPeerFingerprint() string {
@@ -3801,7 +3801,7 @@ func (x *ActivityRollupResponse) GetBuckets() []*ActivityDailyBucket {
 
 type SessionAttachRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -3837,11 +3837,11 @@ func (*SessionAttachRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{55}
 }
 
-func (x *SessionAttachRequest) GetSessionId() int64 {
+func (x *SessionAttachRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *SessionAttachRequest) GetPeerFingerprint() string {
@@ -3853,7 +3853,7 @@ func (x *SessionAttachRequest) GetPeerFingerprint() string {
 
 type SessionAttachResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	SessionId      int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	BackendType    string                 `protobuf:"bytes,2,opt,name=backend_type,json=backendType,proto3" json:"backend_type,omitempty"`
 	LifecycleState string                 `protobuf:"bytes,3,opt,name=lifecycle_state,json=lifecycleState,proto3" json:"lifecycle_state,omitempty"`
 	LatestSeq      int64                  `protobuf:"varint,4,opt,name=latest_seq,json=latestSeq,proto3" json:"latest_seq,omitempty"`
@@ -3891,11 +3891,11 @@ func (*SessionAttachResponse) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{56}
 }
 
-func (x *SessionAttachResponse) GetSessionId() int64 {
+func (x *SessionAttachResponse) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *SessionAttachResponse) GetBackendType() string {
@@ -3921,7 +3921,7 @@ func (x *SessionAttachResponse) GetLatestSeq() int64 {
 
 type SessionPullRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	Cursor          int64                  `protobuf:"varint,3,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	Limit           int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
@@ -3959,11 +3959,11 @@ func (*SessionPullRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{57}
 }
 
-func (x *SessionPullRequest) GetSessionId() int64 {
+func (x *SessionPullRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *SessionPullRequest) GetPeerFingerprint() string {
@@ -4109,7 +4109,7 @@ func (x *JournaledNotification) GetPayload() *RpcNotification {
 
 type SessionPendingWaitersRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -4145,11 +4145,11 @@ func (*SessionPendingWaitersRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{60}
 }
 
-func (x *SessionPendingWaitersRequest) GetSessionId() int64 {
+func (x *SessionPendingWaitersRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *SessionPendingWaitersRequest) GetPeerFingerprint() string {
@@ -4325,7 +4325,7 @@ func (x *PendingAskUserQuestion) GetQuestions() []*AskQuestion {
 
 type SessionDeleteRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -4361,11 +4361,11 @@ func (*SessionDeleteRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{64}
 }
 
-func (x *SessionDeleteRequest) GetSessionId() int64 {
+func (x *SessionDeleteRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *SessionDeleteRequest) GetPeerFingerprint() string {
@@ -4421,7 +4421,7 @@ func (x *SessionDeleteResponse) GetDeleted() bool {
 
 type SetModelTargetRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	ProviderKey     string                 `protobuf:"bytes,3,opt,name=provider_key,json=providerKey,proto3" json:"provider_key,omitempty"`
 	ModelKey        string                 `protobuf:"bytes,4,opt,name=model_key,json=modelKey,proto3" json:"model_key,omitempty"`
@@ -4459,11 +4459,11 @@ func (*SetModelTargetRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{66}
 }
 
-func (x *SetModelTargetRequest) GetSessionId() int64 {
+func (x *SetModelTargetRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *SetModelTargetRequest) GetPeerFingerprint() string {
@@ -4785,7 +4785,7 @@ func (x *RuntimeCapabilitiesResponse) GetPermissionMode() *PermissionModeMeta {
 
 type RuntimeSteerRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	QueuedId        string                 `protobuf:"bytes,3,opt,name=queued_id,json=queuedId,proto3" json:"queued_id,omitempty"`
 	Text            string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
@@ -4823,11 +4823,11 @@ func (*RuntimeSteerRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{73}
 }
 
-func (x *RuntimeSteerRequest) GetSessionId() int64 {
+func (x *RuntimeSteerRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeSteerRequest) GetPeerFingerprint() string {
@@ -4853,7 +4853,7 @@ func (x *RuntimeSteerRequest) GetText() string {
 
 type RuntimeCancelSteerRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	QueuedId        string                 `protobuf:"bytes,3,opt,name=queued_id,json=queuedId,proto3" json:"queued_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -4890,11 +4890,11 @@ func (*RuntimeCancelSteerRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{74}
 }
 
-func (x *RuntimeCancelSteerRequest) GetSessionId() int64 {
+func (x *RuntimeCancelSteerRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeCancelSteerRequest) GetPeerFingerprint() string {
@@ -4957,7 +4957,7 @@ func (x *RuntimeCancelSteerResponse) GetRemoved() []string {
 
 type RuntimeDrainPendingRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -4993,11 +4993,11 @@ func (*RuntimeDrainPendingRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{76}
 }
 
-func (x *RuntimeDrainPendingRequest) GetSessionId() int64 {
+func (x *RuntimeDrainPendingRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeDrainPendingRequest) GetPeerFingerprint() string {
@@ -5053,7 +5053,7 @@ func (x *RuntimeDrainPendingResponse) GetSteers() []*ConsumedSteer {
 
 type RuntimeAbortRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	TurnToken       uint64                 `protobuf:"varint,3,opt,name=turn_token,json=turnToken,proto3" json:"turn_token,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -5090,11 +5090,11 @@ func (*RuntimeAbortRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{78}
 }
 
-func (x *RuntimeAbortRequest) GetSessionId() int64 {
+func (x *RuntimeAbortRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeAbortRequest) GetPeerFingerprint() string {
@@ -5157,7 +5157,7 @@ func (x *RuntimeAbortResponse) GetTurnKind() string {
 
 type RuntimeStopBackgroundTaskRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	TaskId          string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -5194,11 +5194,11 @@ func (*RuntimeStopBackgroundTaskRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{80}
 }
 
-func (x *RuntimeStopBackgroundTaskRequest) GetSessionId() int64 {
+func (x *RuntimeStopBackgroundTaskRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeStopBackgroundTaskRequest) GetPeerFingerprint() string {
@@ -5217,7 +5217,7 @@ func (x *RuntimeStopBackgroundTaskRequest) GetTaskId() string {
 
 type RuntimeSetPermissionModeRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	Mode            string                 `protobuf:"bytes,3,opt,name=mode,proto3" json:"mode,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -5254,11 +5254,11 @@ func (*RuntimeSetPermissionModeRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{81}
 }
 
-func (x *RuntimeSetPermissionModeRequest) GetSessionId() int64 {
+func (x *RuntimeSetPermissionModeRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeSetPermissionModeRequest) GetPeerFingerprint() string {
@@ -5277,7 +5277,7 @@ func (x *RuntimeSetPermissionModeRequest) GetMode() string {
 
 type RuntimeSubmitAnswerRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	RequestId       string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	Questions       []*AskQuestion         `protobuf:"bytes,4,rep,name=questions,proto3" json:"questions,omitempty"`
@@ -5317,11 +5317,11 @@ func (*RuntimeSubmitAnswerRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{82}
 }
 
-func (x *RuntimeSubmitAnswerRequest) GetSessionId() int64 {
+func (x *RuntimeSubmitAnswerRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeSubmitAnswerRequest) GetPeerFingerprint() string {
@@ -5361,7 +5361,7 @@ func (x *RuntimeSubmitAnswerRequest) GetSkipped() bool {
 
 type RuntimeSubmitToolPermissionRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
-	SessionId          int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId     string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint    string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	RequestId          string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	Allow              bool                   `protobuf:"varint,4,opt,name=allow,proto3" json:"allow,omitempty"`
@@ -5401,11 +5401,11 @@ func (*RuntimeSubmitToolPermissionRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{83}
 }
 
-func (x *RuntimeSubmitToolPermissionRequest) GetSessionId() int64 {
+func (x *RuntimeSubmitToolPermissionRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeSubmitToolPermissionRequest) GetPeerFingerprint() string {
@@ -5915,7 +5915,7 @@ type RuntimeRunRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Backend           *AgentBackend          `protobuf:"bytes,1,opt,name=backend,proto3" json:"backend,omitempty"`
 	AgentId           int64                  `protobuf:"varint,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	SessionId         int64                  `protobuf:"varint,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId    string                 `protobuf:"bytes,3,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint   string                 `protobuf:"bytes,4,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	Cwd               string                 `protobuf:"bytes,5,opt,name=cwd,proto3" json:"cwd,omitempty"`
 	Title             string                 `protobuf:"bytes,6,opt,name=title,proto3" json:"title,omitempty"`
@@ -5993,11 +5993,11 @@ func (x *RuntimeRunRequest) GetAgentId() int64 {
 	return 0
 }
 
-func (x *RuntimeRunRequest) GetSessionId() int64 {
+func (x *RuntimeRunRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeRunRequest) GetPeerFingerprint() string {
@@ -6149,7 +6149,7 @@ func (x *RuntimeRunRequest) GetProjectSyncId() string {
 
 type RuntimeRunResponse struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
-	SessionId            int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId       string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	ProviderSessionId    string                 `protobuf:"bytes,2,opt,name=provider_session_id,json=providerSessionId,proto3" json:"provider_session_id,omitempty"`
 	LaunchPermissionMode string                 `protobuf:"bytes,3,opt,name=launch_permission_mode,json=launchPermissionMode,proto3" json:"launch_permission_mode,omitempty"`
 	ProviderFallbackKey  string                 `protobuf:"bytes,4,opt,name=provider_fallback_key,json=providerFallbackKey,proto3" json:"provider_fallback_key,omitempty"`
@@ -6187,11 +6187,11 @@ func (*RuntimeRunResponse) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{90}
 }
 
-func (x *RuntimeRunResponse) GetSessionId() int64 {
+func (x *RuntimeRunResponse) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeRunResponse) GetProviderSessionId() string {
@@ -6217,7 +6217,7 @@ func (x *RuntimeRunResponse) GetProviderFallbackKey() string {
 
 type RuntimeGoalRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	SessionId         int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId    string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	PeerFingerprint   string                 `protobuf:"bytes,2,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
 	AgentId           int64                  `protobuf:"varint,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	ProviderSessionId string                 `protobuf:"bytes,4,opt,name=provider_session_id,json=providerSessionId,proto3" json:"provider_session_id,omitempty"`
@@ -6262,11 +6262,11 @@ func (*RuntimeGoalRequest) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{91}
 }
 
-func (x *RuntimeGoalRequest) GetSessionId() int64 {
+func (x *RuntimeGoalRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeGoalRequest) GetPeerFingerprint() string {
@@ -6528,17 +6528,17 @@ func (x *RuntimeGoalClearResponse) GetCleared() bool {
 }
 
 type TerminalOpenRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
-	SessionId     int64                  `protobuf:"varint,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Cwd           string                 `protobuf:"bytes,3,opt,name=cwd,proto3" json:"cwd,omitempty"`
-	Shell         string                 `protobuf:"bytes,4,opt,name=shell,proto3" json:"shell,omitempty"`
-	Command       string                 `protobuf:"bytes,5,opt,name=command,proto3" json:"command,omitempty"`
-	Env           []string               `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty"`
-	Cols          uint32                 `protobuf:"varint,7,opt,name=cols,proto3" json:"cols,omitempty"`
-	Rows          uint32                 `protobuf:"varint,8,opt,name=rows,proto3" json:"rows,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId     string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	Cwd            string                 `protobuf:"bytes,3,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	Shell          string                 `protobuf:"bytes,4,opt,name=shell,proto3" json:"shell,omitempty"`
+	Command        string                 `protobuf:"bytes,5,opt,name=command,proto3" json:"command,omitempty"`
+	Env            []string               `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty"`
+	Cols           uint32                 `protobuf:"varint,7,opt,name=cols,proto3" json:"cols,omitempty"`
+	Rows           uint32                 `protobuf:"varint,8,opt,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TerminalOpenRequest) Reset() {
@@ -6578,11 +6578,11 @@ func (x *TerminalOpenRequest) GetTerminalId() string {
 	return ""
 }
 
-func (x *TerminalOpenRequest) GetSessionId() int64 {
+func (x *TerminalOpenRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *TerminalOpenRequest) GetCwd() string {
@@ -9693,7 +9693,7 @@ func (x *TranscriptImportImage) GetInline() []byte {
 
 // events reuses RuntimeEventNotification purely as the sealed-event envelope:
 // it is the one per-field codec for agentruntime events, and a second copy of
-// that 27-branch oneof would drift. session_id / seq are unused here.
+// that 27-branch oneof would drift. conversation_id / seq are unused here.
 type TranscriptImportTurn struct {
 	state         protoimpl.MessageState      `protogen:"open.v1"`
 	Index         int32                       `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
@@ -9878,15 +9878,15 @@ func (x *TranscriptImportTurnsResponse) GetHasMore() bool {
 // imported session like any other. agentre-server never owns sessions, it
 // mirrors them — so importing from the web console has to happen here.
 //
-// session_id is minted by the caller (same rule as runtime.run: the session id
-// is each client's local autoincrement key and the daemon never issues one).
+// conversation_id is minted by the caller (same rule as runtime.run: the
+// originator mints the conversation's UUID and the daemon never issues one).
 // Title, cwd and the provider session id are NOT inputs: they are the
 // transcript's own facts, read here and written down.
 type TranscriptImportExecuteRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Backend         string                 `protobuf:"bytes,1,opt,name=backend,proto3" json:"backend,omitempty"`
 	Locator         string                 `protobuf:"bytes,2,opt,name=locator,proto3" json:"locator,omitempty"`
-	SessionId       int64                  `protobuf:"varint,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId  string                 `protobuf:"bytes,3,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	AgentId         int64                  `protobuf:"varint,4,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	AgentSyncId     string                 `protobuf:"bytes,5,opt,name=agent_sync_id,json=agentSyncId,proto3" json:"agent_sync_id,omitempty"`
 	PeerFingerprint string                 `protobuf:"bytes,6,opt,name=peer_fingerprint,json=peerFingerprint,proto3" json:"peer_fingerprint,omitempty"`
@@ -9938,11 +9938,11 @@ func (x *TranscriptImportExecuteRequest) GetLocator() string {
 	return ""
 }
 
-func (x *TranscriptImportExecuteRequest) GetSessionId() int64 {
+func (x *TranscriptImportExecuteRequest) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *TranscriptImportExecuteRequest) GetAgentId() int64 {
@@ -9967,12 +9967,12 @@ func (x *TranscriptImportExecuteRequest) GetPeerFingerprint() string {
 }
 
 // already_imported means this provider session already has a session under that
-// peer: session_id is the one in the database (not necessarily the minted one)
-// and turns is 0 — nothing was appended. Re-importing is a normal branch, not
-// an error.
+// peer: conversation_id is the one in the database (not necessarily the minted
+// one) and turns is 0 — nothing was appended. Re-importing is a normal branch,
+// not an error.
 type TranscriptImportExecuteResponse struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	SessionId         int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId    string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	ProviderSessionId string                 `protobuf:"bytes,2,opt,name=provider_session_id,json=providerSessionId,proto3" json:"provider_session_id,omitempty"`
 	Cwd               string                 `protobuf:"bytes,3,opt,name=cwd,proto3" json:"cwd,omitempty"`
 	Title             string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
@@ -10012,11 +10012,11 @@ func (*TranscriptImportExecuteResponse) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{149}
 }
 
-func (x *TranscriptImportExecuteResponse) GetSessionId() int64 {
+func (x *TranscriptImportExecuteResponse) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *TranscriptImportExecuteResponse) GetProviderSessionId() string {
@@ -10055,9 +10055,9 @@ func (x *TranscriptImportExecuteResponse) GetAlreadyImported() bool {
 }
 
 type RuntimeEventNotification struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Seq       int64                  `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	Seq            int64                  `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
 	// Types that are valid to be assigned to Event:
 	//
 	//	*RuntimeEventNotification_TextDelta
@@ -10122,11 +10122,11 @@ func (*RuntimeEventNotification) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{150}
 }
 
-func (x *RuntimeEventNotification) GetSessionId() int64 {
+func (x *RuntimeEventNotification) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RuntimeEventNotification) GetSeq() int64 {
@@ -11211,7 +11211,7 @@ func (x *Usage) GetTotalTokens() int32 {
 
 type RunResultDoneNotification struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	SessionId         int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ConversationId    string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	Seq               int64                  `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
 	ProviderSessionId string                 `protobuf:"bytes,3,opt,name=provider_session_id,json=providerSessionId,proto3" json:"provider_session_id,omitempty"`
 	Usage             *Usage                 `protobuf:"bytes,4,opt,name=usage,proto3" json:"usage,omitempty"`
@@ -11265,11 +11265,11 @@ func (*RunResultDoneNotification) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{163}
 }
 
-func (x *RunResultDoneNotification) GetSessionId() int64 {
+func (x *RunResultDoneNotification) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *RunResultDoneNotification) GetSeq() int64 {
@@ -11357,13 +11357,13 @@ func (x *RunResultDoneNotification) GetTokensPerSec() float64 {
 }
 
 type AutonomousTurnStartedNotification struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Seq           int64                  `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
-	Trigger       string                 `protobuf:"bytes,3,opt,name=trigger,proto3" json:"trigger,omitempty"`
-	TurnToken     uint64                 `protobuf:"varint,4,opt,name=turn_token,json=turnToken,proto3" json:"turn_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	Seq            int64                  `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	Trigger        string                 `protobuf:"bytes,3,opt,name=trigger,proto3" json:"trigger,omitempty"`
+	TurnToken      uint64                 `protobuf:"varint,4,opt,name=turn_token,json=turnToken,proto3" json:"turn_token,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AutonomousTurnStartedNotification) Reset() {
@@ -11396,11 +11396,11 @@ func (*AutonomousTurnStartedNotification) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{164}
 }
 
-func (x *AutonomousTurnStartedNotification) GetSessionId() int64 {
+func (x *AutonomousTurnStartedNotification) GetConversationId() string {
 	if x != nil {
-		return x.SessionId
+		return x.ConversationId
 	}
-	return 0
+	return ""
 }
 
 func (x *AutonomousTurnStartedNotification) GetSeq() int64 {
@@ -13297,10 +13297,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x12SessionListRequest\x12\x18\n" +
 	"\akeyword\x18\x01 \x01(\tR\akeyword\"O\n" +
 	"\x13SessionListResponse\x128\n" +
-	"\bsessions\x18\x01 \x03(\v2\x1c.agentre.wire.SessionSummaryR\bsessions\"\x98\x04\n" +
-	"\x0eSessionSummary\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1c.agentre.wire.SessionSummaryR\bsessions\"\xa2\x04\n" +
+	"\x0eSessionSummary\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x19\n" +
 	"\bagent_id\x18\x03 \x01(\x03R\aagentId\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\"\n" +
@@ -13329,21 +13328,18 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x0fproject_sync_id\x18\x06 \x01(\tR\rprojectSyncId\x12#\n" +
 	"\rsession_count\x18\a \x01(\x05R\fsessionCount\"U\n" +
 	"\x16ActivityRollupResponse\x12;\n" +
-	"\abuckets\x18\x01 \x03(\v2!.agentre.wire.ActivityDailyBucketR\abuckets\"`\n" +
-	"\x14SessionAttachRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
-	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\"\xa1\x01\n" +
-	"\x15SessionAttachResponse\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12!\n" +
+	"\abuckets\x18\x01 \x03(\v2!.agentre.wire.ActivityDailyBucketR\abuckets\"j\n" +
+	"\x14SessionAttachRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
+	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\"\xab\x01\n" +
+	"\x15SessionAttachResponse\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12!\n" +
 	"\fbackend_type\x18\x02 \x01(\tR\vbackendType\x12'\n" +
 	"\x0flifecycle_state\x18\x03 \x01(\tR\x0elifecycleState\x12\x1d\n" +
 	"\n" +
-	"latest_seq\x18\x04 \x01(\x03R\tlatestSeq\"\x8c\x01\n" +
-	"\x12SessionPullRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"latest_seq\x18\x04 \x01(\x03R\tlatestSeq\"\x96\x01\n" +
+	"\x12SessionPullRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x16\n" +
 	"\x06cursor\x18\x03 \x01(\x03R\x06cursor\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\x05R\x05limit\"\xb2\x01\n" +
@@ -13355,10 +13351,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"oldest_seq\x18\x04 \x01(\x03R\toldestSeq\"b\n" +
 	"\x15JournaledNotification\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x127\n" +
-	"\apayload\x18\x02 \x01(\v2\x1d.agentre.wire.RpcNotificationR\apayload\"h\n" +
-	"\x1cSessionPendingWaitersRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\apayload\x18\x02 \x01(\v2\x1d.agentre.wire.RpcNotificationR\apayload\"r\n" +
+	"\x1cSessionPendingWaitersRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\"\xc3\x01\n" +
 	"\x1dSessionPendingWaitersResponse\x12N\n" +
 	"\x10tool_permissions\x18\x01 \x03(\v2#.agentre.wire.PendingToolPermissionR\x0ftoolPermissions\x12R\n" +
@@ -13371,16 +13366,14 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x16PendingAskUserQuestion\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x127\n" +
-	"\tquestions\x18\x02 \x03(\v2\x19.agentre.wire.AskQuestionR\tquestions\"`\n" +
-	"\x14SessionDeleteRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\tquestions\x18\x02 \x03(\v2\x19.agentre.wire.AskQuestionR\tquestions\"j\n" +
+	"\x14SessionDeleteRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\"1\n" +
 	"\x15SessionDeleteResponse\x12\x18\n" +
-	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xa1\x01\n" +
-	"\x15SetModelTargetRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xab\x01\n" +
+	"\x15SetModelTargetRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12!\n" +
 	"\fprovider_key\x18\x03 \x01(\tR\vproviderKey\x12\x1b\n" +
 	"\tmodel_key\x18\x04 \x01(\tR\bmodelKey\"\x18\n" +
@@ -13399,56 +13392,48 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x13launch_default_mode\x18\x05 \x01(\tR\x11launchDefaultMode\"\xab\x01\n" +
 	"\x1bRuntimeCapabilitiesResponse\x12A\n" +
 	"\fcapabilities\x18\x01 \x03(\v2\x1d.agentre.wire.CapabilityEntryR\fcapabilities\x12I\n" +
-	"\x0fpermission_mode\x18\x02 \x01(\v2 .agentre.wire.PermissionModeMetaR\x0epermissionMode\"\x90\x01\n" +
-	"\x13RuntimeSteerRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\x0fpermission_mode\x18\x02 \x01(\v2 .agentre.wire.PermissionModeMetaR\x0epermissionMode\"\x9a\x01\n" +
+	"\x13RuntimeSteerRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x1b\n" +
 	"\tqueued_id\x18\x03 \x01(\tR\bqueuedId\x12\x12\n" +
-	"\x04text\x18\x04 \x01(\tR\x04text\"\x82\x01\n" +
-	"\x19RuntimeCancelSteerRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\"\x8c\x01\n" +
+	"\x19RuntimeCancelSteerRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x1b\n" +
 	"\tqueued_id\x18\x03 \x01(\tR\bqueuedId\"6\n" +
 	"\x1aRuntimeCancelSteerResponse\x12\x18\n" +
-	"\aremoved\x18\x01 \x03(\tR\aremoved\"f\n" +
-	"\x1aRuntimeDrainPendingRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\aremoved\x18\x01 \x03(\tR\aremoved\"p\n" +
+	"\x1aRuntimeDrainPendingRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\"R\n" +
 	"\x1bRuntimeDrainPendingResponse\x123\n" +
-	"\x06steers\x18\x01 \x03(\v2\x1b.agentre.wire.ConsumedSteerR\x06steers\"~\n" +
-	"\x13RuntimeAbortRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\x06steers\x18\x01 \x03(\v2\x1b.agentre.wire.ConsumedSteerR\x06steers\"\x88\x01\n" +
+	"\x13RuntimeAbortRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x1d\n" +
 	"\n" +
 	"turn_token\x18\x03 \x01(\x04R\tturnToken\"3\n" +
 	"\x14RuntimeAbortResponse\x12\x1b\n" +
-	"\tturn_kind\x18\x01 \x01(\tR\bturnKind\"\x85\x01\n" +
-	" RuntimeStopBackgroundTaskRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\tturn_kind\x18\x01 \x01(\tR\bturnKind\"\x8f\x01\n" +
+	" RuntimeStopBackgroundTaskRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x17\n" +
-	"\atask_id\x18\x03 \x01(\tR\x06taskId\"\x7f\n" +
-	"\x1fRuntimeSetPermissionModeRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\atask_id\x18\x03 \x01(\tR\x06taskId\"\x89\x01\n" +
+	"\x1fRuntimeSetPermissionModeRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x12\n" +
-	"\x04mode\x18\x03 \x01(\tR\x04mode\"\x8b\x02\n" +
-	"\x1aRuntimeSubmitAnswerRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\x04mode\x18\x03 \x01(\tR\x04mode\"\x95\x02\n" +
+	"\x1aRuntimeSubmitAnswerRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x03 \x01(\tR\trequestId\x127\n" +
 	"\tquestions\x18\x04 \x03(\v2\x19.agentre.wire.AskQuestionR\tquestions\x121\n" +
 	"\aanswers\x18\x05 \x03(\v2\x17.agentre.wire.AskAnswerR\aanswers\x12\x18\n" +
-	"\askipped\x18\x06 \x01(\bR\askipped\"\xf6\x01\n" +
-	"\"RuntimeSubmitToolPermissionRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\askipped\x18\x06 \x01(\bR\askipped\"\x80\x02\n" +
+	"\"RuntimeSubmitToolPermissionRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x03 \x01(\tR\trequestId\x12\x14\n" +
@@ -13504,12 +13489,11 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x05tools\x18\x04 \x03(\tR\x05tools\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbc\b\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc6\b\n" +
 	"\x11RuntimeRunRequest\x124\n" +
 	"\abackend\x18\x01 \x01(\v2\x1a.agentre.wire.AgentBackendR\abackend\x12\x19\n" +
-	"\bagent_id\x18\x02 \x01(\x03R\aagentId\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x03 \x01(\x03R\tsessionId\x12)\n" +
+	"\bagent_id\x18\x02 \x01(\x03R\aagentId\x12'\n" +
+	"\x0fconversation_id\x18\x03 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x04 \x01(\tR\x0fpeerFingerprint\x12\x10\n" +
 	"\x03cwd\x18\x05 \x01(\tR\x03cwd\x12\x14\n" +
 	"\x05title\x18\x06 \x01(\tR\x05title\x12\"\n" +
@@ -13537,16 +13521,14 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x0fproject_sync_id\x18\x18 \x01(\tR\rprojectSyncId\x1aA\n" +
 	"\x13EnabledPluginsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\xcd\x01\n" +
-	"\x12RuntimeRunResponse\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12.\n" +
+	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\xd7\x01\n" +
+	"\x12RuntimeRunResponse\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12.\n" +
 	"\x13provider_session_id\x18\x02 \x01(\tR\x11providerSessionId\x124\n" +
 	"\x16launch_permission_mode\x18\x03 \x01(\tR\x14launchPermissionMode\x122\n" +
-	"\x15provider_fallback_key\x18\x04 \x01(\tR\x13providerFallbackKey\"\xd1\x03\n" +
-	"\x12RuntimeGoalRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12)\n" +
+	"\x15provider_fallback_key\x18\x04 \x01(\tR\x13providerFallbackKey\"\xdb\x03\n" +
+	"\x12RuntimeGoalRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x19\n" +
 	"\bagent_id\x18\x03 \x01(\x03R\aagentId\x12.\n" +
 	"\x13provider_session_id\x18\x04 \x01(\tR\x11providerSessionId\x124\n" +
@@ -13578,12 +13560,11 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x13RuntimeGoalResponse\x12&\n" +
 	"\x04goal\x18\x01 \x01(\v2\x12.agentre.wire.GoalR\x04goal\"4\n" +
 	"\x18RuntimeGoalClearResponse\x12\x18\n" +
-	"\acleared\x18\x01 \x01(\bR\acleared\"\xd1\x01\n" +
+	"\acleared\x18\x01 \x01(\bR\acleared\"\xdb\x01\n" +
 	"\x13TerminalOpenRequest\x12\x1f\n" +
 	"\vterminal_id\x18\x01 \x01(\tR\n" +
-	"terminalId\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x02 \x01(\x03R\tsessionId\x12\x10\n" +
+	"terminalId\x12'\n" +
+	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x10\n" +
 	"\x03cwd\x18\x03 \x01(\tR\x03cwd\x12\x14\n" +
 	"\x05shell\x18\x04 \x01(\tR\x05shell\x12\x18\n" +
 	"\acommand\x18\x05 \x01(\tR\acommand\x12\x10\n" +
@@ -13848,26 +13829,23 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x05turns\x18\x01 \x03(\v2\".agentre.wire.TranscriptImportTurnR\x05turns\x12\x1d\n" +
 	"\n" +
 	"next_index\x18\x02 \x01(\x05R\tnextIndex\x12\x19\n" +
-	"\bhas_more\x18\x03 \x01(\bR\ahasMore\"\xdd\x01\n" +
+	"\bhas_more\x18\x03 \x01(\bR\ahasMore\"\xe7\x01\n" +
 	"\x1eTranscriptImportExecuteRequest\x12\x18\n" +
 	"\abackend\x18\x01 \x01(\tR\abackend\x12\x18\n" +
-	"\alocator\x18\x02 \x01(\tR\alocator\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x03 \x01(\x03R\tsessionId\x12\x19\n" +
+	"\alocator\x18\x02 \x01(\tR\alocator\x12'\n" +
+	"\x0fconversation_id\x18\x03 \x01(\tR\x0econversationId\x12\x19\n" +
 	"\bagent_id\x18\x04 \x01(\x03R\aagentId\x12\"\n" +
 	"\ragent_sync_id\x18\x05 \x01(\tR\vagentSyncId\x12)\n" +
-	"\x10peer_fingerprint\x18\x06 \x01(\tR\x0fpeerFingerprint\"\xd9\x01\n" +
-	"\x1fTranscriptImportExecuteResponse\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12.\n" +
+	"\x10peer_fingerprint\x18\x06 \x01(\tR\x0fpeerFingerprint\"\xe3\x01\n" +
+	"\x1fTranscriptImportExecuteResponse\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12.\n" +
 	"\x13provider_session_id\x18\x02 \x01(\tR\x11providerSessionId\x12\x10\n" +
 	"\x03cwd\x18\x03 \x01(\tR\x03cwd\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x14\n" +
 	"\x05turns\x18\x05 \x01(\x05R\x05turns\x12)\n" +
-	"\x10already_imported\x18\x06 \x01(\bR\x0falreadyImported\"\xf2\x0f\n" +
-	"\x18RuntimeEventNotification\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12\x10\n" +
+	"\x10already_imported\x18\x06 \x01(\bR\x0falreadyImported\"\xfc\x0f\n" +
+	"\x18RuntimeEventNotification\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x03R\x03seq\x128\n" +
 	"\n" +
 	"text_delta\x18\x03 \x01(\v2\x17.agentre.wire.TextDeltaH\x00R\ttextDelta\x12D\n" +
@@ -13943,10 +13921,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x10reasoning_tokens\x18\x03 \x01(\x05R\x0freasoningTokens\x12#\n" +
 	"\rcached_tokens\x18\x04 \x01(\x05R\fcachedTokens\x122\n" +
 	"\x15cache_creation_tokens\x18\x05 \x01(\x05R\x13cacheCreationTokens\x12!\n" +
-	"\ftotal_tokens\x18\x06 \x01(\x05R\vtotalTokens\"\xe7\x03\n" +
-	"\x19RunResultDoneNotification\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12\x10\n" +
+	"\ftotal_tokens\x18\x06 \x01(\x05R\vtotalTokens\"\xf1\x03\n" +
+	"\x19RunResultDoneNotification\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x03R\x03seq\x12.\n" +
 	"\x13provider_session_id\x18\x03 \x01(\tR\x11providerSessionId\x12)\n" +
 	"\x05usage\x18\x04 \x01(\v2\x13.agentre.wire.UsageR\x05usage\x12\x1f\n" +
@@ -13962,10 +13939,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\vduration_ms\x18\v \x01(\x05R\n" +
 	"durationMs\x12$\n" +
 	"\x0efirst_token_ms\x18\f \x01(\x05R\ffirstTokenMs\x12$\n" +
-	"\x0etokens_per_sec\x18\r \x01(\x01R\ftokensPerSec\"\x8d\x01\n" +
-	"!AutonomousTurnStartedNotification\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\x03R\tsessionId\x12\x10\n" +
+	"\x0etokens_per_sec\x18\r \x01(\x01R\ftokensPerSec\"\x97\x01\n" +
+	"!AutonomousTurnStartedNotification\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x03R\x03seq\x12\x18\n" +
 	"\atrigger\x18\x03 \x01(\tR\atrigger\x12\x1d\n" +
 	"\n" +

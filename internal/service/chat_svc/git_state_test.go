@@ -260,3 +260,6 @@ func TestGetSessionGitState_SessionNotFound(t *testing.T) {
 		So(err, ShouldNotBeNil)
 	})
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:这个假连接从没握过手,本端指纹为空。
+func (c *gitStateProtoClient) SelfFingerprint() string { return "" }

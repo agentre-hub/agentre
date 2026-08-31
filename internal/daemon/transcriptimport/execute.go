@@ -23,7 +23,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/logger"
@@ -62,14 +61,14 @@ type JournalPurger interface {
 
 // Execute 在这台机器上执行一次导入。
 func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wire.ExecuteResult, error) {
-	if params.SessionID <= 0 {
-		return nil, rpcerror.ErrInvalidParams
+	if err := handlers.ErrInvalidConversationID(params.ConversationID); err != nil {
+		return nil, err
 	}
 	if h.sessions == nil || h.journal == nil {
 		// 没接存储就没有「执行」可言。静默回一个空结果会让调用方以为导完了,
 		// 而库里一行都没有。
 		logger.Ctx(ctx).Error("daemon.transcriptimport.Execute: storage not wired",
-			zap.Int64("sessionId", params.SessionID))
+			zap.String("conversationId", params.ConversationID))
 		return nil, rpcerror.ErrInternal
 	}
 	peer, err := handlers.ResolveSessionPeer(ctx, params.PeerFingerprint, h.claimedAccountID)
@@ -83,21 +82,21 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 	defer closeTranscript(ctx, transcript)
 	meta := transcript.Meta()
 
-	peerSessionID := strconv.FormatInt(params.SessionID, 10)
+	// 身份列本来就是 TEXT:对话身份原样落进去,从前那一圈 int64↔string 往返消失了。
+	peerSessionID := params.ConversationID
 	existing, err := h.findImported(ctx, peer, peerSessionID, meta.ProviderSessionID)
 	if err != nil {
 		return nil, err
 	}
 	if existing != nil {
-		sid, parseErr := strconv.ParseInt(existing.PeerSessionID, 10, 64)
-		if parseErr != nil {
-			return nil, fmt.Errorf("transcriptimport: imported session id %q: %w", existing.PeerSessionID, parseErr)
-		}
+		// 交回的是**库里那条**的身份,未必等于调用方刚铸的那个(契约见
+		// wire.ExecuteResult):这份转录早就导过一次,收敛到已有的那条对话上。
 		logger.Ctx(ctx).Info("daemon.transcriptimport.Execute: already imported",
-			zap.String("backendType", params.Backend), zap.Int64("sessionId", sid),
+			zap.String("backendType", params.Backend),
+			zap.String("conversationId", existing.PeerSessionID),
 			zap.String("providerSessionId", meta.ProviderSessionID))
 		return &wire.ExecuteResult{
-			SessionID: sid, ProviderSessionID: existing.ProviderSessionID,
+			ConversationID: existing.PeerSessionID, ProviderSessionID: existing.ProviderSessionID,
 			Cwd: existing.Cwd, Title: existing.Title, AlreadyImported: true,
 		}, nil
 	}
@@ -110,12 +109,12 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		return h.journalTurn(ctx, peer, peerSessionID, params.SessionID, meta, turn, replay)
+		return h.journalTurn(ctx, peer, peerSessionID, meta, turn, replay)
 	})
 	if turnErr != nil {
 		// 这里就是这条链路上「能判定它失败了」的那一层:上面只剩 RPC 壳。
 		logger.Ctx(ctx).Error("daemon.transcriptimport.Execute: replay failed",
-			zap.String("backendType", params.Backend), zap.Int64("sessionId", params.SessionID),
+			zap.String("backendType", params.Backend), zap.String("conversationId", params.ConversationID),
 			zap.Int("turns", replay.turns), zap.Error(turnErr))
 		return nil, fmt.Errorf("transcriptimport: replay turns: %w", turnErr)
 	}
@@ -138,11 +137,11 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 		return nil, fmt.Errorf("transcriptimport: create session: %w", err)
 	}
 	logger.Ctx(ctx).Info("daemon.transcriptimport.Execute: imported",
-		zap.String("backendType", params.Backend), zap.Int64("sessionId", params.SessionID),
+		zap.String("backendType", params.Backend), zap.String("conversationId", params.ConversationID),
 		zap.String("providerSessionId", meta.ProviderSessionID), zap.Int("turns", replay.turns),
 		zap.Int64("latestSeq", replay.seq), zap.Int("droppedImages", replay.droppedImages))
 	return &wire.ExecuteResult{
-		SessionID: params.SessionID, ProviderSessionID: meta.ProviderSessionID,
+		ConversationID: params.ConversationID, ProviderSessionID: meta.ProviderSessionID,
 		Cwd: meta.Cwd, Title: title, Turns: replay.turns,
 	}, nil
 }
@@ -217,14 +216,14 @@ func (h *Handlers) clearLeftoverJournal(ctx context.Context, peer, peerSessionID
 // 补齐轮、agentre-server 的镜像投影)认的就是这一串,收尾帧 runResultDone 是补齐轮
 // 的终点 —— 少了它,客户端那一轮永远不结束。
 func (h *Handlers) journalTurn(
-	ctx context.Context, peer, peerSessionID string, sessionID int64,
+	ctx context.Context, peer, peerSessionID string,
 	meta pkgimport.Meta, turn pkgimport.Turn, counters *replayCounters,
 ) error {
 	// 用户那一行经 UserMessageEvent 进转录 —— 它是 daemon 到客户端「这一轮是谁开的」
 	// 的唯一事实来源。**不带 SourceDevice**:这一轮不是任何在线设备此刻发起的,
 	// 填一个指纹会在转录里印出一句「来自 <设备>」。
 	if turn.UserText != "" {
-		if err := h.journalEvent(ctx, peer, peerSessionID, sessionID,
+		if err := h.journalEvent(ctx, peer, peerSessionID,
 			agentruntime.UserMessageEvent{Text: turn.UserText}, counters); err != nil {
 			return err
 		}
@@ -233,7 +232,7 @@ func (h *Handlers) journalTurn(
 	// 用户那一行上的载体。如实计数,收尾那行日志报出来,不假装导全了。
 	counters.droppedImages += len(turn.UserImages)
 	for _, event := range turn.Events {
-		if err := h.journalEvent(ctx, peer, peerSessionID, sessionID, event, counters); err != nil {
+		if err := h.journalEvent(ctx, peer, peerSessionID, event, counters); err != nil {
 			return err
 		}
 	}
@@ -241,22 +240,22 @@ func (h *Handlers) journalTurn(
 	// chat_svc 那处注释),而 agentre-server 的转录投影只读事件 —— 两边各取所需,
 	// 不会重复计数。
 	if turn.Usage != nil {
-		if err := h.journalEvent(ctx, peer, peerSessionID, sessionID,
+		if err := h.journalEvent(ctx, peer, peerSessionID,
 			agentruntime.UsageUpdate{Usage: turn.Usage}, counters); err != nil {
 			return err
 		}
 	}
 	if turn.ErrorText != "" {
-		if err := h.journalEvent(ctx, peer, peerSessionID, sessionID,
+		if err := h.journalEvent(ctx, peer, peerSessionID,
 			agentruntime.ErrorEvent{Err: errors.New(turn.ErrorText)}, counters); err != nil {
 			return err
 		}
 	}
-	if err := h.journalEvent(ctx, peer, peerSessionID, sessionID, agentruntime.Done{}, counters); err != nil {
+	if err := h.journalEvent(ctx, peer, peerSessionID, agentruntime.Done{}, counters); err != nil {
 		return err
 	}
 	done := &runtimewire.RunResultDoneFrame{
-		SessionID:         sessionID,
+		ConversationID:    peerSessionID,
 		ProviderSessionID: meta.ProviderSessionID,
 		Model:             turn.Model,
 		UserAnchor:        turn.ForkAnchor,
@@ -276,10 +275,10 @@ func (h *Handlers) journalTurn(
 }
 
 func (h *Handlers) journalEvent(
-	ctx context.Context, peer, peerSessionID string, sessionID int64,
+	ctx context.Context, peer, peerSessionID string,
 	event agentruntime.Event, counters *replayCounters,
 ) error {
-	frame := &runtimewire.EventFrame{SessionID: sessionID, Event: event}
+	frame := &runtimewire.EventFrame{ConversationID: peerSessionID, Event: event}
 	return h.journalNotification(ctx, peer, peerSessionID, runtimewire.NotifyEvent, frame, counters)
 }
 

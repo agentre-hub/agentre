@@ -1,7 +1,7 @@
 {
   "sessions": [
     {
-      "sessionId": 42,
+      "conversationId": "00000000-0000-7000-8000-000000000042",
       "agentId": 7,
       "title": "重构登录页",
       "agentSyncId": "01JZ7W2A8KZ4R5T6Y7U8I9O0P1Q",
@@ -14,7 +14,7 @@
       "lastMessageAt": 1754800000000
     },
     {
-      "sessionId": 8,
+      "conversationId": "00000000-0000-7000-8000-000000000008",
       "peerFingerprint": "fp-desktop",
       "agentId": 3,
       "cwd": "/var/proj",

@@ -48,12 +48,12 @@ func (d *Daemon) bindProtobufConn(conn *protorpc.Conn) {
 	}()
 }
 
-func (d *Daemon) claimProtobuf(ctx context.Context, sessionID int64, peer string) (claimTicket, error) {
+func (d *Daemon) claimProtobuf(ctx context.Context, conversationID string, peer string) (claimTicket, error) {
 	resolved, err := handlers.ResolveSessionPeer(ctx, peer, d.claimedAccountID)
 	if err != nil {
 		return claimTicket{}, err
 	}
-	return d.conns.claimFor(protorpc.ConnFromContext(ctx), resolved, sessionID), nil
+	return d.conns.claimFor(protorpc.ConnFromContext(ctx), resolved, conversationID), nil
 }
 
 func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *protorpc.Conn, rh *handlers.RuntimeHandlers) {
@@ -80,7 +80,7 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		if err != nil {
 			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: err.Error()}
 		}
-		ticket, err := d.claimProtobuf(ctx, params.SessionID, params.PeerFingerprint)
+		ticket, err := d.claimProtobuf(ctx, params.ConversationID, params.PeerFingerprint)
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
@@ -89,17 +89,17 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
 		}
-		return &agentrewire.RuntimeRunResponse{SessionId: result.SessionID, ProviderSessionId: result.ProviderSessionID, LaunchPermissionMode: result.LaunchPermissionMode, ProviderFallbackKey: result.ProviderFallbackKey}, nil
+		return &agentrewire.RuntimeRunResponse{ConversationId: result.ConversationID, ProviderSessionId: result.ProviderSessionID, LaunchPermissionMode: result.LaunchPermissionMode, ProviderFallbackKey: result.ProviderFallbackKey}, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.Empty, error) {
 		if err := guard(ctx); err != nil {
 			return nil, err
 		}
-		ticket, err := d.claimProtobuf(ctx, req.SessionId, req.PeerFingerprint)
+		ticket, err := d.claimProtobuf(ctx, req.ConversationId, req.PeerFingerprint)
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
-		_, err = rh.Steer(ctx, remotewire.SteerParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId, Text: req.Text})
+		_, err = rh.Steer(ctx, remotewire.SteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId, Text: req.Text})
 		if err != nil {
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
@@ -110,11 +110,11 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		if err := guard(ctx); err != nil {
 			return nil, err
 		}
-		ticket, err := d.claimProtobuf(ctx, req.SessionId, req.PeerFingerprint)
+		ticket, err := d.claimProtobuf(ctx, req.ConversationId, req.PeerFingerprint)
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
-		result, err := rh.CancelSteer(ctx, remotewire.CancelSteerParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId})
+		result, err := rh.CancelSteer(ctx, remotewire.CancelSteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId})
 		if err != nil {
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
@@ -125,11 +125,11 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		if err := guard(ctx); err != nil {
 			return nil, err
 		}
-		ticket, err := d.claimProtobuf(ctx, req.SessionId, req.PeerFingerprint)
+		ticket, err := d.claimProtobuf(ctx, req.ConversationId, req.PeerFingerprint)
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
-		result, err := rh.DrainPending(ctx, remotewire.DrainParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint})
+		result, err := rh.DrainPending(ctx, remotewire.DrainParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint})
 		if err != nil {
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
@@ -144,11 +144,11 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		if err := guard(ctx); err != nil {
 			return nil, err
 		}
-		ticket, err := d.claimProtobuf(ctx, req.SessionId, req.PeerFingerprint)
+		ticket, err := d.claimProtobuf(ctx, req.ConversationId, req.PeerFingerprint)
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
-		result, err := rh.Abort(ctx, remotewire.AbortParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint, TurnToken: req.TurnToken})
+		result, err := rh.Abort(ctx, remotewire.AbortParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, TurnToken: req.TurnToken})
 		if err != nil {
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
@@ -158,20 +158,20 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 	registerEmptyControl(reg, agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK, func() *agentrewire.RuntimeStopBackgroundTaskRequest {
 		return &agentrewire.RuntimeStopBackgroundTaskRequest{}
 	}, func(ctx context.Context, req *agentrewire.RuntimeStopBackgroundTaskRequest) error {
-		_, err := rh.StopBackgroundTask(ctx, remotewire.StopBackgroundTaskParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint, TaskID: req.TaskId})
+		_, err := rh.StopBackgroundTask(ctx, remotewire.StopBackgroundTaskParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, TaskID: req.TaskId})
 		return err
 	}, d, guard)
 	registerEmptyControl(reg, agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE, func() *agentrewire.RuntimeSetPermissionModeRequest {
 		return &agentrewire.RuntimeSetPermissionModeRequest{}
 	}, func(ctx context.Context, req *agentrewire.RuntimeSetPermissionModeRequest) error {
-		_, err := rh.SetPermissionMode(ctx, remotewire.SetPermissionModeParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint, Mode: req.Mode})
+		_, err := rh.SetPermissionMode(ctx, remotewire.SetPermissionModeParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, Mode: req.Mode})
 		return err
 	}, d, guard)
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), func() *agentrewire.RuntimeSubmitAnswerRequest { return &agentrewire.RuntimeSubmitAnswerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
 		if err := guard(ctx); err != nil {
 			return nil, err
 		}
-		ticket, err := d.claimProtobuf(ctx, req.SessionId, req.PeerFingerprint)
+		ticket, err := d.claimProtobuf(ctx, req.ConversationId, req.PeerFingerprint)
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
@@ -183,7 +183,7 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		for _, answer := range req.Answers {
 			answers = append(answers, agentruntime.AskAnswer{QuestionIndex: int(answer.QuestionIndex), Labels: append([]string(nil), answer.Labels...), OtherText: answer.OtherText})
 		}
-		_, err = rh.SubmitAnswer(ctx, remotewire.SubmitAnswerParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint, RequestID: req.RequestId, Questions: questions, Answers: answers, Skipped: req.Skipped})
+		_, err = rh.SubmitAnswer(ctx, remotewire.SubmitAnswerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, RequestID: req.RequestId, Questions: questions, Answers: answers, Skipped: req.Skipped})
 		if err != nil {
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
@@ -196,11 +196,11 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		if err := guard(ctx); err != nil {
 			return nil, err
 		}
-		ticket, err := d.claimProtobuf(ctx, req.SessionId, req.PeerFingerprint)
+		ticket, err := d.claimProtobuf(ctx, req.ConversationId, req.PeerFingerprint)
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
-		_, err = rh.SubmitToolPermission(ctx, remotewire.SubmitToolPermissionParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint, RequestID: req.RequestId, Allow: req.Allow, AlwaysAllowSession: req.AlwaysAllowSession, DenyReason: req.DenyReason})
+		_, err = rh.SubmitToolPermission(ctx, remotewire.SubmitToolPermissionParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, RequestID: req.RequestId, Allow: req.Allow, AlwaysAllowSession: req.AlwaysAllowSession, DenyReason: req.DenyReason})
 		if err != nil {
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
@@ -216,7 +216,7 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 			if err != nil {
 				return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: err.Error()}
 			}
-			ticket, err := d.claimProtobuf(ctx, params.SessionID, params.PeerFingerprint)
+			ticket, err := d.claimProtobuf(ctx, params.ConversationID, params.PeerFingerprint)
 			if err != nil {
 				return nil, protobufRuntimeError(err)
 			}
@@ -238,7 +238,7 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		if err != nil {
 			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: err.Error()}
 		}
-		ticket, err := d.claimProtobuf(ctx, params.SessionID, params.PeerFingerprint)
+		ticket, err := d.claimProtobuf(ctx, params.ConversationID, params.PeerFingerprint)
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
@@ -254,14 +254,14 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 
 func registerEmptyControl[Req interface {
 	proto.Message
-	GetSessionId() int64
+	GetConversationId() string
 	GetPeerFingerprint() string
 }](reg *protorpc.Registry, method agentrewire.RpcMethod, factory func() Req, handler func(context.Context, Req) error, d *Daemon, guard func(context.Context) error) {
 	protorpc.RegisterMethod(reg, uint32(method), factory, func(ctx context.Context, req Req) (*agentrewire.Empty, error) {
 		if err := guard(ctx); err != nil {
 			return nil, err
 		}
-		ticket, err := d.claimProtobuf(ctx, req.GetSessionId(), req.GetPeerFingerprint())
+		ticket, err := d.claimProtobuf(ctx, req.GetConversationId(), req.GetPeerFingerprint())
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
@@ -282,13 +282,13 @@ func (d *Daemon) registerProtobufAttach(reg *protorpc.Registry, conn *protorpc.C
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
-		result, err := d.catchup.Attach(ctx, remotewire.SessionAttachParams{SessionID: req.SessionId, PeerFingerprint: req.PeerFingerprint})
+		result, err := d.catchup.Attach(ctx, remotewire.SessionAttachParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint})
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
-		rh.AdoptForPeer(peer, result.SessionID, agent_backend_entity.BackendType(result.BackendType))
-		d.conns.claimFor(conn, peer, result.SessionID)
-		return &agentrewire.SessionAttachResponse{SessionId: result.SessionID, BackendType: result.BackendType, LifecycleState: result.LifecycleState, LatestSeq: result.LatestSeq}, nil
+		rh.AdoptForPeer(peer, result.ConversationID, agent_backend_entity.BackendType(result.BackendType))
+		d.conns.claimFor(conn, peer, result.ConversationID)
+		return &agentrewire.SessionAttachResponse{ConversationId: result.ConversationID, BackendType: result.BackendType, LifecycleState: result.LifecycleState, LatestSeq: result.LatestSeq}, nil
 	})
 }
 

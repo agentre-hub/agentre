@@ -58,12 +58,12 @@ func (c *scriptedDaemonClient) countOf(method string) int {
 	return len(c.params[method])
 }
 
-func (c *scriptedDaemonClient) attachedSessions() []int64 {
+func (c *scriptedDaemonClient) attachedSessions() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make([]int64, 0, len(c.params[wire.MethodSessionAttach]))
+	out := make([]string, 0, len(c.params[wire.MethodSessionAttach]))
 	for _, p := range c.params[wire.MethodSessionAttach] {
-		out = append(out, p.(wire.SessionAttachParams).SessionID)
+		out = append(out, p.(wire.SessionAttachParams).ConversationID)
 	}
 	return out
 }
@@ -90,13 +90,13 @@ func TestCatchUpRemoteSessions_ConnectsByExecDeviceAndRunsThreeSteps(t *testing.
 		switch method {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{
-				{SessionID: behind, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 20},
-				{SessionID: caughtUp, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
+				{ConversationID: execConvID(behind), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 20},
+				{ConversationID: execConvID(caughtUp), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
 			}}
 		case wire.MethodSessionAttach:
 			p := params.(wire.SessionAttachParams)
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: p.SessionID, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 20,
+				ConversationID: p.ConversationID, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 20,
 			}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
@@ -164,7 +164,7 @@ func TestCatchUpRemoteSessions_ConnectsByExecDeviceAndRunsThreeSteps(t *testing.
 
 	assert.Equal(t, 1, client.countOf(wire.MethodSessionList),
 		"会话清单是补齐的第一步,每台 daemon 问一次")
-	assert.Equal(t, []int64{behind}, client.attachedSessions(),
+	assert.Equal(t, []string{execConvID(behind)}, client.attachedSessions(),
 		"只有真正落下内容的那条才发 attach —— 清单交回的 latestSeq 就是用来分辨这件事的")
 	assert.Equal(t, 1, client.countOf(wire.MethodSessionPull))
 	assert.Equal(t, 1, client.countOf(wire.MethodSessionPendingWaiters),
@@ -199,13 +199,13 @@ func TestCatchUpRemoteSessions_OnlyFailsSessionsTheDaemonIsNotRunning(t *testing
 		switch method {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{
-				{SessionID: stillRun, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5},
-				{SessionID: longDone, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
+				{ConversationID: execConvID(stillRun), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5},
+				{ConversationID: execConvID(longDone), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
 			}}
 		case wire.MethodSessionAttach:
 			p := params.(wire.SessionAttachParams)
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: p.SessionID, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5,
+				ConversationID: p.ConversationID, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5,
 			}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
@@ -290,7 +290,7 @@ func TestCatchUpRemoteSessions_DialFailureDoesNotJudgeSessions(t *testing.T) {
 		switch method {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{
-				{SessionID: 200, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
+				{ConversationID: execConvID(200), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
 			}}
 		case wire.MethodSessionPendingWaiters:
 			*(result.(*wire.SessionPendingWaitersResult)) = wire.SessionPendingWaitersResult{}
@@ -376,13 +376,13 @@ func TestCatchUpRemoteSessions_ReturnsPooledConnWhenNothingIsLive(t *testing.T) 
 		switch method {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{
-				{SessionID: behind, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 20},
-				{SessionID: caughtUp, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
+				{ConversationID: execConvID(behind), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 20},
+				{ConversationID: execConvID(caughtUp), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
 			}}
 		case wire.MethodSessionAttach:
 			p := params.(wire.SessionAttachParams)
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: p.SessionID, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 20,
+				ConversationID: p.ConversationID, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 20,
 			}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
@@ -443,13 +443,13 @@ func TestCatchUpRemoteSessions_KeepsPooledConnForSessionStillRunning(t *testing.
 		switch method {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{
-				{SessionID: stillRun, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5},
-				{SessionID: longDone, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
+				{ConversationID: execConvID(stillRun), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5},
+				{ConversationID: execConvID(longDone), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
 			}}
 		case wire.MethodSessionAttach:
 			p := params.(wire.SessionAttachParams)
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: p.SessionID, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5,
+				ConversationID: p.ConversationID, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5,
 			}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
@@ -543,7 +543,7 @@ func TestCatchUpRemoteSessions_UnresolvedBackendSessionIsNotJudged(t *testing.T)
 	client := newScriptedDaemonClient(func(method string, _, result any) error {
 		if method == wire.MethodSessionList {
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{
-				{SessionID: 100, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 9},
+				{ConversationID: execConvID(100), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 9},
 			}}
 		}
 		return nil
@@ -605,7 +605,7 @@ func TestCatchUpRemoteDevice_RetriesWhenDeviceComesBackOnline(t *testing.T) {
 		switch method {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{
-				{SessionID: 100, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
+				{ConversationID: execConvID(100), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 5},
 			}}
 		case wire.MethodSessionPendingWaiters:
 			*(result.(*wire.SessionPendingWaitersResult)) = wire.SessionPendingWaitersResult{}

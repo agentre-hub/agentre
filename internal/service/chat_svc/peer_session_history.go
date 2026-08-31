@@ -167,11 +167,15 @@ func enqueuePeerFrame(sub *peerSessionSubscription, frame wire.EventFrame) {
 // PullPeerSession serves the same runtime.session.pull contract used by
 // agentred. The subscriber identifies the account connection whose attach
 // handoff cursor advances; it is not a new wire field.
-func (s *chatSvc) PullPeerSession(_ context.Context, params wire.SessionPullParams, subscriber PeerSessionSubscriber) (wire.SessionPullResult, error) {
-	if params.SessionID <= 0 || subscriber == nil {
+func (s *chatSvc) PullPeerSession(ctx context.Context, params wire.SessionPullParams, subscriber PeerSessionSubscriber) (wire.SessionPullResult, error) {
+	if subscriber == nil {
 		return wire.SessionPullResult{}, ErrPeerSessionNotFound
 	}
-	publication := s.peerPublication(params.SessionID)
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return wire.SessionPullResult{}, err
+	}
+	publication := s.peerPublication(sessionID)
 	key := peerSubscriberKey(subscriber)
 	publication.mu.Lock()
 
@@ -286,7 +290,7 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 	publication := value.(*peerSessionPublication)
 	publication.mu.Lock()
 	publication.nextSeq++
-	frame := wire.EventFrame{SessionID: sessionID, Event: event, Seq: publication.nextSeq}
+	frame := wire.EventFrame{ConversationID: peerConversationIDOf(sessionID), Event: event, Seq: publication.nextSeq}
 	publication.history = append(publication.history, frame)
 	for _, subscription := range publication.subscribers {
 		// Queue only: the flush worker performs the (potentially blocking) relay
@@ -344,7 +348,7 @@ func synthesizePeerHistory(sessionID int64, messages []*chat_entity.Message) ([]
 	})
 	frames := make([]wire.EventFrame, 0)
 	appendEvent := func(event agentruntime.Event) error {
-		frames = append(frames, wire.EventFrame{SessionID: sessionID, Event: event})
+		frames = append(frames, wire.EventFrame{ConversationID: peerConversationIDOf(sessionID), Event: event})
 		return nil
 	}
 	for _, message := range sorted {

@@ -48,13 +48,13 @@ func TestSessionModelTarget_Set_PersistsAllThreeStates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, sessions, h := setupModelTargetTest(t)
 			sessions.EXPECT().
-				SetModelTarget(gomock.Any(), "", "41", tc.provider, tc.model).
+				SetModelTarget(gomock.Any(), "", convID(41), tc.provider, tc.model).
 				Return(int64(1), nil)
 
 			// wire.OK 是个空结构:成功与否全在 error 上,断言点是「正好这两格、
 			// 正好这条会话被写下去了」——由上面的 EXPECT 精确入参承担。
 			_, err := h.SetModelTarget(ctx, wire.SetModelTargetParams{
-				SessionID: 41, ProviderKey: tc.provider, ModelKey: tc.model,
+				ConversationID: convID(41), ProviderKey: tc.provider, ModelKey: tc.model,
 			})
 			require.NoError(t, err)
 		})
@@ -66,20 +66,26 @@ func TestSessionModelTarget_Set_PersistsAllThreeStates(t *testing.T) {
 // 的会话的模型」没有任何东西可以幂等。)
 func TestSessionModelTarget_Set_UnknownSessionIsAnError(t *testing.T) {
 	ctx, sessions, h := setupModelTargetTest(t)
-	sessions.EXPECT().SetModelTarget(gomock.Any(), "", "999", "p", "m").Return(int64(0), nil)
+	sessions.EXPECT().SetModelTarget(gomock.Any(), "", convID(999), "p", "m").Return(int64(0), nil)
 
 	_, err := h.SetModelTarget(ctx, wire.SetModelTargetParams{
-		SessionID: 999, ProviderKey: "p", ModelKey: "m",
+		ConversationID: convID(999), ProviderKey: "p", ModelKey: "m",
 	})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, rpcerror.ErrSessionNotFound),
 		"改不存在的会话必须可分辨地报错,不能静默成功")
 }
 
-// 非法会话 id 在打库之前就挡下:0 / 负数写不到任何行,却会让调用方收到「改好了」。
-func TestSessionModelTarget_Set_RejectsNonPositiveSessionID(t *testing.T) {
-	ctx, _, h := setupModelTargetTest(t)
-	_, err := h.SetModelTarget(ctx, wire.SetModelTargetParams{SessionID: 0})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, rpcerror.ErrInvalidParams))
+// 不成其为对话身份的取值在打库之前就挡下:它们写不到任何行,却会让调用方收到「改好了」。
+func TestSessionModelTarget_Set_RejectsSomethingThatIsNotAConversationID(t *testing.T) {
+	for _, bad := range []string{"", "0", "41", "not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
+		t.Run(bad, func(t *testing.T) {
+			ctx, _, h := setupModelTargetTest(t)
+			_, err := h.SetModelTarget(ctx, wire.SetModelTargetParams{ConversationID: bad})
+			var rpcErr *rpcerror.Error
+			require.ErrorAs(t, err, &rpcErr)
+			assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code,
+				"非法对话身份要给一个能与「这条对话不在本机」分开的错误码")
+		})
+	}
 }

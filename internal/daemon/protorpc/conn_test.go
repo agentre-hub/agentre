@@ -3,6 +3,7 @@ package protorpc_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -144,7 +145,7 @@ func TestConnNotifications_GivenABurstFromThePeer_WhenReceived_ThenTheyKeepSendO
 
 	for _, seq := range sent {
 		require.NoError(t, server.Notify(&agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{
-			RuntimeEvent: &agentrewire.RuntimeEventNotification{SessionId: 42, Seq: seq},
+			RuntimeEvent: &agentrewire.RuntimeEventNotification{ConversationId: convID(42), Seq: seq},
 		}}))
 	}
 
@@ -300,4 +301,11 @@ func TestConnCancellation_GivenGenericMethodRequest_WhenCallerCancels_ThenHandle
 	case <-time.After(2 * time.Second):
 		t.Fatal("cancel frame did not cancel the remote generic-method handler")
 	}
+}
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
 }

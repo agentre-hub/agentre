@@ -271,7 +271,7 @@ func newReconnectRigWithBackoff(t *testing.T, backoff []time.Duration) *reconnec
 		case wire.MethodSessionList:
 			return nil
 		case wire.MethodRun:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rigSessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(rigSessionID)}
 			return nil
 		}
 		return nil
@@ -335,7 +335,7 @@ func catchUpConn(latestSeq int64, journaled []wire.JournaledNotification, waiter
 		switch method {
 		case wire.MethodSessionAttach:
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID:      rigSessionID,
+				ConversationID: convOf(rigSessionID),
 				LifecycleState: wire.SessionLifecycleRunning,
 				LatestSeq:      latestSeq,
 			}
@@ -360,23 +360,23 @@ func catchUpConn(latestSeq int64, journaled []wire.JournaledNotification, waiter
 func journaledEvent(seq int64, text string) wire.JournaledNotification {
 	// 日志行上的帧 **不含 seq** —— seq 是日志行自己的列,补齐时才盖上去。
 	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyEvent,
-		Params: &wire.EventFrame{SessionID: rigSessionID, Event: agentruntime.TextDelta{Text: text}}}
+		Params: &wire.EventFrame{ConversationID: convOf(rigSessionID), Event: agentruntime.TextDelta{Text: text}}}
 }
 
 func journaledDone(seq int64, model string) wire.JournaledNotification {
 	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyRunResultDone,
-		Params: &wire.RunResultDoneFrame{SessionID: rigSessionID, Model: model}}
+		Params: &wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Model: model}}
 }
 
 // journaledAutoEvent / journaledAutoDone 是自主续轮那两类通知的日志行。
 func journaledAutoEvent(seq int64, text string) wire.JournaledNotification {
 	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyAutonomousTurnEvent,
-		Params: &wire.EventFrame{SessionID: rigSessionID, Event: agentruntime.TextDelta{Text: text}}}
+		Params: &wire.EventFrame{ConversationID: convOf(rigSessionID), Event: agentruntime.TextDelta{Text: text}}}
 }
 
 func journaledAutoDone(seq int64, model string) wire.JournaledNotification {
 	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyAutonomousTurnDone,
-		Params: &wire.RunResultDoneFrame{SessionID: rigSessionID, Model: model}}
+		Params: &wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Model: model}}
 }
 
 // drainTexts 读到 channel 关闭为止,收集 TextDelta 文本。
@@ -479,7 +479,7 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 		switch method {
 		case wire.MethodSessionAttach:
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: rigSessionID, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5,
+				ConversationID: convOf(rigSessionID), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 5,
 			}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
@@ -491,7 +491,7 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 				go func() {
 					defer close(done)
 					ev := agentruntime.TextDelta{Text: "four"}
-					raw, _ := json.Marshal(wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 4})
+					raw, _ := json.Marshal(wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 4})
 					conn2.dispatchRaw(wire.NotifyEvent, raw)
 				}()
 				<-done
@@ -573,7 +573,7 @@ func TestLiveFrame_SeqGap_TriggersPull(t *testing.T) {
 	})
 
 	ev := agentruntime.TextDelta{Text: "gap-frame"}
-	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 6})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 6})
 
 	var texts []string
 	require.Eventually(t, func() bool {
@@ -600,7 +600,7 @@ func TestLiveFrame_SeqNotNewerThanCursor_Discarded(t *testing.T) {
 	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 5, true, nil })
 
 	ev := agentruntime.TextDelta{Text: "dup"}
-	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 5})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 5})
 
 	select {
 	case got := <-rig.events:
@@ -637,13 +637,13 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{
 				Sessions: []wire.SessionSummary{{
-					SessionID:      rigSessionID,
+					ConversationID: convOf(rigSessionID),
 					LifecycleState: wire.SessionLifecycleIdle,
 					LatestSeq:      9,
 				}},
 			}
 		case wire.MethodRun:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rigSessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(rigSessionID)}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
@@ -681,7 +681,7 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 
 	// 新这一轮的第一条实时帧:对着停在 3 的游标是跳号,整段区间因此被重放回来。
 	ev := agentruntime.TextDelta{Text: "new-a"}
-	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 10})
+	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 10})
 
 	var texts []string
 	closedEarly := false
@@ -721,7 +721,7 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 
 	// 只有新这一轮自己的终态帧才收尾。
 	conn.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{
-		SessionID: rigSessionID, Model: "new-turn", Seq: 12,
+		ConversationID: convOf(rigSessionID), Model: "new-turn", Seq: 12,
 	})
 	select {
 	case _, ok := <-events:
@@ -745,11 +745,11 @@ func TestTerminalNotification_FlushesCursorImmediately(t *testing.T) {
 	rig.rt.cursorFlush = time.Hour
 
 	ev := agentruntime.TextDelta{Text: "x"}
-	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 1})
 	_, ok := rig.cursor.lastSaved()
 	require.False(t, ok, "轮中的每一条不该各写一次库 —— 那正是防抖要省掉的")
 
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 2})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 2})
 
 	require.Eventually(t, func() bool {
 		_, saved := rig.cursor.lastSaved()
@@ -845,7 +845,7 @@ func TestReconnect_CursorAboveDaemonHighWater_InvalidatesCursorAndCatchesUpFromS
 
 	// 补齐落定之后 daemon 推来的下一条实时帧:高水位 3 之后就是 seq=4。
 	ev := agentruntime.TextDelta{Text: "live-after-restore"}
-	conn2.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 4})
+	conn2.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 4})
 
 	var texts []string
 	require.Eventually(t, func() bool {
@@ -900,7 +900,7 @@ func deliverLiveTexts(t *testing.T, c *fakeConn, texts []string) {
 	for i, text := range texts {
 		ev := agentruntime.TextDelta{Text: text}
 		c.deliver(t, wire.NotifyEvent, wire.EventFrame{
-			SessionID: rigSessionID, Event: ev, Seq: int64(i + 1),
+			ConversationID: convOf(rigSessionID), Event: ev, Seq: int64(i + 1),
 		})
 	}
 }
@@ -936,7 +936,7 @@ func attachPushingLiveFrame(
 				<-done
 			})
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: rigSessionID, LifecycleState: wire.SessionLifecycleRunning,
+				ConversationID: convOf(rigSessionID), LifecycleState: wire.SessionLifecycleRunning,
 				LatestSeq: highWater,
 			}
 		case wire.MethodSessionPull:
@@ -982,7 +982,7 @@ func TestReconnect_LiveFrameDuringAttach_DoesNotInvalidateCursor(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(conn2.methodCalls(wire.MethodSessionPendingWaiters)) > 0
 	}, 3*time.Second, 5*time.Millisecond, "补齐应完成")
-	conn2.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 5})
+	conn2.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 5})
 
 	texts := drainTexts(t, rig.events, 3*time.Second)
 	assert.Equal(t, []string{"one", "two", "three", "live-four"}, texts,
@@ -1085,11 +1085,11 @@ func TestReconnectGiveUp_AutonomousTurnInFlight_MarksTurnTerminated(t *testing.T
 	turns := rig.rt.AutonomousTurns(rigSessionID)
 
 	// 这一轮 Run 正常收尾 —— 只剩自主轮还在跑。
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	var turn agentruntime.AutonomousTurn
 	select {
@@ -1099,7 +1099,7 @@ func TestReconnectGiveUp_AutonomousTurnInFlight_MarksTurnTerminated(t *testing.T
 	}
 	ev := agentruntime.TextDelta{Text: "partial"}
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnEvent, wire.EventFrame{
-		SessionID: rigSessionID, Event: ev, Seq: 3,
+		ConversationID: convOf(rigSessionID), Event: ev, Seq: 3,
 	})
 
 	rig.queue(nil, "", assertErr("dial refused"))
@@ -1120,10 +1120,10 @@ func TestReconnect_AutonomousTurnUnrecoverable_MarksTurnInterrupted(t *testing.T
 	rig := newReconnectRig(t)
 	turns := rig.rt.AutonomousTurns(rigSessionID)
 
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	turn := <-turns
 
@@ -1176,14 +1176,14 @@ func TestControlCall_NoActiveTurn_ReAttachesAndRetries(t *testing.T) {
 func TestEveryNotifyHandlerHasAStampableFrame(t *testing.T) {
 	for method := range notifyHandlers {
 		t.Run(method, func(t *testing.T) {
-			frame, err := wire.DecodeNotificationParams(method, json.RawMessage(`{"sessionId":7}`))
+			frame, err := wire.DecodeNotificationParams(method, json.RawMessage(`{"conversationId":"`+convOf(7)+`"}`))
 			require.NoError(t, err)
 			require.NotNil(t, frame, "%s 解不出帧", method)
 			require.True(t, stampSeq(frame, 11), "%s 的帧盖不上 seq", method)
 
 			route, ok := frameRoute(frame)
 			require.True(t, ok, "%s 的帧读不出路由", method)
-			assert.Equal(t, int64(7), route.SessionID)
+			assert.Equal(t, convOf(7), route.ConversationID)
 			assert.Equal(t, int64(11), route.Seq)
 		})
 	}
@@ -1195,11 +1195,11 @@ func TestEveryNotifyHandlerHasAStampableFrame(t *testing.T) {
 // 都会悄悄消失;现在帧就是帧,盖一下即可 —— 这条用例守的是「别再走回去」。
 func TestStampSeq_PreservesPayloadAndSetsSeq(t *testing.T) {
 	ev := agentruntime.TextDelta{Text: "x"}
-	frame := &wire.EventFrame{SessionID: 7, Event: ev}
+	frame := &wire.EventFrame{ConversationID: convOf(7), Event: ev}
 
 	require.True(t, stampSeq(frame, 11))
 
-	assert.Equal(t, int64(7), frame.SessionID)
+	assert.Equal(t, convOf(7), frame.ConversationID)
 	assert.Equal(t, int64(11), frame.Seq)
 	assert.Equal(t, ev, frame.Event)
 }
@@ -1209,7 +1209,7 @@ func TestStampSeq_PreservesPayloadAndSetsSeq(t *testing.T) {
 func TestDisconnect_NoLiveRun_DoesNotReconnect(t *testing.T) {
 	rig := newReconnectRig(t)
 	// 轮末终态帧:会话正常收尾,本地不再有在飞会话。
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 
 	_ = rig.conn1.Close()
@@ -1230,11 +1230,11 @@ func TestDisconnect_AutonomousTurnInFlight_ReconnectsInsteadOfTruncating(t *test
 	turns := rig.rt.AutonomousTurns(rigSessionID)
 
 	// 这一轮 Run 正常收尾 —— r.sessions 就此清空,只剩自主轮还在跑。
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	var turn agentruntime.AutonomousTurn
 	select {
@@ -1244,7 +1244,7 @@ func TestDisconnect_AutonomousTurnInFlight_ReconnectsInsteadOfTruncating(t *test
 	}
 	ev := agentruntime.TextDelta{Text: "partial"}
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnEvent, wire.EventFrame{
-		SessionID: rigSessionID, Event: ev, Seq: 3,
+		ConversationID: convOf(rigSessionID), Event: ev, Seq: 3,
 	})
 
 	conn2 := catchUpConn(5, []wire.JournaledNotification{
@@ -1271,14 +1271,14 @@ func TestDisconnect_AutonomousTurnFinished_DoesNotReconnect(t *testing.T) {
 	rig := newReconnectRig(t)
 	turns := rig.rt.AutonomousTurns(rigSessionID)
 
-	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: rigSessionID, Seq: 1})
+	rig.conn1.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Seq: 1})
 	_ = drainTexts(t, rig.events, time.Second)
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	turn := <-turns
 	rig.conn1.deliver(t, wire.NotifyAutonomousTurnDone, wire.RunResultDoneFrame{
-		SessionID: rigSessionID, Model: "sonnet", Seq: 3,
+		ConversationID: convOf(rigSessionID), Model: "sonnet", Seq: 3,
 	})
 	_ = drainTexts(t, turn.Events, time.Second)
 
@@ -1336,13 +1336,13 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{
 				Sessions: []wire.SessionSummary{{
-					SessionID:      rigSessionID,
+					ConversationID: convOf(rigSessionID),
 					LifecycleState: wire.SessionLifecycleIdle,
 					LatestSeq:      9,
 				}},
 			}
 		case wire.MethodRun:
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: rigSessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(rigSessionID)}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
@@ -1382,7 +1382,7 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 	// 第二轮的第一条实时帧对着停在 3 的游标是跳号,整段区间因此被重放回来:4..9 是
 	// 三条已结束的轮次(各自进补齐轮),10/11 才是这一轮自己的。
 	ev := agentruntime.TextDelta{Text: "new-a"}
-	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 10})
+	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 10})
 
 	var texts []string
 	closedEarly := false
@@ -1409,3 +1409,7 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 		"这一轮只该收到自己的通知:开轮位置若丢了,旧轮次的字会混进它的回答里")
 	assert.Empty(t, result.Model, "旧轮次的结果不得覆盖这一轮的 RunResult")
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+// 这个假连接从没握过手,所以是空 —— 与生产里未鉴权的直连一致。
+func (c *fakeConn) SelfFingerprint() string { return "" }

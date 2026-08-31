@@ -2,6 +2,7 @@ package notifier_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func TestProtobufNotifierWritesTheGivenNotificationUnchanged(t *testing.T) {
 	conn := protorpc.NewConn(transport, protorpc.NewRegistry())
 	n := notifier.NewProtobuf(conn)
 	notification, err := protowire.WireNotificationToProto(wire.NotifyEvent,
-		&wire.EventFrame{SessionID: 42, Seq: 7, Event: agentruntime.TextDelta{Text: "hello"}})
+		&wire.EventFrame{ConversationID: convID(42), Seq: 7, Event: agentruntime.TextDelta{Text: "hello"}})
 	require.NoError(t, err)
 
 	require.NoError(t, n.Notify(notification))
@@ -36,7 +37,7 @@ func TestProtobufNotifierWritesTheGivenNotificationUnchanged(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(transport.frames[0], frame))
 	require.True(t, proto.Equal(notification, frame.GetNotification()),
 		"写上连接的必须就是交进来的那条通知")
-	require.Equal(t, int64(42), frame.GetNotification().GetRuntimeEvent().GetSessionId())
+	require.Equal(t, convID(42), frame.GetNotification().GetRuntimeEvent().GetConversationId())
 	require.Equal(t, int64(7), frame.GetNotification().GetRuntimeEvent().GetSeq())
 	require.Equal(t, "hello", frame.GetNotification().GetRuntimeEvent().GetTextDelta().GetText())
 }
@@ -53,3 +54,10 @@ func (c *recordingFrameConn) WriteFrame(frame []byte) error {
 }
 func (c *recordingFrameConn) Close() error          { return nil }
 func (c *recordingFrameConn) Done() <-chan struct{} { return c.done }
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
+}

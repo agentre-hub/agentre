@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
@@ -95,26 +94,24 @@ func TestInbound_GivenUnregisteredBackendType_WhenAsksCapabilities_ThenErrorsIns
 // Then 这个方法在**这一端**也是服务的：请求进得到 chat_svc（这里让它撞上一条不
 // 存在的会话，于是回一个会话级错误），而不是被 RPC 层以「没有这个方法」挡回去。
 func TestInbound_GivenAuthorizedPeer_WhenSettingPermissionMode_ThenServedHereToo(t *testing.T) {
-	sessions := registerInboundPeerChatForDelete(t)
+	registerInboundPeerChatForDelete(t)
 	ws := startInboundPeer(t)
 
 	// 账号门：改权限模式比读更该在门后。
 	unauthenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`1`), Method: wire.MethodSetPermissionMode,
-		Params: mustJSON(t, wire.SetPermissionModeParams{SessionID: 4242, Mode: "default"}),
+		Params: mustJSON(t, wire.SetPermissionModeParams{ConversationID: convID(4242), Mode: "default"}),
 	})
 	require.NotNil(t, unauthenticated.Error)
 	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticated.Error.Code)
 
 	authorizePeer(t, ws, `2`)
 
-	// 这条会话不存在：chat_svc 因此回一个会话级错误。断言的是**请求到达了它**，
+	// 这条对话不在本机：chat_svc 因此回一个会话级错误。断言的是**请求到达了它**，
 	// 而不是在路由层就没这个方法。
-	sessions.EXPECT().Find(gomock.Any(), int64(4242)).Return(nil, nil)
-
 	response := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`3`), Method: wire.MethodSetPermissionMode,
-		Params: mustJSON(t, wire.SetPermissionModeParams{SessionID: 4242, Mode: "default"}),
+		Params: mustJSON(t, wire.SetPermissionModeParams{ConversationID: convID(4242), Mode: "default"}),
 	})
 	require.NotNil(t, response.Error)
 	assert.NotEqual(t, rpcerror.ErrMethodNotFound.Code, response.Error.Code,
@@ -129,23 +126,21 @@ func TestInbound_GivenAuthorizedPeer_WhenSettingPermissionMode_ThenServedHereToo
 // 里换模型时两边都落，在哪一台打开都看到自己刚选的那个。agentred 那一侧的落库由
 // daemon 的 SessionModelTargetHandlers 承担，这里是桌面端这一侧。
 func TestInbound_GivenAuthorizedPeer_WhenSettingModelTarget_ThenServedHereToo(t *testing.T) {
-	sessions := registerInboundPeerChatForDelete(t)
+	registerInboundPeerChatForDelete(t)
 	ws := startInboundPeer(t)
 
 	unauthenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`1`), Method: wire.MethodSetModelTarget,
-		Params: mustJSON(t, wire.SetModelTargetParams{SessionID: 4242, ProviderKey: "p"}),
+		Params: mustJSON(t, wire.SetModelTargetParams{ConversationID: convID(4242), ProviderKey: "p"}),
 	})
 	require.NotNil(t, unauthenticated.Error)
 	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticated.Error.Code)
 
 	authorizePeer(t, ws, `2`)
 
-	sessions.EXPECT().Find(gomock.Any(), int64(4242)).Return(nil, nil)
-
 	response := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`3`), Method: wire.MethodSetModelTarget,
-		Params: mustJSON(t, wire.SetModelTargetParams{SessionID: 4242, ProviderKey: "p"}),
+		Params: mustJSON(t, wire.SetModelTargetParams{ConversationID: convID(4242), ProviderKey: "p"}),
 	})
 	require.NotNil(t, response.Error)
 	assert.NotEqual(t, rpcerror.ErrMethodNotFound.Code, response.Error.Code,
@@ -155,15 +150,13 @@ func TestInbound_GivenAuthorizedPeer_WhenSettingModelTarget_ThenServedHereToo(t 
 // 两格都空是**要写下去的值**（改回跟随 Agent 绑定），不是「参数没填」——
 // 在参数校验这一层把它挡掉，用户就再也回不到跟随绑定了。
 func TestInbound_GivenBothKeysEmpty_WhenSettingModelTarget_ThenItIsAcceptedAsInheritAgent(t *testing.T) {
-	sessions := registerInboundPeerChatForDelete(t)
+	registerInboundPeerChatForDelete(t)
 	ws := startInboundPeer(t)
 	authorizePeer(t, ws, `1`)
 
-	sessions.EXPECT().Find(gomock.Any(), int64(4242)).Return(nil, nil)
-
 	response := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`2`), Method: wire.MethodSetModelTarget,
-		Params: mustJSON(t, wire.SetModelTargetParams{SessionID: 4242}),
+		Params: mustJSON(t, wire.SetModelTargetParams{ConversationID: convID(4242)}),
 	})
 	require.NotNil(t, response.Error)
 	assert.NotEqual(t, rpcerror.ErrInvalidParams.Code, response.Error.Code,

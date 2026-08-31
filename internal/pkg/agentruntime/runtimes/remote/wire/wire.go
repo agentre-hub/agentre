@@ -254,7 +254,7 @@ type PeerSessionControlResult struct {
 }
 
 type GoalParams struct {
-	SessionID         int64           `json:"sessionId"`
+	ConversationID    string          `json:"conversationId"`
 	PeerFingerprint   string          `json:"peerFingerprint,omitempty"`
 	AgentID           int64           `json:"agentId,omitempty"`
 	ProviderSessionID string          `json:"providerSessionId"`
@@ -305,9 +305,9 @@ type HistoryMessageWire struct {
 // daemon 端 handlers/runtime.go 在 Run 入口处自己用 ProviderLookup + 自家
 // Gateway 解出这三者,desktop 端 chat_svc.runTurn 检 be.IsRemote() 后也不再填。
 type RunParams struct {
-	Backend   json.RawMessage `json:"backend"`
-	AgentID   int64           `json:"agentId"`
-	SessionID int64           `json:"sessionId"`
+	Backend        json.RawMessage `json:"backend"`
+	AgentID        int64           `json:"agentId"`
+	ConversationID string          `json:"conversationId"`
 	// PeerFingerprint 点名这一轮要落在**哪个对端**名下的那条会话上(R9)。会话键是
 	// (发起端指纹, 会话 id),而清单(SessionSummary.PeerFingerprint)是客户端学 origin
 	// 的唯一来源;省略 = 调用方自己的对端,与控制族(attach / pull / abort / submit)
@@ -406,7 +406,7 @@ type MCPProxyResponse struct {
 // 登录态)执行,并把被回退的 key 放进此字段回传。非空时桌面端据此追加一条持久
 // notice(与本地 Q3 一致);空串 = 未回退。
 type RunAck struct {
-	SessionID            int64  `json:"sessionId"`
+	ConversationID       string `json:"conversationId"`
 	ProviderSessionID    string `json:"providerSessionId,omitempty"`
 	LaunchPermissionMode string `json:"launchPermissionMode,omitempty"`
 	ProviderFallbackKey  string `json:"providerFallbackKey,omitempty"`
@@ -414,7 +414,7 @@ type RunAck struct {
 
 // SteerParams 等同 agentruntime.Steerer.Steer 的入参。
 type SteerParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	QueuedID        string `json:"queuedId,omitempty"`
 	Text            string `json:"text"`
@@ -422,7 +422,7 @@ type SteerParams struct {
 
 // CancelSteerParams 等同 agentruntime.SteerCanceler.CancelSteer 的入参。
 type CancelSteerParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	QueuedID        string `json:"queuedId,omitempty"`
 }
@@ -435,7 +435,7 @@ type CancelSteerResult struct {
 
 // DrainParams 等同 agentruntime.SteerDrainer.DrainPending 的入参。
 type DrainParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 }
 
@@ -448,7 +448,7 @@ type DrainResult struct {
 // AbortParams 等同 agentruntime.Aborter.Abort 的入参。
 // TurnToken 语义同 agentruntime:0 = 中断当前活跃轮;非 0 = 仅当该轮仍是当前活跃轮才中断。
 type AbortParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	TurnToken       uint64 `json:"turnToken,omitempty"`
 }
@@ -460,14 +460,14 @@ type AbortResult struct {
 
 // StopBackgroundTaskParams 等同 agentruntime.BackgroundTaskStopper.StopBackgroundTask 的入参。
 type StopBackgroundTaskParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	TaskID          string `json:"taskId"`
 }
 
 // SetPermissionModeParams 等同 agentruntime.PermissionModeSetter.SetPermissionMode 的入参。
 type SetPermissionModeParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	Mode            string `json:"mode"`
 }
@@ -483,7 +483,7 @@ type SetPermissionModeParams struct {
 // 新目标自**下一轮**生效,正在跑的那一轮不受影响。会话不存在时报错而不是折成
 // 成功:那会让调用方以为下一轮会用新模型,而实际上一行都没写。
 type SetModelTargetParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	ProviderKey     string `json:"providerKey,omitempty"`
 	ModelKey        string `json:"modelKey,omitempty"`
@@ -491,7 +491,7 @@ type SetModelTargetParams struct {
 
 // SubmitAnswerParams 等同 agentruntime.AskAnswerSink.SubmitAnswer 的入参。
 type SubmitAnswerParams struct {
-	SessionID       int64                      `json:"sessionId"`
+	ConversationID  string                     `json:"conversationId"`
 	PeerFingerprint string                     `json:"peerFingerprint,omitempty"`
 	RequestID       string                     `json:"requestId"`
 	Questions       []agentruntime.AskQuestion `json:"questions,omitempty"`
@@ -501,7 +501,7 @@ type SubmitAnswerParams struct {
 
 // SubmitToolPermissionParams 等同 agentruntime.ToolPermissionSink.SubmitToolPermission 的入参。
 type SubmitToolPermissionParams struct {
-	SessionID          int64  `json:"sessionId"`
+	ConversationID     string `json:"conversationId"`
 	PeerFingerprint    string `json:"peerFingerprint,omitempty"`
 	RequestID          string `json:"requestId"`
 	Allow              bool   `json:"allow"`
@@ -540,7 +540,7 @@ const (
 // LatestSeq 取自 daemon 通知日志里该会话的 MAX(seq)(唯一真相源),客户端拿它与自己
 // 存的游标一比就知道断连期间落下了多少条。
 type SessionSummary struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	AgentID         int64  `json:"agentId,omitempty"`
 	// Title / AgentSyncID / ProviderSessionID 是 R7 + 决策 8 的新列:会话标题、所属
@@ -594,7 +594,7 @@ type SessionListResult struct {
 // SessionPullParams 是 MethodSessionPull 的请求:给定会话与起始游标,取其后的通知。
 // Cursor 是**已经收到的**最后一个 seq(独占),所以首次补齐传 0。
 type SessionPullParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	Cursor          int64  `json:"cursor"`
 	Limit           int    `json:"limit,omitempty"`
@@ -709,7 +709,7 @@ type SessionPullResult struct {
 
 // SessionPendingWaitersParams 是 MethodSessionPendingWaiters 的请求。
 type SessionPendingWaitersParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 }
 
@@ -723,7 +723,7 @@ type SessionPendingWaitersResult struct {
 
 // SessionAttachParams 是 MethodSessionAttach 的请求。
 type SessionAttachParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 }
 
@@ -733,7 +733,7 @@ type SessionAttachParams struct {
 // 接管成功后该会话的实时通知就推给这条连接;客户端随后按自己的游标 pull 到拉平即可,
 // 接管与读高水位之间落库的那几条会在同一轮 pull 里被带出来。
 type SessionAttachResult struct {
-	SessionID      int64  `json:"sessionId"`
+	ConversationID string `json:"conversationId"`
 	BackendType    string `json:"backendType,omitempty"`
 	LifecycleState string `json:"lifecycleState"`
 	LatestSeq      int64  `json:"latestSeq"`
@@ -744,7 +744,7 @@ type SessionAttachResult struct {
 // 这是本 wire 上第一个破坏性方法,越界的代价不再是「读到了不该读的」而是「删掉了
 // 别人的对话」,所以它绝不能自成一套宽松的范围规则。
 type SessionDeleteParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 }
 
@@ -846,7 +846,8 @@ type SkillCatalogResult struct {
 // 补齐都在发送时才把行上的 seq 盖到帧上,两条路径因此投递同一份字节 + 同一个 seq。
 
 // EventFrame wraps a single agentruntime.Event for delivery over NotifyEvent.
-// SessionID is transport metadata so the receiving end can route by session.
+// ConversationID is transport metadata so the receiving end can route by
+// conversation.
 //
 // Event 是**密封事件本身**,不是它的 JSON 字节。这条帧在进程内只被 protowire 读,
 // 而 protowire 要的就是 Event —— 中间摆一个 json.RawMessage 的后果是每帧在两端
@@ -855,26 +856,26 @@ type SkillCatalogResult struct {
 // 通用容器。
 //
 // 线上形态一个字节都没变:下面的 MarshalJSON / UnmarshalJSON 仍旧落
-// {"sessionId":…,"event":{"kind":…},"seq":…},由各 Event 自己的 MarshalJSON 与
+// {"conversationId":…,"event":{"kind":…},"seq":…},由各 Event 自己的 MarshalJSON 与
 // agentruntime.UnmarshalEvent 负责 —— 通知日志里的旧行、旧版本对端、黄金样本
 // 都照常读得出来。
 // json tag 在这里**不驱动序列化**(下面的 MarshalJSON / UnmarshalJSON 才是),
 // 但必须与 eventFrameWire 一字不差:TS 编解码生成器读的是 tag,读不到自定义
-// marshaler。两处一旦分家,生成出来的 decodeEventFrame 会去找 `SessionID` 这样
+// marshaler。两处一旦分家,生成出来的 decodeEventFrame 会去找 `ConversationID` 这样
 // 根本不存在的键 —— 编译期无声,浏览器侧全线解码失败。
 // TestEventFrameWireTagsMatchMarshaler 守住这一致性。
 type EventFrame struct {
-	SessionID int64              `json:"sessionId"`
-	Event     agentruntime.Event `json:"event"`
-	Seq       int64              `json:"seq,omitempty"`
+	ConversationID string             `json:"conversationId"`
+	Event          agentruntime.Event `json:"event"`
+	Seq            int64              `json:"seq,omitempty"`
 }
 
 // eventFrameWire 是 EventFrame 真正的线上形态。单独一个类型而不是直接用上面那组
 // tag:Event 是 interface,encoding/json 解不进去,两个方向都得自己接管。
 type eventFrameWire struct {
-	SessionID int64           `json:"sessionId"`
-	Event     json.RawMessage `json:"event"`
-	Seq       int64           `json:"seq,omitempty"`
+	ConversationID string          `json:"conversationId"`
+	Event          json.RawMessage `json:"event"`
+	Seq            int64           `json:"seq,omitempty"`
 }
 
 func (f EventFrame) MarshalJSON() ([]byte, error) {
@@ -888,7 +889,7 @@ func (f EventFrame) MarshalJSON() ([]byte, error) {
 		}
 		raw = encoded
 	}
-	return json.Marshal(eventFrameWire{SessionID: f.SessionID, Event: raw, Seq: f.Seq})
+	return json.Marshal(eventFrameWire{ConversationID: f.ConversationID, Event: raw, Seq: f.Seq})
 }
 
 func (f *EventFrame) UnmarshalJSON(data []byte) error {
@@ -896,7 +897,7 @@ func (f *EventFrame) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
-	f.SessionID = w.SessionID
+	f.ConversationID = w.ConversationID
 	f.Seq = w.Seq
 	f.Event = nil
 	if len(w.Event) == 0 || string(w.Event) == "null" {
@@ -922,7 +923,7 @@ func (f *EventFrame) SetSeq(seq int64) { f.Seq = seq }
 // sentinel(ErrAborted 等)。StopErrCode = 0 表示无 sentinel,StopErrMsg 仅作显示;
 // = -32013 表示 ErrAborted;等等。
 type RunResultDoneFrame struct {
-	SessionID         int64      `json:"sessionId"`
+	ConversationID    string     `json:"conversationId"`
 	ProviderSessionID string     `json:"providerSessionId,omitempty"`
 	Usage             *UsageWire `json:"usage,omitempty"`
 	UserAnchor        string     `json:"userAnchor,omitempty"`
@@ -952,10 +953,10 @@ func (f *RunResultDoneFrame) SetSeq(seq int64) { f.Seq = seq }
 // 的 NotifyAutonomousTurnEvent(EventFrame)路由进它的 Events,直到 NotifyAutonomousTurnDone
 // (RunResultDoneFrame)填回该轮 RunResult 并 close。
 type AutonomousTurnStartedFrame struct {
-	SessionID int64  `json:"sessionId"`
-	Trigger   string `json:"trigger,omitempty"`
-	TurnToken uint64 `json:"turnToken,omitempty"`
-	Seq       int64  `json:"seq,omitempty"`
+	ConversationID string `json:"conversationId"`
+	Trigger        string `json:"trigger,omitempty"`
+	TurnToken      uint64 `json:"turnToken,omitempty"`
+	Seq            int64  `json:"seq,omitempty"`
 }
 
 // SetSeq 盖上该帧在通知日志里的序号(见 EventFrame.SetSeq)。

@@ -43,6 +43,7 @@ type peerRunAdapter interface {
 // path, returning the newly created session id — the browser then follows that id.
 func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRunsFirstTurn(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
 	ctx := m.ctx
 
 	ctrl := gomock.NewController(t)
@@ -70,7 +71,6 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 	projMock.EXPECT().List(ctx).Return([]*project_entity.Project{proj}, nil)
 
 	// 对端点的是一条桌面端上还不存在的会话（全新会话 id）→ RunPeerSession 走建会话分支。
-	m.session.EXPECT().Find(gomock.Any(), int64(90001)).Return(nil, nil)
 
 	// send（SessionID=0）内部：解析 agent → backend → provider。
 	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
@@ -151,7 +151,7 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok, "chatSvc must implement the peer run adapter")
 	resp, err := adapter.RunPeerSession(ctx, wire.RunParams{
-		SessionID:      90001,
+		ConversationID: convID(90001),
 		AgentSyncID:    "01HXAGENTIDENTITY0000000000",
 		Cwd:            cwd,
 		Title:          "帮我看看这个项目",
@@ -183,6 +183,7 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 // creating a phantom session or silently running in a wrong directory.
 func TestRunPeerSession_GivenCwdMatchesNoLocalProject_ThenRejectsWithoutCreatingSession(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
 	ctx := m.ctx
 
 	ctrl := gomock.NewController(t)
@@ -204,15 +205,13 @@ func TestRunPeerSession_GivenCwdMatchesNoLocalProject_ThenRejectsWithoutCreating
 		{ID: 5, Name: "agentre-server", Path: "/Users/wyz/agentre-server", Status: consts.ACTIVE},
 	}, nil)
 
-	m.session.EXPECT().Find(gomock.Any(), int64(90003)).Return(nil, nil)
-
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok)
 	_, err := adapter.RunPeerSession(ctx, wire.RunParams{
-		SessionID:   90003,
-		AgentSyncID: "01HXAGENTIDENTITY0000000000",
-		Cwd:         "/Users/old/removed",
-		UserText:    "hi",
+		ConversationID: convID(90003),
+		AgentSyncID:    "01HXAGENTIDENTITY0000000000",
+		Cwd:            "/Users/old/removed",
+		UserText:       "hi",
 	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome"})
 	require.ErrorIs(t, err, chat_svc.ErrPeerProjectNotFound)
 }
@@ -224,6 +223,7 @@ func TestRunPeerSession_GivenCwdMatchesNoLocalProject_ThenRejectsWithoutCreating
 // fresh-session creation would fail the mock).
 func TestRunPeerSession_GivenExistingSession_ThenContinuesThatSession(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
 	ctx := m.ctx
 
 	runner := &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}
@@ -268,8 +268,8 @@ func TestRunPeerSession_GivenExistingSession_ThenContinuesThatSession(t *testing
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok)
 	resp, err := adapter.RunPeerSession(ctx, wire.RunParams{
-		SessionID: 41,
-		UserText:  "再帮我看看",
+		ConversationID: convID(41),
+		UserText:       "再帮我看看",
 	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome · macOS"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(41), resp.SessionID)
@@ -289,6 +289,7 @@ func TestRunPeerSession_GivenExistingSession_ThenContinuesThatSession(t *testing
 // session is created and no silent fallback to another agent happens.
 func TestRunPeerSession_GivenUnknownAgentSyncId_ThenRejectsWithoutCreatingSession(t *testing.T) {
 	m := setupChatTest(t)
+	wirePeerConversations(t, m.session, 41)
 	ctx := m.ctx
 
 	ctrl := gomock.NewController(t)
@@ -302,16 +303,15 @@ func TestRunPeerSession_GivenUnknownAgentSyncId_ThenRejectsWithoutCreatingSessio
 		Return(int64(0), nil)
 
 	// 会话不存在 → 走建会话分支；解析不出 agent → 拒绝。
-	m.session.EXPECT().Find(gomock.Any(), int64(90002)).Return(nil, nil)
 
 	// 解析不出 agent：不得创建会话行、不得发起任何轮次。一旦误建了会话，gomock
 	// 会因 session.Create / agent.Find 未设期望直接判失败。
 	adapter, ok := m.svc.(peerRunAdapter)
 	require.True(t, ok)
 	_, err := adapter.RunPeerSession(ctx, wire.RunParams{
-		SessionID:   90002,
-		AgentSyncID: "sync-id-not-here",
-		UserText:    "hi",
+		ConversationID: convID(90002),
+		AgentSyncID:    "sync-id-not-here",
+		UserText:       "hi",
 	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome"})
 	require.Error(t, err)
 }

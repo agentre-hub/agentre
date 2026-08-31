@@ -483,3 +483,7 @@ func TestPool_Borrow_NoLocalPairing_BothPathsPresentSamePeerIdentity(t *testing.
 		So(relayPeerFP, ShouldEqual, directPeerFP)
 	})
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+// 这个假连接从没握过手,所以是空 —— 与生产里未鉴权的直连一致。
+func (c *stubProtobufConnection) SelfFingerprint() string { return "sha256:test-self" }

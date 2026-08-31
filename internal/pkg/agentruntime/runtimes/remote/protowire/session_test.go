@@ -20,8 +20,8 @@ import (
 func TestSessionPullResponseCarriesTypedJournalPayload(t *testing.T) {
 	notification := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{
 		RuntimeEvent: &agentrewire.RuntimeEventNotification{
-			SessionId: 42,
-			Event:     &agentrewire.RuntimeEventNotification_TextDelta{TextDelta: &agentrewire.TextDelta{Text: "hello"}},
+			ConversationId: convID(42),
+			Event:          &agentrewire.RuntimeEventNotification_TextDelta{TextDelta: &agentrewire.TextDelta{Text: "hello"}},
 		},
 	}}
 	require.True(t, SetNotificationSeq(notification, 7))
@@ -39,7 +39,7 @@ func TestSessionPullResponseCarriesTypedJournalPayload(t *testing.T) {
 	require.Len(t, decoded.GetNotifications(), 1)
 	entry := decoded.GetNotifications()[0]
 	require.Equal(t, int64(7), entry.GetSeq())
-	require.Equal(t, int64(42), NotificationSessionID(entry.GetPayload()),
+	require.Equal(t, convID(42), NotificationConversationID(entry.GetPayload()),
 		"日志载荷必须仍是 typed RpcNotification,读得出 sessionId")
 	require.Equal(t, "hello", entry.GetPayload().GetRuntimeEvent().GetTextDelta().GetText())
 	require.Equal(t, int64(7), decoded.GetCursor())

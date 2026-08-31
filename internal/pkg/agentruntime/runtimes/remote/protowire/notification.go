@@ -28,23 +28,23 @@ func DecodeNotification(data []byte) (*agentrewire.RpcNotification, error) {
 	return notification, nil
 }
 
-func NotificationSessionID(notification *agentrewire.RpcNotification) int64 {
+func NotificationConversationID(notification *agentrewire.RpcNotification) string {
 	if notification == nil {
-		return 0
+		return ""
 	}
 	switch payload := notification.GetPayload().(type) {
 	case *agentrewire.RpcNotification_RuntimeEvent:
-		return payload.RuntimeEvent.GetSessionId()
+		return payload.RuntimeEvent.GetConversationId()
 	case *agentrewire.RpcNotification_RunResultDone:
-		return payload.RunResultDone.GetSessionId()
+		return payload.RunResultDone.GetConversationId()
 	case *agentrewire.RpcNotification_AutonomousTurnStarted:
-		return payload.AutonomousTurnStarted.GetSessionId()
+		return payload.AutonomousTurnStarted.GetConversationId()
 	case *agentrewire.RpcNotification_AutonomousTurnEvent:
-		return payload.AutonomousTurnEvent.GetSessionId()
+		return payload.AutonomousTurnEvent.GetConversationId()
 	case *agentrewire.RpcNotification_AutonomousTurnDone:
-		return payload.AutonomousTurnDone.GetSessionId()
+		return payload.AutonomousTurnDone.GetConversationId()
 	default:
-		return 0
+		return ""
 	}
 }
 

@@ -257,3 +257,6 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("waitFor timed out")
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *watcherTestConnection) SelfFingerprint() string { return "sha256:test-self" }

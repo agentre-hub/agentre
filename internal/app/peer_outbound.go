@@ -143,9 +143,9 @@ func (a *App) PeerSubmitToolPermission(req peer_svc.SubmitToolPermissionRequest)
 
 // PeerDetach 结束本端对一条远端会话的接入（R19：关闭 Tab 只结束本端接入，不删除
 // 对端会话）。
-func (a *App) PeerDetach(fingerprint string, sessionID int64) error {
+func (a *App) PeerDetach(fingerprint string, conversationID string) error {
 	if svc := peerSvcAccessor(); svc != nil {
-		return svc.Detach(a.ctx, fingerprint, sessionID)
+		return svc.Detach(a.ctx, fingerprint, conversationID)
 	}
 	return errPeerServiceUnavailable
 }

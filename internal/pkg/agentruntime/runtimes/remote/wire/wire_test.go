@@ -3,6 +3,7 @@ package wire
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -98,7 +99,7 @@ func TestMethodNames_Stable(t *testing.T) {
 }
 
 func TestAutonomousTurnStartedFrame_RoundTrip(t *testing.T) {
-	in := AutonomousTurnStartedFrame{SessionID: 77, Trigger: "background_task"}
+	in := AutonomousTurnStartedFrame{ConversationID: convID(77), Trigger: "background_task"}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 	var out AutonomousTurnStartedFrame
@@ -111,17 +112,17 @@ func TestEventFrame_RoundTrip(t *testing.T) {
 	// 必须原样还是那个 sealed 值,调用方不再自己 UnmarshalEvent。
 	ev := agentruntime.TextDelta{Text: "hi"}
 
-	b, err := json.Marshal(EventFrame{SessionID: 42, Event: ev})
+	b, err := json.Marshal(EventFrame{ConversationID: convID(42), Event: ev})
 	require.NoError(t, err)
 	// 线上形态与「事件自己 marshal 出来的那段」逐字节一致 —— 帧换成装密封值
 	// 之后,老版本对端与通知日志里的旧行读到的字节没有任何变化。
 	eventJSON, err := json.Marshal(ev)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"sessionId":42,"event":`+string(eventJSON)+`}`, string(b))
+	assert.JSONEq(t, `{"conversationId":"`+convID(42)+`","event":`+string(eventJSON)+`}`, string(b))
 
 	var decoded EventFrame
 	require.NoError(t, json.Unmarshal(b, &decoded))
-	assert.Equal(t, int64(42), decoded.SessionID)
+	assert.Equal(t, convID(42), decoded.ConversationID)
 	assert.Equal(t, ev, decoded.Event)
 }
 
@@ -141,7 +142,7 @@ func TestEventFrameWireTagsMatchMarshaler(t *testing.T) {
 	}
 
 	// seq 带 omitempty,只有非零才落键 —— 所以这里要填满。
-	b, err := json.Marshal(EventFrame{SessionID: 1, Event: agentruntime.Done{}, Seq: 2})
+	b, err := json.Marshal(EventFrame{ConversationID: convID(1), Event: agentruntime.Done{}, Seq: 2})
 	require.NoError(t, err)
 	var marshaled map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(b, &marshaled))
@@ -168,7 +169,7 @@ func TestJournaledNotificationWireTagsMatchMarshaler(t *testing.T) {
 	}
 
 	b, err := json.Marshal(JournaledNotification{
-		Seq: 1, Method: NotifyEvent, Params: &EventFrame{SessionID: 2, Event: agentruntime.Done{}},
+		Seq: 1, Method: NotifyEvent, Params: &EventFrame{ConversationID: convID(2), Event: agentruntime.Done{}},
 	})
 	require.NoError(t, err)
 	var marshaled map[string]json.RawMessage
@@ -188,7 +189,7 @@ func TestJournaledNotificationWireTagsMatchMarshaler(t *testing.T) {
 func TestJournaledNotification_RoundTripsTypedParams(t *testing.T) {
 	in := JournaledNotification{
 		Seq: 11, Method: NotifyEvent,
-		Params: &EventFrame{SessionID: 42, Event: agentruntime.TextDelta{Text: "你好"}},
+		Params: &EventFrame{ConversationID: convID(42), Event: agentruntime.TextDelta{Text: "你好"}},
 	}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
@@ -211,13 +212,13 @@ func TestJournaledNotification_UnknownMethodDecodesToNilFrame(t *testing.T) {
 // 留下一个装着半截数据的帧 —— 帧一旦声称自己装的是密封事件,就不能悄悄装 nil。
 func TestEventFrame_RejectsUndecodableEvent(t *testing.T) {
 	var decoded EventFrame
-	err := json.Unmarshal([]byte(`{"sessionId":42,"event":{"kind":"no_such_kind"}}`), &decoded)
+	err := json.Unmarshal([]byte(`{"conversationId":"`+convID(42)+`","event":{"kind":"no_such_kind"}}`), &decoded)
 	require.ErrorContains(t, err, "unknown kind")
 }
 
 func TestRunResultDoneFrame_RoundTrip(t *testing.T) {
 	in := RunResultDoneFrame{
-		SessionID:         99,
+		ConversationID:    convID(99),
 		ProviderSessionID: "sess-1",
 		Usage: &UsageWire{
 			PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
@@ -241,7 +242,7 @@ func TestRunParams_RawBackendOpaque(t *testing.T) {
 	in := RunParams{
 		Backend:        json.RawMessage(`{"ID":1,"Type":"claudecode","Name":"x"}`),
 		AgentID:        7,
-		SessionID:      42,
+		ConversationID: convID(42),
 		UserText:       "hello",
 		Compact:        true,
 		PermissionMode: "acceptEdits",
@@ -253,7 +254,7 @@ func TestRunParams_RawBackendOpaque(t *testing.T) {
 	// JSONEq because key ordering inside Backend may differ.
 	assert.JSONEq(t, string(in.Backend), string(out.Backend))
 	assert.Equal(t, in.AgentID, out.AgentID)
-	assert.Equal(t, in.SessionID, out.SessionID)
+	assert.Equal(t, in.ConversationID, out.ConversationID)
 	assert.Equal(t, in.UserText, out.UserText)
 	assert.Equal(t, in.Compact, out.Compact)
 	assert.Equal(t, in.PermissionMode, out.PermissionMode)
@@ -273,7 +274,7 @@ func TestRunParams_HasNoOpenClawSecretField(t *testing.T) {
 // 商缺失/非 active 回退 agent 绑定后,把被回退的 key 放进 ack.ProviderFallbackKey 随
 // wire 过线;空值因 omitempty 不落字节流。
 func TestRunAck_ProviderFallbackKeyRoundTrip(t *testing.T) {
-	in := RunAck{SessionID: 42, ProviderFallbackKey: "session-key"}
+	in := RunAck{ConversationID: convID(42), ProviderFallbackKey: "session-key"}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"providerFallbackKey":"session-key"`)
@@ -283,7 +284,7 @@ func TestRunAck_ProviderFallbackKeyRoundTrip(t *testing.T) {
 	assert.Equal(t, in.ProviderFallbackKey, out.ProviderFallbackKey)
 
 	// 未回退 → 字段不出现在字节流。
-	none, err := json.Marshal(RunAck{SessionID: 1})
+	none, err := json.Marshal(RunAck{ConversationID: convID(1)})
 	require.NoError(t, err)
 	assert.NotContains(t, string(none), "providerFallbackKey")
 	var outNone RunAck
@@ -303,7 +304,7 @@ func TestRunParams_UserBlocksRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	in := RunParams{SessionID: 42, UserText: "what is this?", UserBlocks: stored}
+	in := RunParams{ConversationID: convID(42), UserText: "what is this?", UserBlocks: stored}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"userBlocks"`)
@@ -328,32 +329,32 @@ func TestParams_FieldShape(t *testing.T) {
 		v    any
 		want []string // each expected `"key":` substring
 	}{
-		{"steer", SteerParams{SessionID: 1, QueuedID: "q", Text: "t"},
-			[]string{`"sessionId":1`, `"queuedId":"q"`, `"text":"t"`}},
-		{"cancelSteer", CancelSteerParams{SessionID: 1, QueuedID: "q"},
-			[]string{`"sessionId":1`, `"queuedId":"q"`}},
-		{"drain", DrainParams{SessionID: 1}, []string{`"sessionId":1`}},
-		{"abort", AbortParams{SessionID: 1}, []string{`"sessionId":1`}},
-		{"setMode", SetPermissionModeParams{SessionID: 1, Mode: "plan"},
-			[]string{`"sessionId":1`, `"mode":"plan"`}},
-		{"submitAnswer", SubmitAnswerParams{SessionID: 1, RequestID: "r", Skipped: true},
-			[]string{`"sessionId":1`, `"requestId":"r"`, `"skipped":true`}},
+		{"steer", SteerParams{ConversationID: convID(1), QueuedID: "q", Text: "t"},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"queuedId":"q"`, `"text":"t"`}},
+		{"cancelSteer", CancelSteerParams{ConversationID: convID(1), QueuedID: "q"},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"queuedId":"q"`}},
+		{"drain", DrainParams{ConversationID: convID(1)}, []string{`"conversationId":"` + convID(1) + `"`}},
+		{"abort", AbortParams{ConversationID: convID(1)}, []string{`"conversationId":"` + convID(1) + `"`}},
+		{"setMode", SetPermissionModeParams{ConversationID: convID(1), Mode: "plan"},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"mode":"plan"`}},
+		{"submitAnswer", SubmitAnswerParams{ConversationID: convID(1), RequestID: "r", Skipped: true},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"requestId":"r"`, `"skipped":true`}},
 		{"submitToolPerm", SubmitToolPermissionParams{
-			SessionID: 1, RequestID: "r", Allow: true, AlwaysAllowSession: true, DenyReason: "x",
-		}, []string{`"sessionId":1`, `"requestId":"r"`, `"allow":true`, `"alwaysAllowSession":true`, `"denyReason":"x"`}},
-		{"goalGet", GoalParams{SessionID: 1, AgentID: 9, ProviderSessionID: "thread-1", Backend: json.RawMessage(`{"Type":"codex"}`)},
-			[]string{`"sessionId":1`, `"agentId":9`, `"providerSessionId":"thread-1"`, `"backend":`, `"Type":"codex"`}},
-		{"goalSet", GoalParams{SessionID: 1, AgentID: 9, ProviderSessionID: "thread-1", Backend: json.RawMessage(`{"Type":"codex"}`), Objective: ptrString("ship"), Status: ptrString("active"), TokenBudget: ptrInt(123)},
-			[]string{`"sessionId":1`, `"agentId":9`, `"providerSessionId":"thread-1"`, `"backend":`, `"Type":"codex"`, `"objective":"ship"`, `"status":"active"`, `"tokenBudget":123`}},
+			ConversationID: convID(1), RequestID: "r", Allow: true, AlwaysAllowSession: true, DenyReason: "x",
+		}, []string{`"conversationId":"` + convID(1) + `"`, `"requestId":"r"`, `"allow":true`, `"alwaysAllowSession":true`, `"denyReason":"x"`}},
+		{"goalGet", GoalParams{ConversationID: convID(1), AgentID: 9, ProviderSessionID: "thread-1", Backend: json.RawMessage(`{"Type":"codex"}`)},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"agentId":9`, `"providerSessionId":"thread-1"`, `"backend":`, `"Type":"codex"`}},
+		{"goalSet", GoalParams{ConversationID: convID(1), AgentID: 9, ProviderSessionID: "thread-1", Backend: json.RawMessage(`{"Type":"codex"}`), Objective: ptrString("ship"), Status: ptrString("active"), TokenBudget: ptrInt(123)},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"agentId":9`, `"providerSessionId":"thread-1"`, `"backend":`, `"Type":"codex"`, `"objective":"ship"`, `"status":"active"`, `"tokenBudget":123`}},
 		{"goalResult", GoalResult{Goal: &agentruntime.Goal{ThreadID: "thread-1", Objective: "ship", Status: "active"}},
 			[]string{`"goal":`, `"threadId":"thread-1"`, `"objective":"ship"`, `"status":"active"`}},
 		{"goalClearResult", GoalClearResult{Cleared: true}, []string{`"cleared":true`}},
 		{"capabilities", CapabilitiesParams{BackendType: "claudecode"},
 			[]string{`"backendType":"claudecode"`}},
-		{"runAck", RunAck{SessionID: 42}, []string{`"sessionId":42`}},
-		{"runParamsCompact", RunParams{SessionID: 42, Compact: true}, []string{`"sessionId":42`, `"compact":true`}},
-		{"runParamsEnabledPlugins", RunParams{SessionID: 42, EnabledPlugins: map[string]bool{"browser@openai-bundled": true}},
-			[]string{`"sessionId":42`, `"enabledPlugins":`, `"browser@openai-bundled":true`}},
+		{"runAck", RunAck{ConversationID: convID(42)}, []string{`"conversationId":"` + convID(42) + `"`}},
+		{"runParamsCompact", RunParams{ConversationID: convID(42), Compact: true}, []string{`"conversationId":"` + convID(42) + `"`, `"compact":true`}},
+		{"runParamsEnabledPlugins", RunParams{ConversationID: convID(42), EnabledPlugins: map[string]bool{"browser@openai-bundled": true}},
+			[]string{`"conversationId":"` + convID(42) + `"`, `"enabledPlugins":`, `"browser@openai-bundled":true`}},
 		{"cancelSteerResult", CancelSteerResult{Removed: []string{"a", "b"}},
 			[]string{`"removed":["a","b"]`}},
 	}
@@ -374,7 +375,7 @@ var _ error = (*rpcerror.Error)(nil)
 // TestRunParams_LLMTargetKeysRoundTrip 钉死决策 11:RunParams 同时携带
 // LLMProviderKey 与 LLMModelKey,且空值因 omitempty 不落字节流。
 func TestRunParams_LLMTargetKeysRoundTrip(t *testing.T) {
-	in := RunParams{SessionID: 42, LLMProviderKey: "prov-1", LLMModelKey: "model-7"}
+	in := RunParams{ConversationID: convID(42), LLMProviderKey: "prov-1", LLMModelKey: "model-7"}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"llmProviderKey":"prov-1"`)
@@ -386,7 +387,7 @@ func TestRunParams_LLMTargetKeysRoundTrip(t *testing.T) {
 	assert.Equal(t, "model-7", out.LLMModelKey)
 
 	// provider-default:model key 空 → 字段不出现在字节流,旧 daemon 解码不受影响。
-	none, err := json.Marshal(RunParams{SessionID: 1, LLMProviderKey: "prov-1"})
+	none, err := json.Marshal(RunParams{ConversationID: convID(1), LLMProviderKey: "prov-1"})
 	require.NoError(t, err)
 	assert.NotContains(t, string(none), "llmModelKey")
 }
@@ -395,7 +396,7 @@ func TestRunParams_LLMTargetKeysRoundTrip(t *testing.T) {
 // LLMProviderKey + LLMModelKey(与 RunParams 同形),goal 与 turn 不再各自解析。
 func TestGoalParams_LLMTargetKeysRoundTrip(t *testing.T) {
 	in := GoalParams{
-		SessionID: 42, ProviderSessionID: "thread-1",
+		ConversationID: convID(42), ProviderSessionID: "thread-1",
 		Backend:        json.RawMessage(`{"Type":"codex"}`),
 		LLMProviderKey: "prov-1", LLMModelKey: "model-7",
 	}
@@ -515,4 +516,9 @@ func TestSkillPackSummary_RoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &out))
 	assert.Equal(t, in, out)
 	assert.Contains(t, string(b), `"skills":["brainstorming","test-driven-development"]`)
+}
+
+// convID 把一个短会话号折成一条格式合法的 conversation_id,只在测试里用。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
 }

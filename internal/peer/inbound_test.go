@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
@@ -126,14 +128,14 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 
 	unauthenticatedAttach := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`12`), Method: wire.MethodSessionAttach,
-		Params: mustJSON(t, wire.SessionAttachParams{SessionID: 1}),
+		Params: mustJSON(t, wire.SessionAttachParams{ConversationID: convID(1)}),
 	})
 	require.NotNil(t, unauthenticatedAttach.Error)
 	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticatedAttach.Error.Code)
 
 	unauthenticatedWaiters := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`13`), Method: wire.MethodSessionPendingWaiters,
-		Params: mustJSON(t, wire.SessionPendingWaitersParams{SessionID: 1}),
+		Params: mustJSON(t, wire.SessionPendingWaitersParams{ConversationID: convID(1)}),
 	})
 	require.NotNil(t, unauthenticatedWaiters.Error)
 	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticatedWaiters.Error.Code)
@@ -193,7 +195,7 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	var list agentrewire.SessionListResponse
 	require.NoError(t, protojson.Unmarshal(listed.Result, &list))
 	require.Len(t, list.Sessions, 1)
-	require.Equal(t, int64(1), list.Sessions[0].SessionId)
+	require.Equal(t, convID(1), list.Sessions[0].ConversationId)
 	require.Equal(t, "sha256:desktop", list.Sessions[0].PeerFingerprint)
 	require.Equal(t, "Ship the release", list.Sessions[0].Title)
 	require.Equal(t, string(agent_backend_entity.TypeClaudeCode), list.Sessions[0].BackendType)
@@ -209,18 +211,18 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 
 	attached := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`5`), Method: wire.MethodSessionAttach,
-		Params: mustJSON(t, wire.SessionAttachParams{SessionID: 1}),
+		Params: mustJSON(t, wire.SessionAttachParams{ConversationID: convID(1)}),
 	})
 	require.Nil(t, attached.Error, "an authorized peer must attach a desktop session")
 	var attachment agentrewire.SessionAttachResponse
 	require.NoError(t, protojson.Unmarshal(attached.Result, &attachment))
-	assert.Equal(t, int64(1), attachment.SessionId)
+	assert.Equal(t, convID(1), attachment.ConversationId)
 	assert.Equal(t, string(agent_backend_entity.TypeClaudeCode), attachment.BackendType)
 	assert.Equal(t, wire.SessionLifecycleRunning, attachment.LifecycleState)
 
 	pulled := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`6`), Method: wire.MethodSessionPull,
-		Params: mustJSON(t, wire.SessionPullParams{SessionID: 1}),
+		Params: mustJSON(t, wire.SessionPullParams{ConversationID: convID(1)}),
 	})
 	require.Nil(t, pulled.Error, "the attached peer must pull desktop history on the existing runtime.session.pull method")
 	var page agentrewire.SessionPullResponse
@@ -231,7 +233,7 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	// 画不出来（同一份浏览器代码对每种设备都调它，agentred 侧一直有）。
 	waiters := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`7`), Method: wire.MethodSessionPendingWaiters,
-		Params: mustJSON(t, wire.SessionPendingWaitersParams{SessionID: 1}),
+		Params: mustJSON(t, wire.SessionPendingWaitersParams{ConversationID: convID(1)}),
 	})
 	require.Nil(t, waiters.Error, "the attached peer must read this desktop session's still-blocked waiters")
 	var pending agentrewire.SessionPendingWaitersResponse
@@ -263,7 +265,7 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 	// 账号门:补齐族的每个方法都在门后,新增的删除不能是例外 —— 它比读更该在门后。
 	unauthenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`1`), Method: wire.MethodSessionDelete,
-		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 1}),
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: convID(1)}),
 	})
 	require.NotNil(t, unauthenticated.Error)
 	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticated.Error.Code)
@@ -278,7 +280,7 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 
 	deleted := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`3`), Method: wire.MethodSessionDelete,
-		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 1}),
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: convID(1)}),
 	})
 	require.Nil(t, deleted.Error, "授权对端必须删得掉这台电脑上的对话")
 	var result wire.SessionDeleteResult
@@ -289,7 +291,7 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 	// 本机指纹 —— 会话清单交出去的 PeerFingerprint 就是它,镜像会原样带回来。
 	again := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`4`), Method: wire.MethodSessionDelete,
-		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 1, PeerFingerprint: "sha256:desktop"}),
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: convID(1), PeerFingerprint: "sha256:desktop"}),
 	})
 	require.Nil(t, again.Error, "重复删除必须幂等")
 	var repeated wire.SessionDeleteResult
@@ -301,14 +303,14 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 	// Times(2) 就是这条断言的执行者。
 	foreign := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`5`), Method: wire.MethodSessionDelete,
-		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 1, PeerFingerprint: "sha256:some-agentred"}),
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: convID(1), PeerFingerprint: "sha256:some-agentred"}),
 	})
 	require.NotNil(t, foreign.Error, "点名别的机器不得删掉本机同号的对话")
 	assert.Equal(t, rpcerror.ErrUnauthorized.Code, foreign.Error.Code)
 
 	invalid := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`6`), Method: wire.MethodSessionDelete,
-		Params: mustJSON(t, wire.SessionDeleteParams{SessionID: 0}),
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: "0"}),
 	})
 	require.NotNil(t, invalid.Error)
 	assert.Equal(t, rpcerror.ErrInvalidParams.Code, invalid.Error.Code)
@@ -381,6 +383,12 @@ func registerInboundPeerChatForDelete(t *testing.T) *mock_chat_repo.MockSessionR
 		ctrl.Finish()
 	})
 	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
+	// conversation_id → 本地主键的反查在落库前靠枚举本机会话重建(见
+	// chat_svc.ResolvePeerConversation);备忘录是进程级的,同一条对话在一次进程里
+	// 只重建一次,所以次数不定。
+	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
+		ID: 1, AgentID: 7, Title: "Ship the release", Status: consts.ACTIVE,
+	}}, nil).AnyTimes()
 	return sessions
 }
 
@@ -425,16 +433,16 @@ func registerInboundPeerChat(t *testing.T) {
 		ID: 7, Name: "Release captain", AgentBackendID: 11, Status: consts.ACTIVE,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
 	}
-	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).Times(2)
-	agents.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{agent}, nil).Times(2)
+	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
+	agents.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{agent}, nil).AnyTimes()
 	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
 		ID: 1, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, Status: consts.ACTIVE,
-	}}, nil).Times(2)
+	}}, nil).AnyTimes()
 	sessions.EXPECT().Find(gomock.Any(), int64(1)).Return(&chat_entity.Session{
 		ID: 1, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", Status: consts.ACTIVE,
-	}, nil).Times(2)
+	}, nil).AnyTimes()
 	messages.EXPECT().List(gomock.Any(), int64(1)).Return(nil, nil)
-	agents.EXPECT().Find(gomock.Any(), int64(7)).Return(agent, nil).Times(2)
+	agents.EXPECT().Find(gomock.Any(), int64(7)).Return(agent, nil).AnyTimes()
 	backends.EXPECT().Find(gomock.Any(), int64(11)).Return(&agent_backend_entity.AgentBackend{
 		ID: 11, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
 	}, nil).AnyTimes()
@@ -584,4 +592,13 @@ func mustJSON(t *testing.T, value any) []byte {
 	payload, err := json.Marshal(value)
 	require.NoError(t, err)
 	return payload
+}
+
+// convID 是**这台桌面端**为它本机第 n 条会话交出去的对话身份。
+//
+// 与生产的派生同输入同算法(本机设备指纹 + 本地会话 id):对端拿着它回来寻址时,
+// 桌面端要靠同一条派生把它翻回本地主键 —— 用一个随手编的 uuid,这些用例就只在
+// 测试自己的世界里成立。
+func convID(n int64) string {
+	return conversationid.Derive(conversationid.Namespace, "sha256:desktop", strconv.FormatInt(n, 10))
 }

@@ -52,7 +52,7 @@ func TestAutonomousTurnEvent_SlowConsumerDoesNotStallTheReadLoop(t *testing.T) {
 
 	turns := rt.AutonomousTurns(sid)
 	capture.deliver(t, wire.NotifyAutonomousTurnStarted,
-		wire.AutonomousTurnStartedFrame{SessionID: sid, Trigger: "background-task"})
+		wire.AutonomousTurnStartedFrame{ConversationID: convOf(sid), Trigger: "background-task"})
 
 	var turn agentruntime.AutonomousTurn
 	select {
@@ -65,8 +65,8 @@ func TestAutonomousTurnEvent_SlowConsumerDoesNotStallTheReadLoop(t *testing.T) {
 	// 刻意**不** drain turn.Events:模拟消费方正卡在一次落库上。
 	for i := 0; i < 512; i++ {
 		capture.deliver(t, wire.NotifyAutonomousTurnEvent, wire.EventFrame{
-			SessionID: sid,
-			Event:     agentruntime.TextDelta{Text: fmt.Sprintf("delta-%03d", i)},
+			ConversationID: convOf(sid),
+			Event:          agentruntime.TextDelta{Text: fmt.Sprintf("delta-%03d", i)},
 		})
 	}
 
@@ -92,7 +92,7 @@ func TestAutonomousTurnStarted_UndrainedTurnsDoNotStallTheReadLoop(t *testing.T)
 
 	for i := 0; i < 16; i++ {
 		capture.deliver(t, wire.NotifyAutonomousTurnStarted,
-			wire.AutonomousTurnStartedFrame{SessionID: sid, Trigger: fmt.Sprintf("turn-%d", i)})
+			wire.AutonomousTurnStartedFrame{ConversationID: convOf(sid), Trigger: fmt.Sprintf("turn-%d", i)})
 	}
 
 	require.NoError(t, readLoopAlive(t, rt, 3*time.Second),
@@ -123,7 +123,7 @@ func TestPrepareRun_SlowConsumerKeepsItsTurnAndLosesNoEvents(t *testing.T) {
 	)
 	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, params any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{SessionID: params.(wire.RunParams).SessionID}
+			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: params.(wire.RunParams).ConversationID}
 			return nil
 		})
 
@@ -137,14 +137,14 @@ func TestPrepareRun_SlowConsumerKeepsItsTurnAndLosesNoEvents(t *testing.T) {
 	// 刻意**不** drain:模拟消费方正卡在一次落库上。
 	for i := 0; i < burst; i++ {
 		capture.deliver(t, wire.NotifyEvent, wire.EventFrame{
-			SessionID: sid,
-			Event:     agentruntime.TextDelta{Text: fmt.Sprintf("delta-%03d", i)},
+			ConversationID: convOf(sid),
+			Event:          agentruntime.TextDelta{Text: fmt.Sprintf("delta-%03d", i)},
 		})
 	}
 	require.NoError(t, readLoopAlive(t, rt, 3*time.Second),
 		"读循环必须照常推进 —— 这一半旧实现也是对的,不能因为换实现丢掉")
 
-	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: sid})
+	capture.deliver(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convOf(sid)})
 
 	got := make([]string, 0, burst)
 	for ev := range events {

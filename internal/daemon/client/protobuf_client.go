@@ -186,12 +186,28 @@ func RaceProtobuf(ctx context.Context, paths ...ProtobufPath) (ProtobufConnectio
 // to typed messages; the two protocols never share an envelope or codec.
 type ProtobufClient struct {
 	conn *protorpc.Conn
+	// selfFP 是本端在这条连接的握手里出示的设备指纹 —— 也就是对端把本端会话
+	// 落进 peer_fingerprint 的那个值。记在这里而不是让每个调用方各自去 keychain
+	// 取:conversation_id 的派生输入必须是**对端眼里的本端身份**,而这条连接的
+	// 握手是唯一说了算的地方(见 remote.Runtime.conversationID)。
+	// 空表示这条连接没做过带指纹的握手(未鉴权的直连单测)。
+	selfFP string
 }
+
+// SelfFingerprint 交出本端在这条连接上出示过的设备指纹。
+func (c *ProtobufClient) SelfFingerprint() string { return c.selfFP }
 
 type ProtobufConnection interface {
 	Conn() *protorpc.Conn
 	Closed() <-chan struct{}
 	Close() error
+	// SelfFingerprint 交出本端在这条连接的握手里出示过的设备指纹 —— 也就是对端把
+	// 本端会话落进 peer_fingerprint 的那个值。
+	//
+	// 它在接口里而不是靠类型断言取:这条连接一路上被包了好几层(连接池的
+	// noopCloseClient、测试里的录制包装),而包装层嵌的是这个接口 —— 方法在接口里
+	// 就自动透传,断言则会在第一层包装处静默退化成空串,让同一条对话换一个身份。
+	SelfFingerprint() string
 }
 
 var _ ProtobufConnection = (*ProtobufClient)(nil)
@@ -257,6 +273,7 @@ func DialRelayProtobuf(ctx context.Context, opts RelayOptions) (*ProtobufClient,
 // the one boundary every handshake passes through, and a caller that forgot to
 // advertise would look exactly like a pre-versioning peer to the daemon.
 func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.AuthAccountRequest) (*agentrewire.AuthAccountResponse, error) {
+	c.selfFP = request.GetDeviceFingerprint()
 	request.ProtocolVersion = wireversion.Protocol
 	request.MinSupportedProtocolVersion = wireversion.MinSupported
 	response, err := protorpc.CallMethod(
@@ -276,6 +293,7 @@ func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.A
 }
 
 func (c *ProtobufClient) AuthPair(ctx context.Context, request *agentrewire.AuthPairRequest) (*agentrewire.AuthPairResponse, error) {
+	c.selfFP = request.GetDeviceFingerprint()
 	request.ProtocolVersion = wireversion.Protocol
 	request.MinSupportedProtocolVersion = wireversion.MinSupported
 	response, err := protorpc.CallMethod(ctx, c.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR), request,
@@ -290,6 +308,7 @@ func (c *ProtobufClient) AuthPair(ctx context.Context, request *agentrewire.Auth
 }
 
 func (c *ProtobufClient) AuthConnect(ctx context.Context, request *agentrewire.AuthConnectRequest) (*agentrewire.AuthConnectResponse, error) {
+	c.selfFP = request.GetDeviceFingerprint()
 	request.ProtocolVersion = wireversion.Protocol
 	request.MinSupportedProtocolVersion = wireversion.MinSupported
 	response, err := protorpc.CallMethod(ctx, c.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT), request,

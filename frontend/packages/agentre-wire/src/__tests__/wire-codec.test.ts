@@ -72,6 +72,10 @@ import runParamsExtraFixture from "../../fixtures/run-params-extra.json";
 import runParamsFreshFixture from "../../fixtures/run-params-fresh.json";
 import sessionPullResultExtraFixture from "../../fixtures/session-pull-result-extra.json";
 
+
+// 线上对话身份是 uuid;这些用例要证的是"同一个值原样往返",取一个可读的固定值。
+const CONVERSATION_ID = "00000000-0000-7000-8000-000000000042";
+
 describe("protobuf rpc envelope", () => {
   it("given an RPC error with binary details, when decoded, then its typed fields and bytes are preserved", () => {
     const payload = toBinary(
@@ -242,7 +246,7 @@ describe("protobuf rpc envelope", () => {
               payload: {
                 case: "runtimeEvent",
                 value: {
-                  sessionId: 42n,
+                  conversationId: CONVERSATION_ID,
                   seq: 7n,
                   event: { case: "textDelta", value: { text: "hello" } },
                 },
@@ -271,7 +275,7 @@ describe("protobuf rpc envelope", () => {
     expect(journaled?.payload.case).toBe("runtimeEvent");
     if (journaled?.payload.case !== "runtimeEvent") return;
     const runtimeEvent = journaled.payload.value;
-    expect(runtimeEvent.sessionId).toBe(42n);
+    expect(runtimeEvent.conversationId).toBe(CONVERSATION_ID);
     expect(runtimeEvent.event.case).toBe("textDelta");
     if (runtimeEvent.event.case !== "textDelta") return;
     expect(runtimeEvent.event.value.text).toBe("hello");
@@ -281,7 +285,7 @@ describe("protobuf rpc envelope", () => {
   it("given a live runtime event notification, when encoded, then it round-trips outside the request/response path", () => {
     const notification = {
       case: "runtimeEventNotification" as const,
-      sessionId: 42,
+      conversationId: CONVERSATION_ID,
       seq: 7,
       event: { case: "textDelta" as const, text: "hello" },
     };
@@ -325,7 +329,7 @@ describe("protobuf rpc envelope", () => {
       id: 0n,
       body: {
         case: "runtimeEventNotification" as const,
-        sessionId: 42,
+        conversationId: CONVERSATION_ID,
         seq: 8,
         event,
       },
@@ -338,7 +342,7 @@ describe("protobuf rpc envelope", () => {
   it.each([
     {
       case: "runResultDoneNotification",
-      sessionId: 42,
+      conversationId: CONVERSATION_ID,
       seq: 9,
       providerSessionId: "sess",
       usage: {
@@ -361,7 +365,7 @@ describe("protobuf rpc envelope", () => {
     },
     {
       case: "autonomousTurnStartedNotification",
-      sessionId: 42,
+      conversationId: CONVERSATION_ID,
       seq: 10,
       trigger: "hook",
       turnToken: 4n,
@@ -378,7 +382,7 @@ describe("protobuf rpc envelope", () => {
       id: 0n,
       body: {
         case: "runResultDoneNotification" as const,
-        sessionId: 42,
+        conversationId: CONVERSATION_ID,
         seq: 9,
         providerSessionId: "",
         userAnchor: "",
@@ -567,7 +571,7 @@ describe("protobuf rpc envelope", () => {
         id: 0n,
         body: {
           case: "runtimeEventNotification" as const,
-          sessionId: 42,
+          conversationId: CONVERSATION_ID,
           seq: 11,
           event,
         },
@@ -602,7 +606,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       runParamsFixture,
       "RunParams",
     );
-    expect(p.sessionId).toBe(42);
+    expect(p.conversationId).toBe(CONVERSATION_ID);
     expect(p.agentId).toBe(7);
     // R9:别的对端发起的那条会话上开新一轮时点名的 origin。
     expect(p.peerFingerprint).toBe("fp-desktop");
@@ -643,7 +647,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
     );
     expect(p.freshSession).toBe(true);
     expect(p.providerSessionId).toBeUndefined();
-    expect(p.sessionId).toBe(42);
+    expect(p.conversationId).toBe(CONVERSATION_ID);
   });
 
   it("RunAck 解出 providerSessionId 与回退信号", () => {
@@ -653,7 +657,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       runAckFixture,
       "RunAck",
     );
-    expect(a.sessionId).toBe(42);
+    expect(a.conversationId).toBe(CONVERSATION_ID);
     expect(a.providerSessionId).toBe("sess_abc123");
     expect(a.launchPermissionMode).toBe("default");
     expect(a.providerFallbackKey).toBe("key-fallback");
@@ -727,7 +731,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
     expect(n.method).toBe(NotifyEvent);
     const frame = decodeEventFrame(n.params);
     expect(frame.seq).toBeUndefined();
-    expect(frame.sessionId).toBe(42);
+    expect(frame.conversationId).toBe(CONVERSATION_ID);
   });
 
   it("SessionPullResult 解出通知 / 游标 / HasMore / OldestSeq", () => {
@@ -762,7 +766,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       sessionAttachParamsFixture,
       "SessionAttachParams",
     );
-    expect(p.sessionId).toBe(42);
+    expect(p.conversationId).toBe(CONVERSATION_ID);
     const r = assertRoundTrip(
       decodeSessionAttachResult,
       (v) => JSON.stringify(v),
@@ -781,7 +785,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       sessionPendingWaitersParamsFixture,
       "SessionPendingWaitersParams",
     );
-    expect(p.sessionId).toBe(42);
+    expect(p.conversationId).toBe(CONVERSATION_ID);
     const r = assertRoundTrip(
       decodeSessionPendingWaitersResult,
       (v) => JSON.stringify(v),
@@ -802,7 +806,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       eventFrameFixture,
       "EventFrame",
     );
-    expect(f.sessionId).toBe(42);
+    expect(f.conversationId).toBe(CONVERSATION_ID);
     expect(f.seq).toBe(11);
     expect(f.event).toEqual({ kind: "text_delta", text: "你好" });
   });
@@ -814,7 +818,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       runResultDoneFrameFixture,
       "RunResultDoneFrame",
     );
-    expect(f.sessionId).toBe(42);
+    expect(f.conversationId).toBe(CONVERSATION_ID);
     expect(f.usage?.totalTokens).toBe(155);
     expect(f.model).toBe("claude-sonnet-4-5");
     expect(f.turnToken).toBe(9);
@@ -833,7 +837,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
 
   it("AutonomousTurnStartedFrame 解出 trigger / turnToken / seq", () => {
     const f = decodeAutonomousTurnStartedFrame(autonomousTurnStartedFixture);
-    expect(f.sessionId).toBe(42);
+    expect(f.conversationId).toBe(CONVERSATION_ID);
     expect(f.trigger).toBe("auto");
     expect(f.turnToken).toBe(9);
     expect(f.seq).toBe(13);
@@ -844,13 +848,13 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
   it.each([
     {
       case: "autonomousTurnEventNotification",
-      sessionId: 42,
+      conversationId: CONVERSATION_ID,
       seq: 12,
       event: { case: "textDelta", text: "auto" },
     },
     {
       case: "autonomousTurnDoneNotification",
-      sessionId: 42,
+      conversationId: CONVERSATION_ID,
       seq: 13,
       providerSessionId: "sess",
       userAnchor: "",
@@ -896,25 +900,25 @@ describe("SteerParams 形状契约(手写,待补黄金样本)", () => {
 
   it("必填 sessionId / text；可选 peerFingerprint / queuedId 按 omitempty 省略", () => {
     const full = {
-      sessionId: 42,
+      conversationId: CONVERSATION_ID,
       peerFingerprint: "fp-desktop",
       queuedId: "q-1",
       text: "顺便把标题也改了",
     };
     const decoded = decodeSteerParams(full);
-    expect(decoded.sessionId).toBe(42);
+    expect(decoded.conversationId).toBe(CONVERSATION_ID);
     expect(decoded.text).toBe("顺便把标题也改了");
     expect(JSON.parse(encodeSteerParams(decoded))).toEqual(full);
 
     // omitempty：可选字段缺席时解码结果里也不该冒出这两个键。
-    const minimal = { sessionId: 42, text: "继续" };
+    const minimal = { conversationId: CONVERSATION_ID, text: "继续" };
     expect(JSON.parse(encodeSteerParams(decodeSteerParams(minimal)))).toEqual(
       minimal,
     );
   });
 
   it("未知字段原样保留(与其它帧同一条纪律)", () => {
-    const withExtra = { sessionId: 42, text: "继续", futureField: 7 };
+    const withExtra = { conversationId: CONVERSATION_ID, text: "继续", futureField: 7 };
     expect(JSON.parse(encodeSteerParams(decodeSteerParams(withExtra)))).toEqual(
       withExtra,
     );
@@ -926,7 +930,7 @@ describe("SteerParams 形状契约(手写,待补黄金样本)", () => {
     ["text 缺失", { sessionId: 42 }],
     [
       "peerFingerprint 类型错",
-      { sessionId: 42, text: "x", peerFingerprint: 1 },
+      { conversationId: CONVERSATION_ID, text: "x", peerFingerprint: 1 },
     ],
   ])("%s → 解码报错", (_what, bad) => {
     expect(() => decodeSteerParams(bad)).toThrow(TypeError);
@@ -947,7 +951,7 @@ describe("turn stats on the wire", () => {
       id: 0n,
       body: {
         case: "runtimeEventNotification" as const,
-        sessionId: 42,
+        conversationId: CONVERSATION_ID,
         seq: 11,
         event: {
           case: "done" as const,
@@ -968,7 +972,7 @@ describe("turn stats on the wire", () => {
       id: 0n,
       body: {
         case: "runResultDoneNotification" as const,
-        sessionId: 42,
+        conversationId: CONVERSATION_ID,
         seq: 12,
         providerSessionId: "",
         userAnchor: "",

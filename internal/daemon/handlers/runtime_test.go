@@ -791,7 +791,7 @@ func TestRuntime_Run_GivenAccountCLIOverlay_WhenExecuting_ThenUsesOverlayWithout
 	}
 	be.SyncID = "backend-sync-1"
 
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 71})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(71)})
 	require.NoError(t, err)
 	_ = notif.waitFrames(t, 1)
 	rt.mu.Lock()
@@ -807,7 +807,7 @@ func TestRuntime_Run_GivenNoSuccessfulAccountSnapshot_WhenExecuting_ThenKeepsPai
 	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(string) (string, bool) { return "", false })
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/paired/bin/claude"}
 
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 72})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(72)})
 	require.NoError(t, err)
 	_ = notif.waitFrames(t, 1)
 	rt.mu.Lock()
@@ -840,7 +840,7 @@ func TestRuntime_GoalRoutesWithoutActiveTurn(t *testing.T) {
 	status := "active"
 	budget := 123
 	params := wire.GoalParams{
-		SessionID:         42,
+		ConversationID:    convID(42),
 		AgentID:           7,
 		ProviderSessionID: "thread-goal",
 		Backend:           backendJSON(t, agent_backend_entity.AgentBackend{ID: 3, Type: string(agent_backend_entity.TypeCodex), Name: "codex"}),
@@ -856,7 +856,7 @@ func TestRuntime_GoalRoutesWithoutActiveTurn(t *testing.T) {
 	assert.Equal(t, "thread-goal", setOut.Goal.ThreadID)
 	require.Len(t, rt.setGoalCalls, 1)
 	setReq := rt.setGoalCalls[0].req
-	assert.Equal(t, int64(42), setReq.SessionID)
+	assert.Equal(t, handlers.RuntimeSessionKey(convID(42)), setReq.SessionID)
 	assert.Equal(t, int64(7), setReq.AgentID)
 	assert.Equal(t, "thread-goal", setReq.ProviderSessionID)
 	assert.Equal(t, "/tmp/work", setReq.Cwd)
@@ -910,7 +910,7 @@ func TestRuntime_GoalWithProviderUsesDaemonProviderAndGateway(t *testing.T) {
 	gw.EXPECT().RevokeToken("goal-token")
 
 	_, err := h.GetGoal(ctx, wire.GoalParams{
-		SessionID:         42,
+		ConversationID:    convID(42),
 		AgentID:           7,
 		ProviderSessionID: "thread-goal",
 		Backend:           backendJSON(t, be),
@@ -930,7 +930,7 @@ func TestRuntime_GoalMissingBackendReturnsNoActiveTurn(t *testing.T) {
 	rt := &fullRT{}
 	ctx, _, _, _, h := setupRuntimeTest(t, rt)
 
-	_, err := h.GetGoal(ctx, wire.GoalParams{SessionID: 42, ProviderSessionID: "thread-goal"})
+	_, err := h.GetGoal(ctx, wire.GoalParams{ConversationID: convID(42), ProviderSessionID: "thread-goal"})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -954,7 +954,7 @@ func TestRuntime_Run_NoProvider_EmitsEventsAndDone(t *testing.T) {
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
 	ack, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		AgentID:        7,
 		Cwd:            "/tmp",
 		UserText:       "hello",
@@ -962,7 +962,7 @@ func TestRuntime_Run_NoProvider_EmitsEventsAndDone(t *testing.T) {
 		EnabledPlugins: map[string]bool{"browser@openai-bundled": true},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int64(42), ack.SessionID)
+	assert.Equal(t, convID(42), ack.ConversationID)
 	assert.Equal(t, "psid-1", ack.ProviderSessionID)
 	require.Len(t, rt.runReqs, 1)
 	assert.True(t, rt.runReqs[0].req.Compact)
@@ -978,13 +978,13 @@ func TestRuntime_Run_NoProvider_EmitsEventsAndDone(t *testing.T) {
 	// First event frame must carry sessionId 42 and a text_delta event payload.
 	ef0, ok := frames[0].params.(*wire.EventFrame)
 	require.True(t, ok, "expected wire.EventFrame, got %T", frames[0].params)
-	assert.Equal(t, int64(42), ef0.SessionID)
+	assert.Equal(t, convID(42), ef0.ConversationID)
 	assert.Equal(t, agentruntime.TextDelta{Text: "hi"}, ef0.Event)
 
 	// Final frame carries the RunResult fields.
 	done, ok := frames[2].params.(*wire.RunResultDoneFrame)
 	require.True(t, ok, "expected wire.RunResultDoneFrame, got %T", frames[2].params)
-	assert.Equal(t, int64(42), done.SessionID)
+	assert.Equal(t, convID(42), done.ConversationID)
 	assert.Equal(t, "psid-1", done.ProviderSessionID)
 	assert.Equal(t, "claude-sonnet-4-6", done.Model)
 	assert.Equal(t, 200000, done.ContextWindow)
@@ -994,7 +994,7 @@ func TestRuntime_Run_NoProvider_EmitsEventsAndDone(t *testing.T) {
 	// Session must be cleared after fanout finishes so subsequent Steer
 	// returns ErrNoActiveTurn — exercised by a follow-up call.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err = h.Steer(ctx, wire.SteerParams{SessionID: 42, Text: "late"})
+		_, err = h.Steer(ctx, wire.SteerParams{ConversationID: convID(42), Text: "late"})
 		assert.Error(c, err)
 	}, time.Second, 10*time.Millisecond)
 	assert.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
@@ -1013,9 +1013,9 @@ func TestRuntime_Run_GivenRPCContextEndsAfterAck_ThenNonPiTurnKeepsDelivering(t 
 
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	_, err := h.Run(rpcCtx, wire.RunParams{
-		Backend:   backendJSON(t, be),
-		SessionID: 43,
-		UserText:  "hello",
+		Backend:        backendJSON(t, be),
+		ConversationID: convID(43),
+		UserText:       "hello",
 	})
 	require.NoError(t, err)
 	cancelRPC() // Protobuf writes the ACK, then ends the per-request context.
@@ -1070,7 +1070,7 @@ func TestRuntime_Run_ForwardsContentBearingEventsWithoutLoggingPayload(t *testin
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 142})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(142)})
 	require.NoError(t, err)
 	frames := notif.waitFrames(t, len(events)+1)
 
@@ -1134,7 +1134,7 @@ func TestRuntime_Run_AutonomousPayloadAndStopErrorRemainForwardedButNotLogged(t 
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 143})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(143)})
 	require.NoError(t, err)
 	frames := notif.waitFrames(t, 5)
 
@@ -1190,7 +1190,7 @@ func TestRuntime_Run_ForwardsAutonomousTurn(t *testing.T) {
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 42, AgentID: 7, Cwd: "/tmp", UserText: "hi",
+		Backend: backendJSON(t, be), ConversationID: convID(42), AgentID: 7, Cwd: "/tmp", UserText: "hi",
 	})
 	require.NoError(t, err)
 
@@ -1221,11 +1221,11 @@ func TestRuntime_Run_ForwardsAutonomousTurn(t *testing.T) {
 	require.NotNil(t, autoEvent)
 	require.NotNil(t, autoDone)
 	assert.Equal(t, []string{"started", "event", "done"}, order)
-	assert.Equal(t, int64(42), started.SessionID)
+	assert.Equal(t, convID(42), started.ConversationID)
 	assert.Equal(t, "background_task", started.Trigger)
-	assert.Equal(t, int64(42), autoEvent.SessionID)
+	assert.Equal(t, convID(42), autoEvent.ConversationID)
 	assert.Equal(t, agentruntime.TextDelta{Text: "autonomous:listing"}, autoEvent.Event)
-	assert.Equal(t, int64(42), autoDone.SessionID)
+	assert.Equal(t, convID(42), autoDone.ConversationID)
 	assert.Equal(t, "claude-sonnet-4-6", autoDone.Model)
 }
 
@@ -1246,7 +1246,7 @@ func TestRuntime_Run_UserMessageMarker(t *testing.T) {
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:          backendJSON(t, be),
-		SessionID:        42,
+		ConversationID:   convID(42),
 		AgentID:          7,
 		Cwd:              "/tmp",
 		UserText:         "浏览器发来的消息",
@@ -1261,7 +1261,7 @@ func TestRuntime_Run_UserMessageMarker(t *testing.T) {
 	require.Equal(t, wire.NotifyEvent, frames[0].method)
 	ef0, ok := frames[0].params.(*wire.EventFrame)
 	require.True(t, ok, "expected EventFrame, got %T", frames[0].params)
-	assert.Equal(t, int64(42), ef0.SessionID)
+	assert.Equal(t, convID(42), ef0.ConversationID)
 	assert.Equal(t, agentruntime.UserMessageEvent{
 		Text:             "浏览器发来的消息",
 		SourceDevice:     "sha256:web-device",
@@ -1289,7 +1289,7 @@ func TestRuntime_Run_NoUserMessageMarkerWhenNoSource(t *testing.T) {
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 42, AgentID: 7, Cwd: "/tmp", UserText: "hi",
+		Backend: backendJSON(t, be), ConversationID: convID(42), AgentID: 7, Cwd: "/tmp", UserText: "hi",
 	})
 	require.NoError(t, err)
 
@@ -1315,8 +1315,8 @@ func TestRuntime_Run_BuiltinBackend_Rejected(t *testing.T) {
 func TestRuntime_Run_OpenClawRemoteSecretUnavailable(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, nil)
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend:   backendJSON(t, agent_backend_entity.AgentBackend{ID: 9, Type: string(agent_backend_entity.TypeOpenClaw), DeviceFingerprint: "7"}),
-		SessionID: 91,
+		Backend:        backendJSON(t, agent_backend_entity.AgentBackend{ID: 9, Type: string(agent_backend_entity.TypeOpenClaw), DeviceFingerprint: "7"}),
+		ConversationID: convID(91),
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "remote secret enrollment is unavailable")
@@ -1355,7 +1355,7 @@ func TestRuntime_Run_EffectiveKeyPreferredOverAgentBinding(t *testing.T) {
 
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "session-key",
 	})
 	require.NoError(t, err)
@@ -1389,7 +1389,7 @@ func TestRuntime_Run_EffectiveKeyMissing_FallsBackToAgentBinding(t *testing.T) {
 
 	ack, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "session-key",
 	})
 	require.NoError(t, err)
@@ -1427,7 +1427,7 @@ func TestRuntime_Run_EffectiveKeyInactive_FallsBackToAgentBinding(t *testing.T) 
 
 	ack, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "session-key",
 	})
 	require.NoError(t, err)
@@ -1455,7 +1455,7 @@ func TestRuntime_Run_EffectiveKeyMissing_NoAgentBinding_FallsBackToCLILogin(t *t
 
 	ack, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "session-key",
 	})
 	require.NoError(t, err)
@@ -1518,7 +1518,7 @@ func TestRuntime_Run_EffectiveConfig_MatchesDesktopFieldForField(t *testing.T) {
 
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "pk",
 		LLMModelKey:    "model-opus",
 	})
@@ -1586,11 +1586,11 @@ func TestRuntime_Run_WithProvider_ReusesPermanentTokenAcrossTurns(t *testing.T) 
 	gw.EXPECT().SetTokenTarget("sess-token", "pk", "").Return("pk", true).Times(1)
 
 	runOnce := func() {
-		_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42, UserText: "hi"})
+		_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(42), UserText: "hi"})
 		require.NoError(t, err)
 		// Let the async fanout settle (session unregisters) before the next turn.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			_, serr := h.Steer(ctx, wire.SteerParams{SessionID: 42, Text: "x"})
+			_, serr := h.Steer(ctx, wire.SteerParams{ConversationID: convID(42), Text: "x"})
 			assert.ErrorIs(c, serr, agentruntime.ErrNoActiveTurn)
 		}, time.Second, 10*time.Millisecond)
 	}
@@ -1638,11 +1638,11 @@ func TestRuntime_Run_SessionTokenFollowsEffectiveProvider(t *testing.T) {
 
 	runOnce := func(providerKey string) {
 		_, err := h.Run(ctx, wire.RunParams{
-			Backend: backendJSON(t, be), SessionID: 42, UserText: "hi", LLMProviderKey: providerKey,
+			Backend: backendJSON(t, be), ConversationID: convID(42), UserText: "hi", LLMProviderKey: providerKey,
 		})
 		require.NoError(t, err)
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			_, serr := h.Steer(ctx, wire.SteerParams{SessionID: 42, Text: "x"})
+			_, serr := h.Steer(ctx, wire.SteerParams{ConversationID: convID(42), Text: "x"})
 			assert.ErrorIs(c, serr, agentruntime.ErrNoActiveTurn)
 		}, time.Second, 10*time.Millisecond)
 	}
@@ -1664,7 +1664,7 @@ func TestRuntime_Run_StopErrAborted_RehydratesCode(t *testing.T) {
 	}
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 1})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(1)})
 	require.NoError(t, err)
 
 	frames := notif.waitFrames(t, 1)
@@ -1679,12 +1679,12 @@ func TestRuntime_Run_StopErrAborted_RehydratesCode(t *testing.T) {
 // runWithRT registers a session by calling Run with a runtime whose Run
 // returns a never-closing channel — the goroutine stays alive so the
 // session row remains registered for subsequent control RPCs.
-func runWithRT(t *testing.T, h *handlers.RuntimeHandlers, ctx context.Context, sid int64) {
+func runWithRT(t *testing.T, h *handlers.RuntimeHandlers, ctx context.Context, conversationID string) {
 	t.Helper()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	ack, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: sid})
+	ack, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: conversationID})
 	require.NoError(t, err)
-	require.Equal(t, sid, ack.SessionID)
+	require.Equal(t, conversationID, ack.ConversationID)
 }
 
 // runtimeWithLiveSession installs the fake RT and starts a session with the
@@ -1701,7 +1701,7 @@ func runtimeWithLiveSession(t *testing.T, rt *fullRT, sid int64) (
 		return live, &agentruntime.RunResult{}, nil
 	}
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
-	runWithRT(t, h, ctx, sid)
+	runWithRT(t, h, ctx, convID(sid))
 	return ctx, notif, h, live
 }
 
@@ -1710,14 +1710,14 @@ func TestRuntime_Steer_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 9)
 	defer close(live)
 
-	_, err := h.Steer(ctx, wire.SteerParams{SessionID: 9, QueuedID: "q-1", Text: "stop"})
+	_, err := h.Steer(ctx, wire.SteerParams{ConversationID: convID(9), QueuedID: "q-1", Text: "stop"})
 	require.NoError(t, err)
-	assert.Equal(t, []steerCall{{sid: 9, queuedID: "q-1", text: "stop"}}, rt.steerCalls)
+	assert.Equal(t, []steerCall{{sid: handlers.RuntimeSessionKey(convID(9)), queuedID: "q-1", text: "stop"}}, rt.steerCalls)
 }
 
 func TestRuntime_Steer_NoSession_ErrNoActiveTurn(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.Steer(ctx, wire.SteerParams{SessionID: 99, Text: "x"})
+	_, err := h.Steer(ctx, wire.SteerParams{ConversationID: convID(99), Text: "x"})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -1731,14 +1731,14 @@ func TestRuntime_Steer_BackendUnsupported_ErrUnsupported(t *testing.T) {
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 		return live, &agentruntime.RunResult{}, nil
 	}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(5)})
 	require.NoError(t, err)
 
 	// Swap in a bare runtime *after* the session is registered, so the
 	// Steer handler resolves via runtimeFor and finds bareRT (no Steerer).
 	h.SwapRuntimeFor(func(_ agent_backend_entity.BackendType) agentruntime.Runtime { return bareRT{} })
 
-	_, err = h.Steer(ctx, wire.SteerParams{SessionID: 5, Text: "x"})
+	_, err = h.Steer(ctx, wire.SteerParams{ConversationID: convID(5), Text: "x"})
 	require.ErrorIs(t, err, agentruntime.ErrUnsupported)
 }
 
@@ -1756,49 +1756,49 @@ func TestRuntime_ControlRPCs_BackendUnsupported_ErrUnsupported(t *testing.T) {
 		{
 			name: "cancel steer",
 			call: func() error {
-				_, err := h.CancelSteer(ctx, wire.CancelSteerParams{SessionID: 5, QueuedID: "q-1"})
+				_, err := h.CancelSteer(ctx, wire.CancelSteerParams{ConversationID: convID(5), QueuedID: "q-1"})
 				return err
 			},
 		},
 		{
 			name: "drain pending",
 			call: func() error {
-				_, err := h.DrainPending(ctx, wire.DrainParams{SessionID: 5})
+				_, err := h.DrainPending(ctx, wire.DrainParams{ConversationID: convID(5)})
 				return err
 			},
 		},
 		{
 			name: "abort",
 			call: func() error {
-				_, err := h.Abort(ctx, wire.AbortParams{SessionID: 5})
+				_, err := h.Abort(ctx, wire.AbortParams{ConversationID: convID(5)})
 				return err
 			},
 		},
 		{
 			name: "stop background task",
 			call: func() error {
-				_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{SessionID: 5, TaskID: "b0"})
+				_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{ConversationID: convID(5), TaskID: "b0"})
 				return err
 			},
 		},
 		{
 			name: "set permission mode",
 			call: func() error {
-				_, err := h.SetPermissionMode(ctx, wire.SetPermissionModeParams{SessionID: 5, Mode: "plan"})
+				_, err := h.SetPermissionMode(ctx, wire.SetPermissionModeParams{ConversationID: convID(5), Mode: "plan"})
 				return err
 			},
 		},
 		{
 			name: "submit answer",
 			call: func() error {
-				_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "r-1"})
+				_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{ConversationID: convID(5), RequestID: "r-1"})
 				return err
 			},
 		},
 		{
 			name: "submit tool permission",
 			call: func() error {
-				_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 5, RequestID: "p-1"})
+				_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{ConversationID: convID(5), RequestID: "p-1"})
 				return err
 			},
 		},
@@ -1819,7 +1819,7 @@ func TestRuntime_CancelSteer_ReturnsRemoved(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 1)
 	defer close(live)
 
-	out, err := h.CancelSteer(ctx, wire.CancelSteerParams{SessionID: 1, QueuedID: "q-1"})
+	out, err := h.CancelSteer(ctx, wire.CancelSteerParams{ConversationID: convID(1), QueuedID: "q-1"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a", "b"}, out.Removed)
 }
@@ -1833,7 +1833,7 @@ func TestRuntime_CancelSteer_NotFound_RehydrateSentinel(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 1)
 	defer close(live)
 
-	_, err := h.CancelSteer(ctx, wire.CancelSteerParams{SessionID: 1, QueuedID: "q-x"})
+	_, err := h.CancelSteer(ctx, wire.CancelSteerParams{ConversationID: convID(1), QueuedID: "q-x"})
 	require.ErrorIs(t, err, agentruntime.ErrSteerNotFound)
 }
 
@@ -1846,7 +1846,7 @@ func TestRuntime_DrainPending_ReturnsSteers(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 2)
 	defer close(live)
 
-	out, err := h.DrainPending(ctx, wire.DrainParams{SessionID: 2})
+	out, err := h.DrainPending(ctx, wire.DrainParams{ConversationID: convID(2)})
 	require.NoError(t, err)
 	assert.Equal(t, []agentruntime.ConsumedSteer{{QueuedID: "q1", Text: "a"}}, out.Steers)
 }
@@ -1906,7 +1906,7 @@ func newRuntimeHandlersOnWithSource(t *testing.T, rt agentruntime.Runtime, src h
 	rt.(*fullRT).runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 		return live, &agentruntime.RunResult{}, nil
 	}
-	runWithRT(t, h, context.Background(), 2)
+	runWithRT(t, h, context.Background(), convID(2))
 	return context.Background(), notif, h, live
 }
 
@@ -1922,7 +1922,7 @@ func TestRuntime_DrainPending_StampsSubmitterSource(t *testing.T) {
 	ctx, _, h, live := newRuntimeHandlersOnWithSource(t, rt, src)
 	defer close(live)
 
-	out, err := h.DrainPending(ctx, wire.DrainParams{SessionID: 2})
+	out, err := h.DrainPending(ctx, wire.DrainParams{ConversationID: convID(2)})
 	require.NoError(t, err)
 	require.Len(t, out.Steers, 2)
 	assert.Equal(t, "sha256:other-device", out.Steers[0].SourcePeer)
@@ -1967,9 +1967,9 @@ func TestRuntime_Abort_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 3)
 	defer close(live)
 
-	_, err := h.Abort(ctx, wire.AbortParams{SessionID: 3})
+	_, err := h.Abort(ctx, wire.AbortParams{ConversationID: convID(3)})
 	require.NoError(t, err)
-	assert.Equal(t, []int64{3}, rt.abortCalls)
+	assert.Equal(t, []int64{handlers.RuntimeSessionKey(convID(3))}, rt.abortCalls)
 }
 
 // TestRuntime_Abort_PassesTokenAndReturnsInterruptedTurnKind 钉死决策 1 的 daemon 侧:
@@ -1981,16 +1981,16 @@ func TestRuntime_Abort_PassesTokenAndReturnsInterruptedTurnKind(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 3)
 	defer close(live)
 
-	res, err := h.Abort(ctx, wire.AbortParams{SessionID: 3, TurnToken: 42})
+	res, err := h.Abort(ctx, wire.AbortParams{ConversationID: convID(3), TurnToken: 42})
 	require.NoError(t, err)
-	assert.Equal(t, []int64{3}, rt.abortCalls)
+	assert.Equal(t, []int64{handlers.RuntimeSessionKey(convID(3))}, rt.abortCalls)
 	assert.Equal(t, []uint64{42}, rt.abortTokens, "daemon 侧必须把 turnToken 原样透传给 runtime")
 	assert.Equal(t, agentruntime.TurnKindSubagentActivity, res.TurnKind)
 }
 
 func TestRuntime_Abort_NoSession_ErrNoActiveTurn(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.Abort(ctx, wire.AbortParams{SessionID: 7})
+	_, err := h.Abort(ctx, wire.AbortParams{ConversationID: convID(7)})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -1999,14 +1999,14 @@ func TestRuntime_StopBackgroundTask_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 3)
 	defer close(live)
 
-	_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{SessionID: 3, TaskID: "b0n82mqaj"})
+	_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{ConversationID: convID(3), TaskID: "b0n82mqaj"})
 	require.NoError(t, err)
-	assert.Equal(t, []stopBgCall{{sid: 3, taskID: "b0n82mqaj"}}, rt.stopBgCalls)
+	assert.Equal(t, []stopBgCall{{sid: handlers.RuntimeSessionKey(convID(3)), taskID: "b0n82mqaj"}}, rt.stopBgCalls)
 }
 
 func TestRuntime_StopBackgroundTask_NoSession_ErrNoActiveTurn(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{SessionID: 7, TaskID: "b0"})
+	_, err := h.StopBackgroundTask(ctx, wire.StopBackgroundTaskParams{ConversationID: convID(7), TaskID: "b0"})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -2015,9 +2015,9 @@ func TestRuntime_SetPermissionMode_Success(t *testing.T) {
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 4)
 	defer close(live)
 
-	_, err := h.SetPermissionMode(ctx, wire.SetPermissionModeParams{SessionID: 4, Mode: "plan"})
+	_, err := h.SetPermissionMode(ctx, wire.SetPermissionModeParams{ConversationID: convID(4), Mode: "plan"})
 	require.NoError(t, err)
-	assert.Equal(t, []setModeCall{{sid: 4, mode: "plan"}}, rt.setModeCalls)
+	assert.Equal(t, []setModeCall{{sid: handlers.RuntimeSessionKey(convID(4)), mode: "plan"}}, rt.setModeCalls)
 }
 
 func TestRuntime_SubmitAnswer_Success(t *testing.T) {
@@ -2028,7 +2028,7 @@ func TestRuntime_SubmitAnswer_Success(t *testing.T) {
 	qs := []agentruntime.AskQuestion{{Question: "ok?"}}
 	as := []agentruntime.AskAnswer{{QuestionIndex: 0, Labels: []string{"yes"}}}
 	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{
-		SessionID: 5, RequestID: "r-1", Questions: qs, Answers: as, Skipped: false,
+		ConversationID: convID(5), RequestID: "r-1", Questions: qs, Answers: as, Skipped: false,
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.submitAnswerCalls, 1)
@@ -2042,7 +2042,7 @@ func TestRuntime_SubmitToolPermission_Success(t *testing.T) {
 	defer close(live)
 
 	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{
-		SessionID: 6, RequestID: "p-1", Allow: false, DenyReason: "nope",
+		ConversationID: convID(6), RequestID: "p-1", Allow: false, DenyReason: "nope",
 	})
 	require.NoError(t, err)
 	require.Len(t, rt.submitToolPermCalls, 1)
@@ -2070,14 +2070,14 @@ func TestRuntime_Run_RecordsSessionRowThenMovesItToIdleAtTurnEnd(t *testing.T) {
 	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work",
+		Backend: backendJSON(t, be), ConversationID: convID(5), AgentID: 7, Cwd: "/work",
 	})
 	require.NoError(t, err)
 
 	notif.waitFrames(t, 2) // Done + runResultDone
-	assert.Equal(t, []string{"start:5", "finish:5"}, sess.waitSteps(t, 2))
+	assert.Equal(t, []string{"start:" + convID(5), "finish:" + convID(5)}, sess.waitSteps(t, 2))
 	assert.Equal(t, []handlers.SessionRecord{{
-		PeerSessionID: "5", AgentID: 7, Cwd: "/work",
+		PeerSessionID: convID(5), AgentID: 7, Cwd: "/work",
 		BackendType:    string(agent_backend_entity.TypeClaudeCode),
 		LifecycleState: wire.SessionLifecycleRunning,
 	}}, sess.started(), "起手必须建行并置 running,带上客户端展示要用的元数据")
@@ -2097,14 +2097,14 @@ func TestRuntime_Run_PersistsTitleAgentSyncIDAndProviderSessionID(t *testing.T) 
 	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work",
+		Backend: backendJSON(t, be), ConversationID: convID(5), AgentID: 7, Cwd: "/work",
 		Title: "fix the bug", AgentSyncID: "01HXsync000000000000000000",
 	})
 	require.NoError(t, err)
 
 	notif.waitFrames(t, 2) // Done + runResultDone
 	assert.Equal(t, []handlers.SessionRecord{{
-		PeerSessionID:     "5",
+		PeerSessionID:     convID(5),
 		AgentID:           7,
 		Cwd:               "/work",
 		BackendType:       string(agent_backend_entity.TypeClaudeCode),
@@ -2124,7 +2124,7 @@ func TestRuntime_Run_ForwardsAgentSyncIDToRuntime(t *testing.T) {
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 5, AgentID: 0, Cwd: "",
+		Backend: backendJSON(t, be), ConversationID: convID(5), AgentID: 0, Cwd: "",
 		AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
 	})
 	require.NoError(t, err)
@@ -2148,13 +2148,13 @@ func TestRuntime_Run_ContinuationResolvesStoredProviderSessionID(t *testing.T) {
 	ctx, notif, _, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	// 第一轮:daemon 从 result 收回 providerSessionID 并落库。
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work"})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(5), AgentID: 7, Cwd: "/work"})
 	require.NoError(t, err)
 	notif.waitFrames(t, 2)
 	require.Len(t, rt.runReqs, 1)
 
 	// 第二轮:调用方不再提供 providerSessionID(决策 8)。
-	_, err = h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work"})
+	_, err = h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(5), AgentID: 7, Cwd: "/work"})
 	require.NoError(t, err)
 	notif.waitFrames(t, 2)
 	require.Len(t, rt.runReqs, 2)
@@ -2179,13 +2179,13 @@ func TestRuntime_Run_FreshSessionSkipsStoredProviderSessionID(t *testing.T) {
 	ctx, notif, _, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	// 第一轮:daemon 从 result 收回 providerSessionID 并落库。
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work"})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(5), AgentID: 7, Cwd: "/work"})
 	require.NoError(t, err)
 	notif.waitFrames(t, 2)
 	require.Len(t, rt.runReqs, 1)
 
 	// 第二轮:调用方显式声明 freshSession —— 落库已有旧 id,也必须起全新会话。
-	_, err = h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work", FreshSession: true})
+	_, err = h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(5), AgentID: 7, Cwd: "/work", FreshSession: true})
 	require.NoError(t, err)
 	notif.waitFrames(t, 2)
 	require.Len(t, rt.runReqs, 2)
@@ -2213,14 +2213,14 @@ func TestRuntime_Run_AutonomousTurnMovesLifecycleBackToRunning(t *testing.T) {
 	}
 	ctx, _, sess, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 5})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(5)})
 	require.NoError(t, err)
 
 	// 主轮 start + 主轮 finish + 自主续轮 running + 自主续轮 finish;两条 fanout
 	// goroutine 交错,所以断言内容与条数而不是顺序。
 	steps := sess.waitSteps(t, 4)
-	assert.Contains(t, steps, "running:5", "自主续轮开始时会话必须回到 running")
-	assert.Equal(t, 2, countStep(steps, "finish:5"), "自主续轮结束同样要落回 idle")
+	assert.Contains(t, steps, "running:"+convID(5), "自主续轮开始时会话必须回到 running")
+	assert.Equal(t, 2, countStep(steps, "finish:"+convID(5)), "自主续轮结束同样要落回 idle")
 }
 
 // ── SubmitAnswer / SubmitToolPermission idempotency (R8) ────────────────────
@@ -2234,13 +2234,13 @@ func TestRuntime_SubmitAnswer_SameRequestIDTwice_SecondCallStillSucceeds(t *test
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 5)
 	defer close(live)
 
-	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "r-1"})
+	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{ConversationID: convID(5), RequestID: "r-1"})
 	require.NoError(t, err)
 
 	// Real backends take-and-delete the waiter on first submit; simulate
 	// the second call landing on an already-taken requestID.
 	rt.submitAnswerErr = agentruntime.ErrWaiterNotFound
-	_, err = h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "r-1"})
+	_, err = h.SubmitAnswer(ctx, wire.SubmitAnswerParams{ConversationID: convID(5), RequestID: "r-1"})
 	require.NoError(t, err)
 	assert.Len(t, rt.submitAnswerCalls, 2)
 }
@@ -2250,7 +2250,7 @@ func TestRuntime_SubmitAnswer_WaiterAlreadyGone_IdempotentSuccess(t *testing.T) 
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 5)
 	defer close(live)
 
-	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "vanished"})
+	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{ConversationID: convID(5), RequestID: "vanished"})
 	require.NoError(t, err)
 }
 
@@ -2259,7 +2259,7 @@ func TestRuntime_SubmitAnswer_SessionGone_IdempotentSuccess(t *testing.T) {
 	// restarted, session marked interrupted" case reduces to this same
 	// resolveSession failure at the current (non-persistent) daemon.
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 999, RequestID: "r-1"})
+	_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{ConversationID: convID(999), RequestID: "r-1"})
 	require.NoError(t, err)
 }
 
@@ -2268,11 +2268,11 @@ func TestRuntime_SubmitToolPermission_SameRequestIDTwice_SecondCallStillSucceeds
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 6)
 	defer close(live)
 
-	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 6, RequestID: "p-1", Allow: true})
+	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{ConversationID: convID(6), RequestID: "p-1", Allow: true})
 	require.NoError(t, err)
 
 	rt.submitToolPermErr = agentruntime.ErrWaiterNotFound
-	_, err = h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 6, RequestID: "p-1", Allow: true})
+	_, err = h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{ConversationID: convID(6), RequestID: "p-1", Allow: true})
 	require.NoError(t, err)
 	assert.Len(t, rt.submitToolPermCalls, 2)
 }
@@ -2282,13 +2282,13 @@ func TestRuntime_SubmitToolPermission_WaiterAlreadyGone_IdempotentSuccess(t *tes
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 6)
 	defer close(live)
 
-	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 6, RequestID: "vanished"})
+	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{ConversationID: convID(6), RequestID: "vanished"})
 	require.NoError(t, err)
 }
 
 func TestRuntime_SubmitToolPermission_SessionGone_IdempotentSuccess(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
-	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 999, RequestID: "p-1"})
+	_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{ConversationID: convID(999), RequestID: "p-1"})
 	require.NoError(t, err)
 }
 
@@ -2311,7 +2311,7 @@ func TestRuntime_Submit_BackendNotRegistered_IsNotFoldedIntoSuccess(t *testing.T
 		defer close(live)
 		unwire(h)
 
-		_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 5, RequestID: "r-1"})
+		_, err := h.SubmitAnswer(ctx, wire.SubmitAnswerParams{ConversationID: convID(5), RequestID: "r-1"})
 		require.Error(t, err, "接线故障不是 R8 的幂等场景,不能报成 OK")
 		code, ok := wire.CodeForSentinel(err)
 		require.True(t, ok, "过线错误码必须仍然是既有 sentinel")
@@ -2323,7 +2323,7 @@ func TestRuntime_Submit_BackendNotRegistered_IsNotFoldedIntoSuccess(t *testing.T
 		defer close(live)
 		unwire(h)
 
-		_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 6, RequestID: "p-1"})
+		_, err := h.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{ConversationID: convID(6), RequestID: "p-1"})
 		require.Error(t, err)
 		code, ok := wire.CodeForSentinel(err)
 		require.True(t, ok)
@@ -2351,14 +2351,14 @@ func TestRuntime_Submit_SessionOwnedByAnotherHandler_IsNotFoldedIntoSuccess(t *t
 		}
 		sess := newRecordingSessions()
 		owner := newRuntimeHandlersOn(rt, sess, newRecordingOutbound())
-		runWithRT(t, owner, context.Background(), sid)
+		runWithRT(t, owner, context.Background(), convID(sid))
 		// 后接入那条连接的 handler:同一批会话行,自己的内存会话表是空的。
 		return rt, newRuntimeHandlersOn(rt, sess, newRecordingOutbound()), sess
 	}
 
 	t.Run("submitAnswer", func(t *testing.T) {
 		rt, other, _ := newPair(t, 11)
-		_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{SessionID: 11, RequestID: "r-1"})
+		_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{ConversationID: convID(11), RequestID: "r-1"})
 		require.Error(t, err, "会话还在跑,提交没送达就不能报成 OK")
 		code, ok := wire.CodeForSentinel(err)
 		require.True(t, ok, "过线错误码必须仍然是既有 sentinel")
@@ -2368,7 +2368,7 @@ func TestRuntime_Submit_SessionOwnedByAnotherHandler_IsNotFoldedIntoSuccess(t *t
 
 	t.Run("submitToolPermission", func(t *testing.T) {
 		rt, other, _ := newPair(t, 12)
-		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 12, RequestID: "p-1"})
+		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{ConversationID: convID(12), RequestID: "p-1"})
 		require.Error(t, err)
 		code, ok := wire.CodeForSentinel(err)
 		require.True(t, ok)
@@ -2379,8 +2379,8 @@ func TestRuntime_Submit_SessionOwnedByAnotherHandler_IsNotFoldedIntoSuccess(t *t
 	// 接管之后就解得出会话了 —— 这正是客户端收到错误后走的那条路,证明报错是可行动的。
 	t.Run("adopt then retry succeeds", func(t *testing.T) {
 		rt, other, _ := newPair(t, 13)
-		other.Adopt(context.Background(), 13, agent_backend_entity.TypeClaudeCode)
-		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 13, RequestID: "p-1"})
+		other.Adopt(context.Background(), convID(13), agent_backend_entity.TypeClaudeCode)
+		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{ConversationID: convID(13), RequestID: "p-1"})
 		require.NoError(t, err)
 		require.Len(t, rt.submitToolPermCalls, 1)
 	})
@@ -2392,7 +2392,7 @@ func TestRuntime_Submit_SessionOwnedByAnotherHandler_IsNotFoldedIntoSuccess(t *t
 		sess.mu.Lock()
 		sess.findErr = errors.New("database is locked")
 		sess.mu.Unlock()
-		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 14, RequestID: "p-1"})
+		_, err := other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{ConversationID: convID(14), RequestID: "p-1"})
 		require.NoError(t, err)
 	})
 }
@@ -2414,9 +2414,9 @@ func TestRuntime_Submit_SessionNoLongerRunning_StaysIdempotent(t *testing.T) {
 			// 会话行在库里,但已经不是 running。
 			sess.setLifecycle("", "21", state)
 
-			_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{SessionID: 21, RequestID: "r-1"})
+			_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{ConversationID: convID(21), RequestID: "r-1"})
 			require.NoError(t, err)
-			_, err = other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 21, RequestID: "p-1"})
+			_, err = other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{ConversationID: convID(21), RequestID: "p-1"})
 			require.NoError(t, err)
 		})
 	}
@@ -2426,9 +2426,9 @@ func TestRuntime_Submit_SessionNoLongerRunning_StaysIdempotent(t *testing.T) {
 		sess := newRecordingSessions()
 		other := newRuntimeHandlersOn(rt, sess, newRecordingOutbound())
 
-		_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{SessionID: 22, RequestID: "r-1"})
+		_, err := other.SubmitAnswer(context.Background(), wire.SubmitAnswerParams{ConversationID: convID(22), RequestID: "r-1"})
 		require.NoError(t, err)
-		_, err = other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{SessionID: 22, RequestID: "p-1"})
+		_, err = other.SubmitToolPermission(context.Background(), wire.SubmitToolPermissionParams{ConversationID: convID(22), RequestID: "p-1"})
 		require.NoError(t, err)
 	})
 }
@@ -2451,7 +2451,7 @@ func TestRuntime_Submit_DuringTurnTeardown_StaysIdempotent(t *testing.T) {
 	}
 	sess := newRecordingSessions()
 	h := newRuntimeHandlersOn(rt, sess, newRecordingOutbound())
-	runWithRT(t, h, context.Background(), 31)
+	runWithRT(t, h, context.Background(), convID(31))
 
 	entered, release := sess.holdFinish()
 	close(live) // 一轮结束 → fanout 开始收尾
@@ -2463,10 +2463,10 @@ func TestRuntime_Submit_DuringTurnTeardown_StaysIdempotent(t *testing.T) {
 	defer release()
 
 	_, err := h.SubmitToolPermission(context.Background(),
-		wire.SubmitToolPermissionParams{SessionID: 31, RequestID: "p-1"})
+		wire.SubmitToolPermissionParams{ConversationID: convID(31), RequestID: "p-1"})
 	assert.NoError(t, err, "轮末收尾中的提交按 R8 幂等成功,不能变成假失败")
 	_, err = h.SubmitAnswer(context.Background(),
-		wire.SubmitAnswerParams{SessionID: 31, RequestID: "r-1"})
+		wire.SubmitAnswerParams{ConversationID: convID(31), RequestID: "r-1"})
 	assert.NoError(t, err, "轮末收尾中的提交按 R8 幂等成功,不能变成假失败")
 }
 
@@ -2497,19 +2497,19 @@ func TestRuntime_AllEventsRoundTripThroughNotify(t *testing.T) {
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 100})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(100)})
 	require.NoError(t, err)
 
 	frames := notif.waitFrames(t, len(events)+1) // +1 for runResultDone
 
-	// Every event frame must carry SessionID + a non-empty Event RawMessage
+	// Every event frame must carry ConversationID + a non-empty Event RawMessage
 	// whose top-level "kind" is non-empty.
 	for i := range events {
 		f := frames[i]
 		assert.Equal(t, wire.NotifyEvent, f.method)
 		ef, ok := f.params.(*wire.EventFrame)
 		require.True(t, ok, "frame %d: expected EventFrame, got %T", i, f.params)
-		assert.Equal(t, int64(100), ef.SessionID)
+		assert.Equal(t, convID(100), ef.ConversationID)
 		assert.NotNil(t, ef.Event, "frame %d must carry an event", i)
 	}
 }
@@ -2579,7 +2579,7 @@ func TestRuntime_Run_JournalsEveryNotificationBeforePushingWithSeq(t *testing.T)
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42, Cwd: "/tmp", UserText: "hi"})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(42), Cwd: "/tmp", UserText: "hi"})
 	require.NoError(t, err)
 
 	// run 流 2 条(event + runResultDone)+ 自主续轮 3 条(started + event + done)。
@@ -2599,7 +2599,7 @@ func TestRuntime_Run_JournalsEveryNotificationBeforePushingWithSeq(t *testing.T)
 	bySeq := map[int64]journalRow{}
 	for _, r := range rows {
 		bySeq[r.seq] = r
-		assert.Equal(t, "42", r.session, "会话身份的后半段是对端会话 id")
+		assert.Equal(t, convID(42), r.session, "落库的会话身份就是线上那条 conversation_id")
 		assert.NotContains(t, r.payload, `"seq"`, "日志里存的是不含 seq 的帧原样,seq 是行自己的列")
 	}
 
@@ -2641,7 +2641,7 @@ func TestRuntime_Run_PushFailureLeavesJournalIntact(t *testing.T) {
 	notif.notifyFail = func(string) error { return errors.New("connection reset by peer") }
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(42)})
 	require.NoError(t, err)
 
 	// 2 条 event + 1 条 runResultDone,每条一次落库 + 一次失败推送 = 6 步。
@@ -2686,7 +2686,7 @@ func TestRuntime_Run_JournalFailureSkipsPushAndDoesNotAdvanceSeq(t *testing.T) {
 	}
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(42)})
 	require.NoError(t, err)
 
 	// 落库成功的 3 条(ok-1 / ok-2 / runResultDone)会被推出去;失败那条不推。
@@ -2722,7 +2722,7 @@ func TestRuntime_Run_OfflinePeerJournalsAndResumesPushingOnReconnect(t *testing.
 	notif.setOffline(true) // 客户端此刻断开着
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 42})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(42)})
 	require.NoError(t, err)
 
 	live <- agentruntime.TextDelta{Text: "while-offline"}
@@ -3130,7 +3130,7 @@ func TestRuntime_PiPendingGenerationIsAbortableBeforePreparationReturns(t *testi
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 41, PermissionMode: "generation-41"}
+	params := wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(41), PermissionMode: "generation-41"}
 	_, err := h.Run(runCtx, params)
 	require.NoError(t, err)
 	errC := make(chan error, 1)
@@ -3140,7 +3140,7 @@ func TestRuntime_PiPendingGenerationIsAbortableBeforePreparationReturns(t *testi
 	}()
 	<-rt.entered
 
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 41})
+	_, err = h.Abort(ctx, wire.AbortParams{ConversationID: convID(41)})
 	require.NoError(t, err)
 	require.ErrorIs(t, <-errC, context.Canceled)
 }
@@ -3149,7 +3149,7 @@ func TestRuntime_ConnectionCloseCancelsPendingPiPreparation(t *testing.T) {
 	rt := &blockingPreparedPiRT{entered: make(chan struct{})}
 	ctx, _, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 141, PermissionMode: "generation-141"}
+	params := wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(141), PermissionMode: "generation-141"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
@@ -3164,7 +3164,7 @@ func TestRuntime_ConnectionCloseCancelsPendingPiPreparation(t *testing.T) {
 	defer cancelCleanup()
 	require.NoError(t, h.Close(cleanupCtx))
 	require.ErrorIs(t, <-prepareErrC, context.Canceled)
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 141})
+	_, err = h.Abort(ctx, wire.AbortParams{ConversationID: convID(141)})
 	require.ErrorIs(t, err, agentruntime.ErrNoActiveTurn)
 }
 
@@ -3172,7 +3172,7 @@ func TestRuntime_ConnectionCloseClosesPreparedPiResourcesBeforeStart(t *testing.
 	rt := newScriptedPreparedPiRT("pi-session-prepared")
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 142, PermissionMode: "generation-142"}
+	params := wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(142), PermissionMode: "generation-142"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
@@ -3192,7 +3192,7 @@ func TestRuntime_ConnectionCloseClosesRunningPiResourcesWithoutTerminalNotify(t 
 	rt := newScriptedPreparedPiRT("pi-session-running")
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 143, PermissionMode: "generation-143"}
+	params := wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(143), PermissionMode: "generation-143"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
@@ -3215,7 +3215,7 @@ func TestRuntime_ConnectionCloseWaitsForConcurrentExplicitAbortWithoutDeadlock(t
 	rt := newBlockingAbortAcceptedPiRT()
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 144, PermissionMode: "generation-144"}
+	params := wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(144), PermissionMode: "generation-144"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
@@ -3227,7 +3227,7 @@ func TestRuntime_ConnectionCloseWaitsForConcurrentExplicitAbortWithoutDeadlock(t
 
 	abortErrC := make(chan error, 1)
 	go func() {
-		_, abortErr := h.Abort(ctx, wire.AbortParams{SessionID: 144})
+		_, abortErr := h.Abort(ctx, wire.AbortParams{ConversationID: convID(144)})
 		abortErrC <- abortErr
 	}()
 	<-rt.abortEntered
@@ -3276,7 +3276,7 @@ func TestRuntime_PiAbortStartRaceFinalizesOwnerAndAllowsRetry(t *testing.T) {
 			ctx := context.Background()
 			be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
 			params := wire.RunParams{
-				Backend: backendJSON(t, be), SessionID: 244, PermissionMode: "generation-racing",
+				Backend: backendJSON(t, be), ConversationID: convID(244), PermissionMode: "generation-racing",
 			}
 
 			_, err := h.Run(ctx, params)
@@ -3291,7 +3291,7 @@ func TestRuntime_PiAbortStartRaceFinalizesOwnerAndAllowsRetry(t *testing.T) {
 			}()
 			<-rt.prepared.started
 
-			_, abortErr := h.Abort(ctx, wire.AbortParams{SessionID: params.SessionID})
+			_, abortErr := h.Abort(ctx, wire.AbortParams{ConversationID: params.ConversationID})
 			require.ErrorContains(t, abortErr, "prepared close failed")
 			require.ErrorIs(t, <-startErrC, context.Canceled)
 			assert.Equal(t, 1, rt.prepared.closeCalls(), "the exact prepared owner must close once")
@@ -3302,10 +3302,10 @@ func TestRuntime_PiAbortStartRaceFinalizesOwnerAndAllowsRetry(t *testing.T) {
 			retry.PermissionMode = "generation-retry"
 			_, err = h.Run(ctx, retry)
 			require.NoError(t, err, "cancel completion must release registration for an exact retry")
-			assert.Equal(t, "generation-retry", registry.owner(retry.SessionID))
-			_, err = h.Abort(ctx, wire.AbortParams{SessionID: retry.SessionID})
+			assert.Equal(t, "generation-retry", registry.owner(handlers.RuntimeSessionKey(retry.ConversationID)))
+			_, err = h.Abort(ctx, wire.AbortParams{ConversationID: retry.ConversationID})
 			require.NoError(t, err)
-			assert.Empty(t, registry.owner(retry.SessionID))
+			assert.Empty(t, registry.owner(handlers.RuntimeSessionKey(retry.ConversationID)))
 		})
 	}
 }
@@ -3315,7 +3315,7 @@ func TestRuntime_PiAbortDuringPromptAcknowledgementClosesExactPreparedProcess(t 
 	ctx, _, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
 	params := wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 44, ProviderSessionID: "pi-session-old", PermissionMode: "generation-44",
+		Backend: backendJSON(t, be), ConversationID: convID(44), ProviderSessionID: "pi-session-old", PermissionMode: "generation-44",
 	}
 
 	_, err := h.Run(ctx, params)
@@ -3330,7 +3330,7 @@ func TestRuntime_PiAbortDuringPromptAcknowledgementClosesExactPreparedProcess(t 
 	}()
 	<-rt.prepared.entered
 
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 44})
+	_, err = h.Abort(ctx, wire.AbortParams{ConversationID: convID(44)})
 	require.NoError(t, err)
 	require.ErrorIs(t, <-startErrC, context.Canceled)
 	<-rt.prepared.closed
@@ -3342,7 +3342,7 @@ func TestRuntime_PiPrepareReturnsIdentityBeforeSecondRunStartsPrompt(t *testing.
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
 	params := wire.RunParams{
 		Backend:           backendJSON(t, be),
-		SessionID:         42,
+		ConversationID:    convID(42),
 		ProviderSessionID: "pi-session-old",
 		ForkAnchor:        "pi-entry-1",
 		UserText:          "replacement",
@@ -3380,7 +3380,7 @@ func TestRuntime_PiAbortSettlesAcceptedTurnBeforeClosingPreparedProcess(t *testi
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
 	params := wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 53, PermissionMode: "generation-53",
+		Backend: backendJSON(t, be), ConversationID: convID(53), PermissionMode: "generation-53",
 	}
 
 	_, err := h.Run(ctx, params)
@@ -3391,7 +3391,7 @@ func TestRuntime_PiAbortSettlesAcceptedTurnBeforeClosingPreparedProcess(t *testi
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
 
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 53})
+	_, err = h.Abort(ctx, wire.AbortParams{ConversationID: convID(53)})
 	require.NoError(t, err)
 	frames := notif.waitFrames(t, 1)
 	require.Len(t, frames, 1)
@@ -3428,7 +3428,7 @@ func TestRuntime_PiAbortBoundsWaitForClaimedTerminalNotification(t *testing.T) {
 	ctx := context.Background()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
 	params := wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 154, PermissionMode: "generation-154",
+		Backend: backendJSON(t, be), ConversationID: convID(154), PermissionMode: "generation-154",
 	}
 
 	_, err := h.Run(ctx, params)
@@ -3443,7 +3443,7 @@ func TestRuntime_PiAbortBoundsWaitForClaimedTerminalNotification(t *testing.T) {
 
 	abortErrC := make(chan error, 1)
 	go func() {
-		_, abortErr := h.Abort(context.Background(), wire.AbortParams{SessionID: params.SessionID})
+		_, abortErr := h.Abort(context.Background(), wire.AbortParams{ConversationID: params.ConversationID})
 		abortErrC <- abortErr
 	}()
 	select {
@@ -3490,7 +3490,7 @@ func TestRuntime_PiAbortWaitsForClaimedTerminalNotification(t *testing.T) {
 	ctx := context.Background()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
 	params := wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 54, PermissionMode: "generation-54",
+		Backend: backendJSON(t, be), ConversationID: convID(54), PermissionMode: "generation-54",
 	}
 
 	_, err := h.Run(ctx, params)
@@ -3506,7 +3506,7 @@ func TestRuntime_PiAbortWaitsForClaimedTerminalNotification(t *testing.T) {
 	abortCtx := newDoneObservingContext()
 	abortErrC := make(chan error, 1)
 	go func() {
-		_, abortErr := h.Abort(abortCtx, wire.AbortParams{SessionID: 54})
+		_, abortErr := h.Abort(abortCtx, wire.AbortParams{ConversationID: convID(54)})
 		abortErrC <- abortErr
 	}()
 	<-abortCtx.observed
@@ -3522,8 +3522,8 @@ func TestRuntime_PiAbortWaitsForClaimedTerminalNotification(t *testing.T) {
 	retry.PermissionMode = "generation-54-retry"
 	_, err = h.Run(ctx, retry)
 	require.NoError(t, err, "terminal completion must release registration before Abort returns")
-	assert.Equal(t, "generation-54-retry", generationRegistry.owner(retry.SessionID))
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: retry.SessionID})
+	assert.Equal(t, "generation-54-retry", generationRegistry.owner(handlers.RuntimeSessionKey(retry.ConversationID)))
+	_, err = h.Abort(ctx, wire.AbortParams{ConversationID: retry.ConversationID})
 	require.NoError(t, err)
 }
 
@@ -3533,7 +3533,7 @@ func TestRuntime_PiAbortSettlementCannotTerminateOrNotifyForNewerGeneration(t *t
 	rt.prepared[1].result.Model = "current-model"
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 55, PermissionMode: "generation-55-1"}
+	params := wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(55), PermissionMode: "generation-55-1"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
@@ -3542,7 +3542,7 @@ func TestRuntime_PiAbortSettlementCannotTerminateOrNotifyForNewerGeneration(t *t
 	params.ProviderSessionID = firstAck.ProviderSessionID
 	_, err = h.Run(ctx, params)
 	require.NoError(t, err)
-	_, err = h.Abort(ctx, wire.AbortParams{SessionID: 55})
+	_, err = h.Abort(ctx, wire.AbortParams{ConversationID: convID(55)})
 	require.NoError(t, err)
 	firstFrames := notif.waitFrames(t, 1)
 	require.Len(t, firstFrames, 1)
@@ -3570,7 +3570,7 @@ func TestRuntime_PiAbortSettlementCannotTerminateOrNotifyForNewerGeneration(t *t
 
 	rt.prepared[1].finish()
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, steerErr := h.Steer(ctx, wire.SteerParams{SessionID: 55, Text: "after completion"})
+		_, steerErr := h.Steer(ctx, wire.SteerParams{ConversationID: convID(55), Text: "after completion"})
 		assert.ErrorIs(c, steerErr, agentruntime.ErrNoActiveTurn)
 	}, time.Second, 10*time.Millisecond)
 
@@ -3611,11 +3611,11 @@ func TestRuntime_ReadoptedPiSessionStillReleasesTheOverwrittenGeneration(t *test
 	})
 	ctx := context.Background()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
-	params := wire.RunParams{Backend: backendJSON(t, be), SessionID: 57, PermissionMode: "generation-57"}
+	params := wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(57), PermissionMode: "generation-57"}
 
 	_, err := h.Run(ctx, params)
 	require.NoError(t, err)
-	require.Equal(t, "generation-57", registry.owner(57))
+	require.Equal(t, "generation-57", registry.owner(handlers.RuntimeSessionKey(convID(57))))
 
 	prepareErrC := make(chan error, 1)
 	go func() {
@@ -3623,12 +3623,12 @@ func TestRuntime_ReadoptedPiSessionStillReleasesTheOverwrittenGeneration(t *test
 		prepareErrC <- prepareErr
 	}()
 	<-rt.entered
-	h.Adopt(ctx, 57, agent_backend_entity.TypePiAgent)
+	h.Adopt(ctx, convID(57), agent_backend_entity.TypePiAgent)
 	close(rt.release)
 
 	require.ErrorIs(t, <-prepareErrC, context.Canceled)
 	assert.Equal(t, 1, registry.releaseCount("generation-57"))
-	assert.Empty(t, registry.owner(57), "被顶替的 owner 也必须交还 generation 预约")
+	assert.Empty(t, registry.owner(handlers.RuntimeSessionKey(convID(57))), "被顶替的 owner 也必须交还 generation 预约")
 	_, closed := rt.prepared[0].counts()
 	assert.Equal(t, 1, closed, "被顶替的这一轮仍要关掉自己那个 Pi 进程")
 
@@ -3636,7 +3636,7 @@ func TestRuntime_ReadoptedPiSessionStillReleasesTheOverwrittenGeneration(t *test
 	retry.PermissionMode = "generation-57-retry"
 	_, err = h.Run(ctx, retry)
 	require.NoError(t, err, "预约交还后这条会话必须还能开新一轮")
-	assert.Equal(t, "generation-57-retry", registry.owner(57))
+	assert.Equal(t, "generation-57-retry", registry.owner(handlers.RuntimeSessionKey(convID(57))))
 }
 
 func TestRuntime_FanoutLogsEventClassificationWithoutSerializedPayload(t *testing.T) {
@@ -3652,7 +3652,7 @@ func TestRuntime_FanoutLogsEventClassificationWithoutSerializedPayload(t *testin
 	}
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), SessionID: 66})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(66)})
 	require.NoError(t, err)
 	_ = notif.waitFrames(t, 2)
 
@@ -3752,7 +3752,7 @@ func TestRuntime_Run_FixedModel_ResolvesSpecificModel(t *testing.T) {
 
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "pk",
 		LLMModelKey:    "model-fixed",
 	})
@@ -3792,7 +3792,7 @@ func TestRuntime_Run_FixedModel_BackendPinned(t *testing.T) {
 	// 未钉会话：桌面端透传 backend 固定模型作为 wire model key。
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "pk",
 		LLMModelKey:    "model-fixed",
 	})
@@ -3821,7 +3821,7 @@ func TestRuntime_Run_FixedModel_ModelMissing_Blocks(t *testing.T) {
 
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "pk",
 		LLMModelKey:    "model-gone",
 	})
@@ -3845,7 +3845,7 @@ func TestRuntime_Run_FixedModel_ProviderMissing_Blocks(t *testing.T) {
 
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "session-key",
 		LLMModelKey:    "model-fixed",
 	})
@@ -3879,7 +3879,7 @@ func TestRuntime_Goal_FixedModel_Resolves(t *testing.T) {
 	gw.EXPECT().RevokeToken("goal-token")
 
 	_, err := h.GetGoal(ctx, wire.GoalParams{
-		SessionID:         42,
+		ConversationID:    convID(42),
 		AgentID:           7,
 		ProviderSessionID: "thread-goal",
 		Backend:           backendJSON(t, be),
@@ -3924,7 +3924,7 @@ func TestRuntime_Run_PinnedProviderDefault_NotDraggedByBackendFixedModel(t *test
 
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "pk",
 	})
 	require.NoError(t, err)
@@ -3961,7 +3961,7 @@ func TestRuntime_Run_ProviderDefault_ResolvesDefaultModel(t *testing.T) {
 
 	_, err := h.Run(ctx, wire.RunParams{
 		Backend:        backendJSON(t, be),
-		SessionID:      42,
+		ConversationID: convID(42),
 		LLMProviderKey: "pk",
 	})
 	require.NoError(t, err)
@@ -3989,7 +3989,7 @@ func TestRuntime_Run_PersistsProjectSyncID(t *testing.T) {
 	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 5, AgentID: 7, Cwd: "/work",
+		Backend: backendJSON(t, be), ConversationID: convID(5), AgentID: 7, Cwd: "/work",
 		ProjectSyncID: "01HXproj00000000000000000",
 	})
 	require.NoError(t, err)
@@ -4026,7 +4026,7 @@ func TestRuntime_Run_DoneFrameCarriesTurnStats(t *testing.T) {
 
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
 	_, err := h.Run(ctx, wire.RunParams{
-		Backend: backendJSON(t, be), SessionID: 42, AgentID: 7, Cwd: "/tmp", UserText: "hello",
+		Backend: backendJSON(t, be), ConversationID: convID(42), AgentID: 7, Cwd: "/tmp", UserText: "hello",
 	})
 	require.NoError(t, err)
 
@@ -4037,4 +4037,11 @@ func TestRuntime_Run_DoneFrameCarriesTurnStats(t *testing.T) {
 	assert.Greater(t, done.TokensPerSec, 0.0, "分子是本轮累加的 completion token")
 	// 首 token 由第一条 TextDelta 记下,必然早于收口。
 	assert.LessOrEqual(t, done.FirstTokenMs, done.DurationMs)
+}
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
 }

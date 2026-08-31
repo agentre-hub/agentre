@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,10 +25,10 @@ func TestOutboundUsesTypedProtobufSessionMethods(t *testing.T) {
 	var steered wire.SteerParams
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
 		ListSessions: func(context.Context, string) (*wire.SessionListResult, error) {
-			return &wire.SessionListResult{Sessions: []wire.SessionSummary{{SessionID: 7, Title: "remote"}}}, nil
+			return &wire.SessionListResult{Sessions: []wire.SessionSummary{{ConversationID: convID(7), Title: "remote"}}}, nil
 		},
 		AttachSession: func(_ context.Context, p wire.SessionAttachParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
-			return wire.SessionAttachResult{SessionID: p.SessionID, LatestSeq: 12}, nil
+			return wire.SessionAttachResult{ConversationID: p.ConversationID, LatestSeq: 12}, nil
 		},
 		PullSession: func(_ context.Context, p wire.SessionPullParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionPullResult, error) {
 			return wire.SessionPullResult{Cursor: p.Cursor + 1, OldestSeq: 1}, nil
@@ -59,30 +60,30 @@ func TestOutboundUsesTypedProtobufSessionMethods(t *testing.T) {
 
 	list, err := ob.ListSessions(ctx)
 	require.NoError(t, err)
-	require.Equal(t, int64(7), list.Sessions[0].SessionID)
-	attached, err := ob.Attach(ctx, wire.SessionAttachParams{SessionID: 7})
+	require.Equal(t, convID(7), list.Sessions[0].ConversationID)
+	attached, err := ob.Attach(ctx, wire.SessionAttachParams{ConversationID: convID(7)})
 	require.NoError(t, err)
 	require.Equal(t, int64(12), attached.LatestSeq)
-	pulled, err := ob.Pull(ctx, wire.SessionPullParams{SessionID: 7, Cursor: 3})
+	pulled, err := ob.Pull(ctx, wire.SessionPullParams{ConversationID: convID(7), Cursor: 3})
 	require.NoError(t, err)
 	require.Equal(t, int64(4), pulled.Cursor)
-	ack, err := ob.RunFresh(ctx, wire.RunParams{SessionID: 99, UserText: "go"})
+	ack, err := ob.RunFresh(ctx, wire.RunParams{ConversationID: convID(99), UserText: "go"})
 	require.NoError(t, err)
-	require.Equal(t, int64(42), ack.SessionID)
-	require.NoError(t, ob.Steer(ctx, wire.SteerParams{SessionID: 7, Text: "continue"}))
+	require.Equal(t, convID(99), ack.ConversationID, "对话身份是发起端铸的那一个,对端不得改写")
+	require.NoError(t, ob.Steer(ctx, wire.SteerParams{ConversationID: convID(7), Text: "continue"}))
 	require.Equal(t, "continue", steered.Text)
-	answer, err := ob.SubmitAnswer(ctx, wire.SubmitAnswerParams{SessionID: 7, RequestID: "a"})
+	answer, err := ob.SubmitAnswer(ctx, wire.SubmitAnswerParams{ConversationID: convID(7), RequestID: "a"})
 	require.NoError(t, err)
 	require.True(t, answer.AlreadyHandled)
-	permission, err := ob.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{SessionID: 7, RequestID: "p", Allow: true})
+	permission, err := ob.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{ConversationID: convID(7), RequestID: "p", Allow: true})
 	require.NoError(t, err)
 	require.True(t, permission.AlreadyHandled)
 }
 
 func TestOutboundReceivesTypedRuntimeEventNotification(t *testing.T) {
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{AttachSession: func(_ context.Context, p wire.SessionAttachParams, subscriber chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
-		require.NoError(t, subscriber.Notify(wire.NotifyEvent, wire.EventFrame{SessionID: p.SessionID, Seq: 13, Event: agentruntime.TextDelta{Text: "hi"}}))
-		return wire.SessionAttachResult{SessionID: p.SessionID, LatestSeq: 12}, nil
+		require.NoError(t, subscriber.Notify(wire.NotifyEvent, wire.EventFrame{ConversationID: p.ConversationID, Seq: 13, Event: agentruntime.TextDelta{Text: "hi"}}))
+		return wire.SessionAttachResult{ConversationID: p.ConversationID, LatestSeq: 12}, nil
 	}})
 	clientTransport, serverTransport := peerProtoPipePair()
 	clientConn := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
@@ -97,11 +98,11 @@ func TestOutboundReceivesTypedRuntimeEventNotification(t *testing.T) {
 	rawEvents := make(chan struct{}, 1)
 	clientConn.Registry().SubscribeNotification(func(context.Context, *agentrewire.RpcNotification) error { rawEvents <- struct{}{}; return nil })
 	ob.HandleEvent(func(frame wire.EventFrame) error { events <- frame; return nil })
-	_, err := ob.Attach(ctx, wire.SessionAttachParams{SessionID: 7})
+	_, err := ob.Attach(ctx, wire.SessionAttachParams{ConversationID: convID(7)})
 	require.NoError(t, err)
 	select {
 	case frame := <-events:
-		require.Equal(t, int64(7), frame.SessionID)
+		require.Equal(t, convID(7), frame.ConversationID)
 		require.Equal(t, int64(13), frame.Seq)
 	case <-time.After(time.Second):
 		select {
@@ -121,18 +122,18 @@ func TestOutboundDiscardsAutonomousTurnEventNotifications(t *testing.T) {
 		// 先发一条自主续轮事件(必须被丢掉),再发一条普通事件(必须到达)——
 		// 用「后一条到了」证明前一条是被**丢弃**而不是还没到。
 		require.NoError(t, subscriber.Notify(wire.NotifyAutonomousTurnEvent, wire.EventFrame{
-			SessionID: p.SessionID, Seq: 1, Event: agentruntime.TextDelta{Text: "autonomous"},
+			ConversationID: p.ConversationID, Seq: 1, Event: agentruntime.TextDelta{Text: "autonomous"},
 		}))
 		require.NoError(t, subscriber.Notify(wire.NotifyEvent, wire.EventFrame{
-			SessionID: p.SessionID, Seq: 2, Event: agentruntime.TextDelta{Text: "user-turn"},
+			ConversationID: p.ConversationID, Seq: 2, Event: agentruntime.TextDelta{Text: "user-turn"},
 		}))
-		return wire.SessionAttachResult{SessionID: p.SessionID}, nil
+		return wire.SessionAttachResult{ConversationID: p.ConversationID}, nil
 	}})
 	ob, ctx := newOutboundOverProtoPipe(t, registry)
 
 	events := make(chan wire.EventFrame, 4)
 	ob.HandleEvent(func(frame wire.EventFrame) error { events <- frame; return nil })
-	_, err := ob.Attach(ctx, wire.SessionAttachParams{SessionID: 7})
+	_, err := ob.Attach(ctx, wire.SessionAttachParams{ConversationID: convID(7)})
 	require.NoError(t, err)
 
 	select {
@@ -155,18 +156,18 @@ func TestOutboundDiscardsAutonomousTurnEventNotifications(t *testing.T) {
 // Started)不得被当成事件送进 HandleEvent,也不得让订阅者炸掉后面的通知。
 func TestOutboundIgnoresNonEventNotifications(t *testing.T) {
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{AttachSession: func(_ context.Context, p wire.SessionAttachParams, subscriber chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
-		require.NoError(t, subscriber.Notify(wire.NotifyRunResultDone, wire.RunResultDoneFrame{SessionID: p.SessionID, Seq: 1}))
-		require.NoError(t, subscriber.Notify(wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{SessionID: p.SessionID, Seq: 2, Trigger: "t"}))
+		require.NoError(t, subscriber.Notify(wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: p.ConversationID, Seq: 1}))
+		require.NoError(t, subscriber.Notify(wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{ConversationID: p.ConversationID, Seq: 2, Trigger: "t"}))
 		require.NoError(t, subscriber.Notify(wire.NotifyEvent, wire.EventFrame{
-			SessionID: p.SessionID, Seq: 3, Event: agentruntime.TextDelta{Text: "after"},
+			ConversationID: p.ConversationID, Seq: 3, Event: agentruntime.TextDelta{Text: "after"},
 		}))
-		return wire.SessionAttachResult{SessionID: p.SessionID}, nil
+		return wire.SessionAttachResult{ConversationID: p.ConversationID}, nil
 	}})
 	ob, ctx := newOutboundOverProtoPipe(t, registry)
 
 	events := make(chan wire.EventFrame, 4)
 	ob.HandleEvent(func(frame wire.EventFrame) error { events <- frame; return nil })
-	_, err := ob.Attach(ctx, wire.SessionAttachParams{SessionID: 7})
+	_, err := ob.Attach(ctx, wire.SessionAttachParams{ConversationID: convID(7)})
 	require.NoError(t, err)
 
 	select {
@@ -221,8 +222,18 @@ func TestOutboundRunFresh_GivenARunSlowerThanTheCallBudget_WhenDispatched_ThenIt
 	go serverConn.Serve(ctx)
 	ob := NewOutbound(&outboundProtoClient{conn: clientConn}, "sha256:peer")
 
-	ack, err := ob.RunFresh(context.Background(), wire.RunParams{SessionID: 99, UserText: "go"})
+	ack, err := ob.RunFresh(context.Background(), wire.RunParams{ConversationID: convID(99), UserText: "go"})
 
 	require.NoError(t, err)
-	require.Equal(t, int64(42), ack.SessionID)
+	require.Equal(t, convID(99), ack.ConversationID, "对话身份是发起端铸的那一个,对端不得改写")
 }
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
+}
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *outboundProtoClient) SelfFingerprint() string { return "sha256:test-self" }
