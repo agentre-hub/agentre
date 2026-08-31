@@ -417,3 +417,6 @@ func TestTerminalProductionWiring_GivenReplacementClientForSameDevice_WhenOpened
 		return released == 2
 	}, time.Second, time.Millisecond)
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:这个假连接从没握过手,本端指纹为空。
+func (c *terminalWiringDaemonClient) SelfFingerprint() string { return "" }

@@ -622,3 +622,6 @@ func TestClientAdapter_GivenDeliveryExitUnsubscribeAndWatchCloseRacesThenNeverUs
 		t.Fatal("subscription delivery workers did not all terminate")
 	}
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:这个假连接从没握过手,本端指纹为空。
+func (c *stubDaemonClient) SelfFingerprint() string { return "" }

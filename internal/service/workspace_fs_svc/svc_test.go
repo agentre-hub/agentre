@@ -955,3 +955,6 @@ func TestRegisterSessionWorkspaceResolver(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:这个假连接从没握过手,本端指纹为空。
+func (c *workspaceProtoClient) SelfFingerprint() string { return "" }

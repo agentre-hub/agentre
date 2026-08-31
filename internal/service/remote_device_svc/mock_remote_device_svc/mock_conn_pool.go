@@ -217,3 +217,17 @@ func (mr *MockpooledClientMockRecorder) Conn() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Conn", reflect.TypeOf((*MockpooledClient)(nil).Conn))
 }
+
+// SelfFingerprint mocks base method.
+func (m *MockpooledClient) SelfFingerprint() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelfFingerprint")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// SelfFingerprint indicates an expected call of SelfFingerprint.
+func (mr *MockpooledClientMockRecorder) SelfFingerprint() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelfFingerprint", reflect.TypeOf((*MockpooledClient)(nil).SelfFingerprint))
+}
