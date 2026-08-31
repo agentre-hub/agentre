@@ -281,7 +281,14 @@ func (t *turnRun) finalize(ctx context.Context) {
 		// Send 时 sess 之前没有 session id，runner 返回新 id 落库；
 		// Regenerate-fork 时 sess 有旧 id 但 runner 返回 fork 出来的新 id，必须覆盖。
 		// claudecode resume 同 session 时返回的 id 与原 id 相同，覆盖无副作用。
-		if t.result.ProviderSessionID != "" {
+		//
+		// 唯一不认领的情况：fork 轮以错误收场。fork 失败时后端照样会报一个新铸的
+		// provider session id（claudecode 的 `--fork-session` 在锚点无效时就是这样），
+		// 而那个会话根本没被建出来——认领它等于把整段对话指向一个不存在的目标，
+		// 下一轮必然 SessionNotFound、上下文整段丢掉。fork **不改源会话**，
+		// 所以旧 id 此刻仍然可续，保留它是唯一安全的落点。
+		forkFailed := t.req.ForkAnchor != "" && stopErr != nil
+		if t.result.ProviderSessionID != "" && !forkFailed {
 			t.sess.SetProviderSession(t.result.ProviderSessionID)
 		}
 		// Runtime 抽到的本轮 user anchor 必须可靠落库；短暂写失败重试一次，

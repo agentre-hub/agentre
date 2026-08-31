@@ -2286,6 +2286,35 @@ func TestSession_ResultIsError_NotRepeatedAfterSyntheticFrame(t *testing.T) {
 	assert.Equal(t, EventDone, events[0].Kind)
 }
 
+// TestSession_ResultIsError_ErrorsArrayOnly 钉住第三种错误正文位置:`errors` 数组。
+//
+// 现场(2026-08-31 sess-3509):`--resume … --resume-session-at <uuid> --fork-session`
+// 的锚点不在 CLI 加载的那条分支上,CLI 回的终态帧是
+// `{"subtype":"error_during_execution","is_error":true,"result":null,
+//
+//	"errors":["No message found with message.uuid of: …"]}` —— 失败原因只在
+//
+// `errors` 里,`result` 是 null、顶层 `error` 分类码没有。resultErrorEvent 当时只看
+// 这两处,两处都空就**不报错**,于是这一轮以干净的 EventDone 收场:用户看到一个空
+// assistant 气泡,上层拿不到 stopErr,还把 CLI 顺手铸出来的那个空 session id 认领了。
+func TestSession_ResultIsError_ErrorsArrayOnly(t *testing.T) {
+	const line = `{"type":"result","subtype":"error_during_execution","is_error":true,"result":null,` +
+		`"session_id":"sess-forked","errors":["No message found with message.uuid of: 86a60cdf"],` +
+		`"usage":{"input_tokens":0,"output_tokens":0}}`
+
+	s := &Session{}
+	events, isResult := s.parseLine([]byte(line))
+
+	assert.True(t, isResult)
+	var kinds []EventKind
+	for _, e := range events {
+		kinds = append(kinds, e.Kind)
+	}
+	assert.Equal(t, []EventKind{EventError, EventDone}, kinds)
+	require.NotNil(t, events[0].Err)
+	assert.Contains(t, events[0].Err.Error(), "No message found with message.uuid")
+}
+
 // fakeResumeBootstrap 复刻 CLI(2.1.x)用 --resume 重开一个会话后的真实首帧序列:第一条
 // user frame 到达时,CLI 先补发「会话恢复前奏」—— SessionStart:resume 的 hook 两帧、上一
 // 个进程里那个后台任务的 task_notification(output_file 为空 = 非后台型),然后是一对

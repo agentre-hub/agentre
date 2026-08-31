@@ -1257,6 +1257,9 @@ func apiErrorEvent(f rawFrame, sid string) (Event, bool) {
 // 这是第二道网,不是主路:正常情况下合成错误帧已经在前面翻成 EventError 了,
 // `sawError` 为真时这里不再放一条 —— 同一句话在转录里出现两次比不出现更糟。
 // 留着它是因为第一道网靠的是 CLI 顶层标志的拼法,而那个拼法**已经变过一次**。
+//
+// 正文有三处可能:`result` 正文、顶层 `error` 分类码、`errors` 数组。三处都空才
+// 认输 —— 少看一处,那一类失败就静默成一轮空回答(见 Errors 字段注释)。
 func resultErrorEvent(f rawFrame, sid string, sawError bool) (Event, bool) {
 	if !f.IsError || sawError {
 		return Event{}, false
@@ -1264,6 +1267,9 @@ func resultErrorEvent(f rawFrame, sid string, sawError bool) (Event, bool) {
 	text := f.resultText()
 	if text == "" {
 		text = f.errorCode()
+	}
+	if text == "" {
+		text = f.errorsText()
 	}
 	if text == "" {
 		return Event{}, false

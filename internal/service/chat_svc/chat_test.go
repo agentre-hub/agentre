@@ -8884,6 +8884,111 @@ func TestRegenerate_ClaudeCodeForksViaAnchor(t *testing.T) {
 	})
 }
 
+// failedForkRunner 复刻 CLI fork 失败的现场:`--resume <old> --resume-session-at <anchor>
+// --fork-session` 里锚点不在 CLI 加载的那条分支上时,CLI 照样铸出一个新 session id,
+// 但那一轮当场以 error 收场、那个 id 在磁盘上从来没有过转录文件。
+type failedForkRunner struct {
+	requests chan agentruntime.RunRequest
+}
+
+func (*failedForkRunner) Capabilities() capability.Capabilities {
+	return (&recordingRunner{}).Capabilities()
+}
+
+func (r *failedForkRunner) Run(_ context.Context, req agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.requests <- req
+	// 与真 claudecode runtime 同序:开跑时 result 里还是**旧** id(handle.ID() 就是
+	// --resume 的那个),CLI 新铸的 id 与 StopErr 要等帧流走完、close(out) 之前才写进
+	// result。第一条事件走无缓冲 channel,它发得出去就说明 runTurn 已经过了
+	// attachRuntime 那次读,后面的写与那次读之间有 happens-before,不构成竞态。
+	result := &agentruntime.RunResult{ProviderSessionID: req.ProviderSessionID}
+	events := make(chan agentruntime.Event)
+	go func() {
+		events <- agentruntime.TextDelta{Text: ""}
+		result.ProviderSessionID = "cc-ghost"
+		result.StopErr = errors.New("No message found with message.uuid of: anchor-uuid")
+		close(events)
+	}()
+	return events, result, nil
+}
+
+// TestRegenerate_ClaudeCodeFailedForkKeepsOldProviderSession 钉住 fork 失败时的会话归属。
+//
+// 现场(2026-08-31 sess-3509):fork 报 "No message found with message.uuid" 当场收场,
+// chat_svc 照旧把 result 里那个新 id 认领进 session.provider_session_id —— 从此这个会话
+// 指着一个磁盘上不存在的 CLI 会话,下一轮 --resume 必然 "No conversation found",
+// 整段对话的上下文就此丢掉。fork 失败 = 源会话原样健在(--fork-session 不改源),
+// 唯一正确的落点是保留旧 id。
+func TestRegenerate_ClaudeCodeFailedForkKeepsOldProviderSession(t *testing.T) {
+	convey.Convey("Given fork 轮以错误收场, When turn 收口, Then 不认领 CLI 新铸的 session id", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		runner := &failedForkRunner{requests: make(chan agentruntime.RunRequest, 1)}
+		restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner)
+		t.Cleanup(restore)
+
+		sess := &chat_entity.Session{
+			ID: 100, AgentID: 7, ProviderSessionID: "cc-old", AgentStatus: "idle", Status: consts.ACTIVE,
+		}
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil)
+		m.message.EXPECT().Find(gomock.Any(), int64(1001)).Return(&chat_entity.Message{
+			ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1"),
+		}, nil)
+		m.message.EXPECT().List(gomock.Any(), int64(100)).Return([]*chat_entity.Message{
+			{ID: 1000, SessionID: 100, Role: "user", Seq: 1, BlocksJSON: encodeText("hi"), ForkAnchor: "anchor-uuid"},
+			{ID: 1001, SessionID: 100, Role: "assistant", Seq: 2, BlocksJSON: encodeText("v1")},
+		}, nil).AnyTimes()
+		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+			ID: 7, Name: "Eng", AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+		}, nil)
+		m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+			ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
+		}, nil)
+
+		var mu sync.Mutex
+		var persisted []string
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
+				mu.Lock()
+				persisted = append(persisted, s.ProviderSessionID)
+				mu.Unlock()
+				return nil
+			}).AnyTimes()
+
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().DeleteFromSeq(gomock.Any(), int64(100), 1).Return(int64(2), nil)
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
+		newIDs := []int64{2000, 2001}
+		var calls int
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				msg.ID = newIDs[calls]
+				calls++
+				return nil
+			}).Times(2)
+		m.dbMock.ExpectCommit()
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+
+		resp, err := m.svc.Regenerate(ctx, &chat_svc.RegenerateRequest{SessionID: 100, MessageID: 1001})
+		require.NoError(t, err)
+
+		select {
+		case req := <-runner.requests:
+			assert.Equal(t, "anchor-uuid", req.ForkAnchor)
+		case <-time.After(2 * time.Second):
+			t.Fatal("runtime never received the regenerated turn")
+		}
+		chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+
+		mu.Lock()
+		defer mu.Unlock()
+		assert.NotContains(t, persisted, "cc-ghost",
+			"fork 失败铸出来的 session id 从来没有转录文件，认领它等于把整段对话指丢")
+		assert.Equal(t, "cc-old", sess.ProviderSessionID, "源会话原样健在，必须继续指着它")
+	})
+}
+
 func TestRegenerate_ClaudeCodeWithoutAnchorDropsSession(t *testing.T) {
 	convey.Convey("Regenerate(claudecode) 首轮 user msg 没 anchor → 丢 session 当全新 turn 处理", t, func() {
 		m := setupChatTest(t)

@@ -225,6 +225,13 @@ type rawFrame struct {
 	IsError bool            `json:"is_error,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
 
+	// Errors 是终态帧的第三处错误正文。`subtype:"error_during_execution"` 这一类
+	// 「CLI 自己在跑之前就否决了这一轮」的失败(实测 2.1.x:--resume-session-at 的
+	// 锚点不在加载出来的分支上)把原因只写在这里,`result` 是 null、顶层 `error`
+	// 分类码没有。三处都不看的话,这一轮以干净的 Done 收场——用户看到一个空
+	// assistant 气泡,上层也拿不到 stopErr。取值走 errorsText()。
+	Errors []string `json:"errors,omitempty"`
+
 	// NumTurns / DurationAPIMs 是 result 帧自报的「这一轮跑了几次 API 轮、在 API 上花了
 	// 多久」。真跑过一轮的 result 两者都非零;**同时为 0** 的只有一种来源:--resume 重开
 	// 会话时补发的那条恢复应答。见 Session.swallowResumeBootstrap。
@@ -243,6 +250,18 @@ func (f rawFrame) resultText() string {
 		return ""
 	}
 	return text
+}
+
+// errorsText 把终态帧的 errors 数组拼成一句可读的失败原因;空数组(或全是空串)
+// 返回空串,交给调用方继续兜底。
+func (f rawFrame) errorsText() string {
+	parts := make([]string, 0, len(f.Errors))
+	for _, e := range f.Errors {
+		if e = strings.TrimSpace(e); e != "" {
+			parts = append(parts, e)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // apiError 报告这一帧是不是 CLI 合成的 API 错误帧。两种拼法任一为真即真,
