@@ -25,10 +25,22 @@ type SubagentStateBlock struct {
 	LastToolName      string                     `json:"last_tool_name,omitempty"`
 	ToolUses          int                        `json:"tool_uses,omitempty"`
 	NestedToolCallIDs []string                   `json:"nested_tool_call_ids,omitempty"`
+	// Resumes 记录该 task 每一次「中断后被重开」时的既有终态,按发生顺序排列。
+	// CLI 恢复一个子代理(SendMessage)时用**同一个 task_id**、**新的 tool_use_id**
+	// 重发 task_started;overlay 按 TaskID 归一到原卡后,原来那次的终态会被新一段
+	// 覆盖,这个数组是它唯一的留存处 —— 卡片据此显示「中断 N 次后恢复」,而不是
+	// 把失败发生过这件事抹掉。长度即恢复次数。
+	Resumes []SubagentInterruption `json:"resumes,omitempty"`
 	// Model 是子代理内部 assistant 帧解析出的实际模型(R2 覆盖派遣瞬间的入参别名)。
 	// first-wins(R3):一经记录不再改写,由 SubagentModelHandler 负责。随本块一起
 	// 落 blocks_json,replay 时随 subagentStateToChatBlockSubagent 一并投影(R6)。
 	Model string `json:"model,omitempty"`
+}
+
+// SubagentInterruption 是一次中断的证据:被覆盖前那一段的终态与它的结论文本。
+type SubagentInterruption struct {
+	Status  string `json:"status"`
+	Summary string `json:"summary,omitempty"`
 }
 
 func (SubagentStateBlock) Type() string                      { return "subagent_state" }

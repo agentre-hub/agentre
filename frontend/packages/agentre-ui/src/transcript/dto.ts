@@ -196,7 +196,15 @@ export interface TranscriptBlockSubagent {
   summary?: string;
   mode?: string;
   runs?: SubagentRun[];
+  /** 每一次「中断后被重开」时的既有终态,按发生顺序;长度即恢复次数。 */
+  resumes?: SubagentInterruption[];
   model?: string;
+}
+
+/** SubagentInterruption 是一次中断的证据:被覆盖前那一段的终态与它的结论文本。 */
+export interface SubagentInterruption {
+  status?: string;
+  summary?: string;
 }
 
 export interface TranscriptBlockAskUserQuestion {

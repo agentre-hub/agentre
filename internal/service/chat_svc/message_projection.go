@@ -92,8 +92,18 @@ func subagentStateToChatBlockSubagent(sb *chatblocks.SubagentStateBlock) *ChatBl
 		Summary:         sb.Summary,
 		Mode:            sb.Mode,
 		Runs:            cloneSubagentRunSnapshot(sb.Runs),
+		Resumes:         cloneSubagentInterruptions(sb.Resumes),
 		Model:           sb.Model,
 	}
+}
+
+func cloneSubagentInterruptions(in []chatblocks.SubagentInterruption) []chatblocks.SubagentInterruption {
+	if in == nil {
+		return nil
+	}
+	out := make([]chatblocks.SubagentInterruption, len(in))
+	copy(out, in)
+	return out
 }
 
 func attachSubagentStateToChatBlock(cb *ChatBlock, toolName string, sb *chatblocks.SubagentStateBlock) {

@@ -158,6 +158,19 @@ export type AgentSpawnDTO = {
   totalTokens?: number;
   durationMs?: number;
   status?: AgentSpawnStatus;
+  /**
+   * summary 是这一 task 的结论(CLI task_notification.summary):成功时是子代理交回的
+   * 报告全文,失败时是中断原因。它与 tool_result 是两份东西 —— 被中断后恢复的那一段
+   * 没有自己的 tool_result,原来那条留在中断的瞬间,结论只在这里。
+   */
+  summary?: string;
+  /** resumes 每一项是一次中断的既有终态;长度即恢复次数,空=从未中断过。 */
+  resumes?: AgentSpawnResumeDTO[];
+};
+
+export type AgentSpawnResumeDTO = {
+  status?: string;
+  summary?: string;
 };
 
 export type ToolPermissionDTO = {

@@ -145,6 +145,11 @@ type SubagentInfo struct {
 	Status          string        `json:"status,omitempty"` // aggregate: waiting | running | completed | partial | failed | canceled | skipped | unknown
 	Mode            string        `json:"mode,omitempty"`
 	Runs            []SubagentRun `json:"runs,omitempty"`
+	// Summary 是该 task 收尾时生产者给出的整体结论:claudecode 的
+	// task_notification.summary(成功时是子代理交回的报告全文,失败时是中断原因,
+	// 如 "Agent terminated early due to an API error: ...")。Runs 为空的 legacy
+	// 生产者只有这一处承载结论。
+	Summary string `json:"summary,omitempty"`
 }
 
 // SubagentRun is one normalized child execution scoped by the outer tool call.

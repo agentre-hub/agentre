@@ -453,6 +453,9 @@ type ChatBlockSubagent struct {
 	Summary         string                     `json:"summary,omitempty"` // CLI task_notification.summary（如退出码说明）
 	Mode            string                     `json:"mode,omitempty"`
 	Runs            []agentruntime.SubagentRun `json:"runs,omitempty"`
+	// Resumes 是每一次「中断后被重开」时的既有终态,镜像
+	// blocks.SubagentStateBlock.Resumes；长度即恢复次数,空=从未中断过。
+	Resumes []blocks.SubagentInterruption `json:"resumes,omitempty"`
 	// Model 是子代理内部 assistant 帧解析出的实际模型(R2),first-wins(R3)。镜像
 	// blocks.SubagentStateBlock.Model；空值表示尚未有内部帧到达 / 老会话数据。
 	Model string `json:"model,omitempty"`

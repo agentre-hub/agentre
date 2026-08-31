@@ -380,6 +380,85 @@ describe("AgentSpawnCard", () => {
     expect(screen.queryByTestId("agent-spawn-progress")).toBeNull();
   });
 
+  // CLI 恢复一个被中断的 subagent 时(SendMessage)沿用同一个 task_id、换一个
+  // tool_use_id;后端据此把恢复段归一回原卡。归一之后 tool_result 还是中断那一刻
+  // 写下的残缺输出,真正的结论只在 task_notification.summary 里 —— 摘要段必须优先
+  // 读它,否则一张 completed 的卡片会展示上一次的 API 报错。
+  it("prefers the subagent summary over the stale tool_result once resumed", () => {
+    const block = {
+      type: "tool_use",
+      toolName: "Task",
+      canonical: {
+        kind: "agent.spawn",
+        agentSpawn: { taskId: "T", taskDescription: "Fact-check spec" },
+      },
+      subagent: {
+        taskId: "T",
+        status: "completed",
+        summary: "# 规格核查报告\n三处真错误",
+        resumes: [
+          {
+            status: "failed",
+            summary: "Agent terminated early due to an API error",
+          },
+        ],
+      },
+    } as unknown as TranscriptBlock;
+    const result = {
+      type: "tool_result",
+      isError: true,
+      text: "Agent terminated early due to an API error: partial output",
+    } as unknown as TranscriptBlock;
+    const { container } = render(
+      <AgentSpawnCard toolBlock={block} resultBlock={result} />,
+    );
+    const details = expandCard(container);
+    expect(within(details).getByText(/规格核查报告/)).toBeDefined();
+    expect(within(details).queryByText(/partial output/)).toBeNull();
+  });
+
+  // 归一不能把「失败发生过」这件事抹掉:卡片要留下中断次数的痕迹。
+  it("marks a resumed spawn so the interruption is not erased", () => {
+    const block = {
+      type: "tool_use",
+      toolName: "Task",
+      canonical: {
+        kind: "agent.spawn",
+        agentSpawn: { taskId: "T", taskDescription: "Fact-check spec" },
+      },
+      subagent: {
+        taskId: "T",
+        status: "completed",
+        resumes: [
+          {
+            status: "failed",
+            summary: "Agent terminated early due to an API error",
+          },
+        ],
+      },
+    } as unknown as TranscriptBlock;
+    render(<AgentSpawnCard toolBlock={block} />);
+    const mark = screen.getByTestId("agent-spawn-resumed");
+    // 文案本身由包 bundle 决定(两种语言各一份,由 i18n 覆盖测试守),这里只钉
+    // 「中断次数出现在标记上」与「中断原因进了 title」这两条行为。
+    expect(mark.textContent).toContain("1");
+    expect(mark.getAttribute("title")).toContain("API error");
+  });
+
+  it("has no resumed marker when the spawn never got interrupted", () => {
+    const block = {
+      type: "tool_use",
+      toolName: "Task",
+      canonical: {
+        kind: "agent.spawn",
+        agentSpawn: { taskId: "T", status: "completed" },
+      },
+      subagent: { taskId: "T", status: "completed" },
+    } as unknown as TranscriptBlock;
+    render(<AgentSpawnCard toolBlock={block} />);
+    expect(screen.queryByTestId("agent-spawn-resumed")).toBeNull();
+  });
+
   it("shows the uncut model value in the expanded meta row, not the shortened badge form (R8)", () => {
     const block = {
       type: "tool_use",

@@ -1459,6 +1459,7 @@ func parseSystemTask(f rawFrame, sid string) (Event, bool) {
 		Prompt:          f.Prompt,
 		LastToolName:    f.LastToolName,
 		Status:          normalizeTaskStatus(f.Status),
+		Summary:         f.Summary,
 	}
 	if len(f.Usage) > 0 {
 		var u taskUsage

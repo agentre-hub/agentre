@@ -1227,6 +1227,24 @@ func TestParseSystemTask_CarriesTaskType(t *testing.T) {
 	assert.Equal(t, "Sleep for 5 seconds", ev.Tool.Subagent.TaskDescription)
 }
 
+// 真实 CLI 的 subagent task_notification 同样带 summary:成功时是子代理交回的报告
+// 全文,失败时是中断原因("Agent terminated early due to an API error: ..." ——
+// sess-3504 实测)。此前 SubagentMeta 不收这个字段,派遣卡的结论只能靠 tool_result,
+// 而恢复重开那一段根本没有自己的 tool_result,结论就此丢失。
+func TestParseSystemTask_CarriesSummary(t *testing.T) {
+	f := rawFrame{
+		Type: "system", Subtype: "task_notification",
+		TaskID: "ac3ea5ca", ToolUseID: "toolu_A", Status: "failed",
+		TaskType: "local_agent",
+		Summary:  "Agent terminated early due to an API error",
+	}
+	ev, ok := parseSystemTask(f, "sx")
+	require.True(t, ok)
+	require.NotNil(t, ev.Tool)
+	require.NotNil(t, ev.Tool.Subagent)
+	assert.Equal(t, "Agent terminated early due to an API error", ev.Tool.Subagent.Summary)
+}
+
 func TestBackgroundTaskAutonomousTurn_CarriesCompletedTask(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

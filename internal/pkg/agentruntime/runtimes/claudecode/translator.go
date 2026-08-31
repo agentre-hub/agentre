@@ -234,6 +234,7 @@ func subagentInfoFromMeta(m *claudecode.SubagentMeta) agentruntime.SubagentInfo 
 		TotalTokens:     m.TotalTokens,
 		DurationMs:      m.DurationMs,
 		Status:          m.Status,
+		Summary:         m.Summary,
 	}
 }
 

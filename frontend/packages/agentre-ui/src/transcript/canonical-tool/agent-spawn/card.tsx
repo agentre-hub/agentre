@@ -7,6 +7,7 @@ import {
   CircleSlash,
   Clock,
   LoaderCircle,
+  RotateCcw,
   Square,
   TriangleAlert,
   Users,
@@ -61,6 +62,8 @@ function readSpawn(toolBlock: TranscriptBlock): AgentSpawnDTO | undefined {
       base.runs,
       meta.runs as AgentSpawnRunDTO[] | undefined,
     ),
+    summary: meta.summary || base.summary,
+    resumes: meta.resumes ?? base.resumes,
     // 子代理首帧的实际模型覆盖派遣瞬间的入参别名(R2);两者都缺时 model 仍是 undefined。
     model: meta.model || base.model,
   };
@@ -427,8 +430,25 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
   const prompt = singleSpawn.prompt || "";
   const normalizedOutput =
     normalizedRun?.summary || normalizedRun?.errorMessage || "";
-  const summaryResultBlock =
-    resultBlock?.text || !normalizedOutput
+  const resumes = singleSpawn.resumes ?? [];
+  const resumeCount = resumes.length;
+  // 每次中断的原因逐行进 title;没有原因的那次退回它的状态值(failed/canceled/…)。
+  const resumeTitle = resumes
+    .map((r) => r.summary || r.status || "")
+    .filter(Boolean)
+    .join("\n");
+  // 被中断后恢复过的派遣,tool_result 是**中断那一刻**写下的(残缺输出 + API 报错),
+  // 恢复段没有自己的 tool_result,真正的结论只在 task 的 summary 里。这种情况下、也
+  // 只有这种情况下,summary 越过 tool_result —— 其余路径仍是既有优先级(外层
+  // tool_result 有正文就用它,否则退到 normalized run 的 summary/errorMessage)。
+  const resumedOutput = resumeCount > 0 ? singleSpawn.summary || "" : "";
+  const summaryResultBlock = resumedOutput
+    ? ({
+        type: "tool_result",
+        text: resumedOutput,
+        isError: singleSpawn.status === "failed",
+      } as TranscriptBlock)
+    : resultBlock?.text || !normalizedOutput
       ? resultBlock
       : ({
           type: "tool_result",
@@ -584,6 +604,19 @@ export const AgentSpawnCard: React.FC<CanonicalCardProps> = ({
               <Square className="size-2.5 fill-current" aria-hidden="true" />
             </button>
           )}
+        {resumeCount > 0 ? (
+          // 归一到原卡不等于把「失败发生过」抹掉:中断次数留在头部,原因进 title。
+          // shrink-0 —— 它是状态信息,和状态胶囊一样不参与横向收缩。
+          <span
+            data-testid="agent-spawn-resumed"
+            data-copyable-control-text="true"
+            title={resumeTitle}
+            className="mr-1.5 inline-flex shrink-0 items-center gap-1 text-meta text-status-waiting-text"
+          >
+            <RotateCcw className="size-2.5" aria-hidden="true" />
+            {t("canonical.agentSpawn.resumed", { count: resumeCount })}
+          </span>
+        ) : null}
         {isSuccess ? (
           // 成功态没有胶囊,位置改放实义信息;三项都缺时整块不渲染。
           outcomeSummary ? (

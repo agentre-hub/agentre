@@ -109,7 +109,10 @@
         "withDuration": "{{status}} · {{duration}}"
       },
       "summaryRunning": "subagent 还在跑，结果稍后返回…",
-      "waitingFirstStep": "等待第一个子调用…"
+      "waitingFirstStep": "等待第一个子调用…",
+      "resumed": "中断 {{count}} 次后恢复",
+      "resumed_one": "中断 {{count}} 次后恢复",
+      "resumed_other": "中断 {{count}} 次后恢复"
     },
     "code": {
       "copy": "复制",

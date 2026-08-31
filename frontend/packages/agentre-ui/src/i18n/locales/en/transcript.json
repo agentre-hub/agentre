@@ -109,7 +109,10 @@
         "withDuration": "{{status}} · {{duration}}"
       },
       "summaryRunning": "Subagent is still running. Results will return later...",
-      "waitingFirstStep": "Waiting for the first child call..."
+      "waitingFirstStep": "Waiting for the first child call...",
+      "resumed": "resumed after {{count}} interruption",
+      "resumed_one": "resumed after {{count}} interruption",
+      "resumed_other": "resumed after {{count}} interruptions"
     },
     "code": {
       "copy": "Copy",

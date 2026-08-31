@@ -142,6 +142,8 @@ type ToolEvent struct {
 //	TotalTokens     ← usage.total_tokens
 //	DurationMs      ← usage.duration_ms
 //	Status          ← task_notification.status（"completed" / "failed"）
+//	Summary         ← task_notification.summary（成功时是子代理交回的报告全文，
+//	                  失败时是中断原因；task_started / task_progress 不带）
 type SubagentMeta struct {
 	TaskID          string
 	SubagentType    string
@@ -153,6 +155,7 @@ type SubagentMeta struct {
 	TotalTokens     int
 	DurationMs      int
 	Status          string
+	Summary         string
 }
 
 // CompactEvent 镜像 system.compact_boundary 帧 compact_metadata 子对象的字段。

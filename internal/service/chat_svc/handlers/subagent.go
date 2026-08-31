@@ -144,6 +144,17 @@ func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, 
 	if status == "" {
 		status = "running"
 	}
+	if owner, resumed := adoptResumedSubagent(acc, r, status); resumed {
+		// 恢复重开:同一个 task 换了 tool call,已认领到原卡上,不另起第二块。
+		if emit != nil {
+			emit.Emit(ctx, streamOf(tc), map[string]any{
+				"kind":      "subagent_started",
+				"toolUseId": owner,
+				"info":      r.Info,
+			})
+		}
+		return nil
+	}
 	blk := &blocks.SubagentStateBlock{
 		ParentToolCallID: r.ToolCallID,
 		TaskID:           r.Info.TaskID, // CLI task_id,供 StopBackgroundTask 下发 stop_task 定位
@@ -165,13 +176,52 @@ func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, 
 	return nil
 }
 
+// adoptResumedSubagent 认领「同一个 task_id、新的 tool_use_id」的 task_started。
+//
+// CLI 恢复一个子代理(SendMessage)时不会新起一个 task,而是用原 task_id 重发一遍
+// task_started/task_notification,只换 tool_use_id(sess-3504 实测)。overlay 若只按
+// tool call 归集,恢复后的那一段会另起一块挂在 SendMessage 那次调用上 —— 而
+// SendMessage 不是 agent.spawn 工具名(canonical/from_tool_use.go 只认 task/agent),
+// 那块永远没有卡片渲染:原卡永远停在 failed,恢复后跑出来的结论一个字都看不到。
+//
+// 认领 = 把新 tool call 的 mutate key 指到原块上(后续 progress/done/model 帧不必知道
+// 自己是恢复来的),把原块推回运行态,并把被覆盖的那一段终态记进 Resumes 留证。
+// task_id 为空时不参与 —— 否则一轮里所有无 id 的 overlay 会互相吞并。
+//
+// owner 是被认领到的原卡 tool_use_id。归一之后所有 live 事件都必须报它:前端
+// mergeSubagentMetaBlocks 按 toolUseId 找外层 tool_use 块挂元数据,继续报新 id 会挂到
+// SendMessage 那个块上 —— 后端归一了,界面上仍是两张卡,直到刷新才对齐。
+func adoptResumedSubagent(acc *turn.Accumulator, r agentruntime.SubagentStarted, status string) (owner string, resumed bool) {
+	if r.Info.TaskID == "" {
+		return "", false
+	}
+	hit := turn.AdoptMutateKey(acc, "subagent_state:"+r.ToolCallID,
+		func(b *blocks.SubagentStateBlock) bool {
+			return b.TaskID == r.Info.TaskID && b.ParentToolCallID != r.ToolCallID
+		},
+		func(b *blocks.SubagentStateBlock) {
+			b.Resumes = append(b.Resumes, blocks.SubagentInterruption{
+				Status:  b.Status,
+				Summary: b.Summary,
+			})
+			b.Status = status
+			// 上一段的结论已收进 Resumes;留着它会让恢复后仍在跑的卡片显示上一次的
+			// 中断原因,新的结论到达前这里应当是空的。
+			b.Summary = ""
+			owner = b.ParentToolCallID
+		})
+	return owner, hit
+}
+
 type SubagentProgressHandler struct{}
 
 func (SubagentProgressHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentProgress)
+	owner := r.ToolCallID
 	// task_progress 帧不带 task_type,无法自己判前台/后台;靠 Mutate 是否命中既有
 	// overlay 来判定 —— 前台 bash 在 Started 已被跳过,这里命中不到 → 不 emit 孤儿事件。
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {
+		owner = b.ParentToolCallID
 		mergeNormalizedSnapshot(b, r.Info)
 		// R4/R10:TotalTokens/ToolUses/DurationMs 三者来自同一个 CLI usage 对象
 		// (taskUsage,值类型无存在性区分)。task_progress 帧偶尔缺 usage,解码成
@@ -197,7 +247,7 @@ func (SubagentProgressHandler) Apply(ctx context.Context, ev agentruntime.Event,
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{
 			"kind":      "subagent_progress",
-			"toolUseId": r.ToolCallID,
+			"toolUseId": owner,
 			"info":      r.Info,
 		})
 	}
@@ -221,7 +271,9 @@ func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, ac
 		return nil
 	}
 	var recorded bool
+	owner := r.ToolCallID
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {
+		owner = b.ParentToolCallID
 		if b.Model != "" {
 			return // first-wins(R3):模型一经记录,后续内部帧不再改写
 		}
@@ -240,7 +292,7 @@ func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, ac
 		// 的 JSON 标签没有 omitempty,会把已有状态覆盖成空串。
 		emit.Emit(ctx, streamOf(tc), map[string]any{
 			"kind":      "subagent_model",
-			"toolUseId": r.ToolCallID,
+			"toolUseId": owner,
 			"model":     r.Model,
 		})
 	}
@@ -251,7 +303,9 @@ type SubagentDoneHandler struct{}
 
 func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentDone)
+	owner := r.ToolCallID
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {
+		owner = b.ParentToolCallID
 		mergeNormalizedSnapshot(b, r.Info)
 		if r.Info.Status == "" {
 			b.Status = "completed"
@@ -268,6 +322,11 @@ func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc
 		if r.Info.ToolUses != 0 {
 			b.ToolUses = r.Info.ToolUses
 		}
+		// Summary 是这一 task 的结论(成功时子代理交回的报告全文,失败时中断原因)。
+		// 同上守卫:不带 summary 的帧不覆盖已记录值。
+		if r.Info.Summary != "" {
+			b.Summary = r.Info.Summary
+		}
 	})
 	if !hit {
 		return flipSubagentOutsideTurn(ctx, acc, tc, r)
@@ -275,7 +334,7 @@ func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{
 			"kind":      "subagent_done",
-			"toolUseId": r.ToolCallID,
+			"toolUseId": owner,
 			"info":      r.Info,
 		})
 	}

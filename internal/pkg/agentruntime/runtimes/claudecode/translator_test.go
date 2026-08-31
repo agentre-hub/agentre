@@ -634,6 +634,17 @@ func TestSubagentInfoFromMeta_CarriesKind(t *testing.T) {
 	assert.Equal(t, "sleep 5", info.TaskDescription)
 }
 
+// task_notification.summary 是该 task 的结论(成功=报告全文,失败=中断原因),
+// 派遣卡的摘要段与「中断证据」都靠它;此前 translator 把它丢在 SubagentMeta 里没往上带。
+func TestSubagentInfoFromMeta_CarriesSummary(t *testing.T) {
+	info := subagentInfoFromMeta(&claudecode.SubagentMeta{
+		TaskType: "local_agent",
+		Status:   "failed",
+		Summary:  "Agent terminated early due to an API error",
+	})
+	assert.Equal(t, "Agent terminated early due to an API error", info.Summary)
+}
+
 // TestTranslate_PostToolUse_AsyncLaunchReceiptNotEmitted 回归:异步子代理的「启动
 // 回执」不是这次工具调用的结果,不得进入转录。
 //
