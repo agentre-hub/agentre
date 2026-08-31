@@ -722,7 +722,11 @@ describe("reduceFrames:一轮的 meta", () => {
         f({ kind: "text_delta", text: "正文" }),
         f({
           kind: "done",
-          usage: { promptTokens: 1200, completionTokens: 340, cachedTokens: 90 },
+          usage: {
+            promptTokens: 1200,
+            completionTokens: 340,
+            cachedTokens: 90,
+          },
         }),
       ],
       SID,
@@ -776,7 +780,10 @@ describe("reduceFrames:一轮的 meta", () => {
       [
         f({ kind: "usage", usage: { completionTokens: 340 } }),
         f({ kind: "usage", usage: { completionTokens: 60 } }),
-        f({ kind: "done", usage: { promptTokens: 1500, completionTokens: 60 } }),
+        f({
+          kind: "done",
+          usage: { promptTokens: 1500, completionTokens: 60 },
+        }),
       ],
       SID,
     );
@@ -824,6 +831,58 @@ describe("reduceFrames:一轮的 meta", () => {
     );
 
     expect(msg.model).toBe("");
+    expect(msg.durationMs).toBe(0);
+    expect(msg.firstTokenMs).toBeUndefined();
+    expect(msg.tokensPerSec).toBeUndefined();
+  });
+});
+
+/**
+ * 零值读作「没上报」，不是「这一轮零耗时」。
+ *
+ * 两个生产者填的是不同的载体：桌面端 chat_svc 填 `done` 事件本身（它在 runtime
+ * 之上收口，手里就有），agentred 填 `runtime.runResultDone` 终态帧（它在事件流
+ * 之上量表，知道结果时 `done` 早转发出去了）。于是同一段流里可能先来一条 runtime
+ * 自己 emit 的**空** `Done`、再来一条带数的 —— 空的那条不能把带数的抹掉。
+ */
+describe("reduceFrames:done 上的零值", () => {
+  it("给定带数的 done 之后又来一条空 done，当归约，则数还在", () => {
+    const [msg] = reduceFrames(
+      [
+        f({ kind: "text_delta", text: "正文" }),
+        f({
+          kind: "done",
+          model: "glm-5.3",
+          durationMs: 9640,
+          firstTokenMs: 8010,
+          tokensPerSec: 14.2,
+        }),
+        f({
+          kind: "done",
+          model: "",
+          durationMs: 0,
+          firstTokenMs: 0,
+          tokensPerSec: 0,
+        }),
+      ],
+      SID,
+    );
+
+    expect(msg.model).toBe("glm-5.3");
+    expect(msg.durationMs).toBe(9640);
+    expect(msg.firstTokenMs).toBe(8010);
+    expect(msg.tokensPerSec).toBeCloseTo(14.2);
+  });
+
+  it("给定只有零值的 done，当归约，则一格都不填", () => {
+    const [msg] = reduceFrames(
+      [
+        f({ kind: "text_delta", text: "正文" }),
+        f({ kind: "done", durationMs: 0, firstTokenMs: 0, tokensPerSec: 0 }),
+      ],
+      SID,
+    );
+
     expect(msg.durationMs).toBe(0);
     expect(msg.firstTokenMs).toBeUndefined();
     expect(msg.tokensPerSec).toBeUndefined();

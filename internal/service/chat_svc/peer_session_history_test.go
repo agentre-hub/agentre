@@ -3,6 +3,10 @@ package chat_svc
 import (
 	"context"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -463,4 +467,125 @@ func eventFrameSeq(t *testing.T, params any) int64 {
 	frame, ok := params.(wire.EventFrame)
 	require.True(t, ok)
 	return frame.Seq
+}
+
+// Given 一条落库的助手消息带着本轮的模型与计时,When 合成对端快照,Then 收口的
+// Done 事件把它们一起送出去。
+//
+// 对端 Peer Tab 的转录与浏览器控制台走的是**同一个**共享投影器,那边的 meta
+// (模型 · 耗时 · 首字 · 速率)读的正是 done 事件上的这几格。此前这里发的是一个
+// 空的 Done{} —— 数据就在手边那条消息实体上,一格都没送。
+//
+// agentred 那侧的同一份数走 runtime.runResultDone 终态帧,不走这条:它在事件流
+// 之上量表,Done 早就转发出去了,回不去。两个生产者各用自己填得起的载体,落点
+// (共享包的 EventDone)是同一个。
+func TestSynthesizePeerHistory_GivenTurnStats_ThenDoneCarriesThem(t *testing.T) {
+	messages := []*chat_entity.Message{
+		{SessionID: 41, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"ship it"}}]`},
+		{
+			SessionID: 41, Role: "assistant", Seq: 2,
+			BlocksJSON:   `[{"type":"text","data":{"text":"done"}}]`,
+			Model:        "claude-sonnet-4-6",
+			DurationMs:   9640,
+			FirstTokenMs: 8010,
+			TokensPerSec: 14.2,
+		},
+	}
+
+	events, err := synthesizePeerHistory(41, messages)
+	require.NoError(t, err)
+
+	var done agentruntime.Done
+	var found bool
+	for _, frame := range events {
+		if d, ok := frame.Event.(agentruntime.Done); ok {
+			done, found = d, true
+		}
+	}
+	require.True(t, found, "助手消息收口必须发一条 Done")
+	assert.Equal(t, "claude-sonnet-4-6", done.Model)
+	assert.Equal(t, 9640, done.DurationMs)
+	assert.Equal(t, 8010, done.FirstTokenMs)
+	assert.InDelta(t, 14.2, done.TokensPerSec, 0.001)
+}
+
+// Given 一轮在这台桌面端上跑完,When 收口,Then 对端订阅者收到一条带本轮统计的
+// Done —— 与重连后从快照里读到的那一条同形。
+//
+// 实时与历史两条路必须给出同一份数:对端 Peer Tab 上一轮 meta 的模型 / 耗时 /
+// 首字 / 速率,断线重连前后不该变。历史那一半在
+// TestSynthesizePeerHistory_GivenTurnStats_ThenDoneCarriesThem。
+func TestPublishPeerTurnDone_GivenFinishedTurn_ThenPeersSeeTurnStats(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	deps.session.EXPECT().Find(ctx, int64(41)).Return(&chat_entity.Session{ID: 41, AgentID: 7, AgentStatus: "idle"}, nil)
+	deps.agent.EXPECT().Find(ctx, int64(7)).Return(agentForPeerSession(), nil)
+	deps.backend.EXPECT().Find(ctx, int64(11)).Return(nil, nil)
+	deps.message.EXPECT().List(ctx, int64(41)).Return(nil, nil)
+
+	subscriber := newRecordingPeerSubscriber()
+	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{SessionID: 41}, subscriber)
+	require.NoError(t, err)
+
+	deps.svc.publishPeerTurnDone(41, &chat_entity.Message{
+		SessionID: 41, Role: "assistant",
+		Model: "claude-sonnet-4-6", DurationMs: 9640, FirstTokenMs: 8010, TokensPerSec: 14.2,
+	})
+
+	var done agentruntime.Done
+	var found bool
+	require.Eventually(t, func() bool {
+		for _, record := range subscriber.notifications() {
+			frame, ok := record.params.(wire.EventFrame)
+			if !ok {
+				continue
+			}
+			if d, isDone := frame.Event.(agentruntime.Done); isDone {
+				done, found = d, true
+			}
+		}
+		return found
+	}, time.Second, time.Millisecond)
+
+	assert.Equal(t, "claude-sonnet-4-6", done.Model)
+	assert.Equal(t, 9640, done.DurationMs)
+	assert.Equal(t, 8010, done.FirstTokenMs)
+	assert.InDelta(t, 14.2, done.TokensPerSec, 0.001)
+}
+
+// 一轮收口必须走 publishPeerTurnDone —— 两条收口路径(用户轮与自主续轮各自的
+// finalize)都要。
+//
+// 为什么用 AST 守:这两只函数各要一整套 runner / repo / 事件循环才跑得起来,而要守
+// 的事实只有一句「它调了那一只」。同包的 peer tee 守卫(peer_session_tee_test.go)
+// 用的是同一手法,理由也一样。漏掉任一条的表现是**静默的**:对端那一轮的 meta 空着,
+// 而另一条路的照常有,两边对不上还查不出来路。
+func TestTurnFinishPaths_GivenPeerSubscribers_ThenPublishTurnDone(t *testing.T) {
+	for _, tc := range []struct{ file, name string }{
+		{file: "turn_run.go", name: "finalize"},
+		{file: "autonomous_turn_run.go", name: "finalize"},
+	} {
+		t.Run(tc.file+":"+tc.name, func(t *testing.T) {
+			source, err := os.ReadFile(tc.file)
+			require.NoError(t, err)
+			file, err := parser.ParseFile(token.NewFileSet(), tc.file, source, 0)
+			require.NoError(t, err)
+
+			var calls bool
+			ast.Inspect(file, func(node ast.Node) bool {
+				decl, ok := node.(*ast.FuncDecl)
+				if !ok || decl.Name.Name != tc.name {
+					return true
+				}
+				ast.Inspect(decl.Body, func(inner ast.Node) bool {
+					if call, ok := inner.(*ast.CallExpr); ok && selectorName(call) == "publishPeerTurnDone" {
+						calls = true
+					}
+					return true
+				})
+				return false
+			})
+			assert.True(t, calls, "%s 里的 %s 必须把本轮统计发给对端订阅者", tc.file, tc.name)
+		})
+	}
 }

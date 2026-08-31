@@ -246,6 +246,25 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 	}
 }
 
+// publishPeerTurnDone 在一轮收口时把本轮统计随 Done 发给对端订阅者。
+//
+// 对端 Peer Tab 与浏览器控制台走的是同一个共享转录投影器,那边 meta 那一行
+// (模型 · 耗时 · 首字 · 速率)读的正是 done 事件上的这几格。这台桌面端此刻手里
+// 就有全套 —— 它自己刚算完并落了库 —— 所以送出去的是同一份数,与重连后从
+// synthesizePeerHistory 读到的那一条同形。
+//
+// runtime 自己 emit 的 Done(只有 openclaw / piagent 有)留零,零读作「没上报」,
+// 不会把这一条覆盖掉。
+func (s *chatSvc) publishPeerTurnDone(sessionID int64, msg *chat_entity.Message) {
+	if msg == nil {
+		return
+	}
+	s.publishPeerEvent(sessionID, agentruntime.Done{
+		Model: msg.Model, DurationMs: msg.DurationMs,
+		FirstTokenMs: msg.FirstTokenMs, TokensPerSec: msg.TokensPerSec,
+	})
+}
+
 func peerSubscriberKey(subscriber PeerSessionSubscriber) string {
 	if keyer, ok := subscriber.(PeerSessionSubscriberKeyer); ok && keyer.PeerSessionSubscriberKey() != "" {
 		return keyer.PeerSessionSubscriberKey()
@@ -366,7 +385,12 @@ func synthesizePeerHistory(sessionID int64, messages []*chat_entity.Message) ([]
 					return nil, err
 				}
 			}
-			if err := appendEvent(agentruntime.Done{}); err != nil {
+			// 收口带上本轮统计:对端 Peer Tab 的 meta(模型 · 耗时 · 首字 · 速率)
+			// 读的正是这几格,而它们就在手边这条消息实体上。
+			if err := appendEvent(agentruntime.Done{
+				Model: message.Model, DurationMs: message.DurationMs,
+				FirstTokenMs: message.FirstTokenMs, TokensPerSec: message.TokensPerSec,
+			}); err != nil {
 				return nil, err
 			}
 		}

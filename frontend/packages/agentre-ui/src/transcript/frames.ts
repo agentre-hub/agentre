@@ -187,7 +187,13 @@ interface State {
 }
 
 function newState(): State {
-  return { messages: [], open: null, turn: null, nextId: 1, touched: new Set() };
+  return {
+    messages: [],
+    open: null,
+    turn: null,
+    nextId: 1,
+    touched: new Set(),
+  };
 }
 
 function openAssistant(st: State, sessionId: number): TranscriptMessage {
@@ -490,12 +496,18 @@ function applyFrame(
     }
 
     case EventDone: {
-      // 终态帧的 meta：模型、本轮计时、以及没有 usage 帧的后端的用量兜底。
+      // 一轮的 meta：模型、本轮计时、以及没有 usage 帧的后端的用量兜底。
       //
-      // 这些不是本包编出来的 —— agentred 就着它自己扇出的那条事件流量表（口径与
-      // 桌面端 chat_svc 共用 internal/pkg/turnstats），盖在 runtime.runResultDone
-      // 上，宿主把它随这一条 `done` 交进来。真正的 agentruntime.Done 事件是空的，
-      // 那时下面每一项都取不到值，行为与从前一模一样。
+      // 这些不是本包编出来的，两个生产者各用自己填得起的载体送过来，落点是这里：
+      //   - 桌面端 chat_svc 在 runtime **之上**收口，算完落库时手里就有，直接填在
+      //     `done` 事件上（`agentruntime.Done` 的四个字段）；
+      //   - agentred 在事件流**之上**量表（口径与 chat_svc 共用
+      //     `internal/pkg/turnstats`），知道结果时 `done` 早转发出去了，于是盖在
+      //     `runtime.runResultDone` 终态帧上，由宿主随一条合成的 `done` 交进来。
+      //
+      // 零值一律跳过：它读作「这一端没上报」，不是「这一轮零耗时」。runtime 自己
+      // emit 的 `Done` 四格全空，同一段流里它可能排在带数的那条之后 —— 不跳过就会
+      // 把已经填好的数抹掉。
       //
       // 落点是 `st.turn` 而不是 `st.open`：见 State.turn 的注释。
       const msg = st.turn;
@@ -504,11 +516,11 @@ function applyFrame(
         const model = str(ev, "model");
         if (model) msg.model = model;
         const durationMs = num(ev, "durationMs");
-        if (durationMs !== undefined) msg.durationMs = durationMs;
+        if (durationMs) msg.durationMs = durationMs;
         const firstTokenMs = num(ev, "firstTokenMs");
-        if (firstTokenMs !== undefined) msg.firstTokenMs = firstTokenMs;
+        if (firstTokenMs) msg.firstTokenMs = firstTokenMs;
         const tokensPerSec = num(ev, "tokensPerSec");
-        if (tokensPerSec !== undefined) msg.tokensPerSec = tokensPerSec;
+        if (tokensPerSec) msg.tokensPerSec = tokensPerSec;
         applyUsage(msg, record(ev, "usage"), { final: true });
       }
       st.open = null;

@@ -10872,8 +10872,21 @@ func (x *RuntimeStatus) GetStatus() string {
 	return ""
 }
 
+// Done ends a turn. The fields are that turn's stats, filled by whoever ends
+// the turn above the runtime — a desktop's chat_svc, which has them at hand
+// (it computed them and wrote them to its own database). A runtime's own Done
+// leaves them zero, and zero reads as "not reported", never as "took 0ms".
+//
+// agentred fills the same four on RunResultDoneNotification instead: it meters
+// the event stream it fans out, and by the time it knows the numbers the Done
+// event is long gone. Two producers, two carriers each can actually fill, one
+// landing place — the shared transcript projector's done branch.
 type Done struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Model         string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
+	DurationMs    int32                  `protobuf:"varint,2,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	FirstTokenMs  int32                  `protobuf:"varint,3,opt,name=first_token_ms,json=firstTokenMs,proto3" json:"first_token_ms,omitempty"`
+	TokensPerSec  float64                `protobuf:"fixed64,4,opt,name=tokens_per_sec,json=tokensPerSec,proto3" json:"tokens_per_sec,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10906,6 +10919,34 @@ func (x *Done) ProtoReflect() protoreflect.Message {
 // Deprecated: Use Done.ProtoReflect.Descriptor instead.
 func (*Done) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{159}
+}
+
+func (x *Done) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *Done) GetDurationMs() int32 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *Done) GetFirstTokenMs() int32 {
+	if x != nil {
+		return x.FirstTokenMs
+	}
+	return 0
+}
+
+func (x *Done) GetTokensPerSec() float64 {
+	if x != nil {
+		return x.TokensPerSec
+	}
+	return 0
 }
 
 type ErrorEvent struct {
@@ -13791,8 +13832,13 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\vduration_ms\x18\x04 \x01(\x05R\n" +
 	"durationMs\"'\n" +
 	"\rRuntimeStatus\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\tR\x06status\"\x06\n" +
-	"\x04Done\"&\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\"\x89\x01\n" +
+	"\x04Done\x12\x14\n" +
+	"\x05model\x18\x01 \x01(\tR\x05model\x12\x1f\n" +
+	"\vduration_ms\x18\x02 \x01(\x05R\n" +
+	"durationMs\x12$\n" +
+	"\x0efirst_token_ms\x18\x03 \x01(\x05R\ffirstTokenMs\x12$\n" +
+	"\x0etokens_per_sec\x18\x04 \x01(\x01R\ftokensPerSec\"&\n" +
 	"\n" +
 	"ErrorEvent\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"t\n" +

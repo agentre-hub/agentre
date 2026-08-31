@@ -242,8 +242,21 @@ type UnrecognizedBlock struct {
 	Data      json.RawMessage
 }
 
-// Done turn 正常结束。
-type Done struct{}
+// Done turn 正常结束,并带上这一轮的统计。
+//
+// 四个字段由**收口这一轮的那一层**填,而不是 runtime:桌面端 chat_svc 在 finishTurn
+// 里算完(口径见 internal/pkg/turnstats)顺手落库,同一份数一并送给对端订阅者;
+// runtime 自己 emit 的 Done 一律留零,而零读作「没上报」,不是「零耗时」。
+//
+// agentred 把同样四个数填在 RunResultDoneFrame 上而不是这里:它在事件流之上量表,
+// 知道结果时 Done 早就转发出去了。两个生产者各用自己填得起的载体,落点(共享包
+// 转录投影器的 done 分支)是同一个。
+type Done struct {
+	Model        string
+	DurationMs   int
+	FirstTokenMs int
+	TokensPerSec float64
+}
 
 // ErrorEvent turn 因错误中止;Err 携带原因。
 type ErrorEvent struct{ Err error }

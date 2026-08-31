@@ -156,7 +156,7 @@ func marshalEvent(frame *agentrewire.RuntimeEventNotification, event agentruntim
 	case agentruntime.UnrecognizedBlock:
 		frame.Event = &agentrewire.RuntimeEventNotification_UnrecognizedBlock{UnrecognizedBlock: &agentrewire.UnrecognizedBlock{BlockType: value.BlockType, Data: value.Data}}
 	case agentruntime.Done:
-		frame.Event = &agentrewire.RuntimeEventNotification_Done{Done: &agentrewire.Done{}}
+		frame.Event = &agentrewire.RuntimeEventNotification_Done{Done: &agentrewire.Done{Model: value.Model, DurationMs: int32(value.DurationMs), FirstTokenMs: int32(value.FirstTokenMs), TokensPerSec: value.TokensPerSec}}
 	case agentruntime.ErrorEvent:
 		message := ""
 		if value.Err != nil {
@@ -270,7 +270,8 @@ func unmarshalEvent(frame *agentrewire.RuntimeEventNotification) (agentruntime.E
 		v := value.UnrecognizedBlock
 		return agentruntime.UnrecognizedBlock{BlockType: v.GetBlockType(), Data: v.GetData()}, nil
 	case *agentrewire.RuntimeEventNotification_Done:
-		return agentruntime.Done{}, nil
+		v := value.Done
+		return agentruntime.Done{Model: v.GetModel(), DurationMs: int(v.GetDurationMs()), FirstTokenMs: int(v.GetFirstTokenMs()), TokensPerSec: v.GetTokensPerSec()}, nil
 	case *agentrewire.RuntimeEventNotification_Error:
 		// 空 message 还原成 nil Err,与 ErrorEvent 的 JSON 形态同义:那边
 		// `message,omitempty` 也是「没有错误文本就不带这个字段」。

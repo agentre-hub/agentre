@@ -265,6 +265,11 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 		handlers.MarkRunningForegroundSubagentsCancelled(t.acc, finalBlocks)
 	}
 	_ = t.assistantMsg.SetBlocks(finalBlocks)
+	// 与用户轮同一套收表口径(turn_run.finalize):自主续轮此前一格都不记,于是同一条
+	// 会话里用户发起的那些轮有耗时 / 首字 / 速率,自动续的那些是空的。
+	t.assistantMsg.DurationMs = int(time.Since(t.segmentStart).Milliseconds())
+	t.turnCtx.PauseGeneration()
+	t.assistantMsg.FirstTokenMs = t.turnCtx.FirstTokenMs()
 	if t.at.Result != nil {
 		if t.at.Result.Usage != nil {
 			t.assistantMsg.PromptTokens = t.at.Result.Usage.PromptTokens
@@ -280,6 +285,8 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 			t.sess.SetProviderSession(t.at.Result.ProviderSessionID)
 		}
 	}
+	// 分子要等 usage 落定,所以在 Result 的用量 patch 之后。
+	t.assistantMsg.TokensPerSec = t.turnCtx.TokensPerSec(t.assistantMsg.CompletionTokens)
 	// finalCtx 去掉 cancel 信号但保留 DB 句柄 —— 已经流出去的内容必须落库。
 	finalCtx := context.WithoutCancel(ctx)
 	// 这一轮是被截断的(远端断连 / 会话在那台 daemon 上已中断)时,StopErr 带着终止理由。
@@ -296,6 +303,7 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 			zap.Error(t.at.Result.StopErr))
 	}
 	_ = chat_repo.Message().Update(finalCtx, t.assistantMsg)
+	t.svc.publishPeerTurnDone(t.sessionID, t.assistantMsg)
 
 	t.sess.AgentStatus = "idle"
 	if stopErr != nil {

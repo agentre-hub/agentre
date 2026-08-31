@@ -302,8 +302,12 @@ func (e UnrecognizedBlock) MarshalJSON() ([]byte, error) {
 
 func (e Done) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Kind EventKind `json:"kind"`
-	}{EventDone})
+		Kind         EventKind `json:"kind"`
+		Model        string    `json:"model,omitempty"`
+		DurationMs   int       `json:"durationMs,omitempty"`
+		FirstTokenMs int       `json:"firstTokenMs,omitempty"`
+		TokensPerSec float64   `json:"tokensPerSec,omitempty"`
+	}{EventDone, e.Model, e.DurationMs, e.FirstTokenMs, e.TokensPerSec})
 }
 
 func (e ErrorEvent) MarshalJSON() ([]byte, error) {
@@ -646,7 +650,16 @@ func UnmarshalEvent(data []byte) (Event, error) {
 		}
 		return UnrecognizedBlock{BlockType: w.BlockType, Data: w.Data}, nil
 	case EventDone:
-		return Done{}, nil
+		var w struct {
+			Model        string  `json:"model"`
+			DurationMs   int     `json:"durationMs"`
+			FirstTokenMs int     `json:"firstTokenMs"`
+			TokensPerSec float64 `json:"tokensPerSec"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return Done{Model: w.Model, DurationMs: w.DurationMs, FirstTokenMs: w.FirstTokenMs, TokensPerSec: w.TokensPerSec}, nil
 	case EventUserMessage:
 		var w struct {
 			Text             string `json:"text"`

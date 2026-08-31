@@ -379,3 +379,44 @@ describe("peer-transcript 交互卡归 Peer Panel", () => {
     });
   });
 });
+
+/**
+ * 一轮的 meta（模型 · 耗时 · 首字 · 速率）。
+ *
+ * Peer Tab 的转录与 agentre-server 的控制台走同一个共享投影器，所以这一侧一行
+ * 归约代码都不用写 —— 缺的一直是**数据**：对端桌面端从前发的是一个空的 `Done{}`，
+ * 而那四个数就在它刚落库的那条 assistant 消息上（`chat_svc` 的 `publishPeerTurnDone`
+ * 与 `synthesizePeerHistory` 现在都填）。这条用例守的是「送到了就画得出来」。
+ */
+describe("peer-transcript 的一轮 meta", () => {
+  it("done 带着本轮统计时落到这一轮的助手消息上", () => {
+    let s = createPeerTranscript();
+    s = reducePeerEvent(s, frame(1, "user_message", { text: "hi" }));
+    s = reducePeerEvent(s, frame(2, "text_delta", { text: "好的" }));
+    s = reducePeerEvent(
+      s,
+      frame(3, "done", {
+        model: "claude-sonnet-4-6",
+        durationMs: 9640,
+        firstTokenMs: 8010,
+        tokensPerSec: 14.2,
+      }),
+    );
+
+    const assistant = s.messages[1];
+    expect(assistant.model).toBe("claude-sonnet-4-6");
+    expect(assistant.durationMs).toBe(9640);
+    expect(assistant.firstTokenMs).toBe(8010);
+    expect(assistant.tokensPerSec).toBeCloseTo(14.2);
+  });
+
+  /** runtime 自己 emit 的 Done 四格全空；空的不该把已经填好的抹掉。 */
+  it("空 done 不覆盖已经填好的统计", () => {
+    let s = createPeerTranscript();
+    s = reducePeerEvent(s, frame(1, "text_delta", { text: "好的" }));
+    s = reducePeerEvent(s, frame(2, "done", { durationMs: 9640 }));
+    s = reducePeerEvent(s, frame(3, "done", { durationMs: 0 }));
+
+    expect(s.messages[0].durationMs).toBe(9640);
+  });
+});
