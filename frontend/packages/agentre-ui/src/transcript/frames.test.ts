@@ -680,3 +680,152 @@ describe("增量投影:只重建被改到的那条消息", () => {
     expect(incremental).toEqual(reduceFrames(frames, SID));
   });
 });
+
+/**
+ * 一轮的 meta（模型 · 耗时 · 首字 · 速率）。
+ *
+ * 这一段以前整块是空的，`emptyMessage` 的注释把理由写得很直白：「中转事件流不带
+ * 用量总计 / 耗时 / 时间戳，这些字段一律零值……真要显示得让中转链路先把这些数据
+ * 传过来，不能在这一层编」。链路现在传过来了 —— agentred 就着它自己扇出的那条事件
+ * 流量表（口径与桌面端 chat_svc 共用 internal/pkg/turnstats），把三个数盖在
+ * `runtime.runResultDone` 终态帧上，宿主把它随 `done` 交进来。
+ *
+ * 这里仍然一个数都不编：帧上没有的就保持零值，而零值是「不显示」。
+ */
+describe("reduceFrames:一轮的 meta", () => {
+  it("给定终态 done 帧，当归约，则模型与计时落在这一轮的助手消息上", () => {
+    const [msg] = reduceFrames(
+      [
+        f({ kind: "text_delta", text: "正文" }),
+        f({
+          kind: "done",
+          model: "claude-sonnet-4-6",
+          durationMs: 9640,
+          firstTokenMs: 8010,
+          tokensPerSec: 14.2,
+        }),
+      ],
+      SID,
+    );
+
+    expect(msg.model).toBe("claude-sonnet-4-6");
+    expect(msg.durationMs).toBe(9640);
+    expect(msg.firstTokenMs).toBe(8010);
+    expect(msg.tokensPerSec).toBeCloseTo(14.2);
+    // 终态帧本身不是正文,一个块都不该多出来。
+    expect(msg.blocks.map((b) => b.type)).toEqual(["text"]);
+  });
+
+  it("给定 done 帧带 usage，当归约，则补齐没有 usage 帧的那些后端的用量", () => {
+    const [msg] = reduceFrames(
+      [
+        f({ kind: "text_delta", text: "正文" }),
+        f({
+          kind: "done",
+          usage: { promptTokens: 1200, completionTokens: 340, cachedTokens: 90 },
+        }),
+      ],
+      SID,
+    );
+
+    expect(msg.promptTokens).toBe(1200);
+    expect(msg.completionTokens).toBe(340);
+    expect(msg.cachedTokens).toBe(90);
+  });
+
+  /**
+   * completion / reasoning 由 usage 帧**逐跳累加** —— 一轮里每个内部 API call 都发
+   * 一条，而 done 的 usage 是最后一跳的值，不是合计。桌面端 turn_run.go 那段写得
+   * 很清楚：「completion / reasoning 由 usage 帧按调用累加；Done 的 usage 是最后
+   * 一跳，不能覆盖合计。没有 usage 帧时才用 result 兜底」。此前这里两个都是覆盖，
+   * 于是多跳的一轮在控制台上只报得出最后一跳的接收量。
+   */
+  it("给定多条 usage 帧，当归约，则 completion / reasoning 累加而 prompt 取最新", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "usage",
+          usage: {
+            promptTokens: 1200,
+            completionTokens: 340,
+            reasoningTokens: 20,
+            cachedTokens: 90,
+          },
+        }),
+        f({
+          kind: "usage",
+          usage: {
+            promptTokens: 1500,
+            completionTokens: 60,
+            reasoningTokens: 5,
+            cachedTokens: 110,
+          },
+        }),
+      ],
+      SID,
+    );
+
+    expect(msg.completionTokens).toBe(400);
+    expect(msg.reasoningTokens).toBe(25);
+    expect(msg.promptTokens).toBe(1500);
+    expect(msg.cachedTokens).toBe(110);
+  });
+
+  it("给定 usage 帧在前、done 的 usage 在后，当归约，则合计不被最后一跳覆盖", () => {
+    const [msg] = reduceFrames(
+      [
+        f({ kind: "usage", usage: { completionTokens: 340 } }),
+        f({ kind: "usage", usage: { completionTokens: 60 } }),
+        f({ kind: "done", usage: { promptTokens: 1500, completionTokens: 60 } }),
+      ],
+      SID,
+    );
+
+    expect(msg.completionTokens).toBe(400);
+    expect(msg.promptTokens).toBe(1500);
+  });
+
+  /**
+   * 出错收场的那一轮同样要有 meta：`error` 帧会把当前消息收掉（错误卡挂在末行，
+   * 继续追加块会让它漂到后来的正文之后），而终态帧紧随其后 —— 若只认「还开着的」
+   * 那条消息，报错的一轮就永远没有模型与耗时，而那恰恰是最需要看这两个数的时候。
+   */
+  it("给定 error 之后的 done 帧，当归约，则 meta 仍落在出错的那一轮上", () => {
+    const [msg] = reduceFrames(
+      [
+        f({ kind: "text_delta", text: "正文" }),
+        f({ kind: "error", message: "boom" }),
+        f({ kind: "done", model: "gpt-5-codex", durationMs: 1200 }),
+      ],
+      SID,
+    );
+
+    expect(msg.errorText).toBe("boom");
+    expect(msg.model).toBe("gpt-5-codex");
+    expect(msg.durationMs).toBe(1200);
+  });
+
+  it("给定 done 帧但这一轮没有助手消息，当归约，则不凭空开一条空消息", () => {
+    const msgs = reduceFrames(
+      [
+        f({ kind: "user_message", text: "在吗" }),
+        f({ kind: "done", model: "gpt-5-codex", durationMs: 1200 }),
+      ],
+      SID,
+    );
+
+    expect(msgs.map((m) => m.role)).toEqual(["user"]);
+  });
+
+  it("给定光秃秃的 done 帧，当归约，则一个数都不编", () => {
+    const [msg] = reduceFrames(
+      [f({ kind: "text_delta", text: "正文" }), f({ kind: "done" })],
+      SID,
+    );
+
+    expect(msg.model).toBe("");
+    expect(msg.durationMs).toBe(0);
+    expect(msg.firstTokenMs).toBeUndefined();
+    expect(msg.tokensPerSec).toBeUndefined();
+  });
+});

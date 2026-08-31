@@ -126,11 +126,14 @@ function pretty(v: unknown): string {
 }
 
 /**
- * 中转事件流不带用量总计 / 耗时 / 时间戳，这些字段一律零值。
+ * 一条空消息。用量 / 计时 / 时间戳的零值不是占位，是包里有意义的输入：
+ * `durationMs > 0` 才渲染 meta footer、`createtime` 为 0 时时间戳渲染成空串。
+ * 填零 = 不显示，而不是显示成 0。
  *
- * 零值不是占位，是包里有意义的输入：`durationMs > 0` 才渲染 meta footer、
- * `createtime` 为 0 时时间戳渲染成空串。填零 = 不显示，而不是显示成 0。
- * 真要显示得让中转链路先把这些数据传过来，不能在这一层编。
+ * 这一层一个数都不编。用量与计时由链路自己送过来：usage 帧逐跳喂 token 列，
+ * 终态帧（runtime.runResultDone）带这一轮的模型与计时 —— 后者由 agentred 就着
+ * 它扇出的同一条事件流量出来，口径与桌面端 chat_svc 共用 internal/pkg/turnstats。
+ * 送不到的（createtime 就是一例）仍旧留零。
  */
 function emptyMessage(
   id: number,
@@ -165,6 +168,15 @@ interface State {
   messages: TranscriptMessage[];
   /** 当前还能继续吸收块的那条助手消息。user 消息与 done 之后置空。 */
   open: TranscriptMessage | null;
+  /**
+   * 这一轮的那条助手消息 —— 终态帧带来的 meta（模型 / 计时 / 用量）盖在它身上。
+   *
+   * 与 `open` 分开，因为两者的寿命不同：`error` 会把 `open` 收掉（错误卡挂在末行，
+   * 继续追加块会让它漂到后来的正文之后），而终态帧紧随其后 —— 只认 `open` 的话，
+   * 报错的那一轮就永远没有模型与耗时，而那恰恰是最需要看这两个数的时候。
+   * 用户消息开启新一轮时置空：没有助手消息的一轮不该把 meta 倒挂到上一轮头上。
+   */
+  turn: TranscriptMessage | null;
   nextId: number;
   /**
    * 本批帧改动过的消息。增量投影据此只给它们换新身份，其余保持引用不变
@@ -175,7 +187,7 @@ interface State {
 }
 
 function newState(): State {
-  return { messages: [], open: null, nextId: 1, touched: new Set() };
+  return { messages: [], open: null, turn: null, nextId: 1, touched: new Set() };
 }
 
 function openAssistant(st: State, sessionId: number): TranscriptMessage {
@@ -187,8 +199,46 @@ function openAssistant(st: State, sessionId: number): TranscriptMessage {
   const msg = emptyMessage(st.nextId++, "assistant", sessionId);
   st.messages.push(msg);
   st.open = msg;
+  st.turn = msg;
   st.touched.add(msg);
   return msg;
+}
+
+/**
+ * 把一份 usage 落到消息的 token 列上。
+ *
+ * completion / reasoning 是**累加**的：一轮里每个内部 API call 都发一条 usage 帧，
+ * 而这两项是那一跳自己的产出，覆盖等于只留最后一跳。桌面端 usageWriterAdapter
+ * 用的正是 `+=`，此前这里两个都是覆盖，多跳的一轮在控制台上只报得出最后一跳的
+ * 接收量。prompt / cached / cacheCreation 相反：它们是「这一跳送进去多少」，取最新。
+ *
+ * `final` 是终态帧那一次 —— 它带的 usage 是**最后一跳**的值，不是合计，所以此时
+ * 累加的两项一个都不碰（turn_run.go 那段注释是同一条规矩）。它只补齐从来不发
+ * usage 帧的那些后端：那种情况下累加值是 0，正好由它兜底。
+ */
+function applyUsage(
+  msg: TranscriptMessage,
+  usage: Record<string, unknown>,
+  opts?: { final?: boolean },
+): void {
+  const take = (key: string, into: keyof TranscriptMessage) => {
+    const v = usage[key];
+    if (typeof v === "number") (msg[into] as number) = v;
+  };
+  const add = (key: string, into: keyof TranscriptMessage) => {
+    const v = usage[key];
+    if (typeof v !== "number") return;
+    if (opts?.final) {
+      if ((msg[into] as number) === 0) (msg[into] as number) = v;
+      return;
+    }
+    (msg[into] as number) += v;
+  };
+  take("promptTokens", "promptTokens");
+  take("cachedTokens", "cachedTokens");
+  take("cacheCreationTokens", "cacheCreationTokens");
+  add("completionTokens", "completionTokens");
+  add("reasoningTokens", "reasoningTokens");
 }
 
 /**
@@ -260,6 +310,7 @@ function applyFrame(
       if (deviceName) msg.sourceDeviceName = deviceName;
       st.messages.push(msg);
       st.open = null;
+      st.turn = null;
       return;
     }
 
@@ -418,16 +469,7 @@ function applyFrame(
     case EventUsage: {
       // 消息级，不是块。桌面端 UsageUpdateHandler 也是 patch 到 assistantMsg。
       const msg = openAssistant(st, sessionId);
-      const usage = record(ev, "usage");
-      const take = (key: string, into: keyof TranscriptMessage) => {
-        const v = usage[key];
-        if (typeof v === "number") (msg[into] as number) = v;
-      };
-      take("promptTokens", "promptTokens");
-      take("completionTokens", "completionTokens");
-      take("cachedTokens", "cachedTokens");
-      take("cacheCreationTokens", "cacheCreationTokens");
-      take("reasoningTokens", "reasoningTokens");
+      applyUsage(msg, record(ev, "usage"));
       // totalInputTokens 是 UsageUpdate 自己的字段，不在嵌套的 Usage 里
       // （event_wire.go 的 UsageUpdate.MarshalJSON 把它与 usage 平级写出）。
       // 从 usage 里取等于永远取不到，Composer 的「已用上下文」就一直是 0。
@@ -447,9 +489,31 @@ function applyFrame(
       return;
     }
 
-    case EventDone:
+    case EventDone: {
+      // 终态帧的 meta：模型、本轮计时、以及没有 usage 帧的后端的用量兜底。
+      //
+      // 这些不是本包编出来的 —— agentred 就着它自己扇出的那条事件流量表（口径与
+      // 桌面端 chat_svc 共用 internal/pkg/turnstats），盖在 runtime.runResultDone
+      // 上，宿主把它随这一条 `done` 交进来。真正的 agentruntime.Done 事件是空的，
+      // 那时下面每一项都取不到值，行为与从前一模一样。
+      //
+      // 落点是 `st.turn` 而不是 `st.open`：见 State.turn 的注释。
+      const msg = st.turn;
+      if (msg) {
+        st.touched.add(msg);
+        const model = str(ev, "model");
+        if (model) msg.model = model;
+        const durationMs = num(ev, "durationMs");
+        if (durationMs !== undefined) msg.durationMs = durationMs;
+        const firstTokenMs = num(ev, "firstTokenMs");
+        if (firstTokenMs !== undefined) msg.firstTokenMs = firstTokenMs;
+        const tokensPerSec = num(ev, "tokensPerSec");
+        if (tokensPerSec !== undefined) msg.tokensPerSec = tokensPerSec;
+        applyUsage(msg, record(ev, "usage"), { final: true });
+      }
       st.open = null;
       return;
+    }
 
     // ── 认得，但归宿不在转录正文里 ─────────────────────────────────────────
     //

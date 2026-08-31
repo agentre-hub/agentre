@@ -1478,6 +1478,18 @@ export interface RunResultDoneFrame extends WireObject {
   stopErrMsg?: string;
   stopErrCode?: number;
   seq?: number;
+
+  /**
+   * 本轮的计时,由 daemon 就着它自己扇出的那条事件流量出来(口径与映射见
+   * internal/pkg/turnstats)。按帧重建转录的消费方(浏览器控制台 / peer 视图)
+   * 没有第二个来源:桌面端本机会话上那三个数是 chat_svc 在 runtime 之上算完落
+   * 自己库的,过不了 wire。
+   *
+   * DurationMs 是墙上时间、**含**工具空档;TokensPerSec 的分母只数生成段。
+   */
+  durationMs?: number;
+  firstTokenMs?: number;
+  tokensPerSec?: number;
 }
 
 export function decodeRunResultDoneFrame(v: unknown): RunResultDoneFrame {
@@ -1498,6 +1510,9 @@ export function decodeRunResultDoneFrame(v: unknown): RunResultDoneFrame {
     o.stopErrMsg = optStr(o.stopErrMsg, "RunResultDoneFrame.stopErrMsg");
     o.stopErrCode = optNum(o.stopErrCode, "RunResultDoneFrame.stopErrCode");
     o.seq = optNum(o.seq, "RunResultDoneFrame.seq");
+    o.durationMs = optNum(o.durationMs, "RunResultDoneFrame.durationMs");
+    o.firstTokenMs = optNum(o.firstTokenMs, "RunResultDoneFrame.firstTokenMs");
+    o.tokensPerSec = optNum(o.tokensPerSec, "RunResultDoneFrame.tokensPerSec");
   });
 }
 

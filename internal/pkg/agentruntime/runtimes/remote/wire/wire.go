@@ -932,6 +932,16 @@ type RunResultDoneFrame struct {
 	StopErrMsg        string     `json:"stopErrMsg,omitempty"`
 	StopErrCode       int        `json:"stopErrCode,omitempty"`
 	Seq               int64      `json:"seq,omitempty"`
+
+	// 本轮的计时,由 daemon 就着它自己扇出的那条事件流量出来(口径与映射见
+	// internal/pkg/turnstats)。按帧重建转录的消费方(浏览器控制台 / peer 视图)
+	// 没有第二个来源:桌面端本机会话上那三个数是 chat_svc 在 runtime 之上算完落
+	// 自己库的,过不了 wire。
+	//
+	// DurationMs 是墙上时间、**含**工具空档;TokensPerSec 的分母只数生成段。
+	DurationMs   int     `json:"durationMs,omitempty"`
+	FirstTokenMs int     `json:"firstTokenMs,omitempty"`
+	TokensPerSec float64 `json:"tokensPerSec,omitempty"`
 }
 
 // SetSeq 盖上该帧在通知日志里的序号(见 EventFrame.SetSeq)。

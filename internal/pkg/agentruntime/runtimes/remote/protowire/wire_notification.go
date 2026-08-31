@@ -83,7 +83,7 @@ func ProtoNotificationToWire(notification *agentrewire.RpcNotification) (string,
 }
 
 func doneWire(value *agentrewire.RunResultDoneNotification) *wire.RunResultDoneFrame {
-	out := &wire.RunResultDoneFrame{SessionID: value.GetSessionId(), Seq: value.GetSeq(), ProviderSessionID: value.GetProviderSessionId(), UserAnchor: value.GetUserAnchor(), Model: value.GetModel(), ContextWindow: int(value.GetContextWindow()), TurnToken: value.GetTurnToken(), StopErrMsg: value.GetStopErrorMessage(), StopErrCode: int(value.GetStopErrorCode())}
+	out := &wire.RunResultDoneFrame{SessionID: value.GetSessionId(), Seq: value.GetSeq(), ProviderSessionID: value.GetProviderSessionId(), UserAnchor: value.GetUserAnchor(), Model: value.GetModel(), ContextWindow: int(value.GetContextWindow()), TurnToken: value.GetTurnToken(), StopErrMsg: value.GetStopErrorMessage(), StopErrCode: int(value.GetStopErrorCode()), DurationMs: int(value.GetDurationMs()), FirstTokenMs: int(value.GetFirstTokenMs()), TokensPerSec: value.GetTokensPerSec()}
 	if usage := value.GetUsage(); usage != nil {
 		out.Usage = &wire.UsageWire{PromptTokens: int(usage.GetPromptTokens()), CompletionTokens: int(usage.GetCompletionTokens()), ReasoningTokens: int(usage.GetReasoningTokens()), CachedTokens: int(usage.GetCachedTokens()), CacheCreationTokens: int(usage.GetCacheCreationTokens()), TotalTokens: int(usage.GetTotalTokens())}
 	}
@@ -125,7 +125,7 @@ func startedFrame(value any) (wire.AutonomousTurnStartedFrame, bool) {
 }
 
 func runResultDoneToProto(frame wire.RunResultDoneFrame) *agentrewire.RunResultDoneNotification {
-	out := &agentrewire.RunResultDoneNotification{SessionId: frame.SessionID, Seq: frame.Seq, ProviderSessionId: frame.ProviderSessionID, UserAnchor: frame.UserAnchor, Model: frame.Model, ContextWindow: int32(frame.ContextWindow), TurnToken: frame.TurnToken, StopErrorMessage: frame.StopErrMsg, StopErrorCode: int32(frame.StopErrCode)}
+	out := &agentrewire.RunResultDoneNotification{SessionId: frame.SessionID, Seq: frame.Seq, ProviderSessionId: frame.ProviderSessionID, UserAnchor: frame.UserAnchor, Model: frame.Model, ContextWindow: int32(frame.ContextWindow), TurnToken: frame.TurnToken, StopErrorMessage: frame.StopErrMsg, StopErrorCode: int32(frame.StopErrCode), DurationMs: int32(frame.DurationMs), FirstTokenMs: int32(frame.FirstTokenMs), TokensPerSec: frame.TokensPerSec}
 	if usage := frame.Usage; usage != nil {
 		out.Usage = &agentrewire.Usage{PromptTokens: int32(usage.PromptTokens), CompletionTokens: int32(usage.CompletionTokens), ReasoningTokens: int32(usage.ReasoningTokens), CachedTokens: int32(usage.CachedTokens), CacheCreationTokens: int32(usage.CacheCreationTokens), TotalTokens: int32(usage.TotalTokens)}
 	}

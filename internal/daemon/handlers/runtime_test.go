@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cago-frame/agents/provider"
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/stretchr/testify/assert"
@@ -3998,4 +3999,42 @@ func TestRuntime_Run_PersistsProjectSyncID(t *testing.T) {
 	require.Len(t, started, 1)
 	assert.Equal(t, "01HXproj00000000000000000", started[0].ProjectSyncID,
 		"起手建行必须带上发起方报的项目同步标识")
+}
+
+// 终态帧带上本轮的计时(耗时 / 首 token / tok/s)。
+//
+// 为什么这三个数必须由 daemon 量:按帧重建转录的消费方 —— 浏览器控制台、peer
+// 视图 —— 手里只有事件流。桌面端本机会话上那三个数是 chat_svc 在 runtime 之上
+// 算完落进自己库的,一格都过不了 wire,于是那边的 meta 只剩「模型 —、耗时 0.0s」。
+// 口径与「哪条事件动哪一下表」两边共用 internal/pkg/turnstats。
+func TestRuntime_Run_DoneFrameCarriesTurnStats(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		go func() {
+			defer close(ch)
+			ch <- agentruntime.TextDelta{Text: "hi"}
+			// 让墙上时间真的走过几毫秒:三个数都以 ms 为单位,同一纳秒内跑完的
+			// 一轮量出 0 是对的,但那样这条用例就证不出接线。
+			time.Sleep(8 * time.Millisecond)
+			ch <- agentruntime.UsageUpdate{Usage: &provider.Usage{CompletionTokens: 60}}
+			ch <- agentruntime.Done{}
+		}()
+		return ch, &agentruntime.RunResult{Model: "claude-sonnet-4-6"}, nil
+	}
+	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypePiAgent), Name: "x"}
+	_, err := h.Run(ctx, wire.RunParams{
+		Backend: backendJSON(t, be), SessionID: 42, AgentID: 7, Cwd: "/tmp", UserText: "hello",
+	})
+	require.NoError(t, err)
+
+	frames := notif.waitFrames(t, 4)
+	done, ok := frames[3].params.(*wire.RunResultDoneFrame)
+	require.True(t, ok, "expected wire.RunResultDoneFrame, got %T", frames[3].params)
+	assert.GreaterOrEqual(t, done.DurationMs, 8, "耗时是墙上时间")
+	assert.Greater(t, done.TokensPerSec, 0.0, "分子是本轮累加的 completion token")
+	// 首 token 由第一条 TextDelta 记下,必然早于收口。
+	assert.LessOrEqual(t, done.FirstTokenMs, done.DurationMs)
 }

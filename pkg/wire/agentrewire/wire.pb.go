@@ -11108,8 +11108,18 @@ type RunResultDoneNotification struct {
 	TurnToken         uint64                 `protobuf:"varint,8,opt,name=turn_token,json=turnToken,proto3" json:"turn_token,omitempty"`
 	StopErrorMessage  string                 `protobuf:"bytes,9,opt,name=stop_error_message,json=stopErrorMessage,proto3" json:"stop_error_message,omitempty"`
 	StopErrorCode     int32                  `protobuf:"varint,10,opt,name=stop_error_code,json=stopErrorCode,proto3" json:"stop_error_code,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// This turn's stats, measured by the daemon over the very event stream it
+	// fanned out. Consumers that build a transcript from frames (the browser
+	// console, a peer view) have no other source: the numbers the desktop shows
+	// for its own sessions are computed above the runtime, in chat_svc, and land
+	// in its local database. Same yardstick on both sides — internal/pkg/turnstats
+	// owns it. duration_ms is wall clock and includes tool gaps; tokens_per_sec
+	// divides the turn's summed completion tokens by generation time only.
+	DurationMs    int32   `protobuf:"varint,11,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	FirstTokenMs  int32   `protobuf:"varint,12,opt,name=first_token_ms,json=firstTokenMs,proto3" json:"first_token_ms,omitempty"`
+	TokensPerSec  float64 `protobuf:"fixed64,13,opt,name=tokens_per_sec,json=tokensPerSec,proto3" json:"tokens_per_sec,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RunResultDoneNotification) Reset() {
@@ -11208,6 +11218,27 @@ func (x *RunResultDoneNotification) GetStopErrorMessage() string {
 func (x *RunResultDoneNotification) GetStopErrorCode() int32 {
 	if x != nil {
 		return x.StopErrorCode
+	}
+	return 0
+}
+
+func (x *RunResultDoneNotification) GetDurationMs() int32 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *RunResultDoneNotification) GetFirstTokenMs() int32 {
+	if x != nil {
+		return x.FirstTokenMs
+	}
+	return 0
+}
+
+func (x *RunResultDoneNotification) GetTokensPerSec() float64 {
+	if x != nil {
+		return x.TokensPerSec
 	}
 	return 0
 }
@@ -13775,7 +13806,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x10reasoning_tokens\x18\x03 \x01(\x05R\x0freasoningTokens\x12#\n" +
 	"\rcached_tokens\x18\x04 \x01(\x05R\fcachedTokens\x122\n" +
 	"\x15cache_creation_tokens\x18\x05 \x01(\x05R\x13cacheCreationTokens\x12!\n" +
-	"\ftotal_tokens\x18\x06 \x01(\x05R\vtotalTokens\"\xfa\x02\n" +
+	"\ftotal_tokens\x18\x06 \x01(\x05R\vtotalTokens\"\xe7\x03\n" +
 	"\x19RunResultDoneNotification\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\x03R\tsessionId\x12\x10\n" +
@@ -13790,7 +13821,11 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"turn_token\x18\b \x01(\x04R\tturnToken\x12,\n" +
 	"\x12stop_error_message\x18\t \x01(\tR\x10stopErrorMessage\x12&\n" +
 	"\x0fstop_error_code\x18\n" +
-	" \x01(\x05R\rstopErrorCode\"\x8d\x01\n" +
+	" \x01(\x05R\rstopErrorCode\x12\x1f\n" +
+	"\vduration_ms\x18\v \x01(\x05R\n" +
+	"durationMs\x12$\n" +
+	"\x0efirst_token_ms\x18\f \x01(\x05R\ffirstTokenMs\x12$\n" +
+	"\x0etokens_per_sec\x18\r \x01(\x01R\ftokensPerSec\"\x8d\x01\n" +
 	"!AutonomousTurnStartedNotification\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\x03R\tsessionId\x12\x10\n" +

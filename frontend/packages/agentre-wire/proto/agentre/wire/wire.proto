@@ -820,6 +820,16 @@ message RunResultDoneNotification {
   uint64 turn_token = 8;
   string stop_error_message = 9;
   int32 stop_error_code = 10;
+  // This turn's stats, measured by the daemon over the very event stream it
+  // fanned out. Consumers that build a transcript from frames (the browser
+  // console, a peer view) have no other source: the numbers the desktop shows
+  // for its own sessions are computed above the runtime, in chat_svc, and land
+  // in its local database. Same yardstick on both sides — internal/pkg/turnstats
+  // owns it. duration_ms is wall clock and includes tool gaps; tokens_per_sec
+  // divides the turn's summed completion tokens by generation time only.
+  int32 duration_ms = 11;
+  int32 first_token_ms = 12;
+  double tokens_per_sec = 13;
 }
 
 message AutonomousTurnStartedNotification {

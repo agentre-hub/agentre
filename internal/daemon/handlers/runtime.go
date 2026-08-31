@@ -40,6 +40,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/turnstats"
 )
 
 // RuntimeDeps are the explicit constructor inputs for RuntimeHandlers. All
@@ -785,6 +786,11 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 	sid, rid := em.sid, em.rid
 	count := 0
 	kindHist := map[string]int{}
+	// 本轮的表。按帧重建转录的消费方(浏览器控制台 / peer 视图)拿不到 chat_svc
+	// 落库的那三个数,只能由这里就着同一条事件流量出来盖在终态帧上。口径与
+	// 「哪条事件动哪一下表」归 internal/pkg/turnstats,与 chat_svc 共用一份。
+	meter := turnMeter{}
+	meter.clock.StartGenerationAt(startedAt)
 	// R18:把发起方标记作为**第一条**事件注入,保证订阅者先把这一轮的用户消息落成转录行,
 	// 再接收后端真正的事件。
 	if prelude != nil {
@@ -794,6 +800,7 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		}
 	}
 	for ev := range ch {
+		meter.observe(ev)
 		// R17:SteerConsumed 里的每条 steer 都带着它的提交方来源 —— 实时消费路径
 		// 在这里把 Steer RPC 时记下的对端盖回去(轮末残留的走 DrainPending 同表消费)。
 		// 盖在**密封事件内部**:远端 runtime 把 EventFrame 原样传递、会丢外层字段。
@@ -828,6 +835,7 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		}
 	}
 	frame := runResultToFrame(sid, result)
+	meter.stamp(&frame)
 	if owner.backendType != agent_backend_entity.TypePiAgent || owner.ctx == nil {
 		// 生命周期落回 idle 必须在终态帧**之前**:终态帧是客户端得知这一轮结束的那一刻,
 		// 它随后立刻查清单时必须已经看到 idle,而不是一个正在收尾的 running。
@@ -1153,6 +1161,32 @@ func isNoisyEventKind(kind string) bool {
 		return true
 	}
 	return false
+}
+
+// turnMeter 量这一轮:计时交给共用的 turnstats.Clock,分子(completion token)按
+// usage 帧逐跳累加 —— 与 chat_svc 的 usageWriterAdapter 同语义,Done 那一跳的 usage
+// 是最后一跳的值,不是合计,拿它当分子会把 tok/s 压成十几分之一。
+type turnMeter struct {
+	clock      turnstats.Clock
+	completion int
+}
+
+func (m *turnMeter) observe(ev agentruntime.Event) {
+	now := time.Now()
+	m.clock.ObserveAt(ev, now)
+	if u, ok := ev.(agentruntime.UsageUpdate); ok && u.Usage != nil {
+		m.completion += u.Usage.CompletionTokens
+	}
+}
+
+// stamp 收口并把三个数盖在终态帧上。一个 usage 帧都没来过时分子为 0,tok/s 随之
+// 为 0 —— 前端把 0 读作「没这个数」,不显示,而不是显示成 0 tok/s。
+func (m *turnMeter) stamp(frame *wire.RunResultDoneFrame) {
+	now := time.Now()
+	m.clock.PauseGenerationAt(now)
+	frame.DurationMs = m.clock.DurationMs(now)
+	frame.FirstTokenMs = m.clock.FirstTokenMs()
+	frame.TokensPerSec = m.clock.TokensPerSec(m.completion)
 }
 
 func runResultToFrame(sid int64, r *agentruntime.RunResult) wire.RunResultDoneFrame {
