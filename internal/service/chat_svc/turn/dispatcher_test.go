@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 
@@ -62,5 +63,39 @@ func TestDispatcher_NilEventNoOp(t *testing.T) {
 		d := NewDispatcher()
 		err := d.Apply(context.Background(), nil, New(), nil, nil, nil)
 		So(err, ShouldBeNil)
+	})
+}
+
+// 计时归 Dispatcher,不归各个 handler。
+//
+// 从前 NoteVisibleToken / Suspend / Resume 散落在 TextDelta / ThinkingDelta /
+// OutputActivity / ToolCall / ToolResult 五个 handler 里,而 agentred 的 fanout
+// 要在**没有 chat_svc**的前提下算出同一份数(浏览器的转录只有事件流可读)。两处
+// 各写一份映射必然漂,于是映射统一收进 turnstats.ObserveAt,由这里逐帧调一次。
+//
+// 门槛因此是「事件经过 dispatcher」,而不是「事件有 handler」:未注册的事件照样要
+// 动表 —— 否则某个 backend 的一跳里恰好全是未注册事件,那段耗时就凭空消失。
+func TestDispatcher_DrivesTurnClock(t *testing.T) {
+	Convey("经过 dispatcher 的事件驱动本轮计时", t, func() {
+		d := NewDispatcher()
+		tc := &TurnContext{}
+		tc.StartGenerationAt(time.UnixMilli(0))
+
+		Convey("已注册的事件", func() {
+			d.Register((*agentruntime.TextDelta)(nil), &fakeHandler{})
+			So(d.Apply(context.Background(), agentruntime.TextDelta{Text: "hi"}, nil, nil, nil, tc), ShouldBeNil)
+			So(tc.FirstTokenAt.IsZero(), ShouldBeFalse)
+		})
+
+		Convey("未注册的事件同样动表", func() {
+			So(d.Apply(context.Background(), agentruntime.ToolCall{ID: "t1"}, nil, nil, nil, tc), ShouldBeNil)
+			So(tc.PendingTools, ShouldContainKey, "t1")
+		})
+
+		Convey("turnCtx 为 nil 不炸", func() {
+			So(func() {
+				_ = d.Apply(context.Background(), agentruntime.TextDelta{}, nil, nil, nil, nil)
+			}, ShouldNotPanic)
+		})
 	})
 }

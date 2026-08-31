@@ -2,9 +2,9 @@ package turn
 
 import (
 	"context"
-	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/turnstats"
 )
 
 // Handler 处理一种 agentruntime.Event 类型。
@@ -81,15 +81,10 @@ type TurnContext struct {
 	// 更早的消息上。nil 时 handler 退回静默忽略。chat_svc 在 newTurnContext 注入。
 	SubagentFlipper SubagentFlipper
 
-	// 本轮计时。StartedAt 是这一段 assistant 开始的时刻;FirstTokenAt 是第一帧
-	// thinking/chunk(TTFT);BurstStartedAt 非零表示计时正在走,值是本次开表时刻;
-	// Generation 是已经停表的各段之和;PendingTools 是正在执行、把表按住的外层工具。
-	// 口径(整轮耗时减工具空档,排队计入)与开关时机见 timing.go。
-	StartedAt      time.Time
-	FirstTokenAt   time.Time
-	BurstStartedAt time.Time
-	Generation     time.Duration
-	PendingTools   map[string]struct{}
+	// 本轮计时。口径(整轮耗时减工具空档,排队计入)与字段说明在 turnstats.Clock 上;
+	// 「哪条事件动哪一下表」在 Dispatcher.Apply。嵌入而不是各存一份:agentred 的
+	// fanout 要在没有 chat_svc 的前提下算出同一份数,两边共用这一只表。
+	turnstats.Clock
 }
 
 // MessageUpdater handler 在 UsageUpdate / Error 等场景下写 assistantMsg 走这条。

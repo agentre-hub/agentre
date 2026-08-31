@@ -15,7 +15,6 @@ type TextDeltaHandler struct{}
 func (TextDeltaHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
 	td := ev.(agentruntime.TextDelta)
 	acc.AddText(td.Text)
-	tc.NoteVisibleToken()
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{"kind": "chunk", "delta": td.Text})
 	}
@@ -27,7 +26,6 @@ type ThinkingDeltaHandler struct{}
 func (ThinkingDeltaHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
 	td := ev.(agentruntime.ThinkingDelta)
 	acc.AddThinking(td.Text)
-	tc.NoteVisibleToken()
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{"kind": "thinking", "delta": td.Text})
 	}
