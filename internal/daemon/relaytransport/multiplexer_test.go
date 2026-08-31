@@ -259,3 +259,63 @@ func assertChannelOpen(t *testing.T, done <-chan struct{}) {
 	default:
 	}
 }
+
+/*
+retired 是「这条通道已经关了」的记号，它挡住两件事：一条迟到的帧凭空造出幽灵
+通道（dispatch），以及 Open() 把同一个 id 再发出去。两件事需要的都只是一个**很短
+的时间窗** —— 覆盖通道关掉那一刻还在网上飞的帧，也就是一个 RTT，秒级。
+
+可它此前只增不减，只有整条中继断开才清空。而浏览器每点一次技能面板 / 引擎设置 /
+目录选择就是一条新通道，一条稳定跑几周的 agentred 上，这个 map 只会一直长。
+channels 是删的，retired 不是 —— 同一个问题服务端的路由缓存早就解过
+（clientRouteSweepThreshold + 到期删除），daemon 这边漏了。
+*/
+func TestMultiplexer_RetiredChannelsExpireInsteadOfAccumulating(t *testing.T) {
+	hub := newMultiplexerHubStub()
+	hub.dial()
+	mux := newMultiplexer(hub)
+	t.Cleanup(mux.Close)
+	now := time.Now()
+	mux.now = func() time.Time { return now }
+
+	channel, err := mux.Open()
+	require.NoError(t, err)
+	require.NoError(t, channel.Close())
+	require.Equal(t, 1, mux.retiredLen(), "刚关掉的通道要记着")
+
+	// 记号还在有效期内：迟到的帧仍然被挡掉，不会造出幽灵通道。
+	now = now.Add(retiredChannelTTL / 2)
+	mux.dispatch(HubFrame{
+		MessageType: websocket.BinaryMessage,
+		Payload:     marshalRelayEnvelope(channel.ID(), []byte("late")),
+	})
+	select {
+	case <-mux.Accept():
+		t.Fatal("迟到的帧不该造出一条幽灵通道")
+	default:
+	}
+
+	// 过了有效期就该被清掉，而不是永远留着。清理挂在写入路径上（顺带清），
+	// 所以这里再关一条来触发它。
+	now = now.Add(retiredChannelTTL)
+	other, err := mux.Open()
+	require.NoError(t, err)
+	require.NoError(t, other.Close())
+	require.Equal(t, 1, mux.retiredLen(), "过期的记号必须被清掉，只剩刚关的那一条")
+}
+
+// 断线仍然把记号整个清空：重连之后是全新的一批通道 id，旧记号一条都不作数。
+func TestMultiplexer_DisconnectStillClearsRetired(t *testing.T) {
+	hub := newMultiplexerHubStub()
+	hub.dial()
+	mux := newMultiplexer(hub)
+	t.Cleanup(mux.Close)
+
+	channel, err := mux.Open()
+	require.NoError(t, err)
+	require.NoError(t, channel.Close())
+	require.Equal(t, 1, mux.retiredLen())
+
+	mux.onDisconnect(io.EOF)
+	require.Equal(t, 0, mux.retiredLen())
+}

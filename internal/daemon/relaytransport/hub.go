@@ -40,6 +40,17 @@ var ErrHubUnresolved = errors.New("rpc: relay endpoint not resolved yet")
 // like transient network trouble.
 var ErrRelayCredentialRejected = errors.New("rpc: relay rejected this daemon's account credential")
 
+// ErrRelayGoingAway reports that the account server closed this link on purpose
+// because the replica is shutting down (WebSocket 1001, Going Away).
+//
+// It is deliberately not a failure. The replica that just left is already out of
+// the load balancer, so redialing lands on a live one — the right move is to
+// reconnect at once. Compounding the backoff instead would turn one rolling
+// update into a minute of apparent offline time per machine, while nothing was
+// ever broken. A 1006 (the wire really dropped) keeps compounding; telling the
+// two apart is the entire point of the server writing that close frame.
+var ErrRelayGoingAway = errors.New("rpc: relay replica is shutting down")
+
 // HubFrame is one raw WebSocket frame arriving from the relay. The future hub
 // multiplexer owns interpreting its payload and must select on Frames instead
 // of reading the underlying socket directly.
@@ -98,10 +109,11 @@ type HubLinkOptions struct {
 	OnDisconnect func(error)
 }
 
-// defaultMaxFrameBytes 与直连那条 WebSocket 的上限(protorpc.MaxFrameBytes)同值。
+// defaultMaxFrameBytes 是直连那条 WebSocket 的载荷预算(protorpc.MaxFrameBytes)
+// 加一个信封头 —— 中继这条线上收到的是服务端套过信封的载荷,不是裸载荷。
 // 这里写字面量而不是 import:relaytransport 是传输层,不该反向依赖它上面的 RPC 层;
 // 生产装配由 daemon 显式传参,两处同源由 daemon 那侧的用例守。
-const defaultMaxFrameBytes int64 = 16 << 20
+const defaultMaxFrameBytes int64 = 10<<20 + MaxEnvelopeBytes
 
 func (l *HubLink) maxFrameBytes() int64 {
 	if l.opts.MaxFrameBytes > 0 {
@@ -220,6 +232,10 @@ func (l *HubLink) Run(ctx context.Context) error {
 		err, renewed = l.serve(ctx, conn)
 		l.clearConn(conn)
 		_ = conn.Close()
+		if errors.Is(err, ErrRelayGoingAway) {
+			// 服务端主动让位:立刻重拨,别把它记成一次故障。
+			renewed = true
+		}
 		if ctx.Err() != nil {
 			l.notifyDisconnect(ctx.Err())
 			// The read loop ended because we are shutting down; listeners already
@@ -388,6 +404,9 @@ func (l *HubLink) serve(ctx context.Context, conn *websocket.Conn) (error, bool)
 	for {
 		messageType, payload, err := conn.ReadMessage()
 		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseGoingAway) {
+				return fmt.Errorf("%w: %v", ErrRelayGoingAway, err), renewed.Load()
+			}
 			return fmt.Errorf("read relay frame: %w", err), renewed.Load()
 		}
 		frame := HubFrame{MessageType: messageType, Payload: append([]byte(nil), payload...)}

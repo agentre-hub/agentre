@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
@@ -17,6 +18,29 @@ const (
 	maxRelayChannelIDLength = 128
 	virtualChannelBuffer    = 64
 )
+
+// retiredChannelTTL 是「这条通道已经关了」这个记号的保鲜期。
+//
+// 记号挡的是两件事:一条**迟到的帧**凭空造出幽灵通道(见 dispatch),以及 Open()
+// 把同一个 id 再发出去。两件事需要的都只是覆盖「关掉那一刻还在网上飞的帧」的
+// 那个窗口 —— 一个 RTT,秒级。留得比这更久没有任何额外作用。
+//
+// 从前这里没有期限:记号只增不减,只有整条中继断开才清空。而每一次一次性调用
+// (技能面板 / 引擎设置 / 目录选择)都是一条新通道,一条稳定跑几周的链路上这个 map
+// 只会一直长。channels 是删的,retired 不是。
+const retiredChannelTTL = 30 * time.Second
+
+// retiredSweepThreshold 是顺带清理过期记号的门槛。只靠「用到时才发现过期」清不掉
+// 那些再也不会被问到的 —— 与服务端路由缓存的 clientRouteSweepThreshold 同一形状。
+const retiredSweepThreshold = 256
+
+// MaxEnvelopeBytes 是一条中继帧里信封头最多占多少:2 字节长度 + 通道 ID。
+//
+// 它是**读上限**的一部分,不是载荷预算的一部分:中继这条线上收到的每一帧都是
+// 「服务端套过信封的载荷」,所以链路的读上限 = 载荷预算 + 这个数。服务端那侧
+// 有同名同值的一份(relayws.MaxEnvelopeBytes),两处同源由 daemon_test 的
+// TestDaemon_PayloadBudgetMatchesTheRelayServer 钉住。
+const MaxEnvelopeBytes int64 = relayEnvelopeHeaderSize + maxRelayChannelIDLength
 
 var ErrClosed = errors.New("relaytransport: channel closed")
 
@@ -35,10 +59,12 @@ type relayHub interface {
 }
 
 type Multiplexer struct {
-	hub       relayHub
-	mu        sync.RWMutex
-	channels  map[string]*VirtualChannel
-	retired   map[string]struct{}
+	hub      relayHub
+	mu       sync.RWMutex
+	channels map[string]*VirtualChannel
+	// retired 记「这条通道关掉的时刻」,到期即失效,见 retiredChannelTTL。
+	retired   map[string]time.Time
+	now       func() time.Time
 	accept    chan *VirtualChannel
 	connected bool
 	closed    bool
@@ -48,7 +74,15 @@ type Multiplexer struct {
 
 func NewMultiplexer(link *HubLink) *Multiplexer { return newMultiplexer(link) }
 func newMultiplexer(hub relayHub) *Multiplexer {
-	m := &Multiplexer{hub: hub, channels: map[string]*VirtualChannel{}, retired: map[string]struct{}{}, accept: make(chan *VirtualChannel, virtualChannelBuffer), connected: hub.Connected(), stop: make(chan struct{})}
+	m := &Multiplexer{
+		hub:       hub,
+		channels:  map[string]*VirtualChannel{},
+		retired:   map[string]time.Time{},
+		now:       time.Now,
+		accept:    make(chan *VirtualChannel, virtualChannelBuffer),
+		connected: hub.Connected(),
+		stop:      make(chan struct{}),
+	}
 	hub.AddLifecycleListener(m.onDial, m.onDisconnect)
 	go m.receive()
 	return m
@@ -66,8 +100,7 @@ func (m *Multiplexer) Open() (*VirtualChannel, error) {
 			return nil, ErrClosed
 		}
 		_, active := m.channels[id]
-		_, retired := m.retired[id]
-		if active || retired {
+		if active || m.isRetiredLocked(id) {
 			m.mu.Unlock()
 			continue
 		}
@@ -121,7 +154,7 @@ func (m *Multiplexer) dispatch(frame HubFrame) {
 		m.mu.Unlock()
 		return
 	}
-	if _, retired := m.retired[id]; retired {
+	if m.isRetiredLocked(id) {
 		m.mu.Unlock()
 		return
 	}
@@ -168,7 +201,8 @@ func (m *Multiplexer) onDisconnect(error) {
 	m.mu.Lock()
 	m.connected = false
 	channels := m.takeChannelsLocked()
-	m.retired = map[string]struct{}{}
+	// 断线之后是全新的一批通道 id,旧记号一条都不作数。
+	m.retired = map[string]time.Time{}
 	m.mu.Unlock()
 	for _, channel := range channels {
 		channel.markClosed()
@@ -178,11 +212,53 @@ func (m *Multiplexer) closeChannel(channel *VirtualChannel) {
 	m.mu.Lock()
 	if m.channels[channel.id] == channel {
 		delete(m.channels, channel.id)
-		m.retired[channel.id] = struct{}{}
+		m.retireLocked(channel.id)
 	}
 	m.mu.Unlock()
 	channel.markClosed()
 }
+
+// isRetiredLocked 回答「这个 id 此刻还算不算刚关掉的」。过期的当场删掉:一条再也
+// 不会被问到的记号总得有人清,这里顺手清掉被问到的那些。
+func (m *Multiplexer) isRetiredLocked(id string) bool {
+	at, ok := m.retired[id]
+	if !ok {
+		return false
+	}
+	if m.now().Sub(at) < retiredChannelTTL {
+		return true
+	}
+	delete(m.retired, id)
+	return false
+}
+
+// retireLocked 记下一条通道关掉的时刻,并在记号攒够门槛时顺带清一遍过期的。
+func (m *Multiplexer) retireLocked(id string) {
+	now := m.now()
+	if len(m.retired) >= retiredSweepThreshold {
+		for key, at := range m.retired {
+			if now.Sub(at) >= retiredChannelTTL {
+				delete(m.retired, key)
+			}
+		}
+	}
+	m.retired[id] = now
+}
+
+// retiredLen 交回此刻**仍然有效**的记号条数。过期的顺带清掉,所以它同时是那条
+// 「不会无界增长」的可观测判据。
+func (m *Multiplexer) retiredLen() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	for id, at := range m.retired {
+		if now.Sub(at) >= retiredChannelTTL {
+			delete(m.retired, id)
+		}
+	}
+	return len(m.retired)
+}
+
 func (m *Multiplexer) write(channel *VirtualChannel, payload []byte) error {
 	m.mu.RLock()
 	active := !m.closed && m.channels[channel.id] == channel

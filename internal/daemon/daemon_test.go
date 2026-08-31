@@ -2339,8 +2339,22 @@ func TestDaemon_GivenPooledCLISessions_WhenShuttingDown_ThenTheyAreReleased(t *t
 // SetReadLimit),中继这条一直没有 —— 对面说多大就分配多大。这条用例钉住的是
 // 「同一个数」:relaytransport 不 import protorpc(传输层不该反向依赖 RPC 层),
 // 所以同源只能在这个装配点上守。
+// 中继与直连共用同一个**载荷**预算,但两条线上跑的东西不是一回事:直连收裸载荷,
+// 中继收的是服务端套过信封的载荷(2 字节长度 + 通道 ID)。所以中继那条的读上限要
+// 正好高出一个信封头 —— 少了它,一份刚好顶格的合法载荷只因为路上被套了个信封就
+// 触发 1009,而 1009 拆掉的是**整条**物理连接,那台机器上所有虚拟通道一起陪葬。
 func TestDaemon_RelayLinkSharesTheDirectFrameBound(t *testing.T) {
-	require.Equal(t, protorpc.MaxFrameBytes, relayLinkOptions().MaxFrameBytes,
-		"中继与直连必须共用同一个帧上限")
+	require.Equal(t, protorpc.MaxFrameBytes+relaytransport.MaxEnvelopeBytes,
+		relayLinkOptions().MaxFrameBytes,
+		"中继的读上限必须是直连的载荷预算加一个信封头")
 	require.Positive(t, relayLinkOptions().MaxFrameBytes)
+}
+
+// 载荷预算与服务端那侧必须是同一个数(agentre-server 的 relayws.MaxPayloadBytes)。
+// 两个仓各自写一份字面量,没有编译器会替我们发现它们漂开,所以这里把数字本身钉住。
+func TestDaemon_PayloadBudgetMatchesTheRelayServer(t *testing.T) {
+	require.Equal(t, int64(10<<20), protorpc.MaxFrameBytes,
+		"载荷预算改了就要同时改 agentre-server 的 relayws.MaxPayloadBytes")
+	require.Equal(t, int64(2+128), relaytransport.MaxEnvelopeBytes,
+		"信封头余量改了就要同时改 agentre-server 的 relayws.MaxEnvelopeBytes")
 }

@@ -518,12 +518,124 @@ func TestHubLink_GivenAnOversizedRelayFrame_WhenReading_ThenItIsRejectedAndTheLi
 // Given 装配方没传 MaxFrameBytes,When 建连,Then 仍有一个有界的默认值 ——
 // 「忘了配」不能等于「不限」。
 //
-// 默认值必须与直连那条 WebSocket 同值(protorpc.MaxFrameBytes)。这条用例只守住
-// 「有界且是 16MiB」;两处同源由 daemon 侧的装配用例守(本包不 import protorpc)。
+// 默认值必须是直连那条 WebSocket 的载荷预算(protorpc.MaxFrameBytes)加一个信封头 ——
+// 中继这条收的是服务端套过信封的载荷,不是裸载荷。这条用例只守住「有界且是那个数」;
+// 两处同源由 daemon 侧的装配用例守(本包不 import protorpc)。
 func TestHubLink_GivenNoConfiguredLimit_ThenFallsBackToTheSharedBound(t *testing.T) {
 	link := NewHubLink(HubLinkOptions{})
-	assert.Equal(t, int64(16<<20), link.maxFrameBytes())
+	assert.Equal(t, int64(10<<20)+MaxEnvelopeBytes, link.maxFrameBytes())
 
 	configured := NewHubLink(HubLinkOptions{MaxFrameBytes: 4096})
 	assert.Equal(t, int64(4096), configured.maxFrameBytes())
+}
+
+/*
+服务端优雅下线（1001 Going Away）不是一次故障，退避必须清零。
+
+副本被缩掉 / 滚动更新时，服务端会先写一个 1001 关闭帧再关连接（agentre-server
+的 relayws.Drain）。那一刻这台机器**该立刻重连** —— LB 已经把那个 Pod 摘出去了，
+重拨会落到另一个还活着的副本上。
+
+把它算成一次失败的后果：退避照着 1s → 2s → 4s … 一路涨到封顶 60s，而对面其实
+一秒钟都没坏。一次滚动更新（副本逐个走）会让每台 agentred 把退避踩满，于是
+「更新完成」到「机器重新在线」之间凭空多出一分钟，用户看到的是一片离线。
+
+1006（网线被拔）不在此列：那是真的网络故障，退避该照常涨。两者能分开，正是
+服务端多写那一个关闭帧的全部意义。
+*/
+func TestHubLink_GivenServerGoingAway_ThenResetsBackoffInsteadOfCompounding(t *testing.T) {
+	var closeCode atomic.Int64
+	closeCode.Store(websocket.CloseGoingAway)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		// 立刻礼貌关闭：这正是排空那一步在线上的样子。
+		_ = ws.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(int(closeCode.Load()), "server draining"),
+			time.Now().Add(time.Second))
+		_ = ws.Close()
+	}))
+	t.Cleanup(server.Close)
+
+	retryDelays := make(chan time.Duration, 4)
+	link := NewHubLink(HubLinkOptions{
+		ServerURL:         server.URL,
+		AccessToken:       "device-access-token",
+		HeartbeatInterval: time.Hour, // 不让心跳的 pong 干扰「退避有没有清零」的判定
+		RetryInitial:      time.Second,
+		RetryMax:          16 * time.Second,
+		RetryWait: func(_ context.Context, delay time.Duration) error {
+			select {
+			case retryDelays <- delay:
+			default:
+			}
+			return nil
+		},
+		Random: func() float64 { return 1 },
+		Logf:   func(string, ...any) {},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- link.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-runDone
+	})
+
+	// 连上、被礼貌关掉、重连、又被礼貌关掉……每一次都该从头开始退避。
+	for i := range 3 {
+		select {
+		case delay := <-retryDelays:
+			assert.Equal(t, time.Second, delay,
+				"第 %d 次:1001 是服务端要走了,不是故障,退避必须从头开始", i+1)
+		case <-time.After(3 * time.Second):
+			t.Fatal("relay never retried after the server said it was going away")
+		}
+	}
+}
+
+// 对照组：1006（真的断了）照常把退避叠上去。两者要是不分开，上面那条清零就成了
+// 「任何断连都不退避」——一台连不上的服务器会被以最高频率反复重拨。
+func TestHubLink_GivenAbnormalClosure_ThenStillCompoundsBackoff(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		// 不写关闭帧，直接断：对端读到的是 1006。
+		_ = ws.UnderlyingConn().Close()
+	}))
+	t.Cleanup(server.Close)
+
+	retryDelays := make(chan time.Duration, 4)
+	link := NewHubLink(HubLinkOptions{
+		ServerURL:         server.URL,
+		AccessToken:       "device-access-token",
+		HeartbeatInterval: time.Hour,
+		RetryInitial:      time.Second,
+		RetryMax:          16 * time.Second,
+		RetryWait: func(_ context.Context, delay time.Duration) error {
+			select {
+			case retryDelays <- delay:
+			default:
+			}
+			return nil
+		},
+		Random: func() float64 { return 1 },
+		Logf:   func(string, ...any) {},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- link.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-runDone
+	})
+
+	require.Equal(t, time.Second, <-retryDelays)
+	assert.Equal(t, 2*time.Second, <-retryDelays, "真的断连必须照常叠加退避")
 }

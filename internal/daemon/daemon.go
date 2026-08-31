@@ -694,11 +694,17 @@ func (d *Daemon) currentAccessToken() string {
 // relayLinkOptions 是中继链路里**与运行期身份无关**的那部分配置,单独拎出来是为了
 // 能被装配用例读到(见 TestDaemon_RelayLinkSharesTheDirectFrameBound)。
 //
-// MaxFrameBytes 与直连那条 WebSocket 同值:两条路收的都是别的设备发来的字节,没理由
-// 一条有界一条不有界。这个数在这里传下去,relaytransport 因此不必反向 import 它上面
-// 的 protorpc —— 传输层不该依赖 RPC 层。
+// MaxFrameBytes 是直连那条 WebSocket 的载荷预算加一个信封头:两条路收的都是别的设备
+// 发来的字节,没理由一条有界一条不有界;而中继这条收到的是服务端**套过信封**的载荷
+// (2 字节长度 + 通道 ID),读上限少了这一截,一份刚好顶格的合法载荷就会触发 1009 ——
+// 拆掉的是整条链路,那台机器上所有虚拟通道一起陪葬。
+//
+// 这个数在这里算好传下去,relaytransport 因此不必反向 import 它上面的 protorpc ——
+// 传输层不该依赖 RPC 层。
 func relayLinkOptions() relaytransport.HubLinkOptions {
-	return relaytransport.HubLinkOptions{MaxFrameBytes: protorpc.MaxFrameBytes}
+	return relaytransport.HubLinkOptions{
+		MaxFrameBytes: protorpc.MaxFrameBytes + relaytransport.MaxEnvelopeBytes,
+	}
 }
 
 func (d *Daemon) relayServerURL() string {
