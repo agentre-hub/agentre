@@ -89,8 +89,8 @@ func classifyRelayDialError(err error, resp *http.Response) error {
 // value as an explicitly empty one, so a pre-versioning agentred reports "" and
 // has to be named as such — "could not reach agentred" would send the user
 // hunting the network instead of running `make agentred-deploy`.
-func peerProtocolVersionError(peer string) error {
-	reason := wireversion.Reject(peer)
+func peerProtocolVersionError(peerProtocol, peerMinSupported string) error {
+	reason := wireversion.Reject(peerProtocol, peerMinSupported)
 	if reason == "" {
 		return nil
 	}
@@ -104,7 +104,7 @@ func peerProtocolVersionError(peer string) error {
 func classifyHandshakeError(err error) error {
 	var rpcErr *rpcerror.Error
 	if errors.As(err, &rpcErr) && rpcErr.Code == rpcerror.CodeProtocolVersion {
-		return fmt.Errorf("%w: %s (this build speaks %s)", ErrPeerProtocolVersionMismatch, rpcErr.Message, wireversion.Protocol)
+		return fmt.Errorf("%w: %s (this build accepts protocol versions %s to %s)", ErrPeerProtocolVersionMismatch, rpcErr.Message, wireversion.MinSupported, wireversion.Protocol)
 	}
 	return err
 }
@@ -258,6 +258,7 @@ func DialRelayProtobuf(ctx context.Context, opts RelayOptions) (*ProtobufClient,
 // advertise would look exactly like a pre-versioning peer to the daemon.
 func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.AuthAccountRequest) (*agentrewire.AuthAccountResponse, error) {
 	request.ProtocolVersion = wireversion.Protocol
+	request.MinSupportedProtocolVersion = wireversion.MinSupported
 	response, err := protorpc.CallMethod(
 		ctx,
 		c.conn,
@@ -268,7 +269,7 @@ func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.A
 	if err != nil {
 		return nil, classifyHandshakeError(err)
 	}
-	if versionErr := peerProtocolVersionError(response.GetProtocolVersion()); versionErr != nil {
+	if versionErr := peerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	return response, nil
@@ -276,12 +277,13 @@ func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.A
 
 func (c *ProtobufClient) AuthPair(ctx context.Context, request *agentrewire.AuthPairRequest) (*agentrewire.AuthPairResponse, error) {
 	request.ProtocolVersion = wireversion.Protocol
+	request.MinSupportedProtocolVersion = wireversion.MinSupported
 	response, err := protorpc.CallMethod(ctx, c.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR), request,
 		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
 	if err != nil {
 		return nil, classifyHandshakeError(err)
 	}
-	if versionErr := peerProtocolVersionError(response.GetProtocolVersion()); versionErr != nil {
+	if versionErr := peerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	return response, nil
@@ -289,12 +291,13 @@ func (c *ProtobufClient) AuthPair(ctx context.Context, request *agentrewire.Auth
 
 func (c *ProtobufClient) AuthConnect(ctx context.Context, request *agentrewire.AuthConnectRequest) (*agentrewire.AuthConnectResponse, error) {
 	request.ProtocolVersion = wireversion.Protocol
+	request.MinSupportedProtocolVersion = wireversion.MinSupported
 	response, err := protorpc.CallMethod(ctx, c.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT), request,
 		func() *agentrewire.AuthConnectResponse { return &agentrewire.AuthConnectResponse{} })
 	if err != nil {
 		return nil, classifyHandshakeError(err)
 	}
-	if versionErr := peerProtocolVersionError(response.GetProtocolVersion()); versionErr != nil {
+	if versionErr := peerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	return response, nil

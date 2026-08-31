@@ -42,13 +42,14 @@ func protobufError(err error) error {
 // It runs first on purpose: a version-skewed peer that fails on "device
 // fingerprint required" or "unauthorized" sends the operator after credentials
 // when the real answer is `make agentred-deploy`.
-func requireProtocolVersion(ctx context.Context, peer string) error {
-	reason := wireversion.Reject(peer)
+func requireProtocolVersion(ctx context.Context, peerProtocol, peerMinSupported string) error {
+	reason := wireversion.Reject(peerProtocol, peerMinSupported)
 	if reason == "" {
 		return nil
 	}
 	logger.Ctx(ctx).Warn("daemon.requireProtocolVersion: rejected handshake",
-		zap.String("peerProtocolVersion", peer), zap.String("daemonProtocolVersion", wireversion.Protocol))
+		zap.String("peerProtocolVersion", peerProtocol), zap.String("peerMinSupportedProtocolVersion", peerMinSupported),
+		zap.String("daemonProtocolVersion", wireversion.Protocol), zap.String("daemonMinSupportedProtocolVersion", wireversion.MinSupported))
 	return &protorpc.Error{Code: rpcerror.CodeProtocolVersion, Message: reason}
 }
 
@@ -64,7 +65,7 @@ func (d *Daemon) registerProtobufMethods() {
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR),
 		func() *agentrewire.AuthPairRequest { return &agentrewire.AuthPairRequest{} },
 		func(ctx context.Context, request *agentrewire.AuthPairRequest) (*agentrewire.AuthPairResponse, error) {
-			if err := requireProtocolVersion(ctx, request.ProtocolVersion); err != nil {
+			if err := requireProtocolVersion(ctx, request.ProtocolVersion, request.MinSupportedProtocolVersion); err != nil {
 				return nil, err
 			}
 			if request.DeviceFingerprint == "" {
@@ -83,13 +84,14 @@ func (d *Daemon) registerProtobufMethods() {
 			return &agentrewire.AuthPairResponse{
 				DeviceToken: result.DeviceToken, DaemonFingerprint: result.DaemonFingerprint,
 				InstanceUuid: result.InstanceUUID, ProtocolVersion: wireversion.Protocol,
+				MinSupportedProtocolVersion: wireversion.MinSupported,
 			}, nil
 		})
 
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT),
 		func() *agentrewire.AuthConnectRequest { return &agentrewire.AuthConnectRequest{} },
 		func(ctx context.Context, request *agentrewire.AuthConnectRequest) (*agentrewire.AuthConnectResponse, error) {
-			if err := requireProtocolVersion(ctx, request.ProtocolVersion); err != nil {
+			if err := requireProtocolVersion(ctx, request.ProtocolVersion, request.MinSupportedProtocolVersion); err != nil {
 				return nil, err
 			}
 			if request.DeviceFingerprint == "" {
@@ -107,13 +109,13 @@ func (d *Daemon) registerProtobufMethods() {
 				conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: request.DeviceFingerprint, DeviceName: peer.DeviceName})
 				d.conns.add(conn, notifier.NewProtobuf(conn))
 			}
-			return &agentrewire.AuthConnectResponse{Ok: result.OK, InstanceUuid: result.InstanceUUID, ProtocolVersion: wireversion.Protocol}, nil
+			return &agentrewire.AuthConnectResponse{Ok: result.OK, InstanceUuid: result.InstanceUUID, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, nil
 		})
 
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
 		func() *agentrewire.AuthAccountRequest { return &agentrewire.AuthAccountRequest{} },
 		func(ctx context.Context, request *agentrewire.AuthAccountRequest) (*agentrewire.AuthAccountResponse, error) {
-			if err := requireProtocolVersion(ctx, request.ProtocolVersion); err != nil {
+			if err := requireProtocolVersion(ctx, request.ProtocolVersion, request.MinSupportedProtocolVersion); err != nil {
 				return nil, err
 			}
 			if request.DeviceFingerprint == "" {
@@ -446,7 +448,7 @@ func (d *Daemon) registerProtobufMethods() {
 }
 
 func protobufAuthAccountResponse(result *auth.ConnectResult) *agentrewire.AuthAccountResponse {
-	return &agentrewire.AuthAccountResponse{Ok: result.OK, InstanceUuid: result.InstanceUUID, ProtocolVersion: wireversion.Protocol}
+	return &agentrewire.AuthAccountResponse{Ok: result.OK, InstanceUuid: result.InstanceUUID, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}
 }
 
 func (d *Daemon) requireProtobufClaimed(ctx context.Context) error {

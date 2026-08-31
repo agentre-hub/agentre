@@ -9,4 +9,4 @@
  * Go 侧的对应常量是 `internal/pkg/wireversion.Protocol`,由它自己的守卫测试
  * 盯着同一份 package.json。
  */
-export const PROTOCOL_VERSION = "0.3.0";
+export const PROTOCOL_VERSION = "0.1.0";

@@ -79,10 +79,12 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 			// the daemon's, and gates on it first for the same reason: two
 			// desktops on different revisions must say so, not fail as
 			// "unauthorized".
-			if reason := wireversion.Reject(request.ProtocolVersion); reason != "" {
+			if reason := wireversion.Reject(request.ProtocolVersion, request.MinSupportedProtocolVersion); reason != "" {
 				logger.Ctx(ctx).Warn("peer.authAccount: rejected handshake",
 					zap.String("peerProtocolVersion", request.ProtocolVersion),
-					zap.String("localProtocolVersion", wireversion.Protocol))
+					zap.String("peerMinSupportedProtocolVersion", request.MinSupportedProtocolVersion),
+					zap.String("localProtocolVersion", wireversion.Protocol),
+					zap.String("localMinSupportedProtocolVersion", wireversion.MinSupported))
 				return nil, &protorpc.Error{Code: rpcerror.CodeProtocolVersion, Message: reason}
 			}
 			if request.Credential == "" || request.DeviceFingerprint == "" {
@@ -93,7 +95,7 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 				return nil, &protorpc.Error{Code: -32001, Message: "unauthorized"}
 			}
 			conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: request.DeviceFingerprint})
-			return &agentrewire.AuthAccountResponse{Ok: true, ProtocolVersion: wireversion.Protocol}, nil
+			return &agentrewire.AuthAccountResponse{Ok: true, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, nil
 		})
 	protobufadapter.RegisterPeripheralMethods(registry, deps.Peripheral)
 	if deps.Capabilities != nil {

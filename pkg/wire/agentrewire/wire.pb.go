@@ -1025,11 +1025,15 @@ type AuthAccountRequest struct {
 	Credential        string                 `protobuf:"bytes,1,opt,name=credential,proto3" json:"credential,omitempty"`
 	DeviceFingerprint string                 `protobuf:"bytes,2,opt,name=device_fingerprint,json=deviceFingerprint,proto3" json:"device_fingerprint,omitempty"`
 	// The wire protocol version the caller speaks — @agentre-hub/agentre-wire's
-	// package version. A free-form string, so widening to an N-1 window later
-	// (by adding min_supported_protocol_version) needs no second break.
+	// package version.
 	ProtocolVersion string `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The oldest wire protocol version the caller still accepts from the peer.
+	// Together with protocol_version this names the caller's [min_supported,
+	// protocol] window; wireversion.Match checks each side's protocol_version
+	// falls within the other side's window.
+	MinSupportedProtocolVersion string `protobuf:"bytes,4,opt,name=min_supported_protocol_version,json=minSupportedProtocolVersion,proto3" json:"min_supported_protocol_version,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AuthAccountRequest) Reset() {
@@ -1083,14 +1087,23 @@ func (x *AuthAccountRequest) GetProtocolVersion() string {
 	return ""
 }
 
+func (x *AuthAccountRequest) GetMinSupportedProtocolVersion() string {
+	if x != nil {
+		return x.MinSupportedProtocolVersion
+	}
+	return ""
+}
+
 type AuthAccountResponse struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	Ok           bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
 	InstanceUuid string                 `protobuf:"bytes,2,opt,name=instance_uuid,json=instanceUuid,proto3" json:"instance_uuid,omitempty"`
 	// The wire protocol version the daemon speaks.
 	ProtocolVersion string `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The oldest wire protocol version the daemon still accepts from the peer.
+	MinSupportedProtocolVersion string `protobuf:"bytes,4,opt,name=min_supported_protocol_version,json=minSupportedProtocolVersion,proto3" json:"min_supported_protocol_version,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AuthAccountResponse) Reset() {
@@ -1144,6 +1157,13 @@ func (x *AuthAccountResponse) GetProtocolVersion() string {
 	return ""
 }
 
+func (x *AuthAccountResponse) GetMinSupportedProtocolVersion() string {
+	if x != nil {
+		return x.MinSupportedProtocolVersion
+	}
+	return ""
+}
+
 type AuthPairRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Code              string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
@@ -1151,8 +1171,10 @@ type AuthPairRequest struct {
 	DeviceFingerprint string                 `protobuf:"bytes,3,opt,name=device_fingerprint,json=deviceFingerprint,proto3" json:"device_fingerprint,omitempty"`
 	// The wire protocol version the caller speaks.
 	ProtocolVersion string `protobuf:"bytes,4,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The oldest wire protocol version the caller still accepts from the peer.
+	MinSupportedProtocolVersion string `protobuf:"bytes,5,opt,name=min_supported_protocol_version,json=minSupportedProtocolVersion,proto3" json:"min_supported_protocol_version,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AuthPairRequest) Reset() {
@@ -1213,6 +1235,13 @@ func (x *AuthPairRequest) GetProtocolVersion() string {
 	return ""
 }
 
+func (x *AuthPairRequest) GetMinSupportedProtocolVersion() string {
+	if x != nil {
+		return x.MinSupportedProtocolVersion
+	}
+	return ""
+}
+
 type AuthPairResponse struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	DeviceToken       string                 `protobuf:"bytes,1,opt,name=device_token,json=deviceToken,proto3" json:"device_token,omitempty"`
@@ -1220,8 +1249,10 @@ type AuthPairResponse struct {
 	InstanceUuid      string                 `protobuf:"bytes,3,opt,name=instance_uuid,json=instanceUuid,proto3" json:"instance_uuid,omitempty"`
 	// The wire protocol version the daemon speaks.
 	ProtocolVersion string `protobuf:"bytes,4,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The oldest wire protocol version the daemon still accepts from the peer.
+	MinSupportedProtocolVersion string `protobuf:"bytes,5,opt,name=min_supported_protocol_version,json=minSupportedProtocolVersion,proto3" json:"min_supported_protocol_version,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AuthPairResponse) Reset() {
@@ -1282,6 +1313,13 @@ func (x *AuthPairResponse) GetProtocolVersion() string {
 	return ""
 }
 
+func (x *AuthPairResponse) GetMinSupportedProtocolVersion() string {
+	if x != nil {
+		return x.MinSupportedProtocolVersion
+	}
+	return ""
+}
+
 type AuthConnectRequest struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
 	DeviceFingerprint         string                 `protobuf:"bytes,1,opt,name=device_fingerprint,json=deviceFingerprint,proto3" json:"device_fingerprint,omitempty"`
@@ -1289,8 +1327,10 @@ type AuthConnectRequest struct {
 	ExpectedDaemonFingerprint string                 `protobuf:"bytes,3,opt,name=expected_daemon_fingerprint,json=expectedDaemonFingerprint,proto3" json:"expected_daemon_fingerprint,omitempty"`
 	// The wire protocol version the caller speaks.
 	ProtocolVersion string `protobuf:"bytes,4,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The oldest wire protocol version the caller still accepts from the peer.
+	MinSupportedProtocolVersion string `protobuf:"bytes,5,opt,name=min_supported_protocol_version,json=minSupportedProtocolVersion,proto3" json:"min_supported_protocol_version,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AuthConnectRequest) Reset() {
@@ -1351,14 +1391,23 @@ func (x *AuthConnectRequest) GetProtocolVersion() string {
 	return ""
 }
 
+func (x *AuthConnectRequest) GetMinSupportedProtocolVersion() string {
+	if x != nil {
+		return x.MinSupportedProtocolVersion
+	}
+	return ""
+}
+
 type AuthConnectResponse struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	Ok           bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
 	InstanceUuid string                 `protobuf:"bytes,2,opt,name=instance_uuid,json=instanceUuid,proto3" json:"instance_uuid,omitempty"`
 	// The wire protocol version the daemon speaks.
 	ProtocolVersion string `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The oldest wire protocol version the daemon still accepts from the peer.
+	MinSupportedProtocolVersion string `protobuf:"bytes,4,opt,name=min_supported_protocol_version,json=minSupportedProtocolVersion,proto3" json:"min_supported_protocol_version,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AuthConnectResponse) Reset() {
@@ -1408,6 +1457,13 @@ func (x *AuthConnectResponse) GetInstanceUuid() string {
 func (x *AuthConnectResponse) GetProtocolVersion() string {
 	if x != nil {
 		return x.ProtocolVersion
+	}
+	return ""
+}
+
+func (x *AuthConnectResponse) GetMinSupportedProtocolVersion() string {
+	if x != nil {
+		return x.MinSupportedProtocolVersion
 	}
 	return ""
 }
@@ -13058,37 +13114,43 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x12AccountSyncVersion\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\"\x16\n" +
 	"\x14AccountMirrorChanged\"\x17\n" +
-	"\x15AccountDevicePresence\"\x8e\x01\n" +
+	"\x15AccountDevicePresence\"\xd3\x01\n" +
 	"\x12AuthAccountRequest\x12\x1e\n" +
 	"\n" +
 	"credential\x18\x01 \x01(\tR\n" +
 	"credential\x12-\n" +
 	"\x12device_fingerprint\x18\x02 \x01(\tR\x11deviceFingerprint\x12)\n" +
-	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\"u\n" +
+	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12C\n" +
+	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersion\"\xba\x01\n" +
 	"\x13AuthAccountResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12#\n" +
 	"\rinstance_uuid\x18\x02 \x01(\tR\finstanceUuid\x12)\n" +
-	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\"\xa0\x01\n" +
+	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12C\n" +
+	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersion\"\xe5\x01\n" +
 	"\x0fAuthPairRequest\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1f\n" +
 	"\vdevice_name\x18\x02 \x01(\tR\n" +
 	"deviceName\x12-\n" +
 	"\x12device_fingerprint\x18\x03 \x01(\tR\x11deviceFingerprint\x12)\n" +
-	"\x10protocol_version\x18\x04 \x01(\tR\x0fprotocolVersion\"\xb4\x01\n" +
+	"\x10protocol_version\x18\x04 \x01(\tR\x0fprotocolVersion\x12C\n" +
+	"\x1emin_supported_protocol_version\x18\x05 \x01(\tR\x1bminSupportedProtocolVersion\"\xf9\x01\n" +
 	"\x10AuthPairResponse\x12!\n" +
 	"\fdevice_token\x18\x01 \x01(\tR\vdeviceToken\x12-\n" +
 	"\x12daemon_fingerprint\x18\x02 \x01(\tR\x11daemonFingerprint\x12#\n" +
 	"\rinstance_uuid\x18\x03 \x01(\tR\finstanceUuid\x12)\n" +
-	"\x10protocol_version\x18\x04 \x01(\tR\x0fprotocolVersion\"\xd1\x01\n" +
+	"\x10protocol_version\x18\x04 \x01(\tR\x0fprotocolVersion\x12C\n" +
+	"\x1emin_supported_protocol_version\x18\x05 \x01(\tR\x1bminSupportedProtocolVersion\"\x96\x02\n" +
 	"\x12AuthConnectRequest\x12-\n" +
 	"\x12device_fingerprint\x18\x01 \x01(\tR\x11deviceFingerprint\x12!\n" +
 	"\fdevice_token\x18\x02 \x01(\tR\vdeviceToken\x12>\n" +
 	"\x1bexpected_daemon_fingerprint\x18\x03 \x01(\tR\x19expectedDaemonFingerprint\x12)\n" +
-	"\x10protocol_version\x18\x04 \x01(\tR\x0fprotocolVersion\"u\n" +
+	"\x10protocol_version\x18\x04 \x01(\tR\x0fprotocolVersion\x12C\n" +
+	"\x1emin_supported_protocol_version\x18\x05 \x01(\tR\x1bminSupportedProtocolVersion\"\xba\x01\n" +
 	"\x13AuthConnectResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12#\n" +
 	"\rinstance_uuid\x18\x02 \x01(\tR\finstanceUuid\x12)\n" +
-	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\"B\n" +
+	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12C\n" +
+	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersion\"B\n" +
 	"\x11AuthRevokeRequest\x12-\n" +
 	"\x12device_fingerprint\x18\x01 \x01(\tR\x11deviceFingerprint\"$\n" +
 	"\x12AuthRevokeResponse\x12\x0e\n" +

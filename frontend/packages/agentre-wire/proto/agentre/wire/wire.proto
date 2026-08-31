@@ -134,9 +134,13 @@ message AuthAccountRequest {
   string credential = 1;
   string device_fingerprint = 2;
   // The wire protocol version the caller speaks — @agentre-hub/agentre-wire's
-  // package version. A free-form string, so widening to an N-1 window later
-  // (by adding min_supported_protocol_version) needs no second break.
+  // package version.
   string protocol_version = 3;
+  // The oldest wire protocol version the caller still accepts from the peer.
+  // Together with protocol_version this names the caller's [min_supported,
+  // protocol] window; wireversion.Match checks each side's protocol_version
+  // falls within the other side's window.
+  string min_supported_protocol_version = 4;
 }
 
 message AuthAccountResponse {
@@ -144,6 +148,8 @@ message AuthAccountResponse {
   string instance_uuid = 2;
   // The wire protocol version the daemon speaks.
   string protocol_version = 3;
+  // The oldest wire protocol version the daemon still accepts from the peer.
+  string min_supported_protocol_version = 4;
 }
 
 message AuthPairRequest {
@@ -152,6 +158,8 @@ message AuthPairRequest {
   string device_fingerprint = 3;
   // The wire protocol version the caller speaks.
   string protocol_version = 4;
+  // The oldest wire protocol version the caller still accepts from the peer.
+  string min_supported_protocol_version = 5;
 }
 
 message AuthPairResponse {
@@ -160,6 +168,8 @@ message AuthPairResponse {
   string instance_uuid = 3;
   // The wire protocol version the daemon speaks.
   string protocol_version = 4;
+  // The oldest wire protocol version the daemon still accepts from the peer.
+  string min_supported_protocol_version = 5;
 }
 
 message AuthConnectRequest {
@@ -168,6 +178,8 @@ message AuthConnectRequest {
   string expected_daemon_fingerprint = 3;
   // The wire protocol version the caller speaks.
   string protocol_version = 4;
+  // The oldest wire protocol version the caller still accepts from the peer.
+  string min_supported_protocol_version = 5;
 }
 
 message AuthConnectResponse {
@@ -175,6 +187,8 @@ message AuthConnectResponse {
   string instance_uuid = 2;
   // The wire protocol version the daemon speaks.
   string protocol_version = 3;
+  // The oldest wire protocol version the daemon still accepts from the peer.
+  string min_supported_protocol_version = 4;
 }
 
 message AuthRevokeRequest { string device_fingerprint = 1; }
