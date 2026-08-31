@@ -17,9 +17,13 @@ import (
 )
 
 func TestProtobufAuthAccountResponsePreservesInstanceUUID(t *testing.T) {
-	response := protobufAuthAccountResponse(&auth.ConnectResult{OK: true, InstanceUUID: "daemon-instance"})
+	response := protobufAuthAccountResponse(&auth.AccountResult{
+		OK: true, InstanceUUID: "daemon-instance", PeerFingerprint: "sha256:from-credential",
+	})
 	require.True(t, response.GetOk())
 	require.Equal(t, "daemon-instance", response.GetInstanceUuid())
+	// 决策 8:应答回写 daemon 认定的对端身份 —— 调用方本端指纹的唯一来源。
+	require.Equal(t, "sha256:from-credential", response.GetPeerFingerprint())
 }
 
 type protobufTestPipe struct {
