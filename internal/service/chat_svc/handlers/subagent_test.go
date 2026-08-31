@@ -558,16 +558,26 @@ func TestMarkRunningSubagentsCancelled(t *testing.T) {
 type fakeSubagentFlipper struct {
 	calls []flipCall
 	err   error
+	// resumeOwner 是 ResumeSubagentByTaskID 要交回的原卡 tool_call_id。
+	resumeOwner string
+	resumeCalls []flipCall
 }
 
 type flipCall struct {
 	toolCallID string
 	status     string
+	summary    string
 }
 
-func (f *fakeSubagentFlipper) FlipSubagentStatus(_ context.Context, toolCallID, status string) error {
-	f.calls = append(f.calls, flipCall{toolCallID: toolCallID, status: status})
+func (f *fakeSubagentFlipper) FlipSubagentStatus(_ context.Context, toolCallID, status, summary string) error {
+	f.calls = append(f.calls, flipCall{toolCallID: toolCallID, status: status, summary: summary})
 	return f.err
+}
+
+// resumeOwner 非空时,ResumeSubagentByTaskID 就当作「更早的消息里找到了那张卡」。
+func (f *fakeSubagentFlipper) ResumeSubagentByTaskID(_ context.Context, taskID, status string) (string, error) {
+	f.resumeCalls = append(f.resumeCalls, flipCall{toolCallID: taskID, status: status})
+	return f.resumeOwner, f.err
 }
 
 // TestSubagentDone_CrossTurn_FlipsEarlierMessage 是 sess-2825 的回归:一次
@@ -903,6 +913,72 @@ func TestSubagentResume_EmitsTheOriginalToolUseID(t *testing.T) {
 				for _, e := range emit.events {
 					So(e.payload.(map[string]any)["toolUseId"], ShouldEqual, "A")
 				}
+			})
+		})
+	})
+}
+
+// 恢复发生在**后一轮**:原卡早已落库、不在本轮 accumulator 里。此前这种情况会给
+// 恢复段另起一块挂在 SendMessage 那次调用上,而 SendMessage 不是 agent.spawn 工具名,
+// 那块永远没有卡片渲染它 —— 与同轮恢复修复前的症状一模一样,只是换了个时机。
+//
+// 重放误伤不成立:685 帧 task_started 实测零个完全重复(同 task 同 tool_use),
+// --resume 不重放 task_started;即便重放,它带的是**原来那个** tool_use_id,
+// 下面这条通路只在「本轮没有这张卡」时才走,而重放帧的卡就在库里、tool call 也相同,
+// ResumeSubagentByTaskID 交回的 owner 与它自己相等,不构成一次恢复。
+func TestSubagentStarted_CrossTurnResume_ReopensTheEarlierCard(t *testing.T) {
+	Convey("Given 本轮 accumulator 里没有这个 task 的 overlay(原卡在更早的消息里)", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{ID: "tu-B", Name: "SendMessage"}, "")
+		flipper := &fakeSubagentFlipper{resumeOwner: "tu-A"}
+		tc := &turn.TurnContext{SubagentFlipper: flipper}
+
+		Convey("When 同 task_id 的 task_started 带着新的 tool call 到达", func() {
+			err := SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "tu-B",
+				Info:       agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
+			}, acc, nil, nil, tc)
+			So(err, ShouldBeNil)
+
+			Convey("Then 不在本轮另起 overlay,改为把更早那张卡推回运行态", func() {
+				So(subagentStates(acc.Finalize()), ShouldBeEmpty)
+				So(flipper.resumeCalls, ShouldHaveLength, 1)
+				So(flipper.resumeCalls[0].toolCallID, ShouldEqual, "T")
+				So(flipper.resumeCalls[0].status, ShouldEqual, "running")
+			})
+
+			Convey("And 恢复段的完成帧翻的是原卡,带上这一段的结论", func() {
+				_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+					ToolCallID: "tu-B",
+					Info:       agentruntime.SubagentInfo{Status: "completed", Summary: "报告"},
+				}, acc, nil, nil, tc)
+				So(flipper.calls, ShouldHaveLength, 1)
+				So(flipper.calls[0].toolCallID, ShouldEqual, "tu-A")
+				So(flipper.calls[0].status, ShouldEqual, "completed")
+				So(flipper.calls[0].summary, ShouldEqual, "报告")
+			})
+		})
+	})
+}
+
+// 库里也没有这个 task 时,退回既有行为:照常在本轮建 overlay。
+func TestSubagentStarted_CrossTurnResume_NoEarlierCardFallsBackToNewOverlay(t *testing.T) {
+	Convey("Given 库里找不到承载该 task_id 的卡", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		flipper := &fakeSubagentFlipper{resumeOwner: ""}
+
+		Convey("When task_started 到达", func() {
+			_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "tu-new",
+				Info:       agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
+			}, acc, nil, nil, &turn.TurnContext{SubagentFlipper: flipper})
+
+			Convey("Then 照常在本轮建 overlay", func() {
+				states := subagentStates(acc.Finalize())
+				So(states, ShouldHaveLength, 1)
+				So(states[0].ParentToolCallID, ShouldEqual, "tu-new")
 			})
 		})
 	})

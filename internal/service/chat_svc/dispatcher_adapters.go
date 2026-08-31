@@ -247,13 +247,13 @@ type subagentFlipperAdapter struct {
 	stream string
 }
 
-func (a subagentFlipperAdapter) FlipSubagentStatus(ctx context.Context, toolCallID, status string) error {
+func (a subagentFlipperAdapter) FlipSubagentStatus(ctx context.Context, toolCallID, status, summary string) error {
 	if a.svc == nil || a.sess == nil || a.sess.ID <= 0 || toolCallID == "" {
 		return nil
 	}
-	// summary 留空:CLI 的完成摘要目前没走到 SubagentInfo,FlipSubagentStatus 对空
-	// summary 保持原值不动。
-	if err := chat_repo.Message().FlipSubagentStatus(ctx, a.sess.ID, toolCallID, status, ""); err != nil {
+	// summary 是 CLI task_notification.summary(成功时子代理交回的报告,失败时中断
+	// 原因)。空串读作「这一帧没带」,FlipSubagentStatus 对空 summary 保持原值不动。
+	if err := chat_repo.Message().FlipSubagentStatus(ctx, a.sess.ID, toolCallID, status, summary); err != nil {
 		return err
 	}
 	// 镜像到**会话级**流:派遣卡随更早那条消息早已落库,不在任何 liveBlocks 里,
@@ -261,10 +261,22 @@ func (a subagentFlipperAdapter) FlipSubagentStatus(ctx context.Context, toolCall
 	(&dispatcherEmitter{svc: a.svc}).Emit(ctx, AutonomousStreamName(a.sess.ID), map[string]any{
 		"kind":      string(StreamSubagentDone),
 		"toolUseId": toolCallID,
-		"info":      agentruntime.SubagentInfo{Status: status},
+		"info":      agentruntime.SubagentInfo{Status: status, Summary: summary},
 	})
 	a.svc.reconcileBgRunningOnComplete(ctx, a.sess, toolCallID, a.stream)
 	return nil
+}
+
+// ResumeSubagentByTaskID 见 turn.SubagentFlipper:跨轮恢复时把更早那条消息里的派遣卡
+// 推回运行态,交回它所在的 tool_call_id。仓储那一步找不到就交回空串,调用方据此退回
+// 「在本轮另起一块」的既有行为。
+func (a subagentFlipperAdapter) ResumeSubagentByTaskID(
+	ctx context.Context, taskID, status string,
+) (string, error) {
+	if a.svc == nil || a.sess == nil || a.sess.ID <= 0 || taskID == "" {
+		return "", nil
+	}
+	return chat_repo.Message().ResumeSubagentByTaskID(ctx, a.sess.ID, taskID, status)
 }
 
 // newTurnContext 构造每轮 turn 的 TurnContext。stream 由调用方填(每轮 chat

@@ -81,10 +81,38 @@ type TurnContext struct {
 	// 更早的消息上。nil 时 handler 退回静默忽略。chat_svc 在 newTurnContext 注入。
 	SubagentFlipper SubagentFlipper
 
+	// resumedSubagents 记「本轮的新 tool call → 它认领到的、更早那条消息里那张派遣卡
+	// 的 tool call」。跨轮恢复(SendMessage 沿用同一个 task_id 换新 tool_use_id)时由
+	// SubagentStartedHandler 写入,后续 done 帧据此把终态翻在原卡上。
+	// per-turn 单 goroutine 写入,无锁。
+	resumedSubagents map[string]string
+
 	// 本轮计时。口径(整轮耗时减工具空档,排队计入)与字段说明在 turnstats.Clock 上;
 	// 「哪条事件动哪一下表」在 Dispatcher.Apply。嵌入而不是各存一份:agentred 的
 	// fanout 要在没有 chat_svc 的前提下算出同一份数,两边共用这一只表。
 	turnstats.Clock
+}
+
+// AliasSubagentToolCall 记下「新 tool call 其实是那张更早的卡」。
+func (tc *TurnContext) AliasSubagentToolCall(from, to string) {
+	if tc == nil || from == "" || to == "" {
+		return
+	}
+	if tc.resumedSubagents == nil {
+		tc.resumedSubagents = map[string]string{}
+	}
+	tc.resumedSubagents[from] = to
+}
+
+// ResolveSubagentToolCall 把 tool call 翻成它真正该落在的那张卡;没别名就原样返回。
+func (tc *TurnContext) ResolveSubagentToolCall(toolCallID string) string {
+	if tc == nil {
+		return toolCallID
+	}
+	if to, ok := tc.resumedSubagents[toolCallID]; ok {
+		return to
+	}
+	return toolCallID
 }
 
 // MessageUpdater handler 在 UsageUpdate / Error 等场景下写 assistantMsg 走这条。
@@ -106,7 +134,17 @@ type SessionUpdater interface {
 // (那条路自己带跨消息翻转);但它同样可能在**别人的轮**进行中到达,那时 CLI 把这一帧
 // 并进当前活跃轮,handler 是该终态唯一的落点。
 type SubagentFlipper interface {
-	FlipSubagentStatus(ctx context.Context, toolCallID, status string) error
+	// FlipSubagentStatus 把该 tool call 的派遣卡改成 status;summary 非空时一并写入
+	// (CLI task_notification.summary —— 成功时是子代理交回的报告,失败时是中断原因)。
+	FlipSubagentStatus(ctx context.Context, toolCallID, status, summary string) error
+	// ResumeSubagentByTaskID 按 CLI task_id 把更早那条消息里的派遣卡推回运行态,交回
+	// 它所在的 tool_call_id;找不到交回空串。
+	//
+	// 恢复(SendMessage)沿用同一个 task_id、换一个 tool_use_id。恢复若发生在后一轮,
+	// 原卡早已落库,同轮那条 adoptResumedSubagent 的通路够不着它 —— 不接这一条,恢复段
+	// 就会另起一块挂在 SendMessage 那次调用上,而它不是 agent.spawn 工具名,那块永远没有
+	// 卡片渲染。
+	ResumeSubagentByTaskID(ctx context.Context, taskID, status string) (string, error)
 }
 
 // SessionTransitioner 切 session 状态 — UserAskRequest/ToolPermissionRequest

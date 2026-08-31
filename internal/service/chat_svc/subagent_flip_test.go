@@ -54,11 +54,11 @@ func TestSubagentFlipperAdapter_PersistsAndMirrors(t *testing.T) {
 
 		Convey("When 它的完成帧在别人的轮里到达,经 flipper 落地", func() {
 			msgRepo.EXPECT().
-				FlipSubagentStatus(gomock.Any(), int64(42), "toolu-earlier-msg", "completed", "").
+				FlipSubagentStatus(gomock.Any(), int64(42), "toolu-earlier-msg", "completed", "报告全文").
 				Return(nil)
 
 			a := subagentFlipperAdapter{svc: svc, sess: sess, stream: "chat:event:42:99"}
-			err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "completed")
+			err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "completed", "报告全文")
 
 			Convey("Then 落库 + 会话级流镜像 subagent_done + 退出 bgRunning 集合", func() {
 				So(err, ShouldBeNil)
@@ -97,7 +97,7 @@ func TestSubagentFlipperAdapter_PersistFailedNoMirror(t *testing.T) {
 			Return(errors.New("db is locked"))
 
 		a := subagentFlipperAdapter{svc: svc, sess: sess, stream: "chat:event:42:99"}
-		err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "failed")
+		err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "failed", "")
 
 		So(err, ShouldNotBeNil)
 		for _, e := range rec.events {
@@ -115,8 +115,8 @@ func TestSubagentFlipperAdapter_NoSessionNoOp(t *testing.T) {
 		_, _, svc := setupFlipperTest(t) // repo mock 没有 EXPECT,被调用即 ctrl.Finish 报错
 
 		So(subagentFlipperAdapter{svc: svc}.
-			FlipSubagentStatus(context.Background(), "toolu-x", "completed"), ShouldBeNil)
+			FlipSubagentStatus(context.Background(), "toolu-x", "completed", ""), ShouldBeNil)
 		So(subagentFlipperAdapter{svc: svc, sess: &chat_entity.Session{}}.
-			FlipSubagentStatus(context.Background(), "toolu-x", "completed"), ShouldBeNil)
+			FlipSubagentStatus(context.Background(), "toolu-x", "completed", ""), ShouldBeNil)
 	})
 }

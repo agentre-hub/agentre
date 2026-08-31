@@ -68,6 +68,16 @@ type MessageRepo interface {
 	// status(后台 bash 在之后的自主轮才完成,无法走 per-turn accumulator)。summary 非空时
 	// 同时写入块的 summary 字段。找不到则静默返回 nil(任务可能已 evict / 非本会话)。
 	FlipSubagentStatus(ctx context.Context, sessionID int64, toolCallID, status, summary string) error
+	// ResumeSubagentByTaskID 按 CLI task_id 把本会话里承载它的 subagent_state 块推回运行态,
+	// 交回该块的 tool_call_id(调用方据此把恢复段的新 tool call 路由到原卡)。
+	//
+	// CLI 恢复一个被中断的子代理(SendMessage)时沿用**同一个 task_id**、换一个 tool_use_id;
+	// 恢复若发生在后一轮,原卡早已落库、过不了当轮 accumulator。被覆盖的那一段终态
+	// (status + summary)收进块的 resumes 数组留证,status 改成 status,summary 清空
+	// —— 上一段的结论留着会让恢复后仍在跑的卡显示上一次的中断原因。
+	//
+	// task_id 为空或找不到承载它的块时不写库、交回空串。
+	ResumeSubagentByTaskID(ctx context.Context, sessionID int64, taskID, status string) (string, error)
 	// PatchSubagentProgress 定向把 parent_tool_call_id==toolCallID 的 subagent_state 块的
 	// 运行时进度字段更新为最新快照。后台 subagent 在会话**空闲态**跑,发起它的那一轮
 	// accumulator 早已收尾,进度只能这样落回发起消息(否则重开会话看到的永远是派遣那一刻
@@ -315,6 +325,67 @@ func (r *messageRepo) FlipSubagentStatus(ctx context.Context, sessionID int64, t
 
 	return r.rewriteSubagentBlock(ctx, sessionID, toolCallID, func(data []byte) ([]byte, bool, error) {
 		return FlipSubagentInBlockData(data, status, summary)
+	})
+}
+
+func (r *messageRepo) ResumeSubagentByTaskID(
+	ctx context.Context, sessionID int64, taskID, status string,
+) (string, error) {
+	if taskID == "" || status == "" {
+		return "", nil
+	}
+	// 与 rewriteSubagentBlock 同一把会话级锁:这条路同样是 read-modify-write,
+	// 和 FlipSubagentStatus / PatchSubagentProgress 抢同一批块行。
+	mu := lockForSession(sessionID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	rows, err := findSubagentStateBlocks(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	for i := range rows {
+		row := &rows[i]
+		data, err := chat_entity.DecodeBlockData(row.Codec, row.Data)
+		if err != nil {
+			return "", err
+		}
+		rewritten, changed, err := ResumeSubagentInBlockData(data, taskID, status)
+		if err != nil {
+			return "", err
+		}
+		if !changed {
+			continue
+		}
+		logger.Ctx(ctx).Info("chat_repo.ResumeSubagentByTaskID: reopening earlier subagent card",
+			zap.Int64("sessionId", sessionID), zap.String("taskId", taskID),
+			zap.String("toolUseId", row.ToolCallID))
+		if err := updateBlockData(ctx, row, rewritten); err != nil {
+			return "", err
+		}
+		return row.ToolCallID, nil
+	}
+	return "", nil
+}
+
+// ResumeSubagentInBlockData 就地把一个 subagent_state 块推回运行态 —— 仅当它的
+// task_id 等于 taskID。返回重写后的正文 + 是否改写过。导出以便直接单测改写逻辑。
+func ResumeSubagentInBlockData(data []byte, taskID, status string) ([]byte, bool, error) {
+	return patchSubagentStateData(data, func(decoded map[string]any) bool {
+		if got, _ := decoded["task_id"].(string); got != taskID {
+			return false
+		}
+		prev := map[string]any{"status": decoded["status"]}
+		if summary, ok := decoded["summary"].(string); ok && summary != "" {
+			prev["summary"] = summary
+		}
+		existing, _ := decoded["resumes"].([]any)
+		decoded["resumes"] = append(existing, prev)
+		decoded["status"] = status
+		// 上一段的结论已收进 resumes;留着它会让恢复后仍在跑的卡片显示上一次的
+		// 中断原因,新的结论到达前这里应当是空的。
+		delete(decoded, "summary")
+		return true
 	})
 }
 

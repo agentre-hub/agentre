@@ -693,3 +693,55 @@ func TestMessageRepo_FillBlocksByType_NoTypes(t *testing.T) {
 	assert.Equal(t, "[]", msgs[0].BlocksJSON)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// expectSubagentBlocksByType 是「按 task_id 找」用的定位期望:task_id 不是列、它在
+// 块正文的 JSON 里,只能按 (type, message_id) 索引把本会话的 subagent_state 块取出来
+// 逐条解。会话里这种块数量有限(一次派遣一条),不是全表扫。
+func expectSubagentBlocksByType(mock sqlmock.Sqlmock, sessionID int64, rows *sqlmock.Rows) {
+	mock.ExpectQuery("SELECT .* FROM `chat_message_blocks` JOIN `chat_messages`.*`chat_message_blocks`.`type` = \\?").
+		WithArgs(sessionID, "subagent_state").
+		WillReturnRows(rows)
+}
+
+// CLI 恢复一个被中断的子代理时沿用同一个 task_id、换一个 tool_use_id。恢复若发生在
+// **后一轮**,原来那张派遣卡早已落库、过不了当轮 accumulator —— 这个方法就是那条路:
+// 按 task_id 把它找回来,推回运行态,并把被覆盖的终态收进 resumes 留证。
+func TestMessageRepo_ResumeSubagentByTaskID_ReopensTheEarlierCard(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	rows := sqlmock.NewRows([]string{"message_id", "idx", "type", "tool_call_id", "codec", "data"}).
+		AddRow(int64(41), 2, "subagent_state", "tu-other", chat_entity.BlockCodecRaw,
+			[]byte(`{"parent_tool_call_id":"tu-other","task_id":"OTHER","status":"completed"}`)).
+		AddRow(int64(42), 5, "subagent_state", "tu-A", chat_entity.BlockCodecRaw,
+			[]byte(`{"parent_tool_call_id":"tu-A","task_id":"T","status":"failed","summary":"API error","tool_uses":61}`))
+	expectSubagentBlocksByType(mock, 3, rows)
+	mock.ExpectExec("UPDATE `chat_message_blocks` SET `codec`=\\?,`data`=\\? WHERE message_id = \\? AND idx = \\?").
+		WithArgs(chat_entity.BlockCodecRaw, blockDataContains{substrings: []string{
+			`"status":"running"`,
+			`"resumes":[{"status":"failed","summary":"API error"}]`,
+			`"tool_uses":61`,
+		}}, int64(42), 5).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	got, err := chat_repo.NewMessage().ResumeSubagentByTaskID(ctx, 3, "T", "running")
+	assert.NoError(t, err)
+	assert.Equal(t, "tu-A", got, "交回原卡的 tool_call_id,调用方据此把恢复段的新 tool call 路由到它")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMessageRepo_ResumeSubagentByTaskID_NoMatchSilentEmpty(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	expectSubagentBlocksByType(mock, 3, emptyBlockRows())
+
+	got, err := chat_repo.NewMessage().ResumeSubagentByTaskID(ctx, 3, "MISSING", "running")
+	assert.NoError(t, err)
+	assert.Equal(t, "", got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMessageRepo_ResumeSubagentByTaskID_EmptyArgsShortCircuit(t *testing.T) {
+	ctx, _, _ := testutils.Database(t)
+	got, err := chat_repo.NewMessage().ResumeSubagentByTaskID(ctx, 3, "", "running")
+	require.NoError(t, err)
+	require.Equal(t, "", got, "task_id 为空不查库 —— 空 task_id 匹配不出唯一的卡")
+}

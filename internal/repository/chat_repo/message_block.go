@@ -128,6 +128,26 @@ func findSubagentStateBlock(ctx context.Context, sessionID int64, toolCallID str
 	return &row, nil
 }
 
+// findSubagentStateBlocks 取本会话全部 subagent_state 块行,新消息在前。
+//
+// 按 task_id 找只能这样:task_id 不是列,它在块正文的 JSON 里(而且大块还是 deflate
+// 的),没有索引可用。走 (type, message_id) 索引把范围收到「本会话的 subagent_state」
+// —— 一次派遣一条,量级是个位数到几十,不是全表扫。
+func findSubagentStateBlocks(ctx context.Context, sessionID int64) ([]chat_entity.MessageBlock, error) {
+	var rows []chat_entity.MessageBlock
+	err := db.Ctx(ctx).
+		Model(&chat_entity.MessageBlock{}).
+		Joins("JOIN `chat_messages` ON `chat_messages`.`id` = `chat_message_blocks`.`message_id`").
+		Where("`chat_messages`.`session_id` = ? AND `chat_message_blocks`.`type` = ?",
+			sessionID, chat_entity.BlockTypeSubagentState).
+		Order("`chat_message_blocks`.`message_id` DESC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // updateBlockData 就地改写一个块行的正文(重新按阈值编码)。
 func updateBlockData(ctx context.Context, row *chat_entity.MessageBlock, data []byte) error {
 	codec, encoded := chat_entity.EncodeBlockData(data)

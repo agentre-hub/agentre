@@ -248,6 +248,21 @@ func (mr *MockMessageRepoMockRecorder) PatchSubagentProgress(ctx, sessionID, too
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchSubagentProgress", reflect.TypeOf((*MockMessageRepo)(nil).PatchSubagentProgress), ctx, sessionID, toolCallID, p)
 }
 
+// ResumeSubagentByTaskID mocks base method.
+func (m *MockMessageRepo) ResumeSubagentByTaskID(ctx context.Context, sessionID int64, taskID, status string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResumeSubagentByTaskID", ctx, sessionID, taskID, status)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResumeSubagentByTaskID indicates an expected call of ResumeSubagentByTaskID.
+func (mr *MockMessageRepoMockRecorder) ResumeSubagentByTaskID(ctx, sessionID, taskID, status any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeSubagentByTaskID", reflect.TypeOf((*MockMessageRepo)(nil).ResumeSubagentByTaskID), ctx, sessionID, taskID, status)
+}
+
 // Update mocks base method.
 func (m_2 *MockMessageRepo) Update(ctx context.Context, m *chat_entity.Message) error {
 	m_2.ctrl.T.Helper()

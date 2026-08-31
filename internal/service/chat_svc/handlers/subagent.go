@@ -4,6 +4,8 @@ import (
 	"context"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
@@ -144,6 +146,16 @@ func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, 
 	if status == "" {
 		status = "running"
 	}
+	if owner, resumed := adoptCrossTurnResume(ctx, r, status, tc); resumed {
+		if emit != nil {
+			emit.Emit(ctx, streamOf(tc), map[string]any{
+				"kind":      "subagent_started",
+				"toolUseId": owner,
+				"info":      r.Info,
+			})
+		}
+		return nil
+	}
 	if owner, resumed := adoptResumedSubagent(acc, r, status); resumed {
 		// 恢复重开:同一个 task 换了 tool call,已认领到原卡上,不另起第二块。
 		if emit != nil {
@@ -211,6 +223,34 @@ func adoptResumedSubagent(acc *turn.Accumulator, r agentruntime.SubagentStarted,
 			owner = b.ParentToolCallID
 		})
 	return owner, hit
+}
+
+// adoptCrossTurnResume 处理「恢复发生在后一轮」——原卡早已落库,同轮那条
+// adoptResumedSubagent 够不着它。按 task_id 让仓储把它推回运行态,并把本轮这个新
+// tool call 记成它的别名,后续 done 帧才翻得到原卡而不是凭空造一张。
+//
+// 只在本轮确实没有这个 task 的 overlay 时才走(调用点排在 adoptResumedSubagent 之前
+// 但两者互斥:同轮命中时仓储那次查询根本不会发生 —— 见下面的 acc 判空)。
+//
+// 重放误伤不成立:实测 685 帧 task_started 零个完全重复(--resume 不重放它);即便
+// 重放,它带的是原来那个 tool_use_id,交回的 owner 与它自身相等,不记别名也不算恢复。
+func adoptCrossTurnResume(
+	ctx context.Context, r agentruntime.SubagentStarted, status string, tc *turn.TurnContext,
+) (owner string, resumed bool) {
+	if tc == nil || tc.SubagentFlipper == nil || r.Info.TaskID == "" || r.ToolCallID == "" {
+		return "", false
+	}
+	got, err := tc.SubagentFlipper.ResumeSubagentByTaskID(ctx, r.Info.TaskID, status)
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.SubagentStarted: ResumeSubagentByTaskID failed",
+			zap.String("taskId", r.Info.TaskID), zap.Error(err))
+		return "", false
+	}
+	if got == "" || got == r.ToolCallID {
+		return "", false
+	}
+	tc.AliasSubagentToolCall(r.ToolCallID, got)
+	return got, true
 }
 
 type SubagentProgressHandler struct{}
@@ -358,12 +398,18 @@ func flipSubagentOutsideTurn(
 	if tc == nil || tc.SubagentFlipper == nil || r.ToolCallID == "" {
 		return nil
 	}
-	if _, inThisTurn := acc.ToolUseInput(r.ToolCallID); inThisTurn {
+	if _, inThisTurn := acc.ToolUseInput(r.ToolCallID); inThisTurn &&
+		tc.ResolveSubagentToolCall(r.ToolCallID) == r.ToolCallID {
+		// 发起它的 tool_use 就在本轮且没被别名过 —— 前台 bash,按 trackSubagentState
+		// 的约定从未建 overlay,静默忽略。别名过的那些相反:SendMessage 也在本轮,
+		// 但它承载的是更早那张卡的恢复段,终态必须翻过去。
 		return nil
 	}
 	status := r.Info.Status
 	if status == "" {
 		status = "completed" // 与命中路径同一默认,否则空 status 会被 flipper 直接丢弃
 	}
-	return tc.SubagentFlipper.FlipSubagentStatus(ctx, r.ToolCallID, status)
+	// 跨轮恢复过的 task:本轮这个新 tool call 是原卡的别名,终态要翻在原卡上。
+	return tc.SubagentFlipper.FlipSubagentStatus(
+		ctx, tc.ResolveSubagentToolCall(r.ToolCallID), status, r.Info.Summary)
 }
