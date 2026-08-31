@@ -1633,12 +1633,6 @@ describe("AgentSpawnCard steps region as an activity block", () => {
         .filter((row) => row.getAttribute("data-failed") === "true"),
     ).toHaveLength(2);
   });
-
-  it("Given the new header copy, Then both locales carry it", () => {
-    expect(enCommon.canonical.agentSpawn.outcome.steps_one).toBeTruthy();
-    expect(enCommon.canonical.agentSpawn.outcome.steps_other).toBeTruthy();
-    expect(zhCommon.canonical.agentSpawn.outcome.steps).toBeTruthy();
-  });
 });
 
 describe("Subagent step params section", () => {

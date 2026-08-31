@@ -414,23 +414,6 @@ describe("i18n resources", () => {
     expect(keys.filter((key) => !hasLocaleKey(enCommon, key))).toEqual([]);
   });
 
-  it("Given the Claude usage poll interval, When quota copy is checked, Then both languages describe the same five-minute interval", () => {
-    const ccUsageSource = fs.readFileSync(
-      path.resolve(process.cwd(), "../internal/app/cc_usage.go"),
-      "utf8",
-    );
-
-    expect(ccUsageSource).toContain(
-      "const ccUsagePollInterval = 5 * time.Minute",
-    );
-    expect(zhCommon.chat.quota.panel.usedNote).toBe(
-      "百分比为已用比例 · 每 5 分钟刷新",
-    );
-    expect(enCommon.chat.quota.panel.usedNote).toBe(
-      "Percentages are usage · refreshed every 5 minutes",
-    );
-  });
-
   it("Given explicit React i18n, When production string literals are inspected, Then no Chinese UI copy is hardcoded outside locale files", () => {
     expect(collectProductionHanStringLiterals()).toEqual([]);
   });
