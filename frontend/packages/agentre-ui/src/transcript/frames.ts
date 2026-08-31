@@ -40,7 +40,12 @@
  * （`reduceSessionState` 就是给底栏用的那一份）。这是已知缺口，不是丢弃 ——
  * 缺的是显示面，不是数据。
  */
-import type { TranscriptBlock, TranscriptMessage } from "./dto";
+import type {
+  TranscriptBlock,
+  TranscriptBlockSubagent,
+  TranscriptMessage,
+} from "./dto";
+import type { AgentSpawnDTO, CanonicalDTO } from "./canonical-tool/types";
 import {
   EventAskUserQuestion,
   EventAskUserQuestionAnswered,
@@ -279,6 +284,127 @@ function appendText(msg: TranscriptMessage, type: string, text: string): void {
   msg.blocks.push({ type, text });
 }
 
+/**
+ * 内层工具块的归属：父 tool_use 与 run id。两个字段都是「有才带」——
+ * protobuf 的空串读作「不是内层」，写成空串会让 buildRenderItems 把顶层工具也
+ * 当成子代理内层块摘走（它只判 `b.parentToolUseId` 真不真）。
+ */
+function attachNesting(block: TranscriptBlock, ev: unknown): void {
+  const parent = str(ev, "parentToolCallId");
+  if (parent) block.parentToolUseId = parent;
+  const runId = str(ev, "subagentRunId");
+  if (runId) block.subagentRunId = runId;
+}
+
+/**
+ * wire 上的 canonical 是**扁平**的 `{kind, ...字段}`（Go 侧 canonical.MarshalTool
+ * 把 Kind 与内嵌结构一起 marshal），而本包的 `CanonicalDTO` 是**嵌套**的
+ * `{kind, agentSpawn:{…}}`（`AgentSpawnCard.readSpawn` 读的是后者）。这里做那一次
+ * 转换 —— 除掉 kind 之后的字段名与 `AgentSpawnDTO` 逐字对应，不需要逐字段搬。
+ *
+ * **本轮只接 agent.spawn。** 同一个 bytes 字段上还有 file.edit / file.write /
+ * tool_permission 等十来种 kind，接进来等于在一个我没有验证面的宿主上一次性改掉
+ * 十种卡的呈现 —— 那是另一次对齐，要单独做、单独验。派遣卡必须要它，是因为
+ * `readSpawn` 拿不到 `canonical.agentSpawn` 时直接返回 undefined，卡整张不渲染。
+ */
+function agentSpawnCanonical(ev: unknown): CanonicalDTO | undefined {
+  const flat = obj(obj(ev)?.canonical);
+  if (!flat || flat.kind !== "agent.spawn") return undefined;
+  const { kind: _kind, ...rest } = flat;
+  return { kind: "agent.spawn", agentSpawn: rest as AgentSpawnDTO };
+}
+
+/**
+ * 找到该由谁承载这条 subagent 帧的 overlay。
+ *
+ * **先按 task_id 找**：CLI 恢复一个子代理（SendMessage）时沿用同一个 task_id、
+ * 换一个 tool_use_id 重发整套帧，只按 tool call 找会给恢复段另起一张卡 —— 而承载它
+ * 的那次调用（SendMessage）不是 agent.spawn 工具名，那张卡永远没人渲染。Go 侧
+ * handlers/subagent.go 的 adoptResumedSubagent 是同一条规矩。
+ *
+ * 只认已经有 overlay 的块：前台 bash 在 started 时就被跳过了，后续 progress/done
+ * 不该反过来给它补一个（那会污染后台任务面板）。
+ */
+function findSubagentHost(
+  st: State,
+  toolCallId: string,
+  taskId: string,
+): TranscriptBlock | undefined {
+  if (taskId) {
+    const byTask = findBlock(
+      st,
+      (b) => b.subagent?.taskId === taskId && b.type === "tool_use",
+    );
+    if (byTask) return byTask;
+  }
+  return findBlock(
+    st,
+    (b) => b.toolUseId === toolCallId && b.type === "tool_use" && !!b.subagent,
+  );
+}
+
+/**
+ * 这次派遣是不是后台的。两种工具的默认相反（判据与 Go 侧 isBackgroundSubagent、
+ * 前端 background-tasks/derive.ts 同源，读的都是发起它的 tool_use 入参）：
+ *   - local_agent（Agent）：默认后台，只有显式 run_in_background===false 才是前台；
+ *   - local_bash（Bash）：默认前台，只有显式 run_in_background===true 才是后台。
+ * 其它 kind（含空 kind 的旧帧）一律按前台处理。
+ */
+function isBackgroundSubagent(block: TranscriptBlock): boolean {
+  const explicit = block.toolInput?.run_in_background;
+  const bg = typeof explicit === "boolean" ? explicit : undefined;
+  switch (block.subagent?.kind) {
+    case "local_agent":
+      return bg !== false;
+    case "local_bash":
+      return bg === true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * 一轮正常收尾时，把仍挂在 waiting/running 的**前台**派遣翻成 canceled。
+ *
+ * 只翻前台：后台任务（默认后台的 Agent / run_in_background 的 Bash）本就有权活过
+ * 发起它的那一轮，跟着翻会让卡片显示「已停止」而任务其实还在跑（桌面端 sess-3275
+ * 就是这个）。不翻的话另一头也不行：等不到 done 的前台卡会永远转下去。
+ */
+function cancelRunningForegroundSubagents(st: State): void {
+  for (const msg of st.messages) {
+    for (const b of msg.blocks) {
+      const sa = b.subagent;
+      if (!sa || (sa.status !== "running" && sa.status !== "waiting")) continue;
+      if (isBackgroundSubagent(b)) continue;
+      sa.status = "canceled";
+      st.touched.add(msg);
+    }
+  }
+}
+
+/** 数字/文本累计态的零值守卫：0 与空串读作「这一帧没上报」，不覆盖已记录值。 */
+function mergeSubagentCounters(
+  into: TranscriptBlockSubagent,
+  info: Record<string, unknown>,
+): void {
+  // 刻意不叫 `t` —— 包里 `t("…")` 是 i18n 取文案的写法,i18n.test.tsx 的静态扫描
+  // 会把这里的局部取值当成翻译键,报「缺 zh-CN / 缺 en」。
+  const numOf = (key: string) =>
+    typeof info[key] === "number" ? (info[key] as number) : 0;
+  const textOf = (key: string) =>
+    typeof info[key] === "string" ? (info[key] as string) : "";
+  if (numOf("toolUses")) into.toolUses = numOf("toolUses");
+  if (numOf("totalTokens")) into.totalTokens = numOf("totalTokens");
+  if (numOf("durationMs")) into.durationMs = numOf("durationMs");
+  if (textOf("lastToolName")) into.lastToolName = textOf("lastToolName");
+  if (textOf("summary")) into.summary = textOf("summary");
+  if (textOf("mode")) into.mode = textOf("mode");
+  if (!into.taskId && textOf("taskId")) into.taskId = textOf("taskId");
+  if (Array.isArray(info.runs) && info.runs.length > 0) {
+    into.runs = info.runs as TranscriptBlockSubagent["runs"];
+  }
+}
+
 // ── 各 kind 的落点 ─────────────────────────────────────────────────────────
 
 function applyFrame(
@@ -321,12 +447,19 @@ function applyFrame(
     }
 
     case EventToolUseStart: {
-      openAssistant(st, sessionId).blocks.push({
+      const block: TranscriptBlock = {
         type: "tool_use",
         toolUseId: str(ev, "id") ?? "",
         toolName: str(ev, "name") ?? "",
         toolInput: record(ev, "input"),
-      });
+      };
+      // 内层（子代理里跑的）工具带父调用与 run id。带上它们，buildRenderItems 才会
+      // 把这些块从同级正文里摘走、归进父派遣卡的 STEPS —— 不带就是几十张裸工具卡
+      // 平铺在正文里，而派遣卡是空的。
+      attachNesting(block, ev);
+      const spawn = agentSpawnCanonical(ev);
+      if (spawn) block.canonical = spawn;
+      openAssistant(st, sessionId).blocks.push(block);
       return;
     }
 
@@ -334,12 +467,14 @@ function applyFrame(
       // 按 toolUseId 配对：一条助手消息可以同时起 Read + Grep，只看「最后一张
       // 未完成的卡」会把 Read 的输出挂到 Grep 上。包的 buildRenderItems 也是按
       // toolUseId 把入参与输出合成同一张卡的。
-      openAssistant(st, sessionId).blocks.push({
+      const block: TranscriptBlock = {
         type: "tool_result",
         toolUseId: str(ev, "toolCallId") ?? "",
         text: str(ev, "content") ?? "",
         isError: bool(ev, "isError") ?? false,
-      });
+      };
+      attachNesting(block, ev);
+      openAssistant(st, sessionId).blocks.push(block);
       return;
     }
 
@@ -523,6 +658,7 @@ function applyFrame(
         if (tokensPerSec) msg.tokensPerSec = tokensPerSec;
         applyUsage(msg, record(ev, "usage"), { final: true });
       }
+      cancelRunningForegroundSubagents(st);
       st.open = null;
       return;
     }
@@ -545,15 +681,104 @@ function applyFrame(
       // 真正的落点（比如首 token 之前的等待呈现）由那一轮决定，不在这里替它定。
       return;
 
-    // subagent 生命周期：桌面端累计进 SubagentStateBlock，再由 chat_svc 的投影
-    // 合并进外层那张 tool_use 卡（包的 ActivityBlock 渲染）。那套累计有自己的
-    // first-wins / abort 收尾规则，照搬需要连同规则一起搬 —— 本轮先如实不显，
-    // 而不是铺一张 JSON 卡假装展示了。
-    case EventSubagentStarted:
-    case EventSubagentProgress:
-    case EventSubagentDone:
-    case EventSubagentModel:
+    // subagent 生命周期：累计进外层那张 tool_use 卡的 `subagent`，由
+    // AgentSpawnCard 与桌面端读同一份字段。规则照搬 Go 侧
+    // chat_svc/handlers/subagent.go：前台 bash 不建 overlay、零值不覆盖、
+    // 模型 first-wins、同 task_id 换 tool call 归一到原卡。
+    case EventSubagentStarted: {
+      const toolCallId = str(ev, "toolCallId") ?? "";
+      const info = record(ev, "info");
+      const taskId = typeof info.taskId === "string" ? info.taskId : "";
+      const kind2 = typeof info.kind === "string" ? info.kind : "";
+      const status =
+        (typeof info.status === "string" && info.status) || "running";
+
+      // 恢复重开：同一个 task 换了 tool call，认领回原卡，不另起一张。被覆盖的
+      // 那一段终态收进 resumes —— 归一不等于把「失败发生过」抹掉。
+      const resumed = taskId
+        ? findBlock(
+            st,
+            (b) => b.subagent?.taskId === taskId && b.toolUseId !== toolCallId,
+          )
+        : undefined;
+      if (resumed?.subagent) {
+        resumed.subagent.resumes = [
+          ...(resumed.subagent.resumes ?? []),
+          {
+            status: resumed.subagent.status ?? "",
+            summary: resumed.subagent.summary,
+          },
+        ];
+        resumed.subagent.status = status;
+        resumed.subagent.summary = undefined;
+        return;
+      }
+
+      const host = findBlock(
+        st,
+        (b) => b.toolUseId === toolCallId && b.type === "tool_use",
+      );
+      if (!host) return;
+      // 真实 CLI 对*每一次* Bash 都发 local_bash 帧，但只有 run_in_background 的那些
+      // 才是后台任务；给普通前台 bash 挂 overlay 会污染后台任务面板。
+      if (
+        kind2 === "local_bash" &&
+        host.toolInput?.run_in_background !== true
+      ) {
+        return;
+      }
+      host.subagent = {
+        taskId,
+        kind: kind2 || undefined,
+        taskDescription:
+          typeof info.taskDescription === "string"
+            ? info.taskDescription
+            : undefined,
+        status,
+      };
+      mergeSubagentCounters(host.subagent, info);
       return;
+    }
+
+    case EventSubagentProgress: {
+      const info = record(ev, "info");
+      const host = findSubagentHost(
+        st,
+        str(ev, "toolCallId") ?? "",
+        typeof info.taskId === "string" ? info.taskId : "",
+      );
+      if (!host?.subagent) return;
+      if (typeof info.status === "string" && info.status) {
+        host.subagent.status = info.status;
+      }
+      mergeSubagentCounters(host.subagent, info);
+      return;
+    }
+
+    case EventSubagentDone: {
+      const info = record(ev, "info");
+      const host = findSubagentHost(
+        st,
+        str(ev, "toolCallId") ?? "",
+        typeof info.taskId === "string" ? info.taskId : "",
+      );
+      if (!host?.subagent) return;
+      host.subagent.status =
+        (typeof info.status === "string" && info.status) || "completed";
+      mergeSubagentCounters(host.subagent, info);
+      return;
+    }
+
+    case EventSubagentModel: {
+      const model = str(ev, "model");
+      if (!model) return;
+      const host = findSubagentHost(st, str(ev, "toolCallId") ?? "", "");
+      // first-wins：模型一经记录，后续内部帧（子代理内部用小模型做摘要那种）
+      // 不再改写。
+      if (!host?.subagent || host.subagent.model) return;
+      host.subagent.model = model;
+      return;
+    }
 
     case EventUnrecognizedBlock: {
       // 发送方读不懂的块。它与 default 分支的区别只在**是谁读不懂**:这一条是

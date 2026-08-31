@@ -888,3 +888,287 @@ describe("reduceFrames:done 上的零值", () => {
     expect(msg.tokensPerSec).toBeUndefined();
   });
 });
+
+/**
+ * subagent 派遣卡。此前这条路对四个 subagent 事件是**明确 return 不处理**的，
+ * 于是 server 与桌面 Peer Tab 上根本没有派遣卡 —— 桌面自己的会话有（Go 侧
+ * chat_svc/handlers/subagent.go 累计进 SubagentStateBlock，再投影进外层那张
+ * tool_use 卡），两个宿主同一个组件、不同的喂法，只有这一侧是空的。
+ *
+ * 对齐的判据是**同一张卡读得到同样的字段**：`AgentSpawnCard` 的 `readSpawn` 要
+ * `canonical.agentSpawn`（静态字段）叠 `block.subagent`（运行时累计），少任何一半
+ * 都渲染不出来。累计规则照搬 Go 那一份：零值不覆盖（R4/R10）、模型 first-wins（R3）、
+ * 前台 bash 不建 overlay、同 task_id 换 tool call 归一到原卡。
+ */
+describe("reduceFrames:subagent 派遣卡", () => {
+  const agentToolUse = (id: string, input: Record<string, unknown> = {}) =>
+    f({
+      kind: "tool_use_start",
+      id,
+      name: "Agent",
+      input,
+      canonical: {
+        kind: "agent.spawn",
+        taskDescription: "Fact-check spec",
+        subagentType: "general-purpose",
+        prompt: "go check",
+      },
+    });
+
+  it("给定 Agent 工具调用与它的生命周期帧，当归约，则外层那张卡同时拿到 canonical 与运行时累计", () => {
+    const [msg] = reduceFrames(
+      [
+        agentToolUse("tu-A"),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-A",
+          info: {
+            taskId: "T",
+            kind: "local_agent",
+            taskDescription: "Fact-check spec",
+          },
+        }),
+        f({
+          kind: "subagent_progress",
+          toolCallId: "tu-A",
+          info: {
+            taskId: "T",
+            toolUses: 12,
+            totalTokens: 3400,
+            lastToolName: "Read",
+          },
+        }),
+        f({
+          kind: "subagent_model",
+          toolCallId: "tu-A",
+          model: "claude-opus-5",
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-A",
+          info: {
+            taskId: "T",
+            status: "completed",
+            toolUses: 13,
+            durationMs: 4200,
+            summary: "报告",
+          },
+        }),
+      ],
+      SID,
+    );
+
+    const block = msg.blocks.find((b) => b.toolUseId === "tu-A");
+    expect(block?.canonical?.kind).toBe("agent.spawn");
+    expect(block?.canonical?.agentSpawn?.taskDescription).toBe(
+      "Fact-check spec",
+    );
+    expect(block?.subagent).toMatchObject({
+      taskId: "T",
+      kind: "local_agent",
+      status: "completed",
+      toolUses: 13,
+      totalTokens: 3400,
+      durationMs: 4200,
+      lastToolName: "Read",
+      model: "claude-opus-5",
+      summary: "报告",
+    });
+  });
+
+  it("给定子代理内层的工具帧，当归约，则带上父调用与 run id，好归进派遣卡的 STEPS", () => {
+    const [msg] = reduceFrames(
+      [
+        agentToolUse("tu-A"),
+        f({
+          kind: "tool_use_start",
+          id: "tu-inner",
+          name: "Read",
+          input: { file_path: "/a.md" },
+          parentToolCallId: "tu-A",
+          subagentRunId: "run-1",
+        }),
+        f({
+          kind: "tool_result",
+          toolCallId: "tu-inner",
+          content: "ok",
+          parentToolCallId: "tu-A",
+          subagentRunId: "run-1",
+        }),
+      ],
+      SID,
+    );
+
+    const use = msg.blocks.find(
+      (b) => b.toolUseId === "tu-inner" && b.type === "tool_use",
+    );
+    const result = msg.blocks.find(
+      (b) => b.toolUseId === "tu-inner" && b.type === "tool_result",
+    );
+    expect(use?.parentToolUseId).toBe("tu-A");
+    expect(use?.subagentRunId).toBe("run-1");
+    expect(result?.parentToolUseId).toBe("tu-A");
+    expect(result?.subagentRunId).toBe("run-1");
+  });
+
+  it("给定普通前台 Bash 的 task 帧，当归约，则不给它挂 overlay（否则污染后台任务面板）", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-bash",
+          name: "Bash",
+          input: { command: "ls" },
+        }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-bash",
+          info: { taskId: "B", kind: "local_bash" },
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-bash")?.subagent,
+    ).toBeUndefined();
+  });
+
+  it("给定 run_in_background 的 Bash，当归约，则照常建 overlay", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-bg",
+          name: "Bash",
+          input: { command: "sleep 20", run_in_background: true },
+        }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-bg",
+          info: { taskId: "B", kind: "local_bash" },
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-bg")?.subagent?.status,
+    ).toBe("running");
+  });
+
+  it("给定后续帧的计数是零值，当归约，则不抹掉已经攒起来的进度（protobuf 默认值读作「没上报」）", () => {
+    const [msg] = reduceFrames(
+      [
+        agentToolUse("tu-A"),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-A",
+          info: { taskId: "T", kind: "local_agent" },
+        }),
+        f({
+          kind: "subagent_progress",
+          toolCallId: "tu-A",
+          info: { taskId: "T", toolUses: 9, totalTokens: 900 },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-A",
+          info: {
+            taskId: "T",
+            status: "completed",
+            toolUses: 0,
+            totalTokens: 0,
+            durationMs: 0,
+            summary: "",
+          },
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-A")?.subagent,
+    ).toMatchObject({
+      status: "completed",
+      toolUses: 9,
+      totalTokens: 900,
+    });
+  });
+
+  it("给定同一个 task_id 换了新的 tool call（SendMessage 恢复），当归约，则归一到原卡并留下中断证据", () => {
+    const [msg] = reduceFrames(
+      [
+        agentToolUse("tu-A"),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-A",
+          info: { taskId: "T", kind: "local_agent" },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-A",
+          info: {
+            taskId: "T",
+            status: "failed",
+            toolUses: 61,
+            summary: "API error",
+          },
+        }),
+        f({
+          kind: "tool_use_start",
+          id: "tu-B",
+          name: "SendMessage",
+          input: { to: "spec-factcheck" },
+        }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-B",
+          info: { taskId: "T", kind: "local_agent" },
+        }),
+        f({
+          kind: "subagent_done",
+          toolCallId: "tu-B",
+          info: { taskId: "T", status: "completed", summary: "报告" },
+        }),
+      ],
+      SID,
+    );
+
+    const withOverlay = msg.blocks.filter((b) => b.subagent);
+    expect(withOverlay).toHaveLength(1);
+    expect(withOverlay[0].toolUseId).toBe("tu-A");
+    expect(withOverlay[0].subagent).toMatchObject({
+      status: "completed",
+      summary: "报告",
+      toolUses: 61,
+    });
+    expect(withOverlay[0].subagent?.resumes).toEqual([
+      { status: "failed", summary: "API error" },
+    ]);
+  });
+
+  it("给定一轮收尾时前台派遣还挂在 running，当归约，则翻成 canceled；后台的照常留着跑", () => {
+    const [msg] = reduceFrames(
+      [
+        agentToolUse("tu-fg", { run_in_background: false }),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-fg",
+          info: { taskId: "T1", kind: "local_agent" },
+        }),
+        agentToolUse("tu-bg"),
+        f({
+          kind: "subagent_started",
+          toolCallId: "tu-bg",
+          info: { taskId: "T2", kind: "local_agent" },
+        }),
+        f({ kind: "done" }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-fg")?.subagent?.status,
+    ).toBe("canceled");
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-bg")?.subagent?.status,
+    ).toBe("running");
+  });
+});
