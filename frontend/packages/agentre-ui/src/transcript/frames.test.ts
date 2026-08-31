@@ -1172,3 +1172,92 @@ describe("reduceFrames:subagent 派遣卡", () => {
     ).toBe("running");
   });
 });
+
+/**
+ * canonical 工具卡。wire 的 `ToolCall.canonical` 上不止 agent.spawn —— Go 侧
+ * `canonical.FromToolUse` 还会给 Write/Edit/MultiEdit/file_change/update_plan 挂上
+ * file.write / file.edit / plan.update。上一轮只接了 agent.spawn（派遣卡的前提），
+ * 其余 kind 仍落回裸工具卡：桌面端自己的会话看到的是 diff 卡，这条路看到的是一坨
+ * 入参 JSON，同一个 CanonicalToolRouter 两种呈现。
+ *
+ * 扁平→嵌套那一步对每种 kind 都一样：`view.CanonicalDTO` 的内层就是
+ * `canonical.MarshalTool` 扁平化之前的那个结构体本身，除掉 kind 之后逐字对应。
+ */
+describe("reduceFrames:canonical 工具卡", () => {
+  const toolUseWith = (canonicalPayload: Record<string, unknown>) =>
+    f({
+      kind: "tool_use_start",
+      id: "tu-1",
+      name: "Edit",
+      input: { file_path: "/a.ts" },
+      canonical: canonicalPayload,
+    });
+
+  it("给定 file.edit 的 canonical，当归约，则挂成嵌套的 fileEdit，diff 卡才画得出来", () => {
+    const [msg] = reduceFrames(
+      [
+        toolUseWith({
+          kind: "file.edit",
+          files: [{ path: "/a.ts", hunks: [{ oldStart: 1, newStart: 1 }] }],
+        }),
+      ],
+      SID,
+    );
+    const block = msg.blocks.find((b) => b.toolUseId === "tu-1");
+    expect(block?.canonical?.kind).toBe("file.edit");
+    expect(block?.canonical?.fileEdit?.files).toHaveLength(1);
+  });
+
+  it("给定 file.write 的 canonical，当归约，则挂成嵌套的 fileWrite", () => {
+    const [msg] = reduceFrames(
+      [toolUseWith({ kind: "file.write", path: "/b.ts", content: "hi" })],
+      SID,
+    );
+    const block = msg.blocks.find((b) => b.toolUseId === "tu-1");
+    expect(block?.canonical?.kind).toBe("file.write");
+    expect(block?.canonical?.fileWrite?.path).toBe("/b.ts");
+  });
+
+  it("给定 plan.update 的 canonical，当归约，则挂成嵌套的 planUpdate", () => {
+    const [msg] = reduceFrames(
+      [
+        toolUseWith({
+          kind: "plan.update",
+          steps: [{ id: "1", step: "查", status: "inProgress" }],
+        }),
+      ],
+      SID,
+    );
+    const block = msg.blocks.find((b) => b.toolUseId === "tu-1");
+    expect(block?.canonical?.kind).toBe("plan.update");
+    expect(block?.canonical?.planUpdate?.steps).toHaveLength(1);
+  });
+
+  it("给定词表外的 kind（比本仓新的对端），当归约，则不挂 canonical，退回裸工具卡而不是编一个空壳", () => {
+    const [msg] = reduceFrames(
+      [toolUseWith({ kind: "file.rename", from: "/a", to: "/b" })],
+      SID,
+    );
+    const block = msg.blocks.find((b) => b.toolUseId === "tu-1");
+    expect(block?.canonical).toBeUndefined();
+    // 入参照样在，卡片按普通工具渲染 —— 如实呈现，不隐藏（R8）。
+    expect(block?.toolInput).toEqual({ file_path: "/a.ts" });
+  });
+
+  it("给定没有 canonical 的普通工具，当归约，则不挂 canonical", () => {
+    const [msg] = reduceFrames(
+      [
+        f({
+          kind: "tool_use_start",
+          id: "tu-2",
+          name: "Bash",
+          input: { command: "ls" },
+        }),
+      ],
+      SID,
+    );
+    expect(
+      msg.blocks.find((b) => b.toolUseId === "tu-2")?.canonical,
+    ).toBeUndefined();
+  });
+});

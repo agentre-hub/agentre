@@ -45,7 +45,7 @@ import type {
   TranscriptBlockSubagent,
   TranscriptMessage,
 } from "./dto";
-import type { AgentSpawnDTO, CanonicalDTO } from "./canonical-tool/types";
+import type { CanonicalDTO } from "./canonical-tool/types";
 import {
   EventAskUserQuestion,
   EventAskUserQuestionAnswered,
@@ -297,21 +297,39 @@ function attachNesting(block: TranscriptBlock, ev: unknown): void {
 }
 
 /**
+ * kind → `CanonicalDTO` 上承载它的那个属性名。与 Go 侧
+ * `view.CanonicalDTO` 的 json 标签一一对应（chat_svc/view/chat_block.go）——
+ * 桌面端喂进来的就是那个结构体，两边必须同名，否则同一张卡一侧读得到一侧读不到。
+ */
+const CANONICAL_SLOTS: Readonly<Record<string, string>> = {
+  "file.write": "fileWrite",
+  "file.edit": "fileEdit",
+  "user.ask": "userAsk",
+  "plan.update": "planUpdate",
+  "plan.approve_request": "planApprove",
+  "agent.spawn": "agentSpawn",
+  "tool.permission": "toolPermission",
+};
+
+/**
  * wire 上的 canonical 是**扁平**的 `{kind, ...字段}`（Go 侧 canonical.MarshalTool
  * 把 Kind 与内嵌结构一起 marshal），而本包的 `CanonicalDTO` 是**嵌套**的
- * `{kind, agentSpawn:{…}}`（`AgentSpawnCard.readSpawn` 读的是后者）。这里做那一次
- * 转换 —— 除掉 kind 之后的字段名与 `AgentSpawnDTO` 逐字对应，不需要逐字段搬。
+ * `{kind, fileEdit:{…}}`（卡片读的是后者）。这里做那一次转换。
  *
- * **本轮只接 agent.spawn。** 同一个 bytes 字段上还有 file.edit / file.write /
- * tool_permission 等十来种 kind，接进来等于在一个我没有验证面的宿主上一次性改掉
- * 十种卡的呈现 —— 那是另一次对齐，要单独做、单独验。派遣卡必须要它，是因为
- * `readSpawn` 拿不到 `canonical.agentSpawn` 时直接返回 undefined，卡整张不渲染。
+ * 除掉 kind 之后不需要逐字段搬：`view.CanonicalDTO` 的内层就是扁平化之前的那个
+ * 结构体本身，字段名逐字相同。
+ *
+ * 词表外的 kind（比本仓新的对端）**不挂 canonical**，退回裸工具卡 —— 入参照样
+ * 在，如实呈现（R8）。编一个空壳出来只会让 CanonicalToolRouter 画一张读不出内容
+ * 的卡，比普通工具卡更糟。
  */
-function agentSpawnCanonical(ev: unknown): CanonicalDTO | undefined {
+function canonicalFromWire(ev: unknown): CanonicalDTO | undefined {
   const flat = obj(obj(ev)?.canonical);
-  if (!flat || flat.kind !== "agent.spawn") return undefined;
+  const kind = typeof flat?.kind === "string" ? flat.kind : "";
+  const slot = CANONICAL_SLOTS[kind];
+  if (!flat || !slot) return undefined;
   const { kind: _kind, ...rest } = flat;
-  return { kind: "agent.spawn", agentSpawn: rest as AgentSpawnDTO };
+  return { kind, [slot]: rest } as CanonicalDTO;
 }
 
 /**
@@ -457,8 +475,8 @@ function applyFrame(
       // 把这些块从同级正文里摘走、归进父派遣卡的 STEPS —— 不带就是几十张裸工具卡
       // 平铺在正文里，而派遣卡是空的。
       attachNesting(block, ev);
-      const spawn = agentSpawnCanonical(ev);
-      if (spawn) block.canonical = spawn;
+      const c = canonicalFromWire(ev);
+      if (c) block.canonical = c;
       openAssistant(st, sessionId).blocks.push(block);
       return;
     }
