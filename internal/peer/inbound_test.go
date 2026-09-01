@@ -620,3 +620,53 @@ func mustJSON(t *testing.T, value any) []byte {
 func convID(n int64) string {
 	return conversationid.Derive(conversationid.Namespace, "sha256:desktop", strconv.FormatInt(n, 10))
 }
+
+// TestInbound_GivenTheServerOpensTheReservedSignalChannel_WhenAFrameArrivesOnIt_ThenTheDesktopNeverAnswersOnThatChannel
+// 是决策 13/14 在**桌面端入站链路**这一侧的落地。
+//
+// 桌面端的入站对端链路拨的是与 agentred 同一个端点(/v1/relay/daemon,见
+// server_svc.NewInboundHubLink 与 relaytransport.defaultHubEndpoint),而服务端在
+// 那个端点上给**每一条**连接开一条保留通道运送账号信号。保留通道「只出不进」,
+// 也从不在它上面完成握手,所以它绝不能被包成一条 RPC 连接——那正是
+// daemon.serveRelayChannels 已经修好的那件事(daemon.go 的 SignalChannelID 分支),
+// 而入站链路这一侧漏了同一道判断。
+//
+// RED 之前:Inbound.serve 把 mux.Accept() 交出的每一条通道都无差别地包成
+// protorpc.Conn 并起 Serve,于是保留通道上的一帧会被当成 RPC 请求并收到应答。
+func TestInbound_GivenTheServerOpensTheReservedSignalChannel_WhenAFrameArrivesOnIt_ThenTheDesktopNeverAnswersOnThatChannel(t *testing.T) {
+	ws := startInboundPeer(t)
+
+	// 先证明这条物理连接活着、注册表照常作答:普通通道上一次未鉴权的调用要拿到
+	// Unauthorized。否则下面那个「读不到东西」的断言可能只是因为链路根本没起来。
+	alive := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`1`), Method: wire.MethodCapabilities,
+		Params: mustJSON(t, wire.CapabilitiesParams{BackendType: "claudecode"}),
+	})
+	require.NotNil(t, alive.Error)
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, alive.Error.Code)
+
+	// 服务端在保留通道上送来一帧。这里刻意送一个**合法的 RPC 请求**:如果这条通道
+	// 被当成了 RPC 连接,注册表一定会答;送一帧解不开的字节反而会被 protorpc 静默
+	// 丢弃,测不出差别。
+	methodID, requestMessage, _ := peerTestProtoMethod(t, wire.MethodCapabilities)
+	encodedRequest, err := proto.Marshal(requestMessage)
+	require.NoError(t, err)
+	signalFrame, err := proto.Marshal(&agentrewire.RpcFrame{
+		Id: 99, Body: &agentrewire.RpcFrame_Request{Request: &agentrewire.Request{
+			MethodId: methodID, EncodedPayload: encodedRequest,
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, ws.WriteMessage(websocket.BinaryMessage,
+		relayEnvelope(relaytransport.SignalChannelID, signalFrame)))
+
+	// 保留通道上不该有任何回程。读超时是本用例的通过条件,所以它必须是这条连接上
+	// 的**最后一次读**(gorilla 的读错误是粘的)。
+	require.NoError(t, ws.SetReadDeadline(time.Now().Add(500*time.Millisecond)))
+	_, payload, readErr := ws.ReadMessage()
+	if readErr == nil {
+		channelID, _ := unpackRelayEnvelope(t, payload)
+		t.Fatalf("保留通道上收到了回程(通道 %q):它被当成一条 RPC 连接了，"+
+			"而它只出不进、服务端也从不在它上面完成握手", channelID)
+	}
+}

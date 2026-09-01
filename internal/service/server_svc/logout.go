@@ -22,6 +22,9 @@ func (s *service) Logout(ctx context.Context) error {
 		return err
 	}
 	s.getClient().SetAccessToken("")
+	// 常驻中继连接只在登录态成立（规格「常驻与空闲宽限的冲突要裁决」）：不收掉它，
+	// 它会带着一个空凭据按退避一直重拨下去。下一次登录时 ensureRelay 重新懒建。
+	s.dropRelay()
 	s.emit(map[string]any{"kind": "logged_out", "reason": "user"})
 	return nil
 }

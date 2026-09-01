@@ -115,10 +115,30 @@ func TestResidentRelay_GivenAccountSignalSubscription_WhenBorrowingAMachine_Then
 		So(err, ShouldBeNil)
 		So(signals, ShouldNotBeNil)
 
+		// 规格「常驻与空闲宽限的冲突要裁决」明说的那个数字:**零台机器在线**时
+		// socket 总数仍然是 1,不是 0 —— 信号通道自己就是一个永不释放的使用方。
+		// 这一条必须断在借用任何机器**之前**:放在后面,「1」既可能是信号那一路撑
+		// 起来的,也可能是借用那一次拨出来的,两种实现都过得去。
+		waitForUpgrades(t, &upgrades, 1)
+
 		conn, err := svc.DialDaemonRelay(ctx, "sha256:machine-a", "sha256:desktop")
 		So(err, ShouldBeNil)
 		defer func() { _ = conn.Close() }()
 
 		So(int(upgrades.Load()), ShouldEqual, 1)
 	})
+}
+
+// waitForUpgrades 等到物理升级次数达到 want，然后断言它**正好**是 want。
+//
+// DialAccountChannel 只订阅、不等连接（信号是尽力而为的），所以物理拨号是异步
+// 的：直接断言会读到还没拨出去的 0。等到达之后再断相等，因此「多拨了一条」仍然
+// 是红的——等待只吸收时序，不放宽这个数字。
+func waitForUpgrades(t *testing.T, upgrades *atomic.Int32, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for upgrades.Load() < want && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	So(upgrades.Load(), ShouldEqual, want)
 }

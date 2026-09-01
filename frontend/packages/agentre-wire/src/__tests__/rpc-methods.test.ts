@@ -7,7 +7,6 @@ import {
   decodeRpcMethodResponse,
 } from "../index";
 
-
 // 线上对话身份是 uuid;这些用例要证的是"同一个值原样往返",取一个可读的固定值。
 const CONVERSATION_ID = "00000000-0000-7000-8000-000000000042";
 
@@ -30,7 +29,10 @@ describe("typed protobuf RPC methods", () => {
         case: "typedMethodRequest",
         methodId: 17,
         method: "runtimeRun",
-        value: expect.objectContaining({ conversationId: CONVERSATION_ID, userText: "hello" }),
+        value: expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          userText: "hello",
+        }),
       },
     });
   });
@@ -38,7 +40,10 @@ describe("typed protobuf RPC methods", () => {
   it("round-trips server production method families through typed descriptors", () => {
     const cases = [
       [rpcMethods.sessionPendingWaiters, { conversationId: CONVERSATION_ID }],
-      [rpcMethods.setModelTarget, { conversationId: CONVERSATION_ID, providerKey: "p" }],
+      [
+        rpcMethods.setModelTarget,
+        { conversationId: CONVERSATION_ID, providerKey: "p" },
+      ],
       [rpcMethods.runtimeCapabilities, { backendType: "claudecode" }],
       [rpcMethods.skillCatalog, { backendType: "claudecode" }],
       [rpcMethods.projectSetLocalPath, { projectSyncId: "p", path: "/tmp" }],

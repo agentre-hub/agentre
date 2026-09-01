@@ -72,7 +72,6 @@ import runParamsExtraFixture from "../../fixtures/run-params-extra.json";
 import runParamsFreshFixture from "../../fixtures/run-params-fresh.json";
 import sessionPullResultExtraFixture from "../../fixtures/session-pull-result-extra.json";
 
-
 // 线上对话身份是 uuid;这些用例要证的是"同一个值原样往返",取一个可读的固定值。
 const CONVERSATION_ID = "00000000-0000-7000-8000-000000000042";
 
@@ -918,7 +917,11 @@ describe("SteerParams 形状契约(手写,待补黄金样本)", () => {
   });
 
   it("未知字段原样保留(与其它帧同一条纪律)", () => {
-    const withExtra = { conversationId: CONVERSATION_ID, text: "继续", futureField: 7 };
+    const withExtra = {
+      conversationId: CONVERSATION_ID,
+      text: "继续",
+      futureField: 7,
+    };
     expect(JSON.parse(encodeSteerParams(decodeSteerParams(withExtra)))).toEqual(
       withExtra,
     );

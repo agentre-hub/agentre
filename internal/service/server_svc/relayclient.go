@@ -68,15 +68,17 @@ const accountChannelBuffer = 16
 // 等长的 ctx 上,不随某一条虚拟通道的借用/归还而起停 —— 借用一台机器只多开/关一条
 // 虚拟通道,绝不触碰这条物理连接。
 //
-// 它没有显式的登出收尾钩子:internal/app/peer.go 的 onServerStateEvent 才是登录
-// 态变化的唯一入口,但它不在本任务的改动面内(T9 files 未列 internal/app/)。因此
-// 登出后这条物理连接的收尾只能依赖两件已有的事:服务端自己的连接守卫
-// (relay_ctr.connectionGuard 在账号闸门/凭据复核失败时主动断开已建好的连接)、
-// 以及下一次成功登录时 ensureRelay 的 provider 闭包读到新凭据、新一轮物理重拨
-// 自然换成新身份。这是一处已知的、需要人工核实的行为边界,见收尾报告。
+// 「常驻」的条件是**登录态**而不是进程活着(规格「常驻与空闲宽限的冲突要裁决」):
+// 登出由 Logout 调 dropRelay 把它整条收掉,下一次登录时 ensureRelay 重新懒建。
+// 换账号必然经过登出(StartLogin 对已登录的桌面端直接拒绝,见 login.go),所以
+// 「换了服务端而旧 socket 还挂在旧账号上」那条路由构造不存在。
 type residentRelay struct {
 	link *relaytransport.HubLink
 	mux  *relaytransport.Multiplexer
+	// stop 收掉这条常驻连接。常驻的条件是**登录态**（规格「常驻与空闲宽限的冲突
+	// 要裁决」），不是进程活着：登出之后凭据提供者交回空串，再拨下去就是一串注定
+	// 401 的、不带身份的请求。见 service.dropRelay。
+	stop context.CancelFunc
 
 	subMu sync.Mutex
 	subs  map[chan syncwire.AccountChannelFrame]struct{}
@@ -96,8 +98,8 @@ type residentRelay struct {
 }
 
 // newResidentRelay 构造并立刻启动一条常驻中继客户端连接。ctx 决定它的寿命——
-// ensureRelay 用 context.Background():这条连接与进程等长,不与某一次调用方的
-// 请求 ctx 绑定。
+// ensureRelay 交进来的是一个只由登出(dropRelay)取消的 ctx:这条连接与**登录态**
+// 等长,不与某一次调用方的请求 ctx 绑定。
 func newResidentRelay(ctx context.Context, hubOpts relaytransport.HubLinkOptions) *residentRelay {
 	hubOpts.Endpoint = relayClientEndpoint
 	link := relaytransport.NewHubLink(hubOpts)
@@ -126,6 +128,16 @@ func newResidentRelay(ctx context.Context, hubOpts relaytransport.HubLinkOptions
 	go func() { _ = link.Run(ctx) }()
 	go r.serveAccepted(ctx)
 	return r
+}
+
+// close 收掉这条常驻连接:停掉重连循环与 mux,再把订阅者一并关掉,让
+// sync_svc 那条读循环退出(它按流关闭理解为「这一路没了」)。
+func (r *residentRelay) close() {
+	if r.stop != nil {
+		r.stop()
+	}
+	r.mux.Close()
+	r.closeAllSubs()
 }
 
 // waitConnected 阻塞到这条常驻连接真的建起来,或 ctx 先结束。
@@ -166,7 +178,16 @@ func (r *residentRelay) serveAccepted(ctx context.Context) {
 // serveSignal 把保留通道上的帧解码后广播给当前全部订阅者,直到通道关闭。未知帧被
 // 忽略而不是当作协议错误:通道日后会承载别的信号种类,旧构建不该因此把这条它还
 // 认得的通道判死。
+//
+// 通道走到头就把订阅者一起关掉。服务端订阅建不起来时**只**关这一条保留通道
+// (relay_ctr.signalUnavailable 写一帧通道级错误 + 一帧空载荷),物理连接照常服务
+// RPC —— 因此链路级的断线收尾在这种情况下不会跑,而规格要求客户端「只把信号那一路
+// 标为不可用并退回 30 秒轮询」。不关订阅者的话 sync_svc.consumeAccountSignals 会
+// 一直阻塞在一条再也不会有帧的流上:失败被无声吞掉,而不是被标出来。
+//
+// closeAllSubs 先换掉整张表再逐个 close,所以它与断线收尾各跑一次也不会重复关闭。
 func (r *residentRelay) serveSignal(channel relaytransport.PayloadChannel) {
+	defer r.closeAllSubs()
 	for {
 		payload, err := channel.ReadPayload()
 		if err != nil {
@@ -268,12 +289,29 @@ func (s *service) ensureRelay(ctx context.Context) (*residentRelay, error) {
 	if s.relay != nil {
 		return s.relay, nil
 	}
-	relay := newResidentRelay(context.Background(), relaytransport.HubLinkOptions{
+	relayCtx, stop := context.WithCancel(context.Background())
+	relay := newResidentRelay(relayCtx, relaytransport.HubLinkOptions{
 		ServerURLProvider:   s.relayBaseURL,
 		AccessTokenProvider: s.AccessToken,
 	})
+	relay.stop = stop
 	s.relay = relay
 	return relay, nil
+}
+
+// dropRelay 收掉这台桌面端的常驻中继连接（如果有）。
+//
+// 登出时调用:常驻只在登录态成立。不收的话这条连接会挂在 context.Background() 上
+// 一直活到进程退出,而登出之后 AccessTokenProvider 交回空串——每一次重拨都是一次
+// 注定 401 的、不带身份的网络请求。下一次登录由 ensureRelay 重新懒建一条。
+func (s *service) dropRelay() {
+	s.mu.Lock()
+	relay := s.relay
+	s.relay = nil
+	s.mu.Unlock()
+	if relay != nil {
+		relay.close()
+	}
 }
 
 // relayBaseURL 在每次(重)拨号时重新取当前 baseURL——与 AccessToken() 同一模式,

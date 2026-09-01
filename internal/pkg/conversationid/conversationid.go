@@ -8,9 +8,12 @@
 //   - Derive() 按 UUIDv5 派生,给**存量**对话回填。桌面端与 server 各持一份存量、
 //     迁移时互不通信,只有确定性派生才能让两边独立算出同一个值。
 //
-// 本包在三个仓库里各有一份**逐字相同**的拷贝(agentre / agentre-server /
-// agentre-hub)。Namespace 与 Derive 的拼接方式是跨仓库契约:改动其中任何一处,
-// 三边就会给同一条对话算出不同的 uuid,镜像存量全体成孤儿。
+// Namespace 与 Derive 的拼接方式是**跨仓库契约**:凡是持有一份对话存量的仓库都
+// 要按同一个规则算,改动其中任何一处,两边就会给同一条对话算出不同的 uuid,镜像
+// 存量全体成孤儿。今天持有存量的是两个仓库 —— 本仓库(桌面端 + agentred)与
+// agentre-server(四张镜像表),后者有一份逐字相同的 Namespace/Derive 拷贝;
+// agentre-hub 里没有对话这个概念,因此也没有这一份。契约靠两边各自那组**逐字相同
+// 的向量**钉住(conversationid_test.go),不靠约定。
 package conversationid
 
 import (
@@ -20,7 +23,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// Namespace 是派生存量 conversation_id 用的 UUIDv5 命名空间,三个仓库共用同一个值。
+// Namespace 是派生存量 conversation_id 用的 UUIDv5 命名空间,持有对话存量的仓库
+// 共用同一个值(本仓库与 agentre-server)。
 //
 // 取值可复算:UUIDv5(uuid.NameSpaceURL, "https://agentre.dev/ns/conversation")。
 // 之所以钉成字面量而不是每次现算,是因为它是跨仓库、跨版本的常量 —— 字面量能被
@@ -48,7 +52,8 @@ func New() (string, error) {
 // peer_fingerprint 那一列的值,不是执行端 daemon 自己的实例指纹;取错则两边算出
 // 不同的 uuid。两段之间垫一个 NUL:少了它,("ab","1") 与 ("a","b1") 会撞成同一条。
 //
-// 同一组输入永远得到同一个输出,因此回填可以重跑、可以分批、可以在三个仓库里各跑一遍。
+// 同一组输入永远得到同一个输出,因此回填可以重跑、可以分批、可以在每个持有存量的
+// 仓库里各跑一遍。
 func Derive(namespace uuid.UUID, peerFingerprint, peerSessionID string) string {
 	name := make([]byte, 0, len(peerFingerprint)+1+len(peerSessionID))
 	name = append(name, peerFingerprint...)

@@ -11,7 +11,6 @@ import {
   sessionListFromProtobuf,
 } from "../protobuf-domain";
 
-
 // 线上对话身份是 uuid;这些用例要证的是"同一个值原样往返",取一个可读的固定值。
 const CONVERSATION_ID = "00000000-0000-7000-8000-000000000042";
 
@@ -41,7 +40,9 @@ describe("protobuf response to domain wire", () => {
   });
 
   it("given a real runtime.run protobuf ACK, then its conversation id crosses unchanged", () => {
-    const response = create(RuntimeRunResponseSchema, { conversationId: CONVERSATION_ID });
+    const response = create(RuntimeRunResponseSchema, {
+      conversationId: CONVERSATION_ID,
+    });
 
     expect(runAckFromProtobuf(response).conversationId).toBe(CONVERSATION_ID);
   });

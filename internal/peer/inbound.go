@@ -67,8 +67,31 @@ func (p *Inbound) serve(ctx context.Context) {
 			if channel == nil {
 				return
 			}
+			if channel.ID() == relaytransport.SignalChannelID {
+				go drainReservedChannel(channel)
+				continue
+			}
 			conn := protorpc.NewConn(protorpc.NewPayloadFrameConn(channel), p.protobufRegistry.Clone())
 			go conn.Serve(ctx)
+		}
+	}
+}
+
+// drainReservedChannel 读掉并丢弃保留通道上的帧（决策 13/14）。
+//
+// 这条入站链路拨的是与 agentred 同一个端点（/v1/relay/daemon），而服务端在那个
+// 端点上给每一条连接都开一条保留通道运送账号信号。桌面端在这里**不消费**它：
+// 账号信号由这台桌面端唯一的常驻中继客户端连接送达（server_svc 的
+// residentRelay.serveSignal），在入站链路上再消费一份只会让同一条信号触发两次
+// 同步。要紧的是它绝不能被包成一条 RPC 连接——保留通道只出不进，服务端也从不在
+// 它上面完成握手，把它交给注册表就等于让一条没有鉴权的通道去答 RPC。
+//
+// 读到底而不是当场 Close：关掉它会让服务端那侧的信号写入失败，而这条通道对本端
+// 无害；连接收尾时 mux 会一并清掉它。
+func drainReservedChannel(channel relaytransport.PayloadChannel) {
+	for {
+		if _, err := channel.ReadPayload(); err != nil {
+			return
 		}
 	}
 }

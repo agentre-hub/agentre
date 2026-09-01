@@ -18,7 +18,6 @@ import { describe, expect, it } from "vitest";
 import { ProtobufRpcCodec } from "../rpc";
 import { RuntimeEventNotificationSchema } from "../gen/agentre/wire/wire_pb";
 
-
 // 线上对话身份是 uuid;这些用例要证的是"同一个值原样往返",取一个可读的固定值。
 const CONVERSATION_ID = "00000000-0000-7000-8000-000000000042";
 
