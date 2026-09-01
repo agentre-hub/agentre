@@ -3053,6 +3053,19 @@ func TestIntegration_SessionCatchup_PendingWaitersNeverCrossPeers(t *testing.T) 
 	assert.Empty(t, runner.deliveredIDs(),
 		"另一个对端替正主提交了审批 —— 正主的子进程会把它当成机主本人点的允许")
 
+	// ②′ 同一件事,但**点名正主那条对话的 uuid**。步骤 ② 用的是 other 自己那条对话,
+	// 构造不出这个状态。它钉的是身份收缩之后真正剩下的那条路:backend 的会话键现在只由
+	// conversation_id 折出来、不再含对端(见 resolveSessionCapability),所以「知道那个
+	// uuid 的人摸不到那一轮」只剩一道闸 —— 接管的唯一入口 session.attach 按对端收窄。
+	// 这一条把那道闸的后果钉在 RPC 边界上:哪天它被放宽,这里会红。
+	var crossOK wire.OK
+	require.NoError(t, callRig(t, other, wire.MethodSubmitToolPermission,
+		wire.SubmitToolPermissionParams{
+			ConversationID: convID(ownerSID), RequestID: "req-of-the-owner", Allow: true,
+		}, &crossOK))
+	assert.Empty(t, runner.deliveredIDs(),
+		"另一个对端点名正主那条对话就替他答了审批 —— 控制 RPC 缺一次归属复核")
+
 	// ③ 旧的「同号会话」构造已经构造不出:线上再也放不进一个裸会话号,RPC 边界以
 	// 「参数不合法」把它挡在解析之前 —— 那条泄漏路径不是被更好地防住了,是没有了。
 	var rejected wire.SessionPendingWaitersResult

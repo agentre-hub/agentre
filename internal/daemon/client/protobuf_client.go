@@ -85,13 +85,17 @@ func classifyRelayDialError(err error, resp *http.Response) error {
 	}
 }
 
-// peerProtocolVersionError renders the one rejection every handshake shares.
+// PeerProtocolVersionError renders the one rejection every handshake shares.
 //
 // The empty string is not a pass: proto3 gives an absent field the same zero
 // value as an explicitly empty one, so a pre-versioning agentred reports "" and
 // has to be named as such — "could not reach agentred" would send the user
 // hunting the network instead of running `make agentred-deploy`.
-func peerProtocolVersionError(peerProtocol, peerMinSupported string) error {
+//
+// 它是导出的,因为并非每一次握手都走本包:server_svc 的中继客户端在一条虚拟通道上
+// 手工收发 auth.account(要拿到通道级错误码),它同样必须过这个窗口。窗口的判法只
+// 该有一处定义 —— 复制一份就是让两条握手路各有各的「算不算兼容」。
+func PeerProtocolVersionError(peerProtocol, peerMinSupported string) error {
 	reason := wireversion.Reject(peerProtocol, peerMinSupported)
 	if reason == "" {
 		return nil
@@ -99,11 +103,13 @@ func peerProtocolVersionError(peerProtocol, peerMinSupported string) error {
 	return fmt.Errorf("%w: %s", ErrPeerProtocolVersionMismatch, reason)
 }
 
-// classifyHandshakeError folds the peer's own version rejection back into the
+// ClassifyHandshakeError folds the peer's own version rejection back into the
 // local sentinel, so both directions of the same disagreement read the same to
 // callers: the daemon refuses us with rpcerror.CodeProtocolVersion, we refuse
 // the daemon by inspecting its response.
-func classifyHandshakeError(err error) error {
+//
+// 导出的理由同 PeerProtocolVersionError:中继客户端那条手工握手也要折同一个弯。
+func ClassifyHandshakeError(err error) error {
 	var rpcErr *rpcerror.Error
 	if errors.As(err, &rpcErr) && rpcErr.Code == rpcerror.CodeProtocolVersion {
 		return fmt.Errorf("%w: %s (this build accepts protocol versions %s to %s)", ErrPeerProtocolVersionMismatch, rpcErr.Message, wireversion.MinSupported, wireversion.Protocol)
@@ -282,9 +288,9 @@ func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.A
 		func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} },
 	)
 	if err != nil {
-		return nil, classifyHandshakeError(err)
+		return nil, ClassifyHandshakeError(err)
 	}
-	if versionErr := peerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	// Mode C 的本端身份**由对端认定**:请求体里已经没有指纹可报,对端从已验签的凭据
@@ -301,9 +307,9 @@ func (c *ProtobufClient) AuthPair(ctx context.Context, request *agentrewire.Auth
 	response, err := protorpc.CallMethod(ctx, c.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR), request,
 		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
 	if err != nil {
-		return nil, classifyHandshakeError(err)
+		return nil, ClassifyHandshakeError(err)
 	}
-	if versionErr := peerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	return response, nil
@@ -316,9 +322,9 @@ func (c *ProtobufClient) AuthConnect(ctx context.Context, request *agentrewire.A
 	response, err := protorpc.CallMethod(ctx, c.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT), request,
 		func() *agentrewire.AuthConnectResponse { return &agentrewire.AuthConnectResponse{} })
 	if err != nil {
-		return nil, classifyHandshakeError(err)
+		return nil, ClassifyHandshakeError(err)
 	}
-	if versionErr := peerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
 		return nil, versionErr
 	}
 	return response, nil

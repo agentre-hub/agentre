@@ -1473,7 +1473,7 @@ func TestRuntime_Run_ProviderLookupMissing_ReturnsProviderMissingCode(t *testing
 	}
 	lookup.EXPECT().FindByKey(ctx, "missing-key").Return(nil, errors.New("provider missing-key not configured"))
 
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be)})
+	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(73)})
 	require.Error(t, err)
 
 	var rpcErr *rpcerror.Error
@@ -4044,4 +4044,27 @@ func TestRuntime_Run_DoneFrameCarriesTurnStats(t *testing.T) {
 // 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
 func convID(n int64) string {
 	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
+}
+
+// Given 线上给来的 conversation_id 不是一条对话身份（空串 / 旧的整数会话号），
+// When 对端起一轮，Then runtime.run 与它的八个兄弟处理器一样在边界上拒掉。
+//
+// 只有 Run 漏了这道校验。放行的后果不是「这一轮失败」而是**串账**：身份键收缩到
+// conversation_id 之后，daemon_sessions 的主键就是它，空串于是成了一个人人都能写的
+// 合法主键——每个这么发的对端都落在同一行上，通知日志也共用 (” , seq) 那一串序号，
+// 谁也读不回自己的转录。
+func TestRuntime_Run_GivenAConversationIDThatIsNotOne_ThenItIsRejectedAtTheBoundary(t *testing.T) {
+	for _, conversationID := range []string{"", "42", "not-a-uuid"} {
+		t.Run(conversationID, func(t *testing.T) {
+			rt := &fullRT{}
+			ctx, _, _, _, h := setupRuntimeTest(t, rt)
+			be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+
+			_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: conversationID})
+			require.Error(t, err)
+			var rpcErr *rpcerror.Error
+			require.ErrorAs(t, err, &rpcErr)
+			assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code)
+		})
+	}
 }

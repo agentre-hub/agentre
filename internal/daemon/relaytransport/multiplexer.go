@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -162,7 +163,7 @@ func (m *Multiplexer) dispatch(frame HubFrame) {
 		channel := m.channels[id]
 		m.mu.Unlock()
 		if channel != nil {
-			m.closeChannel(channel)
+			m.closeChannelSilently(channel)
 		}
 		return
 	}
@@ -208,13 +209,40 @@ func (m *Multiplexer) onDisconnect(error) {
 		channel.markClosed()
 	}
 }
+
+// closeChannel 关掉一条通道,并告诉对端这条通道没了 —— 一帧空载荷,与对端关通道时
+// 用的是同一个约定(agentre-server relay_svc.UnwrapEnvelope 的注释)。
+//
+// 这一帧不是可有可无的礼貌。目标从连接级降到通道级、且两端各自收拢成一条常驻物理
+// 连接之后,通道的关闭再没有别的信号可依:从前一条通道就是一条物理 WebSocket,关掉
+// 它对端立刻知道。不发的话,account server 那侧的通道登记(clientChannels.open、帧
+// 总线附着、在线登记与它那条定期续期的 goroutine)要等整条常驻连接断掉才回收,而它
+// 按设计与登录态等长 —— 每借还一台机器就漏一份。
 func (m *Multiplexer) closeChannel(channel *VirtualChannel) {
+	m.closeChannelWith(channel, true)
+}
+
+// closeChannelSilently 只在本端收尾。对端先发空载荷关的通道走这一条:它已经知道,
+// 回一帧只会在两侧之间来回弹。
+func (m *Multiplexer) closeChannelSilently(channel *VirtualChannel) {
+	m.closeChannelWith(channel, false)
+}
+
+func (m *Multiplexer) closeChannelWith(channel *VirtualChannel, notify bool) {
 	m.mu.Lock()
-	if m.channels[channel.id] == channel {
+	active := m.channels[channel.id] == channel
+	if active {
 		delete(m.channels, channel.id)
 		m.retireLocked(channel.id)
 	}
+	// 断线时不发:链路已经没了,而对端那侧的整条连接收尾会一并清掉全部通道。
+	connected := m.connected && !m.closed
 	m.mu.Unlock()
+	// 保留通道只出不进(决策 14):往它写任何东西——包括这一帧关闭信号——服务端都按
+	// 协议违例处理,而它本来就是服务端开、服务端关的。
+	if active && notify && connected && !strings.HasPrefix(channel.id, ReservedChannelPrefix) {
+		_ = m.hub.Send(websocket.BinaryMessage, marshalRelayEnvelope(channel.id, nil))
+	}
 	channel.markClosed()
 }
 

@@ -314,6 +314,12 @@ func (h *RuntimeHandlers) Capabilities(_ context.Context, p wire.CapabilitiesPar
 // ── Run ─────────────────────────────────────────────────────────────────────
 
 func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAck, error) {
+	// 身份键收缩到 conversation_id 之后,daemon_sessions 的主键就是它:线上给来的
+	// 空串是一个人人都写得进的合法主键,每个这么发的对端都会落在同一行上,通知日志
+	// 也共用 ('' , seq) 那一串序号。与另外八个按对话寻址的处理器一样,在边界上拒掉。
+	if err := ErrInvalidConversationID(p.ConversationID); err != nil {
+		return wire.RunAck{}, err
+	}
 	var be agent_backend_entity.AgentBackend
 	if err := json.Unmarshal(p.Backend, &be); err != nil {
 		return wire.RunAck{}, fmt.Errorf("parse backend: %w", err)
@@ -1218,8 +1224,13 @@ func runResultToFrame(conversationID string, r *agentruntime.RunResult) wire.Run
 }
 
 // resolveSessionCapability 解出该会话的 backend 能力,并**一并交回要用来调用它的那个
-// 会话键**(按对端隔离,见 runtimeSessionID)。两样东西一起返回是有意的:控制 RPC 全都
-// 「先解会话,再调 backend」,分两次各取一次就有机会解的是隔离键、调的却是客户端裸 id。
+// 会话键**(runtimeSessionID)。两样东西一起返回是有意的:控制 RPC 全都「先解会话,再调
+// backend」,分两次各取一次就有机会解的是折算键、调的却是客户端裸 id。
+//
+// 会话键**不再含对端**:身份收缩到 conversation_id 之后它只由那个 uuid 折出来。因此
+// 对端隔离不在这一层,而在 h.sessions 只认本连接接管过的会话 —— 而接管的唯一入口
+// session.attach 走的是按对端收窄的 catchup.findSession(Sessions.Find(peer, cid))。
+// 一个对端摸不到别人那一轮,靠的是那道闸;删掉或放宽它,这里就没有第二道了。
 func resolveSessionCapability[T any](ctx context.Context, h *RuntimeHandlers, conversationID string, originPeer string) (T, int64, error) {
 	var zero T
 	if err := ErrInvalidConversationID(conversationID); err != nil {

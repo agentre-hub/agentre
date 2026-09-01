@@ -157,6 +157,12 @@ func TestMultiplexer_GivenOneClosedChannel_WhenAnotherUsesRelay_ThenDoesNotReope
 	open, err := mux.Open()
 	require.NoError(t, err)
 	require.NoError(t, closed.Close())
+	// 关掉一条通道会先往对端发一帧空载荷（见 closeChannel）：这里把它读掉，后面那
+	// 一帧才是 open 自己写的。
+	closedID, closedPayload, err := unmarshalRelayEnvelope(receiveFrame(t, hub).Payload)
+	require.NoError(t, err)
+	require.Equal(t, closed.ID(), closedID)
+	require.Empty(t, closedPayload)
 	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: marshalRelayEnvelope(closed.ID(), []byte{1})}
 	select {
 	case recreated := <-mux.Accept():
@@ -318,4 +324,64 @@ func TestMultiplexer_DisconnectStillClearsRetired(t *testing.T) {
 
 	mux.onDisconnect(io.EOF)
 	require.Equal(t, 0, mux.retiredLen())
+}
+
+// Given 本端自己关掉一条虚拟通道，Then 对端收到一帧空载荷（「这条通道关了」，与
+// 服务端关通道时用的是同一个约定）。
+//
+// 目标从连接级降到通道级、且两端各自收拢成一条常驻物理连接之后，通道的关闭再也
+// 没有别的信号可依：从前一条通道就是一条物理 WebSocket，Close 掉它对端立刻知道。
+// 现在不发这一帧，account server 那侧的通道登记（clientChannels.open、帧总线附着、
+// 在线登记与它那条每 5 秒续期的 goroutine）要等整条常驻连接断掉才回收——而它按设计
+// 与登录态等长。每借还一台机器就漏一份。
+func TestMultiplexer_GivenALocallyClosedChannel_ThenThePeerIsToldWithAnEmptyEnvelope(t *testing.T) {
+	hub := newMultiplexerHubStub()
+	mux := newMultiplexer(hub)
+	defer mux.Close()
+	hub.dial()
+
+	channel, err := mux.Open()
+	require.NoError(t, err)
+	require.NoError(t, channel.WritePayload([]byte("hello")))
+	first := <-hub.sent
+	gotID, gotPayload, err := unmarshalRelayEnvelope(first.Payload)
+	require.NoError(t, err)
+	require.Equal(t, channel.ID(), gotID)
+	require.Equal(t, []byte("hello"), gotPayload)
+
+	require.NoError(t, channel.Close())
+
+	select {
+	case frame := <-hub.sent:
+		id, payload, err := unmarshalRelayEnvelope(frame.Payload)
+		require.NoError(t, err)
+		assert.Equal(t, channel.ID(), id)
+		assert.Empty(t, payload, "关闭通道要发一帧空载荷，对端据此回收它那侧的登记")
+	case <-time.After(time.Second):
+		t.Fatal("closing a channel sent nothing upstream: the peer never learns this channel is gone")
+	}
+}
+
+// Given 是**对端**先发空载荷关掉这条通道，Then 本端不再回一帧空载荷：对端已经知道
+// 了，回一帧只会在两侧之间来回弹，而这个号在本端已经进了 retired 表。
+func TestMultiplexer_GivenTheChannelWasClosedByThePeer_ThenNothingIsEchoedBack(t *testing.T) {
+	hub := newMultiplexerHubStub()
+	mux := newMultiplexer(hub)
+	defer mux.Close()
+	hub.dial()
+
+	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage,
+		Payload: marshalRelayEnvelope("srv-1", []byte("first"))}
+	channel := <-mux.Accept()
+	require.Equal(t, "srv-1", channel.ID())
+
+	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage,
+		Payload: marshalRelayEnvelope("srv-1", nil)}
+	<-channel.Done()
+
+	select {
+	case frame := <-hub.sent:
+		t.Fatalf("echoed a frame back after the peer closed the channel: %q", frame.Payload)
+	case <-time.After(200 * time.Millisecond):
+	}
 }

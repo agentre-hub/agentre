@@ -57,6 +57,13 @@ func unwrapRelayEnvelope(t *testing.T, envelope []byte) (string, []byte) {
 type relayClientTarget struct {
 	// channelCode 非零时,这条通道以该通道级错误码失败(决策 10)。
 	channelCode int32
+	// protocolVersion / minSupportedProtocolVersion 非空时覆盖 auth.account 应答里
+	// 的版本窗口,用来构造一个本端不接受的对端。空则按本端自己的窗口作答(兼容)。
+	protocolVersion             string
+	minSupportedProtocolVersion string
+	// stall 为 true 时通道开得起来,但服务端永远不答 auth.account 那一帧 —— 用来
+	// 构造「握手挂着不动」这个状态。
+	stall bool
 }
 
 // relayClientEndpointServer 起一个假的中继**客户端**入口(/v1/relay/client):校验
@@ -77,6 +84,7 @@ func relayClientEndpointServer(t *testing.T, bearer string, respond func(target 
 		}
 		defer func() { _ = ws.Close() }()
 		opened := map[string]bool{}
+		outcomes := map[string]relayClientTarget{}
 		for {
 			messageType, payload, readErr := ws.ReadMessage()
 			if readErr != nil {
@@ -93,6 +101,7 @@ func relayClientEndpointServer(t *testing.T, bearer string, respond func(target 
 				if respond != nil {
 					outcome = respond(string(inner))
 				}
+				outcomes[channelID] = outcome
 				if outcome.channelCode != 0 {
 					errFrame, _ := proto.Marshal(&agentrewire.RpcFrame{Body: &agentrewire.RpcFrame_Error{
 						Error: &agentrewire.RpcError{Code: outcome.channelCode, Message: "channel failed"},
@@ -104,13 +113,24 @@ func relayClientEndpointServer(t *testing.T, bearer string, respond func(target 
 				continue
 			}
 			// 第二帧:auth.account 请求。
+			outcome := outcomes[channelID]
+			if outcome.stall {
+				continue
+			}
 			var frame agentrewire.RpcFrame
 			if proto.Unmarshal(inner, &frame) != nil {
 				continue
 			}
+			peerProtocol, peerMinSupported := outcome.protocolVersion, outcome.minSupportedProtocolVersion
+			if peerProtocol == "" {
+				peerProtocol = wireversion.Protocol
+			}
+			if peerMinSupported == "" {
+				peerMinSupported = wireversion.MinSupported
+			}
 			response, _ := proto.Marshal(&agentrewire.AuthAccountResponse{
-				Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: wireversion.Protocol,
-				MinSupportedProtocolVersion: wireversion.MinSupported, PeerFingerprint: "sha256:desktop",
+				Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: peerProtocol,
+				MinSupportedProtocolVersion: peerMinSupported, PeerFingerprint: "sha256:desktop",
 			})
 			respFrame, _ := proto.Marshal(&agentrewire.RpcFrame{Id: frame.GetId(), Body: &agentrewire.RpcFrame_Response{
 				Response: &agentrewire.Response{MethodId: frame.GetRequest().GetMethodId(), EncodedPayload: response},
@@ -293,5 +313,83 @@ func TestDialDaemonRelay_LoggedInDialAndHandshake(t *testing.T) {
 		So(c.SelfFingerprint(), ShouldEqual, "sha256:desktop")
 		So(*gotTargets, ShouldContain, "machine:sha256:daemon")
 		_ = c.Close()
+	})
+}
+
+// Given 中继那一端的对端(agentred / 另一台桌面端)说的是本端窗口之外的协议版本,
+// When 桌面端在常驻连接的一条虚拟通道上完成 auth.account,Then 握手必须以
+// client.ErrPeerProtocolVersionMismatch 拒绝。
+//
+// 直连与 LAN 的三处握手(client.AuthAccount / AuthPair / AuthDevice)一直是这么做的;
+// 中继客户端这一条在决策 13 改成手工发帧之后漏掉了这一步:版本不合的对端会被当成
+// 握手成功,直到后面某个字段解不出来才炸,报出来的是一句与「该升级了」毫无关系的话。
+func TestDialDaemonRelay_GivenTheTargetAnswersWithAnIncompatibleProtocolVersion_ThenTheHandshakeIsRejected(t *testing.T) {
+	Convey("中继通道上的 auth.account 也要过版本窗口", t, func() {
+		srv, _ := relayClientEndpointServer(t, "tok-9", func(string) relayClientTarget {
+			return relayClientTarget{protocolVersion: "99.0.0", minSupportedProtocolVersion: "99.0.0"}
+		})
+		defer srv.Close()
+
+		row := &server_state_entity.ServerState{
+			ID: 1, ServerURL: srv.URL, DeviceID: 1, ServerUserID: 1,
+			KeychainAccount: "agentre.server.refresh_token",
+		}
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
+		server_state_repo.RegisterServerState(mRepo)
+		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
+		keychain.SetDefault(keychain.NewMemory())
+		svc := server_svc.New(server_svc.NewHTTPClient(srv.URL, "tok-9"), nil)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c, err := svc.DialDaemonRelay(ctx, "sha256:daemon", "sha256:desktop")
+		So(err, ShouldNotBeNil)
+		So(errors.Is(err, client.ErrPeerProtocolVersionMismatch), ShouldBeTrue)
+		So(c, ShouldBeNil)
+	})
+}
+
+// Given 中继把通道开起来了但对端永远不答那一帧 auth.account,When 调用方的 ctx
+// 到期,Then 拨号必须返回,而不是一直阻塞在读上。
+//
+// 旧实现(client.DialRelayProtobuf → protorpc.CallMethod)是带 ctx 的;决策 13 改成
+// 手工读帧之后 ctx 只用在 waitConnected 上,握手本体谁也叫不停:一次
+// ConnPool.Borrow 的 ctx 被取消之后,这条 goroutine 会连同它那条虚拟通道(以及服务端
+// 那一侧的登记)一直挂到物理链路断开为止。
+func TestDialDaemonRelay_GivenTheTargetNeverAnswersTheHandshake_WhenTheCallerGivesUp_ThenTheDialReturns(t *testing.T) {
+	Convey("握手挂着不动时,调用方的 ctx 到期要能把这次拨号叫停", t, func() {
+		srv, _ := relayClientEndpointServer(t, "tok-9", func(string) relayClientTarget {
+			return relayClientTarget{stall: true}
+		})
+		defer srv.Close()
+
+		row := &server_state_entity.ServerState{
+			ID: 1, ServerURL: srv.URL, DeviceID: 1, ServerUserID: 1,
+			KeychainAccount: "agentre.server.refresh_token",
+		}
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
+		server_state_repo.RegisterServerState(mRepo)
+		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
+		keychain.SetDefault(keychain.NewMemory())
+		svc := server_svc.New(server_svc.NewHTTPClient(srv.URL, "tok-9"), nil)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() {
+			_, err := svc.DialDaemonRelay(ctx, "sha256:daemon", "sha256:desktop")
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			So(err, ShouldNotBeNil)
+			So(errors.Is(err, context.DeadlineExceeded), ShouldBeTrue)
+		case <-time.After(5 * time.Second):
+			t.Fatal("DialDaemonRelay blocked past the caller's deadline")
+		}
 	})
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/buildinfo"
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/migrations"
 	"github.com/agentre-hub/agentre/internal/daemon/notifier"
 	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
@@ -2506,4 +2507,63 @@ func TestDaemon_PayloadBudgetMatchesTheRelayServer(t *testing.T) {
 // 合法 uuid,用它同样合适。
 func convID(n int64) string {
 	return conversationid.Derive(conversationid.Namespace, rigDeviceFingerprint, strconv.FormatInt(n, 10))
+}
+
+// TestDaemon_MigrationRenumbersTwoLegacyIdentitiesOfTheSamePeer 钉住换主键那一批里
+// 最容易漏的那种存量:**同一个对端**在同一条对话上留下了两串 seq。
+//
+// 它是常态而不是构造:线格式那次破坏性替换之后,同一个对端先按旧的数字会话号写过一串
+// (peer_session_id = "7"),再按 uuid 写过一串(peer_session_id = Derive(NS, fp, "7")),
+// 回填对前者派生、对后者原样采用,两串于是都落在同一个 conversation_id 上、seq 从 1
+// 起各撞各的。旧实现按对端分串,这时只看到一个对端、报「一轮没有推进」,把整个迁移判死
+// ——而且重跑必然复现,agentred 从此起不来。
+func TestDaemon_MigrationRenumbersTwoLegacyIdentitiesOfTheSamePeer(t *testing.T) {
+	dir := t.TempDir()
+	db, err := openDB(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(db) })
+
+	// 造一个 202608080011 之后、202609010001 之前的库:两张表还是旧主键。
+	require.NoError(t, db.Exec(`CREATE TABLE daemon_sessions (
+	peer_fingerprint TEXT NOT NULL, peer_session_id TEXT NOT NULL,
+	agent_id INTEGER NOT NULL DEFAULT 0, cwd TEXT NOT NULL DEFAULT '',
+	backend_type TEXT NOT NULL DEFAULT '', lifecycle_state TEXT NOT NULL DEFAULT '',
+	title TEXT NOT NULL DEFAULT '', agent_sync_id TEXT NOT NULL DEFAULT '',
+	provider_session_id TEXT NOT NULL DEFAULT '', provider_key TEXT NOT NULL DEFAULT '',
+	model_key TEXT NOT NULL DEFAULT '', project_sync_id TEXT NOT NULL DEFAULT '',
+	createtime INTEGER NOT NULL DEFAULT 0, last_message_at INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (peer_fingerprint, peer_session_id))`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE daemon_notification_journal (
+	peer_fingerprint TEXT NOT NULL, peer_session_id TEXT NOT NULL, seq INTEGER NOT NULL,
+	payload BLOB NOT NULL, createtime INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (peer_fingerprint, peer_session_id, seq))`).Error)
+
+	const peer = "sha256:peer-a"
+	derived := conversationid.Derive(conversationid.Namespace, peer, "7")
+	for _, legacy := range []struct {
+		sessionID string
+		base      int64
+	}{{"7", 100}, {derived, 200}} {
+		require.NoError(t, db.Exec(
+			`INSERT INTO daemon_sessions (peer_fingerprint, peer_session_id, title, last_message_at)
+			 VALUES (?, ?, ?, ?)`, peer, legacy.sessionID, legacy.sessionID, legacy.base).Error)
+		for seq := int64(1); seq <= 2; seq++ {
+			require.NoError(t, db.Exec(
+				`INSERT INTO daemon_notification_journal
+				 (peer_fingerprint, peer_session_id, seq, payload, createtime) VALUES (?, ?, ?, ?, ?)`,
+				peer, legacy.sessionID, seq, []byte("p"), legacy.base+seq).Error)
+		}
+	}
+
+	require.NoError(t, migrations.RunMigrations(db),
+		"同一个对端的两串存量必须被搬开,而不是让迁移永久失败")
+
+	var conversations []string
+	require.NoError(t, db.Raw(
+		`SELECT DISTINCT conversation_id FROM daemon_notification_journal`).Scan(&conversations).Error)
+	require.Equal(t, []string{derived}, conversations, "两串存量归到同一条对话上")
+	var seqs []int64
+	require.NoError(t, db.Raw(
+		`SELECT seq FROM daemon_notification_journal ORDER BY seq`).Scan(&seqs).Error)
+	assert.Equal(t, []int64{1, 2, 3, 4}, seqs, "后来的那一串整体上移,四行一条不丢、seq 不重号")
 }

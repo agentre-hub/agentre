@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
@@ -342,7 +343,7 @@ func (r *residentRelay) openTarget(ctx context.Context, target, credential strin
 		_ = channel.Close()
 		return nil, err
 	}
-	response, err := authAccountOverChannel(channel, credential)
+	response, err := authAccountOverChannel(ctx, channel, credential)
 	if err != nil {
 		_ = channel.Close()
 		return nil, err
@@ -362,7 +363,29 @@ func (r *residentRelay) openTarget(ctx context.Context, target, credential strin
 // 精确的 code 再翻译成既有的 client.ErrRelayDaemonNotFound 等哨兵,之后才把同一个
 // channel 交给一个全新的 protorpc.Conn 承载后续的真实 RPC 流量——两者的请求 id
 // 各自从 1 开始计数,互不干扰(这次握手用的 Id=1 从未注册进新 Conn 的 pending 表)。
-func authAccountOverChannel(channel relaytransport.PayloadChannel, credential string) (*agentrewire.AuthAccountResponse, error) {
+func authAccountOverChannel(ctx context.Context, channel relaytransport.PayloadChannel,
+	credential string) (*agentrewire.AuthAccountResponse, error) {
+	// 握手本体也必须听 ctx。ReadPayload 只在通道走到头时返回,所以让 ctx 结束时去
+	// 关这条通道——不这么做,一次被取消的 ConnPool.Borrow 会把这条 goroutine、这条
+	// 虚拟通道、以及服务端那一侧的通道登记一起挂到物理链路断开为止(而它是常驻的)。
+	// 旧实现 client.DialRelayProtobuf 走 protorpc.CallMethod,一直是带 ctx 的。
+	handshakeDone := make(chan struct{})
+	defer close(handshakeDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = channel.Close()
+		case <-handshakeDone:
+		}
+	}()
+	// abort 把「通道被关掉」翻译回调用方真正要看到的原因:ctx 先结束时报 ctx.Err(),
+	// 否则才是对面真的把通道关了。
+	abort := func(err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("server_svc: relay account handshake aborted: %w", ctxErr)
+		}
+		return err
+	}
 	request := &agentrewire.AuthAccountRequest{
 		Credential:                  credential,
 		ProtocolVersion:             wireversion.Protocol,
@@ -382,15 +405,15 @@ func authAccountOverChannel(channel relaytransport.PayloadChannel, credential st
 		return nil, err
 	}
 	if err := channel.WritePayload(reqFrame); err != nil {
-		return nil, err
+		return nil, abort(err)
 	}
 	for {
 		raw, err := channel.ReadPayload()
 		if err != nil {
-			return nil, err
+			return nil, abort(err)
 		}
 		if len(raw) == 0 {
-			return nil, errors.New("server_svc: relay channel closed before answering auth.account")
+			return nil, abort(errors.New("server_svc: relay channel closed before answering auth.account"))
 		}
 		var frame agentrewire.RpcFrame
 		if err := proto.Unmarshal(raw, &frame); err != nil {
@@ -401,7 +424,12 @@ func authAccountOverChannel(channel relaytransport.PayloadChannel, credential st
 			if frame.GetId() == 0 {
 				return nil, translateChannelError(body.Error)
 			}
-			return nil, fmt.Errorf("server_svc: relay rejected account authentication: %s", body.Error.GetMessage())
+			// 对端自己判定版本不合时回的是 rpcerror.CodeProtocolVersion。折回
+			// client.ErrPeerProtocolVersionMismatch,这条握手才与直连/LAN 那三条
+			// 对同一场分歧给出同一个哨兵。
+			return nil, client.ClassifyHandshakeError(&rpcerror.Error{
+				Code: body.Error.GetCode(), Message: body.Error.GetMessage(),
+			})
 		case *agentrewire.RpcFrame_Response:
 			if frame.GetId() != 1 {
 				continue
@@ -412,6 +440,12 @@ func authAccountOverChannel(channel relaytransport.PayloadChannel, credential st
 			}
 			if !response.GetOk() {
 				return nil, errors.New("server_svc: relay rejected account authentication")
+			}
+			// 版本窗口(决策 f63cfb26)对这条握手同样成立:窗口外的对端要在这里就被
+			// 拒,而不是等到后面某个字段解不出来才炸成一句与升级无关的话。
+			if versionErr := client.PeerProtocolVersionError(
+				response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+				return nil, versionErr
 			}
 			return &response, nil
 		default:

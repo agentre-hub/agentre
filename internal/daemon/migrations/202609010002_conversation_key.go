@@ -257,22 +257,39 @@ func renumberCollidingJournalSeqs(tx *gorm.DB) error {
 	}
 }
 
-// renumberConversation 把这条对话上「第一个写者之外」的每个对端整体上移到当前最大
+// renumberConversation 把这条对话上「第一串之外」的每一串 seq 整体上移到当前最大
 // seq 之后,返回搬动的行数。
+//
+// 分串的依据是**旧身份** (peer_fingerprint, peer_session_id) 而不是对端一个:seq 是
+// 按旧主键各自从 1 开始分配的,所以「一串」就是旧身份的一组。只按对端分会漏掉同一个
+// 对端在同一条对话上留下两串的情形 —— 而它恰恰是常态:回填对已经是规范 uuid 的
+// peer_session_id 原样采用、对旧的数字 id 按 UUIDv5 派生,同一个对端跨过线格式那次
+// 破坏性替换之后,两串就都落在同一个 conversation_id 上。那时 peers 只有一个,旧实现
+// 返回 (0, nil),调用方看到「一轮没有推进」直接把整个迁移判死 —— 而且重跑必然复现,
+// agentred 从此起不来。
 func renumberConversation(tx *gorm.DB, conversationID string) (int64, error) {
-	var peers []string
-	// 按「谁先开始写」排序:最早的那一串 seq 保持原值,后来者依次让路。
+	type block struct {
+		PeerFingerprint string `gorm:"column:peer_fingerprint"`
+		PeerSessionID   string `gorm:"column:peer_session_id"`
+	}
+	var blocks []block
+	// 按「谁先开始写」排序:最早的那一串 seq 保持原值 —— 它才是客户端手上游标指的
+	// 那一串 —— 后来者依次让路。
 	if err := tx.Raw(
-		"SELECT peer_fingerprint FROM daemon_notification_journal WHERE conversation_id = ?"+
-			" GROUP BY peer_fingerprint ORDER BY MIN(createtime), MIN(seq), peer_fingerprint",
-		conversationID).Scan(&peers).Error; err != nil {
+		"SELECT peer_fingerprint, peer_session_id FROM daemon_notification_journal"+
+			" WHERE conversation_id = ? GROUP BY peer_fingerprint, peer_session_id"+
+			" ORDER BY MIN(createtime), MIN(seq), peer_fingerprint, peer_session_id",
+		conversationID).Scan(&blocks).Error; err != nil {
 		return 0, err
 	}
-	if len(peers) < 2 {
-		return 0, nil
+	if len(blocks) < 2 {
+		// 一条对话只剩一串却还在撞,说明同一个旧身份里就有重复的 seq —— 旧主键本来
+		// 不允许,库已经坏了。如实报错,别让调用方把它当成「没进展」的死循环。
+		return 0, fmt.Errorf(
+			"migrations: conversation %q has duplicate seq within a single legacy identity", conversationID)
 	}
 	var moved int64
-	for _, peer := range peers[1:] {
+	for _, b := range blocks[1:] {
 		var offset int64
 		if err := tx.Raw(
 			"SELECT COALESCE(MAX(seq), 0) FROM daemon_notification_journal WHERE conversation_id = ?",
@@ -280,11 +297,11 @@ func renumberConversation(tx *gorm.DB, conversationID string) (int64, error) {
 			return moved, err
 		}
 		// seq 恒 >= 1,加上当前最大值后必然大于它,所以搬过去既不撞已有行,也不改变
-		// 这个对端自己那一串的先后。
+		// 这一串自己的先后。
 		res := tx.Exec(
 			"UPDATE daemon_notification_journal SET seq = seq + ?"+
-				" WHERE conversation_id = ? AND peer_fingerprint = ?",
-			offset, conversationID, peer)
+				" WHERE conversation_id = ? AND peer_fingerprint = ? AND peer_session_id = ?",
+			offset, conversationID, b.PeerFingerprint, b.PeerSessionID)
 		if res.Error != nil {
 			return moved, res.Error
 		}
