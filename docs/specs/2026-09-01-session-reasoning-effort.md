@@ -47,7 +47,7 @@
 | 7 | 切换**落一条转录 notice** | 用户决定。力度是下一轮才生效的 spawn 参数，没有转录痕迹就无法回溯哪几轮用了什么档位。复用切换供应商那条既有 notice 通道（`internal/service/chat_svc/session_provider.go:253` 的 `appendProviderSwitchNotice` + `ChatBlock.NoticeKind`），不新开消息类型。否决**不落痕迹**：问题正是「事后看不出来」 |
 | 8 | 控件视图与档位表出在共享包 `@agentre-hub/agentre-ui` | AGENTS.md 跨宿主前端所有权：桌面与 server 都要渲染这颗选择器。宿主只提供状态、传输与持久化。否决**两端各写一份**：与 ModelTargetPicker 曾经漂成两套失效判定是同一个坑 |
 | 9 | 控件落在底栏**右侧**、紧邻提交键，且采用右侧既有的**读数形态**（无填充无描边、hover 才显边框，与两个计量器同款），只靠常驻 chevron 表明可展开 | 用户决定（见 `agentre.pen` 的「Section — 会话思考力度」）。底栏现有分区是「左＝怎么跑（权限、模型身份）／右＝这一轮花多少（配额、上下文）」，思考力度属于后者；右侧计量器是 `border-transparent` + `cursor-default` 的只读读数（`packages/agentre-ui/src/composer/context-meter.tsx:76-82`），一颗带描边填充的控件插进去会打断那片安静区。否决**右置但保留 pill 描边填充**：一眼可识，代价是上述观感断裂；否决**左置与另两颗同排**：左侧密度上升，且它在窄档本就该最先让位 |
-| 10 | 五档强度复用既有 `heat-0…heat-4` 色阶，不引入新图形元素 | 该色阶本就是这套设计里表达强度的语言（活跃热力），五级正好对五档，一个 8px 圆点即可承载序列。否决**自造 5 格强度条**：往设计系统里塞一个从未出现过的图形元素，换来的信息量与色阶相同 |
+| 10 | 五档强度用 `heat-0…heat-4` 色阶的一枚 8px 圆点；该色阶**本轮从 agentre-server 提升进共享包** | 用户决定。该色阶原本只定义在 `agentre-server/frontend/src/styles/globals.css:111-130`，其注释写明不放进包里的理由是「活跃热力图只有服务端控制台画——桌面端没有这一屏」——本轮正好推翻这条前提：桌面端的弹层成为第二个消费者，色阶因此升为共享 token（共享包 `styles/tokens.css` 的 `:root` / `.dark` 加五对值、`@theme inline`（`tokens.css:352`）加 `--color-heat-*` 别名），server 侧同步删掉自己那两处（同一文件 `:98` 明写「多写一条同名别名不会报错，只会让包里那条失效——所以别加回来」）。否决**自造 5 格强度条**：往设计系统里塞一个从未出现过的图形元素；否决**用 primary 透明度梯度**：那是自造一条没有名字的新色阶；否决**去掉圆点只靠排列**：决策 12 已去掉说明副行，再去掉色阶后五行只剩五个等宽单词 |
 | 11 | 「默认」是弹层顶部的**独立区块**，不是第六档 | 它表达的是「不设定」，与五个档位不同类；单独成区并带 `→ 跟随后端配置 · <档位>` 解析副行，用户在选之前就看得见跟随会拿到什么（形态取自 `ProviderPillResolution`）。否决**并入档位列表当第一项**：把「不设定」伪装成一个档位 |
 | 12 | 弹层每行**只有档位名**，不配说明副行 | `low < medium < high < xhigh < max` 是自明的序数，序列由色阶与排列承载。PermissionModePill 每行有说明，是因为 `plan`/`acceptEdits`/`bypassPermissions` 语义不自明——这里不成立。否决**每档一句说明**：正是仓库既有反馈里「拒绝总述性解释条」说的东西，且把弹层从 340px 撑到 436px |
 
@@ -67,7 +67,9 @@
 
 **转录提示。** 一次成功的切换在转录区追加一条 info 级 notice，说明切换到了哪一档（切回默认档时说明「已改回跟随后端配置」）。notice 写失败只记日志、不把切换报成失败 —— 库里的档位已经改了，报成失败会让用户重试并追加第二条痕迹。
 
-图见 `agentre.pen` 的「Section — 会话思考力度」（底栏 Light / 弹层 Light / Dark 三板）。已知瑕疵：暗色下 `heat-0`（`#23262c`）在 popover 底（`#262931`）上几乎没有对比，最低档那枚点实际读成一个空环；序列关系仍成立，实现时若判定不可接受，需为暗色最低档另取值，而不是改动色阶本身。
+**色阶的归属变更。** `heat-0…heat-4` 本轮由 agentre-server 独有升为共享 token：共享包的 `:root` / `.dark` 持有五对深浅值，其 `@theme inline` 持有 `--color-heat-*` 别名；agentre-server 删掉自己那两处同名定义，它的活跃热力图改由包提供同一份值渲染，观感不得变化。值本身一个字节都不改 —— 两个消费者从此共用同一份，正是升为共享 token 的意义。
+
+图见 `agentre.pen` 的「Section — 会话思考力度」（底栏 Light / 弹层 Light / Dark 三板）。已知瑕疵：暗色下 `heat-0`（`#23262c`）在 popover 底（`#262931`）上几乎没有对比，最低档那枚点实际读成一个空环；序列关系仍成立（空环 → 实心），实现时若判定不可接受，只能为弹层这一处另做处理，**不得改动色阶本身的值** —— 它同时供 agentre-server 的活跃热力图使用。
 
 
 ## 有效力度的合成边界
@@ -125,7 +127,8 @@
 | 共享包控件（vitest） | 六档呈现、脸上显示有效档位、当前项高亮、选同一值不回调、键盘可展开可选中 | `provider-pill-trigger.test.tsx` / `picker.test.tsx` |
 | 桌面 composer（RTL） | 不支持的后端整个控件不渲染；控件挂在 trailing 侧且排在提交键之前；切换发出 IPC；IPC 失败回滚并显示原因 | `chat-panel.test.tsx` / `model-pill.test.tsx` |
 | i18n 静态键与两语覆盖 | 新增文案两语齐备 | `frontend/src/__tests__/i18n.test.ts` |
-| agentre-server（vitest） | 双写成功/单写降级的显示；派发后补写一次力度 | `dispatch.test.ts` / `session-detail.test.tsx` |
+| 共享 token（vitest） | `heat-0…heat-4` 五对深浅值与 `--color-heat-*` 别名在共享包 tokens.css 里齐备 | `frontend/src/__tests__/design-tokens.test.ts` 的同款读文件断言 |
+| agentre-server（vitest） | 双写成功/单写降级的显示；派发后补写一次力度；删掉本地 heat 定义后活跃热力图仍取到五级色值 | `dispatch.test.ts` / `session-detail.test.tsx` / `components/stats/Heatmap.tsx` 的既有测试 |
 
 无法自动化、交由收尾人工核对的部分：三个真 CLI 是否真的接受下发的 `max`（本机已实测一次，收尾时对 codex 与 pi 各再跑一轮真会话确认无报错），以及底栏右侧加入这个控件后在窄档下不横向溢出的实际观感（计量器仍是唯一让位者，控件与提交键保持不收缩），和暗色下最低档那枚 `heat-0` 圆点的实际可辨度。
 
