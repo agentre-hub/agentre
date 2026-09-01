@@ -136,30 +136,29 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     }));
 
     let highWater = 0;
+    // attach（接回实时流）与 pull（读历史）是两件事，**接不回不等于读不到**。
+    //
+    // daemon 对 interrupted 的会话一律回 ErrNoActiveTurn（那一轮的子进程随上一个
+    // daemon 进程消亡了），而它同一处也写明「历史仍可 Pull」。对端每次重启都会把
+    // 非终态会话标成 interrupted，存量因此会整批沉淀到这一档——把 attach 的失败当成
+    // 整条读不到，这些对话就再也打不开，而对端在线、历史也确实在那里。
+    let attached = false;
     try {
       const att = await PeerAttach({
         fingerprint,
         conversationId,
       } as Parameters<typeof PeerAttach>[0]);
       highWater = att?.latestSeq ?? 0;
+      attached = true;
       set((state) => ({
         sessions: {
           ...state.sessions,
           [key]: { ...state.sessions[key], highWater },
         },
       }));
-    } catch (e) {
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [key]: {
-            ...state.sessions[key],
-            status: "error",
-            error: errorMessage(e),
-          },
-        },
-      }));
-      return;
+    } catch {
+      // 接不回实时流而已：历史照拉。真正断掉的连接会让紧接着的 pull 一并失败，
+      // 那时才是「读不到」，由下面那条 catch 如实收场。
     }
 
     // pull 补齐：从 0 拉到高水位（对端桌面端历史不回收，OldestSeq 恒为第一条）。
@@ -210,7 +209,10 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
         };
       });
       pullCursor = page?.cursor ?? pullCursor;
-      if (!page?.hasMore || pullCursor >= highWater) break;
+      if (!page?.hasMore) break;
+      // 高水位只有 attach 成功那一路才有。接不回时它是 0，拿它当停止判据的话
+      // `cursor >= 0` 第一页就成立，历史会被截成一页——那一路只认对端说没有更多。
+      if (attached && pullCursor >= highWater) break;
     }
 
     // attach 期间 ≤ 高水位的实时帧已由 pull 覆盖；这里把游标抬到高水位，

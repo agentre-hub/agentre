@@ -109,6 +109,108 @@ describe("peer-session-store", () => {
     });
   });
 
+  // agentred 每次重启都把非终态会话标成 interrupted,而 daemon 的 Attach 对
+  // interrupted 一律回 ErrNoActiveTurn(那一轮的子进程随上一个 daemon 进程消亡了)
+  // —— 它同一处注释也写明「历史仍可 Pull」。
+  //
+  // 此前 attach 失败即 status:"error" 并 return,历史一页都不拉:一条读得到的对话
+  // 因为「接不回实时流」而整条打不开。存量一旦全沉淀成 interrupted(对端重启若干次
+  // 之后就是),Peer Tab 里每一条都打不开。
+  it("attach 被拒:历史照拉,不整条判死", async () => {
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("no active turn"),
+    );
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      notifications: [
+        {
+          seq: 1,
+          params: {
+            conversationId: conv(7),
+            event: { kind: "user_message", text: "hi" },
+          },
+        },
+        {
+          seq: 2,
+          params: {
+            conversationId: conv(7),
+            event: { kind: "text_delta", text: "hello" },
+          },
+        },
+      ],
+      cursor: 2,
+      hasMore: false,
+      oldestSeq: 1,
+    });
+
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
+    expect(s.status).toBe("ready");
+    expect(s.transcript.messages).toHaveLength(2);
+  });
+
+  // attach 交回的高水位是翻页的停止判据之一。attach 被拒时那个数没有,不能拿 0
+  // 当高水位用 —— `cursor >= 0` 第一页就成立,历史会被截成一页。没有高水位时
+  // 唯一的停止判据是对端说 hasMore=false。
+  it("attach 被拒且历史不止一页:翻到对端说没有更多为止", async () => {
+    (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("no active turn"),
+    );
+    // 两页各用一种 kind：同一轮里连着两条 text_delta 会被归约成**一条**助手消息，
+    // 那样数条数就分不出「翻了两页」还是「只翻了一页」。
+    const page = (
+      seq: number,
+      kind: string,
+      text: string,
+      hasMore: boolean,
+    ) => ({
+      notifications: [
+        {
+          seq,
+          params: { conversationId: conv(7), event: { kind, text } },
+        },
+      ],
+      cursor: seq,
+      hasMore,
+      oldestSeq: 1,
+    });
+    // 用计数器驱动的 mockImplementation，而不是两次 mockResolvedValueOnce：
+    // beforeEach 的 clearAllMocks 不清 once 队列，没被消费完的那几个会漏进下一个
+    // 用例，把它的 PeerPull 桩顶掉。
+    let served = 0;
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => {
+        served += 1;
+        return served === 1
+          ? page(1, "user_message", "first", true)
+          : page(2, "text_delta", "second", false);
+      },
+    );
+
+    await usePeerSessionsStore.getState().attach({
+      fingerprint: "sha256:peer-desktop",
+      conversationId: conv(7),
+      title: "t",
+      deviceName: "d",
+    });
+
+    const s =
+      usePeerSessionsStore.getState().sessions[
+        peerKeyOf("sha256:peer-desktop", conv(7))
+      ];
+    expect(PeerPull).toHaveBeenCalledTimes(2);
+    expect(s.status).toBe("ready");
+    expect(s.transcript.messages).toHaveLength(2);
+  });
+
   it("live frames after attach are reduced; frames covered by pull are dropped", async () => {
     (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       latestSeq: 2,
@@ -342,8 +444,17 @@ describe("peer-session-store", () => {
     expect(PeerDetach).toHaveBeenCalledWith("sha256:peer-desktop", conv(7));
   });
 
+  // 对端整台机器都不在（Agentre 没在跑）：attach 与 pull **都**够不着。断言不变
+  // ——这一档仍然要如实报错，不能摆一条空转录假装读到了。
+  //
+  // 桩补上 PeerPull 的拒绝，是因为此前它没被桩过：attach 一失败就 return，pull
+  // 根本不会发出去，于是这条用例其实没说清「够不着」长什么样。而 attach 失败还有
+  // 另一种来路（会话 interrupted，历史照样读得到），两者在这个桩下无从区分。
   it("attach failure marks the session error instead of leaving it half-open", async () => {
     (PeerAttach as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("Agentre is not running on that computer"),
+    );
+    (PeerPull as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("Agentre is not running on that computer"),
     );
     await usePeerSessionsStore.getState().attach({
