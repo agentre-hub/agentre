@@ -1,0 +1,8 @@
+{
+  "name": "agrctl",
+  "description": "Control the Agentre desktop app running on this machine: list its agents and projects, and dispatch tasks to other agents.",
+  "version": "{{VERSION}}",
+  "author": {
+    "name": "Agentre"
+  }
+}
