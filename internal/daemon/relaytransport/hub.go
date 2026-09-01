@@ -61,6 +61,16 @@ type HubFrame struct {
 
 // HubLinkOptions configures a daemon-owned outbound relay connection.
 type HubLinkOptions struct {
+	// Endpoint is the relay path this link dials, appended to ServerURL the same
+	// way hubEndpoint always has. It defaults to "/v1/relay/daemon" — the path
+	// used both by agentred's own outbound link and by a desktop registering
+	// itself as an addressable target (internal/peer.Inbound).
+	//
+	// server_svc's resident relay-client connection (decision 13: browser and
+	// desktop merge their account signal into their relay **client** link) sets
+	// this to "/v1/relay/client" instead — same transport, same envelope, same
+	// Multiplexer, different server-side route.
+	Endpoint  string
 	ServerURL string
 	// ServerURLProvider re-resolves the account server base URL at every dial,
 	// the same way AccessTokenProvider re-resolves the token. When set it takes
@@ -144,6 +154,9 @@ type hubLifecycleListener struct {
 
 // NewHubLink creates an outbound relay manager. Run starts its lifetime.
 func NewHubLink(opts HubLinkOptions) *HubLink {
+	if opts.Endpoint == "" {
+		opts.Endpoint = defaultHubEndpoint
+	}
 	if opts.HeartbeatInterval <= 0 {
 		opts.HeartbeatInterval = defaultHubHeartbeatInterval
 	}
@@ -348,7 +361,7 @@ func (l *HubLink) dial(ctx context.Context) (*websocket.Conn, error) {
 	if serverURL == "" {
 		return nil, ErrHubUnresolved
 	}
-	endpoint, err := hubEndpoint(serverURL)
+	endpoint, err := hubEndpoint(serverURL, l.opts.Endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -517,7 +530,11 @@ func waitForHubRetry(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func hubEndpoint(serverURL string) (string, error) {
+// defaultHubEndpoint is the path used by agentred's own outbound link and by a
+// desktop registering itself as an addressable target (internal/peer.Inbound).
+const defaultHubEndpoint = "/v1/relay/daemon"
+
+func hubEndpoint(serverURL, path string) (string, error) {
 	parsed, err := url.Parse(serverURL)
 	if err != nil || parsed.Host == "" {
 		return "", errors.New("relay server URL must be an http(s) base URL")
@@ -530,7 +547,10 @@ func hubEndpoint(serverURL string) (string, error) {
 	default:
 		return "", errors.New("relay server URL must be an http(s) base URL")
 	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/v1/relay/daemon"
+	if path == "" {
+		path = defaultHubEndpoint
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + path
 	parsed.RawPath = ""
 	parsed.RawQuery = ""
 	parsed.Fragment = ""

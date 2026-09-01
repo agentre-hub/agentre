@@ -38,6 +38,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -899,14 +900,11 @@ func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
 	d.hub.AddLifecycleListener(func() {
 		d.engineSnapshot.PullAsync(ctx, "relay_connected")
 	}, nil)
-	// The account channel is an independent signal-only connection. It starts
-	// only after a claim exists; unclaimed daemons therefore retain their LAN
-	// pairing and llm.upsert behavior without making account requests.
-	go func() {
-		if d.awaitClaim(ctx) {
-			d.engineSnapshot.WatchAccountChannel(ctx)
-		}
-	}()
+	// 账号信号(决策 13)不再是一条独立连接:它现在是同一条中继连接上的保留通道,
+	// 由 serveRelayChannels → serveAccountSignal 消费,天然只在 auth.account 握手
+	// 成功之后才可能出现——不需要再像旧的 /v1/account/channel 那样额外等
+	// awaitClaim。未认领的 daemon 上,relayServerURL() 返回空串,hub 连不上,
+	// 保留通道自然也不会出现。
 }
 
 func (d *Daemon) runAccountJobsWhenClaimed(ctx, hubCtx context.Context, stopRelay context.CancelFunc) {
@@ -1347,6 +1345,11 @@ func (p *revocationPoller) pullOnce(ctx context.Context) (*revocationsResponse, 
 // connection shape the LAN server creates. The channel ID and relay envelope
 // end at the Multiplexer boundary: Conn and every registered handler see only
 // a FrameConn.
+//
+// 保留号(relaytransport.SignalChannelID,决策 13/14)是一个例外:它不是一条 RPC
+// 连接,服务端也从不在它上面完成 auth.pair / auth.connect 握手——把它交给
+// protorpc.NewConn 只会让第一帧的协议解码失败。它交给 serveAccountSignal,而不是
+// RPC 注册表。
 func (d *Daemon) serveRelayChannels(ctx context.Context, mux *relaytransport.Multiplexer) {
 	for {
 		select {
@@ -1356,10 +1359,41 @@ func (d *Daemon) serveRelayChannels(ctx context.Context, mux *relaytransport.Mul
 			if channel == nil {
 				return
 			}
+			if channel.ID() == relaytransport.SignalChannelID {
+				go d.serveAccountSignal(ctx, channel)
+				continue
+			}
 			conn := protorpc.NewConn(protorpc.NewPayloadFrameConn(channel), d.protobufRegistry.Clone())
 			d.bindProtobufConn(conn)
 			go conn.Serve(ctx)
 		}
+	}
+}
+
+// serveAccountSignal consumes the reserved account-signal channel (决策 13):
+// it replaces enginesnapshot.Manager's own dial + retry loop against the now
+// deleted /v1/account/channel endpoint. The channel is server-opened and
+// only-out — a read failure or an empty payload both mean "this channel is
+// gone" (the same convention ordinary relay channels use for a close frame),
+// and either one simply ends this goroutine; the account still gets refreshed
+// on the next relay reconnect (PullAsync("relay_connected"), see
+// startEngineSnapshotPulls) or the next time the server reopens the channel.
+//
+// 未知帧被忽略而不是断开:通道日后会承载别的信号种类,旧的 daemon 构建不该因此
+// 判死这条它还认得的通道(与 accountchan_svc 包注释「它可以不可靠」同一前提)。
+func (d *Daemon) serveAccountSignal(ctx context.Context, channel relaytransport.PayloadChannel) {
+	for {
+		payload, err := channel.ReadPayload()
+		if err != nil {
+			return
+		}
+		if len(payload) == 0 {
+			return
+		}
+		if _, known, err := syncwire.DecodeAccountChannelFrame(payload); err != nil || !known {
+			continue
+		}
+		d.engineSnapshot.PullAsync(ctx, "account_signal")
 	}
 }
 

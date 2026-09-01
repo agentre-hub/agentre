@@ -379,8 +379,6 @@ func TestDaemon_GivenClaimedAccount_WhenRelayConnectsAndReconnects_ThenPullsEngi
 					return
 				}
 			}
-		case "/v1/account/channel":
-			http.Error(w, "channel unavailable in this relay test", http.StatusServiceUnavailable)
 		case "/v1/engine/snapshot":
 			pull := snapshotPulls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
@@ -429,6 +427,103 @@ func TestDaemon_GivenClaimedAccount_WhenRelayConnectsAndReconnects_ThenPullsEngi
 	case <-time.After(2 * time.Second):
 		t.Fatal("hub link did not stop")
 	}
+}
+
+// accountSyncVersionFrame 编一帧账号信号(sync_version),与 accountchan_svc 广播、
+// syncwire.DecodeAccountChannelFrame 解码的是同一份 WireFrame 编码。
+func accountSyncVersionFrame(t *testing.T, version uint64) []byte {
+	t.Helper()
+	payload, err := proto.Marshal(&agentrewire.WireFrame{
+		Body: &agentrewire.WireFrame_Notification{Notification: &agentrewire.Notification{
+			Payload: &agentrewire.Notification_AccountSyncVersion{
+				AccountSyncVersion: &agentrewire.AccountSyncVersion{Version: version},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	return payload
+}
+
+// TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEngineSnapshotWithoutTouchingTheRPCRegistry
+// 是决策 13/14 在 agentred 这一侧的落地:账号信号不再走独立的 /v1/account/channel
+// 连接(那条连接与 enginesnapshot.Manager 自带的 dial + 重试循环一起被删除,见
+// enginesnapshot/manager.go),而是经由已经在跑的那一条中继连接上的保留通道
+// (relaytransport.SignalChannelID)抵达。RED 之前:serveRelayChannels 把 mux.Accept()
+// 交出的每一条通道都无差别地包成 protorpc.Conn 并起 Serve——那对保留通道是错的
+// (它只出不进,服务端也不会在它上面完成鉴权),因此这条测试断言的是「保留通道的信号
+// 触发了 Pull,而不是被当成一条新的 RPC 连接」。
+func TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEngineSnapshotWithoutTouchingTheRPCRegistry(t *testing.T) {
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) {
+		s.AccountID = "account-1"
+		s.HubServerURL = "pending"
+		s.Credential = state.AccountCredential{AccessToken: "device-token"}
+	})
+	require.NoError(t, st.Save())
+
+	upgrader := websocket.Upgrader{}
+	relayConn := make(chan *websocket.Conn, 1)
+	var snapshotPulls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/relay/daemon":
+			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+			if upgradeErr != nil {
+				t.Errorf("upgrade relay: %v", upgradeErr)
+				return
+			}
+			relayConn <- conn
+			for {
+				if _, _, readErr := conn.ReadMessage(); readErr != nil {
+					return
+				}
+			}
+		case "/v1/engine/snapshot":
+			pull := snapshotPulls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P","type":"anthropic","base_url":"","api_key":"key-%d","default_model_key":"","models":[]}],"cli_overlays":[]}`, pull, pull)
+		default:
+			t.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	d, err := New(Options{DataDir: dir, HubServerURL: server.URL})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	d.startEngineSnapshotPulls(ctx)
+	go func() { _ = d.hub.Run(ctx) }()
+	go d.serveRelayChannels(ctx, d.mux)
+
+	var conn *websocket.Conn
+	select {
+	case conn = <-relayConn:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial relay connection was not established")
+	}
+	// 连上那一刻已经触发过一次 relay_connected 的 Pull(既有行为,见上一条测试)——
+	// 等它先落定,才能把接下来那一次 Pull 干净地归因于保留通道上的信号,而不是
+	// 归因于「连接刚建好」这同一个原因。
+	require.Eventually(t, func() bool { return snapshotPulls.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage,
+		relayEnvelope(relaytransport.SignalChannelID, accountSyncVersionFrame(t, 7))))
+
+	require.Eventually(t, func() bool { return snapshotPulls.Load() == 2 }, 2*time.Second, 10*time.Millisecond,
+		"the reserved-channel signal must trigger its own Pull")
+
+	// 保留通道只出不进,而且服务端从不在它上面做 auth.pair/auth.connect 握手——如果
+	// serveRelayChannels 把它误当成一条新的 RPC 连接去 Serve,协议不合法的流量不会让
+	// 这条物理连接跳闸,但也绝不会再有第二次 Pull:断言「再来一帧同样的信号,Pull 数
+	// 还会继续推进」,证明这条通道之后还在被正常当作信号源使用,而不是已经被判死。
+	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage,
+		relayEnvelope(relaytransport.SignalChannelID, accountSyncVersionFrame(t, 8))))
+	require.Eventually(t, func() bool { return snapshotPulls.Load() == 3 }, 2*time.Second, 10*time.Millisecond)
 }
 
 // TestDaemon_NewDoesNotLeakIntoGlobalDefaultDB 回归:New 绝不能调 db.SetDefault

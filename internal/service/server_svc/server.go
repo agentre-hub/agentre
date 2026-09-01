@@ -74,6 +74,9 @@ type service struct {
 	emitState     func(any) // 由 bootstrap 注入的 Wails 事件发射器；测试时可为 nil
 	// sleepFn 是退避等待，单测注入假等待用；返回 false 表示 ctx 结束、别再试了。
 	sleepFn func(ctx context.Context, d time.Duration) bool
+	// relay 是这台桌面端唯一的常驻中继客户端连接（决策 13），懒创建，见 relayclient.go
+	// 的 ensureRelay。受 s.mu 保护，与 client / loginInFlight / emitState 同一把锁。
+	relay *residentRelay
 }
 
 // New 构造一个 service。client + emit 由 bootstrap 装配。

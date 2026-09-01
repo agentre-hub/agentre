@@ -10,9 +10,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -133,68 +131,12 @@ func TestManager_GivenUnclaimedDaemon_WhenResolvingCLIPath_ThenLeavesPairedDeskt
 	assert.Empty(t, path)
 }
 
-func TestManager_GivenAccountChannelSyncVersion_WhenWatching_ThenPullsSnapshotWithoutReactingToUnknownFrames(t *testing.T) {
-	st := claimedState(t)
-	upgrader := websocket.Upgrader{}
-	connected := make(chan *websocket.Conn, 1)
-	var pulls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer "+testAccessToken, r.Header.Get("Authorization"))
-		switch r.URL.Path {
-		case "/v1/account/channel":
-			conn, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				t.Errorf("upgrade account channel: %v", err)
-				return
-			}
-			connected <- conn
-		case "/v1/engine/snapshot":
-			pulls.Add(1)
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, snapshotBody("provider-signal", "signal-key", ""))
-		default:
-			t.Errorf("unexpected request path %s", r.URL.Path)
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	manager := New(Options{
-		State:       st,
-		ServerURL:   func() string { return server.URL },
-		AccessToken: func() string { return testAccessToken },
-		HTTPClient:  server.Client(),
-		RetryWait: func(waitCtx context.Context, _ time.Duration) bool {
-			<-waitCtx.Done()
-			return false
-		},
-	})
-	done := make(chan struct{})
-	go func() {
-		manager.WatchAccountChannel(ctx)
-		close(done)
-	}()
-
-	var conn *websocket.Conn
-	select {
-	case conn = <-connected:
-	case <-time.After(2 * time.Second):
-		t.Fatal("account channel was not connected")
-	}
-	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage,
-		[]byte{0x0a, 0x03, 0x98, 0x06, 0x01}))
-	time.Sleep(50 * time.Millisecond)
-	assert.Zero(t, pulls.Load(), "unknown account-channel frames must not trigger a snapshot pull")
-	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage,
-		[]byte{0x0a, 0x04, 0x0a, 0x02, 0x08, 0x02}))
-
-	require.Eventually(t, func() bool { return pulls.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
-	assert.Contains(t, st.Snapshot().LLMProviders, "provider-signal")
-	cancel()
-	_ = conn.Close()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("account-channel watcher did not stop with context")
-	}
-}
+// 账号信号(sync_version 等)触发 Pull 的行为不再由 Manager 自己拨号验证——那条
+// 独立的 /v1/account/channel 连接与 Manager.WatchAccountChannel /
+// dialAccountChannel / consumeAccountChannel 已随决策 13 一起删除:账号信号现在
+// 经由 daemon 已经在跑的那条中继连接上的保留通道抵达(relaytransport.SignalChannelID),
+// 由 internal/daemon 包的 serveAccountSignal 消费后直接调 Manager.PullAsync——
+// 这就是本包不再需要 websocket 拨号测试的原因,也是「Manager 成为已合并连接的
+// 消费者」这句话在代码里的样子。那条路由行为的测试见
+// internal/daemon/daemon_test.go 的
+// TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEngineSnapshotWithoutTouchingTheRPCRegistry。
