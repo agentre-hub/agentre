@@ -60,6 +60,8 @@
 
 安装目标路径若自身或任一祖先是**符号链接**，跳过安装并记一条 info。这一条直接对应开发场景：开发者会把 marketplace 目录软链到仓库源码树，此时把注入过绝对路径的 SKILL.md 写回去会污染仓库。
 
+**`AGENTRE_ENV=test` 下不安装。** e2e / verify 的隔离环境只覆盖了 `AGENTRE_DATA_DIR`、`APPDATA`、`XDG_*`、`TMPDIR`（`e2e/lib/run-context.mjs:325-338`），**没有覆盖 `HOME`**；不加这道闸，每跑一次 `make e2e` 或 `make verify-up` 都会往开发者真实的 `~/.claude` 与 `~/.agents` 里写文件并改三份全局注册。同一段环境里已经设了 `AGENTRE_ENV: "test"`（`run-context.mjs:329`），复用它作闸口，与 `bootstrap/cago.go:418` 的既有用法同源。`make dev` 不设这个变量，因此开发者仍然能在真实环境里验证安装行为。
+
 ## 授权与生效
 
 用户在组织架构里给某执行档把 `agrctl@agentre` 打开后，该档的 `skills_json` 记录一条 `{id, enabled:true}`，经 `EnabledPluginsMapForTarget` → `RunRequest.EnabledPlugins` → claudecode spawn 时渲进 `--settings` 的 `enabledPlugins`（`claudecode/skills.go:15`）。本轮不改这条链路上的任何一环，只依赖它。
@@ -97,7 +99,7 @@
 | 安装器（leaf 包，注入临时 HOME 与 AppDataDir） | 首次安装写出两种形态的全部文件；三份注册 JSON 的键被正确写入且**用户既有条目原样保留**；重复安装幂等；版本变化触发重写 | `internal/pkg/agrctlinstall/install_test.go` 的 EnsureInstalled 幂等/版本测试 |
 | 安装器：降级路径 | JSON 损坏时不清空用户其他插件；目标路径经软链时跳过；写失败返回错误而不 panic | 同上 |
 | 安装器：卸载 | 两处文件被删；三份注册 JSON 里**只有本插件的键**消失；拒绝标记被写下 | 无（新增） |
-| 服务层（mockgen 注入设置项仓储） | 拒绝标记存在时启动安装被跳过；安装动作清除标记 | `internal/service/app_settings_svc/app_settings_test.go` |
+| 服务层（mockgen 注入设置项仓储） | 拒绝标记存在时启动安装被跳过；`AGENTRE_ENV=test` 时启动安装被跳过；安装动作清除标记、卸载动作写下标记 | `internal/service/app_settings_svc/app_settings_test.go` |
 | 嵌入内容的 guard test | `plugin.json` / marketplace 清单是合法 JSON 且 name 与注册用的常量一致；SKILL.md 含可被替换的路径占位；替换后不残留占位符 | `docs/testing.md` 的 guard test 约定 |
 | 前端设置页（RTL） | 未安装/已安装两种状态的呈现；点击安装与卸载各调用一次对应绑定；文案全部来自 `t(...)` | `frontend/src/__tests__/i18n.test.ts` 的静态 key 与 locale 覆盖校验 |
 
