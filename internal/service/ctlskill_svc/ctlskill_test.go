@@ -2,6 +2,8 @@ package ctlskill_svc
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/smartystreets/goconvey/convey"
@@ -72,6 +74,31 @@ func TestInstallOnBoot_InstallsWhenNeitherGateHits(t *testing.T) {
 		info := ctlskill.Status(svc.mustHome(t))
 		assert.True(t, info.PluginInstalled)
 		assert.True(t, info.UniversalInstalled)
+	})
+}
+
+func TestInstallOnBoot_DegradesInstallerFailureToWarn(t *testing.T) {
+	convey.Convey("安装器真的报错时，InstallOnBoot 降级为 warn 而非 panic 或向上传播", t, func() {
+		ctx, repo, svc := setupSvcTest(t)
+		repo.EXPECT().Get(gomock.Any(), app_setting_entity.KeyCtlSkillDeclined).
+			Return(&app_setting_entity.AppSetting{Key: app_setting_entity.KeyCtlSkillDeclined, Value: "false"}, nil)
+
+		// 在通用技能目录的必经路径上预置一个同名普通文件，逼 os.MkdirAll 真报错——
+		// 不是符号链接，不会被 installUniversal 自己的软链跳过闸拦住、提前吞掉错误。
+		home := svc.mustHome(t)
+		blocked := filepath.Join(home, ".agents", "skills")
+		assert.NoError(t, os.MkdirAll(filepath.Dir(blocked), 0o755))
+		assert.NoError(t, os.WriteFile(blocked, []byte("not a directory"), 0o644))
+
+		assert.NotPanics(t, func() {
+			svc.InstallOnBoot(ctx)
+		}, "安装器失败必须降级为 warn 日志，不能 panic 带崩启动")
+
+		// 降级意味着调用正常返回、后续操作照常可用；不是进程被带崩，也不是错误被吞成
+		// "看起来装成了"。
+		info, err := svc.Status(ctx)
+		assert.NoError(t, err, "InstallOnBoot 的失败不能向调用方传播")
+		assert.False(t, info.UniversalInstalled, "被挡住的那一半确实没装成，证明失败是真的发生了")
 	})
 }
 
