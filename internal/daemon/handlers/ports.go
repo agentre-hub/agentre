@@ -191,6 +191,11 @@ type SteerSourcePort interface {
 type JournalRow struct {
 	Seq     int64
 	Payload []byte
+	// Createtime 是这一行落库的那一刻(Unix 毫秒),也就是这一帧真正发生的时刻 ——
+	// 日志是就地追加的,没有第二个更早的时刻可言。补齐把它原样带出去:下游(浏览器
+	// 控制台的转录)除此之外只剩「收到的时刻」,而补齐是成批的,那会把一整段离线期间
+	// 的帧盖成同一个瞬间。
+	Createtime int64
 }
 
 // JournalReaderPort 是通知日志的读出口:增量拉取与「最新 seq」。它与 JournalPort

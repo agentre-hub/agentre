@@ -1003,12 +1003,23 @@ export interface JournaledNotification extends WireObject {
   seq: number;
   method: string;
   params: unknown;
+
+  /**
+   * Createtime 是这一帧在**原点**发生的时刻(Unix 毫秒),取自日志行自己的列。
+   * 0 = 那一端还没升级到会报它,读者据此退回自己的收帧时刻,而不是把 0 当 1970。
+   *
+   * **没有 omitempty**:这一族结构的 json tag 就是 TS 编解码生成器读的那份契约
+   * (TestJournaledNotificationWireTagsMatchMarshaler 守着「tag 列表 == 实际发出的
+   * 键」)。省掉零值会让「报了 0」与「这一版根本没有这个字段」在线上长得一模一样。
+   */
+  createtime: number;
 }
 
 export function decodeJournaledNotification(v: unknown): JournaledNotification {
   return decodeWire<JournaledNotification>(v, "JournaledNotification", (o) => {
     o.seq = reqNum(o.seq, "JournaledNotification.seq");
     o.method = reqStr(o.method, "JournaledNotification.method");
+    o.createtime = reqNum(o.createtime, "JournaledNotification.createtime");
   });
 }
 

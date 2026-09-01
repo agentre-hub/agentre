@@ -395,6 +395,19 @@ message SessionPullResponse {
 message JournaledNotification {
   int64 seq = 1;
   RpcNotification payload = 2;
+  // When this frame happened, by the origin's clock (Unix ms), read straight
+  // off the journal row that recorded it. It rides on the carrier rather than
+  // inside RpcNotification so replay never has to decode and re-encode a
+  // payload just to stamp it.
+  //
+  // A consumer that builds a transcript out of frames (the browser console, a
+  // peer view) has no other source for it: unlike a desktop, it has no local
+  // message table to read createtime from. Its own receive time is not a
+  // substitute, because catch-up delivers in bulk — a conversation that was
+  // offline for a day arrives as hundreds of frames within the same
+  // millisecond. Zero means the peer never reported one, and reads as
+  // "unknown", never as 1970.
+  int64 createtime = 3;
 }
 
 message SessionPendingWaitersRequest {

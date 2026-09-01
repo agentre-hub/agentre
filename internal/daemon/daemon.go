@@ -1769,8 +1769,9 @@ func (j journalReader) ListSince(ctx context.Context, peerFingerprint, peerSessi
 	out := make([]handlers.JournalRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, handlers.JournalRow{
-			Seq:     row.Seq,
-			Payload: []byte(row.Payload),
+			Seq:        row.Seq,
+			Payload:    []byte(row.Payload),
+			Createtime: row.Createtime,
 		})
 	}
 	return out, hasMore, nil

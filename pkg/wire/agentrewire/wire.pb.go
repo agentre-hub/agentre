@@ -4063,9 +4063,22 @@ func (x *SessionPullResponse) GetOldestSeq() int64 {
 }
 
 type JournaledNotification struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Seq           int64                  `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
-	Payload       *RpcNotification       `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Seq     int64                  `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	Payload *RpcNotification       `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
+	// When this frame happened, by the origin's clock (Unix ms), read straight
+	// off the journal row that recorded it. It rides on the carrier rather than
+	// inside RpcNotification so replay never has to decode and re-encode a
+	// payload just to stamp it.
+	//
+	// A consumer that builds a transcript out of frames (the browser console, a
+	// peer view) has no other source for it: unlike a desktop, it has no local
+	// message table to read createtime from. Its own receive time is not a
+	// substitute, because catch-up delivers in bulk — a conversation that was
+	// offline for a day arrives as hundreds of frames within the same
+	// millisecond. Zero means the peer never reported one, and reads as
+	// "unknown", never as 1970.
+	Createtime    int64 `protobuf:"varint,3,opt,name=createtime,proto3" json:"createtime,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4112,6 +4125,13 @@ func (x *JournaledNotification) GetPayload() *RpcNotification {
 		return x.Payload
 	}
 	return nil
+}
+
+func (x *JournaledNotification) GetCreatetime() int64 {
+	if x != nil {
+		return x.Createtime
+	}
+	return 0
 }
 
 type SessionPendingWaitersRequest struct {
@@ -13355,10 +13375,13 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x06cursor\x18\x02 \x01(\x03R\x06cursor\x12\x19\n" +
 	"\bhas_more\x18\x03 \x01(\bR\ahasMore\x12\x1d\n" +
 	"\n" +
-	"oldest_seq\x18\x04 \x01(\x03R\toldestSeq\"b\n" +
+	"oldest_seq\x18\x04 \x01(\x03R\toldestSeq\"\x82\x01\n" +
 	"\x15JournaledNotification\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x127\n" +
-	"\apayload\x18\x02 \x01(\v2\x1d.agentre.wire.RpcNotificationR\apayload\"r\n" +
+	"\apayload\x18\x02 \x01(\v2\x1d.agentre.wire.RpcNotificationR\apayload\x12\x1e\n" +
+	"\n" +
+	"createtime\x18\x03 \x01(\x03R\n" +
+	"createtime\"r\n" +
 	"\x1cSessionPendingWaitersRequest\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\"\xc3\x01\n" +

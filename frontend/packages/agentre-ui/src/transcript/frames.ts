@@ -83,6 +83,16 @@ export interface TranscriptFrame {
   sessionId: number;
   event?: unknown;
   seq?: number;
+  /**
+   * 这一帧在**原点**发生的时刻（Unix 毫秒）。开启一条消息的那一帧把它交给那条消息
+   * 的 `createtime`，也就是转录上那个 `HH:mm` 的唯一来源 —— 拿帧的这两个面没有本地
+   * 消息表可读（桌面端自己的会话读 `chat_messages.createtime`）。
+   *
+   * 缺省/0 = 那一端没报过。留 0，不就地补 `Date.now()`：补齐是成批到达的，
+   * 一条离线两天的对话会被整段盖上今天的时间，而 0 在下游读作「不知道」，
+   * 时间戳如实不显示。
+   */
+  createtime?: number;
 }
 
 // ── 载荷读取：全部是「读不到就当没有」，坏帧不许把整段转录带崩 ──────────────
@@ -144,6 +154,7 @@ function emptyMessage(
   id: number,
   role: string,
   sessionId: number,
+  createtime = 0,
 ): TranscriptMessage {
   return {
     id,
@@ -160,7 +171,7 @@ function emptyMessage(
     durationMs: 0,
     errorText: "",
     seq: id,
-    createtime: 0,
+    createtime,
   };
 }
 
@@ -183,6 +194,8 @@ interface State {
    */
   turn: TranscriptMessage | null;
   nextId: number;
+  /** 正在处理的这一帧报的发生时刻；新建消息时盖上去。见 applyFrame 里的说明。 */
+  frameAt: number;
   /**
    * 本批帧改动过的消息。增量投影据此只给它们换新身份，其余保持引用不变
    * （见 createTranscriptProjector）。整段重算的 reduceFrames 用不到它，但它跟着
@@ -197,6 +210,7 @@ function newState(): State {
     open: null,
     turn: null,
     nextId: 1,
+    frameAt: 0,
     touched: new Set(),
   };
 }
@@ -207,7 +221,9 @@ function openAssistant(st: State, sessionId: number): TranscriptMessage {
     st.touched.add(st.open);
     return st.open;
   }
-  const msg = emptyMessage(st.nextId++, "assistant", sessionId);
+  // 时刻取**开启这条消息**的那一帧：createtime 说的是「这条消息从什么时候开始」，
+  // 与桌面端 chat_messages 那一列同义。后续帧只追加块，不改它。
+  const msg = emptyMessage(st.nextId++, "assistant", sessionId, st.frameAt);
   st.messages.push(msg);
   st.open = msg;
   st.turn = msg;
@@ -432,6 +448,9 @@ function applyFrame(
 ): void {
   const ev = frame.event;
   const kind = kindOf(ev);
+  // 这一帧的时刻放进状态而不是逐个传参：`openAssistant` 有二十来个调用点，而它们
+  // 关心的都是「拿到当前这条助手消息」，不是时刻。只有真的新建一条消息时才用得上。
+  st.frameAt = frame.createtime ?? 0;
 
   switch (kind) {
     case EventTextDelta: {
@@ -448,7 +467,7 @@ function applyFrame(
 
     case EventUserMessage: {
       // 用户消息自成一条，且**不吸收**后续块 —— 后面的思考/工具属于助手那一轮。
-      const msg = emptyMessage(st.nextId++, "user", sessionId);
+      const msg = emptyMessage(st.nextId++, "user", sessionId, st.frameAt);
       msg.blocks.push({ type: "text", text: str(ev, "text") ?? "" });
       // 两个字段都要：`sourceDevice` 是发起端指纹，buildSourceByMessageId
       // 拿它跟本机指纹比对 —— **本机发出的那条不该标来源**（server 宿主此前自己建表，

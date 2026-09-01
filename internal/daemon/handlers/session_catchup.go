@@ -191,9 +191,10 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullPar
 			return wire.SessionPullResult{}, fmt.Errorf("translate notification seq %d: %w", row.Seq, err)
 		}
 		out.Notifications = append(out.Notifications, wire.JournaledNotification{
-			Seq:    row.Seq,
-			Method: method,
-			Params: value,
+			Seq:        row.Seq,
+			Method:     method,
+			Params:     value,
+			Createtime: row.Createtime,
 		})
 		out.Cursor = row.Seq
 	}

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/provider"
@@ -38,8 +39,14 @@ type peerSessionPublication struct {
 	// 所以不进锁、也不必回头查库。
 	conversationID string
 
-	mu          sync.Mutex
-	history     []wire.EventFrame
+	mu      sync.Mutex
+	history []wire.EventFrame
+	// createtimes 与 history 一一对应:第 i 帧在**这台桌面端**上发生的时刻
+	// (Unix 毫秒)。补齐把它随帧交出去,对端的转录才有 HH:mm 可显示。
+	//
+	// 单开一条并行切片而不是塞进 EventFrame:帧是线上格式,实时投递的那一份不需要
+	// 它(收到即当下),只有补齐这条路要。
+	createtimes []int64
 	nextSeq     int64
 	initialized bool
 	subscribers map[string]*peerSessionSubscription
@@ -195,7 +202,7 @@ func (s *chatSvc) PullPeerSession(ctx context.Context, params wire.SessionPullPa
 	if subscription.highWater > 0 {
 		out.OldestSeq = 1
 	}
-	for _, frame := range publication.history {
+	for index, frame := range publication.history {
 		if frame.Seq <= params.Cursor || frame.Seq > subscription.highWater {
 			continue
 		}
@@ -203,8 +210,14 @@ func (s *chatSvc) PullPeerSession(ctx context.Context, params wire.SessionPullPa
 			out.HasMore = true
 			break
 		}
+		// createtimes 与 history 逐格对应,但读的时候不假定它一定齐:两条切片在同一
+		// 把锁下一起长,长度失配只可能是本文件里出了 bug,而那时少一个时刻远好过 panic。
+		var createtime int64
+		if index < len(publication.createtimes) {
+			createtime = publication.createtimes[index]
+		}
 		out.Notifications = append(out.Notifications, wire.JournaledNotification{
-			Seq: frame.Seq, Method: wire.NotifyEvent, Params: &frame,
+			Seq: frame.Seq, Method: wire.NotifyEvent, Params: &frame, Createtime: createtime,
 		})
 		out.Cursor = frame.Seq
 	}
@@ -250,7 +263,7 @@ func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, con
 			publication.mu.Unlock()
 			return 0, nil, operationFailedWithCause(ctx, err)
 		}
-		history, err := synthesizePeerHistory(conversationID, messages)
+		history, createtimes, err := synthesizePeerHistory(conversationID, messages)
 		if err != nil {
 			publication.mu.Unlock()
 			return 0, nil, fmt.Errorf("synthesize desktop peer history: %w", err)
@@ -259,6 +272,7 @@ func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, con
 			history[index].Seq = int64(index + 1)
 		}
 		publication.history = history
+		publication.createtimes = createtimes
 		publication.nextSeq = int64(len(history))
 		publication.initialized = true
 	}
@@ -298,6 +312,8 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 	publication.nextSeq++
 	frame := wire.EventFrame{ConversationID: publication.conversationID, Event: event, Seq: publication.nextSeq}
 	publication.history = append(publication.history, frame)
+	// 实时帧的发生时刻就是此刻 —— 这一行是它离开产生它的那个事件循环的第一站。
+	publication.createtimes = append(publication.createtimes, time.Now().UnixMilli())
 	for _, subscription := range publication.subscribers {
 		// Queue only: the flush worker performs the (potentially blocking) relay
 		// write. Never Notify inline from a canonical event loop — a stalled
@@ -341,7 +357,13 @@ func peerSubscriberKey(subscriber PeerSessionSubscriber) string {
 	return fmt.Sprintf("%T:%v", subscriber, subscriber)
 }
 
-func synthesizePeerHistory(conversationID string, messages []*chat_entity.Message) ([]wire.EventFrame, error) {
+// synthesizePeerHistory 把落库的消息摊成对端读得到的那份帧日志,并给每一帧配一个
+// **发生时刻**(第二个返回值,与帧一一对应)。
+//
+// 时刻取所属消息的 createtime:一条消息摊开成的若干帧是它的展开,不是各自独立的
+// 事件,没有比消息本身更细的时刻可言。它最终落到浏览器控制台转录上那个 HH:mm ——
+// 那一侧现折转录,除了帧带来的东西没有别的可读。
+func synthesizePeerHistory(conversationID string, messages []*chat_entity.Message) ([]wire.EventFrame, []int64, error) {
 	sorted := append([]*chat_entity.Message(nil), messages...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i] == nil {
@@ -353,30 +375,36 @@ func synthesizePeerHistory(conversationID string, messages []*chat_entity.Messag
 		return sorted[i].Seq < sorted[j].Seq
 	})
 	frames := make([]wire.EventFrame, 0)
+	createtimes := make([]int64, 0)
+	// 当前正在摊开的那条消息的时刻。appendEvent 是这一族帧的唯一出口,所以时刻在
+	// 这里配给就够了 —— 新增一种块也不会漏掉它。
+	var messageAt int64
 	appendEvent := func(event agentruntime.Event) error {
 		frames = append(frames, wire.EventFrame{ConversationID: conversationID, Event: event})
+		createtimes = append(createtimes, messageAt)
 		return nil
 	}
 	for _, message := range sorted {
 		if message == nil {
 			continue
 		}
+		messageAt = message.Createtime
 		var stored []cagoblocks.StoredBlock
 		if err := json.Unmarshal([]byte(message.BlocksJSON), &stored); err != nil {
-			return nil, fmt.Errorf("message %d blocks: %w", message.ID, err)
+			return nil, nil, fmt.Errorf("message %d blocks: %w", message.ID, err)
 		}
 		for _, block := range stored {
 			if message.Role == "assistant" && block.Type == "user_ask" {
 				var data chatblocks.UserAskBlock
 				if err := json.Unmarshal(block.Data, &data); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if err := appendEvent(agentruntime.UserAskRequest{RequestID: data.RequestID, ToolCallID: data.ToolCallID, Questions: peerQuestions(data.Questions)}); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if data.Answered || data.Skipped {
 					if err := appendEvent(agentruntime.UserAskResolved{RequestID: data.RequestID, Answers: peerAnswers(data.Answers), Skipped: data.Skipped}); err != nil {
-						return nil, err
+						return nil, nil, err
 					}
 				}
 				continue
@@ -384,18 +412,18 @@ func synthesizePeerHistory(conversationID string, messages []*chat_entity.Messag
 			if message.Role == "assistant" && block.Type == "subagent_state" {
 				var data chatblocks.SubagentStateBlock
 				if err := json.Unmarshal(block.Data, &data); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if err := appendEvent(agentruntime.SubagentDone{ToolCallID: data.ParentToolCallID, Info: agentruntime.SubagentInfo{
 					TaskID: data.TaskID, Kind: data.Kind, TaskDescription: data.Description, LastToolName: data.LastToolName,
 					ToolUses: data.ToolUses, TotalTokens: data.TotalTokens, DurationMs: data.DurationMs, Status: data.Status,
 					Mode: data.Mode, Runs: data.Runs,
 				}}); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if data.Model != "" {
 					if err := appendEvent(agentruntime.SubagentModel{ToolCallID: data.ParentToolCallID, Model: data.Model}); err != nil {
-						return nil, err
+						return nil, nil, err
 					}
 				}
 				continue
@@ -403,27 +431,27 @@ func synthesizePeerHistory(conversationID string, messages []*chat_entity.Messag
 			if message.Role == "assistant" && block.Type == "tool_permission" {
 				var data chatblocks.ToolPermissionBlock
 				if err := json.Unmarshal(block.Data, &data); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				input, err := json.Marshal(data.ToolInput)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if err := appendEvent(agentruntime.ToolPermissionRequest{RequestID: data.RequestID, ToolCallID: data.ToolCallID, ToolName: data.ToolName, Input: input}); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if data.Resolved {
 					if err := appendEvent(agentruntime.ToolPermissionResolved{RequestID: data.RequestID, Allowed: data.Allowed, AlwaysAllow: data.AlwaysAllow, DenyReason: data.DenyReason}); err != nil {
-						return nil, err
+						return nil, nil, err
 					}
 				}
 				continue
 			}
 			if event, ok, err := peerEventForStoredBlock(message, block); err != nil {
-				return nil, err
+				return nil, nil, err
 			} else if ok {
 				if err := appendEvent(event); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				// 投射不出来的块原样往下送(R8)。它是一等的密封事件,所以既过得了
 				// 协议边界,又不必在这里对载荷做任何解释 —— 对端可能是认得这个
@@ -432,7 +460,7 @@ func synthesizePeerHistory(conversationID string, messages []*chat_entity.Messag
 				BlockType: block.Type,
 				Data:      append(json.RawMessage(nil), block.Data...),
 			}); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		if message.Role == "assistant" {
@@ -442,12 +470,12 @@ func synthesizePeerHistory(conversationID string, messages []*chat_entity.Messag
 					CachedTokens: message.CachedTokens, CacheCreationTokens: message.CacheCreationTokens,
 					ReasoningTokens: message.ReasoningTokens,
 				}, TotalInputTokens: message.TotalInputTokens}); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
 			if message.ErrorText != "" {
 				if err := appendEvent(agentruntime.ErrorEvent{Err: errors.New(message.ErrorText)}); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
 			// 收口带上本轮统计:对端 Peer Tab 的 meta(模型 · 耗时 · 首字 · 速率)
@@ -456,11 +484,11 @@ func synthesizePeerHistory(conversationID string, messages []*chat_entity.Messag
 				Model: message.Model, DurationMs: message.DurationMs,
 				FirstTokenMs: message.FirstTokenMs, TokensPerSec: message.TokensPerSec,
 			}); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 	}
-	return frames, nil
+	return frames, createtimes, nil
 }
 
 func peerEventForStoredBlock(message *chat_entity.Message, block cagoblocks.StoredBlock) (agentruntime.Event, bool, error) {

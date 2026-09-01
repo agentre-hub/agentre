@@ -83,7 +83,7 @@ func (o *Outbound) Pull(ctx context.Context, params wire.SessionPullParams) (wir
 		}
 		// 不在这里 marshal:Params 装帧本身,真正需要 JSON 的是再往前一步的 Wails
 		// 边界,那一跳由 JournaledNotification.MarshalJSON 落出同样的形状。
-		result.Notifications = append(result.Notifications, wire.JournaledNotification{Seq: e.Seq, Method: method, Params: value})
+		result.Notifications = append(result.Notifications, wire.JournaledNotification{Seq: e.Seq, Method: method, Params: value, Createtime: e.GetCreatetime()})
 	}
 	return result, nil
 }

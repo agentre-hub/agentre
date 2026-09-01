@@ -235,6 +235,29 @@ func TestSessionCatchup_Pull_ReturnsPageAndAdvancesCursor(t *testing.T) {
 	assert.True(t, got.HasMore)
 }
 
+// TestSessionCatchup_Pull_CarriesTheJournalRowsCreatetime 钉住转录时间戳的**唯一**
+// 可信来源:日志行落库时记下的那一刻(notification_repo.Append 就地盖的
+// time.Now().UnixMilli()),也就是这一帧真正发生的时刻。
+//
+// 补齐这一跳不带它,下游就只剩「收到的时刻」可用,而补齐本身是成批的:一条离线两天的
+// 对话补回来时,几百帧会被盖上同一个瞬间,浏览器控制台里整段转录因此显示成同一分钟。
+// 时刻只能由原点报,中途每一跳都只是原样转交。
+func TestSessionCatchup_Pull_CarriesTheJournalRowsCreatetime(t *testing.T) {
+	ctx, _, journal, h := setupCatchupTest(t, bareRT{})
+	journal.EXPECT().ListSince(gomock.Any(), "", convID(5), int64(0), wire.DefaultSessionPullLimit).
+		Return([]handlers.JournalRow{
+			{Seq: 1, Createtime: 1700000000111, Payload: journalPayload(t, wire.NotifyEvent, textDeltaFrame(t, convID(5), "x"))},
+			{Seq: 2, Createtime: 1700000009222, Payload: journalPayload(t, wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: convID(5)})},
+		}, false, nil)
+	journal.EXPECT().OldestSeq(gomock.Any(), "", convID(5)).Return(int64(1), nil)
+
+	got, err := h.Pull(ctx, wire.SessionPullParams{ConversationID: convID(5), Cursor: 0})
+	require.NoError(t, err)
+	require.Len(t, got.Notifications, 2)
+	assert.Equal(t, int64(1700000000111), got.Notifications[0].Createtime)
+	assert.Equal(t, int64(1700000009222), got.Notifications[1].Createtime)
+}
+
 // TestSessionCatchup_Pull_ReportsTheSurvivingFloor 覆盖老前缀不在了的那一半:一页补齐
 // 除了内容,还要交出这条会话此刻**现存最老**的 seq。
 //

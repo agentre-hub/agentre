@@ -27,7 +27,7 @@ func TestPeerSessionMessageSource_GivenRemoteAndLocalRows_ThenPersistsRemoteSour
 	assert.Equal(t, "sha256:phone", loaded.SourceDevice)
 	assert.Equal(t, "Pixel", loaded.SourceDeviceName)
 
-	history, err := synthesizePeerHistory(convID(41), []*chat_entity.Message{remote})
+	history, _, err := synthesizePeerHistory(convID(41), []*chat_entity.Message{remote})
 	require.NoError(t, err)
 	require.Len(t, history, 1)
 	assert.Equal(t, agentruntime.UserMessageEvent{

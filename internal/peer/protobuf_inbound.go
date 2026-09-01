@@ -232,7 +232,7 @@ func registerPeerSessionMethods(registry *protorpc.Registry, deps ProtobufInboun
 				return nil, protobufPeerError(x)
 			}
 			protowire.SetNotificationSeq(notification, e.Seq)
-			out.Notifications = append(out.Notifications, &agentrewire.JournaledNotification{Seq: e.Seq, Payload: notification})
+			out.Notifications = append(out.Notifications, &agentrewire.JournaledNotification{Seq: e.Seq, Payload: notification, Createtime: e.Createtime})
 		}
 		return out, nil
 	}))

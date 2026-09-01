@@ -618,14 +618,22 @@ type JournaledNotification struct {
 	Seq    int64  `json:"seq"`
 	Method string `json:"method"`
 	Params any    `json:"params"`
+	// Createtime 是这一帧在**原点**发生的时刻(Unix 毫秒),取自日志行自己的列。
+	// 0 = 那一端还没升级到会报它,读者据此退回自己的收帧时刻,而不是把 0 当 1970。
+	//
+	// **没有 omitempty**:这一族结构的 json tag 就是 TS 编解码生成器读的那份契约
+	// (TestJournaledNotificationWireTagsMatchMarshaler 守着「tag 列表 == 实际发出的
+	// 键」)。省掉零值会让「报了 0」与「这一版根本没有这个字段」在线上长得一模一样。
+	Createtime int64 `json:"createtime"`
 }
 
 // journaledNotificationWire 是它真正的线上形态。Params 按 Method 决定解成哪个帧,
 // 所以两个方向都得自己接管。
 type journaledNotificationWire struct {
-	Seq    int64           `json:"seq"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params"`
+	Seq        int64           `json:"seq"`
+	Method     string          `json:"method"`
+	Params     json.RawMessage `json:"params"`
+	Createtime int64           `json:"createtime"`
 }
 
 func (n JournaledNotification) MarshalJSON() ([]byte, error) {
@@ -637,7 +645,7 @@ func (n JournaledNotification) MarshalJSON() ([]byte, error) {
 		}
 		raw = encoded
 	}
-	return json.Marshal(journaledNotificationWire{Seq: n.Seq, Method: n.Method, Params: raw})
+	return json.Marshal(journaledNotificationWire{Seq: n.Seq, Method: n.Method, Params: raw, Createtime: n.Createtime})
 }
 
 func (n *JournaledNotification) UnmarshalJSON(data []byte) error {
@@ -647,6 +655,7 @@ func (n *JournaledNotification) UnmarshalJSON(data []byte) error {
 	}
 	n.Seq = w.Seq
 	n.Method = w.Method
+	n.Createtime = w.Createtime
 	n.Params = nil
 	if len(w.Params) == 0 || string(w.Params) == "null" {
 		return nil

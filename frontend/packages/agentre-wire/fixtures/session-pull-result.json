@@ -9,7 +9,8 @@
           "kind": "text_delta",
           "text": "你好"
         }
-      }
+      },
+      "createtime": 0
     },
     {
       "seq": 12,
@@ -30,7 +31,8 @@
         "contextWindow": 200000,
         "turnToken": 9,
         "seq": 12
-      }
+      },
+      "createtime": 0
     }
   ],
   "cursor": 12,

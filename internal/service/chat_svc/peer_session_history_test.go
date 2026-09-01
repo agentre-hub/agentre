@@ -41,7 +41,7 @@ func TestSynthesizePeerHistory_GivenPersistedBlocks_ThenForwardsUnrecognizedBloc
 		{SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: `[{"type":"thinking","data":{"text":"checking"}},{"type":"tool_use","data":{"id":"tool-1","name":"Read","input":{"path":"README.md"}}},{"type":"tool_result","data":{"tool_use_id":"tool-1","content":[{"type":"text","data":{"text":"ok"}}]}},{"type":"future_block","data":{"nested":{"keep":true}}}]`, ErrorText: "provider stopped"},
 	}
 
-	events, err := synthesizePeerHistory(convID(41), messages)
+	events, _, err := synthesizePeerHistory(convID(41), messages)
 	require.NoError(t, err)
 
 	kinds := make([]agentruntime.EventKind, 0, len(events))
@@ -90,7 +90,7 @@ func TestSynthesizePeerHistory_GivenFinalControlAndSnapshotBlocks_ThenEmitsReduc
 			`]`,
 	}}
 
-	events, err := synthesizePeerHistory(convID(41), messages)
+	events, _, err := synthesizePeerHistory(convID(41), messages)
 	require.NoError(t, err)
 	kinds := make([]agentruntime.EventKind, 0, len(events))
 	for _, event := range events {
@@ -492,7 +492,7 @@ func TestSynthesizePeerHistory_GivenTurnStats_ThenDoneCarriesThem(t *testing.T) 
 		},
 	}
 
-	events, err := synthesizePeerHistory(convID(41), messages)
+	events, _, err := synthesizePeerHistory(convID(41), messages)
 	require.NoError(t, err)
 
 	var done agentruntime.Done
@@ -669,4 +669,24 @@ func TestPublishPeerEvent_GivenSubscriberFallsBehind_ThenQueueStaysBounded(t *te
 	history := len(publication.history)
 	publication.mu.Unlock()
 	assert.Equal(t, peerSubscriberQueueDepth*4, history, "日志不参与丢弃")
+}
+
+// TestSynthesizePeerHistory_CarriesEachMessagesCreatetime 钉住这台桌面端作为**对端**
+// 服务出去的那份日志上的时刻。
+//
+// 由这台桌面端托管、镜到账号里的对话,浏览器控制台读到的转录就是这份合成日志。
+// 它不像 agentred 有一张按帧记时的日志表,但它有比那更好的东西 —— 消息表自己的
+// createtime。同一条消息摊开成的每一帧共用它:帧是这条消息的展开,不是各自独立的事件。
+func TestSynthesizePeerHistory_CarriesEachMessagesCreatetime(t *testing.T) {
+	messages := []*chat_entity.Message{
+		{SessionID: 41, Role: "user", Seq: 1, Createtime: 1700000000111, BlocksJSON: `[{"type":"text","data":{"text":"ship it"}}]`},
+		{SessionID: 41, Role: "assistant", Seq: 2, Createtime: 1700000009222, BlocksJSON: `[{"type":"thinking","data":{"text":"checking"}},{"type":"text","data":{"text":"done"}}]`},
+	}
+
+	events, createtimes, err := synthesizePeerHistory(convID(41), messages)
+	require.NoError(t, err)
+	require.Len(t, createtimes, len(events), "每一帧都要有一个时刻,不能只有一部分")
+	// user 一帧,assistant 两帧 + 收口的 done 一帧。
+	require.Len(t, events, 4)
+	assert.Equal(t, []int64{1700000000111, 1700000009222, 1700000009222, 1700000009222}, createtimes)
 }

@@ -381,12 +381,11 @@ func (d *Daemon) registerProtobufMethods() {
 			}
 			response := &agentrewire.SessionPullResponse{Cursor: result.Cursor, HasMore: result.HasMore, OldestSeq: result.OldestSeq}
 			for _, entry := range result.Notifications {
-				notification, err := protowire.WireNotificationToProto(entry.Method, entry.Params)
+				journaled, err := protobufJournaledNotification(entry)
 				if err != nil {
 					return nil, protobufError(err)
 				}
-				protowire.SetNotificationSeq(notification, entry.Seq)
-				response.Notifications = append(response.Notifications, &agentrewire.JournaledNotification{Seq: entry.Seq, Payload: notification})
+				response.Notifications = append(response.Notifications, journaled)
 			}
 			return response, nil
 		})
@@ -474,4 +473,24 @@ func timePointerMillis(value *time.Time) *int64 {
 	}
 	millis := value.UnixMilli()
 	return &millis
+}
+
+// protobufJournaledNotification 把补齐交出的一行投影到线上的载体。
+//
+// 单独一个函数而不是留在注册闭包里,是因为这一跳有三样东西必须一起对:seq 盖进载荷
+// (客户端按 method 解出的帧里没有它)、seq 留在载体上,以及**发生时刻**原样转交。
+// 时刻是最容易在这类逐字段搬运里被漏掉的一样,而漏掉之后没有任何东西会报错 ——
+// 下游只是安静地少一列,要到浏览器控制台的转录上才看得出来。
+func protobufJournaledNotification(entry remotewire.JournaledNotification) (*agentrewire.JournaledNotification, error) {
+	notification, err := protowire.WireNotificationToProto(entry.Method, entry.Params)
+	if err != nil {
+		return nil, err
+	}
+	protowire.SetNotificationSeq(notification, entry.Seq)
+	return &agentrewire.JournaledNotification{
+		Seq:     entry.Seq,
+		Payload: notification,
+		// 报不出时刻的对端交出 0,这里照样转交 0:「不知道」不能在中途被补成当下。
+		Createtime: entry.Createtime,
+	}, nil
 }
