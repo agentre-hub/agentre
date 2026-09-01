@@ -46,9 +46,7 @@ describe("CtlSkillPanel", () => {
     expect(screen.getByText(NOT_INSTALLED.universalPath)).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
     expect(screen.getByText("Cursor")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Install" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install" })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Uninstall" }),
     ).not.toBeInTheDocument();

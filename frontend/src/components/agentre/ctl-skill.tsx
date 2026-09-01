@@ -166,7 +166,11 @@ export function CtlSkillPanel() {
               : t("settings.ctlSkill.actions.uninstall")}
           </Button>
         ) : (
-          <Button type="button" onClick={handleInstall} disabled={pending !== null}>
+          <Button
+            type="button"
+            onClick={handleInstall}
+            disabled={pending !== null}
+          >
             {pending === "install" ? (
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
             ) : null}
