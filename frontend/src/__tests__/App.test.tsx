@@ -1343,6 +1343,34 @@ describe("App", () => {
     }
   });
 
+  it("opens the ctl skill panel from the Skills / Tools settings item", async () => {
+    const user = userEvent.setup();
+
+    mockDesktopViewport();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const settingsNav = screen.getByRole("complementary", {
+      name: "Settings",
+    });
+    await user.click(
+      within(settingsNav).getByRole("button", { name: "Skills / Tools" }),
+    );
+
+    const main = screen.getByRole("main");
+    expect(
+      await within(main).findByRole("heading", {
+        name: "ctl control channel skill",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(main).queryByText("Under construction"),
+    ).not.toBeInTheDocument();
+    expect(
+      await within(main).findByRole("button", { name: "Install" }),
+    ).toBeInTheDocument();
+  });
+
   it("opens data-backup panel from settings nav", async () => {
     const user = userEvent.setup();
 

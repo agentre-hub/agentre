@@ -38,6 +38,15 @@ func writeFileString(t *testing.T, path, content string) {
 	}
 }
 
+func writeJSONMap(t *testing.T, path string, v map[string]any) {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("encode %s: %v", path, err)
+	}
+	writeFileString(t, path, string(data))
+}
+
 func mustInstall(t *testing.T, home, version string) {
 	t.Helper()
 	if err := Install(Options{Home: home, AgrctlPath: testAgrctl, Version: version}); err != nil {
@@ -111,8 +120,11 @@ func TestInstall_RegistersPluginDisabled(t *testing.T) {
 	if entry["version"] != "v1" {
 		t.Fatalf("entry version = %v, want v1", entry["version"])
 	}
-	if entry["installedAt"] == "" || entry["lastUpdated"] == "" {
-		t.Fatalf("entry timestamps missing: %v", entry)
+	for _, key := range []string{"installedAt", "lastUpdated"} {
+		ts, ok := entry[key].(string)
+		if !ok || ts == "" {
+			t.Fatalf("entry %s missing or not a non-empty string: %v", key, entry)
+		}
 	}
 
 	known := readJSONMap(t, filepath.Join(home, ".claude", "plugins", "known_marketplaces.json"))
@@ -393,6 +405,63 @@ func TestUninstall_CorruptRegistryErrors(t *testing.T) {
 
 	if err := Uninstall(home); err == nil {
 		t.Fatal("Uninstall with corrupt installed_plugins.json returned nil, want error")
+	}
+}
+
+// TestInstall_KeepsUserEnabledPluginToggle 用户在 Claude Code 里手动打开过这个插件，
+// 之后的版本升级重新登记不能把他的选择拍回 false。
+func TestInstall_KeepsUserEnabledPluginToggle(t *testing.T) {
+	home := t.TempDir()
+	mustInstall(t, home, "v1")
+
+	settingsFile := filepath.Join(home, ".claude", "settings.json")
+	config := readJSONMap(t, settingsFile)
+	enabled, _ := config["enabledPlugins"].(map[string]any)
+	enabled[PluginID] = true
+	writeJSONMap(t, settingsFile, config)
+
+	mustInstall(t, home, "v2")
+
+	got, _ := readJSONMap(t, settingsFile)["enabledPlugins"].(map[string]any)
+	if got[PluginID] != true {
+		t.Fatalf("enabledPlugins[%s] = %v, want the user's own true preserved", PluginID, got[PluginID])
+	}
+}
+
+// TestInstall_RepairsDroppedRegistryEntry 树和版本标记都还在、注册表里的键被外部摘掉了
+// （用户在 CLI 里摘插件、settings.json 从备份恢复）时，同版本再装一次要把登记补回来——
+// 否则设置页永远报「已安装」，而 claude 那边永远看不见这个插件。
+func TestInstall_RepairsDroppedRegistryEntry(t *testing.T) {
+	home := t.TempDir()
+	mustInstall(t, home, "v1")
+
+	knownPath := filepath.Join(home, ".claude", "plugins", "known_marketplaces.json")
+	known := readJSONMap(t, knownPath)
+	delete(known, MarketplaceName)
+	writeJSONMap(t, knownPath, known)
+
+	settingsFile := filepath.Join(home, ".claude", "settings.json")
+	config := readJSONMap(t, settingsFile)
+	extra, _ := config["extraKnownMarketplaces"].(map[string]any)
+	delete(extra, MarketplaceName)
+	writeJSONMap(t, settingsFile, config)
+
+	mustInstall(t, home, "v1")
+
+	if readJSONMap(t, knownPath)[MarketplaceName] == nil {
+		t.Fatal("same-version install did not restore the dropped known_marketplaces entry")
+	}
+	restored, _ := readJSONMap(t, settingsFile)["extraKnownMarketplaces"].(map[string]any)
+	if restored[MarketplaceName] == nil {
+		t.Fatal("same-version install did not restore the dropped extraKnownMarketplaces entry")
+	}
+}
+
+// TestInstall_RequiresVersion 版本号会原样写进 plugin.json / marketplace.json 的 version
+// 字段，空串是一份坏清单——和 home / agrctl 路径一样，它是必填输入。
+func TestInstall_RequiresVersion(t *testing.T) {
+	if err := Install(Options{Home: t.TempDir(), AgrctlPath: testAgrctl, Version: ""}); err == nil {
+		t.Fatal("Install with empty version returned nil, want error")
 	}
 }
 

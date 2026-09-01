@@ -43,7 +43,11 @@ func registerPlugin(home string, opts Options) error {
 		"installLocation": marketplace,
 		"lastUpdated":     now,
 	}
-	subObject(config, "enabledPlugins")[PluginID] = false
+	// 全局默认关闭（逐档授权由各 agent 的 skills_json 决定），但只在这个键还不存在时写：
+	// 用户后来自己在 CLI 里打开过，版本升级重新登记不能把他的选择拍回 false。
+	if enabled := subObject(config, "enabledPlugins"); !hasKey(enabled, PluginID) {
+		enabled[PluginID] = false
+	}
 	subObject(config, "extraKnownMarketplaces")[MarketplaceName] = map[string]any{"source": source}
 
 	if err := writeJSONFile(installedPath, installed); err != nil {
@@ -88,6 +92,44 @@ func unregisterPlugin(home string) error {
 			delete(extra, MarketplaceName)
 		}
 	})
+}
+
+// registryComplete 三份注册文件里本插件/本 marketplace 的键都还在。任何一份读不出、
+// 解析不了或缺键都算不完整，调用方据此重跑一次 registerPlugin —— 真正的错误由那一趟报出来。
+func registryComplete(home string) bool {
+	installed, err := loadJSONObject(filepath.Join(pluginsDir(home), "installed_plugins.json"))
+	if err != nil || !hasUserScopeEntry(installed) {
+		return false
+	}
+	known, err := loadJSONObject(filepath.Join(pluginsDir(home), "known_marketplaces.json"))
+	if err != nil || known[MarketplaceName] == nil {
+		return false
+	}
+	config, err := loadJSONObject(settingsPath(home))
+	if err != nil {
+		return false
+	}
+	enabled, _ := config["enabledPlugins"].(map[string]any)
+	extra, _ := config["extraKnownMarketplaces"].(map[string]any)
+	return hasKey(enabled, PluginID) && extra[MarketplaceName] != nil
+}
+
+// hasUserScopeEntry installed_plugins.json 里本插件已有一条 user 档条目。
+func hasUserScopeEntry(installed map[string]any) bool {
+	plugins, _ := installed["plugins"].(map[string]any)
+	entries, _ := plugins[PluginID].([]any)
+	for _, raw := range entries {
+		if entry, ok := raw.(map[string]any); ok && entry["scope"] == "user" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasKey 键存在（值可以是 false / null，与「缺键」是两回事）。
+func hasKey(parent map[string]any, key string) bool {
+	_, ok := parent[key]
+	return ok
 }
 
 // mergeInstalledPlugin 在 installed_plugins.json 里更新（或新增）本插件的 user 档条目，

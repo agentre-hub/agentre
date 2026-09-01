@@ -264,11 +264,22 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// Agent Skill 目录两种形态出现在各 CLI 的技能发现里，复用刚算出的 agrctlPath。
 	// 拒绝标记、AGENTRE_ENV=test 两道跳过闸，以及失败降级为 warn，都在服务层内部处理，
 	// 与上面 agrctl 安装本身同一降级口径。
-	ctlskill_svc.Register(agrctlPath, buildinfo.CommitID)
+	ctlskill_svc.Register(agrctlPath, ctlSkillVersion())
 	ctlskill_svc.CtlSkill().InstallOnBoot(ctx)
 
 	runtime = &Runtime{config: cfg, dataDir: dataDir}
 	return runtime, nil
+}
+
+// ctlSkillVersion 技能包清单里的版本号：应用版本，构建注入了 commit 就再缀上它，这样
+// 每次发布构建都会触发一次重铺。不能直接用 buildinfo.CommitID —— 它只在 make build 的
+// ldflags 里注入，wails dev / go run 起的进程里是空串，写出去就是 "version": "" 的
+// plugin.json / marketplace.json。configs.Version 有内置缺省，永远非空。
+func ctlSkillVersion() string {
+	if commit := buildinfo.ShortCommitID(); commit != "" {
+		return configs.Version + "+" + commit
+	}
+	return configs.Version
 }
 
 // sessionResetter is bootstrap's narrow view of chat_repo.SessionRepo (ISP): only the

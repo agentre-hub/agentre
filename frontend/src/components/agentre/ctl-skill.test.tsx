@@ -89,4 +89,26 @@ describe("CtlSkillPanel", () => {
     );
     expect(app.UninstallCtlSkill).toHaveBeenCalledTimes(1);
   });
+
+  it("Given the install binding rejects, When the user clicks install, Then the panel stays not installed and the button becomes clickable again", async () => {
+    const user = userEvent.setup();
+    const app = installCtlSkillBindings({
+      InstallCtlSkill: vi.fn(() => Promise.reject(new Error("boom"))),
+    });
+    render(<CtlSkillPanel />);
+
+    const installButton = await screen.findByRole("button", {
+      name: "Install",
+    });
+    await user.click(installButton);
+
+    // 失败不能把按钮永久留在 pending：finally 必须把它放开，用户才能重试。
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Install" })).toBeEnabled(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Uninstall" }),
+    ).not.toBeInTheDocument();
+    expect(app.InstallCtlSkill).toHaveBeenCalledTimes(1);
+  });
 });

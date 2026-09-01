@@ -82,8 +82,9 @@ func settingsPath(home string) string {
 	return filepath.Join(home, ".claude", "settings.json")
 }
 
-// Install 展开两种形态并登记插件。版本标记一致的形态原样跳过；目标路径经软链的形态
-// 跳过（开发机会把 marketplace 软链到仓库源码树，写回去会污染仓库）。
+// Install 展开两种形态并登记插件。版本标记一致（且插件形态的注册表键完好）的形态原样
+// 跳过；目标路径经软链的形态跳过（开发机会把 marketplace 软链到仓库源码树，写回去会
+// 污染仓库）。
 func Install(opts Options) error {
 	home := strings.TrimSpace(opts.Home)
 	if home == "" {
@@ -91,6 +92,10 @@ func Install(opts Options) error {
 	}
 	if strings.TrimSpace(opts.AgrctlPath) == "" {
 		return errors.New("ctlskill: agrctl path is required")
+	}
+	// 版本号原样落进 plugin.json / marketplace.json 的 version 字段，空串等于铺一份坏清单。
+	if strings.TrimSpace(opts.Version) == "" {
+		return errors.New("ctlskill: version is required")
 	}
 	if err := installUniversal(home, opts); err != nil {
 		return err
@@ -123,12 +128,16 @@ func installUniversal(home string, opts Options) error {
 func installPlugin(home string, opts Options) error {
 	marketplace := MarketplaceDir(home)
 	root := PluginDir(home)
-	if traversesSymlink(home, marketplace) || traversesSymlink(home, root) {
+	// root 在 marketplace 之下，这一趟检查连 marketplace 那一段路径一起看了。
+	if traversesSymlink(home, root) {
 		logger.Default().Info("ctlskill.Install: skip claude plugin, target traverses symlink",
-			zap.String("path", marketplace))
+			zap.String("path", root))
 		return nil
 	}
-	if stampCurrent(root, opts) {
+	// 只有「树是当前版本」且「注册表里我们的键还在」才算装好了。单看版本标记不够：
+	// 注册表被外部摘掉过（用户在 CLI 里卸载、settings.json 从备份恢复）时树和标记都还在，
+	// 登记却没了 —— 那样 Status 永远报已安装，再点安装也修不回来。
+	if stampCurrent(root, opts) && registryComplete(home) {
 		return nil
 	}
 	skillDir := filepath.Join(root, "skills", PluginName)
