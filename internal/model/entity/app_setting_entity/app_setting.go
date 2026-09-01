@@ -38,6 +38,12 @@ const (
 	KeyNotifyOnlyWhenUnfocused = "notify.only_when_unfocused" // 仅窗口未激活时通知
 	KeyNotifySystem            = "notify.system"              // 系统原生通知
 	KeyNotifyToast             = "notify.toast"               // 应用内 toast
+
+	// KeyCtlSkillDeclined 用户是否在设置页主动卸载过 ctl 控制通道技能包（"true"/"false"）；
+	// 缺省未拒绝。卸载时置真、（重新）安装时清除；启动期把它当第一道闸——为真则整段跳过
+	// 自动安装。不走 app_settings_svc.Update 的白名单，直接经 app_setting_repo 读写，
+	// 参见 internal/bootstrap/debug_logging.go 与 internal/pkg/ctlskill。
+	KeyCtlSkillDeclined = "ctlskill.declined"
 )
 
 // DefaultProxyListenHost 缺省监听地址 —— loopback，只允许本机访问。

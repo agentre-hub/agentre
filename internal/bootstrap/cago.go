@@ -39,6 +39,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/app_settings_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
+	"github.com/agentre-hub/agentre/internal/service/ctlskill_svc"
 	"github.com/agentre-hub/agentre/internal/service/hooktool_svc"
 	"github.com/agentre-hub/agentre/internal/service/issue_svc"
 	"github.com/agentre-hub/agentre/internal/service/notification_svc"
@@ -258,6 +259,13 @@ func Init(ctx context.Context) (*Runtime, error) {
 		agrctlPath = override
 	}
 	claudecode.Default().SetHookCLIPath(agrctlPath)
+
+	// ctl 控制通道技能包(internal/pkg/ctlskill)：让 agrctl 以 Claude Code 插件 + 通用
+	// Agent Skill 目录两种形态出现在各 CLI 的技能发现里，复用刚算出的 agrctlPath。
+	// 拒绝标记、AGENTRE_ENV=test 两道跳过闸，以及失败降级为 warn，都在服务层内部处理，
+	// 与上面 agrctl 安装本身同一降级口径。
+	ctlskill_svc.Register(agrctlPath, buildinfo.CommitID)
+	ctlskill_svc.CtlSkill().InstallOnBoot(ctx)
 
 	runtime = &Runtime{config: cfg, dataDir: dataDir}
 	return runtime, nil
