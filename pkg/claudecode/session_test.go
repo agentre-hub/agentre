@@ -2399,3 +2399,104 @@ func TestSession_ResumedSessionWithoutBootstrapStillEndsOnFirstResult(t *testing
 
 	require.NoError(t, sess.Close(ctx))
 }
+
+// fakeSubagentBgBashTU 是**后台 subagent 自己**派的 run_in_background Bash 的
+// tool_use_id(区别于 fakeBgSubAgentTU —— 那是主线派 subagent 的 Agent 工具)。
+const fakeSubagentBgBashTU = "toolu_sub_bg_bash"
+
+// fakeSubagentLaunchedBackgroundBash 复刻 sess-3504 抓到的帧序:一个后台 subagent 在
+// 空闲态自己派了一条 run_in_background Bash,那条命令完成时 CLI 吐出的 task_notification
+// 与**主线**派的后台任务完成通知完全同形(有 output_file、无 subagent_type)——
+// 但它属于子 agent,CLI 自己并不为它起主线一轮(实测:该帧之后没有 system:init,
+// 主线沉默十余分钟)。
+func fakeSubagentLaunchedBackgroundBash(stdin io.Reader, stdout io.Writer) {
+	const sid = "sess-sub-bg-bash"
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+	turn := 0
+	for sc.Scan() {
+		turn++
+		reply := extractTextField(sc.Text())
+		if turn == 1 {
+			// turn1:主线派一个后台 subagent,以 result#1 收尾。
+			writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a1","content":[{"type":"tool_use","id":%q,"name":"Agent","input":{"subagent_type":"general-purpose","description":"explore","prompt":"go","run_in_background":true}}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":%q,"content":"Async agent launched successfully. output_file: /tmp/tasks/sub.output"}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a2","content":[{"type":"text","text":"started:%s"}]}}`, reply)
+			writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+			// —— 空闲态:子 agent 内部活动,其中自己派了一条 run_in_background Bash ——
+			writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s1","content":[{"type":"text","text":"subagent-before-bg"}]}}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s2","content":[{"type":"tool_use","id":%q,"name":"Bash","input":{"command":"go test ./...","run_in_background":true}}]}}`, fakeBgSubAgentTU, fakeSubagentBgBashTU)
+			writeFrame(stdout, `{"type":"user","parent_tool_use_id":%q,"message":{"content":[{"type":"tool_result","tool_use_id":%q,"content":"Command running in background"}]}}`, fakeBgSubAgentTU, fakeSubagentBgBashTU)
+			writeFrame(stdout, `{"type":"system","subtype":"task_started","task_id":"bgbash","task_type":"local_bash"}`)
+			// 关键帧:子 agent 派的后台命令完成 —— 有 output_file、无 subagent_type。
+			writeFrame(stdout, `{"type":"system","subtype":"task_notification","task_id":"bgbash","tool_use_id":%q,"status":"completed","output_file":"/tmp/tasks/bgbash.output","summary":"Background command completed (exit code 0)"}`, fakeSubagentBgBashTU)
+			// 子 agent 继续干活:同一路活动流,不该被上面那条通知腰斩。
+			writeFrame(stdout, `{"type":"assistant","parent_tool_use_id":%q,"message":{"id":"s3","content":[{"type":"text","text":"subagent-after-bg"}]}}`, fakeBgSubAgentTU)
+			// —— 子 agent 自己完成:这条(主线派的 Agent 工具)才该起自主续轮 ——
+			writeFrame(stdout, `{"type":"system","subtype":"task_notification","task_id":"subtask","tool_use_id":%q,"status":"completed","output_file":"/tmp/tasks/sub.output","summary":"Agent came to rest"}`, fakeBgSubAgentTU)
+			writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a3","content":[{"type":"text","text":"autonomous:subagent-summary"}]}}`)
+			writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":2,"output_tokens":2}}`, sid)
+			continue
+		}
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a4","content":[{"type":"text","text":"echo:%s"}]}}`, reply)
+		writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+	}
+}
+
+// TestSession_SubagentLaunchedBackgroundBashDoesNotStartAutonomousTurn 锁定 sess-3504:
+//
+//	Given 一个后台 subagent 在空闲态自己派了一条 run_in_background Bash,
+//	When  那条命令完成、CLI 吐出与主线同形的后台型 task_notification(有 output_file、
+//	      无 subagent_type,tool_use_id 指向子 agent 派的那次 Bash),
+//	Then  (a) 它不得起自主续轮 —— 第一个 AutoTurn 必须是子 agent 真正完成那条
+//	          (CompletedTask.ToolUseID == Agent 工具的 tool_use_id)带来的;
+//	      (b) 它也不得腰斩子 agent 那一路活动流 —— 通知前后的内部文本留在同一路里。
+//
+// 修复前:该帧被 isBackgroundTaskNotification 误判成主线后台任务完成,readLoop 收尾
+// 活动轮、开一轮自主续轮并占住 active 槽,而 CLI 那边根本没起轮 —— 桌面端于是显示一个
+// 「后台任务完成」的空 assistant 气泡、会话长期停在 running 且毫无输出;子 agent 卡片
+// 也随之停更(活动轮永不收尾,chat_svc 串行消费卡在那一路上)。
+func TestSession_SubagentLaunchedBackgroundBashDoesNotStartAutonomousTurn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeSubagentLaunchedBackgroundBash))
+	sess, err := c.OpenSession(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	acts := sess.SubagentActivity()
+
+	ch1, err := sess.Turn(ctx, "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, "started:alpha", drainTextWithin(t, ch1, 2*time.Second))
+
+	// (b) 子 agent 那一路活动流跨过那条后台命令完成通知,不被腰斩。
+	var act *SubagentActivity
+	select {
+	case act = <-acts:
+	case <-time.After(2 * time.Second):
+		t.Fatal("2s 内没等到后台 subagent 的活动轮")
+	}
+	require.NotNil(t, act)
+	assert.Equal(t, fakeBgSubAgentTU, act.ToolUseID)
+	assert.Equal(t, "subagent-before-bgsubagent-after-bg",
+		drainTextWithin(t, act.Events, 2*time.Second),
+		"子 agent 自己派的后台命令完成通知不得收尾这一路活动流")
+
+	// (a) 第一个自主续轮必须由子 agent 本身的完成通知触发,而不是它派的那条后台命令。
+	var at *AutoTurn
+	select {
+	case at = <-sess.AutonomousTurns():
+	case <-time.After(2 * time.Second):
+		t.Fatal("2s 内没等到自主续轮")
+	}
+	require.NotNil(t, at)
+	require.NotNil(t, at.CompletedTask)
+	assert.Equal(t, fakeBgSubAgentTU, at.CompletedTask.ToolUseID,
+		"子 agent 自己派的 run_in_background 命令完成不得起自主续轮")
+	assert.Equal(t, "autonomous:subagent-summary", drainTextWithin(t, at.Events, 2*time.Second))
+}

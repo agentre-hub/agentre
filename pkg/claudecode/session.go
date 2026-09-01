@@ -130,6 +130,13 @@ type Session struct {
 	// 让它们各走各的旁路,主线轮只收主线帧,subagent 卡片也不再被切成上百段。
 	sideActivities map[string]*activeTurn
 
+	// subagentToolUseIDs 是本会话里**由后台 subagent 派出**的 tool_use id 集合(它们所在
+	// 的 assistant 帧带 parent_tool_use_id)。用途只有一个:后台型 task_notification 不带
+	// parent_tool_use_id,单看帧形分不出「主线派的后台任务完成」和「子 agent 自己派的
+	// run_in_background 命令完成」—— 见 startsAutonomousTurnLocked。派发帧一定先于完成
+	// 通知到达,查这张表即可定性。只在持 sinkMu 时读写。
+	subagentToolUseIDs map[string]struct{}
+
 	// resumeBootstrapPending 只在 --resume 重开的会话上为真,由 readLoop 单 goroutine
 	// 读写。它给「这个进程的第一条 result 可能是恢复应答而不是某一轮的终点」开一次性
 	// 窗口,见 route。首条 result 处理完即落下,一个进程最多吞掉一条。
@@ -234,7 +241,8 @@ func newSession(p *process, rawSink func([]byte), sessionID string) *Session {
 		subagentCh:   orderedpipe.New[*SubagentActivity](),
 		readerDone:   make(chan struct{}),
 
-		sideActivities: make(map[string]*activeTurn),
+		sideActivities:     make(map[string]*activeTurn),
+		subagentToolUseIDs: make(map[string]struct{}),
 	}
 }
 
@@ -367,6 +375,13 @@ func (s *Session) route(f rawFrame, events []Event, done bool) {
 	if s.swallowResumeBootstrap(f) {
 		return
 	}
+	// 归属登记先于路由:子 agent 派出的 tool_use 要在它的完成通知到达之前记下来
+	// (通知帧自己不带 parent_tool_use_id),且与本帧最终有没有归属轮无关。
+	for _, ev := range events {
+		if ev.Kind == EventPreToolUse && ev.ParentToolUseID != "" && ev.Tool != nil {
+			s.rememberSubagentToolUse(ev.Tool.ID)
+		}
+	}
 	at := s.currentTurn(f)
 	if at == nil {
 		// 自主轮起始标记(已建立 active 并吐 autoCh),或空闲态的非 turn 帧
@@ -478,7 +493,7 @@ func (s *Session) currentTurn(f rawFrame) *activeTurn {
 		// 没有轮在排队时让位只会白白腰斩一轮正常的子 agent 活动。
 		owner := subagentOwnerID(f)
 		yield := s.active.subagentToolUseID != "" &&
-			(isBackgroundTaskNotification(f) ||
+			(s.startsAutonomousTurnLocked(f) ||
 				(owner != "" && owner != s.active.subagentToolUseID) ||
 				(isMainThreadTurnFrame(f) && len(s.pendingTurns) > 0))
 		if !yield {
@@ -491,7 +506,7 @@ func (s *Session) currentTurn(f rawFrame) *activeTurn {
 		s.finishActiveTurn(done) // 清 active 槽 + close 活动轮 ch/done
 		s.sinkMu.Lock()
 	}
-	if isBackgroundTaskNotification(f) {
+	if s.startsAutonomousTurnLocked(f) {
 		at := newActiveTurn(true)
 		s.active = at
 		s.sinkMu.Unlock()

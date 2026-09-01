@@ -109,11 +109,47 @@ func (at *activeTurn) finish() {
 // 的起始标记,与 subagent(Task 工具)的 task_notification 区分:
 //   - 后台型:有 output_file(落在 tasks/<id>.output),无 subagent_type。
 //   - subagent 型:有 subagent_type / description,无 output_file。
+//
+// 只判帧形。「这个后台任务是主线派的还是某个子 agent 自己派的」是另一维,由
+// startsAutonomousTurnLocked 补上 —— 起自主续轮请用它,别直接用本函数。
 func isBackgroundTaskNotification(f rawFrame) bool {
 	return f.Type == "system" &&
 		f.Subtype == "task_notification" &&
 		f.OutputFile != "" &&
 		f.SubagentType == ""
+}
+
+// rememberSubagentToolUse 记下一个由后台 subagent 派出的 tool_use id(见 Session.subagentToolUseIDs)。
+func (s *Session) rememberSubagentToolUse(id string) {
+	if id == "" {
+		return
+	}
+	s.sinkMu.Lock()
+	s.subagentToolUseIDs[id] = struct{}{}
+	s.sinkMu.Unlock()
+}
+
+// startsAutonomousTurnLocked 在 isBackgroundTaskNotification 之上再加一道**归属**判定:
+// 只有主线自己派出的后台任务完成才是自主续轮的起始标记。
+//
+// sess-3504:一个后台 subagent 在空闲态自己派了条 run_in_background Bash,它完成时 CLI
+// 吐出的 task_notification 与主线派的完全同形(有 output_file、无 subagent_type,且系统帧
+// 一律不带 parent_tool_use_id),但 CLI **不会**为它起主线一轮(实测该帧之后没有 system:init,
+// 主线沉默十余分钟)。据它起轮就造出一个等不到 result 的空自主轮:桌面端显示一个「后台任务
+// 完成」的空 assistant 气泡、会话长期停在 running 且毫无输出;它还占住 active 槽 —— 让位判据
+// 的前置对主线轮恒假,后续 subagent 帧走 sideActivities 却因主线轮永不收尾而永不结帐(消费方
+// 串行卡在那一路上,别的 subagent 卡片一起停更),真正的下一轮也会被整段吞进这个气泡。
+//
+// 判据取自派发帧:tool_use 落在 subagentToolUseIDs 里就是子 agent 派的。归属未知(如
+// --resume 跨进程,派发帧不在本进程的 stdout 里)时按主线处理,保持既有行为。
+//
+// 调用方持 sinkMu。
+func (s *Session) startsAutonomousTurnLocked(f rawFrame) bool {
+	if !isBackgroundTaskNotification(f) {
+		return false
+	}
+	_, bySubagent := s.subagentToolUseIDs[f.ToolUseID]
+	return !bySubagent
 }
 
 // normalizeTaskStatus 把 CLI 的任务状态拼写归一到内部取值。CLI 用英式 "cancelled"
