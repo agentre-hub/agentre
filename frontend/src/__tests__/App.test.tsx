@@ -1312,7 +1312,7 @@ describe("App", () => {
 
   it("opens under construction pages from unimplemented settings items", async () => {
     const user = userEvent.setup();
-    const unimplementedSettingsItems = ["MCP Servers", "Skills / Tools"];
+    const unimplementedSettingsItems = ["MCP Servers"];
 
     mockDesktopViewport();
     render(<App />);

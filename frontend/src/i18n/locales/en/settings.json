@@ -68,6 +68,36 @@
       },
       "title": "Appearance"
     },
+    "ctlSkill": {
+      "actions": {
+        "install": "Install",
+        "installing": "Installing…",
+        "uninstall": "Uninstall",
+        "uninstalling": "Uninstalling…"
+      },
+      "description": "Deliver the ctl control channel to agents as a skill, so an authorized agent knows it exists and can dispatch cross-project work through it.",
+      "hosts": {
+        "description": "The universal skill directory is read by these hosts on their next startup.",
+        "title": "Benefiting hosts"
+      },
+      "plugin": {
+        "label": "Claude Code plugin"
+      },
+      "sectionDescription": "Installs to two locations at once: a Claude Code plugin (so it can be authorized per agent in the org chart) and a universal skill directory read by several other CLIs.",
+      "sectionTitle": "ctl control channel skill",
+      "status": {
+        "installed": "Installed",
+        "notInstalled": "Not installed"
+      },
+      "title": "Skills / Tools",
+      "toast": {
+        "installFailed": "Failed to install the ctl skill",
+        "uninstallFailed": "Failed to uninstall the ctl skill"
+      },
+      "universal": {
+        "label": "Universal skill directory"
+      }
+    },
     "localProxy": {
       "description": "Configure the app's built-in LLM Gateway. claudecode and codex subprocesses send HTTP requests here; the app authenticates them with a temporary token and forwards requests to the real LLM provider without exposing secrets outside the app.",
       "title": "Local HTTP Proxy"

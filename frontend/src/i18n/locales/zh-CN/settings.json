@@ -68,6 +68,36 @@
       },
       "title": "外观"
     },
+    "ctlSkill": {
+      "actions": {
+        "install": "安装",
+        "installing": "安装中…",
+        "uninstall": "卸载",
+        "uninstalling": "卸载中…"
+      },
+      "description": "把 ctl 控制通道以技能形式交付给 agent，被授权的 agent 就能知道它存在，并借它派发跨项目任务。",
+      "hosts": {
+        "description": "通用技能目录会在下列宿主下次启动时被读取。",
+        "title": "受益宿主"
+      },
+      "plugin": {
+        "label": "Claude Code 插件"
+      },
+      "sectionDescription": "一次安装同时落地两处：一份 Claude Code 插件（可在组织架构里按 agent 逐档授权），以及一份被多个其他 CLI 读取的通用技能目录。",
+      "sectionTitle": "ctl 控制通道技能",
+      "status": {
+        "installed": "已安装",
+        "notInstalled": "未安装"
+      },
+      "title": "技能 / 工具",
+      "toast": {
+        "installFailed": "安装 ctl 技能失败",
+        "uninstallFailed": "卸载 ctl 技能失败"
+      },
+      "universal": {
+        "label": "通用技能目录"
+      }
+    },
     "localProxy": {
       "description": "给 App 内置的 LLM Gateway。claudecode / codex 子进程把所有 HTTP 请求打到这里，App 用临时 token 鉴权后转发到真实 LLM 供应商，密钥不出 App。",
       "title": "本地 HTTP 代理"

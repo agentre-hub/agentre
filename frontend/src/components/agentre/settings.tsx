@@ -36,6 +36,7 @@ import { LANGUAGE_STORAGE_KEY, type SupportedLanguage } from "@/i18n";
 import type { AppTheme, AppThemePreference } from "./chrome";
 import { useChatAgents } from "@/hooks/use-chat-agents";
 import { AgentBackendsPanel } from "./agent-backends";
+import { CtlSkillPanel } from "./ctl-skill";
 import { DataBackupPanel } from "./data-backup";
 import { RemoteDevicesPanel } from "./remote-devices/remote-devices-panel";
 import { LlmProvidersPanel } from "./llm-providers";
@@ -161,6 +162,7 @@ const underConstructionSettingsPages: Record<
     | "version-logs"
     | "data-backup"
     | "notifications"
+    | "skills-tools"
     | "sync"
   >,
   {
@@ -173,11 +175,6 @@ const underConstructionSettingsPages: Record<
     titleKey: "settings.underConstruction.mcpServers.title",
     descriptionKey: "settings.underConstruction.mcpServers.description",
     icon: Server,
-  },
-  "skills-tools": {
-    titleKey: "settings.underConstruction.skillsTools.title",
-    descriptionKey: "settings.underConstruction.skillsTools.description",
-    icon: Wrench,
   },
 };
 
@@ -581,6 +578,20 @@ function LocalProxySettings() {
   );
 }
 
+function CtlSkillSettings() {
+  const { t } = useTranslation();
+
+  return (
+    <>
+      <SettingsPageHeader
+        title={t("settings.ctlSkill.title")}
+        description={t("settings.ctlSkill.description")}
+      />
+      <CtlSkillPanel />
+    </>
+  );
+}
+
 function LlmProviderSettings({
   onOpenAgentBackends,
   providerGap,
@@ -642,6 +653,7 @@ function SettingsUnderConstruction({ page }: { page: SettingsPageId }) {
     page === "version-logs" ||
     page === "data-backup" ||
     page === "notifications" ||
+    page === "skills-tools" ||
     page === "sync"
   ) {
     return null;
@@ -750,6 +762,8 @@ function SettingsPage({
             <DataBackupPanel />
           ) : activePage === "notifications" ? (
             <NotificationsPanel />
+          ) : activePage === "skills-tools" ? (
+            <CtlSkillSettings />
           ) : activePage === "sync" ? (
             syncEnabled ? (
               <SyncPanel />

@@ -422,3 +422,24 @@ export const ChatReadDroppedImages = windowBackedMock(
   "ChatReadDroppedImages",
   () => Promise.resolve({ items: [] }),
 );
+
+// ctl skill bindings (Claude Code plugin + universal ~/.agents/skills directory
+// for the ctl control channel). Default fallback mirrors the not-installed DTO
+// shape; settings-page tests override GetCtlSkillStatus/InstallCtlSkill/
+// UninstallCtlSkill via window.go.app.App.*.
+const CTL_SKILL_NOT_INSTALLED = {
+  pluginId: "agrctl@agentre",
+  pluginInstalled: false,
+  pluginPath: "",
+  universalInstalled: false,
+  universalPath: "",
+};
+export const GetCtlSkillStatus = windowBackedMock("GetCtlSkillStatus", () =>
+  Promise.resolve(CTL_SKILL_NOT_INSTALLED),
+);
+export const InstallCtlSkill = windowBackedMock("InstallCtlSkill", () =>
+  Promise.resolve(CTL_SKILL_NOT_INSTALLED),
+);
+export const UninstallCtlSkill = windowBackedMock("UninstallCtlSkill", () =>
+  Promise.resolve(CTL_SKILL_NOT_INSTALLED),
+);
