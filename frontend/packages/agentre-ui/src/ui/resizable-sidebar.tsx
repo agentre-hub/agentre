@@ -1,7 +1,8 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 
-import { cn } from "@/lib/utils";
+import { useUiTranslation } from "../i18n";
+import { cn } from "../lib/utils";
+
 import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
@@ -9,7 +10,7 @@ import {
   clampSidebarWidth,
   readSidebarWidth,
   writeSidebarWidth,
-} from "@/lib/sidebar-width-state";
+} from "./sidebar-width-state";
 
 type ResizableSidebarProps = {
   // localStorage 命名空间，例 "chat" / "projects"，写入 key 是 agentre.sidebarWidth.<key>
@@ -22,6 +23,8 @@ type ResizableSidebarProps = {
   edge?: "left" | "right";
   // 首次读不到 localStorage 时的宽度兜底。默认 320px。
   defaultWidth?: number;
+  // 宿主用例的抓手。两端各有各的 testid 词汇，包这边只做透传。
+  testId?: string;
 };
 
 // ResizableSidebar 是 chat / projects 等页面侧栏的共享容器：
@@ -36,8 +39,9 @@ function ResizableSidebar({
   children,
   edge = "right",
   defaultWidth = SIDEBAR_DEFAULT_WIDTH,
+  testId,
 }: ResizableSidebarProps) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const [width, setWidth] = React.useState<number>(() =>
     readSidebarWidth(persistenceKey, defaultWidth),
   );
@@ -85,6 +89,7 @@ function ResizableSidebar({
   return (
     <aside
       aria-label={ariaLabel}
+      data-testid={testId}
       style={{ width: `${width}px` }}
       className={cn(
         "relative flex shrink-0 flex-col bg-sidebar",
@@ -116,3 +121,4 @@ function ResizableSidebar({
 }
 
 export { ResizableSidebar };
+export type { ResizableSidebarProps };

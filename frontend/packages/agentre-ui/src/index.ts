@@ -194,6 +194,17 @@ export {
 } from "./ui/select";
 export { SearchInput } from "./ui/search-input";
 export type { SearchInputProps, SearchInputVariant } from "./ui/search-input";
+export { ResizableSidebar } from "./ui/resizable-sidebar";
+export type { ResizableSidebarProps } from "./ui/resizable-sidebar";
+export {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_WIDTH_KEY_PREFIX,
+  clampSidebarWidth,
+  readSidebarWidth,
+  writeSidebarWidth,
+} from "./ui/sidebar-width-state";
 export { Separator } from "./ui/separator";
 export { Spinner } from "./ui/spinner";
 export { Switch } from "./ui/switch";

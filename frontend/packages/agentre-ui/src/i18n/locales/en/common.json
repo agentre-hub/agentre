@@ -119,5 +119,9 @@
       "tradeoff": "tradeoff",
       "trend": "trend"
     }
+  },
+  "resizableSidebar": {
+    "resizeAria": "Resize {{label}} width",
+    "resizeTitle": "Drag to resize width"
   }
 }

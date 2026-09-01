@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import {
   Button,
   MarkdownText,
+  ResizableSidebar,
   ReplayedFileDiff,
   collectReplayCalls,
   previewKind,
@@ -33,7 +34,6 @@ import {
   PanelSkeleton,
 } from "../chat-context-sidebar/views/panel-feedback";
 import { FileTypeIcon } from "../file-type-icon";
-import { ResizableSidebar } from "../resizable-sidebar";
 
 import { CodePreview } from "./code-view";
 import { DiffPreview } from "./diff-view";

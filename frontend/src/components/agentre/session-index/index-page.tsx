@@ -14,7 +14,10 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { ImportDialogPrefill } from "@agentre-hub/agentre-ui";
+import {
+  ResizableSidebar,
+  type ImportDialogPrefill,
+} from "@agentre-hub/agentre-ui";
 
 import { useChatAgents, type AgentSlim } from "@/hooks/use-chat-agents";
 import { useProjectTree } from "@/hooks/use-project-tree";
@@ -27,7 +30,6 @@ import { useNewChatContextStore } from "@/stores/new-chat-context-store";
 import { requestNewAgentDialog } from "@/stores/new-agent-intent-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 
-import { ResizableSidebar } from "../resizable-sidebar";
 import { SessionsPopover } from "../sessions-popover";
 import * as WailsApp from "../../../../wailsjs/go/app/App";
 import type { app } from "../../../../wailsjs/go/models";

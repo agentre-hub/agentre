@@ -122,10 +122,6 @@
     "quitAnyway": "Quit anyway",
     "unknownSession": "Untitled session"
   },
-  "resizableSidebar": {
-    "resizeAria": "Resize {{label}} width",
-    "resizeTitle": "Drag to resize width"
-  },
   "statusBar": {
     "agentSummary": "{{count}} agents · {{running}} running",
     "approval_one": "{{count}} approval",

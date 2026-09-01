@@ -122,10 +122,6 @@
     "quitAnyway": "仍然退出",
     "unknownSession": "未命名会话"
   },
-  "resizableSidebar": {
-    "resizeAria": "调整{{label}}宽度",
-    "resizeTitle": "拖拽调整宽度"
-  },
   "statusBar": {
     "agentSummary": "{{count}} 个 agent · {{running}} 个运行中",
     "approval_one": "{{count}} 个待审批",

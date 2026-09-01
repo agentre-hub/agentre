@@ -119,5 +119,9 @@
       "tradeoff": "权衡",
       "trend": "趋势"
     }
+  },
+  "resizableSidebar": {
+    "resizeAria": "调整{{label}}宽度",
+    "resizeTitle": "拖拽调整宽度"
   }
 }

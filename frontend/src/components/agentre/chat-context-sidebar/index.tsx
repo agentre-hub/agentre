@@ -9,7 +9,7 @@ import {
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
-import { ResizableSidebar } from "../resizable-sidebar";
+import { ResizableSidebar } from "@agentre-hub/agentre-ui";
 
 import { deriveOutline, deriveSessionChanges } from "./derive";
 import { RootFollowNotice } from "./root-follow-notice";
