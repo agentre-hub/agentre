@@ -147,7 +147,7 @@ func buildRPCArgs(c *Client) []string {
 	if strings.TrimSpace(c.model) != "" {
 		args = append(args, "--model", strings.TrimSpace(c.model))
 	}
-	if thinking := normalizeThinkingLevel(c.thinking); thinking != "" {
+	if thinking := NormalizeThinkingLevel(c.thinking); thinking != "" {
 		args = append(args, "--thinking", thinking)
 	}
 	for _, ext := range c.extensions {
@@ -156,12 +156,15 @@ func buildRPCArgs(c *Client) []string {
 	return args
 }
 
-func normalizeThinkingLevel(level string) string {
+// NormalizeThinkingLevel 把落库的 reasoning_effort 映射为 pi CLI 的 --thinking 值。
+// 六档（low/medium/high/xhigh/max）原样透传:本机 `pi --help` 明写 --thinking 支持
+// off/minimal/low/medium/high/xhigh/max(spec 2026-09-01「三后端下发档位的收敛」),
+// 旧的 max→xhigh 降档前提已不成立。非法值(含大小写错、含空格)→ "" 表示不下发,走
+// pi 自身默认。
+func NormalizeThinkingLevel(level string) string {
 	switch strings.TrimSpace(level) {
-	case "low", "medium", "high", "xhigh":
+	case "low", "medium", "high", "xhigh", "max":
 		return strings.TrimSpace(level)
-	case "max":
-		return "xhigh"
 	default:
 		return ""
 	}

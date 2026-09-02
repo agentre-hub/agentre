@@ -143,3 +143,33 @@ func TestBuildLaunchSpec_EnabledPlugins(t *testing.T) {
 		})
 	})
 }
+
+// TestBuildLaunchSpec_ReasoningEffort 锁住 spec 2026-09-01「三后端下发档位的收敛」:
+// max 原样下发,不再被本地兼容折叠成 high;非法值仍不下发。
+func TestBuildLaunchSpec_ReasoningEffort(t *testing.T) {
+	Convey("Given 会话有效力度为 max", t, func() {
+		spec := buildLaunchSpec(agentruntime.RunRequest{
+			Backend: &agent_backend_entity.AgentBackend{
+				Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}", ReasoningEffort: "max",
+			},
+		}, nil, "/tmp/work")
+
+		Convey("Then Codex --config 下发 model_reasoning_effort=\"max\"", func() {
+			So(spec.config, ShouldContain, `model_reasoning_effort="max"`)
+		})
+	})
+
+	Convey("Given 会话有效力度是非法值", t, func() {
+		spec := buildLaunchSpec(agentruntime.RunRequest{
+			Backend: &agent_backend_entity.AgentBackend{
+				Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}", ReasoningEffort: "bogus",
+			},
+		}, nil, "/tmp/work")
+
+		Convey("Then 不下发 model_reasoning_effort,走 CLI 自身默认", func() {
+			for _, cfg := range spec.config {
+				So(cfg, ShouldNotStartWith, "model_reasoning_effort")
+			}
+		})
+	})
+}

@@ -127,7 +127,7 @@ func buildCodexShellCommand(spec LaunchCommandSpec, cwd string) (string, error) 
 	for _, cfg := range BuildCodexConfig(deps) {
 		argv = append(argv, "-c", cfg)
 	}
-	if eff := codexReasoningEffortConfigValue(spec.Backend.ReasoningEffort); eff != "" {
+	if eff := CodexReasoningEffortConfigValue(spec.Backend.ReasoningEffort); eff != "" {
 		argv = append(argv, "-c", `model_reasoning_effort="`+eff+`"`)
 	}
 	if spec.Effective != nil {

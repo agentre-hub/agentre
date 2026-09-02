@@ -262,7 +262,6 @@
       "unlinked": "No provider is linked. The CLI uses its own login state, and secrets do not pass through the app."
     },
     "reasoning": {
-      "codexHint": "codex CLI supports low / medium / high / xhigh. max is folded down to high.",
       "label": "Reasoning Effort",
       "options": {
         "default": "Default (model decides)",

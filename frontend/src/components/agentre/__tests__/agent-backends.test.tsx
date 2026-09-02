@@ -2626,7 +2626,11 @@ describe("AgentBackendsPanel", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("codex 思考力度开放 xhigh，保存时透传 reasoningEffort=xhigh", async () => {
+  // spec 2026-09-01「三后端下发档位的收敛」+ 设计决策 2:档位表统一六档,
+  // codex 不再被单独藏 max——本机实测 codex-cli 对 model_reasoning_effort
+  // 不做本地枚举校验、原样透传,旧的「保存了 max 实际上下发 high」的迷惑前提
+  // 已不成立。
+  it("codex 思考力度开放 max，保存时透传 reasoningEffort=max", async () => {
     const user = userEvent.setup();
     const mocks = installAppMock();
     render(<AgentBackendsPanel />);
@@ -2637,7 +2641,7 @@ describe("AgentBackendsPanel", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(
       within(dialog).getByPlaceholderText("Example: Local · Claude Code"),
-      { target: { value: "codex xhigh" } },
+      { target: { value: "codex max" } },
     );
     await user.click(within(dialog).getByRole("radio", { name: /Codex CLI/ }));
 
@@ -2645,10 +2649,8 @@ describe("AgentBackendsPanel", () => {
       within(dialog).getByRole("combobox", { name: "Reasoning Effort" }),
     );
     expect(screen.getByRole("option", { name: /xhigh/ })).toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: /max/ }),
-    ).not.toBeInTheDocument();
-    await user.click(screen.getByRole("option", { name: /xhigh/ }));
+    expect(screen.getByRole("option", { name: /max/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: /max/ }));
 
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
@@ -2656,8 +2658,8 @@ describe("AgentBackendsPanel", () => {
       expect(mocks.CreateAgentBackend).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "codex",
-          name: "codex xhigh",
-          reasoningEffort: "xhigh",
+          name: "codex max",
+          reasoningEffort: "max",
         }),
       );
     });

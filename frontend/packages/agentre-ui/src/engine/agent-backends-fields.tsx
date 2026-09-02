@@ -47,8 +47,10 @@ import {
 import { LlmProviderLogo } from "./ai-brand-logo";
 import { ModelTargetPicker, type PickerProvider } from "./model-target-picker";
 
-// codex CLI 支持到 xhigh；UI 不暴露 max，避免「保存了 max 实际上下发 high」的迷惑。
-// 类型切到 codex 时若历史值是 max，会自动降为 high（buildDraft / handleTypeChange）。
+// 六档词表是全工作区唯一的思考力度词表（spec 2026-09-01 决策 2）：claudecode / codex /
+// piagent / builtin 四个支持力度的后端在编辑器里呈现同一张表，不再按后端裁剪——本机
+// 实测 codex-cli 对 max 不做本地枚举校验、原样透传，此前对 codex 隐藏 max 的前提已
+// 不成立（「三后端下发档位的收敛」）。
 const REASONING_EFFORTS_FULL: ReasoningEffortValue[] = [
   "",
   "low",
@@ -56,13 +58,6 @@ const REASONING_EFFORTS_FULL: ReasoningEffortValue[] = [
   "high",
   "xhigh",
   "max",
-];
-const REASONING_EFFORTS_CODEX: ReasoningEffortValue[] = [
-  "",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
 ];
 
 const APPROVAL_OPTIONS: {
@@ -708,23 +703,21 @@ export function ApprovalField({
 }
 
 // ReasoningEffortField shadcn Select 把"思考力度"以六档（默认 + low/medium/high/xhigh/max）
-// 暴露给用户。codex 类型下展示到 xhigh，隐藏 max——max 在底层会 clamp 到 high，
-// UI 直接隐藏避免「保存了 max 实际上等于 high」的迷惑。
+// 暴露给用户，四个支持力度的后端呈现同一张表（调用方按 type !== "openclaw" 门控是否
+// 渲染这颗字段，本组件自己不再按后端裁剪选项——spec 2026-09-01「三后端下发档位的
+// 收敛」)。
 //
 // Select 不接受空字符串作为 SelectItem value，所以把 "" 映射为字面量 "default"，
 // 在 onValueChange 回传时再翻译回 ""，与后端枚举对齐。
 export function ReasoningEffortField({
-  type,
   value,
   onChange,
 }: {
-  type: BackendType;
   value: ReasoningEffortValue;
   onChange: (v: ReasoningEffortValue) => void;
 }) {
   const { t } = useTranslation();
-  const options =
-    type === "codex" ? REASONING_EFFORTS_CODEX : REASONING_EFFORTS_FULL;
+  const options = REASONING_EFFORTS_FULL;
   return (
     <div className="flex flex-col gap-1.5 text-xs">
       <div className="flex items-center justify-between">
@@ -760,11 +753,6 @@ export function ReasoningEffortField({
           ))}
         </SelectContent>
       </Select>
-      {type === "codex" ? (
-        <span className="text-2xs text-muted-foreground">
-          {t("agentBackends.reasoning.codexHint")}
-        </span>
-      ) : null}
     </div>
   );
 }

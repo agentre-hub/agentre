@@ -716,7 +716,6 @@
       "unlinked": "未关联供应商，将直接使用 CLI 自身的 login 状态，密钥不经 App。"
     },
     "reasoning": {
-      "codexHint": "codex CLI 支持 low / medium / high / xhigh；max 将被折叠到 high。",
       "label": "思考力度",
       "options": {
         "default": "默认（由模型决定）",

@@ -1482,3 +1482,51 @@ func TestRun_UnrecordedLaunchIdentityEvictsAndRespawns(t *testing.T) {
 		})
 	})
 }
+
+// Given 池里留着一条按某个思考力度起过一轮的 codex app-server, When 下一轮只改了力度
+// (模型/供应商都不变), Then 旧进程被驱逐、重新 spawn —— 力度是 spawn 时经
+// -c model_reasoning_effort= 烤进 app-server 的启动参数,复用旧进程就是拿旧档位跑新
+// 一轮(spec 2026-09-01「三后端下发档位的收敛」)。
+func TestRun_GivenReasoningEffortOnlyChanges_WhenRunningAgain_ThenTheOldSessionIsEvicted(t *testing.T) {
+	Convey("Given 一条 codex 会话已经用某个思考力度跑过一轮", t, func() {
+		pool := agentruntime.NewCLISessionPool(8)
+		firstClosed := make(chan struct{})
+		factoryCalls := 0
+		restore := SetSessionFactoryForTest(func(_ agentruntime.RunRequest, _ map[string]string, _ string) (cxSessionHandle, error) {
+			factoryCalls++
+			if factoryCalls == 1 {
+				return &countingRuntimeSession{sid: "thread-1", streams: []cxStream{&emptyRuntimeStream{}, &emptyRuntimeStream{}}, closedCh: firstClosed}, nil
+			}
+			return &countingRuntimeSession{sid: "thread-2", streams: []cxStream{&emptyRuntimeStream{}}}, nil
+		})
+		defer restore()
+
+		r := NewWithPool(pool)
+		backend := &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}", ReasoningEffort: "low"}
+		req := agentruntime.RunRequest{Backend: backend, SessionID: 94, Cwd: t.TempDir(), UserText: "one"}
+
+		events, _, err := r.Run(context.Background(), req)
+		So(err, ShouldBeNil)
+		for range events {
+		}
+
+		Convey("When 下一轮换了推理档位 Then 旧会话被收掉并重新 spawn", func() {
+			next := *backend
+			next.ReasoningEffort = "high"
+			req.Backend = &next
+			req.UserText = "two"
+			events, _, err := r.Run(context.Background(), req)
+			So(err, ShouldBeNil)
+			for range events {
+			}
+
+			So(factoryCalls, ShouldEqual, 2)
+			select {
+			case <-firstClosed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("被换掉的旧 app-server 没有被收掉")
+			}
+			So(pool.Len(), ShouldEqual, 1)
+		})
+	})
+}

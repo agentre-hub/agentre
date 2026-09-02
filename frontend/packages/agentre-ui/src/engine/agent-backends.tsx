@@ -85,7 +85,6 @@ import {
   buildBackendDraft,
   emptyRoutes,
   matchingProviders,
-  normalizeForCodex,
   openClawProbeErrorMessage,
   parseRoutes,
   referencedProviderKeys,
@@ -702,10 +701,6 @@ function BackendEditor({
       setDefaultPermissionMode("");
       setDefaultModel("");
     }
-    // 切到 codex 时把 max 自动降到 high，避免「保存了一个 codex 不支持的档位」。
-    if (nextType === "codex") {
-      setReasoningEffort((cur) => normalizeForCodex(cur));
-    }
     // 切类型时清空 cliPath，避免 claude / codex 两个不同的可执行文件串台。
     cli.setCliPath("");
     cli.setCliProbeMiss(null);
@@ -1245,7 +1240,6 @@ function BackendEditor({
 
         {type !== "openclaw" ? (
           <ReasoningEffortField
-            type={type}
             value={reasoningEffort}
             onChange={setReasoningEffort}
           />

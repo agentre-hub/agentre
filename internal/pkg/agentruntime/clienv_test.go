@@ -95,8 +95,9 @@ func TestBuildCodexEnv_Basic(t *testing.T) {
 }
 
 // TestCodexReasoningEffortConfigValue 锁住 codex 启动层的 reasoning effort 转译：
-// xhigh 直传；max 属于其它后端的更高档语义，在 codex 下兼容折叠到 high；
-// off / 未知值 → 空串（不下发）。
+// 六档原样透传（含 max —— codex-cli 本地不做枚举校验，spec 2026-09-01「三后端下发
+// 档位的收敛」已否决旧的 max→high 兼容折叠）；非法值（含大小写错、含空格）→ 空串
+// （不下发，走 CLI 自身默认）。
 func TestCodexReasoningEffortConfigValue(t *testing.T) {
 	cases := map[string]string{
 		"":       "",
@@ -104,13 +105,13 @@ func TestCodexReasoningEffortConfigValue(t *testing.T) {
 		"medium": "medium",
 		"high":   "high",
 		"xhigh":  "xhigh",
-		"max":    "high",
+		"max":    "max",
 		"ultra":  "",
 		"LOW":    "",
 		" high":  "",
 	}
 	for in, want := range cases {
-		assert.Equal(t, want, codexReasoningEffortConfigValue(in), "codexReasoningEffortConfigValue(%q)", in)
+		assert.Equal(t, want, CodexReasoningEffortConfigValue(in), "CodexReasoningEffortConfigValue(%q)", in)
 	}
 }
 

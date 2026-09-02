@@ -385,7 +385,7 @@ func buildLaunchSpec(req agentruntime.RunRequest, env map[string]string, cwd str
 	}
 	spec.config = append(spec.config, buildMCPServerConfig(req.MCPServers)...)
 	spec.config = append(spec.config, codex.PluginEnabledConfig(req.EnabledPlugins)...)
-	if eff := reasoningEffortConfigValue(req.Backend.ReasoningEffort); eff != "" {
+	if eff := agentruntime.CodexReasoningEffortConfigValue(req.Backend.ReasoningEffort); eff != "" {
 		spec.config = append(spec.config, `model_reasoning_effort="`+eff+`"`)
 	}
 	spec.model = codexEffectiveModel(req)
@@ -444,20 +444,6 @@ func tomlStringArray(items []string) string {
 	}
 	b.WriteByte(']')
 	return b.String()
-}
-
-// reasoningEffortConfigValue 把落库的 reasoning_effort 映射为 codex CLI 配置值。
-// 与顶层 clienv.go.codexReasoningEffortConfigValue 等价 —— low/medium/high/xhigh
-// 直传,max 向下并到 high;off / 非法值 → "" 不下发。
-func reasoningEffortConfigValue(s string) string {
-	switch s {
-	case "low", "medium", "high", "xhigh":
-		return s
-	case "max":
-		return "high"
-	default:
-		return ""
-	}
 }
 
 func (s codexLaunchSpec) options() []codex.Option {

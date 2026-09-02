@@ -213,7 +213,8 @@ func TestBuildLaunchCommand_ClaudeCodeOmitsEffortWhenEmpty(t *testing.T) {
 }
 
 // TestBuildLaunchCommand_CodexReasoningEffort 验证 codex shell 命令的 reasoning effort：
-// low/medium/high/xhigh 直传；max 兼容折叠到 high；off 不下发。
+// low/medium/high/xhigh/max 六档原样直传（spec 2026-09-01「三后端下发档位的收敛」已
+// 否决旧的 max→high 兼容折叠）；off 不下发。
 func TestBuildLaunchCommand_CodexReasoningEffort(t *testing.T) {
 	cases := []struct {
 		effort string
@@ -224,7 +225,7 @@ func TestBuildLaunchCommand_CodexReasoningEffort(t *testing.T) {
 		{"medium", `model_reasoning_effort="medium"`},
 		{"high", `model_reasoning_effort="high"`},
 		{"xhigh", `model_reasoning_effort="xhigh"`},
-		{"max", `model_reasoning_effort="high"`},
+		{"max", `model_reasoning_effort="max"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.effort, func(t *testing.T) {
@@ -279,7 +280,9 @@ func TestBuildLaunchCommand_PiAgentUsesNativeSessionID(t *testing.T) {
 	assert.NotContains(t, cmd, "ANTHROPIC_AUTH_TOKEN")
 }
 
-func TestBuildLaunchCommand_PiAgentMaxThinkingClampsToXHigh(t *testing.T) {
+// TestBuildLaunchCommand_PiAgentMaxThinkingPassesThrough 锁住 spec 2026-09-01「三
+// 后端下发档位的收敛」:max 原样下发 --thinking max,不再被本地兼容折叠成 xhigh。
+func TestBuildLaunchCommand_PiAgentMaxThinkingPassesThrough(t *testing.T) {
 	_ = agentCwdFor(t, 45)
 	cmd, err := BuildLaunchCommand(LaunchCommandSpec{
 		Backend: &agent_backend_entity.AgentBackend{
@@ -290,8 +293,7 @@ func TestBuildLaunchCommand_PiAgentMaxThinkingClampsToXHigh(t *testing.T) {
 		AgentID: 45,
 	})
 	require.NoError(t, err)
-	assert.Contains(t, cmd, "--thinking xhigh")
-	assert.NotContains(t, cmd, "--thinking max")
+	assert.Contains(t, cmd, "--thinking max")
 	assert.NotContains(t, cmd, "--session", "a Pi chat without a native ID must start a fresh native session")
 }
 

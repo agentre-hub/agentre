@@ -50,12 +50,6 @@ export type PendingProviderSync = {
   saveAfterSync: boolean;
 };
 
-export function normalizeForCodex(
-  v: ReasoningEffortValue,
-): ReasoningEffortValue {
-  return v === "max" ? "high" : v;
-}
-
 export function matchingProviders(t: BackendType, providers: Provider[]) {
   if (t === "claudecode")
     return providers.filter((p) => p.type === "anthropic");
@@ -185,13 +179,11 @@ export type BackendDraftFields = {
 };
 
 export function buildBackendDraft(f: BackendDraftFields): BackendDraft {
-  // 三种 backend 都保留 reasoningEffort；codex 二次兜底 normalize（防止历史脏数据 / 跨 type 残留）。
+  // 六档词表全后端统一（spec 2026-09-01「三后端下发档位的收敛」）：codex 不再在保存时
+  // 把 max 二次兜底降档——此前这里与 REASONING_EFFORTS_CODEX 配对制造「保存了 max
+  // 实际存的是 high」的迷惑，前提已不成立。
   const effort: ReasoningEffortValue =
-    f.type === "openclaw"
-      ? ""
-      : f.type === "codex"
-        ? normalizeForCodex(f.reasoningEffort)
-        : f.reasoningEffort;
+    f.type === "openclaw" ? "" : f.reasoningEffort;
   return {
     type: f.type,
     name: f.name,

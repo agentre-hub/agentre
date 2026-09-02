@@ -74,10 +74,12 @@ type Runtime struct {
 	pool   *agentruntime.CLISessionPool
 }
 
-// launchIdentity 拼出 codex 的启动身份:--model(解析出的 ModelID)、稳定 ModelKey 与
-// effectiveProviderKey(model_provider/base_url 的 -c 覆盖项)都绑定在 Client 创建时,
+// launchIdentity 拼出 codex 的启动身份:ReasoningEffort(-c model_reasoning_effort=
+// 覆盖项)、--model(解析出的 ModelID)、稳定 ModelKey 与 effectiveProviderKey
+// (model_provider/base_url 的 -c 覆盖项)都绑定在 Client 创建时,
 // 而 app-server 进程会被池跨轮复用 —— 任一变化都必须驱逐重开,否则这一轮复用的是拿旧
-// 参数起来的进程:换了供应商仍打旧的、换了模型 RunResult.Model 仍是旧模型。ModelKey
+// 参数起来的进程:换了供应商仍打旧的、换了模型 RunResult.Model 仍是旧模型、改了力度仍
+// 用旧力度跑(spec 2026-09-01「三后端下发档位的收敛」)。ModelKey
 // 单列一项,因为两行不同的稳定模型可以解析到同一个上游 ModelID。
 //
 // 比对与「未记录即已变」的判定都交给 CLISessionPool.GetWithIdentity,身份随条目消失
@@ -85,6 +87,7 @@ type Runtime struct {
 // 分隔符用 \x00:这些字段都是标识串,不会含 NUL。
 func launchIdentity(req agentruntime.RunRequest) string {
 	return strings.Join([]string{
+		req.Backend.ReasoningEffort,
 		codexEffectiveModel(req),
 		codexEffectiveModelKey(req),
 		req.EffectiveProviderKey(),
