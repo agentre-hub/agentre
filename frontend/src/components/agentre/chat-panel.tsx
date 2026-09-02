@@ -80,6 +80,10 @@ import {
 import { computeComposerContextUsage } from "./chat-panel-context-usage";
 import { usePermissionMode } from "./permission-mode";
 import { ProviderPill, useProviderPill } from "./model-pill";
+import {
+  ReasoningEffortPill,
+  useReasoningEffortPill,
+} from "./reasoning-effort";
 import { NewSessionExecTargetLine } from "./session-exec-target";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { QueuedMessagesBar } from "./queued-messages-bar";
@@ -401,6 +405,8 @@ function ChatPanel({
   );
   const caps = sessionCaps ?? backendCaps;
   const isModeSwitchable = !!caps?.has("set_permission_mode");
+  // reasoning_effort 能力位为假时(openclaw)整颗控件不渲染,不是置灰(spec 决策 6)。
+  const supportsReasoningEffort = !!caps?.has("reasoning_effort");
   const canStopBackgroundTask = !!caps?.has("stop_background_task");
   const supportsImageInput = !!caps?.has("image_input");
   const supportsCompactRPC = caps
@@ -519,6 +525,20 @@ function ChatPanel({
       sessionId > 0
         ? (session?.deviceID ?? "")
         : (effectiveTarget?.deviceId ?? newSessionAgent?.deviceID ?? ""),
+    onSwitched: () => void reloadSession(),
+  });
+
+  // ReasoningEffortPill:composer 底栏 trailing 侧的会话级思考力度控件(spec
+  // 2026-09-01 决策 6/9)。后端未声明 reasoning_effort 能力(openclaw)时
+  // supportsReasoningEffort 为假,整颗控件不渲染,这里的 hook 调用本身不受影响
+  // (React Hooks 规则:hook 无条件调用,渲染与否由下面的 JSX 条件控制)。
+  //
+  // 会话行 / 后端配置这两个持久化值目前还没有从 ChatSessionDetail 里回传
+  // (LoadSession 尚未产出 reasoningEffort / agentReasoningEffort 字段,与
+  // providerKey / agentProviderKey 那一组同构但缺席) —— 补齐前控件对已有会话
+  // 恒显示「默认」,选中后仍会正确持久化并在本次会话内正确回显。
+  const reasoningEffortPill = useReasoningEffortPill({
+    sessionId,
     onSwitched: () => void reloadSession(),
   });
 
@@ -1058,6 +1078,12 @@ function ChatPanel({
                             used={composerContextUsage.used}
                             max={composerContextUsage.max}
                           />
+                        ) : null}
+                        {/* 紧邻提交键(决策 9):trailingControls 整体排在 ChatComposer
+                            的提交键之前,这里放在片段末尾让它成为 trailing 侧最靠右
+                            的一个。 */}
+                        {supportsReasoningEffort ? (
+                          <ReasoningEffortPill {...reasoningEffortPill} />
                         ) : null}
                       </>
                     }

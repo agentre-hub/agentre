@@ -49,6 +49,7 @@ const appMocks = vi.hoisted(() => ({
   RemoteDeviceListProviders: vi.fn().mockResolvedValue([]),
   SetChatSessionProvider: vi.fn(),
   SetChatSessionModelTarget: vi.fn(),
+  SetChatSessionReasoningEffort: vi.fn(),
   MarkChatSessionRead: vi.fn().mockResolvedValue({}),
   RegenerateChatMessage: vi.fn(),
   RenameChatSession: vi.fn(),
@@ -112,6 +113,9 @@ const componentMocks = vi.hoisted(() => ({
   capsSwitchableDuringTurn: true,
   capsAllowedModes: ["default", "plan", "acceptEdits", "bypassPermissions"],
   capsImageInput: true,
+  // reasoning_effort 能力位（spec 2026-09-01 决策 6）：默认 false，只有专门测试
+  // 显式打开它，避免既有用例平白多出这颗控件。
+  capsReasoningEffort: false,
   effectiveExecTarget: null as null | {
     kind: "local" | "desktop" | "daemon";
     deviceId: string;
@@ -337,7 +341,8 @@ function makeCapsStub(backendType?: string | null) {
     has: (c: string) =>
       c === "set_permission_mode" ||
       (c === "image_input" && componentMocks.capsImageInput) ||
-      (c === "compact" && supportsCompact),
+      (c === "compact" && supportsCompact) ||
+      (c === "reasoning_effort" && componentMocks.capsReasoningEffort),
     permissionModeMeta: {
       allowedModes: componentMocks.capsAllowedModes,
       defaultMode: "default",
@@ -487,6 +492,7 @@ function resetStore() {
     "bypassPermissions",
   ];
   componentMocks.capsImageInput = true;
+  componentMocks.capsReasoningEffort = false;
   componentMocks.effectiveExecTarget = null;
   componentMocks.computeComposerContextUsage.mockClear();
   componentMocks.cycleMode.mockClear();
@@ -517,6 +523,7 @@ function resetStore() {
   appMocks.RemoteDeviceListProviders.mockResolvedValue([]);
   appMocks.TerminalClose.mockReset();
   appMocks.TerminalRunCommand.mockReset();
+  appMocks.SetChatSessionReasoningEffort.mockReset();
   localCommandRuntimeStore.resetForTesting();
   useLocalCommandsStore.setState({ entries: {} });
   sonnerMocks.toast.error.mockClear();
@@ -6181,5 +6188,113 @@ describe("ChatPanel · 加载骨架与失败态改用共享呈现件", () => {
     expect(
       screen.getByRole("button", { name: "Close session" }),
     ).toBeInTheDocument();
+  });
+});
+
+// ─── 会话级思考力度控件（spec 2026-09-01，决策 6/9）────────────────────────────
+
+describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9）", () => {
+  it("reasoning_effort 能力位为真：控件出现在计量器之后，比权限/供应商 pill 更靠右（trailing 侧）", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "claudecode",
+    });
+
+    const { container } = render(<ChatPanel sessionId={42} />);
+
+    await screen.findByTestId("provider-pill");
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    expect(pill).toBeInTheDocument();
+
+    // leadingControls(权限模式 + 供应商 pill)先于 trailingControls(配额计量器 +
+    // 思考力度控件)插入 DOM——真实 ChatComposer 把 trailingControls 整体排在
+    // 提交键之前(packages/agentre-ui/src/composer/chat-composer.tsx)，这里只能
+    // 验证到"它属于 trailing 分组、且是分组里最靠右那个"。
+    const order = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-testid]"),
+    )
+      .map((el) => el.getAttribute("data-testid"))
+      .filter((id): id is string =>
+        [
+          "permission-mode-pill",
+          "provider-pill",
+          "quota-meter",
+          "reasoning-effort-pill",
+        ].includes(id ?? ""),
+      );
+    expect(order).toEqual([
+      "permission-mode-pill",
+      "provider-pill",
+      "quota-meter",
+      "reasoning-effort-pill",
+    ]);
+  });
+
+  it("后端未声明 reasoning_effort 能力（openclaw 等）：整颗控件不渲染", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = false;
+    mockSessionStore.session = makeSession({ id: 42, backendType: "openclaw" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    await screen.findByTestId("quota-meter");
+    expect(
+      screen.queryByTestId("reasoning-effort-pill"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("选定一档立即调用 SetChatSessionReasoningEffort", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "claudecode",
+    });
+    appMocks.SetChatSessionReasoningEffort.mockResolvedValue({
+      reasoningEffort: "high",
+      backendReasoningEffort: "",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(await screen.findByRole("option", { name: "high" }));
+
+    await waitFor(() => {
+      expect(appMocks.SetChatSessionReasoningEffort).toHaveBeenCalledWith({
+        sessionId: 42,
+        reasoningEffort: "high",
+      });
+    });
+  });
+
+  it("写库失败：控件回滚到上一档，重新打开弹层能看到原因", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "claudecode",
+    });
+    appMocks.SetChatSessionReasoningEffort.mockRejectedValue(
+      new Error("db down"),
+    );
+
+    render(<ChatPanel sessionId={42} />);
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(await screen.findByRole("option", { name: "high" }));
+
+    // 乐观值先短暂显示 high,写库失败后回滚回「Default」——会话行没被改写。
+    await waitFor(() => {
+      expect(pill).toHaveTextContent("Default");
+    });
+
+    // select() 一点即关弹层,失败原因要重新打开才看得到。
+    await user.click(pill);
+    expect(await screen.findByRole("alert")).toHaveTextContent("db down");
   });
 });

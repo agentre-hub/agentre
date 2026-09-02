@@ -1,19 +1,27 @@
 import type { TranscriptMessage } from "./dto";
 
+// 两个纯旁白 notice kind,镜像后端 internal/service/chat_svc/view/provider_notice.go
+// 的 NoticeKindSwitch / NoticeKindReasoningEffort —— 判据必须原样跟后端同步,漏一个
+// 都会让那类切换 notice 顶替真正在跑的 assistant 行(见下文)。
+const NOTICE_KIND_SWITCH = "switch";
+const NOTICE_KIND_REASONING_EFFORT = "reasoning_effort";
+
 /**
- * isNoticeOnlyMessage 判断一条消息是不是「只承载供应商切换 notice 的旁白行」。
+ * isNoticeOnlyMessage 判断一条消息是不是「只承载切换类 notice 的旁白行」
+ *（供应商切换 / 会话级思考力度切换,spec 2026-09-01 决策 7）。
  *
- * 切换 notice 是独立落库的一条消息(桌面端 session_provider.go 的
- * appendProviderSwitchNotice):role 是 assistant、块只有一个 notice,但它不是一轮
- * 对话 —— 它可以在任意时刻插进 transcript(pill 允许轮中切换,切完立刻 reloadSession
- * 把它拉进来),包括插在在跑的 assistant 之后。
+ * 这两类切换 notice 都是独立落库的一条消息(桌面端 session_provider.go 的
+ * appendProviderSwitchNotice / appendReasoningEffortSwitchNotice):role 是
+ * assistant、块只有一个 notice,但它不是一轮对话 —— 它可以在任意时刻插进
+ * transcript(pill/思考力度控件都允许轮中切换,切完立刻 reloadSession 把它拉进来),
+ * 包括插在在跑的 assistant 之后。
  *
  * 所以凡是「找末条**真实** assistant」的推导都必须跳过它,否则它会顶替真正那一条:
  * 生成指示器跳到旁白行上,在跑的那条看着像已经停了。
  *
- * 判据是 noticeKind==="switch",而不是「块全是 notice」:回退 notice 由后端追加进
- * **这一轮自己**的 assistant 消息,零内容收尾时那条消息的块正好只剩它 —— 按「块全是
- * notice」判,一轮真实对话就会被当成旁白行跳过。与桌面端 chat.go 的
+ * 判据是 noticeKind 命中这两个字面量之一,而不是「块全是 notice」:回退 notice 由
+ * 后端追加进**这一轮自己**的 assistant 消息,零内容收尾时那条消息的块正好只剩它 ——
+ * 按「块全是 notice」判,一轮真实对话就会被当成旁白行跳过。与桌面端 chat.go 的
  * noticeOnlyMessage 同一口径,两边必须同时改。
  *
  * 没有块 ≠ 旁白行:轮刚起时 assistant 行的 blocks 恒为 `[]`,那是真实的一轮,
@@ -25,7 +33,12 @@ export function isNoticeOnlyMessage(
   const blocks = message.blocks ?? [];
   return (
     blocks.length > 0 &&
-    blocks.every((b) => b.type === "notice" && b.noticeKind === "switch")
+    blocks.every(
+      (b) =>
+        b.type === "notice" &&
+        (b.noticeKind === NOTICE_KIND_SWITCH ||
+          b.noticeKind === NOTICE_KIND_REASONING_EFFORT),
+    )
   );
 }
 

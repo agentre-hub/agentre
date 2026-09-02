@@ -78,6 +78,23 @@ describe("indicatorHostMessageId", () => {
     ];
     expect(indicatorHostMessageId(messages)).toBeNull();
   });
+
+  // 会话级思考力度切换 notice(spec 2026-09-01 决策 7)与供应商切换 notice 同一
+  // 口径:也是独立插入、随时可能落在在跑 assistant 之后的旁白行,必须同样透明。
+  it("会话思考力度切换的旁白行也透明:三点留在它前面那条在跑的 assistant 上", () => {
+    const messages = [
+      message(1, "user"),
+      message(2, "assistant"),
+      message(3, "assistant", [
+        {
+          type: "notice",
+          noticeKind: "reasoning_effort",
+          text: "已切换到 high",
+        },
+      ]),
+    ];
+    expect(indicatorHostMessageId(messages)).toBe(2);
+  });
 });
 
 describe("isNoticeOnlyMessage", () => {
@@ -97,6 +114,14 @@ describe("isNoticeOnlyMessage", () => {
         blocks: [{ type: "notice", noticeKind: "fallback" }],
       }),
     ).toBe(false);
+  });
+
+  it("reasoning_effort notice:也是旁白行(与 switch 同一口径)", () => {
+    expect(
+      isNoticeOnlyMessage({
+        blocks: [{ type: "notice", noticeKind: "reasoning_effort" }],
+      }),
+    ).toBe(true);
   });
 
   it("没有块:不是旁白行", () => {
