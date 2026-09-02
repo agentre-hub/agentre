@@ -916,6 +916,57 @@ func TestPrepareTurnRun_RemoteNoSessionProviderKeyFallsBackToAgentBinding(t *tes
 	assert.Nil(t, prepared.req.Provider)
 }
 
+// TestPrepareTurnRun_SessionReasoningEffortOverridesBackendCopy 钉死「有效力度的合成
+// 边界」(spec 2026-09-01 硬不变量 2): buildRunRequest 是把 Backend 交给 agentruntime
+// 的两个边界之一,会话行非空的力度必须覆盖后端配置,写在 RunRequest.Backend 的
+// **副本**上 —— 解析出的 be 本身不能被改写,否则同一实体在别的读路径(如 LoadSession)
+// 上会带上这条会话专属的值。
+func TestPrepareTurnRun_SessionReasoningEffortOverridesBackendCopy(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	svc := &chatSvc{}
+	installMockPool(t, ctrl, svc, 7)
+
+	sess := &chat_entity.Session{ID: 102, AgentID: 7, ReasoningEffort: "max"}
+	a := &agent_entity.Agent{ID: 7, AgentBackendID: 12}
+	be := &agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "agent-bound-key",
+		DeviceFingerprint: testDeviceFingerprint(7), ReasoningEffort: "low",
+	}
+
+	prepared, err := svc.prepareTurnRun(context.Background(), sess, a, be, nil, nil, nil, "", false, false)
+	require.NoError(t, err)
+	require.NotNil(t, prepared)
+	require.NotNil(t, prepared.req.Backend)
+	assert.Equal(t, "max", prepared.req.Backend.ReasoningEffort, "会话行非空的力度覆盖后端配置")
+	assert.NotSame(t, be, prepared.req.Backend, "合成结果必须写在副本上,不能就地改 be")
+	assert.Equal(t, "low", be.ReasoningEffort, "解析出的后端实体本身不能被改写")
+}
+
+// TestPrepareTurnRun_EmptySessionReasoningEffortFallsBackToBackendConfig 覆盖合成规则
+// 的另一半:会话行力度为空时,RunRequest 里的 backend 副本沿用后端配置的值。
+func TestPrepareTurnRun_EmptySessionReasoningEffortFallsBackToBackendConfig(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	svc := &chatSvc{}
+	installMockPool(t, ctrl, svc, 7)
+
+	sess := &chat_entity.Session{ID: 103, AgentID: 7, ReasoningEffort: ""}
+	a := &agent_entity.Agent{ID: 7, AgentBackendID: 12}
+	be := &agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "agent-bound-key",
+		DeviceFingerprint: testDeviceFingerprint(7), ReasoningEffort: "high",
+	}
+
+	prepared, err := svc.prepareTurnRun(context.Background(), sess, a, be, nil, nil, nil, "", false, false)
+	require.NoError(t, err)
+	require.NotNil(t, prepared)
+	require.NotNil(t, prepared.req.Backend)
+	assert.Equal(t, "high", prepared.req.Backend.ReasoningEffort, "会话行力度为空时回落后端配置")
+}
+
 // TestPrepareTurnRun_GivenSelfFingerprintBackend_ThenRunsLocally R13 认领后本机
 // backend 的 DeviceID 是本机指纹（sha256:self）。prepareTurnRun 必须把这种档当作
 // 本地档走全局 runtime 注册表，而不是走 borrowRemoteRuntimeForTurn —— 本机指纹

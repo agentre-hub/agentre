@@ -1356,6 +1356,42 @@ func TestGetLaunchCommand(t *testing.T) {
 			assert.NotContains(t, command, "--mode rpc")
 		})
 
+		convey.Convey("会话力度覆盖后端配置 → 复制的启动命令带会话力度且原 backend 实体不受影响", func() {
+			be := &agent_backend_entity.AgentBackend{
+				ID: 25, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
+				ReasoningEffort: agent_backend_entity.ReasoningEffortLow,
+			}
+			m.session.EXPECT().Find(ctx, int64(11)).Return(&chat_entity.Session{
+				ID: 11, AgentID: 11, Status: consts.ACTIVE, ReasoningEffort: agent_backend_entity.ReasoningEffortMax,
+			}, nil)
+			m.agent.EXPECT().Find(ctx, int64(11)).Return(&agent_entity.Agent{
+				ID: 11, AgentBackendID: 25, Status: consts.ACTIVE,
+			}, nil)
+			m.backend.EXPECT().Find(ctx, int64(25)).Return(be, nil)
+
+			command := loadLaunchCommand(t, m, ctx, 11, agent_backend_entity.TypeClaudeCode)
+			assert.Contains(t, command, "--effort max", "复制出去的命令要带会话覆盖后的有效力度")
+			assert.NotContains(t, command, "--effort low")
+			assert.Equal(t, agent_backend_entity.ReasoningEffortLow, be.ReasoningEffort, "解析出的后端实体本身不能被改写")
+		})
+
+		convey.Convey("会话力度为空 → 复制的启动命令回落后端配置的力度", func() {
+			be := &agent_backend_entity.AgentBackend{
+				ID: 26, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
+				ReasoningEffort: agent_backend_entity.ReasoningEffortHigh,
+			}
+			m.session.EXPECT().Find(ctx, int64(12)).Return(&chat_entity.Session{
+				ID: 12, AgentID: 12, Status: consts.ACTIVE,
+			}, nil)
+			m.agent.EXPECT().Find(ctx, int64(12)).Return(&agent_entity.Agent{
+				ID: 12, AgentBackendID: 26, Status: consts.ACTIVE,
+			}, nil)
+			m.backend.EXPECT().Find(ctx, int64(26)).Return(be, nil)
+
+			command := loadLaunchCommand(t, m, ctx, 12, agent_backend_entity.TypeClaudeCode)
+			assert.Contains(t, command, "--effort high", "会话力度为空时回落后端配置")
+		})
+
 		convey.Convey("builtin → ChatLaunchCommandNotAvailable", func() {
 			m.session.EXPECT().Find(ctx, int64(4)).Return(&chat_entity.Session{ID: 4, AgentID: 9, Status: consts.ACTIVE}, nil)
 			m.agent.EXPECT().Find(ctx, int64(9)).Return(&agent_entity.Agent{ID: 9, AgentBackendID: 5, Status: consts.ACTIVE}, nil)

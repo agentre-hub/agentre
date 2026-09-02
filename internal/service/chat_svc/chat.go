@@ -842,7 +842,7 @@ func (s *chatSvc) GetLaunchCommand(ctx context.Context, req *LaunchCommandReques
 		return nil, err
 	}
 	cmd, err := agentruntime.BuildLaunchCommand(agentruntime.LaunchCommandSpec{
-		Backend:           be,
+		Backend:           effectiveBackendForSession(sess, be),
 		Effective:         cfg,
 		AgentID:           a.ID,
 		SessionID:         sess.ID,
@@ -2367,6 +2367,27 @@ func (s *chatSvc) selectTurnRunner(
 	return runner, release, nil
 }
 
+// effectiveBackendForSession 是「有效力度的合成边界」（spec 2026-09-01 硬不变量 2）
+// 的唯一实现:有效力度 = 会话行上的值非空则用它,否则用后端配置的值,写在返回的
+// backend **副本**上。buildRunRequest 与 GetLaunchCommand 是仅有的两个把 Backend
+// 交给 agentruntime 的地方,都经它合成 —— 下游 launchIdentity、四个 runtime、
+// BuildLaunchCommand 一字不改,继续只读 Backend.ReasoningEffort 一个字段。
+//
+// 否决在各 runtime 里读会话行:agentruntime 不依赖 chat 域,且会变成四份重复判断。
+// 否决就地改 be:be 是本轮解析出的实体,写脏了会让它在别的读路径(如
+// LoadSession/GetLaunchCommand 之外别的调用)上带上这条会话专属的值。
+func effectiveBackendForSession(sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) *agent_backend_entity.AgentBackend {
+	if be == nil || sess == nil {
+		return be
+	}
+	if strings.TrimSpace(sess.ReasoningEffort) == "" {
+		return be
+	}
+	beCopy := *be
+	beCopy.ReasoningEffort = sess.ReasoningEffort
+	return &beCopy
+}
+
 // buildRunRequest 组出本轮下发给 runtime 的 RunRequest:cwd / 生效 LLM 配置 /
 // builtin 历史 / 网关签名 / 权限模式。调用方在出错时负责 release。
 func (s *chatSvc) buildRunRequest(
@@ -2398,7 +2419,7 @@ func (s *chatSvc) buildRunRequest(
 		return agentruntime.RunRequest{}, err
 	}
 	req := agentruntime.RunRequest{
-		Backend:           be,
+		Backend:           effectiveBackendForSession(sess, be),
 		Provider:          prov,
 		Effective:         cfg,
 		AgentID:           a.ID,
