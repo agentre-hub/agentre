@@ -1274,11 +1274,26 @@ describe("reduceFrames:消息的时刻", () => {
   it("给定帧带 createtime，当归约，则消息的时刻取开启它那一帧的", () => {
     const msgs = reduceFrames(
       [
-        { sessionId: SID, seq: 1, createtime: 1700000000111, event: { kind: "user_message", text: "在吗" } },
-        { sessionId: SID, seq: 2, createtime: 1700000005222, event: { kind: "text_delta", text: "在" } },
+        {
+          sessionId: SID,
+          seq: 1,
+          createtime: 1700000000111,
+          event: { kind: "user_message", text: "在吗" },
+        },
+        {
+          sessionId: SID,
+          seq: 2,
+          createtime: 1700000005222,
+          event: { kind: "text_delta", text: "在" },
+        },
         // 同一条助手消息的后续帧不改它的时刻：createtime 说的是「这条消息从什么时候
         // 开始」，不是「最后一次被追加是什么时候」。
-        { sessionId: SID, seq: 3, createtime: 1700000009333, event: { kind: "text_delta", text: "的" } },
+        {
+          sessionId: SID,
+          seq: 3,
+          createtime: 1700000009333,
+          event: { kind: "text_delta", text: "的" },
+        },
       ],
       SID,
     );
@@ -1291,7 +1306,10 @@ describe("reduceFrames:消息的时刻", () => {
   it("给定帧没报时刻，当归约，则留 0 而不是补当下", () => {
     // 0 是包认得的「不知道」（`formatHHmm` 就此返回空串）。就地补一个 Date.now()
     // 会给一条两天前的对话盖上今天的时间 —— 不显示胜过显示一个假的。
-    const [msg] = reduceFrames([f({ kind: "user_message", text: "在吗" })], SID);
+    const [msg] = reduceFrames(
+      [f({ kind: "user_message", text: "在吗" })],
+      SID,
+    );
 
     expect(msg.createtime).toBe(0);
   });
