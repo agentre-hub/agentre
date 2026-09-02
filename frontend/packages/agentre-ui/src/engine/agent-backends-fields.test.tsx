@@ -15,8 +15,6 @@ describe("ReasoningEffortField", () => {
     await userEvent.click(screen.getByRole("combobox"));
     const options = screen.getAllByRole("option");
     expect(options).toHaveLength(6);
-    expect(options.some((opt) => opt.textContent?.includes("max"))).toBe(
-      true,
-    );
+    expect(options.some((opt) => opt.textContent?.includes("max"))).toBe(true);
   });
 });
