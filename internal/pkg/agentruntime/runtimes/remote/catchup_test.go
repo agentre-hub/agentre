@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // ── rig:App 刚启动、本进程内一轮都没有在跑 ─────────────────────────────────
@@ -176,6 +177,24 @@ func TestSessionSummaries_GivenTwoPeersOnTheSameDaemon_ThenNeitherConversationDi
 	assert.Empty(t, rt.originFor(own),
 		"自己那条会话的 origin 必须是空,记成别的对端会让 attach/pull 点名别人的会话")
 	assert.Equal(t, "peer-B", rt.originForConversation(peer))
+}
+
+// Given 一条 agentred 回传的会话摘要带着它记下的思考力度,When 客户端解清单,Then 那一格
+// 原样落在 wire.SessionSummary 上 —— 浏览器端在列表与重开时显示的就是这一格(spec
+// 2026-09-01「跨宿主」)。老 agentred 不发这个字段,解出来是空串(= 跟随后端配置)。
+func TestSummaryFromProto_CarriesReasoningEffort(t *testing.T) {
+	got := summaryFromProto(&agentrewire.SessionSummary{
+		ConversationId:  "018f4c1a-0000-7000-8000-0000000000b0",
+		LifecycleState:  wire.SessionLifecycleIdle,
+		ReasoningEffort: "xhigh",
+	})
+	assert.Equal(t, "xhigh", got.ReasoningEffort)
+
+	legacy := summaryFromProto(&agentrewire.SessionSummary{
+		ConversationId: "018f4c1a-0000-7000-8000-0000000000b1",
+		LifecycleState: wire.SessionLifecycleIdle,
+	})
+	assert.Empty(t, legacy.ReasoningEffort)
 }
 
 // Given 同上的清单,When 为自己那条会话跑补齐三步,Then attach / pull / pendingWaiters

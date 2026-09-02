@@ -9,5 +9,6 @@
   "lifecycleState": "running",
   "waitingForInput": true,
   "latestSeq": 12,
-  "lastMessageAt": 1754800000000
+  "lastMessageAt": 1754800000000,
+  "reasoningEffort": "high"
 }

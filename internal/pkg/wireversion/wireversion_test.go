@@ -40,8 +40,8 @@ func TestProtocol_GivenWirePackageJSON_WhenCompared_ThenGoConstantMatchesVerbati
 }
 
 // Given the version window this round collapses to a single point (both ends
-// pinned to 0.1.0 in the spec, see docs/specs/2026-08-31-conversation-centric-
-// addressing.md "协议版本窗口"), When the Go constant is read, Then
+// pinned to the same released version, see docs/specs/2026-08-31-conversation-
+// centric-addressing.md "协议版本窗口"), When the Go constant is read, Then
 // MinSupported must be pinned exactly as tightly as Protocol is: to the same
 // package.json — leaving it to drift independently would silently open (or
 // close) the window without anyone having decided to.

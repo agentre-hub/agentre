@@ -97,6 +97,8 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 			capability.CapCancelSteer: true,
 			capability.CapAbort:       true,
 			capability.CapImageInput:  true,
+			// 力度直接交给 cago runner 的模型参数(见 Run 里的 ReasoningEffort 分支)。
+			capability.CapReasoningEffort: true,
 		},
 	}
 }

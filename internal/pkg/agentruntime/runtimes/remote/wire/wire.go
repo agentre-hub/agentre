@@ -26,20 +26,23 @@ import (
 
 // Method 常量是 daemon registry.Register 与客户端 c.Call 的唯一来源。
 const (
-	MethodCapabilities         = "runtime.capabilities"
-	MethodRun                  = "runtime.run"
-	MethodSteer                = "runtime.steer"
-	MethodCancelSteer          = "runtime.cancelSteer"
-	MethodDrainPending         = "runtime.drainPending"
-	MethodAbort                = "runtime.abort"
-	MethodStopBackgroundTask   = "runtime.stopBackgroundTask"
-	MethodSetPermissionMode    = "runtime.setPermissionMode"
-	MethodSetModelTarget       = "runtime.setModelTarget"
-	MethodSubmitAnswer         = "runtime.submitAnswer"
-	MethodSubmitToolPermission = "runtime.submitToolPermission"
-	MethodGetGoal              = "runtime.goal.get"
-	MethodSetGoal              = "runtime.goal.set"
-	MethodClearGoal            = "runtime.goal.clear"
+	MethodCapabilities       = "runtime.capabilities"
+	MethodRun                = "runtime.run"
+	MethodSteer              = "runtime.steer"
+	MethodCancelSteer        = "runtime.cancelSteer"
+	MethodDrainPending       = "runtime.drainPending"
+	MethodAbort              = "runtime.abort"
+	MethodStopBackgroundTask = "runtime.stopBackgroundTask"
+	MethodSetPermissionMode  = "runtime.setPermissionMode"
+	MethodSetModelTarget     = "runtime.setModelTarget"
+	// MethodSetSessionReasoningEffort 改这条会话钉的思考力度,与 setModelTarget 同族:
+	// 都是「改这条会话下一轮的 spawn 参数」,不影响正在跑的那一轮。
+	MethodSetSessionReasoningEffort = "runtime.setSessionReasoningEffort"
+	MethodSubmitAnswer              = "runtime.submitAnswer"
+	MethodSubmitToolPermission      = "runtime.submitToolPermission"
+	MethodGetGoal                   = "runtime.goal.get"
+	MethodSetGoal                   = "runtime.goal.set"
+	MethodClearGoal                 = "runtime.goal.clear"
 
 	// 断连重连的补齐族。客户端重连后的三步是 list → attach → pull(→ pendingWaiters),
 	// 每一步都限定在调用方自己的对端范围内(R16),对端身份取自那条连接的鉴权状态,
@@ -362,6 +365,17 @@ type RunParams struct {
 	// （daemon 解析该 Provider 当前默认模型），非空 = fixed-model（daemon 精确解析
 	// 该模型，缺失/停用/旧 daemon 一律严格拒绝，绝不静默降级为默认模型）。
 	LLMModelKey string `json:"llmModelKey,omitempty"`
+	// ReasoningEffort 是本轮的**有效**思考力度(会话覆盖 > 后端配置,由发起端的那一个
+	// 边界函数合成),与 LLMProviderKey / LLMModelKey 同形单列过线。
+	//
+	// 它不塞进 Backend 负载:浏览器端派发时送出的负载只有一个 {type} 空壳,力度在那条
+	// 路径上恒为空(spec 2026-09-01 决策 4)。
+	//
+	// 空串在这里是「调用方什么都没说」,**不是**「用户选了默认档」:执行侧取值时
+	// run 参数非空优先、为空回落 backend 负载里的力度,老桌面端因此不丢配置
+	// (硬不变量 6)。会话真的改回「跟随后端配置」时,发起端合成出来的仍是后端配置
+	// 那个值,两者不冲突。
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	// SourceDevice / SourceDeviceName 是「开新一轮」发起方的设备身份（R18/R19）。
 	// 浏览器**每轮**随 runtime.run 声明自己的设备指纹与显示名（如「Chrome · macOS」）：
 	// 握手（auth.account）只带指纹、不带显示名，而 R19 要的是「人能认出的名字」，所以
@@ -489,6 +503,20 @@ type SetModelTargetParams struct {
 	ModelKey        string `json:"modelKey,omitempty"`
 }
 
+// SetSessionReasoningEffortParams 改这条会话钉的思考力度,语义与 SetModelTargetParams
+// 逐条对齐:
+//   - ReasoningEffort 空串 = 改回「跟随后端配置」。这是一个**要写下去的值**,不是
+//     「不改」—— 用户从固定档改回跟随配置时不清空,就等于这次改动没发生;
+//   - 非空 = 六档词表里的那一档(low / medium / high / xhigh / max)。
+//
+// 新档位自**下一轮**生效,正在跑的那一轮不受影响。会话不存在时报错而不是折成成功:
+// 那会让调用方以为下一轮会用新档位,而实际上一行都没写。
+type SetSessionReasoningEffortParams struct {
+	ConversationID  string `json:"conversationId"`
+	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+}
+
 // SubmitAnswerParams 等同 agentruntime.AskAnswerSink.SubmitAnswer 的入参。
 type SubmitAnswerParams struct {
 	ConversationID  string                     `json:"conversationId"`
@@ -582,6 +610,10 @@ type SessionSummary struct {
 	// 空**是一个有含义的取值**:它表示这条对话跟随 Agent 绑定。
 	ProviderKey string `json:"providerKey,omitempty"`
 	ModelKey    string `json:"modelKey,omitempty"`
+	// ReasoningEffort 是这条会话在执行端记下的思考力度(六档词表,空 = 跟随后端配置)。
+	// 与上面两格一样**只供显示**:执行路径的力度取自 RunParams.ReasoningEffort,不读
+	// 这一列。老执行端不发这个字段,解出来是空串。
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
 // SessionListResult 是 MethodSessionList 的应答:这台 daemon 上的会话。调用方自己的

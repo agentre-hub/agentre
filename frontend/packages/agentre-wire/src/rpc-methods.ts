@@ -341,6 +341,14 @@ export const rpcMethods = {
     pb.SkillsListRequestSchema,
     pb.SkillsListResponseSchema,
   ),
+  // 会话思考力度(spec 2026-09-01):与 setModelTarget 同族的「改这条会话下一轮的
+  // spawn 参数」。空 reasoningEffort 是要写下去的值(改回跟随后端配置)。
+  setSessionReasoningEffort: method(
+    "setSessionReasoningEffort",
+    57,
+    pb.SetSessionReasoningEffortRequestSchema,
+    pb.SetSessionReasoningEffortResponseSchema,
+  ),
 } as const;
 
 export type AnyRpcMethod = (typeof rpcMethods)[keyof typeof rpcMethods];

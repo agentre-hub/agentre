@@ -19,7 +19,7 @@ import (
 //
 // Keep it byte identical to the `version` field of
 // frontend/packages/agentre-wire/package.json.
-const Protocol = "0.1.0"
+const Protocol = "0.2.0"
 
 // MinSupported is the oldest peer protocol version this build still accepts.
 //
@@ -34,7 +34,7 @@ const Protocol = "0.1.0"
 //
 // Keep it byte identical to the `version` field of
 // frontend/packages/agentre-wire/package.json, exactly like Protocol.
-const MinSupported = "0.1.0"
+const MinSupported = "0.2.0"
 
 // version is a parsed MAJOR.MINOR.PATCH triple. Handshake versions in this
 // protocol are never pre-release or build-metadata strings, so a minimal

@@ -349,6 +349,20 @@ export interface RunParams extends WireObject {
   llmModelKey?: string;
 
   /**
+   * ReasoningEffort 是本轮的**有效**思考力度(会话覆盖 > 后端配置,由发起端的那一个
+   * 边界函数合成),与 LLMProviderKey / LLMModelKey 同形单列过线。
+   *
+   * 它不塞进 Backend 负载:浏览器端派发时送出的负载只有一个 {type} 空壳,力度在那条
+   * 路径上恒为空(spec 2026-09-01 决策 4)。
+   *
+   * 空串在这里是「调用方什么都没说」,**不是**「用户选了默认档」:执行侧取值时
+   * run 参数非空优先、为空回落 backend 负载里的力度,老桌面端因此不丢配置
+   * (硬不变量 6)。会话真的改回「跟随后端配置」时,发起端合成出来的仍是后端配置
+   * 那个值,两者不冲突。
+   */
+  reasoningEffort?: string;
+
+  /**
    * SourceDevice / SourceDeviceName 是「开新一轮」发起方的设备身份（R18/R19）。
    * 浏览器**每轮**随 runtime.run 声明自己的设备指纹与显示名（如「Chrome · macOS」）：
    * 握手（auth.account）只带指纹、不带显示名，而 R19 要的是「人能认出的名字」，所以
@@ -393,6 +407,7 @@ export function decodeRunParams(v: unknown): RunParams {
     o.enabledPlugins = optObj(o.enabledPlugins, "RunParams.enabledPlugins");
     o.llmProviderKey = optStr(o.llmProviderKey, "RunParams.llmProviderKey");
     o.llmModelKey = optStr(o.llmModelKey, "RunParams.llmModelKey");
+    o.reasoningEffort = optStr(o.reasoningEffort, "RunParams.reasoningEffort");
     o.sourceDevice = optStr(o.sourceDevice, "RunParams.sourceDevice");
     o.sourceDeviceName = optStr(
       o.sourceDeviceName,
@@ -752,6 +767,51 @@ export function encodeSetModelTargetParams(v: SetModelTargetParams): string {
   return encodeWire(v);
 }
 
+/**
+ * SetSessionReasoningEffortParams 改这条会话钉的思考力度,语义与 SetModelTargetParams
+ * 逐条对齐:
+ *   - ReasoningEffort 空串 = 改回「跟随后端配置」。这是一个**要写下去的值**,不是
+ *     「不改」—— 用户从固定档改回跟随配置时不清空,就等于这次改动没发生;
+ *   - 非空 = 六档词表里的那一档(low / medium / high / xhigh / max)。
+ *
+ * 新档位自**下一轮**生效,正在跑的那一轮不受影响。会话不存在时报错而不是折成成功:
+ * 那会让调用方以为下一轮会用新档位,而实际上一行都没写。
+ */
+export interface SetSessionReasoningEffortParams extends WireObject {
+  conversationId: string;
+  peerFingerprint?: string;
+  reasoningEffort?: string;
+}
+
+export function decodeSetSessionReasoningEffortParams(
+  v: unknown,
+): SetSessionReasoningEffortParams {
+  return decodeWire<SetSessionReasoningEffortParams>(
+    v,
+    "SetSessionReasoningEffortParams",
+    (o) => {
+      o.conversationId = reqStr(
+        o.conversationId,
+        "SetSessionReasoningEffortParams.conversationId",
+      );
+      o.peerFingerprint = optStr(
+        o.peerFingerprint,
+        "SetSessionReasoningEffortParams.peerFingerprint",
+      );
+      o.reasoningEffort = optStr(
+        o.reasoningEffort,
+        "SetSessionReasoningEffortParams.reasoningEffort",
+      );
+    },
+  );
+}
+
+export function encodeSetSessionReasoningEffortParams(
+  v: SetSessionReasoningEffortParams,
+): string {
+  return encodeWire(v);
+}
+
 /** SubmitAnswerParams 等同 agentruntime.AskAnswerSink.SubmitAnswer 的入参。 */
 export interface SubmitAnswerParams extends WireObject {
   conversationId: string;
@@ -889,6 +949,13 @@ export interface SessionSummary extends WireObject {
    */
   providerKey?: string;
   modelKey?: string;
+
+  /**
+   * ReasoningEffort 是这条会话在执行端记下的思考力度(六档词表,空 = 跟随后端配置)。
+   * 与上面两格一样**只供显示**:执行路径的力度取自 RunParams.ReasoningEffort,不读
+   * 这一列。老执行端不发这个字段,解出来是空串。
+   */
+  reasoningEffort?: string;
 }
 
 export function decodeSessionSummary(v: unknown): SessionSummary {
@@ -923,6 +990,10 @@ export function decodeSessionSummary(v: unknown): SessionSummary {
     o.lastMessageAt = optNum(o.lastMessageAt, "SessionSummary.lastMessageAt");
     o.providerKey = optStr(o.providerKey, "SessionSummary.providerKey");
     o.modelKey = optStr(o.modelKey, "SessionSummary.modelKey");
+    o.reasoningEffort = optStr(
+      o.reasoningEffort,
+      "SessionSummary.reasoningEffort",
+    );
   });
 }
 

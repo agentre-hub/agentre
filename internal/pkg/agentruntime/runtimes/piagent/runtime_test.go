@@ -50,6 +50,8 @@ func TestPiAgentCapabilities(t *testing.T) {
 			So(caps.Has(capability.CapToolPermission), ShouldBeFalse)
 			// CapMCPTools=true:pi-agent 经内嵌桥扩展消费 RunRequest.MCPServers。
 			So(caps.Has(capability.CapMCPTools), ShouldBeTrue)
+			// CapReasoningEffort=true:pi 的 --thinking 接受同一张六档词表。
+			So(caps.Has(capability.CapReasoningEffort), ShouldBeTrue)
 		})
 
 		Convey("When comparing optional interfaces Then advertised controls match implementations", func() {

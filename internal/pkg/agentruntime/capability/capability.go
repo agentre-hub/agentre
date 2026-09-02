@@ -27,6 +27,11 @@ const (
 	// CapSkills 标记 runtime 接受 RunRequest.EnabledPlugins,可按 agent 注入技能包
 	// 开关(claudecode 经 --settings,codex 经 --config plugins.*.enabled)。
 	CapSkills Capability = "skills"
+	// CapReasoningEffort 标记 runtime 会把 Backend.ReasoningEffort 真的下发给它的
+	// 引擎(claude 的 --effort / codex 的 model_reasoning_effort / pi 的 --thinking /
+	// builtin 的模型参数)。composer 的会话级思考力度选择器据此渲染;为假的后端
+	// (openclaw)整颗控件不渲染,而不是置灰(spec 2026-09-01 决策 6)。
+	CapReasoningEffort Capability = "reasoning_effort"
 )
 
 // Capabilities 一个 runtime 的能力矩阵 + permission mode 元数据。

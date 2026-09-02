@@ -629,7 +629,19 @@ func (r *Runtime) buildRunParams(req agentruntime.RunRequest) (wire.RunParams, e
 		EnabledPlugins:    req.EnabledPlugins,
 		LLMProviderKey:    req.LLMProviderKey,
 		LLMModelKey:       remoteModelKey(req),
+		// 本轮有效力度已由发起端的那一个边界函数合成进 Backend 副本(硬不变量 2),
+		// 这里只把它单列过线 —— 浏览器端发的 backend 负载是空壳,只塞负载到不了执行侧。
+		ReasoningEffort: remoteReasoningEffort(req),
 	}, nil
+}
+
+// remoteReasoningEffort 取本轮交给 runtime 的 Backend 上那一格力度。不在这里重算
+// 「会话覆盖 > 后端配置」:那条合成只允许发生在发起端的一个边界函数里(硬不变量 2)。
+func remoteReasoningEffort(req agentruntime.RunRequest) string {
+	if req.Backend == nil {
+		return ""
+	}
+	return strings.TrimSpace(req.Backend.ReasoningEffort)
 }
 
 // remoteModelKey 返回本轮远端执行目标的稳定 ModelKey（决策 11）：直接透传执行侧

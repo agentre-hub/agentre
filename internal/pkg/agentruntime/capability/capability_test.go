@@ -51,5 +51,8 @@ func TestCapabilityWireStrings(t *testing.T) {
 		So(string(CapReportContextWindow), ShouldEqual, "report_context_window")
 		So(string(CapCompact), ShouldEqual, "compact")
 		So(string(CapGoal), ShouldEqual, "goal")
+		// reasoning_effort:composer 的思考力度选择器据此渲染/隐藏
+		// (spec 2026-09-01 决策 6),前端 Capability 联合类型逐字对齐这个值。
+		So(string(CapReasoningEffort), ShouldEqual, "reasoning_effort")
 	})
 }

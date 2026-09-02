@@ -24,9 +24,13 @@ func TestRunParamsProtobufDomainRoundTrip(t *testing.T) {
 		History:        []wire.HistoryMessageWire{{Role: "user", Blocks: []blocks.StoredBlock{{Type: "text", Data: json.RawMessage(`{"text":"hi"}`)}}}},
 		MCPServers:     []agentruntime.MCPServerSpec{{Name: "org", URL: "http://local", Headers: map[string]string{"Authorization": "Bearer x"}, Tools: []string{"ask"}}},
 		EnabledPlugins: map[string]bool{"skill": true}, SourceDevice: "browser", SourceDeviceName: "Chrome",
+		// 本轮有效思考力度是**独立 run 参数**(spec 2026-09-01 决策 4),不塞在 backend
+		// 负载里 —— 浏览器端发的负载只有一个 {type} 空壳。
+		ReasoningEffort: "max",
 	}
 	pb, err := RunRequestToProto(want)
 	require.NoError(t, err)
+	require.Equal(t, "max", pb.GetReasoningEffort())
 	got, err := RunRequestFromProto(pb)
 	require.NoError(t, err)
 	require.JSONEq(t, string(want.Backend), string(got.Backend))

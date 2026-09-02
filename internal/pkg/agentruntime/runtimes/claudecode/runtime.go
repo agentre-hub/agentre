@@ -131,6 +131,8 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 			capability.CapAutonomousTurn: true,
 			// 接受 RunRequest.EnabledPlugins,spawn 时渲进 --settings 的 enabledPlugins。
 			capability.CapSkills: true,
+			// 力度经 --effort 下发(pkg/claudecode/args.go),spawn 时烤进子进程。
+			capability.CapReasoningEffort: true,
 		},
 		PermissionModeMeta: capability.PermissionModeMeta{
 			AllowedModes:         []string{"default", "acceptEdits", "plan", "bypassPermissions"},

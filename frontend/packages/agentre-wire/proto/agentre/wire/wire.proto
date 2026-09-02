@@ -62,6 +62,7 @@ enum RpcMethod {
   RPC_METHOD_TRANSCRIPT_IMPORT_TURNS = 54;
   RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE = 55;
   RPC_METHOD_ACTIVITY_ROLLUP = 56;
+  RPC_METHOD_SET_SESSION_REASONING_EFFORT = 57;
 }
 
 message WireFrame {
@@ -320,6 +321,11 @@ message SessionSummary {
   int64 last_message_at = 13;
   string provider_key = 14;
   string model_key = 15;
+  // reasoning_effort is the thinking effort this peer recorded for the session
+  // (one of "", low, medium, high, xhigh, max). Empty means "follow the backend
+  // configuration" — a meaningful value, not "unknown". Display only: the
+  // executing path takes the effort off the run request, never off this column.
+  string reasoning_effort = 16;
 }
 
 // ActivityRollup is the counts-only channel behind the account's activity
@@ -447,6 +453,17 @@ message SetModelTargetRequest {
 
 message SetModelTargetResponse {}
 
+// SetSessionReasoningEffortRequest pins the thinking effort of one session on
+// the peer that carries it. Empty reasoning_effort is a value to be written
+// (back to "follow the backend configuration"), not "leave it alone".
+message SetSessionReasoningEffortRequest {
+  string conversation_id = 1;
+  string peer_fingerprint = 2;
+  string reasoning_effort = 3;
+}
+
+message SetSessionReasoningEffortResponse {}
+
 message Empty {}
 
 message RuntimeCapabilitiesRequest { string backend_type = 1; }
@@ -561,6 +578,14 @@ message RuntimeRunRequest {
   // not available on that channel. Empty means the originator did not report one
   // (no project, or an older client), not "unknown, derive it".
   string project_sync_id = 24;
+  // reasoning_effort is this turn's effective thinking effort, carried as its
+  // own run parameter next to llm_provider_key / llm_model_key rather than
+  // inside the backend payload: a browser dispatch sends a stub backend that
+  // carries no configuration at all, so the payload route is always empty
+  // there. Empty means the caller stated nothing — the executor then falls back
+  // to the backend payload's own effort, so an older desktop keeps running on
+  // its configured level instead of being read as "the user chose the default".
+  string reasoning_effort = 25;
 }
 message RuntimeRunResponse {
   string conversation_id = 1;

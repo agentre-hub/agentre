@@ -125,6 +125,7 @@ func tsRootTypes() []reflect.Type {
 		reflect.TypeOf(StopBackgroundTaskParams{}),
 		reflect.TypeOf(SetPermissionModeParams{}),
 		reflect.TypeOf(SetModelTargetParams{}),
+		reflect.TypeOf(SetSessionReasoningEffortParams{}),
 		reflect.TypeOf(SubmitAnswerParams{}),
 		reflect.TypeOf(SubmitToolPermissionParams{}),
 		reflect.TypeOf(SessionSummary{}),
@@ -172,6 +173,7 @@ func tsConstDecls() []tsConstDecl {
 		{"MethodStopBackgroundTask", MethodStopBackgroundTask},
 		{"MethodSetPermissionMode", MethodSetPermissionMode},
 		{"MethodSetModelTarget", MethodSetModelTarget},
+		{"MethodSetSessionReasoningEffort", MethodSetSessionReasoningEffort},
 		{"MethodSubmitAnswer", MethodSubmitAnswer},
 		{"MethodSubmitToolPermission", MethodSubmitToolPermission},
 		{"MethodGetGoal", MethodGetGoal},
@@ -1447,9 +1449,21 @@ func renderTSConstants(decls wireDecls) string {
 	for _, c := range tsConstDecls() {
 		lines = append(lines, "")
 		lines = append(lines, tsDocComment(0, decls.constDocs[c.name])...)
-		lines = append(lines, "export const "+c.name+" = "+tsLiteral(c.value)+";")
+		lines = append(lines, tsConstLine(c.name, tsLiteral(c.value)))
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// tsConstLine 渲染一条 `export const`,超过 printWidth 时按 Prettier 的做法把初值折到
+// 下一行(缩进 2)。名字与值都是 ASCII 标识串 / 方法名,所以按字节数比宽度是准的。
+// 不折的话产物一进 eslint-plugin-prettier 就变红,而新鲜度守卫又不许在生成之后再
+// 补一道格式化工序。
+func tsConstLine(name, literal string) string {
+	line := "export const " + name + " = " + literal + ";"
+	if len(line) <= tsPrintWidth {
+		return line
+	}
+	return "export const " + name + " =\n  " + literal + ";"
 }
 
 func tsLiteral(v any) string {

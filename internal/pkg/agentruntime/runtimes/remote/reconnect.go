@@ -988,7 +988,7 @@ func (r *Runtime) sessionSummaries(ctx context.Context) (map[string]wire.Session
 	}
 	out := make(map[string]wire.SessionSummary, len(res.GetSessions()))
 	for _, value := range res.GetSessions() {
-		s := wire.SessionSummary{ConversationID: value.GetConversationId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProviderSessionID: value.GetProviderSessionId(), Cwd: value.GetCwd(), ProjectSyncID: value.GetProjectSyncId(), BackendType: value.GetBackendType(), LifecycleState: value.GetLifecycleState(), WaitingForInput: value.GetWaitingForInput(), LatestSeq: value.GetLatestSeq(), LastMessageAt: value.GetLastMessageAt(), ProviderKey: value.GetProviderKey(), ModelKey: value.GetModelKey()}
+		s := summaryFromProto(value)
 		if s.ConversationID == "" {
 			// 没有身份的行没法索引,也没法为它发 attach / pull。跳过它而不是让它顶掉
 			// 表里的零值格。
@@ -1001,6 +1001,12 @@ func (r *Runtime) sessionSummaries(ctx context.Context) (map[string]wire.Session
 		r.rememberOrigin(s.ConversationID, s.PeerFingerprint)
 	}
 	return out, nil
+}
+
+// summaryFromProto 把线格式的一条会话摘要解成 wire.SessionSummary。单列成函数是为了
+// 让「清单上每一格都解出来」可以被直接测到 —— 漏解一格在整条补齐链路上是静默的。
+func summaryFromProto(value *agentrewire.SessionSummary) wire.SessionSummary {
+	return wire.SessionSummary{ConversationID: value.GetConversationId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProviderSessionID: value.GetProviderSessionId(), Cwd: value.GetCwd(), ProjectSyncID: value.GetProjectSyncId(), BackendType: value.GetBackendType(), LifecycleState: value.GetLifecycleState(), WaitingForInput: value.GetWaitingForInput(), LatestSeq: value.GetLatestSeq(), LastMessageAt: value.GetLastMessageAt(), ProviderKey: value.GetProviderKey(), ModelKey: value.GetModelKey(), ReasoningEffort: value.GetReasoningEffort()}
 }
 
 // rememberOrigin 记下清单里学到的会话发起对端(R12 桌面侧)。下游的 attach / pull /

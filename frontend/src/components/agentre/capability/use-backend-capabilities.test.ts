@@ -36,6 +36,25 @@ describe("useBackendCapabilities", () => {
     });
   });
 
+  // 新对话还没有会话行时走的是这条查询,选择器的渲染判定必须在这里也拿得到那一位。
+  it("surfaces reasoning_effort for a supporting backend and withholds it for openclaw", async () => {
+    getBackendCapabilities.mockResolvedValue({
+      capabilities: ["abort", "reasoning_effort"],
+    });
+    const { result } = renderHook(() => useBackendCapabilities("codex"));
+    await waitFor(() => expect(result.current.caps).not.toBeNull());
+    expect(result.current.caps?.has("reasoning_effort")).toBe(true);
+
+    getBackendCapabilities.mockResolvedValue({
+      capabilities: ["abort", "exec_approval"],
+    });
+    const { result: openclaw } = renderHook(() =>
+      useBackendCapabilities("openclaw"),
+    );
+    await waitFor(() => expect(openclaw.current.caps).not.toBeNull());
+    expect(openclaw.current.caps?.has("reasoning_effort")).toBe(false);
+  });
+
   it("returns null caps when backendType is empty/undefined/null", () => {
     const { result: rE } = renderHook(() => useBackendCapabilities(""));
     expect(rE.current.caps).toBeNull();

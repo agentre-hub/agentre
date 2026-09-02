@@ -17,7 +17,7 @@ import (
 //
 // 它按名字排序后再摘要,因此**只**对方法集本身敏感:重排 .proto 里的书写顺序不动它,
 // 增删一个方法、改一个方法的编号则必然改变它。
-const methodSetDigest = "c043155a6d3c7cc900a48ad97c58448036c3e0be986eda47dcb7524d42c19a81"
+const methodSetDigest = "e2a957e0470d0db493355154d69b5ba14357ae5e973618432afcbc6518dc317f"
 
 // Given 握手把「对端的 Protocol 落在本方 [MinSupported, Protocol] 窗口内,且本方的
 // Protocol 落在对端窗口内」当成兼容判据(wireversion.Match),
@@ -62,7 +62,7 @@ func TestMethodSet_GivenTheStrictVersionHandshake_WhenTheMethodSetChanges_ThenTh
 // methodSetDigest 是这份方法集当下的指纹(即上一条测试为绿,方法集自版本号最近一次
 // 抬升以来没有再变过),Then wireversion.MinSupported 在这同一个提交里必须与
 // wireversion.Protocol 逐字相等——本轮就是这个"方法集最近一次抬升"的时刻,两者都被
-// 重置到 0.1.0。这条断言是手工流程的机械兜底:下次改方法集时,连同上一条测试一起改红,
+// 重置到 0.2.0(本轮给方法集加了 runtime.setSessionReasoningEffort)。这条断言是手工流程的机械兜底:下次改方法集时,连同上一条测试一起改红,
 // 提醒开发者把 MinSupported 也抬到新 Protocol,而不是留着旧窗口悄悄变宽。
 func TestMethodSet_GivenTheMethodSetDigestWasLastUpdated_ThenMinSupportedMustEqualProtocolAtThatCommit(t *testing.T) {
 	t.Parallel()

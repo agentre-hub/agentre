@@ -132,6 +132,8 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 			capability.CapGoal:                true,
 			capability.CapMCPTools:            true,
 			capability.CapSkills:              true,
+			// 力度经 -c model_reasoning_effort 下发,且算进 launchIdentity。
+			capability.CapReasoningEffort: true,
 		},
 		PermissionModeMeta: capability.PermissionModeMeta{
 			AllowedModes:         []string{"default", "plan"},

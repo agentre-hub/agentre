@@ -101,6 +101,8 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		WaitingForInput:   true,
 		LatestSeq:         12,
 		LastMessageAt:     1754800000000,
+		// 执行端记下的会话思考力度,随清单回传给浏览器端显示。
+		ReasoningEffort: "high",
 	}
 	// 一条老会话:R7 未到达,标题 / Agent 标识 / provider_session_id 如实留空
 	// (omitempty 直接省略键,不填占位名)。
@@ -174,8 +176,10 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 						Tools:   []string{"mcp__org__list"},
 					},
 				},
-				EnabledPlugins:   map[string]bool{"auto-continue": true, "dangerous": false},
-				LLMProviderKey:   "11111111-2222-3333-4444-555555555555",
+				EnabledPlugins: map[string]bool{"auto-continue": true, "dangerous": false},
+				LLMProviderKey: "11111111-2222-3333-4444-555555555555",
+				// 本轮有效力度单列过线(spec 2026-09-01 决策 4),不在 backend 负载里。
+				ReasoningEffort:  "xhigh",
 				SourceDevice:     "fp-web-1",
 				SourceDeviceName: "Chrome · macOS",
 			},

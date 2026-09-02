@@ -1711,6 +1711,55 @@ func TestBuildRunParams_ForwardsFreshSession(t *testing.T) {
 	}
 }
 
+// TestBuildRunParams_ForwardsReasoningEffort 钉死本轮有效思考力度作为**独立 run 参数**
+// 过线(spec 2026-09-01 决策 4):浏览器端派发时 backend 负载只有一个 {type} 空壳,力度
+// 若只塞在负载里,那条路径上恒为空。桌面端这一侧交给 runtime 的 Backend 已是本轮合成过
+// 的副本,所以这里直接取它那一格。
+func TestBuildRunParams_ForwardsReasoningEffort(t *testing.T) {
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
+		Backend:   &agent_backend_entity.AgentBackend{ReasoningEffort: "xhigh"},
+		SessionID: 9,
+	})
+	if err != nil {
+		t.Fatalf("buildRunParams: %v", err)
+	}
+	if params.ReasoningEffort != "xhigh" {
+		t.Fatalf("buildRunParams dropped ReasoningEffort: %+v", params)
+	}
+
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out wire.RunParams
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.ReasoningEffort != "xhigh" {
+		t.Fatalf("ReasoningEffort not preserved across wire JSON: %+v", out)
+	}
+}
+
+// TestBuildRunParams_OmitsReasoningEffortWithoutBackendValue 空档是「跟随后端配置」
+// 合成后仍然为空的那一格:线上必须缺席(omitempty),新 agentred 才能按硬不变量 6 回落
+// backend 负载,而不是把缺省读成「用户选了默认档」。
+func TestBuildRunParams_OmitsReasoningEffortWithoutBackendValue(t *testing.T) {
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
+		Backend:   &agent_backend_entity.AgentBackend{},
+		SessionID: 9,
+	})
+	if err != nil {
+		t.Fatalf("buildRunParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "reasoningEffort") {
+		t.Fatalf("空档必须缺席线上帧: %s", raw)
+	}
+}
+
 // TestBuildRunParams_ForwardsEnabledPlugins 钉死 buildRunParams 把
 // RunRequest.EnabledPlugins 透传到 wire.RunParams，且 JSON round-trip 保留该字段。
 func TestBuildRunParams_ForwardsEnabledPlugins(t *testing.T) {

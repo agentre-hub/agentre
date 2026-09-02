@@ -16,7 +16,8 @@ export type Capability =
   | "compact"
   | "goal"
   | "mcp_tools"
-  | "skills";
+  | "skills"
+  | "reasoning_effort";
 
 // PermissionModeMeta 镜像后端 capability.PermissionModeMeta:
 //   - allowedModes: runtime 接受的 mode 集合(claudecode = 4 档, codex = 2 档,

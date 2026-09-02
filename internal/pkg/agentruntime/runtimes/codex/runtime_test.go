@@ -38,6 +38,8 @@ func TestCodexCapabilities(t *testing.T) {
 		So(caps.Has(capability.CapCompact), ShouldBeTrue)
 		So(caps.Has(capability.CapMCPTools), ShouldBeTrue)
 		So(caps.Has(capability.CapSkills), ShouldBeTrue)
+		// CapReasoningEffort=true:codex 经 -c model_reasoning_effort 吃下六档词表。
+		So(caps.Has(capability.CapReasoningEffort), ShouldBeTrue)
 	})
 
 	Convey("codex PermissionModeMeta", t, func() {

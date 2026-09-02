@@ -234,6 +234,8 @@ func TestRuntimeCapabilities(t *testing.T) {
 	assert.True(t, runtime.Capabilities().Has(capability.CapExecApproval))
 	assert.False(t, runtime.Capabilities().Has(capability.CapAnswerUserAsk))
 	assert.False(t, runtime.Capabilities().Has(capability.CapForkSession))
+	// 硬不变量 5:openclaw 不获得思考力度,能力位为假使 composer 整颗控件不渲染。
+	assert.False(t, runtime.Capabilities().Has(capability.CapReasoningEffort))
 	var _ agentruntime.Aborter = runtime
 }
 

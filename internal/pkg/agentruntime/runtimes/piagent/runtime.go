@@ -174,6 +174,8 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 			capability.CapReportContextWindow: true,
 			capability.CapForkSession:         true,
 			capability.CapMCPTools:            true,
+			// 力度经 --thinking 下发。
+			capability.CapReasoningEffort: true,
 		},
 	}
 }

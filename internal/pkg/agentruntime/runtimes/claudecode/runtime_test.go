@@ -215,6 +215,9 @@ func TestClaudeCodeCapabilities(t *testing.T) {
 		// CapSkills=true:runtime 接受 RunRequest.EnabledPlugins,spawn 时渲进
 		// --settings 的 enabledPlugins,按 agent 注入技能包开关。
 		So(caps.Has(capability.CapSkills), ShouldBeTrue)
+		// CapReasoningEffort=true:claude CLI 接受 --effort 五档,composer 因此渲染
+		// 会话级思考力度选择器(spec 2026-09-01 决策 6)。
+		So(caps.Has(capability.CapReasoningEffort), ShouldBeTrue)
 		_, ok := agentruntime.Runtime(r).(agentruntime.AutonomousTurnSource)
 		So(ok, ShouldBeTrue)
 	})

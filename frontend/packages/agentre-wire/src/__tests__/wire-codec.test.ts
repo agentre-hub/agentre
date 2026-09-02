@@ -624,6 +624,9 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       "auto-continue": true,
       dangerous: false,
     });
+    // 本轮有效思考力度单列过线(spec 2026-09-01 决策 4):浏览器端派发的 backend
+    // 只是一个 {type} 空壳,力度塞进负载在那条路径上恒为空。
+    expect(p.reasoningEffort).toBe("xhigh");
   });
 
   it("RunParams 带未知字段:解码后仍在,往返不丢", () => {
@@ -677,6 +680,8 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
     expect(s.latestSeq).toBe(12);
     // R5 的「最后活动时间」：唯一真相源在执行端那台机器上，随清单过线。
     expect(s.lastMessageAt).toBe(1754800000000);
+    // agentred 记下的会话思考力度随清单回传,浏览器端在列表与重开时显示它。
+    expect(s.reasoningEffort).toBe("high");
     // 逐字段同构：它是被 codec 认识并校验的字段，不是漏进来的未知键。
     expect(() =>
       decodeSessionSummary({ ...sessionSummaryFixture, lastMessageAt: "昨天" }),
@@ -694,6 +699,8 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
     expect(legacy.lifecycleState).toBe("idle");
     expect(legacy.peerFingerprint).toBe("fp-desktop");
     expect(legacy.lastMessageAt).toBeUndefined();
+    // 老 agentred 不发这一格:键缺席 = 跟随后端配置,不是「用户选了默认档」。
+    expect(legacy.reasoningEffort).toBeUndefined();
   });
 
   it("SessionListResult 逐条解出会话", () => {

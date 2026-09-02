@@ -37,6 +37,13 @@ export const MethodSetPermissionMode = "runtime.setPermissionMode";
 
 export const MethodSetModelTarget = "runtime.setModelTarget";
 
+/**
+ * MethodSetSessionReasoningEffort 改这条会话钉的思考力度,与 setModelTarget 同族:
+ * 都是「改这条会话下一轮的 spawn 参数」,不影响正在跑的那一轮。
+ */
+export const MethodSetSessionReasoningEffort =
+  "runtime.setSessionReasoningEffort";
+
 export const MethodSubmitAnswer = "runtime.submitAnswer";
 
 export const MethodSubmitToolPermission = "runtime.submitToolPermission";
