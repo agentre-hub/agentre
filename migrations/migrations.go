@@ -48,5 +48,6 @@ func migrationList(deviceFingerprint DeviceFingerprintFunc) []*gormigrate.Migrat
 		migration202608080013(),
 		migration202608080014(),
 		migration202608080015(deviceFingerprint),
+		migration202609010001(),
 	}
 }

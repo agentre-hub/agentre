@@ -113,6 +113,9 @@ type ChatSvc interface {
 	// SetChatSessionModelTarget 切换已有会话的 LLM ModelTarget（空串 = 跟随 agent 绑定）。
 	// 原子写 provider_key + model_key 两列，自下一轮生效，不打断正在进行的轮。
 	SetChatSessionModelTarget(ctx context.Context, req *SetChatSessionModelTargetRequest) (*SetChatSessionModelTargetResponse, error)
+	// SetChatSessionReasoningEffort 切换已有会话的思考力度（空串 = 跟随后端配置）。
+	// 只写 reasoning_effort 一列，自下一轮 spawn 生效，不打断正在进行的轮。
+	SetChatSessionReasoningEffort(ctx context.Context, req *SetChatSessionReasoningEffortRequest) (*SetChatSessionReasoningEffortResponse, error)
 	Regenerate(ctx context.Context, req *RegenerateRequest) (*SendResponse, error)
 	Edit(ctx context.Context, req *EditRequest) (*SendResponse, error)
 	Rename(ctx context.Context, req *RenameRequest) (*RenameResponse, error)

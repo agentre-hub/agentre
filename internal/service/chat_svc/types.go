@@ -306,10 +306,14 @@ type ChatBlock struct {
 	// 到时留空；前端渲染时优先用它，空则回退到 ModelKey。
 	ModelName string `json:"modelName,omitempty"`
 	// NoticeKind 区分 notice 的来源:""=供应商回退提示(含全部旧数据),"switch"=用户
-	// 切换了会话供应商。前端据它选 t() 文案 —— 切回「跟随 agent 绑定」时 ProviderKey
-	// 为空,只有这个字段能把它与「无结构化负载的旧 notice」区分开。
-	NoticeKind string          `json:"noticeKind,omitempty"`
-	Image      *ChatBlockImage `json:"image,omitempty"`
+	// 切换了会话供应商,"reasoning_effort"=用户切换了会话思考力度(2026-09-01 决策 7)。
+	// 前端据它选 t() 文案 —— 切回「跟随 agent 绑定」/「跟随后端配置」时 ProviderKey /
+	// ReasoningEffort 都为空,只有这个字段能把它与「无结构化负载的旧 notice」区分开。
+	NoticeKind string `json:"noticeKind,omitempty"`
+	// ReasoningEffort 是 noticeKind="reasoning_effort" 那条切换 notice 切到的档位
+	// (spec 2026-09-01 决策 7)。空串 + 该 kind = 改回跟随后端配置;其它块恒为空。
+	ReasoningEffort string          `json:"reasoningEffort,omitempty"`
+	Image           *ChatBlockImage `json:"image,omitempty"`
 
 	// tool_use:
 	ToolCallID string         `json:"toolUseId,omitempty"`
@@ -1155,6 +1159,24 @@ type SetChatSessionModelTargetResponse struct {
 	ModelKey         string `json:"modelKey"`
 	AgentProviderKey string `json:"agentProviderKey"`
 	AgentModelKey    string `json:"agentModelKey"`
+}
+
+// SetChatSessionReasoningEffortRequest 切换已有会话的思考力度（spec 2026-09-01
+// 决策 1）。ReasoningEffort 取六档表里的值（"" / low / medium / high / xhigh / max）；
+// 空串 = 改回「跟随该会话那一档 backend 的配置」，是要显式写下去的值而不是「不改」。
+type SetChatSessionReasoningEffortRequest struct {
+	SessionID       int64  `json:"sessionId"`
+	ReasoningEffort string `json:"reasoningEffort"`
+}
+
+// SetChatSessionReasoningEffortResponse 回传落库后的会话级档位与该会话所用那一档
+// backend 的配置档位，前端据此立刻更新控件脸上的有效档位与弹层「默认」区块的
+// `→ 跟随后端配置 · <档位>` 解析副行（决策 11），不必再拉一次 LoadSession。
+// 有效档位 = ReasoningEffort 非空取它，否则取 BackendReasoningEffort。
+// 新档位自下一轮 spawn 生效：正在进行的轮不受影响。
+type SetChatSessionReasoningEffortResponse struct {
+	ReasoningEffort        string `json:"reasoningEffort"`
+	BackendReasoningEffort string `json:"backendReasoningEffort"`
 }
 
 // LaunchCommandRequest / Response 用于「复制启动命令」菜单：

@@ -70,6 +70,12 @@ type SessionRepo interface {
 	// 不走整行 Save —— 后者会把并发轮次正在写的状态列一起盖掉。同理这两列都在 Update
 	// 的 Omit 清单里:轮次收尾的整行回写拿的是轮次开始时读出的旧实体。
 	UpdateModelTarget(ctx context.Context, sessionID int64, providerKey, modelKey string) error
+	// UpdateReasoningEffort 改写会话级思考力度(chat_sessions.reasoning_effort,spec
+	// 2026-09-01 决策 1)。空串 = 跟随该会话那一档 backend 的配置,是要**显式写下去**
+	// 的值,不是「不改」。由 chat_svc.SetChatSessionReasoningEffort 调用;切换允许发生
+	// 在轮中(新档位自下一轮 spawn 生效),所以只碰这一列,不走整行 Save —— 后者会把
+	// 并发轮次正在写的状态列一起盖掉。同理这一列不在 sessionUpdateWhitelist 里。
+	UpdateReasoningEffort(ctx context.Context, sessionID int64, effort string) error
 	// UpdateContextWindow 落库 runtime 探到的 model 上下文窗口。轮内随时可能到帧,
 	// 且**带外轮**(自主续轮 / 后台 subagent 活动轮)也会写它 —— 而带外轮手里的实体
 	// 是它起步时读出的快照。走整行 Save 的话,用户在带外轮进行中发的新一轮刚写好的
@@ -531,6 +537,8 @@ func (r *sessionRepo) Create(ctx context.Context, s *chat_entity.Session) error 
 //     「这条会话跑在哪台 daemon 上、钉在哪一档、消费到哪」一起抹成 0 / 空串 / 0;
 //   - provider_key / model_key —— 会话级 ModelTarget 允许在轮中切换(2026-08-10
 //     决策 8 / 2026-08-11 决策 1),由 UpdateModelTarget 窄写;
+//   - reasoning_effort —— 会话级思考力度同样允许在轮中切换(2026-09-01 决策 1),
+//     由 UpdateReasoningEffort 窄写;
 //   - cwd —— 会话钉住的工作目录,只在建档时由导入写入(spec 2026-08-26「续跑」),
 //     此后没有第二个写入点;
 //   - context_window —— 由 UpdateContextWindow 窄写(Problem 18 的现存缺陷);
@@ -577,6 +585,15 @@ func (r *sessionRepo) UpdateModelTarget(ctx context.Context, sessionID int64, pr
 			"provider_key": providerKey,
 			"model_key":    modelKey,
 			"updatetime":   time.Now().UnixMilli(),
+		}).Error
+}
+
+func (r *sessionRepo) UpdateReasoningEffort(ctx context.Context, sessionID int64, effort string) error {
+	return db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Where("id = ? AND status = ?", sessionID, consts.ACTIVE).
+		Updates(map[string]any{
+			"reasoning_effort": effort,
+			"updatetime":       time.Now().UnixMilli(),
 		}).Error
 }
 

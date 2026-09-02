@@ -157,6 +157,13 @@ func (a *App) SetChatSessionModelTarget(req *chat_svc.SetChatSessionModelTargetR
 	return chat_svc.Chat().SetChatSessionModelTarget(a.ctx, req)
 }
 
+// SetChatSessionReasoningEffort 切换已有会话的思考力度（空串 = 跟随该会话那一档
+// backend 的配置）。只写 reasoning_effort 一列，自下一轮 spawn 生效，不打断正在进行的
+// 轮、也不驱逐任何进程池条目；档位不在六档表里时拒绝写入并报错，会话保持原档位。
+func (a *App) SetChatSessionReasoningEffort(req *chat_svc.SetChatSessionReasoningEffortRequest) (*chat_svc.SetChatSessionReasoningEffortResponse, error) {
+	return chat_svc.Chat().SetChatSessionReasoningEffort(a.ctx, req)
+}
+
 // RegenerateChatMessage 截掉指定 assistant 消息之前的 user 锚点后，用同一段
 // user 文本重新走一遍 turn。Step 1：仅 builtin 后端实际工作；CLI 后端在 runner
 // 接入 Rewinder 之前返回 ChatRegenerateUnsupported。

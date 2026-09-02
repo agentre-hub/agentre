@@ -51,7 +51,7 @@ func NoticeOnlyMessage(m *chat_entity.Message) bool {
 		default:
 			return false
 		}
-		if p, ok := DecodeProviderNotice(text); !ok || p.Kind != NoticeKindSwitch {
+		if p, ok := DecodeProviderNotice(text); !ok || !isSessionSwitchKind(p.Kind) {
 			return false
 		}
 	}
@@ -98,11 +98,29 @@ type ProviderNotice struct {
 	ModelKey     string `json:"modelKey,omitempty"`
 	ModelName    string `json:"modelName,omitempty"`
 	Kind         string `json:"kind,omitempty"`
+	// ReasoningEffort 只在 kind=reasoning_effort 时有意义:切换后的档位,空串表示
+	// 改回跟随后端配置(spec 2026-09-01 决策 7)。档位是自明的序数,没有展示名要带
+	// —— 前端按它选 t() 文案。
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
 // NoticeKindSwitch 见 ProviderNotice 的 kind 说明。回退提示不写 kind,
 // 与旧数据同形。
 const NoticeKindSwitch = "switch"
+
+// NoticeKindReasoningEffort 是会话级思考力度切换的 notice(spec 2026-09-01 决策 7):
+// 与 ModelTarget 切换同一条通道、同一份负载结构,只是换一个 kind + 带 reasoningEffort。
+// **空的 reasoningEffort 表示改回跟随后端配置**,所以这一种同样只能靠 kind 判定负载
+// 有效,不能看字段是否非空。
+const NoticeKindReasoningEffort = "reasoning_effort"
+
+// isSessionSwitchKind 报告这个 kind 是不是「用户改了某个会话级设置」那类旁白行。
+// 两种切换 notice 都由 chat_svc 独立落库、允许发生在轮中(NextSeq 把它排在在跑的那条
+// assistant 之后),因此都必须被「末条 assistant = 在跑的那一轮」的推导跳过。回退提示
+// (kind 为空)不在此列:它是轮次自己收尾时追加进那一轮的消息里的。
+func isSessionSwitchKind(kind string) bool {
+	return kind == NoticeKindSwitch || kind == NoticeKindReasoningEffort
+}
 
 // ProviderDisplayName 取供应商展示名。prov 为 nil(查不到实体 / 未选任何供应商)时
 // 返回空串,由调用方据此决定 notice 前端渲染时回退到 key 还是「跟随 agent 绑定」的
@@ -136,6 +154,17 @@ func EncodeProviderSwitch(providerKey, modelKey, providerName, modelName string)
 		ProviderKey: providerKey, ProviderName: providerName,
 		ModelKey: modelKey, ModelName: modelName,
 		Kind: NoticeKindSwitch,
+	})
+	return string(b)
+}
+
+// EncodeReasoningEffortSwitch 编码「本会话自此改用某思考力度」的持久 notice(spec
+// 2026-09-01 决策 7)。effort 为空 = 改回跟随后端配置 —— 负载里那个字段随之省略,
+// kind 才是判据。
+func EncodeReasoningEffortSwitch(effort string) string {
+	b, _ := json.Marshal(ProviderNotice{
+		Kind:            NoticeKindReasoningEffort,
+		ReasoningEffort: effort,
 	})
 	return string(b)
 }

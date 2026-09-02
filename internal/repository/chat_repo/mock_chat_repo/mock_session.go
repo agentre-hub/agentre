@@ -22,7 +22,6 @@ import (
 type MockSessionRepo struct {
 	ctrl     *gomock.Controller
 	recorder *MockSessionRepoMockRecorder
-	isgomock struct{}
 }
 
 // MockSessionRepoMockRecorder is the mock recorder for MockSessionRepo.
@@ -464,4 +463,18 @@ func (m *MockSessionRepo) UpdatePermissionModeAtLaunch(ctx context.Context, sess
 func (mr *MockSessionRepoMockRecorder) UpdatePermissionModeAtLaunch(ctx, sessionID, mode any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePermissionModeAtLaunch", reflect.TypeOf((*MockSessionRepo)(nil).UpdatePermissionModeAtLaunch), ctx, sessionID, mode)
+}
+
+// UpdateReasoningEffort mocks base method.
+func (m *MockSessionRepo) UpdateReasoningEffort(ctx context.Context, sessionID int64, effort string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateReasoningEffort", ctx, sessionID, effort)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateReasoningEffort indicates an expected call of UpdateReasoningEffort.
+func (mr *MockSessionRepoMockRecorder) UpdateReasoningEffort(ctx, sessionID, effort any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateReasoningEffort", reflect.TypeOf((*MockSessionRepo)(nil).UpdateReasoningEffort), ctx, sessionID, effort)
 }

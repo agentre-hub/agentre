@@ -239,6 +239,7 @@ func TestSessionRepo_Create(t *testing.T) {
 			"",                // cwd —— 不钉工作目录,按老规矩每轮现算
 			"",                // purpose
 			0, "", "", "", "", // context_window, permission_mode, permission_mode_at_launch, provider_key, model_key
+			"max",                  // reasoning_effort —— 草稿态选好的档位随建档一并落库(spec 2026-09-01「新建会话」)
 			int64(0), "", int64(0), // exec_device_id, exec_device_fingerprint, event_cursor —— 新建会话默认本机执行、无游标
 			int64(0),                                          // exec_agent_backend_id —— 新建会话默认未钉住任何一档
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(), // status, createtime, updatetime
@@ -246,7 +247,7 @@ func TestSessionRepo_Create(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(99, 1))
 	mock.ExpectCommit()
 
-	s := &chat_entity.Session{AgentID: 7, Title: "draft", AgentStatus: "idle", Status: consts.ACTIVE}
+	s := &chat_entity.Session{AgentID: 7, Title: "draft", AgentStatus: "idle", Status: consts.ACTIVE, ReasoningEffort: "max"}
 	err := chat_repo.NewSession().Create(ctx, s)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(99), s.ID)
@@ -1184,6 +1185,7 @@ func TestSessionRepo_Create_GivenNoConversationID_ThenMintsOne(t *testing.T) {
 			"",
 			"",
 			0, "", "", "", "",
+			"", // reasoning_effort —— 未选档位的新建会话跟随后端配置
 			int64(0), "", int64(0),
 			int64(0),
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(),
@@ -1213,6 +1215,7 @@ func TestSessionRepo_Create_GivenACallerSuppliedConversationID_ThenKeepsItVerbat
 			"",
 			"",
 			0, "", "", "", "",
+			"", // reasoning_effort —— 未选档位的新建会话跟随后端配置
 			int64(0), "", int64(0),
 			int64(0),
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(),
@@ -1257,4 +1260,58 @@ func TestSessionRepo_FindByConversationID_GivenNoSuchRow_ThenReturnsNil(t *testi
 	require.NoError(t, err)
 	assert.Nil(t, got)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_UpdateReasoningEffort 钉死会话级思考力度切换的写入 SQL(spec
+// 2026-09-01 决策 1):只写 reasoning_effort 一列(+ updatetime)。切换允许在轮中发生,
+// 整行 Save 会把并发轮次正在写的状态列一起盖掉 —— 与 UpdateModelTarget 同一条理由。
+func TestSessionRepo_UpdateReasoningEffort(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions` SET `reasoning_effort`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+		WithArgs("high", sqlmock.AnyArg(), int64(42), consts.ACTIVE).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.UpdateReasoningEffort(ctx, 42, "high"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_UpdateReasoningEffortDefault 空串 = 改回「跟随后端配置」,同一条语句
+// 照常写入 —— 不是 no-op,也不能走 gorm 的零值跳过(那会让会话留在旧档位上)。
+func TestSessionRepo_UpdateReasoningEffortDefault(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions` SET `reasoning_effort`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+		WithArgs("", sqlmock.AnyArg(), int64(42), consts.ACTIVE).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.UpdateReasoningEffort(ctx, 42, ""))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_UpdateKeepsReasoningEffort 整行回写不得碰会话级思考力度:轮次开始时
+// 读出的旧实体上这一列还是切换前的值,收尾整行 Save 会把轮中刚切好的档位拍回去。
+func TestSessionRepo_UpdateKeepsReasoningEffort(t *testing.T) {
+	ctx, gdb, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	row := map[string]any{"agent_status": "running", "reasoning_effort": "max"}
+	captureUpdatedRow(t, gdb, row)
+
+	sess := &chat_entity.Session{ID: 42, AgentStatus: "idle", Status: consts.ACTIVE, ReasoningEffort: "low"}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, repo.Update(ctx, sess))
+
+	assert.Equal(t, "max", row["reasoning_effort"], "整行回写不得把轮中切好的思考力度拍回旧值")
+	assert.Equal(t, "idle", row["agent_status"], "收尾本来要写的状态照常落库")
+	require.NoError(t, mock.ExpectationsWereMet())
 }

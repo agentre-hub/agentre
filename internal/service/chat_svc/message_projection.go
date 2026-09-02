@@ -27,6 +27,8 @@ func noticeBlockToChatBlock(tb blocks.NoticeBlock) ChatBlock {
 			ModelKey:     p.ModelKey,
 			ModelName:    p.ModelName,
 			NoticeKind:   p.Kind,
+			// kind=reasoning_effort 的 notice 靠它说出切到了哪一档；其余 kind 恒为空。
+			ReasoningEffort: p.ReasoningEffort,
 		}
 	}
 	return ChatBlock{Type: ChatBlockTypeNotice, Level: tb.Level, Text: tb.Text}

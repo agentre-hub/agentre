@@ -103,6 +103,15 @@ type Session struct {
 	// 由 chat_svc.SetChatSessionModelTarget 与 provider_key 同一条原子语句写入；普通
 	// Session Save 必须 Omit 这一列，否则轮中切好的模型会被轮次开始时读出的旧实体冲掉。
 	ModelKey string `gorm:"column:model_key;type:text;not null;default:''"`
+	// ReasoningEffort 是会话级思考力度档位（chat_sessions.reasoning_effort，spec
+	// 2026-09-01 决策 1）。空串 = 跟随该会话那一档 backend 的配置；非空时在合成本轮
+	// 有效力度时覆盖它。取值与 agent_backend_entity 的六档表同一张
+	// （"" / low / medium / high / xhigh / max，见 agent_backend_entity.effort.go）。
+	// 新建会话随首条消息落库，此后由 chat_svc.SetChatSessionReasoningEffort 单列改写，
+	// 自下一轮 spawn 生效（不打断正在跑的那一轮）。与 provider_key / model_key 同理：
+	// 普通 Session Save 必须不碰这一列，否则轮中切好的档位会被轮次开始时读出的旧实体
+	// 冲掉（sessionUpdateWhitelist 是白名单，不列它即不写）。
+	ReasoningEffort string `gorm:"column:reasoning_effort;type:text;not null;default:''"`
 	// ExecDeviceID 执行该会话的配对 daemon(paired_agentreds.id)。0 = 本机执行 ——
 	// 也是老数据的默认值，语义与远端执行落地前完全一致。
 	ExecDeviceID int64 `gorm:"column:exec_device_id;type:bigint;not null;default:0"`
