@@ -114,6 +114,11 @@ type SessionRecord struct {
 	// ModelKey 注释是同一条纪律的另一半)。
 	ProviderKey string
 	ModelKey    string
+	// ReasoningEffort 是会话级思考力度这一格,语义见 wire.SessionSummary 上的说明。
+	// 它与上面两格同一条纪律:**每轮起手的 Upsert 不碰它** —— 由
+	// runtime.setSessionReasoningEffort 单独写入,跟着轮次幂等覆盖会把用户轮中刚选好
+	// 的档位冲回「跟随后端配置」。
+	ReasoningEffort string
 }
 
 // SessionLifecyclePort 记录会话生命周期的推进,由跑一轮执行的一侧调用。
@@ -154,6 +159,17 @@ type SessionDeletePort interface {
 // 每轮都会拿零值把用户轮中刚选好的模型静默冲回「跟随 Agent 绑定」。
 type SessionModelTargetPort interface {
 	SetModelTarget(ctx context.Context, peerFingerprint, peerSessionID, providerKey, modelKey string) (int64, error)
+}
+
+// SessionReasoningEffortPort 改写某会话钉的思考力度,返回受影响行数
+// (0 = 这台机器上没有这条会话)。
+//
+// 与 SessionModelTargetPort 分开声明是 ISP:两条 RPC 各自只需要自己那一格,合起来
+// 会让改模型的那条路上凭空多出改档位的能力。它同样与 SessionLifecyclePort.Start
+// **刻意分开**:那是每轮起手都跑的幂等覆盖,力度不在 RunParams 的元数据里,跟着轮次
+// 覆盖会把用户轮中刚选好的档位静默冲回「跟随后端配置」。
+type SessionReasoningEffortPort interface {
+	SetReasoningEffort(ctx context.Context, peerFingerprint, peerSessionID, reasoningEffort string) (int64, error)
 }
 
 // JournalPurgePort 清空某会话的**全部**通知日志,返回删除行数。

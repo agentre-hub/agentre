@@ -575,6 +575,8 @@ func peerTestProtoMethod(t *testing.T, method string) (uint32, proto.Message, pr
 		return uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE), &agentrewire.RuntimeSetPermissionModeRequest{}, &agentrewire.Empty{}
 	case wire.MethodSetModelTarget:
 		return uint32(agentrewire.RpcMethod_RPC_METHOD_SET_MODEL_TARGET), &agentrewire.SetModelTargetRequest{}, &agentrewire.SetModelTargetResponse{}
+	case wire.MethodSetSessionReasoningEffort:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT), &agentrewire.SetSessionReasoningEffortRequest{}, &agentrewire.SetSessionReasoningEffortResponse{}
 	case wire.MethodProjectSetLocalPath:
 		return uint32(agentrewire.RpcMethod_RPC_METHOD_PROJECT_SET_LOCAL_PATH), &agentrewire.ProjectSetLocalPathRequest{}, &agentrewire.ProjectLocalPathResponse{}
 	case wire.MethodProjectClearLocalPath:

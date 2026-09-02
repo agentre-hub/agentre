@@ -146,6 +146,21 @@ func (mr *MockSessionRepoMockRecorder) SetModelTarget(ctx, peerFingerprint, conv
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetModelTarget", reflect.TypeOf((*MockSessionRepo)(nil).SetModelTarget), ctx, peerFingerprint, conversationID, providerKey, modelKey)
 }
 
+// SetReasoningEffort mocks base method.
+func (m *MockSessionRepo) SetReasoningEffort(ctx context.Context, peerFingerprint, conversationID, reasoningEffort string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetReasoningEffort", ctx, peerFingerprint, conversationID, reasoningEffort)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetReasoningEffort indicates an expected call of SetReasoningEffort.
+func (mr *MockSessionRepoMockRecorder) SetReasoningEffort(ctx, peerFingerprint, conversationID, reasoningEffort any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReasoningEffort", reflect.TypeOf((*MockSessionRepo)(nil).SetReasoningEffort), ctx, peerFingerprint, conversationID, reasoningEffort)
+}
+
 // UpdateLifecycle mocks base method.
 func (m *MockSessionRepo) UpdateLifecycle(ctx context.Context, peerFingerprint, conversationID, state string) error {
 	m.ctrl.T.Helper()

@@ -331,6 +331,16 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	if bt == agent_backend_entity.TypeOpenClaw {
 		return wire.RunAck{}, errors.New("openclaw backend not supported in agentred: remote secret enrollment is unavailable")
 	}
+	// 本轮有效思考力度作为**独立 run 参数**过线(规格决策 4):浏览器发的是空壳
+	// backend,塞进负载里那条路上恒为空。非空即胜过负载上那一格,合成结果落在**本轮
+	// backend 副本**上(决策 3),下游 launchIdentity 与各 runtime 的 session 构造
+	// 一字不改就同时拿到它。
+	//
+	// 缺省**不**视为「用户选了默认」(硬不变量 6):老桌面端根本不带这个字段,把缺省
+	// 读成空档会让它们的后端配置在升级 agentred 之后集体失效。
+	if effort := strings.TrimSpace(p.ReasoningEffort); effort != "" {
+		be.ReasoningEffort = effort
+	}
 	if h.deps.CLIPathForBackend != nil {
 		if cliPath, authoritative := h.deps.CLIPathForBackend(be.SyncID); authoritative {
 			// Account snapshots own the execution-side per-device overlay. An

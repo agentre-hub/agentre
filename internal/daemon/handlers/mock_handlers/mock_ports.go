@@ -413,6 +413,45 @@ func (mr *MockSessionModelTargetPortMockRecorder) SetModelTarget(ctx, peerFinger
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetModelTarget", reflect.TypeOf((*MockSessionModelTargetPort)(nil).SetModelTarget), ctx, peerFingerprint, peerSessionID, providerKey, modelKey)
 }
 
+// MockSessionReasoningEffortPort is a mock of SessionReasoningEffortPort interface.
+type MockSessionReasoningEffortPort struct {
+	ctrl     *gomock.Controller
+	recorder *MockSessionReasoningEffortPortMockRecorder
+	isgomock struct{}
+}
+
+// MockSessionReasoningEffortPortMockRecorder is the mock recorder for MockSessionReasoningEffortPort.
+type MockSessionReasoningEffortPortMockRecorder struct {
+	mock *MockSessionReasoningEffortPort
+}
+
+// NewMockSessionReasoningEffortPort creates a new mock instance.
+func NewMockSessionReasoningEffortPort(ctrl *gomock.Controller) *MockSessionReasoningEffortPort {
+	mock := &MockSessionReasoningEffortPort{ctrl: ctrl}
+	mock.recorder = &MockSessionReasoningEffortPortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSessionReasoningEffortPort) EXPECT() *MockSessionReasoningEffortPortMockRecorder {
+	return m.recorder
+}
+
+// SetReasoningEffort mocks base method.
+func (m *MockSessionReasoningEffortPort) SetReasoningEffort(ctx context.Context, peerFingerprint, peerSessionID, reasoningEffort string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetReasoningEffort", ctx, peerFingerprint, peerSessionID, reasoningEffort)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetReasoningEffort indicates an expected call of SetReasoningEffort.
+func (mr *MockSessionReasoningEffortPortMockRecorder) SetReasoningEffort(ctx, peerFingerprint, peerSessionID, reasoningEffort any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReasoningEffort", reflect.TypeOf((*MockSessionReasoningEffortPort)(nil).SetReasoningEffort), ctx, peerFingerprint, peerSessionID, reasoningEffort)
+}
+
 // MockJournalPurgePort is a mock of JournalPurgePort interface.
 type MockJournalPurgePort struct {
 	ctrl     *gomock.Controller

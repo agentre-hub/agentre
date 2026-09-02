@@ -101,6 +101,9 @@ type Daemon struct {
 	// 限定、改的是库而不是「通知推给谁」,与哪条连接在调用无关。
 	sessionDelete      *handlers.SessionDeleteHandlers
 	sessionModelTarget *handlers.SessionModelTargetHandlers
+	// sessionReasoningEffort 与 sessionModelTarget 同族:改这条会话下一轮的 spawn
+	// 参数,同为 Daemon 级、静态注册。
+	sessionReasoningEffort *handlers.SessionReasoningEffortHandlers
 
 	mu  sync.RWMutex
 	lan *protorpc.LANServer
@@ -809,6 +812,10 @@ func New(opts Options) (*Daemon, error) {
 	})
 	d.activity = handlers.NewActivityHandlers(handlers.ActivityDeps{Sessions: d.sessionStore})
 	d.sessionModelTarget = handlers.NewSessionModelTargetHandlers(handlers.SessionModelTargetDeps{
+		Sessions:         d.sessionStore,
+		ClaimedAccountID: d.claimedAccountID,
+	})
+	d.sessionReasoningEffort = handlers.NewSessionReasoningEffortHandlers(handlers.SessionReasoningEffortDeps{
 		Sessions:         d.sessionStore,
 		ClaimedAccountID: d.claimedAccountID,
 	})
@@ -1724,6 +1731,13 @@ func (s daemonSessionStore) SetModelTarget(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, providerKey, modelKey)
 }
 
+func (s daemonSessionStore) SetReasoningEffort(
+	ctx context.Context, peerFingerprint, peerSessionID, reasoningEffort string,
+) (int64, error) {
+	return session_repo.Session().SetReasoningEffort(
+		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, reasoningEffort)
+}
+
 func sessionRecordOf(row *session_repo.DaemonSession) handlers.SessionRecord {
 	return handlers.SessionRecord{
 		PeerFingerprint:   row.PeerFingerprint,
@@ -1740,6 +1754,7 @@ func sessionRecordOf(row *session_repo.DaemonSession) handlers.SessionRecord {
 		Createtime:        row.Createtime,
 		ProviderKey:       row.ProviderKey,
 		ModelKey:          row.ModelKey,
+		ReasoningEffort:   row.ReasoningEffort,
 	}
 }
 

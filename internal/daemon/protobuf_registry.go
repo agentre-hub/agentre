@@ -343,7 +343,7 @@ func (d *Daemon) registerProtobufMethods() {
 			}
 			response := &agentrewire.SessionListResponse{}
 			for _, session := range result.Sessions {
-				response.Sessions = append(response.Sessions, &agentrewire.SessionSummary{ConversationId: session.ConversationID, PeerFingerprint: session.PeerFingerprint, AgentId: session.AgentID, Title: session.Title, AgentSyncId: session.AgentSyncID, ProviderSessionId: session.ProviderSessionID, Cwd: session.Cwd, ProjectSyncId: session.ProjectSyncID, BackendType: session.BackendType, LifecycleState: session.LifecycleState, WaitingForInput: session.WaitingForInput, LatestSeq: session.LatestSeq, LastMessageAt: session.LastMessageAt, ProviderKey: session.ProviderKey, ModelKey: session.ModelKey})
+				response.Sessions = append(response.Sessions, &agentrewire.SessionSummary{ConversationId: session.ConversationID, PeerFingerprint: session.PeerFingerprint, AgentId: session.AgentID, Title: session.Title, AgentSyncId: session.AgentSyncID, ProviderSessionId: session.ProviderSessionID, Cwd: session.Cwd, ProjectSyncId: session.ProjectSyncID, BackendType: session.BackendType, LifecycleState: session.LifecycleState, WaitingForInput: session.WaitingForInput, LatestSeq: session.LatestSeq, LastMessageAt: session.LastMessageAt, ProviderKey: session.ProviderKey, ModelKey: session.ModelKey, ReasoningEffort: session.ReasoningEffort})
 			}
 			return response, nil
 		})
@@ -424,6 +424,20 @@ func (d *Daemon) registerProtobufMethods() {
 				return nil, protobufError(err)
 			}
 			return &agentrewire.SetModelTargetResponse{}, nil
+		})
+	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT),
+		func() *agentrewire.SetSessionReasoningEffortRequest {
+			return &agentrewire.SetSessionReasoningEffortRequest{}
+		},
+		func(ctx context.Context, request *agentrewire.SetSessionReasoningEffortRequest) (*agentrewire.SetSessionReasoningEffortResponse, error) {
+			if err := requireProtobufAuth(ctx); err != nil {
+				return nil, err
+			}
+			_, err := d.sessionReasoningEffort.SetReasoningEffort(ctx, remotewire.SetSessionReasoningEffortParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint, ReasoningEffort: request.ReasoningEffort})
+			if err != nil {
+				return nil, protobufError(err)
+			}
+			return &agentrewire.SetSessionReasoningEffortResponse{}, nil
 		})
 
 	protobufadapter.RegisterPeripheralMethods(d.protobufRegistry, protobufadapter.PeripheralDeps{

@@ -4068,3 +4068,64 @@ func TestRuntime_Run_GivenAConversationIDThatIsNotOne_ThenItIsRejectedAtTheBound
 		})
 	}
 }
+
+// TestRuntime_Run_ReasoningEffortRunParamWinsOverBackendPayload 钉死规格决策 5 的
+// 取值优先级:本轮有效思考力度作为**独立 run 参数**过线(浏览器发的是空壳 backend,
+// 塞进负载里那条路上恒为空),非空即胜过 backend 负载上那一格。
+//
+// 落点是本轮 backend 副本:decision 3 把「有效力度」合成在唯一那个边界上,下游
+// launchIdentity / 各 runtime 的 session 构造一字不改就同时拿到它。
+func TestRuntime_Run_ReasoningEffortRunParamWinsOverBackendPayload(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, _, _, _, h := setupRuntimeTest(t, rt)
+	be := agent_backend_entity.AgentBackend{
+		Type: string(agent_backend_entity.TypeClaudeCode), ReasoningEffort: "low",
+	}
+
+	_, err := h.Run(ctx, wire.RunParams{
+		Backend:         backendJSON(t, be),
+		ConversationID:  convID(42),
+		ReasoningEffort: "max",
+	})
+	require.NoError(t, err)
+	require.Len(t, rt.runReqs, 1)
+	require.NotNil(t, rt.runReqs[0].req.Backend)
+	assert.Equal(t, "max", rt.runReqs[0].req.Backend.ReasoningEffort,
+		"run 参数非空必须胜过 backend 负载上那一格")
+}
+
+// TestRuntime_Run_ReasoningEffortFallsBackToBackendPayload 钉死同一条决策的另一半
+// (硬不变量 6):run 参数**缺省不等于「用户选了默认」**。老桌面端根本不带这个字段,
+// 把缺省读成空档会让它们的后端配置在升级 agentred 之后集体失效。
+func TestRuntime_Run_ReasoningEffortFallsBackToBackendPayload(t *testing.T) {
+	for _, runParam := range []string{"", "   "} {
+		t.Run("runParam="+runParam, func(t *testing.T) {
+			rt := &fullRT{}
+			rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+				ch := make(chan agentruntime.Event)
+				close(ch)
+				return ch, &agentruntime.RunResult{}, nil
+			}
+			ctx, _, _, _, h := setupRuntimeTest(t, rt)
+			be := agent_backend_entity.AgentBackend{
+				Type: string(agent_backend_entity.TypeClaudeCode), ReasoningEffort: "medium",
+			}
+
+			_, err := h.Run(ctx, wire.RunParams{
+				Backend:         backendJSON(t, be),
+				ConversationID:  convID(42),
+				ReasoningEffort: runParam,
+			})
+			require.NoError(t, err)
+			require.Len(t, rt.runReqs, 1)
+			require.NotNil(t, rt.runReqs[0].req.Backend)
+			assert.Equal(t, "medium", rt.runReqs[0].req.Backend.ReasoningEffort,
+				"run 参数缺省时回落后端配置,不能把这一轮拍成空档")
+		})
+	}
+}

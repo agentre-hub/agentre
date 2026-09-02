@@ -38,11 +38,14 @@ type ProtobufInboundDeps struct {
 	PendingWaiters          func(context.Context, remotewire.SessionPendingWaitersParams) (remotewire.SessionPendingWaitersResult, error)
 	DeleteSession           func(context.Context, string, string) error
 	SetModelTarget          func(context.Context, string, string, string) error
-	SetPermissionMode       func(context.Context, string, string) error
-	RunSession              func(context.Context, remotewire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
-	SteerSession            func(context.Context, remotewire.SteerParams, chat_svc.PeerSessionSource) error
-	SubmitAnswer            func(context.Context, remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
-	SubmitToolPermission    func(context.Context, remotewire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error)
+	// SetReasoningEffort 把浏览器选的会话思考力度转调进桌面端的 chat_svc,与
+	// SetModelTarget 同族:空串是要写下去的值(改回跟随后端配置),不是「不改」。
+	SetReasoningEffort   func(context.Context, string, string) error
+	SetPermissionMode    func(context.Context, string, string) error
+	RunSession           func(context.Context, remotewire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
+	SteerSession         func(context.Context, remotewire.SteerParams, chat_svc.PeerSessionSource) error
+	SubmitAnswer         func(context.Context, remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
+	SubmitToolPermission func(context.Context, remotewire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error)
 }
 
 type protobufPeerSubscriber struct{ conn *protorpc.Conn }
@@ -161,6 +164,17 @@ func registerPeerSessionMethods(registry *protorpc.Registry, deps ProtobufInboun
 			return nil, protobufPeerError(err)
 		}
 		return &agentrewire.SetModelTargetResponse{}, nil
+	}))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT), func() *agentrewire.SetSessionReasoningEffortRequest {
+		return &agentrewire.SetSessionReasoningEffortRequest{}
+	}, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SetSessionReasoningEffortRequest) (*agentrewire.SetSessionReasoningEffortResponse, error) {
+		if deps.SetReasoningEffort == nil {
+			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "reasoning effort unavailable"}
+		}
+		if err := deps.SetReasoningEffort(ctx, req.ConversationId, req.ReasoningEffort); err != nil {
+			return nil, protobufPeerError(err)
+		}
+		return &agentrewire.SetSessionReasoningEffortResponse{}, nil
 	}))
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE), func() *agentrewire.RuntimeSetPermissionModeRequest {
 		return &agentrewire.RuntimeSetPermissionModeRequest{}

@@ -162,3 +162,48 @@ func TestInbound_GivenBothKeysEmpty_WhenSettingModelTarget_ThenItIsAcceptedAsInh
 	assert.NotEqual(t, rpcerror.ErrInvalidParams.Code, response.Error.Code,
 		"两格都空必须一路走到 chat_svc（这里因会话不存在而报错），不能在参数层被当成没填")
 }
+
+// Given 一台已登录的桌面端在线，When 同账号的浏览器要改某条会话的思考力度，
+// Then 这个方法在**这一端**也是服务的：请求进得到 chat_svc（这里让它撞上一条不
+// 存在的会话），而不是被 RPC 层以「没有这个方法」挡回去。
+//
+// 与换模型同理：同一条对话可以在桌面端与 agentred 上各有一份，用户在浏览器里换档
+// 时两边都落。agentred 那一侧的落库由 daemon 的 SessionReasoningEffortHandlers
+// 承担，这里是桌面端这一侧。
+func TestInbound_GivenAuthorizedPeer_WhenSettingReasoningEffort_ThenServedHereToo(t *testing.T) {
+	registerInboundPeerChatForDelete(t)
+	ws := startInboundPeer(t)
+
+	unauthenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`1`), Method: wire.MethodSetSessionReasoningEffort,
+		Params: mustJSON(t, wire.SetSessionReasoningEffortParams{ConversationID: convID(4242), ReasoningEffort: "high"}),
+	})
+	require.NotNil(t, unauthenticated.Error)
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticated.Error.Code)
+
+	authorizePeer(t, ws, `2`)
+
+	response := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`3`), Method: wire.MethodSetSessionReasoningEffort,
+		Params: mustJSON(t, wire.SetSessionReasoningEffortParams{ConversationID: convID(4242), ReasoningEffort: "high"}),
+	})
+	require.NotNil(t, response.Error)
+	assert.NotEqual(t, rpcerror.ErrMethodNotFound.Code, response.Error.Code,
+		"接桌面 App 的浏览器同样要改得了思考力度，不能只有 agentred 那一侧有")
+}
+
+// 空串是**要写下去的值**（改回跟随后端配置），不是「参数没填」——在参数校验这一层
+// 把它挡掉，用户就再也回不到跟随后端配置了。
+func TestInbound_GivenAnEmptyEffort_WhenSettingReasoningEffort_ThenItIsAcceptedAsFollowBackend(t *testing.T) {
+	registerInboundPeerChatForDelete(t)
+	ws := startInboundPeer(t)
+	authorizePeer(t, ws, `1`)
+
+	response := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`2`), Method: wire.MethodSetSessionReasoningEffort,
+		Params: mustJSON(t, wire.SetSessionReasoningEffortParams{ConversationID: convID(4242)}),
+	})
+	require.NotNil(t, response.Error)
+	assert.NotEqual(t, rpcerror.ErrInvalidParams.Code, response.Error.Code,
+		"空串必须一路走到 chat_svc（这里因会话不存在而报错），不能在参数层被当成没填")
+}

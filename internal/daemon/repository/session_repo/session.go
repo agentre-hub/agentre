@@ -61,7 +61,11 @@ type DaemonSession struct {
 	// 两格只有 SetModelTarget 一条路。
 	ProviderKey string `gorm:"column:provider_key"`
 	ModelKey    string `gorm:"column:model_key"`
-	Createtime  int64  `gorm:"column:createtime"`
+	// ReasoningEffort 是会话级思考力度这一格(空 = 跟随后端配置)。它与上面两格同一
+	// 条纪律:**不在 Upsert 的赋值列里**,改它只有 SetReasoningEffort 一条路 —— 每轮
+	// 起手幂等覆盖会把用户轮中刚选好的档位冲回旧值。
+	ReasoningEffort string `gorm:"column:reasoning_effort"`
+	Createtime      int64  `gorm:"column:createtime"`
 	// LastMessageAt 是这条会话最后一次活动的时刻（毫秒 epoch）。它**不叫**
 	// UpdatedAt：那个名字会被 GORM 认作行更新时刻、在每一次写入上自动改写，而这一
 	// 格是会话清单的排序键与线格式 SessionSummary.last_message_at 的唯一真相源。
@@ -85,6 +89,11 @@ type SessionRepo interface {
 	// 才写」的部分更新。刻意不走 Upsert:那是每轮起手跑的,见本文件 DaemonSession
 	// 上 ProviderKey / ModelKey 的说明。
 	SetModelTarget(ctx context.Context, peerFingerprint, conversationID, providerKey, modelKey string) (int64, error)
+
+	// SetReasoningEffort 改写这条会话钉的思考力度,返回受影响行数(0 = 没有这条
+	// 会话)。空串是**要写下去的值**(改回跟随后端配置),所以同样不能用「非空才写」
+	// 的部分更新;刻意不走 Upsert,理由同 SetModelTarget。
+	SetReasoningEffort(ctx context.Context, peerFingerprint, conversationID, reasoningEffort string) (int64, error)
 
 	// Find 取某个对端名下的一条会话;不存在返回 (nil, nil)。
 	Find(ctx context.Context, peerFingerprint, conversationID string) (*DaemonSession, error)
@@ -171,6 +180,20 @@ func (r *sessionRepo) SetModelTarget(
 			"provider_key":    providerKey,
 			"model_key":       modelKey,
 			"last_message_at": time.Now().UnixMilli(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+func (r *sessionRepo) SetReasoningEffort(
+	ctx context.Context, peerFingerprint, conversationID, reasoningEffort string,
+) (int64, error) {
+	// 同 SetModelTarget 用 map:结构体的零值会被 GORM 当成「没设」跳过,而空串正是
+	// 「改回跟随后端配置」这个有含义的取值,跳过就等于这次改动没发生。
+	res := db.Ctx(ctx).Model(&DaemonSession{}).
+		Where("peer_fingerprint = ? AND conversation_id = ?", peerFingerprint, conversationID).
+		Updates(map[string]any{
+			"reasoning_effort": reasoningEffort,
+			"last_message_at":  time.Now().UnixMilli(),
 		})
 	return res.RowsAffected, res.Error
 }

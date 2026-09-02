@@ -376,3 +376,73 @@ func TestSessionRepo_List_BlankKeywordEmitsNoLike(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestSessionRepo_SetReasoningEffort_WritesTheEmptyStringToo 覆盖会话级思考力度这
+// 一格镜像列的落库(规格 2026-09-01「agentred 侧的会话行」)。
+//
+// 断言两件事:①条件同时带对端指纹与对话 id —— 指纹是授权,一个对端改不动另一个对端
+// 名下那条会话;②空串是**要写下去的值**(改回跟随后端配置)。用 map 而不是结构体正是
+// 为了后者:结构体零值会被 GORM 当成「没设」跳过,跳过就等于这次改动没发生。
+func TestSessionRepo_SetReasoningEffort_WritesTheEmptyStringToo(t *testing.T) {
+	for _, effort := range []string{"xhigh", ""} {
+		t.Run("effort="+effort, func(t *testing.T) {
+			ctx, _, mock := testutils.Database(t)
+			repo := session_repo.NewSession()
+
+			mock.ExpectBegin()
+			mock.ExpectExec("UPDATE `daemon_sessions` SET `last_message_at`=\\?,`reasoning_effort`=\\? WHERE peer_fingerprint = \\? AND conversation_id = \\?").
+				WithArgs(sqlmock.AnyArg(), effort, "peerA", "s1").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectCommit()
+
+			rows, err := repo.SetReasoningEffort(ctx, "peerA", "s1", effort)
+			require.NoError(t, err)
+			assert.Equal(t, int64(1), rows)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// TestSessionRepo_SetReasoningEffort_ReportsNoRowsForAnUnknownSession:本机没有这条
+// 会话时交出 0 行 —— 上层据此报错而不是折成成功(handlers.SessionReasoningEffortHandlers)。
+func TestSessionRepo_SetReasoningEffort_ReportsNoRowsForAnUnknownSession(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `daemon_sessions` SET").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	rows, err := repo.SetReasoningEffort(ctx, "peerA", "missing", "high")
+	require.NoError(t, err)
+	assert.Zero(t, rows)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_Upsert_LeavesTheSessionReasoningEffortAlone 是与 ModelTarget 那条
+// 同款的**纪律守卫**:reasoning_effort 绝不能出现在 Upsert 的赋值列里。
+//
+// Upsert 每一轮起手都跑,携带的是当轮 RunParams 里的元数据;会话级力度不在其中,
+// 一旦它进了赋值列,每轮起手都会拿零值把用户刚选好的档位静默冲回「跟随后端配置」。
+func TestSessionRepo_Upsert_LeavesTheSessionReasoningEffortAlone(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("ON DUPLICATE KEY UPDATE `agent_id`=VALUES\\(`agent_id`\\),`cwd`=VALUES\\(`cwd`\\)," +
+		"`backend_type`=VALUES\\(`backend_type`\\),`lifecycle_state`=VALUES\\(`lifecycle_state`\\)," +
+		"`title`=VALUES\\(`title`\\),`agent_sync_id`=VALUES\\(`agent_sync_id`\\)," +
+		"`project_sync_id`=VALUES\\(`project_sync_id`\\)," +
+		"`provider_session_id`=VALUES\\(`provider_session_id`\\),`last_message_at`=VALUES\\(`last_message_at`\\)$").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.Upsert(ctx, &session_repo.DaemonSession{
+		PeerFingerprint: "peerA", ConversationID: "s1", BackendType: "claudecode",
+		LifecycleState: "running",
+		// 就算调用方糊里糊涂带上了它,也不该被写进去。
+		ReasoningEffort: "should-not-be-assigned",
+	}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

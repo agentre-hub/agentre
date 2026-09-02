@@ -565,3 +565,29 @@ func TestSessionCatchup_List_PushesKeywordDownToTheStore(t *testing.T) {
 	require.Len(t, got.Sessions, 1)
 	assert.Equal(t, convID(1), got.Sessions[0].ConversationID)
 }
+
+// TestSessionCatchup_List_ReportsSessionReasoningEffort 覆盖「会话级思考力度随清单
+// 回传」(规格 2026-09-01「跨宿主:agentred 与 agentre-server」):浏览器在列表与重开
+// 时显示的是这台机器记下的那一档。
+//
+// 与 ProviderKey/ModelKey 同一条路、同一个位置:这一格只供显示,执行路径不读它 ——
+// 本轮真正用哪一档由 runtime.run 的 run 参数决定。空串在契约里**有含义**(跟随后端
+// 配置),不是「没答」。
+func TestSessionCatchup_List_ReportsSessionReasoningEffort(t *testing.T) {
+	ctx, sessions, journal, h := setupCatchupTest(t, bareRT{})
+	sessions.EXPECT().List(gomock.Any(), "", "").Return([]handlers.SessionRecord{
+		// 钉住了某一档。
+		{PeerSessionID: convID(1), BackendType: "codex", LifecycleState: wire.SessionLifecycleRunning,
+			ReasoningEffort: "xhigh"},
+		// 跟随后端配置:这一格是空的,而空是个有含义的值。
+		{PeerSessionID: convID(2), BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
+	}, nil)
+	journal.EXPECT().LatestSeqByPeer(gomock.Any(), "").Return(nil, nil)
+
+	got, err := h.List(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 2)
+
+	assert.Equal(t, "xhigh", got.Sessions[0].ReasoningEffort)
+	assert.Empty(t, got.Sessions[1].ReasoningEffort, "跟随后端配置:这一格就该是空的")
+}

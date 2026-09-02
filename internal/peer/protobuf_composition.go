@@ -74,6 +74,14 @@ func productionProtobufInboundDeps() ProtobufInboundDeps {
 			_, err = adapter().SetChatSessionModelTarget(ctx, &chat_svc.SetChatSessionModelTargetRequest{SessionID: sessionID, ProviderKey: providerKey, ModelKey: modelKey})
 			return err
 		},
+		SetReasoningEffort: func(ctx context.Context, conversationID string, reasoningEffort string) error {
+			sessionID, err := chat_svc.ResolvePeerConversation(ctx, conversationID)
+			if err != nil {
+				return err
+			}
+			_, err = adapter().SetChatSessionReasoningEffort(ctx, &chat_svc.SetChatSessionReasoningEffortRequest{SessionID: sessionID, ReasoningEffort: reasoningEffort})
+			return err
+		},
 		SetPermissionMode: func(ctx context.Context, conversationID string, mode string) error {
 			sessionID, err := chat_svc.ResolvePeerConversation(ctx, conversationID)
 			if err != nil {
