@@ -268,6 +268,10 @@ export interface TranscriptBlock {
   modelKey?: string;
   modelName?: string;
   noticeKind?: string;
+  // noticeKind==="reasoning_effort" 那条切换 notice 切到的档位（spec 2026-09-01
+  // 决策 7）。**空串 + 该 kind = 改回跟随后端配置**，所以判据是 kind 而不是这个
+  // 字段是否非空；其它块恒为空。
+  reasoningEffort?: string;
   image?: TranscriptBlockImage;
   toolUseId?: string;
   toolName?: string;

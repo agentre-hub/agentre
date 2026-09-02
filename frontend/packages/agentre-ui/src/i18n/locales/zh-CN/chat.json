@@ -50,6 +50,10 @@
         "fixedModel": "自此固定模型 · {{provider}} · {{model}}",
         "followAgentBinding": "自此跟随 Agent 绑定",
         "sentence": "自此跟随供应商默认 · {{provider}}"
+      },
+      "reasoningEffortSwitch": {
+        "followBackend": "已改回跟随后端配置",
+        "sentence": "自此思考力度 · {{level}}"
       }
     },
     "debug": {

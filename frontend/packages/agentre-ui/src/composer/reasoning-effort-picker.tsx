@@ -95,7 +95,10 @@ export function ReasoningEffortPicker({
           className={cn(
             // 与 ContextMeter 同一身读数外壳，只把 cursor-default 换成手形：
             // 那两个是只读读数，这颗可点。
-            "flex min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
+            // 取的是**观感**不是收缩语义：底栏的溢出优先级里两个计量器是唯一带
+            // min-w-0 的让位者（chat-composer.tsx 的两条硬约束），控件与提交键
+            // 一律 shrink-0——所以这里不抄 ContextMeter 的 min-w-0/overflow-hidden。
+            "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-sm border border-transparent px-1 py-0.5 whitespace-nowrap",
             "font-mono text-meta transition-colors motion-reduce:transition-none",
             "hover:border-border hover:bg-accent",
             "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",
@@ -105,7 +108,9 @@ export function ReasoningEffortPicker({
             className="size-3.5 shrink-0 text-primary-text"
             aria-hidden="true"
           />
-          <span className="min-w-0 truncate font-medium text-primary-text">
+          {/* 窄档退成纯图标（与 PermissionModePill 同一档）：控件自身不收缩，
+              让位靠整条标签隐藏而不是把字截半——档位由图标、aria-label 与弹层承载。 */}
+          <span className="font-medium text-primary-text @max-[620px]/composer:hidden">
             {effectiveLabel}
           </span>
           <ChevronDown

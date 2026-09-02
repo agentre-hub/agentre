@@ -32,6 +32,7 @@ type NoticeBlock = {
   modelKey?: string;
   modelName?: string;
   noticeKind?: string;
+  reasoningEffort?: string;
 };
 
 function noticeRow(block: NoticeBlock): TranscriptRow {
@@ -218,5 +219,35 @@ describe("transcript notice block", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/acme-anthropic/)).not.toBeInTheDocument();
+  });
+
+  it("Given a reasoning-effort switch notice, When it carries a level, Then it reads out which level took over（spec 2026-09-01 决策 7）", () => {
+    // 后端把切换编码成 kind=reasoning_effort + reasoningEffort，Text 恒为空 ——
+    // 这里读不出档位就意味着转录区落的是一个空灰框。
+    renderRow(
+      noticeRow({ noticeKind: "reasoning_effort", reasoningEffort: "xhigh" }),
+    );
+
+    expect(
+      screen.getByText(
+        i18n.t("chat.notice.reasoningEffortSwitch.sentence", {
+          level: "xhigh",
+        }),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("Given a reasoning-effort switch notice, When the level is empty, Then it says the session went back to following the backend config", () => {
+    // 空 reasoningEffort + 该 kind = 改回跟随后端配置：判据只能是 kind，
+    // 不能看字段是否非空。
+    renderRow(
+      noticeRow({ noticeKind: "reasoning_effort", reasoningEffort: "" }),
+    );
+
+    expect(
+      screen.getByText(
+        i18n.t("chat.notice.reasoningEffortSwitch.followBackend"),
+      ),
+    ).toBeInTheDocument();
   });
 });

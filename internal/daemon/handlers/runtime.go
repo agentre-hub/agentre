@@ -336,8 +336,11 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	// backend 副本**上(决策 3),下游 launchIdentity 与各 runtime 的 session 构造
 	// 一字不改就同时拿到它。
 	//
-	// 缺省**不**视为「用户选了默认」(硬不变量 6):老桌面端根本不带这个字段,把缺省
-	// 读成空档会让它们的后端配置在升级 agentred 之后集体失效。
+	// 缺省**不**视为「用户选了默认」(硬不变量 6)。受众不是「老桌面端」:方法集变更
+	// 已按 wireversion 的既有守卫把协议窗口收成单点 0.2.0,跨代对端在握手期就被拒,
+	// 根本走不到这里。留空的是**同代**调用方 —— 没有会话级覆盖的那些轮次(绝大多数),
+	// 以及尚未接线该字段的浏览器派发;把它们的缺省读成空档,等于让这些轮次集体丢掉
+	// 后端配置。
 	if effort := strings.TrimSpace(p.ReasoningEffort); effort != "" {
 		be.ReasoningEffort = effort
 	}

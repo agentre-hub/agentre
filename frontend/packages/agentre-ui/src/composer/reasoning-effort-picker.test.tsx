@@ -286,4 +286,29 @@ describe("ReasoningEffortPicker", () => {
     expect(trigger).toHaveAttribute("aria-haspopup", "listbox");
     expect(within(trigger).getByTestId("effort-chevron")).toBeInTheDocument();
   });
+
+  it("Given the composer bottom bar, When the bar runs out of room, Then this control keeps its width and drops the label instead", () => {
+    // chat-composer.tsx 的溢出优先级：提交键与宿主控件 shrink-0，两个计量器是
+    // 唯一带 min-w-0 的让位者。这是一颗控件不是计量器 —— 它不能当第二个让位者，
+    // 窄档退成纯图标（与 PermissionModePill 同一档 620px）。
+    render(
+      <ReasoningEffortPicker
+        value="xhigh"
+        backendValue=""
+        onChange={vi.fn()}
+        dataTestId="effort-pill"
+      />,
+    );
+
+    const trigger = screen.getByTestId("effort-pill");
+    expect(trigger.className).toContain("shrink-0");
+    expect(trigger.className).not.toContain("min-w-0");
+    expect(trigger.className).not.toContain("overflow-hidden");
+
+    const label = within(trigger).getByText("xhigh");
+    expect(label.className).not.toContain("truncate");
+    expect(label.className).toContain("@max-[620px]/composer:hidden");
+    // 标签让位后图标与 chevron 仍在，控件仍读得出「这里可以展开」。
+    expect(within(trigger).getByTestId("effort-chevron")).toBeInTheDocument();
+  });
 });

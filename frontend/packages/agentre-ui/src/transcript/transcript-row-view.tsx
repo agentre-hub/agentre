@@ -856,28 +856,38 @@ function RenderItemView({
       // （供应商已删,后端查不到实体）则回退到裸 providerKey,文案本身不变。
       // fixed-model 切换时负载还带 modelKey/modelName（spec 2026-08-11 决策 1），
       // transcript 要能读出「固定到哪个模型」而不是只剩供应商名。
+      // noticeKind==="reasoning_effort" 是会话级思考力度切换（spec 2026-09-01 决策 7）：
+      // 同一条通道、同一份负载，只是换字段——档位在 reasoningEffort 上，空串表示
+      // 改回跟随后端配置。它同样没有 Text（后端对结构化 notice 一律置空），所以
+      // 少了这一支就只剩一个空灰框。
       const providerKey = item.block.providerKey;
       const providerLabel = item.block.providerName || providerKey;
       const modelKey = item.block.modelKey;
       const modelLabel = item.block.modelName || modelKey;
       const noticeKind = item.block.noticeKind;
       const content =
-        noticeKind === "switch"
-          ? providerKey
-            ? modelKey
-              ? t("chat.notice.providerSwitch.fixedModel", {
-                  provider: providerLabel,
-                  model: modelLabel,
-                })
-              : t("chat.notice.providerSwitch.sentence", {
-                  provider: providerLabel,
-                })
-            : t("chat.notice.providerSwitch.followAgentBinding")
-          : providerKey
-            ? t("chat.notice.providerFallback.sentence", {
-                provider: providerLabel,
+        noticeKind === "reasoning_effort"
+          ? item.block.reasoningEffort
+            ? t("chat.notice.reasoningEffortSwitch.sentence", {
+                level: item.block.reasoningEffort,
               })
-            : (item.block.text ?? "");
+            : t("chat.notice.reasoningEffortSwitch.followBackend")
+          : noticeKind === "switch"
+            ? providerKey
+              ? modelKey
+                ? t("chat.notice.providerSwitch.fixedModel", {
+                    provider: providerLabel,
+                    model: modelLabel,
+                  })
+                : t("chat.notice.providerSwitch.sentence", {
+                    provider: providerLabel,
+                  })
+              : t("chat.notice.providerSwitch.followAgentBinding")
+            : providerKey
+              ? t("chat.notice.providerFallback.sentence", {
+                  provider: providerLabel,
+                })
+              : (item.block.text ?? "");
       return (
         <section
           role="status"

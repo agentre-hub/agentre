@@ -50,6 +50,10 @@
         "fixedModel": "Fixed model · {{provider}} · {{model}} from here",
         "followAgentBinding": "Follow agent binding from here",
         "sentence": "Follow provider default · {{provider}} from here"
+      },
+      "reasoningEffortSwitch": {
+        "followBackend": "Changed back to following the backend config",
+        "sentence": "Reasoning effort · {{level}} from here"
       }
     },
     "debug": {
