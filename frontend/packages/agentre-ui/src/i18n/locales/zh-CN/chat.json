@@ -234,5 +234,14 @@
       "note": "按最近一次模型调用的输入总量计",
       "nearLimit": "接近上下文窗口上限"
     }
+  },
+  "reasoningEffortPicker": {
+    "title": "思考力度",
+    "aria": "思考力度：{{level}}",
+    "defaultLabel": "默认",
+    "followBackend": "跟随后端配置",
+    "followBackendUnset": "跟随后端配置 · 未设定",
+    "current": "当前",
+    "note": "自下一轮生效，当前这一轮不受影响。"
   }
 }

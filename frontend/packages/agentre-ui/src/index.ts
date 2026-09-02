@@ -401,6 +401,11 @@ export { ComposerOptionPicker } from "./composer/composer-option-picker";
 export type { ComposerOption } from "./composer/composer-option-picker";
 export { ContextMeter } from "./composer/context-meter";
 export type { ContextMeterProps } from "./composer/context-meter";
+export { ReasoningEffortPicker } from "./composer/reasoning-effort-picker";
+export type { ReasoningEffortPickerProps } from "./composer/reasoning-effort-picker";
+// 档位枚举与后端编辑器同源（engine/agent-backends-shared），两个宿主的 composer
+// 接线都需要它。
+export type { ReasoningEffortValue } from "./engine/agent-backends-shared";
 export { usageLevel } from "./composer/usage-level";
 export type { UsageLevel } from "./composer/usage-level";
 export { formatTokens } from "./lib/format-tokens";

@@ -234,5 +234,14 @@
       "note": "Counted from the latest model call's total input",
       "nearLimit": "Close to the context window limit"
     }
+  },
+  "reasoningEffortPicker": {
+    "title": "Reasoning effort",
+    "aria": "Reasoning effort: {{level}}",
+    "defaultLabel": "Default",
+    "followBackend": "Follows backend config",
+    "followBackendUnset": "Follows backend config · unset",
+    "current": "Current",
+    "note": "Takes effect from the next turn; the current turn is unaffected."
   }
 }

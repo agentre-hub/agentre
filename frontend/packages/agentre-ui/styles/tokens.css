@@ -204,6 +204,19 @@
   --traffic-minimize: #febc2e;
   --traffic-zoom: #28c840;
 
+  /* Activity heat scale — five steps, shared by agentre-server's activity
+     heat grid and the composer's reasoning-effort popover (the strength dot on
+     each of the five levels). It lived only in agentre-server until the desktop
+     popover became its second consumer; the values are unchanged, which is the
+     whole point of promoting it here rather than growing a second scale.
+     heat-0 means "no activity that day", not "no data" — so it is a visible
+     light grey, not transparent. */
+  --heat-0: #eaeaee;
+  --heat-1: #cfe0f0;
+  --heat-2: #9cc0e0;
+  --heat-3: #6294c4;
+  --heat-4: #3b6896;
+
   /* Charts */
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -341,6 +354,17 @@
   --file-red: #f87171;
   --file-neutral: #8a8d94;
 
+  /* Activity heat scale — dark half. Known blemish: --heat-0 (#23262c) on the
+     popover surface (#262931) is nearly contrast-free, so the lowest level's
+     dot reads as an empty ring. The sequence still holds (empty ring → solid),
+     and the values must not be touched to fix it — the server heat grid renders
+     from this same pair; treat it in the popover if it ever has to be treated. */
+  --heat-0: #23262c;
+  --heat-1: #21384f;
+  --heat-2: #315b83;
+  --heat-3: #4a80b3;
+  --heat-4: #6fa4d4;
+
   /* Charts */
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -451,6 +475,11 @@
   --color-file-green: var(--file-green);
   --color-file-red: var(--file-red);
   --color-file-neutral: var(--file-neutral);
+  --color-heat-0: var(--heat-0);
+  --color-heat-1: var(--heat-1);
+  --color-heat-2: var(--heat-2);
+  --color-heat-3: var(--heat-3);
+  --color-heat-4: var(--heat-4);
   --color-status-running: var(--status-running);
   --color-status-running-foreground: var(--status-running-foreground);
   --color-status-running-bg: var(--status-running-bg);
