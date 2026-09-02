@@ -315,3 +315,74 @@ func TestRunPeerSession_GivenUnknownAgentSyncId_ThenRejectsWithoutCreatingSessio
 	}, chat_svc.PeerSessionSource{Device: "fp-web", Name: "Chrome"})
 	require.Error(t, err)
 }
+
+// Given 对端把一条新对话派到这台桌面端上并带着草稿态选中的思考力度，When 这台机器
+// 建出会话行，Then 那一档钉在**这条会话自己**的那一列上（与 LLMProviderKey /
+// LLMModelKey 同一条规则，spec 2026-09-01「新建会话」）。
+//
+// 空串是有含义的取值：对端什么都没选时这一列留空 = 跟随后端配置，绝不把后端配的
+// 档位写成「这条会话自己选的」——那会让此后改后端配置对它失效。
+func TestRunPeerSession_GivenFreshDispatchReasoningEffort_ThenPinsItOnTheCreatedRow(t *testing.T) {
+	cases := []struct {
+		name      string
+		dispatch  string
+		wantOnRow string
+	}{
+		{name: "dispatch carries a level", dispatch: "xhigh", wantOnRow: "xhigh"},
+		{name: "dispatch carries nothing", dispatch: "", wantOnRow: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := setupChatTest(t)
+			wirePeerConversations(t, m.session, 41)
+			ctx := m.ctx
+
+			ctrl := gomock.NewController(t)
+			t.Cleanup(ctrl.Finish)
+			syncMock := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+			prevSync := syncstate_repo.SyncState()
+			syncstate_repo.RegisterSyncState(syncMock)
+			t.Cleanup(func() { syncstate_repo.RegisterSyncState(prevSync) })
+			syncMock.EXPECT().FindLocalID(ctx, syncwire.KindAgent, "01HXAGENTIDENTITY0000000000").
+				Return(int64(7), nil)
+
+			runner := &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}
+			restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, runner)
+			t.Cleanup(restore)
+
+			m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(newBuiltinAgent(7, 12), nil)
+			// 后端自己配着 medium：会话行仍只记「这条会话自己的选择」，不抄后端那一格。
+			m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+				ID: 12, Type: string(agent_backend_entity.TypeBuiltin), LLMProviderKey: "key-21",
+				ReasoningEffort: "medium", Status: consts.ACTIVE,
+			}, nil)
+			expectResolvableProvider(m, "key-21", string(llm_provider_entity.TypeAnthropic))
+
+			var created *chat_entity.Session
+			m.session.EXPECT().Create(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
+					created = s
+					s.ID = 100
+					return nil
+				})
+			expectFirstTurnWrites(m, 100)
+
+			adapter, ok := m.svc.(peerRunAdapter)
+			require.True(t, ok, "chatSvc must implement the peer run adapter")
+			resp, err := adapter.RunPeerSession(ctx, wire.RunParams{
+				ConversationID:  convID(90002),
+				AgentSyncID:     "01HXAGENTIDENTITY0000000000",
+				Title:           "hi",
+				UserText:        "hi",
+				ReasoningEffort: tc.dispatch,
+				SourceDevice:    "fp-peer-desktop",
+			}, chat_svc.PeerSessionSource{Device: "fp-peer-desktop", Name: "Peer Desktop"})
+			require.NoError(t, err)
+			chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+
+			require.NotNil(t, created)
+			assert.Equal(t, tc.wantOnRow, created.ReasoningEffort,
+				"派过来的档位必须钉在建出的这条会话行上，空则留空（跟随后端配置）")
+		})
+	}
+}

@@ -554,8 +554,18 @@ type ChatSessionDetail struct {
 	// 渲染「跟随绑定」标签。
 	ModelKey      string `json:"modelKey"`
 	AgentModelKey string `json:"agentModelKey"`
-	Title         string `json:"title"`
-	AgentStatus   string `json:"agentStatus"`
+	// ReasoningEffort 是这条会话自己钉的思考力度（chat_sessions.reasoning_effort，
+	// spec 2026-09-01 决策 1）；空串 = 跟随后端配置。AgentReasoningEffort 是该会话
+	// 所用那一档 backend 配置的档位（空 = 后端也没配）。
+	//
+	// 两格分开回传、这里**不合成**有效档位：合成只在执行侧的
+	// effectiveBackendForSession 发生一次（硬不变量 2）。composer 那颗控件脸上写有效
+	// 档位（会话值优先），弹层的「→ 跟随后端配置 · <档位>」解析副行写后端那一格，
+	// 而 no-op 判据用的是会话行上的值 —— 三处要的是不同的值，合成了就分不开。
+	ReasoningEffort      string `json:"reasoningEffort"`
+	AgentReasoningEffort string `json:"agentReasoningEffort"`
+	Title                string `json:"title"`
+	AgentStatus          string `json:"agentStatus"`
 	// ActiveStream 仅在 LoadSession 时填:该会话有正在跑的 turn 时,给出其 per-turn
 	// wails 事件名("chat:event:<sessionID>:<assistantMessageID>"),让中途打开本会话的
 	// 前端 openStream 重挂到实时流。子 agent 调用轮 / 自主轮等"非前端发起"的 turn 没有 Send
@@ -913,6 +923,12 @@ type SendRequest struct {
 	//   - 非空 = fixed-model（必须存在、启用且归属所选 Provider）。
 	// 与 ProviderKey 一并随 Session 落库；已有会话忽略。
 	ModelKey string `json:"modelKey,omitempty"`
+	// ReasoningEffort 仅新建会话（SessionID=0）生效：草稿态选中的思考力度，随首条
+	// 消息与 Session 一同 Create 落库（spec 2026-09-01「新建会话」，与 ProviderKey /
+	// ModelKey 同一条规则）。空串 = 跟随后端配置。取值必须在 entity 那张六档表里，
+	// 否则 Send 报错——非法值不落库，也不留给下游 runtime 静默丢弃。已有会话忽略
+	// 这个字段：改档位走 SetChatSessionReasoningEffort（自下一轮生效 + 转录留痕）。
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	// EmitTurnStartedBypass 表示本轮由"非查看者"发起(子 agent 调用经 subagent_svc
 	// 阻塞起轮),需经会话级旁路 chat:autonomous:<sessionId> 把 per-turn 流名推给该会话
 	// 已打开(可能在后台)的 ChatPanel, 让它翻 running + openStream —— 否则只有发起者

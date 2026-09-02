@@ -153,6 +153,7 @@ func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams
 		PermissionMode:        params.PermissionMode,
 		ProviderKey:           params.LLMProviderKey,
 		ModelKey:              params.LLMModelKey,
+		ReasoningEffort:       params.ReasoningEffort,
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
 		conversationID:        params.ConversationID,

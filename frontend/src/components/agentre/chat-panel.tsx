@@ -10,6 +10,7 @@ import {
   TranscriptSkeleton,
   buildTranscriptRows,
   type PlanActionStream,
+  type ReasoningEffortValue,
   useTranscriptScroll,
 } from "@agentre-hub/agentre-ui";
 
@@ -533,12 +534,23 @@ function ChatPanel({
   // supportsReasoningEffort 为假,整颗控件不渲染,这里的 hook 调用本身不受影响
   // (React Hooks 规则:hook 无条件调用,渲染与否由下面的 JSX 条件控制)。
   //
-  // 会话行 / 后端配置这两个持久化值目前还没有从 ChatSessionDetail 里回传
-  // (LoadSession 尚未产出 reasoningEffort / agentReasoningEffort 字段,与
-  // providerKey / agentProviderKey 那一组同构但缺席) —— 补齐前控件对已有会话
-  // 恒显示「默认」,选中后仍会正确持久化并在本次会话内正确回显。
+  // 两个持久化值来自 ChatSessionDetail,与 providerKey / agentProviderKey 那一组
+  // 同构:会话行上的值(空 = 跟随后端配置,同时是控件的 no-op 判据)与该会话那一档
+  // backend 配置的档位(弹层「→ 跟随后端配置 · <档位>」解析副行)。分开传:有效
+  // 档位由控件自己合成,宿主这里不再合成第二次(硬不变量 2)。
+  // 草稿态(sessionId===0)还没有会话行,两格都不传,所选档位随首条消息落库。
   const reasoningEffortPill = useReasoningEffortPill({
     sessionId,
+    // 两格在 DTO 上是裸 string(落库前已按 entity 那张六档表校验过),窄化成档位
+    // 联合类型的做法与后端编辑器里那一处一致(agentre-ui/engine/agent-backends.tsx)。
+    persistedReasoningEffort:
+      sessionId > 0
+        ? ((session?.reasoningEffort ?? "") as ReasoningEffortValue)
+        : undefined,
+    persistedBackendReasoningEffort:
+      sessionId > 0
+        ? ((session?.agentReasoningEffort ?? "") as ReasoningEffortValue)
+        : undefined,
     onSwitched: () => void reloadSession(),
   });
 
@@ -606,6 +618,9 @@ function ChatPanel({
     effectiveTarget,
     providerKey: providerPill.providerKey,
     modelKey: providerPill.modelKey,
+    // 草稿态选中的思考力度随首条消息与会话一同落库(spec 2026-09-01「新建会话」),
+    // 与上面那对瞬态 ModelTarget 同一条路;已有会话由后端忽略这一格。
+    reasoningEffort: reasoningEffortPill.value,
     editing: activeEditing !== null,
     confirmEdit,
   });

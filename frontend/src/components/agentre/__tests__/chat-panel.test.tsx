@@ -6271,6 +6271,136 @@ describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9�
     });
   });
 
+  it("重开一条钉了档位的会话：控件水合到那一档，而不是「Default」", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "codex",
+      reasoningEffort: "high",
+      agentReasoningEffort: "medium",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    expect(pill).toHaveTextContent("high");
+    expect(pill).not.toHaveTextContent("Default");
+  });
+
+  it("会话行为空：脸上显示后端配置的那一档（跟随后端配置）", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "codex",
+      reasoningEffort: "",
+      agentReasoningEffort: "medium",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    expect(pill).toHaveTextContent("medium");
+  });
+
+  it("草稿态选中的档位随首条消息透传给 Send，且不发切换 IPC", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = null;
+    appMocks.SendChatMessage.mockResolvedValue({
+      assistantMessageId: 1001,
+      sessionId: 42,
+      stream: "chat:event:42:1001",
+      userMessageId: 1000,
+    });
+
+    render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Eng",
+            agentBackendId: 1,
+            backendType: "codex",
+            llmProviderKey: "",
+          } as never
+        }
+      />,
+    );
+
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(await screen.findByRole("option", { name: "high" }));
+
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    expect(submit).toBeDefined();
+    act(() => submit?.("hello"));
+
+    await waitFor(() => {
+      expect(appMocks.SendChatMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 0,
+          agentId: 7,
+          reasoningEffort: "high",
+        }),
+      );
+    });
+    // 草稿态还没有会话行可写：档位是瞬态的，随首条消息一并落库。
+    expect(appMocks.SetChatSessionReasoningEffort).not.toHaveBeenCalled();
+  });
+
+  it("草稿态派到另一台桌面端：PeerRunFresh 也带上选中的档位", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = null;
+    componentMocks.effectiveExecTarget = {
+      kind: "desktop",
+      deviceId: "sha256:peer-desktop",
+      deviceName: "Peer Desktop",
+    };
+    appMocks.PeerRunFresh.mockResolvedValue({ sessionId: 42 });
+
+    render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Eng",
+            agentBackendId: 1,
+            backendType: "codex",
+            llmProviderKey: "",
+          } as never
+        }
+      />,
+    );
+
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(await screen.findByRole("option", { name: "xhigh" }));
+
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    act(() => submit?.("hello peer"));
+
+    await waitFor(() => {
+      expect(appMocks.PeerRunFresh).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fingerprint: "sha256:peer-desktop",
+          reasoningEffort: "xhigh",
+        }),
+      );
+    });
+    expect(appMocks.SendChatMessage).not.toHaveBeenCalled();
+  });
+
   it("写库失败：控件回滚到上一档，重新打开弹层能看到原因", async () => {
     resetStore();
     componentMocks.capsReasoningEffort = true;

@@ -118,6 +118,33 @@ func TestProtobufInboundRegistryServesPeerSessionList(t *testing.T) {
 	require.Equal(t, convID(7), response.Sessions[0].ConversationId)
 }
 
+// 桌面端自己的会话清单也要把会话级思考力度这一列过线：它与 provider_key/model_key
+// 同一形态的显示镜像，浏览器靠它渲染那颗控件；这里少一格，web 控制台看到的就永远是
+// 「默认」（agentred 那一侧已经在发了）。
+func TestProtobufInboundRegistryServesSessionReasoningEffort(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{ListSessions: func(context.Context, string) (*remotewire.SessionListResult, error) {
+		return &remotewire.SessionListResult{Sessions: []remotewire.SessionSummary{{
+			ConversationID: convID(7), Title: "remote",
+			ProviderKey: "prov-anthropic", ModelKey: "sonnet-4-6", ReasoningEffort: "xhigh",
+		}}}, nil
+	}})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	response, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), &agentrewire.SessionListRequest{}, func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
+	require.NoError(t, err)
+	require.Len(t, response.Sessions, 1)
+	require.Equal(t, "prov-anthropic", response.Sessions[0].ProviderKey)
+	require.Equal(t, "sonnet-4-6", response.Sessions[0].ModelKey)
+	require.Equal(t, "xhigh", response.Sessions[0].ReasoningEffort)
+}
+
 func TestProtobufInboundRegistryServesPeerSessionControlMethods(t *testing.T) {
 	var steered remotewire.SteerParams
 	deps := ProtobufInboundDeps{

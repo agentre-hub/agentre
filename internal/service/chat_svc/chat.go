@@ -635,6 +635,7 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			PermissionModeAtLaunch: sess.PermissionModeAtLaunch,
 			ProviderKey:            sess.ProviderKey,
 			ModelKey:               sess.ModelKey,
+			ReasoningEffort:        sess.ReasoningEffort,
 			ProjectID:              sess.ProjectID,
 		},
 		Messages: make([]ChatMessage, 0, len(msgs)),
@@ -701,6 +702,9 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 				prov, _ = s.resolveEffectiveProvider(ctx, sess, be)
 				resp.Session.AgentProviderKey = be.LLMProviderKey
 				resp.Session.AgentModelKey = be.LLMModelKey
+				// 后端配置的思考力度：弹层「默认」区块的「→ 跟随后端配置 · <档位>」
+				// 解析副行要在用户选之前就说清跟随会拿到什么（决策 11）。
+				resp.Session.AgentReasoningEffort = be.ReasoningEffort
 			}
 		}
 		// ExecTargetCount 给前端聊天头 chip 守卫用（R15 / R20）：多档 Agent 的会话
@@ -1038,6 +1042,14 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 		// ProviderKey/ModelKey 一起持久化）；双空 = 跟随 agent 绑定。
 		providerKey := strings.TrimSpace(req.ProviderKey)
 		modelKey := strings.TrimSpace(req.ModelKey)
+		// 草稿态选中的思考力度同一条规则（spec 2026-09-01「新建会话」）：随首条消息与
+		// Session 一同落库；档位表走 entity 那张唯一的六档表，与
+		// SetChatSessionReasoningEffort 同一口径 —— 非法值在落库前报错，不留给下游
+		// runtime 静默丢弃。已有会话不读这一格（分支之外）。
+		reasoningEffort := strings.TrimSpace(req.ReasoningEffort)
+		if !agent_backend_entity.IsValidReasoningEffort(reasoningEffort) {
+			return nil, i18n.NewError(ctx, code.AgentBackendInvalidReasoningEffort)
+		}
 		if providerKey != "" || modelKey != "" {
 			sessionProv, _, perr := s.validateSessionModelTarget(ctx, be, providerKey, modelKey)
 			if perr != nil {
@@ -1064,6 +1076,7 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 			PermissionModeAtLaunch: permissionMode,
 			ProviderKey:            providerKey,
 			ModelKey:               modelKey,
+			ReasoningEffort:        reasoningEffort,
 			Title:                  sessionTitleFromFirstMessage(text),
 			// idle 落库;running 由 startTurn 事务内的 Update 原子翻转 —— 事务失败
 			// 时不残留 running(否则空会话永久卡 running,还会 block 退出)。

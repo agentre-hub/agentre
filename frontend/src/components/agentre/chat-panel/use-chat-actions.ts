@@ -86,6 +86,8 @@ type UseChatActionsOptions = {
   effectiveTarget: EffectiveExecTarget | null;
   providerKey: string;
   modelKey: string;
+  /** 草稿态选中的思考力度；空串 = 跟随后端配置。仅新建会话随首条消息落库。 */
+  reasoningEffort: string;
   /** activeEditing !== null。编辑态下回车走 confirmEdit，不起新一轮。 */
   editing: boolean;
   confirmEdit: (newText: string) => Promise<void>;
@@ -133,6 +135,7 @@ function useChatActions({
   effectiveTarget,
   providerKey,
   modelKey,
+  reasoningEffort,
   editing,
   confirmEdit,
 }: UseChatActionsOptions): ChatActions {
@@ -171,6 +174,9 @@ function useChatActions({
             permissionModeOverride ??
             (isModeSwitchable ? permissionModeValue : ""),
           ...(providerKey ? { providerKey, modelKey } : {}),
+          // 派到另一台桌面端的新对话同样只在这一次（恒为新建）随首条消息过线，
+          // 与上面那对瞬态 ModelTarget 同一条规则。
+          ...(reasoningEffort ? { reasoningEffort } : {}),
         } as Parameters<typeof PeerRunFresh>[0]);
         onPeerSessionCreated?.({
           fingerprint: effectiveTarget.deviceId,
@@ -197,6 +203,12 @@ function useChatActions({
         // 该字段（改 target 走 SetChatSessionModelTarget）。
         ...(targetSessionId === 0 && providerKey
           ? { providerKey, modelKey }
+          : {}),
+        // 草稿态选中的思考力度：同一条规则（spec 2026-09-01「新建会话」），随首条
+        // 消息与 Session 一同落库。空串 = 跟随后端配置，不必发（后端缺省即空）；
+        // 已有会话由后端忽略（改档位走 SetChatSessionReasoningEffort）。
+        ...(targetSessionId === 0 && reasoningEffort
+          ? { reasoningEffort }
           : {}),
         // R15a 手动指定执行目标：同一条规则，仅新建会话生效；0/未选时不传，
         // 后端按 R15 顺序自动挑第一个可用的档。

@@ -71,6 +71,10 @@ type RunFreshRequest struct {
 	PermissionMode string `json:"permissionMode,omitempty"`
 	ProviderKey    string `json:"providerKey,omitempty"`
 	ModelKey       string `json:"modelKey,omitempty"`
+	// ReasoningEffort 是草稿态选中的思考力度（spec 2026-09-01「新建会话」）：与上面
+	// 那对瞬态 ModelTarget 同一条规则，仅新建会话（这条派发本就恒为新建）随首条消息
+	// 过线；空串 = 跟随对端那一档 backend 的配置。
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
 // AttachRequest 是「接入对端一条会话并开始接收实时流」（R19 / R6）的入参。

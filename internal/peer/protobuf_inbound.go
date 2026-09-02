@@ -197,7 +197,7 @@ func registerPeerSessionMethods(registry *protorpc.Registry, deps ProtobufInboun
 		}
 		out := &agentrewire.SessionListResponse{}
 		for _, s := range value.Sessions {
-			out.Sessions = append(out.Sessions, &agentrewire.SessionSummary{ConversationId: s.ConversationID, PeerFingerprint: s.PeerFingerprint, AgentId: s.AgentID, Title: s.Title, AgentSyncId: s.AgentSyncID, ProviderSessionId: s.ProviderSessionID, Cwd: s.Cwd, ProjectSyncId: s.ProjectSyncID, BackendType: s.BackendType, LifecycleState: s.LifecycleState, WaitingForInput: s.WaitingForInput, LatestSeq: s.LatestSeq, LastMessageAt: s.LastMessageAt, ProviderKey: s.ProviderKey, ModelKey: s.ModelKey})
+			out.Sessions = append(out.Sessions, &agentrewire.SessionSummary{ConversationId: s.ConversationID, PeerFingerprint: s.PeerFingerprint, AgentId: s.AgentID, Title: s.Title, AgentSyncId: s.AgentSyncID, ProviderSessionId: s.ProviderSessionID, Cwd: s.Cwd, ProjectSyncId: s.ProjectSyncID, BackendType: s.BackendType, LifecycleState: s.LifecycleState, WaitingForInput: s.WaitingForInput, LatestSeq: s.LatestSeq, LastMessageAt: s.LastMessageAt, ProviderKey: s.ProviderKey, ModelKey: s.ModelKey, ReasoningEffort: s.ReasoningEffort})
 		}
 		return out, nil
 	}))

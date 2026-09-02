@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/cago/pkg/consts"
@@ -16,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
@@ -613,4 +615,181 @@ func TestSetChatSessionReasoningEffort_PropagatesWriteFailure(t *testing.T) {
 		SessionID: 100, ReasoningEffort: "low",
 	})
 	assert.Error(t, err)
+}
+
+// TestLoadSession_ReportsSessionAndBackendReasoningEffort：读路径把这条会话钉住的
+// 档位与它那一档 backend 配置的档位**分别**回传（与 providerKey/agentProviderKey
+// 同构）。合成不在这里做：控件自己决定脸上显示哪一个、「跟随后端配置 · <档位>」
+// 解析副行显示哪一个（硬不变量 2：有效力度只在 effectiveBackendForSession 合成一次）。
+func TestLoadSession_ReportsSessionAndBackendReasoningEffort(t *testing.T) {
+	m := setupChatTest(t)
+	ctx := context.Background()
+
+	m.session.EXPECT().Find(ctx, int64(100)).Return(&chat_entity.Session{
+		ID: 100, AgentID: 7, Status: consts.ACTIVE, ReasoningEffort: "high",
+	}, nil)
+	m.agent.EXPECT().Find(ctx, int64(7)).Return(&agent_entity.Agent{
+		ID: 7, AgentBackendID: 12, Status: consts.ACTIVE,
+	}, nil)
+	m.backend.EXPECT().Find(ctx, int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeCodex), ReasoningEffort: "medium", Status: consts.ACTIVE,
+	}, nil)
+	expectTranscriptWindowFilled(m)
+	m.message.EXPECT().ListMeta(ctx, int64(100)).Return(nil, nil)
+
+	resp, err := m.svc.LoadSession(ctx, &chat_svc.LoadSessionRequest{SessionID: 100})
+	require.NoError(t, err)
+	assert.Equal(t, "high", resp.Session.ReasoningEffort,
+		"重开会话时控件要水合到会话行上钉的那一档，而不是恒显示「默认」")
+	assert.Equal(t, "medium", resp.Session.AgentReasoningEffort,
+		"后端配置的档位另发一格，供弹层「跟随后端配置 · <档位>」解析副行渲染")
+}
+
+// TestLoadSession_ReasoningEffortEmptyMeansFollowsBackend：会话行为空是**有含义的
+// 取值**（跟随后端配置）——读路径如实留空，不在这里替控件回落成后端那一档。
+func TestLoadSession_ReasoningEffortEmptyMeansFollowsBackend(t *testing.T) {
+	m := setupChatTest(t)
+	ctx := context.Background()
+
+	m.session.EXPECT().Find(ctx, int64(100)).Return(&chat_entity.Session{
+		ID: 100, AgentID: 7, Status: consts.ACTIVE,
+	}, nil)
+	m.agent.EXPECT().Find(ctx, int64(7)).Return(&agent_entity.Agent{
+		ID: 7, AgentBackendID: 12, Status: consts.ACTIVE,
+	}, nil)
+	m.backend.EXPECT().Find(ctx, int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeCodex), ReasoningEffort: "xhigh", Status: consts.ACTIVE,
+	}, nil)
+	expectTranscriptWindowFilled(m)
+	m.message.EXPECT().ListMeta(ctx, int64(100)).Return(nil, nil)
+
+	resp, err := m.svc.LoadSession(ctx, &chat_svc.LoadSessionRequest{SessionID: 100})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Session.ReasoningEffort, "跟随后端配置：会话这一格就该是空的")
+	assert.Equal(t, "xhigh", resp.Session.AgentReasoningEffort)
+}
+
+// TestSend_NewSession_PersistsDraftReasoningEffort：草稿态选定的档位随首条消息与
+// Session 一同 Create 落库（spec「新建会话」），并立刻对本轮生效——合成仍只在
+// effectiveBackendForSession 一处发生，这里断言的是它读到的会话行确实带上了那一档。
+func TestSend_NewSession_PersistsDraftReasoningEffort(t *testing.T) {
+	m := setupChatTest(t)
+	runner := &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, runner)
+	t.Cleanup(restore)
+
+	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(newBuiltinAgent(7, 12), nil)
+	m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeBuiltin), LLMProviderKey: "key-21",
+		ReasoningEffort: "medium", Status: consts.ACTIVE,
+	}, nil)
+	expectResolvableProvider(m, "key-21", string(llm_provider_entity.TypeAnthropic))
+
+	var created *chat_entity.Session
+	m.session.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
+		created = s
+		s.ID = 100
+		return nil
+	})
+	expectFirstTurnWrites(m, 100)
+
+	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{AgentID: 7, Text: "hi", ReasoningEffort: "max"})
+	require.NoError(t, err)
+	chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+
+	require.NotNil(t, created)
+	assert.Equal(t, "max", created.ReasoningEffort, "草稿态选的档位必须与 Session 一起落库")
+	select {
+	case req := <-runner.requests:
+		require.NotNil(t, req.Backend)
+		assert.Equal(t, "max", req.Backend.ReasoningEffort, "首轮就按会话钉住的档位跑")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for runtime request")
+	}
+}
+
+// TestSend_NewSession_RejectsInvalidDraftReasoningEffort：六档表之外的值在落库前
+// 拒绝（与 SetChatSessionReasoningEffort 同一张表、同一个错误），不写进会话行让
+// 下游 runtime 静默丢弃。
+func TestSend_NewSession_RejectsInvalidDraftReasoningEffort(t *testing.T) {
+	m := setupChatTest(t)
+	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(newBuiltinAgent(7, 12), nil)
+	m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
+	}, nil)
+
+	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{AgentID: 7, Text: "hi", ReasoningEffort: "ultra"})
+	require.Nil(t, resp)
+	require.Error(t, err, "非法档位必须在落库前报错")
+	assert.NoError(t, m.dbMock.ExpectationsWereMet(), "校验失败不得发任何 DB 写")
+}
+
+// TestSend_ExistingSession_IgnoresRequestReasoningEffort：已有会话忽略 SendRequest 上
+// 这一格（与 ProviderKey/ModelKey 同一条规则）——改档位走 SetChatSessionReasoningEffort，
+// 否则一次普通发送就能悄悄改掉这条会话钉住的档位。
+func TestSend_ExistingSession_IgnoresRequestReasoningEffort(t *testing.T) {
+	m := setupChatTest(t)
+	runner := &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, runner)
+	t.Cleanup(restore)
+
+	sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", Status: consts.ACTIVE}
+	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil)
+	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(newBuiltinAgent(7, 12), nil)
+	m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeBuiltin), LLMProviderKey: "key-21",
+		ReasoningEffort: "medium", Status: consts.ACTIVE,
+	}, nil)
+	expectResolvableProvider(m, "key-21", string(llm_provider_entity.TypeAnthropic))
+	expectExistingTurnWrites(m, 100)
+
+	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, Text: "hi", ReasoningEffort: "max"})
+	require.NoError(t, err)
+	chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+
+	assert.Empty(t, sess.ReasoningEffort, "已有会话的档位不会被一次普通发送改写")
+	select {
+	case req := <-runner.requests:
+		require.NotNil(t, req.Backend)
+		assert.Equal(t, "medium", req.Backend.ReasoningEffort, "仍按后端配置跑，请求里那一格被忽略")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for runtime request")
+	}
+}
+
+// expectFirstTurnWrites / expectExistingTurnWrites 搭一轮 Send 的消息与会话写入。
+func expectFirstTurnWrites(m *chatMocks, sessionID int64) {
+	m.dbMock.ExpectBegin()
+	m.message.EXPECT().NextSeq(gomock.Any(), sessionID).Return(1, nil)
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			if msg.Role == "user" {
+				msg.ID = 1000
+			} else {
+				msg.ID = 1001
+			}
+			return nil
+		}).Times(2)
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.dbMock.ExpectCommit()
+	m.message.EXPECT().List(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
+	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+}
+
+func expectExistingTurnWrites(m *chatMocks, sessionID int64) {
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
+	m.dbMock.ExpectBegin()
+	m.message.EXPECT().NextSeq(gomock.Any(), sessionID).Return(3, nil)
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			if msg.Role == "user" {
+				msg.ID = 1000
+			} else {
+				msg.ID = 1001
+			}
+			return nil
+		}).Times(2)
+	m.dbMock.ExpectCommit()
+	m.message.EXPECT().List(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
+	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 }

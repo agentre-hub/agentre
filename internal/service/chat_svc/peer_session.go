@@ -213,6 +213,9 @@ func peerSessionSummary(
 		// (跟随 Agent 绑定),不补默认、不猜。
 		ProviderKey: session.ProviderKey,
 		ModelKey:    session.ModelKey,
+		// 会话级思考力度同一形态的显示镜像（spec 2026-09-01 决策 1）：空表示跟随该
+		// 会话那一档 backend 的配置，同样不补默认、不猜。
+		ReasoningEffort: session.ReasoningEffort,
 	}, nil
 }
 

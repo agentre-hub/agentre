@@ -181,15 +181,16 @@ func (s *service) RunFresh(ctx context.Context, req RunFreshRequest) (wire.RunAc
 		return wire.RunAck{}, err
 	}
 	return out.RunFresh(ctx, wire.RunParams{
-		ConversationID: conversationID,
-		AgentSyncID:    agent.SyncID,
-		Cwd:            cwd,
-		Title:          req.Title,
-		UserText:       req.UserText,
-		PermissionMode: req.PermissionMode,
-		LLMProviderKey: req.ProviderKey,
-		LLMModelKey:    req.ModelKey,
-		SourceDevice:   fp,
+		ConversationID:  conversationID,
+		AgentSyncID:     agent.SyncID,
+		Cwd:             cwd,
+		Title:           req.Title,
+		UserText:        req.UserText,
+		PermissionMode:  req.PermissionMode,
+		LLMProviderKey:  req.ProviderKey,
+		LLMModelKey:     req.ModelKey,
+		ReasoningEffort: req.ReasoningEffort,
+		SourceDevice:    fp,
 	})
 }
 

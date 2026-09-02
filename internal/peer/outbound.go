@@ -49,7 +49,7 @@ func (o *Outbound) ListSessions(ctx context.Context) (*wire.SessionListResult, e
 	}
 	result := &wire.SessionListResult{}
 	for _, s := range response.Sessions {
-		result.Sessions = append(result.Sessions, wire.SessionSummary{ConversationID: s.ConversationId, PeerFingerprint: s.PeerFingerprint, AgentID: s.AgentId, Title: s.Title, AgentSyncID: s.AgentSyncId, ProviderSessionID: s.ProviderSessionId, Cwd: s.Cwd, ProjectSyncID: s.ProjectSyncId, BackendType: s.BackendType, LifecycleState: s.LifecycleState, WaitingForInput: s.WaitingForInput, LatestSeq: s.LatestSeq, LastMessageAt: s.LastMessageAt, ProviderKey: s.ProviderKey, ModelKey: s.ModelKey})
+		result.Sessions = append(result.Sessions, wire.SessionSummary{ConversationID: s.ConversationId, PeerFingerprint: s.PeerFingerprint, AgentID: s.AgentId, Title: s.Title, AgentSyncID: s.AgentSyncId, ProviderSessionID: s.ProviderSessionId, Cwd: s.Cwd, ProjectSyncID: s.ProjectSyncId, BackendType: s.BackendType, LifecycleState: s.LifecycleState, WaitingForInput: s.WaitingForInput, LatestSeq: s.LatestSeq, LastMessageAt: s.LastMessageAt, ProviderKey: s.ProviderKey, ModelKey: s.ModelKey, ReasoningEffort: s.ReasoningEffort})
 	}
 	return result, nil
 }

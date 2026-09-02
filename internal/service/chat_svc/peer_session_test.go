@@ -397,6 +397,37 @@ func TestListPeerSessions_GivenSessionModelTarget_ThenReportsItAndDeclaresSuppor
 
 }
 
+// Given 桌面端的会话行上钉了思考力度，When 账号对端要会话清单，Then 那一格照样报出来。
+//
+// 与上面两格同一形态的显示镜像（spec 2026-09-01 决策 1）：空**有含义** —— 跟随该会话
+// 那一档 backend 的配置，所以留空而不是补一个档位。
+func TestListPeerSessions_GivenSessionReasoningEffort_ThenReportsIt(t *testing.T) {
+	deps := setupPeerSessionTest(t)
+	ctx := context.Background()
+	agent := &agent_entity.Agent{
+		ID:             7,
+		Name:           "Release captain",
+		SyncMeta:       syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
+		AgentBackendID: 11,
+		Status:         consts.ACTIVE,
+	}
+	deps.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{agent}, nil)
+	deps.session.EXPECT().ListIndexPaged(ctx, peerListFilter(7, ""), 0, math.MaxInt).
+		Return([]*chat_entity.Session{
+			{ID: 41, ConversationID: convID(41), AgentID: 7, Title: "Pinned effort", AgentStatus: "idle", Status: consts.ACTIVE,
+				ReasoningEffort: "xhigh"},
+			{ID: 42, ConversationID: convID(42), AgentID: 7, Title: "Follows the backend", AgentStatus: "idle", Status: consts.ACTIVE},
+		}, nil)
+	deps.backend.EXPECT().Find(ctx, int64(11)).
+		Return(&agent_backend_entity.AgentBackend{ID: 11, Type: string(agent_backend_entity.TypeCodex)}, nil).AnyTimes()
+
+	got, err := deps.svc.ListPeerSessions(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 2)
+	assert.Equal(t, "xhigh", got.Sessions[0].ReasoningEffort)
+	assert.Empty(t, got.Sessions[1].ReasoningEffort, "跟随后端配置：这一格就该是空的")
+}
+
 // peerListFilter 是 ListPeerSessions 每个 agent 那一问用的 filter。
 func peerListFilter(agentID int64, keyword string) chat_repo.SessionIndexFilter {
 	return chat_repo.SessionIndexFilter{AgentID: &agentID, Keyword: keyword}

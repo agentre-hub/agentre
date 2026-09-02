@@ -125,19 +125,21 @@ func TestPeerSvc_GivenFreshDispatch_WhenRunFresh_ThenResolvesAgentAndCwdAndRetur
 		assert.Equal(t, "帮我看看这个项目", p.UserText)
 		assert.Equal(t, "provider-key", p.LLMProviderKey, "the transient provider target must cross the desktop peer boundary")
 		assert.Equal(t, "model-key", p.LLMModelKey, "the transient fixed model target must cross the desktop peer boundary")
+		assert.Equal(t, "xhigh", p.ReasoningEffort, "草稿态选的思考力度与那对 ModelTarget 同一条路过桌面端边界")
 		assert.Equal(t, "sha256:local-desktop", p.SourceDevice, "self fingerprint must travel as the source device")
 		return &chat_svc.SendResponse{SessionID: 42}, nil
 	}})
 	svc, _ := newTestSvc(t, url)
 
 	ack, err := svc.RunFresh(context.Background(), peer_svc.RunFreshRequest{
-		Fingerprint: "sha256:peer-desktop",
-		AgentID:     3,
-		ProjectID:   9,
-		Title:       "帮我看看这个项目",
-		UserText:    "帮我看看这个项目",
-		ProviderKey: "provider-key",
-		ModelKey:    "model-key",
+		Fingerprint:     "sha256:peer-desktop",
+		AgentID:         3,
+		ProjectID:       9,
+		Title:           "帮我看看这个项目",
+		UserText:        "帮我看看这个项目",
+		ProviderKey:     "provider-key",
+		ModelKey:        "model-key",
+		ReasoningEffort: "xhigh",
 	})
 	require.NoError(t, err)
 	assert.NoError(t, conversationid.Validate(ack.ConversationID),
@@ -156,6 +158,7 @@ func TestPeerSvc_GivenRemoteDesktopSessions_WhenList_ThenReturnFullSummaries(t *
 				Title: "Ship the release", AgentSyncID: "01HXAGENTIDENTITY0000000000",
 				BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning,
 				WaitingForInput: true, LatestSeq: 12, LastMessageAt: 1710000000000,
+				ProviderKey: "prov-anthropic", ModelKey: "sonnet-4-6", ReasoningEffort: "high",
 			}},
 		}, nil
 	}})
@@ -168,6 +171,10 @@ func TestPeerSvc_GivenRemoteDesktopSessions_WhenList_ThenReturnFullSummaries(t *
 	assert.Equal(t, "Ship the release", result.Sessions[0].Title)
 	assert.True(t, result.Sessions[0].WaitingForInput)
 	assert.Equal(t, int64(12), result.Sessions[0].LatestSeq)
+	assert.Equal(t, "prov-anthropic", result.Sessions[0].ProviderKey)
+	assert.Equal(t, "sonnet-4-6", result.Sessions[0].ModelKey)
+	assert.Equal(t, "high", result.Sessions[0].ReasoningEffort,
+		"对端会话清单上的思考力度这一格要解出来，与 providerKey / modelKey 同一位置")
 }
 
 // Given a running target desktop, when this desktop attaches a remote session,
