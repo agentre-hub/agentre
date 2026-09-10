@@ -51,7 +51,7 @@ const VALID_CHANGES_SCOPES: ReadonlySet<ChangesScope> = new Set([
 // （顶层 tab 回落到「大纲」，档位回落到「本次会话」，忽略项回落到隐藏）。旧版本
 // 持久化下来的一级 tab "git" / "files" 与已废弃的 filesMode / gitBaselineBySession
 // 都直接丢弃：前者在 VALID_TABS 收窄后自然落入这条回落路径，后两者不再是本 store
-// 的字段，读回来也无处安放（决策 13，项目未发布，不写兼容层）。
+// 的字段，读回来也无处安放（决策 13，不为旧的持久化形态写兼容层）。
 function sanitize(state: ChatSidebarState): ChatSidebarState {
   const activeTab = VALID_TABS.has(state.activeTab)
     ? state.activeTab
@@ -104,7 +104,7 @@ export const useChatSidebarStore = create<ChatSidebarState>()(
       // 只从持久化数据里取本 store 现在还认的字段：已废弃的旧字段（filesMode、
       // gitBaselineBySession，以及已拆分到 file-preview-tabs-store 的
       // previewTabsBySession）就此丢掉，不会被读回内存、更不会被再写回
-      // localStorage（决策 13，项目未发布，不写兼容层）。取回来的值仍要过
+      // localStorage（决策 13，不为旧的持久化形态写兼容层）。取回来的值仍要过
       // sanitize——它们可能来自更早的版本或被手改过。
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<ChatSidebarState>;

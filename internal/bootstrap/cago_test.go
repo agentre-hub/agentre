@@ -85,10 +85,9 @@ func TestInitCreatesCagoRuntime(t *testing.T) {
 	}
 }
 
-// TestInitCreatesOnlyCurrentDatabaseSchema pins the unreleased database
-// baseline: a fresh install creates the current model directly, without first
-// materializing columns or migration ledger entries that only served old
-// development databases.
+// TestInitCreatesOnlyCurrentDatabaseSchema pins the database baseline: a fresh
+// install creates the current model directly, without first materializing
+// columns or migration ledger entries that no table carries any more.
 func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AGENTRE_DATA_DIR", dataDir)
@@ -135,8 +134,8 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 	}
 
 	// 决策 14/16 的改名:机器指纹一律叫 device_fingerprint、同步来源一律叫
-	// sync_origin_fingerprint。三侧均未发布,旧名不保留兼容列(决策 22),因此
-	// 旧名在全新库上必须一个都不存在——这是编译期抓不到的那一类。
+	// sync_origin_fingerprint。旧名不保留兼容列(决策 22),因此旧名在全新库上
+	// 必须一个都不存在——这是编译期抓不到的那一类。
 	for table, columns := range map[string][]string{
 		"llm_providers": {"model", "max_output", "context_window", "sync_origin"},
 		// 正文改存 chat_message_blocks 一块一行,单列形态不再存在。

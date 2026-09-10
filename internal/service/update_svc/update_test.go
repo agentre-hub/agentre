@@ -153,7 +153,7 @@ func TestSplitPreRelease(t *testing.T) {
 // TestFetchChecksums_GivenAReleaseWithoutChecksums_WhenFetched_ThenItIsAnError
 // 钉住「没有 SHA256SUMS.txt 就不装」这条线:早先这里回 (nil, nil),而调用方对
 // nil 校验表的处理是**静默跳过校验** —— 一个没带校验文件的 release 会被无声地
-// 装上去。项目未发布,不存在缺这个资产的历史 release,缺了就是异常。
+// 装上去。release 一律带 SHA256SUMS.txt,缺了就是异常。
 //
 // 交出错误而不是自己中止:DownloadAndUpdate 把它包成 ChecksumFetchError 前缀,
 // 前端据此提示用户,由用户显式选择 skipChecksum=true 才继续 —— 跳过校验必须是

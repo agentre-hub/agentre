@@ -579,8 +579,8 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
     {
       name: "file-preview-tabs-state",
       // 只从持久化数据里取本 store 现在还认的字段；取回来的值仍要过 sanitize——
-      // 它们可能来自更早的版本或被手改过的 localStorage（决策 13，项目未发布，
-      // 不写兼容层）。
+      // 它们可能来自更早的版本或被手改过的 localStorage（决策 13，不为旧的持久化
+      // 形态写兼容层）。
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<FilePreviewTabsState>;
         return {

@@ -13,8 +13,7 @@ Contributor docs describe a living code base, so two kinds of failure keep recur
 
 ### Agentre's Handling Principle: Stale Means Fix or Delete, Don't Leave Deprecated Content
 
-**Agentre is not yet released and carries no compatibility burden** — migrations / refactors can hard delete old data, with no compatibility layer and no release notes needed.
-**Same for docs: when you find a stale / invalid fact, fix it or delete it outright; do not leave the invalid content in the doc behind a "(deprecated)" or "the old version was…" note.**
+**When you find a stale / invalid fact, fix it or delete it outright; do not leave the invalid content in the doc behind a "(deprecated)" or "the old version was…" note.**
 Keeping it around only makes readers unsure which line is current. The only exception is "planned, not yet landed" content — that either goes into the docs of its corresponding branch, or is **explicitly marked** as planned;
 it must never be written as if already released.
 

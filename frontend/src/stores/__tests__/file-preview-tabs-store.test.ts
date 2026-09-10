@@ -408,7 +408,7 @@ describe("file-preview-tabs-store", () => {
   });
 
   it("drops a tab whose source mode is not one this build writes", async () => {
-    // 项目未发布，不为已废弃的旧来源模式留回落：本 store 写出去的每个标签都带
+    // 不为已废弃的旧来源模式留回落：本 store 写出去的每个标签都带
     // 一个合法 sourceMode，读到别的值就说明数据被改坏了，整条丢弃。
     localStorage.setItem(
       "file-preview-tabs-state",

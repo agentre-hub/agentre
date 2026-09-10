@@ -101,7 +101,7 @@ These are the conventions with a real check behind them. Everything else in thes
 2. **Migrations are append-only.** Add a new file at the end of `migrationList()`; **never edit a migration that already shipped** — environments that already ran it will not re-run it, and the gormigrate ledger will disagree with the schema. Prefer native SQL for DDL over relying on `AutoMigrate`. See [architecture.md](architecture.md).
 3. **Structure and backfill go in two separate commits** — combined, a failed backfill leaves you unable to tell whether the DDL or the data was at fault.
 4. **Verify against a database holding real existing rows**, running the same query before and after (row counts, edge values, NULL counts). **Green on an empty database is the same as not having run it.** Record it per [verification.md](verification.md).
-5. **Agentre is unreleased and carries no compatibility burden** — a migration may hard delete old data, with no compatibility layer and no release notes. That is a licence to delete cleanly, **not** a licence to skip step 4: the developer's own working database is real data.
+5. **From 0.1.0 on, the database a migration meets belongs to a user** — the pre-release licence to hard delete old data, with no compatibility layer and no release notes, ends with the first release. Name what a destructive migration removes and why, and do not plan around another "wipe and recreate" round; there is nobody left to grant one. Step 4 was never optional under the old licence either: the developer's own working database was already real data.
 
 ## Committing and PRs
 
