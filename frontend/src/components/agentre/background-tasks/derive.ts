@@ -89,7 +89,7 @@ function isBackground(kind: string, runInBackground: unknown): boolean {
 function mapStatus(raw: string | undefined): BackgroundTaskStatus {
   if (raw === "completed") return "completed";
   if (raw === "failed") return "failed";
-  // 用户停止 → canceled(内部美式);兼容 CLI 英式 cancelled 兜底(后端已在边界归一)。
-  if (raw === "canceled" || raw === "cancelled") return "canceled";
+  // 用户停止 → canceled;英式 cancelled 由后端在边界归一,到不了这里。
+  if (raw === "canceled") return "canceled";
   return "running";
 }

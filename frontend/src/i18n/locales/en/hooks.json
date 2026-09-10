@@ -1,0 +1,116 @@
+{
+  "hooks": {
+    "title": "Hooks",
+    "loading": "Loading Hooks…",
+    "list": {
+      "search": "Search Hooks",
+      "groupScheduled": "Scheduled",
+      "empty": "No Hooks yet",
+      "emptyHint": "Click + at the top right to create a script Hook",
+      "addAria": "New Hook",
+      "disabled": "Off"
+    },
+    "header": {
+      "kindLabel": "{{interp}} Hook",
+      "run": "Dry run",
+      "runNow": "Run now",
+      "enable": "Enable",
+      "disable": "Disable",
+      "more": "More actions",
+      "delete": "Delete",
+      "lastRun": "Last run {{time}}",
+      "neverRun": "Never run",
+      "totalEvents": "{{count}} events total"
+    },
+    "tabs": {
+      "script": "Script",
+      "runLog": "Run Log"
+    },
+    "trigger": {
+      "title": "Trigger",
+      "subtitle": "cron expression · run manually anytime via Dry run",
+      "cronLabel": "cron expression",
+      "interpreter": "Interpreter",
+      "interpreterPath": "Binary path",
+      "interpreterPathAuto": "auto: {{path}}",
+      "interpreterPathPlaceholder": "Empty = auto-resolve",
+      "timezone": "Timezone"
+    },
+    "script": {
+      "title": "Script",
+      "subtitle": "env injects HOOK_STATE / secrets · stdout emits JSON: { events, state }",
+      "name": "Name",
+      "namePlaceholder": "Hook name",
+      "commandPlaceholder": "# Write your script; print { events, state } to stdout",
+      "save": "Save",
+      "create": "Create"
+    },
+    "env": {
+      "title": "Environment / Secrets",
+      "subtitle": "Injected as env vars · secrets are masked in the UI as ••••",
+      "add": "Add variable",
+      "keyPlaceholder": "KEY",
+      "valuePlaceholder": "value",
+      "secret": "Secret",
+      "remove": "Remove variable",
+      "empty": "No environment variables"
+    },
+    "run": {
+      "ok": "Dry run · exit {{code}}",
+      "failed": "Dry run failed · exit {{code}}",
+      "timedOut": "Timed out",
+      "meta": "{{ms}}ms · {{persist}}",
+      "noPersist": "not persisted",
+      "persisted": "persisted",
+      "summary": "{{events}} events parsed · {{new}} new after dedupe · {{dup}} duplicates",
+      "parseError": "Parse error: {{error}}",
+      "stdout": "stdout",
+      "stderr": "stderr",
+      "running": "Running…",
+      "empty": "Click Dry run to execute once; the result shows here"
+    },
+    "log": {
+      "empty": "No events yet",
+      "selectPrompt": "Select an event to view its payload",
+      "dedupeKey": "Dedupe key",
+      "payload": "Payload",
+      "receivedAt": "Received {{time}}",
+      "failureBadge": "Failed"
+    },
+    "interp": {
+      "bash": "Bash",
+      "sh": "Shell",
+      "node": "Node",
+      "python": "Python",
+      "pwsh": "PowerShell",
+      "powershell": "Windows PowerShell",
+      "cmd": "CMD",
+      "notInstalled": "Not installed"
+    },
+    "status": {
+      "ok": "OK",
+      "failed": "Failed",
+      "running": "Running",
+      "disabled": "Off",
+      "idle": "Idle"
+    },
+    "flash": {
+      "created": "Created Hook {{name}}",
+      "updated": "Saved Hook {{name}}",
+      "deleted": "Deleted Hook {{name}}",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "saveFailed": "Save failed: {{error}}",
+      "runFailed": "Run failed: {{error}}"
+    },
+    "del": {
+      "title": "Delete Hook",
+      "description": "Delete \"{{name}}\"? This cannot be undone.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    },
+    "create": {
+      "defaultName": "New Hook"
+    }
+  }
+}

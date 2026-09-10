@@ -5,13 +5,35 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const gitChangesMock = vi.fn();
-const gitBranchesMock = vi.fn();
+const listDirMock = vi.fn();
 vi.mock("@/../wailsjs/go/app/App", () => ({
+  // 多工作根：本组用例都是单根会话，认领集合恒为空 → 根切换器不渲染，
+  // 分支状态条整条收起，chrome 与本轮之前一致。
+  WorkspaceFsWorkRoots: () => Promise.resolve([]),
+  WorkspaceFsGitState: () =>
+    Promise.resolve({
+      branch: "",
+      worktree: "",
+      dirty: 0,
+      ahead: 0,
+      behind: 0,
+      hasUpstream: false,
+      notARepo: true,
+      commonDir: "",
+    }),
   OpenPath: vi.fn(),
-  WorkspaceFsListDir: vi.fn(),
-  WorkspaceFsGitChanges: (sessionId: number, scope: string, baseRef: string) =>
-    gitChangesMock(sessionId, scope, baseRef),
-  WorkspaceFsGitBranches: (sessionId: number) => gitBranchesMock(sessionId),
+  WorkspaceFsListDir: (
+    sessionId: number,
+    _root: string,
+    relPath: string,
+    ignored: boolean,
+  ) => listDirMock(sessionId, relPath, ignored),
+  WorkspaceFsGitChanges: (
+    sessionId: number,
+    _root: string,
+    scope: string,
+    baseRef: string,
+  ) => gitChangesMock(sessionId, scope, baseRef),
 }));
 
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
@@ -78,12 +100,11 @@ describe("ChatContextSidebar", () => {
     useChatSidebarStore.setState({ open: true, activeTab: "outline" });
     gitChangesMock.mockReset();
     gitChangesMock.mockResolvedValue(gitChangesView([]));
-    gitBranchesMock.mockReset();
-    gitBranchesMock.mockResolvedValue({
-      notARepo: false,
-      currentBranch: "",
-      defaultBaseline: "",
-      branches: [],
+    listDirMock.mockReset();
+    listDirMock.mockResolvedValue({
+      path: "/repo",
+      entries: [],
+      truncated: false,
     });
   });
 
@@ -129,7 +150,7 @@ describe("ChatContextSidebar", () => {
     expect(sep).toHaveAttribute("aria-orientation", "vertical");
   });
 
-  it("switches to FilesView when Files tab clicked", async () => {
+  it("switches to the session changes list when the Changes tab is clicked", async () => {
     render(
       <ChatContextSidebar
         sessionId={1}
@@ -138,11 +159,11 @@ describe("ChatContextSidebar", () => {
         onJumpToMessage={() => {}}
       />,
     );
-    await userEvent.click(screen.getByRole("tab", { name: /files/i }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect(
-      screen.getByText(/No files have been changed in this session/),
+      screen.getByText(/No files have been changed by tools in this session/),
     ).toBeInTheDocument();
-    expect(useChatSidebarStore.getState().activeTab).toBe("files");
+    expect(useChatSidebarStore.getState().activeTab).toBe("changes");
   });
 
   it("calls onJumpToMessage when outline row clicked", async () => {
@@ -262,12 +283,11 @@ describe("ChatContextSidebar top-level tabs", () => {
     useChatSidebarStore.setState({ open: true, activeTab: "outline" });
     gitChangesMock.mockReset();
     gitChangesMock.mockResolvedValue(gitChangesView([]));
-    gitBranchesMock.mockReset();
-    gitBranchesMock.mockResolvedValue({
-      notARepo: false,
-      currentBranch: "",
-      defaultBaseline: "",
-      branches: [],
+    listDirMock.mockReset();
+    listDirMock.mockResolvedValue({
+      path: "/repo",
+      entries: [],
+      truncated: false,
     });
   });
 
@@ -275,7 +295,7 @@ describe("ChatContextSidebar top-level tabs", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders three equal-width, iconless tabs showing 大纲/文件/Git counts, exactly one selected", () => {
+  it("renders three equal-width, iconless tabs showing 大纲/变更/目录 counts, exactly one selected", () => {
     render(
       <ChatContextSidebar
         sessionId={1}
@@ -289,8 +309,8 @@ describe("ChatContextSidebar top-level tabs", () => {
     expect(tabs).toHaveLength(3);
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       "Outline2",
-      "Files0",
-      "Git",
+      "Changes0",
+      "Directory",
     ]);
     // 不带图标。
     for (const tab of tabs) {
@@ -305,7 +325,7 @@ describe("ChatContextSidebar top-level tabs", () => {
     expect(screen.getByRole("tablist")).toContainElement(tabs[0]);
   });
 
-  it("shows no count on the Git tab until its data has loaded", () => {
+  it("counts the message-derived rows on the Changes tab without calling the backend", () => {
     render(
       <ChatContextSidebar
         sessionId={1}
@@ -316,9 +336,10 @@ describe("ChatContextSidebar top-level tabs", () => {
       />,
     );
 
-    const gitTab = screen.getByRole("tab", { name: /^git/i });
-    expect(gitTab).toHaveTextContent("Git");
-    expect(gitTab.textContent).toBe("Git");
+    // 默认档是「本次会话」：角标来自消息派生，进大纲页时不打后端。
+    expect(screen.getByRole("tab", { name: /^Changes/ }).textContent).toBe(
+      "Changes0",
+    );
     expect(gitChangesMock).not.toHaveBeenCalled();
   });
 
@@ -333,13 +354,13 @@ describe("ChatContextSidebar top-level tabs", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: /^git/i }));
-    expect(useChatSidebarStore.getState().activeTab).toBe("git");
-    expect(screen.getByRole("tab", { name: /^git/i })).toHaveAttribute(
+    await userEvent.click(screen.getByRole("tab", { name: /^Directory/ }));
+    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
+    expect(screen.getByRole("tab", { name: /^Directory/ })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("tab", { name: /^outline/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /^Outline/ })).toHaveAttribute(
       "aria-selected",
       "false",
     );
@@ -358,7 +379,7 @@ describe("ChatContextSidebar top-level tabs", () => {
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 
-  it("keeps the files page's chrome to two rows: top tab bar + changes/directory pill group", async () => {
+  it("keeps the changes page's chrome to two rows: top tab bar + scope pill group", async () => {
     render(
       <ChatContextSidebar
         sessionId={1}
@@ -369,41 +390,20 @@ describe("ChatContextSidebar top-level tabs", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: /^files/i }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect(screen.getAllByRole("tablist")).toHaveLength(2);
+    const scopeBar = screen.getByRole("tablist", { name: /change scope/i });
+    expect(
+      within(scopeBar).getByRole("tab", { name: "This session" }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(scopeBar).getByRole("tab", { name: "Uncommitted" }),
+      ).toBeInTheDocument(),
+    );
   });
 
-  it("keeps the git page's chrome to two rows for a repo and one row when there is no working directory", async () => {
-    const { rerender } = render(
-      <ChatContextSidebar
-        sessionId={1}
-        messages={[]}
-        activeMessageId={null}
-        onJumpToMessage={() => {}}
-        cwd="/repo"
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("tab", { name: /^git/i }));
-    await waitFor(() => expect(gitChangesMock).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getAllByRole("tablist")).toHaveLength(2));
-
-    rerender(
-      <ChatContextSidebar
-        sessionId={1}
-        messages={[]}
-        activeMessageId={null}
-        onJumpToMessage={() => {}}
-        cwd=""
-      />,
-    );
-    expect(screen.getAllByRole("tablist")).toHaveLength(1);
-  });
-
-  it("shows the git page's context bar as one row and the file list as content when it is a repo, matching the two-row chrome budget", async () => {
-    gitChangesMock.mockResolvedValue(
-      gitChangesView([{ path: "a.go" }, { path: "b.go" }]),
-    );
+  it("keeps the directory page's chrome to two rows as well", async () => {
     render(
       <ChatContextSidebar
         sessionId={1}
@@ -414,17 +414,11 @@ describe("ChatContextSidebar top-level tabs", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: /^git/i }));
-    await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^git/i })).toHaveTextContent(
-        "Git2",
-      ),
-    );
-    const scopeBar = screen.getByRole("tablist", {
-      name: /comparison scope/i,
-    });
+    await userEvent.click(screen.getByRole("tab", { name: /^Directory/ }));
+    // 目录页第二行是图标按钮行，不是 tablist：常驻 chrome 仍是两行。
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
     expect(
-      within(scopeBar).getByRole("tab", { name: /uncommitted/i }),
+      screen.getByRole("button", { name: /show ignored/i }),
     ).toBeInTheDocument();
   });
 });

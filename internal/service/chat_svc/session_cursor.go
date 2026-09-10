@@ -6,8 +6,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
 // sessionCursorPort 用 chat_sessions 实现 agentruntime.SessionCursorPort：
@@ -32,7 +32,7 @@ func (sessionCursorPort) LoadCursor(ctx context.Context, sessionID int64, daemon
 		if sess.RanOnDaemon() {
 			logger.Ctx(ctx).Warn("chat_svc.LoadCursor: daemon instance changed, cursor invalidated",
 				zap.Int64("sessionId", sessionID),
-				zap.String("recordedDaemon", sess.ExecDaemonFingerprint),
+				zap.String("recordedDaemon", sess.ExecDeviceFingerprint),
 				zap.String("currentDaemon", daemonFingerprint))
 		}
 		return 0, false, nil

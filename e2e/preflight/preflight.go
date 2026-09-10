@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 const replayMarkerName = ".agentre-e2e-consumed"

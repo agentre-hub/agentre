@@ -1,12 +1,12 @@
 // frontend/src/stores/peer-session-store.ts
 //
-// Peer Tab 的会话状态（R19）：一条 (fingerprint, sessionId) 对应一枚 Peer Tab。本 store
+// Peer Tab 的会话状态（R19）：一条 (fingerprint, conversationId) 对应一枚 Peer Tab。本 store
 // 负责 attach → pull 补齐 → 实时事件归约 的顺序处理（seq 去重：pull 从 0 拉到高水位，
 // attach 期间 ≤ 高水位的实时帧由 pull 覆盖、直接丢弃，> 高水位的立即归约；ready 之后
 // 由 reducePeerEvent 的游标去重兜底）。发送 / 回答 / 工具权限 / 关闭走 peer 绑定；
 // 关闭只 detach（不删除对端会话）。
 //
-// 事件通道是单条 Wails 广播（peer.event），按 fingerprint+sessionId 路由到各 Peer Tab。
+// 事件通道是单条 Wails 广播（peer.event），按 fingerprint+conversationId 路由到各 Peer Tab。
 
 import { create } from "zustand";
 
@@ -61,7 +61,7 @@ export type PeerAskQuestionView = {
 export type PeerSessionView = {
   key: string;
   fingerprint: string;
-  sessionId: number;
+  conversationId: string;
   title: string;
   deviceName: string;
   status: "attaching" | "ready" | "error";
@@ -77,19 +77,19 @@ type State = {
   sessions: Record<string, PeerSessionView>;
   attach: (args: {
     fingerprint: string;
-    sessionId: number;
+    conversationId: string;
     title: string;
     deviceName: string;
   }) => Promise<void>;
-  detach: (fingerprint: string, sessionId: number) => void;
+  detach: (fingerprint: string, conversationId: string) => void;
   steer: (
     fingerprint: string,
-    sessionId: number,
+    conversationId: string,
     text: string,
   ) => Promise<boolean>;
   submitAnswer: (args: {
     fingerprint: string;
-    sessionId: number;
+    conversationId: string;
     requestId: string;
     answers: Array<{
       questionIndex: number;
@@ -100,22 +100,22 @@ type State = {
   }) => Promise<{ alreadyHandled: boolean } | { error: string }>;
   submitToolPermission: (args: {
     fingerprint: string;
-    sessionId: number;
+    conversationId: string;
     requestId: string;
     allow: boolean;
     alwaysAllowSession?: boolean;
   }) => Promise<{ alreadyHandled: boolean } | { error: string }>;
 };
 
-export const peerKeyOf = (fingerprint: string, sessionId: number) =>
-  `${fingerprint}:${sessionId}`;
+export const peerKeyOf = (fingerprint: string, conversationId: string) =>
+  `${fingerprint}:${conversationId}`;
 
 export const usePeerSessionsStore = create<State>((set, get) => ({
   sessions: {},
 
-  attach: async ({ fingerprint, sessionId, title, deviceName }) => {
+  attach: async ({ fingerprint, conversationId, title, deviceName }) => {
     ensureSubscribed();
-    const key = peerKeyOf(fingerprint, sessionId);
+    const key = peerKeyOf(fingerprint, conversationId);
     if (get().sessions[key]) return;
 
     set((state) => ({
@@ -124,7 +124,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
         [key]: {
           key,
           fingerprint,
-          sessionId,
+          conversationId,
           title,
           deviceName,
           status: "attaching",
@@ -136,29 +136,29 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     }));
 
     let highWater = 0;
+    // attach（接回实时流）与 pull（读历史）是两件事，**接不回不等于读不到**。
+    //
+    // daemon 对 interrupted 的会话一律回 ErrNoActiveTurn（那一轮的子进程随上一个
+    // daemon 进程消亡了），而它同一处也写明「历史仍可 Pull」。对端每次重启都会把
+    // 非终态会话标成 interrupted，存量因此会整批沉淀到这一档——把 attach 的失败当成
+    // 整条读不到，这些对话就再也打不开，而对端在线、历史也确实在那里。
+    let attached = false;
     try {
-      const att = await PeerAttach({ fingerprint, sessionId } as Parameters<
-        typeof PeerAttach
-      >[0]);
+      const att = await PeerAttach({
+        fingerprint,
+        conversationId,
+      } as Parameters<typeof PeerAttach>[0]);
       highWater = att?.latestSeq ?? 0;
+      attached = true;
       set((state) => ({
         sessions: {
           ...state.sessions,
           [key]: { ...state.sessions[key], highWater },
         },
       }));
-    } catch (e) {
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [key]: {
-            ...state.sessions[key],
-            status: "error",
-            error: errorMessage(e),
-          },
-        },
-      }));
-      return;
+    } catch {
+      // 接不回实时流而已：历史照拉。真正断掉的连接会让紧接着的 pull 一并失败，
+      // 那时才是「读不到」，由下面那条 catch 如实收场。
     }
 
     // pull 补齐：从 0 拉到高水位（对端桌面端历史不回收，OldestSeq 恒为第一条）。
@@ -168,7 +168,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
       try {
         page = await PeerPull({
           fingerprint,
-          sessionId,
+          conversationId,
           cursor: pullCursor,
         } as Parameters<typeof PeerPull>[0]);
       } catch (e) {
@@ -199,7 +199,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
                 (page?.notifications ?? []).map((n) => ({
                   seq: n.seq,
                   params: n.params as unknown as {
-                    sessionId: number;
+                    conversationId: string;
                     event: unknown;
                   },
                 })),
@@ -209,7 +209,10 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
         };
       });
       pullCursor = page?.cursor ?? pullCursor;
-      if (!page?.hasMore || pullCursor >= highWater) break;
+      if (!page?.hasMore) break;
+      // 高水位只有 attach 成功那一路才有。接不回时它是 0，拿它当停止判据的话
+      // `cursor >= 0` 第一页就成立，历史会被截成一页——那一路只认对端说没有更多。
+      if (attached && pullCursor >= highWater) break;
     }
 
     // attach 期间 ≤ 高水位的实时帧已由 pull 覆盖；这里把游标抬到高水位，
@@ -235,8 +238,8 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     });
   },
 
-  detach: (fingerprint, sessionId) => {
-    const key = peerKeyOf(fingerprint, sessionId);
+  detach: (fingerprint, conversationId) => {
+    const key = peerKeyOf(fingerprint, conversationId);
     if (!get().sessions[key]) return;
     set((state) => {
       const sessions = { ...state.sessions };
@@ -244,11 +247,13 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
       return { sessions };
     });
     // 只结束本端接入，不删除对端会话（R19）。
-    void Promise.resolve(PeerDetach(fingerprint, sessionId)).catch(() => {});
+    void Promise.resolve(PeerDetach(fingerprint, conversationId)).catch(
+      () => {},
+    );
   },
 
-  steer: async (fingerprint, sessionId, text) => {
-    const key = peerKeyOf(fingerprint, sessionId);
+  steer: async (fingerprint, conversationId, text) => {
+    const key = peerKeyOf(fingerprint, conversationId);
     const session = get().sessions[key];
     if (!session) return false;
     set((state) => ({
@@ -258,7 +263,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
       },
     }));
     try {
-      await PeerSteer({ fingerprint, sessionId, text } as Parameters<
+      await PeerSteer({ fingerprint, conversationId, text } as Parameters<
         typeof PeerSteer
       >[0]);
       return true;
@@ -286,7 +291,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
 
   submitAnswer: async ({
     fingerprint,
-    sessionId,
+    conversationId,
     requestId,
     answers,
     skipped,
@@ -294,7 +299,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     try {
       const res = await PeerSubmitAnswer({
         fingerprint,
-        sessionId,
+        conversationId,
         requestId,
         answers,
         skipped,
@@ -307,7 +312,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
 
   submitToolPermission: async ({
     fingerprint,
-    sessionId,
+    conversationId,
     requestId,
     allow,
     alwaysAllowSession,
@@ -315,7 +320,7 @@ export const usePeerSessionsStore = create<State>((set, get) => ({
     try {
       const res = await PeerSubmitToolPermission({
         fingerprint,
-        sessionId,
+        conversationId,
         requestId,
         allow,
         alwaysAllowSession,
@@ -333,33 +338,46 @@ function errorMessage(e: unknown): string {
   return err?.message ?? String(e);
 }
 
-// 单条 Wails 广播订阅：peer.event → 按 fingerprint+sessionId 路由到各 Peer Tab。
+// 单条 Wails 广播订阅：peer.event → 按 fingerprint+conversationId 路由到各 Peer Tab。
 // attach 期间 ≤ 高水位的实时帧由 pull 覆盖、丢弃；ready 之后由游标去重兜底。
 let subscribed = false;
 function ensureSubscribed() {
   if (subscribed) return;
   subscribed = true;
+  // 后端按 ~16ms 的窗口把帧攒成一批再广播(见 internal/app/peer_event_batch.go):
+  // 一批一次 Wails 广播、一次 setState,而不是一个 token 一次。
+  // 帧本身**不合并** —— 每帧带自己的 seq,下面按帧去重的口径因此和逐帧送达时一样。
+  // 一批里可以混着不同对端 / 不同会话的帧,所以要按 key 分别落。
   EventsOn(PEER_EVENT_CHANNEL, (payload: unknown) => {
-    const frame = payload as PeerEventFrame;
-    if (!frame || typeof frame !== "object") return;
-    const key = peerKeyOf(frame.fingerprint, frame.sessionId);
-    const session = usePeerSessionsStore.getState().sessions[key];
-    if (!session) return;
-    if (
-      session.status === "attaching" &&
-      (frame.seq ?? 0) <= session.highWater
-    ) {
-      return;
-    }
-    usePeerSessionsStore.setState((state) => ({
-      sessions: {
-        ...state.sessions,
-        [key]: {
-          ...state.sessions[key],
-          transcript: reducePeerEvent(state.sessions[key].transcript, frame),
-        },
-      },
-    }));
+    if (!Array.isArray(payload) || payload.length === 0) return;
+    const frames = payload as PeerEventFrame[];
+    usePeerSessionsStore.setState((state) => {
+      let sessions = state.sessions;
+      let changed = false;
+      for (const frame of frames) {
+        if (!frame || typeof frame !== "object") continue;
+        const key = peerKeyOf(frame.fingerprint, frame.conversationId);
+        // 从**已经应用过本批前面几帧**的那份里取,同一条会话的连续帧才能顺序累积。
+        const session = sessions[key];
+        if (!session) continue;
+        if (
+          session.status === "attaching" &&
+          (frame.seq ?? 0) <= session.highWater
+        ) {
+          continue;
+        }
+        if (!changed) {
+          sessions = { ...sessions };
+          changed = true;
+        }
+        sessions[key] = {
+          ...session,
+          transcript: reducePeerEvent(session.transcript, frame),
+        };
+      }
+      // 整批都被去重丢掉时保持同一个引用,不制造一次无意义的更新。
+      return changed ? { sessions } : state;
+    });
   });
 }
 

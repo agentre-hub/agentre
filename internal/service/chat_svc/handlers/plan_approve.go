@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 )
 
 // BuildPlanApproveActions 根据 session 启动时的 permission mode 算出

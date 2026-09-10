@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 )
 
 // ── R6a：一次下行要拉到「空页」才算把增量消费干净 ───────────────────────────

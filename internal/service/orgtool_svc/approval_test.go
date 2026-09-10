@@ -12,10 +12,10 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/service/agent_svc"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/department_svc"
-	"github.com/agentre-ai/agentre/internal/service/orgtool_svc/mock_orgtool_svc"
+	"github.com/agentre-hub/agentre/internal/service/agent_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/orgtool_svc/mock_orgtool_svc"
 )
 
 // writeSvc 构造一个全新的 orgtoolSvc(不碰 Default() 单例),接齐写工具审批所需的全部 5

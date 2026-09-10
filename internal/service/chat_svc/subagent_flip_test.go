@@ -8,9 +8,9 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 )
 
 // streamCapture 与 captureEmitter 的区别:保留 stream 名。跨轮翻转的镜像必须落在
@@ -54,11 +54,11 @@ func TestSubagentFlipperAdapter_PersistsAndMirrors(t *testing.T) {
 
 		Convey("When 它的完成帧在别人的轮里到达,经 flipper 落地", func() {
 			msgRepo.EXPECT().
-				FlipSubagentStatus(gomock.Any(), int64(42), "toolu-earlier-msg", "completed", "").
+				FlipSubagentStatus(gomock.Any(), int64(42), "toolu-earlier-msg", "completed", "报告全文").
 				Return(nil)
 
 			a := subagentFlipperAdapter{svc: svc, sess: sess, stream: "chat:event:42:99"}
-			err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "completed")
+			err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "completed", "报告全文")
 
 			Convey("Then 落库 + 会话级流镜像 subagent_done + 退出 bgRunning 集合", func() {
 				So(err, ShouldBeNil)
@@ -72,7 +72,7 @@ func TestSubagentFlipperAdapter_PersistsAndMirrors(t *testing.T) {
 				So(mirror, ShouldNotBeNil)
 				// 会话级流:ChatPanel 常驻订阅它,能就地合并进已落库的那张派遣卡。
 				So(mirror.stream, ShouldEqual, AutonomousStreamName(42))
-				So(mirror.ev.ToolUseID, ShouldEqual, "toolu-earlier-msg")
+				So(mirror.ev.ToolCallID, ShouldEqual, "toolu-earlier-msg")
 				So(mirror.ev.Subagent, ShouldNotBeNil)
 				So(mirror.ev.Subagent.Status, ShouldEqual, "completed")
 
@@ -97,7 +97,7 @@ func TestSubagentFlipperAdapter_PersistFailedNoMirror(t *testing.T) {
 			Return(errors.New("db is locked"))
 
 		a := subagentFlipperAdapter{svc: svc, sess: sess, stream: "chat:event:42:99"}
-		err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "failed")
+		err := a.FlipSubagentStatus(context.Background(), "toolu-earlier-msg", "failed", "")
 
 		So(err, ShouldNotBeNil)
 		for _, e := range rec.events {
@@ -115,8 +115,8 @@ func TestSubagentFlipperAdapter_NoSessionNoOp(t *testing.T) {
 		_, _, svc := setupFlipperTest(t) // repo mock 没有 EXPECT,被调用即 ctrl.Finish 报错
 
 		So(subagentFlipperAdapter{svc: svc}.
-			FlipSubagentStatus(context.Background(), "toolu-x", "completed"), ShouldBeNil)
+			FlipSubagentStatus(context.Background(), "toolu-x", "completed", ""), ShouldBeNil)
 		So(subagentFlipperAdapter{svc: svc, sess: &chat_entity.Session{}}.
-			FlipSubagentStatus(context.Background(), "toolu-x", "completed"), ShouldBeNil)
+			FlipSubagentStatus(context.Background(), "toolu-x", "completed", ""), ShouldBeNil)
 	})
 }

@@ -10,11 +10,21 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc/mock_remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc/mock_remote_device_watcher_svc"
 )
+
+type watcherTestConnection struct{ conn *protorpc.Conn }
+
+func newWatcherTestConnection() client.ProtobufConnection {
+	return &watcherTestConnection{conn: protorpc.NewConn(nil, protorpc.NewRegistry())}
+}
+func (c *watcherTestConnection) Conn() *protorpc.Conn    { return c.conn }
+func (c *watcherTestConnection) Closed() <-chan struct{} { return c.conn.Done() }
+func (c *watcherTestConnection) Close() error            { return c.conn.Close() }
 
 type spyEmitter struct {
 	mu     sync.Mutex
@@ -75,7 +85,7 @@ func TestWatcher_DialOK_EmitsOnline_WritesLastSeen(t *testing.T) {
 		repo.EXPECT().Get(gomock.Any(), int64(7)).Return(fixtureRow(), nil)
 		kc.EXPECT().Get("agentre-daemon-token-7").Return("tok", nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("fp", nil)
-		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(1_000_000), "").Return(nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -103,7 +113,7 @@ func TestWatcher_DialTransientErr_BackoffThenRetry(t *testing.T) {
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("fp", nil).Times(2)
 		gomock.InOrder(
 			dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(nil, errors.New("ECONNREFUSED")),
-			dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(&client.Client{}, nil),
+			dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(newWatcherTestConnection(), nil),
 		)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(0), gomock.Any()).Return(nil)
 		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), gomock.Any(), "").Return(nil)
@@ -118,6 +128,38 @@ func TestWatcher_DialTransientErr_BackoffThenRetry(t *testing.T) {
 		clock.Advance(time.Second)
 		waitFor(t, func() bool { return len(emit.snapshot()) >= 2 })
 		So(emit.snapshot()[1].Online, ShouldBeTrue)
+		cancel()
+		w.Wait()
+	})
+}
+
+func TestWatcher_RelayOnlyDeviceWithoutLocalPairingToken_UsesAccountRelay(t *testing.T) {
+	Convey("Server 收编的 relay-only 设备没有本地配对 token 时仍通过账号中转恢复 online", t, func() {
+		repo, dial, kc, emit, clock := setupWatcher(t)
+		row := fixtureRow()
+		row.URL = ""
+		opened := make(chan remote_device_watcher_svc.OpenArgs, 1)
+		repo.EXPECT().Get(gomock.Any(), int64(7)).Return(row, nil)
+		kc.EXPECT().Get("agentre-device-fingerprint").Return("desktop-fp", nil)
+		dial.EXPECT().Open(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, args remote_device_watcher_svc.OpenArgs) (client.ProtobufConnection, error) {
+				opened <- args
+				return newWatcherTestConnection(), nil
+			},
+		)
+		repo.EXPECT().UpdateLastSeen(gomock.Any(), int64(7), int64(1_000_000), "").Return(nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		w := remote_device_watcher_svc.NewWatcher(7, repo, dial, kc, emit, testCfg, clock, nil)
+		go w.Run(ctx)
+
+		waitFor(t, func() bool { return len(emit.snapshot()) >= 1 })
+		args := <-opened
+		So(args.URL, ShouldEqual, "")
+		So(args.DeviceFingerprint, ShouldEqual, "desktop-fp")
+		So(args.DeviceToken, ShouldEqual, "")
+		So(emit.snapshot()[0].Online, ShouldBeTrue)
+		So(emit.snapshot()[0].LastError, ShouldEqual, "")
 		cancel()
 		w.Wait()
 	})
@@ -215,3 +257,6 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("waitFor timed out")
 }
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *watcherTestConnection) SelfFingerprint() string { return "sha256:test-self" }

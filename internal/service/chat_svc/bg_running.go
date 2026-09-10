@@ -6,8 +6,8 @@ import (
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 // bgRunningSet 是单会话「运行中后台 subagent 的 tool_use_id 集合」。用集合而非计数器：
@@ -125,11 +125,11 @@ func (s *chatSvc) reconcileBgRunningOnFinalize(ctx context.Context, sess *chat_e
 }
 
 // reconcileBgRunningOnComplete 后台 subagent 完成时从集合移除，有变化则 emit。
-func (s *chatSvc) reconcileBgRunningOnComplete(ctx context.Context, sess *chat_entity.Session, toolUseID, stream string) {
+func (s *chatSvc) reconcileBgRunningOnComplete(ctx context.Context, sess *chat_entity.Session, toolCallID, stream string) {
 	if sess == nil {
 		return
 	}
-	if s.removeBgRunning(sess.ID, toolUseID) {
+	if s.removeBgRunning(sess.ID, toolCallID) {
 		s.emitBgRunningStatus(ctx, sess, stream)
 	}
 }

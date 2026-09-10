@@ -7,27 +7,30 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 type fakeErrorWriter struct{ text string }
 
-func (f *fakeErrorWriter) WriteErrorText(_ any, s string) { f.text = s }
+func (f *fakeErrorWriter) WriteErrorText(_ context.Context, _ any, s string) error {
+	f.text = s
+	return nil
+}
 
 func TestErrorHandler(t *testing.T) {
 	Convey("ErrorHandler patch ErrorText + emit error", t, func() {
 		emit := &fakeEmit{}
 		wr := &fakeErrorWriter{}
-		mu := &fakeMsgUpdater{}
-		tc := &turn.TurnContext{AssistantMsg: struct{}{}, MessageUpdater: mu, Stream: "s"}
+		tc := &turn.TurnContext{AssistantMsg: struct{}{}, Stream: "s"}
 
 		err := ErrorHandler{Writer: wr}.Apply(context.Background(),
 			agentruntime.ErrorEvent{Err: errors.New("boom")},
 			nil, emit, nil, tc)
 		So(err, ShouldBeNil)
 		So(wr.text, ShouldEqual, "boom")
-		So(mu.calls, ShouldEqual, 1)
+		// 同 usage:error_text 走单列写,不整行回写 —— TurnContext 上那个通用的
+		// 「整行 Save」端口已经删掉,这条约束现在由类型系统兜着。
 
 		p := emit.events[0].payload.(map[string]any)
 		So(p["kind"], ShouldEqual, "error")

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,23 +18,34 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/peer"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
+	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/peer"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // Given a signed-in desktop App owns an inbound relay link, when the first
@@ -40,6 +53,7 @@ import (
 // peer on the existing wire vocabulary, and disappears from the relay when the
 // App lifetime ends.
 func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilities_ThenItDispatchesAndUnregisters(t *testing.T) {
+	authorizeAccountCredentials(t)
 	var attempts atomic.Int32
 	secondConnection := make(chan *websocket.Conn, 1)
 	holdRelay := make(chan struct{})
@@ -69,7 +83,7 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	}))
 	t.Cleanup(relay.Close)
 
-	link := rpc.NewHubLink(rpc.HubLinkOptions{
+	link := relaytransport.NewHubLink(relaytransport.HubLinkOptions{
 		ServerURL:         relay.URL,
 		AccessToken:       "desktop-token",
 		RetryInitial:      time.Millisecond,
@@ -99,102 +113,298 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 		t.Fatal("desktop did not re-register after relay disconnect")
 	}
 
-	unauthenticated := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: wire.MethodCapabilities,
+	unauthenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`1`), Method: wire.MethodCapabilities,
 		Params: mustJSON(t, wire.CapabilitiesParams{BackendType: "claudecode"}),
 	})
 	require.NotNil(t, unauthenticated.Error)
-	assert.Equal(t, rpc.ErrUnauthorized.Code, unauthenticated.Error.Code)
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticated.Error.Code)
 
-	unauthenticatedList := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`11`), Method: wire.MethodSessionList,
+	unauthenticatedList := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`11`), Method: wire.MethodSessionList,
 		Params: mustJSON(t, struct{}{}),
 	})
 	require.NotNil(t, unauthenticatedList.Error)
-	assert.Equal(t, rpc.ErrUnauthorized.Code, unauthenticatedList.Error.Code)
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticatedList.Error.Code)
 
-	unauthenticatedAttach := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`12`), Method: wire.MethodSessionAttach,
-		Params: mustJSON(t, wire.SessionAttachParams{SessionID: 1}),
+	unauthenticatedAttach := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`12`), Method: wire.MethodSessionAttach,
+		Params: mustJSON(t, wire.SessionAttachParams{ConversationID: convID(1)}),
 	})
 	require.NotNil(t, unauthenticatedAttach.Error)
-	assert.Equal(t, rpc.ErrUnauthorized.Code, unauthenticatedAttach.Error.Code)
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticatedAttach.Error.Code)
 
-	authenticated := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "auth.account",
-		Params: mustJSON(t, rpc.AccountParams{Credential: "same-account-device-jwt", DeviceFingerprint: "sha256:peer"}),
+	unauthenticatedWaiters := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`13`), Method: wire.MethodSessionPendingWaiters,
+		Params: mustJSON(t, wire.SessionPendingWaitersParams{ConversationID: convID(1)}),
+	})
+	require.NotNil(t, unauthenticatedWaiters.Error)
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticatedWaiters.Error.Code)
+
+	unauthenticatedCatalog := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`14`), Method: wire.MethodSkillsCatalog,
+		Params: mustJSON(t, wire.SkillCatalogParams{BackendType: "claudecode"}),
+	})
+	require.NotNil(t, unauthenticatedCatalog.Error, "技能目录不能绕过账号鉴权")
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticatedCatalog.Error.Code)
+
+	authenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`2`), Method: "auth.account",
+		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt"}),
 	})
 	require.Nil(t, authenticated.Error)
 
-	capabilities := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`3`), Method: wire.MethodCapabilities,
+	capabilities := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`3`), Method: wire.MethodCapabilities,
 		Params: mustJSON(t, wire.CapabilitiesParams{BackendType: "claudecode"}),
 	})
 	require.Nil(t, capabilities.Error)
 	assert.NotEmpty(t, capabilities.Result, "the existing runtime method must reach the desktop peer registry")
 
+	// 技能目录:一档执行目标的 backend 认领了本机指纹时(R13),浏览器连到的是这台
+	// **桌面**而不是 agentred —— 两种执行端必须答同一个方法、同一个形状,不然浏览器
+	// 得先猜对面是哪一种。未鉴权照样先被挡下。
+	catalog := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`61`), Method: wire.MethodSkillsCatalog,
+		Params: mustJSON(t, wire.SkillCatalogParams{BackendType: "claudecode"}),
+	})
+	require.Nil(t, catalog.Error, "桌面端必须认识 skills.catalog,不能回 method-not-found")
+	var catalogResult wire.SkillCatalogResult
+	require.NoError(t, json.Unmarshal(catalog.Result, &catalogResult))
+	assert.NotEmpty(t, catalogResult.Discovery, "空目录必须自带一个说明它为什么空的判别值")
+	assert.Empty(t, catalogResult.Packs)
+
+	missingCatalogParams := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`62`), Method: wire.MethodSkillsCatalog,
+	})
+	require.NotNil(t, missingCatalogParams.Error)
+	assert.Equal(t, rpcerror.ErrInvalidParams.Code, missingCatalogParams.Error.Code)
+
 	// The desktop session adapter uses the established runtime.session.* wire
-	// family. JSON-RPC permits omitting params for a parameterless method, while
+	// family. The typed RPC request uses an explicit empty Protobuf message, while
 	// methods with required fields must continue to reject the same omission.
-	missingAttachParams := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`40`), Method: wire.MethodSessionAttach,
+	missingAttachParams := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`40`), Method: wire.MethodSessionAttach,
 	})
 	require.NotNil(t, missingAttachParams.Error)
-	assert.Equal(t, rpc.ErrInvalidParams.Code, missingAttachParams.Error.Code)
+	assert.Equal(t, rpcerror.ErrInvalidParams.Code, missingAttachParams.Error.Code)
 
-	listed := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`4`), Method: wire.MethodSessionList,
+	listed := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`4`), Method: wire.MethodSessionList,
 	})
 	require.Nil(t, listed.Error, "a parameterless session-list request may omit params")
-	var list wire.SessionListResult
-	require.NoError(t, json.Unmarshal(listed.Result, &list))
-	expectedSessions := []wire.SessionSummary{{
-		SessionID:       1,
-		PeerFingerprint: "sha256:desktop",
-		AgentID:         7,
-		Title:           "Ship the release",
-		AgentSyncID:     "01HXAGENTIDENTITY0000000000",
-		BackendType:     string(agent_backend_entity.TypeClaudeCode),
-		LifecycleState:  wire.SessionLifecycleRunning,
-		WaitingForInput: true,
-		UpdatedAt:       1710000000000,
-	}}
-	require.Equal(t, expectedSessions, list.Sessions, "desktop rows carry every required summary field without a degraded fallback")
+	var list agentrewire.SessionListResponse
+	require.NoError(t, protojson.Unmarshal(listed.Result, &list))
+	require.Len(t, list.Sessions, 1)
+	require.Equal(t, convID(1), list.Sessions[0].ConversationId)
+	require.Equal(t, "sha256:desktop", list.Sessions[0].PeerFingerprint)
+	require.Equal(t, "Ship the release", list.Sessions[0].Title)
+	require.Equal(t, string(agent_backend_entity.TypeClaudeCode), list.Sessions[0].BackendType)
 
-	explicitEmptyParams := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`41`), Method: wire.MethodSessionList,
+	explicitEmptyParams := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`41`), Method: wire.MethodSessionList,
 		Params: mustJSON(t, struct{}{}),
 	})
 	require.Nil(t, explicitEmptyParams.Error, "an explicit empty params object remains compatible")
-	var explicitList wire.SessionListResult
-	require.NoError(t, json.Unmarshal(explicitEmptyParams.Result, &explicitList))
-	require.Equal(t, expectedSessions, explicitList.Sessions)
+	var explicitList agentrewire.SessionListResponse
+	require.NoError(t, protojson.Unmarshal(explicitEmptyParams.Result, &explicitList))
+	require.Equal(t, list.Sessions, explicitList.Sessions)
 
-	attached := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`5`), Method: wire.MethodSessionAttach,
-		Params: mustJSON(t, wire.SessionAttachParams{SessionID: 1}),
+	attached := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`5`), Method: wire.MethodSessionAttach,
+		Params: mustJSON(t, wire.SessionAttachParams{ConversationID: convID(1)}),
 	})
 	require.Nil(t, attached.Error, "an authorized peer must attach a desktop session")
-	var attachment wire.SessionAttachResult
-	require.NoError(t, json.Unmarshal(attached.Result, &attachment))
-	assert.Equal(t, wire.SessionAttachResult{
-		SessionID: 1, BackendType: string(agent_backend_entity.TypeClaudeCode), LifecycleState: wire.SessionLifecycleRunning,
-	}, attachment)
+	var attachment agentrewire.SessionAttachResponse
+	require.NoError(t, protojson.Unmarshal(attached.Result, &attachment))
+	assert.Equal(t, convID(1), attachment.ConversationId)
+	assert.Equal(t, string(agent_backend_entity.TypeClaudeCode), attachment.BackendType)
+	assert.Equal(t, wire.SessionLifecycleRunning, attachment.LifecycleState)
 
-	pulled := relayRequest(t, ws, "desktop-peer", rpc.Frame{
-		JSONRPC: "2.0", ID: json.RawMessage(`6`), Method: wire.MethodSessionPull,
-		Params: mustJSON(t, wire.SessionPullParams{SessionID: 1}),
+	pulled := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`6`), Method: wire.MethodSessionPull,
+		Params: mustJSON(t, wire.SessionPullParams{ConversationID: convID(1)}),
 	})
 	require.Nil(t, pulled.Error, "the attached peer must pull desktop history on the existing runtime.session.pull method")
-	var page wire.SessionPullResult
-	require.NoError(t, json.Unmarshal(pulled.Result, &page))
+	var page agentrewire.SessionPullResponse
+	require.NoError(t, protojson.Unmarshal(pulled.Result, &page))
 	assert.Equal(t, int64(0), page.OldestSeq, "empty desktop transcript has no reclaimed prefix")
+
+	// 审批卡的数据源是这个方法，不是事件流：桌面端不答它，浏览器上一张待决策卡都
+	// 画不出来（同一份浏览器代码对每种设备都调它，agentred 侧一直有）。
+	waiters := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`7`), Method: wire.MethodSessionPendingWaiters,
+		Params: mustJSON(t, wire.SessionPendingWaitersParams{ConversationID: convID(1)}),
+	})
+	require.Nil(t, waiters.Error, "the attached peer must read this desktop session's still-blocked waiters")
+	var pending agentrewire.SessionPendingWaitersResponse
+	require.NoError(t, protojson.Unmarshal(waiters.Result, &pending))
+	require.Len(t, pending.ToolPermissions, 1)
+	assert.Equal(t, "perm-1", pending.ToolPermissions[0].RequestId)
+	assert.Equal(t, "Bash", pending.ToolPermissions[0].ToolName)
+	require.Len(t, pending.AskUserQuestions, 1)
+	assert.Equal(t, "ask-1", pending.AskUserQuestions[0].RequestId)
 
 	stop()
 	require.NoError(t, ws.SetReadDeadline(time.Now().Add(time.Second)))
 	_, _, err := ws.ReadMessage()
 	require.Error(t, err, "desktop relay registration remained connected after App shutdown")
 	releaseRelay.Do(func() { close(holdRelay) })
+}
+
+// Given 一台已登录的桌面端作为对端在线, When 同账号的对端删除它上面的一条对话,
+// Then 删掉的是**这台电脑自己那条 chat_sessions**(用户的主副本,不是一份执行日志,
+// 规格决策 16),重复删除仍然成功,而点名别的机器时一行都不许动。
+//
+// 桌面端这一侧单独立此回归:agentred 上删掉的是会话行与通知日志,这里删掉的是用户
+// 本机的对话本体 —— 同一个 wire 方法在两种端上破坏力完全不同,agentred 那边的用例
+// 覆盖不到这一份。
+func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisComputersOwnCopyIdempotently(t *testing.T) {
+	sessions := registerInboundPeerChatForDelete(t)
+	ws := startInboundPeer(t)
+
+	// 账号门:补齐族的每个方法都在门后,新增的删除不能是例外 —— 它比读更该在门后。
+	unauthenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`1`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: convID(1)}),
+	})
+	require.NotNil(t, unauthenticated.Error)
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticated.Error.Code)
+
+	authenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`2`), Method: "auth.account",
+		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt"}),
+	})
+	require.Nil(t, authenticated.Error)
+
+	sessions.EXPECT().SoftDelete(gomock.Any(), int64(1)).Return(nil).Times(2)
+
+	deleted := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`3`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: convID(1)}),
+	})
+	require.Nil(t, deleted.Error, "授权对端必须删得掉这台电脑上的对话")
+	var result wire.SessionDeleteResult
+	require.NoError(t, json.Unmarshal(deleted.Result, &result))
+	assert.True(t, result.Deleted, "删除返回时这一端必须已经没有这条会话")
+
+	// 重复删除幂等:server 那条删除待办会重放,报错会让它永远重放下去。这一次还带上
+	// 本机指纹 —— 会话清单交出去的 PeerFingerprint 就是它,镜像会原样带回来。
+	again := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`4`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: convID(1), PeerFingerprint: "sha256:desktop"}),
+	})
+	require.Nil(t, again.Error, "重复删除必须幂等")
+	var repeated wire.SessionDeleteResult
+	require.NoError(t, json.Unmarshal(again.Result, &repeated))
+	assert.True(t, repeated.Deleted)
+
+	// 点名另一台机器:这条连接删得掉的只有本机那份。照着裸 sessionId 删下去会把本机
+	// 同号的另一条对话(会话 id 各端本地自增、必然重号)当场抹掉。SoftDelete 的
+	// Times(2) 就是这条断言的执行者。
+	foreign := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`5`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: convID(1), PeerFingerprint: "sha256:some-agentred"}),
+	})
+	require.NotNil(t, foreign.Error, "点名别的机器不得删掉本机同号的对话")
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, foreign.Error.Code)
+
+	invalid := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`6`), Method: wire.MethodSessionDelete,
+		Params: mustJSON(t, wire.SessionDeleteParams{ConversationID: "0"}),
+	})
+	require.NotNil(t, invalid.Error)
+	assert.Equal(t, rpcerror.ErrInvalidParams.Code, invalid.Error.Code)
+}
+
+// startInboundPeer 起一台只接一条连接的假中继,并把桌面端 Inbound 挂上去,返回中继
+// 这一侧的那条连接。
+// authorizeAccountCredentials 把入站握手的凭据验证换成一个可控的结果:凭据由
+// agentre-server 签,集成测试造不出真的(决策 8 之后这条路上没有「自报指纹」可用),
+// 所以在这里注入「这枚凭据验过了,它说的对端是 sha256:peer」。
+func authorizeAccountCredentials(t *testing.T) {
+	t.Helper()
+	restore := peer.SwapAccountCredentialVerifierForTest(
+		func(context.Context, string) (string, error) { return "sha256:peer", nil })
+	t.Cleanup(restore)
+}
+
+func startInboundPeer(t *testing.T) *websocket.Conn {
+	t.Helper()
+	authorizeAccountCredentials(t)
+	upgrader := websocket.Upgrader{}
+	accepted := make(chan *websocket.Conn, 1)
+	hold := make(chan struct{})
+	var releaseRelay sync.Once
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		accepted <- ws
+		<-hold
+		_ = ws.Close()
+	}))
+	t.Cleanup(relay.Close)
+
+	link := relaytransport.NewHubLink(relaytransport.HubLinkOptions{
+		ServerURL:         relay.URL,
+		AccessToken:       "desktop-token",
+		RetryInitial:      time.Millisecond,
+		RetryMax:          time.Millisecond,
+		RetryWait:         func(context.Context, time.Duration) error { return nil },
+		Random:            func() float64 { return 1 },
+		HeartbeatInterval: time.Hour,
+	})
+	inbound := peer.NewInbound(link)
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- inbound.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		require.NoError(t, <-runDone)
+		releaseRelay.Do(func() { close(hold) })
+	})
+
+	select {
+	case ws := <-accepted:
+		return ws
+	case <-time.After(2 * time.Second):
+		t.Fatal("desktop did not register with the relay")
+		return nil
+	}
+}
+
+// registerInboundPeerChatForDelete 只装删除这条路径要的替身:本机指纹 + 会话仓储。
+// 期望由用例自己按场景下,helper 不替它决定删了几次。
+func registerInboundPeerChatForDelete(t *testing.T) *mock_chat_repo.MockSessionRepo {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	sessions := mock_chat_repo.NewMockSessionRepo(ctrl)
+	device := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+	prevChat := chat_svc.Chat()
+	prevSessions := chat_repo.Session()
+	prevDevice := remote_device_svc.Default()
+	chat_repo.RegisterSession(sessions)
+	remote_device_svc.SetDefault(device)
+	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NoopEmitter{}))
+	t.Cleanup(func() {
+		chat_svc.RegisterChat(prevChat)
+		chat_repo.RegisterSession(prevSessions)
+		remote_device_svc.SetDefault(prevDevice)
+		ctrl.Finish()
+	})
+	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
+	// conversation_id → 本地主键的反查走 chat_svc.ResolvePeerConversation:本机有的
+	// 那条如实交出,别的对话号一律「本机没有」(用例正是拿一个不存在的号试的)。
+	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", Status: consts.ACTIVE,
+	}}, nil).AnyTimes()
+	sessions.EXPECT().FindByConversationID(gomock.Any(), convID(1)).Return(&chat_entity.Session{
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	sessions.EXPECT().FindByConversationID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	return sessions
 }
 
 func registerInboundPeerChat(t *testing.T) {
@@ -205,13 +415,19 @@ func registerInboundPeerChat(t *testing.T) {
 	sessions := mock_chat_repo.NewMockSessionRepo(ctrl)
 	messages := mock_chat_repo.NewMockMessageRepo(ctrl)
 	device := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+	// 会话清单要交出每条对话的项目归属（账号那边的项目轴据此分组），因此项目仓储
+	// 也在这套桩里。这台电脑上没有项目：自由会话的那一维本来就该是空的。
+	projects := mock_project_repo.NewMockProjectRepo(ctrl)
+	projects.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
 	prevChat := chat_svc.Chat()
 	prevAgents := agent_repo.Agent()
 	prevBackends := agent_backend_repo.AgentBackend()
 	prevSessions := chat_repo.Session()
 	prevMessages := chat_repo.Message()
 	prevDevice := remote_device_svc.Default()
+	prevProjects := project_repo.Project()
 	agent_repo.RegisterAgent(agents)
+	project_repo.RegisterProject(projects)
 	agent_backend_repo.RegisterAgentBackend(backends)
 	chat_repo.RegisterSession(sessions)
 	chat_repo.RegisterMessage(messages)
@@ -224,6 +440,7 @@ func registerInboundPeerChat(t *testing.T) {
 		chat_repo.RegisterSession(prevSessions)
 		chat_repo.RegisterMessage(prevMessages)
 		remote_device_svc.SetDefault(prevDevice)
+		project_repo.RegisterProject(prevProjects)
 		ctrl.Finish()
 	})
 
@@ -231,33 +448,148 @@ func registerInboundPeerChat(t *testing.T) {
 		ID: 7, Name: "Release captain", AgentBackendID: 11, Status: consts.ACTIVE,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
 	}
-	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).Times(2)
-	agents.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{agent}, nil).Times(2)
-	sessions.EXPECT().ListByAgentPagedIncludingGroups(gomock.Any(), int64(7), 0, gomock.Any()).Return([]*chat_entity.Session{{
-		ID: 1, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, Status: consts.ACTIVE,
-	}}, nil).Times(2)
+	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
+	agents.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{agent}, nil).AnyTimes()
+	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, Status: consts.ACTIVE,
+	}}, nil).AnyTimes()
 	sessions.EXPECT().Find(gomock.Any(), int64(1)).Return(&chat_entity.Session{
-		ID: 1, AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", Status: consts.ACTIVE,
-	}, nil)
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	sessions.EXPECT().FindByConversationID(gomock.Any(), convID(1)).Return(&chat_entity.Session{
+		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
 	messages.EXPECT().List(gomock.Any(), int64(1)).Return(nil, nil)
-	agents.EXPECT().Find(gomock.Any(), int64(7)).Return(agent, nil)
+	agents.EXPECT().Find(gomock.Any(), int64(7)).Return(agent, nil).AnyTimes()
 	backends.EXPECT().Find(gomock.Any(), int64(11)).Return(&agent_backend_entity.AgentBackend{
 		ID: 11, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
 	}, nil).AnyTimes()
+
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &waiterRuntime{
+		sessionID: 1,
+		snapshot: agentruntime.WaiterSnapshot{
+			ToolPermissions: []agentruntime.PendingToolPermission{{
+				RequestID: "perm-1", ToolName: "Bash", Input: json.RawMessage(`{"command":"ls -la"}`),
+			}},
+			AskUserQuestions: []agentruntime.PendingAskUserQuestion{{
+				RequestID: "ask-1", Questions: []agentruntime.AskQuestion{{ID: "q1", Question: "继续？"}},
+			}},
+		},
+	}))
 }
 
-func relayRequest(t *testing.T, conn *websocket.Conn, channelID string, request rpc.Frame) rpc.Frame {
+// waiterRuntime 是一个有审批协议的 backend runtime 替身:它只回答「这条会话此刻
+// 还阻塞着哪些待决策」(agentruntime.WaiterLister),不跑轮次。
+type waiterRuntime struct {
+	sessionID int64
+	snapshot  agentruntime.WaiterSnapshot
+}
+
+func (r *waiterRuntime) Capabilities() capability.Capabilities { return capability.Capabilities{} }
+
+func (r *waiterRuntime) Run(context.Context, agentruntime.RunRequest) (
+	<-chan agentruntime.Event, *agentruntime.RunResult, error,
+) {
+	return nil, nil, errors.New("waiterRuntime never runs a turn")
+}
+
+func (r *waiterRuntime) PendingWaiters(_ context.Context, sessionID int64) agentruntime.WaiterSnapshot {
+	if sessionID != r.sessionID {
+		return agentruntime.WaiterSnapshot{}
+	}
+	return r.snapshot
+}
+
+// relayTestFrame keeps the behavior-focused fixtures concise while relayRequest
+// translates them into the real typed Protobuf request and response messages.
+// It is test input only; the wire carries a typed Protobuf request.
+type relayTestFrame struct {
+	ID     json.RawMessage
+	Method string
+	Params json.RawMessage
+	Result json.RawMessage
+	Error  *rpcerror.Error
+}
+
+func relayRequest(t *testing.T, conn *websocket.Conn, channelID string, request relayTestFrame) relayTestFrame {
 	t.Helper()
-	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, relayEnvelope(channelID, mustJSON(t, request))))
+	methodID, requestMessage, responseMessage := peerTestProtoMethod(t, request.Method)
+	params := request.Params
+	if len(params) == 0 || string(params) == "null" {
+		params = json.RawMessage(`{}`)
+	}
+	require.NoError(t, protojson.Unmarshal(params, requestMessage))
+	// protojson.Unmarshal resets the message, so the handshake version is
+	// stamped afterwards — the same thing client.AuthAccount does in production.
+	if authRequest, ok := requestMessage.(*agentrewire.AuthAccountRequest); ok {
+		authRequest.ProtocolVersion = wireversion.Protocol
+		authRequest.MinSupportedProtocolVersion = wireversion.MinSupported
+	}
+	encodedRequest, err := proto.Marshal(requestMessage)
+	require.NoError(t, err)
+	var requestID uint64
+	require.NoError(t, json.Unmarshal(request.ID, &requestID))
+	frameBytes, err := proto.Marshal(&agentrewire.RpcFrame{Id: requestID, Body: &agentrewire.RpcFrame_Request{Request: &agentrewire.Request{MethodId: methodID, EncodedPayload: encodedRequest}}})
+	require.NoError(t, err)
+	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, relayEnvelope(channelID, frameBytes)))
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(time.Second)))
 	messageType, payload, err := conn.ReadMessage()
 	require.NoError(t, err)
 	require.Equal(t, websocket.BinaryMessage, messageType)
 	responseID, responseJSON := unpackRelayEnvelope(t, payload)
 	require.Equal(t, channelID, responseID)
-	var response rpc.Frame
-	require.NoError(t, json.Unmarshal(responseJSON, &response))
+	var frame agentrewire.RpcFrame
+	require.NoError(t, proto.Unmarshal(responseJSON, &frame))
+	response := relayTestFrame{ID: mustJSON(t, frame.Id)}
+	if rpcErr := frame.GetError(); rpcErr != nil {
+		response.Error = &rpcerror.Error{Code: rpcErr.Code, Message: rpcErr.Message, Details: rpcErr.Details}
+		return response
+	}
+	require.NotNil(t, frame.GetResponse())
+	require.Equal(t, methodID, frame.GetResponse().MethodId)
+	require.NoError(t, proto.Unmarshal(frame.GetResponse().EncodedPayload, responseMessage))
+	response.Result, err = protojson.Marshal(responseMessage)
+	require.NoError(t, err)
 	return response
+}
+
+func peerTestProtoMethod(t *testing.T, method string) (uint32, proto.Message, proto.Message) {
+	t.Helper()
+	switch method {
+	case "auth.account":
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{}, &agentrewire.AuthAccountResponse{}
+	case wire.MethodCapabilities:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES), &agentrewire.RuntimeCapabilitiesRequest{}, &agentrewire.RuntimeCapabilitiesResponse{}
+	case wire.MethodSessionList:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), &agentrewire.SessionListRequest{}, &agentrewire.SessionListResponse{}
+	case wire.MethodSessionAttach:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{}, &agentrewire.SessionAttachResponse{}
+	case wire.MethodSessionPull:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{}, &agentrewire.SessionPullResponse{}
+	case wire.MethodSessionPendingWaiters:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PENDING_WAITERS), &agentrewire.SessionPendingWaitersRequest{}, &agentrewire.SessionPendingWaitersResponse{}
+	case wire.MethodSessionDelete:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_DELETE), &agentrewire.SessionDeleteRequest{}, &agentrewire.SessionDeleteResponse{}
+	case wire.MethodSkillsCatalog:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG), &agentrewire.SkillCatalogRequest{}, &agentrewire.SkillCatalogResponse{}
+	case wire.MethodSetPermissionMode:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE), &agentrewire.RuntimeSetPermissionModeRequest{}, &agentrewire.Empty{}
+	case wire.MethodSetModelTarget:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SET_MODEL_TARGET), &agentrewire.SetModelTargetRequest{}, &agentrewire.SetModelTargetResponse{}
+	case wire.MethodSetSessionReasoningEffort:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT), &agentrewire.SetSessionReasoningEffortRequest{}, &agentrewire.SetSessionReasoningEffortResponse{}
+	case wire.MethodProjectSetLocalPath:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_PROJECT_SET_LOCAL_PATH), &agentrewire.ProjectSetLocalPathRequest{}, &agentrewire.ProjectLocalPathResponse{}
+	case wire.MethodProjectClearLocalPath:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH), &agentrewire.ProjectClearLocalPathRequest{}, &agentrewire.ProjectLocalPathResponse{}
+	case "remotefs.listDir":
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_LIST_DIR), &agentrewire.RemoteFsListDirRequest{}, &agentrewire.RemoteFsListDirResponse{}
+	case "remotefs.mkdir":
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_MKDIR), &agentrewire.RemoteFsMkdirRequest{}, &agentrewire.RemoteFsMkdirResponse{}
+	default:
+		t.Fatalf("no protobuf test mapping for %s", method)
+		return 0, nil, nil
+	}
 }
 
 func relayEnvelope(channelID string, frame []byte) []byte {
@@ -281,4 +613,63 @@ func mustJSON(t *testing.T, value any) []byte {
 	payload, err := json.Marshal(value)
 	require.NoError(t, err)
 	return payload
+}
+
+// convID 是**这台桌面端**为它本机第 n 条会话交出去的对话身份。
+//
+// 与生产的派生同输入同算法(本机设备指纹 + 本地会话 id):对端拿着它回来寻址时,
+// 桌面端要靠同一条派生把它翻回本地主键 —— 用一个随手编的 uuid,这些用例就只在
+// 测试自己的世界里成立。
+func convID(n int64) string {
+	return conversationid.Derive(conversationid.Namespace, "sha256:desktop", strconv.FormatInt(n, 10))
+}
+
+// TestInbound_GivenTheServerOpensTheReservedSignalChannel_WhenAFrameArrivesOnIt_ThenTheDesktopNeverAnswersOnThatChannel
+// 是决策 13/14 在**桌面端入站链路**这一侧的落地。
+//
+// 桌面端的入站对端链路拨的是与 agentred 同一个端点(/v1/relay/daemon,见
+// server_svc.NewInboundHubLink 与 relaytransport.defaultHubEndpoint),而服务端在
+// 那个端点上给**每一条**连接开一条保留通道运送账号信号。保留通道「只出不进」,
+// 也从不在它上面完成握手,所以它绝不能被包成一条 RPC 连接——那正是
+// daemon.serveRelayChannels 已经修好的那件事(daemon.go 的 SignalChannelID 分支),
+// 而入站链路这一侧漏了同一道判断。
+//
+// RED 之前:Inbound.serve 把 mux.Accept() 交出的每一条通道都无差别地包成
+// protorpc.Conn 并起 Serve,于是保留通道上的一帧会被当成 RPC 请求并收到应答。
+func TestInbound_GivenTheServerOpensTheReservedSignalChannel_WhenAFrameArrivesOnIt_ThenTheDesktopNeverAnswersOnThatChannel(t *testing.T) {
+	ws := startInboundPeer(t)
+
+	// 先证明这条物理连接活着、注册表照常作答:普通通道上一次未鉴权的调用要拿到
+	// Unauthorized。否则下面那个「读不到东西」的断言可能只是因为链路根本没起来。
+	alive := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`1`), Method: wire.MethodCapabilities,
+		Params: mustJSON(t, wire.CapabilitiesParams{BackendType: "claudecode"}),
+	})
+	require.NotNil(t, alive.Error)
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, alive.Error.Code)
+
+	// 服务端在保留通道上送来一帧。这里刻意送一个**合法的 RPC 请求**:如果这条通道
+	// 被当成了 RPC 连接,注册表一定会答;送一帧解不开的字节反而会被 protorpc 静默
+	// 丢弃,测不出差别。
+	methodID, requestMessage, _ := peerTestProtoMethod(t, wire.MethodCapabilities)
+	encodedRequest, err := proto.Marshal(requestMessage)
+	require.NoError(t, err)
+	signalFrame, err := proto.Marshal(&agentrewire.RpcFrame{
+		Id: 99, Body: &agentrewire.RpcFrame_Request{Request: &agentrewire.Request{
+			MethodId: methodID, EncodedPayload: encodedRequest,
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, ws.WriteMessage(websocket.BinaryMessage,
+		relayEnvelope(relaytransport.SignalChannelID, signalFrame)))
+
+	// 保留通道上不该有任何回程。读超时是本用例的通过条件,所以它必须是这条连接上
+	// 的**最后一次读**(gorilla 的读错误是粘的)。
+	require.NoError(t, ws.SetReadDeadline(time.Now().Add(500*time.Millisecond)))
+	_, payload, readErr := ws.ReadMessage()
+	if readErr == nil {
+		channelID, _ := unpackRelayEnvelope(t, payload)
+		t.Fatalf("保留通道上收到了回程(通道 %q):它被当成一条 RPC 连接了，"+
+			"而它只出不进、服务端也从不在它上面完成握手", channelID)
+	}
 }

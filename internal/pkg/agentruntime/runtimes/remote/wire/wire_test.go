@@ -3,7 +3,9 @@ package wire
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -11,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 )
 
-func TestToFromJSONRPCError_RoundTrip(t *testing.T) {
+func TestToFromRPCError_RoundTrip(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
@@ -29,34 +31,34 @@ func TestToFromJSONRPCError_RoundTrip(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out := ToJSONRPCError(tc.err)
+			out := ToRPCError(tc.err)
 			require.NotNil(t, out, "sentinel must map to a code")
-			assert.Equal(t, tc.code, out.Code)
+			assert.EqualValues(t, tc.code, out.Code)
 			// Wire bytes round-trip preserves code.
 			b, err := json.Marshal(out)
 			require.NoError(t, err)
-			var back jsonrpc.Error
+			var back rpcerror.Error
 			require.NoError(t, json.Unmarshal(b, &back))
-			rehydrated := FromJSONRPCError(&back)
+			rehydrated := FromRPCError(&back)
 			assert.ErrorIs(t, rehydrated, tc.err)
 		})
 	}
 }
 
-func TestToJSONRPCError_NonSentinel(t *testing.T) {
+func TestToRPCError_NonSentinel(t *testing.T) {
 	// 非 sentinel 错误返 nil,让 daemon 自己用 rpc.ErrInternal 包。
-	assert.Nil(t, ToJSONRPCError(errors.New("random")))
-	assert.Nil(t, ToJSONRPCError(nil))
+	assert.Nil(t, ToRPCError(errors.New("random")))
+	assert.Nil(t, ToRPCError(nil))
 }
 
-func TestFromJSONRPCError_Passthrough(t *testing.T) {
+func TestFromRPCError_Passthrough(t *testing.T) {
 	// 未知 code 原样返。
-	in := &jsonrpc.Error{Code: -99999, Message: "weird"}
-	out := FromJSONRPCError(in)
+	in := &rpcerror.Error{Code: -99999, Message: "weird"}
+	out := FromRPCError(in)
 	assert.Equal(t, "weird", out.Error())
-	// 完全非 jsonrpc.Error 也原样返。
+	// 完全非 rpcerror.Error 也原样返。
 	in2 := errors.New("plain error")
-	out2 := FromJSONRPCError(in2)
+	out2 := FromRPCError(in2)
 	assert.Same(t, in2, out2)
 }
 
@@ -90,13 +92,14 @@ func TestMethodNames_Stable(t *testing.T) {
 		NotifyAutonomousTurnStarted: "runtime.autonomousTurn.started",
 		NotifyAutonomousTurnEvent:   "runtime.autonomousTurn.event",
 		NotifyAutonomousTurnDone:    "runtime.autonomousTurn.done",
+		MethodSessionDelete:         "runtime.session.delete",
 	} {
 		assert.Equal(t, v, k)
 	}
 }
 
 func TestAutonomousTurnStartedFrame_RoundTrip(t *testing.T) {
-	in := AutonomousTurnStartedFrame{SessionID: 77, Trigger: "background_task"}
+	in := AutonomousTurnStartedFrame{ConversationID: convID(77), Trigger: "background_task"}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 	var out AutonomousTurnStartedFrame
@@ -105,27 +108,117 @@ func TestAutonomousTurnStartedFrame_RoundTrip(t *testing.T) {
 }
 
 func TestEventFrame_RoundTrip(t *testing.T) {
-	// 用一个 sealed event 走完整 marshal -> EventFrame -> unmarshal -> UnmarshalEvent 链路。
+	// 帧装的是密封事件本身,JSON 只是它的线上形态:marshal → unmarshal 之后
+	// 必须原样还是那个 sealed 值,调用方不再自己 UnmarshalEvent。
 	ev := agentruntime.TextDelta{Text: "hi"}
-	body, err := json.Marshal(ev)
-	require.NoError(t, err)
 
-	frame := EventFrame{SessionID: 42, Event: body}
-	b, err := json.Marshal(frame)
+	b, err := json.Marshal(EventFrame{ConversationID: convID(42), Event: ev})
 	require.NoError(t, err)
+	// 线上形态与「事件自己 marshal 出来的那段」逐字节一致 —— 帧换成装密封值
+	// 之后,老版本对端与通知日志里的旧行读到的字节没有任何变化。
+	eventJSON, err := json.Marshal(ev)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"conversationId":"`+convID(42)+`","event":`+string(eventJSON)+`}`, string(b))
 
 	var decoded EventFrame
 	require.NoError(t, json.Unmarshal(b, &decoded))
-	assert.Equal(t, int64(42), decoded.SessionID)
+	assert.Equal(t, convID(42), decoded.ConversationID)
+	assert.Equal(t, ev, decoded.Event)
+}
 
-	out, err := agentruntime.UnmarshalEvent(decoded.Event)
+// Given EventFrame 上那组不驱动序列化的 json tag,When 与它自己的 MarshalJSON
+// 实际落出来的键比对,Then 两者必须一致。
+//
+// 为什么单独守:tag 是 TS 编解码生成器唯一读得到的东西,自定义 marshaler 它看不见。
+// 两处分家的后果是生成出来的 decodeEventFrame 去找一批根本不存在的键 —— Go 侧
+// 编译、测试全绿,浏览器侧整条事件流解码失败。
+func TestEventFrameWireTagsMatchMarshaler(t *testing.T) {
+	tagged := make([]string, 0, 3)
+	typ := reflect.TypeOf(EventFrame{})
+	for i := 0; i < typ.NumField(); i++ {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		require.NotEmpty(t, name, "EventFrame.%s 缺 json tag,生成器会读到 Go 字段名", typ.Field(i).Name)
+		tagged = append(tagged, name)
+	}
+
+	// seq 带 omitempty,只有非零才落键 —— 所以这里要填满。
+	b, err := json.Marshal(EventFrame{ConversationID: convID(1), Event: agentruntime.Done{}, Seq: 2})
 	require.NoError(t, err)
-	assert.Equal(t, ev, out)
+	var marshaled map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(b, &marshaled))
+
+	emitted := make([]string, 0, len(marshaled))
+	for key := range marshaled {
+		emitted = append(emitted, key)
+	}
+	sort.Strings(tagged)
+	sort.Strings(emitted)
+	require.Equal(t, tagged, emitted)
+}
+
+// Given JournaledNotification 上那组不驱动序列化的 json tag,When 与它自己的
+// MarshalJSON 实际落出来的键比对,Then 两者必须一致 —— 理由与 EventFrame 那条
+// 相同:tag 是 TS 生成器唯一读得到的东西。
+func TestJournaledNotificationWireTagsMatchMarshaler(t *testing.T) {
+	tagged := make([]string, 0, 3)
+	typ := reflect.TypeOf(JournaledNotification{})
+	for i := 0; i < typ.NumField(); i++ {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		require.NotEmpty(t, name, "JournaledNotification.%s 缺 json tag", typ.Field(i).Name)
+		tagged = append(tagged, name)
+	}
+
+	b, err := json.Marshal(JournaledNotification{
+		Seq: 1, Method: NotifyEvent, Params: &EventFrame{ConversationID: convID(2), Event: agentruntime.Done{}},
+	})
+	require.NoError(t, err)
+	var marshaled map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(b, &marshaled))
+
+	emitted := make([]string, 0, len(marshaled))
+	for key := range marshaled {
+		emitted = append(emitted, key)
+	}
+	sort.Strings(tagged)
+	sort.Strings(emitted)
+	require.Equal(t, tagged, emitted)
+}
+
+// Given 一行补齐日志,When 走完 marshal → unmarshal,Then Params 回来仍是那个帧
+// 本身 —— 线上形态不变(黄金样本守),但进程内不再是一段待解析的字节。
+func TestJournaledNotification_RoundTripsTypedParams(t *testing.T) {
+	in := JournaledNotification{
+		Seq: 11, Method: NotifyEvent,
+		Params: &EventFrame{ConversationID: convID(42), Event: agentruntime.TextDelta{Text: "你好"}},
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+
+	var out JournaledNotification
+	require.NoError(t, json.Unmarshal(b, &out))
+	require.Equal(t, in, out)
+}
+
+// Given 一条本客户端还不认识的 method,When 解码,Then 得到 nil 帧而不是错误 ——
+// 整段补齐不该因为一条新通知而失败,那会把它后面每一条已知通知也一起丢掉。
+func TestJournaledNotification_UnknownMethodDecodesToNilFrame(t *testing.T) {
+	var out JournaledNotification
+	require.NoError(t, json.Unmarshal(
+		[]byte(`{"seq":1,"method":"runtime.somethingNew","params":{"a":1}}`), &out))
+	require.Nil(t, out.Params)
+}
+
+// Given 一段解不出的事件载荷,When 解码 EventFrame,Then 整帧解码失败而不是
+// 留下一个装着半截数据的帧 —— 帧一旦声称自己装的是密封事件,就不能悄悄装 nil。
+func TestEventFrame_RejectsUndecodableEvent(t *testing.T) {
+	var decoded EventFrame
+	err := json.Unmarshal([]byte(`{"conversationId":"`+convID(42)+`","event":{"kind":"no_such_kind"}}`), &decoded)
+	require.ErrorContains(t, err, "unknown kind")
 }
 
 func TestRunResultDoneFrame_RoundTrip(t *testing.T) {
 	in := RunResultDoneFrame{
-		SessionID:         99,
+		ConversationID:    convID(99),
 		ProviderSessionID: "sess-1",
 		Usage: &UsageWire{
 			PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
@@ -149,7 +242,7 @@ func TestRunParams_RawBackendOpaque(t *testing.T) {
 	in := RunParams{
 		Backend:        json.RawMessage(`{"ID":1,"Type":"claudecode","Name":"x"}`),
 		AgentID:        7,
-		SessionID:      42,
+		ConversationID: convID(42),
 		UserText:       "hello",
 		Compact:        true,
 		PermissionMode: "acceptEdits",
@@ -161,7 +254,7 @@ func TestRunParams_RawBackendOpaque(t *testing.T) {
 	// JSONEq because key ordering inside Backend may differ.
 	assert.JSONEq(t, string(in.Backend), string(out.Backend))
 	assert.Equal(t, in.AgentID, out.AgentID)
-	assert.Equal(t, in.SessionID, out.SessionID)
+	assert.Equal(t, in.ConversationID, out.ConversationID)
 	assert.Equal(t, in.UserText, out.UserText)
 	assert.Equal(t, in.Compact, out.Compact)
 	assert.Equal(t, in.PermissionMode, out.PermissionMode)
@@ -181,7 +274,7 @@ func TestRunParams_HasNoOpenClawSecretField(t *testing.T) {
 // 商缺失/非 active 回退 agent 绑定后,把被回退的 key 放进 ack.ProviderFallbackKey 随
 // wire 过线;空值因 omitempty 不落字节流。
 func TestRunAck_ProviderFallbackKeyRoundTrip(t *testing.T) {
-	in := RunAck{SessionID: 42, ProviderFallbackKey: "session-key"}
+	in := RunAck{ConversationID: convID(42), ProviderFallbackKey: "session-key"}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"providerFallbackKey":"session-key"`)
@@ -191,7 +284,7 @@ func TestRunAck_ProviderFallbackKeyRoundTrip(t *testing.T) {
 	assert.Equal(t, in.ProviderFallbackKey, out.ProviderFallbackKey)
 
 	// 未回退 → 字段不出现在字节流。
-	none, err := json.Marshal(RunAck{SessionID: 1})
+	none, err := json.Marshal(RunAck{ConversationID: convID(1)})
 	require.NoError(t, err)
 	assert.NotContains(t, string(none), "providerFallbackKey")
 	var outNone RunAck
@@ -211,7 +304,7 @@ func TestRunParams_UserBlocksRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	in := RunParams{SessionID: 42, UserText: "what is this?", UserBlocks: stored}
+	in := RunParams{ConversationID: convID(42), UserText: "what is this?", UserBlocks: stored}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"userBlocks"`)
@@ -236,32 +329,32 @@ func TestParams_FieldShape(t *testing.T) {
 		v    any
 		want []string // each expected `"key":` substring
 	}{
-		{"steer", SteerParams{SessionID: 1, QueuedID: "q", Text: "t"},
-			[]string{`"sessionId":1`, `"queuedId":"q"`, `"text":"t"`}},
-		{"cancelSteer", CancelSteerParams{SessionID: 1, QueuedID: "q"},
-			[]string{`"sessionId":1`, `"queuedId":"q"`}},
-		{"drain", DrainParams{SessionID: 1}, []string{`"sessionId":1`}},
-		{"abort", AbortParams{SessionID: 1}, []string{`"sessionId":1`}},
-		{"setMode", SetPermissionModeParams{SessionID: 1, Mode: "plan"},
-			[]string{`"sessionId":1`, `"mode":"plan"`}},
-		{"submitAnswer", SubmitAnswerParams{SessionID: 1, RequestID: "r", Skipped: true},
-			[]string{`"sessionId":1`, `"requestId":"r"`, `"skipped":true`}},
+		{"steer", SteerParams{ConversationID: convID(1), QueuedID: "q", Text: "t"},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"queuedId":"q"`, `"text":"t"`}},
+		{"cancelSteer", CancelSteerParams{ConversationID: convID(1), QueuedID: "q"},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"queuedId":"q"`}},
+		{"drain", DrainParams{ConversationID: convID(1)}, []string{`"conversationId":"` + convID(1) + `"`}},
+		{"abort", AbortParams{ConversationID: convID(1)}, []string{`"conversationId":"` + convID(1) + `"`}},
+		{"setMode", SetPermissionModeParams{ConversationID: convID(1), Mode: "plan"},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"mode":"plan"`}},
+		{"submitAnswer", SubmitAnswerParams{ConversationID: convID(1), RequestID: "r", Skipped: true},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"requestId":"r"`, `"skipped":true`}},
 		{"submitToolPerm", SubmitToolPermissionParams{
-			SessionID: 1, RequestID: "r", Allow: true, AlwaysAllowSession: true, DenyReason: "x",
-		}, []string{`"sessionId":1`, `"requestId":"r"`, `"allow":true`, `"alwaysAllowSession":true`, `"denyReason":"x"`}},
-		{"goalGet", GoalParams{SessionID: 1, AgentID: 9, ProviderSessionID: "thread-1", Backend: json.RawMessage(`{"Type":"codex"}`)},
-			[]string{`"sessionId":1`, `"agentId":9`, `"providerSessionId":"thread-1"`, `"backend":`, `"Type":"codex"`}},
-		{"goalSet", GoalParams{SessionID: 1, AgentID: 9, ProviderSessionID: "thread-1", Backend: json.RawMessage(`{"Type":"codex"}`), Objective: ptrString("ship"), Status: ptrString("active"), TokenBudget: ptrInt(123)},
-			[]string{`"sessionId":1`, `"agentId":9`, `"providerSessionId":"thread-1"`, `"backend":`, `"Type":"codex"`, `"objective":"ship"`, `"status":"active"`, `"tokenBudget":123`}},
+			ConversationID: convID(1), RequestID: "r", Allow: true, AlwaysAllowSession: true, DenyReason: "x",
+		}, []string{`"conversationId":"` + convID(1) + `"`, `"requestId":"r"`, `"allow":true`, `"alwaysAllowSession":true`, `"denyReason":"x"`}},
+		{"goalGet", GoalParams{ConversationID: convID(1), AgentID: 9, ProviderSessionID: "thread-1", Backend: json.RawMessage(`{"Type":"codex"}`)},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"agentId":9`, `"providerSessionId":"thread-1"`, `"backend":`, `"Type":"codex"`}},
+		{"goalSet", GoalParams{ConversationID: convID(1), AgentID: 9, ProviderSessionID: "thread-1", Backend: json.RawMessage(`{"Type":"codex"}`), Objective: ptrString("ship"), Status: ptrString("active"), TokenBudget: ptrInt(123)},
+			[]string{`"conversationId":"` + convID(1) + `"`, `"agentId":9`, `"providerSessionId":"thread-1"`, `"backend":`, `"Type":"codex"`, `"objective":"ship"`, `"status":"active"`, `"tokenBudget":123`}},
 		{"goalResult", GoalResult{Goal: &agentruntime.Goal{ThreadID: "thread-1", Objective: "ship", Status: "active"}},
 			[]string{`"goal":`, `"threadId":"thread-1"`, `"objective":"ship"`, `"status":"active"`}},
 		{"goalClearResult", GoalClearResult{Cleared: true}, []string{`"cleared":true`}},
 		{"capabilities", CapabilitiesParams{BackendType: "claudecode"},
 			[]string{`"backendType":"claudecode"`}},
-		{"runAck", RunAck{SessionID: 42}, []string{`"sessionId":42`}},
-		{"runParamsCompact", RunParams{SessionID: 42, Compact: true}, []string{`"sessionId":42`, `"compact":true`}},
-		{"runParamsEnabledPlugins", RunParams{SessionID: 42, EnabledPlugins: map[string]bool{"browser@openai-bundled": true}},
-			[]string{`"sessionId":42`, `"enabledPlugins":`, `"browser@openai-bundled":true`}},
+		{"runAck", RunAck{ConversationID: convID(42)}, []string{`"conversationId":"` + convID(42) + `"`}},
+		{"runParamsCompact", RunParams{ConversationID: convID(42), Compact: true}, []string{`"conversationId":"` + convID(42) + `"`, `"compact":true`}},
+		{"runParamsEnabledPlugins", RunParams{ConversationID: convID(42), EnabledPlugins: map[string]bool{"browser@openai-bundled": true}},
+			[]string{`"conversationId":"` + convID(42) + `"`, `"enabledPlugins":`, `"browser@openai-bundled":true`}},
 		{"cancelSteerResult", CancelSteerResult{Removed: []string{"a", "b"}},
 			[]string{`"removed":["a","b"]`}},
 	}
@@ -276,13 +369,13 @@ func TestParams_FieldShape(t *testing.T) {
 	}
 }
 
-// 编译时确认 *jsonrpc.Error 满足 error,这样 ToJSONRPCError 返回的可以直接 return。
-var _ error = (*jsonrpc.Error)(nil)
+// 编译时确认 *rpcerror.Error 满足 error,这样 ToRPCError 返回的可以直接 return。
+var _ error = (*rpcerror.Error)(nil)
 
 // TestRunParams_LLMTargetKeysRoundTrip 钉死决策 11:RunParams 同时携带
 // LLMProviderKey 与 LLMModelKey,且空值因 omitempty 不落字节流。
 func TestRunParams_LLMTargetKeysRoundTrip(t *testing.T) {
-	in := RunParams{SessionID: 42, LLMProviderKey: "prov-1", LLMModelKey: "model-7"}
+	in := RunParams{ConversationID: convID(42), LLMProviderKey: "prov-1", LLMModelKey: "model-7"}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"llmProviderKey":"prov-1"`)
@@ -294,7 +387,7 @@ func TestRunParams_LLMTargetKeysRoundTrip(t *testing.T) {
 	assert.Equal(t, "model-7", out.LLMModelKey)
 
 	// provider-default:model key 空 → 字段不出现在字节流,旧 daemon 解码不受影响。
-	none, err := json.Marshal(RunParams{SessionID: 1, LLMProviderKey: "prov-1"})
+	none, err := json.Marshal(RunParams{ConversationID: convID(1), LLMProviderKey: "prov-1"})
 	require.NoError(t, err)
 	assert.NotContains(t, string(none), "llmModelKey")
 }
@@ -303,7 +396,7 @@ func TestRunParams_LLMTargetKeysRoundTrip(t *testing.T) {
 // LLMProviderKey + LLMModelKey(与 RunParams 同形),goal 与 turn 不再各自解析。
 func TestGoalParams_LLMTargetKeysRoundTrip(t *testing.T) {
 	in := GoalParams{
-		SessionID: 42, ProviderSessionID: "thread-1",
+		ConversationID: convID(42), ProviderSessionID: "thread-1",
 		Backend:        json.RawMessage(`{"Type":"codex"}`),
 		LLMProviderKey: "prov-1", LLMModelKey: "model-7",
 	}
@@ -358,3 +451,109 @@ func TestProviderSummary_ModelSummaries(t *testing.T) {
 
 func ptrString(v string) *string { return &v }
 func ptrInt(v int) *int          { return &v }
+
+// TestSkillsCatalogMethod_Stable 钉住技能目录方法名。浏览器要用它替掉「手打 skill id」,
+// 名字一旦发布就不能改 —— 老浏览器会拿着旧名字打过来。
+func TestSkillsCatalogMethod_Stable(t *testing.T) {
+	assert.Equal(t, "skills.catalog", MethodSkillsCatalog)
+	assert.Equal(t, "ok", SkillDiscoveryOK)
+	assert.Equal(t, "unavailable", SkillDiscoveryUnavailable)
+	assert.Equal(t, "unsupported", SkillDiscoveryUnsupported)
+}
+
+// TestSkillCatalogParams_FieldShape 钉住请求的字节形状:一次问的是**一档**执行目标
+// (R15e「一档一块」),所以授权集随请求一起来 —— 执行端上没有组织架构库,答不出
+// 「这一档授权了什么」,那份真相在调用方手里。
+func TestSkillCatalogParams_FieldShape(t *testing.T) {
+	b, err := json.Marshal(SkillCatalogParams{
+		BackendType: "claudecode",
+		CLIPath:     "/usr/local/bin/claude",
+		Authorized: []SkillAuthorization{
+			{ID: "superpowers@claude-plugins-official", Enabled: true},
+		},
+	})
+	require.NoError(t, err)
+	for _, want := range []string{
+		`"backendType":"claudecode"`,
+		`"cliPath":"/usr/local/bin/claude"`,
+		`"authorized":[{"id":"superpowers@claude-plugins-official","enabled":true}]`,
+	} {
+		assert.Contains(t, string(b), want)
+	}
+}
+
+// TestSkillCatalogResult_DiscoveryIsAlwaysOnTheWire 是本方法最要紧的一条:发现失败 /
+// 机器离线时**不能用空目录冒充「这台机器上没有技能」**。discovery 因此没有 omitempty,
+// 空目录必须自带一个说明它为什么空的判别值。
+func TestSkillCatalogResult_DiscoveryIsAlwaysOnTheWire(t *testing.T) {
+	b, err := json.Marshal(SkillCatalogResult{Packs: []SkillPackSummary{}, Discovery: SkillDiscoveryUnavailable})
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"discovery":"unavailable"`)
+	assert.Contains(t, string(b), `"packs":[]`)
+
+	// 零值同样带着 discovery 键出场 —— 解码方永远不必猜「没这个键算什么」。
+	b2, err := json.Marshal(SkillCatalogResult{})
+	require.NoError(t, err)
+	assert.Contains(t, string(b2), `"discovery":`)
+}
+
+// TestSkillPackSummary_RoundTrip 钉住浏览器画一行要读的那几格(见 agentre 的
+// skillPacksToCatalog → CatalogItem):id / name / description / 包内内容 /
+// 是否已装 / 这一档是否已授权 / 全局是否已启用。
+func TestSkillPackSummary_RoundTrip(t *testing.T) {
+	in := SkillPackSummary{
+		ID:              "superpowers@claude-plugins-official",
+		Name:            "superpowers",
+		Description:     "brainstorming and TDD",
+		Skills:          []string{"brainstorming", "test-driven-development"},
+		Installed:       true,
+		Enabled:         true,
+		GloballyEnabled: true,
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	var out SkillPackSummary
+	require.NoError(t, json.Unmarshal(b, &out))
+	assert.Equal(t, in, out)
+	assert.Contains(t, string(b), `"skills":["brainstorming","test-driven-development"]`)
+}
+
+// convID 把一个短会话号折成一条格式合法的 conversation_id,只在测试里用。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
+}
+
+// ── failed:上一轮跑挂了,但会话照旧接得上 ──────────────────────────────────
+
+// failed 与 interrupted 是**两件事**,取值因此不能合并。这一条守的是那个分界:
+// interrupted 是自锁终态(接不回实时流),failed 只是「上一轮的结局是错误」。
+func TestSessionLifecycleFailed_IsItsOwnValue(t *testing.T) {
+	assert.Equal(t, "failed", SessionLifecycleFailed)
+	assert.NotEqual(t, SessionLifecycleInterrupted, SessionLifecycleFailed,
+		"合并成一个值就等于让跑挂一次的会话再也接不上实时流")
+}
+
+// IsTurnFailure 是「这一轮算不算故障收场」的**唯一**判据:daemon 拿它决定落
+// failed 还是 idle,浏览器拿它决定画不画错误卡,两处必须是同一句话。
+func TestIsTurnFailure(t *testing.T) {
+	t.Run("没有停止错误 = 正常收场", func(t *testing.T) {
+		assert.False(t, IsTurnFailure(RunResultDoneFrame{}))
+	})
+	t.Run("用户自己按的停止不算故障", func(t *testing.T) {
+		// 中断在线上同样带 stopErrMsg(ErrAborted 的文案),只能靠 code 区分。
+		// 不认这一格的话,每次点「停止」都会把会话标成失败。
+		assert.False(t, IsTurnFailure(RunResultDoneFrame{
+			StopErrMsg: "aborted", StopErrCode: ErrCodeAborted,
+		}))
+	})
+	t.Run("有文案、不是中断 = 故障", func(t *testing.T) {
+		assert.True(t, IsTurnFailure(RunResultDoneFrame{StopErrMsg: "boom"}))
+	})
+	t.Run("判据是文案非空而不是 code 非零", func(t *testing.T) {
+		// StopErrCode = 0 的含义是「没有 sentinel」,不是「没出错」——真正的
+		// 启动失败(CLI 直接 exit 1)正是这一档。
+		assert.True(t, IsTurnFailure(RunResultDoneFrame{
+			StopErrMsg: "exit status 1", StopErrCode: 0,
+		}))
+	})
+}

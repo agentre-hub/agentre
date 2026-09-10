@@ -5,8 +5,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // TestGatewayDeps 锁住 codex 网关门控的唯一口径(spec 2026-08-10 决策 6):是否装配
@@ -139,6 +139,36 @@ func TestBuildLaunchSpec_EnabledPlugins(t *testing.T) {
 		Convey("Then 不下发任何 plugins 覆盖项", func() {
 			for _, cfg := range spec.config {
 				So(cfg, ShouldNotStartWith, "plugins.")
+			}
+		})
+	})
+}
+
+// TestBuildLaunchSpec_ReasoningEffort 锁住 spec 2026-09-01「三后端下发档位的收敛」:
+// max 原样下发,不再被本地兼容折叠成 high;非法值仍不下发。
+func TestBuildLaunchSpec_ReasoningEffort(t *testing.T) {
+	Convey("Given 会话有效力度为 max", t, func() {
+		spec := buildLaunchSpec(agentruntime.RunRequest{
+			Backend: &agent_backend_entity.AgentBackend{
+				Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}", ReasoningEffort: "max",
+			},
+		}, nil, "/tmp/work")
+
+		Convey("Then Codex --config 下发 model_reasoning_effort=\"max\"", func() {
+			So(spec.config, ShouldContain, `model_reasoning_effort="max"`)
+		})
+	})
+
+	Convey("Given 会话有效力度是非法值", t, func() {
+		spec := buildLaunchSpec(agentruntime.RunRequest{
+			Backend: &agent_backend_entity.AgentBackend{
+				Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}", ReasoningEffort: "bogus",
+			},
+		}, nil, "/tmp/work")
+
+		Convey("Then 不下发 model_reasoning_effort,走 CLI 自身默认", func() {
+			for _, cfg := range spec.config {
+				So(cfg, ShouldNotStartWith, "model_reasoning_effort")
 			}
 		})
 	})

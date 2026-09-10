@@ -61,6 +61,31 @@ describe("OutlineView", () => {
     expect(onSelect).toHaveBeenCalledWith(11);
   });
 
+  it("breaks an unbreakable long message so the clamp keeps two readable lines", () => {
+    // 侧栏定宽,行文本没有 overflow-wrap 时,一条没有空格的长路径/长 URL 会撑破行盒,
+    // 被 line-clamp 的 overflow:hidden 从中间裁掉 —— 既不折行也不出省略号,
+    // 用户看到的是被砍断的半截词。jsdom 不做布局,这里守类名。
+    const long =
+      "internal/controller/relay_ctr/TestRelayClient_GivenAReservedChannelID_ThenTheClientCannotConnect";
+    render(
+      <OutlineView
+        items={[
+          {
+            messageId: 33,
+            turn: 3,
+            text: long,
+            time: 1700000120000,
+            edits: 0,
+            err: false,
+          },
+        ]}
+        activeMessageId={null}
+        onSelect={() => {}}
+      />,
+    );
+    expect(screen.getByText(long).className).toContain("break-words");
+  });
+
   it("renders empty state when items is empty", () => {
     render(
       <OutlineView items={[]} activeMessageId={null} onSelect={() => {}} />,

@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/openclawgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
 )
 
 const (

@@ -92,6 +92,33 @@ describe("ChatStreamsHost", () => {
     ).toEqual([1, 42, 2]);
   });
 
+  // sess-3241：一跳纯工具调用时，后端已经把首 token 记在 output_activity 上；前端
+  // 的 live「首 token」是自己按流事件算的，这一条落进 host 的 default 分支就等于
+  // 只修了后端 —— 界面照旧显示一路增长的整轮耗时、tok/s 照旧不显示。
+  it("Given a turn with no visible text, When output_activity arrives, Then the live first token is recorded", async () => {
+    useChatStreamsStore.getState().openStream({
+      assistantMessageId: 1001,
+      name: "chat:event:42:1001",
+      sessionId: 42,
+      streamStartedAt: Date.now(),
+    });
+    render(<ChatStreamsHost />);
+    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+    const handler = registeredHandler();
+
+    expect(
+      streamForMessage(useChatStreamsStore.getState(), 42, 1001)!.firstTokenAt,
+    ).toBeNull();
+
+    act(() => {
+      handler({ kind: "output_activity" });
+    });
+
+    expect(
+      streamForMessage(useChatStreamsStore.getState(), 42, 1001)!.firstTokenAt,
+    ).toBeTruthy();
+  });
+
   it("Given an active OpenClaw turn, When exec approval requested and resolved events arrive, Then one card is updated without finishing the stream", async () => {
     useChatStreamsStore.getState().openStream({
       assistantMessageId: 1001,

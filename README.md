@@ -32,7 +32,7 @@ Agentre gives that workflow one desktop home. Each **Agent** has a role, avatar,
 - **Run multiple coding agents side by side**: keep frontend, backend, reviewer, release, or ops agents active at the same time without losing their individual context.
 - **Choose the engine per agent**: assign Claude Code, Codex, or a built-in engine to each agent while keeping the same chat workflow.
 - **Organize work by project**: group sessions, members, and agents around a codebase or initiative so recent work is easy to scan.
-- **Switch fast with the command palette**: use `⌘K` to open chats, jump between sessions, change projects, and trigger agent actions from the keyboard.
+- **Switch fast with the command palette**: use `⌘P` to open chats, jump between sessions, change projects, and trigger agent actions from the keyboard.
 - **Review tool activity in place**: file edits, shell commands, MCP calls, permission prompts, and ask-user questions appear as explicit in-app cards.
 - **Run sessions on another machine**: pair a LAN `agentred` daemon and run agent work on a remote dev box while approvals stay in the desktop app.
 - **Keep long tasks manageable**: queued messages, active-session indicators, abort/resume controls, and waiting states make parallel work easier to supervise.
@@ -42,7 +42,7 @@ Agentre gives that workflow one desktop home. Each **Agent** has a role, avatar,
 | Area | What it is for |
 | ---- | -------------- |
 | **Chat** | Drive agent sessions, inspect tool calls, approve actions, queue follow-up messages, and resume interrupted work. |
-| **Board** | Track issues and hand off focused tasks to agents; replying on an issue can create a linked session. |
+| **Board** | Track tasks across four columns, narrow the board to a project subtree, filter and edit in place; tasks record which agent, machine and model they are meant for. |
 | **Org** | Model agents as departments and sub-departments, with leads, colors, and role-specific profiles. |
 | **Hooks** | Route external triggers such as webhooks, notifications, timers, or messages into agent workflows. |
 | **Settings** | Configure agent backends, remote devices, project membership, and session permission modes. |
@@ -55,32 +55,23 @@ Agentre gives that workflow one desktop home. Each **Agent** has a role, avatar,
 | **Department** | A nested organizational container for agents, with an optional lead and theme color. |
 | **Session** | One conversation or task run, with states such as `running`, `waiting`, and `idle`. |
 | **Project** | A workspace scope for a codebase or initiative, bundling members, agents, and sessions. |
-| **Issue** | A standalone ticket that can be assigned to an agent and linked to a session. |
+| **Task** | A card on the board: one of four columns, optionally under a project, with labels and an intended agent, machine and model. |
 | **Hook** | An external event source that can dispatch work to agents through routing rules. |
 
 ## Remote Execution
 
-Agentre uses `agentred`, a companion daemon for running sessions on another macOS, Linux, or Windows machine on your LAN. Released builds are available for amd64 and arm64.
+Agentre uses `agentred`, a companion daemon for running sessions on another macOS, Linux, or Windows machine on your LAN. Check the [GitHub Releases](https://github.com/agentre-hub/agentre/releases) page for published assets.
 
-Install the latest release on macOS or Linux:
+To build `agentred` from this checkout and install it as a user service:
 
 ```bash
-curl -fsSL https://github.com/agentre-ai/agentre/releases/latest/download/install.sh | sh
-agentred --version
-agentred service install --start
-agentred service status
+make agentred
+build/bin/agentred --version
+build/bin/agentred service install --start
+build/bin/agentred service status
 ```
 
-Install the latest release from PowerShell on Windows (no administrator shell required):
-
-```powershell
-irm https://github.com/agentre-ai/agentre/releases/latest/download/install.ps1 | iex
-agentred --version
-agentred service install --start
-agentred service status
-```
-
-Then connect it to the desktop app:
+Then connect the daemon to the desktop app:
 
 1. Open **Settings → Remote devices** and pair the `agentred` daemon.
 2. Open **Settings → Agent backends** and create a backend whose run device is the paired machine.
@@ -89,7 +80,7 @@ Then connect it to the desktop app:
 
 ## Desktop Workflow
 
-- **64px icon rail** for Chat, Board, Org, Hooks, and Settings.
+- **56px icon rail** for Chat, Board, Org, Hooks, and Settings.
 - **Agent chat list** with pinned agents, active-session dots, and inline session counts.
 - **Project sessions view** for scanning recent work by project instead of by agent.
 - **Permission mode chooser** before a session starts touching files or running tools.

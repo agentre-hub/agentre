@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 )
 
 // ServerSvc 桌面端接入 Hub 的服务接口。
@@ -36,15 +36,15 @@ type ServerSvc interface {
 	AccessToken() string
 	// NewInboundHubLink creates the desktop's one relay-registration transport.
 	// The peer package layers its session-level adapter on top of this link.
-	NewInboundHubLink(ctx context.Context) (*rpc.HubLink, error)
+	NewInboundHubLink(ctx context.Context) (*relaytransport.HubLink, error)
 	// DialDaemonRelay connects to the given daemon through the account relay,
 	// presenting peerFingerprint (the desktop's own device fingerprint) to
 	// auth.account — the same identity the LAN path presents (R5/R6).
-	DialDaemonRelay(ctx context.Context, daemonFingerprint, peerFingerprint string) (*client.Client, error)
+	DialDaemonRelay(ctx context.Context, daemonFingerprint, peerFingerprint string) (client.ProtobufConnection, error)
 	// DialDesktopRelay connects to a desktop App through the account relay. A
 	// registered desktop with no live App maps to ErrDesktopAppNotRunning,
 	// distinct from the existing agentred offline result.
-	DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (*client.Client, error)
+	DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (client.ProtobufConnection, error)
 	// SyncPush 上行一批本地改动；超窗口设备返回 syncwire.ErrResyncRequired（R6a）。
 	SyncPush(ctx context.Context, items []syncwire.PushItem) ([]syncwire.PushResult, error)
 	// SyncPull 按版本游标增量下行；cursor = 0 拉全量快照。
@@ -74,6 +74,9 @@ type service struct {
 	emitState     func(any) // 由 bootstrap 注入的 Wails 事件发射器；测试时可为 nil
 	// sleepFn 是退避等待，单测注入假等待用；返回 false 表示 ctx 结束、别再试了。
 	sleepFn func(ctx context.Context, d time.Duration) bool
+	// relay 是这台桌面端唯一的常驻中继客户端连接（决策 13），懒创建，见 relayclient.go
+	// 的 ensureRelay。受 s.mu 保护，与 client / loginInFlight / emitState 同一把锁。
+	relay *residentRelay
 }
 
 // New 构造一个 service。client + emit 由 bootstrap 装配。

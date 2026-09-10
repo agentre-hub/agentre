@@ -12,9 +12,9 @@ import (
 
 	"github.com/cago-frame/cago/configs"
 
-	"github.com/agentre-ai/agentre/internal/buildinfo"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/buildinfo"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -39,7 +39,7 @@ func TestRootSubcommands(t *testing.T) {
 	for _, c := range root.Commands() {
 		got[c.Name()] = true
 	}
-	for _, want := range []string{"run", "status", "pair", "login", "unclaim", "llm", "claudecode", "service"} {
+	for _, want := range []string{"run", "status", "pair", "login", "logout", "llm", "claudecode", "service"} {
 		assert.True(t, got[want], "missing subcommand %q", want)
 	}
 
@@ -54,11 +54,16 @@ func TestRootSubcommands(t *testing.T) {
 	}
 }
 
-// TestUnclaimClearsAccountLocally verifies that unclaim returns the daemon to the
-// unclaimed state by removing every account-derived local cache — credential,
-// verification key, and revocation list — exclusively through state.json. The
-// default HTTP transport is a tripwire: any network request fails the test.
-func TestUnclaimClearsAccountLocally(t *testing.T) {
+// TestLogoutClearsAccountLocally verifies that logout returns the daemon to the
+// logged-out state by removing every account-derived local cache — credential,
+// verification key, and revocation list — exclusively through state.json.
+//
+// This fixture records no HubServerURL, so there is nowhere to notify and the
+// command stays purely local: the default HTTP transport is a tripwire proving
+// the local clear itself never depends on the network. A daemon that *does* know
+// its server best-effort revokes the authorization first — see
+// TestLogoutBestEffortRevokesTheAccountAuthorizationBeforeClearingLocalState.
+func TestLogoutClearsAccountLocally(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("AGENTRED_DATA_DIR", dir)
 	st, err := state.Load(dir)
@@ -70,7 +75,7 @@ func TestUnclaimClearsAccountLocally(t *testing.T) {
 			AccessToken: "access", RefreshToken: "refresh", DeviceID: 7,
 		}
 		// The revocation list is pulled from — and only meaningful under — the
-		// claimed account, so returning to 未认领状态 has to drop it too.
+		// account it was logged into, so returning to 未登录状态 has to drop it too.
 		s.RevokedJTIs = []string{"jti-revoked-1", "jti-revoked-2"}
 		s.RevocationsAsOf = 1_716_003_600_000
 	})
@@ -84,7 +89,7 @@ func TestUnclaimClearsAccountLocally(t *testing.T) {
 	})
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	cmd := newUnclaimCmd()
+	cmd := newLogoutCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	require.NoError(t, cmd.Execute())
@@ -94,9 +99,9 @@ func TestUnclaimClearsAccountLocally(t *testing.T) {
 	assert.Empty(t, got.AccountID)
 	assert.Empty(t, got.VerificationPublicKeyPEM)
 	assert.Equal(t, state.AccountCredential{}, got.Credential)
-	assert.Empty(t, got.RevokedJTIs, "the previous account's revocation list must not survive unclaim")
-	assert.Zero(t, got.RevocationsAsOf, "the previous account's revocation timestamp must not survive unclaim")
-	assert.Zero(t, networkCalls.Load(), "unclaim must not make network requests")
+	assert.Empty(t, got.RevokedJTIs, "the previous account's revocation list must not survive logout")
+	assert.Zero(t, got.RevocationsAsOf, "the previous account's revocation timestamp must not survive logout")
+	assert.Zero(t, networkCalls.Load(), "with no server recorded, logout has nowhere to notify")
 
 	gotDir, err := paths.AgentredDataDir()
 	require.NoError(t, err)
@@ -152,19 +157,6 @@ func TestLLMRemoveRequiresUUIDKey(t *testing.T) {
 	assert.Error(t, err)
 	_, ok := err.(*usageError)
 	assert.True(t, ok, "non-UUID --key should produce usageError, got %T: %v", err, err)
-}
-
-func TestUsageErrorExitCode(t *testing.T) {
-	// old positional-arg numeric remove is gone; --key with non-UUID produces usageError
-	root := newRootCmd()
-	root.SetArgs([]string{"llm", "remove", "--key=not-a-uuid"})
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
-
-	err := root.Execute()
-	assert.Error(t, err)
-	_, ok := err.(*usageError)
-	assert.True(t, ok, "expected usageError, got %T", err)
 }
 
 func TestRunFlagDefaults(t *testing.T) {

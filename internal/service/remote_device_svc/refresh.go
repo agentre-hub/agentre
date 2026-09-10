@@ -6,7 +6,7 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // ErrTOFUMismatch is returned by DaemonDialPort.Connect when the server's
@@ -54,6 +54,16 @@ func (s *service) Refresh(ctx context.Context, id int64) (*DeviceView, error) {
 	case errors.Is(err, ErrUnauthorized):
 		_ = s.repo.UpdateLastSeen(ctx, id, row.LastSeenAt, "unauthorized")
 		row.LastError = "unauthorized"
+		return s.toView(row), nil
+	// 协议层的不一致必须与网络失败分开落库：设备面板只读 LastError，
+	// 混进 "dial_failed:" 会把「升级远端 agentred」说成「检查网络与端口」。
+	case errors.Is(err, ErrProtocolUnsupported):
+		_ = s.repo.UpdateLastSeen(ctx, id, row.LastSeenAt, "protocol_unsupported")
+		row.LastError = "protocol_unsupported"
+		return s.toView(row), nil
+	case errors.Is(err, ErrProtocolVersionMismatch):
+		_ = s.repo.UpdateLastSeen(ctx, id, row.LastSeenAt, "protocol_mismatch")
+		row.LastError = "protocol_mismatch"
 		return s.toView(row), nil
 	default:
 		msg := "dial_failed:" + err.Error()

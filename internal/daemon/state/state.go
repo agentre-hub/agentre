@@ -91,8 +91,8 @@ func (s *State) InstanceUUID() string {
 	return s.DaemonInstanceUUID
 }
 
-// IsClaimed reports whether this daemon belongs to an account.
-func (s *State) IsClaimed() bool {
+// IsLoggedIn reports whether this daemon belongs to an account.
+func (s *State) IsLoggedIn() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.AccountID != ""
@@ -100,7 +100,7 @@ func (s *State) IsClaimed() bool {
 
 // Claim records the opaque account identity, the public key used to verify its
 // credentials, and the refreshable credential obtained from the device flow.
-func (s *State) Claim(accountID, verificationPublicKeyPEM string, credential AccountCredential) {
+func (s *State) Login(accountID, verificationPublicKeyPEM string, credential AccountCredential) {
 	s.Mutate(func(st *State) {
 		st.AccountID = accountID
 		st.VerificationPublicKeyPEM = verificationPublicKeyPEM
@@ -108,10 +108,10 @@ func (s *State) Claim(accountID, verificationPublicKeyPEM string, credential Acc
 	})
 }
 
-// ClaimWithKeySet records the versioned verification-key set distributed by the
-// account server. The legacy single-key field remains populated for downgrade
-// compatibility with older agentred binaries reading the same state file.
-func (s *State) ClaimWithKeySet(accountID, currentKID string, publicKeys map[string]string,
+// LoginWithKeySet records the versioned verification-key set distributed by the
+// account server and caches the active key in the single-key field used by the
+// local verifier when no key ID is present.
+func (s *State) LoginWithKeySet(accountID, currentKID string, publicKeys map[string]string,
 	maxTokenLifetimeSeconds int64, credential AccountCredential) {
 	s.Mutate(func(st *State) {
 		st.AccountID = accountID
@@ -123,39 +123,54 @@ func (s *State) ClaimWithKeySet(accountID, currentKID string, publicKeys map[str
 	})
 }
 
-// Unclaim removes all account-bound material and returns the daemon to its
-// pairing-only state. It is intentionally a state-only operation.
-func (s *State) Unclaim() {
+// Logout returns the daemon to its pairing-only state (R19). It is
+// intentionally a state-only operation.
+//
+// 它按「留下什么」写，而不是「删掉什么」——这个方向不是风格问题。逐个列举要清的
+// 字段时，**新加的账号绑定字段默认被留下**，而那正是本方法两次漏掉东西的原因：
+// hubServerURL（登录时由 login 写入，logout 从没清过，于是 run 的持久化回退会把
+// 一台已经离开账号的机器又指回旧 server）与 llmProviders（enginesnapshot 从账号
+// 拉下来的整份供应商配置，含 API key）。倒过来写之后，往 State 上加字段的默认
+// 结局是「跟着登录一起走」，要留下必须在这里明写并说明理由。
+//
+// 留下的只有与账号无关的本机状态：结构版本、这台机器的身份、监听配置、LAN 配对
+// （R19 的「回到只有配对的状态」指的就是它）、本机偏好。
+func (s *State) Logout() {
 	s.Mutate(func(st *State) {
-		st.AccountID = ""
-		st.VerificationPublicKeyPEM = ""
-		st.VerificationCurrentKID = ""
-		st.VerificationPublicKeys = nil
-		st.MaxTokenLifetimeSeconds = 0
-		st.Credential = AccountCredential{}
-		// The cached revocation list is pulled from the claimed account and
-		// only ever consulted for that account's credentials, so it is part of
-		// the claim: leaving it behind would keep one account's data on a
-		// daemon that has returned to the unclaimed state (R19).
-		st.RevokedJTIs = nil
-		st.RevocationsAsOf = 0
+		kept := State{
+			SchemaVersion:      st.SchemaVersion,
+			DaemonInstanceUUID: st.DaemonInstanceUUID,
+			Listen:             st.Listen,
+			PairedPeers:        st.PairedPeers,
+			Preferences:        st.Preferences,
+			// 两个未导出字段是这份 State 与磁盘、与自己那把锁的绑定，不属于状态本身。
+			// 锁必须是同一个指针：Mutate 正持着它，换掉就解不开了。
+			mu:  st.mu,
+			dir: st.dir,
+		}
+		if kept.PairedPeers == nil {
+			kept.PairedPeers = map[string]PairedPeer{}
+		}
+		// Load 保证这两张表非 nil（调用方直接往里写），清空之后也得守住这条。
+		kept.LLMProviders = map[string]LLMProviderMeta{}
+		*st = kept
 	})
 }
 
-// AdoptClaimFromDisk re-reads state.json and adopts an account claim that
-// appeared there while this in-memory state was still unclaimed. It reports
+// AdoptLoginFromDisk re-reads state.json and adopts an account claim that
+// appeared there while this in-memory state was still logged out. It reports
 // whether a claim was adopted.
 //
 // This exists because `agentred login` is a separate process: it writes the
 // credential to state.json and exits, so a daemon that was started before the
-// login holds a stale in-memory copy and would otherwise stay unclaimed — and
+// login holds a stale in-memory copy and would otherwise stay logged out — and
 // therefore off the relay — until the next restart.
 //
 // It is deliberately one-way and claim-only: an already-claimed state is left
 // untouched (this process owns its own claim, including a refresh rotation it
 // has not flushed yet), and nothing outside the claim is read back from disk.
-func (s *State) AdoptClaimFromDisk() (bool, error) {
-	if s.IsClaimed() {
+func (s *State) AdoptLoginFromDisk() (bool, error) {
+	if s.IsLoggedIn() {
 		return false, nil
 	}
 	dir := s.Dir()
@@ -163,7 +178,7 @@ func (s *State) AdoptClaimFromDisk() (bool, error) {
 		return false, errors.New("state: dir not bound; load via Load(dir) first")
 	}
 	// 直接读文件而不是走 Load：Load 在文件缺失时会写一份带**新** UUID 的默认状态，
-	// 那会把这个 daemon 的身份换掉。这里只想看一眼盘上有没有认领，不该有任何写入。
+	// 那会把这个 daemon 的身份换掉。这里只想看一眼盘上有没有登录，不该有任何写入。
 	b, err := os.ReadFile(filepath.Join(dir, stateFileName)) //nolint:gosec // 与 Load 同一路径，来自数据目录而非请求输入
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -177,7 +192,7 @@ func (s *State) AdoptClaimFromDisk() (bool, error) {
 	}
 	if onDisk.SchemaVersion != CurrentSchemaVersion {
 		return false, fmt.Errorf(
-			"state.json schemaVersion %d does not match expected %d; refusing to adopt its claim",
+			"state.json schemaVersion %d does not match expected %d; refusing to adopt its login",
 			onDisk.SchemaVersion, CurrentSchemaVersion,
 		)
 	}
@@ -188,7 +203,7 @@ func (s *State) AdoptClaimFromDisk() (bool, error) {
 
 	adopted := false
 	s.Mutate(func(st *State) {
-		// 再查一次：读盘这段时间里本进程可能已经自己完成了认领（比如 RPC 触发的
+		// 再查一次：读盘这段时间里本进程可能已经自己完成了登录（比如 RPC 触发的
 		// 登录），那份是更新的，不能被盘上这份盖掉。
 		if st.AccountID != "" {
 			return
@@ -207,11 +222,9 @@ func (s *State) AdoptClaimFromDisk() (bool, error) {
 	return adopted, nil
 }
 
-// Snapshot returns a deep-ish copy safe for read-only callers. Maps are
-// shallow-copied since their value types are immutable structs in this
-// codebase (PairedPeer, LLMProviderMeta) — callers must not mutate the
-// returned maps in place. The returned value's internal mutex is nil; calling
-// Mutate or Save on a snapshot will panic by design (snapshots are read-only).
+// Snapshot returns a deep copy safe for read-only callers. The returned
+// value's internal mutex is nil; calling Mutate or Save on a snapshot will
+// panic by design (snapshots are read-only).
 func (s *State) Snapshot() State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -223,12 +236,19 @@ func (s *State) Snapshot() State {
 	for k, v := range s.PairedPeers {
 		out.PairedPeers[k] = v
 	}
-	out.LLMProviders = make(map[string]LLMProviderMeta, len(s.LLMProviders))
-	for k, v := range s.LLMProviders {
-		out.LLMProviders[k] = v
-	}
+	out.LLMProviders = cloneLLMProviders(s.LLMProviders)
 	out.RevokedJTIs = append([]string(nil), s.RevokedJTIs...)
 	out.VerificationPublicKeys = cloneStrings(s.VerificationPublicKeys)
+	return out
+}
+
+func cloneLLMProviders(in map[string]LLMProviderMeta) map[string]LLMProviderMeta {
+	out := make(map[string]LLMProviderMeta, len(in))
+	for key, provider := range in {
+		provider.Models = append([]LLMModelMeta(nil), provider.Models...)
+		provider.ModelRoutes = cloneStrings(provider.ModelRoutes)
+		out[key] = provider
+	}
 	return out
 }
 
@@ -243,18 +263,43 @@ func cloneStrings(in map[string]string) map[string]string {
 	return out
 }
 
+// ReplaceLLMProviders atomically replaces the complete provider snapshot in
+// memory and on disk. If persistence fails, the live map is left untouched.
+func (s *State) ReplaceLLMProviders(providers map[string]LLMProviderMeta) error {
+	if s.dir == "" {
+		return errors.New("state: dir not bound; load via Load(dir) first")
+	}
+	replacement := cloneLLMProviders(providers)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	next := *s
+	next.LLMProviders = replacement
+	if err := writeStateFile(s.dir, &next); err != nil {
+		return err
+	}
+	s.LLMProviders = replacement
+	return nil
+}
+
 // Save writes state.json atomically via a tmp-file + rename. Permissions: 0o600.
 func (s *State) Save() error {
 	if s.dir == "" {
 		return errors.New("state: dir not bound; load via Load(dir) first")
 	}
-	s.mu.RLock()
-	b, err := json.MarshalIndent(s, "", "  ")
-	s.mu.RUnlock()
+	// Save holds the write lock through rename so two whole-file writers cannot
+	// reorder stale snapshots on disk. Callers must not invoke Save from Mutate.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return writeStateFile(s.dir, s)
+}
+
+func writeStateFile(dir string, value *State) error {
+	b, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(s.dir, stateFileName)
+	path := filepath.Join(dir, stateFileName)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err

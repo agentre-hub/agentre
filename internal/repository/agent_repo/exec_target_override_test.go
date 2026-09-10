@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 )
 
 func setupExecTargetOverrideRepo(t *testing.T) (context.Context, sqlmock.Sqlmock, agent_repo.AgentExecTargetOverrideRepo) {

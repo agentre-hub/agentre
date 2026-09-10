@@ -1,0 +1,31 @@
+# 构建上下文只需要 Go 源码 + go.mod/go.sum + pkg/wire。
+# 不排除的话上下文要多传 1G 以上(node_modules 765M、build 192M、e2e 85M、.git 76M)。
+
+.git
+.gitignore
+
+# 前端与 e2e 与 agentred 镜像无关：cmd/agentred 不依赖根包的 //go:embed frontend/dist
+frontend
+e2e
+mockups
+docs
+node_modules
+
+# 本地构建产物
+build
+dist
+*.exe
+*.bak
+
+# 本地工具与编辑器状态
+.dev-kit
+.worktrees
+.omc
+.superpowers
+.opskat
+.impeccable
+.idea
+.vscode
+.claude
+.agents
+.DS_Store

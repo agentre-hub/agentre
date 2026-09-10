@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/service/notification_svc"
-	"github.com/agentre-ai/agentre/internal/service/notification_svc/mock_notification_svc"
+	"github.com/agentre-hub/agentre/internal/service/notification_svc"
+	"github.com/agentre-hub/agentre/internal/service/notification_svc/mock_notification_svc"
 )
 
 func TestShow(t *testing.T) {

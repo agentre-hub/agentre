@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/pathguard"
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/pathguard"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
 )
 
 // osUserHomeDir 包级 indirection,Options.HomeFn 缺省时用。生产 = os.UserHomeDir。

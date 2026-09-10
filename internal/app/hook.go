@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/agentre-ai/agentre/internal/service/hook_svc"
+	"github.com/agentre-hub/agentre/internal/service/hook_svc"
 )
 
 // LoadHooks 返回脚本 Hook 列表与产出事件日志。

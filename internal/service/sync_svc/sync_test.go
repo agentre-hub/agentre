@@ -11,15 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo/mock_server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // ── 测试替身 ────────────────────────────────────────────────────────────────
@@ -31,6 +32,9 @@ type fakeTransport struct {
 	pages    []*syncwire.PullPage
 	pulledAt []int64
 	pullErr  error
+	// pullErrs 按调用次序消耗一次：第 i 次 SyncPull 取 pullErrs[i]，非 nil 就返回它。
+	// 与 pullErr（每一次都返回）互补——server 只在第一次拒绝，之后照常应答。
+	pullErrs []error
 
 	// 本机路径上报（R16）与头像（R16a）的替身状态。
 	localPathReports [][]syncwire.LocalPathReportItem
@@ -70,6 +74,13 @@ func (f *fakeTransport) SyncPush(_ context.Context, items []syncwire.PushItem) (
 
 func (f *fakeTransport) SyncPull(_ context.Context, cursor int64, _ int) (*syncwire.PullPage, error) {
 	f.pulledAt = append(f.pulledAt, cursor)
+	if len(f.pullErrs) > 0 {
+		err := f.pullErrs[0]
+		f.pullErrs = f.pullErrs[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	if f.pullErr != nil {
 		return nil, f.pullErr
 	}
@@ -186,6 +197,9 @@ type harness struct {
 	state          *fakeSyncState
 	nowMs          int64
 	backgroundRuns int
+	// row 是 server_state 那一行本身。测试可以就地改它（换 server / 换账号），
+	// mockgen 替身按 AnyTimes 返回同一个指针，因此改动对下一次读立即可见。
+	row *server_state_entity.ServerState
 }
 
 func newHarness(t *testing.T, loggedIn bool) *harness {
@@ -196,13 +210,19 @@ func newHarness(t *testing.T, loggedIn bool) *harness {
 	row := &server_state_entity.ServerState{ID: 1}
 	if loggedIn {
 		row = &server_state_entity.ServerState{
-			ID: 1, ServerUserID: 7, DeviceID: 3, KeychainAccount: "k",
+			ID: 1, ServerURL: serverA, ServerUserID: 7, DeviceID: 3, KeychainAccount: "k",
 		}
 	}
 	stateRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
 	server_state_repo.RegisterServerState(stateRepo)
 
 	app_setting_repo.RegisterAppSetting(newFakeSettings())
+	// 账号键的替身。播成 (serverA, 7) → 7，与迁移 202608080013 的播种同构：存量行
+	// 盖着的就是那个数，所有既有用例里的账号 7 因此原样继续成立。
+	accounts := newFakeSyncAccounts()
+	accounts.keys[serverA+"|7"] = 7
+	accounts.next = 7
+	sync_account_repo.RegisterSyncAccount(accounts)
 
 	h := &harness{
 		transport: &fakeTransport{},
@@ -212,6 +232,7 @@ func newHarness(t *testing.T, loggedIn bool) *harness {
 		lost:      &fakeLostChange{},
 		state:     newFakeSyncState(),
 		nowMs:     1_700_000_000_000,
+		row:       row,
 	}
 	syncqueue_repo.RegisterOutboundQueue(h.outbound)
 	syncqueue_repo.RegisterInboundQueue(h.inbound)
@@ -261,6 +282,114 @@ func TestNotifyLocalChange_GivenLoggedOut_DoesNothing(t *testing.T) {
 	assert.Empty(t, h.transport.pushed)
 }
 
+// TestNotifyLocalChange_GivenLoggedOutDeleteOfSyncedRow_QueuesTombstoneForItsAccount
+// R6 压过 R12 的那半步：一行已经归属某个账号，就意味着 server 上有它的副本。登出
+// 期间把它删掉，这条删除必须留在出站队列里等下一次登录送达。
+//
+// 当场丢掉的后果不是「晚一点再同步」，而是**这次删除永远不会发生**：本地行只是
+// status = DELETE，sync_account_id 与 sync_version 都还在，此后 ClaimForAccount 收不到
+// 它（只收**存活**的行），ListUnversioned 也收不到它（只认 sync_version = 0 的存活
+// 行）。server 那份就一直活着，控制台一直列着一个用户明明删过的对象。
+func TestNotifyLocalChange_GivenLoggedOutDeleteOfSyncedRow_QueuesTombstoneForItsAccount(t *testing.T) {
+	h := newHarness(t, false)
+
+	h.svc.NotifyLocalChange(context.Background(), LocalChange{
+		Kind: "project", LocalID: 1, Op: OpDelete,
+		Meta: syncmeta_entity.SyncMeta{SyncID: "p-1", SyncAccountID: 7, SyncVersion: 42},
+	})
+
+	require.Len(t, h.outbound.rows, 1, "登出期间的删除进出站队列，等登录后送达")
+	assert.Equal(t, int64(7), h.outbound.rows[0].SyncAccountID, "排在它本来属于的那个账号下")
+	assert.Equal(t, OpDelete, h.outbound.rows[0].Op)
+	assert.Equal(t, "p-1", h.outbound.rows[0].EntitySyncID)
+	assert.Equal(t, int64(42), h.outbound.rows[0].BaseVersion)
+	assert.Empty(t, h.transport.pushed, "登出期间一个请求都不发")
+}
+
+// TestNotifyLocalChange_GivenLoggedOutDeleteOfUnownedRow_DoesNothing R12 在删除上的
+// 边界：一行从没归属过任何账号，server 上就没有它的副本，这次删除没有任何东西需要
+// 送达——入队只会在下次登录时凭空推一条墓碑上去。
+func TestNotifyLocalChange_GivenLoggedOutDeleteOfUnownedRow_DoesNothing(t *testing.T) {
+	h := newHarness(t, false)
+
+	h.svc.NotifyLocalChange(context.Background(), LocalChange{
+		Kind: "project", LocalID: 1, Op: OpDelete,
+		Meta: syncmeta_entity.SyncMeta{SyncID: "p-1"},
+	})
+
+	assert.Empty(t, h.outbound.rows)
+	assert.Empty(t, h.transport.pushed)
+}
+
+// TestSyncOnce_GivenTombstoneQueuedWhileLoggedOut_PushesAfterLogin 队列里那条墓碑在
+// 下一次登录的第一轮同步里真的送达。这一条盯的是入队时用的账号键（行上记的
+// sync_account_id）与登录后解析出来的账号键必须是同一个数——错开一位，队列里那条
+// 墓碑就永远不在 flush 的取数范围里，静默留在本机。
+func TestSyncOnce_GivenTombstoneQueuedWhileLoggedOut_PushesAfterLogin(t *testing.T) {
+	h := newHarness(t, true)
+	require.NoError(t, h.outbound.Create(context.Background(), &syncqueue_entity.OutboundQueueItem{
+		SyncAccountID: 7, EntityType: "project", LocalID: 1,
+		EntitySyncID: "p-1", Op: OpDelete, BaseVersion: 42,
+	}))
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, h.transport.pushed, 1)
+	require.Len(t, h.transport.pushed[0], 1)
+	assert.Equal(t, "p-1", h.transport.pushed[0][0].SyncID)
+	assert.NotZero(t, h.transport.pushed[0][0].DeletedAt, "送上去的是一条墓碑")
+	assert.Empty(t, h.outbound.rows, "送达之后出队")
+}
+
+// TestSyncOnce_GivenLocallyDeletedRowNeverTombstonedOnServer_PushesTombstone 补齐存量
+// 的那一半：修好入队只让**此后**的删除不再丢，已经丢掉的那些行还躺在本机——软删了，
+// 却从没有一条墓碑送达过 server。每一轮同步都把它们补上行一次（R6：删除必须到达各端）。
+func TestSyncOnce_GivenLocallyDeletedRowNeverTombstonedOnServer_PushesTombstone(t *testing.T) {
+	h := newHarness(t, true)
+	h.state.meta["project:p-1"] = syncmeta_entity.SyncMeta{
+		SyncID: "p-1", SyncAccountID: 7, SyncVersion: 42,
+	}
+	h.state.softDeleted["project:p-1"] = true
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, h.transport.pushed, 1)
+	require.Len(t, h.transport.pushed[0], 1)
+	assert.Equal(t, "p-1", h.transport.pushed[0][0].SyncID)
+	assert.NotZero(t, h.transport.pushed[0][0].DeletedAt, "补上去的是一条墓碑")
+	assert.Equal(t, int64(42), h.transport.pushed[0][0].BaseVersion,
+		"基版本是行上那一个，否则 server 判成冲突")
+	assert.NotZero(t, h.state.meta["project:p-1"].SyncDeletedAt,
+		"送达之后记下删除时刻——下一轮不再补，这条补齐不能变成每 30 秒一次的空转")
+}
+
+// TestSyncOnce_GivenLocallyDeletedRowAlreadyTombstoned_PushesNothing 已经送达过的删除
+// 不重推：sync_deleted_at 非零就是「那条墓碑 server 收到了」。
+func TestSyncOnce_GivenLocallyDeletedRowAlreadyTombstoned_PushesNothing(t *testing.T) {
+	h := newHarness(t, true)
+	h.state.meta["project:p-1"] = syncmeta_entity.SyncMeta{
+		SyncID: "p-1", SyncAccountID: 7, SyncVersion: 42, SyncDeletedAt: 1_600_000_000_000,
+	}
+	h.state.softDeleted["project:p-1"] = true
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	assert.Empty(t, h.transport.pushed)
+}
+
+// TestSyncOnce_GivenLocallyDeletedRowServerNeverSaw_PushesNothing 版本号为 0 = server
+// 从没见过这一行，没有什么要删的。凭空推一条墓碑上去只会占掉那个同步标识，而 R6 说
+// 墓碑不会被复活——那个标识此后再也建不回来。
+func TestSyncOnce_GivenLocallyDeletedRowServerNeverSaw_PushesNothing(t *testing.T) {
+	h := newHarness(t, true)
+	h.state.meta["project:p-1"] = syncmeta_entity.SyncMeta{SyncID: "p-1", SyncAccountID: 7}
+	h.state.softDeleted["project:p-1"] = true
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	assert.Empty(t, h.transport.pushed)
+}
+
 // TestNotifyRuntimeClaim_GivenLoggedOut_QueuesUntilAuthentication R13：认领不依赖
 // 登录态；它先写同一条出站队列，认证后才归属账号并上传。
 func TestNotifyRuntimeClaim_GivenLoggedOut_QueuesUntilAuthentication(t *testing.T) {
@@ -277,6 +406,47 @@ func TestNotifyRuntimeClaim_GivenLoggedOut_QueuesUntilAuthentication(t *testing.
 	require.Len(t, h.outbound.rows, 1)
 	assert.Equal(t, int64(7), h.outbound.rows[0].SyncAccountID)
 	assert.Equal(t, "relative-old", h.outbound.rows[0].EntitySyncID)
+}
+
+// TestNotifyLocalChange_GivenAnotherAccountsRowDeleted_QueuesTombstoneForThatAccount
+// R13a 管的是「不上行到**当前**账号」，不是「这条删除不存在」。
+//
+// 换账号之后上一个账号的行还留在本机，界面照常列着它们（各域的 List 只按 status
+// 过滤，不按账号），用户于是看得见、也删得掉。这条删除欠的是**原账号**一个墓碑：
+// 排进它的队列，等哪天再登回那个账号时送达。丢掉它，原账号的其它端就永远看得见
+// 一个这台机器上早已删掉的对象。
+//
+// 排进原账号的队列与 R13a 不冲突：flush 只取当前登录账号的队列行，这一条一个字节
+// 也不会发给现在登录的这个账号。
+func TestNotifyLocalChange_GivenAnotherAccountsRowDeleted_QueuesTombstoneForThatAccount(t *testing.T) {
+	h := newHarness(t, true) // 当前登录的是账号 7
+
+	h.svc.NotifyLocalChange(context.Background(), LocalChange{
+		Kind: "project", LocalID: 1, Op: OpDelete,
+		Meta: syncmeta_entity.SyncMeta{SyncID: "p-1", SyncAccountID: 999, SyncVersion: 42},
+	})
+
+	require.Len(t, h.outbound.rows, 1, "删除进队列，不是被丢掉")
+	assert.Equal(t, int64(999), h.outbound.rows[0].SyncAccountID, "排在它本来属于的那个账号下")
+	assert.Equal(t, OpDelete, h.outbound.rows[0].Op)
+	assert.Equal(t, int64(42), h.outbound.rows[0].BaseVersion)
+	assert.Empty(t, h.transport.pushed, "一个字节都不发给当前登录的这个账号")
+}
+
+// TestSyncOnce_GivenAnotherAccountsQueuedTombstone_DoesNotPushIt 上一条的另一半：
+// 那条排在别的账号名下的墓碑，在当前账号的同步轮次里必须原样躺着（R13a）。
+func TestSyncOnce_GivenAnotherAccountsQueuedTombstone_DoesNotPushIt(t *testing.T) {
+	h := newHarness(t, true) // 当前登录的是账号 7
+	require.NoError(t, h.outbound.Create(context.Background(), &syncqueue_entity.OutboundQueueItem{
+		SyncAccountID: 999, EntityType: "project", LocalID: 1,
+		EntitySyncID: "p-1", Op: OpDelete, BaseVersion: 42,
+	}))
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	assert.Empty(t, h.transport.pushed, "别的账号的队列行不在这一轮的取数范围里")
+	require.Len(t, h.outbound.rows, 1, "留着，等那个账号自己登回来")
+	assert.Equal(t, int64(999), h.outbound.rows[0].SyncAccountID)
 }
 
 // TestNotifyLocalChange_GivenRowOfAnotherAccount_DoesNotUpload R13a：本地行记录的
@@ -351,11 +521,11 @@ func TestFlush_GivenOfflineBacklog_UploadsInOrderOnce(t *testing.T) {
 // 顺序下最终版本相同——版本号较大者胜，先到的更大版本不被后到的旧版本盖掉。
 func TestApplyInbound_ConvergesUnderBothArrivalOrders(t *testing.T) {
 	older := syncwire.PullItem{
-		Kind: "project", SyncID: "p-1", Version: 5, SourceDeviceID: 1,
+		Kind: "project", SyncID: "p-1", Version: 5, OriginFingerprint: "fp-1",
 		Payload: []byte(`{"name":"from-A"}`),
 	}
 	newer := syncwire.PullItem{
-		Kind: "project", SyncID: "p-1", Version: 6, SourceDeviceID: 2,
+		Kind: "project", SyncID: "p-1", Version: 6, OriginFingerprint: "fp-2",
 		Payload: []byte(`{"name":"from-B"}`),
 	}
 
@@ -376,6 +546,54 @@ func TestApplyInbound_ConvergesUnderBothArrivalOrders(t *testing.T) {
 			assert.Equal(t, int64(6), h.state.meta["project:p-1"].SyncVersion)
 		})
 	}
+}
+
+// TestPull_GivenSomethingLanded_AnnouncesTheKinds 下行落地后要有人喊一声。
+//
+// 界面没有别的办法知道「另一台设备刚建了个项目」：项目树没有任何推送通道，此前
+// 全靠项目页那条 1 秒轮询兜着，轮询随单一会话索引一起删掉之后，同步过来的项目
+// 会一直不出现，直到用户碰巧做了点别的事。
+func TestPull_GivenSomethingLanded_AnnouncesTheKinds(t *testing.T) {
+	h := newHarness(t, true)
+	var announced [][]string
+	h.svc.SetEmitter(func(kinds []string) {
+		announced = append(announced, kinds)
+	})
+	h.transport.pages = []*syncwire.PullPage{{
+		Items: []syncwire.PullItem{{
+			Kind: "project", SyncID: "p-1", Version: 5, Payload: []byte(`{"name":"A"}`),
+		}},
+		NextCursor: 5,
+	}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, announced, 1, "落地了就喊一声")
+	assert.Equal(t, []string{"project"}, announced[0])
+}
+
+// TestPull_GivenNothingLanded_StaysQuiet 空转的那些轮次不喊 —— 30 秒一次的轮询
+// 如果每轮都喊，界面就会每 30 秒无谓地重拉一遍项目树。
+func TestPull_GivenNothingLanded_StaysQuiet(t *testing.T) {
+	h := newHarness(t, true)
+	var announced [][]string
+	h.svc.SetEmitter(func(kinds []string) {
+		announced = append(announced, kinds)
+	})
+	item := syncwire.PullItem{
+		Kind: "project", SyncID: "p-1", Version: 5, Payload: []byte(`{"name":"A"}`),
+	}
+	h.transport.pages = []*syncwire.PullPage{
+		{Items: []syncwire.PullItem{item}, NextCursor: 5},
+		{Items: []syncwire.PullItem{item}, NextCursor: 5},
+	}
+	ctx := context.Background()
+
+	require.NoError(t, h.svc.SyncOnce(ctx))
+	require.NoError(t, h.svc.SyncOnce(ctx))
+
+	// 第二轮是重复投递，被版本守卫挡下——它没有改变本机任何东西，也就没什么可喊的。
+	assert.Len(t, announced, 1, "只有真落地的那一轮喊")
 }
 
 // TestApplyInbound_GivenDuplicateDelivery_AppliesOnce R7：重复投递只应用一次。
@@ -406,7 +624,7 @@ func TestApplyInbound_GivenTombstone_RemovesLocalRow(t *testing.T) {
 	h.adapter.rows["p-1"] = "Alpha"
 	h.state.meta["project:p-1"] = syncmeta_entity.SyncMeta{SyncID: "p-1", SyncVersion: 4}
 	h.transport.pages = []*syncwire.PullPage{{
-		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "p-1", Version: 9, Deleted: true}},
+		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "p-1", Version: 9, DeletedAt: 1700}},
 		NextCursor: 9,
 	}}
 
@@ -423,7 +641,7 @@ func TestApplyInbound_GivenTombstoneForUnknownRow_DoesNothing(t *testing.T) {
 	h := newHarness(t, true)
 	h.adapter.needRef = ref{Kind: "project", SyncID: "parent-1"} // 本机解析不出
 	h.transport.pages = []*syncwire.PullPage{{
-		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "ghost", Version: 9, Deleted: true}},
+		Items:      []syncwire.PullItem{{Kind: "project", SyncID: "ghost", Version: 9, DeletedAt: 1700}},
 		NextCursor: 9,
 	}}
 
@@ -495,7 +713,7 @@ func TestApplyInbound_GivenMissingReference_DefersInsteadOfDanglingWrite(t *test
 
 	assert.Empty(t, h.adapter.applied, "引用目标没到，绝不写悬空引用")
 	require.Len(t, h.inbound.rows, 1)
-	assert.Equal(t, "project:parent-1", h.inbound.rows[0].MissingSyncID)
+	assert.Equal(t, "child-1", h.inbound.rows[0].EntitySyncID)
 
 	// 目标到达：暂缓的那一行自动完成。
 	h.state.ids["project:parent-1"] = 42
@@ -560,7 +778,7 @@ func TestPull_GivenNaturalKeyMergeLoss_RecordsOverwritten(t *testing.T) {
 	h.transport.pages = []*syncwire.PullPage{{
 		Items: []syncwire.PullItem{
 			{Kind: syncwire.KindProjectLocation, SyncID: "loc-mine", Version: 10,
-				ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", Deleted: true},
+				ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", DeletedAt: 1700},
 			{Kind: syncwire.KindProjectLocation, SyncID: "loc-winner", Version: 11,
 				ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder",
 				Payload: []byte(`{"path":"/srv/theirs"}`)},
@@ -597,7 +815,7 @@ func TestPull_GivenPlainTombstone_RecordsNothing(t *testing.T) {
 	h.transport.pages = []*syncwire.PullPage{{
 		Items: []syncwire.PullItem{{
 			Kind: syncwire.KindProjectLocation, SyncID: "loc-mine", Version: 10,
-			ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", Deleted: true,
+			ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", DeletedAt: 1700,
 		}},
 		NextCursor: 10,
 	}}
@@ -785,7 +1003,7 @@ func TestFlush_GivenConflict_RecordsOverwrittenChange(t *testing.T) {
 	h.transport.results = func(items []syncwire.PushItem) ([]syncwire.PushResult, error) {
 		return []syncwire.PushResult{{
 			SyncID: items[0].SyncID, Kind: items[0].Kind, Version: 12,
-			Status: syncwire.PushStatusConflict, OverwrittenVersion: 11, OverwrittenDeviceID: 5,
+			Status: syncwire.PushStatusConflict, OverwrittenVersion: 11, OverwrittenOriginFingerprint: "fp-5",
 		}}, nil
 	}
 
@@ -796,7 +1014,7 @@ func TestFlush_GivenConflict_RecordsOverwrittenChange(t *testing.T) {
 	require.Len(t, h.lost.rows, 1)
 	assert.Equal(t, syncqueue_entity.ReasonOverwritten, h.lost.rows[0].Reason)
 	assert.Equal(t, int64(11), h.lost.rows[0].BaseVersion)
-	assert.Equal(t, "5", h.lost.rows[0].OriginDevice)
+	assert.Equal(t, "fp-5", h.lost.rows[0].OriginDevice)
 	assert.Equal(t, int64(12), h.state.meta["project:p-1"].SyncVersion, "本次上行照常生效")
 }
 
@@ -888,4 +1106,79 @@ func TestBuildPushItem_GivenPayloadWithLocalID_SkipsItem(t *testing.T) {
 
 	assert.Empty(t, h.transport.pushed, "带本地自增 ID 的载荷不上行")
 	assert.Empty(t, h.outbound.rows, "也不会永远堵在队列里")
+}
+
+// ── 换账号：本机的行归入当前账号（规格 2026-09-04）─────────────────────────────
+//
+// 此前这些行留在本机、一个字节也不上行（R13a），而四个域的读取都不带账号条件，
+// 于是界面上列着上一个账号的项目、web 控制台却没有它们——两边对不上，而设置里
+// 待同步是 0、没有任何错误可循。
+
+// TestSyncOnce_GivenRowOfAnotherAccount_ClaimsItAndUploads 决策 1 与决策 2：属于
+// 上一个账号的存活行归入当前账号、版本号清零、按新建上行。
+func TestSyncOnce_GivenRowOfAnotherAccount_ClaimsItAndUploads(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+	h.adapter.rows["p-from-a"] = "Alpha"
+	h.state.meta["project:p-from-a"] = syncmeta_entity.SyncMeta{
+		SyncID: "p-from-a", SyncAccountID: 7, SyncVersion: 900,
+	}
+	require.NoError(t, h.svc.saveCursor(ctx, cursorState{AccountID: 7, Cursor: 900}))
+
+	h.row.ServerUserID = 8 // 换账号：(serverA, 8) 在替身里解成本地账号 8
+
+	require.NoError(t, h.svc.SyncOnce(ctx))
+
+	require.Len(t, h.transport.pushed, 1)
+	require.Len(t, h.transport.pushed[0], 1)
+	assert.Equal(t, "p-from-a", h.transport.pushed[0][0].SyncID, "带着自己原有的同步标识过去")
+	assert.Zero(t, h.transport.pushed[0][0].BaseVersion,
+		"上一个账号的版本号不是这个账号的基版本：按 R4a 当新建（决策 2）")
+	assert.Equal(t, int64(8), h.state.meta["project:p-from-a"].SyncAccountID, "归属改成当前账号")
+}
+
+// TestSyncOnce_GivenSoftDeletedRowOfAnotherAccount_DoesNotClaimIt 决策 3：本机已软删
+// 的行不收。给一个账号推它从没有过的墓碑会按 R6 永久占掉那个同步标识；而那条删除
+// 本身是欠着**上一个**账号的债，必须留在它名下等它登回来。
+func TestSyncOnce_GivenSoftDeletedRowOfAnotherAccount_DoesNotClaimIt(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+	h.state.meta["project:p-dead"] = syncmeta_entity.SyncMeta{
+		SyncID: "p-dead", SyncAccountID: 7, SyncVersion: 900,
+	}
+	h.state.softDeleted["project:p-dead"] = true
+	require.NoError(t, h.svc.saveCursor(ctx, cursorState{AccountID: 7, Cursor: 900}))
+
+	h.row.ServerUserID = 8
+
+	require.NoError(t, h.svc.SyncOnce(ctx))
+
+	assert.Empty(t, h.transport.pushed, "一条新账号从没有过的墓碑不该被推上去")
+	got := h.state.meta["project:p-dead"]
+	assert.Equal(t, int64(7), got.SyncAccountID, "债务留在原账号名下")
+	assert.Equal(t, int64(900), got.SyncVersion,
+		"版本号是 ListUnsyncedTombstones 认「server 见过这一行」的唯一凭据，清掉它等于静默擦掉这条删除")
+}
+
+// TestSyncOnce_GivenLLMProviderOfAnotherAccount_ClaimsIt 决策 6 的守卫：凭据类型
+// **不**被排除在跨账号认领之外。api_key 就在 llm_provider 的同步载荷里，因此它跟着
+// 一起过账号边界——这是明确选择，不是疏漏，后来的人不该把它当成漏洞「顺手修掉」。
+func TestSyncOnce_GivenLLMProviderOfAnotherAccount_ClaimsIt(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+	providers := newFakeAdapter(syncwire.KindLLMProvider)
+	providers.rows["prov-1"] = "OpenAI"
+	h.svc.adapters[syncwire.KindLLMProvider] = providers
+	h.state.meta[syncwire.KindLLMProvider+":prov-1"] = syncmeta_entity.SyncMeta{
+		SyncID: "prov-1", SyncAccountID: 7, SyncVersion: 42,
+	}
+
+	h.row.ServerUserID = 8
+
+	require.NoError(t, h.svc.SyncOnce(ctx))
+
+	require.Len(t, h.transport.pushed, 1)
+	require.Len(t, h.transport.pushed[0], 1)
+	assert.Equal(t, syncwire.KindLLMProvider, h.transport.pushed[0][0].Kind)
+	assert.Equal(t, "prov-1", h.transport.pushed[0][0].SyncID)
 }

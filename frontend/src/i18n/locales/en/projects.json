@@ -1,0 +1,70 @@
+{
+  "issues": {
+    "title": "Board",
+    "summary": {
+      "counts": "{{total}} tasks · {{doing}} in progress"
+    },
+    "actions": {
+      "newTask": "New task"
+    },
+    "labelsTitle": "Labels",
+    "syncJoined": "The board now syncs with your account: tasks and labels travel between your devices from here on.",
+    "exec": {
+      "followAgent": "Follow agent binding",
+      "machineAria": "Choose the machine this task runs on",
+      "modelAria": "Choose the model this task uses",
+      "pickerTitle": "Which machine to run on",
+      "kinds": {
+        "local": "This computer",
+        "desktop": "Another desktop",
+        "daemon": "agentred"
+      }
+    }
+  },
+  "projectMerge": {
+    "title": "Merge into existing project",
+    "description": "The two projects become one. This action can't be undone with a single click.",
+    "pickTargetLabel": "Merge into",
+    "pickTargetPlaceholder": "Choose a project to merge into…",
+    "noCandidates": "No other project to merge into",
+    "keepPathNote": "The local project's local path is kept, so sessions can still start.",
+    "reassignNote": "Sessions, member agents, sub-projects, and remote path records from both sides move to the merged project.",
+    "identityNote": "The account-side project wins: name, icon, color, and description take its values.",
+    "confirm": "Merge",
+    "cancel": "Cancel",
+    "errors": {
+      "mergeFailed": "Merge failed: {{error}}"
+    }
+  },
+  "projectNew": {
+    "selectDirectory": "Select project directory"
+  },
+  "projectSettings": {
+    "basic": {
+      "localPath": "Local path"
+    },
+    "members": {
+      "configureRemotePath": "⚠ Configure Remote Paths first"
+    }
+  },
+  "projects": {
+    "errors": {
+      "reorderFailed": "Failed to save project order: {{error}}"
+    },
+    "localPath": {
+      "allMissingTitle": "This device hasn't configured a path for any project yet",
+      "allMissingDescription": "All {{count}} projects from your account are here — configure each one's directory to start chatting on this machine."
+    },
+    "session": {
+      "activeCount": "{{count}} active sessions including sub-projects"
+    },
+    "terminal": {
+      "deviceOffline": "Device offline",
+      "local": "Local",
+      "new": "New Terminal",
+      "offlineSuffix": " · offline",
+      "pathMissingSuffix": " · no path",
+      "pathNotConfigured": "Configure the remote path in project settings first"
+    }
+  }
+}

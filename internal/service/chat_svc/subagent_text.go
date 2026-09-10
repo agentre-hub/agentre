@@ -6,8 +6,8 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
 // messageText 拼接某消息内全部 TextBlock 的文本(value/pointer 两种形态都收)。

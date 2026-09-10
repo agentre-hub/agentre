@@ -6,8 +6,9 @@ import (
 
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 
-	"github.com/agentre-ai/agentre/internal/pkg/cliprober"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 )
 
 // defaultNameForType 按 CLI 后端类型返回自动扫描时的默认名称。
@@ -47,6 +48,20 @@ func (s *agentBackendSvc) ScanAndCreateAgentBackends(ctx context.Context, _ *Sca
 		}
 		if !r.Found {
 			item.Error = "binary not found in system PATH"
+			items = append(items, item)
+			continue
+		}
+		// 决策 25:撞名判据把墓碑一并计入,而不是只看 ACTIVE 行(Create 内部
+		// FindByName 的判据)。不这么做,「扫描建 → 被删 → 再扫描建」每轮都会留一条
+		// 新墓碑(Problem 19:Claude Code CLI / Codex CLI / Pi Agent CLI 各 47 条
+		// 同名墓碑,createtime 完全相同),把决策 24 的回收持续抵消掉。
+		if exists, err := agent_backend_repo.AgentBackend().ExistsByName(ctx, item.Name); err != nil {
+			item.Error = err.Error()
+			items = append(items, item)
+			continue
+		} else if exists {
+			item.Skipped = true
+			item.Error = "name already exists"
 			items = append(items, item)
 			continue
 		}

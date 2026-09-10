@@ -3,9 +3,10 @@ import { ArrowRight, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
-import { Alert, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import {
+  Alert,
+  AlertTitle,
+  Button,
   Dialog,
   DialogBody,
   DialogContent,
@@ -13,8 +14,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import type { ChatAgentItem } from "@/hooks/use-chat-agents";
+} from "@agentre-hub/agentre-ui";
+import type { AgentSlim } from "@/hooks/use-chat-agents";
 
 import {
   blockReasonToCta,
@@ -23,7 +24,7 @@ import {
   type GuidanceTarget,
 } from "./mapping";
 
-type NotChattableAgent = Pick<ChatAgentItem, "id" | "name" | "blockReason">;
+type NotChattableAgent = Pick<AgentSlim, "id" | "name" | "blockReason">;
 
 type NotChattableDialogProps = {
   agent: NotChattableAgent;

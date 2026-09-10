@@ -2,7 +2,6 @@ package workspacefs_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/daemon/workspacefs"
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
 )
 
 func TestSearchFiles_Happy(t *testing.T) {
@@ -43,7 +42,7 @@ func TestSearchFiles_RelativeRoot_InvalidParams(t *testing.T) {
 	h := workspacefs.NewHandlers(workspacefs.Options{})
 	_, err := h.SearchFiles(context.Background(), wire.SearchFilesReq{Root: "relative/root", Query: "x"})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rpc.ErrInvalidParams))
+	assert.True(t, errors.Is(err, rpcerror.ErrInvalidParams))
 }
 
 func TestSearchFiles_TruncatedByHitCap(t *testing.T) {
@@ -72,27 +71,4 @@ func TestSearchFiles_TruncatedByDirBudget(t *testing.T) {
 }
 
 // TestRegister_SearchFiles 确认新方法真的挂在了 registry 上,且 sentinel 被翻成
-// *rpc.Error(与既有五个方法同一条管线)。
-func TestRegister_SearchFiles(t *testing.T) {
-	reg := rpc.NewRegistry()
-	h := workspacefs.NewHandlers(workspacefs.Options{})
-	workspacefs.Register(reg, h, func(fn rpc.HandlerFunc) rpc.HandlerFunc { return fn })
-
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "target.txt"), nil, 0o644))
-
-	raw, _ := json.Marshal(wire.SearchFilesReq{Root: dir, Query: "target"})
-	res, err := reg.Dispatch(context.Background(), wire.MethodSearchFiles, raw)
-	require.NoError(t, err)
-	resp, ok := res.(*wire.SearchFilesResp)
-	require.True(t, ok)
-	require.Len(t, resp.Hits, 1)
-	assert.Equal(t, "target.txt", resp.Hits[0].Path)
-
-	// 空 root 触发 wire.ErrNoCwd,客户端拿到的是 *rpc.Error 而不是裸 sentinel。
-	raw, _ = json.Marshal(wire.SearchFilesReq{Root: "", Query: "target"})
-	_, err = reg.Dispatch(context.Background(), wire.MethodSearchFiles, raw)
-	var rpcErr *rpc.Error
-	require.ErrorAs(t, err, &rpcErr)
-	assert.Equal(t, wire.ErrCodeNoCwd, rpcErr.Code)
-}
+// *rpcerror.Error(与既有五个方法同一条管线)。

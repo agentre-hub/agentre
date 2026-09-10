@@ -11,7 +11,8 @@ export type FakePushItem = {
   sync_id: string;
   base_version: number;
   updated_at: number;
-  deleted: boolean;
+  /** 非零 = 墓碑，值是发起端记下的删除时刻（规格 2026-08-27-schema-overhaul 决策 20）。 */
+  deleted_at: number;
   payload?: Record<string, unknown>;
 };
 
@@ -19,11 +20,12 @@ export type FakePullItem = {
   kind: string;
   sync_id: string;
   payload: Record<string, unknown>;
-  source_device_id: number;
+  /** 最后一次修改来自哪台机器（决策 14）；空串 = server 直写。 */
+  origin_fingerprint: string;
   project_sync_id?: string;
   agentred_fingerprint?: string;
   updated_at?: number;
-  deleted?: boolean;
+  deleted_at?: number;
 };
 
 function env(name: string): string {

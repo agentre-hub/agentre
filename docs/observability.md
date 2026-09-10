@@ -13,7 +13,7 @@
 - `logger.Ctx(ctx)` when you have a ctx — **the default**, because it carries request-scoped context.
 - `logger.Default()` only where there is no ctx (bootstrap, `gogo.Go`). It re-reads the current level, so the Debug toggle takes effect without a restart.
 
-Output goes to `<AppDataDir>/logs/agentre.log`, dropping to debug-and-above once **Settings → Version & Updates → Debug Logging** is on.
+Output goes to `<AppDataDir>/logs/agentre.log`, dropping to debug-and-above once **Settings → Version & Updates → Debug Logging** is on. The `agentred` daemon shares the same construction point (`internal/pkg/logfile`) and writes `<AgentredDataDir>/logs/agentred.log`, with its level set by `agentred run --log-level` / `AGENTRED_LOG_LEVEL`. Both hosts keep an `error.log` sidecar and roll at 30 MB × 10 backups × 30 days.
 
 There is no lint rule pinning this boundary — review new logging sites deliberately rather than treating existing bootstrap or CLI-output exceptions as precedent.
 
@@ -66,7 +66,8 @@ logger.Default().Warn(fmt.Sprintf("stop failed for %d: %v", req.SessionID, aerr)
 
 - Where an identifier is needed, log a **redacted form**. The existing precedent is `maskedTail` (`internal/daemon/handlers/llm.go`) for provider API keys, and `sanitizeTunnelHeaders` (`internal/daemon/handlers/mcpproxy.go`) for forwarded headers — reuse them rather than writing a third.
 - Logs reach log files, issue attachments, and an AI agent's context — **far more readers than you imagine.**
-- HEAD still contains runtime Debug sites that serialize complete agent frames / daemon event payloads. They violate this red line and are existing debt, not sanctioned examples: do not add another, do not attach those logs unredacted, and fix them only in a focused TDD change.
+- Runtime Debug sites that serialize complete agent frames (e.g. `claudecode/session.go` and `codex/session.go`) are **sanctioned, intended behavior**, not debt: Debug Logging is an opt-in toggle (off by default), and turning it on exists precisely to capture the full frame for troubleshooting — redacting the payload there would remove the toggle's entire purpose. This does not relax the credential red line above: a full frame must still never carry a raw password / token / API key / cookie / private key: any producer that could embed one still owes the frame a redaction step before this site logs it.
+- `piagent`'s equivalent sink logs only metadata, not because it follows a different convention: `pkg/piagent/client.go:504` hands the sink a diagnostic projection that is already payload-free (see the comment at `client.go:54`) — that layer never receives the raw frame to begin with. Do not read this difference between the three backends as drift awaiting consolidation.
 
 ## Using Logs to Verify and Reproduce
 

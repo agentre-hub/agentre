@@ -2,18 +2,16 @@ package chat_svc
 
 import (
 	"context"
-	"errors"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
 // CatchUpRemoteSessions 是桌面 App 启动后的远端补齐入口:把「这段时间远端上发生的
@@ -94,17 +92,12 @@ func (s *chatSvc) CatchUpRemoteDevice(ctx context.Context, deviceID int64) error
 // 上线由 CatchUpRemoteDevice 重来),一行都不碰。反过来做是个**永久**的假失败 ——
 // blanket 的 ResetStaleActiveSessions 已经不碰远端行,这条路是该状态此后唯一的写方,
 // 而一条在桌面端离线期间没产出新内容的会话也不会被重放改写。
-//
-// 但「这一次没问到」与「这台永远答不了」是两回事:老 daemon(补齐族 RPC 回
-// method-not-found)等它回来问一万遍也是同一个答案,把它记成待补齐等于把那些会话
-// 永久钉在 running 上。R18 议定的回落是「老 daemon 上断连即结束该轮」,所以那一支
-// 当场按 daemon 交回的(空)名单收尾,并把这台设备从待补齐里摘掉。
 func (s *chatSvc) catchUpDevice(ctx context.Context, deviceID int64, sessions []*chat_entity.Session) {
 	sids := make([]int64, 0, len(sessions))
 	for _, sess := range sessions {
 		sids = append(sids, sess.ID)
 	}
-	rt, _, err := s.remoteRuntimeForDevice(ctx, deviceID, sids, nil)
+	rt, _, err := s.remotePool().ForDevice(ctx, deviceID, sids, nil)
 	if err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.catchUpDevice: daemon unreachable, deferring catch-up",
 			zap.Int64("deviceId", deviceID), zap.Int64s("sessionIds", sids), zap.Error(err))
@@ -121,19 +114,11 @@ func (s *chatSvc) catchUpDevice(ctx context.Context, deviceID int64, sessions []
 		ready = append(ready, sess.ID)
 	}
 	live, err := rt.CatchUpSessions(ctx, ready)
-	if err != nil && !errors.Is(err, remote.ErrCatchUpUnsupported) {
+	if err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.catchUpDevice: catch-up failed, deferring",
 			zap.Int64("deviceId", deviceID), zap.Int64s("sessionIds", ready), zap.Error(err))
 		s.catchUpPending.Store(deviceID, struct{}{})
 		return
-	}
-	if err != nil {
-		// 老 daemon(R18):它没有通知日志,也答不了「这条会话还在不在跑」——等它回来
-		// 再问一遍拿到的还是同一个答案。按议定的回落当场收尾:那台 daemon 上断连即结束
-		// 该轮,所以库里这些 running / waiting 行必然已经没有对应的一轮在跑。留成待补齐
-		// 才是错的 —— 此后没有任何东西会再改写它们(见 failSessionsNotLiveOnDaemon)。
-		logger.Ctx(ctx).Warn("chat_svc.catchUpDevice: daemon predates session durability, ending its sessions",
-			zap.Int64("deviceId", deviceID), zap.Int64s("sessionIds", ready))
 	}
 	s.catchUpPending.Delete(deviceID)
 	// 判据只覆盖**真的问过 daemon 的那批**:解析不出后端的会话没进 ready,daemon 也就

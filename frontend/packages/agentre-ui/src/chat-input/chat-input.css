@@ -1,0 +1,26 @@
+/* AIChatInput 自带的样式。
+ *
+ * 由 `./index.tsx` 副作用 import 拉进来，**宿主不需要知道它存在**。这一点是有意
+ * 的：TipTap 的 Placeholder 扩展只往空段落上加 `is-editor-empty` 类和
+ * `data-placeholder` 属性，那行可见的字是下面这条规则用 `content: attr()` 画出来
+ * 的——组件离了它就是坏的，所以它不该是一个「宿主记得 import 才有」的东西。
+ *
+ * 此前这条规则寄放在桌面端的 globals.css 里，于是 agentre-server 接了同一个组件、
+ * 拼好了按能力分段的提示文案，用户却一个字都看不到；两端的测试全绿，因为
+ * jsdom / happy-dom 都不跑 CSS。守卫在 ./placeholder-style.test.ts。
+ *
+ * 两条约束，改这份文件时别破：
+ *   1. **纯 CSS，不写 @apply**。它经 JS 引入、不过 Tailwind 的管线，`@apply`
+ *      不会展开。
+ *   2. **只引 :root 里真的有的 token**（`--muted-foreground` 这类），不引
+ *      `--color-*` 那层 Tailwind 别名——同样是因为不在管线里。 */
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  /* float + height:0 让占位文字不参与布局，不会把光标顶下去。 */
+  float: left;
+  height: 0;
+  /* 点占位文字等于点编辑器本身，而不是什么都不发生。 */
+  pointer-events: none;
+  color: var(--muted-foreground);
+}

@@ -11,13 +11,14 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/app/coding"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentprovider"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
-	"github.com/agentre-ai/agentre/internal/pkg/cliprober"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/service/llm_provider_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentprovider"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/service/llm_provider_svc"
 )
 
 // proberFor 按 backend 类型查 Prober；未注册返 nil。
@@ -182,25 +183,9 @@ func buildPiAgentProviderProbe(ctx context.Context, b *agent_backend_entity.Agen
 	// 执行侧模型解析（EffectiveLLMConfig v1 seam）：与 chat run 同一口径（sessionModelKeyFor）——
 	// backend 钉了固定模型（b.LLMModelKey）时测固定模型，否则 provider-default 解析当前默认模型；
 	// 测试连接必须测这条 backend 真正会跑的那个模型。
-	resolved, err := llm_provider_svc.LLMProvider().ResolveTarget(ctx, llm_provider_svc.ModelTarget{
-		ProviderKey: p.ProviderKey,
-		ModelKey:    strings.TrimSpace(b.LLMModelKey),
-	})
+	cfg, err := effectiveLLMForProbe(ctx, p, b.LLMModelKey)
 	if err != nil {
 		return nil, env, model, err
-	}
-	cfg := &agentruntime.EffectiveLLMConfig{
-		Mode:          agentruntime.EffectiveModeProviderDefault,
-		ProviderKey:   resolved.ProviderKey,
-		ModelKey:      resolved.ModelKey,
-		ProviderType:  resolved.ProviderType,
-		ProviderName:  p.Name,
-		ModelID:       resolved.ModelID,
-		ContextWindow: resolved.ContextWindow,
-		MaxOutput:     resolved.MaxOutput,
-		BaseURL:       resolved.BaseURL,
-		APIKey:        resolved.APIKey,
-		HasAPIKey:     resolved.HasAPIKey,
 	}
 	extPath, err := piagent.MaterializeProviderExtension(cfg)
 	if err != nil {
@@ -211,6 +196,33 @@ func buildPiAgentProviderProbe(ctx context.Context, b *agent_backend_entity.Agen
 		return nil, env, model, err
 	}
 	return []string{extPath}, agentruntime.BuildPiAgentProviderEnv(env, cfg), providerModel, nil
+}
+
+// effectiveLLMForProbe 装配 Test 连通性用的执行侧配置：经 llm_provider_svc.ResolveTarget
+// 解析模型（modelKey 空 = provider-default 解析当前默认模型，非空 = fixed-model），再经
+// 共享构造口 agentruntime.NewEffectiveLLMConfig 装配 —— Mode 只在那一处计算，Test 与
+// chat run 因此不会漂移。
+func effectiveLLMForProbe(
+	ctx context.Context, p *llm_provider_entity.LLMProvider, modelKey string,
+) (*agentruntime.EffectiveLLMConfig, error) {
+	target := llm_provider_svc.ModelTarget{ProviderKey: p.ProviderKey, ModelKey: strings.TrimSpace(modelKey)}
+	resolved, err := llm_provider_svc.LLMProvider().ResolveTarget(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	return agentruntime.NewEffectiveLLMConfig(agentruntime.EffectiveLLMConfigInput{
+		ProviderKey:      resolved.ProviderKey,
+		ProviderType:     resolved.ProviderType,
+		ProviderName:     p.Name,
+		TargetModelKey:   target.ModelKey,
+		ResolvedModelKey: resolved.ModelKey,
+		ResolvedModelID:  resolved.ModelID,
+		ContextWindow:    resolved.ContextWindow,
+		MaxOutput:        resolved.MaxOutput,
+		BaseURL:          resolved.BaseURL,
+		APIKey:           resolved.APIKey,
+		HasAPIKey:        resolved.HasAPIKey,
+	}), nil
 }
 
 func buildPiAgentProbeModel(*agent_backend_entity.AgentBackend) string {

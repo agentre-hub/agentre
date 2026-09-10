@@ -9,12 +9,12 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // startSubagentActivityWatcher 为某 claudecode 会话惰性启动一个 watcher goroutine,订阅
@@ -44,27 +44,27 @@ func (s *chatSvc) startSubagentActivityWatcher(sessionID int64, be *agent_backen
 }
 
 // driveSubagentActivity 把一轮后台 subagent 内部活动落回**发起消息**(不新建消息):
-//  1. 定位发起消息(含 subagent_state{parent_tool_call_id==act.ToolUseID} 的 assistant 消息);
+//  1. 定位发起消息(含 subagent_state{parent_tool_call_id==act.ToolCallID} 的 assistant 消息);
 //     找不到 → 抽干 act.Events 返回(别让 Session reader 阻塞)。
 //  2. 经会话级旁路 emit StreamSubagentActivityStarted —— 把发起消息 id + per-turn 流名推给
 //     前端,让它重开 per-turn 流把活动块嵌套渲染回 AgentSpawnCard。
 //  3. 用 dispatcher drain act.Events(ToolCallHandler 已把 ParentToolCallID!="" 路由成
 //     NestedToolUseBlock / NestedToolResultBlock,实时 stream 走发起卡的 per-turn 流)。
-//  4. 收尾:取本轮新产出的嵌套块(ParentToolCallID==act.ToolUseID),序列化成 StoredBlock JSON
+//  4. 收尾:取本轮新产出的嵌套块(ParentToolCallID==act.ToolCallID),序列化成 StoredBlock JSON
 //     + 收集其 id,跨消息 AppendSubagentChildren 进发起消息;然后 emit StreamDone。
 //
 // 与 driveAutonomousTurn 不同:这是**空闲态后台活动**,不新建消息 / 不取 NextSeq /
 // 不翻 session running —— 会话保持 idle。
 func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be *agent_backend_entity.AgentBackend, act agentruntime.SubagentActivity) {
-	if act.ToolUseID == "" {
+	if act.ToolCallID == "" {
 		drainAndDiscard(act.Events)
 		return
 	}
 
-	launchMsg, err := chat_repo.Message().FindAssistantBySubagentToolUseID(ctx, sessionID, act.ToolUseID)
+	launchMsg, err := chat_repo.Message().FindAssistantBySubagentToolCallID(ctx, sessionID, act.ToolCallID)
 	if err != nil || launchMsg == nil {
 		logger.Ctx(ctx).Warn("chat_svc: driveSubagentActivity launch message not found; draining events",
-			zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolUseID), zap.Error(err))
+			zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolCallID), zap.Error(err))
 		drainAndDiscard(act.Events)
 		return
 	}
@@ -81,14 +81,14 @@ func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be
 	logger.Ctx(ctx).Info("chat_svc: subagent activity started",
 		zap.Int64("sessionId", sessionID),
 		zap.Int64("launchMessageId", launchMsg.ID),
-		zap.String("toolUseId", act.ToolUseID))
+		zap.String("toolUseId", act.ToolCallID))
 	// 会话级旁路:让前端定位发起卡并 openStream 订阅 per-turn 流。不插入新 assistant 行
 	// (发起消息已存在),区别于 StreamAutonomousStarted。
 	s.emitter.Emit(ctx, AutonomousStreamName(sessionID), ChatStreamEvent{
 		Kind:            StreamSubagentActivityStarted,
 		Stream:          stream,
 		LaunchMessageID: launchMsg.ID,
-		ToolUseID:       act.ToolUseID,
+		ToolCallID:      act.ToolCallID,
 	})
 
 	// accumulator 只累积本轮活动产出的块,Finalize 即"本次新增";发起消息既有的块不 seed
@@ -96,7 +96,7 @@ func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be
 	// SubagentProgress / SubagentDone 靠 turn.Mutate 命中它才更新+推流,不 seed 的话空闲期
 	// 的 task_progress 全被静默丢弃,派遣卡的工具数 / token 永远停在派遣那一刻(sess-2275)。
 	acc := turn.New()
-	state := seedSubagentState(acc, launchMsg, act.ToolUseID)
+	state := seedSubagentState(acc, launchMsg, act.ToolCallID)
 	progressBefore := progressOf(state)
 	dispEmit := &subagentActivityEmitter{inner: &dispatcherEmitter{svc: s}, sessionID: sessionID}
 	turnCtx := s.newTurnContext(launchMsg, sess, stream, be.Type)
@@ -108,18 +108,18 @@ func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be
 		}
 	}
 
-	// 取本轮新产出的嵌套块(ParentToolCallID==act.ToolUseID),序列化 + 收集 tool_use id,
+	// 取本轮新产出的嵌套块(ParentToolCallID==act.ToolCallID),序列化 + 收集 tool_use id,
 	// 跨消息追加进发起消息。finalCtx 去掉 cancel 但保留 DB 句柄 —— 已流出的内容必须落库。
-	childBlocks, childIDs := subagentChildBlocks(acc.Finalize(), act.ToolUseID)
+	childBlocks, childIDs := subagentChildBlocks(acc.Finalize(), act.ToolCallID)
 	finalCtx := context.WithoutCancel(ctx)
 	if len(childBlocks) > 0 {
 		childJSON, err := encodeStoredBlocks(childBlocks)
 		if err != nil {
 			logger.Ctx(finalCtx).Warn("chat_svc: driveSubagentActivity encode child blocks failed",
-				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolUseID), zap.Error(err))
-		} else if err := chat_repo.Message().AppendSubagentChildren(finalCtx, sessionID, act.ToolUseID, childJSON, childIDs); err != nil {
+				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolCallID), zap.Error(err))
+		} else if err := chat_repo.Message().AppendSubagentChildren(finalCtx, sessionID, act.ToolCallID, childJSON, childIDs); err != nil {
 			logger.Ctx(finalCtx).Warn("chat_svc: driveSubagentActivity AppendSubagentChildren failed",
-				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolUseID), zap.Error(err))
+				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolCallID), zap.Error(err))
 		}
 	}
 
@@ -127,9 +127,9 @@ func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be
 	// 不重写整条消息(它属于一条早已收尾的旧消息),不落这一步的话重开会话又退回旧数字。
 	// 没变化就不写 —— 发起消息 blocks_json 动辄几百 KB,读-改-写不白跑一趟。
 	if progress := progressOf(state); progress != progressBefore {
-		if err := chat_repo.Message().PatchSubagentProgress(finalCtx, sessionID, act.ToolUseID, progress); err != nil {
+		if err := chat_repo.Message().PatchSubagentProgress(finalCtx, sessionID, act.ToolCallID, progress); err != nil {
 			logger.Ctx(finalCtx).Warn("chat_svc.driveSubagentActivity: PatchSubagentProgress failed",
-				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolUseID), zap.Error(err))
+				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolCallID), zap.Error(err))
 		}
 	}
 
@@ -181,8 +181,8 @@ func (e *subagentActivityEmitter) Emit(ctx context.Context, stream string, raw a
 // 并按 SubagentProgress / SubagentDone 用的 Mutate key 登记,让它们能命中并就地更新进度。
 // 复制而非直接引用:GetBlocks 解出的块只是本次解码的副本,后续只有 PatchSubagentProgress
 // 落库才算数。返回 nil 表示发起消息里没有这块(消息已被改写 / blocks 损坏)。
-func seedSubagentState(acc *turn.Accumulator, launchMsg *chat_entity.Message, toolUseID string) *chatblocks.SubagentStateBlock {
-	if launchMsg == nil || toolUseID == "" {
+func seedSubagentState(acc *turn.Accumulator, launchMsg *chat_entity.Message, toolCallID string) *chatblocks.SubagentStateBlock {
+	if launchMsg == nil || toolCallID == "" {
 		return nil
 	}
 	bs, err := launchMsg.GetBlocks()
@@ -199,10 +199,10 @@ func seedSubagentState(acc *turn.Accumulator, launchMsg *chat_entity.Message, to
 		default:
 			continue
 		}
-		if st.ParentToolCallID != toolUseID {
+		if st.ParentToolCallID != toolCallID {
 			continue
 		}
-		acc.AddBlock(&st, "subagent_state:"+toolUseID)
+		acc.AddBlock(&st, "subagent_state:"+toolCallID)
 		return &st
 	}
 	return nil
@@ -223,16 +223,16 @@ func progressOf(state *chatblocks.SubagentStateBlock) chat_repo.SubagentProgress
 	}
 }
 
-// subagentChildBlocks 从一轮活动的 Finalize 结果里挑出属于 parentToolUseID 的嵌套块
+// subagentChildBlocks 从一轮活动的 Finalize 结果里挑出属于 parentToolCallID 的嵌套块
 // (NestedToolUseBlock / NestedToolResultBlock),并收集 NestedToolUseBlock 的 id 作为
 // childIDs(对齐 subagent_state.nested_tool_call_ids 反向索引,该数组索引的是 tool_use 块)。
-func subagentChildBlocks(finalBlocks []cagoblocks.ContentBlock, parentToolUseID string) ([]cagoblocks.ContentBlock, []string) {
+func subagentChildBlocks(finalBlocks []cagoblocks.ContentBlock, parentToolCallID string) ([]cagoblocks.ContentBlock, []string) {
 	var children []cagoblocks.ContentBlock
 	var ids []string
 	for _, b := range finalBlocks {
 		switch nb := b.(type) {
 		case *chatblocks.NestedToolUseBlock:
-			if nb.ParentToolCallID != parentToolUseID {
+			if nb.ParentToolCallID != parentToolCallID {
 				continue
 			}
 			children = append(children, nb)
@@ -240,7 +240,7 @@ func subagentChildBlocks(finalBlocks []cagoblocks.ContentBlock, parentToolUseID 
 				ids = append(ids, nb.ID)
 			}
 		case *chatblocks.NestedToolResultBlock:
-			if nb.ParentToolCallID != parentToolUseID {
+			if nb.ParentToolCallID != parentToolCallID {
 				continue
 			}
 			children = append(children, nb)

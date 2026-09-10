@@ -6,9 +6,10 @@ import (
 
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/subagent_svc/mock_subagent_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/subagent_svc/mock_subagent_svc"
 )
 
 func TestCallAgent_HappyPath(t *testing.T) {
@@ -37,7 +38,7 @@ func TestCallAgent_HappyPath(t *testing.T) {
 	chat.EXPECT().FinalAssistantText(gomock.Any(), int64(555)).Return("done: looks good", nil)
 	// 注意:不再期望 DeleteSession —— 一次性会话保留(可供事后查看)。
 
-	out, err := s.callAgent(context.Background(), subagentRef{agentID: 10, sessionID: 100}, "Reviewer", "review the diff")
+	out, err := s.callAgent(context.Background(), agenttool.Ref{AgentID: 10, SessionID: 100}, "Reviewer", "review the diff")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestCallAgent_UnknownAgent(t *testing.T) {
 	s := &subagentSvc{agents: agents, chat: chat, chains: map[int64][]int64{}}
 
 	agents.EXPECT().FindByName(gomock.Any(), "Ghost").Return(nil, nil)
-	if _, err := s.callAgent(context.Background(), subagentRef{agentID: 1, sessionID: 1}, "Ghost", "x"); err == nil {
+	if _, err := s.callAgent(context.Background(), agenttool.Ref{AgentID: 1, SessionID: 1}, "Ghost", "x"); err == nil {
 		t.Fatal("expected error for unknown agent")
 	}
 }
@@ -69,7 +70,7 @@ func TestCallAgent_CycleRejected(t *testing.T) {
 	s.registerChain(100, []int64{20})
 	agents.EXPECT().FindByName(gomock.Any(), "Reviewer").Return(&agent_entity.Agent{ID: 20, Name: "Reviewer"}, nil)
 	// 环在建会话前拦截 —— SessionProjectID/EnsureSession 不应被调用。
-	if _, err := s.callAgent(context.Background(), subagentRef{agentID: 10, sessionID: 100}, "Reviewer", "x"); err == nil {
+	if _, err := s.callAgent(context.Background(), agenttool.Ref{AgentID: 10, SessionID: 100}, "Reviewer", "x"); err == nil {
 		t.Fatal("expected cycle rejection")
 	}
 }
@@ -90,7 +91,7 @@ func TestCallAgent_CtxCanceled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 预取消 → select 命中 ctx.Done
-	if _, err := s.callAgent(ctx, subagentRef{agentID: 10, sessionID: 100}, "Slow", "x"); err == nil {
+	if _, err := s.callAgent(ctx, agenttool.Ref{AgentID: 10, SessionID: 100}, "Slow", "x"); err == nil {
 		t.Fatal("expected cancellation error")
 	}
 }
@@ -109,7 +110,7 @@ func TestCallAgent_SubagentErr(t *testing.T) {
 	chat.EXPECT().ObserveTurn(int64(999)).Return((<-chan chat_svc.TurnResult)(ch), func() {})
 	chat.EXPECT().Send(gomock.Any(), gomock.Any()).Return(&chat_svc.SendResponse{}, nil)
 
-	if _, err := s.callAgent(context.Background(), subagentRef{agentID: 10, sessionID: 100}, "R", "x"); err == nil {
+	if _, err := s.callAgent(context.Background(), agenttool.Ref{AgentID: 10, SessionID: 100}, "R", "x"); err == nil {
 		t.Fatal("expected error propagated from sub-agent")
 	}
 }

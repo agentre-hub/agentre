@@ -2,7 +2,7 @@ package server_svc_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,60 +12,145 @@ import (
 	"github.com/gorilla/websocket"
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo/mock_server_state_repo"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
-// relayEndpointServer 起一个假的中转服务端:校验 Bearer 头,把任何路径升级成
-// websocket,对 auth.account 请求回成功。用于验证 server_svc 的 relay 拨号。
-func relayEndpointServer(t *testing.T, bearer string) *httptest.Server {
+// 本文件的假中转服务端说的是决策 10/13/14 之后的协议:一条连接、信封承载的虚拟
+// 通道、目标声明为通道的第一帧载荷、失败按通道级错误帧作答——不再是旧版一条连接
+// 一个目标、失败靠 HTTP 4xx/5xx 状态码。
+
+// wrapRelayEnvelope / unwrapRelayEnvelope 复现 relaytransport 的信封格式(2 字节
+// 大端长度 + 通道 ID + 载荷),与 agentre-server relay_svc.WrapEnvelope 同一格式。
+func wrapRelayEnvelope(channelID string, payload []byte) []byte {
+	id := []byte(channelID)
+	out := make([]byte, 2+len(id)+len(payload))
+	binary.BigEndian.PutUint16(out, uint16(len(id)))
+	copy(out[2:], id)
+	copy(out[2+len(id):], payload)
+	return out
+}
+
+func unwrapRelayEnvelope(t *testing.T, envelope []byte) (string, []byte) {
 	t.Helper()
+	if len(envelope) < 2 {
+		t.Fatalf("envelope too short: %d bytes", len(envelope))
+	}
+	length := int(binary.BigEndian.Uint16(envelope[:2]))
+	if len(envelope) < 2+length {
+		t.Fatalf("envelope shorter than its declared channel ID length")
+	}
+	return string(envelope[2 : 2+length]), envelope[2+length:]
+}
+
+// relayClientTarget 是假服务端针对一次「开通道」请求要给出的应答:成功时完成
+// auth.account 握手,失败时按 channel_code 写一帧通道级错误再关掉通道。
+type relayClientTarget struct {
+	// channelCode 非零时,这条通道以该通道级错误码失败(决策 10)。
+	channelCode int32
+	// protocolVersion / minSupportedProtocolVersion 非空时覆盖 auth.account 应答里
+	// 的版本窗口,用来构造一个本端不接受的对端。空则按本端自己的窗口作答(兼容)。
+	protocolVersion             string
+	minSupportedProtocolVersion string
+	// stall 为 true 时通道开得起来,但服务端永远不答 auth.account 那一帧 —— 用来
+	// 构造「握手挂着不动」这个状态。
+	stall bool
+}
+
+// relayClientEndpointServer 起一个假的中继**客户端**入口(/v1/relay/client):校验
+// Bearer,升级之后按信封协议逐条读帧;每条新通道的第一帧是目标声明,respond
+// 决定这条通道成功(完成 auth.account 握手)还是以给定的通道级错误码失败。
+func relayClientEndpointServer(t *testing.T, bearer string, respond func(target string) relayClientTarget) (*httptest.Server, *[]string) {
+	t.Helper()
+	var gotTargets []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer "+bearer {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		up := &websocket.Upgrader{}
+		up := &websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}
 		ws, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
 		defer func() { _ = ws.Close() }()
+		opened := map[string]bool{}
+		outcomes := map[string]relayClientTarget{}
 		for {
-			var f rpc.Frame
-			if err := ws.ReadJSON(&f); err != nil {
+			messageType, payload, readErr := ws.ReadMessage()
+			if readErr != nil {
 				return
 			}
-			_ = ws.WriteJSON(rpc.Frame{JSONRPC: "2.0", ID: f.ID, Result: json.RawMessage(`{"ok":true,"instanceUUID":"uuid-1"}`)})
+			if messageType != websocket.BinaryMessage {
+				continue
+			}
+			channelID, inner := unwrapRelayEnvelope(t, payload)
+			if !opened[channelID] {
+				opened[channelID] = true
+				gotTargets = append(gotTargets, string(inner))
+				outcome := relayClientTarget{}
+				if respond != nil {
+					outcome = respond(string(inner))
+				}
+				outcomes[channelID] = outcome
+				if outcome.channelCode != 0 {
+					errFrame, _ := proto.Marshal(&agentrewire.RpcFrame{Body: &agentrewire.RpcFrame_Error{
+						Error: &agentrewire.RpcError{Code: outcome.channelCode, Message: "channel failed"},
+					}})
+					_ = ws.WriteMessage(websocket.BinaryMessage, wrapRelayEnvelope(channelID, errFrame))
+					_ = ws.WriteMessage(websocket.BinaryMessage, wrapRelayEnvelope(channelID, nil))
+					delete(opened, channelID)
+				}
+				continue
+			}
+			// 第二帧:auth.account 请求。
+			outcome := outcomes[channelID]
+			if outcome.stall {
+				continue
+			}
+			var frame agentrewire.RpcFrame
+			if proto.Unmarshal(inner, &frame) != nil {
+				continue
+			}
+			peerProtocol, peerMinSupported := outcome.protocolVersion, outcome.minSupportedProtocolVersion
+			if peerProtocol == "" {
+				peerProtocol = wireversion.Protocol
+			}
+			if peerMinSupported == "" {
+				peerMinSupported = wireversion.MinSupported
+			}
+			response, _ := proto.Marshal(&agentrewire.AuthAccountResponse{
+				Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: peerProtocol,
+				MinSupportedProtocolVersion: peerMinSupported, PeerFingerprint: "sha256:desktop",
+			})
+			respFrame, _ := proto.Marshal(&agentrewire.RpcFrame{Id: frame.GetId(), Body: &agentrewire.RpcFrame_Response{
+				Response: &agentrewire.Response{MethodId: frame.GetRequest().GetMethodId(), EncodedPayload: response},
+			}})
+			_ = ws.WriteMessage(websocket.BinaryMessage, wrapRelayEnvelope(channelID, respFrame))
 		}
 	}))
-	return srv
-}
-
-// setupRelaySvc wires a logged-in server_svc with the given repo row + access token.
-func setupRelaySvc(t *testing.T, row *server_state_entity.ServerState, token string) server_svc.ServerSvc {
-	t.Helper()
-	ctrl := gomock.NewController(t)
-	t.Cleanup(ctrl.Finish)
-	mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
-	server_state_repo.RegisterServerState(mRepo)
-	if row != nil {
-		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil)
-	}
-	keychain.SetDefault(keychain.NewMemory())
-	svc := server_svc.New(server_svc.NewHTTPClient("http://relay.hub", token), nil)
-	return svc
+	return srv, &gotTargets
 }
 
 func TestDialDaemonRelay_NotLoggedIn(t *testing.T) {
 	Convey("DialDaemonRelay with no persisted login → ErrNotLoggedIn, no dial", t, func() {
-		svc := setupRelaySvc(t, &server_state_entity.ServerState{ID: 1}, "")
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
+		server_state_repo.RegisterServerState(mRepo)
+		mRepo.EXPECT().Get(gomock.Any()).Return(&server_state_entity.ServerState{ID: 1}, nil)
+		keychain.SetDefault(keychain.NewMemory())
+		svc := server_svc.New(server_svc.NewHTTPClient("http://relay.hub", ""), nil)
+
 		_, err := svc.DialDaemonRelay(context.Background(), "sha256:daemon", "sha256:desktop")
 		So(errors.Is(err, server_svc.ErrNotLoggedIn), ShouldBeTrue)
 	})
@@ -75,36 +160,29 @@ func TestDialDaemonRelay_NotLoggedIn(t *testing.T) {
 // When 桌面端走账号中转拨号,Then 它打的是 <前缀>/v1/relay/client —— 与同一个
 // baseURL 上的 HTTP 调用(serverClient.do 用 baseURL+path)以及 daemon 侧的
 // hubEndpoint(它保留前缀后拼 /v1/relay/daemon)一致。丢掉前缀会打到反代根下不存在
-// 的路径,server 从没见过这次请求,拨号却被归类成「这台 daemon 从未登记过」——
-// 用户被指向「先去认领这台机器」,而机器一直是认领着的。
+// 的路径,server 从没见过这次请求。
 func TestDialDaemonRelay_PreservesServerBasePath(t *testing.T) {
 	Convey("baseURL 带路径前缀时,中转拨号必须打到前缀下的 /v1/relay/client", t, func() {
 		const prefix = "/agentre"
 		var gotPath string
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		relaySrv, gotTargets := relayClientEndpointServer(t, "tok-9", nil)
+		defer relaySrv.Close()
+		// httptest.NewServer 本身没有路径前缀参数;用一层反代式包装记录路径并转发,
+		// 与旧测试的做法保持一致的断言口径(gotPath),同时复用上面按信封协议应答的
+		// 真实 handler。
+		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			gotPath = r.URL.Path
 			if r.URL.Path != prefix+"/v1/relay/client" {
 				http.NotFound(w, r)
 				return
 			}
-			up := &websocket.Upgrader{}
-			ws, err := up.Upgrade(w, r, nil)
-			if err != nil {
-				return
-			}
-			defer func() { _ = ws.Close() }()
-			for {
-				var f rpc.Frame
-				if err := ws.ReadJSON(&f); err != nil {
-					return
-				}
-				_ = ws.WriteJSON(rpc.Frame{JSONRPC: "2.0", ID: f.ID,
-					Result: json.RawMessage(`{"ok":true,"instanceUUID":"uuid-1"}`)})
-			}
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = "/v1/relay/client"
+			relaySrv.Config.Handler.ServeHTTP(w, r2)
 		}))
-		defer srv.Close()
+		defer proxy.Close()
 
-		base := srv.URL + prefix
+		base := proxy.URL + prefix
 		row := &server_state_entity.ServerState{
 			ID: 1, ServerURL: base, DeviceID: 1, ServerUserID: 1,
 			KeychainAccount: "agentre.server.refresh_token",
@@ -113,14 +191,17 @@ func TestDialDaemonRelay_PreservesServerBasePath(t *testing.T) {
 		t.Cleanup(ctrl.Finish)
 		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
 		server_state_repo.RegisterServerState(mRepo)
-		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil)
+		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
 		keychain.SetDefault(keychain.NewMemory())
 		svc := server_svc.New(server_svc.NewHTTPClient(base, "tok-9"), nil)
 
-		c, err := svc.DialDaemonRelay(context.Background(), "sha256:daemon", "sha256:desktop")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c, err := svc.DialDaemonRelay(ctx, "sha256:daemon", "sha256:desktop")
 		So(err, ShouldBeNil)
 		So(c, ShouldNotBeNil)
 		So(gotPath, ShouldEqual, prefix+"/v1/relay/client")
+		So(*gotTargets, ShouldContain, "machine:sha256:daemon")
 		_ = c.Close()
 	})
 }
@@ -176,11 +257,15 @@ func TestNewInboundHubLink_GivenLoggedInDesktop_WhenRun_ThenRegistersWithItsCurr
 	})
 }
 
+// channelCodeTargetOffline 与 agentre-server relay_svc.ChannelCodeTargetOffline
+// 逐字同值 —— 见 relayclient.go 顶部同一组常量的注释。
+const channelCodeTargetOffline int32 = -32011
+
 func TestDialDesktopRelay_GivenTargetDesktopAppIsNotRunning_ThenItDoesNotReuseAgentredOfflineError(t *testing.T) {
 	Convey("desktop relay offline is exposed as a distinct typed error", t, func() {
-		relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "relay target offline", http.StatusConflict)
-		}))
+		relay, _ := relayClientEndpointServer(t, "tok-9", func(string) relayClientTarget {
+			return relayClientTarget{channelCode: channelCodeTargetOffline}
+		})
 		defer relay.Close()
 
 		loggedIn := &server_state_entity.ServerState{
@@ -190,18 +275,21 @@ func TestDialDesktopRelay_GivenTargetDesktopAppIsNotRunning_ThenItDoesNotReuseAg
 		ctrl := gomock.NewController(t)
 		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
 		server_state_repo.RegisterServerState(mRepo)
-		mRepo.EXPECT().Get(gomock.Any()).Return(loggedIn, nil)
+		mRepo.EXPECT().Get(gomock.Any()).Return(loggedIn, nil).AnyTimes()
+		keychain.SetDefault(keychain.NewMemory())
 		svc := server_svc.New(server_svc.NewHTTPClient(relay.URL, "tok-9"), nil)
 
-		_, err := svc.DialDesktopRelay(context.Background(), "sha256:desktop", "sha256:caller")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := svc.DialDesktopRelay(ctx, "sha256:desktop", "sha256:caller")
 		So(errors.Is(err, server_svc.ErrDesktopAppNotRunning), ShouldBeTrue)
 		So(errors.Is(err, client.ErrRelayDaemonOffline), ShouldBeFalse)
 	})
 }
 
 func TestDialDaemonRelay_LoggedInDialAndHandshake(t *testing.T) {
-	Convey("logged in: relay dial authenticates with the access token and completes auth.account", t, func() {
-		srv := relayEndpointServer(t, "tok-9")
+	Convey("logged in: relay dial opens a channel over the resident link and completes auth.account", t, func() {
+		srv, gotTargets := relayClientEndpointServer(t, "tok-9", nil)
 		defer srv.Close()
 
 		row := &server_state_entity.ServerState{
@@ -212,14 +300,96 @@ func TestDialDaemonRelay_LoggedInDialAndHandshake(t *testing.T) {
 		t.Cleanup(ctrl.Finish)
 		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
 		server_state_repo.RegisterServerState(mRepo)
-		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil)
+		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
 		keychain.SetDefault(keychain.NewMemory())
 		svc := server_svc.New(server_svc.NewHTTPClient(srv.URL, "tok-9"), nil)
 
-		c, err := svc.DialDaemonRelay(context.Background(), "sha256:daemon", "sha256:desktop")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c, err := svc.DialDaemonRelay(ctx, "sha256:daemon", "sha256:desktop")
 		So(err, ShouldBeNil)
 		So(c, ShouldNotBeNil)
 		So(c.Closed(), ShouldNotBeNil)
+		So(c.SelfFingerprint(), ShouldEqual, "sha256:desktop")
+		So(*gotTargets, ShouldContain, "machine:sha256:daemon")
 		_ = c.Close()
+	})
+}
+
+// Given 中继那一端的对端(agentred / 另一台桌面端)说的是本端窗口之外的协议版本,
+// When 桌面端在常驻连接的一条虚拟通道上完成 auth.account,Then 握手必须以
+// client.ErrPeerProtocolVersionMismatch 拒绝。
+//
+// 直连与 LAN 的三处握手(client.AuthAccount / AuthPair / AuthDevice)一直是这么做的;
+// 中继客户端这一条在决策 13 改成手工发帧之后漏掉了这一步:版本不合的对端会被当成
+// 握手成功,直到后面某个字段解不出来才炸,报出来的是一句与「该升级了」毫无关系的话。
+func TestDialDaemonRelay_GivenTheTargetAnswersWithAnIncompatibleProtocolVersion_ThenTheHandshakeIsRejected(t *testing.T) {
+	Convey("中继通道上的 auth.account 也要过版本窗口", t, func() {
+		srv, _ := relayClientEndpointServer(t, "tok-9", func(string) relayClientTarget {
+			return relayClientTarget{protocolVersion: "99.0.0", minSupportedProtocolVersion: "99.0.0"}
+		})
+		defer srv.Close()
+
+		row := &server_state_entity.ServerState{
+			ID: 1, ServerURL: srv.URL, DeviceID: 1, ServerUserID: 1,
+			KeychainAccount: "agentre.server.refresh_token",
+		}
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
+		server_state_repo.RegisterServerState(mRepo)
+		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
+		keychain.SetDefault(keychain.NewMemory())
+		svc := server_svc.New(server_svc.NewHTTPClient(srv.URL, "tok-9"), nil)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c, err := svc.DialDaemonRelay(ctx, "sha256:daemon", "sha256:desktop")
+		So(err, ShouldNotBeNil)
+		So(errors.Is(err, client.ErrPeerProtocolVersionMismatch), ShouldBeTrue)
+		So(c, ShouldBeNil)
+	})
+}
+
+// Given 中继把通道开起来了但对端永远不答那一帧 auth.account,When 调用方的 ctx
+// 到期,Then 拨号必须返回,而不是一直阻塞在读上。
+//
+// 旧实现(client.DialRelayProtobuf → protorpc.CallMethod)是带 ctx 的;决策 13 改成
+// 手工读帧之后 ctx 只用在 waitConnected 上,握手本体谁也叫不停:一次
+// ConnPool.Borrow 的 ctx 被取消之后,这条 goroutine 会连同它那条虚拟通道(以及服务端
+// 那一侧的登记)一直挂到物理链路断开为止。
+func TestDialDaemonRelay_GivenTheTargetNeverAnswersTheHandshake_WhenTheCallerGivesUp_ThenTheDialReturns(t *testing.T) {
+	Convey("握手挂着不动时,调用方的 ctx 到期要能把这次拨号叫停", t, func() {
+		srv, _ := relayClientEndpointServer(t, "tok-9", func(string) relayClientTarget {
+			return relayClientTarget{stall: true}
+		})
+		defer srv.Close()
+
+		row := &server_state_entity.ServerState{
+			ID: 1, ServerURL: srv.URL, DeviceID: 1, ServerUserID: 1,
+			KeychainAccount: "agentre.server.refresh_token",
+		}
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
+		server_state_repo.RegisterServerState(mRepo)
+		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
+		keychain.SetDefault(keychain.NewMemory())
+		svc := server_svc.New(server_svc.NewHTTPClient(srv.URL, "tok-9"), nil)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() {
+			_, err := svc.DialDaemonRelay(ctx, "sha256:daemon", "sha256:desktop")
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			So(err, ShouldNotBeNil)
+			So(errors.Is(err, context.DeadlineExceeded), ShouldBeTrue)
+		case <-time.After(5 * time.Second):
+			t.Fatal("DialDaemonRelay blocked past the caller's deadline")
+		}
 	})
 }

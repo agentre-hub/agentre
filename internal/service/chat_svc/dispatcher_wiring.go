@@ -1,9 +1,9 @@
 package chat_svc
 
 import (
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/handlers"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/handlers"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // newPackageDispatcher 构造 chat_svc 的 dispatcher 并注册全部 handler,
@@ -17,6 +17,7 @@ func newPackageDispatcher(svc *chatSvc) *turn.Dispatcher {
 	d := turn.NewDispatcher()
 	d.Register((*agentruntime.TextDelta)(nil), handlers.TextDeltaHandler{})
 	d.Register((*agentruntime.ThinkingDelta)(nil), handlers.ThinkingDeltaHandler{})
+	d.Register((*agentruntime.OutputActivity)(nil), handlers.OutputActivityHandler{})
 	d.Register((*agentruntime.ToolCall)(nil), handlers.ToolCallHandler{})
 	d.Register((*agentruntime.ToolResult)(nil), handlers.ToolResultHandler{})
 	d.Register((*agentruntime.UserAskRequest)(nil), handlers.UserAskRequestHandler{})

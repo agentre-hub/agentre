@@ -3,22 +3,36 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/daemon"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/daemon"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/logfile"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 const (
 	defaultAgentredHost = "0.0.0.0"
 	defaultAgentredPort = 7456
+	defaultLogLevel     = "info"
+
+	// logsDirName 是 agentred 的落盘日志目录,位于 paths.AgentredDataDir() 下。
+	// 守护进程通常由 launchd / systemd 拉起,stdout 无人接管,文件是唯一能回看的现场。
+	logsDirName = "logs"
+
+	// agentredLogName 决定应用日志文件名(<logsDirName>/agentred.log);error 及以上
+	// 另有旁路 error.log,见 logfile.New。
+	agentredLogName = "agentred"
 )
 
 type runDaemon interface {
@@ -52,14 +66,22 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 		host      string
 		port      int
 		serverURL string
+		logLevel  string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Boot the daemon (foreground; SIGINT/SIGTERM to stop)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			level, err := resolveLogLevel(cmd, logLevel)
+			if err != nil {
+				return err
+			}
 			dir, err := deps.dataDir()
 			if err != nil {
+				return err
+			}
+			if err := initLogging(cmd.OutOrStdout(), dir, level); err != nil {
 				return err
 			}
 			st, err := state.Load(dir)
@@ -68,6 +90,9 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 			}
 			config, err := resolveRunConfig(cmd, st.Snapshot(), host, port, tlsCert, tlsKey, serverURL)
 			if err != nil {
+				return err
+			}
+			if err := requireServerMatchesLogin(st, config.serverURL); err != nil {
 				return err
 			}
 			if config.hasOverrides {
@@ -80,6 +105,16 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 				}
 			}
 
+			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer cancel()
+			logger.Ctx(ctx).Debug("agentred.run: resolved configuration",
+				zap.String("lanHost", config.listen.LanHost),
+				zap.Int("lanPort", config.listen.LanPort),
+				zap.String("tlsCertFile", config.listen.TLSCertFile),
+				zap.String("tlsKeyFile", config.listen.TLSKeyFile),
+				zap.String("serverURL", config.serverURL),
+				zap.String("dataDir", dir))
+
 			d, err := deps.newDaemon(daemon.Options{
 				DataDir:      dir,
 				LANHost:      config.listen.LanHost,
@@ -89,19 +124,85 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 				HubServerURL: config.serverURL,
 			})
 			if err != nil {
+				logger.Ctx(ctx).Error("agentred.run: daemon construction failed", zap.Error(err))
 				return err
 			}
-			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-			defer cancel()
-			return d.Run(ctx)
+			logger.Ctx(ctx).Info("agentred.run: daemon starting",
+				zap.String("lanHost", config.listen.LanHost),
+				zap.Int("lanPort", config.listen.LanPort),
+				zap.Bool("tlsEnabled", config.listen.TLSCertFile != ""),
+				zap.String("logLevel", level))
+			if err := d.Run(ctx); err != nil {
+				logger.Ctx(ctx).Error("agentred.run: daemon stopped", zap.Error(err))
+				return err
+			}
+			logger.Ctx(ctx).Info("agentred.run: daemon stopped")
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&tlsCert, "tls-cert", "", "PEM certificate path (or AGENTRED_TLS_CERT); enables wss://")
 	cmd.Flags().StringVar(&tlsKey, "tls-key", "", "PEM private key path (or AGENTRED_TLS_KEY); required with --tls-cert")
 	cmd.Flags().StringVar(&host, "host", defaultAgentredHost, "LAN listen host (or AGENTRED_HOST)")
 	cmd.Flags().IntVar(&port, "port", defaultAgentredPort, "LAN listen port (or AGENTRED_PORT)")
+	cmd.Flags().StringVar(&logLevel, "log-level", defaultLogLevel,
+		"file/console log verbosity: debug|info|warn|error (or AGENTRED_LOG_LEVEL)")
 	cmd.Flags().StringVar(&serverURL, "server", strings.TrimSpace(os.Getenv("AGENTRED_SERVER_URL")), "account server base URL (or AGENTRED_SERVER_URL)")
 	return cmd
+}
+
+// initLogging 把全局 cago logger 换成写 <dataDir>/logs/ 的实例。在此之前 agentred
+// 全程用 zap 的 no-op logger,所有 logger.Ctx(...) 调用都无声丢弃。
+func initLogging(console io.Writer, dataDir, level string) error {
+	l, err := logfile.New(console, filepath.Join(dataDir, logsDirName), agentredLogName, level)
+	if err != nil {
+		return fmt.Errorf("init agentred logger: %w", err)
+	}
+	logger.SetLogger(l)
+	// daemon 内部仍有约十处 stdlib log.Printf(panic 恢复、shutdown 失败、重启清扫),
+	// 它们默认只写 stderr —— 而 launchd 不接管 stderr,那正是最需要回看的现场。
+	// 重定向后它们与 zap 记录落进同一个文件;进程活到退出,不需要还原。
+	zap.RedirectStdLog(l)
+	return nil
+}
+
+// resolveLogLevel 按 flag > 环境变量 > 默认解析级别。级别不落盘到 state:它是排查
+// 开关,不是守护进程的运行配置。拼错的级别直接报错,不静默退回 info。
+func resolveLogLevel(cmd *cobra.Command, flagValue string) (string, error) {
+	level, _ := resolveString(
+		cmd.Flags().Changed("log-level"), flagValue, "AGENTRED_LOG_LEVEL", "", defaultLogLevel,
+	)
+	level = strings.ToLower(strings.TrimSpace(level))
+	switch level {
+	case "debug", "info", "warn", "error":
+		return level, nil
+	default:
+		return "", newUsageError("--log-level must be one of debug, info, warn, error")
+	}
+}
+
+// requireServerMatchesLogin 挡住「已登录的 daemon 被 run 指到另一套 server」。
+//
+// 登录是一整套属于某个账号的东西：凭据、验签公钥、吊销表。把地址换掉而不动这些，
+// daemon 会拿 A 的凭据去 B 登记，B 一律拒；而拒绝的收场是
+// credentialRefresher 停掉中继续期并写一行日志（daemon.go），daemon 自己仍然认为
+// 「我已登录」，LAN 也照常——用户看到的只有「这台机器就是不上线」。
+//
+// 闸门与 login 那条路同源（已登录必须先 logout），措辞也保持一致：换 server 是
+// 一次重新登录，不是改一个配置项。
+//
+// 只在两边都有地址且**确实不同**时拒：登录时没记下地址的旧状态照常放行，让这一次
+// run 把地址补上。
+func requireServerMatchesLogin(st *state.State, serverURL string) error {
+	if !st.IsLoggedIn() {
+		return nil
+	}
+	loggedInURL := strings.TrimRight(strings.TrimSpace(st.Snapshot().HubServerURL), "/")
+	if loggedInURL == "" || serverURL == "" || loggedInURL == serverURL {
+		return nil
+	}
+	return newUsageError(
+		"daemon is logged into %s; run agentred logout before pointing it at %s",
+		loggedInURL, serverURL)
 }
 
 func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string, flagPort int,

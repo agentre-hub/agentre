@@ -6,13 +6,13 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 )
 
 type subagentSvc struct {
-	mcp            *subagentMCP
+	mcp            *agenttool.Server
 	mcpOnce        sync.Once
 	gatewayBaseURL string
 
@@ -33,8 +33,8 @@ func (s *subagentSvc) RegisterDeps(agents AgentGateway, chat ChatGateway) {
 	s.agents, s.chat = agents, chat
 }
 
-func (s *subagentSvc) mcpHandlerInit() *subagentMCP {
-	s.mcpOnce.Do(func() { s.mcp = newSubagentMCP(s) })
+func (s *subagentSvc) mcpHandlerInit() *agenttool.Server {
+	s.mcpOnce.Do(func() { s.mcp = s.newMCPServer() })
 	return s.mcp
 }
 
@@ -45,7 +45,7 @@ func (s *subagentSvc) MCPHandler() http.Handler { return s.mcpHandlerInit() }
 func (s *subagentSvc) SetGatewayBaseURL(u string) { s.gatewayBaseURL = u }
 
 // BuildTurnMCP 实现 chat_svc.TurnMCPProvider:agent 开启 subagent 工具时返回注入 spec。
-func (s *subagentSvc) BuildTurnMCP(_ context.Context, a *agent_entity.Agent, sessionID int64, _ int64) []agentruntime.MCPServerSpec {
+func (s *subagentSvc) BuildTurnMCP(_ context.Context, a *agent_entity.Agent, sessionID int64) []agentruntime.MCPServerSpec {
 	if a == nil || !a.ToolEnabled(agenttool.KeySubagent) || s.gatewayBaseURL == "" {
 		return nil
 	}

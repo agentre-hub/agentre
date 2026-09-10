@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
-import { Button } from "@/components/ui/button";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
-
-import { AgentreDialog } from "../app-dialog";
+import {
+  AgentreDialog,
+  Button,
+  RadioGroup,
+  RadioGroupItem,
+  Textarea,
+} from "@agentre-hub/agentre-ui";
 
 type Props = {
   open: boolean;
@@ -125,7 +127,7 @@ export function TLSTrustDialog({
                 <span className="text-sm font-medium">{t(m.labelKey)}</span>
                 {m.badgeKey ? (
                   <span
-                    className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                    className={`text-3xs uppercase tracking-wide px-1.5 py-0.5 rounded ${
                       m.danger
                         ? "bg-destructive/20 text-destructive"
                         : "bg-secondary text-secondary-foreground"

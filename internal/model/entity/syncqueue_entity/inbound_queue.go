@@ -12,8 +12,6 @@ type InboundQueueItem struct {
 	EntitySyncID string `gorm:"column:entity_sync_id;type:text;not null"`
 	// PayloadJSON 完整内容，等待落地。
 	PayloadJSON string `gorm:"column:payload_json;type:text;not null;default:''"`
-	// MissingSyncID 暂缓的原因：正在等待的那个引用目标的同步标识。
-	MissingSyncID string `gorm:"column:missing_sync_id;type:text;not null;default:''"`
 	// ReceivedAt 收到时间（毫秒 epoch），供 30 天留存窗口计算。
 	ReceivedAt int64 `gorm:"column:received_at;type:bigint;not null;default:0"`
 }

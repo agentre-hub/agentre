@@ -13,9 +13,9 @@ import (
 	context "context"
 	reflect "reflect"
 
-	agent_entity "github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	blocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	hook_svc "github.com/agentre-ai/agentre/internal/service/hook_svc"
+	agent_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	blocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	hook_svc "github.com/agentre-hub/agentre/internal/service/hook_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 

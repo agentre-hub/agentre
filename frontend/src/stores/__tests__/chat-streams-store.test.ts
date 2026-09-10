@@ -9,7 +9,7 @@
 //   - tool_result 不 flush liveDelta（紧跟 tool_use，不应中间插字）。
 //   - finishStream / failStream / closeStream 都会清空该 session 的 LiveStream，
 //     并把 doneTick 自增 → 订阅者据此 reload 持久化消息。
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   hasSessionStream,
@@ -67,6 +67,208 @@ describe("chat-streams-store", () => {
     const s = live(7)!;
     expect(s.liveUsage).toEqual(usage);
     expect(s.liveContextWindow).toBe(258000);
+  });
+
+  it("Given two usage frames, When patched, Then completion accumulates and prompt is the latest", () => {
+    const { openStream, patchLiveUsage } = useChatStreamsStore.getState();
+    openStream(baseStream(7));
+    patchLiveUsage(7, 1, {
+      promptTokens: 12000,
+      completionTokens: 200,
+      reasoningTokens: 10,
+      totalInputTokens: 12000,
+    });
+    patchLiveUsage(7, 1, {
+      promptTokens: 22000,
+      completionTokens: 400,
+      reasoningTokens: 5,
+      totalInputTokens: 22000,
+    });
+    const s = live(7)!;
+    expect(s.liveUsage?.promptTokens).toBe(22000);
+    expect(s.turnCompletionTokens).toBe(600);
+    expect(s.turnReasoningTokens).toBe(15);
+  });
+
+  // 生成计时（tok/s 的分母）与后端 turn/timing.go 同一口径：整轮耗时 − 工具执行
+  // 空档；等首 token 的排队/prefill 计入。分子是整轮所有内部 API call 的 output 之和，
+  // 包含「不吐字、直接发工具调用」那些跳，所以分母不能只数看得见文字的段
+  // （sess-3226 的 75331 tok/s 就是那么来的）。
+  describe("generation clock", () => {
+    it("Given a freshly opened stream, Then the clock is already running", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      useChatStreamsStore.getState().openStream(baseStream(7));
+      const s = live(7)!;
+      expect(s.burstStartedAt).toBe(1_000);
+      expect(s.generationMs).toBe(0);
+      vi.useRealTimers();
+    });
+
+    it("Given a queue wait before the first token, Then it still counts", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, appendLiveText, appendLiveToolUse } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(4_400); // 排队 4.4s 才吐第一个字
+      appendLiveText(7, 1, "hi");
+      vi.setSystemTime(5_400);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      expect(live(7)!.generationMs).toBe(5_400);
+      vi.useRealTimers();
+    });
+
+    it("Given a tool call, Then the clock stops until its result comes back", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      const { openStream, appendLiveToolUse, appendLiveToolResult } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+
+      vi.setSystemTime(3_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      expect(live(7)!.burstStartedAt).toBeNull();
+      expect(live(7)!.generationMs).toBe(2_000);
+
+      vi.setSystemTime(9_000);
+      appendLiveToolResult(7, 1, { toolUseId: "t1", text: "ok" });
+      expect(live(7)!.burstStartedAt).toBe(9_000);
+      expect(live(7)!.generationMs).toBe(2_000);
+      vi.useRealTimers();
+    });
+
+    it("Given parallel tool calls, Then only the last result restarts the clock", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, appendLiveToolUse, appendLiveToolResult } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(1_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      appendLiveToolUse(7, 1, { toolUseId: "t2", toolName: "Read" });
+      vi.setSystemTime(3_000);
+      appendLiveToolResult(7, 1, { toolUseId: "t1", text: "ok" });
+      expect(live(7)!.burstStartedAt).toBeNull();
+      vi.setSystemTime(5_000);
+      appendLiveToolResult(7, 1, { toolUseId: "t2", text: "ok" });
+      expect(live(7)!.burstStartedAt).toBe(5_000);
+      expect(live(7)!.generationMs).toBe(1_000);
+      vi.useRealTimers();
+    });
+
+    it("Given a usage frame mid-turn, Then the clock keeps running", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, patchLiveUsage } = useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(2_000);
+      patchLiveUsage(7, 1, { completionTokens: 100, promptTokens: 10 });
+      expect(live(7)!.burstStartedAt).toBe(0);
+      expect(live(7)!.generationMs).toBe(0);
+      vi.useRealTimers();
+    });
+
+    it("Given a lost tool result, When the model speaks again, Then the clock restarts", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, appendLiveToolUse, appendLiveText } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(1_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      vi.setSystemTime(4_000);
+      appendLiveText(7, 1, "继续");
+      expect(live(7)!.burstStartedAt).toBe(4_000);
+      expect(live(7)!.pendingTools).toEqual([]);
+      expect(live(7)!.generationMs).toBe(1_000);
+      vi.useRealTimers();
+    });
+
+    it("Given a nested subagent tool call, Then the clock is untouched", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, appendLiveToolUse } = useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(1_000);
+      appendLiveToolUse(7, 1, {
+        toolUseId: "n1",
+        toolName: "Read",
+        parentToolUseId: "t1",
+      });
+      expect(live(7)!.burstStartedAt).toBe(0);
+      expect(live(7)!.pendingTools).toEqual([]);
+      vi.useRealTimers();
+    });
+  });
+
+  it("Given the first text delta, When appended, Then firstTokenAt is recorded once", () => {
+    const { openStream, appendLiveText } = useChatStreamsStore.getState();
+    openStream(baseStream(7));
+    appendLiveText(7, 1, "hello");
+    const first = live(7)!.firstTokenAt;
+    expect(first).toBeTruthy();
+    appendLiveText(7, 1, " world");
+    expect(live(7)!.firstTokenAt).toBe(first);
+  });
+
+  // 现场 sess-3241：190.1s 的一轮报出 166.6s 的首 token —— 前 23 跳全是工具调用，
+  // 一个字都没吐，而首 token 只认可见正文。前端于是把「首 token」渲染成一路增长的
+  // 整轮耗时，tok/s 又被 waitingFirstToken 门控成不显示。
+  describe("first token without visible text (sess-3241)", () => {
+    it("Given an output_activity signal, Then firstTokenAt is recorded", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      const { openStream, noteOutputActivity } = useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(6_000);
+      noteOutputActivity(7, 1);
+      expect(live(7)!.firstTokenAt).toBe(6_000);
+      vi.useRealTimers();
+    });
+
+    it("Given a tool call and no text at all, Then the tool call records it", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      const { openStream, appendLiveToolUse } = useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(6_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      expect(live(7)!.firstTokenAt).toBe(6_000);
+      vi.useRealTimers();
+    });
+
+    it("Given both signals, Then the earliest one wins", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      const { openStream, noteOutputActivity, appendLiveToolUse } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(3_000);
+      noteOutputActivity(7, 1);
+      vi.setSystemTime(6_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      expect(live(7)!.firstTokenAt).toBe(3_000);
+      vi.useRealTimers();
+    });
+
+    // 只记表不动表：分母的开/停仍然只由工具边界和可见正文决定，与后端
+    // NoteOutputTokenAt 同口径。
+    it("Given a signal mid tool gap, Then the generation clock stays stopped", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const { openStream, appendLiveToolUse, noteOutputActivity } =
+        useChatStreamsStore.getState();
+      openStream(baseStream(7));
+      vi.setSystemTime(2_000);
+      appendLiveToolUse(7, 1, { toolUseId: "t1", toolName: "Bash" });
+      vi.setSystemTime(5_000);
+      noteOutputActivity(7, 1);
+      expect(live(7)!.burstStartedAt).toBeNull();
+      expect(live(7)!.pendingTools).toEqual(["t1"]);
+      expect(live(7)!.generationMs).toBe(2_000);
+      vi.useRealTimers();
+    });
   });
 
   it("appendLiveText appends to liveDelta (not yet frozen)", () => {

@@ -1,0 +1,156 @@
+# dev 只覆盖 dev 分支：不跑 lint / test，二进制在 runner 上编好后送到目标机，
+# 目标机上用 deploy/Dockerfile 的 prebuilt 目标打成镜像再 compose。
+#
+# 这条流水线没有门禁，dev 分支上也没有别的门禁接着：.github/workflows/ci.yml 只在
+# push main / develop/* 与 pull_request 上触发，dev 不在其中，也没有开着的 PR。
+# lint / test 靠本地 make lint / make test，以及 dev 合入 main 时那个 PR 上的 ci.yml。
+
+name: Deploy agentred dev
+
+on:
+  push:
+    branches:
+      - dev
+
+# 连推两次时，两条流水线会同时改目标机上同一个部署目录再各自 compose up，
+# 后写覆盖先写，机器可能停在旧二进制而两条流水线都是绿的
+concurrency:
+  group: deploy-agentred-dev
+  cancel-in-progress: false
+
+env:
+  GOPROXY: ${{ secrets.GOPROXY && secrets.GOPROXY || 'https://goproxy.cn,direct' }}
+  DEPLOY_HOST: ${{ secrets.DEV_SSH_HOST && secrets.DEV_SSH_HOST || 'coding.local' }}
+  DEPLOY_USER: ${{ secrets.DEV_SSH_USER && secrets.DEV_SSH_USER || 'root' }}
+  DEPLOY_PORT: ${{ secrets.DEV_SSH_PORT && secrets.DEV_SSH_PORT || '22' }}
+  DEPLOY_DIR: ${{ secrets.DEV_AGENTRED_DIR && secrets.DEV_AGENTRED_DIR || '/srv/agentred-dev' }}
+  # 目标机拉不到 docker.io（实测 registry-1.docker.io 直接 EOF），走可达的镜像源。
+  # Dockerfile 里的默认值保持上游正确，这个覆盖只属于本网络
+  RUNTIME_IMAGE: ${{ secrets.RUNTIME_IMAGE && secrets.RUNTIME_IMAGE || 'docker.m.daocloud.io/library/node:24-bookworm-slim' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Set outputs
+        id: vars
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          # buildinfo.ShortCommitID() 截前 7 位，而这个仓库 git 的短 sha 是 8 位，
+          # 拿 8 位去比 agentred --version 的输出会永远不匹配
+          echo "sha7=$(git rev-parse --short=7 HEAD)" >> $GITHUB_OUTPUT
+
+      # 复用 Makefile 的 agentred-linux，ldflags 与本地构建同一组符号
+      - name: Build agentred
+        run: make agentred-linux AGENTRED_GOOS=linux AGENTRED_GOARCH=amd64
+
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "缺少 secret DEV_SSH_KEY" >&2; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/dev_deploy
+          chmod 600 ~/.ssh/dev_deploy
+          printf '%s\n' \
+            'Host dev-deploy' \
+            "  HostName $DEPLOY_HOST" \
+            "  User $DEPLOY_USER" \
+            "  Port $DEPLOY_PORT" \
+            '  IdentityFile ~/.ssh/dev_deploy' \
+            '  IdentitiesOnly yes' \
+            '  StrictHostKeyChecking accept-new' \
+            '  BatchMode yes' > ~/.ssh/dev_deploy.conf
+          chmod 600 ~/.ssh/dev_deploy.conf
+
+      - name: Deploy to ${{ env.DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+
+          ssh -F ~/.ssh/dev_deploy.conf dev-deploy "mkdir -p '$DEPLOY_DIR/bin'"
+
+          scp -F ~/.ssh/dev_deploy.conf deploy/Dockerfile deploy/docker-compose.yml \
+            "dev-deploy:$DEPLOY_DIR/"
+          scp -F ~/.ssh/dev_deploy.conf build/bin/agentred-linux-amd64 \
+            "dev-deploy:$DEPLOY_DIR/bin/agentred.next"
+
+          # 远端脚本用引号 heredoc，runner 侧不插值；要带过去的值先 %q 转义
+          {
+          printf 'DEPLOY_DIR=%q\n' "$DEPLOY_DIR"
+          printf 'RUNTIME_IMAGE=%q\n' "$RUNTIME_IMAGE"
+          cat <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+
+          test -s bin/agentred.next || { echo "bin/agentred.next 没传上来或者是空的" >&2; exit 1; }
+          chmod 755 bin/agentred.next
+          mv -f bin/agentred.next bin/agentred
+
+          prev=$(docker image inspect -f '{{.Id}}' agentre/agentred:dev 2>/dev/null || true)
+
+          # 上下文只给 bin/：部署目录里的 .env 不该进构建上下文。三个 CLI 的层由
+          # RUNTIME_IMAGE 与版本 arg 决定，不变就全部命中 layer cache
+          docker build -f Dockerfile --target prebuilt \
+            --build-arg RUNTIME_IMAGE="$RUNTIME_IMAGE" \
+            -t agentre/agentred:dev bin
+
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml up -d --force-recreate
+
+          # tag 每次复用，上一个镜像会变成 dangling 攒在机器上。容器已经换到新镜像了才删得掉；
+          # 不用 image prune -f，那会连这台机器上别的 dangling 镜像一起收走
+          now=$(docker image inspect -f '{{.Id}}' agentre/agentred:dev)
+          if [ -n "$prev" ] && [ "$prev" != "$now" ]; then
+            docker image rm "$prev" >/dev/null 2>&1 || true
+          fi
+          REMOTE
+          } | ssh -F ~/.ssh/dev_deploy.conf dev-deploy bash -s
+
+      # 判据有两条：daemon 真的应答本地 IPC，且跑的是本次 commit。
+      # 只看容器 Up 不够——agentred 起不来时容器会反复重启，某一秒抓到的也是 Up
+      - name: Verify deployment
+        run: |
+          set -euo pipefail
+          {
+          printf 'DEPLOY_DIR=%q\n' "$DEPLOY_DIR"
+          printf 'WANT_COMMIT=%q\n' "${{ steps.vars.outputs.sha7 }}"
+          cat <<'REMOTE'
+          set -uo pipefail
+          cd "$DEPLOY_DIR" || exit 1
+          cid=$(docker compose -f docker-compose.yml ps -q agentred)
+          test -n "$cid" || { echo "容器没起来" >&2; exit 1; }
+
+          for i in $(seq 1 30); do
+            if docker exec "$cid" agentred status >/dev/null 2>&1; then
+              got=$(docker exec "$cid" agentred --version 2>/dev/null || true)
+              case "$got" in
+                *"$WANT_COMMIT"*)
+                  echo "部署校验通过(第 ${i} 次尝试): $got"
+                  exit 0
+                  ;;
+                *)
+                  echo "agentred 起来了但 commit 不对: 期望 $WANT_COMMIT, 实际 '$got'" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+            sleep 2
+          done
+          echo "agentred status 连试 30 次都没应答,dev 环境停留在坏状态(不自动回滚)" >&2
+          docker compose -f docker-compose.yml logs --tail=80 agentred >&2 || true
+          exit 1
+          REMOTE
+          } | ssh -F ~/.ssh/dev_deploy.conf dev-deploy bash -s
+
+      - name: Remove SSH credentials
+        if: always()
+        run: rm -f ~/.ssh/dev_deploy ~/.ssh/dev_deploy.conf

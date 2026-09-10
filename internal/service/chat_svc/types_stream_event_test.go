@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // TestStreamSubagentActivityStarted_KindValue 验证常量值与协议字符串一致。
@@ -18,12 +18,12 @@ func TestStreamSubagentActivityStarted_KindValue(t *testing.T) {
 }
 
 // TestStreamSubagentActivityStarted_EventMarshal 验证 ChatStreamEvent 可 JSON 序列化
-// LaunchMessageID 和 ToolUseID 字段，且字段名与协议约定一致。
+// LaunchMessageID 和 ToolCallID 字段，且字段名与协议约定一致。
 func TestStreamSubagentActivityStarted_EventMarshal(t *testing.T) {
 	evt := chat_svc.ChatStreamEvent{
 		Kind:            chat_svc.StreamSubagentActivityStarted,
 		LaunchMessageID: 42,
-		ToolUseID:       "toolu_abc123",
+		ToolCallID:      "toolu_abc123",
 		Stream:          "chat:event:1:99",
 	}
 	data, err := json.Marshal(evt)
@@ -42,9 +42,9 @@ func TestStreamSubagentActivityStarted_EventMarshal(t *testing.T) {
 // 字段,不夹带 subagent 全量快照(R4)。
 func TestStreamSubagentModel_EventMarshal(t *testing.T) {
 	evt := chat_svc.ChatStreamEvent{
-		Kind:      chat_svc.StreamSubagentModel,
-		ToolUseID: "toolu_abc123",
-		Model:     "claude-haiku-4-5-20251001",
+		Kind:       chat_svc.StreamSubagentModel,
+		ToolCallID: "toolu_abc123",
+		Model:      "claude-haiku-4-5-20251001",
 	}
 	data, err := json.Marshal(evt)
 	require.NoError(t, err)

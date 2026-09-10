@@ -9,8 +9,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
-	"github.com/agentre-ai/agentre/internal/service/cc_usage_svc"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/service/cc_usage_svc"
 )
 
 // recordEmitter 收集所有 emit 事件供断言。

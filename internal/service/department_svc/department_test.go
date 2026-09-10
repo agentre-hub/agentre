@@ -8,35 +8,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo/mock_department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo/mock_department_repo"
+	"github.com/agentre-hub/agentre/internal/service/department_svc/mock_deps"
 )
 
 func setupSvc(t *testing.T) (
 	context.Context,
 	*mock_department_repo.MockDepartmentRepo,
-	*mock_agent_repo.MockAgentRepo,
+	*mock_deps.MockAgentPort,
 	*departmentSvc,
 ) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	deptMock := mock_department_repo.NewMockDepartmentRepo(ctrl)
-	agentMock := mock_agent_repo.NewMockAgentRepo(ctrl)
+	agentMock := mock_deps.NewMockAgentPort(ctrl)
 	department_repo.RegisterDepartment(deptMock)
-	agent_repo.RegisterAgent(agentMock)
-	return context.Background(), deptMock, agentMock, &departmentSvc{now: func() int64 { return 1700000000 }}
+	return context.Background(), deptMock, agentMock, &departmentSvc{
+		now:    func() int64 { return 1700000000 },
+		agents: agentMock,
+	}
 }
 
 func TestCreateDepartment(t *testing.T) {
@@ -190,26 +187,28 @@ func TestUpdateDepartmentLeadValidation(t *testing.T) {
 func setupLoadSvc(t *testing.T) (
 	context.Context,
 	*mock_department_repo.MockDepartmentRepo,
-	*mock_agent_repo.MockAgentRepo,
-	*mock_agent_backend_repo.MockAgentBackendRepo,
-	*mock_llm_provider_repo.MockLLMProviderRepo,
-	*mock_agent_repo.MockAgentExecTargetRepo,
+	*mock_deps.MockAgentPort,
+	*mock_deps.MockAgentBackendPort,
+	*mock_deps.MockLLMProviderPort,
+	*mock_deps.MockAgentExecTargetPort,
 	*departmentSvc,
 ) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	deptMock := mock_department_repo.NewMockDepartmentRepo(ctrl)
-	agentMock := mock_agent_repo.NewMockAgentRepo(ctrl)
-	backendMock := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
-	providerMock := mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl)
-	execTargetMock := mock_agent_repo.NewMockAgentExecTargetRepo(ctrl)
+	agentMock := mock_deps.NewMockAgentPort(ctrl)
+	backendMock := mock_deps.NewMockAgentBackendPort(ctrl)
+	providerMock := mock_deps.NewMockLLMProviderPort(ctrl)
+	execTargetMock := mock_deps.NewMockAgentExecTargetPort(ctrl)
 	department_repo.RegisterDepartment(deptMock)
-	agent_repo.RegisterAgent(agentMock)
-	agent_backend_repo.RegisterAgentBackend(backendMock)
-	llm_provider_repo.RegisterLLMProvider(providerMock)
-	agent_repo.RegisterAgentExecTarget(execTargetMock)
-	return context.Background(), deptMock, agentMock, backendMock, providerMock, execTargetMock, &departmentSvc{now: func() int64 { return 1700000000 }}
+	return context.Background(), deptMock, agentMock, backendMock, providerMock, execTargetMock, &departmentSvc{
+		now:              func() int64 { return 1700000000 },
+		agents:           agentMock,
+		agentBackends:    backendMock,
+		llmProviders:     providerMock,
+		agentExecTargets: execTargetMock,
+	}
 }
 
 func TestLoad_ToolsProjectionAndAvailableTools(t *testing.T) {
@@ -278,8 +277,8 @@ func TestLoad_ExecTargets(t *testing.T) {
 
 		// 守卫（R15e）：agents.skills_json 不再被读取。Agent 行上那份遗留授权可能早已
 		// 与执行目标行不一致（同步落地走 UpdateRow / UpsertFromSync，只改执行目标行），
-		// AgentItem.Skills 必须取 ①——与同一个 DTO 上的 AgentBackendID/Backend 同源。
-		convey.Convey("Agent 行的 skills_json 已过期 → AgentItem.Skills 取 ①", func() {
+		// 授权只能从执行目标行上读出来。
+		convey.Convey("Agent 行的 skills_json 已过期 → 授权取执行目标行 ①", func() {
 			deptMock.EXPECT().List(gomock.Any()).Return(nil, nil)
 			agentMock.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{
 				{
@@ -299,13 +298,14 @@ func TestLoad_ExecTargets(t *testing.T) {
 
 			resp, err := svc.Load(ctx, &LoadOrgRequest{})
 			assert.NoError(t, err)
-			if assert.Len(t, resp.Agents, 1) && assert.Len(t, resp.Agents[0].Skills, 1) {
-				assert.Equal(t, "fresh@target", resp.Agents[0].Skills[0].ID)
+			if assert.Len(t, resp.Agents, 1) && assert.Len(t, resp.Agents[0].ExecTargets, 2) &&
+				assert.Len(t, resp.Agents[0].ExecTargets[0].Skills, 1) {
+				assert.Equal(t, "fresh@target", resp.Agents[0].ExecTargets[0].Skills[0].ID)
 			}
 		})
 
-		// 执行目标列表为空 → Skills 为空，而不是回落到 Agent 行的遗留列。
-		convey.Convey("没有执行目标行 → AgentItem.Skills 为空", func() {
+		// 执行目标列表为空 → 一档授权都读不出来，而不是回落到 Agent 行的遗留列。
+		convey.Convey("没有执行目标行 → 一档授权都没有", func() {
 			deptMock.EXPECT().List(gomock.Any()).Return(nil, nil)
 			agentMock.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{
 				{
@@ -320,7 +320,7 @@ func TestLoad_ExecTargets(t *testing.T) {
 			resp, err := svc.Load(ctx, &LoadOrgRequest{})
 			assert.NoError(t, err)
 			if assert.Len(t, resp.Agents, 1) {
-				assert.Empty(t, resp.Agents[0].Skills)
+				assert.Empty(t, resp.Agents[0].ExecTargets)
 			}
 		})
 	})

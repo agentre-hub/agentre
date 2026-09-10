@@ -10,10 +10,10 @@ import (
 
 	"github.com/cago-frame/cago/configs"
 
-	"github.com/agentre-ai/agentre/internal/buildinfo"
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	"github.com/agentre-ai/agentre/internal/pkg/agentredipc"
+	"github.com/agentre-hub/agentre/internal/buildinfo"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/agentredipc"
 )
 
 // BuildIdentity returns the version and commit injected into the agentred binary.
@@ -68,16 +68,18 @@ func (d *Daemon) ipcStatus(w http.ResponseWriter, r *http.Request) {
 	// 体量在状态查询里看得见,用户据此自行判断何时该清理(见 Daemon.DBStat)。
 	dbStat := d.DBStat()
 	writeJSON(w, map[string]any{
-		"pid":              os.Getpid(),
-		"version":          BuildIdentity(),
-		"daemonUUID":       snap.DaemonInstanceUUID,
-		"listenURLs":       lanURLs(d),
-		"socketPath":       d.SocketPath(),
-		"pairedPeers":      summarizePeers(snap.PairedPeers),
-		"activeSessions":   d.activeSessionCount(r.Context()),
-		"llmProviderCount": len(snap.LLMProviders),
-		"dbPath":           dbStat.Path,
-		"dbSizeBytes":      dbStat.SizeBytes,
+		"pid":                   os.Getpid(),
+		"version":               BuildIdentity(),
+		"daemonUUID":            snap.DaemonInstanceUUID,
+		"listenURLs":            lanURLs(d),
+		"socketPath":            d.SocketPath(),
+		"pairedPeers":           summarizePeers(snap.PairedPeers),
+		"relayConnected":        d.hub != nil && d.hub.Connected(),
+		"clientConnectionCount": d.conns.connectionCount(),
+		"activeSessions":        d.activeSessionCount(r.Context()),
+		"llmProviderCount":      len(snap.LLMProviders),
+		"dbPath":                dbStat.Path,
+		"dbSizeBytes":           dbStat.SizeBytes,
 	})
 }
 
@@ -143,7 +145,10 @@ func lanURLs(d *Daemon) []string {
 	if d.lan == nil {
 		return nil
 	}
-	return []string{d.lan.URL()}
+	// AdvertiseURLs 而不是 URL():这份列表会被 `agentred pair` / `agentred status` 印出来
+	// 让用户粘进桌面端,而通配监听下的 bind 地址("[::]:7456")粘过去指的是桌面端自己
+	// 那台机器。找不到可路由地址时它给空列表,由 CLI 明确要求用户加 --host。
+	return d.lan.AdvertiseURLs()
 }
 
 func summarizePeers(m map[string]state.PairedPeer) []map[string]any {

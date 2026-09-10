@@ -13,22 +13,20 @@ import (
 	"github.com/cago-frame/cago/configs"
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
-	"github.com/cago-frame/cago/pkg/logger"
-	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/pkg/openclawgateway"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 const (
@@ -52,7 +50,15 @@ type AgentBackendSvc interface {
 	CancelTest(ctx context.Context, req *CancelTestBackendRequest) (*CancelTestBackendResponse, error)
 	ResolveCLIPath(ctx context.Context, req *ResolveCLIPathRequest) (*ResolveCLIPathResponse, error)
 	ScanAndCreateAgentBackends(ctx context.Context, req *ScanAndCreateAgentBackendsRequest) (*ScanAndCreateAgentBackendsResponse, error)
+	// ReclaimTombstonedBackends 回收无人引用且超过保留期的后端墓碑(决策 24)。
+	ReclaimTombstonedBackends(ctx context.Context, req *ReclaimTombstonedBackendsRequest) (*ReclaimTombstonedBackendsResponse, error)
+	// SurveyDanglingBackendReferences 巡检指向非 ACTIVE 后端的会话/执行目标引用，
+	// 只报出、不擅自改写(决策 24)。
+	SurveyDanglingBackendReferences(ctx context.Context, req *SurveyDanglingBackendReferencesRequest) (*SurveyDanglingBackendReferencesResponse, error)
 	ClaimRelativeBackends(ctx context.Context) error
+	GetCLIOverlay(ctx context.Context, req *GetCLIOverlayRequest) (*GetCLIOverlayResponse, error)
+	SetCLIOverlay(ctx context.Context, req *SetCLIOverlayRequest) (*SetCLIOverlayResponse, error)
+	ListCLIOverlays(ctx context.Context, req *ListCLIOverlaysRequest) (*ListCLIOverlaysResponse, error)
 }
 
 type agentBackendSvc struct {
@@ -78,7 +84,7 @@ type agentBackendSvc struct {
 // proberRegistry。硬编码 builtinProber 会让其它 backend 错走 in-process 路径，
 // s.prober 字段仅留给单测注入 mock 用。
 var defaultAgentBackend AgentBackendSvc = &agentBackendSvc{
-	now:    func() int64 { return time.Now().Unix() },
+	now:    func() int64 { return time.Now().UnixMilli() },
 	probes: map[string]context.CancelFunc{},
 }
 
@@ -92,37 +98,106 @@ func RegisterGateway(g httpgateway.TokenIssuer) {
 // AgentBackend 取默认服务单例。
 func AgentBackend() AgentBackendSvc { return defaultAgentBackend }
 
-// ClaimRelativeBackends is the per-installation R13 upgrade step. It runs only
-// after remote_device_svc is initialized, so the fingerprint comes from this
-// desktop's keychain identity rather than server login state.
-func (s *agentBackendSvc) ClaimRelativeBackends(ctx context.Context) error {
+// ClaimRelativeBackends remains the bootstrap hook for historical callers. The
+// append-only migration now promotes rows in place: cloning by device or
+// merging by type/name would change their stable sync identities.
+func (s *agentBackendSvc) ClaimRelativeBackends(context.Context) error { return nil }
+
+// ListCLIOverlays exposes only non-sensitive status data for all account
+// overlays. Absolute paths stay behind GetCLIOverlay's desktop-only seam.
+// setCLIOverlayIfAvailable preserves existing Wails create/update request
+// shapes while moving their local path into a distinct overlay row. An
+// uninitialized remote service only occurs in narrow unit-test composition;
+// bootstrap always initializes it before public writes.
+func (s *agentBackendSvc) setCLIOverlayIfAvailable(ctx context.Context, backendSyncID, cliPath string) error {
+	if strings.TrimSpace(backendSyncID) == "" || remote_device_svc.Default() == nil {
+		return nil
+	}
+	_, err := s.SetCLIOverlay(ctx, &SetCLIOverlayRequest{BackendSyncID: backendSyncID, CLIPath: cliPath})
+	return err
+}
+
+func (s *agentBackendSvc) ListCLIOverlays(ctx context.Context, _ *ListCLIOverlaysRequest) (*ListCLIOverlaysResponse, error) {
+	rows, err := agent_backend_repo.AgentBackend().ListCLIOverlays(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]*CLIOverlayItem, 0, len(rows))
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		status := "path"
+		if row.CLIPath != "" {
+			status = "recognized"
+		}
+		items = append(items, &CLIOverlayItem{BackendSyncID: row.BackendSyncID, Fingerprint: row.AgentredFingerprint, Status: status})
+	}
+	return &ListCLIOverlaysResponse{Items: items}, nil
+}
+
+// GetCLIOverlay reads this desktop's overlay. Missing and empty both mean PATH.
+func (s *agentBackendSvc) GetCLIOverlay(ctx context.Context, req *GetCLIOverlayRequest) (*GetCLIOverlayResponse, error) {
+	if req == nil || strings.TrimSpace(req.BackendSyncID) == "" {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
 	remote := remote_device_svc.Default()
 	if remote == nil {
-		return errors.New("remote device service unavailable")
+		return &GetCLIOverlayResponse{Status: "path"}, nil
 	}
 	fingerprint, err := remote.DeviceFingerprint()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	claims, err := agent_backend_repo.AgentBackend().ClaimRelative(ctx, fingerprint)
+	overlay, err := agent_backend_repo.AgentBackend().FindCLIOverlay(ctx, req.BackendSyncID, fingerprint)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, claim := range claims {
-		sync_svc.NotifyRuntimeClaim(ctx, syncwire.KindAgentBackend, claim.ClaimedBackend.ID, sync_svc.OpCreate, claim.ClaimedBackend.SyncMeta)
-		for _, target := range claim.ClaimedTargets {
-			sync_svc.NotifyRuntimeClaim(ctx, syncwire.KindAgentExecTarget, target.ID, sync_svc.OpCreate, target.SyncMeta)
+	if overlay == nil || overlay.CLIPath == "" {
+		return &GetCLIOverlayResponse{Status: "path"}, nil
+	}
+	return &GetCLIOverlayResponse{CLIPath: overlay.CLIPath, Status: "recognized"}, nil
+}
+
+// SetCLIOverlay writes this desktop's own row only. The caller keeps editing a
+// backend identity through the normal API; this method is the local overlay seam.
+func (s *agentBackendSvc) SetCLIOverlay(ctx context.Context, req *SetCLIOverlayRequest) (*SetCLIOverlayResponse, error) {
+	if req == nil || strings.TrimSpace(req.BackendSyncID) == "" {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	remote := remote_device_svc.Default()
+	if remote == nil {
+		return nil, errors.New("remote device service unavailable")
+	}
+	fingerprint, err := remote.DeviceFingerprint()
+	if err != nil {
+		return nil, err
+	}
+	overlay, err := agent_backend_repo.AgentBackend().FindCLIOverlay(ctx, req.BackendSyncID, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	if overlay == nil {
+		overlay = &agent_backend_entity.CLIOverlay{
+			BackendSyncID: req.BackendSyncID, AgentredFingerprint: fingerprint,
+			CLIPath: strings.TrimSpace(req.CLIPath), Status: consts.ACTIVE,
 		}
-		for _, target := range claim.OriginalTargets {
-			sync_svc.NotifyRuntimeClaim(ctx, syncwire.KindAgentExecTarget, target.ID, sync_svc.OpDelete, target.SyncMeta)
+		if err := agent_backend_repo.AgentBackend().CreateCLIOverlay(ctx, overlay); err != nil {
+			return nil, err
 		}
-		sync_svc.NotifyRuntimeClaim(ctx, syncwire.KindAgentBackend, claim.OriginalBackend.ID, sync_svc.OpDelete, claim.OriginalBackend.SyncMeta)
+		sync_svc.NotifyCreate(ctx, syncwire.KindAgentBackendCLI, overlay.ID, overlay.SyncMeta)
+	} else {
+		overlay.CLIPath = strings.TrimSpace(req.CLIPath)
+		if err := agent_backend_repo.AgentBackend().UpdateCLIOverlay(ctx, overlay); err != nil {
+			return nil, err
+		}
+		sync_svc.NotifyUpdate(ctx, syncwire.KindAgentBackendCLI, overlay.ID, overlay.SyncMeta)
 	}
-	if len(claims) > 0 {
-		logger.Ctx(ctx).Info("agent_backend_svc.ClaimRelativeBackends: claimed relative backends",
-			zap.Int("count", len(claims)))
+	status := "path"
+	if overlay.CLIPath != "" {
+		status = "recognized"
 	}
-	return nil
+	return &SetCLIOverlayResponse{CLIPath: overlay.CLIPath, Status: status}, nil
 }
 
 func (s *agentBackendSvc) List(ctx context.Context, _ *ListBackendsRequest) (*ListBackendsResponse, error) {
@@ -180,7 +255,6 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		Name:                  strings.TrimSpace(req.Name),
 		LLMProviderKey:        strings.TrimSpace(req.LLMProviderKey),
 		LLMModelKey:           strings.TrimSpace(req.LLMModelKey),
-		CLIPath:               strings.TrimSpace(req.CLIPath),
 		ModelRoutes:           routes,
 		Sandbox:               strings.TrimSpace(req.Sandbox),
 		Approval:              strings.TrimSpace(req.Approval),
@@ -192,13 +266,13 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		OpenClawAgentID:       strings.TrimSpace(req.OpenClawAgentID),
 		OpenClawDefaultModel:  strings.TrimSpace(req.OpenClawDefaultModel),
 		OpenClawSessionMode:   strings.TrimSpace(req.OpenClawSessionMode),
-		DeviceID:              strings.TrimSpace(req.DeviceID),
+		DeviceFingerprint:     strings.TrimSpace(req.DeviceID),
 		Status:                consts.ACTIVE,
 		Createtime:            now,
 		Updatetime:            now,
 	}
 	var deviceErr error
-	b.DeviceID, deviceErr = canonicalDeviceID(b.DeviceID)
+	b.DeviceFingerprint, deviceErr = normalizeDeviceID(b.DeviceFingerprint)
 	if deviceErr != nil {
 		return nil, deviceErr
 	}
@@ -218,7 +292,7 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 	if err := b.Check(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.validateDeviceID(ctx, b.DeviceID); err != nil {
+	if err := s.validateDeviceID(ctx, b.DeviceFingerprint); err != nil {
 		return nil, err
 	}
 
@@ -239,6 +313,9 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 	}
 
 	if err := agent_backend_repo.AgentBackend().Create(ctx, b); err != nil {
+		return nil, err
+	}
+	if err := s.setCLIOverlayIfAvailable(ctx, b.SyncID, req.CLIPath); err != nil {
 		return nil, err
 	}
 	if b.IsOpenClaw() && token != "" {
@@ -296,7 +373,6 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	existing.Name = newName
 	existing.LLMProviderKey = strings.TrimSpace(req.LLMProviderKey)
 	existing.LLMModelKey = strings.TrimSpace(req.LLMModelKey)
-	existing.CLIPath = strings.TrimSpace(req.CLIPath)
 	routes, err := marshalRouteTargets(req.ModelRoutes)
 	if err != nil {
 		return nil, i18n.NewError(ctx, code.AgentBackendUnknownAlias)
@@ -312,9 +388,9 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	existing.OpenClawAgentID = strings.TrimSpace(req.OpenClawAgentID)
 	existing.OpenClawDefaultModel = strings.TrimSpace(req.OpenClawDefaultModel)
 	existing.OpenClawSessionMode = strings.TrimSpace(req.OpenClawSessionMode)
-	existing.DeviceID = strings.TrimSpace(req.DeviceID)
+	existing.DeviceFingerprint = strings.TrimSpace(req.DeviceID)
 	var deviceErr error
-	existing.DeviceID, deviceErr = canonicalDeviceID(existing.DeviceID)
+	existing.DeviceFingerprint, deviceErr = normalizeDeviceID(existing.DeviceFingerprint)
 	if deviceErr != nil {
 		return nil, deviceErr
 	}
@@ -333,7 +409,7 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	if err := existing.Check(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.validateDeviceID(ctx, existing.DeviceID); err != nil {
+	if err := s.validateDeviceID(ctx, existing.DeviceFingerprint); err != nil {
 		return nil, err
 	}
 
@@ -346,6 +422,9 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	}
 
 	if err := agent_backend_repo.AgentBackend().Update(ctx, existing); err != nil {
+		return nil, err
+	}
+	if err := s.setCLIOverlayIfAvailable(ctx, existing.SyncID, req.CLIPath); err != nil {
 		return nil, err
 	}
 	if existing.IsOpenClaw() && (token != "" || clearToken) {
@@ -401,7 +480,7 @@ func (s *agentBackendSvc) test(ctx context.Context, req *TestBackendRequest, tra
 		return nil, err
 	}
 	if entity.IsOpenClaw() {
-		if remote_device_svc.TargetsAnotherMachine(entity.DeviceID) {
+		if remote_device_svc.TargetsAnotherMachine(entity.DeviceFingerprint) {
 			return &TestBackendResponse{OK: false, Code: "OPENCLAW_REMOTE_SECRET_UNAVAILABLE"}, nil
 		}
 		return s.testOpenClaw(ctx, req, entity, transientToken)
@@ -412,11 +491,11 @@ func (s *agentBackendSvc) test(ctx context.Context, req *TestBackendRequest, tra
 	// ErrRemoteDeviceNotFound 只对具名指纹发生：本机指纹（R13 认领后的本机 backend）
 	// 不是配对 agentred 行——它是本地档，回落到下面的本地测试路径；只有真正未配对
 	// 的其他远端指纹才报「远端设备不存在」。
-	if did, ok, err := localPairedDeviceID(ctx, entity.DeviceID); err != nil {
+	if did, ok, err := localPairedDeviceID(ctx, entity.DeviceFingerprint); err != nil {
 		if !errors.Is(err, ErrRemoteDeviceNotFound) {
 			return nil, i18n.NewError(ctx, code.InvalidParameter)
 		}
-		if remote_device_svc.TargetsAnotherMachine(entity.DeviceID) {
+		if remote_device_svc.TargetsAnotherMachine(entity.DeviceFingerprint) {
 			return &TestBackendResponse{OK: false, Message: i18n.NewError(ctx, code.RemoteDeviceNotFound).Error()}, nil
 		}
 	} else if ok {
@@ -659,7 +738,7 @@ func (s *agentBackendSvc) resolveOpenClawRuntimeConfig(ctx context.Context, back
 	if backend == nil || !backend.IsOpenClaw() {
 		return openclawgateway.Config{}, i18n.NewError(ctx, code.AgentBackendNotFound)
 	}
-	if remote_device_svc.TargetsAnotherMachine(backend.DeviceID) {
+	if remote_device_svc.TargetsAnotherMachine(backend.DeviceFingerprint) {
 		return openclawgateway.Config{}, ErrOpenClawRemoteSecretUnavailable
 	}
 	if err := backend.Check(ctx); err != nil {
@@ -1016,11 +1095,11 @@ func (s *agentBackendSvc) validateRouteProviders(ctx context.Context, b *agent_b
 func (s *agentBackendSvc) toItem(ctx context.Context, b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider) *BackendItem {
 	item := &BackendItem{
 		ID:                    b.ID,
+		SyncID:                b.SyncID,
 		Type:                  b.Type,
 		Name:                  b.Name,
 		LLMProviderKey:        b.LLMProviderKey,
 		LLMModelKey:           b.LLMModelKey,
-		CLIPath:               b.CLIPath,
 		ModelRoutes:           routeTargetsFromEntity(b.ModelRoutes),
 		Sandbox:               b.Sandbox,
 		Approval:              b.Approval,
@@ -1050,14 +1129,9 @@ func (s *agentBackendSvc) toItem(ctx context.Context, b *agent_backend_entity.Ag
 	// 展示口径的设备标识：本机档（空 DeviceID / R13 认领后的本机指纹）一律空串，
 	// 见 remote_device_svc.ExternalDeviceID —— 本机指纹不会出现在配对表里，照远端
 	// 解析只会得到「没名字 + 离线」，组织架构页据此渲染成「这台电脑未配对它」。
-	if deviceID := remote_device_svc.ExternalDeviceID(b.DeviceID); deviceID != "" {
+	if deviceID := remote_device_svc.ExternalDeviceID(b.DeviceFingerprint); deviceID != "" {
 		item.DeviceID = deviceID
-		if legacyID, ok := b.DeviceIDInt(); ok && remote_device_svc.Default() != nil {
-			if dv, err := remote_device_svc.Default().Get(ctx, legacyID); err == nil && dv != nil {
-				item.DeviceName = dv.Name
-				item.Online = dv.Online
-			}
-		} else if dv, err := pairedDeviceView(ctx, deviceID); err == nil && dv != nil {
+		if dv, err := pairedDeviceView(ctx, deviceID); err == nil && dv != nil {
 			item.DeviceName = dv.Name
 			item.Online = dv.Online
 		}
@@ -1122,13 +1196,10 @@ func openClawTokenAccount(backendID int64) string {
 	return "agentre.openclaw.backend." + strconv.FormatInt(backendID, 10) + ".token"
 }
 
-// validateDeviceID accepts canonical fingerprints without a local pairing.
-// Numeric values are legacy paired-row IDs; retain their old strict validation
-// until all pre-R13 records have been claimed and synced as fingerprints.
-// canonicalDeviceID turns the legacy "local" input into this installation's
-// canonical fingerprint. A nil remote service is retained for narrow unit-test
-// construction only; bootstrap always initializes it before public writes.
-func canonicalDeviceID(deviceID string) (string, error) {
+// normalizeDeviceID converts the UI's empty local selection to this
+// installation's canonical fingerprint. A nil remote service is retained for
+// narrow unit-test construction only; bootstrap initializes it before writes.
+func normalizeDeviceID(deviceID string) (string, error) {
 	if deviceID != "" || remote_device_svc.Default() == nil {
 		return deviceID, nil
 	}
@@ -1139,17 +1210,7 @@ func (s *agentBackendSvc) validateDeviceID(ctx context.Context, deviceID string)
 	if deviceID == "" || strings.HasPrefix(deviceID, "sha256:") {
 		return nil
 	}
-	if _, legacy := (&agent_backend_entity.AgentBackend{DeviceID: deviceID}).DeviceIDInt(); !legacy {
-		return i18n.NewError(ctx, code.AgentBackendInvalidDevice)
-	}
-	id, _ := strconv.ParseInt(deviceID, 10, 64)
-	if remote_device_svc.Default() == nil {
-		return i18n.NewError(ctx, code.AgentBackendInvalidDevice)
-	}
-	if _, err := remote_device_svc.Default().Get(ctx, id); err != nil {
-		return i18n.NewError(ctx, code.AgentBackendInvalidDevice)
-	}
-	return nil
+	return i18n.NewError(ctx, code.AgentBackendInvalidDevice)
 }
 
 // pairedDeviceView resolves a canonical fingerprint to this installation's
@@ -1178,9 +1239,6 @@ func localPairedDeviceID(ctx context.Context, fingerprint string) (int64, bool, 
 		return 0, false, nil
 	}
 	if !strings.HasPrefix(fingerprint, "sha256:") {
-		if legacyID, ok := (&agent_backend_entity.AgentBackend{DeviceID: fingerprint}).DeviceIDInt(); ok {
-			return legacyID, true, nil
-		}
 		return 0, false, errors.New("invalid device fingerprint")
 	}
 	view, err := pairedDeviceView(ctx, fingerprint)

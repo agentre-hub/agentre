@@ -9,15 +9,16 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 // 会话级 LLM 供应商：切换入口 + 有效供应商解析的唯一口径。
@@ -44,7 +45,7 @@ func effectiveProviderKey(sess *chat_entity.Session, be *agent_backend_entity.Ag
 	if be != nil {
 		agentKey = be.LLMProviderKey
 	}
-	return firstNonEmpty(sessKey, agentKey)
+	return view.FirstNonEmpty(sessKey, agentKey)
 }
 
 // providerKeyOf 是「本轮解析出来的这家供应商的 key」，nil（CLI 自身登录态，没有任何
@@ -162,10 +163,76 @@ func (s *chatSvc) SetChatSessionModelTarget(ctx context.Context, req *SetChatSes
 		zap.String("modelKey", modelKey),
 		zap.String("agentProviderKey", be.LLMProviderKey),
 		zap.String("backendType", be.Type))
-	s.appendProviderSwitchNotice(ctx, sess, be, providerKey, modelKey, providerDisplayName(prov), modelDisplayName(model))
+	s.appendProviderSwitchNotice(ctx, sess, be, providerKey, modelKey, view.ProviderDisplayName(prov), view.ModelDisplayName(model))
 	return &SetChatSessionModelTargetResponse{
 		ProviderKey: providerKey, ModelKey: modelKey,
 		AgentProviderKey: be.LLMProviderKey, AgentModelKey: be.LLMModelKey,
+	}, nil
+}
+
+// SetChatSessionReasoningEffort 切换已有会话的思考力度（spec 2026-09-01 决策 1）。
+//
+// 只写 chat_sessions.reasoning_effort 一列：agent / backend 配置 / ModelTarget /
+// permission mode / 钉住的执行目标一律不动 —— 用户在会话里选的档位不该悄悄改掉别的
+// 会话（决策 1 否决了「下拉框直接改后端行」）。允许在轮中调用：本轮已 spawn 的子进程
+// 不受影响，新档位自下一轮 spawn 生效（「生效时机」），所以这里不加 turn 锁、也不
+// evict 任何东西 —— 下一轮 launchIdentity 因力度变化而与池里那条不符，池自己会驱逐。
+//
+// 空串是要写下去的值，表示「改回跟随后端配置」，不是「不改」。
+//
+// no-op：选中的就是**会话行上**已有的同一个值时不写库、不落 notice —— 否则每点一次
+// 已选中项就往转录里塞一条「已切换到 high」。比较的是会话行而不是有效档位：会话行为空
+// 而后端配置是 high 时，用户显式选 high 是一次真实写入（把「跟随后端」钉成「就是
+// high」）。
+//
+// 错误码（一律复用既有码，本功能不新增）：
+//   - SessionID <= 0 → InvalidParameter
+//   - 档位不在六档表里 → AgentBackendInvalidReasoningEffort
+//   - 会话不存在 → ChatSessionNotFound（不折成成功）
+//   - agent/backend 解析不出来 → AgentNotFound / ChatAgentNoBackend
+func (s *chatSvc) SetChatSessionReasoningEffort(ctx context.Context, req *SetChatSessionReasoningEffortRequest) (*SetChatSessionReasoningEffortResponse, error) {
+	if req == nil || req.SessionID <= 0 {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	effort := strings.TrimSpace(req.ReasoningEffort)
+	// 档位校验走 entity 那张唯一的六档表：与后端级配置、agentred 侧同一口径，非法值
+	// 拒绝写库而不是靠下游 runtime 静默丢弃（「失败与恢复」：非法值原样报错，会话保持
+	// 原档位）。查库之前先判——非法请求不值得一次 IO。
+	if !agent_backend_entity.IsValidReasoningEffort(effort) {
+		return nil, i18n.NewError(ctx, code.AgentBackendInvalidReasoningEffort)
+	}
+	sess, err := chat_repo.Session().Find(ctx, req.SessionID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err, zap.Int64("sessionId", req.SessionID))
+	}
+	if sess == nil {
+		return nil, i18n.NewError(ctx, code.ChatSessionNotFound)
+	}
+	// 后端配置档位随响应回传，供弹层「默认」区块的 `→ 跟随后端配置 · <档位>` 解析副行
+	// 渲染（决策 11）：那行要在用户选之前就说清跟随会拿到什么。
+	be, err := sessionProviderBackend(ctx, sess)
+	if err != nil {
+		return nil, err
+	}
+	if effort == sess.ReasoningEffort {
+		return &SetChatSessionReasoningEffortResponse{
+			ReasoningEffort: effort, BackendReasoningEffort: be.ReasoningEffort,
+		}, nil
+	}
+	if err := chat_repo.Session().UpdateReasoningEffort(ctx, sess.ID, effort); err != nil {
+		return nil, operationFailedWithCause(ctx, err, zap.Int64("sessionId", sess.ID))
+	}
+	sess.ReasoningEffort = effort
+	logger.Ctx(ctx).Info("chat_svc.SetChatSessionReasoningEffort: session reasoning effort switched",
+		zap.Int64("sessionId", sess.ID),
+		zap.String("reasoningEffort", effort),
+		zap.String("backendReasoningEffort", be.ReasoningEffort),
+		zap.String("backendType", be.Type))
+	// notice 写失败只记日志、不改变这里的返回值（「失败与恢复」）。
+	appendSessionNotice(ctx, sess, be, "chat_svc.appendReasoningEffortSwitchNotice",
+		view.EncodeReasoningEffortSwitch(effort))
+	return &SetChatSessionReasoningEffortResponse{
+		ReasoningEffort: effort, BackendReasoningEffort: be.ReasoningEffort,
 	}, nil
 }
 
@@ -258,29 +325,49 @@ func (s *chatSvc) appendProviderSwitchNotice(
 	providerName string,
 	modelName string,
 ) {
+	appendSessionNotice(ctx, sess, be, "chat_svc.appendProviderSwitchNotice",
+		view.EncodeProviderSwitch(providerKey, modelKey, providerName, modelName))
+}
+
+// appendSessionNotice 是这类「自此改了某个会话级设置」持久 notice 的唯一落库骨架：
+// 建一条只带一个 info 级 NoticeBlock 的 assistant 消息、取 seq、落库。text 是结构化
+// 负载（view.EncodeXxx），前端解回字段后走 t() 渲染，不把原始 JSON 泄漏出去。
+//
+// where 是调用方的 package.Method 名，只用于日志前缀 —— 三处降级日志因此仍指得出是
+// 哪一种 notice 没落上。
+//
+// 落库失败只记日志：切换本身已经成功落库，为了一条提示把整个切换报成失败，会让用户
+// 以为没切成（实际下一轮已经换了）——这里的降级方向必须是「少一条提示」。
+func appendSessionNotice(
+	ctx context.Context,
+	sess *chat_entity.Session,
+	be *agent_backend_entity.AgentBackend,
+	where string,
+	text string,
+) {
 	msg := &chat_entity.Message{
-		SessionID:  sess.ID,
-		DeviceID:   be.DeviceID,
-		Role:       "assistant",
-		BlocksJSON: "[]",
+		SessionID:         sess.ID,
+		DeviceFingerprint: be.DeviceFingerprint,
+		Role:              "assistant",
+		BlocksJSON:        "[]",
 	}
 	if err := msg.SetBlocks([]blocks.ContentBlock{blocks.NoticeBlock{
 		Level: "info",
-		Text:  encodeProviderSwitch(providerKey, modelKey, providerName, modelName),
+		Text:  text,
 	}}); err != nil {
-		logger.Ctx(ctx).Warn("chat_svc.appendProviderSwitchNotice: encode notice failed",
+		logger.Ctx(ctx).Warn(where+": encode notice failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 		return
 	}
 	seq, err := chat_repo.Message().NextSeq(ctx, sess.ID)
 	if err != nil {
-		logger.Ctx(ctx).Warn("chat_svc.appendProviderSwitchNotice: next seq failed",
+		logger.Ctx(ctx).Warn(where+": next seq failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 		return
 	}
 	msg.Seq = seq
 	if err := chat_repo.Message().Create(ctx, msg); err != nil {
-		logger.Ctx(ctx).Warn("chat_svc.appendProviderSwitchNotice: persist notice failed",
+		logger.Ctx(ctx).Warn(where+": persist notice failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 	}
 }

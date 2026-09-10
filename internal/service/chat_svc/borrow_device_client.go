@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 // BorrowDeviceClient leases a device's daemon client from the shared
@@ -15,7 +15,7 @@ import (
 // Used by terminal_svc to talk to a remote daemon — same pool/lease
 // machinery chat_svc uses for runtime.* RPCs, so a single daemon
 // connection is shared between chat and terminal traffic.
-func BorrowDeviceClient(ctx context.Context, deviceID int64) (agentruntime.DaemonClientPort, func(), error) {
+func BorrowDeviceClient(ctx context.Context, deviceID int64) (client.ProtobufConnection, func(), error) {
 	rds := remote_device_svc.Default()
 	if rds == nil {
 		return nil, nil, errors.New("remote_device_svc not initialized")

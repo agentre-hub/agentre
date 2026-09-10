@@ -12,12 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
+
+const remoteTestFingerprint = "sha256:remote-test-device"
 
 // fakeRemoteCLI 是 remoteCLIPort 的测试替身：记录调用次数 / 入参，
 // 按 setup 时塞的 resp/err 回应。
@@ -45,8 +49,22 @@ func (f *fakeRemoteCLI) Probe(_ context.Context, _ int64, _ handlers.CLIProbePar
 	return f.probeResp, f.probeErr
 }
 
-func newSvcWithRemote(remote remoteCLIPort) *agentBackendSvc {
+func newSvcWithRemote(t *testing.T, remote remoteCLIPort) *agentBackendSvc {
+	installRemoteDeviceFixture(t)
 	return &agentBackendSvc{remoteCLI: remote}
+}
+
+func installRemoteDeviceFixture(t *testing.T) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	rd := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+	rd.EXPECT().DeviceFingerprint().Return("sha256:local-test-device", nil).AnyTimes()
+	rd.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{{
+		ID: 42, DaemonFingerprint: remoteTestFingerprint, Name: "remote-test-device", Online: true,
+	}}, nil).AnyTimes()
+	previous := remote_device_svc.Default()
+	remote_device_svc.SetDefault(rd)
+	t.Cleanup(func() { remote_device_svc.SetDefault(previous) })
 }
 
 func assertRemoteProbeSoftFail(
@@ -57,7 +75,7 @@ func assertRemoteProbeSoftFail(
 ) {
 	t.Helper()
 	fake := &fakeRemoteCLI{probeErr: probeErr}
-	svc := setupSvcWithRemoteAndBackend(t, fake, remoteTestBackend(backendID, "42"))
+	svc := setupSvcWithRemoteAndBackend(t, fake, remoteTestBackend(backendID, remoteTestFingerprint))
 	resp, err := svc.Test(context.Background(), &TestBackendRequest{ID: backendID})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -72,7 +90,7 @@ func TestResolveCLIPath_RemoteDispatch(t *testing.T) {
 
 		convey.Convey("DeviceID 空 → 不调远端", func() {
 			fake := &fakeRemoteCLI{}
-			s := newSvcWithRemote(fake)
+			s := newSvcWithRemote(t, fake)
 			resp, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: ""})
 			require.NoError(t, err)
 			require.NotNil(t, resp)
@@ -81,8 +99,8 @@ func TestResolveCLIPath_RemoteDispatch(t *testing.T) {
 
 		convey.Convey("DeviceID 非空 → 调远端，透传 path/found", func() {
 			fake := &fakeRemoteCLI{resolveResp: &ResolveCLIPathResponse{Path: "/remote/bin/claude", Found: true}}
-			s := newSvcWithRemote(fake)
-			resp, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: "42"})
+			s := newSvcWithRemote(t, fake)
+			resp, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: remoteTestFingerprint})
 			require.NoError(t, err)
 			assert.Equal(t, 1, fake.resolveCalls)
 			assert.Equal(t, int64(42), fake.resolveDeviceID)
@@ -93,7 +111,7 @@ func TestResolveCLIPath_RemoteDispatch(t *testing.T) {
 
 		convey.Convey("DeviceID 非法 → InvalidParameter，且不调远端", func() {
 			fake := &fakeRemoteCLI{}
-			s := newSvcWithRemote(fake)
+			s := newSvcWithRemote(t, fake)
 			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: "not-a-number"})
 			require.Error(t, err)
 			assert.Equal(t, 0, fake.resolveCalls)
@@ -101,8 +119,8 @@ func TestResolveCLIPath_RemoteDispatch(t *testing.T) {
 
 		convey.Convey("远端 device 不存在 → 映射到 RemoteDeviceNotFound", func() {
 			fake := &fakeRemoteCLI{resolveErr: ErrRemoteDeviceNotFound}
-			s := newSvcWithRemote(fake)
-			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: "42"})
+			s := newSvcWithRemote(t, fake)
+			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: remoteTestFingerprint})
 			var httpErr *httputils.Error
 			require.ErrorAs(t, err, &httpErr)
 			assert.Equal(t, code.RemoteDeviceNotFound, httpErr.Code)
@@ -110,8 +128,8 @@ func TestResolveCLIPath_RemoteDispatch(t *testing.T) {
 
 		convey.Convey("远端拨号失败 → 映射到 RemoteDeviceDialFailed", func() {
 			fake := &fakeRemoteCLI{resolveErr: ErrRemoteDialFailed}
-			s := newSvcWithRemote(fake)
-			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: "42"})
+			s := newSvcWithRemote(t, fake)
+			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: remoteTestFingerprint})
 			var httpErr *httputils.Error
 			require.ErrorAs(t, err, &httpErr)
 			assert.Equal(t, code.RemoteDeviceDialFailed, httpErr.Code)
@@ -119,8 +137,8 @@ func TestResolveCLIPath_RemoteDispatch(t *testing.T) {
 
 		convey.Convey("ctx 超时 → 映射到 RemoteDeviceTimeout", func() {
 			fake := &fakeRemoteCLI{resolveErr: context.DeadlineExceeded}
-			s := newSvcWithRemote(fake)
-			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: "42"})
+			s := newSvcWithRemote(t, fake)
+			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: remoteTestFingerprint})
 			var httpErr *httputils.Error
 			require.ErrorAs(t, err, &httpErr)
 			assert.Equal(t, code.RemoteDeviceTimeout, httpErr.Code)
@@ -128,8 +146,8 @@ func TestResolveCLIPath_RemoteDispatch(t *testing.T) {
 
 		convey.Convey("其它远端错误 → 映射到 RemoteCLIDetectFailed，并带上原文", func() {
 			fake := &fakeRemoteCLI{resolveErr: errors.New("rpc: io.EOF")}
-			s := newSvcWithRemote(fake)
-			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: "42"})
+			s := newSvcWithRemote(t, fake)
+			_, err := s.ResolveCLIPath(ctx, &ResolveCLIPathRequest{Type: "claudecode", DeviceID: remoteTestFingerprint})
 			var httpErr *httputils.Error
 			require.ErrorAs(t, err, &httpErr)
 			assert.Equal(t, code.RemoteCLIDetectFailed, httpErr.Code)
@@ -144,6 +162,7 @@ func TestResolveCLIPath_RemoteDispatch(t *testing.T) {
 // 返回 svc 让用例可继续注入 gateway / prober 等。
 func setupSvcWithRemoteAndBackend(t *testing.T, remote remoteCLIPort, backend *agent_backend_entity.AgentBackend) *agentBackendSvc {
 	t.Helper()
+	installRemoteDeviceFixture(t)
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	repo := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
@@ -159,18 +178,18 @@ func setupSvcWithRemoteAndBackend(t *testing.T, remote remoteCLIPort, backend *a
 // type 默认 claudecode（与远端 CLI 场景对齐）；调用方传 deviceID/ID 区分用例。
 func remoteTestBackend(id int64, deviceID string) *agent_backend_entity.AgentBackend {
 	return &agent_backend_entity.AgentBackend{
-		ID:       id,
-		Type:     string(agent_backend_entity.TypeClaudeCode),
-		Name:     "remote-cc",
-		DeviceID: deviceID,
-		Status:   consts.ACTIVE,
+		ID:                id,
+		Type:              string(agent_backend_entity.TypeClaudeCode),
+		Name:              "remote-cc",
+		DeviceFingerprint: deviceID,
+		Status:            consts.ACTIVE,
 	}
 }
 
 func TestTest_RemotePath_CallsRemoteProbe(t *testing.T) {
 	convey.Convey("远端 device → 调 daemon cli.probe，透传 pong", t, func() {
 		fake := &fakeRemoteCLI{probeResp: &handlers.CLIProbeResult{Text: "pong"}}
-		svc := setupSvcWithRemoteAndBackend(t, fake, remoteTestBackend(1, "42"))
+		svc := setupSvcWithRemoteAndBackend(t, fake, remoteTestBackend(1, remoteTestFingerprint))
 		resp, err := svc.Test(context.Background(), &TestBackendRequest{ID: 1})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -211,7 +230,7 @@ func TestTest_RemoteDialFailed_ReturnsSoftFailWithI18n(t *testing.T) {
 func TestTest_RemoteTimeout_ReturnsSoftFailWithI18n(t *testing.T) {
 	convey.Convey("远端响应超时 → OK:false + RemoteDeviceTimeout 文案", t, func() {
 		fake := &fakeRemoteCLI{probeErr: context.DeadlineExceeded}
-		svc := setupSvcWithRemoteAndBackend(t, fake, remoteTestBackend(5, "42"))
+		svc := setupSvcWithRemoteAndBackend(t, fake, remoteTestBackend(5, remoteTestFingerprint))
 		resp, err := svc.Test(context.Background(), &TestBackendRequest{ID: 5})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -223,7 +242,7 @@ func TestTest_RemoteTimeout_ReturnsSoftFailWithI18n(t *testing.T) {
 func TestTest_RemoteGenericError_WrappedInProbeFailedI18n(t *testing.T) {
 	convey.Convey("远端 cli.probe 返回非 sentinel 错误 → RemoteCLIProbeFailed 包装原文", t, func() {
 		fake := &fakeRemoteCLI{probeErr: errors.New("claude exited code 1")}
-		svc := setupSvcWithRemoteAndBackend(t, fake, remoteTestBackend(6, "42"))
+		svc := setupSvcWithRemoteAndBackend(t, fake, remoteTestBackend(6, remoteTestFingerprint))
 		resp, err := svc.Test(context.Background(), &TestBackendRequest{ID: 6})
 		require.NoError(t, err)
 		require.NotNil(t, resp)

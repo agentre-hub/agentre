@@ -1,4 +1,4 @@
-module github.com/agentre-ai/agentre
+module github.com/agentre-hub/agentre
 
 go 1.26.0
 
@@ -6,7 +6,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Microsoft/go-winio v0.6.1
 	github.com/UserExistsError/conpty v0.1.4
-	github.com/cago-frame/agents v0.0.0-20260727021936-d7bfede861b9
+	github.com/cago-frame/agents v0.0.0-20260817065233-4dddea8e09bf
 	github.com/cago-frame/cago v0.0.0-20260609091633-ba2f550b2729
 	github.com/creack/pty v1.1.21
 	github.com/glebarez/sqlite v1.11.0
@@ -24,6 +24,7 @@ require (
 	go.uber.org/mock v0.4.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/sys v0.43.0
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/gorm v1.25.12
 )
@@ -34,6 +35,7 @@ require (
 	github.com/JohannesKaufmann/dom v0.2.0 // indirect
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
+	github.com/agentre-hub/agentre/pkg/wire v0.0.0
 	github.com/alicebob/gopher-json v0.0.0-20200520072559-a9ecdc9d1d3a // indirect
 	github.com/alicebob/miniredis/v2 v2.32.1 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.26.0 // indirect
@@ -163,7 +165,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20251029180050-ab9386a59fda // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/grpc v1.78.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/driver/mysql v1.5.7 // indirect
 	gorm.io/plugin/opentelemetry v0.1.11 // indirect
@@ -174,3 +175,5 @@ require (
 )
 
 // replace github.com/wailsapp/wails/v2 v2.12.0 => /Users/codfrm/go/pkg/mod
+
+replace github.com/agentre-hub/agentre/pkg/wire => ./pkg/wire

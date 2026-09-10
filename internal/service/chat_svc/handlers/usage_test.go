@@ -7,29 +7,27 @@ import (
 	"github.com/cago-frame/agents/provider"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
-
-type fakeMsgUpdater struct{ calls int }
-
-func (f *fakeMsgUpdater) Update(_ context.Context, _ any) error { f.calls++; return nil }
 
 type fakeUsageWriter struct {
 	written *agentruntime.UsageUpdate
 	msgID   int64
 }
 
-func (f *fakeUsageWriter) WriteUsage(_ any, u *agentruntime.UsageUpdate) { f.written = u }
-func (f *fakeUsageWriter) MessageID(_ any) int64                         { return f.msgID }
+func (f *fakeUsageWriter) WriteUsage(_ context.Context, _ any, u *agentruntime.UsageUpdate) error {
+	f.written = u
+	return nil
+}
+func (f *fakeUsageWriter) MessageID(_ any) int64 { return f.msgID }
 
 func TestUsageUpdateHandler(t *testing.T) {
 	Convey("UsageUpdate 调 Writer + Updater + emit usage", t, func() {
 		acc := turn.New()
 		emit := &fakeEmit{}
 		wr := &fakeUsageWriter{}
-		mu := &fakeMsgUpdater{}
-		tc := &turn.TurnContext{AssistantMsg: struct{}{}, MessageUpdater: mu, Stream: "s"}
+		tc := &turn.TurnContext{AssistantMsg: struct{}{}, Stream: "s"}
 
 		err := UsageUpdateHandler{Writer: wr}.Apply(context.Background(),
 			agentruntime.UsageUpdate{
@@ -41,7 +39,9 @@ func TestUsageUpdateHandler(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(wr.written, ShouldNotBeNil)
 		So(wr.written.TotalInputTokens, ShouldEqual, 130)
-		So(mu.calls, ShouldEqual, 1)
+		// usage 落库归 Writer 单列写,handler 不得再整行回写 assistantMsg —— 整行会带上
+		// MB 级的 blocks_json,而这一帧只存 6 个整数。TurnContext 上那个通用的
+		// 「整行 Save」端口已经删掉,这条约束现在由类型系统兜着。
 
 		p := emit.events[0].payload.(map[string]any)
 		So(p["kind"], ShouldEqual, "usage")

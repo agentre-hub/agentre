@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 )
 
 // claudeActive 一个 chat session 当前的常驻 claude 子进程状态。
@@ -34,6 +34,14 @@ type claudeActive struct {
 	// **一帧都收不到**。startup 看门狗必须据此暂停计时,否则会把一个健康、正忙的
 	// 子进程当成「起步即卡死」硬杀(sess-1950)。
 	outOfBand atomic.Int32
+	// mainThreadOutOfBand 是 outOfBand 中**占着 CLI 主线**的那一部分 —— 只有自主续轮
+	// 算数。区别只在后台 subagent 活动轮:它跑的是子 agent 的内部循环,CLI 主线此刻
+	// 空闲,用户新消息该正正经经起一轮(Session.currentTurn 会让位给排队的 user Turn,
+	// 见 sess-2974 分支),而不是插进那个子 agent 的上下文里被它的工具循环吞掉。
+	//
+	// 「主线是否忙」和「帧流是否被占着」是两个问题:看门狗与空闲清扫问的是后者
+	// (outOfBand),Steer 问的是前者(mainThreadBusy)。
+	mainThreadOutOfBand atomic.Int32
 	// turnSeq 会话级轮计数器:每次 Run(用户轮)入口 / 自主续轮入口 / 后台 subagent
 	// 活动轮入口递增一次,值随 RunResult / AutonomousTurn / SubagentActivity 暴露给
 	// chat_svc,供 Abort 按 token 精确寻址(决策 1)。
@@ -43,26 +51,6 @@ type claudeActive struct {
 	// 活跃轮时才中断,否则 stale no-op。curTurnKind 供 Abort 上报被中断轮的类型。
 	curTurnToken atomic.Uint64
 	curTurnKind  atomic.Value // holds agentruntime.TurnKind
-	// launchedEffort 记录 spawn 时下发给 claude CLI 的 --effort <level>。
-	// --effort 是启动期 flag,运行时改不掉;下一轮如果 backend.ReasoningEffort
-	// 变了,acquireSession 会用这个字段比对、强制 evict 重 spawn。
-	launchedEffort string
-	// launchedModel 记录 spawn 时下发给 claude CLI 的 --model <id>(effectiveModel)。
-	// --model 同是启动期 flag;下一轮 effectiveModel(解析出的 ModelID / backend.
-	// DefaultModel)变化时,acquireSession 镜像 launchedEffort 先例强制 evict 重
-	// spawn,否则 LRU 复用的 CLI 子进程一直跑旧模型(镜像 codex 的 modelChanged)。
-	launchedModel string
-	// launchedModelKey records the stable fixed-model identity used to launch the
-	// process. It remains part of the identity even when two Model rows resolve
-	// to the same upstream ModelID.
-	launchedModelKey string
-	// launchedProviderKey 记录 spawn 时下发给 claude CLI 的 effectiveProviderKey
-	// (RunRequest.EffectiveProviderKey())。ANTHROPIC_BASE_URL/AUTH_TOKEN 同是启动期
-	// env,运行时改不掉;两个不同供应商可以配同一个 model id,只比 launchedModel 会漏掉
-	// 换供应商 —— 下一轮 effectiveProviderKey 变化时同样强制 evict 重 spawn(spec
-	// 2026-08-10 决策 4)。
-	launchedProviderKey string
-
 	// askWaiters 记录当前阻塞中的 AskUserQuestion control_request。
 	askMu      sync.Mutex
 	askWaiters map[string]*askWaiter
@@ -107,13 +95,38 @@ func (a *claudeActive) setPermissionModeSnapshot(mode string) {
 	a.modeMu.Unlock()
 }
 
-// enterOutOfBand / leaveOutOfBand 圈住一轮带外轮(自主续轮 / 后台 subagent 活动轮)
-// 的 drain 期。outOfBandActive 供 startup 看门狗判定「此刻没帧是因为帧流被带外轮占着」。
-func (a *claudeActive) enterOutOfBand() { a.outOfBand.Add(1) }
-func (a *claudeActive) leaveOutOfBand() { a.outOfBand.Add(-1) }
+// enterOutOfBand / leaveOutOfBand 圈住一轮**主线**带外轮(自主续轮)的 drain 期。
+// outOfBandActive 供 startup 看门狗判定「此刻没帧是因为帧流被带外轮占着」;
+// mainThreadBusy 另外据此判定「此刻插话进得去」(见 Runtime.Steer)。
+func (a *claudeActive) enterOutOfBand() {
+	a.outOfBand.Add(1)
+	a.mainThreadOutOfBand.Add(1)
+}
+
+func (a *claudeActive) leaveOutOfBand() {
+	a.outOfBand.Add(-1)
+	a.mainThreadOutOfBand.Add(-1)
+}
+
+// enterSubagentActivity / leaveSubagentActivity 圈住一轮后台 subagent 活动轮的
+// drain 期。它同样占着帧流(看门狗要据此暂停计时、空闲清扫要据此认为会话忙),
+// 但**不占主线** —— 见 mainThreadOutOfBand 的注释。
+func (a *claudeActive) enterSubagentActivity() { a.outOfBand.Add(1) }
+func (a *claudeActive) leaveSubagentActivity() { a.outOfBand.Add(-1) }
 
 // outOfBandActive 报告此刻是否有带外轮在流。
 func (a *claudeActive) outOfBandActive() bool { return a.outOfBand.Load() > 0 }
+
+// mainThreadBusy 报告 CLI 主线此刻是否正在跑一轮 —— 用户轮(inTurn)或自主续轮。
+// 为真时新消息只能插进那一轮(Steer);为假时主线空闲,该起新一轮(Session.Turn)。
+func (a *claudeActive) mainThreadBusy() bool {
+	return a.inTurn.Load() || a.mainThreadOutOfBand.Load() > 0
+}
+
+// Busy 实现池的 sessionBusyReporter:带外轮(自主续轮 / 后台 subagent 活动轮)在流时
+// 这条会话正忙。用户轮由池的 active 状态覆盖,带外轮不经过 acquireSession,没有任何
+// 人替它 MarkActive —— 只有自报这一条路能让空闲清扫看见它(sess-3244)。
+func (a *claudeActive) Busy() bool { return a.outOfBandActive() }
 
 // nextTurnToken 为新一轮入口分配自增 token 并记录为当前活跃轮,返回新 token。
 // kind 是这一轮的类型(用户轮 / 自主续轮 / 后台 subagent 活动轮)。
@@ -186,6 +199,27 @@ type permWaiter struct {
 }
 
 // Close 释放 claudeActive 持有的所有资源。幂等。
+// PID 交出底层 CLI 子进程号,供池快照把进程与会话对上;拿不到时为 0。
+func (a *claudeActive) PID() int {
+	if a == nil || a.handle == nil {
+		return 0
+	}
+	if provider, ok := a.handle.(interface{ PID() int }); ok {
+		return provider.PID()
+	}
+	return 0
+}
+
+// Kill 硬杀底层子进程(整组 SIGKILL),是 CLISessionPool 在优雅关闭超出宽限期后的
+// 升级口。Close 走的是「关 stdin 等 CLI 自己退出」,对卡在 MCP 初始化、根本不读
+// stdin 的 CLI 永不返回 —— 那种条目只能靠这一刀收尾。
+func (a *claudeActive) Kill(ctx context.Context) error {
+	if a == nil || a.handle == nil {
+		return nil
+	}
+	return a.handle.Kill(ctx)
+}
+
 func (a *claudeActive) Close(ctx context.Context) error {
 	if a.handle != nil {
 		_ = a.handle.Close(ctx)

@@ -7,22 +7,23 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
 
 // TestBuildHookSettingsJSONString 钉死 hook 注册 JSON 的 schema:
 // 顶层 hooks.PostToolUse[0].hooks[0].command 必须是
-// "<bin> claudecode hook post-tool";含空格的路径要被 shellEscape 包成引号
+// "<agrctl-bin> claudecode hook post-tool";含空格的路径要被 shellEscape 包成引号
 // (claude CLI 内部用 sh -c 跑 hook command,不 escape 会 split 出错的 argv)。
 func TestBuildHookSettingsJSONString(t *testing.T) {
 	Convey("buildHookSettingsJSONString", t, func() {
-		Convey("普通路径生成的 JSON 含 agentre claudecode hook post-tool", func() {
-			out, err := buildHookSettingsJSONString("/usr/local/bin/agentre")
+		Convey("普通路径生成的 JSON 含 agrctl claudecode hook post-tool", func() {
+			out, err := buildHookSettingsJSONString("/usr/local/bin/agrctl")
 			So(err, ShouldBeNil)
 
 			var parsed map[string]any
@@ -39,14 +40,14 @@ func TestBuildHookSettingsJSONString(t *testing.T) {
 			So(inner, ShouldHaveLength, 1)
 			hook := inner[0].(map[string]any)
 			So(hook["type"], ShouldEqual, "command")
-			So(hook["command"], ShouldEqual, "/usr/local/bin/agentre claudecode hook post-tool")
+			So(hook["command"], ShouldEqual, "/usr/local/bin/agrctl claudecode hook post-tool")
 		})
 
 		Convey("路径含空格时 command 字段加引号 (避免 sh -c 时被 split)", func() {
-			out, err := buildHookSettingsJSONString("/Applications/Agentre.app/Contents/MacOS/Agentre Helper")
+			out, err := buildHookSettingsJSONString("/Applications/Agentre Dev.app/Contents/MacOS/agrctl")
 			So(err, ShouldBeNil)
 			// 解析后的 command 字段应当以引号包路径
-			So(out, ShouldContainSubstring, `\"/Applications/Agentre.app/Contents/MacOS/Agentre Helper\" claudecode hook post-tool`)
+			So(out, ShouldContainSubstring, `\"/Applications/Agentre Dev.app/Contents/MacOS/agrctl\" claudecode hook post-tool`)
 		})
 	})
 }
@@ -98,5 +99,52 @@ func TestAcquireSession_InlineJSON_NoFilesWritten(t *testing.T) {
 		})
 
 		r.CloseAllSessions(ctx)
+	})
+}
+
+// Given claudeActive 是 CLISessionPool 里存的那个条目, When 优雅关闭超过宽限期、
+// 池升级到硬杀, Then 这一刀必须真的落到 CLI 子进程上。
+//
+// 池的升级靠条目实现 Kill(ctx) error 来认领。claudeActive 从前只有 Close ——
+// 而 claudecode 恰恰是唯一一个 Close 会永久阻塞的后端(关 stdin 后等一个根本不读
+// stdin 的 CLI 退出),升级路径对它整个是空转。
+func TestClaudeActive_GivenPoolEscalatesAfterGrace_WhenKilled_ThenSubprocessGetsTheSignal(t *testing.T) {
+	Convey("claudeActive 作为池条目", t, func() {
+		handle := &fakeCCHandle{killed: make(chan struct{})}
+		active := &claudeActive{handle: handle}
+
+		Convey("满足池的硬杀口契约", func() {
+			killer, ok := any(active).(interface{ Kill(context.Context) error })
+			So(ok, ShouldBeTrue)
+
+			Convey("调用它把 SIGKILL 传到底层子进程", func() {
+				So(killer.Kill(context.Background()), ShouldBeNil)
+				So(atomic.LoadInt32(&handle.killCalls), ShouldEqual, 1)
+			})
+		})
+
+		Convey("handle 缺席时不 panic", func() {
+			bare, ok := any(&claudeActive{}).(interface{ Kill(context.Context) error })
+			So(ok, ShouldBeTrue)
+			So(bare.Kill(context.Background()), ShouldBeNil)
+		})
+	})
+}
+
+// Given 一条常驻会话正握着一个 claude 子进程, When 池的快照问它的进程号, Then 拿到
+// 的是那个子进程的号 —— 「机器上这堆 claude」和「界面上这些会话」靠它对上。
+func TestClaudeActive_GivenLiveSubprocess_WhenSnapshotAsksForPID_ThenItNamesTheChild(t *testing.T) {
+	Convey("claudeActive 作为池条目", t, func() {
+		active := &claudeActive{handle: &fakeCCHandle{pid: 4242}}
+
+		provider, ok := any(active).(interface{ PID() int })
+		So(ok, ShouldBeTrue)
+		So(provider.PID(), ShouldEqual, 4242)
+
+		Convey("handle 缺席时交回 0 而不是 panic", func() {
+			bare, ok := any(&claudeActive{}).(interface{ PID() int })
+			So(ok, ShouldBeTrue)
+			So(bare.PID(), ShouldEqual, 0)
+		})
 	})
 }

@@ -55,6 +55,12 @@ export function checkForUpdate(): Promise<UpdateInfo> {
   return call<UpdateInfo>("CheckForUpdate");
 }
 
+// maybeCheckForUpdate 受 24h 节流约束的检查（窗口重新获得焦点时调用）。
+// 距上次检查太近时后端什么都不做并返回 null —— 那不是「已是最新」。
+export function maybeCheckForUpdate(): Promise<UpdateInfo | null> {
+  return call<UpdateInfo | null>("MaybeCheckForUpdate");
+}
+
 export function downloadAndInstallUpdate(skipChecksum: boolean): Promise<void> {
   return call<void>("DownloadAndInstallUpdate", skipChecksum);
 }
@@ -81,6 +87,24 @@ export function setDownloadMirror(mirror: string): Promise<void> {
 
 export function restartApp(): Promise<void> {
   return call<void>("RestartApp");
+}
+
+// SKIPPED_VERSION_KEY 与后端 app_setting_entity.KeySkippedUpdateVersion 一致。
+const SKIPPED_VERSION_KEY = "update.skipped_version";
+
+// getSkippedUpdateVersion 读「跳过此版本」记下的版本号；从未跳过时返回空串
+// （后端对不存在的 key 返回 AppSettingNotFound，是常态而不是故障）。
+export function getSkippedUpdateVersion(): Promise<string> {
+  return call<{ value?: string }>("GetAppSetting", { key: SKIPPED_VERSION_KEY })
+    .then((r) => r?.value ?? "")
+    .catch(() => "");
+}
+
+// setSkippedUpdateVersion 写入跳过的版本号；空串撤销跳过。
+export function setSkippedUpdateVersion(version: string): Promise<void> {
+  return call<void>("UpdateAppSettings", {
+    entries: [{ key: SKIPPED_VERSION_KEY, value: version }],
+  });
 }
 
 export function getBugReportInfo(): Promise<BugReportInfo> {

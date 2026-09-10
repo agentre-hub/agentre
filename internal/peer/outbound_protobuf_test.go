@@ -1,0 +1,239 @@
+package peer
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+)
+
+type outboundProtoClient struct{ conn *protorpc.Conn }
+
+func (c *outboundProtoClient) Conn() *protorpc.Conn    { return c.conn }
+func (c *outboundProtoClient) Closed() <-chan struct{} { return c.conn.Done() }
+func (c *outboundProtoClient) Close() error            { return c.conn.Close() }
+
+func TestOutboundUsesTypedProtobufSessionMethods(t *testing.T) {
+	var steered wire.SteerParams
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
+		ListSessions: func(context.Context, wire.SessionListParams) (*wire.SessionListResult, error) {
+			return &wire.SessionListResult{Sessions: []wire.SessionSummary{{ConversationID: convID(7), Title: "remote"}}}, nil
+		},
+		AttachSession: func(_ context.Context, p wire.SessionAttachParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
+			return wire.SessionAttachResult{ConversationID: p.ConversationID, LatestSeq: 12}, nil
+		},
+		PullSession: func(_ context.Context, p wire.SessionPullParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionPullResult, error) {
+			return wire.SessionPullResult{Cursor: p.Cursor + 1, OldestSeq: 1}, nil
+		},
+		RunSession: func(_ context.Context, p wire.RunParams, _ chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
+			require.True(t, p.FreshSession)
+			return &chat_svc.SendResponse{SessionID: 42}, nil
+		},
+		SteerSession: func(_ context.Context, p wire.SteerParams, _ chat_svc.PeerSessionSource) error {
+			steered = p
+			return nil
+		},
+		SubmitAnswer: func(context.Context, wire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error) {
+			return chat_svc.PeerSessionControlResult{AlreadyHandled: true}, nil
+		},
+		SubmitToolPermission: func(context.Context, wire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error) {
+			return chat_svc.PeerSessionControlResult{AlreadyHandled: true}, nil
+		},
+	})
+	clientTransport, serverTransport := peerProtoPipePair()
+	clientConn := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	serverConn := protorpc.NewConn(serverTransport, registry)
+	serverConn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go clientConn.Serve(ctx)
+	go serverConn.Serve(ctx)
+	ob := NewOutbound(&outboundProtoClient{conn: clientConn}, "sha256:peer")
+
+	list, err := ob.ListSessions(ctx, wire.SessionListParams{})
+	require.NoError(t, err)
+	require.Equal(t, convID(7), list.Sessions[0].ConversationID)
+	attached, err := ob.Attach(ctx, wire.SessionAttachParams{ConversationID: convID(7)})
+	require.NoError(t, err)
+	require.Equal(t, int64(12), attached.LatestSeq)
+	pulled, err := ob.Pull(ctx, wire.SessionPullParams{ConversationID: convID(7), Cursor: 3})
+	require.NoError(t, err)
+	require.Equal(t, int64(4), pulled.Cursor)
+	ack, err := ob.RunFresh(ctx, wire.RunParams{ConversationID: convID(99), UserText: "go"})
+	require.NoError(t, err)
+	require.Equal(t, convID(99), ack.ConversationID, "对话身份是发起端铸的那一个,对端不得改写")
+	require.NoError(t, ob.Steer(ctx, wire.SteerParams{ConversationID: convID(7), Text: "continue"}))
+	require.Equal(t, "continue", steered.Text)
+	answer, err := ob.SubmitAnswer(ctx, wire.SubmitAnswerParams{ConversationID: convID(7), RequestID: "a"})
+	require.NoError(t, err)
+	require.True(t, answer.AlreadyHandled)
+	permission, err := ob.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{ConversationID: convID(7), RequestID: "p", Allow: true})
+	require.NoError(t, err)
+	require.True(t, permission.AlreadyHandled)
+}
+
+func TestOutboundReceivesTypedRuntimeEventNotification(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{AttachSession: func(_ context.Context, p wire.SessionAttachParams, subscriber chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
+		require.NoError(t, subscriber.Notify(wire.NotifyEvent, wire.EventFrame{ConversationID: p.ConversationID, Seq: 13, Event: agentruntime.TextDelta{Text: "hi"}}))
+		return wire.SessionAttachResult{ConversationID: p.ConversationID, LatestSeq: 12}, nil
+	}})
+	clientTransport, serverTransport := peerProtoPipePair()
+	clientConn := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	serverConn := protorpc.NewConn(serverTransport, registry)
+	serverConn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go clientConn.Serve(ctx)
+	go serverConn.Serve(ctx)
+	ob := NewOutbound(&outboundProtoClient{conn: clientConn}, "sha256:peer")
+	events := make(chan wire.EventFrame, 1)
+	rawEvents := make(chan struct{}, 1)
+	clientConn.Registry().SubscribeNotification(func(context.Context, *agentrewire.RpcNotification) error { rawEvents <- struct{}{}; return nil })
+	ob.HandleEvent(func(frame wire.EventFrame) error { events <- frame; return nil })
+	_, err := ob.Attach(ctx, wire.SessionAttachParams{ConversationID: convID(7)})
+	require.NoError(t, err)
+	select {
+	case frame := <-events:
+		require.Equal(t, convID(7), frame.ConversationID)
+		require.Equal(t, int64(13), frame.Seq)
+	case <-time.After(time.Second):
+		select {
+		case <-rawEvents:
+			t.Fatal("typed notification arrived but event conversion failed")
+		default:
+			t.Fatal("typed runtime event was not delivered")
+		}
+	}
+}
+
+// TestOutboundDiscardsAutonomousTurnEventNotifications 钉死:自主续轮的事件帧不走
+// HandleEvent 这条出口。Peer Tab 渲染的是**对端用户轮**的转录,把自主续轮的增量混
+// 进去会让远端转录多出本地那边根本没显示的内容。
+func TestOutboundDiscardsAutonomousTurnEventNotifications(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{AttachSession: func(_ context.Context, p wire.SessionAttachParams, subscriber chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
+		// 先发一条自主续轮事件(必须被丢掉),再发一条普通事件(必须到达)——
+		// 用「后一条到了」证明前一条是被**丢弃**而不是还没到。
+		require.NoError(t, subscriber.Notify(wire.NotifyAutonomousTurnEvent, wire.EventFrame{
+			ConversationID: p.ConversationID, Seq: 1, Event: agentruntime.TextDelta{Text: "autonomous"},
+		}))
+		require.NoError(t, subscriber.Notify(wire.NotifyEvent, wire.EventFrame{
+			ConversationID: p.ConversationID, Seq: 2, Event: agentruntime.TextDelta{Text: "user-turn"},
+		}))
+		return wire.SessionAttachResult{ConversationID: p.ConversationID}, nil
+	}})
+	ob, ctx := newOutboundOverProtoPipe(t, registry)
+
+	events := make(chan wire.EventFrame, 4)
+	ob.HandleEvent(func(frame wire.EventFrame) error { events <- frame; return nil })
+	_, err := ob.Attach(ctx, wire.SessionAttachParams{ConversationID: convID(7)})
+	require.NoError(t, err)
+
+	select {
+	case frame := <-events:
+		require.Equal(t, int64(2), frame.Seq, "到达的必须是普通事件那条,自主续轮那条应当被丢掉")
+		td, ok := frame.Event.(agentruntime.TextDelta)
+		require.True(t, ok)
+		require.Equal(t, "user-turn", td.Text)
+	case <-time.After(time.Second):
+		t.Fatal("普通 runtime 事件没有送达")
+	}
+	select {
+	case extra := <-events:
+		t.Fatalf("不该再有第二条事件,却收到 seq=%d", extra.Seq)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestOutboundIgnoresNonEventNotifications 钉死:非事件类通知(终态帧 / 自主续轮
+// Started)不得被当成事件送进 HandleEvent,也不得让订阅者炸掉后面的通知。
+func TestOutboundIgnoresNonEventNotifications(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{AttachSession: func(_ context.Context, p wire.SessionAttachParams, subscriber chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
+		require.NoError(t, subscriber.Notify(wire.NotifyRunResultDone, wire.RunResultDoneFrame{ConversationID: p.ConversationID, Seq: 1}))
+		require.NoError(t, subscriber.Notify(wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{ConversationID: p.ConversationID, Seq: 2, Trigger: "t"}))
+		require.NoError(t, subscriber.Notify(wire.NotifyEvent, wire.EventFrame{
+			ConversationID: p.ConversationID, Seq: 3, Event: agentruntime.TextDelta{Text: "after"},
+		}))
+		return wire.SessionAttachResult{ConversationID: p.ConversationID}, nil
+	}})
+	ob, ctx := newOutboundOverProtoPipe(t, registry)
+
+	events := make(chan wire.EventFrame, 4)
+	ob.HandleEvent(func(frame wire.EventFrame) error { events <- frame; return nil })
+	_, err := ob.Attach(ctx, wire.SessionAttachParams{ConversationID: convID(7)})
+	require.NoError(t, err)
+
+	select {
+	case frame := <-events:
+		require.Equal(t, int64(3), frame.Seq, "只有事件帧该到达,且前面两条非事件通知不能挡住它")
+	case <-time.After(time.Second):
+		t.Fatal("非事件通知之后的事件帧没有送达")
+	}
+	select {
+	case extra := <-events:
+		t.Fatalf("非事件通知不该被当成事件送出,却收到 seq=%d", extra.Seq)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// newOutboundOverProtoPipe 起一对真的 protorpc 连接,返回接在客户端那侧的 Outbound。
+func newOutboundOverProtoPipe(t *testing.T, registry *protorpc.Registry) (*Outbound, context.Context) {
+	t.Helper()
+	clientTransport, serverTransport := peerProtoPipePair()
+	clientConn := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	serverConn := protorpc.NewConn(serverTransport, registry)
+	serverConn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go clientConn.Serve(ctx)
+	go serverConn.Serve(ctx)
+	return NewOutbound(&outboundProtoClient{conn: clientConn}, "sha256:peer"), ctx
+}
+
+// RunFresh 打到的是对端桌面上同一个 runtime.run:解析后端、准备工作区、拉起 CLI,
+// 几分钟是正常的。它必须豁免连接的默认请求预算 —— 被截断的话本端判派活失败,而对端
+// 那条会话已经建好并开跑了。
+func TestOutboundRunFresh_GivenARunSlowerThanTheCallBudget_WhenDispatched_ThenItIsNotTruncated(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
+		RunSession: func(ctx context.Context, _ wire.RunParams, _ chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
+			select {
+			case <-time.After(200 * time.Millisecond):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return &chat_svc.SendResponse{SessionID: 42}, nil
+		},
+	})
+	clientTransport, serverTransport := peerProtoPipePair()
+	clientConn := protorpc.NewConn(clientTransport, protorpc.NewRegistry(),
+		protorpc.WithCallTimeout(50*time.Millisecond))
+	serverConn := protorpc.NewConn(serverTransport, registry)
+	serverConn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go clientConn.Serve(ctx)
+	go serverConn.Serve(ctx)
+	ob := NewOutbound(&outboundProtoClient{conn: clientConn}, "sha256:peer")
+
+	ack, err := ob.RunFresh(context.Background(), wire.RunParams{ConversationID: convID(99), UserText: "go"})
+
+	require.NoError(t, err)
+	require.Equal(t, convID(99), ack.ConversationID, "对话身份是发起端铸的那一个,对端不得改写")
+}
+
+// convID 把一个短会话号折成一条**格式合法**的 conversation_id,只在测试里用:
+// 线上身份是 uuid,而这些用例真正要断言的是"同一个值原样往返"与"两条不同的对话
+// 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
+func convID(n int64) string {
+	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
+}
+
+// SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
+func (c *outboundProtoClient) SelfFingerprint() string { return "sha256:test-self" }

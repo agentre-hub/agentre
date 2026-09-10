@@ -98,6 +98,7 @@ export function ChatStreamsHost(): React.ReactElement | null {
   const markExecApprovalResolved = useChatStreamsStore(
     (s) => s.markExecApprovalResolved,
   );
+  const noteOutputActivity = useChatStreamsStore((s) => s.noteOutputActivity);
   const patchLiveUsage = useChatStreamsStore((s) => s.patchLiveUsage);
   const patchLiveContextWindow = useChatStreamsStore(
     (s) => s.patchLiveContextWindow,
@@ -125,6 +126,11 @@ export function ChatStreamsHost(): React.ReactElement | null {
             clearLiveRetry(sessionId, assistantMessageId);
             appendLiveThinking(sessionId, assistantMessageId, ev.delta);
           }
+          return;
+        case "output_activity":
+          // 纯计时信号：没有内容、不清 retry chip（模型开口的证据是正文/工具，
+          // 不是「开始产出一个块」）。只记首 token。
+          noteOutputActivity(sessionId, assistantMessageId);
           return;
         case "tool_use":
           // toolUseId / toolName 任一存在才算有效 —— 与旧版 applyLiveToolUse 行为一致。
@@ -394,6 +400,7 @@ export function ChatStreamsHost(): React.ReactElement | null {
     [
       appendLiveText,
       appendLiveThinking,
+      noteOutputActivity,
       appendLiveToolUse,
       appendLiveToolResult,
       appendLivePlanUpdate,

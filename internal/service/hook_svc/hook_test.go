@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/hook_entity"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo"
-	"github.com/agentre-ai/agentre/internal/repository/hook_repo/mock_hook_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
+	"github.com/agentre-hub/agentre/internal/repository/hook_repo/mock_hook_repo"
 )
 
 func TestProbeInterpreters_ReturnsPlatformList(t *testing.T) {

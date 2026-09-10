@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/ctlendpoint"
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
 )
 
 // endpoint 已解析的控制端点：base URL + bearer token。

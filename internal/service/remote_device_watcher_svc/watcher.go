@@ -11,8 +11,10 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // WatcherConfig 控制单 watcher 行为。
@@ -89,10 +91,10 @@ func NewWatcher(
 // Run 阻塞到 ctx cancel 才返回。done channel 在 Run 退出时关闭,Wait() 用。
 func (w *Watcher) Run(ctx context.Context) {
 	defer close(w.done)
-	logger.Default().Info("device watcher: started",
-		zap.Int64("deviceID", w.deviceID))
-	defer logger.Default().Info("device watcher: stopped",
-		zap.Int64("deviceID", w.deviceID))
+	logger.Default().Info("remote_device_watcher_svc.Watcher: started",
+		zap.Int64("deviceId", w.deviceID))
+	defer logger.Default().Info("remote_device_watcher_svc.Watcher: stopped",
+		zap.Int64("deviceId", w.deviceID))
 	for {
 		if ctx.Err() != nil {
 			return
@@ -101,8 +103,8 @@ func (w *Watcher) Run(ctx context.Context) {
 		switch classify(err) {
 		case errKindOK:
 			w.backoff.Reset()
-			logger.Default().Info("device watcher: online",
-				zap.Int64("deviceID", w.deviceID))
+			logger.Default().Info("remote_device_watcher_svc.Watcher: online",
+				zap.Int64("deviceId", w.deviceID))
 			w.emitOnline(row)
 			if cont := w.heartbeat(ctx, c, row); !cont {
 				return
@@ -116,8 +118,8 @@ func (w *Watcher) Run(ctx context.Context) {
 			// degraded:不退避,等 ctx cancel。打 Warn 而不是 Error 是因为
 			// 这是 expected 终态(用户撤销 token / 主动删 device),运维只需
 			// 知道"watcher 主动停了"。
-			logger.Default().Warn("device watcher: permanent failure, degraded",
-				zap.Int64("deviceID", w.deviceID),
+			logger.Default().Warn("remote_device_watcher_svc.Watcher: permanent failure, degraded",
+				zap.Int64("deviceId", w.deviceID),
 				zap.String("reason", classifyMessage(err)))
 			w.emitError(row, classifyMessage(err))
 			<-ctx.Done()
@@ -125,9 +127,11 @@ func (w *Watcher) Run(ctx context.Context) {
 		case errKindTransient:
 			// transient = 网络 / TLS / daemon 临时不在;只在 Debug 打,避免
 			// 一直断网时刷屏。
-			logger.Default().Debug("device watcher: transient failure, will retry",
-				zap.Int64("deviceID", w.deviceID), zap.Error(err))
-			w.emitError(row, "dial_failed:"+err.Error())
+			logger.Default().Debug("remote_device_watcher_svc.Watcher: transient failure, will retry",
+				zap.Int64("deviceId", w.deviceID), zap.Error(err))
+			// 走 classifyMessage 而不是直接拼 "dial_failed:":协议层的拒绝要保住
+			// 自己的代号,设备面板据它给出「升级远端 agentred」而不是「查网络与端口」。
+			w.emitError(row, classifyMessage(err))
 			if !w.clock.Sleep(ctx, w.backoff.Next()) {
 				return
 			}
@@ -139,7 +143,7 @@ func (w *Watcher) Run(ctx context.Context) {
 func (w *Watcher) Wait() { <-w.done }
 
 // dialOnce 加载 row + keychain,拨一次。返回的 client 已鉴权。
-func (w *Watcher) dialOnce(ctx context.Context) (*client.Client, *paired_agentred_entity.PairedAgentred, error) {
+func (w *Watcher) dialOnce(ctx context.Context) (client.ProtobufConnection, *paired_agentred_entity.PairedAgentred, error) {
 	row, err := w.repo.Get(ctx, w.deviceID)
 	if err != nil {
 		return nil, nil, err
@@ -147,9 +151,12 @@ func (w *Watcher) dialOnce(ctx context.Context) (*client.Client, *paired_agentre
 	if row == nil {
 		return nil, nil, errPermanentDeviceGone
 	}
-	token, err := w.keychain.Get(keychainTokenAccount(w.deviceID))
-	if err != nil || token == "" {
-		return nil, row, errPermanentUnauthorized
+	var token string
+	if !row.IsRelayOnly() {
+		token, err = w.keychain.Get(keychainTokenAccount(w.deviceID))
+		if err != nil || token == "" {
+			return nil, row, errPermanentUnauthorized
+		}
 	}
 	fp, err := w.keychain.Get(keychainFingerprintAccount)
 	if err != nil || fp == "" {
@@ -168,7 +175,7 @@ func (w *Watcher) dialOnce(ctx context.Context) (*client.Client, *paired_agentre
 
 // heartbeat 跑 ticker,每次 tick 发 health.ping。返回 false 表示 ctx cancel,Run 退出;
 // 返回 true 表示心跳出错需要退避重连。
-func (w *Watcher) heartbeat(ctx context.Context, c *client.Client, row *paired_agentred_entity.PairedAgentred) bool {
+func (w *Watcher) heartbeat(ctx context.Context, c client.ProtobufConnection, row *paired_agentred_entity.PairedAgentred) bool {
 	t := time.NewTicker(w.cfg.HeartbeatInterval)
 	defer t.Stop()
 	for {
@@ -178,31 +185,44 @@ func (w *Watcher) heartbeat(ctx context.Context, c *client.Client, row *paired_a
 			return false
 		case <-t.C:
 			cctx, cancel := context.WithTimeout(ctx, w.cfg.CallTimeout)
-			var res struct {
-				InstanceUUID string            `json:"instanceUUID"`
-				ServerTimeMs int64             `json:"serverTimeMs"`
-				Providers    []ProviderSummary `json:"providers,omitempty"`
-				// Capabilities 是 daemon 公布的能力位（决策 11：llm-model-target-v1）。
-				Capabilities []string `json:"capabilities,omitempty"`
-			}
-			err := c.Call(cctx, "health.ping", nil, &res)
+			res, err := protorpc.CallMethod(cctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING),
+				&agentrewire.HealthPingRequest{}, func() *agentrewire.HealthPingResponse { return &agentrewire.HealthPingResponse{} })
 			cancel()
 			if err != nil {
 				// 心跳失败 = daemon 死了 / 网络断了 → 走重连。Warn 一条让
 				// 运维知道断在哪个 device,而不是只看到前端 banner 变灰。
-				logger.Default().Warn("device watcher: heartbeat failed, will reconnect",
-					zap.Int64("deviceID", w.deviceID), zap.Error(err))
+				logger.Default().Warn("remote_device_watcher_svc.Watcher: heartbeat failed, will reconnect",
+					zap.Int64("deviceId", w.deviceID), zap.Error(err))
 				w.emitError(row, "dial_failed:"+err.Error())
 				return true
 			}
 			_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, w.clock.NowMs(), "")
-			if w.recorder != nil {
-				w.recorder.RecordDeviceProviders(w.deviceID, res.Providers)
-				w.recorder.RecordDeviceCapabilities(w.deviceID, res.Capabilities)
-			}
+			recordHealth(w.recorder, w.deviceID, res)
 			// online 状态持续:不再 emit,避免事件风暴
 		}
 	}
+}
+
+// recordHealth 把一次成功心跳的应答翻成缓存里的三样东西:provider 目录、能力位,
+// 以及 daemon 自报的构建标识(决策 4 的版本号 + 短 commit)。recorder 为 nil 时是
+// no-op —— 单测里不关心缓存的用例就传 nil。
+func recordHealth(recorder ProviderRecorder, deviceID int64, res *agentrewire.HealthPingResponse) {
+	if recorder == nil {
+		return
+	}
+	providers := make([]ProviderSummary, 0, len(res.GetProviders()))
+	for _, provider := range res.GetProviders() {
+		models := make([]ModelSummary, 0, len(provider.GetModels()))
+		for _, model := range provider.GetModels() {
+			models = append(models, ModelSummary{Key: model.GetKey(), ModelID: model.GetModelId(), Name: model.GetName(), Enabled: model.GetEnabled()})
+		}
+		providers = append(providers, ProviderSummary{Key: provider.GetKey(), Name: provider.GetName(), Type: provider.GetType(), DefaultModelKey: provider.GetDefaultModelKey(), Models: models})
+	}
+	recorder.RecordDeviceProviders(deviceID, providers)
+	recorder.RecordDeviceCapabilities(deviceID, res.GetCapabilities())
+	// 短 commit 为空串是有意义的取值(非发布构建),照记不误:漏掉它,本地构建的机器
+	// 会被当成发布构建劝升(决策 5)。
+	recorder.RecordDeviceBuild(deviceID, res.GetDaemonVersion(), res.GetDaemonCommit())
 }
 
 func (w *Watcher) emitOnline(row *paired_agentred_entity.PairedAgentred) {
@@ -258,6 +278,13 @@ func classify(err error) errKind {
 	return errKindTransient
 }
 
+// 协议层拒绝的判据。与 tofu mismatch 同一手法(字符串匹配,避免反向依赖
+// remote_device_svc),对应它的 ErrProtocolVersionMismatch / ErrProtocolUnsupported。
+const (
+	msgProtocolMismatch    = "speaks another agentre protocol version"
+	msgProtocolUnsupported = "speaks no agentre protobuf protocol"
+)
+
 func classifyMessage(err error) string {
 	switch {
 	case errors.Is(err, errPermanentUnauthorized):
@@ -266,6 +293,13 @@ func classifyMessage(err error) string {
 		return "device_gone"
 	case strings.Contains(err.Error(), "tofu mismatch"):
 		return "tofu_mismatch"
+	// 心跳与重连是 lastError 的常驻写者:把协议层的拒绝折进 "dial_failed:" 会
+	// 盖掉 refresh.go 刚落下的 protocol_mismatch,设备面板于是把「这台 agentred
+	// 太旧」说成一次普通的连接失败,把用户指去查网络与端口。
+	case strings.Contains(err.Error(), msgProtocolMismatch):
+		return "protocol_mismatch"
+	case strings.Contains(err.Error(), msgProtocolUnsupported):
+		return "protocol_unsupported"
 	default:
 		return "dial_failed:" + err.Error()
 	}

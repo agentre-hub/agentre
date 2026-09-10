@@ -5,13 +5,13 @@ import (
 	"maps"
 	"sync"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 )
 
-// Runtime 是 agent backend 跑一次 turn 的统一入口。各 backend 实现(claudecode /
-// codex / builtin / remote)在 runtimes/<name>/runtime.go 提供 *Runtime 类型,
-// init() 时调 RegisterRuntime 自注册。
+// Runtime 是 agent backend 跑一次 turn 的统一入口。本地 backend 实现
+// (claudecode / codex / builtin / piagent / openclaw)在 runtimes/<name>/runtime.go
+// 提供 *Runtime 类型,init() 时调 RegisterRuntime 自注册；remote 代理按设备动态创建。
 //
 // 控制接口(Steerer / Aborter / SteerCanceler / SteerDrainer /
 // PermissionModeSetter / AskAnswerSink / ToolPermissionSink)仍由调用方

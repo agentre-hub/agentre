@@ -7,9 +7,9 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // addToolUse / addBlock helpers — snapshot tests 调 AddToolUse/AddBlock 时不关心

@@ -8,8 +8,8 @@ import "strings"
 // local backend's DeviceID is the desktop's own fingerprint, so every branch
 // that once keyed off be.IsLocal()/be.IsRemote() must also treat a self
 // fingerprint as local. Only sha256:-prefixed named fingerprints can match;
-// empty / legacy numeric values short-circuit without a keychain read. Safe to
-// call before bootstrap (returns false).
+// anything else short-circuits without a keychain read. Safe to call before
+// bootstrap (returns false).
 func IsSelfDevice(deviceID string) bool {
 	if !strings.HasPrefix(deviceID, "sha256:") {
 		return false

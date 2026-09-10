@@ -2,9 +2,12 @@ import { useState, type ReactNode } from "react";
 import { ArrowRight, Check, X } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Button,
+  Separator,
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
 import { CommandCard } from "./command-card";
@@ -21,7 +24,7 @@ type AgentredOnboardingProps = {
 };
 
 const MANUAL_INSTALL_URL =
-  "https://github.com/agentre-ai/agentre/releases/latest";
+  "https://github.com/agentre-hub/agentre/releases/latest";
 
 export function AgentredOnboarding({
   onDismiss,

@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/daemon/workspacefs"
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
 )
 
 func TestReadFile_TextHappy(t *testing.T) {
@@ -65,5 +65,5 @@ func TestReadFile_RelativeRoot_InvalidParams(t *testing.T) {
 
 	_, err := h.ReadFile(context.Background(), wire.ReadFileReq{Root: "relative/root", RelPath: "a.txt"})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rpc.ErrInvalidParams))
+	assert.True(t, errors.Is(err, rpcerror.ErrInvalidParams))
 }

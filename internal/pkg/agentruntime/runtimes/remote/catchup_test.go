@@ -2,7 +2,6 @@ package remote
 
 import (
 	"context"
-	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,9 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // ── rig:App 刚启动、本进程内一轮都没有在跑 ─────────────────────────────────
@@ -21,11 +21,11 @@ import (
 // 会话清单,attach / pull / pendingWaiters 按补齐三步应答。
 func restartConn(summaries []wire.SessionSummary, journal []wire.JournaledNotification) *fakeConn {
 	c := newFakeConn()
-	latest := map[int64]int64{}
-	lifecycle := map[int64]string{}
+	latest := map[string]int64{}
+	lifecycle := map[string]string{}
 	for _, s := range summaries {
-		latest[s.SessionID] = s.LatestSeq
-		lifecycle[s.SessionID] = s.LifecycleState
+		latest[s.ConversationID] = s.LatestSeq
+		lifecycle[s.ConversationID] = s.LifecycleState
 	}
 	c.script(func(method string, params, result any) error {
 		switch method {
@@ -34,9 +34,9 @@ func restartConn(summaries []wire.SessionSummary, journal []wire.JournaledNotifi
 		case wire.MethodSessionAttach:
 			p := params.(wire.SessionAttachParams)
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID:      p.SessionID,
-				LifecycleState: lifecycle[p.SessionID],
-				LatestSeq:      latest[p.SessionID],
+				ConversationID: p.ConversationID,
+				LifecycleState: lifecycle[p.ConversationID],
+				LatestSeq:      latest[p.ConversationID],
 			}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
@@ -68,7 +68,8 @@ func newRestartRuntime(t *testing.T, conn *fakeConn, cursorAt int64) (*Runtime, 
 	cursor.setLoad(func(int64, string) (int64, bool, error) { return cursorAt, true, nil })
 	obs := &connStateRecorder{}
 	rt := New(conn,
-		WithReconnect(ReconnectFunc(func(context.Context) (agentruntime.DaemonClientPort, string, error) {
+		WithConversationIDResolver(convOf),
+		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),
 		WithDaemonFingerprint(rigFingerprint),
@@ -81,19 +82,19 @@ func newRestartRuntime(t *testing.T, conn *fakeConn, cursorAt int64) (*Runtime, 
 	return rt, cursor, obs
 }
 
-// catchUpRequest 抽出一次补齐族请求的 (sessionID, peerFingerprint)。
-func catchUpRequest(t *testing.T, c fakeCall) (int64, string) {
+// catchUpRequest 抽出一次补齐族请求的 (conversationID, peerFingerprint)。
+func catchUpRequest(t *testing.T, c fakeCall) (string, string) {
 	t.Helper()
 	switch p := c.Params.(type) {
 	case wire.SessionAttachParams:
-		return p.SessionID, p.PeerFingerprint
+		return p.ConversationID, p.PeerFingerprint
 	case wire.SessionPullParams:
-		return p.SessionID, p.PeerFingerprint
+		return p.ConversationID, p.PeerFingerprint
 	case wire.SessionPendingWaitersParams:
-		return p.SessionID, p.PeerFingerprint
+		return p.ConversationID, p.PeerFingerprint
 	default:
 		t.Fatalf("unexpected catch-up params type %T for %s", c.Params, c.Method)
-		return 0, ""
+		return "", ""
 	}
 }
 
@@ -110,10 +111,10 @@ func takeTurn(t *testing.T, turns <-chan agentruntime.AutonomousTurn) agentrunti
 	}
 }
 
-// Given 一台已认领的 daemon 交回账号级会话清单(每条都带它的发起对端 PeerFingerprint,
+// Given 一台已登录的 daemon 交回账号级会话清单(每条都带它的发起对端 PeerFingerprint,
 // 本客户端自己的会话为空),When 对它们跑补齐三步,Then attach / pull / pendingWaiters
 // 请求把清单里的 PeerFingerprint 原样带过去 —— 同账号客户端因此能按 origin 操作别的对端
-// 发起的会话(R12 桌面侧);origin 为空的会话则省略该字段(未认领 daemon / 自己对端,
+// 发起的会话(R12 桌面侧);origin 为空的会话则省略该字段(未登录 daemon / 自己对端,
 // 行为与今天完全一致)。
 func TestCatchUpSessions_PeerOrigin_CarriedIntoRequests(t *testing.T) {
 	const (
@@ -121,9 +122,9 @@ func TestCatchUpSessions_PeerOrigin_CarriedIntoRequests(t *testing.T) {
 		ownSession  int64 = 78 // 本客户端自己的会话,清单里 origin 为空
 	)
 	conn := restartConn([]wire.SessionSummary{
-		{SessionID: peerSession, PeerFingerprint: "peer-A",
+		{ConversationID: convOf(peerSession), PeerFingerprint: "peer-A",
 			LifecycleState: wire.SessionLifecycleRunning},
-		{SessionID: ownSession, LifecycleState: wire.SessionLifecycleRunning},
+		{ConversationID: convOf(ownSession), LifecycleState: wire.SessionLifecycleRunning},
 	}, nil)
 	rt, _, _ := newRestartRuntime(t, conn, 0)
 
@@ -138,53 +139,79 @@ func TestCatchUpSessions_PeerOrigin_CarriedIntoRequests(t *testing.T) {
 		require.Len(t, calls, 2, "每条运行中的会话都要发一次 %s", method)
 		peerSid, peerFP := catchUpRequest(t, calls[0])
 		ownSid, ownFP := catchUpRequest(t, calls[1])
-		// 调用顺序不保证,按 sessionID 归位。
-		if peerSid != peerSession {
+		// 调用顺序不保证,按对话身份归位。
+		if peerSid != convOf(peerSession) {
 			peerSid, ownSid, peerFP, ownFP = ownSid, peerSid, ownFP, peerFP
 		}
-		assert.Equal(t, peerSession, peerSid)
-		assert.Equal(t, ownSession, ownSid)
+		assert.Equal(t, convOf(peerSession), peerSid)
+		assert.Equal(t, convOf(ownSession), ownSid)
 		assert.Equal(t, "peer-A", peerFP, "%s 必须把对端 origin 原样带进请求", method)
 		assert.Empty(t, ownFP, "%s 对空 origin 的会话必须省略该字段(向后兼容)", method)
 	}
 }
 
-// Given 账号级清单里两个对端各有一条**同号**会话(会话 id 是各客户端本地自增的,重号是
-// 常态而非例外),When 本客户端问一眼清单,Then 这一格留的是**自己**那条 —— 别的对端那条
-// 不得覆盖它。R12 放宽的是可见性的过滤条件,「会话主键结构不变」:会话主键是
-// (对端指纹, 会话 id) 两段,按裸 id 索引会让别的对端那条把自己的顶掉。
-func TestSessionSummaries_CollidingSessionID_OwnPeerWins(t *testing.T) {
-	const collided int64 = 42
+// Given 两个不同对端各在这台 daemon 上有一条会话,When 本客户端问一眼清单,Then 两条
+// 各占一格、各自带回自己的 origin。
+//
+// 这里守的是一件**由构造消失**的事:会话号从前是各客户端本地自增的主键,两个对端的
+// 42 号会话会在清单里撞成一格 —— 高水位取错会让自己的会话不报错地冻住,origin 取错会
+// 把别人的通知日志重放进自己的转录。对话身份全局唯一之后,那种"同号会话"根本构造不
+// 出来:同一个 (对端, 会话号) 只对应一个 uuid,两个对端算出的 uuid 必然不同。
+func TestSessionSummaries_GivenTwoPeersOnTheSameDaemon_ThenNeitherConversationDisplacesTheOther(t *testing.T) {
+	const (
+		own  int64 = 42
+		peer       = "018f4c1a-0000-7000-8000-0000000000b0" // 对端 B 发起,身份由它自己铸
+	)
 	conn := restartConn([]wire.SessionSummary{
-		{SessionID: collided, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 3},
-		{SessionID: collided, PeerFingerprint: "peer-B",
+		{ConversationID: convOf(own), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 3},
+		{ConversationID: peer, PeerFingerprint: "peer-B",
 			LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 900},
 	}, nil)
 	rt, _, _ := newRestartRuntime(t, conn, 0)
 
 	summaries, err := rt.sessionSummaries(context.Background())
 	require.NoError(t, err)
-	// 高水位取错的后果:turnStartFloor 把别的对端的 900 当成自己会话的下限,自己此后
-	// 每一条通知(seq 4、5……)都低于下限被判成重复丢弃 —— 会话没有报错地冻住。
-	assert.Equal(t, int64(3), summaries[collided].LatestSeq,
-		"同号会话必须留自己那条的高水位")
-	assert.Empty(t, rt.originFor(collided),
+	require.Len(t, summaries, 2, "两条对话必须各占一格")
+	assert.Equal(t, int64(3), summaries[convOf(own)].LatestSeq)
+	assert.Equal(t, int64(900), summaries[peer].LatestSeq)
+	assert.Empty(t, rt.originFor(own),
 		"自己那条会话的 origin 必须是空,记成别的对端会让 attach/pull 点名别人的会话")
+	assert.Equal(t, "peer-B", rt.originForConversation(peer))
 }
 
-// Given 同上的同号会话清单,When 为自己那条会话跑补齐三步,Then attach / pull /
-// pendingWaiters 一律省略 origin(补的是自己那条),而不是点名别的对端 —— 否则拉回来的
-// 是别人的通知日志,会被原样重放进自己的转录。
-func TestCatchUpSessions_CollidingSessionID_CatchesUpOwnSession(t *testing.T) {
-	const collided int64 = 42
+// Given 一条 agentred 回传的会话摘要带着它记下的思考力度,When 客户端解清单,Then 那一格
+// 原样落在 wire.SessionSummary 上 —— 浏览器端在列表与重开时显示的就是这一格(spec
+// 2026-09-01「跨宿主」)。老 agentred 不发这个字段,解出来是空串(= 跟随后端配置)。
+func TestSummaryFromProto_CarriesReasoningEffort(t *testing.T) {
+	got := summaryFromProto(&agentrewire.SessionSummary{
+		ConversationId:  "018f4c1a-0000-7000-8000-0000000000b0",
+		LifecycleState:  wire.SessionLifecycleIdle,
+		ReasoningEffort: "xhigh",
+	})
+	assert.Equal(t, "xhigh", got.ReasoningEffort)
+
+	legacy := summaryFromProto(&agentrewire.SessionSummary{
+		ConversationId: "018f4c1a-0000-7000-8000-0000000000b1",
+		LifecycleState: wire.SessionLifecycleIdle,
+	})
+	assert.Empty(t, legacy.ReasoningEffort)
+}
+
+// Given 同上的清单,When 为自己那条会话跑补齐三步,Then attach / pull / pendingWaiters
+// 一律点名自己那条对话、省略 origin —— 拉回来的绝不能是别的对端的通知日志。
+func TestCatchUpSessions_GivenAnotherPeersConversation_ThenCatchesUpOnlyItsOwn(t *testing.T) {
+	const (
+		own  int64 = 42
+		peer       = "018f4c1a-0000-7000-8000-0000000000b0"
+	)
 	conn := restartConn([]wire.SessionSummary{
-		{SessionID: collided, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 3},
-		{SessionID: collided, PeerFingerprint: "peer-B",
+		{ConversationID: convOf(own), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 3},
+		{ConversationID: peer, PeerFingerprint: "peer-B",
 			LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 900},
 	}, nil)
 	rt, _, _ := newRestartRuntime(t, conn, 0)
 
-	_, err := rt.CatchUpSessions(context.Background(), []int64{collided})
+	_, err := rt.CatchUpSessions(context.Background(), []int64{own})
 	require.NoError(t, err)
 
 	for _, method := range []string{
@@ -193,9 +220,9 @@ func TestCatchUpSessions_CollidingSessionID_CatchesUpOwnSession(t *testing.T) {
 		calls := conn.methodCalls(method)
 		require.NotEmpty(t, calls, "%s 必须发出", method)
 		for _, c := range calls {
-			sid, fp := catchUpRequest(t, c)
-			assert.Equal(t, collided, sid)
-			assert.Empty(t, fp, "%s 补的是自己那条同号会话,不得点名别的对端", method)
+			cid, fp := catchUpRequest(t, c)
+			assert.Equal(t, convOf(own), cid)
+			assert.Empty(t, fp, "%s 补的是自己那条对话,不得点名别的对端", method)
 		}
 	}
 }
@@ -216,7 +243,7 @@ func TestCatchUpSessions_NoLiveRun_ReplaysIntoSynthesizedTurn(t *testing.T) {
 		journaledDone(6, "sonnet"),
 	}
 	conn := restartConn([]wire.SessionSummary{{
-		SessionID:      rigSessionID,
+		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleIdle,
 		LatestSeq:      6,
 	}}, journal)
@@ -258,7 +285,7 @@ func TestCatchUpSessions_FinishedSession_ReleasesTrackingAndWatcher(t *testing.T
 		journaledDone(5, "sonnet"),
 	}
 	conn := restartConn([]wire.SessionSummary{{
-		SessionID:      rigSessionID,
+		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleIdle,
 		LatestSeq:      5,
 	}}, journal)
@@ -289,7 +316,7 @@ func TestCatchUpSessions_FinishedSession_ReleasesTrackingAndWatcher(t *testing.T
 // 推送要落在这里,断一次线也必须重连接回去。收摊只针对已经结束的那些。
 func TestCatchUpSessions_StillRunningSession_KeepsTrackingForReconnect(t *testing.T) {
 	conn := restartConn([]wire.SessionSummary{{
-		SessionID:      rigSessionID,
+		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleRunning,
 		LatestSeq:      3,
 	}}, nil)
@@ -325,9 +352,9 @@ func TestCatchUpSessions_SessionListDecidesWhoNeedsPulling(t *testing.T) {
 		unknown   int64 = 45 // 本地还认得,daemon 上已经没有了
 	)
 	conn := restartConn([]wire.SessionSummary{
-		{SessionID: idleQuiet, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 3},
-		{SessionID: liveQuiet, LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 3},
-		{SessionID: behind, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 9},
+		{ConversationID: convOf(idleQuiet), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 3},
+		{ConversationID: convOf(liveQuiet), LifecycleState: wire.SessionLifecycleRunning, LatestSeq: 3},
+		{ConversationID: convOf(behind), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 9},
 	}, nil)
 	rt, _, _ := newRestartRuntime(t, conn, 3)
 
@@ -338,30 +365,12 @@ func TestCatchUpSessions_SessionListDecidesWhoNeedsPulling(t *testing.T) {
 		"交回的 live 只含 daemon 说还在跑的那条 —— 调用方据它判断本地哪些 running 行是重启遗孤")
 
 	calls := conn.methodCalls(wire.MethodSessionAttach)
-	attached := make([]int64, 0, len(calls))
+	attached := make([]string, 0, len(calls))
 	for _, c := range calls {
-		attached = append(attached, c.Params.(wire.SessionAttachParams).SessionID)
+		attached = append(attached, c.Params.(wire.SessionAttachParams).ConversationID)
 	}
-	assert.Equal(t, []int64{liveQuiet, behind}, attached,
+	assert.Equal(t, []string{convOf(liveQuiet), convOf(behind)}, attached,
 		"空闲且追平的会话与不在清单里的会话都不该发 attach;还在跑的必须接管推送流")
-}
-
-// Given 对面是不认识补齐族 RPC 的老 daemon,When App 启动后发起补齐,
-// Then 立刻判定不支持并交出哨兵,不再逐条 attach(R18)。
-func TestCatchUpSessions_OldDaemon_ReportsUnsupported(t *testing.T) {
-	conn := newFakeConn()
-	conn.script(func(method string, _, _ any) error {
-		if method == wire.MethodSessionList {
-			return &jsonrpc.Error{Code: jsonrpc.ErrMethodNotFound.Code, Message: "Method not found"}
-		}
-		return nil
-	})
-	rt, _, _ := newRestartRuntime(t, conn, 3)
-
-	_, err := rt.CatchUpSessions(context.Background(), []int64{rigSessionID})
-	require.ErrorIs(t, err, ErrCatchUpUnsupported)
-	assert.Empty(t, conn.methodCalls(wire.MethodSessionAttach),
-		"老 daemon 上不该继续发补齐族的其余方法")
 }
 
 // Given 一段补齐正在写进合成轮,When 重放到一条 autonomousTurn.started(daemon 在
@@ -378,13 +387,11 @@ func TestAutonomousTurnStarted_ClosesTheOpenTurnFirst(t *testing.T) {
 	turns := rt.AutonomousTurns(rigSessionID)
 
 	// 一条带 seq、却不属于本进程任何在飞轮次的事件 —— 它开出一轮合成轮。
-	ev, err := json.Marshal(agentruntime.TextDelta{Text: "replayed"})
-	require.NoError(t, err)
-	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{SessionID: rigSessionID, Event: ev, Seq: 1})
+	conn.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: agentruntime.TextDelta{Text: "replayed"}, Seq: 1})
 	first := takeTurn(t, turns)
 
 	conn.deliver(t, wire.NotifyAutonomousTurnStarted, wire.AutonomousTurnStartedFrame{
-		SessionID: rigSessionID, Trigger: "background_task", Seq: 2,
+		ConversationID: convOf(rigSessionID), Trigger: "background_task", Seq: 2,
 	})
 	second := takeTurn(t, turns)
 
@@ -394,8 +401,8 @@ func TestAutonomousTurnStarted_ClosesTheOpenTurnFirst(t *testing.T) {
 	assert.NotEqual(t, TriggerCatchUp, second.Trigger)
 }
 
-// Given 客户端离线的时间超过了 daemon 的整个日志留存窗口,它游标之后的那截尾巴已经被
-// 回收(daemon.collectJournal 只保住高水位那一行),When 它回来补齐,
+// Given daemon 那边游标之后的那截尾巴已经不在了(agentred 自己不再回收日志 —— 规格
+// 2026-08-18 决策 8 —— 但库可能被从外部恢复或截断),When 客户端回来补齐,
 // Then 按 daemon 交回的「现存最老 seq」把游标复位,现存的那段照常重放进转录。
 //
 // 不复位的后果不是「少几条」而是这条会话就此静默冻住:每一页的第一条都比 游标+1 大,
@@ -409,7 +416,7 @@ func TestCatchUpSessions_ReclaimedPrefix_ResetsCursorInsteadOfFreezing(t *testin
 		journaledDone(11, "sonnet"),
 	}
 	conn := restartConn([]wire.SessionSummary{{
-		SessionID:      rigSessionID,
+		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleIdle,
 		LatestSeq:      11,
 	}}, journal)
@@ -450,11 +457,11 @@ func TestCatchUpSessions_PageEntirelyBelowTheNewFloor_PullsAgain(t *testing.T) {
 		switch method {
 		case wire.MethodSessionList:
 			*(result.(*wire.SessionListResult)) = wire.SessionListResult{Sessions: []wire.SessionSummary{{
-				SessionID: rigSessionID, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 31,
+				ConversationID: convOf(rigSessionID), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 31,
 			}}}
 		case wire.MethodSessionAttach:
 			*(result.(*wire.SessionAttachResult)) = wire.SessionAttachResult{
-				SessionID: rigSessionID, LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 31,
+				ConversationID: convOf(rigSessionID), LifecycleState: wire.SessionLifecycleIdle, LatestSeq: 31,
 			}
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
@@ -502,7 +509,7 @@ func TestCatchUpSessions_PageEntirelyBelowTheNewFloor_PullsAgain(t *testing.T) {
 // 由文案区分,而文案的唯一依据就是这个哨兵)。
 func TestCatchUpSessions_InterruptedSession_ReadsHistoryThenEndsAsInterrupted(t *testing.T) {
 	conn := restartConn([]wire.SessionSummary{{
-		SessionID:      rigSessionID,
+		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleInterrupted,
 		LatestSeq:      5,
 	}}, []wire.JournaledNotification{

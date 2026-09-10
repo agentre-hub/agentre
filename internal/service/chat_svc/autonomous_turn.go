@@ -2,21 +2,14 @@ package chat_svc
 
 import (
 	"context"
-	"fmt"
-	"time"
 
-	"github.com/cago-frame/agents/agent/blocks"
-	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/handlers"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
 // startAutonomousWatcher 为某 claudecode 会话惰性启动一个 watcher goroutine,订阅
@@ -80,220 +73,27 @@ func (s *chatSvc) driveAutonomousTurn(ctx context.Context, sessionID int64, be *
 		}
 	}
 
-	assistantMsg := &chat_entity.Message{
-		SessionID:  sessionID,
-		DeviceID:   be.DeviceID,
-		Role:       "assistant",
-		BlocksJSON: "[]",
+	t := &autonomousTurnRun{
+		svc:       s,
+		sessionID: sessionID,
+		be:        be,
+		at:        at,
+		sess:      sess,
+		first:     first,
+		hasFirst:  hasFirst,
+		prelude:   prelude,
 	}
-	if at.Result != nil && at.Result.Model != "" {
-		assistantMsg.Model = at.Result.Model
-	}
-	var userMsg *chat_entity.Message
-	if err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
-		txCtx := db.WithContextDB(ctx, tx)
-		nextSeq, err := chat_repo.Message().NextSeq(txCtx, sessionID)
-		if err != nil {
-			return err
-		}
-		// R18:浏览器发起的一轮先落 user 行(seq 在 assistant 之前),转录顺序才正确。
-		if prelude != nil {
-			userMsg = &chat_entity.Message{
-				SessionID: sessionID,
-				DeviceID:  be.DeviceID,
-				Role:      "user",
-				Seq:       nextSeq,
-			}
-			if err := userMsg.SetBlocks([]blocks.ContentBlock{&blocks.TextBlock{Text: prelude.Text}}); err != nil {
-				return err
-			}
-			if err := chat_repo.Message().Create(txCtx, userMsg); err != nil {
-				return err
-			}
-			nextSeq++
-		}
-		assistantMsg.Seq = nextSeq
-		if err := chat_repo.Message().Create(txCtx, assistantMsg); err != nil {
-			return err
-		}
-		sess.AgentStatus = "running"
-		sess.NeedsAttention = false
-		sess.LastMessageAt = time.Now().UnixMilli()
-		return chat_repo.Session().Update(txCtx, sess)
-	}); err != nil {
+	if err := t.persistTurnMessages(ctx); err != nil {
 		logger.Ctx(ctx).Error("chat_svc: driveAutonomousTurn persist assistant failed",
 			zap.Int64("sessionId", sessionID), zap.Error(err))
 		s.failAutonomousTurnPersist(ctx, sessionID, sess, be, err, at.Events, at.TurnToken)
 		return
 	}
 
-	// 若本自主轮由后台命令完成触发,带上完成任务身份,供前端即时翻转上一条消息里
-	// 的 subagent_state 块,并在收尾后落库定向翻转。remote 转发当前不携带 CompletedTask
-	// (v1 已知限制),此处对 nil/空 ToolUseID 全程 no-op。
-	var completedRef *CompletedTaskRef
-	if at.CompletedTask != nil && at.CompletedTask.ToolUseID != "" {
-		st := at.CompletedTask.Status
-		if st == "" {
-			st = "completed"
-		}
-		completedRef = &CompletedTaskRef{
-			ToolUseID: at.CompletedTask.ToolUseID,
-			Status:    st,
-			Summary:   at.CompletedTask.Summary,
-		}
-	}
-
-	stream := StreamName(sessionID, assistantMsg.ID)
-	logger.Ctx(ctx).Info("chat_svc: autonomous turn started",
-		zap.Int64("sessionId", sessionID),
-		zap.Int64("assistantMsgId", assistantMsg.ID),
-		zap.String("trigger", at.Trigger))
-	// R18:浏览器发起的一轮,把刚落的 user 行随 started 事件带给前端(带来源标识)。
-	var userEvents []ChatMessage
-	if userMsg != nil {
-		um, err := toChatMessage(userMsg)
-		if err != nil {
-			logger.Ctx(ctx).Warn("chat_svc: driveAutonomousTurn encode user msg failed",
-				zap.Int64("sessionId", sessionID), zap.Error(err))
-		} else {
-			um.SessionID = sessionID
-			// R17 同款:来源标识随消息 DTO 带出 —— 本机/未知为空,前端看到空 sourceDevice
-			// 就不渲染;名字缺失时保持空,前端回退指纹(R19)。
-			um.SourceDevice = prelude.SourceDevice
-			um.SourceDeviceName = prelude.SourceDeviceName
-			userEvents = []ChatMessage{um}
-		}
-	}
-	// 会话级旁路:让前端插入新 assistant 行并 openStream 订阅 per-turn 流。
-	s.emitter.Emit(ctx, AutonomousStreamName(sessionID), ChatStreamEvent{
-		Kind:             StreamAutonomousStarted,
-		Stream:           stream,
-		Trigger:          at.Trigger,
-		UserMessages:     userEvents,
-		AssistantMessage: chatMessageForEvent(sess, assistantMsg),
-		CompletedTask:    completedRef,
-	})
-
-	acc := turn.New()
-	dispEmit := &dispatcherEmitter{svc: s}
-	turnCtx := s.newTurnContext(assistantMsg, sess, stream, be.Type)
-	// The first event can be the persisted user-message prelude; it is still a
-	// canonical event for remote peers even though the local reducer does not
-	// add it to assistant blocks.
-	if hasFirst {
-		s.publishPeerEvent(sessionID, first)
-	}
-	// 首条若已是标记之外的普通事件,它仍要进 dispatcher(用户消息不进 assistant 内容)。
-	if hasFirst && prelude == nil {
-		if err := s.dispatcher.Apply(ctx, first, acc, dispEmit, nil, turnCtx); err != nil {
-			logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
-				zap.String("eventType", fmt.Sprintf("%T", first)), zap.Error(err))
-		}
-		if shouldCheckpointAssistantAfterEvent(first) {
-			s.checkpointAssistantNew(ctx, assistantMsg, acc)
-		}
-	}
-	for ev := range at.Events {
-		s.publishPeerEvent(sessionID, ev)
-		if err := s.dispatcher.Apply(ctx, ev, acc, dispEmit, nil, turnCtx); err != nil {
-			logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
-				zap.String("eventType", fmt.Sprintf("%T", ev)), zap.Error(err))
-		}
-		if shouldCheckpointAssistantAfterEvent(ev) {
-			s.checkpointAssistantNew(ctx, assistantMsg, acc)
-		}
-	}
-
-	finalBlocks := acc.Finalize()
-	// 镜像 Send 路径(chat.go):本自主轮结束时仍 running 的 subagent(没等到
-	// SubagentDone,如轮被中断)翻成 "canceled",否则原样落 DB 让前端后台任务芯片
-	// 永远 spin。只动本轮 finalBlocks,不碰更早消息里的后台 bash 块(那条由
-	// FlipSubagentStatus 定向翻转)。
-	handlers.MarkRunningSubagentsCancelled(finalBlocks)
-	_ = assistantMsg.SetBlocks(finalBlocks)
-	if at.Result != nil {
-		if at.Result.Usage != nil {
-			assistantMsg.PromptTokens = at.Result.Usage.PromptTokens
-			assistantMsg.CompletionTokens = at.Result.Usage.CompletionTokens
-			assistantMsg.CachedTokens = at.Result.Usage.CachedTokens
-			assistantMsg.CacheCreationTokens = at.Result.Usage.CacheCreationTokens
-			assistantMsg.ReasoningTokens = at.Result.Usage.ReasoningTokens
-		}
-		if at.Result.Model != "" {
-			assistantMsg.Model = at.Result.Model
-		}
-		if at.Result.ProviderSessionID != "" {
-			sess.SetProviderSession(at.Result.ProviderSessionID)
-		}
-	}
-	// finalCtx 去掉 cancel 信号但保留 DB 句柄 —— 已经流出去的内容必须落库。
-	finalCtx := context.WithoutCancel(ctx)
-	// 这一轮是被截断的(远端断连 / 会话在那台 daemon 上已中断)时,StopErr 带着终止理由。
-	// 不看它就等于把一条**半截**的回答按「正常跑完」落库:errorText 空、会话翻 idle、
-	// emit StreamDone —— 用户看到一条戛然而止却「成功」的回答,分不出发生了什么。
-	// 文案由 mapTurnError 统一给(与用户发起的那条轮次同一套),这里只负责落成终态。
-	var stopErr error
-	if at.Result != nil && at.Result.StopErr != nil {
-		stopErr = s.mapTurnError(finalCtx, sess, be, at.Result.StopErr)
-		assistantMsg.ErrorText = stopErr.Error()
-		logger.Ctx(finalCtx).Warn("chat_svc: autonomous turn terminated",
-			zap.Int64("sessionId", sessionID),
-			zap.Int64("assistantMsgId", assistantMsg.ID),
-			zap.Error(at.Result.StopErr))
-	}
-	_ = chat_repo.Message().Update(finalCtx, assistantMsg)
-
-	sess.AgentStatus = "idle"
-	if stopErr != nil {
-		sess.AgentStatus = "error"
-	}
-	sess.NeedsAttention = false
-	sess.LastMessageAt = time.Now().UnixMilli()
-	_ = s.persistSessionStatus(finalCtx, sess)
-	logger.Ctx(finalCtx).Info("chat_svc: autonomous turn finalized",
-		zap.Int64("sessionId", sessionID),
-		zap.Int64("assistantMsgId", assistantMsg.ID),
-		zap.String("agentStatus", sess.AgentStatus))
-
-	// 后台命令在本自主轮才完成:它发起的 subagent_state 块住在更早的消息里,过不了
-	// per-turn accumulator,只能定向重写持久化态。completedRef 为 nil(含 remote
-	// 不携带 CompletedTask 的情形)时跳过。
-	if completedRef != nil {
-		if err := chat_repo.Message().FlipSubagentStatus(finalCtx, sessionID, completedRef.ToolUseID, completedRef.Status, completedRef.Summary); err != nil {
-			logger.Ctx(finalCtx).Warn("chat_svc.driveAutonomousTurn: FlipSubagentStatus failed",
-				zap.Int64("sessionId", sessionID),
-				zap.String("toolUseId", completedRef.ToolUseID),
-				zap.Error(err))
-		}
-		s.reconcileBgRunningOnComplete(finalCtx, sess, completedRef.ToolUseID, stream)
-	}
-
-	final := chatMessageForEvent(sess, assistantMsg)
-	s.emitter.Emit(finalCtx, stream, ChatStreamEvent{
-		Kind: StreamSessionStatus,
-		SessionStatus: &ChatSessionStatusPatch{
-			AgentStatus:    sess.AgentStatus,
-			NeedsAttention: sess.NeedsAttention,
-			BgRunning:      s.bgRunningActive(sess.ID),
-		},
-	})
-	if stopErr != nil {
-		s.emitter.Emit(finalCtx, stream, ChatStreamEvent{
-			Kind: StreamError, Error: stopErr.Error(), Message: final,
-		})
-	} else {
-		s.emitter.Emit(finalCtx, stream, ChatStreamEvent{Kind: StreamDone, Message: final})
-	}
-	s.emitter.Emit(finalCtx, stream, ChatStreamEvent{Kind: StreamClosed})
-	// 会话级流补发终态兜底:StreamAutonomousStarted 是前端拿 per-turn 流名的唯一入口,
-	// 前端收到才 openStream、ChatStreamsHost 才在下一 render EventsOn 订阅。若本轮很短,
-	// 上面的 per-turn StreamDone 可能赶在订阅注册前发完 → 前端漏终态 → 该
-	// LiveStream 永远留在 store → streaming 卡死。会话级流由 ChatPanel 挂载即订阅、常驻,
-	// 先于本轮,补一发让前端据 LaunchMessageID 兜底 finishStream(幂等)。见 StreamAutonomousFinished。
-	s.emitter.Emit(finalCtx, AutonomousStreamName(sessionID), ChatStreamEvent{
-		Kind:            StreamAutonomousFinished,
-		LaunchMessageID: assistantMsg.ID,
-	})
+	t.emitStarted(ctx)
+	t.initSegment()
+	t.consumeEvents(ctx)
+	t.finalize(ctx)
 }
 
 // failAutonomousTurnPersist 处理"新建 assistant 消息的事务最终失败"这一分支

@@ -180,7 +180,7 @@ export function QueuedMessagesBar({
               <span
                 aria-label={t("queuedMessages.notCancellable")}
                 title={t("queuedMessages.notCancellableTitle")}
-                className="inline-flex size-5 shrink-0 items-center justify-center text-subtle-foreground"
+                className="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground"
               >
                 <Lock className="size-3" aria-hidden="true" />
               </span>

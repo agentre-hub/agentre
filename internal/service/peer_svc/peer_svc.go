@@ -2,25 +2,26 @@ package peer_svc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"sync"
 
 	"go.uber.org/zap"
 
 	"github.com/cago-frame/cago/pkg/logger"
 
-	"github.com/agentre-ai/agentre/internal/peer"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/peer"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 )
 
-// freshSessionPlaceholder 是 wire runtime.run 的正整数、非零会话占位（对端按「本机
-// 查无此会话」判定新建，见 chat_svc.runFreshPeerSession）。用一个大的随机占位避开
-// 本机任何真实自增 id，杜绝撞上对端既有会话被误续。
-func freshSessionPlaceholder() int64 {
-	return rand.Int63n(1<<62) + 1<<61 // [1<<61, 1<<62)
+// freshConversationID 为「在对端桌面端上新建一条对话」铸号(决策 1:发起端铸,
+// 对端从不发号)。对端按「本机查无这条对话」判定新建,见 chat_svc.runFreshPeerSession。
+// v7 全局唯一,从此不必再靠一个大随机数去躲开对端的自增主键。
+func freshConversationID() (string, error) {
+	return conversationid.New()
 }
 
 var defaultSvc PeerSvc
@@ -38,7 +39,7 @@ type service struct {
 
 type connEntry struct {
 	out      *peer.Outbound
-	sessions map[int64]struct{}
+	sessions map[string]struct{}
 }
 
 // New 构造 peer_svc。Production wiring 在 internal/app（composition root）：dialer
@@ -92,11 +93,18 @@ func (s *service) ensureConn(ctx context.Context, fingerprint string) (*connEntr
 		return nil, err
 	}
 	out.HandleEvent(func(f wire.EventFrame) error {
+		// 这里是**唯一**该把密封事件序列化成 JSON 的地方:再往前一步是 Wails
+		// 事件,前端只吃 JSON。传输链路本身(daemon ↔ 桌面)全程走 Protobuf,
+		// 不再经手中间那层 json.RawMessage。
+		raw, err := json.Marshal(f.Event)
+		if err != nil {
+			return err
+		}
 		s.emitter.Emit(PeerEvent{
-			Fingerprint: fingerprint,
-			SessionID:   f.SessionID,
-			Seq:         f.Seq,
-			Event:       f.Event,
+			Fingerprint:    fingerprint,
+			ConversationID: f.ConversationID,
+			Seq:            f.Seq,
+			Event:          raw,
 		})
 		return nil
 	})
@@ -108,7 +116,7 @@ func (s *service) ensureConn(ctx context.Context, fingerprint string) (*connEntr
 		_ = out.Close()
 		return e, nil
 	}
-	e := &connEntry{out: out, sessions: map[int64]struct{}{}}
+	e := &connEntry{out: out, sessions: map[string]struct{}{}}
 	s.conns[fingerprint] = e
 	go s.watchClosed(fingerprint, e, out.Closed())
 	return e, nil
@@ -126,16 +134,16 @@ func (s *service) watchClosed(fingerprint string, e *connEntry, closed <-chan st
 		zap.String("fingerprint", fingerprint))
 }
 
-func (s *service) ListSessions(ctx context.Context, fingerprint string) (*wire.SessionListResult, error) {
-	if fingerprint == "" {
+func (s *service) ListSessions(ctx context.Context, req ListSessionsRequest) (*wire.SessionListResult, error) {
+	if req.Fingerprint == "" {
 		return nil, errors.New("peer_svc.ListSessions: empty fingerprint")
 	}
-	out, release, err := s.dialShort(ctx, fingerprint)
+	out, release, err := s.dialShort(ctx, req.Fingerprint)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
-	return out.ListSessions(ctx)
+	return out.ListSessions(ctx, wire.SessionListParams{Cursor: req.Cursor, Limit: req.Limit})
 }
 
 func (s *service) RunFresh(ctx context.Context, req RunFreshRequest) (wire.RunAck, error) {
@@ -168,16 +176,21 @@ func (s *service) RunFresh(ctx context.Context, req RunFreshRequest) (wire.RunAc
 	if err != nil {
 		return wire.RunAck{}, err
 	}
+	conversationID, err := freshConversationID()
+	if err != nil {
+		return wire.RunAck{}, err
+	}
 	return out.RunFresh(ctx, wire.RunParams{
-		SessionID:      freshSessionPlaceholder(),
-		AgentSyncID:    agent.SyncID,
-		Cwd:            cwd,
-		Title:          req.Title,
-		UserText:       req.UserText,
-		PermissionMode: req.PermissionMode,
-		LLMProviderKey: req.ProviderKey,
-		LLMModelKey:    req.ModelKey,
-		SourceDevice:   fp,
+		ConversationID:  conversationID,
+		AgentSyncID:     agent.SyncID,
+		Cwd:             cwd,
+		Title:           req.Title,
+		UserText:        req.UserText,
+		PermissionMode:  req.PermissionMode,
+		LLMProviderKey:  req.ProviderKey,
+		LLMModelKey:     req.ModelKey,
+		ReasoningEffort: req.ReasoningEffort,
+		SourceDevice:    fp,
 	})
 }
 
@@ -186,12 +199,12 @@ func (s *service) Attach(ctx context.Context, req AttachRequest) (*wire.SessionA
 	if err != nil {
 		return nil, err
 	}
-	result, err := e.out.Attach(ctx, wire.SessionAttachParams{SessionID: req.SessionID})
+	result, err := e.out.Attach(ctx, wire.SessionAttachParams{ConversationID: req.ConversationID})
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
-	e.sessions[req.SessionID] = struct{}{}
+	e.sessions[req.ConversationID] = struct{}{}
 	s.mu.Unlock()
 	return &result, nil
 }
@@ -202,9 +215,9 @@ func (s *service) Pull(ctx context.Context, req PullRequest) (*wire.SessionPullR
 		return nil, err
 	}
 	result, err := e.out.Pull(ctx, wire.SessionPullParams{
-		SessionID: req.SessionID,
-		Cursor:    req.Cursor,
-		Limit:     req.Limit,
+		ConversationID: req.ConversationID,
+		Cursor:         req.Cursor,
+		Limit:          req.Limit,
 	})
 	if err != nil {
 		return nil, err
@@ -217,7 +230,7 @@ func (s *service) Steer(ctx context.Context, req SteerRequest) error {
 	if err != nil {
 		return err
 	}
-	return e.out.Steer(ctx, wire.SteerParams{SessionID: req.SessionID, Text: req.Text})
+	return e.out.Steer(ctx, wire.SteerParams{ConversationID: req.ConversationID, Text: req.Text})
 }
 
 func (s *service) SubmitAnswer(ctx context.Context, req SubmitAnswerRequest) (*wire.PeerSessionControlResult, error) {
@@ -234,10 +247,10 @@ func (s *service) SubmitAnswer(ctx context.Context, req SubmitAnswerRequest) (*w
 		})
 	}
 	result, err := e.out.SubmitAnswer(ctx, wire.SubmitAnswerParams{
-		SessionID: req.SessionID,
-		RequestID: req.RequestID,
-		Answers:   answers,
-		Skipped:   req.Skipped,
+		ConversationID: req.ConversationID,
+		RequestID:      req.RequestID,
+		Answers:        answers,
+		Skipped:        req.Skipped,
 	})
 	if err != nil {
 		return nil, err
@@ -251,7 +264,7 @@ func (s *service) SubmitToolPermission(ctx context.Context, req SubmitToolPermis
 		return nil, err
 	}
 	result, err := e.out.SubmitToolPermission(ctx, wire.SubmitToolPermissionParams{
-		SessionID:          req.SessionID,
+		ConversationID:     req.ConversationID,
 		RequestID:          req.RequestID,
 		Allow:              req.Allow,
 		AlwaysAllowSession: req.AlwaysAllowSession,
@@ -263,14 +276,14 @@ func (s *service) SubmitToolPermission(ctx context.Context, req SubmitToolPermis
 	return &result, nil
 }
 
-func (s *service) Detach(ctx context.Context, fingerprint string, sessionID int64) error {
+func (s *service) Detach(ctx context.Context, fingerprint string, conversationID string) error {
 	s.mu.Lock()
 	e, ok := s.conns[fingerprint]
 	if !ok {
 		s.mu.Unlock()
 		return nil
 	}
-	delete(e.sessions, sessionID)
+	delete(e.sessions, conversationID)
 	if len(e.sessions) > 0 {
 		s.mu.Unlock()
 		return nil
@@ -279,7 +292,7 @@ func (s *service) Detach(ctx context.Context, fingerprint string, sessionID int6
 	s.mu.Unlock()
 	_ = e.out.Close()
 	logger.Default().Info("peer_svc.Detach: last session detached, relay connection closed",
-		zap.String("fingerprint", fingerprint), zap.Int64("sessionId", sessionID))
+		zap.String("fingerprint", fingerprint), zap.String("conversationId", conversationID))
 	return nil
 }
 

@@ -31,7 +31,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+} from "@agentre-hub/agentre-ui";
 
 import { useSessionAttentionList } from "@/stores/attention-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";

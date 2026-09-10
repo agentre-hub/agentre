@@ -206,3 +206,29 @@ func Mutate[B any](a *Accumulator, key string, fn func(*B)) bool {
 	fn(b)
 	return true
 }
+
+// AdoptMutateKey[B] 把 alias 这个 mutate key 挂到**已存在**的某一块上:按累积顺序找
+// 第一个满足 pred 的 *B,把 alias 指向它,并就地调 fn。命中返回 true,没有满足 pred
+// 的块时不注册 alias、返回 false。
+//
+// 用于「同一个逻辑对象换了新 ID」的场景:CLI 恢复一个子代理时用同一个 task_id 但新的
+// tool_use_id 重发 task_started,后续 progress/done 帧都带新 ID。把新 ID 认领到原块上,
+// 这些帧无需知道自己是恢复来的就能落在原卡上,调用方也不必维护一张别名表。
+func AdoptMutateKey[B any](a *Accumulator, alias string, pred func(*B) bool, fn func(*B)) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i, blk := range a.finalBlocks {
+		b, ok := any(blk).(*B)
+		if !ok || !pred(b) {
+			continue
+		}
+		if alias != "" {
+			a.mutateIndex[alias] = i
+		}
+		if fn != nil {
+			fn(b)
+		}
+		return true
+	}
+	return false
+}

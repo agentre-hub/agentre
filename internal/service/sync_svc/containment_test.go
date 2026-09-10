@@ -9,10 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 )
+
+// applyErr 把 applyInbound 的两个返回值收成一个 error。第一个返回值是「本机有没有
+// 真的因此改变」，本文件里好几处**恰恰期待它是 false**（暂缓、无处可删的墓碑），
+// 所以这里只把错误交出去 —— 谁关心落没落地谁自己断言。
+func applyErr(_ bool, err error) error { return err }
 
 // ── 下行的单条隔离 ──────────────────────────────────────────────────────────
 
@@ -71,7 +76,7 @@ func TestReplayDeferred_GivenOneRowFails_StillReplaysTheRest(t *testing.T) {
 		}))
 	}
 
-	require.NoError(t, h.svc.replayDeferred(ctx, 7))
+	require.NoError(t, h.svc.replayDeferred(ctx, 7, appliedKinds{}))
 
 	assert.Equal(t, "C", h.adapter.rows["p-ok"], "坏行不该挡住同一轮里其它行的重放")
 	require.Len(t, h.inbound.rows, 1)
@@ -89,19 +94,19 @@ func TestReplayDeferred_GivenNewerVersionAlreadyApplied_DoesNotRegress(t *testin
 	h.adapter.needRef = ref{Kind: "project", SyncID: "parent"}
 
 	// v5 到达时引用目标还没到 → 暂缓。
-	require.NoError(t, h.svc.applyInbound(ctx, 7, &inbound{
+	require.NoError(t, applyErr(h.svc.applyInbound(ctx, 7, &inbound{
 		Kind: "project", SyncID: "p-1", Version: 5, Payload: json.RawMessage(`{"name":"旧"}`),
-	}))
+	})))
 	require.Len(t, h.inbound.rows, 1)
 
 	// 随后 v9 落地（引用目标此时已到）。
 	h.state.ids["project:parent"] = 1
-	require.NoError(t, h.svc.applyInbound(ctx, 7, &inbound{
+	require.NoError(t, applyErr(h.svc.applyInbound(ctx, 7, &inbound{
 		Kind: "project", SyncID: "p-1", Version: 9, Payload: json.RawMessage(`{"name":"新"}`),
-	}))
+	})))
 	require.Equal(t, "新", h.adapter.rows["p-1"])
 
-	require.NoError(t, h.svc.replayDeferred(ctx, 7))
+	require.NoError(t, h.svc.replayDeferred(ctx, 7, appliedKinds{}))
 
 	assert.Equal(t, "新", h.adapter.rows["p-1"], "重放不得把本机退回旧版本")
 	assert.Equal(t, int64(9), h.state.meta["project:p-1"].SyncVersion)
@@ -121,21 +126,21 @@ func TestApplyInbound_GivenTombstoneAfterDeferredOlderVersion_DoesNotResurrect(t
 	h.adapter.needRef = ref{Kind: "project", SyncID: "parent"}
 
 	// v5 到达时引用目标还没到 → 暂缓。
-	require.NoError(t, h.svc.applyInbound(ctx, 7, &inbound{
+	require.NoError(t, applyErr(h.svc.applyInbound(ctx, 7, &inbound{
 		Kind: "project", SyncID: "t-1", Version: 5, Payload: json.RawMessage(`{"name":"旧"}`),
-	}))
+	})))
 	require.Len(t, h.inbound.rows, 1)
 
 	// 随后 v9 的墓碑到达：行删掉，元数据落不下去。
 	h.adapter.rows["t-1"] = "旧"
 	h.state.meta["project:t-1"] = syncmeta_entity.SyncMeta{SyncID: "t-1", SyncVersion: 4}
-	require.NoError(t, h.svc.applyInbound(ctx, 7, &inbound{
-		Kind: "project", SyncID: "t-1", Version: 9, Deleted: true,
-	}))
+	require.NoError(t, applyErr(h.svc.applyInbound(ctx, 7, &inbound{
+		Kind: "project", SyncID: "t-1", Version: 9, DeletedAt: 1700,
+	})))
 
 	// 引用目标终于到了，重放。
 	h.state.ids["project:parent"] = 1
-	require.NoError(t, h.svc.replayDeferred(ctx, 7))
+	require.NoError(t, h.svc.replayDeferred(ctx, 7, appliedKinds{}))
 
 	assert.NotContains(t, h.adapter.rows, "t-1", "已经删掉的行不得被一份旧副本建回来")
 }
@@ -152,9 +157,9 @@ func TestApplyInbound_GivenTombstoneWithUnresolvableRef_RemovesInsteadOfDeferrin
 	h.state.meta["project:p-1"] = syncmeta_entity.SyncMeta{SyncID: "p-1", SyncVersion: 3}
 	h.adapter.needRef = ref{Fingerprint: "fp-never-paired"}
 
-	require.NoError(t, h.svc.applyInbound(ctx, 7, &inbound{
-		Kind: "project", SyncID: "p-1", Version: 4, Deleted: true,
-	}))
+	require.NoError(t, applyErr(h.svc.applyInbound(ctx, 7, &inbound{
+		Kind: "project", SyncID: "p-1", Version: 4, DeletedAt: 1700,
+	})))
 
 	assert.Equal(t, []string{"p-1"}, h.adapter.removed, "删除当场生效")
 	assert.Empty(t, h.inbound.rows, "不该为一条墓碑等引用目标")
@@ -202,7 +207,7 @@ func TestFlush_GivenConflict_LostChangeKeepsTheOverwrittenPayload(t *testing.T) 
 	h.transport.results = func(items []syncwire.PushItem) ([]syncwire.PushResult, error) {
 		return []syncwire.PushResult{{
 			SyncID: items[0].SyncID, Kind: items[0].Kind, Version: 12,
-			Status: syncwire.PushStatusConflict, OverwrittenVersion: 11, OverwrittenDeviceID: 5,
+			Status: syncwire.PushStatusConflict, OverwrittenVersion: 11, OverwrittenOriginFingerprint: "fp-5",
 			OverwrittenPayload: json.RawMessage(`{"name":"被我覆盖掉的那一版"}`),
 		}}, nil
 	}

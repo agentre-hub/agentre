@@ -1,3 +1,4 @@
+import { isLocalCommandCollapsed } from "@agentre-hub/agentre-ui";
 import { create } from "zustand";
 
 export type LocalCommandStatus = "running" | "done" | "failed" | "stopped";
@@ -64,7 +65,7 @@ export const useLocalCommandsStore = create<State>((set, get) => ({
     set((s) => {
       const cur = s.entries[id];
       if (!cur) return s;
-      const collapsed = isCollapsed(cur);
+      const collapsed = isLocalCommandCollapsed(cur);
       // 折叠中 → 展开(expanded=true);展开中 → 折叠(expanded=false)。
       return {
         entries: { ...s.entries, [id]: { ...cur, expanded: collapsed } },
@@ -82,10 +83,3 @@ export const useLocalCommandsStore = create<State>((set, get) => ({
       .filter((e) => e.sessionId === sessionId)
       .sort((a, b) => a.createdAt - b.createdAt),
 }));
-
-// 折叠态派生:未手动切换过时,运行中展开、完成后折叠;切换过则以显式 expanded 为准。
-export function isCollapsed(entry: LocalCommandEntry): boolean {
-  return entry.expanded === undefined
-    ? entry.status !== "running"
-    : !entry.expanded;
-}

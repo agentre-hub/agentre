@@ -57,7 +57,7 @@ func TestState_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, in, &out)
 }
 
-func TestState_AccountClaimRoundTripStoresOnlyOpaqueAccountData(t *testing.T) {
+func TestState_AccountLoginRoundTripStoresOnlyOpaqueAccountData(t *testing.T) {
 	credentialType := reflect.TypeFor[AccountCredential]()
 	credentialFields := make([]string, credentialType.NumField())
 	for i := 0; i < credentialType.NumField(); i++ {

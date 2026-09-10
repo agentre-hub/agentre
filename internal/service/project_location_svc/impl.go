@@ -8,12 +8,12 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 type projectLocationImpl struct{}
@@ -36,7 +36,7 @@ func (s *projectLocationImpl) ListByProject(ctx context.Context, projectID int64
 
 	out := make([]*ProjectLocationView, 0, len(rows))
 	for _, r := range rows {
-		dv, resolved := byFingerprint[r.DaemonFingerprint]
+		dv, resolved := byFingerprint[r.DeviceFingerprint]
 		if !resolved {
 			// R2b：本机配对表里查不到这个指纹——该行本机不参与解析、也不出现在
 			// 路径列表里；若此前缓存过 device_id 先清空退回，行本身与 path 不丢。
@@ -68,7 +68,7 @@ func (s *projectLocationImpl) ListByProject(ctx context.Context, projectID int64
 
 func (s *projectLocationImpl) Upsert(ctx context.Context, projectID int64, deviceID, path string) (*ProjectLocationView, error) {
 	// 远端 device 校验：必须能解析为 int64 AND 在 paired_agentreds 中存在；顺带取出
-	// 它的指纹——账号内自然键是 (project, daemon_fingerprint)，不是 device_id。
+	// 它的指纹——账号内自然键是 (project, device_fingerprint)，不是 device_id。
 	var dv *remote_device_svc.DeviceView
 	var fingerprint string
 	if deviceID != "" {
@@ -86,7 +86,7 @@ func (s *projectLocationImpl) Upsert(ctx context.Context, projectID int64, devic
 
 	// entity 自校验
 	entity := &project_location_entity.ProjectLocation{
-		ProjectID: projectID, DeviceID: deviceID, DaemonFingerprint: fingerprint, Path: path,
+		ProjectID: projectID, DeviceID: deviceID, DeviceFingerprint: fingerprint, Path: path,
 	}
 	if err := entity.Check(ctx); err != nil {
 		return nil, err

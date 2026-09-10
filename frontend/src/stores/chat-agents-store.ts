@@ -14,6 +14,8 @@
 
 import { create } from "zustand";
 
+import { samePayload } from "@/lib/same-payload";
+
 import { ListChatAgents } from "../../wailsjs/go/app/App";
 import type { chat_svc } from "../../wailsjs/go/models";
 
@@ -43,11 +45,6 @@ export type AgentSlim = chat_svc.ChatAgentItem & {
   deviceName?: string;
   online?: boolean;
 };
-
-// 兼容: 历史代码用 "ChatAgentItem" 这个名字指代「chat-agents-store 提供的 agent 行」。
-// 别名指向 AgentSlim, 让 useChatAgents() 的消费方拿到 sessionIds (App.tsx reconcile 用),
-// 同时由于 AgentSlim is-a chat_svc.ChatAgentItem, 旧的字段访问代码也都通过。
-export type ChatAgentItem = AgentSlim;
 
 type State = {
   agents: AgentSlim[];
@@ -95,7 +92,10 @@ export const useChatAgentsStore = create<State & Actions>((set) => ({
   error: null,
   reload: () => {
     if (inflight) return inflight;
-    set({ loading: true, error: null });
+    // 这里刻意不写 loading=true。loading 的语义是「首屏还没拉过, 别把空 agents 当成
+    // 最终态」(初值就是 true), 不是「有个请求在飞」—— 侧栏每轮对话起手 / 落定各刷一次,
+    // 把它翻上去再翻回来会拖着所有订阅者(索引页 / 命令面板三个 source / 空态)白走两趟
+    // 渲染。error 同理: 留着上一次的直到新结果落定, 不在重拉开始时先抹掉。
     inflight = (async () => {
       try {
         const resp = await ListChatAgents();
@@ -151,9 +151,14 @@ export const useChatAgentsStore = create<State & Actions>((set) => ({
         useSessionStatusStore.getState().bulkUpsert(entries);
 
         // 把 sessions 的静态字段分发到 session-meta-store。
-        // ChatSessionLite 没有 projectId —— 它只能从 ChatSessionDetail (LoadChatSession) 拿,
-        // 所以这里 patch 不带 projectId, 由 useChatSession 在加载详情后通过 setMeta 补全。
-        // bulkUpsert 走 merge 语义, 不会清掉既有 projectId。
+        //
+        // projectId 现在由 ChatSessionLite 直接带上（0 = 未挂项目）。此前它只有
+        // ChatSessionDetail 才有 —— 也就是「这条会话被打开过」之后才知道自己属于哪个
+        // 项目，侧栏因此永远拿不到；单一会话索引按项目分组、以及按 Agent 分组时行首
+        // 那个项目色字形（决策 4）都要它。
+        //
+        // 载荷**没提到** projectId 时（旧快照 / 半截数据）不写这个键，而不是补一个 0：
+        // 0 是「随手对话」这个有意义的取值，凭空写进去会把一条挂着项目的会话搬到别的组。
         const metaEntries: [number, Partial<SessionMeta>][] = [];
         for (const a of agents) {
           for (const s of listKnownSessions(a)) {
@@ -163,6 +168,9 @@ export const useChatAgentsStore = create<State & Actions>((set) => ({
                 agentId: a.id,
                 agentName: a.name,
                 agentColor: a.avatarColor || "agent-1",
+                ...(s.projectId === undefined
+                  ? {}
+                  : { projectId: s.projectId }),
                 title: s.title || "",
                 lastMessageAt: s.lastMessageAt ?? 0,
                 lastReadAt: s.lastReadAt ?? 0,
@@ -180,7 +188,16 @@ export const useChatAgentsStore = create<State & Actions>((set) => ({
           }) as AgentSlim;
         });
 
-        set({ agents: slimAgents, loading: false, error: null });
+        // 同值短路: 快照没变就保住 agents 的数组引用, 订阅者一动不动
+        // (与 session-status-store 的 bulkUpsert 同一口径)。
+        set((s) => {
+          if (!samePayload(s.agents, slimAgents)) {
+            return { agents: slimAgents, loading: false, error: null };
+          }
+          if (s.loading || s.error !== null)
+            return { loading: false, error: null };
+          return s;
+        });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         set({ loading: false, error: msg });

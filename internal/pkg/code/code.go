@@ -24,12 +24,12 @@ const (
 	LLMProviderFetchModels                         // 拉取模型列表失败
 	LLMProviderDisabled                            // LLM 供应商已停用
 	LLMProviderNoEnabledDefault                    // 启用前必须设置属于该供应商的启用默认模型
-	LLMProviderReferenced                          // 供应商被 Backend/Session/Route 引用，不能删除
+	LLMProviderReferenced                          // 供应商被 Backend/Session/Route 引用，删除需二次确认
 	LLMProviderModelNotFound                       // 模型不存在
 	LLMProviderModelNotOwned                       // 模型不属于该供应商
 	LLMProviderModelDisabled                       // 模型已停用
 	LLMProviderModelIsDefault                      // 默认模型不能停用或删除，请先指定其它默认模型
-	LLMProviderModelReferenced                     // 模型被 Backend/Session/Route 引用，不能删除
+	LLMProviderModelReferenced                     // 模型被 Backend/Session/Route 引用，删除需二次确认
 	LLMProviderModelConfirmRequired                // 修改被引用模型的 model_id 需要二次确认
 	LLMProviderDefaultModelInvalid                 // 供应商未配置可用的默认模型
 	LLMProviderModelTargetInvalid                  // 固定模型目标已失效（Provider/模型缺失/停用/不兼容）
@@ -253,12 +253,13 @@ const (
 
 // Issue 18200~18999
 const (
-	IssueNotFound          = iota + 18200 // issue 不存在
-	IssueTitleRequired                    // issue 标题不能为空
-	IssueInvalidState                     // issue 状态非法
-	IssueLabelNameRequired                // 标签名不能为空
-	IssueLabelInvalidTone                 // 标签色调非法
-	IssueLabelNotFound                    // 引用的标签不存在
+	IssueNotFound            = iota + 18200 // issue 不存在
+	IssueTitleRequired                      // issue 标题不能为空
+	IssueInvalidState                       // issue 状态非法
+	IssueLabelNameRequired                  // 标签名不能为空
+	IssueLabelInvalidTone                   // 标签色调非法
+	IssueLabelNotFound                      // 引用的标签不存在
+	IssueLabelNameDuplicated                // 标签名已存在
 )
 
 // Server 接入 20300~20399
@@ -287,6 +288,10 @@ const (
 	RemoteDeviceTimeout          // RPC 超时（远端响应慢 / 卡死）
 	RemoteCLIDetectFailed        // 远端 cli.resolvePath 返回错（PATH 扫描失败等）
 	RemoteCLIProbeFailed         // 远端 cli.probe 返回错（CLI 子进程失败 / 验证失败等）
+	// RemoteDeviceProtocolUnsupported 远端根本不说 agentre 的 Protobuf 子协议
+	RemoteDeviceProtocolUnsupported
+	// RemoteDeviceProtocolVersionMismatch 远端说这套协议但版本对不上（含「没报版本」的更老 agentred）
+	RemoteDeviceProtocolVersionMismatch
 )
 
 // Remote Runner / 跨端审批 20500~
@@ -330,5 +335,24 @@ const (
 	WorkspaceFsReadFailed                      // 目录 / git 读取失败
 	WorkspaceFsBaselineRequired                // 「本分支」档缺少对比基线
 	WorkspaceFsDeviceOffline                   // 远端设备不在线 / pool borrow 失败
-	WorkspaceFsDaemonOutdated                  // 远端 agentred 不认识 workspacefs.* 方法族
+)
+
+// 导入本地会话(chat import)20900~
+const (
+	ChatImportBackendUnavailable     = iota + 20900 // 这台机器上没有这个后端的会话档案
+	ChatImportBackendMismatch                       // 选中的 Agent 后端与这条会话的后端不一致
+	ChatImportTranscriptOpenFailed                  // 转录打不开(文件已删或已损坏)
+	ChatImportTranscriptReplayFailed                // 转录回放失败
+	ChatImportTranscriptEmpty                       // 这条转录解不出任何一轮
+	ChatImportAgentNoBackend                        // 这个 Agent 还没配置后端
+	// 下面五条是**转录内的就地说明块**文案(不是错误):思维链 / 子代理内部过程 /
+	// 截断 / 未闭合工具调用 / 坏行。走 i18n.T 落进 NoticeBlock 的正文,同
+	// ChatExecTargetHint* 的用法。
+	ChatImportGapThinking
+	ChatImportGapSubagentInternals
+	ChatImportGapTruncated
+	ChatImportGapUnclosedToolCall
+	ChatImportGapUnparsableRecords
+	// 远端设备(agentred)那一半:三态里的两个非 ok 档各有各的出路。
+	ChatImportDeviceOffline // 远端设备此刻连不上 / 租约借不出来
 )

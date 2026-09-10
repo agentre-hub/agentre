@@ -1,0 +1,13 @@
+{
+  "backendType": "claudecode",
+  "authorized": [
+    {
+      "id": "superpowers@claude-plugins-official",
+      "enabled": true
+    },
+    {
+      "id": "dev-kit@claude-plugins-official",
+      "enabled": false
+    }
+  ]
+}

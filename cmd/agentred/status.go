@@ -31,8 +31,8 @@ func newStatusCmd() *cobra.Command {
 // printStatus 渲染 /local/status 的应答。
 //
 // 库文件那一行不是可选装饰:远端盒子上的 transcript 是永久落盘的档案,规格要求库文件的
-// 位置与体量在 daemon 状态查询里看得见,用户据此自行判断何时该清理。daemon 没报 dbPath
-// (老版本)时整行不印 —— 印一行空路径会让人以为库文件丢了。
+// 位置与体量在 daemon 状态查询里看得见,用户据此自行判断何时该清理。应答是一张
+// map[string]any,取不出 dbPath 时整行不印 —— 印一行空路径会让人以为库文件丢了。
 func printStatus(w io.Writer, v map[string]any) {
 	_, _ = fmt.Fprintf(w, "Daemon running, pid %v\n", v["pid"])
 	printStatusDetails(w, v)
@@ -53,6 +53,13 @@ func printStatusDetails(w io.Writer, v map[string]any) {
 		_, _ = fmt.Fprintf(w, "  %v\n", u)
 	}
 	_, _ = fmt.Fprintf(w, "Paired devices: %d\n", len(toAnySlice(v["pairedPeers"])))
+	state := "disconnected"
+	if connected, _ := v["relayConnected"].(bool); connected {
+		state = "connected"
+	}
+	_, _ = fmt.Fprintf(w, "Relay: %s\n", state)
+	count, _ := v["clientConnectionCount"].(float64)
+	_, _ = fmt.Fprintf(w, "Client connections: %.0f\n", count)
 	_, _ = fmt.Fprintf(w, "Active sessions: %v\n", v["activeSessions"])
 	_, _ = fmt.Fprintf(w, "LLM providers: %v\n", v["llmProviderCount"])
 	if path, ok := v["dbPath"].(string); ok && path != "" {

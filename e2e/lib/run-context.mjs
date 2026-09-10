@@ -140,7 +140,7 @@ export function playwrightEnvironment(run, parentEnv = process.env) {
           AGENTRE_E2E_SYNC_USER_ID: String(run.syncIdentity.userID),
           AGENTRE_E2E_SYNC_DEVICE_ID: String(run.syncIdentity.deviceID),
           AGENTRE_E2E_SYNC_DEVICE_FINGERPRINT: run.syncIdentity.deviceFingerprint,
-          AGENTRE_E2E_SYNC_PEER_DEVICE_ID: String(run.syncIdentity.peerDeviceID),
+          AGENTRE_E2E_SYNC_PEER_FINGERPRINT: run.syncIdentity.peerFingerprint,
         }
       : {}),
     TMPDIR: run.browserDir,

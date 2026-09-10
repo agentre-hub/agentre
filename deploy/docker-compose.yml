@@ -1,0 +1,49 @@
+# agentred 编排。dev 环境和外部用户用的是同一份，差异只在取值——不维护两套，
+# 免得其中一套长期无人验证而腐化。取值写在同目录的 .env 里，样例见 .env.example。
+#
+#   docker compose up -d
+#   docker compose logs -f agentred
+#
+# 挂载分两类：**工作区必须两侧同路径**，配置目录只要挂到容器内的 /root 下即可。
+# 原因见 README：会话的 cwd 和后端的 cli_path 都是宿主下发的绝对路径。
+
+name: agentred
+
+services:
+  agentred:
+    image: ${AGENTRED_IMAGE:?AGENTRED_IMAGE 未设置,检查同目录的 .env}
+    # dev 环境的镜像是目标机现打的本地 tag,registry 上不存在,必须设成 never,
+    # 否则 compose 会去 docker.io 找一个不存在的镜像。从 registry 拉的场合留默认值
+    pull_policy: ${AGENTRED_PULL_POLICY:-missing}
+    restart: unless-stopped
+    # 容器 hostname 默认是容器 ID，而 agentred 拿它当设备名上报到账号服务器。
+    # 不钉住的话每次重建容器，账号的设备列表里这台的名字就变一次
+    hostname: ${AGENTRED_HOSTNAME:-agentred}
+    ports:
+      - "${AGENTRED_PORT:-7456}:7456"
+    volumes:
+      # 工作区：两侧同一个变量，保证路径一致。会话 cwd 都在这下面,
+      # 挂到别的路径上历史会话一个都打不开
+      - ${AGENTRED_WORKSPACE:?AGENTRED_WORKSPACE 未设置}:${AGENTRED_WORKSPACE:?AGENTRED_WORKSPACE 未设置}
+
+      # daemon 自身状态：账号 claim 凭据、会话与通知日志(AGENTRED_DATA_DIR)
+      - ${AGENTRED_STATE_DIR:-${HOME}/.config/agentred}:/root/.config/agentred
+      # Agent 工作目录与 pi 扩展物化目录(AGENTRE_DATA_DIR)。和上面不是同一个目录,
+      # 只挂一个会静默丢掉所有 agent 工作目录
+      - ${AGENTRE_DATA_DIR:-${HOME}/.config/agentre}:/root/.config/agentre
+
+      # 三个 CLI 的配置与会话记录。二进制在镜像里,配置在这儿
+      - ${CLAUDE_DIR:-${HOME}/.claude}:/root/.claude
+      - ${CLAUDE_JSON:-${HOME}/.claude.json}:/root/.claude.json
+      - ${CODEX_DIR:-${HOME}/.codex}:/root/.codex
+      - ${PI_DIR:-${HOME}/.pi}:/root/.pi
+
+      # 技能目录
+      - ${AGENTS_DIR:-${HOME}/.agents}:/root/.agents
+
+      # 会话内 git 操作要用,只读挂
+      - ${SSH_DIR:-${HOME}/.ssh}:/root/.ssh:ro
+      - ${GITCONFIG:-${HOME}/.gitconfig}:/root/.gitconfig:ro
+
+    # 不设 healthcheck:健康判定用 agentred status 走容器内 IPC,由部署方在宿主侧
+    # docker exec 触发,写在这里会让 compose 每 30 秒起一个进程

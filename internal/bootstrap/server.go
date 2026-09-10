@@ -9,11 +9,12 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 )
 
 // InitServer wires the server_state_repo + server_svc defaults.
@@ -39,13 +40,20 @@ func InitServer(ctx context.Context) error {
 
 	// 工作区多端同步：server_svc 充当网络出入口，域服务通过 sync_svc.Notify 交出
 	// 改动。未登录时同步引擎自己就是空操作（R12），因此这里无条件装配。
+	//
+	// sync_account_repo 是同步归属的身份来源：行 / 队列 / 游标上盖的账号键由它分配
+	// （server 的 user_id 跨 server 不唯一，见 sync_account_entity）。
+	sync_account_repo.RegisterSyncAccount(sync_account_repo.NewSyncAccount())
 	syncstate_repo.RegisterSyncState(syncstate_repo.NewSyncState())
 	sync_svc.SetDefault(sync_svc.New(svc))
+	logger.Ctx(ctx).Debug("bootstrap.InitServer: services initialized",
+		zap.Bool("hasServerURL", baseURL != ""))
 	return nil
 }
 
 // SyncBoot 起 30 秒周期的下行轮询（R3）。与 ServerBoot 一样由 app.go.startup 调用。
 func SyncBoot(ctx context.Context) {
+	logger.Ctx(ctx).Debug("bootstrap.SyncBoot: starting sync service")
 	sync_svc.Default().Start(ctx)
 }
 
@@ -56,6 +64,7 @@ func SyncBoot(ctx context.Context) {
 // goroutine (via gogo.Go) so it doesn't block UI; logs all errors.
 func ServerBoot(ctx context.Context) {
 	gogo.Go(func() error {
+		logger.Ctx(ctx).Debug("bootstrap.ServerBoot: starting")
 		row, err := server_state_repo.ServerState().Get(ctx)
 		if err != nil {
 			logger.Default().Warn("server boot: load state", zap.Error(err))
@@ -88,6 +97,7 @@ func ServerBoot(ctx context.Context) {
 		}
 
 		if !row.IsLoggedIn() {
+			logger.Ctx(ctx).Debug("bootstrap.ServerBoot: no logged-in account")
 			return nil
 		}
 
@@ -98,6 +108,8 @@ func ServerBoot(ctx context.Context) {
 		// 才清本地登录。（旧实现一律清，一次服务端停机就把 keychain 里的凭据删了，
 		// 服务端恢复也回不来，用户只能重新扫码登录。）
 		server_svc.Server().RefreshWithBackoff(ctx)
+		logger.Ctx(ctx).Debug("bootstrap.ServerBoot: refresh completed",
+			zap.Int64("userId", row.ServerUserID), zap.Int64("deviceId", row.DeviceID))
 		return nil
 	})
 }

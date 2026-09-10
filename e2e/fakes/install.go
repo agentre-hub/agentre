@@ -10,14 +10,14 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	fakert "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/fake"
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/service/agent_backend_svc"
-	"github.com/agentre-ai/agentre/internal/service/agent_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	fakert "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/fake"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
+	"github.com/agentre-hub/agentre/internal/service/agent_svc"
 )
 
 type codexSkillDiscoverer struct{}

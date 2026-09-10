@@ -13,9 +13,9 @@ import (
 	context "context"
 	reflect "reflect"
 
-	agent_backend_entity "github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	agent_entity "github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	agentskill "github.com/agentre-ai/agentre/internal/pkg/agentskill"
+	agent_backend_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	agent_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	agentskill "github.com/agentre-hub/agentre/internal/pkg/agentskill"
 	gomock "go.uber.org/mock/gomock"
 )
 

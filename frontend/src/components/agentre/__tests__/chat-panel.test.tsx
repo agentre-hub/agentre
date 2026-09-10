@@ -9,7 +9,7 @@
 import {
   act,
   fireEvent,
-  render,
+  render as rtlRender,
   screen,
   waitFor,
   within,
@@ -49,6 +49,7 @@ const appMocks = vi.hoisted(() => ({
   RemoteDeviceListProviders: vi.fn().mockResolvedValue([]),
   SetChatSessionProvider: vi.fn(),
   SetChatSessionModelTarget: vi.fn(),
+  SetChatSessionReasoningEffort: vi.fn(),
   MarkChatSessionRead: vi.fn().mockResolvedValue({}),
   RegenerateChatMessage: vi.fn(),
   RenameChatSession: vi.fn(),
@@ -72,15 +73,32 @@ const appMocks = vi.hoisted(() => ({
       updatedAt: 0,
     },
   }),
+  // 侧栏的多工作根认领：本组用例都不关心它，恒为空 → 根切换器不渲染。
+  WorkspaceFsWorkRoots: vi.fn().mockResolvedValue([]),
+  WorkspaceFsGitState: vi.fn().mockResolvedValue({
+    branch: "",
+    worktree: "",
+    dirty: 0,
+    ahead: 0,
+    behind: 0,
+    hasUpstream: false,
+    notARepo: true,
+    commonDir: "",
+  }),
   // 需要 ProjectListTree 供 use-project-tree，但我们 mock 掉整个 hook
   ProjectListTree: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
+// 侧栏那几个 hook 用的是别名写法，vitest 按写法登记 mock，两条 specifier 都要挂。
+vi.mock("@/../wailsjs/go/app/App", () => appMocks);
 
 const componentMocks = vi.hoisted(() => ({
   chatComposerProps: [] as Array<Record<string, unknown>>,
   chatTranscriptProps: [] as Array<Record<string, unknown>>,
+  // ChatTranscript 桩要不要渲染 [data-message-id] 行。默认不渲染 —— 只有需要
+  // 「视口下沿落在哪条消息上」的用例才打开,免得别的用例凭空多出锚点行。
+  transcriptRowMessageIds: [] as number[],
   permissionModePillProps: [] as Array<Record<string, unknown>>,
   permissionMode: "plan",
   localCommandMenuActive: false,
@@ -95,6 +113,9 @@ const componentMocks = vi.hoisted(() => ({
   capsSwitchableDuringTurn: true,
   capsAllowedModes: ["default", "plan", "acceptEdits", "bypassPermissions"],
   capsImageInput: true,
+  // reasoning_effort 能力位（spec 2026-09-01 决策 6）：默认 false，只有专门测试
+  // 显式打开它，避免既有用例平白多出这颗控件。
+  capsReasoningEffort: false,
   effectiveExecTarget: null as null | {
     kind: "local" | "desktop" | "daemon";
     deviceId: string;
@@ -198,13 +219,15 @@ vi.mock("@/hooks/use-cc-usage", () => ({
 vi.mock("../chat", async () => {
   const React = await import("react");
   return {
+    QuotaMeter: () =>
+      React.createElement("div", { "data-testid": "quota-meter" }),
     ChatComposer: React.forwardRef(
       (
         props: {
           localCommandHistoryScope?: unknown;
           onSubmit?: (text: string) => void;
-          permissionModeSlot?: React.ReactNode;
-          modelSlot?: React.ReactNode;
+          leadingControls?: React.ReactNode;
+          trailingControls?: React.ReactNode;
           topSlot?: React.ReactNode;
         },
         ref: React.Ref<unknown>,
@@ -218,8 +241,8 @@ vi.mock("../chat", async () => {
           React.Fragment,
           null,
           props.topSlot,
-          props.permissionModeSlot,
-          props.modelSlot,
+          props.leadingControls,
+          props.trailingControls,
           componentMocks.localCommandMenuActive &&
             props.localCommandHistoryScope
             ? React.createElement("div", {
@@ -232,7 +255,16 @@ vi.mock("../chat", async () => {
     ),
     ChatTranscript: (props: Record<string, unknown>) => {
       componentMocks.chatTranscriptProps.push(props);
-      return React.createElement("div", { "data-testid": "chat-transcript" });
+      return React.createElement(
+        "div",
+        { "data-testid": "chat-transcript" },
+        componentMocks.transcriptRowMessageIds.map((id) =>
+          React.createElement("div", {
+            key: id,
+            "data-message-id": String(id),
+          }),
+        ),
+      );
     },
   };
 });
@@ -260,14 +292,18 @@ vi.mock("../session-exec-target", async () => {
       }, [onEffectiveTarget]);
       return null;
     },
-    SessionOfflineBanner: () => null,
   };
 });
 
-// PermissionModePill / QueuedMessagesBar / TaskProgressBar：桩
-vi.mock("../permission-mode", async () => {
+// PermissionModePill 住在共享包里（两端同一颗），所以桩要打在包上；这里做**部分**
+// mock，包的其余导出原样透传——整块替掉会连 ChatComposer、转录、ContextMeter 一起
+// 换成假的，这个文件要测的集成行为就无从谈起了。
+vi.mock("@agentre-hub/agentre-ui", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agentre-hub/agentre-ui")>();
   const React = await import("react");
   return {
+    ...actual,
     PermissionModePill: (props: Record<string, unknown>) => {
       componentMocks.permissionModePillProps.push(props);
       return React.createElement("button", {
@@ -276,6 +312,12 @@ vi.mock("../permission-mode", async () => {
         type: "button",
       });
     },
+  };
+});
+
+// usePermissionMode 留在宿主（它 import 了 Wails 绑定）：桩仍打在本地那个模块上。
+vi.mock("../permission-mode", async () => {
+  return {
     usePermissionMode: () => ({
       mode: componentMocks.permissionMode,
       modes: [],
@@ -299,7 +341,8 @@ function makeCapsStub(backendType?: string | null) {
     has: (c: string) =>
       c === "set_permission_mode" ||
       (c === "image_input" && componentMocks.capsImageInput) ||
-      (c === "compact" && supportsCompact),
+      (c === "compact" && supportsCompact) ||
+      (c === "reasoning_effort" && componentMocks.capsReasoningEffort),
     permissionModeMeta: {
       allowedModes: componentMocks.capsAllowedModes,
       defaultMode: "default",
@@ -338,9 +381,29 @@ vi.mock("../task-progress/derive", () => ({
   deriveTaskProgress: () => ({ total: 0, done: 0 }),
 }));
 
-vi.mock("../local-command/output-terminal", () => ({
-  OutputTerminal: () => null,
+// 本地命令卡片里的只读输出终端已随卡片搬进共享包,没法再按宿主路径桩掉。
+// 桩掉 xterm 三件套即可:这些用例盯的是卡片外壳与停止/移除动作,终端渲染由
+// 包里的 output-terminal.test.tsx 覆盖。
+vi.mock("@xterm/xterm", () => ({
+  Terminal: vi.fn().mockImplementation(() => ({
+    open: vi.fn(),
+    write: vi.fn(),
+    loadAddon: vi.fn(),
+    dispose: vi.fn(),
+    focus: vi.fn(),
+    cols: 80,
+    rows: 24,
+    buffer: { active: { length: 1, baseY: 0, cursorY: 0 } },
+    options: {},
+  })),
 }));
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: vi.fn().mockImplementation(() => ({
+    fit: vi.fn(),
+    proposeDimensions: () => ({ cols: 80, rows: 24 }),
+  })),
+}));
+vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: vi.fn() }));
 
 // chat-panel-context-usage 有复杂计算，桩掉
 vi.mock("../chat-panel-context-usage", () => ({
@@ -350,12 +413,7 @@ vi.mock("../chat-panel-context-usage", () => ({
 
 // ── import after mocks ─────────────────────────────────────────────────────
 
-import {
-  ChatPanel,
-  COLLAPSED_RESTORE_GUARD_MS,
-  computeTopVisibleAnchor,
-} from "../chat-panel";
-import { LocalCommandCard } from "../local-command/card";
+import { ChatPanel } from "../chat-panel";
 import {
   __resetCatchUpStateForTesting,
   openCatchUpWindow,
@@ -363,8 +421,12 @@ import {
 } from "../chat-panel-catchup-state";
 import {
   __resetChatPanelScrollStateForTesting,
+  COLLAPSED_RESTORE_GUARD_MS,
   loadTranscriptScrollState,
-} from "../chat-panel-scroll-state";
+  LocalCommandCard,
+  LocalCommandsProvider,
+  TerminalTransportProvider,
+} from "@agentre-hub/agentre-ui";
 import {
   streamForMessage,
   useChatStreamsStore,
@@ -373,11 +435,34 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { localCommandRuntimeStore } from "@/stores/local-command-runtime-store";
 import { useLocalCommandsStore } from "@/stores/local-commands-store";
+import { desktopLocalCommandsAccess } from "../local-commands-access-desktop";
+import { desktopTerminalTransport } from "../terminal/terminal-transport-desktop";
+
+// ChatPanel 经终端传输端口订阅本地命令的 PTY;卡片经本地命令接缝读条目。
+// 生产里两个 Provider 都挂在 App 根。这里统一套上桌面实现(而不是替身):
+// 本地命令与终端视图共用同一套 Wails 事件扇出与同一个 store,正是这些用例要盯的东西。
+function TerminalTransportHost({ children }: { children?: React.ReactNode }) {
+  return (
+    <TerminalTransportProvider transport={desktopTerminalTransport}>
+      <LocalCommandsProvider access={desktopLocalCommandsAccess}>
+        {children}
+      </LocalCommandsProvider>
+    </TerminalTransportProvider>
+  );
+}
+
+function render(
+  ui: React.ReactElement,
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { ...options, wrapper: TerminalTransportHost });
+}
 
 /** 清 store streams 以避免测试间串台 */
 function resetStore() {
   __resetChatPanelScrollStateForTesting();
   __resetCatchUpStateForTesting();
+  componentMocks.transcriptRowMessageIds = [];
   mockSessionStore.messages = [];
   mockSessionStore.session = null;
   mockSessionStore.loading = false;
@@ -407,6 +492,7 @@ function resetStore() {
     "bypassPermissions",
   ];
   componentMocks.capsImageInput = true;
+  componentMocks.capsReasoningEffort = false;
   componentMocks.effectiveExecTarget = null;
   componentMocks.computeComposerContextUsage.mockClear();
   componentMocks.cycleMode.mockClear();
@@ -437,6 +523,7 @@ function resetStore() {
   appMocks.RemoteDeviceListProviders.mockResolvedValue([]);
   appMocks.TerminalClose.mockReset();
   appMocks.TerminalRunCommand.mockReset();
+  appMocks.SetChatSessionReasoningEffort.mockReset();
   localCommandRuntimeStore.resetForTesting();
   useLocalCommandsStore.setState({ entries: {} });
   sonnerMocks.toast.error.mockClear();
@@ -659,6 +746,91 @@ describe("ChatPanel · T17 breadcrumb 派生", () => {
   });
 });
 
+// ─── 转录脚注的模型回退值 ────────────────────────────────────────────────────
+//
+// 一轮还在跑时,占位 assistant 行的 model 是空的(后端真消息还没回来),脚注
+// 因此落到 fallbackModel。这个槽是**给人看的模型名**,不能塞会话的稳定
+// model_key —— 那是 uuid.NewString() 生成的引用键,画到脸上就是一串 UUID。
+describe("ChatPanel · 转录脚注的模型回退值", () => {
+  it("Given a session fixed to one model, When the transcript renders, Then the fallback model is the model ID rather than the stable model key", async () => {
+    resetStore();
+    onTestFinished(() => {
+      appMocks.ListLLMProviders.mockResolvedValue({ items: [] });
+    });
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          providerKey: "acme-anthropic",
+          name: "Acme Claude",
+          type: "anthropic",
+          enabled: true,
+          defaultModelKey: "",
+        },
+      ],
+    });
+    appMocks.ListLLMModels.mockResolvedValue({
+      items: [
+        {
+          modelKey: "c05987e3-c685-444c-945a-793eba176709",
+          modelId: "glm-5.3",
+          name: "glm-5.3",
+          enabled: true,
+        },
+      ],
+    });
+    mockSessionStore.session = makeSession({
+      id: 42,
+      providerKey: "acme-anthropic",
+      modelKey: "c05987e3-c685-444c-945a-793eba176709",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    await waitFor(() =>
+      expect(componentMocks.chatTranscriptProps.at(-1)?.fallbackModel).toBe(
+        "glm-5.3",
+      ),
+    );
+  });
+
+  it("Given the fixed model is gone from the catalog, When the transcript renders, Then the stable model key never reaches the fallback slot", async () => {
+    resetStore();
+    onTestFinished(() => {
+      appMocks.ListLLMProviders.mockResolvedValue({ items: [] });
+    });
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          providerKey: "acme-anthropic",
+          name: "Acme Claude",
+          type: "anthropic",
+          enabled: true,
+          defaultModelKey: "",
+        },
+      ],
+    });
+    appMocks.ListLLMModels.mockResolvedValue({ items: [] });
+    mockSessionStore.session = makeSession({
+      id: 42,
+      providerKey: "acme-anthropic",
+      modelKey: "c05987e3-c685-444c-945a-793eba176709",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    await waitFor(() => expect(appMocks.ListLLMModels).toHaveBeenCalled());
+    await act(async () => undefined);
+
+    // 目录里解析不出来时脚注宁可空着（画成「—」），也不能把引用键当模型名写出来。
+    // 断言扫过每一次渲染,而不只是最后一次:泄漏发生在解析完成前的任何一帧都算数。
+    expect(
+      componentMocks.chatTranscriptProps.map((props) => props.fallbackModel),
+    ).not.toContain("c05987e3-c685-444c-945a-793eba176709");
+  });
+});
+
 describe("ChatPanel · transcript cwd", () => {
   it("Given session has cwd, When transcript renders, Then cwd is passed through for local link classification", () => {
     resetStore();
@@ -779,9 +951,9 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
 
     catchUpLands(view, { items: 12, pending: 0 });
 
-    const control = screen.getByTestId("jump-to-latest-button");
+    const control = screen.getByTestId("transcript-jump-control");
     expect(control).toHaveTextContent("12");
-    expect(screen.queryByTestId("jump-to-latest-pending")).toBeNull();
+    expect(screen.queryByTestId("transcript-jump-pending")).toBeNull();
   });
 
   it("Given the catch-up carries unanswered decisions, Then the same control states the pending count in TEXT, not by a status dot alone", () => {
@@ -795,11 +967,11 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
 
     catchUpLands(view, { items: 12, pending: 3 });
 
-    const pending = screen.getByTestId("jump-to-latest-pending");
+    const pending = screen.getByTestId("transcript-jump-pending");
     expect(pending).toHaveTextContent("3");
     // 无障碍:待处理项数必须进可访问名,颜色/圆点只能是修饰 —— 只靠色点的实现
     // 在这里就红:纯装饰节点 aria-hidden 后可访问名里根本没有那个 3。
-    expect(screen.getByTestId("jump-to-latest-button")).toHaveAccessibleName(
+    expect(screen.getByTestId("transcript-jump-control")).toHaveAccessibleName(
       expect.stringContaining("3"),
     );
   });
@@ -815,11 +987,11 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
     catchUpLands(view, { items: 12, pending: 1 });
 
     act(() => {
-      fireEvent.click(screen.getByTestId("jump-to-latest-button"));
+      fireEvent.click(screen.getByTestId("transcript-jump-control"));
     });
 
     expect(scroller.scrollTop).toBe(3_520);
-    expect(screen.queryByTestId("jump-to-latest-button")).toBeNull();
+    expect(screen.queryByTestId("transcript-jump-control")).toBeNull();
   });
 
   it("Given the user was already at the bottom, When a catch-up lands, Then no control appears and the transcript keeps following the bottom", () => {
@@ -836,7 +1008,7 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
 
     catchUpLands(view, { items: 12, pending: 1 });
 
-    expect(screen.queryByTestId("jump-to-latest-button")).toBeNull();
+    expect(screen.queryByTestId("transcript-jump-control")).toBeNull();
     expect(scroller.scrollTop).toBe(3_520);
   });
 
@@ -855,8 +1027,10 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
 
     scrollUpFromBottom(scroller);
 
-    expect(screen.queryByTestId("jump-to-latest-button")).toBeNull();
-    expect(screen.getByTestId("back-to-bottom-button")).toBeInTheDocument();
+    // 控件只有药丸一种形状（2026-08-24）：补齐销账后它还在，只是文案退回「回到底部」。
+    expect(screen.getByTestId("transcript-jump-control")).toHaveAccessibleName(
+      "Back to bottom",
+    );
   });
 
   // 销账条件是「人回到了底部」,不是「点了那枚控件」—— 自己滚回底部同样意味着补齐
@@ -870,23 +1044,27 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
     const scroller = transcriptScroller(view.container);
     scrollUpFromBottom(scroller);
     catchUpLands(view, { items: 12, pending: 1 });
-    expect(screen.getByTestId("jump-to-latest-button")).toBeInTheDocument();
+    expect(screen.getByTestId("transcript-jump-control")).toHaveTextContent(
+      "12",
+    );
 
     act(() => {
       scroller.scrollTop = 3_520;
       fireEvent.scroll(scroller);
     });
-    expect(screen.queryByTestId("jump-to-latest-button")).toBeNull();
+    expect(screen.queryByTestId("transcript-jump-control")).toBeNull();
 
     scrollUpFromBottom(scroller);
 
-    expect(screen.queryByTestId("jump-to-latest-button")).toBeNull();
-    expect(screen.getByTestId("back-to-bottom-button")).toBeInTheDocument();
+    // 控件只有药丸一种形状（2026-08-24）：补齐销账后它还在，只是文案退回「回到底部」。
+    expect(screen.getByTestId("transcript-jump-control")).toHaveAccessibleName(
+      "Back to bottom",
+    );
   });
 
-  // 从不断连的会话走的是同一枚控件的另一半形态:没有未看的补齐 = 原来那颗「回到底部」
-  // 圆钮。R14 把它挪进了 TranscriptJumpControl,标签与跳转这两件事得有人钉住,
-  // 否则接错 onJump / 丢了 aria-label 也照样全绿。
+  // 从不断连的会话走的是同一枚控件的另一档文案:没有未看的补齐 = 药丸写「回到底部」。
+  // 2026-08-24 之前这一档是一颗只有 ↓ 的圆钮,话全藏在 tooltip 里;现在两档同形,
+  // 标签与跳转这两件事仍然得有人钉住,否则接错 onJump / 丢了文案也照样全绿。
   it("Given a session that never disconnected, When the user scrolls up, Then the plain back-to-bottom control keeps its label and returns to the bottom on click", () => {
     resetStore();
     mockSessionStore.session = makeSession({ id: 42 });
@@ -896,7 +1074,7 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
     const scroller = transcriptScroller(view.container);
     scrollUpFromBottom(scroller);
 
-    const control = screen.getByTestId("back-to-bottom-button");
+    const control = screen.getByTestId("transcript-jump-control");
     expect(control).toHaveAccessibleName("Back to bottom");
 
     act(() => {
@@ -904,7 +1082,7 @@ describe("ChatPanel · 补齐落定与跳转控件 (R14)", () => {
     });
 
     expect(scroller.scrollTop).toBe(3_520);
-    expect(screen.queryByTestId("back-to-bottom-button")).toBeNull();
+    expect(screen.queryByTestId("transcript-jump-control")).toBeNull();
   });
 });
 
@@ -976,7 +1154,7 @@ describe("ChatPanel · 跳转控件按转录行计数 (R14 修复轮)", () => {
 
     // 转录区多出的是「一段文字 + 一个活动块(三次连续调用聚合成一行) + 一段
     // 文字」,占位行被第一段文字顶掉 —— 净增两行。1212 条通知不是那个数字。
-    expect(digitsIn(screen.getByTestId("jump-to-latest-button"))).toBe("2");
+    expect(digitsIn(screen.getByTestId("transcript-jump-control"))).toBe("2");
   });
 
   // 补齐可以只是把内容追加进**已经存在**的那一行(还在流的助手消息吃掉全部 delta)。
@@ -1000,7 +1178,7 @@ describe("ChatPanel · 跳转控件按转录行计数 (R14 修复轮)", () => {
       recordCatchUp(42, 1_200, 0);
     });
 
-    const control = screen.getByTestId("jump-to-latest-button");
+    const control = screen.getByTestId("transcript-jump-control");
     expect(control).toHaveAccessibleName("New content");
     expect(digitsIn(control)).toBe("");
   });
@@ -1025,7 +1203,9 @@ describe("ChatPanel · 跳转控件按转录行计数 (R14 修复轮)", () => {
       recordCatchUp(42, 600, 2);
     });
 
-    expect(screen.getByTestId("jump-to-latest-pending")).toHaveTextContent("2");
+    expect(screen.getByTestId("transcript-jump-pending")).toHaveTextContent(
+      "2",
+    );
   });
 });
 
@@ -1381,7 +1561,7 @@ describe("ChatPanel · local command scope and execution", () => {
       expect(appMocks.ResolveLocalCommandScope).toHaveBeenCalledTimes(1);
     });
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toEqual({
       deviceId: "remote-9",
@@ -1403,7 +1583,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toEqual({
       deviceId: "remote-10",
@@ -1453,7 +1633,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     const panelA = render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1494,7 +1674,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     const panelA = render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1541,7 +1721,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("sleep 30")).resolves.toEqual({
       deviceId: "remote-12",
@@ -1582,7 +1762,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1618,7 +1798,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1661,7 +1841,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
     await runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const cleanups = terminalListenerCleanups(terminalId);
@@ -1728,7 +1908,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
       render(<ChatPanel sessionId={42} />);
       const runCommand = componentMocks.chatComposerProps.at(-1)
-        ?.onRunCommand as (command: string) => Promise<unknown>;
+        ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
       await expect(runCommand("printf done")).resolves.toEqual({
         deviceId: "remote-12",
@@ -1809,7 +1989,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
       render(<ChatPanel sessionId={42} />);
       const runCommand = componentMocks.chatComposerProps.at(-1)
-        ?.onRunCommand as (command: string) => Promise<unknown>;
+        ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
       await expect(runCommand("pwd")).resolves.toEqual({
         deviceId: "remote-12",
@@ -1863,7 +2043,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("missing-tool")).resolves.toEqual({
       deviceId: "remote-12",
@@ -1911,7 +2091,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     const panel = render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toEqual({
       deviceId: "remote-12",
@@ -1976,7 +2156,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toBeUndefined();
     expect(appMocks.TerminalRunCommand).toHaveBeenCalledTimes(1);
@@ -2021,7 +2201,7 @@ describe("ChatPanel · local command scope and execution", () => {
 
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     const result = runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
@@ -2061,7 +2241,7 @@ describe("ChatPanel · local command scope and execution", () => {
     expect(appMocks.TerminalClose).toHaveBeenCalledTimes(1);
   });
 
-  it("Given partial terminal cleanup throws before removal, When automatic close succeeds and the runtime recovers after panel unmount, Then the retained listener guardian still cleans without settling twice", async () => {
+  it("Given the runtime cannot cancel a partially installed observer, When automatic close settles the card, Then it settles once, retains no cleanup timer, and the orphaned listener can never reach the card again", async () => {
     vi.useFakeTimers();
     onTestFinished(() => {
       vi.clearAllTimers();
@@ -2076,33 +2256,24 @@ describe("ChatPanel · local command scope and execution", () => {
       string,
       Set<(...args: unknown[]) => void>
     >();
-    let cleanupRecovered = false;
-    const exactCleanup = vi.fn((event: string, handler: unknown) => {
-      if (!cleanupRecovered) throw cleanupError;
-      activeListeners
-        .get(event)
-        ?.delete(handler as (...args: unknown[]) => void);
-    });
     runtimeMocks.EventsOn.mockImplementation((event, handler) => {
       if (!event?.startsWith("terminal:") || !handler) return vi.fn();
       if (event.endsWith(":exit")) throw listenerError;
       const listeners = activeListeners.get(event) ?? new Set();
       listeners.add(handler);
       activeListeners.set(event, listeners);
-      return vi.fn(() => exactCleanup(event, handler));
-    });
-    runtimeMocks.EventsOff.mockImplementation((event?: string) => {
-      if (!cleanupRecovered) throw cleanupError;
-      if (event) activeListeners.delete(event);
+      return vi.fn(() => {
+        throw cleanupError;
+      });
     });
     appMocks.TerminalRunCommand.mockResolvedValueOnce({
       scope: { deviceId: "remote-12", cwd: "/srv/exact" },
     });
     appMocks.TerminalClose.mockResolvedValueOnce(undefined);
 
-    const view = render(<ChatPanel sessionId={42} />);
+    render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     await expect(runCommand("pwd")).resolves.toEqual({
       deviceId: "remote-12",
@@ -2111,18 +2282,6 @@ describe("ChatPanel · local command scope and execution", () => {
     expect(appMocks.TerminalRunCommand).toHaveBeenCalledTimes(1);
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
     const dataEvent = `terminal:${terminalId}:data`;
-    expect(
-      runtimeMocks.EventsOn.mock.calls.filter(([event]) =>
-        event?.startsWith(`terminal:${terminalId}:`),
-      ),
-    ).toHaveLength(2);
-    expect(exactCleanup).toHaveBeenCalledTimes(2);
-    expect(
-      runtimeMocks.EventsOff.mock.calls.filter(
-        ([event]) => event === dataEvent,
-      ),
-    ).toHaveLength(2);
-    expect(activeListeners.get(dataEvent)?.size ?? 0).toBe(1);
     expect(appMocks.TerminalClose).toHaveBeenCalledTimes(1);
     expect(useLocalCommandsStore.getState().get(terminalId)).toMatchObject({
       command: "pwd",
@@ -2132,17 +2291,24 @@ describe("ChatPanel · local command scope and execution", () => {
     });
     expect(finish).toHaveBeenCalledTimes(1);
     expect(finish).toHaveBeenCalledWith(terminalId, "failed", -1);
-    expect(vi.getTimerCount()).toBe(1);
+    // 撤不掉的那个监听留在运行时里,但它扇给的订阅表是空的 —— 它再吐字节也
+    // 进不了卡片、更不会二次结算。所以既不需要一个不断重试的清理看门狗,也
+    // 不该退回 `EventsOff(event)`:那一步会把同一条 PTY 上别人的订阅一起摘掉。
+    expect(vi.getTimerCount()).toBe(0);
+    expect(runtimeMocks.EventsOff).not.toHaveBeenCalled();
 
-    view.unmount();
-    cleanupRecovered = true;
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
+    act(() => {
+      for (const handler of [...(activeListeners.get(dataEvent) ?? [])]) {
+        handler({ data: "ZG9uZQo=" });
+      }
     });
 
-    expect(activeListeners.get(dataEvent)?.size ?? 0).toBe(0);
+    expect(useLocalCommandsStore.getState().get(terminalId)).toMatchObject({
+      exitCode: -1,
+      output: String(listenerError),
+      status: "failed",
+    });
     expect(finish).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("Given two deferred commands in a new chat, When the panel unmounts and one terminal RPC rejects, Then session creation stays shared while both commands continue and settle independently exactly once", async () => {
@@ -2180,7 +2346,7 @@ describe("ChatPanel · local command scope and execution", () => {
       />,
     );
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     let first!: Promise<unknown>;
     let second!: Promise<unknown>;
@@ -2278,7 +2444,7 @@ describe("ChatPanel · local command scope and execution", () => {
     appMocks.TerminalRunCommand.mockReturnValueOnce(terminalRun.promise);
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     const result = runCommand("sleep 30");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
@@ -2347,7 +2513,7 @@ describe("ChatPanel · local command scope and execution", () => {
     appMocks.TerminalRunCommand.mockReturnValueOnce(terminalRun.promise);
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     const result = runCommand("missing-tool");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
@@ -2389,7 +2555,7 @@ describe("ChatPanel · local command scope and execution", () => {
     appMocks.TerminalRunCommand.mockReturnValueOnce(terminalRun.promise);
     render(<ChatPanel sessionId={42} />);
     const runCommand = componentMocks.chatComposerProps.at(-1)
-      ?.onRunCommand as (command: string) => Promise<unknown>;
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
 
     const result = runCommand("pwd");
     const terminalId = String(appMocks.TerminalRunCommand.mock.calls[0]?.[0]);
@@ -2413,68 +2579,205 @@ describe("ChatPanel · local command scope and execution", () => {
     expect(finish).toHaveBeenCalledTimes(1);
     expect(finish).toHaveBeenCalledWith(terminalId, "failed", -1);
   });
+
+  it("Given a terminal view watching the same PTY through the transport, When the chat panel installs its own PTY observers, Then the terminal view keeps receiving the stdout bytes", async () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+    // 卡片的 terminalId 是 launchLocalCommand 内部生成的;钉死它,好让终端视图
+    // 在命令起飞之前就订上同一条 PTY(“在终端中打开”正是这个形状)。
+    const terminalId = "shared-pty";
+    const uuid = vi
+      .spyOn(crypto, "randomUUID")
+      .mockReturnValue(terminalId as ReturnType<typeof crypto.randomUUID>);
+    onTestFinished(() => uuid.mockRestore());
+
+    // 复刻 Wails v2 事件运行时的两条关键语义:`EventsOn` 的返回值只摘自己,
+    // 而 `EventsOff(event)` 摘掉该事件名下的**全部**监听者。
+    const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+    let dataRegistrations = 0;
+    runtimeMocks.EventsOn.mockImplementation((event, handler) => {
+      if (!event?.startsWith("terminal:") || !handler) return vi.fn();
+      // 第 1 次注册 data 的是终端视图(经 transport);第 2 次才是 chat-panel。
+      // 让 chat-panel 那次失败一回 —— 这是它的重试世代唯一会走到 EventsOff 兜底的入口。
+      if (event.endsWith(":data") && ++dataRegistrations === 2) {
+        throw new Error("data listener failed");
+      }
+      const bucket = listeners.get(event) ?? new Set();
+      bucket.add(handler);
+      listeners.set(event, bucket);
+      return vi.fn(() => bucket.delete(handler));
+    });
+    runtimeMocks.EventsOff.mockImplementation((event?: string) => {
+      if (event) listeners.delete(event);
+    });
+    appMocks.TerminalRunCommand.mockResolvedValueOnce({
+      scope: { deviceId: "", cwd: "/repo" },
+    });
+
+    const terminalView = {
+      onData: vi.fn<(bytes: Uint8Array) => void>(),
+      onExit: vi.fn(),
+    };
+    const detachTerminalView = desktopTerminalTransport.subscribe(
+      terminalId,
+      terminalView,
+    );
+    onTestFinished(() => detachTerminalView());
+
+    render(<ChatPanel sessionId={42} />);
+    const runCommand = componentMocks.chatComposerProps.at(-1)
+      ?.onCommandSubmit as (command: string) => Promise<unknown>;
+    await runCommand("printf done");
+
+    act(() => {
+      for (const handler of [
+        ...(listeners.get(`terminal:${terminalId}:data`) ?? []),
+      ]) {
+        handler({ data: "ZG9uZQo=" });
+      }
+    });
+
+    // 卡片照常收到输出;终端视图也必须收到同一份字节 —— 它的订阅不该被
+    // 另一个视图的清理连坐摘掉。
+    expect(useLocalCommandsStore.getState().get(terminalId)?.output).toBe(
+      "done\n",
+    );
+    expect(terminalView.onData).toHaveBeenCalledTimes(1);
+    expect(Array.from(terminalView.onData.mock.calls[0][0])).toEqual([
+      0x64, 0x6f, 0x6e, 0x65, 0x0a,
+    ]);
+  });
 });
 
-describe("computeTopVisibleAnchor", () => {
-  function fakeRow(id: string, top: number, bottom: number): HTMLElement {
-    return {
-      getAttribute: (name: string) => (name === "data-message-id" ? id : null),
-      getBoundingClientRect: () => ({ top, bottom }) as DOMRect,
-    } as unknown as HTMLElement;
+// 「回到底部」药丸此前只在断连补齐之后报得出数字;平时往回翻,它只写「回到底部」,
+// 说不出用户落后了多少。这一组钉的是常显的那个数:轮数从视口下沿那条消息之后开始数,
+// 数不出边界时不猜。
+describe("ChatPanel · 未贴底时报出落后的轮数", () => {
+  function turnMessages() {
+    // 三轮:1/2、3/4、5/6。轮由 user 消息开启,紧跟的 assistant 属于同一轮。
+    return [1, 2, 3, 4, 5, 6].map((id) => ({
+      blocks: [],
+      createtime: 0,
+      id,
+      role: id % 2 === 1 ? "user" : "assistant",
+    }));
   }
-  function fakeContainer(top: number, rows: HTMLElement[]): HTMLElement {
-    return {
-      getBoundingClientRect: () => ({ top }) as DOMRect,
-      querySelectorAll: () => rows as unknown as NodeListOf<HTMLElement>,
-    } as unknown as HTMLElement;
+
+  /** jsdom 没有布局:给滚动容器与各消息行钉上几何,否则 rect 全是 0。 */
+  function layout(
+    scroller: HTMLElement,
+    bottom: number,
+    tops: Record<number, number>,
+  ) {
+    scroller.getBoundingClientRect = () => ({ bottom, top: 0 }) as DOMRect;
+    for (const row of scroller.querySelectorAll<HTMLElement>(
+      "[data-message-id]",
+    )) {
+      const id = Number(row.getAttribute("data-message-id"));
+      const top = tops[id];
+      row.getBoundingClientRect = () =>
+        ({ top, bottom: top + 50 }) as unknown as DOMRect;
+    }
   }
 
-  it("Given rows straddling the viewport top, Then it anchors to the first row whose bottom crosses the top and records the overscroll px", () => {
-    const el = fakeContainer(100, [
-      fakeRow("1", 0, 50), // 完全在视口上方 (bottom 50 ≤ 100) → 跳过
-      fakeRow("2", 60, 140), // 第一条底边越过视口顶 → 命中
-      fakeRow("3", 140, 300),
-    ]);
-    expect(computeTopVisibleAnchor(el)).toEqual({
-      anchorId: 2,
-      anchorOffset: 40,
+  it("Given 用户上滚到第一轮、下面还压着两轮, When 药丸浮出, Then 它写出轮数", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = turnMessages();
+    componentMocks.transcriptRowMessageIds = [1, 2, 3, 4, 5, 6];
+    const view = render(
+      <ChatPanel sessionId={42} scrollStateKey="chat-tab-turns" />,
+    );
+    const scroller = transcriptScroller(view.container);
+    // 视口下沿 400:消息 3 的顶边已在其下 → 下沿那条是消息 2,之后还有第 3、第 5 两轮。
+    layout(scroller, 400, { 1: 0, 2: 200, 3: 420, 4: 500, 5: 600, 6: 700 });
+
+    scrollUpFromBottom(scroller);
+
+    expect(screen.getByTestId("transcript-jump-control")).toHaveTextContent(
+      "2 turns below",
+    );
+  });
+
+  it("Given 用户只上滚了一点、还在最后一轮里, When 药丸浮出, Then 退回「回到底部」", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = turnMessages();
+    componentMocks.transcriptRowMessageIds = [1, 2, 3, 4, 5, 6];
+    const view = render(
+      <ChatPanel sessionId={42} scrollStateKey="chat-tab-turns-0" />,
+    );
+    const scroller = transcriptScroller(view.container);
+    // 下沿那条是消息 5(本轮的用户消息),其后只有本轮的 assistant 回复。
+    layout(scroller, 400, { 1: 0, 2: 60, 3: 120, 4: 180, 5: 240, 6: 420 });
+
+    scrollUpFromBottom(scroller);
+
+    expect(screen.getByTestId("transcript-jump-control")).toHaveTextContent(
+      "Back to bottom",
+    );
+  });
+
+  // 补齐账回答的是另一个问题(「你离开时流进来多少」),断连刚回来时它才是用户要的。
+  it("Given 补齐账与轮数同时在场, When 药丸浮出, Then 补齐文案压过轮数", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = turnMessages();
+    componentMocks.transcriptRowMessageIds = [1, 2, 3, 4, 5, 6];
+    const view = render(
+      <ChatPanel sessionId={42} scrollStateKey="chat-tab-turns-catchup" />,
+    );
+    const scroller = transcriptScroller(view.container);
+    layout(scroller, 400, { 1: 0, 2: 200, 3: 420, 4: 500, 5: 600, 6: 700 });
+    scrollUpFromBottom(scroller);
+
+    act(() => {
+      openCatchUpWindow(42);
     });
-  });
-
-  it("Given the top-visible row starts below the viewport top, Then anchorOffset clamps to 0", () => {
-    const el = fakeContainer(100, [fakeRow("7", 120, 300)]);
-    expect(computeTopVisibleAnchor(el)).toEqual({
-      anchorId: 7,
-      anchorOffset: 0,
+    act(() => {
+      recordCatchUp(42, 900, 0);
     });
+
+    const control = screen.getByTestId("transcript-jump-control");
+    expect(control).not.toHaveTextContent("turns below");
+    // 补齐把内容全追加进了已经存在的那一行,行数没变 —— 报不出条数就只说有新内容,
+    // 但走的仍是补齐那一档。
+    expect(control).toHaveTextContent("New content");
   });
 
-  it("Given rows carry data-row-key, Then the anchor includes the row key for row-precise restore", () => {
-    // 行级虚拟化下一条长消息会拆成多行;只记 anchorId 的话,恢复会塌到消息首行,
-    // 偏差可达整条消息的高度。data-row-key 让恢复端精确钉回同一行。
-    const row = {
-      getAttribute: (name: string) =>
-        name === "data-message-id"
-          ? "1"
-          : name === "data-row-key"
-            ? "message:1:tool:tool:toolu-120"
-            : null,
-      getBoundingClientRect: () => ({ top: 60, bottom: 140 }) as DOMRect,
-    } as unknown as HTMLElement;
-    expect(computeTopVisibleAnchor(fakeContainer(100, [row]))).toEqual({
-      anchorId: 1,
-      anchorOffset: 40,
-      anchorRowKey: "message:1:tool:tool:toolu-120",
-    });
+  // 这一端的转录列靠左（ml-10 + max-w-measure，没有 mx-auto），所以居中必须按这条列
+  // 算，不能按整面板宽的滚动容器算 —— 后者会把药丸推到正文右边那片空白里。
+  // 列几何是宿主布局：包里不写死，由这里交给它。
+  it("Given 桌面端靠左的转录列, When 药丸浮出, Then 浮层外壳按这条列定位", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = turnMessages();
+    const view = render(
+      <ChatPanel sessionId={42} scrollStateKey="chat-tab-turns-col" />,
+    );
+    scrollUpFromBottom(transcriptScroller(view.container));
+
+    const column = screen.getByTestId("transcript-jump-control").parentElement;
+    expect(column?.className).toMatch(/(^|\s)ml-10(\s|$)/);
+    expect(column?.className).toMatch(/(^|\s)max-w-measure(\s|$)/);
+    expect(column?.className).toMatch(/(^|\s)justify-center(\s|$)/);
   });
 
-  it("Given no message rows, Then it returns null", () => {
-    expect(computeTopVisibleAnchor(fakeContainer(100, []))).toBeNull();
-  });
+  it("Given 转录里还没有消息行, When 药丸浮出, Then 不猜数字，写「回到底部」", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = turnMessages();
+    const view = render(
+      <ChatPanel sessionId={42} scrollStateKey="chat-tab-turns-none" />,
+    );
+    const scroller = transcriptScroller(view.container);
+    layout(scroller, 400, {});
 
-  it("Given every row sits entirely above the viewport top, Then it returns null", () => {
-    const el = fakeContainer(100, [fakeRow("1", 0, 40), fakeRow("2", 40, 90)]);
-    expect(computeTopVisibleAnchor(el)).toBeNull();
+    scrollUpFromBottom(scroller);
+
+    expect(screen.getByTestId("transcript-jump-control")).toHaveTextContent(
+      "Back to bottom",
+    );
   });
 });
 
@@ -4002,6 +4305,77 @@ describe("ChatPanel · launch command copy feedback", () => {
 
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
+// ─── turn 收尾:最后一轮不许先空掉再等 reload 回填 ─────────────────────────
+// finishStream 会同步删掉 LiveStream(liveDelta/liveBlocks 当场清零),而 messages
+// 里那条 assistant 还是发送时插的空占位 —— 若只靠异步 reloadSession 回填,这中间
+// 至少绘一帧「最后一轮正文整段消失」,长会话上 IPC 往返越久闪得越明显。
+// 后端在 done/aborted 事件里已经把最终 assistant 消息一起发过来了(chat.go 的
+// `ChatStreamEvent{Kind: StreamDone, Message: final}`),这里必须同步落表。
+
+describe("ChatPanel · turn 收尾不闪空", () => {
+  const placeholder = {
+    blocks: [],
+    createtime: 1,
+    id: 900,
+    role: "assistant",
+    seq: 0,
+    sessionId: 42,
+  };
+
+  function finalMessage() {
+    return {
+      ...placeholder,
+      blocks: [{ text: "final answer", type: "text" }],
+    };
+  }
+
+  it("Given a turn whose live stream just dropped, When done carries the final assistant message, Then it lands synchronously instead of waiting for the reload round trip", async () => {
+    resetStore();
+    useSessionStatusStore.getState().__reset();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = [placeholder];
+
+    render(<ChatPanel sessionId={42} active={false} />);
+    setMessagesSpy.mockClear();
+
+    const final = finalMessage();
+    act(() => {
+      useSessionStatusStore
+        .getState()
+        .bumpDone(42, { kind: "done", message: final as never });
+    });
+
+    await waitFor(() => expect(setMessagesSpy).toHaveBeenCalled());
+    const updater = setMessagesSpy.mock.calls.at(-1)?.[0] as (
+      prev: Array<Record<string, unknown>>,
+    ) => Array<Record<string, unknown>>;
+    expect(updater([placeholder])).toEqual([final]);
+  });
+
+  it("Given the user stopped the turn, When aborted carries the partial assistant message, Then the partial content lands synchronously too", async () => {
+    resetStore();
+    useSessionStatusStore.getState().__reset();
+    mockSessionStore.session = makeSession({ id: 42 });
+    mockSessionStore.messages = [placeholder];
+
+    render(<ChatPanel sessionId={42} active={false} />);
+    setMessagesSpy.mockClear();
+
+    const partial = finalMessage();
+    act(() => {
+      useSessionStatusStore
+        .getState()
+        .bumpDone(42, { kind: "aborted", message: partial as never });
+    });
+
+    await waitFor(() => expect(setMessagesSpy).toHaveBeenCalled());
+    const updater = setMessagesSpy.mock.calls.at(-1)?.[0] as (
+      prev: Array<Record<string, unknown>>,
+    ) => Array<Record<string, unknown>>;
+    expect(updater([placeholder])).toEqual([partial]);
+  });
+});
+
 describe("ChatPanel · mark-read gated by active prop", () => {
   it("does not call MarkChatSessionRead when active=false and Done fires", async () => {
     resetStore();
@@ -4194,6 +4568,54 @@ describe("ChatPanel · T29 subagent_activity_started 旁路订阅", () => {
     // (c) session must NOT be marked running — background activity keeps session idle
     const status = useSessionStatusStore.getState().statuses.get(1);
     expect(status?.agentStatus).not.toBe("running");
+  });
+
+  // 后台 subagent 的活动流与用户轮共用同一条 assistant 消息时,后端两边发的流名
+  // 都是 StreamName(sid, launchMsgID) —— 完全一致。此时再 openStream 只会把在跑
+  // 那一轮已经流到屏幕、还没落库的 liveBlocks(以及计时 / 用量)整段清零,转录靠
+  // 「持久化正文 ++ liveBlocks」拼出来的这一轮当场少掉一大段(sess-3396)。
+  it("Given a live stream already open on the launch message, When subagent_activity_started arrives, Then the running turn's liveBlocks survive", async () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 1 });
+
+    render(<ChatPanel sessionId={1} />);
+
+    await waitFor(() =>
+      expect(runtimeMocks.EventsOn).toHaveBeenCalledWith(
+        "chat:autonomous:1",
+        expect.any(Function),
+      ),
+    );
+
+    act(() => {
+      useChatStreamsStore.getState().openStream({
+        name: "chat:event:1:42",
+        sessionId: 1,
+        assistantMessageId: 42,
+        streamStartedAt: 1,
+      });
+      useChatStreamsStore.getState().appendLiveToolUse(1, 42, {
+        type: "tool_use",
+        toolUseId: "toolu_running",
+        toolName: "Bash",
+      } as never);
+    });
+
+    const handler = getAutonomousHandler(1);
+    act(() => {
+      handler!({
+        kind: "subagent_activity_started",
+        stream: "chat:event:1:42",
+        sessionId: 1,
+        launchMessageId: 42,
+        toolUseId: "toolu_agent",
+      } as import("@/hooks/use-chat-stream").ChatStreamEvent);
+    });
+
+    const liveStream = streamForMessage(useChatStreamsStore.getState(), 1, 42);
+    expect(liveStream?.liveBlocks.map((b) => b.toolUseId)).toEqual([
+      "toolu_running",
+    ]);
   });
 });
 
@@ -5241,17 +5663,21 @@ describe("ChatPanel · session load failure UX", () => {
     expect(reloadSpy).toHaveBeenCalledOnce();
   });
 
-  it("Given the session is loading with no content yet, When the panel renders, Then a loading skeleton with status role is shown", () => {
+  it("Given the session is loading with no content yet, When the panel renders, Then a skeleton holds the rows and the scroller announces itself busy", () => {
     resetStore();
     mockSessionStore.session = null;
     mockSessionStore.messages = [];
     mockSessionStore.loading = true;
     mockSessionStore.error = null;
-    render(<ChatPanel active sessionId={42} />);
+    const view = render(<ChatPanel active sessionId={42} />);
 
-    expect(
-      screen.getByRole("status", { name: "Loading session…" }),
-    ).toBeInTheDocument();
+    // 规格 2026-08-23 决策 9：骨架本身对读屏隐身，「下面还会变」改由滚动带的
+    // aria-busy 说 —— 此前这里是骨架自己顶着 role=status + aria-label。
+    expect(screen.getByTestId("transcript-skeleton")).toBeInTheDocument();
+    expect(view.container.querySelector("section")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
     // 骨架占位期间不渲染 transcript
     expect(screen.queryByTestId("chat-transcript")).toBeNull();
   });
@@ -5376,5 +5802,629 @@ describe("ChatPanel · send failure draft restore", () => {
     await waitFor(() =>
       expect(screen.queryByText(/Send failed — draft kept/)).toBeNull(),
     );
+  });
+});
+
+// ─── R15b: 会话所在机器离线 ───────────────────────────────────────────────────
+//
+// 这一档从桌面端本地的 `SessionOfflineBanner` 换成了共享包的 `MachineOfflineBanner`
+// （两端唯一都成立、也都各画过一份的一档）。此前两端说的不是同一件事：桌面端讲
+// 「为什么不会自动换机器」，agentre-server 讲「历史还读得到、消息不会排队」——
+// 同一个用户在两端遇到同一件事得到两种解释。正文因此取并集，住进包里。
+//
+// 桌面端在这里保留的只有「按下去往哪走」：就地开一条同项目同 Agent 的新会话。
+describe("ChatPanel · R15b 会话所在机器离线", () => {
+  function offlineSession() {
+    return makeSession({
+      id: 42,
+      agentId: 7,
+      projectId: 2,
+      deviceID: "remote-7",
+      deviceName: "Build box",
+      online: false,
+    });
+  }
+
+  it("Given 会话钉在一台离线的远端机器, When 渲染, Then 说的是包里那套并集文案", () => {
+    resetStore();
+    mockSessionStore.session = offlineSession();
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.getByText("Build box is offline")).toBeInTheDocument();
+    // 并集：server 那半（历史照常读 / 消息不排队）与桌面端那半（上下文在那台机器
+    // 上、不会改派）。少哪一半都是回归。
+    const body = screen.getByTestId("status-banner-body").textContent ?? "";
+    expect(body).toContain("History still reads");
+    expect(body).toContain("will not be reassigned");
+  });
+
+  it("Given 那张横幅, When 按下出口, Then 就地开一条同项目同 Agent 的新会话", async () => {
+    resetStore();
+    mockSessionStore.session = offlineSession();
+    const openNewSession = vi.fn();
+    useChatTabsStore.setState({ openNewSession });
+
+    render(<ChatPanel sessionId={42} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Start a new conversation" }),
+    );
+
+    expect(openNewSession).toHaveBeenCalledWith(2, 7, "");
+  });
+
+  it("Given 机器在线, When 渲染, Then 一个字都不出", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({
+      id: 42,
+      deviceID: "remote-7",
+      deviceName: "Build box",
+      online: true,
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.queryByText("Build box is offline")).toBeNull();
+  });
+});
+
+// ─── 2026-08-23 对话页外壳收口 · 头部 ─────────────────────────────────────────
+
+describe("ChatPanel · 头部在四态都在位且恒高", () => {
+  const newSessionAgent = {
+    id: 7,
+    name: "Eng",
+    agentBackendId: 1,
+    backendType: "claudecode",
+  } as never;
+
+  /** 渲染一次、取头部的 className、再卸载 —— 用来横比四种会话情形。 */
+  function headerClassOf(ui: React.ReactElement): string {
+    const { unmount } = render(ui);
+    const cls = screen.getByTestId("chat-header").className;
+    unmount();
+    return cls;
+  }
+
+  it("Given 已有会话, When 渲染, Then 头部高度是写死的两行高、不再是 min-height", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const header = screen.getByTestId("chat-header");
+    expect(header.className).toMatch(/(^|\s)h-\[68px\](\s|$)/);
+    expect(header.className).not.toMatch(/min-h-/);
+  });
+
+  it("Given 新建会话尚未首发 / 加载中 / 加载失败, When 渲染, Then 头部都在位且外壳类与已有会话一模一样", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+    const loaded = headerClassOf(<ChatPanel sessionId={42} />);
+
+    resetStore();
+    const fresh = headerClassOf(
+      <ChatPanel sessionId={0} newSessionAgent={newSessionAgent} />,
+    );
+
+    resetStore();
+    mockSessionStore.loading = true;
+    const loading = headerClassOf(<ChatPanel sessionId={42} />);
+
+    resetStore();
+    mockSessionStore.error = "boom";
+    const failed = headerClassOf(<ChatPanel sessionId={42} />);
+
+    expect(fresh).toBe(loaded);
+    expect(loading).toBe(loaded);
+    expect(failed).toBe(loaded);
+  });
+
+  it("Given 新建会话尚未首发, When 渲染, Then 标题位说这是一条还没开始的对话并带上 Agent 名", () => {
+    resetStore();
+
+    render(<ChatPanel sessionId={0} newSessionAgent={newSessionAgent} />);
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "New chat · Eng" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given 长短两种标题, When 渲染, Then 头部外壳类不变（标题仍是两行，高度不跟着涨）", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, title: "短" });
+    const short = headerClassOf(<ChatPanel sessionId={42} />);
+
+    resetStore();
+    const longTitle =
+      "这是一个很长的 AI 对话标题，用来确认工具栏会尽量展示完整内容而不是过早省略";
+    mockSessionStore.session = makeSession({ id: 42, title: longTitle });
+    const long = headerClassOf(<ChatPanel sessionId={42} />);
+
+    expect(long).toBe(short);
+  });
+
+  it("Given 会话标题, When 渲染, Then 它是页面上的一个二级标题元素", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, title: "Test session" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const heading = screen.getByRole("heading", {
+      level: 2,
+      name: "Test session",
+    });
+    expect(heading).toHaveClass("line-clamp-2");
+  });
+
+  it("Given 头部, When 渲染, Then role=toolbar 只装右侧控件、标题与 meta 不在其中", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, title: "Test session" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const toolbar = screen.getByRole("toolbar");
+    expect(within(toolbar).queryByText("Test session")).toBeNull();
+    expect(
+      within(toolbar).getByRole("button", { name: "Context sidebar" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2 })).not.toBe(toolbar);
+    expect(toolbar.contains(screen.getByRole("heading", { level: 2 }))).toBe(
+      false,
+    );
+  });
+
+  it("Given 这一轮停不下来, When 渲染, Then 不摆一个禁用的停止按钮", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, agentStatus: "idle" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.queryByRole("button", { name: /Stop/ })).toBeNull();
+  });
+
+  it("Given 这一轮在跑, When 渲染, Then 停止按钮出现", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, agentStatus: "running" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(screen.getByRole("button", { name: /Stop/ })).toBeInTheDocument();
+  });
+
+  it("Given meta 行, When 渲染, Then 它恒为单行，不靠 flex-wrap 折行", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, projectId: 2 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const meta = screen.getByTestId("chat-header-meta");
+    expect(meta.className).not.toMatch(/flex-wrap/);
+    // 窄档按固定顺序收：先机器名、再项目/分支 —— 两段各自带自己的分档类。
+    expect(screen.getByTestId("chat-header-topline").className).toMatch(
+      /@max-\[\d+px\]\/header:hidden/,
+    );
+  });
+});
+
+// ─── 2026-08-23 对话页外壳收口 · 转录列与输入带 ───────────────────────────────
+
+describe("ChatPanel · 输入框与对话流同列、输入带边界跟随贴底", () => {
+  it("Given 转录与输入框, When 渲染, Then 两者的左右内边距同一个值、内容让出同一条头像列并封顶同一测量宽度", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    const view = render(<ChatPanel sessionId={42} />);
+
+    const transcript = view.container.querySelector("section");
+    const band = screen.getByTestId("chat-composer-band");
+    expect(transcript?.className).toMatch(/(^|\s)px-7(\s|$)/);
+    expect(band.className).toMatch(/(^|\s)px-7(\s|$)/);
+
+    const column = screen.getByTestId("chat-composer-column");
+    // 让出 28px 头像 + gap-3 = 40px，再封顶 --container-measure —— 输入框的第一个
+    // 字符与消息正文的第一个字符落在同一条竖线上。
+    expect(column.className).toMatch(/(^|\s)ml-10(\s|$)/);
+    expect(column.className).toMatch(/(^|\s)max-w-measure(\s|$)/);
+  });
+
+  it("Given 转录贴底, When 渲染, Then 末条消息与输入框之间只留一段间距 —— 转录不再另加底部内边距", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    const view = render(<ChatPanel sessionId={42} />);
+
+    // 末行本身已带 pb-7 的消息间距；转录再叠 pb-6、输入带再叠 pt-3，
+    // 贴底时会攒出 ~64px 的空档。底部内边距交还给末行，输入带只留落脚的一点。
+    const transcript = view.container.querySelector("section");
+    expect(transcript?.className).toMatch(/(^|\s)pt-6(\s|$)/);
+    expect(transcript?.className).not.toMatch(/(^|\s)p[by]-\d/);
+
+    const band = screen.getByTestId("chat-composer-band");
+    expect(band.className).toMatch(/(^|\s)pt-2(\s|$)/);
+  });
+
+  it("Given 转录贴底, When 渲染, Then 输入带既没有分隔线也没有渐隐 —— 读作一整片", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const band = screen.getByTestId("chat-composer-band");
+    expect(band).toHaveAttribute("data-scrolled", "false");
+    expect(band.className).not.toMatch(/border-t/);
+    expect(screen.queryByTestId("chat-composer-band-fade")).toBeNull();
+  });
+
+  it("Given 用户上滚离开底部, When 渲染, Then 输入带顶部出现分隔线与一段不接收指针事件的向上渐隐", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    const view = render(<ChatPanel sessionId={42} />);
+    scrollUpFromBottom(transcriptScroller(view.container));
+
+    const band = screen.getByTestId("chat-composer-band");
+    expect(band).toHaveAttribute("data-scrolled", "true");
+    expect(band.className).toMatch(/(^|\s)border-t(\s|$)/);
+    const fade = screen.getByTestId("chat-composer-band-fade");
+    expect(fade.className).toMatch(/(^|\s)pointer-events-none(\s|$)/);
+    expect(fade).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("Given 会话所在机器离线, When 渲染, Then 那条横幅也落在输入带的同一条列里", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({
+      id: 42,
+      deviceID: "remote-7",
+      deviceName: "Build box",
+      online: false,
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const column = screen.getByTestId("chat-composer-column");
+    expect(column.contains(screen.getByTestId("status-banner-body"))).toBe(
+      true,
+    );
+  });
+
+  it("Given 不可对话 Agent 的新 tab, When 渲染, Then 那条引导块也落在输入带的同一条列里", () => {
+    resetStore();
+
+    render(
+      <MemoryRouter>
+        <ChatPanel
+          sessionId={0}
+          newSessionAgent={
+            {
+              id: 7,
+              name: "Eng",
+              agentBackendId: 1,
+              backendType: "claudecode",
+              chattable: false,
+              blockReason: "no-backend",
+            } as never
+          }
+        />
+      </MemoryRouter>,
+    );
+
+    const column = screen.getByTestId("chat-composer-column");
+    expect(column.contains(screen.getByTestId("new-session-guard"))).toBe(true);
+  });
+
+  it("Given 不可对话 Agent 的新 tab, When 渲染, Then 那条引导块与输入框左右对齐 —— 列已经给了内边距,它不再自己缩一圈", () => {
+    resetStore();
+
+    render(
+      <MemoryRouter>
+        <ChatPanel
+          sessionId={0}
+          newSessionAgent={
+            {
+              id: 7,
+              name: "Eng",
+              agentBackendId: 1,
+              backendType: "claudecode",
+              chattable: false,
+              blockReason: "no-backend",
+            } as never
+          }
+        />
+      </MemoryRouter>,
+    );
+
+    // 这一条列的左右内边距由 chat-composer-band / chat-composer-column 一次给全;
+    // 引导块再叠自己的 mx-*,就会比紧挨着它的输入框每边多缩一截(决策 5)。
+    expect(screen.getByTestId("new-session-guard").className).not.toMatch(
+      /(^|\s)mx-\d/,
+    );
+  });
+});
+
+// ─── 2026-08-23 对话页外壳收口 · 加载与失败 ───────────────────────────────────
+
+describe("ChatPanel · 加载骨架与失败态改用共享呈现件", () => {
+  it("Given 会话还在加载, When 渲染, Then 转录位是共享骨架，滚动带说自己 busy", () => {
+    resetStore();
+    mockSessionStore.loading = true;
+
+    const view = render(<ChatPanel sessionId={42} />);
+
+    expect(screen.getByTestId("transcript-skeleton")).toBeInTheDocument();
+    expect(view.container.querySelector("section")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+  });
+
+  it("Given 会话加载完了, When 渲染, Then 滚动带不再说 busy", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    const view = render(<ChatPanel sessionId={42} />);
+
+    expect(view.container.querySelector("section")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+  });
+
+  it("Given 会话加载失败, When 渲染, Then 那条告警来自共享包的 Alert，动作与详情都还在", () => {
+    resetStore();
+    mockSessionStore.error = "backend unavailable";
+
+    render(<ChatPanel sessionId={42} />);
+
+    const alert = screen.getByRole("alert");
+    // 共享 Alert 的形状：destructive 变体 + grid 布局，不再是手搓的 border/bg 拼装。
+    expect(alert.className).toMatch(/(^|\s)grid(\s|$)/);
+    expect(alert.className).not.toMatch(/bg-destructive-soft/);
+    expect(screen.getByText("backend unavailable")).toHaveAttribute(
+      "data-selectable-text",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Close session" }),
+    ).toBeInTheDocument();
+  });
+});
+
+// ─── 会话级思考力度控件（spec 2026-09-01，决策 6/9）────────────────────────────
+
+describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9）", () => {
+  it("reasoning_effort 能力位为真：控件出现在计量器之后，比权限/供应商 pill 更靠右（trailing 侧）", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "claudecode",
+    });
+
+    const { container } = render(<ChatPanel sessionId={42} />);
+
+    await screen.findByTestId("provider-pill");
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    expect(pill).toBeInTheDocument();
+
+    // leadingControls(权限模式 + 供应商 pill)先于 trailingControls(配额计量器 +
+    // 思考力度控件)插入 DOM——真实 ChatComposer 把 trailingControls 整体排在
+    // 提交键之前(packages/agentre-ui/src/composer/chat-composer.tsx)，这里只能
+    // 验证到"它属于 trailing 分组、且是分组里最靠右那个"。
+    const order = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-testid]"),
+    )
+      .map((el) => el.getAttribute("data-testid"))
+      .filter((id): id is string =>
+        [
+          "permission-mode-pill",
+          "provider-pill",
+          "quota-meter",
+          "reasoning-effort-pill",
+        ].includes(id ?? ""),
+      );
+    expect(order).toEqual([
+      "permission-mode-pill",
+      "provider-pill",
+      "quota-meter",
+      "reasoning-effort-pill",
+    ]);
+  });
+
+  it("后端未声明 reasoning_effort 能力（openclaw 等）：整颗控件不渲染", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = false;
+    mockSessionStore.session = makeSession({ id: 42, backendType: "openclaw" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    await screen.findByTestId("quota-meter");
+    expect(
+      screen.queryByTestId("reasoning-effort-pill"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("选定一档立即调用 SetChatSessionReasoningEffort", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "claudecode",
+    });
+    appMocks.SetChatSessionReasoningEffort.mockResolvedValue({
+      reasoningEffort: "high",
+      backendReasoningEffort: "",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(await screen.findByRole("option", { name: "high" }));
+
+    await waitFor(() => {
+      expect(appMocks.SetChatSessionReasoningEffort).toHaveBeenCalledWith({
+        sessionId: 42,
+        reasoningEffort: "high",
+      });
+    });
+  });
+
+  it("重开一条钉了档位的会话：控件水合到那一档，而不是「Default」", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "codex",
+      reasoningEffort: "high",
+      agentReasoningEffort: "medium",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    expect(pill).toHaveTextContent("high");
+    expect(pill).not.toHaveTextContent("Default");
+  });
+
+  it("会话行为空：脸上显示后端配置的那一档（跟随后端配置）", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "codex",
+      reasoningEffort: "",
+      agentReasoningEffort: "medium",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    expect(pill).toHaveTextContent("medium");
+  });
+
+  it("草稿态选中的档位随首条消息透传给 Send，且不发切换 IPC", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = null;
+    appMocks.SendChatMessage.mockResolvedValue({
+      assistantMessageId: 1001,
+      sessionId: 42,
+      stream: "chat:event:42:1001",
+      userMessageId: 1000,
+    });
+
+    render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Eng",
+            agentBackendId: 1,
+            backendType: "codex",
+            llmProviderKey: "",
+          } as never
+        }
+      />,
+    );
+
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(await screen.findByRole("option", { name: "high" }));
+
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    expect(submit).toBeDefined();
+    act(() => submit?.("hello"));
+
+    await waitFor(() => {
+      expect(appMocks.SendChatMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 0,
+          agentId: 7,
+          reasoningEffort: "high",
+        }),
+      );
+    });
+    // 草稿态还没有会话行可写：档位是瞬态的，随首条消息一并落库。
+    expect(appMocks.SetChatSessionReasoningEffort).not.toHaveBeenCalled();
+  });
+
+  it("草稿态派到另一台桌面端：PeerRunFresh 也带上选中的档位", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = null;
+    componentMocks.effectiveExecTarget = {
+      kind: "desktop",
+      deviceId: "sha256:peer-desktop",
+      deviceName: "Peer Desktop",
+    };
+    appMocks.PeerRunFresh.mockResolvedValue({ sessionId: 42 });
+
+    render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Eng",
+            agentBackendId: 1,
+            backendType: "codex",
+            llmProviderKey: "",
+          } as never
+        }
+      />,
+    );
+
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(await screen.findByRole("option", { name: "xhigh" }));
+
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    act(() => submit?.("hello peer"));
+
+    await waitFor(() => {
+      expect(appMocks.PeerRunFresh).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fingerprint: "sha256:peer-desktop",
+          reasoningEffort: "xhigh",
+        }),
+      );
+    });
+    expect(appMocks.SendChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("写库失败：控件回滚到上一档，重新打开弹层能看到原因", async () => {
+    resetStore();
+    componentMocks.capsReasoningEffort = true;
+    mockSessionStore.session = makeSession({
+      id: 42,
+      backendType: "claudecode",
+    });
+    appMocks.SetChatSessionReasoningEffort.mockRejectedValue(
+      new Error("db down"),
+    );
+
+    render(<ChatPanel sessionId={42} />);
+    const pill = await screen.findByTestId("reasoning-effort-pill");
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(await screen.findByRole("option", { name: "high" }));
+
+    // 乐观值先短暂显示 high,写库失败后回滚回「Default」——会话行没被改写。
+    await waitFor(() => {
+      expect(pill).toHaveTextContent("Default");
+    });
+
+    // select() 一点即关弹层,失败原因要重新打开才看得到。
+    await user.click(pill);
+    expect(await screen.findByRole("alert")).toHaveTextContent("db down");
   });
 });

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 )
 
 // TestEnsureSyncID_GivenEmpty_GeneratesIdentity R1：行创建/下一次落库时就地生成

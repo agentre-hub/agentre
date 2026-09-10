@@ -1,11 +1,10 @@
 // Package remote implements pty.Backend by relaying ops over an agentred
-// JSON-RPC-over-WebSocket client.
+// binary Protobuf RPC client on WebSocket.
 package remote
 
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,9 +14,9 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
-	pkgpty "github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	pkgpty "github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 )
 
 const (
@@ -194,10 +193,10 @@ func interruptedOpenError(
 	openCtx context.Context,
 	callErr error,
 ) (error, bool) {
-	// A JSON-RPC error frame is an authoritative terminal.open rejection even
+	// A typed RPC error frame is an authoritative terminal.open rejection even
 	// if caller cancellation raced its arrival. Transport/context failures have
 	// no such authority and must preserve the desktop interruption outcome.
-	var rpcErr *jsonrpc.Error
+	var rpcErr *protorpc.Error
 	if errors.As(callErr, &rpcErr) {
 		return nil, false
 	}
@@ -516,15 +515,8 @@ func exitInfo(ev protocol.TerminalExitEvent) pkgpty.ExitInfo {
 }
 
 func (h *handleImpl) forwardData(ev protocol.TerminalDataEvent) bool {
-	// The daemon base64-encodes each chunk so it survives the JSON hop;
-	// decode back to raw bytes. Skip a malformed frame rather than feed
-	// the encoded text to xterm.
-	decoded, err := base64.StdEncoding.DecodeString(ev.Data)
-	if err != nil {
-		return true
-	}
 	select {
-	case h.data <- decoded:
+	case h.data <- append([]byte(nil), ev.Data...):
 		return true
 	case <-h.done:
 		return false

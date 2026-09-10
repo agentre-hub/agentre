@@ -1,6 +1,6 @@
 package project_entity
 
-import "github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
+import "github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 
 // ProjectAgent 是 Project ↔ Agent 多对多成员关系的关联行。
 //

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
 	. "github.com/smartystreets/goconvey/convey"
 )
 
@@ -257,6 +257,39 @@ func TestDiscoverCommands(t *testing.T) {
 				{Name: "shadcn"},
 				{Name: "frontend-design"},
 			})
+		})
+	})
+}
+
+// TestDiscover_FindsCLIOutsideProcessPath 复现「plugin 技能一个都不剩」:
+// 从 Finder / Dock 起的 app bundle 只继承 launchd 的最小 PATH
+// (/usr/bin:/bin:/usr/sbin:/sbin),而 claude 常装在 ~/.local/bin、Homebrew、
+// volta 之类的地方。把裸名字直接交给 exec 查的是**本进程**的 PATH,必然 not
+// found,而 Discover 对 CLI 不可用是软降级成空发现 —— 于是插件包整段消失,只剩
+// 文件系统扫出来的 standalone skill,用户看到的正是这个。真正跑 CLI 的那条路
+// (clienv)早就为此把 PATH 补齐了,发现这条路必须用同一套解析。
+func TestDiscover_FindsCLIOutsideProcessPath(t *testing.T) {
+	Convey("Given the CLI lives in a user tool dir that a GUI-launched app's PATH does not contain", t, func() {
+		home := t.TempDir()
+		binDir := filepath.Join(home, ".local", "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// 名字取唯一值,免得撞上开发机上真装着的同名 CLI。
+		const binary = "agentre-skilltest-claude"
+		script := "#!/bin/sh\nprintf '%s' '[{\"id\":\"dev-kit@skills-dir\",\"enabled\":true}]'\n"
+		if err := os.WriteFile(filepath.Join(binDir, binary), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("HOME", home)
+		t.Setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin") // launchd 给 app bundle 的那份
+
+		Convey("When packs are discovered, Then the CLI is still found and its plugins come back", func() {
+			packs, err := Discoverer{}.Discover(context.Background(), agentskill.DiscoverQuery{CLIPath: binary})
+			So(err, ShouldBeNil)
+			So(len(packs), ShouldEqual, 1)
+			So(packs[0].ID, ShouldEqual, "dev-kit@skills-dir")
+			So(packs[0].GloballyEnabled, ShouldBeTrue)
 		})
 	})
 }

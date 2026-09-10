@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
-	"github.com/agentre-ai/agentre/internal/repository/syncqueue_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 )
 
 func setupOutboundQueueRepo(t *testing.T) (context.Context, sqlmock.Sqlmock, syncqueue_repo.OutboundQueueRepo) {
@@ -58,5 +58,53 @@ func TestOutboundQueueRepo_Delete(t *testing.T) {
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.Delete(ctx, 1))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestOutboundQueueRepo_DeleteMany 钉死批量删除走**一条** DELETE ... IN (...)。
+//
+// 此前上行刷队列是 for id := range ids { Delete(id) },每条一个 autocommit 事务
+// (BEGIN IMMEDIATE + commit)。实测本机 sync_outbound_queue 积压 871 行,一次刷
+// 队列就是 871 次取写锁 —— 而这把锁正好和流式落库抢同一个 SQLite 写锁。
+func TestOutboundQueueRepo_DeleteMany(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `sync_outbound_queue` WHERE id IN \\(\\?,\\?,\\?\\)").
+		WithArgs(int64(1), int64(2), int64(3)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.DeleteMany(ctx, []int64{1, 2, 3}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestOutboundQueueRepo_DeleteManyEmptyIsNoOp 空列表不得发语句(否则 GORM 会生成
+// 一条没有 WHERE 的 DELETE,把整张表清空)。
+func TestOutboundQueueRepo_DeleteManyEmptyIsNoOp(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+	require.NoError(t, repo.DeleteMany(ctx, nil))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestOutboundQueueRepo_DeleteManyChunksBeyondVariableLimit 超过单条语句变量上限时
+// 必须分批,而不是拼出一条几千个占位符的语句(SQLITE_MAX_VARIABLE_NUMBER)。
+func TestOutboundQueueRepo_DeleteManyChunksBeyondVariableLimit(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+
+	ids := make([]int64, syncqueue_repo.DeleteManyChunkSize+1)
+	for i := range ids {
+		ids[i] = int64(i + 1)
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `sync_outbound_queue` WHERE id IN \\(").
+		WillReturnResult(sqlmock.NewResult(0, int64(syncqueue_repo.DeleteManyChunkSize)))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `sync_outbound_queue` WHERE id IN \\(").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.DeleteMany(ctx, ids))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

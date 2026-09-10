@@ -9,27 +9,27 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/server_state_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo/mock_project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/server_svc"
 )
 
 // stubServerSvc 是 server_svc.ServerSvc 的最小测试实现：只有 ListDevices / AccessToken
@@ -50,19 +50,21 @@ func (s stubServerSvc) CancelLogin(context.Context) error                    { r
 func (s stubServerSvc) ListDevices(context.Context) ([]server_svc.Device, error) {
 	return s.devices, s.err
 }
-func (s stubServerSvc) Logout(context.Context) error                            { return nil }
-func (s stubServerSvc) Refresh(context.Context) error                           { return nil }
-func (s stubServerSvc) RefreshWithBackoff(context.Context)                      {}
-func (s stubServerSvc) Offline() bool                                           { return false }
-func (s stubServerSvc) ClearLogin(context.Context) error                        { return nil }
-func (s stubServerSvc) CheckURL(context.Context, string) (string, error)        { return "", nil }
-func (s stubServerSvc) SetEmitter(func(any))                                    {}
-func (s stubServerSvc) AccessToken() string                                     { return "tok" }
-func (s stubServerSvc) NewInboundHubLink(context.Context) (*rpc.HubLink, error) { return nil, nil }
-func (s stubServerSvc) DialDaemonRelay(context.Context, string, string) (*client.Client, error) {
+func (s stubServerSvc) Logout(context.Context) error                     { return nil }
+func (s stubServerSvc) Refresh(context.Context) error                    { return nil }
+func (s stubServerSvc) RefreshWithBackoff(context.Context)               {}
+func (s stubServerSvc) Offline() bool                                    { return false }
+func (s stubServerSvc) ClearLogin(context.Context) error                 { return nil }
+func (s stubServerSvc) CheckURL(context.Context, string) (string, error) { return "", nil }
+func (s stubServerSvc) SetEmitter(func(any))                             {}
+func (s stubServerSvc) AccessToken() string                              { return "tok" }
+func (s stubServerSvc) NewInboundHubLink(context.Context) (*relaytransport.HubLink, error) {
 	return nil, nil
 }
-func (s stubServerSvc) DialDesktopRelay(context.Context, string, string) (*client.Client, error) {
+func (s stubServerSvc) DialDaemonRelay(context.Context, string, string) (client.ProtobufConnection, error) {
+	return nil, nil
+}
+func (s stubServerSvc) DialDesktopRelay(context.Context, string, string) (client.ProtobufConnection, error) {
 	return nil, nil
 }
 func (s stubServerSvc) SyncPush(context.Context, []syncwire.PushItem) ([]syncwire.PushResult, error) {
@@ -142,7 +144,7 @@ func TestListExecTargetAvailability_GivenRunningNamedDesktop_ThenSelectableAndKi
 		{ID: 1, AgentID: 40, AgentBackendID: 71, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(71)).Return(&agent_backend_entity.AgentBackend{
-		ID: 71, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:desktop-b",
+		ID: 71, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:desktop-b",
 	}, nil)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 40, 0)
@@ -164,7 +166,7 @@ func TestListExecTargetAvailability_GivenNamedDesktopAppNotRunning_ThenDesktopNo
 		{ID: 1, AgentID: 41, AgentBackendID: 72, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(72)).Return(&agent_backend_entity.AgentBackend{
-		ID: 72, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:desktop-b",
+		ID: 72, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:desktop-b",
 	}, nil)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 41, 0)
@@ -186,7 +188,7 @@ func TestListExecTargetAvailability_GivenSelfFingerprint_ThenKindLocalAndAvailab
 		{ID: 1, AgentID: 42, AgentBackendID: 73, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(73)).Return(&agent_backend_entity.AgentBackend{
-		ID: 73, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:self",
+		ID: 73, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self",
 	}, nil)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 42, 0)
@@ -207,7 +209,7 @@ func TestListExecTargetAvailability_GivenSelfFingerprintAndProjectBound_ThenLoca
 		{ID: 1, AgentID: 45, AgentBackendID: 76, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(76)).Return(&agent_backend_entity.AgentBackend{
-		ID: 76, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:self",
+		ID: 76, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self",
 	}, nil)
 	m.project.EXPECT().Find(ctx, int64(403)).Return(&project_entity.Project{ID: 403, LocalPathMissing: false, Path: "/local/proj"}, nil).Times(2)
 	// 不注册 projectLocation 的任何 EXPECT：本机档一次都不该查 project_locations。
@@ -229,7 +231,7 @@ func TestListExecTargetAvailability_GivenUnknownDesktopFingerprint_ThenUnpaired(
 		{ID: 1, AgentID: 43, AgentBackendID: 74, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(74)).Return(&agent_backend_entity.AgentBackend{
-		ID: 74, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:desktop-b",
+		ID: 74, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:desktop-b",
 	}, nil)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 43, 0)
@@ -249,7 +251,7 @@ func TestListExecTargetAvailability_GivenServerListError_ThenUnpaired(t *testing
 		{ID: 1, AgentID: 44, AgentBackendID: 75, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(75)).Return(&agent_backend_entity.AgentBackend{
-		ID: 75, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:desktop-b",
+		ID: 75, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:desktop-b",
 	}, nil)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 44, 0)

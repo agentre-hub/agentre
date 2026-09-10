@@ -6,27 +6,16 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 )
 
-func TestChatBlock_OmitsEmptyFields(t *testing.T) {
-	Convey("ChatBlock JSON 序列化空字段省略", t, func() {
-		b := ChatBlock{Type: "text", Text: "hi"}
-		raw, err := json.Marshal(b)
-		So(err, ShouldBeNil)
-		So(string(raw), ShouldEqual, `{"type":"text","text":"hi"}`)
-	})
-}
-
-func TestChatBlock_CanonicalDTO(t *testing.T) {
-	Convey("ChatBlock 带 Canonical 时 JSON 含 canonical 节点", t, func() {
+func TestCanonicalDTO_MarshalsKindDiscriminator(t *testing.T) {
+	Convey("CanonicalDTO 序列化时 kind 判别式在前,未命中的变体槽省略", t, func() {
 		fw := canonical.FileWrite{Path: "/tmp/x", Content: "data"}
-		b := ChatBlock{
-			Type: "tool_use", ToolUseID: "tu-1", ToolName: "Write",
-			Canonical: &CanonicalDTO{Kind: canonical.KindFileWrite, FileWrite: &fw},
-		}
-		raw, err := json.Marshal(b)
+		raw, err := json.Marshal(CanonicalDTO{Kind: canonical.KindFileWrite, FileWrite: &fw})
 		So(err, ShouldBeNil)
-		So(string(raw), ShouldContainSubstring, `"canonical":{"kind":"file.write"`)
+		So(string(raw), ShouldStartWith, `{"kind":"file.write","fileWrite":{`)
+		So(string(raw), ShouldNotContainSubstring, `"fileEdit"`)
+		So(string(raw), ShouldNotContainSubstring, `"planUpdate"`)
 	})
 }

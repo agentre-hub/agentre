@@ -8,9 +8,9 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 // dispatcherEmitter 把 handlers 输出的 map[string]any{kind: ..., ...} 中间形态
@@ -42,8 +42,11 @@ func (d *dispatcherEmitter) Emit(ctx context.Context, stream string, raw any) {
 	case string(StreamChunk), string(StreamThinking):
 		ev.Delta, _ = m["delta"].(string)
 
+	case string(StreamOutputActivity):
+		// 纯计时信号,没有附加字段 —— 只要 Kind 转发出去就够了。
+
 	case string(StreamToolUse):
-		ev.ToolUseID = stringOf(m, "toolUseId")
+		ev.ToolCallID = stringOf(m, "toolUseId")
 		ev.ToolName = stringOf(m, "toolName")
 		ev.ToolInput = mapOf(m, "toolInput")
 		ev.ParentToolCallID = stringOf(m, "parentToolCallId")
@@ -55,7 +58,7 @@ func (d *dispatcherEmitter) Emit(ctx context.Context, stream string, raw any) {
 		}
 
 	case string(StreamToolResult):
-		ev.ToolUseID = stringOf(m, "toolUseId")
+		ev.ToolCallID = stringOf(m, "toolUseId")
 		ev.ToolResult, _ = m["toolResult"].(string)
 		ev.IsError, _ = m["isError"].(bool)
 		ev.ParentToolCallID = stringOf(m, "parentToolCallId")
@@ -85,30 +88,10 @@ func (d *dispatcherEmitter) Emit(ctx context.Context, stream string, raw any) {
 
 	case string(StreamToolPermissionRequest):
 		ev.ToolPermission = toolPermissionFromMap(m)
-		// 优先吃 handler 预设的 canonical(handlers/tool_permission.go 已经按
-		// ExitPlanMode / 普通工具分支构造完毕,且 ExitPlanMode 带 Actions);
-		// 兜底走旧合成逻辑保历史 emitter 调用方(目前只剩这条 case 用兜底)。
+		// canonical 由 handlers/tool_permission.go 按 ExitPlanMode / 普通工具分支
+		// 构造完毕(且 ExitPlanMode 带 Actions),这里只做透传。
 		if c, ok := m["canonical"].(canonical.CanonicalTool); ok {
 			ev.Canonical = view.FromCanonical(c)
-		} else if ev.ToolPermission != nil {
-			if ev.ToolPermission.ToolName == "ExitPlanMode" {
-				planText, _ := ev.ToolPermission.ToolInput["plan"].(string)
-				ev.Canonical = view.FromCanonical(canonical.PlanApproveRequest{
-					RequestID: ev.ToolPermission.RequestID,
-					PlanText:  planText,
-					Resolved:  ev.ToolPermission.Resolved,
-					Allowed:   ev.ToolPermission.Allowed,
-				})
-			} else {
-				ev.Canonical = view.FromCanonical(canonical.ToolPermission{
-					RequestID:   ev.ToolPermission.RequestID,
-					ToolName:    ev.ToolPermission.ToolName,
-					ToolInput:   ev.ToolPermission.ToolInput,
-					Resolved:    ev.ToolPermission.Resolved,
-					Allowed:     ev.ToolPermission.Allowed,
-					AlwaysAllow: ev.ToolPermission.AlwaysAllow,
-				})
-			}
 		}
 
 	case string(StreamExecApproval):
@@ -117,7 +100,7 @@ func (d *dispatcherEmitter) Emit(ctx context.Context, stream string, raw any) {
 		}
 
 	case string(StreamSubagentStarted), string(StreamSubagentProgress), string(StreamSubagentDone):
-		ev.ToolUseID = stringOf(m, "toolUseId")
+		ev.ToolCallID = stringOf(m, "toolUseId")
 		// info → ChatBlockSubagent (复用已有投影 subagentInfoToChatBlock)
 		ev.Subagent = subagentInfoMapToChatBlock(m["info"])
 		if ev.Subagent != nil {
@@ -139,7 +122,7 @@ func (d *dispatcherEmitter) Emit(ctx context.Context, stream string, raw any) {
 	case string(StreamSubagentModel):
 		// 只带 toolUseId + model,不走 subagentInfoMapToChatBlock 那套整份快照投影
 		// (R4)——handler 已经只 emit 这两个 key,这里原样透传即可。
-		ev.ToolUseID = stringOf(m, "toolUseId")
+		ev.ToolCallID = stringOf(m, "toolUseId")
 		ev.Model = stringOf(m, "model")
 
 	case string(StreamRetry):

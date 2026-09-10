@@ -7,10 +7,10 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/service/data_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/service/data_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
 
 // bundle 是**可移植**配置：本机档的含义是「跑在导入它的那台机器上」，pre-R13 时它的
@@ -32,8 +32,8 @@ func TestExport_GivenSelfFingerprintBackend_ThenBundleCarriesNoDeviceRef(t *test
 	t.Cleanup(func() { remote_device_svc.SetDefault(prev) })
 
 	m.backends.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.AgentBackend{
-		{ID: 30, Type: "claudecode", Name: "Local CC", DeviceID: "sha256:self"},
-		{ID: 31, Type: "codex", Name: "Remote Codex", DeviceID: "sha256:other-box"},
+		{ID: 30, Type: "claudecode", Name: "Local CC", DeviceFingerprint: "sha256:self"},
+		{ID: 31, Type: "codex", Name: "Remote Codex", DeviceFingerprint: "sha256:other-box"},
 	}, nil)
 	// 有真远端档，导出仍要拉配对表做 uuid 翻译。
 	m.devices.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()

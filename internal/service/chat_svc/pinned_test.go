@@ -7,10 +7,10 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // TestListAgents_PinnedDerivation: ChatAgentItem.Pinned = a.Pinned（DB 列直读）。
@@ -33,11 +33,11 @@ func TestListAgents_PinnedDerivation(t *testing.T) {
 	m.provider.EXPECT().BatchFindByKey(ctx, []string{}).Return(map[string]*llm_provider_entity.LLMProvider{}, nil)
 	ids := []int64{1, 2, 3, 4}
 	m.session.EXPECT().CountRunningByAgents(ctx, ids).Return(map[int64]int{}, nil)
-	m.session.EXPECT().CountByAgentsIncludingGroups(ctx, ids).Return(map[int64]int64{}, nil)
-	m.session.EXPECT().ListIDsByAgentsIncludingGroups(ctx, ids).Return(map[int64][]int64{}, nil)
+	m.session.EXPECT().CountByAgents(ctx, ids).Return(map[int64]int64{}, nil)
+	m.session.EXPECT().ListIDsByAgents(ctx, ids).Return(map[int64][]int64{}, nil)
 	for _, id := range ids {
-		m.session.EXPECT().ListByAgentIncludingGroups(ctx, id, 5).Return(nil, nil)
-		m.session.EXPECT().ListAttentionByAgentIncludingGroups(ctx, id, 20).Return(nil, nil)
+		m.session.EXPECT().ListByAgent(ctx, id, 5).Return(nil, nil)
+		m.session.EXPECT().ListAttentionByAgent(ctx, id, 20).Return(nil, nil)
 	}
 
 	resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})

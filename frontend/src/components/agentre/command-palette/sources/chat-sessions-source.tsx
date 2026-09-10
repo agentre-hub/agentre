@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { useChatAgents, type ChatAgentItem } from "@/hooks/use-chat-agents";
+import { useChatAgents, type AgentSlim } from "@/hooks/use-chat-agents";
 import i18n from "@/i18n";
 import { reasonToDisplayStatus } from "@/lib/attention-display";
 import { relativeTime } from "@/lib/relative-time";
@@ -34,7 +34,7 @@ export type ChatSessionItem = {
 };
 
 // 把所有 agent.sessions 拍平成基础列表（不做 attention 判断；attention 由 useItems 统一走 store）。
-export function flattenSessions(agents: ChatAgentItem[]): ChatSessionItem[] {
+export function flattenSessions(agents: AgentSlim[]): ChatSessionItem[] {
   const flat: ChatSessionItem[] = [];
   for (const a of agents) {
     for (const s of a.sessions) {

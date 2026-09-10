@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
-	"strings"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/repository/server_state_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
+	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 )
 
 // AccessToken returns the current hub access token (empty when not logged in).
@@ -20,14 +18,14 @@ func (s *service) AccessToken() string {
 
 // DialDaemonRelay 经账号中转连接指定指纹的 agentred。它保留既有的
 // client.ErrRelayDaemonOffline 语义和 wording；desktop 目标走 DialDesktopRelay。
-func (s *service) DialDaemonRelay(ctx context.Context, daemonFingerprint, peerFingerprint string) (*client.Client, error) {
+func (s *service) DialDaemonRelay(ctx context.Context, daemonFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
 	return s.dialRelay(ctx, daemonFingerprint, peerFingerprint)
 }
 
 // NewInboundHubLink returns the protocol-agnostic registration transport for
 // this desktop. AccessToken is resolved on every reconnect so startup may begin
 // before ServerBoot finishes refreshing a persisted login.
-func (s *service) NewInboundHubLink(ctx context.Context) (*rpc.HubLink, error) {
+func (s *service) NewInboundHubLink(ctx context.Context) (*relaytransport.HubLink, error) {
 	row, err := server_state_repo.ServerState().Get(ctx)
 	if err != nil {
 		return nil, err
@@ -35,7 +33,7 @@ func (s *service) NewInboundHubLink(ctx context.Context) (*rpc.HubLink, error) {
 	if row == nil || !row.IsLoggedIn() || row.ServerURL == "" {
 		return nil, ErrNotLoggedIn
 	}
-	return rpc.NewHubLink(rpc.HubLinkOptions{
+	return relaytransport.NewHubLink(relaytransport.HubLinkOptions{
 		ServerURL:           row.ServerURL,
 		AccessTokenProvider: s.AccessToken,
 	}), nil
@@ -43,7 +41,7 @@ func (s *service) NewInboundHubLink(ctx context.Context) (*rpc.HubLink, error) {
 
 // DialDesktopRelay connects to a desktop target over the same authenticated
 // relay path, but maps its absent App process to the desktop-specific sentinel.
-func (s *service) DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (*client.Client, error) {
+func (s *service) DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
 	connection, err := s.dialRelay(ctx, desktopFingerprint, peerFingerprint)
 	if errors.Is(err, client.ErrRelayDaemonOffline) {
 		// Do not wrap the agentred sentinel: callers must choose the desktop App
@@ -53,54 +51,31 @@ func (s *service) DialDesktopRelay(ctx context.Context, desktopFingerprint, peer
 	return connection, err
 }
 
-func (s *service) dialRelay(ctx context.Context, targetFingerprint, peerFingerprint string) (*client.Client, error) {
-	row, err := server_state_repo.ServerState().Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if row == nil || !row.IsLoggedIn() {
-		return nil, ErrNotLoggedIn
-	}
+// dialRelay 在这台桌面端唯一的常驻中继客户端连接（ensureRelay，决策 13）上开一条
+// 新虚拟通道,目标声明为 machine:<targetFingerprint>（决策 11:从机器轴点进去的
+// 走机器寻址,而 DialDaemonRelay/DialDesktopRelay 正是机器轴——ConnPool 按
+// deviceID 借连接,不知道对话)。
+//
+// URL 上不再出现 daemon_fingerprint(决策 10):目标从连接级降到了通道级。
+// peerFingerprint 从决策 8 起就不出现在线上任何地方(auth.account 的对端身份由
+// 服务端从已验签的凭据里取,不是客户端自报的)——这里仍然校验它非空,只是延续
+// dialRelay 原有的「两个参数都不许空」契约,不是把它发出去。
+func (s *service) dialRelay(ctx context.Context, targetFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
 	if targetFingerprint == "" || peerFingerprint == "" {
 		return nil, errors.New("server_svc.dialRelay: empty fingerprint")
 	}
+	relay, err := s.ensureRelay(ctx)
+	if err != nil {
+		return nil, err
+	}
 	c := s.getClient()
-	if c.AccessToken() == "" {
+	if c == nil || c.AccessToken() == "" {
 		return nil, ErrNotLoggedIn
 	}
-	return client.DialRelay(ctx, client.RelayOptions{
-		URL:               relayClientURL(c.baseURL, targetFingerprint),
-		AccessToken:       c.AccessToken(),
-		DeviceFingerprint: peerFingerprint,
-	})
+	return relay.openTarget(ctx, targetPrefixMachine+targetFingerprint, c.AccessToken())
 }
 
-// relayClientURL 把 server 的 HTTP baseURL 换成 ws(s):// 并拼上客户端接入端点
-// /v1/relay/client?daemon_fingerprint=<fp>。
-//
-// 端点**追加**在 baseURL 已有的路径后面,不覆盖它:server 部署在反代的路径前缀下
-// (https://host/agentre)是常态,同一个 baseURL 上的 HTTP 调用走 serverClient.do 的
-// baseURL+path,daemon 侧的 rpc.hubEndpoint 也是保留前缀后拼 /v1/relay/daemon。
-// 这里若写死成绝对路径,前缀就被丢掉,请求打到反代根下不存在的路径,而 404 会被
-// classifyRelayDialError 归成 ErrRelayDaemonNotFound —— 用户被告知「先认领这台机器」,
-// 可机器一直是认领着的。
-func relayClientURL(baseURL, daemonFingerprint string) string {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return ""
-	}
-	switch u.Scheme {
-	case "https":
-		u.Scheme = "wss"
-	case "http":
-		u.Scheme = "ws"
-	default:
-		return ""
-	}
-	q := u.Query()
-	q.Set("daemon_fingerprint", daemonFingerprint)
-	u.Path = strings.TrimRight(u.Path, "/") + "/v1/relay/client"
-	u.RawPath = ""
-	u.RawQuery = q.Encode()
-	return u.String()
-}
+// targetPrefixMachine 与 agentre-server relay_svc.TargetPrefixMachine
+// 逐字同值（决策 11）。两个仓库各自维护一份常量的理由同 SignalChannelID 的注释:
+// Go 后端之间不允许反向 import。
+const targetPrefixMachine = "machine:"

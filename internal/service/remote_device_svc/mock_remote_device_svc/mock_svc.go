@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	remote_device_svc "github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	remote_device_svc "github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -56,6 +56,36 @@ func (mr *MockRemoteDeviceSvcMockRecorder) Add(ctx, req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Add), ctx, req)
 }
 
+// AdoptAccountDevices mocks base method.
+func (m *MockRemoteDeviceSvc) AdoptAccountDevices(ctx context.Context, devices []remote_device_svc.AccountDevice) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdoptAccountDevices", ctx, devices)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AdoptAccountDevices indicates an expected call of AdoptAccountDevices.
+func (mr *MockRemoteDeviceSvcMockRecorder) AdoptAccountDevices(ctx, devices any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdoptAccountDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).AdoptAccountDevices), ctx, devices)
+}
+
+// DeviceBuild mocks base method.
+func (m *MockRemoteDeviceSvc) DeviceBuild(deviceID int64) (string, string) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeviceBuild", deviceID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(string)
+	return ret0, ret1
+}
+
+// DeviceBuild indicates an expected call of DeviceBuild.
+func (mr *MockRemoteDeviceSvcMockRecorder) DeviceBuild(deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeviceBuild", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).DeviceBuild), deviceID)
+}
+
 // DeviceFingerprint mocks base method.
 func (m *MockRemoteDeviceSvc) DeviceFingerprint() (string, error) {
 	m.ctrl.T.Helper()
@@ -69,6 +99,21 @@ func (m *MockRemoteDeviceSvc) DeviceFingerprint() (string, error) {
 func (mr *MockRemoteDeviceSvcMockRecorder) DeviceFingerprint() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeviceFingerprint", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).DeviceFingerprint))
+}
+
+// DiscardAdoptedDevices mocks base method.
+func (m *MockRemoteDeviceSvc) DiscardAdoptedDevices(ctx context.Context) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DiscardAdoptedDevices", ctx)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DiscardAdoptedDevices indicates an expected call of DiscardAdoptedDevices.
+func (mr *MockRemoteDeviceSvcMockRecorder) DiscardAdoptedDevices(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardAdoptedDevices", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).DiscardAdoptedDevices), ctx)
 }
 
 // Get mocks base method.
@@ -129,16 +174,16 @@ func (mr *MockRemoteDeviceSvcMockRecorder) Pool() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pool", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Pool))
 }
 
-// RecordDaemonOutdated mocks base method.
-func (m *MockRemoteDeviceSvc) RecordDaemonOutdated(deviceID int64, outdated bool) {
+// RecordDeviceBuild mocks base method.
+func (m *MockRemoteDeviceSvc) RecordDeviceBuild(deviceID int64, version, commit string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RecordDaemonOutdated", deviceID, outdated)
+	m.ctrl.Call(m, "RecordDeviceBuild", deviceID, version, commit)
 }
 
-// RecordDaemonOutdated indicates an expected call of RecordDaemonOutdated.
-func (mr *MockRemoteDeviceSvcMockRecorder) RecordDaemonOutdated(deviceID, outdated any) *gomock.Call {
+// RecordDeviceBuild indicates an expected call of RecordDeviceBuild.
+func (mr *MockRemoteDeviceSvcMockRecorder) RecordDeviceBuild(deviceID, version, commit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordDaemonOutdated", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).RecordDaemonOutdated), deviceID, outdated)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordDeviceBuild", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).RecordDeviceBuild), deviceID, version, commit)
 }
 
 // RecordDeviceCapabilities mocks base method.
@@ -261,4 +306,19 @@ func (m *MockRemoteDeviceSvc) UpdateTLS(ctx context.Context, id int64, mode, pem
 func (mr *MockRemoteDeviceSvcMockRecorder) UpdateTLS(ctx, id, mode, pem any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTLS", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).UpdateTLS), ctx, id, mode, pem)
+}
+
+// Upgrade mocks base method.
+func (m *MockRemoteDeviceSvc) Upgrade(ctx context.Context, deviceID int64, channel string, force bool) (*remote_device_svc.UpgradeResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Upgrade", ctx, deviceID, channel, force)
+	ret0, _ := ret[0].(*remote_device_svc.UpgradeResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Upgrade indicates an expected call of Upgrade.
+func (mr *MockRemoteDeviceSvcMockRecorder) Upgrade(ctx, deviceID, channel, force any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Upgrade), ctx, deviceID, channel, force)
 }

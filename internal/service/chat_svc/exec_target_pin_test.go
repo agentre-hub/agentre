@@ -8,15 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 )
 
 // 本文件锁住 R15b / 决策36「会话粘性」：续轮按会话钉住的那一档解析 backend（不重挑，
@@ -102,7 +102,7 @@ func TestResolveAgentBackend_GivenSameDeviceMultipleTargets_WhenContinuingTurn_T
 	sess := &chat_entity.Session{ID: 901, AgentID: 402, ExecAgentBackendID: 72}
 	m.agent.EXPECT().Find(ctx, int64(402)).Return(&agent_entity.Agent{ID: 402, AgentBackendID: 71}, nil)
 	target72 := &agent_backend_entity.AgentBackend{
-		ID: 72, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "9",
+		ID: 72, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "9",
 	}
 	m.backend.EXPECT().Find(ctx, int64(72)).Return(target72, nil)
 

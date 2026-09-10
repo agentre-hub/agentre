@@ -2,6 +2,7 @@ package project_svc_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -11,19 +12,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/service/project_svc/mock_project_svc"
 )
 
 func setupProjectSvc(t *testing.T) (
 	context.Context,
 	*mock_project_repo.MockProjectRepo,
 	*mock_project_repo.MockProjectAgentRepo,
-	*mock_chat_repo.MockSessionRepo,
+	*mock_project_svc.MockSessionPort,
 	project_svc.ProjectSvc,
 ) {
 	t.Helper()
@@ -31,11 +31,10 @@ func setupProjectSvc(t *testing.T) (
 	t.Cleanup(ctrl.Finish)
 	mp := mock_project_repo.NewMockProjectRepo(ctrl)
 	mpa := mock_project_repo.NewMockProjectAgentRepo(ctrl)
-	ms := mock_chat_repo.NewMockSessionRepo(ctrl)
+	ms := mock_project_svc.NewMockSessionPort(ctrl)
 	project_repo.RegisterProject(mp)
 	project_repo.RegisterProjectAgent(mpa)
-	chat_repo.RegisterSession(ms)
-	return context.Background(), mp, mpa, ms, project_svc.New()
+	return context.Background(), mp, mpa, ms, project_svc.New(project_svc.WithSessionPort(ms))
 }
 
 func TestProjectSvcCreate_Happy(t *testing.T) {
@@ -57,6 +56,56 @@ func TestProjectSvcCreate_Happy(t *testing.T) {
 		convey.So(got.ID, convey.ShouldEqual, 42)
 		convey.So(got.Path, convey.ShouldEqual, tmp)
 	})
+}
+
+// 空路径建得出来，且这一行落成「本机未配置路径」（R10）。
+//
+// 规格 2026-08-22 决策 9：路径不必填，两端一套校验。web 上建项目的人可能一台机器
+// 都没在线，挡住他等于把「只有 agentred 也能管理」堵在第一步；桌面端跟着获得
+// 「先建起来、回头再配」这条路。此前这一支必被 Check 拒——它在
+// LocalPathMissing 为 false 时要求 Path 非空，而 Create 从不置这一位。
+func TestProjectSvcCreate_EmptyPath_MarksLocalPathMissing(t *testing.T) {
+	ctx, mp, _, _, svc := setupProjectSvc(t)
+	mp.EXPECT().FindByName(ctx, int64(0), "Agentre").Return(nil, nil)
+	mp.EXPECT().NextSortOrder(ctx, int64(0)).Return(1, nil)
+	mp.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, p *project_entity.Project) error {
+		p.ID = 7
+		return nil
+	})
+
+	got, err := svc.Create(ctx, &project_svc.CreateProjectRequest{
+		Name: "Agentre", Path: "", Color: "agent-1",
+	})
+	require.NoError(t, err)
+	assert.True(t, got.LocalPathMissing, "空路径建出来的项目应标为本机未配置路径")
+	assert.Empty(t, got.Path)
+}
+
+// 只有空白的路径与空路径同义——一个空格不是一个目录。
+func TestProjectSvcCreate_BlankPath_MarksLocalPathMissing(t *testing.T) {
+	ctx, mp, _, _, svc := setupProjectSvc(t)
+	mp.EXPECT().FindByName(ctx, int64(0), "Agentre").Return(nil, nil)
+	mp.EXPECT().NextSortOrder(ctx, int64(0)).Return(1, nil)
+	mp.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, p *project_entity.Project) error {
+		return nil
+	})
+
+	got, err := svc.Create(ctx, &project_svc.CreateProjectRequest{
+		Name: "Agentre", Path: "   ", Color: "agent-1",
+	})
+	require.NoError(t, err)
+	assert.True(t, got.LocalPathMissing)
+}
+
+// 填了路径就照旧校验它存在——决策 9 放宽的是「必填」，不是「填了也不查」。
+func TestProjectSvcCreate_NonEmptyPathStillChecked(t *testing.T) {
+	// 路径守卫排在重名检查之前，所以这里一个 repo 调用都到不了。
+	ctx, _, _, _, svc := setupProjectSvc(t)
+
+	_, err := svc.Create(ctx, &project_svc.CreateProjectRequest{
+		Name: "Agentre", Path: "/definitely/not/here", Color: "agent-1",
+	})
+	require.Error(t, err)
 }
 
 func TestProjectSvcCreate_DuplicateName(t *testing.T) {
@@ -160,9 +209,46 @@ func TestProjectSvcDelete_Success(t *testing.T) {
 	mp.EXPECT().Find(ctx, int64(1)).Return(&project_entity.Project{ID: 1, Status: consts.ACTIVE}, nil)
 	mp.EXPECT().HasActiveChildren(ctx, int64(1)).Return(false, nil)
 	ms.EXPECT().CountActiveByProject(ctx, int64(1), []string{"running", "waiting"}).Return(int64(0), nil)
+	ms.EXPECT().ReassignProject(ctx, int64(1), int64(0)).Return(nil)
 	mp.EXPECT().Delete(ctx, int64(1)).Return(nil)
 
 	require.NoError(t, svc.Delete(ctx, 1))
+}
+
+// 删项目时，名下幸存的（idle / error）会话必须改挂成自由会话（project_id = 0），
+// 而不是留着一个指向已删项目的悬空引用。
+//
+// 不修的话：这些会话在「按项目」的索引里凭空消失（那个项目行没了），在「按 Agent」
+// 的索引里却还在 —— 合并成单一会话索引之后，同一条会话在两档分组之间时有时无。
+// 修在 producer（这里），不在索引侧加「查不到项目就归到随手对话」的兜底。
+//
+// 规格：docs/specs/2026-08-16-unified-chat-index.md 的 R7。
+func TestProjectSvcDelete_ReassignsSurvivingSessionsToFree(t *testing.T) {
+	ctx, mp, _, ms, svc := setupProjectSvc(t)
+	mp.EXPECT().Find(ctx, int64(7)).Return(&project_entity.Project{ID: 7, Status: consts.ACTIVE}, nil)
+	mp.EXPECT().HasActiveChildren(ctx, int64(7)).Return(false, nil)
+	ms.EXPECT().CountActiveByProject(ctx, int64(7), []string{"running", "waiting"}).Return(int64(0), nil)
+	// 关键断言：置零发生在删除项目行**之前** —— 先摘干净引用再删，中途失败时
+	// 项目还在，用户可以重试；反过来则会留下一批指向不存在项目的会话。
+	gomock.InOrder(
+		ms.EXPECT().ReassignProject(ctx, int64(7), int64(0)).Return(nil),
+		mp.EXPECT().Delete(ctx, int64(7)).Return(nil),
+	)
+
+	require.NoError(t, svc.Delete(ctx, 7))
+}
+
+// 置零失败时整个删除失败：不允许留下「会话已改挂但项目还在」或
+// 「项目已删但会话还指着它」的半个状态。
+func TestProjectSvcDelete_ReassignFails_ThenProjectSurvives(t *testing.T) {
+	ctx, mp, _, ms, svc := setupProjectSvc(t)
+	mp.EXPECT().Find(ctx, int64(7)).Return(&project_entity.Project{ID: 7, Status: consts.ACTIVE}, nil)
+	mp.EXPECT().HasActiveChildren(ctx, int64(7)).Return(false, nil)
+	ms.EXPECT().CountActiveByProject(ctx, int64(7), []string{"running", "waiting"}).Return(int64(0), nil)
+	ms.EXPECT().ReassignProject(ctx, int64(7), int64(0)).Return(errors.New("db down"))
+	// mp.Delete 没有 EXPECT：置零失败后一次都不该调它。
+
+	require.Error(t, svc.Delete(ctx, 7))
 }
 
 func TestProjectSvcListTree_BuildsHierarchy(t *testing.T) {

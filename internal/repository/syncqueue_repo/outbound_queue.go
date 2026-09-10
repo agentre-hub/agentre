@@ -5,7 +5,7 @@ import (
 
 	"github.com/cago-frame/cago/database/db"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
 )
 
 //go:generate mockgen -source outbound_queue.go -destination mock_syncqueue_repo/mock_outbound_queue.go
@@ -15,7 +15,15 @@ type OutboundQueueRepo interface {
 	Create(ctx context.Context, row *syncqueue_entity.OutboundQueueItem) error
 	ListByAccount(ctx context.Context, accountID int64) ([]*syncqueue_entity.OutboundQueueItem, error)
 	Delete(ctx context.Context, id int64) error
+	// DeleteMany 一条语句删一批(超过 DeleteManyChunkSize 自动分批)。
+	// 刷队列必须走它而不是 for + Delete:后者每行一个 autocommit 事务,一次刷 871 行
+	// 就要取 871 次 SQLite 写锁,而这把锁与流式落库是同一把。
+	DeleteMany(ctx context.Context, ids []int64) error
 }
+
+// DeleteManyChunkSize 是单条 IN (...) 里的最大占位符数。SQLite 的
+// SQLITE_MAX_VARIABLE_NUMBER 在老版本上低至 999,取 500 留足余量。
+const DeleteManyChunkSize = 500
 
 var defaultOutboundQueue OutboundQueueRepo
 
@@ -45,4 +53,18 @@ func (r *outboundQueueRepo) ListByAccount(ctx context.Context, accountID int64) 
 
 func (r *outboundQueueRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Where("id = ?", id).Delete(&syncqueue_entity.OutboundQueueItem{}).Error
+}
+
+func (r *outboundQueueRepo) DeleteMany(ctx context.Context, ids []int64) error {
+	// 空列表直接返回:交给 GORM 会生成一条没有 WHERE 的 DELETE,清空整张表。
+	for len(ids) > 0 {
+		n := min(len(ids), DeleteManyChunkSize)
+		if err := db.Ctx(ctx).
+			Where("id IN ?", ids[:n]).
+			Delete(&syncqueue_entity.OutboundQueueItem{}).Error; err != nil {
+			return err
+		}
+		ids = ids[n:]
+	}
+	return nil
 }

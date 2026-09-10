@@ -5,7 +5,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 // TargetsAnotherMachine 是「这一档要不要派到别的机器上跑」的全仓单一判据。它取代了

@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -21,23 +20,26 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	daemonmigrations "github.com/agentre-ai/agentre/internal/daemon/migrations"
-	"github.com/agentre-ai/agentre/internal/daemon/notifier"
-	"github.com/agentre-ai/agentre/internal/daemon/pairing"
-	"github.com/agentre-ai/agentre/internal/daemon/remotefs"
-	"github.com/agentre-ai/agentre/internal/daemon/repository/notification_repo"
-	"github.com/agentre-ai/agentre/internal/daemon/repository/session_repo"
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/daemon/sessions"
-	"github.com/agentre-ai/agentre/internal/daemon/state"
-	daemonworkspacefs "github.com/agentre-ai/agentre/internal/daemon/workspacefs"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
-	"github.com/agentre-ai/agentre/internal/pkg/pty/local"
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
+	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	daemonmigrations "github.com/agentre-hub/agentre/internal/daemon/migrations"
+	"github.com/agentre-hub/agentre/internal/daemon/pairing"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
+	"github.com/agentre-hub/agentre/internal/daemon/repository/notification_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/sessions"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // dbFileName 是 agentred 自己的 SQLite 库文件名,位于 Options.DataDir(=
@@ -60,24 +62,20 @@ type Options struct {
 	// 留空 → 走 ccoauth.NewLocalFetcher()(从当前机器环境读 token + 调真实 endpoint);
 	// 集成测试传入 stub 屏蔽真实网络 / 真实 keychain。
 	CCUsageFetcher handlers.CCUsageFetcher
-
-	// JournalRetention 是通知日志的留存窗口(见 collectJournal)。
-	// 0 取 defaultJournalRetention;负数关掉回收(永久保留)。
-	JournalRetention time.Duration
 }
 
 // Daemon assembles and runs all agentred sub-systems.
 type Daemon struct {
-	opts     Options
-	state    *state.State
-	gateway  *httpgateway.Gateway
-	pairing  *pairing.Manager
-	ratelim  *pairing.RateLimiter
-	registry *rpc.Registry
-	auth     *rpc.AuthHandlers
+	opts           Options
+	state          *state.State
+	gateway        *httpgateway.Gateway
+	pairing        *pairing.Manager
+	ratelim        *pairing.RateLimiter
+	auth           *auth.AuthHandlers
+	engineSnapshot *enginesnapshot.Manager
 
 	// db is agentred's own SQLite handle (session durability: daemon_sessions
-	// + daemon_notification_logs — see internal/daemon/migrations). Deliberately
+	// + daemon_notification_journal — see internal/daemon/migrations). Deliberately
 	// a per-instance field, never a package-level global set via db.SetDefault:
 	// integration_test.go constructs several Daemon values in one test process,
 	// and a global would make them silently share one database. Callers reach
@@ -95,11 +93,22 @@ type Daemon struct {
 	// 限定、不随连接生灭,所以是 Daemon 级构造、静态注册的 —— 唯一的例外是显式接管,
 	// 它要知道是**哪条连接**在接管,见 bindConn。
 	catchup *handlers.SessionCatchupHandlers
+	// activity 只回答「哪天有几条」——活跃统计的纯计数上报。刻意与 catchup 分开:
+	// 同一张表,交出去的东西完全不同,合成一个类型会让那条边界随时间被磨掉。
+	activity *handlers.ActivityHandlers
+
+	// sessionDelete 是会话删除 handler。与补齐族同为 Daemon 级、静态注册:它按对端
+	// 限定、改的是库而不是「通知推给谁」,与哪条连接在调用无关。
+	sessionDelete      *handlers.SessionDeleteHandlers
+	sessionModelTarget *handlers.SessionModelTargetHandlers
+	// sessionReasoningEffort 与 sessionModelTarget 同族:改这条会话下一轮的 spawn
+	// 参数,同为 Daemon 级、静态注册。
+	sessionReasoningEffort *handlers.SessionReasoningEffortHandlers
 
 	mu  sync.RWMutex
-	lan *rpc.LANServer
-	hub *rpc.HubLink
-	mux *rpc.Multiplexer
+	lan *protorpc.LANServer
+	hub *relaytransport.HubLink
+	mux *relaytransport.Multiplexer
 
 	// conns 是 daemon 的推送路由表:会话通知按**会话**解析到发起它的那条连接,
 	// MCP 反向隧道从同一份状态里解析目标,daemon 上没有第二个「当前连接」的全局。
@@ -117,17 +126,24 @@ type Daemon struct {
 	// runtimeHandlers 记住每条连接的 RuntimeHandlers,只为**关机时**能把每条连接
 	// 拥有的 Pi generation 逐个收掉(见 closeRuntimeConnections)。连接自己断开时
 	// 由 bindConn 的 Done 监视直接调它那一个 rh.Close。
-	runtimeMu       sync.RWMutex
-	runtimeHandlers map[*rpc.Conn]*handlers.RuntimeHandlers
+	runtimeMu        sync.RWMutex
+	runtimeHandlers  map[connection.Conn]*handlers.RuntimeHandlers
+	protobufRegistry *protorpc.Registry
 }
 
 const daemonConnectionCleanupTimeout = 3 * time.Second
+
+// cliSessionSweepInterval 是 idle CLI 会话清扫的巡检间隔。
+const cliSessionSweepInterval = time.Minute
 
 // sessionKey 是 daemon 侧的会话身份(R16):(对端设备指纹, 对端会话 id)。会话 id 是
 // 各客户端本地自增的,两个对端各自持有同一个 id 时是两条互不相干的会话。
 type sessionKey struct {
 	peer string
-	sid  int64
+	// conversationID 是这条对话的全局身份。从前这里是客户端本地自增的会话号,所以
+	// 必须与 peer 配对才唯一;对话身份本身已经全局唯一,peer 留着只承担授权与来源
+	// 标注(与 daemon_sessions 上那一列同一次降级)。
+	conversationID string
 }
 
 // connRegistry 记录 daemon 此刻能把通知推给谁,两张互补的表:
@@ -144,7 +160,7 @@ type sessionKey struct {
 //
 // 接管规则:一条会话的推送目标是最近为它发过 runtime.* 的那条连接,起点是创建它的
 // runtime.run(见 trackSessionOwner)。key 里的指纹取自发起调用的那条连接自己的
-// rpc.AuthState,所以只有**同指纹**的连接接得走一条会话 —— 指纹是接管的授权,不是路由
+// rpcerror.AuthState,所以只有**同指纹**的连接接得走一条会话 —— 指纹是接管的授权,不是路由
 // 键。属主连接断开 → 该会话的登记随之撤销 → 通知照常落库、不推送(会话挂起,R2),
 // 等同指纹的新连接再发一次 runtime.* 接管(与重连补齐是同一件事)。
 //
@@ -153,7 +169,7 @@ type sessionKey struct {
 // 多客户端同时在场:一条会话的推送**目标**仍是 claims 里那一条(发起 / 已授权接管它
 // 的连接),但推送的**收件人**是一个集合 —— subs 里登记的、**上过这条会话**的那些同账号
 // 连接(发起它的,以及按 R12 显式接管 / 控制过它的),桌面与手机因此同时收到同一会话的
-// 实时事件。未认领 daemon 没有账号可言,一个订阅者都不成立,行为与单目标时代完全一致
+// 实时事件。未登录 daemon 没有账号可言,一个订阅者都不成立,行为与单目标时代完全一致
 // (R13)。MCP 反向隧道不在扇出之列:它按会话解析到发起端那一条(tunnelTargetFor,决策 9)。
 //
 // 收件人为什么必须按**会话**而不是按账号取:推出去的帧只带一个 sessionId
@@ -162,18 +178,27 @@ type sessionKey struct {
 // sessionId 可用,只能落进它**自己**那条同号会话 —— 别人的转录被写进你的对话。R12 放宽
 // 的是可见性的**过滤条件**(list / attach 能看到并操作全部会话),「会话主键结构不变」。
 type connRegistry struct {
-	// claimedAccountID 交回 daemon 此刻的归属账号(未认领为空)。订阅资格拿它与连接
+	// loggedInAccountID 交回 daemon 此刻的归属账号(未登录为空)。订阅资格拿它与连接
 	// 自己的 AuthState.AccountID 比 —— 每次解析时现问,不缓存:解除归属(R19)之后
-	// 那些还连着的连接必须立刻失去订阅资格。留空(零值 connRegistry)= 未认领。
-	claimedAccountID func() string
+	// 那些还连着的连接必须立刻失去订阅资格。留空(零值 connRegistry)= 未登录。
+	loggedInAccountID func() string
 
 	mu     sync.Mutex
 	seq    uint64
-	live   map[*rpc.Conn]liveConn
+	live   map[connection.Conn]liveConn
 	claims map[sessionKey]sessionClaim
 	// subs 是每条会话的订阅者集合:上过这条会话的那些连接。属主换人不清空它 ——
 	// 接管的语义是「此后由我消费」,不是「把另一方踢下线」。
-	subs map[sessionKey]map[*rpc.Conn]struct{}
+	subs map[sessionKey]map[connection.Conn]struct{}
+}
+
+// connectionCount reports authenticated client connections that are live now.
+// PairedPeers is persisted trust and may remain populated while every client is
+// offline, so status must read the live registry instead of deriving from it.
+func (r *connRegistry) connectionCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.live)
 }
 
 // liveConn is an authenticated connection's push port.
@@ -191,19 +216,15 @@ type liveConn struct {
 // 补齐(R6)把缺口拉回来 —— 通知本来就已经落库了。
 const subscriberQueueDepth = 256
 
-// queuedNotification 是排队中的一条通知。params 在**入队时**就序列化好:调用方
-// (sessionEmitter)手里那个帧是可变的(SetSeq 写的就是它),留到投递时才 marshal
-// 会读到被后一条通知改过的内容。
-type queuedNotification struct {
-	method string
-	params json.RawMessage
-}
-
 // asyncNotifier 是一个订阅者的投递队列:一条 goroutine 顺序发,这个订阅者收到的帧因此
 // 仍是原序;入队不阻塞调用方,所以慢的、写不动的订阅者只影响它自己。
+//
+// 排队的是**已经转换好**的 Protobuf 通知(见 handlers.NotifierPort):发送侧转换完就
+// 不再碰它,所以入队时不需要再拷一份 —— 属主与每个订阅者共享同一条消息,各自在自己的
+// goroutine 上 marshal(并发只读)。
 type asyncNotifier struct {
 	n    handlers.NotifierPort
-	ch   chan queuedNotification
+	ch   chan *agentrewire.RpcNotification
 	stop chan struct{}
 	once sync.Once
 }
@@ -211,7 +232,7 @@ type asyncNotifier struct {
 func newAsyncNotifier(n handlers.NotifierPort) *asyncNotifier {
 	a := &asyncNotifier{
 		n:    n,
-		ch:   make(chan queuedNotification, subscriberQueueDepth),
+		ch:   make(chan *agentrewire.RpcNotification, subscriberQueueDepth),
 		stop: make(chan struct{}),
 	}
 	go a.run()
@@ -224,22 +245,20 @@ func (a *asyncNotifier) run() {
 		case <-a.stop:
 			return
 		case q := <-a.ch:
-			if err := a.n.Notify(q.method, q.params); err != nil {
-				log.Printf("daemon: fan-out to subscriber failed method=%s err=%v", q.method, err)
+			if err := a.n.Notify(q); err != nil {
+				log.Printf("daemon: fan-out to subscriber failed method=%s err=%v",
+					protowire.NotificationMethod(q), err)
 			}
 		}
 	}
 }
 
-func (a *asyncNotifier) Notify(method string, params any) error {
-	payload, err := json.Marshal(params)
-	if err != nil {
-		return err
-	}
+func (a *asyncNotifier) Notify(notification *agentrewire.RpcNotification) error {
 	select {
-	case a.ch <- queuedNotification{method: method, params: payload}:
+	case a.ch <- notification:
 		return nil
 	default:
+		method := protowire.NotificationMethod(notification)
 		log.Printf("daemon: subscriber is %d frames behind; dropped %s (it catches up by cursor)",
 			subscriberQueueDepth, method)
 		return fmt.Errorf("daemon: subscriber queue full, dropped %s", method)
@@ -258,25 +277,25 @@ func (a *asyncNotifier) close() { a.once.Do(func() { close(a.stop) }) }
 // 它只在真有订阅者时才出现 —— 单目标时 ownerOf 交回的仍是那条连接的端口本身。
 //
 // 属主那一路刻意保持同步:推送失败要如实回给 sessionEmitter(R2/R3 的「只落库不推送」
-// 判定就靠这个返回值),而未认领 daemon 上只有这一路,行为因此与扇出之前逐字节相同。
+// 判定就靠这个返回值),而未登录 daemon 上只有这一路,行为因此与扇出之前逐字节相同。
 // 新增的订阅者一律走异步端口,所以「多接一个客户端」不会给会话添一个能把它卡死的单点。
 type fanoutNotifier struct {
 	primary handlers.NotifierPort
 	extras  []handlers.NotifierPort
 }
 
-func (f fanoutNotifier) Notify(method string, params any) error {
+func (f fanoutNotifier) Notify(notification *agentrewire.RpcNotification) error {
 	var delivered bool
 	var lastErr error
 	for _, extra := range f.extras {
-		if err := extra.Notify(method, params); err != nil {
+		if err := extra.Notify(notification); err != nil {
 			lastErr = err
 			continue
 		}
 		delivered = true
 	}
 	if f.primary != nil {
-		return f.primary.Notify(method, params)
+		return f.primary.Notify(notification)
 	}
 	// 属主已经断开,只剩订阅者:全都投递不出去才算这条通知没推出去。
 	if delivered {
@@ -298,15 +317,15 @@ type sessionClaim struct {
 	// conn receives this session's notifications and may change on an authorized
 	// attach/control request. mcpConn remains the connection of the peer that
 	// initiated the session, so a cross-account control cannot reroute tools.
-	conn    *rpc.Conn
-	mcpConn *rpc.Conn
+	conn    connection.Conn
+	mcpConn connection.Conn
 	at      uint64
 }
 
 // peerIdentity 取连接的对端身份(设备指纹)。身份是鉴权成功那一刻才成立的,报了指纹
 // 没通过鉴权不算;空指纹不构成可匹配身份(否则一条空指纹连接就能冒领会话的通知),
 // 空指纹在 registerMethods 的 auth.* 入参处就已挡下,这里是第二道。
-func peerIdentity(c *rpc.Conn) (string, bool) {
+func peerIdentity(c connection.Conn) (string, bool) {
 	if c == nil {
 		return "", false
 	}
@@ -319,7 +338,7 @@ func peerIdentity(c *rpc.Conn) (string, bool) {
 
 // connClosed 报告连接是否已经关闭。登记前必须查一次:Done 监视 goroutine 与登记是并发
 // 的,先关后登记会在表里留下一条指向死连接的陈旧条目,永远等不到清理。
-func connClosed(c *rpc.Conn) bool {
+func connClosed(c connection.Conn) bool {
 	select {
 	case <-c.Done():
 		return true
@@ -330,7 +349,8 @@ func connClosed(c *rpc.Conn) bool {
 
 // add 在连接完成 auth.pair / auth.connect / auth.account 之后登记它。同一条连接改认另一个指纹时,
 // 它先前以旧指纹认领的会话一并作废 —— 否则旧对端的会话通知会推给一条已经属于别人的连接。
-func (r *connRegistry) add(c *rpc.Conn, n handlers.NotifierPort) {
+func (r *connRegistry) add(raw any, n handlers.NotifierPort) {
+	c := connection.Normalize(raw)
 	if n == nil {
 		return
 	}
@@ -344,7 +364,7 @@ func (r *connRegistry) add(c *rpc.Conn, n handlers.NotifierPort) {
 		return
 	}
 	if r.live == nil {
-		r.live = map[*rpc.Conn]liveConn{}
+		r.live = map[connection.Conn]liveConn{}
 	}
 	entry := liveConn{n: n}
 	// 只有带账号身份的连接(auth.account,见任务 6 的账号门)才可能成为订阅者,
@@ -359,7 +379,7 @@ func (r *connRegistry) add(c *rpc.Conn, n handlers.NotifierPort) {
 // handler 之前,handler 拒了这一条就得还原)。ok 为假表示这次调用什么都没改。
 type claimTicket struct {
 	key  sessionKey
-	conn *rpc.Conn
+	conn connection.Conn
 	at   uint64
 	prev sessionClaim
 	ok   bool
@@ -370,18 +390,20 @@ type claimTicket struct {
 
 // claim records a caller's own-peer session target. Account-authorized cross-peer
 // operations use claimFor after their origin discriminator has been checked.
-func (r *connRegistry) claim(c *rpc.Conn, sid int64) claimTicket {
+func (r *connRegistry) claim(raw any, conversationID string) claimTicket {
+	c := connection.Normalize(raw)
 	peer, ok := peerIdentity(c)
 	if !ok {
 		return claimTicket{}
 	}
-	return r.claimFor(c, peer, sid)
+	return r.claimFor(c, peer, conversationID)
 }
 
 // claimFor records an already-authorized target peer. Normal callers use
 // claim; account-level controls reach this only after ResolveSessionPeer.
-func (r *connRegistry) claimFor(c *rpc.Conn, peer string, sid int64) claimTicket {
-	if peer == "" || sid == 0 {
+func (r *connRegistry) claimFor(raw any, peer string, conversationID string) claimTicket {
+	c := connection.Normalize(raw)
+	if peer == "" || conversationID == "" {
 		return claimTicket{}
 	}
 	r.mu.Lock()
@@ -397,7 +419,7 @@ func (r *connRegistry) claimFor(c *rpc.Conn, peer string, sid int64) claimTicket
 		r.claims = map[sessionKey]sessionClaim{}
 	}
 	r.seq++
-	k := sessionKey{peer: peer, sid: sid}
+	k := sessionKey{peer: peer, conversationID: conversationID}
 	prev := r.claims[k]
 	mcpConn := prev.mcpConn
 	if _, live := r.live[mcpConn]; !live {
@@ -417,16 +439,16 @@ func (r *connRegistry) claimFor(c *rpc.Conn, peer string, sid int64) claimTicket
 
 // addSubLocked 把这条连接登记为该会话的订阅者,返回它是不是新加进去的。只有带账号
 // 身份的连接(有 fanout 端口)才构成订阅者 —— 纯 LAN 配对的连接不参与扇出(R13)。
-func (r *connRegistry) addSubLocked(k sessionKey, c *rpc.Conn) bool {
+func (r *connRegistry) addSubLocked(k sessionKey, c connection.Conn) bool {
 	if r.live[c].fanout == nil {
 		return false
 	}
 	if r.subs == nil {
-		r.subs = map[sessionKey]map[*rpc.Conn]struct{}{}
+		r.subs = map[sessionKey]map[connection.Conn]struct{}{}
 	}
 	set := r.subs[k]
 	if set == nil {
-		set = map[*rpc.Conn]struct{}{}
+		set = map[connection.Conn]struct{}{}
 		r.subs[k] = set
 	}
 	if _, ok := set[c]; ok {
@@ -437,7 +459,7 @@ func (r *connRegistry) addSubLocked(k sessionKey, c *rpc.Conn) bool {
 }
 
 // removeSubLocked 摘掉一份订阅;集合空了连键一起删,免得会话表随会话数无界长。
-func (r *connRegistry) removeSubLocked(k sessionKey, c *rpc.Conn) {
+func (r *connRegistry) removeSubLocked(k sessionKey, c connection.Conn) {
 	set := r.subs[k]
 	if set == nil {
 		return
@@ -454,7 +476,7 @@ func (r *connRegistry) removeSubLocked(k sessionKey, c *rpc.Conn) {
 //   - 前主此刻已经不在活连接表里(处理期间掉线 / 改认了别的指纹)→ 不写回去,
 //     否则表里留下一条指向死连接、或指向已属于别人的连接的条目;
 //   - 认领自己已经被撤销(属主连接刚关)→ 前主仍在线时把它还原回来,它才是属主。
-func (r *connRegistry) liveForPeerLocked(peer string) *rpc.Conn {
+func (r *connRegistry) liveForPeerLocked(peer string) connection.Conn {
 	for c := range r.live {
 		if fingerprint, ok := peerIdentity(c); ok && fingerprint == peer {
 			return c
@@ -487,7 +509,8 @@ func (r *connRegistry) undoClaim(t claimTicket) {
 // remove 撤销这条连接的一切登记(连接关闭时调用)。按连接身份撤销:同一台设备的其它
 // 连接、以及重连后的新连接,都不受这条迟到的清理影响。它认领过的会话就此挂起 ——
 // 通知继续落库、不推送,等同指纹的新连接接管。
-func (r *connRegistry) remove(c *rpc.Conn) {
+func (r *connRegistry) remove(raw any) {
+	c := connection.Normalize(raw)
 	if c == nil {
 		return
 	}
@@ -496,7 +519,7 @@ func (r *connRegistry) remove(c *rpc.Conn) {
 	r.dropLocked(c)
 }
 
-func (r *connRegistry) dropLocked(c *rpc.Conn) {
+func (r *connRegistry) dropLocked(c connection.Conn) {
 	if lc, ok := r.live[c]; ok && lc.fanout != nil {
 		lc.fanout.close() // 摘掉这一份订阅,其余订阅者与它们的队列不受影响
 	}
@@ -521,13 +544,13 @@ func (r *connRegistry) ownerOf(k sessionKey) handlers.NotifierPort {
 }
 
 // portForLocked 解出该会话此刻的推送出口。属主可能已经不在(它断开了、而同账号的另一个
-// 客户端还连着),订阅者也可能一个都没有(未认领 daemon);两者都空才算这条会话没有出口。
+// 客户端还连着),订阅者也可能一个都没有(未登录 daemon);两者都空才算这条会话没有出口。
 func (r *connRegistry) portForLocked(k sessionKey) handlers.NotifierPort {
 	if k.peer == "" { // 空指纹不是可匹配身份,不得据此解析出任何收件人
 		return nil
 	}
 	var primary handlers.NotifierPort
-	var owner *rpc.Conn
+	var owner connection.Conn
 	if cl, ok := r.claims[k]; ok {
 		owner = cl.conn
 		primary = r.live[cl.conn].n
@@ -544,17 +567,17 @@ func (r *connRegistry) portForLocked(k sessionKey) handlers.NotifierPort {
 // 订阅资格两条,缺一不可:
 //   - 这条连接上过这条会话(在 subs[k] 里)—— 帧上只有裸 sessionId,推给没上过它的
 //     连接就是把别人的转录塞进对方自己那条同号会话(见 connRegistry 的注释);
-//   - daemon 已被某个账号认领,且这条连接是**同一个账号**认证进来的(auth.account 把
+//   - daemon 已登录某个账号,且这条连接是**同一个账号**认证进来的(auth.account 把
 //     归属账号写进 AuthState.AccountID,见任务 6 的账号门)。归属账号每次现问,不缓存
 //     —— 解除归属(R19)之后那些还连着的连接必须立刻失去订阅资格。
 //
-// 未认领 daemon 一个订阅者都没有;只走 LAN 配对的连接也没有:配对是设备级信任,不是
+// 未登录 daemon 一个订阅者都没有;只走 LAN 配对的连接也没有:配对是设备级信任,不是
 // 账号级可见性,多个配对对端不保证属于同一个人(R13)。
-func (r *connRegistry) subscribersLocked(k sessionKey, exclude *rpc.Conn) []handlers.NotifierPort {
-	if r.claimedAccountID == nil {
+func (r *connRegistry) subscribersLocked(k sessionKey, exclude connection.Conn) []handlers.NotifierPort {
+	if r.loggedInAccountID == nil {
 		return nil
 	}
-	claimed := r.claimedAccountID()
+	claimed := r.loggedInAccountID()
 	if claimed == "" {
 		return nil
 	}
@@ -605,59 +628,45 @@ func (r *connRegistry) routerFor(peer string) handlers.NotifierPort {
 // originating peer is an unavailable tool, not permission to cross-route it.
 // 会话通知的订阅者集合(见 subscribersLocked)在这里**没有**位置:内置工具的实现与数据
 // 在发起端本地,把工具请求扇出给同账号的其它客户端就是决策 9 明确否掉的那件事。
-func (r *connRegistry) tunnelTargetFor(peer string, sid int64) handlers.NotifierPort {
-	if peer == "" || sid <= 0 {
+func (r *connRegistry) tunnelTargetFor(peer string, conversationID string) handlers.NotifierPort {
+	if peer == "" || conversationID == "" {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	claim, ok := r.claims[sessionKey{peer: peer, sid: sid}]
+	claim, ok := r.claims[sessionKey{peer: peer, conversationID: conversationID}]
 	if !ok {
 		return nil
 	}
 	return r.live[claim.mcpConn].n
 }
 
-// sessionRouter 是某个对端的会话通知出口:按帧上的 sessionId 把每条通知交给发起该会话
-// 的那条连接。sessionId 本来就是通知帧上的会话路由字段(见 wire 包注释),daemon 侧按它
-// 解析没有引入任何协议内容。
+// sessionRouter 是某个对端的会话通知出口:按帧上的 conversationId 把每条通知交给发起
+// 该会话的那条连接。conversationId 本来就是通知帧上的会话路由字段(见 wire 包注释),
+// daemon 侧按它解析没有引入任何协议内容。
 type sessionRouter struct {
 	reg  *connRegistry
 	peer string
 }
 
-func (s sessionRouter) Notify(method string, params any) error {
-	sid, ok := frameSessionID(params)
-	if !ok {
-		return fmt.Errorf("daemon: cannot route %s: frame %T carries no sessionId", method, params)
+func (s sessionRouter) Notify(notification *agentrewire.RpcNotification) error {
+	conversationID := protowire.NotificationConversationID(notification)
+	if conversationID == "" {
+		return fmt.Errorf("daemon: cannot route %s: notification carries no conversationId",
+			protowire.NotificationMethod(notification))
 	}
-	n := s.reg.ownerOf(sessionKey{peer: s.peer, sid: sid})
+	n := s.reg.ownerOf(sessionKey{peer: s.peer, conversationID: conversationID})
 	if n == nil {
 		// 发起该会话的连接已经断开:通知已经落库,等同指纹的新连接接管后补齐。
-		return fmt.Errorf("daemon: session %d has no live connection", sid)
+		return fmt.Errorf("daemon: conversation %s has no live connection", conversationID)
 	}
-	return n.Notify(method, params)
+	return n.Notify(notification)
 }
 
 func (s sessionRouter) Request(context.Context, string, any, any) error {
 	// Reverse requests (the MCP tunnel) resolve their explicit peer/session URL
 	// discriminator through connRegistry.tunnelTargetFor instead.
 	return errors.New("daemon: reverse requests are not routable per session")
-}
-
-// frameSessionID 取通知帧上的会话 id。R1 的五类会话通知共用三种帧,每种都以 sessionId
-// 做会话路由。新增一类通知帧时必须在这里补一行 —— 漏了会以 error 形式在日志里点名具体
-// 类型,而不是静默推给别的连接。
-func frameSessionID(params any) (int64, bool) {
-	switch f := params.(type) {
-	case *wire.EventFrame:
-		return f.SessionID, true
-	case *wire.RunResultDoneFrame:
-		return f.SessionID, true
-	case *wire.AutonomousTurnStartedFrame:
-		return f.SessionID, true
-	}
-	return 0, false
 }
 
 // notifierForPeer 解析某个对端的推送出口。每次发送时重新解析,绝不静态捕获 —— 断连
@@ -668,11 +677,11 @@ func (d *Daemon) notifierForPeer(peer string) handlers.NotifierPort {
 
 // tunnelTargetFor resolves a daemon-local MCP request to its originating
 // session owner; no global active-connection heuristic is permitted.
-func (d *Daemon) tunnelTargetFor(peer string, sid int64) handlers.NotifierPort {
-	return d.conns.tunnelTargetFor(peer, sid)
+func (d *Daemon) tunnelTargetFor(peer string, conversationID string) handlers.NotifierPort {
+	return d.conns.tunnelTargetFor(peer, conversationID)
 }
 
-func (d *Daemon) claimedAccountID() string { return d.state.Snapshot().AccountID }
+func (d *Daemon) loggedInAccountID() string { return d.state.Snapshot().AccountID }
 
 // currentAccessToken returns the daemon's freshest stored access token. HubLink
 // re-resolves it at every dial (via HubLinkOptions.AccessTokenProvider), so a
@@ -684,12 +693,28 @@ func (d *Daemon) currentAccessToken() string {
 // relayServerURL 在每次 dial 前重新解析中转端点，返回 "" 表示这台 daemon 还没有
 // 账号可连。HubLink 收到空值会退避重试而不是把链路当作不存在。
 //
-// 未认领时**先读一次盘**：`agentred login` 是另一个进程，它把凭据写进 state.json
+// 未登录时**先读一次盘**：`agentred login` 是另一个进程，它把凭据写进 state.json
 // 就退出。daemon 手里是启动时读到的内存副本，不重新读盘就永远发现不了自己已经被
-// 认领 —— 那正是「先起服务、后登录」恒离线的原因。
+// 登录 —— 那正是「先起服务、后登录」恒离线的原因。
+// relayLinkOptions 是中继链路里**与运行期身份无关**的那部分配置,单独拎出来是为了
+// 能被装配用例读到(见 TestDaemon_RelayLinkSharesTheDirectFrameBound)。
+//
+// MaxFrameBytes 是直连那条 WebSocket 的载荷预算加一个信封头:两条路收的都是别的设备
+// 发来的字节,没理由一条有界一条不有界;而中继这条收到的是服务端**套过信封**的载荷
+// (2 字节长度 + 通道 ID),读上限少了这一截,一份刚好顶格的合法载荷就会触发 1009 ——
+// 拆掉的是整条链路,那台机器上所有虚拟通道一起陪葬。
+//
+// 这个数在这里算好传下去,relaytransport 因此不必反向 import 它上面的 protorpc ——
+// 传输层不该依赖 RPC 层。
+func relayLinkOptions() relaytransport.HubLinkOptions {
+	return relaytransport.HubLinkOptions{
+		MaxFrameBytes: protorpc.MaxFrameBytes + relaytransport.MaxEnvelopeBytes,
+	}
+}
+
 func (d *Daemon) relayServerURL() string {
-	if !d.state.IsClaimed() {
-		if _, err := d.state.AdoptClaimFromDisk(); err != nil {
+	if !d.state.IsLoggedIn() {
+		if _, err := d.state.AdoptLoginFromDisk(); err != nil {
 			log.Printf("daemon.relayServerURL: re-read state.json failed: %v", err)
 		}
 	}
@@ -739,7 +764,6 @@ func New(opts Options) (*Daemon, error) {
 	if swept > 0 {
 		log.Printf("daemon.New: marked %d non-terminal sessions interrupted after restart", swept)
 	}
-	reg := rpc.NewRegistry()
 
 	pmOpts := pairing.ManagerOpts{TTL: 5 * time.Minute}
 	if st.Preferences.PairingCodeTTLSeconds > 0 {
@@ -754,32 +778,51 @@ func New(opts Options) (*Daemon, error) {
 		rlOpts.Window = time.Duration(st.Preferences.PairingRateLimit.WindowSeconds) * time.Second
 	}
 	rl := pairing.NewRateLimiter(rlOpts)
-	auth := rpc.NewAuthHandlers(st, pm, rl)
+	auth := auth.NewAuthHandlers(st, pm, rl)
 
 	d := &Daemon{
 		opts: opts, state: st, db: gormDB,
 		journal:      notificationJournal{db: gormDB},
 		sessionStore: daemonSessionStore{db: gormDB},
 		pairing:      pm, ratelim: rl,
-		registry: reg, auth: auth,
+		auth: auth, protobufRegistry: protorpc.NewRegistry(),
 		steerSource:     newSteerSourceStore(),
 		generations:     sessions.NewRegistry(),
-		runtimeHandlers: map[*rpc.Conn]*handlers.RuntimeHandlers{},
+		runtimeHandlers: map[connection.Conn]*handlers.RuntimeHandlers{},
 	}
 	// 订阅资格的账号门:登记表每次解析收件人时现问 daemon 此刻的归属账号。
-	d.conns.claimedAccountID = d.claimedAccountID
-	// 中转链路无条件构造：认领状态改由每次 dial 时重新解析（relayServerURL），
-	// 不在这里判一次。判一次的后果是未认领启动的进程即使之后登录了也永远没有链路
+	d.conns.loggedInAccountID = d.loggedInAccountID
+	// 中转链路无条件构造：登录状态改由每次 dial 时重新解析（relayServerURL），
+	// 不在这里判一次。判一次的后果是未登录启动的进程即使之后登录了也永远没有链路
 	// —— login 是另一个进程，写完 state.json 就退出，没有东西会回来建它。
-	d.hub = rpc.NewHubLink(rpc.HubLinkOptions{
-		ServerURLProvider:   d.relayServerURL,
-		AccessTokenProvider: d.currentAccessToken,
+	hubOpts := relayLinkOptions()
+	hubOpts.ServerURLProvider = d.relayServerURL
+	hubOpts.AccessTokenProvider = d.currentAccessToken
+	d.hub = relaytransport.NewHubLink(hubOpts)
+	d.mux = relaytransport.NewMultiplexer(d.hub)
+	d.engineSnapshot = enginesnapshot.New(enginesnapshot.Options{
+		State:       d.state,
+		ServerURL:   d.relayServerURL,
+		AccessToken: d.currentAccessToken,
 	})
-	d.mux = rpc.NewMultiplexer(d.hub)
 	d.catchup = handlers.NewSessionCatchupHandlers(handlers.SessionCatchupDeps{
-		Sessions:         d.sessionStore,
-		Journal:          journalReader{db: gormDB},
-		ClaimedAccountID: d.claimedAccountID,
+		Sessions:          d.sessionStore,
+		Journal:           journalReader{db: gormDB},
+		LoggedInAccountID: d.loggedInAccountID,
+	})
+	d.activity = handlers.NewActivityHandlers(handlers.ActivityDeps{Sessions: d.sessionStore})
+	d.sessionModelTarget = handlers.NewSessionModelTargetHandlers(handlers.SessionModelTargetDeps{
+		Sessions:          d.sessionStore,
+		LoggedInAccountID: d.loggedInAccountID,
+	})
+	d.sessionReasoningEffort = handlers.NewSessionReasoningEffortHandlers(handlers.SessionReasoningEffortDeps{
+		Sessions:          d.sessionStore,
+		LoggedInAccountID: d.loggedInAccountID,
+	})
+	d.sessionDelete = handlers.NewSessionDeleteHandlers(handlers.SessionDeleteDeps{
+		Sessions:          d.sessionStore,
+		Journal:           journalPurger{db: gormDB},
+		LoggedInAccountID: d.loggedInAccountID,
 	})
 	d.gateway = httpgateway.New("127.0.0.1", 0, NewProviderLookup(st))
 	// 内置工具 MCP(org/subagent/group/workflow)隧道:daemon 上 CLI 子进程把请求打到
@@ -787,168 +830,8 @@ func New(opts Options) (*Daemon, error) {
 	// 请求回 desktop 执行(真 handler 在 desktop)。仅一条 catch-all,serveMCP 最长前缀
 	// 匹配下命中所有 /mcp/* 路径。
 	d.gateway.RegisterMCP(httpgateway.RouteMCPPrefix, handlers.NewMCPTunnelHandler(d.tunnelTargetFor))
-	d.registerMethods()
+	d.registerProtobufMethods()
 	return d, nil
-}
-
-// requireAuth returns ErrUnauthorized when the calling connection has not
-// completed auth.pair / auth.connect / auth.account. Called by every non-auth handler.
-func requireAuth(ctx context.Context) error {
-	c := rpc.ConnFromContext(ctx)
-	if c == nil || !c.Auth().Authenticated {
-		return rpc.ErrUnauthorized
-	}
-	return nil
-}
-
-// registerMethods installs all static (non-per-connection) RPC handlers.
-func (d *Daemon) registerMethods() {
-	d.registry.Register("auth.pair", func(ctx context.Context, p json.RawMessage) (any, error) {
-		var pp rpc.PairParams
-		if err := jsonUnmarshal(p, &pp); err != nil {
-			return nil, rpc.ErrInvalidParams
-		}
-		// 空指纹不是可匹配身份:rpc/auth.go 的 HandlePair 不拒绝它,配对下来会在
-		// PairedPeers 里留一条空键的对端,之后任何 auth.connect 都能顶着空指纹认证成功。
-		if pp.DeviceFingerprint == "" {
-			return nil, rpc.ErrInvalidParams
-		}
-		ip := ipFromContext(ctx)
-		res, err := d.auth.HandlePair(ctx, ip, pp)
-		if err != nil {
-			return nil, err
-		}
-		if c := rpc.ConnFromContext(ctx); c != nil {
-			c.SetAuth(rpc.AuthState{
-				Authenticated:     true,
-				DeviceFingerprint: pp.DeviceFingerprint,
-				DeviceName:        pp.DeviceName,
-			})
-			d.conns.add(c, notifier.New(c))
-		}
-		return res, nil
-	})
-	d.registry.Register("auth.connect", func(ctx context.Context, p json.RawMessage) (any, error) {
-		var cp rpc.ConnectParams
-		if err := jsonUnmarshal(p, &cp); err != nil {
-			return nil, rpc.ErrInvalidParams
-		}
-		if cp.DeviceFingerprint == "" { // 同 auth.pair:空指纹不是可匹配身份
-			return nil, rpc.ErrInvalidParams
-		}
-		res, err := d.auth.HandleConnect(ctx, cp)
-		if err != nil {
-			return nil, err
-		}
-		if c := rpc.ConnFromContext(ctx); c != nil {
-			c.SetAuth(rpc.AuthState{
-				Authenticated:     true,
-				DeviceFingerprint: cp.DeviceFingerprint,
-			})
-			d.conns.add(c, notifier.New(c))
-		}
-		return res, nil
-	})
-	d.registry.Register("auth.account", func(ctx context.Context, p json.RawMessage) (any, error) {
-		var ap rpc.AccountParams
-		if err := jsonUnmarshal(p, &ap); err != nil {
-			return nil, rpc.ErrInvalidParams
-		}
-		if ap.DeviceFingerprint == "" {
-			return nil, rpc.ErrInvalidParams
-		}
-		res, err := d.auth.HandleAccount(ctx, ap)
-		if err != nil {
-			return nil, err
-		}
-		if c := rpc.ConnFromContext(ctx); c != nil {
-			c.SetAuth(rpc.AuthState{
-				Authenticated:     true,
-				DeviceFingerprint: ap.DeviceFingerprint,
-				AccountID:         d.claimedAccountID(),
-			})
-			d.conns.add(c, notifier.New(c))
-		}
-		return res, nil
-	})
-	d.registry.Register("auth.revoke", wrapGuarded(func(ctx context.Context, params struct {
-		DeviceFingerprint string `json:"deviceFingerprint"`
-	}) (handlers.OK, error) {
-		if err := d.auth.HandleRevoke(ctx, params.DeviceFingerprint); err != nil {
-			return handlers.OK{}, err
-		}
-		return handlers.OK{OK: true}, nil
-	}))
-
-	llmH := handlers.NewLLMHandlers(d.state)
-	d.registry.Register("llm.upsert", wrapGuarded(llmH.Upsert))
-	d.registry.Register("llm.delete", wrapGuarded(llmH.Delete))
-	d.registry.Register("llm.list", wrapGuardedNoParams(llmH.List))
-
-	cliH := handlers.NewCLIHandlers(d.gateway, NewProviderLookup(d.state))
-	d.registry.Register("cli.resolvePath", wrapGuarded(cliH.ResolvePath))
-	d.registry.Register("cli.probe", wrapGuarded(cliH.Probe))
-
-	healthH := handlers.NewHealthHandlers(d.state.InstanceUUID(), d.state, d)
-	d.registry.Register("health.ping", wrapGuardedNoParams(healthH.Ping))
-
-	// claudecode.usage:agentred 在它自己所在机器上读 Claude Code 的 OAuth 凭证
-	// 并调 api.anthropic.com/api/oauth/usage,返回 5h/7d 配额给桌面 HUD。每台
-	// device 的配额是该机器登录账号的,所以必须就地读不能由桌面代理。
-	ccFetcher := d.opts.CCUsageFetcher
-	if ccFetcher == nil {
-		ccFetcher = ccoauth.NewLocalFetcher()
-	}
-	ccUsageH := handlers.NewCCUsageHandlers(ccFetcher)
-	d.registry.Register("claudecode.usage", wrapGuardedNoParams(ccUsageH.Get))
-
-	// skills.list:在 daemon 本机枚举已装技能包(= `claude plugin list --json`),供
-	// desktop 给远端 agent 配 per-agent 技能时展 daemon 真实可用集(而非 desktop 的)。
-	skillsH := handlers.NewSkillsHandlers()
-	d.registry.Register("skills.list", wrapGuarded(skillsH.List))
-
-	// 断连重连的补齐族(清单 / 拉取 / 待决策)。静态注册而不是随 bindConn 挂 ——
-	// 它们按**对端**限定、读的是库,与「哪条连接」无关;而且它们**不**过
-	// trackSessionOwner:看一眼有哪些会话、把历史拉回来,都不该顺带把实时流改指向自己。
-	// 改推送目标是 MethodSessionAttach 一个人的职责(见 bindConn)。
-	//
-	// MethodSessionList 是 daemon 上**唯一**的「列会话」出口。曾经还有一对基于内存
-	// 会话表的 session.list / session.get,但那张表没有任何写入方,它恒答空清单;
-	// 两个出口并存只会让读到空清单的一方以为自己的会话没了。
-	d.registry.Register(wire.MethodSessionList, wrapGuardedNoParams(d.catchup.List))
-	d.registry.Register(wire.MethodSessionPull, wrapGuarded(d.catchup.Pull))
-	d.registry.Register(wire.MethodSessionPendingWaiters, wrapGuarded(d.catchup.PendingWaiters))
-
-	// runtime.* RPC 族 1:1 镜像 agentruntime.Runtime + 7 个可选子接口,
-	// 把远端 agentre 当成「本地」backend 跑。Handler 在 bindConn
-	// 里按连接挂载到 LANServer 为每条连接克隆的私有 registry（要 NotifierPort）。
-
-	// remotefs.Register 接受已构造好的 rpc.HandlerFunc,泛型 wrapGuarded[Req,Res] 的
-	// 签名约束与其不匹配,改用 WrapFunc 闭包注入 requireAuth。
-	remotefs.Register(d.registry, remotefs.NewHandlers(remotefs.Options{}),
-		func(fn rpc.HandlerFunc) rpc.HandlerFunc {
-			return func(ctx context.Context, raw json.RawMessage) (any, error) {
-				if err := requireAuth(ctx); err != nil {
-					return nil, err
-				}
-				return fn(ctx, raw)
-			}
-		})
-
-	// workspacefs.Register 挂 workspacefs.* 方法族——刻意与 remotefs.* 分开的
-	// 独立方法族(spec 设计决策 5):remotefs.* 浏览远端机器任意绝对路径,
-	// workspacefs.* 浏览某个会话已解析出的工作目录。旧 daemon 不认识这三个新
-	// 方法时按 JSON-RPC 协议直接回 -32601,而不是静默按 remotefs.* 的旧语义
-	// 应答,版本偏斜因此可见。同样用 WrapFunc 闭包注入 requireAuth。
-	daemonworkspacefs.Register(d.registry, daemonworkspacefs.NewHandlers(daemonworkspacefs.Options{}),
-		func(fn rpc.HandlerFunc) rpc.HandlerFunc {
-			return func(ctx context.Context, raw json.RawMessage) (any, error) {
-				if err := requireAuth(ctx); err != nil {
-					return nil, err
-				}
-				return fn(ctx, raw)
-			}
-		})
 }
 
 // Run starts the HTTP gateway, IPC unix socket, and LAN WebSocket server,
@@ -964,15 +847,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// running sessions. HubLink owns logging, heartbeats, and retry for Run's
 	// whole lifetime; the multiplexer consumes its raw-frame seam separately.
 	hubCtx, hubCancel := context.WithCancel(ctx)
+	d.startEngineSnapshotPulls(hubCtx)
+	// 常驻 CLI 子进程的按时清扫:daemon 一跑就是几周,池的条数上限管不了「留多久」。
+	agentruntime.DefaultCLISessionPool().StartIdleSweeper(ctx,
+		agentruntime.DefaultIdleSessionTTL, cliSessionSweepInterval)
 	go func() { _ = d.hub.Run(hubCtx) }()
-	// 凭据续期与吊销拉取都以「手上已经有凭据」为前提,所以要等认领落地再挂起来 ——
-	// 见 runAccountJobsWhenClaimed。中转链路本身不必等:它每次 dial 重新解析端点,
+	// 凭据续期与吊销拉取都以「手上已经有凭据」为前提,所以要等登录落地再挂起来 ——
+	// 见 runAccountJobsWhenLoggedIn。中转链路本身不必等:它每次 dial 重新解析端点,
 	// 解析不出来就退避重试。
-	go d.runAccountJobsWhenClaimed(ctx, hubCtx, hubCancel)
+	go d.runAccountJobsWhenLoggedIn(ctx, hubCtx, hubCancel)
 	defer d.mux.Close()
 	go d.serveRelayChannels(ctx, d.mux)
-	// 通知日志的回收:起手一次,之后按间隔跑(见 collectJournal 的留存策略)。
-	go d.runJournalCollector(ctx)
 	if err := d.gateway.Start(ctx); err != nil {
 		return err
 	}
@@ -985,13 +870,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if _, err := d.startIPC(ctx); err != nil {
 		return fmt.Errorf("ipc: %w", err)
 	}
-	lan := rpc.NewLANServer(rpc.LANOpts{
+	lan := protorpc.NewLANServer(protorpc.LANOpts{
 		Host:        d.opts.LANHost,
 		Port:        d.opts.LANPort,
 		TLSCertFile: d.opts.TLSCertFile,
 		TLSKeyFile:  d.opts.TLSKeyFile,
-		Registry:    d.registry,
-		OnConn:      d.bindConn,
+		Registry:    d.protobufRegistry,
+		OnConn:      d.bindProtobufConn,
 	})
 	d.mu.Lock()
 	d.lan = lan
@@ -999,23 +884,38 @@ func (d *Daemon) Run(ctx context.Context) error {
 	runErr := lan.Run(ctx)
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), daemonConnectionCleanupTimeout)
 	defer cancelCleanup()
-	if err := d.closeRuntimeConnections(cleanupCtx); err != nil {
-		log.Printf("daemon.Run: connection cleanup failed errorType=%T", err)
-	}
+	d.shutdown(cleanupCtx)
 	return runErr
 }
 
-// claimPollInterval 是未认领时重读 state.json 的间隔。只在没有账号期间生效,
-// 认领一落地就不再轮询。
-const claimPollInterval = 5 * time.Second
+// loginPollInterval 是未登录时重读 state.json 的间隔。只在没有账号期间生效,
+// 登录一落地就不再轮询。
+const loginPollInterval = 5 * time.Second
 
-// runAccountJobsWhenClaimed 等到这台 daemon 被认领之后,再启动凭据续期与吊销拉取。
+// runAccountJobsWhenLoggedIn 等到这台 daemon 登录之后,再启动凭据续期与吊销拉取。
 //
 // 两者都以「手上已经有凭据」为前提:refresher 见到空的 refresh token 会记一行日志
-// 后**永久返回**。未认领时直接起等于把它废掉 —— 之后即使登录成功,访问令牌也没人
+// 后**永久返回**。未登录时直接起等于把它废掉 —— 之后即使登录成功,访问令牌也没人
 // 续期,15 分钟后链路带着过期令牌掉线,再也回不来。
-func (d *Daemon) runAccountJobsWhenClaimed(ctx, hubCtx context.Context, stopRelay context.CancelFunc) {
-	if !d.awaitClaim(ctx) {
+func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
+	if d.engineSnapshot == nil {
+		return
+	}
+	// A successful physical relay dial means the daemon is back online after
+	// any outage. Pull asynchronously so snapshot latency/failure cannot block
+	// relay registration or an in-flight round.
+	d.hub.AddLifecycleListener(func() {
+		d.engineSnapshot.PullAsync(ctx, "relay_connected")
+	}, nil)
+	// 账号信号(决策 13)不再是一条独立连接:它现在是同一条中继连接上的保留通道,
+	// 由 serveRelayChannels → serveAccountSignal 消费,天然只在 auth.account 握手
+	// 成功之后才可能出现——不需要再像旧的 /v1/account/channel 那样额外等
+	// awaitLogin。未登录的 daemon 上,relayServerURL() 返回空串,hub 连不上,
+	// 保留通道自然也不会出现。
+}
+
+func (d *Daemon) runAccountJobsWhenLoggedIn(ctx, hubCtx context.Context, stopRelay context.CancelFunc) {
+	if !d.awaitLogin(ctx) {
 		return
 	}
 	// The credential refresher keeps the minute-lived access token ahead of
@@ -1030,23 +930,23 @@ func (d *Daemon) runAccountJobsWhenClaimed(ctx, hubCtx context.Context, stopRela
 	go d.runRevocationPoll(hubCtx)
 }
 
-// awaitClaim 阻塞到这台 daemon 被认领,返回 false 表示 ctx 先结束了。未认领期间
-// 周期性重读 state.json:认领可能是另一个进程(`agentred login`)写下的。
-func (d *Daemon) awaitClaim(ctx context.Context) bool {
+// awaitLogin 阻塞到这台 daemon 登录,返回 false 表示 ctx 先结束了。未登录期间
+// 周期性重读 state.json:登录可能是另一个进程(`agentred login`)写下的。
+func (d *Daemon) awaitLogin(ctx context.Context) bool {
 	for {
-		if d.state.IsClaimed() {
+		if d.state.IsLoggedIn() {
 			return true
 		}
-		if _, err := d.state.AdoptClaimFromDisk(); err != nil {
-			log.Printf("daemon.awaitClaim: re-read state.json failed: %v", err)
+		if _, err := d.state.AdoptLoginFromDisk(); err != nil {
+			log.Printf("daemon.awaitLogin: re-read state.json failed: %v", err)
 		}
-		if d.state.IsClaimed() {
+		if d.state.IsLoggedIn() {
 			return true
 		}
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(claimPollInterval):
+		case <-time.After(loginPollInterval):
 		}
 	}
 }
@@ -1452,7 +1352,12 @@ func (p *revocationPoller) pullOnce(ctx context.Context) (*revocationsResponse, 
 // connection shape the LAN server creates. The channel ID and relay envelope
 // end at the Multiplexer boundary: Conn and every registered handler see only
 // a FrameConn.
-func (d *Daemon) serveRelayChannels(ctx context.Context, mux *rpc.Multiplexer) {
+//
+// 保留号(relaytransport.SignalChannelID,决策 13/14)是一个例外:它不是一条 RPC
+// 连接,服务端也从不在它上面完成 auth.pair / auth.connect 握手——把它交给
+// protorpc.NewConn 只会让第一帧的协议解码失败。它交给 serveAccountSignal,而不是
+// RPC 注册表。
+func (d *Daemon) serveRelayChannels(ctx context.Context, mux *relaytransport.Multiplexer) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -1461,10 +1366,41 @@ func (d *Daemon) serveRelayChannels(ctx context.Context, mux *rpc.Multiplexer) {
 			if channel == nil {
 				return
 			}
-			conn := rpc.NewConn(channel, d.registry.Clone())
-			d.bindConn(conn)
+			if channel.ID() == relaytransport.SignalChannelID {
+				go d.serveAccountSignal(ctx, channel)
+				continue
+			}
+			conn := protorpc.NewConn(protorpc.NewPayloadFrameConn(channel), d.protobufRegistry.Clone())
+			d.bindProtobufConn(conn)
 			go conn.Serve(ctx)
 		}
+	}
+}
+
+// serveAccountSignal consumes the reserved account-signal channel (决策 13):
+// it replaces enginesnapshot.Manager's own dial + retry loop against the now
+// deleted /v1/account/channel endpoint. The channel is server-opened and
+// only-out — a read failure or an empty payload both mean "this channel is
+// gone" (the same convention ordinary relay channels use for a close frame),
+// and either one simply ends this goroutine; the account still gets refreshed
+// on the next relay reconnect (PullAsync("relay_connected"), see
+// startEngineSnapshotPulls) or the next time the server reopens the channel.
+//
+// 未知帧被忽略而不是断开:通道日后会承载别的信号种类,旧的 daemon 构建不该因此
+// 判死这条它还认得的通道(与 accountchan_svc 包注释「它可以不可靠」同一前提)。
+func (d *Daemon) serveAccountSignal(ctx context.Context, channel relaytransport.PayloadChannel) {
+	for {
+		payload, err := channel.ReadPayload()
+		if err != nil {
+			return
+		}
+		if len(payload) == 0 {
+			return
+		}
+		if _, known, err := syncwire.DecodeAccountChannelFrame(payload); err != nil || !known {
+			continue
+		}
+		d.engineSnapshot.PullAsync(ctx, "account_signal")
 	}
 }
 
@@ -1477,10 +1413,8 @@ func (d *Daemon) serveRelayChannels(ctx context.Context, mux *rpc.Multiplexer) {
 // bindConn 跑在鉴权**之前**(它是 OnConn 回调,auth.pair / auth.connect / auth.account 是之后才到的
 // RPC),所以这里**不**把连接登记成推送目标 —— 登记只发生在鉴权成功那一刻,会话认领
 // 更要等到它真为某条会话发 runtime.*,否则一条从不认证的连接就能顶掉正主。
-func (d *Daemon) bindConn(c *rpc.Conn) {
-	reg := c.Registry()
-	n := notifier.New(c)
-	rh := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+func (d *Daemon) newRuntimeHandlers() *handlers.RuntimeHandlers {
+	return handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		// 会话通知的推送目标在发送那一刻按会话解析,不捕获 n:RuntimeHandlers 是
 		// per-conn 的,而它起的 fanout goroutine 会活过这条连接。
 		NotifyFor: d.notifierForPeer,
@@ -1495,74 +1429,33 @@ func (d *Daemon) bindConn(c *rpc.Conn) {
 		SessionQuery:       d.sessionStore,
 		Gateway:            d.gateway,
 		Lookup:             NewProviderLookup(d.state),
-		ClaimedAccountID:   d.claimedAccountID,
+		LoggedInAccountID:  d.loggedInAccountID,
 		GenerationRegistry: d.generations,
+		CLIPathForBackend:  d.engineSnapshot.ResolveCLIPath,
 	})
-	d.runtimeMu.Lock()
-	d.runtimeHandlers[c] = rh
-	d.runtimeMu.Unlock()
-	// runtime.* 全族都过 trackSessionOwner:哪条连接为某会话发了 runtime.*,该会话的
-	// 通知此后就推给它(见 connRegistry 的接管规则)。
-	regRuntime := func(method string, h rpc.HandlerFunc) {
-		reg.Register(method, d.trackSessionOwner(h))
+}
+
+// shutdown 是关机时的资源收尾:先收每条连接名下的 Pi generation,再释放跨轮常驻的
+// claude / codex 子进程会话。
+//
+// 后一半此前是缺的。那些子进程自成进程组,不会被 daemon 退出时的 SIGHUP 连坐 ——
+// 每重启一次 agentred 就在机器上多留一批孤儿 CLI,还各自握着 MCP server 与网关 token。
+// 用 CloseAll 而不是 RemoveAll:关机需要的是「收干净了」的保证,而不是一堆随进程一起
+// 消失的 goroutine;ctx 是它的上界。
+func (d *Daemon) shutdown(ctx context.Context) {
+	if err := d.closeRuntimeConnections(ctx); err != nil {
+		log.Printf("daemon.shutdown: connection cleanup failed errorType=%T", err)
 	}
-	regRuntime(wire.MethodCapabilities, wrapGuarded(rh.Capabilities))
-	regRuntime(wire.MethodRun, wrapGuarded(rh.Run))
-	regRuntime(wire.MethodSteer, wrapGuardedSentinel(rh.Steer))
-	regRuntime(wire.MethodCancelSteer, wrapGuardedSentinel(rh.CancelSteer))
-	regRuntime(wire.MethodDrainPending, wrapGuarded(rh.DrainPending))
-	regRuntime(wire.MethodAbort, wrapGuardedSentinel(rh.Abort))
-	regRuntime(wire.MethodStopBackgroundTask, wrapGuardedSentinel(rh.StopBackgroundTask))
-	regRuntime(wire.MethodSetPermissionMode, wrapGuardedSentinel(rh.SetPermissionMode))
-	regRuntime(wire.MethodSubmitAnswer, wrapGuardedSentinel(rh.SubmitAnswer))
-	regRuntime(wire.MethodSubmitToolPermission, wrapGuardedSentinel(rh.SubmitToolPermission))
-	regRuntime(wire.MethodGetGoal, wrapGuardedSentinel(rh.GetGoal))
-	regRuntime(wire.MethodSetGoal, wrapGuardedSentinel(rh.SetGoal))
-	regRuntime(wire.MethodClearGoal, wrapGuardedSentinel(rh.ClearGoal))
-
-	// 显式接管。它是补齐族里唯一一个 per-conn 注册的方法,因为它的语义就是「**这条**
-	// 连接此后消费这条会话」:改推送目标要知道是哪条连接,让控制 RPC 也跟着回来要知道
-	// 是哪个 RuntimeHandlers。
-	reg.Register(wire.MethodSessionAttach, d.attachSession(rh))
-
-	// Terminal: local PTY backend; per-conn emitter pushes terminal.data /
-	// terminal.exit events back over this ws connection (same per-conn rationale
-	// as runtime.* above — events are scoped to whoever opened the terminal).
-	termBackend := localPTYBackendAdapter{be: local.NewBackend()}
-	termEmitter := handlers.EmitterFunc(func(_ context.Context, name string, payload any) {
-		_ = n.Notify(name, payload)
-	})
-	termH := handlers.NewTerminalHandlers(termBackend, termEmitter)
-	reg.Register("terminal.open", wrapGuarded(termH.Open))
-	reg.Register("terminal.write", wrapGuarded(termH.Write))
-	reg.Register("terminal.resize", wrapGuarded(termH.Resize))
-	reg.Register("terminal.close", wrapGuarded(termH.Close))
-	// When this connection drops, keep the existing PTY cleanup, drop its push
-	// registrations, and close every exact Pi generation owned by this handler.
-	// Cleanup is bounded and owner-scoped, so an old socket cannot sweep a
-	// reconnect by SessionID.
-	go func() {
-		<-c.Done()
-		termH.CloseAll()
-		// 连接断开 → 撤销它的登记与会话认领(避免对死连接推通知 / 发反向请求)。
-		// 按连接身份撤销:同一台设备的其它连接、以及重连后的新连接都不受影响。
-		d.conns.remove(c)
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), daemonConnectionCleanupTimeout)
-		defer cancel()
-		if err := rh.Close(cleanupCtx); err != nil {
-			log.Printf("daemon.bindConn: runtime cleanup failed errorType=%T", err)
-		}
-		d.runtimeMu.Lock()
-		if d.runtimeHandlers[c] == rh {
-			delete(d.runtimeHandlers, c)
-		}
-		d.runtimeMu.Unlock()
-	}()
+	if err := agentruntime.DefaultCLISessionPool().CloseAll(ctx); err != nil {
+		log.Printf("daemon.shutdown: CLI session release failed errorType=%T", err)
+	}
+	// 池外的后端(pi 每轮一个进程,不进池)由注册表广播收尾。
+	agentruntime.CloseAllSessionsEverywhere(ctx)
 }
 
 func (d *Daemon) closeRuntimeConnections(ctx context.Context) error {
 	type ownedRuntime struct {
-		connection *rpc.Conn
+		connection connection.Conn
 		handler    *handlers.RuntimeHandlers
 	}
 	d.runtimeMu.RLock()
@@ -1605,28 +1498,6 @@ func (d *Daemon) closeRuntimeConnections(ctx context.Context) error {
 // 否则同指纹的另一条连接随便发一条会被拒的 runtime.*(会话 id 不存在于本 daemon、backend
 // 不支持该能力、参数非法……)就能把正在跑的会话的推送整个抢走 —— 它不消费,发起会话的那条
 // 从此一条也收不到,既没有错误也没有 seq 跳号。
-func (d *Daemon) trackSessionOwner(next rpc.HandlerFunc) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var p struct {
-			SessionID       int64  `json:"sessionId"`
-			PeerFingerprint string `json:"peerFingerprint"`
-		}
-		var ticket claimTicket
-		if err := jsonUnmarshal(raw, &p); err == nil {
-			peer, peerErr := handlers.ResolveSessionPeer(ctx, p.PeerFingerprint, d.claimedAccountID)
-			if peerErr != nil {
-				return nil, peerErr
-			}
-			ticket = d.conns.claimFor(rpc.ConnFromContext(ctx), peer, p.SessionID)
-		}
-		res, err := next(ctx, raw)
-		if err != nil {
-			d.conns.undoClaim(ticket)
-		}
-		return res, err
-	}
-}
-
 // attachSession 是显式接管的注册:handler 先校验这条会话确实是调用方的、且还接得回去,
 // **受理之后**才真正把它交给这条连接。两件事一起发生,缺一个接管都是半截的:
 //
@@ -1641,103 +1512,6 @@ func (d *Daemon) trackSessionOwner(next rpc.HandlerFunc) rpc.HandlerFunc {
 // 接管不启动任何一轮执行,没有「记晚了首批事件会丢」的问题,而被拒的接管绝不能改变
 // 任何东西。接管与读高水位之间落库的那几条不会丢 —— 客户端随后按自己的游标 pull,
 // 那一轮 pull 发生在认领之后。
-func (d *Daemon) attachSession(rh *handlers.RuntimeHandlers) rpc.HandlerFunc {
-	inner := wrapGuardedSentinel(d.catchup.Attach)
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var p wire.SessionAttachParams
-		if err := jsonUnmarshal(raw, &p); err != nil {
-			return nil, rpc.ErrInvalidParams
-		}
-		peer, err := handlers.ResolveSessionPeer(ctx, p.PeerFingerprint, d.claimedAccountID)
-		if err != nil {
-			return nil, err
-		}
-		res, err := inner(ctx, raw)
-		if err != nil {
-			return nil, err
-		}
-		attached, ok := res.(wire.SessionAttachResult)
-		if !ok {
-			return res, nil
-		}
-		rh.AdoptForPeer(peer, attached.SessionID, agent_backend_entity.BackendType(attached.BackendType))
-		d.conns.claimFor(rpc.ConnFromContext(ctx), peer, attached.SessionID)
-		log.Printf("runtime.session.attach: session taken over sid=%d state=%s latestSeq=%d",
-			attached.SessionID, attached.LifecycleState, attached.LatestSeq)
-		return res, nil
-	}
-}
-
-// wrapGuarded is wrap + requireAuth check. Use for any method except auth.*.
-//
-// Handler panics 被 recoverHandlerPanic 收住,翻成 ErrInternal 让 daemon 进
-// 程继续活着、客户端 chat_svc 得到一条可读错误(走 wire.FromJSONRPCError
-// → 触发 StreamError 让前端 UI 解锁"生成中"状态)。历史教训:claudecode
-// runtime 在 daemon 进程 nil panic 直接 SIGSEGV 整个 agentred,前端 UI 收不
-// 到任何提示,会话永远卡在 generating。
-func wrapGuarded[Req any, Res any](fn func(context.Context, Req) (Res, error)) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (res any, err error) {
-		defer recoverHandlerPanic(&err)
-		if err := requireAuth(ctx); err != nil {
-			return nil, err
-		}
-		var req Req
-		if err := jsonUnmarshal(raw, &req); err != nil {
-			return nil, rpc.ErrInvalidParams
-		}
-		return fn(ctx, req)
-	}
-}
-
-// wrapGuardedSentinel 同 wrapGuarded,但额外把 handler 返回的 agentruntime
-// sentinel(ErrNoActiveTurn / ErrSteerNotFound / ErrUnsupported / ErrAborted)
-// 翻成稳定 JSON-RPC error code,客户端 wire.FromJSONRPCError 反向 rehydrate
-// 让 errors.Is(err, agentruntime.ErrXxx) 跨进程继续工作。
-func wrapGuardedSentinel[Req any, Res any](fn func(context.Context, Req) (Res, error)) rpc.HandlerFunc {
-	wrapped := wrapGuarded(fn)
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		res, err := wrapped(ctx, raw)
-		if err != nil {
-			if mapped := wire.ToJSONRPCError(err); mapped != nil {
-				return nil, mapped
-			}
-		}
-		return res, err
-	}
-}
-
-// wrapGuardedNoParams is wrapNoParams + requireAuth check.
-func wrapGuardedNoParams[Res any](fn func(context.Context) (Res, error)) rpc.HandlerFunc {
-	return func(ctx context.Context, _ json.RawMessage) (res any, err error) {
-		defer recoverHandlerPanic(&err)
-		if err := requireAuth(ctx); err != nil {
-			return nil, err
-		}
-		return fn(ctx)
-	}
-}
-
-// recoverHandlerPanic 是 RPC handler 的最后一道防线:把 panic 翻成 ErrInternal
-// 让 daemon 进程不挂、客户端收到结构化错误。stack trace 进日志方便事后定位。
-// 命名 err 返回值由调用方提供(`err *error`),defer 写回最终返回。
-func recoverHandlerPanic(errOut *error) {
-	if r := recover(); r != nil {
-		stack := debug.Stack()
-		log.Printf("daemon rpc handler panic: %v\n%s", r, stack)
-		*errOut = &rpc.Error{
-			Code:    rpc.ErrInternal.Code,
-			Message: fmt.Sprintf("daemon handler panic: %v", r),
-		}
-	}
-}
-
-func jsonUnmarshal(b json.RawMessage, v any) error {
-	if len(b) == 0 {
-		return nil
-	}
-	return json.Unmarshal(b, v)
-}
-
 // openDB opens agentred's own SQLite handle at <dataDir>/agentred.db (state.Load
 // already created dataDir with 0700 before this is called). Deliberately a
 // plain gorm.Open — not a cago db.Database() component — because cago's
@@ -1754,7 +1528,14 @@ func openDB(dataDir string) (*gorm.DB, error) {
 	// session.pull 的翻页补齐 —— 一段开着的读事务。回滚日志模式下两者互斥:读事务持
 	// SHARED,写事务提交要 EXCLUSIVE,于是流式写只能在 busy_timeout 上干等 5 秒,超时
 	// 那条通知既不落库也不推送(R3)。WAL 下读方读快照、写方追加,谁也不挡谁。
-	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	//
+	// synchronous(NORMAL): 上面那句「每个流式事件一条同步事务」同时决定了 fsync 的代价 ——
+	// SQLite 默认的 FULL 档在 WAL 下每次提交都 fsync WAL,实测 603µs/事件,NORMAL 档
+	// 213µs,即每个 token 白付约 390µs、一条三千帧的回复白付约 1.2s。WAL + NORMAL 仍然
+	// 崩溃安全:进程崩溃不损坏数据库,只在断电/内核崩溃时可能丢最后若干已提交事务。这份
+	// 通知日志本就是可重建的(桌面端按 seq 重新拉取),用它换掉每帧一次 fsync 是划算的。
+	// 与 internal/bootstrap/cago.go 的 sqliteDSN 同源取舍。
+	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 }
 
@@ -1788,18 +1569,17 @@ func (d *Daemon) DBStat() handlers.DBStat {
 var _ handlers.DBStatPort = (*Daemon)(nil)
 
 // notificationJournal 是 handlers.JournalPort 的 daemon 级实现:把「本该发出的通知」
-// 写进本实例的 daemon_notification_logs,seq 由仓储在同一条语句里分配。
+// 写进本实例的 daemon_notification_journal,seq 由仓储在同一条语句里分配。
 //
 // 它自己往 ctx 上注入本 Daemon 的 db 句柄:通知的生产者是脱离请求 ctx 的 fanout
 // goroutine(它可能拿到的只是一个裸 ctx),而 daemon 故意不写 db.SetDefault(同进程
 // 多个 Daemon 会互相串库,见 Daemon.db 注释),所以句柄只能从这里给。
 type notificationJournal struct{ db *gorm.DB }
 
-func (j notificationJournal) Append(ctx context.Context, peerFingerprint, peerSessionID, method string, payload json.RawMessage) (int64, error) {
+func (j notificationJournal) Append(ctx context.Context, peerFingerprint, peerSessionID string, payload []byte) (int64, error) {
 	row := &notification_repo.NotificationLog{
+		ConversationID:  peerSessionID,
 		PeerFingerprint: peerFingerprint,
-		PeerSessionID:   peerSessionID,
-		Method:          method,
 		Payload:         string(payload),
 	}
 	if err := notification_repo.Notification().Append(dbpkg.WithContextDB(ctx, j.db), row); err != nil {
@@ -1869,16 +1649,20 @@ var (
 	_ handlers.SessionQueryPort     = daemonSessionStore{}
 )
 
+// Start 建行 / 幂等覆盖一条会话。handlers.SessionRecord.PeerSessionID 装的就是线上那个
+// conversation_id(线格式上早已只有它),库里那一列因此直接由它填;handlers 那一侧的字段
+// 名还没跟着改,是本轮之外的一笔命名欠账。
 func (s daemonSessionStore) Start(ctx context.Context, rec handlers.SessionRecord) error {
 	return session_repo.Session().Upsert(dbpkg.WithContextDB(ctx, s.db), &session_repo.DaemonSession{
+		ConversationID:    rec.PeerSessionID,
 		PeerFingerprint:   rec.PeerFingerprint,
-		PeerSessionID:     rec.PeerSessionID,
 		AgentID:           rec.AgentID,
 		Cwd:               rec.Cwd,
 		BackendType:       rec.BackendType,
 		LifecycleState:    rec.LifecycleState,
 		Title:             rec.Title,
 		AgentSyncID:       rec.AgentSyncID,
+		ProjectSyncID:     rec.ProjectSyncID,
 		ProviderSessionID: rec.ProviderSessionID,
 	})
 }
@@ -1893,6 +1677,19 @@ func (s daemonSessionStore) Finish(ctx context.Context, peerFingerprint, peerSes
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, wire.SessionLifecycleIdle)
 }
 
+// Fail 把会话落成 failed(轮次以故障收场,见 handlers.SessionLifecyclePort.Fail)。
+func (s daemonSessionStore) Fail(ctx context.Context, peerFingerprint, peerSessionID string) error {
+	return session_repo.Session().UpdateLifecycle(
+		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, wire.SessionLifecycleFailed)
+}
+
+// Delete 删掉这一条 (对端, 会话) 的会话行(handlers.SessionDeletePort)。它只删身份
+// 行,那条会话的通知日志由 journalPurger 清 —— 两张表各自的仓储各管各的。
+func (s daemonSessionStore) Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	return session_repo.Session().Delete(
+		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID)
+}
+
 // CountRunning 数一数这台 daemon 此刻正在跑的会话(本机状态查询用,见 ipcStatus)。
 // 只服务本机 IPC,不经 LAN 出去,因此不按对端限定 —— 它答的是「这台机器忙不忙」。
 func (s daemonSessionStore) CountRunning(ctx context.Context) (int64, error) {
@@ -1900,8 +1697,8 @@ func (s daemonSessionStore) CountRunning(ctx context.Context) (int64, error) {
 		dbpkg.WithContextDB(ctx, s.db), wire.SessionLifecycleRunning)
 }
 
-func (s daemonSessionStore) List(ctx context.Context, peerFingerprint string) ([]handlers.SessionRecord, error) {
-	rows, err := session_repo.Session().ListByPeer(dbpkg.WithContextDB(ctx, s.db), peerFingerprint)
+func (s daemonSessionStore) List(ctx context.Context, peerFingerprint, keyword string, offset, limit int) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListByPeer(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, keyword, offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1912,8 +1709,12 @@ func (s daemonSessionStore) List(ctx context.Context, peerFingerprint string) ([
 	return out, nil
 }
 
-func (s daemonSessionStore) ListAll(ctx context.Context) ([]handlers.SessionRecord, error) {
-	rows, err := session_repo.Session().ListAll(dbpkg.WithContextDB(ctx, s.db))
+func (s daemonSessionStore) Count(ctx context.Context, peerFingerprint, keyword string) (int64, error) {
+	return session_repo.Session().CountByPeer(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, keyword)
+}
+
+func (s daemonSessionStore) ListAll(ctx context.Context, keyword string, offset, limit int) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListAll(dbpkg.WithContextDB(ctx, s.db), keyword, offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1922,6 +1723,46 @@ func (s daemonSessionStore) ListAll(ctx context.Context) ([]handlers.SessionReco
 		out = append(out, sessionRecordOf(row))
 	}
 	return out, nil
+}
+
+func (s daemonSessionStore) ListByLifecycle(ctx context.Context, peerFingerprint, state string, limit int) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListByPeerLifecycle(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, state, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]handlers.SessionRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sessionRecordOf(row))
+	}
+	return out, nil
+}
+
+func (s daemonSessionStore) ListAllByLifecycle(ctx context.Context, state string, limit int) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListAllByLifecycle(dbpkg.WithContextDB(ctx, s.db), state, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]handlers.SessionRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sessionRecordOf(row))
+	}
+	return out, nil
+}
+
+func (s daemonSessionStore) ListCreatedSince(ctx context.Context, createdFromMs int64) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListCreatedSince(dbpkg.WithContextDB(ctx, s.db), createdFromMs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]handlers.SessionRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sessionRecordOf(row))
+	}
+	return out, nil
+}
+
+func (s daemonSessionStore) CountAll(ctx context.Context, keyword string) (int64, error) {
+	return session_repo.Session().CountAll(dbpkg.WithContextDB(ctx, s.db), keyword)
 }
 
 func (s daemonSessionStore) Find(ctx context.Context, peerFingerprint, peerSessionID string) (*handlers.SessionRecord, error) {
@@ -1933,19 +1774,50 @@ func (s daemonSessionStore) Find(ctx context.Context, peerFingerprint, peerSessi
 	return &rec, nil
 }
 
+func (s daemonSessionStore) SetModelTarget(
+	ctx context.Context, peerFingerprint, peerSessionID, providerKey, modelKey string,
+) (int64, error) {
+	return session_repo.Session().SetModelTarget(
+		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, providerKey, modelKey)
+}
+
+func (s daemonSessionStore) SetReasoningEffort(
+	ctx context.Context, peerFingerprint, peerSessionID, reasoningEffort string,
+) (int64, error) {
+	return session_repo.Session().SetReasoningEffort(
+		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, reasoningEffort)
+}
+
 func sessionRecordOf(row *session_repo.DaemonSession) handlers.SessionRecord {
 	return handlers.SessionRecord{
 		PeerFingerprint:   row.PeerFingerprint,
-		PeerSessionID:     row.PeerSessionID,
+		PeerSessionID:     row.ConversationID,
 		AgentID:           row.AgentID,
 		Cwd:               row.Cwd,
 		BackendType:       row.BackendType,
 		LifecycleState:    row.LifecycleState,
 		Title:             row.Title,
 		AgentSyncID:       row.AgentSyncID,
+		ProjectSyncID:     row.ProjectSyncID,
 		ProviderSessionID: row.ProviderSessionID,
-		UpdatedAt:         row.UpdatedAt,
+		LastMessageAt:     row.LastMessageAt,
+		Createtime:        row.Createtime,
+		ProviderKey:       row.ProviderKey,
+		ModelKey:          row.ModelKey,
+		ReasoningEffort:   row.ReasoningEffort,
 	}
+}
+
+// journalPurger 是通知日志的删除侧(会话删除用)。它与 notificationJournal(写一条)
+// 和 journalReader(读)分开:整段清空是唯一一条会让已落库的通知消失的路径,handlers
+// 那边也按 ISP 单独声明了它(JournalPurgePort)。
+type journalPurger struct{ db *gorm.DB }
+
+var _ handlers.JournalPurgePort = journalPurger{}
+
+func (j journalPurger) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	return notification_repo.Notification().DeleteAll(
+		dbpkg.WithContextDB(ctx, j.db), peerFingerprint, peerSessionID)
 }
 
 // journalReader 是通知日志的读侧(补齐用),写侧见 notificationJournal。
@@ -1962,10 +1834,9 @@ func (j journalReader) ListSince(ctx context.Context, peerFingerprint, peerSessi
 	out := make([]handlers.JournalRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, handlers.JournalRow{
-			Seq:    row.Seq,
-			Method: row.Method,
-			// 日志里存的是那条通知的 params 原样(不含 seq),原样交回客户端。
-			Payload: json.RawMessage(row.Payload),
+			Seq:        row.Seq,
+			Payload:    []byte(row.Payload),
+			Createtime: row.Createtime,
 		})
 	}
 	return out, hasMore, nil
@@ -1983,124 +1854,6 @@ func (j journalReader) OldestSeq(ctx context.Context, peerFingerprint, peerSessi
 
 func (j journalReader) LatestSeqByPeer(ctx context.Context, peerFingerprint string) (map[string]int64, error) {
 	return notification_repo.Notification().LatestSeqByPeer(dbpkg.WithContextDB(ctx, j.db), peerFingerprint)
-}
-
-// ── 通知日志的留存与回收 ─────────────────────────────────────────────────────
-
-// defaultJournalRetention 是通知日志的默认留存窗口:一条会话安静满 30 天,它高水位
-// 以下的日志才进入回收范围。30 天是「合上笔记本出门一趟」的量级上限 —— 比它更短会开始
-// 吃掉真实用户回来要看的内容,更长则在共享 daemon 上留不住任何上限。
-const defaultJournalRetention = 30 * 24 * time.Hour
-
-// journalCollectInterval 两次回收之间的间隔(daemon 起来先扫一次)。回收不是热路径,
-// 扫得勤只是白占写锁。
-const journalCollectInterval = 6 * time.Hour
-
-// journalCollectBatch 一次回收最多处理多少条会话。分批是为了写锁:每条会话一条独立的
-// DELETE,批次之间流式写入随时插得进来 —— 一条横跨全库的大事务会把每个 token 一条的
-// 通知写入按在 5s busy timeout 上。
-const journalCollectBatch = 200
-
-// journalRetention 取生效的留存窗口。
-func (d *Daemon) journalRetention() time.Duration {
-	if d.opts.JournalRetention == 0 {
-		return defaultJournalRetention
-	}
-	return d.opts.JournalRetention
-}
-
-// runJournalCollector 按间隔回收通知日志,直到 ctx 结束。
-func (d *Daemon) runJournalCollector(ctx context.Context) {
-	if d.journalRetention() <= 0 {
-		log.Printf("daemon.runJournalCollector: retention disabled, notification logs are kept forever")
-		return
-	}
-	ticker := time.NewTicker(journalCollectInterval)
-	defer ticker.Stop()
-	for {
-		if _, err := d.collectJournal(ctx); err != nil {
-			log.Printf("daemon.collectJournal: %v", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-// collectJournal 回收通知日志,返回删掉的行数。
-//
-// 留存策略(一条会话的日志前缀可回收,当且仅当三条同时成立):
-//
-//  1. 它在整个留存窗口内**一条新通知都没有**(最新那一行早于 cutoff)。还在产出的会话
-//     一行都不动 —— 哪怕它最老的那批日志早过了窗口,那段老前缀正是一个久未上线的客户端
-//     重连后要按游标补齐的区间(R5:补齐的序列与全程不断连时逐条相等)。
-//  2. daemon 记着的生命周期是终态(idle / interrupted)。running 的会话随时会被接管
-//     接着跑,查不到会话行(身份不明)时同样保守不动。
-//  3. 它的**高水位那一行永远保留**。这不是省一行的问题:MAX(seq) 一旦归零,Append 会从
-//     1 重新分配 seq,而客户端游标还停在旧高水位上,此后每条实时通知都被当成重复丢弃 ——
-//     没有跳号、没有错误,会话就是再也不出字(8496c291 修的正是这类静默冻结)。保留它
-//     还让「只落后一格」的客户端仍能按游标把那一条拉平。
-//
-// 因此被回收的只可能是「一条 30 天没动静的终态会话上、客户端在这 30 天里始终没来取的
-// 那段历史」——这正是规格实现决策 7 定下的回收条件(默认保留 30 天,只碰安静满整个窗口
-// 的终态会话,高水位那一行永不删)。窗口可经 Options.JournalRetention 调整,负数把回收
-// 整个关掉(永久保留)。
-func (d *Daemon) collectJournal(ctx context.Context) (int64, error) {
-	retention := d.journalRetention()
-	if retention <= 0 {
-		return 0, nil
-	}
-	// 生产者是脱离请求 ctx 的后台 goroutine,句柄只能从这里给(同 notificationJournal)。
-	ctx = dbpkg.WithContextDB(ctx, d.db)
-	cutoff := time.Now().Add(-retention).UnixMilli()
-	targets, err := notification_repo.Notification().SilentSessions(ctx, cutoff, journalCollectBatch)
-	if err != nil {
-		return 0, fmt.Errorf("list silent sessions: %w", err)
-	}
-	var collected int64
-	var sessions int
-	for _, target := range targets {
-		if ctx.Err() != nil { // daemon 正在关停:剩下的留给下次启动那一遍
-			break
-		}
-		if !d.sessionIsTerminal(ctx, target) {
-			continue
-		}
-		deleted, delErr := notification_repo.Notification().DeleteBelow(
-			ctx, target.PeerFingerprint, target.PeerSessionID, target.LatestSeq)
-		if delErr != nil {
-			// 一条会话回收失败不该让整轮回收停下:剩下的会话照收,下一轮再试这一条。
-			log.Printf("daemon.collectJournal: delete below seq=%d failed for session %s: %v",
-				target.LatestSeq, target.PeerSessionID, delErr)
-			continue
-		}
-		if deleted > 0 {
-			sessions++
-		}
-		collected += deleted
-	}
-	if collected > 0 {
-		log.Printf("daemon.collectJournal: reclaimed %d notification rows from %d sessions silent for %s",
-			collected, sessions, retention)
-	}
-	return collected, nil
-}
-
-// sessionIsTerminal 报告这条会话此刻是不是终态(回收的第二道闸)。读不出来、或库里
-// 根本没有这条会话行时一律按「不是」处理 —— 身份不明时不回收。
-func (d *Daemon) sessionIsTerminal(ctx context.Context, target notification_repo.SilentSession) bool {
-	rec, err := d.sessionStore.Find(ctx, target.PeerFingerprint, target.PeerSessionID)
-	if err != nil {
-		log.Printf("daemon.collectJournal: read session %s failed: %v", target.PeerSessionID, err)
-		return false
-	}
-	if rec == nil {
-		return false
-	}
-	return rec.LifecycleState == wire.SessionLifecycleIdle ||
-		rec.LifecycleState == wire.SessionLifecycleInterrupted
 }
 
 // closeDB 关闭 openDB 拿到的句柄。只在 New 的失败路径上用:Daemon 构造失败时若不关,

@@ -3,12 +3,32 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
-	"github.com/agentre-ai/agentre/internal/service/cc_usage_svc"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/service/cc_usage_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
+
+func TestProtobufRateLimitsPreservesOptionalPresence(t *testing.T) {
+	reset := int64(1_700_000_000_000)
+	zero := 0.0
+	got := protobufRateLimits(&agentrewire.ClaudeCodeRateLimits{FiveHourPercent: 12, FiveHourResetsAtMs: &reset, SonnetWeeklyPercent: &zero})
+	if got.FiveHourResetsAt == nil || !got.FiveHourResetsAt.Equal(time.UnixMilli(reset)) {
+		t.Fatalf("five-hour reset = %v", got.FiveHourResetsAt)
+	}
+	if got.WeeklyResetsAt != nil {
+		t.Fatalf("missing weekly reset became %v", got.WeeklyResetsAt)
+	}
+	if got.SonnetWeeklyPercent == nil || *got.SonnetWeeklyPercent != 0 {
+		t.Fatalf("optional zero lost: %v", got.SonnetWeeklyPercent)
+	}
+	if got.OpusWeeklyPercent != nil {
+		t.Fatalf("missing opus percent became %v", got.OpusWeeklyPercent)
+	}
+}
 
 // TestBuildCCUsageResolver_LocalVsRemoteIsolation 锁住:resolver 必须把 LocalKey
 // 走本地 fetcher、把 "remote:<id>" 走远端 RPC 分支,二者不能串。这是 cc_usage_svc

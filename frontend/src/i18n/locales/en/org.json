@@ -1,0 +1,215 @@
+{
+  "org": {
+    "chart": {
+      "actions": {
+        "newAgent": "New Agent",
+        "newDepartment": "New Department"
+      },
+      "detail": {
+        "empty": "Select a department or agent to view details"
+      },
+      "empty": {
+        "noMountNodes": "No nodes available to mount"
+      },
+      "loading": "Loading org chart...",
+      "newAgent": {
+        "agentOption": "Agent · {{name}}",
+        "avatar": "Avatar",
+        "avatarColor": "Avatar Color",
+        "avatarColorNamed": "Avatar color {{color}}",
+        "avatarHint": "Click the avatar to pick an icon. Upload an image from the detail page after creation.",
+        "backend": "Backend",
+        "departmentOption": "Department · {{name}}",
+        "description": "Set the agent name, placement, and execution backend.",
+        "intentHint": "Configure the backend after creating the agent, then start chatting",
+        "intentSettings": "Go to settings → Agent backend",
+        "optionalSuffix": "(optional)",
+        "placement": "Select a department or parent agent"
+      },
+      "newDepartment": {
+        "description": "Choose the parent, icon, and theme color. It appears in the org chart after creation.",
+        "iconAria": "New department icon"
+      },
+      "summary": "{{departments}} departments · {{subDepartments}} sub-departments · {{agents}} agents",
+      "title": "Org Chart"
+    },
+    "detail": {
+      "columns": {
+        "behavior": "Behavior",
+        "execution": "Execution",
+        "identity": "Identity",
+        "structure": "Structure"
+      }
+    },
+    "index": {
+      "search": {
+        "aria": "Search agents",
+        "placeholder": "Search agents or descriptions"
+      },
+      "filters": {
+        "entry": "Filter",
+        "entryAria": "Filter agents",
+        "backendAria": "Filter by backend",
+        "reportsToAria": "Filter by manager",
+        "backendLabel": "Backend: {{name}}",
+        "reportsToLabel": "Reports to: {{name}}",
+        "searchLabel": "Search: {{value}}",
+        "clear": "Clear filter {{label}}",
+        "clearAll": "Clear all filters"
+      },
+      "noMatch": {
+        "title": "No agents found",
+        "conditions": "Active at the same time: {{conditions}}"
+      },
+      "emptyDepartments": {
+        "title": "No departments created",
+        "description": "Create a department, or attach new Agents under the CEO assistant.",
+        "newDepartment": "New Department",
+        "addAgent": "Add Agent"
+      },
+      "addAgentToDepartment": "Add agent to {{name}}",
+      "drag": {
+        "pickedUp": "Picked up {{name}}. Arrow keys choose a target, Enter drops, Esc cancels.",
+        "dropped": "Dropped {{name}}.",
+        "cancelled": "Drag cancelled.",
+        "zoneReorder": "Reorder · place before {{name}}",
+        "zoneReorderEnd": "Reorder · place last",
+        "zoneAgent": "Change manager · report to {{name}}",
+        "zoneDepartment": "Change department · move into {{name}}",
+        "refused": "{{zone}} — can't drop: {{reason}}",
+        "reasonCycle": "an agent can't report to its own subordinate",
+        "reasonDepartmentCycle": "a department can't move under its own sub-department",
+        "reasonBucket": "reordering only works within the same department and manager",
+        "reasonSystem": "the system agent can't be moved",
+        "reasonSystemTarget": "the system agent doesn't accept drops",
+        "reasonGeneric": "this target doesn't accept it"
+      }
+    },
+    "agent": {
+      "actions": {
+        "deleteAgent": "Delete Agent"
+      },
+      "avatar": {
+        "replaceImage": "Replace Image",
+        "uploadImage": "Upload Image"
+      },
+      "backend": {
+        "configureProvider": "Configure LLM providers",
+        "goAgentBackendSettings": "Go to Agent backend settings",
+        "inactiveSuffix": " (disabled)",
+        "providerGapDescription": "The built-in SDK backend runs tasks through an LLM provider, but no active provider is linked yet.",
+        "providerGapTitle": "An LLM provider is still needed",
+        "title": "Agent Backend",
+        "unlinkedProvider": "No linked LLM provider"
+      },
+      "execTargets": {
+        "title": "Execution Targets",
+        "add": "Add",
+        "addFull": "Add execution target",
+        "moved": "Moved to position {{position}} of {{total}}.",
+        "online": "Online",
+        "offline": "Offline",
+        "localMachine": "Local machine",
+        "emptyTitle": "This agent can't chat yet",
+        "emptyHint": "At least one is required before this agent can start a session.",
+        "saveRejected": "Save rejected: add at least one execution target.",
+        "allUnavailableTitle": "\"{{name}}\" has no available execution target right now",
+        "addPanel": {
+          "searchPlaceholder": "Search machine or backend…",
+          "alreadyInList": "Already in the list",
+          "unpaired": "Not paired"
+        },
+        "loading": "Loading execution targets…",
+        "emptyDescription": "Bind an agent backend to start chatting; the built-in backend also needs an LLM provider."
+      },
+      "charCount": "{{count}} chars",
+      "deleteDialog": {
+        "description": "This also clears the agent's conversations, skills, and state records. This action cannot be undone.",
+        "title": "Delete agent \"{{name}}\"?"
+      },
+      "departmentLead": "{{name}} department lead",
+      "descriptionHint": "Optional · shown as the row subtitle in the index",
+      "fallbackName": "Agent",
+      "relativeTime": {
+        "daysAgo": "{{count}} days ago",
+        "hoursAgo": "{{count}} hours ago",
+        "justNow": "just now",
+        "minutesAgo": "{{count}} minutes ago"
+      },
+      "savedAt": "Saved · {{time}}",
+      "skills": {
+        "manage": "Manage skills",
+        "count": "{{inherit}} inherited · {{on}} on · {{off}} off",
+        "countCompact": "{{inherit}} inherited · {{on}} on · {{off}} off",
+        "inheritNote": "Gray = inherited from global · Blue = forced on for this agent · Red = forced off for this agent (global untouched). Changes apply on the agent's next new session.",
+        "empty": "No skill packs granted",
+        "personalNote": "Always available · personal skills (~/.claude/skills) can't be toggled individually",
+        "summary": "{{enabled}} enabled · {{disabled}} disabled",
+        "copyFrom": "Copy from",
+        "copyFromDisabledHint": "Different backend type — package ids don't match",
+        "offlineNote": "Machine is offline, can't list packs to add · already-granted ones can still be removed"
+      },
+      "skillPicker": {
+        "title": "Add Skills · Skill Packs",
+        "subtitle": "One pack = a set of skills, granted per agent",
+        "subtitleForTarget": "Target #{{index}} · {{machine}} · {{backend}} — only affects this one",
+        "searchPlaceholder": "Search skill packs / descriptions…",
+        "personalNote": "Personal skills (~/.claude/skills) are always available; the CLI can't toggle them individually"
+      },
+      "skillCatalog": {
+        "group": {
+          "available": "Available · Marketplace",
+          "inheritedOn": "Inherited (on globally)",
+          "enableable": "Available to enable (installed)"
+        },
+        "needInstall": "Install first",
+        "globalEnabled": "Globally enabled",
+        "globalDisabled": "Globally disabled"
+      },
+      "systemPrompt": "System Prompt",
+      "unsaved": "Unsaved"
+    },
+    "department": {
+      "addGroup": "Add agent or sub-department",
+      "addAgent": "Agent",
+      "basicInfo": "Basic Info",
+      "deleteDepartment": "Delete department",
+      "deleteDialog": {
+        "cascadeDescription": "Soft-delete all sub-departments and agents as well",
+        "cascadeTitle": "Recursively delete the subtree",
+        "confirm": "Confirm Delete",
+        "description": "The selected strategy is applied recursively. This action cannot be undone.",
+        "irreversible": "This action cannot be undone",
+        "reparentDescription": "Recommended / safe · Move direct children to this department's parent",
+        "reparentTitle": "Move members to parent department",
+        "strategyTitle": "Choose how to handle children",
+        "title": "Delete \"{{name}}\"?"
+      },
+      "departmentMemberCount": "{{count}} members",
+      "description": "Description",
+      "editEyebrow": "Edit Department",
+      "icon": "Icon",
+      "leadHint": "Choose from direct agents",
+      "leadBadge": "LEAD",
+      "leader": "Leader",
+      "memberSummary": "{{agents}} direct agents · {{departments}} sub-departments",
+      "members": "Members",
+      "name": "Name",
+      "noDirectMembers": "No direct members",
+      "parent": "Parent",
+      "path": "Path",
+      "subDepartment": "Sub-department",
+      "themeColor": "Theme Color",
+      "themeColorNamed": "Theme color {{color}}",
+      "topLevel": "Company top level (under CEO)",
+      "viewAgent": "View agent {{name}}",
+      "viewDepartment": "View department {{name}}"
+    },
+    "list": {
+      "sort": {
+        "status": "Status"
+      }
+    },
+    "reorderFailed": "Failed to save order, please retry"
+  }
+}

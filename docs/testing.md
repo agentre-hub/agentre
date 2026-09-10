@@ -69,12 +69,34 @@ When fixing a bug, add a regression case **close enough to the confirmed failure
 - Assert a collaborator call only when **the call is itself the contract** ("must not write before approval", "publishes exactly once"). Do not assert every internal call along the path.
 - **A test's name must describe what its body actually triggers and observes.** `works`, `test1` and a bare bug number are banned. The BDD form this repo uses — `Given … When … Then …` — satisfies this by construction.
 
+#### Do not duplicate implementation text in tests
+
+Do not read source, generated SQL, configuration text or another implementation artifact
+and then use `Contains`, regular expressions or snapshots to repeat facts already written
+there. In particular, do not duplicate migration table names, columns, types, defaults,
+indexes, collations, migration IDs or migration counts in a unit test. Such assertions do
+not execute SQLite or protect user-visible behaviour; they create a second copy of the
+implementation that must change in lockstep with the first.
+
+This is not a blanket ban on string comparisons. Exact strings remain valid assertions when
+the string is itself an observable contract: an API error code, serialized wire value,
+localization result, generated command or specification-required log field. Repository
+tests may match SQL emitted through their database seam. Generated-artifact freshness and
+source-boundary guards remain valid only when the generated output or source-tree rule is
+the contract and no ordinary runtime boundary can observe it; the [Guard Tests](#guard-tests)
+section lists the approved cases.
+
+Test the owning behaviour at a real seam instead. Migration DDL is verified by starting the
+application against real SQLite and reading the resulting schema and representative rows
+back. Migration orchestration may be tested through executable control flow such as startup,
+ordering, error propagation and cleanup, without copying the DDL text into assertions.
+
 ## Test Stack
 
 - **Framework** — `github.com/smartystreets/goconvey/convey` (BDD nesting) + `github.com/stretchr/testify` (assertions) + `go.uber.org/mock` (interface mocks) + `github.com/DATA-DOG/go-sqlmock` (DB mock). Use table-driven cases for branch combinations. Front end: `vitest` + `@testing-library/react` + `happy-dom`.
 - **Repo unit tests: always go through `testutils.Database(t)`, never a real SQLite.** Take the `(ctx, _, mock)` triple; the business code automatically hits the mock via `db.Ctx(ctx)`. Each case asserts SQL and parameters precisely with `mock.ExpectQuery / ExpectExec`, and always ends with `assert.NoError(t, mock.ExpectationsWereMet())`. Note that **`testutils.Database` uses the MySQL dialect**, so use `` `table_name` `` backticks in the regex match; GORM `Create / Save / Update` opens a transaction automatically by default, so the match template writes `ExpectBegin / ExpectExec / ExpectCommit` (add `ExpectRollback` for the error path). **Exceptions** — exactly two places may use `t.TempDir()` to spin up a real SQLite; every other repo / service test goes through a mock:
   1. end-to-end startup tests like `internal/bootstrap/cago_test.go`, which verify the full boot + migration flow;
-  2. `internal/daemon/daemon_test.go` — `agentred` opens and owns its own database, and these cases assert facts that only a real engine has. The notification journal's hard invariant is that concurrent appends each get a distinct `seq`, and it holds *because* SQLite takes a write lock for the whole single `INSERT … SELECT COALESCE(MAX(seq),0)+1 … RETURNING` statement; sqlmock replays a scripted, non-concurrent expectation list in a MySQL dialect and cannot observe that at all. Same for the WAL-vs-rollback-journal case (a catch-up read must not stall the streaming writer), the retention sweep's real row counts, and the reported database file size. The daemon's *repository* tests (`internal/daemon/repository/*`) are not exempt and do use sqlmock.
+  2. `internal/daemon/daemon_test.go` — `agentred` opens and owns its own database, and these cases assert facts that only a real engine has. The notification journal's hard invariant is that concurrent appends each get a distinct `seq`, and it holds *because* SQLite takes a write lock for the whole single `INSERT … SELECT COALESCE(MAX(seq),0)+1 … RETURNING` statement; sqlmock replays a scripted, non-concurrent expectation list in a MySQL dialect and cannot observe that at all. Same for the WAL-vs-rollback-journal case (a catch-up read must not stall the streaming writer) and the reported database file size. The daemon's *repository* tests (`internal/daemon/repository/*`) are not exempt and do use sqlmock.
   - **Why this is a rule and not a preference**: an early repo test here used `t.TempDir()` + a real SQLite, and ended up asserting SQLite dialect side effects rather than the SQL the repository itself assembled — it stayed green through changes it should have caught. Every `testutils.Database` call goes through sqlmock; start there rather than discovering this again.
 - **Service unit tests** — new or modified tests inject `mockgen` repository mocks via `RegisterXxx(mockRepo)` and do not connect to a DB. Some legacy service tests still instantiate `testutils.Database(t)` / sqlmock; they are migration debt, not a pattern to copy or expand. Move a touched test to the repository-interface seam when that migration is in scope; never use a real DB.
 - **Mock generation** — add `//go:generate mockgen -source xxx.go -destination mock_xxx_repo/mock_xxx.go` at the top of the repository interface, and run `make mock` uniformly.
@@ -116,12 +138,22 @@ A **guard test** pins a convention that has no natural home in ordinary tests �
 | Guard | What it pins |
 |---|---|
 | `internal/daemon/runtime_imports_test.go` | The backends registered in the daemon's `agentruntime` registry — stops someone deleting the empty `init` import file |
+| `internal/desktop/darwin_bundle_test.go` | `wails dev` macOS identity (`Info.dev.plist`) stays distinct from the installed app — stops Dock/Spaces swallowing the hidden startup window |
 | `frontend/src/__tests__/i18n.test.ts` | Static `t("…")` keys resolve, and `zh-CN` / `en` expose the same key set |
 | `frontend/src/__tests__/eslint-i18n.test.ts` | The i18n ESLint rule is really loaded, at the right severity and scope |
 | `frontend/src/__tests__/design-tokens.test.ts` | Color tokens are used instead of literal colors |
 | `frontend/src/components/agentre/__tests__/transcript-typography-guard.test.ts` | Transcript typography stays on the shared scale |
+| `internal/pkg/agentruntime/runtimes/remote/wire/golden_test.go` (`TestGoldenFixturesFresh`) | The committed `@agentre-hub/agentre-wire` golden samples are what the Go marshaler emits today — regenerates into a temp dir and compares byte for byte |
+| `internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go` (`TestGeneratedTSFresh`) | The committed `@agentre-hub/agentre-wire` `src/*.gen.ts` are what the generator writes today — same temp-dir-and-compare shape. Catches what the golden samples cannot: an added `omitempty` field changes no fixture byte, but does change the codec |
+| `internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go` (`TestTSGenCoversWirePackage`) | The generator's type/constant list covers every exported struct and constant the wire package declares — parsed from the source, because reflection only sees the types it was handed. Without it a brand-new wire struct would simply never reach the browser, with every other guard still green |
+| `internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go` (`TestTSGenCoversEventKinds`) | Every `agentruntime.EventKind` constant is in the generated vocabulary — scanned across the whole `agentruntime` package, since the table is split over `runner.go` and `event_wire.go`. `EventFrame.Event` is a `json.RawMessage`, so the `kind` discriminator is the only typed thing on that path; before this guard, adding a kind produced no signal anywhere in the browser |
+| `internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go` (`TestTSGenCoversChatBlockTypes`) | The **view** block-type vocabulary (`chat_svc.ChatBlock.Type`) stays self-consistent: every `ChatBlock{…}` gives `Type` explicitly, every `Type` is a named constant rather than a bare literal, and the const block declaring them matches the constants the construction sites actually use. Read by AST, not by import — `chat_svc` transitively depends on `wire`, so the generator cannot import it. Distinct from `TestTSGenCoversBlockTypes`: that guards the persisted `StoredBlock.Type`, this one the backend→frontend view discriminator |
 
-**A guard test that only greps source text is a lint rule wearing a test costume.** Where the ecosystem has a real rule available, prefer it — and when replacing a file-text assertion with a lint rule, **the rule lands and is verified before the test is deleted**.
+**A guard test that only greps source text is a lint rule wearing a test costume.** Do not
+add one merely to pin an implementation choice. Where an actual source-tree convention must
+be enforced and the ecosystem has a real lint rule available, prefer it — and when replacing
+a file-text assertion with a lint rule, **the rule lands and is verified before the test is
+deleted**. Any new exception must first be documented in the approved table above.
 
 ## Changes That Do Not Introduce Behavior
 

@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { describe, beforeEach, expect, it, vi } from "vitest";
 
-import type { ChatAgentItem } from "@/hooks/use-chat-agents";
+import type { AgentSlim } from "@/hooks/use-chat-agents";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 
 const appMocks = vi.hoisted(() => ({
@@ -16,7 +16,7 @@ import {
   useItems,
 } from "./chat-sessions-source";
 
-type SessionLite = ChatAgentItem["sessions"][number];
+type SessionLite = AgentSlim["sessions"][number];
 
 function mkSession(over: Partial<SessionLite> = {}): SessionLite {
   return {
@@ -29,7 +29,7 @@ function mkSession(over: Partial<SessionLite> = {}): SessionLite {
   } as SessionLite;
 }
 
-function mkAgent(over: Partial<ChatAgentItem> = {}): ChatAgentItem {
+function mkAgent(over: Partial<AgentSlim> = {}): AgentSlim {
   return {
     id: 1,
     name: "Agent",
@@ -46,12 +46,12 @@ function mkAgent(over: Partial<ChatAgentItem> = {}): ChatAgentItem {
     sessions: [],
     attentionSessions: [],
     ...over,
-  } as ChatAgentItem;
+  } as AgentSlim;
 }
 
 describe("flattenSessions", () => {
   it("flattens agents.sessions into base items with active=false (attention computed separately in useItems)", () => {
-    const agents: ChatAgentItem[] = [
+    const agents: AgentSlim[] = [
       mkAgent({
         id: 1,
         name: "CEO 助手",
@@ -164,7 +164,6 @@ describe("chatSessionsSource.onSelect", () => {
       close,
       openNotChattableDialog: vi.fn(),
       navigate: navigate as never,
-      pathname: "/chat",
     });
     expect(openSession).toHaveBeenCalledWith(99);
     expect(openNewSession).not.toHaveBeenCalled();
@@ -196,7 +195,6 @@ describe("chatSessionsSource.onSelect", () => {
         close: vi.fn(),
         openNotChattableDialog: vi.fn(),
         navigate: navigate as never,
-        pathname: "/chat",
       }),
     ).not.toThrow();
     expect(warn).toHaveBeenCalled();

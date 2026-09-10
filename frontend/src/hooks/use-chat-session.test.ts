@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { useChatSession } from "./use-chat-session";
 import type { ChatMessage } from "./use-chat-session";
+import { deriveBackgroundTasks } from "@/components/agentre/background-tasks/derive";
+import { deriveOutline } from "@/components/agentre/chat-context-sidebar/derive";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
@@ -13,15 +15,28 @@ import {
 
 vi.mock("../../wailsjs/go/app/App", () => ({
   LoadChatSession: vi.fn(),
+  LoadChatMessageBlocks: vi.fn(),
+  LoadChatSessionBlocksByType: vi.fn(),
   MarkChatSessionRead: vi.fn().mockResolvedValue(undefined),
 }));
-import { LoadChatSession, MarkChatSessionRead } from "../../wailsjs/go/app/App";
+import {
+  LoadChatMessageBlocks,
+  LoadChatSession,
+  LoadChatSessionBlocksByType,
+  MarkChatSessionRead,
+} from "../../wailsjs/go/app/App";
 const loadChatSession = LoadChatSession as ReturnType<typeof vi.fn>;
+const loadChatMessageBlocks = LoadChatMessageBlocks as ReturnType<typeof vi.fn>;
+const loadChatSessionBlocksByType = LoadChatSessionBlocksByType as ReturnType<
+  typeof vi.fn
+>;
 const markChatSessionRead = MarkChatSessionRead as ReturnType<typeof vi.fn>;
 
 describe("useChatSession", () => {
   beforeEach(() => {
     loadChatSession.mockReset();
+    loadChatMessageBlocks.mockReset();
+    loadChatSessionBlocksByType.mockReset();
     markChatSessionRead.mockClear();
     useSessionStatusStore.getState().__reset();
     useSessionMetaStore.getState().__reset();
@@ -446,6 +461,114 @@ describe("useChatSession", () => {
     ).toEqual([]);
   });
 
+  // Bug(sess-3396):转录的契约是「持久化正文 ++ liveBlocks」,liveBlocks 只装还没
+  // 落库的尾巴。但后端在轮内就把已发出的块整段 replaceBlocks 落库了,轮中途的一次
+  // reload(切走会话再切回来、停子代理、旁路流收尾…)会把 liveBlocks 已经持有的那
+  // 一段又当成持久化正文发回来 —— 整轮画两遍。重复的 tool_use 还会算出同一个
+  // uiStateKey,虚拟行撞 key 后测量缓存互相覆盖,行位置错乱、中间空出一大片。
+  // 修复:一条消息只要还有活跃 LiveStream,它的持久化正文就冻在开流那一刻。
+  it("freezes a live message's persisted blocks while its stream is open", async () => {
+    loadChatSession.mockResolvedValueOnce({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "running",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        { id: 42, sessionId: 9, role: "assistant", blocks: [], seq: 1 },
+      ],
+    });
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // 用户发起的那一轮:开流,内容一路进 liveBlocks。
+    act(() => {
+      useChatStreamsStore.getState().openStream({
+        name: "chat:event:9:42",
+        sessionId: 9,
+        assistantMessageId: 42,
+        streamStartedAt: 123,
+      });
+      useChatStreamsStore.getState().appendLiveToolUse(9, 42, {
+        type: "tool_use",
+        toolUseId: "toolu_live",
+        toolName: "Bash",
+      } as never);
+    });
+
+    // 轮内 reload:后端此刻已经把同一批块落库了。
+    loadChatSession.mockResolvedValueOnce({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "running",
+        activeStream: "chat:event:9:42",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        {
+          id: 42,
+          sessionId: 9,
+          role: "assistant",
+          seq: 1,
+          blocks: [
+            { type: "text", text: "已经落库的正文" },
+            { type: "tool_use", toolUseId: "toolu_live", toolName: "Bash" },
+          ],
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(result.current.messages.find((m) => m.id === 42)?.blocks).toEqual(
+      [],
+    );
+    expect(
+      streamForMessage(useChatStreamsStore.getState(), 9, 42)?.liveBlocks,
+    ).toHaveLength(1);
+  });
+
+  // 反向守卫:本次 load 才第一次挂上流的消息(reattach 分支),这份快照就是「开流
+  // 那一刻」的样子 —— 必须原样收下,否则中途打开在跑的会话就只剩一片空白。
+  it("keeps the fresh snapshot for a stream this load just reattached", async () => {
+    loadChatSession.mockResolvedValueOnce({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "running",
+        activeStream: "chat:event:9:42",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        {
+          id: 42,
+          sessionId: 9,
+          role: "assistant",
+          seq: 1,
+          blocks: [{ type: "text", text: "轮内已落库的正文" }],
+        },
+      ],
+    });
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(
+      result.current.messages.find((m) => m.id === 42)?.blocks,
+    ).toHaveLength(1);
+  });
+
   it("does not reattach when activeStream is absent", async () => {
     loadChatSession.mockResolvedValueOnce({
       session: {
@@ -710,6 +833,121 @@ describe("useChatSession", () => {
     expect(result.current.messages.map((m) => m.id)).toEqual([40]);
   });
 
+  // 转录的行缓存是 WeakMap<消息对象, 行[]>(agentre-ui transcript-rows),键就是消息
+  // 对象本身。每次 turn 收尾都 reload 全量历史,若整表换成新 JSON 对象,缓存全表
+  // miss、行级 memo 全被击穿 —— 用户看到的就是「结束时整段转录重刷一遍」。
+  // 内容没变的消息必须原样保留旧对象引用;整表都没变时连数组引用一起保留。
+  it("Given a reload whose snapshot is unchanged, When it lands, Then every message keeps its object identity so the transcript row cache survives", async () => {
+    const snapshot = () => ({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "idle",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "hi" }],
+          seq: 1,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "yo" }],
+          seq: 2,
+        },
+      ],
+    });
+    // 每次 IPC 都是一份全新的对象树 —— mockResolvedValue 复用同一份会让测试假绿。
+    loadChatSession.mockImplementation(() =>
+      Promise.resolve(structuredClone(snapshot())),
+    );
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    const before = result.current.messages;
+
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(result.current.messages[0]).toBe(before[0]);
+    expect(result.current.messages[1]).toBe(before[1]);
+    expect(result.current.messages).toBe(before);
+  });
+
+  // 反面:内容真变了的那条必须换成新对象,否则缓存会把旧行一直钉在屏幕上。
+  it("Given one message whose blocks changed, When the reload lands, Then only that message gets a new object while its neighbours keep theirs", async () => {
+    loadChatSession.mockResolvedValueOnce({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "idle",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "hi" }],
+          seq: 1,
+        },
+        { id: 41, sessionId: 9, role: "assistant", blocks: [], seq: 2 },
+      ],
+    });
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    const before = result.current.messages;
+
+    loadChatSession.mockResolvedValueOnce({
+      session: {
+        id: 9,
+        agentId: 1,
+        agentName: "Eng",
+        title: "x",
+        agentStatus: "idle",
+        lastMessageAt: 0,
+        createtime: 0,
+      },
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "hi" }],
+          seq: 1,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "final" }],
+          seq: 2,
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(result.current.messages[0]).toBe(before[0]);
+    expect(result.current.messages[1]).not.toBe(before[1]);
+    expect(result.current.messages[1].blocks?.[0]).toMatchObject({
+      text: "final",
+    });
+  });
+
   it("returns null when sessionId is 0", async () => {
     const { result } = renderHook(() => useChatSession(0));
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -853,5 +1091,426 @@ describe("useChatSession", () => {
       expect(result.current.session?.agentStatus).toBe("waiting"),
     );
     expect(result.current.session?.permissionMode).toBe("acceptEdits");
+  });
+});
+
+// 读路径:元数据全量 + 块按需取(spec 2026-08-27 决策 6)。
+//
+// 后端只随 LoadChatSession 下发最近一个窗口的完整正文,更早的消息先只给元数据。
+// 前端因此要做两件事:①派生视图(后台任务面板 / 大纲 / 变更)要的那几类块,改由后端
+// 按类型点查补齐 —— 它们的数据集合必须与「整条转录都在本地」时逐条相同,否则就是
+// 决策 6 点名的「静默算错」;②用户向上滚动时继续把更早那一段的完整正文取回来。
+describe("useChatSession block windowing", () => {
+  beforeEach(() => {
+    loadChatSession.mockReset();
+    loadChatMessageBlocks.mockReset();
+    loadChatSessionBlocksByType.mockReset();
+    markChatSessionRead.mockClear();
+    useSessionStatusStore.getState().__reset();
+    useSessionMetaStore.getState().__reset();
+    useSessionReadStore.setState({ overrides: new Map() });
+    useChatStreamsStore.setState({ streams: new Map() });
+  });
+
+  const windowedSession = {
+    id: 9,
+    agentId: 1,
+    agentName: "Eng",
+    title: "x",
+    agentStatus: "idle",
+    lastMessageAt: 0,
+    createtime: 0,
+  };
+
+  // 回归 spec 2026-08-27 收尾评审 F4：用户往上翻回窗口外的那些行，正文被
+  // retainLoadedBlocks 保住(并把 blocksLoaded 翻成 true)，而 mergeDerivedViewBlocks
+  // 只处理 blocksLoaded===false —— 于是这些行被按类型点查跳过，里面还在跑的后台
+  // subagent 卡片状态就冻在「翻上去那一刻」，再不更新。
+  it("Given a pulled-back row holding a running subagent, When a later reload lands, Then its card takes the fresh state instead of freezing", async () => {
+    const pulledBack = {
+      id: 40,
+      sessionId: 9,
+      role: "assistant",
+      seq: 1,
+      blocks: [
+        { type: "text", text: "older turn" },
+        {
+          type: "tool_use",
+          toolUseId: "tu-bg",
+          toolName: "Agent",
+          subagent: { kind: "local_agent", status: "running" },
+        },
+      ],
+      blocksLoaded: true,
+    };
+    const latest = {
+      id: 41,
+      sessionId: 9,
+      role: "assistant",
+      seq: 2,
+      blocks: [{ type: "text", text: "latest" }],
+      blocksLoaded: true,
+    };
+
+    // 首次打开：这一行已经是「用户取回来的完整正文」。
+    loadChatSession.mockResolvedValueOnce({
+      session: windowedSession,
+      messages: [pulledBack, latest],
+    });
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(
+      deriveBackgroundTasks(result.current.messages, []).find(
+        (t) => t.toolUseId === "tu-bg",
+      )?.status,
+    ).toBe("running");
+
+    // 轮收尾的 reload：窗口只带最近一条，40 号退回「只有元数据」。
+    loadChatSession.mockResolvedValueOnce({
+      session: windowedSession,
+      messages: [{ ...pulledBack, blocks: [], blocksLoaded: false }, latest],
+    });
+    // 按类型点查拿到的是新鲜状态：那个后台任务已经跑完了。
+    loadChatSessionBlocksByType.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "assistant",
+          seq: 1,
+          blocks: [
+            { type: "text", text: "older turn" },
+            {
+              type: "tool_use",
+              toolUseId: "tu-bg",
+              toolName: "Agent",
+              subagent: { kind: "local_agent", status: "completed" },
+            },
+          ],
+          blocksLoaded: false,
+        },
+      ],
+    });
+
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(
+      deriveBackgroundTasks(result.current.messages, []).find(
+        (t) => t.toolUseId === "tu-bg",
+      )?.status,
+    ).toBe("completed");
+    // 保住正文这件事本身不能退化：转录仍要看得到那一行的 text 块。
+    expect(
+      result.current.messages
+        .find((m) => m.id === 40)
+        ?.blocks?.some((b) => b.type === "text"),
+    ).toBe(true);
+  });
+
+  it("backfills derived-view blocks for messages outside the transcript window", async () => {
+    loadChatSession.mockResolvedValueOnce({
+      session: windowedSession,
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [],
+          seq: 1,
+          blocksLoaded: false,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "latest" }],
+          seq: 2,
+          blocksLoaded: true,
+        },
+      ],
+    });
+    loadChatSessionBlocksByType.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [
+            {
+              type: "tool_use",
+              toolUseId: "tu1",
+              subagent: { kind: "local_agent", status: "running" },
+            },
+          ],
+          seq: 1,
+          blocksLoaded: false,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [],
+          seq: 2,
+          blocksLoaded: false,
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() =>
+      expect(result.current.messages[0].blocks?.length).toBe(1),
+    );
+
+    expect(loadChatSessionBlocksByType).toHaveBeenCalledWith({
+      sessionId: 9,
+      types: ["text", "tool_use"],
+    });
+    // 窗口外那条:后台任务面板看得见它的 tool_use 卡,但它仍不是「正文已就绪」。
+    expect(result.current.messages[0].blocks?.[0].toolUseId).toBe("tu1");
+    expect(result.current.messages[0].blocksLoaded).toBe(false);
+    // 窗口内那条的完整正文不被按类型取数覆盖成空。
+    expect(result.current.messages[1].blocks?.[0].text).toBe("latest");
+    expect(result.current.messages[1].blocksLoaded).toBe(true);
+    expect(result.current.hasEarlierBlocks).toBe(true);
+  });
+
+  it("skips the per-type query when the whole transcript is already loaded", async () => {
+    loadChatSession.mockResolvedValueOnce({
+      session: windowedSession,
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "only" }],
+          seq: 1,
+          blocksLoaded: true,
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(loadChatSessionBlocksByType).not.toHaveBeenCalled();
+    expect(result.current.hasEarlierBlocks).toBe(false);
+  });
+
+  it("loads earlier blocks before the earliest loaded message", async () => {
+    loadChatSession.mockResolvedValueOnce({
+      session: windowedSession,
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [],
+          seq: 1,
+          blocksLoaded: false,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "user",
+          blocks: [],
+          seq: 2,
+          blocksLoaded: false,
+        },
+        {
+          id: 42,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "latest" }],
+          seq: 3,
+          blocksLoaded: true,
+        },
+      ],
+    });
+    loadChatSessionBlocksByType.mockResolvedValueOnce({ messages: [] });
+    loadChatMessageBlocks.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 41,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "older" }],
+          seq: 2,
+          blocksLoaded: true,
+        },
+      ],
+      hasMore: true,
+    });
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.hasEarlierBlocks).toBe(true);
+
+    await act(async () => {
+      await result.current.loadEarlierBlocks();
+    });
+
+    // 取的是「手上最早那条已就绪消息」之前的一段。
+    expect(loadChatMessageBlocks).toHaveBeenCalledWith({
+      sessionId: 9,
+      beforeSeq: 3,
+      limit: 0,
+    });
+    expect(result.current.messages[1].blocks?.[0].text).toBe("older");
+    expect(result.current.messages[1].blocksLoaded).toBe(true);
+    // 更早的 seq 1 还没取,继续往上滚还能取。
+    expect(result.current.messages[0].blocksLoaded).toBe(false);
+    expect(result.current.hasEarlierBlocks).toBe(true);
+  });
+
+  it("keeps bodies the user already scrolled back into view across a reload", async () => {
+    const windowed = (blocksLoaded: boolean) => ({
+      session: windowedSession,
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: blocksLoaded ? [{ type: "text", text: "older" }] : [],
+          seq: 1,
+          blocksLoaded,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "latest" }],
+          seq: 2,
+          blocksLoaded: true,
+        },
+      ],
+    });
+    loadChatSession.mockResolvedValue(windowed(false));
+    loadChatSessionBlocksByType.mockResolvedValue({ messages: [] });
+    loadChatMessageBlocks.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "older" }],
+          seq: 1,
+          blocksLoaded: true,
+        },
+      ],
+      hasMore: false,
+    });
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.loadEarlierBlocks();
+    });
+    expect(result.current.messages[0].blocksLoaded).toBe(true);
+
+    // 一轮收尾后的 reload:后端照旧只带最近一个窗口,取回来的那条不能又缩回去。
+    await act(async () => {
+      await result.current.reload();
+    });
+    expect(result.current.messages[0].blocksLoaded).toBe(true);
+    expect(result.current.messages[0].blocks?.[0].text).toBe("older");
+    expect(result.current.hasEarlierBlocks).toBe(false);
+  });
+
+  // 派生视图的等价性(决策 6 的落点):后台任务面板与大纲此前遍历「本地整条转录」得出
+  // 结论,现在整条转录已不在本地。它们看得见的东西必须**一条不少** —— 派生视图算错
+  // 是静默的(漏一个后台任务、大纲少一轮),不像少一段历史那样一眼看得出来。
+  it("keeps the background-task panel and the outline complete across the window edge", async () => {
+    loadChatSession.mockResolvedValueOnce({
+      session: windowedSession,
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [],
+          seq: 1,
+          createtime: 1000,
+          blocksLoaded: false,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [],
+          seq: 2,
+          createtime: 2000,
+          blocksLoaded: false,
+        },
+        {
+          id: 42,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [{ type: "text", text: "latest" }],
+          seq: 3,
+          createtime: 3000,
+          blocksLoaded: true,
+        },
+      ],
+    });
+    loadChatSessionBlocksByType.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 40,
+          sessionId: 9,
+          role: "user",
+          blocks: [{ type: "text", text: "跑个后台任务" }],
+          seq: 1,
+          createtime: 1000,
+          blocksLoaded: false,
+        },
+        {
+          id: 41,
+          sessionId: 9,
+          role: "assistant",
+          blocks: [
+            {
+              type: "tool_use",
+              toolName: "Agent",
+              toolUseId: "toolu-bg",
+              toolInput: { run_in_background: true },
+              subagent: {
+                kind: "local_agent",
+                status: "running",
+                taskDescription: "probe",
+              },
+            },
+            {
+              type: "tool_use",
+              toolName: "Edit",
+              toolUseId: "toolu-edit",
+              toolInput: { file_path: "/repo/a.ts" },
+            },
+          ],
+          seq: 2,
+          createtime: 2000,
+          blocksLoaded: false,
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useChatSession(9));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() =>
+      expect(result.current.messages[1].blocks?.length).toBe(2),
+    );
+
+    // 后台任务面板:发起卡在窗口之外,面板仍然收得到这个任务。
+    const tasks = deriveBackgroundTasks(result.current.messages, []);
+    expect(tasks.map((task) => task.toolUseId)).toEqual(["toolu-bg"]);
+    expect(tasks[0].status).toBe("running");
+    // 大纲:窗口之外那一轮仍然成行,并数得出它那一轮里的编辑次数。
+    const outline = deriveOutline(result.current.messages);
+    expect(outline).toHaveLength(1);
+    expect(outline[0].text).toBe("跑个后台任务");
+    expect(outline[0].edits).toBe(1);
   });
 });

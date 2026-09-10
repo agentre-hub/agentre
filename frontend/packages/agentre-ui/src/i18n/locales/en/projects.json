@@ -1,0 +1,269 @@
+{
+  "directoryPicker": {
+    "title": "Choose a folder · {{machine}}",
+    "machines": "Machines",
+    "offline": "Offline",
+    "filterPlaceholder": "Filter…",
+    "showHidden": "Hidden items",
+    "reload": "Reload",
+    "newFolder": "New folder",
+    "newFolderName": "New folder name",
+    "create": "Create",
+    "cancel": "Cancel",
+    "chooseHere": "Choose this folder",
+    "retry": "Retry",
+    "loading": "Reading this folder on {{machine}}…",
+    "empty": "This folder is empty. You can choose it, or create a folder here.",
+    "noMatch": "Nothing here matches “{{query}}”.",
+    "truncated": "This folder has too many entries; only the first ones are shown. Use the filter to narrow it down.",
+    "git": "git",
+    "symlink": "Symbolic link",
+    "failure": {
+      "denied": "{{machine}} is not allowed to read this folder. Pick another one, or grant access on that machine.",
+      "notFound": "This folder no longer exists on {{machine}}.",
+      "notDir": "That is not a folder.",
+      "refused": "{{machine}} refuses to browse this path.",
+      "exists": "A folder with that name already exists here.",
+      "invalidName": "That name cannot be used for a folder.",
+      "disconnected": "Lost the connection to {{machine}}.",
+      "unknown": "Could not read this folder on {{machine}}. {{message}}"
+    }
+  },
+  "projectSettings": {
+    "title": "Project settings",
+    "done": "Done",
+    "sections": {
+      "members": "Members",
+      "paths": "Machines and paths"
+    },
+    "field": {
+      "name": "Name",
+      "description": "Description",
+      "color": "Colour",
+      "icon": "Icon",
+      "parent": "Parent project",
+      "noParent": "None (top level)"
+    },
+    "identity": {
+      "glyph": "Icon and colour",
+      "glyphAria": "Change the icon and colour of “{{name}}”",
+      "namePlaceholder": "Project name",
+      "descriptionPlaceholder": "Description (optional)",
+      "iconSearch": "Search icons…",
+      "iconResults": "Results",
+      "iconNoMatch": "No icon matches that."
+    },
+    "members": {
+      "empty": "This project has no members yet.",
+      "noCandidates": "Every agent you have is already a member.",
+      "add": "Add {{name}}",
+      "remove": "Remove {{name}}",
+      "inherited": "Inherited",
+      "inheritedFrom": "Inherited from {{name}}",
+      "addTitle": "Add member",
+      "searchPlaceholder": "Search agents…",
+      "noMatch": "No agent matches that.",
+      "count": "{{count}}"
+    },
+    "paths": {
+      "noPath": "No path yet",
+      "path": "Path on {{machine}}",
+      "choose": "Browse…",
+      "remove": "Remove the path on {{machine}}",
+      "thisMachine": "This machine",
+      "offline": "Offline",
+      "failed": "Could not load the machine list.",
+      "empty": "This account has no machines yet. A project's path lives on a machine — add one first.",
+      "count": "{{count}}",
+      "unconfiguredCount": "{{count}} without a path",
+      "addMachine": "Set a path on another machine",
+      "machineSearch": "Search machines…",
+      "addHint": "Once a machine has a path, the agents on it can join this project.",
+      "allListed": "Every machine on this account is already listed."
+    },
+    "failure": {
+      "notSynced": "That machine has not synced this project yet — set the path once it has.",
+      "pathNotFound": "That machine has no such directory.",
+      "invalidPath": "That path cannot be used.",
+      "disconnected": "Lost the connection to that machine.",
+      "unknown": "That change did not go through."
+    },
+    "create": {
+      "title": "New project",
+      "subtitleOf": "New project under {{name}}",
+      "submit": "Create",
+      "failed": "Could not create the project.",
+      "pathNote": "A path is not required now. Until this project has a path on at least one machine, no conversation can be started in it — the index will show a “No path” badge you can click to set one.",
+      "localPath": "Path on this machine",
+      "localPathRequired": "Required on this machine.",
+      "browse": "Browse…",
+      "detectingGit": "Checking whether this is a git repository…",
+      "gitDetected": "git repository · {{branch}}",
+      "gitOrigin": "origin {{origin}}",
+      "noGit": "Not a git repository. That is fine — it just means no branch or remote is shown.",
+      "unknownBranch": "unknown branch",
+      "noOrigin": "no remote"
+    },
+    "delete": {
+      "title": "Delete “{{name}}”?",
+      "children": "Its subprojects are deleted too ({{count}}).",
+      "noChildren": "It has no subprojects.",
+      "sessions": "No conversation is deleted — they move back to Loose conversations.",
+      "files": "Nothing on any machine is touched; only the record of where this project lives there is removed.",
+      "offline": "Currently offline, so they follow on their next connection: {{names}}.",
+      "noOffline": "Every machine that has this project is online, so they follow immediately.",
+      "confirmName": "Type “{{name}}” to confirm",
+      "submit": "Delete project",
+      "failed": "Could not delete the project."
+    }
+  },
+  "projectHeader": {
+    "menu": {
+      "aria": "More actions for {{name}}",
+      "label": "Actions for {{name}}",
+      "settings": "Project settings…",
+      "newSubproject": "New subproject",
+      "terminal": "New terminal",
+      "merge": "Merge into an existing project",
+      "delete": "Delete project"
+    },
+    "add": {
+      "aria": "New conversation in {{name}}",
+      "loading": "Loading members…",
+      "failed": "Could not load this project's members.",
+      "noMembers": "This project has no members yet.",
+      "addMembers": "Add members…",
+      "inherited": "Inherited"
+    },
+    "unconfigured": {
+      "badge": "No path",
+      "aria": "{{name}} has no path on any machine — set one"
+    }
+  },
+  "permissionMode": {
+    "active": "ACTIVE",
+    "aria": "Permission mode: {{label}} (Shift+Tab to switch)",
+    "disabled": {
+      "bypassAfterLaunch": "This session did not start with bypassPermissions. Claude CLI does not allow entering bypass mid-session. Start a new session with bypass selected to unlock two-way switching."
+    },
+    "footer": "Cannot switch while generating · selection before send applies to the next turn",
+    "heading": "Permission Mode",
+    "meta": {
+      "acceptEdits": {
+        "desc": "Automatically accept file edits; other tools still ask"
+      },
+      "bypassPermissions": {
+        "desc": "Skip all permission gates; when selected before the first send, the CLI starts with --permission-mode bypassPermissions"
+      },
+      "default": {
+        "desc": "Ask before each tool call and trigger can_use_tool"
+      },
+      "plan": {
+        "desc": "Read-only analysis without write or side-effect tools"
+      }
+    },
+    "title": "Permission mode · {{label}}\nShift+Tab cycles modes",
+    "titleDisabled": "Permission mode · {{label}}\nCannot switch while generating"
+  },
+  "board": {
+    "aria": "Board",
+    "cardMenu": "Task actions",
+    "edit": "Edit",
+    "moveTo": "Move to",
+    "delete": "Delete",
+    "stages": {
+      "todo": "To do",
+      "doing": "In progress",
+      "review": "Review",
+      "done": "Done"
+    },
+    "hitCount": "{{matched}} / {{total}}",
+    "emptyColumn": "Drop here",
+    "addTask": "New task in {{stage}}",
+    "moreDone": "{{count}} more done",
+    "moreLabels": "{{count}} more labels",
+    "hasDescription": "Has a description",
+    "empty": {
+      "noTasks": "No tasks in this project yet",
+      "noMatches": "No tasks match your filters",
+      "newTask": "New task",
+      "clearFilters": "Clear filters"
+    },
+    "scope": {
+      "label": "Project scope",
+      "all": "All projects",
+      "unassigned": "Unassigned",
+      "plusN": "+{{count}}",
+      "includesChildren": "Includes {{count}} child projects",
+      "searchPlaceholder": "Search projects…",
+      "noMatch": "No project matches."
+    },
+    "search": {
+      "placeholder": "Search tasks or #number…",
+      "count": "{{count}}"
+    },
+    "filter": {
+      "button": "Filter",
+      "labels": "Labels",
+      "matchAny": "Any of them",
+      "matchAll": "All of them",
+      "noLabel": "Without labels",
+      "updated": "Updated",
+      "created": "Created",
+      "done": "Keep done tasks",
+      "from": "From",
+      "to": "To",
+      "manageLabels": "Manage labels",
+      "time": {
+        "any": "Any time",
+        "today": "Today",
+        "d7": "Last 7 days",
+        "d30": "Last 30 days",
+        "custom": "Custom"
+      },
+      "retention": {
+        "d30": "Last 30 days",
+        "d90": "Last 90 days",
+        "all": "All"
+      }
+    },
+    "chip": {
+      "keyword": "“{{keyword}}”",
+      "scope": "Project {{name}}",
+      "updated": "Updated {{value}}",
+      "created": "Created {{value}}",
+      "done": "Done {{value}}",
+      "remove": "Remove {{name}}"
+    },
+    "form": {
+      "breadcrumb": "Task location",
+      "newTask": "New task",
+      "title": "Title",
+      "titlePlaceholder": "What needs doing",
+      "description": "Description",
+      "descriptionPlaceholder": "Add context (optional)",
+      "clearProject": "Back to unassigned",
+      "addLabel": "Add a label",
+      "noAgent": "No agent",
+      "machine": "Machine",
+      "model": "Model",
+      "more": "More",
+      "close": "Close",
+      "cancel": "Cancel",
+      "create": "Create",
+      "save": "Save"
+    },
+    "labels": {
+      "failed": "That didn't go through. Try again.",
+      "empty": "No labels yet.",
+      "usage": "used by {{count}} tasks",
+      "name": "Label name",
+      "rename": "Edit",
+      "save": "Save",
+      "tone": "Tone",
+      "newName": "New label name",
+      "create": "Create",
+      "deleteWarning": "This label leaves {{count}} tasks. The tasks themselves are untouched."
+    }
+  }
+}

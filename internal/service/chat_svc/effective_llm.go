@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/llm_provider_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/llm_provider_svc"
 )
 
 // effective_llm.go 是 EffectiveLLMConfig v1 解析口（spec「Effective configuration,
@@ -29,30 +29,28 @@ import (
 // BaseURL 供执行侧使用，不通过 Wails 绑定暴露给前端。
 func (s *chatSvc) effectiveLLMForTurn(ctx context.Context, prov *llm_provider_entity.LLMProvider, modelKey string) (*agentruntime.EffectiveLLMConfig, error) {
 	if prov == nil {
-		return &agentruntime.EffectiveLLMConfig{Mode: agentruntime.EffectiveModeNative}, nil
+		return agentruntime.NewKeysOnlyEffectiveLLMConfig("", ""), nil
 	}
 	target := llm_provider_svc.ModelTarget{ProviderKey: prov.ProviderKey, ModelKey: strings.TrimSpace(modelKey)}
 	resolved, err := llm_provider_svc.LLMProvider().ResolveTarget(ctx, target)
 	if err != nil {
 		return nil, err
 	}
-	mode := agentruntime.EffectiveModeProviderDefault
-	if target.ModelKey != "" {
-		mode = agentruntime.EffectiveModeFixedModel
-	}
-	return &agentruntime.EffectiveLLMConfig{
-		Mode:          mode,
-		ProviderKey:   resolved.ProviderKey,
-		ModelKey:      resolved.ModelKey,
-		ProviderType:  resolved.ProviderType,
-		ProviderName:  prov.Name,
-		ModelID:       resolved.ModelID,
-		ContextWindow: resolved.ContextWindow,
-		MaxOutput:     resolved.MaxOutput,
-		BaseURL:       resolved.BaseURL,
-		APIKey:        resolved.APIKey,
-		HasAPIKey:     resolved.HasAPIKey,
-	}, nil
+	// 装配走 agentruntime 的唯一构造口(task 6):Mode 由**本轮请求的** TargetModelKey
+	// 决定,不能拿解析结果的 ModelKey 算 —— provider-default 解析出的默认模型同样带 key。
+	return agentruntime.NewEffectiveLLMConfig(agentruntime.EffectiveLLMConfigInput{
+		ProviderKey:      resolved.ProviderKey,
+		ProviderType:     resolved.ProviderType,
+		ProviderName:     prov.Name,
+		TargetModelKey:   target.ModelKey,
+		ResolvedModelKey: resolved.ModelKey,
+		ResolvedModelID:  resolved.ModelID,
+		ContextWindow:    resolved.ContextWindow,
+		MaxOutput:        resolved.MaxOutput,
+		BaseURL:          resolved.BaseURL,
+		APIKey:           resolved.APIKey,
+		HasAPIKey:        resolved.HasAPIKey,
+	}), nil
 }
 
 // effectiveLLMForNonRemoteTurn 是 turn 入口用变体：远端 backend 由 daemon 自家解析
@@ -75,7 +73,6 @@ func (s *chatSvc) effectiveLLMForNonRemoteTurn(ctx context.Context, sess *chat_e
 // remoteKeysOnlyEffective 组装远端执行的 keys-only 目标（决策 11）：会话钉了
 // provider 时用会话的 ProviderKey/ModelKey，未钉时跟随 backend 主绑定。
 func remoteKeysOnlyEffective(sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) *agentruntime.EffectiveLLMConfig {
-	mode := agentruntime.EffectiveModeNative
 	var providerKey, modelKey string
 	if sess != nil && strings.TrimSpace(sess.ProviderKey) != "" {
 		providerKey = sess.ProviderKey
@@ -84,13 +81,7 @@ func remoteKeysOnlyEffective(sess *chat_entity.Session, be *agent_backend_entity
 		providerKey = be.LLMProviderKey
 		modelKey = be.LLMModelKey
 	}
-	switch {
-	case providerKey != "" && modelKey != "":
-		mode = agentruntime.EffectiveModeFixedModel
-	case providerKey != "":
-		mode = agentruntime.EffectiveModeProviderDefault
-	}
-	return &agentruntime.EffectiveLLMConfig{Mode: mode, ProviderKey: providerKey, ModelKey: modelKey}
+	return agentruntime.NewKeysOnlyEffectiveLLMConfig(providerKey, modelKey)
 }
 
 // sessionModelKeyFor 返回本轮解析用的 ModelKey（spec 2026-08-11 决策 1）：

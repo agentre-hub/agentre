@@ -7,9 +7,9 @@ import (
 
 	"github.com/cago-frame/agents/provider"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/builtin"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 // SetProviderBuilderForTest 让现有测试通过包级 hook 注入 fake provider。

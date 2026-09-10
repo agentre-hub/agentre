@@ -13,9 +13,9 @@ import (
 	context "context"
 	reflect "reflect"
 
-	client "github.com/agentre-ai/agentre/internal/daemon/client"
-	paired_agentred_entity "github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
-	remote_device_watcher_svc "github.com/agentre-ai/agentre/internal/service/remote_device_watcher_svc"
+	client "github.com/agentre-hub/agentre/internal/daemon/client"
+	paired_agentred_entity "github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	remote_device_watcher_svc "github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,10 +44,10 @@ func (m *MockDaemonDialPort) EXPECT() *MockDaemonDialPortMockRecorder {
 }
 
 // Open mocks base method.
-func (m *MockDaemonDialPort) Open(ctx context.Context, args remote_device_watcher_svc.OpenArgs) (*client.Client, error) {
+func (m *MockDaemonDialPort) Open(ctx context.Context, args remote_device_watcher_svc.OpenArgs) (client.ProtobufConnection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Open", ctx, args)
-	ret0, _ := ret[0].(*client.Client)
+	ret0, _ := ret[0].(client.ProtobufConnection)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -223,6 +223,18 @@ func NewMockProviderRecorder(ctrl *gomock.Controller) *MockProviderRecorder {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockProviderRecorder) EXPECT() *MockProviderRecorderMockRecorder {
 	return m.recorder
+}
+
+// RecordDeviceBuild mocks base method.
+func (m *MockProviderRecorder) RecordDeviceBuild(deviceID int64, version, commit string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RecordDeviceBuild", deviceID, version, commit)
+}
+
+// RecordDeviceBuild indicates an expected call of RecordDeviceBuild.
+func (mr *MockProviderRecorderMockRecorder) RecordDeviceBuild(deviceID, version, commit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordDeviceBuild", reflect.TypeOf((*MockProviderRecorder)(nil).RecordDeviceBuild), deviceID, version, commit)
 }
 
 // RecordDeviceCapabilities mocks base method.

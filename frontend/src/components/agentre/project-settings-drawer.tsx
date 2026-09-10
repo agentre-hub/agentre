@@ -1,43 +1,40 @@
+/**
+ * 桌面端这一侧的项目设置 —— **只剩 adapter**（规格 2026-08-22 B 段，决策 2/3/4/7/14）。
+ *
+ * 弹窗本身住在 `@agentre-hub/agentre-ui` 里，两端同一份。这里做的只有一件事：把 wails
+ * 那几个绑定与桌面端的数据形状（数字 `id`、`ProjectDetailResponse`、本地那张位置表）
+ * 翻成包认识的 view + `ProjectSettingsPorts`。
+ *
+ * 换掉的是四个标签页（基本 / 成员 / 位置 / 危险）与两种保存语义。「危险」页随之消失，
+ * 删除入口只剩组头 ⋮（决策 14）—— 此前两处都有，去掉其一不减少能力。
+ *
+ * **本机那一行**：它是这张表里唯一由宿主写自己的一行（`ProjectSetLocalPath`），
+ * 所以不看在线状态；挑目录走系统原生对话框（`SelectDirectory`），比任何自绘面板都好。
+ *
+ * **图标与颜色这一端不再插手**（2026-08-27）：那张 key → 图标的词表本来就住在共享包
+ * 里（`org/icon-registry`，两端同一份），字形选择器于是也归包。此前这里挂的是一个要
+ * 人手打 key 的输入框，placeholder 写着「folder / briefcase / 自定义 emoji」——而
+ * 侧栏的字形走 `hasIcon(key)` 判定，那三种值一个都画不出来。
+ */
 import * as React from "react";
-import {
-  AlertTriangle,
-  Folder,
-  FolderTree,
-  Loader2,
-  Pencil,
-  Plus,
-  Trash2,
-  Users,
-  X,
-} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+  ProjectSettingsDialog,
+  type ProjectCandidateView,
+  type ProjectMachineView,
+  type ProjectMemberView,
+  type ProjectSettingsPorts,
+  type ProjectWriteOutcome,
+} from "@agentre-hub/agentre-ui";
 import { useChatAgents } from "@/hooks/use-chat-agents";
-import { cn } from "@/lib/utils";
 
 import {
   ProjectAddMember,
-  ProjectDelete,
   ProjectGet,
+  ProjectListTree,
   ProjectLocationList,
+  ProjectMove,
   ProjectLocationRemove,
   ProjectLocationUpsert,
   ProjectRemoveMember,
@@ -46,15 +43,8 @@ import {
   RemoteDeviceList,
   SelectDirectory,
 } from "../../../wailsjs/go/app/App";
-import type { chat_svc, app } from "../../../wailsjs/go/models";
-import { DeviceTag } from "./device-tag";
-import { AgentAvatar } from "./primitives";
-import { RemoteFsPicker } from "./remote-fs-picker";
-import {
-  agentColorClassNames,
-  agentColorOrder,
-  type AgentColor,
-} from "./types";
+import type { app } from "../../../wailsjs/go/models";
+import { createRemoteFsPort } from "./remote-fs-port";
 
 type ProjectDetailResponse = app.ProjectDetailResponse;
 type ProjectMemberItem = app.ProjectMemberItem & {
@@ -63,1129 +53,310 @@ type ProjectMemberItem = app.ProjectMemberItem & {
   avatarIcon?: string;
   avatarDataUrl?: string;
 };
-// wailsjs codegen refreshes on `make dev`; this intersection preserves TS safety
-// for remote-device fields while generated bindings are stale.
-type ChatAgentItem = chat_svc.ChatAgentItem & {
-  deviceID?: string;
-  deviceName?: string;
-  online?: boolean;
-};
 
-// ProjectLocationView mirrors project_location_svc.ProjectLocationView.
-// wailsjs codegen will replace this when `make dev` / `wails build` runs.
+// 这两个 view 由 wailsjs codegen 在 `make dev` 时刷新；在此之前保住 TS 安全。
 type ProjectLocationView = {
-  id: number;
-  projectId: number;
   deviceId: string;
   path: string;
   deviceName: string;
   online: boolean;
 };
+type DeviceView = { id: number; name: string; online: boolean };
 
-// DeviceView mirrors remote_device_svc.DeviceView; full structure replaced by codegen.
-type DeviceView = {
-  id: number;
-  name: string;
-  online: boolean;
-};
+/** 项目树拍平成父项目候选。深度只影响缩进，这一格暂不缩进。 */
+function flattenTree(
+  nodes: app.ProjectTreeNode[],
+): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  for (const n of nodes) {
+    if (!n.project) continue;
+    out.push({ id: String(n.project.id), name: n.project.name });
+    if (n.children) out.push(...flattenTree(n.children));
+  }
+  return out;
+}
 
 export type ProjectSettingsDrawerProps = {
   /** 0 = 关闭；>0 = 打开并加载该项目 */
   projectID: number;
+  /** 直落到哪一节；组头菜单的「成员…」「机器与路径…」与「未配置」角标经它进来。 */
+  focus?: "members" | "paths";
   onClose: () => void;
-  onChanged: () => void; // 任意编辑后让 page 刷新树
-  onDeleted: () => void;
+  onChanged: () => void;
 };
 
-type TabKey = "basic" | "members" | "locations" | "danger";
+/** 无状态，建一次就够——每次渲染新建一个会让选择器那个 effect 每帧重跑。 */
+const fsPort = createRemoteFsPort();
 
-const tabs: { key: TabKey; labelKey: string }[] = [
-  { key: "basic", labelKey: "projectSettings.tabs.basic" },
-  { key: "members", labelKey: "projectSettings.tabs.members" },
-  { key: "locations", labelKey: "projectSettings.tabs.locations" },
-  { key: "danger", labelKey: "projectSettings.tabs.danger" },
-];
+/** 本机那一行的 id。空串在这一端不是任何一台远端设备的 id，拿来当哨兵是安全的。 */
+const SELF_ID = "";
+
+/**
+ * 桌面端分不出写失败是哪一类：Go 那侧的错误跨 wails 只剩一句文本，没有码可读
+ * （与 `remote-fs-port.ts` 同一处缺口）。所以一律交 `unknown` 并把原文带上 ——
+ * 包会原样透出它，用户看到的仍是 Go 那句人话。
+ */
+async function attempt(
+  run: () => Promise<unknown>,
+): Promise<ProjectWriteOutcome> {
+  try {
+    await run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, failure: { kind: "unknown", message: String(e) } };
+  }
+}
 
 function ProjectSettingsDrawer({
   projectID,
+  focus,
   onClose,
   onChanged,
-  onDeleted,
 }: ProjectSettingsDrawerProps) {
   const { t } = useTranslation();
   const open = projectID > 0;
+  const { agents } = useChatAgents();
   const [detail, setDetail] = React.useState<ProjectDetailResponse | null>(
     null,
   );
-  const [loading, setLoading] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<TabKey>("basic");
+  /** 候选里「这台设备还没配路径」那一档要看它，所以设置弹窗这一层就得知道。 */
+  const [locations, setLocations] = React.useState<ProjectLocationView[]>([]);
+  /** 父项目下拉的候选。整棵树拍平，包会把「它自己」剔掉。 */
+  const [tree, setTree] = React.useState<{ id: string; name: string }[]>([]);
 
   const reload = React.useCallback(async () => {
     if (projectID <= 0) return;
-    setLoading(true);
     try {
-      const d = await ProjectGet(projectID);
-      setDetail(d);
+      setDetail(await ProjectGet(projectID));
     } catch {
       setDetail(null);
-    } finally {
-      setLoading(false);
     }
   }, [projectID]);
 
   React.useEffect(() => {
-    if (open) {
-      setActiveTab("basic");
-      void reload();
-    } else {
+    if (!open) {
       setDetail(null);
+      return;
     }
+    void reload();
+    void ProjectListTree()
+      .then((nodes) => setTree(flattenTree(nodes ?? [])))
+      // 读不到就不画那一格 —— 画一个空下拉比不画更让人以为「没有别的项目」。
+      .catch(() => setTree([]));
   }, [open, reload]);
 
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-[460px]" showCloseButton>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {detail?.project?.name ?? t("projectSettings.title")}
-            <span className="font-mono text-2xs font-normal text-muted-foreground">
-              {t("projectSettings.titleSuffix")}
-            </span>
-          </DialogTitle>
-        </DialogHeader>
+  const project = detail?.project;
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1 border-b border-border px-4">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              className={cn(
-                "relative px-2 py-2 text-xs transition-colors",
-                activeTab === tab.key
-                  ? "font-semibold text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t(tab.labelKey)}
-              {activeTab === tab.key ? (
-                <span
-                  aria-hidden="true"
-                  className="absolute inset-x-0 -bottom-px h-[2px] bg-primary"
-                />
-              ) : null}
-            </button>
-          ))}
-        </div>
-
-        <DialogBody className="flex max-h-[60vh] flex-col gap-3">
-          {loading || !detail ? (
-            <div className="flex items-center justify-center py-10 text-xs text-muted-foreground">
-              <Loader2
-                className="mr-2 size-3.5 animate-spin"
-                aria-hidden="true"
-              />
-              {t("common.loading")}
-            </div>
-          ) : activeTab === "basic" ? (
-            <BasicTab
-              detail={detail}
-              onSaved={() => {
-                void reload();
-                onChanged();
-              }}
-            />
-          ) : activeTab === "members" ? (
-            <MembersTab
-              detail={detail}
-              onChanged={() => {
-                void reload();
-                onChanged();
-              }}
-            />
-          ) : activeTab === "locations" ? (
-            <LocationsTab detail={detail} />
-          ) : (
-            <DangerTab
-              detail={detail}
-              onDeleted={() => {
-                onClose();
-                onDeleted();
-              }}
-            />
-          )}
-        </DialogBody>
-
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            {t("common.close")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Tabs ─────────────────────────────────────────────────────────────────────
-
-function BasicTab({
-  detail,
-  onSaved,
-}: {
-  detail: ProjectDetailResponse;
-  onSaved: () => void;
-}) {
-  const { t } = useTranslation();
-  const p = detail.project!;
-  const [name, setName] = React.useState(p.name);
-  const [icon, setIcon] = React.useState(p.icon);
-  const [color, setColor] = React.useState<AgentColor>(
-    (p.color as AgentColor) || "agent-1",
-  );
-  const [description, setDescription] = React.useState(p.description);
-  const [saving, setSaving] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  // R10：本机未配置路径的项目在这里就地指定，指定后与本机创建的项目无任何差别。
-  const [specifying, setSpecifying] = React.useState(false);
-  const [specifyErr, setSpecifyErr] = React.useState<string | null>(null);
-
-  const dirty =
-    name.trim() !== p.name ||
-    icon !== p.icon ||
-    color !== p.color ||
-    description !== p.description;
-
-  const handleSave = async () => {
-    setErr(null);
-    setSaving(true);
-    try {
-      await ProjectUpdate({
-        id: p.id,
-        name: name.trim(),
-        icon,
-        color,
-        description: description.trim(),
-      });
-      onSaved();
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setSaving(false);
+  /**
+   * 这个项目的成员分别绑在哪几台机器上。
+   *
+   * 「机器与路径」那一节回答的是「这个项目在哪」，所以包只直接列出本机、已配路径的、
+   * 以及**有成员在上面的**那几台；账号里其余的收进那颗「＋」。这一档由宿主答，因为
+   * 只有宿主知道一个 Agent 绑在哪台设备上（`useChatAgents` 那一侧的 `deviceID`）。
+   *
+   * 先折成一个字符串键再建集合：`detail` 每次重取都是新对象，直接进 `useMemo` 的
+   * 依赖会让下面那份 ports 每写一次就换一次身份，包那边的机器清单也就跟着白取一遍。
+   */
+  const memberAgentIDs = React.useMemo(() => {
+    const ids = [
+      ...(detail?.directMembers ?? []),
+      ...(detail?.inheritedMembers ?? []),
+    ].map((m) => m.agentID);
+    return Array.from(new Set(ids)).sort().join(",");
+  }, [detail]);
+  const memberDeviceIDs = React.useMemo(() => {
+    const wanted = new Set(memberAgentIDs ? memberAgentIDs.split(",") : []);
+    const out = new Set<string>();
+    for (const a of agents) {
+      if (!wanted.has(String(a.id))) continue;
+      const deviceID = (a as { deviceID?: string }).deviceID;
+      if (deviceID) out.add(deviceID);
     }
-  };
+    return out;
+  }, [agents, memberAgentIDs]);
 
-  const handleSpecifyPath = async () => {
-    setSpecifyErr(null);
-    setSpecifying(true);
-    try {
-      const picked = await SelectDirectory(t("projectNew.selectDirectory"));
-      if (!picked) return;
-      await ProjectSetLocalPath({ id: p.id, path: picked });
-      onSaved();
-    } catch (e) {
-      setSpecifyErr(String(e));
-    } finally {
-      setSpecifying(false);
-    }
-  };
-
-  return (
-    <>
-      <Field label={t("projectSettings.basic.name")}>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="h-9 text-xs"
-        />
-      </Field>
-      <Field label={t("projectSettings.basic.iconKey")}>
-        <Input
-          value={icon}
-          onChange={(e) => setIcon(e.target.value)}
-          className="h-9 font-mono text-xs"
-          placeholder={t("projectSettings.basic.iconPlaceholder")}
-        />
-      </Field>
-      <Field label={t("org.department.themeColor")}>
-        <div className="grid grid-cols-8 gap-1.5">
-          {agentColorOrder.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-label={c}
-              onClick={() => setColor(c)}
-              className={cn(
-                "size-6 rounded-full",
-                agentColorClassNames[c],
-                color === c &&
-                  "outline outline-2 outline-offset-2 outline-foreground",
-              )}
-            />
-          ))}
-        </div>
-      </Field>
-      <Field label={t("projectSettings.basic.description")}>
-        <Textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="min-h-[60px] text-xs"
-        />
-      </Field>
-      <Field label={t("projectSettings.basic.localPathReadonly")}>
-        {p.localPathMissing ? (
-          <div className="flex flex-col gap-1">
-            <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-secondary/50 px-2.5">
-              <span className="font-mono text-xs text-muted-foreground">
-                {t("projects.localPath.unconfiguredInline")}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                className="h-6 px-2 text-2xs"
-                disabled={specifying}
-                onClick={() => void handleSpecifyPath()}
-              >
-                {specifying ? (
-                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                ) : null}
-                {t("projects.localPath.specifyShort")}
-              </Button>
-            </div>
-            <p className="text-2xs text-muted-foreground">
-              {t("projects.localPath.unconfiguredHint")}
-            </p>
-            {specifyErr ? (
-              <p className="text-2xs text-destructive">{specifyErr}</p>
-            ) : null}
-          </div>
-        ) : (
-          <Input
-            value={p.path}
-            readOnly
-            className="h-9 cursor-default bg-secondary/50 font-mono text-xs text-muted-foreground"
-          />
-        )}
-      </Field>
-      {err ? (
-        <div className="rounded-md border border-destructive bg-destructive-soft px-3 py-2 text-2xs text-destructive">
-          {err}
-        </div>
-      ) : null}
-      <div className="mt-1 flex justify-end">
-        <Button
-          type="button"
-          disabled={!dirty || saving}
-          onClick={() => void handleSave()}
-        >
-          {saving ? (
-            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-          ) : null}
-          {t("common.save")}
-        </Button>
-      </div>
-    </>
+  const ports = React.useMemo<ProjectSettingsPorts>(
+    () => ({
+      updateFields: (_id, fields) =>
+        attempt(async () => {
+          const p = project;
+          if (!p) return;
+          // 换父项目走 ProjectMove，不走 ProjectUpdate：那一条只管重名，换一层还要
+          // 管父级在不在、停没停用、以及会不会成环（project_svc.Move）。
+          if (fields.parentId !== undefined) {
+            await ProjectMove({
+              id: p.id,
+              parentID: Number(fields.parentId || 0),
+            });
+            await reload();
+            return;
+          }
+          // 桌面端的 ProjectUpdate 收整份字段，包只递改动的那几格 —— 在这里合。
+          if (
+            "name" in fields ||
+            "icon" in fields ||
+            "color" in fields ||
+            "description" in fields
+          ) {
+            await ProjectUpdate({
+              id: p.id,
+              name: fields.name ?? p.name,
+              icon: fields.icon ?? p.icon,
+              color: fields.color ?? p.color,
+              description: fields.description ?? p.description,
+            });
+          }
+          await reload();
+        }),
+      addMember: (_id, candidateId) =>
+        attempt(async () => {
+          if (!project) return;
+          await ProjectAddMember(project.id, Number(candidateId));
+          await reload();
+        }),
+      removeMember: (_id, member) =>
+        attempt(async () => {
+          if (!project) return;
+          await ProjectRemoveMember(project.id, Number(member.id));
+          await reload();
+        }),
+      listMachines: async () => {
+        if (!project) return [];
+        const [locs, devices] = await Promise.all([
+          ProjectLocationList(project.id) as Promise<ProjectLocationView[]>,
+          RemoteDeviceList() as Promise<DeviceView[]>,
+        ]);
+        setLocations(locs ?? []);
+        const byDevice = new Map(
+          (locs ?? []).map((l) => [l.deviceId, l] as const),
+        );
+        return [
+          {
+            id: SELF_ID,
+            // 桌面端没有一个说得出自己叫什么的绑定；包会用它自己的「本机」补上。
+            name: "",
+            kind: "desktop" as const,
+            online: true,
+            isSelf: true,
+            // 宿主写自己，不经中继 —— 与在线无关。
+            writeNeedsOnline: false,
+            path: project.path,
+            removable: !!project.path,
+          },
+          ...(devices ?? []).map((d): ProjectMachineView => {
+            const id = String(d.id);
+            return {
+              id,
+              name: d.name,
+              kind: "agentred" as const,
+              online: d.online,
+              // 位置表住在本机的库里，`ProjectLocationUpsert` 不经那台机器 ——
+              // 所以离线也配得了；离线只挡住「浏览它的目录」。
+              writeNeedsOnline: false,
+              path: byDevice.get(id)?.path ?? "",
+              removable: byDevice.has(id),
+              hasMember: memberDeviceIDs.has(id),
+            };
+          }),
+        ];
+      },
+      setMachinePath: (_id, machine, path) =>
+        attempt(async () => {
+          if (!project) return;
+          if (machine.isSelf) {
+            await ProjectSetLocalPath({ id: project.id, path });
+          } else {
+            await ProjectLocationUpsert(project.id, machine.id, path);
+          }
+          await reload();
+        }),
+      clearMachinePath: (_id, machine) =>
+        attempt(async () => {
+          if (!project) return;
+          if (machine.isSelf) {
+            await ProjectSetLocalPath({ id: project.id, path: "" });
+          } else {
+            await ProjectLocationRemove(project.id, machine.id);
+          }
+          await reload();
+        }),
+      fs: fsPort,
+      pickLocalDirectory: async () =>
+        (await SelectDirectory(t("projectSettings.basic.localPath"))) || null,
+    }),
+    [memberDeviceIDs, project, reload, t],
   );
-}
 
-function MembersTab({
-  detail,
-  onChanged,
-}: {
-  detail: ProjectDetailResponse;
-  onChanged: () => void;
-}) {
-  const { t } = useTranslation();
-  const p = detail.project!;
-  const { agents } = useChatAgents();
-  const [picking, setPicking] = React.useState(false);
-  const [busyAgent, setBusyAgent] = React.useState<number | null>(null);
-  const [err, setErr] = React.useState<string | null>(null);
-  const [locations, setLocations] = React.useState<
-    Record<string, ProjectLocationView>
-  >({});
+  if (!open || !project) return null;
 
-  React.useEffect(() => {
-    void ProjectLocationList(p.id).then((rows) => {
-      const map: Record<string, ProjectLocationView> = {};
-      for (const r of rows ?? []) {
-        if (r?.deviceId) map[r.deviceId] = r as ProjectLocationView;
-      }
-      setLocations(map);
+  const direct = (detail?.directMembers ?? []) as ProjectMemberItem[];
+  const inherited = (detail?.inheritedMembers ?? []) as ProjectMemberItem[];
+  const memberIDs = new Set([
+    ...direct.map((m) => m.agentID),
+    ...inherited.map((m) => m.agentID),
+  ]);
+  const configuredDevices = new Set(locations.map((l) => l.deviceId));
+
+  const members: ProjectMemberView[] = [
+    ...direct.map((m) => ({
+      id: String(m.agentID),
+      name: m.agentName || `Agent #${m.agentID}`,
+      color: m.avatarColor,
+      avatarDataUrl: m.avatarDataUrl,
+    })),
+    ...inherited.map((m) => ({
+      // 继承来的与直接成员可能是同一个 Agent，键要能分得开。
+      id: `inherited-${m.agentID}`,
+      name: m.agentName || `Agent #${m.agentID}`,
+      color: m.avatarColor,
+      avatarDataUrl: m.avatarDataUrl,
+      inherited: true,
+      inheritedFrom: m.fromName,
+    })),
+  ];
+
+  const candidates: ProjectCandidateView[] = agents
+    .filter((a) => !memberIDs.has(a.id))
+    .map((a): ProjectCandidateView => {
+      const deviceID = (a as { deviceID?: string }).deviceID;
+      // 远端 Agent 要先给它那台设备配路径，否则加进来也开不出对话（cwd 解不出来）。
+      const blocked = !!deviceID && !configuredDevices.has(deviceID);
+      return {
+        id: String(a.id),
+        name: a.name,
+        color: a.avatarColor,
+        avatarDataUrl: a.avatarDataUrl,
+        disabled: blocked,
+        disabledReason: blocked
+          ? t("projectSettings.members.configureRemotePath")
+          : undefined,
+      };
     });
-  }, [p.id, detail.directMembers]);
-
-  const directIDs = new Set((detail.directMembers ?? []).map((m) => m.agentID));
-  const inheritedIDs = new Set(
-    (detail.inheritedMembers ?? []).map((m) => m.agentID),
-  );
-  const candidates = agents.filter(
-    (a) => !directIDs.has(a.id) && !inheritedIDs.has(a.id),
-  );
-
-  const removeMember = async (agentID: number) => {
-    setErr(null);
-    setBusyAgent(agentID);
-    try {
-      await ProjectRemoveMember(p.id, agentID);
-      onChanged();
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setBusyAgent(null);
-    }
-  };
-
-  const agentByID = new Map(agents.map((a) => [a.id, a]));
 
   return (
-    <>
-      <SectionLabel
-        icon={<Users className="size-3.5" aria-hidden="true" />}
-        label={t("projectSettings.members.directCount", {
-          count: detail.directMembers?.length ?? 0,
-        })}
-      />
-      {(detail.directMembers ?? []).length === 0 ? (
-        <EmptyHint text={t("projectSettings.members.directEmpty")} />
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {(detail.directMembers ?? []).map((m) => {
-            const agent = agentByID.get(m.agentID);
-            const location = agent?.deviceID
-              ? locations[agent.deviceID]
-              : undefined;
-            return (
-              <MemberRow
-                key={`d-${m.agentID}`}
-                member={m}
-                agent={agent}
-                location={location}
-                onRemove={() => void removeMember(m.agentID)}
-                busy={busyAgent === m.agentID}
-                inherited={false}
-              />
-            );
-          })}
-        </ul>
-      )}
-
-      {detail.inheritedMembers && detail.inheritedMembers.length > 0 ? (
-        <>
-          <SectionLabel
-            label={t("projectSettings.members.inheritedCount", {
-              count: detail.inheritedMembers.length,
-            })}
-          />
-          <ul className="flex flex-col gap-1">
-            {detail.inheritedMembers.map((m) => {
-              const agent = agentByID.get(m.agentID);
-              const location = agent?.deviceID
-                ? locations[agent.deviceID]
-                : undefined;
-              return (
-                <MemberRow
-                  key={`i-${m.agentID}`}
-                  member={m}
-                  agent={agent}
-                  location={location}
-                  onRemove={() => {}}
-                  busy={false}
-                  inherited
-                />
-              );
-            })}
-          </ul>
-        </>
-      ) : null}
-
-      <div className="border-t border-border pt-2">
-        {picking ? (
-          <div className="flex flex-col gap-1.5">
-            <SectionLabel label={t("projectSettings.members.pickAgent")} />
-            {candidates.length === 0 ? (
-              <EmptyHint text={t("projectSettings.members.noCandidates")} />
-            ) : (
-              <ul className="flex max-h-40 flex-col gap-1 overflow-auto">
-                {candidates.map((a) => (
-                  <li key={a.id}>
-                    <CandidateRow
-                      agent={a}
-                      existingLocation={
-                        a.deviceID ? locations[a.deviceID] : undefined
-                      }
-                      busy={busyAgent === a.id}
-                      onAdd={async () => {
-                        setErr(null);
-                        setBusyAgent(a.id);
-                        try {
-                          await ProjectAddMember(p.id, a.id);
-                          setPicking(false);
-                          onChanged();
-                        } catch (e) {
-                          setErr(String(e));
-                        } finally {
-                          setBusyAgent(null);
-                        }
-                      }}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 text-2xs"
-              onClick={() => setPicking(false)}
-            >
-              {t("common.cancel")}
-            </Button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1 self-start text-2xs"
-              onClick={() => setPicking(true)}
-            >
-              <Plus className="size-3.5" aria-hidden="true" />
-              {t("projectSettings.members.addAgent")}
-            </Button>
-            <span className="text-2xs text-muted-foreground">
-              {t("projectSettings.members.remoteHint")}
-            </span>
-          </div>
-        )}
-      </div>
-      {err ? (
-        <div className="rounded-md border border-destructive bg-destructive-soft px-3 py-2 text-2xs text-destructive">
-          {err}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function MemberRow({
-  member,
-  agent,
-  location,
-  onRemove,
-  busy,
-  inherited,
-}: {
-  member: ProjectMemberItem;
-  agent?: ChatAgentItem;
-  location?: ProjectLocationView | null;
-  onRemove: () => void;
-  busy: boolean;
-  inherited: boolean;
-}) {
-  const { t } = useTranslation();
-  const color =
-    (member.avatarColor as AgentColor) ||
-    (agent?.avatarColor as AgentColor) ||
-    "agent-1";
-  const name = member.agentName || agent?.name || `Agent #${member.agentID}`;
-  const avatarIcon = member.avatarIcon || agent?.avatarIcon || undefined;
-  const avatarDataUrl =
-    member.avatarDataUrl || agent?.avatarDataUrl || undefined;
-  const offline = !!agent?.deviceID && agent.online === false;
-  return (
-    <li
-      className={cn(
-        "flex flex-col rounded-md border border-border bg-card px-2 py-1.5 text-xs",
-        inherited && "opacity-70",
-        offline && "opacity-65",
-      )}
-    >
-      {/* Main row */}
-      <div className="flex items-center gap-2">
-        <AgentAvatar
-          name={name}
-          initials={name.charAt(0)}
-          color={color}
-          avatarIcon={avatarIcon}
-          avatarDataUrl={avatarDataUrl}
-          size="sm"
-          className="size-5"
-        />
-        <span className="min-w-0 flex-1 truncate">{name}</span>
-        <DeviceTag
-          deviceId={agent?.deviceID ?? ""}
-          deviceName={agent?.deviceName ?? ""}
-          online={agent?.deviceID ? (agent.online ?? false) : true}
-        />
-        {inherited ? (
-          <span
-            className="rounded-sm bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground"
-            title={t("projectSettings.members.inheritedFrom", {
-              name:
-                member.fromName ?? t("projectSettings.members.parentProject"),
-            })}
-          >
-            {t("projectSettings.members.inheritedBadge")}
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={onRemove}
-            disabled={busy}
-            aria-label={t("projectSettings.members.removeAgent", { name })}
-            className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
-          >
-            <Trash2 className="size-3" aria-hidden="true" />
-          </button>
-        )}
-      </div>
-      {/* cwd subrow — shown when a remote location is configured */}
-      {location ? (
-        <div className="mt-1 flex items-center gap-1.5 pl-7 text-2xs text-muted-foreground">
-          <span className="font-mono text-subtle-foreground">cwd</span>
-          <span
-            data-selectable-text="true"
-            className="min-w-0 flex-1 truncate font-mono"
-          >
-            {location.path}
-          </span>
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
-function CandidateRow({
-  agent,
-  existingLocation,
-  onAdd,
-  busy,
-}: {
-  agent: ChatAgentItem;
-  existingLocation?: ProjectLocationView;
-  onAdd: () => Promise<void>;
-  busy: boolean;
-}) {
-  const { t } = useTranslation();
-  // STATE: local agent → 1-click
-  if (!agent.deviceID) {
-    return (
-      <button
-        type="button"
-        onClick={() => void onAdd()}
-        disabled={busy}
-        className="flex w-full items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent disabled:opacity-50"
-      >
-        <Avatar agent={agent} />
-        <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-        <DeviceTag deviceId="" deviceName="" online />
-        <Plus className="size-3 text-muted-foreground" aria-hidden="true" />
-      </button>
-    );
-  }
-
-  // STATE: remote agent + 该 device 已有 location → 1-click 加成员（cwd 由 chat_svc 自动解析）
-  if (existingLocation) {
-    return (
-      <button
-        type="button"
-        onClick={() => void onAdd()}
-        disabled={busy || agent.online === false}
-        className={cn(
-          "flex w-full items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent disabled:opacity-50",
-          agent.online === false && "opacity-65",
-        )}
-      >
-        <Avatar agent={agent} />
-        <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-        <DeviceTag
-          deviceId={agent.deviceID}
-          deviceName={agent.deviceName ?? ""}
-          online={agent.online ?? false}
-        />
-        <span
-          className="truncate font-mono text-2xs text-muted-foreground"
-          title={existingLocation.path}
-        >
-          {existingLocation.path}
-        </span>
-        <Plus className="size-3 text-muted-foreground" aria-hidden="true" />
-      </button>
-    );
-  }
-
-  // STATE: remote agent + 该 device 未配 location → 禁用 + 引导
-  return (
-    <div
-      className="flex w-full cursor-not-allowed items-center gap-2 rounded-md border border-dashed border-border bg-card/40 px-2 py-1.5 text-xs opacity-65"
-      title={t("projectSettings.members.missingRemotePathTitle")}
-    >
-      <Avatar agent={agent} />
-      <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-      <DeviceTag
-        deviceId={agent.deviceID}
-        deviceName={agent.deviceName ?? ""}
-        online={agent.online ?? false}
-      />
-      <span className="text-2xs text-status-waiting">
-        {t("projectSettings.members.configureRemotePath")}
-      </span>
-    </div>
-  );
-}
-
-function Avatar({ agent }: { agent: ChatAgentItem }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold text-white",
-        agentColorClassNames[(agent.avatarColor as AgentColor) || "agent-1"],
-      )}
-      aria-hidden="true"
-    >
-      {(agent.name ?? "?").charAt(0)}
-    </span>
-  );
-}
-
-function LocationsTab({ detail }: { detail: ProjectDetailResponse }) {
-  const { t } = useTranslation();
-  const p = detail.project!;
-  const [rows, setRows] = React.useState<ProjectLocationView[]>([]);
-  const [devices, setDevices] = React.useState<DeviceView[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const [adding, setAdding] = React.useState(false);
-  const [editingDevice, setEditingDevice] = React.useState<string | null>(null);
-  const [err, setErr] = React.useState<string | null>(null);
-
-  const reload = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const [locs, devs] = await Promise.all([
-        ProjectLocationList(p.id),
-        RemoteDeviceList(),
-      ]);
-      setRows((locs ?? []) as ProjectLocationView[]);
-      setDevices((devs ?? []) as DeviceView[]);
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [p.id]);
-
-  React.useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  const configuredDeviceIds = new Set(rows.map((r) => r.deviceId));
-  const availableDevices = devices.filter(
-    (d) => !configuredDeviceIds.has(String(d.id)),
-  );
-
-  const handleRemove = async (deviceId: string) => {
-    setErr(null);
-    try {
-      await ProjectLocationRemove(p.id, deviceId);
-      await reload();
-    } catch (e) {
-      setErr(String(e));
-    }
-  };
-
-  return (
-    <>
-      <SectionLabel
-        icon={<FolderTree className="size-3.5" aria-hidden="true" />}
-        label={t("projectSettings.locations.count", { count: rows.length })}
-      />
-      {loading ? (
-        <div className="flex items-center justify-center py-4 text-2xs text-muted-foreground">
-          <Loader2 className="mr-1.5 size-3 animate-spin" aria-hidden="true" />
-          {t("common.loading")}
-        </div>
-      ) : rows.length === 0 ? (
-        <EmptyHint text={t("projectSettings.locations.empty")} />
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {rows.map((r) =>
-            editingDevice === r.deviceId ? (
-              <LocationEditRow
-                key={r.deviceId}
-                projectId={p.id}
-                deviceId={r.deviceId}
-                deviceName={r.deviceName}
-                online={r.online}
-                initialPath={r.path}
-                devices={devices}
-                onCancel={() => setEditingDevice(null)}
-                onSaved={async () => {
-                  setEditingDevice(null);
-                  await reload();
-                }}
-                onError={(msg) => setErr(msg)}
-              />
-            ) : (
-              <LocationRow
-                key={r.deviceId}
-                row={r}
-                onEdit={() => setEditingDevice(r.deviceId)}
-                onRemove={() => void handleRemove(r.deviceId)}
-              />
-            ),
-          )}
-        </ul>
-      )}
-
-      <div className="border-t border-border pt-2">
-        {adding ? (
-          <LocationEditRow
-            projectId={p.id}
-            availableDevices={availableDevices}
-            devices={devices}
-            onCancel={() => setAdding(false)}
-            onSaved={async () => {
-              setAdding(false);
-              await reload();
-            }}
-            onError={(msg) => setErr(msg)}
-          />
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={availableDevices.length === 0}
-            className="h-7 gap-1 self-start text-2xs"
-            onClick={() => setAdding(true)}
-            title={
-              availableDevices.length === 0
-                ? t("projectSettings.locations.allDevicesConfigured")
-                : undefined
-            }
-          >
-            <Plus className="size-3.5" aria-hidden="true" />
-            {t("projectSettings.locations.addRemotePath")}
-          </Button>
-        )}
-      </div>
-      {err ? (
-        <div className="rounded-md border border-destructive bg-destructive-soft px-3 py-2 text-2xs text-destructive">
-          {err}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function LocationRow({
-  row,
-  onEdit,
-  onRemove,
-}: {
-  row: ProjectLocationView;
-  onEdit: () => void;
-  onRemove: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <li
-      className={cn(
-        "flex flex-col rounded-md border border-border bg-card px-2 py-1.5 text-xs",
-        !row.online && "opacity-65",
-      )}
-    >
-      <div className="flex items-center gap-2">
-        <DeviceTag
-          deviceId={row.deviceId}
-          deviceName={row.deviceName}
-          online={row.online}
-        />
-        <span className="min-w-0 flex-1" />
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label={t("projectSettings.locations.editPath")}
-          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <Pencil className="size-3" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label={t("projectSettings.locations.deletePath")}
-          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
-        >
-          <Trash2 className="size-3" aria-hidden="true" />
-        </button>
-      </div>
-      <div className="mt-1 truncate pl-1 font-mono text-2xs text-muted-foreground">
-        {row.path}
-      </div>
-    </li>
-  );
-}
-
-function LocationEditRow(props: {
-  projectId: number;
-  // Edit mode (existing row):
-  deviceId?: string;
-  deviceName?: string;
-  online?: boolean;
-  initialPath?: string;
-  // Add mode:
-  availableDevices?: DeviceView[];
-  // NEW — used to look up name in add mode after a device is picked:
-  devices?: DeviceView[];
-  onCancel: () => void;
-  onSaved: () => Promise<void> | void;
-  onError: (msg: string) => void;
-}) {
-  const { t } = useTranslation();
-  const isEdit = !!props.deviceId;
-  const [deviceId, setDeviceId] = React.useState<string>(
-    props.deviceId ?? props.availableDevices?.[0]?.id?.toString() ?? "",
-  );
-  const [path, setPath] = React.useState<string>(props.initialPath ?? "");
-  const [busy, setBusy] = React.useState(false);
-  const [pickerOpen, setPickerOpen] = React.useState(false);
-
-  const resolvedDeviceName =
-    props.deviceName ??
-    props.devices?.find((d) => String(d.id) === deviceId)?.name ??
-    "";
-
-  const pathValid = path.startsWith("/");
-  const canSave = !!deviceId && pathValid && !busy;
-
-  const handleSave = async () => {
-    if (!canSave) return;
-    setBusy(true);
-    try {
-      await ProjectLocationUpsert(props.projectId, deviceId, path);
-      await props.onSaved();
-    } catch (e) {
-      props.onError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-primary bg-primary-soft p-2 text-2xs">
-      <div className="flex items-center gap-2">
-        {isEdit ? (
-          <DeviceTag
-            deviceId={props.deviceId!}
-            deviceName={props.deviceName ?? ""}
-            online={!!props.online}
-          />
-        ) : (
-          <Select value={deviceId} onValueChange={setDeviceId}>
-            <SelectTrigger
-              aria-label={t("projectSettings.locations.remoteDevice")}
-              className="h-7 min-w-[160px] text-2xs"
-            >
-              <SelectValue
-                placeholder={t("projectSettings.locations.selectRemoteDevice")}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {(props.availableDevices ?? []).map((d) => (
-                <SelectItem
-                  key={d.id}
-                  value={String(d.id)}
-                  disabled={!d.online}
-                >
-                  📡 {d.name}
-                  {d.online ? "" : t("projectSettings.locations.offlineSuffix")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        <span className="ml-auto text-primary">
-          {isEdit
-            ? t("projectSettings.locations.editPath")
-            : t("projectSettings.locations.newPath")}
-        </span>
-      </div>
-      <div className="flex items-center gap-1">
-        <input
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && canSave) void handleSave();
-          }}
-          className="flex-1 rounded-sm border border-border bg-background px-2 py-1 font-mono"
-          placeholder={t("projectSettings.locations.pathPlaceholder")}
-          autoFocus
-        />
-        <button
-          type="button"
-          onClick={() => setPickerOpen(true)}
-          disabled={!deviceId}
-          aria-label={t("projectSettings.locations.browseRemoteDir")}
-          title={t("projectSettings.locations.browseRemoteDir")}
-          className="inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-        >
-          <Folder className="size-3.5" />
-        </button>
-      </div>
-      {deviceId ? (
-        <RemoteFsPicker
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          deviceID={deviceId}
-          deviceName={resolvedDeviceName}
-          mode="dir"
-          initialPath={path || undefined}
-          onPick={(picked) => setPath(picked)}
-        />
-      ) : null}
-      <div className="flex items-center justify-between">
-        <span className="text-2xs text-subtle-foreground">
-          {pathValid || path === ""
-            ? t("projectSettings.locations.enterToSave")
-            : t("projectSettings.locations.absolutePathRequired")}
-        </span>
-        <div className="flex gap-1.5">
-          <button
-            type="button"
-            onClick={props.onCancel}
-            className="text-muted-foreground"
-          >
-            <X className="size-3.5" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={!canSave}
-            className="rounded-sm bg-primary px-2 py-1 text-primary-foreground disabled:opacity-50"
-          >
-            {busy ? (
-              <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-            ) : (
-              t("common.save")
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DangerTab({
-  detail,
-  onDeleted,
-}: {
-  detail: ProjectDetailResponse;
-  onDeleted: () => void;
-}) {
-  const { t } = useTranslation();
-  const p = detail.project!;
-  const [confirm, setConfirm] = React.useState("");
-  const [err, setErr] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
-
-  const canDelete = confirm.trim() === p.name && !busy;
-
-  const handleDelete = async () => {
-    setErr(null);
-    setBusy(true);
-    try {
-      await ProjectDelete(p.id);
-      onDeleted();
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive-soft px-3 py-2.5 text-2xs text-destructive">
-        <AlertTriangle className="mt-0.5 size-3.5" aria-hidden="true" />
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold">
-            {t("projectSettings.danger.deleteProject")}
-          </span>
-          <span>{t("projectSettings.danger.deleteDescription")}</span>
-        </div>
-      </div>
-      <Field label={t("projectSettings.danger.confirmName", { name: p.name })}>
-        <Input
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          className="h-9 font-mono text-xs"
-          placeholder={p.name}
-        />
-      </Field>
-      {err ? (
-        <div className="rounded-md border border-destructive bg-destructive-soft px-3 py-2 text-2xs text-destructive">
-          {err}
-        </div>
-      ) : null}
-      <div className="mt-1 flex justify-end">
-        <Button
-          type="button"
-          variant="destructive"
-          disabled={!canDelete}
-          onClick={() => void handleDelete()}
-        >
-          {busy ? (
-            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-          ) : (
-            <Trash2 className="size-3.5" aria-hidden="true" />
-          )}
-          {t("projectSettings.danger.deleteProject")}
-        </Button>
-      </div>
-    </>
-  );
-}
-
-// ─── Field helpers ───────────────────────────────────────────────────────────
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1.5 text-xs">
-      <span className="font-medium text-foreground">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function SectionLabel({
-  icon,
-  label,
-}: {
-  icon?: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 font-mono text-2xs font-semibold uppercase text-subtle-foreground">
-      {icon}
-      {label}
-    </div>
-  );
-}
-
-function EmptyHint({ text }: { text: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-border bg-card/40 px-3 py-3 text-center text-2xs text-muted-foreground">
-      {text}
-    </div>
+    <ProjectSettingsDialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      project={{
+        id: String(project.id),
+        name: project.name,
+        description: project.description,
+        icon: project.icon,
+        color: project.color,
+        parentId: String(project.parentID || ""),
+        members,
+        candidates,
+      }}
+      parentOptions={tree}
+      ports={ports}
+      focus={focus}
+      onChanged={() => {
+        void reload();
+        onChanged();
+      }}
+    />
   );
 }
 

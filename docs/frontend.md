@@ -4,15 +4,17 @@ React 19 + TS + Vite + Tailwind v4. Wails bindings are generated from `internal/
 
 ## UI Components
 
-**Frontend form controls go uniformly through shadcn `@/components/ui/*`.**
+**Frontend form controls go uniformly through the shadcn primitives exported by `@agentre-hub/agentre-ui`.**
 
 - Use `Select / SelectTrigger / SelectContent / SelectItem / SelectValue` for dropdowns (see `agent-backends.tsx` / `llm-providers.tsx`). Native `<select>` is **forbidden**.
-- Input / Switch / Dialog / Button, etc. all use the wrappers in the ui directory.
-- A native `<input type="radio">` may be kept when shadcn does not provide a styled equivalent, but before adding one, check whether the ui directory already has an equivalent component.
+- Input / Switch / Dialog / Button, etc. all come from that package.
+- A native `<input type="radio">` may be kept when shadcn does not provide a styled equivalent, but before adding one, check whether the package already has an equivalent component.
 
-**Rationale:** theme color / dark mode / accessibility / keyboard interaction are all handled uniformly in the ui layer; native tags bypass the design tokens and end up producing two visual styles on the same page.
+**Rationale:** theme color / dark mode / accessibility / keyboard interaction are all handled uniformly in one primitive layer; native tags bypass the design tokens and end up producing two visual styles on the same page.
 
-Before adding a component, check whether `frontend/src/components/ui` and `frontend/src/components/agentre` already have a primitive.
+There is no `frontend/src/components/ui/` directory any more: every primitive lives in `frontend/packages/agentre-ui/src/ui/` and is imported from `"@agentre-hub/agentre-ui"`, so the desktop and the `agentre-server` web frontend render the same component rather than two copies that drift. `components.json` still points shadcn's `ui` alias at `@/components/ui` because that is where `shadcn add` scaffolds — **move a freshly added primitive into the package and export it from `src/index.ts` before using it**, and delete the scaffolded file.
+
+Before adding a component, check whether `frontend/packages/agentre-ui/src/ui` and `frontend/src/components/agentre` already have a primitive.
 
 > **Design system →** the visual language those components express — color tokens (full light/dark values), the 16-color agent palette & run-status system, theming, the desktop window shell, motion, state patterns, and accessibility — lives in [design.md](./design.md). This doc owns the **enforced rules** (shadcn-only, i18n, icons, lint); design.md owns the **design system**; the two cross-link rather than duplicate.
 
@@ -20,20 +22,140 @@ Before adding a component, check whether `frontend/src/components/ui` and `front
 
 New user-visible UI copy must be explicitly wired to i18n; do not add hardcoded Chinese.
 
-- New UI copy uses `react-i18next`'s `useTranslation()` / `t("...")`, with keys placed in `frontend/src/i18n/locales/{zh-CN,en}/common.json`; both languages must be filled in at the same time.
+- New UI copy uses `react-i18next`'s `useTranslation()` / `t("...")`, with keys placed under `frontend/src/i18n/locales/{zh-CN,en}/`; both languages must be filled in at the same time. Copy that lives in the shared package goes to its own bundle and its own hook instead — see [Shared UI Package](#shared-ui-package-agentre-hubagentre-ui).
+- The `common` namespace is **one tree physically split into domain modules** — `agents` / `chat` / `common` / `hooks` / `llm` / `org` / `projects` / `remote` / `session` / `settings` (each a `.json`), merged by `locales/<lang>/index.ts`. The module name is **not** part of the key: copy living in `chat.json` is still `t("chatPanel.title")`. Put a new key in the module that owns its top-level prefix, in the same file for both languages. A new module file must be imported into both barrels, and no two modules may claim the same top-level key — `src/__tests__/i18n-locale-modules.test.ts` guards both.
 - Do not introduce any bypass text-rewriting mechanism; static UI copy must be wired explicitly to `t(...)` in the component or module.
 - Do not translate dynamic content such as agent output, user input, terminal output, file contents, diffs, code blocks, or markdown rendering; by nature it never enters `t(...)`.
 - `eslint-plugin-i18next`'s `i18next/no-literal-string` catches hardcoded Chinese copy in JSX text and in visible attributes such as `aria-label` / `title` / `placeholder` / `alt`; if you need to display copy, change it to `t(...)`.
 - After changing i18n resources, run:
 
 ```bash
-cd frontend && pnpm test -- src/__tests__/i18n.test.ts src/__tests__/eslint-i18n.test.ts
+cd frontend && pnpm test -- src/__tests__/i18n.test.ts src/__tests__/i18n-locale-modules.test.ts src/__tests__/eslint-i18n.test.ts
 cd frontend && pnpm exec eslint src
 ```
 
+## Shared UI Package (`@agentre-hub/agentre-ui`)
+
+`frontend/packages/agentre-ui` is the frontend layer shared with `agentre-server`. Where it sits and why the dependency only flows one way is [architecture.md](./architecture.md#the-shared-frontend-package-agentre-hubagentre-ui)'s; this section owns the rules for working in it.
+
+The public exports are listed in `packages/agentre-ui/package.json`. CSS is split so a consumer can take only the layers it needs without importing the component tree:
+
+| Entry | Contents |
+| --- | --- |
+| `@agentre-hub/agentre-ui/tokens.css` | design tokens (no JS import needed) |
+| `@agentre-hub/agentre-ui/code-highlight.css` | `CodeBlock`'s highlight.js palette |
+| `@agentre-hub/agentre-ui/base.css` | shared base element styles |
+| `@agentre-hub/agentre-ui/toast.css` | shared toast presentation |
+| `@agentre-hub/agentre-ui/i18n` | locale bundles + namespace, without pulling in components |
+| `@agentre-hub/agentre-ui` | shared components, host-neutral contracts, interaction helpers, and primitives |
+
+**What belongs in it:** anything both hosts render — transcript components, the row model, the DTO contract, tokens. **What does not:** anything that needs the host's state, navigation, or platform. Reach for a port or a prop instead of importing the host.
+
+### Cross-host extraction and delivery
+
+Before adding or substantially changing a frontend component, view contract or pure
+presentation helper, search both the current host and this package. If the desktop and
+`agentre-server` render the same product concept, this package owns its rendering,
+interaction semantics, accessibility, shared copy and host-neutral data contract. Do not
+add a second implementation to one host or keep two existing copies synchronized by hand.
+
+Shared does not mean platform-agnostic by conditionals. Wails calls, desktop stores,
+navigation, HTTP/session clients and relay transports remain in their hosts. Express a
+real capability difference as an optional port or prop; no port means no affordance. If
+the two features only have similar names but different product contracts, keep them
+separate rather than adding `isDesktop` / `isWeb` branches to a shared component.
+
+When moving an existing `agentre-server` implementation here, use this order:
+
+1. Write the shared-package behavior or regression test and observe the required red
+   result before changing production code.
+2. Add or extract the host-neutral implementation here, export its public API, and wire
+   the desktop through a desktop-owned adapter where necessary.
+3. Run the package suite and the affected desktop host tests, then commit and push the
+   `agentre` repository. The consumer needs an immutable, remotely resolvable commit.
+4. In `agentre-server`, update its pinned Git revision, replace the local implementation
+   with the shared import and a server-owned adapter, then delete the duplicate component,
+   types, styles, copy and tests that exist only for that copy.
+5. Verify and commit `agentre-server` independently. The two repositories never form one
+   atomic Git commit, so do not remove the consumer copy before step 3 is available.
+
+Tests stay with the behavior they own: shared behavior is tested in this package; each
+host tests its adapter and integration boundary. A green package suite alone does not
+prove either host wired the ports or data contract correctly.
+
+**Copy inside the package uses `useUiTranslation()`, never a bare `useTranslation()`.** The package owns a separate namespace (`agentreUi`) so its keys cannot silently collide with the host's `common`; a bare call resolves against the host's default namespace, which *works* while a component is mid-migration and only breaks once the host key is deleted. The host merges the bundle at init — see `src/i18n/index.ts`.
+
+The `agentreUi` namespace is physically split into `chat` / `common` / `llm` / `org` / `projects` / `session` / `transcript` domain modules under `packages/agentre-ui/src/i18n/locales/<lang>/`, merged by that language's `index.ts`. The module name is not part of the translation key. Add new copy to the owning module in both languages; the package i18n guard requires matching module sets, unique top-level ownership, complete barrel merges, and matching keys.
+
+**Depending on a third-party package is a decision, not a detail.** The criterion for `peerDependencies` is one question: *does correctness depend on this being the same instance as the host?* React's hook dispatcher, the host's i18next instance, and anything holding module-level state say yes — a second copy fails at runtime, not at build. Pure rendering and pure functions say no, and a second copy only costs bytes. The current split and the reasoning per package live in the header comment of `packages/agentre-ui/src/boundary.test.ts`, next to the check that enforces it; read that rather than a copy here. `zustand` and `react-router-dom` are deliberately absent from both lists: state and navigation belong to the host.
+
+Three mechanical guards run against the package; when you change what they cover, change them in the same commit:
+
+- `packages/agentre-ui/src/boundary.test.ts` — no host coupling, and every bare import is declared in `package.json`.
+- `packages/agentre-ui/src/i18n/i18n.test.tsx` — every static `t("…")` key in the package resolves in **both** bundles (collected via the TS AST, so comments and doc examples don't register as keys).
+- `src/components/agentre/__tests__/transcript-dto-contract.test.ts` — the Wails-generated types stay assignable to the package DTO.
+
+```bash
+cd frontend/packages/agentre-ui && pnpm test    # the package's own suite
+```
+
+The host's vitest run also collects `packages/`, so `cd frontend && pnpm test` covers both.
+
+## Shared Wire Package (`@agentre-hub/agentre-wire`)
+
+`frontend/packages/agentre-wire` publishes the host-neutral wire contracts used by the desktop, agentred and Web host: Protobuf schemas, generated Go/TypeScript messages, and the typed binary codecs for account-channel and bidirectional RPC WebSockets. It no longer publishes a JSON-RPC envelope or JSON frame codec. Where it sits in the layering is [architecture.md](./architecture.md#the-shared-frontend-package-agentre-hubagentre-ui)'s; this section owns the rules.
+
+Its only runtime dependency is the host-neutral `@bufbuild/protobuf` runtime, and it builds with plain `tsc`:
+
+| Entry | Contents |
+| --- | --- |
+| `@agentre-hub/agentre-wire` | generated Protobuf messages, typed binary codecs and protocol vocabularies |
+| `@agentre-hub/agentre-wire/fixtures/<name>.json` | one legacy domain-value golden sample used to guard the remaining generated Go-to-TS domain codecs; no transport envelope fixtures live here |
+
+New WebSocket contracts have one source under `proto/`; `pnpm run proto:generate` writes `src/gen/` for TypeScript and `../../../pkg/wire/agentrewire/` for Go. There is exactly one checked-in copy of the generated Go: the standalone module `github.com/agentre-hub/agentre/pkg/wire`, which this repository builds through a local `replace` and `agentre-server` consumes by pinning a pushed revision. It lives outside `internal/` precisely so that second host can import it rather than keep a hand-synced copy, and it is a mechanical product that must not be edited by hand — naive string edits to `wire.pb.go` corrupt the length-prefixed `rawDesc` and panic at package init while still compiling green, which `pkg/wire/guard/descriptor_test.go` and `internal/guard/wire_single_source_test.go` exist to catch. `pnpm run proto:check` runs `buf lint`, rejects wire-incompatible field-number/type/removal changes against `proto/baseline.binpb` — the ratchet point a maintainer rebuilds when an audit shows a break is safe because no peer ever set the fields — regenerates deterministically, then requires `git diff --exit-code` over both generated trees. CI runs it as the `Wire Proto` job.
+
+The remaining generated domain-value codecs use **`wire.go` as their single source of truth** while consumers finish moving their persisted and host-local values to generated Protobuf messages. Transport frames are already Protobuf-only. The hand-written runtime files are:
+
+| File | Written by | Why |
+| --- | --- | --- |
+| `src/runtime.ts` | hand | the validation primitives (`decodeWire` / `reqStr` / `optArrOf` / …) the generated code calls. Stable — it does not change when a wire struct does |
+| `src/account.ts` | hand | typed Protobuf account-channel codec |
+| `src/rpc.ts` | hand | typed Protobuf bidirectional RPC codec |
+| `src/protocol-version.ts` | hand | `PROTOCOL_VERSION`, restating this package's own `version` for the handshake |
+| `src/index.ts` | hand | Protobuf codecs, generated messages and domain-codec re-exports |
+| `src/*.gen.ts` | generated | every frame type, codec, protocol constant, and the three vocabularies |
+| `fixtures/*.json` | generated | the golden samples |
+
+Three artifacts deliberately step outside "only follow types declared inside the wire package", and **they are not all the same kind of exception** — read the file header before treating one as a precedent for another:
+
+| Artifact | Vocabulary | Why it may step outside |
+| --- | --- | --- |
+| `src/event-kinds.gen.ts` | `agentruntime.EventKind` | `EventFrame.event` is a `json.RawMessage` — the payload is opaque to wire and can only ever generate as `unknown`, so the `kind` discriminator is the single typed thing in the whole event stream, and it is the contract itself. `agentruntime` is a direct dependency of wire (`wire.go` already uses its `TurnKind` / `MCPServerSpec`), so following it breaks no layering |
+| `src/block-types.gen.ts` | `blocks.StoredBlock.type` | same argument one link down: `StoredBlock.data` is a `json.RawMessage`, so `type` is the only typed thing on the `HistoryMessageWire.blocks` / `RunParams.userBlocks` paths, and the block registry package is already wire's direct dependency |
+| `src/chat-block-types.gen.ts` | `chat_svc.ChatBlock.type` | **a different kind of exception — this one is not on the wire at all.** It is the view DTO for the backend → frontend hop (Wails binding on the desktop, HTTP for the web console). It lives here only because this package is the repo's single Go → TS generation seam, and the vocabulary had two frontends hand-copying it |
+
+**Neither is a precedent for generating everything a neighbouring package declares.** Each artifact restates its own reasoning in its header, and next to its declaration list in the generator.
+
+`block-types.gen.ts` and `chat-block-types.gen.ts` are **two different tables and both are exported** — the projection in `chat_svc` renames (`user_ask` → `ask_user_question`), folds many-to-one (`nested_tool_use` → `tool_use`) and drops whole classes (`subagent_state`) between them. The cells that share a name (`text` / `thinking` / `plan` / …) are places the projection happened not to rename, not one truth. The view vocabulary's truth boundary is drawn at **what Go can emit**: the frontend's `TranscriptBlock.type` currently holds one more value, `"raw"`, produced by `peer-transcript.ts`, and its truth stays on the TS side.
+
+**Do not hand-edit a generated Protobuf file, a `*.gen.ts` file or a fixture.** The legacy generators live next to the Go types they mirror and own their own file lists:
+
+```bash
+# frame types + codec + constants → src/*.gen.ts
+WIRE_TS_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteTSCodec
+# golden samples → fixtures/*.json
+WIRE_GOLDEN_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteGoldenSamples
+```
+
+Writing is deliberately an explicit action, so a plain `make test-backend` never dirties the working tree. **The generator emits Prettier-formatted output itself** — formatting has to be part of the artifact, because the freshness guard compares regenerated bytes against committed bytes and an external formatting pass would make it permanently red.
+
+**Staleness and coverage are both caught mechanically**, by four always-on guards in the wire package (see [testing.md](./testing.md#guard-tests)): the committed `*.gen.ts` and `fixtures/*.json` must be exactly what the generators write today, and the generator's lists must cover everything the wire package exports **plus** every `EventKind` `agentruntime` declares. Adding a Go field, a whole Go struct, or a new event kind turns the build red instead of silently leaving the browser decoding an obsolete shape. The guards are self-contained within this repository and never read a sibling checkout.
+
+The package's own suite (`src/__tests__/wire-codec.test.ts`) verifies stable Protobuf bytes and decodes every remaining domain golden sample field by field, including unknown-field preservation and omitted-optional shapes. `src/__tests__/public-boundary.test.ts` additionally prevents the removed JSON-RPC envelope and JSON frame codec from returning to the public package.
+
 ## Project Structure
 
-- `frontend/components.json` defines the aliases: `@/components`, `@/lib/utils`, `@/components/ui`, `@/lib`, `@/hooks`.
+- `frontend/components.json` defines the aliases: `@/components`, `@/lib/utils`, `@/components/ui`, `@/lib`, `@/hooks`. The `ui` alias is only where `shadcn add` scaffolds; primitives themselves live in the shared package (see [UI Components](#ui-components)).
 - Routing uses `MemoryRouter`.
 - Stores live in `frontend/src/stores`, hooks in `frontend/src/hooks`.
 - Wails runtime / bindings are imported from `frontend/wailsjs`.
@@ -60,15 +182,15 @@ Go:
 
 ```bash
 gofmt -w <files>
-goimports -w <files>       # local-prefixes: github.com/agentre-ai/agentre
+goimports -w <files>       # local-prefixes: github.com/agentre-hub/agentre
 make lint                  # golangci-lint + frontend ESLint
 make lint-fix              # auto-fix (use on a small scope)
 ```
 
-`goimports` groups local imports under the `github.com/agentre-ai/agentre` prefix, matching `.golangci.yml`.
+`goimports` groups local imports under the `github.com/agentre-hub/agentre` prefix, matching `.golangci.yml`.
 
 Frontend: follow the existing TS/CSS style; **do not** introduce a large formatting-only diff.
 
 ## Module Path
 
-The Go module is `github.com/agentre-ai/agentre`; use that prefix for in-repo Go imports.
+The Go module is `github.com/agentre-hub/agentre`; use that prefix for in-repo Go imports.

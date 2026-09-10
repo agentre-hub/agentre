@@ -68,9 +68,9 @@ When a bug / regression / abnormal behavior appears:
 
 ## Code Style
 
-- **Formatting is owned by tooling; do not adjust it by hand.** Go goes through `gofmt` + `goimports` (with `local-prefixes: github.com/agentre-ai/agentre`, so this repo's own imports form their own group), both enabled as golangci-lint **formatters** in `.golangci.yml`. The front end goes through Prettier, wired in as `eslint-plugin-prettier/recommended` so a formatting deviation surfaces as an ESLint error.
+- **Formatting is owned by tooling; do not adjust it by hand.** Go goes through `gofmt` + `goimports` (with `local-prefixes: github.com/agentre-hub/agentre`, so this repo's own imports form their own group), both enabled as golangci-lint **formatters** in `.golangci.yml`. The front end goes through Prettier, wired in as `eslint-plugin-prettier/recommended` so a formatting deviation surfaces as an ESLint error.
 - `make lint` runs both. **golangci-lint caches**, so a formatting drift it reported once can appear clean on the next run against a stale cache — when finishing a change, run `gofmt -l` over the files you touched rather than trusting a single green `make lint`.
-- Frontend form controls come from shadcn `@/components/ui/*`; adding a native `<select>` is forbidden. See [frontend.md](frontend.md).
+- Frontend form controls come from the shadcn primitives in `@agentre-hub/agentre-ui`; adding a native `<select>` is forbidden. See [frontend.md](frontend.md).
 
 ## Enforced Rules (mechanically checked)
 
@@ -82,7 +82,13 @@ These are the conventions with a real check behind them. Everything else in thes
 | Static `t("…")` keys must resolve, and both locales expose the same key set | Add the key to both locale files | `frontend/src/__tests__/i18n.test.ts` | — |
 | Go formatting and import grouping | `gofmt` + `goimports` | golangci-lint `formatters`, run by `make lint-backend` | `.claude`, `.dev-kit`, `frontend` (excluded paths) |
 | The daemon's `agentruntime` registry keeps every backend registered | Keep the `init` imports in `internal/daemon/runtime_imports.go` | `internal/daemon/runtime_imports_test.go` | — |
+| `wails dev` macOS identity stays distinct from the installed app | Keep `Info.dev.plist` identifier as production + `.dev` and mark the Dock name `(Dev)` | `internal/desktop/darwin_bundle_test.go` | — |
 | Transcript typography stays on the shared token scale | Use the tokens `globals.css` exposes | `frontend/src/components/agentre/__tests__/transcript-typography-guard.test.ts` + `frontend/src/__tests__/design-tokens.test.ts` | — |
+| The shared UI package imports no host code, and declares every npm package it imports | Take host capability through a port / prop; add real dependencies to the package's `package.json` | `frontend/packages/agentre-ui/src/boundary.test.ts` | — |
+| Every static `t("…")` key in the shared package resolves in **both** of its bundles | Add the key to the matching domain module under `packages/agentre-ui/src/i18n/locales/{en,zh-CN}/` | `frontend/packages/agentre-ui/src/i18n/i18n.test.tsx` | — |
+| The Wails-generated chat models stay assignable to the shared package DTO | Update `packages/agentre-ui/src/transcript/dto.ts` when the Go side changes | `frontend/src/components/agentre/__tests__/transcript-dto-contract.test.ts` (fails at `tsc`, not at runtime) | — |
+| The Go and TypeScript protocol-version constants match `@agentre-hub/agentre-wire`'s `package.json` | Bump `package.json`, `internal/pkg/wireversion.Protocol` and `packages/agentre-wire/src/protocol-version.ts` together | `internal/pkg/wireversion/wireversion_test.go` + `packages/agentre-wire/src/__tests__/protocol-version.test.ts` | — |
+| The committed wire golden samples match what the Go marshaler emits today | Regenerate with `WIRE_GOLDEN_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteGoldenSamples` | `TestGoldenFixturesFresh` in `internal/pkg/agentruntime/runtimes/remote/wire/golden_test.go` | — |
 
 > The i18n rule is the one with a **guard test on the guard**: `frontend/src/__tests__/eslint-i18n.test.ts` loads the real ESLint config and asserts the rule is present at the right severity and scope. **When you change one of these rules, change its guard in the same commit** — a rule that silently stops loading looks exactly like a rule nobody violates.
 
@@ -106,7 +112,7 @@ The PR description follows [`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_
 
 ## The CI Gate
 
-Merging requires the five jobs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which run on every PR and on pushes to `main` / `develop/*`:
+Merging requires the eight jobs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which run on every PR and on pushes to `main` / `develop/*`:
 
 | Job | What it runs |
 | --- | --- |
@@ -114,6 +120,9 @@ Merging requires the five jobs in [`.github/workflows/ci.yml`](../.github/workfl
 | `Go Test` | `make test-backend` |
 | `Frontend Lint` | `cd frontend && pnpm run lint` |
 | `Frontend Test` | wails binding generation + `pnpm run test` |
+| `Wire Proto` | `cd frontend/packages/agentre-wire && pnpm run proto:check` |
+| `agentred Packaging` | release-workflow and POSIX installer contract tests |
+| `agentred Windows Installer` | Windows IPC/service and PowerShell installer tests |
 | `E2E` | `xvfb-run -a make e2e` — the independent hermetic desktop app, three serial smoke boundaries, on Ubuntu |
 
 CI uses the same repository entry points documented for local runs, but pins tool/runtime versions independently. Local `make lint` uses the `golangci-lint` v2 binary on `PATH`; when reproducing a CI-only lint result, check `golangci-lint version` against CI's v2.12.2. Two known gaps are deliberate: the Go suite runs **without `-race`**, and there is no pre-commit hook.

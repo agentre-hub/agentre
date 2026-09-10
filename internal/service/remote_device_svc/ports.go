@@ -4,7 +4,7 @@ package remote_device_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
 )
 
 //go:generate mockgen -source ports.go -destination mock_remote_device_svc/mock_ports.go
@@ -20,8 +20,8 @@ import (
 type DaemonDialPort interface {
 	Pair(ctx context.Context, args PairArgs) (PairResult, error)
 	Connect(ctx context.Context, args ConnectArgs) (ConnectResult, error)
-	Open(ctx context.Context, args ConnectArgs) (*client.Client, error)
-	OpenAccount(ctx context.Context, args AccountArgs) (*client.Client, error)
+	Open(ctx context.Context, args ConnectArgs) (client.ProtobufConnection, error)
+	OpenAccount(ctx context.Context, args AccountArgs) (client.ProtobufConnection, error)
 }
 
 // PairArgs 是 auth.pair 的入参。
@@ -52,15 +52,14 @@ type ConnectArgs struct {
 }
 
 // AccountArgs 是直连 auth.account 的入参。Credential 是账号签发的访问凭据，
-// daemon 用缓存的公钥本地验签（R3，零网络往返）；DeviceFingerprint 与 auth.connect
-// 呈现的是同一值（R5）；ExpectedDaemonFingerprint 必填，与 auth.connect 一样把
-// 连接钉死在本地登记的那台 daemon 上。
+// daemon 用缓存的公钥本地验签（R3，零网络往返）并从中取出本端身份（决策 8，因此
+// 这里不再有 DeviceFingerprint 可报）；ExpectedDaemonFingerprint 必填，与
+// auth.connect 一样把连接钉死在本地登记的那台 daemon 上。
 type AccountArgs struct {
 	URL                       string
 	TLSMode                   string
 	TLSCertPEM                string
 	Credential                string
-	DeviceFingerprint         string
 	ExpectedDaemonFingerprint string
 }
 
@@ -76,7 +75,7 @@ type ConnectResult struct {
 type RelayDialPort interface {
 	// Open 经账号中转连接指定指纹的 daemon，并在该通道上完成 auth.account 握手，
 	// 呈现 peerFingerprint——与 LAN 路径 auth.connect 呈现的是同一值（R5）。
-	Open(ctx context.Context, daemonFingerprint, peerFingerprint string) (*client.Client, error)
+	Open(ctx context.Context, daemonFingerprint, peerFingerprint string) (client.ProtobufConnection, error)
 }
 
 // AccountCredentialPort 提供当前账号凭据（access token）。ConnPool 在本机对目标
@@ -85,6 +84,17 @@ type RelayDialPort interface {
 type AccountCredentialPort interface {
 	// AccessToken 返回当前账号访问凭据；未登录时为空串。
 	AccessToken() string
+	// Refresh 换一张新的访问凭据。
+	//
+	// 它在这里，是因为**凭据会过期而握手会重做**：access token 只活 15 分钟，而它
+	// 的刷新一直是被动的（撞上 HTTP 401 才刷，见 server_svc.withAuth），平时靠下行
+	// 轮询养着。轮询停了（正是「server 够不着」那一段，也正是 R3 这条路径存在的
+	// 理由），token 十几分钟后就过期，daemon 回 -32001「account credential expired」
+	// —— 与「凭据被撤销」同一个码。分不开这两件事，一次必然自愈的过期会被判成
+	// 「重试也没用」，重连循环当场放弃。
+	//
+	// 所以这里不去猜是过期还是撤销，而是**换一张再试一次**：换完还被拒才是真被拒。
+	Refresh(ctx context.Context) error
 }
 
 // KeychainPort 抽象 OS keychain（internal/pkg/keychain 接口的窄子集）。

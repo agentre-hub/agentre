@@ -1,0 +1,33 @@
+{
+  "toolPermissions": [
+    {
+      "RequestID": "perm-1",
+      "ToolName": "Bash",
+      "Input": {
+        "command": "ls -la"
+      }
+    }
+  ],
+  "askUserQuestions": [
+    {
+      "RequestID": "ask-1",
+      "Questions": [
+        {
+          "ID": "q1",
+          "Question": "确认继续执行？",
+          "Header": "确认",
+          "MultiSelect": false,
+          "IsOther": false,
+          "IsSecret": false,
+          "Options": [
+            {
+              "Label": "继续",
+              "Description": "继续执行",
+              "Preview": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

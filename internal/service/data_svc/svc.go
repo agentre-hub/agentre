@@ -22,7 +22,7 @@ type dataSvc struct {
 }
 
 var defaultSvc DataSvc = &dataSvc{
-	now:     func() int64 { return time.Now().Unix() },
+	now:     func() int64 { return time.Now().UnixMilli() },
 	newUUID: uuid.NewString,
 }
 

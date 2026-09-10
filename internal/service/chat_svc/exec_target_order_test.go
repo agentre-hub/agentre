@@ -8,19 +8,19 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
 
 // setupExecTargetOrderTest 是 R14 顺序解析专用环境。与 setupPickExecTargetTest 的
@@ -83,7 +83,7 @@ func orderPlainClaude(id int64) *agent_backend_entity.AgentBackend {
 
 // orderSelfClaude 是指向本机指纹的 claudecode（R13 认领出来的「自己」那一档）。
 func orderSelfClaude(id int64) *agent_backend_entity.AgentBackend {
-	return &agent_backend_entity.AgentBackend{ID: id, Type: string(agent_backend_entity.TypeClaudeCode), DeviceID: "sha256:me"}
+	return &agent_backend_entity.AgentBackend{ID: id, Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:me"}
 }
 
 // ── R14 分支①：本端有覆盖 → 派发按覆盖顺序取第一个可用 ─────────────────────
@@ -118,7 +118,7 @@ func TestPickExecTarget_GivenNoOverride_WhenSelfTargetInList_ThenSelfPromotedAnd
 	m.execTargetOverride.EXPECT().Get(ctx, int64(32)).Return(nil, nil)
 	m.remoteDevice.EXPECT().DeviceFingerprint().Return("sha256:me", nil).AnyTimes()
 	m.backend.EXPECT().ListByDevice(ctx, "sha256:me").Return([]*agent_backend_entity.AgentBackend{
-		{ID: 62, DeviceID: "sha256:me"},
+		{ID: 62, DeviceFingerprint: "sha256:me"},
 	}, nil).AnyTimes()
 	// 自己（62）被提到第一：本机 claudecode 登录态直接可用，不做远端配对判定
 	//（不给 remoteDevice.Get 设期望，一旦触发就败）。

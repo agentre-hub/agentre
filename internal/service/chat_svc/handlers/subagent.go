@@ -4,19 +4,41 @@ import (
 	"context"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // MarkRunningSubagentsCancelled 在 turn abort 收尾时把外层累计态和 normalized runs
 // 中仍未终止的 waiting/running 状态改成 canceled。已完成、失败、取消、跳过或 unknown
 // 的证据原样保留，避免 abort 覆盖已经到达的终态。
+//
+// 这一版不加区分:轮被中断/截断时 CLI 已经不在了,后台任务同样等不到 SubagentDone。
+// 正常收尾请用 MarkRunningForegroundSubagentsCancelled。
 func MarkRunningSubagentsCancelled(finalBlocks []cagoblocks.ContentBlock) {
+	markRunningSubagentsCancelled(finalBlocks, func(*blocks.SubagentStateBlock) bool { return true })
+}
+
+// MarkRunningForegroundSubagentsCancelled 是**正常**收尾用的同款补救,但只翻前台
+// subagent。后台任务(Agent 默认后台 / run_in_background 的 Bash)本就有权活过发起
+// 它的那一轮 —— runtime 随后另开旁路活动轮继续收它的帧 —— 跟着一起翻成 canceled 会
+// 让派遣卡显示「已停止」、后台任务胶囊算进「已完成」,而任务其实还在跑(sess-3275)。
+//
+// 判据与前端 background-tasks/derive.ts 的 isBackground 同源,读的是发起它的
+// tool_use 入参;判不出来(kind 未知)时按前台处理,宁可翻 canceled 也不让卡片永远转。
+func MarkRunningForegroundSubagentsCancelled(acc *turn.Accumulator, finalBlocks []cagoblocks.ContentBlock) {
+	markRunningSubagentsCancelled(finalBlocks, func(sb *blocks.SubagentStateBlock) bool {
+		return !isBackgroundSubagent(acc, sb)
+	})
+}
+
+func markRunningSubagentsCancelled(finalBlocks []cagoblocks.ContentBlock, cancel func(*blocks.SubagentStateBlock) bool) {
 	for _, b := range finalBlocks {
 		sb, ok := b.(*blocks.SubagentStateBlock)
-		if !ok {
+		if !ok || !cancel(sb) {
 			continue
 		}
 		if isNonTerminalSubagentStatus(sb.Status) {
@@ -28,6 +50,39 @@ func MarkRunningSubagentsCancelled(finalBlocks []cagoblocks.ContentBlock) {
 			}
 		}
 	}
+}
+
+// isBackgroundSubagent 判定 overlay 背后的任务是否后台。两种工具的默认相反:
+//   - local_agent(Agent):默认后台,只有显式 run_in_background==false 才是前台
+//     (真实 CLI 实测:后台 Agent 根本不带此入参);
+//   - local_bash(Bash):默认前台,只有显式 run_in_background==true 才是后台。
+//
+// 其它 kind(含空 kind 的旧帧)一律按前台处理。
+func isBackgroundSubagent(acc *turn.Accumulator, sb *blocks.SubagentStateBlock) bool {
+	switch sb.Kind {
+	case subagentKindLocalAgent:
+		bg, explicit := runInBackgroundInput(acc, sb.ParentToolCallID)
+		return !explicit || bg
+	case subagentKindLocalBash:
+		bg, explicit := runInBackgroundInput(acc, sb.ParentToolCallID)
+		return explicit && bg
+	default:
+		return false
+	}
+}
+
+// runInBackgroundInput 读发起 toolCallID 的 tool_use 入参 run_in_background,
+// explicit 区分「显式给了布尔值」与「缺省/找不到那块 tool_use」。
+func runInBackgroundInput(acc *turn.Accumulator, toolCallID string) (bg bool, explicit bool) {
+	if acc == nil {
+		return false, false
+	}
+	input, ok := acc.ToolUseInput(toolCallID)
+	if !ok {
+		return false, false
+	}
+	v, isBool := input["run_in_background"].(bool)
+	return v, isBool
 }
 
 func isNonTerminalSubagentStatus(status string) bool {
@@ -55,8 +110,12 @@ func mergeNormalizedSnapshot(b *blocks.SubagentStateBlock, info agentruntime.Sub
 	}
 }
 
-// subagentKindLocalBash 是 CLI task_type 里后台 bash 的取值(对应 SubagentStateBlock.Kind)。
-const subagentKindLocalBash = "local_bash"
+// subagentKindLocalBash / subagentKindLocalAgent 是 CLI task_type 里 bash / subagent
+// 的取值(对应 SubagentStateBlock.Kind)。
+const (
+	subagentKindLocalBash  = "local_bash"
+	subagentKindLocalAgent = "local_agent"
+)
 
 // trackSubagentState 判定这次 task 帧是否该建/维护 SubagentStateBlock overlay。
 // 真实 CLI 对*每一次* Bash 都发 task_type:"local_bash" 帧,但只有 run_in_background
@@ -87,6 +146,27 @@ func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, 
 	if status == "" {
 		status = "running"
 	}
+	if owner, resumed := adoptCrossTurnResume(ctx, r, status, tc); resumed {
+		if emit != nil {
+			emit.Emit(ctx, streamOf(tc), map[string]any{
+				"kind":      "subagent_started",
+				"toolUseId": owner,
+				"info":      r.Info,
+			})
+		}
+		return nil
+	}
+	if owner, resumed := adoptResumedSubagent(acc, r, status); resumed {
+		// 恢复重开:同一个 task 换了 tool call,已认领到原卡上,不另起第二块。
+		if emit != nil {
+			emit.Emit(ctx, streamOf(tc), map[string]any{
+				"kind":      "subagent_started",
+				"toolUseId": owner,
+				"info":      r.Info,
+			})
+		}
+		return nil
+	}
 	blk := &blocks.SubagentStateBlock{
 		ParentToolCallID: r.ToolCallID,
 		TaskID:           r.Info.TaskID, // CLI task_id,供 StopBackgroundTask 下发 stop_task 定位
@@ -108,13 +188,80 @@ func (SubagentStartedHandler) Apply(ctx context.Context, ev agentruntime.Event, 
 	return nil
 }
 
+// adoptResumedSubagent 认领「同一个 task_id、新的 tool_use_id」的 task_started。
+//
+// CLI 恢复一个子代理(SendMessage)时不会新起一个 task,而是用原 task_id 重发一遍
+// task_started/task_notification,只换 tool_use_id(sess-3504 实测)。overlay 若只按
+// tool call 归集,恢复后的那一段会另起一块挂在 SendMessage 那次调用上 —— 而
+// SendMessage 不是 agent.spawn 工具名(canonical/from_tool_use.go 只认 task/agent),
+// 那块永远没有卡片渲染:原卡永远停在 failed,恢复后跑出来的结论一个字都看不到。
+//
+// 认领 = 把新 tool call 的 mutate key 指到原块上(后续 progress/done/model 帧不必知道
+// 自己是恢复来的),把原块推回运行态,并把被覆盖的那一段终态记进 Resumes 留证。
+// task_id 为空时不参与 —— 否则一轮里所有无 id 的 overlay 会互相吞并。
+//
+// owner 是被认领到的原卡 tool_use_id。归一之后所有 live 事件都必须报它:前端
+// mergeSubagentMetaBlocks 按 toolUseId 找外层 tool_use 块挂元数据,继续报新 id 会挂到
+// SendMessage 那个块上 —— 后端归一了,界面上仍是两张卡,直到刷新才对齐。
+func adoptResumedSubagent(acc *turn.Accumulator, r agentruntime.SubagentStarted, status string) (owner string, resumed bool) {
+	if r.Info.TaskID == "" {
+		return "", false
+	}
+	hit := turn.AdoptMutateKey(acc, "subagent_state:"+r.ToolCallID,
+		func(b *blocks.SubagentStateBlock) bool {
+			return b.TaskID == r.Info.TaskID && b.ParentToolCallID != r.ToolCallID
+		},
+		func(b *blocks.SubagentStateBlock) {
+			b.Resumes = append(b.Resumes, blocks.SubagentInterruption{
+				Status:  b.Status,
+				Summary: b.Summary,
+			})
+			b.Status = status
+			// 上一段的结论已收进 Resumes;留着它会让恢复后仍在跑的卡片显示上一次的
+			// 中断原因,新的结论到达前这里应当是空的。
+			b.Summary = ""
+			owner = b.ParentToolCallID
+		})
+	return owner, hit
+}
+
+// adoptCrossTurnResume 处理「恢复发生在后一轮」——原卡早已落库,同轮那条
+// adoptResumedSubagent 够不着它。按 task_id 让仓储把它推回运行态,并把本轮这个新
+// tool call 记成它的别名,后续 done 帧才翻得到原卡而不是凭空造一张。
+//
+// 只在本轮确实没有这个 task 的 overlay 时才走(调用点排在 adoptResumedSubagent 之前
+// 但两者互斥:同轮命中时仓储那次查询根本不会发生 —— 见下面的 acc 判空)。
+//
+// 重放误伤不成立:实测 685 帧 task_started 零个完全重复(--resume 不重放它);即便
+// 重放,它带的是原来那个 tool_use_id,交回的 owner 与它自身相等,不记别名也不算恢复。
+func adoptCrossTurnResume(
+	ctx context.Context, r agentruntime.SubagentStarted, status string, tc *turn.TurnContext,
+) (owner string, resumed bool) {
+	if tc == nil || tc.SubagentFlipper == nil || r.Info.TaskID == "" || r.ToolCallID == "" {
+		return "", false
+	}
+	got, err := tc.SubagentFlipper.ResumeSubagentByTaskID(ctx, r.Info.TaskID, status)
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.SubagentStarted: ResumeSubagentByTaskID failed",
+			zap.String("taskId", r.Info.TaskID), zap.Error(err))
+		return "", false
+	}
+	if got == "" || got == r.ToolCallID {
+		return "", false
+	}
+	tc.AliasSubagentToolCall(r.ToolCallID, got)
+	return got, true
+}
+
 type SubagentProgressHandler struct{}
 
 func (SubagentProgressHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentProgress)
+	owner := r.ToolCallID
 	// task_progress 帧不带 task_type,无法自己判前台/后台;靠 Mutate 是否命中既有
 	// overlay 来判定 —— 前台 bash 在 Started 已被跳过,这里命中不到 → 不 emit 孤儿事件。
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {
+		owner = b.ParentToolCallID
 		mergeNormalizedSnapshot(b, r.Info)
 		// R4/R10:TotalTokens/ToolUses/DurationMs 三者来自同一个 CLI usage 对象
 		// (taskUsage,值类型无存在性区分)。task_progress 帧偶尔缺 usage,解码成
@@ -140,7 +287,7 @@ func (SubagentProgressHandler) Apply(ctx context.Context, ev agentruntime.Event,
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{
 			"kind":      "subagent_progress",
-			"toolUseId": r.ToolCallID,
+			"toolUseId": owner,
 			"info":      r.Info,
 		})
 	}
@@ -164,7 +311,9 @@ func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, ac
 		return nil
 	}
 	var recorded bool
+	owner := r.ToolCallID
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {
+		owner = b.ParentToolCallID
 		if b.Model != "" {
 			return // first-wins(R3):模型一经记录,后续内部帧不再改写
 		}
@@ -183,7 +332,7 @@ func (SubagentModelHandler) Apply(ctx context.Context, ev agentruntime.Event, ac
 		// 的 JSON 标签没有 omitempty,会把已有状态覆盖成空串。
 		emit.Emit(ctx, streamOf(tc), map[string]any{
 			"kind":      "subagent_model",
-			"toolUseId": r.ToolCallID,
+			"toolUseId": owner,
 			"model":     r.Model,
 		})
 	}
@@ -194,7 +343,9 @@ type SubagentDoneHandler struct{}
 
 func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
 	r := ev.(agentruntime.SubagentDone)
+	owner := r.ToolCallID
 	hit := turn.Mutate[blocks.SubagentStateBlock](acc, "subagent_state:"+r.ToolCallID, func(b *blocks.SubagentStateBlock) {
+		owner = b.ParentToolCallID
 		mergeNormalizedSnapshot(b, r.Info)
 		if r.Info.Status == "" {
 			b.Status = "completed"
@@ -211,6 +362,11 @@ func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc
 		if r.Info.ToolUses != 0 {
 			b.ToolUses = r.Info.ToolUses
 		}
+		// Summary 是这一 task 的结论(成功时子代理交回的报告全文,失败时中断原因)。
+		// 同上守卫:不带 summary 的帧不覆盖已记录值。
+		if r.Info.Summary != "" {
+			b.Summary = r.Info.Summary
+		}
 	})
 	if !hit {
 		return flipSubagentOutsideTurn(ctx, acc, tc, r)
@@ -218,7 +374,7 @@ func (SubagentDoneHandler) Apply(ctx context.Context, ev agentruntime.Event, acc
 	if emit != nil {
 		emit.Emit(ctx, streamOf(tc), map[string]any{
 			"kind":      "subagent_done",
-			"toolUseId": r.ToolCallID,
+			"toolUseId": owner,
 			"info":      r.Info,
 		})
 	}
@@ -242,12 +398,18 @@ func flipSubagentOutsideTurn(
 	if tc == nil || tc.SubagentFlipper == nil || r.ToolCallID == "" {
 		return nil
 	}
-	if _, inThisTurn := acc.ToolUseInput(r.ToolCallID); inThisTurn {
+	if _, inThisTurn := acc.ToolUseInput(r.ToolCallID); inThisTurn &&
+		tc.ResolveSubagentToolCall(r.ToolCallID) == r.ToolCallID {
+		// 发起它的 tool_use 就在本轮且没被别名过 —— 前台 bash,按 trackSubagentState
+		// 的约定从未建 overlay,静默忽略。别名过的那些相反:SendMessage 也在本轮,
+		// 但它承载的是更早那张卡的恢复段,终态必须翻过去。
 		return nil
 	}
 	status := r.Info.Status
 	if status == "" {
 		status = "completed" // 与命中路径同一默认,否则空 status 会被 flipper 直接丢弃
 	}
-	return tc.SubagentFlipper.FlipSubagentStatus(ctx, r.ToolCallID, status)
+	// 跨轮恢复过的 task:本轮这个新 tool call 是原卡的别名,终态要翻在原卡上。
+	return tc.SubagentFlipper.FlipSubagentStatus(
+		ctx, tc.ResolveSubagentToolCall(r.ToolCallID), status, r.Info.Summary)
 }

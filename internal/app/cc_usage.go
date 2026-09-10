@@ -10,10 +10,11 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/pkg/ccoauth"
-	"github.com/agentre-ai/agentre/internal/service/cc_usage_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/service/cc_usage_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // GetCCUsage 给前端 hook 主动拉指定 device 的缓存状态。
@@ -56,13 +57,14 @@ func (a *App) buildCCUsageResolver() cc_usage_svc.FetcherResolver {
 				return nil, errors.Join(cc_usage_svc.ErrDeviceOffline, lerr)
 			}
 			defer lease.Release()
-			var res handlers.CCUsageResult
-			if cerr := lease.Client().Call(ctx, "claudecode.usage", nil, &res); cerr != nil {
+			res, cerr := protorpc.CallMethod(ctx, lease.Client().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE),
+				&agentrewire.ClaudeCodeUsageRequest{}, func() *agentrewire.ClaudeCodeUsageResponse { return &agentrewire.ClaudeCodeUsageResponse{} })
+			if cerr != nil {
 				return nil, errors.Join(ccoauth.ErrNetwork, cerr)
 			}
 			switch res.Reason {
 			case "ok":
-				return res.Data, nil
+				return protobufRateLimits(res.GetData()), nil
 			case "no_credentials":
 				return nil, ccoauth.ErrNoCredentials
 			case "auth_expired":
@@ -74,6 +76,30 @@ func (a *App) buildCCUsageResolver() cc_usage_svc.FetcherResolver {
 			}
 		}, nil
 	}
+}
+
+func protobufRateLimits(value *agentrewire.ClaudeCodeRateLimits) *ccoauth.RateLimits {
+	if value == nil {
+		return nil
+	}
+	result := &ccoauth.RateLimits{FiveHourPercent: value.GetFiveHourPercent(), WeeklyPercent: value.GetWeeklyPercent(), SonnetWeeklyPercent: value.SonnetWeeklyPercent, OpusWeeklyPercent: value.OpusWeeklyPercent}
+	if value.FiveHourResetsAtMs != nil {
+		reset := time.UnixMilli(value.GetFiveHourResetsAtMs())
+		result.FiveHourResetsAt = &reset
+	}
+	if value.WeeklyResetsAtMs != nil {
+		reset := time.UnixMilli(value.GetWeeklyResetsAtMs())
+		result.WeeklyResetsAt = &reset
+	}
+	if value.SonnetWeeklyResetsAtMs != nil {
+		reset := time.UnixMilli(value.GetSonnetWeeklyResetsAtMs())
+		result.SonnetWeeklyResetsAt = &reset
+	}
+	if value.OpusWeeklyResetsAtMs != nil {
+		reset := time.UnixMilli(value.GetOpusWeeklyResetsAtMs())
+		result.OpusWeeklyResetsAt = &reset
+	}
+	return result
 }
 
 // ccUsagePollInterval 是 cc_usage_svc 后台轮询配额(本地 + 每个在线远端 device)

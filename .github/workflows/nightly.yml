@@ -14,6 +14,8 @@ concurrency:
 
 env:
   NODE_OPTIONS: --max-old-space-size=4096
+  # agentred 容器镜像。GHCR 的 owner 段必须全小写，写死避免大小写踩坑
+  IMAGE: ghcr.io/agentre-hub/agentred
 
 jobs:
   sync:
@@ -43,6 +45,8 @@ jobs:
     outputs:
       version: ${{ steps.ver.outputs.version }}
       sha: ${{ steps.ver.outputs.sha }}
+      short_sha: ${{ steps.ver.outputs.short_sha }}
+      date: ${{ steps.ver.outputs.date }}
       skip: ${{ steps.ver.outputs.skip }}
     steps:
       - uses: actions/checkout@v6
@@ -56,6 +60,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           SHA=$(git rev-parse HEAD)
+          SHORT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y%m%d)
+          # 容器镜像的 tag 要用到，两条出口都得有，所以在跳过判断之前就先写出去
+          echo "short_sha=${SHORT}" >> $GITHUB_OUTPUT
+          echo "date=${DATE}" >> $GITHUB_OUTPUT
           # 对比上一个 nightly release 的 commit，如果一致则跳过构建
           PREV_SHA=$(gh release view nightly --json targetCommitish --jq '.targetCommitish' 2>/dev/null || echo "")
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" = "$SHA" ]; then
@@ -71,7 +80,6 @@ jobs:
             LATEST_TAG="v0.0.0"
           fi
           BASE_VERSION="${LATEST_TAG#v}"
-          DATE=$(date -u +%Y%m%d)
           # 构建 nightly 版本号
           if [[ "$BASE_VERSION" == *-* ]]; then
             # 预发布版本: v1.0.0-beta.1 -> v1.0.0-beta.1.nightly.20260325
@@ -181,14 +189,14 @@ jobs:
         if: matrix.goos != 'windows'
         run: |
           if [ -n "${{ matrix.extra_tags }}" ]; then
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}" -tags "${{ matrix.extra_tags }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}" -tags "${{ matrix.extra_tags }}"
           else
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}"
           fi
 
       - name: Build desktop app (Windows)
         if: matrix.goos == 'windows'
-        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-ai/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}"
+        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ needs.prepare.outputs.sha }}"
 
       - name: Import Apple certificate
         if: matrix.goos == 'darwin'
@@ -359,8 +367,8 @@ jobs:
 
       - name: Add nightly installers and generate compatibility checksums
         run: |
-          sed 's#https://github.com/agentre-ai/agentre/releases/latest/download#https://github.com/agentre-ai/agentre/releases/download/nightly#g' scripts/install.sh > artifacts/install.sh
-          sed 's#https://github.com/agentre-ai/agentre/releases/latest/download#https://github.com/agentre-ai/agentre/releases/download/nightly#g' scripts/install.ps1 > artifacts/install.ps1
+          sed 's#https://github.com/agentre-hub/agentre/releases/latest/download#https://github.com/agentre-hub/agentre/releases/download/nightly#g' scripts/install.sh > artifacts/install.sh
+          sed 's#https://github.com/agentre-hub/agentre/releases/latest/download#https://github.com/agentre-hub/agentre/releases/download/nightly#g' scripts/install.ps1 > artifacts/install.ps1
           cd artifacts
           sha256sum * > SHA256SUMS
           cp SHA256SUMS SHA256SUMS.txt
@@ -378,3 +386,108 @@ jobs:
           Commit: ${{ needs.prepare.outputs.sha }}
           Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             artifacts/*
+
+  # agentred 容器镜像：从源码构建（Dockerfile 默认目标），CLI 版本由 Dockerfile 钉死
+  build-agentred-image:
+    name: agentred image (${{ matrix.arch }})
+    needs: [prepare]
+    if: ${{ always() && !failure() && !cancelled() && needs.prepare.outputs.skip != 'true' }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 两个原生 runner 各打一个架构，不走 QEMU：镜像里要装三个 CLI 并逐个
+          # 跑版本自证，模拟环境下既慢又容易在自证那步无谓地红。
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: nightly
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: ${{ matrix.platform }}
+          # 单架构产物先按 digest 推上去，tag 由 merge job 一次性挂到 manifest list。
+          # provenance 关掉：开着会让每个架构自己变成一个 index，合并时 digest 对不上。
+          provenance: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+            COMMIT_ID=${{ needs.prepare.outputs.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+          cache-from: type=gha,scope=agentred-nightly-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=agentred-nightly-${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-agentred-image:
+    name: Publish agentred manifest
+    needs: [prepare, build-agentred-image]
+    if: ${{ always() && !failure() && !cancelled() && needs.prepare.outputs.skip != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: digests
+          pattern: nightly-image-digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: digests
+        env:
+          DATE: ${{ needs.prepare.outputs.date }}
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE}:nightly" \
+            -t "${IMAGE}:nightly-${DATE}" \
+            -t "${IMAGE}:sha-${SHORT_SHA}" \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect "${IMAGE}:nightly"

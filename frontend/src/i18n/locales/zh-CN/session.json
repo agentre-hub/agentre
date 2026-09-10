@@ -1,0 +1,219 @@
+{
+  "commandPalette": {
+    "chatSessions": {
+      "heading": "聊天会话",
+      "status": {
+        "error": "出错",
+        "running": "运行中",
+        "waiting": "等待"
+      },
+      "untitled": "(未命名会话)"
+    },
+    "close": "关闭命令面板",
+    "context": {
+      "freeModeHint": "新会话挂在自由会话",
+      "projectModeHint": "成员优先 · 非成员置灰",
+      "switchProject": "切项目",
+      "title": "上下文"
+    },
+    "description": "搜索会话 · 跳转 · 执行动作",
+    "empty": {
+      "commandHint": "输入命令名（例：New chat with）",
+      "noCommands": "未找到匹配的命令",
+      "noSessions": "未找到匹配的会话",
+      "sessionHint": "暂无会话 · 先开一个 Agent 对话"
+    },
+    "footer": {
+      "clearContext": "清上下文",
+      "create": "创建",
+      "navigate": "导航",
+      "open": "打开",
+      "newChat": "新建对话"
+    },
+    "group": {
+      "activeFirst": "活跃优先 · 共 {{count}} 条",
+      "matches": "{{count}} 条匹配"
+    },
+    "newProjectChat": {
+      "heading": "项目新对话",
+      "itemPrefix": "在项目中新建对话：",
+      "itemTitle": "在项目中新建对话：{{agentName}}",
+      "memberHeading": "在 {{projectName}} 中新建 chat",
+      "otherHeading": "其它 Agent",
+      "notInProject": "不在该项目"
+    },
+    "newAgent": {
+      "description": "在组织架构里创建新的助手/员工",
+      "heading": "操作",
+      "title": "New agent"
+    },
+    "newChat": {
+      "heading": "新建对话",
+      "itemPrefix": "新建对话：",
+      "itemTitle": "新建对话：{{agentName}}",
+      "needSetup": "需要先配置",
+      "needSetupBadge": "未配置",
+      "needSetupTitle": "和 {{agentName}} 新开对话",
+      "needSetupTitlePrefix": "和",
+      "needSetupTitleSuffix": "新开对话"
+    },
+    "project": {
+      "empty": "（还没有项目）",
+      "fallbackName": "项目 #{{id}}",
+      "none": "无项目",
+      "switchAria": "切换项目上下文",
+      "switchTitle": "点击切换项目 / Tab 也行"
+    },
+    "search": {
+      "clear": "清空查询",
+      "command": "命令",
+      "commandMode": "命令模式",
+      "commandModeTitle": "命令模式（输入 > 进入）",
+      "commandPlaceholder": "输入命令…",
+      "sessionPlaceholder": "搜索会话…"
+    },
+    "title": "命令面板",
+    "nav": {
+      "heading": "导航"
+    }
+  },
+  "sessionIndex": {
+    "add": {
+      "aria": "新建",
+      "newAgent": "新建 Agent",
+      "newAgentHint": "前往组织架构创建",
+      "newChat": "新建对话",
+      "newChatHint": "命令面板：Tab 切项目 → 选 Agent",
+      "newProject": "新建项目"
+    },
+    "axis": {
+      "agent": "Agent",
+      "project": "项目",
+      "time": "时间",
+      "title": "分组方式"
+    },
+    "empty": {
+      "noMatch": "没有匹配的会话",
+      "nothing": "还没有任何对话"
+    },
+    "filter": {
+      "all": "全部",
+      "running": "运行中",
+      "unread": "未读"
+    },
+    "free": {
+      "attention": "{{count}} 条随手对话需要关注",
+      "empty": "还没有随手对话",
+      "name": "随手对话",
+      "newSession": "新建随手对话"
+    },
+    "import": {
+      "pickDirectoryTitle": "为导入的会话选择工作目录"
+    },
+    "machine": {
+      "empty": "这台机器上还没有对话",
+      "local": "本机"
+    },
+    "search": {
+      "aria": "搜索会话、项目或 Agent",
+      "clear": "清除搜索",
+      "placeholder": "搜索会话、项目、Agent"
+    },
+    "sidebar": "会话索引",
+    "untitledSession": "未命名会话"
+  },
+  "sessionsPopover": {
+    "empty": "暂无会话",
+    "loadFailed": "加载失败：{{error}}",
+    "loaded": "已加载 {{loaded}} / {{total}}",
+    "loadMore": "加载更多",
+    "noMatches": "未匹配到「{{query}}」",
+    "running": "{{count}} 运行中",
+    "search": {
+      "aria": "按标题筛选会话",
+      "placeholder": "标题搜索…"
+    },
+    "total": "{{count}} 个会话",
+    "untitled": "(未命名)"
+  },
+  "shortcuts": {
+    "chatTab": {
+      "hint": "按 TabStrip 排列顺序（固定 + 普通 + 预览）",
+      "label": "切换到第 N 个 Tab"
+    },
+    "chatTabCycle": {
+      "hint": "下一个 / 上一个标签页（两端环绕）",
+      "label": "循环切换标签页"
+    },
+    "conflict": {
+      "inUse": "已被「{{label}}」占用",
+      "systemReserved": "该组合键由系统保留,请换一个"
+    },
+    "description": "调整全局导航与对话页快捷键。",
+    "fixed": "固定",
+    "record": "录制",
+    "recording": "按下新组合键…",
+    "reset": "重置",
+    "registry": {
+      "closeTab": {
+        "hint": "关闭激活中的 Tab（钉住的 Tab 不可关闭）",
+        "label": "关闭当前 Tab"
+      },
+      "nav": {
+        "chat": {
+          "hint": "Agent 对话主面板",
+          "label": "切换到 对话"
+        },
+        "hooks": {
+          "hint": "Hook 触发规则",
+          "label": "切换到 Hooks"
+        },
+        "issues": {
+          "hint": "看板 / 任务列表",
+          "label": "切换到 看板"
+        },
+        "org": {
+          "hint": "组织架构与 Agent 角色",
+          "label": "切换到 组织"
+        },
+        "projects": {
+          "hint": "会话索引按项目分组",
+          "label": "按项目分组"
+        },
+        "settings": {
+          "hint": "设置面板",
+          "label": "打开 设置"
+        }
+      },
+      "newChat": {
+        "hint": "打开命令面板并定位到 New chat with …",
+        "label": "新建对话"
+      },
+      "palette": {
+        "hint": "搜索会话 · 跳转 · 执行动作",
+        "label": "命令面板"
+      },
+      "sessionChip": {
+        "hint": "兼容旧版侧边栏快捷键",
+        "label": "切换到第 {{index}} 个会话"
+      },
+      "tabChip": {
+        "hint": "按 TabStrip 排列顺序（固定 + 普通 + 预览）",
+        "label": "切换到第 {{index}} 个 Tab"
+      }
+    },
+    "resetAll": "全部重置为默认",
+    "resetDialog": {
+      "description": "所有自定义绑定将恢复为默认值,无法撤销。",
+      "storagePrefix": "重置后浏览器本地保存的",
+      "storageSuffix": "将被清空。",
+      "title": "重置所有快捷键?"
+    },
+    "sections": {
+      "chat": "对话页",
+      "global": "全局导航"
+    },
+    "title": "键盘快捷键",
+    "unbound": "未绑定"
+  }
+}

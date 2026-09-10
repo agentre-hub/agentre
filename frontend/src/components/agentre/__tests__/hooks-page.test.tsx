@@ -1,8 +1,42 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hoist mocks so the module factory can reference them (vi.mock is hoisted
+// above imports); follows the shape established by
+// remote-devices/device-providers-sync.test.tsx.
+const appMocks = vi.hoisted(() => ({
+  LoadHooks: vi.fn(),
+  CreateHook: vi.fn(),
+  UpdateHook: vi.fn(),
+  DeleteHook: vi.fn(),
+  ToggleHook: vi.fn(),
+  RunHook: vi.fn(),
+  ProbeInterpreters: vi.fn(),
+}));
+
+vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
 
 import { HooksPage } from "../hooks-page";
+import {
+  CreateHook,
+  DeleteHook,
+  LoadHooks,
+  ProbeInterpreters,
+  RunHook,
+  ToggleHook,
+  UpdateHook,
+} from "../../../../wailsjs/go/app/App";
+
+const mockLoadHooks = LoadHooks as unknown as ReturnType<typeof vi.fn>;
+const mockCreateHook = CreateHook as unknown as ReturnType<typeof vi.fn>;
+const mockUpdateHook = UpdateHook as unknown as ReturnType<typeof vi.fn>;
+const mockDeleteHook = DeleteHook as unknown as ReturnType<typeof vi.fn>;
+const mockToggleHook = ToggleHook as unknown as ReturnType<typeof vi.fn>;
+const mockRunHook = RunHook as unknown as ReturnType<typeof vi.fn>;
+const mockProbeInterpreters = ProbeInterpreters as unknown as ReturnType<
+  typeof vi.fn
+>;
 
 type AnyRecord = Record<string, unknown>;
 
@@ -17,7 +51,7 @@ function makeHook(over: AnyRecord = {}) {
     env: [{ key: "JIRA_TOKEN", value: "********", secret: true }],
     enabled: true,
     nextRunAt: 0,
-    lastRunAt: Math.floor(Date.now() / 1000) - 120,
+    lastRunAt: Date.now() - 120_000,
     lastStatus: "ok",
     lastError: "",
     lastDurationMs: 412,
@@ -34,11 +68,27 @@ const sampleEvent = {
   title: "payment callback timeout",
   dedupeKey: "OPS-4821",
   payloadJson: '{"severity":"high"}',
-  receivedAt: Math.floor(Date.now() / 1000) - 60,
+  receivedAt: Date.now() - 60_000,
   createtime: 0,
 };
 
-function setBridge(over: AnyRecord = {}) {
+/**
+ * Resets and re-primes the mocked wailsjs bindings for a test. Mirrors the
+ * old setBridge() helper's shape and default fixtures, just wired to the
+ * imported mock functions instead of a window.go stub.
+ */
+type BridgeOverrides = {
+  LoadHooks?: (...args: unknown[]) => unknown;
+  CreateHook?: (...args: unknown[]) => unknown;
+  UpdateHook?: (...args: unknown[]) => unknown;
+  DeleteHook?: (...args: unknown[]) => unknown;
+  ToggleHook?: (...args: unknown[]) => unknown;
+  RunHook?: (...args: unknown[]) => unknown;
+  ProbeInterpreters?: (...args: unknown[]) => unknown;
+};
+
+function setBridge(over: BridgeOverrides = {}) {
+  vi.clearAllMocks();
   const hookA = makeHook();
   const hookB = makeHook({
     id: 3,
@@ -47,51 +97,60 @@ function setBridge(over: AnyRecord = {}) {
     enabled: false,
     lastStatus: "",
   });
-  const app = {
-    LoadHooks: vi.fn(() =>
-      Promise.resolve({ hooks: [hookA, hookB], events: [sampleEvent] }),
-    ),
-    CreateHook: vi.fn((req: AnyRecord) =>
-      Promise.resolve(makeHook({ id: 9, ...req })),
-    ),
-    UpdateHook: vi.fn((req: AnyRecord) => Promise.resolve(makeHook(req))),
-    DeleteHook: vi.fn(() => Promise.resolve()),
-    ToggleHook: vi.fn((id: number, enabled: boolean) =>
-      Promise.resolve(makeHook({ id, enabled })),
-    ),
-    RunHook: vi.fn(() =>
-      Promise.resolve({
-        exitCode: 0,
-        durationMs: 412,
-        timedOut: false,
-        stdout: '{"events":[]}',
-        stderr: "",
-        parseError: "",
-        events: [sampleEvent],
-        newCount: 1,
-        dupCount: 1,
-        persisted: false,
-      }),
-    ),
-    ProbeInterpreters: vi.fn(() =>
-      Promise.resolve([
-        { key: "bash", path: "/bin/bash", installed: true },
-        { key: "node", path: "/usr/bin/node", installed: true },
-        { key: "python", path: "/usr/bin/python3", installed: true },
-        { key: "pwsh", path: "", installed: false },
-      ]),
-    ),
-    ...over,
-  };
-  Object.defineProperty(window, "go", {
-    configurable: true,
-    value: { app: { App: app } },
+  mockLoadHooks.mockResolvedValue({
+    hooks: [hookA, hookB],
+    events: [sampleEvent],
   });
-  return app;
+  mockCreateHook.mockImplementation((req: AnyRecord) =>
+    Promise.resolve(makeHook({ id: 9, ...req })),
+  );
+  mockUpdateHook.mockImplementation((req: AnyRecord) =>
+    Promise.resolve(makeHook(req)),
+  );
+  mockDeleteHook.mockResolvedValue(undefined);
+  mockToggleHook.mockImplementation((id: number, enabled: boolean) =>
+    Promise.resolve(makeHook({ id, enabled })),
+  );
+  mockRunHook.mockResolvedValue({
+    exitCode: 0,
+    durationMs: 412,
+    timedOut: false,
+    stdout: '{"events":[]}',
+    stderr: "",
+    parseError: "",
+    events: [sampleEvent],
+    newCount: 1,
+    dupCount: 1,
+    persisted: false,
+  });
+  mockProbeInterpreters.mockResolvedValue([
+    { key: "bash", path: "/bin/bash", installed: true },
+    { key: "node", path: "/usr/bin/node", installed: true },
+    { key: "python", path: "/usr/bin/python3", installed: true },
+    { key: "pwsh", path: "", installed: false },
+  ]);
+  // Apply any per-test overrides on top of the defaults above.
+  if (over.LoadHooks) mockLoadHooks.mockImplementation(over.LoadHooks);
+  if (over.CreateHook) mockCreateHook.mockImplementation(over.CreateHook);
+  if (over.UpdateHook) mockUpdateHook.mockImplementation(over.UpdateHook);
+  if (over.DeleteHook) mockDeleteHook.mockImplementation(over.DeleteHook);
+  if (over.ToggleHook) mockToggleHook.mockImplementation(over.ToggleHook);
+  if (over.RunHook) mockRunHook.mockImplementation(over.RunHook);
+  if (over.ProbeInterpreters)
+    mockProbeInterpreters.mockImplementation(over.ProbeInterpreters);
+  return {
+    LoadHooks: mockLoadHooks,
+    CreateHook: mockCreateHook,
+    UpdateHook: mockUpdateHook,
+    DeleteHook: mockDeleteHook,
+    ToggleHook: mockToggleHook,
+    RunHook: mockRunHook,
+    ProbeInterpreters: mockProbeInterpreters,
+  };
 }
 
-afterEach(() => {
-  delete (window as unknown as { go?: unknown }).go;
+beforeEach(() => {
+  vi.clearAllMocks();
 });
 
 describe("HooksPage", () => {
@@ -121,6 +180,17 @@ describe("HooksPage", () => {
     expect(screen.getByText("Bash Hook")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Script" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Run Log/ })).toBeInTheDocument();
+  });
+
+  it("renders hook timestamps as millisecond epochs", async () => {
+    // lastRunAt / receivedAt 与库里其它时间列同为毫秒 epoch。按秒解读会让
+    // Date.now()/1000 - <毫秒值> 变成一个巨大负数,被 Math.max(0, …) 夹成 0,
+    // 于是每一条「上次运行 / 收到于」都固定显示成刚刚发生。
+    setBridge();
+    render(<HooksPage />);
+    await screen.findAllByText("Jira urgent");
+
+    expect(screen.getByText(/2m ago/)).toBeInTheDocument();
   });
 
   it("edits cron + command and saves via UpdateHook", async () => {
@@ -213,16 +283,15 @@ describe("HooksPage", () => {
       dedupeKey: "",
       payloadJson:
         '{"exitCode":124,"timedOut":true,"stderr":"deadline exceeded"}',
-      receivedAt: Math.floor(Date.now() / 1000) - 30,
+      receivedAt: Date.now() - 30_000,
       createtime: 0,
     };
     setBridge({
-      LoadHooks: vi.fn(() =>
+      LoadHooks: () =>
         Promise.resolve({
           hooks: [makeHook()],
           events: [failureEvent, sampleEvent],
         }),
-      ),
     });
     render(<HooksPage />);
     await screen.findAllByText("Jira urgent");

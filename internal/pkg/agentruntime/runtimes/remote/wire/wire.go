@@ -1,11 +1,13 @@
 // Package wire 定义 agentre ↔ agentred RPC 协议的参数 / 结果 / 通知帧。
-// daemon handlers 和 client *remote.Runtime 共享同一组类型,避免两边手抄 JSON shape 时漂移。
+// daemon handlers 和 client *remote.Runtime 共享同一组类型,避免两边手抄 Protobuf shape 时漂移。
 //
 // 命名约定:
-//   - 所有 RPC 方法都在 "runtime.*" 命名空间下,与 agentruntime.Runtime + 子接口一一对应。
+//   - 与 agentruntime.Runtime + 子接口一一对应的方法都在 "runtime.*" 命名空间下。
+//     不属于「跑一轮」的方法另开自己的命名空间(如 "skills.*" 是这台机器上装了
+//     什么技能包,与任何一轮执行无关),免得 runtime.* 变成一个什么都往里塞的箩筐。
 //   - 字段名一律 lowerCamelCase。
 //   - 错误码 -32010..-32014 是 agentruntime 标准 sentinel 的稳定 wire 值;
-//     ToJSONRPCError / FromJSONRPCError 双向翻译,让 errors.Is(err, agentruntime.ErrXxx)
+//     ToRPCError / FromRPCError 双向翻译,让 errors.Is(err, agentruntime.ErrXxx)
 //     在客户端继续工作。
 package wire
 
@@ -15,37 +17,42 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/jsonrpc"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/turnstate"
 )
 
 // ── RPC method names ────────────────────────────────────────────────────────
 
 // Method 常量是 daemon registry.Register 与客户端 c.Call 的唯一来源。
 const (
-	MethodCapabilities         = "runtime.capabilities"
-	MethodRun                  = "runtime.run"
-	MethodSteer                = "runtime.steer"
-	MethodCancelSteer          = "runtime.cancelSteer"
-	MethodDrainPending         = "runtime.drainPending"
-	MethodAbort                = "runtime.abort"
-	MethodStopBackgroundTask   = "runtime.stopBackgroundTask"
-	MethodSetPermissionMode    = "runtime.setPermissionMode"
-	MethodSubmitAnswer         = "runtime.submitAnswer"
-	MethodSubmitToolPermission = "runtime.submitToolPermission"
-	MethodGetGoal              = "runtime.goal.get"
-	MethodSetGoal              = "runtime.goal.set"
-	MethodClearGoal            = "runtime.goal.clear"
+	MethodCapabilities       = "runtime.capabilities"
+	MethodRun                = "runtime.run"
+	MethodSteer              = "runtime.steer"
+	MethodCancelSteer        = "runtime.cancelSteer"
+	MethodDrainPending       = "runtime.drainPending"
+	MethodAbort              = "runtime.abort"
+	MethodStopBackgroundTask = "runtime.stopBackgroundTask"
+	MethodSetPermissionMode  = "runtime.setPermissionMode"
+	MethodSetModelTarget     = "runtime.setModelTarget"
+	// MethodSetSessionReasoningEffort 改这条会话钉的思考力度,与 setModelTarget 同族:
+	// 都是「改这条会话下一轮的 spawn 参数」,不影响正在跑的那一轮。
+	MethodSetSessionReasoningEffort = "runtime.setSessionReasoningEffort"
+	MethodSubmitAnswer              = "runtime.submitAnswer"
+	MethodSubmitToolPermission      = "runtime.submitToolPermission"
+	MethodGetGoal                   = "runtime.goal.get"
+	MethodSetGoal                   = "runtime.goal.set"
+	MethodClearGoal                 = "runtime.goal.clear"
 
 	// 断连重连的补齐族。客户端重连后的三步是 list → attach → pull(→ pendingWaiters),
 	// 每一步都限定在调用方自己的对端范围内(R16),对端身份取自那条连接的鉴权状态,
 	// 不由参数携带 —— 参数里的对端标识等于让任何已配对设备点名读别人的会话。
-	//
-	// 老版本 daemon 不认识这四个方法,会回 method-not-found;客户端据此判定该 daemon
-	// 不支持本规格并回落到「断连即终止」(R18),所以它们必须是**新增**方法而不是给
-	// 既有方法加参数。
-	MethodSessionList           = "runtime.session.list"
+	MethodSessionList = "runtime.session.list"
+	// MethodSessionCounts 只问三个数:这台机器上有多少条、多少条正在跑、多少条在等
+	// 用户。它与 list 分开,是因为调用方(设备卡片)要的从来不是清单 —— 拿 list 数出
+	// 这三个数,就得先把整台机器的摘要搬过线。
+	MethodSessionCounts         = "runtime.session.counts"
 	MethodSessionPull           = "runtime.session.pull"
 	MethodSessionPendingWaiters = "runtime.session.pendingWaiters"
 	// MethodSessionAttach 是**显式接管**:客户端声明「这条会话此后由我消费」,daemon
@@ -58,9 +65,52 @@ const (
 	// 路径,所以重连的客户端需要一个不含副作用的入口明说这件事。
 	MethodSessionAttach = "runtime.session.attach"
 
+	// MethodSessionDelete 删掉这一端上的那条会话:agentred 上是会话行与它的整段通知
+	// 日志,桌面端上是**那台电脑自己那条对话本体**。两种端一视同仁地受理它 —— 会话
+	// 在哪台机器上执行,删除就在哪台机器上生效。
+	//
+	MethodSessionDelete = "runtime.session.delete"
+
+	// MethodSkillsCatalog 列出**这台机器上**某一档执行目标的技能目录:已装包(含全局
+	// 启用态)并上 agentre 的推荐包,逐行标注这一档授权了没有。它替掉浏览器控制台里
+	// 「手打 skill id」——浏览器此前没有任何办法知道那台机器上到底装了什么。
+	//
+	// 它**不在** runtime.* 下:技能装在机器上,与任何一轮执行无关,问它不需要、也不该
+	// 需要一条会话。
+	//
+	// 授权集由**调用方随请求带上**(SkillCatalogParams.Authorized),而不是执行端自己去
+	// 查:执行目标与它的技能授权(R15e「一档一块」)存在组织架构库里,agentred 上没有
+	// 那个库 —— 让它猜等于让它拿别的档、或者干脆拿空授权来答。谁掌握那一档的授权谁
+	// 就得说出来,这样「一档一块」在协议上就是显式的,不靠两边默契。
+	MethodSkillsCatalog = "skills.catalog"
+
+	// MethodProjectSetLocalPath / MethodProjectClearLocalPath 配置**这台机器上**某个
+	// 项目的本机路径（规格 agentre-server 2026-08-21「桌面端的项目路径也能从 web 配」）。
+	//
+	// 它们同样**不在** runtime.* 下,理由与 skills.catalog 同一条:项目落在机器上,
+	// 与任何一轮执行无关。
+	//
+	// **为什么必须由这台机器自己写**:桌面端的本机路径不参与同步,只按 30 秒内容指纹
+	// 单向上报给 server(整份快照替换)。server 往那份快照里直写一行,这台机器下一次
+	// 上报就把它冲掉——所以浏览器要改它,只能经中转喊到这里来。agentred 不同,它的
+	// 路径是账号级同步对象,server 直写即可,那条路不经过这两个方法。
+	//
+	// 项目按**同步标识**指代,不按本地自增 id:后者是各端私有的,而载荷里不出现任何
+	// 一端的本地 id 是同步协议本来就写死的边界(见 internal/pkg/syncwire 包注释)。
+	MethodProjectSetLocalPath   = "project.setLocalPath"
+	MethodProjectClearLocalPath = "project.clearLocalPath"
+
 	// daemon → client 通知。
 	NotifyEvent         = "runtime.event"
 	NotifyRunResultDone = "runtime.runResultDone"
+
+	// NotifyTurnStarted 是「客户端要的这一轮开始了」。
+	//
+	// 自主续轮那一路一直有开始通知,客户端发起的这一路此前没有,而缺的这一半是看得
+	// 见的:不是自己发起这一轮的订阅者 —— 账号镜像、第二台桌面端、手机 —— 无从知道
+	// 这条会话回到了 running。它只看得到轮次**结束**(NotifyRunResultDone),于是整轮
+	// 里都把这条对话显示成闲着,等它跑完了才承认它刚才忙过。
+	NotifyTurnStarted = "runtime.turnStarted"
 
 	// MethodMCPProxy 是 daemon → client 的反向请求(request/response):daemon 上的 CLI
 	// 子进程访问内置工具 MCP(org/subagent/group/workflow)时,这些 /mcp/* handler 的真身
@@ -84,27 +134,48 @@ const (
 	ErrCodeNoActiveTurn    = -32010
 	ErrCodeSteerNotFound   = -32011
 	ErrCodeUnsupported     = -32012
-	ErrCodeAborted         = -32013
+	ErrCodeAborted         = turnstate.AbortedCode
 	ErrCodeSessionNotFound = -32014
+	// ErrCodePeerExecutionUnavailable:会话钉住的执行目标(agentred)当前不可用。
+	//
+	// 与上面五个不同,它**不进 SentinelFromCode**:那张表翻的是 daemon 回给
+	// remote 客户端的 agentruntime sentinel,而这一条是桌面端 peer 回给浏览器的,
+	// 两条链路不同。放这里的唯一理由是让它跟着 wire 一起生成给 TS ——
+	// 浏览器要靠它把「执行目标不可用」(停用写入 + 状态横幅)与普通拒绝区分开,
+	// 此前是在 agentre-server 里手抄的一个魔数,改了这边不会有任何地方变红。
+	//
+	// 应答里同时带类型化 data(accepted / historyAvailable / executionUnavailable)。
+	ErrCodePeerExecutionUnavailable = -32015
+
+	// project.* 的三个码。段位刻意避开已经用掉的 -32030..-32035(remotefs)与
+	// -32040..-32042(workspacefs):同一条连接上跑着好几个方法族,码段重叠会让
+	// 客户端把别人的失败认成自己的。
+	//
+	// ErrCodeProjectNotSynced:这台机器上没有这个同步标识的项目。它与「写失败了」
+	// **必须分得开**——项目可以先在 web 上建出来,那一刻目标机器可能还没拉到这一行,
+	// 等一会儿就好;折进通用失败会让用户去查权限和磁盘。
+	ErrCodeProjectNotSynced    = -32050
+	ErrCodeProjectInvalidPath  = -32051
+	ErrCodeProjectPathNotFound = -32052
 )
 
-// ToJSONRPCError 把 agentruntime 的 sentinel 包成 *jsonrpc.Error,daemon 端返回。
+// ToRPCError 把 agentruntime 的 sentinel 包成 *rpcerror.Error,daemon 端返回。
 // 非 sentinel 错误返 nil,调用方应自己包装(ErrInternal 之类)。
-func ToJSONRPCError(err error) *jsonrpc.Error {
+func ToRPCError(err error) *rpcerror.Error {
 	if code, ok := CodeForSentinel(err); ok {
-		return &jsonrpc.Error{Code: code, Message: err.Error()}
+		return &rpcerror.Error{Code: int32(code), Message: err.Error()}
 	}
 	return nil
 }
 
-// FromJSONRPCError 反向把 *jsonrpc.Error 翻成对应的 agentruntime sentinel。
+// FromRPCError 反向把 *rpcerror.Error 翻成对应的 agentruntime sentinel。
 // 未知 code 返原 err。
-func FromJSONRPCError(err error) error {
-	var rpcErr *jsonrpc.Error
+func FromRPCError(err error) error {
+	var rpcErr *rpcerror.Error
 	if !errors.As(err, &rpcErr) {
 		return err
 	}
-	if sent := SentinelFromCode(rpcErr.Code); sent != nil {
+	if sent := SentinelFromCode(int(rpcErr.Code)); sent != nil {
 		return sent
 	}
 	return err
@@ -112,7 +183,7 @@ func FromJSONRPCError(err error) error {
 
 // SentinelFromCode 把 wire error code 直接翻成 agentruntime sentinel,无匹配
 // 返 nil。客户端只拿到 (code, message) 二元组(走 RunResultDoneFrame 而非
-// *jsonrpc.Error)时调它,免去人工合成 *jsonrpc.Error 再走 FromJSONRPCError
+// *rpcerror.Error)时调它,免去人工合成 *rpcerror.Error 再走 FromRPCError
 // 的绕远路 —— 这也是 runtimes/remote 包能彻底不依赖 daemon/rpc 的关键。
 func SentinelFromCode(code int) error {
 	switch code {
@@ -131,7 +202,7 @@ func SentinelFromCode(code int) error {
 }
 
 // CodeForSentinel 把 agentruntime sentinel 翻成 wire error code;非 sentinel
-// 返 (0, false)。ToJSONRPCError 的核心,也方便 daemon 端调用方按需自己组帧。
+// 返 (0, false)。ToRPCError 的核心,也方便 daemon 端调用方按需自己组帧。
 func CodeForSentinel(err error) (int, bool) {
 	switch {
 	case errors.Is(err, agentruntime.ErrNoActiveTurn):
@@ -187,7 +258,7 @@ type ProviderSummary struct {
 	Models          []ModelSummary `json:"models,omitempty"`
 }
 
-// OK 大部分 mutating 方法不需要返回值,统一返这个空 struct 让 JSON-RPC 框架知道
+// OK 大部分 mutating 方法不需要返回值,统一返这个空 struct 表示成功。
 // 是「成功无 payload」。
 type OK struct{}
 
@@ -199,7 +270,7 @@ type PeerSessionControlResult struct {
 }
 
 type GoalParams struct {
-	SessionID         int64           `json:"sessionId"`
+	ConversationID    string          `json:"conversationId"`
 	PeerFingerprint   string          `json:"peerFingerprint,omitempty"`
 	AgentID           int64           `json:"agentId,omitempty"`
 	ProviderSessionID string          `json:"providerSessionId"`
@@ -250,9 +321,9 @@ type HistoryMessageWire struct {
 // daemon 端 handlers/runtime.go 在 Run 入口处自己用 ProviderLookup + 自家
 // Gateway 解出这三者,desktop 端 chat_svc.runTurn 检 be.IsRemote() 后也不再填。
 type RunParams struct {
-	Backend   json.RawMessage `json:"backend"`
-	AgentID   int64           `json:"agentId"`
-	SessionID int64           `json:"sessionId"`
+	Backend        json.RawMessage `json:"backend"`
+	AgentID        int64           `json:"agentId"`
+	ConversationID string          `json:"conversationId"`
 	// PeerFingerprint 点名这一轮要落在**哪个对端**名下的那条会话上(R9)。会话键是
 	// (发起端指纹, 会话 id),而清单(SessionSummary.PeerFingerprint)是客户端学 origin
 	// 的唯一来源;省略 = 调用方自己的对端,与控制族(attach / pull / abort / submit)
@@ -262,12 +333,19 @@ type RunParams struct {
 	// 它的其余订阅者一条都收不到(R6 / R18 的前提)。
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	Cwd             string `json:"cwd,omitempty"`
-	// Title 是该会话此刻的标题(R7)。桌面端每轮携带当前值,daemon 幂等覆盖;老桌面端
-	// 不传时保持空串。改名后最多滞后一轮生效。
+	// Title 是该会话此刻的标题(R7)。桌面端每轮携带当前值,daemon 幂等覆盖;调用方
+	// 不带这一格时保持空串。改名后最多滞后一轮生效。
 	Title string `json:"title,omitempty"`
 	// AgentSyncID 是该会话所属 Agent 的账号级同步标识(块 1,决策 3 的 ULID,不是本地
 	// 自增 agent_id)。会话列表按它解析 Agent 名与头像(R5)。
-	AgentSyncID       string `json:"agentSyncId,omitempty"`
+	AgentSyncID string `json:"agentSyncId,omitempty"`
+	// ProjectSyncID 是该会话所属项目的账号级同步标识。它与 AgentSyncID 同批携带、
+	// 由 daemon 幂等覆盖。
+	//
+	// 之所以要发起端报而不是让服务端从 cwd 推:日活跃统计按项目分组,而那条通道只
+	// 上行计数、不上行任何路径 —— 推不出来。空串 = 这一轮不属于任何项目(或调用方
+	// 是老版本),不是「未知待推导」。
+	ProjectSyncID     string `json:"projectSyncId,omitempty"`
 	SystemPrompt      string `json:"systemPrompt,omitempty"`
 	ProviderSessionID string `json:"providerSessionId,omitempty"`
 	// FreshSession 声明这一轮**必须起全新会话**:即使 daemon 在自家落库里存了这条会话
@@ -300,6 +378,18 @@ type RunParams struct {
 	// （daemon 解析该 Provider 当前默认模型），非空 = fixed-model（daemon 精确解析
 	// 该模型，缺失/停用/旧 daemon 一律严格拒绝，绝不静默降级为默认模型）。
 	LLMModelKey string `json:"llmModelKey,omitempty"`
+	// ReasoningEffort 是本轮的**有效**思考力度(会话覆盖 > 后端配置,由发起端的那一个
+	// 边界函数合成),与 LLMProviderKey / LLMModelKey 同形单列过线。
+	//
+	// 它不塞进 Backend 负载:浏览器端派发时送出的负载只有一个 {type} 空壳,力度在那条
+	// 路径上恒为空(spec 2026-09-01 决策 4)。
+	//
+	// 空串在这里是「调用方什么都没说」,**不是**「用户选了默认档」:执行侧取值时
+	// run 参数非空优先、为空回落 backend 负载里的力度(硬不变量 6)。留空的是**同代**
+	// 调用方 —— 没有会话级覆盖的轮次,以及尚未接线该字段的浏览器派发;跨代对端不在
+	// 此列:方法集变更已把协议窗口收成单点 0.3.0,握手期即被拒。会话真的改回
+	// 「跟随后端配置」时,发起端合成出来的仍是后端配置那个值,两者不冲突。
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	// SourceDevice / SourceDeviceName 是「开新一轮」发起方的设备身份（R18/R19）。
 	// 浏览器**每轮**随 runtime.run 声明自己的设备指纹与显示名（如「Chrome · macOS」）：
 	// 握手（auth.account）只带指纹、不带显示名，而 R19 要的是「人能认出的名字」，所以
@@ -317,7 +407,7 @@ type MCPProxyRequest struct {
 	Path    string              `json:"path"`              // 如 /mcp/org/
 	Method  string              `json:"method"`            // HTTP 方法(POST/GET/...)
 	Headers map[string][]string `json:"headers,omitempty"` // 含 Authorization: Bearer <token>
-	Body    []byte              `json:"body,omitempty"`    // JSON-RPC body
+	Body    []byte              `json:"body,omitempty"`    // MCP JSON-RPC HTTP body
 }
 
 // MCPProxyResponse 是 desktop 重放 MCPProxyRequest 后的 HTTP 应答封装。
@@ -344,7 +434,7 @@ type MCPProxyResponse struct {
 // 登录态)执行,并把被回退的 key 放进此字段回传。非空时桌面端据此追加一条持久
 // notice(与本地 Q3 一致);空串 = 未回退。
 type RunAck struct {
-	SessionID            int64  `json:"sessionId"`
+	ConversationID       string `json:"conversationId"`
 	ProviderSessionID    string `json:"providerSessionId,omitempty"`
 	LaunchPermissionMode string `json:"launchPermissionMode,omitempty"`
 	ProviderFallbackKey  string `json:"providerFallbackKey,omitempty"`
@@ -352,7 +442,7 @@ type RunAck struct {
 
 // SteerParams 等同 agentruntime.Steerer.Steer 的入参。
 type SteerParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	QueuedID        string `json:"queuedId,omitempty"`
 	Text            string `json:"text"`
@@ -360,7 +450,7 @@ type SteerParams struct {
 
 // CancelSteerParams 等同 agentruntime.SteerCanceler.CancelSteer 的入参。
 type CancelSteerParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	QueuedID        string `json:"queuedId,omitempty"`
 }
@@ -373,7 +463,7 @@ type CancelSteerResult struct {
 
 // DrainParams 等同 agentruntime.SteerDrainer.DrainPending 的入参。
 type DrainParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 }
 
@@ -386,7 +476,7 @@ type DrainResult struct {
 // AbortParams 等同 agentruntime.Aborter.Abort 的入参。
 // TurnToken 语义同 agentruntime:0 = 中断当前活跃轮;非 0 = 仅当该轮仍是当前活跃轮才中断。
 type AbortParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	TurnToken       uint64 `json:"turnToken,omitempty"`
 }
@@ -398,21 +488,52 @@ type AbortResult struct {
 
 // StopBackgroundTaskParams 等同 agentruntime.BackgroundTaskStopper.StopBackgroundTask 的入参。
 type StopBackgroundTaskParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	TaskID          string `json:"taskId"`
 }
 
 // SetPermissionModeParams 等同 agentruntime.PermissionModeSetter.SetPermissionMode 的入参。
 type SetPermissionModeParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	Mode            string `json:"mode"`
 }
 
+// SetModelTargetParams 改这条会话钉的 LLM ModelTarget,语义等同桌面端的
+// chat_svc.SetChatSessionModelTarget:
+//   - ProviderKey 空 + ModelKey 空 = 改回「跟随 Agent 绑定」(CLI 后端即回到自身
+//     登录态)。这是一个**要写下去的值**,不是「不改」—— 用户从固定模型改回跟随
+//     绑定时不清空,就等于这次改动没发生;
+//   - ProviderKey 非空 + ModelKey 空 = 该供应商当前的默认模型;
+//   - 两者都非空 = 固定模型。
+//
+// 新目标自**下一轮**生效,正在跑的那一轮不受影响。会话不存在时报错而不是折成
+// 成功:那会让调用方以为下一轮会用新模型,而实际上一行都没写。
+type SetModelTargetParams struct {
+	ConversationID  string `json:"conversationId"`
+	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	ProviderKey     string `json:"providerKey,omitempty"`
+	ModelKey        string `json:"modelKey,omitempty"`
+}
+
+// SetSessionReasoningEffortParams 改这条会话钉的思考力度,语义与 SetModelTargetParams
+// 逐条对齐:
+//   - ReasoningEffort 空串 = 改回「跟随后端配置」。这是一个**要写下去的值**,不是
+//     「不改」—— 用户从固定档改回跟随配置时不清空,就等于这次改动没发生;
+//   - 非空 = 六档词表里的那一档(low / medium / high / xhigh / max)。
+//
+// 新档位自**下一轮**生效,正在跑的那一轮不受影响。会话不存在时报错而不是折成成功:
+// 那会让调用方以为下一轮会用新档位,而实际上一行都没写。
+type SetSessionReasoningEffortParams struct {
+	ConversationID  string `json:"conversationId"`
+	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+}
+
 // SubmitAnswerParams 等同 agentruntime.AskAnswerSink.SubmitAnswer 的入参。
 type SubmitAnswerParams struct {
-	SessionID       int64                      `json:"sessionId"`
+	ConversationID  string                     `json:"conversationId"`
 	PeerFingerprint string                     `json:"peerFingerprint,omitempty"`
 	RequestID       string                     `json:"requestId"`
 	Questions       []agentruntime.AskQuestion `json:"questions,omitempty"`
@@ -422,7 +543,7 @@ type SubmitAnswerParams struct {
 
 // SubmitToolPermissionParams 等同 agentruntime.ToolPermissionSink.SubmitToolPermission 的入参。
 type SubmitToolPermissionParams struct {
-	SessionID          int64  `json:"sessionId"`
+	ConversationID     string `json:"conversationId"`
 	PeerFingerprint    string `json:"peerFingerprint,omitempty"`
 	RequestID          string `json:"requestId"`
 	Allow              bool   `json:"allow"`
@@ -432,12 +553,27 @@ type SubmitToolPermissionParams struct {
 
 // ── 断连重连的补齐族 ────────────────────────────────────────────────────────
 
-// 会话在 daemon 上的生命周期取值:running(一轮执行中)→ idle(轮结束,等下一轮)
-// → 可再次 running;任一状态遇 daemon 重启 → interrupted。
+// 会话在 daemon 上的生命周期取值:running(一轮执行中)→ idle(轮正常结束,等下一轮)
+// 或 failed(轮故障收场,同样等下一轮)→ 可再次 running;任一状态遇 daemon 重启
+// → interrupted。
 //
 // interrupted 是这条链的终点:那一轮的子进程随上一个 daemon 进程消亡了,会话的历史
 // 仍可拉取,但接不回实时流(MethodSessionAttach 拒绝它),对它提交决策按 R8 返回成功
 // 且无副作用。
+//
+// failed 与 interrupted 是**两件事**,不能合并成一个值:
+//
+//   - failed 说的是「上一轮的结局是错误」。会话本身完好 —— 接得回实时流、发得出
+//     下一轮,再跑一轮就回到 running。它是一个**关于上一轮**的事实,不是一道闸。
+//   - interrupted 说的是「这条会话此刻接不上」,是自锁的。
+//
+// 合并的代价是硬的:消费方对 interrupted 的既定纪律是**不去 attach**(agentred 的
+// session_catchup、桌面端的 remote/catchup、控制台的 relayClient 都按这一条写),
+// 所以拿 interrupted 表达「跑挂了」就等于让一条跑挂一次的会话再也接不上实时流。
+// 桌面端此前正是这么映射的(chat_svc 的 peerSessionLifecycle),这一档就是它的出路。
+//
+// 老消费方不认识 failed:它们的 switch 落进 default,按「不认识的状态」如实显示原文
+// ——这是刻意的,好过把它冒充成 idle 让失败静默消失。
 //
 // 「正在等待输入」**不在**这条链上:它是 running 之上的一层实时叠加,由 daemon 在
 // 应答时现算(SessionSummary.WaitingForInput),永不落库 —— 落库的等待标志会活过
@@ -445,8 +581,18 @@ type SubmitToolPermissionParams struct {
 const (
 	SessionLifecycleRunning     = "running"
 	SessionLifecycleIdle        = "idle"
+	SessionLifecycleFailed      = "failed"
 	SessionLifecycleInterrupted = "interrupted"
 )
+
+// IsTurnFailure 回答「这一轮算不算**故障**收场」。
+//
+// 判据本身住在共享 module 的 pkg/wire/turnstate 里 —— agentre-server 的账号镜像与
+// 浏览器那一侧要的是同一句话,而它们够不着本仓库的 internal/。这一层只把本地帧摊成
+// 它认的两格。
+func IsTurnFailure(f RunResultDoneFrame) bool {
+	return turnstate.IsFailure(f.StopErrMsg, f.StopErrCode)
+}
 
 // 单次增量拉取的条数:客户端不指定时用 Default,指定值超过 Max 时按 Max 截断。上限
 // 是硬的 —— 一条跑了很久的会话日志有几万行,一次全塞进一帧 WS 会把连接顶爆,而客户端
@@ -461,44 +607,104 @@ const (
 // LatestSeq 取自 daemon 通知日志里该会话的 MAX(seq)(唯一真相源),客户端拿它与自己
 // 存的游标一比就知道断连期间落下了多少条。
 type SessionSummary struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	AgentID         int64  `json:"agentId,omitempty"`
 	// Title / AgentSyncID / ProviderSessionID 是 R7 + 决策 8 的新列:会话标题、所属
-	// Agent 的账号级同步标识、以及续话要用的 provider 原生会话身份。老会话缺这些
-	// 字段时如实留空(空串,不猜、不填占位名)。
+	// Agent 的账号级同步标识、以及续话要用的 provider 原生会话身份。三者每轮由调用
+	// 方携带、幂等覆盖,所以还没跑过第一轮的会话这几格就是空的(标题由首条消息派生)。
+	// 缺这些字段时如实留空(空串,不猜、不填占位名)。
 	Title             string `json:"title,omitempty"`
 	AgentSyncID       string `json:"agentSyncId,omitempty"`
 	ProviderSessionID string `json:"providerSessionId,omitempty"`
 	Cwd               string `json:"cwd,omitempty"`
-	BackendType       string `json:"backendType,omitempty"`
-	LifecycleState    string `json:"lifecycleState"`
-	WaitingForInput   bool   `json:"waitingForInput,omitempty"`
-	LatestSeq         int64  `json:"latestSeq"`
-	// UpdatedAt 是这条会话最后一次活动的时刻(Unix 毫秒),取自 daemon_sessions 的
-	// updated_at —— 每轮起手幂等覆盖时一并推进。会话清单要显示「最后活动时间」
-	// (R5),而它的唯一真相源在执行端这台机器上。没记过活动时间的老会话报 0,由
+	// ProjectSyncID 是这条会话所属项目的**账号级同步标识**,由**桌面端**交出。
+	//
+	// 这一维在两种执行端上不是同一件事:agentred 的会话有一个落库的 cwd,账号那边
+	// 拿 (指纹, cwd) 去比它给每台机器配的项目路径就判得出归属;桌面端没有「这条会话
+	// 的 cwd」这种东西 —— 工作目录是每轮按项目本机路径现算的 —— 而且它的本机路径
+	// 不流动、只存在账号的上报组里,压根不在那份名单中。两头都对不上,于是桌面端的
+	// 每一条对话在账号侧都只能落进「随手对话」。真正流动的事实是项目同步标识本身,
+	// 所以它自己说出来。
+	//
+	// 交出的是同步标识而不是本地自增主键:那是账号里跨机通用的那个名字。项目还没
+	// 认领同步标识时(未登录期间建的行,R12a 之前)如实留空 —— 拿本地主键凑一个,
+	// 账号那边会照它建出一个永远配不上真项目的组。自由会话同样留空。
+	ProjectSyncID   string `json:"projectSyncId,omitempty"`
+	BackendType     string `json:"backendType,omitempty"`
+	LifecycleState  string `json:"lifecycleState"`
+	WaitingForInput bool   `json:"waitingForInput,omitempty"`
+	LatestSeq       int64  `json:"latestSeq"`
+	// LastMessageAt 是这条会话最后一次活动的时刻(Unix 毫秒),取自 daemon_sessions 的
+	// last_message_at —— 每轮起手幂等覆盖时一并推进。会话清单要显示「最后活动时间」
+	// (R5),而它的唯一真相源在执行端这台机器上。还没记过活动时间的会话报 0,由
 	// 客户端如实表达为「未知」而不是猜一个时刻。
-	UpdatedAt int64 `json:"updatedAt,omitempty"`
+	LastMessageAt int64 `json:"lastMessageAt,omitempty"`
+	// ProviderKey / ModelKey 是这条会话**自己**钉的 LLM ModelTarget,与桌面端
+	// chat_sessions.provider_key / model_key 逐字同义(chat_entity/session.go):
+	//   - 两者皆空 = 跟随 Agent 绑定(inherit-agent),每轮从 agent 的后端绑定解析;
+	//   - ProviderKey 非空 + ModelKey 空 = 该供应商当前的默认模型;
+	//   - 两者都非空 = 固定模型。
+	//
+	// 空**是一个有含义的取值**:它表示这条对话跟随 Agent 绑定。
+	ProviderKey string `json:"providerKey,omitempty"`
+	ModelKey    string `json:"modelKey,omitempty"`
+	// ReasoningEffort 是这条会话在执行端记下的思考力度(六档词表,空 = 跟随后端配置)。
+	// 与上面两格一样**只供显示**:执行路径的力度取自 RunParams.ReasoningEffort,不读
+	// 这一列。老执行端不发这个字段,解出来是空串。
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
-// SessionListResult 是 MethodSessionList 的应答:这台 daemon 上的会话。调用方自己的
-// 对端永远在范围内;daemon 已认领账号时 ListAll 会把全部对端的会话一并列出(账号可见
-// 性,见 handlers/session_catchup.go 的 List),范围不再只有「调用这条连接的对端」。
+// SessionListParams 是 MethodSessionList 的请求:一页会话。
+//
+// 三个字段都可以缺省,缺省即「整份、从头、不收窄」—— 那是分页出现之前的形态,也是
+// 不带这些字段的老客户端拿到的形态。
+type SessionListParams struct {
+	// Keyword 按标题的大小写不敏感子串收窄(宿主可以再宽一格,见 proto 的注释)。
+	Keyword string `json:"keyword,omitempty"`
+	// Cursor 上一页应答里的那个值;空 = 从最新那条开始。对调用方不透明,只经
+	// EncodeSessionListCursor / DecodeSessionListCursor 进出。
+	Cursor string `json:"cursor,omitempty"`
+	// Limit 一页最多几条。0 = 不分页(整份),上限见 SessionListMaxLimit。
+	Limit int `json:"limit,omitempty"`
+	// ConversationIDs 收窄到指定的这几条对话;空 = 不收窄。调用方已经知道自己要哪
+	// 几条时(详情页要一条摘要、账号要它保存过的那些),这比翻整台机器的清单去找
+	// 它们便宜一个数量级。
+	//
+	// 超过 SessionListMaxIDs 条时对端**报错**而不是截断:少给一条,在调用方那里读起来
+	// 是「这条对话不在那台机器上了」。
+	ConversationIDs []string `json:"conversationIds,omitempty"`
+}
+
+// SessionListResult 是 MethodSessionList 的应答:这台 daemon 上的**一页**会话。调用方
+// 自己的对端永远在范围内;daemon 已登录账号时 ListAll 会把全部对端的会话一并列出(账号
+// 可见性,见 handlers/session_catchup.go 的 List),范围不再只有「调用这条连接的对端」。
 type SessionListResult struct {
 	Sessions []SessionSummary `json:"sessions"`
-	// SupportsSessionMetadata 声明这台 daemon 落库并回传 R7 的标题 / Agent 同步标识
-	// 与决策 8 的 provider_session_id。**未升级的 agentred 不认识这个字段**,它的应答
-	// 里解出来恒为 false —— 这是客户端区分「这台机器上的老会话」与「这台机器本身没
-	// 升级」的唯一信号。后者上头,会话只能按 R5 退化显示、发新消息也续不上上下文,
-	// 客户端必须如实说明该机器需要升级而不是静默失败(规格「安全、隐私与兼容性」)。
-	SupportsSessionMetadata bool `json:"supportsSessionMetadata,omitempty"`
+	// Cursor 交给下一次请求;空 = 这是最后一页。不分页的应答同样是空 —— 那时整份
+	// 已经在手里,没有「下一页」这回事。
+	Cursor string `json:"cursor,omitempty"`
+	// HasMore 与 Cursor 同生共死,单独留一格是为了让调用方不必判断空串的含义。
+	HasMore bool `json:"hasMore,omitempty"`
+	// Total 是该 Keyword 下这台机器上的总数(不是这一页有几条):调用方拿它写
+	// 「查看全部 N」。不分页时它就是这一份的条数。
+	Total int64 `json:"total,omitempty"`
+}
+
+// SessionCountsResult 是 MethodSessionCounts 的应答:这台机器此刻忙不忙。
+//
+// Waiting 是**实时**判断(有没有阻塞中的 waiter),不是某一列的取值 —— 只有对端答得
+// 出;Running 取生命周期列。两者都在 Total 之内,彼此可以重叠。
+type SessionCountsResult struct {
+	Total   int64 `json:"total"`
+	Running int64 `json:"running"`
+	Waiting int64 `json:"waiting"`
 }
 
 // SessionPullParams 是 MethodSessionPull 的请求:给定会话与起始游标,取其后的通知。
 // Cursor 是**已经收到的**最后一个 seq(独占),所以首次补齐传 0。
 type SessionPullParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	Cursor          int64  `json:"cursor"`
 	Limit           int    `json:"limit,omitempty"`
@@ -509,18 +715,112 @@ type SessionPullParams struct {
 // Params **不含 seq** —— 落库时 seq 还没盖上去,它是日志行自己的列。补齐的客户端必须
 // 按 method 把 Params 解成对应的帧、把这里的 Seq 盖上去、再喂进与实时同一套 handler,
 // 否则每一帧都解出 seq=0,会被「不大于游标就丢弃」的规则整段吞掉(R6)。
+// Params 装的是**帧本身**(EventFrame / RunResultDoneFrame /
+// AutonomousTurnStartedFrame 之一),不是它的 JSON 字节。这一页补齐从头到尾在
+// Protobuf 与密封值之间走,中间摆一个 json.RawMessage 只会让每一行在服务端与
+// 客户端各自多走一轮 marshal→unmarshal —— 而日志行本身早就是 Protobuf 字节
+// (见 protowire.EncodeNotification),那次 JSON 连存储格式都不是。
+//
+// json tag 在这里不驱动序列化(下面的 MarshalJSON / UnmarshalJSON 才是),但必须
+// 与 journaledNotificationWire 一字不差:TS 编解码生成器读的是 tag,读不到自定义
+// marshaler。TestJournaledNotificationWireTagsMatchMarshaler 守住这一致性。
 type JournaledNotification struct {
-	Seq    int64           `json:"seq"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params"`
+	Seq    int64  `json:"seq"`
+	Method string `json:"method"`
+	Params any    `json:"params"`
+	// Createtime 是这一帧在**原点**发生的时刻(Unix 毫秒),取自日志行自己的列。
+	// 0 = 那一端还没升级到会报它,读者据此退回自己的收帧时刻,而不是把 0 当 1970。
+	//
+	// **没有 omitempty**:这一族结构的 json tag 就是 TS 编解码生成器读的那份契约
+	// (TestJournaledNotificationWireTagsMatchMarshaler 守着「tag 列表 == 实际发出的
+	// 键」)。省掉零值会让「报了 0」与「这一版根本没有这个字段」在线上长得一模一样。
+	Createtime int64 `json:"createtime"`
+}
+
+// journaledNotificationWire 是它真正的线上形态。Params 按 Method 决定解成哪个帧,
+// 所以两个方向都得自己接管。
+type journaledNotificationWire struct {
+	Seq        int64           `json:"seq"`
+	Method     string          `json:"method"`
+	Params     json.RawMessage `json:"params"`
+	Createtime int64           `json:"createtime"`
+}
+
+func (n JournaledNotification) MarshalJSON() ([]byte, error) {
+	raw := json.RawMessage("null")
+	if n.Params != nil {
+		encoded, err := json.Marshal(n.Params)
+		if err != nil {
+			return nil, err
+		}
+		raw = encoded
+	}
+	return json.Marshal(journaledNotificationWire{Seq: n.Seq, Method: n.Method, Params: raw, Createtime: n.Createtime})
+}
+
+func (n *JournaledNotification) UnmarshalJSON(data []byte) error {
+	var w journaledNotificationWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	n.Seq = w.Seq
+	n.Method = w.Method
+	n.Createtime = w.Createtime
+	n.Params = nil
+	if len(w.Params) == 0 || string(w.Params) == "null" {
+		return nil
+	}
+	frame, err := DecodeNotificationParams(w.Method, w.Params)
+	if err != nil {
+		return err
+	}
+	n.Params = frame
+	return nil
+}
+
+// DecodeNotificationParams 按 method 把一段 params 解成对应的帧。
+//
+// 认不出的 method **不是错误**:新版 daemon 可能加了第六类通知,而整段补齐不该
+// 因此失败(补齐停在这里会让它后面每一条已知通知也一起丢掉)。这种情况返回 nil
+// 帧,由调用方按「跳过这一格游标」处理。
+func DecodeNotificationParams(method string, params json.RawMessage) (any, error) {
+	switch method {
+	case NotifyEvent, NotifyAutonomousTurnEvent:
+		frame := &EventFrame{}
+		if err := json.Unmarshal(params, frame); err != nil {
+			return nil, err
+		}
+		return frame, nil
+	case NotifyRunResultDone, NotifyAutonomousTurnDone:
+		frame := &RunResultDoneFrame{}
+		if err := json.Unmarshal(params, frame); err != nil {
+			return nil, err
+		}
+		return frame, nil
+	case NotifyAutonomousTurnStarted:
+		frame := &AutonomousTurnStartedFrame{}
+		if err := json.Unmarshal(params, frame); err != nil {
+			return nil, err
+		}
+		return frame, nil
+	case NotifyTurnStarted:
+		frame := &TurnStartedFrame{}
+		if err := json.Unmarshal(params, frame); err != nil {
+			return nil, err
+		}
+		return frame, nil
+	default:
+		return nil, nil
+	}
 }
 
 // SessionPullResult 是一页补齐:按 seq 升序的通知、翻页用的新游标、以及是否还有更多。
 // Cursor 在空页上**保持不变**(不回退到 0),否则客户端会把整段日志重放一遍。
 //
 // OldestSeq 是该会话此刻**现存最老的那一行**的 seq(一条日志都没有时为 0)。它存在的
-// 唯一理由是 daemon 的日志留存会回收终态会话的老前缀(见 daemon.collectJournal):
-// 离线超过整个留存窗口的客户端,它的游标会落在那段已经不存在的区间里,补洞拉取因此
+// 唯一理由是日志的老前缀可能不在了 —— agentred 自己已经不回收(规格 2026-08-18
+// 决策 8),但库可能被从外部恢复或截断:
+// 客户端的游标会落在那段已经不存在的区间里,补洞拉取因此
 // 永远拉不到 游标+1 那一条 —— 每一页的第一条都被判成跳号丢弃,游标原地不动,此后连
 // 实时通知也全被当成跳号,会话没有错误、没有跳号地冻住(与 8496c291 修的越界冻结同类)。
 // 客户端据它把游标复位到 OldestSeq-1(那截尾巴是真的没有了),照 dropCursorAboveHighWater
@@ -534,7 +834,7 @@ type SessionPullResult struct {
 
 // SessionPendingWaitersParams 是 MethodSessionPendingWaiters 的请求。
 type SessionPendingWaitersParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 }
 
@@ -548,7 +848,7 @@ type SessionPendingWaitersResult struct {
 
 // SessionAttachParams 是 MethodSessionAttach 的请求。
 type SessionAttachParams struct {
-	SessionID       int64  `json:"sessionId"`
+	ConversationID  string `json:"conversationId"`
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 }
 
@@ -558,10 +858,104 @@ type SessionAttachParams struct {
 // 接管成功后该会话的实时通知就推给这条连接;客户端随后按自己的游标 pull 到拉平即可,
 // 接管与读高水位之间落库的那几条会在同一轮 pull 里被带出来。
 type SessionAttachResult struct {
-	SessionID      int64  `json:"sessionId"`
+	ConversationID string `json:"conversationId"`
 	BackendType    string `json:"backendType,omitempty"`
 	LifecycleState string `json:"lifecycleState"`
 	LatestSeq      int64  `json:"latestSeq"`
+}
+
+// SessionDeleteParams 是 MethodSessionDelete 的请求。PeerFingerprint 的语义与补齐族
+// 完全一致:省略 = 调用方自己的对端,点名别人是账号级能力(见 handlers.ResolveSessionPeer)。
+// 这是本 wire 上第一个破坏性方法,越界的代价不再是「读到了不该读的」而是「删掉了
+// 别人的对话」,所以它绝不能自成一套宽松的范围规则。
+type SessionDeleteParams struct {
+	ConversationID  string `json:"conversationId"`
+	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+}
+
+// SessionDeleteResult 交回删除的**后置条件**:应答返回时,这一端已经没有这条会话了。
+//
+// 它有意不是「删了几行」:删除必须幂等 —— server 那份先删、执行端离线时留一条待办,
+// 待办会重放,而且上一次可能删到一半(会话行没了、日志还剩着)。已经不在的会话回
+// Deleted=false 会让调用方把它当成没删干净并永远重放下去,回错误更糟。两种端存的
+// 东西也不一样(agentred 是会话行 + 日志,桌面端是 chat_sessions 与它的消息),
+// 只有后置条件才是两边都答得准的同一件事。
+type SessionDeleteResult struct {
+	Deleted bool `json:"deleted"`
+}
+
+// ── 技能目录 ────────────────────────────────────────────────────────────────
+
+// 发现的结果判别值(SkillCatalogResult.Discovery)。**空目录必须自带理由**:
+// 「这台机器上真的一个包都没有」与「压根没问出来」对用户是两回事 —— 前者该请他去
+// 装包,后者该告诉他这台机器现在答不了、已授权的仍然可以移除。此前 desktop 侧的
+// 远端发现器把拨号失败软降级成空列表(agent_backend_svc.RemoteSkillDiscoverer),
+// 界面上因此看不出区别;这条 wire 不重复那个错误。
+const (
+	// SkillDiscoveryOK 目录是问出来的,可以照它增删。
+	SkillDiscoveryOK = "ok"
+	// SkillDiscoveryUnavailable 这台机器此刻答不出:CLI 找不到、枚举失败。
+	// 目录为空**不代表**没有包,调用方不得据此认为可添加集是空的。
+	SkillDiscoveryUnavailable = "unavailable"
+	// SkillDiscoveryUnsupported 这个 backend 类型没有技能这一说(builtin / piagent /
+	// openclaw 都不声明 CapSkills)。与 unavailable 不同,它是**稳定**的答案:再问一次、
+	// 等机器空闲了再问,结果都一样。
+	SkillDiscoveryUnsupported = "unsupported"
+)
+
+// SkillAuthorization 是这一档执行目标上的一条技能授权(桌面端 agent_exec_targets
+// 那一行的 skills_json 里的一项,字段名逐字相同,好让调用方原样搬运)。
+type SkillAuthorization struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+// SkillCatalogParams 是 MethodSkillsCatalog 的请求。
+//
+// 请求里没有 agentId / execTargetId:执行端上没有组织架构库,那两个号码在它这里
+// 什么都指不到。要答的那一档由**调用方**限定 —— 它连的这台机器 + 它带上来的这份
+// 授权集,合起来就是「一档」。
+type SkillCatalogParams struct {
+	// BackendType 决定用哪个发现器、以及推荐包那半边取哪一张表。
+	BackendType string `json:"backendType"`
+	// Authorized 是这一档已经授权的包(可为空 = 一个都没授权)。它只用来给目录的每
+	// 一行盖上 Enabled,不会被写到任何地方 —— 执行端不持有授权,只是照着标注。
+	Authorized []SkillAuthorization `json:"authorized,omitempty"`
+	// CLIPath 一般留空,由执行端自己解析本机 CLI 路径(调用方不知道对面的 claude 在哪)。
+	CLIPath string `json:"cliPath,omitempty"`
+}
+
+// SkillPackSummary 是目录里的一行 —— 恰好是画一行要读的那几格(桌面端
+// skillPacksToCatalog → CapabilityPicker 的 CatalogItem)。
+//
+// 它刻意**不是** skill_svc.SkillPackDTO 的照搬:source / recommended /
+// effectiveEnabled 都是桌面端内部口径,浏览器一格也没读,搬过来只会变成两份要同步
+// 的真相。
+type SkillPackSummary struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Description 是包的一句话说明。
+	Description string `json:"description,omitempty"`
+	// Skills 是包内的 skill 名 —— 界面用它给出条数、展开时列出内容。
+	Skills []string `json:"skills,omitempty"`
+	// Installed 这台机器上装了没有。没装的行只能看不能授权(要先去装),这是分组
+	// 「可安装 / 可启用 / 已继承」的第一根轴。
+	Installed bool `json:"installed,omitempty"`
+	// Enabled 这一档显式授权了没有(= 请求里 Authorized 带的那份)。
+	Enabled bool `json:"enabled,omitempty"`
+	// GloballyEnabled CLI 全局启用态(claude plugin list --json 的 enabled)。三态
+	// 「继承全局 / 强制开 / 强制关」里的「继承」指的就是它。
+	GloballyEnabled bool `json:"globallyEnabled,omitempty"`
+}
+
+// SkillCatalogResult 是 MethodSkillsCatalog 的应答。
+//
+// Discovery **没有 omitempty**:它必须每次都在字节流里。可选字段缺席时解出零值,
+// 而这里的零值是空串 —— 调用方就得替它猜一个含义,猜错的方向恰恰是最危险的那个
+// (把「问不出来」当成「没有包」)。
+type SkillCatalogResult struct {
+	Packs     []SkillPackSummary `json:"packs"`
+	Discovery string             `json:"discovery"`
 }
 
 // ── Notification frames ─────────────────────────────────────────────────────
@@ -570,20 +964,76 @@ type SessionAttachResult struct {
 // 它是这条通知在 daemon 通知日志里的序号,同一会话内从 1 起单调递增、无洞。daemon 先
 // 落库拿到 seq 再推送,所以每条推出去的帧都带着它(R6);客户端据此判断跳号并按游标补齐。
 //
-// 它是**可选的追加字段**:老版本桌面端不认识 "seq",JSON 解码时直接忽略,行为与今天
-// 完全一致。因此新增它不需要版本协商,也永远不能变成必填。
+// 它在 wire 上是 omitempty 的:不带日志序号的帧就不带这一格。日志里的序号从 1 起,
+// 所以收到 seq 为 0 读作「这条帧没有序号」,而不是「序号是 0」。
 //
 // 日志里存的 payload 是**不含 seq** 的帧原样 —— seq 是日志行自己的列,实时推送与重连
 // 补齐都在发送时才把行上的 seq 盖到帧上,两条路径因此投递同一份字节 + 同一个 seq。
 
 // EventFrame wraps a single agentruntime.Event for delivery over NotifyEvent.
-// SessionID is transport metadata so the receiving end can route by session;
-// Event payload is the JSON output of one of the 19 sealed Event types
-// (see internal/pkg/agentruntime/event_wire.go for the marshaling rules).
+// ConversationID is transport metadata so the receiving end can route by
+// conversation.
+//
+// Event 是**密封事件本身**,不是它的 JSON 字节。这条帧在进程内只被 protowire 读,
+// 而 protowire 要的就是 Event —— 中间摆一个 json.RawMessage 的后果是每帧在两端
+// 各自多走一轮 Event → JSON → Event(生产者 marshal、协议层 unmarshal 再 marshal
+// 成 proto,接收端反过来再来一遍),而这条链路上根本没有第二种载荷形态需要它当
+// 通用容器。
+//
+// 线上形态一个字节都没变:下面的 MarshalJSON / UnmarshalJSON 仍旧落
+// {"conversationId":…,"event":{"kind":…},"seq":…},由各 Event 自己的 MarshalJSON 与
+// agentruntime.UnmarshalEvent 负责 —— 通知日志里的旧行、旧版本对端、黄金样本
+// 都照常读得出来。
+// json tag 在这里**不驱动序列化**(下面的 MarshalJSON / UnmarshalJSON 才是),
+// 但必须与 eventFrameWire 一字不差:TS 编解码生成器读的是 tag,读不到自定义
+// marshaler。两处一旦分家,生成出来的 decodeEventFrame 会去找 `ConversationID` 这样
+// 根本不存在的键 —— 编译期无声,浏览器侧全线解码失败。
+// TestEventFrameWireTagsMatchMarshaler 守住这一致性。
 type EventFrame struct {
-	SessionID int64           `json:"sessionId"`
-	Event     json.RawMessage `json:"event"`
-	Seq       int64           `json:"seq,omitempty"`
+	ConversationID string             `json:"conversationId"`
+	Event          agentruntime.Event `json:"event"`
+	Seq            int64              `json:"seq,omitempty"`
+}
+
+// eventFrameWire 是 EventFrame 真正的线上形态。单独一个类型而不是直接用上面那组
+// tag:Event 是 interface,encoding/json 解不进去,两个方向都得自己接管。
+type eventFrameWire struct {
+	ConversationID string          `json:"conversationId"`
+	Event          json.RawMessage `json:"event"`
+	Seq            int64           `json:"seq,omitempty"`
+}
+
+func (f EventFrame) MarshalJSON() ([]byte, error) {
+	// 空事件也要落成 "event":null 而不是省略 —— 老形态里 Event 是必填字段,
+	// 省掉它会让旧解码方读到一个没有 event 的帧。
+	raw := json.RawMessage("null")
+	if f.Event != nil {
+		encoded, err := json.Marshal(f.Event)
+		if err != nil {
+			return nil, err
+		}
+		raw = encoded
+	}
+	return json.Marshal(eventFrameWire{ConversationID: f.ConversationID, Event: raw, Seq: f.Seq})
+}
+
+func (f *EventFrame) UnmarshalJSON(data []byte) error {
+	var w eventFrameWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	f.ConversationID = w.ConversationID
+	f.Seq = w.Seq
+	f.Event = nil
+	if len(w.Event) == 0 || string(w.Event) == "null" {
+		return nil
+	}
+	event, err := agentruntime.UnmarshalEvent(w.Event)
+	if err != nil {
+		return err
+	}
+	f.Event = event
+	return nil
 }
 
 // SetSeq 盖上该帧在通知日志里的序号。指针接收者:发送方先 marshal 出不含 seq 的
@@ -598,7 +1048,7 @@ func (f *EventFrame) SetSeq(seq int64) { f.Seq = seq }
 // sentinel(ErrAborted 等)。StopErrCode = 0 表示无 sentinel,StopErrMsg 仅作显示;
 // = -32013 表示 ErrAborted;等等。
 type RunResultDoneFrame struct {
-	SessionID         int64      `json:"sessionId"`
+	ConversationID    string     `json:"conversationId"`
 	ProviderSessionID string     `json:"providerSessionId,omitempty"`
 	Usage             *UsageWire `json:"usage,omitempty"`
 	UserAnchor        string     `json:"userAnchor,omitempty"`
@@ -608,6 +1058,16 @@ type RunResultDoneFrame struct {
 	StopErrMsg        string     `json:"stopErrMsg,omitempty"`
 	StopErrCode       int        `json:"stopErrCode,omitempty"`
 	Seq               int64      `json:"seq,omitempty"`
+
+	// 本轮的计时,由 daemon 就着它自己扇出的那条事件流量出来(口径与映射见
+	// internal/pkg/turnstats)。按帧重建转录的消费方(浏览器控制台 / peer 视图)
+	// 没有第二个来源:桌面端本机会话上那三个数是 chat_svc 在 runtime 之上算完落
+	// 自己库的,过不了 wire。
+	//
+	// DurationMs 是墙上时间、**含**工具空档;TokensPerSec 的分母只数生成段。
+	DurationMs   int     `json:"durationMs,omitempty"`
+	FirstTokenMs int     `json:"firstTokenMs,omitempty"`
+	TokensPerSec float64 `json:"tokensPerSec,omitempty"`
 }
 
 // SetSeq 盖上该帧在通知日志里的序号(见 EventFrame.SetSeq)。
@@ -618,14 +1078,26 @@ func (f *RunResultDoneFrame) SetSeq(seq int64) { f.Seq = seq }
 // 的 NotifyAutonomousTurnEvent(EventFrame)路由进它的 Events,直到 NotifyAutonomousTurnDone
 // (RunResultDoneFrame)填回该轮 RunResult 并 close。
 type AutonomousTurnStartedFrame struct {
-	SessionID int64  `json:"sessionId"`
-	Trigger   string `json:"trigger,omitempty"`
-	TurnToken uint64 `json:"turnToken,omitempty"`
-	Seq       int64  `json:"seq,omitempty"`
+	ConversationID string `json:"conversationId"`
+	Trigger        string `json:"trigger,omitempty"`
+	TurnToken      uint64 `json:"turnToken,omitempty"`
+	Seq            int64  `json:"seq,omitempty"`
 }
 
 // SetSeq 盖上该帧在通知日志里的序号(见 EventFrame.SetSeq)。
 func (f *AutonomousTurnStartedFrame) SetSeq(seq int64) { f.Seq = seq }
+
+// TurnStartedFrame 在客户端要的一轮开始时由 daemon 发一次,见 NotifyTurnStarted。
+//
+// 它只带会话身份:「开始了」本身就是全部内容,这一轮的模型 / 用量 / 计时都要到终态帧
+// 才知道,而用户那句话紧接着就作为本轮第一条事件到达(fanout 的 prelude)。
+type TurnStartedFrame struct {
+	ConversationID string `json:"conversationId"`
+	Seq            int64  `json:"seq,omitempty"`
+}
+
+// SetSeq 盖上该帧在通知日志里的序号(见 EventFrame.SetSeq)。
+func (f *TurnStartedFrame) SetSeq(seq int64) { f.Seq = seq }
 
 // UsageWire mirrors provider.Usage with stable lowerCamelCase tags. provider.Usage
 // has no JSON tags so we wrap it for wire stability(同 event_wire.go 里同名 helper)。
@@ -636,4 +1108,30 @@ type UsageWire struct {
 	CachedTokens        int `json:"cachedTokens"`
 	CacheCreationTokens int `json:"cacheCreationTokens"`
 	TotalTokens         int `json:"totalTokens"`
+}
+
+// ── project.* 本机路径 ──────────────────────────────────────────────────────
+
+// ProjectSetLocalPathParams 指定某个项目在**这台机器上**的本机路径。
+type ProjectSetLocalPathParams struct {
+	ProjectSyncID string `json:"projectSyncId"`
+	Path          string `json:"path"`
+}
+
+// ProjectClearLocalPathParams 把某个项目在这台机器上打回「本机未配置路径」。
+//
+// **机器上的目录一个字节都不动**,去掉的只是「这个项目在本机落在哪」这条记录。
+type ProjectClearLocalPathParams struct {
+	ProjectSyncID string `json:"projectSyncId"`
+}
+
+// ProjectLocalPathResult 是两个写方法共同的应答:生效之后的状态。
+//
+// 带回路径正文是刻意的:上报是 30 秒轮询,浏览器重新去 server 拉只会拿到旧快照。
+// 调用方据此就地更新那一行,不必等下一轮。
+type ProjectLocalPathResult struct {
+	// Path 是生效后的本机路径;清除之后为空。
+	Path string `json:"path"`
+	// Configured 为假即这个项目在这台机器上处于「本机未配置路径」。
+	Configured bool `json:"configured"`
 }

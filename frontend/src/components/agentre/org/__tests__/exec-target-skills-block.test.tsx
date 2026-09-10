@@ -105,23 +105,9 @@ describe("ExecTargetSkillsBlock", () => {
     expect(await screen.findByText("superpowers")).toBeInTheDocument();
   });
 
-  it("some blocks unsupported: shows the inline skillsGate note without affecting other props", async () => {
-    withCaps(["mcp_tools"]); // no "skills" cap
-    render(
-      <ExecTargetSkillsBlock
-        agentId={7}
-        index={0}
-        total={2}
-        backend={backend({ id: 51, type: "codex", name: "Codex" })}
-        skills={[]}
-        onSkillsChange={vi.fn()}
-        copySources={[]}
-      />,
-    );
-    expect(
-      await screen.findByText("This backend doesn't support skills"),
-    ).toBeInTheDocument();
-  });
+  // 「这一档的 backend 不支持技能」现在由**行**说：行不给展开入口，也就没有这一块
+  // 可挂（判据搬到 exec-target-list.test.tsx 的
+  // 「Given a backend without skills support…」那条）。
 
   it("offline target: disables Manage skills but keeps granted chips removable and hides the inherited count", async () => {
     withCaps(["skills"]);

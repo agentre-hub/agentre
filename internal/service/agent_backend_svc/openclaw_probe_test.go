@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/keychain"
-	"github.com/agentre-ai/agentre/internal/pkg/openclawgateway"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
 
 func savedOpenClawBackend(id int64) *agent_backend_entity.AgentBackend {
@@ -67,7 +67,7 @@ func TestOpenClawBackendProbe(t *testing.T) {
 		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
 
 		selfBackend := savedOpenClawBackend(93)
-		selfBackend.DeviceID = "sha256:self"
+		selfBackend.DeviceFingerprint = "sha256:self"
 		backendMock.EXPECT().Find(gomock.Any(), int64(93)).Return(selfBackend, nil)
 		svc.openClawProbe = func(_ context.Context, config openclawgateway.Config, _ openclawgateway.ProbeSelection) (*openclawgateway.ProbeResult, error) {
 			assert.Equal(t, credential, config.Token)
@@ -160,7 +160,7 @@ func TestOpenClawBackendProbe(t *testing.T) {
 		ctx, backendMock, _, _, _, svc := setupSvcTest(t)
 		svc.secrets = keychain.NewMemory()
 		remote := savedOpenClawBackend(93)
-		remote.DeviceID = "7"
+		remote.DeviceFingerprint = "7"
 		backendMock.EXPECT().Find(gomock.Any(), int64(93)).Return(remote, nil)
 
 		response, err := svc.Test(ctx, &TestBackendRequest{ID: 93})

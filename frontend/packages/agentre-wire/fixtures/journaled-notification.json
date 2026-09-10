@@ -1,0 +1,12 @@
+{
+  "seq": 11,
+  "method": "runtime.event",
+  "params": {
+    "conversationId": "00000000-0000-7000-8000-000000000042",
+    "event": {
+      "kind": "text_delta",
+      "text": "你好"
+    }
+  },
+  "createtime": 0
+}

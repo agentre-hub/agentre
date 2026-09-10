@@ -3,7 +3,7 @@
 // 一条 AgentBackend = 一个可被多个 Agent 共享引用的「后端实例」：
 //   - Type=TypeBuiltin   走 cago github.com/cago-frame/agents/app/coding，绑定一个 LLMProvider；
 //   - Type=TypeClaudeCode  通过 cliagent/claudecode 拉 claude CLI，绑定 anthropic 类型 provider；
-//   - Type=TypeCodex     通过 github.com/agentre-ai/agentre/pkg/codex 拉 codex CLI，绑定 openai-response provider。
+//   - Type=TypeCodex     通过 github.com/agentre-hub/agentre/pkg/codex 拉 codex CLI，绑定 openai-response provider。
 //
 // 不同 type 的字段约束由 BackendKind（kinds.go）分派，entity.Check 不再直接 switch type。
 package agent_backend_entity
@@ -14,14 +14,13 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // BackendType Agent 后端实现类型。
@@ -32,7 +31,7 @@ const (
 	TypeBuiltin BackendType = "builtin"
 	// TypeClaudeCode 包装本地 claude CLI（cliagent/claudecode）。
 	TypeClaudeCode BackendType = "claudecode"
-	// TypeCodex 包装本地 codex CLI（github.com/agentre-ai/agentre/pkg/codex），默认走 OpenAI Responses API。
+	// TypeCodex 包装本地 codex CLI（github.com/agentre-hub/agentre/pkg/codex），默认走 OpenAI Responses API。
 	TypeCodex BackendType = "codex"
 	// TypePiAgent 包装本地 pi CLI（@earendil-works/pi-coding-agent RPC mode）。
 	TypePiAgent BackendType = "piagent"
@@ -59,19 +58,19 @@ type AgentBackend struct {
 	//   - 两个都非空 = fixed-model（解析指定 Model 记录）。
 	// 模型存在 / 启用 / 归属校验由 service 层跨 repo 完成（entity 不碰 DB）。
 	LLMModelKey string `gorm:"column:model_key;type:text;not null;default:''"`
-	// DeviceID is the target machine's canonical device fingerprint. It is the
-	// cross-device persisted and synced identity; dispatch resolves it to this
-	// installation's paired-row ID only at the local boundary.
-	DeviceID string `gorm:"column:device_id;type:text;not null;default:''"`
-	CLIPath  string `gorm:"column:cli_path;type:text;not null;default:''"`
+	// DeviceFingerprint is the target machine's canonical device fingerprint. It
+	// is the cross-device persisted and synced identity; dispatch resolves it to
+	// this installation's paired-row ID only at the local boundary.
+	DeviceFingerprint string `gorm:"column:device_fingerprint;type:text;not null;default:''"`
+	CLIPath           string `gorm:"column:cli_path;type:text;not null;default:''"`
 	// ModelRoutes 仅 claudecode 使用：`{"OPUS":{"providerKey":"..","modelKey":".."},...}` 子集，
 	// 任意 alias 缺省时回落主 LLMProviderKey/LLMModelKey（inherit-main）。
 	// 解析 / 序列化分别用 ParseModelRoutes / MarshalModelRoutes（见 kinds.go）。
-	ModelRoutes string `gorm:"column:model_routes;type:text;not null;default:'{}'"`
+	ModelRoutes string `gorm:"-"`
 	// Sandbox 仅 codex 使用：read-only / workspace-write / danger-full-access；空 = CLI 默认。
-	Sandbox string `gorm:"column:sandbox;type:text;not null;default:''"`
+	Sandbox string `gorm:"-"`
 	// Approval 仅 codex 使用：untrusted / on-request / never；空 = never。
-	Approval string `gorm:"column:approval;type:text;not null;default:''"`
+	Approval string `gorm:"-"`
 	// EnvJSON claudecode / codex 共用：`{"K":"V"}` 自定义透传环境变量；保留键拒入。
 	EnvJSON string `gorm:"column:env_json;type:text;not null;default:'{}'"`
 	// ReasoningEffort 思考力度档位（六档）。空串 = 走模型/CLI 默认；其余取值见 effort.go。
@@ -80,30 +79,50 @@ type AgentBackend struct {
 	// --permission-mode 值；空串走 pkg/claudecode 默认（acceptEdits）。
 	// 取值：'' / default / acceptEdits / plan / bypassPermissions。
 	// 其它后端类型必须保持空串，否则 entity.Check 报 InvalidParameter。
-	DefaultPermissionMode string `gorm:"column:default_permission_mode;type:text;not null;default:''"`
+	DefaultPermissionMode string `gorm:"-"`
 	// DefaultModel 仅 claudecode 使用：spawn claude 子进程时下发的 --model 值。
 	// 只属于 CLI-native（未绑 provider）场景，是独立自由文本（spec 决策 13）。
 	// 切换到 Agentre Provider 后保留但忽略该值（执行由 ModelTarget 决定），
 	// 切回 native 后恢复使用。空串 = 不下发 --model，走 CLI 默认。其它后端类型必须保持空串。
-	DefaultModel string `gorm:"column:default_model;type:text;not null;default:''"`
+	DefaultModel string `gorm:"-"`
 	// OpenClawGatewayURL 是 OpenClaw Gateway WebSocket 地址。loopback 可使用 ws；
 	// 非 loopback 必须使用 wss。认证信息不得出现在 URL 中。
-	OpenClawGatewayURL string `gorm:"column:openclaw_gateway_url;type:text;not null;default:''"`
+	OpenClawGatewayURL string `gorm:"-"`
 	// OpenClawAgentID 为空时使用 Gateway 默认 agent。
-	OpenClawAgentID string `gorm:"column:openclaw_agent_id;type:text;not null;default:''"`
+	OpenClawAgentID string `gorm:"-"`
 	// OpenClawDefaultModel 为空时使用 OpenClaw agent/session 默认模型。
-	OpenClawDefaultModel string `gorm:"column:openclaw_default_model;type:text;not null;default:''"`
+	OpenClawDefaultModel string `gorm:"-"`
 	// OpenClawSessionMode MVP 固定为 per-agentre-session。
-	OpenClawSessionMode string `gorm:"column:openclaw_session_mode;type:text;not null;default:''"`
-	Status              int    `gorm:"column:status;type:int;not null;default:1"`
-	Createtime          int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime          int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	OpenClawSessionMode string `gorm:"-"`
+	// ConfigJSON 存放上面九个单类型独占设置（见 config.go）。它们各自不落列。
+	ConfigJSON string `gorm:"column:config_json;type:text;not null;default:'{}'"`
+	Status     int    `gorm:"column:status;type:int;not null;default:1"`
+	Createtime int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
 	// SyncMeta 账号级同步元数据（R1，366 行）。
 	syncmeta_entity.SyncMeta `gorm:"embedded"`
 }
 
 // TableName 绑定表名。
 func (*AgentBackend) TableName() string { return "agent_backends" }
+
+// CLIOverlay is the local projection of one per-device CLI override. Its
+// backend_sync_id and fingerprint form the natural key; missing or empty paths
+// mean PATH resolution. It deliberately has its own SyncMeta because the
+// overlay is a separate account-sync object, not a backend identity field.
+type CLIOverlay struct {
+	ID                       int64  `gorm:"column:id;primaryKey;autoIncrement"`
+	BackendSyncID            string `gorm:"column:backend_sync_id;type:text;not null;default:''"`
+	AgentredFingerprint      string `gorm:"column:agentred_fingerprint;type:text;not null;default:''"`
+	CLIPath                  string `gorm:"column:cli_path;type:text;not null;default:''"`
+	Status                   int    `gorm:"column:status;type:int;not null;default:1"`
+	Createtime               int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime               int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	syncmeta_entity.SyncMeta `gorm:"embedded"`
+}
+
+func (*CLIOverlay) TableName() string { return "agent_backend_cli_overlays" }
+func (o *CLIOverlay) IsActive() bool  { return o != nil && o.Status == consts.ACTIVE }
 
 // IsActive 是否处于启用态（未被软删除）。
 func (b *AgentBackend) IsActive() bool { return b != nil && b.Status == consts.ACTIVE }
@@ -129,25 +148,11 @@ func (b *AgentBackend) IsOpenClaw() bool {
 	return b != nil && BackendType(b.Type) == TypeOpenClaw
 }
 
-// IsLocal DeviceID 为空时为本地模式；nil receiver 返回 false。
-func (b *AgentBackend) IsLocal() bool { return b != nil && b.DeviceID == "" }
+// IsLocal DeviceFingerprint 为空时为本地模式；nil receiver 返回 false。
+func (b *AgentBackend) IsLocal() bool { return b != nil && b.DeviceFingerprint == "" }
 
-// IsRemote DeviceID 非空即视为"绑了远端意图"，无论字段值是否可解析为整数；nil receiver 返回 false。
-func (b *AgentBackend) IsRemote() bool { return b != nil && b.DeviceID != "" }
-
-// DeviceIDInt is retained only for legacy callers while DeviceID transitions
-// from a paired-row ID to a canonical fingerprint. New persisted values never
-// use it; dispatch boundaries resolve fingerprints through paired devices.
-func (b *AgentBackend) DeviceIDInt() (int64, bool) {
-	if b == nil || b.DeviceID == "" {
-		return 0, false
-	}
-	id, err := strconv.ParseInt(b.DeviceID, 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return id, true
-}
+// IsRemote DeviceFingerprint 非空即视为"绑了远端意图"，无论字段值是否可解析为整数；nil receiver 返回 false。
+func (b *AgentBackend) IsRemote() bool { return b != nil && b.DeviceFingerprint != "" }
 
 // Kind 返回当前 backend 对应的 BackendKind；未知类型返 nil。
 func (b *AgentBackend) Kind() BackendKind {

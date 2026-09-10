@@ -1,18 +1,11 @@
 // Package workspacefs 是 agentred daemon 端 workspacefs.* RPC 的 handler 实现。
 // 薄封装 internal/pkg/workspacefs 的 ListDir / GitChanges / GitBranches /
-// ReadFile / GitFileContent(设计决策 4:核心逻辑放叶子包,host 的本机分支与
-// daemon handler 共用同一份实现),把 sentinel 错误映射到 wire 层,由 register
-// 把 sentinel 翻成 *rpc.Error 返给 dispatcher。
+// ReadFile / GitFileContent / GitState(设计决策 4:核心逻辑放叶子包,host 的
+// 本机分支与 daemon handler 共用同一份实现),把 sentinel 错误映射到 wire 层,
+// 由 register 把 sentinel 翻成 *rpc.Error 返给 dispatcher。
 package workspacefs
 
-import (
-	"context"
-	"encoding/json"
-
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	pkgworkspacefs "github.com/agentre-ai/agentre/internal/pkg/workspacefs"
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs/wire"
-)
+import pkgworkspacefs "github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 
 // Options 注入测试 hook。生产用 NewHandlers(Options{}) 全用默认。
 type Options struct {
@@ -45,106 +38,4 @@ func NewHandlers(opts Options) *Handlers {
 		h.maxSearchDirs = pkgworkspacefs.DefaultMaxSearchDirs
 	}
 	return h
-}
-
-// WrapFunc 抽象 daemon 包的 auth 检查闭包(避免 workspacefs 包反向依赖
-// daemon)。生产传 requireAuth 包装,测试可传 identity。
-type WrapFunc = func(rpc.HandlerFunc) rpc.HandlerFunc
-
-// Register 把 ListDir / GitChanges / GitBranches / ReadFile / GitFileContent /
-// SearchFiles 挂到 registry。
-//   - wrap 用来套 requireAuth(生产)或 identity(单测)
-//   - handler 返回的 wire sentinel 在此翻成 *rpc.Error,客户端 FromJSONRPCError
-//     反向 rehydrate
-func Register(reg *rpc.Registry, h *Handlers, wrap WrapFunc) {
-	reg.Register(wire.MethodListDir, wrap(translateSentinel(handleListDir(h))))
-	reg.Register(wire.MethodGitChanges, wrap(translateSentinel(handleGitChanges(h))))
-	reg.Register(wire.MethodGitBranches, wrap(translateSentinel(handleGitBranches(h))))
-	reg.Register(wire.MethodReadFile, wrap(translateSentinel(handleReadFile(h))))
-	reg.Register(wire.MethodGitFileContent, wrap(translateSentinel(handleGitFileContent(h))))
-	reg.Register(wire.MethodSearchFiles, wrap(translateSentinel(handleSearchFiles(h))))
-}
-
-func handleListDir(h *Handlers) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var req wire.ListDirReq
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &req); err != nil {
-				return nil, rpc.ErrInvalidParams
-			}
-		}
-		return h.ListDir(ctx, req)
-	}
-}
-
-func handleGitChanges(h *Handlers) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var req wire.GitChangesReq
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &req); err != nil {
-				return nil, rpc.ErrInvalidParams
-			}
-		}
-		return h.GitChanges(ctx, req)
-	}
-}
-
-func handleGitBranches(h *Handlers) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var req wire.GitBranchesReq
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &req); err != nil {
-				return nil, rpc.ErrInvalidParams
-			}
-		}
-		return h.GitBranches(ctx, req)
-	}
-}
-
-func handleReadFile(h *Handlers) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var req wire.ReadFileReq
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &req); err != nil {
-				return nil, rpc.ErrInvalidParams
-			}
-		}
-		return h.ReadFile(ctx, req)
-	}
-}
-
-func handleGitFileContent(h *Handlers) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var req wire.GitFileContentReq
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &req); err != nil {
-				return nil, rpc.ErrInvalidParams
-			}
-		}
-		return h.GitFileContent(ctx, req)
-	}
-}
-
-func handleSearchFiles(h *Handlers) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var req wire.SearchFilesReq
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &req); err != nil {
-				return nil, rpc.ErrInvalidParams
-			}
-		}
-		return h.SearchFiles(ctx, req)
-	}
-}
-
-func translateSentinel(fn rpc.HandlerFunc) rpc.HandlerFunc {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		res, err := fn(ctx, raw)
-		if err != nil {
-			if mapped := wire.ToJSONRPCError(err); mapped != nil {
-				return nil, mapped
-			}
-		}
-		return res, err
-	}
 }

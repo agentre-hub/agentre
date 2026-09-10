@@ -42,6 +42,31 @@ func TestValidateOpenPath(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(got, ShouldEqual, "/Users/x/foo.go")
 		})
+		Convey("when path is home-anchored, then it expands to the user home", func() {
+			orig := userHomeDir
+			userHomeDir = func() (string, error) { return "/Users/x", nil }
+			defer func() { userHomeDir = orig }()
+
+			got, err := validateOpenPath("~/Code/foo.go:42")
+			So(err, ShouldBeNil)
+			So(got, ShouldEqual, "/Users/x/Code/foo.go")
+
+			got, err = validateOpenPath("~")
+			So(err, ShouldBeNil)
+			So(got, ShouldEqual, "/Users/x")
+		})
+		Convey("when a home-anchored path escapes with '..', then error", func() {
+			orig := userHomeDir
+			userHomeDir = func() (string, error) { return "/Users/x", nil }
+			defer func() { userHomeDir = orig }()
+
+			_, err := validateOpenPath("~/../etc/passwd")
+			So(err, ShouldNotBeNil)
+		})
+		Convey("when the path names another user's home, then error", func() {
+			_, err := validateOpenPath("~alice/notes.md")
+			So(err, ShouldNotBeNil)
+		})
 		Convey("when Windows absolute path with line suffix, then strip suffix", func() {
 			got, err := validateOpenPath(`C:\Users\x\foo.go:10`)
 			So(err, ShouldBeNil)

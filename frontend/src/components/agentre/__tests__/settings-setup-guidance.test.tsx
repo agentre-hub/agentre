@@ -3,6 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// 后端编辑器订阅 remote.device.state 才能让刚收编的机器就地由灰变可选，而这里渲染的是
+// 整个设置页，那条订阅会跟着挂上。不桩 Wails runtime，EventsOn 会去读 undefined 上的
+// EventsOnMultiple —— 与被测行为无关的一声炸响。
+vi.mock("../../../../wailsjs/runtime/runtime", () => ({
+  EventsOn: () => () => {},
+}));
+
 import { SettingsPage } from "../settings";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 

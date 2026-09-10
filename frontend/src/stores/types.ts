@@ -61,22 +61,10 @@ export type SessionView = {
   bgRunning?: boolean;
 };
 
-// AttentionInput: computeAttention 纯函数的输入类型。
-export type AttentionInput = {
-  agentStatus: AgentStatus;
-  needsAttention: boolean;
-  lastMessageAt: number;
-  lastReadAt: number;
-  bgRunning?: boolean;
-};
-
-// AttentionReason: 5 种 attention 状态，平权。UI 层据此选色 / 文案。
-export type AttentionReason =
-  | "needs_attention"
-  | "running"
-  | "error"
-  | "bg_running"
-  | "unread";
+// AttentionInput / AttentionReason 已搬进共享包（`@agentre-hub/agentre-ui` 的
+// session-index/attention）：判定与投影两端共用一份，agentre-server 不再各画一遍。
+// 这里保留同名 re-export，宿主的既有 import 路径一个都不用改。
+export type { AttentionInput, AttentionReason } from "@agentre-hub/agentre-ui";
 
 // ChatSessionStatusEvent: 后端 SSE 透传的 session_status 字段类型。
 // 与 use-chat-stream.ts 的 ChatSessionStatusPatch 对齐。

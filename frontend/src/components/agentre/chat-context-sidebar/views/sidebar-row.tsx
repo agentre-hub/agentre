@@ -1,27 +1,25 @@
 import { Ellipsis } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
+  copyTextWithToast,
+  resolvePreviewRelPath,
+  toRelPath,
+} from "@agentre-hub/agentre-ui";
+
 import { cn } from "@/lib/utils";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
+import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 
 import type {
   FilePreviewTab,
   PreviewSourceMode,
-} from "@/stores/chat-sidebar-store";
-
-import { resolvePreviewRelPath, toRelPath } from "../previewable";
+} from "@/stores/file-preview-tabs-store";
 
 import {
   CONTEXT_MENU_PARTS,
@@ -41,7 +39,7 @@ type Props = {
   /** 行来自哪个模式：决定预览标签的首视图，也决定有没有「跳到对应轮次」。 */
   sourceMode: PreviewSourceMode;
   kind: "file" | "dir";
-  /** 行的路径：「变动」模式可能是工具调用给的绝对路径，其余模式相对 cwd。 */
+  /** 行的路径：相对当前工作根；没有工作根时是工具调用给的原始路径。 */
   path: string;
   /** 显示名（basename、目录名，或链压缩行的末段）。 */
   name: string;
@@ -68,7 +66,7 @@ type Props = {
   chainPrefix?: string;
   depth: number;
   title?: string;
-  /** 仅「变动」模式的文件行：跳到该文件最后被改动的轮次。 */
+  /** 仅「本次会话」档的文件行：跳到该文件最后被改动的轮次。 */
   onJumpToTurn?: () => void;
   /** 仅目录行。 */
   expanded?: boolean;
@@ -87,21 +85,14 @@ type Props = {
   trailing?: React.ReactNode;
   testId: string;
   className?: string;
-  /** 额外的 data-* 属性（各模式的既有断言锚点）。 */
+  /** 额外的 data-* 属性（各视图的既有断言锚点）。 */
   rowData?: Record<string, string | undefined>;
-  /**
-   * 是否给这一行菜单与 ⋯ 槽位。默认给；只有「变动」模式的目录行不给 —— spec
-   * 「右键菜单」列举的是「三种模式的文件行、目录模式的目录行」，而变动模式的
-   * 目录行是从工具调用路径派生出的结构分组，本身没有可靠的磁盘路径（工具给的
-   * 可能是绝对路径），「在文件管理器中显示 / 复制绝对路径」会指向不存在的位置。
-   */
-  withMenu?: boolean;
 };
 
 /**
- * SidebarRow 是「变动 / 目录 / Git」三个模式唯一的行渲染实现。
+ * SidebarRow 是「本次会话 / 未提交 / 目录」三个来源唯一的行渲染实现。
  *
- * 收敛到一处是刻意的：三种模式此前各写一遍行，点击语义因此长期分叉（变动跳轮次、
+ * 收敛到一处是刻意的：三种来源此前各写一遍行，点击语义因此长期分叉（变更跳轮次、
  * Git 打开文件、目录不可点）。现在单击语义只有一份——可预览的文件行单击 = 开临时
  * 预览标签、双击 = 转常驻，目录行单击 = 展开收起，不可预览的文件行不响应单击也不
  * 出 hover 高亮（spec「行的形态与交互」）。行右端是恒占 24px、hover 或键盘聚焦才
@@ -130,18 +121,19 @@ export function SidebarRow({
   testId,
   className,
   rowData,
-  withMenu = true,
 }: Props) {
   const { t } = useTranslation();
   // ⋯ 菜单受控：右键之外，键盘的 Shift+F10 / 菜单键也要能开出同一份菜单
   // （ContextMenu 原语没有受控的 open，所以键盘走 DropdownMenu 这一份）。
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const openPreview = useChatSidebarStore((s) => s.openPreview);
-  const openPreviewInNewTab = useChatSidebarStore((s) => s.openPreviewInNewTab);
-  const restoreClobberedPreviewTab = useChatSidebarStore(
+  const openPreview = useFilePreviewTabsStore((s) => s.openPreview);
+  const openPreviewInNewTab = useFilePreviewTabsStore(
+    (s) => s.openPreviewInNewTab,
+  );
+  const restoreClobberedPreviewTab = useFilePreviewTabsStore(
     (s) => s.restoreClobberedPreviewTab,
   );
-  const activePreviewPath = useChatSidebarStore(
+  const activePreviewPath = useFilePreviewTabsStore(
     (s) => s.previewTabsBySession[sessionId]?.activePath,
   );
   const openFile = useOpenFile(cwd);
@@ -214,7 +206,7 @@ export function SidebarRow({
     toggle: kind === "dir" ? () => model.onToggle() : null,
     activate:
       kind === "file" && previewPath !== null ? () => model.onPreview() : null,
-    openMenu: withMenu ? () => setMenuOpen(true) : null,
+    openMenu: () => setMenuOpen(true),
   });
 
   const nameNode = chainPrefix ? (
@@ -314,30 +306,27 @@ export function SidebarRow({
           {body}
         </div>
       )}
-      {withMenu ? (
-        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-label={t("chatContext.row.menu")}
-              // 槽位恒占 24px、只切换可见性：条件渲染会让整行文字在 hover 时左右
-              // 跳（spec「行的形态与交互」）。键盘走到这一行（行本身聚焦）时同样
-              // 显形，否则 ⋯ 这个入口对键盘用户是隐形的。
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100"
-            >
-              <Ellipsis className="size-3.5" aria-hidden="true" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <RowMenu model={model} parts={DROPDOWN_MENU_PARTS} />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={t("chatContext.row.menu")}
+            // 槽位恒占 24px、只切换可见性：条件渲染会让整行文字在 hover 时左右
+            // 跳（spec「行的形态与交互」）。键盘走到这一行（行本身聚焦）时同样
+            // 显形，否则 ⋯ 这个入口对键盘用户是隐形的。
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100"
+          >
+            <Ellipsis className="size-3.5" aria-hidden="true" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <RowMenu model={model} parts={DROPDOWN_MENU_PARTS} />
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 
-  if (!withMenu) return row;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>

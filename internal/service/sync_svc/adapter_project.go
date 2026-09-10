@@ -9,12 +9,12 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 	"gorm.io/gorm"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // ── 项目 ────────────────────────────────────────────────────────────────────
@@ -261,7 +261,7 @@ func (projectLocationAdapter) load(ctx context.Context, syncID string) (*outboun
 	if err != nil {
 		return nil, err
 	}
-	if project == nil || row.DaemonFingerprint == "" {
+	if project == nil || row.DeviceFingerprint == "" {
 		return nil, nil
 	}
 	payload, err := json.Marshal(projectLocationPayload{Path: row.Path})
@@ -272,7 +272,7 @@ func (projectLocationAdapter) load(ctx context.Context, syncID string) (*outboun
 		SyncID:              row.SyncID,
 		UpdatedAt:           row.Updatetime,
 		ProjectSyncID:       syncIDOf(project.SyncMeta),
-		AgentredFingerprint: row.DaemonFingerprint,
+		AgentredFingerprint: row.DeviceFingerprint,
 		Payload:             payload,
 	}, nil
 }
@@ -328,7 +328,7 @@ func (projectLocationAdapter) apply(ctx context.Context, in *inbound, resolved m
 		}
 	}
 	row.ProjectID, row.Path = projectID, p.Path
-	row.DaemonFingerprint = in.AgentredFingerprint
+	row.DeviceFingerprint = in.AgentredFingerprint
 	row.DeviceID = deviceID
 	row.Status = consts.ACTIVE
 	row.SyncID = in.SyncID

@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 func TestLatestAssistantText(t *testing.T) {
@@ -22,13 +22,16 @@ func TestLatestAssistantText(t *testing.T) {
 	chat_repo.RegisterMessage(chat_repo.NewMessage())
 	t.Cleanup(func() { chat_repo.RegisterMessage(prevMsg) })
 
-	// blocks_json uses StoredBlock format: {"type":"text","data":{"text":"..."}}
-	blocksJSON := `[{"type":"text","data":{"text":"进行到一半"}}]`
 	// gorm First() appends `,`chat_messages`.`id`` to ORDER BY; regex adjusted to match.
 	mock.ExpectQuery("SELECT \\* FROM `chat_messages` WHERE session_id = \\? AND role = \\? ORDER BY seq DESC,`chat_messages`.`id` LIMIT \\?").
 		WithArgs(int64(3), "assistant", 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "session_id", "role", "seq", "blocks_json"}).
-			AddRow(5, 3, "assistant", 2, blocksJSON))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "session_id", "role", "seq"}).
+			AddRow(5, 3, "assistant", 2))
+	// 正文按「一块一行」存在块表,由仓储读时重组。
+	mock.ExpectQuery("SELECT \\* FROM `chat_message_blocks` WHERE message_id IN \\(\\?\\)").
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"message_id", "idx", "type", "tool_call_id", "codec", "data"}).
+			AddRow(5, 0, "text", "", chat_entity.BlockCodecRaw, []byte(`{"text":"进行到一半"}`)))
 	svc := chat_svc.NewChat(chat_svc.NoopEmitter{})
 	got, err := svc.LatestAssistantText(ctx, 3)
 	require.NoError(t, err)

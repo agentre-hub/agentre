@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-release_base_url=${AGENTRED_RELEASE_BASE_URL:-https://github.com/agentre-ai/agentre/releases/latest/download}
+release_base_url=${AGENTRED_RELEASE_BASE_URL:-https://github.com/agentre-hub/agentre/releases/latest/download}
 system_install_dir=${AGENTRED_SYSTEM_INSTALL_DIR:-/usr/local/bin}
 
 die() {
@@ -102,3 +102,25 @@ printf '%s\n' "$identity"
 if [ "$fallback" = true ]; then
   printf 'Add %s to PATH, for example: export PATH="%s:$PATH"\n' "$install_dir" "$install_dir"
 fi
+
+# Copying the binary does not make it take effect: a daemon started earlier keeps
+# running the old image. Finish the same way `agentred update` does — restart the
+# registered service, or print the command that has to be run. The marker below is
+# what `agentred service status` prints when nothing is registered; cmd/agentred's
+# update_test.go pins the two together.
+if [ "${AGENTRED_INSTALL_SKIP_SERVICE_RESTART:-}" = 1 ]; then
+  exit 0
+fi
+service_state=$("$install_dir/agentred" service status 2>/dev/null) || service_state=''
+case "$service_state" in
+  ''|*"Service not installed"*)
+    printf 'No registered agentred service found; restart any running agentred so this binary takes effect (%s service restart once it is registered).\n' "$install_dir/agentred"
+    ;;
+  *)
+    if "$install_dir/agentred" service restart >/dev/null 2>&1; then
+      printf 'Restarted the registered agentred service.\n'
+    else
+      printf 'Could not restart the registered agentred service; run it manually: %s service restart\n' "$install_dir/agentred"
+    fi
+    ;;
+esac

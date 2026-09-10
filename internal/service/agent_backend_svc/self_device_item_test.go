@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 // ClaimRelativeBackends（R13 运行期认领）把本机 backend 的 DeviceID 从空串改写成本机
@@ -24,7 +24,7 @@ func TestListBackends_GivenSelfFingerprintBackend_ThenItemReportsLocalDevice(t *
 
 	backendMock.EXPECT().List(ctx).Return([]*agent_backend_entity.AgentBackend{{
 		ID: 234, Type: string(agent_backend_entity.TypePiAgent), Name: "Pi Agent CLI",
-		DeviceID: "sha256:self", Status: 1,
+		DeviceFingerprint: "sha256:self", Status: 1,
 	}}, nil)
 	agentMock.EXPECT().CountByBackends(ctx, []int64{234}).Return(map[int64]int64{}, nil)
 
@@ -45,7 +45,7 @@ func TestListBackends_GivenUnpairedRemoteFingerprint_ThenItemKeepsRemoteDevice(t
 
 	backendMock.EXPECT().List(ctx).Return([]*agent_backend_entity.AgentBackend{{
 		ID: 235, Type: string(agent_backend_entity.TypeClaudeCode), Name: "coding",
-		DeviceID: "sha256:other-box", Status: 1,
+		DeviceFingerprint: "sha256:other-box", Status: 1,
 	}}, nil)
 	agentMock.EXPECT().CountByBackends(ctx, []int64{235}).Return(map[int64]int64{}, nil)
 

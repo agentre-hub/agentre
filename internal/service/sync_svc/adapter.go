@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
-	"github.com/agentre-ai/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
 // errRefMissing 表示引用的目标在本机还没有落地（R2a）：该行暂缓落地，不写悬空引用。
@@ -59,7 +59,7 @@ type baseAdapter struct{}
 func (baseAdapter) dependents(context.Context, string) ([]relatedRow, error) { return nil, nil }
 func (baseAdapter) children(context.Context, string) ([]relatedRow, error)   { return nil, nil }
 
-// defaultAdapters 装配七张账号级表的适配器。avatar 是头像内容存取的窄接口，只有
+// defaultAdapters 装配账号级表的适配器。avatar 是头像内容存取的窄接口，只有
 // agentAdapter 用到（R16a）；单机模式下 New(nil) 传进来的是真正的 nil 接口，
 // agentAdapter 据此优雅退化成只带哈希、不取正文。
 func defaultAdapters(avatar avatarTransport) map[string]adapter {
@@ -68,9 +68,14 @@ func defaultAdapters(avatar avatarTransport) map[string]adapter {
 		&departmentAdapter{},
 		&agentAdapter{avatar: avatar},
 		&agentBackendAdapter{},
+		&agentBackendCLIAdapter{},
 		&agentExecTargetAdapter{},
 		&projectAgentAdapter{},
 		&projectLocationAdapter{},
+		&llmProviderAdapter{},
+		&labelAdapter{},
+		&issueAdapter{},
+		&issueLabelAdapter{},
 	}
 	out := make(map[string]adapter, len(list))
 	for _, a := range list {
@@ -135,16 +140,23 @@ func resolvedID(resolved map[string]int64, r ref) int64 {
 	return resolved[r.key()]
 }
 
-// syncKinds 是同步组的七个对象类型，按「被引用者在前」排列——认领（R12a）与任何
+// syncKinds 是同步组的全部对象类型，按「被引用者在前」排列——认领（R12a）与任何
 // 需要遍历全部类型的地方都按它走，父行因此先入队、先落地（R2a 的暂缓少绕一圈）。
 var syncKinds = []string{
 	syncwire.KindProject,
 	syncwire.KindDepartment,
 	syncwire.KindAgent,
 	syncwire.KindAgentBackend,
+	syncwire.KindAgentBackendCLI,
 	syncwire.KindAgentExecTarget,
 	syncwire.KindProjectAgent,
 	syncwire.KindProjectLocation,
+	syncwire.KindLLMProvider,
+	// 看板：标签是任务的被引用者，任务又是关联行的被引用者；任务还引用项目、
+	// Agent 与 backend，三者都排在上面。
+	syncwire.KindLabel,
+	syncwire.KindIssue,
+	syncwire.KindIssueLabel,
 }
 
 // kindKnown 报告某个对象类型是否属于同步组。

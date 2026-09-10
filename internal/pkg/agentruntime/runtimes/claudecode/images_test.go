@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // 用户 turn 里的 ImageBlock(inline 字节)应被抽成 claudecode.Image,透传给 CLI

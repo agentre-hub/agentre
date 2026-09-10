@@ -4,8 +4,8 @@
 // agent_exec_targets——各自匿名内嵌 SyncMeta，GORM 按约定把它的字段提升进宿主表的
 // schema，六列在这七张表里同名同型。
 //
-// 本包目前只提供数据落地与两条纯判定（NewSyncID / EligibleForSync）；真正的
-// 上行 / 下行 / 冲突落地是后续任务，这里只给它们留位置。
+// llm_providers also embeds SyncMeta, using provider_key as its stable sync ID;
+// its models travel inside the provider payload rather than becoming a second kind.
 package syncmeta_entity
 
 import (
@@ -24,9 +24,13 @@ type SyncMeta struct {
 	// DDL 一律 not null default ''，因此宿主表的唯一索引必须是 WHERE sync_id != ''
 	// 的部分索引，否则多行空标识会互撞。
 	SyncID string `gorm:"column:sync_id;type:text;not null;default:''"`
-	// SyncAccountID 这一行所属账号（server_state.ServerUserID 的值）。0 = 尚未
-	// 认领：未登录期间创建的行（R12）与迁移前已存在的历史行都落在这里，直到
-	// R12a 的首次登录把它们收进当前账号——认领本身是后续任务的事，这里只留字段。
+	// SyncAccountID 这一行所属账号。存的是**本机**为 (server 地址, 远端用户主键)
+	// 分配的账号键（sync_accounts.id，见 sync_account_entity），不是 server 那边的
+	// user_id —— 后者是各自库里的自增主键，两套自建部署的第一个用户都是 1，直接拿
+	// 它当归属，换一套 server 就会把上一个账号的行认成本账号的（迁移 202608080013）。
+	//
+	// 0 = 尚未认领：未登录期间创建的行（R12）与迁移前已存在的历史行都落在这里，
+	// 直到 R12a 的首次登录把它们收进当前账号。
 	SyncAccountID int64 `gorm:"column:sync_account_id;type:bigint;not null;default:0"`
 	// SyncVersion server 分配的账号级单调序列值（决策 27），本地只存不改；出站
 	// 队列另存每条改动的基版本（R4a），不复用这一列。
@@ -34,9 +38,9 @@ type SyncMeta struct {
 	// SyncUpdatedAt 最后一次修改的本地时间（毫秒 epoch），只用于展示与 30 天窗口
 	// 计算，不参与胜负比较（决策 19/27）。
 	SyncUpdatedAt int64 `gorm:"column:sync_updated_at;type:bigint;not null;default:0"`
-	// SyncOrigin 最后一次修改来自哪台设备（决策 4 的字典序打破平局用它）；空串
-	// 表示这一行还没有被同步层标记过来源。
-	SyncOrigin string `gorm:"column:sync_origin;type:text;not null;default:''"`
+	// SyncOriginFingerprint 最后一次修改来自哪台设备——存的是那台设备的规范指纹
+	// （与本工作区其余跨机引用同一种表示）；空串表示这一行还没有被同步层标记过来源。
+	SyncOriginFingerprint string `gorm:"column:sync_origin_fingerprint;type:text;not null;default:''"`
 	// SyncDeletedAt 墓碑时间（毫秒 epoch，R6）；0 = 未删除。与各表既有的 status 软
 	// 删语义正交——status 是本地可见性，这一列是跨机墓碑标记，由后续任务的删除
 	// 路径一并写入。

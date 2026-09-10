@@ -6,6 +6,7 @@
 //
 // computeAttention 是纯函数，单测主力；
 // useSessionAttention 站在 useSessionWithOverlays 之上。
+import { computeAttention } from "@agentre-hub/agentre-ui";
 import * as React from "react";
 
 import { useSessionWithOverlays } from "@/hooks/use-session-with-overlays";
@@ -28,18 +29,10 @@ function useStableArray<T>(arr: readonly T[]): readonly T[] {
   return stable;
 }
 
-export function computeAttention(
-  input: AttentionInput,
-): AttentionReason | null {
-  if (input.needsAttention) return "needs_attention";
-  if (input.agentStatus === "running") return "running";
-  const unread = input.lastMessageAt > input.lastReadAt;
-  if (input.agentStatus === "error" && unread) return "error";
-  // bg_running 独立于已读/未读：idle 会话只要有后台 subagent 在跑就冒。压过 unread，让位 error/running。
-  if (input.bgRunning) return "bg_running";
-  if (input.agentStatus === "idle" && unread) return "unread";
-  return null;
-}
+// computeAttention 的判定住在共享包里（`@agentre-hub/agentre-ui` 的
+// session-index/attention）：它是纯函数，而 agentre-server 问的是同一个问题。
+// 原样转出来，本仓库的 import 路径与单测一个都不用改；下面两个 hook 自己也用它。
+export { computeAttention };
 
 export function useSessionAttention(sessionId: number): {
   reason: AttentionReason | null;

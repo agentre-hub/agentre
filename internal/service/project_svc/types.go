@@ -3,7 +3,7 @@
 // Project 是「工作上下文」一等公民：名字 + 本地路径 + 成员 Agent。
 package project_svc
 
-import "github.com/agentre-ai/agentre/internal/model/entity/project_entity"
+import "github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 
 // CreateProjectRequest 新建项目入参。
 //
@@ -21,13 +21,23 @@ type CreateProjectRequest struct {
 
 // UpdateProjectRequest 更新项目入参。
 //
-// 不允许跨树移动（改 ParentID）—— 单独走 Move 接口；当前 spec 留作下次。
+// 不允许跨树移动（改 ParentID）—— 那件事走 MoveProjectRequest。两者分开是因为
+// 判据完全不同：改字段只管重名，换父级还要管父级在不在、停没停用、以及会不会成环。
 type UpdateProjectRequest struct {
 	ID          int64
 	Name        string
 	Icon        string
 	Color       string
 	Description string
+}
+
+// MoveProjectRequest 把一个项目挂到另一个父项目下（`NewParentID == 0` = 挂到根上）。
+//
+// 与 ReorderProjectsRequest 分开：那一条的 SQL 带 `AND parent_id = ?`，只在同一个
+// 父下排序，拿它反父级会 RowsAffected != 1 直接报错。
+type MoveProjectRequest struct {
+	ID          int64
+	NewParentID int64
 }
 
 // ReorderProjectsRequest 调整同一 parent 下项目展示顺序。

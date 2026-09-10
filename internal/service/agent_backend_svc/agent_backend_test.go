@@ -13,24 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/daemon/handlers"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_model_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/internal/pkg/syncwire"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
-	"github.com/agentre-ai/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
 
 func setupSvcTest(t *testing.T) (
@@ -190,7 +186,7 @@ func TestCreateBackend(t *testing.T) {
 			backendMock.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
 				DoAndReturn(func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
 					assert.Equal(t, string(agent_backend_entity.TypeClaudeCode), b.Type)
-					assert.Equal(t, "/usr/local/bin/claude", b.CLIPath)
+					assert.Empty(t, b.CLIPath, "CLI path belongs to a per-device overlay, not backend identity")
 					b.ID = 43
 					return nil
 				})
@@ -807,7 +803,7 @@ func TestTestBackend_SelfFingerprintRunsLocalProbe(t *testing.T) {
 
 		saved := &agent_backend_entity.AgentBackend{
 			ID: 8, Type: string(agent_backend_entity.TypeClaudeCode), Name: "claude",
-			LLMProviderKey: "", Status: consts.ACTIVE, DeviceID: "sha256:self",
+			LLMProviderKey: "", Status: consts.ACTIVE, DeviceFingerprint: "sha256:self",
 		}
 		backendMock.EXPECT().Find(gomock.Any(), int64(8)).Return(saved, nil)
 		proberMock.EXPECT().
@@ -1187,45 +1183,50 @@ func setupSvcTestWithRemoteDevice(t *testing.T) (
 	return ctx, backendMock, providerMock, agentMock, rd, prober, svc
 }
 
-type recordingClaimSync struct {
-	sync_svc.SyncSvc
-	changes []sync_svc.LocalChange
-}
+func TestClaimRelativeBackends_PromotesExistingRowsWithoutCloningOrTombstoning(t *testing.T) {
+	ctx, _, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
 
-func (s *recordingClaimSync) NotifyRuntimeClaim(_ context.Context, change sync_svc.LocalChange) {
-	s.changes = append(s.changes, change)
-}
-
-func TestClaimRelativeBackends_ClonesAndTombstonesThroughNormalSyncMutations(t *testing.T) {
-	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
-	rd.EXPECT().DeviceFingerprint().Return("sha256:desktop-a", nil)
-	original := &agent_backend_entity.AgentBackend{ID: 1, DeviceID: "", SyncMeta: syncmeta_entity.SyncMeta{SyncID: "backend-old"}}
-	claimed := &agent_backend_entity.AgentBackend{ID: 2, DeviceID: "sha256:desktop-a", SyncMeta: syncmeta_entity.SyncMeta{SyncID: "backend-new"}}
-	oldTarget := &agent_entity.AgentExecTarget{ID: 3, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "target-old"}}
-	newTarget := &agent_entity.AgentExecTarget{ID: 4, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "target-new"}}
-	backendMock.EXPECT().ClaimRelative(ctx, "sha256:desktop-a").Return([]agent_backend_repo.RelativeClaim{{
-		OriginalBackend: original, ClaimedBackend: claimed,
-		OriginalTargets: []*agent_entity.AgentExecTarget{oldTarget}, ClaimedTargets: []*agent_entity.AgentExecTarget{newTarget},
-	}}, nil)
-	recorder := &recordingClaimSync{}
-	sync_svc.SetDefault(recorder)
-	t.Cleanup(func() { sync_svc.SetDefault(nil) })
-
+	// Given existing device-scoped backend rows, when startup promotes the
+	// account model, then it keeps every original identity. No type/name merge,
+	// clone, tombstone, or fingerprint lookup is allowed.
 	require.NoError(t, svc.ClaimRelativeBackends(ctx))
-	assert.Equal(t, []sync_svc.LocalChange{
-		{Kind: syncwire.KindAgentBackend, LocalID: 2, Op: sync_svc.OpCreate, Meta: claimed.SyncMeta},
-		{Kind: syncwire.KindAgentExecTarget, LocalID: 4, Op: sync_svc.OpCreate, Meta: newTarget.SyncMeta},
-		{Kind: syncwire.KindAgentExecTarget, LocalID: 3, Op: sync_svc.OpDelete, Meta: oldTarget.SyncMeta},
-		{Kind: syncwire.KindAgentBackend, LocalID: 1, Op: sync_svc.OpDelete, Meta: original.SyncMeta},
-	}, recorder.changes)
 }
 
-func TestClaimRelativeBackends_GivenFingerprintFailure_DoesNotMutate(t *testing.T) {
-	ctx, _, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
-	rd.EXPECT().DeviceFingerprint().Return("", errors.New("keychain unavailable"))
+func TestClaimRelativeBackends_GivenNoRemoteIdentity_StillDoesNotBlockStartup(t *testing.T) {
+	ctx, _, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
+	assert.NoError(t, svc.ClaimRelativeBackends(ctx))
+}
 
-	err := svc.ClaimRelativeBackends(ctx)
-	assert.EqualError(t, err, "keychain unavailable")
+// TestCLIOverlay_GivenNoExistingOverlay_CreatesLocalDeviceOverride verifies CLI
+// paths are persisted independently from the account backend identity.
+func TestCLIOverlay_GivenNoExistingOverlay_CreatesLocalDeviceOverride(t *testing.T) {
+	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	rd.EXPECT().DeviceFingerprint().Return("sha256:self", nil)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", "sha256:self").Return(nil, nil)
+	backendMock.EXPECT().CreateCLIOverlay(ctx, gomock.AssignableToTypeOf(&agent_backend_entity.CLIOverlay{})).DoAndReturn(
+		func(_ context.Context, overlay *agent_backend_entity.CLIOverlay) error {
+			assert.Equal(t, "backend-1", overlay.BackendSyncID)
+			assert.Equal(t, "sha256:self", overlay.AgentredFingerprint)
+			assert.Equal(t, "/opt/claude", overlay.CLIPath)
+			return nil
+		})
+
+	_, err := svc.SetCLIOverlay(ctx, &SetCLIOverlayRequest{BackendSyncID: "backend-1", CLIPath: "/opt/claude"})
+	require.NoError(t, err)
+}
+
+// TestCLIOverlay_GivenMissingOverlay_ReportsPATH makes missing and explicit
+// empty overlays equivalent at the Wails boundary without consulting CLIPath on
+// an agent_backends row.
+func TestCLIOverlay_GivenMissingOverlay_ReportsPATH(t *testing.T) {
+	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	rd.EXPECT().DeviceFingerprint().Return("sha256:self", nil)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", "sha256:self").Return(nil, nil)
+
+	response, err := svc.GetCLIOverlay(ctx, &GetCLIOverlayRequest{BackendSyncID: "backend-1"})
+	require.NoError(t, err)
+	assert.Empty(t, response.CLIPath)
+	assert.Equal(t, "path", response.Status)
 }
 
 func TestBackend_GivenCanonicalFingerprint_ResolvesPairedRowForRemoteProbe(t *testing.T) {
@@ -1233,7 +1234,7 @@ func TestBackend_GivenCanonicalFingerprint_ResolvesPairedRowForRemoteProbe(t *te
 	fake := &fakeRemoteCLI{probeResp: &handlers.CLIProbeResult{Text: "pong"}}
 	svc.remoteCLI = fake
 	backendMock.EXPECT().Find(ctx, int64(9)).Return(&agent_backend_entity.AgentBackend{
-		ID: 9, Type: "claudecode", Name: "desktop", DeviceID: "sha256:desktop-a", Status: consts.ACTIVE,
+		ID: 9, Type: "claudecode", Name: "desktop", DeviceFingerprint: "sha256:desktop-a", Status: consts.ACTIVE,
 	}, nil)
 	rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{{ID: 7, DaemonFingerprint: "sha256:desktop-a"}}, nil)
 
@@ -1264,7 +1265,7 @@ func TestCreateBackend_GivenCanonicalFingerprint_PersistsItAfterMatchingPairedDe
 	backendMock.EXPECT().FindByName(gomock.Any(), "desktop-cc").Return(nil, nil)
 	backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
-			assert.Equal(t, "sha256:desktop-a", b.DeviceID)
+			assert.Equal(t, "sha256:desktop-a", b.DeviceFingerprint)
 			b.ID = 11
 			return nil
 		},
@@ -1285,31 +1286,12 @@ func TestCreateBackend_GivenCanonicalFingerprint_PersistsItAfterMatchingPairedDe
 }
 
 func TestCreateBackend_RemoteDeviceValidation(t *testing.T) {
-	convey.Convey("Create 时 deviceId 非空必须命中已知 paired device", t, func() {
-		convey.Convey("device 不存在 → AgentBackendInvalidDevice", func() {
-			ctx, _, providerMock, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
+	convey.Convey("Create 只接受当前 fingerprint 设备身份", t, func() {
+		convey.Convey("Given 数字 paired-row ID when 创建 backend then 拒绝旧身份格式", func() {
+			ctx, _, providerMock, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
 			providerMock.EXPECT().FindByKey(gomock.Any(), "key-1").Return(activeProvider("key-1"), nil).AnyTimes()
-			rd.EXPECT().Get(ctx, int64(7)).Return(nil, errors.New("not found"))
 			_, err := svc.Create(ctx, &CreateBackendRequest{Type: "claudecode", Name: "remote-cc", DeviceID: "7"})
 			convey.So(err, convey.ShouldNotBeNil)
-		})
-		convey.Convey("device 存在 → 允许并回填 view", func() {
-			ctx, backendMock, providerMock, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
-			providerMock.EXPECT().FindByKey(gomock.Any(), "key-1").Return(activeProvider("key-1"), nil).AnyTimes()
-			expectDefaultModelResolution(providerMock, "key-1", 1)
-			backendMock.EXPECT().FindByName(gomock.Any(), "remote-cc").Return(nil, nil)
-			backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
-				func(_ context.Context, b *agent_backend_entity.AgentBackend) error { b.ID = 11; return nil },
-			)
-			rd.EXPECT().Get(ctx, int64(7)).Return(&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: true}, nil).Times(2)
-			resp, err := svc.Create(ctx, &CreateBackendRequest{
-				Type: "claudecode", Name: "remote-cc",
-				LLMProviderKey: "key-1", DeviceID: "7",
-			})
-			convey.So(err, convey.ShouldBeNil)
-			convey.So(resp.Item.DeviceID, convey.ShouldEqual, "7")
-			convey.So(resp.Item.DeviceName, convey.ShouldEqual, "linux-srv")
-			convey.So(resp.Item.Online, convey.ShouldBeTrue)
 		})
 		convey.Convey("device 空 = 本机指纹（落库带指纹，视图仍按本机口径）", func() {
 			ctx, backendMock, providerMock, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
@@ -1319,7 +1301,7 @@ func TestCreateBackend_RemoteDeviceValidation(t *testing.T) {
 			persisted := ""
 			backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
-					persisted = b.DeviceID
+					persisted = b.DeviceFingerprint
 					b.ID = 12
 					return nil
 				},
@@ -1330,7 +1312,7 @@ func TestCreateBackend_RemoteDeviceValidation(t *testing.T) {
 				LLMProviderKey: "key-1", DeviceID: "",
 			})
 			convey.So(err, convey.ShouldBeNil)
-			// 持久化侧：空串被规范化成本机指纹（canonicalDeviceID）。
+			// 持久化侧：UI 的本机空串在写入边界规范化为本机指纹。
 			convey.So(persisted, convey.ShouldEqual, "sha256:this-desktop")
 			// 展示侧：本机指纹收敛回本机口径，否则界面把本机当成一台未配对的远端机。
 			convey.So(resp.Item.DeviceID, convey.ShouldEqual, "")
@@ -1343,18 +1325,19 @@ func TestListBackends_EnrichesDeviceInfo(t *testing.T) {
 	convey.Convey("List 把 device 信息回填到 view", t, func() {
 		ctx, backendMock, providerMock, agentMock, rd, _, svc := setupSvcTestWithRemoteDevice(t)
 		backendMock.EXPECT().List(ctx).Return([]*agent_backend_entity.AgentBackend{
-			{ID: 1, Type: "claudecode", Name: "local-cc", DeviceID: "", Status: consts.ACTIVE},
-			{ID: 2, Type: "claudecode", Name: "remote-cc", DeviceID: "7", Status: consts.ACTIVE},
+			{ID: 1, Type: "claudecode", Name: "local-cc", DeviceFingerprint: "", Status: consts.ACTIVE},
+			{ID: 2, Type: "claudecode", Name: "remote-cc", DeviceFingerprint: "sha256:remote", Status: consts.ACTIVE},
 		}, nil)
 		agentMock.EXPECT().CountByBackends(gomock.Any(), []int64{1, 2}).Return(map[int64]int64{}, nil)
 		// 两行 LLMProviderKey 均为 ""，跳过 provider FindByKey。
 		providerMock.EXPECT().FindByKey(gomock.Any(), gomock.Any()).Times(0)
-		rd.EXPECT().Get(ctx, int64(7)).Return(&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: false}, nil)
+		rd.EXPECT().DeviceFingerprint().Return("sha256:local", nil).AnyTimes()
+		rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{{ID: 7, DaemonFingerprint: "sha256:remote", Name: "linux-srv", Online: false}}, nil)
 		resp, err := svc.List(ctx, &ListBackendsRequest{})
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(len(resp.Items), convey.ShouldEqual, 2)
 		convey.So(resp.Items[0].DeviceID, convey.ShouldEqual, "")
-		convey.So(resp.Items[1].DeviceID, convey.ShouldEqual, "7")
+		convey.So(resp.Items[1].DeviceID, convey.ShouldEqual, "sha256:remote")
 		convey.So(resp.Items[1].DeviceName, convey.ShouldEqual, "linux-srv")
 		convey.So(resp.Items[1].Online, convey.ShouldBeFalse)
 	})

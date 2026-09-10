@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -12,19 +12,19 @@ import (
 func TestRegistry_RuntimeGenerationReleaseRequiresExactConnectionOwner(t *testing.T) {
 	for iteration := 0; iteration < 100; iteration++ {
 		r := NewRegistry()
-		firstConn := new(rpc.Conn)
-		reconnected := new(rpc.Conn)
+		firstConn := protorpc.NewConn(nil, protorpc.NewRegistry())
+		reconnected := protorpc.NewConn(nil, protorpc.NewRegistry())
 
-		assert.True(t, r.ClaimRuntimeGeneration(firstConn, 42, "generation-first"))
-		assert.False(t, r.ClaimRuntimeGeneration(reconnected, 42, "generation-second"),
+		assert.True(t, r.ClaimProtobufRuntimeGeneration(firstConn, 42, "generation-first"))
+		assert.False(t, r.ClaimProtobufRuntimeGeneration(reconnected, 42, "generation-second"),
 			"the same Agentre session cannot be rebound before its old connection releases ownership")
-		assert.False(t, r.ReleaseRuntimeGeneration(reconnected, 42, "generation-first"),
+		assert.False(t, r.ReleaseProtobufRuntimeGeneration(reconnected, 42, "generation-first"),
 			"another connection cannot release the active generation")
-		assert.False(t, r.ReleaseRuntimeGeneration(firstConn, 42, "generation-stale"),
+		assert.False(t, r.ReleaseProtobufRuntimeGeneration(firstConn, 42, "generation-stale"),
 			"a stale generation token cannot release its owner's newer work")
-		assert.True(t, r.ReleaseRuntimeGeneration(firstConn, 42, "generation-first"))
+		assert.True(t, r.ReleaseProtobufRuntimeGeneration(firstConn, 42, "generation-first"))
 
-		assert.True(t, r.ClaimRuntimeGeneration(reconnected, 42, "generation-second"))
+		assert.True(t, r.ClaimProtobufRuntimeGeneration(reconnected, 42, "generation-second"))
 		start := make(chan struct{})
 		results := make(chan bool, 32)
 		var wg sync.WaitGroup
@@ -33,7 +33,7 @@ func TestRegistry_RuntimeGenerationReleaseRequiresExactConnectionOwner(t *testin
 			go func() {
 				defer wg.Done()
 				<-start
-				results <- r.ReleaseRuntimeGeneration(firstConn, 42, "generation-first")
+				results <- r.ReleaseProtobufRuntimeGeneration(firstConn, 42, "generation-first")
 			}()
 		}
 		close(start)
@@ -42,8 +42,8 @@ func TestRegistry_RuntimeGenerationReleaseRequiresExactConnectionOwner(t *testin
 		for released := range results {
 			assert.False(t, released, "old cleanup must not unregister the reconnect generation")
 		}
-		assert.False(t, r.ClaimRuntimeGeneration(firstConn, 42, "generation-third"),
+		assert.False(t, r.ClaimProtobufRuntimeGeneration(firstConn, 42, "generation-third"),
 			"the retry claim must remain registered after stale finalizers finish")
-		assert.True(t, r.ReleaseRuntimeGeneration(reconnected, 42, "generation-second"))
+		assert.True(t, r.ReleaseProtobufRuntimeGeneration(reconnected, 42, "generation-second"))
 	}
 }

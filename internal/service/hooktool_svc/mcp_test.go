@@ -11,9 +11,10 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/service/hook_svc"
-	"github.com/agentre-ai/agentre/internal/service/hooktool_svc/mock_hooktool_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/hook_svc"
+	"github.com/agentre-hub/agentre/internal/service/hooktool_svc/mock_hooktool_svc"
 )
 
 // newTestSvc 构造一个全新的 hooktoolSvc(避免 Default() 单例跨测试串台),只接 AgentLookup + HookService。
@@ -206,6 +207,21 @@ func TestHookMCP_GetReturnsFullHookAndEvents(t *testing.T) {
 	})
 }
 
+func TestHookMCP_GetMissingID(t *testing.T) {
+	Convey("hook_get 缺 id → -32602(参数非法),不查 hooks", t, func() {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		lookup := mock_hooktool_svc.NewMockAgentLookup(ctrl)
+		lookup.EXPECT().Find(gomock.Any(), int64(7)).Return(hookEnabledAgent(7), nil)
+		s := newTestSvc(lookup, mock_hooktool_svc.NewMockHookService(ctrl)) // 无 Load EXPECT
+		token := s.mcpHandlerInit().MintToken(7, 99)
+		w := rpcCall(s.MCPHandler(), `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hook_get","arguments":{}}}`, token)
+		So(w.Code, ShouldEqual, http.StatusOK) // JSON-RPC error 仍是 HTTP 200
+		So(w.Body.String(), ShouldContainSubstring, "-32602")
+		So(w.Body.String(), ShouldContainSubstring, "缺少 id")
+	})
+}
+
 func TestHookMCP_UnknownTool(t *testing.T) {
 	Convey("非 hook 工具名 → -32601 unknown tool", t, func() {
 		ctrl := gomock.NewController(t)
@@ -226,29 +242,29 @@ func TestHookMCP_BuildTurnMCP(t *testing.T) {
 		s.SetGatewayBaseURL("http://127.0.0.1:52401")
 
 		Convey("hook 开关 ON → 返回 1 个 spec(URL/header token/6 个 Tools)", func() {
-			specs := s.BuildTurnMCP(context.Background(), hookEnabledAgent(7), 99, 0)
+			specs := s.BuildTurnMCP(context.Background(), hookEnabledAgent(7), 99)
 			So(len(specs), ShouldEqual, 1)
 			So(specs[0].Name, ShouldEqual, "hook")
 			So(specs[0].URL, ShouldEqual, "http://127.0.0.1:52401/mcp/hook/")
 			So(specs[0].Headers["Authorization"], ShouldStartWith, "Bearer ")
 			So(len(specs[0].Tools), ShouldEqual, 6)
 			tok := strings.TrimPrefix(specs[0].Headers["Authorization"], "Bearer ")
-			ref, ok := s.mcpHandlerInit().lookup(tok)
+			ref, ok := s.mcpHandlerInit().Lookup(tok)
 			So(ok, ShouldBeTrue)
-			So(ref, ShouldResemble, hookRef{agentID: 7, sessionID: 99})
+			So(ref, ShouldResemble, agenttool.Ref{AgentID: 7, SessionID: 99})
 		})
 
 		Convey("hook 开关 OFF → nil", func() {
-			So(s.BuildTurnMCP(context.Background(), hookDisabledAgent(7), 99, 0), ShouldBeNil)
+			So(s.BuildTurnMCP(context.Background(), hookDisabledAgent(7), 99), ShouldBeNil)
 		})
 
 		Convey("agent 为 nil → nil", func() {
-			So(s.BuildTurnMCP(context.Background(), nil, 99, 0), ShouldBeNil)
+			So(s.BuildTurnMCP(context.Background(), nil, 99), ShouldBeNil)
 		})
 	})
 
 	Convey("gatewayBaseURL 未配置 → nil(即使开关 ON)", t, func() {
 		s := newTestSvc(nil, nil)
-		So(s.BuildTurnMCP(context.Background(), hookEnabledAgent(7), 99, 0), ShouldBeNil)
+		So(s.BuildTurnMCP(context.Background(), hookEnabledAgent(7), 99), ShouldBeNil)
 	})
 }

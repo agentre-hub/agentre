@@ -6,15 +6,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // ErrPoolClosed 在 Pool.Close 之后调 Borrow 返回。生产路径只在 bootstrap
@@ -46,7 +49,12 @@ type ConnPool interface {
 //     chat_svc 用它桥接 *remote.Runtime 失效。
 //   - Release() 幂等。
 type Lease interface {
-	Client() agentruntime.DaemonClientPort
+	Client() client.ProtobufConnection
+	LLMUpsert(context.Context, *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error)
+	// SelfUpdate 触发远程一键升级 RPC(spec「远程一键升级」)。应答只回受理结果:
+	// 受理之后 daemon 会重启,这条连接大概率立刻失效,调用方不应该在这次调用里
+	// 依赖 lease 还能继续用。
+	SelfUpdate(context.Context, *agentrewire.AgentredSelfUpdateRequest) (*agentrewire.AgentredSelfUpdateResponse, error)
 	Closed() <-chan struct{}
 	Release()
 }
@@ -105,6 +113,9 @@ type pool struct {
 	credentials AccountCredentialPort // 可空:未注入时直连只认配对令牌
 	idleTimeout time.Duration
 
+	// refreshMu 让「换一张账号凭据」在这个池子里单飞，见 retryWithFreshCredential。
+	refreshMu sync.Mutex
+
 	mu      sync.Mutex
 	entries map[int64]*entry
 	closed  bool
@@ -113,7 +124,7 @@ type pool struct {
 // pooledClient 是 entry.client 的窄接口,允许 internal test 用 fake 替身。
 // 生产路径 = *client.Client(已实现 DaemonClientPort,即 pooledClient)。
 type pooledClient interface {
-	agentruntime.DaemonClientPort
+	client.ProtobufConnection
 }
 
 // entry 单 device 的活连接 + refcount。
@@ -135,8 +146,16 @@ type lease struct {
 	releaseOnce sync.Once
 }
 
-func (l *lease) Client() agentruntime.DaemonClientPort {
-	return noopCloseClient{DaemonClientPort: l.e.client}
+func (l *lease) Client() client.ProtobufConnection {
+	return noopCloseClient{ProtobufConnection: l.e.client}
+}
+func (l *lease) LLMUpsert(ctx context.Context, request *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
+	return protorpc.CallMethod(ctx, l.e.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT), request,
+		func() *agentrewire.LLMUpsertResponse { return &agentrewire.LLMUpsertResponse{} })
+}
+func (l *lease) SelfUpdate(ctx context.Context, request *agentrewire.AgentredSelfUpdateRequest) (*agentrewire.AgentredSelfUpdateResponse, error) {
+	return protorpc.CallMethod(ctx, l.e.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_AGENTRED_SELF_UPDATE), request,
+		func() *agentrewire.AgentredSelfUpdateResponse { return &agentrewire.AgentredSelfUpdateResponse{} })
 }
 func (l *lease) Closed() <-chan struct{} { return l.e.closedCh }
 func (l *lease) Release() {
@@ -147,7 +166,7 @@ func (l *lease) Release() {
 // 防止 lease 持有者(尤其 *remote.Runtime.Close())把池子里的 conn 关掉。
 // 只有 Pool 自己持有 raw *client.Client。
 type noopCloseClient struct {
-	agentruntime.DaemonClientPort
+	client.ProtobufConnection
 }
 
 func (noopCloseClient) Close() error { return nil }
@@ -213,14 +232,18 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 		logger.Ctx(ctx).Info("conn pool: no local pairing, dialing with the account credential",
 			zap.Int64("deviceID", deviceID))
 	}
-	c, err := p.openAny(ctx, ConnectArgs{
+	args := ConnectArgs{
 		URL:                       row.URL,
 		TLSMode:                   row.TLSMode,
 		TLSCertPEM:                row.TLSCertPEM,
 		DeviceFingerprint:         fp,
 		DeviceToken:               token,
 		ExpectedDaemonFingerprint: row.DaemonFingerprint,
-	}, credential)
+	}
+	c, err := p.openAny(ctx, args, credential)
+	if err != nil && credential != "" && credentialRejected(err) {
+		c, err = p.retryWithFreshCredential(ctx, args, credential, err)
+	}
 	if err != nil {
 		if errors.Is(err, ErrUnauthorized) {
 			// 直连的 auth.connect 明确拒绝了凭据(设备令牌被撤销 / 已解除配对)。
@@ -261,6 +284,72 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 	return &lease{e: e, pool: p}, nil
 }
 
+// retryWithFreshCredential 换一张账号凭据再拨一次。
+//
+// 走到这里说明对端拒了我们出示的凭据,而**过期与被撤销在线上是同一个 -32001**
+// (daemon/auth.accountCredentialError 对两者都用 ErrUnauthorized.Code,只有 message
+// 不同)。桌面端的 access token 只活 15 分钟,刷新一直是被动的(撞上 HTTP 401 才刷,
+// 见 server_svc.withAuth),平时靠下行轮询养着——轮询一停,十几分钟后每次账号握手
+// 都会被判过期。
+//
+// 不去比对错误文案分辨这两件事:那等于把 daemon 的措辞变成两端契约。换一张再拨一次
+// 直接问出答案——过期的换完就连上,真被撤销的换完照样被拒,那时的 ErrDeviceUnauthorized
+// 才是实话。
+//
+// 换不到新票(server 够不着)时**不能**宣告终止:那正是 R3 这条路径存在的理由——
+// server 挂了,而它一挂,刷新也就没了。此时说「重试也没用」是错的,server 回来就好了。
+func (p *pool) retryWithFreshCredential(
+	ctx context.Context, args ConnectArgs, stale string, cause error,
+) (client.ProtobufConnection, error) {
+	if p.credentials == nil {
+		return nil, cause
+	}
+	// 换票单飞。server_svc.refresh 会**轮换 refresh_token**(响应里带新的、覆盖
+	// keychain)而它自己没有串行化:同时刷两次,后写的那次可能把已经作废的那张存回
+	// 去,下一次刷新被拒、本地登录被清掉。而重连风暴(几台远端设备同时重连)正是
+	// 这种并发的来源。锁里先看一眼手上这张是不是已经被别人换过了——换过就直接用,
+	// 连请求都不必发。
+	p.refreshMu.Lock()
+	defer p.refreshMu.Unlock()
+	if current := p.accountCredential(); current != "" && current != stale {
+		return p.openAny(ctx, args, current)
+	}
+	if err := p.credentials.Refresh(ctx); err != nil {
+		logger.Ctx(ctx).Warn("conn pool: account credential rejected and cannot be renewed",
+			zap.String("daemonFingerprint", args.ExpectedDaemonFingerprint), zap.Error(err))
+		// 原因用 %v 而不是 %w:这条**不能**再带着 ErrUnauthorized 往上走,否则
+		// Borrow 照样把它折成 ErrDeviceUnauthorized,上层照样判「重试也没用」——
+		// 而我们恰恰还不知道凭据是不是真的被撤销了,只知道换不到新的。文字照留。
+		return nil, fmt.Errorf("account credential rejected (%v) and could not be renewed: %w", cause, err)
+	}
+	fresh := p.accountCredential()
+	if fresh == "" {
+		// 刷完没票 = 已经登出。没有身份可出示,这确实是终止条件(与 Borrow 开头
+		// 「既没有配对令牌、账号也没登录」同一句话)。
+		return nil, fmt.Errorf("%w: %w", ErrUnauthorized, cause)
+	}
+	logger.Ctx(ctx).Info("conn pool: account credential rejected, retrying once with a fresh one",
+		zap.String("daemonFingerprint", args.ExpectedDaemonFingerprint))
+	return p.openAny(ctx, args, fresh)
+}
+
+// credentialRejected 判「对端拒的是我们出示的凭据」。
+//
+// 两条路径的失败形状不同:直连由 dial.go 折成 ErrUnauthorized,中转那条(经服务端
+// 的虚拟通道做 auth.account)交回的是对端原样的 -32001 —— 它没有经过 dial.go 的
+// 翻译层。两种都要认,否则中转那条路上的过期永远换不到新票。
+func credentialRejected(err error) bool {
+	if errors.Is(err, ErrUnauthorized) {
+		return true
+	}
+	var rpcErr *rpcerror.Error
+	if errors.As(err, &rpcErr) && rpcErr.Code == rpcerror.ErrUnauthorized.Code {
+		return true
+	}
+	var protobufErr *protorpc.Error
+	return errors.As(err, &protobufErr) && protobufErr.Code == rpcerror.ErrUnauthorized.Code
+}
+
 // accountCredential 返回当前账号凭据；未注入凭据来源或未登录时是空串。
 func (p *pool) accountCredential() string {
 	if p.credentials == nil {
@@ -275,8 +364,18 @@ func (p *pool) accountCredential() string {
 //
 // 直连的凭据优先级：该指纹有本地配对就沿用 auth.connect（R2，行为不变）；没有配对
 // 才用账号凭据走 auth.account（R3）。中转路径恒用 auth.account，不受影响。
-func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string) (*client.Client, error) {
-	direct := func(ctx context.Context) (*client.Client, error) {
+func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string) (client.ProtobufConnection, error) {
+	// 账号来源收编的行没有 LAN 地址（paired_agentred_entity.IsRelayOnly）：直连不是
+	// 「拨了没通」而是**根本不存在**这条路。拿空地址去竞速只会白等一次拨号超时，
+	// 还会把「这台机器本来就没有 LAN 路径」包装成一条看起来像网络故障的失败原因。
+	if strings.TrimSpace(args.URL) == "" {
+		if p.relay == nil {
+			return nil, fmt.Errorf("device %s has no LAN address and no relay is configured",
+				args.ExpectedDaemonFingerprint)
+		}
+		return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, args.DeviceFingerprint)
+	}
+	direct := func(ctx context.Context) (client.ProtobufConnection, error) {
 		if args.DeviceToken != "" {
 			return p.dial.Open(ctx, args)
 		}
@@ -285,23 +384,22 @@ func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string)
 			TLSMode:                   args.TLSMode,
 			TLSCertPEM:                args.TLSCertPEM,
 			Credential:                credential,
-			DeviceFingerprint:         args.DeviceFingerprint,
 			ExpectedDaemonFingerprint: args.ExpectedDaemonFingerprint,
 		})
 	}
 	if p.relay == nil {
 		return direct(ctx)
 	}
-	return client.Race(ctx,
-		client.Path{
+	return client.RaceProtobuf(ctx,
+		client.ProtobufPath{
 			Name:        "direct",
 			Fingerprint: args.DeviceFingerprint,
 			Dial:        direct,
 		},
-		client.Path{
+		client.ProtobufPath{
 			Name:        "relay",
 			Fingerprint: args.DeviceFingerprint,
-			Dial: func(ctx context.Context) (*client.Client, error) {
+			Dial: func(ctx context.Context) (client.ProtobufConnection, error) {
 				return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, args.DeviceFingerprint)
 			},
 		},

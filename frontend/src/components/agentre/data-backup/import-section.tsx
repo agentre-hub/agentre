@@ -3,7 +3,7 @@ import { Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@agentre-hub/agentre-ui";
 
 import {
   ApplyImportData,

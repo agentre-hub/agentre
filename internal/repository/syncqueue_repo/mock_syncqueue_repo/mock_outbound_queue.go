@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	syncqueue_entity "github.com/agentre-ai/agentre/internal/model/entity/syncqueue_entity"
+	syncqueue_entity "github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -67,6 +67,20 @@ func (m *MockOutboundQueueRepo) Delete(ctx context.Context, id int64) error {
 func (mr *MockOutboundQueueRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockOutboundQueueRepo)(nil).Delete), ctx, id)
+}
+
+// DeleteMany mocks base method.
+func (m *MockOutboundQueueRepo) DeleteMany(ctx context.Context, ids []int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteMany", ctx, ids)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteMany indicates an expected call of DeleteMany.
+func (mr *MockOutboundQueueRepoMockRecorder) DeleteMany(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteMany", reflect.TypeOf((*MockOutboundQueueRepo)(nil).DeleteMany), ctx, ids)
 }
 
 // ListByAccount mocks base method.

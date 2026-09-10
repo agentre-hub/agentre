@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/procattr"
 )
 
 // runInstaller 运行 NSIS 安装程序（用户级安装，无需 UAC 提权）。

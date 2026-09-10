@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	hook_entity "github.com/agentre-ai/agentre/internal/model/entity/hook_entity"
+	hook_entity "github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
 	gomock "go.uber.org/mock/gomock"
 )
 

@@ -3,7 +3,7 @@ package app
 import (
 	"errors"
 
-	"github.com/agentre-ai/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
 // RemoteDeviceList 返回当前已配对的全部 agentred（不含 keychain 秘密）。
@@ -61,4 +61,25 @@ func (a *App) RemoteDeviceSyncProvider(id int64, providerKey string) error {
 		return svc.SyncProvider(a.ctx, id, providerKey)
 	}
 	return errors.New("remote device service unavailable")
+}
+
+// RemoteDeviceUpgrade 触发远程一键升级 RPC(spec「远程一键升级」)。channel 留空
+// 按 daemon 当前配置的通道解读;force 越过活跃轮次闸门,必须由前端在拿到
+// UpgradeRejectActiveTurns 之后经用户显式二次确认才置真(决策 8/21)。应答只回
+// 受理结果,前端从版本号变化推断升级中→成功/超时失败。
+func (a *App) RemoteDeviceUpgrade(id int64, channel string, force bool) (*remote_device_svc.UpgradeResult, error) {
+	if svc := remote_device_svc.Default(); svc != nil {
+		return svc.Upgrade(a.ctx, id, channel, force)
+	}
+	return nil, errors.New("remote device service unavailable")
+}
+
+// RemoteDeviceGet 返回一份只读的 DeviceView,不做任何网络探活。升级流程用它按
+// 固定间隔轮询远端版本是否已经变化(watcher 在后台持续用 health.ping 刷新版本
+// 缓存,这里只是读一次快照,不额外发起连接)。
+func (a *App) RemoteDeviceGet(id int64) (*remote_device_svc.DeviceView, error) {
+	if svc := remote_device_svc.Default(); svc != nil {
+		return svc.Get(a.ctx, id)
+	}
+	return nil, errors.New("remote device service unavailable")
 }

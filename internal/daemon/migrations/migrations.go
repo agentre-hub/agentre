@@ -21,9 +21,17 @@ func RunMigrations(db *gorm.DB) error {
 }
 
 // migrationList 按时间升序列出全部迁移构造函数。
+//
+// 新迁移的 id 必须**大于历史上用过的任何一个**,而不是「文件列表里最大的那个 +1」:
+// 账本 id 一旦落进过谁的库就永久退役,删掉文件也收不回来。gormigrate 见到 id 已在账本
+// 便静默跳过,复用退役号会让老库悄悄缺表缺列(桌面端 migrations/migrations.go 记着这么
+// 一次事故)。取当天日期编号即可。
+//
+// 已退役、永不复用的号:202608080011、202609010001、202609010002、202609010003 ——
+// 2026-09-04 发布前压缩成基线迁移 202609040101 时退役(当时所有长活开发库/联调库一律
+// 删库重建,故不保留补丁迁移)。
 func migrationList() []*gormigrate.Migration {
 	return []*gormigrate.Migration{
-		migration202608080011(), // daemon_sessions + daemon_notification_logs
-		migration202608100001(), // R7 标题/Agent 同步标识 + 决策 8 provider_session_id
+		migration202609040101(),
 	}
 }

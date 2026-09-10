@@ -8,16 +8,18 @@ import (
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 type ToolCallHandler struct{}
 
 func (ToolCallHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *turn.Accumulator, emit turn.Emitter, _ turn.View, tc *turn.TurnContext) error {
 	tc2 := ev.(agentruntime.ToolCall)
+	// 停表(与随后 ToolResult 的开表)不在这里:计时归 turn.Dispatcher,口径与
+	// 「哪条事件动哪一下表」的映射在 internal/pkg/turnstats。
 	var input map[string]any
 	if len(tc2.Input) > 0 {
 		_ = json.Unmarshal(tc2.Input, &input)

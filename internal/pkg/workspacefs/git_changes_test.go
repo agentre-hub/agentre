@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 )
 
 func changesByPath(changes []workspacefs.Change) map[string]workspacefs.Change {

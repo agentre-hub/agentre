@@ -16,7 +16,8 @@ export type TabKind =
   | {
       kind: "peer";
       fingerprint: string;
-      sessionId: number;
+      // 对端会话按 conversation_id 寻址（uuid 字符串），不是本机的 chat_sessions.id。
+      conversationId: string;
       deviceName: string;
     };
 
@@ -63,7 +64,7 @@ type Actions = {
    *  已打开时只切到它（不重复开）。关闭只 detach，不删除对端会话。 */
   openPeerTab: (args: {
     fingerprint: string;
-    sessionId: number;
+    conversationId: string;
     title?: string;
     deviceName: string;
   }) => void;
@@ -333,13 +334,13 @@ export const useChatTabsStore = create<State & Actions>((set, _get) => ({
       };
       return { tabs: [...state.tabs, newTab], activeTabId: newTab.id };
     }),
-  openPeerTab: ({ fingerprint, sessionId, title, deviceName }) =>
+  openPeerTab: ({ fingerprint, conversationId, title, deviceName }) =>
     set((state) => {
       const existing = state.tabs.find(
         (t) =>
           t.meta.kind === "peer" &&
           t.meta.fingerprint === fingerprint &&
-          t.meta.sessionId === sessionId,
+          t.meta.conversationId === conversationId,
       );
       if (existing) {
         return { activeTabId: existing.id };
@@ -349,7 +350,7 @@ export const useChatTabsStore = create<State & Actions>((set, _get) => ({
         meta: {
           kind: "peer",
           fingerprint,
-          sessionId,
+          conversationId,
           deviceName,
         },
         isPreview: false,

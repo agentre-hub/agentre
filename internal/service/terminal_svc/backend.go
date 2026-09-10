@@ -3,7 +3,7 @@ package terminal_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/pkg/pty"
+	"github.com/agentre-hub/agentre/internal/pkg/pty"
 )
 
 //go:generate mockgen -source=backend.go -destination=mocks/mock_backend.go -package=mocks

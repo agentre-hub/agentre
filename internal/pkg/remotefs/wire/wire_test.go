@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/agentre-ai/agentre/internal/daemon/rpc"
-	"github.com/agentre-ai/agentre/internal/pkg/remotefs/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 )
 
 func TestSentinelRoundTrip(t *testing.T) {
@@ -25,22 +25,22 @@ func TestSentinelRoundTrip(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rpcErr := wire.ToJSONRPCError(c.err)
+			rpcErr := wire.ToRPCError(c.err)
 			assert.NotNil(t, rpcErr)
-			assert.Equal(t, c.code, rpcErr.Code)
+			assert.EqualValues(t, c.code, rpcErr.Code)
 
-			back := wire.FromJSONRPCError(rpcErr)
+			back := wire.FromRPCError(rpcErr)
 			assert.True(t, errors.Is(back, c.err))
 		})
 	}
 }
 
-func TestToJSONRPCError_NonSentinel(t *testing.T) {
-	assert.Nil(t, wire.ToJSONRPCError(errors.New("random")))
+func TestToRPCError_NonSentinel(t *testing.T) {
+	assert.Nil(t, wire.ToRPCError(errors.New("random")))
 }
 
-func TestFromJSONRPCError_UnknownCode(t *testing.T) {
-	src := &rpc.Error{Code: -9999, Message: "x"}
-	got := wire.FromJSONRPCError(src)
+func TestFromRPCError_UnknownCode(t *testing.T) {
+	src := &rpcerror.Error{Code: -9999, Message: "x"}
+	got := wire.FromRPCError(src)
 	assert.Equal(t, src, got)
 }

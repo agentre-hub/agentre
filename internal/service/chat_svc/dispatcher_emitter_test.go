@@ -7,8 +7,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 type captureEmitter struct{ events []ChatStreamEvent }
@@ -25,7 +25,9 @@ func newTestDispatcherEmitter() (*dispatcherEmitter, *captureEmitter) {
 	return &dispatcherEmitter{svc: svc}, em
 }
 
-func emitToolPermissionBlock(requestID string, toolName string, toolInput map[string]any) ChatStreamEvent {
+// emitToolPermissionBlock 复刻 handlers/tool_permission.go 的 emit 形状:block 与
+// canonical 一同下发 —— canonical 由 handler 算好,dispatcher_emitter 只透传。
+func emitToolPermissionBlock(requestID string, toolName string, toolInput map[string]any, c canonical.CanonicalTool) ChatStreamEvent {
 	de, em := newTestDispatcherEmitter()
 	de.Emit(context.Background(), "s", map[string]any{
 		"kind": "tool_permission_request",
@@ -34,6 +36,7 @@ func emitToolPermissionBlock(requestID string, toolName string, toolInput map[st
 			ToolName:  toolName,
 			ToolInput: toolInput,
 		},
+		"canonical": c,
 	})
 	So(em.events, ShouldHaveLength, 1)
 	return em.events[0]
@@ -49,6 +52,17 @@ func TestDispatcherEmitter_Chunk(t *testing.T) {
 	})
 }
 
+// output_activity 是纯计时信号:没有任何附加字段,但必须转发 —— 前端的 live
+// 「首 token」就靠它记表(sess-3241)。落在 default 分支被丢弃 = 修了后端没修前端。
+func TestDispatcherEmitter_OutputActivity(t *testing.T) {
+	Convey("kind=output_activity → ChatStreamEvent{Kind:output_activity}", t, func() {
+		de, em := newTestDispatcherEmitter()
+		de.Emit(context.Background(), "s", map[string]any{"kind": "output_activity"})
+		So(em.events, ShouldHaveLength, 1)
+		So(em.events[0].Kind, ShouldEqual, StreamOutputActivity)
+	})
+}
+
 func TestDispatcherEmitter_ToolUse_PassthroughWithoutCanonical(t *testing.T) {
 	Convey("kind=tool_use 无 canonical key → ev 透传 toolUseId/toolName/toolInput,Canonical=nil", t, func() {
 		de, em := newTestDispatcherEmitter()
@@ -61,7 +75,7 @@ func TestDispatcherEmitter_ToolUse_PassthroughWithoutCanonical(t *testing.T) {
 		So(em.events, ShouldHaveLength, 1)
 		ev := em.events[0]
 		So(ev.Kind, ShouldEqual, StreamToolUse)
-		So(ev.ToolUseID, ShouldEqual, "tu-1")
+		So(ev.ToolCallID, ShouldEqual, "tu-1")
 		So(ev.ToolName, ShouldEqual, "Write")
 		So(ev.Canonical, ShouldBeNil) // 没有 canonical key → 不再用 toolUseToChatBlock 兜底
 	})
@@ -226,7 +240,8 @@ func TestDispatcherEmitter_PlanUpdate_AttachesCanonicalPlanUpdate(t *testing.T) 
 
 func TestDispatcherEmitter_ToolPermission_ExitPlanMode_AttachesPlanApprove(t *testing.T) {
 	Convey("tool_permission_request 的 ExitPlanMode 工具填 ev.Canonical=PlanApproveRequest", t, func() {
-		ev := emitToolPermissionBlock("p-1", "ExitPlanMode", map[string]any{"plan": "## Plan\n- a\n- b\n"})
+		ev := emitToolPermissionBlock("p-1", "ExitPlanMode", map[string]any{"plan": "## Plan\n- a\n- b\n"},
+			canonical.PlanApproveRequest{RequestID: "p-1", PlanText: "## Plan\n- a\n- b\n"})
 		So(ev.Canonical, ShouldNotBeNil)
 		So(string(ev.Canonical.Kind), ShouldEqual, "plan.approve_request")
 		So(ev.Canonical.PlanApprove, ShouldNotBeNil)
@@ -235,7 +250,8 @@ func TestDispatcherEmitter_ToolPermission_ExitPlanMode_AttachesPlanApprove(t *te
 	})
 
 	Convey("tool_permission_request 非 ExitPlanMode 工具填 ev.Canonical=ToolPermission", t, func() {
-		ev := emitToolPermissionBlock("p-2", "Bash", map[string]any{"command": "rm -rf /"})
+		ev := emitToolPermissionBlock("p-2", "Bash", map[string]any{"command": "rm -rf /"},
+			canonical.ToolPermission{RequestID: "p-2", ToolName: "Bash", ToolInput: map[string]any{"command": "rm -rf /"}})
 		So(ev.Canonical, ShouldNotBeNil)
 		So(string(ev.Canonical.Kind), ShouldEqual, "tool.permission")
 		So(ev.Canonical.ToolPermission, ShouldNotBeNil)
@@ -243,10 +259,10 @@ func TestDispatcherEmitter_ToolPermission_ExitPlanMode_AttachesPlanApprove(t *te
 		So(ev.Canonical.ToolPermission.ToolName, ShouldEqual, "Bash")
 	})
 
-	// resolved 阶段 handler 现在带 toolPermission block,dispatcher_emitter 应据此
-	// 仍然把 ExitPlanMode 路由到 PlanApproveRequest canonical(含 planText),
-	// 否则前端 markToolPermissionResolved 拿到空 tool.permission canonical 会
-	// 覆盖掉原本的 PlanApproveCard,显示成空白 ToolPermissionCard。
+	// resolved 阶段 handler 带着算好的 PlanApproveRequest canonical 一起下发,
+	// dispatcher_emitter 必须原样透传(含 planText),否则前端
+	// markToolPermissionResolved 拿到空 tool.permission canonical 会覆盖掉原本的
+	// PlanApproveCard,显示成空白 ToolPermissionCard。
 	Convey("resolved ExitPlanMode 仍走 PlanApproveRequest canonical 并保留 planText", t, func() {
 		de, em := newTestDispatcherEmitter()
 		de.Emit(context.Background(), "s", map[string]any{
@@ -260,6 +276,12 @@ func TestDispatcherEmitter_ToolPermission_ExitPlanMode_AttachesPlanApprove(t *te
 				RequestID: "p-3",
 				ToolName:  "ExitPlanMode",
 				ToolInput: map[string]any{"plan": "## Plan\n- step 1"},
+				Resolved:  true,
+				Allowed:   true,
+			},
+			"canonical": canonical.PlanApproveRequest{
+				RequestID: "p-3",
+				PlanText:  "## Plan\n- step 1",
 				Resolved:  true,
 				Allowed:   true,
 			},
@@ -358,7 +380,7 @@ func TestDispatcherEmitter_SubagentNormalizedRunsAndChildGrouping(t *testing.T) 
 }
 
 func TestDispatcherEmitter_SubagentModel(t *testing.T) {
-	Convey("kind=subagent_model → ChatStreamEvent{ToolUseID, Model},Subagent 保持 nil", t, func() {
+	Convey("kind=subagent_model → ChatStreamEvent{ToolCallID, Model},Subagent 保持 nil", t, func() {
 		de, em := newTestDispatcherEmitter()
 		de.Emit(context.Background(), "s", map[string]any{
 			"kind":      "subagent_model",
@@ -368,7 +390,7 @@ func TestDispatcherEmitter_SubagentModel(t *testing.T) {
 		So(em.events, ShouldHaveLength, 1)
 		ev := em.events[0]
 		So(ev.Kind, ShouldEqual, StreamSubagentModel)
-		So(ev.ToolUseID, ShouldEqual, "task-1")
+		So(ev.ToolCallID, ShouldEqual, "task-1")
 		So(ev.Model, ShouldEqual, "claude-haiku-4-5-20251001")
 		So(ev.Subagent, ShouldBeNil)
 	})

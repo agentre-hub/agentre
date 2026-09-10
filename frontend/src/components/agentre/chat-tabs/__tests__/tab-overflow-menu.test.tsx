@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { TabOverflowMenu } from "../tab-overflow-menu";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { useSessionStatusStore } from "@/stores/session-status-store";
 
 // Radix DropdownMenu 在 jsdom 中需要关闭 pointerEvents 检查。
 function setupUser() {
@@ -110,5 +111,40 @@ describe("TabOverflowMenu", () => {
     expect(screen.getByText("⌘1")).toBeInTheDocument();
     expect(screen.getByText("⌘9")).toBeInTheDocument();
     expect(screen.queryByText("⌘10")).not.toBeInTheDocument();
+  });
+});
+
+// ─── 2026-08-23 对话页外壳收口 · 溢出菜单的状态点回归共享原语 ────────────────
+
+describe("TabOverflowMenu · 状态点来自共享 statusConfig", () => {
+  beforeEach(() => {
+    useChatTabsStore.setState({ tabs: [], activeTabId: null });
+    useSessionStatusStore.getState().__reset();
+  });
+
+  it("Given 一条出错的会话, When 菜单展开, Then 那枚点用 bg-status-error —— 与其余状态记号同源，不再是菜单私有的 bg-destructive", async () => {
+    const user = setupUser();
+    useChatTabsStore.getState().openSessionInNewTab(505);
+    useSessionStatusStore.getState().upsert(505, {
+      agentStatus: "error",
+      needsAttention: false,
+    });
+    render(<TabOverflowMenu />);
+    await openMenu(user);
+
+    expect(screen.getByTestId("overflow-row-status-dot")).toHaveClass(
+      "bg-status-error",
+    );
+  });
+
+  it("Given 一条闲置的会话, When 菜单展开, Then 那一格仍然是透明占位，不摆记号", async () => {
+    const user = setupUser();
+    useChatTabsStore.getState().openSessionInNewTab(506);
+    render(<TabOverflowMenu />);
+    await openMenu(user);
+
+    expect(screen.getByTestId("overflow-row-status-dot")).toHaveClass(
+      "bg-transparent",
+    );
   });
 });

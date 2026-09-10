@@ -7,9 +7,9 @@ import (
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 func TestSubagentLifecycle(t *testing.T) {
@@ -558,16 +558,26 @@ func TestMarkRunningSubagentsCancelled(t *testing.T) {
 type fakeSubagentFlipper struct {
 	calls []flipCall
 	err   error
+	// resumeOwner 是 ResumeSubagentByTaskID 要交回的原卡 tool_call_id。
+	resumeOwner string
+	resumeCalls []flipCall
 }
 
 type flipCall struct {
-	toolUseID string
-	status    string
+	toolCallID string
+	status     string
+	summary    string
 }
 
-func (f *fakeSubagentFlipper) FlipSubagentStatus(_ context.Context, toolUseID, status string) error {
-	f.calls = append(f.calls, flipCall{toolUseID: toolUseID, status: status})
+func (f *fakeSubagentFlipper) FlipSubagentStatus(_ context.Context, toolCallID, status, summary string) error {
+	f.calls = append(f.calls, flipCall{toolCallID: toolCallID, status: status, summary: summary})
 	return f.err
+}
+
+// resumeOwner 非空时,ResumeSubagentByTaskID 就当作「更早的消息里找到了那张卡」。
+func (f *fakeSubagentFlipper) ResumeSubagentByTaskID(_ context.Context, taskID, status string) (string, error) {
+	f.resumeCalls = append(f.resumeCalls, flipCall{toolCallID: taskID, status: status})
+	return f.resumeOwner, f.err
 }
 
 // TestSubagentDone_CrossTurn_FlipsEarlierMessage 是 sess-2825 的回归:一次
@@ -601,7 +611,7 @@ func TestSubagentDone_CrossTurn_FlipsEarlierMessage(t *testing.T) {
 			Convey("Then 该块经跨消息定向翻转落成终态,而不是被静默丢弃", func() {
 				So(err, ShouldBeNil)
 				So(flipper.calls, ShouldHaveLength, 1)
-				So(flipper.calls[0].toolUseID, ShouldEqual, "toolu-earlier-msg")
+				So(flipper.calls[0].toolCallID, ShouldEqual, "toolu-earlier-msg")
 				So(flipper.calls[0].status, ShouldEqual, "completed")
 				// 本轮 accumulator 不该被塞进一个孤儿 overlay(块不属于这条消息)。
 				So(acc.Finalize(), ShouldHaveLength, 1)
@@ -667,5 +677,309 @@ func TestSubagentDone_CrossTurn_NilFlipperNoPanic(t *testing.T) {
 				agentruntime.SubagentDone{ToolCallID: "toolu-earlier-msg"},
 				turn.New(), nil, nil, nil)
 		}, ShouldNotPanic)
+	})
+}
+
+// MarkRunningForegroundSubagentsCancelled 是**正常**收尾用的补救。后台任务(Agent
+// 默认后台 / run_in_background 的 Bash)有权活过发起它的那一轮,不能跟着前台 subagent
+// 一起判死 —— 否则卡片显示「已停止」而任务还在跑(sess-3275)。
+func TestMarkRunningForegroundSubagentsCancelled(t *testing.T) {
+	Convey("Given a clean turn end with both foreground and background subagents still running", t, func() {
+		acc := turn.New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{
+			ID: "agent-bg", Name: "Agent",
+			Input: map[string]any{"description": "Wrap-up code review axis"},
+		}, "")
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{
+			ID: "agent-fg", Name: "Agent",
+			Input: map[string]any{"run_in_background": false},
+		}, "")
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{
+			ID: "bash-bg", Name: "Bash",
+			Input: map[string]any{"command": "sleep 600", "run_in_background": true},
+		}, "")
+
+		bgAgent := &blocks.SubagentStateBlock{
+			ParentToolCallID: "agent-bg", Kind: "local_agent", Status: "running",
+			Runs: []agentruntime.SubagentRun{{ID: "run-0", Status: "running"}},
+		}
+		fgAgent := &blocks.SubagentStateBlock{
+			ParentToolCallID: "agent-fg", Kind: "local_agent", Status: "running",
+			Runs: []agentruntime.SubagentRun{{ID: "run-0", Status: "waiting"}},
+		}
+		bgBash := &blocks.SubagentStateBlock{
+			ParentToolCallID: "bash-bg", Kind: "local_bash", Status: "running",
+		}
+		// kind 未知的旧帧:判不出后台,按前台处理(宁可翻 canceled 也不让卡片永远转)。
+		unknown := &blocks.SubagentStateBlock{
+			ParentToolCallID: "legacy", Kind: "", Status: "running",
+		}
+		final := append(acc.Finalize(), bgAgent, fgAgent, bgBash, unknown)
+
+		MarkRunningForegroundSubagentsCancelled(acc, final)
+
+		Convey("Then background subagents keep running and only foreground ones are canceled", func() {
+			So(bgAgent.Status, ShouldEqual, "running")
+			So(bgAgent.Runs[0].Status, ShouldEqual, "running")
+			So(bgBash.Status, ShouldEqual, "running")
+			So(fgAgent.Status, ShouldEqual, "canceled")
+			So(fgAgent.Runs[0].Status, ShouldEqual, "canceled")
+			So(unknown.Status, ShouldEqual, "canceled")
+		})
+	})
+
+	Convey("Given a background Agent whose tool_use block is not in this turn", t, func() {
+		acc := turn.New()
+		orphan := &blocks.SubagentStateBlock{
+			ParentToolCallID: "agent-elsewhere", Kind: "local_agent", Status: "running",
+		}
+
+		MarkRunningForegroundSubagentsCancelled(acc, []cagoblocks.ContentBlock{orphan})
+
+		Convey("Then it is still treated as background (Agent defaults to background)", func() {
+			So(orphan.Status, ShouldEqual, "running")
+		})
+	})
+
+	Convey("Given terminal subagent evidence", t, func() {
+		acc := turn.New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{
+			ID: "agent-fg", Name: "Agent", Input: map[string]any{"run_in_background": false},
+		}, "")
+		done := &blocks.SubagentStateBlock{
+			ParentToolCallID: "agent-fg", Kind: "local_agent", Status: "completed",
+			Runs: []agentruntime.SubagentRun{{ID: "run-0", Status: "failed"}},
+		}
+
+		MarkRunningForegroundSubagentsCancelled(acc, []cagoblocks.ContentBlock{done})
+
+		Convey("Then it is preserved untouched", func() {
+			So(done.Status, ShouldEqual, "completed")
+			So(done.Runs[0].Status, ShouldEqual, "failed")
+		})
+	})
+}
+
+// subagentStates 摘出累计块里所有 subagent_state overlay,顺序保持累积顺序。
+func subagentStates(blks []cagoblocks.ContentBlock) []*blocks.SubagentStateBlock {
+	var out []*blocks.SubagentStateBlock
+	for _, b := range blks {
+		if sb, ok := b.(*blocks.SubagentStateBlock); ok {
+			out = append(out, sb)
+		}
+	}
+	return out
+}
+
+// 真实 CLI 在 subagent 被 SendMessage 恢复时,用**同一个 task_id**、**新的 tool_use_id**
+// 再发一遍 task_started/task_notification(sess-3504 实测帧序:
+// task_started(A) → task_notification(A,failed) → task_started(B) → task_notification(B,completed))。
+// overlay 若只按 tool call 归集,恢复后的这一段会另起一块挂在 SendMessage 那次调用上 ——
+// 而 SendMessage 不是 agent.spawn 工具名,那块永远没有卡片渲染它:原卡永远停在 failed,
+// 恢复后跑出来的报告在界面上一个字都看不到。
+func TestSubagentStarted_GivenSameTaskIDUnderANewToolCall_ResumesTheOriginalOverlay(t *testing.T) {
+	Convey("Given 一次已失败的 subagent 派遣(task T / tool call A)", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "A",
+			Info: agentruntime.SubagentInfo{
+				TaskID: "T", Kind: "local_agent", TaskDescription: "Fact-check spec citations",
+			},
+		}, acc, nil, nil, &turn.TurnContext{})
+		_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+			ToolCallID: "A",
+			Info: agentruntime.SubagentInfo{
+				Status: "failed", ToolUses: 61, TotalTokens: 95694,
+				Summary: "Agent terminated early due to an API error",
+			},
+		}, acc, nil, nil, &turn.TurnContext{})
+
+		Convey("When CLI 用同一个 task_id、新的 tool call B 重开(SendMessage 恢复)", func() {
+			err := SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "B",
+				Info: agentruntime.SubagentInfo{
+					TaskID: "T", Kind: "local_agent", TaskDescription: "Fact-check spec citations",
+				},
+			}, acc, nil, nil, &turn.TurnContext{})
+			So(err, ShouldBeNil)
+
+			Convey("Then 不另起第二块,原卡回到运行态,既有累计与中断证据都保留", func() {
+				states := subagentStates(acc.Finalize())
+				So(states, ShouldHaveLength, 1)
+				So(states[0].ParentToolCallID, ShouldEqual, "A")
+				So(states[0].Status, ShouldEqual, "running")
+				So(states[0].ToolUses, ShouldEqual, 61)
+				So(states[0].Resumes, ShouldHaveLength, 1)
+				So(states[0].Resumes[0].Status, ShouldEqual, "failed")
+				So(states[0].Resumes[0].Summary, ShouldEqual, "Agent terminated early due to an API error")
+			})
+
+			Convey("And 带新 tool call B 的后续帧落在同一块原卡上", func() {
+				_ = SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+					ToolCallID: "B",
+					Info:       agentruntime.SubagentInfo{ToolUses: 64, LastToolName: "Bash"},
+				}, acc, nil, nil, &turn.TurnContext{})
+				_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+					ToolCallID: "B",
+					Info:       agentruntime.SubagentInfo{Status: "completed", Summary: "# 规格核查报告"},
+				}, acc, nil, nil, &turn.TurnContext{})
+
+				states := subagentStates(acc.Finalize())
+				So(states, ShouldHaveLength, 1)
+				So(states[0].Status, ShouldEqual, "completed")
+				So(states[0].Summary, ShouldEqual, "# 规格核查报告")
+				So(states[0].ToolUses, ShouldEqual, 64)
+			})
+		})
+	})
+}
+
+// 不同 task_id 只是碰巧同时在跑,绝不能被归一成一张卡。
+func TestSubagentStarted_GivenADifferentTaskID_KeepsASeparateOverlay(t *testing.T) {
+	Convey("Given 一个在跑的 subagent(task T1 / tool call A)", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "A",
+			Info:       agentruntime.SubagentInfo{TaskID: "T1", Kind: "local_agent"},
+		}, acc, nil, nil, &turn.TurnContext{})
+
+		Convey("When 另一个 task T2 在新的 tool call B 上开跑", func() {
+			_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "B",
+				Info:       agentruntime.SubagentInfo{TaskID: "T2", Kind: "local_agent"},
+			}, acc, nil, nil, &turn.TurnContext{})
+
+			Convey("Then 两张卡各自独立", func() {
+				states := subagentStates(acc.Finalize())
+				So(states, ShouldHaveLength, 2)
+				So(states[0].ParentToolCallID, ShouldEqual, "A")
+				So(states[1].ParentToolCallID, ShouldEqual, "B")
+				So(states[1].Resumes, ShouldBeEmpty)
+			})
+		})
+	})
+}
+
+// task_id 为空的旧帧/其它后端不参与归一 —— 否则所有无 id 的 overlay 会互相吞并。
+func TestSubagentStarted_GivenNoTaskID_KeepsASeparateOverlay(t *testing.T) {
+	Convey("Given 一个不带 task_id 的 overlay", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "A", Info: agentruntime.SubagentInfo{Kind: "local_agent"},
+		}, acc, nil, nil, &turn.TurnContext{})
+
+		Convey("When 又来一个同样不带 task_id 的 overlay", func() {
+			_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "B", Info: agentruntime.SubagentInfo{Kind: "local_agent"},
+			}, acc, nil, nil, &turn.TurnContext{})
+
+			Convey("Then 各自成卡,不归一", func() {
+				So(subagentStates(acc.Finalize()), ShouldHaveLength, 2)
+			})
+		})
+	})
+}
+
+// 归一之后,live 事件也必须报**原卡**的 tool_use_id。前端 mergeSubagentMetaBlocks 按
+// toolUseId 找外层 tool_use 块挂元数据,若继续报恢复那次的新 id,元数据会挂到
+// SendMessage 那个块上 —— 后端归一了、界面上仍是两张卡,直到刷新才对齐。
+func TestSubagentResume_EmitsTheOriginalToolUseID(t *testing.T) {
+	Convey("Given 一次已失败、随后被同 task_id 重开的派遣", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		tc := &turn.TurnContext{Stream: "chat:event:1:2"}
+		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "A", Info: agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
+		}, acc, nil, nil, tc)
+
+		emit := &fakeEmit{}
+		_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+			ToolCallID: "B", Info: agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
+		}, acc, emit, nil, tc)
+
+		Convey("When 恢复段的 started/progress/done 事件发出", func() {
+			_ = SubagentProgressHandler{}.Apply(ctx, agentruntime.SubagentProgress{
+				ToolCallID: "B", Info: agentruntime.SubagentInfo{ToolUses: 3},
+			}, acc, emit, nil, tc)
+			_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+				ToolCallID: "B", Info: agentruntime.SubagentInfo{Status: "completed"},
+			}, acc, emit, nil, tc)
+
+			Convey("Then 三条事件报的都是原卡的 tool_use_id", func() {
+				So(emit.events, ShouldHaveLength, 3)
+				for _, e := range emit.events {
+					So(e.payload.(map[string]any)["toolUseId"], ShouldEqual, "A")
+				}
+			})
+		})
+	})
+}
+
+// 恢复发生在**后一轮**:原卡早已落库、不在本轮 accumulator 里。此前这种情况会给
+// 恢复段另起一块挂在 SendMessage 那次调用上,而 SendMessage 不是 agent.spawn 工具名,
+// 那块永远没有卡片渲染它 —— 与同轮恢复修复前的症状一模一样,只是换了个时机。
+//
+// 重放误伤不成立:685 帧 task_started 实测零个完全重复(同 task 同 tool_use),
+// --resume 不重放 task_started;即便重放,它带的是**原来那个** tool_use_id,
+// 下面这条通路只在「本轮没有这张卡」时才走,而重放帧的卡就在库里、tool call 也相同,
+// ResumeSubagentByTaskID 交回的 owner 与它自己相等,不构成一次恢复。
+func TestSubagentStarted_CrossTurnResume_ReopensTheEarlierCard(t *testing.T) {
+	Convey("Given 本轮 accumulator 里没有这个 task 的 overlay(原卡在更早的消息里)", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		acc.AddToolUse(&cagoblocks.ToolUseBlock{ID: "tu-B", Name: "SendMessage"}, "")
+		flipper := &fakeSubagentFlipper{resumeOwner: "tu-A"}
+		tc := &turn.TurnContext{SubagentFlipper: flipper}
+
+		Convey("When 同 task_id 的 task_started 带着新的 tool call 到达", func() {
+			err := SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "tu-B",
+				Info:       agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
+			}, acc, nil, nil, tc)
+			So(err, ShouldBeNil)
+
+			Convey("Then 不在本轮另起 overlay,改为把更早那张卡推回运行态", func() {
+				So(subagentStates(acc.Finalize()), ShouldBeEmpty)
+				So(flipper.resumeCalls, ShouldHaveLength, 1)
+				So(flipper.resumeCalls[0].toolCallID, ShouldEqual, "T")
+				So(flipper.resumeCalls[0].status, ShouldEqual, "running")
+			})
+
+			Convey("And 恢复段的完成帧翻的是原卡,带上这一段的结论", func() {
+				_ = SubagentDoneHandler{}.Apply(ctx, agentruntime.SubagentDone{
+					ToolCallID: "tu-B",
+					Info:       agentruntime.SubagentInfo{Status: "completed", Summary: "报告"},
+				}, acc, nil, nil, tc)
+				So(flipper.calls, ShouldHaveLength, 1)
+				So(flipper.calls[0].toolCallID, ShouldEqual, "tu-A")
+				So(flipper.calls[0].status, ShouldEqual, "completed")
+				So(flipper.calls[0].summary, ShouldEqual, "报告")
+			})
+		})
+	})
+}
+
+// 库里也没有这个 task 时,退回既有行为:照常在本轮建 overlay。
+func TestSubagentStarted_CrossTurnResume_NoEarlierCardFallsBackToNewOverlay(t *testing.T) {
+	Convey("Given 库里找不到承载该 task_id 的卡", t, func() {
+		ctx := context.Background()
+		acc := turn.New()
+		flipper := &fakeSubagentFlipper{resumeOwner: ""}
+
+		Convey("When task_started 到达", func() {
+			_ = SubagentStartedHandler{}.Apply(ctx, agentruntime.SubagentStarted{
+				ToolCallID: "tu-new",
+				Info:       agentruntime.SubagentInfo{TaskID: "T", Kind: "local_agent"},
+			}, acc, nil, nil, &turn.TurnContext{SubagentFlipper: flipper})
+
+			Convey("Then 照常在本轮建 overlay", func() {
+				states := subagentStates(acc.Finalize())
+				So(states, ShouldHaveLength, 1)
+				So(states[0].ParentToolCallID, ShouldEqual, "tu-new")
+			})
+		})
 	})
 }

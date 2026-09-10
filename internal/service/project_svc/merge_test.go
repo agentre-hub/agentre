@@ -9,18 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/syncmeta_entity"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-ai/agentre/internal/repository/issue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/issue_repo/mock_issue_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo/mock_project_location_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/issue_repo/mock_issue_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/service/project_svc/mock_project_svc"
 )
 
 // 本文件锁住 R11a「合并到已有项目」：合并后只剩一个项目，沿用账号侧的同步标识
@@ -32,7 +31,7 @@ import (
 type mergeMocks struct {
 	project  *mock_project_repo.MockProjectRepo
 	pa       *mock_project_repo.MockProjectAgentRepo
-	session  *mock_chat_repo.MockSessionRepo
+	session  *mock_project_svc.MockSessionPort
 	issue    *mock_issue_repo.MockIssueRepo
 	location *mock_project_location_repo.MockProjectLocationRepo
 }
@@ -44,24 +43,30 @@ func setupMergeTest(t *testing.T) (context.Context, *mergeMocks, project_svc.Pro
 	m := &mergeMocks{
 		project:  mock_project_repo.NewMockProjectRepo(ctrl),
 		pa:       mock_project_repo.NewMockProjectAgentRepo(ctrl),
-		session:  mock_chat_repo.NewMockSessionRepo(ctrl),
+		session:  mock_project_svc.NewMockSessionPort(ctrl),
 		issue:    mock_issue_repo.NewMockIssueRepo(ctrl),
 		location: mock_project_location_repo.NewMockProjectLocationRepo(ctrl),
 	}
 	project_repo.RegisterProject(m.project)
 	project_repo.RegisterProjectAgent(m.pa)
-	chat_repo.RegisterSession(m.session)
 	issue_repo.RegisterIssue(m.issue)
 	project_location_repo.RegisterProjectLocation(m.location)
-	return context.Background(), m, project_svc.New()
+	return context.Background(), m, project_svc.New(project_svc.WithSessionPort(m.session))
 }
 
 // expectCleanDelete 给「合并已经把 dropID 名下的东西清空」之后、Merge 复用既有
-// Delete() 收尾时要满足的三个守卫桩：无子项目、无活跃会话、真正执行软删。
+// Delete() 收尾时要满足的守卫桩：无子项目、无活跃会话、把残余会话摘成自由会话、
+// 真正执行软删。
+//
+// 那次 ReassignProject(dropID, 0) 在合并路径上**必然匹配 0 行** —— 上一步已经把
+// 会话整批改挂到 keep 了。留着它与 Merge 自己的设计意图一致（见 merge.go 的
+// 「Delete 内部的守卫在这里等于免费的二次校验」）：万一上一步漏了或有并发写入，
+// 这一下把它摘成自由会话，而不是留下指向已删项目的悬空引用。
 func expectCleanDelete(ctx context.Context, m *mergeMocks, dropID int64, drop *project_entity.Project) {
 	m.project.EXPECT().Find(ctx, dropID).Return(drop, nil)
 	m.project.EXPECT().HasActiveChildren(ctx, dropID).Return(false, nil)
 	m.session.EXPECT().CountActiveByProject(ctx, dropID, []string{"running", "waiting"}).Return(int64(0), nil)
+	m.session.EXPECT().ReassignProject(ctx, dropID, int64(0)).Return(nil)
 	m.project.EXPECT().Delete(ctx, dropID).Return(nil)
 }
 
@@ -164,10 +169,10 @@ func TestProjectSvcMerge_GivenLocationsCollideOnSameFingerprint_ThenLoserLocatio
 	// R5 记录的断言在 merge_dangling_test.go；这里的行未认领(SyncAccountID=0),
 	// 按 R12 不写同步侧任何一行。
 	m.location.EXPECT().ListByProject(ctx, int64(21)).Return([]*project_location_entity.ProjectLocation{
-		{ID: 71, ProjectID: 21, DaemonFingerprint: "fp-1", Path: "/loser"},
+		{ID: 71, ProjectID: 21, DeviceFingerprint: "fp-1", Path: "/loser"},
 	}, nil)
 	m.location.EXPECT().FindByProjectAndFingerprint(ctx, int64(20), "fp-1").Return(
-		&project_location_entity.ProjectLocation{ID: 70, ProjectID: 20, DaemonFingerprint: "fp-1", Path: "/winner"}, nil)
+		&project_location_entity.ProjectLocation{ID: 70, ProjectID: 20, DeviceFingerprint: "fp-1", Path: "/winner"}, nil)
 	m.location.EXPECT().Delete(ctx, int64(71)).Return(nil)
 	m.location.EXPECT().ReassignProject(ctx, int64(21), int64(20)).Return(nil)
 

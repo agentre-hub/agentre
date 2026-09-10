@@ -3,15 +3,15 @@ package agentruntime_test
 import (
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 
 	// 触发 NEW runtime 子包 init() 注册到 RuntimeFor 表
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/builtin"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/claudecode"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/codex"
-	_ "github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/piagent"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/builtin"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/codex"
+	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 )
 
 // TestAllRegisteredRunnersImplementSteerer 守护契约:每个 backend type 注册的

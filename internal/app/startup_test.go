@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 func TestResetStaleSessionsOnStartup(t *testing.T) {

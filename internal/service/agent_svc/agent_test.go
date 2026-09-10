@@ -10,16 +10,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/department_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo"
-	"github.com/agentre-ai/agentre/internal/repository/department_repo/mock_department_repo"
-	"github.com/agentre-ai/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/department_repo/mock_department_repo"
+	"github.com/agentre-hub/agentre/internal/service/department_svc"
 )
 
 func setupSvc(t *testing.T) (
@@ -277,8 +277,8 @@ func TestUpdateAgent_SkillsComeFromExecTargets(t *testing.T) {
 		ExecTargets: []ExecTargetInputDTO{{AgentBackendID: 5}},
 	})
 	assert.NoError(t, err)
-	if assert.Len(t, resp.Item.Skills, 1) {
-		assert.Equal(t, "fresh@target", resp.Item.Skills[0].ID)
+	if assert.Len(t, resp.Item.ExecTargets, 1) && assert.Len(t, resp.Item.ExecTargets[0].Skills, 1) {
+		assert.Equal(t, "fresh@target", resp.Item.ExecTargets[0].Skills[0].ID)
 	}
 }
 

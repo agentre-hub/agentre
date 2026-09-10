@@ -50,6 +50,11 @@ type assistantMessage struct {
 	Usage        *usageWire      `json:"usage"`
 	StopReason   string          `json:"stopReason"`
 	ErrorMessage string          `json:"errorMessage,omitempty"`
+	// ResponseID 是一次 provider 响应的稳定身份(msg_2026…)。agent_end 会把本轮
+	// 每条 assistant 消息连同 usage 原样重发一遍,靠它认出「这条记过了」。
+	ResponseID string `json:"responseId,omitempty"`
+	// Timestamp 是 responseId 缺省时(老 pi / 某些 provider)的兜底身份材料。
+	Timestamp int64 `json:"timestamp,omitempty"`
 }
 
 type usageWire struct {
@@ -142,7 +147,7 @@ func buildRPCArgs(c *Client) []string {
 	if strings.TrimSpace(c.model) != "" {
 		args = append(args, "--model", strings.TrimSpace(c.model))
 	}
-	if thinking := normalizeThinkingLevel(c.thinking); thinking != "" {
+	if thinking := NormalizeThinkingLevel(c.thinking); thinking != "" {
 		args = append(args, "--thinking", thinking)
 	}
 	for _, ext := range c.extensions {
@@ -151,12 +156,11 @@ func buildRPCArgs(c *Client) []string {
 	return args
 }
 
-func normalizeThinkingLevel(level string) string {
+// NormalizeThinkingLevel 保留 pi CLI 支持的 thinking 档位;其他值返回空串。
+func NormalizeThinkingLevel(level string) string {
 	switch strings.TrimSpace(level) {
-	case "low", "medium", "high", "xhigh":
+	case "low", "medium", "high", "xhigh", "max":
 		return strings.TrimSpace(level)
-	case "max":
-		return "xhigh"
 	default:
 		return ""
 	}

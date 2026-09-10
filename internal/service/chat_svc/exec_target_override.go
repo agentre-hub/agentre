@@ -6,9 +6,9 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 )
 
 // validateExecTargetOverride 校验 R15a 手动指定的执行目标：agentBackendID 必须在

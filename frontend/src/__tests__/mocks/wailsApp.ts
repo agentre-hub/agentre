@@ -91,6 +91,18 @@ export const LookupLLMModel = windowBackedMock("LookupLLMModel", () =>
 export const ListAgentBackends = windowBackedMock("ListAgentBackends", () =>
   Promise.resolve({ items: [] }),
 );
+export const ListAgentBackendCLIOverlays = windowBackedMock(
+  "ListAgentBackendCLIOverlays",
+  () => Promise.resolve({ items: [] }),
+);
+export const GetAgentBackendCLIOverlay = windowBackedMock(
+  "GetAgentBackendCLIOverlay",
+  () => Promise.resolve({ cliPath: "", status: "unchecked" }),
+);
+export const SetAgentBackendCLIOverlay = windowBackedMock(
+  "SetAgentBackendCLIOverlay",
+  () => Promise.resolve({ cliPath: "", status: "unchecked" }),
+);
 export const ListAgentExecTargetAvailability = windowBackedMock(
   "ListAgentExecTargetAvailability",
   () => Promise.resolve([]),
@@ -236,26 +248,59 @@ export const ProjectMerge = windowBackedMock("ProjectMerge", () =>
 );
 
 // Issue bindings
+const emptyIssue = {
+  id: 0,
+  title: "",
+  stage: "todo",
+  labels: [],
+  assigneeAgentID: 0,
+  agentBackendID: 0,
+  llmProviderKey: "",
+  llmModelKey: "",
+};
 export const IssueList = windowBackedMock("IssueList", () =>
-  Promise.resolve({ issues: [], openCount: 0, closedCount: 0 }),
+  Promise.resolve({
+    issues: [],
+    stageCounts: {},
+    stageTotals: {},
+    projectCounts: [],
+  }),
 );
 export const IssueListLabels = windowBackedMock("IssueListLabels", () =>
   Promise.resolve([]),
 );
 export const IssueGet = windowBackedMock("IssueGet", () =>
-  Promise.resolve({ id: 0, title: "", state: "open", labels: [] }),
+  Promise.resolve({ ...emptyIssue }),
 );
 export const IssueCreate = windowBackedMock("IssueCreate", () =>
-  Promise.resolve({ id: 0, title: "", state: "open", labels: [] }),
+  Promise.resolve({ ...emptyIssue }),
 );
 export const IssueUpdate = windowBackedMock("IssueUpdate", () =>
-  Promise.resolve({ id: 0, title: "", state: "open", labels: [] }),
+  Promise.resolve({ ...emptyIssue }),
 );
-export const IssueSetState = windowBackedMock("IssueSetState", () =>
-  Promise.resolve({ id: 0, title: "", state: "open", labels: [] }),
+export const IssueMove = windowBackedMock("IssueMove", () =>
+  Promise.resolve({ ...emptyIssue }),
 );
 export const IssueDelete = windowBackedMock("IssueDelete", () =>
   Promise.resolve(undefined),
+);
+export const IssueCreateLabel = windowBackedMock("IssueCreateLabel", () =>
+  Promise.resolve({ id: 0, name: "", tone: "gray", usageCount: 0 }),
+);
+export const IssueUpdateLabel = windowBackedMock("IssueUpdateLabel", () =>
+  Promise.resolve({ id: 0, name: "", tone: "gray", usageCount: 0 }),
+);
+export const IssueDeleteLabel = windowBackedMock("IssueDeleteLabel", () =>
+  Promise.resolve(undefined),
+);
+
+// 看板并入同步组的那条一次性说明：默认「不欠着」，要它出现的用例自己改返回。
+export const SyncStatus = windowBackedMock("SyncStatus", () =>
+  Promise.resolve({ enabled: false, boardJoinNoticePending: false }),
+);
+export const SyncAcknowledgeBoardJoinNotice = windowBackedMock(
+  "SyncAcknowledgeBoardJoinNotice",
+  () => Promise.resolve(undefined),
 );
 
 export const GetSessionCapabilities = windowBackedMock(
@@ -318,10 +363,10 @@ export const ServerLogout = windowBackedMock("ServerLogout", () =>
   Promise.resolve(),
 );
 // use-remote-devices.ts reads the account device list to decide which rows are
-// 未认领. The default rejects like ServerStartLogin because ServerGetState's
+// 未登录账号. The default rejects like ServerStartLogin because ServerGetState's
 // default is the logged-out row: a logged-out desktop cannot know the account
 // list, and the hook treats that as known=false rather than marking every
-// machine unclaimed.
+// machine signed out.
 export const ServerListDevices = windowBackedMock("ServerListDevices", () =>
   missingWailsBinding("ServerListDevices"),
 );
@@ -347,8 +392,54 @@ export const ConfirmQuit = windowBackedMock("ConfirmQuit", () =>
   Promise.resolve(),
 );
 
+// Hook bindings（脚本驱动 Hooks 页）。页面改成直接 import 这些绑定之后，缺一条就是
+// 「undefined 不是函数」——挂在 effect 里会把整页渲染打断，而不是像旧的
+// window.go 桥那样被 getBridgeMethod 的 catch 吞掉。
+export const LoadHooks = windowBackedMock("LoadHooks", () =>
+  Promise.resolve({ hooks: [], events: [] }),
+);
+export const CreateHook = windowBackedMock("CreateHook", () =>
+  Promise.resolve({ id: 0 }),
+);
+export const UpdateHook = windowBackedMock("UpdateHook", () =>
+  Promise.resolve({ id: 0 }),
+);
+export const DeleteHook = windowBackedMock("DeleteHook", () =>
+  Promise.resolve(),
+);
+export const ToggleHook = windowBackedMock("ToggleHook", () =>
+  Promise.resolve({ id: 0 }),
+);
+export const RunHook = windowBackedMock("RunHook", () =>
+  Promise.resolve({ events: [], newCount: 0, dupCount: 0, persisted: false }),
+);
+export const ProbeInterpreters = windowBackedMock("ProbeInterpreters", () =>
+  Promise.resolve([]),
+);
+
 // File drop bindings
 export const ChatReadDroppedImages = windowBackedMock(
   "ChatReadDroppedImages",
   () => Promise.resolve({ items: [] }),
+);
+
+// ctl skill bindings (Claude Code plugin + universal ~/.agents/skills directory
+// for the ctl control channel). Default fallback mirrors the not-installed DTO
+// shape; settings-page tests override GetCtlSkillStatus/InstallCtlSkill/
+// UninstallCtlSkill via window.go.app.App.*.
+const CTL_SKILL_NOT_INSTALLED = {
+  pluginId: "agrctl@agentre",
+  pluginInstalled: false,
+  pluginPath: "",
+  universalInstalled: false,
+  universalPath: "",
+};
+export const GetCtlSkillStatus = windowBackedMock("GetCtlSkillStatus", () =>
+  Promise.resolve(CTL_SKILL_NOT_INSTALLED),
+);
+export const InstallCtlSkill = windowBackedMock("InstallCtlSkill", () =>
+  Promise.resolve(CTL_SKILL_NOT_INSTALLED),
+);
+export const UninstallCtlSkill = windowBackedMock("UninstallCtlSkill", () =>
+  Promise.resolve(CTL_SKILL_NOT_INSTALLED),
 );

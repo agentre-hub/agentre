@@ -1,4 +1,4 @@
-// Package claudecodehook implements the agentre claudecode PostToolUse hook
+// Package claudecodehook implements the agrctl claudecode PostToolUse hook
 // handler. Each invocation is one short-lived process spawned by the claude
 // CLI; it reads the hook payload from stdin, fetches pending Steer messages
 // from the agentre httpgateway (env-provided URL+token), and emits the

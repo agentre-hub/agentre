@@ -15,15 +15,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/mock_agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/mock_agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 // abortRecordingRunner 是一个最小的 agentruntime.Runtime + agentruntime.Aborter
@@ -382,6 +382,19 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_PersistsUserMessageWithSource
 			}
 		})
 
+		convey.Convey("来源写进了落库行:刷新 / 重开会话后经转录读路径仍读得回来", func() {
+			require.NotNil(t, createdUser, "浏览器发起的一轮必须落一行 user 消息")
+			// 走真实读路径(toChatMessage → peerMessageSourceOf),而不是在 BlocksJSON
+			// 里找子串:用户看到的 pill 就是这条路径投影出来的。来源只挂在实时事件上时,
+			// 桌面端当场显示「来自 Chrome · macOS」,刷新之后 pill 消失,那行用户消息
+			// 看起来像本机自己打的字 —— 多设备协作分不出哪句是谁在哪儿发的。
+			reloaded, err := chat_svc.ToChatMessageForTest(createdUser)
+			require.NoError(t, err)
+			assert.Equal(t, "sha256:web-device", reloaded.SourceDevice,
+				"来源必须落库,否则刷新后来源标识消失")
+			assert.Equal(t, "Chrome · macOS", reloaded.SourceDeviceName)
+		})
+
 		var started *chat_svc.ChatStreamEvent
 		for _, ev := range m.events {
 			p, ok := ev.Payload.(chat_svc.ChatStreamEvent)
@@ -434,11 +447,16 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_NameMissing_FallsBackWithoutB
 		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
 
 		var createdRoles []string
+		var createdUser *chat_entity.Message
 		m.dbMock.ExpectBegin()
 		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(7, nil)
 		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
 				createdRoles = append(createdRoles, msg.Role)
+				if msg.Role == "user" {
+					cp := *msg
+					createdUser = &cp
+				}
 				msg.ID = 3001 + int64(len(createdRoles))
 				return nil
 			}).Times(2)
@@ -477,6 +495,94 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_NameMissing_FallsBackWithoutB
 			assert.Equal(t, "sha256:web-device", started.UserMessages[0].SourceDevice)
 			assert.Empty(t, started.UserMessages[0].SourceDeviceName, "名字缺失保持空,由前端回退指纹")
 		}
+
+		convey.Convey("名字缺失时落库仍带指纹,刷新后读得回来(只是没有名字)", func() {
+			require.NotNil(t, createdUser)
+			reloaded, err := chat_svc.ToChatMessageForTest(createdUser)
+			require.NoError(t, err)
+			assert.Equal(t, "sha256:web-device", reloaded.SourceDevice)
+			assert.Empty(t, reloaded.SourceDeviceName, "名字缺失不落一个空名字字段")
+		})
+	})
+}
+
+// TestDriveAutonomousTurn_LocalInitiatedRound_PersistsUserMessageWithoutSource 是 R22
+// 的单端零变化守卫:这一轮由本机自己发起(user_message 标记不带 SourceDevice)时,
+// 落库行**逐字节不含来源字段**、转录读路径投影出的 sourceDevice 为空、实时事件里也
+// 为空 —— 前端因此不渲染任何「来自 …」pill,单端使用的呈现与今天一致。
+// R18/R21 那条落库写点(persistPeerMessageSource)对空 source 必须是 no-op。
+func TestDriveAutonomousTurn_LocalInitiatedRound_PersistsUserMessageWithoutSource(t *testing.T) {
+	convey.Convey("本机发起的一轮:落库行不带来源字段,DTO 里 sourceDevice 为空", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc"}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+
+		var createdRoles []string
+		var createdUser *chat_entity.Message
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil)
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				createdRoles = append(createdRoles, msg.Role)
+				if msg.Role == "user" {
+					cp := *msg
+					createdUser = &cp
+				}
+				msg.ID = 4001 + int64(len(createdRoles))
+				return nil
+			}).Times(2)
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.dbMock.ExpectCommit()
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		evs := make(chan agentruntime.Event, 2)
+		evs <- agentruntime.UserMessageEvent{Text: "本机发的消息"}
+		evs <- agentruntime.TextDelta{Text: "reply"}
+		close(evs)
+		at := agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc"},
+			Trigger: "catch_up",
+		}
+
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
+
+		convey.Convey("照常落 user + assistant 两行", func() {
+			assert.Equal(t, []string{"user", "assistant"}, createdRoles)
+		})
+
+		convey.Convey("落库行里没有来源字段(R22:呈现与今天逐像素一致)", func() {
+			require.NotNil(t, createdUser)
+			assert.Contains(t, createdUser.BlocksJSON, "本机发的消息")
+			assert.NotContains(t, createdUser.BlocksJSON, "sourceDevice",
+				"本机发的消息不得因为经过 persistPeerMessageSource 而多出来源字段")
+			assert.NotContains(t, createdUser.BlocksJSON, "sourceDeviceName")
+		})
+
+		convey.Convey("重载与实时两条读路径的 sourceDevice 都为空", func() {
+			require.NotNil(t, createdUser)
+			reloaded, err := chat_svc.ToChatMessageForTest(createdUser)
+			require.NoError(t, err)
+			assert.Empty(t, reloaded.SourceDevice)
+			assert.Empty(t, reloaded.SourceDeviceName)
+
+			var started *chat_svc.ChatStreamEvent
+			for _, ev := range m.events {
+				p, ok := ev.Payload.(chat_svc.ChatStreamEvent)
+				if ok && p.Kind == chat_svc.StreamAutonomousStarted {
+					cp := p
+					started = &cp
+				}
+			}
+			require.NotNil(t, started, "应 emit StreamAutonomousStarted")
+			require.Len(t, started.UserMessages, 1)
+			assert.Empty(t, started.UserMessages[0].SourceDevice, "本机发起的一轮不带来源标识")
+			assert.Empty(t, started.UserMessages[0].SourceDeviceName)
+		})
 	})
 }
 
@@ -762,9 +868,9 @@ func TestDriveAutonomousTurn_BackgroundTaskCompletionFlipsAndEmits(t *testing.T)
 			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc"},
 			Trigger: "background_task",
 			CompletedTask: &agentruntime.CompletedBackgroundTask{
-				ToolUseID: "tu1",
-				Status:    "completed",
-				Summary:   "Background command completed",
+				ToolCallID: "tu1",
+				Status:     "completed",
+				Summary:    "Background command completed",
 			},
 		}
 
@@ -785,7 +891,7 @@ func TestDriveAutonomousTurn_BackgroundTaskCompletionFlipsAndEmits(t *testing.T)
 		convey.Convey("emit 的 StreamAutonomousStarted 携带 CompletedTask 身份(含 summary)", func() {
 			require.NotNil(t, started, "应 emit StreamAutonomousStarted")
 			require.NotNil(t, started.CompletedTask, "应携带 CompletedTask")
-			assert.Equal(t, "tu1", started.CompletedTask.ToolUseID)
+			assert.Equal(t, "tu1", started.CompletedTask.ToolCallID)
 			assert.Equal(t, "completed", started.CompletedTask.Status)
 			assert.Equal(t, "Background command completed", started.CompletedTask.Summary)
 		})
@@ -796,7 +902,7 @@ func TestDriveAutonomousTurn_BackgroundTaskCompletionFlipsAndEmits(t *testing.T)
 // 的 subagent_state(没等到 SubagentDone)被翻成 "canceled" 落库,镜像 Send 路径的
 // MarkRunningSubagentsCancelled,避免后台任务芯片永远 spin。
 func TestDriveAutonomousTurn_CancelsInFlightSubagent(t *testing.T) {
-	convey.Convey("自主轮收尾把 in-flight subagent 翻成 canceled", t, func() {
+	convey.Convey("自主轮收尾把 in-flight 前台 subagent 翻成 canceled", t, func() {
 		m := setupChatTest(t)
 		ctx := m.ctx
 
@@ -823,8 +929,14 @@ func TestDriveAutonomousTurn_CancelsInFlightSubagent(t *testing.T) {
 				return nil
 			}).AnyTimes()
 
-		// 事件流:起一个 subagent,但没有对应 SubagentDone → 块停在 running。
-		evs := make(chan agentruntime.Event, 2)
+		// 事件流:起一个**前台**(同步)subagent,但没有对应 SubagentDone → 块停在
+		// running。前台任务不会活过本轮,不翻就永远转。
+		evs := make(chan agentruntime.Event, 3)
+		evs <- agentruntime.ToolCall{
+			ID:    "sub-1",
+			Name:  "Agent",
+			Input: json.RawMessage(`{"description":"do work","run_in_background":false}`),
+		}
 		evs <- agentruntime.SubagentStarted{
 			ToolCallID: "sub-1",
 			Info:       agentruntime.SubagentInfo{Kind: "local_agent", TaskDescription: "do work"},
@@ -839,7 +951,7 @@ func TestDriveAutonomousTurn_CancelsInFlightSubagent(t *testing.T) {
 
 		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
 
-		convey.Convey("in-flight subagent_state 落库为 canceled 而非 running", func() {
+		convey.Convey("in-flight 前台 subagent_state 落库为 canceled 而非 running", func() {
 			require.NotEmpty(t, finalBlocksJSON, "应落库 assistant blocks")
 			st := subagentStatusInBlocks(t, finalBlocksJSON, "sub-1")
 			assert.Equal(t, "canceled", st)
@@ -847,9 +959,123 @@ func TestDriveAutonomousTurn_CancelsInFlightSubagent(t *testing.T) {
 	})
 }
 
-// subagentStatusInBlocks 从 blocks_json 里取 parent_tool_call_id==toolUseID 的
+// sess-3275:后台 subagent(Agent 工具默认后台)有权活过发起它的那一轮 —— runtime
+// 随后另开旁路活动轮继续收它的帧。正常收尾把它一起翻成 canceled,会让派遣卡显示
+// 「已停止」、后台任务胶囊算进「已完成」,而任务其实还在跑。
+func TestDriveAutonomousTurn_KeepsBackgroundSubagentRunning(t *testing.T) {
+	convey.Convey("自主轮正常收尾不动仍在跑的后台 subagent", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc"}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil)
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				msg.ID = 2001
+				return nil
+			}).Times(1)
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.dbMock.ExpectCommit()
+
+		var finalBlocksJSON string
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				finalBlocksJSON = msg.BlocksJSON
+				return nil
+			}).AnyTimes()
+
+		// 真实流:Agent 的 tool_use 先到(后台 Agent 不带 run_in_background 入参),
+		// 随后 task_started;本轮内不会有 SubagentDone —— 它跑到下一轮之后。
+		evs := make(chan agentruntime.Event, 3)
+		evs <- agentruntime.ToolCall{
+			ID:    "sub-bg",
+			Name:  "Agent",
+			Input: json.RawMessage(`{"description":"Wrap-up code review axis"}`),
+		}
+		evs <- agentruntime.SubagentStarted{
+			ToolCallID: "sub-bg",
+			Info:       agentruntime.SubagentInfo{Kind: "local_agent", TaskDescription: "Wrap-up code review axis"},
+		}
+		evs <- agentruntime.TextDelta{Text: "已派发"}
+		close(evs)
+		at := agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc"},
+			Trigger: "background_task",
+		}
+
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
+
+		convey.Convey("后台 subagent_state 仍落库为 running", func() {
+			require.NotEmpty(t, finalBlocksJSON, "应落库 assistant blocks")
+			assert.Equal(t, "running", subagentStatusInBlocks(t, finalBlocksJSON, "sub-bg"))
+		})
+	})
+}
+
+// 轮被截断(StopErr)时 CLI 已经不在了,后台任务也等不到 SubagentDone —— 此时仍要
+// 全部翻 canceled,否则卡片永远转。
+func TestDriveAutonomousTurn_TruncatedTurn_CancelsBackgroundSubagent(t *testing.T) {
+	convey.Convey("自主轮被截断时后台 subagent 也翻 canceled", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc"}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil)
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				msg.ID = 2001
+				return nil
+			}).Times(1)
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.dbMock.ExpectCommit()
+
+		var finalBlocksJSON string
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				finalBlocksJSON = msg.BlocksJSON
+				return nil
+			}).AnyTimes()
+
+		evs := make(chan agentruntime.Event, 2)
+		evs <- agentruntime.ToolCall{
+			ID:    "sub-bg",
+			Name:  "Agent",
+			Input: json.RawMessage(`{"description":"Wrap-up code review axis"}`),
+		}
+		evs <- agentruntime.SubagentStarted{
+			ToolCallID: "sub-bg",
+			Info:       agentruntime.SubagentInfo{Kind: "local_agent", TaskDescription: "Wrap-up code review axis"},
+		}
+		close(evs)
+		at := agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc", StopErr: errors.New("peer disconnected")},
+			Trigger: "background_task",
+		}
+
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
+
+		convey.Convey("后台 subagent_state 落库为 canceled", func() {
+			require.NotEmpty(t, finalBlocksJSON, "应落库 assistant blocks")
+			assert.Equal(t, "canceled", subagentStatusInBlocks(t, finalBlocksJSON, "sub-bg"))
+		})
+	})
+}
+
+// subagentStatusInBlocks 从 blocks_json 里取 parent_tool_call_id==toolCallID 的
 // subagent_state 块的 status。
-func subagentStatusInBlocks(t *testing.T, blocksJSON, toolUseID string) string {
+func subagentStatusInBlocks(t *testing.T, blocksJSON, toolCallID string) string {
 	t.Helper()
 	var stored []struct {
 		Type string          `json:"type"`
@@ -865,11 +1091,11 @@ func subagentStatusInBlocks(t *testing.T, blocksJSON, toolUseID string) string {
 			Status           string `json:"status"`
 		}
 		require.NoError(t, json.Unmarshal(sb.Data, &data))
-		if data.ParentToolCallID == toolUseID {
+		if data.ParentToolCallID == toolCallID {
 			return data.Status
 		}
 	}
-	t.Fatalf("no subagent_state block for %s in %s", toolUseID, blocksJSON)
+	t.Fatalf("no subagent_state block for %s in %s", toolCallID, blocksJSON)
 	return ""
 }
 
@@ -961,5 +1187,102 @@ func TestRunTurn_MountsAutonomousWatcher(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return chat_svc.IsAutonomousWatcherActiveForTest(m.svc, 100)
 		}, time.Second, 5*time.Millisecond, "runTurn 应在 Run 后挂上 watcher")
+	})
+}
+
+// TestDriveAutonomousTurn_SteerConsumedSegmentsTheTurn 钉死 sess-3321 的「归位」这一半:
+// 自主续轮跑着的时候用户插话,CLI 的 hook 在工具边界把它 drain 走并当场作答 —— 那句
+// 提问必须落成**这一轮里的一行 user 消息**,回答从新的一段 assistant 开始,和用户轮
+// 里的 SteerConsumed 分段同一套语义。
+//
+// 不分段的话:提问一行都不落库,回答直接续在自主轮那条 assistant 后面 —— 界面上就是
+// 「回答出现在提问上方」,而前端的排队 chip 因为等不到 StreamSteerConsumed 永不消失。
+func TestDriveAutonomousTurn_SteerConsumedSegmentsTheTurn(t *testing.T) {
+	convey.Convey("自主续轮期间被 drain 的插话落成 user 行 + 新一段 assistant", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc"}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+
+		var createdRoles []string
+		var createdUser *chat_entity.Message
+		var nextID int64 = 2000
+		// 第一个事务:自主轮自己的 assistant 行。
+		m.dbMock.ExpectBegin()
+		m.dbMock.ExpectCommit()
+		// 第二个事务:插话分段(收口旧 assistant + 插 user 行 + 开新 assistant)。
+		m.dbMock.ExpectBegin()
+		m.dbMock.ExpectCommit()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil).AnyTimes()
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				createdRoles = append(createdRoles, msg.Role)
+				if msg.Role == "user" {
+					cp := *msg
+					createdUser = &cp
+				}
+				nextID++
+				msg.ID = nextID
+				return nil
+			}).AnyTimes()
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		evs := make(chan agentruntime.Event, 4)
+		evs <- agentruntime.TextDelta{Text: "后台任务跑完了,我接着说"}
+		evs <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{
+			{QueuedID: "q-1", Text: "直接交付"},
+		}}
+		evs <- agentruntime.TextDelta{Text: "好,直接交付"}
+		close(evs)
+		at := agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc", Model: "claude-opus-5"},
+			Trigger: "background_task",
+		}
+
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
+
+		convey.Convey("落库三行:自主轮 assistant → 插话 user → 新一段 assistant", func() {
+			assert.Equal(t, []string{"assistant", "user", "assistant"}, createdRoles)
+			if assert.NotNil(t, createdUser, "插话必须落成一行 user 消息") {
+				assert.Contains(t, createdUser.BlocksJSON, "直接交付")
+			}
+		})
+
+		convey.Convey("emit StreamSteerConsumed,前端据此清排队 chip 并插入两行", func() {
+			var consumed *chat_svc.ChatStreamEvent
+			for _, ev := range m.events {
+				p, ok := ev.Payload.(chat_svc.ChatStreamEvent)
+				if !ok {
+					continue
+				}
+				if p.Kind == chat_svc.StreamSteerConsumed {
+					cp := p
+					consumed = &cp
+				}
+			}
+			require.NotNil(t, consumed, "分段必须 emit StreamSteerConsumed")
+			require.Len(t, consumed.UserMessages, 1)
+			assert.Equal(t, "直接交付", consumed.UserMessages[0].Blocks[0].Text)
+			assert.NotNil(t, consumed.AssistantMessage, "必须带上新一段 assistant")
+		})
+
+		convey.Convey("插话之后的回答落在新一段上,不再堆进自主轮那条消息", func() {
+			var chunks []string
+			for _, ev := range m.events {
+				p, ok := ev.Payload.(chat_svc.ChatStreamEvent)
+				if !ok || p.Kind != chat_svc.StreamChunk {
+					continue
+				}
+				chunks = append(chunks, p.Delta)
+			}
+			require.Len(t, chunks, 2)
+			assert.Equal(t, "后台任务跑完了,我接着说", chunks[0])
+			assert.Equal(t, "好,直接交付", chunks[1])
+		})
 	})
 }

@@ -3,8 +3,8 @@ package remote_device_svc
 import (
 	"sync"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-ai/agentre/internal/repository/remote_device_repo"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 )
 
 type service struct {
@@ -22,10 +22,17 @@ type service struct {
 	capabilitiesMu sync.RWMutex
 	capabilities   map[int64][]string
 
-	// outdatedMu / outdated 记着「哪些设备上的 daemon 版本过旧」(R18)。与
-	// providerCache 一样是进程内缓存:它描述当前那个 daemon 进程,重启桌面后重新探。
-	outdatedMu sync.RWMutex
-	outdated   map[int64]bool
+	// buildsMu / builds 是 watcher 从 health.ping 记下的构建标识（决策 4）。
+	// 同为进程内缓存:daemon 换了版本,下一次心跳直接覆盖。
+	buildsMu sync.RWMutex
+	builds   map[int64]daemonBuild
+}
+
+// daemonBuild 是远端 agentred 自报的一对构建标识。Commit 为空串是有意义的取值
+// （非发布构建),所以两者一起存、一起覆盖,不做「有则更新」的合并。
+type daemonBuild struct {
+	version string
+	commit  string
 }
 
 // New constructs a service. Production wiring lives in bootstrap; tests
@@ -38,22 +45,8 @@ func New(repo remote_device_repo.PairedAgentredRepo, dial DaemonDialPort, kc Key
 		pool:          pool,
 		providerCache: make(map[int64][]ProviderSummary),
 		capabilities:  make(map[int64][]string),
-		outdated:      make(map[int64]bool),
+		builds:        make(map[int64]daemonBuild),
 	}
-}
-
-// RecordDaemonOutdated 记下该设备上 daemon 的版本探测结论(R18)。
-func (s *service) RecordDaemonOutdated(deviceID int64, outdated bool) {
-	s.outdatedMu.Lock()
-	s.outdated[deviceID] = outdated
-	s.outdatedMu.Unlock()
-}
-
-// daemonOutdated 交出该设备此刻的版本探测结论;没探过 → false。
-func (s *service) daemonOutdated(deviceID int64) bool {
-	s.outdatedMu.RLock()
-	defer s.outdatedMu.RUnlock()
-	return s.outdated[deviceID]
 }
 
 // RecordDeviceProviders overwrites the cached provider list for deviceID.
@@ -72,6 +65,21 @@ func (s *service) RecordDeviceCapabilities(deviceID int64, caps []string) {
 	s.capabilitiesMu.Lock()
 	s.capabilities[deviceID] = cp
 	s.capabilitiesMu.Unlock()
+}
+
+// RecordDeviceBuild overwrites the cached build identity for deviceID.
+func (s *service) RecordDeviceBuild(deviceID int64, version, commit string) {
+	s.buildsMu.Lock()
+	s.builds[deviceID] = daemonBuild{version: version, commit: commit}
+	s.buildsMu.Unlock()
+}
+
+// DeviceBuild returns the cached build identity for deviceID; 未探过 → 两个空串。
+func (s *service) DeviceBuild(deviceID int64) (string, string) {
+	s.buildsMu.RLock()
+	b := s.builds[deviceID]
+	s.buildsMu.RUnlock()
+	return b.version, b.commit
 }
 
 // SupportsLLMModelTarget reports whether deviceID's daemon advertises the

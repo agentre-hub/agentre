@@ -1,0 +1,130 @@
+/* 宿主外壳的基线样式。
+ *
+ * 这里放的是**不属于任何一个组件**、但两端都要的那几样：body 的字体与底色、
+ * `border` 类的默认边框色、可点元素的手型、滚动条。组件离不开的 CSS 不放这儿，
+ * 那些跟组件走、由组件自己 import（见 src/chat-input/chat-input.css）。
+ *
+ * 宿主这样接：
+ *
+ *     @import "tailwindcss";
+ *     @import "@agentre-hub/agentre-ui/tokens.css";
+ *     @import "@agentre-hub/agentre-ui/base.css";
+ *
+ * 必须排在 tokens.css **之后** —— 这份里的每一条都在引 token，先加载会拿到空值。
+ * 也必须经宿主的 globals.css `@import` 进去而不是由 JS 引入：它用了 `@layer`，
+ * 要 Tailwind 的管线处理才有正确的层序。
+ *
+ * 与宿主自己那份 globals.css 的分界：窗口专属的东西（Wails 拖拽区、桌面端的
+ * 全局禁选、`html/body{height:100%;overflow:hidden}`）留在宿主，因为浏览器端
+ * 的页面本来就该能滚。 */
+
+/* 滚动条的显隐走**自定义属性的值**，不切类名。
+   WKWebView 对 ::-webkit-scrollbar 的类/属性选择器切换不重绘
+   （Apple Dev Forum #759675、WebKit bug #104412），只有自定义属性值变化才走
+   「值查找路径」触发 thumb 重绘。改值的那一半是 useAutoHideScrollbars()，
+   宿主要自己调用；只 import 这份不调 hook，滚动条恒为透明（滚动仍可用）。
+   - 不写 transition：WebKit 不响应，视觉上就是瞬时切换
+   - Firefox 用标准 scrollbar-color 消费同一个变量 */
+:root {
+  --sb-thumb: transparent;
+  --sb-thumb-strong: color-mix(
+    in oklab,
+    var(--muted-foreground) 45%,
+    transparent
+  );
+}
+
+@layer base {
+  * {
+    /* token 存的是十六进制字面量而不是 HSL 通道值，所以直接引用；
+       写成 hsl(var(--border)) 会得到非法 CSS，整条声明被丢弃。
+       Tailwind v4 起默认边框色是 currentColor（v3 是 gray-200），
+       少这一行 `border` 类会画出跟文字同色的边框。 */
+    border-color: var(--border);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    /* 不写死 ui-sans-serif/system-ui：token 里那条钉了 PingFang SC /
+       Microsoft YaHei / Noto Sans SC 和三个 emoji 家族，绕开它等于在
+       Windows / Linux 上把中文与状态徽标的 emoji 交给浏览器碰运气。 */
+    font-family: var(--font-sans);
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 可点的东西要看起来可点。
+     Tailwind v4 把 preflight 里 v3 那条 `button, [role="button"] { cursor: pointer }`
+     删掉了，改成跟浏览器 UA 一致的 `cursor: default`。删掉这一段不会报错、构建
+     照样绿，只是全站每一个按钮划过去都是箭头。
+
+     放在 base 层而不是给每个组件挂 `cursor-pointer`：后者要靠每个作者记得抄，
+     漏一个就是一处只有鼠标才发现得了的静默回归。base 层在 utilities 之前，
+     所以要分叉的地方照常用工具类盖回去（拖拽把手的 `cursor-grab`、禁用态的
+     `cursor-not-allowed`）——层序优先于特异性，不用比权重。
+
+     两处刻意的排除，别顺手放宽：
+     1. 禁用态不给手型。按钮/下拉用 `:not(:disabled)`；`role="button"` 那种自己
+        画的只有 aria-disabled 可依据。
+     2. label 只在里面是勾选框/单选框时才算可点。搜索与筛选输入框也是
+        `<label><input …></label>` 的写法，那里该是 I 形光标——写成裸 `label`
+        会把它们一起误伤。 */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  summary,
+  input:is([type="checkbox"], [type="radio"]):not(:disabled),
+  label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled)) {
+    cursor: pointer;
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--sb-thumb);
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--sb-thumb-strong);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 65%,
+    transparent
+  );
+}
+
+@layer utilities {
+  /* 完全隐藏滚动条但**保留滚动能力**。用于横向条带（tab strip、面包屑），
+     避免滚动条占走固定高度容器的可视空间。别改成 overflow:hidden ——
+     那会把滚动本身也关掉。 */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

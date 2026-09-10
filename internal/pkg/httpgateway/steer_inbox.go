@@ -12,7 +12,7 @@ type SteerItem struct {
 
 // SteerInbox is the in-process queue of pending Steer messages per claude
 // session UUID. The claudecode runner Push()es when chat_svc.Enqueue is
-// called; the agentre claudecode hook child process pulls via HTTP and the
+// called; the agrctl claudecode hook child process pulls via HTTP and the
 // handler calls Drain to consume + clear.
 //
 // Drain is destructive (read once, then clear). If a hook process pulls and

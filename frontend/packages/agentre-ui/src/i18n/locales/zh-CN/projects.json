@@ -1,0 +1,269 @@
+{
+  "directoryPicker": {
+    "title": "选择目录 · {{machine}}",
+    "machines": "机器",
+    "offline": "离线",
+    "filterPlaceholder": "筛选…",
+    "showHidden": "隐藏项",
+    "reload": "重新读取",
+    "newFolder": "新建目录",
+    "newFolderName": "新目录名",
+    "create": "创建",
+    "cancel": "取消",
+    "chooseHere": "选择这里",
+    "retry": "重试",
+    "loading": "正在读取 {{machine}} 上的这个目录…",
+    "empty": "这个目录是空的。可以就选它，或者在这里新建一个。",
+    "noMatch": "没有匹配「{{query}}」的条目。",
+    "truncated": "这个目录条目太多，只显示了前面一部分。用筛选缩小范围。",
+    "git": "git",
+    "symlink": "符号链接",
+    "failure": {
+      "denied": "{{machine}} 没有权限读这个目录。换一个目录，或者在那台机器上放开权限。",
+      "notFound": "{{machine}} 上已经没有这个目录了。",
+      "notDir": "这不是一个目录。",
+      "refused": "{{machine}} 不允许浏览这条路径。",
+      "exists": "这里已经有同名目录了。",
+      "invalidName": "这个名字不能用作目录名。",
+      "disconnected": "与 {{machine}} 的连接断了。",
+      "unknown": "读不到 {{machine}} 上的这个目录。{{message}}"
+    }
+  },
+  "projectSettings": {
+    "title": "项目设置",
+    "done": "完成",
+    "sections": {
+      "members": "成员",
+      "paths": "机器与路径"
+    },
+    "field": {
+      "name": "名字",
+      "description": "简介",
+      "color": "颜色",
+      "icon": "图标",
+      "parent": "父项目",
+      "noParent": "无（挂在根上）"
+    },
+    "identity": {
+      "glyph": "图标与颜色",
+      "glyphAria": "改「{{name}}」的图标与颜色",
+      "namePlaceholder": "项目名字",
+      "descriptionPlaceholder": "简介（选填）",
+      "iconSearch": "搜索图标…",
+      "iconResults": "搜索结果",
+      "iconNoMatch": "没有匹配的图标。"
+    },
+    "members": {
+      "empty": "这个项目还没有成员。",
+      "noCandidates": "你手上的 Agent 都已经在这个项目里了。",
+      "add": "把 {{name}} 加进来",
+      "remove": "移除 {{name}}",
+      "inherited": "继承",
+      "inheritedFrom": "继承自 {{name}}",
+      "addTitle": "添加成员",
+      "searchPlaceholder": "搜索 Agent…",
+      "noMatch": "没有匹配的 Agent。",
+      "count": "{{count}} 位"
+    },
+    "paths": {
+      "noPath": "还没配路径",
+      "path": "{{machine}} 上的路径",
+      "choose": "浏览…",
+      "remove": "移除 {{machine}} 上的路径",
+      "thisMachine": "本机",
+      "offline": "离线",
+      "failed": "机器清单没读到。",
+      "empty": "这个账号下还没有机器。项目的路径配在机器上，先添加一台。",
+      "count": "{{count}} 台",
+      "unconfiguredCount": "{{count}} 台未配路径",
+      "addMachine": "在别的机器上配路径",
+      "machineSearch": "搜索机器…",
+      "addHint": "配好路径后，那台机器上的 Agent 才加得进这个项目。",
+      "allListed": "账号里的机器都在这张表里了。"
+    },
+    "failure": {
+      "notSynced": "那台机器还没同步到这个项目，等它同步完再配。",
+      "pathNotFound": "那台机器上没有这个目录。",
+      "invalidPath": "这个路径不能用。",
+      "disconnected": "跟那台机器的连接断了。",
+      "unknown": "这次改动没生效。"
+    },
+    "create": {
+      "title": "新建项目",
+      "subtitleOf": "在 {{name}} 下新建项目",
+      "submit": "创建",
+      "failed": "项目没建成。",
+      "pathNote": "现在不用填路径。但在至少一台机器上配好路径之前，这个项目里开不出对话——索引的组头上会挂一枚「未配路径」角标，点它就能去配。",
+      "localPath": "本机上的路径",
+      "localPathRequired": "这一端必须填。",
+      "browse": "浏览…",
+      "detectingGit": "正在看这是不是一个 git 仓库…",
+      "gitDetected": "git 仓库 · {{branch}}",
+      "gitOrigin": "远端 {{origin}}",
+      "noGit": "不是 git 仓库。没关系，只是不显示分支与远端而已。",
+      "unknownBranch": "分支不明",
+      "noOrigin": "没有远端"
+    },
+    "delete": {
+      "title": "删除「{{name}}」？",
+      "children": "它下面的子项目会一并删除（{{count}} 个）。",
+      "noChildren": "它没有子项目。",
+      "sessions": "对话一条都不删——它们会回到「随手对话」。",
+      "files": "机器上的代码目录一个字节都不动，删掉的只是「这台机器上这个项目在哪」这条记录。",
+      "offline": "这些机器此刻离线，要等下次上线才跟着删：{{names}}。",
+      "noOffline": "配了这个项目的机器都在线，会立刻跟着删。",
+      "confirmName": "输入「{{name}}」以确认",
+      "submit": "删除项目",
+      "failed": "项目没删成。"
+    }
+  },
+  "projectHeader": {
+    "menu": {
+      "aria": "{{name}} 的更多动作",
+      "label": "{{name}} 的动作",
+      "settings": "项目设置…",
+      "newSubproject": "新建子项目",
+      "terminal": "新建终端",
+      "merge": "合并到已有项目",
+      "delete": "删除项目"
+    },
+    "add": {
+      "aria": "在 {{name}} 里新建对话",
+      "loading": "正在读成员…",
+      "failed": "这个项目的成员没读到。",
+      "noMembers": "这个项目还没有成员。",
+      "addMembers": "去加成员…",
+      "inherited": "继承"
+    },
+    "unconfigured": {
+      "badge": "未配置",
+      "aria": "{{name}} 在任何机器上都没有路径，去配一个"
+    }
+  },
+  "permissionMode": {
+    "active": "ACTIVE",
+    "aria": "权限模式：{{label}}（Shift+Tab 切换）",
+    "disabled": {
+      "bypassAfterLaunch": "该会话启动时未选择 bypassPermissions；Claude CLI 不允许中途进入 bypass。新建会话时选 bypass 即可解锁双向切换。"
+    },
+    "footer": "生成中不可切换 · 发送前选择会用于下一轮 turn",
+    "heading": "权限模式",
+    "meta": {
+      "acceptEdits": {
+        "desc": "自动接受文件编辑，其他工具仍走询问"
+      },
+      "bypassPermissions": {
+        "desc": "跳过全部许可门；首发选中后 CLI 以 --permission-mode bypassPermissions 启动"
+      },
+      "default": {
+        "desc": "工具调用前逐次询问，会触发 can_use_tool"
+      },
+      "plan": {
+        "desc": "只读分析，不执行任何写入或副作用工具"
+      }
+    },
+    "title": "权限模式 · {{label}}\nShift+Tab 循环切换",
+    "titleDisabled": "权限模式 · {{label}}\n生成中不可切换"
+  },
+  "board": {
+    "aria": "看板",
+    "cardMenu": "任务操作",
+    "edit": "编辑",
+    "moveTo": "移动到",
+    "delete": "删除",
+    "stages": {
+      "todo": "待办",
+      "doing": "进行中",
+      "review": "待审",
+      "done": "已完成"
+    },
+    "hitCount": "{{matched}} / {{total}}",
+    "emptyColumn": "拖到这里",
+    "addTask": "在「{{stage}}」新建任务",
+    "moreDone": "还有 {{count}} 个已完成",
+    "moreLabels": "还有 {{count}} 个标签",
+    "hasDescription": "有描述",
+    "empty": {
+      "noTasks": "这个项目还没有任务",
+      "noMatches": "没有符合条件的任务",
+      "newTask": "新建任务",
+      "clearFilters": "清除筛选"
+    },
+    "scope": {
+      "label": "项目范围",
+      "all": "全部项目",
+      "unassigned": "未归属",
+      "plusN": "+{{count}}",
+      "includesChildren": "还含 {{count}} 个子项目",
+      "searchPlaceholder": "搜索项目…",
+      "noMatch": "没有匹配的项目。"
+    },
+    "search": {
+      "placeholder": "搜索任务或 #编号…",
+      "count": "{{count}}"
+    },
+    "filter": {
+      "button": "筛选",
+      "labels": "标签",
+      "matchAny": "任意一个",
+      "matchAll": "全部满足",
+      "noLabel": "只看没有标签的",
+      "updated": "更新时间",
+      "created": "创建时间",
+      "done": "已完成保留多久",
+      "from": "起",
+      "to": "止",
+      "manageLabels": "管理标签",
+      "time": {
+        "any": "不限",
+        "today": "今天",
+        "d7": "7 天内",
+        "d30": "30 天内",
+        "custom": "自定义"
+      },
+      "retention": {
+        "d30": "30 天内",
+        "d90": "90 天内",
+        "all": "全部"
+      }
+    },
+    "chip": {
+      "keyword": "「{{keyword}}」",
+      "scope": "项目 {{name}}",
+      "updated": "更新于 {{value}}",
+      "created": "创建于 {{value}}",
+      "done": "已完成 {{value}}",
+      "remove": "摘掉「{{name}}」"
+    },
+    "form": {
+      "breadcrumb": "任务位置",
+      "newTask": "新建任务",
+      "title": "标题",
+      "titlePlaceholder": "这条任务要做什么",
+      "description": "描述",
+      "descriptionPlaceholder": "补充上下文（选填）",
+      "clearProject": "改回未归属",
+      "addLabel": "加标签",
+      "noAgent": "未指派",
+      "machine": "机器",
+      "model": "模型",
+      "more": "更多",
+      "close": "关闭",
+      "cancel": "取消",
+      "create": "创建",
+      "save": "保存"
+    },
+    "labels": {
+      "failed": "没能保存，再试一次。",
+      "empty": "还没有标签。",
+      "usage": "{{count}} 个任务在用",
+      "name": "标签名",
+      "rename": "编辑",
+      "save": "保存",
+      "tone": "色调",
+      "newName": "新标签名",
+      "create": "新建",
+      "deleteWarning": "这个标签会从 {{count}} 个任务上移除，任务本身不受影响。"
+    }
+  }
+}

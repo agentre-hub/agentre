@@ -19,10 +19,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-ai/agentre/internal/pkg/openclawgateway"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
 )
 
 type runtimeRequestFrame struct {
@@ -234,6 +234,8 @@ func TestRuntimeCapabilities(t *testing.T) {
 	assert.True(t, runtime.Capabilities().Has(capability.CapExecApproval))
 	assert.False(t, runtime.Capabilities().Has(capability.CapAnswerUserAsk))
 	assert.False(t, runtime.Capabilities().Has(capability.CapForkSession))
+	// 硬不变量 5:openclaw 不获得思考力度,能力位为假使 composer 整颗控件不渲染。
+	assert.False(t, runtime.Capabilities().Has(capability.CapReasoningEffort))
 	var _ agentruntime.Aborter = runtime
 }
 
@@ -264,7 +266,7 @@ func TestRuntimeRunsSelfFingerprintBackendLocally(t *testing.T) {
 
 	runtime := New(runtimeResolver(t, gatewayURL))
 	selfBackend := runtimeBackend()
-	selfBackend.DeviceID = "sha256:self"
+	selfBackend.DeviceFingerprint = "sha256:self"
 	events, result, err := runtime.Run(context.Background(), agentruntime.RunRequest{
 		Backend: selfBackend, SessionID: 44, UserText: "run locally",
 	})

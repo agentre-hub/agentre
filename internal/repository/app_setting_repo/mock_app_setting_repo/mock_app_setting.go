@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	app_setting_entity "github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
+	app_setting_entity "github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -39,6 +39,21 @@ func NewMockAppSettingRepo(ctrl *gomock.Controller) *MockAppSettingRepo {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockAppSettingRepo) EXPECT() *MockAppSettingRepoMockRecorder {
 	return m.recorder
+}
+
+// Delete mocks base method.
+func (m *MockAppSettingRepo) Delete(ctx context.Context, key string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Delete", ctx, key)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockAppSettingRepoMockRecorder) Delete(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockAppSettingRepo)(nil).Delete), ctx, key)
 }
 
 // Get mocks base method.

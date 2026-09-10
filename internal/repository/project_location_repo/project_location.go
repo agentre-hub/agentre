@@ -8,7 +8,7 @@ import (
 	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/consts"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 )
 
 //go:generate mockgen -source project_location.go -destination mock_project_location_repo/mock_project_location.go
@@ -16,7 +16,7 @@ import (
 // ProjectLocationRepo 仓储接口（消费方约束模式）。
 //
 // 远端 agentred 上的 path 入本表；本地 path 仍住 projects.path。账号内自然键是
-// (project, daemon_fingerprint)——FindByProjectAndFingerprint 按这个自然键查找/去重。
+// (project, device_fingerprint)——FindByProjectAndFingerprint 按这个自然键查找/去重。
 //
 // FindByProjectAndDevice 按 device_id 缓存列查找，签名与行为保持不变：它是
 // project_svc / chat_svc 两处 cwd 解析调用点的既有等价约束（工作目录解析的行
@@ -97,7 +97,7 @@ func (r *projectLocationRepo) FindByProjectAndDevice(ctx context.Context, projec
 func (r *projectLocationRepo) FindByProjectAndFingerprint(ctx context.Context, projectID int64, fingerprint string) (*project_location_entity.ProjectLocation, error) {
 	out := &project_location_entity.ProjectLocation{}
 	if err := db.Ctx(ctx).Where(
-		"project_id = ? AND daemon_fingerprint = ? AND status = ?", projectID, fingerprint, consts.ACTIVE,
+		"project_id = ? AND device_fingerprint = ? AND status = ?", projectID, fingerprint, consts.ACTIVE,
 	).Take(out).Error; err != nil {
 		return nil, err
 	}

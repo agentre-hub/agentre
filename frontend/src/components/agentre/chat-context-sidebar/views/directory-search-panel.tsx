@@ -3,8 +3,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { FileTypeIcon } from "@/components/agentre/file-type-icon";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Button, Input } from "@agentre-hub/agentre-ui";
 
 import { PanelNotice, PanelSkeleton } from "./panel-feedback";
 import { SidebarList } from "./sidebar-list";
@@ -56,7 +55,7 @@ export function DirectorySearchPanel({
         {search.state.status === "loaded" ? (
           <span
             data-testid="search-hit-count"
-            className="shrink-0 font-mono text-[10px] text-muted-foreground"
+            className="shrink-0 font-mono text-3xs text-muted-foreground"
           >
             {t("chatContext.search.hitCount", {
               count: search.state.hits.length,
@@ -118,7 +117,7 @@ function SearchBody({
           type="button"
           variant="outline"
           size="sm"
-          className="mt-2.5 h-7 text-[11px]"
+          className="mt-2.5 h-7 text-2xs"
           onClick={onRetry}
         >
           {t("chatContext.directory.retry")}
@@ -161,7 +160,7 @@ function SearchBody({
         />
       ))}
       {state.truncated ? (
-        <div className="py-1.5 pr-2.5 pl-2 text-[11px] text-muted-foreground">
+        <div className="py-1.5 pr-2.5 pl-2 text-2xs text-muted-foreground">
           {t("chatContext.search.truncated", { limit: hits.length })}
         </div>
       ) : null}
@@ -225,7 +224,7 @@ function SearchRow({
         // 根目录下的命中 dir 为空串。
         <span
           dir="rtl"
-          className="min-w-0 flex-1 shrink-[9999] truncate text-left font-mono text-[10px] opacity-55"
+          className="min-w-0 flex-1 shrink-[9999] truncate text-left font-mono text-3xs opacity-55"
         >
           {dir}
         </span>

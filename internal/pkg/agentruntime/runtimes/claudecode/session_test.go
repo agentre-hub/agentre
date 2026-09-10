@@ -5,9 +5,9 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // TestCCBuildClientOpts_MCPServersInjectTool 锁住 AM2:RunRequest.MCPServers 非空时
@@ -65,7 +65,7 @@ func TestCCBuildClientOpts_ProviderModelDownToCLI(t *testing.T) {
 	Convey("解析出的 ModelID 非空 → Client.Model() = 该 ModelID", t, func() {
 		spec := ccLaunchSpec{
 			Req: agentruntime.RunRequest{
-				Backend:  &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
 				Effective: &agentruntime.EffectiveLLMConfig{ModelID: "glm-5.1"},
 			},
 		}
@@ -87,7 +87,7 @@ func TestCCBuildClientOpts_ProviderModelDownToCLI(t *testing.T) {
 	Convey("provider 非空但解析出的 ModelID 空(罕见配置) → 不下发 --model,留给 CLI 默认", t, func() {
 		spec := ccLaunchSpec{
 			Req: agentruntime.RunRequest{
-				Backend:  &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
 				Effective: &agentruntime.EffectiveLLMConfig{ModelID: "   "}, // 只有空白
 			},
 		}
@@ -106,7 +106,7 @@ func TestCCBuildClientOpts_EnvironmentDownToSettings(t *testing.T) {
 		spec := ccLaunchSpec{
 			Env: env,
 			Req: agentruntime.RunRequest{
-				Backend:  &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
 				Effective: &agentruntime.EffectiveLLMConfig{ModelID: "glm-test-model"},
 			},
 		}
@@ -258,6 +258,87 @@ func TestResolveLaunchMode_BypassDefaultLocksLaunchToBypass(t *testing.T) {
 		})
 		Convey("backendDefault='' + perTurn='' → ''(走 pkg/claudecode 兜底)", func() {
 			So(resolveLaunchMode("", ""), ShouldEqual, "")
+		})
+	})
+}
+
+// TestCCBuildClientOpts_RootBypassInjectsIsSandbox 锁住 root 下的 bypassPermissions
+// 兜底:CLI 收到 --dangerously-skip-permissions 时会拒绝以 root 运行(直接 exit 1、
+// 一帧不吐,上层只看得到 "subprocess produced no events"),IS_SANDBOX=1 是它自带的
+// 豁免开关。agentred 在容器里就是 root,而**控制台发起的轮次送的 backend 只有一个
+// type 空壳**,用户在 Agent 后端 env 表里配的 IS_SANDBOX 在那条路上根本不过线 ——
+// 只能由这里兜。
+//
+// 会被这组用例否掉的错误实现:无条件注入(非 root 也注入,把普通桌面端的会话
+// 也标成 sandbox)、覆盖用户显式写的值、就地改 spec.Env(调用方的 map 被污染)。
+func TestCCBuildClientOpts_RootBypassInjectsIsSandbox(t *testing.T) {
+	withEUID := func(v int, f func()) {
+		saved := euid
+		euid = func() int { return v }
+		defer func() { euid = saved }()
+		f()
+	}
+	newSpec := func(env map[string]string, mode string) ccLaunchSpec {
+		return ccLaunchSpec{
+			Env:            env,
+			PermissionMode: mode,
+			Req: agentruntime.RunRequest{
+				Backend: &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
+			},
+		}
+	}
+
+	Convey("Given 进程以 root 跑", t, func() {
+		Convey("When 本轮起手档是 bypassPermissions, Then 子进程 env 补 IS_SANDBOX=1", func() {
+			withEUID(0, func() {
+				c := claudecode.New(ccBuildClientOpts(newSpec(nil, "bypassPermissions"), "claude")...)
+				So(c.Env()["IS_SANDBOX"], ShouldEqual, "1")
+				// 同一份 env 也要进 --settings,与 gateway 那几个键同路。
+				So(c.SettingsEnv()["IS_SANDBOX"], ShouldEqual, "1")
+			})
+		})
+
+		Convey("When 起手档不是 bypassPermissions, Then 不注入(CLI 本来就不拒 root)", func() {
+			withEUID(0, func() {
+				c := claudecode.New(ccBuildClientOpts(newSpec(nil, "acceptEdits"), "claude")...)
+				_, ok := c.Env()["IS_SANDBOX"]
+				So(ok, ShouldBeFalse)
+			})
+		})
+
+		Convey("When backend 默认档是 bypassPermissions(perTurn 为空), Then 同样注入", func() {
+			withEUID(0, func() {
+				spec := newSpec(nil, "")
+				spec.DefaultPermissionMode = "bypassPermissions"
+				c := claudecode.New(ccBuildClientOpts(spec, "claude")...)
+				So(c.Env()["IS_SANDBOX"], ShouldEqual, "1")
+			})
+		})
+
+		Convey("When 用户已在 env_json 里显式写了 IS_SANDBOX, Then 听用户的,不覆盖", func() {
+			withEUID(0, func() {
+				c := claudecode.New(ccBuildClientOpts(newSpec(map[string]string{"IS_SANDBOX": "0"}, "bypassPermissions"), "claude")...)
+				So(c.Env()["IS_SANDBOX"], ShouldEqual, "0")
+			})
+		})
+
+		Convey("Then 不就地改调用方那张 env 表", func() {
+			withEUID(0, func() {
+				env := map[string]string{"ANTHROPIC_BASE_URL": "http://gateway.test"}
+				_ = claudecode.New(ccBuildClientOpts(newSpec(env, "bypassPermissions"), "claude")...)
+				_, ok := env["IS_SANDBOX"]
+				So(ok, ShouldBeFalse)
+			})
+		})
+	})
+
+	Convey("Given 进程不是 root(桌面端的常态)", t, func() {
+		Convey("When 起手档是 bypassPermissions, Then 不注入", func() {
+			withEUID(501, func() {
+				c := claudecode.New(ccBuildClientOpts(newSpec(nil, "bypassPermissions"), "claude")...)
+				_, ok := c.Env()["IS_SANDBOX"]
+				So(ok, ShouldBeFalse)
+			})
 		})
 	})
 }

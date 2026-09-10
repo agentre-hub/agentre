@@ -47,14 +47,19 @@ type DeviceView struct {
 	LastSeenAt        int64  `json:"lastSeenAt"`
 	LastError         string `json:"lastError"`
 	Online            bool   `json:"online"`
-	// DaemonOutdated 说明这台设备上的 agentred 版本过旧:它不认识会话持久化那组 RPC,
-	// 所以断连会直接结束当前这一轮(R18)。由桌面端连上后的能力探测得出,不落库 ——
-	// 它描述的是**当前这个 daemon 进程**,重启桌面后重新探。
-	DaemonOutdated bool `json:"daemonOutdated"`
 	// SupportsLLMModelTarget 说明这台 daemon 是否公布 llm-model-target-v1 能力位
 	// （决策 11）：不支持时远端 Picker 必须禁用 fixed-model，避免旧 daemon 静默降级。
 	// 来自 watcher 最近一次 health.ping 的能力位,进程内缓存,不落库。
 	SupportsLLMModelTarget bool `json:"supportsLLMModelTarget,omitempty"`
+	// DaemonVersion / DaemonCommit 是远端 agentred 自报的构建标识,来自 watcher 最近
+	// 一次 health.ping(与能力位同一条路:进程内缓存,不落库 —— 它描述的是当前那个
+	// daemon 进程,机器换了版本下一次心跳就覆盖)。
+	//
+	// 两者分开而不是一个展示串(决策 4):版本号要能比较,短 commit 为空才是「非发布
+	// 构建」的判据(决策 5) —— 未注入版本的构建自称 1.0.0,比任何 0.x 正式版都「新」,
+	// 缺了这道闸就会把本地构建的机器判成最新、把正式版判成过期。
+	DaemonVersion string `json:"daemonVersion,omitempty"`
+	DaemonCommit  string `json:"daemonCommit,omitempty"`
 }
 
 // RemoteDeviceSvc 单例接口。
@@ -62,6 +67,11 @@ type RemoteDeviceSvc interface {
 	List(ctx context.Context) ([]*DeviceView, error)
 	Get(ctx context.Context, id int64) (*DeviceView, error)
 	Add(ctx context.Context, req AddRequest) (*DeviceView, error)
+	// AdoptAccountDevices 收编账号里已有、本机没有本地记录的 agentred（见 adopt.go）。
+	AdoptAccountDevices(ctx context.Context, devices []AccountDevice) (int, error)
+	// DiscardAdoptedDevices 去掉全部收编来的行，返回台数。登出时调用：那些行的依据
+	// 就是「账号说有这台机器」，账号断了依据就没了（见 adopt.go）。
+	DiscardAdoptedDevices(ctx context.Context) (int, error)
 	Remove(ctx context.Context, id int64) error
 	UpdateTLS(ctx context.Context, id int64, mode, pem string) (*DeviceView, error)
 	Refresh(ctx context.Context, id int64) (*DeviceView, error)
@@ -88,13 +98,22 @@ type RemoteDeviceSvc interface {
 	// SupportsLLMModelTarget reports whether deviceID's daemon advertises the
 	// llm-model-target-v1 capability（fixed-model 可被安全选择）。未探过 → false。
 	SupportsLLMModelTarget(deviceID int64) bool
-	// RecordDaemonOutdated 记下 R18 能力探测的结论:这台设备上的 daemon 认不认会话
-	// 持久化那组 RPC。结论随后出现在该设备的 DeviceView.DaemonOutdated 上。
-	// 由 chat_svc 在探测结论翻转时调用。
-	RecordDaemonOutdated(deviceID int64, outdated bool)
+	// RecordDeviceBuild overwrites the in-memory build identity for deviceID
+	// （版本号 + 短 commit,来自 health.ping）。Called by the watcher on each
+	// successful heartbeat. commit 为空串是有意义的取值(非发布构建),不当成缺失。
+	RecordDeviceBuild(deviceID int64, version, commit string)
+	// DeviceBuild returns the cached build identity for deviceID.
+	// 未探过 → 两个空串（界面据此什么都不说,而不是编一个版本）。
+	DeviceBuild(deviceID int64) (version, commit string)
 	// SyncProvider copies one local LLM provider to the remote daemon state.
 	// The raw API key is sent only for this explicit sync operation.
 	SyncProvider(ctx context.Context, deviceID int64, providerKey string) error
+	// Upgrade triggers the remote one-click upgrade RPC on deviceID(spec「远程
+	// 一键升级」). channel 留空按 daemon 当前配置的通道解读;force 越过活跃轮次
+	// 闸门,必须由调用方在得到 UpgradeRejectActiveTurns 之后、经过一次显式确认
+	// 才能置真(决策 8/21:二次确认承担拦截,主动作本身不禁用)。应答只回受理
+	// 结果,升级过程由调用方从版本号变化推断(不在这次调用里等重启)。
+	Upgrade(ctx context.Context, deviceID int64, channel string, force bool) (*UpgradeResult, error)
 }
 
 var defaultSvc RemoteDeviceSvc

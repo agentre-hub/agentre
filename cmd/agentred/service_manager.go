@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/paths"
-	"github.com/agentre-ai/agentre/internal/pkg/procattr"
+	"github.com/agentre-hub/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/procattr"
 )
 
 // ServiceManager is the platform-neutral lifecycle contract shared by the CLI

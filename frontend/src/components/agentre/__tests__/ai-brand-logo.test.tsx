@@ -6,7 +6,7 @@ import {
   LlmModelLogo,
   LlmProviderLogo,
   resolveModelBrand,
-} from "../ai-brand-logo";
+} from "@agentre-hub/agentre-ui";
 
 describe("AI brand logos", () => {
   it("Given supported backends, when rendered, then official brand artwork identifies them", () => {

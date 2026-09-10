@@ -20,7 +20,7 @@ func TestProductionEntrypointsExcludeE2EDependenciesAndBuildTags(t *testing.T) {
 				t.Fatalf("go list %s: %v\n%s", pkg, err, out)
 			}
 			for _, line := range strings.Split(string(out), "\n") {
-				if strings.Contains(line, "github.com/agentre-ai/agentre/e2e/") ||
+				if strings.Contains(line, "github.com/agentre-hub/agentre/e2e/") ||
 					strings.Contains(line, "internal/pkg/agentruntime/runtimes/fake") {
 					t.Fatalf("production package %s depends on %s", pkg, line)
 				}
@@ -34,7 +34,7 @@ func TestProductionEntrypointsExcludeE2EDependenciesAndBuildTags(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(raw), "github.com/agentre-ai/agentre/e2e/") ||
+			if strings.Contains(string(raw), "github.com/agentre-hub/agentre/e2e/") ||
 				strings.Contains(string(raw), "internal/pkg/agentruntime/runtimes/fake") {
 				t.Fatalf("production entrypoint imports E2E code: %s", source)
 			}

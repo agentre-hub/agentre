@@ -3,7 +3,7 @@ package chat_svc
 import (
 	"github.com/cago-frame/agents/agent/blocks"
 
-	chatblocks "github.com/agentre-ai/agentre/internal/service/chat_svc/blocks"
+	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 func hasCompactBoundaryBlock(bs []blocks.ContentBlock) bool {

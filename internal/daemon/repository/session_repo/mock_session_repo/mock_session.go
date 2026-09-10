@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	session_repo "github.com/agentre-ai/agentre/internal/daemon/repository/session_repo"
+	session_repo "github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -56,19 +56,34 @@ func (mr *MockSessionRepoMockRecorder) CountByLifecycle(ctx, state any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).CountByLifecycle), ctx, state)
 }
 
-// Find mocks base method.
-func (m *MockSessionRepo) Find(ctx context.Context, peerFingerprint, peerSessionID string) (*session_repo.DaemonSession, error) {
+// Delete mocks base method.
+func (m *MockSessionRepo) Delete(ctx context.Context, peerFingerprint, conversationID string) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Find", ctx, peerFingerprint, peerSessionID)
+	ret := m.ctrl.Call(m, "Delete", ctx, peerFingerprint, conversationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockSessionRepoMockRecorder) Delete(ctx, peerFingerprint, conversationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockSessionRepo)(nil).Delete), ctx, peerFingerprint, conversationID)
+}
+
+// Find mocks base method.
+func (m *MockSessionRepo) Find(ctx context.Context, peerFingerprint, conversationID string) (*session_repo.DaemonSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Find", ctx, peerFingerprint, conversationID)
 	ret0, _ := ret[0].(*session_repo.DaemonSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Find indicates an expected call of Find.
-func (mr *MockSessionRepoMockRecorder) Find(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
+func (mr *MockSessionRepoMockRecorder) Find(ctx, peerFingerprint, conversationID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockSessionRepo)(nil).Find), ctx, peerFingerprint, peerSessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockSessionRepo)(nil).Find), ctx, peerFingerprint, conversationID)
 }
 
 // InterruptAll mocks base method.
@@ -87,47 +102,77 @@ func (mr *MockSessionRepoMockRecorder) InterruptAll(ctx, interruptedState any) *
 }
 
 // ListAll mocks base method.
-func (m *MockSessionRepo) ListAll(ctx context.Context) ([]*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) ListAll(ctx context.Context, keyword string) ([]*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAll", ctx)
+	ret := m.ctrl.Call(m, "ListAll", ctx, keyword)
 	ret0, _ := ret[0].([]*session_repo.DaemonSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListAll indicates an expected call of ListAll.
-func (mr *MockSessionRepoMockRecorder) ListAll(ctx any) *gomock.Call {
+func (mr *MockSessionRepoMockRecorder) ListAll(ctx, keyword any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAll", reflect.TypeOf((*MockSessionRepo)(nil).ListAll), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAll", reflect.TypeOf((*MockSessionRepo)(nil).ListAll), ctx, keyword)
 }
 
 // ListByPeer mocks base method.
-func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint string) ([]*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint, keyword string) ([]*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByPeer", ctx, peerFingerprint)
+	ret := m.ctrl.Call(m, "ListByPeer", ctx, peerFingerprint, keyword)
 	ret0, _ := ret[0].([]*session_repo.DaemonSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListByPeer indicates an expected call of ListByPeer.
-func (mr *MockSessionRepoMockRecorder) ListByPeer(ctx, peerFingerprint any) *gomock.Call {
+func (mr *MockSessionRepoMockRecorder) ListByPeer(ctx, peerFingerprint, keyword any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByPeer", reflect.TypeOf((*MockSessionRepo)(nil).ListByPeer), ctx, peerFingerprint)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByPeer", reflect.TypeOf((*MockSessionRepo)(nil).ListByPeer), ctx, peerFingerprint, keyword)
+}
+
+// SetModelTarget mocks base method.
+func (m *MockSessionRepo) SetModelTarget(ctx context.Context, peerFingerprint, conversationID, providerKey, modelKey string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetModelTarget", ctx, peerFingerprint, conversationID, providerKey, modelKey)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetModelTarget indicates an expected call of SetModelTarget.
+func (mr *MockSessionRepoMockRecorder) SetModelTarget(ctx, peerFingerprint, conversationID, providerKey, modelKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetModelTarget", reflect.TypeOf((*MockSessionRepo)(nil).SetModelTarget), ctx, peerFingerprint, conversationID, providerKey, modelKey)
+}
+
+// SetReasoningEffort mocks base method.
+func (m *MockSessionRepo) SetReasoningEffort(ctx context.Context, peerFingerprint, conversationID, reasoningEffort string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetReasoningEffort", ctx, peerFingerprint, conversationID, reasoningEffort)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetReasoningEffort indicates an expected call of SetReasoningEffort.
+func (mr *MockSessionRepoMockRecorder) SetReasoningEffort(ctx, peerFingerprint, conversationID, reasoningEffort any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReasoningEffort", reflect.TypeOf((*MockSessionRepo)(nil).SetReasoningEffort), ctx, peerFingerprint, conversationID, reasoningEffort)
 }
 
 // UpdateLifecycle mocks base method.
-func (m *MockSessionRepo) UpdateLifecycle(ctx context.Context, peerFingerprint, peerSessionID, state string) error {
+func (m *MockSessionRepo) UpdateLifecycle(ctx context.Context, peerFingerprint, conversationID, state string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateLifecycle", ctx, peerFingerprint, peerSessionID, state)
+	ret := m.ctrl.Call(m, "UpdateLifecycle", ctx, peerFingerprint, conversationID, state)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateLifecycle indicates an expected call of UpdateLifecycle.
-func (mr *MockSessionRepoMockRecorder) UpdateLifecycle(ctx, peerFingerprint, peerSessionID, state any) *gomock.Call {
+func (mr *MockSessionRepoMockRecorder) UpdateLifecycle(ctx, peerFingerprint, conversationID, state any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).UpdateLifecycle), ctx, peerFingerprint, peerSessionID, state)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).UpdateLifecycle), ctx, peerFingerprint, conversationID, state)
 }
 
 // Upsert mocks base method.

@@ -6,13 +6,13 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
+	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 )
 
 // sessionBackendID 是「这条会话该用哪个 backend」的单一读口（R15b / 决策36）：
@@ -36,7 +36,7 @@ func sessionBackendID(sess *chat_entity.Session, a *agent_entity.Agent) int64 {
 // 的 self 档（R13 认领后本机 backend 的 DeviceID 是本机指纹）都返回空串。
 func execDeviceID(ctx context.Context, be *agent_backend_entity.AgentBackend) string {
 	if beTargetsRemote(be) {
-		return be.DeviceID
+		return be.DeviceFingerprint
 	}
 	return ""
 }
@@ -71,7 +71,7 @@ func (s *chatSvc) resolveExecTarget(ctx context.Context, sess *chat_entity.Sessi
 		return nil, i18n.NewError(ctx, code.AgentBackendNotFound)
 	}
 	if beTargetsRemote(be) {
-		deviceID, ok := localPairedDeviceID(ctx, be.DeviceID)
+		deviceID, ok := localPairedDeviceID(ctx, be.DeviceFingerprint)
 		if !ok || deviceID <= 0 {
 			return nil, i18n.NewError(ctx, code.AgentBackendInvalidDevice)
 		}

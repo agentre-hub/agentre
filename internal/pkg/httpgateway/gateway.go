@@ -18,7 +18,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 )
 
 // stateRunning / stateStopped Gateway 当前生命周期阶段。
@@ -261,7 +261,7 @@ func (g *Gateway) BaseURL() string {
 func (g *Gateway) Steer() *SteerInbox { return g.steer }
 
 // serveHookInbox is the GET /hook/v1/inbox?session_id=<uuid> handler that the
-// agentre claudecode hook subcommand calls. Returns the pending Steer message
+// agrctl claudecode hook subcommand calls. Returns the pending Steer message
 // queue for the given uuid (and clears it). Token-guarded by the same
 // TokenRegistry that LLM forwarding uses, so any token issued for the
 // active backend is sufficient.

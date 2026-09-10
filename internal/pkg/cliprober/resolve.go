@@ -7,7 +7,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/agentre-ai/agentre/internal/pkg/clienv"
+	"github.com/agentre-hub/agentre/internal/pkg/clienv"
 )
 
 // ErrInvalidType 调用方传了 cliprober 不识别的 type 字面量。

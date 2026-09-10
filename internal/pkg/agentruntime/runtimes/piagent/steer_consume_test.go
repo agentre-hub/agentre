@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	pkgpi "github.com/agentre-ai/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	pkgpi "github.com/agentre-hub/agentre/pkg/piagent"
 )
 
 // Pi 在 usage 事件里上报真实模型 id（如 gpt-5.6-sol）。runtime 必须把它写进

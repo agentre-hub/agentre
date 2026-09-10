@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 )
 
 func enabledAgent(id int64) *agent_entity.Agent {
@@ -17,10 +17,10 @@ func enabledAgent(id int64) *agent_entity.Agent {
 func TestBuildTurnMCP(t *testing.T) {
 	s := &subagentSvc{gatewayBaseURL: "http://127.0.0.1:9/", chains: map[int64][]int64{}}
 
-	if got := s.BuildTurnMCP(context.Background(), &agent_entity.Agent{ID: 1}, 5, 0); got != nil {
+	if got := s.BuildTurnMCP(context.Background(), &agent_entity.Agent{ID: 1}, 5); got != nil {
 		t.Fatalf("disabled agent should get no spec, got %v", got)
 	}
-	specs := s.BuildTurnMCP(context.Background(), enabledAgent(1), 5, 0)
+	specs := s.BuildTurnMCP(context.Background(), enabledAgent(1), 5)
 	if len(specs) != 1 {
 		t.Fatalf("want 1 spec, got %d", len(specs))
 	}
@@ -31,7 +31,7 @@ func TestBuildTurnMCP(t *testing.T) {
 		t.Fatal("missing Authorization header")
 	}
 	s.gatewayBaseURL = ""
-	if got := s.BuildTurnMCP(context.Background(), enabledAgent(1), 5, 0); got != nil {
+	if got := s.BuildTurnMCP(context.Background(), enabledAgent(1), 5); got != nil {
 		t.Fatalf("no gateway should get nil, got %v", got)
 	}
 }

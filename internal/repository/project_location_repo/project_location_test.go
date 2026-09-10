@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-ai/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 )
 
 func setupProjectLocationRepo(t *testing.T) (context.Context, sqlmock.Sqlmock, project_location_repo.ProjectLocationRepo) {
@@ -56,16 +56,16 @@ func TestProjectLocationRepo_FindByProjectAndDevice_Found(t *testing.T) {
 
 func TestProjectLocationRepo_FindByProjectAndFingerprint_Found(t *testing.T) {
 	ctx, mock, repo := setupProjectLocationRepo(t)
-	mock.ExpectQuery("SELECT \\* FROM `project_locations` WHERE project_id = \\? AND daemon_fingerprint = \\? AND status = \\? LIMIT \\?").
+	mock.ExpectQuery("SELECT \\* FROM `project_locations` WHERE project_id = \\? AND device_fingerprint = \\? AND status = \\? LIMIT \\?").
 		WithArgs(int64(1), "fp-7", consts.ACTIVE, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id", "device_id", "daemon_fingerprint", "path", "status"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id", "device_id", "device_fingerprint", "path", "status"}).
 			AddRow(int64(10), int64(1), "7", "fp-7", "/home/me/foo", consts.ACTIVE))
 
 	got, err := repo.FindByProjectAndFingerprint(ctx, 1, "fp-7")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, int64(10), got.ID)
-	assert.Equal(t, "fp-7", got.DaemonFingerprint)
+	assert.Equal(t, "fp-7", got.DeviceFingerprint)
 	assert.Equal(t, "7", got.DeviceID)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

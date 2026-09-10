@@ -19,22 +19,32 @@ func RunMigrations(db *gorm.DB) error {
 }
 
 // migrationList 按时间升序列出全部迁移构造函数。
+//
+// 当前这一批是 2026-09-04 发布前压缩出来的基线：产品尚未发布，全部长活的开发库 /
+// 联调库一律删库重建，因此每个领域只留一条「直接建最终形态」的迁移，不再保留任何
+// 补丁或回填迁移。
+//
+// 新迁移的 id 必须**大于历史上用过的任何一个**，而不是「文件列表里最大的那个 +1」：
+// 账本 id 一旦落进过谁的库就永久退役，删掉文件也收不回来。2026-08-28 压缩未发布迁移
+// 时空出的 202608080013~202608080018 就是这样一段号 —— 长活的开发库账本里有它们，
+// 后来的迁移复用了这个号段，gormigrate 见到 id 已在账本便静默跳过，老库因此缺列。
+// 本轮压缩同理退役了 202608080001~202608080012、202609010001 与 202609040001~
+// 202609040006，所以基线另起 202609040101 这一段（回归见
+// internal/bootstrap/cago_test.go 的 retiredMigrationLedgerIDs 用例）。取当天日期编号即可。
 func migrationList() []*gormigrate.Migration {
 	return []*gormigrate.Migration{
-		migration202608080001(), // llm_providers
-		migration202608080002(), // departments
-		migration202608080003(), // agent_backends
-		migration202608080004(), // agents + default agent
-		migration202608080005(), // projects + project_agents + project_locations
-		migration202608080006(), // chat_sessions + chat_messages
-		migration202608080007(), // hooks + hook_events
-		migration202608080008(), // app_settings + proxy defaults
-		migration202608080009(), // server_state + paired_agentreds
-		migration202608080010(), // issues + labels + issue_labels + label defaults
-		migration202608080011(), // 执行目标 + 本机路径（R15/R15e/R15b/R10/决策 26）
-		migration202608080012(), // 同步基础设施（R1 同步元数据 / R5/R7/R2a 队列表）
-		migration202608100001(), // chat_messages 恢复标记索引 (role, device_id)
-		migration202608110001(), // llm_provider_models：Provider 1→N 稳定模型 + 默认/目标列 + 旧路由结构化
-		migration202608130001(), // 本端执行目标顺序覆盖（R14，纯本地不同步）
+		migration202609040101(),
+		migration202609040102(),
+		migration202609040103(),
+		migration202609040104(),
+		migration202609040105(),
+		migration202609040106(),
+		migration202609040107(),
+		migration202609040108(),
+		migration202609040109(),
+		migration202609040110(),
+		migration202609040111(),
+		migration202609040112(),
+		migration202609040113(),
 	}
 }

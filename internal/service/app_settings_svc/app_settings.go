@@ -7,10 +7,10 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/app_setting_entity"
-	"github.com/agentre-ai/agentre/internal/pkg/code"
-	"github.com/agentre-ai/agentre/internal/pkg/httpgateway"
-	"github.com/agentre-ai/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
+	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 )
 
 // AppSettingsSvc App 全局设置 + 本地 HTTP 代理生命周期。
@@ -27,7 +27,7 @@ type appSettingsSvc struct {
 }
 
 var defaultSvc AppSettingsSvc = &appSettingsSvc{
-	now: func() int64 { return time.Now().Unix() },
+	now: func() int64 { return time.Now().UnixMilli() },
 }
 
 // AppSettings 取默认服务单例。
@@ -83,6 +83,8 @@ func (s *appSettingsSvc) Update(ctx context.Context, req *UpdateRequest) (*Updat
 			if err := app_setting_entity.ValidateBoolSetting(ctx, val); err != nil {
 				return nil, err
 			}
+		case app_setting_entity.KeySkippedUpdateVersion:
+			// 版本号是上游 release tag，本端不做格式校验；空串表示撤销跳过。
 		case "":
 			return nil, i18n.NewError(ctx, code.InvalidParameter)
 		default:

@@ -9,13 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/agentre-ai/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-ai/agentre/internal/model/entity/project_entity"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/agent_repo/mock_agent_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo"
-	"github.com/agentre-ai/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-ai/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/internal/service/project_svc/mock_project_svc"
 )
 
 // 构造 3 层项目树：
@@ -33,11 +32,10 @@ func TestAggregateMembers_ThreeLevelInheritance(t *testing.T) {
 		t.Cleanup(ctrl.Finish)
 		mockProj := mock_project_repo.NewMockProjectRepo(ctrl)
 		mockPA := mock_project_repo.NewMockProjectAgentRepo(ctrl)
-		mockAgent := mock_agent_repo.NewMockAgentRepo(ctrl)
-		agent_repo.RegisterAgent(mockAgent)
+		mockAgent := mock_project_svc.NewMockAgentPort(ctrl)
 		project_repo.RegisterProject(mockProj)
 		project_repo.RegisterProjectAgent(mockPA)
-		svc := project_svc.New()
+		svc := project_svc.New(project_svc.WithAgentPort(mockAgent))
 
 		ctx := context.Background()
 		projA := &project_entity.Project{ID: 1, Name: "A", ParentID: 0, Status: consts.ACTIVE}
@@ -108,11 +106,10 @@ func TestAggregateMembers_StaleAgentRelationKeepsMemberRow(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	mockProj := mock_project_repo.NewMockProjectRepo(ctrl)
 	mockPA := mock_project_repo.NewMockProjectAgentRepo(ctrl)
-	mockAgent := mock_agent_repo.NewMockAgentRepo(ctrl)
-	agent_repo.RegisterAgent(mockAgent)
+	mockAgent := mock_project_svc.NewMockAgentPort(ctrl)
 	project_repo.RegisterProject(mockProj)
 	project_repo.RegisterProjectAgent(mockPA)
-	svc := project_svc.New()
+	svc := project_svc.New(project_svc.WithAgentPort(mockAgent))
 
 	ctx := context.Background()
 	project := &project_entity.Project{ID: 1, Name: "A", ParentID: 0, Status: consts.ACTIVE}

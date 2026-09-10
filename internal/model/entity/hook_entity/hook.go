@@ -8,10 +8,8 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
-	"github.com/agentre-ai/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
-
-const TriggerSchedule = "schedule" // 预留 "webhook"
 
 // ValidInterpreters 是允许声明的解释器 allowlist（见 hookexec 注册表）。
 var ValidInterpreters = map[string]struct{}{
@@ -25,7 +23,6 @@ type Hook struct {
 	Interpreter     string `gorm:"column:interpreter;type:text;not null;default:'bash'"`
 	InterpreterPath string `gorm:"column:interpreter_path;type:text;not null;default:''"`
 	Command         string `gorm:"column:command;type:text;not null;default:''"`
-	TriggerType     string `gorm:"column:trigger_type;type:text;not null;default:'schedule'"`
 	ScheduleExpr    string `gorm:"column:schedule_expr;type:text;not null;default:''"` // cron 表达式
 	Timezone        string `gorm:"column:timezone;type:text;not null;default:'Asia/Shanghai'"`
 	EnvJSON         string `gorm:"column:env_json;type:text;not null;default:'[]'"`
@@ -55,9 +52,6 @@ func (h *Hook) Check(ctx context.Context) error {
 	}
 	if _, ok := ValidInterpreters[strings.TrimSpace(h.Interpreter)]; !ok {
 		return i18n.NewError(ctx, code.HookInvalidInterpreter)
-	}
-	if h.TriggerType == "" {
-		h.TriggerType = TriggerSchedule
 	}
 	if strings.TrimSpace(h.ScheduleExpr) == "" {
 		return i18n.NewError(ctx, code.HookInvalidSchedule)

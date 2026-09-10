@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 )
 
 // TestEvent_RoundTrip 每个 sealed Event 至少 1 个 happy + 1 个边界 case,
@@ -27,6 +27,9 @@ func TestEvent_RoundTrip(t *testing.T) {
 		// ThinkingDelta
 		{"thinking_delta", ThinkingDelta{Text: "let me think"}},
 		{"thinking_delta_empty", ThinkingDelta{}},
+
+		// OutputActivity — 无字段的纯计时信号,wire 上只剩 kind
+		{"output_activity", OutputActivity{}},
 
 		// ToolCall — 含 / 不含 canonical
 		{"tool_call_no_canonical", ToolCall{
@@ -247,6 +250,7 @@ func TestEvent_WireKindMatchesType(t *testing.T) {
 	}{
 		{EventTextDelta, TextDelta{}},
 		{EventThinkingDelta, ThinkingDelta{}},
+		{EventOutputActivity, OutputActivity{}},
 		{EventToolUseStart, ToolCall{}},
 		{EventToolResult, ToolResult{}},
 		{EventSteerConsumed, SteerConsumed{}},
@@ -289,7 +293,7 @@ func TestEvent_WireKindMatchesType(t *testing.T) {
 // UnmarshalEvent fails here.
 func TestUnmarshalEvent_AllKindsCovered(t *testing.T) {
 	specimens := []Event{
-		TextDelta{}, ThinkingDelta{}, ToolCall{}, ToolResult{}, SteerConsumed{},
+		TextDelta{}, ThinkingDelta{}, OutputActivity{}, ToolCall{}, ToolResult{}, SteerConsumed{},
 		UserAskRequest{}, UserAskResolved{},
 		ToolPermissionRequest{}, ToolPermissionResolved{},
 		ExecApprovalRequested{}, ExecApprovalResolved{},

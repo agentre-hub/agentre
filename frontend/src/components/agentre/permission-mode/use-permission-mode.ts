@@ -5,11 +5,11 @@ import { SetChatPermissionMode } from "@/../wailsjs/go/app/App";
 import type { PermissionModeMeta } from "../capability/types";
 
 import {
+  isPermissionModeDisabled,
   nextPermissionMode,
   normalizePermissionMode,
-  permissionModeDisabledReason,
   type PermissionMode,
-} from "./types";
+} from "@agentre-hub/agentre-ui";
 
 export interface UsePermissionModeOptions {
   /** chat session id;0 / null / undefined = 当前没选会话 */
@@ -134,12 +134,12 @@ export function usePermissionMode({
       hasActiveSession: hasActiveSession ?? false,
       permissionModeAtLaunch: initialModeAtLaunch ?? null,
     };
-    // 跳过被 permissionModeDisabledReason 判定为禁用的档(claudecode 的 bypass
+    // 跳过被 isPermissionModeDisabled 判定为禁用的档(claudecode 的 bypass
     // 锁死场景);最坏情况绕一圈回到起点(理论上不会全 disabled)。
     let curr = lastModeRef.current;
     for (let step = 0; step < order.length; step++) {
       const cand = nextPermissionMode(curr, order);
-      if (permissionModeDisabledReason(cand, runtimeKey, ctx) == null) {
+      if (!isPermissionModeDisabled(cand, runtimeKey, ctx)) {
         setMode(cand);
         return;
       }

@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/agentre-ai/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/department_svc"
 )
 
 // LoadOrg 聚合返回部门 + Agent 全量，给前端组织架构页首屏使用。

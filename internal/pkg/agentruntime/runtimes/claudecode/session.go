@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"os"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-ai/agentre/pkg/claudecode"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
 // ccStream 是 pkg/claudecode.Stream 的窄接口,便于测试注入 fake。
@@ -114,6 +115,14 @@ func (a *ccClientAdapter) Kill(_ context.Context) error {
 	return nil
 }
 
+// PID 转发到底层 claudecode.Session.PID(池快照的排查字段)。
+func (a *ccClientAdapter) PID() int {
+	if a.sess == nil {
+		return 0
+	}
+	return a.sess.PID()
+}
+
 // StopTask 转发到底层 claudecode.Session.StopTask,写 control_request{stop_task}
 // 停单个后台任务。**子进程不动**;后台任务跨 turn 存活,空闲态也能停。
 func (a *ccClientAdapter) StopTask(ctx context.Context, taskID string) error {
@@ -202,6 +211,10 @@ func (s *ccChanStream) SessionID() string {
 	return ""
 }
 
+// euid 是 os.Geteuid 的测试缝。Windows 上 os.Geteuid 恒返回 -1,于是所有以
+// "跑在 root 下" 为前提的兜底在那儿自然不触发。
+var euid = os.Geteuid
+
 // resolveLaunchMode 选 --permission-mode 值。优先级:用户 turn override (perTurn)
 // → backend admin default (backendDefault) → ""。
 //
@@ -258,6 +271,25 @@ func ccBuildClientOpts(spec ccLaunchSpec, binary string) []claudecode.Option {
 		}
 		env = merged
 	}
+	launchMode := resolveLaunchMode(spec.PermissionMode, spec.DefaultPermissionMode)
+	// bypassPermissions 会让 CLI 收到 --dangerously-skip-permissions,而它以 root 跑时
+	// 直接 exit 1("cannot be used with root/sudo privileges"),一帧都不吐 —— 上层只
+	// 看得到 "subprocess produced no events",看不出真正的原因。IS_SANDBOX=1 是 CLI
+	// 自带的豁免开关。
+	//
+	// 这条兜底不能只靠用户在 Agent 后端的 env 表里补:agentred 在容器里正是以 root 跑,
+	// 而**控制台发起的轮次送过来的 backend 只有一个 {type} 空壳**(浏览器没有那份配置,
+	// 中继又是不解析 envelope 的帧总线),env_json 在那条路上到不了这里。
+	//
+	// 用户显式写过 IS_SANDBOX 就听用户的(包括写 0 主动关掉)。
+	if launchMode == "bypassPermissions" && euid() == 0 {
+		if _, ok := env["IS_SANDBOX"]; !ok {
+			merged := make(map[string]string, len(env)+1)
+			maps.Copy(merged, env)
+			merged["IS_SANDBOX"] = "1"
+			env = merged
+		}
+	}
 	opts := []claudecode.Option{
 		claudecode.WithBinary(binary),
 		claudecode.WithCwd(spec.Cwd),
@@ -285,8 +317,8 @@ func ccBuildClientOpts(spec ccLaunchSpec, binary string) []claudecode.Option {
 	if spec.Settings != "" {
 		opts = append(opts, claudecode.WithSettings(spec.Settings))
 	}
-	if mode := resolveLaunchMode(spec.PermissionMode, spec.DefaultPermissionMode); mode != "" {
-		opts = append(opts, claudecode.WithPermissionMode(mode))
+	if launchMode != "" {
+		opts = append(opts, claudecode.WithPermissionMode(launchMode))
 	}
 	if eff := spec.Req.Backend.ReasoningEffort; eff != "" {
 		opts = append(opts, claudecode.WithEffort(eff))

@@ -17,19 +17,17 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { copyTextWithToast } from "@/lib/clipboard-toast";
+  copyTextWithToast,
+} from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 import {
-  useChatSidebarStore,
+  useFilePreviewTabsStore,
   type FilePreviewTab,
-} from "@/stores/chat-sidebar-store";
+} from "@/stores/file-preview-tabs-store";
 
 import { FileTypeIcon } from "../file-type-icon";
 import { basename } from "./file-meta";
@@ -50,17 +48,25 @@ type Props = {
  */
 export function PreviewTabStrip({ sessionId }: Props) {
   const { t } = useTranslation();
-  const entry = useChatSidebarStore((s) => s.previewTabsBySession[sessionId]);
-  const activatePreviewTab = useChatSidebarStore((s) => s.activatePreviewTab);
-  const promoteActivePreviewTab = useChatSidebarStore(
+  const entry = useFilePreviewTabsStore(
+    (s) => s.previewTabsBySession[sessionId],
+  );
+  const activatePreviewTab = useFilePreviewTabsStore(
+    (s) => s.activatePreviewTab,
+  );
+  const promoteActivePreviewTab = useFilePreviewTabsStore(
     (s) => s.promoteActivePreviewTab,
   );
-  const togglePreviewTabPin = useChatSidebarStore((s) => s.togglePreviewTabPin);
-  const closePreviewTab = useChatSidebarStore((s) => s.closePreviewTab);
-  const closeOtherPreviewTabs = useChatSidebarStore(
+  const togglePreviewTabPin = useFilePreviewTabsStore(
+    (s) => s.togglePreviewTabPin,
+  );
+  const closePreviewTab = useFilePreviewTabsStore((s) => s.closePreviewTab);
+  const closeOtherPreviewTabs = useFilePreviewTabsStore(
     (s) => s.closeOtherPreviewTabs,
   );
-  const closeAllPreviewTabs = useChatSidebarStore((s) => s.closeAllPreviewTabs);
+  const closeAllPreviewTabs = useFilePreviewTabsStore(
+    (s) => s.closeAllPreviewTabs,
+  );
 
   const tabs = entry?.tabs ?? [];
   if (tabs.length < 2) return null;
@@ -173,7 +179,7 @@ function PreviewTab({
           onClick={onActivate}
           onDoubleClick={onDoublePromote}
           className={cn(
-            "relative flex h-full min-w-[96px] max-w-[150px] flex-shrink items-center gap-1.5 border-r border-border pl-2.5 pr-1.5 text-[11px]",
+            "relative flex h-full min-w-[96px] max-w-[150px] flex-shrink items-center gap-1.5 border-r border-border pl-2.5 pr-1.5 text-2xs",
             active
               ? "bg-background text-foreground"
               : "text-muted-foreground hover:bg-card",
@@ -301,7 +307,7 @@ function PreviewTabOverflowMenu({
               </span>
               <span
                 dir="rtl"
-                className="min-w-0 flex-1 truncate text-left font-mono text-[10px] text-muted-foreground"
+                className="min-w-0 flex-1 truncate text-left font-mono text-3xs text-muted-foreground"
               >
                 {tab.path}
               </span>

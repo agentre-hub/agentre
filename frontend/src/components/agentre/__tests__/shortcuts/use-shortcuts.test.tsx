@@ -3,6 +3,9 @@ import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SIDEBAR_AXIS_KEY } from "@/lib/sidebar-axis-state";
+import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
+
 import type { DesktopPlatform } from "../../chrome";
 
 import {
@@ -117,10 +120,17 @@ describe("ShortcutsProvider chord dispatch — darwin", () => {
     release("Meta");
   });
 
-  it("dispatches ⌘D to projects", () => {
-    renderHarness({ platform: "darwin", initialPath: "/chat" });
+  it("Given the index is grouped by time, When ⌘D is pressed, Then it lands on the index and switches to the project axis", () => {
+    // 合并之后「项目」不再是一个页面，而是索引的一个分组维度。⌘D 跟着改口径：
+    // 落到索引并切到项目轴（并持久化，跟点 AxisPicker 一样）。
+    useSidebarAxisStore.getState().setAxis("time");
+    renderHarness({ platform: "darwin", initialPath: "/settings" });
+
     press("d", { metaKey: true });
-    expect(screen.getByTestId("loc").textContent).toBe("/projects");
+
+    expect(screen.getByTestId("loc").textContent).toBe("/chat");
+    expect(useSidebarAxisStore.getState().axis).toBe("project");
+    expect(localStorage.getItem(SIDEBAR_AXIS_KEY)).toBe("project");
     release("Meta");
   });
 
@@ -267,10 +277,14 @@ describe("ShortcutsProvider chord dispatch — linux uses Ctrl", () => {
     release("Meta");
   });
 
-  it("dispatches Ctrl+D to projects on linux", () => {
-    renderHarness({ platform: "linux", initialPath: "/chat" });
+  it("dispatches Ctrl+D to the project axis on linux", () => {
+    useSidebarAxisStore.getState().setAxis("agent");
+    renderHarness({ platform: "linux", initialPath: "/settings" });
+
     press("d", { ctrlKey: true });
-    expect(screen.getByTestId("loc").textContent).toBe("/projects");
+
+    expect(screen.getByTestId("loc").textContent).toBe("/chat");
+    expect(useSidebarAxisStore.getState().axis).toBe("project");
     release("Control");
   });
 });

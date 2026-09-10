@@ -26,53 +26,53 @@ import { SyncPanel } from "../sync-panel";
 const NOW = 1_700_000_000_000;
 
 const IDLE_STATUS = {
-  Enabled: true,
-  AccountID: 1,
-  Cursor: 42,
-  LastSuccessAt: NOW - 2 * 60_000,
-  PendingCount: 0,
-  DeferredCount: 0,
-  LostChangeCount: 0,
-  LastError: "",
+  enabled: true,
+  accountID: 1,
+  cursor: 42,
+  lastSuccessAt: NOW - 2 * 60_000,
+  pendingCount: 0,
+  deferredCount: 0,
+  lostChangeCount: 0,
+  lastError: "",
 };
 
 function overwrittenRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    ID: 1,
-    EntityType: "project",
-    EntitySyncID: "sync-project-1",
-    Reason: "overwritten",
-    PayloadJSON: JSON.stringify({ name: "agentre-server" }),
-    OriginDevice: "Work Mac mini",
-    BaseVersion: 3,
-    OccurredAt: NOW - 60_000,
+    id: 1,
+    entityType: "project",
+    entitySyncID: "sync-project-1",
+    reason: "overwritten",
+    payloadJSON: JSON.stringify({ name: "agentre-server" }),
+    originDevice: "Work Mac mini",
+    baseVersion: 3,
+    occurredAt: NOW - 60_000,
     ...overrides,
   };
 }
 
 function discardedRow() {
   return {
-    ID: 2,
-    EntityType: "project_location",
-    EntitySyncID: "sync-loc-1",
-    Reason: "discarded",
-    PayloadJSON: JSON.stringify({ path: "/home/dev/agentre-hub" }),
-    OriginDevice: "",
-    BaseVersion: 0,
-    OccurredAt: NOW - 3 * 60_000,
+    id: 2,
+    entityType: "project_location",
+    entitySyncID: "sync-loc-1",
+    reason: "discarded",
+    payloadJSON: JSON.stringify({ path: "/home/dev/agentre-hub" }),
+    originDevice: "",
+    baseVersion: 0,
+    occurredAt: NOW - 3 * 60_000,
   };
 }
 
 function rejectedRow() {
   return {
-    ID: 3,
-    EntityType: "project",
-    EntitySyncID: "sync-project-2",
-    Reason: "rejected",
-    PayloadJSON: JSON.stringify({ name: "agentre-hub" }),
-    OriginDevice: "",
-    BaseVersion: 5,
-    OccurredAt: NOW - 5 * 60_000,
+    id: 3,
+    entityType: "project",
+    entitySyncID: "sync-project-2",
+    reason: "rejected",
+    payloadJSON: JSON.stringify({ name: "agentre-hub" }),
+    originDevice: "",
+    baseVersion: 5,
+    occurredAt: NOW - 5 * 60_000,
   };
 }
 
@@ -99,8 +99,8 @@ describe("SyncPanel", () => {
     it("shows a pending-count badge and suppresses the redundant pending row while changes are queued", async () => {
       appMocks.SyncStatus.mockResolvedValue({
         ...IDLE_STATUS,
-        PendingCount: 3,
-        LastSuccessAt: NOW - 14 * 60_000,
+        pendingCount: 3,
+        lastSuccessAt: NOW - 14 * 60_000,
       });
       render(<SyncPanel />);
 
@@ -113,7 +113,7 @@ describe("SyncPanel", () => {
       const user = userEvent.setup();
       appMocks.SyncStatus.mockResolvedValueOnce({
         ...IDLE_STATUS,
-        LastError: "server: unreachable",
+        lastError: "server: unreachable",
       });
       appMocks.SyncNow.mockResolvedValueOnce(undefined);
       appMocks.SyncStatus.mockResolvedValueOnce(IDLE_STATUS);
@@ -146,7 +146,7 @@ describe("SyncPanel", () => {
     it("lists all three loss reasons with their origin device where applicable", async () => {
       appMocks.SyncStatus.mockResolvedValue({
         ...IDLE_STATUS,
-        LostChangeCount: 3,
+        lostChangeCount: 3,
       });
       appMocks.SyncListLostChanges.mockResolvedValue([
         overwrittenRow(),
@@ -182,7 +182,7 @@ describe("SyncPanel", () => {
       const user = userEvent.setup();
       appMocks.SyncStatus.mockResolvedValue({
         ...IDLE_STATUS,
-        LostChangeCount: 1,
+        lostChangeCount: 1,
       });
       appMocks.SyncListLostChanges.mockResolvedValue([overwrittenRow()]);
       render(<SyncPanel />);
@@ -207,7 +207,7 @@ describe("SyncPanel", () => {
       const user = userEvent.setup();
       appMocks.SyncStatus.mockResolvedValue({
         ...IDLE_STATUS,
-        LostChangeCount: 1,
+        lostChangeCount: 1,
       });
       appMocks.SyncListLostChanges.mockResolvedValueOnce([overwrittenRow()]);
       appMocks.SyncListLostChanges.mockResolvedValueOnce([]);
@@ -235,7 +235,7 @@ describe("SyncPanel", () => {
       const user = userEvent.setup();
       appMocks.SyncStatus.mockResolvedValue({
         ...IDLE_STATUS,
-        LostChangeCount: 1,
+        lostChangeCount: 1,
       });
       appMocks.SyncListLostChanges.mockResolvedValue([overwrittenRow()]);
       appMocks.SyncRestoreLostChange.mockResolvedValueOnce({
@@ -271,7 +271,7 @@ describe("SyncPanel", () => {
       const user = userEvent.setup();
       appMocks.SyncStatus.mockResolvedValue({
         ...IDLE_STATUS,
-        LostChangeCount: 1,
+        lostChangeCount: 1,
       });
       appMocks.SyncListLostChanges.mockResolvedValueOnce([overwrittenRow()]);
       appMocks.SyncListLostChanges.mockResolvedValueOnce([overwrittenRow()]);
@@ -304,7 +304,7 @@ describe("SyncPanel", () => {
       const user = userEvent.setup();
       appMocks.SyncStatus.mockResolvedValue({
         ...IDLE_STATUS,
-        LostChangeCount: 1,
+        lostChangeCount: 1,
       });
       appMocks.SyncListLostChanges.mockResolvedValueOnce([overwrittenRow()]);
       appMocks.SyncListLostChanges.mockResolvedValueOnce([overwrittenRow()]);

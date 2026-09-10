@@ -89,8 +89,8 @@ func TestRun_HookPostToolNoEnv_EmitsNoop(t *testing.T) {
 func TestRun_HookUnknownEvent(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	code := run([]string{"hook", "bogus"}, strings.NewReader(""), &out, &errBuf, envStub(map[string]string{
-		"ANTHROPIC_BASE_URL":   "http://x",
-		"ANTHROPIC_AUTH_TOKEN": "tok",
+		"AGENTRE_GATEWAY_URL":   "http://x",
+		"AGENTRE_GATEWAY_TOKEN": "tok",
 	}))
 	if code != 2 {
 		t.Fatalf("exit=%d", code)
@@ -115,21 +115,15 @@ func TestRun_HookPostTool_PrefersAgentreGatewayEnv(t *testing.T) {
 	}
 }
 
-// TestRun_HookPostTool_FallsBackToAnthropicEnv 兼容路径：
-//   - 老 agentre 二进制写的 settings.json 还在用 ANTHROPIC_*；
-//   - 用户拷贝 launch-command 出来手动跑，且 backend 绑了 LLM provider。
-//
-// 这两种情形 ANTHROPIC_BASE_URL+ANTHROPIC_AUTH_TOKEN 是设了的，hook 应该
-// 退化到它们而不是 noop。
-func TestRun_HookPostTool_FallsBackToAnthropicEnv(t *testing.T) {
-	gotAuth, out := runPostToolHook(t, "sid-2", []string{"legacy-msg"}, map[string]string{
-		"ANTHROPIC_BASE_URL":   "",
+func TestRun_HookPostTool_AnthropicEnvDoesNotActivateHook(t *testing.T) {
+	gotAuth, out := runPostToolHook(t, "sid-legacy", []string{"legacy-msg"}, map[string]string{
+		"ANTHROPIC_BASE_URL":   "http://legacy",
 		"ANTHROPIC_AUTH_TOKEN": "legacy-tok",
 	})
-	if gotAuth != "Bearer legacy-tok" {
-		t.Fatalf("hook fallback should use ANTHROPIC_AUTH_TOKEN, got auth=%q", gotAuth)
+	if gotAuth != "" {
+		t.Fatalf("hook should not use legacy ANTHROPIC auth, got %q", gotAuth)
 	}
-	if !strings.Contains(out, "legacy-msg") {
-		t.Fatalf("hook fallback should inject inbox messages, got: %s", out)
+	if strings.Contains(out, "legacy-msg") {
+		t.Fatalf("hook should noop with legacy env only, got: %s", out)
 	}
 }

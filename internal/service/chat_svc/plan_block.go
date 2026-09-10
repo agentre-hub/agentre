@@ -9,8 +9,8 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 
-	"github.com/agentre-ai/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-ai/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
 type PlanBlock struct {
@@ -50,7 +50,7 @@ func planBlockToChatBlock(b PlanBlock) ChatBlock {
 		}
 	}
 	return ChatBlock{
-		Type:      "plan",
+		Type:      ChatBlockTypePlan,
 		Text:      text,
 		Canonical: view.FromCanonical(cu),
 	}

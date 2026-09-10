@@ -3,8 +3,8 @@ package remote_device_watcher_svc
 import (
 	"context"
 
-	"github.com/agentre-ai/agentre/internal/daemon/client"
-	"github.com/agentre-ai/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 )
 
 //go:generate mockgen -source ports.go -destination mock_remote_device_watcher_svc/mock_ports.go
@@ -12,7 +12,7 @@ import (
 // DaemonDialPort 与 remote_device_svc.DaemonDialPort 同语义,watcher_svc 单独声明
 // 以走自己的 consumer-side interface(避免反向依赖)。生产实现是同一份。
 type DaemonDialPort interface {
-	Open(ctx context.Context, args OpenArgs) (*client.Client, error)
+	Open(ctx context.Context, args OpenArgs) (client.ProtobufConnection, error)
 }
 
 // OpenArgs 复用 remote_device_svc 的 ConnectArgs 字段集。watcher 单独命名是为了
@@ -87,4 +87,7 @@ type ProviderRecorder interface {
 	// RecordDeviceCapabilities 记下 daemon 公布的 llm-model-target-v1 能力位（决策 11），
 	// 桌面端据此决定是否允许选择远端 fixed-model。
 	RecordDeviceCapabilities(deviceID int64, caps []string)
+	// RecordDeviceBuild 记下 daemon 自报的版本号与短 commit（决策 4），设备行据此
+	// 显示真版本、判定要不要出「可升级」弱徽标。commit 为空串 = 非发布构建（决策 5）。
+	RecordDeviceBuild(deviceID int64, version, commit string)
 }

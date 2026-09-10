@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-ai/agentre/internal/pkg/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 )
 
 // runGit 在 dir 下执行 git args。测试 helper,失败直接 t.Fatal。

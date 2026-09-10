@@ -9,5 +9,9 @@
   "author": {
     "name": "王一之",
     "email": "yz@ggnb.top"
+  },
+  "info": {
+    "productName": "Agentre",
+    "productVersion": "0.1.0"
   }
 }
