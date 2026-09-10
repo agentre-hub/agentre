@@ -173,7 +173,7 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 		if e = legacy.Call(ctx, wire.MethodRun, p, &out); e != nil {
 			return nil, e
 		}
-		return &agentrewire.RuntimeRunResponse{ConversationId: out.ConversationID, ProviderSessionId: out.ProviderSessionID, LaunchPermissionMode: out.LaunchPermissionMode, ProviderFallbackKey: out.ProviderFallbackKey}, nil
+		return &agentrewire.RuntimeRunResponse{ConversationId: out.ConversationID, ProviderSessionId: out.ProviderSessionID, LaunchPermissionMode: out.LaunchPermissionMode, ProviderFallbackKey: out.ProviderFallbackKey, UserMessageSeq: out.UserMessageSeq}, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES), func() *agentrewire.RuntimeCapabilitiesRequest { return &agentrewire.RuntimeCapabilitiesRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeCapabilitiesRequest) (*agentrewire.RuntimeCapabilitiesResponse, error) {
 		var out wire.CapabilitiesResult

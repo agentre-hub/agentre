@@ -2047,6 +2047,7 @@ func (s *chatSvc) startTurn(
 		UserMessageID:      ts.userMsg.ID,
 		AssistantMessageID: ts.assistantMsg.ID,
 		Stream:             stream,
+		UserMessageSeq:     ts.userMessageSeq,
 	}, nil
 }
 

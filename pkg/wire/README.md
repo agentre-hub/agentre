@@ -3,6 +3,10 @@
 这个目录是 **agentre ↔ agentred 协议在 Go 这一侧的唯一主人**。桌面端、agentred 与
 `agentre-server` 都消费它,谁都不再自己抄一份。
 
+> 同一个仓库里还有一个共享 module:`pkg/syncwire`,那是桌面端 ↔ server 工作区同步的
+> HTTP/JSON 契约。**两条协议,两个 module** —— 这条是 agentre ↔ agentred 的 Protobuf
+> RPC,那条连 protobuf 都不需要,分开才不会互相拖着依赖与版本节奏走。
+
 ## 为什么它是一个独立 module
 
 `agentre-server` 是一个独立后端,**不允许**依赖桌面应用的 Go module

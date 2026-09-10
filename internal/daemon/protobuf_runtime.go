@@ -89,7 +89,7 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
 		}
-		return &agentrewire.RuntimeRunResponse{ConversationId: result.ConversationID, ProviderSessionId: result.ProviderSessionID, LaunchPermissionMode: result.LaunchPermissionMode, ProviderFallbackKey: result.ProviderFallbackKey}, nil
+		return &agentrewire.RuntimeRunResponse{ConversationId: result.ConversationID, ProviderSessionId: result.ProviderSessionID, LaunchPermissionMode: result.LaunchPermissionMode, ProviderFallbackKey: result.ProviderFallbackKey, UserMessageSeq: result.UserMessageSeq}, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.Empty, error) {
 		if err := guard(ctx); err != nil {

@@ -277,12 +277,21 @@ func registerPeerSessionMethods(registry *protorpc.Registry, deps ProtobufInboun
 		if deps.RunSession == nil {
 			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "run unavailable"}
 		}
-		if _, err := deps.RunSession(ctx, p, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint, Name: p.SourceDeviceName}); err != nil {
+		sent, err := deps.RunSession(ctx, p, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint, Name: p.SourceDeviceName})
+		if err != nil {
 			return nil, protobufPeerError(err)
 		}
 		// 交回调用方送来的那条对话身份:本机可能是**新建**了一行来承载它(R17),
 		// 但对话的身份仍是发起端铸的那一个 —— daemon / 桌面端都从不发号。
-		return &agentrewire.RuntimeRunResponse{ConversationId: p.ConversationID}, nil
+		//
+		// UserMessageSeq 则是本机作为宿主发的号:这一轮用户消息的最高持久帧号,
+		// 发起方据它把游标推进到「我已经持有的内容」(spec 2026-09-07 决策 1/4)。
+		// 服务没交回响应时留 0 —— 发起方据此不推进游标。
+		out := &agentrewire.RuntimeRunResponse{ConversationId: p.ConversationID}
+		if sent != nil {
+			out.UserMessageSeq = sent.UserMessageSeq
+		}
+		return out, nil
 	}))
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.Empty, error) {
 		if deps.SteerSession == nil {

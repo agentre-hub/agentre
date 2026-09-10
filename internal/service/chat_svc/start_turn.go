@@ -41,6 +41,11 @@ type turnStart struct {
 	lock         *trylockMutex
 	userMsg      *chat_entity.Message
 	assistantMsg *chat_entity.Message
+	// userMessageSeq 是用户那一行在 emitTurnStarted 里取到的最高持久帧号。它随
+	// SendResponse 交回发起方:对端经 runtime.run 派发进来时,发起方据它把游标推进到
+	// 「我已经持有的内容」(spec 2026-09-07 决策 1)。本机自己发消息时没有对端要对齐,
+	// 这一格照样有值但没人读。
+	userMessageSeq int64
 
 	prepared                *preparedTurnRun
 	turnCtx                 context.Context
@@ -259,7 +264,7 @@ func (ts *turnStart) emitTurnStarted(ctx context.Context, stream string) {
 	// 用户消息此刻已落库,它的持久帧在这里取号 —— 必须赶在本轮 assistant 的任何一帧
 	// 之前,否则下一次 attach 时它是唯一没编号的那一条,惰性补齐会把它排到整段回答
 	// 之后(编号顺序就是补齐的重放顺序)。
-	ts.svc.publishPeerMessageFrames(ctx, ts.sess.ID, ts.userMsg, true)
+	ts.userMessageSeq = ts.svc.publishPeerMessageFrames(ctx, ts.sess.ID, ts.userMsg, true)
 	// 非查看者发起的轮(群成员轮经 scheduler dispatch):per-turn 流名只有发起者能从
 	// Send 响应拿到,该会话已打开(可能在后台)的 ChatPanel 拿不到 → 不接流、不翻 running。
 	// 复用 autonomous 会话级旁路把流名 + 新 assistant 行推给它,让它走与自主轮相同的

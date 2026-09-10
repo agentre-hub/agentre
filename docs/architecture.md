@@ -29,7 +29,9 @@ pkg/                           (externally reusable packages: agentred, claudeco
                                 subpackage map, the dependency direction and the "add an RPC method" checklist:
                                 wire/agentrewire generated messages, wire/protorpc the RPC engine, wire/wirecall
                                 the one place method IDs pair with message types, wire/relayenvelope the relay
-                                channel envelope, wire/wirelimits the payload budget, wire/rpcerror the error shape)
+                                channel envelope, wire/wirelimits the payload budget, wire/rpcerror the error shape.
+                                pkg/syncwire is a second shared module — the desktop <-> server workspace-sync
+                                HTTP/JSON contract; two protocols, two modules)
 frontend/                      (React 19 + TS + Vite + Tailwind; wailsjs/ is wails-generated, gitignored)
   packages/agentre-ui/         (@agentre-hub/agentre-ui —— the shared frontend layer, also consumed by agentre-server;
                                 design tokens + transcript renderer + data contract. See below and frontend.md)

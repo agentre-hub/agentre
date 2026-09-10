@@ -334,3 +334,42 @@ func TestProtobufInboundRegistry_GivenAVerifierThatRejects_ThenRefusesTheHandsha
 	require.False(t, server.Auth().Authenticated)
 	require.Empty(t, server.Auth().DeviceFingerprint)
 }
+
+// TestProtobufInbound_Run_GivenHostNumberedTheUserMessage_ThenResponseCarriesItsHighestFrameSeq
+// —— 桌面端做宿主时也要把「这一轮用户消息的最高持久帧号」交回发起方,发起方据它把
+// 游标推进到「我已经持有的内容」(spec 2026-09-07 决策 1、决策 4 的两宿主对称)。
+// 宿主没给号(拒绝该轮 / 落库前失败)时这一格保持 0,发起方据此不推进游标。
+func TestProtobufInbound_Run_GivenHostNumberedTheUserMessage_ThenResponseCarriesItsHighestFrameSeq(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		resp *chat_svc.SendResponse
+		want int64
+	}{
+		{name: "宿主给了号", resp: &chat_svc.SendResponse{SessionID: 42, UserMessageSeq: 7}, want: 7},
+		{name: "宿主没给号", resp: &chat_svc.SendResponse{SessionID: 42}, want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			deps := ProtobufInboundDeps{
+				RunSession: func(_ context.Context, _ remotewire.RunParams, _ chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
+					return tc.resp, nil
+				},
+			}
+			registry := NewProtobufInboundRegistry(deps)
+			clientTransport, serverTransport := peerProtoPipePair()
+			client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+			server := protorpc.NewConn(serverTransport, registry)
+			server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go client.Serve(ctx)
+			go server.Serve(ctx)
+
+			run, err := protorpc.CallMethod(ctx, client,
+				uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN),
+				&agentrewire.RuntimeRunRequest{ConversationId: convID(99), UserText: "go"},
+				func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+			require.NoError(t, err)
+			require.Equal(t, tc.want, run.UserMessageSeq)
+		})
+	}
+}

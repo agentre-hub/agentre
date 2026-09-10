@@ -726,6 +726,12 @@ message RuntimeRunResponse {
   string provider_session_id = 2;
   string launch_permission_mode = 3;
   string provider_fallback_key = 4;
+  // 本轮用户消息的**最高持久帧号**。发起方据它把游标推进到「我已经持有的内容」,
+  // 补齐于是不会再把这条它自己写下的用户消息交回来(spec 2026-09-07 决策 1)。
+  // 一条用户消息可能不止一个块,所以约定是最高的那个号,不是第一个。
+  // 0 = 宿主没给(拒绝该轮、落库前失败,或对端是不认这一格的旧构建)——
+  // 发起方此时不推进游标。
+  int64 user_message_seq = 5;
 }
 
 message RuntimeGoalRequest {

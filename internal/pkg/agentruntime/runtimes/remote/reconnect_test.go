@@ -1544,3 +1544,63 @@ func TestNotify_TurnStarted_CountsTowardTheSeqGate(t *testing.T) {
 	assert.Equal(t, []string{"第一句"}, drainTexts(t, rig.events, time.Second))
 	assert.Empty(t, rig.conn1.methodCalls(wire.MethodSessionPull), "开始通知被算进游标就不该起补齐")
 }
+
+// 发起方派发一轮时,宿主在应答里回该轮用户消息的最高持久帧号。发起方据它把游标推进到
+// 「我已经持有的内容」—— 那条用户消息是它自己写下的,补齐不必也不该再交回来
+// (spec 2026-09-07 决策 1)。
+//
+// 推进有闸门,与 skipSeq 同一条:**只有号正好是游标 + 1 才推进**。落后的消费方
+// (重连后补齐还没跑完就发了新一轮)若无条件跳到那个号,中间那几帧就被永久跳过 ——
+// 那是硬不变量 1 的「漏」,比「重」更糟。闸门不成立时游标不动,行为退回本轮之前。
+func TestRun_GivenAckCarriesUserMessageSeq_ThenCursorAdvancesOnlyWhenItIsTheVeryNextFrame(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		loaded     int64
+		ackSeq     int64
+		wantSaved  []int64
+		wantReason string
+	}{
+		{name: "正好是游标+1:推进并落库", loaded: 4, ackSeq: 5, wantSaved: []int64{5}},
+		{name: "宿主没给号:不推进", loaded: 4, ackSeq: 0, wantSaved: nil,
+			wantReason: "拿不到号时不得推进到一个自己并不持有的位置"},
+		{name: "号之前有洞:不推进", loaded: 4, ackSeq: 7, wantSaved: nil,
+			wantReason: "跳过 5、6 会让它们永远补不回来 —— 不变量 1 的「漏」"},
+		{name: "号不高于游标:不推进", loaded: 9, ackSeq: 5, wantSaved: nil,
+			wantReason: "游标只前进"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := newFakeConn()
+			cursor := &fakeCursorPort{}
+			cursor.setLoad(func(int64, string) (int64, bool, error) { return tc.loaded, true, nil })
+			ackSeq := tc.ackSeq
+			conn.script(func(method string, _, result any) error {
+				if method == wire.MethodRun {
+					*(result.(*wire.RunAck)) = wire.RunAck{
+						ConversationID: convOf(rigSessionID),
+						UserMessageSeq: ackSeq,
+					}
+				}
+				return nil
+			})
+			rt := New(conn,
+				WithConversationIDResolver(convOf),
+				WithDaemonFingerprint(rigFingerprint),
+				WithSessionCursor(cursor),
+				WithCursorFlushInterval(0),
+			)
+			t.Cleanup(func() { _ = rt.Close() })
+
+			_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
+				Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "x"},
+				SessionID: rigSessionID,
+				UserText:  "hi",
+			})
+			require.NoError(t, err)
+			if len(tc.wantSaved) == 0 {
+				assert.Empty(t, cursor.savedSeqs(), tc.wantReason)
+				return
+			}
+			assert.Equal(t, tc.wantSaved, cursor.savedSeqs(), tc.wantReason)
+		})
+	}
+}

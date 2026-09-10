@@ -15,8 +15,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // remote.go 是「问另一台机器」的那一半:把已配对 daemon 上的同一份磁盘读取器包成
@@ -54,9 +54,7 @@ var remoteGateway transcriptGateway = deviceGateway{}
 type deviceGateway struct{}
 
 func (deviceGateway) Scan(ctx context.Context, deviceID int64, params wire.ScanParams) (*wire.ScanResult, error) {
-	resp, err := callDevice(ctx, deviceID, agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_SCAN,
-		protowire.TranscriptScanParamsToProto(params),
-		func() *agentrewire.TranscriptImportScanResponse { return &agentrewire.TranscriptImportScanResponse{} })
+	resp, err := callDevice(ctx, deviceID, wirecall.TranscriptImportScan, protowire.TranscriptScanParamsToProto(params))
 	if err != nil {
 		return nil, err
 	}
@@ -65,9 +63,7 @@ func (deviceGateway) Scan(ctx context.Context, deviceID int64, params wire.ScanP
 }
 
 func (deviceGateway) Open(ctx context.Context, deviceID int64, params wire.OpenParams) (*wire.OpenResult, error) {
-	resp, err := callDevice(ctx, deviceID, agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_OPEN,
-		protowire.TranscriptOpenParamsToProto(params),
-		func() *agentrewire.TranscriptImportOpenResponse { return &agentrewire.TranscriptImportOpenResponse{} })
+	resp, err := callDevice(ctx, deviceID, wirecall.TranscriptImportOpen, protowire.TranscriptOpenParamsToProto(params))
 	if err != nil {
 		return nil, err
 	}
@@ -76,9 +72,7 @@ func (deviceGateway) Open(ctx context.Context, deviceID int64, params wire.OpenP
 }
 
 func (deviceGateway) Turns(ctx context.Context, deviceID int64, params wire.TurnsParams) (*wire.TurnsResult, error) {
-	resp, err := callDevice(ctx, deviceID, agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_TURNS,
-		protowire.TranscriptTurnsParamsToProto(params),
-		func() *agentrewire.TranscriptImportTurnsResponse { return &agentrewire.TranscriptImportTurnsResponse{} })
+	resp, err := callDevice(ctx, deviceID, wirecall.TranscriptImportTurns, protowire.TranscriptTurnsParamsToProto(params))
 	if err != nil {
 		return nil, err
 	}
@@ -90,18 +84,24 @@ func (deviceGateway) Turns(ctx context.Context, deviceID int64, params wire.Turn
 }
 
 // callDevice 跑一次远端往返。租约在返回前释放,调用方不持有它。
+//
+// method 收的是 wirecall 里那个方法的**函数本身**,不是方法号加一个应答构造器 ——
+// 「方法号 ↔ 消息类型」的配对因此一次都不在这里出现,它在 pkg/wire/wirecall 里。
+// 代价是租不到时那条 Warn 报不出方法号了:换成请求消息的全名,对着日志找调用点一样够用。
 func callDevice[Req proto.Message, Resp proto.Message](
-	ctx context.Context, deviceID int64, method agentrewire.RpcMethod, req Req, newResponse func() Resp,
+	ctx context.Context, deviceID int64,
+	method func(context.Context, wirecall.Caller, Req) (Resp, error), req Req,
 ) (Resp, error) {
 	var zero Resp
 	lease, err := remote_device_svc.Default().Pool().Borrow(ctx, deviceID)
 	if err != nil {
 		logger.Ctx(ctx).Warn("chat_import_svc.callDevice: borrow lease failed",
-			zap.Int64("deviceId", deviceID), zap.Uint32("methodId", uint32(method)), zap.Error(err))
+			zap.Int64("deviceId", deviceID),
+			zap.String("request", string(req.ProtoReflect().Descriptor().FullName())), zap.Error(err))
 		return zero, fmt.Errorf("%w: %s", errDeviceOffline, err.Error())
 	}
 	defer lease.Release()
-	resp, cerr := protorpc.CallMethod(ctx, lease.Client().Conn(), uint32(method), req, newResponse)
+	resp, cerr := method(ctx, lease.Client(), req)
 	if cerr != nil {
 		return zero, cerr
 	}

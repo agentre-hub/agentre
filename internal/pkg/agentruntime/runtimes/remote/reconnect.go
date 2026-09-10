@@ -445,6 +445,36 @@ func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 	}
 }
 
+// adoptDispatchedUserMessageSeq 把游标推进到宿主为**本端刚派发的那条用户消息**分配的
+// 持久帧号。那条内容是本端自己写下的,补齐不必也不该再交回来 —— 游标的含义从此是
+// 「我已经持有的内容」,而不是「宿主发过什么」(spec 2026-09-07 决策 1)。
+//
+// 闸门与 skipSeq 同一条:**只有号正好是游标 + 1 才推进**。一个落后的消费方(重连后
+// 补齐还没跑完就发了新一轮)若无条件跳到那个号,中间那几帧就被永久跳过 —— 那是硬
+// 不变量 1 的「漏」,比「重」更糟。闸门不成立时游标不动,那个场景下的行为退回本轮之前。
+//
+// seq 为 0 同样不推进:宿主拒绝了该轮、在落库前失败,或对端是不认这一格的旧构建。
+func (r *Runtime) adoptDispatchedUserMessageSeq(ctx context.Context, sid, seq int64) {
+	if seq <= 0 || r.cursor() == nil {
+		return
+	}
+	ss := r.syncFor(ctx, sid)
+	ss.mu.Lock()
+	if seq != ss.cursor+1 {
+		cursor := ss.cursor
+		ss.mu.Unlock()
+		logger.Ctx(ctx).Debug("remote.Runtime.adoptDispatchedUserMessageSeq: not the very next frame; cursor left alone",
+			zap.Int64("sessionId", sid), zap.Int64("cursor", cursor), zap.Int64("userMessageSeq", seq))
+		return
+	}
+	ss.cursor = seq
+	r.recordCursor(sid, seq)
+	ss.mu.Unlock()
+	if r.cursorFlush <= 0 { // 同步落库模式(测试用)
+		r.flushCursors()
+	}
+}
+
 // stampSeq 按 method 把日志载荷解成对应的帧、盖上 seq、再重新序列化。
 // frameRoute 读出一条通知帧的路由信息:会话、序号,以及它属于哪一级(预览 / 持久)。
 // 四类帧都带会话与序号,但它们是各自独立的结构体、没有公共接口 —— 按 ISP 在消费方

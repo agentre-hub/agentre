@@ -52,9 +52,14 @@ func (discardEmitter) Emit(context.Context, string, any) {}
 //
 // userText 为空(自主续轮)时不落用户行 —— 那一轮不是任何人发起的,凭空造一句会在
 // 转录里印出一条没人说过的话。
-func (h *RuntimeHandlers) beginTranscript(em *sessionEmitter, userText string) *turnTranscript {
+//
+// 第二个返回值是**用户那一行的最高持久帧号**(没有用户行 / 取号失败时为 0)。
+// Run 把它放进应答交给发起方,发起方据此把游标推进到「我已经持有的内容」——
+// 补齐于是不再重放它自己写下的那条用户消息(spec 2026-09-07 决策 1)。
+// 正因为这个号要随应答走,本函数必须在 Run 的**同步段**跑完,不能留在 fanout 协程里。
+func (h *RuntimeHandlers) beginTranscript(em *sessionEmitter, userText string) (*turnTranscript, int64) {
 	if h.deps.Transcript == nil {
-		return nil
+		return nil, 0
 	}
 	user, msg, err := h.deps.Transcript.StartTurn(em.ctx, em.conversationID, userText)
 	if err != nil {
@@ -62,10 +67,10 @@ func (h *RuntimeHandlers) beginTranscript(em *sessionEmitter, userText string) *
 			zap.String("conversationId", em.conversationID),
 			zap.String("peerFingerprint", em.peer),
 			zap.Error(err))
-		return nil
+		return nil, 0
 	}
 	if msg == nil {
-		return nil
+		return nil, 0
 	}
 	t := &turnTranscript{
 		port:       h.deps.Transcript,
@@ -84,8 +89,7 @@ func (h *RuntimeHandlers) beginTranscript(em *sessionEmitter, userText string) *
 	// 用户那一行起手就定稿了:它现在就该以持久帧的身份出去,取到的号排在这一轮的
 	// 最前面。晚发(等到补齐才编号)会让它排到这一轮的正文之后 —— 对端的转录里
 	// 提问跑到回答后面去。
-	t.publishDurable(em.ctx, user, true)
-	return t
+	return t, t.publishDurable(em.ctx, user, true)
 }
 
 // publishDurable 把 msg 此刻可以定稿的持久帧取号发出去。
@@ -97,19 +101,22 @@ func (h *RuntimeHandlers) beginTranscript(em *sessionEmitter, userText string) *
 // 取号与发布不可分:号从台账里取(一次事务),取到了才发 —— 取号失败就不发,否则对端
 // 会持有一个宿主认不回来的号(规格「帧编号」)。桌面端做宿主时走的是同一条路
 // (chat_svc.publishPeerMessageFrames)。
-func (t *turnTranscript) publishDurable(ctx context.Context, msg *transcript_entity.Message, final bool) {
+//
+// 返回这一发里取到的**最高号**,没发出任何帧时为 0。开轮那一发的返回值随应答交给
+// 发起方(见 beginTranscript);轮内与收口那两发的调用方不需要它。
+func (t *turnTranscript) publishDurable(ctx context.Context, msg *transcript_entity.Message, final bool) int64 {
 	if t == nil || msg == nil || t.publish == nil {
-		return
+		return 0
 	}
 	keyed, err := transcript.ProjectKeyedMessage(t.conversationID, msg)
 	if err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.publishDurable: project failed",
 			zap.Int64("messageId", msg.ID), zap.Error(err))
-		return
+		return 0
 	}
 	pending := t.publisher.Pending(keyed, final)
 	if len(pending) == 0 {
-		return
+		return 0
 	}
 	keys := make([]transcript.FrameKey, 0, len(pending))
 	for _, frame := range pending {
@@ -119,13 +126,16 @@ func (t *turnTranscript) publishDurable(ctx context.Context, msg *transcript_ent
 	if err != nil || len(seqs) != len(pending) {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.publishDurable: allocate failed; frames withheld",
 			zap.Int64("messageId", msg.ID), zap.Error(err))
-		return
+		return 0
 	}
+	var highest int64
 	for index := range pending {
 		pending[index].Frame.Seq = seqs[index]
+		highest = max(highest, seqs[index])
 		t.publish(pending[index].Frame)
 	}
 	t.publisher.Commit(pending)
+	return highest
 }
 
 // observe 把一条事件累积进本轮的块,并在定稿时刻 checkpoint 一次。

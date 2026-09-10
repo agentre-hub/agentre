@@ -333,7 +333,7 @@ func (r *Runtime) callRun(ctx context.Context, params wire.RunParams) (wire.RunA
 	if err != nil {
 		return wire.RunAck{}, fromProtobufError(err)
 	}
-	return wire.RunAck{ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey()}, nil
+	return wire.RunAck{ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey(), UserMessageSeq: response.GetUserMessageSeq()}, nil
 }
 
 // Capabilities 返回最近一次 Prefetch 的结果(任意 backendType 第一个命中的);
@@ -526,6 +526,8 @@ func (p *remotePreparedRun) Start(ctx context.Context) (<-chan agentruntime.Even
 	p.session.result.LaunchPermissionMode = ack.LaunchPermissionMode
 	p.session.result.ProviderFallbackKey = ack.ProviderFallbackKey
 	p.session.mu.Unlock()
+	// 与非 Pi 那一路同一条:开轮这一发才落用户行、才有号(准备那一发没有)。
+	p.runtime.adoptDispatchedUserMessageSeq(ctx, p.session.id, ack.UserMessageSeq)
 	logger.Ctx(ctx).Info("remote.Runtime: Pi generation started",
 		zap.Int64("sessionId", p.session.id), zap.String("conversationId", ack.ConversationID),
 		zap.String("providerSessionId", ack.ProviderSessionID))
@@ -597,6 +599,10 @@ func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<
 		}
 		r.mu.Unlock()
 	}
+	// 宿主为这一轮的用户消息分配的持久帧号:把游标推进到「我已经持有的内容」,
+	// 补齐从此不再把这条本端自己写下的用户消息交回来(spec 2026-09-07 决策 1)。
+	// 必须用翻译过的 ackSid —— 游标是按本地会话键存的。
+	r.adoptDispatchedUserMessageSeq(ctx, ackSid, ack.UserMessageSeq)
 	logger.Ctx(ctx).Info("remote.Runtime: session started",
 		zap.Int64("sessionId", ackSid), zap.String("conversationId", ack.ConversationID),
 		zap.String("backend", req.Backend.Type))
@@ -957,17 +963,16 @@ func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID, text str
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	return r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), wire.MethodSteer,
-		&agentrewire.RuntimeSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID, Text: text}, &agentrewire.Empty{})
+	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeSteer, wire.MethodSteer, &agentrewire.RuntimeSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID, Text: text})
+	return err
 }
 
 func (r *Runtime) CancelSteer(ctx context.Context, sessionID int64, queuedID string) ([]string, error) {
 	if !r.hasSession(sessionID) {
 		return nil, agentruntime.ErrNoActiveTurn
 	}
-	res := &agentrewire.RuntimeCancelSteerResponse{}
-	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), wire.MethodCancelSteer,
-		&agentrewire.RuntimeCancelSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID}, res); err != nil {
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeCancelSteer, wire.MethodCancelSteer, &agentrewire.RuntimeCancelSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID})
+	if err != nil {
 		return nil, err
 	}
 	return res.GetRemoved(), nil
@@ -977,9 +982,8 @@ func (r *Runtime) DrainPending(ctx context.Context, sessionID int64) []agentrunt
 	if !r.hasSession(sessionID) {
 		return nil
 	}
-	res := &agentrewire.RuntimeDrainPendingResponse{}
-	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING), wire.MethodDrainPending,
-		&agentrewire.RuntimeDrainPendingRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID)}, res); err != nil {
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeDrainPending, wire.MethodDrainPending, &agentrewire.RuntimeDrainPendingRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID)})
+	if err != nil {
 		return nil
 	}
 	out := make([]agentruntime.ConsumedSteer, 0, len(res.GetSteers()))
@@ -1002,9 +1006,8 @@ func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) 
 	if !r.hasSession(sessionID) {
 		return agentruntime.AbortOutcome{}, agentruntime.ErrNoActiveTurn
 	}
-	res := &agentrewire.RuntimeAbortResponse{}
-	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT), wire.MethodAbort,
-		&agentrewire.RuntimeAbortRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), TurnToken: turnToken}, res); err != nil {
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeAbort, wire.MethodAbort, &agentrewire.RuntimeAbortRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), TurnToken: turnToken})
+	if err != nil {
 		return agentruntime.AbortOutcome{}, err
 	}
 	return agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKind(res.GetTurnKind())}, nil
@@ -1014,25 +1017,24 @@ func (r *Runtime) StopBackgroundTask(ctx context.Context, sessionID int64, taskI
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	return r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK), wire.MethodStopBackgroundTask,
-		&agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), TaskId: taskID}, &agentrewire.Empty{})
+	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeStopBackgroundTask, wire.MethodStopBackgroundTask, &agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), TaskId: taskID})
+	return err
 }
 
 func (r *Runtime) SetPermissionMode(ctx context.Context, sessionID int64, mode string) error {
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	return r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE), wire.MethodSetPermissionMode,
-		&agentrewire.RuntimeSetPermissionModeRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), Mode: mode}, &agentrewire.Empty{})
+	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeSetPermissionMode, wire.MethodSetPermissionMode, &agentrewire.RuntimeSetPermissionModeRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), Mode: mode})
+	return err
 }
 
 func (r *Runtime) SubmitAnswer(ctx context.Context, sessionID int64, requestID string, questions []agentruntime.AskQuestion, answers []agentruntime.AskAnswer, skipped bool) error {
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	res := &agentrewire.PeerSessionControlResponse{}
-	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), wire.MethodSubmitAnswer,
-		&agentrewire.RuntimeSubmitAnswerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Questions: protowire.AskQuestionsToProto(questions), Answers: protowire.AskAnswersToProto(answers), Skipped: skipped}, res); err != nil {
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeSubmitAnswer, wire.MethodSubmitAnswer, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Questions: protowire.AskQuestionsToProto(questions), Answers: protowire.AskAnswersToProto(answers), Skipped: skipped})
+	if err != nil {
 		return err
 	}
 	return controlResultError(wire.PeerSessionControlResult{AlreadyHandled: res.GetAlreadyHandled()})
@@ -1042,9 +1044,8 @@ func (r *Runtime) SubmitToolPermission(ctx context.Context, sessionID int64, req
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	res := &agentrewire.PeerSessionControlResponse{}
-	if err := r.callSession(ctx, sessionID, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION), wire.MethodSubmitToolPermission,
-		&agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Allow: allow, AlwaysAllowSession: alwaysAllowSession, DenyReason: denyReason}, res); err != nil {
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeSubmitToolPermission, wire.MethodSubmitToolPermission, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Allow: allow, AlwaysAllowSession: alwaysAllowSession, DenyReason: denyReason})
+	if err != nil {
 		return err
 	}
 	return controlResultError(wire.PeerSessionControlResult{AlreadyHandled: res.GetAlreadyHandled()})
@@ -1065,9 +1066,8 @@ func (r *Runtime) SubmitToolPermission(ctx context.Context, sessionID int64, req
 // 认识的会话本就回空列表而不是报错(R7),本地再加一道「不认识就当空」只会多造一个
 // 说不清是「真没有」还是「本机没跟上」的静默分支。
 func (r *Runtime) PendingWaiters(ctx context.Context, sessionID int64) (wire.SessionPendingWaitersResult, error) {
-	res := &agentrewire.SessionPendingWaitersResponse{}
-	if err := r.callSentinel(ctx, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PENDING_WAITERS),
-		&agentrewire.SessionPendingWaitersRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID)}, res); err != nil {
+	res, err := callSentinel(ctx, r, wirecall.SessionPendingWaiters, &agentrewire.SessionPendingWaitersRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID)})
+	if err != nil {
 		return wire.SessionPendingWaitersResult{}, err
 	}
 	return protowire.PendingWaitersResponseFromProto(res), nil
@@ -1089,8 +1089,8 @@ func (r *Runtime) GetGoal(ctx context.Context, req agentruntime.GoalRequest) (*a
 	if err != nil {
 		return nil, err
 	}
-	res := &agentrewire.RuntimeGoalResponse{}
-	if err := r.callSentinel(ctx, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_GET), request, res); err != nil {
+	res, err := callSentinel(ctx, r, wirecall.RuntimeGoalGet, request)
+	if err != nil {
 		return nil, err
 	}
 	return protowire.GoalResponseFromProto(res), nil
@@ -1105,8 +1105,8 @@ func (r *Runtime) SetGoal(ctx context.Context, req agentruntime.GoalRequest) (*a
 	if err != nil {
 		return nil, err
 	}
-	res := &agentrewire.RuntimeGoalResponse{}
-	if err := r.callSentinel(ctx, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_SET), request, res); err != nil {
+	res, err := callSentinel(ctx, r, wirecall.RuntimeGoalSet, request)
+	if err != nil {
 		return nil, err
 	}
 	return protowire.GoalResponseFromProto(res), nil
@@ -1121,8 +1121,8 @@ func (r *Runtime) ClearGoal(ctx context.Context, req agentruntime.GoalRequest) (
 	if err != nil {
 		return false, err
 	}
-	res := &agentrewire.RuntimeGoalClearResponse{}
-	if err := r.callSentinel(ctx, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_CLEAR), request, res); err != nil {
+	res, err := callSentinel(ctx, r, wirecall.RuntimeGoalClear, request)
+	if err != nil {
 		return false, err
 	}
 	return res.GetCleared(), nil
@@ -1219,8 +1219,7 @@ func (r *Runtime) abortGeneration(ctx context.Context, sess *remoteSession, turn
 		}
 		abortCtx, cancel := context.WithTimeout(context.WithoutCancel(base), generationControlTimeout)
 		defer cancel()
-		res := &agentrewire.RuntimeAbortResponse{}
-		err := r.callSentinel(abortCtx, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT), &agentrewire.RuntimeAbortRequest{ConversationId: r.conversationID(sess.id), TurnToken: turnToken}, res)
+		res, err := callSentinel(abortCtx, r, wirecall.RuntimeAbort, &agentrewire.RuntimeAbortRequest{ConversationId: r.conversationID(sess.id), TurnToken: turnToken})
 		if errors.Is(err, agentruntime.ErrNoActiveTurn) {
 			err = nil
 		}
@@ -1293,11 +1292,22 @@ func (r *Runtime) hasSession(sid int64) bool {
 	return ok
 }
 
-func (r *Runtime) callSentinel(ctx context.Context, methodID uint32, request, response proto.Message) error {
-	if err := protorpc.CallMessage(ctx, r.conn().Conn(), methodID, request, response); err != nil {
-		return fromProtobufError(err)
+// callSentinel 跑一次不带会话身份的调用。
+//
+// method 收的是 wirecall 里那个方法的**函数本身**,不是方法号 —— 「方法号 ↔ 消息
+// 类型」的配对因此一次都不在这里出现,它在 pkg/wire/wirecall 里。
+//
+// 失败时交回的是应答的零值(nil 指针)。调用方照旧可以对它取值:生成的 getter 对
+// nil 接收者返回零值,与从前那种「先分配好、失败时保持空」的形状等价。
+func callSentinel[Req proto.Message, Resp proto.Message](
+	ctx context.Context, r *Runtime,
+	method func(context.Context, wirecall.Caller, Req) (Resp, error), request Req,
+) (Resp, error) {
+	resp, err := method(ctx, r.conn(), request)
+	if err != nil {
+		return resp, fromProtobufError(err)
 	}
-	return nil
+	return resp, nil
 }
 
 // callSession 是带会话身份的控制类调用。ErrNoActiveTurn 时**重新接管一次再重试**。
@@ -1307,19 +1317,22 @@ func (r *Runtime) callSentinel(ctx context.Context, methodID uint32, request, re
 // 的接管静默还原。而桌面端同时握着 2-3 条同指纹连接(连接池 / 设备心跳 / 刷新探测),
 // 只要其中任意一条重连过,接管就没了 —— 此后提交决策会被 daemon 的幂等折叠(R8)
 // 折成 OK,会话永久停在等待输入上。所以接管必须是可反复发起的。
-func (r *Runtime) callSession(ctx context.Context, sessionID int64, methodID uint32, label string, request, response proto.Message) error {
-	err := r.callSentinel(ctx, methodID, request, response)
+func callSession[Req proto.Message, Resp proto.Message](
+	ctx context.Context, r *Runtime, sessionID int64,
+	method func(context.Context, wirecall.Caller, Req) (Resp, error), label string, request Req,
+) (Resp, error) {
+	resp, err := callSentinel(ctx, r, method, request)
 	// canReconnect 同时管住两件事:没装重连端口的调用方(老接线、单测)一律走今天
 	// 的路径,不会凭空多出一次 attach;已被证伪的老 daemon 也不再白试。
 	if err == nil || !errors.Is(err, agentruntime.ErrNoActiveTurn) || !r.canReconnect() {
-		return err
+		return resp, err
 	}
 	if _, aerr := r.attachSession(ctx, sessionID); aerr != nil {
 		logger.Ctx(ctx).Warn("remote.Runtime: re-attach before retry failed",
 			zap.Int64("sessionId", sessionID), zap.String("method", label), zap.Error(aerr))
-		return err
+		return resp, err
 	}
 	logger.Ctx(ctx).Info("remote.Runtime: re-attached session, retrying control call",
 		zap.Int64("sessionId", sessionID), zap.String("method", label))
-	return r.callSentinel(ctx, methodID, request, response)
+	return callSentinel(ctx, r, method, request)
 }

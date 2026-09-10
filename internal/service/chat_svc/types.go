@@ -980,6 +980,10 @@ type SendResponse struct {
 	UserMessageID      int64  `json:"userMessageId"`
 	AssistantMessageID int64  `json:"assistantMessageId"`
 	Stream             string `json:"stream"`
+	// UserMessageSeq 是这一轮用户消息的最高持久帧号,只在桌面端**做宿主**（对端经
+	// runtime.run 派发过来）那条路上有值:发起方据它把游标推进到「我已经持有的
+	// 内容」(spec 2026-09-07 决策 1)。本机自己发消息时没有对端要对齐,留 0。
+	UserMessageSeq int64 `json:"userMessageSeq,omitempty"`
 }
 
 type CompactRequest struct {

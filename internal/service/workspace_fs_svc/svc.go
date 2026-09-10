@@ -33,6 +33,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // SessionWorkspaceResolver 把 sessionID 解析成 {deviceID, cwd}。deviceID 为 0
@@ -227,15 +229,21 @@ func (s *workspaceFsImpl) workspace(ctx context.Context, sessionID int64) (int64
 	return deviceID, cwd, nil
 }
 
-// call 跑一次远端往返。租约在返回前释放,调用方不持有它。
-func callWorkspace[Req proto.Message, Resp proto.Message](ctx context.Context, s *workspaceFsImpl, deviceID int64, method agentrewire.RpcMethod, req Req, newResponse func() Resp) (Resp, error) {
+// callWorkspace 跑一次远端往返。租约在返回前释放,调用方不持有它。
+//
+// method 收的是 wirecall 里那个方法的**函数本身**,不是方法号加一个应答构造器 ——
+// 「方法号 ↔ 消息类型」的配对因此一次都不在这里出现,它在 pkg/wire/wirecall 里。
+func callWorkspace[Req proto.Message, Resp proto.Message](
+	ctx context.Context, s *workspaceFsImpl, deviceID int64,
+	method func(context.Context, wirecall.Caller, Req) (Resp, error), req Req,
+) (Resp, error) {
 	var zero Resp
 	lease, err := s.deviceSvc().Pool().Borrow(ctx, deviceID)
 	if err != nil {
 		return zero, mapBorrowErr(ctx, err)
 	}
 	defer lease.Release()
-	resp, cerr := protorpc.CallMethod(ctx, lease.Client().Conn(), uint32(method), req, newResponse)
+	resp, cerr := method(ctx, lease.Client(), req)
 	if cerr != nil {
 		return zero, mapCallErr(ctx, cerr)
 	}
@@ -263,7 +271,7 @@ func (s *workspaceFsImpl) ListDir(ctx context.Context, sessionID int64, root, re
 		return view, nil
 	}
 
-	resp, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_LIST_DIR, &agentrewire.WorkspaceFsListDirRequest{Root: cwd, RelPath: relPath, IncludeIgnored: includeIgnored}, func() *agentrewire.WorkspaceFsListDirResponse { return &agentrewire.WorkspaceFsListDirResponse{} })
+	resp, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsListDir, &agentrewire.WorkspaceFsListDirRequest{Root: cwd, RelPath: relPath, IncludeIgnored: includeIgnored})
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -306,7 +314,7 @@ func (s *workspaceFsImpl) ReadFile(ctx context.Context, sessionID int64, root, r
 		}, nil
 	}
 
-	response, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_READ_FILE, &agentrewire.WorkspaceFsReadFileRequest{Root: cwd, RelPath: relPath}, func() *agentrewire.WorkspaceFsReadFileResponse { return &agentrewire.WorkspaceFsReadFileResponse{} })
+	response, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsReadFile, &agentrewire.WorkspaceFsReadFileRequest{Root: cwd, RelPath: relPath})
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -335,9 +343,7 @@ func (s *workspaceFsImpl) GitFileContent(ctx context.Context, sessionID int64, r
 		}, nil
 	}
 
-	resp, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT, &agentrewire.WorkspaceFsGitFileContentRequest{Root: cwd, RelPath: relPath}, func() *agentrewire.WorkspaceFsGitFileContentResponse {
-		return &agentrewire.WorkspaceFsGitFileContentResponse{}
-	})
+	resp, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsGitFileContent, &agentrewire.WorkspaceFsGitFileContentRequest{Root: cwd, RelPath: relPath})
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -376,9 +382,7 @@ func (s *workspaceFsImpl) SearchFiles(ctx context.Context, sessionID int64, root
 			view.Hits = append(view.Hits, SearchHitView{Path: hit.Path, IsDir: hit.IsDir})
 		}
 	} else {
-		resp, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_SEARCH_FILES, &agentrewire.WorkspaceFsSearchFilesRequest{Root: cwd, Query: query, IncludeIgnored: includeIgnored}, func() *agentrewire.WorkspaceFsSearchFilesResponse {
-			return &agentrewire.WorkspaceFsSearchFilesResponse{}
-		})
+		resp, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsSearchFiles, &agentrewire.WorkspaceFsSearchFilesRequest{Root: cwd, Query: query, IncludeIgnored: includeIgnored})
 		if cerr != nil {
 			return nil, cerr
 		}
@@ -418,9 +422,7 @@ func (s *workspaceFsImpl) gitBranches(ctx context.Context, deviceID int64, cwd s
 		return view, nil
 	}
 
-	resp, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES, &agentrewire.WorkspaceFsGitBranchesRequest{Root: cwd}, func() *agentrewire.WorkspaceFsGitBranchesResponse {
-		return &agentrewire.WorkspaceFsGitBranchesResponse{}
-	})
+	resp, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsGitBranches, &agentrewire.WorkspaceFsGitBranchesRequest{Root: cwd})
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -467,7 +469,7 @@ func (s *workspaceFsImpl) gitStateAt(ctx context.Context, deviceID int64, dir st
 		}, nil
 	}
 
-	response, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_STATE, &agentrewire.WorkspaceFsGitStateRequest{Root: dir}, func() *agentrewire.WorkspaceFsGitStateResponse { return &agentrewire.WorkspaceFsGitStateResponse{} })
+	response, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsGitState, &agentrewire.WorkspaceFsGitStateRequest{Root: dir})
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -528,7 +530,7 @@ func (s *workspaceFsImpl) GitChanges(ctx context.Context, sessionID int64, root,
 
 	// scope 已经过 parseScope 校验,必是 wire.Scope* 之一,直接透传原串,不靠
 	// "叶子包 scope 与 wire scope 字面量恰好相等"这个隐含前提。
-	response, cerr := callWorkspace(ctx, s, deviceID, agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_CHANGES, &agentrewire.WorkspaceFsGitChangesRequest{Root: cwd, Scope: scope, BaseRef: usedBase}, func() *agentrewire.WorkspaceFsGitChangesResponse { return &agentrewire.WorkspaceFsGitChangesResponse{} })
+	response, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsGitChanges, &agentrewire.WorkspaceFsGitChangesRequest{Root: cwd, Scope: scope, BaseRef: usedBase})
 	if cerr != nil {
 		return nil, cerr
 	}

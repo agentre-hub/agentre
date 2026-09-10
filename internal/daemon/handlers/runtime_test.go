@@ -27,11 +27,13 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
@@ -4059,4 +4061,58 @@ func TestRuntime_Run_AfterFailure_SessionRunsAgain(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, row)
 	assert.Equal(t, wire.SessionLifecycleIdle, row.LifecycleState)
+}
+
+// TestRuntime_Run_GivenTranscriptStarted_ThenAckCarriesUserMessageHighestFrameSeq
+// —— agentred 接受一轮时必须把「这一轮用户消息的最高持久帧号」放进应答:发起方据它
+// 把游标推进到「我已经持有的内容」,补齐于是不再重放它自己写下的那条用户消息
+// (spec 2026-09-07 决策 1)。
+//
+// 这条同时钉住一个时序:今天用户行的落库与取号发生在 `go h.fanout(...)` 里,而 ack
+// 在那之前就返回了 —— 应答要带上这个号,取号就必须提前到 Run 的同步段。
+func TestRuntime_Run_GivenTranscriptStarted_ThenAckCarriesUserMessageHighestFrameSeq(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	acc := turn.New()
+	acc.AddText("hello")
+	user := &transcript_entity.Message{ID: 11, SessionID: 5, Role: "user", Seq: 1}
+	require.NoError(t, user.SetBlocks(acc.Finalize()))
+	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+
+	tp := mock_handlers.NewMockTranscriptPort(ctrl)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "hello").Return(user, assistant, nil).Times(1)
+	// 用户那一行只有一个文本块 → 一帧,取到 7 号。
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
+		Return([]int64{7}, nil).Times(1)
+	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
+
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: tp,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	ack, err := h.Run(context.Background(), wire.RunParams{
+		Backend:        backendJSON(t, be),
+		ConversationID: convID(42),
+		AgentID:        7,
+		Cwd:            "/tmp",
+		UserText:       "hello",
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(7), ack.UserMessageSeq,
+		"应答必须带回用户消息的最高持久帧号,否则发起方的游标停在它已经持有的内容之前")
 }

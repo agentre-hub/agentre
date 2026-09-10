@@ -559,7 +559,15 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	// 知道这一轮开了(它就是发的那个),而其余订阅者此前只看得到轮次结束,整轮里都把
 	// 这条对话显示成闲着。
 	em.emit(wire.NotifyTurnStarted, &wire.TurnStartedFrame{ConversationID: em.conversationID})
-	go h.fanout(em, owner, events, result, userMsg, p.UserText) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
+	// 转录起手必须在**这里**、在同步段:用户那一行的最高持久帧号要随应答交回发起方,
+	// 发起方据它把游标推进到「我已经持有的内容」(spec 2026-09-07 决策 1)。放进下面
+	// 那个协程就等于 ack 先返回、号后取,发起方永远拿不到它。
+	//
+	// 位置也不是随便挑的:startSession 之后(会话行得先在,StartTurn 才解得出本机主键),
+	// turnStarted 之后(用户那一帧要排在开轮帧后面,与本轮之前的帧序一字不差)。
+	scribe, userMessageSeq := h.beginTranscript(em, p.UserText)
+	ack.UserMessageSeq = userMessageSeq
+	go h.fanout(em, owner, events, result, userMsg, scribe) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
 	// 真实 runtime 若支持自主续轮(claudecode),起每会话一个转发 goroutine 把
 	// AutonomousTurns(sid) 推到 client。session 已 spawn,此刻订阅才拿得到 channel。
 	if src, ok := rt.(agentruntime.AutonomousTurnSource); ok {
@@ -728,7 +736,11 @@ func (h *RuntimeHandlers) startPreparedPi(
 		zap.String("peerFingerprint", em.peer))
 	h.startSession(em, p, bt, providerSessionID)
 	h.markStreaming(owner)
-	go h.fanout(em, owner, events, result, userMessageFor(p), p.UserText)
+	// 与非 Pi 那一路同一条纪律:转录起手留在同步段,用户那一行的最高持久帧号随应答
+	// 交回发起方(spec 2026-09-07 决策 1)。
+	scribe, userMessageSeq := h.beginTranscript(em, p.UserText)
+	ack.UserMessageSeq = userMessageSeq
+	go h.fanout(em, owner, events, result, userMessageFor(p), scribe)
 	return ack, nil
 }
 
@@ -859,7 +871,7 @@ func (h *RuntimeHandlers) emitPrelude(em *sessionEmitter, owner *runtimeSession,
 // fanout 把 backend events channel 抽干推到 runtime.event,channel close 后再发
 // runtime.runResultDone 终态帧。日志按事件 kind 计数,turn 结束时打一条汇总,
 // 排查 stuck-turn / 漏事件时方便对账 client 端实际收到几条。
-func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, prelude *agentruntime.UserMessageEvent, userText string) {
+func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, prelude *agentruntime.UserMessageEvent, scribe *turnTranscript) {
 	startedAt := time.Now()
 	cid, rid := em.conversationID, em.rid
 	count := 0
@@ -869,9 +881,10 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 	// 「哪条事件动哪一下表」归 internal/pkg/turnstats,与 chat_svc 共用一份。
 	meter := turnMeter{}
 	meter.clock.StartGenerationAt(startedAt)
-	// 本轮的转录。它与推送是两件事:推出去的是即时呈现用的预览帧,落进库的是块
-	// (决策 1 / 4)。起手就建行,轮内每个定稿时刻 checkpoint 一次。
-	scribe := h.beginTranscript(em, userText)
+	// 本轮的转录由调用方起手(beginTranscript)并传进来:用户那一行的取号要随应答
+	// 交给发起方,所以它必须发生在 Run 的同步段,而这里是协程(spec 2026-09-07 决策 1)。
+	// 它与推送是两件事:推出去的是即时呈现用的预览帧,落进库的是块(2026-09-05 决策 1/4);
+	// 轮内每个定稿时刻 checkpoint 一次。
 	// R18:把发起方标记作为**第一条**事件注入,保证订阅者先把这一轮的用户消息落成转录行,
 	// 再接收后端真正的事件。
 	if prelude != nil {
@@ -1033,7 +1046,7 @@ func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentrunt
 	})
 	count := 0
 	// 自主续轮同样是一轮转录,只是没有用户那一行 —— 它不是任何人发起的。
-	scribe := h.beginTranscript(em, "")
+	scribe, _ := h.beginTranscript(em, "")
 	for ev := range at.Events {
 		count++
 		scribe.observe(em.ctx, ev)

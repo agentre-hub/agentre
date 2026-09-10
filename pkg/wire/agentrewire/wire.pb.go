@@ -6762,8 +6762,14 @@ type RuntimeRunResponse struct {
 	ProviderSessionId    string                 `protobuf:"bytes,2,opt,name=provider_session_id,json=providerSessionId,proto3" json:"provider_session_id,omitempty"`
 	LaunchPermissionMode string                 `protobuf:"bytes,3,opt,name=launch_permission_mode,json=launchPermissionMode,proto3" json:"launch_permission_mode,omitempty"`
 	ProviderFallbackKey  string                 `protobuf:"bytes,4,opt,name=provider_fallback_key,json=providerFallbackKey,proto3" json:"provider_fallback_key,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// 本轮用户消息的**最高持久帧号**。发起方据它把游标推进到「我已经持有的内容」,
+	// 补齐于是不会再把这条它自己写下的用户消息交回来(spec 2026-09-07 决策 1)。
+	// 一条用户消息可能不止一个块,所以约定是最高的那个号,不是第一个。
+	// 0 = 宿主没给(拒绝该轮、落库前失败,或对端是不认这一格的旧构建)——
+	// 发起方此时不推进游标。
+	UserMessageSeq int64 `protobuf:"varint,5,opt,name=user_message_seq,json=userMessageSeq,proto3" json:"user_message_seq,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RuntimeRunResponse) Reset() {
@@ -6822,6 +6828,13 @@ func (x *RuntimeRunResponse) GetProviderFallbackKey() string {
 		return x.ProviderFallbackKey
 	}
 	return ""
+}
+
+func (x *RuntimeRunResponse) GetUserMessageSeq() int64 {
+	if x != nil {
+		return x.UserMessageSeq
+	}
+	return 0
 }
 
 type RuntimeGoalRequest struct {
@@ -14270,12 +14283,13 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x10reasoning_effort\x18\x19 \x01(\tR\x0freasoningEffort\x1aA\n" +
 	"\x13EnabledPluginsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\xd7\x01\n" +
+	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\x81\x02\n" +
 	"\x12RuntimeRunResponse\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12.\n" +
 	"\x13provider_session_id\x18\x02 \x01(\tR\x11providerSessionId\x124\n" +
 	"\x16launch_permission_mode\x18\x03 \x01(\tR\x14launchPermissionMode\x122\n" +
-	"\x15provider_fallback_key\x18\x04 \x01(\tR\x13providerFallbackKey\"\xdb\x03\n" +
+	"\x15provider_fallback_key\x18\x04 \x01(\tR\x13providerFallbackKey\x12(\n" +
+	"\x10user_message_seq\x18\x05 \x01(\x03R\x0euserMessageSeq\"\xdb\x03\n" +
 	"\x12RuntimeGoalRequest\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x19\n" +

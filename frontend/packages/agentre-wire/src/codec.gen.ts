@@ -495,6 +495,16 @@ export interface RunAck extends WireObject {
   providerSessionId?: string;
   launchPermissionMode?: string;
   providerFallbackKey?: string;
+
+  /**
+   * UserMessageSeq 是本轮用户消息的**最高持久帧号**。发起方据它把游标推进到
+   * 「我已经持有的内容」,补齐于是不再把这条它自己写下的用户消息交回来
+   * (spec 2026-09-07 决策 1)。一条用户消息可能不止一个块,所以是最高的那个号。
+   *
+   * 0 = 宿主没给:拒绝该轮、落库前失败,或对端是不认这一格的旧构建。发起方此时
+   * 不推进游标 —— 行为退回本轮之前,而不是推进到一个它并不持有的位置。
+   */
+  userMessageSeq?: number;
 }
 
 export function decodeRunAck(v: unknown): RunAck {
@@ -512,6 +522,7 @@ export function decodeRunAck(v: unknown): RunAck {
       o.providerFallbackKey,
       "RunAck.providerFallbackKey",
     );
+    o.userMessageSeq = optNum(o.userMessageSeq, "RunAck.userMessageSeq");
   });
 }
 

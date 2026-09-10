@@ -116,7 +116,7 @@ func (o *Outbound) RunFresh(ctx context.Context, params wire.RunParams) (wire.Ru
 		var ack wire.RunAck
 		return ack, err
 	}
-	return wire.RunAck{ConversationID: response.ConversationId, ProviderSessionID: response.ProviderSessionId, LaunchPermissionMode: response.LaunchPermissionMode, ProviderFallbackKey: response.ProviderFallbackKey}, nil
+	return wire.RunAck{ConversationID: response.ConversationId, ProviderSessionID: response.ProviderSessionId, LaunchPermissionMode: response.LaunchPermissionMode, ProviderFallbackKey: response.ProviderFallbackKey, UserMessageSeq: response.UserMessageSeq}, nil
 }
 
 // Steer 往已接入的远程会话发一条新消息（R19 / R9），走对端既有发送路径。

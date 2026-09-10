@@ -35,6 +35,7 @@ require (
 	github.com/JohannesKaufmann/dom v0.2.0 // indirect
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
+	github.com/agentre-hub/agentre/pkg/syncwire v0.0.0
 	github.com/agentre-hub/agentre/pkg/wire v0.0.0
 	github.com/alicebob/gopher-json v0.0.0-20200520072559-a9ecdc9d1d3a // indirect
 	github.com/alicebob/miniredis/v2 v2.32.1 // indirect
@@ -177,3 +178,5 @@ require (
 // replace github.com/wailsapp/wails/v2 v2.12.0 => /Users/codfrm/go/pkg/mod
 
 replace github.com/agentre-hub/agentre/pkg/wire => ./pkg/wire
+
+replace github.com/agentre-hub/agentre/pkg/syncwire => ./pkg/syncwire

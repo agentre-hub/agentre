@@ -371,13 +371,19 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 // final=false 是轮内 checkpoint:结尾那些还会继续长的正文块与消息级派生帧留到收口
 // 再发。挑帧本身归共用的那一份(transcript.FramePublisher) —— agentred 实时发布走的
 // 是同一只。
-func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64, msg *chat_entity.Message, final bool) {
+//
+// 返回这一发里取到的**最高号**,没发出任何帧时为 0。开轮那一发(用户那一行)的返回值
+// 随 runtime.run 的应答交回发起方,发起方据它把游标推进到「我已经持有的内容」
+// (spec 2026-09-07 决策 1);agentred 侧走的是同一条(turnTranscript.publishDurable)。
+// 没人 attach 过、因而还没有编号宇宙时交回 0 —— 此时宿主确实一个号都没分配,
+// 发起方据此不推进游标,行为退回本轮之前。
+func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64, msg *chat_entity.Message, final bool) int64 {
 	if sessionID <= 0 || msg == nil {
-		return
+		return 0
 	}
 	value, ok := s.peerPublications.Load(sessionID)
 	if !ok {
-		return
+		return 0
 	}
 	publication := value.(*peerSessionPublication)
 	publication.publishMu.Lock()
@@ -388,19 +394,19 @@ func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64,
 	publication.mu.Unlock()
 	// 没人 attach 过就没有编号宇宙可言:这条消息的号留给下一次 attach 惰性补齐。
 	if !initialized {
-		return
+		return 0
 	}
 	keyed, err := transcript.ProjectKeyedMessage(publication.conversationID, msg)
 	if err != nil {
 		logger.Ctx(ctx).Warn("chat_svc: project peer durable frames failed",
 			zap.Int64("sessionId", sessionID), zap.Int64("messageId", msg.ID), zap.Error(err))
-		return
+		return 0
 	}
 	publication.mu.Lock()
 	pending := publication.publisher.Pending(keyed, final)
 	publication.mu.Unlock()
 	if len(pending) == 0 {
-		return
+		return 0
 	}
 	keys := make([]transcript_repo.FrameKey, 0, len(pending))
 	for _, frame := range pending {
@@ -410,11 +416,13 @@ func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64,
 	if err != nil || len(seqs) != len(pending) {
 		logger.Ctx(ctx).Warn("chat_svc: allocate peer frame seq failed; frames withheld",
 			zap.Int64("sessionId", sessionID), zap.Int64("messageId", msg.ID), zap.Error(err))
-		return
+		return 0
 	}
+	var highest int64
 	publication.mu.Lock()
 	for index := range pending {
 		pending[index].Frame.Seq = seqs[index]
+		highest = max(highest, seqs[index])
 		publication.history = append(publication.history, pending[index].Frame)
 		// 时刻取投影器配给的那一个(= 所属消息的 createtime),不是「此刻」。这一格由
 		// PullPeerSession 交出去,而重启之后同一条转录是由 numberPeerFramesLocked 从
@@ -435,6 +443,7 @@ func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64,
 	case publication.wake <- struct{}{}:
 	default:
 	}
+	return highest
 }
 
 // publishPeerTurnDone 在一轮收口时把这条 assistant 消息的持久帧整份发给对端订阅者。
