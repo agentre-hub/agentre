@@ -30,8 +30,8 @@ import (
 //
 // 真机上量到的样子(2026-09-03,agentred 联调机):claude CLI 答完了整整一轮,
 // fanout 汇总日志报 totalEvents=286 / currentGeneration=false,而 journal 里只剩
-// 3 帧 —— 循环之前注入的 prelude、循环之后无条件发的终态帧,以及开始帧。控制台上
-// 就是「点进去还没有消息」,不报错、不跳号。
+// 几帧 —— 循环之后无条件发的终态帧与开始帧。控制台上就是「点进去还没有消息」,
+// 不报错、不跳号。
 func TestRuntime_AdoptDoesNotSilenceTheTurnAlreadyStreaming(t *testing.T) {
 	// fanout 的收尾日志落在最后一帧**之后**。不等它,这条 goroutine 会活过本用例,
 	// 与下一条用例换全局 logger 的那一下撞成 data race(包内其余用例共用同一个全局)。
@@ -49,18 +49,19 @@ func TestRuntime_AdoptDoesNotSilenceTheTurnAlreadyStreaming(t *testing.T) {
 		ConversationID: convID(91),
 		Cwd:            "/tmp",
 		UserText:       "看看目录",
-		// 浏览器发起时这两格必带(dispatch.ts 的 sourceDevice / sourceDeviceName),
-		// 缺了就没有 prelude —— 而 prelude 正是真机上唯一活下来的那条用户消息。
+		// 浏览器发起时这两格必带(dispatch.ts 的 sourceDevice / sourceDeviceName)。
+		// 这一档没接转录出口,所以用户那一行不落库、也没有它的持久帧 —— 本用例数的
+		// 是后端事件有没有被静音,与用户那一帧无关。
 		SourceDevice:     "sha256:browser",
 		SourceDeviceName: "Edge · macOS",
 	})
 	require.NoError(t, err)
-	// 开始帧 + prelude(这一轮的用户消息)。
-	notif.waitFrames(t, 2)
+	// 开始帧。
+	notif.waitFrames(t, 1)
 
 	// 接管之前的那一条:证明这一轮本来发得出去。
 	events <- agentruntime.TextDelta{Text: "before"}
-	notif.waitFrames(t, 3)
+	notif.waitFrames(t, 2)
 
 	// 详情页在**同一条连接**上接管这条会话。
 	h.Adopt(ctx, convID(91), agent_backend_entity.TypeClaudeCode)
@@ -69,9 +70,9 @@ func TestRuntime_AdoptDoesNotSilenceTheTurnAlreadyStreaming(t *testing.T) {
 	events <- agentruntime.TextDelta{Text: "after"}
 	close(events)
 
-	frames := notif.waitFrames(t, 5)
-	require.Len(t, frames, 5, "开始帧 + prelude + 两条事件 + 终态帧,一条都不许少")
-	assert.Equal(t, wire.NotifyRunResultDone, frames[4].method)
+	frames := notif.waitFrames(t, 4)
+	require.Len(t, frames, 4, "开始帧 + 两条事件 + 终态帧,一条都不许少")
+	assert.Equal(t, wire.NotifyRunResultDone, frames[3].method)
 
 	texts := make([]string, 0, 2)
 	for _, frame := range frames {

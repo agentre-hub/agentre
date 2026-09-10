@@ -372,18 +372,22 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 // 再发。挑帧本身归共用的那一份(transcript.FramePublisher) —— agentred 实时发布走的
 // 是同一只。
 //
-// 返回这一发里取到的**最高号**,没发出任何帧时为 0。开轮那一发(用户那一行)的返回值
-// 随 runtime.run 的应答交回发起方,发起方据它把游标推进到「我已经持有的内容」
-// (spec 2026-09-07 决策 1);agentred 侧走的是同一条(turnTranscript.publishDurable)。
+// 返回这一发里取到的**最低号与最高号**,没发出任何帧时都是 0。开轮那一发(用户那一行)
+// 的返回值随 runtime.run 的应答交回发起方:发起方拿最低号比闸门、拿最高号定落点,
+// 游标从此表达「我已经持有的内容」(spec 2026-09-07 决策 1;区间见
+// 2026-09-07-host-transcript-user-input 决策 4)。agentred 侧走的是同一条
+// (turnTranscript.publishDurable)。带附件的一条用户消息占不止一帧,所以必须是区间。
 // 没人 attach 过、因而还没有编号宇宙时交回 0 —— 此时宿主确实一个号都没分配,
 // 发起方据此不推进游标,行为退回本轮之前。
-func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64, msg *chat_entity.Message, final bool) int64 {
+func (s *chatSvc) publishPeerMessageFrames(
+	ctx context.Context, sessionID int64, msg *chat_entity.Message, final bool,
+) (int64, int64) {
 	if sessionID <= 0 || msg == nil {
-		return 0
+		return 0, 0
 	}
 	value, ok := s.peerPublications.Load(sessionID)
 	if !ok {
-		return 0
+		return 0, 0
 	}
 	publication := value.(*peerSessionPublication)
 	publication.publishMu.Lock()
@@ -394,19 +398,19 @@ func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64,
 	publication.mu.Unlock()
 	// 没人 attach 过就没有编号宇宙可言:这条消息的号留给下一次 attach 惰性补齐。
 	if !initialized {
-		return 0
+		return 0, 0
 	}
 	keyed, err := transcript.ProjectKeyedMessage(publication.conversationID, msg)
 	if err != nil {
 		logger.Ctx(ctx).Warn("chat_svc: project peer durable frames failed",
 			zap.Int64("sessionId", sessionID), zap.Int64("messageId", msg.ID), zap.Error(err))
-		return 0
+		return 0, 0
 	}
 	publication.mu.Lock()
 	pending := publication.publisher.Pending(keyed, final)
 	publication.mu.Unlock()
 	if len(pending) == 0 {
-		return 0
+		return 0, 0
 	}
 	keys := make([]transcript_repo.FrameKey, 0, len(pending))
 	for _, frame := range pending {
@@ -416,12 +420,15 @@ func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64,
 	if err != nil || len(seqs) != len(pending) {
 		logger.Ctx(ctx).Warn("chat_svc: allocate peer frame seq failed; frames withheld",
 			zap.Int64("sessionId", sessionID), zap.Int64("messageId", msg.ID), zap.Error(err))
-		return 0
+		return 0, 0
 	}
-	var highest int64
+	var lowest, highest int64
 	publication.mu.Lock()
 	for index := range pending {
 		pending[index].Frame.Seq = seqs[index]
+		if lowest == 0 || seqs[index] < lowest {
+			lowest = seqs[index]
+		}
 		highest = max(highest, seqs[index])
 		publication.history = append(publication.history, pending[index].Frame)
 		// 时刻取投影器配给的那一个(= 所属消息的 createtime),不是「此刻」。这一格由
@@ -443,7 +450,7 @@ func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64,
 	case publication.wake <- struct{}{}:
 	default:
 	}
-	return highest
+	return lowest, highest
 }
 
 // publishPeerTurnDone 在一轮收口时把这条 assistant 消息的持久帧整份发给对端订阅者。
@@ -453,7 +460,7 @@ func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64,
 // (模型 · 耗时 · 首字 · 速率)读的正是 done 事件上的这几格 —— 它们与重连后补齐读到的
 // 是同一条,因为两边都出自 transcript.ProjectMessages。
 func (s *chatSvc) publishPeerTurnDone(ctx context.Context, sessionID int64, msg *chat_entity.Message) {
-	s.publishPeerMessageFrames(ctx, sessionID, msg, true)
+	_, _ = s.publishPeerMessageFrames(ctx, sessionID, msg, true)
 }
 
 func peerSubscriberKey(subscriber PeerSessionSubscriber) string {

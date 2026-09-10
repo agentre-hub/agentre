@@ -45,6 +45,28 @@ func TestAuthPair_GivenCallerAdvertisesTheSameProtocolVersion_WhenPairing_ThenAc
 	require.Equal(t, wireversion.MinSupported, response.GetMinSupportedProtocolVersion())
 }
 
+// oneMinorAhead / twoMinorsAhead 是**相对本 build 的 Protocol** 往上的两档,用来演
+// 「对端比我新」的两种局面。它们写死成字面量(与 previousProtocol 同一条理由:推算出来
+// 的值会随 Protocol 一起漂),所以每次抬协议版本都要跟着抬 —— 忘了抬,oneMinorAhead
+// 就等于本 build 自己的版本,那条「领先一档仍放行」的用例照旧绿着,却不再验它声称的
+// 东西。下面 TestProtocolVersionFixtures_... 是防止这件事静默发生的守卫。
+const (
+	oneMinorAhead  = "0.4.0"
+	twoMinorsAhead = "0.5.0"
+)
+
+// 这两个 fixture 必须真的高于本 build 的 Protocol,否则上下两条用例都退化成同义反复。
+func TestProtocolVersionFixtures_MustStayAheadOfThisBuild(t *testing.T) {
+	require.NotEqual(t, wireversion.Protocol, oneMinorAhead,
+		"抬协议版本时要把 oneMinorAhead 一并抬:与本 build 相等就不再是「领先一档」")
+	require.NotEqual(t, wireversion.Protocol, twoMinorsAhead,
+		"抬协议版本时要把 twoMinorsAhead 一并抬")
+	require.True(t, wireversion.Match(oneMinorAhead, wireversion.MinSupported),
+		"oneMinorAhead 配本 build 的 floor 必须仍在窗口内 —— 这一条是「领先一档仍放行」的前提")
+	require.False(t, wireversion.Match(twoMinorsAhead, oneMinorAhead),
+		"twoMinorsAhead 配 oneMinorAhead 这个 floor 必须落在窗口外 —— 这是「floor 把我关在门外」的前提")
+}
+
 // Given a desktop one minor ahead of the daemon but still declaring a floor
 // that covers the daemon's Protocol, When it pairs, Then the handshake
 // succeeds even though the two sides report different protocol_version
@@ -61,7 +83,7 @@ func TestAuthPair_GivenCallerAdvertisesADifferentButCompatibleWindow_WhenPairing
 			// One minor ahead of this build's own Protocol, but declaring a
 			// floor (wireversion.MinSupported) that still covers it.
 			Code: code, DeviceName: "desktop", DeviceFingerprint: "device-1",
-			ProtocolVersion: "0.3.0", MinSupportedProtocolVersion: wireversion.MinSupported,
+			ProtocolVersion: oneMinorAhead, MinSupportedProtocolVersion: wireversion.MinSupported,
 		},
 		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
 
@@ -84,14 +106,14 @@ func TestAuthPair_GivenCallerFloorExcludesTheDaemon_WhenPairing_ThenRefusedWithP
 			// Floor one minor ahead of this build's own Protocol
 			// (wireversion.Protocol), so it no longer covers this build.
 			Code: code, DeviceName: "desktop", DeviceFingerprint: "device-1",
-			ProtocolVersion: "0.4.0", MinSupportedProtocolVersion: "0.3.0",
+			ProtocolVersion: twoMinorsAhead, MinSupportedProtocolVersion: oneMinorAhead,
 		},
 		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
 
 	var rpcErr *protorpc.Error
 	require.ErrorAs(t, err, &rpcErr)
 	require.Equal(t, rpcerror.CodeProtocolVersion, rpcErr.Code)
-	require.Contains(t, rpcErr.Message, "0.4.0")
+	require.Contains(t, rpcErr.Message, twoMinorsAhead)
 }
 
 // Given a desktop from another revision, When it pairs, Then the daemon refuses

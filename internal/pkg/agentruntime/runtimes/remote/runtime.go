@@ -333,7 +333,7 @@ func (r *Runtime) callRun(ctx context.Context, params wire.RunParams) (wire.RunA
 	if err != nil {
 		return wire.RunAck{}, fromProtobufError(err)
 	}
-	return wire.RunAck{ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey(), UserMessageSeq: response.GetUserMessageSeq()}, nil
+	return wire.RunAck{ConversationID: response.GetConversationId(), ProviderSessionID: response.GetProviderSessionId(), LaunchPermissionMode: response.GetLaunchPermissionMode(), ProviderFallbackKey: response.GetProviderFallbackKey(), UserMessageSeq: response.GetUserMessageSeq(), UserMessageMinSeq: response.GetUserMessageMinSeq()}, nil
 }
 
 // Capabilities 返回最近一次 Prefetch 的结果(任意 backendType 第一个命中的);
@@ -527,7 +527,7 @@ func (p *remotePreparedRun) Start(ctx context.Context) (<-chan agentruntime.Even
 	p.session.result.ProviderFallbackKey = ack.ProviderFallbackKey
 	p.session.mu.Unlock()
 	// 与非 Pi 那一路同一条:开轮这一发才落用户行、才有号(准备那一发没有)。
-	p.runtime.adoptDispatchedUserMessageSeq(ctx, p.session.id, ack.UserMessageSeq)
+	p.runtime.adoptDispatchedUserMessageSeq(ctx, p.session.id, ack.UserMessageMinSeq, ack.UserMessageSeq)
 	logger.Ctx(ctx).Info("remote.Runtime: Pi generation started",
 		zap.Int64("sessionId", p.session.id), zap.String("conversationId", ack.ConversationID),
 		zap.String("providerSessionId", ack.ProviderSessionID))
@@ -602,7 +602,7 @@ func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<
 	// 宿主为这一轮的用户消息分配的持久帧号:把游标推进到「我已经持有的内容」,
 	// 补齐从此不再把这条本端自己写下的用户消息交回来(spec 2026-09-07 决策 1)。
 	// 必须用翻译过的 ackSid —— 游标是按本地会话键存的。
-	r.adoptDispatchedUserMessageSeq(ctx, ackSid, ack.UserMessageSeq)
+	r.adoptDispatchedUserMessageSeq(ctx, ackSid, ack.UserMessageMinSeq, ack.UserMessageSeq)
 	logger.Ctx(ctx).Info("remote.Runtime: session started",
 		zap.Int64("sessionId", ackSid), zap.String("conversationId", ack.ConversationID),
 		zap.String("backend", req.Backend.Type))

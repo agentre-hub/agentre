@@ -41,6 +41,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -1377,7 +1378,7 @@ func seedSession(t *testing.T, ctx context.Context, store daemonSessionStore, pe
 // seedTranscriptTurn 落一轮最小转录(用户一行 + 一条 assistant 消息),用来在真库上
 // 观察写入本身的行为(WAL / 句柄隔离 / 库体量)。走的是生产那条 TranscriptPort。
 func seedTranscriptTurn(ctx context.Context, d *Daemon, conversationID, text string) error {
-	_, msg, err := d.transcript.StartTurn(ctx, conversationID, text)
+	_, msg, err := d.transcript.StartTurn(ctx, conversationID, text, nil, transcript.UserSource{})
 	if err != nil || msg == nil {
 		return err
 	}
@@ -1387,6 +1388,41 @@ func seedTranscriptTurn(ctx context.Context, d *Daemon, conversationID, text str
 		return err
 	}
 	return d.transcript.FinishTurn(ctx, msg)
+}
+
+// Given 一条由带设备身份的对端(浏览器控制台 / 手机)提交的轮次;
+// When  去 agentred 自己的库里看用户那一行;
+// Then  提交方的设备身份盖在它的第一个文本块里 —— 与插话那一路(SegmentTurn)、与
+//
+//	桌面端做宿主时(chat_svc.persistPeerMessageSource)同一个位置、同样的键名。
+//
+// 此前它只挂在另发的那条 user_message **预览帧**上,而预览帧不进转录、不带号、也不
+// 参与补齐:重连补齐重放出来的同一句话没有来源,换台机器看就成了「不知道谁说的」。
+func TestDaemon_StartTurn_StampsTheSubmittingPeerOntoTheUserRow(t *testing.T) {
+	d, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	ctx := dbpkg.WithContextDB(context.Background(), d.db)
+	seedSession(t, ctx, d.sessionStore, "peerA", "s1", wire.SessionLifecycleRunning)
+
+	user, assistant, err := d.transcript.StartTurn(ctx, "s1", "看看目录", nil,
+		transcript.UserSource{Device: "sha256:browser", Name: "Edge · macOS"})
+	require.NoError(t, err)
+	require.NotNil(t, assistant)
+	require.NotNil(t, user)
+
+	assert.JSONEq(t,
+		`[{"type":"text","data":{"text":"看看目录","sourceDevice":"sha256:browser","sourceDeviceName":"Edge · macOS"}}]`,
+		user.BlocksJSON,
+		"来源要盖进用户那一行的第一个文本块")
+
+	// 本机自己发的那一句不盖任何来源:空来源与「没有来源」必须是同一种字节,否则同一句话
+	// 在两台宿主上投影出的帧不一样。
+	own, _, err := d.transcript.StartTurn(ctx, "s1", "本机发的", nil, transcript.UserSource{})
+	require.NoError(t, err)
+	require.NotNil(t, own)
+	assert.JSONEq(t, `[{"type":"text","data":{"text":"本机发的"}}]`, own.BlocksJSON)
 }
 
 func TestDaemon_VerificationKeysGivenEmergencyRetirementWhenRefreshedThenDropsOldKey(t *testing.T) {

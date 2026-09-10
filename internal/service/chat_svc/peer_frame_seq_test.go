@@ -619,10 +619,11 @@ func createtimeBySeq(t *testing.T, notifications []wire.JournaledNotification) m
 	return out
 }
 
-// 桌面端做宿主时,发布用户那一行的持久帧要交回**这一发里取到的最高号**:发起方据它把
-// 游标推进到「我已经持有的内容」,补齐于是不再重放它自己写下的那条用户消息
-// (spec 2026-09-07 决策 1、决策 4 的两宿主对称)。没人 attach 过、因而没有编号宇宙时
-// 交回 0 —— 发起方据此不推进游标,行为退回本轮之前。
+// 桌面端做宿主时,发布用户那一行的持久帧要交回**这一发取到的号区间**:发起方拿最低号
+// 比闸门(它与游标之间不许有洞)、拿最高号把游标推到「我已经持有的内容」,补齐于是不再
+// 重放它自己写下的那条用户消息(spec 2026-09-07 决策 1、决策 4 的两宿主对称;区间见
+// 2026-09-07-host-transcript-user-input 决策 4)。没人 attach 过、因而没有编号宇宙时
+// 两个号都交回 0 —— 发起方据此不推进游标,行为退回本轮之前。
 func TestPublishPeerMessageFrames_GivenFramesAllocated_ThenReturnsHighestSeq(t *testing.T) {
 	deps := setupPeerSessionTest(t)
 	ctx := context.Background()
@@ -630,9 +631,10 @@ func TestPublishPeerMessageFrames_GivenFramesAllocated_ThenReturnsHighestSeq(t *
 	user := &chat_entity.Message{ID: 70, SessionID: 41, Role: "user", Seq: 1,
 		BlocksJSON: `[{"type":"text","data":{"text":"hello"}}]`}
 
-	// attach 之前没有编号宇宙:一个号都不取,交回 0。
-	require.Zero(t, deps.svc.publishPeerMessageFrames(ctx, 41, user, true),
-		"没有编号宇宙时不得交回一个宿主并未分配的号")
+	// attach 之前没有编号宇宙:一个号都不取,两个号都交回 0。
+	lowest, highest := deps.svc.publishPeerMessageFrames(ctx, 41, user, true)
+	require.Zero(t, highest, "没有编号宇宙时不得交回一个宿主并未分配的号")
+	require.Zero(t, lowest, "最低号同理")
 
 	deps.session.EXPECT().Find(ctx, int64(41)).Return(&chat_entity.Session{ID: 41, AgentID: 7, AgentStatus: "idle"}, nil)
 	deps.agent.EXPECT().Find(ctx, int64(7)).Return(agentForPeerSession(), nil)
@@ -642,10 +644,23 @@ func TestPublishPeerMessageFrames_GivenFramesAllocated_ThenReturnsHighestSeq(t *
 	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 
-	// 用户那一行只有一个文本块 → 一帧,取到 1 号。
-	require.Equal(t, int64(1), deps.svc.publishPeerMessageFrames(ctx, 41, user, true))
+	// 用户那一行只有一个文本块 → 一帧,取到 1 号;只占一帧时最低号等于最高号。
+	lowest, highest = deps.svc.publishPeerMessageFrames(ctx, 41, user, true)
+	require.Equal(t, int64(1), highest)
+	require.Equal(t, int64(1), lowest)
 
 	// 同一份内容再发一次:一帧都不该重发,也没有新号可交回。
-	require.Zero(t, deps.svc.publishPeerMessageFrames(ctx, 41, user, true),
-		"内容没变就没有新号,不得把上一次的号再报一遍")
+	lowest, highest = deps.svc.publishPeerMessageFrames(ctx, 41, user, true)
+	require.Zero(t, highest, "内容没变就没有新号,不得把上一次的号再报一遍")
+	require.Zero(t, lowest, "最低号同理")
+
+	// 带附件的一条用户消息占两帧:交回的是这一段的闭区间,而不是单个号。
+	// 只回最高号时发起方的闸门(「号正好接在游标之后」)再也不成立,带附件的那一轮
+	// 于是退回补齐重放自己提问的老毛病。
+	withImage := &chat_entity.Message{ID: 71, SessionID: 41, Role: "user", Seq: 2,
+		BlocksJSON: `[{"type":"text","data":{"text":"look"}},` +
+			`{"type":"image","data":{"media_type":"image/png","source":{"inline":"UE5HREFUQQ=="}}}]`}
+	lowest, highest = deps.svc.publishPeerMessageFrames(ctx, 41, withImage, true)
+	require.Equal(t, int64(2), lowest, "闸门要比的是这一段的最低号")
+	require.Equal(t, int64(3), highest, "游标的落点是这一段的最高号")
 }

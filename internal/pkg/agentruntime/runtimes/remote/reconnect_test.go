@@ -1549,35 +1549,51 @@ func TestNotify_TurnStarted_CountsTowardTheSeqGate(t *testing.T) {
 // 「我已经持有的内容」—— 那条用户消息是它自己写下的,补齐不必也不该再交回来
 // (spec 2026-09-07 决策 1)。
 //
-// 推进有闸门,与 skipSeq 同一条:**只有号正好是游标 + 1 才推进**。落后的消费方
-// (重连后补齐还没跑完就发了新一轮)若无条件跳到那个号,中间那几帧就被永久跳过 ——
-// 那是硬不变量 1 的「漏」,比「重」更糟。闸门不成立时游标不动,行为退回本轮之前。
+// 推进有闸门,与 skipSeq 同一条:**最低号必须接在游标之后**(不留洞),推进的落点则是
+// 最高号。落后的消费方(重连后补齐还没跑完就发了新一轮)若无条件跳过去,中间那几帧
+// 就被永久跳过 —— 那是硬不变量 1 的「漏」,比「重」更糟。闸门不成立时游标不动。
+//
+// 最低号是本轮(2026-09-07-host-transcript-user-input 决策 4)加的:带附件的一条用户
+// 消息占不止一帧,只拿最高号比闸门时「最高号 == 游标 + 1」再也不成立,带附件的那一轮
+// 于是退回补齐重放自己提问的老毛病。
 func TestRun_GivenAckCarriesUserMessageSeq_ThenCursorAdvancesOnlyWhenItIsTheVeryNextFrame(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		loaded     int64
+		ackMinSeq  int64
 		ackSeq     int64
 		wantSaved  []int64
 		wantReason string
 	}{
-		{name: "正好是游标+1:推进并落库", loaded: 4, ackSeq: 5, wantSaved: []int64{5}},
-		{name: "宿主没给号:不推进", loaded: 4, ackSeq: 0, wantSaved: nil,
+		{name: "单帧:正好是游标+1,推进并落库", loaded: 4, ackMinSeq: 5, ackSeq: 5, wantSaved: []int64{5}},
+		{name: "宿主没给号:不推进", loaded: 4, ackMinSeq: 0, ackSeq: 0, wantSaved: nil,
 			wantReason: "拿不到号时不得推进到一个自己并不持有的位置"},
-		{name: "号之前有洞:不推进", loaded: 4, ackSeq: 7, wantSaved: nil,
+		{name: "号之前有洞:不推进", loaded: 4, ackMinSeq: 7, ackSeq: 7, wantSaved: nil,
 			wantReason: "跳过 5、6 会让它们永远补不回来 —— 不变量 1 的「漏」"},
-		{name: "号不高于游标:不推进", loaded: 9, ackSeq: 5, wantSaved: nil,
+		{name: "号不高于游标:不推进", loaded: 9, ackMinSeq: 5, ackSeq: 5, wantSaved: nil,
 			wantReason: "游标只前进"},
+		{name: "多帧(带附件):最低号接在游标之后,推进到最高号", loaded: 4, ackMinSeq: 5, ackSeq: 6,
+			wantSaved:  []int64{6},
+			wantReason: "带附件的用户消息占两帧,两帧都是本端自己写下的,游标该盖住整段"},
+		{name: "多帧:最低号之前有洞,不推进", loaded: 4, ackMinSeq: 6, ackSeq: 7, wantSaved: nil,
+			wantReason: "5 号还没拿到,跳过去它就永远补不回来"},
+		{name: "多帧:头一帧已实时到达,仍推进到最高号", loaded: 5, ackMinSeq: 5, ackSeq: 6,
+			wantSaved:  []int64{6},
+			wantReason: "游标已经盖住最低号,后面那一帧同样是本端持有的内容"},
+		{name: "旧宿主只给最高号:不推进", loaded: 4, ackMinSeq: 0, ackSeq: 5, wantSaved: nil,
+			wantReason: "拿不到最低号就判不出有没有洞,退回本轮之前的行为"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			conn := newFakeConn()
 			cursor := &fakeCursorPort{}
 			cursor.setLoad(func(int64, string) (int64, bool, error) { return tc.loaded, true, nil })
-			ackSeq := tc.ackSeq
+			ackSeq, ackMinSeq := tc.ackSeq, tc.ackMinSeq
 			conn.script(func(method string, _, result any) error {
 				if method == wire.MethodRun {
 					*(result.(*wire.RunAck)) = wire.RunAck{
-						ConversationID: convOf(rigSessionID),
-						UserMessageSeq: ackSeq,
+						ConversationID:    convOf(rigSessionID),
+						UserMessageSeq:    ackSeq,
+						UserMessageMinSeq: ackMinSeq,
 					}
 				}
 				return nil
@@ -1616,8 +1632,9 @@ func TestRun_GivenAckCarriesUserMessageSeq_ThenTheCursorIsPersistedBeforeTheDebo
 	conn.script(func(method string, _, result any) error {
 		if method == wire.MethodRun {
 			*(result.(*wire.RunAck)) = wire.RunAck{
-				ConversationID: convOf(rigSessionID),
-				UserMessageSeq: 5,
+				ConversationID:    convOf(rigSessionID),
+				UserMessageSeq:    5,
+				UserMessageMinSeq: 5,
 			}
 		}
 		return nil
@@ -1664,8 +1681,9 @@ func TestRun_GivenTheUserFrameArrivesBeforeTheAck_ThenTheCursorIsStillPersisted(
 			Seq:            5,
 		})
 		*(result.(*wire.RunAck)) = wire.RunAck{
-			ConversationID: convOf(rigSessionID),
-			UserMessageSeq: 5,
+			ConversationID:    convOf(rigSessionID),
+			UserMessageSeq:    5,
+			UserMessageMinSeq: 5,
 		}
 		return nil
 	})

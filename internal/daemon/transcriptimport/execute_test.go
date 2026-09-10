@@ -11,12 +11,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cago-frame/agents/agent/blocks"
+
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	runtimewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
 )
@@ -282,7 +285,7 @@ type fakeTranscriptStore struct {
 }
 
 func (f *fakeTranscriptStore) StartTurn(
-	_ context.Context, conversationID, userText string,
+	_ context.Context, conversationID, userText string, _ []blocks.ContentBlock, _ transcript.UserSource,
 ) (*transcript_entity.Message, *transcript_entity.Message, error) {
 	var user *transcript_entity.Message
 	if userText != "" {

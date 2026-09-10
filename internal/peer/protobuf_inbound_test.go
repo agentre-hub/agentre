@@ -341,12 +341,14 @@ func TestProtobufInboundRegistry_GivenAVerifierThatRejects_ThenRefusesTheHandsha
 // 宿主没给号(拒绝该轮 / 落库前失败)时这一格保持 0,发起方据此不推进游标。
 func TestProtobufInbound_Run_GivenHostNumberedTheUserMessage_ThenResponseCarriesItsHighestFrameSeq(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		resp *chat_svc.SendResponse
-		want int64
+		name    string
+		resp    *chat_svc.SendResponse
+		want    int64
+		wantMin int64
 	}{
-		{name: "宿主给了号", resp: &chat_svc.SendResponse{SessionID: 42, UserMessageSeq: 7}, want: 7},
-		{name: "宿主没给号", resp: &chat_svc.SendResponse{SessionID: 42}, want: 0},
+		{name: "宿主给了号(单帧)", resp: &chat_svc.SendResponse{SessionID: 42, UserMessageSeq: 7, UserMessageMinSeq: 7}, want: 7, wantMin: 7},
+		{name: "带附件:一段两帧", resp: &chat_svc.SendResponse{SessionID: 42, UserMessageSeq: 8, UserMessageMinSeq: 7}, want: 8, wantMin: 7},
+		{name: "宿主没给号", resp: &chat_svc.SendResponse{SessionID: 42}, want: 0, wantMin: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deps := ProtobufInboundDeps{
@@ -370,6 +372,8 @@ func TestProtobufInbound_Run_GivenHostNumberedTheUserMessage_ThenResponseCarries
 				func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
 			require.NoError(t, err)
 			require.Equal(t, tc.want, run.UserMessageSeq)
+			require.Equal(t, tc.wantMin, run.UserMessageMinSeq,
+				"闸门要比的最低号必须一起交回去,否则带附件的那一轮游标推不动")
 		})
 	}
 }

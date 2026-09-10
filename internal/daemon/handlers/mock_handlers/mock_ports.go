@@ -19,8 +19,10 @@ import (
 	agent_backend_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	llm_provider_entity "github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	transcript_entity "github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	agentruntime "github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	transcript "github.com/agentre-hub/agentre/internal/pkg/transcript"
 	agentrewire "github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	blocks "github.com/cago-frame/agents/agent/blocks"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -207,10 +209,26 @@ func (mr *MockTranscriptPortMockRecorder) FinishTurn(ctx, m any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishTurn", reflect.TypeOf((*MockTranscriptPort)(nil).FinishTurn), ctx, m)
 }
 
-// StartTurn mocks base method.
-func (m *MockTranscriptPort) StartTurn(ctx context.Context, conversationID, userText string) (*transcript_entity.Message, *transcript_entity.Message, error) {
+// SegmentTurn mocks base method.
+func (m *MockTranscriptPort) SegmentTurn(ctx context.Context, current *transcript_entity.Message, steers []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StartTurn", ctx, conversationID, userText)
+	ret := m.ctrl.Call(m, "SegmentTurn", ctx, current, steers)
+	ret0, _ := ret[0].([]*transcript_entity.Message)
+	ret1, _ := ret[1].(*transcript_entity.Message)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// SegmentTurn indicates an expected call of SegmentTurn.
+func (mr *MockTranscriptPortMockRecorder) SegmentTurn(ctx, current, steers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SegmentTurn", reflect.TypeOf((*MockTranscriptPort)(nil).SegmentTurn), ctx, current, steers)
+}
+
+// StartTurn mocks base method.
+func (m *MockTranscriptPort) StartTurn(ctx context.Context, conversationID, userText string, userBlocks []blocks.ContentBlock, source transcript.UserSource) (*transcript_entity.Message, *transcript_entity.Message, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartTurn", ctx, conversationID, userText, userBlocks, source)
 	ret0, _ := ret[0].(*transcript_entity.Message)
 	ret1, _ := ret[1].(*transcript_entity.Message)
 	ret2, _ := ret[2].(error)
@@ -218,9 +236,9 @@ func (m *MockTranscriptPort) StartTurn(ctx context.Context, conversationID, user
 }
 
 // StartTurn indicates an expected call of StartTurn.
-func (mr *MockTranscriptPortMockRecorder) StartTurn(ctx, conversationID, userText any) *gomock.Call {
+func (mr *MockTranscriptPortMockRecorder) StartTurn(ctx, conversationID, userText, userBlocks, source any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTurn", reflect.TypeOf((*MockTranscriptPort)(nil).StartTurn), ctx, conversationID, userText)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTurn", reflect.TypeOf((*MockTranscriptPort)(nil).StartTurn), ctx, conversationID, userText, userBlocks, source)
 }
 
 // MockDBStatPort is a mock of DBStatPort interface.

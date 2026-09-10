@@ -37,5 +37,5 @@ func (s *chatSvc) checkpointAssistantNew(ctx context.Context, msg *chat_entity.M
 	}
 	// 块落了库才轮到取号:这是「分配与落库不可分」的那一刻(决策 3)。轮内 checkpoint
 	// 只发已经定稿的那些帧 —— 结尾还会继续长的正文块与消息级派生帧留给收口那一发。
-	s.publishPeerMessageFrames(context.WithoutCancel(ctx), msg.SessionID, msg, false)
+	_, _ = s.publishPeerMessageFrames(context.WithoutCancel(ctx), msg.SessionID, msg, false)
 }

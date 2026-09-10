@@ -367,9 +367,10 @@ export interface RunParams extends WireObject {
    * SourceDevice / SourceDeviceName 是「开新一轮」发起方的设备身份（R18/R19）。
    * 浏览器**每轮**随 runtime.run 声明自己的设备指纹与显示名（如「Chrome · macOS」）：
    * 握手（auth.account）只带指纹、不带显示名，而 R19 要的是「人能认出的名字」，所以
-   * 名字走这里而不是握手。daemon 据此在事件流开头注入一条 user_message 标记，扇出给
-   * 同一条会话的其余订阅者，让桌面端把这一轮落成一行带来源标识的用户消息。桌面端自己
-   * 发消息不传这两个字段 → 不注入、消息不带来源标识，单端界面零变化（R17 既有承诺不变）。
+   * 名字走这里而不是握手。宿主据此把来源盖进**用户那一行**（transcript.StampUserMessageSource），
+   * 它随该行的持久帧投影给同一条会话的其余订阅者，转录里因此看得出「这句话是谁发的」，
+   * 补齐重放出来的那一份也一样。桌面端自己发消息不传这两个字段 → 不盖来源，单端界面
+   * 零变化（R17 既有承诺不变）。
    */
   sourceDevice?: string;
   sourceDeviceName?: string;
@@ -505,6 +506,16 @@ export interface RunAck extends WireObject {
    * 不推进游标 —— 行为退回本轮之前,而不是推进到一个它并不持有的位置。
    */
   userMessageSeq?: number;
+
+  /**
+   * UserMessageMinSeq 是同一条用户消息的**最低持久帧号**。带附件的一条用户消息占
+   * 不止一帧,只有最高号时闸门(「号正好接在游标之后才推进」)再也不成立 —— 带附件
+   * 的那一轮于是退回补齐重放自己提问的老毛病。发起方拿这一格比闸门、拿
+   * UserMessageSeq 定落点(spec 2026-09-07-host-transcript-user-input 决策 4)。
+   *
+   * 只占一帧时它等于 UserMessageSeq。0 与 UserMessageSeq 的 0 同一条处置:不推进。
+   */
+  userMessageMinSeq?: number;
 }
 
 export function decodeRunAck(v: unknown): RunAck {
@@ -523,6 +534,10 @@ export function decodeRunAck(v: unknown): RunAck {
       "RunAck.providerFallbackKey",
     );
     o.userMessageSeq = optNum(o.userMessageSeq, "RunAck.userMessageSeq");
+    o.userMessageMinSeq = optNum(
+      o.userMessageMinSeq,
+      "RunAck.userMessageMinSeq",
+    );
   });
 }
 

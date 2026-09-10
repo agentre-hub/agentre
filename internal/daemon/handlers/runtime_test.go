@@ -22,9 +22,12 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/cago-frame/agents/agent/blocks"
+
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
+
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
@@ -33,6 +36,7 @@ import (
 	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
@@ -1235,10 +1239,12 @@ func TestRuntime_Run_ForwardsAutonomousTurn(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-6", autoDone.Model)
 }
 
-// TestRuntime_Run_UserMessageMarker: R18 —— 浏览器在空闲会话上「开新一轮」时,daemon
-// 在事件流开头注入一条 user_message 标记(携带发起方设备身份与用户文本),扇出给同一条
-// 会话的其余订阅者,让桌面端把这一轮落成一行带来源标识的用户消息。
-func TestRuntime_Run_UserMessageMarker(t *testing.T) {
+// R18 的「发起方标记」已经撤掉:用户那一句现在只以**持久帧**的身份出去一次
+// (见 TestRuntime_Run_GivenPeerSubmittedTurn_ThenTheUserMessageGoesOutExactlyOnce),
+// 提交方身份骑在那一行的正文里。所以带设备身份的一轮也不再往事件流开头插一条
+// user_message —— 没接转录出口的这一档因此一条 user_message 都不发,事件流与本机
+// 发送逐帧一致。
+func TestRuntime_Run_GivenPeerSource_ThenNoUserMessageMarkerIsInjected(t *testing.T) {
 	rt := &fullRT{}
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 		ch := make(chan agentruntime.Event, 3)
@@ -1261,28 +1267,20 @@ func TestRuntime_Run_UserMessageMarker(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 开始 + 标记 + 后端事件 + 终态 = 4 帧。
-	frames := notif.waitFrames(t, 4)
+	// 开始 + 后端事件 + 终态 = 3 帧;标记那一格没有了。
+	frames := notif.waitFrames(t, 3)
 
 	require.Equal(t, wire.NotifyTurnStarted, frames[0].method)
 	require.Equal(t, wire.NotifyEvent, frames[1].method)
 	ef0, ok := frames[1].params.(*wire.EventFrame)
 	require.True(t, ok, "expected EventFrame, got %T", frames[1].params)
 	assert.Equal(t, convID(42), ef0.ConversationID)
-	assert.Equal(t, agentruntime.UserMessageEvent{
-		Text:             "浏览器发来的消息",
-		SourceDevice:     "sha256:web-device",
-		SourceDeviceName: "Chrome · macOS",
-	}, ef0.Event)
-
-	// 后续后端事件原样跟在标记之后。
-	ef1, ok := frames[2].params.(*wire.EventFrame)
-	require.True(t, ok)
-	assert.IsType(t, agentruntime.TextDelta{}, ef1.Event)
+	assert.IsType(t, agentruntime.TextDelta{}, ef0.Event,
+		"开轮之后紧接着的该是后端第一条事件,不是另插的一条 user_message")
 }
 
-// TestRuntime_Run_NoUserMessageMarkerWhenNoSource: R18 单端零变化 —— 桌面端自己发消息
-// 不带 SourceDevice,daemon 不注入 user_message 标记,事件流与今天逐帧一致。
+// 桌面端自己发消息不带 SourceDevice。它与上一条是同一条不变量的两面:带不带设备身份,
+// 事件流里都不该多出一条 user_message 标记。
 func TestRuntime_Run_NoUserMessageMarkerWhenNoSource(t *testing.T) {
 	rt := &fullRT{}
 	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
@@ -4081,7 +4079,7 @@ func TestRuntime_Run_GivenTranscriptStarted_ThenAckCarriesUserMessageHighestFram
 	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
 
 	tp := mock_handlers.NewMockTranscriptPort(ctrl)
-	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "hello").Return(user, assistant, nil).Times(1)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "hello", gomock.Any(), gomock.Any()).Return(user, assistant, nil).Times(1)
 	// 用户那一行只有一个文本块 → 一帧,取到 7 号。
 	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
 		Return([]int64{7}, nil).Times(1)
@@ -4115,4 +4113,237 @@ func TestRuntime_Run_GivenTranscriptStarted_ThenAckCarriesUserMessageHighestFram
 	require.NoError(t, err)
 	require.Equal(t, int64(7), ack.UserMessageSeq,
 		"应答必须带回用户消息的最高持久帧号,否则发起方的游标停在它已经持有的内容之前")
+	require.Equal(t, int64(7), ack.UserMessageMinSeq,
+		"只占一帧时最低号等于最高号")
+}
+
+// 带附件的一条用户消息占不止一帧。应答要把这一段的**闭区间**都交回去:发起方拿最低号
+// 比闸门(它与游标之间不许有洞)、拿最高号定落点。只回最高号时闸门再也不成立,带附件
+// 的那一轮于是退回补齐重放自己提问的老毛病
+// (spec 2026-09-07-host-transcript-user-input 决策 4)。
+func TestRuntime_Run_GivenUserMessageSpansSeveralFrames_ThenAckCarriesBothEndsOfTheRange(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	acc := turn.New()
+	acc.AddText("look at this")
+	acc.AddBlock(blocks.ImageBlock{MediaType: "image/png", Source: blocks.BlobSource{Inline: []byte("PNGDATA")}}, "")
+	user := &transcript_entity.Message{ID: 11, SessionID: 5, Role: "user", Seq: 1}
+	require.NoError(t, user.SetBlocks(acc.Finalize()))
+	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+
+	tp := mock_handlers.NewMockTranscriptPort(ctrl)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "look at this", gomock.Any(), gomock.Any()).Return(user, assistant, nil).Times(1)
+	// 文本块 + 附件块 → 两帧,取到 7、8。
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(2)).
+		Return([]int64{7, 8}, nil).Times(1)
+	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
+
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: tp,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	ack, err := h.Run(context.Background(), wire.RunParams{
+		Backend:        backendJSON(t, be),
+		ConversationID: convID(42),
+		AgentID:        7,
+		Cwd:            "/tmp",
+		UserText:       "look at this",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), ack.UserMessageMinSeq, "闸门要比的是这一段的最低号")
+	assert.Equal(t, int64(8), ack.UserMessageSeq, "游标的落点是这一段的最高号")
+}
+
+// Given 带设备身份的对端(浏览器控制台 / 手机)发起一轮;
+// When  数一数这条会话上出去的事件帧里有几条 user_message;
+// Then  只该有一条 —— 用户那句话在这条会话上只说了一次。
+//
+// 从 3e6f2ced 起 agentred 把用户那一行作为**持久帧**当场发布(beginTranscript →
+// publishDurable),而 R18 的发起方标记(fanout → emitPrelude)照旧又发了一条同样内容的
+// **预览帧**。拿帧重建转录的那两个面(浏览器控制台、桌面端 Peer Tab)对 user_message
+// 一律 pushUserMessage、没有去重,于是同一句话画出两条:持久那条进转录,预览那条进
+// 预览尾巴,而尾巴要等下一个持久帧才清 —— 整个思考阶段它就那么并排挂着。
+func TestRuntime_Run_GivenPeerSubmittedTurn_ThenTheUserMessageGoesOutExactlyOnce(t *testing.T) {
+	// fanout 的收尾日志落在终态帧**之后**。不等它,这条 goroutine 会活过本用例,与下一条
+	// 用例换全局 logger 的那一下撞上(与 runtime_adopt_test.go 同一条纪律)。
+	captured := captureRuntimeLogs(t)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	acc := turn.New()
+	acc.AddText("看看目录")
+	user := &transcript_entity.Message{ID: 11, SessionID: 5, Role: "user", Seq: 1}
+	require.NoError(t, user.SetBlocks(acc.Finalize()))
+	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+
+	tp := mock_handlers.NewMockTranscriptPort(ctrl)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "看看目录", gomock.Any(),
+		transcript.UserSource{Device: "sha256:browser", Name: "Edge · macOS"}).Return(user, assistant, nil).Times(1)
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), int64(5), gomock.Len(1)).
+		Return([]int64{7}, nil).Times(1)
+	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("assistant frames not under test")).AnyTimes()
+
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: tp,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	_, err := h.Run(context.Background(), wire.RunParams{
+		Backend:          backendJSON(t, be),
+		ConversationID:   convID(42),
+		AgentID:          7,
+		Cwd:              "/tmp",
+		UserText:         "看看目录",
+		SourceDevice:     "sha256:browser",
+		SourceDeviceName: "Edge · macOS",
+	})
+	require.NoError(t, err)
+
+	userFrames := func() []*wire.EventFrame {
+		var out []*wire.EventFrame
+		for _, f := range notif.snapshot() {
+			ef, ok := f.params.(*wire.EventFrame)
+			if !ok {
+				continue
+			}
+			if _, isUser := ef.Event.(agentruntime.UserMessageEvent); isUser {
+				out = append(out, ef)
+			}
+		}
+		return out
+	}
+	// 等 fanout 自己收工 = 这一轮的帧全发完了,此刻数才不会漏掉后到的那条。
+	require.Eventually(t, func() bool {
+		return strings.Contains(captured.String(), "handlers.RuntimeHandlers.fanout: session ended")
+	}, 2*time.Second, 10*time.Millisecond)
+
+	got := userFrames()
+	require.Len(t, got, 1, "同一句话只该发一条 user_message 帧,得到 %d 条", len(got))
+	assert.False(t, got[0].Preview, "留下的那条必须是持久帧:预览帧不进转录,也不参与补齐")
+	// 「谁发的」现在骑在用户那一行里,由上面 StartTurn 那条 EXPECT 钉住转发;真的盖进
+	// 块正文由 TestDaemon_StartTurn_StampsTheSubmittingPeerOntoTheUserRow 在真库上验。
+}
+
+// Given 分段那一次落库失败(SegmentTurn 报错);
+// When  这一轮继续跑;
+// Then  那条插话要留在待分段队列里、下一个时机重试 —— 落库失败不该把用户打的字吃掉。
+//
+// 此前 flushPendingSteers 在调 SegmentTurn **之前**就把 pendingSteers 清空了,失败分支
+// 只记一条日志:那一段插话此后既不在库里、也不在队列里,谁也找不回来。它与
+// 「轮末不落」是同一类漏(2026-09-05 不变量 1),只是触发条件是一次写失败。
+func TestRuntime_Run_GivenSegmentTurnFails_ThenTheSteerIsRetriedNotDropped(t *testing.T) {
+	captured := captureRuntimeLogs(t)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	acc := turn.New()
+	acc.AddText("hello")
+	user := &transcript_entity.Message{ID: 11, SessionID: 5, Role: "user", Seq: 1}
+	require.NoError(t, user.SetBlocks(acc.Finalize()))
+	assistant := &transcript_entity.Message{ID: 12, SessionID: 5, Role: "assistant", Seq: 2, BlocksJSON: "[]"}
+
+	tp := mock_handlers.NewMockTranscriptPort(ctrl)
+	tp.EXPECT().StartTurn(gomock.Any(), gomock.Any(), "hello", gomock.Any(), gomock.Any()).
+		Return(user, assistant, nil).Times(1)
+	tp.EXPECT().Checkpoint(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// 收口是本用例唯一确定属于**自己**这一轮的信号:等日志里那句 "session ended" 会
+	// 撞上前面用例泄漏出来的 fanout 协程(全局 logger 是共用的),一撞就在插话还没进
+	// SegmentTurn 时提前收工,断言于是随机判红。FinishTurn 在 flushPendingSteers 之后
+	// 才调,等到它就等到了两次尝试都已发生。
+	finished := make(chan struct{})
+	var finishOnce sync.Once
+	tp.EXPECT().FinishTurn(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, *transcript_entity.Message) error {
+			finishOnce.Do(func() { close(finished) })
+			return nil
+		}).AnyTimes()
+	tp.EXPECT().AllocateFrameSeqs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("frame numbering not under test")).AnyTimes()
+
+	var (
+		segmentMu    sync.Mutex
+		segmentTexts []string
+	)
+	tp.EXPECT().SegmentTurn(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ *transcript_entity.Message, steers []agentruntime.ConsumedSteer) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
+			segmentMu.Lock()
+			defer segmentMu.Unlock()
+			for _, s := range steers {
+				segmentTexts = append(segmentTexts, s.Text)
+			}
+			if len(segmentTexts) == 1 {
+				return nil, nil, errors.New("segment write failed")
+			}
+			return []*transcript_entity.Message{{ID: 13, SessionID: 5, Role: "user", Seq: 3}},
+				&transcript_entity.Message{ID: 14, SessionID: 5, Role: "assistant", Seq: 4, BlocksJSON: "[]"},
+				nil
+		}).AnyTimes()
+
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event, 8)
+		ch <- agentruntime.TextDelta{Text: "before"}
+		ch <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: "q-1", Text: "插一句"}}}
+		ch <- agentruntime.TextDelta{Text: "after"}
+		ch <- agentruntime.Done{}
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	notif := newRecordingOutbound()
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
+		Transcript: tp,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+	})
+
+	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
+	_, err := h.Run(context.Background(), wire.RunParams{
+		Backend: backendJSON(t, be), ConversationID: convID(42), AgentID: 7,
+		Cwd: "/tmp", UserText: "hello",
+	})
+	require.NoError(t, err)
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("这一轮没有收口:FinishTurn 一直没被调到")
+	}
+	// 收工日志落在终态帧之后。不等它,这条 goroutine 会活过本用例,与下一条用例换全局
+	// logger 的那一下撞上(与 runtime_adopt_test.go 同一条纪律)。
+	require.Eventually(t, func() bool {
+		return strings.Contains(captured.String(), "handlers.RuntimeHandlers.fanout: session ended")
+	}, 2*time.Second, 10*time.Millisecond)
+
+	segmentMu.Lock()
+	defer segmentMu.Unlock()
+	require.Equal(t, []string{"插一句", "插一句"}, segmentTexts,
+		"落库失败之后这条插话必须还在队列里等下一个时机,而不是被丢掉")
 }

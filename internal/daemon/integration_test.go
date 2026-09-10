@@ -54,6 +54,7 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 
+	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/provider"
 	dbpkg "github.com/cago-frame/cago/database/db"
 	"github.com/gorilla/websocket"
@@ -3825,6 +3826,17 @@ func TestIntegration_MidTurnCrash_KeepsTheCheckpointedBlocks(t *testing.T) {
 	assert.Equal(t, wantBlocks, rows[1].BlocksJSON, "崩溃前 checkpoint 过的块一个不少")
 }
 
+// daemonMessageFrameSeqs 数一数某一条消息在帧编号台账里占了几个号。0 = 它的持久帧
+// 一个都没发布出去 —— 补齐交不出它,第二个订阅者也永远看不到它。
+func daemonMessageFrameSeqs(t *testing.T, d *Daemon, sessionID, messageID int64) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, d.db.Raw(
+		"SELECT COUNT(*) FROM chat_frame_seqs WHERE session_id = ? AND message_id = ?", sessionID, messageID).
+		Row().Scan(&count))
+	return count
+}
+
 // daemonFrameSeqRows 数一数这条会话在帧编号台账里还剩几行。
 func daemonFrameSeqRows(t *testing.T, d *Daemon, sessionID int64) int64 {
 	t.Helper()
@@ -3884,4 +3896,434 @@ func TestIntegration_SessionList_ReportsTheHighWaterWithoutNumberingAnything(t *
 		"清单报的高水位必须等于补齐拿回的最后一个号")
 	assert.Equal(t, numbered, daemonFrameSeqRows(t, rig.d, sessionID),
 		"实时发布过的内容,补齐时沿用同一串号,不再重编")
+}
+
+// Given 一轮带着附件（浏览器控制台发的图走的就是 runtime.run 的 userBlocks）派发到 agentred;
+// When  去 agentred 自己的库里看那一行用户消息;
+// Then  文本块与附件块都在 —— 附件此前只到模型、从不进宿主的转录
+//
+//	(spec 2026-09-07-host-transcript-user-input 决策 3)。
+//
+// blockCapturingRunner 记下这一轮 backend 真正收到的 UserBlocks —— 「附件送没送去
+// 执行」这件事只有在这里看得见。
+type blockCapturingRunner struct {
+	mu  sync.Mutex
+	got []blocks.ContentBlock
+}
+
+func (*blockCapturingRunner) Capabilities() capability.Capabilities { return capability.Capabilities{} }
+
+func (r *blockCapturingRunner) Run(_ context.Context, req agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.mu.Lock()
+	r.got = append([]blocks.ContentBlock(nil), req.UserBlocks...)
+	r.mu.Unlock()
+	ch := make(chan agentruntime.Event, 1)
+	ch <- agentruntime.Done{}
+	close(ch)
+	return ch, &agentruntime.RunResult{}, nil
+}
+
+func (r *blockCapturingRunner) received() []blocks.ContentBlock {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]blocks.ContentBlock(nil), r.got...)
+}
+
+func TestIntegration_RunWithUserBlocks_LandsAttachmentsInTheUserMessage(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	rt := &blockCapturingRunner{}
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	events, result, err := rig.runner.Run(ctx, agentruntime.RunRequest{
+		Backend: &agent_backend_entity.AgentBackend{
+			Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "test-backend",
+		},
+		AgentID: 1, SessionID: 780, Cwd: rig.dir, UserText: "look at this",
+		UserBlocks: []blocks.ContentBlock{
+			blocks.ImageBlock{MediaType: "image/png", Source: blocks.BlobSource{Inline: []byte("PNGDATA")}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(780))
+		return len(messages) == 2
+	}, 5*time.Second, 20*time.Millisecond, "一轮该落下用户 + assistant 两条消息,得到 %d 条", len(messages))
+
+	assert.Equal(t, "user", messages[0].Role)
+	assert.Equal(t,
+		`[{"type":"text","data":{"text":"look at this"}},`+
+			`{"type":"image","data":{"media_type":"image/png","source":{"inline":"UE5HREFUQQ=="}}}]`,
+		messages[0].BlocksJSON,
+		"附件要与文本一起落进用户那一行")
+
+	// 落转录之外的另一半:这一轮的执行也要收到附件。
+	got := rt.received()
+	require.Len(t, got, 1, "backend 该收到那一个附件块")
+	assert.IsType(t, blocks.ImageBlock{}, got[0], "收到的该是那张图")
+}
+
+// steerThenFinishRunner 把一轮劈成「插话前 / 插话后」两段:Run 先发一条正文停住,
+// 收到 Steer 时发 SteerConsumed + 第二段正文 + Done 并收口。
+type steerThenFinishRunner struct {
+	mu   sync.Mutex
+	live chan agentruntime.Event
+}
+
+func (*steerThenFinishRunner) Capabilities() capability.Capabilities {
+	return capability.Capabilities{}
+}
+
+func (r *steerThenFinishRunner) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.live = make(chan agentruntime.Event, 16)
+	r.live <- agentruntime.TextDelta{Text: "before-steer"}
+	return r.live, &agentruntime.RunResult{}, nil
+}
+
+func (r *steerThenFinishRunner) Steer(_ context.Context, _ int64, queuedID, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.live == nil {
+		return nil
+	}
+	r.live <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: queuedID, Text: text}}}
+	r.live <- agentruntime.TextDelta{Text: "after-steer"}
+	r.live <- agentruntime.Done{}
+	close(r.live)
+	r.live = nil
+	return nil
+}
+
+func (*steerThenFinishRunner) Abort(context.Context, int64, uint64) (agentruntime.AbortOutcome, error) {
+	return agentruntime.AbortOutcome{}, nil
+}
+
+// Given 一轮跑到一半,某台已配对设备插了一句话,后端把它消费掉;
+// When  去 agentred 自己的库里看;
+// Then  当前 assistant 就此收口,后面接着「一行带提交方来源的用户消息 + 一行新
+//
+//	assistant」—— 与桌面端做宿主时(chat_svc.persistConsumedSteers)同形。
+//
+// 此前 agentred 把 SteerConsumed 整个丢掉(internal/pkg/transcript/dispatcher.go:37
+// 不注册它),插话文本一个字都不进转录,前后两段正文还被并成一个块:用户自己打的字
+// 从此哪儿都找不回来,那是 2026-09-05 不变量 1 的「漏」
+// (spec 2026-09-07-host-transcript-user-input 决策 1)。
+func TestIntegration_SteerConsumed_SegmentsTheHostTranscript(t *testing.T) {
+	rt := &steerThenFinishRunner{}
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	events, _ := rig.startRun(t, 790)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, rig.runner.Steer(ctx, 790, "q-1", "follow-up-from-user"))
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	// 先等这一轮在 daemon 侧落完(后半段正文已经落库),再断言形状 —— 否则失败信息
+	// 只会说「条件不满足」,看不出实际落成了几行。
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(790))
+		return len(messages) >= 2 &&
+			strings.Contains(messages[len(messages)-1].BlocksJSON, "after-steer")
+	}, 5*time.Second, 20*time.Millisecond, "等这一轮在 daemon 侧落完")
+	require.Len(t, messages, 4,
+		"插话要把这一轮切成四行(提问 / 前半段 / 插话 / 后半段),实际落成 %s",
+		daemonRoleSummary(messages))
+
+	assert.Equal(t, "user", messages[0].Role)
+	assert.Equal(t, `[{"type":"text","data":{"text":"hi"}}]`, messages[0].BlocksJSON)
+	assert.Equal(t, "assistant", messages[1].Role)
+	assert.Equal(t, `[{"type":"text","data":{"text":"before-steer"}}]`, messages[1].BlocksJSON,
+		"插话之前那一段就此收口,不再与后半段并成一个块")
+	assert.Equal(t, "user", messages[2].Role)
+	assert.Equal(t,
+		`[{"type":"text","data":{"sourceDevice":"`+rigDeviceFingerprint+`","sourceDeviceName":"test-mac",`+
+			`"text":"follow-up-from-user"}}]`,
+		messages[2].BlocksJSON,
+		"插话落成一行用户消息,并带**提交方**的来源标识(R17)")
+	assert.Equal(t, "assistant", messages[3].Role)
+	assert.Equal(t, `[{"type":"text","data":{"text":"after-steer"}}]`, messages[3].BlocksJSON)
+
+	// 这四行都要有持久帧号 —— 没有号的内容补齐交不出去,第二个订阅者也永远看不到它。
+	for i, m := range messages {
+		assert.NotZero(t, daemonMessageFrameSeqs(t, rig.d, m.SessionID, m.ID),
+			"第 %d 行(role=%s)的持久帧必须已经取号发布", i, m.Role)
+	}
+}
+
+// daemonRoleSummary 把一串消息压成「role:正文」的可读摘要,用在断言失败信息里。
+func daemonRoleSummary(messages []*transcript_entity.Message) string {
+	parts := make([]string, 0, len(messages))
+	for _, m := range messages {
+		parts = append(parts, m.Role+":"+m.BlocksJSON)
+	}
+	return strings.Join(parts, " | ")
+}
+
+// steerDuringToolRunner 精确重现 claudecode 的真实次序:PostToolUse hook 在 CLI 写出
+// tool_result 帧**之前**就 drain 走排队消息,所以 SteerConsumed 会先于同一个工具的
+// ToolResult 到达。
+type steerDuringToolRunner struct {
+	mu   sync.Mutex
+	live chan agentruntime.Event
+}
+
+func (*steerDuringToolRunner) Capabilities() capability.Capabilities {
+	return capability.Capabilities{}
+}
+
+func (r *steerDuringToolRunner) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.live = make(chan agentruntime.Event, 16)
+	r.live <- agentruntime.ToolCall{ID: "tu-1", Name: "Read", Input: []byte(`{"path":"README.md"}`)}
+	return r.live, &agentruntime.RunResult{}, nil
+}
+
+func (r *steerDuringToolRunner) Steer(_ context.Context, _ int64, queuedID, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.live == nil {
+		return nil
+	}
+	// 工具还在途:插话先到。
+	r.live <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: queuedID, Text: text}}}
+	r.live <- agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"}
+	r.live <- agentruntime.TextDelta{Text: "after-tool"}
+	r.live <- agentruntime.Done{}
+	close(r.live)
+	r.live = nil
+	return nil
+}
+
+func (*steerDuringToolRunner) Abort(context.Context, int64, uint64) (agentruntime.AbortOutcome, error) {
+	return agentruntime.AbortOutcome{}, nil
+}
+
+// Given 工具还在途时插话就被消费掉(claudecode 的真实次序);
+// When  这一轮跑完;
+// Then  分段发生在 tool_result **之后** —— tool_use 与它的 tool_result 留在同一条
+//
+//	assistant 里,插话那一行排在它们后面。
+//
+// 此刻就收口会把 tool_use 冻在旧消息里,随后的 tool_result 在新累加器里查不到它、
+// 被当孤儿丢弃,工具卡永远停在 running。判据与桌面端同一条(chat_svc 的
+// turnRun.applyLive:HasOpenToolUse 时先攒着)。
+func TestIntegration_SteerConsumedWhileToolInFlight_SegmentsAfterTheToolResult(t *testing.T) {
+	rt := &steerDuringToolRunner{}
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	events, _ := rig.startRun(t, 791)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, rig.runner.Steer(ctx, 791, "q-1", "mid-tool-steer"))
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(791))
+		return len(messages) >= 2 &&
+			strings.Contains(messages[len(messages)-1].BlocksJSON, "after-tool")
+	}, 5*time.Second, 20*time.Millisecond, "等这一轮在 daemon 侧落完")
+	require.Len(t, messages, 4, "实际落成 %s", daemonRoleSummary(messages))
+
+	assert.Equal(t,
+		`[{"type":"tool_use","data":{"id":"tu-1","name":"Read","input":{"path":"README.md"}}},`+
+			`{"type":"tool_result","data":{"tool_use_id":"tu-1","content":[{"type":"text","data":{"text":"ok"}}]}}]`,
+		messages[1].BlocksJSON,
+		"tool_use 与它的 tool_result 必须留在同一条 assistant 里 —— 分段要等工具收口")
+	assert.Contains(t, messages[2].BlocksJSON, "mid-tool-steer", "插话排在工具那一段之后")
+	assert.Equal(t, `[{"type":"text","data":{"text":"after-tool"}}]`, messages[3].BlocksJSON)
+}
+
+// Given 桌面端按 buildRunRequest 的**生产形状**派一轮过来 —— UserText 是这句话,
+//
+//	UserBlocks 是那条用户消息的**全部**块(chat.go:2468 `req.UserBlocks = bs`,
+//	因此第一个就是同一句话的文本块),后面才跟着附件;
+//
+// When  去 agentred 自己的库里看那一行用户消息;
+// Then  这句话只落一个文本块 —— 文本不得既从 UserText 落一遍、又从 UserBlocks 里
+//
+//	那个文本块再落一遍。
+func TestIntegration_RunWithUserBlocksCarryingTheText_DoesNotLandTheTextTwice(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	rt := &blockCapturingRunner{}
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	events, result, err := rig.runner.Run(ctx, agentruntime.RunRequest{
+		Backend: &agent_backend_entity.AgentBackend{
+			Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "test-backend",
+		},
+		AgentID: 1, SessionID: 781, Cwd: rig.dir, UserText: "look at this",
+		UserBlocks: []blocks.ContentBlock{
+			&blocks.TextBlock{Text: "look at this"},
+			blocks.ImageBlock{MediaType: "image/png", Source: blocks.BlobSource{Inline: []byte("PNGDATA")}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(781))
+		return len(messages) == 2
+	}, 5*time.Second, 20*time.Millisecond, "一轮该落下用户 + assistant 两条消息,得到 %d 条", len(messages))
+
+	assert.Equal(t,
+		`[{"type":"text","data":{"text":"look at this"}},`+
+			`{"type":"image","data":{"media_type":"image/png","source":{"inline":"UE5HREFUQQ=="}}}]`,
+		messages[0].BlocksJSON,
+		"同一句话不得落成两个文本块")
+}
+
+// steerWhileToolNeverResolvesRunner 重现「在途 tool_use 的结果根本不走流」那一类工具
+// (AskUserQuestion):插话被消费时工具还开着,而它的 tool_result 永远不会到 ——
+// 随后到的是普通正文,再往后这一轮就收尾了。
+type steerWhileToolNeverResolvesRunner struct {
+	mu   sync.Mutex
+	live chan agentruntime.Event
+	// tail 是插话之后这一轮还要发的全部事件(含 Done)。空表示 SteerConsumed 就是
+	// 流上的最后一件事,通道紧接着关掉 —— 那一路走的是 finish 的收口兜底。
+	tail []agentruntime.Event
+}
+
+func (*steerWhileToolNeverResolvesRunner) Capabilities() capability.Capabilities {
+	return capability.Capabilities{}
+}
+
+func (r *steerWhileToolNeverResolvesRunner) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.live = make(chan agentruntime.Event, 16)
+	r.live <- agentruntime.ToolCall{ID: "tu-1", Name: "AskUserQuestion", Input: []byte(`{"q":"which"}`)}
+	return r.live, &agentruntime.RunResult{}, nil
+}
+
+func (r *steerWhileToolNeverResolvesRunner) Steer(_ context.Context, _ int64, queuedID, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.live == nil {
+		return nil
+	}
+	r.live <- agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: queuedID, Text: text}}}
+	for _, ev := range r.tail {
+		r.live <- ev
+	}
+	close(r.live)
+	r.live = nil
+	return nil
+}
+
+func (*steerWhileToolNeverResolvesRunner) Abort(context.Context, int64, uint64) (agentruntime.AbortOutcome, error) {
+	return agentruntime.AbortOutcome{}, nil
+}
+
+// Given 挂着一个结果永远不入流的 tool_use(AskUserQuestion 这类),插话在此刻被消费,
+//
+//	随后到的是普通正文而不是 tool_result;
+//
+// When  这一轮跑完;
+// Then  分段最多推迟一个事件就落地:tool_use 那一段就此收口,插话排在它后面,后半段
+//
+//	正文落进新开的那条 assistant。
+//
+// 桌面端做宿主时这条规则早就有(chat_svc.turnRun.applyLive 的「推迟至多一个事件」,
+// 用例 TestSend_SteerConsumedSplitsAnywayWhenPendingToolNeverResolves),而 agentred
+// 只在「工具收口」那一刻才 flush —— 结果不止是分段位置不同:插话被一路拖到轮末,再由
+// turnTranscript.finish 连同 pendingSteers 一起丢掉,用户自己打的字哪儿都找不回来。
+// 同一件事两台宿主两种结果,正是 8012c2b3 要治的那条(决策 1)。
+func TestIntegration_SteerWhileToolNeverResolves_SegmentsAnyway(t *testing.T) {
+	rt := &steerWhileToolNeverResolvesRunner{
+		tail: []agentruntime.Event{agentruntime.TextDelta{Text: "after-steer"}, agentruntime.Done{}},
+	}
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	events, _ := rig.startRun(t, 792)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, rig.runner.Steer(ctx, 792, "q-1", "never-resolving-steer"))
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(792))
+		return len(messages) >= 2 &&
+			strings.Contains(messages[len(messages)-1].BlocksJSON, "after-steer")
+	}, 5*time.Second, 20*time.Millisecond, "等这一轮在 daemon 侧落完")
+	require.Len(t, messages, 4,
+		"插话要把这一轮切成四行(提问 / 前半段 / 插话 / 后半段),实际落成 %s",
+		daemonRoleSummary(messages))
+
+	assert.Equal(t,
+		`[{"type":"tool_use","data":{"id":"tu-1","name":"AskUserQuestion","input":{"q":"which"}}}]`,
+		messages[1].BlocksJSON,
+		"永远等不到 tool_result 的那一段就此收口,推迟必须是有界的")
+	assert.Equal(t,
+		`[{"type":"text","data":{"sourceDevice":"`+rigDeviceFingerprint+`","sourceDeviceName":"test-mac",`+
+			`"text":"never-resolving-steer"}}]`,
+		messages[2].BlocksJSON,
+		"插话落成一行用户消息 —— 拖到轮末就会被 finish 连同 pendingSteers 一起丢掉")
+	assert.Equal(t, `[{"type":"text","data":{"text":"after-steer"}}]`, messages[3].BlocksJSON,
+		"分段之后的正文落在新 assistant 上,说明推迟是有界的")
+
+	for i, m := range messages {
+		assert.NotZero(t, daemonMessageFrameSeqs(t, rig.d, m.SessionID, m.ID),
+			"第 %d 行(role=%s)的持久帧必须已经取号发布", i, m.Role)
+	}
+}
+
+// Given 同样挂着一个结果永远不入流的 tool_use,而插话就是事件流上的**最后**一件事
+//
+//	(子进程随即消失 / 生成号作废,通道直接关掉,没有第二个事件来触发「推迟至多
+//	一个事件」);
+//
+// When  这一轮收口;
+// Then  收口那一刻仍要把它落下 —— 插话已经被后端消费进这一轮的上下文了,不落就是
+//
+//	用户打的字进了模型却没进转录,谁也找不回来。桌面端做宿主时是落的
+//	(chat_svc.turnRun.finalize 开头无条件 flushPendingSteers)。
+func TestIntegration_SteerAsTheLastEventOfTheTurn_StillLandsAtFinish(t *testing.T) {
+	rt := &steerWhileToolNeverResolvesRunner{}
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+
+	events, _ := rig.startRun(t, 793)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, rig.runner.Steer(ctx, 793, "q-1", "last-word"))
+	drainRuntimeEvents(t, events, 5*time.Second)
+
+	var messages []*transcript_entity.Message
+	require.Eventually(t, func() bool {
+		messages = daemonMessages(t, rig.d, convID(793))
+		return len(messages) >= 4
+	}, 5*time.Second, 20*time.Millisecond, "等这一轮在 daemon 侧收口")
+	require.Len(t, messages, 4,
+		"收口那一刻插话要落进转录(提问 / 前半段 / 插话 / 新开的一段),实际落成 %s",
+		daemonRoleSummary(messages))
+
+	assert.Equal(t,
+		`[{"type":"text","data":{"sourceDevice":"`+rigDeviceFingerprint+`","sourceDeviceName":"test-mac",`+
+			`"text":"last-word"}}]`,
+		messages[2].BlocksJSON,
+		"轮末那一刻仍要落下插话那一行")
+	assert.NotZero(t, daemonMessageFrameSeqs(t, rig.d, messages[2].SessionID, messages[2].ID),
+		"插话那一行的持久帧必须已经取号发布 —— 没有号的内容补齐交不出去")
 }

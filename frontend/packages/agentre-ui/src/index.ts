@@ -1089,7 +1089,10 @@ export type {
 export { CommandCard } from "./onboarding/command-card";
 export type { CommandCardProps } from "./onboarding/command-card";
 export { GuideStepRail } from "./onboarding/guide-step-rail";
-export type { GuideStep, GuideStepRailProps } from "./onboarding/guide-step-rail";
+export type {
+  GuideStep,
+  GuideStepRailProps,
+} from "./onboarding/guide-step-rail";
 export {
   AgentredInstallDocsLink,
   AgentredInstallSection,

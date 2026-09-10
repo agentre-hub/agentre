@@ -290,6 +290,7 @@ func registerPeerSessionMethods(registry *protorpc.Registry, deps ProtobufInboun
 		out := &agentrewire.RuntimeRunResponse{ConversationId: p.ConversationID}
 		if sent != nil {
 			out.UserMessageSeq = sent.UserMessageSeq
+			out.UserMessageMinSeq = sent.UserMessageMinSeq
 		}
 		return out, nil
 	}))

@@ -6768,8 +6768,16 @@ type RuntimeRunResponse struct {
 	// 0 = 宿主没给(拒绝该轮、落库前失败,或对端是不认这一格的旧构建)——
 	// 发起方此时不推进游标。
 	UserMessageSeq int64 `protobuf:"varint,5,opt,name=user_message_seq,json=userMessageSeq,proto3" json:"user_message_seq,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// 本轮用户消息的**最低持久帧号**。带附件的一条用户消息占不止一帧,只有最高号
+	// 时游标闸门(「号正好接在游标之后才推进」)再也不成立 —— 带附件的那一轮于是退回
+	// 补齐重放自己提问的老毛病。发起方拿这一格比闸门、拿 user_message_seq 定落点
+	// (spec 2026-09-07-host-transcript-user-input 决策 4)。
+	//
+	// 0 = 宿主没给,与 user_message_seq 同一条处置:不推进游标。只占一帧时它等于
+	// user_message_seq。
+	UserMessageMinSeq int64 `protobuf:"varint,6,opt,name=user_message_min_seq,json=userMessageMinSeq,proto3" json:"user_message_min_seq,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *RuntimeRunResponse) Reset() {
@@ -6833,6 +6841,13 @@ func (x *RuntimeRunResponse) GetProviderFallbackKey() string {
 func (x *RuntimeRunResponse) GetUserMessageSeq() int64 {
 	if x != nil {
 		return x.UserMessageSeq
+	}
+	return 0
+}
+
+func (x *RuntimeRunResponse) GetUserMessageMinSeq() int64 {
+	if x != nil {
+		return x.UserMessageMinSeq
 	}
 	return 0
 }
@@ -14283,13 +14298,14 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x10reasoning_effort\x18\x19 \x01(\tR\x0freasoningEffort\x1aA\n" +
 	"\x13EnabledPluginsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\x81\x02\n" +
+	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\xb2\x02\n" +
 	"\x12RuntimeRunResponse\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12.\n" +
 	"\x13provider_session_id\x18\x02 \x01(\tR\x11providerSessionId\x124\n" +
 	"\x16launch_permission_mode\x18\x03 \x01(\tR\x14launchPermissionMode\x122\n" +
 	"\x15provider_fallback_key\x18\x04 \x01(\tR\x13providerFallbackKey\x12(\n" +
-	"\x10user_message_seq\x18\x05 \x01(\x03R\x0euserMessageSeq\"\xdb\x03\n" +
+	"\x10user_message_seq\x18\x05 \x01(\x03R\x0euserMessageSeq\x12/\n" +
+	"\x14user_message_min_seq\x18\x06 \x01(\x03R\x11userMessageMinSeq\"\xdb\x03\n" +
 	"\x12RuntimeGoalRequest\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x19\n" +

@@ -179,6 +179,27 @@ func (t *turnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
 	if ev == nil {
 		return
 	}
+	// 宿主分段之后发来的那一行用户消息(持久帧投影)。它只到得了这条流 —— 插话在
+	// 实时那一路是**预览帧**(不进转录),宿主落库、取号之后才作为持久帧回来,所以
+	// 认领必须发生在这里而不是 applyLive(自主续轮那一路同样在 applyDurable 认领)。
+	//
+	// 判据是**来源标识**:本轮自己那条提问不带来源(宿主的 StartTurn 不盖),插话
+	// 那一行必带(daemon 的 Steer handler 无条件记下提交方)。游标闸门不成立时自己
+	// 那条提问会照常送达 —— 无条件分段就凭空多出一行提问。不做内容比对:
+	// 2026-09-07 决策 1 的 Rejected A 拒的正是那条路。
+	if um, ok := ev.(agentruntime.UserMessageEvent); ok {
+		if um.SourceDevice == "" {
+			return
+		}
+		t.pendingSteers = append(t.pendingSteers, agentruntime.ConsumedSteer{
+			Text: um.Text, SourcePeer: um.SourceDevice, SourceName: um.SourceDeviceName,
+		})
+		// 工具在途时先不分段,理由与 SteerConsumed 那一处同源(见 applyLive)。
+		if !t.acc.HasOpenToolUse() {
+			t.flushPendingSteers(ctx)
+		}
+		return
+	}
 	if t.durableCtx == nil {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	}
@@ -253,6 +274,17 @@ func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview 
 	//     且缺 Message 字段。
 	switch e := ev.(type) {
 	case agentruntime.SteerConsumed:
+		// 两级帧:预览帧**只驱动呈现**(规格 2026-09-05)。远端那一路的插话由宿主
+		// 落进转录、取号,再作为持久帧回来 —— 在这里落库会把同一段写两遍
+		// (spec 2026-09-07-host-transcript-user-input 决策 2)。chip 仍在这一刻清掉:
+		// 它是呈现,不是转录。
+		if preview {
+			t.previewAcc = nil
+			t.svc.emitter.Emit(ctx, t.stream, ChatStreamEvent{
+				Kind: StreamSteerConsumed, QueuedIDs: consumedSteerIDs(e.Steers),
+			})
+			return
+		}
 		t.pendingSteers = append(t.pendingSteers, e.Steers...)
 		// 工具在途时先不分段:claudecode 的 PostToolUse hook 在 CLI 写出
 		// tool_result 帧**之前**就 drain 走排队消息,SteerConsumed 因此会先于

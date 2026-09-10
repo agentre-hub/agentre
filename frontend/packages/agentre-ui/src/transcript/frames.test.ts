@@ -33,8 +33,11 @@ import {
  */
 
 let seq = 0;
-function f(event: Record<string, unknown>): TranscriptFrame {
-  return { sessionId: 1, event, seq: ++seq };
+function f(
+  event: Record<string, unknown>,
+  createtime?: number,
+): TranscriptFrame {
+  return { sessionId: 1, event, seq: ++seq, createtime };
 }
 
 const SID = 1;
@@ -200,6 +203,46 @@ describe("reduceFrames:消息与正文", () => {
 
     expect(msg.errorText).toBe("connection reset by peer");
     expect(msg.blocks.map((b) => b.type)).toEqual(["text"]);
+  });
+
+  /**
+   * 同一轮里的第二条 `error` 是**同一件事的第二个载体**，不是第二次出错。
+   *
+   * 出错的一轮在 wire 上把停止原因说两遍：runtime 自己 emit 一条 `ErrorEvent`
+   * （openclaw 的 `activeTurn.finish`、piagent 的 `drainStream` 都是「`result.StopErr`
+   * 落好之后再 `out <- ErrorEvent{Err: stopErr}`」），agentred 的 fanout 又把
+   * `RunResult.StopErr` 盖在终态帧的 `stopErrMsg` 上 —— 而宿主拿终态帧合成 `error`
+   * 是必须的：对端**启动就失败**的那一轮事件流里一条助手事件都没有，不合成就整轮静默消失。
+   * 两条路都得留着，于是真跑起来才失败的那一轮会连着收到两条 `error`。
+   *
+   * 落点因此与 `done` 同一条：`st.turn`。此前这里走的是 `openAssistant()`，而第一条
+   * `error` 刚把 `st.open` 收掉 —— 第二条于是**新起一条助手消息**，同一句报错在控制台上
+   * 画成两条消息、两张错误卡，终态帧的 meta 还跟着挂到那条凭空多出来的消息上。
+   */
+  it("给定同一轮里来了两条 error，当归约，则仍只有一条助手消息", () => {
+    const msgs = reduceFrames(
+      [
+        f({ kind: "text_delta", text: "我先看一下" }),
+        f({ kind: "error", message: "gateway: 429 rate limited" }),
+        f({ kind: "error", message: "gateway: 429 rate limited" }),
+      ],
+      SID,
+    );
+
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].errorText).toBe("gateway: 429 rate limited");
+    expect(msgs[0].blocks.map((b) => b.type)).toEqual(["text"]);
+  });
+
+  /** 一条助手事件都没有的失败轮次仍要凭空长出那条消息，否则整轮静默消失。 */
+  it("给定一轮里只有 error，当归约，则新起一条助手消息承载它", () => {
+    const msgs = reduceFrames(
+      [f({ kind: "error", message: "subprocess exited on startup" })],
+      SID,
+    );
+
+    expect(msgs.map((m) => m.role)).toEqual(["assistant"]);
+    expect(msgs[0].errorText).toBe("subprocess exited on startup");
   });
 });
 
@@ -616,6 +659,110 @@ describe("reduceSessionState:会话级状态", () => {
     ]);
 
     expect(st.permissionMode).toBe("acceptEdits");
+  });
+});
+
+/**
+ * 重试提示。
+ *
+ * 它跟上面两样同属「认得但不进正文」那一档（`applyFrame` 里 `EventRetry` 是
+ * `return`），归宿却不是底栏而是转录末行那张 `RetryNoticeCard` —— 桌面端的原话是
+ * 「只 emit 不落 block」：上游连不上、runtime 正在等下一次尝试，这件事必须当场看得
+ * 见，但它不是对话内容，一轮重试三次不该在正文里留三段。
+ *
+ * 所以它是**瞬时态**，寿命由归约器自己管：
+ *
+ *   - `retry` 帧点亮，后一条盖掉前一条（第 2 次尝试不该跟第 1 次并排挂着）；
+ *   - **任何落进正文的帧**熄灭它 —— 正文长出了新东西，就等于上一次重试已经成功；
+ *   - 遥测与会话级的帧**不熄灭**：那些帧在重试等待期间照样一条条来（每次 API call
+ *     一条 usage），拿它们当「模型开口了」的证据，卡片会在真正连上之前就消失。
+ *
+ * 这三条不是新定的，是桌面端 `chat-streams-host` 那十来处 `clearLiveRetry` 的规则，
+ * 在这里收成一处。
+ */
+describe("reduceSessionState:重试提示", () => {
+  it("给定一条 retry 帧，当归约，则点亮提示并按 wire 的拼法取到四个字段与发生时刻", () => {
+    const st = reduceSessionState([
+      f(
+        {
+          kind: "retry",
+          message: "Connection error",
+          details: "upstream 502",
+          attempt: 1,
+          max: 3,
+        },
+        1_757_000_000_000,
+      ),
+    ]);
+
+    // max → maxAttempts 这一跳是要紧的：wire 的 `Retry` 叫 `max`，而卡片读的是
+    // `maxAttempts`（桌面端 Wails 侧的拼法）。照抄字段名的实现会让「1/3」变成「1」。
+    expect(st.retry).toEqual({
+      attempt: 1,
+      maxAttempts: 3,
+      message: "Connection error",
+      details: "upstream 502",
+      at: 1_757_000_000_000,
+    });
+  });
+
+  it("时刻取帧的 createtime，取不到时留 0（不就地补 now，补齐回放会盖上今天的时间）", () => {
+    const st = reduceSessionState([f({ kind: "retry", message: "boom" })]);
+
+    expect(st.retry?.at).toBe(0);
+  });
+
+  it("后一次尝试盖掉前一次", () => {
+    const st = reduceSessionState([
+      f({ kind: "retry", message: "boom", attempt: 1, max: 3 }),
+      f({ kind: "retry", message: "boom", attempt: 2, max: 3 }),
+    ]);
+
+    expect(st.retry?.attempt).toBe(2);
+  });
+
+  it("正文帧到达 = 这一次重试已经成功，提示熄灭", () => {
+    const st = reduceSessionState([
+      f({ kind: "retry", message: "boom", attempt: 1, max: 3 }),
+      f({ kind: "text_delta", text: "好的" }),
+    ]);
+
+    expect(st.retry).toBeNull();
+  });
+
+  it("轮次结束（done）也熄灭：没有哪一轮该带着「正在重试」收尾", () => {
+    const st = reduceSessionState([
+      f({ kind: "retry", message: "boom", attempt: 1, max: 3 }),
+      f({ kind: "done", model: "opus" }),
+    ]);
+
+    expect(st.retry).toBeNull();
+  });
+
+  // 等待期间照样一条条来的那些帧。任何一条被当成「模型开口了」，卡片都会在真正
+  // 连上之前先消失 —— 用户于是对着一段不动的转录，分不清是在重试还是发丢了。
+  it.each([
+    ["output_activity", { kind: "output_activity" }],
+    ["usage", { kind: "usage", totalInputTokens: 100 }],
+    ["context_window_updated", { kind: "context_window_updated", tokens: 200 }],
+    ["runtime_status", { kind: "runtime_status", status: "requesting" }],
+    [
+      "permission_mode_changed",
+      { kind: "permission_mode_changed", mode: "plan" },
+    ],
+  ])("%s 不熄灭提示：它不是「模型开口了」的证据", (_name, event) => {
+    const st = reduceSessionState([
+      f({ kind: "retry", message: "boom", attempt: 1, max: 3 }),
+      f(event),
+    ]);
+
+    expect(st.retry?.attempt).toBe(1);
+  });
+
+  it("一条 retry 帧都没有时是 null（不编一个提示出来）", () => {
+    const st = reduceSessionState([f({ kind: "text_delta", text: "你好" })]);
+
+    expect(st.retry).toBeNull();
   });
 });
 

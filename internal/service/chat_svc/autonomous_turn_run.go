@@ -278,10 +278,20 @@ func (t *autonomousTurnRun) flushPendingSteers(ctx context.Context) {
 // consumeSteer 认领 SteerConsumed 并报告「这条事件已处理,不要进 dispatcher」。
 // 分段不走 dispatcher —— 它是 assistantMsg/acc/segmentStart/turnCtx 这四个字段的
 // 整体替换,handler 接口表达不了(与 runTurn 的 switch 同一个理由)。
-func (t *autonomousTurnRun) consumeSteer(ctx context.Context, ev agentruntime.Event) bool {
+func (t *autonomousTurnRun) consumeSteer(ctx context.Context, ev agentruntime.Event, preview bool) bool {
 	sc, ok := ev.(agentruntime.SteerConsumed)
 	if !ok {
 		return false
+	}
+	// 预览帧只驱动呈现:落库归 at.Events 上的持久帧,理由与 turnRun 那一处同源
+	// (spec 2026-09-07-host-transcript-user-input 决策 2)。chip 仍在这一刻清掉 ——
+	// 它是呈现,不是转录。
+	if preview {
+		t.previewAcc = nil
+		t.svc.emitter.Emit(ctx, t.stream, ChatStreamEvent{
+			Kind: StreamSteerConsumed, QueuedIDs: consumedSteerIDs(sc.Steers),
+		})
+		return true
 	}
 	t.pendingSteers = append(t.pendingSteers, sc.Steers...)
 	// 工具在途时先不分段:claudecode 的 PostToolUse hook 在 CLI 写出 tool_result
@@ -313,7 +323,7 @@ func (t *autonomousTurnRun) consumeEvents(ctx context.Context) {
 		switch {
 		case t.previews != nil:
 			t.applyDurable(ctx, t.first)
-		case !t.consumeSteer(ctx, t.first):
+		case !t.consumeSteer(ctx, t.first, false):
 			if err := t.svc.dispatcher.Apply(ctx, t.first, t.acc, t.dispEmit, nil, t.turnCtx); err != nil {
 				logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
 					zap.String("eventType", fmt.Sprintf("%T", t.first)), zap.Error(err))
@@ -384,6 +394,20 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 	if ev == nil {
 		return
 	}
+	// 宿主分段之后发来的那一行用户消息(持久帧投影)。判据是**来源标识**,与 turnRun
+	// 那一处同源:本轮自己那条提问不带来源,插话那一行必带。
+	if um, ok := ev.(agentruntime.UserMessageEvent); ok {
+		if um.SourceDevice == "" {
+			return
+		}
+		t.pendingSteers = append(t.pendingSteers, agentruntime.ConsumedSteer{
+			Text: um.Text, SourcePeer: um.SourceDevice, SourceName: um.SourceDeviceName,
+		})
+		if !t.acc.HasOpenToolUse() {
+			t.flushPendingSteers(ctx)
+		}
+		return
+	}
 	if t.durableCtx == nil {
 		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
 	}
@@ -400,7 +424,7 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 // 累积进 acc。preview=true 时累积进用完即弃的那只 —— 落库归 at.Events 上的持久帧。
 func (t *autonomousTurnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview bool) {
 	t.svc.publishPeerEvent(t.sessionID, ev)
-	if t.consumeSteer(ctx, ev) {
+	if t.consumeSteer(ctx, ev, preview) {
 		return
 	}
 	acc := t.liveAcc(preview)

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
 	"github.com/cago-frame/cago/pkg/logger"
@@ -90,6 +92,13 @@ func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, sou
 	if err := conversationid.Validate(params.ConversationID); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrPeerSessionInvalidID, err)
 	}
+	// 附件在最前面解:解不开就拒绝整轮,而不是丢掉附件照跑 —— 静默跑一轮「用户以为
+	// 发了图、模型没看见」的对话,比一个明确的错误更糟。解在建会话之前,失败时库里
+	// 也不会留下一条为它新建的空会话(spec 2026-09-07-host-transcript-user-input 决策 3)。
+	userBlocks, err := decodePeerUserBlocks(params.UserText, params.UserBlocks)
+	if err != nil {
+		return nil, err
+	}
 	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
 	if err != nil && !errors.Is(err, ErrPeerSessionNotFound) {
 		return nil, err
@@ -97,14 +106,14 @@ func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, sou
 	// 解析不出来的是对端**新铸**的对话(R17:浏览器把新对话派到这台桌面端上跑)。
 	// 新建的会话行与对端铸的号在这里对上,此后这条对话双向都寻址得到。
 	if sessionID == 0 {
-		return s.runFreshPeerSession(ctx, params, source)
+		return s.runFreshPeerSession(ctx, params, source, userBlocks)
 	}
 	session, err := chat_repo.Session().Find(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	if session == nil {
-		return s.runFreshPeerSession(ctx, params, source)
+		return s.runFreshPeerSession(ctx, params, source, userBlocks)
 	}
 	_, backend, _, err := s.resolveAgentBackend(ctx, session, session.AgentID, session.ProjectID)
 	if err != nil {
@@ -121,6 +130,7 @@ func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, sou
 		PermissionMode:        params.PermissionMode,
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
+		peerBlocks:            userBlocks,
 	}, sendOptions{})
 }
 
@@ -128,7 +138,10 @@ func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, sou
 // 账号级 agentSyncId 与该项目在本机的 cwd，本机据此解析本地 agent / project 行，然后
 // 走与桌面端自己发消息完全相同的 Send 路径（排队、权限模式、转录落库都发生）——
 // 会话行、标题与转录因此都住在这台机器上，返回的也是本机的真实会话 id。
-func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams, source PeerSessionSource) (*SendResponse, error) {
+func (s *chatSvc) runFreshPeerSession(
+	ctx context.Context, params wire.RunParams, source PeerSessionSource,
+	userBlocks []cagoblocks.ContentBlock,
+) (*SendResponse, error) {
 	if strings.TrimSpace(params.AgentSyncID) == "" {
 		return nil, fmt.Errorf("invalid fresh peer session run: agentSyncId is required")
 	}
@@ -156,6 +169,7 @@ func (s *chatSvc) runFreshPeerSession(ctx context.Context, params wire.RunParams
 		ReasoningEffort:       params.ReasoningEffort,
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
+		peerBlocks:            userBlocks,
 		conversationID:        params.ConversationID,
 	}, sendOptions{})
 	if err != nil {
@@ -370,40 +384,18 @@ func PeerSessionExecutionResult(err error) (PeerSessionRunResult, error) {
 	return PeerSessionRunResult{}, err
 }
 
+// persistPeerMessageSource 把提交方的设备身份盖进这条用户消息的正文。盖法归共用的
+// 那一份(transcript.StampUserMessageSource):agentred 做宿主时盖的是同一处、同样的
+// 键名,否则同一句话在两台宿主上投影出不同的来源。
 func persistPeerMessageSource(message *chat_entity.Message, source peerMessageSource) error {
 	if message == nil || source.Device == "" {
 		return nil
 	}
-	var stored []cagoblocks.StoredBlock
-	if err := json.Unmarshal([]byte(message.BlocksJSON), &stored); err != nil {
-		return fmt.Errorf("decode user message source: %w", err)
+	stamped, err := transcript.StampUserMessageSource(message.BlocksJSON, source.Device, source.Name)
+	if err != nil {
+		return err
 	}
-	for index := range stored {
-		if stored[index].Type != "text" && stored[index].Type != "display_text" {
-			continue
-		}
-		var data map[string]json.RawMessage
-		if err := json.Unmarshal(stored[index].Data, &data); err != nil {
-			return fmt.Errorf("decode user text source: %w", err)
-		}
-		device, _ := json.Marshal(source.Device)
-		data["sourceDevice"] = device
-		if source.Name != "" {
-			name, _ := json.Marshal(source.Name)
-			data["sourceDeviceName"] = name
-		}
-		encoded, err := json.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("encode user text source: %w", err)
-		}
-		stored[index].Data = encoded
-		all, err := json.Marshal(stored)
-		if err != nil {
-			return fmt.Errorf("encode user message source: %w", err)
-		}
-		message.BlocksJSON = string(all)
-		return nil
-	}
+	message.BlocksJSON = stamped
 	return nil
 }
 
@@ -424,20 +416,6 @@ func (s *chatSvc) withPeerSteerSources(steers []agentruntime.ConsumedSteer) []ag
 		steers[index].SourceName = source.Name
 	}
 	return steers
-}
-
-func firstTextBlock(blocks []cagoblocks.ContentBlock) string {
-	for _, block := range blocks {
-		switch text := block.(type) {
-		case cagoblocks.TextBlock:
-			return text.Text
-		case *cagoblocks.TextBlock:
-			if text != nil {
-				return text.Text
-			}
-		}
-	}
-	return ""
 }
 
 func peerMessageSourceOf(message *chat_entity.Message) peerMessageSource {
@@ -461,4 +439,25 @@ func peerMessageSourceOf(message *chat_entity.Message) peerMessageSource {
 		}
 	}
 	return peerMessageSource{}
+}
+
+// decodePeerUserBlocks 把 runtime.run 带来的附件解成内容块。
+//
+// 空切片交回 nil:没带附件的那一轮不该因为这一格多出任何东西。解不开时交回参数错误
+// —— 调用方(对端)给的这一轮本就不成立,拒绝比丢掉附件照跑更好交代。
+//
+// 交回的是**附件**而不是原样那一串:桌面端派过来的 userBlocks 是那条用户消息的全部块
+// (buildRunRequest),里面已经含着与 userText 同一句话的文本块,而 send 那条汇合口
+// 随后还会由 userBlocksForSend 自己补一个文本块。去重归共用的那一份
+// (transcript.TurnAttachments),agentred 做宿主时过的是同一道 —— 否则同一句话在这一侧
+// 落成两个文本块,还会把图片能力校验误判成「这一轮带了附件」。
+func decodePeerUserBlocks(userText string, in []cagoblocks.StoredBlock) ([]cagoblocks.ContentBlock, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out, err := cagoblocks.DecodeAll(in)
+	if err != nil {
+		return nil, fmt.Errorf("invalid peer session run: decode user blocks: %w", err)
+	}
+	return transcript.TurnAttachments(userText, out), nil
 }

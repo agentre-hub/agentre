@@ -151,9 +151,10 @@ export const EventError = "error";
 export const EventDone = "done";
 
 /**
- * EventUserMessage (R18):daemon 在「开新一轮」事件流开头注入的发起方标记(见
- * event.go 的 UserMessageEvent)。它是 wire 事件流的一部分,走既有的
- * runtime.event 通知 / journal / 补齐,不需要额外的通知通道。
+ * EventUserMessage (R18):一轮的用户消息(见 event.go 的 UserMessageEvent)。宿主
+ * 把用户那一行落库后当场作为**持久帧**投影发布,它因此走既有的 runtime.event 通知
+ * 与补齐,不需要额外的通知通道。从前它还有第二个来源(事件流开头另注入的一条预览
+ * 标记),那条已经撤掉 —— 同一句话发两遍,拿帧重建转录的消费方就画出两条。
  */
 export const EventUserMessage = "user_message";
 

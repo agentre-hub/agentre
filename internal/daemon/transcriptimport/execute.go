@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
@@ -56,7 +57,7 @@ type SessionDeleter interface {
 // Transcript 落库这条对话的转录(同 handlers.TranscriptPort)。回放出的每一轮都从
 // 这里进库 —— 本包不另开第二条落块路径,块怎么攒出来同样归共用的那只累积器。
 type Transcript interface {
-	StartTurn(ctx context.Context, conversationID, userText string) (user, assistant *transcript_entity.Message, err error)
+	StartTurn(ctx context.Context, conversationID, userText string, userBlocks []blocks.ContentBlock, source transcript.UserSource) (user, assistant *transcript_entity.Message, err error)
 	FinishTurn(ctx context.Context, m *transcript_entity.Message) error
 }
 
@@ -240,7 +241,9 @@ func (h *Handlers) rollbackFailedImport(ctx context.Context, peer, peerSessionID
 func (h *Handlers) importTurn(
 	ctx context.Context, peerSessionID string, t pkgimport.Turn, counters *replayCounters,
 ) error {
-	_, msg, err := h.transcript.StartTurn(ctx, peerSessionID, t.UserText)
+	// 导入回放没有附件这一路:被导入的那份转录里,用户消息的正文由 t.UserText 承载。
+	// 来源也没有:被导入的那份转录记不出「这句话是从哪台设备发的」,空值即不盖。
+	_, msg, err := h.transcript.StartTurn(ctx, peerSessionID, t.UserText, nil, transcript.UserSource{})
 	if err != nil {
 		return fmt.Errorf("transcriptimport: start turn: %w", err)
 	}

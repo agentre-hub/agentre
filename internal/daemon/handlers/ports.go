@@ -7,10 +7,13 @@ import (
 	"context"
 	"time"
 
+	"github.com/cago-frame/agents/agent/blocks"
+
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
@@ -53,9 +56,22 @@ type NotifierPort interface {
 //     主键的翻译在实现里(决策 9),handlers 这一层不认识那个数字。用户那一行也要
 //     交回来,是因为它起手就定稿了 —— 调用方当场把它作为持久帧发出去,取到的号才
 //     排在这一轮的最前面(没有用户文本的自主续轮交回 nil)。
+//     userBlocks 是这一轮随文本一起来的附件(runtime.run 的 userBlocks —— 浏览器
+//     控制台发图走的就是它)。它们与文本落在**同一行**用户消息里,顺序是「文本在前、
+//     附件在后」,与桌面端本机发图那条路一字不差(chat_svc.userBlocksForSend)。
+//     此前这一格不存在,附件只到得了模型、进不了任何宿主的转录
+//     (spec 2026-09-07-host-transcript-user-input 决策 3)。
+//     source 是提交这一轮的对端身份,盖进用户那一行的第一个文本块 —— 与插话那一路
+//     (SegmentTurn)和桌面端做宿主时(chat_svc.persistPeerMessageSource)同一份代码、
+//     同一个位置。它必须落在**这一行**上:发起方标识此前只骑在一条另发的预览帧上,
+//     而那条帧不进转录、也不参与补齐,于是转录里没人知道这句话是谁发的。
 //   - Checkpoint:轮内。每个 ToolResult(以及待决策的提出与作答等定稿时刻)之后一次,
 //     只写变化的块行。**在途那一轮抗崩溃只靠它**,不另立 WAL(决策 5)——再立一本
 //     「在途帧日志」就是把刚退役的通知日志换个名字请回来。
+//   - SegmentTurn:轮中分段。插话被后端消费掉的那一刻,当前 assistant 就此收口,
+//     后面接上每条插话的一行用户消息与一条空的新 assistant。桌面端做宿主时是同一个
+//     形状(chat_svc.persistConsumedSteers),两个宿主必须落下同一份转录
+//     (spec 2026-09-07-host-transcript-user-input 决策 1)。
 //   - FinishTurn:收口。正文定稿 + 这一轮的模型 / 用量 / 计时 / 错误一起落库。
 //
 // 交回并在轮内一路带着的是**实体本身**,与桌面端 chat_svc 手里那条 assistantMsg 同形:
@@ -69,8 +85,12 @@ type NotifierPort interface {
 //     持久帧与补齐交出的那一份因此永远是同一串号(决策 3 /「帧编号」)。它属于写入侧
 //     而不是补齐读侧:一条持续在线的对端靠它推进游标,重连补齐才只补它真缺的那一段。
 type TranscriptPort interface {
-	StartTurn(ctx context.Context, conversationID, userText string) (user, assistant *transcript_entity.Message, err error)
+	StartTurn(ctx context.Context, conversationID, userText string, userBlocks []blocks.ContentBlock, source transcript.UserSource) (user, assistant *transcript_entity.Message, err error)
 	Checkpoint(ctx context.Context, m *transcript_entity.Message, prevBlocksJSON string) error
+	// SegmentTurn 把 current(正文已由调用方定稿)落库,再在它后面依次建每条插话的
+	// 用户消息行与一条空的新 assistant 行,一并交回。一次事务:半截分段会让转录里
+	// 出现一条没有下文的用户消息。steers 为空时是 no-op。
+	SegmentTurn(ctx context.Context, current *transcript_entity.Message, steers []agentruntime.ConsumedSteer) (users []*transcript_entity.Message, next *transcript_entity.Message, err error)
 	FinishTurn(ctx context.Context, m *transcript_entity.Message) error
 	// AllocateFrameSeqs 依次给这些帧位置取下一个号并落库,返回与 keys 一一对应的编号。
 	// 取号失败即没有分配,调用方据此**不发布**这一帧 —— 否则对端会持有一个宿主认不

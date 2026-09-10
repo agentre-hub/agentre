@@ -14,7 +14,11 @@ import {
 import { commandResultOf } from "../canonical-tool/command-result";
 import { displayName, tier } from "../canonical-tool/tier";
 import type { CanonicalDTO } from "../canonical-tool/types";
-import { isFailedStep, type ActivityStep } from "../transcript-rows";
+import {
+  isBackgroundRunningBlock,
+  isFailedStep,
+  type ActivityStep,
+} from "../transcript-rows";
 
 /** 三档视觉权重:读最轻、中性居中、写最重。出组档不会进活动块,兜底按中性处理。 */
 export type ActivityWeight = "neutral" | "read" | "write";
@@ -129,18 +133,13 @@ function countLines(text: string): number {
   return lines;
 }
 
-// backgroundFacts 与 raw/card.tsx 的 bgRunning 同源:run_in_background 的命令
-// 立刻拿到启动 ACK,所以「还在不在跑」只能看后台 subagent 的状态,不能看有没有
-// 结果。终态之外(含状态缺失 = 刚起还没回报)一律算还在跑。
+// backgroundFacts 与 raw/card.tsx 的 bgRunning 同源。判据本身在行模型层的
+// isBackgroundRunningBlock —— 组头的后台计数用的是同一个,两处各判一遍就会
+// 出现「展开看得到一个在跑的后台任务、折叠说一个都没有」。
 function backgroundFacts(
   block?: TranscriptBlock,
 ): Pick<StepFacts, "backgroundRunning" | "backgroundTaskId"> {
-  const input = block?.toolInput as Record<string, unknown> | undefined;
-  if (input?.run_in_background !== true) return {};
-  const status = block?.subagent?.status;
-  if (status === "completed" || status === "failed" || status === "canceled") {
-    return {};
-  }
+  if (!isBackgroundRunningBlock(block)) return {};
   return {
     backgroundRunning: true,
     backgroundTaskId: block?.subagent?.taskId ?? undefined,

@@ -99,6 +99,7 @@ function manySteps(n: number): ActivityStep[] {
 
 function summaryOf(partial: Partial<ActivitySummary> = {}): ActivitySummary {
   return {
+    backgroundRunning: 0,
     failures: 0,
     parts: [],
     steps: 0,
@@ -161,6 +162,73 @@ describe("ActivityBlock 组头(折叠态)", () => {
     // 失败计数不在会被裁掉的汇总段里 —— 组头挤不下时先裁类目,红标永远在。
     expect(screen.getByTestId("activity-summary").contains(failures)).toBe(
       false,
+    );
+  });
+
+  // 后台命令一拿到启动 ACK 就有结果,在类目汇总里与跑完的一步同形;而活动块落定
+  // 后自动收起 —— 组头不单独说,一个还在跑的后台任务就从转录里消失了。与红色失败
+  // 计数同规矩:单列在可伸缩的汇总之外,永不参与截断。
+  it("Given 组内还有后台任务在跑, When 折叠渲染, Then 组头单独报出后台计数", () => {
+    renderBlock({
+      summary: summaryOf({
+        backgroundRunning: 2,
+        parts: [{ category: "command", count: 5 }],
+        steps: 24,
+      }),
+    });
+
+    const marker = within(screen.getByTestId("activity-header")).getByTestId(
+      "activity-background",
+    );
+    expect(marker).toHaveTextContent("2 background");
+    expect(marker.className).toContain("text-status-running");
+    expect(screen.getByTestId("activity-summary").contains(marker)).toBe(false);
+  });
+
+  it("Given 组内没有后台任务在跑, Then 组头不摆一个空标记", () => {
+    renderBlock({ summary: summaryOf({ backgroundRunning: 0, steps: 24 }) });
+
+    expect(screen.queryByTestId("activity-background")).toBeNull();
+  });
+
+  it("Given 汇总已被截断, Then 后台计数与失败计数都还在组头上", () => {
+    renderBlock({
+      summary: summaryOf({
+        backgroundRunning: 2,
+        failures: 1,
+        parts: [
+          { category: "thinking", count: 5 },
+          { category: "read", count: 12 },
+          { category: "write", count: 2 },
+          { category: "command", count: 9 },
+        ],
+        steps: 36,
+        truncated: true,
+      }),
+    });
+
+    const header = screen.getByTestId("activity-header");
+    expect(within(header).getByTestId("activity-background")).toHaveTextContent(
+      "2 background",
+    );
+    expect(within(header).getByTestId("activity-failures")).toHaveTextContent(
+      "1 failed",
+    );
+  });
+
+  // 运行态的组头把汇总换成实况尾巴。后台计数不在那个可伸缩的位置上,两者共存。
+  it("Given 这一组还在跑, Then 实况尾巴与后台计数同时在组头上", () => {
+    renderBlock({
+      running: true,
+      summary: summaryOf({ backgroundRunning: 1, steps: 24 }),
+    });
+
+    const header = screen.getByTestId("activity-header");
+    expect(
+      within(header).getByTestId("activity-live-tail"),
+    ).toBeInTheDocument();
+    expect(within(header).getByTestId("activity-background")).toHaveTextContent(
+      "1 background",
     );
   });
 
@@ -681,6 +749,28 @@ describe("ActivityBlock 运行态", () => {
       // 被省略的步骤一个都不 mount(与折叠态同一条性能约定)。
       expect(screen.queryByText("/repo/f-0.go")).toBeNull();
       expect(screen.getByText("/repo/f-23.go")).toBeInTheDocument();
+    });
+
+    // 省略行与组头共用 summarizeActivity,后台计数因此也必须跟着被省略的那批走 ——
+    // 否则运行中长到 24 步时,前 18 步里那个后台任务连折叠账都报不出来。
+    it("Given 被省略的前几步里有还在后台跑的命令, Then 省略行也报出后台计数", () => {
+      const steps = manySteps(24);
+      steps[3] = toolStep(
+        "message:1:tool:tool:many-bg",
+        {
+          subagent: subagentState("running", "bg_9"),
+          toolInput: { command: "make test", run_in_background: true },
+          toolName: "Bash",
+        },
+        { text: "Command running in background with ID: bg_9" },
+      );
+      renderBlock({ running: true, steps });
+
+      expect(
+        within(screen.getByTestId("activity-elided")).getByTestId(
+          "activity-background",
+        ),
+      ).toHaveTextContent("1 background");
     });
 
     it("Given 用户点省略行, Then 全部 24 行都在,省略行消失", () => {

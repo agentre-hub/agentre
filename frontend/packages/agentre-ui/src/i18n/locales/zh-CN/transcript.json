@@ -24,6 +24,7 @@
       "write": "写入 {{count}}",
       "command": "命令 {{count}}",
       "other": "其它 {{count}}",
+      "background": "{{count}} 后台",
       "failures": "{{count}} 失败"
     },
     "row": {

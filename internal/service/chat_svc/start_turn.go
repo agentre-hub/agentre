@@ -17,7 +17,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
@@ -46,6 +45,9 @@ type turnStart struct {
 	// 「我已经持有的内容」(spec 2026-09-07 决策 1)。本机自己发消息时没有对端要对齐,
 	// 这一格照样有值但没人读。
 	userMessageSeq int64
+	// userMessageMinSeq 是同一条用户消息占掉的持久帧里最低的那个号。发起方拿它比
+	// 闸门:带附件的用户消息占不止一帧,只有最高号时闸门再也不成立。
+	userMessageMinSeq int64
 
 	prepared                *preparedTurnRun
 	turnCtx                 context.Context
@@ -264,18 +266,18 @@ func (ts *turnStart) emitTurnStarted(ctx context.Context, stream string) {
 	// 用户消息此刻已落库,它的持久帧在这里取号 —— 必须赶在本轮 assistant 的任何一帧
 	// 之前,否则下一次 attach 时它是唯一没编号的那一条,惰性补齐会把它排到整段回答
 	// 之后(编号顺序就是补齐的重放顺序)。
-	ts.userMessageSeq = ts.svc.publishPeerMessageFrames(ctx, ts.sess.ID, ts.userMsg, true)
+	ts.userMessageMinSeq, ts.userMessageSeq = ts.svc.publishPeerMessageFrames(ctx, ts.sess.ID, ts.userMsg, true)
+	// 这里从前还另发一条 user_message **预览帧**(R18 的发起方标记)。它现在是多余的:
+	// 上面那一发已经把同一句话作为**持久帧**交出去了,而拿帧重建转录的消费方(浏览器
+	// 控制台、桌面端 Peer Tab)对每条 user_message 都新建一条用户消息、不去重 ——
+	// 同一句话于是画出两条,预览那条还要等下一个持久帧才从预览尾巴上消失。留下的是
+	// 持久帧那一条:它带号、进转录、参与补齐,预览帧这三样一样都没有。来源标识也不随
+	// 它走丢 —— 用户那一行在 persistPeerMessageSource 里就盖上了。
+	//
 	// 非查看者发起的轮(群成员轮经 scheduler dispatch):per-turn 流名只有发起者能从
 	// Send 响应拿到,该会话已打开(可能在后台)的 ChatPanel 拿不到 → 不接流、不翻 running。
 	// 复用 autonomous 会话级旁路把流名 + 新 assistant 行推给它,让它走与自主轮相同的
 	// openStream 路径实时渲染。前端 Send 默认不带此标志,避免发起者重复 openStream 双开流。
-	if ts.extras.peerSource.Device != "" {
-		ts.svc.publishPeerEvent(ts.sess.ID, agentruntime.UserMessageEvent{
-			Text:             firstTextBlock(ts.userBlocks),
-			SourceDevice:     ts.extras.peerSource.Device,
-			SourceDeviceName: ts.extras.peerSource.Name,
-		})
-	}
 	if ts.extras.emitTurnStartedBypass {
 		var userMessages []ChatMessage
 		if ts.extras.peerSource.Device != "" {

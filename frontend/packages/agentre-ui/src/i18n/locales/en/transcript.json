@@ -24,6 +24,7 @@
       "write": "Wrote {{count}}",
       "command": "Commands {{count}}",
       "other": "Other {{count}}",
+      "background": "{{count}} background",
       "failures": "{{count}} failed"
     },
     "row": {

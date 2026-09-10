@@ -732,6 +732,14 @@ message RuntimeRunResponse {
   // 0 = 宿主没给(拒绝该轮、落库前失败,或对端是不认这一格的旧构建)——
   // 发起方此时不推进游标。
   int64 user_message_seq = 5;
+  // 本轮用户消息的**最低持久帧号**。带附件的一条用户消息占不止一帧,只有最高号
+  // 时游标闸门(「号正好接在游标之后才推进」)再也不成立 —— 带附件的那一轮于是退回
+  // 补齐重放自己提问的老毛病。发起方拿这一格比闸门、拿 user_message_seq 定落点
+  // (spec 2026-09-07-host-transcript-user-input 决策 4)。
+  //
+  // 0 = 宿主没给,与 user_message_seq 同一条处置:不推进游标。只占一帧时它等于
+  // user_message_seq。
+  int64 user_message_min_seq = 6;
 }
 
 message RuntimeGoalRequest {

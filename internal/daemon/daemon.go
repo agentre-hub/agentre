@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cago-frame/agents/agent/blocks"
 	dbpkg "github.com/cago-frame/cago/database/db"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -1583,13 +1584,16 @@ type transcriptStore struct{ db *gorm.DB }
 
 var _ handlers.TranscriptPort = transcriptStore{}
 
-// StartTurn 落下用户那一行(userText 为空则跳过)并建一条空的 assistant 消息。
+// StartTurn 落下用户那一行(文本与附件都空时跳过)并建一条空的 assistant 消息。
+//
+// source 是提交这一轮的对端身份(本机自己发的那一句为空值,不盖任何来源)。
 //
 // 会话身份是 conversation_id,而共用的消息实体按**本机数字主键**挂靠(决策 9)——
 // 翻译在这里做一次,handlers 那一层不认识那个数字。会话行还没建成时交回
 // (nil, nil):这一轮的转录就此不落,而不是拿它陪葬打断执行。
 func (t transcriptStore) StartTurn(
-	ctx context.Context, conversationID, userText string,
+	ctx context.Context, conversationID, userText string, userBlocks []blocks.ContentBlock,
+	source transcript.UserSource,
 ) (*transcript_entity.Message, *transcript_entity.Message, error) {
 	ctx = dbpkg.WithContextDB(ctx, t.db)
 	sessionID, err := session_repo.Session().LocalID(ctx, conversationID)
@@ -1611,14 +1615,34 @@ func (t transcriptStore) StartTurn(
 		return nil, nil, err
 	}
 	var user *transcript_entity.Message
-	if userText != "" {
+	if userText != "" || len(userBlocks) > 0 {
 		// 用户那一行的正文也走共用的累积器:一句纯文本落成什么块,两个宿主必须一致。
+		// 附件跟在文本后面进同一行 —— AddBlock 会先把文本段 flush 掉再 push,顺序
+		// 因此与桌面端的 userBlocksForSend 一字不差(决策 3)。
+		//
+		// 先过 TurnAttachments:桌面端派过来的 userBlocks 是那条用户消息的**全部**块
+		// (buildRunRequest),里面已经含着与 userText 同一句话的文本块,直接相加会把
+		// 这句话落成两个文本块、还多占一个持久帧位。
 		acc := turn.New()
-		acc.AddText(userText)
+		if userText != "" {
+			acc.AddText(userText)
+		}
+		for _, b := range transcript.TurnAttachments(userText, userBlocks) {
+			acc.AddBlock(b, "")
+		}
 		user = &transcript_entity.Message{SessionID: sessionID, Role: "user", Seq: seq}
 		if err := user.SetBlocks(acc.Finalize()); err != nil {
 			return nil, nil, err
 		}
+		// 提交方身份盖进这一行,走与插话(SegmentTurn)、与桌面端做宿主时
+		// (chat_svc.persistPeerMessageSource)同一份 StampUserMessageSource:它必须骑在
+		// 转录里,块→帧投影才把它带给消费方。从前它只挂在另发的那条预览帧上,而预览帧
+		// 不进转录也不参与补齐 —— 补齐重放出来的同一句话于是没有来源。
+		stamped, err := transcript.StampUserMessageSource(user.BlocksJSON, source.Device, source.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		user.BlocksJSON = stamped
 		if err := transcript_repo.Message().Create(ctx, user); err != nil {
 			return nil, nil, err
 		}
@@ -1631,6 +1655,60 @@ func (t transcriptStore) StartTurn(
 		return nil, nil, err
 	}
 	return user, assistant, nil
+}
+
+// SegmentTurn 在插话被消费的那一刻把这一轮切开(spec
+// 2026-09-07-host-transcript-user-input 决策 1)。
+//
+// 一次事务落三样:收口的 current、每条插话的一行用户消息、承接后半段的空 assistant。
+// 半截分段会在转录里留下一条没有下文的用户消息,而它已经带着号发给了对端 —— 那一段
+// 此后既补不齐也删不掉。
+//
+// 用户那一行的正文走与 StartTurn 同一条(共用累加器),来源标识走与桌面端同一份
+// (transcript.StampUserMessageSource):同一句插话在两台宿主上必须落成逐字节相同的块。
+func (t transcriptStore) SegmentTurn(
+	ctx context.Context, current *transcript_entity.Message, steers []agentruntime.ConsumedSteer,
+) ([]*transcript_entity.Message, *transcript_entity.Message, error) {
+	if current == nil || len(steers) == 0 {
+		return nil, nil, nil
+	}
+	ctx = dbpkg.WithContextDB(ctx, t.db)
+	sessionID := current.SessionID
+	users := make([]*transcript_entity.Message, 0, len(steers))
+	next := &transcript_entity.Message{SessionID: sessionID, Role: "assistant", BlocksJSON: "[]"}
+	if err := t.db.Transaction(func(tx *gorm.DB) error {
+		txCtx := dbpkg.WithContextDB(ctx, tx)
+		if err := transcript_repo.Message().Update(txCtx, current); err != nil {
+			return err
+		}
+		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, sessionID)
+		if err != nil {
+			return err
+		}
+		users = users[:0]
+		for _, steer := range steers {
+			acc := turn.New()
+			acc.AddText(steer.Text)
+			msg := &transcript_entity.Message{SessionID: sessionID, Role: "user", Seq: nextSeq + len(users)}
+			if err := msg.SetBlocks(acc.Finalize()); err != nil {
+				return err
+			}
+			stamped, err := transcript.StampUserMessageSource(msg.BlocksJSON, steer.SourcePeer, steer.SourceName)
+			if err != nil {
+				return err
+			}
+			msg.BlocksJSON = stamped
+			if err := transcript_repo.Message().Create(txCtx, msg); err != nil {
+				return err
+			}
+			users = append(users, msg)
+		}
+		next.Seq = nextSeq + len(users)
+		return transcript_repo.Message().Create(txCtx, next)
+	}); err != nil {
+		return nil, nil, err
+	}
+	return users, next, nil
 }
 
 // numberBacklog 给这条转录里此刻还没有号的既有帧补齐编号。开轮时调一次。

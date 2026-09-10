@@ -36,12 +36,14 @@
  *                 对应事件）、retry（桌面端明写「只 emit 不落 block」）
  *   真·未知       词表外的字符串 → notice 块 + 原样 raw（R8）
  *
- * 「不进正文」这一档是**记而不显**：桌面端把它们显示在 Composer（上下文进度条、
- * 「正在压缩上下文…」chip），拿 wire 事件的那两个面各自决定要不要承载
- * （`reduceSessionState` 就是给底栏用的那一份）。这是已知缺口，不是丢弃 ——
- * 缺的是显示面，不是数据。
+ * 「不进正文」不等于丢弃，是**另有归宿**：`reduceSessionState` 把这一档单独归约一遍，
+ * 交给正文之外的那些显示面 —— 上下文窗口与权限模式归 Composer 底栏，retry 归转录末行
+ * 那张 `RetryNoticeCard`（桌面端明写「只 emit 不落 block」，说的正是这件事：看得见，
+ * 但不在正文里留下一段）。仍然没有承载面的（runtime_status 的「正在压缩上下文…」）
+ * 才是已知缺口 —— 缺的是显示面，不是数据。
  */
 import type {
+  RetryNotice,
   TranscriptBlock,
   TranscriptBlockSubagent,
   TranscriptMessage,
@@ -705,7 +707,23 @@ function applyFrame(
     case EventError: {
       // 本包在消息级有 errorText（末行渲染 ErrorCard），这就是 error 的对应物。
       // 落位后结束该条：errorText 挂在末行，继续追加块会让错误卡漂到后来的正文之后。
-      const msg = openAssistant(st, sessionId);
+      //
+      // 落点与 `done` 同一条（`st.turn`，寿命见 State.turn），而不是 `openAssistant()`：
+      // 出错的一轮在 wire 上把停止原因说**两遍** —— runtime 自己 emit 一条 `ErrorEvent`
+      // （openclaw 的 `activeTurn.finish`、piagent 的 `drainStream` 都是「`result.StopErr`
+      // 落好之后再 `out <- ErrorEvent{...}`」，agentred 的 fanout 原样转发），
+      // agentred 又把同一个 `StopErr` 盖在终态帧的 `stopErrMsg` 上，由宿主合成一条 `error`
+      // 交进来。后面这条不能省：对端**启动就失败**的那一轮事件流里一条助手事件都没有，
+      // 不合成整轮就静默消失。
+      //
+      // 于是真跑起来才失败的那一轮连着来两条 `error`，而第一条刚把 `st.open` 收掉 ——
+      // 走 `openAssistant()` 的话第二条会**新起一条助手消息**：同一句报错画成两条消息、
+      // 两张错误卡，终态帧的 meta 还挂到那条凭空多出来的消息上。认 `st.turn` 则第二条
+      // 落回同一条，说第二遍不多出一条消息。
+      //
+      // `st.turn` 为空才新起：那正是「一条助手事件都没有」的失败轮次，它需要这条消息。
+      const msg = st.turn ?? openAssistant(st, sessionId);
+      st.touched.add(msg);
       msg.errorText = str(ev, "message") ?? "error";
       st.open = null;
       return;
@@ -1000,12 +1018,15 @@ function commit(st: State, previous: TranscriptMessage[]): TranscriptMessage[] {
 }
 
 /**
- * 会话级状态：不进转录正文，但要显示在 Composer 底栏上的那两样。
+ * 会话级状态：不进转录正文，但另有显示面的那几样。
  *
- * `applyFrame` 里对这两个 kind 的处理是 `return`（记而不显），那段注释写得很直白 ——
- * 「桌面端每一条都有 handler，只是落点在会话状态或 Composer 上……拿 wire 事件的那两个
- * 面还没有那层承载面，此刻是记而不显 —— 缺的是显示面，不是数据」。底栏就是那层承载面，因此
- * 这里单独归约一遍；`reduceFrames` 一个字都不改（正文与会话状态是两件事）。
+ * `applyFrame` 里对这些 kind 的处理是 `return`（记而不显），那段注释写得很直白 ——
+ * 「桌面端每一条都有 handler，只是落点在会话状态或 Composer 上……缺的是显示面，
+ * 不是数据」。这里就是把那份数据取出来的地方；`reduceFrames` 一个字都不改（正文与
+ * 会话级状态是两件事）。
+ *
+ * 显示面不止一处：上下文窗口与权限模式归 Composer 底栏，`retry` 归转录末行那张卡。
+ * 归约器只管**算出这几个事实**，挂到哪、此刻还信不信这一轮在跑，都归宿主。
  *
  * 权限模式只接受 runtime 已经上报的稳定字符串；选项能力仍由 Composer 宿主决定，
  * 归约器不猜合法模式清单。
@@ -1015,15 +1036,80 @@ export interface SessionRuntimeState {
   contextWindow: number;
   /** runtime 当前权限模式；空串表示尚未上报。 */
   permissionMode: string;
+  /**
+   * 此刻还没被正文盖掉的那一次重试。null = 没有在等的重试。
+   *
+   * 它的显示面是转录末行那张 `RetryNoticeCard`（不是底栏），寿命规则见
+   * `nextRetry`。宿主只负责把它挂到哪一行、以及自己还信不信这一轮在跑。
+   */
+  retry: RetryNotice | null;
+}
+
+/**
+ * 重试提示**熬得过**的那些 kind。
+ *
+ * 写成补集而不是「哪些帧清空」的白名单，是因为两边的错法不对称：漏登一个内容帧，
+ * 卡片会在模型早就开口之后还挂着（用户看着「正在重试」，正文在下面照常长）；而
+ * 漏登一个遥测帧，卡片会在真正连上之前就消失。前者由白名单产生、后者由补集产生，
+ * 但只有补集是**封闭**的 —— 遥测与会话级信号就这几条，日后 Go 侧新增的 kind
+ * 几乎必然是内容，缺省清空才是对的那一边。
+ *
+ * `retry` 自己不在这里：它走 `nextRetry` 的点亮分支。
+ */
+const RETRY_SURVIVES: ReadonlySet<string> = new Set<EventKind>([
+  // 纯计时信号：「开始产出一个输出块」不等于模型开口（桌面端 output_activity
+  // 分支的原话是「没有内容、不清 retry chip」）。
+  EventOutputActivity,
+  // 每次 API call 一条的用量快照。重试等待期间照样来。
+  EventUsage,
+  EventContextWindowUpdated,
+  EventRuntimeStatus,
+  EventPermissionModeChanged,
+  // 新 API 里没有对应事件（event_convert.go），留在这里只为词表完整。
+  EventToolUseEnd,
+]);
+
+/**
+ * 一帧过后重试提示的去向。
+ *
+ * 桌面端把这条规则摊在 `chat-streams-host` 十来处 `clearLiveRetry` 调用里 ——
+ * 那一侧收的是 Wails 的事件名，跟 wire 词表不是一套，所以两边共享的是**规则**
+ * 而不是代码。这里是 wire 这一侧唯一的一处。
+ */
+function nextRetry(
+  current: RetryNotice | null,
+  kind: EventKind | undefined,
+  ev: unknown,
+  frame: TranscriptFrame,
+): RetryNotice | null {
+  if (kind === EventRetry) {
+    return {
+      attempt: num(ev, "attempt") ?? 0,
+      // wire 的 `Retry` 叫 `max`，卡片读的是 `maxAttempts`。
+      maxAttempts: num(ev, "max") ?? 0,
+      message: str(ev, "message") ?? "",
+      details: str(ev, "details") ?? "",
+      // 帧发生的时刻，不是此刻：补齐是成批到达的，就地补 now 会给一条两天前的
+      // 重试盖上今天的时间。0 在卡片里读作「不知道」，如实不显示。
+      at: frame.createtime ?? 0,
+    };
+  }
+  return kind && RETRY_SURVIVES.has(kind) ? current : null;
 }
 
 export function reduceSessionState(
   frames: readonly TranscriptFrame[],
 ): SessionRuntimeState {
-  const st: SessionRuntimeState = { contextWindow: 0, permissionMode: "" };
+  const st: SessionRuntimeState = {
+    contextWindow: 0,
+    permissionMode: "",
+    retry: null,
+  };
   for (const frame of frames) {
     const ev = frame.event;
-    switch (kindOf(ev)) {
+    const kind = kindOf(ev);
+    st.retry = nextRetry(st.retry, kind, ev, frame);
+    switch (kind) {
       case EventPermissionModeChanged: {
         const mode = str(ev, "mode");
         if (mode) st.permissionMode = mode;

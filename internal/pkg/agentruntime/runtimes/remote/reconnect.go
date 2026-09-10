@@ -449,11 +449,17 @@ func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 // 持久帧号。那条内容是本端自己写下的,补齐不必也不该再交回来 —— 游标的含义从此是
 // 「我已经持有的内容」,而不是「宿主发过什么」(spec 2026-09-07 决策 1)。
 //
-// 闸门与 skipSeq 同一条:**只有号正好是游标 + 1 才推进**。一个落后的消费方(重连后
-// 补齐还没跑完就发了新一轮)若无条件跳到那个号,中间那几帧就被永久跳过 —— 那是硬
-// 不变量 1 的「漏」,比「重」更糟。闸门不成立时游标不动,那个场景下的行为退回本轮之前。
+// 一条用户消息可能占不止一帧(带附件),所以宿主回的是一个闭区间 [minSeq, maxSeq]:
+// 区间里的每一帧都是本端自己写下的那条消息。
 //
-// seq 为 0 同样不推进:宿主拒绝了该轮、在落库前失败,或对端是不认这一格的旧构建。
+// 闸门与 skipSeq 同一条,只是比的是**最低号**:minSeq 必须不高于「游标 + 1」——
+// 也就是它与游标之间不许有洞。一个落后的消费方(重连后补齐还没跑完就发了新一轮)
+// 若无条件跳过去,中间那几帧就被永久跳过,那是硬不变量 1 的「漏」,比「重」更糟。
+// 闸门成立时落点是 maxSeq:区间内的帧本端全都持有,游标该盖住整段
+// (spec 2026-09-07-host-transcript-user-input 决策 4)。
+//
+// 两个号任一为 0 都不推进:宿主拒绝了该轮、在落库前失败,或对端是只认最高号那一格的
+// 旧构建 —— 判不出有没有洞就不动游标,行为退回决策 4 之前。
 //
 // 「内存游标已经涵盖这个号」是**常态**,不是意外:宿主是在应答**之前**把用户那一帧
 // 作为通知推上来的(agentred 的 beginTranscript 先 publish 再 return ack),而本端的
@@ -461,27 +467,26 @@ func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 // 此刻没有游标可推进,但**落库照样要做**:热路径那次推进只记进了防抖批次,而本轮
 // 要治的场景就是「派发完立刻被杀」。落的是通知路径在 ss.mu 之下记下的那个值,这里
 // 不另造号,也不会把一个本端并不持有的位置写进库。
-func (r *Runtime) adoptDispatchedUserMessageSeq(ctx context.Context, sid, seq int64) {
-	if seq <= 0 || r.cursor() == nil {
+func (r *Runtime) adoptDispatchedUserMessageSeq(ctx context.Context, sid, minSeq, maxSeq int64) {
+	if minSeq <= 0 || maxSeq < minSeq || r.cursor() == nil {
 		return
 	}
 	ss := r.syncFor(ctx, sid)
 	ss.mu.Lock()
-	switch {
-	case seq <= ss.cursor:
-		// 通知先到:内存已经对齐,只差把它从防抖批次里落下去。
-		ss.mu.Unlock()
-		r.flushCursors()
-		return
-	case seq != ss.cursor+1:
+	if minSeq > ss.cursor+1 {
 		cursor := ss.cursor
 		ss.mu.Unlock()
-		logger.Ctx(ctx).Debug("remote.Runtime.adoptDispatchedUserMessageSeq: not the very next frame; cursor left alone",
-			zap.Int64("sessionId", sid), zap.Int64("cursor", cursor), zap.Int64("userMessageSeq", seq))
+		logger.Ctx(ctx).Debug("remote.Runtime.adoptDispatchedUserMessageSeq: a hole sits before it; cursor left alone",
+			zap.Int64("sessionId", sid), zap.Int64("cursor", cursor),
+			zap.Int64("userMessageMinSeq", minSeq), zap.Int64("userMessageSeq", maxSeq))
 		return
 	}
-	ss.cursor = seq
-	r.recordCursor(sid, seq)
+	// maxSeq 不高于游标是**常态**而非意外(见上面「内存游标已经涵盖」那一段):此刻
+	// 没有游标可推进,但落库照样要做。
+	if maxSeq > ss.cursor {
+		ss.cursor = maxSeq
+		r.recordCursor(sid, maxSeq)
+	}
 	ss.mu.Unlock()
 	// 这一格**当场落库**,不进防抖批次:本轮要治的场景就是「派发完立刻被杀」,进程活不到
 	// 防抖窗口到期,库里那份于是仍停在派发之前 —— 重连补齐照旧把这条自己写下的用户消息

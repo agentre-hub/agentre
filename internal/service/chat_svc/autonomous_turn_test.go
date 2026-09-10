@@ -1458,3 +1458,77 @@ func TestDriveAutonomousTurn_CatchUpReplay_ReusesTheLocalInFlightAssistantRow(t 
 		})
 	}
 }
+
+// 规格 2026-09-05 的两级帧划分:预览帧只用于即时呈现,**不得进转录**。插话此前是
+// 这条规则唯一的例外 —— 它作为预览帧到达,却在消费方这里落了库(新建 user +
+// assistant 两行)。宿主那一侧同时也把这段插话落进了自己的转录并发持久帧,同一段
+// 内容于是被写两遍(spec 2026-09-07-host-transcript-user-input 问题 3 / 决策 2)。
+//
+// chip 仍要在预览帧到达的这一刻清掉:它是呈现,不是转录。
+func TestDriveAutonomousTurn_PreviewSteerConsumedRendersButDoesNotPersist(t *testing.T) {
+	convey.Convey("预览帧上的插话只清 chip,不产生消息行", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		sess := &chat_entity.Session{
+			ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc",
+			ExecDeviceID: 3, ExecDeviceFingerprint: "sha256:remote",
+		}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+		// 两个事务都配成**会成功**:自主轮自己那条 assistant,以及分段那一次。
+		// 分段事务必须可用 —— 否则去掉预览守卫时 persistConsumedSteers 会因为
+		// 缺 mock 而失败返回,一行也不建,「不落库」那条断言于是两种情况下都成立,
+		// 盖住了它本该发现的缺陷。
+		m.dbMock.ExpectBegin()
+		m.dbMock.ExpectCommit()
+		m.dbMock.ExpectBegin()
+		m.dbMock.ExpectCommit()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil).AnyTimes()
+		var createdRoles []string
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				createdRoles = append(createdRoles, msg.Role)
+				msg.ID = 2001 + int64(len(createdRoles))
+				return nil
+			}).AnyTimes()
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		evs := make(chan agentruntime.Event)
+		go func() {
+			evs <- agentruntime.TextDelta{Text: "durable-block"}
+			chat_svc.DeliverRemotePreviewForTest(m.svc, 100, agentruntime.SteerConsumed{
+				Steers: []agentruntime.ConsumedSteer{{QueuedID: "q-1", Text: "插一句"}},
+			})
+			close(evs)
+		}()
+		at := agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc", Model: "claude-sonnet-4-6"},
+			Trigger: "background_task",
+		}
+
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
+
+		var consumed *chat_svc.ChatStreamEvent
+		for _, ev := range m.events {
+			if p, ok := ev.Payload.(chat_svc.ChatStreamEvent); ok && p.Kind == chat_svc.StreamSteerConsumed {
+				cp := p
+				consumed = &cp
+			}
+		}
+
+		convey.Convey("一行消息都不新建:落库归宿主发来的持久帧", func() {
+			assert.Equal(t, []string{"assistant"}, createdRoles,
+				"只该有自主轮自己那条 assistant —— 插话行由持久帧带来,不在这里落")
+		})
+		convey.Convey("chip 照旧清掉,且不带任何消息行", func() {
+			require.NotNil(t, consumed, "预览帧上的插话仍要 emit StreamSteerConsumed 清 chip")
+			assert.Equal(t, []string{"q-1"}, consumed.QueuedIDs)
+			assert.Empty(t, consumed.UserMessages, "清 chip 那一发不得携带消息行")
+			assert.Nil(t, consumed.AssistantMessage, "清 chip 那一发不得携带新 assistant")
+		})
+	})
+}

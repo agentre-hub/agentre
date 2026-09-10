@@ -2,6 +2,8 @@
 package chat_svc
 
 import (
+	cagoblocks "github.com/cago-frame/agents/agent/blocks"
+
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
@@ -938,6 +940,11 @@ type SendRequest struct {
 	// peerSource is populated only by the account-peer adapter. Keeping it out
 	// of Wails JSON prevents a local caller from forging a source pill.
 	peerSource peerMessageSource
+	// peerBlocks 只由对端适配器填:runtime.run 带来的 userBlocks(浏览器控制台发的图
+	// 走的就是它)解码之后放在这里,与 Images 走同一条汇合口 —— 它们落进同一行用户
+	// 消息、也一起送去执行,而且同样受图片能力校验管(spec 2026-09-07-host-transcript-user-input
+	// 决策 3)。不进 Wails JSON:本地调用方发图走 Images,不能绕开那一格的解码与体积校验。
+	peerBlocks []cagoblocks.ContentBlock
 	// conversationID 只由对端适配器填(R17:浏览器把新对话派到这台桌面端上跑,
 	// 号是浏览器铸的)。非空时新建的会话行就用这个身份落库 —— 本机另铸一个会让
 	// 同一条对话在两侧有两个身份,对端此后再也 attach 不上它。同样不进 Wails
@@ -984,6 +991,10 @@ type SendResponse struct {
 	// runtime.run 派发过来）那条路上有值:发起方据它把游标推进到「我已经持有的
 	// 内容」(spec 2026-09-07 决策 1)。本机自己发消息时没有对端要对齐,留 0。
 	UserMessageSeq int64 `json:"userMessageSeq,omitempty"`
+	// UserMessageMinSeq 是同一条用户消息的最低持久帧号。带附件的一条用户消息占不止
+	// 一帧,发起方拿它比闸门(与游标之间不许有洞)、拿 UserMessageSeq 定落点;只占一帧
+	// 时两者相等(spec 2026-09-07-host-transcript-user-input 决策 4)。
+	UserMessageMinSeq int64 `json:"userMessageMinSeq,omitempty"`
 }
 
 type CompactRequest struct {

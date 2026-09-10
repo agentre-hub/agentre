@@ -962,6 +962,9 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 	if err != nil {
 		return nil, err
 	}
+	// 对端带来的附件在这里汇合:此后的空判、图片能力校验与 userBlocksForSend 都不必
+	// 区分它是本机拖进来的还是对端发过来的 —— 两条路落下的用户消息因此同形(决策 3)。
+	imageBlocks = append(imageBlocks, req.peerBlocks...)
 	if text == "" && len(imageBlocks) == 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
@@ -2048,6 +2051,7 @@ func (s *chatSvc) startTurn(
 		AssistantMessageID: ts.assistantMsg.ID,
 		Stream:             stream,
 		UserMessageSeq:     ts.userMessageSeq,
+		UserMessageMinSeq:  ts.userMessageMinSeq,
 	}, nil
 }
 
@@ -2739,7 +2743,7 @@ func (s *chatSvc) persistAutoContinueTurn(
 	}
 
 	// 接续轮插进来的 user 消息也在此刻取号,理由同 persistConsumedSteers。
-	s.publishPeerMessageFrames(ctx, sess.ID, newUser, true)
+	_, _ = s.publishPeerMessageFrames(ctx, sess.ID, newUser, true)
 
 	userEvent, err := toChatMessage(newUser)
 	if err != nil {
@@ -2855,9 +2859,9 @@ func (s *chatSvc) persistConsumedSteers(
 
 	// 分段落地:收口的 assistant 与插进来的 user 都已落库,按转录顺序依次取号 ——
 	// 编号顺序就是补齐的重放顺序,晚一步取号的那条会排到整段之后。
-	s.publishPeerMessageFrames(ctx, sess.ID, current, true)
+	_, _ = s.publishPeerMessageFrames(ctx, sess.ID, current, true)
 	for _, msg := range userMsgs {
-		s.publishPeerMessageFrames(ctx, sess.ID, msg, true)
+		_, _ = s.publishPeerMessageFrames(ctx, sess.ID, msg, true)
 	}
 
 	userEvents := make([]ChatMessage, 0, len(userMsgs))

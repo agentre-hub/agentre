@@ -19,7 +19,7 @@ import (
 //
 // Keep it byte identical to the `version` field of
 // frontend/packages/agentre-wire/package.json.
-const Protocol = "0.2.0"
+const Protocol = "0.3.0"
 
 // MinSupported is the oldest peer protocol version this build still accepts.
 //
@@ -32,7 +32,7 @@ const Protocol = "0.2.0"
 // internal/pkg/wireversion/methodset_test.go's
 // TestMethodSet_GivenTheMethodSetDigestWasLastUpdated_....
 //
-// A changed method set is not the only reason to reset it. 0.2.0 splits frames
+// A changed method set is not the only reason to reset it. 0.2.0 split frames
 // into two levels — preview frames carry no seq and are not replayed, catch-up
 // answers with block-level durable frames — without adding or removing a single
 // RPC method. A 0.1.x build reads those frames through the old contract and
@@ -42,9 +42,23 @@ const Protocol = "0.2.0"
 // alignment.md 「兼容性」), and crossing this version is itself the signal a
 // consumer uses to invalidate frames it mirrored under the old numbering.
 //
+// 0.3.0 does the same again, and again without touching the method set: the
+// meaning of an *existing* frame changes. A consumed steer is now recorded by
+// the host and shipped as durable frames (a user message carrying the
+// submitter's identity, followed by a fresh assistant), while the preview
+// SteerConsumed it used to be assembled from no longer produces any row on the
+// consumer. Mixing the two builds mis-assembles in both directions — an old
+// consumer against a new host writes that steer twice (it still persists off
+// the preview *and* receives the durable frames), a new consumer against an old
+// host loses it entirely (it stopped persisting off the preview and no durable
+// frames ever arrive). Neither side can detect the other's convention from the
+// frames themselves, so the floor rises with the ceiling here too and the
+// mismatch is refused at the handshake (see
+// docs/specs/2026-09-07-host-transcript-user-input.md 决策 5).
+//
 // Keep it byte identical to the `version` field of
 // frontend/packages/agentre-wire/package.json, exactly like Protocol.
-const MinSupported = "0.2.0"
+const MinSupported = "0.3.0"
 
 // version is a parsed MAJOR.MINOR.PATCH triple. Handshake versions in this
 // protocol are never pre-release or build-metadata strings, so a minimal

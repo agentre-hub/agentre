@@ -1346,6 +1346,20 @@ function failedResult(id: string): TranscriptBlock {
   return toolResult(id, "boom", { isError: true });
 }
 
+// 后台命令:run_in_background 入参 + 后台任务的状态 sidecar。status 传
+// undefined 表示启动 ACK 还没回(sidecar 尚未到位)。
+function backgroundUse(
+  id: string,
+  status: string | undefined,
+): TranscriptBlock {
+  return toolUse(id, "Bash", {
+    subagent: (status === undefined
+      ? undefined
+      : { status, taskId: id }) as TranscriptBlock["subagent"],
+    toolInput: { command: "make test", run_in_background: true },
+  });
+}
+
 function activityAt(
   items: VisibleRenderItem[],
   idx: number,
@@ -1495,6 +1509,41 @@ describe("活动块聚合", () => {
     });
 
     expect(activityAt(items, 0).summary.failures).toBe(2);
+  });
+
+  // 后台命令的 tool_result 是**启动 ACK**,一到就有结果 —— 在类目汇总里它与一条
+  // 跑完的命令完全同形。而活动块一落定就自动收起,组头是折叠态唯一的信息出口:
+  // 不把「还在跑几个」单独数出来,一个 900s 的 make test 就从转录里消失了。
+  // 判据与活动行的后台标记同源(run_in_background 入参 + 后台 subagent 的状态)。
+  it("还在后台跑的命令单独计数,已终结的与前台的都不算", () => {
+    const items = buildRenderItems({
+      messageId: 1,
+      blocks: [
+        backgroundUse("toolu-bg1", "running"),
+        toolResult("toolu-bg1", "Command running in background with ID: bg1"),
+        backgroundUse("toolu-bg2", "completed"),
+        toolResult("toolu-bg2", "Command running in background with ID: bg2"),
+        toolUse("toolu-fg"),
+        toolResult("toolu-fg", "ok"),
+      ],
+    });
+
+    const { summary } = activityAt(items, 0);
+    expect(summary.backgroundRunning).toBe(1);
+    // 后台是正交的一维:那两步照样各算一次命令,也不因此算失败。
+    expect(summary.parts).toEqual([{ category: "command", count: 3 }]);
+    expect(summary.failures).toBe(0);
+  });
+
+  // 刚派出去、启动 ACK 还没回的一步没有 subagent 状态。此时它最需要被报出来
+  // (用户刚看到 agent 起了个后台任务),状态缺失当成「还在跑」而不是「不算」。
+  it("后台命令连启动 ACK 都还没回时也算在跑", () => {
+    const items = buildRenderItems({
+      messageId: 1,
+      blocks: [backgroundUse("toolu-bg", undefined)],
+    });
+
+    expect(activityAt(items, 0).summary.backgroundRunning).toBe(1);
   });
 
   it("同一文件改两次算一个文件,增删行累加", () => {
@@ -1743,7 +1792,13 @@ describe("活动块聚合", () => {
       isLastOfMessage: true,
       item: {
         steps: [],
-        summary: { failures: 0, parts: [], steps: 0, truncated: false },
+        summary: {
+          backgroundRunning: 0,
+          failures: 0,
+          parts: [],
+          steps: 0,
+          truncated: false,
+        },
         type: "activity",
         uiStateKey: "k",
       },

@@ -160,6 +160,7 @@ export function ActivityBlock({
         ) : (
           <SummaryText summary={summary} />
         )}
+        <BackgroundCount count={summary.backgroundRunning} />
         <FailureCount count={summary.failures} />
         {durationLabel ? (
           <span
@@ -254,8 +255,33 @@ function ElidedSteps({
         {t("activity.elided.steps", { count: steps.length })}
       </span>
       <SummaryText summary={summary} />
+      <BackgroundCount count={summary.backgroundRunning} />
       <FailureCount count={summary.failures} />
     </button>
+  );
+}
+
+// BackgroundCount —— 组头与省略行共用:块里还有几个后台任务在跑。位置与红色失败
+// 计数同一条规矩(在可伸缩的汇总**之外**,挤不下时先裁汇总),因为它们回答的是同
+// 一类问题 —— 这一块折起来之后,有什么是不该被折没的。
+//
+// 带实字而不只是一个色点:颜色不能是信息的唯一载体(docs/design.md 无障碍),而且
+// 组头刻意不挂 aria-label,可访问名由行内文本算出 —— 一个孤零零的数字读屏读不出
+// 它是什么。脉冲点与活动行的后台标记同一套语汇。
+function BackgroundCount({ count }: { count: number }) {
+  const { t } = useUiTranslation();
+  if (count <= 0) return null;
+  return (
+    <span
+      data-testid="activity-background"
+      className="flex shrink-0 items-center gap-1 font-mono text-status-running"
+    >
+      <span
+        aria-hidden="true"
+        className="size-1.5 shrink-0 rounded-full bg-status-running motion-safe:animate-pulse"
+      />
+      {t("activity.summary.background", { count })}
+    </span>
   );
 }
 

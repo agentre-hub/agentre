@@ -38,6 +38,7 @@ import (
 	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/turnstats"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
@@ -397,12 +398,6 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	}
 	em := h.newEmitterFor(ctx, p.ConversationID, runPeer)
 
-	// R18:「开新一轮」的发起方标记。浏览器在空闲会话上发消息时随 runtime.run 声明自己的
-	// 设备身份(SourceDevice 非空),daemon 据此在事件流开头注入一条 user_message 事件,
-	// 扇出给同一条会话的其余订阅者 —— 桌面端据此把这一轮落成一行带来源标识的用户消息。
-	// 桌面端自己发消息不带 SourceDevice(单端零变化),不注入,事件流与今天逐帧一致。
-	userMsg := userMessageFor(p)
-
 	var (
 		piPreparer piagentrt.RunPreparer
 		piOwner    *runtimeSession
@@ -565,9 +560,9 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	//
 	// 位置也不是随便挑的:startSession 之后(会话行得先在,StartTurn 才解得出本机主键),
 	// turnStarted 之后(用户那一帧要排在开轮帧后面,与本轮之前的帧序一字不差)。
-	scribe, userMessageSeq := h.beginTranscript(em, p.UserText)
-	ack.UserMessageSeq = userMessageSeq
-	go h.fanout(em, owner, events, result, userMsg, scribe) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
+	scribe, userMessageMinSeq, userMessageSeq := h.beginTranscript(em, p.UserText, userBlocks, userSourceFor(p))
+	ack.UserMessageMinSeq, ack.UserMessageSeq = userMessageMinSeq, userMessageSeq
+	go h.fanout(em, owner, events, result, scribe) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
 	// 真实 runtime 若支持自主续轮(claudecode),起每会话一个转发 goroutine 把
 	// AutonomousTurns(sid) 推到 client。session 已 spawn,此刻订阅才拿得到 channel。
 	if src, ok := rt.(agentruntime.AutonomousTurnSource); ok {
@@ -738,9 +733,15 @@ func (h *RuntimeHandlers) startPreparedPi(
 	h.markStreaming(owner)
 	// 与非 Pi 那一路同一条纪律:转录起手留在同步段,用户那一行的最高持久帧号随应答
 	// 交回发起方(spec 2026-09-07 决策 1)。
-	scribe, userMessageSeq := h.beginTranscript(em, p.UserText)
-	ack.UserMessageSeq = userMessageSeq
-	go h.fanout(em, owner, events, result, userMessageFor(p), scribe)
+	// 附件与非 Pi 那一路同一条:解不开就拒绝整轮,而不是丢掉附件照跑 —— 静默跑一轮
+	// 「用户以为发了图、模型没看见」的对话,比一个明确的错误更糟(决策 3)。
+	piUserBlocks, err := decodeUserBlocks(p.UserBlocks)
+	if err != nil {
+		return wire.RunAck{}, fmt.Errorf("decode user blocks: %w", err)
+	}
+	scribe, userMessageMinSeq, userMessageSeq := h.beginTranscript(em, p.UserText, piUserBlocks, userSourceFor(p))
+	ack.UserMessageMinSeq, ack.UserMessageSeq = userMessageMinSeq, userMessageSeq
+	go h.fanout(em, owner, events, result, scribe)
 	return ack, nil
 }
 
@@ -833,45 +834,22 @@ func (h *RuntimeHandlers) finishSession(em *sessionEmitter) {
 	}
 }
 
-// userMessageFor 从 RunParams 推出「开新一轮」的发起方标记(R18):发起方声明了设备身份
-// (SourceDevice 非空)且有用户文本时返回标记,否则 nil。桌面端自己发消息不传 SourceDevice,
-// 返回 nil 即事件流与今天逐帧一致。
-func userMessageFor(p wire.RunParams) *agentruntime.UserMessageEvent {
-	if text := strings.TrimSpace(p.UserText); text != "" && p.SourceDevice != "" {
-		return &agentruntime.UserMessageEvent{
-			Text:             text,
-			SourceDevice:     p.SourceDevice,
-			SourceDeviceName: p.SourceDeviceName,
-		}
-	}
-	return nil
-}
-
-// emitPrelude 把发起方标记(UserMessageEvent)按与事件流同一条纪律发出:marshal →
-// 判 generation 是否仍归本属主(stale 丢弃,与循环里一致)→ em.emit 落库 + 推送。
-// 返回是否真的作为一条事件发出。
-func (h *RuntimeHandlers) emitPrelude(em *sessionEmitter, owner *runtimeSession, rid int64, prelude *agentruntime.UserMessageEvent) bool {
-	current := h.isCurrent(rid, owner)
-	if owner.backendType == agent_backend_entity.TypePiAgent && owner.ctx != nil {
-		current = h.canDeliverPiEvent(rid, owner)
-	}
-	if !current {
-		logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.emitPrelude: stale prelude dropped",
-			zap.String("conversationId", em.conversationID),
-			zap.String("peerFingerprint", em.peer))
-		return false
-	}
-	return em.emit(wire.NotifyEvent, &wire.EventFrame{
-		ConversationID: em.conversationID,
-		Event:          *prelude,
-		Preview:        true,
-	})
+// userSourceFor 从 RunParams 取出提交这一轮的对端身份(R18/R19)。桌面端自己发消息不传
+// SourceDevice,交回空值 —— 用户那一行因此不盖任何来源,与本机发送逐字节一致。
+//
+// 它从前的形状是「在事件流开头注入一条 user_message 标记事件」。那条标记现在是多余的:
+// 用户那一行起手就落库并作为**持久帧**发布(beginTranscript),而拿帧重建转录的消费方
+// 对每一条 user_message 都新建一条用户消息、不去重 —— 一句话于是画出两条(持久那条
+// 进转录,预览那条挂在预览尾巴上,要等下一个持久帧才消失)。留下的是持久帧那一条:
+// 它带号、进转录、参与补齐,标记这三样一样都没有。
+func userSourceFor(p wire.RunParams) transcript.UserSource {
+	return transcript.UserSource{Device: p.SourceDevice, Name: p.SourceDeviceName}
 }
 
 // fanout 把 backend events channel 抽干推到 runtime.event,channel close 后再发
 // runtime.runResultDone 终态帧。日志按事件 kind 计数,turn 结束时打一条汇总,
 // 排查 stuck-turn / 漏事件时方便对账 client 端实际收到几条。
-func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, prelude *agentruntime.UserMessageEvent, scribe *turnTranscript) {
+func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, scribe *turnTranscript) {
 	startedAt := time.Now()
 	cid, rid := em.conversationID, em.rid
 	count := 0
@@ -885,14 +863,6 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 	// 交给发起方,所以它必须发生在 Run 的同步段,而这里是协程(spec 2026-09-07 决策 1)。
 	// 它与推送是两件事:推出去的是即时呈现用的预览帧,落进库的是块(2026-09-05 决策 1/4);
 	// 轮内每个定稿时刻 checkpoint 一次。
-	// R18:把发起方标记作为**第一条**事件注入,保证订阅者先把这一轮的用户消息落成转录行,
-	// 再接收后端真正的事件。
-	if prelude != nil {
-		if h.emitPrelude(em, owner, rid, prelude) {
-			count++
-			kindHist["UserMessage"]++
-		}
-	}
 	for ev := range ch {
 		meter.observe(ev)
 		// R17:SteerConsumed 里的每条 steer 都带着它的提交方来源 —— 实时消费路径
@@ -1046,7 +1016,7 @@ func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentrunt
 	})
 	count := 0
 	// 自主续轮同样是一轮转录,只是没有用户那一行 —— 它不是任何人发起的。
-	scribe, _ := h.beginTranscript(em, "")
+	scribe, _, _ := h.beginTranscript(em, "", nil, transcript.UserSource{})
 	for ev := range at.Events {
 		count++
 		scribe.observe(em.ctx, ev)

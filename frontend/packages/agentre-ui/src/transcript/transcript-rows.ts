@@ -124,6 +124,12 @@ export type ActivitySummary = {
   truncated: boolean;
   /** 组内失败步数。永不参与截断:折叠态不得让发生过的事消失。 */
   failures: number;
+  /**
+   * 组内此刻还在后台跑的步数。与 failures 同规矩:单列、永不参与截断。
+   * 后台命令的 tool_result 是启动 ACK,在类目汇总里与一条跑完的命令完全同形,
+   * 而活动块落定后自动收起 —— 不单独数出来,一个还在跑的任务就从转录里消失了。
+   */
+  backgroundRunning: number;
 };
 
 /** 组内一步。形状与它单独成行时完全一致,展开体因此能复用同一套渲染。 */
@@ -511,8 +517,21 @@ export function isFailedStep(
   return !!result.isError || isFailedCommandResult(commandResultOf(result));
 }
 
+// isBackgroundRunningBlock —— 一步是不是「run_in_background 的命令,此刻还在跑」。
+// 组头计数与活动行的后台标记(facts.ts 的 backgroundFacts)必须是同一判据:两处
+// 各判一遍必然分叉,出现「展开看得到一个在跑的后台任务、折叠说一个都没有」。
+//
+// 它不能靠「有没有结果」判:后台命令立刻拿到启动 ACK,一到就有结果。只能看后台
+// 任务的状态 sidecar,终态之外(含状态缺失 = 刚派出去还没回报)一律算还在跑。
+export function isBackgroundRunningBlock(block?: TranscriptBlock): boolean {
+  const input = block?.toolInput as Record<string, unknown> | undefined;
+  if (input?.run_in_background !== true) return false;
+  const status = block?.subagent?.status;
+  return status !== "completed" && status !== "failed" && status !== "canceled";
+}
+
 // summarizeActivity 汇总组头:类目计数按固定顺序输出并截断,写操作额外报出对象
-// 规模(改到几个文件 / 增删多少行),失败计数单列且不参与截断。
+// 规模(改到几个文件 / 增删多少行),失败计数与后台计数单列且不参与截断。
 // unresolvedFailed 透传给 isFailedStep —— 见那里的注释。
 export function summarizeActivity(
   steps: ActivityStep[],
@@ -523,6 +542,7 @@ export function summarizeActivity(
   let plus = 0;
   let minus = 0;
   let failures = 0;
+  let backgroundRunning = 0;
 
   for (const step of steps) {
     if (step.type === "thinking") {
@@ -539,6 +559,7 @@ export function summarizeActivity(
       minus += patch.minus ?? 0;
     }
     if (isFailedStep(step, unresolvedFailed)) failures++;
+    if (isBackgroundRunningBlock(block)) backgroundRunning++;
   }
 
   const all: ActivitySummaryPart[] = ACTIVITY_CATEGORY_ORDER.filter((c) =>
@@ -551,6 +572,7 @@ export function summarizeActivity(
   });
 
   return {
+    backgroundRunning,
     failures,
     parts: all.slice(0, ACTIVITY_SUMMARY_MAX_PARTS),
     steps: steps.length,
