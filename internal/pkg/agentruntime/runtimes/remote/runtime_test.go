@@ -27,8 +27,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/orderedpipe"
 	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // Compile-time guard: *Runtime must satisfy the full Runtime contract +

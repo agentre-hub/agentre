@@ -5,9 +5,9 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	pkgworkspacefs "github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // GitFileContent 返回 req.Root 下 req.RelPath 所指文件在 git HEAD 的版本(对比

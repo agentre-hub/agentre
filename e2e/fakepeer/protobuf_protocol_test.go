@@ -12,8 +12,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 func TestServerGivenProductionClientThenNegotiatesBinaryProtobufAndServesTypedAuthSessionRuntime(t *testing.T) {

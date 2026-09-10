@@ -44,12 +44,12 @@ func TestMultiplexer_GivenOneStalledChannel_WhenFramesKeepArriving_ThenOtherChan
 		for i := 0; i < virtualChannelBuffer*2; i++ {
 			hub.frames <- HubFrame{
 				MessageType: websocket.BinaryMessage,
-				Payload:     marshalRelayEnvelope(stalled.ID(), []byte{byte(i)}),
+				Payload:     testEnvelope(stalled.ID(), []byte{byte(i)}),
 			}
 		}
 		hub.frames <- HubFrame{
 			MessageType: websocket.BinaryMessage,
-			Payload:     marshalRelayEnvelope(healthy.ID(), want),
+			Payload:     testEnvelope(healthy.ID(), want),
 		}
 	}()
 
@@ -90,7 +90,7 @@ func TestMultiplexer_GivenAStalledChannelOverflows_WhenItDoes_ThenOnlyThatChanne
 		for i := 0; i < virtualChannelBuffer*2; i++ {
 			hub.frames <- HubFrame{
 				MessageType: websocket.BinaryMessage,
-				Payload:     marshalRelayEnvelope(stalled.ID(), []byte{byte(i)}),
+				Payload:     testEnvelope(stalled.ID(), []byte{byte(i)}),
 			}
 		}
 	}()

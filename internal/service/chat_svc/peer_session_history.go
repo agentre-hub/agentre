@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -258,7 +257,12 @@ func clampPeerPullLimit(limit int) int {
 	return limit
 }
 
-func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, conversationID string, subscriber PeerSessionSubscriber) (int64, func(), error) {
+// attachPeerTranscript 把一个对端挂到这条会话的通知宇宙上,并交回它的起始高水位。
+//
+// running 说的是「此刻这条会话还有一轮在飞」:在飞那条消息结尾还会继续长的正文块与
+// 它这一轮的消息级派生帧都还没定稿,不能在这一刻取号 —— 判据与实时发布那一侧、与
+// agentred 的补齐读侧都是同一行代码(transcript.WithoutUnsettledTail)。
+func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, conversationID string, running bool, subscriber PeerSessionSubscriber) (int64, func(), error) {
 	publication := s.peerPublication(sessionID, conversationID)
 	key := peerSubscriberKey(subscriber)
 	// Holding this lock across the initial repository read makes the synthesized
@@ -275,6 +279,9 @@ func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, con
 		if err != nil {
 			publication.mu.Unlock()
 			return 0, nil, fmt.Errorf("synthesize desktop peer history: %w", err)
+		}
+		if running && len(messages) > 0 {
+			keyed = transcript.WithoutUnsettledTail(keyed, messages[len(messages)-1].ID)
 		}
 		if err := numberPeerFramesLocked(ctx, publication, keyed); err != nil {
 			publication.mu.Unlock()
@@ -405,12 +412,16 @@ func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64,
 			zap.Int64("sessionId", sessionID), zap.Int64("messageId", msg.ID), zap.Error(err))
 		return
 	}
-	now := time.Now().UnixMilli()
 	publication.mu.Lock()
 	for index := range pending {
 		pending[index].Frame.Seq = seqs[index]
 		publication.history = append(publication.history, pending[index].Frame)
-		publication.createtimes = append(publication.createtimes, now)
+		// 时刻取投影器配给的那一个(= 所属消息的 createtime),不是「此刻」。这一格由
+		// PullPeerSession 交出去,而重启之后同一条转录是由 numberPeerFramesLocked 从
+		// 投影重建的 —— 那边取的就是投影器给的值。写「此刻」会让同一个 seq 在重启前后
+		// 报出两个时刻:一轮里消息建行与块定稿隔着整趟工具往返,对端那条转录的 HH:mm
+		// 会在重连之后整体跳回本轮起点。时刻的归属在 transcript.ProjectMessages 说死。
+		publication.createtimes = append(publication.createtimes, pending[index].Createtime)
 		publication.publisher.Commit(pending[index : index+1])
 		if seqs[index] > publication.nextSeq {
 			publication.nextSeq = seqs[index]

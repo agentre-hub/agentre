@@ -10,9 +10,9 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // realDial wraps internal/daemon/client to satisfy DaemonDialPort.

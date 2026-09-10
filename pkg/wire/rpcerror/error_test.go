@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 func TestError_GivenWrappedStableError_WhenClassified_ThenPreservesCodeMessageAndDetails(t *testing.T) {

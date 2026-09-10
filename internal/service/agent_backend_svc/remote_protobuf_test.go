@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 type serviceProtoPipe struct {
@@ -63,13 +64,13 @@ func TestRemoteCLIAndSkillsUseTypedProtobufMethods(t *testing.T) {
 	go clientConn.Serve(ctx)
 	go serverConn.Serve(ctx)
 
-	resolved, err := resolveRemoteCLIPath(ctx, clientConn, "claudecode")
+	resolved, err := resolveRemoteCLIPath(ctx, wirecall.On(clientConn), "claudecode")
 	require.NoError(t, err)
 	require.Equal(t, "/remote/claude", resolved.Path)
-	probed, err := probeRemoteCLI(ctx, clientConn, handlers.CLIProbeParams{BackendType: "codex"})
+	probed, err := probeRemoteCLI(ctx, wirecall.On(clientConn), handlers.CLIProbeParams{BackendType: "codex"})
 	require.NoError(t, err)
 	require.Equal(t, "pong", probed.Text)
-	packs, err := listRemoteSkills(ctx, clientConn, "claudecode")
+	packs, err := listRemoteSkills(ctx, wirecall.On(clientConn), "claudecode")
 	require.NoError(t, err)
 	require.Equal(t, "pack", packs[0].ID)
 	require.Equal(t, []string{"skill"}, packs[0].Skills)

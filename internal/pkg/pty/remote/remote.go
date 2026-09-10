@@ -14,9 +14,9 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	pkgpty "github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 const (

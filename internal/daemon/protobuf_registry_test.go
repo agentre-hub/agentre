@@ -13,12 +13,12 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	statepkg "github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 func TestProtobufAuthAccountResponsePreservesInstanceUUID(t *testing.T) {

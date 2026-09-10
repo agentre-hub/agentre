@@ -12,7 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // 本文件覆盖「浏览器改得了这条会话用哪个模型」在 agentred 这一侧的落库。

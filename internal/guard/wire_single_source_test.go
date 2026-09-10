@@ -1,9 +1,6 @@
 package guard
 
 import (
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -28,32 +25,10 @@ func TestWireHasOneImportPath(t *testing.T) {
 	root := repositoryRoot(t)
 	scanned := 0
 
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", "node_modules", "dist":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(path) != ".go" {
-			return nil
-		}
-		// path 由上面的 WalkDir 从仓库根枚举，只读取后缀为 .go 的受控源码。
-		content, err := os.ReadFile(path) //nolint:gosec // 测试守卫需要检查仓库内枚举出的 Go 源码。
-		if err != nil {
-			return err
-		}
+	err := walkRepositoryGoFiles(root, func(rel string, content []byte) error {
 		scanned++
-		if path == filepath.Join(root, "internal", "guard", "wire_single_source_test.go") {
+		if rel == "internal/guard/wire_single_source_test.go" {
 			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
 		}
 		for _, duplicate := range wireDuplicateImports {
 			if strings.Contains(string(content), `"`+duplicate+`"`) {

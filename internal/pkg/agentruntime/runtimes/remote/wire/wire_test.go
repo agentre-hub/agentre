@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 func TestToFromRPCError_RoundTrip(t *testing.T) {

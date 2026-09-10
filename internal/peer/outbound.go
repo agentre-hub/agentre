@@ -10,10 +10,11 @@ import (
 	"context"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // Outbound 是拨到另一台桌面端（或 agentred）的会话级客户端。调用方把
@@ -51,7 +52,7 @@ func (o *Outbound) ListSessions(ctx context.Context, params wire.SessionListPara
 		Limit:           int32(params.Limit),
 		ConversationIds: params.ConversationIDs,
 	}
-	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), request, func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
+	response, err := wirecall.SessionList(ctx, o.c, request)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +67,7 @@ func (o *Outbound) ListSessions(ctx context.Context, params wire.SessionListPara
 // 的 canonical 事件经 runtime.event 推回本连接，直到 Close。LatestSeq 是补齐历史
 // 的高水位游标。
 func (o *Outbound) Attach(ctx context.Context, params wire.SessionAttachParams) (wire.SessionAttachResult, error) {
-	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), &agentrewire.SessionAttachRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
+	response, err := wirecall.SessionAttach(ctx, o.c, &agentrewire.SessionAttachRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint})
 	if err != nil {
 		var result wire.SessionAttachResult
 		return result, err
@@ -77,7 +78,7 @@ func (o *Outbound) Attach(ctx context.Context, params wire.SessionAttachParams) 
 // Pull 拉一页游标之后的 journaled 历史（R19 / R7）。桌面端的历史不回收，因此
 // OldestSeq 恒为第一条（空历史为 0），与 agentred 的回收语义区分。
 func (o *Outbound) Pull(ctx context.Context, params wire.SessionPullParams) (wire.SessionPullResult, error) {
-	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), &agentrewire.SessionPullRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint, Cursor: params.Cursor, Limit: int32(params.Limit)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+	response, err := wirecall.SessionPull(ctx, o.c, &agentrewire.SessionPullRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint, Cursor: params.Cursor, Limit: int32(params.Limit)})
 	if err != nil {
 		var result wire.SessionPullResult
 		return result, err
@@ -110,7 +111,7 @@ func (o *Outbound) RunFresh(ctx context.Context, params wire.RunParams) (wire.Ru
 	// 豁免默认请求预算:对端那边这一条打到的是同一个 runtime.run(解析后端、准备
 	// 工作区、拉起 CLI)。截断它 = 本端判派活失败,而对端会话已经建好并开跑。
 	ctx = protorpc.WithoutCallTimeout(ctx)
-	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request, func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	response, err := wirecall.RuntimeRun(ctx, o.c, request)
 	if err != nil {
 		var ack wire.RunAck
 		return ack, err
@@ -120,14 +121,14 @@ func (o *Outbound) RunFresh(ctx context.Context, params wire.RunParams) (wire.Ru
 
 // Steer 往已接入的远程会话发一条新消息（R19 / R9），走对端既有发送路径。
 func (o *Outbound) Steer(ctx context.Context, params wire.SteerParams) error {
-	_, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), &agentrewire.RuntimeSteerRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint, QueuedId: params.QueuedID, Text: params.Text}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
+	_, err := wirecall.RuntimeSteer(ctx, o.c, &agentrewire.RuntimeSteerRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint, QueuedId: params.QueuedID, Text: params.Text})
 	return err
 }
 
 // SubmitAnswer 回答对端会话上挂起的用户提问（R10）。AlreadyHandled 报告同一待决策
 // 已被别的端处理过；旧对端返回空对象时保持 false（task 5 的兼容语义）。
 func (o *Outbound) SubmitAnswer(ctx context.Context, params wire.SubmitAnswerParams) (wire.PeerSessionControlResult, error) {
-	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint, RequestId: params.RequestID, Questions: protowire.AskQuestionsToProto(params.Questions), Answers: protowire.AskAnswersToProto(params.Answers), Skipped: params.Skipped}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
+	response, err := wirecall.RuntimeSubmitAnswer(ctx, o.c, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint, RequestId: params.RequestID, Questions: protowire.AskQuestionsToProto(params.Questions), Answers: protowire.AskAnswersToProto(params.Answers), Skipped: params.Skipped})
 	if err != nil {
 		var result wire.PeerSessionControlResult
 		return result, err
@@ -138,7 +139,7 @@ func (o *Outbound) SubmitAnswer(ctx context.Context, params wire.SubmitAnswerPar
 // SubmitToolPermission 决定对端会话上挂起的工具权限（R10），AlreadyHandled 语义
 // 同 SubmitAnswer。
 func (o *Outbound) SubmitToolPermission(ctx context.Context, params wire.SubmitToolPermissionParams) (wire.PeerSessionControlResult, error) {
-	response, err := protorpc.CallMethod(ctx, o.c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION), &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint, RequestId: params.RequestID, Allow: params.Allow, AlwaysAllowSession: params.AlwaysAllowSession, DenyReason: params.DenyReason}, func() *agentrewire.PeerSessionControlResponse { return &agentrewire.PeerSessionControlResponse{} })
+	response, err := wirecall.RuntimeSubmitToolPermission(ctx, o.c, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: params.ConversationID, PeerFingerprint: params.PeerFingerprint, RequestId: params.RequestID, Allow: params.Allow, AlwaysAllowSession: params.AlwaysAllowSession, DenyReason: params.DenyReason})
 	if err != nil {
 		var result wire.PeerSessionControlResult
 		return result, err

@@ -26,7 +26,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	daemonmigrations "github.com/agentre-hub/agentre/internal/daemon/migrations"
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
 	"github.com/agentre-hub/agentre/internal/daemon/sessions"
@@ -43,6 +42,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 // dbFileName 是 agentred 自己的 SQLite 库文件名,位于 Options.DataDir(=
@@ -1928,19 +1928,12 @@ type journalReader struct{ db *gorm.DB }
 
 var _ handlers.JournalReaderPort = journalReader{}
 
-// localSessionID 把 (对端指纹, 对话 id) 解成本机的数字会话主键;没有这一行时
-// 交回 0、不报错 —— 补齐一条从没在这台机器上跑过的会话是正常情况,不是故障。
-func (j journalReader) localSessionID(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
-	row, err := session_repo.Session().Find(ctx, peerFingerprint, peerSessionID)
-	if err != nil || row == nil {
-		return 0, err
-	}
-	return row.ID, nil
-}
-
 // keyedFrames 是三个读方法共用的读取入口:解出本机会话、读回整段转录、投影出带位置
 // 的持久帧 —— **不取号**。三者必须读同一份计算结果,否则 List 报的高水位与 Pull 实际
 // 补到的末尾对不上,对端会把两者的差当成跳号。
+//
+// 解不出会话行时交回 0、不报错 —— 补齐一条从没在这台机器上跑过的会话是正常情况,
+// 不是故障。
 //
 // 取号(写库)刻意留在调用方:只有真被补齐的那一条路(ListSince)才惰性补齐编号,
 // 清单那条只读探测按台账预测(见 LatestSeq)。
@@ -1959,24 +1952,11 @@ func (j journalReader) keyedFrames(ctx context.Context, peerFingerprint, peerSes
 		return 0, nil, err
 	}
 	if row.LifecycleState == wire.SessionLifecycleRunning && len(messages) > 0 {
-		keyed = withoutUnsettledTail(keyed, messages[len(messages)-1].ID)
+		// 在飞那条消息里还没定稿的尾巴不进补齐:定稿判据与实时发布那一侧是同一行
+		// 代码,两个时刻因此在同一帧上定稿(transcript.WithoutUnsettledTail)。
+		keyed = transcript.WithoutUnsettledTail(keyed, messages[len(messages)-1].ID)
 	}
 	return sessionID, keyed, nil
-}
-
-// withoutUnsettledTail 砍掉在飞那条消息里还没定稿的尾巴(还会继续长的正文块、以及
-// 这一轮还没发生的 usage / done)。
-//
-// 编号是一次性的:分配与落库不可分,一个位置取过号就不再改。补齐若给一条**在飞**消息
-// 结尾那个还在长的正文块取了号,收口时它的内容变了,同一个位置只能再取一个新的末尾号
-// —— 对端于是拿到同一段话的两份。定稿判据因此必须与实时发布那一侧是同一行代码
-// (transcript.SettledFrames),两个时刻在同一帧上定稿。
-func withoutUnsettledTail(keyed []transcript.KeyedFrame, inflightMessageID int64) []transcript.KeyedFrame {
-	head := len(keyed)
-	for head > 0 && keyed[head-1].Key.MessageID == inflightMessageID {
-		head--
-	}
-	return append(keyed[:head:head], transcript.SettledFrames(keyed[head:])...)
 }
 
 // durableFrames 是补齐真正读的那一份:在 keyedFrames 之上把缺号的位置**当场补齐并

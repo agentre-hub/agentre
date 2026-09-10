@@ -3,7 +3,7 @@ package connection
 import (
 	"context"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 type AuthState struct {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	pkgworkspacefs "github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // GitState 汇总 req.Root 仓库的只读 git 状态快照:分支 / worktree 短名 / 未

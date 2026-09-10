@@ -30,7 +30,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/notifier"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
@@ -42,10 +41,12 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/wirelimits"
 )
 
 // TestDaemon_OpensOwnDatabaseAndRunsMigrations 覆盖任务目标的第一句:agentred
@@ -2361,10 +2362,13 @@ func TestDaemon_RelayLinkSharesTheDirectFrameBound(t *testing.T) {
 // 载荷预算与服务端那侧必须是同一个数(agentre-server 的 relayws.MaxPayloadBytes)。
 // 两个仓各自写一份字面量,没有编译器会替我们发现它们漂开,所以这里把数字本身钉住。
 func TestDaemon_PayloadBudgetMatchesTheRelayServer(t *testing.T) {
-	require.Equal(t, int64(10<<20), protorpc.MaxFrameBytes,
-		"载荷预算改了就要同时改 agentre-server 的 relayws.MaxPayloadBytes")
+	// 两个数如今各有唯一的主人(pkg/wire 的 wirelimits 与 relayenvelope),三个宿主
+	// 取的是同一个常量,漂移不再靠人记着同时改两处。这里留下的是一条**独立的字面量
+	// 锚**:它不防跨仓漂移(那已经由类型系统防住了),它防的是有人顺手把预算本身改掉。
+	require.Equal(t, int64(10<<20), wirelimits.MaxPayloadBytes,
+		"载荷预算是整条链路共用的数,改它要先想清楚 1009 会拆掉整条物理连接")
 	require.Equal(t, int64(2+128), relaytransport.MaxEnvelopeBytes,
-		"信封头余量改了就要同时改 agentre-server 的 relayws.MaxEnvelopeBytes")
+		"信封头余量 = 2 字节长度前缀 + 通道 ID 上限")
 }
 
 // convID 是 rig 里那台桌面端为它本机第 n 条会话交出去的对话身份 —— **测试装置

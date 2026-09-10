@@ -9,11 +9,11 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/daemon/notifier"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 // TestProtobufNotifierWritesTheGivenNotificationUnchanged 钉死推送端口这一层**不再

@@ -20,11 +20,11 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // ConnState 是一条远端会话此刻的**通道**状态。它是运行态之上的一层修饰,不是第五种
@@ -357,8 +357,7 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 		before := ss.cursorNow()
 
 		// 发 RPC 时绝不持 ss.mu,见 sessionSync 的纪律注释。
-		response, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL),
-			&agentrewire.SessionPullRequest{ConversationId: r.conversationID(sid), Cursor: before, PeerFingerprint: r.originFor(sid)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+		response, err := wirecall.SessionPull(ctx, r.conn(), &agentrewire.SessionPullRequest{ConversationId: r.conversationID(sid), Cursor: before, PeerFingerprint: r.originFor(sid)})
 		if err != nil {
 			return replayed, fromProtobufError(err)
 		}
@@ -692,8 +691,7 @@ func (r *Runtime) catchUpSession(ctx context.Context, sid int64) error {
 // 返回接管时 daemon 交回的高水位(该会话通知日志里此刻的 MAX(seq)),补齐据它校验
 // 本地游标有没有越界(见 dropCursorAboveHighWater)。失败时返 0。
 func (r *Runtime) attachSession(ctx context.Context, sid int64) (int64, error) {
-	att, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH),
-		&agentrewire.SessionAttachRequest{ConversationId: r.conversationID(sid), PeerFingerprint: r.originFor(sid)}, func() *agentrewire.SessionAttachResponse { return &agentrewire.SessionAttachResponse{} })
+	att, err := wirecall.SessionAttach(ctx, r.conn(), &agentrewire.SessionAttachRequest{ConversationId: r.conversationID(sid), PeerFingerprint: r.originFor(sid)})
 	if err == nil {
 		return att.GetLatestSeq(), nil
 	}
@@ -1019,8 +1017,7 @@ func (r *Runtime) turnStartFloor(ctx context.Context, sid int64) int64 {
 // sessionSummaries 是补齐三步的第一步:问一眼这个对端在这台 daemon 上有哪些会话、
 // 各自的生命周期状态、是否正在等输入、日志高水位到哪。规格明写它无副作用。
 func (r *Runtime) sessionSummaries(ctx context.Context) (map[string]wire.SessionSummary, error) {
-	res, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
-		&agentrewire.SessionListRequest{}, func() *agentrewire.SessionListResponse { return &agentrewire.SessionListResponse{} })
+	res, err := wirecall.SessionList(ctx, r.conn(), &agentrewire.SessionListRequest{})
 	if err != nil {
 		return nil, wire.FromRPCError(err)
 	}

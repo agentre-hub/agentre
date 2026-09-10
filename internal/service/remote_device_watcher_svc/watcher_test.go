@@ -11,10 +11,10 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc/mock_remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 type watcherTestConnection struct{ conn *protorpc.Conn }

@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
 	daemonimport "github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
@@ -15,6 +14,7 @@ import (
 	importwire "github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
 	workspacewire "github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 type PeripheralDeps struct {

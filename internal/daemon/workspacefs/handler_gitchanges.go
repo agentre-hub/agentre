@@ -5,9 +5,9 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	pkgworkspacefs "github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // GitChanges 返回 req.Root 的 git 变动列表(未提交档或本分支档,设计决策 8)。

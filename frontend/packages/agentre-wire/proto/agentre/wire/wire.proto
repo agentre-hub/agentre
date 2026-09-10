@@ -2,7 +2,24 @@ syntax = "proto3";
 
 package agentre.wire;
 
+import "google/protobuf/descriptor.proto";
+
 option go_package = "github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewire";
+
+// event_kind 把「这条 oneof 分支在转录里的判别值」写在 schema 上。
+//
+// 判别值(text_delta / tool_use_start / usage …)与分支名**不是同一套拼法,也没有
+// 可推导的规则**:tool_call 的判别值是 tool_use_start,user_ask_request 的是
+// ask_user_question,usage_update 的是 usage。它因此长期以手抄表的形式散在各处 ——
+// server 的 Go 投影一份、浏览器的 TS 归约一份 —— 而配对写错编译器发现不了:消费方
+// 的归约落进 default 分支,工具卡与提问卡整块不渲染,编译绿、测试绿、界面坏(四条
+// 映射就这样上过线)。
+//
+// 写在这里之后,两侧都从 descriptor 读同一格,手抄消失。它是**纯 schema 注解**:
+// 不占字段号、不进任何一条 wire 上的字节,老版本消费方读到的帧一字不变。
+extend google.protobuf.FieldOptions {
+  string event_kind = 60001;
+}
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -950,33 +967,33 @@ message RuntimeEventNotification {
   bool preview = 30;
 
   oneof event {
-    TextDelta text_delta = 3;
-    ThinkingDelta thinking_delta = 4;
-    OutputActivity output_activity = 5;
-    PermissionModeChanged permission_mode_changed = 6;
-    Retry retry = 7;
-    ContextWindowUpdated context_window_updated = 8;
-    CompactBoundary compact_boundary = 9;
-    RuntimeStatus runtime_status = 10;
-    Done done = 11;
-    ErrorEvent error = 12;
-    UserMessage user_message = 13;
-    ToolCall tool_call = 14;
-    ToolResult tool_result = 15;
-    SteerConsumed steer_consumed = 16;
-    UserAskRequest user_ask_request = 17;
-    UserAskResolved user_ask_resolved = 18;
-    ToolPermissionRequest tool_permission_request = 19;
-    ToolPermissionResolved tool_permission_resolved = 20;
-    ExecApprovalRequested exec_approval_requested = 21;
-    ExecApprovalResolved exec_approval_resolved = 22;
-    SubagentEvent subagent_started = 23;
-    SubagentEvent subagent_progress = 24;
-    SubagentEvent subagent_done = 25;
-    SubagentModel subagent_model = 26;
-    UsageUpdate usage_update = 27;
-    PlanUpdated plan_updated = 28;
-    UnrecognizedBlock unrecognized_block = 29;
+    TextDelta text_delta = 3 [(agentre.wire.event_kind) = "text_delta"];
+    ThinkingDelta thinking_delta = 4 [(agentre.wire.event_kind) = "thinking_delta"];
+    OutputActivity output_activity = 5 [(agentre.wire.event_kind) = "output_activity"];
+    PermissionModeChanged permission_mode_changed = 6 [(agentre.wire.event_kind) = "permission_mode_changed"];
+    Retry retry = 7 [(agentre.wire.event_kind) = "retry"];
+    ContextWindowUpdated context_window_updated = 8 [(agentre.wire.event_kind) = "context_window_updated"];
+    CompactBoundary compact_boundary = 9 [(agentre.wire.event_kind) = "compact_boundary"];
+    RuntimeStatus runtime_status = 10 [(agentre.wire.event_kind) = "runtime_status"];
+    Done done = 11 [(agentre.wire.event_kind) = "done"];
+    ErrorEvent error = 12 [(agentre.wire.event_kind) = "error"];
+    UserMessage user_message = 13 [(agentre.wire.event_kind) = "user_message"];
+    ToolCall tool_call = 14 [(agentre.wire.event_kind) = "tool_use_start"];
+    ToolResult tool_result = 15 [(agentre.wire.event_kind) = "tool_result"];
+    SteerConsumed steer_consumed = 16 [(agentre.wire.event_kind) = "steer_consumed"];
+    UserAskRequest user_ask_request = 17 [(agentre.wire.event_kind) = "ask_user_question"];
+    UserAskResolved user_ask_resolved = 18 [(agentre.wire.event_kind) = "ask_user_question_answered"];
+    ToolPermissionRequest tool_permission_request = 19 [(agentre.wire.event_kind) = "tool_permission_request"];
+    ToolPermissionResolved tool_permission_resolved = 20 [(agentre.wire.event_kind) = "tool_permission_resolved"];
+    ExecApprovalRequested exec_approval_requested = 21 [(agentre.wire.event_kind) = "exec_approval_requested"];
+    ExecApprovalResolved exec_approval_resolved = 22 [(agentre.wire.event_kind) = "exec_approval_resolved"];
+    SubagentEvent subagent_started = 23 [(agentre.wire.event_kind) = "subagent_started"];
+    SubagentEvent subagent_progress = 24 [(agentre.wire.event_kind) = "subagent_progress"];
+    SubagentEvent subagent_done = 25 [(agentre.wire.event_kind) = "subagent_done"];
+    SubagentModel subagent_model = 26 [(agentre.wire.event_kind) = "subagent_model"];
+    UsageUpdate usage_update = 27 [(agentre.wire.event_kind) = "usage"];
+    PlanUpdated plan_updated = 28 [(agentre.wire.event_kind) = "plan_updated"];
+    UnrecognizedBlock unrecognized_block = 29 [(agentre.wire.event_kind) = "unrecognized_block"];
   }
 }
 

@@ -48,6 +48,7 @@ var guardedDeclarations = map[string]string{
 	// 抄第二份就等于让两台机器在不同的时刻给同一段内容取号。
 	"func (p *FramePublisher) Pending(": "internal/pkg/transcript/publish.go",
 	"func SettledFrames(":               "internal/pkg/transcript/publish.go",
+	"func WithoutUnsettledTail(":        "internal/pkg/transcript/publish.go",
 	"func isGrowingTextBlock(":          "internal/pkg/transcript/publish.go",
 }
 
@@ -66,8 +67,7 @@ func TestAccumulationAndProjectionHaveOneImplementation(t *testing.T) {
 			return walkErr
 		}
 		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", "node_modules", "dist":
+			if skipGuardDir(root, path, entry) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -122,4 +122,30 @@ func repositoryRoot(t *testing.T) string {
 	}
 	// internal/pkg/transcript -> 仓库根需要向上三级。
 	return filepath.Clean(filepath.Join(wd, "..", "..", ".."))
+}
+
+// skipGuardDir 说出哪些目录不进这条守卫的枚举。
+//
+// 构建产物之外还有**嵌套的检出**:本项目自己的 dev-kit 把每一轮的隔离工作区放在
+// .dev-kit/worktrees/<name>(.gitignore 里的 /.dev-kit 与 .worktrees/),而那是一份
+// 完整的仓库副本 —— 走进去,同一份 canonical 文件会被数成两处声明,守卫于是在任何
+// 开着 worktree 的检出里判红。那不是「有人抄了第二份」,是守卫看错了范围:它要守的
+// 是**本仓跟踪的源码**,而副本里的字节一行都不属于本仓。
+//
+// 两条判据都按「跟踪与否」立论,不写死具体目录名:仓内没有任何一个跟踪的 .go 文件
+// 落在点开头的目录下(git ls-files '*.go' 里一条都没有),而带 .git 标记的子目录本身
+// 就是另一个检出的根(worktree 那里是一个 .git 文件,克隆是一个 .git 目录)。
+func skipGuardDir(root, path string, entry fs.DirEntry) bool {
+	switch entry.Name() {
+	case "node_modules", "dist":
+		return true
+	}
+	if path == root {
+		return false
+	}
+	if strings.HasPrefix(entry.Name(), ".") {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil
 }

@@ -14,10 +14,11 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // ErrPoolClosed 在 Pool.Close 之后调 Borrow 返回。生产路径只在 bootstrap
@@ -150,12 +151,10 @@ func (l *lease) Client() client.ProtobufConnection {
 	return noopCloseClient{ProtobufConnection: l.e.client}
 }
 func (l *lease) LLMUpsert(ctx context.Context, request *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
-	return protorpc.CallMethod(ctx, l.e.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT), request,
-		func() *agentrewire.LLMUpsertResponse { return &agentrewire.LLMUpsertResponse{} })
+	return wirecall.LLMUpsert(ctx, l.e.client, request)
 }
 func (l *lease) SelfUpdate(ctx context.Context, request *agentrewire.AgentredSelfUpdateRequest) (*agentrewire.AgentredSelfUpdateResponse, error) {
-	return protorpc.CallMethod(ctx, l.e.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_AGENTRED_SELF_UPDATE), request,
-		func() *agentrewire.AgentredSelfUpdateResponse { return &agentrewire.AgentredSelfUpdateResponse{} })
+	return wirecall.AgentredSelfUpdate(ctx, l.e.client, request)
 }
 func (l *lease) Closed() <-chan struct{} { return l.e.closedCh }
 func (l *lease) Release() {

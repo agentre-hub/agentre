@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // ErrInvalidConversationID 是 RPC 边界上「线上给来的不是一条对话身份」的判据。

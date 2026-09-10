@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/daemon/protobufadapter"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	daemonimport "github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
@@ -19,6 +18,7 @@ import (
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 // TestProtobufTranscriptImportScanCarriesPerBackendState 经真实 protorpc 往返:

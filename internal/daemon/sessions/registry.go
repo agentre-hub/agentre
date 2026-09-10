@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 // Registry is the sync.Mutex-guarded generation ownership table.

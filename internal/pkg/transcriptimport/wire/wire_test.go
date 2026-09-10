@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // TestSentinelsRoundTripThroughTypedCodes:每个 sentinel 在 wire 上都有稳定的码,

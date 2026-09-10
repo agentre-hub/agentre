@@ -9,7 +9,6 @@ import (
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"go.uber.org/zap"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -19,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 type inboundSessionAdapter interface {

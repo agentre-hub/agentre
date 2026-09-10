@@ -26,9 +26,9 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // Options 注入测试 hook。生产用 NewHandlers(Options{}) 走注册表快照。

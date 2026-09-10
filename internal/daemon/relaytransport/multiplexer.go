@@ -2,23 +2,19 @@ package relaytransport
 
 import (
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/agentre-hub/agentre/pkg/wire/relayenvelope"
 )
 
-const (
-	relayEnvelopeHeaderSize = 2
-	maxRelayChannelIDLength = 128
-	virtualChannelBuffer    = 64
-)
+const virtualChannelBuffer = 64
 
 // retiredChannelTTL 是「这条通道已经关了」这个记号的保鲜期。
 //
@@ -35,13 +31,12 @@ const retiredChannelTTL = 30 * time.Second
 // 那些再也不会被问到的 —— 与服务端路由缓存的 clientRouteSweepThreshold 同一形状。
 const retiredSweepThreshold = 256
 
-// MaxEnvelopeBytes 是一条中继帧里信封头最多占多少:2 字节长度 + 通道 ID。
+// MaxEnvelopeBytes 是一条中继帧里信封头最多占多少,取自信封格式自己的定义。
 //
 // 它是**读上限**的一部分,不是载荷预算的一部分:中继这条线上收到的每一帧都是
-// 「服务端套过信封的载荷」,所以链路的读上限 = 载荷预算 + 这个数。服务端那侧
-// 有同名同值的一份(relayws.MaxEnvelopeBytes),两处同源由 daemon_test 的
-// TestDaemon_PayloadBudgetMatchesTheRelayServer 钉住。
-const MaxEnvelopeBytes int64 = relayEnvelopeHeaderSize + maxRelayChannelIDLength
+// 「服务端套过信封的载荷」,所以链路的读上限 = 载荷预算 + 这个数。服务端那侧从前
+// 有同名同值的一份,靠一条对着字面量的守卫盯着;两处如今取的是同一个常量。
+const MaxEnvelopeBytes = relayenvelope.MaxEnvelopeBytes
 
 var ErrClosed = errors.New("relaytransport: channel closed")
 
@@ -146,7 +141,7 @@ func (m *Multiplexer) dispatch(frame HubFrame) {
 	if frame.MessageType != websocket.BinaryMessage {
 		return
 	}
-	id, payload, err := unmarshalRelayEnvelope(frame.Payload)
+	id, payload, err := relayenvelope.Unwrap(frame.Payload)
 	if err != nil {
 		return
 	}
@@ -241,7 +236,9 @@ func (m *Multiplexer) closeChannelWith(channel *VirtualChannel, notify bool) {
 	// 保留通道只出不进(决策 14):往它写任何东西——包括这一帧关闭信号——服务端都按
 	// 协议违例处理,而它本来就是服务端开、服务端关的。
 	if active && notify && connected && !strings.HasPrefix(channel.id, ReservedChannelPrefix) {
-		_ = m.hub.Send(websocket.BinaryMessage, marshalRelayEnvelope(channel.id, nil))
+		if envelope, err := relayenvelope.Wrap(channel.id, nil); err == nil {
+			_ = m.hub.Send(websocket.BinaryMessage, envelope)
+		}
 	}
 	channel.markClosed()
 }
@@ -298,7 +295,11 @@ func (m *Multiplexer) write(channel *VirtualChannel, payload []byte) error {
 	if !connected {
 		return ErrHubUnavailable
 	}
-	return m.hub.Send(websocket.BinaryMessage, marshalRelayEnvelope(channel.id, payload))
+	envelope, err := relayenvelope.Wrap(channel.id, payload)
+	if err != nil {
+		return err
+	}
+	return m.hub.Send(websocket.BinaryMessage, envelope)
 }
 func (m *Multiplexer) takeChannelsLocked() []*VirtualChannel {
 	channels := make([]*VirtualChannel, 0, len(m.channels))
@@ -374,32 +375,6 @@ func (c *VirtualChannel) markClosed() {
 	c.writeMu.Unlock()
 }
 
-func marshalRelayEnvelope(channelID string, payload []byte) []byte {
-	id := []byte(channelID)
-	out := make([]byte, relayEnvelopeHeaderSize+len(id)+len(payload))
-	binary.BigEndian.PutUint16(out, uint16(len(id)))
-	copy(out[relayEnvelopeHeaderSize:], id)
-	copy(out[relayEnvelopeHeaderSize+len(id):], payload)
-	return out
-}
-func unmarshalRelayEnvelope(payload []byte) (string, []byte, error) {
-	if len(payload) < relayEnvelopeHeaderSize {
-		return "", nil, errors.New("relay envelope is missing its channel ID length")
-	}
-	length := int(binary.BigEndian.Uint16(payload[:relayEnvelopeHeaderSize]))
-	if length == 0 || length > maxRelayChannelIDLength {
-		return "", nil, errors.New("relay envelope has an invalid channel ID length")
-	}
-	start := relayEnvelopeHeaderSize + length
-	if len(payload) < start {
-		return "", nil, errors.New("relay envelope is truncated before its payload")
-	}
-	id := payload[relayEnvelopeHeaderSize:start]
-	if !utf8.Valid(id) {
-		return "", nil, errors.New("relay envelope channel ID is not UTF-8")
-	}
-	return string(id), payload[start:], nil
-}
 func newRelayChannelID() (string, error) {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {

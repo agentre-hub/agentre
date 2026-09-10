@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 type Protobuf struct{ conn *protorpc.Conn }
@@ -33,8 +34,7 @@ func (n *Protobuf) Request(ctx context.Context, method string, params any, resul
 	// 工具跑几分钟是正常的。截断它对模型来说就是一次莫名其妙的工具失败,而桌面
 	// 那边工具还在跑。断连仍然由传输层收口(见 protorpc.WithoutCallTimeout)。
 	ctx = protorpc.WithoutCallTimeout(ctx)
-	response, err := protorpc.CallMethod(ctx, n.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_MCP_PROXY),
-		protowire.MCPProxyRequestToProto(request), func() *agentrewire.MCPProxyResponse { return &agentrewire.MCPProxyResponse{} })
+	response, err := wirecall.MCPProxy(ctx, wirecall.On(n.conn), protowire.MCPProxyRequestToProto(request))
 	if err != nil {
 		return err
 	}

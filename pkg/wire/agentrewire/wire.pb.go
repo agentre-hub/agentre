@@ -9,6 +9,7 @@ package agentrewire
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -13764,11 +13765,28 @@ func (x *UnrecognizedBlock) GetData() []byte {
 	return nil
 }
 
+var file_agentre_wire_wire_proto_extTypes = []protoimpl.ExtensionInfo{
+	{
+		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
+		ExtensionType: (*string)(nil),
+		Field:         60001,
+		Name:          "agentre.wire.event_kind",
+		Tag:           "bytes,60001,opt,name=event_kind",
+		Filename:      "agentre/wire/wire.proto",
+	},
+}
+
+// Extension fields to descriptorpb.FieldOptions.
+var (
+	// optional string event_kind = 60001;
+	E_EventKind = &file_agentre_wire_wire_proto_extTypes[0]
+)
+
 var File_agentre_wire_wire_proto protoreflect.FileDescriptor
 
 const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\n" +
-	"\x17agentre/wire/wire.proto\x12\fagentre.wire\"U\n" +
+	"\x17agentre/wire/wire.proto\x12\fagentre.wire\x1a google/protobuf/descriptor.proto\"U\n" +
 	"\tWireFrame\x12@\n" +
 	"\fnotification\x18\x01 \x01(\v2\x1a.agentre.wire.NotificationH\x00R\fnotificationB\x06\n" +
 	"\x04body\"\xb0\x02\n" +
@@ -14574,41 +14592,42 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x03cwd\x18\x03 \x01(\tR\x03cwd\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x14\n" +
 	"\x05turns\x18\x05 \x01(\x05R\x05turns\x12)\n" +
-	"\x10already_imported\x18\x06 \x01(\bR\x0falreadyImported\"\x96\x10\n" +
+	"\x10already_imported\x18\x06 \x01(\bR\x0falreadyImported\"\xd1\x14\n" +
 	"\x18RuntimeEventNotification\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x03R\x03seq\x12\x18\n" +
-	"\apreview\x18\x1e \x01(\bR\apreview\x128\n" +
+	"\apreview\x18\x1e \x01(\bR\apreview\x12H\n" +
 	"\n" +
-	"text_delta\x18\x03 \x01(\v2\x17.agentre.wire.TextDeltaH\x00R\ttextDelta\x12D\n" +
-	"\x0ethinking_delta\x18\x04 \x01(\v2\x1b.agentre.wire.ThinkingDeltaH\x00R\rthinkingDelta\x12G\n" +
-	"\x0foutput_activity\x18\x05 \x01(\v2\x1c.agentre.wire.OutputActivityH\x00R\x0eoutputActivity\x12]\n" +
-	"\x17permission_mode_changed\x18\x06 \x01(\v2#.agentre.wire.PermissionModeChangedH\x00R\x15permissionModeChanged\x12+\n" +
-	"\x05retry\x18\a \x01(\v2\x13.agentre.wire.RetryH\x00R\x05retry\x12Z\n" +
-	"\x16context_window_updated\x18\b \x01(\v2\".agentre.wire.ContextWindowUpdatedH\x00R\x14contextWindowUpdated\x12J\n" +
-	"\x10compact_boundary\x18\t \x01(\v2\x1d.agentre.wire.CompactBoundaryH\x00R\x0fcompactBoundary\x12D\n" +
+	"text_delta\x18\x03 \x01(\v2\x17.agentre.wire.TextDeltaB\x0e\x8a\xa6\x1d\n" +
+	"text_deltaH\x00R\ttextDelta\x12X\n" +
+	"\x0ethinking_delta\x18\x04 \x01(\v2\x1b.agentre.wire.ThinkingDeltaB\x12\x8a\xa6\x1d\x0ethinking_deltaH\x00R\rthinkingDelta\x12\\\n" +
+	"\x0foutput_activity\x18\x05 \x01(\v2\x1c.agentre.wire.OutputActivityB\x13\x8a\xa6\x1d\x0foutput_activityH\x00R\x0eoutputActivity\x12z\n" +
+	"\x17permission_mode_changed\x18\x06 \x01(\v2#.agentre.wire.PermissionModeChangedB\x1b\x8a\xa6\x1d\x17permission_mode_changedH\x00R\x15permissionModeChanged\x126\n" +
+	"\x05retry\x18\a \x01(\v2\x13.agentre.wire.RetryB\t\x8a\xa6\x1d\x05retryH\x00R\x05retry\x12v\n" +
+	"\x16context_window_updated\x18\b \x01(\v2\".agentre.wire.ContextWindowUpdatedB\x1a\x8a\xa6\x1d\x16context_window_updatedH\x00R\x14contextWindowUpdated\x12`\n" +
+	"\x10compact_boundary\x18\t \x01(\v2\x1d.agentre.wire.CompactBoundaryB\x14\x8a\xa6\x1d\x10compact_boundaryH\x00R\x0fcompactBoundary\x12X\n" +
 	"\x0eruntime_status\x18\n" +
-	" \x01(\v2\x1b.agentre.wire.RuntimeStatusH\x00R\rruntimeStatus\x12(\n" +
-	"\x04done\x18\v \x01(\v2\x12.agentre.wire.DoneH\x00R\x04done\x120\n" +
-	"\x05error\x18\f \x01(\v2\x18.agentre.wire.ErrorEventH\x00R\x05error\x12>\n" +
-	"\fuser_message\x18\r \x01(\v2\x19.agentre.wire.UserMessageH\x00R\vuserMessage\x125\n" +
-	"\ttool_call\x18\x0e \x01(\v2\x16.agentre.wire.ToolCallH\x00R\btoolCall\x12;\n" +
-	"\vtool_result\x18\x0f \x01(\v2\x18.agentre.wire.ToolResultH\x00R\n" +
-	"toolResult\x12D\n" +
-	"\x0esteer_consumed\x18\x10 \x01(\v2\x1b.agentre.wire.SteerConsumedH\x00R\rsteerConsumed\x12H\n" +
-	"\x10user_ask_request\x18\x11 \x01(\v2\x1c.agentre.wire.UserAskRequestH\x00R\x0euserAskRequest\x12K\n" +
-	"\x11user_ask_resolved\x18\x12 \x01(\v2\x1d.agentre.wire.UserAskResolvedH\x00R\x0fuserAskResolved\x12]\n" +
-	"\x17tool_permission_request\x18\x13 \x01(\v2#.agentre.wire.ToolPermissionRequestH\x00R\x15toolPermissionRequest\x12`\n" +
-	"\x18tool_permission_resolved\x18\x14 \x01(\v2$.agentre.wire.ToolPermissionResolvedH\x00R\x16toolPermissionResolved\x12]\n" +
-	"\x17exec_approval_requested\x18\x15 \x01(\v2#.agentre.wire.ExecApprovalRequestedH\x00R\x15execApprovalRequested\x12Z\n" +
-	"\x16exec_approval_resolved\x18\x16 \x01(\v2\".agentre.wire.ExecApprovalResolvedH\x00R\x14execApprovalResolved\x12H\n" +
-	"\x10subagent_started\x18\x17 \x01(\v2\x1b.agentre.wire.SubagentEventH\x00R\x0fsubagentStarted\x12J\n" +
-	"\x11subagent_progress\x18\x18 \x01(\v2\x1b.agentre.wire.SubagentEventH\x00R\x10subagentProgress\x12B\n" +
-	"\rsubagent_done\x18\x19 \x01(\v2\x1b.agentre.wire.SubagentEventH\x00R\fsubagentDone\x12D\n" +
-	"\x0esubagent_model\x18\x1a \x01(\v2\x1b.agentre.wire.SubagentModelH\x00R\rsubagentModel\x12>\n" +
-	"\fusage_update\x18\x1b \x01(\v2\x19.agentre.wire.UsageUpdateH\x00R\vusageUpdate\x12>\n" +
-	"\fplan_updated\x18\x1c \x01(\v2\x19.agentre.wire.PlanUpdatedH\x00R\vplanUpdated\x12P\n" +
-	"\x12unrecognized_block\x18\x1d \x01(\v2\x1f.agentre.wire.UnrecognizedBlockH\x00R\x11unrecognizedBlockB\a\n" +
+	" \x01(\v2\x1b.agentre.wire.RuntimeStatusB\x12\x8a\xa6\x1d\x0eruntime_statusH\x00R\rruntimeStatus\x122\n" +
+	"\x04done\x18\v \x01(\v2\x12.agentre.wire.DoneB\b\x8a\xa6\x1d\x04doneH\x00R\x04done\x12;\n" +
+	"\x05error\x18\f \x01(\v2\x18.agentre.wire.ErrorEventB\t\x8a\xa6\x1d\x05errorH\x00R\x05error\x12P\n" +
+	"\fuser_message\x18\r \x01(\v2\x19.agentre.wire.UserMessageB\x10\x8a\xa6\x1d\fuser_messageH\x00R\vuserMessage\x12I\n" +
+	"\ttool_call\x18\x0e \x01(\v2\x16.agentre.wire.ToolCallB\x12\x8a\xa6\x1d\x0etool_use_startH\x00R\btoolCall\x12L\n" +
+	"\vtool_result\x18\x0f \x01(\v2\x18.agentre.wire.ToolResultB\x0f\x8a\xa6\x1d\vtool_resultH\x00R\n" +
+	"toolResult\x12X\n" +
+	"\x0esteer_consumed\x18\x10 \x01(\v2\x1b.agentre.wire.SteerConsumedB\x12\x8a\xa6\x1d\x0esteer_consumedH\x00R\rsteerConsumed\x12_\n" +
+	"\x10user_ask_request\x18\x11 \x01(\v2\x1c.agentre.wire.UserAskRequestB\x15\x8a\xa6\x1d\x11ask_user_questionH\x00R\x0euserAskRequest\x12k\n" +
+	"\x11user_ask_resolved\x18\x12 \x01(\v2\x1d.agentre.wire.UserAskResolvedB\x1e\x8a\xa6\x1d\x1aask_user_question_answeredH\x00R\x0fuserAskResolved\x12z\n" +
+	"\x17tool_permission_request\x18\x13 \x01(\v2#.agentre.wire.ToolPermissionRequestB\x1b\x8a\xa6\x1d\x17tool_permission_requestH\x00R\x15toolPermissionRequest\x12~\n" +
+	"\x18tool_permission_resolved\x18\x14 \x01(\v2$.agentre.wire.ToolPermissionResolvedB\x1c\x8a\xa6\x1d\x18tool_permission_resolvedH\x00R\x16toolPermissionResolved\x12z\n" +
+	"\x17exec_approval_requested\x18\x15 \x01(\v2#.agentre.wire.ExecApprovalRequestedB\x1b\x8a\xa6\x1d\x17exec_approval_requestedH\x00R\x15execApprovalRequested\x12v\n" +
+	"\x16exec_approval_resolved\x18\x16 \x01(\v2\".agentre.wire.ExecApprovalResolvedB\x1a\x8a\xa6\x1d\x16exec_approval_resolvedH\x00R\x14execApprovalResolved\x12^\n" +
+	"\x10subagent_started\x18\x17 \x01(\v2\x1b.agentre.wire.SubagentEventB\x14\x8a\xa6\x1d\x10subagent_startedH\x00R\x0fsubagentStarted\x12a\n" +
+	"\x11subagent_progress\x18\x18 \x01(\v2\x1b.agentre.wire.SubagentEventB\x15\x8a\xa6\x1d\x11subagent_progressH\x00R\x10subagentProgress\x12U\n" +
+	"\rsubagent_done\x18\x19 \x01(\v2\x1b.agentre.wire.SubagentEventB\x11\x8a\xa6\x1d\rsubagent_doneH\x00R\fsubagentDone\x12X\n" +
+	"\x0esubagent_model\x18\x1a \x01(\v2\x1b.agentre.wire.SubagentModelB\x12\x8a\xa6\x1d\x0esubagent_modelH\x00R\rsubagentModel\x12I\n" +
+	"\fusage_update\x18\x1b \x01(\v2\x19.agentre.wire.UsageUpdateB\t\x8a\xa6\x1d\x05usageH\x00R\vusageUpdate\x12P\n" +
+	"\fplan_updated\x18\x1c \x01(\v2\x19.agentre.wire.PlanUpdatedB\x10\x8a\xa6\x1d\fplan_updatedH\x00R\vplanUpdated\x12h\n" +
+	"\x12unrecognized_block\x18\x1d \x01(\v2\x1f.agentre.wire.UnrecognizedBlockB\x16\x8a\xa6\x1d\x12unrecognized_blockH\x00R\x11unrecognizedBlockB\a\n" +
 	"\x05event\"\x1f\n" +
 	"\tTextDelta\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\"#\n" +
@@ -14898,7 +14917,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	".AGENTRED_SELF_UPDATE_REJECT_REASON_IN_PROGRESS\x10\x02\x123\n" +
 	"/AGENTRED_SELF_UPDATE_REJECT_REASON_NOT_WRITABLE\x10\x03\x125\n" +
 	"1AGENTRED_SELF_UPDATE_REJECT_REASON_ALREADY_LATEST\x10\x04\x126\n" +
-	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05BAZ?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05:>\n" +
+	"\n" +
+	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKindBAZ?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once
@@ -15117,6 +15138,7 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	nil,                                        // 199: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
 	nil,                                        // 200: agentre.wire.MCPProxyRequest.HeadersEntry
 	nil,                                        // 201: agentre.wire.MCPProxyResponse.HeadersEntry
+	(*descriptorpb.FieldOptions)(nil),          // 202: google.protobuf.FieldOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
 	9,   // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
@@ -15226,10 +15248,11 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	193, // 104: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
 	110, // 105: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
 	110, // 106: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	107, // [107:107] is the sub-list for method output_type
-	107, // [107:107] is the sub-list for method input_type
-	107, // [107:107] is the sub-list for extension type_name
-	107, // [107:107] is the sub-list for extension extendee
+	202, // 107: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	108, // [108:108] is the sub-list for method output_type
+	108, // [108:108] is the sub-list for method input_type
+	108, // [108:108] is the sub-list for extension type_name
+	107, // [107:108] is the sub-list for extension extendee
 	0,   // [0:107] is the sub-list for field type_name
 }
 
@@ -15304,13 +15327,14 @@ func file_agentre_wire_wire_proto_init() {
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
 			NumEnums:      2,
 			NumMessages:   200,
-			NumExtensions: 0,
+			NumExtensions: 1,
 			NumServices:   0,
 		},
 		GoTypes:           file_agentre_wire_wire_proto_goTypes,
 		DependencyIndexes: file_agentre_wire_wire_proto_depIdxs,
 		EnumInfos:         file_agentre_wire_wire_proto_enumTypes,
 		MessageInfos:      file_agentre_wire_wire_proto_msgTypes,
+		ExtensionInfos:    file_agentre_wire_wire_proto_extTypes,
 	}.Build()
 	File_agentre_wire_wire_proto = out.File
 	file_agentre_wire_wire_proto_goTypes = nil

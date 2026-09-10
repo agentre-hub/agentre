@@ -5,9 +5,9 @@ import (
 	"math"
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 type protobufTerminalEmitter struct{ conn *protorpc.Conn }

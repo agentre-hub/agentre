@@ -7,14 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 // A handler runs on its own goroutine (conn.Serve dispatches `go c.handle`), so a
@@ -191,9 +187,8 @@ func TestConnServe_GivenAnUndecodableFrame_WhenReceived_ThenItIsRecordedAndTheCo
 		func(context.Context, *agentrewire.Empty) (*agentrewire.Empty, error) {
 			return &agentrewire.Empty{}, nil
 		})
-	core, logs := observer.New(zapcore.DebugLevel)
-	ctx := logger.WithContextLogger(context.Background(), zap.New(core))
-	ctx, cancel := context.WithCancel(ctx)
+	logs := captureLogs(t)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	server := protorpc.NewConn(serverTransport, serverRegistry)
@@ -203,7 +198,7 @@ func TestConnServe_GivenAnUndecodableFrame_WhenReceived_ThenItIsRecordedAndTheCo
 	require.NoError(t, clientTransport.WriteFrame([]byte{0xff, 0xff, 0xff, 0xff}))
 
 	require.Eventually(t, func() bool {
-		return logs.FilterMessageSnippet("undecodable frame").Len() > 0
+		return logs.count("undecodable frame") > 0
 	}, 2*time.Second, 10*time.Millisecond, "坏帧必须留下记录")
 
 	_, err := protorpc.CallMethod(ctx, client, mcpProxyMethodID, &agentrewire.Empty{},
@@ -215,9 +210,8 @@ func TestConnServe_GivenAnUndecodableFrame_WhenReceived_ThenItIsRecordedAndTheCo
 // 之后到底发生过什么,日志里一个字也没有。
 func TestConnServe_GivenTheTransportFails_WhenTheReadLoopExits_ThenTheReasonIsRecorded(t *testing.T) {
 	clientTransport, serverTransport := pipePair()
-	core, logs := observer.New(zapcore.DebugLevel)
-	ctx := logger.WithContextLogger(context.Background(), zap.New(core))
-	ctx, cancel := context.WithCancel(ctx)
+	logs := captureLogs(t)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	done := make(chan struct{})
@@ -230,7 +224,7 @@ func TestConnServe_GivenTheTransportFails_WhenTheReadLoopExits_ThenTheReasonIsRe
 	case <-time.After(2 * time.Second):
 		t.Fatal("read loop did not exit")
 	}
-	require.NotZero(t, logs.FilterMessageSnippet("read loop exited").Len(),
+	require.NotZero(t, logs.count("read loop exited"),
 		"连接死亡必须留下一条带原因的记录")
 }
 

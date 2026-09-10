@@ -12,9 +12,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // WatcherConfig 控制单 watcher 行为。
@@ -185,8 +185,7 @@ func (w *Watcher) heartbeat(ctx context.Context, c client.ProtobufConnection, ro
 			return false
 		case <-t.C:
 			cctx, cancel := context.WithTimeout(ctx, w.cfg.CallTimeout)
-			res, err := protorpc.CallMethod(cctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING),
-				&agentrewire.HealthPingRequest{}, func() *agentrewire.HealthPingResponse { return &agentrewire.HealthPingResponse{} })
+			res, err := wirecall.HealthPing(cctx, c, &agentrewire.HealthPingRequest{})
 			cancel()
 			if err != nil {
 				// 心跳失败 = daemon 死了 / 网络断了 → 走重连。Warn 一条让

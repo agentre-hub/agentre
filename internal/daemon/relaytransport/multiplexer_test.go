@@ -13,6 +13,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/pkg/wire/relayenvelope"
 )
 
 type multiplexerHubStub struct {
@@ -84,12 +86,12 @@ func TestMultiplexer_GivenOpaqueBinaryFrames_WhenTheyFlow_ThenPreservesBytesWith
 	want := []byte{0x08, 0xff, 0x00, 0x12, 0x01, 0x80}
 	require.NoError(t, first.WritePayload(want))
 	sent := receiveFrame(t, hub)
-	channelID, got, err := unmarshalRelayEnvelope(sent.Payload)
+	channelID, got, err := relayenvelope.Unwrap(sent.Payload)
 	require.NoError(t, err)
 	assert.Equal(t, first.ID(), channelID)
 	assert.Equal(t, want, got)
 
-	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: marshalRelayEnvelope(second.ID(), want)}
+	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: testEnvelope(second.ID(), want)}
 	read, err := second.ReadPayload()
 	require.NoError(t, err)
 	assert.Equal(t, want, read)
@@ -106,7 +108,7 @@ func TestMultiplexer_GivenInboundOpaquePayload_WhenChannelIsUnknown_ThenAcceptsA
 	t.Cleanup(mux.Close)
 	hub.dial()
 	want := []byte{0x0a, 0x02, 0xff, 0x00}
-	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: marshalRelayEnvelope("server-channel-1", want)}
+	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: testEnvelope("server-channel-1", want)}
 	select {
 	case channel := <-mux.Accept():
 		assert.Equal(t, "server-channel-1", channel.ID())
@@ -127,7 +129,7 @@ func TestMultiplexer_GivenEmptyEnvelope_WhenItArrivesForAChannel_ThenClosesOnlyT
 	require.NoError(t, err)
 	surviving, err := mux.Open()
 	require.NoError(t, err)
-	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: marshalRelayEnvelope(departing.ID(), nil)}
+	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: testEnvelope(departing.ID(), nil)}
 	assertChannelClosed(t, departing.Done())
 	assertChannelOpen(t, surviving.Done())
 	_, err = departing.ReadPayload()
@@ -139,7 +141,7 @@ func TestMultiplexer_GivenEmptyEnvelope_WhenChannelIsUnknown_ThenAcceptsNothing(
 	mux := newMultiplexer(hub)
 	t.Cleanup(mux.Close)
 	hub.dial()
-	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: marshalRelayEnvelope("never-seen", nil)}
+	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: testEnvelope("never-seen", nil)}
 	select {
 	case created := <-mux.Accept():
 		t.Fatalf("channel close signal created channel %q", created.ID())
@@ -159,18 +161,18 @@ func TestMultiplexer_GivenOneClosedChannel_WhenAnotherUsesRelay_ThenDoesNotReope
 	require.NoError(t, closed.Close())
 	// 关掉一条通道会先往对端发一帧空载荷（见 closeChannel）：这里把它读掉，后面那
 	// 一帧才是 open 自己写的。
-	closedID, closedPayload, err := unmarshalRelayEnvelope(receiveFrame(t, hub).Payload)
+	closedID, closedPayload, err := relayenvelope.Unwrap(receiveFrame(t, hub).Payload)
 	require.NoError(t, err)
 	require.Equal(t, closed.ID(), closedID)
 	require.Empty(t, closedPayload)
-	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: marshalRelayEnvelope(closed.ID(), []byte{1})}
+	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage, Payload: testEnvelope(closed.ID(), []byte{1})}
 	select {
 	case recreated := <-mux.Accept():
 		t.Fatalf("closed channel was recreated as %q", recreated.ID())
 	case <-time.After(100 * time.Millisecond):
 	}
 	require.NoError(t, open.WritePayload([]byte{2}))
-	channelID, _, err := unmarshalRelayEnvelope(receiveFrame(t, hub).Payload)
+	channelID, _, err := relayenvelope.Unwrap(receiveFrame(t, hub).Payload)
 	require.NoError(t, err)
 	assert.Equal(t, open.ID(), channelID)
 	assertChannelOpen(t, open.Done())
@@ -293,7 +295,7 @@ func TestMultiplexer_RetiredChannelsExpireInsteadOfAccumulating(t *testing.T) {
 	now = now.Add(retiredChannelTTL / 2)
 	mux.dispatch(HubFrame{
 		MessageType: websocket.BinaryMessage,
-		Payload:     marshalRelayEnvelope(channel.ID(), []byte("late")),
+		Payload:     testEnvelope(channel.ID(), []byte("late")),
 	})
 	select {
 	case <-mux.Accept():
@@ -344,7 +346,7 @@ func TestMultiplexer_GivenALocallyClosedChannel_ThenThePeerIsToldWithAnEmptyEnve
 	require.NoError(t, err)
 	require.NoError(t, channel.WritePayload([]byte("hello")))
 	first := <-hub.sent
-	gotID, gotPayload, err := unmarshalRelayEnvelope(first.Payload)
+	gotID, gotPayload, err := relayenvelope.Unwrap(first.Payload)
 	require.NoError(t, err)
 	require.Equal(t, channel.ID(), gotID)
 	require.Equal(t, []byte("hello"), gotPayload)
@@ -353,7 +355,7 @@ func TestMultiplexer_GivenALocallyClosedChannel_ThenThePeerIsToldWithAnEmptyEnve
 
 	select {
 	case frame := <-hub.sent:
-		id, payload, err := unmarshalRelayEnvelope(frame.Payload)
+		id, payload, err := relayenvelope.Unwrap(frame.Payload)
 		require.NoError(t, err)
 		assert.Equal(t, channel.ID(), id)
 		assert.Empty(t, payload, "关闭通道要发一帧空载荷，对端据此回收它那侧的登记")
@@ -371,12 +373,12 @@ func TestMultiplexer_GivenTheChannelWasClosedByThePeer_ThenNothingIsEchoedBack(t
 	hub.dial()
 
 	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage,
-		Payload: marshalRelayEnvelope("srv-1", []byte("first"))}
+		Payload: testEnvelope("srv-1", []byte("first"))}
 	channel := <-mux.Accept()
 	require.Equal(t, "srv-1", channel.ID())
 
 	hub.frames <- HubFrame{MessageType: websocket.BinaryMessage,
-		Payload: marshalRelayEnvelope("srv-1", nil)}
+		Payload: testEnvelope("srv-1", nil)}
 	<-channel.Done()
 
 	select {
@@ -384,4 +386,14 @@ func TestMultiplexer_GivenTheChannelWasClosedByThePeer_ThenNothingIsEchoedBack(t
 		t.Fatalf("echoed a frame back after the peer closed the channel: %q", frame.Payload)
 	case <-time.After(200 * time.Millisecond):
 	}
+}
+
+// testEnvelope 是用例里套信封的简写。通道 ID 由用例自己给,都在上限之内,所以
+// 这里把错误当成装置的编程错误。
+func testEnvelope(channelID string, payload []byte) []byte {
+	envelope, err := relayenvelope.Wrap(channelID, payload)
+	if err != nil {
+		panic(err)
+	}
+	return envelope
 }

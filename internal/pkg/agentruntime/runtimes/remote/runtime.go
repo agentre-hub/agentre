@@ -34,7 +34,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
@@ -43,6 +42,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/orderedpipe"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // remoteSession 一个远端 daemon 上跑的 chat session 在本地的镜像。sessionID
@@ -301,8 +302,7 @@ func (r *Runtime) Prefetch(ctx context.Context, bt agent_backend_entity.BackendT
 	if ok {
 		return nil
 	}
-	res, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES),
-		&agentrewire.RuntimeCapabilitiesRequest{BackendType: string(bt)}, func() *agentrewire.RuntimeCapabilitiesResponse { return &agentrewire.RuntimeCapabilitiesResponse{} })
+	res, err := wirecall.RuntimeCapabilities(ctx, r.conn(), &agentrewire.RuntimeCapabilitiesRequest{BackendType: string(bt)})
 	if err != nil {
 		return fromProtobufError(err)
 	}
@@ -329,8 +329,7 @@ func (r *Runtime) callRun(ctx context.Context, params wire.RunParams) (wire.RunA
 	// 桌面判这一轮失败,而 daemon 那边这一轮已经开跑,继续记日志、继续烧 token。
 	// 断连仍然由传输层收口(见 protorpc.WithoutCallTimeout)。
 	ctx = protorpc.WithoutCallTimeout(ctx)
-	response, err := protorpc.CallMethod(ctx, r.conn().Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), request,
-		func() *agentrewire.RuntimeRunResponse { return &agentrewire.RuntimeRunResponse{} })
+	response, err := wirecall.RuntimeRun(ctx, r.conn(), request)
 	if err != nil {
 		return wire.RunAck{}, fromProtobufError(err)
 	}

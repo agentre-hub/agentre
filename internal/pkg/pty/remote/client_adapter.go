@@ -5,9 +5,10 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // DaemonClient is the subset of internal/daemon/client.Client and
@@ -104,22 +105,22 @@ func (a *ClientAdapter) Call(ctx context.Context, method string, params any, out
 		request := params.(protocol.TerminalOpenParams)
 		// conversation_id 不置:LAN 直连这条路上的终端不挂在任何一条对话下(它一直是
 		// 零值,daemon 侧也从不读它),没有身份可报就如实留空,而不是编一个。
-		response, err := protorpc.CallMethod(ctx, a.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_OPEN), &agentrewire.TerminalOpenRequest{TerminalId: request.TerminalID, Cwd: request.Cwd, Shell: request.Shell, Command: request.Command, Env: request.Env, Cols: uint32(request.Cols), Rows: uint32(request.Rows)}, func() *agentrewire.TerminalOpenResponse { return &agentrewire.TerminalOpenResponse{} })
+		response, err := wirecall.TerminalOpen(ctx, a.client, &agentrewire.TerminalOpenRequest{TerminalId: request.TerminalID, Cwd: request.Cwd, Shell: request.Shell, Command: request.Command, Env: request.Env, Cols: uint32(request.Cols), Rows: uint32(request.Rows)})
 		if err == nil {
 			out.(*protocol.TerminalOpenResult).TerminalID = response.TerminalId
 		}
 		return err
 	case "terminal.write":
 		request := params.(protocol.TerminalWriteParams)
-		_, err := protorpc.CallMethod(ctx, a.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_WRITE), &agentrewire.TerminalWriteRequest{TerminalId: request.TerminalID, Data: []byte(request.Data)}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
+		_, err := wirecall.TerminalWrite(ctx, a.client, &agentrewire.TerminalWriteRequest{TerminalId: request.TerminalID, Data: []byte(request.Data)})
 		return err
 	case "terminal.resize":
 		request := params.(protocol.TerminalResizeParams)
-		_, err := protorpc.CallMethod(ctx, a.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_RESIZE), &agentrewire.TerminalResizeRequest{TerminalId: request.TerminalID, Cols: uint32(request.Cols), Rows: uint32(request.Rows)}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
+		_, err := wirecall.TerminalResize(ctx, a.client, &agentrewire.TerminalResizeRequest{TerminalId: request.TerminalID, Cols: uint32(request.Cols), Rows: uint32(request.Rows)})
 		return err
 	case "terminal.close":
 		request := params.(protocol.TerminalCloseParams)
-		_, err := protorpc.CallMethod(ctx, a.client.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE), &agentrewire.TerminalCloseRequest{TerminalId: request.TerminalID, CancelPendingOpen: request.CancelPendingOpen}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
+		_, err := wirecall.TerminalClose(ctx, a.client, &agentrewire.TerminalCloseRequest{TerminalId: request.TerminalID, CancelPendingOpen: request.CancelPendingOpen})
 		return err
 	default:
 		return errors.New("remote terminal: unsupported method")

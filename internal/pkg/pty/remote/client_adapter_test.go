@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/remote"
 	"github.com/agentre-hub/agentre/pkg/agentred/protocol"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

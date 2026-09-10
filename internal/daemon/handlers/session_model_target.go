@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // SessionModelTargetDeps 是「改这条会话用哪个模型」这一个 RPC 的依赖。

@@ -127,20 +127,16 @@ func PredictLatestSeq(ctx context.Context, sessionID int64, keyed []transcript.K
 	if err != nil {
 		return 0, err
 	}
-	var latest int64
 	unnumbered := 0
 	for index := range keyed {
-		seq, ok := ledger[keyed[index].Key]
-		if !ok {
+		if _, ok := ledger[keyed[index].Key]; !ok {
 			unnumbered++
-			continue
-		}
-		if seq > latest {
-			latest = seq
 		}
 	}
-	// 台账里被顶掉的旧分配行同样占着号:计数器是本会话 MAX(seq),不是「当前内容里最大
-	// 的那个」。漏掉它们会让预测值低于下一次真分配的结果。
+	// 末尾号取整本台账的 MAX(seq),不是「当前内容里最大的那个」:被顶掉的旧分配行
+	// 同样占着号(计数器只增不减,见 Allocate)。只数当前内容会让预测值低于下一次真
+	// 分配的结果,而这个值是对端拿来判「我的游标是不是还在宿主的编号宇宙里」的。
+	var latest int64
 	for _, seq := range ledger {
 		if seq > latest {
 			latest = seq

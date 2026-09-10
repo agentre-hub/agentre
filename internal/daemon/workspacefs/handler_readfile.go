@@ -5,9 +5,9 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	pkgworkspacefs "github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // ReadFile 读取 req.Root 下 req.RelPath 所指文件的内容(会话级文件预览,纯读)。

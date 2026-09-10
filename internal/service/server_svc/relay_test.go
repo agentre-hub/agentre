@@ -15,7 +15,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
@@ -23,6 +22,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 // 本文件的假中转服务端说的是决策 10/13/14 之后的协议:一条连接、信封承载的虚拟

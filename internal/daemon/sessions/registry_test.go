@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 
 	"github.com/stretchr/testify/assert"
 )

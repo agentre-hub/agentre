@@ -7,18 +7,15 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/agentre-hub/agentre/pkg/wire/wirelimits"
 )
 
 const Subprotocol = "agentre-protobuf"
 
-// MaxFrameBytes 是一条 RPC **载荷**的上限,整条链路共用这一个数:直连的这一条、
-// 服务端中继的两个端点(agentre-server 的 relayws.MaxPayloadBytes)、以及 daemon
-// 的中继链路(那一条另加一个信封头)。
-//
-// 三处曾经不同源(这里与中继链路 16 MiB、服务端 10 MiB),后果不是「大一点的请求
-// 失败了」:超限时 gorilla 回 1009 并让读循环出错,于是**整条物理连接**被拆掉,
-// 而中继链路上跑着那台机器的全部虚拟通道,所有会话一起断线重连。取小的那个数。
-const MaxFrameBytes int64 = 10 << 20
+// MaxFrameBytes 是这条 WebSocket 的载荷读上限。数由 wirelimits 拥有 —— 直连、
+// daemon 的中继链路和服务端的两个中继端点取的都是它,不再各写一份字面量。
+const MaxFrameBytes = wirelimits.MaxPayloadBytes
 
 var ErrNonBinaryFrame = errors.New("protorpc: websocket frame is not binary")
 

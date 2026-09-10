@@ -73,3 +73,23 @@ func TestFramePublisher_CommitOnlyAfterTheFramesReallyWentOut(t *testing.T) {
 	assert.Equal(t, keys(frames), keys(publisher.Pending(frames, false)),
 		"没发出去的帧下一次还得发")
 }
+
+// TestWithoutUnsettledTail_TrimsOnlyTheInflightMessage —— 补齐读侧只砍在飞那条消息的
+// 未定稿尾巴,它之前那些已经收口的消息一格不动。
+//
+// 砍掉的那一段是「取号会取错」的那一段:半截正文占掉一个号之后,收口时同一个位置的
+// 内容变了只能再取一个末尾号,对端于是收到同一段话两遍(硬不变量 1 的「重」)。
+func TestWithoutUnsettledTail_TrimsOnlyTheInflightMessage(t *testing.T) {
+	frames := []transcript.KeyedFrame{
+		keyed(6, 0, "text", "prev-text"),
+		{Key: transcript.FrameKey{MessageID: 6, BlockIdx: transcript.MessageDerivedBlockIdx}, Fingerprint: "prev-done"},
+		keyed(7, 0, "tool_use", "f-tool"),
+		keyed(7, 1, "text", "f-tail"),
+		{Key: transcript.FrameKey{MessageID: 7, BlockIdx: transcript.MessageDerivedBlockIdx}, Fingerprint: "f-done"},
+	}
+
+	assert.Equal(t, keys(frames[:3]), keys(transcript.WithoutUnsettledTail(frames, 7)),
+		"在飞那条消息结尾还在长的正文块与它的派生帧不进补齐;上一条消息整条留下")
+	assert.Equal(t, keys(frames), keys(transcript.WithoutUnsettledTail(frames, 0)),
+		"没有在飞的消息就一格不砍")
+}

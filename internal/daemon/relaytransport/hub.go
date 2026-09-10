@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/agentre-hub/agentre/pkg/wire/wirelimits"
 )
 
 const (
@@ -97,10 +99,9 @@ type HubLinkOptions struct {
 	// MaxFrameBytes 是单帧载荷的读上限,0 取 defaultMaxFrameBytes。
 	//
 	// 中继帧是账号服务器转发过来的**另一台设备**的字节,不是本机可信输入:没有
-	// 上限,对面说多大这边就分配多大。直连那条 WebSocket 一直是有界的
-	// (protorpc.MaxFrameBytes),这一条必须同样有界,而且两处该是同一个数 ——
-	// 所以由同时看得见两边的 daemon 在装配时把它传进来,而不是让本包反向去
-	// import 上层的 protorpc。
+	// 上限,对面说多大这边就分配多大。直连那条 WebSocket 一直是有界的,这一条必须
+	// 同样有界,而且两处该是同一个数 —— 那个数如今由 wirelimits 拥有,零值退回
+	// defaultMaxFrameBytes 就取它。
 	MaxFrameBytes int64
 
 	// RetryWait is the clock seam for retry tests. Production waits for delay
@@ -119,11 +120,13 @@ type HubLinkOptions struct {
 	OnDisconnect func(error)
 }
 
-// defaultMaxFrameBytes 是直连那条 WebSocket 的载荷预算(protorpc.MaxFrameBytes)
-// 加一个信封头 —— 中继这条线上收到的是服务端套过信封的载荷,不是裸载荷。
-// 这里写字面量而不是 import:relaytransport 是传输层,不该反向依赖它上面的 RPC 层;
-// 生产装配由 daemon 显式传参,两处同源由 daemon 那侧的用例守。
-const defaultMaxFrameBytes int64 = 10<<20 + MaxEnvelopeBytes
+// defaultMaxFrameBytes 是链路的载荷预算加一个信封头 —— 中继这条线上收到的是服务端
+// 套过信封的载荷,不是裸载荷。
+//
+// 两个数都取自 pkg/wire 的叶子常量包,不再写字面量。取常量不构成对 RPC 层的反向
+// 依赖:wirelimits 只有尺寸预算,relayenvelope 只有信封格式,两个包都不 import
+// protorpc —— 传输层不该依赖它上面的 RPC 引擎,这一条仍然成立。
+const defaultMaxFrameBytes int64 = wirelimits.MaxPayloadBytes + MaxEnvelopeBytes
 
 func (l *HubLink) maxFrameBytes() int64 {
 	if l.opts.MaxFrameBytes > 0 {

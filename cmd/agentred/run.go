@@ -19,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/pkg/logfile"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/protorpclog"
 )
 
 const (
@@ -158,6 +159,8 @@ func initLogging(console io.Writer, dataDir, level string) error {
 		return fmt.Errorf("init agentred logger: %w", err)
 	}
 	logger.SetLogger(l)
+	// 协议引擎住在共享 module 里、不依赖 cago,它的诊断出口要由宿主装配一次。
+	protorpclog.Install()
 	// daemon 内部仍有约十处 stdlib log.Printf(panic 恢复、shutdown 失败、重启清扫),
 	// 它们默认只写 stderr —— 而 launchd 不接管 stderr,那正是最需要回看的现场。
 	// 重定向后它们与 zap 记录落进同一个文件;进程活到退出,不需要还原。

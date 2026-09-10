@@ -5,9 +5,9 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	pkgworkspacefs "github.com/agentre-hub/agentre/internal/pkg/workspacefs"
 	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // SearchFiles 从 req.Root 递归搜索 basename 含 req.Query 子串(不区分大小写)的

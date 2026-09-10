@@ -10,10 +10,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 type Options struct {
@@ -279,13 +280,7 @@ func DialRelayProtobuf(ctx context.Context, opts RelayOptions) (*ProtobufClient,
 func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.AuthAccountRequest) (*agentrewire.AuthAccountResponse, error) {
 	request.ProtocolVersion = wireversion.Protocol
 	request.MinSupportedProtocolVersion = wireversion.MinSupported
-	response, err := protorpc.CallMethod(
-		ctx,
-		c.conn,
-		uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
-		request,
-		func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} },
-	)
+	response, err := wirecall.AuthAccount(ctx, wirecall.On(c.conn), request)
 	if err != nil {
 		return nil, ClassifyHandshakeError(err)
 	}
@@ -303,8 +298,7 @@ func (c *ProtobufClient) AuthPair(ctx context.Context, request *agentrewire.Auth
 	c.selfFP = request.GetDeviceFingerprint()
 	request.ProtocolVersion = wireversion.Protocol
 	request.MinSupportedProtocolVersion = wireversion.MinSupported
-	response, err := protorpc.CallMethod(ctx, c.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR), request,
-		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
+	response, err := wirecall.AuthPair(ctx, wirecall.On(c.conn), request)
 	if err != nil {
 		return nil, ClassifyHandshakeError(err)
 	}
@@ -318,8 +312,7 @@ func (c *ProtobufClient) AuthConnect(ctx context.Context, request *agentrewire.A
 	c.selfFP = request.GetDeviceFingerprint()
 	request.ProtocolVersion = wireversion.Protocol
 	request.MinSupportedProtocolVersion = wireversion.MinSupported
-	response, err := protorpc.CallMethod(ctx, c.conn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT), request,
-		func() *agentrewire.AuthConnectResponse { return &agentrewire.AuthConnectResponse{} })
+	response, err := wirecall.AuthConnect(ctx, wirecall.On(c.conn), request)
 	if err != nil {
 		return nil, ClassifyHandshakeError(err)
 	}

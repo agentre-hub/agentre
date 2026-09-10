@@ -18,7 +18,7 @@ import (
 
 	"time"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
 	"github.com/agentre-hub/agentre/internal/daemon/state"

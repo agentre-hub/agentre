@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/pkg/protorpclog"
 	"github.com/agentre-hub/agentre/internal/pkg/sysnotify"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -98,6 +99,8 @@ func Init(ctx context.Context) (*Runtime, error) {
 	if err := logger.Logger(ctx, cfg); err != nil {
 		return nil, fmt.Errorf("init cago logger: %w", err)
 	}
+	// 协议引擎住在共享 module 里、不依赖 cago,它的诊断出口要由宿主装配一次。
+	protorpclog.Install()
 
 	// 注册 SQLite 数据库组件。cago 启动 db 失败时会 panic，由调用方 recover/log。
 	cago.New(ctx, cfg).Registry(db.Database())

@@ -39,10 +39,6 @@ type turnTranscript struct {
 	// (transcript.FramePublisher):轮内哪些帧还不该发、哪一次原地修补要重发,
 	// agentred 与桌面端必须一字不差。
 	publisher *transcript.FramePublisher
-	// prevBlocksJSON 是上一次落库的那份正文,也就是下一次 checkpoint 差分的基准。
-	// 不留住它就只能整表替换,而 checkpoint 是每个 ToolResult 一次的高频调用
-	// (理由见 transcript_repo.syncBlocks 的注释:实测一条消息被 checkpoint 840 次)。
-	prevBlocksJSON string
 }
 
 // discardEmitter 是 dispatcher 要的那个发射器的空位。agentred 的实时推送走 RPC 通知
@@ -79,7 +75,6 @@ func (h *RuntimeHandlers) beginTranscript(em *sessionEmitter, userText string) *
 		// SessionUpdater ...)留空 —— 它们是桌面端的接线,不共用(规格「复用边界」)。
 		turnCtx:        &turn.TurnContext{Waits: turn.NewWaitTracker()},
 		msg:            msg,
-		prevBlocksJSON: msg.BlocksJSON,
 		conversationID: em.conversationID,
 		publish: func(frame wire.EventFrame) {
 			em.emit(wire.NotifyEvent, &frame)
@@ -154,6 +149,9 @@ func (t *turnTranscript) observe(ctx context.Context, ev agentruntime.Event) {
 // checkpoint 把此刻的累积状态落库(只写变化的块行)。这是在途那一轮唯一的抗崩溃
 // 手段(决策 5):宿主在轮中消失时,checkpoint 过的块留下,没 checkpoint 的尾巴丢失。
 func (t *turnTranscript) checkpoint(ctx context.Context) {
+	// 差分的基准是内存里那份**上一次落库成功**的正文:SetBlocks 马上就要覆写它,所以
+	// 在覆写前留一份。不留就只能整表替换,而 checkpoint 是每个 ToolResult 一次的高频
+	// 调用(理由见 transcript_repo.syncBlocks:实测一条消息被 checkpoint 840 次)。
 	prev := t.msg.BlocksJSON
 	if err := t.msg.SetBlocks(t.acc.Snapshot()); err != nil {
 		logger.Ctx(ctx).Warn("handlers.turnTranscript.checkpoint: encode failed",

@@ -38,8 +38,8 @@ import (
 	piagentrt "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 	"github.com/agentre-hub/agentre/internal/pkg/turnstats"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // RuntimeDeps are the explicit constructor inputs for RuntimeHandlers. All
@@ -1057,8 +1057,17 @@ func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentrunt
 //
 // 它**不再落库**。从前每一帧都先写进通知日志拿一个 seq 再推出去,于是同一段内容在
 // 这台机器上存了两份(块 + 事件级日志)、编号也有两套。现在落库的是块(见
-// runtime_transcript.go),推出去的是**预览帧** —— 即时呈现用,不带编号、不参与游标
-// 推进与去重,丢失即丢失(决策 4)。逐 token 的生成过程因此照旧实时可见。
+// runtime_transcript.go),这个出口只负责推。
+//
+// 两级帧都从这里出去(规格 2026-09-05「两级帧与补齐」):
+//   - **预览帧**(fanout / forwardAutonomousTurn 逐条推的那些):即时呈现用,不带
+//     编号、不参与游标推进与去重,丢失即丢失。逐 token 的生成过程靠它实时可见;
+//   - **持久帧**(turnTranscript.publishDurable 在块落库之后推的那些):带着台账里
+//     取到的 seq,是对端转录与游标的唯一来源。宿主必须**实时**发它,不得只在补齐时
+//     才交出 —— 否则一条持续在线的对端游标永不前进,重连补齐会从头重放它已经看过的
+//     内容。
+//
+// 编号一律不在这里现编:号由 transcript_repo.FrameSeq 的台账发,出口只是把它带出去。
 //
 // 它按**会话**构造(而不是按连接)有两个原因:
 //   - 对端指纹只在 runtime.run 的请求 ctx 上拿得到,而 fanout / forwardAutonomousTurn
@@ -1100,8 +1109,8 @@ func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, conversationID stri
 
 // emit 推送一条会话通知,返回是否真的推出去了(只给调用方决定要不要打成功日志)。
 //
-// 推送失败只记一条日志就继续下一条,不重试:这一帧是预览,它的内容此刻正被
-// checkpoint 进块表,补齐读的是那一份,不是这一帧。
+// 推送失败只记一条日志就继续下一条,不重试:内容的事实在块表里 —— 预览帧按定义丢失
+// 即丢失,持久帧的号已经落了台账,对端重连后按 seq 从补齐读回同一份。
 func (e *sessionEmitter) emit(method string, frame any) bool {
 	notification, err := protowire.WireNotificationToProto(method, frame)
 	if err != nil {

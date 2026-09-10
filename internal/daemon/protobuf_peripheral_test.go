@@ -10,10 +10,10 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/protobufadapter"
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
 	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 func TestProtobufPeripheralMethodsPreserveNativeBinaryPayloads(t *testing.T) {

@@ -14,9 +14,9 @@ import (
 	reflect "reflect"
 
 	client "github.com/agentre-hub/agentre/internal/daemon/client"
-	protorpc "github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	remote_device_svc "github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	agentrewire "github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	protorpc "github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	gomock "go.uber.org/mock/gomock"
 )
 

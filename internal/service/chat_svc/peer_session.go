@@ -214,7 +214,8 @@ func (s *chatSvc) AttachPeerSession(ctx context.Context, params wire.SessionAtta
 		return wire.SessionAttachResult{}, err
 	}
 
-	latestSeq, detach, err := s.attachPeerTranscript(ctx, session.ID, session.ConversationID, subscriber)
+	latestSeq, detach, err := s.attachPeerTranscript(
+		ctx, session.ID, session.ConversationID, lifecycle == wire.SessionLifecycleRunning, subscriber)
 	if err != nil {
 		return wire.SessionAttachResult{}, err
 	}

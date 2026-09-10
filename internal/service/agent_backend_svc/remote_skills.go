@@ -6,10 +6,10 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
 // RemoteSkillDiscoverer 经 device 连接池调 daemon skills.list,枚举远端 daemon 本机已装
@@ -35,7 +35,7 @@ func (*RemoteSkillDiscoverer) ListSkills(ctx context.Context, deviceID int64, ba
 	}
 	defer lease.Release()
 
-	packs, err := listRemoteSkills(ctx, lease.Client().Conn(), backendType)
+	packs, err := listRemoteSkills(ctx, lease.Client(), backendType)
 	if err != nil {
 		logger.Ctx(ctx).Warn("agent_backend_svc.RemoteSkillDiscoverer.ListSkills: rpc failed",
 			zap.Int64("deviceID", deviceID), zap.Error(err))
@@ -44,9 +44,8 @@ func (*RemoteSkillDiscoverer) ListSkills(ctx context.Context, deviceID int64, ba
 	return packs, nil
 }
 
-func listRemoteSkills(ctx context.Context, conn *protorpc.Conn, backendType string) ([]agentskill.SkillPack, error) {
-	response, err := protorpc.CallMethod(ctx, conn, uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_LIST),
-		&agentrewire.SkillsListRequest{BackendType: backendType}, func() *agentrewire.SkillsListResponse { return &agentrewire.SkillsListResponse{} })
+func listRemoteSkills(ctx context.Context, conn wirecall.Caller, backendType string) ([]agentskill.SkillPack, error) {
+	response, err := wirecall.SkillsList(ctx, conn, &agentrewire.SkillsListRequest{BackendType: backendType})
 	if err != nil {
 		return nil, err
 	}

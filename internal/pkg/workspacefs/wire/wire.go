@@ -21,7 +21,7 @@ package wire
 import (
 	"errors"
 
-	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // ── RPC method names ────────────────────────────────────────────────────────
