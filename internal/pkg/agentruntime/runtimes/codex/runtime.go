@@ -114,7 +114,7 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 //   - CapCancelSteer = false(codex turn/steer fire-and-forget,无 withdraw verb)
 //   - CapDrainSteer = false(无 hook 队列)
 //   - CapToolPermission = true(codex app-server requestApproval 协议)
-//   - CapForkSession = true(走 thread/rollback)
+//   - CapForkSession = true(走 thread/turns/list + thread/revert)
 //   - CapReportContextWindow = true(thread/tokenUsage/updated 推 modelContextWindow)
 //   - PermissionModeMeta:仅 default / plan;**禁运行时切换**(running/waiting 禁切)
 func (r *Runtime) Capabilities() capability.Capabilities {

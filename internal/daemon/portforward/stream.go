@@ -49,6 +49,10 @@ type StreamOptions struct {
 	Gate *Handlers
 	// Notify 把通知写回这条连接。缺席时流照常跑,只是没人听得见。
 	Notify Notifier
+	// creditIdleTimeout 是响应方向「窗口已经满了却等不到 ack」的容忍上限,见
+	// awaitCredit。0 用 defaultCreditIdleTimeout。不导出:它是实现内部的 liveness
+	// 边界,不是调用方要配的东西(包内用例可以把它压到毫秒级)。
+	creditIdleTimeout time.Duration
 }
 
 // Streams 是**一条连接上**开着的全部转发流。
@@ -58,6 +62,9 @@ type StreamOptions struct {
 type Streams struct {
 	gate   *Handlers
 	notify Notifier
+
+	// creditIdleTimeout 见 StreamOptions。
+	creditIdleTimeout time.Duration
 
 	// unwatch 把这份流表从闸门的撤销面上摘下来。注销跟着 CloseAll 走 —— 承载这条
 	// 连接的宿主本来就保证连接一断就 CloseAll(BindConn),撤销面因此不需要知道这台
@@ -71,11 +78,16 @@ type Streams struct {
 }
 
 func NewStreams(options StreamOptions) *Streams {
+	creditIdleTimeout := options.creditIdleTimeout
+	if creditIdleTimeout <= 0 {
+		creditIdleTimeout = defaultCreditIdleTimeout
+	}
 	streams := &Streams{
-		gate:      options.Gate,
-		notify:    options.Notify,
-		live:      make(map[string]*stream),
-		reserving: make(map[string]struct{}),
+		gate:              options.Gate,
+		notify:            options.Notify,
+		creditIdleTimeout: creditIdleTimeout,
+		live:              make(map[string]*stream),
+		reserving:         make(map[string]struct{}),
 	}
 	if options.Gate != nil {
 		// 订阅在构造这一步就完成,而不是交给宿主多写一行:一条能开流却收不到「这条
@@ -105,6 +117,16 @@ const maxStreamIDLength = 128
 // loopbackDialTimeout 只覆盖**拨号**这一步。本机环回上连不上就是连不上,拖长了只会
 // 让「端口上没有服务」这条答复来得更晚。
 const loopbackDialTimeout = 5 * time.Second
+
+// defaultCreditIdleTimeout 是响应方向「窗口已经满了、却连一条 ack 都等不到」的容忍
+// 上限,见 awaitCredit。
+//
+// 取 2 分钟:窗口是 4 MiB、宿主每消费 1 MiB 回一次累计 ack,这个数因此等价于「消费者
+// 得把速率维持在约 8.5 KiB/s 以上」。比这更慢的消费者会被判成已经走掉——而它正是这条
+// 上限要收掉的东西:宿主放手之后不会再发 ack,没有上限的话 pump 会一直停在窗口上,
+// 连它的流表项、goroutine 与到本机服务的 loopback 连接一起挂着(规格「每一种断开都要
+// 有确定的收尾,不留悬挂的流」)。
+const defaultCreditIdleTimeout = 2 * time.Minute
 
 var loopbackDialer = &net.Dialer{Timeout: loopbackDialTimeout}
 
@@ -303,24 +325,30 @@ type stream struct {
 
 	// mu 盖住信用账与 done。持有它的每一段都是几行赋值,绝不跨越 Notify 或 socket
 	// 读写 —— 这是「别的方法仍能应答」在实现上的全部内容。
+	//
+	// credit 是「信用账变了」的信号:ack 前进或 done 置位时非阻塞地写一格(缓冲 1)。
+	// 它取代了原本的 sync.Cond,因为等信用这件事现在**必须有上限**(见 awaitCredit)。
 	mu       sync.Mutex
-	cond     *sync.Cond
+	credit   chan struct{}
 	sent     int64
 	acked    int64
 	done     bool
 	upgraded bool
 
+	// creditIdleTimeout 见 StreamOptions;窗口满着却等不到 ack 超过它,这条流就认宿主
+	// 已经走掉。
+	creditIdleTimeout time.Duration
+
 	closeOnce sync.Once
 	reason    closeReason
 }
 
-func newStream(id string, conn net.Conn, plan *openPlan, window int64, notify Notifier) *stream {
-	st := &stream{
+func newStream(id string, conn net.Conn, plan *openPlan, window int64, notify Notifier, creditIdleTimeout time.Duration) *stream {
+	return &stream{
 		id: id, port: plan.port, conn: conn, reader: bufio.NewReader(conn), notify: notify,
 		method: plan.method, framing: plan.framing, window: window,
+		credit: make(chan struct{}, 1), creditIdleTimeout: creditIdleTimeout,
 	}
-	st.cond = sync.NewCond(&st.mu)
-	return st
 }
 
 func (st *stream) emit(notification *agentrewire.RpcNotification) error {
@@ -351,16 +379,54 @@ func (st *stream) activeFraming() bodyFraming {
 //
 // 返回 false 表示这条流已经收尾。这个等待是整套背压唯一的阻塞点,而它阻塞的是**这条
 // 流自己的 goroutine**,不是连接的读循环、也不是它的写锁。
+//
+// **它必须有上限。** 宿主放手之后不会再发 ack,窗口一满就再没有谁来叫醒这个等待:
+// 没有上限的话这条流、它的 goroutine 与到本机服务的 loopback 连接会一起挂到整条
+// protorpc 连接被拆掉为止(而桌面端那条专属监听按设计握着长活租约,那条连接可以
+// 活一整天)。上限按「最后一次 ack 之后静置了多久」算,等 101、等响应头那些与信用无关
+// 的等待不会倒计时;
+// 每次 ack 都把上限重新推满,所以只是慢、但一直在消费的宿主不会被误杀。
 func (st *stream) awaitCredit() (int64, bool) {
+	deadline := time.Now().Add(st.creditIdleTimeout)
+	for {
+		st.mu.Lock()
+		if st.done {
+			st.mu.Unlock()
+			return 0, false
+		}
+		if credit := st.window - (st.sent - st.acked); credit > 0 {
+			st.mu.Unlock()
+			return credit, true
+		}
+		st.mu.Unlock()
+
+		timer := time.NewTimer(time.Until(deadline))
+		select {
+		case <-st.credit:
+			timer.Stop()
+			deadline = time.Now().Add(st.creditIdleTimeout)
+		case <-timer.C:
+			if !st.abandoned() {
+				// 截止这一刻恰好来了一条 ack(或窗口本来就不再是满的):不是放弃,
+				// 重新起算。
+				deadline = time.Now().Add(st.creditIdleTimeout)
+				continue
+			}
+			st.shutdown(closeReason{
+				token:   "host_gone",
+				message: "port forward: host stopped consuming the response",
+			})
+			return 0, false
+		}
+	}
+}
+
+// abandoned 判「窗口仍然满着,而且没有任何把它推开的迹象」——awaitCredit 的截止
+// 到了之后用它做最后一次复查,免得与一条恰好同时落地的 ack 擦肩而过。
+func (st *stream) abandoned() bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	for !st.done && st.sent-st.acked >= st.window {
-		st.cond.Wait()
-	}
-	if st.done {
-		return 0, false
-	}
-	return st.window - (st.sent - st.acked), true
+	return !st.done && st.sent-st.acked >= st.window
 }
 
 func (st *stream) addSent(n int64) {
@@ -379,8 +445,17 @@ func (st *stream) ack(consumed int64) {
 	if st.acked > st.sent {
 		st.acked = st.sent
 	}
-	st.cond.Broadcast()
 	st.mu.Unlock()
+	st.signalCredit()
+}
+
+// signalCredit 叫醒卡在 awaitCredit 上的生产者。缓冲 1 + 非阻塞:信用账是一条单调
+// 前进的账,丢一条信号只会让等待者多复查一次账,不会漏掉任何一次前进。
+func (st *stream) signalCredit() {
+	select {
+	case st.credit <- struct{}{}:
+	default:
+	}
 }
 
 // shutdown 关掉到本机服务的那条连接并唤醒等信用的生产者。第一个说出原因的人说了算:
@@ -390,8 +465,8 @@ func (st *stream) shutdown(reason closeReason) {
 		st.reason = reason
 		st.mu.Lock()
 		st.done = true
-		st.cond.Broadcast()
 		st.mu.Unlock()
+		st.signalCredit()
 		_ = st.conn.Close()
 	})
 }
@@ -617,7 +692,7 @@ func (s *Streams) Open(ctx context.Context, request *agentrewire.PortForwardOpen
 		return nil, &rpcerror.Error{Code: rpcerror.CodeInternal, Message: "port forward: cannot write request to the local service"}
 	}
 
-	st := newStream(id, conn, plan, windowFor(request.GetWindowBytes()), s.notify)
+	st := newStream(id, conn, plan, windowFor(request.GetWindowBytes()), s.notify, s.creditIdleTimeout)
 	if err := s.adopt(st); err != nil {
 		_ = conn.Close()
 		return nil, err

@@ -28,7 +28,7 @@ Stage the files intended for the commit, then set `VERIFY_TREE="$(git write-tree
 
 | Doc | What it owns |
 | --- | --- |
-| Workspace-root `AGENTS.md` (outside this repository, when using the multi-repo checkout) | Cross-repo facts and invariants (`go.work`, independent commits, the cago framework). |
+| Workspace-root `AGENTS.md` (outside this repository, when using the multi-repo checkout) | Cross-repo facts and invariants (independent commits, the cago framework). |
 | [`../CLAUDE.md`](../CLAUDE.md) | Just `@import`s `AGENTS.md`; holds no content of its own. |
 | [`../AGENTS.md`](../AGENTS.md) | **Single source of truth for the agent guide**: engineering principles, high-priority constraints, high cohesion / low coupling, key constraints, common commands; also indexes the `docs/*` below. |
 | [`architecture.md`](./architecture.md) | Project layout, cago layering conventions, the shared frontend package's place in the layering (leaf, one-way dependency) and its host seams, remote execution architecture, `AppDataDir` storage paths, database and migration flow, the device-fingerprint column vocabulary (four roles, one canonical name each), list of generated files. |

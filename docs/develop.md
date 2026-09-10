@@ -30,7 +30,7 @@ Start the commit message with a **gitmoji emoji character** (write the emoji gly
 
 Issue / PR suffixes are selective, not automatic. Add an issue suffix only when the commit is a single focused change that directly resolves or advances a known issue, using the issue number form such as `#123`. When the work is organized around a PR, do **not** append the PR number to every commit; the PR already carries that context. In general, prefer issue references over PR references, and leave the suffix off when there is no relevant issue.
 
-Common gitmojis and the category they map to when the changelog is generated (release flow):
+Common gitmojis and the category they map to in the release notes (the release flow lets `gh release create --generate-notes` build them):
 
 | gitmoji | Purpose | changelog category |
 |---------|------|---------------|
@@ -39,13 +39,13 @@ Common gitmojis and the category they map to when the changelog is generated (re
 | ⚡️ | Performance optimization | ⚡️ Performance optimizations |
 | ♻️ | Refactor / compatibility | ♻️ Refactoring and compatibility |
 | 🎨 | UI improvement | 🎨 UI improvements |
-| 📝 | Docs / changelog | Other |
+| 📝 | Docs | Other |
 | ✅ | Tests | Other |
 | 🔧 | Configuration | Other |
 | 🔒 | Security | Other |
 | 🔖 | Release / version bump | — (the release commit itself) |
 
-Release commits use fixed forms: `🔖 release v{version}` (version bump + `CHANGELOG.md`) and `📝 update changelog for v{version}` (sync the documentation-site changelog).
+Release commits use the fixed form `🔖 release v{version}`.
 
 ## Applying SOLID and the Layering Rules
 

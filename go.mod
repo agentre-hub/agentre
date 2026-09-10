@@ -175,8 +175,6 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-// replace github.com/wailsapp/wails/v2 v2.12.0 => /Users/codfrm/go/pkg/mod
-
 replace github.com/agentre-hub/agentre/pkg/wire => ./pkg/wire
 
 replace github.com/agentre-hub/agentre/pkg/syncwire => ./pkg/syncwire

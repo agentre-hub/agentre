@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -291,19 +292,9 @@ func (s *Session) RewindTo(ctx context.Context, anchor string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	raw, err := s.app.Call(ctx, appMethodThreadRollback, map[string]any{
-		"threadId": thread.ThreadID,
-		"numTurns": numTurns,
-	})
+	res, err := revertLastTurns(ctx, s.app, thread.ThreadID, numTurns)
 	if err != nil {
 		return "", err
-	}
-	var res appThreadResponse
-	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", err
-	}
-	if res.Thread.ID == "" {
-		return "", errors.New("codex: thread/rollback response missing id")
 	}
 	s.mu.Lock()
 	s.sid = res.Thread.ID
@@ -410,21 +401,55 @@ func (c *Client) RollbackThread(ctx context.Context, threadID string, numTurns i
 	if _, err := c.startOrResumeThread(ctx, app, runSpec{resumeID: threadID, cwd: c.cwd, sandbox: c.sandbox, approval: c.approval}); err != nil {
 		return nil, err
 	}
-	raw, err := app.Call(ctx, appMethodThreadRollback, map[string]any{
-		"threadId": threadID,
-		"numTurns": numTurns,
-	})
+	res, err := revertLastTurns(ctx, app, threadID, numTurns)
 	if err != nil {
 		return nil, err
 	}
+	return &RollbackThreadResult{ThreadID: res.Thread.ID}, nil
+}
+
+type appThreadTurnsListResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+func revertLastTurns(ctx context.Context, app *appClient, threadID string, numTurns int) (appThreadResponse, error) {
+	raw, err := app.Call(ctx, appMethodThreadTurnsList, map[string]any{
+		"threadId":      threadID,
+		"limit":         numTurns,
+		"sortDirection": "desc",
+		"itemsView":     "summary",
+	})
+	if err != nil {
+		return appThreadResponse{}, err
+	}
+	var page appThreadTurnsListResponse
+	if err := json.Unmarshal(raw, &page); err != nil {
+		return appThreadResponse{}, err
+	}
+	if len(page.Data) < numTurns {
+		return appThreadResponse{}, fmt.Errorf("codex: cannot revert %d turns: thread contains %d", numTurns, len(page.Data))
+	}
+	beforeTurnID := strings.TrimSpace(page.Data[numTurns-1].ID)
+	if beforeTurnID == "" {
+		return appThreadResponse{}, errors.New("codex: thread/turns/list response missing turn id")
+	}
+	raw, err = app.Call(ctx, appMethodThreadRevert, map[string]any{
+		"threadId":     threadID,
+		"beforeTurnId": beforeTurnID,
+	})
+	if err != nil {
+		return appThreadResponse{}, err
+	}
 	var res appThreadResponse
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return nil, err
+		return appThreadResponse{}, err
 	}
 	if res.Thread.ID == "" {
-		return nil, errors.New("codex: thread/rollback response missing id")
+		return appThreadResponse{}, errors.New("codex: thread/revert response missing id")
 	}
-	return &RollbackThreadResult{ThreadID: res.Thread.ID}, nil
+	return res, nil
 }
 
 func (c *Client) Close(_ context.Context) error { return nil }

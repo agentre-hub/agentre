@@ -420,11 +420,18 @@ func (p *pool) watchClient(e *entry) {
 	}
 	<-c.Closed()
 
-	// 远端 daemon 断了(进程崩 / 网络断 / TLS 失败)。打 Warn 让运维区分
-	// "用户主动 Close" vs "remote 单方面失效"——前者走 Pool.Close 路径,
-	// 不经过 watchClient。
-	logger.Default().Warn("conn pool: daemon connection dropped, evicting entry",
-		zap.Int64("deviceID", e.deviceID))
+	// c.Closed() 同时被「远端 daemon 单方面失效」和「我方主动回收」触发:
+	// tryEvictIdle 与 Pool.Close 都会在调 c.Close() *之前*把 e.evicted 置位,
+	// 所以此刻读到 evicted=true 就说明是我们自己关的,不是故障。只有 evicted
+	// 仍为 false 才是远端断了(进程崩 / 网络断 / TLS 失败)。
+	//
+	// 这两条路径无法靠「谁持有 closedCh」区分——它们都从 watchClient 经过,而
+	// 这正是要修的点:例行 idle 回收曾被报成「远端断了」,把这条 Warn 唯一的
+	// 用途(区分用户主动 Close 与 remote 单方面失效)抹掉。
+	if !e.isEvicted() {
+		logger.Default().Warn("conn pool: daemon connection dropped, evicting entry",
+			zap.Int64("deviceID", e.deviceID))
+	}
 
 	p.mu.Lock()
 	if cur, ok := p.entries[e.deviceID]; ok && cur == e {

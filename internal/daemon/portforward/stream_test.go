@@ -666,3 +666,139 @@ func TestStreamOpen_GivenAnUpstreamThatOnlySendsInterimResponses_ThenTheStreamGi
 		assert.NotEqual(t, "head", event.kind, "一条中间应答都不该被当成响应头发出去")
 	}
 }
+
+// ---------- 目标 2b:窗口满着却等不到 ack 的流必须自己收场 ----------
+
+// Given 一条转发流已经把一整个窗口的数据交给了宿主, When 宿主此后既不再 ack 也不发
+// close(宿主放手的形状:open 被取消、响应体还没传完,宿主那一侧连这条流都不知道了),
+// Then 设备侧必须在信用静置上限之后自己收尾 —— 否则这条流、它的 goroutine 与到本机服务
+// 的 loopback 连接会一直挂到整条 protorpc 连接被拆掉,而桌面端那条专属监听按设计握着
+// 长活租约,那条连接可以活一整天。
+func TestStreamCredit_GivenTheHostAbandonsWithoutAcking_WhenTheWindowStaysFull_ThenTheStreamIsReclaimed(t *testing.T) {
+	body := patternBody(1 << 20)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+	port := serverPort(t, server)
+
+	rec := newRecorder()
+	dial, _, upstreamClosed := countingDialer()
+	gate := NewHandlers(Options{Repo: declaredRepo(t, port), Dial: dial})
+	streams := NewStreams(StreamOptions{
+		Gate:              gate,
+		Notify:            rec.notify,
+		creditIdleTimeout: 200 * time.Millisecond,
+	})
+	t.Cleanup(streams.CloseAll)
+
+	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
+		StreamId: "orphan", Port: uint32(port), Method: http.MethodGet, Path: "/big",
+		WindowBytes: 16 << 10,
+	})
+	require.NoError(t, err)
+
+	// 一个 ack 都不回、也不 close:宿主已经不要这条流了。
+	require.Eventually(t, func() bool { return rec.closedEvent() != nil }, 3*time.Second, 5*time.Millisecond,
+		"窗口满着却等不到 ack,这条流不许一直挂着")
+	assert.Equal(t, "host_gone", rec.closedEvent().GetReason())
+	require.Eventually(t, upstreamClosed.Load, 5*time.Second, time.Millisecond,
+		"判定宿主要走之后必须关掉到本机服务的那条 loopback 连接")
+}
+
+// Given 一个只是慢、却一直在消费的宿主, When 窗口长时间满着, Then 这条流不许被静置
+// 上限误杀 —— 每次 ack 都把上限重新推满。
+func TestStreamCredit_GivenTheHostConsumesSlowly_WhenTheWindowStaysFull_ThenTheStreamSurvives(t *testing.T) {
+	body := patternBody(1 << 20)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+	port := serverPort(t, server)
+
+	rec := newRecorder()
+	gate := NewHandlers(Options{Repo: declaredRepo(t, port), Dial: DialLoopback})
+	streams := NewStreams(StreamOptions{
+		Gate:              gate,
+		Notify:            rec.notify,
+		creditIdleTimeout: 500 * time.Millisecond,
+	})
+	t.Cleanup(streams.CloseAll)
+
+	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
+		StreamId: "slow", Port: uint32(port), Method: http.MethodGet, Path: "/big",
+		WindowBytes: 16 << 10,
+	})
+	require.NoError(t, err)
+
+	// 消费者很慢,但每 50ms 一定回一次累计 ack —— 远快于 500ms 的上限。
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go func() {
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				_, _ = streams.Ack(context.Background(), &agentrewire.PortForwardAckRequest{
+					StreamId: "slow", ConsumedBytes: uint64(len(rec.dataBytes())),
+				})
+			}
+		}
+	}()
+
+	closed := rec.waitClosed(t)
+	assert.Equal(t, "eof", closed.GetReason(), "只是慢、但一直在 ack 的宿主不该被判成放手")
+	assert.True(t, bytes.Equal(body, rec.dataBytes()), "慢消费不该丢字节")
+}
+
+// Given 上游回了响应头之后久久不说话(SSE / 长轮询的常态), When 没有任何未确认字节
+// 压在窗口上, Then 设备卡在读上游 socket 上,静置上限不适用 —— 这条流只是闲,不是被
+// 放弃。
+func TestStreamCredit_GivenTheUpstreamIsSilent_WhenNothingIsOutstanding_ThenTheStreamIsNotReclaimed(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	closer := func() { once.Do(func() { close(release) }) }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("late"))
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(closer)
+	port := serverPort(t, server)
+
+	rec := newRecorder()
+	gate := NewHandlers(Options{Repo: declaredRepo(t, port), Dial: DialLoopback})
+	streams := NewStreams(StreamOptions{
+		Gate:              gate,
+		Notify:            rec.notify,
+		creditIdleTimeout: 100 * time.Millisecond,
+	})
+	t.Cleanup(streams.CloseAll)
+
+	_, err := streams.Open(context.Background(), &agentrewire.PortForwardOpenRequest{
+		StreamId: "sse", Port: uint32(port), Method: http.MethodGet, Path: "/events",
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		for _, event := range rec.snapshot() {
+			if event.kind == "head" {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, time.Millisecond)
+
+	time.Sleep(4 * 100 * time.Millisecond) // 远超过上限
+	assert.Nil(t, rec.closedEvent(), "上游还没说话、但没欠宿主任何字节,这条流只是闲,不是被放弃")
+
+	closer()
+	assert.Equal(t, "eof", rec.waitClosed(t).GetReason())
+}

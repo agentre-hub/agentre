@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { existsSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +27,7 @@ import {
   resolveTarget,
   sessionPath,
 } from "./target.mjs";
+import { waitForExit } from "./procs.mjs";
 
 test("Given formal verification, when its target is resolved, then storage and ports belong only to this checkout", () => {
   const target = resolveTarget();
@@ -148,4 +151,63 @@ test("Given formal verification, when its browser and driven page are prepared, 
   });
   assert.ok(headed.includes("--window-size=1440,900"));
   assert.ok(!headed.includes("--headless=new"));
+});
+
+// 一个装好 SIGTERM handler 之后才自报「ready」的子进程。用例必须先等到 ready 再发信号:
+// 信号比 handler 先到,进程会当场按默认动作退出,用例就测不到「信号到了还要忙一拍」。
+function spawnSignaledNode(handlerScript) {
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      `${handlerScript}; process.stdout.write("ready\\n"); setInterval(() => {}, 1000);`,
+    ],
+    { detached: true, stdio: ["ignore", "pipe", "ignore"] },
+  );
+  return child;
+}
+
+async function ready(child) {
+  await once(child.stdout, "data");
+}
+
+function killGroup(pid) {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // 已经退干净了。
+  }
+}
+
+// Given 一个「信号到了还要忙一拍才退出」的进程, When `verify-down --wipe` 在删目录前等它,
+// Then 只有它真的退出之后才交回 —— 不等就删正是 ENOTEMPTY 竞态的来源。
+test("Given a signaled process, when the wipe waits for it, then it resolves only after the process is gone", async () => {
+  const child = spawnSignaledNode('process.on("SIGTERM", () => setTimeout(() => process.exit(0), 300))');
+  try {
+    await ready(child);
+    child.kill("SIGTERM");
+    const started = Date.now();
+    const exited = await waitForExit(child.pid, { timeoutMs: 5000, everyMs: 20 });
+    assert.equal(exited, true, "进程退出后 waitForExit 必须交回 true");
+    assert.ok(Date.now() - started >= 250, "waitForExit 不该在进程还没退出时就交回");
+    assert.throws(() => process.kill(child.pid, 0), /ESRCH/);
+  } finally {
+    killGroup(child.pid);
+  }
+});
+
+// Given 一个赖着不走(忽略 SIGTERM)的进程, When 等待有预算, Then 预算到了就交回 false,
+// 而不是把 verify-down 挂死。
+test("Given a process that ignores SIGTERM, when the wait runs out of budget, then it gives up instead of hanging", async () => {
+  const child = spawnSignaledNode('process.on("SIGTERM", () => {})');
+  try {
+    await ready(child);
+    child.kill("SIGTERM");
+    const started = Date.now();
+    const exited = await waitForExit(child.pid, { timeoutMs: 200, everyMs: 20 });
+    assert.equal(exited, false);
+    assert.ok(Date.now() - started >= 180, "预算没到就交回 false 等于没等");
+  } finally {
+    killGroup(child.pid);
+  }
 });

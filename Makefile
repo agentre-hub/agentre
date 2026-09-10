@@ -2,6 +2,11 @@
 
 APP_NAME := Agentre
 VERSION ?= 0.1.0
+# 注入二进制的版本号：去掉 tag 的 v 前缀之后的那一份，与 wails.json 的 productVersion
+# 和前端 package.json 的 version 同形。凡传进来的 VERSION 是 tag 形式（v1.2.3），
+# 注入的自动变成无前缀形式；VERSION 本身继续服务产物名（agentre-v1.2.3-*.dmg）。
+# 剥前缀只写在这一处：调用方（人或者流水线）传 tag 就行，不必各自记着再剥一次。
+APP_VERSION ?= $(VERSION:v%=%)
 ifeq ($(OS),Windows_NT)
 NULLDEV := NUL
 UNAME_S := Windows_NT
@@ -16,7 +21,7 @@ endif
 COMMIT_ID := $(shell git rev-parse --short HEAD 2>$(NULLDEV) || echo unknown)
 VERSION_PKG := github.com/cago-frame/cago/configs
 BUILDINFO_PKG := github.com/agentre-hub/agentre/internal/buildinfo
-LDFLAGS := -s -w -X $(VERSION_PKG).Version=$(VERSION) -X $(BUILDINFO_PKG).CommitID=$(COMMIT_ID)
+LDFLAGS := -s -w -X $(VERSION_PKG).Version=$(APP_VERSION) -X $(BUILDINFO_PKG).CommitID=$(COMMIT_ID)
 FRONTEND_DIR := frontend
 BACKEND_PKGS := . ./cmd/... ./e2e/... ./internal/... ./migrations ./pkg/...
 E2E_SPEC ?=
