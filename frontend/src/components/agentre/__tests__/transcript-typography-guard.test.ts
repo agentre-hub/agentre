@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 // 对话流排版护栏。不逐组件断言 class(那种测试与实现同构、无信息量),
 // 只禁止若干已被 token 取代的字面量在对话流链路上复活。
 //
-// chat.tsx 同时装着 transcript 和 composer —— 646/654/714/726 行的圆角与阴影
-// 属于输入框,不归对话流卡片系统管。所以规则按文件裁剪,不一刀切。
+// chat 模块拆分前,chat.tsx 同时装着 transcript 和 composer,靠 skip 裁剪规则;
+// 现在各自住在 chat/ 下的文件里,规则按文件裁剪看得更准。
 const AGENTRE_DIR = path.resolve(__dirname, "..");
 // 对话流组件正在往共享包 @agentre-hub/agentre-ui 搬。护栏必须跟着被守卫的代码走 ——
 // 否则「搬进包」就等于让一个文件悄悄脱离排版护栏。root 指明该文件现在住哪。
@@ -94,10 +94,21 @@ export const SCANNED: {
   },
   { file: "local-command/card.tsx", root: "package" },
   { file: "transcript-row-view.tsx", root: "package" },
-  // chat.tsx 同时装着 transcript 和 composer —— 646/654/714/726 行的圆角与阴影
-  // 属于输入框 / 拖放提示层 / 附件缩略图,不归对话流卡片系统管,故意不跟随
-  // rounded-lg / 去阴影;字号与 measure 约束（type/measure 两组）仍然全文件生效。
-  { file: "chat.tsx", skip: ["shadow", "radius"] },
+  // chat 模块拆成 chat.tsx(对外出口,已无 JSX)+ chat/** 之后,这里登记拆分出来的
+  // 五个文件 —— 原先那一条 `chat.tsx` 守的是一个空壳,等于静默放掉这一带的覆盖。
+  // 都是对话流链路上的东西:转录区、通用工具卡、审批闸门、底栏配额表(它渲染在
+  // chat-panel 的 trailingControls 里)、以及输入框。
+  { file: "chat/transcript.tsx" },
+  // transcript 拆成 chat/transcript/* 之后新增的行视图装配 —— 它渲染 <AgentAvatar> 与
+  // <TranscriptRowView>,排版字面量极少(类名基本走包的常量),但「在对话流里渲染行」
+  // 这件事刚好归它,按这条守卫的规矩就该登记。
+  { file: "chat/transcript/use-transcript-row-view.tsx" },
+  { file: "chat/tool-call.tsx" },
+  { file: "chat/approval-gate.tsx" },
+  { file: "chat/quota.tsx" },
+  // 输入框这一侧自带圆角/阴影(拖放提示层、附件缩略图),不归对话流卡片系统管。
+  // 旧 chat.tsx 的 skip 就是为它写的,拆出来之后它落在哪个文件里现在看得见了。
+  { file: "chat/composer.tsx", skip: ["shadow", "radius"] },
   { file: "compact-boundary-divider.tsx", root: "package" },
   { file: "compact-history-fold.tsx" },
   { file: "auto-trigger-banner.tsx", root: "package" },

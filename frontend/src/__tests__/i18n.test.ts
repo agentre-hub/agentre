@@ -148,7 +148,7 @@ function collectStaticCommonI18nKeys(): string[] {
  * 每条前缀后面的注释指出拼它的代码位置。
  */
 const DYNAMIC_KEY_PREFIXES = [
-  // components/agentre/hooks-page.tsx / hooks-page-header.tsx:
+  // components/agentre/hooks-page/script-tab.tsx / hooks-page-header.tsx:
   //   t(`hooks.interp.${opt.key}`) / t(`hooks.status.${hookStatus(…)}`)
   "hooks.interp.",
   "hooks.status.",

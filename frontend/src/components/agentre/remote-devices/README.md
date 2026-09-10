@@ -8,6 +8,8 @@ Desktop UI for pairing and managing agentred LAN devices.
 |---|---|
 | `remote-devices-panel.tsx` | Settings → 远端 主面板，挂载 hook、调度对话框 |
 | `device-row.tsx` | 单台 agentred 行卡片 |
+| `device-row-version.tsx` | 副行的版本呈现：版本文字（决策 5 开发构建）、可升级/协议不匹配徽标（决策 17）、协议不匹配的强提示与命令卡（决策 18） |
+| `device-row-upgrade.tsx` | 行卡片下方/菜单里的「一键升级」呈现：菜单项文案与可用性（决策 5/20/21）、准备中/升级中/成功/超时的一句话反馈、活跃轮次的二次确认（决策 8/21） |
 | `desktop-device-row.tsx` | 账号设备清单里 kind=desktop 行的展开区：会话列表 / 「Agentre 未运行」 |
 | `device-action-menu.tsx` | 行右侧 `…` 菜单（Refresh / Rename / Edit TLS / Remove） |
 | `agentred-onboarding.tsx` | 三步接入引导（安装 / 常驻 / 配对），页头「添加 agentred」召唤，页面上有设备行时默认收起、可收起。安装与常驻两段、命令与步骤条来自 `@agentre-hub/agentre-ui` 的引导域，与 agentre-server 同一份 |

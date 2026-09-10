@@ -472,7 +472,7 @@ There is **no `useIsMobile`, no `MOBILE_BREAKPOINT`, and no mobile re-shell.** R
 
 ### Long lists
 
-The chat transcript can hold thousands of rows and is windowed with **`@tanstack/react-virtual`** ([`chat.tsx`](../frontend/src/components/agentre/chat.tsx)): dynamic per-row size estimation, overscan, `anchorTo: "end"` stick-to-bottom, and `measureElement` for real heights (see [`transcript-rows.ts`](../frontend/packages/agentre-ui/src/transcript/transcript-rows.ts) + [`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)). Other lists (issues, org chart, settings) are bounded and render plainly — don't add virtualization unprompted, but **do** virtualize any new unbounded list rather than mounting every row.
+The chat transcript can hold thousands of rows and is windowed with **`@tanstack/react-virtual`** ([`chat/transcript.tsx`](../frontend/src/components/agentre/chat/transcript.tsx)): dynamic per-row size estimation, overscan, `anchorTo: "end"` stick-to-bottom, and `measureElement` for real heights (see [`transcript-rows.ts`](../frontend/packages/agentre-ui/src/transcript/transcript-rows.ts) + [`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)). Other lists (issues, org chart, settings) are bounded and render plainly — don't add virtualization unprompted, but **do** virtualize any new unbounded list rather than mounting every row.
 
 ### Layering (z-index)
 

@@ -1,19 +1,20 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useState,
-} from "react";
+// 应用外壳:一个布局(侧栏 + 顶栏 + outlet)、两条重定向、以及路由表。
+//
+// 拆出来的四块都在 lib/ 与 hooks/ 下 —— 路由词汇(lib/app-routing.ts)、运行环境
+// 判定(lib/platform.ts)、选区助手(lib/text-selection.ts)与两个钩子
+// (use-prevent-global-select-all、use-persisted-window-size)。原先它们与这个布局
+// 挤在同一个文件里(786 行)。
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+// 与 base.css 里的滚动条规则是一对：那半边把滑块颜色绑到 --sb-thumb 并默认
+// 透明，这半边在滚动时改值。此前这个 hook 就写在本文件里，agentre-server 那侧
+// 因此没有滚动条样式；现在两端共用同一份。
 import {
   LocalCommandHistoryProvider,
   LocalCommandsProvider,
   TerminalTransportProvider,
   TranscriptLiveStateProvider,
   TranscriptPortsProvider,
-  // 与 base.css 里的滚动条规则是一对：那半边把滑块颜色绑到 --sb-thumb 并默认
-  // 透明，这半边在滚动时改值。此前这个 hook 就写在本文件里，agentre-server 那侧
-  // 因此没有滚动条样式；现在两端共用同一份。
   useAutoHideScrollbars,
 } from "@agentre-hub/agentre-ui";
 import { useTranslation } from "react-i18next";
@@ -28,12 +29,6 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import type { IconifyIcon } from "@iconify/types";
-import buildingCommunityIcon from "@iconify-icons/tabler/building-community";
-import layoutKanbanIcon from "@iconify-icons/tabler/layout-kanban";
-import messageCircleIcon from "@iconify-icons/tabler/message-circle";
-import settingsIcon from "@iconify-icons/tabler/settings";
-import webhookIcon from "@iconify-icons/tabler/webhook";
 
 import {
   AppStatusBar,
@@ -54,7 +49,6 @@ import {
   SidebarButton,
   SettingsPage,
   ThemeToggle,
-  isPrimaryShortcut,
   type AppTheme,
   type AppThemePreference,
   type DesktopPlatform,
@@ -79,436 +73,31 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
-import {
-  Environment,
-  WindowCenter,
-  WindowGetSize,
-  WindowIsFullscreen,
-  WindowSetSize,
-  WindowShow,
-} from "../wailsjs/runtime/runtime";
+import { Environment } from "../wailsjs/runtime/runtime";
 import { Info as FetchAppInfo } from "../wailsjs/go/app/App";
 
-type NavItem = {
-  icon: IconifyIcon;
-  labelKey: string;
-  path?: string;
-};
-
-const navItems: NavItem[] = [
-  {
-    path: "/chat",
-    labelKey: "nav.chat",
-    icon: messageCircleIcon,
-  },
-  {
-    path: "/issues",
-    labelKey: "nav.issues",
-    icon: layoutKanbanIcon,
-  },
-  {
-    path: "/org",
-    labelKey: "nav.org",
-    icon: buildingCommunityIcon,
-  },
-  {
-    path: "/hooks",
-    labelKey: "nav.hooks",
-    icon: webhookIcon,
-  },
-];
-
-const settingsNavItem: NavItem = {
-  path: "/settings",
-  labelKey: "nav.settings",
-  icon: settingsIcon,
-};
-
-const pageBreadcrumbKeys: Record<string, string> = {
-  "/chat": "nav.chat",
-  "/hooks": "nav.hooks",
-  "/issues": "nav.issues",
-  "/org": "nav.org",
-  "/settings": "nav.settings",
-};
-
-const windowSizeStorageKey = "agentre.windowSize";
-const lastPathStorageKey = "agentre.lastPath";
-const defaultPath = "/chat";
-const windowSizeSaveDelayMs = 250;
-const minWindowWidth = 860;
-const minWindowHeight = 640;
-const maxWindowWidth = 4096;
-const maxWindowHeight = 3072;
-const selectableTextSelector = "[data-selectable-text='true']";
-
-type StoredWindowSize = {
-  height: number;
-  width: number;
-};
-
-type RuntimeMode = "interactive" | "headless" | "unknown";
+import { usePersistedWindowSize } from "./hooks/use-persisted-window-size";
+import { usePreventGlobalSelectAll } from "./hooks/use-prevent-global-select-all";
+import {
+  navItems,
+  settingsNavItem,
+  pageBreadcrumbKeys,
+  writeStoredLastPath,
+  getInitialPath,
+  isNavItemActive,
+} from "./lib/app-routing";
+import {
+  normalizePlatform,
+  detectBrowserPlatform,
+  hasWailsRuntime,
+  type RuntimeMode,
+} from "./lib/platform";
 
 type AppOutletContext = {
   effectiveTheme: AppTheme;
   onThemePreferenceChange: (themePreference: AppThemePreference) => void;
   themePreference: AppThemePreference;
 };
-
-function normalizePlatform(platform: string): DesktopPlatform {
-  if (platform === "darwin" || platform === "windows" || platform === "linux") {
-    return platform;
-  }
-
-  return "unknown";
-}
-
-function detectBrowserPlatform(): DesktopPlatform {
-  if (typeof navigator === "undefined") {
-    return "unknown";
-  }
-
-  const userAgent = navigator.userAgent.toLowerCase();
-  if (userAgent.includes("mac")) {
-    return "darwin";
-  }
-  if (userAgent.includes("win")) {
-    return "windows";
-  }
-  if (userAgent.includes("linux")) {
-    return "linux";
-  }
-
-  return "unknown";
-}
-
-function hasWailsRuntime() {
-  return (
-    typeof window !== "undefined" &&
-    typeof (window as Window & { runtime?: unknown }).runtime === "object" &&
-    (window as Window & { runtime?: unknown }).runtime !== null
-  );
-}
-
-function getBrowserStorage() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
-function getKnownPaths(): Set<string> {
-  const paths = new Set<string>();
-  for (const item of navItems) {
-    if (item.path) {
-      paths.add(item.path);
-    }
-  }
-  if (settingsNavItem.path) {
-    paths.add(settingsNavItem.path);
-  }
-  return paths;
-}
-
-function isKnownPath(path: string | null): path is string {
-  return typeof path === "string" && getKnownPaths().has(path);
-}
-
-function readStoredLastPath(): string | null {
-  const storage = getBrowserStorage();
-
-  if (typeof storage?.getItem !== "function") {
-    return null;
-  }
-
-  try {
-    const value = storage.getItem(lastPathStorageKey);
-
-    return isKnownPath(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredLastPath(path: string) {
-  const storage = getBrowserStorage();
-
-  if (typeof storage?.setItem !== "function" || !isKnownPath(path)) {
-    return;
-  }
-
-  try {
-    storage.setItem(lastPathStorageKey, path);
-  } catch {
-    // Some embedded previews may block localStorage.
-  }
-}
-
-function getInitialPath(): string {
-  return readStoredLastPath() ?? defaultPath;
-}
-
-function clampWindowDimension(value: number, min: number, max: number) {
-  return Math.min(Math.max(Math.round(value), min), max);
-}
-
-function numberFromStorage(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function normaliseWindowSize(value: unknown): StoredWindowSize | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const rawWidth = numberFromStorage(record.width ?? record.w);
-  const rawHeight = numberFromStorage(record.height ?? record.h);
-
-  if (rawWidth === null || rawHeight === null) {
-    return null;
-  }
-
-  if (rawWidth < minWindowWidth || rawHeight < minWindowHeight) {
-    return null;
-  }
-
-  return {
-    height: clampWindowDimension(rawHeight, minWindowHeight, maxWindowHeight),
-    width: clampWindowDimension(rawWidth, minWindowWidth, maxWindowWidth),
-  };
-}
-
-function readStoredWindowSize(): StoredWindowSize | null {
-  const storage = getBrowserStorage();
-
-  if (typeof storage?.getItem !== "function") {
-    return null;
-  }
-
-  try {
-    const value = storage.getItem(windowSizeStorageKey);
-
-    return value ? normaliseWindowSize(JSON.parse(value)) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredWindowSize(size: StoredWindowSize) {
-  const storage = getBrowserStorage();
-  const normalised = normaliseWindowSize(size);
-
-  if (!normalised || typeof storage?.setItem !== "function") {
-    return;
-  }
-
-  try {
-    storage.setItem(windowSizeStorageKey, JSON.stringify(normalised));
-  } catch {
-    // Some embedded previews may block localStorage.
-  }
-}
-
-function isNavItemActive(pathname: string, itemPath: string | undefined) {
-  if (!itemPath) {
-    return false;
-  }
-
-  return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
-}
-
-function getElementFromEventTarget(target: EventTarget | null) {
-  return target instanceof Element ? target : null;
-}
-
-function getElementFromNode(node: Node | null) {
-  if (!node) {
-    return null;
-  }
-
-  return node instanceof Element ? node : node.parentElement;
-}
-
-function closestSelectableTextElement(element: Element | null) {
-  return element?.closest(selectableTextSelector) ?? null;
-}
-
-function isEditableSelectAllTarget(target: EventTarget | null) {
-  const element = getElementFromEventTarget(target);
-
-  return Boolean(
-    element?.closest(
-      "input, textarea, select, [contenteditable='true'], [role='combobox']",
-    ),
-  );
-}
-
-function isSelectAllShortcut(event: KeyboardEvent, platform: DesktopPlatform) {
-  if (event.defaultPrevented || event.altKey || event.shiftKey) {
-    return false;
-  }
-
-  if (event.key.toLowerCase() !== "a") {
-    return false;
-  }
-
-  return isPrimaryShortcut(event, platform);
-}
-
-function getSelectedTextContainer() {
-  const selection = document.getSelection();
-
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return null;
-  }
-
-  return (
-    closestSelectableTextElement(getElementFromNode(selection.anchorNode)) ??
-    closestSelectableTextElement(getElementFromNode(selection.focusNode))
-  );
-}
-
-function selectTextContainer(element: Element) {
-  const selection = document.getSelection();
-
-  if (!selection) {
-    return;
-  }
-
-  const range = document.createRange();
-  range.selectNodeContents(element);
-  selection.removeAllRanges();
-  selection.addRange(range);
-}
-
-function usePreventGlobalSelectAll(platform: DesktopPlatform) {
-  useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!isSelectAllShortcut(event, platform)) {
-        return;
-      }
-
-      if (isEditableSelectAllTarget(event.target)) {
-        return;
-      }
-
-      const targetSelectableText = closestSelectableTextElement(
-        getElementFromEventTarget(event.target),
-      );
-      const selectedTextContainer = getSelectedTextContainer();
-      const textContainer = targetSelectableText ?? selectedTextContainer;
-
-      event.preventDefault();
-
-      if (textContainer) {
-        selectTextContainer(textContainer);
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [platform]);
-}
-
-function usePersistedWindowSize(runtimeMode: RuntimeMode) {
-  useLayoutEffect(() => {
-    if (runtimeMode !== "interactive" || !hasWailsRuntime()) {
-      return;
-    }
-
-    const storedWindowSize = readStoredWindowSize();
-
-    if (storedWindowSize) {
-      try {
-        WindowSetSize(storedWindowSize.width, storedWindowSize.height);
-      } catch {
-        // Browser previews and test doubles may not expose every Wails API.
-      }
-    }
-
-    try {
-      WindowCenter();
-    } catch {
-      // Browser previews and test doubles may not expose every Wails API.
-    }
-
-    try {
-      WindowShow();
-    } catch {
-      // Browser previews and test doubles may not expose every Wails API.
-    }
-
-    let mounted = true;
-    let saveTimer: number | undefined;
-
-    const saveCurrentWindowSize = async () => {
-      try {
-        const isFullscreen = await WindowIsFullscreen();
-
-        if (!mounted || isFullscreen) {
-          return;
-        }
-
-        const size = await WindowGetSize();
-
-        if (mounted) {
-          writeStoredWindowSize({ height: size.h, width: size.w });
-        }
-      } catch {
-        // Wails runtime calls can reject during startup/shutdown.
-      }
-    };
-
-    const scheduleSave = () => {
-      if (saveTimer !== undefined) {
-        window.clearTimeout(saveTimer);
-      }
-
-      saveTimer = window.setTimeout(() => {
-        saveTimer = undefined;
-        void saveCurrentWindowSize();
-      }, windowSizeSaveDelayMs);
-    };
-
-    const flushSave = () => {
-      if (saveTimer !== undefined) {
-        window.clearTimeout(saveTimer);
-        saveTimer = undefined;
-      }
-
-      void saveCurrentWindowSize();
-    };
-
-    window.addEventListener("resize", scheduleSave);
-    window.addEventListener("beforeunload", flushSave);
-    window.addEventListener("pagehide", flushSave);
-
-    return () => {
-      mounted = false;
-
-      if (saveTimer !== undefined) {
-        window.clearTimeout(saveTimer);
-      }
-
-      window.removeEventListener("resize", scheduleSave);
-      window.removeEventListener("beforeunload", flushSave);
-      window.removeEventListener("pagehide", flushSave);
-    };
-  }, [runtimeMode]);
-}
 
 function AppLayout() {
   const { t } = useTranslation();
@@ -723,6 +312,7 @@ function AppLayout() {
  * `/projects` 的重定向。用组件而不是 `<Navigate to="/chat" />`：后者会把 query
  * 丢掉，而 `?focus=<id>`（会话设置页点「项目」进来）正是靠 query 传项目 id 的。
  */
+
 function RedirectToChat() {
   const location = useLocation();
   return (

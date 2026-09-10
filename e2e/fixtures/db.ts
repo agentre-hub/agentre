@@ -139,6 +139,10 @@ export function errorSessionCountContaining(errorText: string): number {
 
 export type RemoteSession = {
   id: number;
+  /** 这条对话的**全局身份**（chat_sessions.conversation_id，uuid 字符串）。
+   *  它是与远端假 peer 对表时唯一对得上的键：peer 的会话表按线上的 conversation id
+   *  建键，它从来不知道桌面端那个自增的 id。 */
+  conversation_id: string;
   agent_status: string;
   provider_session_id: string;
   exec_device_id: number;
@@ -149,8 +153,8 @@ export type RemoteSession = {
 
 export function remoteSessionByPrompt(prompt: string): RemoteSession | undefined {
   return query<RemoteSession>(
-    `SELECT s.id, s.agent_status, s.provider_session_id, s.exec_device_id,
-            s.exec_device_fingerprint, s.event_cursor,
+    `SELECT s.id, s.conversation_id, s.agent_status, s.provider_session_id,
+            s.exec_device_id, s.exec_device_fingerprint, s.event_cursor,
             COALESCE(a.error_text, '') AS error_text
        FROM chat_sessions s
        JOIN chat_messages u ON u.session_id = s.id AND u.role = 'user'
