@@ -37,51 +37,31 @@ var Protocol = protocolversion.Protocol()
 // internal/pkg/wireversion/methodset_test.go's
 // TestMethodSet_GivenTheMethodSetDigestWasLastUpdated_....
 //
-// A changed method set is not the only reason to reset it. 0.2.0 split frames
-// into two levels — preview frames carry no seq and are not replayed, catch-up
-// answers with block-level durable frames — without adding or removing a single
-// RPC method. A 0.1.x build reads those frames through the old contract and
-// mis-assembles the transcript in silence, so the floor rises with the ceiling
-// and that build is turned away at the handshake instead. There is deliberately
-// no downgrade branch for it (see docs/specs/2026-09-05-transcript-storage-
-// alignment.md 「兼容性」), and crossing this version is itself the signal a
-// consumer uses to invalidate frames it mirrored under the old numbering.
+// A changed method set is not the only reason to reset it. A change in what an
+// *existing* frame means forces it just as hard, and that kind is the more
+// dangerous of the two: neither side can read the other's convention off the
+// frames, so a mismatched pair does not fail loudly — it mis-assembles the
+// transcript in silence. When that is the change, the floor rises with the
+// ceiling and the older build is turned away at the handshake instead of being
+// given a downgrade branch.
 //
-// 0.3.0 does the same again, and again without touching the method set: the
-// meaning of an *existing* frame changes. A consumed steer is now recorded by
-// the host and shipped as durable frames (a user message carrying the
-// submitter's identity, followed by a fresh assistant), while the preview
-// SteerConsumed it used to be assembled from no longer produces any row on the
-// consumer. Mixing the two builds mis-assembles in both directions — an old
-// consumer against a new host writes that steer twice (it still persists off
-// the preview *and* receives the durable frames), a new consumer against an old
-// host loses it entirely (it stopped persisting off the preview and no durable
-// frames ever arrive). Neither side can detect the other's convention from the
-// frames themselves, so the floor rises with the ceiling here too and the
-// mismatch is refused at the handshake (see
-// docs/specs/2026-09-07-host-transcript-user-input.md 决策 5).
+// Both numbers were reset to 0.1.0 for the first release. Before it the
+// protocol had reached 0.5.0 over four such bumps, every one of them made while
+// the product was unreleased — no build in anyone's hands ever advertised them,
+// so the number went back to its starting point, alongside the migration chains
+// squashed to a baseline in the same round. The history of those four is not
+// kept. One consequence of dropping it is, because it is a trap:
 //
-// 0.4.0 raises it for the first reason again: the method set grew a member.
-// skills.commands lets a caller ask a machine which skills it can actually
-// invoke by name — the half that is not a configurable plugin pack (the CLI's
-// own user/project/system skills) and that only the machine running the turn
-// can enumerate. A build without it answers method-not-found, and the callers
-// that need it (the browser console's composer, and the desktop asking a remote
-// exec target) have no way to tell "this peer is too old" from "this machine
-// genuinely has no skills". Per the conservation law above the floor rises with
-// the ceiling rather than a downgrade branch being added.
-//
-// 0.5.0 is the method set again, this time by eight members at once:
-// portforward.* — the declaration half (list / create / set_enabled / delete,
-// reading and writing the mapping table the accessed device itself holds) and
-// the stream half (open / write / close / ack plus three notifications, one
-// forwarded HTTP exchange). A build without them answers method-not-found on
-// every one, and the desktop cannot tell "this agentred is too old" from "this
-// machine has no mappings declared" — the same indistinguishability that forced
-// 0.4.0's bump. The floor rises with the ceiling per the conservation law above.
-// The practical consequence is stated here because it is the one that bites: a
-// desktop on 0.5.0 turns away every agentred still on 0.4.0 at the handshake, so
-// the daemons have to be redeployed alongside it.
+//	0.2.0 through 0.5.0 will be handed out a second time, and unlike a
+//	migration id a protocol version leaves no ledger — nothing detects the
+//	reuse. A pre-release build left running somewhere would one day meet a
+//	post-reset build carrying the same number, and the handshake would accept
+//	it: same version, same floor, entirely different frame semantics. What
+//	stands in for a ledger is that no pre-release build outlives the release —
+//	the daemons are redeployed alongside it, and wireversion_test.go pins that
+//	a 0.5.0 peer is refused here. That guard necessarily goes red the moment
+//	this build's own Protocol reaches 0.5.0 again, which is the signal to come
+//	back and re-read this paragraph.
 //
 // Unlike Protocol this one is written out here rather than read from the
 // protocol module, and deliberately so: it is not a property of the protocol
@@ -90,7 +70,7 @@ var Protocol = protocolversion.Protocol()
 // pins it is the conservation law above, not an external file — while the
 // window is a single point, methodset_test.go requires it to equal Protocol,
 // and Protocol is the schema's own value.
-const MinSupported = "0.5.0"
+const MinSupported = "0.1.0"
 
 // version is a parsed MAJOR.MINOR.PATCH triple. Handshake versions in this
 // protocol are never pre-release or build-metadata strings, so a minimal
