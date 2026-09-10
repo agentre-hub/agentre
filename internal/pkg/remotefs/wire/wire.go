@@ -6,7 +6,8 @@
 //   - 方法在 "remotefs.*" 命名空间下
 //   - 字段名 lowerCamelCase
 //   - 错误码 -32030..-32035 是稳定 wire 值,wrapGuarded handler 返回
-//     *rpcerror.Error 由本包翻译,客户端用 FromRPCError rehydrate。
+//     *rpcerror.Error 由本包翻译,客户端用 FromRPCError rehydrate。数值本身住在
+//     共享 module 的 pkg/wire/rpcerror(全段位撞号守卫在那里),本包只留别名。
 package wire
 
 import (
@@ -24,13 +25,15 @@ const (
 
 // ── Error codes ─────────────────────────────────────────────────────────────
 
+// 码值的主人是 pkg/wire/rpcerror —— 那里一份表登记了全部方法族的段位,撞号守卫
+// 因此看得见整条协议;这里只是本族用得顺手的短名字。
 const (
-	ErrCodePathRefused = -32030
-	ErrCodePermDenied  = -32031
-	ErrCodeNotFound    = -32032
-	ErrCodeNotDir      = -32033
-	ErrCodeMkdirExists = -32034
-	ErrCodeInvalidName = -32035
+	ErrCodePathRefused = rpcerror.CodeRemoteFSPathRefused
+	ErrCodePermDenied  = rpcerror.CodeRemoteFSPermDenied
+	ErrCodeNotFound    = rpcerror.CodeRemoteFSNotFound
+	ErrCodeNotDir      = rpcerror.CodeRemoteFSNotDir
+	ErrCodeMkdirExists = rpcerror.CodeRemoteFSMkdirExists
+	ErrCodeInvalidName = rpcerror.CodeRemoteFSInvalidName
 )
 
 // ── Sentinel errors ─────────────────────────────────────────────────────────

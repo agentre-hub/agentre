@@ -48,6 +48,9 @@ var LLMUpsert = Define[*agentrewire.LLMUpsertRequest](agentrewire.RpcMethod_RPC_
 var SkillCatalog = Define[*agentrewire.SkillCatalogRequest](agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG,
 	func() *agentrewire.SkillCatalogResponse { return &agentrewire.SkillCatalogResponse{} })
 
+var SkillCommands = Define[*agentrewire.SkillCommandsRequest](agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS,
+	func() *agentrewire.SkillCommandsResponse { return &agentrewire.SkillCommandsResponse{} })
+
 var SkillsList = Define[*agentrewire.SkillsListRequest](agentrewire.RpcMethod_RPC_METHOD_SKILLS_LIST,
 	func() *agentrewire.SkillsListResponse { return &agentrewire.SkillsListResponse{} })
 

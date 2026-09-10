@@ -482,19 +482,8 @@
     "notSharedWithAI": "不发送给 AI"
   },
   "slashCommands": {
-    "compact": {
-      "description": "压缩对话上下文,只保留摘要"
-    },
-    "goal": {
-      "description": "设置或查看 Codex 当前目标"
-    },
     "new": {
       "description": "开一个相同配置的全新对话"
-    },
-    "skill": {
-      "claudeDescription": "调用 Claude Code Skill",
-      "codexDescription": "调用 Codex Skill",
-      "piDescription": "调用 Pi Skill"
     }
   },
   "taskProgress": {

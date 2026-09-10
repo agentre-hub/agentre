@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -114,6 +115,26 @@ type Registry struct {
 }
 
 func NewRegistry() *Registry { return &Registry{methods: map[uint32]genericHandler{}} }
+
+// RegisteredMethods 交出这个注册面此刻挂着哪些方法号,升序。
+//
+// 它存在的理由只有一个:让宿主的守卫测试能问出「这台机器答得出哪些方法」,而不必
+// 靠逐个拨一次去试。逐个拨的代价不是慢 —— 是**真把 handler 跑起来**,一个探测
+// 用的空请求会落到写库那一路上去。
+//
+// 「答得出哪些」是协议的一部分:同一个方法枚举有四类调用方,两种执行端,而缺席在
+// 线上只有 method not found 这一种说法。谁实现了什么因此必须可断言,不能只靠读代码。
+func (r *Registry) RegisteredMethods() []uint32 {
+	r.methodMu.RLock()
+	defer r.methodMu.RUnlock()
+	out := make([]uint32, 0, len(r.methods))
+	for methodID := range r.methods {
+		out = append(out, methodID)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
 func (r *Registry) Clone() *Registry {
 	clone := NewRegistry()
 	r.methodMu.RLock()

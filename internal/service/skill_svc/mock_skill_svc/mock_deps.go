@@ -160,6 +160,21 @@ func (m *MockRemoteDiscoverer) EXPECT() *MockRemoteDiscovererMockRecorder {
 	return m.recorder
 }
 
+// ListSkillCommands mocks base method.
+func (m *MockRemoteDiscoverer) ListSkillCommands(ctx context.Context, deviceID int64, backendType, cwd string, authorized []agent_entity.AgentSkillItem) ([]agentskill.SkillCommand, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSkillCommands", ctx, deviceID, backendType, cwd, authorized)
+	ret0, _ := ret[0].([]agentskill.SkillCommand)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSkillCommands indicates an expected call of ListSkillCommands.
+func (mr *MockRemoteDiscovererMockRecorder) ListSkillCommands(ctx, deviceID, backendType, cwd, authorized any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSkillCommands", reflect.TypeOf((*MockRemoteDiscoverer)(nil).ListSkillCommands), ctx, deviceID, backendType, cwd, authorized)
+}
+
 // ListSkills mocks base method.
 func (m *MockRemoteDiscoverer) ListSkills(ctx context.Context, deviceID int64, backendType string) ([]agentskill.SkillPack, error) {
 	m.ctrl.T.Helper()

@@ -70,6 +70,10 @@ func TestErrCodes_Stable(t *testing.T) {
 	assert.Equal(t, -32012, ErrCodeUnsupported)
 	assert.Equal(t, -32013, ErrCodeAborted)
 	assert.Equal(t, -32014, ErrCodeSessionNotFound)
+	assert.Equal(t, -32015, ErrCodePeerExecutionUnavailable)
+	assert.Equal(t, -32050, ErrCodeProjectNotSynced)
+	assert.Equal(t, -32051, ErrCodeProjectInvalidPath)
+	assert.Equal(t, -32052, ErrCodeProjectPathNotFound)
 }
 
 // TestMethodNames_Stable pins RPC method names — wire protocol contract.

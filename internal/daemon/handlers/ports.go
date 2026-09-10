@@ -176,20 +176,35 @@ type SessionLifecyclePort interface {
 	Fail(ctx context.Context, peerFingerprint, peerSessionID string) error
 }
 
+// SessionListFilter 是会话清单的收窄条件。零值 = 不收窄,那是协议里「整份」那一档
+// (不带任何收窄字段的老客户端拿到的形态)。
+//
+// 两格合成一个结构体而不是各占一个参数:清单与它的 COUNT 必须收**同一份**条件,
+// 否则「查看全部 N」下面挂着的是另一批行。一个值传两处,两者天然对得上;拆成并列
+// 参数则每加一格就多一处可以漏传的地方。
+type SessionListFilter struct {
+	// Keyword 按标题的大小写不敏感子串收窄(空串 / 全空白 = 不收窄)。
+	Keyword string
+	// ConversationIDs 收窄到点名的这几条对话(空 = 不收窄)。它是身份上的点查,
+	// 不是搜索:调用方(详情页要一条摘要、账号要它保存过的那些)手上已经有名单,
+	// 拿整台机器的清单回去 find 一遍是这条 RPC 最大的一次白读。
+	ConversationIDs []string
+}
+
 // SessionQueryPort 是会话的读出口,供重连客户端的清单 / 接管查询使用。两个方法都以
 // 对端指纹打头：查询一律限定在调用方自己的对端范围内，按会话 id 单独查的入口
 // 本层不提供。
 type SessionQueryPort interface {
-	// List 列出该对端的**一页**会话。keyword 非空时再按标题的大小写不敏感子串收窄
-	// (空串 / 全空白 = 不收窄)；它下推到存储而不是在内存里过一遍 —— 对端要的
-	// 往往只是其中几条,整份取出来再筛既白读一遍库,也没省下任何东西。
+	// List 列出该对端的**一页**会话,再按 filter 收窄。收窄一律下推到存储而不是在
+	// 内存里过一遍 —— 对端要的往往只是其中几条,整份取出来再筛既白读一遍库,
+	// 也没省下任何东西。
 	//
 	// offset / limit 同理下推。limit<=0 = 不分页,那是协议里「老客户端不带 limit」
 	// 那一档要保留的行为(见 wire.ClampSessionListLimit),不是「一条都不要」。
-	List(ctx context.Context, peerFingerprint, keyword string, offset, limit int) ([]SessionRecord, error)
-	// Count 是 List 在同一个 keyword 下的总数,供应答里的「一共 N 条」。分页之后
-	// 清单只剩一页,N 就只有它数得出;两者必须收同一个 keyword。
-	Count(ctx context.Context, peerFingerprint, keyword string) (int64, error)
+	List(ctx context.Context, peerFingerprint string, filter SessionListFilter, offset, limit int) ([]SessionRecord, error)
+	// Count 是 List 在**同一个 filter** 下的总数,供应答里的「一共 N 条」。分页之后
+	// 清单只剩一页,N 就只有它数得出;两者收的条件必须一个字不差。
+	Count(ctx context.Context, peerFingerprint string, filter SessionListFilter) (int64, error)
 	// ListByLifecycle 列出停在某个生命周期上的会话,至多 limit 条。
 	//
 	// session.counts 用它答「在跑几条 / 几条在等你」:正在跑的本来就是个小集合,而

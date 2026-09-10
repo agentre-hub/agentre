@@ -12,10 +12,10 @@
 // 命名约定与 internal/pkg/remotefs/wire 一致:
 //   - 方法在 "workspacefs.*" 命名空间下
 //   - 字段名 lowerCamelCase
-//   - 错误码 -32040..-32043 是稳定 wire 值,与既有方法族的 code 段不重叠
-//     (remotefs.* 占 -32030..-32035,agentruntime remote wire 占
-//     -32010..-32014),wrapGuarded handler 返回 *rpcerror.Error 由本包翻译,
-//     客户端用 FromRPCError rehydrate。
+//   - 错误码 -32040..-32043 是稳定 wire 值,与既有方法族的 code 段不重叠。
+//     数值本身与那张全族段位表都住在共享 module 的 pkg/wire/rpcerror,本包只留
+//     别名;wrapGuarded handler 返回 *rpcerror.Error 由本包翻译,客户端用
+//     FromRPCError rehydrate。
 package wire
 
 import (
@@ -38,11 +38,13 @@ const (
 
 // ── Error codes ─────────────────────────────────────────────────────────────
 
+// 码值的主人是 pkg/wire/rpcerror —— 那里一份表登记了全部方法族的段位,撞号守卫
+// 因此看得见整条协议;这里只是本族用得顺手的短名字。
 const (
-	ErrCodePathRefused      = -32040
-	ErrCodeBaselineRequired = -32041
-	ErrCodeNoCwd            = -32042
-	ErrCodeNotFound         = -32043
+	ErrCodePathRefused      = rpcerror.CodeWorkspaceFSPathRefused
+	ErrCodeBaselineRequired = rpcerror.CodeWorkspaceFSBaselineRequired
+	ErrCodeNoCwd            = rpcerror.CodeWorkspaceFSNoCwd
+	ErrCodeNotFound         = rpcerror.CodeWorkspaceFSNotFound
 )
 
 // ── Sentinel errors ─────────────────────────────────────────────────────────

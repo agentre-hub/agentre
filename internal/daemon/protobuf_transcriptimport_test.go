@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protobufadapter"
 	daemonimport "github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
@@ -17,6 +16,7 @@ import (
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
@@ -128,7 +128,7 @@ func TestProtobufTranscriptImportUnknownBackendKeepsTypedCode(t *testing.T) {
 func transcriptImportPeers(t *testing.T, handlers *daemonimport.Handlers) (*protorpc.Conn, context.Context) {
 	t.Helper()
 	registry := protorpc.NewRegistry()
-	protobufadapter.RegisterPeripheralMethods(registry, protobufadapter.PeripheralDeps{TranscriptImport: handlers})
+	wireinbound.RegisterPeripheralMethods(registry, wireinbound.PeripheralDeps{TranscriptImport: handlers})
 	clientTransport, serverTransport := protobufTestPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	server := protorpc.NewConn(serverTransport, registry)

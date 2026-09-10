@@ -1087,10 +1087,12 @@ func (r *Runtime) sessionSummaries(ctx context.Context) (map[string]wire.Session
 	return out, nil
 }
 
-// summaryFromProto 把线格式的一条会话摘要解成 wire.SessionSummary。单列成函数是为了
-// 让「清单上每一格都解出来」可以被直接测到 —— 漏解一格在整条补齐链路上是静默的。
+// summaryFromProto 保留成一层薄转发,字段映射本身住在 protowire 里。摘要的编解码此前
+// 被手抄了四份,而 proto3 分辨不了「没发这一格」与「发了零值」—— 漏解一格在整条补齐
+// 链路上是静默的,只有用户的清单会露面。真相源因此只留一处,见
+// protowire/session_summary.go。
 func summaryFromProto(value *agentrewire.SessionSummary) wire.SessionSummary {
-	return wire.SessionSummary{ConversationID: value.GetConversationId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProviderSessionID: value.GetProviderSessionId(), Cwd: value.GetCwd(), ProjectSyncID: value.GetProjectSyncId(), BackendType: value.GetBackendType(), LifecycleState: value.GetLifecycleState(), WaitingForInput: value.GetWaitingForInput(), LatestSeq: value.GetLatestSeq(), LastMessageAt: value.GetLastMessageAt(), ProviderKey: value.GetProviderKey(), ModelKey: value.GetModelKey(), ReasoningEffort: value.GetReasoningEffort()}
+	return protowire.SessionSummaryFromProto(value)
 }
 
 // rememberOrigin 记下清单里学到的会话发起对端(R12 桌面侧)。下游的 attach / pull /

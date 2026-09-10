@@ -76,7 +76,7 @@ func TestSessionRepo_ListByPeer_ScopedToCaller(t *testing.T) {
 		WithArgs("peerA").
 		WillReturnRows(rows)
 
-	got, err := repo.ListByPeer(ctx, "peerA", "", 0, 0)
+	got, err := repo.ListByPeer(ctx, "peerA", session_repo.ListFilter{}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, "s1", got[0].ConversationID)
@@ -104,7 +104,7 @@ func TestSessionRepo_ListAll_ReturnsRowsAcrossPeers(t *testing.T) {
 		AddRow("peerB", "s1", 8, "/other", "codex", "idle", "", "", "", 100, 150)
 	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` ORDER BY last_message_at DESC").WillReturnRows(rows)
 
-	got, err := repo.ListAll(ctx, "", 0, 0)
+	got, err := repo.ListAll(ctx, session_repo.ListFilter{}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, "peerA", got[0].PeerFingerprint)
@@ -125,7 +125,7 @@ func TestSessionRepo_ListByPeer_PagesWithLimitAndOffset(t *testing.T) {
 		WithArgs("peerA", 1, 2).
 		WillReturnRows(rows)
 
-	got, err := repo.ListByPeer(ctx, "peerA", "", 2, 1)
+	got, err := repo.ListByPeer(ctx, "peerA", session_repo.ListFilter{}, 2, 1)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "s3", got[0].ConversationID)
@@ -144,7 +144,7 @@ func TestSessionRepo_ListByPeer_UnpagedWhenNoLimit(t *testing.T) {
 		WithArgs("peerA").
 		WillReturnRows(rows)
 
-	got, err := repo.ListByPeer(ctx, "peerA", "", 0, 0)
+	got, err := repo.ListByPeer(ctx, "peerA", session_repo.ListFilter{}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -160,7 +160,7 @@ func TestSessionRepo_CountByPeer_SharesTheListFilter(t *testing.T) {
 		WithArgs("peerA", "%bug%").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(44))
 
-	got, err := repo.CountByPeer(ctx, "peerA", "bug")
+	got, err := repo.CountByPeer(ctx, "peerA", session_repo.ListFilter{Keyword: "bug"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(44), got)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -178,7 +178,7 @@ func TestSessionRepo_ListAll_PagesAcrossPeers(t *testing.T) {
 		WithArgs(1, 20).
 		WillReturnRows(rows)
 
-	got, err := repo.ListAll(ctx, "", 20, 1)
+	got, err := repo.ListAll(ctx, session_repo.ListFilter{}, 20, 1)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "peerB", got[0].PeerFingerprint)
@@ -194,7 +194,7 @@ func TestSessionRepo_CountAll_SharesTheListFilter(t *testing.T) {
 		WithArgs("%bug%").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
 
-	got, err := repo.CountAll(ctx, "bug")
+	got, err := repo.CountAll(ctx, session_repo.ListFilter{Keyword: "bug"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), got)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -453,7 +453,7 @@ func TestSessionRepo_ListByPeer_NarrowsByKeyword(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "title"}).
 			AddRow("peerA", "s1", "看看happy是怎么实现中继的"))
 
-	got, err := repo.ListByPeer(ctx, "peerA", "happy", 0, 0)
+	got, err := repo.ListByPeer(ctx, "peerA", session_repo.ListFilter{Keyword: "happy"}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "s1", got[0].ConversationID)
@@ -469,7 +469,7 @@ func TestSessionRepo_ListAll_NarrowsByKeyword(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "title"}).
 			AddRow("peerB", "s9", "happy path"))
 
-	got, err := repo.ListAll(ctx, "happy", 0, 0)
+	got, err := repo.ListAll(ctx, session_repo.ListFilter{Keyword: "happy"}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -484,8 +484,110 @@ func TestSessionRepo_List_KeywordEscapesWildcards(t *testing.T) {
 		WithArgs("peerA", "%100\\%\\_a\\\\b%").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}))
 
-	_, err := repo.ListByPeer(ctx, "peerA", `100%_a\b`, 0, 0)
+	_, err := repo.ListByPeer(ctx, "peerA", session_repo.ListFilter{Keyword: `100%_a\b`}, 0, 0)
 	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ── 清单的点名收窄 ──────────────────────────────────────────────────────────
+//
+// 调用方常常已经知道自己要哪几条对话。点名因此下推成一段 IN:conversation_id 是库上
+// 的一条 UNIQUE 约束,IN 走的是索引点查;而取回整份再在内存里 find 一遍,是这台机器
+// 上有几千条对话时最贵的那一次白读。
+
+func TestSessionRepo_ListByPeer_NarrowsByConversationIDs(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	// 对端限定必须**仍在**: 点名是额外收窄,不是换一条查询 —— 少了它,一个对端就能
+	// 点名读到另一个对端名下那条会话的标题。
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND conversation_id IN \\(\\?,\\?\\) ORDER BY last_message_at DESC").
+		WithArgs("peerA", "s2", "s5").
+		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerA", "s2"))
+
+	got, err := repo.ListByPeer(ctx, "peerA", session_repo.ListFilter{ConversationIDs: []string{"s2", "s5"}}, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "s2", got[0].ConversationID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 关键词与点名叠加时两段收窄都要发出去:少发一段,清单就宽于调用方要的那几条。
+func TestSessionRepo_ListByPeer_CombinesKeywordAndConversationIDs(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND title LIKE \\? ESCAPE '\\\\' AND conversation_id IN \\(\\?\\) ORDER BY last_message_at DESC").
+		WithArgs("peerA", "%happy%", "s2").
+		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerA", "s2"))
+
+	got, err := repo.ListByPeer(ctx, "peerA",
+		session_repo.ListFilter{Keyword: "happy", ConversationIDs: []string{"s2"}}, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_CountByPeer_SharesTheConversationIDNarrowing 钉死「N 与清单同条件」
+// 的另一半: 点名之后 COUNT 也必须收同一段 IN,否则「查看全部 N」报的是整台机器的条数。
+func TestSessionRepo_CountByPeer_SharesTheConversationIDNarrowing(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND conversation_id IN \\(\\?\\)").
+		WithArgs("peerA", "s2").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	got, err := repo.CountByPeer(ctx, "peerA", session_repo.ListFilter{ConversationIDs: []string{"s2"}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 账号可见性那一支同样要收窄: 登录后的 daemon 走的是 ListAll / CountAll,漏掉这一支
+// 就等于「一登录,点名收窄就静默失效」—— 而控制台恰恰跑在这一支上。
+func TestSessionRepo_ListAll_NarrowsByConversationIDs(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE conversation_id IN \\(\\?\\) ORDER BY last_message_at DESC").
+		WithArgs("s9").
+		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerB", "s9"))
+
+	got, err := repo.ListAll(ctx, session_repo.ListFilter{ConversationIDs: []string{"s9"}}, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "s9", got[0].ConversationID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_CountAll_SharesTheConversationIDNarrowing(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM `daemon_sessions` WHERE conversation_id IN \\(\\?\\)").
+		WithArgs("s9").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	got, err := repo.CountAll(ctx, session_repo.ListFilter{ConversationIDs: []string{"s9"}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 空名单 = 没点名,不发 IN。发一段空 IN 会把整份清单筛成 0 条 —— 在调用方那里读起来
+// 是「这台机器上一条会话都没有」。
+func TestSessionRepo_List_EmptyConversationIDsEmitNoIn(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC$").
+		WithArgs("peerA").
+		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerA", "s1"))
+
+	got, err := repo.ListByPeer(ctx, "peerA", session_repo.ListFilter{ConversationIDs: []string{}}, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -498,7 +600,7 @@ func TestSessionRepo_List_BlankKeywordEmitsNoLike(t *testing.T) {
 		WithArgs("peerA").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerA", "s1"))
 
-	got, err := repo.ListByPeer(ctx, "peerA", "   ", 0, 0)
+	got, err := repo.ListByPeer(ctx, "peerA", session_repo.ListFilter{Keyword: "   "}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())

@@ -1866,8 +1866,11 @@ func (s daemonSessionStore) CountRunning(ctx context.Context) (int64, error) {
 		dbpkg.WithContextDB(ctx, s.db), wire.SessionLifecycleRunning)
 }
 
-func (s daemonSessionStore) List(ctx context.Context, peerFingerprint, keyword string, offset, limit int) ([]handlers.SessionRecord, error) {
-	rows, err := session_repo.Session().ListByPeer(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, keyword, offset, limit)
+func (s daemonSessionStore) List(
+	ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter, offset, limit int,
+) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListByPeer(
+		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, listFilterOf(filter), offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1878,12 +1881,17 @@ func (s daemonSessionStore) List(ctx context.Context, peerFingerprint, keyword s
 	return out, nil
 }
 
-func (s daemonSessionStore) Count(ctx context.Context, peerFingerprint, keyword string) (int64, error) {
-	return session_repo.Session().CountByPeer(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, keyword)
+func (s daemonSessionStore) Count(
+	ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter,
+) (int64, error) {
+	return session_repo.Session().CountByPeer(
+		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, listFilterOf(filter))
 }
 
-func (s daemonSessionStore) ListAll(ctx context.Context, keyword string, offset, limit int) ([]handlers.SessionRecord, error) {
-	rows, err := session_repo.Session().ListAll(dbpkg.WithContextDB(ctx, s.db), keyword, offset, limit)
+func (s daemonSessionStore) ListAll(
+	ctx context.Context, filter handlers.SessionListFilter, offset, limit int,
+) ([]handlers.SessionRecord, error) {
+	rows, err := session_repo.Session().ListAll(dbpkg.WithContextDB(ctx, s.db), listFilterOf(filter), offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1930,8 +1938,14 @@ func (s daemonSessionStore) ListCreatedSince(ctx context.Context, createdFromMs 
 	return out, nil
 }
 
-func (s daemonSessionStore) CountAll(ctx context.Context, keyword string) (int64, error) {
-	return session_repo.Session().CountAll(dbpkg.WithContextDB(ctx, s.db), keyword)
+func (s daemonSessionStore) CountAll(ctx context.Context, filter handlers.SessionListFilter) (int64, error) {
+	return session_repo.Session().CountAll(dbpkg.WithContextDB(ctx, s.db), listFilterOf(filter))
+}
+
+// listFilterOf 把 handlers 那一侧的收窄条件翻成仓储的。两个包各自声明自己的类型是
+// DIP:端口按消费方(handlers)的话说,仓储不必因为它而被人反向依赖 —— 翻译只此一处。
+func listFilterOf(filter handlers.SessionListFilter) session_repo.ListFilter {
+	return session_repo.ListFilter{Keyword: filter.Keyword, ConversationIDs: filter.ConversationIDs}
 }
 
 func (s daemonSessionStore) Find(ctx context.Context, peerFingerprint, peerSessionID string) (*handlers.SessionRecord, error) {
@@ -2126,7 +2140,7 @@ func (j journalReader) OldestSeq(ctx context.Context, peerFingerprint, peerSessi
 
 func (j journalReader) LatestSeqByPeer(ctx context.Context, peerFingerprint string) (map[string]int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
-	rows, err := session_repo.Session().ListByPeer(ctx, peerFingerprint, "", 0, 0)
+	rows, err := session_repo.Session().ListByPeer(ctx, peerFingerprint, session_repo.ListFilter{}, 0, 0)
 	if err != nil {
 		return nil, err
 	}

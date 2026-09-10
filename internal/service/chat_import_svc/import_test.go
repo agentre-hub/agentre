@@ -231,6 +231,9 @@ func TestImport_Idempotent(t *testing.T) {
 
 	m.session.EXPECT().ListIDsByProviderSessions(gomock.Any(), []string{testSession}).
 		Return(map[string]int64{testSession: 88}, nil)
+	// 判重命中那一档要交回库里那条的全局身份,所以会读一次那一行(只读,不写)。
+	m.session.EXPECT().Find(gomock.Any(), int64(88)).
+		Return(&chat_entity.Session{ID: 88, ConversationID: "0199a0b1-c2d3-7e4f-8a9b-000000000088"}, nil)
 	// 一条都不写:没有 Session().Create / Message().Create 的 EXPECT,真调到就是失败。
 
 	got, err := m.svc.Import(context.Background(), importReq(), nil)

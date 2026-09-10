@@ -5,12 +5,12 @@ import (
 	"fmt"
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
-	"github.com/agentre-hub/agentre/internal/daemon/protobufadapter"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -24,21 +24,21 @@ func productionProtobufInboundDeps() ProtobufInboundDeps {
 		VerifyAccountCredential: func(ctx context.Context, credential string) (string, error) {
 			return verifyInboundAccountCredential(ctx, credential)
 		},
-		Capabilities: func(_ context.Context, backendType string) (*agentrewire.RuntimeCapabilitiesResponse, error) {
-			runtime := agentruntime.RuntimeFor(agent_backend_entity.BackendType(backendType))
+		// 只答「这台机器上这个 backend 的能力矩阵是什么」。折成线格式那一步与
+		// agentred 逐字相同,已经收进 wireinbound —— 这里不再手抄一份。
+		Capabilities: func(_ context.Context, params remotewire.CapabilitiesParams) (remotewire.CapabilitiesResult, error) {
+			runtime := agentruntime.RuntimeFor(agent_backend_entity.BackendType(params.BackendType))
 			if runtime == nil {
-				return nil, fmt.Errorf("no runtime registered for backend type %q", backendType)
+				// 没注册的 backend 如实报错,而不是回一份空矩阵成功:空矩阵会被
+				// 界面读成「这个 backend 没有权限档位」。
+				return remotewire.CapabilitiesResult{}, fmt.Errorf("no runtime registered for backend type %q", params.BackendType)
 			}
-			capabilities := runtime.Capabilities()
-			response := &agentrewire.RuntimeCapabilitiesResponse{PermissionMode: &agentrewire.PermissionModeMeta{AllowedModes: capabilities.PermissionModeMeta.AllowedModes, DefaultMode: capabilities.PermissionModeMeta.DefaultMode, SwitchableDuringTurn: capabilities.PermissionModeMeta.SwitchableDuringTurn, Order: capabilities.PermissionModeMeta.Order, LaunchDefaultMode: capabilities.PermissionModeMeta.LaunchDefaultMode}}
-			for name, enabled := range capabilities.Set {
-				response.Capabilities = append(response.Capabilities, &agentrewire.CapabilityEntry{Name: string(name), Enabled: enabled})
-			}
-			return response, nil
+			return remotewire.CapabilitiesResult{Capabilities: runtime.Capabilities()}, nil
 		},
-		Peripheral: protobufadapter.PeripheralDeps{
+		Peripheral: wireinbound.PeripheralDeps{
 			Skills: handlers.NewSkillsHandlers(), RemoteFS: remotefs.NewHandlers(remotefs.Options{}),
-			ProjectSetPath: protobufProjectSetPath, ProjectClearPath: protobufProjectClearPath,
+			TranscriptImport: newDesktopTranscriptImport(),
+			ProjectSetPath:   protobufProjectSetPath, ProjectClearPath: protobufProjectClearPath,
 		},
 		ListSessions: func(ctx context.Context, params remotewire.SessionListParams) (*remotewire.SessionListResult, error) {
 			return adapter().ListPeerSessions(ctx, params)
@@ -117,11 +117,11 @@ func protobufProjectSetPath(ctx context.Context, request *agentrewire.ProjectSet
 	}
 	id, err := localProjectID(ctx, request.ProjectSyncId)
 	if err != nil {
-		return nil, protobufadapter.ConvertError(err)
+		return nil, wireinbound.ConvertError(err)
 	}
 	value, err := project_svc.Default().SetLocalPath(ctx, id, request.Path)
 	if err != nil {
-		return nil, protobufadapter.ConvertError(projectPathError(err))
+		return nil, wireinbound.ConvertError(projectPathError(err))
 	}
 	reportLocalPaths(ctx)
 	return &agentrewire.ProjectLocalPathResponse{Path: value.Path, Configured: !value.LocalPathMissing}, nil
@@ -133,11 +133,11 @@ func protobufProjectClearPath(ctx context.Context, request *agentrewire.ProjectC
 	}
 	id, err := localProjectID(ctx, request.ProjectSyncId)
 	if err != nil {
-		return nil, protobufadapter.ConvertError(err)
+		return nil, wireinbound.ConvertError(err)
 	}
 	value, err := project_svc.Default().ClearLocalPath(ctx, id)
 	if err != nil {
-		return nil, protobufadapter.ConvertError(projectPathError(err))
+		return nil, wireinbound.ConvertError(projectPathError(err))
 	}
 	reportLocalPaths(ctx)
 	return &agentrewire.ProjectLocalPathResponse{Path: value.Path, Configured: !value.LocalPathMissing}, nil

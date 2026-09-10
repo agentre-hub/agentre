@@ -19,7 +19,7 @@ import (
 //
 // Keep it byte identical to the `version` field of
 // frontend/packages/agentre-wire/package.json.
-const Protocol = "0.3.0"
+const Protocol = "0.4.0"
 
 // MinSupported is the oldest peer protocol version this build still accepts.
 //
@@ -56,9 +56,19 @@ const Protocol = "0.3.0"
 // mismatch is refused at the handshake (see
 // docs/specs/2026-09-07-host-transcript-user-input.md 决策 5).
 //
+// 0.4.0 raises it for the first reason again: the method set grew a member.
+// skills.commands lets a caller ask a machine which skills it can actually
+// invoke by name — the half that is not a configurable plugin pack (the CLI's
+// own user/project/system skills) and that only the machine running the turn
+// can enumerate. A build without it answers method-not-found, and the callers
+// that need it (the browser console's composer, and the desktop asking a remote
+// exec target) have no way to tell "this peer is too old" from "this machine
+// genuinely has no skills". Per the conservation law above the floor rises with
+// the ceiling rather than a downgrade branch being added.
+//
 // Keep it byte identical to the `version` field of
 // frontend/packages/agentre-wire/package.json, exactly like Protocol.
-const MinSupported = "0.3.0"
+const MinSupported = "0.4.0"
 
 // version is a parsed MAJOR.MINOR.PATCH triple. Handshake versions in this
 // protocol are never pre-release or build-metadata strings, so a minimal

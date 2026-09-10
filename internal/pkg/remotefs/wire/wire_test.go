@@ -35,6 +35,18 @@ func TestSentinelRoundTrip(t *testing.T) {
 	}
 }
 
+// TestErrCodes_Stable 钉死本族错误码的数值 —— 它们是过线的稳定协议值,对端按
+// 数字分支而不按 message 文本。改一个就是协议破坏:已发布的 agentred 与桌面端
+// 必须同步升级才不会把别人的失败认成自己的。
+func TestErrCodes_Stable(t *testing.T) {
+	assert.EqualValues(t, -32030, wire.ErrCodePathRefused)
+	assert.EqualValues(t, -32031, wire.ErrCodePermDenied)
+	assert.EqualValues(t, -32032, wire.ErrCodeNotFound)
+	assert.EqualValues(t, -32033, wire.ErrCodeNotDir)
+	assert.EqualValues(t, -32034, wire.ErrCodeMkdirExists)
+	assert.EqualValues(t, -32035, wire.ErrCodeInvalidName)
+}
+
 func TestToRPCError_NonSentinel(t *testing.T) {
 	assert.Nil(t, wire.ToRPCError(errors.New("random")))
 }

@@ -384,18 +384,18 @@ func (m *MockSessionQueryPort) EXPECT() *MockSessionQueryPortMockRecorder {
 }
 
 // Count mocks base method.
-func (m *MockSessionQueryPort) Count(ctx context.Context, peerFingerprint, keyword string) (int64, error) {
+func (m *MockSessionQueryPort) Count(ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Count", ctx, peerFingerprint, keyword)
+	ret := m.ctrl.Call(m, "Count", ctx, peerFingerprint, filter)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Count indicates an expected call of Count.
-func (mr *MockSessionQueryPortMockRecorder) Count(ctx, peerFingerprint, keyword any) *gomock.Call {
+func (mr *MockSessionQueryPortMockRecorder) Count(ctx, peerFingerprint, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockSessionQueryPort)(nil).Count), ctx, peerFingerprint, keyword)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockSessionQueryPort)(nil).Count), ctx, peerFingerprint, filter)
 }
 
 // Find mocks base method.
@@ -414,18 +414,18 @@ func (mr *MockSessionQueryPortMockRecorder) Find(ctx, peerFingerprint, peerSessi
 }
 
 // List mocks base method.
-func (m *MockSessionQueryPort) List(ctx context.Context, peerFingerprint, keyword string, offset, limit int) ([]handlers.SessionRecord, error) {
+func (m *MockSessionQueryPort) List(ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter, offset, limit int) ([]handlers.SessionRecord, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", ctx, peerFingerprint, keyword, offset, limit)
+	ret := m.ctrl.Call(m, "List", ctx, peerFingerprint, filter, offset, limit)
 	ret0, _ := ret[0].([]handlers.SessionRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockSessionQueryPortMockRecorder) List(ctx, peerFingerprint, keyword, offset, limit any) *gomock.Call {
+func (mr *MockSessionQueryPortMockRecorder) List(ctx, peerFingerprint, filter, offset, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSessionQueryPort)(nil).List), ctx, peerFingerprint, keyword, offset, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSessionQueryPort)(nil).List), ctx, peerFingerprint, filter, offset, limit)
 }
 
 // ListByLifecycle mocks base method.

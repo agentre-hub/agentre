@@ -71,6 +71,9 @@ func TestPairing_GivenAMethod_ThenItsRequestTypeFollowsTheNamingConvention(t *te
 		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_CLEAR: "RuntimeGoalRequest",
 		// 技能目录的消息叫 SkillCatalog,方法叫 SKILLS_CATALOG。
 		agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG: "SkillCatalogRequest",
+		// 同上:命令清单的消息叫 SkillCommands,方法叫 SKILLS_COMMANDS。
+		// 逐字照约定会得到 SkillsCommandsRequest —— 与同族的 SkillCommand 一项对不上。
+		agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS: "SkillCommandsRequest",
 	}
 
 	for method, pairing := range wirecall.Covered() {
@@ -108,6 +111,7 @@ func TestPairing_GivenAMethod_ThenItsResponseTypeFollowsTheNamingConvention(t *t
 	exceptions[agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_SET] = "RuntimeGoalResponse"
 	exceptions[agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_CLEAR] = "RuntimeGoalClearResponse"
 	exceptions[agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG] = "SkillCatalogResponse"
+	exceptions[agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS] = "SkillCommandsResponse"
 
 	for method, pairing := range wirecall.Covered() {
 		want, ok := exceptions[method]

@@ -299,3 +299,37 @@ describe("FilePreviewPanel", () => {
     await waitFor(() => expect(readFile).toHaveBeenCalledTimes(2));
   });
 });
+
+// ── 内容来自哪台机器 ────────────────────────────────────────────────────────
+
+// 控制台里预览的每一个文件都在**别人的机器**上（设计源 B1 的路径条右端画了一枚
+// 状态点 + 机器名）。桌面端的会话外壳已经带机器名，所以它不传 —— 不传就不渲染，
+// 与 previewFile 同一套能力探测约定。
+describe("路径条上的设备指示", () => {
+  it("宿主给了机器名就画出来，并说明它此刻在不在线", async () => {
+    renderPanel({ deviceName: "dev-box", deviceOnline: true });
+
+    expect(await screen.findByText("dev-box")).toBeTruthy();
+    expect(screen.getByTestId("file-preview-device")).toHaveAttribute(
+      "data-online",
+      "true",
+    );
+  });
+
+  it("离线时同一格如实标成离线，而不是消失", async () => {
+    renderPanel({ deviceName: "dev-box", deviceOnline: false });
+
+    expect(await screen.findByText("dev-box")).toBeTruthy();
+    expect(screen.getByTestId("file-preview-device")).toHaveAttribute(
+      "data-online",
+      "false",
+    );
+  });
+
+  it("宿主不给机器名时这一格整个不渲染", async () => {
+    renderPanel();
+    await panel();
+
+    expect(screen.queryByTestId("file-preview-device")).toBeNull();
+  });
+});

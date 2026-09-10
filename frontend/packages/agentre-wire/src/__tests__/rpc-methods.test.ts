@@ -28,6 +28,7 @@ describe("typed protobuf RPC methods", () => {
       57,
       58,
       59,
+      60,
     ]);
   });
   // 这张表是手写的:id 写错不会被编译器发现,只会在对端解出「未知 method ID」时爆掉。
@@ -40,6 +41,12 @@ describe("typed protobuf RPC methods", () => {
     expect(rpcMethods.setSessionReasoningEffort.id).toBe(
       RpcMethod.SET_SESSION_REASONING_EFFORT,
     );
+  });
+
+  // skill 命令清单:浏览器的输入框要靠它补全 —— 它必须落在本表里而不只是 Go 侧的
+  // 方法常量,否则浏览器这条路只有类型、没有可发起的调用。
+  it("pairs the skill commands descriptor with its generated proto ID", () => {
+    expect(rpcMethods.skillCommands.id).toBe(RpcMethod.SKILLS_COMMANDS);
   });
 
   // agentred 自更新(spec 2026-09-03):浏览器与桌面端都要能发起它,所以它必须落在
@@ -87,6 +94,11 @@ describe("typed protobuf RPC methods", () => {
       // 是请求里的显式一位,而不是靠调用方重试来表达。
       [rpcMethods.agentredSelfUpdate, { channel: "stable", force: true }],
       [rpcMethods.skillCatalog, { backendType: "claudecode" }],
+      // cwd 必须编得进请求:项目级 skill 只在那个目录下才解析得出来。
+      [
+        rpcMethods.skillCommands,
+        { backendType: "claudecode", cwd: "/srv/project" },
+      ],
       [rpcMethods.projectSetLocalPath, { projectSyncId: "p", path: "/tmp" }],
       [rpcMethods.remoteFsListDir, { path: "/tmp" }],
       [rpcMethods.workspaceFsReadFile, { root: "/tmp", relPath: "a.txt" }],

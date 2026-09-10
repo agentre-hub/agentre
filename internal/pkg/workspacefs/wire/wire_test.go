@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	remotefswire "github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
@@ -34,6 +33,15 @@ func TestSentinelRoundTrip(t *testing.T) {
 	}
 }
 
+// TestErrCodes_Stable 钉死本族错误码的数值 —— 它们是过线的稳定协议值,对端按
+// 数字分支而不按 message 文本。改一个就是协议破坏。
+func TestErrCodes_Stable(t *testing.T) {
+	assert.EqualValues(t, -32040, wire.ErrCodePathRefused)
+	assert.EqualValues(t, -32041, wire.ErrCodeBaselineRequired)
+	assert.EqualValues(t, -32042, wire.ErrCodeNoCwd)
+	assert.EqualValues(t, -32043, wire.ErrCodeNotFound)
+}
+
 func TestToRPCError_NonSentinel(t *testing.T) {
 	assert.Nil(t, wire.ToRPCError(errors.New("random")))
 }
@@ -44,32 +52,10 @@ func TestFromRPCError_UnknownCode(t *testing.T) {
 	assert.Equal(t, src, got)
 }
 
-// TestErrorCodes_DoNotOverlapRemotefs 锁死设计决策 5 的一个具体后果:
-// workspacefs.* 与 remotefs.* 是独立方法族,各自的 error code 段不能重叠——
-// 重叠会让同一个稳定 RPC error code 在两个协议里代表不同语义,客户端按
-// FromRPCError rehydrate 时就会翻错 sentinel。
+// 撞号守卫不在这里 —— 它搬到了 pkg/wire/rpcerror/segments_test.go。
 //
-// 判定方式是把 workspacefs 的 code 真喂给 remotefs 的翻译器,而不是照抄一份
-// remotefs code 常量表来比对:抄下来的表不会随 remotefs 新增 code 更新,那样
-// 这条守卫就只在写它的那天成立。remotefs 认不出来时按约定原样返回,拿到的还是
-// 同一个 *rpcerror.Error;一旦翻出了别的 sentinel,就是撞号了。
-func TestErrorCodes_DoNotOverlapRemotefs(t *testing.T) {
-	for _, code := range []int{
-		wire.ErrCodePathRefused, wire.ErrCodeBaselineRequired,
-		wire.ErrCodeNoCwd, wire.ErrCodeNotFound,
-	} {
-		src := &rpcerror.Error{Code: int32(code), Message: "x"}
-		assert.Samef(t, src, remotefswire.FromRPCError(src),
-			"workspacefs code %d 被 remotefs.* 翻成了它自己的 sentinel,两个方法族撞号", code)
-	}
-	// 反向同理:remotefs 的 code 不能被 workspacefs 认领。
-	for _, code := range []int{
-		remotefswire.ErrCodePathRefused, remotefswire.ErrCodePermDenied,
-		remotefswire.ErrCodeNotFound, remotefswire.ErrCodeNotDir,
-		remotefswire.ErrCodeMkdirExists, remotefswire.ErrCodeInvalidName,
-	} {
-		src := &rpcerror.Error{Code: int32(code), Message: "x"}
-		assert.Samef(t, src, wire.FromRPCError(src),
-			"remotefs code %d 被 workspacefs.* 翻成了它自己的 sentinel,两个方法族撞号", code)
-	}
-}
+// 原来这里有一条 TestErrorCodes_DoNotOverlapRemotefs,把本族的码喂给 remotefs 的
+// 翻译器看会不会被认领。它只对得上 remotefs 一族:agentruntime 与 project 的码
+// 住在别的包里,这条守卫从来看不见它们。码全部搬进共享 module 之后,那边一条
+// AST 守卫扫得到整条协议的每一个码,再在这里留一份窄的副本只会让人以为撞号已经
+// 被看住了。

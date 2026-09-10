@@ -53,3 +53,18 @@ func SkillCatalogResponseFromProto(value *agentrewire.SkillCatalogResponse) wire
 	}
 	return out
 }
+
+func SkillCommandsResponseToProto(value wire.SkillCommandsResult) *agentrewire.SkillCommandsResponse {
+	out := &agentrewire.SkillCommandsResponse{Discovery: value.Discovery, Commands: make([]*agentrewire.SkillCommand, 0, len(value.Commands))}
+	for _, command := range value.Commands {
+		out.Commands = append(out.Commands, &agentrewire.SkillCommand{Name: command.Name, Description: command.Description})
+	}
+	return out
+}
+func SkillCommandsResponseFromProto(value *agentrewire.SkillCommandsResponse) wire.SkillCommandsResult {
+	out := wire.SkillCommandsResult{Discovery: value.GetDiscovery(), Commands: make([]wire.SkillCommand, 0, len(value.GetCommands()))}
+	for _, command := range value.GetCommands() {
+		out.Commands = append(out.Commands, wire.SkillCommand{Name: command.GetName(), Description: command.GetDescription()})
+	}
+	return out
+}

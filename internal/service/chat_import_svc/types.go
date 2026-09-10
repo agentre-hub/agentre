@@ -132,8 +132,17 @@ type ImportRequest struct {
 	DeviceID int64  `json:"deviceId"`
 	Backend  string `json:"backend"`
 	Locator  string `json:"locator"`
-	// AgentID 是续跑要绑的 agent(它带出 backend / provider / model);必填。
+	// AgentID 是续跑要绑的 agent(它带出 backend / provider / model);本机导入必填。
 	AgentID int64 `json:"agentId"`
+	// AgentSyncID 是同一个 agent 的**账号级**标识。非空时以它为准,AgentID 只是
+	// 本机那条路的入口 —— 跨机送来的 AgentID 是**发起端**库里的自增主键,两台桌面端
+	// 各自从 1 开始,采信它会把会话静默落到本机那个碰巧同号的 Agent 名下
+	// (6425ba59 / 18b6b9c8 是同一个形状的两次事故)。
+	AgentSyncID string `json:"agentSyncId"`
+	// ConversationID 是这条对话的**全局身份**。跨机导入由**发起端**铸号,本机原样
+	// 落库(与 runtime.run 同一条规矩:发起端铸号、对端从不发号)。留空 = 本机导入,
+	// 建行时由 chat_repo.Session().Create 铸 —— 本包不抢着铸一个。
+	ConversationID string `json:"conversationId"`
 	// ProjectID 可为 0(自由会话)。
 	ProjectID int64 `json:"projectId"`
 	// Cwd 是用户另选的工作目录("选择新目录"那条出口,spec「续跑」)。空 = 用磁盘
@@ -161,6 +170,13 @@ type CancelImportResponse struct {
 // ImportResponse 导入结果。
 type ImportResponse struct {
 	SessionID int64 `json:"sessionId"`
+	// ConversationID 是落成的那条会话的全局身份。AlreadyImported 为真时它指的是
+	// **库里那条**的身份,未必等于本次请求带来的号 —— 跨机调用方手上只有自己刚铸的
+	// 那个,拿不到这一格就没法把用户送到已有的会话上去。
+	ConversationID string `json:"conversationId"`
+	// ProviderSessionID / Title 是转录自己的事实,回显用。
+	ProviderSessionID string `json:"providerSessionId"`
+	Title             string `json:"title"`
 	// AlreadyImported 为真时 SessionID 指向库里早就存在的那条,本次一行都没写。
 	AlreadyImported bool `json:"alreadyImported"`
 	// ReadOnly 为真表示 cwd 已不存在,转录照导但没写 provider_session_id,

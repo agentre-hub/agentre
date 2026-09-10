@@ -77,28 +77,9 @@ func (h *SkillsHandlers) Catalog(ctx context.Context, p wire.SkillCatalogParams)
 	}
 
 	bt := agent_backend_entity.BackendType(p.BackendType)
-	d, ok := agentskill.DiscovererFor(bt)
-	if !ok {
-		return empty(wire.SkillDiscoveryUnsupported), nil
-	}
-
-	cliPath := strings.TrimSpace(p.CLIPath)
-	if cliPath == "" {
-		path, found, err := resolveCLIPathFunc(p.BackendType)
-		if err != nil || !found {
-			// CLI 不在这台机器上:装了什么包无从谈起,但这是「问不出来」而不是「没有」。
-			logger.Ctx(ctx).Warn("handlers.SkillsHandlers.Catalog: cli not resolved",
-				zap.String("backendType", p.BackendType), zap.Error(err))
-			return empty(wire.SkillDiscoveryUnavailable), nil
-		}
-		cliPath = path
-	}
-
-	installed, err := d.Discover(ctx, agentskill.DiscoverQuery{BackendType: bt, CLIPath: cliPath})
-	if err != nil {
-		logger.Ctx(ctx).Warn("handlers.SkillsHandlers.Catalog: discover failed",
-			zap.String("backendType", p.BackendType), zap.Error(err))
-		return empty(wire.SkillDiscoveryUnavailable), nil
+	installed, _, discovery := h.discoverInstalled(ctx, p.BackendType, p.CLIPath)
+	if discovery != wire.SkillDiscoveryOK {
+		return empty(discovery), nil
 	}
 
 	authorized := make([]agent_entity.AgentSkillItem, 0, len(p.Authorized))
@@ -120,4 +101,90 @@ func (h *SkillsHandlers) Catalog(ctx context.Context, p wire.SkillCatalogParams)
 		})
 	}
 	return wire.SkillCatalogResult{Packs: packs, Discovery: wire.SkillDiscoveryOK}, nil
+}
+
+// Commands 答 MethodSkillsCommands:这台机器上某一档执行目标此刻叫得动的 skill 名字。
+//
+// 它与 Catalog 的分工不是粒度而是**用途**:Catalog 答可配置的 plugin 包(组织架构页
+// 拿它画授权表),Commands 答输入框里打得出来的名字 —— 后者还含 CLI 自己解析的
+// user / project / system skill,那一半不是包、配不了,却恰恰是日常打得最多的。
+//
+// 合并规则不在这里,在 agentskill.BuildCommands:桌面端对本机档走同一个函数,两条路
+// 不会各自漂开(与 Catalog 共用 MergeCatalog 是同一个道理)。
+//
+// 三态判别与 Catalog 逐字相同,且**答不出时回 nil error**:输入框仍要能用,只是没有
+// 补全 —— 整块报错会把用户正在打的那句话一起打掉。
+func (h *SkillsHandlers) Commands(ctx context.Context, p wire.SkillCommandsParams) (wire.SkillCommandsResult, error) {
+	empty := func(discovery string) wire.SkillCommandsResult {
+		return wire.SkillCommandsResult{Commands: []wire.SkillCommand{}, Discovery: discovery}
+	}
+
+	bt := agent_backend_entity.BackendType(p.BackendType)
+	installed, cliPath, discovery := h.discoverInstalled(ctx, p.BackendType, p.CLIPath)
+	if discovery != wire.SkillDiscoveryOK {
+		return empty(discovery), nil
+	}
+
+	authorized := make([]agent_entity.AgentSkillItem, 0, len(p.Authorized))
+	for _, a := range p.Authorized {
+		authorized = append(authorized, agent_entity.AgentSkillItem{ID: a.ID, Enabled: a.Enabled})
+	}
+
+	commands, err := agentskill.BuildCommands(ctx, agentskill.CommandsQuery{
+		BackendType: bt,
+		CLIPath:     cliPath,
+		Cwd:         p.Cwd,
+		Installed:   installed,
+		Authorized:  authorized,
+	})
+	if err != nil {
+		// 原生那一半没问出来。半份清单比没有清单更糟:菜单里少掉的那些 skill 看起来
+		// 就像不存在,用户没有任何办法发现缺了什么。
+		logger.Ctx(ctx).Warn("handlers.SkillsHandlers.Commands: discover commands failed",
+			zap.String("backendType", p.BackendType), zap.Error(err))
+		return empty(wire.SkillDiscoveryUnavailable), nil
+	}
+
+	out := make([]wire.SkillCommand, 0, len(commands))
+	for _, c := range commands {
+		out = append(out, wire.SkillCommand{Name: c.Name, Description: c.Description})
+	}
+	return wire.SkillCommandsResult{Commands: out, Discovery: wire.SkillDiscoveryOK}, nil
+}
+
+// discoverInstalled 是 Catalog 与 Commands 共同的前半段:这台机器上装了哪些包。
+//
+// 回的 discovery 不是 OK 时,前两个返回值无意义 —— 调用方按自己的空壳回话。把这段
+// 抽出来是因为**三态的判法必须只有一份**:哪一步失败算「答不出」、哪一步算「不支持」,
+// 两个方法各写一遍迟早会漂开,而漂开的方向恰恰是最危险的那个(把问不出来当成没有)。
+func (h *SkillsHandlers) discoverInstalled(
+	ctx context.Context, backendType, requestedCLIPath string,
+) (packs []agentskill.SkillPack, cliPath, discovery string) {
+	bt := agent_backend_entity.BackendType(backendType)
+	d, ok := agentskill.DiscovererFor(bt)
+	if !ok {
+		return nil, "", wire.SkillDiscoveryUnsupported
+	}
+
+	// 调用方指名了就用那一个:同一台机器上可以装着好几个 CLI,「这一档用哪个」是
+	// 调用方的事实。没指名才由这台机器自己解析(调用方不知道对面的 claude 在哪)。
+	path := strings.TrimSpace(requestedCLIPath)
+	if path == "" {
+		resolved, found, err := resolveCLIPathFunc(backendType)
+		if err != nil || !found {
+			// CLI 不在这台机器上:装了什么包无从谈起,但这是「问不出来」而不是「没有」。
+			logger.Ctx(ctx).Warn("handlers.SkillsHandlers: cli not resolved",
+				zap.String("backendType", backendType), zap.Error(err))
+			return nil, "", wire.SkillDiscoveryUnavailable
+		}
+		path = resolved
+	}
+
+	installed, err := d.Discover(ctx, agentskill.DiscoverQuery{BackendType: bt, CLIPath: path})
+	if err != nil {
+		logger.Ctx(ctx).Warn("handlers.SkillsHandlers: discover failed",
+			zap.String("backendType", backendType), zap.Error(err))
+		return nil, "", wire.SkillDiscoveryUnavailable
+	}
+	return installed, path, wire.SkillDiscoveryOK
 }

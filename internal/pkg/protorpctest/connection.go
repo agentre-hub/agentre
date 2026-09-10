@@ -124,7 +124,9 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 		}
 		response := &agentrewire.SessionListResponse{}
 		for _, s := range out.Sessions {
-			response.Sessions = append(response.Sessions, &agentrewire.SessionSummary{ConversationId: s.ConversationID, PeerFingerprint: s.PeerFingerprint, AgentId: s.AgentID, Title: s.Title, AgentSyncId: s.AgentSyncID, ProviderSessionId: s.ProviderSessionID, Cwd: s.Cwd, ProjectSyncId: s.ProjectSyncID, BackendType: s.BackendType, LifecycleState: s.LifecycleState, WaitingForInput: s.WaitingForInput, LatestSeq: s.LatestSeq, LastMessageAt: s.LastMessageAt, ProviderKey: s.ProviderKey, ModelKey: s.ModelKey})
+			// 假件也走同一处转换。它此前是第五份手抄,而且已经漂了 —— 少一格
+			// ReasoningEffort:用它搭的测试因此对那个字段的回归天然免疫,绿得毫无意义。
+			response.Sessions = append(response.Sessions, protowire.SessionSummaryToProto(s))
 		}
 		return response, nil
 	})

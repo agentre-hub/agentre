@@ -1,8 +1,2 @@
-export {
-  listAvailable,
-  skillCommandPrefix,
-  skillCommandsFromCatalog,
-  slashCommands,
-  type SkillCommandSource,
-} from "./registry";
+export { desktopSlashCommands } from "./registry";
 export { useAgentSkillCommands } from "./use-agent-skill-commands";

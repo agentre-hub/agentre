@@ -517,7 +517,7 @@ func (s *recordingSessions) Find(_ context.Context, peer, session string) (*hand
 	return &row, nil
 }
 
-func (s *recordingSessions) List(_ context.Context, peer, _ string, offset, limit int) ([]handlers.SessionRecord, error) {
+func (s *recordingSessions) List(_ context.Context, peer string, _ handlers.SessionListFilter, offset, limit int) ([]handlers.SessionRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []handlers.SessionRecord
@@ -563,7 +563,7 @@ func (s *recordingSessions) ListCreatedSince(_ context.Context, createdFromMs in
 	return out, nil
 }
 
-func (s *recordingSessions) Count(_ context.Context, peer, _ string) (int64, error) {
+func (s *recordingSessions) Count(_ context.Context, peer string, _ handlers.SessionListFilter) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var n int64

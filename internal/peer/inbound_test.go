@@ -150,6 +150,13 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	require.NotNil(t, unauthenticatedCatalog.Error, "技能目录不能绕过账号鉴权")
 	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticatedCatalog.Error.Code)
 
+	unauthenticatedCommands := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`15`), Method: wire.MethodSkillsCommands,
+		Params: mustJSON(t, wire.SkillCommandsParams{BackendType: "claudecode"}),
+	})
+	require.NotNil(t, unauthenticatedCommands.Error, "命令清单同样不能绕过账号鉴权")
+	assert.Equal(t, rpcerror.ErrUnauthorized.Code, unauthenticatedCommands.Error.Code)
+
 	authenticated := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`2`), Method: "auth.account",
 		Params: mustJSON(t, auth.AccountParams{Credential: "same-account-device-jwt"}),
@@ -181,6 +188,25 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 	})
 	require.NotNil(t, missingCatalogParams.Error)
 	assert.Equal(t, rpcerror.ErrInvalidParams.Code, missingCatalogParams.Error.Code)
+
+	// 命令清单同理,而且这一条是**桌面端连桌面端**唯一能拿到对面 skill 的路:本机
+	// 发现器只看得见自己这台机器上的目录。它与 agentred 必须答同一个方法、同一个
+	// 形状,不然调用方得先猜对面是哪一种执行端。
+	commands := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`63`), Method: wire.MethodSkillsCommands,
+		Params: mustJSON(t, wire.SkillCommandsParams{BackendType: "claudecode", Cwd: "/tmp/project"}),
+	})
+	require.Nil(t, commands.Error, "桌面端必须认识 skills.commands,不能回 method-not-found")
+	var commandsResult wire.SkillCommandsResult
+	require.NoError(t, json.Unmarshal(commands.Result, &commandsResult))
+	assert.NotEmpty(t, commandsResult.Discovery, "空清单必须自带一个说明它为什么空的判别值")
+	assert.Empty(t, commandsResult.Commands)
+
+	missingCommandsParams := relayRequest(t, ws, "desktop-peer", relayTestFrame{
+		ID: json.RawMessage(`64`), Method: wire.MethodSkillsCommands,
+	})
+	require.NotNil(t, missingCommandsParams.Error)
+	assert.Equal(t, rpcerror.ErrInvalidParams.Code, missingCommandsParams.Error.Code)
 
 	// The desktop session adapter uses the established runtime.session.* wire
 	// family. The typed RPC request uses an explicit empty Protobuf message, while
@@ -592,6 +618,8 @@ func peerTestProtoMethod(t *testing.T, method string) (uint32, proto.Message, pr
 		return uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_DELETE), &agentrewire.SessionDeleteRequest{}, &agentrewire.SessionDeleteResponse{}
 	case wire.MethodSkillsCatalog:
 		return uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG), &agentrewire.SkillCatalogRequest{}, &agentrewire.SkillCatalogResponse{}
+	case wire.MethodSkillsCommands:
+		return uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS), &agentrewire.SkillCommandsRequest{}, &agentrewire.SkillCommandsResponse{}
 	case wire.MethodSetPermissionMode:
 		return uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE), &agentrewire.RuntimeSetPermissionModeRequest{}, &agentrewire.Empty{}
 	case wire.MethodSetModelTarget:

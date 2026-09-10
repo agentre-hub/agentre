@@ -36,7 +36,8 @@ export function loadMonaco(): Promise<MonacoNS> {
     await import("monaco-editor/basic-languages/monaco.contribution");
     const monaco = await import("monaco-editor/editor/editor.api");
     // json 不在 basic-languages 里（0.56 起移出），补一个纯词法的 JSON 语言。
-    const { registerJsonLanguage } = await import("./monaco-json");
+    // 语法住在共享包：两端的装载器补的是同一门语言，抄两份必然漂开。
+    const { registerJsonLanguage } = await import("@agentre-hub/agentre-ui");
     registerJsonLanguage(monaco);
     return monaco;
   })();

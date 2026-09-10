@@ -123,6 +123,24 @@ export const MethodSessionDelete = "runtime.session.delete";
 export const MethodSkillsCatalog = "skills.catalog";
 
 /**
+ * MethodSkillsCommands 列出**这台机器上**某一档执行目标此刻叫得动的 skill 命令。
+ *
+ * 它与 skills.catalog 是两件事,不是同一件事的两种粒度:catalog 答的是**可配置的
+ * plugin 包**(组织架构页拿它画那张授权表),commands 答的是**输入框里打得出来的
+ * 名字** —— 后者除了包里的 skill,还含 CLI 自己解析的 user / project / system
+ * skill(`~/.claude/skills`、`<cwd>/.claude/skills`)。那一半不是包、配不了、也不
+ * 该出现在授权表里,但它恰恰是日常打得最多的那一半。
+ *
+ * 少了这个方法,远端档的 skill 命令就只剩包里那一半:桌面端对远端档如此(它的
+ * 本机发现器看不到对面机器上的目录),浏览器控制台更是一条都列不出。
+ *
+ * 授权集同样由调用方带上,理由与 skills.catalog 逐字相同(组织架构库不在执行端)。
+ * Cwd 也由调用方带:项目级 skill 要靠它才解析得出,而「这一轮在哪个目录跑」是
+ * 会话的事实,执行端不该去猜。
+ */
+export const MethodSkillsCommands = "skills.commands";
+
+/**
  * MethodProjectSetLocalPath / MethodProjectClearLocalPath 配置**这台机器上**某个
  * 项目的本机路径（规格 agentre-server 2026-08-21「桌面端的项目路径也能从 web 配」）。
  *
@@ -201,9 +219,8 @@ export const ErrCodeSessionNotFound = -32014;
 export const ErrCodePeerExecutionUnavailable = -32015;
 
 /**
- * project.* 的三个码。段位刻意避开已经用掉的 -32030..-32035(remotefs)与
- * -32040..-32042(workspacefs):同一条连接上跑着好几个方法族,码段重叠会让
- * 客户端把别人的失败认成自己的。
+ * project.* 的三个码。段位由 pkg/wire/rpcerror 统一划,那里的守卫扫得到全部
+ * 方法族 —— 同一条连接上跑着好几个族,码段重叠会让客户端把别人的失败认成自己的。
  *
  * ErrCodeProjectNotSynced:这台机器上没有这个同步标识的项目。它与「写失败了」
  * **必须分得开**——项目可以先在 web 上建出来,那一刻目标机器可能还没拉到这一行,

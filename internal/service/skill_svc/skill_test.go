@@ -57,6 +57,23 @@ type fakeRemoteDisc struct {
 	gotDeviceID int64
 	gotBackend  string
 	packs       []agentskill.SkillPack
+
+	gotCommandDeviceID   int64
+	gotCommandBackend    string
+	gotCommandCwd        string
+	gotCommandAuthorized []agent_entity.AgentSkillItem
+	commands             []agentskill.SkillCommand
+}
+
+func (f *fakeRemoteDisc) ListSkillCommands(
+	_ context.Context, deviceID int64, backendType, cwd string,
+	authorized []agent_entity.AgentSkillItem,
+) ([]agentskill.SkillCommand, error) {
+	f.gotCommandDeviceID = deviceID
+	f.gotCommandBackend = backendType
+	f.gotCommandCwd = cwd
+	f.gotCommandAuthorized = authorized
+	return f.commands, nil
 }
 
 func (f *fakeRemoteDisc) ListSkills(_ context.Context, deviceID int64, backendType string) ([]agentskill.SkillPack, error) {
@@ -492,6 +509,106 @@ func TestListAgentSkillCommands(t *testing.T) {
 				{Name: "browser:browser"},
 				{Name: "shadcn", Description: "Compose shadcn UI"},
 			})
+		})
+	})
+}
+
+// TestListAgentSkillCommands_RemoteTargetAsksThatMachine 钉住远端档的命令从哪来。
+//
+// 此前这条路是**跛的**:插件包那一半经 skills.list 问对面拿到了,而 CLI 自己解析的
+// user / project / system skill 那一半被整段跳过 —— 本机发现器只看得见桌面端自己
+// 这台机器上的目录,拿它去答远端档等于答错人。于是远端档的输入框里,`/cago` 这类
+// 日常打得最多的 skill 一条都不出现,而界面上看不出少了东西。
+//
+// 现在整份清单由**那台机器**答(skills.commands):谁跑这一轮谁说得出自己有什么。
+// 授权仍由桌面端带过去 —— 组织架构库在这一侧。
+func TestListAgentSkillCommands_RemoteTargetAsksThatMachine(t *testing.T) {
+	Convey("Given an exec target on another machine", t, func() {
+		ctrl := gomock.NewController(t)
+		al := mock_skill_svc.NewMockAgentLookup(ctrl)
+		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
+		al.EXPECT().Find(gomock.Any(), int64(1)).
+			Return(&agent_entity.Agent{ID: 1, AgentBackendID: 9}, nil).AnyTimes()
+		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
+			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:that-box",
+		}, nil).AnyTimes()
+
+		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
+			{ID: 42, DaemonFingerprint: "sha256:that-box"},
+		}, nil).AnyTimes()
+		prevSvc := remote_device_svc.Default()
+		remote_device_svc.SetDefault(rds)
+		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
+
+		// 本机发现器**故意**摆一份不一样的东西:如果实现回头去问了它,断言会当场
+		// 抓住 —— 那正是此前那条跛腿的形状。
+		restorePacks := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode,
+			fakeDisc{[]agentskill.SkillPack{{ID: "only@here", Name: "onlyhere",
+				Skills: []string{"nope"}, Installed: true, GloballyEnabled: true}}})
+		defer restorePacks()
+		restoreCommands := agentskill.SwapCommandDiscovererForTest(agent_backend_entity.TypeClaudeCode,
+			fakeCommandDisc{[]agentskill.SkillCommand{{Name: "local-only"}}})
+		defer restoreCommands()
+
+		remote := &fakeRemoteDisc{commands: []agentskill.SkillCommand{
+			{Name: "superpowers:brainstorming", Description: "先想清楚"},
+			{Name: "cago", Description: "cago 框架"},
+		}}
+		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{
+			skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@official", Enabled: true}),
+		}}
+		s := newForTestRemote(al, bl, et, remote)
+
+		Convey("When commands are listed, Then that machine answers and the local discoverer is not consulted", func() {
+			catalog, err := s.ListAgentSkillCommands(context.Background(), 1, "/srv/project")
+			So(err, ShouldBeNil)
+			So(catalog.Commands, ShouldResemble, []SkillCommandDTO{
+				{Name: "superpowers:brainstorming", Description: "先想清楚"},
+				{Name: "cago", Description: "cago 框架"},
+			})
+
+			// 拨的是那台机器、带的是这一档的授权与这一轮的 cwd。
+			So(remote.gotCommandDeviceID, ShouldEqual, int64(42))
+			So(remote.gotCommandBackend, ShouldEqual, string(agent_backend_entity.TypeClaudeCode))
+			So(remote.gotCommandCwd, ShouldEqual, "/srv/project")
+			So(remote.gotCommandAuthorized, ShouldResemble, []agent_entity.AgentSkillItem{
+				{ID: "superpowers@official", Enabled: true},
+			})
+		})
+	})
+}
+
+// TestListAgentSkillCommands_RemoteTargetWithoutPairedDeviceIsEmpty 那台机器没在本机
+// 配对过就没有可拨的对象。回空清单(输入框照常能用,只是没有补全),不是错误 ——
+// 与 ListAgentSkillPacks 对同一情形的处置口径一致。
+func TestListAgentSkillCommands_RemoteTargetWithoutPairedDeviceIsEmpty(t *testing.T) {
+	Convey("Given a remote exec target whose machine is not paired here", t, func() {
+		ctrl := gomock.NewController(t)
+		al := mock_skill_svc.NewMockAgentLookup(ctrl)
+		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
+		al.EXPECT().Find(gomock.Any(), int64(1)).
+			Return(&agent_entity.Agent{ID: 1, AgentBackendID: 9}, nil).AnyTimes()
+		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
+			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:stranger",
+		}, nil).AnyTimes()
+
+		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
+		prevSvc := remote_device_svc.Default()
+		remote_device_svc.SetDefault(rds)
+		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
+
+		remote := &fakeRemoteDisc{commands: []agentskill.SkillCommand{{Name: "never"}}}
+		s := newForTestRemote(al, bl, &fakeExecTargets{}, remote)
+
+		Convey("When commands are listed, Then the result is empty and no dial is attempted", func() {
+			catalog, err := s.ListAgentSkillCommands(context.Background(), 1, "/srv/project")
+			So(err, ShouldBeNil)
+			So(catalog.Commands, ShouldBeEmpty)
+			So(remote.gotCommandDeviceID, ShouldEqual, int64(0))
 		})
 	})
 }

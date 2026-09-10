@@ -1,13 +1,9 @@
-package protobufadapter
+package wireinbound
 
 import (
 	"context"
 	"errors"
 
-	"github.com/agentre-hub/agentre/internal/daemon/handlers"
-	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
-	daemonimport "github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
-	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	runtimewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
@@ -16,16 +12,6 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
-
-type PeripheralDeps struct {
-	MCPProxy         func(context.Context, *agentrewire.MCPProxyRequest) (*agentrewire.MCPProxyResponse, error)
-	ProjectSetPath   func(context.Context, *agentrewire.ProjectSetLocalPathRequest) (*agentrewire.ProjectLocalPathResponse, error)
-	ProjectClearPath func(context.Context, *agentrewire.ProjectClearLocalPathRequest) (*agentrewire.ProjectLocalPathResponse, error)
-	Skills           *handlers.SkillsHandlers
-	RemoteFS         *remotefs.Handlers
-	WorkspaceFS      *workspacefs.Handlers
-	TranscriptImport *daemonimport.Handlers
-}
 
 func ConvertError(err error) error {
 	if err == nil {
@@ -40,7 +26,7 @@ func ConvertError(err error) error {
 
 func RegisterPeripheralMethods(registry *protorpc.Registry, deps PeripheralDeps) {
 	registerOptionalProtobufPeripheralMethods(registry, deps)
-	registerProtobufSkillsCatalog(registry, deps.Skills)
+	registerProtobufSkills(registry, deps.Skills)
 	registerProtobufRemoteFS(registry, deps.RemoteFS)
 	registerProtobufWorkspaceFS(registry, deps.WorkspaceFS)
 	registerProtobufTranscriptImport(registry, deps.TranscriptImport)
@@ -58,21 +44,54 @@ func registerOptionalProtobufPeripheralMethods(registry *protorpc.Registry, deps
 	}
 }
 
+// RequireAuthenticated 是这道闸门本身。它单独露出来,是因为会话族的闸门必须是**端口**
+// (两种执行端的拒绝语在线上不是同一句:agentred 答大写 "Unauthorized",桌面端答小写
+// "unauthorized"),而桌面端那一份用的正是这里这一句 —— 不该再抄一遍。
+func RequireAuthenticated(ctx context.Context) error {
+	conn := protorpc.ConnFromContext(ctx)
+	if conn == nil || !conn.Auth().Authenticated {
+		return &protorpc.Error{Code: -32001, Message: "unauthorized"}
+	}
+	return nil
+}
+
 func Authenticated[Req any, Resp any](handler func(context.Context, Req) (Resp, error)) func(context.Context, Req) (Resp, error) {
 	return func(ctx context.Context, request Req) (Resp, error) {
 		var zero Resp
-		conn := protorpc.ConnFromContext(ctx)
-		if conn == nil || !conn.Auth().Authenticated {
-			return zero, &protorpc.Error{Code: -32001, Message: "unauthorized"}
+		if err := RequireAuthenticated(ctx); err != nil {
+			return zero, err
 		}
 		return handler(ctx, request)
 	}
 }
 
-func registerProtobufSkillsCatalog(registry *protorpc.Registry, skillHandlers *handlers.SkillsHandlers) {
+// registerProtobufSkills 把 skills.* 两个方法一起挂上。
+//
+// 两种执行端共用这一处注册(agentred 经 daemon、桌面端经 peer),所以「浏览器 / 另一台
+// 桌面端连过来时对面认不认识这个方法」不取决于对面是哪一种 —— 调用方不必先猜。
+func registerProtobufSkills(registry *protorpc.Registry, skillHandlers SkillsPort) {
 	if skillHandlers == nil {
 		return
 	}
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS), func() *agentrewire.SkillCommandsRequest { return &agentrewire.SkillCommandsRequest{} }, Authenticated(func(ctx context.Context, request *agentrewire.SkillCommandsRequest) (*agentrewire.SkillCommandsResponse, error) {
+		if request.BackendType == "" {
+			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "backend type required"}
+		}
+		authorized := make([]runtimewire.SkillAuthorization, 0, len(request.Authorized))
+		for _, item := range request.Authorized {
+			authorized = append(authorized, runtimewire.SkillAuthorization{ID: item.GetId(), Enabled: item.GetEnabled()})
+		}
+		result, err := skillHandlers.Commands(ctx, runtimewire.SkillCommandsParams{
+			BackendType: request.GetBackendType(),
+			Authorized:  authorized,
+			CLIPath:     request.GetCliPath(),
+			Cwd:         request.GetCwd(),
+		})
+		if err != nil {
+			return nil, ConvertError(err)
+		}
+		return protowire.SkillCommandsResponseToProto(result), nil
+	}))
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG), func() *agentrewire.SkillCatalogRequest { return &agentrewire.SkillCatalogRequest{} }, Authenticated(func(ctx context.Context, request *agentrewire.SkillCatalogRequest) (*agentrewire.SkillCatalogResponse, error) {
 		if request.BackendType == "" {
 			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "backend type required"}
@@ -89,7 +108,7 @@ func registerProtobufSkillsCatalog(registry *protorpc.Registry, skillHandlers *h
 	}))
 }
 
-func registerProtobufRemoteFS(registry *protorpc.Registry, fs *remotefs.Handlers) {
+func registerProtobufRemoteFS(registry *protorpc.Registry, fs RemoteFSPort) {
 	if fs == nil {
 		return
 	}
@@ -123,7 +142,7 @@ func workspaceFSError(err error) error {
 	return ConvertError(err)
 }
 
-func registerProtobufWorkspaceFS(registry *protorpc.Registry, fs *workspacefs.Handlers) {
+func registerProtobufWorkspaceFS(registry *protorpc.Registry, fs WorkspaceFSPort) {
 	if fs == nil {
 		return
 	}
@@ -203,9 +222,17 @@ func transcriptImportError(err error) error {
 	return ConvertError(err)
 }
 
-// registerProtobufTranscriptImport 挂上 transcriptimport.* 方法族。三个方法都在
+// registerProtobufTranscriptImport 挂上 transcriptimport.* 方法族。四个方法都在
 // Authenticated 里:磁盘上的转录是会话正文,没配对的对端不该问得出来。
-func registerProtobufTranscriptImport(registry *protorpc.Registry, handlers *daemonimport.Handlers) {
+//
+// 端口缺席就整族不挂 —— 与另外三族同一条判据。这道闸门从前**只有这一族没有**:
+// 桌面端不带这个端口却照样注册了四个方法,handler 手里是个 nil,进去就在
+// h.sources() 上解空指针,对端拿到 -32603 internal(execute 那条更甚,它是这族唯一
+// 写库的)。缺席与"办不到"必须是同一句话:method not found。
+func registerProtobufTranscriptImport(registry *protorpc.Registry, handlers TranscriptImportPort) {
+	if handlers == nil {
+		return
+	}
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_SCAN), func() *agentrewire.TranscriptImportScanRequest {
 		return &agentrewire.TranscriptImportScanRequest{}
 	}, Authenticated(func(ctx context.Context, request *agentrewire.TranscriptImportScanRequest) (*agentrewire.TranscriptImportScanResponse, error) {

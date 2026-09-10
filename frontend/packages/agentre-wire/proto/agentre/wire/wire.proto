@@ -82,6 +82,7 @@ enum RpcMethod {
   RPC_METHOD_SET_SESSION_REASONING_EFFORT = 57;
   RPC_METHOD_AGENTRED_SELF_UPDATE = 58;
   RPC_METHOD_SESSION_COUNTS = 59;
+  RPC_METHOD_SKILLS_COMMANDS = 60;
 }
 
 message WireFrame {
@@ -800,6 +801,26 @@ message SkillAuthorization { string id = 1; bool enabled = 2; }
 message SkillCatalogRequest { string backend_type = 1; repeated SkillAuthorization authorized = 2; string cli_path = 3; }
 message SkillPackSummary { string id = 1; string name = 2; string description = 3; repeated string skills = 4; bool installed = 5; bool enabled = 6; bool globally_enabled = 7; }
 message SkillCatalogResponse { repeated SkillPackSummary packs = 1; string discovery = 2; }
+
+// SkillCommandsRequest asks a machine which skills this exec target can invoke
+// by name. Authorized travels with the request for the same reason as in
+// SkillCatalogRequest: the grant lives in the organization store, which the
+// answering machine does not have.
+message SkillCommandsRequest {
+  string backend_type = 1;
+  repeated SkillAuthorization authorized = 2;
+  string cli_path = 3;
+  // cwd resolves project-scoped skills (`<cwd>/.claude/skills`). Empty means
+  // the machine resolves user/system scope only.
+  string cwd = 4;
+}
+// SkillCommand is one invocable skill name without its input prefix; the caller
+// adds `$` for Codex and `/` for Claude Code / Pi.
+message SkillCommand { string name = 1; string description = 2; }
+// SkillCommandsResponse carries the same three-valued discovery as
+// SkillCatalogResponse: an empty commands list must never be read as "this
+// machine has no skills" unless discovery is ok.
+message SkillCommandsResponse { repeated SkillCommand commands = 1; string discovery = 2; }
 
 message RemoteFsListDirRequest { string path = 1; }
 message RemoteFsEntry { string name = 1; bool is_dir = 2; int64 size = 3; int64 mod_time = 4; bool symlink = 5; }

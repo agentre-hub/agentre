@@ -3,6 +3,7 @@ package chat_import_svc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/consts"
@@ -12,6 +13,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 )
 
@@ -24,11 +26,15 @@ import (
 //  3. 判重命中直接指回库里那条,连事务都不开(硬约束 4)。
 //  4. 其余写入全部收在一个事务里:整条落库,或者一条都不留。
 func (s *chatImportSvc) Import(ctx context.Context, req *ImportRequest, onProgress ProgressFunc) (*ImportResponse, error) {
-	if req == nil || req.AgentID <= 0 || strings.TrimSpace(req.Locator) == "" || strings.TrimSpace(req.Backend) == "" {
+	if req == nil || strings.TrimSpace(req.Locator) == "" || strings.TrimSpace(req.Backend) == "" {
 		return nil, errInvalid(ctx)
 	}
+	agentID, err := s.resolveAgentID(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	backend := agent_backend_entity.BackendType(req.Backend)
-	if err := s.assertAgentMatchesBackend(ctx, req.AgentID, backend); err != nil {
+	if err := s.assertAgentMatchesBackend(ctx, agentID, backend); err != nil {
 		return nil, err
 	}
 	// 取消的抓手在这一笔的 ctx 上:回放与落库全程跑在它下面,取消即整笔回滚
@@ -51,7 +57,10 @@ func (s *chatImportSvc) Import(ctx context.Context, req *ImportRequest, onProgre
 	if id, ok := existing[meta.ProviderSessionID]; ok {
 		logger.Ctx(ctx).Info("chat_import_svc.Import: already imported",
 			zap.String("backend", req.Backend), zap.Int64("sessionId", id))
-		return &ImportResponse{SessionID: id, AlreadyImported: true, Cwd: meta.Cwd}, nil
+		// 判重给出的只是本地主键,而应答要交回**库里那条**的全局身份与标题:跨机
+		// 调用方手上只有它自己刚铸的号,拿本地主键在它那边寻址不到任何东西。
+		// 只在这一档多读一次库,正常导入那条路一次都不多读。
+		return s.alreadyImported(ctx, id, meta), nil
 	}
 
 	// 工作目录:转录里记的那个是首选(spec「续跑」),用户另选了目录就用他选的
@@ -72,12 +81,14 @@ func (s *chatImportSvc) Import(ctx context.Context, req *ImportRequest, onProgre
 	resumable := meta.ProviderSessionID != "" && !adopted && s.dirExists(meta.Cwd)
 
 	sess := &chat_entity.Session{
-		AgentID:     req.AgentID,
-		ProjectID:   req.ProjectID,
-		Cwd:         cwd,
-		Title:       strings.TrimSpace(meta.Title),
-		AgentStatus: "idle",
-		Status:      consts.ACTIVE,
+		// 号是调用方铸的就原样收下,留空则由建行那一层铸(chat_repo.Session().Create)。
+		ConversationID: strings.TrimSpace(req.ConversationID),
+		AgentID:        agentID,
+		ProjectID:      req.ProjectID,
+		Cwd:            cwd,
+		Title:          strings.TrimSpace(meta.Title),
+		AgentStatus:    "idle",
+		Status:         consts.ACTIVE,
 		// 建档时间取转录起点:一条三个月前的会话不该因为今天导入就排到列表最前。
 		Createtime:    unixMilli(meta.StartedAt),
 		LastMessageAt: unixMilli(meta.EndedAt),
@@ -152,11 +163,66 @@ func (s *chatImportSvc) Import(ctx context.Context, req *ImportRequest, onProgre
 		zap.Bool("resumable", resumable),
 		zap.String("cwd", cwd))
 	return &ImportResponse{
-		SessionID:     sess.ID,
-		ReadOnly:      !resumable,
-		Cwd:           meta.Cwd,
-		ImportedTurns: imported,
+		SessionID:         sess.ID,
+		ConversationID:    sess.ConversationID,
+		ProviderSessionID: meta.ProviderSessionID,
+		Title:             sess.Title,
+		ReadOnly:          !resumable,
+		Cwd:               meta.Cwd,
+		ImportedTurns:     imported,
 	}, nil
+}
+
+// resolveAgentID 回答「这条会话该挂在本机哪个 Agent 名下」。
+//
+// 有账号级同步标识就以它为准:跨机送来的 AgentID 是发起端库里的自增主键,两台桌面端
+// 各自从 1 开始,采信它会静默落到本机那个碰巧同号的 Agent 上 —— 而这种错位要等用户
+// 接着聊时才发现,那时转录已经在库里了。
+func (s *chatImportSvc) resolveAgentID(ctx context.Context, req *ImportRequest) (int64, error) {
+	syncID := strings.TrimSpace(req.AgentSyncID)
+	if syncID == "" {
+		if req.AgentID <= 0 {
+			return 0, errInvalid(ctx)
+		}
+		return req.AgentID, nil
+	}
+	id, err := s.syncState.FindLocalID(ctx, syncwire.KindAgent, syncID)
+	if err != nil {
+		return 0, failed(ctx, code.OperationFailed, err)
+	}
+	if id <= 0 {
+		// 不静默退回 req.AgentID:那正是这条分支要防的撞号。
+		logger.Ctx(ctx).Warn("chat_import_svc.Import: agent sync id does not resolve on this device",
+			zap.String("agentSyncId", syncID))
+		return 0, fmt.Errorf("%w: %s", ErrAgentNotFound, syncID)
+	}
+	return id, nil
+}
+
+// alreadyImported 组装判重命中那一档的应答。库里那条读不出来时只退化标题与身份,
+// 不把整笔导入报成失败 —— 「这条早就导过了」本身仍然是正确答案。
+func (s *chatImportSvc) alreadyImported(ctx context.Context, id int64, meta transcriptimport.Meta) *ImportResponse {
+	out := &ImportResponse{
+		SessionID:         id,
+		ProviderSessionID: meta.ProviderSessionID,
+		Title:             strings.TrimSpace(meta.Title),
+		AlreadyImported:   true,
+		Cwd:               meta.Cwd,
+	}
+	row, err := s.sessions.Find(ctx, id)
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_import_svc.Import: cannot read the already-imported session row",
+			zap.Int64("sessionId", id), zap.Error(err))
+		return out
+	}
+	if row == nil {
+		return out
+	}
+	out.ConversationID = row.ConversationID
+	if row.Title != "" {
+		out.Title = row.Title
+	}
+	return out
 }
 
 // assertAgentMatchesBackend 把「这个 agent 接不接得住这条会话」问在写入之前。

@@ -1594,6 +1594,94 @@ export function encodeSkillCatalogResult(v: SkillCatalogResult): string {
   return encodeWire(v);
 }
 
+/**
+ * SkillCommandsParams 是 MethodSkillsCommands 的请求。
+ *
+ * 它比 SkillCatalogParams 多一格 Cwd:项目级 skill 只在那个目录下才解析得出来。
+ */
+export interface SkillCommandsParams extends WireObject {
+  /** BackendType 决定用哪个发现器,以及命令的输入前缀该是 $ 还是 /(前缀由调用方加)。 */
+  backendType: string;
+
+  /**
+   * Authorized 是这一档已经授权的包。它有两个用处:算出哪些包这一轮真的生效,
+   * 以及原样交给 CLI 让它按同一份表解析 plugin skill。
+   */
+  authorized?: SkillAuthorization[];
+
+  /** CLIPath 一般留空,由执行端自己解析本机 CLI 路径。 */
+  cliPath?: string;
+
+  /** Cwd 是这一轮的工作目录。留空 = 只解析 user / system 那两档作用域。 */
+  cwd?: string;
+}
+
+export function decodeSkillCommandsParams(v: unknown): SkillCommandsParams {
+  return decodeWire<SkillCommandsParams>(v, "SkillCommandsParams", (o) => {
+    o.backendType = reqStr(o.backendType, "SkillCommandsParams.backendType");
+    o.authorized = optArrOf(
+      o.authorized,
+      "SkillCommandsParams.authorized",
+      decodeSkillAuthorization,
+    );
+    o.cliPath = optStr(o.cliPath, "SkillCommandsParams.cliPath");
+    o.cwd = optStr(o.cwd, "SkillCommandsParams.cwd");
+  });
+}
+
+export function encodeSkillCommandsParams(v: SkillCommandsParams): string {
+  return encodeWire(v);
+}
+
+/**
+ * SkillCommand 是一条叫得动的 skill,名字**不带输入前缀** —— Codex 是 `$`,
+ * Claude Code / Pi 是 `/`,前缀属于输入法层面,由调用方按 backend 加。
+ */
+export interface SkillCommand extends WireObject {
+  name: string;
+
+  /** Description 是一句话说明,下拉里显示在名字右侧。可以为空。 */
+  description?: string;
+}
+
+export function decodeSkillCommand(v: unknown): SkillCommand {
+  return decodeWire<SkillCommand>(v, "SkillCommand", (o) => {
+    o.name = reqStr(o.name, "SkillCommand.name");
+    o.description = optStr(o.description, "SkillCommand.description");
+  });
+}
+
+export function encodeSkillCommand(v: SkillCommand): string {
+  return encodeWire(v);
+}
+
+/**
+ * SkillCommandsResult 是 MethodSkillsCommands 的应答。
+ *
+ * Discovery 与 SkillCatalogResult 同一套三态、同样**没有 omitempty**,理由也一样:
+ * 空清单必须自带理由,否则「这台机器此刻答不出」会被当成「这台机器没有 skill」——
+ * 而在输入框这个场景里,后者意味着菜单里空空如也,用户连问题出在哪都看不出来。
+ */
+export interface SkillCommandsResult extends WireObject {
+  commands: SkillCommand[];
+  discovery: string;
+}
+
+export function decodeSkillCommandsResult(v: unknown): SkillCommandsResult {
+  return decodeWire<SkillCommandsResult>(v, "SkillCommandsResult", (o) => {
+    o.commands = reqArrOf(
+      o.commands,
+      "SkillCommandsResult.commands",
+      decodeSkillCommand,
+    );
+    o.discovery = reqStr(o.discovery, "SkillCommandsResult.discovery");
+  });
+}
+
+export function encodeSkillCommandsResult(v: SkillCommandsResult): string {
+  return encodeWire(v);
+}
+
 /** ProjectSetLocalPathParams 指定某个项目在**这台机器上**的本机路径。 */
 export interface ProjectSetLocalPathParams extends WireObject {
   projectSyncId: string;

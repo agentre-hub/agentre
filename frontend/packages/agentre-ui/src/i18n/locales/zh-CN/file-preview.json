@@ -35,6 +35,8 @@
     "diffAria": "{{name}} 与 HEAD 的对比",
     "offline": "这台机器现在够不着",
     "notFound": "文件不存在",
-    "notFoundHint": "它可能已经被删除或改名"
+    "notFoundHint": "它可能已经被删除或改名",
+    "deviceOnline": "这台机器在线",
+    "deviceOffline": "这台机器离线"
   }
 }

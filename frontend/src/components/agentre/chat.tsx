@@ -28,6 +28,7 @@ import {
   type SlashExec,
   type UsageLevel,
   usageLevel,
+  useSlashCommands,
 } from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
 
@@ -71,7 +72,7 @@ import {
 } from "../../../wailsjs/go/app/App";
 import { chat_svc } from "../../../wailsjs/go/models";
 import { registerDropZone } from "@/lib/file-drop";
-import { listAvailable, useAgentSkillCommands } from "./slash-commands";
+import { desktopSlashCommands, useAgentSkillCommands } from "./slash-commands";
 
 type ToolCallProps = React.ComponentProps<"div"> & {
   path?: string;
@@ -522,17 +523,14 @@ const ChatComposer = React.forwardRef<
     () => buildMentionSources(agents, projects, devices),
     [agents, projects, devices],
   );
-  // 命令清单归宿主:静态注册表 + 该 agent 的技能命令,按 backend 过滤后交给包。
-  // 包内只负责触发检测 / 排序 / 渲染(见包的 chat-input/slash/types.ts)。
-  const skillCommands = useAgentSkillCommands(
-    agentId,
-    rest.backendType ?? "",
-    cwd,
-  );
-  const slashCommands = React.useMemo(
-    () => listAvailable(rest.backendType ?? "", skillCommands),
-    [rest.backendType, skillCommands],
-  );
+  // 清单在包里,宿主只递两样它独有的东西:问这台机器拿到的 Skill 目录,以及
+  // `/new`(开新标签页,浏览器那一端没有这回事)。
+  const skills = useAgentSkillCommands(agentId, rest.backendType ?? "", cwd);
+  const slashCommands = useSlashCommands({
+    backendType: rest.backendType,
+    skills,
+    extraCommands: desktopSlashCommands,
+  });
 
   return (
     <SharedChatComposer

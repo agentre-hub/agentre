@@ -9,6 +9,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
@@ -22,6 +23,18 @@ type SessionPort interface {
 	Create(ctx context.Context, s *chat_entity.Session) error
 	Update(ctx context.Context, s *chat_entity.Session) error
 	ListIDsByProviderSessions(ctx context.Context, providerSessionIDs []string) (map[string]int64, error)
+	// Find 只在判重命中那一档用得到:应答要交回**库里那条**会话的全局身份与标题,
+	// 而判重给出的只是本地主键。跨机调用方拿本地主键寻址不到任何东西。
+	Find(ctx context.Context, id int64) (*chat_entity.Session, error)
+}
+
+// SyncStatePort 把账号级同步标识翻回本机主键。
+//
+// 它存在的理由是**跨机认 Agent 不能用本地自增主键**:那个号是发起端库里的,两台
+// 桌面端各自从 1 开始,同号 Agent 会静默落到另一个身上(6425ba59 / 18b6b9c8 是同
+// 一个形状的两次事故)。syncstate_repo.SyncState() 满足它。
+type SyncStatePort interface {
+	FindLocalID(ctx context.Context, kind, syncID string) (int64, error)
 }
 
 // MessagePort is chat_import_svc's narrow view of transcript_repo.MessageRepo (ISP): only
@@ -61,6 +74,16 @@ func (sessionRepoDelegate) Update(ctx context.Context, s *chat_entity.Session) e
 
 func (sessionRepoDelegate) ListIDsByProviderSessions(ctx context.Context, providerSessionIDs []string) (map[string]int64, error) {
 	return chat_repo.Session().ListIDsByProviderSessions(ctx, providerSessionIDs)
+}
+
+func (sessionRepoDelegate) Find(ctx context.Context, id int64) (*chat_entity.Session, error) {
+	return chat_repo.Session().Find(ctx, id)
+}
+
+type syncStateRepoDelegate struct{}
+
+func (syncStateRepoDelegate) FindLocalID(ctx context.Context, kind, syncID string) (int64, error) {
+	return syncstate_repo.SyncState().FindLocalID(ctx, kind, syncID)
 }
 
 type messageRepoDelegate struct{}

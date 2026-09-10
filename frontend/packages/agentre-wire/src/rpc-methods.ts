@@ -209,6 +209,12 @@ export const rpcMethods = {
     pb.SkillCatalogRequestSchema,
     pb.SkillCatalogResponseSchema,
   ),
+  skillCommands: method(
+    "skillCommands",
+    60,
+    pb.SkillCommandsRequestSchema,
+    pb.SkillCommandsResponseSchema,
+  ),
   remoteFsListDir: method(
     "remoteFsListDir",
     29,

@@ -57,8 +57,9 @@ func NewSessionCatchupHandlers(deps SessionCatchupDeps) *SessionCatchupHandlers 
 // List 返回这台 daemon 上的会话。调用方自己的对端永远在范围内;daemon 已登录且
 // 调用方账号等于 daemon 账号时走 ListAll 把全部对端的会话一并列出(账号可见性)。
 //
-// keyword 非空时按标题的大小写不敏感子串收窄,原样下推给存储。它是**收窄**而不是
-// 另一条查询:对端限定与账号可见性的判据一个字不变。
+// keyword 非空时按标题的大小写不敏感子串收窄,conversationIDs 非空时收窄到点名的
+// 那几条对话,两者都原样下推给存储。它们是**收窄**而不是另一条查询:对端限定与账号
+// 可见性的判据一个字不变,两支都收同一份条件。
 //
 // 每条会话的「最新 seq」取自通知日志的 MAX(seq) —— 唯一真相源。会话一条通知都还没
 // 发出时报 0。「是否正在等待输入」现算,见 waitingForInput。标题 / Agent 同步标识 /
@@ -66,7 +67,6 @@ func NewSessionCatchupHandlers(deps SessionCatchupDeps) *SessionCatchupHandlers 
 func (h *SessionCatchupHandlers) List(ctx context.Context, params wire.SessionListParams) (wire.SessionListResult, error) {
 	peer := peerFingerprint(ctx)
 	accountWide := hasLoggedInAccount(ctx, h.deps.LoggedInAccountID)
-	keyword := params.Keyword
 	limit := wire.ClampSessionListLimit(params.Limit)
 	offset, err := wire.DecodeSessionListCursor(params.Cursor)
 	if err != nil {
@@ -74,26 +74,34 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, params wire.SessionLi
 		// 在它那边表现为「会话被复制了」。
 		return wire.SessionListResult{}, rpcerror.ErrInvalidParams
 	}
+	if len(params.ConversationIDs) > wire.SessionListMaxIDs {
+		// 报错而不是截断:截断少给的那条,在调用方那里读起来是「这条对话不在这台机器
+		// 上了」—— 它会据此把一条还活着的会话当成已消失。分批是调用方的事,名单在它手上。
+		return wire.SessionListResult{}, rpcerror.ErrInvalidParams
+	}
+	// 同一份条件喂给清单与它的 COUNT:两者收的必须一个字不差,否则「查看全部 N」
+	// 下面挂着的是另一批行。
+	filter := SessionListFilter{Keyword: params.Keyword, ConversationIDs: params.ConversationIDs}
 	var (
 		rows  []SessionRecord
 		total int64
 	)
 	if accountWide {
 		allSessions, ok := h.deps.Sessions.(interface {
-			ListAll(ctx context.Context, keyword string, offset, limit int) ([]SessionRecord, error)
-			CountAll(ctx context.Context, keyword string) (int64, error)
+			ListAll(ctx context.Context, filter SessionListFilter, offset, limit int) ([]SessionRecord, error)
+			CountAll(ctx context.Context, filter SessionListFilter) (int64, error)
 		})
 		if !ok {
 			return wire.SessionListResult{}, fmt.Errorf("list all sessions: account visibility is not wired")
 		}
-		rows, err = allSessions.ListAll(ctx, keyword, offset, limit)
+		rows, err = allSessions.ListAll(ctx, filter, offset, limit)
 		if err == nil && limit > 0 {
-			total, err = allSessions.CountAll(ctx, keyword)
+			total, err = allSessions.CountAll(ctx, filter)
 		}
 	} else {
-		rows, err = h.deps.Sessions.List(ctx, peer, keyword, offset, limit)
+		rows, err = h.deps.Sessions.List(ctx, peer, filter, offset, limit)
 		if err == nil && limit > 0 {
-			total, err = h.deps.Sessions.Count(ctx, peer, keyword)
+			total, err = h.deps.Sessions.Count(ctx, peer, filter)
 		}
 	}
 	if err != nil {
@@ -199,18 +207,18 @@ func (h *SessionCatchupHandlers) Counts(ctx context.Context) (wire.SessionCounts
 	)
 	if accountWide {
 		wide, ok := h.deps.Sessions.(interface {
-			CountAll(ctx context.Context, keyword string) (int64, error)
+			CountAll(ctx context.Context, filter SessionListFilter) (int64, error)
 			ListAllByLifecycle(ctx context.Context, state string, limit int) ([]SessionRecord, error)
 		})
 		if !ok {
 			return wire.SessionCountsResult{}, fmt.Errorf("count all sessions: account visibility is not wired")
 		}
-		out.Total, err = wide.CountAll(ctx, "")
+		out.Total, err = wide.CountAll(ctx, SessionListFilter{})
 		if err == nil {
 			running, err = wide.ListAllByLifecycle(ctx, wire.SessionLifecycleRunning, runningCountCeiling)
 		}
 	} else {
-		out.Total, err = h.deps.Sessions.Count(ctx, peer, "")
+		out.Total, err = h.deps.Sessions.Count(ctx, peer, SessionListFilter{})
 		if err == nil {
 			running, err = h.deps.Sessions.ListByLifecycle(ctx, peer, wire.SessionLifecycleRunning, runningCountCeiling)
 		}

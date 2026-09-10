@@ -13,14 +13,13 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/notifier"
-	"github.com/agentre-hub/agentre/internal/daemon/protobufadapter"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
@@ -325,133 +324,6 @@ func (d *Daemon) registerProtobufMethods() {
 			return response, nil
 		})
 
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
-		func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} },
-		func(ctx context.Context, request *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			result, err := d.catchup.List(ctx, remotewire.SessionListParams{
-				Keyword: request.GetKeyword(),
-				Cursor:  request.GetCursor(),
-				Limit:   int(request.GetLimit()),
-			})
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			response := &agentrewire.SessionListResponse{Cursor: result.Cursor, HasMore: result.HasMore, Total: result.Total}
-			for _, session := range result.Sessions {
-				response.Sessions = append(response.Sessions, &agentrewire.SessionSummary{ConversationId: session.ConversationID, PeerFingerprint: session.PeerFingerprint, AgentId: session.AgentID, Title: session.Title, AgentSyncId: session.AgentSyncID, ProviderSessionId: session.ProviderSessionID, Cwd: session.Cwd, ProjectSyncId: session.ProjectSyncID, BackendType: session.BackendType, LifecycleState: session.LifecycleState, WaitingForInput: session.WaitingForInput, LatestSeq: session.LatestSeq, LastMessageAt: session.LastMessageAt, ProviderKey: session.ProviderKey, ModelKey: session.ModelKey, ReasoningEffort: session.ReasoningEffort})
-			}
-			return response, nil
-		})
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_COUNTS),
-		func() *agentrewire.SessionCountsRequest { return &agentrewire.SessionCountsRequest{} },
-		func(ctx context.Context, _ *agentrewire.SessionCountsRequest) (*agentrewire.SessionCountsResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			counts, err := d.catchup.Counts(ctx)
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			return &agentrewire.SessionCountsResponse{
-				Total: counts.Total, Running: counts.Running, Waiting: counts.Waiting,
-			}, nil
-		})
-	// 活跃统计的纯计数上报:回包里只有天、维度和一个计数,没有标题、路径与内容。
-	// 服务端像拉 session.list 一样拉它;不带 since_day 的一次调用就是「回填」。
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_ACTIVITY_ROLLUP),
-		func() *agentrewire.ActivityRollupRequest { return &agentrewire.ActivityRollupRequest{} },
-		func(ctx context.Context, req *agentrewire.ActivityRollupRequest) (*agentrewire.ActivityRollupResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			buckets, err := d.activity.ActivityRollup(ctx, req.GetSinceDay(), req.GetTimeZone())
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			response := &agentrewire.ActivityRollupResponse{Buckets: make([]*agentrewire.ActivityDailyBucket, 0, len(buckets))}
-			for _, bucket := range buckets {
-				response.Buckets = append(response.Buckets, &agentrewire.ActivityDailyBucket{
-					Day: bucket.Day, AgentSyncId: bucket.AgentSyncID, BackendType: bucket.BackendType,
-					ProviderKey: bucket.ProviderKey, ModelKey: bucket.ModelKey,
-					ProjectSyncId: bucket.ProjectSyncID, SessionCount: bucket.SessionCount,
-				})
-			}
-			return response, nil
-		})
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL),
-		func() *agentrewire.SessionPullRequest { return &agentrewire.SessionPullRequest{} },
-		func(ctx context.Context, request *agentrewire.SessionPullRequest) (*agentrewire.SessionPullResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			result, err := d.catchup.Pull(ctx, remotewire.SessionPullParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint, Cursor: request.Cursor, Limit: int(request.Limit)})
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			response := &agentrewire.SessionPullResponse{Cursor: result.Cursor, HasMore: result.HasMore, OldestSeq: result.OldestSeq}
-			for _, entry := range result.Notifications {
-				journaled, err := protobufJournaledNotification(entry)
-				if err != nil {
-					return nil, protobufError(err)
-				}
-				response.Notifications = append(response.Notifications, journaled)
-			}
-			return response, nil
-		})
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PENDING_WAITERS),
-		func() *agentrewire.SessionPendingWaitersRequest { return &agentrewire.SessionPendingWaitersRequest{} },
-		func(ctx context.Context, request *agentrewire.SessionPendingWaitersRequest) (*agentrewire.SessionPendingWaitersResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			result, err := d.catchup.PendingWaiters(ctx, remotewire.SessionPendingWaitersParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint})
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			return protowire.PendingWaitersResponseToProto(result), nil
-		})
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_DELETE),
-		func() *agentrewire.SessionDeleteRequest { return &agentrewire.SessionDeleteRequest{} },
-		func(ctx context.Context, request *agentrewire.SessionDeleteRequest) (*agentrewire.SessionDeleteResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			result, err := d.sessionDelete.Delete(ctx, remotewire.SessionDeleteParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint})
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			return &agentrewire.SessionDeleteResponse{Deleted: result.Deleted}, nil
-		})
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SET_MODEL_TARGET),
-		func() *agentrewire.SetModelTargetRequest { return &agentrewire.SetModelTargetRequest{} },
-		func(ctx context.Context, request *agentrewire.SetModelTargetRequest) (*agentrewire.SetModelTargetResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			_, err := d.sessionModelTarget.SetModelTarget(ctx, remotewire.SetModelTargetParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint, ProviderKey: request.ProviderKey, ModelKey: request.ModelKey})
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			return &agentrewire.SetModelTargetResponse{}, nil
-		})
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT),
-		func() *agentrewire.SetSessionReasoningEffortRequest {
-			return &agentrewire.SetSessionReasoningEffortRequest{}
-		},
-		func(ctx context.Context, request *agentrewire.SetSessionReasoningEffortRequest) (*agentrewire.SetSessionReasoningEffortResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			_, err := d.sessionReasoningEffort.SetReasoningEffort(ctx, remotewire.SetSessionReasoningEffortParams{ConversationID: request.ConversationId, PeerFingerprint: request.PeerFingerprint, ReasoningEffort: request.ReasoningEffort})
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			return &agentrewire.SetSessionReasoningEffortResponse{}, nil
-		})
-
 	selfUpdateHandlers := handlers.NewSelfUpdateHandlers(handlers.SelfUpdateDeps{
 		ActiveTurns: d.sessionStore,
 		Resolve:     handlers.DefaultSelfUpdateResolve,
@@ -471,7 +343,13 @@ func (d *Daemon) registerProtobufMethods() {
 			return protobufAgentredSelfUpdateResponse(&result), nil
 		})
 
-	protobufadapter.RegisterPeripheralMethods(d.protobufRegistry, protobufadapter.PeripheralDeps{
+	// 会话族的线形状收在 internal/pkg/wireinbound,两种执行端共用同一份。这里挂的是
+	// **不依赖某一条连接**的那一半(清单 / 统计 / 补齐 / 改档);runtime 族与 attach 要
+	// 认领这条连接、要按连接持有 runtime handler,挂在连接级 registry 上
+	// (见 protobuf_runtime.go 的 connSessionPorts)。
+	wireinbound.RegisterSessionMethods(d.protobufRegistry, d.daemonSessionPorts())
+
+	wireinbound.RegisterPeripheralMethods(d.protobufRegistry, wireinbound.PeripheralDeps{
 		Skills:      handlers.NewSkillsHandlers(),
 		RemoteFS:    remotefs.NewHandlers(remotefs.Options{}),
 		WorkspaceFS: workspacefs.NewHandlers(workspacefs.Options{}),
@@ -568,22 +446,31 @@ func timePointerMillis(value *time.Time) *int64 {
 	return &millis
 }
 
-// protobufJournaledNotification 把补齐交出的一行投影到线上的载体。
+// daemonSessionPorts 是会话族里**不依赖某一条连接**的那一半端口。
 //
-// 单独一个函数而不是留在注册闭包里,是因为这一跳有三样东西必须一起对:seq 盖进载荷
-// (客户端按 method 解出的帧里没有它)、seq 留在载体上,以及**发生时刻**原样转交。
-// 时刻是最容易在这类逐字段搬运里被漏掉的一样,而漏掉之后没有任何东西会报错 ——
-// 下游只是安静地少一列,要到浏览器控制台的转录上才看得出来。
-func protobufJournaledNotification(entry remotewire.JournaledNotification) (*agentrewire.JournaledNotification, error) {
-	notification, err := protowire.WireNotificationToProto(entry.Method, entry.Params)
-	if err != nil {
-		return nil, err
+// 留在这里的只有 agentred 自己的事:账号可见性与归属判定住在各个 handler 里
+// (ResolveSessionPeer + LoggedInAccountID),线形状本身住在 wireinbound。
+//
+// Auth / Error 是端口而不是共用的一句话:agentred 的拒绝语是 rpcerror.ErrUnauthorized
+// (大写 U),桌面端答小写的 "unauthorized";错误映射这一侧认 *rpcerror.Error,桌面端
+// 还多认一种会话哨兵。两者都在线上,统一掉就是一次没人点头的协议改动。
+func (d *Daemon) daemonSessionPorts() wireinbound.SessionPorts {
+	return wireinbound.SessionPorts{
+		Auth:           requireProtobufAuth,
+		Error:          protobufError,
+		List:           d.catchup.List,
+		Counts:         d.catchup.Counts,
+		ActivityRollup: d.activity.ActivityRollup,
+		Pull:           d.catchup.Pull,
+		PendingWaiters: d.catchup.PendingWaiters,
+		Delete:         d.sessionDelete.Delete,
+		SetModelTarget: func(ctx context.Context, params remotewire.SetModelTargetParams) error {
+			_, err := d.sessionModelTarget.SetModelTarget(ctx, params)
+			return err
+		},
+		SetReasoningEffort: func(ctx context.Context, params remotewire.SetSessionReasoningEffortParams) error {
+			_, err := d.sessionReasoningEffort.SetReasoningEffort(ctx, params)
+			return err
+		},
 	}
-	protowire.SetNotificationSeq(notification, entry.Seq)
-	return &agentrewire.JournaledNotification{
-		Seq:     entry.Seq,
-		Payload: notification,
-		// 报不出时刻的对端交出 0,这里照样转交 0:「不知道」不能在中途被补成当下。
-		Createtime: entry.Createtime,
-	}, nil
 }

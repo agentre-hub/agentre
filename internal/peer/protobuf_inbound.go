@@ -8,12 +8,11 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protobufadapter"
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -22,8 +21,10 @@ import (
 )
 
 type ProtobufInboundDeps struct {
-	Peripheral   protobufadapter.PeripheralDeps
-	Capabilities func(context.Context, string) (*agentrewire.RuntimeCapabilitiesResponse, error)
+	Peripheral wireinbound.PeripheralDeps
+	// Capabilities 交出这台机器上某个 backend 的能力矩阵。它交的是**领域值**而不是
+	// 线上的应答:折成线格式那一步与 agentred 逐字相同,已经收进 wireinbound。
+	Capabilities func(context.Context, remotewire.CapabilitiesParams) (remotewire.CapabilitiesResult, error)
 	ListSessions func(ctx context.Context, params remotewire.SessionListParams) (*remotewire.SessionListResult, error)
 	// CountSessions 交出三个数(一共 / 在跑 / 在等你)。它与 ListSessions 分开,是因为
 	// 调用方(设备卡片)要的从来不是清单 —— 拿清单去数,就得先把整台机器搬过线。
@@ -83,7 +84,7 @@ func protobufPeerError(err error) error {
 	}
 	var rpcErr *rpcerror.Error
 	if errors.As(err, &rpcErr) {
-		return protobufadapter.ConvertError(rpcErr)
+		return wireinbound.ConvertError(rpcErr)
 	}
 	return &protorpc.Error{Code: protorpc.CodeInternal, Message: err.Error()}
 }
@@ -131,223 +132,152 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 				ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported,
 			}, nil
 		})
-	protobufadapter.RegisterPeripheralMethods(registry, deps.Peripheral)
-	if deps.Capabilities != nil {
-		protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES), func() *agentrewire.RuntimeCapabilitiesRequest { return &agentrewire.RuntimeCapabilitiesRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, request *agentrewire.RuntimeCapabilitiesRequest) (*agentrewire.RuntimeCapabilitiesResponse, error) {
-			return deps.Capabilities(ctx, request.BackendType)
-		}))
-	}
-	registerPeerSessionMethods(registry, deps)
+	wireinbound.RegisterPeripheralMethods(registry, deps.Peripheral)
+	wireinbound.RegisterSessionMethods(registry, peerSessionPorts(deps))
 	return registry
 }
 
-func registerPeerSessionMethods(registry *protorpc.Registry, deps ProtobufInboundDeps) {
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PENDING_WAITERS), func() *agentrewire.SessionPendingWaitersRequest { return &agentrewire.SessionPendingWaitersRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SessionPendingWaitersRequest) (*agentrewire.SessionPendingWaitersResponse, error) {
-		if deps.PendingWaiters == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "pending waiters unavailable"}
-		}
-		value, err := deps.PendingWaiters(ctx, remotewire.SessionPendingWaitersParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint})
-		if err != nil {
-			return nil, protobufPeerError(err)
-		}
-		return protowire.PendingWaitersResponseToProto(value), nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_DELETE), func() *agentrewire.SessionDeleteRequest { return &agentrewire.SessionDeleteRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SessionDeleteRequest) (*agentrewire.SessionDeleteResponse, error) {
-		if err := conversationid.Validate(req.ConversationId); err != nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
-		}
-		if deps.DeleteSession == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "delete unavailable"}
-		}
-		if err := deps.DeleteSession(ctx, req.ConversationId, req.PeerFingerprint); err != nil {
-			return nil, protobufPeerError(err)
-		}
-		return &agentrewire.SessionDeleteResponse{Deleted: true}, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SET_MODEL_TARGET), func() *agentrewire.SetModelTargetRequest { return &agentrewire.SetModelTargetRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SetModelTargetRequest) (*agentrewire.SetModelTargetResponse, error) {
-		if deps.SetModelTarget == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "model target unavailable"}
-		}
-		if err := deps.SetModelTarget(ctx, req.ConversationId, req.ProviderKey, req.ModelKey); err != nil {
-			return nil, protobufPeerError(err)
-		}
-		return &agentrewire.SetModelTargetResponse{}, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT), func() *agentrewire.SetSessionReasoningEffortRequest {
-		return &agentrewire.SetSessionReasoningEffortRequest{}
-	}, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SetSessionReasoningEffortRequest) (*agentrewire.SetSessionReasoningEffortResponse, error) {
-		if deps.SetReasoningEffort == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "reasoning effort unavailable"}
-		}
-		if err := deps.SetReasoningEffort(ctx, req.ConversationId, req.ReasoningEffort); err != nil {
-			return nil, protobufPeerError(err)
-		}
-		return &agentrewire.SetSessionReasoningEffortResponse{}, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE), func() *agentrewire.RuntimeSetPermissionModeRequest {
-		return &agentrewire.RuntimeSetPermissionModeRequest{}
-	}, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeSetPermissionModeRequest) (*agentrewire.Empty, error) {
-		if deps.SetPermissionMode == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "permission mode unavailable"}
-		}
-		if err := deps.SetPermissionMode(ctx, req.ConversationId, req.Mode); err != nil {
-			return nil, protobufPeerError(err)
-		}
-		return &agentrewire.Empty{}, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST), func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
-		if deps.ListSessions == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session list unavailable"}
-		}
-		value, err := deps.ListSessions(ctx, remotewire.SessionListParams{
-			Keyword:         req.GetKeyword(),
-			Cursor:          req.GetCursor(),
-			Limit:           int(req.GetLimit()),
-			ConversationIDs: req.GetConversationIds(),
-		})
-		if err != nil {
-			return nil, protobufPeerError(err)
-		}
-		out := &agentrewire.SessionListResponse{Cursor: value.Cursor, HasMore: value.HasMore, Total: value.Total}
-		for _, s := range value.Sessions {
-			out.Sessions = append(out.Sessions, &agentrewire.SessionSummary{ConversationId: s.ConversationID, PeerFingerprint: s.PeerFingerprint, AgentId: s.AgentID, Title: s.Title, AgentSyncId: s.AgentSyncID, ProviderSessionId: s.ProviderSessionID, Cwd: s.Cwd, ProjectSyncId: s.ProjectSyncID, BackendType: s.BackendType, LifecycleState: s.LifecycleState, WaitingForInput: s.WaitingForInput, LatestSeq: s.LatestSeq, LastMessageAt: s.LastMessageAt, ProviderKey: s.ProviderKey, ModelKey: s.ModelKey, ReasoningEffort: s.ReasoningEffort})
-		}
-		return out, nil
-	}))
-	// 会话计数,与 agentred 同一个 RPC:服务端不必分辨对面是哪一种端。
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_COUNTS), func() *agentrewire.SessionCountsRequest { return &agentrewire.SessionCountsRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, _ *agentrewire.SessionCountsRequest) (*agentrewire.SessionCountsResponse, error) {
-		if deps.CountSessions == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session counts unavailable"}
-		}
-		value, err := deps.CountSessions(ctx)
-		if err != nil {
-			return nil, protobufPeerError(err)
-		}
-		return &agentrewire.SessionCountsResponse{Total: value.Total, Running: value.Running, Waiting: value.Waiting}, nil
-	}))
-	// 活跃统计的纯计数上报,与 agentred 同一个 RPC:服务端不必分辨对面是哪一种端。
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_ACTIVITY_ROLLUP), func() *agentrewire.ActivityRollupRequest { return &agentrewire.ActivityRollupRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.ActivityRollupRequest) (*agentrewire.ActivityRollupResponse, error) {
-		if deps.ActivityRollup == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "activity rollup unavailable"}
-		}
-		buckets, err := deps.ActivityRollup(ctx, req.GetSinceDay(), req.GetTimeZone())
-		if err != nil {
-			return nil, protobufPeerError(err)
-		}
-		out := &agentrewire.ActivityRollupResponse{Buckets: make([]*agentrewire.ActivityDailyBucket, 0, len(buckets))}
-		for _, b := range buckets {
-			out.Buckets = append(out.Buckets, &agentrewire.ActivityDailyBucket{Day: b.Day, AgentSyncId: b.AgentSyncID, BackendType: b.BackendType, ProviderKey: b.ProviderKey, ModelKey: b.ModelKey, ProjectSyncId: b.ProjectSyncID, SessionCount: b.SessionCount})
-		}
-		return out, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), func() *agentrewire.SessionAttachRequest { return &agentrewire.SessionAttachRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error) {
-		if err := conversationid.Validate(req.ConversationId); err != nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
-		}
-		conn := protorpc.ConnFromContext(ctx)
-		if deps.AttachSession == nil || conn == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session attach unavailable"}
-		}
-		v, err := deps.AttachSession(ctx, remotewire.SessionAttachParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint}, protobufPeerSubscriber{conn})
-		if err != nil {
-			return nil, protobufPeerError(err)
-		}
-		return &agentrewire.SessionAttachResponse{ConversationId: v.ConversationID, BackendType: v.BackendType, LifecycleState: v.LifecycleState, LatestSeq: v.LatestSeq}, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), func() *agentrewire.SessionPullRequest { return &agentrewire.SessionPullRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.SessionPullRequest) (*agentrewire.SessionPullResponse, error) {
-		conn := protorpc.ConnFromContext(ctx)
-		if deps.PullSession == nil || conn == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session pull unavailable"}
-		}
-		v, err := deps.PullSession(ctx, remotewire.SessionPullParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, Cursor: req.Cursor, Limit: int(req.Limit)}, protobufPeerSubscriber{conn})
-		if err != nil {
-			return nil, protobufPeerError(err)
-		}
-		out := &agentrewire.SessionPullResponse{Cursor: v.Cursor, HasMore: v.HasMore, OldestSeq: v.OldestSeq}
-		for _, e := range v.Notifications {
-			notification, x := protowire.WireNotificationToProto(e.Method, e.Params)
-			if x != nil {
-				return nil, protobufPeerError(x)
+// peerSessionPorts 把桌面端的这一份依赖装配成会话族的端口。
+//
+// 这里只剩**端口实现**:归属校验(requireOwnOrigin 在 composition 那一层)、桌面端
+// 独有的对话 id 前置校验、以及把实时流推回这条连接的订阅者。线形状本身(解请求 →
+// 编应答)住在 internal/pkg/wireinbound,两种执行端共用同一份。
+//
+// 某一格的依赖缺席时对应端口留 nil,那个方法于是**不注册** —— 调用方收到
+// method not found,而不是一个「本机没装这个能力」的 -32603。协议里「这台机器办不到」
+// 只有前一种说法,调用方据它换一台机器。
+func peerSessionPorts(deps ProtobufInboundDeps) wireinbound.SessionPorts {
+	ports := wireinbound.SessionPorts{
+		Auth:  wireinbound.RequireAuthenticated,
+		Error: protobufPeerError,
+		// 桌面端把「请求体解不开」并进了同一个映射,因而答 -32603 internal;
+		// agentred 那一侧答 -32602 invalid params。差异既存,这里如实保留。
+		DecodeError:    protobufPeerError,
+		Capabilities:   deps.Capabilities,
+		PendingWaiters: deps.PendingWaiters,
+		ActivityRollup: deps.ActivityRollup,
+	}
+	if deps.ListSessions != nil {
+		ports.List = func(ctx context.Context, params remotewire.SessionListParams) (remotewire.SessionListResult, error) {
+			value, err := deps.ListSessions(ctx, params)
+			if err != nil {
+				return remotewire.SessionListResult{}, err
 			}
-			protowire.SetNotificationSeq(notification, e.Seq)
-			out.Notifications = append(out.Notifications, &agentrewire.JournaledNotification{Seq: e.Seq, Payload: notification, Createtime: e.Createtime})
+			return *value, nil
 		}
-		return out, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN), func() *agentrewire.RuntimeRunRequest { return &agentrewire.RuntimeRunRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeRunRequest) (*agentrewire.RuntimeRunResponse, error) {
-		p, err := protowire.RunRequestFromProto(req)
-		if err != nil {
-			return nil, protobufPeerError(err)
+	}
+	if deps.CountSessions != nil {
+		ports.Counts = func(ctx context.Context) (remotewire.SessionCountsResult, error) {
+			value, err := deps.CountSessions(ctx)
+			if err != nil {
+				return remotewire.SessionCountsResult{}, err
+			}
+			return *value, nil
 		}
-		if deps.RunSession == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "run unavailable"}
+	}
+	if deps.AttachSession != nil {
+		ports.Attach = func(ctx context.Context, params remotewire.SessionAttachParams) (remotewire.SessionAttachResult, error) {
+			if err := conversationid.Validate(params.ConversationID); err != nil {
+				return remotewire.SessionAttachResult{}, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
+			}
+			conn := protorpc.ConnFromContext(ctx)
+			if conn == nil {
+				return remotewire.SessionAttachResult{}, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session attach unavailable"}
+			}
+			return deps.AttachSession(ctx, params, protobufPeerSubscriber{conn})
 		}
-		sent, err := deps.RunSession(ctx, p, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint, Name: p.SourceDeviceName})
-		if err != nil {
-			return nil, protobufPeerError(err)
+	}
+	if deps.PullSession != nil {
+		ports.Pull = func(ctx context.Context, params remotewire.SessionPullParams) (remotewire.SessionPullResult, error) {
+			conn := protorpc.ConnFromContext(ctx)
+			if conn == nil {
+				return remotewire.SessionPullResult{}, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session pull unavailable"}
+			}
+			return deps.PullSession(ctx, params, protobufPeerSubscriber{conn})
 		}
-		// 交回调用方送来的那条对话身份:本机可能是**新建**了一行来承载它(R17),
-		// 但对话的身份仍是发起端铸的那一个 —— daemon / 桌面端都从不发号。
-		//
-		// UserMessageSeq 则是本机作为宿主发的号:这一轮用户消息的最高持久帧号,
-		// 发起方据它把游标推进到「我已经持有的内容」(spec 2026-09-07 决策 1/4)。
-		// 服务没交回响应时留 0 —— 发起方据此不推进游标。
-		out := &agentrewire.RuntimeRunResponse{ConversationId: p.ConversationID}
-		if sent != nil {
-			out.UserMessageSeq = sent.UserMessageSeq
-			out.UserMessageMinSeq = sent.UserMessageMinSeq
+	}
+	if deps.DeleteSession != nil {
+		ports.Delete = func(ctx context.Context, params remotewire.SessionDeleteParams) (remotewire.SessionDeleteResult, error) {
+			if err := conversationid.Validate(params.ConversationID); err != nil {
+				return remotewire.SessionDeleteResult{}, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
+			}
+			if err := deps.DeleteSession(ctx, params.ConversationID, params.PeerFingerprint); err != nil {
+				return remotewire.SessionDeleteResult{}, err
+			}
+			// 交回的是删除的**后置条件**:应答返回时这一端已经没有这条会话了。
+			return remotewire.SessionDeleteResult{Deleted: true}, nil
 		}
-		return out, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.RuntimeSteerResponse, error) {
-		if deps.SteerSession == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "steer unavailable"}
+	}
+	if deps.SetModelTarget != nil {
+		ports.SetModelTarget = func(ctx context.Context, params remotewire.SetModelTargetParams) error {
+			return deps.SetModelTarget(ctx, params.ConversationID, params.ProviderKey, params.ModelKey)
 		}
-		enqueued, err := deps.SteerSession(ctx, remotewire.SteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId, Text: req.Text}, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint})
-		if err != nil {
-			return nil, protobufPeerError(err)
+	}
+	if deps.SetReasoningEffort != nil {
+		ports.SetReasoningEffort = func(ctx context.Context, params remotewire.SetSessionReasoningEffortParams) error {
+			return deps.SetReasoningEffort(ctx, params.ConversationID, params.ReasoningEffort)
 		}
-		// 回的是**入队侧**认的那个号,不是请求里那个:chat_svc.enqueue 自己 newQueuedID()。
-		// 调用方拿它去对 SteerConsumed.queuedId 才对得上。
-		out := &agentrewire.RuntimeSteerResponse{}
-		if enqueued != nil {
-			out.QueuedId = enqueued.QueuedID
-			out.Cancellable = enqueued.Cancellable
+	}
+	if deps.SetPermissionMode != nil {
+		ports.SetPermissionMode = func(ctx context.Context, params remotewire.SetPermissionModeParams) error {
+			return deps.SetPermissionMode(ctx, params.ConversationID, params.Mode)
 		}
-		return out, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), func() *agentrewire.RuntimeCancelSteerRequest { return &agentrewire.RuntimeCancelSteerRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeCancelSteerRequest) (*agentrewire.RuntimeCancelSteerResponse, error) {
-		if deps.CancelSteerSession == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "cancel steer unavailable"}
+	}
+	if deps.RunSession != nil {
+		ports.Run = func(ctx context.Context, params remotewire.RunParams) (remotewire.RunAck, error) {
+			sent, err := deps.RunSession(ctx, params, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint, Name: params.SourceDeviceName})
+			if err != nil {
+				return remotewire.RunAck{}, err
+			}
+			// 交回调用方送来的那条对话身份:本机可能是**新建**了一行来承载它(R17),
+			// 但对话的身份仍是发起端铸的那一个 —— daemon / 桌面端都从不发号。
+			//
+			// UserMessageSeq 是本机作为宿主发的号,服务没交回响应时留 0 ——
+			// 发起方据此不推进游标。
+			ack := remotewire.RunAck{ConversationID: params.ConversationID}
+			if sent != nil {
+				ack.UserMessageSeq = sent.UserMessageSeq
+				ack.UserMessageMinSeq = sent.UserMessageMinSeq
+			}
+			return ack, nil
 		}
-		result, err := deps.CancelSteerSession(ctx, remotewire.CancelSteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId})
-		if err != nil {
-			return nil, protobufPeerError(err)
+	}
+	if deps.SteerSession != nil {
+		ports.Steer = func(ctx context.Context, params remotewire.SteerParams) (remotewire.SteerResult, error) {
+			enqueued, err := deps.SteerSession(ctx, params, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint})
+			if err != nil {
+				return remotewire.SteerResult{}, err
+			}
+			// 交回**入队侧**认的那个号,不是请求里那个:chat_svc.enqueue 自己 newQueuedID()。
+			if enqueued == nil {
+				return remotewire.SteerResult{}, nil
+			}
+			return remotewire.SteerResult{QueuedID: enqueued.QueuedID, Cancellable: enqueued.Cancellable}, nil
 		}
-		out := &agentrewire.RuntimeCancelSteerResponse{}
-		if result != nil {
-			out.Removed = result.Removed
+	}
+	if deps.CancelSteerSession != nil {
+		ports.CancelSteer = func(ctx context.Context, params remotewire.CancelSteerParams) (remotewire.CancelSteerResult, error) {
+			result, err := deps.CancelSteerSession(ctx, params)
+			if err != nil {
+				return remotewire.CancelSteerResult{}, err
+			}
+			if result == nil {
+				return remotewire.CancelSteerResult{}, nil
+			}
+			return remotewire.CancelSteerResult{Removed: result.Removed}, nil
 		}
-		return out, nil
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), func() *agentrewire.RuntimeSubmitAnswerRequest { return &agentrewire.RuntimeSubmitAnswerRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
-		if deps.SubmitAnswer == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "answer unavailable"}
+	}
+	if deps.SubmitAnswer != nil {
+		ports.SubmitAnswer = func(ctx context.Context, params remotewire.SubmitAnswerParams) (remotewire.PeerSessionControlResult, error) {
+			value, err := deps.SubmitAnswer(ctx, params)
+			return remotewire.PeerSessionControlResult{AlreadyHandled: value.AlreadyHandled}, err
 		}
-		answers := make([]agentruntime.AskAnswer, 0, len(req.Answers))
-		for _, a := range req.Answers {
-			answers = append(answers, agentruntime.AskAnswer{QuestionIndex: int(a.QuestionIndex), Labels: a.Labels, OtherText: a.OtherText})
+	}
+	if deps.SubmitToolPermission != nil {
+		ports.SubmitToolPermission = func(ctx context.Context, params remotewire.SubmitToolPermissionParams) (remotewire.PeerSessionControlResult, error) {
+			value, err := deps.SubmitToolPermission(ctx, params)
+			return remotewire.PeerSessionControlResult{AlreadyHandled: value.AlreadyHandled}, err
 		}
-		v, err := deps.SubmitAnswer(ctx, remotewire.SubmitAnswerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, RequestID: req.RequestId, Answers: answers, Skipped: req.Skipped})
-		return &agentrewire.PeerSessionControlResponse{AlreadyHandled: v.AlreadyHandled}, protobufPeerError(err)
-	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION), func() *agentrewire.RuntimeSubmitToolPermissionRequest {
-		return &agentrewire.RuntimeSubmitToolPermissionRequest{}
-	}, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeSubmitToolPermissionRequest) (*agentrewire.PeerSessionControlResponse, error) {
-		if deps.SubmitToolPermission == nil {
-			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "permission unavailable"}
-		}
-		v, err := deps.SubmitToolPermission(ctx, remotewire.SubmitToolPermissionParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, RequestID: req.RequestId, Allow: req.Allow, AlwaysAllowSession: req.AlwaysAllowSession, DenyReason: req.DenyReason})
-		return &agentrewire.PeerSessionControlResponse{AlreadyHandled: v.AlreadyHandled}, protobufPeerError(err)
-	}))
+	}
+	return ports
 }

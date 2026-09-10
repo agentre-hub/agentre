@@ -253,6 +253,10 @@ export { MarkdownSourceView } from "./file-preview/markdown-source-view";
 export { ImagePreview } from "./file-preview/image-view";
 export type { ImagePreviewProps } from "./file-preview/image-view";
 export { monacoLanguageForPath } from "./file-preview/monaco-language";
+// JSON 的 Monarch 词法：0.56 起 json 移出了 basic-languages，两端的装载器都要在
+// 拿到命名空间之后补注册这一门语言。语法是纯数据 + 一次调用（对 monaco 只有类型
+// 依赖），因此住在包里，而不是两个宿主各抄一份。
+export { registerJsonLanguage, jsonTokenProvider } from "./file-preview/monaco-json";
 export type { MonacoCodeEditor, MonacoNS } from "./file-preview/monaco";
 export { basename, dirname } from "./file-preview/file-meta";
 // 预览标签条：开着哪些标签、谁是活动标签、动作落到哪个 store，全部由宿主经 props
@@ -533,7 +537,22 @@ export type {
 } from "./chat-input/drop";
 export { useFileDropZone } from "./chat-input/use-file-drop";
 export type { DropZoneRegistrar } from "./chat-input/use-file-drop";
-// `/` 命令：机制在包里，清单归宿主（见 chat-input/slash/types.ts）。
+// `/` 命令：机制与清单都在包里，宿主只递「问哪台机器拿到的 Skill 目录」和它
+// 自己那几条命令（见 chat-input/slash/registry.ts 的文件头）。
+export {
+  SLASH_COMPACT,
+  buildSlashCommands,
+  isNativeCompactBackend,
+  listAvailable,
+  skillCommandPrefix,
+  skillCommandsFromCatalog,
+  useSlashCommands,
+} from "./chat-input/slash/registry";
+export type {
+  SkillCommandSource,
+  SlashTranslate,
+  UseSlashCommandsOptions,
+} from "./chat-input/slash/registry";
 export { filterByQuery } from "./chat-input/slash/filter";
 export { detectSlashTrigger } from "./chat-input/slash/trigger";
 export type { SlashTriggerHit } from "./chat-input/slash/trigger";

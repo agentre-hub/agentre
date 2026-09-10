@@ -35,6 +35,8 @@
     "diffAria": "{{name}} compared with HEAD",
     "offline": "This machine is unreachable right now",
     "notFound": "File not found",
-    "notFoundHint": "It may have been deleted or renamed"
+    "notFoundHint": "It may have been deleted or renamed",
+    "deviceOnline": "This machine is online",
+    "deviceOffline": "This machine is offline"
   }
 }

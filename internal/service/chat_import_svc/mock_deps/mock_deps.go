@@ -57,6 +57,21 @@ func (mr *MockSessionPortMockRecorder) Create(ctx, s any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockSessionPort)(nil).Create), ctx, s)
 }
 
+// Find mocks base method.
+func (m *MockSessionPort) Find(ctx context.Context, id int64) (*chat_entity.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Find", ctx, id)
+	ret0, _ := ret[0].(*chat_entity.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Find indicates an expected call of Find.
+func (mr *MockSessionPortMockRecorder) Find(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockSessionPort)(nil).Find), ctx, id)
+}
+
 // ListIDsByProviderSessions mocks base method.
 func (m *MockSessionPort) ListIDsByProviderSessions(ctx context.Context, providerSessionIDs []string) (map[string]int64, error) {
 	m.ctrl.T.Helper()
@@ -84,6 +99,45 @@ func (m *MockSessionPort) Update(ctx context.Context, s *chat_entity.Session) er
 func (mr *MockSessionPortMockRecorder) Update(ctx, s any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockSessionPort)(nil).Update), ctx, s)
+}
+
+// MockSyncStatePort is a mock of SyncStatePort interface.
+type MockSyncStatePort struct {
+	ctrl     *gomock.Controller
+	recorder *MockSyncStatePortMockRecorder
+	isgomock struct{}
+}
+
+// MockSyncStatePortMockRecorder is the mock recorder for MockSyncStatePort.
+type MockSyncStatePortMockRecorder struct {
+	mock *MockSyncStatePort
+}
+
+// NewMockSyncStatePort creates a new mock instance.
+func NewMockSyncStatePort(ctrl *gomock.Controller) *MockSyncStatePort {
+	mock := &MockSyncStatePort{ctrl: ctrl}
+	mock.recorder = &MockSyncStatePortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSyncStatePort) EXPECT() *MockSyncStatePortMockRecorder {
+	return m.recorder
+}
+
+// FindLocalID mocks base method.
+func (m *MockSyncStatePort) FindLocalID(ctx context.Context, kind, syncID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindLocalID", ctx, kind, syncID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindLocalID indicates an expected call of FindLocalID.
+func (mr *MockSyncStatePortMockRecorder) FindLocalID(ctx, kind, syncID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLocalID", reflect.TypeOf((*MockSyncStatePort)(nil).FindLocalID), ctx, kind, syncID)
 }
 
 // MockMessagePort is a mock of MessagePort interface.

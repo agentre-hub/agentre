@@ -1,6 +1,6 @@
 import type * as monacoApi from "monaco-editor/editor/editor.api";
 
-import type { MonacoNS } from "./monaco-loader";
+import type { MonacoNS } from "./monaco";
 
 type MonarchLanguage = monacoApi.languages.IMonarchLanguage;
 

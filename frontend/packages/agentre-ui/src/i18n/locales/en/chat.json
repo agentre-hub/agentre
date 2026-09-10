@@ -195,7 +195,18 @@
     }
   },
   "slashCommands": {
-    "aria": "Command and skill suggestions"
+    "aria": "Command and skill suggestions",
+    "compact": {
+      "description": "Compact the chat context and keep only the summary"
+    },
+    "goal": {
+      "description": "Set or view the current Codex goal"
+    },
+    "skill": {
+      "claudeDescription": "Invoke a Claude Code skill",
+      "codexDescription": "Invoke a Codex skill",
+      "piDescription": "Invoke a Pi skill"
+    }
   },
   "chatInput": {
     "placeholder": {

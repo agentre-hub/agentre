@@ -100,12 +100,13 @@ func (f *fakeTx) RunInTx(ctx context.Context, fn func(context.Context) error) er
 }
 
 type repoMocks struct {
-	session *mock_deps.MockSessionPort
-	message *mock_deps.MockMessagePort
-	agent   *mock_deps.MockAgentPort
-	backend *mock_deps.MockAgentBackendPort
-	tx      *fakeTx
-	svc     *chatImportSvc
+	session   *mock_deps.MockSessionPort
+	message   *mock_deps.MockMessagePort
+	agent     *mock_deps.MockAgentPort
+	backend   *mock_deps.MockAgentBackendPort
+	syncState *mock_deps.MockSyncStatePort
+	tx        *fakeTx
+	svc       *chatImportSvc
 }
 
 // withMocks 装好四个窄 repo port mock + 假事务,并把「工作目录还在不在」钉成确定集合
@@ -116,11 +117,12 @@ func withMocks(t *testing.T, existingDirs ...string) *repoMocks {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	m := &repoMocks{
-		session: mock_deps.NewMockSessionPort(ctrl),
-		message: mock_deps.NewMockMessagePort(ctrl),
-		agent:   mock_deps.NewMockAgentPort(ctrl),
-		backend: mock_deps.NewMockAgentBackendPort(ctrl),
-		tx:      &fakeTx{},
+		session:   mock_deps.NewMockSessionPort(ctrl),
+		message:   mock_deps.NewMockMessagePort(ctrl),
+		agent:     mock_deps.NewMockAgentPort(ctrl),
+		backend:   mock_deps.NewMockAgentBackendPort(ctrl),
+		syncState: mock_deps.NewMockSyncStatePort(ctrl),
+		tx:        &fakeTx{},
 	}
 
 	dirs := make(map[string]struct{}, len(existingDirs))
@@ -133,6 +135,7 @@ func withMocks(t *testing.T, existingDirs ...string) *repoMocks {
 	m.svc.messages = m.message
 	m.svc.agents = m.agent
 	m.svc.agentBackends = m.backend
+	m.svc.syncState = m.syncState
 	m.svc.dirExists = func(path string) bool {
 		_, ok := dirs[path]
 		return ok

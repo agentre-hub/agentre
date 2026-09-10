@@ -84,6 +84,16 @@ export type FilePreviewPanelProps = {
    */
   refreshToken?: number;
   /**
+   * 正文来自**哪台机器**，以及它此刻在不在线。
+   *
+   * 控制台里预览的每一个文件都在别人的机器上，路径条右端因此标出它（设计源
+   * `agentre.pen` 的 `B1` 路径条）。桌面端不传：那里的会话外壳已经有一条带机器
+   * 名的离线横幅，面板再说一遍只是把同一件事说两遍。不传即不渲染 —— 与
+   * `previewFile` 同一套能力探测约定。
+   */
+  deviceName?: string;
+  deviceOnline?: boolean;
+  /**
    * 宿主注入的 Monaco 命名空间（装载器留在宿主，见 ./monaco）。还没装载好时是
    * null：内容容器留空。用 `previewNeedsMonaco` 决定要不要装载。
    */
@@ -182,6 +192,8 @@ export function FilePreviewPanel({
   onCloseOthers,
   onCloseAll,
   renderFileIcon,
+  deviceName,
+  deviceOnline,
   className,
 }: FilePreviewPanelProps) {
   const { t } = useUiTranslation();
@@ -373,6 +385,28 @@ export function FilePreviewPanel({
         >
           {basename(path)}
         </span>
+        {deviceName ? (
+          <span
+            data-testid="file-preview-device"
+            data-online={deviceOnline ? "true" : "false"}
+            className="order-last ml-1 flex shrink-0 items-center gap-1 text-3xs text-muted-foreground"
+          >
+            <span
+              aria-label={
+                deviceOnline
+                  ? t("filePreview.deviceOnline")
+                  : t("filePreview.deviceOffline")
+              }
+              className={cn(
+                "inline-block size-1.5 shrink-0 rounded-full",
+                // 与目录选择器里那枚机器点同一对 token（directory-picker.tsx），
+                // 两处说的是同一件事，颜色不该各调各的。
+                deviceOnline ? "bg-status-running" : "bg-border-strong",
+              )}
+            />
+            {deviceName}
+          </span>
+        ) : null}
         {dir !== "" ? (
           <span
             className="min-w-0 flex-1 truncate font-mono text-3xs text-muted-foreground"

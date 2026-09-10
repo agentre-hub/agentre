@@ -8,7 +8,8 @@
 //   - 字段名一律 lowerCamelCase。
 //   - 错误码 -32010..-32014 是 agentruntime 标准 sentinel 的稳定 wire 值;
 //     ToRPCError / FromRPCError 双向翻译,让 errors.Is(err, agentruntime.ErrXxx)
-//     在客户端继续工作。
+//     在客户端继续工作。数值本身与那张全族段位表都住在共享 module 的
+//     pkg/wire/rpcerror,本包只留别名。
 package wire
 
 import (
@@ -84,6 +85,22 @@ const (
 	// 就得说出来,这样「一档一块」在协议上就是显式的,不靠两边默契。
 	MethodSkillsCatalog = "skills.catalog"
 
+	// MethodSkillsCommands 列出**这台机器上**某一档执行目标此刻叫得动的 skill 命令。
+	//
+	// 它与 skills.catalog 是两件事,不是同一件事的两种粒度:catalog 答的是**可配置的
+	// plugin 包**(组织架构页拿它画那张授权表),commands 答的是**输入框里打得出来的
+	// 名字** —— 后者除了包里的 skill,还含 CLI 自己解析的 user / project / system
+	// skill(`~/.claude/skills`、`<cwd>/.claude/skills`)。那一半不是包、配不了、也不
+	// 该出现在授权表里,但它恰恰是日常打得最多的那一半。
+	//
+	// 少了这个方法,远端档的 skill 命令就只剩包里那一半:桌面端对远端档如此(它的
+	// 本机发现器看不到对面机器上的目录),浏览器控制台更是一条都列不出。
+	//
+	// 授权集同样由调用方带上,理由与 skills.catalog 逐字相同(组织架构库不在执行端)。
+	// Cwd 也由调用方带:项目级 skill 要靠它才解析得出,而「这一轮在哪个目录跑」是
+	// 会话的事实,执行端不该去猜。
+	MethodSkillsCommands = "skills.commands"
+
 	// MethodProjectSetLocalPath / MethodProjectClearLocalPath 配置**这台机器上**某个
 	// 项目的本机路径（规格 agentre-server 2026-08-21「桌面端的项目路径也能从 web 配」）。
 	//
@@ -131,11 +148,11 @@ const (
 // ── Error codes ─────────────────────────────────────────────────────────────
 
 const (
-	ErrCodeNoActiveTurn    = -32010
-	ErrCodeSteerNotFound   = -32011
-	ErrCodeUnsupported     = -32012
-	ErrCodeAborted         = turnstate.AbortedCode
-	ErrCodeSessionNotFound = -32014
+	ErrCodeNoActiveTurn    = rpcerror.CodeRuntimeNoActiveTurn
+	ErrCodeSteerNotFound   = rpcerror.CodeRuntimeSteerNotFound
+	ErrCodeUnsupported     = rpcerror.CodeRuntimeUnsupported
+	ErrCodeAborted         = rpcerror.CodeRuntimeAborted
+	ErrCodeSessionNotFound = rpcerror.CodeRuntimeSessionNotFound
 	// ErrCodePeerExecutionUnavailable:会话钉住的执行目标(agentred)当前不可用。
 	//
 	// 与上面五个不同,它**不进 SentinelFromCode**:那张表翻的是 daemon 回给
@@ -145,18 +162,17 @@ const (
 	// 此前是在 agentre-server 里手抄的一个魔数,改了这边不会有任何地方变红。
 	//
 	// 应答里同时带类型化 data(accepted / historyAvailable / executionUnavailable)。
-	ErrCodePeerExecutionUnavailable = -32015
+	ErrCodePeerExecutionUnavailable = rpcerror.CodeRuntimePeerExecutionUnavailable
 
-	// project.* 的三个码。段位刻意避开已经用掉的 -32030..-32035(remotefs)与
-	// -32040..-32042(workspacefs):同一条连接上跑着好几个方法族,码段重叠会让
-	// 客户端把别人的失败认成自己的。
+	// project.* 的三个码。段位由 pkg/wire/rpcerror 统一划,那里的守卫扫得到全部
+	// 方法族 —— 同一条连接上跑着好几个族,码段重叠会让客户端把别人的失败认成自己的。
 	//
 	// ErrCodeProjectNotSynced:这台机器上没有这个同步标识的项目。它与「写失败了」
 	// **必须分得开**——项目可以先在 web 上建出来,那一刻目标机器可能还没拉到这一行,
 	// 等一会儿就好;折进通用失败会让用户去查权限和磁盘。
-	ErrCodeProjectNotSynced    = -32050
-	ErrCodeProjectInvalidPath  = -32051
-	ErrCodeProjectPathNotFound = -32052
+	ErrCodeProjectNotSynced    = rpcerror.CodeProjectNotSynced
+	ErrCodeProjectInvalidPath  = rpcerror.CodeProjectInvalidPath
+	ErrCodeProjectPathNotFound = rpcerror.CodeProjectPathNotFound
 )
 
 // ToRPCError 把 agentruntime 的 sentinel 包成 *rpcerror.Error,daemon 端返回。
@@ -988,6 +1004,39 @@ type SkillPackSummary struct {
 type SkillCatalogResult struct {
 	Packs     []SkillPackSummary `json:"packs"`
 	Discovery string             `json:"discovery"`
+}
+
+// SkillCommandsParams 是 MethodSkillsCommands 的请求。
+//
+// 它比 SkillCatalogParams 多一格 Cwd:项目级 skill 只在那个目录下才解析得出来。
+type SkillCommandsParams struct {
+	// BackendType 决定用哪个发现器,以及命令的输入前缀该是 $ 还是 /(前缀由调用方加)。
+	BackendType string `json:"backendType"`
+	// Authorized 是这一档已经授权的包。它有两个用处:算出哪些包这一轮真的生效,
+	// 以及原样交给 CLI 让它按同一份表解析 plugin skill。
+	Authorized []SkillAuthorization `json:"authorized,omitempty"`
+	// CLIPath 一般留空,由执行端自己解析本机 CLI 路径。
+	CLIPath string `json:"cliPath,omitempty"`
+	// Cwd 是这一轮的工作目录。留空 = 只解析 user / system 那两档作用域。
+	Cwd string `json:"cwd,omitempty"`
+}
+
+// SkillCommand 是一条叫得动的 skill,名字**不带输入前缀** —— Codex 是 `$`,
+// Claude Code / Pi 是 `/`,前缀属于输入法层面,由调用方按 backend 加。
+type SkillCommand struct {
+	Name string `json:"name"`
+	// Description 是一句话说明,下拉里显示在名字右侧。可以为空。
+	Description string `json:"description,omitempty"`
+}
+
+// SkillCommandsResult 是 MethodSkillsCommands 的应答。
+//
+// Discovery 与 SkillCatalogResult 同一套三态、同样**没有 omitempty**,理由也一样:
+// 空清单必须自带理由,否则「这台机器此刻答不出」会被当成「这台机器没有 skill」——
+// 而在输入框这个场景里,后者意味着菜单里空空如也,用户连问题出在哪都看不出来。
+type SkillCommandsResult struct {
+	Commands  []SkillCommand `json:"commands"`
+	Discovery string         `json:"discovery"`
 }
 
 // ── Notification frames ─────────────────────────────────────────────────────

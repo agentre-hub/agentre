@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { MonacoNS } from "./monaco-loader";
+import type { MonacoNS } from "./monaco";
 import { jsonTokenProvider, registerJsonLanguage } from "./monaco-json";
 
 function fakeLanguages() {

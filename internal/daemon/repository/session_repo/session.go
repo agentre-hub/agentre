@@ -81,6 +81,22 @@ type DaemonSession struct {
 
 func (*DaemonSession) TableName() string { return "daemon_sessions" }
 
+// ListFilter 是会话清单的收窄条件,零值 = 不收窄(整份)。
+//
+// 两格合成一个值而不是各占一个参数:清单与它的 COUNT 必须收**同一份**条件 ——
+// 一个值传两处,两者天然对得上;拆成并列参数则每加一格就多一处可以漏传的地方,
+// 而漏在 COUNT 上的收窄会让「查看全部 N」下面挂着另一批行。
+type ListFilter struct {
+	// Keyword 按标题的大小写不敏感子串收窄(空串 / 全空白 = 不收窄)。匹配面只有
+	// title —— daemon 存的是 agent_sync_id / project_sync_id,手上根本没有 agent 名
+	// 与项目名。
+	Keyword string
+	// ConversationIDs 收窄到点名的这几条对话(空 = 不收窄)。它是身份上的点查而不是
+	// 搜索:调用方手上已经有名单,再把整台机器的清单读出来在内存里挑,是这条查询
+	// 最大的一次白读 —— 一台机器上可能有几千条对话。
+	ConversationIDs []string
+}
+
 // SessionRepo 存取会话的身份与生命周期。
 type SessionRepo interface {
 	// Upsert 建行或更新会话的元数据与生命周期。一轮执行起手时调用;同一会话跑第二轮时
@@ -105,24 +121,22 @@ type SessionRepo interface {
 	// Find 取某个对端名下的一条会话;不存在返回 (nil, nil)。
 	Find(ctx context.Context, peerFingerprint, conversationID string) (*DaemonSession, error)
 
-	// ListByPeer 列出某个对端在本 daemon 上的会话,最近活动的在前。
+	// ListByPeer 列出某个对端在本 daemon 上的会话,最近活动的在前,再按 filter 收窄。
 	//
-	// keyword 非空时按标题的大小写不敏感子串再收窄一层(空串 / 全空白 = 不收窄)。
 	// 收窄放在这一层而不是调用方: 对端要的往往只是其中几条,整份回传既费带宽也把
-	// 无关会话的标题送了出去。匹配面只有 title —— daemon 存的是 agent_sync_id /
-	// project_sync_id,手上根本没有 agent 名与项目名。
+	// 无关会话的标题送了出去。
 	//
 	// offset and limit are pushed to SQL; limit <= 0 preserves unpaged behavior.
-	ListByPeer(ctx context.Context, peerFingerprint, keyword string, offset, limit int) ([]*DaemonSession, error)
+	ListByPeer(ctx context.Context, peerFingerprint string, filter ListFilter, offset, limit int) ([]*DaemonSession, error)
 
-	// CountByPeer uses the same keyword filter as ListByPeer.
-	CountByPeer(ctx context.Context, peerFingerprint, keyword string) (int64, error)
+	// CountByPeer uses the same filter as ListByPeer.
+	CountByPeer(ctx context.Context, peerFingerprint string, filter ListFilter) (int64, error)
 
 	// ListAll returns visible peers, newest activity first.
-	ListAll(ctx context.Context, keyword string, offset, limit int) ([]*DaemonSession, error)
+	ListAll(ctx context.Context, filter ListFilter, offset, limit int) ([]*DaemonSession, error)
 
-	// CountAll uses the same keyword filter as ListAll.
-	CountAll(ctx context.Context, keyword string) (int64, error)
+	// CountAll uses the same filter as ListAll.
+	CountAll(ctx context.Context, filter ListFilter) (int64, error)
 
 	// ListByPeerLifecycle 列出该对端名下停在某个生命周期上的会话,最近活动优先,
 	// 至多 limit 条(limit<=0 = 不设上限)。
@@ -288,6 +302,28 @@ func titleKeywordScope(keyword string) func(*gorm.DB) *gorm.DB {
 	}
 }
 
+// conversationIDScope 把点名的那几条对话收成一段 IN。空名单不发这一段 —— 空 =
+// 「没有点名」而不是「一条都不要」,发出去会把整份清单筛成 0 条。
+//
+// 收窄一律发到 SQL 上:conversation_id 是库上的一条 UNIQUE 约束,IN 走的是索引点查;
+// 而取回整份再在内存里 find 一遍,正是这一格存在的理由要消灭的东西。
+func conversationIDScope(ids []string) func(*gorm.DB) *gorm.DB {
+	return func(d *gorm.DB) *gorm.DB {
+		if len(ids) == 0 {
+			return d
+		}
+		return d.Where("conversation_id IN ?", ids)
+	}
+}
+
+// filterScope 是一次清单查询的全部收窄条件。清单与它的 COUNT 都经这一个入口,
+// 两者因此不可能收到不同的条件。
+func filterScope(filter ListFilter) func(*gorm.DB) *gorm.DB {
+	return func(d *gorm.DB) *gorm.DB {
+		return d.Scopes(titleKeywordScope(filter.Keyword), conversationIDScope(filter.ConversationIDs))
+	}
+}
+
 // pageScope applies pagination when limit > 0; otherwise it leaves the query unpaged.
 func pageScope(offset, limit int) func(*gorm.DB) *gorm.DB {
 	return func(d *gorm.DB) *gorm.DB {
@@ -301,11 +337,11 @@ func pageScope(offset, limit int) func(*gorm.DB) *gorm.DB {
 	}
 }
 
-func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint, keyword string, offset, limit int) ([]*DaemonSession, error) {
+func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint string, filter ListFilter, offset, limit int) ([]*DaemonSession, error) {
 	var rows []*DaemonSession
 	err := db.Ctx(ctx).
 		Where("peer_fingerprint = ?", peerFingerprint).
-		Scopes(titleKeywordScope(keyword), pageScope(offset, limit)).
+		Scopes(filterScope(filter), pageScope(offset, limit)).
 		Order("last_message_at DESC").
 		Find(&rows).Error
 	if err != nil {
@@ -314,11 +350,11 @@ func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint, keyword s
 	return rows, nil
 }
 
-func (r *sessionRepo) CountByPeer(ctx context.Context, peerFingerprint, keyword string) (int64, error) {
+func (r *sessionRepo) CountByPeer(ctx context.Context, peerFingerprint string, filter ListFilter) (int64, error) {
 	var n int64
 	err := db.Ctx(ctx).Model(&DaemonSession{}).
 		Where("peer_fingerprint = ?", peerFingerprint).
-		Scopes(titleKeywordScope(keyword)).
+		Scopes(filterScope(filter)).
 		Count(&n).Error
 	if err != nil {
 		return 0, err
@@ -326,10 +362,10 @@ func (r *sessionRepo) CountByPeer(ctx context.Context, peerFingerprint, keyword 
 	return n, nil
 }
 
-func (r *sessionRepo) ListAll(ctx context.Context, keyword string, offset, limit int) ([]*DaemonSession, error) {
+func (r *sessionRepo) ListAll(ctx context.Context, filter ListFilter, offset, limit int) ([]*DaemonSession, error) {
 	var rows []*DaemonSession
 	err := db.Ctx(ctx).
-		Scopes(titleKeywordScope(keyword), pageScope(offset, limit)).
+		Scopes(filterScope(filter), pageScope(offset, limit)).
 		Order("last_message_at DESC").
 		Find(&rows).Error
 	if err != nil {
@@ -338,10 +374,10 @@ func (r *sessionRepo) ListAll(ctx context.Context, keyword string, offset, limit
 	return rows, nil
 }
 
-func (r *sessionRepo) CountAll(ctx context.Context, keyword string) (int64, error) {
+func (r *sessionRepo) CountAll(ctx context.Context, filter ListFilter) (int64, error) {
 	var n int64
 	err := db.Ctx(ctx).Model(&DaemonSession{}).
-		Scopes(titleKeywordScope(keyword)).
+		Scopes(filterScope(filter)).
 		Count(&n).Error
 	if err != nil {
 		return 0, err

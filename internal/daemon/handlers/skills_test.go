@@ -186,3 +186,154 @@ func TestSkillsHandler_Catalog_NoDiscovererIsUnsupported(t *testing.T) {
 	require.NotNil(t, res.Packs)
 	require.Empty(t, res.Packs)
 }
+
+// fakeSkillCommandDisc 同时答包与原生命令 —— 真发现器就是这个形状
+// (RegisterDiscoverer 只在 Discoverer 也实现了 CommandDiscoverer 时才登记后者)。
+type fakeSkillCommandDisc struct {
+	fakeSkillDisc
+	gotCommandQuery agentskill.CommandDiscoverQuery
+	commands        []agentskill.SkillCommand
+	commandsErr     error
+}
+
+func (f *fakeSkillCommandDisc) DiscoverCommands(
+	_ context.Context, q agentskill.CommandDiscoverQuery,
+) ([]agentskill.SkillCommand, error) {
+	f.gotCommandQuery = q
+	return f.commands, f.commandsErr
+}
+
+// TestSkillsHandler_Commands_MergesPackSkillsAndNativeSkills 是这个方法存在的理由:
+// 输入框里打得出来的名字有两半 —— 包里的 skill,以及 CLI 自己解析的 user / project /
+// system skill。后一半只有这台机器答得出,少了它远端档的菜单就只剩半份。
+func TestSkillsHandler_Commands_MergesPackSkillsAndNativeSkills(t *testing.T) {
+	fd := &fakeSkillCommandDisc{
+		fakeSkillDisc: fakeSkillDisc{packs: []agentskill.SkillPack{{
+			ID: "superpowers@official", Name: "superpowers", Description: "TDD 那一套",
+			Skills: []string{"brainstorming"}, Installed: true, GloballyEnabled: true,
+		}}},
+		commands: []agentskill.SkillCommand{{Name: "cago", Description: "cago 框架"}},
+	}
+	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fd)
+	t.Cleanup(restore)
+	restoreCommands := agentskill.SwapCommandDiscovererForTest(agent_backend_entity.TypeClaudeCode, fd)
+	t.Cleanup(restoreCommands)
+	SetResolveCLIPathFunc(func(string) (string, bool, error) { return "/daemon/bin/claude", true, nil })
+	t.Cleanup(ResetResolveCLIPathFunc)
+
+	h := NewSkillsHandlers()
+	res, err := h.Commands(context.Background(), wire.SkillCommandsParams{
+		BackendType: "claudecode",
+		Cwd:         "/srv/project",
+		Authorized:  []wire.SkillAuthorization{{ID: "superpowers@official", Enabled: true}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, wire.SkillDiscoveryOK, res.Discovery)
+	require.Equal(t, []wire.SkillCommand{
+		{Name: "superpowers:brainstorming", Description: "TDD 那一套"},
+		{Name: "cago", Description: "cago 框架"},
+	}, res.Commands)
+
+	// cwd 要原样交到 CLI 手上:项目级 skill(`<cwd>/.claude/skills`)只在那个目录下
+	// 才解析得出来,而「这一轮在哪跑」是会话的事实,执行端不该猜。
+	require.Equal(t, "/srv/project", fd.gotCommandQuery.Cwd)
+	require.Equal(t, "/daemon/bin/claude", fd.gotCommandQuery.CLIPath)
+	require.Equal(t, map[string]bool{"superpowers@official": true}, fd.gotCommandQuery.EnabledPlugins)
+}
+
+// TestSkillsHandler_Commands_DisabledPackContributesNothing 强制关掉的包在这一轮根本
+// 挂不上去,列出来就是一条按下去会报「没有这个 skill」的命令。
+func TestSkillsHandler_Commands_DisabledPackContributesNothing(t *testing.T) {
+	fd := &fakeSkillCommandDisc{
+		fakeSkillDisc: fakeSkillDisc{packs: []agentskill.SkillPack{{
+			ID: "muted@mine", Name: "muted", Skills: []string{"never"},
+			Installed: true, GloballyEnabled: true,
+		}}},
+	}
+	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fd)
+	t.Cleanup(restore)
+	restoreCommands := agentskill.SwapCommandDiscovererForTest(agent_backend_entity.TypeClaudeCode, fd)
+	t.Cleanup(restoreCommands)
+	SetResolveCLIPathFunc(func(string) (string, bool, error) { return "/daemon/bin/claude", true, nil })
+	t.Cleanup(ResetResolveCLIPathFunc)
+
+	h := NewSkillsHandlers()
+	res, err := h.Commands(context.Background(), wire.SkillCommandsParams{
+		BackendType: "claudecode",
+		Authorized:  []wire.SkillAuthorization{{ID: "muted@mine", Enabled: false}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, wire.SkillDiscoveryOK, res.Discovery)
+	require.NotNil(t, res.Commands)
+	require.Empty(t, res.Commands)
+}
+
+// TestSkillsHandler_Commands_NativeFailureIsUnavailable 与 Catalog 同一条判据:
+// 空清单必须自带理由。在输入框这个场景里代价更直接 —— 菜单空空如也,用户会以为
+// 那些 skill 不存在,而真相是这台机器此刻列不出来。
+func TestSkillsHandler_Commands_NativeFailureIsUnavailable(t *testing.T) {
+	fd := &fakeSkillCommandDisc{
+		fakeSkillDisc: fakeSkillDisc{packs: []agentskill.SkillPack{{
+			ID: "p@m", Name: "pack", Skills: []string{"one"}, Installed: true, GloballyEnabled: true,
+		}}},
+		commandsErr: errors.New("codex app-server 起不来"),
+	}
+	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fd)
+	t.Cleanup(restore)
+	restoreCommands := agentskill.SwapCommandDiscovererForTest(agent_backend_entity.TypeClaudeCode, fd)
+	t.Cleanup(restoreCommands)
+	SetResolveCLIPathFunc(func(string) (string, bool, error) { return "/daemon/bin/claude", true, nil })
+	t.Cleanup(ResetResolveCLIPathFunc)
+
+	h := NewSkillsHandlers()
+	res, err := h.Commands(context.Background(), wire.SkillCommandsParams{BackendType: "claudecode"})
+	require.NoError(t, err, "答不出不是调用失败:输入框仍要能用,只是没有补全")
+	require.Equal(t, wire.SkillDiscoveryUnavailable, res.Discovery)
+	require.NotNil(t, res.Commands)
+	require.Empty(t, res.Commands, "半份清单比没有清单更糟:用户看不出缺了哪一半")
+}
+
+func TestSkillsHandler_Commands_MissingCLIIsUnavailable(t *testing.T) {
+	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, &fakeSkillDisc{})
+	t.Cleanup(restore)
+	SetResolveCLIPathFunc(func(string) (string, bool, error) { return "", false, nil })
+	t.Cleanup(ResetResolveCLIPathFunc)
+
+	h := NewSkillsHandlers()
+	res, err := h.Commands(context.Background(), wire.SkillCommandsParams{BackendType: "claudecode"})
+	require.NoError(t, err)
+	require.Equal(t, wire.SkillDiscoveryUnavailable, res.Discovery)
+	require.Empty(t, res.Commands)
+}
+
+func TestSkillsHandler_Commands_NoDiscovererIsUnsupported(t *testing.T) {
+	h := NewSkillsHandlers()
+	res, err := h.Commands(context.Background(), wire.SkillCommandsParams{BackendType: "nonesuch"})
+	require.NoError(t, err)
+	require.Equal(t, wire.SkillDiscoveryUnsupported, res.Discovery)
+	require.NotNil(t, res.Commands)
+	require.Empty(t, res.Commands)
+}
+
+// TestSkillsHandler_Commands_ExplicitCLIPathWins 调用方指名了 CLI 就用那一个,不再走
+// 本机解析 —— 同一台机器上可以装着好几个 CLI,「这一档用哪个」是调用方的事实。
+func TestSkillsHandler_Commands_ExplicitCLIPathWins(t *testing.T) {
+	fd := &fakeSkillCommandDisc{}
+	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fd)
+	t.Cleanup(restore)
+	restoreCommands := agentskill.SwapCommandDiscovererForTest(agent_backend_entity.TypeClaudeCode, fd)
+	t.Cleanup(restoreCommands)
+	SetResolveCLIPathFunc(func(string) (string, bool, error) {
+		t.Fatal("指名了 CLIPath 就不该再解析本机路径")
+		return "", false, nil
+	})
+	t.Cleanup(ResetResolveCLIPathFunc)
+
+	h := NewSkillsHandlers()
+	_, err := h.Commands(context.Background(), wire.SkillCommandsParams{
+		BackendType: "claudecode", CLIPath: "/custom/claude",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "/custom/claude", fd.gotQuery.CLIPath)
+	require.Equal(t, "/custom/claude", fd.gotCommandQuery.CLIPath)
+}

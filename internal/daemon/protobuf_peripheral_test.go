@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
-	"github.com/agentre-hub/agentre/internal/daemon/protobufadapter"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
 	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
@@ -19,7 +19,7 @@ import (
 func TestProtobufPeripheralMethodsPreserveNativeBinaryPayloads(t *testing.T) {
 	registry := protorpc.NewRegistry()
 	wantBody := []byte{0, 255, 1, 254}
-	protobufadapter.RegisterPeripheralMethods(registry, protobufadapter.PeripheralDeps{
+	wireinbound.RegisterPeripheralMethods(registry, wireinbound.PeripheralDeps{
 		MCPProxy: func(_ context.Context, request *agentrewire.MCPProxyRequest) (*agentrewire.MCPProxyResponse, error) {
 			require.Equal(t, wantBody, request.Body)
 			return &agentrewire.MCPProxyResponse{Status: 201, Body: append([]byte(nil), request.Body...)}, nil
@@ -46,7 +46,7 @@ func TestProtobufPeripheralMethodsPreserveNativeBinaryPayloads(t *testing.T) {
 
 func TestProtobufPeripheralMethodsRequireAuthentication(t *testing.T) {
 	registry := protorpc.NewRegistry()
-	protobufadapter.RegisterPeripheralMethods(registry, protobufadapter.PeripheralDeps{
+	wireinbound.RegisterPeripheralMethods(registry, wireinbound.PeripheralDeps{
 		Skills: handlers.NewSkillsHandlers(), RemoteFS: remotefs.NewHandlers(remotefs.Options{}), WorkspaceFS: workspacefs.NewHandlers(workspacefs.Options{}),
 	})
 	clientTransport, serverTransport := protobufTestPipePair()
@@ -69,7 +69,7 @@ func TestProtobufWorkspaceReadFileReturnsImageAsNativeBytes(t *testing.T) {
 	want := []byte{0x89, 'P', 'N', 'G', 0, 255}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "sample.png"), want, 0o600))
 	registry := protorpc.NewRegistry()
-	protobufadapter.RegisterPeripheralMethods(registry, protobufadapter.PeripheralDeps{WorkspaceFS: workspacefs.NewHandlers(workspacefs.Options{})})
+	wireinbound.RegisterPeripheralMethods(registry, wireinbound.PeripheralDeps{WorkspaceFS: workspacefs.NewHandlers(workspacefs.Options{})})
 	clientTransport, serverTransport := protobufTestPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	server := protorpc.NewConn(serverTransport, registry)
@@ -88,7 +88,7 @@ func TestProtobufWorkspaceReadFileReturnsImageAsNativeBytes(t *testing.T) {
 
 func TestProtobufWorkspaceErrorsKeepStableTypedCodes(t *testing.T) {
 	registry := protorpc.NewRegistry()
-	protobufadapter.RegisterPeripheralMethods(registry, protobufadapter.PeripheralDeps{WorkspaceFS: workspacefs.NewHandlers(workspacefs.Options{})})
+	wireinbound.RegisterPeripheralMethods(registry, wireinbound.PeripheralDeps{WorkspaceFS: workspacefs.NewHandlers(workspacefs.Options{})})
 	clientTransport, serverTransport := protobufTestPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	server := protorpc.NewConn(serverTransport, registry)
@@ -128,4 +128,10 @@ func TestDaemonProtobufRegistryIncludesStaticPeripheralMethods(t *testing.T) {
 		&agentrewire.SkillCatalogRequest{BackendType: "nonesuch"}, func() *agentrewire.SkillCatalogResponse { return &agentrewire.SkillCatalogResponse{} })
 	require.NoError(t, err)
 	require.Equal(t, "unsupported", skills.Discovery)
+
+	// agentred 这一侧也必须认识命令清单 —— 远端档的 skill 只有它答得出。
+	commands, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS),
+		&agentrewire.SkillCommandsRequest{BackendType: "nonesuch"}, func() *agentrewire.SkillCommandsResponse { return &agentrewire.SkillCommandsResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, "unsupported", commands.Discovery)
 }

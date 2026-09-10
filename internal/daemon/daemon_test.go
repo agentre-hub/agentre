@@ -157,7 +157,7 @@ func TestDaemon_SessionUpsertStaysIdempotentOnTheNewKey(t *testing.T) {
 		BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning, Title: "第二轮",
 	}), "同一条对话的第二轮起手必须更新同一行,而不是撞主键或落在一个不存在的约束上")
 
-	rows, err := d.sessionStore.List(ctx, "peerA", "", 0, 0)
+	rows, err := d.sessionStore.List(ctx, "peerA", handlers.SessionListFilter{}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "同一条对话只能有一行")
 	assert.Equal(t, "第二轮", rows[0].Title, "冲突分支必须真的更新了那一行")

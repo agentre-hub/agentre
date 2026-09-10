@@ -82,6 +82,7 @@ type chatImportSvc struct {
 	messages      MessagePort
 	agents        AgentPort
 	agentBackends AgentBackendPort
+	syncState     SyncStatePort
 
 	// running 是「正在写的那几笔导入」的 cancel 函数,key = 前端发起时给的
 	// RequestID。取消走它而不是关连接:导入是一次同步调用,中断只能从外面另
@@ -100,6 +101,7 @@ func newSvc() *chatImportSvc {
 		messages:      messageRepoDelegate{},
 		agents:        agentRepoDelegate{},
 		agentBackends: agentBackendRepoDelegate{},
+		syncState:     syncStateRepoDelegate{},
 		sources:       deviceSources,
 	}
 }

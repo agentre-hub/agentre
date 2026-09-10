@@ -15,6 +15,14 @@ import (
 // errInvalidDevice 是设备 id 本身不合法(负数)。
 var errInvalidDevice = errors.New("chat_import_svc: invalid device id")
 
+// ErrAgentNotFound 是调用方点名的 AgentSyncID 在本机解不出本地 Agent(同步还没落地 /
+// 该 Agent 已删除)。
+//
+// 它是哨兵而不是 i18n 错误码:这条路只有**跨机**调用方走得到(本机导入交的是本地
+// 主键),消费者是 RPC 边界而不是前端 —— 边界据它答「你给的参数在这台机器上不成立」,
+// 而不是一句只会把人引去查本机日志的 internal。
+var ErrAgentNotFound = errors.New("chat_import_svc: agent not found for sync id")
+
 // failed 把一个内部错误翻成带原因的用户可见错误,并记一条日志。
 //
 // 隐私红线(spec「隐私」):日志只记数量、耗时、失败原因与不透明标识 —— 后端类型、

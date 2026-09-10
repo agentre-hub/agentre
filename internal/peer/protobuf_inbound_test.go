@@ -9,9 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/agentre-hub/agentre/internal/daemon/protobufadapter"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -51,7 +51,7 @@ func (p *peerProtoPipe) Done() <-chan struct{} { return p.done }
 
 func TestProtobufInboundRegistryAuthenticatesAndReusesPeripheralAdapters(t *testing.T) {
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
-		Peripheral:              protobufadapter.PeripheralDeps{RemoteFS: remotefs.NewHandlers(remotefs.Options{})},
+		Peripheral:              wireinbound.PeripheralDeps{RemoteFS: remotefs.NewHandlers(remotefs.Options{})},
 		VerifyAccountCredential: func(context.Context, string) (string, error) { return "peer-1", nil },
 	})
 	clientTransport, serverTransport := peerProtoPipePair()

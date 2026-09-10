@@ -482,19 +482,8 @@
     "notSharedWithAI": "Not sent to AI"
   },
   "slashCommands": {
-    "compact": {
-      "description": "Compact the chat context and keep only the summary"
-    },
-    "goal": {
-      "description": "Set or view the current Codex goal"
-    },
     "new": {
       "description": "Start a new chat with the same setup"
-    },
-    "skill": {
-      "claudeDescription": "Invoke a Claude Code skill",
-      "codexDescription": "Invoke a Codex skill",
-      "piDescription": "Invoke a Pi skill"
     }
   },
   "taskProgress": {
