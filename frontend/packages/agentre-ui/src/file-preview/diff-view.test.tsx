@@ -1,9 +1,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { MonacoNS } from "@/lib/file-preview/monaco-loader";
-
-import { DiffPreview } from "../diff-view";
+import { DiffPreview } from "./diff-view";
+import type { MonacoNS } from "./monaco";
 
 type FakeModel = {
   value: string;
@@ -140,5 +139,19 @@ describe("DiffPreview", () => {
     expect(models[1].dispose).toHaveBeenCalledTimes(1);
     expect(models[2].dispose).not.toHaveBeenCalled();
     expect(models[3].dispose).not.toHaveBeenCalled();
+  });
+
+  it("renders an empty container until the host injects a namespace", () => {
+    const { monaco, editor } = createFakeMonaco();
+
+    const { rerender } = render(
+      <DiffPreview original="a" modified="b" path="x.go" monaco={null} />,
+    );
+    expect(editor.createDiffEditor).not.toHaveBeenCalled();
+
+    rerender(
+      <DiffPreview original="a" modified="b" path="x.go" monaco={monaco} />,
+    );
+    expect(editor.createDiffEditor).toHaveBeenCalledTimes(1);
   });
 });

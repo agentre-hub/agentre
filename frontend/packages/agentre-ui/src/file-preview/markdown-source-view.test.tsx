@@ -1,9 +1,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { MonacoNS } from "@/lib/file-preview/monaco-loader";
-
-import { MarkdownSourceView } from "../markdown-source-view";
+import { MarkdownSourceView } from "./markdown-source-view";
+import type { MonacoNS } from "./monaco";
 
 function createFakeMonaco() {
   const editor = {
@@ -33,5 +32,14 @@ describe("MarkdownSourceView", () => {
       language: "markdown",
       value: "# Title\n\nbody",
     });
+  });
+
+  // 源码档锁 markdown：路径的扩展名（.mdx / .txt…）不许把语言抢回去。
+  it("keeps the markdown language even when the path suggests another one", () => {
+    const { monaco, editor } = createFakeMonaco();
+
+    render(<MarkdownSourceView value="# t" path="notes.txt" monaco={monaco} />);
+
+    expect(editor.create.mock.calls[0][1].language).toBe("markdown");
   });
 });

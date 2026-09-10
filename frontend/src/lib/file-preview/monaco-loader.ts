@@ -2,11 +2,13 @@
 // 全仓库唯一触碰真实 Monaco 的模块。真实 monaco 走动态 import（懒加载独立 chunk，
 // 不进初始包）+ 动态 import 的 worker 环境模块，离线桌面可跑、happy-dom 单测绝不执行。
 //
+// 内容视图（CodePreview / DiffPreview / MarkdownSourceView）住在共享包里，命名空间
+// 由这里装载后经 `monaco` prop 注进去（use-monaco.ts 是那一层 React 接缝）。
+//
 // 组件测试 / task 6 测试的两种接缝（任选其一，推荐 1）：
-//   1. 给组件传 monaco prop（fake 命名空间，见 file-preview 组件签名）；
+//   1. 给组件传 monaco prop（fake 命名空间，见共享包 file-preview 组件签名）；
 //   2. vi.mock("@/lib/file-preview/monaco-loader", () => ({ loadMonaco: vi.fn() }))
-//      ，把 loadMonaco 替换成 resolve fake 的 stub —— 组件不传 monaco prop 时
-//      走这条路径。
+//      ，把 loadMonaco 替换成 resolve fake 的 stub —— 面板走的就是这条路径。
 //
 // spike 结论（task 5）：裸 monaco-editor + Vite `?worker`，不用 @monaco-editor/react。
 // 离线 + //go:embed 禁止 CDN，@monaco-editor/react 的 @monaco-editor/loader 默认
@@ -19,11 +21,12 @@
 // monaco-editor（editor.main 连带 ts/css/html/json 语言服务，ts.worker 单文件
 // ~7MB）或 esm/vs/language/* 语言服务。
 
-// editor.api 的类型面（editor / languages / Uri 等）对只读预览已够用。
-// monaco-editor 0.56 的 exports 映射自带 esm/vs/ 前缀，深导入子路径不带前缀。
-export type MonacoNS = typeof import("monaco-editor/editor/editor.api");
+import type { MonacoNS } from "@agentre-hub/agentre-ui";
 
-export type MonacoCodeEditor = ReturnType<MonacoNS["editor"]["create"]>;
+// 命名空间的类型由共享包持有（那边的内容视图按它收 prop），这里只转发 —— 两份
+// 同名类型各自演化正是抽包要避免的那种分叉。
+export type { MonacoNS };
+
 let cached: Promise<MonacoNS> | null = null;
 
 /** 动态加载 Monaco 命名空间（幂等，进程内单例）。 */

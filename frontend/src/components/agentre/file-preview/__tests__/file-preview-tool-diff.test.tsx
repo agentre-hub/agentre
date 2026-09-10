@@ -12,9 +12,20 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
     gitFileContentMock(...args),
 }));
 
-// Monaco 在 happy-dom 里跑不起来。「本次会话」档不该走到它,这个 mock 只是保证
-// 万一走到了,失败是断言不成立而不是加载器炸掉。
-const loaderMocks = vi.hoisted(() => ({ loadMonaco: vi.fn() }));
+// Monaco 在 happy-dom 里跑不起来。「本次会话」档不该走到它 —— 下面有一条用例
+// 专门钉「这一档一次都不装载」;这个 mock 只是保证万一走到了,失败是断言不成立
+// 而不是加载器炸掉(所以它回的是一个真 Promise,装载好的命名空间由面板经 prop
+// 注给共享包的内容视图)。
+const loaderMocks = vi.hoisted(() => ({
+  loadMonaco: vi.fn(async () => ({
+    editor: {
+      create: () => ({ setValue() {}, dispose() {} }),
+      createDiffEditor: () => ({ setModel() {}, dispose() {} }),
+      createModel: () => ({ dispose() {} }),
+      setTheme() {},
+    },
+  })),
+}));
 vi.mock("@/lib/file-preview/monaco-loader", () => loaderMocks);
 
 import type { chat_svc } from "@/../wailsjs/go/models";
@@ -137,7 +148,7 @@ describe("FilePreviewPanel · 「本次会话」的工具 diff", () => {
   // Given 同一个文件被两次工具调用改过(第二次改的是第一次改完的内容),
   // When 从「本次会话」点开这一行,
   // Then 看到的是重放出的**一个连续 diff**:动手前 → 最后一次动完,
-  //      中间态不出现;并且这一档不读文件、不读 git。
+  //      中间态不出现;并且这一档不读文件、不读 git,也不装载 Monaco。
   it("replays every tool call on the file into one continuous diff", async () => {
     const messages = [
       // 绝对路径与相对路径指向同一个文件,两次都要算进去。
@@ -166,6 +177,8 @@ describe("FilePreviewPanel · 「本次会话」的工具 diff", () => {
 
     expect(readFileMock).not.toHaveBeenCalled();
     expect(gitFileContentMock).not.toHaveBeenCalled();
+    // 这一档画的是重放出来的行 diff,Monaco 那个懒加载 chunk 一次都不该拉。
+    expect(loaderMocks.loadMonaco).not.toHaveBeenCalled();
   });
 
   // Given 多工作根会话:同一条相对路径在会话 cwd 与 worktree 里各有一个文件,

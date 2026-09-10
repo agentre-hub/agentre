@@ -1,18 +1,13 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { MonacoNS } from "@/lib/file-preview/monaco-loader";
+import { CodePreview } from "./code-view";
+import type { MonacoNS } from "./monaco";
 
-import { CodePreview } from "../code-view";
-
-// 真实 Monaco 在 happy-dom 里不可运行（worker / canvas）。测试走两条 mock 接缝：
-// 1) monaco prop 注入 fake 命名空间（本文件的默认路径）；
-// 2) vi.mock monaco-loader 返回 fake loadMonaco（下面 loadMonaco seam 测试）。
-// fake monaco 只实现组件用到的 editor API 面，断言组件把正确的选项转发给 Monaco。
-// vi.mock 必须位于模块顶层（vitest 未来会禁止嵌套）。
-const loaderMocks = vi.hoisted(() => ({ loadMonaco: vi.fn() }));
-vi.mock("@/lib/file-preview/monaco-loader", () => loaderMocks);
-
+// 真实 Monaco 在 happy-dom 里不可运行（worker / canvas），而装载器按设计留在宿主
+// （Vite `?worker` 进不了本包的纯 tsc 构建）。包里的唯一接缝因此是 `monaco` prop：
+// 用例注入一个只实现被用到的那几个 API 的 fake 命名空间，断言组件把正确的选项
+// 转发给 Monaco。
 type FakeEditor = {
   options: Record<string, unknown>;
   setValue: ReturnType<typeof vi.fn>;
@@ -95,20 +90,22 @@ describe("CodePreview", () => {
 
     expect(editors[0].dispose).toHaveBeenCalledTimes(1);
   });
-});
 
-describe("CodePreview loadMonaco seam", () => {
-  // 不传 monaco prop 时组件应经 monaco-loader 动态加载 —— 这是 task 6 测试
-  // vi.mock("@/lib/file-preview/monaco-loader") 时的接缝路径。
-
-  it("loads monaco through the loader when no monaco prop is injected", async () => {
+  // 宿主的装载是异步的（懒加载一个独立 chunk）：命名空间到位之前 prop 是 null，
+  // 那一段时间里容器必须只是空的，不能崩、也不能自己去 import monaco。
+  it("renders an empty container until the host injects a namespace", () => {
     const { monaco, editor } = createFakeMonaco();
-    loaderMocks.loadMonaco.mockResolvedValue(monaco);
 
-    render(<CodePreview value="x" path="a.go" />);
+    const { container, rerender } = render(
+      <CodePreview value="x" path="a.go" monaco={null} className="h-full" />,
+    );
+    expect(editor.create).not.toHaveBeenCalled();
+    expect(container.querySelector("div")).not.toBeNull();
 
-    expect(loaderMocks.loadMonaco).toHaveBeenCalled();
-    await waitFor(() => expect(editor.create).toHaveBeenCalledTimes(1));
+    rerender(
+      <CodePreview value="x" path="a.go" monaco={monaco} className="h-full" />,
+    );
+    expect(editor.create).toHaveBeenCalledTimes(1);
   });
 });
 

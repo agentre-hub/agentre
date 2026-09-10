@@ -1,13 +1,11 @@
 import * as React from "react";
 
-import { monacoLanguageForPath } from "@/lib/file-preview/monaco-language";
-import type { MonacoNS } from "@/lib/file-preview/monaco-loader";
-
+import { monacoLanguageForPath } from "./monaco-language";
 import {
   resolveMonacoTheme,
-  useMonaco,
   useMonacoThemeSync,
-} from "./use-monaco";
+  type MonacoNS,
+} from "./monaco";
 
 export type DiffPreviewProps = {
   /** 左列 = HEAD 版本（未跟踪文件传空串 → 全部新增）。 */
@@ -18,7 +16,7 @@ export type DiffPreviewProps = {
   path?: string;
   /** 显式 Monaco 语言 id，优先于 path 推断。 */
   language?: string;
-  /** 注入 seam：happy-dom 单测传入 fake monaco（见 monaco-loader 注释）。 */
+  /** 宿主注入的 Monaco 命名空间（同 CodePreview，见 ./monaco）。 */
   monaco?: MonacoNS | null;
   /** Monaco 无障碍标签（读屏）。 */
   ariaLabel?: string;
@@ -26,7 +24,7 @@ export type DiffPreviewProps = {
 };
 
 // 只读 diff 渲染器（Monaco diff editor）：左 = HEAD 版本、右 = 工作区。
-// 与 CodePreview 复用同一份动态加载的 Monaco 命名空间单例（见 monaco-loader）。
+// 与 CodePreview 共用宿主注入的同一份 Monaco 命名空间单例（见 ./monaco）。
 // 内容（original/modified）变化时重建 diff editor —— 预览刷新频率低（轮次结束 /
 // 切文件），重建可接受，且 setModel 模型所有权交由 diff editor 在 dispose 时释放。
 export function DiffPreview({
@@ -39,7 +37,7 @@ export function DiffPreview({
   className,
 }: DiffPreviewProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const ns = useMonaco(monaco);
+  const ns = monaco ?? null;
   const lang = language ?? (path ? monacoLanguageForPath(path) : "plaintext");
   useMonacoThemeSync(ns);
 

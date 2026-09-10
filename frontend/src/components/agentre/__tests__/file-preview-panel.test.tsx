@@ -323,7 +323,9 @@ describe("FilePreviewPanel", () => {
     expect(within(panel).queryByRole("button", { name: "Text" })).toBeNull();
   });
 
-  it("shows the binary state and a retry for a binary file", async () => {
+  // 二进制是**终态**（spec「失败与恢复」：只有对端离线给重试）。改造前这里还画着
+  // 一个重试按钮 —— 点下去必然还是这句话，比不给更糟，随面板搬进共享包一并去掉。
+  it("shows the binary state with no action for a binary file", async () => {
     readFileMock.mockResolvedValue({
       content: "",
       contentType: "",
@@ -339,9 +341,7 @@ describe("FilePreviewPanel", () => {
     expect(
       await within(panel).findByText(/Binary file, cannot preview/),
     ).toBeInTheDocument();
-    expect(
-      within(panel).getByRole("button", { name: /Retry/i }),
-    ).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /Retry/i })).toBeNull();
   });
 
   it("shows the too-large state with the image threshold hint for images", async () => {

@@ -79,7 +79,8 @@ type Daemon struct {
 	engineSnapshot *enginesnapshot.Manager
 
 	// db is agentred's own SQLite handle (session durability: daemon_sessions
-	// + daemon_notification_journal — see internal/daemon/migrations). Deliberately
+	// + the transcript tables chat_messages / chat_message_blocks /
+	// chat_frame_seqs — see internal/daemon/migrations). Deliberately
 	// a per-instance field, never a package-level global set via db.SetDefault:
 	// integration_test.go constructs several Daemon values in one test process,
 	// and a global would make them silently share one database. Callers reach

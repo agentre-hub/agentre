@@ -83,6 +83,23 @@ describe("file-preview-tabs-store", () => {
     expect(tabAt(7, "a.md")?.isPreview).toBe(false);
   });
 
+  // 转录里点一条文件路径(desktopTranscriptPorts.previewFile,入口模式
+  // "directory")与从侧栏点开同一个文件必须落在同一个标签——两个入口共用同一批
+  // 标签、同一套临时/常驻语义(spec「两端的入口」「决策 9」),不是转录另开一份。
+  it("reuses the tab a sidebar row already opened when the transcript opens the same relPath", () => {
+    store().openPreview(7, "src/foo.go", "session");
+
+    // 转录的 previewFile 分流复用同一个 store 动作,入口模式是 directory。
+    store().openPreview(7, "src/foo.go", "directory");
+
+    expect(paths(7)).toEqual(["src/foo.go"]);
+    expect(activePath(7)).toBe("src/foo.go");
+    // 第二次点击只是激活既有标签，没有把它拉出临时态又立刻替换成第二份。
+    expect(tabAt(7, "src/foo.go")?.isPreview).toBe(true);
+    // 入口模式仍决定首视图:从转录进来的这一次把它重指向「读当前内容」。
+    expect(tabAt(7, "src/foo.go")?.sourceMode).toBe("directory");
+  });
+
   it("re-points an already open tab at the mode it was re-opened from", () => {
     store().openPreviewInNewTab(7, "a.go", "directory");
     store().setPreviewSegment(7, "split");

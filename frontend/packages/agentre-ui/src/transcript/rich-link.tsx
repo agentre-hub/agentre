@@ -19,16 +19,39 @@ import {
 import { cn } from "../lib/utils";
 import { copyTextWithToast } from "../lib/clipboard-toast";
 import { classifyLink, type LinkClass } from "../lib/link-classify";
+import { previewKind } from "../lib/previewable";
 import { useTranscriptPorts } from "./ports-context";
 import type { TranscriptPorts } from "./ports";
 
 const HOVER_OPEN_DELAY_MS = 200;
 const HOVER_CLOSE_DELAY_MS = 200;
 
+/**
+ * 这条链接能不能交给内置预览,以及交的是哪条会话级 relPath。null = 不能。
+ *
+ * 「在不在 cwd 内」只判一次:classifyLink 已经判过了,`local-internal` 的
+ * `relPath` 就是它的答案,也是 popover 里显示给用户的那一条。分流处不再拿第二个
+ * 函数重判一遍——`toRelPath` 的前缀比对大小写敏感、且按 cwd 的分隔符切,而
+ * classifyLink 在 Windows 上是大小写不敏感、先归一分隔符再比;转录里的路径是
+ * agent 自己写出来的(盘符大小写、分隔符都可能与 cwd 对不上),两处一分叉,链接就
+ * 会一边显示成 cwd 内的可预览文件、一边接不上预览。
+ *
+ * 留给 previewable.ts 的仍是它唯一该管的那件事:扩展名 allowlist(`previewKind`)
+ * ——内置预览渲染不了的类型一律不进这条路。空串 relPath(链接指向 cwd 本身)同样
+ * 不是一个可预览的文件。
+ */
+function previewRelPath(kind: LinkClass): string | null {
+  if (kind.kind !== "local-internal") return null;
+  if (kind.relPath === "" || previewKind(kind.relPath) === null) return null;
+  return kind.relPath;
+}
+
 type RichLinkProps = {
   href?: string;
   className?: string;
   cwd?: string;
+  /** 会话 id;previewFile 分流需要它(与 readWorkspaceFile 同一种形状)。 */
+  sessionId?: number;
   children: React.ReactNode;
 };
 
@@ -96,20 +119,47 @@ async function copyToClipboard(text: string, t: TFunction) {
   });
 }
 
-function dispatchClick(kind: LinkClass, t: TFunction, ports: TranscriptPorts) {
+function openWithExternalApp(
+  kind: LinkClass,
+  t: TFunction,
+  ports: TranscriptPorts,
+) {
+  ports.openPath?.(fullTarget(kind))?.catch((err: unknown) => {
+    toast.error(
+      t("richLink.openFailed", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  });
+}
+
+function dispatchClick(
+  kind: LinkClass,
+  t: TFunction,
+  ports: TranscriptPorts,
+  sessionId: number | undefined,
+) {
   switch (kind.kind) {
     case "url":
       ports.openExternalURL?.(kind.url);
       return;
-    case "local-internal":
+    case "local-internal": {
+      // 判定见 previewRelPath:判定不通过(扩展名不在内置预览的 allowlist)一律
+      // 交给外部应用,与设置无关。判定通过时才去问宿主的 previewFile——设置读取
+      // 留在宿主那一侧(见 ports.ts),这里只认它的布尔回执:true 表示宿主已接手,
+      // 不再退回 openPath;false / 端口缺失都退回今天的外部打开路线,字节不变
+      // (含 line:col 后缀)。
+      const relPath = previewRelPath(kind);
+      const tookOver =
+        relPath !== null &&
+        sessionId !== undefined &&
+        (ports.previewFile?.(sessionId, relPath) ?? false);
+      if (tookOver) return;
+      openWithExternalApp(kind, t, ports);
+      return;
+    }
     case "local-external":
-      ports.openPath?.(fullTarget(kind))?.catch((err: unknown) => {
-        toast.error(
-          t("richLink.openFailed", {
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
-      });
+      openWithExternalApp(kind, t, ports);
       return;
     case "unknown":
       // 不拦截，让浏览器走默认行为（target=_blank fallback）。
@@ -257,7 +307,13 @@ function LocalExternalPopover({
   );
 }
 
-export function RichLink({ href, className, cwd, children }: RichLinkProps) {
+export function RichLink({
+  href,
+  className,
+  cwd,
+  sessionId,
+  children,
+}: RichLinkProps) {
   const { t } = useUiTranslation();
   const ports = useTranscriptPorts();
   const kind = React.useMemo(() => classifyLink(href, cwd), [href, cwd]);
@@ -279,9 +335,29 @@ export function RichLink({ href, className, cwd, children }: RichLinkProps) {
     );
   }
 
+  // 「入口不渲染」而不是「渲染出来点了没反应」(spec「入口与可用性」)。判据是
+  // 「这条路径在这台宿主上到底有没有一个去处」,而不是「它可不可预览」:
+  //   - 内置预览:要 previewFile,且这条链接有一条可预览的 relPath(见
+  //     previewRelPath —— 与点下去真正分流用的是同一个判定,不是另判一遍);
+  //   - 外部应用:要 openPath —— 桌面端的退路,浏览器里根本没有这个去向。
+  // 两条都不成立时它就不该看起来能点。控制台里 allowlist 外的路径(「它没有
+  // 『交给外部应用』这条退路」)与越出 cwd 的路径都落在这里。这条判定只看端口
+  // 能力,不看 files.open_action(设置只决定两条路都在时走哪条,与「有没有路」无关)。
+  const canPreview =
+    typeof ports.previewFile === "function" &&
+    sessionId !== undefined &&
+    previewRelPath(kind) !== null;
+  if (
+    (kind.kind === "local-internal" || kind.kind === "local-external") &&
+    !canPreview &&
+    typeof ports.openPath !== "function"
+  ) {
+    return <span className={className}>{children}</span>;
+  }
+
   const onClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    dispatchClick(kind, t, ports);
+    dispatchClick(kind, t, ports, sessionId);
   };
 
   return (

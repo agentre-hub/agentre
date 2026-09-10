@@ -322,6 +322,7 @@ const MarkdownInner = React.memo(function MarkdownInner({
           href={href}
           className={typeof className === "string" ? className : undefined}
           cwd={cwd}
+          sessionId={sessionId}
         >
           {children}
         </RichLink>
@@ -339,7 +340,7 @@ const MarkdownInner = React.memo(function MarkdownInner({
       href?: string;
       children?: React.ReactNode;
     }) => (
-      <RichLink href={href} cwd={cwd}>
+      <RichLink href={href} cwd={cwd} sessionId={sessionId}>
         {children}
       </RichLink>
     );

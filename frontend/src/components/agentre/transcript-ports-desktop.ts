@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import type { MentionRef, TranscriptPorts } from "@agentre-hub/agentre-ui";
 
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
+import { useFileSettingsStore } from "@/stores/file-settings-store";
 
 import {
   AnswerToolApproval,
@@ -88,6 +90,25 @@ export const desktopTranscriptPorts = {
 
   attachTerminal(input) {
     useChatTabsStore.getState().attachTerminal(input);
+  },
+
+  // 设置读取留在这里(ports.ts 已经写明这是宿主的产品决策,包内不知道也不该知道
+  // files.open_action):"preview" 时开/复用既有右侧栏预览标签并回 true,调用方
+  // (RichLink 的 dispatchClick)据此不再退回 openPath;"external" 时什么都不做,
+  // 回 false,调用方退回今天的外部打开路线(byte-identical,含 line:col 后缀)。
+  // 读 .getState() 而不是订阅:这是一次性的点击响应,不需要 ports 对象本身随
+  // 设置变化重建。
+  //
+  // 入口模式是 "directory":转录里点一条路径要看的是「这个文件**现在**长什么样」
+  // (spec「入口与可用性」),面板据此走 readFile 读工作区正文。不能是 "session"
+  // ——那是侧栏「本次会话」档的工具 diff,一次取数都不打。
+  previewFile(sessionId, path) {
+    const { openAction } = useFileSettingsStore.getState().settings;
+    if (openAction === "external") return false;
+    useFilePreviewTabsStore
+      .getState()
+      .openPreview(sessionId, path, "directory");
+    return true;
   },
 } satisfies TranscriptPorts;
 

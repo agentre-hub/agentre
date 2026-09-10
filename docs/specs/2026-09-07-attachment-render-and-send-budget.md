@@ -1,7 +1,7 @@
 # 附件在转录里画成一张图,发送侧立得住总量上限
 
 > Status: Approved
-> Owner: agentre desktop / agentred / 共享转录包
+> Owner: agentre(wire 契约 / agentred 投影 / 共享转录包)+ agentre-server(钉 pin 与消费侧守卫)
 > Last updated: 2026-09-07
 
 **Objective:** 让**控制台经中继发给远端 agentred** 的那张图,在转录里画成一张图并归在用户自己名下;并让「一次贴得太多」变成一句就地的拒绝,而不是把那台机器的全部会话一起打断线。
@@ -13,7 +13,7 @@
 1. **块级帧不回退。** 一块一帧、用户消息可占多帧(`2026-09-05-transcript-storage-alignment`),游标闸门按最低号推进(`2026-09-07-host-transcript-user-input` 决策 4)。本轮新增的帧种类照这条走,不把附件与正文合成一个帧位。
 2. **不识别的块仍如实呈现。** R8 兜底(`UnrecognizedBlock`)保留,本轮只是让 image 不再需要它,不是拆掉它。
 3. **超载不得拆掉物理连接。** 任何输入侧的量都不许再走到 1009 那条路上。
-4. **image 帧不得走 `$proto` 逃生路。** `2026-09-07-journal-payload-json` 把「`wireview` 投影不出来的帧」兜成 `{"$proto": "<base64>"}`,并写明「逃生路是第二道闸,不是主路」。新增一个 kind 而漏了 `wireview` 的注册,后果不是报错而是**每一张图都绕这条路**——库里存的是一坨 base64 protobuf,这一列存在的理由(可直接读)当场失效。
+4. **image 帧不得走 `$proto` 逃生路。** `2026-09-07-journal-payload-json`(agentre-server)把「`wireview` 投影不出来的帧」兜成 `{"$proto": "<base64>"}`,并写明「逃生路是第二道闸,不是主路」。落进那条路的后果不是报错而是**每一张图都绕行**——库里存的是一坨 base64 protobuf,那一列存在的理由(可直接读)当场失效。
 
 ## Problem
 
@@ -60,7 +60,7 @@
 | 3 | 只贴图不打字时 image 帧是**首帧**,此时新建那条用户消息 | 没有文本就没有 `user_message` 帧,而这一档是发得出去的一条(提交键在有图时启用)。同一条规则覆盖两种块序,不分叉 |
 | 4 | 新 reducer **同时认** `blockType === "image"` 的 `UnrecognizedBlock`,落点与新事件相同 | 问题 3:`session.pull` 原样重放 agentred 日志里**当时**那一份,而那份日志永久保存 —— 老形态因此是永久的,不是过渡期的。这不是"少等一会儿"的优化,是**唯一**能让升级前那些图画出来的办法。Rejected: 只认新事件 —— 那些图永远停在 notice |
 | 8 | image 事件的字节走 `messageMap` 的 `BytesKind → base64` 默认投射,**不进 `putRawJSON`** | `putRawJSON` 是给「本该是 JSON 的字节」用的(`input` / `canonical` / `meta` / `data`),它解不动时包成 `{"$b64": ...}` 消歧义。图片字节从来不是 JSON,一定解不动,于是一定被包 —— 白给消费方多一层壳,而 `source.inline` 这一格的语义从来不含糊。Rejected: 一并走 `putRawJSON` —— 为一个不存在的歧义付一层包装 |
-| 9 | 新 kind 必须在 `wireview` 注册,不靠 `$proto` 兜 | 硬不变量 4。`TestNotificationViewCoversEveryRuntimeEventCase` 在构建期挡这件事,所以它是机械保证而不是纪律 |
+| 9 | 判别值只写在 `.proto` 的 `(agentre.wire.event_kind)` 选项上,`wireview` 不加分支 | 已核实:`pkg/wire/eventkind/eventkind.go:40` 的 `Of` 纯反射读那个选项,`wireview`(在 **agentre-server**)的 switch 只服务需要特例的 kind。决策 8 既然要默认投射,这一档就什么都不必加 —— 硬不变量 4 因此由「proto 选项标对了」保证,而不是由记得改另一个仓保证。`TestNotificationViewCoversEveryRuntimeEventCase` 是那一侧的兜底守卫 |
 | 5 | 附件总量上限**从 `wirelimits.MaxPayloadBytes` 推导**,取其 2/3 作为原始字节预算 | `wirelimits.go` 自己记着「三处曾经不同源」的教训,新写一个字面量就是再犯一次。2/3 原始 → base64 后占满 8/9,余下 1/9(约 1.16 MB)给正文、提及与其余字段。Rejected: 取一半 —— 更安全但把今天能用的组合(两张 3 MB)也拒掉,是一次没有理由的功能收缩 |
 | 6 | 这个上限**生成**到 TS,不手抄 | 与 `event-kinds.gen.ts` 同一条理由:只有生成物才谈得上「漂移在机械上不可能」,而这个常量正是漂移过的那一个。Rejected: 前端手写 + 守卫测试 —— 本仓已有生成器,多一种同步方式没有收益 |
 | 7 | 超量在**共享包 composer**就地拒绝,两个宿主各自再兜一道 | 用户要的是「按下之前就知道」;而宿主不能信任客户端(老版本控制台、别的实现)。宿主侧拒绝整轮,与「附件解不开就拒绝整轮」(`2026-09-07-host-transcript-user-input` 决策 3)同一条纪律 |
@@ -138,7 +138,7 @@
 | 共享包 `ChatComposer` | 贴到超过总量预算时:这一张被拒、说明说的是总量、先前贴的仍在 | `chat-composer.test.tsx` 既有的张数/格式拒绝用例 |
 | `chat_svc` 发送入口 | 宿主侧总量校验:超量拒绝整轮,不截断附件 | `chat_test.go` 既有的图片能力校验用例 |
 | agentred `runtime.run` 参数解码 | 同上,在另一个宿主上 | `handlers/runtime_test.go` 的 `decodeUserBlocks` 用例 |
-| `wireview.Notification()` | 新 kind 投影得出 `{kind, ...}` 视图而**不落 `$proto`**;字节格投成裸 base64 而不是 `{"$b64": ...}` | `TestNotificationViewCoversEveryRuntimeEventCase`(穷举守卫,漏注册即红) |
+| `wireview.Notification()`(**agentre-server**,钉新 pin 之后) | 新 kind 投影得出 `{kind, ...}` 视图而**不落 `$proto`**;字节格投成裸 base64 而不是 `{"$b64": ...}` | `TestNotificationViewCoversEveryRuntimeEventCase`(穷举守卫;本轮预期它无需改动即绿,红了说明 proto 选项没标对) |
 | 生成器 `TestGeneratedTSFresh` | 新增的事件 kind 与预算常量两处产物逐字节一致 | 既有守卫,无需新写 |
 
 **自动化覆盖不到的一处:** 「一张真图在浏览器里确实画出来了」——jsdom 不做布局也不解码图片,单测只证得到 DOM 上有一个 `src` 正确的 `<img>`。真正看一眼要在 `agentre-server` 的 `e2e/` 里驱一次(`pnpm serve` + `pnpm drive`,证据是截图),按该仓 `docs/verification.md` 的 scratch 流程走。

@@ -28,6 +28,9 @@ import { RichLink } from "./rich-link";
 // RichLink 的副作用全部走 TranscriptPorts(不再直接 import Wails 绑定),断言打在端口上。
 const openPathMock = vi.fn<(path: string) => Promise<void>>();
 const openExternalURLMock = vi.fn<(url: string) => void>();
+// previewFile 默认返回 falsy(undefined):现有用例都不传 sessionId,dispatchClick
+// 因此根本不会调它;传了 sessionId 但没显式配置返回值的用例也据此退回 openPath。
+const previewFileMock = vi.fn<(sessionId: number, path: string) => boolean>();
 
 const testPorts: TranscriptPorts = {
   answerToolPermission: async () => {},
@@ -37,21 +40,29 @@ const testPorts: TranscriptPorts = {
   resolvePlanAction: async () => ({}),
   openPath: openPathMock,
   openExternalURL: openExternalURLMock,
+  previewFile: previewFileMock,
 };
 
-function PortsWrapper({ children }: { children: React.ReactNode }) {
-  return (
-    <TranscriptPortsProvider ports={testPorts}>
-      {children}
-    </TranscriptPortsProvider>
-  );
+function renderWithPorts(
+  ui: React.ReactElement,
+  ports: TranscriptPorts,
+  options?: Omit<RenderOptions, "wrapper">,
+) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <TranscriptPortsProvider ports={ports}>
+        {children}
+      </TranscriptPortsProvider>
+    ),
+    ...options,
+  });
 }
 
 function render(
   ui: React.ReactElement,
   options?: Omit<RenderOptions, "wrapper">,
 ) {
-  return rtlRender(ui, { wrapper: PortsWrapper, ...options });
+  return renderWithPorts(ui, testPorts, options);
 }
 
 const CWD = "/Users/me/proj";
@@ -59,6 +70,7 @@ const CWD = "/Users/me/proj";
 beforeEach(() => {
   openPathMock.mockReset().mockResolvedValue(undefined);
   openExternalURLMock.mockReset();
+  previewFileMock.mockReset();
   sonnerMocks.toast.success.mockReset();
   sonnerMocks.toast.error.mockReset();
 });
@@ -360,6 +372,239 @@ describe("RichLink", () => {
       ).toBeInTheDocument();
       // CWD value should NOT appear in external popover.
       expect(screen.queryByText(CWD)).not.toBeInTheDocument();
+    });
+  });
+
+  // 桌面端转录点一条 cwd 内、扩展名在 allowlist 内的文件路径时,去向跟随
+  // files.open_action;设置读取留在宿主的 previewFile 实现里(见 ports.ts),
+  // dispatchClick 只认它的布尔回执:true = 宿主已接手,不再退回 openPath;
+  // false / 端口不存在 = 退回今天的外部打开路线,一字不改(spec「入口与可用性」)。
+  describe("previewFile routing (files.open_action)", () => {
+    const SESSION_ID = 7;
+
+    it("Given the host reports it took over preview, When a previewable in-cwd path is clicked, Then previewFile is called with the session relPath and openPath is never called", () => {
+      previewFileMock.mockReturnValue(true);
+      render(
+        <RichLink
+          href="/Users/me/proj/src/foo.go"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          foo.go
+        </RichLink>,
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: /foo\.go/ }));
+
+      expect(previewFileMock).toHaveBeenCalledWith(SESSION_ID, "src/foo.go");
+      expect(openPathMock).not.toHaveBeenCalled();
+    });
+
+    it("Given the host declines (files.open_action = external), When a previewable in-cwd path is clicked, Then it falls back to openPath with the byte-identical full target", () => {
+      previewFileMock.mockReturnValue(false);
+      render(
+        <RichLink
+          href="/Users/me/proj/src/foo.go:42"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          foo.go:42
+        </RichLink>,
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: /foo\.go:42/ }));
+
+      expect(previewFileMock).toHaveBeenCalledWith(SESSION_ID, "src/foo.go");
+      expect(openPathMock).toHaveBeenCalledWith("/Users/me/proj/src/foo.go:42");
+    });
+
+    it("Given an extension outside the preview allowlist, When clicked, Then it always goes to openPath and previewFile is never consulted, regardless of what the host would return", () => {
+      previewFileMock.mockReturnValue(true);
+      render(
+        <RichLink
+          href="/Users/me/proj/data.bin"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          data.bin
+        </RichLink>,
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: /data\.bin/ }));
+
+      expect(previewFileMock).not.toHaveBeenCalled();
+      expect(openPathMock).toHaveBeenCalledWith("/Users/me/proj/data.bin");
+    });
+
+    it("Given a path outside the session cwd, When clicked, Then it always goes to openPath and previewFile is never consulted, regardless of what the host would return", () => {
+      previewFileMock.mockReturnValue(true);
+      render(
+        <RichLink
+          href="/usr/local/bin/agentred"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          agentred
+        </RichLink>,
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: /agentred/ }));
+
+      expect(previewFileMock).not.toHaveBeenCalled();
+      expect(openPathMock).toHaveBeenCalledWith("/usr/local/bin/agentred");
+    });
+
+    // 「在不在 cwd 内」只该判一次。classifyLink 已经判过了(Windows 上按大小写
+    // 不敏感比对,这也是转录里 agent 自己写出来的路径的真实形状:盘符大小写与
+    // 分隔符都跟 cwd 对不上),它给出的 relPath 就是标签的身份。分流处再拿一个
+    // 大小写敏感、按 cwd 分隔符切的函数重判一次,两处的答案会在 Windows 上分叉:
+    // 链接明明是 local-internal、popover 也照着 relPath 画着「src/foo.go」,预览
+    // 却接不上——桌面端悄悄退回外部应用,只接 previewFile 的宿主(控制台)那侧
+    // 更是把它渲染成不可点的纯文本。
+    it("Given a Windows session whose transcript link differs from cwd in drive-letter case, When clicked, Then it routes to previewFile with the same relPath the classification already resolved", () => {
+      previewFileMock.mockReturnValue(true);
+      render(
+        <RichLink
+          href="c:/users/me/proj/src/foo.go"
+          // JSX 字面量不处理转义,反斜杠 cwd 必须走表达式容器。
+          cwd={"C:\\Users\\me\\proj"}
+          sessionId={SESSION_ID}
+        >
+          foo.go
+        </RichLink>,
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: /foo\.go/ }));
+
+      expect(previewFileMock).toHaveBeenCalledWith(SESSION_ID, "src/foo.go");
+      expect(openPathMock).not.toHaveBeenCalled();
+    });
+
+    it("Given a host that still wires openPath, When previewFile is absent, Then it falls back to openPath exactly as a capability-less-for-preview host would", () => {
+      const hostOpenPath = vi
+        .fn<(path: string) => Promise<void>>()
+        .mockResolvedValue(undefined);
+      renderWithPorts(
+        <RichLink
+          href="/Users/me/proj/src/foo.go"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          foo.go
+        </RichLink>,
+        {
+          answerToolPermission: async () => {},
+          answerUserQuestion: async () => {},
+          answerToolApproval: async () => {},
+          resolveExecApproval: async () => ({ status: "resolved" }),
+          resolvePlanAction: async () => ({}),
+          openPath: hostOpenPath,
+          // previewFile 未接入 —— 与真实的「未来某个不支持预览的宿主」一致。
+        },
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: /foo\.go/ }));
+
+      expect(hostOpenPath).toHaveBeenCalledWith("/Users/me/proj/src/foo.go");
+    });
+
+    // 「入口不渲染」说的是这台宿主:previewFile 与 openPath 都没有,对这条 cwd 内、
+    // 扩展名在 allowlist 内的路径真的什么都做不了。这种宿主上它必须是不可交互的
+    // 纯文本,不能是一个点了没反应的死链接(spec「入口与可用性」)。
+    it("Given a host with neither previewFile nor openPath, When a previewable in-cwd path would otherwise be clickable, Then it renders as non-interactive text instead of a dead link", () => {
+      renderWithPorts(
+        <RichLink
+          href="/Users/me/proj/src/foo.go"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          foo.go
+        </RichLink>,
+        {
+          answerToolPermission: async () => {},
+          answerUserQuestion: async () => {},
+          answerToolApproval: async () => {},
+          resolveExecApproval: async () => ({ status: "resolved" }),
+          resolvePlanAction: async () => ({}),
+          // 既没有 openPath 也没有 previewFile —— 这台宿主对这个文件真的无处可去。
+        },
+      );
+
+      expect(
+        screen.queryByRole("link", { name: /foo\.go/ }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("foo.go")).toBeInTheDocument();
+    });
+
+    // 控制台形状的宿主:接了 previewFile,但**没有** openPath ——「交给外部应用」
+    // 这条退路在浏览器里根本不存在(spec「入口与可用性」:「控制台里不在
+    // allowlist 的不出入口——它没有『交给外部应用』这条退路」;越出 cwd 的同样
+    // 「不出入口」)。判据是「这条路径在这台宿主上有没有一个去处」,不是「它可不
+    // 可预览」。
+    const consolePorts = (
+      previewFile: TranscriptPorts["previewFile"],
+    ): TranscriptPorts => ({
+      answerToolPermission: async () => {},
+      answerUserQuestion: async () => {},
+      answerToolApproval: async () => {},
+      resolveExecApproval: async () => ({ status: "resolved" }),
+      resolvePlanAction: async () => ({}),
+      previewFile,
+      // openPath 未接入 —— 浏览器里没有「外部应用」这个去向。
+    });
+
+    it("Given a host with previewFile but no openPath, When the extension is outside the preview allowlist, Then it renders as non-interactive text", () => {
+      renderWithPorts(
+        <RichLink
+          href="/Users/me/proj/data.bin"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          data.bin
+        </RichLink>,
+        consolePorts(previewFileMock),
+      );
+
+      expect(
+        screen.queryByRole("link", { name: /data\.bin/ }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("data.bin")).toBeInTheDocument();
+    });
+
+    it("Given a host with previewFile but no openPath, When the path lies outside the session cwd, Then it renders as non-interactive text", () => {
+      renderWithPorts(
+        <RichLink
+          href="/usr/local/bin/agentred"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          agentred
+        </RichLink>,
+        consolePorts(previewFileMock),
+      );
+
+      expect(
+        screen.queryByRole("link", { name: /agentred/ }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("agentred")).toBeInTheDocument();
+    });
+
+    it("Given a host with previewFile but no openPath, When the path is previewable and inside the cwd, Then it stays clickable and routes to previewFile", () => {
+      previewFileMock.mockReturnValue(true);
+      renderWithPorts(
+        <RichLink
+          href="/Users/me/proj/src/foo.go"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          foo.go
+        </RichLink>,
+        consolePorts(previewFileMock),
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: /foo\.go/ }));
+
+      expect(previewFileMock).toHaveBeenCalledWith(SESSION_ID, "src/foo.go");
     });
   });
 });

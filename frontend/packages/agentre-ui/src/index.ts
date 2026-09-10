@@ -239,6 +239,48 @@ export {
   toRelPath,
 } from "./lib/previewable";
 export type { PreviewKind } from "./lib/previewable";
+// ── 文件预览的内容视图 ─────────────────────────────────────────────────────
+// previewKind 判出来的四类内容各有一个渲染器：代码 / 文本与 markdown 源码走
+// Monaco 只读（markdown 的渲染档是 MarkdownText），图片直接渲染，改动 diff 走
+// Monaco 的并排 diff。Monaco 命名空间由宿主经 `monaco` prop 注入——装载器与
+// worker 环境留在宿主（Vite `?worker` 进不了本包的纯 tsc 构建，见 ./file-preview/
+// monaco.ts）。
+export { CodePreview } from "./file-preview/code-view";
+export type { CodePreviewProps } from "./file-preview/code-view";
+export { DiffPreview } from "./file-preview/diff-view";
+export type { DiffPreviewProps } from "./file-preview/diff-view";
+export { MarkdownSourceView } from "./file-preview/markdown-source-view";
+export { ImagePreview } from "./file-preview/image-view";
+export type { ImagePreviewProps } from "./file-preview/image-view";
+export { monacoLanguageForPath } from "./file-preview/monaco-language";
+export type { MonacoCodeEditor, MonacoNS } from "./file-preview/monaco";
+export { basename, dirname } from "./file-preview/file-meta";
+// 预览标签条：开着哪些标签、谁是活动标签、动作落到哪个 store，全部由宿主经 props
+// 注入（桌面端是 file-preview-tabs-store，控制台是它自己的那份）。
+export { PreviewTabStrip } from "./file-preview/preview-tab-strip";
+export type {
+  FilePreviewTab,
+  PreviewTabStripProps,
+} from "./file-preview/preview-tab-strip";
+// 预览面板：读取走注入的 ports、状态走 props，宿主只剩一层装配根。七个态（四类
+// 内容 + tooLarge / binary / 文件不存在 / 对端离线）都在这里，两端一份实现。
+export {
+  FilePreviewPanel,
+  previewNeedsMonaco,
+} from "./file-preview/file-preview-panel";
+export type {
+  FilePreviewIconRenderer,
+  FilePreviewPanelProps,
+  FilePreviewSegment,
+  FilePreviewSourceMode,
+} from "./file-preview/file-preview-panel";
+// 失败归类留在宿主：它 reject 一个带 `kind` 的错误，面板据此分终态 / 可重试态。
+export type {
+  FilePreviewFailure,
+  FilePreviewFailureKind,
+  FilePreviewPorts,
+  GitFileContentResult,
+} from "./file-preview/ports";
 export { splitStreamingMarkdown } from "./lib/streaming-markdown";
 export type { SplitStreamingMarkdown } from "./lib/streaming-markdown";
 export { useCollapsible } from "./hooks/use-collapsible";

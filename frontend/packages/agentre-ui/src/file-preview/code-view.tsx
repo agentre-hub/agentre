@@ -1,16 +1,12 @@
 import * as React from "react";
 
-import { monacoLanguageForPath } from "@/lib/file-preview/monaco-language";
-import type {
-  MonacoCodeEditor,
-  MonacoNS,
-} from "@/lib/file-preview/monaco-loader";
-
+import { monacoLanguageForPath } from "./monaco-language";
 import {
   resolveMonacoTheme,
-  useMonaco,
   useMonacoThemeSync,
-} from "./use-monaco";
+  type MonacoCodeEditor,
+  type MonacoNS,
+} from "./monaco";
 
 export type CodePreviewProps = {
   /** 文件正文（UTF-8）。内容变化时原地更新模型，不重建编辑器（保留滚动位置）。 */
@@ -19,7 +15,10 @@ export type CodePreviewProps = {
   path?: string;
   /** 显式 Monaco 语言 id，优先于 path 推断。 */
   language?: string;
-  /** 注入 seam：happy-dom 单测传入 fake monaco（见 monaco-loader 注释）。 */
+  /**
+   * 宿主注入的 Monaco 命名空间（装载器留在宿主，见 ./monaco）。还没装载好时是
+   * null / undefined：容器保持空白，由调用方的加载态兜底；单测注入 fake 命名空间。
+   */
   monaco?: MonacoNS | null;
   /** Monaco 无障碍标签（读屏）。 */
   ariaLabel?: string;
@@ -37,7 +36,7 @@ export function CodePreview({
 }: CodePreviewProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const editorRef = React.useRef<MonacoCodeEditor | null>(null);
-  const ns = useMonaco(monaco);
+  const ns = monaco ?? null;
   const lang = language ?? (path ? monacoLanguageForPath(path) : "plaintext");
   useMonacoThemeSync(ns);
 

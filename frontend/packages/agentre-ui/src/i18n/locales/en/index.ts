@@ -2,6 +2,7 @@
 // modules only, so callers keep using the existing keys without a module prefix.
 import chat from "./chat.json";
 import common from "./common.json";
+import filePreview from "./file-preview.json";
 import llm from "./llm.json";
 import onboarding from "./onboarding.json";
 import org from "./org.json";
@@ -12,6 +13,7 @@ import transcript from "./transcript.json";
 export default {
   ...chat,
   ...common,
+  ...filePreview,
   ...llm,
   ...onboarding,
   ...org,

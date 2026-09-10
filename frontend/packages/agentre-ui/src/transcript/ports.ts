@@ -101,6 +101,17 @@ export interface TranscriptPorts {
    * 完全不同，而 react-router 刻意不在本包的依赖里（见 boundary.test.ts）。
    */
   openMention?(ref: MentionRef): void;
+  /**
+   * 请宿主接手预览这个文件（`path` 是会话级 relPath，与 `readWorkspaceFile`
+   * 同一种形状）。返回 `true` 表示宿主已接手（例如桌面端开/复用了右侧栏预览
+   * 标签）；返回 `false` 表示宿主眼下谢绝接手（例如设置为「用外部应用打开」），
+   * 调用方据此退回今天既有的外部打开路线。
+   *
+   * 设置读取留在宿主一侧：桌面端的实现自己看 `files.open_action`，包内不需要、
+   * 也拿不到这个设置——它是宿主的产品决策。宿主不提供这个端口时（例如未来的
+   * 其他宿主），入口按能力探测的老规矩不渲染，而不是渲染出来点了没反应。
+   */
+  previewFile?(sessionId: number, path: string): boolean;
 }
 
 /**

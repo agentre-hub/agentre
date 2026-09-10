@@ -1,5 +1,4 @@
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 
 import {
   ChevronDown,
@@ -11,64 +10,87 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { useUiTranslation } from "../i18n";
+import { cn } from "../lib/utils";
+import { copyTextWithToast } from "../lib/clipboard-toast";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+} from "../ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  copyTextWithToast,
-} from "@agentre-hub/agentre-ui";
-import { cn } from "@/lib/utils";
-import {
-  useFilePreviewTabsStore,
-  type FilePreviewTab,
-} from "@/stores/file-preview-tabs-store";
-
-import { FileTypeIcon } from "../file-type-icon";
+} from "../ui/dropdown-menu";
 import { basename } from "./file-meta";
 
-type Props = {
-  sessionId: number;
+/**
+ * 标签条要渲染一个预览标签所需的**全部**信息。
+ *
+ * 宿主的 store 条目字段更多（视图档位、来源、激活时刻），那些是宿主的状态，与
+ * 「这一行怎么画」无关：结构化子集让宿主直接把自己的标签数组传进来，而包这侧
+ * 不必知道 store 长什么样。
+ */
+export type FilePreviewTab = {
+  /** 会话级 relPath，也是标签在会话内的唯一键。 */
+  path: string;
+  /** 临时标签（单击开出来的、会被下一次单击原地替换）。 */
+  isPreview: boolean;
+  /** 固定标签。 */
+  isPinned: boolean;
+};
+
+export type PreviewTabStripProps = {
+  tabs: FilePreviewTab[];
+  activePath: string | null;
+  /** 单击标签 / 从溢出菜单选中一条：切到这个标签。 */
+  onActivate: (path: string) => void;
+  /** 双击标签：把临时标签转成常驻标签。 */
+  onPromote: (path: string) => void;
+  /** 右键菜单的固定 / 取消固定。 */
+  onPin: (path: string) => void;
+  onClose: (path: string) => void;
+  onCloseOthers: (path: string) => void;
+  onCloseAll: () => void;
+  /**
+   * 文件身份图标由宿主注入：图标目录（扩展名 → 图标 + 色调）是宿主自己的资产，
+   * 两端各有一套，包不替它选。不给就不画图标。
+   */
+  renderFileIcon?: (path: string, slot: "tab" | "overflow") => React.ReactNode;
+  className?: string;
 };
 
 /**
  * PreviewTabStrip 是预览面板 header 之上的标签条（spec「多标签预览」）：只在标签数
  * ≥ 2 时渲染——单文件路径与改造前完全一致，不为多标签能力给单文件用户加一行 chrome。
  *
- * 语义与应用内既有的会话标签条（chat-tabs/tab-strip.tsx）保持一致：临时标签斜体、
- * 活动标签背景提亮加顶部主色条、双击转常驻。右键菜单按 spec「右键菜单 · 预览标签」
- * 分三组：固定 / 取消固定；关闭 / 关闭其他 / 全部关闭；复制相对路径（标签的 path
- * 就是会话级 relPath）。标签等比收缩到下限后横向滚动，右端是常驻的溢出菜单（列出
- * 全部标签、可直接切换），活动标签始终自动滚入可见区。
+ * 语义与应用内既有的会话标签条（桌面端 chat-tabs/tab-strip.tsx）保持一致：临时标签
+ * 斜体、活动标签背景提亮加顶部主色条、双击转常驻。右键菜单按 spec「右键菜单 · 预览
+ * 标签」分三组：固定 / 取消固定；关闭 / 关闭其他 / 全部关闭；复制相对路径（标签的
+ * path 就是会话级 relPath）。标签等比收缩到下限后横向滚动，右端是常驻的溢出菜单
+ * （列出全部标签、可直接切换），活动标签始终自动滚入可见区。
+ *
+ * 状态一概不在包里：哪些标签开着、谁是活动标签、动作落到哪个 store，全部由宿主经
+ * props 注入（agentre 桌面端是 file-preview-tabs-store，控制台是它自己的那份）。
  */
-export function PreviewTabStrip({ sessionId }: Props) {
-  const { t } = useTranslation();
-  const entry = useFilePreviewTabsStore(
-    (s) => s.previewTabsBySession[sessionId],
-  );
-  const activatePreviewTab = useFilePreviewTabsStore(
-    (s) => s.activatePreviewTab,
-  );
-  const promoteActivePreviewTab = useFilePreviewTabsStore(
-    (s) => s.promoteActivePreviewTab,
-  );
-  const togglePreviewTabPin = useFilePreviewTabsStore(
-    (s) => s.togglePreviewTabPin,
-  );
-  const closePreviewTab = useFilePreviewTabsStore((s) => s.closePreviewTab);
-  const closeOtherPreviewTabs = useFilePreviewTabsStore(
-    (s) => s.closeOtherPreviewTabs,
-  );
-  const closeAllPreviewTabs = useFilePreviewTabsStore(
-    (s) => s.closeAllPreviewTabs,
-  );
+export function PreviewTabStrip({
+  tabs,
+  activePath,
+  onActivate,
+  onPromote,
+  onPin,
+  onClose,
+  onCloseOthers,
+  onCloseAll,
+  renderFileIcon,
+  className,
+}: PreviewTabStripProps) {
+  const { t } = useUiTranslation();
 
-  const tabs = entry?.tabs ?? [];
   if (tabs.length < 2) return null;
 
   // ← / → 在标签间移动（served requirement「键盘与无障碍」）：焦点走到哪个标签
@@ -91,40 +113,42 @@ export function PreviewTabStrip({ sessionId }: Props) {
     const next = items[index + step];
     if (!next) return;
     const path = next.dataset.tabPath;
-    if (path !== undefined) activatePreviewTab(sessionId, path);
+    if (path !== undefined) onActivate(path);
     next.focus();
   };
 
   return (
     <div
       role="tablist"
-      aria-label={t("chatContext.filePreview.tabsAria")}
+      aria-label={t("filePreview.tabsAria")}
       onKeyDown={handleKeyDown}
-      className="flex h-[34px] shrink-0 items-stretch overflow-hidden border-b border-border bg-muted"
+      className={cn(
+        "flex h-[34px] shrink-0 items-stretch overflow-hidden border-b border-border bg-muted",
+        className,
+      )}
     >
       <div className="scrollbar-none flex h-full min-h-0 min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden">
         {tabs.map((tab) => (
           <PreviewTab
             key={tab.path}
             tab={tab}
-            active={tab.path === entry?.activePath}
-            onActivate={() => activatePreviewTab(sessionId, tab.path)}
-            onDoublePromote={() => {
-              activatePreviewTab(sessionId, tab.path);
-              promoteActivePreviewTab(sessionId);
-            }}
-            onTogglePin={() => togglePreviewTabPin(sessionId, tab.path)}
-            onClose={() => closePreviewTab(sessionId, tab.path)}
-            onCloseOthers={() => closeOtherPreviewTabs(sessionId, tab.path)}
-            onCloseAll={() => closeAllPreviewTabs(sessionId)}
+            active={tab.path === activePath}
+            renderFileIcon={renderFileIcon}
+            onActivate={() => onActivate(tab.path)}
+            onDoublePromote={() => onPromote(tab.path)}
+            onTogglePin={() => onPin(tab.path)}
+            onClose={() => onClose(tab.path)}
+            onCloseOthers={() => onCloseOthers(tab.path)}
+            onCloseAll={() => onCloseAll()}
           />
         ))}
       </div>
       <div className="flex h-full shrink-0 items-center border-l border-border px-1">
         <PreviewTabOverflowMenu
           tabs={tabs}
-          activePath={entry?.activePath ?? null}
-          onSelect={(path) => activatePreviewTab(sessionId, path)}
+          activePath={activePath}
+          renderFileIcon={renderFileIcon}
+          onSelect={onActivate}
         />
       </div>
     </div>
@@ -134,6 +158,7 @@ export function PreviewTabStrip({ sessionId }: Props) {
 function PreviewTab({
   tab,
   active,
+  renderFileIcon,
   onActivate,
   onDoublePromote,
   onTogglePin,
@@ -143,6 +168,7 @@ function PreviewTab({
 }: {
   tab: FilePreviewTab;
   active: boolean;
+  renderFileIcon?: PreviewTabStripProps["renderFileIcon"];
   onActivate: () => void;
   onDoublePromote: () => void;
   onTogglePin: () => void;
@@ -150,7 +176,7 @@ function PreviewTab({
   onCloseOthers: () => void;
   onCloseAll: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   const ref = React.useRef<HTMLSpanElement>(null);
 
   // 活动标签始终滚入可见区：标签条超出宽度后靠横向滚动而不是继续压缩。
@@ -188,7 +214,7 @@ function PreviewTab({
           {active ? (
             <span className="absolute left-0 top-0 h-[2px] w-full bg-primary" />
           ) : null}
-          <FileTypeIcon path={tab.path} testId="preview-tab-file-icon" />
+          {renderFileIcon?.(tab.path, "tab")}
           {tab.isPinned ? (
             <Pin
               data-testid="preview-tab-pin-icon"
@@ -208,7 +234,7 @@ function PreviewTab({
           </span>
           <button
             type="button"
-            aria-label={t("chatTabs.actions.closeTab")}
+            aria-label={t("filePreview.closeTab")}
             className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
             onClick={(e) => {
               e.stopPropagation();
@@ -223,9 +249,7 @@ function PreviewTab({
         <ContextMenuItem onSelect={onTogglePin}>
           {tab.isPinned ? <PinOff /> : <Pin />}
           <span>
-            {tab.isPinned
-              ? t("chatTabs.actions.unpin")
-              : t("chatTabs.actions.pin")}
+            {tab.isPinned ? t("filePreview.unpin") : t("filePreview.pin")}
           </span>
         </ContextMenuItem>
         <ContextMenuSeparator />
@@ -235,15 +259,14 @@ function PreviewTab({
         </ContextMenuItem>
         <ContextMenuItem onSelect={onCloseOthers}>
           <XCircle />
-          <span>{t("chatTabs.actions.closeOthers")}</span>
+          <span>{t("filePreview.closeOthers")}</span>
         </ContextMenuItem>
         <ContextMenuItem onSelect={onCloseAll}>
           <SquareX />
-          <span>{t("chatContext.filePreview.closeAll")}</span>
+          <span>{t("filePreview.closeAll")}</span>
         </ContextMenuItem>
         <ContextMenuSeparator />
-        {/* 标签的 path 就是会话级 relPath，与行菜单的「复制相对路径」同一个语义、
-            复用同一个 key。 */}
+        {/* 标签的 path 就是会话级 relPath，与行菜单的「复制相对路径」同一个语义。 */}
         <ContextMenuItem
           onSelect={() =>
             void copyTextWithToast(tab.path, {
@@ -252,7 +275,7 @@ function PreviewTab({
           }
         >
           <Copy />
-          <span>{t("chatContext.row.copyRelPath")}</span>
+          <span>{t("filePreview.copyRelPath")}</span>
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -263,19 +286,21 @@ function PreviewTab({
 function PreviewTabOverflowMenu({
   tabs,
   activePath,
+  renderFileIcon,
   onSelect,
 }: {
   tabs: FilePreviewTab[];
   activePath: string | null;
+  renderFileIcon?: PreviewTabStripProps["renderFileIcon"];
   onSelect: (path: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t } = useUiTranslation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label={t("chatTabs.overflow.openMenu")}
+          aria-label={t("filePreview.openTabMenu")}
           className="inline-flex size-6 items-center justify-center rounded-md hover:bg-accent"
         >
           <ChevronDown className="size-3.5" aria-hidden="true" />
@@ -293,10 +318,7 @@ function PreviewTabOverflowMenu({
                 tab.path === activePath && "bg-sidebar-active-bg",
               )}
             >
-              <FileTypeIcon
-                path={tab.path}
-                testId="preview-overflow-file-icon"
-              />
+              {renderFileIcon?.(tab.path, "overflow")}
               <span
                 className={cn(
                   "shrink-0 truncate font-mono",
