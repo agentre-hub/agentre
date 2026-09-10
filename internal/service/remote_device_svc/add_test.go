@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func validAddReq() remote_device_svc.AddRequest {
@@ -69,8 +70,8 @@ func TestAdd(t *testing.T) {
 		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(nil, nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
 		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
-		repo.EXPECT().FindByFingerprint(gomock.Any(), "sha256:abc").Return(adopted, nil)
-		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, "sha256:abc").Return(nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(adopted, nil)
+		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, devicefp.Carrier("sha256:abc")).Return(nil)
 		repo.EXPECT().UpdateTLS(gomock.Any(), int64(7), "default", "").Return(nil)
 		kc.EXPECT().Set("agentre-daemon-token-7", "tok-256bit").Return(nil)
 		// 端点从「只有中转」变成「双路径」，长连状态机必须按新端点重来。
@@ -88,7 +89,7 @@ func TestAdd(t *testing.T) {
 		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(nil, nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
 		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
-		repo.EXPECT().FindByFingerprint(gomock.Any(), "sha256:abc").Return(
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(
 			&paired_agentred_entity.PairedAgentred{ID: 9, URL: "ws://other:7456/rpc", DaemonFingerprint: "sha256:abc", Status: 1}, nil)
 
 		_, err := svc.Add(context.Background(), validAddReq())
@@ -111,7 +112,7 @@ func TestAdd(t *testing.T) {
 		got, err := svc.Add(context.Background(), validAddReq())
 		So(err, ShouldBeNil)
 		So(got.ID, ShouldEqual, 42)
-		So(got.DaemonFingerprint, ShouldEqual, "sha256:abc")
+		So(got.DaemonFingerprint, ShouldEqual, devicefp.Carrier("sha256:abc"))
 	})
 	Convey("reuses existing device fingerprint when present", t, func() {
 		repo, dial, kc, w, svc := setupSvc(t)

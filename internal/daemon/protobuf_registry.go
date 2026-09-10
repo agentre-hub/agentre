@@ -17,7 +17,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
-	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
 	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
@@ -195,9 +194,31 @@ func (d *Daemon) registerProtobufMethods() {
 		})
 
 	engineHandlers := handlers.NewEngineHandlers(handlers.EngineDeps{State: d.state})
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_TEST),
-		func() *agentrewire.EngineTestRequest { return &agentrewire.EngineTestRequest{} },
-		func(ctx context.Context, request *agentrewire.EngineTestRequest) (*agentrewire.EngineTestResponse, error) {
+	cliHandlers := handlers.NewCLIHandlers(d.gateway, NewProviderLookup(d.state))
+	// 引擎探测一族走共用注册面(wireinbound):方法号↔类型的配对因此只有一处,
+	// 两种执行端不会再一边有、一边没有 —— 这正是控制台对桌面机器空转过的那一族。
+	//
+	// **族闸门取 requireProtobufAuth,而 engine.scan / engine.test 在各自端口里
+	// 再过一次 requireProtobufLoggedIn。** 这不是放宽:requireProtobufLoggedIn 第一步
+	// 就是 requireProtobufAuth,失败时返回的还是同一个错误值,所以先后顺序与错误
+	// 原文都不变。cli.resolvePath 本来就只要求已鉴权。
+	wireinbound.RegisterEngineMethods(d.protobufRegistry, wireinbound.EngineDeps{
+		Auth: requireProtobufAuth,
+		Scan: func(ctx context.Context, _ *agentrewire.EngineScanRequest) (*agentrewire.EngineScanResponse, error) {
+			if err := d.requireProtobufLoggedIn(ctx); err != nil {
+				return nil, err
+			}
+			result, err := engineHandlers.Scan(ctx)
+			if err != nil {
+				return nil, protobufError(err)
+			}
+			response := &agentrewire.EngineScanResponse{Items: make([]*agentrewire.EngineScanItem, 0, len(result.Items))}
+			for _, item := range result.Items {
+				response.Items = append(response.Items, &agentrewire.EngineScanItem{BackendType: item.BackendType, Status: item.Status})
+			}
+			return response, nil
+		},
+		Test: func(ctx context.Context, request *agentrewire.EngineTestRequest) (*agentrewire.EngineTestResponse, error) {
 			if err := d.requireProtobufLoggedIn(ctx); err != nil {
 				return nil, err
 			}
@@ -206,7 +227,15 @@ func (d *Daemon) registerProtobufMethods() {
 				return nil, protobufError(err)
 			}
 			return &agentrewire.EngineTestResponse{Ok: result.OK, Message: result.Message, LatencyMs: result.LatencyMs}, nil
-		})
+		},
+		ResolveCLIPath: func(ctx context.Context, request *agentrewire.CLIResolvePathRequest) (*agentrewire.CLIResolvePathResponse, error) {
+			result, err := cliHandlers.ResolvePath(ctx, handlers.CLIResolvePathParams{Type: request.Type})
+			if err != nil {
+				return nil, protobufError(err)
+			}
+			return &agentrewire.CLIResolvePathResponse{Path: result.Path, Found: result.Found}, nil
+		},
+	})
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_DISCOVER),
 		func() *agentrewire.EngineDiscoverRequest { return &agentrewire.EngineDiscoverRequest{} },
 		func(ctx context.Context, request *agentrewire.EngineDiscoverRequest) (*agentrewire.EngineDiscoverResponse, error) {
@@ -222,36 +251,6 @@ func (d *Daemon) registerProtobufMethods() {
 				response.Models = append(response.Models, &agentrewire.EngineModel{ModelId: model.ModelID, Name: model.Name})
 			}
 			return response, nil
-		})
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_SCAN),
-		func() *agentrewire.EngineScanRequest { return &agentrewire.EngineScanRequest{} },
-		func(ctx context.Context, _ *agentrewire.EngineScanRequest) (*agentrewire.EngineScanResponse, error) {
-			if err := d.requireProtobufLoggedIn(ctx); err != nil {
-				return nil, err
-			}
-			result, err := engineHandlers.Scan(ctx)
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			response := &agentrewire.EngineScanResponse{Items: make([]*agentrewire.EngineScanItem, 0, len(result.Items))}
-			for _, item := range result.Items {
-				response.Items = append(response.Items, &agentrewire.EngineScanItem{BackendType: item.BackendType, Status: item.Status})
-			}
-			return response, nil
-		})
-
-	cliHandlers := handlers.NewCLIHandlers(d.gateway, NewProviderLookup(d.state))
-	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_CLI_RESOLVE_PATH),
-		func() *agentrewire.CLIResolvePathRequest { return &agentrewire.CLIResolvePathRequest{} },
-		func(ctx context.Context, request *agentrewire.CLIResolvePathRequest) (*agentrewire.CLIResolvePathResponse, error) {
-			if err := requireProtobufAuth(ctx); err != nil {
-				return nil, err
-			}
-			result, err := cliHandlers.ResolvePath(ctx, handlers.CLIResolvePathParams{Type: request.Type})
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			return &agentrewire.CLIResolvePathResponse{Path: result.Path, Found: result.Found}, nil
 		})
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_CLI_PROBE),
 		func() *agentrewire.CLIProbeRequest { return &agentrewire.CLIProbeRequest{} },
@@ -449,28 +448,27 @@ func timePointerMillis(value *time.Time) *int64 {
 // daemonSessionPorts 是会话族里**不依赖某一条连接**的那一半端口。
 //
 // 留在这里的只有 agentred 自己的事:账号可见性与归属判定住在各个 handler 里
-// (ResolveSessionPeer + LoggedInAccountID),线形状本身住在 wireinbound。
+// (ResolveSessionPeer + LoggedInAccountID),哪些方法存在、闸门怎么套、缺席怎么办
+// 住在 wireinbound。
+//
+// 这一侧的 handler 自己就说 agentrewire,所以每一格都是**直接绑**,中间一次转换都
+// 没有:补齐那一族的通知日志里存的本来就是这一帧的 protobuf 原样,翻成领域词表再翻
+// 回来是每拉一行白走一个来回。
 //
 // Auth / Error 是端口而不是共用的一句话:agentred 的拒绝语是 rpcerror.ErrUnauthorized
 // (大写 U),桌面端答小写的 "unauthorized";错误映射这一侧认 *rpcerror.Error,桌面端
 // 还多认一种会话哨兵。两者都在线上,统一掉就是一次没人点头的协议改动。
 func (d *Daemon) daemonSessionPorts() wireinbound.SessionPorts {
 	return wireinbound.SessionPorts{
-		Auth:           requireProtobufAuth,
-		Error:          protobufError,
-		List:           d.catchup.List,
-		Counts:         d.catchup.Counts,
-		ActivityRollup: d.activity.ActivityRollup,
-		Pull:           d.catchup.Pull,
-		PendingWaiters: d.catchup.PendingWaiters,
-		Delete:         d.sessionDelete.Delete,
-		SetModelTarget: func(ctx context.Context, params remotewire.SetModelTargetParams) error {
-			_, err := d.sessionModelTarget.SetModelTarget(ctx, params)
-			return err
-		},
-		SetReasoningEffort: func(ctx context.Context, params remotewire.SetSessionReasoningEffortParams) error {
-			_, err := d.sessionReasoningEffort.SetReasoningEffort(ctx, params)
-			return err
-		},
+		Auth:               requireProtobufAuth,
+		Error:              protobufError,
+		List:               d.catchup.List,
+		Counts:             d.catchup.Counts,
+		ActivityRollup:     d.activity.ActivityRollup,
+		Pull:               d.catchup.Pull,
+		PendingWaiters:     d.catchup.PendingWaiters,
+		Delete:             d.sessionDelete.Delete,
+		SetModelTarget:     d.sessionModelTarget.SetModelTarget,
+		SetReasoningEffort: d.sessionReasoningEffort.SetReasoningEffort,
 	}
 }

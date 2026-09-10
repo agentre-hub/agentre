@@ -14,6 +14,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type projectLocationImpl struct{}
@@ -27,7 +28,7 @@ func (s *projectLocationImpl) ListByProject(ctx context.Context, projectID int64
 	if err != nil {
 		return nil, err
 	}
-	byFingerprint := make(map[string]*remote_device_svc.DeviceView, len(devices))
+	byFingerprint := make(map[devicefp.Carrier]*remote_device_svc.DeviceView, len(devices))
 	for _, d := range devices {
 		if d.DaemonFingerprint != "" {
 			byFingerprint[d.DaemonFingerprint] = d
@@ -71,7 +72,7 @@ func (s *projectLocationImpl) Upsert(ctx context.Context, projectID int64, devic
 	// 远端 device 校验：必须能解析为 int64 AND 在 paired_agentreds 中存在；顺带取出
 	// 它的指纹——账号内自然键是 (project, device_fingerprint)，不是 device_id。
 	var dv *remote_device_svc.DeviceView
-	var fingerprint string
+	var fingerprint devicefp.Carrier
 	if deviceID != "" {
 		id, ok := parseDeviceID(deviceID)
 		if !ok {

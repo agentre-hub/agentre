@@ -5,6 +5,8 @@ import (
 	"context"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source ports.go -destination mock_remote_device_svc/mock_ports.go
@@ -37,7 +39,7 @@ type PairArgs struct {
 // PairResult 是 auth.pair 的返回。
 type PairResult struct {
 	DeviceToken       string
-	DaemonFingerprint string
+	DaemonFingerprint devicefp.Carrier
 	InstanceUUID      string
 }
 
@@ -48,7 +50,7 @@ type ConnectArgs struct {
 	TLSCertPEM                string
 	DeviceFingerprint         string
 	DeviceToken               string
-	ExpectedDaemonFingerprint string
+	ExpectedDaemonFingerprint devicefp.Carrier
 }
 
 // AccountArgs 是直连 auth.account 的入参。Credential 是账号签发的访问凭据，
@@ -60,14 +62,14 @@ type AccountArgs struct {
 	TLSMode                   string
 	TLSCertPEM                string
 	Credential                string
-	ExpectedDaemonFingerprint string
+	ExpectedDaemonFingerprint devicefp.Carrier
 }
 
 // ConnectResult 是 auth.connect 的返回；ActualFingerprint 在 -32001 时由服务端 error.data 提供，
 // 正常成功时填 expected。
 type ConnectResult struct {
 	InstanceUUID      string
-	ActualFingerprint string
+	ActualFingerprint devicefp.Carrier
 }
 
 // RelayDialPort 提供账号中转（relay）路径的拨号（R6）。真实现由 server_svc 提供
@@ -75,7 +77,7 @@ type ConnectResult struct {
 type RelayDialPort interface {
 	// Open 经账号中转连接指定指纹的 daemon，并在该通道上完成 auth.account 握手，
 	// 呈现 peerFingerprint——与 LAN 路径 auth.connect 呈现的是同一值（R5）。
-	Open(ctx context.Context, daemonFingerprint, peerFingerprint string) (client.ProtobufConnection, error)
+	Open(ctx context.Context, daemonFingerprint devicefp.Carrier, peerFingerprint devicefp.Initiator) (client.ProtobufConnection, error)
 }
 
 // AccountCredentialPort 提供当前账号凭据（access token）。ConnPool 在本机对目标

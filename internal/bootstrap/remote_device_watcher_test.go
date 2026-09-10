@@ -8,6 +8,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	watcher "github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type recordingDial struct {
@@ -35,12 +36,12 @@ func (d *recordingDial) Connect(context.Context, remote_device_svc.ConnectArgs) 
 
 type recordingRelay struct {
 	called    bool
-	daemonFP  string
-	peerFP    string
+	daemonFP  devicefp.Carrier
+	peerFP    devicefp.Initiator
 	returnErr error
 }
 
-func (r *recordingRelay) Open(_ context.Context, daemonFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
+func (r *recordingRelay) Open(_ context.Context, daemonFingerprint devicefp.Carrier, peerFingerprint devicefp.Initiator) (client.ProtobufConnection, error) {
 	r.called = true
 	r.daemonFP, r.peerFP = daemonFingerprint, peerFingerprint
 	if r.returnErr != nil {

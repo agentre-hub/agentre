@@ -7,6 +7,7 @@ import (
 	"github.com/cago-frame/agents/provider"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // Event 是 sealed interface,所有 typed event case 必须实现 isEvent()。
@@ -233,7 +234,7 @@ type RuntimeStatus struct {
 // SourceDeviceName 缺失时保持空,前端回退到指纹。
 type UserMessageEvent struct {
 	Text             string
-	SourceDevice     string
+	SourceDevice     devicefp.Initiator
 	SourceDeviceName string
 }
 

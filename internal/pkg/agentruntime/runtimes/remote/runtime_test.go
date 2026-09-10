@@ -28,6 +28,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/orderedpipe"
 	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -1457,7 +1458,7 @@ func peerOriginRig(t *testing.T) (*fakeConn, *Runtime) {
 }
 
 // peerFingerprintOf 从一条控制请求参数里抽出 PeerFingerprint。
-func peerFingerprintOf(t *testing.T, method string, params any) string {
+func peerFingerprintOf(t *testing.T, method string, params any) devicefp.Initiator {
 	t.Helper()
 	switch p := params.(type) {
 	case wire.SteerParams:
@@ -1514,7 +1515,7 @@ func TestControlRequests_CarryPeerOrigin(t *testing.T) {
 			require.NoError(t, tc.drive())
 			calls := conn.methodCalls(tc.method)
 			require.Len(t, calls, 1, "%s 应恰好发一次 RPC", tc.method)
-			assert.Equal(t, "peer-A", peerFingerprintOf(t, tc.method, calls[0].Params),
+			assert.Equal(t, devicefp.Initiator("peer-A"), peerFingerprintOf(t, tc.method, calls[0].Params),
 				"%s 必须把对端 origin 带进请求", tc.method)
 		})
 	}

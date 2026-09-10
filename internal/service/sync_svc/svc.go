@@ -25,6 +25,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // SyncSvc 桌面端同步引擎。
@@ -241,7 +242,7 @@ func (s *service) getLastErr() string {
 //
 // 账号键取不到（DB 出错）时按未登录处置：这一轮什么都不做，下一轮再试——拿一个
 // 猜的键去动归属，比停一轮糟得多。
-func (s *service) account(ctx context.Context) (accountID, deviceID int64, fingerprint, serverURL string, ok bool) {
+func (s *service) account(ctx context.Context) (accountID, deviceID int64, fingerprint devicefp.Carrier, serverURL string, ok bool) {
 	row, err := server_state_repo.ServerState().Get(ctx)
 	if err != nil {
 		logger.Ctx(ctx).Warn("sync_svc.account: read server state failed", zap.Error(err))
@@ -420,7 +421,7 @@ func (s *service) SyncOnce(ctx context.Context) error {
 		s.setLastErr(err)
 		return err
 	}
-	if err := s.flush(ctx, accountID, fingerprint); err != nil {
+	if err := s.flush(ctx, accountID, devicefp.LastWriter(fingerprint)); err != nil {
 		s.setLastErr(err)
 		return err
 	}
@@ -437,7 +438,7 @@ func (s *service) SyncOnce(ctx context.Context) error {
 			s.setLastErr(err)
 			return err
 		}
-		if err := s.flush(ctx, accountID, fingerprint); err != nil {
+		if err := s.flush(ctx, accountID, devicefp.LastWriter(fingerprint)); err != nil {
 			s.setLastErr(err)
 			return err
 		}

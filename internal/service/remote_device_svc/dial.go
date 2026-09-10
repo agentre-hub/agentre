@@ -13,6 +13,8 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // realDial wraps internal/daemon/client to satisfy DaemonDialPort.
@@ -36,7 +38,7 @@ func (realDial) Pair(ctx context.Context, args PairArgs) (PairResult, error) {
 		return PairResult{}, translatePairRPCError(err)
 	}
 	return PairResult{
-		DeviceToken: res.GetDeviceToken(), DaemonFingerprint: res.GetDaemonFingerprint(), InstanceUUID: res.GetInstanceUuid(),
+		DeviceToken: res.GetDeviceToken(), DaemonFingerprint: devicefp.Carrier(res.GetDaemonFingerprint()), InstanceUUID: res.GetInstanceUuid(),
 	}, nil
 }
 
@@ -50,7 +52,7 @@ func (realDial) Connect(ctx context.Context, args ConnectArgs) (ConnectResult, e
 		return ConnectResult{}, translateProtocolError(err)
 	}
 	defer func() { _ = c.Close() }()
-	res, err := c.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: args.DeviceFingerprint, DeviceToken: args.DeviceToken, ExpectedDaemonFingerprint: args.ExpectedDaemonFingerprint})
+	res, err := c.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: args.DeviceFingerprint, DeviceToken: args.DeviceToken, ExpectedDaemonFingerprint: string(args.ExpectedDaemonFingerprint)})
 	if err != nil {
 		return ConnectResult{}, translateConnectRPCError(err)
 	}
@@ -69,7 +71,7 @@ func (realDial) Open(ctx context.Context, args ConnectArgs) (client.ProtobufConn
 	if err != nil {
 		return nil, translateProtocolError(err)
 	}
-	_, err = c.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: args.DeviceFingerprint, DeviceToken: args.DeviceToken, ExpectedDaemonFingerprint: args.ExpectedDaemonFingerprint})
+	_, err = c.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: args.DeviceFingerprint, DeviceToken: args.DeviceToken, ExpectedDaemonFingerprint: string(args.ExpectedDaemonFingerprint)})
 	if err != nil {
 		_ = c.Close()
 		return nil, translateConnectRPCError(err)

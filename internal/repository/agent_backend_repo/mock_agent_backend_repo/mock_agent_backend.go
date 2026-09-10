@@ -15,6 +15,7 @@ import (
 
 	agent_backend_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	agent_backend_repo "github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -58,7 +59,7 @@ func (mr *MockAgentBackendRepoMockRecorder) BatchFind(ctx, ids any) *gomock.Call
 }
 
 // ClaimRelative mocks base method.
-func (m *MockAgentBackendRepo) ClaimRelative(ctx context.Context, fingerprint string) ([]agent_backend_repo.RelativeClaim, error) {
+func (m *MockAgentBackendRepo) ClaimRelative(ctx context.Context, fingerprint devicefp.Carrier) ([]agent_backend_repo.RelativeClaim, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ClaimRelative", ctx, fingerprint)
 	ret0, _ := ret[0].([]agent_backend_repo.RelativeClaim)
@@ -174,7 +175,7 @@ func (mr *MockAgentBackendRepoMockRecorder) FindByName(ctx, name any) *gomock.Ca
 }
 
 // FindCLIOverlay mocks base method.
-func (m *MockAgentBackendRepo) FindCLIOverlay(ctx context.Context, backendSyncID, fingerprint string) (*agent_backend_entity.CLIOverlay, error) {
+func (m *MockAgentBackendRepo) FindCLIOverlay(ctx context.Context, backendSyncID string, fingerprint devicefp.Carrier) (*agent_backend_entity.CLIOverlay, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindCLIOverlay", ctx, backendSyncID, fingerprint)
 	ret0, _ := ret[0].(*agent_backend_entity.CLIOverlay)
@@ -204,7 +205,7 @@ func (mr *MockAgentBackendRepoMockRecorder) List(ctx any) *gomock.Call {
 }
 
 // ListByDevice mocks base method.
-func (m *MockAgentBackendRepo) ListByDevice(ctx context.Context, deviceID string) ([]*agent_backend_entity.AgentBackend, error) {
+func (m *MockAgentBackendRepo) ListByDevice(ctx context.Context, deviceID devicefp.Carrier) ([]*agent_backend_entity.AgentBackend, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListByDevice", ctx, deviceID)
 	ret0, _ := ret[0].([]*agent_backend_entity.AgentBackend)

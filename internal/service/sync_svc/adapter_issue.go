@@ -20,18 +20,6 @@ import (
 
 // ── 标签目录 ────────────────────────────────────────────────────────────────
 
-// labelPayload 是标签的同步载荷。
-//
-// status 在载荷里而不像别的对象那样只靠墓碑表达：server 没有本地行，它的 /issues
-// 读路径是把 sync_objects 的载荷直接拼成响应，没有这一列就判不出一个标签还在不在。
-// 本机落地时**不**读它——存活 / 墓碑由下行项的 DeletedAt 表达（决策 20），一条活着
-// 的下行项按定义就是活的，与每个兄弟适配器同一口径。
-type labelPayload struct {
-	Name   string `json:"name"`
-	Tone   string `json:"tone"`
-	Status int    `json:"status"`
-}
-
 type labelAdapter struct{ baseAdapter }
 
 func (labelAdapter) kind() string { return syncwire.KindLabel }
@@ -42,7 +30,7 @@ func (labelAdapter) load(ctx context.Context, syncID string) (*outbound, error) 
 	if err != nil || !found {
 		return nil, err
 	}
-	payload, err := json.Marshal(labelPayload{
+	payload, err := json.Marshal(syncwire.LabelPayload{
 		Name:   row.Name,
 		Tone:   row.Tone,
 		Status: row.Status,
@@ -61,7 +49,7 @@ func (labelAdapter) load(ctx context.Context, syncID string) (*outbound, error) 
 func (labelAdapter) refs(*inbound) []ref { return nil }
 
 func (labelAdapter) apply(ctx context.Context, in *inbound, _ map[string]int64) error {
-	var p labelPayload
+	var p syncwire.LabelPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -115,27 +103,6 @@ func (labelAdapter) remove(ctx context.Context, in *inbound) error {
 
 // ── 任务 ────────────────────────────────────────────────────────────────────
 
-// issuePayload 是任务的同步载荷。
-//
-// 载荷里**没有**运行态：agent_status、session_id 与 source 是这台机器上这一轮跑成
-// 什么样，跨机没有意义，也不该让另一台机器的界面显示一个它并不持有的会话。也没有
-// state —— 状态轴本轮消失，它完全由 stage 推导（stage=done 即已完成）。
-//
-// 执行归属的三个字段里，Agent 与机器是账号级对象，用同步标识表达；provider / model
-// 本来就是稳定的字符串键（决策 6 里 llm_providers 整表不出本机，跨机只传 key）。
-type issuePayload struct {
-	Title              string  `json:"title"`
-	Description        string  `json:"description"`
-	Stage              string  `json:"stage"`
-	Position           float64 `json:"position"`
-	ProjectSyncID      string  `json:"project_sync_id,omitempty"`
-	AgentSyncID        string  `json:"agent_sync_id,omitempty"`
-	AgentBackendSyncID string  `json:"agent_backend_sync_id,omitempty"`
-	LLMProviderKey     string  `json:"llm_provider_key"`
-	LLMModelKey        string  `json:"llm_model_key"`
-	ClosedAt           int64   `json:"closed_at"`
-}
-
 type issueAdapter struct{ baseAdapter }
 
 func (issueAdapter) kind() string { return syncwire.KindIssue }
@@ -170,7 +137,7 @@ func (issueAdapter) load(ctx context.Context, syncID string) (*outbound, error) 
 			backendSyncID = syncIDOf(backend.SyncMeta)
 		}
 	}
-	payload, err := json.Marshal(issuePayload{
+	payload, err := json.Marshal(syncwire.IssuePayload{
 		Title:              row.Title,
 		Description:        row.Body,
 		Stage:              row.Stage,
@@ -196,7 +163,7 @@ func (issueAdapter) load(ctx context.Context, syncID string) (*outbound, error) 
 // 有行，否则写下去就是三个悬空引用。空引用（未归属项目、没指定执行归属）不参与
 // 解析，resolveRefs 直接跳过。
 func (issueAdapter) refs(in *inbound) []ref {
-	var p issuePayload
+	var p syncwire.IssuePayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindProject, SyncID: p.ProjectSyncID},
@@ -206,7 +173,7 @@ func (issueAdapter) refs(in *inbound) []ref {
 }
 
 func (issueAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p issuePayload
+	var p syncwire.IssuePayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -292,13 +259,6 @@ func (issueAdapter) children(ctx context.Context, syncID string) ([]relatedRow, 
 
 // ── 任务 ↔ 标签 ─────────────────────────────────────────────────────────────
 
-// issueLabelPayload 两端都用同步标识表达：关联表的主键是 (issue_id, label_id) 两个
-// 本地自增值，在另一台机器上指向完全不同的两行。
-type issueLabelPayload struct {
-	IssueSyncID string `json:"issue_sync_id"`
-	LabelSyncID string `json:"label_sync_id"`
-}
-
 type issueLabelAdapter struct{ baseAdapter }
 
 func (issueLabelAdapter) kind() string { return syncwire.KindIssueLabel }
@@ -323,7 +283,7 @@ func (issueLabelAdapter) load(ctx context.Context, syncID string) (*outbound, er
 		// 同一口径）。
 		return nil, nil
 	}
-	payload, err := json.Marshal(issueLabelPayload{
+	payload, err := json.Marshal(syncwire.IssueLabelPayload{
 		IssueSyncID: syncIDOf(issue.SyncMeta),
 		LabelSyncID: syncIDOf(label.SyncMeta),
 	})
@@ -339,7 +299,7 @@ func (issueLabelAdapter) load(ctx context.Context, syncID string) (*outbound, er
 }
 
 func (issueLabelAdapter) refs(in *inbound) []ref {
-	var p issueLabelPayload
+	var p syncwire.IssueLabelPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindIssue, SyncID: p.IssueSyncID},
@@ -348,7 +308,7 @@ func (issueLabelAdapter) refs(in *inbound) []ref {
 }
 
 func (issueLabelAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p issueLabelPayload
+	var p syncwire.IssueLabelPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}

@@ -38,22 +38,6 @@ func headersFromProto(values map[string]*agentrewire.HeaderValues) map[string][]
 	}
 	return out
 }
-
-func SkillCatalogResponseToProto(value wire.SkillCatalogResult) *agentrewire.SkillCatalogResponse {
-	out := &agentrewire.SkillCatalogResponse{Discovery: value.Discovery}
-	for _, pack := range value.Packs {
-		out.Packs = append(out.Packs, &agentrewire.SkillPackSummary{Id: pack.ID, Name: pack.Name, Description: pack.Description, Skills: append([]string(nil), pack.Skills...), Installed: pack.Installed, Enabled: pack.Enabled, GloballyEnabled: pack.GloballyEnabled})
-	}
-	return out
-}
-func SkillCatalogResponseFromProto(value *agentrewire.SkillCatalogResponse) wire.SkillCatalogResult {
-	out := wire.SkillCatalogResult{Discovery: value.GetDiscovery(), Packs: make([]wire.SkillPackSummary, 0, len(value.GetPacks()))}
-	for _, pack := range value.GetPacks() {
-		out.Packs = append(out.Packs, wire.SkillPackSummary{ID: pack.GetId(), Name: pack.GetName(), Description: pack.GetDescription(), Skills: append([]string(nil), pack.GetSkills()...), Installed: pack.GetInstalled(), Enabled: pack.GetEnabled(), GloballyEnabled: pack.GetGloballyEnabled()})
-	}
-	return out
-}
-
 func SkillCommandsResponseToProto(value wire.SkillCommandsResult) *agentrewire.SkillCommandsResponse {
 	out := &agentrewire.SkillCommandsResponse{Discovery: value.Discovery, Commands: make([]*agentrewire.SkillCommand, 0, len(value.Commands))}
 	for _, command := range value.Commands {

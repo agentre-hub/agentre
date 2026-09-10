@@ -13,16 +13,17 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // peerTestFingerprint 是这些用例里那台桌面端的设备指纹 —— 对话身份派生的第一个输入。
-const peerTestFingerprint = "sha256:self"
+const peerTestFingerprint devicefp.Carrier = "sha256:self"
 
 // convID 是这些用例里第 n 条本机会话落库的那个 conversation_id。取值形态无所谓
 // (库里存什么就是什么),这里沿用一个确定性派生,只是为了让用例里「同一条会话」
 // 在多处写出同一个字面值。
 func convID(n int64) string {
-	return conversationid.Derive(conversationid.Namespace, peerTestFingerprint, strconv.FormatInt(n, 10))
+	return conversationid.Derive(conversationid.Namespace, string(peerTestFingerprint), strconv.FormatInt(n, 10))
 }
 
 // peerSessionRow 是一条带对话身份的本机会话行 —— 落列之后,任何要被对端寻址的

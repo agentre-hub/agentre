@@ -15,6 +15,7 @@ import (
 
 	chat_entity "github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	chat_repo "github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -412,7 +413,7 @@ func (mr *MockSessionRepoMockRecorder) UpdateContextWindow(ctx, sessionID, token
 }
 
 // UpdateEventCursor mocks base method.
-func (m *MockSessionRepo) UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint string, seq int64) error {
+func (m *MockSessionRepo) UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateEventCursor", ctx, sessionID, daemonFingerprint, seq)
 	ret0, _ := ret[0].(error)
@@ -426,7 +427,7 @@ func (mr *MockSessionRepoMockRecorder) UpdateEventCursor(ctx, sessionID, daemonF
 }
 
 // UpdateExecDaemon mocks base method.
-func (m *MockSessionRepo) UpdateExecDaemon(ctx context.Context, sessionID, deviceID int64, daemonFingerprint string, agentBackendID int64) error {
+func (m *MockSessionRepo) UpdateExecDaemon(ctx context.Context, sessionID, deviceID int64, daemonFingerprint devicefp.Carrier, agentBackendID int64) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateExecDaemon", ctx, sessionID, deviceID, daemonFingerprint, agentBackendID)
 	ret0, _ := ret[0].(error)

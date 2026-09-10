@@ -14,7 +14,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/remotepool"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // remote_pool.go 是 chat_svc 到 remotepool 的接线:租约缓存本身住在那个兄弟包里,
@@ -36,22 +38,22 @@ type remotePoolHost struct{ s *chatSvc }
 
 func (h remotePoolHost) ConnPool() remote_device_svc.ConnPool { return h.s.pool() }
 
-func (h remotePoolHost) PairedDeviceID(ctx context.Context, deviceRef string) (int64, bool) {
-	return localPairedDeviceID(ctx, deviceRef)
+func (h remotePoolHost) PairedDeviceID(ctx context.Context, deviceRef devicefp.Carrier) (int64, bool) {
+	return exec_target_svc.LocalPairedDeviceID(ctx, deviceRef)
 }
 
-func (h remotePoolHost) DaemonFingerprint(ctx context.Context, deviceID int64) string {
+func (h remotePoolHost) DaemonFingerprint(ctx context.Context, deviceID int64) devicefp.Carrier {
 	return h.s.daemonFingerprint(ctx, deviceID)
 }
 
 func (h remotePoolHost) RecordExecDaemon(
-	ctx context.Context, sessionID, deviceID int64, fingerprint string, agentBackendID int64,
+	ctx context.Context, sessionID, deviceID int64, fingerprint devicefp.Carrier, agentBackendID int64,
 ) {
 	h.s.recordExecDaemon(ctx, sessionID, deviceID, fingerprint, agentBackendID)
 }
 
 func (h remotePoolHost) NewRuntime(
-	deviceID int64, entry *remotepool.Entry, conn client.ProtobufConnection, fingerprint string,
+	deviceID int64, entry *remotepool.Entry, conn client.ProtobufConnection, fingerprint devicefp.Carrier,
 ) *remote.Runtime {
 	return remote.New(conn,
 		remote.WithDaemonFingerprint(fingerprint),
@@ -63,7 +65,7 @@ func (h remotePoolHost) NewRuntime(
 		// 由本轮的 turnRun 单独消费 —— 逐 token 照旧实时长出来,转录只认持久帧
 		// (规格 2026-09-05「两级帧与补齐」)。
 		remote.WithPreviewSink(remote.PreviewSinkFunc(h.s.onRemotePreviewEvent)),
-		remote.WithReconnect(remote.ReconnectFunc(func(rctx context.Context) (client.ProtobufConnection, string, error) {
+		remote.WithReconnect(remote.ReconnectFunc(func(rctx context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return h.s.reconnectRemote(rctx, deviceID, entry)
 		})),
 	)
@@ -115,7 +117,7 @@ func (s *chatSvc) prefetchRemoteCapabilities(
 	ctx context.Context, rt *remote.Runtime, be *agent_backend_entity.AgentBackend,
 ) {
 	if err := rt.Prefetch(ctx, agent_backend_entity.BackendType(be.Type)); err != nil {
-		deviceID, _ := localPairedDeviceID(ctx, be.DeviceFingerprint)
+		deviceID, _ := exec_target_svc.LocalPairedDeviceID(ctx, be.DeviceFingerprint)
 		logger.Ctx(ctx).Warn("borrowRemoteRuntime: capability prefetch failed",
 			zap.Int64("deviceID", deviceID),
 			zap.String("backendType", be.Type),

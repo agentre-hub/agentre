@@ -24,7 +24,7 @@ import {
   TerminalClose,
   TerminalRunCommand,
 } from "../../../../wailsjs/go/app/App";
-import type { chat_svc } from "../../../../wailsjs/go/models";
+import type { chat_svc, exec_target_svc } from "../../../../wailsjs/go/models";
 
 type ChatAgentItem = chat_svc.ChatAgentItem;
 
@@ -131,7 +131,7 @@ function useLocalCommandLauncher({
     setLocalCommandHistoryScope(undefined);
     if (commandScopeSessionId <= 0 && commandScopeAgentId <= 0) return;
 
-    const request: chat_svc.ResolveLocalCommandScopeRequest = {
+    const request: exec_target_svc.ResolveLocalCommandScopeRequest = {
       sessionId: commandScopeSessionId,
       agentId: commandScopeAgentId,
       projectId: commandScopeProjectId,

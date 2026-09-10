@@ -20,6 +20,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 	"github.com/agentre-hub/agentre/pkg/wire/turnstate"
 )
@@ -286,9 +287,9 @@ type PeerSessionControlResult struct {
 }
 
 type GoalParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	AgentID         int64  `json:"agentId,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	AgentID         int64              `json:"agentId,omitempty"`
 	// AgentSyncID 与 RunParams.AgentSyncID 同形同义：对端在 cwd 为空时按它命名兜底
 	// 工作目录。有它就不发 AgentID —— 那是发起端的本地自增主键，跨机会撞号。
 	AgentSyncID       string          `json:"agentSyncId,omitempty"`
@@ -350,8 +351,8 @@ type RunParams struct {
 	// 一律被拒。不点名地给别人的会话开新一轮,会在调用方名下另建一条同号会话:上下文
 	// (决策 8 的 provider_session_id)续不上,事件也落到另一个 journal 分区,发起端与
 	// 它的其余订阅者一条都收不到(R6 / R18 的前提)。
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	Cwd             string `json:"cwd,omitempty"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	Cwd             string             `json:"cwd,omitempty"`
 	// Title 是该会话此刻的标题(R7)。桌面端每轮携带当前值,daemon 幂等覆盖;调用方
 	// 不带这一格时保持空串。改名后最多滞后一轮生效。
 	Title string `json:"title,omitempty"`
@@ -416,8 +417,8 @@ type RunParams struct {
 	// 它随该行的持久帧投影给同一条会话的其余订阅者，转录里因此看得出「这句话是谁发的」，
 	// 补齐重放出来的那一份也一样。桌面端自己发消息不传这两个字段 → 不盖来源，单端界面
 	// 零变化（R17 既有承诺不变）。
-	SourceDevice     string `json:"sourceDevice,omitempty"`
-	SourceDeviceName string `json:"sourceDeviceName,omitempty"`
+	SourceDevice     devicefp.Initiator `json:"sourceDevice,omitempty"`
+	SourceDeviceName string             `json:"sourceDeviceName,omitempty"`
 }
 
 // MCPProxyRequest 是 daemon→desktop 隧道里一次 MCP HTTP 请求的封装。daemon 把 CLI 子进程
@@ -476,10 +477,10 @@ type RunAck struct {
 
 // SteerParams 等同 agentruntime.Steerer.Steer 的入参。
 type SteerParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	QueuedID        string `json:"queuedId,omitempty"`
-	Text            string `json:"text"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	QueuedID        string             `json:"queuedId,omitempty"`
+	Text            string             `json:"text"`
 }
 
 // SteerResult 把这条插话在**执行端**的句柄交回调用方。
@@ -498,9 +499,9 @@ type SteerResult struct {
 
 // CancelSteerParams 等同 agentruntime.SteerCanceler.CancelSteer 的入参。
 type CancelSteerParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	QueuedID        string `json:"queuedId,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	QueuedID        string             `json:"queuedId,omitempty"`
 }
 
 // CancelSteerResult 返已撤销的 queuedID 列表(空 queuedID 表示「清空所有未消费」,
@@ -511,8 +512,8 @@ type CancelSteerResult struct {
 
 // DrainParams 等同 agentruntime.SteerDrainer.DrainPending 的入参。
 type DrainParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
 }
 
 // DrainResult 返本轮 daemon 已 ack 但 hook 没拉走的 mid-turn steer 列表,
@@ -524,9 +525,9 @@ type DrainResult struct {
 // AbortParams 等同 agentruntime.Aborter.Abort 的入参。
 // TurnToken 语义同 agentruntime:0 = 中断当前活跃轮;非 0 = 仅当该轮仍是当前活跃轮才中断。
 type AbortParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	TurnToken       uint64 `json:"turnToken,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	TurnToken       uint64             `json:"turnToken,omitempty"`
 }
 
 // AbortResult 是 MethodAbort 的应答,携带被中断轮的类型(agentruntime.AbortOutcome.TurnKind)。
@@ -536,16 +537,16 @@ type AbortResult struct {
 
 // StopBackgroundTaskParams 等同 agentruntime.BackgroundTaskStopper.StopBackgroundTask 的入参。
 type StopBackgroundTaskParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	TaskID          string `json:"taskId"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	TaskID          string             `json:"taskId"`
 }
 
 // SetPermissionModeParams 等同 agentruntime.PermissionModeSetter.SetPermissionMode 的入参。
 type SetPermissionModeParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	Mode            string `json:"mode"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	Mode            string             `json:"mode"`
 }
 
 // SetModelTargetParams 改这条会话钉的 LLM ModelTarget,语义等同桌面端的
@@ -559,10 +560,10 @@ type SetPermissionModeParams struct {
 // 新目标自**下一轮**生效,正在跑的那一轮不受影响。会话不存在时报错而不是折成
 // 成功:那会让调用方以为下一轮会用新模型,而实际上一行都没写。
 type SetModelTargetParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	ProviderKey     string `json:"providerKey,omitempty"`
-	ModelKey        string `json:"modelKey,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	ProviderKey     string             `json:"providerKey,omitempty"`
+	ModelKey        string             `json:"modelKey,omitempty"`
 }
 
 // SetSessionReasoningEffortParams 改这条会话钉的思考力度,语义与 SetModelTargetParams
@@ -574,15 +575,15 @@ type SetModelTargetParams struct {
 // 新档位自**下一轮**生效,正在跑的那一轮不受影响。会话不存在时报错而不是折成成功:
 // 那会让调用方以为下一轮会用新档位,而实际上一行都没写。
 type SetSessionReasoningEffortParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	ReasoningEffort string             `json:"reasoningEffort,omitempty"`
 }
 
 // SubmitAnswerParams 等同 agentruntime.AskAnswerSink.SubmitAnswer 的入参。
 type SubmitAnswerParams struct {
 	ConversationID  string                     `json:"conversationId"`
-	PeerFingerprint string                     `json:"peerFingerprint,omitempty"`
+	PeerFingerprint devicefp.Initiator         `json:"peerFingerprint,omitempty"`
 	RequestID       string                     `json:"requestId"`
 	Questions       []agentruntime.AskQuestion `json:"questions,omitempty"`
 	Answers         []agentruntime.AskAnswer   `json:"answers,omitempty"`
@@ -591,12 +592,12 @@ type SubmitAnswerParams struct {
 
 // SubmitToolPermissionParams 等同 agentruntime.ToolPermissionSink.SubmitToolPermission 的入参。
 type SubmitToolPermissionParams struct {
-	ConversationID     string `json:"conversationId"`
-	PeerFingerprint    string `json:"peerFingerprint,omitempty"`
-	RequestID          string `json:"requestId"`
-	Allow              bool   `json:"allow"`
-	AlwaysAllowSession bool   `json:"alwaysAllowSession,omitempty"`
-	DenyReason         string `json:"denyReason,omitempty"`
+	ConversationID     string             `json:"conversationId"`
+	PeerFingerprint    devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	RequestID          string             `json:"requestId"`
+	Allow              bool               `json:"allow"`
+	AlwaysAllowSession bool               `json:"alwaysAllowSession,omitempty"`
+	DenyReason         string             `json:"denyReason,omitempty"`
 }
 
 // ── 断连重连的补齐族 ────────────────────────────────────────────────────────
@@ -655,9 +656,9 @@ const (
 // LatestSeq 取自 daemon 通知日志里该会话的 MAX(seq)(唯一真相源),客户端拿它与自己
 // 存的游标一比就知道断连期间落下了多少条。
 type SessionSummary struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	AgentID         int64  `json:"agentId,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	AgentID         int64              `json:"agentId,omitempty"`
 	// Title / AgentSyncID / ProviderSessionID 是 R7 + 决策 8 的新列:会话标题、所属
 	// Agent 的账号级同步标识、以及续话要用的 provider 原生会话身份。三者每轮由调用
 	// 方携带、幂等覆盖,所以还没跑过第一轮的会话这几格就是空的(标题由首条消息派生)。
@@ -752,10 +753,10 @@ type SessionCountsResult struct {
 // SessionPullParams 是 MethodSessionPull 的请求:给定会话与起始游标,取其后的通知。
 // Cursor 是**已经收到的**最后一个 seq(独占),所以首次补齐传 0。
 type SessionPullParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
-	Cursor          int64  `json:"cursor"`
-	Limit           int    `json:"limit,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
+	Cursor          int64              `json:"cursor"`
+	Limit           int                `json:"limit,omitempty"`
 }
 
 // JournaledNotification 是日志里的一行:那条本该发出的通知的原样 (method, params)。
@@ -882,8 +883,8 @@ type SessionPullResult struct {
 
 // SessionPendingWaitersParams 是 MethodSessionPendingWaiters 的请求。
 type SessionPendingWaitersParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
 }
 
 // SessionPendingWaitersResult 是某会话此刻仍在阻塞的全部待决策,载荷足以重建审批 /
@@ -896,8 +897,8 @@ type SessionPendingWaitersResult struct {
 
 // SessionAttachParams 是 MethodSessionAttach 的请求。
 type SessionAttachParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
 }
 
 // SessionAttachResult 交回客户端接着补齐需要的东西:会话此刻的生命周期状态、backend
@@ -917,8 +918,8 @@ type SessionAttachResult struct {
 // 这是本 wire 上第一个破坏性方法,越界的代价不再是「读到了不该读的」而是「删掉了
 // 别人的对话」,所以它绝不能自成一套宽松的范围规则。
 type SessionDeleteParams struct {
-	ConversationID  string `json:"conversationId"`
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	ConversationID  string             `json:"conversationId"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
 }
 
 // SessionDeleteResult 交回删除的**后置条件**:应答返回时,这一端已经没有这条会话了。

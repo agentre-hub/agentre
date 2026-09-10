@@ -51,6 +51,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,6 +62,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 	"github.com/agentre-hub/agentre/pkg/wire/wirelimits"
 
 	// 块类型词表是**运行时**注册表:判别值只有在注册包的 init() 跑过之后才存在。
@@ -85,6 +89,13 @@ const tsUIGenRel = "frontend/packages/agentre-ui/src"
 // agentruntimeRel 是 agentruntime 包在本仓里的位置(相对仓库根)。
 // 只为 EventKind 词表而定 —— 破例的理由见 tsEventKindDecls。
 const agentruntimeRel = "internal/pkg/agentruntime"
+
+// wireinboundRel 是宿主契约真理源包在本仓里的位置(相对仓库根)。
+const wireinboundRel = "internal/pkg/wireinbound"
+
+// rpcMethodsTSRel 是 rpcMethods 那张键表在本仓里的位置(相对仓库根)。
+// 它是**手写**的 TS,不是产物 —— 本文件只读它,不写它。
+const rpcMethodsTSRel = "frontend/packages/agentre-wire/src/rpc-methods.ts"
 
 // tsRegenCmd 产物过期时重新生成的确切命令,原样出现在守卫的失败信息里。
 const tsRegenCmd = "WIRE_TS_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteTSCodec"
@@ -171,6 +182,10 @@ type tsConstDecl struct {
 
 // tsConstDecls 是要生成的全部 wire 常量。完整性同样由 TestTSGenCoversWirePackage
 // 机械保证。
+//
+// **错误码不在这张表里**:它们的唯一主人是 pkg/wire/rpcerror,本包只给其中两族起了
+// 别名。从别名生成就等于只导出「恰好有人起过别名的那几族」,remotefs.* 与
+// workspacefs.* 因此从来没到过浏览器。它们改由 tsRPCErrorDecls() 从真理源直接生成。
 func tsConstDecls() []tsConstDecl {
 	return []tsConstDecl{
 		{"MethodCapabilities", MethodCapabilities},
@@ -207,15 +222,6 @@ func tsConstDecls() []tsConstDecl {
 		{"NotifyTurnStarted", NotifyTurnStarted},
 		{"NotifyAutonomousTurnEvent", NotifyAutonomousTurnEvent},
 		{"NotifyAutonomousTurnDone", NotifyAutonomousTurnDone},
-		{"ErrCodeNoActiveTurn", ErrCodeNoActiveTurn},
-		{"ErrCodeSteerNotFound", ErrCodeSteerNotFound},
-		{"ErrCodeUnsupported", ErrCodeUnsupported},
-		{"ErrCodeAborted", ErrCodeAborted},
-		{"ErrCodeSessionNotFound", ErrCodeSessionNotFound},
-		{"ErrCodePeerExecutionUnavailable", ErrCodePeerExecutionUnavailable},
-		{"ErrCodeProjectNotSynced", ErrCodeProjectNotSynced},
-		{"ErrCodeProjectInvalidPath", ErrCodeProjectInvalidPath},
-		{"ErrCodeProjectPathNotFound", ErrCodeProjectPathNotFound},
 		{"CapLLMModelTargetV1", CapLLMModelTargetV1},
 		{"SessionLifecycleRunning", SessionLifecycleRunning},
 		{"SessionLifecycleIdle", SessionLifecycleIdle},
@@ -227,6 +233,186 @@ func tsConstDecls() []tsConstDecl {
 		{"SkillDiscoveryUnavailable", SkillDiscoveryUnavailable},
 		{"SkillDiscoveryUnsupported", SkillDiscoveryUnsupported},
 	}
+}
+
+// rpcErrorRel 是错误码真理源包在本仓里的位置(相对仓库根)。
+const rpcErrorRel = "pkg/wire/rpcerror"
+
+// tsRPCErrorDecl 一条要导出到 TS 的错误码:TS 侧名字 + 它在 rpcerror 里的 Go 名字 +
+// 直接引用的 Go 常量值。
+type tsRPCErrorDecl struct {
+	tsName string
+	goName string
+	value  any
+}
+
+// tsRPCErrorDecls 是要导出到 TS 的全部 RPC 错误码。
+//
+// 完整性由 TestTSGenCoversRPCErrorCodes 机械保证。
+func tsRPCErrorDecls() []tsRPCErrorDecl {
+	return []tsRPCErrorDecl{
+		// ── runtime.*(-32010..-32015)──
+		//
+		// 前六个的 TS 名字**逐字保持不变**:消费方(agentre-server)已经在按这些名字
+		// import。机械的 Code → ErrCode 替换会把它们改成 ErrCodeRuntimeNoActiveTurn,
+		// 那是一次无声的破坏性改名,所以映射手写在这张表里、由守卫钉住。
+		{"ErrCodeNoActiveTurn", "CodeRuntimeNoActiveTurn", rpcerror.CodeRuntimeNoActiveTurn},
+		{"ErrCodeSteerNotFound", "CodeRuntimeSteerNotFound", rpcerror.CodeRuntimeSteerNotFound},
+		{"ErrCodeUnsupported", "CodeRuntimeUnsupported", rpcerror.CodeRuntimeUnsupported},
+		{"ErrCodeAborted", "CodeRuntimeAborted", rpcerror.CodeRuntimeAborted},
+		{"ErrCodeSessionNotFound", "CodeRuntimeSessionNotFound", rpcerror.CodeRuntimeSessionNotFound},
+		{
+			"ErrCodePeerExecutionUnavailable",
+			"CodeRuntimePeerExecutionUnavailable",
+			rpcerror.CodeRuntimePeerExecutionUnavailable,
+		},
+
+		// ── remotefs.*(-32030..-32035)──
+		{"ErrCodeRemoteFSPathRefused", "CodeRemoteFSPathRefused", rpcerror.CodeRemoteFSPathRefused},
+		{"ErrCodeRemoteFSPermDenied", "CodeRemoteFSPermDenied", rpcerror.CodeRemoteFSPermDenied},
+		{"ErrCodeRemoteFSNotFound", "CodeRemoteFSNotFound", rpcerror.CodeRemoteFSNotFound},
+		{"ErrCodeRemoteFSNotDir", "CodeRemoteFSNotDir", rpcerror.CodeRemoteFSNotDir},
+		{"ErrCodeRemoteFSMkdirExists", "CodeRemoteFSMkdirExists", rpcerror.CodeRemoteFSMkdirExists},
+		{"ErrCodeRemoteFSInvalidName", "CodeRemoteFSInvalidName", rpcerror.CodeRemoteFSInvalidName},
+
+		// ── workspacefs.*(-32040..-32043)──
+		{"ErrCodeWorkspaceFSPathRefused", "CodeWorkspaceFSPathRefused", rpcerror.CodeWorkspaceFSPathRefused},
+		{
+			"ErrCodeWorkspaceFSBaselineRequired",
+			"CodeWorkspaceFSBaselineRequired",
+			rpcerror.CodeWorkspaceFSBaselineRequired,
+		},
+		{"ErrCodeWorkspaceFSNoCwd", "CodeWorkspaceFSNoCwd", rpcerror.CodeWorkspaceFSNoCwd},
+		{"ErrCodeWorkspaceFSNotFound", "CodeWorkspaceFSNotFound", rpcerror.CodeWorkspaceFSNotFound},
+
+		// ── project.*(-32050..-32052)──
+		{"ErrCodeProjectNotSynced", "CodeProjectNotSynced", rpcerror.CodeProjectNotSynced},
+		{"ErrCodeProjectInvalidPath", "CodeProjectInvalidPath", rpcerror.CodeProjectInvalidPath},
+		{"ErrCodeProjectPathNotFound", "CodeProjectPathNotFound", rpcerror.CodeProjectPathNotFound},
+		{"ErrCodeTranscriptImportBackendUnavailable", "CodeTranscriptImportBackendUnavailable", rpcerror.CodeTranscriptImportBackendUnavailable},
+		{"ErrCodeTranscriptImportTranscriptOpen", "CodeTranscriptImportTranscriptOpen", rpcerror.CodeTranscriptImportTranscriptOpen},
+		{"ErrCodeTranscriptImportSessionInUse", "CodeTranscriptImportSessionInUse", rpcerror.CodeTranscriptImportSessionInUse},
+
+		// ── daemon 会话/鉴权(-32001..-32006)与 JSON-RPC 标准码 ──
+		//
+		// 这一批在 Go 侧是 int32 有类型常量(住在 error.go),上面几族是无类型的。
+		// 差别到 TS 就消失了 —— number 只有一种,tsLiteral 两种都渲染成同一个十进制
+		// 字面量。所以它们照样进这张表,而不是被排除在守卫之外:排除就等于留一个
+		// 「新加的码可以不进 TS」的口子,而那正是这条守卫要堵的。
+		{"ErrCodeUnauthorized", "CodeUnauthorized", rpcerror.CodeUnauthorized},
+		{"ErrCodeSessionMissing", "CodeSessionMissing", rpcerror.CodeSessionMissing},
+		{"ErrCodeProviderMissing", "CodeProviderMissing", rpcerror.CodeProviderMissing},
+		{"ErrCodePairing", "CodePairing", rpcerror.CodePairing},
+		{"ErrCodeShuttingDown", "CodeShuttingDown", rpcerror.CodeShuttingDown},
+		{"ErrCodeProtocolVersion", "CodeProtocolVersion", rpcerror.CodeProtocolVersion},
+		{"ErrCodeMethodNotFound", "CodeMethodNotFound", rpcerror.CodeMethodNotFound},
+		{"ErrCodeInvalidParams", "CodeInvalidParams", rpcerror.CodeInvalidParams},
+		{"ErrCodeInternal", "CodeInternal", rpcerror.CodeInternal},
+		{"ErrCodeCanceled", "CodeCanceled", rpcerror.CodeCanceled},
+	}
+}
+
+// ── 生成器清单:宿主契约 ────────────────────────────────────────────────────
+
+// tsHostMethodDecl 一条「RpcMethod 枚举 → rpcMethods 的键名」映射。
+//
+// 手写而不是从枚举名机械推导:两者大体同形,但不是一一对应 ——
+// RPC_METHOD_SKILLS_CATALOG 的键名是 skillCatalog(不是 skillsCatalog),
+// RPC_METHOD_SKILLS_COMMANDS 是 skillCommands,而 RPC_METHOD_SKILLS_LIST 又确实是
+// skillsList。机械替换会悄悄产出三个不存在的键,消费方一个调用点也对不上。所以映射
+// 手写在这里,由 TestTSGenCoversHostContractMethods 逐条钉住(键要真的存在,而且那条
+// descriptor 的 method ID 要等于枚举值)。
+type tsHostMethodDecl struct {
+	method agentrewire.RpcMethod
+	// key 是 rpc-methods.ts 里 rpcMethods 的键名。
+	//
+	// **空串表示这个方法在 TS 侧压根没有 descriptor**:转录导入四条与活动汇总至今
+	// 只有 Go 后端经 wirecall 在发,浏览器没有调用点,所以那张手写键表里没登记它们。
+	// 没有键名就进不了产物 —— 而这不是默默丢掉:守卫反向钉住空串(哪天有人给它补上
+	// descriptor,那条会立刻判红,逼人回来填键名),产物头部也如实写着这件事。
+	key string
+}
+
+// tsHostMethodDecls 是 Contract() 里每个方法到 rpcMethods 键名的映射,按 contract.go
+// 的声明序排列 —— 产物因此能与那张表并排对读。清单的完整性(不多不少正好覆盖
+// Contract())由 TestTSGenCoversHostContractMethods 机械保证。
+func tsHostMethodDecls() []tsHostMethodDecl {
+	return []tsHostMethodDecl{
+		{agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT, "authAccount"},
+
+		{agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST, "sessionList"},
+		{agentrewire.RpcMethod_RPC_METHOD_SESSION_COUNTS, "sessionCounts"},
+		{agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH, "sessionAttach"},
+		{agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL, "sessionPull"},
+		{agentrewire.RpcMethod_RPC_METHOD_SESSION_PENDING_WAITERS, "sessionPendingWaiters"},
+		{agentrewire.RpcMethod_RPC_METHOD_SESSION_DELETE, "sessionDelete"},
+		{agentrewire.RpcMethod_RPC_METHOD_SET_MODEL_TARGET, "setModelTarget"},
+		{agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT, "setSessionReasoningEffort"},
+		{agentrewire.RpcMethod_RPC_METHOD_ACTIVITY_ROLLUP, ""},
+
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES, "runtimeCapabilities"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN, "runtimeRun"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER, "runtimeSteer"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER, "runtimeCancelSteer"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT, "runtimeAbort"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE, "runtimeSetPermissionMode"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER, "runtimeSubmitAnswer"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION, "runtimeSubmitToolPermission"},
+
+		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG, "skillCatalog"},
+		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_COMMANDS, "skillCommands"},
+		{agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_LIST_DIR, "remoteFsListDir"},
+		{agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_MKDIR, "remoteFsMkdir"},
+		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_READ_FILE, "workspaceFsReadFile"},
+		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT, "workspaceFsGitFileContent"},
+
+		{agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_SCAN, ""},
+		{agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_OPEN, ""},
+		{agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_TURNS, ""},
+		{agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE, ""},
+
+		{agentrewire.RpcMethod_RPC_METHOD_ENGINE_SCAN, "engineScan"},
+		{agentrewire.RpcMethod_RPC_METHOD_ENGINE_TEST, "engineTest"},
+		{agentrewire.RpcMethod_RPC_METHOD_CLI_RESOLVE_PATH, "cliResolvePath"},
+
+		{agentrewire.RpcMethod_RPC_METHOD_ENGINE_DISCOVER, "engineDiscover"},
+		{agentrewire.RpcMethod_RPC_METHOD_AGENTRED_SELF_UPDATE, "agentredSelfUpdate"},
+		{agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR, "authPair"},
+		{agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT, "authConnect"},
+		{agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING, "healthPing"},
+		{agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE, "claudeCodeUsage"},
+		{agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT, "llmUpsert"},
+		{agentrewire.RpcMethod_RPC_METHOD_SKILLS_LIST, "skillsList"},
+		{agentrewire.RpcMethod_RPC_METHOD_CLI_PROBE, "cliProbe"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING, "runtimeDrainPending"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK, "runtimeStopBackgroundTask"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_GET, "runtimeGoalGet"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_SET, "runtimeGoalSet"},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_GOAL_CLEAR, "runtimeGoalClear"},
+		{agentrewire.RpcMethod_RPC_METHOD_TERMINAL_OPEN, "terminalOpen"},
+		{agentrewire.RpcMethod_RPC_METHOD_TERMINAL_WRITE, "terminalWrite"},
+		{agentrewire.RpcMethod_RPC_METHOD_TERMINAL_RESIZE, "terminalResize"},
+		{agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE, "terminalClose"},
+		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_LIST_DIR, "workspaceFsListDir"},
+		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_SEARCH_FILES, "workspaceFsSearchFiles"},
+		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES, "workspaceFsGitBranches"},
+		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_STATE, "workspaceFsGitState"},
+		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_CHANGES, "workspaceFsGitChanges"},
+
+		{agentrewire.RpcMethod_RPC_METHOD_PROJECT_SET_LOCAL_PATH, "projectSetLocalPath"},
+		{agentrewire.RpcMethod_RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH, "projectClearLocalPath"},
+	}
+}
+
+// tsHostMethodKeys 把上面那张清单摊成「proto 枚举名 → 键名」,给渲染与守卫共用。
+// 枚举名取自 agentrewire 生成的 RpcMethod_name,所以它与 AST 从 contract.go 读出的
+// 常量名(去掉 RpcMethod_ 前缀之后)天然是同一套字符串。
+func tsHostMethodKeys() map[string]string {
+	out := make(map[string]string, len(tsHostMethodDecls()))
+	for _, d := range tsHostMethodDecls() {
+		out[agentrewire.RpcMethod_name[int32(d.method)]] = d.key
+	}
+	return out
 }
 
 // eventKindTypeName 是词表常量在 agentruntime 里的类型名 —— AST 据此把 EventKind
@@ -833,6 +1019,294 @@ func collectEventKindDecls(file *ast.File, out *eventKindDecls) {
 	}
 }
 
+// ── AST:错误码真理源 pkg/wire/rpcerror ───────────────────────────────────
+
+// rpcErrorCodeDecls 是 AST 从 pkg/wire/rpcerror 源码里读出的错误码:声明序的常量名
+// + 值 + 文档注释。
+//
+// 读**值**而不只是名字,是为了让清单里「TS 名字 ↔ Go 名字」的配对也被钉住:名字对
+// 得上而配错了常量,渲染出来的数字就是别的族的,而那正是这套码要防的事故形态。
+type rpcErrorCodeDecls struct {
+	names  []string
+	values map[string]int32
+	docs   map[string]string
+}
+
+// parseRPCErrorCodeDecls 从 pkg/wire/rpcerror 的非测试源码里读出全部导出的 Code* 常量。
+//
+// 扫的是整个包目录:领域码住在 codes.go,JSON-RPC 标准码与 daemon 会话/鉴权码住在
+// error.go,盯死单个文件等于给漂移留一扇后门。
+func parseRPCErrorCodeDecls(t *testing.T) rpcErrorCodeDecls {
+	t.Helper()
+	out := rpcErrorCodeDecls{values: map[string]int32{}, docs: map[string]string{}}
+	dir := filepath.Join(repoRoot(t), rpcErrorRel)
+	parseGoPackage(t, dir, func(f *ast.File) { collectRPCErrorCodeDecls(t, f, &out) })
+	return out
+}
+
+// collectRPCErrorCodeDecls 挑出 const 声明里名字以 Code 开头的导出项。
+func collectRPCErrorCodeDecls(t *testing.T, file *ast.File, out *rpcErrorCodeDecls) {
+	t.Helper()
+	for _, d := range file.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, s := range gd.Specs {
+			vs, ok := s.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			doc := docText(vs.Doc, gd.Doc, len(gd.Specs))
+			if doc == "" && vs.Comment != nil {
+				doc = strings.TrimRight(vs.Comment.Text(), "\n")
+			}
+			for i, id := range vs.Names {
+				if !id.IsExported() || !strings.HasPrefix(id.Name, "Code") || i >= len(vs.Values) {
+					continue
+				}
+				v, ok := goIntLiteral(vs.Values[i])
+				require.Truef(t, ok, "%s.%s 必须写成字面量数字,好让守卫机械读出它的值", rpcErrorRel, id.Name)
+				out.names = append(out.names, id.Name)
+				out.values[id.Name] = v
+				out.docs[id.Name] = doc
+			}
+		}
+	}
+}
+
+// goIntLiteral 读一条 `-32010` / `32010` 形态的表达式;形态不符返回 false。
+func goIntLiteral(expr ast.Expr) (int32, bool) {
+	neg := false
+	if u, ok := expr.(*ast.UnaryExpr); ok {
+		if u.Op != token.SUB {
+			return 0, false
+		}
+		neg, expr = true, u.X
+	}
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.INT {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(lit.Value, 0, 32)
+	if err != nil {
+		return 0, false
+	}
+	if neg {
+		n = -n
+	}
+	return int32(n), true
+}
+
+// ── AST:宿主契约真理源 internal/pkg/wireinbound ─────────────────────────────
+
+// rpcMethodConstPrefix 是 protoc-gen-go 给枚举常量加的前缀:contract.go 里写的是
+// agentrewire.RpcMethod_RPC_METHOD_X,而 RpcMethod_name 给出的是 RPC_METHOD_X。
+const rpcMethodConstPrefix = "RpcMethod_"
+
+// HostKind 的两个常量名。AST 读到第三个就直接判红:产物只有两个数组,新增一种宿主
+// 必须先有人决定它在产物里长什么样,而不是悄悄漏出去。
+const (
+	hostConstAgentred = "HostAgentred"
+	hostConstDesktop  = "HostDesktop"
+)
+
+// hostContract 是 AST 从 wireinbound 源码里读出的宿主契约。
+//
+// **为什么是 AST 而不是 import**:wireinbound 依赖本包
+// (internal/pkg/agentruntime/runtimes/remote/wire),生成器 import 它就是导入环。
+// 这与 TestTSGenCoversChatBlockTypes 撞的是同一堵墙,处理方式也照它:词表在源码里
+// 躺着,只是取不到运行时的那一份,那就 AST 读源码。代价写在这里:contract.go 的
+// Requirement / KnownGap 字面量必须按**位置序**写(不是 Field: 形式),Hosts 只能是
+// []HostKind{...} 或函数体里的局部别名 —— 形态一变,读取处会 require 判红而不是
+// 静默少读一行。
+type hostContract struct {
+	// order 是 Contract() 里方法的声明序(proto 枚举名,已去掉 RpcMethod_ 前缀)。
+	order []string
+	// hosts 枚举名 → 必须答得出它的宿主常量名。
+	hosts map[string][]string
+	// gaps 是 KnownGaps() 记下的「该答而答不出」:宿主常量名 → 枚举名集合。
+	// 产物叫「答得出的方法」,所以这些必须减掉 —— 否则产物会替一条已知缺口撒谎。
+	gaps map[string]map[string]bool
+}
+
+// parseHostContract 从 wireinbound 的非测试源码里读出 Contract() 与 KnownGaps()。
+func parseHostContract(t *testing.T) hostContract {
+	t.Helper()
+	out := hostContract{hosts: map[string][]string{}, gaps: map[string]map[string]bool{}}
+	dir := filepath.Join(repoRoot(t), wireinboundRel)
+	parseGoPackage(t, dir, func(f *ast.File) { collectHostContract(t, f, &out) })
+	require.NotEmpty(t, out.order,
+		"没从 %s 的 Contract() 读到任何方法,扫描逻辑本身坏了", wireinboundRel)
+	return out
+}
+
+func collectHostContract(t *testing.T, file *ast.File, out *hostContract) {
+	t.Helper()
+	for _, d := range file.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Recv != nil || fd.Body == nil {
+			continue
+		}
+		switch fd.Name.Name {
+		case "Contract":
+			collectContractRows(t, fd, out)
+		case "KnownGaps":
+			collectKnownGapRows(t, fd, out)
+		}
+	}
+}
+
+// returnedRows 取出函数体里那条 return 返回的切片字面量的元素;`return nil` 返回空。
+func returnedRows(t *testing.T, fd *ast.FuncDecl) []*ast.CompositeLit {
+	t.Helper()
+	var results []ast.Expr
+	for _, stmt := range fd.Body.List {
+		if ret, ok := stmt.(*ast.ReturnStmt); ok {
+			results = ret.Results
+		}
+	}
+	require.Lenf(t, results, 1, "%s.%s 必须只 return 一个值", wireinboundRel, fd.Name.Name)
+	if id, ok := results[0].(*ast.Ident); ok && id.Name == "nil" {
+		return nil
+	}
+	lit, ok := results[0].(*ast.CompositeLit)
+	require.Truef(t, ok,
+		"%s.%s 必须直接 return 一个切片字面量,好让守卫机械读出它", wireinboundRel, fd.Name.Name)
+	rows := make([]*ast.CompositeLit, 0, len(lit.Elts))
+	for _, e := range lit.Elts {
+		row, ok := e.(*ast.CompositeLit)
+		require.Truef(t, ok, "%s.%s 的每一行都必须是字面量", wireinboundRel, fd.Name.Name)
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func collectContractRows(t *testing.T, fd *ast.FuncDecl, out *hostContract) {
+	t.Helper()
+	aliases := hostKindAliases(t, fd)
+	for _, row := range returnedRows(t, fd) {
+		require.GreaterOrEqualf(t, len(row.Elts), 3,
+			"Requirement 必须按 {Method, Callers, Hosts, Evidence} 的位置序写,好让守卫机械读出它")
+		name := rpcMethodConstName(t, row.Elts[0])
+		require.NotContainsf(t, out.hosts, name, "Contract() 里 %s 出现了两次", name)
+		out.order = append(out.order, name)
+		out.hosts[name] = hostKindNames(t, row.Elts[2], aliases)
+	}
+}
+
+func collectKnownGapRows(t *testing.T, fd *ast.FuncDecl, out *hostContract) {
+	t.Helper()
+	for _, row := range returnedRows(t, fd) {
+		require.GreaterOrEqualf(t, len(row.Elts), 2,
+			"KnownGap 必须按 {Method, Host, Reason} 的位置序写,好让守卫机械读出它")
+		host := hostKindIdent(t, row.Elts[1])
+		if out.gaps[host] == nil {
+			out.gaps[host] = map[string]bool{}
+		}
+		out.gaps[host][rpcMethodConstName(t, row.Elts[0])] = true
+	}
+}
+
+// hostKindAliases 收集 Contract() 函数体里的局部别名(表里的 both := []HostKind{…}),
+// 好让行内直接写 both 的那几十行也读得出宿主。
+func hostKindAliases(t *testing.T, fd *ast.FuncDecl) map[string][]string {
+	t.Helper()
+	out := map[string][]string{}
+	for _, stmt := range fd.Body.List {
+		as, ok := stmt.(*ast.AssignStmt)
+		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			continue
+		}
+		id, okLhs := as.Lhs[0].(*ast.Ident)
+		lit, okRhs := as.Rhs[0].(*ast.CompositeLit)
+		if !okLhs || !okRhs {
+			continue
+		}
+		out[id.Name] = hostKindLiteral(t, lit)
+	}
+	return out
+}
+
+// hostKindNames 读一处 Hosts:要么是 []HostKind{…} 字面量,要么是函数体里的局部别名。
+func hostKindNames(t *testing.T, expr ast.Expr, aliases map[string][]string) []string {
+	t.Helper()
+	switch x := expr.(type) {
+	case *ast.CompositeLit:
+		return hostKindLiteral(t, x)
+	case *ast.Ident:
+		names, ok := aliases[x.Name]
+		require.Truef(t, ok, "Hosts 写成了 %s,但 Contract() 里没有这个局部别名", x.Name)
+		return names
+	default:
+		t.Fatalf("Hosts 只能写成 []HostKind{…} 或 Contract() 里的局部别名,读不出 %T", expr)
+		return nil
+	}
+}
+
+func hostKindLiteral(t *testing.T, lit *ast.CompositeLit) []string {
+	t.Helper()
+	out := make([]string, 0, len(lit.Elts))
+	for _, e := range lit.Elts {
+		out = append(out, hostKindIdent(t, e))
+	}
+	return out
+}
+
+func hostKindIdent(t *testing.T, expr ast.Expr) string {
+	t.Helper()
+	id, ok := expr.(*ast.Ident)
+	require.Truef(t, ok, "HostKind 必须写成常量名(%s / %s)", hostConstAgentred, hostConstDesktop)
+	require.Containsf(t, []string{hostConstAgentred, hostConstDesktop}, id.Name,
+		"未知的 HostKind 常量 %s:产物只有两个数组,新增一种宿主要先教会生成器怎么导出它", id.Name)
+	return id.Name
+}
+
+// rpcMethodConstName 读一处 agentrewire.RpcMethod_RPC_METHOD_X,返回 proto 枚举名。
+func rpcMethodConstName(t *testing.T, expr ast.Expr) string {
+	t.Helper()
+	sel, ok := expr.(*ast.SelectorExpr)
+	require.Truef(t, ok, "Method 必须写成 agentrewire.RpcMethod_… 常量,读不出 %T", expr)
+	name := strings.TrimPrefix(sel.Sel.Name, rpcMethodConstPrefix)
+	require.NotEqualf(t, sel.Sel.Name, name, "%s 不是 RpcMethod 常量", sel.Sel.Name)
+	return name
+}
+
+// ── 文本:手写的 rpcMethods 键表 ────────────────────────────────────────────
+
+// rpcMethodDescriptorRe 匹配 rpc-methods.ts 里一条 descriptor 的头三行:
+//
+//	engineScan: method(
+//	  "engineScan",
+//	  46,
+var rpcMethodDescriptorRe = regexp.MustCompile(`(?m)^  (\w+): method\(\n    "(\w+)",\n    (\d+),`)
+
+// parseRpcMethodDescriptors 从 rpc-methods.ts 读出「键名 → method ID」。
+//
+// 纯文本扫描而不是 AST:那份文件是**手写**的 TS,本仓没有 TS 解析器,而这条正则盯的
+// 是它唯一的一种写法。读出 **ID** 而不只是键名,是为了让映射表的配对也被钉住:键名
+// 存在而配错了方法(把 ENGINE_SCAN 配给 engineTest),产物里那一行照样是个真键,
+// 消费方却会拿它去对另一个方法的调用点 —— 那种错没有任何编译期信号。
+func parseRpcMethodDescriptors(t *testing.T) map[string]int32 {
+	t.Helper()
+	path := filepath.Join(repoRoot(t), rpcMethodsTSRel)
+	// G304:路径由 repoRoot + 本文件里写死的常量拼出,没有外部输入参与。
+	src, err := os.ReadFile(path) //nolint:gosec // 见上
+	require.NoError(t, err, "读 %s", rpcMethodsTSRel)
+
+	out := map[string]int32{}
+	for _, m := range rpcMethodDescriptorRe.FindAllStringSubmatch(string(src), -1) {
+		key, name, raw := m[1], m[2], m[3]
+		require.Equalf(t, key, name,
+			"%s 里键名 %s 与它 descriptor 的 name %q 不一致,产物没法确定该导出哪一个", rpcMethodsTSRel, key, name)
+		id, err := strconv.ParseInt(raw, 10, 32)
+		require.NoError(t, err, "%s 里 %s 的 method ID %q 不是数字", rpcMethodsTSRel, key, raw)
+		require.NotContainsf(t, out, key, "%s 里 %s 出现了两次", rpcMethodsTSRel, key)
+		out[key] = int32(id)
+	}
+	return out
+}
+
 // ── AST:本仓的块类型注册点 ────────────────────────────────────────────────
 
 // scanBlockTypeRegistrations 扫本仓源码,返回全部块类型的判别值(未排序、可能重复)。
@@ -1217,6 +1691,14 @@ func tsWireTruth() []string {
 	return []string{" * 真理源:  internal/pkg/agentruntime/runtimes/remote/wire/wire.go"}
 }
 
+// tsConstantsTruth 是常量产物的真理源段落 —— 它有两个:方法名 / 通知名 / 上限出自
+// wire.go,错误码出自 pkg/wire/rpcerror。头部如实写两行,免得读产物的人拿着 wire.go
+// 去找 ErrCodeRemoteFSNotDir 而一无所获。
+func tsConstantsTruth() []string {
+	return append(tsWireTruth(),
+		" *          错误码出自 pkg/wire/rpcerror(见文件里的错误码段头)")
+}
+
 func tsWireBoundary() []string {
 	return []string{
 		" * 边界:wire 包**之外**的类型一律映射成 unknown。它们大多没有 JSON tag",
@@ -1522,16 +2004,129 @@ func renderTSChatBlockTypes(vocab []chatBlockTypeDecl) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// tsHostContractTruth / tsHostContractBoundary 是宿主契约产物的头部段落。
+func tsHostContractTruth() []string {
+	return []string{
+		" * 真理源:  internal/pkg/wireinbound 的 Contract() 与 KnownGaps()",
+		" *          (键名取自 frontend/packages/agentre-wire/src/rpc-methods.ts)",
+	}
+}
+
+func tsHostContractBoundary() []string {
+	return []string{
+		" * 边界:这份产物讲的不是 wire 上有什么方法,而是**哪一种执行端答得出它**。",
+		" * 同一个方法枚举有四类调用方、两种执行端,而调用方并不总能选被调方是哪一种:",
+		" * 浏览器按设备指纹拨号,设备表里 desktop 与 agentred 混在一起。于是「这一侧",
+		" * 没实现这个方法」不是内部细节 —— 它是用户按下按钮之后什么都不发生。",
+		" *",
+		" * 元素是 rpcMethods 的**键名**(engineScan),不是 Go 枚举名也不是 wire 上的",
+		" * 方法字符串:消费方要拿它和自己的 rpcMethods.X 调用点对上。",
+		" *",
+		" * 不全:Contract() 里有几个方法在 rpc-methods.ts 里没有 descriptor(至今只有",
+		" * Go 后端经 wirecall 在发,浏览器没有调用点),它们因此不出现在这两个数组里。",
+		" * 那不是「答不出」,而是「TS 侧没有这条调用」—— 拿这两个数组去对**非浏览器**的",
+		" * 调用点会漏掉它们。哪天有人给它们补上 descriptor,生成器那边会立刻判红。",
+		" *",
+		" * KnownGaps() 记下的「该答而答不出」已经减掉:数组名叫「答得出的方法」,",
+		" * 留着一条已知缺口就是替它撒谎。",
+	}
+}
+
+const tsDesktopAnsweredDoc = `桌面端宿主答得出的方法(rpcMethods 的键名)。由 agentre 的 wireinbound.Contract() 生成。`
+
+const tsAgentredAnsweredDoc = `agentred 宿主答得出的方法(rpcMethods 的键名)。`
+
+// hostAnsweredKeys 推出一种宿主答得出的方法键名,按 Contract() 的声明序。
+//
+// 三件事在这里发生:按 Hosts 筛出这一侧的义务、减掉 KnownGaps() 记下的已知缺口、
+// 把枚举名换成 rpcMethods 的键名(没有键名的方法进不了产物,理由见 tsHostMethodDecl)。
+func hostAnsweredKeys(c hostContract, keys map[string]string, host string) []string {
+	out := make([]string, 0, len(c.order))
+	for _, name := range c.order {
+		if !slices.Contains(c.hosts[name], host) || c.gaps[host][name] {
+			continue
+		}
+		if key := keys[name]; key != "" {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// tsStringArray 按 Prettier 的形态渲染一个只读字符串数组常量:一行放得下就一行,
+// 放不下就逐元素换行并补尾随逗号。
+//
+// 类型标注写死成 readonly string[](而不是让它推成字面量联合):消费方要的是
+// 「这个方法发给这一侧打不打得通」的运行期查表,不是一个会随每次重新生成而变形的
+// 类型。形状与消费方那一流约定好了,不要在这里加宽。
+func tsStringArray(name string, values []string) []string {
+	head := "export const " + name + ": readonly string[] = ["
+	quoted := make([]string, 0, len(values))
+	for _, v := range values {
+		quoted = append(quoted, strconv.Quote(v))
+	}
+	if one := head + strings.Join(quoted, ", ") + "];"; tsWidth(one) <= tsPrintWidth {
+		return []string{one}
+	}
+	out := []string{head}
+	for _, q := range quoted {
+		out = append(out, "  "+q+",")
+	}
+	return append(out, "];")
+}
+
+// renderTSHostContract 渲染宿主契约产物:两个宿主各一个只读键名数组。
+func renderTSHostContract(c hostContract, keys map[string]string) string {
+	lines := tsGenHeader(
+		"每种宿主答得出的 RPC 方法(rpcMethods 的键名)。",
+		tsHostContractTruth(),
+		tsHostContractBoundary(),
+	)
+	lines = append(lines, "")
+	lines = append(lines, tsDocComment(0, tsDesktopAnsweredDoc)...)
+	lines = append(lines, tsStringArray("desktopAnsweredMethods", hostAnsweredKeys(c, keys, hostConstDesktop))...)
+	lines = append(lines, "")
+	lines = append(lines, tsDocComment(0, tsAgentredAnsweredDoc)...)
+	lines = append(lines, tsStringArray("agentredAnsweredMethods", hostAnsweredKeys(c, keys, hostConstAgentred))...)
+	return strings.Join(lines, "\n") + "\n"
+}
+
 // renderTSConstants 渲染常量产物。
-func renderTSConstants(decls wireDecls) string {
+func renderTSConstants(decls wireDecls, codes rpcErrorCodeDecls) string {
 	lines := tsGenHeader("wire 协议常量:RPC 方法名 / 通知名 / 错误码 / 会话生命周期 / 拉取上限。",
-		tsWireTruth(), tsWireBoundary())
+		tsConstantsTruth(), tsWireBoundary())
 	for _, c := range tsConstDecls() {
 		lines = append(lines, "")
 		lines = append(lines, tsDocComment(0, decls.constDocs[c.name])...)
 		lines = append(lines, tsConstLine(c.name, tsLiteral(c.value)))
 	}
+	lines = append(lines, "")
+	lines = append(lines, tsRPCErrorBanner()...)
+	for _, c := range tsRPCErrorDecls() {
+		lines = append(lines, "")
+		lines = append(lines, tsDocComment(0, codes.docs[c.goName])...)
+		lines = append(lines, tsConstLine(c.tsName, tsLiteral(c.value)))
+	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// tsRPCErrorBanner 是产物里错误码那一段的段头。它交代两件读产物的人一定会问的事:
+// 这一段的真理源与上面那一段**不是同一个包**;下面每条的文档注释是 Go 侧原文,
+// 因此写的是 Go 名字,而 export 出来的是 TS 名字。
+func tsRPCErrorBanner() []string {
+	return []string{
+		"/**",
+		" * ── RPC 错误码 ──",
+		" *",
+		" * 这一段的真理源是 pkg/wire/rpcerror(codes.go + error.go),不是 wire.go:",
+		" * 错误码由同一条连接上的多个方法族共用一张段位表,而 wire 包只给其中两族起了",
+		" * 别名。从别名生成等于只导出「恰好有人起过别名的那几族」。",
+		" *",
+		" * 名字:TS 侧统一 ErrCode<族><短名>,Go 侧是 Code<族><短名>。两边的对应写在",
+		" * 生成器的 tsRPCErrorDecls() 里、由 TestTSGenCoversRPCErrorCodes 钉住 —— 下面",
+		" * 每条的文档注释是 Go 侧原文,所以里面出现的是 Go 名字。",
+		" */",
+	}
 }
 
 // tsConstLine 渲染一条 `export const`,超过 printWidth 时按 Prettier 的做法把初值折到
@@ -1552,6 +2147,10 @@ func tsLiteral(v any) string {
 		return strconv.Quote(x)
 	case int:
 		return strconv.Itoa(x)
+	case int32:
+		// rpcerror/error.go 的那批码是 int32 有类型常量,codes.go 的领域码是无类型的。
+		// 到了 TS 只有一种 number,两者渲染成同一个十进制字面量。
+		return strconv.FormatInt(int64(x), 10)
 	default:
 		panic(fmt.Sprintf("tsgen: 不支持的常量类型 %T", v))
 	}
@@ -1761,14 +2360,16 @@ func buildTSTargets(t *testing.T) []tsTarget {
 	t.Helper()
 	decls := parseWireDecls(t)
 	kinds := parseEventKindDecls(t)
+	codes := parseRPCErrorCodeDecls(t)
 	return []tsTarget{
 		{rel: tsGenRel, sources: []tsSource{
-			{name: "constants.gen.ts", content: renderTSConstants(decls)},
+			{name: "constants.gen.ts", content: renderTSConstants(decls, codes)},
 			{name: "codec.gen.ts", content: renderTSCodec(t, decls)},
 			{name: "event-kinds.gen.ts", content: renderTSEventKinds(kinds, tsEventKindBoundary())},
 			{name: "block-types.gen.ts", content: renderTSBlockTypes(blockTypeVocabulary(t))},
 			{name: "chat-block-types.gen.ts", content: renderTSChatBlockTypes(chatBlockTypeVocabulary(t))},
 			{name: "limits.gen.ts", content: renderTSLimits(nil)},
+			{name: "host-contract.gen.ts", content: renderTSHostContract(parseHostContract(t), tsHostMethodKeys())},
 		}},
 		{rel: tsUIGenRel, sources: []tsSource{
 			{name: "event-kinds.gen.ts", content: renderTSEventKinds(kinds, tsUIEventKindBoundary())},
@@ -1819,12 +2420,31 @@ func TestTSGenCoversWirePackage(t *testing.T) {
 	require.ElementsMatch(t, decls.structNames, listed,
 		"wire 包的导出结构与 tsRootTypes() 不一致,补齐清单后重新生成:\n\t%s", tsRegenCmd)
 
-	consts := make([]string, 0, len(tsConstDecls()))
+	// 常量不能像结构那样要求两边逐个相等:本包的 ErrCode* 是 pkg/wire/rpcerror 的
+	// 别名,它们由 tsRPCErrorDecls() 从真理源生成,不再登记在 tsConstDecls() 里。
+	// 所以这里问的是「本包导出的常量有没有**某一份**产物导出它」,两个方向各查一次:
+	//
+	//   本包 → 产物:新加一个 wire 常量却没人生成它,变红(原来那条断言的全部价值)。
+	//   产物 → 本包:tsConstDecls() 登记了一个本包没有的名字,变红。
+	//
+	// 别名恰好被 rpcerror 那张表以同名覆盖,这是顺带的一道名字守卫:哪天有人把
+	// ErrCodeAborted 的 TS 名字改掉,本包的别名就没人认领了,这里立刻变红。
+	rendered := map[string]bool{}
 	for _, c := range tsConstDecls() {
-		consts = append(consts, c.name)
+		rendered[c.name] = true
 	}
-	require.ElementsMatch(t, decls.constNames, consts,
-		"wire 包的导出常量与 tsConstDecls() 不一致,补齐清单后重新生成:\n\t%s", tsRegenCmd)
+	for _, c := range tsRPCErrorDecls() {
+		rendered[c.tsName] = true
+	}
+	for _, name := range decls.constNames {
+		require.Truef(t, rendered[name],
+			"wire 包导出了常量 %s,却没有任何产物导出它;登记到 tsConstDecls() 后重新生成:\n\t%s",
+			name, tsRegenCmd)
+	}
+	for _, c := range tsConstDecls() {
+		require.Containsf(t, decls.constNames, c.name,
+			"tsConstDecls() 登记了 %s,但 wire 包没有这个导出常量", c.name)
+	}
 }
 
 // TestTSGenCoversEventKinds 完整性守卫:agentruntime 声明的 EventKind 常量必须
@@ -1848,6 +2468,155 @@ func TestTSGenCoversEventKinds(t *testing.T) {
 	}
 	require.ElementsMatch(t, decls.names, listed,
 		"agentruntime 的 EventKind 常量与 tsEventKindDecls() 不一致,补齐清单后重新生成:\n\t%s", tsRegenCmd)
+}
+
+// TestTSGenCoversRPCErrorCodes 完整性守卫:pkg/wire/rpcerror 声明的每个错误码都必须
+// 抵达 constants.gen.ts。
+//
+// 为什么要单独一条:错误码的唯一主人是 pkg/wire/rpcerror,而本生成器此前只看得见
+// **本 wire 包**的导出常量,所以只有本包起了别名的那两族(runtime.* / project.*)
+// 到得了浏览器。remotefs.* 与 workspacefs.* 从来没有别名,于是消费方(agentre-server
+// 的 remotefs.ts / filePreviewPorts.ts / relayClient.ts)只能手抄魔数 —— 而手抄的那份
+// 不会因为这边加了码就变红,正是这套生成机制要消灭的形态。
+//
+// 守卫分三段,缺一段就有漏码的路径:
+//
+//   - 名字:AST 扫出的 Code* 集合必须与 tsRPCErrorDecls() 逐个对上 —— 新加一个码
+//     却没给它 TS 名字,这里变红。
+//   - 值:清单里「TS 名字 ↔ Go 名字」的配对必须与 AST 读到的值一致 —— 配错常量
+//     (名字写 NotDir 却引用 NotFound 的值)会让浏览器按别的码分支。
+//   - 产物:渲染出来的 constants.gen.ts 必须真的有那一行 export —— 清单登记了却
+//     没接进渲染器,前两段照样绿。
+//
+// TS 名字沿用产物里既有的 ErrCode<族><短名> 形态而不是机械的 Code → ErrCode 替换:
+// 已经导出的九个(ErrCodeNoActiveTurn 等)是消费方在用的名字,机械替换会把它们改成
+// ErrCodeRuntimeNoActiveTurn,那是一次无声的破坏性改名。映射因此手写在清单里,
+// 由本守卫钉住。
+func TestTSGenCoversRPCErrorCodes(t *testing.T) {
+	codes := parseRPCErrorCodeDecls(t)
+	require.NotEmpty(t, codes.names, "没从 %s 扫到任何 Code* 常量,扫描逻辑本身坏了", rpcErrorRel)
+
+	listed := make([]string, 0, len(tsRPCErrorDecls()))
+	for _, c := range tsRPCErrorDecls() {
+		listed = append(listed, c.goName)
+	}
+	require.ElementsMatch(t, codes.names, listed,
+		"%s 的 Code* 常量与 tsRPCErrorDecls() 不一致,补齐清单后重新生成:\n\t%s", rpcErrorRel, tsRegenCmd)
+
+	out := renderTSConstants(parseWireDecls(t), codes)
+	seen := map[string]string{}
+	for _, c := range tsRPCErrorDecls() {
+		require.Truef(t, strings.HasPrefix(c.tsName, "ErrCode"),
+			"%s 的 TS 名字 %q 不是 ErrCode<族><短名> 形态", c.goName, c.tsName)
+		if prev, dup := seen[c.tsName]; dup {
+			t.Fatalf("TS 名字 %s 被 %s 与 %s 同时占用:产物会有两条同名 export,TS 直接编不过",
+				c.tsName, prev, c.goName)
+		}
+		seen[c.tsName] = c.goName
+
+		require.EqualValuesf(t, codes.values[c.goName], c.value,
+			"清单把 %s 配给了 %s,但两者的值对不上:浏览器会按别的族的码分支", c.tsName, c.goName)
+		require.Containsf(t, out, tsConstLine(c.tsName, tsLiteral(c.value))+"\n",
+			"%s 登记了却没出现在 constants.gen.ts 里", c.tsName)
+	}
+}
+
+// TestTSGenCoversHostContractMethods 完整性守卫:宿主契约的「枚举 → rpcMethods 键名」
+// 映射。
+//
+// 这是这份产物最容易悄悄烂掉的地方:漏一个方法、或者把键名拼错一个字母,产物就少一
+// 行,而**没有任何东西会红** —— 新鲜度守卫比的是「生成器此刻会写出什么」,它对少掉的
+// 那一行一无所知;浏览器那边少了一行,表现是一颗死按钮而不是一条报错。所以三个方向
+// 都要钉:
+//
+//   - 清单必须不多不少正好覆盖 Contract()(ElementsMatch);
+//   - 每个非空键名必须真的是 rpc-methods.ts 里的键,**而且**那条 descriptor 的
+//     method ID 要等于枚举值 —— 只查存在性挡不住「键名真实但配错了方法」;
+//   - 登记成空串(TS 侧没有 descriptor)的那几条,rpc-methods.ts 里就真的不能有它。
+//     反向这一半和 wireinbound 的 KnownGaps.Stale 是同一条纪律:有人给它补上
+//     descriptor 却忘了回来填键名,产物会静默少一行。
+func TestTSGenCoversHostContractMethods(t *testing.T) {
+	contract := parseHostContract(t)
+	descriptors := parseRpcMethodDescriptors(t)
+	require.NotEmpty(t, descriptors, "没从 %s 扫到任何 descriptor,扫描逻辑本身坏了", rpcMethodsTSRel)
+
+	listed := make([]string, 0, len(tsHostMethodDecls()))
+	for _, d := range tsHostMethodDecls() {
+		name, ok := agentrewire.RpcMethod_name[int32(d.method)]
+		require.Truef(t, ok, "映射表里 %d 不是 RpcMethod 的取值", int32(d.method))
+		listed = append(listed, strings.TrimPrefix(name, "RPC_METHOD_"))
+	}
+	// 两侧都去掉 RPC_METHOD_ 前缀只为报错信息短一点;比的仍是同一套字符串。
+	trimmed := make([]string, 0, len(contract.order))
+	for _, name := range contract.order {
+		trimmed = append(trimmed, strings.TrimPrefix(name, "RPC_METHOD_"))
+	}
+	require.ElementsMatch(t, trimmed, listed,
+		"%s 的 Contract() 与 tsHostMethodDecls() 不一致,补齐映射后重新生成:\n\t%s", wireinboundRel, tsRegenCmd)
+
+	seen := map[string]string{}
+	for _, d := range tsHostMethodDecls() {
+		name := agentrewire.RpcMethod_name[int32(d.method)]
+		if d.key == "" {
+			for key, id := range descriptors {
+				require.NotEqualf(t, int32(d.method), id,
+					"%s 在 %s 里已经有 descriptor 了(键名 %s),回 tsHostMethodDecls() 把空串换成它再重新生成:\n\t%s",
+					name, rpcMethodsTSRel, key, tsRegenCmd)
+			}
+			continue
+		}
+		if prev, dup := seen[d.key]; dup {
+			t.Fatalf("键名 %s 被 %s 与 %s 同时占用:产物里会出现两条同名条目", d.key, prev, name)
+		}
+		seen[d.key] = name
+
+		id, ok := descriptors[d.key]
+		require.Truef(t, ok,
+			"映射表把 %s 配给了键名 %q,但 %s 的 rpcMethods 里没有这个键 —— 消费方一个调用点也对不上",
+			name, d.key, rpcMethodsTSRel)
+		require.EqualValuesf(t, int32(d.method), id,
+			"映射表把 %s 配给了键名 %s,但那条 descriptor 的 method ID 是 %d(应为 %d):消费方会拿它去对另一个方法的调用点",
+			name, d.key, id, int32(d.method))
+	}
+
+	out := renderTSHostContract(contract, tsHostMethodKeys())
+	for _, host := range []string{hostConstDesktop, hostConstAgentred} {
+		require.NotEmptyf(t, hostAnsweredKeys(contract, tsHostMethodKeys(), host),
+			"%s 一条方法都没有:产物在说这一侧什么都答不出", host)
+	}
+	for _, d := range tsHostMethodDecls() {
+		if d.key == "" {
+			continue
+		}
+		require.Containsf(t, out, strconv.Quote(d.key),
+			"%s 登记了却没出现在 host-contract.gen.ts 里", d.key)
+	}
+}
+
+// TestHostAnsweredKeysDropsKnownGaps —— KnownGaps() 记下的缺口不得出现在产物里。
+//
+// 产物名叫「答得出的方法」,而缺口的定义正是「该答而答不出」:留着它,消费方会以为
+// 那颗按钮打得通。今天 KnownGaps() 是空的,所以这一条用合成契约来立 —— 等某天真有人
+// 欠一条时才发现产物在替它撒谎,就晚了。
+func TestHostAnsweredKeysDropsKnownGaps(t *testing.T) {
+	contract := hostContract{
+		order: []string{"RPC_METHOD_ENGINE_SCAN", "RPC_METHOD_ENGINE_TEST"},
+		hosts: map[string][]string{
+			"RPC_METHOD_ENGINE_SCAN": {hostConstAgentred, hostConstDesktop},
+			"RPC_METHOD_ENGINE_TEST": {hostConstAgentred, hostConstDesktop},
+		},
+		gaps: map[string]map[string]bool{
+			hostConstDesktop: {"RPC_METHOD_ENGINE_TEST": true},
+		},
+	}
+	keys := map[string]string{
+		"RPC_METHOD_ENGINE_SCAN": "engineScan",
+		"RPC_METHOD_ENGINE_TEST": "engineTest",
+	}
+
+	// 缺口只减掉欠着的那一侧,另一侧照常导出。
+	require.Equal(t, []string{"engineScan"}, hostAnsweredKeys(contract, keys, hostConstDesktop))
+	require.Equal(t, []string{"engineScan", "engineTest"}, hostAnsweredKeys(contract, keys, hostConstAgentred))
 }
 
 // TestTSGenCoversBlockTypes 完整性守卫:块类型词表。

@@ -24,6 +24,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
 
@@ -57,14 +58,14 @@ type SessionConnState struct {
 // 按 DIP 声明在消费方:internal/pkg 是叶子层,拨号要用的设备行 / keychain / 连接池
 // 都在 service 层,实现由 chat_svc 在构造 Runtime 时注入。
 type ReconnectPort interface {
-	Reconnect(ctx context.Context) (client.ProtobufConnection, string, error)
+	Reconnect(ctx context.Context) (client.ProtobufConnection, devicefp.Carrier, error)
 }
 
 // ReconnectFunc 是 ReconnectPort 的函数式实现。
-type ReconnectFunc func(ctx context.Context) (client.ProtobufConnection, string, error)
+type ReconnectFunc func(ctx context.Context) (client.ProtobufConnection, devicefp.Carrier, error)
 
 // Reconnect 实现 ReconnectPort。
-func (f ReconnectFunc) Reconnect(ctx context.Context) (client.ProtobufConnection, string, error) {
+func (f ReconnectFunc) Reconnect(ctx context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 	return f(ctx)
 }
 
@@ -112,7 +113,7 @@ func WithPreviewSink(sink PreviewSink) Option {
 func WithReconnect(p ReconnectPort) Option { return func(r *Runtime) { r.reconnect = p } }
 
 // WithDaemonFingerprint 声明当前这条连接背后的 daemon 实例标识(指纹形)。
-func WithDaemonFingerprint(fp string) Option { return func(r *Runtime) { r.daemonFP = fp } }
+func WithDaemonFingerprint(fp devicefp.Carrier) Option { return func(r *Runtime) { r.daemonFP = fp } }
 
 // WithConnStateObserver 注入连接态观察者。
 func WithConnStateObserver(o ConnStateObserver) Option {
@@ -357,7 +358,7 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 		before := ss.cursorNow()
 
 		// 发 RPC 时绝不持 ss.mu,见 sessionSync 的纪律注释。
-		response, err := wirecall.SessionPull(ctx, r.conn(), &agentrewire.SessionPullRequest{ConversationId: r.conversationID(sid), Cursor: before, PeerFingerprint: r.originFor(sid)})
+		response, err := wirecall.SessionPull(ctx, r.conn(), &agentrewire.SessionPullRequest{ConversationId: r.conversationID(sid), Cursor: before, PeerFingerprint: string(r.originFor(sid))})
 		if err != nil {
 			return replayed, fromProtobufError(err)
 		}
@@ -638,7 +639,7 @@ func (r *Runtime) reconnectAndCatchUp() (<-chan struct{}, bool) {
 		r.adoptConn(cli, fp)
 		if err := r.catchUpAll(ctx); err != nil {
 			logger.Default().Warn("remote.Runtime: catch-up failed, retrying",
-				zap.Int("attempt", attempt+1), zap.String("daemonFingerprint", fp),
+				zap.Int("attempt", attempt+1), zap.String("daemonFingerprint", string(fp)),
 				zap.Int64s("sessionIds", r.liveSessionIDs()), zap.Error(err))
 			continue
 		}
@@ -655,7 +656,7 @@ func (r *Runtime) reconnectAndCatchUp() (<-chan struct{}, bool) {
 
 // adoptConn 换上新连接:五类通知 + MCP 隧道的 handler 要在新连接上原样再挂一遍
 // (新连接自带一张空的 handler 表)。
-func (r *Runtime) adoptConn(cli client.ProtobufConnection, fp string) {
+func (r *Runtime) adoptConn(cli client.ProtobufConnection, fp devicefp.Carrier) {
 	r.connMu.Lock()
 	r.client = cli
 	if fp != "" {
@@ -740,7 +741,7 @@ func (r *Runtime) catchUpSession(ctx context.Context, sid int64) error {
 // 返回接管时 daemon 交回的高水位(该会话通知日志里此刻的 MAX(seq)),补齐据它校验
 // 本地游标有没有越界(见 dropCursorAboveHighWater)。失败时返 0。
 func (r *Runtime) attachSession(ctx context.Context, sid int64) (int64, error) {
-	att, err := wirecall.SessionAttach(ctx, r.conn(), &agentrewire.SessionAttachRequest{ConversationId: r.conversationID(sid), PeerFingerprint: r.originFor(sid)})
+	att, err := wirecall.SessionAttach(ctx, r.conn(), &agentrewire.SessionAttachRequest{ConversationId: r.conversationID(sid), PeerFingerprint: string(r.originFor(sid))})
 	if err == nil {
 		return att.GetLatestSeq(), nil
 	}
@@ -1098,7 +1099,7 @@ func summaryFromProto(value *agentrewire.SessionSummary) wire.SessionSummary {
 // rememberOrigin 记下清单里学到的会话发起对端(R12 桌面侧)。下游的 attach / pull /
 // pendingWaiters / 控制请求都要按它把 PeerFingerprint 原样带过去,daemon 据此解析到
 // 发起对端;记到空值 = 未登录 daemon / 自己对端,请求省略该字段(向后兼容)。
-func (r *Runtime) rememberOrigin(conversationID, fp string) {
+func (r *Runtime) rememberOrigin(conversationID string, fp devicefp.Initiator) {
 	if conversationID == "" {
 		return
 	}
@@ -1110,12 +1111,12 @@ func (r *Runtime) rememberOrigin(conversationID, fp string) {
 // originFor 交出这条会话学到的发起对端;没学过(本地 Run 起的会话、清单还没含它)返
 // 空串,调用方据此省略 PeerFingerprint —— 空 origin 在 daemon 侧解析为调用方自己对端,
 // 正好是自己发的会话,天然向后兼容。
-func (r *Runtime) originFor(sid int64) string {
+func (r *Runtime) originFor(sid int64) devicefp.Initiator {
 	return r.originForConversation(r.conversationID(sid))
 }
 
 // originForConversation 同上,但直接按对话身份问。
-func (r *Runtime) originForConversation(conversationID string) string {
+func (r *Runtime) originForConversation(conversationID string) devicefp.Initiator {
 	r.originMu.Lock()
 	defer r.originMu.Unlock()
 	return r.origins[conversationID]
@@ -1191,7 +1192,7 @@ func (r *Runtime) cursor() agentruntime.SessionCursorPort {
 }
 
 // fingerprint 当前连上的 daemon 实例标识。
-func (r *Runtime) fingerprint() string {
+func (r *Runtime) fingerprint() devicefp.Carrier {
 	r.connMu.Lock()
 	defer r.connMu.Unlock()
 	return r.daemonFP

@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
@@ -315,7 +316,7 @@ func (p *pool) retryWithFreshCredential(
 	}
 	if err := p.credentials.Refresh(ctx); err != nil {
 		logger.Ctx(ctx).Warn("conn pool: account credential rejected and cannot be renewed",
-			zap.String("daemonFingerprint", args.ExpectedDaemonFingerprint), zap.Error(err))
+			zap.String("daemonFingerprint", string(args.ExpectedDaemonFingerprint)), zap.Error(err))
 		// 原因用 %v 而不是 %w:这条**不能**再带着 ErrUnauthorized 往上走,否则
 		// Borrow 照样把它折成 ErrDeviceUnauthorized,上层照样判「重试也没用」——
 		// 而我们恰恰还不知道凭据是不是真的被撤销了,只知道换不到新的。文字照留。
@@ -328,7 +329,7 @@ func (p *pool) retryWithFreshCredential(
 		return nil, fmt.Errorf("%w: %w", ErrUnauthorized, cause)
 	}
 	logger.Ctx(ctx).Info("conn pool: account credential rejected, retrying once with a fresh one",
-		zap.String("daemonFingerprint", args.ExpectedDaemonFingerprint))
+		zap.String("daemonFingerprint", string(args.ExpectedDaemonFingerprint)))
 	return p.openAny(ctx, args, fresh)
 }
 
@@ -372,7 +373,7 @@ func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string)
 			return nil, fmt.Errorf("device %s has no LAN address and no relay is configured",
 				args.ExpectedDaemonFingerprint)
 		}
-		return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, args.DeviceFingerprint)
+		return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, devicefp.Initiator(args.DeviceFingerprint))
 	}
 	direct := func(ctx context.Context) (client.ProtobufConnection, error) {
 		if args.DeviceToken != "" {
@@ -399,7 +400,7 @@ func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string)
 			Name:        "relay",
 			Fingerprint: args.DeviceFingerprint,
 			Dial: func(ctx context.Context) (client.ProtobufConnection, error) {
-				return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, args.DeviceFingerprint)
+				return p.relay.Open(ctx, args.ExpectedDaemonFingerprint, devicefp.Initiator(args.DeviceFingerprint))
 			},
 		},
 	)

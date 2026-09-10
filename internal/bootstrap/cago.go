@@ -42,6 +42,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/internal/service/ctlskill_svc"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/hooktool_svc"
 	"github.com/agentre-hub/agentre/internal/service/issue_svc"
 	"github.com/agentre-hub/agentre/internal/service/notification_svc"
@@ -144,15 +145,15 @@ func Init(ctx context.Context) (*Runtime, error) {
 	issue_repo.RegisterLabel(issue_repo.NewLabel())
 	issue_repo.RegisterIssueLabel(issue_repo.NewIssueLabel())
 	issue_svc.SetDefault(issue_svc.New())
-	// 把 project_svc 的 cwd 解析注入 chat_svc —— chat_svc 不直接 import project_svc，
-	// 避免 project_svc → chat_repo 与 chat_svc → project_svc 形成环。
-	chat_svc.RegisterCwdResolver(project_svc.Default().ResolveSessionCwd)
-	// 把 chat_svc 的会话解析注入 workspace_fs_svc（它自己声明的窄接口），让它不必
-	// 跨域读 chat / agent / agent_backend 三张表。这里懒解析 chat_svc.Chat()：
-	// RegisterChat 在 app.go registerChatService() 里才执行，此刻还是 nil。
+	// 把 project_svc 的 cwd 解析注入 exec_target_svc —— 那个包不直接 import project_svc，
+	// 避免 project_svc → chat_repo 与 exec_target_svc → project_svc 形成环。
+	exec_target_svc.RegisterCwdResolver(project_svc.Default().ResolveSessionCwd)
+	exec_target_svc.RegisterExecTarget(exec_target_svc.NewExecTarget(nil))
+	// 把执行目标域的会话解析注入 workspace_fs_svc（它自己声明的窄接口），让它不必
+	// 跨域读 chat / agent / agent_backend 三张表。
 	workspace_fs_svc.RegisterSessionWorkspaceResolver(
 		func(ctx context.Context, sessionID int64) (int64, string, error) {
-			return chat_svc.Chat().ResolveSessionWorkspace(ctx, sessionID)
+			return exec_target_svc.ExecTarget().ResolveSessionWorkspace(ctx, sessionID)
 		})
 	// 第二个窄接口：工作根认领要知道「本会话 AI 写过哪些路径」，那是 chat 消息
 	// 里的事实。这里注入的是包级函数（不经 chat_svc.Chat()），因为它只读消息、
@@ -187,6 +188,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	agent_backend_svc.RegisterGateway(gw)
 	app_settings_svc.RegisterGateway(gw)
 	chat_svc.RegisterGateway(gw)
+	exec_target_svc.RegisterGateway(gw)
 
 	// 挂组织架构工具 MCP handler(/mcp/org/),并注册 TurnMCPProvider:
 	// agent 开了 org 工具的会话 turn 注入该 MCP server(审批在服务端,见 orgtool_svc)。

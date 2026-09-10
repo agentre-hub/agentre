@@ -29,9 +29,9 @@ const methodSetDigest = "ffcd0f5eefade5072eabc9422eb99f14b3dbdfa2cd8d2aacc266298
 // 才炸,而那正是被删掉的那些降级分支原本兜住的形态。方法集指纹与版本号钉在同一个
 // 常量对上,这个前提就成立了。
 //
-// 改了方法集怎么办:把下面报出来的新指纹填进 methodSetDigest,把
-// frontend/packages/agentre-wire/package.json 的 version 与 wireversion.Protocol
-// 一起往上抬,并把 wireversion.MinSupported 一并抬到与新 Protocol 相等(见下面
+// 改了方法集怎么办:把下面报出来的新指纹填进 methodSetDigest,把 schema 上的
+// (agentre.wire.protocol_version) 往上抬(它就是 wireversion.Protocol),重新生成,
+// 并把 wireversion.MinSupported 一并抬到与新 Protocol 相等(见下面
 // TestMethodSet_GivenTheMethodSetDigestWasLastUpdated_...)——不把 MinSupported 重置,
 // 新方法集就落进了旧窗口容许的范围,这条测试才会绿。
 func TestMethodSet_GivenTheStrictVersionHandshake_WhenTheMethodSetChanges_ThenTheProtocolVersionMustBeBumpedToo(t *testing.T) {

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // SyncMeta 是账号级对象共用的同步元数据（决策 3/4/19/27）。
@@ -40,7 +42,7 @@ type SyncMeta struct {
 	SyncUpdatedAt int64 `gorm:"column:sync_updated_at;type:bigint;not null;default:0"`
 	// SyncOriginFingerprint 最后一次修改来自哪台设备——存的是那台设备的规范指纹
 	// （与本工作区其余跨机引用同一种表示）；空串表示这一行还没有被同步层标记过来源。
-	SyncOriginFingerprint string `gorm:"column:sync_origin_fingerprint;type:text;not null;default:''"`
+	SyncOriginFingerprint devicefp.LastWriter `gorm:"column:sync_origin_fingerprint;type:text;not null;default:''"`
 	// SyncDeletedAt 墓碑时间（毫秒 epoch，R6）；0 = 未删除。与各表既有的 status 软
 	// 删语义正交——status 是本地可见性，这一列是跨机墓碑标记，由后续任务的删除
 	// 路径一并写入。

@@ -16,12 +16,16 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 type ProtobufInboundDeps struct {
 	Peripheral wireinbound.PeripheralDeps
+	// Engine 是引擎探测一族(engine.* / cli.resolvePath)的端口集。它与 Peripheral
+	// 分开,是因为这一族的族闸门是**端口**:两种执行端对它的准入并不相同。
+	Engine wireinbound.EngineDeps
 	// Capabilities 交出这台机器上某个 backend 的能力矩阵。它交的是**领域值**而不是
 	// 线上的应答:折成线格式那一步与 agentred 逐字相同,已经收进 wireinbound。
 	Capabilities func(context.Context, remotewire.CapabilitiesParams) (remotewire.CapabilitiesResult, error)
@@ -40,8 +44,11 @@ type ProtobufInboundDeps struct {
 	AttachSession           func(context.Context, remotewire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionAttachResult, error)
 	PullSession             func(context.Context, remotewire.SessionPullParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionPullResult, error)
 	PendingWaiters          func(context.Context, remotewire.SessionPendingWaitersParams) (remotewire.SessionPendingWaitersResult, error)
-	DeleteSession           func(context.Context, string, string) error
-	SetModelTarget          func(context.Context, string, string, string) error
+	DeleteSession           func(context.Context, string, devicefp.Initiator) error
+	// AbortSession 把这一条会话正在跑的那一轮停下来。它与 CancelSteerSession 不同:
+	// 那一条撤的是还没被取走的排队消息,这一条停的是**已经在跑**的那一轮。
+	AbortSession   func(context.Context, string) error
+	SetModelTarget func(context.Context, string, string, string) error
 	// SetReasoningEffort 把浏览器选的会话思考力度转调进桌面端的 chat_svc,与
 	// SetModelTarget 同族:空串是要写下去的值(改回跟随后端配置),不是「不改」。
 	SetReasoningEffort func(context.Context, string, string) error
@@ -133,6 +140,7 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 			}, nil
 		})
 	wireinbound.RegisterPeripheralMethods(registry, deps.Peripheral)
+	wireinbound.RegisterEngineMethods(registry, deps.Engine)
 	wireinbound.RegisterSessionMethods(registry, peerSessionPorts(deps))
 	return registry
 }
@@ -140,94 +148,152 @@ func NewProtobufInboundRegistry(deps ProtobufInboundDeps) *protorpc.Registry {
 // peerSessionPorts 把桌面端的这一份依赖装配成会话族的端口。
 //
 // 这里只剩**端口实现**:归属校验(requireOwnOrigin 在 composition 那一层)、桌面端
-// 独有的对话 id 前置校验、以及把实时流推回这条连接的订阅者。线形状本身(解请求 →
-// 编应答)住在 internal/pkg/wireinbound,两种执行端共用同一份。
+// 独有的对话 id 前置校验、把实时流推回这条连接的订阅者,以及线上载体 ↔ 领域值的那
+// 一跳 —— 桌面端的依赖说的是 chat_svc 的领域值,而端口说 protobuf(agentred 的
+// handler 本来就说它,见 wireinbound.SessionPorts)。
+//
+// 那一跳**不在这里逐字段搬**:每一处调的都是 wireinbound 导出的映射函数,字段清单
+// 因此仍然只有一份 —— 加第 17 个字段时改那一处,两种执行端一起跟上。哪些方法存在、
+// 闸门与错误映射怎么套、缺席怎么办,都还在 wireinbound。
 //
 // 某一格的依赖缺席时对应端口留 nil,那个方法于是**不注册** —— 调用方收到
 // method not found,而不是一个「本机没装这个能力」的 -32603。协议里「这台机器办不到」
 // 只有前一种说法,调用方据它换一台机器。
 func peerSessionPorts(deps ProtobufInboundDeps) wireinbound.SessionPorts {
 	ports := wireinbound.SessionPorts{
-		Auth:  wireinbound.RequireAuthenticated,
-		Error: protobufPeerError,
-		// 桌面端把「请求体解不开」并进了同一个映射,因而答 -32603 internal;
-		// agentred 那一侧答 -32602 invalid params。差异既存,这里如实保留。
-		DecodeError:    protobufPeerError,
-		Capabilities:   deps.Capabilities,
-		PendingWaiters: deps.PendingWaiters,
+		Auth:           wireinbound.RequireAuthenticated,
+		Error:          protobufPeerError,
 		ActivityRollup: deps.ActivityRollup,
 	}
-	if deps.ListSessions != nil {
-		ports.List = func(ctx context.Context, params remotewire.SessionListParams) (remotewire.SessionListResult, error) {
-			value, err := deps.ListSessions(ctx, params)
+	if deps.Capabilities != nil {
+		ports.Capabilities = func(ctx context.Context, request *agentrewire.RuntimeCapabilitiesRequest) (*agentrewire.RuntimeCapabilitiesResponse, error) {
+			value, err := deps.Capabilities(ctx, wireinbound.CapabilitiesParamsOf(request))
 			if err != nil {
-				return remotewire.SessionListResult{}, err
+				return nil, err
 			}
-			return *value, nil
+			return wireinbound.RuntimeCapabilitiesResponseOf(value), nil
+		}
+	}
+	if deps.ListSessions != nil {
+		ports.List = func(ctx context.Context, request *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
+			value, err := deps.ListSessions(ctx, wireinbound.SessionListParamsOf(request))
+			if err != nil {
+				return nil, err
+			}
+			return wireinbound.SessionListResponseOf(*value), nil
 		}
 	}
 	if deps.CountSessions != nil {
-		ports.Counts = func(ctx context.Context) (remotewire.SessionCountsResult, error) {
+		ports.Counts = func(ctx context.Context) (*agentrewire.SessionCountsResponse, error) {
 			value, err := deps.CountSessions(ctx)
 			if err != nil {
-				return remotewire.SessionCountsResult{}, err
+				return nil, err
 			}
-			return *value, nil
+			return wireinbound.SessionCountsResponseOf(*value), nil
+		}
+	}
+	if deps.AbortSession != nil {
+		ports.Abort = func(ctx context.Context, request *agentrewire.RuntimeAbortRequest) (*agentrewire.RuntimeAbortResponse, error) {
+			if err := deps.AbortSession(ctx, request.GetConversationId()); err != nil {
+				return nil, err
+			}
+			// turn_kind 留空:桌面端这一侧的停止走 chat_svc.Stop,它只报「abort 路径
+			// 已经触发」,交不出被中断那一轮的类型。控制台不读这一格(按下即 await,
+			// 界面按 StreamAborted 事件翻),所以留空是如实,不是漏搬。
+			return &agentrewire.RuntimeAbortResponse{}, nil
 		}
 	}
 	if deps.AttachSession != nil {
-		ports.Attach = func(ctx context.Context, params remotewire.SessionAttachParams) (remotewire.SessionAttachResult, error) {
-			if err := conversationid.Validate(params.ConversationID); err != nil {
-				return remotewire.SessionAttachResult{}, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
+		ports.Attach = func(ctx context.Context, request *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error) {
+			if err := conversationid.Validate(request.GetConversationId()); err != nil {
+				return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
 			}
 			conn := protorpc.ConnFromContext(ctx)
 			if conn == nil {
-				return remotewire.SessionAttachResult{}, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session attach unavailable"}
+				return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session attach unavailable"}
 			}
-			return deps.AttachSession(ctx, params, protobufPeerSubscriber{conn})
+			value, err := deps.AttachSession(ctx, wireinbound.SessionAttachParamsOf(request), protobufPeerSubscriber{conn})
+			if err != nil {
+				return nil, err
+			}
+			return wireinbound.SessionAttachResponseOf(value), nil
 		}
 	}
 	if deps.PullSession != nil {
-		ports.Pull = func(ctx context.Context, params remotewire.SessionPullParams) (remotewire.SessionPullResult, error) {
+		ports.Pull = func(ctx context.Context, request *agentrewire.SessionPullRequest) (*agentrewire.SessionPullResponse, error) {
 			conn := protorpc.ConnFromContext(ctx)
 			if conn == nil {
-				return remotewire.SessionPullResult{}, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session pull unavailable"}
+				return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "session pull unavailable"}
 			}
-			return deps.PullSession(ctx, params, protobufPeerSubscriber{conn})
+			value, err := deps.PullSession(ctx, wireinbound.SessionPullParamsOf(request), protobufPeerSubscriber{conn})
+			if err != nil {
+				return nil, err
+			}
+			return wireinbound.SessionPullResponseOf(value)
+		}
+	}
+	if deps.PendingWaiters != nil {
+		ports.PendingWaiters = func(ctx context.Context, request *agentrewire.SessionPendingWaitersRequest) (*agentrewire.SessionPendingWaitersResponse, error) {
+			value, err := deps.PendingWaiters(ctx, wireinbound.SessionPendingWaitersParamsOf(request))
+			if err != nil {
+				return nil, err
+			}
+			return protowire.PendingWaitersResponseToProto(value), nil
 		}
 	}
 	if deps.DeleteSession != nil {
-		ports.Delete = func(ctx context.Context, params remotewire.SessionDeleteParams) (remotewire.SessionDeleteResult, error) {
+		ports.Delete = func(ctx context.Context, request *agentrewire.SessionDeleteRequest) (*agentrewire.SessionDeleteResponse, error) {
+			params := wireinbound.SessionDeleteParamsOf(request)
 			if err := conversationid.Validate(params.ConversationID); err != nil {
-				return remotewire.SessionDeleteResult{}, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
+				return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "invalid conversation id"}
 			}
 			if err := deps.DeleteSession(ctx, params.ConversationID, params.PeerFingerprint); err != nil {
-				return remotewire.SessionDeleteResult{}, err
+				return nil, err
 			}
 			// 交回的是删除的**后置条件**:应答返回时这一端已经没有这条会话了。
-			return remotewire.SessionDeleteResult{Deleted: true}, nil
+			return &agentrewire.SessionDeleteResponse{Deleted: true}, nil
 		}
 	}
 	if deps.SetModelTarget != nil {
-		ports.SetModelTarget = func(ctx context.Context, params remotewire.SetModelTargetParams) error {
-			return deps.SetModelTarget(ctx, params.ConversationID, params.ProviderKey, params.ModelKey)
+		ports.SetModelTarget = func(ctx context.Context, request *agentrewire.SetModelTargetRequest) (*agentrewire.SetModelTargetResponse, error) {
+			params := wireinbound.SetModelTargetParamsOf(request)
+			if err := deps.SetModelTarget(ctx, params.ConversationID, params.ProviderKey, params.ModelKey); err != nil {
+				return nil, err
+			}
+			return &agentrewire.SetModelTargetResponse{}, nil
 		}
 	}
 	if deps.SetReasoningEffort != nil {
-		ports.SetReasoningEffort = func(ctx context.Context, params remotewire.SetSessionReasoningEffortParams) error {
-			return deps.SetReasoningEffort(ctx, params.ConversationID, params.ReasoningEffort)
+		ports.SetReasoningEffort = func(ctx context.Context, request *agentrewire.SetSessionReasoningEffortRequest) (*agentrewire.SetSessionReasoningEffortResponse, error) {
+			params := wireinbound.SetSessionReasoningEffortParamsOf(request)
+			if err := deps.SetReasoningEffort(ctx, params.ConversationID, params.ReasoningEffort); err != nil {
+				return nil, err
+			}
+			return &agentrewire.SetSessionReasoningEffortResponse{}, nil
 		}
 	}
 	if deps.SetPermissionMode != nil {
-		ports.SetPermissionMode = func(ctx context.Context, params remotewire.SetPermissionModeParams) error {
-			return deps.SetPermissionMode(ctx, params.ConversationID, params.Mode)
+		ports.SetPermissionMode = func(ctx context.Context, request *agentrewire.RuntimeSetPermissionModeRequest) (*agentrewire.Empty, error) {
+			params := wireinbound.SetPermissionModeParamsOf(request)
+			if err := deps.SetPermissionMode(ctx, params.ConversationID, params.Mode); err != nil {
+				return nil, err
+			}
+			return &agentrewire.Empty{}, nil
 		}
 	}
 	if deps.RunSession != nil {
-		ports.Run = func(ctx context.Context, params remotewire.RunParams) (remotewire.RunAck, error) {
-			sent, err := deps.RunSession(ctx, params, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint, Name: params.SourceDeviceName})
+		ports.Run = func(ctx context.Context, request *agentrewire.RuntimeRunRequest) (*agentrewire.RuntimeRunResponse, error) {
+			// 桌面端把「请求体解不开」并进了同一个错误映射,因而答 -32603 internal;
+			// agentred 那一侧的 handler 自己说 protobuf,压根没有这一跳。差异既存
+			// (两条路其实都不可达:RunRequestFromProto 只在请求为 nil 或 backend
+			// 无法 json.Marshal 时失败),这里如实保留。
+			params, err := protowire.RunRequestFromProto(request)
 			if err != nil {
-				return remotewire.RunAck{}, err
+				return nil, err
+			}
+			sent, err := deps.RunSession(ctx, params, chat_svc.PeerSessionSource{Device: devicefp.Initiator(protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint), Name: params.SourceDeviceName})
+			if err != nil {
+				return nil, err
 			}
 			// 交回调用方送来的那条对话身份:本机可能是**新建**了一行来承载它(R17),
 			// 但对话的身份仍是发起端铸的那一个 —— daemon / 桌面端都从不发号。
@@ -239,44 +305,50 @@ func peerSessionPorts(deps ProtobufInboundDeps) wireinbound.SessionPorts {
 				ack.UserMessageSeq = sent.UserMessageSeq
 				ack.UserMessageMinSeq = sent.UserMessageMinSeq
 			}
-			return ack, nil
+			return wireinbound.RuntimeRunResponseOf(ack), nil
 		}
 	}
 	if deps.SteerSession != nil {
-		ports.Steer = func(ctx context.Context, params remotewire.SteerParams) (remotewire.SteerResult, error) {
-			enqueued, err := deps.SteerSession(ctx, params, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint})
+		ports.Steer = func(ctx context.Context, request *agentrewire.RuntimeSteerRequest) (*agentrewire.RuntimeSteerResponse, error) {
+			enqueued, err := deps.SteerSession(ctx, wireinbound.SteerParamsOf(request), chat_svc.PeerSessionSource{Device: devicefp.Initiator(protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint)})
 			if err != nil {
-				return remotewire.SteerResult{}, err
+				return nil, err
 			}
 			// 交回**入队侧**认的那个号,不是请求里那个:chat_svc.enqueue 自己 newQueuedID()。
 			if enqueued == nil {
-				return remotewire.SteerResult{}, nil
+				return wireinbound.RuntimeSteerResponseOf(remotewire.SteerResult{}), nil
 			}
-			return remotewire.SteerResult{QueuedID: enqueued.QueuedID, Cancellable: enqueued.Cancellable}, nil
+			return wireinbound.RuntimeSteerResponseOf(remotewire.SteerResult{QueuedID: enqueued.QueuedID, Cancellable: enqueued.Cancellable}), nil
 		}
 	}
 	if deps.CancelSteerSession != nil {
-		ports.CancelSteer = func(ctx context.Context, params remotewire.CancelSteerParams) (remotewire.CancelSteerResult, error) {
-			result, err := deps.CancelSteerSession(ctx, params)
+		ports.CancelSteer = func(ctx context.Context, request *agentrewire.RuntimeCancelSteerRequest) (*agentrewire.RuntimeCancelSteerResponse, error) {
+			result, err := deps.CancelSteerSession(ctx, wireinbound.CancelSteerParamsOf(request))
 			if err != nil {
-				return remotewire.CancelSteerResult{}, err
+				return nil, err
 			}
 			if result == nil {
-				return remotewire.CancelSteerResult{}, nil
+				return wireinbound.RuntimeCancelSteerResponseOf(remotewire.CancelSteerResult{}), nil
 			}
-			return remotewire.CancelSteerResult{Removed: result.Removed}, nil
+			return wireinbound.RuntimeCancelSteerResponseOf(remotewire.CancelSteerResult{Removed: result.Removed}), nil
 		}
 	}
 	if deps.SubmitAnswer != nil {
-		ports.SubmitAnswer = func(ctx context.Context, params remotewire.SubmitAnswerParams) (remotewire.PeerSessionControlResult, error) {
-			value, err := deps.SubmitAnswer(ctx, params)
-			return remotewire.PeerSessionControlResult{AlreadyHandled: value.AlreadyHandled}, err
+		ports.SubmitAnswer = func(ctx context.Context, request *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
+			value, err := deps.SubmitAnswer(ctx, wireinbound.SubmitAnswerParamsOf(request))
+			if err != nil {
+				return nil, err
+			}
+			return wireinbound.PeerSessionControlResponseOf(remotewire.PeerSessionControlResult{AlreadyHandled: value.AlreadyHandled}), nil
 		}
 	}
 	if deps.SubmitToolPermission != nil {
-		ports.SubmitToolPermission = func(ctx context.Context, params remotewire.SubmitToolPermissionParams) (remotewire.PeerSessionControlResult, error) {
-			value, err := deps.SubmitToolPermission(ctx, params)
-			return remotewire.PeerSessionControlResult{AlreadyHandled: value.AlreadyHandled}, err
+		ports.SubmitToolPermission = func(ctx context.Context, request *agentrewire.RuntimeSubmitToolPermissionRequest) (*agentrewire.PeerSessionControlResponse, error) {
+			value, err := deps.SubmitToolPermission(ctx, wireinbound.SubmitToolPermissionParamsOf(request))
+			if err != nil {
+				return nil, err
+			}
+			return wireinbound.PeerSessionControlResponseOf(remotewire.PeerSessionControlResult{AlreadyHandled: value.AlreadyHandled}), nil
 		}
 	}
 	return ports

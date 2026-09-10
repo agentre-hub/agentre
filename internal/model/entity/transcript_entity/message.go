@@ -11,6 +11,8 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // MessageTextMaxBytes — defensive ceiling on a single user message body.
@@ -30,8 +32,8 @@ type Message struct {
 	SessionID int64 `gorm:"column:session_id;type:bigint;not null;default:0"`
 	// DeviceFingerprint 空串 = 本地；非空 = 执行这条消息那台机器的规范设备指纹
 	// （与 agent_backends.device_fingerprint 同值）。给 chat 历史保留"这条消息当时跑在哪台机器"。
-	DeviceFingerprint string `gorm:"column:device_fingerprint;type:text;not null;default:''"`
-	Role              string `gorm:"column:role;type:text;not null"`
+	DeviceFingerprint devicefp.Carrier `gorm:"column:device_fingerprint;type:text;not null;default:''"`
+	Role              string           `gorm:"column:role;type:text;not null"`
 	// BlocksJSON 是消息正文的内存形态(StoredBlock 数组的 JSON)。它**不是一列**:
 	// 正文按「一块一行」存在 chat_message_blocks,由仓储在读时重组、写时拆解,
 	// 使服务层照旧只与 GetBlocks() / SetBlocks() 打交道。

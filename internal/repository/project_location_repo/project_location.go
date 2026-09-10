@@ -9,6 +9,8 @@ import (
 	"github.com/cago-frame/cago/pkg/consts"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source project_location.go -destination mock_project_location_repo/mock_project_location.go
@@ -25,7 +27,7 @@ type ProjectLocationRepo interface {
 	Create(ctx context.Context, p *project_location_entity.ProjectLocation) error
 	Get(ctx context.Context, id int64) (*project_location_entity.ProjectLocation, error)
 	FindByProjectAndDevice(ctx context.Context, projectID int64, deviceID string) (*project_location_entity.ProjectLocation, error)
-	FindByProjectAndFingerprint(ctx context.Context, projectID int64, fingerprint string) (*project_location_entity.ProjectLocation, error)
+	FindByProjectAndFingerprint(ctx context.Context, projectID int64, fingerprint devicefp.Carrier) (*project_location_entity.ProjectLocation, error)
 	ListByProject(ctx context.Context, projectID int64) ([]*project_location_entity.ProjectLocation, error)
 	// ReassignProject 把 project_id 从 fromProjectID 整批改挂到 toProjectID（R11a
 	// 的项目合并收尾）。刻意**不带 status 过滤**：软删的路径记录在 ListByProject 里
@@ -94,7 +96,7 @@ func (r *projectLocationRepo) FindByProjectAndDevice(ctx context.Context, projec
 	return out, nil
 }
 
-func (r *projectLocationRepo) FindByProjectAndFingerprint(ctx context.Context, projectID int64, fingerprint string) (*project_location_entity.ProjectLocation, error) {
+func (r *projectLocationRepo) FindByProjectAndFingerprint(ctx context.Context, projectID int64, fingerprint devicefp.Carrier) (*project_location_entity.ProjectLocation, error) {
 	out := &project_location_entity.ProjectLocation{}
 	if err := db.Ctx(ctx).Where(
 		"project_id = ? AND device_fingerprint = ? AND status = ?", projectID, fingerprint, consts.ACTIVE,

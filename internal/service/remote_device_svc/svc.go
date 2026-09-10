@@ -2,6 +2,8 @@ package remote_device_svc
 
 import (
 	"context"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source svc.go -destination mock_remote_device_svc/mock_svc.go
@@ -36,17 +38,17 @@ type AddRequest struct {
 
 // DeviceView 返回给前端的视图（不含 keychain 秘密）。
 type DeviceView struct {
-	ID                int64  `json:"id"`
-	Name              string `json:"name"`
-	URL               string `json:"url"`
-	DaemonFingerprint string `json:"daemonFingerprint"`
-	InstanceUUID      string `json:"instanceUUID"`
-	TLSMode           string `json:"tlsMode"`
-	TLSCertPEM        string `json:"tlsCertPEM,omitempty"`
-	PairedAt          int64  `json:"pairedAt"`
-	LastSeenAt        int64  `json:"lastSeenAt"`
-	LastError         string `json:"lastError"`
-	Online            bool   `json:"online"`
+	ID                int64            `json:"id"`
+	Name              string           `json:"name"`
+	URL               string           `json:"url"`
+	DaemonFingerprint devicefp.Carrier `json:"daemonFingerprint"`
+	InstanceUUID      string           `json:"instanceUUID"`
+	TLSMode           string           `json:"tlsMode"`
+	TLSCertPEM        string           `json:"tlsCertPEM,omitempty"`
+	PairedAt          int64            `json:"pairedAt"`
+	LastSeenAt        int64            `json:"lastSeenAt"`
+	LastError         string           `json:"lastError"`
+	Online            bool             `json:"online"`
 	// SupportsLLMModelTarget 说明这台 daemon 是否公布 llm-model-target-v1 能力位
 	// （决策 11）：不支持时远端 Picker 必须禁用 fixed-model，避免旧 daemon 静默降级。
 	// 来自 watcher 最近一次 health.ping 的能力位,进程内缓存,不落库。
@@ -79,7 +81,7 @@ type RemoteDeviceSvc interface {
 	// DeviceFingerprint 交出本机设备指纹(agentre-device-fingerprint keychain 账号),
 	// 与 LAN 配对 / 账号登录共用同一指纹(R5 硬不变量)。前端拿它与消息上的 sourceDevice
 	// 比对,相等就不渲染来源标识(R17 本机不带)。keychain 缺失时惰性生成(与 Add 同源)。
-	DeviceFingerprint() (string, error)
+	DeviceFingerprint() (devicefp.Carrier, error)
 	// SetWatcher 注入 watcher port。生产由 bootstrap 在 watcher_svc 就绪后调用;
 	// nil 注入也允许(单测里不关心 watcher 时跳过)。
 	SetWatcher(w WatcherPort)

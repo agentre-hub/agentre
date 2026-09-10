@@ -27,6 +27,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 const (
@@ -266,7 +268,7 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 		OpenClawAgentID:       strings.TrimSpace(req.OpenClawAgentID),
 		OpenClawDefaultModel:  strings.TrimSpace(req.OpenClawDefaultModel),
 		OpenClawSessionMode:   strings.TrimSpace(req.OpenClawSessionMode),
-		DeviceFingerprint:     strings.TrimSpace(req.DeviceID),
+		DeviceFingerprint:     devicefp.Carrier(strings.TrimSpace(req.DeviceID)),
 		Status:                consts.ACTIVE,
 		Createtime:            now,
 		Updatetime:            now,
@@ -388,7 +390,7 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 	existing.OpenClawAgentID = strings.TrimSpace(req.OpenClawAgentID)
 	existing.OpenClawDefaultModel = strings.TrimSpace(req.OpenClawDefaultModel)
 	existing.OpenClawSessionMode = strings.TrimSpace(req.OpenClawSessionMode)
-	existing.DeviceFingerprint = strings.TrimSpace(req.DeviceID)
+	existing.DeviceFingerprint = devicefp.Carrier(strings.TrimSpace(req.DeviceID))
 	var deviceErr error
 	existing.DeviceFingerprint, deviceErr = normalizeDeviceID(existing.DeviceFingerprint)
 	if deviceErr != nil {
@@ -1199,15 +1201,15 @@ func openClawTokenAccount(backendID int64) string {
 // normalizeDeviceID converts the UI's empty local selection to this
 // installation's canonical fingerprint. A nil remote service is retained for
 // narrow unit-test construction only; bootstrap initializes it before writes.
-func normalizeDeviceID(deviceID string) (string, error) {
+func normalizeDeviceID(deviceID devicefp.Carrier) (devicefp.Carrier, error) {
 	if deviceID != "" || remote_device_svc.Default() == nil {
 		return deviceID, nil
 	}
 	return remote_device_svc.Default().DeviceFingerprint()
 }
 
-func (s *agentBackendSvc) validateDeviceID(ctx context.Context, deviceID string) error {
-	if deviceID == "" || strings.HasPrefix(deviceID, "sha256:") {
+func (s *agentBackendSvc) validateDeviceID(ctx context.Context, deviceID devicefp.Carrier) error {
+	if deviceID == "" || strings.HasPrefix(string(deviceID), "sha256:") {
 		return nil
 	}
 	return i18n.NewError(ctx, code.AgentBackendInvalidDevice)
@@ -1216,7 +1218,7 @@ func (s *agentBackendSvc) validateDeviceID(ctx context.Context, deviceID string)
 // pairedDeviceView resolves a canonical fingerprint to this installation's
 // paired-device view. It is intentionally best-effort for presentation; an
 // unpaired named target remains a valid persisted/synced target.
-func pairedDeviceView(ctx context.Context, fingerprint string) (*remote_device_svc.DeviceView, error) {
+func pairedDeviceView(ctx context.Context, fingerprint devicefp.Carrier) (*remote_device_svc.DeviceView, error) {
 	if fingerprint == "" || remote_device_svc.Default() == nil {
 		return nil, nil
 	}
@@ -1234,11 +1236,11 @@ func pairedDeviceView(ctx context.Context, fingerprint string) (*remote_device_s
 
 // localPairedDeviceID translates a persisted fingerprint only at a local
 // dispatch boundary, where the daemon client still requires the paired-row ID.
-func localPairedDeviceID(ctx context.Context, fingerprint string) (int64, bool, error) {
+func localPairedDeviceID(ctx context.Context, fingerprint devicefp.Carrier) (int64, bool, error) {
 	if fingerprint == "" {
 		return 0, false, nil
 	}
-	if !strings.HasPrefix(fingerprint, "sha256:") {
+	if !strings.HasPrefix(string(fingerprint), "sha256:") {
 		return 0, false, errors.New("invalid device fingerprint")
 	}
 	view, err := pairedDeviceView(ctx, fingerprint)

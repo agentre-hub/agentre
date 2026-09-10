@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	session_repo "github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -72,7 +73,7 @@ func (mr *MockSessionRepoMockRecorder) CountByLifecycle(ctx, state any) *gomock.
 }
 
 // CountByPeer mocks base method.
-func (m *MockSessionRepo) CountByPeer(ctx context.Context, peerFingerprint string, filter session_repo.ListFilter) (int64, error) {
+func (m *MockSessionRepo) CountByPeer(ctx context.Context, peerFingerprint devicefp.Initiator, filter session_repo.ListFilter) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountByPeer", ctx, peerFingerprint, filter)
 	ret0, _ := ret[0].(int64)
@@ -87,7 +88,7 @@ func (mr *MockSessionRepoMockRecorder) CountByPeer(ctx, peerFingerprint, filter 
 }
 
 // CountByPeerLifecycle mocks base method.
-func (m *MockSessionRepo) CountByPeerLifecycle(ctx context.Context, peerFingerprint, state string) (int64, error) {
+func (m *MockSessionRepo) CountByPeerLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, state string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountByPeerLifecycle", ctx, peerFingerprint, state)
 	ret0, _ := ret[0].(int64)
@@ -102,7 +103,7 @@ func (mr *MockSessionRepoMockRecorder) CountByPeerLifecycle(ctx, peerFingerprint
 }
 
 // Delete mocks base method.
-func (m *MockSessionRepo) Delete(ctx context.Context, peerFingerprint, conversationID string) (int64, error) {
+func (m *MockSessionRepo) Delete(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Delete", ctx, peerFingerprint, conversationID)
 	ret0, _ := ret[0].(int64)
@@ -117,7 +118,7 @@ func (mr *MockSessionRepoMockRecorder) Delete(ctx, peerFingerprint, conversation
 }
 
 // Find mocks base method.
-func (m *MockSessionRepo) Find(ctx context.Context, peerFingerprint, conversationID string) (*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) Find(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Find", ctx, peerFingerprint, conversationID)
 	ret0, _ := ret[0].(*session_repo.DaemonSession)
@@ -177,7 +178,7 @@ func (mr *MockSessionRepoMockRecorder) ListAllByLifecycle(ctx, state, limit any)
 }
 
 // ListByPeer mocks base method.
-func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint string, filter session_repo.ListFilter, offset, limit int) ([]*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint devicefp.Initiator, filter session_repo.ListFilter, offset, limit int) ([]*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListByPeer", ctx, peerFingerprint, filter, offset, limit)
 	ret0, _ := ret[0].([]*session_repo.DaemonSession)
@@ -192,7 +193,7 @@ func (mr *MockSessionRepoMockRecorder) ListByPeer(ctx, peerFingerprint, filter, 
 }
 
 // ListByPeerLifecycle mocks base method.
-func (m *MockSessionRepo) ListByPeerLifecycle(ctx context.Context, peerFingerprint, state string, limit int) ([]*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) ListByPeerLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, state string, limit int) ([]*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListByPeerLifecycle", ctx, peerFingerprint, state, limit)
 	ret0, _ := ret[0].([]*session_repo.DaemonSession)
@@ -237,7 +238,7 @@ func (mr *MockSessionRepoMockRecorder) LocalID(ctx, conversationID any) *gomock.
 }
 
 // SetModelTarget mocks base method.
-func (m *MockSessionRepo) SetModelTarget(ctx context.Context, peerFingerprint, conversationID, providerKey, modelKey string) (int64, error) {
+func (m *MockSessionRepo) SetModelTarget(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, providerKey, modelKey string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetModelTarget", ctx, peerFingerprint, conversationID, providerKey, modelKey)
 	ret0, _ := ret[0].(int64)
@@ -252,7 +253,7 @@ func (mr *MockSessionRepoMockRecorder) SetModelTarget(ctx, peerFingerprint, conv
 }
 
 // SetReasoningEffort mocks base method.
-func (m *MockSessionRepo) SetReasoningEffort(ctx context.Context, peerFingerprint, conversationID, reasoningEffort string) (int64, error) {
+func (m *MockSessionRepo) SetReasoningEffort(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, reasoningEffort string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetReasoningEffort", ctx, peerFingerprint, conversationID, reasoningEffort)
 	ret0, _ := ret[0].(int64)
@@ -267,7 +268,7 @@ func (mr *MockSessionRepoMockRecorder) SetReasoningEffort(ctx, peerFingerprint, 
 }
 
 // UpdateLifecycle mocks base method.
-func (m *MockSessionRepo) UpdateLifecycle(ctx context.Context, peerFingerprint, conversationID, state string) error {
+func (m *MockSessionRepo) UpdateLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, state string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateLifecycle", ctx, peerFingerprint, conversationID, state)
 	ret0, _ := ret[0].(error)

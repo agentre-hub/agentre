@@ -18,6 +18,7 @@ import {
 } from "../ui/hover-card";
 import { cn } from "../lib/utils";
 import { copyTextWithToast } from "../lib/clipboard-toast";
+import type { PreviewAnchor } from "../file-preview/anchor";
 import { classifyLink, type LinkClass } from "../lib/link-classify";
 import { previewKind } from "../lib/previewable";
 import { useTranscriptPorts } from "./ports-context";
@@ -46,6 +47,19 @@ function previewRelPath(kind: LinkClass): string | null {
   return kind.relPath;
 }
 
+/**
+ * 链接写了行号就把它交给宿主,没写就**一个参数都不多传**——`previewFile` 的第三
+ * 参缺席是「这次不定位」的全部表达,传一个 undefined 进去会让宿主分不清「没写行
+ * 号」与「写了但解析失败」。列号不参与:定位选的是整行(见 file-preview/anchor)。
+ */
+function previewAnchor(kind: LinkClass): PreviewAnchor | undefined {
+  if (kind.kind !== "local-internal" || kind.line === undefined)
+    return undefined;
+  return kind.endLine === undefined
+    ? { line: kind.line }
+    : { line: kind.line, endLine: kind.endLine };
+}
+
 type RichLinkProps = {
   href?: string;
   className?: string;
@@ -55,8 +69,15 @@ type RichLinkProps = {
   children: React.ReactNode;
 };
 
-function lineColSuffix(c: { line?: number; col?: number }): string {
+// 把解析掉的后缀原样拼回去:外部打开与「复制路径」都用这一份,少一截就等于把
+// 用户看到的引用改写了。文法与 link-classify 的 LINE_SUFFIX 同源(范围与列号互斥)。
+function lineColSuffix(c: {
+  line?: number;
+  endLine?: number;
+  col?: number;
+}): string {
   if (c.line === undefined) return "";
+  if (c.endLine !== undefined) return `:${c.line}-${c.endLine}`;
   if (c.col === undefined) return `:${c.line}`;
   return `:${c.line}:${c.col}`;
 }
@@ -150,10 +171,13 @@ function dispatchClick(
       // 不再退回 openPath;false / 端口缺失都退回今天的外部打开路线,字节不变
       // (含 line:col 后缀)。
       const relPath = previewRelPath(kind);
+      const anchor = previewAnchor(kind);
       const tookOver =
         relPath !== null &&
         sessionId !== undefined &&
-        (ports.previewFile?.(sessionId, relPath) ?? false);
+        (anchor === undefined
+          ? (ports.previewFile?.(sessionId, relPath) ?? false)
+          : (ports.previewFile?.(sessionId, relPath, anchor) ?? false));
       if (tookOver) return;
       openWithExternalApp(kind, t, ports);
       return;

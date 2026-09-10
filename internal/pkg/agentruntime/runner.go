@@ -11,6 +11,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // EventKind 统一事件离散类型。chat_svc 按这个枚举做 switch。
@@ -194,8 +195,8 @@ type ConsumedSteer struct {
 	Text     string
 	// 新增字段走 lowerCamelCase(现有 QueuedID/Text 无 tag、线上是 PascalCase,不能改:
 	// 老桌面端按字段名解,改名会让老客户端把 QueuedID/Text 解成空)。
-	SourcePeer string `json:"sourcePeer,omitempty"`
-	SourceName string `json:"sourceName,omitempty"`
+	SourcePeer devicefp.Initiator `json:"sourcePeer,omitempty"`
+	SourceName string             `json:"sourceName,omitempty"`
 }
 
 // RetryEvent is a non-terminal backend retry notification. It is surfaced to

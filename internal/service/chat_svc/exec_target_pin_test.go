@@ -17,6 +17,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // 本文件锁住 R15b / 决策36「会话粘性」：续轮按会话钉住的那一档解析 backend（不重挑，
@@ -125,7 +128,7 @@ func TestResolveAgentBackend_GivenPinnedBackendWasDeleted_WhenCurrentTargetIsAva
 		{ID: 13, AgentID: 403, AgentBackendID: 62, SortOrder: 0},
 	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(62)).Return(localClaudeCode(62), nil)
-	m.session.EXPECT().UpdateExecDaemon(ctx, int64(902), int64(0), "", int64(62)).Return(nil)
+	m.session.EXPECT().UpdateExecDaemon(ctx, int64(902), int64(0), devicefp.Carrier(""), int64(62)).Return(nil)
 
 	_, be, _, err := svc.resolveAgentBackend(ctx, sess, sess.AgentID, sess.ProjectID)
 	require.NoError(t, err)
@@ -165,7 +168,7 @@ func TestPinExecTargetIfUnset_GivenSessionWithoutPin_ThenWritesBackViaUpdateExec
 	sess := &chat_entity.Session{ID: 904, AgentID: 405, ExecAgentBackendID: 0}
 	be := localClaudeCode(502)
 	m.session.EXPECT().
-		UpdateExecDaemon(ctx, int64(904), int64(0), "", int64(502)).
+		UpdateExecDaemon(ctx, int64(904), int64(0), devicefp.Carrier(""), int64(502)).
 		Return(nil).Times(1)
 
 	svc.pinExecTargetIfUnset(ctx, sess, be)
@@ -184,4 +187,38 @@ func TestPinExecTargetIfUnset_GivenSessionAlreadyPinned_ThenDoesNotWriteAgain(t 
 	svc.pinExecTargetIfUnset(ctx, sess, be)
 
 	assert.Equal(t, int64(61), sess.ExecAgentBackendID)
+}
+
+// TestLoadSession_PopulatesExecTargetCount_MultiTarget 用不带 chat_test.go 里
+// setupChatTest 默认宽松桩的干净 mock 环境搭建——那条 AnyTimes() 空列表桩按
+// gomock 注册顺序会拦掉这里想验证的精确期望（同一坑见上方注释），因此复用
+// setupExecTargetPinTest 这套没有默认桩的 mock，自己补一个 message 仓储桩。
+func TestLoadSession_PopulatesExecTargetCount_MultiTarget(t *testing.T) {
+	ctx, m, svc := setupExecTargetPinTest(t)
+	msgCtrl := gomock.NewController(t)
+	t.Cleanup(msgCtrl.Finish)
+	msgMock := mock_transcript_repo.NewMockMessageRepo(msgCtrl)
+	prevMessage := transcript_repo.Message()
+	transcript_repo.RegisterMessage(msgMock)
+	t.Cleanup(func() { transcript_repo.RegisterMessage(prevMessage) })
+
+	m.session.EXPECT().Find(ctx, int64(110)).Return(&chat_entity.Session{
+		ID: 110, AgentID: 54, Status: 1,
+	}, nil)
+	m.agent.EXPECT().Find(ctx, int64(54)).Return(&agent_entity.Agent{
+		ID: 54, Name: "多档", AgentBackendID: 81, Status: 1,
+	}, nil)
+	m.execTarget.EXPECT().ListByAgent(ctx, int64(54)).Return([]*agent_entity.AgentExecTarget{
+		{ID: 1, AgentID: 54, AgentBackendID: 81, SortOrder: 0},
+		{ID: 2, AgentID: 54, AgentBackendID: 82, SortOrder: 1},
+	}, nil)
+	m.backend.EXPECT().Find(ctx, int64(81)).Return(&agent_backend_entity.AgentBackend{
+		ID: 81, Type: string(agent_backend_entity.TypeClaudeCode), Status: 1,
+	}, nil)
+	msgMock.EXPECT().ListMeta(ctx, int64(110)).Return(nil, nil)
+	msgMock.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	resp, err := svc.LoadSession(ctx, &LoadSessionRequest{SessionID: 110})
+	require.NoError(t, err)
+	assert.Equal(t, 2, resp.Session.ExecTargetCount)
 }

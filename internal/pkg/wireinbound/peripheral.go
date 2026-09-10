@@ -93,18 +93,14 @@ func registerProtobufSkills(registry *protorpc.Registry, skillHandlers SkillsPor
 		return protowire.SkillCommandsResponseToProto(result), nil
 	}))
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_SKILLS_CATALOG), func() *agentrewire.SkillCatalogRequest { return &agentrewire.SkillCatalogRequest{} }, Authenticated(func(ctx context.Context, request *agentrewire.SkillCatalogRequest) (*agentrewire.SkillCatalogResponse, error) {
-		if request.BackendType == "" {
+		if request.GetBackendType() == "" {
 			return nil, &protorpc.Error{Code: protorpc.CodeInvalidParams, Message: "backend type required"}
 		}
-		authorized := make([]runtimewire.SkillAuthorization, 0, len(request.Authorized))
-		for _, item := range request.Authorized {
-			authorized = append(authorized, runtimewire.SkillAuthorization{ID: item.GetId(), Enabled: item.GetEnabled()})
-		}
-		result, err := skillHandlers.Catalog(ctx, runtimewire.SkillCatalogParams{BackendType: request.BackendType, Authorized: authorized, CLIPath: request.CliPath})
+		response, err := skillHandlers.Catalog(ctx, request)
 		if err != nil {
 			return nil, ConvertError(err)
 		}
-		return protowire.SkillCatalogResponseToProto(result), nil
+		return response, nil
 	}))
 }
 

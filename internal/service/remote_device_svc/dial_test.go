@@ -70,7 +70,7 @@ func newFakeDaemonWith(t *testing.T, instanceUUID string, reject *rpcerror.Error
 				var response []byte
 				switch agentrewire.RpcMethod(f.GetRequest().GetMethodId()) {
 				case agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR:
-					response, _ = proto.Marshal(&agentrewire.AuthPairResponse{DeviceToken: "device-token", DaemonFingerprint: identity.DaemonFingerprint(instanceUUID), InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion, MinSupportedProtocolVersion: wireversion.MinSupported})
+					response, _ = proto.Marshal(&agentrewire.AuthPairResponse{DeviceToken: "device-token", DaemonFingerprint: string(identity.DaemonFingerprint(instanceUUID)), InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion, MinSupportedProtocolVersion: wireversion.MinSupported})
 				case agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT:
 					response, _ = proto.Marshal(&agentrewire.AuthConnectResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion, MinSupportedProtocolVersion: wireversion.MinSupported})
 				default:
@@ -108,7 +108,7 @@ func TestRealDial_PairAndConnectUseTypedProtobufMethods(t *testing.T) {
 		So(frames[1].GetMethodId(), ShouldEqual, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT))
 		var connectRequest agentrewire.AuthConnectRequest
 		So(proto.Unmarshal(frames[1].GetEncodedPayload(), &connectRequest), ShouldBeNil)
-		So(connectRequest.GetExpectedDaemonFingerprint(), ShouldEqual, identity.DaemonFingerprint("uuid-1"))
+		So(connectRequest.GetExpectedDaemonFingerprint(), ShouldEqual, string(identity.DaemonFingerprint("uuid-1")))
 	})
 }
 

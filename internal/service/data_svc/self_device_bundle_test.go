@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/data_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // bundle 是**可移植**配置：本机档的含义是「跑在导入它的那台机器上」，pre-R13 时它的
@@ -26,7 +27,7 @@ func TestExport_GivenSelfFingerprintBackend_ThenBundleCarriesNoDeviceRef(t *test
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	rd := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-	rd.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 	prev := remote_device_svc.Default()
 	remote_device_svc.SetDefault(rd)
 	t.Cleanup(func() { remote_device_svc.SetDefault(prev) })

@@ -6,6 +6,7 @@ export type LinkClass =
       pathKind: LocalPathKind;
       relPath: string;
       line?: number;
+      endLine?: number;
       col?: number;
     }
   | {
@@ -13,6 +14,7 @@ export type LinkClass =
       fullPath: string;
       pathKind: LocalPathKind;
       line?: number;
+      endLine?: number;
       col?: number;
     }
   | { kind: "unknown"; href: string };
@@ -27,11 +29,15 @@ const ABS_WINDOWS = /^[A-Za-z]:[\\/]/;
 // 解析，仍按老规则处理）。
 export const HOME_ANCHORED = /^~(?:$|[\\/])/;
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
-const LINE_SUFFIX = /:(\d+)(?::(\d+))?$/;
+// 行号后缀:":42" / ":42:7" / ":311-330"。范围与列号互斥——":311-330:5" 不是
+// 任何工具写得出的形式,认了只会让文法更松。整段后缀一律从路径上剥掉,否则会被
+// 当成文件名的一部分拼进 cwd,打开时必然 ENOENT。
+const LINE_SUFFIX = /:(\d+)(?:-(\d+)|:(\d+))?$/;
 
 function stripLineSuffix(p: string): {
   path: string;
   line?: number;
+  endLine?: number;
   col?: number;
 } {
   const m = LINE_SUFFIX.exec(p);
@@ -39,7 +45,8 @@ function stripLineSuffix(p: string): {
   return {
     path: p.slice(0, m.index),
     line: parseInt(m[1], 10),
-    col: m[2] !== undefined ? parseInt(m[2], 10) : undefined,
+    endLine: m[2] !== undefined ? parseInt(m[2], 10) : undefined,
+    col: m[3] !== undefined ? parseInt(m[3], 10) : undefined,
   };
 }
 
@@ -158,12 +165,13 @@ export function classifyLink(
     relativeSource = relative.path;
     rawPath = resolveRelativePath(relative.path, cwd);
     if (relative.line !== undefined) rawPath += `:${relative.line}`;
+    if (relative.endLine !== undefined) rawPath += `-${relative.endLine}`;
     if (relative.col !== undefined) rawPath += `:${relative.col}`;
   } else {
     return { kind: "unknown", href };
   }
 
-  const { path: fullPath, line, col } = stripLineSuffix(rawPath);
+  const { path: fullPath, line, endLine, col } = stripLineSuffix(rawPath);
   const pathKind = classifyLocalPathKind(fullPath, cwd, relativeSource);
 
   // 家目录形式无法与 cwd 比较（cwd 是展开后的绝对路径），一律当作 cwd 外目标。
@@ -178,6 +186,7 @@ export function classifyLink(
       pathKind,
       relPath,
       ...(line !== undefined ? { line } : {}),
+      ...(endLine !== undefined ? { endLine } : {}),
       ...(col !== undefined ? { col } : {}),
     };
   }
@@ -187,6 +196,7 @@ export function classifyLink(
     fullPath,
     pathKind,
     ...(line !== undefined ? { line } : {}),
+    ...(endLine !== undefined ? { endLine } : {}),
     ...(col !== undefined ? { col } : {}),
   };
 }

@@ -10,11 +10,12 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/service/peer_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // stubPeerSvc 是绑定层测试用的 PeerSvc 假实现：记录调用、返回可配置结果。
 type stubPeerSvc struct {
-	lastListFingerprint string
+	lastListFingerprint devicefp.Carrier
 	lastAttach          peer_svc.AttachRequest
 	lastSteer           peer_svc.SteerRequest
 	lastAnswer          peer_svc.SubmitAnswerRequest
@@ -55,7 +56,7 @@ func (s *stubPeerSvc) SubmitToolPermission(_ context.Context, req peer_svc.Submi
 	s.lastPermission = req
 	return s.controlResult, s.err
 }
-func (s *stubPeerSvc) Detach(_ context.Context, _ string, conversationID string) error {
+func (s *stubPeerSvc) Detach(_ context.Context, _ devicefp.Carrier, conversationID string) error {
 	s.lastDetachSession = conversationID
 	return s.err
 }
@@ -80,7 +81,7 @@ func TestAppPeerBindings_GivenWiredService_WhenCalled_ThenPassThrough(t *testing
 
 	list, err := a.PeerListSessions(peer_svc.ListSessionsRequest{Fingerprint: "sha256:peer-desktop", Limit: 20})
 	require.NoError(t, err)
-	assert.Equal(t, "sha256:peer-desktop", stub.lastListFingerprint)
+	assert.Equal(t, devicefp.Carrier("sha256:peer-desktop"), stub.lastListFingerprint)
 	require.Len(t, list.Sessions, 1)
 
 	att, err := a.PeerAttach(peer_svc.AttachRequest{Fingerprint: "sha256:peer-desktop", ConversationID: convID(7)})

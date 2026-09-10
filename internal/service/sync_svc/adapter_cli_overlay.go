@@ -12,10 +12,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
-type cliOverlayPayload struct {
-	CLIPath string `json:"cli_path"`
-}
-
 // agentBackendCLIAdapter mirrors project_location's split identity: the
 // backend sync ID and device fingerprint live in the envelope, never in the
 // backend identity payload.
@@ -29,7 +25,7 @@ func (agentBackendCLIAdapter) load(ctx context.Context, syncID string) (*outboun
 	if err != nil || !found {
 		return nil, err
 	}
-	payload, err := json.Marshal(cliOverlayPayload{CLIPath: row.CLIPath})
+	payload, err := json.Marshal(syncwire.AgentBackendCLIPayload{CLIPath: row.CLIPath})
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +40,7 @@ func (agentBackendCLIAdapter) refs(in *inbound) []ref {
 }
 
 func (agentBackendCLIAdapter) apply(ctx context.Context, in *inbound, _ map[string]int64) error {
-	var payload cliOverlayPayload
+	var payload syncwire.AgentBackendCLIPayload
 	if err := json.Unmarshal(in.Payload, &payload); err != nil {
 		return err
 	}

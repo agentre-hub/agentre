@@ -12,6 +12,7 @@ import type { ReplayResult } from "../transcript/canonical-tool/file-edit/replay
 import { ReplayedFileDiff } from "../transcript/canonical-tool/file-edit/replay-view";
 import type { TranscriptMessage } from "../transcript/dto";
 import { Button } from "../ui/button";
+import type { PreviewRevealTarget } from "./anchor";
 import { CodePreview } from "./code-view";
 import { DiffPreview } from "./diff-view";
 import { basename, dirname } from "./file-meta";
@@ -67,6 +68,13 @@ export type FilePreviewPanelProps = {
   segment: FilePreviewSegment | null;
   /** 活动标签的来源模式。 */
   sourceMode: FilePreviewSourceMode;
+  /**
+   * 活动标签要定位到的那一段（转录里点了一条带行号的链接）。缺席 = 不定位。
+   *
+   * 只有真正渲染 Monaco 的档位用得上它：图片、`session` 工具 diff、markdown 的
+   * render 档都没有可定位的行，收到了也一并忽略（规格「不参与定位的档位」）。
+   */
+  revealTarget?: PreviewRevealTarget;
   /** 取数端口（见 ./ports）。 */
   ports: FilePreviewPorts;
   /**
@@ -92,6 +100,14 @@ export type FilePreviewPanelProps = {
    * `previewFile` 同一套能力探测约定。
    */
   deviceName?: string;
+  /**
+   * 宿主对「这台机器在不在线」的**声称**。
+   *
+   * 面板会用自己那次读取的结果覆盖它：读失败在 `offline` 上时一律画成离线 ——
+   * 否则会出现同一屏里内容区说「这台机器现在够不着」、点却还绿着（2026-09-08
+   * 在控制台上实测到的）。两端宿主手里那些设备记录都是慢节奏探测，唯一当场知道
+   * 「此刻读得到读不到」的就是这一次读取本身。
+   */
   deviceOnline?: boolean;
   /**
    * 宿主注入的 Monaco 命名空间（装载器留在宿主，见 ./monaco）。还没装载好时是
@@ -177,6 +193,7 @@ export function FilePreviewPanel({
   tabs,
   activePath,
   segment: storedSegment,
+  revealTarget,
   sourceMode,
   ports,
   sourceKey,
@@ -260,6 +277,19 @@ export function FilePreviewPanel({
   // 渲染在新标题之下(一帧错内容,spec 决策 12 的切文件场景)。
   const target = path === undefined ? null : targetKey(sourceKey, path);
   const [readTarget, setReadTarget] = React.useState<string | null>(null);
+
+  /**
+   * 这枚状态点画绿还是画灰：**这一次读取**说了算，宿主的声称只做兜底。
+   *
+   * 读成功 = 刚刚才和那台机器说上话，必然在线；读失败在 `offline` 上 = 此刻够不着。
+   * 其余情况（还在读、别的失败）没有新证据，用宿主给的那个值。
+   */
+  const deviceReachable =
+    readState.status === "loaded"
+      ? true
+      : readState.status === "error" && readState.kind === "offline"
+        ? false
+        : deviceOnline;
   const [gitTarget, setGitTarget] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -388,12 +418,12 @@ export function FilePreviewPanel({
         {deviceName ? (
           <span
             data-testid="file-preview-device"
-            data-online={deviceOnline ? "true" : "false"}
+            data-online={deviceReachable ? "true" : "false"}
             className="order-last ml-1 flex shrink-0 items-center gap-1 text-3xs text-muted-foreground"
           >
             <span
               aria-label={
-                deviceOnline
+                deviceReachable
                   ? t("filePreview.deviceOnline")
                   : t("filePreview.deviceOffline")
               }
@@ -401,7 +431,7 @@ export function FilePreviewPanel({
                 "inline-block size-1.5 shrink-0 rounded-full",
                 // 与目录选择器里那枚机器点同一对 token（directory-picker.tsx），
                 // 两处说的是同一件事，颜色不该各调各的。
-                deviceOnline ? "bg-status-running" : "bg-border-strong",
+                deviceReachable ? "bg-status-running" : "bg-border-strong",
               )}
             />
             {deviceName}
@@ -461,6 +491,7 @@ export function FilePreviewPanel({
               monaco={monaco}
               kind={kind}
               segment={effectiveSegment}
+              revealTarget={revealTarget}
               showDiff={showDiff}
               toolDiff={toolDiff}
               isToolDiff={isToolDiff}
@@ -480,6 +511,7 @@ function PanelBody({
   monaco,
   kind,
   segment,
+  revealTarget,
   showDiff,
   toolDiff,
   isToolDiff,
@@ -491,6 +523,7 @@ function PanelBody({
   monaco: MonacoNS | null;
   kind: PreviewKind | null;
   segment: FilePreviewSegment | null;
+  revealTarget?: PreviewRevealTarget;
   showDiff: boolean;
   toolDiff: ReplayResult | null;
   isToolDiff: boolean;
@@ -578,6 +611,7 @@ function PanelBody({
             path={path}
             monaco={monaco}
             ariaLabel={t("filePreview.sourceAria", { name: basename(path) })}
+            revealTarget={revealTarget}
             className="h-full"
           />
         </div>
@@ -658,6 +692,7 @@ function PanelBody({
         path={path}
         monaco={monaco}
         ariaLabel={t("filePreview.sourceAria", { name: basename(path) })}
+        revealTarget={revealTarget}
         className="min-h-0 flex-1"
       />
     );
@@ -670,6 +705,7 @@ function PanelBody({
       path={path}
       monaco={monaco}
       ariaLabel={t("filePreview.codeAria", { name: basename(path) })}
+      revealTarget={revealTarget}
       className="min-h-0 flex-1"
     />
   );

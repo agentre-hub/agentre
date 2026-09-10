@@ -1,5 +1,5 @@
 // Module github.com/agentre-hub/agentre/pkg/wire 是 agentre ↔ agentred wire 协议
-// 生成的 Go 侧，唯一来源是 frontend/packages/agentre-wire/proto/agentre/wire/wire.proto。
+// 生成的 Go 侧，唯一来源是本 module 自带的 proto/agentre/wire/wire.proto。
 //
 // 它是一个独立 module 而不是桌面仓的一个普通包，因为 agentre-server 必须能 import 它：
 // 放在 internal/ 下 Go 的可见性规则会挡死跨仓引用，而让后端整个依赖桌面 module 又违反

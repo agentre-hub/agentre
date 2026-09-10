@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // pending 是折叠后的一条待上行改动：同一行在队列里的多次改动只推最后一次，
@@ -28,7 +29,10 @@ type pending struct {
 //
 // 队列按入队顺序上行，一个批次一次请求——server 按顺序逐条处理，父行先落地、
 // 子行后落地的次序因此在对端也成立。
-func (s *service) flush(ctx context.Context, accountID int64, originFingerprint string) error {
+// originFingerprint 是**最后写者**而不是承载者:这一轮上行由本机写出,所以本机的
+// 承载者身份在调用点换了一次角色(svc.go 的 devicefp.LastWriter(fingerprint))。
+// 同一个值,回答的是两个不同的问题,所以那次转换要写出来。
+func (s *service) flush(ctx context.Context, accountID int64, originFingerprint devicefp.LastWriter) error {
 	rows, err := syncqueue_repo.OutboundQueue().ListByAccount(ctx, accountID)
 	if err != nil {
 		return err
@@ -75,7 +79,7 @@ func collapseQueue(rows []*syncqueue_entity.OutboundQueueItem) []*pending {
 // pushBatch 推一批并落实应答。allowResync 为 true 时，遇上「超窗口」先做一次全量
 // 重同步再重试（R6a）；重试那一次不再允许递归重同步。
 func (s *service) pushBatch(
-	ctx context.Context, accountID int64, originFingerprint string, batch []*pending, allowResync bool,
+	ctx context.Context, accountID int64, originFingerprint devicefp.LastWriter, batch []*pending, allowResync bool,
 ) error {
 	items := make([]syncwire.PushItem, 0, len(batch))
 	kept := make([]*pending, 0, len(batch))
@@ -176,7 +180,7 @@ func (s *service) buildPushItem(ctx context.Context, p *pending) (*syncwire.Push
 		// 永不写——那正是决策 27 要兜住的场景。
 		BaseVersion:         p.baseVersion,
 		UpdatedAt:           out.UpdatedAt,
-		AgentredFingerprint: out.AgentredFingerprint,
+		AgentredFingerprint: string(out.AgentredFingerprint),
 		ScopeSyncID:         out.ScopeSyncID,
 		Payload:             out.Payload,
 	}, true, nil
@@ -191,7 +195,7 @@ func (s *service) buildPushItem(ctx context.Context, p *pending) (*syncwire.Push
 //     落墓碑，内容留进 R5 的列表，界面据此给「按这份内容新建」的出路（R5a）。
 //   - 路径记录被自然键合并掉时（R4b），落败的那一份同样进列表。
 func (s *service) applyPushResult(
-	ctx context.Context, accountID int64, originFingerprint string,
+	ctx context.Context, accountID int64, originFingerprint devicefp.LastWriter,
 	p *pending, item syncwire.PushItem, res syncwire.PushResult,
 ) error {
 	now := s.now()
@@ -213,7 +217,7 @@ func (s *service) applyPushResult(
 			Reason:              syncqueue_entity.ReasonRejected,
 			PayloadJSON:         string(item.Payload),
 			ScopeSyncID:         item.ScopeSyncID,
-			AgentredFingerprint: item.AgentredFingerprint,
+			AgentredFingerprint: devicefp.Carrier(item.AgentredFingerprint),
 			OccurredAt:          now,
 		})
 	}
@@ -243,9 +247,9 @@ func (s *service) applyPushResult(
 			// 把它记成「被覆盖」会让 R5 的「追回」变成「把刚生效的内容再推一遍」。
 			PayloadJSON:         string(res.OverwrittenPayload),
 			ScopeSyncID:         item.ScopeSyncID,
-			AgentredFingerprint: item.AgentredFingerprint,
+			AgentredFingerprint: devicefp.Carrier(item.AgentredFingerprint),
 			// 空串 = 服务端直写（浏览器改的组织架构），不是「不知道被谁」，见 originDeviceOf。
-			OriginDevice: originDeviceOf(res.OverwrittenOriginFingerprint),
+			OriginDevice: originDeviceOf(devicefp.LastWriter(res.OverwrittenOriginFingerprint)),
 			OccurredAt:   now,
 		}); err != nil {
 			return err
@@ -287,7 +291,7 @@ func (s *service) acceptRemoteTombstone(
 		Reason:              syncqueue_entity.ReasonRejected,
 		PayloadJSON:         string(item.Payload),
 		ScopeSyncID:         item.ScopeSyncID,
-		AgentredFingerprint: item.AgentredFingerprint,
+		AgentredFingerprint: devicefp.Carrier(item.AgentredFingerprint),
 		OccurredAt:          now,
 	})
 }
@@ -329,7 +333,7 @@ func (s *service) reevaluateAfterResync(
 		}
 		if i < len(items) {
 			lost.PayloadJSON = string(items[i].Payload)
-			lost.ScopeSyncID, lost.AgentredFingerprint = items[i].ScopeSyncID, items[i].AgentredFingerprint
+			lost.ScopeSyncID, lost.AgentredFingerprint = items[i].ScopeSyncID, devicefp.Carrier(items[i].AgentredFingerprint)
 		}
 		if err := s.recordLostChange(ctx, accountID, lost); err != nil {
 			return nil, err

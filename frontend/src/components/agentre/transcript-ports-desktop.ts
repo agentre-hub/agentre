@@ -109,12 +109,12 @@ export const desktopTranscriptPorts = {
   // 入口模式是 "directory":转录里点一条路径要看的是「这个文件**现在**长什么样」
   // (spec「入口与可用性」),面板据此走 readFile 读工作区正文。不能是 "session"
   // ——那是侧栏「本次会话」档的工具 diff,一次取数都不打。
-  previewFile(sessionId, path) {
+  previewFile(sessionId, path, anchor?) {
     const { openAction } = useFileSettingsStore.getState().settings;
     if (openAction === "external") return false;
     useFilePreviewTabsStore
       .getState()
-      .openPreview(sessionId, path, "directory");
+      .openPreview(sessionId, path, "directory", anchor);
     return true;
   },
 } satisfies TranscriptPorts;

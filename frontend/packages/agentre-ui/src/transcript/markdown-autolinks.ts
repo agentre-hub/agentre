@@ -21,7 +21,7 @@ const WWW_PREFIX = /^www\./i;
 const ABS_POSIX = /^\//;
 const ABS_WINDOWS = /^[A-Za-z]:[\\/]/;
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
-const LINE_SUFFIX = /:(\d+)(?::(\d+))?$/;
+const LINE_SUFFIX = /:\d+(?:-\d+|:\d+)?$/;
 const NUMERIC_PATH = /^\d+(?:[\\/]\d+)+[\\/]?$/;
 const DOMAIN_PATH = /^[^\\/\s]+\.[A-Za-z]{2,}[\\/]/;
 const OPEN_BOUNDARY = new Set([
@@ -192,7 +192,7 @@ function candidateEnd(text: string, start: number): number {
         continue;
       }
       if (char === ":") {
-        const lineSuffix = /^:\d+(?::\d+)?/.exec(text.slice(end));
+        const lineSuffix = /^:\d+(?:-\d+|:\d+)?/.exec(text.slice(end));
         if (
           lineSuffix &&
           isCandidateBoundary(text, end + lineSuffix[0].length)

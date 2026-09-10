@@ -13,6 +13,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/remotepool"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ConnStateEventPrefix 是会话级「连接态」流的前缀。连接态是运行态之上的一层修饰,
@@ -93,7 +94,7 @@ func (s *chatSvc) sessionConnState(sessionID int64) remote.ConnState {
 // 丢弃,既没有错误也没有 seq 跳号。
 func (s *chatSvc) reconnectRemote(
 	ctx context.Context, deviceID int64, entry *remotepool.Entry,
-) (client.ProtobufConnection, string, error) {
+) (client.ProtobufConnection, devicefp.Carrier, error) {
 	lease, err := s.pool().Borrow(ctx, deviceID)
 	if err != nil {
 		return nil, "", terminalBorrowError(err)
@@ -127,7 +128,7 @@ func terminalBorrowError(err error) error {
 // daemonFingerprint 取该配对设备的 daemon 实例标识(sha256:<hex>)。取不到返回空串 ——
 // 空标识让游标端口一律判失效(chat_entity.Session.CursorValidFor),补齐因此退化成
 // 「断连即终止」,而不是拿一个来路不明的标识去拉别人的日志。
-func (s *chatSvc) daemonFingerprint(ctx context.Context, deviceID int64) string {
+func (s *chatSvc) daemonFingerprint(ctx context.Context, deviceID int64) devicefp.Carrier {
 	rds := remote_device_svc.Default()
 	if rds == nil {
 		return ""
@@ -148,7 +149,7 @@ func (s *chatSvc) daemonFingerprint(ctx context.Context, deviceID int64) string 
 // 就退化回「断连即终止」。标识为空说明这台设备还没配对出实例标识,此时没有可记录的
 // 身份,写进去等于给游标伪造一个来路不明的归属。agentBackendID 与设备/实例标识
 // 走同一条 UpdateExecDaemon 语句一并写入 —— 三列同生共死,不拆成两个写入点。
-func (s *chatSvc) recordExecDaemon(ctx context.Context, sessionID, deviceID int64, fingerprint string, agentBackendID int64) {
+func (s *chatSvc) recordExecDaemon(ctx context.Context, sessionID, deviceID int64, fingerprint devicefp.Carrier, agentBackendID int64) {
 	if fingerprint == "" || sessionID <= 0 {
 		return
 	}

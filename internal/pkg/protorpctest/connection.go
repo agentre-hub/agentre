@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
@@ -132,14 +133,14 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH), func() *agentrewire.SessionAttachRequest { return &agentrewire.SessionAttachRequest{} }, func(ctx context.Context, req *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error) {
 		var out wire.SessionAttachResult
-		if err := legacy.Call(ctx, wire.MethodSessionAttach, wire.SessionAttachParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint()}, &out); err != nil {
+		if err := legacy.Call(ctx, wire.MethodSessionAttach, wire.SessionAttachParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint())}, &out); err != nil {
 			return nil, err
 		}
 		return &agentrewire.SessionAttachResponse{ConversationId: out.ConversationID, BackendType: out.BackendType, LifecycleState: out.LifecycleState, LatestSeq: out.LatestSeq}, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PULL), func() *agentrewire.SessionPullRequest { return &agentrewire.SessionPullRequest{} }, func(ctx context.Context, req *agentrewire.SessionPullRequest) (*agentrewire.SessionPullResponse, error) {
 		var out wire.SessionPullResult
-		if err := legacy.Call(ctx, wire.MethodSessionPull, wire.SessionPullParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), Cursor: req.GetCursor(), Limit: int(req.GetLimit())}, &out); err != nil {
+		if err := legacy.Call(ctx, wire.MethodSessionPull, wire.SessionPullParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), Cursor: req.GetCursor(), Limit: int(req.GetLimit())}, &out); err != nil {
 			return nil, err
 		}
 		response := &agentrewire.SessionPullResponse{Cursor: out.Cursor, HasMore: out.HasMore, OldestSeq: out.OldestSeq}
@@ -161,7 +162,7 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_PENDING_WAITERS), func() *agentrewire.SessionPendingWaitersRequest { return &agentrewire.SessionPendingWaitersRequest{} }, func(ctx context.Context, req *agentrewire.SessionPendingWaitersRequest) (*agentrewire.SessionPendingWaitersResponse, error) {
 		var out wire.SessionPendingWaitersResult
-		if err := legacy.Call(ctx, wire.MethodSessionPendingWaiters, wire.SessionPendingWaitersParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint()}, &out); err != nil {
+		if err := legacy.Call(ctx, wire.MethodSessionPendingWaiters, wire.SessionPendingWaitersParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint())}, &out); err != nil {
 			return nil, err
 		}
 		return protowire.PendingWaitersResponseToProto(out), nil
@@ -192,32 +193,32 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.RuntimeSteerResponse, error) {
 		var out wire.SteerResult
-		if err := legacy.Call(ctx, wire.MethodSteer, wire.SteerParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), QueuedID: req.GetQueuedId(), Text: req.GetText()}, &out); err != nil {
+		if err := legacy.Call(ctx, wire.MethodSteer, wire.SteerParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), QueuedID: req.GetQueuedId(), Text: req.GetText()}, &out); err != nil {
 			return nil, testRPCError(err)
 		}
 		return &agentrewire.RuntimeSteerResponse{QueuedId: out.QueuedID, Cancellable: out.Cancellable}, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), func() *agentrewire.RuntimeCancelSteerRequest { return &agentrewire.RuntimeCancelSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeCancelSteerRequest) (*agentrewire.RuntimeCancelSteerResponse, error) {
 		var out wire.CancelSteerResult
-		if err := legacy.Call(ctx, wire.MethodCancelSteer, wire.CancelSteerParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), QueuedID: req.GetQueuedId()}, &out); err != nil {
+		if err := legacy.Call(ctx, wire.MethodCancelSteer, wire.CancelSteerParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), QueuedID: req.GetQueuedId()}, &out); err != nil {
 			return nil, testRPCError(err)
 		}
 		return &agentrewire.RuntimeCancelSteerResponse{Removed: out.Removed}, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING), func() *agentrewire.RuntimeDrainPendingRequest { return &agentrewire.RuntimeDrainPendingRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeDrainPendingRequest) (*agentrewire.RuntimeDrainPendingResponse, error) {
 		var out wire.DrainResult
-		if err := legacy.Call(ctx, wire.MethodDrainPending, wire.DrainParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint()}, &out); err != nil {
+		if err := legacy.Call(ctx, wire.MethodDrainPending, wire.DrainParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint())}, &out); err != nil {
 			return nil, testRPCError(err)
 		}
 		response := &agentrewire.RuntimeDrainPendingResponse{}
 		for _, steer := range out.Steers {
-			response.Steers = append(response.Steers, &agentrewire.ConsumedSteer{QueuedId: steer.QueuedID, Text: steer.Text, SourcePeer: steer.SourcePeer, SourceName: steer.SourceName})
+			response.Steers = append(response.Steers, &agentrewire.ConsumedSteer{QueuedId: steer.QueuedID, Text: steer.Text, SourcePeer: string(steer.SourcePeer), SourceName: steer.SourceName})
 		}
 		return response, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT), func() *agentrewire.RuntimeAbortRequest { return &agentrewire.RuntimeAbortRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeAbortRequest) (*agentrewire.RuntimeAbortResponse, error) {
 		var out wire.AbortResult
-		if err := legacy.Call(ctx, wire.MethodAbort, wire.AbortParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), TurnToken: req.GetTurnToken()}, &out); err != nil {
+		if err := legacy.Call(ctx, wire.MethodAbort, wire.AbortParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), TurnToken: req.GetTurnToken()}, &out); err != nil {
 			return nil, testRPCError(err)
 		}
 		return &agentrewire.RuntimeAbortResponse{TurnKind: string(out.TurnKind)}, nil
@@ -225,18 +226,18 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK), func() *agentrewire.RuntimeStopBackgroundTaskRequest {
 		return &agentrewire.RuntimeStopBackgroundTaskRequest{}
 	}, func(ctx context.Context, req *agentrewire.RuntimeStopBackgroundTaskRequest) (*agentrewire.Empty, error) {
-		err := legacy.Call(ctx, wire.MethodStopBackgroundTask, wire.StopBackgroundTaskParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), TaskID: req.GetTaskId()}, &wire.OK{})
+		err := legacy.Call(ctx, wire.MethodStopBackgroundTask, wire.StopBackgroundTaskParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), TaskID: req.GetTaskId()}, &wire.OK{})
 		return &agentrewire.Empty{}, testRPCError(err)
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE), func() *agentrewire.RuntimeSetPermissionModeRequest {
 		return &agentrewire.RuntimeSetPermissionModeRequest{}
 	}, func(ctx context.Context, req *agentrewire.RuntimeSetPermissionModeRequest) (*agentrewire.Empty, error) {
-		err := legacy.Call(ctx, wire.MethodSetPermissionMode, wire.SetPermissionModeParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), Mode: req.GetMode()}, &wire.OK{})
+		err := legacy.Call(ctx, wire.MethodSetPermissionMode, wire.SetPermissionModeParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), Mode: req.GetMode()}, &wire.OK{})
 		return &agentrewire.Empty{}, testRPCError(err)
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), func() *agentrewire.RuntimeSubmitAnswerRequest { return &agentrewire.RuntimeSubmitAnswerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
 		var out wire.PeerSessionControlResult
-		params := wire.SubmitAnswerParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), RequestID: req.GetRequestId(), Skipped: req.GetSkipped()}
+		params := wire.SubmitAnswerParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), RequestID: req.GetRequestId(), Skipped: req.GetSkipped()}
 		for _, question := range req.GetQuestions() {
 			value := agentruntime.AskQuestion{ID: question.GetId(), Question: question.GetQuestion(), Header: question.GetHeader(), MultiSelect: question.GetMultiSelect(), IsOther: question.GetIsOther(), IsSecret: question.GetIsSecret()}
 			for _, option := range question.GetOptions() {
@@ -256,7 +257,7 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 		return &agentrewire.RuntimeSubmitToolPermissionRequest{}
 	}, func(ctx context.Context, req *agentrewire.RuntimeSubmitToolPermissionRequest) (*agentrewire.PeerSessionControlResponse, error) {
 		var out wire.PeerSessionControlResult
-		err := legacy.Call(ctx, wire.MethodSubmitToolPermission, wire.SubmitToolPermissionParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), RequestID: req.GetRequestId(), Allow: req.GetAllow(), AlwaysAllowSession: req.GetAlwaysAllowSession(), DenyReason: req.GetDenyReason()}, &out)
+		err := legacy.Call(ctx, wire.MethodSubmitToolPermission, wire.SubmitToolPermissionParams{ConversationID: req.GetConversationId(), PeerFingerprint: devicefp.Initiator(req.GetPeerFingerprint()), RequestID: req.GetRequestId(), Allow: req.GetAllow(), AlwaysAllowSession: req.GetAlwaysAllowSession(), DenyReason: req.GetDenyReason()}, &out)
 		if err != nil {
 			return nil, testRPCError(err)
 		}

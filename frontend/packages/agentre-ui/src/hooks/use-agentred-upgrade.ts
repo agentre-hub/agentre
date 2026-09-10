@@ -39,8 +39,51 @@ export type AgentredUpgradePhase =
   | { kind: "upgrading"; fromVersion: string; targetVersion: string }
   | { kind: "success"; fromVersion: string; toVersion: string }
   | { kind: "timeout" }
-  /** 已是最新 / 进行中 / 路径不可写 / 下载校验失败，以及调用本身失败。 */
-  | { kind: "failed"; message: string };
+  /**
+   * 已是最新 / 进行中 / 路径不可写 / 下载校验失败，以及调用本身失败。
+   *
+   * `reason` 是 daemon 给的结构化原因，呈现层据它说人话；认不出、或者这次压根不是
+   * daemon 的拒绝（调用自己抛了）时是 null。`message` 始终留着，但它是 daemon 那句
+   * 英文原话——只配当技术细节，不该当正文（`reason` 为 null 时才是唯一线索）。
+   */
+  | {
+      kind: "failed";
+      reason: AgentredUpgradeRejectReason | null;
+      message: string;
+    };
+
+/**
+ * daemon 拒绝一次升级的原因，与 agentrewire.AgentredSelfUpdateRejectReason 一一对应
+ * （Go 侧在 daemon 的 handlers、桌面的 remote_device_svc、server 的 mirror_svc 各复述
+ * 一份同样的取值）。
+ *
+ * `active_turns` 不在这里：它有自己的一档（{@link AgentredUpgradePhase} 的
+ * `active-turns`），因为它不是失败而是一道要显式越过的闸。
+ */
+export type AgentredUpgradeRejectReason =
+  | "in_progress"
+  | "not_writable"
+  | "already_latest"
+  | "download_failed";
+
+const FAILURE_REASONS = new Set<string>([
+  "in_progress",
+  "not_writable",
+  "already_latest",
+  "download_failed",
+]);
+
+/**
+ * 认得出的原因才交出去。认不出就是 null —— 呈现层退回「说不出为什么」加原话，
+ * 而不是随便挑一档中文扣在一个我们没见过的失败上。
+ */
+function rejectReasonOf(
+  raw: string | undefined,
+): AgentredUpgradeRejectReason | null {
+  return raw && FAILURE_REASONS.has(raw)
+    ? (raw as AgentredUpgradeRejectReason)
+    : null;
+}
 
 /**
  * 一次受理调用的答复，与 agentrewire.AgentredSelfUpdateResponse 一一对应。
@@ -189,12 +232,17 @@ export function useAgentredUpgrade(
             });
             return;
           }
-          setPhase({ kind: "failed", message: result.message ?? "" });
+          setPhase({
+            kind: "failed",
+            reason: rejectReasonOf(result.rejectReason),
+            message: result.message ?? "",
+          });
         })
         .catch((e: unknown) => {
           if (attempt !== attemptRef.current) return;
           inFlightRef.current = false;
-          setPhase({ kind: "failed", message: messageOf(e) });
+          // 调用自己抛了：这不是 daemon 的拒绝，没有原因可言。
+          setPhase({ kind: "failed", reason: null, message: messageOf(e) });
         });
     },
     [beginPolling, stopTimers],

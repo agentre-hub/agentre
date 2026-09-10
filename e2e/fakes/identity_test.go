@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // TestGivenDualLoginWhenHarnessInstallsAccountThenRemoteDeviceUsesLoginFingerprint
@@ -68,7 +69,7 @@ func TestGivenDualLoginWhenHarnessInstallsAccountThenRemoteDeviceUsesLoginFinger
 	stateRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
 	stateRepo.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, state *server_state_entity.ServerState) error {
-			assert.Equal(t, "sha256:isolated", state.DeviceFingerprint)
+			assert.Equal(t, devicefp.Carrier("sha256:isolated"), state.DeviceFingerprint)
 			return nil
 		},
 	)
@@ -85,7 +86,7 @@ func TestGivenDualLoginWhenHarnessInstallsAccountThenRemoteDeviceUsesLoginFinger
 	assert.Equal(t, int32(1), refreshHits.Load())
 	fingerprint, err := remote_device_svc.Default().DeviceFingerprint()
 	require.NoError(t, err)
-	assert.Equal(t, "sha256:isolated", fingerprint)
+	assert.Equal(t, devicefp.Carrier("sha256:isolated"), fingerprint)
 	assert.True(t, remote_device_svc.IsSelfDevice(fingerprint))
 }
 

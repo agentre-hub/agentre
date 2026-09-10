@@ -21,16 +21,6 @@ import (
 
 // ── 部门 ────────────────────────────────────────────────────────────────────
 
-type departmentPayload struct {
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Icon          string `json:"icon"`
-	AccentColor   string `json:"accent_color"`
-	ParentSyncID  string `json:"parent_sync_id,omitempty"`
-	LeadAgentSync string `json:"lead_agent_sync_id,omitempty"`
-	SortOrder     int    `json:"sort_order"`
-}
-
 type departmentAdapter struct{ baseAdapter }
 
 func (departmentAdapter) kind() string { return syncwire.KindDepartment }
@@ -55,14 +45,14 @@ func (departmentAdapter) load(ctx context.Context, syncID string) (*outbound, er
 	if err != nil {
 		return nil, err
 	}
-	payload, err := json.Marshal(departmentPayload{
-		Name:          row.Name,
-		Description:   row.Description,
-		Icon:          row.Icon,
-		AccentColor:   row.AccentColor,
-		ParentSyncID:  parentSyncID,
-		LeadAgentSync: leadSyncID,
-		SortOrder:     row.SortOrder,
+	payload, err := json.Marshal(syncwire.DepartmentPayload{
+		Name:            row.Name,
+		Description:     row.Description,
+		Icon:            row.Icon,
+		AccentColor:     row.AccentColor,
+		ParentSyncID:    parentSyncID,
+		LeadAgentSyncID: leadSyncID,
+		SortOrder:       row.SortOrder,
 	})
 	if err != nil {
 		return nil, err
@@ -85,7 +75,7 @@ func (departmentAdapter) load(ctx context.Context, syncID string) (*outbound, er
 // 负责人改由 apply 自己解析：解析不出就先把部门落下去（打破环），再报 errRefMissing
 // 让这一行留在入站队列，等负责人到达后的重放补上 lead_agent_id。
 func (departmentAdapter) refs(in *inbound) []ref {
-	var p departmentPayload
+	var p syncwire.DepartmentPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindDepartment, SyncID: p.ParentSyncID},
@@ -93,7 +83,7 @@ func (departmentAdapter) refs(in *inbound) []ref {
 }
 
 func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p departmentPayload
+	var p syncwire.DepartmentPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -104,8 +94,8 @@ func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[st
 	}
 	// 负责人是非阻塞引用（见 refs 的注释）：解析不出时这一轮先落 0，本行照常写下去。
 	leadID := int64(0)
-	if p.LeadAgentSync != "" {
-		if leadID, err = syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindAgent, p.LeadAgentSync); err != nil {
+	if p.LeadAgentSyncID != "" {
+		if leadID, err = syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindAgent, p.LeadAgentSyncID); err != nil {
 			return err
 		}
 	}
@@ -122,7 +112,7 @@ func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[st
 	} else if err := department_repo.Department().Update(ctx, row); err != nil {
 		return err
 	}
-	if p.LeadAgentSync != "" && leadID == 0 {
+	if p.LeadAgentSyncID != "" && leadID == 0 {
 		// 部门已经落地（环就此打破，负责人那一行这一轮即可落地），但 lead_agent_id
 		// 还空着：报 errRefMissing 把本行留在入站队列，由随后的重放补齐。
 		return errRefMissing
@@ -139,24 +129,6 @@ func (departmentAdapter) remove(ctx context.Context, in *inbound) error {
 }
 
 // ── Agent ───────────────────────────────────────────────────────────────────
-
-// agentPayload 里只有 avatar_hash：头像按内容哈希单独走一条路（R16a），正文一律
-// 不进同步载荷（守卫见 syncwire.GuardPayload）。也没有 skills_json —— 技能授权
-// 下沉到执行目标行（R15e）。
-type agentPayload struct {
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	AvatarColor       string `json:"avatar_color"`
-	AvatarIcon        string `json:"avatar_icon"`
-	AvatarHash        string `json:"avatar_hash,omitempty"`
-	SystemBadge       string `json:"system_badge"`
-	DepartmentSyncID  string `json:"department_sync_id,omitempty"`
-	ParentAgentSyncID string `json:"parent_agent_sync_id,omitempty"`
-	SortOrder         int    `json:"sort_order"`
-	PromptJSON        string `json:"prompt_json"`
-	ToolsJSON         string `json:"tools_json"`
-	Pinned            bool   `json:"pinned"`
-}
 
 // agentAdapter 的 avatar 字段是头像内容存取的窄接口（R16a）；nil 时（单机模式、
 // 或测试直接构造 agentAdapter{}）优雅退化，见 avatarTransport 的文档。
@@ -192,7 +164,7 @@ func (a *agentAdapter) load(ctx context.Context, syncID string) (*outbound, erro
 	if hash != "" {
 		a.putAvatarBestEffort(ctx, syncID, hash, row.AvatarDataURL)
 	}
-	payload, err := json.Marshal(agentPayload{
+	payload, err := json.Marshal(syncwire.AgentPayload{
 		Name:              row.Name,
 		Description:       row.Description,
 		AvatarColor:       row.AvatarColor,
@@ -236,7 +208,7 @@ func (a *agentAdapter) putAvatarBestEffort(ctx context.Context, syncID, hash, da
 }
 
 func (*agentAdapter) refs(in *inbound) []ref {
-	var p agentPayload
+	var p syncwire.AgentPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindDepartment, SyncID: p.DepartmentSyncID},
@@ -245,7 +217,7 @@ func (*agentAdapter) refs(in *inbound) []ref {
 }
 
 func (a *agentAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p agentPayload
+	var p syncwire.AgentPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -379,30 +351,6 @@ func agentSyncIDOfLocalID(ctx context.Context, id int64) (string, error) {
 
 // ── backend ─────────────────────────────────────────────────────────────────
 
-// agentBackendPayload is account identity only. Provider configuration travels as
-// its own llm_provider object; CLI paths are a per-device overlay and never
-// appear here. The device fingerprint is likewise never a payload key — it
-// travels on the outbound/push item's own agentred_fingerprint column instead
-// (同步与身份: the backend's device is part of account-level sync, not a
-// payload field).
-type agentBackendPayload struct {
-	Type                  string `json:"type"`
-	Name                  string `json:"name"`
-	ProviderKey           string `json:"provider_key"`
-	ModelKey              string `json:"model_key"`
-	ModelRoutes           string `json:"model_routes"`
-	Sandbox               string `json:"sandbox"`
-	Approval              string `json:"approval"`
-	EnvJSON               string `json:"env_json"`
-	ReasoningEffort       string `json:"reasoning_effort"`
-	DefaultPermissionMode string `json:"default_permission_mode"`
-	DefaultModel          string `json:"default_model"`
-	OpenClawGatewayURL    string `json:"openclaw_gateway_url"`
-	OpenClawAgentID       string `json:"openclaw_agent_id"`
-	OpenClawDefaultModel  string `json:"openclaw_default_model"`
-	OpenClawSessionMode   string `json:"openclaw_session_mode"`
-}
-
 type agentBackendAdapter struct{ baseAdapter }
 
 func (agentBackendAdapter) kind() string { return syncwire.KindAgentBackend }
@@ -413,7 +361,7 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 	if err != nil || !found {
 		return nil, err
 	}
-	payload, err := json.Marshal(agentBackendPayload{
+	payload, err := json.Marshal(syncwire.AgentBackendPayload{
 		Type:                  row.Type,
 		Name:                  row.Name,
 		ProviderKey:           row.LLMProviderKey,
@@ -448,7 +396,7 @@ func (agentBackendAdapter) load(ctx context.Context, syncID string) (*outbound, 
 func (agentBackendAdapter) refs(*inbound) []ref { return nil }
 
 func (agentBackendAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p agentBackendPayload
+	var p syncwire.AgentBackendPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -510,13 +458,6 @@ func (agentBackendAdapter) children(ctx context.Context, syncID string) ([]relat
 
 // ── 执行目标 ────────────────────────────────────────────────────────────────
 
-type agentExecTargetPayload struct {
-	AgentSyncID   string `json:"agent_sync_id"`
-	BackendSyncID string `json:"backend_sync_id"`
-	SortOrder     int    `json:"sort_order"`
-	SkillsJSON    string `json:"skills_json"`
-}
-
 type agentExecTargetAdapter struct{ baseAdapter }
 
 func (agentExecTargetAdapter) kind() string { return syncwire.KindAgentExecTarget }
@@ -538,7 +479,7 @@ func (agentExecTargetAdapter) load(ctx context.Context, syncID string) (*outboun
 	if agentSyncID == "" || backend == nil {
 		return nil, nil
 	}
-	payload, err := json.Marshal(agentExecTargetPayload{
+	payload, err := json.Marshal(syncwire.AgentExecTargetPayload{
 		AgentSyncID:   agentSyncID,
 		BackendSyncID: syncIDOf(backend.SyncMeta),
 		SortOrder:     row.SortOrder,
@@ -555,7 +496,7 @@ func (agentExecTargetAdapter) load(ctx context.Context, syncID string) (*outboun
 }
 
 func (agentExecTargetAdapter) refs(in *inbound) []ref {
-	var p agentExecTargetPayload
+	var p syncwire.AgentExecTargetPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindAgent, SyncID: p.AgentSyncID},
@@ -564,7 +505,7 @@ func (agentExecTargetAdapter) refs(in *inbound) []ref {
 }
 
 func (agentExecTargetAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p agentExecTargetPayload
+	var p syncwire.AgentExecTargetPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}

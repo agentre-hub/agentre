@@ -22,14 +22,20 @@ func TestSentinelsRoundTripThroughTypedCodes(t *testing.T) {
 	}
 }
 
-// TestErrorCodesDoNotOverlapOtherFamilies:错误码是稳定 wire 值,与既有方法族的
-// 码段不重叠(agentruntime remote -32010..-32014、remotefs -32030..-32035、
-// workspacefs -32040..-32042)。撞号会让两个方法族的错误在客户端互相翻译成对方。
-func TestErrorCodesDoNotOverlapOtherFamilies(t *testing.T) {
-	for _, code := range []int32{wire.ErrCodeBackendUnavailable, wire.ErrCodeTranscriptOpen, wire.ErrCodeSessionInUse} {
-		assert.Less(t, code, int32(-32042), "落在本族自己的 -3205x 段里")
-		assert.GreaterOrEqual(t, code, int32(-32059))
-	}
+// TestErrorCodesFollowTheirOwner:本包的短名字必须与 pkg/wire/rpcerror 里那三个
+// 常量同值。
+//
+// 这里**不再自己判断段位**。原来那条用例叫「与既有方法族不重叠」,断言却是
+// `code < -32042 && code >= -32059` —— 它恰好放行 -32050..-32052,而那正是
+// project.* 的段位。它抓不到那次撞号,因为它只认识自己注释里列的那几族:一张
+// 手抄的段表只在写它的那天成立。真正的守卫在 pkg/wire/rpcerror/segments_test.go,
+// 它 AST 扫全部 Code* 常量比对全部段位 —— 那三个码搬进去的第一次运行就判红了。
+//
+// 留在这里的这一条只管一件事:别名不许漂。
+func TestErrorCodesFollowTheirOwner(t *testing.T) {
+	assert.Equal(t, rpcerror.CodeTranscriptImportBackendUnavailable, wire.ErrCodeBackendUnavailable)
+	assert.Equal(t, rpcerror.CodeTranscriptImportTranscriptOpen, wire.ErrCodeTranscriptOpen)
+	assert.Equal(t, rpcerror.CodeTranscriptImportSessionInUse, wire.ErrCodeSessionInUse)
 }
 
 // TestMethodNotFoundIsNotSwallowed 是硬约束 3 的判据:-32601 必须原样传上去,由

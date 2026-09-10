@@ -14,6 +14,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_import_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -58,7 +59,7 @@ func withDesktopFingerprint(t *testing.T, fingerprint string) {
 		remote_device_svc.SetDefault(prev)
 		ctrl.Finish()
 	})
-	device.EXPECT().DeviceFingerprint().Return(fingerprint, nil).AnyTimes()
+	device.EXPECT().DeviceFingerprint().Return(devicefp.Carrier(fingerprint), nil).AnyTimes()
 }
 
 func executeParams() importwire.ExecuteParams {
@@ -182,7 +183,7 @@ func TestTranscriptImportExecute_PeerFingerprintNomination(t *testing.T) {
 				SessionID: 55, ConversationID: execConvID,
 			}}
 			params := executeParams()
-			params.PeerFingerprint = tc.fingerprint
+			params.PeerFingerprint = devicefp.Initiator(tc.fingerprint)
 
 			_, err := newExecutePort(imports).Execute(context.Background(), params)
 

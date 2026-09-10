@@ -113,6 +113,58 @@ describe("file-preview-tabs-store", () => {
     });
   });
 
+  // ── 定位目标（转录里点了一条带行号的链接）────────────────────────────────
+  it("records the anchor on the tab it opened, with a nonce", () => {
+    store().openPreview(7, "src/foo.go", "directory", {
+      line: 311,
+      endLine: 330,
+    });
+
+    expect(tabAt(7, "src/foo.go")?.reveal).toMatchObject({
+      line: 311,
+      endLine: 330,
+      nonce: expect.any(Number),
+    });
+  });
+
+  it("mints a fresh nonce every time the same link is clicked again", () => {
+    store().openPreview(7, "src/foo.go", "directory", { line: 311 });
+    const first = tabAt(7, "src/foo.go")?.reveal?.nonce;
+    store().openPreview(7, "src/foo.go", "directory", { line: 311 });
+    const second = tabAt(7, "src/foo.go")?.reveal?.nonce;
+
+    expect(first).toEqual(expect.any(Number));
+    expect(second).toBeGreaterThan(first as number);
+  });
+
+  it("clears a stale anchor when the same file is re-opened without one", () => {
+    store().openPreview(7, "src/foo.go", "directory", { line: 311 });
+    store().openPreview(7, "src/foo.go", "directory");
+
+    expect(tabAt(7, "src/foo.go")?.reveal).toBeNull();
+  });
+
+  it("opens markdown carrying a line number in the text segment, since render has no lines", () => {
+    store().openPreview(7, "docs/guide.md", "directory", { line: 8 });
+
+    expect(tabAt(7, "docs/guide.md")?.segment).toBe("text");
+  });
+
+  it("leaves the segment of an already open markdown tab alone when a line link points at it", () => {
+    store().openPreview(7, "docs/guide.md", "directory");
+    store().setPreviewSegment(7, "render");
+    store().openPreview(7, "docs/guide.md", "directory", { line: 8 });
+
+    expect(tabAt(7, "docs/guide.md")?.segment).toBe("render");
+    expect(tabAt(7, "docs/guide.md")?.reveal).toMatchObject({ line: 8 });
+  });
+
+  it("does not force a segment on code files, which have none", () => {
+    store().openPreview(7, "src/foo.go", "directory", { line: 311 });
+
+    expect(tabAt(7, "src/foo.go")?.segment).toBeNull();
+  });
+
   it("promotes the active temporary tab to a permanent one (double click)", () => {
     store().openPreview(7, "a.md", "directory");
     store().promoteActivePreviewTab(7);
@@ -337,6 +389,22 @@ describe("file-preview-tabs-store", () => {
     });
     expect(activePath(7)).toBe("b.go");
     expect(paths(8)).toEqual(["c.md"]);
+  });
+
+  it("keeps a tab that was opened at a line across a restart, but does not re-reveal it", async () => {
+    store().openPreview(7, "src/foo.go", "directory", {
+      line: 311,
+      endLine: 330,
+    });
+    expect(tabAt(7, "src/foo.go")?.reveal).not.toBeNull();
+
+    const persisted = localStorage.getItem("file-preview-tabs-state");
+    useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
+    localStorage.setItem("file-preview-tabs-state", persisted as string);
+    await useFilePreviewTabsStore.persist.rehydrate();
+
+    expect(paths(7)).toEqual(["src/foo.go"]);
+    expect(tabAt(7, "src/foo.go")?.reveal).toBeNull();
   });
 
   it("drops a tab whose source mode is not one this build writes", async () => {

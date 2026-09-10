@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // setupSessionCursorTest 注入 session repo mock 并返回 agentruntime 侧已注册的游标端口。
@@ -92,8 +93,8 @@ func TestSessionCursorPort_SaveCursorThenLoad(t *testing.T) {
 	sessRepo, port := setupSessionCursorTest(t)
 
 	stored := &chat_entity.Session{ID: 42, ExecDeviceID: 3, ExecDeviceFingerprint: "sha256:beef", EventCursor: 17}
-	sessRepo.EXPECT().UpdateEventCursor(gomock.Any(), int64(42), "sha256:beef", int64(23)).
-		DoAndReturn(func(_ context.Context, _ int64, _ string, seq int64) error {
+	sessRepo.EXPECT().UpdateEventCursor(gomock.Any(), int64(42), devicefp.Carrier("sha256:beef"), int64(23)).
+		DoAndReturn(func(_ context.Context, _ int64, _ devicefp.Carrier, seq int64) error {
 			stored.EventCursor = seq
 			return nil
 		})
@@ -116,7 +117,7 @@ func TestSessionCursorPort_SaveCursorThenLoad(t *testing.T) {
 func TestSessionCursorPort_SaveCursorCarriesDaemonIdentity(t *testing.T) {
 	sessRepo, port := setupSessionCursorTest(t)
 
-	sessRepo.EXPECT().UpdateEventCursor(gomock.Any(), int64(42), "sha256:beef", int64(900)).Return(nil)
+	sessRepo.EXPECT().UpdateEventCursor(gomock.Any(), int64(42), devicefp.Carrier("sha256:beef"), int64(900)).Return(nil)
 
 	require.NoError(t, port.SaveCursor(context.Background(), 42, "sha256:beef", 900))
 }

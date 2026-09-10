@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // freshConversationID 为「在对端桌面端上新建一条对话」铸号(决策 1:发起端铸,
@@ -34,7 +35,7 @@ type service struct {
 	projects ProjectLookup
 
 	mu    sync.Mutex
-	conns map[string]*connEntry
+	conns map[devicefp.Carrier]*connEntry
 }
 
 type connEntry struct {
@@ -52,24 +53,26 @@ func New(dialer Dialer, emitter Emitter, self FingerprintProvider, agents AgentL
 		self:     self,
 		agents:   agents,
 		projects: projects,
-		conns:    map[string]*connEntry{},
+		conns:    map[devicefp.Carrier]*connEntry{},
 	}
 }
 
 // dialShort 拨一条到目标桌面端的短连接（list / run 用：连上、调一次、关掉）。
-func (s *service) dialShort(ctx context.Context, fingerprint string) (*peer.Outbound, func(), error) {
+func (s *service) dialShort(ctx context.Context, fingerprint devicefp.Carrier) (*peer.Outbound, func(), error) {
 	fp, err := s.selfFingerprint()
 	if err != nil {
 		return nil, nil, err
 	}
-	c, err := s.dialer.DialDesktopRelay(ctx, fingerprint, fp)
+	// fingerprint 是要连的那台桌面(承载者),fp 是本机在这条通道上出示的身份 ——
+	// 对端会把它记成会话的发起方。两个相邻参数,两个不同的角色。
+	c, err := s.dialer.DialDesktopRelay(ctx, fingerprint, devicefp.Initiator(fp))
 	if err != nil {
 		return nil, nil, err
 	}
 	return peer.NewOutbound(c, fingerprint), func() { _ = c.Close() }, nil
 }
 
-func (s *service) selfFingerprint() (string, error) {
+func (s *service) selfFingerprint() (devicefp.Carrier, error) {
 	fp, err := s.self.DeviceFingerprint()
 	if err != nil {
 		return "", fmt.Errorf("peer_svc.selfFingerprint: read device fingerprint: %w", err)
@@ -80,7 +83,7 @@ func (s *service) selfFingerprint() (string, error) {
 // ensureConn 取（或建）到一台远端桌面端的常驻连接。新建时挂上事件订阅：对端把
 // attached 会话的 canonical 帧推回时，经 Emitter 按会话路由给前端。连接断掉后从表里
 // 摘除，下次 Attach 重新拨号（断连重连语义，R11）。
-func (s *service) ensureConn(ctx context.Context, fingerprint string) (*connEntry, error) {
+func (s *service) ensureConn(ctx context.Context, fingerprint devicefp.Carrier) (*connEntry, error) {
 	s.mu.Lock()
 	if e, ok := s.conns[fingerprint]; ok {
 		s.mu.Unlock()
@@ -123,7 +126,7 @@ func (s *service) ensureConn(ctx context.Context, fingerprint string) (*connEntr
 }
 
 // watchClosed 在常驻中继连接断掉时把对应 entry 从表里摘除（引用不保留，下次重拨）。
-func (s *service) watchClosed(fingerprint string, e *connEntry, closed <-chan struct{}) {
+func (s *service) watchClosed(fingerprint devicefp.Carrier, e *connEntry, closed <-chan struct{}) {
 	<-closed
 	s.mu.Lock()
 	if s.conns[fingerprint] == e {
@@ -131,7 +134,7 @@ func (s *service) watchClosed(fingerprint string, e *connEntry, closed <-chan st
 	}
 	s.mu.Unlock()
 	logger.Default().Info("peer_svc.watchClosed: relay connection dropped",
-		zap.String("fingerprint", fingerprint))
+		zap.String("fingerprint", string(fingerprint)))
 }
 
 func (s *service) ListSessions(ctx context.Context, req ListSessionsRequest) (*wire.SessionListResult, error) {
@@ -190,7 +193,9 @@ func (s *service) RunFresh(ctx context.Context, req RunFreshRequest) (wire.RunAc
 		LLMProviderKey:  req.ProviderKey,
 		LLMModelKey:     req.ModelKey,
 		ReasoningEffort: req.ReasoningEffort,
-		SourceDevice:    fp,
+		// 本机的承载者身份在这里换角色:这一轮由本机**发起**交给对端桌面执行,
+		// 对端会把它当发起方记在会话上,而不是当承载者去解析机器名。
+		SourceDevice: devicefp.Initiator(fp),
 	})
 }
 
@@ -276,7 +281,7 @@ func (s *service) SubmitToolPermission(ctx context.Context, req SubmitToolPermis
 	return &result, nil
 }
 
-func (s *service) Detach(ctx context.Context, fingerprint string, conversationID string) error {
+func (s *service) Detach(ctx context.Context, fingerprint devicefp.Carrier, conversationID string) error {
 	s.mu.Lock()
 	e, ok := s.conns[fingerprint]
 	if !ok {
@@ -292,14 +297,14 @@ func (s *service) Detach(ctx context.Context, fingerprint string, conversationID
 	s.mu.Unlock()
 	_ = e.out.Close()
 	logger.Default().Info("peer_svc.Detach: last session detached, relay connection closed",
-		zap.String("fingerprint", fingerprint), zap.String("conversationId", conversationID))
+		zap.String("fingerprint", string(fingerprint)), zap.String("conversationId", conversationID))
 	return nil
 }
 
 func (s *service) Close() error {
 	s.mu.Lock()
 	conns := s.conns
-	s.conns = map[string]*connEntry{}
+	s.conns = map[devicefp.Carrier]*connEntry{}
 	s.mu.Unlock()
 	var firstErr error
 	for _, e := range conns {

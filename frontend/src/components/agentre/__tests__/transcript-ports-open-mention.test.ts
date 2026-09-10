@@ -78,6 +78,20 @@ describe("desktopTranscriptPorts 的 previewFile", () => {
     expect(OpenPath).not.toHaveBeenCalled();
   });
 
+  it("Given the link carried a line range, When previewFile is called, Then the anchor lands on the tab it opened", () => {
+    useFileSettingsStore.setState({ settings: { openAction: "preview" } });
+
+    desktopTranscriptPorts.previewFile(7, "src/foo.go", {
+      line: 311,
+      endLine: 330,
+    });
+
+    expect(
+      useFilePreviewTabsStore.getState().previewTabsBySession[7]?.tabs[0]
+        ?.reveal,
+    ).toMatchObject({ line: 311, endLine: 330 });
+  });
+
   it("Given files.open_action is external, When previewFile is called, Then it declines and leaves no preview tab behind", () => {
     useFileSettingsStore.setState({ settings: { openAction: "external" } });
 

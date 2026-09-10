@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExecTargetList } from "../exec-target-list";
 import type {
   agent_backend_svc,
-  chat_svc,
+  exec_target_svc,
 } from "../../../../../wailsjs/go/models";
 
 function backend(
@@ -71,12 +71,15 @@ function availabilityStub(
     items.map((it) => [
       it.agentBackendId,
       { reason: "", hint: "", ...it },
-    ]) as Array<[number, chat_svc.ExecTargetAvailabilityView]>,
+    ]) as Array<[number, exec_target_svc.ExecTargetAvailabilityView]>,
   );
   return availability;
 }
 
-let availability = new Map<number, chat_svc.ExecTargetAvailabilityView>();
+let availability = new Map<
+  number,
+  exec_target_svc.ExecTargetAvailabilityView
+>();
 
 // 技能折在行内，所以每一行都要知道自己那一档的 backend 支不支持技能（R15e 的
 // ExecTargetSkillsBlock 一直是这么问的，只是现在由行来问）：claudecode 支持，

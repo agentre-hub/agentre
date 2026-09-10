@@ -15,23 +15,11 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ── 项目 ────────────────────────────────────────────────────────────────────
-
-// projectPayload 是项目的同步载荷。
-//
-// **没有 path**：本机路径住在 projects.path，只上报、不同步（决策 6、R9）；同步
-// 进来的项目在本机是「未配置路径」状态（R10）。也没有 status —— 存活 / 墓碑由
-// 下行项的 Deleted 表达，本地 status 是它的本机投影。
-type projectPayload struct {
-	Name         string `json:"name"`
-	Icon         string `json:"icon"`
-	Color        string `json:"color"`
-	Description  string `json:"description"`
-	ParentSyncID string `json:"parent_sync_id,omitempty"`
-	SortOrder    int    `json:"sort_order"`
-}
 
 type projectAdapter struct{ baseAdapter }
 
@@ -53,7 +41,7 @@ func (projectAdapter) load(ctx context.Context, syncID string) (*outbound, error
 			parentSyncID = syncIDOf(parent.SyncMeta)
 		}
 	}
-	payload, err := json.Marshal(projectPayload{
+	payload, err := json.Marshal(syncwire.ProjectPayload{
 		Name:         row.Name,
 		Icon:         row.Icon,
 		Color:        row.Color,
@@ -72,13 +60,13 @@ func (projectAdapter) load(ctx context.Context, syncID string) (*outbound, error
 }
 
 func (projectAdapter) refs(in *inbound) []ref {
-	var p projectPayload
+	var p syncwire.ProjectPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{{Kind: syncwire.KindProject, SyncID: p.ParentSyncID}}
 }
 
 func (projectAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p projectPayload
+	var p syncwire.ProjectPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -140,13 +128,6 @@ func (projectAdapter) children(ctx context.Context, syncID string) ([]relatedRow
 
 // ── 成员关系 ────────────────────────────────────────────────────────────────
 
-// projectAgentPayload 是项目 ↔ Agent 成员关系的同步载荷：双方都用同步标识表达。
-type projectAgentPayload struct {
-	ProjectSyncID string `json:"project_sync_id"`
-	AgentSyncID   string `json:"agent_sync_id"`
-	JoinedAt      int64  `json:"joined_at"`
-}
-
 type projectAgentAdapter struct{ baseAdapter }
 
 func (projectAgentAdapter) kind() string { return syncwire.KindProjectAgent }
@@ -170,7 +151,7 @@ func (projectAgentAdapter) load(ctx context.Context, syncID string) (*outbound, 
 		// 的删除路径去落墓碑，这里不发一条带空引用的上行。
 		return nil, nil
 	}
-	payload, err := json.Marshal(projectAgentPayload{
+	payload, err := json.Marshal(syncwire.ProjectAgentPayload{
 		ProjectSyncID: syncIDOf(project.SyncMeta),
 		AgentSyncID:   agent,
 		JoinedAt:      row.JoinedAt,
@@ -186,7 +167,7 @@ func (projectAgentAdapter) load(ctx context.Context, syncID string) (*outbound, 
 }
 
 func (projectAgentAdapter) refs(in *inbound) []ref {
-	var p projectAgentPayload
+	var p syncwire.ProjectAgentPayload
 	_ = json.Unmarshal(in.Payload, &p)
 	return []ref{
 		{Kind: syncwire.KindProject, SyncID: p.ProjectSyncID},
@@ -195,7 +176,7 @@ func (projectAgentAdapter) refs(in *inbound) []ref {
 }
 
 func (projectAgentAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p projectAgentPayload
+	var p syncwire.ProjectAgentPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -241,12 +222,6 @@ func (projectAgentAdapter) remove(ctx context.Context, in *inbound) error {
 
 // ── agentred 上的项目路径 ───────────────────────────────────────────────────
 
-// projectLocationPayload 只带路径正文；账号内自然键（项目同步标识, agentred 指纹）
-// 走上行项的顶层字段，server 据此按 R4b 合并。
-type projectLocationPayload struct {
-	Path string `json:"path"`
-}
-
 type projectLocationAdapter struct{ baseAdapter }
 
 func (projectLocationAdapter) kind() string { return syncwire.KindProjectLocation }
@@ -264,7 +239,7 @@ func (projectLocationAdapter) load(ctx context.Context, syncID string) (*outboun
 	if project == nil || row.DeviceFingerprint == "" {
 		return nil, nil
 	}
-	payload, err := json.Marshal(projectLocationPayload{Path: row.Path})
+	payload, err := json.Marshal(syncwire.ProjectLocationPayload{Path: row.Path})
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +260,7 @@ func (projectLocationAdapter) refs(in *inbound) []ref {
 }
 
 func (projectLocationAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
-	var p projectLocationPayload
+	var p syncwire.ProjectLocationPayload
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
@@ -341,7 +316,7 @@ func (projectLocationAdapter) apply(ctx context.Context, in *inbound, resolved m
 // findLocationAtNaturalKey 取（项目, 指纹）这个自然键上的活行；没有返回 (nil, nil)。
 // 仓储对「没有」既可能回 (nil, nil) 也可能回 gorm.ErrRecordNotFound，两种都归一。
 func findLocationAtNaturalKey(
-	ctx context.Context, projectID int64, fingerprint string,
+	ctx context.Context, projectID int64, fingerprint devicefp.Carrier,
 ) (*project_location_entity.ProjectLocation, error) {
 	if projectID == 0 || fingerprint == "" {
 		return nil, nil

@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
@@ -135,23 +136,23 @@ func (f *fakeConn) catchUpOrder() []string {
 // fakeCursorPort 是 agentruntime.SessionCursorPort 的测试替身。
 type fakeCursorPort struct {
 	mu    sync.Mutex
-	load  func(sessionID int64, fp string) (int64, bool, error)
+	load  func(sessionID int64, fp devicefp.Carrier) (int64, bool, error)
 	saved []savedCursor
 }
 
 type savedCursor struct {
 	SessionID   int64
-	Fingerprint string
+	Fingerprint devicefp.Carrier
 	Seq         int64
 }
 
-func (f *fakeCursorPort) setLoad(fn func(sessionID int64, fp string) (int64, bool, error)) {
+func (f *fakeCursorPort) setLoad(fn func(sessionID int64, fp devicefp.Carrier) (int64, bool, error)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.load = fn
 }
 
-func (f *fakeCursorPort) LoadCursor(_ context.Context, sessionID int64, fp string) (int64, bool, error) {
+func (f *fakeCursorPort) LoadCursor(_ context.Context, sessionID int64, fp devicefp.Carrier) (int64, bool, error) {
 	f.mu.Lock()
 	fn := f.load
 	f.mu.Unlock()
@@ -161,7 +162,7 @@ func (f *fakeCursorPort) LoadCursor(_ context.Context, sessionID int64, fp strin
 	return fn(sessionID, fp)
 }
 
-func (f *fakeCursorPort) SaveCursor(_ context.Context, sessionID int64, fp string, seq int64) error {
+func (f *fakeCursorPort) SaveCursor(_ context.Context, sessionID int64, fp devicefp.Carrier, seq int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.saved = append(f.saved, savedCursor{SessionID: sessionID, Fingerprint: fp, Seq: seq})
@@ -242,12 +243,12 @@ type reconnectRig struct {
 
 	mu       sync.Mutex
 	nextConn []client.ProtobufConnection
-	nextFP   []string
+	nextFP   []devicefp.Carrier
 	nextErr  []error
 	attempts int
 }
 
-const rigFingerprint = "sha256:daemon-a"
+const rigFingerprint devicefp.Carrier = "sha256:daemon-a"
 
 const rigSessionID int64 = 42
 
@@ -326,7 +327,7 @@ func newReconnectRigWithBackoff(t *testing.T, backoff []time.Duration) *reconnec
 }
 
 // queue 排入下一次重连的结果。
-func (r *reconnectRig) queue(c client.ProtobufConnection, fp string, err error) {
+func (r *reconnectRig) queue(c client.ProtobufConnection, fp devicefp.Carrier, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.nextConn = append(r.nextConn, c)
@@ -334,7 +335,7 @@ func (r *reconnectRig) queue(c client.ProtobufConnection, fp string, err error) 
 	r.nextErr = append(r.nextErr, err)
 }
 
-func (r *reconnectRig) reconnect(context.Context) (client.ProtobufConnection, string, error) {
+func (r *reconnectRig) reconnect(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.attempts++
@@ -462,7 +463,7 @@ func TestDisconnect_DoesNotEndSession_EntersReconnecting(t *testing.T) {
 // pendingWaiters 的顺序发出。
 func TestReconnect_CatchUpReplaysJournaledNotifications(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	conn2 := catchUpConn(5, []wire.JournaledNotification{
 		journaledEvent(4, "caught-up"),
 		journaledDone(5, "sonnet"),
@@ -495,7 +496,7 @@ func TestReconnect_CatchUpReplaysJournaledNotifications(t *testing.T) {
 // 用例把第三阶段闸在补齐落定之后,恰恰绕开了它。
 func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 0, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 0, true, nil })
 
 	journal := []wire.JournaledNotification{
 		journaledEvent(1, "one"), journaledEvent(2, "two"),
@@ -555,7 +556,7 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 // 拉取且一条也交付不出去,会话卡死在「生成中」直到超时。
 func TestReplay_UnknownNotificationMethod_DoesNotStallCatchUp(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	unknown := wire.JournaledNotification{
 		Seq:    4,
 		Method: "runtime.somethingTheClientDoesNotKnow",
@@ -582,7 +583,7 @@ func TestReplay_UnknownNotificationMethod_DoesNotStallCatchUp(t *testing.T) {
 // 客户端改从游标发起增量拉取,拉平后按序交付 4/5/6。
 func TestLiveFrame_SeqGap_TriggersPull(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	rig.conn1.script(func(method string, params, result any) error {
 		switch method {
 		case wire.MethodSessionPull:
@@ -626,7 +627,7 @@ func TestLiveFrame_SeqGap_TriggersPull(t *testing.T) {
 // Given 本地游标为 5,When 实时帧带着 seq=5(重复投递)到达,Then 丢弃。
 func TestLiveFrame_SeqNotNewerThanCursor_Discarded(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 5, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 5, true, nil })
 
 	ev := agentruntime.TextDelta{Text: "dup"}
 	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID), Event: ev, Seq: 5})
@@ -678,7 +679,7 @@ func collectTexts(t *testing.T, ch <-chan agentruntime.Event, want int) []string
 // —— 预览帧若推进了游标(到 5 或 9),它要么被判重复丢掉、要么触发一次白拉取。
 func TestPreviewFrame_NeitherAdvancesTheCursorNorEntersDedup(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 5, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 5, true, nil })
 
 	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
 		Preview: true, Seq: 5, Event: agentruntime.TextDelta{Text: "预览-撞去重"}})
@@ -704,7 +705,7 @@ func TestPreviewFrame_NeitherAdvancesTheCursorNorEntersDedup(t *testing.T) {
 // 这是上一条的对照面:同样的内容,持久帧**要**参与补齐与去重,而且它是转录的唯一来源。
 func TestDurableFrame_CoveringPreviewContent_AdvancesCursorAndDedups(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 5, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 5, true, nil })
 
 	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
 		Preview: true, Event: agentruntime.TextDelta{Text: "同一段内容"}})
@@ -767,10 +768,10 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 		return nil
 	})
 	cursor := &fakeCursorPort{}
-	cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	rt := New(conn,
 		WithConversationIDResolver(convOf),
-		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
+		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),
 		WithDaemonFingerprint(rigFingerprint),
@@ -878,8 +879,8 @@ func TestTerminalNotification_FlushesCursorImmediately(t *testing.T) {
 // 「按已中断处理」,所以它拿的是「被打断」那个理由,不是「连不上了」。
 func TestReconnect_DaemonIdentityMismatch_InvalidatesCursor(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(_ int64, fp string) (int64, bool, error) {
-		assert.Equal(t, "sha256:daemon-b", fp, "校验必须用重连后观察到的指纹")
+	rig.cursor.setLoad(func(_ int64, fp devicefp.Carrier) (int64, bool, error) {
+		assert.Equal(t, devicefp.Carrier("sha256:daemon-b"), fp, "校验必须用重连后观察到的指纹")
 		return 0, false, nil
 	})
 	conn2 := catchUpConn(9, []wire.JournaledNotification{journaledEvent(4, "should-not-appear")},
@@ -903,7 +904,7 @@ func TestReconnect_DaemonIdentityMismatch_InvalidatesCursor(t *testing.T) {
 func TestReconnect_CursorLoadError_RetriesInsteadOfEndingSession(t *testing.T) {
 	rig := newReconnectRig(t)
 	var loads int32
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) {
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) {
 		if atomic.AddInt32(&loads, 1) == 1 {
 			return 0, false, assertErr("database is locked")
 		}
@@ -936,7 +937,7 @@ func TestReconnect_CursorLoadError_RetriesInsteadOfEndingSession(t *testing.T) {
 func TestReconnect_CursorAboveDaemonHighWater_InvalidatesCursorAndCatchesUpFromScratch(t *testing.T) {
 	rig := newReconnectRig(t)
 	// 本地游标停在 7,而 daemon 恢复出来的日志只到 3。
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 7, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 7, true, nil })
 	conn2 := catchUpConn(3, []wire.JournaledNotification{
 		journaledEvent(1, "restored-1"),
 		journaledEvent(2, "restored-2"),
@@ -982,7 +983,7 @@ func TestReconnect_CursorAboveDaemonHighWater_InvalidatesCursorAndCatchesUpFromS
 // 当成越界,那会把整段转录重放一遍(硬不变量的「无重复」当场破掉)。
 func TestReconnect_CursorEqualsDaemonHighWater_KeepsCursor(t *testing.T) {
 	rig := newReconnectRig(t)
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	conn2 := catchUpConn(3, []wire.JournaledNotification{
 		journaledEvent(1, "old-1"),
 		journaledEvent(2, "old-2"),
@@ -1077,7 +1078,7 @@ func TestReconnect_LiveFrameDuringAttach_DoesNotInvalidateCursor(t *testing.T) {
 	rig := newReconnectRig(t)
 	// 断连前:一轮正在流式输出,游标已经被实时帧推到 3。
 	deliverLiveTexts(t, rig.conn1, []string{"one", "two", "three"})
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 
 	// daemon 侧接管快照是 3;认领之后紧接着落下并推来 seq=4(它也进了日志)。
 	journal := []wire.JournaledNotification{
@@ -1118,7 +1119,7 @@ func TestCursorInvalidation_OutlivesPendingDebouncedWrite(t *testing.T) {
 
 	deliverLiveTexts(t, rig.conn1, []string{"a", "b", "c", "d", "e", "f", "g"})
 	require.Empty(t, rig.cursor.savedSeqs(), "轮中的每一条不该各写一次库")
-	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 7, true, nil })
+	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 7, true, nil })
 
 	// daemon 的日志被恢复成空(高水位 0),接管后又推来一条 seq=8 —— 它把一个新的脏
 	// 条目记进防抖表,而紧接着的越界守卫要把游标作废掉。
@@ -1467,10 +1468,10 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 		return nil
 	})
 	cursor := &fakeCursorPort{}
-	cursor.setLoad(func(int64, string) (int64, bool, error) { return 3, true, nil })
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 	rt := New(conn,
 		WithConversationIDResolver(convOf),
-		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
+		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),
 		WithDaemonFingerprint(rigFingerprint),
@@ -1586,7 +1587,7 @@ func TestRun_GivenAckCarriesUserMessageSeq_ThenCursorAdvancesOnlyWhenItIsTheVery
 		t.Run(tc.name, func(t *testing.T) {
 			conn := newFakeConn()
 			cursor := &fakeCursorPort{}
-			cursor.setLoad(func(int64, string) (int64, bool, error) { return tc.loaded, true, nil })
+			cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return tc.loaded, true, nil })
 			ackSeq, ackMinSeq := tc.ackSeq, tc.ackMinSeq
 			conn.script(func(method string, _, result any) error {
 				if method == wire.MethodRun {
@@ -1628,7 +1629,7 @@ func TestRun_GivenAckCarriesUserMessageSeq_ThenCursorAdvancesOnlyWhenItIsTheVery
 func TestRun_GivenAckCarriesUserMessageSeq_ThenTheCursorIsPersistedBeforeTheDebounceWindow(t *testing.T) {
 	conn := newFakeConn()
 	cursor := &fakeCursorPort{}
-	cursor.setLoad(func(int64, string) (int64, bool, error) { return 4, true, nil })
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 4, true, nil })
 	conn.script(func(method string, _, result any) error {
 		if method == wire.MethodRun {
 			*(result.(*wire.RunAck)) = wire.RunAck{
@@ -1669,7 +1670,7 @@ func TestRun_GivenAckCarriesUserMessageSeq_ThenTheCursorIsPersistedBeforeTheDebo
 func TestRun_GivenTheUserFrameArrivesBeforeTheAck_ThenTheCursorIsStillPersisted(t *testing.T) {
 	conn := newFakeConn()
 	cursor := &fakeCursorPort{}
-	cursor.setLoad(func(int64, string) (int64, bool, error) { return 4, true, nil })
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 4, true, nil })
 	conn.script(func(method string, _, result any) error {
 		if method != wire.MethodRun {
 			return nil

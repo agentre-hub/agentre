@@ -19,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 const remoteTestFingerprint = "sha256:remote-test-device"
@@ -58,7 +59,7 @@ func installRemoteDeviceFixture(t *testing.T) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	rd := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-	rd.EXPECT().DeviceFingerprint().Return("sha256:local-test-device", nil).AnyTimes()
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:local-test-device"), nil).AnyTimes()
 	rd.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{{
 		ID: 42, DaemonFingerprint: remoteTestFingerprint, Name: "remote-test-device", Online: true,
 	}}, nil).AnyTimes()
@@ -176,7 +177,7 @@ func setupSvcWithRemoteAndBackend(t *testing.T, remote remoteCLIPort, backend *a
 
 // remoteTestBackend 返回一个能通过 entity.Check 的最小可用 backend。
 // type 默认 claudecode（与远端 CLI 场景对齐）；调用方传 deviceID/ID 区分用例。
-func remoteTestBackend(id int64, deviceID string) *agent_backend_entity.AgentBackend {
+func remoteTestBackend(id int64, deviceID devicefp.Carrier) *agent_backend_entity.AgentBackend {
 	return &agent_backend_entity.AgentBackend{
 		ID:                id,
 		Type:              string(agent_backend_entity.TypeClaudeCode),

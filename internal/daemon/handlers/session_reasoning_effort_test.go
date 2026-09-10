@@ -11,7 +11,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -47,13 +48,13 @@ func TestSessionReasoningEffort_Set_PersistsBothStates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, sessions, h := setupReasoningEffortTest(t)
 			sessions.EXPECT().
-				SetReasoningEffort(gomock.Any(), "", convID(41), tc.effort).
+				SetReasoningEffort(gomock.Any(), devicefp.Initiator(""), convID(41), tc.effort).
 				Return(int64(1), nil)
 
 			// wire.OK 是个空结构:断言点是「正好这一格、正好这条会话被写下去了」——
 			// 由上面的 EXPECT 精确入参承担。
-			_, err := h.SetReasoningEffort(ctx, wire.SetSessionReasoningEffortParams{
-				ConversationID: convID(41), ReasoningEffort: tc.effort,
+			_, err := h.SetReasoningEffort(ctx, &agentrewire.SetSessionReasoningEffortRequest{
+				ConversationId: convID(41), ReasoningEffort: tc.effort,
 			})
 			require.NoError(t, err)
 		})
@@ -64,10 +65,10 @@ func TestSessionReasoningEffort_Set_PersistsBothStates(t *testing.T) {
 // (与删除那条幂等路径刻意不同)。
 func TestSessionReasoningEffort_Set_UnknownSessionIsAnError(t *testing.T) {
 	ctx, sessions, h := setupReasoningEffortTest(t)
-	sessions.EXPECT().SetReasoningEffort(gomock.Any(), "", convID(999), "high").Return(int64(0), nil)
+	sessions.EXPECT().SetReasoningEffort(gomock.Any(), devicefp.Initiator(""), convID(999), "high").Return(int64(0), nil)
 
-	_, err := h.SetReasoningEffort(ctx, wire.SetSessionReasoningEffortParams{
-		ConversationID: convID(999), ReasoningEffort: "high",
+	_, err := h.SetReasoningEffort(ctx, &agentrewire.SetSessionReasoningEffortRequest{
+		ConversationId: convID(999), ReasoningEffort: "high",
 	})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, rpcerror.ErrSessionNotFound),
@@ -77,11 +78,11 @@ func TestSessionReasoningEffort_Set_UnknownSessionIsAnError(t *testing.T) {
 // 落库出错必须原样上报:静默成功同样会让调用方以为下一轮会用新档位。
 func TestSessionReasoningEffort_Set_PropagatesWriteFailure(t *testing.T) {
 	ctx, sessions, h := setupReasoningEffortTest(t)
-	sessions.EXPECT().SetReasoningEffort(gomock.Any(), "", convID(41), "max").
+	sessions.EXPECT().SetReasoningEffort(gomock.Any(), devicefp.Initiator(""), convID(41), "max").
 		Return(int64(0), errors.New("database is locked"))
 
-	_, err := h.SetReasoningEffort(ctx, wire.SetSessionReasoningEffortParams{
-		ConversationID: convID(41), ReasoningEffort: "max",
+	_, err := h.SetReasoningEffort(ctx, &agentrewire.SetSessionReasoningEffortRequest{
+		ConversationId: convID(41), ReasoningEffort: "max",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "database is locked")
@@ -92,7 +93,7 @@ func TestSessionReasoningEffort_Set_RejectsSomethingThatIsNotAConversationID(t *
 	for _, bad := range []string{"", "0", "41", "not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
 		t.Run(bad, func(t *testing.T) {
 			ctx, _, h := setupReasoningEffortTest(t)
-			_, err := h.SetReasoningEffort(ctx, wire.SetSessionReasoningEffortParams{ConversationID: bad})
+			_, err := h.SetReasoningEffort(ctx, &agentrewire.SetSessionReasoningEffortRequest{ConversationId: bad})
 			var rpcErr *rpcerror.Error
 			require.ErrorAs(t, err, &rpcErr)
 			assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code,

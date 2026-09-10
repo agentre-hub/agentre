@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ProjectMessages 把落库的消息摊成对端读得到的那份持久帧，并给每一帧配一个
@@ -183,7 +184,7 @@ func EventForStoredBlock(message *transcript_entity.Message, block cagoblocks.St
 			return nil, false, err
 		}
 		return agentruntime.UserMessageEvent{
-			Text: data.Text, SourceDevice: data.SourceDevice, SourceDeviceName: data.SourceDeviceName,
+			Text: data.Text, SourceDevice: devicefp.Initiator(data.SourceDevice), SourceDeviceName: data.SourceDeviceName,
 		}, true, nil
 	}
 	if message.Role != "assistant" {

@@ -40,7 +40,7 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 			// devices.fingerprint 与它「本就是同一个概念」。桌面端按本地配对行里的
 			// DaemonFingerprint 向 server 点名中转目标,也按它与账号清单合并设备面板的
 			// 一行；登记成另一个值，中转永远解析不到这台 daemon，面板也永远合不上。
-			assert.Equal(t, identity.DaemonFingerprint(st.InstanceUUID()), body["fingerprint"])
+			assert.Equal(t, string(identity.DaemonFingerprint(st.InstanceUUID())), body["fingerprint"])
 			assert.Equal(t, "linux", body["platform"])
 			assert.Equal(t, "dev", body["version"])
 			// 主机名是设备列表里唯一有意义的名字来源：设备流不带它，服务端只能

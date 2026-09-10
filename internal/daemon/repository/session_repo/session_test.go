@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // TestSessionRepo_Upsert_WritesRowAndIsRepeatable 覆盖「会话开始时建行」:一轮执行
@@ -107,8 +108,8 @@ func TestSessionRepo_ListAll_ReturnsRowsAcrossPeers(t *testing.T) {
 	got, err := repo.ListAll(ctx, session_repo.ListFilter{}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
-	assert.Equal(t, "peerA", got[0].PeerFingerprint)
-	assert.Equal(t, "peerB", got[1].PeerFingerprint)
+	assert.Equal(t, devicefp.Initiator("peerA"), got[0].PeerFingerprint)
+	assert.Equal(t, devicefp.Initiator("peerB"), got[1].PeerFingerprint)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -181,7 +182,7 @@ func TestSessionRepo_ListAll_PagesAcrossPeers(t *testing.T) {
 	got, err := repo.ListAll(ctx, session_repo.ListFilter{}, 20, 1)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	assert.Equal(t, "peerB", got[0].PeerFingerprint)
+	assert.Equal(t, devicefp.Initiator("peerB"), got[0].PeerFingerprint)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -235,7 +236,7 @@ func TestSessionRepo_ListAllByLifecycle_SpansPeers(t *testing.T) {
 	got, err := repo.ListAllByLifecycle(ctx, "running", 200)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	assert.Equal(t, "peerB", got[0].PeerFingerprint)
+	assert.Equal(t, devicefp.Initiator("peerB"), got[0].PeerFingerprint)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

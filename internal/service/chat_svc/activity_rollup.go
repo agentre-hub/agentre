@@ -9,6 +9,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/projectsync"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // ActivityRollup 交出这台电脑上按 (天 × 维度组合) 的会话计数。
@@ -31,7 +33,7 @@ func (s *chatSvc) ActivityRollup(ctx context.Context, sinceDay, timeZone string)
 	if err != nil {
 		return nil, err
 	}
-	projectSyncIDs, err := projectSyncIDByID(ctx)
+	projectSyncIDs, err := projectsync.ByProjectID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +74,7 @@ func (s *chatSvc) ActivityRollup(ctx context.Context, sinceDay, timeZone string)
 			LastMessageAt: session.LastMessageAt,
 			// 本地自增 id 换成账号级同步标识:对端拿本机主键毫无用处。
 			AgentSyncID:   agent.SyncID,
-			BackendType:   backendTypes[sessionBackendID(session, agent)],
+			BackendType:   backendTypes[exec_target_svc.SessionBackendID(session, agent)],
 			ProviderKey:   session.ProviderKey,
 			ModelKey:      session.ModelKey,
 			ProjectSyncID: projectSyncIDs[session.ProjectID],

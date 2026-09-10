@@ -24,6 +24,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/mock_agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // abortRecordingRunner 是一个最小的 agentruntime.Runtime + agentruntime.Aborter
@@ -390,7 +391,7 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_PersistsUserMessageWithSource
 			// 看起来像本机自己打的字 —— 多设备协作分不出哪句是谁在哪儿发的。
 			reloaded, err := chat_svc.ToChatMessageForTest(createdUser)
 			require.NoError(t, err)
-			assert.Equal(t, "sha256:web-device", reloaded.SourceDevice,
+			assert.Equal(t, devicefp.Initiator("sha256:web-device"), reloaded.SourceDevice,
 				"来源必须落库,否则刷新后来源标识消失")
 			assert.Equal(t, "Chrome · macOS", reloaded.SourceDeviceName)
 		})
@@ -412,7 +413,7 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_PersistsUserMessageWithSource
 			require.Len(t, started.UserMessages, 1, "浏览器发起的一轮必须带 user 行,不能退化成纯 assistant 轮")
 			um := started.UserMessages[0]
 			assert.Equal(t, "user", um.Role)
-			assert.Equal(t, "sha256:web-device", um.SourceDevice)
+			assert.Equal(t, devicefp.Initiator("sha256:web-device"), um.SourceDevice)
 			assert.Equal(t, "Chrome · macOS", um.SourceDeviceName)
 			assert.Equal(t, "浏览器发来的消息", um.Blocks[0].Text)
 		})
@@ -492,7 +493,7 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_NameMissing_FallsBackWithoutB
 		}
 		require.NotNil(t, started, "应 emit StreamAutonomousStarted")
 		if assert.Len(t, started.UserMessages, 1) {
-			assert.Equal(t, "sha256:web-device", started.UserMessages[0].SourceDevice)
+			assert.Equal(t, devicefp.Initiator("sha256:web-device"), started.UserMessages[0].SourceDevice)
 			assert.Empty(t, started.UserMessages[0].SourceDeviceName, "名字缺失保持空,由前端回退指纹")
 		}
 
@@ -500,7 +501,7 @@ func TestDriveAutonomousTurn_BrowserInitiatedRound_NameMissing_FallsBackWithoutB
 			require.NotNil(t, createdUser)
 			reloaded, err := chat_svc.ToChatMessageForTest(createdUser)
 			require.NoError(t, err)
-			assert.Equal(t, "sha256:web-device", reloaded.SourceDevice)
+			assert.Equal(t, devicefp.Initiator("sha256:web-device"), reloaded.SourceDevice)
 			assert.Empty(t, reloaded.SourceDeviceName, "名字缺失不落一个空名字字段")
 		})
 	})

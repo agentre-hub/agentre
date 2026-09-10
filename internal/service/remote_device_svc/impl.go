@@ -5,6 +5,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type service struct {
@@ -120,7 +122,7 @@ func (s *service) SetWatcher(w WatcherPort) {
 
 // DeviceFingerprint 交出本机设备指纹。与 Add 共用 ensureDeviceFingerprint:同一个
 // keychain 账号、同一把生成逻辑,保证 R5 硬不变量(两条路径解析出同一对端标识)。
-func (s *service) DeviceFingerprint() (string, error) {
+func (s *service) DeviceFingerprint() (devicefp.Carrier, error) {
 	return s.ensureDeviceFingerprint()
 }
 

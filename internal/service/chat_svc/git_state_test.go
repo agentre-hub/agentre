@@ -17,9 +17,11 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -94,10 +96,10 @@ func TestGetSessionGitState_LocalBackend(t *testing.T) {
 		sess := &chat_entity.Session{ID: 42, ProjectID: 0}
 		be := &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeBuiltin)}
 		// 用 stub 把 resolveSessionCwd 绕到 dir
-		RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
+		exec_target_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
 			return dir, nil
 		})
-		t.Cleanup(func() { RegisterCwdResolver(nil) })
+		t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(nil) })
 
 		Convey("When GetSessionGitState is called", func() {
 			s := &chatSvc{}
@@ -122,7 +124,7 @@ func TestGetSessionGitState_SelfBackend_ReportsRepoState(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		prevSvc := remote_device_svc.Default()
 		remote_device_svc.SetDefault(rds)
 		t.Cleanup(func() {
@@ -132,10 +134,10 @@ func TestGetSessionGitState_SelfBackend_ReportsRepoState(t *testing.T) {
 
 		sess := &chat_entity.Session{ID: 42, ProjectID: 0}
 		be := &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self"}
-		RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
+		exec_target_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
 			return dir, nil
 		})
-		t.Cleanup(func() { RegisterCwdResolver(nil) })
+		t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(nil) })
 
 		Convey("When GetSessionGitState is called", func() {
 			s := &chatSvc{}

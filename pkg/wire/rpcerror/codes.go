@@ -17,6 +17,7 @@ package rpcerror
 //	-32030..-32035   remotefs.*
 //	-32040..-32043   workspacefs.*
 //	-32050..-32052   project.*
+//	-32060..-32062   transcriptImport.*
 //	-32600..-32700   JSON-RPC 标准码(见 error.go)
 //	-32800           取消(见 error.go)
 //
@@ -24,11 +25,10 @@ package rpcerror
 // 全部 Code* 常量,既不许两个名字共用一个数字,也不许有码落在所有段位之外。
 // 那张段表与这段注释是同一件事的两种写法,守卫只认前者。
 //
-// 守卫只看得见**住在本包的**码,所以还没搬进来的族仍是盲区。已知一处:
-// transcriptimport.* 在桌面仓 internal/pkg/transcriptimport/wire 里自己声明了
-// -32050..-32052,与上面 project.* 那一段逐个撞上。今天还没有人被翻错(两族由
-// 不同端点应答,没有哪个调用点会拿另一族的翻译器去认它),但两个族共用一个数字
-// 正是这张表要防的形态 —— 把它搬进来,守卫就会立刻判红并逼出一次重新分段。
+// 守卫只看得见**住在本包的**码,所以还没搬进来的族仍是盲区。transcriptImport.*
+// 曾经就是这样一处:它在桌面仓自己声明 -32050..-32052,与 project.* 逐个撞上,
+// 而两边都没有编译器或守卫看得见。搬进来的第一次运行守卫立刻判红,那一段因此
+// 重新分到 -32060 —— 这正是这张表存在的理由。还没搬进来的族仍然是盲区。
 //
 // 与 error.go 里那几个 int32 常量不同,这一族是**无类型**常量:它们既要填进
 // Error.Code(int32),也要填进线上帧里 int 的 stopErrCode 那一格,还要被各方法族
@@ -87,4 +87,19 @@ const (
 	CodeProjectNotSynced    = -32050
 	CodeProjectInvalidPath  = -32051
 	CodeProjectPathNotFound = -32052
+
+	// ── transcriptImport.* ─────────────────────────────────────────────────
+
+	// 这三个码此前住在桌面仓 internal/pkg/transcriptimport/wire 里,自己声明的是
+	// -32050..-32052 —— 与上面 project.* 那一段逐个撞上,而那个包在本包的守卫视野
+	// 之外,所以没有任何地方会红。搬进来的第一次运行,守卫就点名了这次撞号,这一段
+	// 因此改到 -32060 起。
+	//
+	// 改的是**过线的值**。它安全,是因为今天没有任何消费方在解这三个码:产出侧经
+	// wireinbound 的 transcriptImportError → ToRPCError 折上线,而反向的 FromRPCError
+	// 一个调用点都没有(agentre-server 也不解)。混版本期最坏的后果是「认不出来,
+	// 落回泛化错误」,与今天的行为一致。
+	CodeTranscriptImportBackendUnavailable = -32060
+	CodeTranscriptImportTranscriptOpen     = -32061
+	CodeTranscriptImportSessionInUse       = -32062
 )

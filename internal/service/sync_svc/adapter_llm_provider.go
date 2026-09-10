@@ -13,28 +13,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 )
 
-// llmProviderPayload is the one account object that carries an API key. Its
-// model rows are nested so model_key remains stable without becoming a second
-// sync kind.
-type llmProviderPayload struct {
-	Name            string             `json:"name"`
-	Type            string             `json:"type"`
-	BaseURL         string             `json:"base_url"`
-	APIKey          string             `json:"api_key"`
-	DefaultModelKey string             `json:"default_model_key"`
-	Enabled         bool               `json:"enabled"`
-	Models          []llmProviderModel `json:"models"`
-}
-
-type llmProviderModel struct {
-	ModelKey      string `json:"model_key"`
-	ModelID       string `json:"model_id"`
-	Name          string `json:"name"`
-	Enabled       bool   `json:"enabled"`
-	ContextWindow int    `json:"context_window,omitempty"`
-	MaxOutput     int    `json:"max_output,omitempty"`
-}
-
 type llmProviderAdapter struct{ baseAdapter }
 
 func (llmProviderAdapter) kind() string { return syncwire.KindLLMProvider }
@@ -49,17 +27,17 @@ func (llmProviderAdapter) load(ctx context.Context, syncID string) (*outbound, e
 	if err != nil {
 		return nil, err
 	}
-	payloadModels := make([]llmProviderModel, 0, len(models))
+	payloadModels := make([]syncwire.LLMProviderModel, 0, len(models))
 	for _, model := range models {
 		if model == nil {
 			continue
 		}
-		payloadModels = append(payloadModels, llmProviderModel{
+		payloadModels = append(payloadModels, syncwire.LLMProviderModel{
 			ModelKey: model.ModelKey, ModelID: model.ModelID, Name: model.Name,
 			Enabled: model.IsEnabled(), ContextWindow: model.ContextWindow, MaxOutput: model.MaxOutput,
 		})
 	}
-	payload, err := json.Marshal(llmProviderPayload{
+	payload, err := json.Marshal(syncwire.LLMProviderPayload{
 		Name: row.Name, Type: row.Type, BaseURL: row.BaseURL, APIKey: row.APIKey,
 		DefaultModelKey: row.DefaultModelKey, Enabled: row.IsEnabled(), Models: payloadModels,
 	})
@@ -72,7 +50,7 @@ func (llmProviderAdapter) load(ctx context.Context, syncID string) (*outbound, e
 func (llmProviderAdapter) refs(*inbound) []ref { return nil }
 
 func (llmProviderAdapter) apply(ctx context.Context, in *inbound, _ map[string]int64) error {
-	var payload llmProviderPayload
+	var payload syncwire.LLMProviderPayload
 	if err := json.Unmarshal(in.Payload, &payload); err != nil {
 		return err
 	}

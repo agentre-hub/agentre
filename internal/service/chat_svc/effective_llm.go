@@ -8,6 +8,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/llm_provider_svc"
 )
 
@@ -64,7 +65,7 @@ func (s *chatSvc) effectiveLLMForTurn(ctx context.Context, prov *llm_provider_en
 // keys-only 配置只填 Mode / ProviderKey / ModelKey（task 6 决策 11）：daemon 按 wire
 // 的 key 从自家目录解析真实 Provider/Model，desktop 不透传解析结果或任何凭证。
 func (s *chatSvc) effectiveLLMForNonRemoteTurn(ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend, prov *llm_provider_entity.LLMProvider) (*agentruntime.EffectiveLLMConfig, error) {
-	if beTargetsRemote(be) {
+	if exec_target_svc.BackendTargetsRemote(be) {
 		return remoteKeysOnlyEffective(sess, be), nil
 	}
 	return s.effectiveLLMForTurn(ctx, prov, sessionModelKeyFor(sess, be, prov))

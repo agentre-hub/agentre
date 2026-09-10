@@ -16,8 +16,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // R13 的运行期认领（agent_backend_svc.ClaimRelativeBackends）把本机 backend 的
@@ -52,7 +54,7 @@ func registerSelfDeviceMocks(t *testing.T) {
 	rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
 	prevRDS := remote_device_svc.Default()
 	remote_device_svc.SetDefault(rds)
-	rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+	rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 	// 本机指纹不在配对表里——这正是 bug 的触发条件，桩要如实反映。
 	rds.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
 
@@ -86,7 +88,7 @@ func TestLoadSession_GivenSelfFingerprintBackend_ThenSessionViewReportsLocalDevi
 
 	resp, err := svc.LoadSession(ctx, &LoadSessionRequest{SessionID: 2912})
 	require.NoError(t, err)
-	assert.Equal(t, "", resp.Session.DeviceID,
+	assert.Equal(t, devicefp.Carrier(""), resp.Session.DeviceID,
 		"本机档的会话视图必须报空 DeviceID，否则聊天头按远端渲染成离线")
 	assert.Equal(t, "", resp.Session.DeviceName,
 		"本机档没有远端设备名——空 DeviceID 档的既有零值口径")
@@ -116,7 +118,7 @@ func TestListAgents_GivenSelfFingerprintBackend_ThenAgentItemReportsLocalDevice(
 	resp, err := svc.ListAgents(ctx, &ListAgentsRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.Agents, 1)
-	assert.Equal(t, "", resp.Agents[0].DeviceID,
+	assert.Equal(t, devicefp.Carrier(""), resp.Agents[0].DeviceID,
 		"本机档的 Agent 列表项必须报空 DeviceID，否则设备 chip 按远端渲染")
 	assert.Equal(t, "", resp.Agents[0].DeviceName)
 }
@@ -127,12 +129,12 @@ func TestListAgents_GivenSelfFingerprintBackend_ThenAgentItemReportsLocalDevice(
 func TestBeTargetsRemote_NilSemantics(t *testing.T) {
 	registerSelfDeviceMocks(t)
 
-	assert.False(t, beTargetsRemote(nil), "nil backend 与空 DeviceID 一样是本机")
-	assert.False(t, beTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: ""}))
-	assert.False(t, beTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "sha256:self"}),
+	assert.False(t, exec_target_svc.BackendTargetsRemote(nil), "nil backend 与空 DeviceID 一样是本机")
+	assert.False(t, exec_target_svc.BackendTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: ""}))
+	assert.False(t, exec_target_svc.BackendTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "sha256:self"}),
 		"R13 认领后本机 backend 带的就是本机指纹")
-	assert.True(t, beTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "sha256:other"}))
-	assert.True(t, beTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "7"}))
+	assert.True(t, exec_target_svc.BackendTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "sha256:other"}))
+	assert.True(t, exec_target_svc.BackendTargetsRemote(&agent_backend_entity.AgentBackend{DeviceFingerprint: "7"}))
 }
 
 // effectiveLLMForNonRemoteTurn 的名字就是契约：**非远端**的轮要在本机解析出完整

@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source ports.go -destination mock_handlers/mock_ports.go -package mock_handlers
@@ -128,7 +129,7 @@ type DBStatPort interface {
 // 它**不含**「最新 seq」与「是否正在等待输入」:前者的真相源是通知日志的 MAX(seq),
 // 后者由实时 waiter 状态叠加计算、永不落库。
 type SessionRecord struct {
-	PeerFingerprint string
+	PeerFingerprint devicefp.Initiator
 	PeerSessionID   string
 	AgentID         int64
 	Cwd             string
@@ -169,11 +170,11 @@ type SessionRecord struct {
 // 这个判断的**唯一**读者,把判断结果编码进方法名,调用处读起来就是它的意思。
 type SessionLifecyclePort interface {
 	Start(ctx context.Context, rec SessionRecord) error
-	Running(ctx context.Context, peerFingerprint, peerSessionID string) error
-	Finish(ctx context.Context, peerFingerprint, peerSessionID string) error
+	Running(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error
+	Finish(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error
 	// Fail 把会话落成 failed(轮次以故障收场)。它**不是**终点:会话照旧接得上
 	// 实时流、发得出下一轮,再跑一轮就回到 running。判据见 wire.IsTurnFailure。
-	Fail(ctx context.Context, peerFingerprint, peerSessionID string) error
+	Fail(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error
 }
 
 // SessionListFilter 是会话清单的收窄条件。零值 = 不收窄,那是协议里「整份」那一档
@@ -201,23 +202,23 @@ type SessionQueryPort interface {
 	//
 	// offset / limit 同理下推。limit<=0 = 不分页,那是协议里「老客户端不带 limit」
 	// 那一档要保留的行为(见 wire.ClampSessionListLimit),不是「一条都不要」。
-	List(ctx context.Context, peerFingerprint string, filter SessionListFilter, offset, limit int) ([]SessionRecord, error)
+	List(ctx context.Context, peerFingerprint devicefp.Initiator, filter SessionListFilter, offset, limit int) ([]SessionRecord, error)
 	// Count 是 List 在**同一个 filter** 下的总数,供应答里的「一共 N 条」。分页之后
 	// 清单只剩一页,N 就只有它数得出;两者收的条件必须一个字不差。
-	Count(ctx context.Context, peerFingerprint string, filter SessionListFilter) (int64, error)
+	Count(ctx context.Context, peerFingerprint devicefp.Initiator, filter SessionListFilter) (int64, error)
 	// ListByLifecycle 列出停在某个生命周期上的会话,至多 limit 条。
 	//
 	// session.counts 用它答「在跑几条 / 几条在等你」:正在跑的本来就是个小集合,而
 	// 「在等你」只有逐条问过 backend 才知道 —— 拿整份清单去数,等于为三个数把一台
 	// 机器的摘要全读一遍。
-	ListByLifecycle(ctx context.Context, peerFingerprint, state string, limit int) ([]SessionRecord, error)
+	ListByLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, state string, limit int) ([]SessionRecord, error)
 	// ListCreatedSince 取建立时刻不早于 createdFromMs 的会话(0 = 不设下界),不限对端:
 	// 这台机器上的会话本来就属于同一个账号,而活跃统计是账号级的。
 	//
 	// 窗口下推到存储而不是取回整份再按天丢:统计问的通常只是最近一段,把三年的会话
 	// 读进内存去画一张 30 天的图,正是这一轮要消灭的形态。
 	ListCreatedSince(ctx context.Context, createdFromMs int64) ([]SessionRecord, error)
-	Find(ctx context.Context, peerFingerprint, peerSessionID string) (*SessionRecord, error)
+	Find(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (*SessionRecord, error)
 }
 
 // SelfUpdateActiveTurnsPort 数一数这台 daemon 此刻正在跑的会话,供远程自更新 RPC
@@ -234,7 +235,7 @@ type SelfUpdateActiveTurnsPort interface {
 // 它与 SessionQueryPort / SessionLifecyclePort 分开声明是 ISP,也是刻意的读写分离:
 // 补齐族只读、跑一轮的一侧只推进生命周期,只有删除会让一条会话整个消失。
 type SessionDeletePort interface {
-	Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+	Delete(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 }
 
 // SessionModelTargetPort 改写某会话钉的 LLM ModelTarget,返回受影响行数
@@ -244,7 +245,7 @@ type SessionDeletePort interface {
 // RunParams 里的元数据,而 ModelTarget 不在 RunParams 里 —— 让它跟着轮次幂等覆盖,
 // 每轮都会拿零值把用户轮中刚选好的模型静默冲回「跟随 Agent 绑定」。
 type SessionModelTargetPort interface {
-	SetModelTarget(ctx context.Context, peerFingerprint, peerSessionID, providerKey, modelKey string) (int64, error)
+	SetModelTarget(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID, providerKey, modelKey string) (int64, error)
 }
 
 // SessionReasoningEffortPort 改写某会话钉的思考力度,返回受影响行数
@@ -255,7 +256,7 @@ type SessionModelTargetPort interface {
 // **刻意分开**:那是每轮起手都跑的幂等覆盖,力度不在 RunParams 的元数据里,跟着轮次
 // 覆盖会把用户轮中刚选好的档位静默冲回「跟随后端配置」。
 type SessionReasoningEffortPort interface {
-	SetReasoningEffort(ctx context.Context, peerFingerprint, peerSessionID, reasoningEffort string) (int64, error)
+	SetReasoningEffort(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID, reasoningEffort string) (int64, error)
 }
 
 // TranscriptPurgePort 删掉某会话的**全部**转录(消息行 + 块行),返回删除的消息行数。
@@ -266,14 +267,14 @@ type SessionReasoningEffortPort interface {
 // 与写入侧(TranscriptPort)分开声明是 ISP:一条路径只做一件事,而这条是唯一一条会让
 // 已落库的转录消失的路径。
 type TranscriptPurgePort interface {
-	DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+	DeleteAll(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 }
 
 // SteerSourceEntry 是一条 mid-turn steer 的提交方信息。Record 时由 Steer RPC
 // 从调用连接的对端鉴权状态里取,Consume 时盖回被消费的 steer 上。
 type SteerSourceEntry struct {
-	Peer string // 提交方设备指纹;空 = 本机/未知
-	Name string // 提交方设备名(auth.pair 时上报);空 = 无可用名字
+	Peer devicefp.Initiator // 提交方设备指纹;空 = 本机/未知
+	Name string             // 提交方设备名(auth.pair 时上报);空 = 无可用名字
 }
 
 // SteerSourcePort 记录并消费「queuedID → 提交方对端」的映射。它是 **Daemon 级**
@@ -307,14 +308,14 @@ type JournalRow struct {
 // 契约不变:交出的仍是「(seq, 那条通知的 params 原样)」。它只服务持久帧 —— 预览帧
 // 从不落库,补齐因此天然不重放逐 token 的过程(规格「两级帧与补齐」)。
 type JournalReaderPort interface {
-	ListSince(ctx context.Context, peerFingerprint, peerSessionID string, cursor int64, limit int) (rows []JournalRow, hasMore bool, err error)
-	LatestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
-	LatestSeqByPeer(ctx context.Context, peerFingerprint string) (map[string]int64, error)
+	ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) (rows []JournalRow, hasMore bool, err error)
+	LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
+	LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error)
 	// OldestSeq 是该会话现存最老的那一行的 seq(一条都没有时 0)。agentred 已经不回收
 	// 通知日志(规格 2026-08-18 决策 8),所以对着当前版本它恒等于第一条;仍然要报,是
 	// 因为日志库可能被从外部恢复或截断,而补齐的客户端需要一个下界才分得清「游标之后
 	// 那一条还没写」与「它已经不在了」——分不清就只能一直等,会话静默冻住。
-	OldestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+	OldestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 }
 
 // GatewayPort daemon-side LLM gateway 端口：给 CLI 子进程签短 token、查 URL、回收 token。

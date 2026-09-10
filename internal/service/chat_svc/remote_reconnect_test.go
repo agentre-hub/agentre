@@ -28,6 +28,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -301,7 +302,7 @@ type noopExecDaemonRecorder struct {
 	chat_repo.SessionRepo
 }
 
-func (noopExecDaemonRecorder) UpdateExecDaemon(context.Context, int64, int64, string, int64) error {
+func (noopExecDaemonRecorder) UpdateExecDaemon(context.Context, int64, int64, devicefp.Carrier, int64) error {
 	return nil
 }
 
@@ -579,8 +580,8 @@ func TestBorrowRemoteRuntime_CacheHit_StillRecordsExecDaemon(t *testing.T) {
 	prevRepo := chat_repo.Session()
 	chat_repo.RegisterSession(sessRepo)
 	t.Cleanup(func() { chat_repo.RegisterSession(prevRepo) })
-	sessRepo.EXPECT().UpdateExecDaemon(gomock.Any(), int64(100), int64(7), "sha256:beef", int64(0)).Return(nil)
-	sessRepo.EXPECT().UpdateExecDaemon(gomock.Any(), int64(101), int64(7), "sha256:beef", int64(0)).Return(nil)
+	sessRepo.EXPECT().UpdateExecDaemon(gomock.Any(), int64(100), int64(7), devicefp.Carrier("sha256:beef"), int64(0)).Return(nil)
+	sessRepo.EXPECT().UpdateExecDaemon(gomock.Any(), int64(101), int64(7), devicefp.Carrier("sha256:beef"), int64(0)).Return(nil)
 
 	svc := &chatSvc{emitter: NoopEmitter{}}
 	svc.setConnPoolForTest(pool)

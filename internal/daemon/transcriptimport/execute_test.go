@@ -22,6 +22,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // TestExecute_OwnsTheSessionAndPersistsEveryTurn 是执行侧的主路径:一次导入之后,
@@ -213,7 +214,7 @@ func newExecuteRig(t *testing.T, source *fakeTranscript) *executeRig {
 		Sources:    func() []pkgimport.Source { return []pkgimport.Source{src} },
 		Sessions:   rig.sessions,
 		Transcript: rig.transcript,
-		TranscriptPurge: purgeFunc(func(_ context.Context, _, peerSessionID string) (int64, error) {
+		TranscriptPurge: purgeFunc(func(_ context.Context, _ devicefp.Initiator, peerSessionID string) (int64, error) {
 			rig.purged = append(rig.purged, peerSessionID)
 			return rig.transcript.deleteAll(peerSessionID), nil
 		}),
@@ -222,9 +223,9 @@ func newExecuteRig(t *testing.T, source *fakeTranscript) *executeRig {
 	return rig
 }
 
-type purgeFunc func(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+type purgeFunc func(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 
-func (f purgeFunc) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (f purgeFunc) DeleteAll(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	return f(ctx, peerFingerprint, peerSessionID)
 }
 
@@ -239,7 +240,7 @@ func newFakeSessionStore() *fakeSessionStore {
 
 func (f *fakeSessionStore) put(rec handlers.SessionRecord) { f.rows[rec.PeerSessionID] = rec }
 
-func (f *fakeSessionStore) Find(_ context.Context, _, peerSessionID string) (*handlers.SessionRecord, error) {
+func (f *fakeSessionStore) Find(_ context.Context, _ devicefp.Initiator, peerSessionID string) (*handlers.SessionRecord, error) {
 	row, ok := f.rows[peerSessionID]
 	if !ok {
 		return nil, nil
@@ -247,7 +248,7 @@ func (f *fakeSessionStore) Find(_ context.Context, _, peerSessionID string) (*ha
 	return &row, nil
 }
 
-func (f *fakeSessionStore) List(_ context.Context, _ string, _ handlers.SessionListFilter, _, _ int) ([]handlers.SessionRecord, error) {
+func (f *fakeSessionStore) List(_ context.Context, _ devicefp.Initiator, _ handlers.SessionListFilter, _, _ int) ([]handlers.SessionRecord, error) {
 	out := make([]handlers.SessionRecord, 0, len(f.rows))
 	for _, row := range f.rows {
 		out = append(out, row)
@@ -261,7 +262,7 @@ func (f *fakeSessionStore) Start(_ context.Context, rec handlers.SessionRecord) 
 	return nil
 }
 
-func (f *fakeSessionStore) Delete(_ context.Context, _, peerSessionID string) (int64, error) {
+func (f *fakeSessionStore) Delete(_ context.Context, _ devicefp.Initiator, peerSessionID string) (int64, error) {
 	if _, ok := f.rows[peerSessionID]; !ok {
 		return 0, nil
 	}

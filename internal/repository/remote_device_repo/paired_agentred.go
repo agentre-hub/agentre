@@ -12,6 +12,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source paired_agentred.go -destination mock_remote_device_repo/mock_paired_agentred.go
@@ -24,7 +26,7 @@ type PairedAgentredRepo interface {
 	// FindByFingerprint 按 daemon 指纹取存活行。指纹是一台机器跨「LAN 配对」与
 	// 「账号收编」两个来源的同一性依据（R5 硬不变量），收编的幂等与「配对一台已收编
 	// 的机器要升级而不是再建一行」都靠它。
-	FindByFingerprint(ctx context.Context, fingerprint string) (*paired_agentred_entity.PairedAgentred, error)
+	FindByFingerprint(ctx context.Context, fingerprint devicefp.Carrier) (*paired_agentred_entity.PairedAgentred, error)
 	List(ctx context.Context) ([]*paired_agentred_entity.PairedAgentred, error)
 	// ListDeleted 返回软删（status=DELETE）的行。Delete 是软删，所以「用户解除过
 	// 这台机器的配对」这件事只在这些行里留有记录 —— List 只给存活行，看不见它，
@@ -34,7 +36,7 @@ type PairedAgentredRepo interface {
 	// Delete，本方法只负责回收已经逻辑消失的那些。
 	Purge(ctx context.Context, id int64) error
 	UpdateTLS(ctx context.Context, id int64, mode, pem string) error
-	UpdateEndpoint(ctx context.Context, id int64, url, daemonFingerprint string) error
+	UpdateEndpoint(ctx context.Context, id int64, url string, daemonFingerprint devicefp.Carrier) error
 	UpdateLastSeen(ctx context.Context, id, ts int64, lastError string) error
 	Rename(ctx context.Context, id int64, name string) error
 	Delete(ctx context.Context, id int64) error
@@ -89,11 +91,11 @@ func (r *pairedAgentredRepo) FindByURL(ctx context.Context, url string) (*paired
 }
 
 func (r *pairedAgentredRepo) FindByFingerprint(
-	ctx context.Context, fingerprint string,
+	ctx context.Context, fingerprint devicefp.Carrier,
 ) (*paired_agentred_entity.PairedAgentred, error) {
 	// 空指纹不是「匹配所有空指纹行」而是「无从判断」：旧配对行可能还没握过手。
 	// 拿空串去查会把它们混成一台机器。
-	if strings.TrimSpace(fingerprint) == "" {
+	if strings.TrimSpace(string(fingerprint)) == "" {
 		return nil, nil
 	}
 	out := &paired_agentred_entity.PairedAgentred{}
@@ -138,7 +140,7 @@ func (r *pairedAgentredRepo) UpdateTLS(ctx context.Context, id int64, mode, pem 
 		}).Error
 }
 
-func (r *pairedAgentredRepo) UpdateEndpoint(ctx context.Context, id int64, url, daemonFingerprint string) error {
+func (r *pairedAgentredRepo) UpdateEndpoint(ctx context.Context, id int64, url string, daemonFingerprint devicefp.Carrier) error {
 	return db.Ctx(ctx).Model(&paired_agentred_entity.PairedAgentred{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{

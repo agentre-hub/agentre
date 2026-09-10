@@ -261,7 +261,8 @@
       "confirm": {
         "cancel": "稍后再说",
         "confirm": "仍然升级",
-        "title": "还有 {{count}} 条对话在跑"
+        "title": "还有 {{count}} 条对话在跑",
+        "body": "升级会重启 agentred，这些轮次会中断，已产生的内容保留。"
       },
       "devBuild": "开发构建",
       "status": {
@@ -273,7 +274,18 @@
         "upgradingBody": "重启一次，通常不到 1 分钟。",
         "upgradingTitle": "正在升级到 {{version}}"
       },
-      "copySuccess": "命令已复制"
+      "copySuccess": "命令已复制",
+      "failed": {
+        "unknownTitle": "升级没能开始",
+        "inProgressTitle": "这台机器上已经有一次升级在跑",
+        "inProgressBody": "等它跑完再来。",
+        "notWritableTitle": "没有权限替换 agentred",
+        "notWritableBody": "装它的那个目录当前用户写不了。用下面这条命令，在那台机器上以足够的权限重跑一次。",
+        "alreadyLatestTitle": "已经是最新的了",
+        "alreadyLatestBody": "没有可装的新版本。",
+        "downloadFailedTitle": "没能取到新版本",
+        "downloadFailedBody": "下载或校验没过，当前这个 agentred 一个字节都没动。"
+      }
     }
   },
   "remoteFs": {

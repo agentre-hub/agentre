@@ -38,7 +38,7 @@ func runEmitTurn(t *testing.T) (*recordingOutbound, []notifyFrame) {
 	}
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
-	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(42), AgentID: 7, Cwd: "/tmp"})
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(42), AgentId: 7, Cwd: "/tmp"})
 	require.NoError(t, err)
 	return notif, notif.waitFrames(t, 4)
 }

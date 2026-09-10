@@ -22,8 +22,14 @@ import (
 // 自己的注册面提供,不属于共用外围,SkillsPort 因此没有 List。
 
 // SkillsPort 交出这台机器上的技能清单与命令清单。
+//
+// Catalog 直接收发线上的载体:两种执行端在这一格上用的是**同一个**实现
+// (handlers.SkillsHandlers),它自己就说 agentrewire,再套一层领域参数只是让同一份
+// 字段清单多抄一遍。Commands 那一格两端还各有各的领域实现,因此仍收领域参数 ——
+// 端口按宿主真正说的话定形,这与 PeripheralDeps 里 MCPProxy / ProjectSetPath 已经
+// 直接收发 protobuf 是同一条判据。
 type SkillsPort interface {
-	Catalog(ctx context.Context, params runtimewire.SkillCatalogParams) (runtimewire.SkillCatalogResult, error)
+	Catalog(ctx context.Context, request *agentrewire.SkillCatalogRequest) (*agentrewire.SkillCatalogResponse, error)
 	Commands(ctx context.Context, params runtimewire.SkillCommandsParams) (runtimewire.SkillCommandsResult, error)
 }
 

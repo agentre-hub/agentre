@@ -9,23 +9,25 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // PairedAgentred 单台已配对 agentred 的元数据。
 type PairedAgentred struct {
-	ID                int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	Name              string `gorm:"column:name;type:text;not null"`
-	URL               string `gorm:"column:url;type:text;not null"`
-	DaemonFingerprint string `gorm:"column:daemon_fingerprint;type:text;not null"`
-	InstanceUUID      string `gorm:"column:instance_uuid;type:text;not null"`
-	TLSMode           string `gorm:"column:tls_mode;type:text;not null;default:'default'"`
-	TLSCertPEM        string `gorm:"column:tls_cert_pem;type:text;not null;default:''"`
-	PairedAt          int64  `gorm:"column:paired_at;type:bigint;not null"`
-	LastSeenAt        int64  `gorm:"column:last_seen_at;type:bigint;not null;default:0"`
-	LastError         string `gorm:"column:last_error;type:text;not null;default:''"`
-	Status            int    `gorm:"column:status;type:int;not null;default:1"`
-	Createtime        int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime        int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	ID                int64            `gorm:"column:id;primaryKey;autoIncrement"`
+	Name              string           `gorm:"column:name;type:text;not null"`
+	URL               string           `gorm:"column:url;type:text;not null"`
+	DaemonFingerprint devicefp.Carrier `gorm:"column:daemon_fingerprint;type:text;not null"`
+	InstanceUUID      string           `gorm:"column:instance_uuid;type:text;not null"`
+	TLSMode           string           `gorm:"column:tls_mode;type:text;not null;default:'default'"`
+	TLSCertPEM        string           `gorm:"column:tls_cert_pem;type:text;not null;default:''"`
+	PairedAt          int64            `gorm:"column:paired_at;type:bigint;not null"`
+	LastSeenAt        int64            `gorm:"column:last_seen_at;type:bigint;not null;default:0"`
+	LastError         string           `gorm:"column:last_error;type:text;not null;default:''"`
+	Status            int              `gorm:"column:status;type:int;not null;default:1"`
+	Createtime        int64            `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime        int64            `gorm:"column:updatetime;type:bigint;not null;default:0"`
 }
 
 // TableName 绑定表名。
@@ -80,7 +82,7 @@ func (p *PairedAgentred) Check(ctx context.Context) error {
 	if needsPEM != hasPEM {
 		return i18n.NewError(ctx, code.RemoteDeviceTLSConfigInvalid)
 	}
-	if strings.TrimSpace(p.DaemonFingerprint) == "" {
+	if strings.TrimSpace(string(p.DaemonFingerprint)) == "" {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	return nil

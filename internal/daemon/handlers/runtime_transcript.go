@@ -83,7 +83,7 @@ func (h *RuntimeHandlers) beginTranscript(
 	if err != nil {
 		logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.beginTranscript: start turn failed",
 			zap.String("conversationId", em.conversationID),
-			zap.String("peerFingerprint", em.peer),
+			zap.String("peerFingerprint", string(em.peer)),
 			zap.Error(err))
 		return nil, 0, 0
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
@@ -54,10 +55,10 @@ func (s *chatSvc) GetSessionGitState(ctx context.Context, req *GetSessionGitStat
 // 旧 daemon 报「方法不存在」)一律降级为 notARepo=true 让前端折叠 chip 区,不
 // 冒泡 error —— session git chip 是纯展示区域,不应该因为这些情形而挂掉。
 func (s *chatSvc) getSessionGitStateForSession(ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) (*GetSessionGitStateResponse, error) {
-	if beTargetsRemote(be) {
+	if exec_target_svc.BackendTargetsRemote(be) {
 		return s.getSessionGitStateRemote(ctx, sess, be), nil
 	}
-	cwd, err := resolveSessionCwd(ctx, sess, be)
+	cwd, err := exec_target_svc.ResolveSessionCwd(ctx, sess, be)
 	if err != nil || cwd == "" {
 		// by-design: cwd 解析失败时 UI chip 不应崩,降级为 notARepo 让前端折叠。
 		return notARepoResponse(), nil //nolint:nilerr // 见上方注释
@@ -69,11 +70,11 @@ func (s *chatSvc) getSessionGitStateForSession(ctx context.Context, sess *chat_e
 // git 状态快照。租约借不到(未配对/离线)、cwd 解析失败、RPC 调用失败(含旧
 // daemon 报「方法不存在」)一律降级为 notARepo,与本机分支的容错约定一致。
 func (s *chatSvc) getSessionGitStateRemote(ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) *GetSessionGitStateResponse {
-	deviceID, ok := localPairedDeviceID(ctx, be.DeviceFingerprint)
+	deviceID, ok := exec_target_svc.LocalPairedDeviceID(ctx, be.DeviceFingerprint)
 	if !ok {
 		return notARepoResponse()
 	}
-	cwd, err := resolveSessionCwd(ctx, sess, be)
+	cwd, err := exec_target_svc.ResolveSessionCwd(ctx, sess, be)
 	if err != nil || cwd == "" {
 		return notARepoResponse()
 	}

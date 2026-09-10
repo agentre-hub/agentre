@@ -1,5 +1,13 @@
-// Package syncwire 定义桌面端与 server 之间工作区同步协议的线上结构、状态字面量
-// 与载荷守卫（docs/specs/2026-08-07-workspace-sync.md「双向同步的行为」）。
+// Package syncwire 是桌面端**本端**对工作区同步协议的入口（规格
+// docs/specs/2026-08-07-workspace-sync.md「双向同步的行为」）。
+//
+// 工作区里有两个叫 syncwire 的包，分工是清楚的：
+//   - github.com/agentre-hub/agentre/pkg/syncwire（独立 module）拥有协议本身——线上
+//     结构、对象类型词表、状态字面量、上限与载荷守卫。桌面端与 agentre-server 消费
+//     的是同一份定义。
+//   - 本包（internal/pkg/syncwire）是桌面端对它的**别名再导出层**，外加本端专属的
+//     那几样东西：业务码的客户端表达（ErrResyncRequired / ErrCursorUnknown）与账号级
+//     实时通道的解码。契约本身一律不在这里另起一份。
 //
 // 它是一个叶子包：同步引擎（internal/service/sync_svc）与网络出入口
 // （internal/service/server_svc）都依赖它，因此两者之间不需要互相 import。
@@ -22,8 +30,9 @@ import (
 // 与桌面端消费的是同一份定义。本包对它做别名再导出:五十多个调用点因此一行不用改,
 // 而「谁拥有这份契约」这个问题只有一个答案。
 //
-// 留在本包的是**本端专属**的东西:载荷守卫(guard.go)、业务码的客户端表达
-// (ErrResyncRequired / ErrCursorUnknown)、以及账号级实时通道的解码。
+// 留在本包的是**本端专属**的东西:业务码的客户端表达(ErrResyncRequired /
+// ErrCursorUnknown)与账号级实时通道的解码。载荷守卫从前也在这里,现已归契约所有
+// (guard.go 只剩别名再导出)。
 const (
 	KindProject         = wire.KindProject
 	KindDepartment      = wire.KindDepartment
@@ -38,6 +47,13 @@ const (
 	KindIssue           = wire.KindIssue
 	KindIssueLabel      = wire.KindIssueLabel
 )
+
+// Kinds 是同步组的全部对象类型,按「被引用者在前」排列;KindValid 按它判定成员资格。
+// 两者与常量一样归契约所有 —— 「哪些 kind 存在」在整个工作区只有一个答案。
+var Kinds = wire.Kinds
+
+// KindValid 见 pkg/syncwire.KindValid。
+func KindValid(kind string) bool { return wire.KindValid(kind) }
 
 const (
 	PushStatusAccepted = wire.PushStatusAccepted
@@ -70,6 +86,31 @@ type (
 	PullItem   = wire.PullItem
 	PullPage   = wire.PullPage
 )
+
+// 十二个 kind 的载荷类型,同样归契约所有 —— 同步对象 payload 的形状在整个工作区
+// 只有一份定义。
+//
+// 它们从前是 internal/service/sync_svc 的私有结构体,而 server 同时是这些对象的
+// 一等写入方,那一侧只能拿字符串字面量读写同一份 JSON。字段含义、跨机引用规则与
+// 每个 omitempty 的理由都写在 pkg/syncwire/payload.go,别在这里另起一份。
+type (
+	ProjectPayload         = wire.ProjectPayload
+	ProjectAgentPayload    = wire.ProjectAgentPayload
+	ProjectLocationPayload = wire.ProjectLocationPayload
+	DepartmentPayload      = wire.DepartmentPayload
+	AgentPayload           = wire.AgentPayload
+	AgentBackendPayload    = wire.AgentBackendPayload
+	AgentBackendCLIPayload = wire.AgentBackendCLIPayload
+	AgentExecTargetPayload = wire.AgentExecTargetPayload
+	LLMProviderPayload     = wire.LLMProviderPayload
+	LLMProviderModel       = wire.LLMProviderModel
+	LabelPayload           = wire.LabelPayload
+	IssuePayload           = wire.IssuePayload
+	IssueLabelPayload      = wire.IssueLabelPayload
+)
+
+// PayloadFor 见 pkg/syncwire.PayloadFor:「哪种 kind 对应哪个载荷类型」的唯一答案。
+func PayloadFor(kind string) (any, bool) { return wire.PayloadFor(kind) }
 
 // ErrResyncRequired 是 CodeResyncRequired 的客户端表达:上行一律被拒,必须先拉一份
 // 全量快照并以之为准。

@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // registerCapabilityRepos 注册 agent_repo + agent_backend_repo + AgentExecTarget mock
@@ -55,7 +56,7 @@ func expectCapabilityBackend(
 	backendMock *mock_agent_backend_repo.MockAgentBackendRepo,
 	agentID int64,
 	backendID int64,
-	deviceID string,
+	deviceID devicefp.Carrier,
 ) {
 	agentMock.EXPECT().Find(ctx, agentID).Return(&agent_entity.Agent{
 		ID: agentID, AgentBackendID: backendID,
@@ -76,7 +77,7 @@ func TestAgentBackendHasCapability_SelfFingerprintBackend_ReportsLocalCapabiliti
 		ctx := context.Background()
 
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		prevSvc := remote_device_svc.Default()
 		remote_device_svc.SetDefault(rds)
 		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })

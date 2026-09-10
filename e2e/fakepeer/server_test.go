@@ -38,7 +38,7 @@ func authenticatedClient(t *testing.T, server *Server) *client.ProtobufClient {
 	cli, err := client.DialProtobuf(ctx, client.Options{URL: server.URL()})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
-	response, err := cli.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: testDeviceFingerprint, DeviceToken: testDeviceAuthValue, ExpectedDaemonFingerprint: identity.DaemonFingerprint(testInstanceUUID)})
+	response, err := cli.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: testDeviceFingerprint, DeviceToken: testDeviceAuthValue, ExpectedDaemonFingerprint: string(identity.DaemonFingerprint(testInstanceUUID))})
 	require.NoError(t, err)
 	require.True(t, response.Ok)
 	return cli

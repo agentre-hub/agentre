@@ -13,6 +13,8 @@ import (
 	"fmt"
 
 	"github.com/cago-frame/agents/agent/blocks"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // UserSource 是一条用户消息的**提交方设备身份**。空值(Device 为空)表示本机自己发的
@@ -22,7 +24,7 @@ import (
 // SourceDeviceName 取,桌面端从中继连接认下的对端身份取,最后都交给
 // StampUserMessageSource 盖进同一个位置。
 type UserSource struct {
-	Device string
+	Device devicefp.Initiator
 	Name   string
 }
 
@@ -34,7 +36,7 @@ type UserSource struct {
 // 空来源和「没有来源」必须是同一种字节,否则同一句话在两台宿主上投影出不同的帧。
 //
 // name 为空只盖设备指纹:名字是可选的展示信息,拿不到时消费方回退成指纹。
-func StampUserMessageSource(blocksJSON, device, name string) (string, error) {
+func StampUserMessageSource(blocksJSON string, device devicefp.Initiator, name string) (string, error) {
 	if device == "" {
 		return blocksJSON, nil
 	}

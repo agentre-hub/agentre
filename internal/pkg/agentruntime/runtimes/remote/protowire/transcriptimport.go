@@ -9,6 +9,7 @@ import (
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // transcriptimport.go 是 transcriptimport.* 方法族的唯一编解码边界:daemon 侧
@@ -232,7 +233,7 @@ func TranscriptExecuteParamsToProto(params wire.ExecuteParams) *agentrewire.Tran
 	return &agentrewire.TranscriptImportExecuteRequest{
 		Backend: params.Backend, Locator: params.Locator, ConversationId: params.ConversationID,
 		AgentId: params.AgentID, AgentSyncId: params.AgentSyncID,
-		PeerFingerprint: params.PeerFingerprint,
+		PeerFingerprint: string(params.PeerFingerprint),
 	}
 }
 
@@ -240,7 +241,7 @@ func TranscriptExecuteParamsFromProto(request *agentrewire.TranscriptImportExecu
 	return wire.ExecuteParams{
 		Backend: request.GetBackend(), Locator: request.GetLocator(), ConversationID: request.GetConversationId(),
 		AgentID: request.GetAgentId(), AgentSyncID: request.GetAgentSyncId(),
-		PeerFingerprint: request.GetPeerFingerprint(),
+		PeerFingerprint: devicefp.Initiator(request.GetPeerFingerprint()),
 	}
 }
 

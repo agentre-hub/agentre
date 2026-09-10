@@ -8,12 +8,14 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // AccountDevice 是账号设备清单里与收编有关的那三个字段。刻意不复用 server_svc 的
 // 类型：remote_device_svc 不该反向依赖账号层，调用方负责翻译。
 type AccountDevice struct {
-	Fingerprint string
+	Fingerprint devicefp.Carrier
 	Name        string
 	// Kind 是 desktop / agentred。
 	Kind string
@@ -47,7 +49,7 @@ func (s *service) AdoptAccountDevices(ctx context.Context, devices []AccountDevi
 	if err != nil {
 		return 0, err
 	}
-	known := make(map[string]struct{}, len(rows))
+	known := make(map[devicefp.Carrier]struct{}, len(rows))
 	for _, row := range rows {
 		if row != nil && row.DaemonFingerprint != "" {
 			known[row.DaemonFingerprint] = struct{}{}
@@ -65,7 +67,7 @@ func (s *service) AdoptAccountDevices(ctx context.Context, devices []AccountDevi
 
 	adopted := 0
 	for _, d := range devices {
-		fp := strings.TrimSpace(d.Fingerprint)
+		fp := devicefp.Carrier(strings.TrimSpace(string(d.Fingerprint)))
 		if fp == "" || fp == self || d.Kind != kindAgentred {
 			continue
 		}
@@ -74,7 +76,7 @@ func (s *service) AdoptAccountDevices(ctx context.Context, devices []AccountDevi
 		}
 		if _, ok := refused[fp]; ok {
 			logger.Ctx(ctx).Debug("remote_device_svc.AdoptAccountDevices: honoring the user's removal of this machine",
-				zap.String("fingerprint", fp))
+				zap.String("fingerprint", string(fp)))
 			continue
 		}
 		row := &paired_agentred_entity.PairedAgentred{
@@ -87,7 +89,7 @@ func (s *service) AdoptAccountDevices(ctx context.Context, devices []AccountDevi
 		if err := row.Check(ctx); err != nil {
 			// 收编是后台补齐，不该因为一台机器的脏数据把其余的也拖住。
 			logger.Ctx(ctx).Warn("remote_device_svc.AdoptAccountDevices: skipping unusable account device",
-				zap.String("fingerprint", fp), zap.Error(err))
+				zap.String("fingerprint", string(fp)), zap.Error(err))
 			continue
 		}
 		if err := s.repo.Create(ctx, row); err != nil {
@@ -103,7 +105,7 @@ func (s *service) AdoptAccountDevices(ctx context.Context, devices []AccountDevi
 		known[fp] = struct{}{}
 		adopted++
 		logger.Ctx(ctx).Info("remote_device_svc.AdoptAccountDevices: adopted an account agentred as relay-only",
-			zap.String("fingerprint", fp), zap.Int64("deviceID", row.ID))
+			zap.String("fingerprint", string(fp)), zap.Int64("deviceID", row.ID))
 	}
 	return adopted, nil
 }
@@ -135,23 +137,23 @@ func (s *service) AdoptAccountDevices(ctx context.Context, devices []AccountDevi
 // 回收失败只记日志：它是清理，不该让整轮收编失败。
 func (s *service) tombstonedFingerprints(
 	ctx context.Context, devices []AccountDevice,
-) (map[string]struct{}, error) {
+) (map[devicefp.Carrier]struct{}, error) {
 	deleted, err := s.repo.ListDeleted(ctx)
 	if err != nil {
 		return nil, err
 	}
-	inAccount := make(map[string]struct{}, len(devices))
+	inAccount := make(map[devicefp.Carrier]struct{}, len(devices))
 	for _, d := range devices {
-		if fp := strings.TrimSpace(d.Fingerprint); fp != "" {
+		if fp := devicefp.Carrier(strings.TrimSpace(string(d.Fingerprint))); fp != "" {
 			inAccount[fp] = struct{}{}
 		}
 	}
-	refused := make(map[string]struct{}, len(deleted))
+	refused := make(map[devicefp.Carrier]struct{}, len(deleted))
 	for _, row := range deleted {
 		if row == nil {
 			continue
 		}
-		fp := strings.TrimSpace(row.DaemonFingerprint)
+		fp := devicefp.Carrier(strings.TrimSpace(string(row.DaemonFingerprint)))
 		if fp == "" {
 			continue
 		}
@@ -170,12 +172,12 @@ func (s *service) tombstonedFingerprints(
 
 // adoptedName 优先用账号侧登记的机器名；它没名字时回落到指纹缩写，绝不留空
 // （空名字过不了 entity.Check，而一台连不上名字的机器在列表里没法被指认）。
-func adoptedName(d AccountDevice, fingerprint string) string {
+func adoptedName(d AccountDevice, fingerprint devicefp.Carrier) string {
 	if name := strings.TrimSpace(d.Name); name != "" {
 		return name
 	}
 	const shortLen = 12
-	trimmed := strings.TrimPrefix(fingerprint, "sha256:")
+	trimmed := strings.TrimPrefix(string(fingerprint), "sha256:")
 	if len(trimmed) > shortLen {
 		trimmed = trimmed[:shortLen]
 	}
@@ -216,7 +218,7 @@ func (s *service) DiscardAdoptedDevices(ctx context.Context) (int, error) {
 		}
 		discarded++
 		logger.Ctx(ctx).Info("remote_device_svc.DiscardAdoptedDevices: dropped an adopted account agentred",
-			zap.String("fingerprint", row.DaemonFingerprint), zap.Int64("deviceID", row.ID))
+			zap.String("fingerprint", string(row.DaemonFingerprint)), zap.Int64("deviceID", row.ID))
 	}
 	return discarded, nil
 }

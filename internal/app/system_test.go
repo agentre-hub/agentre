@@ -37,6 +37,15 @@ func TestValidateOpenPath(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(got, ShouldEqual, "/Users/x/foo.go")
 		})
+		Convey("when POSIX absolute path with a :start-end line range, then return without suffix", func() {
+			got, err := validateOpenPath("/Users/x/foo.go:311-330")
+			So(err, ShouldBeNil)
+			So(got, ShouldEqual, "/Users/x/foo.go")
+		})
+		Convey("when path has '..:start-end' suffix (potential bypass), then error", func() {
+			_, err := validateOpenPath("/foo/..:311-330")
+			So(err, ShouldNotBeNil)
+		})
 		Convey("when POSIX absolute path without suffix, then return as-is", func() {
 			got, err := validateOpenPath("/Users/x/foo.go")
 			So(err, ShouldBeNil)

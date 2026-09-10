@@ -18,6 +18,7 @@ import (
 	project_entity "github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	wire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	peer_svc "github.com/agentre-hub/agentre/internal/service/peer_svc"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -46,7 +47,7 @@ func (m *MockDialer) EXPECT() *MockDialerMockRecorder {
 }
 
 // DialDesktopRelay mocks base method.
-func (m *MockDialer) DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
+func (m *MockDialer) DialDesktopRelay(ctx context.Context, desktopFingerprint devicefp.Carrier, peerFingerprint devicefp.Initiator) (client.ProtobufConnection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DialDesktopRelay", ctx, desktopFingerprint, peerFingerprint)
 	ret0, _ := ret[0].(client.ProtobufConnection)
@@ -121,10 +122,10 @@ func (m *MockFingerprintProvider) EXPECT() *MockFingerprintProviderMockRecorder 
 }
 
 // DeviceFingerprint mocks base method.
-func (m *MockFingerprintProvider) DeviceFingerprint() (string, error) {
+func (m *MockFingerprintProvider) DeviceFingerprint() (devicefp.Carrier, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeviceFingerprint")
-	ret0, _ := ret[0].(string)
+	ret0, _ := ret[0].(devicefp.Carrier)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -267,7 +268,7 @@ func (mr *MockPeerSvcMockRecorder) Close() *gomock.Call {
 }
 
 // Detach mocks base method.
-func (m *MockPeerSvc) Detach(ctx context.Context, fingerprint, conversationID string) error {
+func (m *MockPeerSvc) Detach(ctx context.Context, fingerprint devicefp.Carrier, conversationID string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Detach", ctx, fingerprint, conversationID)
 	ret0, _ := ret[0].(error)

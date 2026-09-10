@@ -14,7 +14,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -44,10 +45,10 @@ func setupSessionDeleteTest(t *testing.T, loggedInAccountID func() string) (
 // 的、会被复用,那段旧日志下一次就会被当成新会话的历史拉走。
 func TestSessionDelete_GivenOwnSession_ThenRemovesTheRowAndItsWholeTranscript(t *testing.T) {
 	ctx, sessions, transcriptPurge, h := setupSessionDeleteTest(t, nil)
-	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(1), nil)
-	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(42), nil)
+	sessions.EXPECT().Delete(gomock.Any(), devicefp.Initiator(""), convID(7)).Return(int64(1), nil)
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), devicefp.Initiator(""), convID(7)).Return(int64(42), nil)
 
-	got, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
+	got, err := h.Delete(ctx, &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
 	require.NoError(t, err)
 	assert.True(t, got.Deleted, "删除返回时这一端必须已经没有这条会话")
 }
@@ -57,10 +58,10 @@ func TestSessionDelete_GivenOwnSession_ThenRemovesTheRowAndItsWholeTranscript(t 
 // 「会话行已经没了、日志还剩着」正是上一次删到一半留下的样子,重试必须能收敛。
 func TestSessionDelete_GivenAlreadyDeletedSession_ThenSucceedsAndStillPurgesTheTranscript(t *testing.T) {
 	ctx, sessions, transcriptPurge, h := setupSessionDeleteTest(t, nil)
-	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(0), nil)
-	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(0), nil)
+	sessions.EXPECT().Delete(gomock.Any(), devicefp.Initiator(""), convID(7)).Return(int64(0), nil)
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), devicefp.Initiator(""), convID(7)).Return(int64(0), nil)
 
-	got, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
+	got, err := h.Delete(ctx, &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
 	require.NoError(t, err)
 	assert.True(t, got.Deleted, "重复删除同样以「这一端没有这条会话了」收尾")
 }
@@ -71,7 +72,7 @@ func TestSessionDelete_GivenAlreadyDeletedSession_ThenSucceedsAndStillPurgesTheT
 func TestSessionDelete_GivenNamedOriginWithoutAccount_ThenRejectsWithoutTouchingAnything(t *testing.T) {
 	ctx, _, _, h := setupSessionDeleteTest(t, nil)
 
-	_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7), PeerFingerprint: "sha256:someone-else"})
+	_, err := h.Delete(ctx, &agentrewire.SessionDeleteRequest{ConversationId: convID(7), PeerFingerprint: "sha256:someone-else"})
 	require.ErrorIs(t, err, rpcerror.ErrUnauthorized)
 }
 
@@ -80,9 +81,9 @@ func TestSessionDelete_GivenNamedOriginWithoutAccount_ThenRejectsWithoutTouching
 // 收窄到调用方对端的唯一依据,先删掉它这段转录就再也删不动了。
 func TestSessionDelete_GivenTranscriptPurgeFails_ThenReportsFailure(t *testing.T) {
 	ctx, _, transcriptPurge, h := setupSessionDeleteTest(t, nil)
-	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(0), errors.New("disk is gone"))
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), devicefp.Initiator(""), convID(7)).Return(int64(0), errors.New("disk is gone"))
 
-	_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
+	_, err := h.Delete(ctx, &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk is gone")
 }
@@ -95,7 +96,7 @@ func TestSessionDelete_GivenSomethingThatIsNotAConversationID_ThenRejects(t *tes
 		t.Run(bad, func(t *testing.T) {
 			ctx, _, _, h := setupSessionDeleteTest(t, nil)
 
-			_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: bad})
+			_, err := h.Delete(ctx, &agentrewire.SessionDeleteRequest{ConversationId: bad})
 			var rpcErr *rpcerror.Error
 			require.ErrorAs(t, err, &rpcErr)
 			assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code,
@@ -134,10 +135,10 @@ func TestSessionDelete_GivenPooledCLISession_WhenDeleted_ThenTheSubprocessIsRele
 	defer agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, recorder)()
 
 	ctx, sessions, transcriptPurge, h := setupSessionDeleteTest(t, nil)
-	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(1), nil)
-	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(1), nil)
+	sessions.EXPECT().Delete(gomock.Any(), devicefp.Initiator(""), convID(7)).Return(int64(1), nil)
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), devicefp.Initiator(""), convID(7)).Return(int64(1), nil)
 
-	_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
+	_, err := h.Delete(ctx, &agentrewire.SessionDeleteRequest{ConversationId: convID(7)})
 	require.NoError(t, err)
 
 	// 释放用的会话键与 runtime.run 交给 backend 的是同一个 —— 由对话身份折算出来的

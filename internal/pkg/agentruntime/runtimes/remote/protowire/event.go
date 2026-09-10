@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type EventNotification struct {
@@ -96,7 +97,7 @@ func marshalEvent(frame *agentrewire.RuntimeEventNotification, event agentruntim
 	case agentruntime.SteerConsumed:
 		m := &agentrewire.SteerConsumed{}
 		for _, steer := range value.Steers {
-			m.Steers = append(m.Steers, &agentrewire.ConsumedSteer{QueuedId: steer.QueuedID, Text: steer.Text, SourcePeer: steer.SourcePeer, SourceName: steer.SourceName})
+			m.Steers = append(m.Steers, &agentrewire.ConsumedSteer{QueuedId: steer.QueuedID, Text: steer.Text, SourcePeer: string(steer.SourcePeer), SourceName: steer.SourceName})
 		}
 		frame.Event = &agentrewire.RuntimeEventNotification_SteerConsumed{SteerConsumed: m}
 	case agentruntime.UserAskRequest:
@@ -171,7 +172,7 @@ func marshalEvent(frame *agentrewire.RuntimeEventNotification, event agentruntim
 		}
 		frame.Event = &agentrewire.RuntimeEventNotification_Error{Error: &agentrewire.ErrorEvent{Message: message}}
 	case agentruntime.UserMessageEvent:
-		frame.Event = &agentrewire.RuntimeEventNotification_UserMessage{UserMessage: &agentrewire.UserMessage{Text: value.Text, SourceDevice: value.SourceDevice, SourceDeviceName: value.SourceDeviceName}}
+		frame.Event = &agentrewire.RuntimeEventNotification_UserMessage{UserMessage: &agentrewire.UserMessage{Text: value.Text, SourceDevice: string(value.SourceDevice), SourceDeviceName: value.SourceDeviceName}}
 	default:
 		return fmt.Errorf("protowire: 不支持的 runtime event %T", event)
 	}
@@ -202,7 +203,7 @@ func unmarshalEvent(frame *agentrewire.RuntimeEventNotification) (agentruntime.E
 	case *agentrewire.RuntimeEventNotification_SteerConsumed:
 		out := agentruntime.SteerConsumed{}
 		for _, steer := range value.SteerConsumed.GetSteers() {
-			out.Steers = append(out.Steers, agentruntime.ConsumedSteer{QueuedID: steer.GetQueuedId(), Text: steer.GetText(), SourcePeer: steer.GetSourcePeer(), SourceName: steer.GetSourceName()})
+			out.Steers = append(out.Steers, agentruntime.ConsumedSteer{QueuedID: steer.GetQueuedId(), Text: steer.GetText(), SourcePeer: devicefp.Initiator(steer.GetSourcePeer()), SourceName: steer.GetSourceName()})
 		}
 		return out, nil
 	case *agentrewire.RuntimeEventNotification_UserAskRequest:
@@ -297,7 +298,7 @@ func unmarshalEvent(frame *agentrewire.RuntimeEventNotification) (agentruntime.E
 		return out, nil
 	case *agentrewire.RuntimeEventNotification_UserMessage:
 		v := value.UserMessage
-		return agentruntime.UserMessageEvent{Text: v.GetText(), SourceDevice: v.GetSourceDevice(), SourceDeviceName: v.GetSourceDeviceName()}, nil
+		return agentruntime.UserMessageEvent{Text: v.GetText(), SourceDevice: devicefp.Initiator(v.GetSourceDevice()), SourceDeviceName: v.GetSourceDeviceName()}, nil
 	default:
 		return nil, fmt.Errorf("protowire: 不支持的 runtime event %T", frame.GetEvent())
 	}

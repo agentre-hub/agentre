@@ -23,6 +23,14 @@ import (
 //
 // 加一个方法、或把一个已有方法接到新的调用方上,都要回来改这张表 —— 那正是本文件
 // 存在的意义:让「对面认不认识这个方法」变成一件写下来、且会被检查的事。
+//
+// 这张表还有第二个读者,而且是**机械**读者:TS 生成器
+// (internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go)按 AST 读 Contract()
+// 与 KnownGaps(),生成 @agentre-hub/agentre-wire 的 host-contract.gen.ts,好让
+// agentre-server 在它自己仓里对账「这个方法发给这一侧打不打得通」。它 import 不进来
+// (wireinbound 依赖那个 wire 包,反过来就是导入环),所以读的是源码形态:
+// Requirement / KnownGap 要按位置序写(不是 Field: 形式),Hosts 只能是 []HostKind{…}
+// 或函数体里的局部别名。形态一变,那边的守卫会判红并说明缘由,不会静默少读一行。
 
 // HostKind 是执行端的两种形态。它与设备表里的 device.kind 同名同义。
 type HostKind string
@@ -133,8 +141,9 @@ func Contract() []Requirement {
 		{agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE, []Caller{CallerServerBackend}, both, "同 scan"},
 
 		// ── 引擎/CLI 探测:调用点经 executionDevice() 放行 desktop,因此两种都在义务里。
-		// 这三条目前对桌面端是欠着的(见 KnownGaps),而 ENGINE_DISCOVER 恰好只走
-		// onlineAgentred() 那条路 —— 它安全是**巧合,不是设计不变量**,所以两者分开列。
+		// 两侧都已答得出(桌面端见 internal/peer/engine.go)。ENGINE_DISCOVER 不在这里,
+		// 是因为它恰好只走 onlineAgentred() 那条路 —— 它安全是**巧合,不是设计不变量**,
+		// 调用点哪天不筛了它就成第四条,所以两者分开列。
 		{agentrewire.RpcMethod_RPC_METHOD_ENGINE_SCAN, []Caller{CallerConsole}, both,
 			"enginePorts.ts:457 scanDevice → executionDevice(:420) → isExecutionDevice(:76) 含 desktop"},
 		{agentrewire.RpcMethod_RPC_METHOD_ENGINE_TEST, []Caller{CallerConsole}, both,
@@ -181,7 +190,8 @@ func Contract() []Requirement {
 //
 // 它存在不是为了让守卫变绿,而是为了让缺口从「读代码才看得见」变成「写在这里、
 // 数得清、每一条都欠一个理由」。新长出来的缺口不在表里,守卫立刻判红;修好的缺口
-// 忘了删,守卫同样判红(见 TestContract_KnownGapsAreStillGaps)——两个方向都钉住,
+// 忘了删,守卫同样判红(Stale 那一半,住在两条宿主守卫里:internal/peer 与
+// internal/daemon 各一条 contract_guard_test.go)——两个方向都钉住,
 // 这张表才不会退化成一张越积越长、没人敢删的豁免清单。
 type KnownGap struct {
 	Method agentrewire.RpcMethod
@@ -192,20 +202,9 @@ type KnownGap struct {
 // KnownGaps 是当前欠着的那些。**每修好一条就删一行** —— 忘了删,守卫会替你记得
 // (CheckContract 的 Stale 那一半)。
 func KnownGaps() []KnownGap {
-	return []KnownGap{
-		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT, HostDesktop,
-			"控制台对桌面端会话的「停止」是死按钮:-32601 被 SessionDetailHeader.tsx:135 的 catch{} 吞掉,按下去毫无反应。桌面端要么实现它,要么那颗按钮不该渲染"},
-		{agentrewire.RpcMethod_RPC_METHOD_ENGINE_SCAN, HostDesktop,
-			"enginePorts.ts:457 经 executionDevice() 放行 desktop(:76 EXECUTION_DEVICE_KINDS 含 desktop),而引擎快照是 agentred 的账号级能力。要么桌面端实现,要么那处筛选收窄成 agentred"},
-		{agentrewire.RpcMethod_RPC_METHOD_ENGINE_TEST, HostDesktop,
-			"enginePorts.ts:774 的 testBackend 分支同上。另一处 :728 经 onlineAgentred() 已收窄,是安全的 —— 同一个方法两个调用点限定不同"},
-		{agentrewire.RpcMethod_RPC_METHOD_CLI_RESOLVE_PATH, HostDesktop,
-			"enginePorts.ts:802 同上"},
-		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_READ_FILE, HostDesktop,
-			"控制台文件预览按会话目标机拨,不筛 kind;桌面端没挂 WorkspaceFS 端口。规格 2026-09-06-console-file-preview 落地时要一并解决"},
-		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT, HostDesktop,
-			"同上"},
-	}
+	// 此刻一条都不欠。空表不是「这张表没用了」:两个宿主的守卫仍拿 Contract() 逐条
+	// 比对注册面,新长出来的缺口会立刻判红,而修它的人要么补上实现,要么回这里记一行。
+	return nil
 }
 
 // ContractResult 是一次比对的结论。两个方向都要为空才算过。

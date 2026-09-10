@@ -21,7 +21,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
-	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
 
@@ -50,34 +49,6 @@ func shouldSignChatGateway(be *agent_backend_entity.AgentBackend, prov *llm_prov
 // 供应商。「有 effective provider 就必须有可用网关」这条门控只对前两者成立。
 func gatewayRoutesLLM(be *agent_backend_entity.AgentBackend) bool {
 	return be != nil && (be.IsClaudeCode() || be.IsCodex())
-}
-
-// remoteProviderKnownMissing returns true only when the watcher cache has a
-// recorded provider list for the remote device and that list does not contain
-// the backend's provider key. A nil list means "no heartbeat data yet", so the
-// runtime path is allowed to try and report the authoritative daemon error.
-func remoteProviderKnownMissing(ctx context.Context, be *agent_backend_entity.AgentBackend) bool {
-	if !beTargetsRemote(be) || strings.TrimSpace(be.LLMProviderKey) == "" {
-		return false
-	}
-	deviceID, ok := localPairedDeviceID(ctx, be.DeviceFingerprint)
-	if !ok {
-		return false
-	}
-	rds := remote_device_svc.Default()
-	if rds == nil {
-		return false
-	}
-	providers := rds.ListDeviceProviders(deviceID)
-	if providers == nil {
-		return false
-	}
-	for _, p := range providers {
-		if p.Key == be.LLMProviderKey {
-			return false
-		}
-	}
-	return true
 }
 
 func remoteProviderNotConfiguredError(ctx context.Context, providerKey string) error {

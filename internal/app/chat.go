@@ -6,6 +6,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // ListChatAgents 聚合返回左栏 Agent 列表（含每个 Agent 的最近会话和可对话状态）。
@@ -26,8 +27,8 @@ func (a *App) ListChatIndexSessions(req *chat_svc.ListIndexSessionsRequest) (*ch
 
 // ListAgentExecTargetAvailability 逐档判定 R15 执行目标列表的可用性，供组织架构页
 // Agent 详情展示（任务 12）。projectID<=0 表示自由会话，不做项目路径判定。
-func (a *App) ListAgentExecTargetAvailability(agentID int64, projectID int64) ([]chat_svc.ExecTargetAvailabilityView, error) {
-	return chat_svc.Chat().ListExecTargetAvailability(a.ctx, agentID, projectID)
+func (a *App) ListAgentExecTargetAvailability(agentID int64, projectID int64) ([]exec_target_svc.ExecTargetAvailabilityView, error) {
+	return exec_target_svc.ExecTarget().ListExecTargetAvailability(a.ctx, agentID, projectID)
 }
 
 // EnsureChatSession 为某 agent 建一个普通用户会话并返回 sessionId（不发消息、不起 turn）。

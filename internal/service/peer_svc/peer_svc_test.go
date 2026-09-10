@@ -24,6 +24,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/peer_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -54,7 +55,7 @@ func fakePeerServer(t *testing.T, deps peer.ProtobufInboundDeps) string {
 // 拨号（生产是 server_svc 经账号中继）。url 由 fakePeerServer 给出。
 type directDialer struct{ url string }
 
-func (d directDialer) DialDesktopRelay(_ context.Context, desktopFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
+func (d directDialer) DialDesktopRelay(_ context.Context, desktopFingerprint devicefp.Carrier, peerFingerprint devicefp.Initiator) (client.ProtobufConnection, error) {
 	if desktopFingerprint == "" || peerFingerprint == "" {
 		return nil, errors.New("empty fingerprint")
 	}
@@ -78,9 +79,9 @@ type spyEmitter struct {
 
 func (s *spyEmitter) Emit(e peer_svc.PeerEvent) { s.events <- e }
 
-type stubSelf struct{ fp string }
+type stubSelf struct{ fp devicefp.Carrier }
 
-func (s stubSelf) DeviceFingerprint() (string, error) { return s.fp, nil }
+func (s stubSelf) DeviceFingerprint() (devicefp.Carrier, error) { return s.fp, nil }
 
 type stubAgents struct{ agent *agent_entity.Agent }
 
@@ -126,7 +127,7 @@ func TestPeerSvc_GivenFreshDispatch_WhenRunFresh_ThenResolvesAgentAndCwdAndRetur
 		assert.Equal(t, "provider-key", p.LLMProviderKey, "the transient provider target must cross the desktop peer boundary")
 		assert.Equal(t, "model-key", p.LLMModelKey, "the transient fixed model target must cross the desktop peer boundary")
 		assert.Equal(t, "xhigh", p.ReasoningEffort, "草稿态选的思考力度与那对 ModelTarget 同一条路过桌面端边界")
-		assert.Equal(t, "sha256:local-desktop", p.SourceDevice, "self fingerprint must travel as the source device")
+		assert.Equal(t, devicefp.Initiator("sha256:local-desktop"), p.SourceDevice, "self fingerprint must travel as the source device")
 		return &chat_svc.SendResponse{SessionID: 42}, nil
 	}})
 	svc, _ := newTestSvc(t, url)
@@ -198,7 +199,7 @@ func TestPeerSvc_GivenAttachedRemoteSession_WhenPeerEmitsEvent_ThenEmitterReceiv
 
 	select {
 	case ev := <-emitter.events:
-		assert.Equal(t, "sha256:peer-desktop", ev.Fingerprint)
+		assert.Equal(t, devicefp.Carrier("sha256:peer-desktop"), ev.Fingerprint)
 		assert.Equal(t, convID(7), ev.ConversationID)
 		assert.Equal(t, int64(13), ev.Seq)
 		assert.Contains(t, string(ev.Event), `"text_delta"`)
@@ -296,7 +297,7 @@ func TestPeerSvc_GivenTargetDesktopAppNotRunning_WhenList_ThenDesktopSentinelSur
 
 type offlineDialer struct{}
 
-func (offlineDialer) DialDesktopRelay(_ context.Context, _, _ string) (client.ProtobufConnection, error) {
+func (offlineDialer) DialDesktopRelay(_ context.Context, _ devicefp.Carrier, _ devicefp.Initiator) (client.ProtobufConnection, error) {
 	return nil, server_svc.ErrDesktopAppNotRunning
 }
 

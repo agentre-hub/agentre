@@ -21,6 +21,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // BackendType Agent 后端实现类型。
@@ -61,8 +62,8 @@ type AgentBackend struct {
 	// DeviceFingerprint is the target machine's canonical device fingerprint. It
 	// is the cross-device persisted and synced identity; dispatch resolves it to
 	// this installation's paired-row ID only at the local boundary.
-	DeviceFingerprint string `gorm:"column:device_fingerprint;type:text;not null;default:''"`
-	CLIPath           string `gorm:"column:cli_path;type:text;not null;default:''"`
+	DeviceFingerprint devicefp.Carrier `gorm:"column:device_fingerprint;type:text;not null;default:''"`
+	CLIPath           string           `gorm:"column:cli_path;type:text;not null;default:''"`
 	// ModelRoutes 仅 claudecode 使用：`{"OPUS":{"providerKey":"..","modelKey":".."},...}` 子集，
 	// 任意 alias 缺省时回落主 LLMProviderKey/LLMModelKey（inherit-main）。
 	// 解析 / 序列化分别用 ParseModelRoutes / MarshalModelRoutes（见 kinds.go）。
@@ -111,13 +112,13 @@ func (*AgentBackend) TableName() string { return "agent_backends" }
 // mean PATH resolution. It deliberately has its own SyncMeta because the
 // overlay is a separate account-sync object, not a backend identity field.
 type CLIOverlay struct {
-	ID                       int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	BackendSyncID            string `gorm:"column:backend_sync_id;type:text;not null;default:''"`
-	AgentredFingerprint      string `gorm:"column:agentred_fingerprint;type:text;not null;default:''"`
-	CLIPath                  string `gorm:"column:cli_path;type:text;not null;default:''"`
-	Status                   int    `gorm:"column:status;type:int;not null;default:1"`
-	Createtime               int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime               int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	ID                       int64            `gorm:"column:id;primaryKey;autoIncrement"`
+	BackendSyncID            string           `gorm:"column:backend_sync_id;type:text;not null;default:''"`
+	AgentredFingerprint      devicefp.Carrier `gorm:"column:agentred_fingerprint;type:text;not null;default:''"`
+	CLIPath                  string           `gorm:"column:cli_path;type:text;not null;default:''"`
+	Status                   int              `gorm:"column:status;type:int;not null;default:1"`
+	Createtime               int64            `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime               int64            `gorm:"column:updatetime;type:bigint;not null;default:0"`
 	syncmeta_entity.SyncMeta `gorm:"embedded"`
 }
 

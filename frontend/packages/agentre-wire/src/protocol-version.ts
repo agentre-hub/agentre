@@ -1,12 +1,22 @@
+import { getOption } from "@bufbuild/protobuf";
+
+import {
+  file_agentre_wire_wire,
+  protocol_version,
+} from "./gen/agentre/wire/wire_pb";
+
 /**
  * agentre ↔ agentred wire 协议版本。
  *
- * 版本号的**唯一真相**是本包 `package.json` 的 `version`:本包发布 schema、
- * 生成的消息与编解码,所以它的发布号就是「协议」本身的版本。这里把它复述成一个
- * 可被握手代码引用的常量,`src/__tests__/protocol-version.test.ts` 盯着两者逐字
- * 相等——改一边忘另一边直接红。
+ * 版本号的**唯一真相**是 schema 自己:它写在 `.proto` 的
+ * `(agentre.wire.protocol_version)` 文件选项上,这里从生成的 descriptor 读出来 ——
+ * 和 `event-kind.ts` 读字段选项是同一套做法。Go 侧读同一格
+ * (`pkg/wire/protocolversion`),两侧不再各存一份。
  *
- * Go 侧的对应常量是 `internal/pkg/wireversion.Protocol`,由它自己的守卫测试
- * 盯着同一份 package.json。
+ * 本包 `package.json` 的 `version` 现在是这个值的**复述**(它是个真的 npm 包,消费方
+ * 按它 pin),由 `src/__tests__/protocol-version.test.ts` 盯着两者逐字相等。
  */
-export const PROTOCOL_VERSION = "0.4.0";
+export const PROTOCOL_VERSION: string = getOption(
+  file_agentre_wire_wire,
+  protocol_version,
+);

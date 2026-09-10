@@ -123,7 +123,9 @@ func (s *Server) URL() string { return "ws://" + s.listener.Addr().String() + "/
 func (s *Server) ControlURL() string { return "http://" + s.listener.Addr().String() + "/__control" }
 
 // DaemonFingerprint is the TOFU identity the desktop must seed.
-func (s *Server) DaemonFingerprint() string { return identity.DaemonFingerprint(s.opts.InstanceUUID) }
+func (s *Server) DaemonFingerprint() string {
+	return string(identity.DaemonFingerprint(s.opts.InstanceUUID))
+}
 
 // SetNextRunFault configures one deterministic boundary failure.
 func (s *Server) SetNextRunFault(fault Fault) {

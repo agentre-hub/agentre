@@ -55,3 +55,56 @@ func TestLimits_GivenThePushBatchCap_ThenItIsStatedOnce(t *testing.T) {
 	require.Equal(t, 1000, syncwire.MaxPullLimit)
 	require.Equal(t, 2000, syncwire.MaxLocalPathItems)
 }
+
+// 「同步组里有哪些对象类型」从前有三个答案:这里的常量、桌面端 sync_svc 的
+// syncKinds、服务端 sync_entity 的 KindValid —— 常量表虽然只有一份,**成员资格**却
+// 由两个宿主各自枚举,任何一边漏掉一个新 kind,那类对象就在那一端整类静默不同步。
+// Kinds 是唯一的那份枚举,KindValid 按它判定;两个宿主都只是引用它。
+func TestKinds_GivenTheVocabulary_ThenMembershipIsStatedOnce(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, []string{
+		syncwire.KindProject,
+		syncwire.KindDepartment,
+		syncwire.KindAgent,
+		syncwire.KindAgentBackend,
+		syncwire.KindAgentBackendCLI,
+		syncwire.KindAgentExecTarget,
+		syncwire.KindProjectAgent,
+		syncwire.KindProjectLocation,
+		syncwire.KindLLMProvider,
+		syncwire.KindLabel,
+		syncwire.KindIssue,
+		syncwire.KindIssueLabel,
+	}, syncwire.Kinds)
+
+	for _, kind := range syncwire.Kinds {
+		require.True(t, syncwire.KindValid(kind), kind)
+	}
+	require.False(t, syncwire.KindValid("issue_comment"), "取值域是闭合的")
+	require.False(t, syncwire.KindValid(""), "空 kind 不属于同步组")
+}
+
+// Kinds 的次序是**承重的**:按「被引用者在前」排,遍历全部类型的地方(认领 R12a、
+// 出站入队)因此让父行先落地,R2a 的暂缓少绕一圈。这条把关键的几对先后钉住,免得
+// 日后追加 kind 时随手贴到末尾就破坏了它。
+func TestKinds_GivenTheOrder_ThenReferencedKindsComeFirst(t *testing.T) {
+	t.Parallel()
+
+	index := make(map[string]int, len(syncwire.Kinds))
+	for i, kind := range syncwire.Kinds {
+		index[kind] = i
+	}
+	for _, pair := range [][2]string{
+		{syncwire.KindDepartment, syncwire.KindAgent},
+		{syncwire.KindAgentBackend, syncwire.KindAgentBackendCLI},
+		{syncwire.KindAgentBackend, syncwire.KindAgentExecTarget},
+		{syncwire.KindProject, syncwire.KindProjectAgent},
+		{syncwire.KindProject, syncwire.KindProjectLocation},
+		{syncwire.KindLabel, syncwire.KindIssueLabel},
+		{syncwire.KindIssue, syncwire.KindIssueLabel},
+		{syncwire.KindProject, syncwire.KindIssue},
+	} {
+		require.Less(t, index[pair[0]], index[pair[1]], "%s 必须排在 %s 之前", pair[0], pair[1])
+	}
+}

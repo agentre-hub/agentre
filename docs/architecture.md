@@ -27,7 +27,8 @@ migrations/                    (gormigrate sequential migrations, filename prefi
 pkg/                           (externally reusable packages: agentred, claudecode, codex, piagent, and the shared
                                 wire module, consumed by agentre-server too — see pkg/wire/README.md for the
                                 subpackage map, the dependency direction and the "add an RPC method" checklist:
-                                wire/agentrewire generated messages, wire/protorpc the RPC engine, wire/wirecall
+                                wire/proto the .proto schema + buf config it is generated from, wire/agentrewire
+                                the generated messages, wire/protorpc the RPC engine, wire/wirecall
                                 the one place method IDs pair with message types, wire/relayenvelope the relay
                                 channel envelope, wire/wirelimits the payload budget, wire/rpcerror the error shape.
                                 pkg/syncwire is a second shared module — the desktop <-> server workspace-sync
@@ -56,7 +57,7 @@ Host state, navigation, Wails calls, and transport stay outside the package. A s
 
 Consumption rules, the entry points, and the i18n namespace are [`frontend.md`](frontend.md)'s.
 
-`frontend/packages/agentre-wire` is the second shared package and deliberately a separate one: it carries the host-neutral wire contracts, codecs and golden samples, so protocol code stays out of `agentre-ui`, whose React / tiptap peer dependencies have nothing to do with binary frames. New WebSocket contracts use the package's `.proto` files as their single source and generate both TypeScript and Go; the existing remote-runtime JSON contracts continue to generate TypeScript from their owning Go `wire.go` until their own Protobuf migration. Its rules live in [`frontend.md`](frontend.md#shared-wire-package-agentre-hubagentre-wire).
+`frontend/packages/agentre-wire` is the second shared package and deliberately a separate one: it carries the host-neutral wire contracts, codecs and golden samples, so protocol code stays out of `agentre-ui`, whose React / tiptap peer dependencies have nothing to do with binary frames. New WebSocket contracts have their single source in the Go protocol module (`pkg/wire/proto/`, whose README owns the schema) and generate both TypeScript and Go from there; the existing remote-runtime JSON contracts continue to generate TypeScript from their owning Go `wire.go` until their own Protobuf migration. Its rules live in [`frontend.md`](frontend.md#shared-wire-package-agentre-hubagentre-wire).
 
 ## Remote execution (remote chat)
 

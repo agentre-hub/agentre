@@ -99,3 +99,40 @@ func selectorName(call *ast.CallExpr) string {
 	}
 	return selector.Sel.Name
 }
+
+// 一轮收口必须走 publishPeerTurnDone —— 两条收口路径(用户轮与自主续轮各自的
+// finalize)都要。
+//
+// 为什么用 AST 守:这两只函数各要一整套 runner / repo / 事件循环才跑得起来,而要守
+// 的事实只有一句「它调了那一只」。同文件的 peer tee 守卫
+// 用的是同一手法,理由也一样。漏掉任一条的表现是**静默的**:对端那一轮的 meta 空着,
+// 而另一条路的照常有,两边对不上还查不出来路。
+func TestTurnFinishPaths_GivenPeerSubscribers_ThenPublishTurnDone(t *testing.T) {
+	for _, tc := range []struct{ file, name string }{
+		{file: "turn_run.go", name: "finalize"},
+		{file: "autonomous_turn_run.go", name: "finalize"},
+	} {
+		t.Run(tc.file+":"+tc.name, func(t *testing.T) {
+			source, err := os.ReadFile(tc.file)
+			require.NoError(t, err)
+			file, err := parser.ParseFile(token.NewFileSet(), tc.file, source, 0)
+			require.NoError(t, err)
+
+			var calls bool
+			ast.Inspect(file, func(node ast.Node) bool {
+				decl, ok := node.(*ast.FuncDecl)
+				if !ok || decl.Name.Name != tc.name {
+					return true
+				}
+				ast.Inspect(decl.Body, func(inner ast.Node) bool {
+					if call, ok := inner.(*ast.CallExpr); ok && selectorName(call) == "publishPeerTurnDone" {
+						calls = true
+					}
+					return true
+				})
+				return false
+			})
+			assert.True(t, calls, "%s 里的 %s 必须把本轮统计发给对端订阅者", tc.file, tc.name)
+		})
+	}
+}

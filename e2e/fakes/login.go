@@ -22,6 +22,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // The local end-to-end sync suite needs this app to come up already connected to
@@ -117,7 +118,7 @@ func installE2ELoggedInAccount(ctx context.Context) error {
 		ID:                1,
 		ServerURL:         baseURL,
 		DeviceID:          deviceID,
-		DeviceFingerprint: fingerprint,
+		DeviceFingerprint: devicefp.Carrier(fingerprint),
 		ServerUserID:      userID,
 		KeychainAccount:   keychainAccountRefreshToken,
 	}); err != nil {

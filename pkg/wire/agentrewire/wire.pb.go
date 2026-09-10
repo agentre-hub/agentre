@@ -1120,8 +1120,8 @@ func (*AccountDevicePresence) Descriptor() ([]byte, []int) {
 type AuthAccountRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Credential string                 `protobuf:"bytes,1,opt,name=credential,proto3" json:"credential,omitempty"`
-	// The wire protocol version the caller speaks — @agentre-hub/agentre-wire's
-	// package version.
+	// The wire protocol version the caller speaks — the (agentre.wire
+	// .protocol_version) file option this schema declares above.
 	ProtocolVersion string `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	// The oldest wire protocol version the caller still accepts from the peer.
 	// Together with protocol_version this names the caller's [min_supported,
@@ -14194,12 +14194,26 @@ var file_agentre_wire_wire_proto_extTypes = []protoimpl.ExtensionInfo{
 		Tag:           "bytes,60001,opt,name=event_kind",
 		Filename:      "agentre/wire/wire.proto",
 	},
+	{
+		ExtendedType:  (*descriptorpb.FileOptions)(nil),
+		ExtensionType: (*string)(nil),
+		Field:         60002,
+		Name:          "agentre.wire.protocol_version",
+		Tag:           "bytes,60002,opt,name=protocol_version",
+		Filename:      "agentre/wire/wire.proto",
+	},
 }
 
 // Extension fields to descriptorpb.FieldOptions.
 var (
 	// optional string event_kind = 60001;
 	E_EventKind = &file_agentre_wire_wire_proto_extTypes[0]
+)
+
+// Extension fields to descriptorpb.FileOptions.
+var (
+	// optional string protocol_version = 60002;
+	E_ProtocolVersion = &file_agentre_wire_wire_proto_extTypes[1]
 )
 
 var File_agentre_wire_wire_proto protoreflect.FileDescriptor
@@ -15369,7 +15383,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"1AGENTRED_SELF_UPDATE_REJECT_REASON_ALREADY_LATEST\x10\x04\x126\n" +
 	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05:>\n" +
 	"\n" +
-	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKindBAZ?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
+	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.4.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once
@@ -15595,6 +15610,7 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	nil,                                        // 206: agentre.wire.MCPProxyRequest.HeadersEntry
 	nil,                                        // 207: agentre.wire.MCPProxyResponse.HeadersEntry
 	(*descriptorpb.FieldOptions)(nil),          // 208: google.protobuf.FieldOptions
+	(*descriptorpb.FileOptions)(nil),           // 209: google.protobuf.FileOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
 	9,   // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
@@ -15709,10 +15725,11 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	111, // 109: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
 	111, // 110: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
 	208, // 111: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	112, // [112:112] is the sub-list for method output_type
-	112, // [112:112] is the sub-list for method input_type
-	112, // [112:112] is the sub-list for extension type_name
-	111, // [111:112] is the sub-list for extension extendee
+	209, // 112: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
+	113, // [113:113] is the sub-list for method output_type
+	113, // [113:113] is the sub-list for method input_type
+	113, // [113:113] is the sub-list for extension type_name
+	111, // [111:113] is the sub-list for extension extendee
 	0,   // [0:111] is the sub-list for field type_name
 }
 
@@ -15788,7 +15805,7 @@ func file_agentre_wire_wire_proto_init() {
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
 			NumEnums:      2,
 			NumMessages:   206,
-			NumExtensions: 1,
+			NumExtensions: 2,
 			NumServices:   0,
 		},
 		GoTypes:           file_agentre_wire_wire_proto_goTypes,

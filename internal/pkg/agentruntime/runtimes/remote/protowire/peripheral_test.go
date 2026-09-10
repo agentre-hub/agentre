@@ -16,13 +16,6 @@ func TestMCPProxyRoundTripPreservesRepeatedHeadersAndBinaryBody(t *testing.T) {
 	gotResponse := MCPProxyResponseFromProto(MCPProxyResponseToProto(wantResponse))
 	require.Equal(t, wantResponse, gotResponse)
 }
-
-func TestSkillCatalogRoundTrip(t *testing.T) {
-	want := wire.SkillCatalogResult{Discovery: wire.SkillDiscoveryOK, Packs: []wire.SkillPackSummary{{ID: "pack", Name: "Pack", Description: "desc", Skills: []string{"a"}, Installed: true, Enabled: true, GloballyEnabled: true}}}
-	got := SkillCatalogResponseFromProto(SkillCatalogResponseToProto(want))
-	require.Equal(t, want, got)
-}
-
 func TestSkillCommandsRoundTrip(t *testing.T) {
 	want := wire.SkillCommandsResult{Discovery: wire.SkillDiscoveryOK, Commands: []wire.SkillCommand{
 		{Name: "superpowers:brainstorming", Description: "先想清楚再动手"},

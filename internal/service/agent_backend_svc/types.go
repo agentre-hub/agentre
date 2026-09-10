@@ -8,6 +8,8 @@ import (
 	"context"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // RouteTarget 是 Claude Tier Route 的结构化目标（spec 决策 14）。
@@ -53,7 +55,7 @@ type BackendItem struct {
 	// DeviceID 是目标机器的 canonical fingerprint。当前安装自己的 fingerprint 表示
 	// 本机，跨机展示/编辑必须保留原值；只有调用本地 daemon RPC 时才翻译成
 	// paired row ID。
-	DeviceID string `json:"deviceId"`
+	DeviceID devicefp.Carrier `json:"deviceId"`
 	// DeviceName 关联目标设备的显示名；无法在本机设备目录解析时可能为空。
 	DeviceName string `json:"deviceName"`
 	// Online 关联远端设备当前是否在线；DeviceID 为空时为 false。
@@ -207,9 +209,9 @@ type CancelTestBackendResponse struct {
 }
 
 type CLIOverlayItem struct {
-	BackendSyncID string `json:"backendSyncId"`
-	Fingerprint   string `json:"fingerprint"`
-	Status        string `json:"status"`
+	BackendSyncID string           `json:"backendSyncId"`
+	Fingerprint   devicefp.Carrier `json:"fingerprint"`
+	Status        string           `json:"status"`
 }
 
 type ListCLIOverlaysRequest struct{}

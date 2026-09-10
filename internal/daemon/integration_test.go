@@ -52,6 +52,7 @@ import (
 	workspacefswire "github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 
@@ -587,7 +588,7 @@ type pairedTestRig struct {
 
 // rigDeviceFingerprint 是 rig 里那台「桌面端」的设备指纹。同一台桌面同时开的多条
 // 连接共用它 —— 会话推送因此不能按指纹解析(见 connectSameDevice 的两个回归用例)。
-const rigDeviceFingerprint = "sha256:test-device"
+const rigDeviceFingerprint devicefp.Initiator = "sha256:test-device"
 
 func bootRemoteRig(t *testing.T, script []agentruntime.Event) *pairedTestRig {
 	t.Helper()
@@ -645,7 +646,7 @@ func bootRigInDir(t *testing.T, dir string) *pairedTestRig {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
 
-	pairResp, err := cli.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "test-mac", DeviceFingerprint: rigDeviceFingerprint})
+	pairResp, err := cli.AuthPair(ctx, &agentrewire.AuthPairRequest{Code: code, DeviceName: "test-mac", DeviceFingerprint: string(rigDeviceFingerprint)})
 	require.NoError(t, err)
 	require.NotEmpty(t, pairResp.GetDeviceToken())
 
@@ -669,7 +670,7 @@ func (r *pairedTestRig) connectSameDevice(t *testing.T) *client.ProtobufClient {
 	cli, err := client.DialProtobuf(ctx, client.Options{URL: url})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
-	res, err := cli.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: rigDeviceFingerprint, DeviceToken: r.token})
+	res, err := cli.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: string(rigDeviceFingerprint), DeviceToken: r.token})
 	require.NoError(t, err)
 	require.True(t, res.GetOk(), "second connection of the same device must authenticate")
 	return cli
@@ -698,7 +699,7 @@ func rigtProtobufConnect(t *testing.T, d *Daemon, token string) client.ProtobufC
 	res, err := protorpc.CallMethod(callCtx, clientConn, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT), &agentrewire.AuthConnectRequest{
 		ProtocolVersion:             wireversion.Protocol,
 		MinSupportedProtocolVersion: wireversion.MinSupported,
-		DeviceFingerprint:           rigDeviceFingerprint,
+		DeviceFingerprint:           string(rigDeviceFingerprint),
 		DeviceToken:                 token,
 	}, func() *agentrewire.AuthConnectResponse { return &agentrewire.AuthConnectResponse{} })
 	require.NoError(t, err)
@@ -1345,7 +1346,7 @@ func TestIntegration_SameDeviceHeartbeatDoesNotStealRuntimeHandler(t *testing.T)
 		remote.WithConversationIDResolver(convID),
 		remote.WithPreviewSink(rig.previews),
 		remote.WithDaemonFingerprint(identity.DaemonFingerprint(rig.d.state.DaemonInstanceUUID)),
-		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
+		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return nil, "", errors.New("连接一直是活的,这条用例不该触发重连")
 		})),
 	)
@@ -1444,7 +1445,7 @@ func TestIntegration_MCPReverseTunnel(t *testing.T) {
 
 	// 模拟 daemon 上的 CLI 子进程:POST /mcp/org/,带 desktop 轮起手时签的 token。
 	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
-	httpReq, err := http.NewRequest(http.MethodPost, base+"/mcp/org/?peerFingerprint="+rigDeviceFingerprint+"&conversationId="+convID(601), strings.NewReader(reqBody))
+	httpReq, err := http.NewRequest(http.MethodPost, base+"/mcp/org/?peerFingerprint="+string(rigDeviceFingerprint)+"&conversationId="+convID(601), strings.NewReader(reqBody))
 	require.NoError(t, err)
 	httpReq.Header.Set("Authorization", "Bearer desktop-signed-tok")
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -1989,7 +1990,7 @@ func callRig(t *testing.T, cli client.ProtobufConnection, method string, params,
 	}
 	if method == wire.MethodSessionPull {
 		value := params.(wire.SessionPullParams)
-		response, err := protorpc.CallMethod(ctx, cli.Conn(), 4, &agentrewire.SessionPullRequest{ConversationId: value.ConversationID, PeerFingerprint: value.PeerFingerprint, Cursor: value.Cursor, Limit: int32(value.Limit)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
+		response, err := protorpc.CallMethod(ctx, cli.Conn(), 4, &agentrewire.SessionPullRequest{ConversationId: value.ConversationID, PeerFingerprint: string(value.PeerFingerprint), Cursor: value.Cursor, Limit: int32(value.Limit)}, func() *agentrewire.SessionPullResponse { return &agentrewire.SessionPullResponse{} })
 		if err != nil {
 			return err
 		}
@@ -2157,7 +2158,7 @@ func loginDaemonForIntegration(t *testing.T, d *Daemon, accountID string) mintAc
 	}
 }
 
-func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint string, mint mintAccountCredential) *client.ProtobufClient {
+func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint devicefp.Initiator, mint mintAccountCredential) *client.ProtobufClient {
 	t.Helper()
 	d.mu.RLock()
 	url := d.lan.URL()
@@ -2168,12 +2169,12 @@ func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint string, mi
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
 
-	result, err := cli.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: mint(fingerprint)})
+	result, err := cli.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: mint(string(fingerprint))})
 	require.NoError(t, err)
 	require.True(t, result.GetOk())
 	// 决策 8:daemon 认定的对端身份逐字等于凭据的 pfp,并回写给调用方。
-	require.Equal(t, fingerprint, result.GetPeerFingerprint())
-	require.Equal(t, fingerprint, cli.SelfFingerprint())
+	require.Equal(t, string(fingerprint), result.GetPeerFingerprint())
+	require.Equal(t, string(fingerprint), cli.SelfFingerprint())
 	return cli
 }
 
@@ -2380,8 +2381,8 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByLoggedInAccount(t
 		require.Equal(t, []string{convID(301), convID(302)}, sessionIDs(fromB.Sessions))
 		// Origin 是**相对调用方**的:自己发起的那条留空(「省略 = 调用方自己的对端」),
 		// 只有别的对端那条才带指纹。两个对端因此各自看到一份镜像的 origin 表。
-		require.Equal(t, map[string]string{convID(301): "", convID(302): "sha256:account-peer-b"}, sessionOrigins(fromA.Sessions))
-		require.Equal(t, map[string]string{convID(301): "sha256:account-peer-a", convID(302): ""}, sessionOrigins(fromB.Sessions))
+		require.Equal(t, map[string]devicefp.Initiator{convID(301): "", convID(302): "sha256:account-peer-b"}, sessionOrigins(fromA.Sessions))
+		require.Equal(t, map[string]devicefp.Initiator{convID(301): "sha256:account-peer-a", convID(302): ""}, sessionOrigins(fromB.Sessions))
 
 		var page wire.SessionPullResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionPull, wire.SessionPullParams{
@@ -2432,7 +2433,7 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByLoggedInAccount(t
 		var list wire.SessionListResult
 		require.NoError(t, callRig(t, peerA, wire.MethodSessionList, nil, &list))
 		require.Equal(t, []string{convID(302)}, sessionIDs(list.Sessions))
-		require.Equal(t, map[string]string{convID(302): "sha256:account-peer-b"}, sessionOrigins(list.Sessions),
+		require.Equal(t, map[string]devicefp.Initiator{convID(302): "sha256:account-peer-b"}, sessionOrigins(list.Sessions),
 			"这一轮必须落在发起端那条会话上,而不是调用方自己名下那条同号会话")
 
 		// 这一轮的转录落在发起端那条会话上,发起端补齐时读得到。
@@ -2467,7 +2468,7 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByLoggedInAccount(t
 
 		var list wire.SessionListResult
 		require.NoError(t, callRig(t, viaAccount, wire.MethodSessionList, nil, &list))
-		assert.Equal(t, map[string]string{convID(601): ""}, sessionOrigins(list.Sessions),
+		assert.Equal(t, map[string]devicefp.Initiator{convID(601): ""}, sessionOrigins(list.Sessions),
 			"调用方自己发起的会话,清单交出的 origin 必须为空")
 
 		// 路径切回直连:配对鉴权的那条连接把清单里学到的 origin 原样带回来。
@@ -2669,8 +2670,8 @@ func sessionIDs(sessions []wire.SessionSummary) []string {
 	return ids
 }
 
-func sessionOrigins(sessions []wire.SessionSummary) map[string]string {
-	origins := make(map[string]string, len(sessions))
+func sessionOrigins(sessions []wire.SessionSummary) map[string]devicefp.Initiator {
+	origins := make(map[string]devicefp.Initiator, len(sessions))
 	for _, session := range sessions {
 		origins[session.ConversationID] = session.PeerFingerprint
 	}
@@ -3269,15 +3270,15 @@ func newRecordingClient(t *testing.T, conn client.ProtobufConnection, rec *notif
 // 而本用例要验的是「按游标补齐」的行为,不是它存在哪一列。
 type memCursor struct {
 	mu   sync.Mutex
-	fp   string
+	fp   devicefp.Carrier
 	seqs map[int64]int64
 }
 
-func newMemCursor(fp string) *memCursor {
+func newMemCursor(fp devicefp.Carrier) *memCursor {
 	return &memCursor{fp: fp, seqs: map[int64]int64{}}
 }
 
-func (m *memCursor) LoadCursor(_ context.Context, sessionID int64, fp string) (int64, bool, error) {
+func (m *memCursor) LoadCursor(_ context.Context, sessionID int64, fp devicefp.Carrier) (int64, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if fp != m.fp {
@@ -3287,7 +3288,7 @@ func (m *memCursor) LoadCursor(_ context.Context, sessionID int64, fp string) (i
 	return m.seqs[sessionID], true, nil
 }
 
-func (m *memCursor) SaveCursor(_ context.Context, sessionID int64, fp string, seq int64) error {
+func (m *memCursor) SaveCursor(_ context.Context, sessionID int64, fp devicefp.Carrier, seq int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if fp != m.fp {
@@ -3319,7 +3320,7 @@ func (r *pairedTestRig) durableRunner(
 		remote.WithReconnectBackoff([]time.Duration{
 			10 * time.Millisecond, 50 * time.Millisecond, 200 * time.Millisecond, time.Second,
 		}),
-		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
+		remote.WithReconnect(remote.ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			// gate 让用例决定「什么时候才允许重连」。用它把重连推到 daemon 把整轮
 			// 都落完库之后,补齐就必然经 runtime.session.pull 拿回来 —— 否则重连
 			// 恰好赶在事件产生之前,一切照旧走实时推送,这个用例就什么也没验到。
@@ -3677,7 +3678,7 @@ func joinTextDeltas(events []agentruntime.Event) string {
 }
 
 // SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
-func (c *rigProtobufConnection) SelfFingerprint() string { return rigDeviceFingerprint }
+func (c *rigProtobufConnection) SelfFingerprint() string { return string(rigDeviceFingerprint) }
 
 // ── 转录存储对齐:agentred 落块,不再落通知日志 ───────────────────────────────
 
@@ -4069,7 +4070,7 @@ func TestIntegration_SteerConsumed_SegmentsTheHostTranscript(t *testing.T) {
 		"插话之前那一段就此收口,不再与后半段并成一个块")
 	assert.Equal(t, "user", messages[2].Role)
 	assert.Equal(t,
-		`[{"type":"text","data":{"sourceDevice":"`+rigDeviceFingerprint+`","sourceDeviceName":"test-mac",`+
+		`[{"type":"text","data":{"sourceDevice":"`+string(rigDeviceFingerprint)+`","sourceDeviceName":"test-mac",`+
 			`"text":"follow-up-from-user"}}]`,
 		messages[2].BlocksJSON,
 		"插话落成一行用户消息,并带**提交方**的来源标识(R17)")
@@ -4298,7 +4299,7 @@ func TestIntegration_SteerWhileToolNeverResolves_SegmentsAnyway(t *testing.T) {
 		messages[1].BlocksJSON,
 		"永远等不到 tool_result 的那一段就此收口,推迟必须是有界的")
 	assert.Equal(t,
-		`[{"type":"text","data":{"sourceDevice":"`+rigDeviceFingerprint+`","sourceDeviceName":"test-mac",`+
+		`[{"type":"text","data":{"sourceDevice":"`+string(rigDeviceFingerprint)+`","sourceDeviceName":"test-mac",`+
 			`"text":"never-resolving-steer"}}]`,
 		messages[2].BlocksJSON,
 		"插话落成一行用户消息 —— 拖到轮末就会被 finish 连同 pendingSteers 一起丢掉")
@@ -4343,7 +4344,7 @@ func TestIntegration_SteerAsTheLastEventOfTheTurn_StillLandsAtFinish(t *testing.
 		daemonRoleSummary(messages))
 
 	assert.Equal(t,
-		`[{"type":"text","data":{"sourceDevice":"`+rigDeviceFingerprint+`","sourceDeviceName":"test-mac",`+
+		`[{"type":"text","data":{"sourceDevice":"`+string(rigDeviceFingerprint)+`","sourceDeviceName":"test-mac",`+
 			`"text":"last-word"}}]`,
 		messages[2].BlocksJSON,
 		"轮末那一刻仍要落下插话那一行")

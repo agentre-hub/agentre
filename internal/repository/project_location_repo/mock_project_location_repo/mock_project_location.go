@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	project_location_entity "github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -85,7 +86,7 @@ func (mr *MockProjectLocationRepoMockRecorder) FindByProjectAndDevice(ctx, proje
 }
 
 // FindByProjectAndFingerprint mocks base method.
-func (m *MockProjectLocationRepo) FindByProjectAndFingerprint(ctx context.Context, projectID int64, fingerprint string) (*project_location_entity.ProjectLocation, error) {
+func (m *MockProjectLocationRepo) FindByProjectAndFingerprint(ctx context.Context, projectID int64, fingerprint devicefp.Carrier) (*project_location_entity.ProjectLocation, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindByProjectAndFingerprint", ctx, projectID, fingerprint)
 	ret0, _ := ret[0].(*project_location_entity.ProjectLocation)

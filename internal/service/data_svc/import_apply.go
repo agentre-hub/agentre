@@ -26,6 +26,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ApplyImport 按 actions 写入,整批事务。
@@ -473,7 +475,7 @@ func applyAgentBackends(ctx context.Context, b BundleV1, actions map[string]Item
 	return nil
 }
 
-func importBackendDeviceID(ctx context.Context, bk BundleAgentBackend, km *keyMap, deviceRefs *deviceRefResolver) (string, error) {
+func importBackendDeviceID(ctx context.Context, bk BundleAgentBackend, km *keyMap, deviceRefs *deviceRefResolver) (devicefp.Carrier, error) {
 	if bk.DeviceID == "" {
 		return "", nil
 	}
@@ -485,10 +487,13 @@ func importBackendDeviceID(ctx context.Context, bk BundleAgentBackend, km *keyMa
 	if !ok {
 		return "", i18n.NewError(ctx, code.DataImportDanglingRef)
 	}
-	return strconv.FormatInt(id, 10), nil
+	// 注意：这里回的是 paired_agentreds 的**数字 id**，却会被写进 device_fingerprint
+	// 列。这不是指纹（就是 be367651 那一类的键混用），行为照旧不动；export 侧的
+	// deviceUUIDByRowID 与它配对，只认得这种老值。
+	return devicefp.Carrier(strconv.FormatInt(id, 10)), nil
 }
 
-func newBackendEntity(bk BundleAgentBackend, now int64, deviceID string) (*agent_backend_entity.AgentBackend, error) {
+func newBackendEntity(bk BundleAgentBackend, now int64, deviceID devicefp.Carrier) (*agent_backend_entity.AgentBackend, error) {
 	modelRoutes, err := marshalBundleRoutes(bk.ModelRoutes)
 	if err != nil {
 		return nil, err
@@ -512,7 +517,7 @@ func newBackendEntity(bk BundleAgentBackend, now int64, deviceID string) (*agent
 	}, nil
 }
 
-func assignBackendFields(ctx context.Context, local *agent_backend_entity.AgentBackend, bk BundleAgentBackend, now int64, deviceID string) error {
+func assignBackendFields(ctx context.Context, local *agent_backend_entity.AgentBackend, bk BundleAgentBackend, now int64, deviceID devicefp.Carrier) error {
 	modelRoutes, err := marshalBundleRoutes(bk.ModelRoutes)
 	if err != nil {
 		return i18n.NewError(ctx, code.DataBundleFormatInvalid)

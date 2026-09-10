@@ -21,6 +21,7 @@ import (
 type MockFrameSeqRepo struct {
 	ctrl     *gomock.Controller
 	recorder *MockFrameSeqRepoMockRecorder
+	isgomock struct{}
 }
 
 // MockFrameSeqRepoMockRecorder is the mock recorder for MockFrameSeqRepo.

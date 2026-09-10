@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // 会话级 LLM 供应商：切换入口 + 有效供应商解析的唯一口径。
@@ -296,7 +297,7 @@ func sessionProviderBackend(ctx context.Context, sess *chat_entity.Session) (*ag
 	if a == nil {
 		return nil, i18n.NewError(ctx, code.AgentNotFound)
 	}
-	backendID := sessionBackendID(sess, a)
+	backendID := exec_target_svc.SessionBackendID(sess, a)
 	if backendID <= 0 {
 		return nil, i18n.NewError(ctx, code.ChatAgentNoBackend)
 	}

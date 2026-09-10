@@ -15,7 +15,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // SessionDeleteDeps 是 SessionDeleteHandlers 的显式构造入参。
@@ -46,17 +47,18 @@ func NewSessionDeleteHandlers(deps SessionDeleteDeps) *SessionDeleteHandlers {
 // 按现在的顺序,中途失败留下的是一段没人引用的日志,下一次重试(server 那条删除待办
 // 会重放)照样把它清掉:日志那一步**不因为会话行已经不在就跳过**,重试才收敛得了。
 //
-// 幂等:会话早就不在时删掉零行、照样报成功(见 wire.SessionDeleteResult 的说明)。
-func (h *SessionDeleteHandlers) Delete(ctx context.Context, p wire.SessionDeleteParams) (wire.SessionDeleteResult, error) {
-	if err := ErrInvalidConversationID(p.ConversationID); err != nil {
+// 幂等:会话早就不在时删掉零行、照样报成功。
+func (h *SessionDeleteHandlers) Delete(ctx context.Context, req *agentrewire.SessionDeleteRequest) (*agentrewire.SessionDeleteResponse, error) {
+	conversationID := req.GetConversationId()
+	if err := ErrInvalidConversationID(conversationID); err != nil {
 		// 不是一条对话身份就删不到任何东西,却会让调用方收到「删好了」。
-		return wire.SessionDeleteResult{}, err
+		return nil, err
 	}
-	peer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.LoggedInAccountID)
+	peer, err := ResolveSessionPeer(ctx, devicefp.Initiator(req.GetPeerFingerprint()), h.deps.LoggedInAccountID)
 	if err != nil {
-		return wire.SessionDeleteResult{}, err
+		return nil, err
 	}
-	sid := p.ConversationID
+	sid := conversationID
 	// 先清转录、再删身份行:转录按**本机会话主键**挂靠,而收窄到调用方对端的那一步
 	// 认的就是身份行(见 daemon.transcriptPurger)。反过来的话身份行先没了,收窄找不到
 	// 会话,那段转录就成了没有主人的孤儿 —— 而会话号会被复用,它下一次会被当成新会话
@@ -64,18 +66,18 @@ func (h *SessionDeleteHandlers) Delete(ctx context.Context, p wire.SessionDelete
 	purged, err := h.deps.Transcript.DeleteAll(ctx, peer, sid)
 	if err != nil {
 		// 交出成功会让 server 把待办勾掉,那段转录就永远留在这台机器上了。
-		return wire.SessionDeleteResult{}, fmt.Errorf("purge session transcript: %w", err)
+		return nil, fmt.Errorf("purge session transcript: %w", err)
 	}
 	rows, err := h.deps.Sessions.Delete(ctx, peer, sid)
 	if err != nil {
-		return wire.SessionDeleteResult{}, fmt.Errorf("delete session: %w", err)
+		return nil, fmt.Errorf("delete session: %w", err)
 	}
 	// 会话已经不存在了,它在本机常驻的 CLI 子进程再也不会被任何一轮用到:不放掉的话
 	// 它只能等 idle 上限把自己挤出去,否则一直活到 daemon 退出。释放用的会话键与
 	// runtime.run 交给 backend 的是同一个,否则放的是另一条会话。
-	agentruntime.CloseSessionEverywhere(ctx, runtimeSessionID(p.ConversationID))
+	agentruntime.CloseSessionEverywhere(ctx, runtimeSessionID(conversationID))
 	logger.Ctx(ctx).Info("handlers.SessionDeleteHandlers.Delete: session removed",
-		zap.String("conversationId", p.ConversationID), zap.Int64("sessionRows", rows),
+		zap.String("conversationId", conversationID), zap.Int64("sessionRows", rows),
 		zap.Int64("transcriptRows", purged))
-	return wire.SessionDeleteResult{Deleted: true}, nil
+	return &agentrewire.SessionDeleteResponse{Deleted: true}, nil
 }

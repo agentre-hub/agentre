@@ -19,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // turn_run_durable_test.go 钉住「宿主分段之后发来的那一行用户消息」在**哪条流**上被
@@ -120,7 +121,7 @@ func TestTurnRun_DurableUserMessageWithSource_SegmentsOnTheDurableStream(t *test
 	assert.Equal(t, StreamSteerConsumed, got.Kind)
 	require.Len(t, got.UserMessages, 1, "插话那一行必须随事件交给前端")
 	assert.Equal(t, "follow-up", got.UserMessages[0].Blocks[0].Text)
-	assert.Equal(t, "sha256:peer", got.UserMessages[0].SourceDevice,
+	assert.Equal(t, devicefp.Initiator("sha256:peer"), got.UserMessages[0].SourceDevice,
 		"提交方来源要一路带到前端 —— 它是「谁说的」唯一依据")
 	require.NotNil(t, got.AssistantMessage, "分段必须带上新一段 assistant")
 	assert.NotSame(t, rig.assistant, rig.tr.assistantMsg, "后半段要落进新开的那条 assistant")
@@ -162,5 +163,5 @@ func TestTurnRun_DurableUserMessageWhileToolInFlight_DefersTheSegmentation(t *te
 	assert.Same(t, rig.assistant, rig.tr.assistantMsg)
 	require.Len(t, rig.tr.pendingSteers, 1, "插话要攒着,等工具收口再分段")
 	assert.Equal(t, "mid-tool", rig.tr.pendingSteers[0].Text)
-	assert.Equal(t, "sha256:peer", rig.tr.pendingSteers[0].SourcePeer)
+	assert.Equal(t, devicefp.Initiator("sha256:peer"), rig.tr.pendingSteers[0].SourcePeer)
 }

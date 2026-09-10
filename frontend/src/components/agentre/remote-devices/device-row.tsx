@@ -226,14 +226,23 @@ function upgradeOwnsFeedback(phase: UpgradePhase): boolean {
     case "timeout":
       return true;
     case "failed":
-      return phase.message !== "";
+      // 认得出原因时就有话可说,message 空不空都不影响。
+      return phase.reason !== null || phase.message !== "";
     default:
       // idle 与 active-turns 在这块位置上什么都不画（后者改的是菜单文案）。
       return false;
   }
 }
 
-function UpgradeStatus({ phase, t }: { phase: UpgradePhase; t: TFunction }) {
+function UpgradeStatus({
+  phase,
+  deviceId,
+  t,
+}: {
+  phase: UpgradePhase;
+  deviceId: number;
+  t: TFunction;
+}) {
   if (phase.kind === "requesting") {
     // 这一段能长达几分钟:受理判定在那台机器上把下载与校验都做完了才应答。说清楚
     // 它在做什么,比一个转着的图标更能让人不去点第二次。
@@ -290,10 +299,69 @@ function UpgradeStatus({ phase, t }: { phase: UpgradePhase; t: TFunction }) {
       </div>
     );
   }
-  if (phase.kind === "failed" && phase.message) {
-    return <div className="text-xs text-muted-foreground">{phase.message}</div>;
+  if (phase.kind === "failed") {
+    return <UpgradeFailure phase={phase} deviceId={deviceId} t={t} />;
   }
   return null;
+}
+
+/**
+ * 一次失败该说什么。
+ *
+ * 原因是 daemon 给的**结构化枚举**,所以这里说的是人话;`phase.message` 是它那句
+ * Go 原话(`cannot replace …: permission denied; re-run with …`),降级成等宽小字的
+ * 技术细节——认不出原因时它是唯一剩下的线索,认得出时它只是佐证。桌面端自己的
+ * 应用更新面板(update-panel.tsx)对错误详情用的是同一种呈现。
+ */
+const FAILURE_COPY: Record<string, { title: string; body: string }> = {
+  in_progress: {
+    title: "remoteDevices.upgrade.failed.inProgressTitle",
+    body: "remoteDevices.upgrade.failed.inProgressBody",
+  },
+  not_writable: {
+    title: "remoteDevices.upgrade.failed.notWritableTitle",
+    body: "remoteDevices.upgrade.failed.notWritableBody",
+  },
+  already_latest: {
+    title: "remoteDevices.upgrade.failed.alreadyLatestTitle",
+    body: "remoteDevices.upgrade.failed.alreadyLatestBody",
+  },
+  download_failed: {
+    title: "remoteDevices.upgrade.failed.downloadFailedTitle",
+    body: "remoteDevices.upgrade.failed.downloadFailedBody",
+  },
+};
+
+function UpgradeFailure({
+  phase,
+  deviceId,
+  t,
+}: {
+  phase: Extract<UpgradePhase, { kind: "failed" }>;
+  deviceId: number;
+  t: TFunction;
+}) {
+  const copy = phase.reason ? FAILURE_COPY[phase.reason] : undefined;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
+      <div className="text-xs font-semibold text-destructive">
+        {t(copy?.title ?? "remoteDevices.upgrade.failed.unknownTitle")}
+      </div>
+      {copy ? (
+        <div className="text-xs text-muted-foreground">{t(copy.body)}</div>
+      ) : null}
+      {phase.message ? (
+        <div data-selectable-text="true">
+          <pre
+            data-testid={`device-upgrade-detail-${deviceId}`}
+            className="overflow-x-auto whitespace-pre-wrap font-mono text-2xs leading-relaxed text-muted-foreground"
+          >
+            {phase.message}
+          </pre>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /** 活跃轮次的二次确认(决策 8/21):只有点了这里的「仍然升级」,force=true
@@ -323,7 +391,11 @@ function ActiveTurnsConfirm({
           </DialogTitle>
         </DialogHeader>
         <DialogBody>
-          <p className="text-sm text-muted-foreground">{phase.message}</p>
+          {/* 标题已经用结构化的 activeTurns 说了「还有 N 条在跑」;正文说后果,
+              而不是把 daemon 那句英文原话再贴一遍。 */}
+          <p className="text-sm text-muted-foreground">
+            {t("remoteDevices.upgrade.confirm.body")}
+          </p>
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={upgrade.cancelForce}>
@@ -509,7 +581,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
       {versionState.kind === "protocol-mismatch" ? (
         <ProtocolTooOld t={t} />
       ) : upgradeOwnsFeedback(upgrade.phase) ? (
-        <UpgradeStatus phase={upgrade.phase} t={t} />
+        <UpgradeStatus phase={upgrade.phase} deviceId={lan?.id ?? 0} t={t} />
       ) : friendlyErr ? (
         <div
           className={`text-xs ${isTofu ? "text-destructive" : "text-muted-foreground"}`}

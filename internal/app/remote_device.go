@@ -38,9 +38,12 @@ func (a *App) RemoteDeviceRename(id int64, name string) error {
 
 // RemoteDeviceFingerprint 返回本机设备指纹(与 LAN 配对 / 账号登录共用,见 R5)。
 // 前端用它判定一条用户消息是不是本机发出的(R17:本机不带来源标识)。
+// 返回值保持裸 string:理由同 App.PeerDetach —— Wails codegen 只为结构体字段生成
+// TS 类型,方法签名上的具名 Go 类型会指向不存在的命名空间。
 func (a *App) RemoteDeviceFingerprint() (string, error) {
 	if svc := remote_device_svc.Default(); svc != nil {
-		return svc.DeviceFingerprint()
+		fp, err := svc.DeviceFingerprint()
+		return string(fp), err
 	}
 	return "", errors.New("remote device service unavailable")
 }

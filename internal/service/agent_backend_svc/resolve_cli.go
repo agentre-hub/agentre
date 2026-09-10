@@ -11,6 +11,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ResolveCLIPath 把 CLI 后端类型解析成「目标机」CLI 搜索路径中的可执行文件绝对路径。
@@ -29,7 +31,7 @@ func (s *agentBackendSvc) ResolveCLIPath(ctx context.Context, req *ResolveCLIPat
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
 	t := strings.TrimSpace(req.Type)
-	deviceID, hasDevice, err := localPairedDeviceID(ctx, strings.TrimSpace(req.DeviceID))
+	deviceID, hasDevice, err := localPairedDeviceID(ctx, devicefp.Carrier(strings.TrimSpace(req.DeviceID)))
 	if err != nil {
 		if errors.Is(err, ErrRemoteDeviceNotFound) {
 			return nil, i18n.NewError(ctx, code.RemoteDeviceNotFound)

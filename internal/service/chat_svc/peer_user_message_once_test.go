@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // Given 一条由带设备身份的对端(浏览器控制台 / 手机)提交进来的轮次;
@@ -68,6 +69,6 @@ func TestEmitTurnStarted_GivenPeerSubmittedTurn_ThenTheUserMessageGoesOutExactly
 
 	require.Len(t, got, 1, "同一句话只该发一条 user_message 帧,得到 %d 条", len(got))
 	assert.False(t, got[0].Preview, "留下的那条必须是持久帧:预览帧不带号、不进转录、也不参与补齐")
-	assert.Equal(t, "fp-web", got[0].Event.(agentruntime.UserMessageEvent).SourceDevice,
+	assert.Equal(t, devicefp.Initiator("fp-web"), got[0].Event.(agentruntime.UserMessageEvent).SourceDevice,
 		"来源随用户那一行走,不靠另发一条帧捎带")
 }

@@ -2,6 +2,12 @@ import { toast } from "sonner";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import {
+  previewKind,
+  type PreviewAnchor,
+  type PreviewRevealTarget,
+} from "@agentre-hub/agentre-ui";
+
 import i18n from "@/i18n";
 
 /** 预览面板按文件类型提供的视图档位（spec 决策 7）；diff 已随需求修订去掉，仅 markdown 有意义。 */
@@ -26,7 +32,39 @@ export type FilePreviewTab = {
   isPreview: boolean;
   isPinned: boolean;
   activatedAt: number;
+  /**
+   * 这个标签要定位到的那一段：转录里点了一条带行号的链接（`script.ts:311-330`）
+   * 才有，其余情况恒为 null。
+   *
+   * **不跨重启存活**：它是一次导航而不是标签的属性，持久化会让重启后第一次渲染
+   * 无缘无故跳一次。写出去的那份由 sanitizeTab 在读回来时一律置 null（规格
+   * 决策 3）——注意它只是不被采信，并不会连累整条标签被丢弃。
+   */
+  reveal: PreviewRevealTarget | null;
 };
+
+// 每记一次定位目标自增一次。同一条链接被重复点击时 path 与行号都不变，nonce 是
+// 唯一会变的东西，也是「再滚一次」在数据上的全部表达（规格决策 2）。
+let revealNonce = 0;
+
+function mintReveal(
+  anchor: PreviewAnchor | undefined,
+): PreviewRevealTarget | null {
+  if (!anchor) return null;
+  revealNonce += 1;
+  return { ...anchor, nonce: revealNonce };
+}
+
+// markdown 的 render 档没有行的概念，带着行号开进去就定位不上。新开标签因此落在
+// text 档；已经开着的标签不动它自己选定的档位（规格决策 4）。
+function initialSegment(
+  path: string,
+  anchor: PreviewAnchor | undefined,
+  inherited: FilePreviewSegment | null,
+): FilePreviewSegment | null {
+  if (anchor && previewKind(path) === "markdown") return "text";
+  return inherited;
+}
 
 /** 一个会话打开的整组预览标签与当前活动标签。 */
 export type SessionPreviewTabs = {
@@ -51,6 +89,7 @@ type FilePreviewTabsState = {
     sessionId: number,
     path: string,
     sourceMode: PreviewSourceMode,
+    anchor?: PreviewAnchor,
   ) => FilePreviewTab | null;
   /** 双击 / 右键「在新标签页预览」：直接开常驻标签；文件已打开则激活并转常驻。 */
   openPreviewInNewTab: (
@@ -138,6 +177,8 @@ function sanitizeTab(value: unknown): FilePreviewTab | null {
     isPreview: tab.isPreview,
     isPinned: tab.isPinned,
     activatedAt: tab.activatedAt,
+    // 持久化里带没带这个字段都不采信：定位是一次导航，重启后不该再发生一次。
+    reveal: null,
   };
 }
 
@@ -366,7 +407,7 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
   persist(
     (set) => ({
       previewTabsBySession: {},
-      openPreview: (sessionId, path, sourceMode) => {
+      openPreview: (sessionId, path, sourceMode, anchor) => {
         if (!isOpenable(sessionId, path, sourceMode)) return null;
         let clobbered: FilePreviewTab | null = null;
         set((state) => {
@@ -375,12 +416,16 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
           if (existing >= 0) {
             // 已打开的文件被再次单击：激活既有标签，不新建、也不降级成临时标签；
             // 但入口模式仍决定首视图（决策 9），从另一个模式点进来要重设。什么也
-            // 没被替换掉，返回 null。
-            return commit(
-              state,
-              sessionId,
-              retarget(activate(entry, existing), existing, sourceMode),
+            // 没被替换掉，返回 null。定位目标每次重记（没带行号就清空，否则上一
+            // 次跳过的位置会挂在标签上一直生效）。
+            const retargeted = retarget(
+              activate(entry, existing),
+              existing,
+              sourceMode,
             );
+            const tabs = [...retargeted.tabs];
+            tabs[existing] = { ...tabs[existing], reveal: mintReveal(anchor) };
+            return commit(state, sessionId, { ...retargeted, tabs });
           }
           const previewIdx = entry.tabs.findIndex((tab) => tab.isPreview);
           const replaced = previewIdx >= 0 ? entry.tabs[previewIdx] : null;
@@ -389,14 +434,18 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
             path,
             // 入口模式决定首视图：临时标签被同模式的下一个文件原地替换时保留
             // markdown 档位，换模式则回默认档（spec 决策 9 / 12）。
-            segment:
+            segment: initialSegment(
+              path,
+              anchor,
               replaced && replaced.sourceMode === sourceMode
                 ? replaced.segment
                 : null,
+            ),
             sourceMode,
             isPreview: true,
             isPinned: false,
             activatedAt: stamp(),
+            reveal: mintReveal(anchor),
           };
           if (replaced) {
             const tabs = [...entry.tabs];
@@ -431,6 +480,7 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
             isPreview: false,
             isPinned: false,
             activatedAt: stamp(),
+            reveal: null,
           };
           return commitOrWarn(state, sessionId, insertTab(entry, tab));
         });

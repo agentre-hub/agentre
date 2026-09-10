@@ -36,6 +36,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -43,15 +44,15 @@ import (
 // 按 ISP 在消费方声明 —— daemon 那份实现同时满足 handlers 的读写端口,这里只取本
 // 路径真正调用的那几个方法。
 type SessionStore interface {
-	Find(ctx context.Context, peerFingerprint, peerSessionID string) (*handlers.SessionRecord, error)
-	List(ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter, offset, limit int) ([]handlers.SessionRecord, error)
+	Find(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (*handlers.SessionRecord, error)
+	List(ctx context.Context, peerFingerprint devicefp.Initiator, filter handlers.SessionListFilter, offset, limit int) ([]handlers.SessionRecord, error)
 	Start(ctx context.Context, rec handlers.SessionRecord) error
 }
 
 // SessionDeleter 删掉一条会话的身份行(同 handlers.SessionDeletePort)。本路径只在
 // 回放失败的撤销上用它,见文件头的落库顺序。
 type SessionDeleter interface {
-	Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+	Delete(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 }
 
 // Transcript 落库这条对话的转录(同 handlers.TranscriptPort)。回放出的每一轮都从
@@ -64,7 +65,7 @@ type Transcript interface {
 // TranscriptPurger 清空某会话的全部转录(同 handlers.TranscriptPurgePort)。本路径
 // 用它清「同号残留」,以及回放失败时撤掉这一次写进去的东西,见文件头的落库顺序。
 type TranscriptPurger interface {
-	DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
+	DeleteAll(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 }
 
 // Execute 在这台机器上执行一次导入。
@@ -174,7 +175,7 @@ type replayCounters struct {
 // 号被**另一条**会话占着时报 ErrSessionInUse:会话 id 各客户端本地自增、必然重号,
 // 直接 Upsert 会把那条会话的身份行改写成一份磁盘转录的元信息。
 func (h *Handlers) findImported(
-	ctx context.Context, peer, peerSessionID, providerSessionID string,
+	ctx context.Context, peer devicefp.Initiator, peerSessionID, providerSessionID string,
 ) (*handlers.SessionRecord, error) {
 	if providerSessionID != "" {
 		// 判重要看这个对端的**全部**会话:命中与否取决于 provider_session_id,
@@ -202,7 +203,7 @@ func (h *Handlers) findImported(
 }
 
 // clearLeftoverTranscript 清掉同号的残留转录(上一次导入写到一半留下的)。
-func (h *Handlers) clearLeftoverTranscript(ctx context.Context, peer, peerSessionID string) error {
+func (h *Handlers) clearLeftoverTranscript(ctx context.Context, peer devicefp.Initiator, peerSessionID string) error {
 	if h.transcriptPurge == nil {
 		return nil
 	}
@@ -219,7 +220,7 @@ func (h *Handlers) clearLeftoverTranscript(ctx context.Context, peer, peerSessio
 
 // rollbackFailedImport 撤掉这一次写进去的东西:先清转录,再删身份行。尽力而为 ——
 // 撤不掉只记日志,原本那个回放错误才是调用方该看到的。
-func (h *Handlers) rollbackFailedImport(ctx context.Context, peer, peerSessionID string) {
+func (h *Handlers) rollbackFailedImport(ctx context.Context, peer devicefp.Initiator, peerSessionID string) {
 	if err := h.clearLeftoverTranscript(ctx, peer, peerSessionID); err != nil {
 		logger.Ctx(ctx).Warn("daemon.transcriptimport.Execute: rollback transcript failed",
 			zap.String("peerSessionId", peerSessionID), zap.Error(err))

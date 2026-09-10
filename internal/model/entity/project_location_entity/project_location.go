@@ -19,18 +19,20 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ProjectLocation 远端 agentred 下某个 project 的绝对路径记录。
 type ProjectLocation struct {
-	ID                int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	ProjectID         int64  `gorm:"column:project_id;type:bigint;not null"`
-	DeviceID          string `gorm:"column:device_id;type:text;not null;default:''"`
-	DeviceFingerprint string `gorm:"column:device_fingerprint;type:text;not null;default:''"`
-	Path              string `gorm:"column:path;type:text;not null"`
-	Status            int    `gorm:"column:status;type:int;not null;default:1"`
-	Createtime        int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime        int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	ID                int64            `gorm:"column:id;primaryKey;autoIncrement"`
+	ProjectID         int64            `gorm:"column:project_id;type:bigint;not null"`
+	DeviceID          string           `gorm:"column:device_id;type:text;not null;default:''"`
+	DeviceFingerprint devicefp.Carrier `gorm:"column:device_fingerprint;type:text;not null;default:''"`
+	Path              string           `gorm:"column:path;type:text;not null"`
+	Status            int              `gorm:"column:status;type:int;not null;default:1"`
+	Createtime        int64            `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime        int64            `gorm:"column:updatetime;type:bigint;not null;default:0"`
 	// SyncMeta 账号级同步元数据（R1，366 行；决策 26 的自然键另见 device_fingerprint）。
 	syncmeta_entity.SyncMeta `gorm:"embedded"`
 }
@@ -60,7 +62,7 @@ func (p *ProjectLocation) Check(ctx context.Context) error {
 	if !strings.HasPrefix(p.Path, "/") {
 		return i18n.NewError(ctx, code.ProjectLocationInvalidPath)
 	}
-	if strings.TrimSpace(p.DeviceFingerprint) == "" {
+	if strings.TrimSpace(string(p.DeviceFingerprint)) == "" {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	return nil

@@ -18,6 +18,7 @@ import (
 	repomock "github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	svcmock "github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -248,10 +249,10 @@ func TestPool_Borrow_ColdStart(t *testing.T) {
 // stubRelayDial 是一个可控的 RelayDialPort 假替身,用于验证 Borrow 的并发选路。
 // 未提供 open 时固定失败。
 type stubRelayDial struct {
-	open func(ctx context.Context, daemonFP, peerFP string) (client.ProtobufConnection, error)
+	open func(ctx context.Context, daemonFP devicefp.Carrier, peerFP devicefp.Initiator) (client.ProtobufConnection, error)
 }
 
-func (s stubRelayDial) Open(ctx context.Context, daemonFP, peerFP string) (client.ProtobufConnection, error) {
+func (s stubRelayDial) Open(ctx context.Context, daemonFP devicefp.Carrier, peerFP devicefp.Initiator) (client.ProtobufConnection, error) {
 	if s.open == nil {
 		return nil, errors.New("relay not stubbed")
 	}
@@ -260,8 +261,9 @@ func (s stubRelayDial) Open(ctx context.Context, daemonFP, peerFP string) (clien
 
 func TestPool_Borrow_RelayConfigured_LANWinsWhenRelayUnavailable(t *testing.T) {
 	Convey("relay configured but unavailable: LAN path wins (one path down is not failure, R6)", t, func() {
-		var gotDaemonFP, gotPeerFP string
-		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, daemonFP, peerFP string) (client.ProtobufConnection, error) {
+		var gotDaemonFP devicefp.Carrier
+		var gotPeerFP devicefp.Initiator
+		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, daemonFP devicefp.Carrier, peerFP devicefp.Initiator) (client.ProtobufConnection, error) {
 			gotDaemonFP, gotPeerFP = daemonFP, peerFP
 			return nil, errors.New("relay unreachable")
 		}}))
@@ -274,15 +276,15 @@ func TestPool_Borrow_RelayConfigured_LANWinsWhenRelayUnavailable(t *testing.T) {
 		So(lease, ShouldNotBeNil)
 		So(lease.Client(), ShouldNotBeNil)
 		// R5 硬不变量:relay 目标 = daemon 指纹;对端标识 = 桌面端 keychain 指纹。
-		So(gotDaemonFP, ShouldEqual, "sha256:abc")
-		So(gotPeerFP, ShouldEqual, "fp-x")
+		So(gotDaemonFP, ShouldEqual, devicefp.Carrier("sha256:abc"))
+		So(gotPeerFP, ShouldEqual, devicefp.Initiator("fp-x"))
 	})
 }
 
 func TestPool_Borrow_RelayConfigured_RelayWinsWhenLANUnavailable(t *testing.T) {
 	Convey("relay configured and LAN down: relay path wins", t, func() {
 		relayClient := stubClient()
-		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _, _ string) (client.ProtobufConnection, error) {
+		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _ devicefp.Carrier, _ devicefp.Initiator) (client.ProtobufConnection, error) {
 			return relayClient, nil
 		}}))
 		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
@@ -300,7 +302,7 @@ func TestPool_Borrow_RelayConfigured_RelayWinsWhenLANUnavailable(t *testing.T) {
 // 自己的 daemon。R6 要求的「两条路径各自的原因」同时保留。
 func TestPool_Borrow_RelayConfigured_LANUnauthorized_StaysDeviceUnauthorized(t *testing.T) {
 	Convey("relay configured and LAN rejects credentials: still ErrDeviceUnauthorized, both reasons kept", t, func() {
-		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _, _ string) (client.ProtobufConnection, error) {
+		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _ devicefp.Carrier, _ devicefp.Initiator) (client.ProtobufConnection, error) {
 			return nil, errors.New("relay down")
 		}}))
 		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
@@ -315,7 +317,7 @@ func TestPool_Borrow_RelayConfigured_LANUnauthorized_StaysDeviceUnauthorized(t *
 
 func TestPool_Borrow_RelayConfigured_BothFail_ReportsBothReasons(t *testing.T) {
 	Convey("both paths fail: error names each path's reason (R6)", t, func() {
-		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _, _ string) (client.ProtobufConnection, error) {
+		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _ devicefp.Carrier, _ devicefp.Initiator) (client.ProtobufConnection, error) {
 			return nil, errors.New("relay down")
 		}}))
 		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
@@ -334,8 +336,9 @@ func TestPool_Borrow_RelayConfigured_BothFail_ReportsBothReasons(t *testing.T) {
 func TestPool_Borrow_RelayOnlyRow_SkipsTheDirectPathEntirely(t *testing.T) {
 	Convey("relay-only row: never dials direct, connects over the relay", t, func() {
 		relayClient := stubClient()
-		var gotDaemonFP, gotPeerFP string
-		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, daemonFP, peerFP string) (client.ProtobufConnection, error) {
+		var gotDaemonFP devicefp.Carrier
+		var gotPeerFP devicefp.Initiator
+		f := newPoolFixture(t, remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, daemonFP devicefp.Carrier, peerFP devicefp.Initiator) (client.ProtobufConnection, error) {
 			gotDaemonFP, gotPeerFP = daemonFP, peerFP
 			return relayClient, nil
 		}}))
@@ -346,8 +349,8 @@ func TestPool_Borrow_RelayOnlyRow_SkipsTheDirectPathEntirely(t *testing.T) {
 		lease, err := f.pool.Borrow(context.Background(), 42)
 		So(err, ShouldBeNil)
 		So(lease.Client(), ShouldNotBeNil)
-		So(gotDaemonFP, ShouldEqual, "sha256:abc")
-		So(gotPeerFP, ShouldEqual, "fp-x")
+		So(gotDaemonFP, ShouldEqual, devicefp.Carrier("sha256:abc"))
+		So(gotPeerFP, ShouldEqual, devicefp.Initiator("fp-x"))
 	})
 }
 
@@ -421,7 +424,7 @@ func TestPool_Borrow_NoLocalPairing_WithAccountCredential_DialsAccountHandshake(
 		So(got.Credential, ShouldEqual, "acct-jwt")
 		So(got.URL, ShouldEqual, "wss://example/rpc")
 		So(got.TLSMode, ShouldEqual, "skip-verify")
-		So(got.ExpectedDaemonFingerprint, ShouldEqual, "sha256:abc")
+		So(got.ExpectedDaemonFingerprint, ShouldEqual, devicefp.Carrier("sha256:abc"))
 	})
 }
 
@@ -444,7 +447,7 @@ func TestPool_Borrow_LocalPairing_KeepsConnectHandshake(t *testing.T) {
 		So(lease.Client(), ShouldNotBeNil)
 		So(got.DeviceToken, ShouldEqual, "tok-42")
 		So(got.DeviceFingerprint, ShouldEqual, "fp-x")
-		So(got.ExpectedDaemonFingerprint, ShouldEqual, "sha256:abc")
+		So(got.ExpectedDaemonFingerprint, ShouldEqual, devicefp.Carrier("sha256:abc"))
 	})
 }
 
@@ -472,7 +475,7 @@ func TestPool_Borrow_NoLocalPairing_AccountRejected_StaysDeviceUnauthorized(t *t
 	Convey("account handshake rejected: still ErrDeviceUnauthorized, both path reasons kept", t, func() {
 		f := newPoolFixture(t,
 			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}),
-			remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _, _ string) (client.ProtobufConnection, error) {
+			remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _ devicefp.Carrier, _ devicefp.Initiator) (client.ProtobufConnection, error) {
 				return nil, errors.New("relay down")
 			}}))
 		_ = f.kc.Delete("agentre-daemon-token-42")
@@ -494,10 +497,10 @@ func TestPool_Borrow_NoLocalPairing_AccountRejected_StaysDeviceUnauthorized(t *t
 // 用的是同一份账号材料,且直连侧已经没有任何可自报的身份字段。
 func TestPool_Borrow_NoLocalPairing_BothPathsPresentSamePeerIdentity(t *testing.T) {
 	Convey("account credential on both paths: one credential decides the identity on both", t, func() {
-		var relayPeerFP string
+		var relayPeerFP devicefp.Initiator
 		f := newPoolFixture(t,
 			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}),
-			remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _, peerFP string) (client.ProtobufConnection, error) {
+			remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _ devicefp.Carrier, peerFP devicefp.Initiator) (client.ProtobufConnection, error) {
 				relayPeerFP = peerFP
 				return nil, errors.New("relay down")
 			}}))
@@ -515,7 +518,7 @@ func TestPool_Borrow_NoLocalPairing_BothPathsPresentSamePeerIdentity(t *testing.
 		So(err, ShouldBeNil)
 		So(lease.Client(), ShouldNotBeNil)
 		So(directCredential, ShouldEqual, "acct-jwt")
-		So(relayPeerFP, ShouldEqual, "fp-x")
+		So(relayPeerFP, ShouldEqual, devicefp.Initiator("fp-x"))
 	})
 }
 

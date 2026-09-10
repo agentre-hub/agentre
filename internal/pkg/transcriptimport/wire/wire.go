@@ -10,9 +10,10 @@
 // 命名约定与 internal/pkg/workspacefs/wire 一致:
 //   - 方法在 "transcriptimport.*" 命名空间下
 //   - 字段名 lowerCamelCase
-//   - 错误码 -32050..-32052 是稳定 wire 值,与既有方法族的 code 段不重叠
-//     (agentruntime remote wire 占 -32010..-32014,remotefs.* 占 -32030..-32035,
-//     workspacefs.* 占 -32040..-32042)
+//   - 错误码是稳定 wire 值,主人是 pkg/wire/rpcerror(段位表与撞号守卫都在那里)。
+//     这里曾经自己声明 -32050..-32052,而那正是 project.* 的段位 —— 两个族共用
+//     同一个数字,两边都没有编译器或守卫看得见。搬过去之后守卫立刻判红,这一段
+//     因此重新分到 -32060..-32062。
 //
 // 三态分工(spec「远端」):
 //   - **ok / unavailable 是按后端答的**,在 BackendScan.Status 里如实往返:某台
@@ -25,6 +26,7 @@ import (
 	"errors"
 
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -42,10 +44,12 @@ const (
 
 // ── Error codes ─────────────────────────────────────────────────────────────
 
+// 值住在共享 module 里,这里只留短名字给本族的 switch 用 —— 消费方
+// (agentre-server)与本仓因此同源,不再各抄一份魔数。
 const (
-	ErrCodeBackendUnavailable = -32050
-	ErrCodeTranscriptOpen     = -32051
-	ErrCodeSessionInUse       = -32052
+	ErrCodeBackendUnavailable = rpcerror.CodeTranscriptImportBackendUnavailable
+	ErrCodeTranscriptOpen     = rpcerror.CodeTranscriptImportTranscriptOpen
+	ErrCodeSessionInUse       = rpcerror.CodeTranscriptImportSessionInUse
 )
 
 // ── Sentinel errors ─────────────────────────────────────────────────────────
@@ -187,7 +191,7 @@ type ExecuteParams struct {
 	// PeerFingerprint 把这条会话落在**点名的 origin**名下而不是调用方自己名下
 	// (与 runtime.run 的同名字段同义)。省略 = 调用方自己的对端;点名是账号级能力,
 	// 配对身份点名任何 origin 都会被拒。
-	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
 }
 
 // ExecuteResult 是 MethodExecute 的应答。

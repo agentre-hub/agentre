@@ -36,6 +36,7 @@ var codeSegments = []struct {
 	{"remotefs.*", -32035, -32030},
 	{"workspacefs.*", -32043, -32040},
 	{"project.*", -32052, -32050},
+	{"transcriptImport.*", -32062, -32060},
 }
 
 // TestCodeSegments_GivenTwoFamiliesOnOneConnection_WhenAFamilyAllocatesANewCode_ThenItCannotReuseAnotherFamilysNumber

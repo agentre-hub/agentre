@@ -4,19 +4,29 @@ import (
 	"context"
 
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
-	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // SessionPorts 是会话族这 16 个方法的宿主实现面。
 //
-// 会话族的**线形状**(解请求 → 调端口 → 编应答 → 映射错误)对两种执行端是同一份:
-// 浏览器接的是 agentred 还是桌面 App,收到的应答必须逐字段同形,否则调用方就得先猜
-// 对面是哪一种。此前这一份形状在 internal/daemon 与 internal/peer 各手写了一遍,
-// 代价已经兑现过:session.list 的 conversation_ids 收窄桌面端做了、agentred 漏了,
-// 编译器和测试都不会红,浏览器要一条会话的摘要却把整台机器搬了回去。
+// 本包守住的是**注册纪律与契约**,不是字段搬运:
 //
-// 留在宿主的是**端口**:归属判定、账号可见性、认领与订阅、前置校验、以及下面这三个
-// 刻意不统一的横切格。
+//  1. 哪些方法存在 —— 方法号 ↔ 请求消息类型的配对,入站这一侧只有这一处。此前它在
+//     internal/daemon 与 internal/peer 各写了一遍,代价已经兑现过:session.list 的
+//     conversation_ids 收窄桌面端做了、agentred 漏了,编译器和测试都不会红。
+//  2. 鉴权闸门与错误映射是**端口**(见 Auth / Error),各宿主传自己那一份。
+//  3. **端口缺席 ⇒ 那个方法不注册**,调用方收到 method not found。
+//  4. 它是两条契约守卫(contract.go)的施力对象。
+//
+// 端口收发的是**线上的载体**而不是领域参数。两种执行端在这一格上说的话本就不同:
+// agentred 的 handler 自己就说 agentrewire(它的通知日志里存的本来就是这一帧的
+// protobuf 原样,再翻成领域词表又翻回来是每拉一行白走一个来回);桌面端的依赖说
+// chat_svc 的领域值。端口跟着**宿主真正说的话**定形,于是 agentred 直接绑 handler、
+// 一次转换都不做,桌面端在自己的装配处解一次 —— 且解的时候调的是本包导出的映射函数
+// (SessionListParamsOf 一族),字段清单因此仍然只有一份。
+//
+// 这与 PeripheralDeps 里 MCPProxy / ProjectSetPath 早就直接收发 protobuf 是同一条
+// 判据,不是新开的口子。
 type SessionPorts struct {
 	// Auth 是这一族的鉴权闸门。
 	//
@@ -38,38 +48,39 @@ type SessionPorts struct {
 	//
 	// nil ⇒ 整族不注册:答不出话就别开口。
 	Error func(error) error
-	// DecodeError 只用在 runtime.run 上:请求体解不开时的映射。
-	//
-	// 它与 Error 分开,是因为两宿主在这一格上答得**不一样** —— agentred 答 -32602
-	// invalid params,桌面端把它并进了 Error 因而答 -32603 internal。这条差异既存,
-	// 本次收编不替它们做主(两条路其实都不可达:RunRequestFromProto 只在请求为 nil
-	// 或 backend 无法 json.Marshal 时失败)。
-	//
-	// nil ⇒ runtime.run 不注册。
-	DecodeError func(error) error
 
 	// ── 清单与统计 ──────────────────────────────────────────────────────────
-	List           func(context.Context, remotewire.SessionListParams) (remotewire.SessionListResult, error)
-	Counts         func(context.Context) (remotewire.SessionCountsResult, error)
+	//
+	// ActivityRollup 收的仍是领域值:两种执行端在这一格上交出的都是
+	// activityrollup.Bucket,没有哪一侧说 protobuf,端口因此没有理由说。
+	List           func(context.Context, *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error)
+	Counts         func(context.Context) (*agentrewire.SessionCountsResponse, error)
 	ActivityRollup func(ctx context.Context, sinceDay, timeZone string) ([]activityrollup.Bucket, error)
 
 	// ── 补齐与归属 ──────────────────────────────────────────────────────────
 	//
 	// Attach / Pull 的订阅者由端口自己从 ctx 上的连接取(桌面端要把实时流推回这条
 	// 连接,agentred 不需要)—— 共用注册面因此不必认识任何一种订阅者类型。
-	Attach             func(context.Context, remotewire.SessionAttachParams) (remotewire.SessionAttachResult, error)
-	Pull               func(context.Context, remotewire.SessionPullParams) (remotewire.SessionPullResult, error)
-	PendingWaiters     func(context.Context, remotewire.SessionPendingWaitersParams) (remotewire.SessionPendingWaitersResult, error)
-	Delete             func(context.Context, remotewire.SessionDeleteParams) (remotewire.SessionDeleteResult, error)
-	SetModelTarget     func(context.Context, remotewire.SetModelTargetParams) error
-	SetReasoningEffort func(context.Context, remotewire.SetSessionReasoningEffortParams) error
+	Attach             func(context.Context, *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error)
+	Pull               func(context.Context, *agentrewire.SessionPullRequest) (*agentrewire.SessionPullResponse, error)
+	PendingWaiters     func(context.Context, *agentrewire.SessionPendingWaitersRequest) (*agentrewire.SessionPendingWaitersResponse, error)
+	Delete             func(context.Context, *agentrewire.SessionDeleteRequest) (*agentrewire.SessionDeleteResponse, error)
+	SetModelTarget     func(context.Context, *agentrewire.SetModelTargetRequest) (*agentrewire.SetModelTargetResponse, error)
+	SetReasoningEffort func(context.Context, *agentrewire.SetSessionReasoningEffortRequest) (*agentrewire.SetSessionReasoningEffortResponse, error)
 
 	// ── 跑一轮与轮内控制 ────────────────────────────────────────────────────
-	Capabilities         func(context.Context, remotewire.CapabilitiesParams) (remotewire.CapabilitiesResult, error)
-	Run                  func(context.Context, remotewire.RunParams) (remotewire.RunAck, error)
-	Steer                func(context.Context, remotewire.SteerParams) (remotewire.SteerResult, error)
-	CancelSteer          func(context.Context, remotewire.CancelSteerParams) (remotewire.CancelSteerResult, error)
-	SubmitAnswer         func(context.Context, remotewire.SubmitAnswerParams) (remotewire.PeerSessionControlResult, error)
-	SubmitToolPermission func(context.Context, remotewire.SubmitToolPermissionParams) (remotewire.PeerSessionControlResult, error)
-	SetPermissionMode    func(context.Context, remotewire.SetPermissionModeParams) error
+	Capabilities         func(context.Context, *agentrewire.RuntimeCapabilitiesRequest) (*agentrewire.RuntimeCapabilitiesResponse, error)
+	Run                  func(context.Context, *agentrewire.RuntimeRunRequest) (*agentrewire.RuntimeRunResponse, error)
+	Steer                func(context.Context, *agentrewire.RuntimeSteerRequest) (*agentrewire.RuntimeSteerResponse, error)
+	CancelSteer          func(context.Context, *agentrewire.RuntimeCancelSteerRequest) (*agentrewire.RuntimeCancelSteerResponse, error)
+	SubmitAnswer         func(context.Context, *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error)
+	SubmitToolPermission func(context.Context, *agentrewire.RuntimeSubmitToolPermissionRequest) (*agentrewire.PeerSessionControlResponse, error)
+	SetPermissionMode    func(context.Context, *agentrewire.RuntimeSetPermissionModeRequest) (*agentrewire.Empty, error)
+	// Abort 停掉这一条会话**正在跑**的那一轮(CancelSteer 撤的是还没被取走的排队
+	// 消息,不是同一件事)。
+	//
+	// agentred 不从这里挂它:它的 runtime 族挂在**每条连接**的注册面上,还要先占一张
+	// claim ticket —— 那是它的会话归属模型,不是这一族共用的形状。端口缺席 ⇒ 不注册,
+	// 所以两边不会重复挂上同一个方法号。
+	Abort func(context.Context, *agentrewire.RuntimeAbortRequest) (*agentrewire.RuntimeAbortResponse, error)
 }

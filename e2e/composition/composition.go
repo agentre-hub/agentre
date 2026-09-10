@@ -26,6 +26,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 const (
@@ -97,7 +98,7 @@ func FromPreflight(config preflight.Config) (Config, error) {
 		DeviceToken:       strings.TrimSpace(os.Getenv(remoteDeviceTokenEnv)),
 	}
 	if !isLoopbackRPC(remote.URL) || remote.DaemonFingerprint == "" || remote.InstanceUUID == "" ||
-		remote.DeviceToken == "" || remote.DaemonFingerprint != daemonidentity.DaemonFingerprint(remote.InstanceUUID) {
+		remote.DeviceToken == "" || devicefp.Carrier(remote.DaemonFingerprint) != daemonidentity.DaemonFingerprint(remote.InstanceUUID) {
 		return Config{}, fmt.Errorf("e2e composition requires a loopback fake remote peer identity")
 	}
 	return Config{Config: config, Identity: identity, Remote: remote}, nil
@@ -185,7 +186,7 @@ func ensureRemoteDevice(ctx context.Context, identity RemotePeerIdentity) (int64
 	now := time.Now().UnixMilli()
 	row = &paired_agentred_entity.PairedAgentred{
 		Name: remoteDeviceName, URL: identity.URL,
-		DaemonFingerprint: identity.DaemonFingerprint, InstanceUUID: identity.InstanceUUID,
+		DaemonFingerprint: devicefp.Carrier(identity.DaemonFingerprint), InstanceUUID: identity.InstanceUUID,
 		TLSMode: "default", PairedAt: now, LastSeenAt: now, Status: consts.ACTIVE,
 	}
 	if err := row.Check(ctx); err != nil {

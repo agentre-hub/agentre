@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
@@ -48,14 +50,14 @@ var ErrPeerProjectNotFound = errors.New("desktop peer project not found")
 // persisted inside the existing text StoredBlock so it survives transcript
 // reload without changing the chat_messages schema.
 type peerMessageSource struct {
-	Device string
+	Device devicefp.Initiator
 	Name   string
 }
 
 // PeerSessionSource is the account-authorized caller identity captured by the
 // relay connection. The request cannot nominate a different fingerprint.
 type PeerSessionSource struct {
-	Device string
+	Device devicefp.Initiator
 	Name   string
 }
 
@@ -119,7 +121,7 @@ func (s *chatSvc) RunPeerSession(ctx context.Context, params wire.RunParams, sou
 	if err != nil {
 		return nil, err
 	}
-	if beTargetsRemote(backend) {
+	if exec_target_svc.BackendTargetsRemote(backend) {
 		if err := s.preflightPeerRemoteExecution(ctx, backend, session.ID); err != nil {
 			return nil, err
 		}
@@ -201,7 +203,7 @@ func resolvePeerProjectID(ctx context.Context, cwd string) (int64, error) {
 func (s *chatSvc) preflightPeerRemoteExecution(ctx context.Context, backend *agent_backend_entity.AgentBackend, sessionID int64) error {
 	_, err := s.selectRunner(ctx, backend, sessionID)
 	if err == nil {
-		if deviceID, ok := localPairedDeviceID(ctx, backend.DeviceFingerprint); ok {
+		if deviceID, ok := exec_target_svc.LocalPairedDeviceID(ctx, backend.DeviceFingerprint); ok {
 			s.releaseRemoteRuntime(deviceID, sessionID)
 		}
 		return nil
@@ -266,7 +268,7 @@ func (s *chatSvc) PendingPeerSessionWaiters(
 	// 这一轮跑在另一台机器上:waiter 住在那台 agentred 的进程内存里，取它是一次会失败
 	// 的 RPC，因此走一条**带错误返回**的独立路径而不是塞进 WaiterLister 的无错形状
 	// （理由见 remote.Runtime.PendingWaiters）。
-	if beTargetsRemote(backend) {
+	if exec_target_svc.BackendTargetsRemote(backend) {
 		return s.remotePendingSessionWaiters(ctx, backend, session.ID)
 	}
 	lister := localWaiterLister(backend)
@@ -292,10 +294,10 @@ func (s *chatSvc) PendingPeerSessionWaiters(
 func (s *chatSvc) remotePendingSessionWaiters(
 	ctx context.Context, backend *agent_backend_entity.AgentBackend, sessionID int64,
 ) (wire.SessionPendingWaitersResult, error) {
-	deviceID, ok := localPairedDeviceID(ctx, backend.DeviceFingerprint)
+	deviceID, ok := exec_target_svc.LocalPairedDeviceID(ctx, backend.DeviceFingerprint)
 	if !ok {
 		logger.Ctx(ctx).Warn("chat_svc.remotePendingSessionWaiters: exec device is not paired here",
-			zap.Int64("sessionId", sessionID), zap.String("deviceId", backend.DeviceFingerprint))
+			zap.Int64("sessionId", sessionID), zap.String("deviceId", string(backend.DeviceFingerprint)))
 		return wire.SessionPendingWaitersResult{}, nil
 	}
 	rt := s.cachedRemoteRuntime(deviceID)
@@ -449,7 +451,7 @@ func peerMessageSourceOf(message *chat_entity.Message) peerMessageSource {
 			Name   string `json:"sourceDeviceName"`
 		}
 		if json.Unmarshal(block.Data, &data) == nil && data.Device != "" {
-			return peerMessageSource{Device: data.Device, Name: data.Name}
+			return peerMessageSource{Device: devicefp.Initiator(data.Device), Name: data.Name}
 		}
 	}
 	return peerMessageSource{}

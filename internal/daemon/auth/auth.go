@@ -17,6 +17,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // PairParams is the payload of an auth.pair request (Mode A).
@@ -125,7 +127,7 @@ func (a *AuthHandlers) HandlePair(ctx context.Context, ip string, p PairParams) 
 	}
 	return &PairResult{
 		DeviceToken:       tok,
-		DaemonFingerprint: identity.DaemonFingerprint(a.st.DaemonInstanceUUID),
+		DaemonFingerprint: string(identity.DaemonFingerprint(a.st.DaemonInstanceUUID)),
 		InstanceUUID:      a.st.DaemonInstanceUUID,
 	}, nil
 }
@@ -141,7 +143,7 @@ func (a *AuthHandlers) HandleConnect(ctx context.Context, p ConnectParams) (*Con
 		return nil, rpcerror.ErrUnauthorized
 	}
 	want := identity.DaemonFingerprint(a.st.DaemonInstanceUUID)
-	if p.ExpectedDaemonFingerprint != "" && p.ExpectedDaemonFingerprint != want {
+	if p.ExpectedDaemonFingerprint != "" && devicefp.Carrier(p.ExpectedDaemonFingerprint) != want {
 		return nil, &rpcerror.Error{Code: rpcerror.ErrUnauthorized.Code,
 			Message: "daemon fingerprint mismatch (TOFU)"}
 	}

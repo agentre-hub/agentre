@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // StampUserMessageSource 是两个宿主共用的那一份:同一句「别人发过来的话」在 agentred
@@ -59,7 +60,7 @@ func TestStampUserMessageSource(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := transcript.StampUserMessageSource(tc.in, tc.device, tc.who)
+			got, err := transcript.StampUserMessageSource(tc.in, devicefp.Initiator(tc.device), tc.who)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got, tc.reason)
 		})

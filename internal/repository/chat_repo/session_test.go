@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func assertResetActiveSessions(t *testing.T, ctx context.Context, mock sqlmock.Sqlmock, affectedRows int64) {
@@ -539,7 +540,7 @@ func TestSessionRepo_UpdateKeepsRemoteExecColumns(t *testing.T) {
 	require.NoError(t, repo.Update(ctx, sess))
 
 	assert.Equal(t, int64(2), row["exec_device_id"], "收尾不得把执行位置抹回本机")
-	assert.Equal(t, "sha256:beef", row["exec_device_fingerprint"], "收尾不得抹掉 daemon 实例标识")
+	assert.Equal(t, devicefp.Carrier("sha256:beef"), row["exec_device_fingerprint"], "收尾不得抹掉 daemon 实例标识")
 	assert.Equal(t, int64(51), row["exec_agent_backend_id"], "收尾不得把钉住的执行目标档抹回未钉住")
 	assert.Equal(t, int64(33), row["event_cursor"], "收尾不得把游标冲回 0")
 	assert.Equal(t, "idle", row["agent_status"], "收尾本来要写的状态照常落库")
@@ -887,7 +888,7 @@ func TestSessionRepo_ListRemoteExecSessions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, int64(3), got[0].ExecDeviceID)
-	assert.Equal(t, "sha256:beef", got[0].ExecDeviceFingerprint)
+	assert.Equal(t, devicefp.Carrier("sha256:beef"), got[0].ExecDeviceFingerprint)
 	assert.Equal(t, int64(17), got[0].EventCursor)
 	assert.Equal(t, int64(4), got[1].ExecDeviceID)
 	assert.NoError(t, mock.ExpectationsWereMet())

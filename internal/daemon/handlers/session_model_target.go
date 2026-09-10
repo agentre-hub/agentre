@@ -7,7 +7,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -32,33 +33,33 @@ func NewSessionModelTargetHandlers(deps SessionModelTargetDeps) *SessionModelTar
 	return &SessionModelTargetHandlers{deps: deps}
 }
 
-// SetModelTarget 把这条会话钉的 ModelTarget 写下去。三态见 wire.SetModelTargetParams:
+// SetModelTarget 把这条会话钉的 ModelTarget 写下去。三态见 agentrewire.SetModelTargetRequest:
 // 两格都空是**要写下去的值**(改回跟随 Agent 绑定),不是「不改」。
 //
 // 会话不存在报错而不是折成成功 —— 与删除那条路径刻意不同:删一条已经不存在的会话
 // 是幂等成功,而改一条不存在的会话的模型没有任何东西可以幂等,折成成功只会让调用方
 // 以为下一轮会用新模型。
 func (h *SessionModelTargetHandlers) SetModelTarget(
-	ctx context.Context, p wire.SetModelTargetParams,
-) (wire.OK, error) {
-	if err := ErrInvalidConversationID(p.ConversationID); err != nil {
-		return wire.OK{}, err
+	ctx context.Context, req *agentrewire.SetModelTargetRequest,
+) (*agentrewire.SetModelTargetResponse, error) {
+	conversationID := req.GetConversationId()
+	if err := ErrInvalidConversationID(conversationID); err != nil {
+		return nil, err
 	}
-	peer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.LoggedInAccountID)
+	peer, err := ResolveSessionPeer(ctx, devicefp.Initiator(req.GetPeerFingerprint()), h.deps.LoggedInAccountID)
 	if err != nil {
-		return wire.OK{}, err
+		return nil, err
 	}
-	sid := p.ConversationID
-	rows, err := h.deps.Sessions.SetModelTarget(ctx, peer, sid, p.ProviderKey, p.ModelKey)
+	rows, err := h.deps.Sessions.SetModelTarget(ctx, peer, conversationID, req.GetProviderKey(), req.GetModelKey())
 	if err != nil {
-		return wire.OK{}, fmt.Errorf("set session model target: %w", err)
+		return nil, fmt.Errorf("set session model target: %w", err)
 	}
 	if rows == 0 {
-		return wire.OK{}, rpcerror.ErrSessionNotFound
+		return nil, rpcerror.ErrSessionNotFound
 	}
 	// 只记 key,不记人读名 —— 那要回查供应商目录,而这条路径上没有它。
 	logger.Ctx(ctx).Info("handlers.SessionModelTargetHandlers.SetModelTarget: model target updated",
-		zap.String("conversationId", p.ConversationID),
-		zap.String("providerKey", p.ProviderKey), zap.String("modelKey", p.ModelKey))
-	return wire.OK{}, nil
+		zap.String("conversationId", conversationID),
+		zap.String("providerKey", req.GetProviderKey()), zap.String("modelKey", req.GetModelKey()))
+	return &agentrewire.SetModelTargetResponse{}, nil
 }

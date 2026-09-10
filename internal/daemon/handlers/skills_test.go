@@ -10,6 +10,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // fakeSkillDisc 替身发现器:记录入参,回预置包,免依赖真实 claude 二进制。
@@ -95,32 +96,32 @@ func TestSkillsHandler_Catalog_MergesRecommendedInstalledAndAuthorized(t *testin
 	t.Cleanup(ResetResolveCLIPathFunc)
 
 	h := NewSkillsHandlers()
-	res, err := h.Catalog(context.Background(), wire.SkillCatalogParams{
+	res, err := h.Catalog(context.Background(), &agentrewire.SkillCatalogRequest{
 		BackendType: "claudecode",
-		Authorized:  []wire.SkillAuthorization{{ID: "installed@mine", Enabled: true}},
+		Authorized:  []*agentrewire.SkillAuthorization{{Id: "installed@mine", Enabled: true}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, wire.SkillDiscoveryOK, res.Discovery)
+	require.Equal(t, wire.SkillDiscoveryOK, res.GetDiscovery())
 	require.Equal(t, "/daemon/bin/claude", fd.gotQuery.CLIPath)
 
-	byID := map[string]wire.SkillPackSummary{}
-	for _, p := range res.Packs {
-		byID[p.ID] = p
+	byID := map[string]*agentrewire.SkillPackSummary{}
+	for _, p := range res.GetPacks() {
+		byID[p.GetId()] = p
 	}
 	got := byID["installed@mine"]
-	require.Equal(t, "installed", got.Name)
-	require.Equal(t, "装在这台机器上", got.Description)
-	require.Equal(t, []string{"a", "b"}, got.Skills)
-	require.True(t, got.Installed)
-	require.True(t, got.Enabled, "请求里带的授权必须落到这一行上")
-	require.True(t, got.GloballyEnabled)
+	require.Equal(t, "installed", got.GetName())
+	require.Equal(t, "装在这台机器上", got.GetDescription())
+	require.Equal(t, []string{"a", "b"}, got.GetSkills())
+	require.True(t, got.GetInstalled())
+	require.True(t, got.GetEnabled(), "请求里带的授权必须落到这一行上")
+	require.True(t, got.GetGloballyEnabled())
 
 	// agentre 的推荐包也在目录里(未装),浏览器据此画出「可安装」那一组。
 	require.NotEmpty(t, agentskill.RecommendedFor(agent_backend_entity.TypeClaudeCode))
 	rec := agentskill.RecommendedFor(agent_backend_entity.TypeClaudeCode)[0]
 	require.Contains(t, byID, rec.ID)
-	require.False(t, byID[rec.ID].Installed)
-	require.False(t, byID[rec.ID].Enabled)
+	require.False(t, byID[rec.ID].GetInstalled())
+	require.False(t, byID[rec.ID].GetEnabled())
 }
 
 // TestSkillsHandler_Catalog_UnauthorizedPacksAreNotEnabled 钉住 R15e「一档一块」在
@@ -135,10 +136,10 @@ func TestSkillsHandler_Catalog_UnauthorizedPacksAreNotEnabled(t *testing.T) {
 	t.Cleanup(ResetResolveCLIPathFunc)
 
 	h := NewSkillsHandlers()
-	res, err := h.Catalog(context.Background(), wire.SkillCatalogParams{BackendType: "claudecode"})
+	res, err := h.Catalog(context.Background(), &agentrewire.SkillCatalogRequest{BackendType: "claudecode"})
 	require.NoError(t, err)
-	for _, p := range res.Packs {
-		require.False(t, p.Enabled, "没带授权就一行都不该是已授权:%s", p.ID)
+	for _, p := range res.GetPacks() {
+		require.False(t, p.GetEnabled(), "没带授权就一行都不该是已授权:%s", p.GetId())
 	}
 }
 
@@ -153,11 +154,11 @@ func TestSkillsHandler_Catalog_DiscoveryFailureIsNotAnEmptyCatalog(t *testing.T)
 	t.Cleanup(ResetResolveCLIPathFunc)
 
 	h := NewSkillsHandlers()
-	res, err := h.Catalog(context.Background(), wire.SkillCatalogParams{BackendType: "claudecode"})
+	res, err := h.Catalog(context.Background(), &agentrewire.SkillCatalogRequest{BackendType: "claudecode"})
 	require.NoError(t, err, "答不出不是调用失败:已授权的仍要能移除,界面不该整块报错")
-	require.Equal(t, wire.SkillDiscoveryUnavailable, res.Discovery)
-	require.NotNil(t, res.Packs)
-	require.Empty(t, res.Packs, "问不出来时不得拿推荐包冒充「这台机器上可选的东西」")
+	require.Equal(t, wire.SkillDiscoveryUnavailable, res.GetDiscovery())
+	require.NotNil(t, res.GetPacks())
+	require.Empty(t, res.GetPacks(), "问不出来时不得拿推荐包冒充「这台机器上可选的东西」")
 }
 
 // TestSkillsHandler_Catalog_MissingCLIIsUnavailable CLI 根本没装在这台机器上时同样是
@@ -169,10 +170,10 @@ func TestSkillsHandler_Catalog_MissingCLIIsUnavailable(t *testing.T) {
 	t.Cleanup(ResetResolveCLIPathFunc)
 
 	h := NewSkillsHandlers()
-	res, err := h.Catalog(context.Background(), wire.SkillCatalogParams{BackendType: "claudecode"})
+	res, err := h.Catalog(context.Background(), &agentrewire.SkillCatalogRequest{BackendType: "claudecode"})
 	require.NoError(t, err)
-	require.Equal(t, wire.SkillDiscoveryUnavailable, res.Discovery)
-	require.Empty(t, res.Packs)
+	require.Equal(t, wire.SkillDiscoveryUnavailable, res.GetDiscovery())
+	require.Empty(t, res.GetPacks())
 }
 
 // TestSkillsHandler_Catalog_NoDiscovererIsUnsupported builtin / piagent 这类 backend
@@ -180,11 +181,11 @@ func TestSkillsHandler_Catalog_MissingCLIIsUnavailable(t *testing.T) {
 // 而不是「稍后重试」。
 func TestSkillsHandler_Catalog_NoDiscovererIsUnsupported(t *testing.T) {
 	h := NewSkillsHandlers()
-	res, err := h.Catalog(context.Background(), wire.SkillCatalogParams{BackendType: "nonesuch"})
+	res, err := h.Catalog(context.Background(), &agentrewire.SkillCatalogRequest{BackendType: "nonesuch"})
 	require.NoError(t, err)
-	require.Equal(t, wire.SkillDiscoveryUnsupported, res.Discovery)
-	require.NotNil(t, res.Packs)
-	require.Empty(t, res.Packs)
+	require.Equal(t, wire.SkillDiscoveryUnsupported, res.GetDiscovery())
+	require.NotNil(t, res.GetPacks())
+	require.Empty(t, res.GetPacks())
 }
 
 // fakeSkillCommandDisc 同时答包与原生命令 —— 真发现器就是这个形状

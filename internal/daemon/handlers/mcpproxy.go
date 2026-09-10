@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // daemonGatewayBase 取 daemon 本机 gateway base URL;gateway 未装配(测试 / 未启)时返回空,
@@ -104,14 +105,14 @@ func sanitizeTunnelHeaders(h http.Header) map[string][]string {
 // 工具 MCP server(org/subagent/hooktool_svc 的 writeRPCError)在工具执行失败时使用的
 // 形状,MCP 客户端读它就是读一次普通的工具调用失败,原样喂给模型当 tool 输出——而不是让
 // CLI 报一个模型看不懂的基础设施错误。见 writeMCPTunnelUnavailable。
-func NewMCPTunnelHandler(notifierFn func(peerFingerprint string, conversationID string) NotifierPort) http.Handler {
+func NewMCPTunnelHandler(notifierFn func(peerFingerprint devicefp.Initiator, conversationID string) NotifierPort) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "mcp tunnel: read body", http.StatusBadRequest)
 			return
 		}
-		peerFingerprint := r.URL.Query().Get("peerFingerprint")
+		peerFingerprint := devicefp.Initiator(r.URL.Query().Get("peerFingerprint"))
 		conversationID := r.URL.Query().Get("conversationId")
 		var n NotifierPort
 		if peerFingerprint != "" && conversationid.Validate(conversationID) == nil {

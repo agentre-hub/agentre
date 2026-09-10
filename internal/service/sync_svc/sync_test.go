@@ -21,6 +21,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ── 测试替身 ────────────────────────────────────────────────────────────────
@@ -138,7 +139,7 @@ func newFakeAdapter(name string) *fakeAdapter {
 }
 
 func (f *fakeAdapter) syncIDAtNaturalKey(_ context.Context, in *inbound) (string, error) {
-	return f.naturalKey[in.ScopeSyncID+"|"+in.AgentredFingerprint], nil
+	return f.naturalKey[in.ScopeSyncID+"|"+string(in.AgentredFingerprint)], nil
 }
 
 func (f *fakeAdapter) kind() string { return f.name }
@@ -793,7 +794,7 @@ func TestPull_GivenNaturalKeyMergeLoss_RecordsOverwritten(t *testing.T) {
 	assert.Equal(t, syncqueue_entity.ReasonOverwritten, h.lost.rows[0].Reason)
 	assert.Equal(t, "loc-mine", h.lost.rows[0].EntitySyncID)
 	assert.JSONEq(t, `{"path":"/srv/mine"}`, h.lost.rows[0].PayloadJSON)
-	assert.Equal(t, "fp-builder", h.lost.rows[0].AgentredFingerprint)
+	assert.Equal(t, devicefp.Carrier("fp-builder"), h.lost.rows[0].AgentredFingerprint)
 }
 
 // TestPull_GivenPlainTombstone_RecordsNothing 反面守卫：一次普通的远端删除不是
@@ -875,7 +876,7 @@ func TestGCDeferred_GivenExpiredRow_KeepsBarePayloadAndNaturalKey(t *testing.T) 
 	assert.Equal(t, "/srv/work", body["path"], "存的是载荷正文，不是 inbound 信封")
 	assert.NotContains(t, body, "sync_id", "信封字段不该混进正文")
 	assert.Equal(t, "proj-9", h.lost.rows[0].ScopeSyncID)
-	assert.Equal(t, "fp-abc", h.lost.rows[0].AgentredFingerprint)
+	assert.Equal(t, devicefp.Carrier("fp-abc"), h.lost.rows[0].AgentredFingerprint)
 }
 
 // ── ② 30 秒轮询下行 ────────────────────────────────────────────────────────

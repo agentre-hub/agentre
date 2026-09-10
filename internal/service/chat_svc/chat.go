@@ -29,6 +29,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 
 	// 显式 blank import 触发本地 runtime 子包 init() 把 *Runtime 注册到 RuntimeFor。
 	// remote 是显式构造,不参与全局注册;以下几种为本地后端,必须自注册才能被
@@ -53,8 +54,12 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/goal"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/peerstream"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/projectsync"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/remotepool"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/transcriptfork"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
 
@@ -84,23 +89,6 @@ type ChatSvc interface {
 	LoadSessionBlocksByType(ctx context.Context, req *LoadSessionBlocksByTypeRequest) (*LoadSessionBlocksByTypeResponse, error)
 	GetLaunchCommand(ctx context.Context, req *LaunchCommandRequest) (*LaunchCommandResponse, error)
 	GetSessionGitState(ctx context.Context, req *GetSessionGitStateRequest) (*GetSessionGitStateResponse, error)
-	// ResolveSessionWorkspace 把 sessionID 解析成 {deviceID, cwd}(deviceID 为 0
-	// 即本机会话)。实现 workspace_fs_svc 的 SessionWorkspaceResolver 窄接口,
-	// 由 bootstrap 注入 —— 让那个服务不必跨域读 chat / agent / agent_backend 表。
-	ResolveSessionWorkspace(ctx context.Context, sessionID int64) (deviceID int64, cwd string, err error)
-	// ResolveLocalCommandScope 为已有 session 或未持久化的 agent/project 目标解析历史作用域。
-	ResolveLocalCommandScope(ctx context.Context, req *ResolveLocalCommandScopeRequest) (*LocalCommandScope, error)
-	// PickExecTarget 按 R15 顺序为一个 Agent 挑第一个可用的执行目标档：本机没配对 /
-	// 已配对但离线 / 会话绑的项目在那台机器上没配路径 / 既有 BlockReason 四类各自跳过。
-	// projectID <= 0（自由会话）不做「该机器上有没有配这个项目的路径」这一项判定。
-	// 列表为空 → ChatAgentNoBackend；全部不可用 → *ExecTargetNoneAvailableError（逐档
-	// 原因，Wails 只透 Error() 字符串，因此原因也编进了那条字符串里）。
-	// 不做会话粘性 —— 挑到之后钉不钉在这一档由调用方决定（R15b，块 4）。
-	PickExecTarget(ctx context.Context, agentID int64, projectID int64) (*ExecTargetChoice, error)
-	// ListExecTargetAvailability 逐档判定一个 Agent 的执行目标列表可用性（R15，任务
-	// 12 的组织架构页用）。与 PickExecTarget 的关键差异是不提前返回——每一档都要给出
-	// 结果，供界面同时展示。
-	ListExecTargetAvailability(ctx context.Context, agentID int64, projectID int64) ([]ExecTargetAvailabilityView, error)
 	Send(ctx context.Context, req *SendRequest) (*SendResponse, error)
 	Compact(ctx context.Context, req *CompactRequest) (*CompactResponse, error)
 	GetGoal(ctx context.Context, req *GoalRequest) (*GoalResponse, error)
@@ -189,6 +177,13 @@ func NewChat(emitter Emitter) ChatSvc {
 	return s
 }
 
+// execTargets 是本服务读执行目标域的唯一入口。按 s.gateway 现造一份：这个域除
+// 网关句柄外没有任何可变状态，而网关是 chatSvc 自己那一份（单测直接字面量构造
+// chatSvc 时也照样成立），不能改从进程单例读。
+func (s *chatSvc) execTargets() exec_target_svc.ExecTargetSvc {
+	return exec_target_svc.NewExecTarget(s.gateway)
+}
+
 // RegisterGateway 由 bootstrap 注入 httpgateway 单例；
 // 没有注入时（早期单测、headless 启动）走 CLI 自身 login 路径。
 //
@@ -259,9 +254,10 @@ type chatSvc struct {
 	// 服务端 turn 完成观察口(不经 Wails);调度方在 Send 前 ObserveTurn 订阅,
 	// finalize / failTurn 各回灌恰好一条终态用于释放调度位 + 判定 quiesce。
 	turnObservers *sync.Map
-	// peerPublications keeps remote account peers in a separate ordered stream,
-	// so attachment adds presence without replacing the desktop Wails emitter.
-	peerPublications sync.Map
+	// peerStreamImpl 惰性构造(peerStreamOnce),见 peer_session.go / chat_svc/peerstream。
+	// 每条会话那份唯一有序的通知宇宙住在那个包里;它的寿命跟这个 chatSvc 实例。
+	peerStreamOnce sync.Once
+	peerStreamImpl *peerstream.Publisher
 	// peerSteerSources maps an existing queued steer to its authenticated caller
 	// until that queue entry is consumed; it is metadata, never a second queue.
 	peerSteerSources sync.Map
@@ -345,13 +341,13 @@ func (s *chatSvc) ListAgents(ctx context.Context, _ *ListAgentsRequest) (*ListAg
 
 	// 批量查远端 device 视图，避免 per-agent 单次查询的 N+1 问题。DeviceID 是规范
 	// 指纹，一律在本机配对表里按 DaemonFingerprint 找。
-	fingerprintSet := map[string]struct{}{}
+	fingerprintSet := map[devicefp.Carrier]struct{}{}
 	for _, be := range backends {
-		if beTargetsRemote(be) {
+		if exec_target_svc.BackendTargetsRemote(be) {
 			fingerprintSet[be.DeviceFingerprint] = struct{}{}
 		}
 	}
-	fingerprintViews := map[string]*remote_device_svc.DeviceView{}
+	fingerprintViews := map[devicefp.Carrier]*remote_device_svc.DeviceView{}
 	if rds := remote_device_svc.Default(); rds != nil && len(fingerprintSet) > 0 {
 		// 查不到的指纹 → DeviceID 照常透出，DeviceName 留空 + Online false。
 		if rows, lerr := rds.List(ctx); lerr == nil {
@@ -417,7 +413,7 @@ func (s *chatSvc) ListAgents(ctx context.Context, _ *ListAgentsRequest) (*ListAg
 			}
 			gatewayRunning := s.gateway != nil && s.gateway.Status().State == "running"
 			item.Chattable, item.BlockReason, item.ChattableHint =
-				blockReasonForBackend(ctx, be, providers[be.LLMProviderKey], gatewayRunning)
+				exec_target_svc.BlockReasonForBackend(ctx, be, providers[be.LLMProviderKey], gatewayRunning)
 		} else if a.IsSystem() {
 			item.BlockReason = BlockReasonNoBackend
 			item.ChattableHint = i18n.T(ctx, code.ChatSystemAgentNoBackendHint)
@@ -739,19 +735,19 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			// 端机；device 字段整组只对真正的远端档才有意义。
 			if deviceID := remote_device_svc.ExternalDeviceID(be.DeviceFingerprint); deviceID != "" {
 				resp.Session.DeviceID = deviceID
-				if dv := localPairedDeviceView(ctx, deviceID); dv != nil {
+				if dv := exec_target_svc.LocalPairedDeviceView(ctx, deviceID); dv != nil {
 					resp.Session.DeviceName = dv.Name
 					resp.Session.Online = dv.Online
 				} else {
 					logger.Ctx(ctx).Debug("chat_svc.LoadSession: device lookup degraded",
-						zap.String("deviceFingerprint", deviceID),
+						zap.String("deviceFingerprint", string(deviceID)),
 						zap.Int64("sessionID", sess.ID))
 				}
 			}
-			if cwd, cerr := resolveSessionCwd(ctx, sess, be); cerr == nil {
+			if cwd, cerr := exec_target_svc.ResolveSessionCwd(ctx, sess, be); cerr == nil {
 				resp.Session.Cwd = cwd
 			} else {
-				resp.Session.CwdUnavailableReason = cwdUnavailableReasonFor(cerr)
+				resp.Session.CwdUnavailableReason = exec_target_svc.CwdUnavailableReasonFor(cerr)
 				logger.Ctx(ctx).Debug("LoadSession: cwd resolve degraded",
 					zap.Int64("sessionID", sess.ID),
 					zap.Error(cerr))
@@ -804,7 +800,7 @@ func (s *chatSvc) GetLaunchCommand(ctx context.Context, req *LaunchCommandReques
 	}
 	// 钉住的那一档优先（R15b / 决策36）：启动命令要跟这条会话续轮实际用的那一档
 	// 一致，否则复制出去的是另一档的 CLI 路径 / 供应商 / 网关口令。
-	backendID := sessionBackendID(sess, a)
+	backendID := exec_target_svc.SessionBackendID(sess, a)
 	if backendID <= 0 {
 		return nil, i18n.NewError(ctx, code.ChatAgentNoBackend)
 	}
@@ -847,7 +843,7 @@ func (s *chatSvc) GetLaunchCommand(ctx context.Context, req *LaunchCommandReques
 		}
 	}
 
-	cwd, err := resolveSessionCwd(ctx, sess, be)
+	cwd, err := exec_target_svc.ResolveSessionCwd(ctx, sess, be)
 	if err != nil {
 		return nil, err
 	}
@@ -925,8 +921,8 @@ func (s *chatSvc) Compact(ctx context.Context, req *CompactRequest) (*CompactRes
 		return nil, i18n.NewError(ctx, code.ChatCompactUnsupported)
 	}
 	releasePreflight := func() {}
-	if beTargetsRemote(be) {
-		if deviceID, ok := localPairedDeviceID(ctx, be.DeviceFingerprint); ok {
+	if exec_target_svc.BackendTargetsRemote(be) {
+		if deviceID, ok := exec_target_svc.LocalPairedDeviceID(ctx, be.DeviceFingerprint); ok {
 			releasePreflight = func() { s.releaseRemoteRuntime(deviceID, sess.ID) }
 		}
 	}
@@ -1008,7 +1004,7 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 	// 对真实新建的 sess 完成。
 	resolveSess := sess
 	if sess == nil && req.ExecTargetOverride > 0 {
-		if err := s.validateExecTargetOverride(ctx, targetAgentID, pickProjectID, req.ExecTargetOverride); err != nil {
+		if err := s.execTargets().ValidateExecTargetOverride(ctx, targetAgentID, pickProjectID, req.ExecTargetOverride); err != nil {
 			return nil, err
 		}
 		resolveSess = &chat_entity.Session{ExecAgentBackendID: req.ExecTargetOverride}
@@ -1034,7 +1030,7 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 	// 指向本机指纹的档（R13 认领后本机 backend 的 DeviceID == 本机指纹）按本机处理：
 	// 图片能力校验同样适用于它——它跑在本地 runtime 上，缺 CapImageInput 时也该早退
 	// AgentBackendTypeUnsupported，而不是绕过校验把图喂给不支持的 runtime。
-	if len(imageBlocks) > 0 && !beTargetsRemote(be) {
+	if len(imageBlocks) > 0 && !exec_target_svc.BackendTargetsRemote(be) {
 		runner, err := s.selectRunner(ctx, be, req.SessionID)
 		if err != nil {
 			return nil, err
@@ -1273,7 +1269,7 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 		return nil, nil, nil, operationFailedWithCause(ctx, err)
 	}
 	if be == nil && sess != nil && sess.ID > 0 && sess.ExecAgentBackendID == backendID {
-		choice, pickErr := s.PickExecTarget(ctx, agentID, projectID)
+		choice, pickErr := s.execTargets().PickExecTarget(ctx, agentID, projectID)
 		if pickErr != nil {
 			return nil, nil, nil, pickErr
 		}
@@ -1313,10 +1309,10 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 				!kind.ProviderTypeMatch(llm_provider_entity.ProviderType(prov.Type)) {
 				return nil, nil, nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
 			}
-			if remoteProviderKnownMissing(ctx, be) {
+			if exec_target_svc.RemoteProviderKnownMissing(ctx, be) {
 				return nil, nil, nil, remoteProviderNotConfiguredError(ctx, be.LLMProviderKey)
 			}
-			if beTargetsRemote(be) {
+			if exec_target_svc.BackendTargetsRemote(be) {
 				break
 			}
 			if s.gateway == nil || s.gateway.Status().State != "running" {
@@ -1325,7 +1321,7 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 		}
 		// LLMProviderKey == "" → CLI 自身 login 状态生效，不强制 gateway。
 	case agent_backend_entity.TypeOpenClaw:
-		if beTargetsRemote(be) {
+		if exec_target_svc.BackendTargetsRemote(be) {
 			return nil, nil, nil, fmt.Errorf("openclaw remote secret enrollment is unavailable")
 		}
 	default:
@@ -1356,7 +1352,7 @@ func (s *chatSvc) resolveTurnBackendID(
 	if len(targets) == 0 {
 		return fallbackBackendID, nil
 	}
-	choice, err := s.PickExecTarget(ctx, agentID, projectID)
+	choice, err := s.execTargets().PickExecTarget(ctx, agentID, projectID)
 	if err != nil {
 		return 0, err
 	}
@@ -1375,7 +1371,7 @@ func (s *chatSvc) resolveTurnBackendID(
 // 一并写入，三列同生共死，不拆成两个写入点。写库失败只记日志、不阻断这一轮 —— 下一轮
 // 会再次落进"没值"分支重新挑选并重试写回，不会永久卡住对话。
 func (s *chatSvc) pinExecTargetIfUnset(ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) {
-	if sess == nil || sess.ID <= 0 || be == nil || sess.ExecAgentBackendID != 0 || beTargetsRemote(be) {
+	if sess == nil || sess.ID <= 0 || be == nil || sess.ExecAgentBackendID != 0 || exec_target_svc.BackendTargetsRemote(be) {
 		return
 	}
 	if err := chat_repo.Session().UpdateExecDaemon(ctx, sess.ID, 0, "", be.ID); err != nil {
@@ -1425,7 +1421,7 @@ func (s *chatSvc) resolveSessionProvider(
 	prov *llm_provider_entity.LLMProvider,
 ) (*llm_provider_entity.LLMProvider, *blocks.NoticeBlock, error) {
 	if sess == nil || strings.TrimSpace(sess.ProviderKey) == "" || be == nil ||
-		beTargetsRemote(be) {
+		exec_target_svc.BackendTargetsRemote(be) {
 		return prov, nil, nil
 	}
 	return s.sessionProviderOverride(ctx, be, sess.ProviderKey, sess.ModelKey, prov)
@@ -1488,7 +1484,7 @@ func (s *chatSvc) AgentBackendHasCapability(ctx context.Context, agentID int64, 
 	if be == nil {
 		return false, nil
 	}
-	if beTargetsRemote(be) {
+	if exec_target_svc.BackendTargetsRemote(be) {
 		return false, nil
 	}
 	r := agentruntime.RuntimeFor(agent_backend_entity.BackendType(be.Type))
@@ -1638,7 +1634,7 @@ func (s *chatSvc) SetPermissionMode(ctx context.Context, req *SetPermissionModeR
 	// claudecode 轮内切换的轻量操作（与 Enqueue 一致），真正在跑的轮子在其起点已
 	// 通过 gate 对账；未决标记只可能由持有锁的 Pi 轮产生，而 Pi 后端在下方
 	// supported 检查就被拒，故此处对账不会与创建标记的轮子并发。
-	if _, rerr := s.reconcileTranscriptReplacement(ctx, sess, be); rerr != nil {
+	if _, rerr := transcriptfork.Reconcile(ctx, sess, be); rerr != nil {
 		return nil, operationFailedWithCause(ctx, rerr,
 			zap.Int64("sessionId", sess.ID),
 			zap.String("backendType", be.Type))
@@ -1788,7 +1784,7 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 		return nil, i18n.NewError(ctx, code.ChatBlocksMalformed)
 	}
 
-	forkAnchor, ferr := s.backendForkAnchor(ctx, sess, be, userAnchor)
+	forkAnchor, ferr := transcriptfork.BackendForkAnchor(ctx, sess, be, userAnchor)
 	if ferr != nil {
 		return nil, ferr
 	}
@@ -1800,13 +1796,13 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 	// preTx 在同一事务里先截掉 user 锚点（含）开始的全部历史，
 	// 然后 startTurn 的标准路径会以新的 NextSeq 写回 user + assistant。
 	anchorSeq := userAnchor.Seq
-	var replacement *transcriptReplacementLifecycle
+	var replacement *transcriptfork.Lifecycle
 	preTx := func(txCtx context.Context) error {
 		_, derr := transcript_repo.Message().DeleteFromSeq(txCtx, sess.ID, anchorSeq)
 		return derr
 	}
 	if be.IsPiAgent() {
-		replacement = newTranscriptReplacementLifecycle(sess.ID, anchorSeq, req.MessageID)
+		replacement = transcriptfork.NewLifecycle(sess.ID, anchorSeq, req.MessageID)
 		preTx = nil
 	}
 	// 会话 provider_key 优先于 agent 绑定解析（决策 3），与 send 同源；provider-default
@@ -1894,7 +1890,7 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 		return nil, i18n.NewError(ctx, code.ChatBlocksMalformed)
 	}
 
-	forkAnchor, ferr := s.backendForkAnchor(ctx, sess, be, target)
+	forkAnchor, ferr := transcriptfork.BackendForkAnchor(ctx, sess, be, target)
 	if ferr != nil {
 		return nil, ferr
 	}
@@ -1904,13 +1900,13 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 	}
 
 	anchorSeq := target.Seq
-	var replacement *transcriptReplacementLifecycle
+	var replacement *transcriptfork.Lifecycle
 	preTx := func(txCtx context.Context) error {
 		_, derr := transcript_repo.Message().DeleteFromSeq(txCtx, sess.ID, anchorSeq)
 		return derr
 	}
 	if be.IsPiAgent() {
-		replacement = newTranscriptReplacementLifecycle(sess.ID, anchorSeq, req.MessageID)
+		replacement = transcriptfork.NewLifecycle(sess.ID, anchorSeq, req.MessageID)
 		preTx = nil
 	}
 	// 会话 provider_key 优先于 agent 绑定解析（决策 3），与 send 同源；provider-default
@@ -1927,7 +1923,7 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 		a,
 		be,
 		prov,
-		replaceTextPreserveImages(text, targetBlocks),
+		transcriptfork.ReplaceTextPreserveImages(text, targetBlocks),
 		preTx,
 		replacement,
 		forkAnchor,
@@ -1935,18 +1931,6 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 		gate.lock,
 	)
 }
-
-// transcriptReplacementLifecycle owns one Pi replacement generation. Its
-// marker-derived hidden namespace preserves the exact original rows until the
-// prepared process acknowledges the prompt.
-type transcriptReplacementLifecycle struct {
-	sessionID        int64
-	fromSeq          int
-	requestMessageID int64
-	recovery         *chat_repo.ReplacementRecovery
-}
-
-const transcriptRecoveryTimeout = 5 * time.Second
 
 // startTurn is the common tail shared by Send and Regenerate: acquire the
 // per-session lock, persist a fresh user+assistant pair in a transaction (with
@@ -1990,7 +1974,7 @@ func (s *chatSvc) acquireTurnGate(
 	if !lock.TryLock() {
 		return nil, i18n.NewError(ctx, code.ChatSendInFlight)
 	}
-	reconciled, err := s.reconcileTranscriptReplacement(ctx, sess, be)
+	reconciled, err := transcriptfork.Reconcile(ctx, sess, be)
 	if err != nil {
 		lock.Unlock()
 		return nil, operationFailedWithCause(ctx, err,
@@ -2008,7 +1992,7 @@ func (s *chatSvc) startTurn(
 	prov *llm_provider_entity.LLMProvider,
 	userBlocks []blocks.ContentBlock,
 	preTx func(txCtx context.Context) error,
-	replacement *transcriptReplacementLifecycle,
+	replacement *transcriptfork.Lifecycle,
 	forkAnchor string,
 	extras turnExtras,
 	prelocked *trylockMutex,
@@ -2067,7 +2051,7 @@ func (s *chatSvc) discardPreparedTurn(sessionID int64, prepared *preparedTurnRun
 		return
 	}
 	if prepared.deferred != nil {
-		closeCtx, cancel := context.WithTimeout(context.Background(), transcriptRecoveryTimeout)
+		closeCtx, cancel := context.WithTimeout(context.Background(), transcriptfork.RecoveryTimeout)
 		_ = prepared.deferred.Close(closeCtx)
 		cancel()
 	} else if prepared.events != nil {
@@ -2322,7 +2306,7 @@ func (s *chatSvc) prepareTurnRun(
 		release()
 		return nil, err
 	}
-	if userMsg != nil && messageHasImage(userMsg) && !runner.Capabilities().Has(capability.CapImageInput) {
+	if userMsg != nil && transcriptfork.MessageHasImage(userMsg) && !runner.Capabilities().Has(capability.CapImageInput) {
 		return fail(agentruntime.ErrUnsupported)
 	}
 
@@ -2375,7 +2359,7 @@ func (s *chatSvc) selectTurnRunner(
 		release = func() {}
 		err     error
 	)
-	if beTargetsRemote(be) {
+	if exec_target_svc.BackendTargetsRemote(be) {
 		runner, release, err = s.borrowRemoteRuntimeForTurn(ctx, be, sess.ID)
 	} else {
 		runner, err = s.selectRunner(ctx, be, sess.ID)
@@ -2389,7 +2373,7 @@ func (s *chatSvc) selectTurnRunner(
 		fields = append(fields,
 			zap.Int64("sessionID", sess.ID),
 			zap.String("backendType", be.Type),
-			zap.String("deviceID", be.DeviceFingerprint),
+			zap.String("deviceID", string(be.DeviceFingerprint)),
 		)
 		fields = append(fields, chatRuntimeErrorLogFields(err)...)
 		logger.Ctx(ctx).Error("chat_svc.prepareTurnRun: selectRunner failed", fields...)
@@ -2432,7 +2416,7 @@ func (s *chatSvc) buildRunRequest(
 	compact bool,
 	runner agentruntime.Runtime,
 ) (agentruntime.RunRequest, error) {
-	cwd, err := resolveSessionCwd(ctx, sess, be)
+	cwd, err := exec_target_svc.ResolveSessionCwd(ctx, sess, be)
 	if err != nil {
 		return agentruntime.RunRequest{}, err
 	}
@@ -2445,7 +2429,7 @@ func (s *chatSvc) buildRunRequest(
 	}
 	// 项目的账号级同步标识随一轮过线：远端把它记进自己的会话行，日活跃统计据此
 	// 按项目分组（那条通道只上行计数、不上行路径，服务端推不出来）。
-	projectSyncID, err := projectSyncIDOfSession(ctx, sess)
+	projectSyncID, err := projectsync.OfSession(ctx, sess)
 	if err != nil {
 		return agentruntime.RunRequest{}, err
 	}
@@ -2491,7 +2475,7 @@ func (s *chatSvc) buildRunRequest(
 		}
 		req.History = history
 	}
-	if beTargetsRemote(be) {
+	if exec_target_svc.BackendTargetsRemote(be) {
 		// 远端 backend: daemon 自家有 ProviderLookup + Gateway,该自家解。
 		// GatewayURL/Token 是 desktop 的 127.0.0.1，Provider 又含明文 APIKey，
 		// 都不跨机器；wire 透传 effectiveProviderKey（会话 provider_key 优先，
@@ -2539,7 +2523,7 @@ func (s *chatSvc) bindLocalPiAbort(
 	be *agent_backend_entity.AgentBackend,
 	runner agentruntime.Runtime,
 ) {
-	if be == nil || !be.IsPiAgent() || beTargetsRemote(be) || runner == nil {
+	if be == nil || !be.IsPiAgent() || exec_target_svc.BackendTargetsRemote(be) || runner == nil {
 		return
 	}
 	aborter, ok := runner.(agentruntime.Aborter)
@@ -3041,7 +3025,7 @@ func (s *chatSvc) selectRunner(ctx context.Context, be *agent_backend_entity.Age
 	}
 	// 指向本机的档（DeviceID == 本机指纹）就是本地 CLI / 内置 runtime，不走远端
 	// borrow——R14 把自己排到第一之后，派发到「自己」必须在本机跑起来。
-	if !beTargetsRemote(be) {
+	if !exec_target_svc.BackendTargetsRemote(be) {
 		r := agentruntime.RuntimeFor(agent_backend_entity.BackendType(be.Type))
 		if r == nil {
 			return nil, i18n.NewError(ctx, code.AgentBackendInvalidType)

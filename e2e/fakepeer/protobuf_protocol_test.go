@@ -26,7 +26,7 @@ func TestServerGivenProductionClientThenNegotiatesBinaryProtobufAndServesTypedAu
 	auth, err := cli.AuthConnect(ctx, &agentrewire.AuthConnectRequest{
 		DeviceFingerprint:         testDeviceFingerprint,
 		DeviceToken:               testDeviceAuthValue,
-		ExpectedDaemonFingerprint: identity.DaemonFingerprint(testInstanceUUID),
+		ExpectedDaemonFingerprint: string(identity.DaemonFingerprint(testInstanceUUID)),
 	})
 	require.NoError(t, err)
 	require.True(t, auth.GetOk())

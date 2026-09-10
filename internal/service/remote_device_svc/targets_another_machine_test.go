@@ -6,6 +6,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // TargetsAnotherMachine 是「这一档要不要派到别的机器上跑」的全仓单一判据。它取代了
@@ -22,19 +23,19 @@ func TestTargetsAnotherMachine(t *testing.T) {
 
 		Convey("空 DeviceID（从未认领的本机档）不是别的机器", func() {
 			So(remote_device_svc.TargetsAnotherMachine(""), ShouldBeFalse)
-			So(remote_device_svc.ExternalDeviceID(""), ShouldEqual, "")
+			So(remote_device_svc.ExternalDeviceID(""), ShouldEqual, devicefp.Carrier(""))
 		})
 		Convey("本机指纹（R13 认领后的本机档）不是别的机器", func() {
 			So(remote_device_svc.TargetsAnotherMachine("sha256:self"), ShouldBeFalse)
-			So(remote_device_svc.ExternalDeviceID("sha256:self"), ShouldEqual, "")
+			So(remote_device_svc.ExternalDeviceID("sha256:self"), ShouldEqual, devicefp.Carrier(""))
 		})
 		Convey("别台机器的指纹是别的机器——即便本机没配对过它", func() {
 			So(remote_device_svc.TargetsAnotherMachine("sha256:other"), ShouldBeTrue)
-			So(remote_device_svc.ExternalDeviceID("sha256:other"), ShouldEqual, "sha256:other")
+			So(remote_device_svc.ExternalDeviceID("sha256:other"), ShouldEqual, devicefp.Carrier("sha256:other"))
 		})
 		Convey("历史数值配对行 ID 仍是别的机器（pre-R13 producer 还在发）", func() {
 			So(remote_device_svc.TargetsAnotherMachine("7"), ShouldBeTrue)
-			So(remote_device_svc.ExternalDeviceID("7"), ShouldEqual, "7")
+			So(remote_device_svc.ExternalDeviceID("7"), ShouldEqual, devicefp.Carrier("7"))
 		})
 	})
 

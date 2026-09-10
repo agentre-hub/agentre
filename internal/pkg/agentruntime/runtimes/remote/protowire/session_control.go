@@ -2,6 +2,7 @@ package protowire
 
 import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
@@ -17,6 +18,18 @@ func PendingWaitersResponseFromProto(response *agentrewire.SessionPendingWaiters
 			item.Questions = append(item.Questions, decodeAskQuestion(question))
 		}
 		out.AskUserQuestions = append(out.AskUserQuestions, item)
+	}
+	return out
+}
+
+// WaiterSnapshotToProto 把 backend 此刻仍在阻塞的待决策快照翻上线。
+func WaiterSnapshotToProto(value agentruntime.WaiterSnapshot) *agentrewire.SessionPendingWaitersResponse {
+	out := &agentrewire.SessionPendingWaitersResponse{}
+	for _, permission := range value.ToolPermissions {
+		out.ToolPermissions = append(out.ToolPermissions, &agentrewire.PendingToolPermission{RequestId: permission.RequestID, ToolName: permission.ToolName, Input: append([]byte(nil), permission.Input...)})
+	}
+	for _, ask := range value.AskUserQuestions {
+		out.AskUserQuestions = append(out.AskUserQuestions, &agentrewire.PendingAskUserQuestion{RequestId: ask.RequestID, Questions: AskQuestionsToProto(ask.Questions)})
 	}
 	return out
 }
@@ -62,6 +75,50 @@ func AskAnswersToProto(values []agentruntime.AskAnswer) []*agentrewire.AskAnswer
 	out := make([]*agentrewire.AskAnswer, 0, len(values))
 	for _, value := range values {
 		out = append(out, &agentrewire.AskAnswer{QuestionIndex: int32(value.QuestionIndex), Labels: value.Labels, OtherText: value.OtherText})
+	}
+	return out
+}
+
+// AskQuestionsFromProto 把线上问题列表翻回领域值。它与 AskQuestionsToProto 成对,
+// 提交答案这条路径的收端(daemon handler)照它读请求,不再各自抄一份逐字段搬运。
+func AskQuestionsFromProto(values []*agentrewire.AskQuestion) []agentruntime.AskQuestion {
+	out := make([]agentruntime.AskQuestion, 0, len(values))
+	for _, value := range values {
+		out = append(out, decodeAskQuestion(value))
+	}
+	return out
+}
+
+// AskAnswersFromProto 把线上答案列表翻回领域值。
+func AskAnswersFromProto(values []*agentrewire.AskAnswer) []agentruntime.AskAnswer {
+	out := make([]agentruntime.AskAnswer, 0, len(values))
+	for _, value := range values {
+		out = append(out, agentruntime.AskAnswer{QuestionIndex: int(value.GetQuestionIndex()), Labels: append([]string(nil), value.GetLabels()...), OtherText: value.GetOtherText()})
+	}
+	return out
+}
+
+// ConsumedSteersToProto 把轮末残留的 pending steer 翻上线。
+func ConsumedSteersToProto(values []agentruntime.ConsumedSteer) []*agentrewire.ConsumedSteer {
+	out := make([]*agentrewire.ConsumedSteer, 0, len(values))
+	for _, value := range values {
+		out = append(out, &agentrewire.ConsumedSteer{QueuedId: value.QueuedID, Text: value.Text, SourcePeer: string(value.SourcePeer), SourceName: value.SourceName})
+	}
+	return out
+}
+
+// CapabilitiesToProto 把某个 backend 的能力集翻上线。
+func CapabilitiesToProto(value capability.Capabilities) *agentrewire.RuntimeCapabilitiesResponse {
+	meta := value.PermissionModeMeta
+	out := &agentrewire.RuntimeCapabilitiesResponse{PermissionMode: &agentrewire.PermissionModeMeta{
+		AllowedModes:         meta.AllowedModes,
+		DefaultMode:          meta.DefaultMode,
+		SwitchableDuringTurn: meta.SwitchableDuringTurn,
+		Order:                meta.Order,
+		LaunchDefaultMode:    meta.LaunchDefaultMode,
+	}}
+	for name, enabled := range value.Set {
+		out.Capabilities = append(out.Capabilities, &agentrewire.CapabilityEntry{Name: string(name), Enabled: enabled})
 	}
 	return out
 }

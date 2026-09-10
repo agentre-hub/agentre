@@ -3,7 +3,7 @@ package app
 import (
 	"errors"
 
-	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/internal/service/terminal_svc"
 )
@@ -26,8 +26,8 @@ func (a *App) TerminalOpen(terminalID string, projectID int64, deviceID string, 
 
 // ResolveLocalCommandScope 只读解析已有会话或预会话目标的命令执行设备/cwd。
 func (a *App) ResolveLocalCommandScope(
-	req *chat_svc.ResolveLocalCommandScopeRequest,
-) (*chat_svc.LocalCommandScope, error) {
+	req *exec_target_svc.ResolveLocalCommandScopeRequest,
+) (*exec_target_svc.LocalCommandScope, error) {
 	return resolveLocalCommandScope(a.ctx, req)
 }
 

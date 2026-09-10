@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo/mock_server_state_repo"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // setupServerSvc builds a ServerSvc wired to:
@@ -69,7 +70,7 @@ func TestStartLogin_Success(t *testing.T) {
 				func(_ context.Context, s *server_state_entity.ServerState) error {
 					kcFP, _ := kc.Get("agentre-device-fingerprint")
 					So(s.ServerURL, ShouldEqual, "")
-					So(s.DeviceFingerprint, ShouldEqual, kcFP)
+					So(s.DeviceFingerprint, ShouldEqual, devicefp.Carrier(kcFP))
 					return nil
 				},
 			),
@@ -78,7 +79,7 @@ func TestStartLogin_Success(t *testing.T) {
 				func(_ context.Context, s *server_state_entity.ServerState) error {
 					So(s.ServerURL, ShouldEqual, srv.URL)
 					kcFP, _ := kc.Get("agentre-device-fingerprint")
-					So(s.DeviceFingerprint, ShouldEqual, kcFP)
+					So(s.DeviceFingerprint, ShouldEqual, devicefp.Carrier(kcFP))
 					return nil
 				},
 			),

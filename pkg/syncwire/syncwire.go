@@ -1,4 +1,8 @@
-// Package syncwire 是桌面端 ↔ server 工作区同步协议的线上契约:结构、词表与上限。
+// Package syncwire 是桌面端 ↔ server 工作区同步协议的线上契约:结构、词表、上限,
+// 以及载荷守卫(guard.go)—— 两个宿主跑的是同一份守卫,而不是两份对齐的抄本。
+//
+// 桌面端 internal/pkg/syncwire 与本包同名,分工是清楚的:协议归本包,那边只做别名
+// 再导出加上本端专属的东西(业务码的客户端表达、账号级实时通道的解码)。
 //
 // 从前这份契约在工作区里存在**三份**:
 //
@@ -40,6 +44,42 @@ const (
 	KindIssue      = "issue"
 	KindIssueLabel = "issue_label"
 )
+
+// Kinds 是同步组的全部对象类型,按「被引用者在前」排列。
+//
+// 常量表本身只有一份,**成员资格**从前却由两个宿主各自枚举(桌面端 sync_svc 的
+// syncKinds、服务端 sync_entity 的 KindValid):任何一边漏掉一个新 kind,那一类对象
+// 就在那一端整类静默不同步 —— 没有报错,只是没有。它归契约所有,两个宿主都只引用它。
+//
+// 次序是承重的:认领(R12a)与任何需要遍历全部类型的地方都按它走,父行因此先入队、
+// 先落地,R2a 的暂缓少绕一圈。追加新 kind 时按引用方向插进去,别随手贴到末尾。
+var Kinds = []string{
+	KindProject,
+	KindDepartment,
+	KindAgent,
+	KindAgentBackend,
+	KindAgentBackendCLI,
+	KindAgentExecTarget,
+	KindProjectAgent,
+	KindProjectLocation,
+	KindLLMProvider,
+	// 看板：标签是任务的被引用者，任务又是关联行的被引用者；任务还引用项目、
+	// Agent 与 backend，三者都排在上面。
+	KindLabel,
+	KindIssue,
+	KindIssueLabel,
+}
+
+// KindValid 报告某个对象类型是否属于同步组。取值域是闭合的:不认识的类型一律按
+// 单条拒绝处置(PushRejectReasonKind),不会连累整批。
+func KindValid(kind string) bool {
+	for _, k := range Kinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
 
 // ── 处置结果词表 ────────────────────────────────────────────────────────────
 

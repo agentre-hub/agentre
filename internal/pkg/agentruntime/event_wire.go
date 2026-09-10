@@ -8,6 +8,7 @@ import (
 	"github.com/cago-frame/agents/provider"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // Event wire 编解码。Event 是 sealed interface，无法靠 stdlib 默认反序列化跨线传递；
@@ -336,7 +337,7 @@ func (e UserMessageEvent) MarshalJSON() ([]byte, error) {
 		Text             string    `json:"text,omitempty"`
 		SourceDevice     string    `json:"sourceDevice,omitempty"`
 		SourceDeviceName string    `json:"sourceDeviceName,omitempty"`
-	}{EventUserMessage, e.Text, e.SourceDevice, e.SourceDeviceName})
+	}{EventUserMessage, e.Text, string(e.SourceDevice), e.SourceDeviceName})
 }
 
 // EventContextWindowUpdated 给 ContextWindowUpdated 事件做 wire discriminator。
@@ -690,7 +691,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 		}
 		return UserMessageEvent{
 			Text:             w.Text,
-			SourceDevice:     w.SourceDevice,
+			SourceDevice:     devicefp.Initiator(w.SourceDevice),
 			SourceDeviceName: w.SourceDeviceName,
 		}, nil
 	case EventError:

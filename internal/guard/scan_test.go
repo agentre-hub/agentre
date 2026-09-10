@@ -15,6 +15,12 @@ import (
 // 守卫要守的是**本仓跟踪的源码**。范围放宽一格的后果不是「多看了几个文件」——同一份
 // canonical 文件会在副本里被再数一次,守卫于是把自己报成第二份声明。
 func walkRepositoryGoFiles(root string, visit func(rel string, content []byte) error) error {
+	return walkRepositoryFiles(root, ".go", visit)
+}
+
+// walkRepositoryFiles 是 walkRepositoryGoFiles 的按扩展名参数化版本:枚举的范围
+// (跳过构建产物与嵌套检出)是同一套,只有「看哪种文件」不同。
+func walkRepositoryFiles(root, ext string, visit func(rel string, content []byte) error) error {
 	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -25,10 +31,10 @@ func walkRepositoryGoFiles(root string, visit func(rel string, content []byte) e
 			}
 			return nil
 		}
-		if filepath.Ext(path) != ".go" {
+		if filepath.Ext(path) != ext {
 			return nil
 		}
-		content, err := os.ReadFile(path) //nolint:gosec // 守卫读的是自己从仓库根枚举出的 Go 源码。
+		content, err := os.ReadFile(path) //nolint:gosec // 守卫读的是自己从仓库根枚举出的源码。
 		if err != nil {
 			return err
 		}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // setupAgentBackendRepoTest 起一个 sqlmock 数据库，返回 ctx / mock / repo。
@@ -254,7 +255,7 @@ func TestAgentBackendRepo_ClaimRelative_ClonesTargetsAndTombstonesOriginals(t *t
 	claims, err := repo.ClaimRelative(ctx, "sha256:desktop-a")
 	require.NoError(t, err)
 	require.Len(t, claims, 1)
-	assert.Equal(t, "sha256:desktop-a", claims[0].ClaimedBackend.DeviceFingerprint)
+	assert.Equal(t, devicefp.Carrier("sha256:desktop-a"), claims[0].ClaimedBackend.DeviceFingerprint)
 	assert.Equal(t, int64(2), claims[0].ClaimedBackend.ID)
 	require.Len(t, claims[0].ClaimedTargets, 1)
 	assert.Equal(t, int64(2), claims[0].ClaimedTargets[0].AgentBackendID)

@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // TestRuntime_AdoptDoesNotSilenceTheTurnAlreadyStreaming
@@ -44,9 +45,9 @@ func TestRuntime_AdoptDoesNotSilenceTheTurnAlreadyStreaming(t *testing.T) {
 	ctx, notif, _, _, h := setupRuntimeTest(t, rt)
 	be := agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), Name: "x"}
 
-	_, err := h.Run(ctx, wire.RunParams{
-		Backend:        backendJSON(t, be),
-		ConversationID: convID(91),
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend:        backendProto(t, be),
+		ConversationId: convID(91),
 		Cwd:            "/tmp",
 		UserText:       "看看目录",
 		// 浏览器发起时这两格必带(dispatch.ts 的 sourceDevice / sourceDeviceName)。

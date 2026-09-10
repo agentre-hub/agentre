@@ -14,6 +14,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/repository/repoquery"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source agent_backend.go -destination mock_agent_backend_repo/mock_agent_backend.go
@@ -34,15 +36,15 @@ type AgentBackendRepo interface {
 	// ListByDevice 列出指向同一台设备（canonical fingerprint）的全部启用 backend。
 	// 一台机器可以有多档（Claude Code / Codex / Pi Agent 各一档，R14「自己」是一组
 	// 而不是一个）；R14 顺序解析用它识别「本机」那几档。
-	ListByDevice(ctx context.Context, deviceID string) ([]*agent_backend_entity.AgentBackend, error)
+	ListByDevice(ctx context.Context, deviceID devicefp.Carrier) ([]*agent_backend_entity.AgentBackend, error)
 	List(ctx context.Context) ([]*agent_backend_entity.AgentBackend, error)
 	Delete(ctx context.Context, id int64) error
 	ListCLIOverlays(ctx context.Context) ([]*agent_backend_entity.CLIOverlay, error)
-	FindCLIOverlay(ctx context.Context, backendSyncID, fingerprint string) (*agent_backend_entity.CLIOverlay, error)
+	FindCLIOverlay(ctx context.Context, backendSyncID string, fingerprint devicefp.Carrier) (*agent_backend_entity.CLIOverlay, error)
 	CreateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error
 	UpdateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error
 	DeleteCLIOverlay(ctx context.Context, id int64) error
-	ClaimRelative(ctx context.Context, fingerprint string) ([]RelativeClaim, error)
+	ClaimRelative(ctx context.Context, fingerprint devicefp.Carrier) ([]RelativeClaim, error)
 	// ListTombstonesOlderThan 列出「墓碑且 updatetime 早于 cutoff(ms epoch)」的行——
 	// 决策 24 回收判据的前一半(墓碑 AND 超过保留期)。另一半(无任何引用)由调用方
 	// 结合 ListExecTargetBackendRefs / chat_repo.SessionRepo.ListExecAgentBackendRefs
@@ -153,7 +155,7 @@ func (r *agentBackendRepo) ExistsByName(ctx context.Context, name string) (bool,
 	return count > 0, nil
 }
 
-func (r *agentBackendRepo) ListByDevice(ctx context.Context, deviceID string) ([]*agent_backend_entity.AgentBackend, error) {
+func (r *agentBackendRepo) ListByDevice(ctx context.Context, deviceID devicefp.Carrier) ([]*agent_backend_entity.AgentBackend, error) {
 	var rows []*agent_backend_entity.AgentBackend
 	err := db.Ctx(ctx).
 		Where("device_fingerprint = ? AND status = ?", deviceID, consts.ACTIVE).
@@ -219,7 +221,7 @@ func (r *agentBackendRepo) ListCLIOverlays(ctx context.Context) ([]*agent_backen
 	return rows, err
 }
 
-func (r *agentBackendRepo) FindCLIOverlay(ctx context.Context, backendSyncID, fingerprint string) (*agent_backend_entity.CLIOverlay, error) {
+func (r *agentBackendRepo) FindCLIOverlay(ctx context.Context, backendSyncID string, fingerprint devicefp.Carrier) (*agent_backend_entity.CLIOverlay, error) {
 	out := &agent_backend_entity.CLIOverlay{}
 	err := db.Ctx(ctx).Where("backend_sync_id = ? AND agentred_fingerprint = ? AND status = ?", backendSyncID, fingerprint, consts.ACTIVE).First(out).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -249,7 +251,7 @@ func (r *agentBackendRepo) DeleteCLIOverlay(ctx context.Context, id int64) error
 // its execution targets, and tombstones the old rows in one transaction. Only
 // DeviceID == "" is eligible: another desktop's already named clone can never
 // be claimed again.
-func (r *agentBackendRepo) ClaimRelative(ctx context.Context, fingerprint string) ([]RelativeClaim, error) {
+func (r *agentBackendRepo) ClaimRelative(ctx context.Context, fingerprint devicefp.Carrier) ([]RelativeClaim, error) {
 	if fingerprint == "" {
 		return nil, nil
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -75,9 +76,9 @@ func TestMCPTunnelHandler_ForwardsRequestAndWritesResponse(t *testing.T) {
 		Headers: map[string][]string{"Content-Type": {"application/json"}},
 		Body:    []byte(`{"ok":true}`),
 	}}
-	var gotPeer string
+	var gotPeer devicefp.Initiator
 	var gotConversationID string
-	h := NewMCPTunnelHandler(func(peer string, conversationID string) NotifierPort {
+	h := NewMCPTunnelHandler(func(peer devicefp.Initiator, conversationID string) NotifierPort {
 		gotPeer, gotConversationID = peer, conversationID
 		return fn
 	})
@@ -97,7 +98,7 @@ func TestMCPTunnelHandler_ForwardsRequestAndWritesResponse(t *testing.T) {
 
 	// The local URL's explicit origin selects the peer/session, not a global
 	// newest-connection heuristic.
-	require.Equal(t, "sha256:peer-a", gotPeer)
+	require.Equal(t, devicefp.Initiator("sha256:peer-a"), gotPeer)
 	require.Equal(t, testConversationID, gotConversationID,
 		"写进隧道 URL 的对话身份必须原样解回来 —— 这是本轮唯一一处身份离开进程边界的地方")
 	// 经 MethodMCPProxy 反向请求转发,且请求保真(path/method/body/鉴权头)。
@@ -122,7 +123,7 @@ func TestMCPTunnelHandler_ForwardsRequestAndWritesResponse(t *testing.T) {
 // unavailable capability, states the dependency on the originating client being
 // online, and tells the model not to retry.
 func TestMCPTunnelHandler_NoActiveConn_ReturnsReadableToolError(t *testing.T) {
-	h := NewMCPTunnelHandler(func(string, string) NotifierPort { return nil })
+	h := NewMCPTunnelHandler(func(devicefp.Initiator, string) NotifierPort { return nil })
 
 	body := `{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"org_get"}}`
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/", strings.NewReader(body))
@@ -169,7 +170,7 @@ func TestMCPTunnelHandler_NoActiveConn_LogsTheDegradation(t *testing.T) {
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	h := NewMCPTunnelHandler(func(string, string) NotifierPort { return nil })
+	h := NewMCPTunnelHandler(func(devicefp.Initiator, string) NotifierPort { return nil })
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/",
 		strings.NewReader(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"org_get"}}`)))
@@ -195,7 +196,7 @@ func TestMCPTunnelHandler_TargetLostMidCall_ReturnsReadableToolError(t *testing.
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
 	fn := &fakeTunnelNotifier{err: protorpc.ErrConnClosed}
-	h := NewMCPTunnelHandler(func(string, string) NotifierPort { return fn })
+	h := NewMCPTunnelHandler(func(devicefp.Initiator, string) NotifierPort { return fn })
 
 	body := `{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"org_get"}}`
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/?conversationId=00000000-0000-7000-8000-000000000042&peerFingerprint=sha256%3Apeer-a", strings.NewReader(body))
@@ -243,7 +244,7 @@ func TestMCPTunnelHandler_TargetLostMidCall_ReturnsReadableToolError(t *testing.
 // answer with a well-formed JSON-RPC error (id degrades to null) instead of panicking
 // or falling back to the old bare-503 behavior.
 func TestMCPTunnelHandler_NoActiveConn_UnparsableBodyStillAnswers(t *testing.T) {
-	h := NewMCPTunnelHandler(func(string, string) NotifierPort { return nil })
+	h := NewMCPTunnelHandler(func(devicefp.Initiator, string) NotifierPort { return nil })
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7777/mcp/org/", strings.NewReader("not json")))
 

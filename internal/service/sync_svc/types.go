@@ -8,6 +8,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // 出站队列的操作类型，与 syncqueue_entity 的常量同名同义。
@@ -127,21 +128,21 @@ type outbound struct {
 	SyncID              string
 	UpdatedAt           int64
 	ScopeSyncID         string
-	AgentredFingerprint string
+	AgentredFingerprint devicefp.Carrier
 	Payload             json.RawMessage
 }
 
 // inbound 是一条下行项在落地前的样子；暂缓落地时整个被存进入站队列（R2a）。
 type inbound struct {
-	Kind                string          `json:"kind"`
-	SyncID              string          `json:"sync_id"`
-	ScopeSyncID         string          `json:"scope_sync_id,omitempty"`
-	AgentredFingerprint string          `json:"agentred_fingerprint,omitempty"`
-	Payload             json.RawMessage `json:"payload,omitempty"`
-	Version             int64           `json:"version"`
-	UpdatedAt           int64           `json:"updated_at"`
+	Kind                string           `json:"kind"`
+	SyncID              string           `json:"sync_id"`
+	ScopeSyncID         string           `json:"scope_sync_id,omitempty"`
+	AgentredFingerprint devicefp.Carrier `json:"agentred_fingerprint,omitempty"`
+	Payload             json.RawMessage  `json:"payload,omitempty"`
+	Version             int64            `json:"version"`
+	UpdatedAt           int64            `json:"updated_at"`
 	// OriginFingerprint 是最后一次修改来自哪台机器（决策 14）；空串 = server 直写。
-	OriginFingerprint string `json:"origin_fingerprint"`
+	OriginFingerprint devicefp.LastWriter `json:"origin_fingerprint"`
 	// DeletedAt 非零 = 墓碑，值是删除时刻（决策 20）。
 	DeletedAt int64 `json:"deleted_at"`
 }
@@ -154,11 +155,11 @@ func inboundOf(it syncwire.PullItem) *inbound {
 		Kind:                it.Kind,
 		SyncID:              it.SyncID,
 		ScopeSyncID:         it.ScopeSyncID,
-		AgentredFingerprint: it.AgentredFingerprint,
+		AgentredFingerprint: devicefp.Carrier(it.AgentredFingerprint),
 		Payload:             json.RawMessage(it.Payload),
 		Version:             it.Version,
 		UpdatedAt:           it.UpdatedAt,
-		OriginFingerprint:   it.OriginFingerprint,
+		OriginFingerprint:   devicefp.LastWriter(it.OriginFingerprint),
 		DeletedAt:           it.DeletedAt,
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // relayDialAdapter 把 server_svc 的账号中转拨号(DialDaemonRelay)适配成
@@ -17,7 +18,7 @@ type relayDialAdapter struct {
 	inner server_svc.ServerSvc
 }
 
-func (a relayDialAdapter) Open(ctx context.Context, daemonFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
+func (a relayDialAdapter) Open(ctx context.Context, daemonFingerprint devicefp.Carrier, peerFingerprint devicefp.Initiator) (client.ProtobufConnection, error) {
 	return a.inner.DialDaemonRelay(ctx, daemonFingerprint, peerFingerprint)
 }
 

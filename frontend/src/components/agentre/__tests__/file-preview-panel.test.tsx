@@ -26,6 +26,9 @@ type FakeEditor = {
   options: Record<string, unknown>;
   setValue: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
+  getModel: ReturnType<typeof vi.fn>;
+  revealLineInCenter: ReturnType<typeof vi.fn>;
+  setSelection: ReturnType<typeof vi.fn>;
 };
 type FakeDiff = {
   options: Record<string, unknown>;
@@ -41,16 +44,30 @@ type FakeMonaco = {
   };
 };
 
+let createdEditors: FakeEditor[] = [];
+
 function createFakeMonaco(): FakeMonaco {
+  createdEditors = [];
   const editor = {
     setTheme: vi.fn(),
     create: vi.fn(
       (_container: HTMLElement, options: Record<string, unknown>) => {
+        let text = String(options.value ?? "");
         const e: FakeEditor = {
           options,
-          setValue: vi.fn(),
+          setValue: vi.fn((next: string) => {
+            text = next;
+          }),
           dispose: vi.fn(),
+          getModel: vi.fn(() => ({
+            getLineCount: () => text.split("\n").length,
+            getLineMaxColumn: (line: number) =>
+              (text.split("\n")[line - 1]?.length ?? 0) + 1,
+          })),
+          revealLineInCenter: vi.fn(),
+          setSelection: vi.fn(),
         };
+        createdEditors.push(e);
         return e;
       },
     ),
@@ -116,9 +133,16 @@ function openPreview(
   path: string,
   sessionId = 7,
   sourceMode: PreviewSourceMode = "directory",
+  anchor?: { line: number; endLine?: number },
 ) {
-  useFilePreviewTabsStore.getState().openPreview(sessionId, path, sourceMode);
+  useFilePreviewTabsStore
+    .getState()
+    .openPreview(sessionId, path, sourceMode, anchor);
 }
+
+const TWENTY_LINES = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join(
+  "\n",
+);
 
 describe("FilePreviewPanel", () => {
   it("renders nothing when no file is selected", () => {
@@ -1044,5 +1068,68 @@ describe("FilePreviewPanel", () => {
 
     await waitFor(() => expect(readFileMock).toHaveBeenCalledTimes(2));
     expect(gitFileContentMock).not.toHaveBeenCalled();
+  });
+
+  // 这一跳此前没有任何测试:转录点一条带行号的链接时,定位目标记在 store 的活动
+  // 标签上,由本宿主壳把它交给共享面板。壳漏了就是「预览开了、但停在第 1 行」,
+  // 而包里那两层的用例照样全绿(2026-09-08 的运行期验证就是这么红的)。
+  it("hands the anchor recorded on the active tab down to the editor", async () => {
+    readFileMock.mockResolvedValue(textView(TWENTY_LINES));
+    openPreview("src/foo.go", 7, "directory", { line: 3, endLine: 5 });
+
+    renderPanel();
+
+    await screen.findByRole("complementary", { name: "File preview" });
+    await waitFor(() => expect(createdEditors).toHaveLength(1));
+    await waitFor(() =>
+      expect(createdEditors[0].revealLineInCenter).toHaveBeenCalledWith(3),
+    );
+    expect(createdEditors[0].setSelection).toHaveBeenCalledWith({
+      startLineNumber: 3,
+      startColumn: 1,
+      endLineNumber: 5,
+      endColumn: "line 5".length + 1,
+    });
+  });
+
+  // 真实运行里的次序:标签早就开着(重启后 rehydrate 出来的标签定位目标是 null),
+  // 编辑器已经挂好了,行号是**后来**点一条带行号的链接才到的。
+  it("reveals when the anchor arrives at an already mounted editor", async () => {
+    readFileMock.mockResolvedValue(textView(TWENTY_LINES));
+    openPreview("src/foo.go", 7, "directory");
+
+    renderPanel();
+
+    await screen.findByRole("complementary", { name: "File preview" });
+    await waitFor(() => expect(createdEditors).toHaveLength(1));
+    expect(createdEditors[0].revealLineInCenter).not.toHaveBeenCalled();
+
+    await act(async () => {
+      openPreview("src/foo.go", 7, "directory", { line: 3, endLine: 5 });
+    });
+
+    await waitFor(() =>
+      expect(createdEditors[0].revealLineInCenter).toHaveBeenCalledWith(3),
+    );
+  });
+
+  // 生产入口是 StrictMode(main.tsx),它在挂载时把每个 effect 跑「setup → cleanup
+  // → setup」两遍。编辑器因此被建两次,定位必须落在**活下来的那一个**上。
+  it("reveals on the surviving editor under StrictMode double mounting", async () => {
+    readFileMock.mockResolvedValue(textView(TWENTY_LINES));
+    openPreview("src/foo.go", 7, "directory", { line: 3, endLine: 5 });
+
+    render(
+      <React.StrictMode>
+        <FilePreviewPanel sessionId={7} />
+      </React.StrictMode>,
+    );
+
+    await screen.findByRole("complementary", { name: "File preview" });
+    await waitFor(() => expect(createdEditors.length).toBeGreaterThan(0));
+    const survivor = createdEditors[createdEditors.length - 1];
+    await waitFor(() =>
+      expect(survivor.revealLineInCenter).toHaveBeenCalledWith(3),
+    );
   });
 });

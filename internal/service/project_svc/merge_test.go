@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/internal/service/project_svc/mock_project_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // 本文件锁住 R11a「合并到已有项目」：合并后只剩一个项目，沿用账号侧的同步标识
@@ -171,7 +172,7 @@ func TestProjectSvcMerge_GivenLocationsCollideOnSameFingerprint_ThenLoserLocatio
 	m.location.EXPECT().ListByProject(ctx, int64(21)).Return([]*project_location_entity.ProjectLocation{
 		{ID: 71, ProjectID: 21, DeviceFingerprint: "fp-1", Path: "/loser"},
 	}, nil)
-	m.location.EXPECT().FindByProjectAndFingerprint(ctx, int64(20), "fp-1").Return(
+	m.location.EXPECT().FindByProjectAndFingerprint(ctx, int64(20), devicefp.Carrier("fp-1")).Return(
 		&project_location_entity.ProjectLocation{ID: 70, ProjectID: 20, DeviceFingerprint: "fp-1", Path: "/winner"}, nil)
 	m.location.EXPECT().Delete(ctx, int64(71)).Return(nil)
 	m.location.EXPECT().ReassignProject(ctx, int64(21), int64(20)).Return(nil)

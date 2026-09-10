@@ -59,10 +59,12 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/claudecode"
 	pkgpiagent "github.com/agentre-hub/agentre/pkg/piagent"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type chatMocks struct {
@@ -479,7 +481,7 @@ func TestListAgents_BlockReason(t *testing.T) {
 		mockRDS := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
 		// 本机指纹:用例里的 DeviceID 都是别机指纹,「是不是本机档」这一问对每次
 		// 解析都要答一次。
-		mockRDS.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		mockRDS.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		remote_device_svc.SetDefault(mockRDS)
 		t.Cleanup(func() { remote_device_svc.SetDefault(nil) })
 
@@ -773,7 +775,7 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 		mockRDS := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
 		// 本机指纹:用例里的 DeviceID 都是别机指纹,「是不是本机档」这一问对每次
 		// 解析都要答一次。
-		mockRDS.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		mockRDS.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		remote_device_svc.SetDefault(mockRDS)
 		t.Cleanup(func() { remote_device_svc.SetDefault(nil) })
 
@@ -795,7 +797,7 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
 			if assert.Len(t, resp.Agents, 1) {
-				assert.Equal(t, "", resp.Agents[0].DeviceID)
+				assert.Equal(t, devicefp.Carrier(""), resp.Agents[0].DeviceID)
 				assert.Equal(t, "", resp.Agents[0].DeviceName)
 				assert.False(t, resp.Agents[0].Online)
 			}
@@ -821,7 +823,7 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
 			if assert.Len(t, resp.Agents, 1) {
-				assert.Equal(t, "sha256:device-7", resp.Agents[0].DeviceID)
+				assert.Equal(t, devicefp.Carrier("sha256:device-7"), resp.Agents[0].DeviceID)
 				assert.Equal(t, "linux-srv", resp.Agents[0].DeviceName)
 				assert.True(t, resp.Agents[0].Online)
 			}
@@ -845,7 +847,7 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
 			if assert.Len(t, resp.Agents, 1) {
-				assert.Equal(t, "sha256:device-9", resp.Agents[0].DeviceID, "DeviceID 应填入即使 device 查询失败")
+				assert.Equal(t, devicefp.Carrier("sha256:device-9"), resp.Agents[0].DeviceID, "DeviceID 应填入即使 device 查询失败")
 				assert.Equal(t, "", resp.Agents[0].DeviceName)
 				assert.False(t, resp.Agents[0].Online)
 			}
@@ -1081,15 +1083,15 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 		mockRDS := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
 		// 本机指纹:用例里的 DeviceID 都是别机指纹,「是不是本机档」这一问对每次
 		// 解析都要答一次。
-		mockRDS.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		mockRDS.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		remote_device_svc.SetDefault(mockRDS)
 		t.Cleanup(func() { remote_device_svc.SetDefault(nil) })
 
 		// 注入 CwdResolver 并在测试结束后清空。
-		chat_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
+		exec_target_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
 			return "/Users/me/proj", nil
 		})
-		t.Cleanup(func() { chat_svc.RegisterCwdResolver(nil) })
+		t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(nil) })
 
 		convey.Convey("本地 backend (DeviceID='') → DeviceID/DeviceName/Online 均为零值, Cwd 由 CwdResolver 填充", func() {
 			m.session.EXPECT().Find(ctx, int64(100)).Return(&chat_entity.Session{
@@ -1106,7 +1108,7 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 
 			resp, err := m.svc.LoadSession(ctx, &chat_svc.LoadSessionRequest{SessionID: 100})
 			assert.NoError(t, err)
-			assert.Equal(t, "", resp.Session.DeviceID)
+			assert.Equal(t, devicefp.Carrier(""), resp.Session.DeviceID)
 			assert.Equal(t, "", resp.Session.DeviceName)
 			assert.False(t, resp.Session.Online)
 			assert.Equal(t, "/Users/me/proj", resp.Session.Cwd)
@@ -1130,7 +1132,7 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 
 			resp, err := m.svc.LoadSession(ctx, &chat_svc.LoadSessionRequest{SessionID: 101})
 			assert.NoError(t, err)
-			assert.Equal(t, "sha256:device-7", resp.Session.DeviceID)
+			assert.Equal(t, devicefp.Carrier("sha256:device-7"), resp.Session.DeviceID)
 			assert.Equal(t, "linux-srv", resp.Session.DeviceName)
 			assert.True(t, resp.Session.Online)
 		})
@@ -1151,7 +1153,7 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 
 			resp, err := m.svc.LoadSession(ctx, &chat_svc.LoadSessionRequest{SessionID: 102})
 			assert.NoError(t, err)
-			assert.Equal(t, "sha256:device-9", resp.Session.DeviceID, "DeviceID 应填入即使 device 查询失败")
+			assert.Equal(t, devicefp.Carrier("sha256:device-9"), resp.Session.DeviceID, "DeviceID 应填入即使 device 查询失败")
 			assert.Equal(t, "", resp.Session.DeviceName)
 			assert.False(t, resp.Session.Online)
 		})
@@ -1175,7 +1177,7 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 
 			resp, err := m.svc.LoadSession(ctx, &chat_svc.LoadSessionRequest{SessionID: 103})
 			assert.NoError(t, err)
-			assert.Equal(t, "sha256:device-9", resp.Session.DeviceID, "必须解析钉住的档(72→设备9)，不是 Agent 默认档(71)")
+			assert.Equal(t, devicefp.Carrier("sha256:device-9"), resp.Session.DeviceID, "必须解析钉住的档(72→设备9)，不是 Agent 默认档(71)")
 			assert.Equal(t, "pinned-device", resp.Session.DeviceName)
 		})
 
@@ -1215,10 +1217,10 @@ func TestLoadSession_PopulatesCwdUnavailableReason(t *testing.T) {
 		ctx := context.Background()
 
 		convey.Convey("本机未配置路径 → local-path-missing，Cwd 留空", func() {
-			chat_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
+			exec_target_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
 				return "", i18n.NewError(context.Background(), code.ProjectLocalPathMissing)
 			})
-			t.Cleanup(func() { chat_svc.RegisterCwdResolver(nil) })
+			t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(nil) })
 
 			m.session.EXPECT().Find(ctx, int64(200)).Return(&chat_entity.Session{
 				ID: 200, AgentID: 60, Status: consts.ACTIVE,
@@ -1239,10 +1241,10 @@ func TestLoadSession_PopulatesCwdUnavailableReason(t *testing.T) {
 		})
 
 		convey.Convey("cwd 正常解析 → CwdUnavailableReason 留空", func() {
-			chat_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
+			exec_target_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
 				return "/Users/me/proj", nil
 			})
-			t.Cleanup(func() { chat_svc.RegisterCwdResolver(nil) })
+			t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(nil) })
 
 			m.session.EXPECT().Find(ctx, int64(201)).Return(&chat_entity.Session{
 				ID: 201, AgentID: 61, Status: consts.ACTIVE,
@@ -1268,10 +1270,10 @@ func TestLoadSession_PopulatesExecTargetCount(t *testing.T) {
 	convey.Convey("LoadSession 填充 ExecTargetCount 给聊天头 chip 守卫用（R15/R20）", t, func() {
 		m := setupChatTest(t)
 		ctx := context.Background()
-		chat_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
+		exec_target_svc.RegisterCwdResolver(func(_ context.Context, _ *chat_entity.Session) (string, error) {
 			return "", nil
 		})
-		t.Cleanup(func() { chat_svc.RegisterCwdResolver(nil) })
+		t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(nil) })
 
 		convey.Convey("单档/未设置执行目标列表的老 Agent → ExecTargetCount 为 0（走默认宽松桩）", func() {
 			m.session.EXPECT().Find(ctx, int64(111)).Return(&chat_entity.Session{
@@ -1607,7 +1609,7 @@ func TestSend_ImageInput(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			t.Cleanup(ctrl.Finish)
 			rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-			rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+			rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 			prevSvc := remote_device_svc.Default()
 			remote_device_svc.SetDefault(rds)
 			t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
@@ -2574,7 +2576,7 @@ func TestSend_NewSessionWithExecTargetOverride_GivenValidNonFirstTarget_ThenReso
 			s.ID = 100
 			return nil
 		})
-	sessionMock.EXPECT().UpdateExecDaemon(gomock.Any(), int64(100), int64(0), "", int64(52)).
+	sessionMock.EXPECT().UpdateExecDaemon(gomock.Any(), int64(100), int64(0), devicefp.Carrier(""), int64(52)).
 		Return(nil)
 	sessionMock.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
 
@@ -5909,7 +5911,7 @@ func TestSend_SteerConsumedSplitsMessages(t *testing.T) {
 			assert.Equal(t, int64(1002), consumed.UserMessages[0].ID)
 			assert.Equal(t, "follow-up", consumed.UserMessages[0].Blocks[0].Text)
 			// R17: 他端消息的来源标识随 UserMessages 带出(本机为空)。
-			assert.Equal(t, "sha256:remote-peer", consumed.UserMessages[0].SourceDevice)
+			assert.Equal(t, devicefp.Initiator("sha256:remote-peer"), consumed.UserMessages[0].SourceDevice)
 			assert.Equal(t, "iPhone", consumed.UserMessages[0].SourceDeviceName)
 		}
 		if assert.NotNil(t, consumed.AssistantMessage) {
@@ -6189,7 +6191,7 @@ func TestSend_AutoContinuesMultipleLevels(t *testing.T) {
 		}
 	}
 	if assert.NotNil(t, autoUserMsg, "auto-continue StreamSteerConsumed must carry a user message") {
-		assert.Equal(t, "sha256:other-device", autoUserMsg.SourceDevice)
+		assert.Equal(t, devicefp.Initiator("sha256:other-device"), autoUserMsg.SourceDevice)
 		assert.Equal(t, "iPad", autoUserMsg.SourceDeviceName)
 	}
 	assert.GreaterOrEqual(t, doneCount, 1, "final turn must emit StreamDone")
@@ -6323,7 +6325,7 @@ func TestSend_Errors(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			t.Cleanup(ctrl.Finish)
 			mockRDS := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-			mockRDS.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+			mockRDS.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 			mockRDS.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
 				{ID: 42, DaemonFingerprint: "sha256:device-42", Online: true},
 			}, nil).AnyTimes()
@@ -7080,11 +7082,11 @@ func pairChatTestDevices(t *testing.T, deviceIDs ...int64) {
 	rows := make([]*remote_device_svc.DeviceView, 0, len(deviceIDs))
 	for _, id := range deviceIDs {
 		rows = append(rows, &remote_device_svc.DeviceView{
-			ID: id, DaemonFingerprint: fmt.Sprintf("sha256:device-%d", id), Online: true,
+			ID: id, DaemonFingerprint: devicefp.Carrier(fmt.Sprintf("sha256:device-%d", id)), Online: true,
 		})
 	}
 	rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-	rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+	rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 	rds.EXPECT().List(gomock.Any()).Return(rows, nil).AnyTimes()
 	rds.EXPECT().Get(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, id int64) (*remote_device_svc.DeviceView, error) {

@@ -5,6 +5,7 @@
  * 而且 TestGeneratedTSFresh 会立刻变红。
  *
  * 真理源:  internal/pkg/agentruntime/runtimes/remote/wire/wire.go
+ *          错误码出自 pkg/wire/rpcerror(见文件里的错误码段头)
  * 生成器:  internal/pkg/agentruntime/runtimes/remote/wire/tsgen_test.go
  * 重新生成:
  *
@@ -195,43 +196,6 @@ export const NotifyAutonomousTurnEvent = "runtime.autonomousTurn.event";
 
 export const NotifyAutonomousTurnDone = "runtime.autonomousTurn.done";
 
-export const ErrCodeNoActiveTurn = -32010;
-
-export const ErrCodeSteerNotFound = -32011;
-
-export const ErrCodeUnsupported = -32012;
-
-export const ErrCodeAborted = -32013;
-
-export const ErrCodeSessionNotFound = -32014;
-
-/**
- * ErrCodePeerExecutionUnavailable:会话钉住的执行目标(agentred)当前不可用。
- *
- * 与上面五个不同,它**不进 SentinelFromCode**:那张表翻的是 daemon 回给
- * remote 客户端的 agentruntime sentinel,而这一条是桌面端 peer 回给浏览器的,
- * 两条链路不同。放这里的唯一理由是让它跟着 wire 一起生成给 TS ——
- * 浏览器要靠它把「执行目标不可用」(停用写入 + 状态横幅)与普通拒绝区分开,
- * 此前是在 agentre-server 里手抄的一个魔数,改了这边不会有任何地方变红。
- *
- * 应答里同时带类型化 data(accepted / historyAvailable / executionUnavailable)。
- */
-export const ErrCodePeerExecutionUnavailable = -32015;
-
-/**
- * project.* 的三个码。段位由 pkg/wire/rpcerror 统一划,那里的守卫扫得到全部
- * 方法族 —— 同一条连接上跑着好几个族,码段重叠会让客户端把别人的失败认成自己的。
- *
- * ErrCodeProjectNotSynced:这台机器上没有这个同步标识的项目。它与「写失败了」
- * **必须分得开**——项目可以先在 web 上建出来,那一刻目标机器可能还没拉到这一行,
- * 等一会儿就好;折进通用失败会让用户去查权限和磁盘。
- */
-export const ErrCodeProjectNotSynced = -32050;
-
-export const ErrCodeProjectInvalidPath = -32051;
-
-export const ErrCodeProjectPathNotFound = -32052;
-
 /**
  * CapLLMModelTargetV1 是 daemon 在 health.ping 里公布的能力位：本 daemon 支持
  * 按 ModelKey 解析 fixed-model（决策 11）。桌面端据此在 Picker 里禁用不支持
@@ -267,3 +231,119 @@ export const SkillDiscoveryUnavailable = "unavailable";
  * 等机器空闲了再问,结果都一样。
  */
 export const SkillDiscoveryUnsupported = "unsupported";
+
+/**
+ * ── RPC 错误码 ──
+ *
+ * 这一段的真理源是 pkg/wire/rpcerror(codes.go + error.go),不是 wire.go:
+ * 错误码由同一条连接上的多个方法族共用一张段位表,而 wire 包只给其中两族起了
+ * 别名。从别名生成等于只导出「恰好有人起过别名的那几族」。
+ *
+ * 名字:TS 侧统一 ErrCode<族><短名>,Go 侧是 Code<族><短名>。两边的对应写在
+ * 生成器的 tsRPCErrorDecls() 里、由 TestTSGenCoversRPCErrorCodes 钉住 —— 下面
+ * 每条的文档注释是 Go 侧原文,所以里面出现的是 Go 名字。
+ */
+
+export const ErrCodeNoActiveTurn = -32010;
+
+export const ErrCodeSteerNotFound = -32011;
+
+export const ErrCodeUnsupported = -32012;
+
+/**
+ * CodeRuntimeAborted 是「用户自己按了停止」。turnstate.AbortedCode 是同一个
+ * 数字的另一处声明 —— 那个包判定一轮是否故障收场时不该反向依赖本包,两者由
+ * segments_test.go 里的一条断言钉在一起,谁也漂不走。
+ */
+export const ErrCodeAborted = -32013;
+
+export const ErrCodeSessionNotFound = -32014;
+
+/**
+ * CodeRuntimePeerExecutionUnavailable:会话钉住的执行目标(agentred)当前
+ * 不可用。它与上面五个不同,不对应任何 agentruntime sentinel —— 那条链路是
+ * daemon 回给 remote 客户端,而这一条是桌面端 peer 回给浏览器。浏览器靠它把
+ * 「执行目标不可用」与普通拒绝分开。
+ */
+export const ErrCodePeerExecutionUnavailable = -32015;
+
+export const ErrCodeRemoteFSPathRefused = -32030;
+
+export const ErrCodeRemoteFSPermDenied = -32031;
+
+export const ErrCodeRemoteFSNotFound = -32032;
+
+export const ErrCodeRemoteFSNotDir = -32033;
+
+export const ErrCodeRemoteFSMkdirExists = -32034;
+
+export const ErrCodeRemoteFSInvalidName = -32035;
+
+export const ErrCodeWorkspaceFSPathRefused = -32040;
+
+export const ErrCodeWorkspaceFSBaselineRequired = -32041;
+
+/**
+ * CodeWorkspaceFSNoCwd:调用方没给工作目录。与「越界」分开 —— cwd 为空是
+ * 会话配置问题,不是路径问题。
+ */
+export const ErrCodeWorkspaceFSNoCwd = -32042;
+
+/**
+ * CodeWorkspaceFSNotFound:relPath 所指的文件在那台机器上不存在。越界判定
+ * 在前,所以 root 之外的路径无论存不存在都只会得到 PathRefused ——
+ * 这个码不能成为「那台机器上有没有这个文件」的探测器。
+ */
+export const ErrCodeWorkspaceFSNotFound = -32043;
+
+/**
+ * CodeProjectNotSynced:这台机器上没有这个同步标识的项目。它与「写失败了」
+ * 必须分得开 —— 项目可以先在 web 上建出来,那一刻目标机器可能还没拉到这一行,
+ * 等一会儿就好;折进通用失败会让用户去查权限和磁盘。
+ */
+export const ErrCodeProjectNotSynced = -32050;
+
+export const ErrCodeProjectInvalidPath = -32051;
+
+export const ErrCodeProjectPathNotFound = -32052;
+
+/**
+ * 这三个码此前住在桌面仓 internal/pkg/transcriptimport/wire 里,自己声明的是
+ * -32050..-32052 —— 与上面 project.* 那一段逐个撞上,而那个包在本包的守卫视野
+ * 之外,所以没有任何地方会红。搬进来的第一次运行,守卫就点名了这次撞号,这一段
+ * 因此改到 -32060 起。
+ *
+ * 改的是**过线的值**。它安全,是因为今天没有任何消费方在解这三个码:产出侧经
+ * wireinbound 的 transcriptImportError → ToRPCError 折上线,而反向的 FromRPCError
+ * 一个调用点都没有(agentre-server 也不解)。混版本期最坏的后果是「认不出来,
+ * 落回泛化错误」,与今天的行为一致。
+ */
+export const ErrCodeTranscriptImportBackendUnavailable = -32060;
+
+export const ErrCodeTranscriptImportTranscriptOpen = -32061;
+
+export const ErrCodeTranscriptImportSessionInUse = -32062;
+
+export const ErrCodeUnauthorized = -32001;
+
+export const ErrCodeSessionMissing = -32002;
+
+export const ErrCodeProviderMissing = -32003;
+
+export const ErrCodePairing = -32004;
+
+export const ErrCodeShuttingDown = -32005;
+
+/**
+ * CodeProtocolVersion is returned by a handshake handler whose peer
+ * advertised a wire protocol version it does not accept.
+ */
+export const ErrCodeProtocolVersion = -32006;
+
+export const ErrCodeMethodNotFound = -32601;
+
+export const ErrCodeInvalidParams = -32602;
+
+export const ErrCodeInternal = -32603;
+
+export const ErrCodeCanceled = -32800;

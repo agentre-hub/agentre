@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // appliedKinds 是一轮下行里**真正落地**的对象类型。用集合而不是计数：界面据此
@@ -141,7 +142,7 @@ type mergeLoss struct {
 	kind          string
 	syncID        string
 	projectSyncID string
-	fingerprint   string
+	fingerprint   devicefp.Carrier
 	payload       json.RawMessage
 }
 

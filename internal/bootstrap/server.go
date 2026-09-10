@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // InitServer wires the server_state_repo + server_svc defaults.
@@ -114,8 +115,8 @@ func ServerBoot(ctx context.Context) {
 	})
 }
 
-func newBootFingerprint() string {
+func newBootFingerprint() devicefp.Carrier {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	return devicefp.Carrier(hex.EncodeToString(b))
 }

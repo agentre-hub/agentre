@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // SkillsListParams skills.list RPC 入参:desktop 只传 backend type;CLIPath 一般留空,
@@ -71,27 +72,28 @@ func (h *SkillsHandlers) List(ctx context.Context, p SkillsListParams) (SkillsLi
 // 三种 discovery 判别值必须分得干净(见 wire 的常量注释):**空目录绝不能冒充
 // 「这台机器上没有技能」**。答不出时回 nil error 而不是 RPC 错误,是因为规格要求
 // 「列不出可添加的包,已授权的仍可移除」—— 整块报错会把已授权的那半边一起打掉。
-func (h *SkillsHandlers) Catalog(ctx context.Context, p wire.SkillCatalogParams) (wire.SkillCatalogResult, error) {
-	empty := func(discovery string) wire.SkillCatalogResult {
-		return wire.SkillCatalogResult{Packs: []wire.SkillPackSummary{}, Discovery: discovery}
+func (h *SkillsHandlers) Catalog(ctx context.Context, req *agentrewire.SkillCatalogRequest) (*agentrewire.SkillCatalogResponse, error) {
+	empty := func(discovery string) *agentrewire.SkillCatalogResponse {
+		return &agentrewire.SkillCatalogResponse{Packs: []*agentrewire.SkillPackSummary{}, Discovery: discovery}
 	}
 
-	bt := agent_backend_entity.BackendType(p.BackendType)
-	installed, _, discovery := h.discoverInstalled(ctx, p.BackendType, p.CLIPath)
+	backendType := req.GetBackendType()
+	bt := agent_backend_entity.BackendType(backendType)
+	installed, _, discovery := h.discoverInstalled(ctx, backendType, req.GetCliPath())
 	if discovery != wire.SkillDiscoveryOK {
 		return empty(discovery), nil
 	}
 
-	authorized := make([]agent_entity.AgentSkillItem, 0, len(p.Authorized))
-	for _, a := range p.Authorized {
-		authorized = append(authorized, agent_entity.AgentSkillItem{ID: a.ID, Enabled: a.Enabled})
+	authorized := make([]agent_entity.AgentSkillItem, 0, len(req.GetAuthorized()))
+	for _, a := range req.GetAuthorized() {
+		authorized = append(authorized, agent_entity.AgentSkillItem{ID: a.GetId(), Enabled: a.GetEnabled()})
 	}
 
 	entries := agentskill.MergeCatalog(agentskill.RecommendedFor(bt), installed, authorized)
-	packs := make([]wire.SkillPackSummary, 0, len(entries))
+	packs := make([]*agentrewire.SkillPackSummary, 0, len(entries))
 	for _, e := range entries {
-		packs = append(packs, wire.SkillPackSummary{
-			ID:              e.Pack.ID,
+		packs = append(packs, &agentrewire.SkillPackSummary{
+			Id:              e.Pack.ID,
 			Name:            e.Pack.Name,
 			Description:     e.Pack.Description,
 			Skills:          e.Pack.Skills,
@@ -100,7 +102,7 @@ func (h *SkillsHandlers) Catalog(ctx context.Context, p wire.SkillCatalogParams)
 			GloballyEnabled: e.Pack.GloballyEnabled,
 		})
 	}
-	return wire.SkillCatalogResult{Packs: packs, Discovery: wire.SkillDiscoveryOK}, nil
+	return &agentrewire.SkillCatalogResponse{Packs: packs, Discovery: wire.SkillDiscoveryOK}, nil
 }
 
 // Commands 答 MethodSkillsCommands:这台机器上某一档执行目标此刻叫得动的 skill 名字。

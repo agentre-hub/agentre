@@ -19,6 +19,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // pairingCodeLen 与 spec §4.3 一致 — base32 6 字符。
@@ -47,7 +49,7 @@ func (s *service) Add(ctx context.Context, req AddRequest) (*DeviceView, error) 
 	}
 	result, err := s.dial.Pair(ctx, PairArgs{
 		URL: req.URL, TLSMode: req.TLSMode, TLSCertPEM: req.TLSCertPEM,
-		Code: req.PairingCode, DeviceName: name, DeviceFingerprint: fp,
+		Code: req.PairingCode, DeviceName: name, DeviceFingerprint: string(fp),
 	})
 	if err != nil {
 		return nil, translatePairError(ctx, err)
@@ -133,7 +135,7 @@ func (s *service) deriveDisplayName(ctx context.Context, req AddRequest) (string
 	return first, nil
 }
 
-func (s *service) ensureDeviceFingerprint() (string, error) {
+func (s *service) ensureDeviceFingerprint() (devicefp.Carrier, error) {
 	return EnsureDeviceFingerprint(s.keychain)
 }
 
@@ -143,13 +145,13 @@ func (s *service) ensureDeviceFingerprint() (string, error) {
 // 导出出来是因为装配期有一个比本服务更早的消费者:存量对话回填 conversation_id 要
 // 拿它当派生输入(spec 2026-08-31 决策 2),而迁移跑在 InitRemoteDevice 之前。让那条
 // 路自己再写一份生成逻辑,两处一旦漂移,同一台机器就会有两个"唯一"指纹。
-func EnsureDeviceFingerprint(kc keychain.Keychain) (string, error) {
+func EnsureDeviceFingerprint(kc keychain.Keychain) (devicefp.Carrier, error) {
 	if kc == nil {
 		return "", errors.New("remote_device_svc: no keychain backend")
 	}
 	fp, err := kc.Get(accountForDeviceFingerprint)
 	if err == nil && fp != "" {
-		return fp, nil
+		return devicefp.Carrier(fp), nil
 	}
 	if err != nil && !errors.Is(err, keychain.ErrNotFound) {
 		return "", err
@@ -164,7 +166,7 @@ func EnsureDeviceFingerprint(kc keychain.Keychain) (string, error) {
 	if err := kc.Set(accountForDeviceFingerprint, newFP); err != nil {
 		return "", err
 	}
-	return newFP, nil
+	return devicefp.Carrier(newFP), nil
 }
 
 // translatePairError maps DaemonDialPort errors back to local i18n codes. The

@@ -44,6 +44,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -145,7 +146,7 @@ const cliSessionSweepInterval = time.Minute
 // sessionKey 是 daemon 侧的会话身份(R16):(对端设备指纹, 对端会话 id)。会话 id 是
 // 各客户端本地自增的,两个对端各自持有同一个 id 时是两条互不相干的会话。
 type sessionKey struct {
-	peer string
+	peer devicefp.Initiator
 	// conversationID 是这条对话的全局身份。从前这里是客户端本地自增的会话号,所以
 	// 必须与 peer 配对才唯一;对话身份本身已经全局唯一,peer 留着只承担授权与来源
 	// 标注(与 daemon_sessions 上那一列同一次降级)。
@@ -331,7 +332,7 @@ type sessionClaim struct {
 // peerIdentity 取连接的对端身份(设备指纹)。身份是鉴权成功那一刻才成立的,报了指纹
 // 没通过鉴权不算;空指纹不构成可匹配身份(否则一条空指纹连接就能冒领会话的通知),
 // 空指纹在 registerMethods 的 auth.* 入参处就已挡下,这里是第二道。
-func peerIdentity(c connection.Conn) (string, bool) {
+func peerIdentity(c connection.Conn) (devicefp.Initiator, bool) {
 	if c == nil {
 		return "", false
 	}
@@ -339,7 +340,7 @@ func peerIdentity(c connection.Conn) (string, bool) {
 	if !auth.Authenticated || auth.DeviceFingerprint == "" {
 		return "", false
 	}
-	return auth.DeviceFingerprint, true
+	return devicefp.Initiator(auth.DeviceFingerprint), true
 }
 
 // connClosed 报告连接是否已经关闭。登记前必须查一次:Done 监视 goroutine 与登记是并发
@@ -407,7 +408,7 @@ func (r *connRegistry) claim(raw any, conversationID string) claimTicket {
 
 // claimFor records an already-authorized target peer. Normal callers use
 // claim; account-level controls reach this only after ResolveSessionPeer.
-func (r *connRegistry) claimFor(raw any, peer string, conversationID string) claimTicket {
+func (r *connRegistry) claimFor(raw any, peer devicefp.Initiator, conversationID string) claimTicket {
 	c := connection.Normalize(raw)
 	if peer == "" || conversationID == "" {
 		return claimTicket{}
@@ -482,7 +483,7 @@ func (r *connRegistry) removeSubLocked(k sessionKey, c connection.Conn) {
 //   - 前主此刻已经不在活连接表里(处理期间掉线 / 改认了别的指纹)→ 不写回去,
 //     否则表里留下一条指向死连接、或指向已属于别人的连接的条目;
 //   - 认领自己已经被撤销(属主连接刚关)→ 前主仍在线时把它还原回来,它才是属主。
-func (r *connRegistry) liveForPeerLocked(peer string) connection.Conn {
+func (r *connRegistry) liveForPeerLocked(peer devicefp.Initiator) connection.Conn {
 	for c := range r.live {
 		if fingerprint, ok := peerIdentity(c); ok && fingerprint == peer {
 			return c
@@ -606,7 +607,7 @@ func (r *connRegistry) subscribersLocked(k sessionKey, exclude connection.Conn) 
 
 // routerFor 返回该对端的会话通知出口;该对端的会话此刻一个收件人都没有时返回 nil ——
 // 调用方(handlers 的 sessionEmitter)据此走「只落库、不推送」的挂起路径。
-func (r *connRegistry) routerFor(peer string) handlers.NotifierPort {
+func (r *connRegistry) routerFor(peer devicefp.Initiator) handlers.NotifierPort {
 	if peer == "" {
 		return nil
 	}
@@ -634,7 +635,7 @@ func (r *connRegistry) routerFor(peer string) handlers.NotifierPort {
 // originating peer is an unavailable tool, not permission to cross-route it.
 // 会话通知的订阅者集合(见 subscribersLocked)在这里**没有**位置:内置工具的实现与数据
 // 在发起端本地,把工具请求扇出给同账号的其它客户端就是决策 9 明确否掉的那件事。
-func (r *connRegistry) tunnelTargetFor(peer string, conversationID string) handlers.NotifierPort {
+func (r *connRegistry) tunnelTargetFor(peer devicefp.Initiator, conversationID string) handlers.NotifierPort {
 	if peer == "" || conversationID == "" {
 		return nil
 	}
@@ -652,7 +653,7 @@ func (r *connRegistry) tunnelTargetFor(peer string, conversationID string) handl
 // daemon 侧按它解析没有引入任何协议内容。
 type sessionRouter struct {
 	reg  *connRegistry
-	peer string
+	peer devicefp.Initiator
 }
 
 func (s sessionRouter) Notify(notification *agentrewire.RpcNotification) error {
@@ -677,13 +678,13 @@ func (s sessionRouter) Request(context.Context, string, any, any) error {
 
 // notifierForPeer 解析某个对端的推送出口。每次发送时重新解析,绝不静态捕获 —— 断连
 // 重连会换一条连接,捕获下来的端口在重连后指向死连接。
-func (d *Daemon) notifierForPeer(peer string) handlers.NotifierPort {
+func (d *Daemon) notifierForPeer(peer devicefp.Initiator) handlers.NotifierPort {
 	return d.conns.routerFor(peer)
 }
 
 // tunnelTargetFor resolves a daemon-local MCP request to its originating
 // session owner; no global active-connection heuristic is permitted.
-func (d *Daemon) tunnelTargetFor(peer string, conversationID string) handlers.NotifierPort {
+func (d *Daemon) tunnelTargetFor(peer devicefp.Initiator, conversationID string) handlers.NotifierPort {
 	return d.conns.tunnelTargetFor(peer, conversationID)
 }
 
@@ -1836,25 +1837,25 @@ func (s daemonSessionStore) Start(ctx context.Context, rec handlers.SessionRecor
 	})
 }
 
-func (s daemonSessionStore) Running(ctx context.Context, peerFingerprint, peerSessionID string) error {
+func (s daemonSessionStore) Running(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error {
 	return session_repo.Session().UpdateLifecycle(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, wire.SessionLifecycleRunning)
 }
 
-func (s daemonSessionStore) Finish(ctx context.Context, peerFingerprint, peerSessionID string) error {
+func (s daemonSessionStore) Finish(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error {
 	return session_repo.Session().UpdateLifecycle(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, wire.SessionLifecycleIdle)
 }
 
 // Fail 把会话落成 failed(轮次以故障收场,见 handlers.SessionLifecyclePort.Fail)。
-func (s daemonSessionStore) Fail(ctx context.Context, peerFingerprint, peerSessionID string) error {
+func (s daemonSessionStore) Fail(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error {
 	return session_repo.Session().UpdateLifecycle(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, wire.SessionLifecycleFailed)
 }
 
 // Delete 删掉这一条 (对端, 会话) 的会话行(handlers.SessionDeletePort)。它只删身份
 // 行,那条会话的通知日志由 journalPurger 清 —— 两张表各自的仓储各管各的。
-func (s daemonSessionStore) Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (s daemonSessionStore) Delete(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	return session_repo.Session().Delete(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID)
 }
@@ -1867,7 +1868,7 @@ func (s daemonSessionStore) CountRunning(ctx context.Context) (int64, error) {
 }
 
 func (s daemonSessionStore) List(
-	ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter, offset, limit int,
+	ctx context.Context, peerFingerprint devicefp.Initiator, filter handlers.SessionListFilter, offset, limit int,
 ) ([]handlers.SessionRecord, error) {
 	rows, err := session_repo.Session().ListByPeer(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, listFilterOf(filter), offset, limit)
@@ -1882,7 +1883,7 @@ func (s daemonSessionStore) List(
 }
 
 func (s daemonSessionStore) Count(
-	ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter,
+	ctx context.Context, peerFingerprint devicefp.Initiator, filter handlers.SessionListFilter,
 ) (int64, error) {
 	return session_repo.Session().CountByPeer(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, listFilterOf(filter))
@@ -1902,7 +1903,7 @@ func (s daemonSessionStore) ListAll(
 	return out, nil
 }
 
-func (s daemonSessionStore) ListByLifecycle(ctx context.Context, peerFingerprint, state string, limit int) ([]handlers.SessionRecord, error) {
+func (s daemonSessionStore) ListByLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, state string, limit int) ([]handlers.SessionRecord, error) {
 	rows, err := session_repo.Session().ListByPeerLifecycle(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, state, limit)
 	if err != nil {
 		return nil, err
@@ -1948,7 +1949,7 @@ func listFilterOf(filter handlers.SessionListFilter) session_repo.ListFilter {
 	return session_repo.ListFilter{Keyword: filter.Keyword, ConversationIDs: filter.ConversationIDs}
 }
 
-func (s daemonSessionStore) Find(ctx context.Context, peerFingerprint, peerSessionID string) (*handlers.SessionRecord, error) {
+func (s daemonSessionStore) Find(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (*handlers.SessionRecord, error) {
 	row, err := session_repo.Session().Find(dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID)
 	if err != nil || row == nil {
 		return nil, err
@@ -1958,14 +1959,14 @@ func (s daemonSessionStore) Find(ctx context.Context, peerFingerprint, peerSessi
 }
 
 func (s daemonSessionStore) SetModelTarget(
-	ctx context.Context, peerFingerprint, peerSessionID, providerKey, modelKey string,
+	ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID, providerKey, modelKey string,
 ) (int64, error) {
 	return session_repo.Session().SetModelTarget(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, providerKey, modelKey)
 }
 
 func (s daemonSessionStore) SetReasoningEffort(
-	ctx context.Context, peerFingerprint, peerSessionID, reasoningEffort string,
+	ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID, reasoningEffort string,
 ) (int64, error) {
 	return session_repo.Session().SetReasoningEffort(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID, reasoningEffort)
@@ -2001,7 +2002,7 @@ type transcriptPurger struct{ db *gorm.DB }
 
 var _ handlers.TranscriptPurgePort = transcriptPurger{}
 
-func (t transcriptPurger) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (t transcriptPurger) DeleteAll(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, t.db)
 	// 按对端收窄:这一层就是权限边界本身,一个对端点名别人的对话号必须删不掉一行。
 	// 走 Find(它按对端收窄)而不是 LocalID(它不收窄,服务的是本机写入侧)。
@@ -2041,7 +2042,7 @@ var _ handlers.JournalReaderPort = journalReader{}
 //
 // 取号(写库)刻意留在调用方:只有真被补齐的那一条路(ListSince)才惰性补齐编号,
 // 清单那条只读探测按台账预测(见 LatestSeq)。
-func (j journalReader) keyedFrames(ctx context.Context, peerFingerprint, peerSessionID string) (int64, []transcript.KeyedFrame, error) {
+func (j journalReader) keyedFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, []transcript.KeyedFrame, error) {
 	row, err := session_repo.Session().Find(ctx, peerFingerprint, peerSessionID)
 	if err != nil || row == nil || row.ID == 0 {
 		return 0, nil, err
@@ -2065,7 +2066,7 @@ func (j journalReader) keyedFrames(ctx context.Context, peerFingerprint, peerSes
 
 // durableFrames 是补齐真正读的那一份:在 keyedFrames 之上把缺号的位置**当场补齐并
 // 落库**(与桌面端 chat_svc 的 attach 同一条纪律,那边在 numberPeerFramesLocked)。
-func (j journalReader) durableFrames(ctx context.Context, peerFingerprint, peerSessionID string) ([]wire.EventFrame, []int64, error) {
+func (j journalReader) durableFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) ([]wire.EventFrame, []int64, error) {
 	sessionID, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil || sessionID == 0 {
 		return nil, nil, err
@@ -2082,7 +2083,7 @@ func (j journalReader) durableFrames(ctx context.Context, peerFingerprint, peerS
 	return frames, createtimes, nil
 }
 
-func (j journalReader) ListSince(ctx context.Context, peerFingerprint, peerSessionID string, cursor int64, limit int) ([]handlers.JournalRow, bool, error) {
+func (j journalReader) ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) ([]handlers.JournalRow, bool, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
 	frames, createtimes, err := j.durableFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil {
@@ -2117,7 +2118,7 @@ func (j journalReader) ListSince(ctx context.Context, peerFingerprint, peerSessi
 // 它**只读不写**:未编号的帧按「真去分配一次会拿到什么号」预测(PredictLatestSeq),
 // 而不是就地补齐编号。清单 RPC 是对端每代连接开轮前的一次探测,拿它给每一条对话
 // 补齐编号会让「未被访问的对话不付出任何代价」当场破掉。
-func (j journalReader) LatestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (j journalReader) LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
 	sessionID, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil || sessionID == 0 || len(keyed) == 0 {
@@ -2129,7 +2130,7 @@ func (j journalReader) LatestSeq(ctx context.Context, peerFingerprint, peerSessi
 // OldestSeq 报这条会话现存最老的持久帧号。当前版本从不回收帧(决策 8「永不回收」
 // 本轮不动),所以只要有帧,最老的那个恒是 1 —— 与桌面端 chat_svc 的
 // PullPeerSession 同一条判据。
-func (j journalReader) OldestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (j journalReader) OldestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
 	_, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil || len(keyed) == 0 {
@@ -2138,7 +2139,7 @@ func (j journalReader) OldestSeq(ctx context.Context, peerFingerprint, peerSessi
 	return 1, nil
 }
 
-func (j journalReader) LatestSeqByPeer(ctx context.Context, peerFingerprint string) (map[string]int64, error) {
+func (j journalReader) LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
 	rows, err := session_repo.Session().ListByPeer(ctx, peerFingerprint, session_repo.ListFilter{}, 0, 0)
 	if err != nil {

@@ -34,8 +34,8 @@ import { cn } from "@/lib/utils";
 
 import type {
   agent_backend_svc,
-  chat_svc,
   department_svc,
+  exec_target_svc,
 } from "../../../../wailsjs/go/models";
 
 import { useBackendCapabilities } from "../capability/use-backend-capabilities";
@@ -68,7 +68,7 @@ type Props = {
   // 两处各读一次不只是白发一趟 Wails 调用：两份副本各自独立地从「加载中」走到
   // 「落定」，列表那份先落定时会用它自己的判定渲染「全部不可用」横幅，而面板那份
   // 还没到、行还是骨架——横幅就压在骨架之上。判定只有一个来源才不会自相矛盾。
-  availability: Map<number, chat_svc.ExecTargetAvailabilityView>;
+  availability: Map<number, exec_target_svc.ExecTargetAvailabilityView>;
   // targets 是这台电脑当前实际的派发顺序（后端解析后的顺序），也是唯一的一份列表：
   // 界面上不再有第二个「账号默认顺序」视图。
   targets: ExecTargetRow[];

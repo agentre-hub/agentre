@@ -15,6 +15,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/goal"
+	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // 目标(codex goal)链路已迁到 chat_svc/goal;这里只留 DTO 边界与惰性装配。
@@ -112,14 +113,14 @@ func (h chatGoalHost) EffectiveLLM(
 func (h chatGoalHost) ResolveSessionCwd(
 	ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend,
 ) (string, error) {
-	return resolveSessionCwd(ctx, sess, be)
+	return exec_target_svc.ResolveSessionCwd(ctx, sess, be)
 }
 
 func (h chatGoalHost) RemoteLeaseFor(ctx context.Context, be *agent_backend_entity.AgentBackend) (int64, bool) {
-	if !beTargetsRemote(be) {
+	if !exec_target_svc.BackendTargetsRemote(be) {
 		return 0, false
 	}
-	return localPairedDeviceID(ctx, be.DeviceFingerprint)
+	return exec_target_svc.LocalPairedDeviceID(ctx, be.DeviceFingerprint)
 }
 
 func (h chatGoalHost) ReleaseRemoteRuntime(deviceID, sessionID int64) {

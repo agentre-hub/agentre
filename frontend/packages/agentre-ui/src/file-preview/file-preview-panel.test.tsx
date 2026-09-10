@@ -33,6 +33,12 @@ function createFakeMonaco(): FakeMonaco {
         options,
         setValue: vi.fn(),
         dispose: vi.fn(),
+        getModel: vi.fn(() => ({
+          getLineCount: () => 100,
+          getLineMaxColumn: () => 1,
+        })),
+        revealLineInCenter: vi.fn(),
+        setSelection: vi.fn(),
       })),
       createDiffEditor: vi.fn(
         (_el: HTMLElement, options: Record<string, unknown>) => ({
@@ -99,11 +105,71 @@ function renderPanel(overrides: Partial<FilePreviewPanelProps> = {}) {
   return { ...handlers, ...view, props };
 }
 
+function lastEditor() {
+  const results = fakeMonaco.editor.create.mock.results;
+  return results[results.length - 1]?.value as {
+    revealLineInCenter: Mock;
+  };
+}
+
 // 面板**不带容器**（spec 决策 3：容器是宿主的布局问题），所以这里抓的是面板根
 // 本身，而不是某个宿主才会给的 landmark。
 function panel() {
   return screen.findByTestId("file-preview-panel");
 }
+
+describe("FilePreviewPanel reveal target", () => {
+  it("Given a code file and a reveal target, when the content lands, then the editor is scrolled to that line", async () => {
+    readFile.mockResolvedValue(textView("package main"));
+    renderPanel({
+      activePath: "main.go",
+      revealTarget: { line: 12, endLine: 20, nonce: 1 },
+    });
+
+    await panel();
+    await waitFor(() =>
+      expect(lastEditor().revealLineInCenter).toHaveBeenCalledWith(12),
+    );
+  });
+
+  it("Given markdown in the text segment, when a reveal target is present, then the source view is scrolled too", async () => {
+    readFile.mockResolvedValue(textView("# title"));
+    renderPanel({
+      activePath: "docs/guide.md",
+      segment: "text",
+      revealTarget: { line: 8, endLine: 9, nonce: 1 },
+    });
+
+    await panel();
+    await waitFor(() =>
+      expect(lastEditor().revealLineInCenter).toHaveBeenCalledWith(8),
+    );
+  });
+
+  it("Given markdown left in the render segment, when a reveal target is present, then nothing is scrolled because that segment has no lines", async () => {
+    readFile.mockResolvedValue(textView("# title"));
+    renderPanel({
+      activePath: "docs/guide.md",
+      segment: "render",
+      revealTarget: { line: 8, endLine: 9, nonce: 1 },
+    });
+
+    const view = await panel();
+    await within(view).findByText("title");
+    expect(fakeMonaco.editor.create).not.toHaveBeenCalled();
+  });
+
+  it("Given the session tool-diff segment, when a reveal target is present, then it is ignored", async () => {
+    renderPanel({
+      activePath: "main.go",
+      sourceMode: "session",
+      revealTarget: { line: 12, nonce: 1 },
+    });
+
+    await panel();
+    expect(fakeMonaco.editor.create).not.toHaveBeenCalled();
+  });
+});
 
 describe("FilePreviewPanel", () => {
   it("renders nothing and reads nothing while no file is active", () => {
@@ -316,7 +382,34 @@ describe("路径条上的设备指示", () => {
     );
   });
 
-  it("离线时同一格如实标成离线，而不是消失", async () => {
+  // 这枚点由**这一次读取**说了算，宿主的声称只做兜底：两端宿主手里那些设备记录
+  // 都是慢节奏探测（控制台上实测停掉那台机器 90 秒仍说在线），会造出「内容区说
+  // 够不着、点却还绿着」的自相矛盾。
+  it("读失败在 offline 上时画成离线，哪怕宿主还声称在线", async () => {
+    readFile.mockRejectedValue(
+      Object.assign(new Error("够不着"), { kind: "offline" }),
+    );
+    renderPanel({ deviceName: "dev-box", deviceOnline: true });
+
+    expect(await screen.findByText("dev-box")).toBeTruthy();
+    expect(screen.getByTestId("file-preview-device")).toHaveAttribute(
+      "data-online",
+      "false",
+    );
+  });
+
+  it("读成功就证明够得着：宿主声称离线也画成在线", async () => {
+    renderPanel({ deviceName: "dev-box", deviceOnline: false });
+
+    expect(await screen.findByText("dev-box")).toBeTruthy();
+    expect(screen.getByTestId("file-preview-device")).toHaveAttribute(
+      "data-online",
+      "true",
+    );
+  });
+
+  it("没有新证据时（别的失败）用宿主给的那个值", async () => {
+    readFile.mockRejectedValue(new Error("说不清的失败"));
     renderPanel({ deviceName: "dev-box", deviceOnline: false });
 
     expect(await screen.findByText("dev-box")).toBeTruthy();

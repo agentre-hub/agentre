@@ -194,6 +194,7 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
         activePath={activeTab.path}
         segment={activeTab.segment}
         sourceMode={activeTab.sourceMode}
+        revealTarget={activeTab.reveal ?? undefined}
         ports={ports}
         // 取数目标的身份：哪个会话的哪个工作根（见包那侧 sourceKey 的注释）。
         sourceKey={`${sessionId}\n${rootArg}`}

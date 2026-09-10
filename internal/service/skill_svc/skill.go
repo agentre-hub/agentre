@@ -8,6 +8,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // Service 技能包组合服务。依赖通过消费者侧窄接口注入(DIP)。
@@ -72,7 +74,7 @@ func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_enti
 // 对表里查不到（这台 daemon 没在本机配对）返回 (0,false)，调用方据此回空包而不是
 // 猜一个行号去拨号。与 chat_svc.localPairedDeviceID 同一取法，skill_svc 侧独立声明
 // 以保持 consumer-side 窄依赖。
-func pairedDeviceID(ctx context.Context, fingerprint string) (int64, bool) {
+func pairedDeviceID(ctx context.Context, fingerprint devicefp.Carrier) (int64, bool) {
 	rds := remote_device_svc.Default()
 	if rds == nil {
 		return 0, false

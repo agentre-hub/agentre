@@ -33,6 +33,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // TestProjectAdapter_LoadTranslatesParentToSyncIDAndOmitsLocalPath R2：项目的父项目
@@ -169,7 +170,7 @@ func TestAgentBackendCLIAdapter_LoadUsesOverlayNaturalKey(t *testing.T) {
 	out, err := agentBackendCLIAdapter{}.load(context.Background(), "overlay-1")
 	require.NoError(t, err)
 	assert.Equal(t, "backend-1", out.ScopeSyncID)
-	assert.Equal(t, "sha256:self", out.AgentredFingerprint)
+	assert.Equal(t, devicefp.Carrier("sha256:self"), out.AgentredFingerprint)
 	assert.JSONEq(t, `{"cli_path":"/opt/claude"}`, string(out.Payload))
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackendCLI, out.Payload))
 }
@@ -197,7 +198,7 @@ func TestAgentBackendAdapter_LoadUsesFingerprintAndProviderKeyOnly(t *testing.T)
 	out, err := agentBackendAdapter{}.load(context.Background(), "be-1")
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, "fp-builder", out.AgentredFingerprint,
+	assert.Equal(t, devicefp.Carrier("fp-builder"), out.AgentredFingerprint,
 		"backend's device travels via the push item's fingerprint column")
 
 	var payload map[string]any
@@ -256,7 +257,7 @@ func TestAgentBackendAdapter_GivenAnyLegacyMachineState_StillUploadsOneIdentity(
 	out, err := agentBackendAdapter{}.load(context.Background(), "be-1")
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, "3", out.AgentredFingerprint)
+	assert.Equal(t, devicefp.Carrier("3"), out.AgentredFingerprint)
 	assert.NotContains(t, string(out.Payload), "cli_path")
 }
 
@@ -280,7 +281,7 @@ func TestAgentBackendAdapter_ApplyAppliesEnvelopeFingerprintToDeviceID(t *testin
 		Kind: syncwire.KindAgentBackend, SyncID: "be-1", AgentredFingerprint: "fp-other",
 		Payload: []byte(`{"type":"claudecode","name":"identity"}`),
 	}, nil))
-	assert.Equal(t, "fp-other", created.DeviceFingerprint, "the envelope fingerprint is the backend's device")
+	assert.Equal(t, devicefp.Carrier("fp-other"), created.DeviceFingerprint, "the envelope fingerprint is the backend's device")
 	assert.Empty(t, created.CLIPath)
 }
 
@@ -415,7 +416,7 @@ func TestProjectLocationAdapter_CarriesNaturalKeyOutsidePayload(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Equal(t, "proj-1", out.ScopeSyncID)
-	assert.Equal(t, "fp-builder", out.AgentredFingerprint)
+	assert.Equal(t, devicefp.Carrier("fp-builder"), out.AgentredFingerprint)
 	assert.JSONEq(t, `{"path":"/srv/repo"}`, string(out.Payload))
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindProjectLocation, out.Payload))
 }
@@ -438,7 +439,7 @@ func TestProjectLocationAdapter_ApplyResolvesDeviceIDWhenPaired(t *testing.T) {
 	remote_device_repo.RegisterPairedAgentred(paired)
 
 	locations := mock_project_location_repo.NewMockProjectLocationRepo(ctrl)
-	locations.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(4), "fp-builder").Return(nil, nil)
+	locations.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(4), devicefp.Carrier("fp-builder")).Return(nil, nil)
 	var created *project_location_entity.ProjectLocation
 	locations.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, row *project_location_entity.ProjectLocation) error {
@@ -455,7 +456,7 @@ func TestProjectLocationAdapter_ApplyResolvesDeviceIDWhenPaired(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, created)
 	assert.Equal(t, "9", created.DeviceID, "已配对：落地当场解析出本地缓存")
-	assert.Equal(t, "fp-builder", created.DeviceFingerprint, "身份仍然是指纹")
+	assert.Equal(t, devicefp.Carrier("fp-builder"), created.DeviceFingerprint, "身份仍然是指纹")
 }
 
 // TestProjectLocationAdapter_ApplyLeavesDeviceIDEmptyWhenUnpaired R2b：本机没配对
@@ -471,7 +472,7 @@ func TestProjectLocationAdapter_ApplyLeavesDeviceIDEmptyWhenUnpaired(t *testing.
 	remote_device_repo.RegisterPairedAgentred(paired)
 
 	locations := mock_project_location_repo.NewMockProjectLocationRepo(ctrl)
-	locations.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(4), "fp-unknown").Return(nil, nil)
+	locations.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(4), devicefp.Carrier("fp-unknown")).Return(nil, nil)
 	var created *project_location_entity.ProjectLocation
 	locations.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, row *project_location_entity.ProjectLocation) error {
@@ -509,7 +510,7 @@ func TestProjectLocationAdapter_GivenNaturalKeyHeldLocally_TakesOverThatRow(t *t
 	remote_device_repo.RegisterPairedAgentred(paired)
 
 	locations := mock_project_location_repo.NewMockProjectLocationRepo(ctrl)
-	locations.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(4), "fp-builder").Return(
+	locations.EXPECT().FindByProjectAndFingerprint(gomock.Any(), int64(4), devicefp.Carrier("fp-builder")).Return(
 		&project_location_entity.ProjectLocation{
 			ID: 11, ProjectID: 4, Path: "/old", DeviceFingerprint: "fp-builder",
 			SyncMeta: syncmeta_entity.SyncMeta{SyncID: "loc-local"},
@@ -558,4 +559,31 @@ func TestProjectAgentAdapter_GivenSamePairAlreadyLocal_KeepsLocalRow(t *testing.
 	}, map[string]int64{"project:proj-1": 4, "agent:agent-1": 2})
 
 	require.NoError(t, err)
+}
+
+// TestDefaultAdapters_GivenTheVocabulary_ThenEveryKindHasAnAdapterAndAPayloadType
+// 把三份注册表钉在一起:词表(syncwire.Kinds)、这里的适配器表、契约里的载荷类型表。
+//
+// 三者各自漏掉一个 kind 的后果都不报错,只是没有:
+//
+//   - 适配器表漏了 → 那一类对象入队时被静默丢弃,一端也收不到;
+//   - 载荷类型表漏了 → server 那一侧只能回到字符串字面量读写这份 JSON,而「这个
+//     kind 的载荷长什么样」重新变成一个没有答案的问题。
+//
+// 「哪种 kind 对应哪个载荷类型」从前只散落在各适配器的 kind() 方法里 —— 一个 kind
+// 与一个私有结构体的对应关系,在这个包之外说不出来。它现在归契约所有,这条守着
+// 桌面端这一侧不掉队。
+func TestDefaultAdapters_GivenTheVocabulary_ThenEveryKindHasAnAdapterAndAPayloadType(t *testing.T) {
+	adapters := defaultAdapters(nil)
+	require.Len(t, adapters, len(syncKinds), "适配器表与词表必须一一对应,不多不少")
+
+	for _, kind := range syncKinds {
+		a := adapters[kind]
+		require.NotNil(t, a, "%s 没有适配器,那一类对象入队时会被静默丢弃", kind)
+		assert.Equal(t, kind, a.kind(), "适配器登记在 %s 上,自己报的却是别的类型", kind)
+
+		payload, ok := syncwire.PayloadFor(kind)
+		assert.True(t, ok, "%s 在契约里没有载荷类型", kind)
+		assert.NotNil(t, payload)
+	}
 }

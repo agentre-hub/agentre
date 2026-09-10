@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // Host 是本包对宿主(chat_svc)的窄依赖(ISP):只声明池真正调用的四件事。
@@ -28,15 +29,15 @@ type Host interface {
 	ConnPool() remote_device_svc.ConnPool
 	// PairedDeviceID 把 backend 持久化的 DeviceID(指纹或历史数值行 ID)解析成本机
 	// paired_agentreds 的行 ID;解析不出 → (0,false),调用方报「不可派发」。
-	PairedDeviceID(ctx context.Context, deviceRef string) (int64, bool)
+	PairedDeviceID(ctx context.Context, deviceRef devicefp.Carrier) (int64, bool)
 	// DaemonFingerprint 取该设备此刻的 daemon 实例标识;取不到返回空串。
-	DaemonFingerprint(ctx context.Context, deviceID int64) string
+	DaemonFingerprint(ctx context.Context, deviceID int64) devicefp.Carrier
 	// RecordExecDaemon 把「这条会话跑在哪台 daemon 的哪个实例上、钉在哪一档」落库。
-	RecordExecDaemon(ctx context.Context, sessionID, deviceID int64, fingerprint string, agentBackendID int64)
+	RecordExecDaemon(ctx context.Context, sessionID, deviceID int64, fingerprint devicefp.Carrier, agentBackendID int64)
 	// NewRuntime 把一条已鉴权连接装配成该设备共享的 *remote.Runtime。observer 与重连
 	// 端口都在宿主侧装,池只负责这个实例的寿命;entry 交给宿主是因为重连端口要往
 	// 同一个 entry 里换 lease。
-	NewRuntime(deviceID int64, entry *Entry, conn client.ProtobufConnection, fingerprint string) *remote.Runtime
+	NewRuntime(deviceID int64, entry *Entry, conn client.ProtobufConnection, fingerprint devicefp.Carrier) *remote.Runtime
 }
 
 // Entry tracks a shared *remote.Runtime built on top of a Pool Lease, and the set
@@ -79,7 +80,7 @@ func New(host Host) *Pool { return &Pool{host: host} }
 // 同 sessionID 多次 borrow 对 sessions set 幂等。deviceRef 解析不出本机配对行 ID 时
 // 返回 ErrInvalidDevice;拨号失败返回 *DialError(包着原始 err 与设备号供日志)。
 func (p *Pool) Borrow(
-	ctx context.Context, deviceRef string, sessionID, agentBackendID int64,
+	ctx context.Context, deviceRef devicefp.Carrier, sessionID, agentBackendID int64,
 ) (*remote.Runtime, error) {
 	return p.borrowOwned(ctx, deviceRef, sessionID, agentBackendID, nil)
 }
@@ -90,7 +91,7 @@ func (p *Pool) Borrow(
 // 出错时不留下任何引用,交回的 release 是 no-op 而非 nil —— 调用方在错误路径上
 // 无需(也不该)调它。改动这里前先读 borrowRemoteRuntimeForTurn 的错误契约。
 func (p *Pool) BorrowForTurn(
-	ctx context.Context, deviceRef string, sessionID, agentBackendID int64,
+	ctx context.Context, deviceRef devicefp.Carrier, sessionID, agentBackendID int64,
 ) (*remote.Runtime, func(), error) {
 	deviceID, ok := p.host.PairedDeviceID(ctx, deviceRef)
 	if !ok {
@@ -105,7 +106,7 @@ func (p *Pool) BorrowForTurn(
 }
 
 func (p *Pool) borrowOwned(
-	ctx context.Context, deviceRef string, sessionID, agentBackendID int64, generation *Generation,
+	ctx context.Context, deviceRef devicefp.Carrier, sessionID, agentBackendID int64, generation *Generation,
 ) (*remote.Runtime, error) {
 	deviceID, ok := p.host.PairedDeviceID(ctx, deviceRef)
 	if !ok {
@@ -153,7 +154,7 @@ func (p *Pool) Cached(deviceID int64) *remote.Runtime {
 // 轮的 owner。
 func (p *Pool) ForDevice(
 	ctx context.Context, deviceID int64, sessionIDs []int64, owner *Generation,
-) (*remote.Runtime, string, error) {
+) (*remote.Runtime, devicefp.Carrier, error) {
 	// Fast path: cache hit —— entry 手上还握着 lease,连借都不用借。
 	p.mu.Lock()
 	if p.cache == nil {

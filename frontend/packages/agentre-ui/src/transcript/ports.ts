@@ -14,6 +14,7 @@
  */
 
 import type { MentionRef } from "../chat-input/mentions/xml";
+import type { PreviewAnchor } from "../file-preview/anchor";
 
 export interface AnswerToolPermissionInput {
   sessionId: number;
@@ -111,7 +112,11 @@ export interface TranscriptPorts {
    * 也拿不到这个设置——它是宿主的产品决策。宿主不提供这个端口时（例如未来的
    * 其他宿主），入口按能力探测的老规矩不渲染，而不是渲染出来点了没反应。
    */
-  previewFile?(sessionId: number, path: string): boolean;
+  previewFile?(
+    sessionId: number,
+    path: string,
+    anchor?: PreviewAnchor,
+  ): boolean;
 }
 
 /**

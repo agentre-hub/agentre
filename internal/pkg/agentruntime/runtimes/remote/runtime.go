@@ -42,6 +42,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/orderedpipe"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
@@ -130,7 +131,7 @@ type Runtime struct {
 	// connMu 只保护「当前这条连接」相关的三个字段:client / daemonFP / 能力探测
 	// 结果。它与 mu 分开,是因为重连期间要在不持有会话表锁的前提下换连接。
 	connMu   sync.Mutex
-	daemonFP string
+	daemonFP devicefp.Carrier
 	// connGen 是「第几条连接」的代号,adoptConn 每换一条连接 +1。开轮位置的探测结果
 	// 按它作废(见 turnStartFloor):同一条连接上探一次就够,换了连接必须重探。
 	connGen int64
@@ -163,7 +164,7 @@ type Runtime struct {
 	// 键是 conversation_id 而不是裸会话号:同一个号在两个对端上是两条毫不相干的对话,
 	// 按号索引会让别的对端那条把自己的顶掉(那正是本轮由构造消灭掉的那类并轨)。
 	originMu sync.Mutex
-	origins  map[string]string
+	origins  map[string]devicefp.Initiator
 
 	// convMu / convBySid / sidByConv 是进程内会话键与线上 conversation_id 的双向
 	// 映射,见 conversation.go。
@@ -207,7 +208,7 @@ func New(c client.ProtobufConnection, opts ...Option) *Runtime {
 		caps:            map[agent_backend_entity.BackendType]capability.Capabilities{},
 		autoSessions:    map[int64]*autoSession{},
 		sessionState:    map[int64]*sessionSync{},
-		origins:         map[string]string{},
+		origins:         map[string]devicefp.Initiator{},
 		convBySid:       map[int64]string{},
 		sidByConv:       map[string]int64{},
 		connGen:         1, // 0 留给 sessionSync 的零值:那表示「这条会话还没探过」
@@ -984,7 +985,7 @@ func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID, text str
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeSteer, wire.MethodSteer, &agentrewire.RuntimeSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID, Text: text})
+	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeSteer, wire.MethodSteer, &agentrewire.RuntimeSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), QueuedId: queuedID, Text: text})
 	return err
 }
 
@@ -992,7 +993,7 @@ func (r *Runtime) CancelSteer(ctx context.Context, sessionID int64, queuedID str
 	if !r.hasSession(sessionID) {
 		return nil, agentruntime.ErrNoActiveTurn
 	}
-	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeCancelSteer, wire.MethodCancelSteer, &agentrewire.RuntimeCancelSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), QueuedId: queuedID})
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeCancelSteer, wire.MethodCancelSteer, &agentrewire.RuntimeCancelSteerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), QueuedId: queuedID})
 	if err != nil {
 		return nil, err
 	}
@@ -1003,7 +1004,7 @@ func (r *Runtime) DrainPending(ctx context.Context, sessionID int64) []agentrunt
 	if !r.hasSession(sessionID) {
 		return nil
 	}
-	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeDrainPending, wire.MethodDrainPending, &agentrewire.RuntimeDrainPendingRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID)})
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeDrainPending, wire.MethodDrainPending, &agentrewire.RuntimeDrainPendingRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID))})
 	if err != nil {
 		return nil
 	}
@@ -1027,7 +1028,7 @@ func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) 
 	if !r.hasSession(sessionID) {
 		return agentruntime.AbortOutcome{}, agentruntime.ErrNoActiveTurn
 	}
-	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeAbort, wire.MethodAbort, &agentrewire.RuntimeAbortRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), TurnToken: turnToken})
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeAbort, wire.MethodAbort, &agentrewire.RuntimeAbortRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), TurnToken: turnToken})
 	if err != nil {
 		return agentruntime.AbortOutcome{}, err
 	}
@@ -1038,7 +1039,7 @@ func (r *Runtime) StopBackgroundTask(ctx context.Context, sessionID int64, taskI
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeStopBackgroundTask, wire.MethodStopBackgroundTask, &agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), TaskId: taskID})
+	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeStopBackgroundTask, wire.MethodStopBackgroundTask, &agentrewire.RuntimeStopBackgroundTaskRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), TaskId: taskID})
 	return err
 }
 
@@ -1046,7 +1047,7 @@ func (r *Runtime) SetPermissionMode(ctx context.Context, sessionID int64, mode s
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeSetPermissionMode, wire.MethodSetPermissionMode, &agentrewire.RuntimeSetPermissionModeRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), Mode: mode})
+	_, err := callSession(ctx, r, sessionID, wirecall.RuntimeSetPermissionMode, wire.MethodSetPermissionMode, &agentrewire.RuntimeSetPermissionModeRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), Mode: mode})
 	return err
 }
 
@@ -1054,7 +1055,7 @@ func (r *Runtime) SubmitAnswer(ctx context.Context, sessionID int64, requestID s
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeSubmitAnswer, wire.MethodSubmitAnswer, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Questions: protowire.AskQuestionsToProto(questions), Answers: protowire.AskAnswersToProto(answers), Skipped: skipped})
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeSubmitAnswer, wire.MethodSubmitAnswer, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), RequestId: requestID, Questions: protowire.AskQuestionsToProto(questions), Answers: protowire.AskAnswersToProto(answers), Skipped: skipped})
 	if err != nil {
 		return err
 	}
@@ -1065,7 +1066,7 @@ func (r *Runtime) SubmitToolPermission(ctx context.Context, sessionID int64, req
 	if !r.hasSession(sessionID) {
 		return agentruntime.ErrNoActiveTurn
 	}
-	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeSubmitToolPermission, wire.MethodSubmitToolPermission, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID), RequestId: requestID, Allow: allow, AlwaysAllowSession: alwaysAllowSession, DenyReason: denyReason})
+	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeSubmitToolPermission, wire.MethodSubmitToolPermission, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID)), RequestId: requestID, Allow: allow, AlwaysAllowSession: alwaysAllowSession, DenyReason: denyReason})
 	if err != nil {
 		return err
 	}
@@ -1087,7 +1088,7 @@ func (r *Runtime) SubmitToolPermission(ctx context.Context, sessionID int64, req
 // 认识的会话本就回空列表而不是报错(R7),本地再加一道「不认识就当空」只会多造一个
 // 说不清是「真没有」还是「本机没跟上」的静默分支。
 func (r *Runtime) PendingWaiters(ctx context.Context, sessionID int64) (wire.SessionPendingWaitersResult, error) {
-	res, err := callSentinel(ctx, r, wirecall.SessionPendingWaiters, &agentrewire.SessionPendingWaitersRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: r.originFor(sessionID)})
+	res, err := callSentinel(ctx, r, wirecall.SessionPendingWaiters, &agentrewire.SessionPendingWaitersRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID))})
 	if err != nil {
 		return wire.SessionPendingWaitersResult{}, err
 	}

@@ -47,6 +47,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -422,7 +423,7 @@ func registerInboundPeerChatForDelete(t *testing.T) *mock_chat_repo.MockSessionR
 		remote_device_svc.SetDefault(prevDevice)
 		ctrl.Finish()
 	})
-	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
+	device.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:desktop"), nil).AnyTimes()
 	// conversation_id → 本地主键的反查走 chat_svc.ResolvePeerConversation:本机有的
 	// 那条如实交出,别的对话号一律「本机没有」(用例正是拿一个不存在的号试的)。
 	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
@@ -494,7 +495,7 @@ func registerInboundPeerChat(t *testing.T) {
 		ID: 7, Name: "Release captain", AgentBackendID: 11, Status: consts.ACTIVE,
 		SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"},
 	}
-	device.EXPECT().DeviceFingerprint().Return("sha256:desktop", nil).AnyTimes()
+	device.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:desktop"), nil).AnyTimes()
 	agents.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{agent}, nil).AnyTimes()
 	sessions.EXPECT().ListIndexPaged(gomock.Any(), gomock.Any(), 0, gomock.Any()).Return([]*chat_entity.Session{{
 		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", AgentStatus: "waiting", LastMessageAt: 1710000000000, Status: consts.ACTIVE,

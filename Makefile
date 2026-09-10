@@ -146,11 +146,13 @@ endif
 test: test-backend test-frontend
 
 # 运行后端测试
-# pkg/wire 是独立 module（wire 协议生成代码的唯一来源），父 module 的 ./pkg/... 不会
-# 走进它，因此单独跑一次，否则它的 descriptor 守卫永远不会被执行。
+# pkg/wire 与 pkg/syncwire 都是独立 module（分别是 wire 协议生成代码与同步契约的唯一
+# 来源），父 module 的 ./pkg/... 不会走进它们，因此各自单独跑一次，否则 wire 的
+# descriptor 守卫与同步载荷守卫的共享向量永远不会被执行。
 test-backend:
 	go test $(BACKEND_PKGS)
 	go test -C pkg/wire ./...
+	go test -C pkg/syncwire ./...
 
 # 运行前端测试
 test-frontend: generate

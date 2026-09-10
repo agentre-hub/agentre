@@ -14,6 +14,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo/mock_project_location_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	mockRD "github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func setupSvc(t *testing.T) (context.Context, *mock_project_location_repo.MockProjectLocationRepo, *mockRD.MockRemoteDeviceSvc, *projectLocationImpl) {
@@ -34,7 +35,7 @@ func TestUpsert(t *testing.T) {
 			rd.EXPECT().Get(ctx, int64(7)).Return(
 				&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "fp-7"}, nil,
 			).AnyTimes()
-			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), "fp-7").Return(nil, gorm.ErrRecordNotFound)
+			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), devicefp.Carrier("fp-7")).Return(nil, gorm.ErrRecordNotFound)
 			repo.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(
 				func(_ context.Context, p *project_location_entity.ProjectLocation) error {
 					p.ID = 42
@@ -54,7 +55,7 @@ func TestUpsert(t *testing.T) {
 				&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "fp-7"}, nil,
 			).AnyTimes()
 			existing := &project_location_entity.ProjectLocation{ID: 42, ProjectID: 1, DeviceID: "7", DeviceFingerprint: "fp-7", Path: "/old", Status: consts.ACTIVE}
-			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), "fp-7").Return(existing, nil)
+			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), devicefp.Carrier("fp-7")).Return(existing, nil)
 			repo.EXPECT().UpdatePath(ctx, int64(42), "/new").Return(nil)
 			v, err := svc.Upsert(ctx, 1, "7", "/new")
 			So(err, ShouldBeNil)
@@ -66,7 +67,7 @@ func TestUpsert(t *testing.T) {
 				&remote_device_svc.DeviceView{ID: 9, Name: "linux-srv", Online: true, DaemonFingerprint: "fp-7"}, nil,
 			).AnyTimes()
 			existing := &project_location_entity.ProjectLocation{ID: 42, ProjectID: 1, DeviceID: "7", DeviceFingerprint: "fp-7", Path: "/old", Status: consts.ACTIVE}
-			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), "fp-7").Return(existing, nil)
+			repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), devicefp.Carrier("fp-7")).Return(existing, nil)
 			repo.EXPECT().UpdatePath(ctx, int64(42), "/new").Return(nil)
 			repo.EXPECT().UpdateDeviceID(ctx, int64(42), "9").Return(nil)
 			v, err := svc.Upsert(ctx, 1, "9", "/new")
@@ -168,7 +169,7 @@ func TestViewCarriesFingerprintSoHostsCanMatchAgents(t *testing.T) {
 		list, err := svc.ListByProject(ctx, 1)
 		So(err, ShouldBeNil)
 		So(len(list), ShouldEqual, 1)
-		So(list[0].DeviceFingerprint, ShouldEqual, "sha256:fp-7")
+		So(list[0].DeviceFingerprint, ShouldEqual, devicefp.Carrier("sha256:fp-7"))
 		// 数字 id 仍旧照常给出——它是缓存，不是自然键。
 		So(list[0].DeviceID, ShouldEqual, "7")
 	})
@@ -178,7 +179,7 @@ func TestViewCarriesFingerprintSoHostsCanMatchAgents(t *testing.T) {
 		rd.EXPECT().Get(ctx, int64(7)).Return(
 			&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "sha256:fp-7"}, nil,
 		).AnyTimes()
-		repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), "sha256:fp-7").Return(nil, gorm.ErrRecordNotFound)
+		repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), devicefp.Carrier("sha256:fp-7")).Return(nil, gorm.ErrRecordNotFound)
 		repo.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(
 			func(_ context.Context, p *project_location_entity.ProjectLocation) error {
 				p.ID = 42
@@ -188,7 +189,7 @@ func TestViewCarriesFingerprintSoHostsCanMatchAgents(t *testing.T) {
 
 		v, err := svc.Upsert(ctx, 1, "7", "/home/me/foo")
 		So(err, ShouldBeNil)
-		So(v.DeviceFingerprint, ShouldEqual, "sha256:fp-7")
+		So(v.DeviceFingerprint, ShouldEqual, devicefp.Carrier("sha256:fp-7"))
 	})
 }
 

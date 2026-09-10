@@ -25,6 +25,8 @@ import (
 	"github.com/cago-frame/cago/database/db"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source session.go -destination mock_session_repo/mock_session.go
@@ -46,13 +48,13 @@ type DaemonSession struct {
 	ConversationID string `gorm:"column:conversation_id"`
 	// PeerFingerprint 是把这条对话交到本机执行的对端 —— 来源标注与授权,不再是身份的
 	// 一部分。它在建行那一次落下,此后的幂等覆盖不再改写(见 Upsert)。
-	PeerFingerprint string `gorm:"column:peer_fingerprint"`
-	AgentID         int64  `gorm:"column:agent_id"`
-	Cwd             string `gorm:"column:cwd"`
-	BackendType     string `gorm:"column:backend_type"`
-	LifecycleState  string `gorm:"column:lifecycle_state"`
-	Title           string `gorm:"column:title"`
-	AgentSyncID     string `gorm:"column:agent_sync_id"`
+	PeerFingerprint devicefp.Initiator `gorm:"column:peer_fingerprint"`
+	AgentID         int64              `gorm:"column:agent_id"`
+	Cwd             string             `gorm:"column:cwd"`
+	BackendType     string             `gorm:"column:backend_type"`
+	LifecycleState  string             `gorm:"column:lifecycle_state"`
+	Title           string             `gorm:"column:title"`
+	AgentSyncID     string             `gorm:"column:agent_sync_id"`
 	// ProjectSyncID 是这条会话所属项目的账号级同步标识,由发起方在起手时携带。
 	//
 	// 此前这一列不存在,项目归属只能由服务端按 (指纹, cwd) 反推(agent_sessions 的
@@ -105,21 +107,21 @@ type SessionRepo interface {
 
 	// UpdateLifecycle 只推进这条对话的生命周期状态。会话不存在时不报错
 	// (影响 0 行):调用方是轮末回调,会话行有没有建成不该反过来影响一轮执行的收尾。
-	UpdateLifecycle(ctx context.Context, peerFingerprint, conversationID, state string) error
+	UpdateLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, state string) error
 
 	// SetModelTarget 改写这条会话钉的 ModelTarget,返回受影响行数(0 = 没有这条
 	// 会话)。两格都空是**要写下去的值**(改回跟随 Agent 绑定),所以不能用「非空
 	// 才写」的部分更新。刻意不走 Upsert:那是每轮起手跑的,见本文件 DaemonSession
 	// 上 ProviderKey / ModelKey 的说明。
-	SetModelTarget(ctx context.Context, peerFingerprint, conversationID, providerKey, modelKey string) (int64, error)
+	SetModelTarget(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, providerKey, modelKey string) (int64, error)
 
 	// SetReasoningEffort 改写这条会话钉的思考力度,返回受影响行数(0 = 没有这条
 	// 会话)。空串是**要写下去的值**(改回跟随后端配置),所以同样不能用「非空才写」
 	// 的部分更新;刻意不走 Upsert,理由同 SetModelTarget。
-	SetReasoningEffort(ctx context.Context, peerFingerprint, conversationID, reasoningEffort string) (int64, error)
+	SetReasoningEffort(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, reasoningEffort string) (int64, error)
 
 	// Find 取某个对端名下的一条会话;不存在返回 (nil, nil)。
-	Find(ctx context.Context, peerFingerprint, conversationID string) (*DaemonSession, error)
+	Find(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (*DaemonSession, error)
 
 	// ListByPeer 列出某个对端在本 daemon 上的会话,最近活动的在前,再按 filter 收窄。
 	//
@@ -127,10 +129,10 @@ type SessionRepo interface {
 	// 无关会话的标题送了出去。
 	//
 	// offset and limit are pushed to SQL; limit <= 0 preserves unpaged behavior.
-	ListByPeer(ctx context.Context, peerFingerprint string, filter ListFilter, offset, limit int) ([]*DaemonSession, error)
+	ListByPeer(ctx context.Context, peerFingerprint devicefp.Initiator, filter ListFilter, offset, limit int) ([]*DaemonSession, error)
 
 	// CountByPeer uses the same filter as ListByPeer.
-	CountByPeer(ctx context.Context, peerFingerprint string, filter ListFilter) (int64, error)
+	CountByPeer(ctx context.Context, peerFingerprint devicefp.Initiator, filter ListFilter) (int64, error)
 
 	// ListAll returns visible peers, newest activity first.
 	ListAll(ctx context.Context, filter ListFilter, offset, limit int) ([]*DaemonSession, error)
@@ -144,7 +146,7 @@ type SessionRepo interface {
 	// 它服务的是「这台机器此刻忙不忙」那三个数(session.counts):正在跑的那几条本来
 	// 就是个小集合,而「在等用户」只有问过 runtime 才知道 —— 拿整份清单去数,等于
 	// 为三个数把一台机器的摘要全搬一遍。
-	ListByPeerLifecycle(ctx context.Context, peerFingerprint, state string, limit int) ([]*DaemonSession, error)
+	ListByPeerLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, state string, limit int) ([]*DaemonSession, error)
 
 	// ListAllByLifecycle 是 ListByPeerLifecycle 的跨对端版本,语义同 ListAll。
 	ListAllByLifecycle(ctx context.Context, state string, limit int) ([]*DaemonSession, error)
@@ -155,7 +157,7 @@ type SessionRepo interface {
 	ListCreatedSince(ctx context.Context, createdFromMs int64) ([]*DaemonSession, error)
 
 	// CountByPeerLifecycle 数该对端名下停在某个生命周期上的会话有几条。
-	CountByPeerLifecycle(ctx context.Context, peerFingerprint, state string) (int64, error)
+	CountByPeerLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, state string) (int64, error)
 
 	// CountByLifecycle 数一数此刻停在某个生命周期上的会话有几条。
 	//
@@ -171,7 +173,7 @@ type SessionRepo interface {
 	//
 	// 它只删身份行;那条会话的通知日志由 notification_repo.DeleteAll 清(两个包各管
 	// 各的表)。
-	Delete(ctx context.Context, peerFingerprint, conversationID string) (int64, error)
+	Delete(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (int64, error)
 
 	// InterruptAll 把库中所有还不是 interruptedState 的会话一次改成该状态,返回受影响
 	// 行数(R10 的启动清扫)。它按状态而不是按对端 / 会话枚举:daemon 刚起时内存里一条
@@ -235,7 +237,7 @@ func (r *sessionRepo) Upsert(ctx context.Context, s *DaemonSession) error {
 }
 
 func (r *sessionRepo) SetModelTarget(
-	ctx context.Context, peerFingerprint, conversationID, providerKey, modelKey string,
+	ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, providerKey, modelKey string,
 ) (int64, error) {
 	// 用 map 而不是结构体:结构体的零值会被 GORM 当成「没设」跳过,而两格都空正是
 	// 「改回跟随 Agent 绑定」这个有含义的取值,跳过就等于这次改动没发生。
@@ -250,7 +252,7 @@ func (r *sessionRepo) SetModelTarget(
 }
 
 func (r *sessionRepo) SetReasoningEffort(
-	ctx context.Context, peerFingerprint, conversationID, reasoningEffort string,
+	ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, reasoningEffort string,
 ) (int64, error) {
 	// 同 SetModelTarget 用 map:结构体的零值会被 GORM 当成「没设」跳过,而空串正是
 	// 「改回跟随后端配置」这个有含义的取值,跳过就等于这次改动没发生。
@@ -263,7 +265,7 @@ func (r *sessionRepo) SetReasoningEffort(
 	return res.RowsAffected, res.Error
 }
 
-func (r *sessionRepo) UpdateLifecycle(ctx context.Context, peerFingerprint, conversationID, state string) error {
+func (r *sessionRepo) UpdateLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID, state string) error {
 	return db.Ctx(ctx).Model(&DaemonSession{}).
 		Where("peer_fingerprint = ? AND conversation_id = ?", peerFingerprint, conversationID).
 		Updates(map[string]any{
@@ -272,7 +274,7 @@ func (r *sessionRepo) UpdateLifecycle(ctx context.Context, peerFingerprint, conv
 		}).Error
 }
 
-func (r *sessionRepo) Find(ctx context.Context, peerFingerprint, conversationID string) (*DaemonSession, error) {
+func (r *sessionRepo) Find(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (*DaemonSession, error) {
 	row := &DaemonSession{}
 	err := db.Ctx(ctx).
 		Where("peer_fingerprint = ? AND conversation_id = ?", peerFingerprint, conversationID).
@@ -337,7 +339,7 @@ func pageScope(offset, limit int) func(*gorm.DB) *gorm.DB {
 	}
 }
 
-func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint string, filter ListFilter, offset, limit int) ([]*DaemonSession, error) {
+func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint devicefp.Initiator, filter ListFilter, offset, limit int) ([]*DaemonSession, error) {
 	var rows []*DaemonSession
 	err := db.Ctx(ctx).
 		Where("peer_fingerprint = ?", peerFingerprint).
@@ -350,7 +352,7 @@ func (r *sessionRepo) ListByPeer(ctx context.Context, peerFingerprint string, fi
 	return rows, nil
 }
 
-func (r *sessionRepo) CountByPeer(ctx context.Context, peerFingerprint string, filter ListFilter) (int64, error) {
+func (r *sessionRepo) CountByPeer(ctx context.Context, peerFingerprint devicefp.Initiator, filter ListFilter) (int64, error) {
 	var n int64
 	err := db.Ctx(ctx).Model(&DaemonSession{}).
 		Where("peer_fingerprint = ?", peerFingerprint).
@@ -385,7 +387,7 @@ func (r *sessionRepo) CountAll(ctx context.Context, filter ListFilter) (int64, e
 	return n, nil
 }
 
-func (r *sessionRepo) ListByPeerLifecycle(ctx context.Context, peerFingerprint, state string, limit int) ([]*DaemonSession, error) {
+func (r *sessionRepo) ListByPeerLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, state string, limit int) ([]*DaemonSession, error) {
 	var rows []*DaemonSession
 	err := db.Ctx(ctx).
 		Where("peer_fingerprint = ? AND lifecycle_state = ?", peerFingerprint, state).
@@ -423,7 +425,7 @@ func (r *sessionRepo) ListCreatedSince(ctx context.Context, createdFromMs int64)
 	return rows, nil
 }
 
-func (r *sessionRepo) CountByPeerLifecycle(ctx context.Context, peerFingerprint, state string) (int64, error) {
+func (r *sessionRepo) CountByPeerLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, state string) (int64, error) {
 	var n int64
 	err := db.Ctx(ctx).Model(&DaemonSession{}).
 		Where("peer_fingerprint = ? AND lifecycle_state = ?", peerFingerprint, state).
@@ -445,7 +447,7 @@ func (r *sessionRepo) CountByLifecycle(ctx context.Context, state string) (int64
 	return n, nil
 }
 
-func (r *sessionRepo) Delete(ctx context.Context, peerFingerprint, conversationID string) (int64, error) {
+func (r *sessionRepo) Delete(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (int64, error) {
 	tx := db.Ctx(ctx).
 		Where("peer_fingerprint = ? AND conversation_id = ?", peerFingerprint, conversationID).
 		Delete(&DaemonSession{})

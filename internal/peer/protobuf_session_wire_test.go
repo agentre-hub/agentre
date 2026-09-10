@@ -13,6 +13,7 @@ import (
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -79,7 +80,7 @@ func peerSessionWireDeps() ProtobufInboundDeps {
 				ToolPermissions: []agentruntime.PendingToolPermission{{RequestID: "tool-1", ToolName: "Bash", Input: []byte(`{"cmd":"ls"}`)}},
 			}, nil
 		},
-		DeleteSession:      func(context.Context, string, string) error { return nil },
+		DeleteSession:      func(context.Context, string, devicefp.Initiator) error { return nil },
 		SetModelTarget:     func(context.Context, string, string, string) error { return nil },
 		SetReasoningEffort: func(context.Context, string, string) error { return nil },
 		SetPermissionMode:  func(context.Context, string, string) error { return nil },
@@ -361,7 +362,7 @@ func TestPeerSessionWire_GivenAMalformedConversationID_ThenAnswersInvalidParams(
 // 接受集本就不同 —— 错误映射因此只能是端口,不能在共用注册面里统一掉。
 func TestPeerSessionWire_GivenAMissingPeerSession_ThenAnswersMinus32002(t *testing.T) {
 	deps := peerSessionWireDeps()
-	deps.DeleteSession = func(context.Context, string, string) error { return chat_svc.ErrPeerSessionNotFound }
+	deps.DeleteSession = func(context.Context, string, devicefp.Initiator) error { return chat_svc.ErrPeerSessionNotFound }
 	client, ctx := peerSessionWireRig(t, deps, true)
 
 	err := protorpc.CallMessage(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_SESSION_DELETE),

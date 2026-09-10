@@ -45,6 +45,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 	"github.com/agentre-hub/agentre/pkg/wire/wirelimits"
@@ -1368,7 +1369,7 @@ func TestDaemon_IPCStatus_CountsSessionsRunningRightNow(t *testing.T) {
 }
 
 // seedSession 给某会话建一条生命周期行。
-func seedSession(t *testing.T, ctx context.Context, store daemonSessionStore, peer, sid, lifecycle string) {
+func seedSession(t *testing.T, ctx context.Context, store daemonSessionStore, peer devicefp.Initiator, sid, lifecycle string) {
 	t.Helper()
 	require.NoError(t, store.Start(ctx, handlers.SessionRecord{
 		PeerFingerprint: peer, PeerSessionID: sid, BackendType: "claudecode", LifecycleState: lifecycle,
@@ -2415,7 +2416,7 @@ func TestDaemon_PayloadBudgetMatchesTheRelayServer(t *testing.T) {
 // 取值形态无所谓,只要是个合法且逐会话唯一的 uuid;连接注册表那几个用例只要一个
 // 合法 uuid,用它同样合适。
 func convID(n int64) string {
-	return conversationid.Derive(conversationid.Namespace, rigDeviceFingerprint, strconv.FormatInt(n, 10))
+	return conversationid.Derive(conversationid.Namespace, string(rigDeviceFingerprint), strconv.FormatInt(n, 10))
 }
 
 // TestDaemon_EveryTableHasAutoIncrementIDPrimaryKey 钉死 agentred 库的行身份约定：迁移

@@ -5,20 +5,22 @@ import (
 	"net/http"
 
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // listDevicesItem mirrors the hub's /v1/devices response item.
 type listDevicesItem struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	Kind         string `json:"kind"`
-	Platform     string `json:"platform"`
-	Version      string `json:"version"`
-	Fingerprint  string `json:"fingerprint"`
-	LastSeenAt   int64  `json:"last_seen_at"`
-	Status       int    `json:"status"`
-	Online       bool   `json:"online"`
-	IsThisDevice bool   `json:"is_this_device"`
+	ID           int64            `json:"id"`
+	Name         string           `json:"name"`
+	Kind         string           `json:"kind"`
+	Platform     string           `json:"platform"`
+	Version      string           `json:"version"`
+	Fingerprint  devicefp.Carrier `json:"fingerprint"`
+	LastSeenAt   int64            `json:"last_seen_at"`
+	Status       int              `json:"status"`
+	Online       bool             `json:"online"`
+	IsThisDevice bool             `json:"is_this_device"`
 }
 
 type listDevicesResp struct {

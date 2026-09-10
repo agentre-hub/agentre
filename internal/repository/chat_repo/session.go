@@ -20,6 +20,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source session.go -destination mock_chat_repo/mock_session.go
@@ -102,12 +103,12 @@ type SessionRepo interface {
 	// (见 session.go Update 上的注释)。实例标识变了(改绑到别的 daemon / 改回本机)时,
 	// event_cursor 在同一条语句里归零 —— 游标只在它所属的那条通知日志里有意义,不能
 	// 跟着会话漂到另一台 daemon 上。标识不变则原样保留游标。
-	UpdateExecDaemon(ctx context.Context, sessionID int64, deviceID int64, daemonFingerprint string, agentBackendID int64) error
+	UpdateExecDaemon(ctx context.Context, sessionID int64, deviceID int64, daemonFingerprint devicefp.Carrier, agentBackendID int64) error
 	// UpdateEventCursor 记录桌面端已消费到的 daemon 通知 seq。只碰这一列,执行位置与
 	// 实例标识由 UpdateExecDaemon 负责。daemonFingerprint 是 seq 所属的那条通知日志的
 	// daemon 实例标识,进 WHERE 做守卫:会话已改绑后老连接迟到的写入落空(不报错,同
 	// MarkRead 的「写不进也算成功」),下次重连至多重复拉取,而不会跳过新日志的开头。
-	UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint string, seq int64) error
+	UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error
 	// ListRemoteExecSessions 列出记录了远端执行位置的活跃会话(exec_device_id > 0 且
 	// 带实例标识)。App 启动后的补齐靠它回答「该连谁」——(会话, daemon, 游标) 三者
 	// 都在这一行上,不必再回头遍历 agent / backend 才知道会话跑在哪。
@@ -641,7 +642,7 @@ func (r *sessionRepo) UpdateContextWindow(ctx context.Context, sessionID int64, 
 		}).Error
 }
 
-func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, deviceID int64, daemonFingerprint string, agentBackendID int64) error {
+func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, deviceID int64, daemonFingerprint devicefp.Carrier, agentBackendID int64) error {
 	return db.Ctx(ctx).Model(&chat_entity.Session{}).
 		Where("id = ? AND status = ?", sessionID, consts.ACTIVE).
 		Updates(map[string]any{
@@ -692,7 +693,7 @@ func (r *sessionRepo) ListExecAgentBackendRefs(ctx context.Context) ([]SessionBa
 	return refs, err
 }
 
-func (r *sessionRepo) UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint string, seq int64) error {
+func (r *sessionRepo) UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error {
 	return db.Ctx(ctx).Model(&chat_entity.Session{}).
 		Where("id = ? AND status = ? AND exec_device_fingerprint = ?", sessionID, consts.ACTIVE, daemonFingerprint).
 		Updates(map[string]any{

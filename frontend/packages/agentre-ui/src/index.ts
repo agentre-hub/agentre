@@ -256,8 +256,15 @@ export { monacoLanguageForPath } from "./file-preview/monaco-language";
 // JSON 的 Monarch 词法：0.56 起 json 移出了 basic-languages，两端的装载器都要在
 // 拿到命名空间之后补注册这一门语言。语法是纯数据 + 一次调用（对 monaco 只有类型
 // 依赖），因此住在包里，而不是两个宿主各抄一份。
-export { registerJsonLanguage, jsonTokenProvider } from "./file-preview/monaco-json";
+export {
+  registerJsonLanguage,
+  jsonTokenProvider,
+} from "./file-preview/monaco-json";
 export type { MonacoCodeEditor, MonacoNS } from "./file-preview/monaco";
+// 定位目标:PreviewAnchor 是链接里读出来的事实(包解析、交给宿主),
+// PreviewRevealTarget 多一个宿主铸的 nonce(交回面板)。两端宿主都要用。
+export { clampAnchor } from "./file-preview/anchor";
+export type { PreviewAnchor, PreviewRevealTarget } from "./file-preview/anchor";
 export { basename, dirname } from "./file-preview/file-meta";
 // 预览标签条：开着哪些标签、谁是活动标签、动作落到哪个 store，全部由宿主经 props
 // 注入（桌面端是 file-preview-tabs-store，控制台是它自己的那份）。
@@ -299,6 +306,7 @@ export type {
   AgentredUpgradeAcceptance,
   AgentredUpgradePhase,
   AgentredUpgradePorts,
+  AgentredUpgradeRejectReason,
 } from "./hooks/use-agentred-upgrade";
 export { isOpenInNewTabModifier } from "./lib/keyboard";
 export { StatusDot } from "./ui/status-dot";

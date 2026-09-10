@@ -6,6 +6,8 @@
 // 它们留位置。
 package syncqueue_entity
 
+import "github.com/agentre-hub/agentre/pkg/wire/devicefp"
+
 // 三类失效事件共用 LostChange 这一张表（决策 12：用户的心智是「我的改动没了
 // 去哪找」，一个入口即可，每条标明原因）。
 const (
@@ -42,8 +44,8 @@ type LostChange struct {
 	//
 	// 叫 Scope 而不是 Project：路径记录这一段装项目，backend 那一段装的是后端
 	// sync id，与 server 的 sync_objects.scope_sync_id 同义。
-	ScopeSyncID         string `gorm:"column:scope_sync_id;type:text;not null;default:''"`
-	AgentredFingerprint string `gorm:"column:agentred_fingerprint;type:text;not null;default:''"`
+	ScopeSyncID         string           `gorm:"column:scope_sync_id;type:text;not null;default:''"`
+	AgentredFingerprint devicefp.Carrier `gorm:"column:agentred_fingerprint;type:text;not null;default:''"`
 	// OriginDevice 覆盖发生的来源设备；仅「被覆盖」一类有意义。
 	OriginDevice string `gorm:"column:origin_device;type:text;not null;default:''"`
 	// OccurredAt 发生时间（毫秒 epoch）。

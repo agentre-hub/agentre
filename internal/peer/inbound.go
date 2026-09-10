@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -29,6 +30,7 @@ type inboundSessionAdapter interface {
 	PullPeerSession(context.Context, wire.SessionPullParams, chat_svc.PeerSessionSubscriber) (wire.SessionPullResult, error)
 	PendingPeerSessionWaiters(context.Context, wire.SessionPendingWaitersParams) (wire.SessionPendingWaitersResult, error)
 	Delete(context.Context, *chat_svc.DeleteRequest) (*chat_svc.DeleteResponse, error)
+	Stop(context.Context, *chat_svc.StopRequest) (*chat_svc.StopResponse, error)
 	RunPeerSession(context.Context, wire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
 	EnqueuePeerSession(context.Context, wire.SteerParams, chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error)
 	CancelPeerSessionQueued(context.Context, wire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error)
@@ -131,7 +133,7 @@ func reportLocalPaths(ctx context.Context) {
 	}
 }
 
-func requireOwnOrigin(originPeer string) error {
+func requireOwnOrigin(originPeer devicefp.Initiator) error {
 	if originPeer == "" {
 		return nil
 	}
@@ -140,7 +142,7 @@ func requireOwnOrigin(originPeer string) error {
 		return &protorpc.Error{Code: -32001, Message: "unauthorized"}
 	}
 	fingerprint, err := device.DeviceFingerprint()
-	if err != nil || fingerprint == "" || fingerprint != originPeer {
+	if err != nil || fingerprint == "" || fingerprint != devicefp.Carrier(originPeer) {
 		return &protorpc.Error{Code: -32001, Message: "unauthorized"}
 	}
 	return nil

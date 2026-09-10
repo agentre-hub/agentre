@@ -1,25 +1,30 @@
 // Package wireversion carries the agentre ↔ agentred wire protocol version
 // window this build speaks and accepts.
 //
-// The version's owner is `frontend/packages/agentre-wire/package.json`: that
-// package publishes the schema, the generated messages and the codecs, so its
-// release number is what "the protocol" means. Go cannot read package.json at
-// build time, so the value is restated here and pinned by the guard tests in
-// wireversion_test.go — change one without the other and the build goes red.
+// Only one end of that window is this package's to decide. The protocol's own
+// version number belongs to the protocol module
+// github.com/agentre-hub/agentre/pkg/wire, where it is declared on the schema
+// itself; Protocol below simply reads it. The floor — how old a peer this
+// particular build still accepts — is this host's policy, and lives here.
 package wireversion
 
 import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/agentre-hub/agentre/pkg/wire/protocolversion"
 )
 
 // Protocol is the wire protocol version this build speaks and advertises in
 // every handshake.
 //
-// Keep it byte identical to the `version` field of
-// frontend/packages/agentre-wire/package.json.
-const Protocol = "0.4.0"
+// It is not a value this package owns: the protocol declares its own version
+// on the schema, as the (agentre.wire.protocol_version) file option, and this
+// is the protocol module's reading of it. There is nothing here to keep in
+// sync — bump the option in pkg/wire/proto/agentre/wire/wire.proto, regenerate,
+// and every consumer that imports the module moves with it.
+var Protocol = protocolversion.Protocol()
 
 // MinSupported is the oldest peer protocol version this build still accepts.
 //
@@ -66,8 +71,13 @@ const Protocol = "0.4.0"
 // genuinely has no skills". Per the conservation law above the floor rises with
 // the ceiling rather than a downgrade branch being added.
 //
-// Keep it byte identical to the `version` field of
-// frontend/packages/agentre-wire/package.json, exactly like Protocol.
+// Unlike Protocol this one is written out here rather than read from the
+// protocol module, and deliberately so: it is not a property of the protocol
+// but a statement about this build. The same schema can be spoken by a host
+// that only accepts its own release and by one that keeps a lower floor. What
+// pins it is the conservation law above, not an external file — while the
+// window is a single point, methodset_test.go requires it to equal Protocol,
+// and Protocol is the schema's own value.
 const MinSupported = "0.4.0"
 
 // version is a parsed MAJOR.MINOR.PATCH triple. Handshake versions in this

@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
@@ -311,7 +312,7 @@ func TestProtobufInboundRegistryServesPeerSessionControlMethods(t *testing.T) {
 		},
 		RunSession: func(_ context.Context, p remotewire.RunParams, source chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
 			require.True(t, p.FreshSession)
-			require.Equal(t, "sha256:caller", source.Device)
+			require.Equal(t, devicefp.Initiator("sha256:caller"), source.Device)
 			return &chat_svc.SendResponse{SessionID: 42}, nil
 		},
 		SteerSession: func(_ context.Context, p remotewire.SteerParams, _ chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {

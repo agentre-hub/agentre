@@ -13,6 +13,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/skill_svc/mock_skill_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type fakeDisc struct{ packs []agentskill.SkillPack }
@@ -97,7 +98,7 @@ func TestListAgentSkillPacks_SelfFingerprintBackendUsesLocalDiscovery(t *testing
 		}, nil).AnyTimes()
 
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		prevSvc := remote_device_svc.Default()
 		remote_device_svc.SetDefault(rds)
 		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
@@ -133,7 +134,7 @@ func TestListAgentSkillPacks_RemoteBackendUsesDaemonDiscovery(t *testing.T) {
 			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:daemon-x",
 		}, nil).AnyTimes()
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
 			{ID: 7, DaemonFingerprint: "sha256:daemon-x"},
 		}, nil).AnyTimes()
@@ -455,7 +456,7 @@ func TestListAgentSkillCommands_SelfFingerprintBackendMergesNativeCommands(t *te
 		}, nil).AnyTimes()
 
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		prevSvc := remote_device_svc.Default()
 		remote_device_svc.SetDefault(rds)
 		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
@@ -534,7 +535,7 @@ func TestListAgentSkillCommands_RemoteTargetAsksThatMachine(t *testing.T) {
 		}, nil).AnyTimes()
 
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
 			{ID: 42, DaemonFingerprint: "sha256:that-box"},
 		}, nil).AnyTimes()
@@ -595,7 +596,7 @@ func TestListAgentSkillCommands_RemoteTargetWithoutPairedDeviceIsEmpty(t *testin
 		}, nil).AnyTimes()
 
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		rds.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
 		prevSvc := remote_device_svc.Default()
 		remote_device_svc.SetDefault(rds)

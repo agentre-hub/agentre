@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	watcher "github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // dialAdapter 把 remote_device_svc.DaemonDialPort 的 Open 桥到 watcher port，
@@ -35,7 +36,7 @@ func (a *dialAdapter) Open(ctx context.Context, args watcher.OpenArgs) (client.P
 			return nil, fmt.Errorf("device %s has no LAN address and no relay is configured",
 				args.ExpectedDaemonFingerprint)
 		}
-		return a.relay.Open(ctx, args.ExpectedDaemonFingerprint, args.DeviceFingerprint)
+		return a.relay.Open(ctx, args.ExpectedDaemonFingerprint, devicefp.Initiator(args.DeviceFingerprint))
 	}
 	return a.inner.Open(ctx, remote_device_svc.ConnectArgs{
 		URL:                       args.URL,

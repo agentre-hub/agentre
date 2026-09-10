@@ -1,20 +1,24 @@
 // Package server_state_entity 维护桌面端与 Server 联机状态的单行实体。
 package server_state_entity
 
-import "time"
+import (
+	"time"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+)
 
 // ServerState 桌面端联机状态，全表只有一行。
 //
 // 单行由 DDL 上的 singleton 列担保（NOT NULL DEFAULT 1 CHECK (singleton = 1) UNIQUE），
 // 那一列不进实体：它是一条约束，不是业务字段。行本身照旧是 id = 1，repo 按它定位。
 type ServerState struct {
-	ID                int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	ServerURL         string `gorm:"column:server_url;type:text;not null;default:''"`
-	DeviceID          int64  `gorm:"column:device_id;type:integer;not null;default:0"`
-	DeviceFingerprint string `gorm:"column:device_fingerprint;type:text;not null;default:''"`
-	ServerUserID      int64  `gorm:"column:server_user_id;type:integer;not null;default:0"`
-	KeychainAccount   string `gorm:"column:keychain_account;type:text;not null;default:''"`
-	Updatetime        int64  `gorm:"column:updatetime;type:integer;not null;default:0"`
+	ID                int64            `gorm:"column:id;primaryKey;autoIncrement"`
+	ServerURL         string           `gorm:"column:server_url;type:text;not null;default:''"`
+	DeviceID          int64            `gorm:"column:device_id;type:integer;not null;default:0"`
+	DeviceFingerprint devicefp.Carrier `gorm:"column:device_fingerprint;type:text;not null;default:''"`
+	ServerUserID      int64            `gorm:"column:server_user_id;type:integer;not null;default:0"`
+	KeychainAccount   string           `gorm:"column:keychain_account;type:text;not null;default:''"`
+	Updatetime        int64            `gorm:"column:updatetime;type:integer;not null;default:0"`
 }
 
 // TableName GORM 表名。

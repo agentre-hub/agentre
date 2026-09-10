@@ -143,6 +143,18 @@ describe("RichLink", () => {
       expect(openExternalURLMock).not.toHaveBeenCalled();
     });
 
+    it("clicking a start-end range keeps both ends in the path handed to openPath", () => {
+      render(
+        <RichLink href="/Users/me/proj/src/foo.go:311-330" cwd={CWD}>
+          foo.go:311-330
+        </RichLink>,
+      );
+      fireEvent.click(screen.getByRole("link", { name: /foo\.go:311-330/ }));
+      expect(openPathMock).toHaveBeenCalledWith(
+        "/Users/me/proj/src/foo.go:311-330",
+      );
+    });
+
     it("renders file icon before text and open icon after text", () => {
       render(
         <RichLink href="/Users/me/proj/src/foo.go" cwd={CWD}>
@@ -466,8 +478,31 @@ describe("RichLink", () => {
 
       fireEvent.click(screen.getByRole("link", { name: /foo\.go:42/ }));
 
-      expect(previewFileMock).toHaveBeenCalledWith(SESSION_ID, "src/foo.go");
+      expect(previewFileMock).toHaveBeenCalledWith(SESSION_ID, "src/foo.go", {
+        line: 42,
+      });
       expect(openPathMock).toHaveBeenCalledWith("/Users/me/proj/src/foo.go:42");
+    });
+
+    it("Given a link carrying a start-end range, When the host takes over preview, Then both ends reach previewFile as the anchor", () => {
+      previewFileMock.mockReturnValue(true);
+      render(
+        <RichLink
+          href="/Users/me/proj/src/foo.go:311-330"
+          cwd={CWD}
+          sessionId={SESSION_ID}
+        >
+          foo.go:311-330
+        </RichLink>,
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: /foo\.go:311-330/ }));
+
+      expect(previewFileMock).toHaveBeenCalledWith(SESSION_ID, "src/foo.go", {
+        line: 311,
+        endLine: 330,
+      });
+      expect(openPathMock).not.toHaveBeenCalled();
     });
 
     it("Given an extension outside the preview allowlist, When clicked, Then it always goes to openPath and previewFile is never consulted, regardless of what the host would return", () => {

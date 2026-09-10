@@ -6,7 +6,7 @@
  *   - `runtime.ts`   手写的稳定运行时:解码骨架 + 校验助手。
  *   - `rpc.ts`       Protobuf WebSocket RPC 的类型化二进制 codec。
  *   - `*.gen.ts`     由 Go 侧单向生成的领域类型 / 编解码 / 协议常量 /
- *                    事件词表 / 块类型词表 / 视图块类型词表。
+ *                    事件词表 / 块类型词表 / 视图块类型词表 / 宿主契约。
  *
  * 注意 `chat-block-types.gen.ts` 是个例外:它**不是 wire 协议的一部分**,而是
  * backend → 前端那一跳的视图 DTO(chat_svc.ChatBlock.type)的词表。它落在本包,
@@ -29,3 +29,4 @@ export * from "./event-kind";
 export * from "./relay-envelope";
 export * from "./block-types.gen";
 export * from "./chat-block-types.gen";
+export * from "./host-contract.gen";

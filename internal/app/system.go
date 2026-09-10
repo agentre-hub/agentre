@@ -22,14 +22,14 @@ var runOpenCmd = func(name string, args ...string) error {
 	return cmd.Run()
 }
 
-var lineSuffixRe = regexp.MustCompile(`:\d+(?::\d+)?$`)
+var lineSuffixRe = regexp.MustCompile(`:\d+(?:-\d+|:\d+)?$`)
 
 // userHomeDir 是 os.UserHomeDir 的包级 indirection，测试可替换。
 var userHomeDir = os.UserHomeDir
 
 // OpenPath 用系统默认应用打开 path。
 // path 必须是绝对路径或 "~" / "~/…" 家目录形式；包含 ".." 时拒绝（防御性，AI 输出基本不会有）。
-// 末尾 :line[:col] 后缀会被剥离 —— macOS open / xdg-open 不识别这种语法。
+// 末尾 :line[:col] / :start-end 后缀会被剥离 —— macOS open / xdg-open 不识别这种语法。
 // 行号未来若要支持，由"编辑器 URL scheme"设置项接管（见 spec 未来工作）。
 func (a *App) OpenPath(path string) error {
 	cleaned, err := validateOpenPath(path)
@@ -91,7 +91,7 @@ func isAbsolutePath(p string) bool {
 }
 
 // RevealPath 在系统文件管理器中打开 path 所在目录并选中该文件。
-// path 必须是绝对路径；包含 ".." 时拒绝。末尾 :line[:col] 后缀会被剥离。
+// path 必须是绝对路径；包含 ".." 时拒绝。末尾 :line[:col] / :start-end 后缀会被剥离。
 func (a *App) RevealPath(path string) error {
 	cleaned, err := validateOpenPath(path)
 	if err != nil {

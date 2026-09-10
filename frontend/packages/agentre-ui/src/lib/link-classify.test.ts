@@ -198,6 +198,37 @@ describe("classifyLink", () => {
       });
     });
 
+    it("Given a relative file with a start-end line range, when classified, then both ends of the range are parsed off the path", () => {
+      expect(classifyLink("frontend/src/chat.tsx:311-330", CWD)).toEqual({
+        kind: "local-internal",
+        fullPath: "/Users/me/proj/frontend/src/chat.tsx",
+        pathKind: "file",
+        relPath: "frontend/src/chat.tsx",
+        line: 311,
+        endLine: 330,
+      });
+    });
+
+    it("Given a relative file with a plain line and column, when classified, then no range end is invented", () => {
+      expect(classifyLink("frontend/src/chat.tsx:42:7", CWD)).toEqual({
+        kind: "local-internal",
+        fullPath: "/Users/me/proj/frontend/src/chat.tsx",
+        pathKind: "file",
+        relPath: "frontend/src/chat.tsx",
+        line: 42,
+        col: 7,
+      });
+    });
+
+    it("Given a colon suffix whose range end is not numeric, when classified, then nothing is split off", () => {
+      expect(classifyLink("frontend/src/chat.tsx:311-end", CWD)).toEqual({
+        kind: "local-internal",
+        fullPath: "/Users/me/proj/frontend/src/chat.tsx:311-end",
+        pathKind: "file",
+        relPath: "frontend/src/chat.tsx:311-end",
+      });
+    });
+
     it("Given a cwd, when a trusted filename is classified, then it resolves from that cwd", () => {
       expect(classifyLink("README.md", CWD)).toEqual({
         kind: "local-internal",

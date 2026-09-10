@@ -14,6 +14,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/peer_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -54,14 +55,14 @@ func (a *App) registerPeerService() {
 // serverSvcDialer 是 peer_svc.Dialer 的生产实现：经账号中继拨号（DialDesktopRelay）。
 type serverSvcDialer struct{}
 
-func (serverSvcDialer) DialDesktopRelay(ctx context.Context, desktopFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
+func (serverSvcDialer) DialDesktopRelay(ctx context.Context, desktopFingerprint devicefp.Carrier, peerFingerprint devicefp.Initiator) (client.ProtobufConnection, error) {
 	return server_svc.Server().DialDesktopRelay(ctx, desktopFingerprint, peerFingerprint)
 }
 
 // remoteDeviceFingerprintProvider 是 peer_svc.FingerprintProvider 的生产实现。
 type remoteDeviceFingerprintProvider struct{}
 
-func (remoteDeviceFingerprintProvider) DeviceFingerprint() (string, error) {
+func (remoteDeviceFingerprintProvider) DeviceFingerprint() (devicefp.Carrier, error) {
 	return remote_device_svc.Default().DeviceFingerprint()
 }
 
@@ -146,9 +147,12 @@ func (a *App) PeerSubmitToolPermission(req peer_svc.SubmitToolPermissionRequest)
 
 // PeerDetach 结束本端对一条远端会话的接入（R19：关闭 Tab 只结束本端接入，不删除
 // 对端会话）。
+// 入参保持裸 string:Wails codegen 会把具名 Go 类型原样写进 App.d.ts 的方法签名,
+// 而它只为**结构体字段**生成 TS 类型,方法签名上的 devicefp.Carrier 因此指向一个
+// models.ts 里并不存在的命名空间,前端 tsc 直接判红。角色在这里进服务层时声明。
 func (a *App) PeerDetach(fingerprint string, conversationID string) error {
 	if svc := peerSvcAccessor(); svc != nil {
-		return svc.Detach(a.ctx, fingerprint, conversationID)
+		return svc.Detach(a.ctx, devicefp.Carrier(fingerprint), conversationID)
 	}
 	return errPeerServiceUnavailable
 }

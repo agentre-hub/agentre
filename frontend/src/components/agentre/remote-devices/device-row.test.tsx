@@ -523,11 +523,19 @@ describe("DeviceRow", () => {
       await flush();
       expect(mockUpgrade).toHaveBeenCalledTimes(1);
       const dialog = screen.getByRole("dialog");
+      // 确认框说的是这一档的本地化正文,不是 daemon 那句英文 —— 标题已经用结构化的
+      // activeTurns 说了「还有 2 条在跑」,正文再贴一遍同一件事的英文原话,既重复又
+      // 突兀(它是 Go 的 Sprintf,不是给人读的句子)。
       expect(
         within(dialog).getByText(
-          "this machine has 2 running conversation(s); upgrading would interrupt them",
+          "Upgrading restarts agentred. Those turns will be interrupted; whatever they already produced is kept.",
         ),
       ).toBeInTheDocument();
+      expect(
+        within(dialog).queryByText(
+          "this machine has 2 running conversation(s); upgrading would interrupt them",
+        ),
+      ).toBeNull();
 
       mockUpgrade.mockResolvedValueOnce({
         accepted: true,
@@ -538,6 +546,60 @@ describe("DeviceRow", () => {
 
       expect(mockUpgrade).toHaveBeenCalledTimes(2);
       expect(mockUpgrade).toHaveBeenLastCalledWith(1, "", true);
+    });
+
+    /**
+     * 拒绝原因是结构化枚举,界面据它说人话。此前这一档只画 `phase.message` ——
+     * 中文/英文界面上都是 daemon 的 Go 原话(`cannot replace …: permission denied;
+     * re-run with enough privileges to write …`),而那句话真正说的只有「没权限写」。
+     */
+    it("names a structured refusal in its own words, keeping the daemon sentence as detail", async () => {
+      mockUpgrade.mockResolvedValueOnce({
+        accepted: false,
+        rejectReason: "not_writable",
+        message:
+          "cannot replace /usr/local/bin/agentred: permission denied; re-run with enough privileges to write /usr/local/bin",
+      });
+      render(
+        <DeviceRow
+          device={upgradable}
+          now={1_000_000}
+          actions={noopActions}
+          latestVersion="0.6.0"
+        />,
+      );
+
+      await openMenuAndClickUpgrade();
+      await flush();
+
+      expect(screen.getByText("No permission to replace agentred")).toBeInTheDocument();
+      // 原话留着,但它是技术细节:等宽小字,不是那句解释。
+      const detail = screen.getByTestId("device-upgrade-detail-1");
+      expect(detail.textContent).toContain("permission denied");
+    });
+
+    /**
+     * 认不出的原因不冒充某一档:只说「升级没能开始」,再把原话原样给出来 ——
+     * 那是这一屏唯一剩下的线索。
+     */
+    it("falls back to the daemon sentence when the refusal has no reason we know", async () => {
+      mockUpgrade.mockRejectedValueOnce(new Error("relay is offline"));
+      render(
+        <DeviceRow
+          device={upgradable}
+          now={1_000_000}
+          actions={noopActions}
+          latestVersion="0.6.0"
+        />,
+      );
+
+      await openMenuAndClickUpgrade();
+      await flush();
+
+      expect(screen.getByText("The upgrade did not start")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("device-upgrade-detail-1").textContent,
+      ).toContain("relay is offline");
     });
 
     // 决策 18:一键升级与可复制的命令**始终并列**在同一处,不按状态二选一 ——

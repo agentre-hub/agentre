@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	remote_device_svc "github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -87,10 +88,10 @@ func (mr *MockRemoteDeviceSvcMockRecorder) DeviceBuild(deviceID any) *gomock.Cal
 }
 
 // DeviceFingerprint mocks base method.
-func (m *MockRemoteDeviceSvc) DeviceFingerprint() (string, error) {
+func (m *MockRemoteDeviceSvc) DeviceFingerprint() (devicefp.Carrier, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeviceFingerprint")
-	ret0, _ := ret[0].(string)
+	ret0, _ := ret[0].(devicefp.Carrier)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

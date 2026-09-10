@@ -14,6 +14,7 @@ import (
 	repomock "github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	svcmock "github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // adoptFixture 只装 AdoptAccountDevices 需要的东西：仓储 + keychain（本机指纹）+ watcher。
@@ -31,7 +32,7 @@ func adoptFixture(t *testing.T) (*repomock.MockPairedAgentredRepo, *svcmock.Mock
 	return repo, w, svc
 }
 
-func accountDevice(fp, name, kind string) remote_device_svc.AccountDevice {
+func accountDevice(fp devicefp.Carrier, name, kind string) remote_device_svc.AccountDevice {
 	return remote_device_svc.AccountDevice{Fingerprint: fp, Name: name, Kind: kind}
 }
 
@@ -61,7 +62,7 @@ func TestAdoptAccountDevices_GivenAnUnpairedAgentred_ThenAdoptsItAsRelayOnly(t *
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, 1)
 		So(created, ShouldNotBeNil)
-		So(created.DaemonFingerprint, ShouldEqual, "sha256:devbox")
+		So(created.DaemonFingerprint, ShouldEqual, devicefp.Carrier("sha256:devbox"))
 		So(created.Name, ShouldEqual, "devbox")
 		So(created.URL, ShouldBeEmpty)
 		So(created.IsRelayOnly(), ShouldBeTrue)

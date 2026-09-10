@@ -244,7 +244,7 @@ func TestDaemonSessionWire_GivenAuth_ThenAnswersTheRecordedShape(t *testing.T) {
 	for _, tc := range sessionWireCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			client, server, ctx := sessionWireRig(t)
-			server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: rigDeviceFingerprint})
+			server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: string(rigDeviceFingerprint)})
 			response := tc.newResponse()
 			err := protorpc.CallMessage(ctx, client, uint32(tc.method), tc.request, response)
 			tc.assert(t, response, err)

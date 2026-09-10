@@ -7,7 +7,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -36,32 +37,32 @@ func NewSessionReasoningEffortHandlers(deps SessionReasoningEffortDeps) *Session
 }
 
 // SetReasoningEffort 把这条会话钉的思考力度写下去。两态见
-// wire.SetSessionReasoningEffortParams:空串是**要写下去的值**(改回跟随后端配置),
-// 不是「不改」。
+// agentrewire.SetSessionReasoningEffortRequest:空串是**要写下去的值**
+// (改回跟随后端配置),不是「不改」。
 //
 // 会话不存在报错而不是折成成功 —— 与删除那条路径刻意不同:删一条已经不存在的会话
 // 是幂等成功,而改一条不存在的会话的力度没有任何东西可以幂等,折成成功只会让调用方
 // 以为下一轮会用新档位。
 func (h *SessionReasoningEffortHandlers) SetReasoningEffort(
-	ctx context.Context, p wire.SetSessionReasoningEffortParams,
-) (wire.OK, error) {
-	if err := ErrInvalidConversationID(p.ConversationID); err != nil {
-		return wire.OK{}, err
+	ctx context.Context, req *agentrewire.SetSessionReasoningEffortRequest,
+) (*agentrewire.SetSessionReasoningEffortResponse, error) {
+	conversationID := req.GetConversationId()
+	if err := ErrInvalidConversationID(conversationID); err != nil {
+		return nil, err
 	}
-	peer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.LoggedInAccountID)
+	peer, err := ResolveSessionPeer(ctx, devicefp.Initiator(req.GetPeerFingerprint()), h.deps.LoggedInAccountID)
 	if err != nil {
-		return wire.OK{}, err
+		return nil, err
 	}
-	sid := p.ConversationID
-	rows, err := h.deps.Sessions.SetReasoningEffort(ctx, peer, sid, p.ReasoningEffort)
+	rows, err := h.deps.Sessions.SetReasoningEffort(ctx, peer, conversationID, req.GetReasoningEffort())
 	if err != nil {
-		return wire.OK{}, fmt.Errorf("set session reasoning effort: %w", err)
+		return nil, fmt.Errorf("set session reasoning effort: %w", err)
 	}
 	if rows == 0 {
-		return wire.OK{}, rpcerror.ErrSessionNotFound
+		return nil, rpcerror.ErrSessionNotFound
 	}
 	logger.Ctx(ctx).Info("handlers.SessionReasoningEffortHandlers.SetReasoningEffort: reasoning effort updated",
-		zap.String("conversationId", p.ConversationID),
-		zap.String("reasoningEffort", p.ReasoningEffort))
-	return wire.OK{}, nil
+		zap.String("conversationId", conversationID),
+		zap.String("reasoningEffort", req.GetReasoningEffort()))
+	return &agentrewire.SetSessionReasoningEffortResponse{}, nil
 }

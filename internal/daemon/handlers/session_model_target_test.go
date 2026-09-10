@@ -11,7 +11,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -48,13 +49,13 @@ func TestSessionModelTarget_Set_PersistsAllThreeStates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, sessions, h := setupModelTargetTest(t)
 			sessions.EXPECT().
-				SetModelTarget(gomock.Any(), "", convID(41), tc.provider, tc.model).
+				SetModelTarget(gomock.Any(), devicefp.Initiator(""), convID(41), tc.provider, tc.model).
 				Return(int64(1), nil)
 
 			// wire.OK 是个空结构:成功与否全在 error 上,断言点是「正好这两格、
 			// 正好这条会话被写下去了」——由上面的 EXPECT 精确入参承担。
-			_, err := h.SetModelTarget(ctx, wire.SetModelTargetParams{
-				ConversationID: convID(41), ProviderKey: tc.provider, ModelKey: tc.model,
+			_, err := h.SetModelTarget(ctx, &agentrewire.SetModelTargetRequest{
+				ConversationId: convID(41), ProviderKey: tc.provider, ModelKey: tc.model,
 			})
 			require.NoError(t, err)
 		})
@@ -66,10 +67,10 @@ func TestSessionModelTarget_Set_PersistsAllThreeStates(t *testing.T) {
 // 的会话的模型」没有任何东西可以幂等。)
 func TestSessionModelTarget_Set_UnknownSessionIsAnError(t *testing.T) {
 	ctx, sessions, h := setupModelTargetTest(t)
-	sessions.EXPECT().SetModelTarget(gomock.Any(), "", convID(999), "p", "m").Return(int64(0), nil)
+	sessions.EXPECT().SetModelTarget(gomock.Any(), devicefp.Initiator(""), convID(999), "p", "m").Return(int64(0), nil)
 
-	_, err := h.SetModelTarget(ctx, wire.SetModelTargetParams{
-		ConversationID: convID(999), ProviderKey: "p", ModelKey: "m",
+	_, err := h.SetModelTarget(ctx, &agentrewire.SetModelTargetRequest{
+		ConversationId: convID(999), ProviderKey: "p", ModelKey: "m",
 	})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, rpcerror.ErrSessionNotFound),
@@ -81,7 +82,7 @@ func TestSessionModelTarget_Set_RejectsSomethingThatIsNotAConversationID(t *test
 	for _, bad := range []string{"", "0", "41", "not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
 		t.Run(bad, func(t *testing.T) {
 			ctx, _, h := setupModelTargetTest(t)
-			_, err := h.SetModelTarget(ctx, wire.SetModelTargetParams{ConversationID: bad})
+			_, err := h.SetModelTarget(ctx, &agentrewire.SetModelTargetRequest{ConversationId: bad})
 			var rpcErr *rpcerror.Error
 			require.ErrorAs(t, err, &rpcErr)
 			assert.Equal(t, rpcerror.CodeInvalidParams, rpcErr.Code,

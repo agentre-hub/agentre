@@ -5,6 +5,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source ports.go -destination mock_remote_device_watcher_svc/mock_ports.go
@@ -23,7 +24,7 @@ type OpenArgs struct {
 	TLSCertPEM                string
 	DeviceFingerprint         string
 	DeviceToken               string
-	ExpectedDaemonFingerprint string
+	ExpectedDaemonFingerprint devicefp.Carrier
 }
 
 // KeychainPort 抽象 OS keychain 读取(与 remote_device_svc.KeychainPort 同语义)。

@@ -51,10 +51,15 @@ describe("agentre-wire public boundary", () => {
     expect(barrel).toContain('export * from "./rpc"');
   });
 
-  it("owns one unversioned Protobuf schema package", () => {
-    const protoPath = `${packageRoot}/proto/agentre/wire/wire.proto`;
+  it("generates from the protocol module's one unversioned schema", () => {
+    // schema 的主人是 Go 协议 module github.com/agentre-hub/agentre/pkg/wire：生成的
+    // Go 和产出它的 .proto 住在一起，本包只是同一份 schema 的 TS 消费方，不再自带
+    // 一份 proto/ 拷贝。
+    const protocolModule = `${packageRoot}/../../../pkg/wire`;
+    const protoPath = `${protocolModule}/proto/agentre/wire/wire.proto`;
     expect(existsSync(protoPath)).toBe(true);
-    expect(existsSync(`${packageRoot}/proto/agentre/wire/v1`)).toBe(false);
+    expect(existsSync(`${protocolModule}/proto/agentre/wire/v1`)).toBe(false);
+    expect(existsSync(`${packageRoot}/proto`)).toBe(false);
 
     const proto = readFileSync(protoPath, "utf8");
     expect(proto).toContain("package agentre.wire;");
@@ -68,8 +73,6 @@ describe("agentre-wire public boundary", () => {
     // 生成的 Go 不再在本包里留一份拷贝：它直接落进独立 module
     // github.com/agentre-hub/agentre/pkg/wire，由桌面仓与 agentre-server 共同 import。
     expect(existsSync(`${packageRoot}/gen`)).toBe(false);
-    expect(
-      existsSync(`${packageRoot}/../../../pkg/wire/agentrewire/wire.pb.go`),
-    ).toBe(true);
+    expect(existsSync(`${protocolModule}/agentrewire/wire.pb.go`)).toBe(true);
   });
 });

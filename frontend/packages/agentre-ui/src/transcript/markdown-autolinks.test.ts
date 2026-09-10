@@ -126,6 +126,24 @@ describe("tokenizeMarkdownAutoLinks", () => {
     expect(visibleText(plain, CWD)).toBe(plain);
   });
 
+  it("Given a start-end line range, when tokenized, then the range joins the link instead of the candidate being cut off at the colon", () => {
+    const text =
+      "\u770b src/app/service/service_worker/script.ts:311-330\uff0c\u53c8\u89c1 ./docs/guide.md:8-9\u3002";
+
+    expect(linkValues(text, CWD)).toEqual([
+      "src/app/service/service_worker/script.ts:311-330",
+      "./docs/guide.md:8-9",
+    ]);
+    expect(visibleText(text, CWD)).toBe(text);
+  });
+
+  it("Given a colon suffix that only looks like a range, when tokenized, then the candidate still ends at the colon", () => {
+    const text = "\u770b src/app/script.ts:311-330abc \u8fd9\u6bb5";
+
+    expect(linkValues(text, CWD)).toEqual(["src/app/script.ts"]);
+    expect(visibleText(text, CWD)).toBe(text);
+  });
+
   it("Given no cwd, when relative paths and trusted filenames appear, then only cwd-independent URLs are recognized", () => {
     expect(
       linkValues("README.md ./docs/guide.md https://example.com", undefined),

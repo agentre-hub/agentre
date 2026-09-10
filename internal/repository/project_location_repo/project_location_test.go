@@ -12,6 +12,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func setupProjectLocationRepo(t *testing.T) (context.Context, sqlmock.Sqlmock, project_location_repo.ProjectLocationRepo) {
@@ -61,11 +62,11 @@ func TestProjectLocationRepo_FindByProjectAndFingerprint_Found(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id", "device_id", "device_fingerprint", "path", "status"}).
 			AddRow(int64(10), int64(1), "7", "fp-7", "/home/me/foo", consts.ACTIVE))
 
-	got, err := repo.FindByProjectAndFingerprint(ctx, 1, "fp-7")
+	got, err := repo.FindByProjectAndFingerprint(ctx, 1, devicefp.Carrier("fp-7"))
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, int64(10), got.ID)
-	assert.Equal(t, "fp-7", got.DeviceFingerprint)
+	assert.Equal(t, devicefp.Carrier("fp-7"), got.DeviceFingerprint)
 	assert.Equal(t, "7", got.DeviceID)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

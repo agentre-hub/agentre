@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // 本文件锁住 R11a 的最后一句：**合并后不允许留下任何指向已消失项目的引用**。
@@ -105,7 +106,7 @@ func (f *mergeLocationTable) ListByProject(_ context.Context, projectID int64) (
 }
 
 func (f *mergeLocationTable) FindByProjectAndFingerprint(
-	_ context.Context, projectID int64, fingerprint string,
+	_ context.Context, projectID int64, fingerprint devicefp.Carrier,
 ) (*project_location_entity.ProjectLocation, error) {
 	for _, l := range f.rows {
 		if l.ProjectID == projectID && l.DeviceFingerprint == fingerprint && l.Status == consts.ACTIVE {
@@ -259,7 +260,7 @@ func TestProjectSvcMerge_GivenLocationsCollide_ThenLoserIsRecordedAsALostChange(
 	assert.Equal(t, int64(3), got.SyncAccountID)
 	assert.Equal(t, int64(4), got.BaseVersion)
 	assert.Equal(t, "sync-50", got.ScopeSyncID, "恢复要落回保留下来的那个项目")
-	assert.Equal(t, "fp-1", got.AgentredFingerprint)
+	assert.Equal(t, devicefp.Carrier("fp-1"), got.AgentredFingerprint)
 	assert.Contains(t, got.PayloadJSON, "/loser")
 	assert.NotZero(t, got.OccurredAt)
 }

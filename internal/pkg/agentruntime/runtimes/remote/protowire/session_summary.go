@@ -3,6 +3,7 @@ package protowire
 import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // 会话摘要的编解码只许有这一处。
@@ -15,10 +16,14 @@ import (
 // sessionListFromProtobuf),Go 侧收进这里以后也是一份。
 
 // SessionSummaryToProto 把一条会话摘要编成线格式。
+//
+// PeerFingerprint 在 Go 这一侧是 devicefp.Initiator(发起方角色),线上是裸 string ——
+// 角色类型与线格式之间的那次转换只发生在这里。转换点少而集中是 devicefp 那个包
+// 明说的边界纪律:wire ↔ handler 上转一次,不在每个调用点各转一次。
 func SessionSummaryToProto(value wire.SessionSummary) *agentrewire.SessionSummary {
 	return &agentrewire.SessionSummary{
 		ConversationId:    value.ConversationID,
-		PeerFingerprint:   value.PeerFingerprint,
+		PeerFingerprint:   string(value.PeerFingerprint),
 		AgentId:           value.AgentID,
 		Title:             value.Title,
 		AgentSyncId:       value.AgentSyncID,
@@ -41,7 +46,7 @@ func SessionSummaryToProto(value wire.SessionSummary) *agentrewire.SessionSummar
 func SessionSummaryFromProto(value *agentrewire.SessionSummary) wire.SessionSummary {
 	return wire.SessionSummary{
 		ConversationID:    value.GetConversationId(),
-		PeerFingerprint:   value.GetPeerFingerprint(),
+		PeerFingerprint:   devicefp.Initiator(value.GetPeerFingerprint()),
 		AgentID:           value.GetAgentId(),
 		Title:             value.GetTitle(),
 		AgentSyncID:       value.GetAgentSyncId(),

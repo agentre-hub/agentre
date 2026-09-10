@@ -24,6 +24,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -64,24 +66,24 @@ func NewSessionCatchupHandlers(deps SessionCatchupDeps) *SessionCatchupHandlers 
 // 每条会话的「最新 seq」取自通知日志的 MAX(seq) —— 唯一真相源。会话一条通知都还没
 // 发出时报 0。「是否正在等待输入」现算,见 waitingForInput。标题 / Agent 同步标识 /
 // provider_session_id(R7 + 决策 8)原样回传;老会话缺这些字段时保持空串、如实留空。
-func (h *SessionCatchupHandlers) List(ctx context.Context, params wire.SessionListParams) (wire.SessionListResult, error) {
+func (h *SessionCatchupHandlers) List(ctx context.Context, request *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
 	peer := peerFingerprint(ctx)
 	accountWide := hasLoggedInAccount(ctx, h.deps.LoggedInAccountID)
-	limit := wire.ClampSessionListLimit(params.Limit)
-	offset, err := wire.DecodeSessionListCursor(params.Cursor)
+	limit := wire.ClampSessionListLimit(int(request.GetLimit()))
+	offset, err := wire.DecodeSessionListCursor(request.GetCursor())
 	if err != nil {
 		// 坏游标是调用方参数错了。默默从头开始会让翻到一半的调用方重新收到前几条,
 		// 在它那边表现为「会话被复制了」。
-		return wire.SessionListResult{}, rpcerror.ErrInvalidParams
+		return nil, rpcerror.ErrInvalidParams
 	}
-	if len(params.ConversationIDs) > wire.SessionListMaxIDs {
+	if len(request.GetConversationIds()) > wire.SessionListMaxIDs {
 		// 报错而不是截断:截断少给的那条,在调用方那里读起来是「这条对话不在这台机器
 		// 上了」—— 它会据此把一条还活着的会话当成已消失。分批是调用方的事,名单在它手上。
-		return wire.SessionListResult{}, rpcerror.ErrInvalidParams
+		return nil, rpcerror.ErrInvalidParams
 	}
 	// 同一份条件喂给清单与它的 COUNT:两者收的必须一个字不差,否则「查看全部 N」
 	// 下面挂着的是另一批行。
-	filter := SessionListFilter{Keyword: params.Keyword, ConversationIDs: params.ConversationIDs}
+	filter := SessionListFilter{Keyword: request.GetKeyword(), ConversationIDs: request.GetConversationIds()}
 	var (
 		rows  []SessionRecord
 		total int64
@@ -92,7 +94,7 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, params wire.SessionLi
 			CountAll(ctx context.Context, filter SessionListFilter) (int64, error)
 		})
 		if !ok {
-			return wire.SessionListResult{}, fmt.Errorf("list all sessions: account visibility is not wired")
+			return nil, fmt.Errorf("list all sessions: account visibility is not wired")
 		}
 		rows, err = allSessions.ListAll(ctx, filter, offset, limit)
 		if err == nil && limit > 0 {
@@ -107,7 +109,7 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, params wire.SessionLi
 	if err != nil {
 		// 报错而不是回一份空清单:空清单与「这台 daemon 上没有你的会话」无法区分,
 		// 客户端会据此把还活着的会话当成已消失。
-		return wire.SessionListResult{}, fmt.Errorf("list sessions: %w", err)
+		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 	// 不分页时整份就在手里,数它即可 —— 再发一条 COUNT 是白读一遍库。
 	if limit <= 0 {
@@ -117,13 +119,13 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, params wire.SessionLi
 	if !accountWide {
 		latest, err = h.deps.Journal.LatestSeqByPeer(ctx, peer)
 		if err != nil {
-			return wire.SessionListResult{}, fmt.Errorf("read latest seq: %w", err)
+			return nil, fmt.Errorf("read latest seq: %w", err)
 		}
 	}
 	// 这台 daemon 认识 R7 / 决策 8 的那几列(它就是落库方),如实声明 —— 未升级的
 	// agentred 不认识这个字段,客户端解出来是 false,据此说明该机器需要升级。
-	out := wire.SessionListResult{
-		Sessions: make([]wire.SessionSummary, 0, len(rows)),
+	out := &agentrewire.SessionListResponse{
+		Sessions: make([]*agentrewire.SessionSummary, 0, len(rows)),
 		// 这台 daemon 落库并回传会话级 ModelTarget(它就是落库方),如实声明 ——
 		// 未升级的 agentred 不认识这个字段,客户端解出来是 false,据此说明这台机器
 		// 记不住模型选择,而不是把每条对话都显示成「跟随 Agent 绑定」。
@@ -139,16 +141,16 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, params wire.SessionLi
 		if accountWide {
 			latestSeq, err = h.deps.Journal.LatestSeq(ctx, row.PeerFingerprint, row.PeerSessionID)
 			if err != nil {
-				return wire.SessionListResult{}, fmt.Errorf("read latest seq: %w", err)
+				return nil, fmt.Errorf("read latest seq: %w", err)
 			}
 		}
-		summary := wire.SessionSummary{
-			ConversationID:    conversationID,
-			AgentID:           row.AgentID,
+		summary := &agentrewire.SessionSummary{
+			ConversationId:    conversationID,
+			AgentId:           row.AgentID,
 			Title:             row.Title,
-			AgentSyncID:       row.AgentSyncID,
-			ProjectSyncID:     row.ProjectSyncID,
-			ProviderSessionID: row.ProviderSessionID,
+			AgentSyncId:       row.AgentSyncID,
+			ProjectSyncId:     row.ProjectSyncID,
+			ProviderSessionId: row.ProviderSessionID,
 			Cwd:               row.Cwd,
 			BackendType:       row.BackendType,
 			LifecycleState:    row.LifecycleState,
@@ -168,7 +170,7 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, params wire.SessionLi
 		// 胜),路径一切换就连自己的会话都补不齐 —— 规格的硬不变量正是「路径切换不得使
 		// 事件游标失效」。
 		if accountWide && row.PeerFingerprint != peer {
-			summary.PeerFingerprint = row.PeerFingerprint
+			summary.PeerFingerprint = string(row.PeerFingerprint)
 		}
 		out.Sessions = append(out.Sessions, summary)
 	}
@@ -196,12 +198,12 @@ const runningCountCeiling = 200
 // 范围与 List 同一条判据:默认是调用方自己的对端,daemon 已登录且账号相同时放宽到
 // 全部对端。「在等用户」是**实时**判断(backend 有没有阻塞中的 waiter),只在运行中
 // 的那几条上问 —— 别的状态不可能有活的 waiter。
-func (h *SessionCatchupHandlers) Counts(ctx context.Context) (wire.SessionCountsResult, error) {
+func (h *SessionCatchupHandlers) Counts(ctx context.Context) (*agentrewire.SessionCountsResponse, error) {
 	peer := peerFingerprint(ctx)
 	accountWide := hasLoggedInAccount(ctx, h.deps.LoggedInAccountID)
 
 	var (
-		out     wire.SessionCountsResult
+		out     = &agentrewire.SessionCountsResponse{}
 		running []SessionRecord
 		err     error
 	)
@@ -211,7 +213,7 @@ func (h *SessionCatchupHandlers) Counts(ctx context.Context) (wire.SessionCounts
 			ListAllByLifecycle(ctx context.Context, state string, limit int) ([]SessionRecord, error)
 		})
 		if !ok {
-			return wire.SessionCountsResult{}, fmt.Errorf("count all sessions: account visibility is not wired")
+			return nil, fmt.Errorf("count all sessions: account visibility is not wired")
 		}
 		out.Total, err = wide.CountAll(ctx, SessionListFilter{})
 		if err == nil {
@@ -225,7 +227,7 @@ func (h *SessionCatchupHandlers) Counts(ctx context.Context) (wire.SessionCounts
 	}
 	if err != nil {
 		// 报错而不是回三个 0:0 与「数不出来」在卡片上长得一模一样。
-		return wire.SessionCountsResult{}, fmt.Errorf("count sessions: %w", err)
+		return nil, fmt.Errorf("count sessions: %w", err)
 	}
 
 	out.Running = int64(len(running))
@@ -246,15 +248,15 @@ func (h *SessionCatchupHandlers) Counts(ctx context.Context) (wire.SessionCounts
 // 不报下界,它拉到的每一页第一条都比 游标+1 大,只能当成跳号丢弃并再拉一次同一页 ——
 // 游标永远推不动,此后连实时通知也全被判成跳号,会话没有错误、没有跳号地冻住。
 // 读不出下界不让整页拉取失败:内容比下界重要,客户端按 0(=不知道)处理即可。
-func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullParams) (wire.SessionPullResult, error) {
-	peer, err := ResolveSessionPeer(ctx, p.PeerFingerprint, h.deps.LoggedInAccountID)
+func (h *SessionCatchupHandlers) Pull(ctx context.Context, request *agentrewire.SessionPullRequest) (*agentrewire.SessionPullResponse, error) {
+	peer, err := ResolveSessionPeer(ctx, devicefp.Initiator(request.GetPeerFingerprint()), h.deps.LoggedInAccountID)
 	if err != nil {
-		return wire.SessionPullResult{}, err
+		return nil, err
 	}
-	if err := ErrInvalidConversationID(p.ConversationID); err != nil {
-		return wire.SessionPullResult{}, err
+	if err := ErrInvalidConversationID(request.GetConversationId()); err != nil {
+		return nil, err
 	}
-	sid := p.ConversationID
+	sid := request.GetConversationId()
 	// 下界先读:两次读之间老前缀随时可能消失(库被从外部恢复或截断)。先读页、后读下界,
 	// 下界就会涨到页里那些行**之上** —— 客户端拿它复位游标(复位跑在重放之前),这一整页
 	// 已经拿到手的行会被当成重复全部丢掉,一段本来读得到的转录凭空消失。反过来先读下界
@@ -263,27 +265,25 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullPar
 	if err != nil {
 		oldest = 0
 	}
-	rows, hasMore, err := h.deps.Journal.ListSince(ctx, peer, sid, p.Cursor, clampPullLimit(p.Limit))
+	rows, hasMore, err := h.deps.Journal.ListSince(ctx, peer, sid, request.GetCursor(), clampPullLimit(int(request.GetLimit())))
 	if err != nil {
-		return wire.SessionPullResult{}, fmt.Errorf("pull notifications: %w", err)
+		return nil, fmt.Errorf("pull notifications: %w", err)
 	}
 	// 空页保持游标不变:回退到 0 会让客户端把整段日志重放一遍。
-	out := wire.SessionPullResult{Cursor: p.Cursor, HasMore: hasMore, OldestSeq: oldest}
-	out.Notifications = make([]wire.JournaledNotification, 0, len(rows))
+	out := &agentrewire.SessionPullResponse{Cursor: request.GetCursor(), HasMore: hasMore, OldestSeq: oldest}
+	out.Notifications = make([]*agentrewire.JournaledNotification, 0, len(rows))
 	for _, row := range rows {
+		// 日志里存的就是这一帧的 protobuf 原样:解出来盖上序号直接转交。此前它要
+		// 先翻成 JSON 词表、再由注册处翻回 protobuf —— 同一帧在一次拉取里白走一个来回。
 		notification, err := protowire.DecodeNotification(row.Payload)
 		if err != nil {
-			return wire.SessionPullResult{}, fmt.Errorf("decode notification seq %d: %w", row.Seq, err)
+			return nil, fmt.Errorf("decode notification seq %d: %w", row.Seq, err)
 		}
 		protowire.SetNotificationSeq(notification, row.Seq)
-		method, value, err := protowire.ProtoNotificationToWire(notification)
-		if err != nil {
-			return wire.SessionPullResult{}, fmt.Errorf("translate notification seq %d: %w", row.Seq, err)
-		}
-		out.Notifications = append(out.Notifications, wire.JournaledNotification{
-			Seq:        row.Seq,
-			Method:     method,
-			Params:     value,
+		out.Notifications = append(out.Notifications, &agentrewire.JournaledNotification{
+			Seq:     row.Seq,
+			Payload: notification,
+			// 报不出时刻的对端交出 0,这里照样转交 0:「不知道」不能在中途被补成当下。
 			Createtime: row.Createtime,
 		})
 		out.Cursor = row.Seq
@@ -296,19 +296,15 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, p wire.SessionPullPar
 // 快照来自 daemon 内存里的 waiter,不来自数据库;会话行只用来解「这条会话是不是调用方
 // 的、跑的是哪个 backend」。不属于调用方的会话、未实现审批协议的 backend,都回空列表
 // 而不是报错 —— 两者都是正常情况,报错会让客户端误判为故障。
-func (h *SessionCatchupHandlers) PendingWaiters(ctx context.Context, p wire.SessionPendingWaitersParams) (wire.SessionPendingWaitersResult, error) {
-	row, err := h.findSession(ctx, p.ConversationID, p.PeerFingerprint)
+func (h *SessionCatchupHandlers) PendingWaiters(ctx context.Context, request *agentrewire.SessionPendingWaitersRequest) (*agentrewire.SessionPendingWaitersResponse, error) {
+	row, err := h.findSession(ctx, request.GetConversationId(), devicefp.Initiator(request.GetPeerFingerprint()))
 	if err != nil {
-		return wire.SessionPendingWaitersResult{}, err
+		return nil, err
 	}
 	if row == nil {
-		return wire.SessionPendingWaitersResult{}, nil
+		return &agentrewire.SessionPendingWaitersResponse{}, nil
 	}
-	snap := h.pendingWaiters(ctx, *row, p.ConversationID)
-	return wire.SessionPendingWaitersResult{
-		ToolPermissions:  snap.ToolPermissions,
-		AskUserQuestions: snap.AskUserQuestions,
-	}, nil
+	return protowire.WaiterSnapshotToProto(h.pendingWaiters(ctx, *row, request.GetConversationId())), nil
 }
 
 // Attach 是显式接管的受理侧:校验这条会话确实是调用方的、且还接得回去,然后交回它
@@ -316,27 +312,27 @@ func (h *SessionCatchupHandlers) PendingWaiters(ctx context.Context, p wire.Sess
 //
 // 把推送目标真正改到这条连接上的动作在 daemon.go 的注册处,且只在本方法**成功返回
 // 之后**执行 —— 被拒的接管不得改变任何东西。
-func (h *SessionCatchupHandlers) Attach(ctx context.Context, p wire.SessionAttachParams) (wire.SessionAttachResult, error) {
-	row, err := h.findSession(ctx, p.ConversationID, p.PeerFingerprint)
+func (h *SessionCatchupHandlers) Attach(ctx context.Context, request *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error) {
+	row, err := h.findSession(ctx, request.GetConversationId(), devicefp.Initiator(request.GetPeerFingerprint()))
 	if err != nil {
-		return wire.SessionAttachResult{}, err
+		return nil, err
 	}
 	if row == nil {
 		// 接管会改变通知的推送目标,允许接管别人的(或不存在的)会话等于把别人的事件流
 		// 引到自己的连接上。
-		return wire.SessionAttachResult{}, agentruntime.ErrSessionNotFound
+		return nil, agentruntime.ErrSessionNotFound
 	}
 	if row.LifecycleState == wire.SessionLifecycleInterrupted {
 		// R10「不可续跑」:那一轮的子进程随上一个 daemon 进程消亡了,接回实时流等于让
 		// 客户端对着一条永远不会再产出任何东西的会话无限期等下去。历史仍可 Pull。
-		return wire.SessionAttachResult{}, agentruntime.ErrNoActiveTurn
+		return nil, agentruntime.ErrNoActiveTurn
 	}
 	latest, err := h.deps.Journal.LatestSeq(ctx, row.PeerFingerprint, row.PeerSessionID)
 	if err != nil {
-		return wire.SessionAttachResult{}, fmt.Errorf("read latest seq: %w", err)
+		return nil, fmt.Errorf("read latest seq: %w", err)
 	}
-	return wire.SessionAttachResult{
-		ConversationID: p.ConversationID,
+	return &agentrewire.SessionAttachResponse{
+		ConversationId: request.GetConversationId(),
 		BackendType:    row.BackendType,
 		LifecycleState: row.LifecycleState,
 		LatestSeq:      latest,
@@ -346,7 +342,7 @@ func (h *SessionCatchupHandlers) Attach(ctx context.Context, p wire.SessionAttac
 // findSession resolves an omitted origin to the caller's own peer, or an
 // authorized claimed-account origin to that peer's row. Every per-session
 // catch-up operation passes through this boundary.
-func (h *SessionCatchupHandlers) findSession(ctx context.Context, conversationID string, originPeer string) (*SessionRecord, error) {
+func (h *SessionCatchupHandlers) findSession(ctx context.Context, conversationID string, originPeer devicefp.Initiator) (*SessionRecord, error) {
 	if err := ErrInvalidConversationID(conversationID); err != nil {
 		return nil, err
 	}
@@ -363,7 +359,7 @@ func (h *SessionCatchupHandlers) findSession(ctx context.Context, conversationID
 
 // ResolveSessionPeer selects the caller's own peer for an omitted origin. A
 // named origin is an account-level capability: pairing alone never grants it.
-func ResolveSessionPeer(ctx context.Context, originPeer string, loggedInAccountID func() string) (string, error) {
+func ResolveSessionPeer(ctx context.Context, originPeer devicefp.Initiator, loggedInAccountID func() string) (devicefp.Initiator, error) {
 	ownPeer := peerFingerprint(ctx)
 	if originPeer == "" {
 		return ownPeer, nil

@@ -19,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/transcriptfork"
 )
 
 // turnStart 承载 startTurn 一次开轮期间的全部可变状态。字段逐一对应原先散在
@@ -33,7 +34,7 @@ type turnStart struct {
 	prov        *llm_provider_entity.LLMProvider
 	userBlocks  []blocks.ContentBlock
 	preTx       func(txCtx context.Context) error
-	replacement *transcriptReplacementLifecycle
+	replacement *transcriptfork.Lifecycle
 	forkAnchor  string
 	extras      turnExtras
 
@@ -70,7 +71,7 @@ func (ts *turnStart) buildMessages(ctx context.Context) error {
 		ts.lock.Unlock()
 		return operationFailedWithCause(ctx, err,
 			zap.Int64("sessionId", ts.sess.ID),
-			zap.String("sourceDevice", ts.extras.peerSource.Device))
+			zap.String("sourceDevice", string(ts.extras.peerSource.Device)))
 	}
 
 	// 解析本轮执行侧配置（EffectiveLLMConfig v1 seam）：provider-default 在 turn 入口
@@ -191,7 +192,7 @@ func (ts *turnStart) persistTurnMessages(ctx context.Context) error {
 		runningSession.SetProviderSession(providerSessionID)
 		if err := db.Ctx(ts.turnCtx).Transaction(func(tx *gorm.DB) error {
 			txCtx := db.WithContextDB(ts.turnCtx, tx)
-			if err := ts.replacement.activate(txCtx, ts.sess, providerSessionID, ts.userMsg, ts.assistantMsg); err != nil {
+			if err := ts.replacement.Activate(txCtx, ts.sess, providerSessionID, ts.userMsg, ts.assistantMsg); err != nil {
 				return err
 			}
 			return chat_repo.Session().Update(txCtx, &runningSession)
@@ -218,7 +219,7 @@ func (ts *turnStart) startPreparedRun(ctx context.Context) error {
 			err = ts.svc.mapTurnError(ctx, &mappingSession, ts.be, err)
 			ts.clearSynchronousTurn()
 			ts.svc.discardPreparedTurn(ts.sess.ID, ts.prepared)
-			if restoreErr := ts.svc.restoreTranscriptReplacement(ctx, ts.replacement, ts.sess); restoreErr != nil {
+			if restoreErr := transcriptfork.Restore(ctx, ts.replacement, ts.sess); restoreErr != nil {
 				err = errors.Join(err, fmt.Errorf("restore Pi transcript: %w", restoreErr))
 			}
 			ts.lock.Unlock()
@@ -230,17 +231,17 @@ func (ts *turnStart) startPreparedRun(ctx context.Context) error {
 				zap.String("errorType", fmt.Sprintf("%T", err)))
 			return err
 		}
-		if finalizeErr := ts.svc.finalizeTranscriptReplacement(ctx, ts.replacement); finalizeErr != nil {
+		if finalizeErr := transcriptfork.Finalize(ctx, ts.replacement); finalizeErr != nil {
 			ts.clearSynchronousTurn()
 			ts.svc.discardPreparedTurn(ts.sess.ID, ts.prepared)
-			if ts.replacement.recovery.State == chat_repo.ReplacementRecoveryPending {
-				if restoreErr := ts.svc.restoreTranscriptReplacement(ctx, ts.replacement, ts.sess); restoreErr != nil {
+			if ts.replacement.RecoveryState() == chat_repo.ReplacementRecoveryPending {
+				if restoreErr := transcriptfork.Restore(ctx, ts.replacement, ts.sess); restoreErr != nil {
 					finalizeErr = errors.Join(finalizeErr, fmt.Errorf("restore Pi transcript: %w", restoreErr))
 				}
 			} else {
 				ts.sess.AgentStatus = "error"
 				ts.sess.ApplyDerivedFields()
-				recoveryCtx, cancelRecovery := replacementRecoveryContext(ctx)
+				recoveryCtx, cancelRecovery := transcriptfork.RecoveryContext(ctx)
 				if statusErr := chat_repo.Session().Update(recoveryCtx, ts.sess); statusErr != nil {
 					finalizeErr = errors.Join(finalizeErr, fmt.Errorf("persist failed Pi turn status: %w", statusErr))
 				}
@@ -251,7 +252,7 @@ func (ts *turnStart) startPreparedRun(ctx context.Context) error {
 				zap.Int64("sessionId", ts.sess.ID),
 				zap.Int64("agentId", ts.a.ID),
 				zap.String("backendType", ts.be.Type),
-				zap.String("recoveryState", string(ts.replacement.recovery.State)))
+				zap.String("recoveryState", string(ts.replacement.RecoveryState())))
 		}
 		if ts.stopRequestCancel != nil {
 			ts.stopRequestCancel()

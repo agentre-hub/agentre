@@ -17,6 +17,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // keychainAccountName 是 hub refresh_token 在 OS keychain 中挂的账号名。
@@ -141,7 +143,7 @@ func (s *service) StartLogin(ctx context.Context, serverURL string) (*StartLogin
 	hostname, _ := osHostname()
 	req := deviceAuthorizeReq{
 		DeviceKind:  "desktop",
-		Fingerprint: row.DeviceFingerprint,
+		Fingerprint: string(row.DeviceFingerprint),
 		Platform:    runtimePlatform(),
 		Version:     buildVersion(),
 		Name:        hostname,
@@ -256,10 +258,10 @@ func (s *service) markLoginDone() {
 // creating it on first use with the same pattern remote_device_svc uses
 // (add.go ensureDeviceFingerprint): keychain read → generate sha256 → persist.
 // The generated value therefore matches the LAN pairing fingerprint byte-for-byte.
-func (s *service) ensureDeviceFingerprint() (string, error) {
+func (s *service) ensureDeviceFingerprint() (devicefp.Carrier, error) {
 	fp, err := keychain.Default().Get(accountForDeviceFingerprint)
 	if err == nil && fp != "" {
-		return fp, nil
+		return devicefp.Carrier(fp), nil
 	}
 	if err != nil && !errors.Is(err, keychain.ErrNotFound) {
 		return "", err
@@ -273,7 +275,7 @@ func (s *service) ensureDeviceFingerprint() (string, error) {
 	if err := keychain.Default().Set(accountForDeviceFingerprint, newFP); err != nil {
 		return "", err
 	}
-	return newFP, nil
+	return devicefp.Carrier(newFP), nil
 }
 
 // runtimePlatform returns "<GOOS>/<GOARCH>" for the device_authorize payload.

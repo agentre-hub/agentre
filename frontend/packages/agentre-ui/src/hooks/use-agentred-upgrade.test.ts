@@ -168,7 +168,15 @@ describe("useAgentredUpgrade", () => {
     expect(result.current.phase.kind).toBe("upgrading");
   });
 
-  it("其它拒绝与调用本身失败都落 failed，message 原样透传", async () => {
+  /**
+   * 拒绝原因是 daemon 给的**结构化枚举**，必须一路留到呈现层。
+   *
+   * 此前这里把它丢了（除 active_turns 外一律塌成 `{kind:"failed", message}`），于是
+   * 两端界面上唯一说得出原因的东西只剩 daemon 那句英文 —— 中文界面上出现
+   * 「cannot replace /usr/local/bin/agentred: permission denied; re-run with…」。
+   * 枚举在，宿主才说得出人话；message 退居技术细节。
+   */
+  it("其它拒绝落 failed，原因枚举与 message 一起留着", async () => {
     const p = ports({
       requestUpgrade: vi.fn(async () => ({
         accepted: false,
@@ -182,9 +190,34 @@ describe("useAgentredUpgrade", () => {
     await flush();
     expect(result.current.phase).toEqual({
       kind: "failed",
+      reason: "download_failed",
       message: "resolve release: TLS handshake timeout",
     });
+  });
 
+  /**
+   * 认不出的原因不冒充某一档：daemon 换过说法、或者这次根本没给原因时，`reason`
+   * 是 null，呈现层据此退回「说不出为什么」那一句 + 原话，而不是随便挑一档中文。
+   */
+  it("原因缺失或不认识时 reason 是 null，不硬塞一档", async () => {
+    const unknown = ports({
+      requestUpgrade: vi.fn(async () => ({
+        accepted: false,
+        rejectReason: "meteor_strike",
+        message: "something new happened",
+      })),
+    });
+    const { result } = renderHook(() => useAgentredUpgrade("0.5.2", unknown));
+    act(() => result.current.start());
+    await flush();
+    expect(result.current.phase).toEqual({
+      kind: "failed",
+      reason: null,
+      message: "something new happened",
+    });
+  });
+
+  it("调用本身失败也落 failed：那不是 daemon 的拒绝，没有原因可言", async () => {
     const broken = ports({
       requestUpgrade: vi.fn(async () => {
         throw new Error("relay is offline");
@@ -197,6 +230,7 @@ describe("useAgentredUpgrade", () => {
     await flush();
     expect(second.current.phase).toEqual({
       kind: "failed",
+      reason: null,
       message: "relay is offline",
     });
   });

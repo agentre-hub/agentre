@@ -85,6 +85,31 @@ jobs:
       - name: Check wire protobuf
         run: cd frontend/packages/agentre-wire && pnpm run proto:check
 
+  mocks:
+    name: Mocks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # 仓库里 60+ 条 //go:generate 走的是 PATH 上的裸 mockgen,没有任何地方钉版本 ——
+      # 谁的机器装了什么版本,产出就是什么形态。这里钉的是**事实上的**那个版本:
+      # 52 份 checked-in 产物由它逐字节复现。
+      #
+      # 没有这道守卫时,一份 v0.4.0 生成的产物(v0.5.0 起 mock 多了 isgomock 字段)
+      # 在 dev 上躺了两天没有任何地方变红,直到有人跑 make mock 才发现工作区脏了。
+      - name: Install mockgen
+        run: go install go.uber.org/mock/mockgen@v0.6.0
+      - name: Create frontend dist placeholder
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
+      - name: Regenerate mocks
+        run: make mock
+      # 重新生成必须是空操作。有 diff 就说明 checked-in 的那份不是当前接口 + 当前
+      # 生成器的产物 —— 要么忘了跑 make mock,要么用了别的版本。
+      - name: Require checked-in mocks to already match
+        run: git diff --exit-code
+
   frontend-test:
     name: Frontend Test
     runs-on: ubuntu-latest

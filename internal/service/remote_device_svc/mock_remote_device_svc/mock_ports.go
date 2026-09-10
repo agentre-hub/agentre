@@ -15,6 +15,7 @@ import (
 
 	client "github.com/agentre-hub/agentre/internal/daemon/client"
 	remote_device_svc "github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -127,7 +128,7 @@ func (m *MockRelayDialPort) EXPECT() *MockRelayDialPortMockRecorder {
 }
 
 // Open mocks base method.
-func (m *MockRelayDialPort) Open(ctx context.Context, daemonFingerprint, peerFingerprint string) (client.ProtobufConnection, error) {
+func (m *MockRelayDialPort) Open(ctx context.Context, daemonFingerprint devicefp.Carrier, peerFingerprint devicefp.Initiator) (client.ProtobufConnection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Open", ctx, daemonFingerprint, peerFingerprint)
 	ret0, _ := ret[0].(client.ProtobufConnection)

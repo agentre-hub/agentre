@@ -261,7 +261,8 @@
       "confirm": {
         "cancel": "Not now",
         "confirm": "Upgrade anyway",
-        "title": "{{count}} conversation(s) still running"
+        "title": "{{count}} conversation(s) still running",
+        "body": "Upgrading restarts agentred. Those turns will be interrupted; whatever they already produced is kept."
       },
       "devBuild": "Development build",
       "status": {
@@ -273,7 +274,18 @@
         "upgradingBody": "Restarting once — usually under a minute.",
         "upgradingTitle": "Upgrading to {{version}}"
       },
-      "copySuccess": "Command copied"
+      "copySuccess": "Command copied",
+      "failed": {
+        "unknownTitle": "The upgrade did not start",
+        "inProgressTitle": "An upgrade is already running on this machine",
+        "inProgressBody": "Wait for it to finish, then try again.",
+        "notWritableTitle": "No permission to replace agentred",
+        "notWritableBody": "The current user cannot write to the directory it lives in. Run the command below on that machine with enough privileges.",
+        "alreadyLatestTitle": "Already up to date",
+        "alreadyLatestBody": "There is no newer version to install.",
+        "downloadFailedTitle": "Could not fetch the new version",
+        "downloadFailedBody": "The download or its checksum failed. The current agentred was not touched."
+      }
     }
   },
   "remoteFs": {

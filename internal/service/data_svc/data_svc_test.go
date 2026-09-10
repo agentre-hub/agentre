@@ -29,6 +29,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo/mock_remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/service/data_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type dataSvcMocks struct {
@@ -554,7 +555,7 @@ func TestApplyImport_Backend_ResolvesRemoteDeviceRef(t *testing.T) {
 
 	m.backends.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
 		DoAndReturn(func(_ context.Context, bk *agent_backend_entity.AgentBackend) error {
-			So(bk.DeviceFingerprint, ShouldEqual, "5")
+			So(bk.DeviceFingerprint, ShouldEqual, devicefp.Carrier("5"))
 			bk.ID = 60
 			return nil
 		})
@@ -602,7 +603,7 @@ func TestApplyImport_Backend_FollowsDuplicatedRemoteDevice(t *testing.T) {
 		})
 	m.backends.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
 		DoAndReturn(func(_ context.Context, bk *agent_backend_entity.AgentBackend) error {
-			So(bk.DeviceFingerprint, ShouldEqual, "99")
+			So(bk.DeviceFingerprint, ShouldEqual, devicefp.Carrier("99"))
 			bk.ID = 60
 			return nil
 		})
@@ -1418,7 +1419,7 @@ func TestApplyImport_RemoteDevice_Overwrite_UpdatesURL(t *testing.T) {
 
 	m.devices.EXPECT().UpdateTLS(gomock.Any(), int64(5), gomock.Any(), gomock.Any()).Return(nil)
 	// Key assertion: UpdateEndpoint must be called with new URL + fingerprint
-	m.devices.EXPECT().UpdateEndpoint(gomock.Any(), int64(5), "ws://new-host:9000", "new-fp").Return(nil)
+	m.devices.EXPECT().UpdateEndpoint(gomock.Any(), int64(5), "ws://new-host:9000", devicefp.Carrier("new-fp")).Return(nil)
 	m.devices.EXPECT().Rename(gomock.Any(), int64(5), "NewName").Return(nil)
 
 	m.dbMock.ExpectBegin()

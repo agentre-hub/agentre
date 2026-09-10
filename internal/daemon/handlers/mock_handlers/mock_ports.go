@@ -22,6 +22,7 @@ import (
 	agentruntime "github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	transcript "github.com/agentre-hub/agentre/internal/pkg/transcript"
 	agentrewire "github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	blocks "github.com/cago-frame/agents/agent/blocks"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -304,7 +305,7 @@ func (m *MockSessionLifecyclePort) EXPECT() *MockSessionLifecyclePortMockRecorde
 }
 
 // Fail mocks base method.
-func (m *MockSessionLifecyclePort) Fail(ctx context.Context, peerFingerprint, peerSessionID string) error {
+func (m *MockSessionLifecyclePort) Fail(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Fail", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(error)
@@ -318,7 +319,7 @@ func (mr *MockSessionLifecyclePortMockRecorder) Fail(ctx, peerFingerprint, peerS
 }
 
 // Finish mocks base method.
-func (m *MockSessionLifecyclePort) Finish(ctx context.Context, peerFingerprint, peerSessionID string) error {
+func (m *MockSessionLifecyclePort) Finish(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Finish", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(error)
@@ -332,7 +333,7 @@ func (mr *MockSessionLifecyclePortMockRecorder) Finish(ctx, peerFingerprint, pee
 }
 
 // Running mocks base method.
-func (m *MockSessionLifecyclePort) Running(ctx context.Context, peerFingerprint, peerSessionID string) error {
+func (m *MockSessionLifecyclePort) Running(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Running", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(error)
@@ -384,7 +385,7 @@ func (m *MockSessionQueryPort) EXPECT() *MockSessionQueryPortMockRecorder {
 }
 
 // Count mocks base method.
-func (m *MockSessionQueryPort) Count(ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter) (int64, error) {
+func (m *MockSessionQueryPort) Count(ctx context.Context, peerFingerprint devicefp.Initiator, filter handlers.SessionListFilter) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Count", ctx, peerFingerprint, filter)
 	ret0, _ := ret[0].(int64)
@@ -399,7 +400,7 @@ func (mr *MockSessionQueryPortMockRecorder) Count(ctx, peerFingerprint, filter a
 }
 
 // Find mocks base method.
-func (m *MockSessionQueryPort) Find(ctx context.Context, peerFingerprint, peerSessionID string) (*handlers.SessionRecord, error) {
+func (m *MockSessionQueryPort) Find(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (*handlers.SessionRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Find", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(*handlers.SessionRecord)
@@ -414,7 +415,7 @@ func (mr *MockSessionQueryPortMockRecorder) Find(ctx, peerFingerprint, peerSessi
 }
 
 // List mocks base method.
-func (m *MockSessionQueryPort) List(ctx context.Context, peerFingerprint string, filter handlers.SessionListFilter, offset, limit int) ([]handlers.SessionRecord, error) {
+func (m *MockSessionQueryPort) List(ctx context.Context, peerFingerprint devicefp.Initiator, filter handlers.SessionListFilter, offset, limit int) ([]handlers.SessionRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "List", ctx, peerFingerprint, filter, offset, limit)
 	ret0, _ := ret[0].([]handlers.SessionRecord)
@@ -429,7 +430,7 @@ func (mr *MockSessionQueryPortMockRecorder) List(ctx, peerFingerprint, filter, o
 }
 
 // ListByLifecycle mocks base method.
-func (m *MockSessionQueryPort) ListByLifecycle(ctx context.Context, peerFingerprint, arg2 string, limit int) ([]handlers.SessionRecord, error) {
+func (m *MockSessionQueryPort) ListByLifecycle(ctx context.Context, peerFingerprint devicefp.Initiator, arg2 string, limit int) ([]handlers.SessionRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListByLifecycle", ctx, peerFingerprint, arg2, limit)
 	ret0, _ := ret[0].([]handlers.SessionRecord)
@@ -522,7 +523,7 @@ func (m *MockSessionDeletePort) EXPECT() *MockSessionDeletePortMockRecorder {
 }
 
 // Delete mocks base method.
-func (m *MockSessionDeletePort) Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (m *MockSessionDeletePort) Delete(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Delete", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(int64)
@@ -561,7 +562,7 @@ func (m *MockSessionModelTargetPort) EXPECT() *MockSessionModelTargetPortMockRec
 }
 
 // SetModelTarget mocks base method.
-func (m *MockSessionModelTargetPort) SetModelTarget(ctx context.Context, peerFingerprint, peerSessionID, providerKey, modelKey string) (int64, error) {
+func (m *MockSessionModelTargetPort) SetModelTarget(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID, providerKey, modelKey string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetModelTarget", ctx, peerFingerprint, peerSessionID, providerKey, modelKey)
 	ret0, _ := ret[0].(int64)
@@ -600,7 +601,7 @@ func (m *MockSessionReasoningEffortPort) EXPECT() *MockSessionReasoningEffortPor
 }
 
 // SetReasoningEffort mocks base method.
-func (m *MockSessionReasoningEffortPort) SetReasoningEffort(ctx context.Context, peerFingerprint, peerSessionID, reasoningEffort string) (int64, error) {
+func (m *MockSessionReasoningEffortPort) SetReasoningEffort(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID, reasoningEffort string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetReasoningEffort", ctx, peerFingerprint, peerSessionID, reasoningEffort)
 	ret0, _ := ret[0].(int64)
@@ -639,7 +640,7 @@ func (m *MockTranscriptPurgePort) EXPECT() *MockTranscriptPurgePortMockRecorder 
 }
 
 // DeleteAll mocks base method.
-func (m *MockTranscriptPurgePort) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (m *MockTranscriptPurgePort) DeleteAll(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteAll", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(int64)
@@ -741,7 +742,7 @@ func (m *MockJournalReaderPort) EXPECT() *MockJournalReaderPortMockRecorder {
 }
 
 // LatestSeq mocks base method.
-func (m *MockJournalReaderPort) LatestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (m *MockJournalReaderPort) LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LatestSeq", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(int64)
@@ -756,7 +757,7 @@ func (mr *MockJournalReaderPortMockRecorder) LatestSeq(ctx, peerFingerprint, pee
 }
 
 // LatestSeqByPeer mocks base method.
-func (m *MockJournalReaderPort) LatestSeqByPeer(ctx context.Context, peerFingerprint string) (map[string]int64, error) {
+func (m *MockJournalReaderPort) LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LatestSeqByPeer", ctx, peerFingerprint)
 	ret0, _ := ret[0].(map[string]int64)
@@ -771,7 +772,7 @@ func (mr *MockJournalReaderPortMockRecorder) LatestSeqByPeer(ctx, peerFingerprin
 }
 
 // ListSince mocks base method.
-func (m *MockJournalReaderPort) ListSince(ctx context.Context, peerFingerprint, peerSessionID string, cursor int64, limit int) ([]handlers.JournalRow, bool, error) {
+func (m *MockJournalReaderPort) ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) ([]handlers.JournalRow, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListSince", ctx, peerFingerprint, peerSessionID, cursor, limit)
 	ret0, _ := ret[0].([]handlers.JournalRow)
@@ -787,7 +788,7 @@ func (mr *MockJournalReaderPortMockRecorder) ListSince(ctx, peerFingerprint, pee
 }
 
 // OldestSeq mocks base method.
-func (m *MockJournalReaderPort) OldestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (m *MockJournalReaderPort) OldestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OldestSeq", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(int64)

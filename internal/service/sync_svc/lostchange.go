@@ -8,6 +8,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // OriginDeviceServer 是「这一版是被**服务端**覆盖掉的」这个来源标识。
@@ -21,11 +22,11 @@ import (
 const OriginDeviceServer = "server"
 
 // originDeviceOf 把冲突应答里的来源机器指纹翻成留存记录里的那一格。
-func originDeviceOf(originFingerprint string) string {
+func originDeviceOf(originFingerprint devicefp.LastWriter) string {
 	if originFingerprint == "" {
 		return OriginDeviceServer
 	}
-	return originFingerprint
+	return string(originFingerprint)
 }
 
 // Status 同步区要展示的状态。未登录时 Enabled 为 false —— 界面据此让整个同步项

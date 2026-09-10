@@ -27,6 +27,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func setupSvcTest(t *testing.T) (
@@ -795,7 +796,7 @@ func TestTestBackend_SelfFingerprintRunsLocalProbe(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return("sha256:self", nil).AnyTimes()
+		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
 		rds.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
 		prevSvc := remote_device_svc.Default()
 		remote_device_svc.SetDefault(rds)
@@ -1201,12 +1202,12 @@ func TestClaimRelativeBackends_GivenNoRemoteIdentity_StillDoesNotBlockStartup(t 
 // paths are persisted independently from the account backend identity.
 func TestCLIOverlay_GivenNoExistingOverlay_CreatesLocalDeviceOverride(t *testing.T) {
 	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
-	rd.EXPECT().DeviceFingerprint().Return("sha256:self", nil)
-	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", "sha256:self").Return(nil, nil)
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", devicefp.Carrier("sha256:self")).Return(nil, nil)
 	backendMock.EXPECT().CreateCLIOverlay(ctx, gomock.AssignableToTypeOf(&agent_backend_entity.CLIOverlay{})).DoAndReturn(
 		func(_ context.Context, overlay *agent_backend_entity.CLIOverlay) error {
 			assert.Equal(t, "backend-1", overlay.BackendSyncID)
-			assert.Equal(t, "sha256:self", overlay.AgentredFingerprint)
+			assert.Equal(t, devicefp.Carrier("sha256:self"), overlay.AgentredFingerprint)
 			assert.Equal(t, "/opt/claude", overlay.CLIPath)
 			return nil
 		})
@@ -1220,8 +1221,8 @@ func TestCLIOverlay_GivenNoExistingOverlay_CreatesLocalDeviceOverride(t *testing
 // an agent_backends row.
 func TestCLIOverlay_GivenMissingOverlay_ReportsPATH(t *testing.T) {
 	ctx, backendMock, _, _, rd, _, svc := setupSvcTestWithRemoteDevice(t)
-	rd.EXPECT().DeviceFingerprint().Return("sha256:self", nil)
-	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", "sha256:self").Return(nil, nil)
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil)
+	backendMock.EXPECT().FindCLIOverlay(ctx, "backend-1", devicefp.Carrier("sha256:self")).Return(nil, nil)
 
 	response, err := svc.GetCLIOverlay(ctx, &GetCLIOverlayRequest{BackendSyncID: "backend-1"})
 	require.NoError(t, err)
@@ -1265,7 +1266,7 @@ func TestCreateBackend_GivenCanonicalFingerprint_PersistsItAfterMatchingPairedDe
 	backendMock.EXPECT().FindByName(gomock.Any(), "desktop-cc").Return(nil, nil)
 	backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
-			assert.Equal(t, "sha256:desktop-a", b.DeviceFingerprint)
+			assert.Equal(t, devicefp.Carrier("sha256:desktop-a"), b.DeviceFingerprint)
 			b.ID = 11
 			return nil
 		},
@@ -1274,13 +1275,13 @@ func TestCreateBackend_GivenCanonicalFingerprint_PersistsItAfterMatchingPairedDe
 		{ID: 7, Name: "desktop-a", DaemonFingerprint: "sha256:desktop-a", Online: true},
 	}, nil)
 	// 展示侧要先判「这个指纹是不是本机」才决定按远端解析（DisplayDeviceID）。
-	rd.EXPECT().DeviceFingerprint().Return("sha256:this-desktop", nil).AnyTimes()
+	rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:this-desktop"), nil).AnyTimes()
 
 	resp, err := svc.Create(ctx, &CreateBackendRequest{
 		Type: "claudecode", Name: "desktop-cc", LLMProviderKey: "key-1", DeviceID: "sha256:desktop-a",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "sha256:desktop-a", resp.Item.DeviceID)
+	assert.Equal(t, devicefp.Carrier("sha256:desktop-a"), resp.Item.DeviceID)
 	assert.Equal(t, "desktop-a", resp.Item.DeviceName)
 	assert.True(t, resp.Item.Online)
 }
@@ -1298,7 +1299,7 @@ func TestCreateBackend_RemoteDeviceValidation(t *testing.T) {
 			providerMock.EXPECT().FindByKey(gomock.Any(), "key-1").Return(activeProvider("key-1"), nil).AnyTimes()
 			expectDefaultModelResolution(providerMock, "key-1", 1)
 			backendMock.EXPECT().FindByName(gomock.Any(), "local-cc").Return(nil, nil)
-			persisted := ""
+			persisted := devicefp.Carrier("")
 			backendMock.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, b *agent_backend_entity.AgentBackend) error {
 					persisted = b.DeviceFingerprint
@@ -1306,16 +1307,16 @@ func TestCreateBackend_RemoteDeviceValidation(t *testing.T) {
 					return nil
 				},
 			)
-			rd.EXPECT().DeviceFingerprint().Return("sha256:this-desktop", nil).AnyTimes()
+			rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:this-desktop"), nil).AnyTimes()
 			resp, err := svc.Create(ctx, &CreateBackendRequest{
 				Type: "claudecode", Name: "local-cc",
 				LLMProviderKey: "key-1", DeviceID: "",
 			})
 			convey.So(err, convey.ShouldBeNil)
 			// 持久化侧：UI 的本机空串在写入边界规范化为本机指纹。
-			convey.So(persisted, convey.ShouldEqual, "sha256:this-desktop")
+			convey.So(persisted, convey.ShouldEqual, devicefp.Carrier("sha256:this-desktop"))
 			// 展示侧：本机指纹收敛回本机口径，否则界面把本机当成一台未配对的远端机。
-			convey.So(resp.Item.DeviceID, convey.ShouldEqual, "")
+			convey.So(resp.Item.DeviceID, convey.ShouldEqual, devicefp.Carrier(""))
 			convey.So(resp.Item.DeviceName, convey.ShouldEqual, "")
 		})
 	})
@@ -1331,13 +1332,13 @@ func TestListBackends_EnrichesDeviceInfo(t *testing.T) {
 		agentMock.EXPECT().CountByBackends(gomock.Any(), []int64{1, 2}).Return(map[int64]int64{}, nil)
 		// 两行 LLMProviderKey 均为 ""，跳过 provider FindByKey。
 		providerMock.EXPECT().FindByKey(gomock.Any(), gomock.Any()).Times(0)
-		rd.EXPECT().DeviceFingerprint().Return("sha256:local", nil).AnyTimes()
+		rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:local"), nil).AnyTimes()
 		rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{{ID: 7, DaemonFingerprint: "sha256:remote", Name: "linux-srv", Online: false}}, nil)
 		resp, err := svc.List(ctx, &ListBackendsRequest{})
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(len(resp.Items), convey.ShouldEqual, 2)
-		convey.So(resp.Items[0].DeviceID, convey.ShouldEqual, "")
-		convey.So(resp.Items[1].DeviceID, convey.ShouldEqual, "sha256:remote")
+		convey.So(resp.Items[0].DeviceID, convey.ShouldEqual, devicefp.Carrier(""))
+		convey.So(resp.Items[1].DeviceID, convey.ShouldEqual, devicefp.Carrier("sha256:remote"))
 		convey.So(resp.Items[1].DeviceName, convey.ShouldEqual, "linux-srv")
 		convey.So(resp.Items[1].Online, convey.ShouldBeFalse)
 	})

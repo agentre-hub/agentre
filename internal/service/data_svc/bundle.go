@@ -1,5 +1,7 @@
 package data_svc
 
+import "github.com/agentre-hub/agentre/pkg/wire/devicefp"
+
 // BundleFormat 是 bundle JSON 的固定标识。
 const BundleFormat = "agentre-data-bundle"
 
@@ -129,13 +131,13 @@ type BundleExecTarget struct {
 
 // BundleRemoteDevice 一条远端设备记录。
 type BundleRemoteDevice struct {
-	InstanceUUID      string `json:"instanceUUID"`
-	Name              string `json:"name"`
-	URL               string `json:"url"`
-	DaemonFingerprint string `json:"daemonFingerprint"`
-	TLSMode           string `json:"tlsMode"`
-	TLSCertPEM        string `json:"tlsCertPEM"`
-	PairedAt          int64  `json:"pairedAt"`
+	InstanceUUID      string           `json:"instanceUUID"`
+	Name              string           `json:"name"`
+	URL               string           `json:"url"`
+	DaemonFingerprint devicefp.Carrier `json:"daemonFingerprint"`
+	TLSMode           string           `json:"tlsMode"`
+	TLSCertPEM        string           `json:"tlsCertPEM"`
+	PairedAt          int64            `json:"pairedAt"`
 }
 
 // ExportRequest 导出请求。

@@ -8,6 +8,8 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func TestMessage_Check(t *testing.T) {
@@ -63,11 +65,11 @@ func TestMessage_BlocksDecodeMalformed(t *testing.T) {
 func TestMessage_DeviceFingerprintFieldTag(t *testing.T) {
 	// 空串（本地 backend）
 	local := &Message{ID: 1, SessionID: 1, Role: "user", BlocksJSON: "[]", DeviceFingerprint: ""}
-	assert.Equal(t, "", local.DeviceFingerprint)
+	assert.Equal(t, devicefp.Carrier(""), local.DeviceFingerprint)
 
 	// 非空（远端 backend，值是那台机器的设备指纹）
 	remote := &Message{ID: 2, SessionID: 1, Role: "assistant", BlocksJSON: "[]", DeviceFingerprint: "sha256:remote"}
-	assert.Equal(t, "sha256:remote", remote.DeviceFingerprint)
+	assert.Equal(t, devicefp.Carrier("sha256:remote"), remote.DeviceFingerprint)
 
 	// gorm tag 携带正确列名
 	const wantColumn = "device_fingerprint"

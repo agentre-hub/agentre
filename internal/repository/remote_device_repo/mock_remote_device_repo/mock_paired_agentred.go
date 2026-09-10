@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	paired_agentred_entity "github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -70,7 +71,7 @@ func (mr *MockPairedAgentredRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
 }
 
 // FindByFingerprint mocks base method.
-func (m *MockPairedAgentredRepo) FindByFingerprint(ctx context.Context, fingerprint string) (*paired_agentred_entity.PairedAgentred, error) {
+func (m *MockPairedAgentredRepo) FindByFingerprint(ctx context.Context, fingerprint devicefp.Carrier) (*paired_agentred_entity.PairedAgentred, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindByFingerprint", ctx, fingerprint)
 	ret0, _ := ret[0].(*paired_agentred_entity.PairedAgentred)
@@ -173,7 +174,7 @@ func (mr *MockPairedAgentredRepoMockRecorder) Rename(ctx, id, name any) *gomock.
 }
 
 // UpdateEndpoint mocks base method.
-func (m *MockPairedAgentredRepo) UpdateEndpoint(ctx context.Context, id int64, url, daemonFingerprint string) error {
+func (m *MockPairedAgentredRepo) UpdateEndpoint(ctx context.Context, id int64, url string, daemonFingerprint devicefp.Carrier) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateEndpoint", ctx, id, url, daemonFingerprint)
 	ret0, _ := ret[0].(error)

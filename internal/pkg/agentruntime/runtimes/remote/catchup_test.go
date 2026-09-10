@@ -13,6 +13,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ── rig:App 刚启动、本进程内一轮都没有在跑 ─────────────────────────────────
@@ -65,11 +66,11 @@ func restartConn(summaries []wire.SessionSummary, journal []wire.JournaledNotifi
 func newRestartRuntime(t *testing.T, conn *fakeConn, cursorAt int64) (*Runtime, *fakeCursorPort, *connStateRecorder) {
 	t.Helper()
 	cursor := &fakeCursorPort{}
-	cursor.setLoad(func(int64, string) (int64, bool, error) { return cursorAt, true, nil })
+	cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return cursorAt, true, nil })
 	obs := &connStateRecorder{}
 	rt := New(conn,
 		WithConversationIDResolver(convOf),
-		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, string, error) {
+		WithReconnect(ReconnectFunc(func(context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return nil, "", ErrReconnectAbandoned
 		})),
 		WithDaemonFingerprint(rigFingerprint),
@@ -83,7 +84,7 @@ func newRestartRuntime(t *testing.T, conn *fakeConn, cursorAt int64) (*Runtime, 
 }
 
 // catchUpRequest 抽出一次补齐族请求的 (conversationID, peerFingerprint)。
-func catchUpRequest(t *testing.T, c fakeCall) (string, string) {
+func catchUpRequest(t *testing.T, c fakeCall) (string, devicefp.Initiator) {
 	t.Helper()
 	switch p := c.Params.(type) {
 	case wire.SessionAttachParams:
@@ -145,7 +146,7 @@ func TestCatchUpSessions_PeerOrigin_CarriedIntoRequests(t *testing.T) {
 		}
 		assert.Equal(t, convOf(peerSession), peerSid)
 		assert.Equal(t, convOf(ownSession), ownSid)
-		assert.Equal(t, "peer-A", peerFP, "%s 必须把对端 origin 原样带进请求", method)
+		assert.Equal(t, devicefp.Initiator("peer-A"), peerFP, "%s 必须把对端 origin 原样带进请求", method)
 		assert.Empty(t, ownFP, "%s 对空 origin 的会话必须省略该字段(向后兼容)", method)
 	}
 }
@@ -176,7 +177,7 @@ func TestSessionSummaries_GivenTwoPeersOnTheSameDaemon_ThenNeitherConversationDi
 	assert.Equal(t, int64(900), summaries[peer].LatestSeq)
 	assert.Empty(t, rt.originFor(own),
 		"自己那条会话的 origin 必须是空,记成别的对端会让 attach/pull 点名别人的会话")
-	assert.Equal(t, "peer-B", rt.originForConversation(peer))
+	assert.Equal(t, devicefp.Initiator("peer-B"), rt.originForConversation(peer))
 }
 
 // Given 一条 agentred 回传的会话摘要带着它记下的思考力度,When 客户端解清单,Then 那一格
