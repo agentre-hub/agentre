@@ -8,7 +8,7 @@ CLI 的配置来自挂载**——升级 CLI 靠改 `Dockerfile` 里的版本重�
 
 | CLI | 默认版本 | 装法 |
 | --- | --- | --- |
-| claude | 2.1.224 | 官方安装器（原生 ELF，**动态链接 glibc**，所以运行段不能用 alpine） |
+| claude | 2.1.267 | 官方安装器（原生 ELF，**动态链接 glibc**，所以运行段不能用 alpine） |
 | codex | 0.146.0 | npm `@openai/codex` |
 | pi | 0.84.3 | npm `@earendil-works/pi-coding-agent` |
 
