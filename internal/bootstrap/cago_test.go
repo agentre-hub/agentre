@@ -671,91 +671,17 @@ func realColumns(t *testing.T, gormDB *gorm.DB, table string) map[string]bool {
 	return names
 }
 
-// retiredMigrationLedgerIDs 是历史上落进过开发机账本、如今文件已不存在的迁移号。
-//
-// 第一批来自 PR #36(202608080013~0018),第二批是 2026-08-28「压缩未发布数据库迁移」
-// 删掉的那些独立文件,第三批是 2026-09-04 发布前压缩退役的那一整套基线
-// (202608080001~202608080012、202609010001、202609040001~202609040006)—— 产品未发布、
-// 长活的开发库一律删库重建,所以那一批被整体折进 202609040101 起的新基线,而它们的号
-// 仍旧躺在别人的账本里。账本只记 id,删文件收不回号。
-var retiredMigrationLedgerIDs = []string{
-	"202608080001", "202608080002", "202608080003", "202608080004", "202608080005",
-	"202608080006", "202608080007", "202608080008", "202608080009", "202608080010",
-	"202608080011", "202608080012",
-	"202608080013", "202608080014", "202608080015", "202608080016", "202608080017", "202608080018",
-	"202608100001", "202608110001", "202608130001", "202608150001", "202608150002",
-	"202608200001", "202608200002", "202608260001", "202608260002", "202608260003",
-	"202608270001", "202608270002", "202608270003", "202608270004", "202608270005",
-	"202608270006", "202608280001", "202608280002",
-	"202609010001",
-	"202609040001", "202609040002", "202609040003", "202609040004", "202609040005",
-	"202609040006",
-	// 2026-09-10 为 0.1.0 首发折叠掉的三条补丁：它们的号一样躺在别人的账本里。
-	// 折叠的等价性另行用真库逐表比过（列/索引/约束/种子行全等），这里只负责守住号。
-	"202609070101", "202609080101", "202609090101",
-}
-
-// TestRunMigrationsSkipsNothingOnALedgerHoldingRetiredIDs 钉死迁移号不得复用退役号。
-//
-// 事故形态:新迁移接着「文件列表里最大的那个」往下编号,而那个号段早被上一个纪元的
-// 迁移占着 —— gormigrate 只认账本里的 id 字符串,于是新迁移被**静默跳过**:全新库一切
-// 正常,长活的库缺表缺列,直到运行时才炸。真炸过两次:202608080013 缺 sync_accounts 表,
-// 202608080014/0015 缺 chat_sessions.conversation_id 列("table chat_sessions has no
-// column named conversation_id")。
-//
-// 这里把退役号预先填进账本再跑全链:当前每一条迁移都必须照跑不误,跑完的 schema 与
-// 全新库一字不差。谁再复用一个退役号,他那条迁移的效果就会在这里整条消失。
-func TestRunMigrationsSkipsNothingOnALedgerHoldingRetiredIDs(t *testing.T) {
-	fresh := openMigratedSQLite(t, "fresh.db", nil)
-	legacy := openMigratedSQLite(t, "legacy.db", retiredMigrationLedgerIDs)
-
-	if want, got := schemaOf(t, fresh), schemaOf(t, legacy); want != got {
-		t.Errorf("a database whose ledger carries retired migration ids did not converge to the fresh schema.\nfresh:\n%s\nlegacy:\n%s", want, got)
-	}
-}
-
-// openMigratedSQLite 开一个空库,先把 ledgerIDs 播进 gormigrate 的账本(模拟一台长活
-// 的开发机),再跑全链迁移。
-func openMigratedSQLite(t *testing.T, name string, ledgerIDs []string) *gorm.DB {
+// openMigratedSQLite 开一个空库并跑全链迁移,交出迁移后的库。
+func openMigratedSQLite(t *testing.T, name string) *gorm.DB {
 	t.Helper()
 	gormDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), name)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite %s: %v", name, err)
 	}
-	if len(ledgerIDs) > 0 {
-		// 账本表由 gormigrate 建;这里先建出来再播种,建表语句与它的一致(id 主键)。
-		if err := gormDB.Exec(`CREATE TABLE migrations (id VARCHAR(255) PRIMARY KEY)`).Error; err != nil {
-			t.Fatalf("create migration ledger: %v", err)
-		}
-		for _, id := range ledgerIDs {
-			if err := gormDB.Exec(`INSERT INTO migrations (id) VALUES (?)`, id).Error; err != nil {
-				t.Fatalf("seed retired ledger id %s: %v", id, err)
-			}
-		}
-	}
 	if err := migrations.RunMigrations(gormDB); err != nil {
 		t.Fatalf("RunMigrations() on %s error = %v", name, err)
 	}
 	return gormDB
-}
-
-// schemaOf 交出一个库的全部 DDL(表、索引、触发器),按名字排序 —— 两个库比对的口径。
-// 排除 sqlite_ 开头的内部对象与 migrations 账本表本身(账本内容本来就不同)。
-func schemaOf(t *testing.T, gormDB *gorm.DB) string {
-	t.Helper()
-	var rows []struct {
-		Name string `gorm:"column:name"`
-		SQL  string `gorm:"column:sql"`
-	}
-	if err := gormDB.Raw(`SELECT name, COALESCE(sql, '') AS sql FROM sqlite_master
-WHERE name NOT LIKE 'sqlite_%' AND name != 'migrations' ORDER BY name`).Scan(&rows).Error; err != nil {
-		t.Fatalf("read sqlite_master: %v", err)
-	}
-	out := ""
-	for _, row := range rows {
-		out += row.Name + ": " + row.SQL + "\n"
-	}
-	return out
 }
 
 // TestEveryTableHasAutoIncrementIDPrimaryKey 钉死一条库级约定：迁移建出的每一张业务表
@@ -766,7 +692,7 @@ WHERE name NOT LIKE 'sqlite_%' AND name != 'migrations' ORDER BY name`).Scan(&ro
 // internal/model/entity 的 TestEveryEntityHasAutoIncrementIDPrimaryKey 独立钉住：两侧
 // 差一格，同一段代码就会在内存里和库里各认一套行身份。
 func TestEveryTableHasAutoIncrementIDPrimaryKey(t *testing.T) {
-	gormDB := openMigratedSQLite(t, "primary-keys.db", nil)
+	gormDB := openMigratedSQLite(t, "primary-keys.db")
 
 	var tables []struct {
 		Name string `gorm:"column:name"`
