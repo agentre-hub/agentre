@@ -158,6 +158,21 @@ func ProjectMessages(conversationID string, messages []*transcript_entity.Messag
 // 「本仓折不出来」—— 调用方据此走 agentruntime.UnrecognizedBlock 兜底，块因此
 // 永远不会静默消失。
 func EventForStoredBlock(message *transcript_entity.Message, block cagoblocks.StoredBlock) (agentruntime.Event, bool, error) {
+	if message.Role == "user" && block.Type == "image" {
+		// 解进 cago 的块类型本身,而不是就地另抄一份字段:形状的真源是产生方
+		// (chat_svc.blocksFromSendImages 落的就是它),抄一份的话它改了这里不会红。
+		var data cagoblocks.ImageBlock
+		if err := json.Unmarshal(block.Data, &data); err != nil {
+			return nil, false, err
+		}
+		// 两格来源都空照样发:画不出图,但转录里凭空少一块更难解释,而消费方拿到这
+		// 一帧才说得出「这里有一张取不到的图」(与 UnrecognizedBlock 同一条纪律)。
+		return agentruntime.ImageBlockEvent{
+			MediaType: data.MediaType,
+			Inline:    data.Source.Inline,
+			URL:       data.Source.URL,
+		}, true, nil
+	}
 	if message.Role == "user" && (block.Type == "text" || block.Type == "display_text") {
 		var data struct {
 			Text             string `json:"text"`

@@ -80,6 +80,13 @@ export const desktopTranscriptPorts = {
     // 空串 = 会话 cwd，保持这个接缝本轮之前的解析口径不变。
     const view = await WorkspaceFsReadFile(sessionId, "", path);
 
+    // 服务层把「文件不存在 / 对端离线」改成了随成功应答回来的结构化原因（预览面
+    // 板要据此分出终态与可重试态）。这个端口的消费者只认「成不成」，所以在边界上
+    // 把它还原成一次失败 —— 否则内联图片会拿着空 body 当成功渲染出来。
+    if (view.unavailable) {
+      throw new Error(view.unavailable);
+    }
+
     return {
       content: view.content,
       contentType: view.contentType,

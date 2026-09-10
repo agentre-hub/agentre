@@ -150,6 +150,7 @@
     }
   },
   "richLink": {
+    "clickToOpen": "点击打开这个文件",
     "localFile": "本地文件",
     "localFileExternal": "本地文件 · 项目外",
     "localFolder": "本地文件夹",
@@ -213,6 +214,7 @@
       "attachmentAlt": "图片附件",
       "remove": "移除图片 {{name}}",
       "tooMany": "最多可添加 {{count}} 张图片",
+      "tooLarge": "附件总量超过 {{total}} MB,这一张没有加上",
       "unsupported": "仅支持不超过 5 MB 的 PNG、JPEG 或 WebP 图片",
       "readFailed": "无法读取所选图片"
     },

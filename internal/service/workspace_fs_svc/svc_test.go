@@ -758,14 +758,11 @@ func TestReadFile_ErrorMapping(t *testing.T) {
 			assert.Equal(t, i18n.NewError(r.ctx, code.WorkspaceFsPathRefused).Error(), err.Error())
 		})
 
-		convey.Convey("借不到租约 → WorkspaceFsDeviceOffline", func() {
-			r := newRig(t, 7, "/remote/work")
-			r.rd.EXPECT().Pool().Return(r.pool)
-			r.pool.EXPECT().Borrow(r.ctx, int64(7)).Return(nil, errors.New("dial fail"))
-			_, err := r.svc.ReadFile(r.ctx, 42, "", "a.txt")
-			require.Error(t, err)
-			assert.Equal(t, i18n.NewError(r.ctx, code.WorkspaceFsDeviceOffline).Error(), err.Error())
-		})
+		// 「借不到租约」原本在这里断言成 WorkspaceFsDeviceOffline 错误。
+		// spec docs/specs/2026-09-07-preview-failure-classification.md 决策 1 把它
+		// 改成视图态(前端要据此给重试按钮),断言因此搬到
+		// TestReadFile_UnavailableReasonIsAViewField —— 它不再是一条错误映射。
+		// GitFileContent 等共用路径仍旧报这个错误,那一条也在同一个测试里锚着。
 	})
 }
 
@@ -958,3 +955,90 @@ func TestRegisterSessionWorkspaceResolver(t *testing.T) {
 
 // SelfFingerprint 满足 client.ProtobufConnection:这个假连接从没握过手,本端指纹为空。
 func (c *workspaceProtoClient) SelfFingerprint() string { return "" }
+
+// ── ReadFile:不可用原因是视图字段,不是错误 ─────────────────────────────────
+
+// TestUnavailableReasonWireValues 锁住这两个取值的**字面量**。它们是过 Wails 那座
+// 桥的契约:对面 frontend/src/components/agentre/file-preview/file-preview-panel.tsx
+// 逐个判等同样的字符串才翻得出失败标记。只拿常量去断言常量是同义反复 —— 改掉常量
+// 的值这边照绿,前端却静默落回未归类兜底(同 chat_svc 的 TestCwdUnavailableReasonFor:
+// 那里也是钉字面量)。
+func TestUnavailableReasonWireValues(t *testing.T) {
+	assert.Equal(t, "not-found", UnavailableNotFound)
+	assert.Equal(t, "offline", UnavailableOffline)
+}
+
+func TestReadFile_UnavailableReasonIsAViewField(t *testing.T) {
+	convey.Convey("读不到文件时,能归类的原因随成功应答回来,而不是抛错", t, func() {
+		convey.Convey("本机:目标文件不存在 → unavailable=not-found,不报错", func() {
+			r := newRig(t, 0, t.TempDir())
+
+			view, err := r.svc.ReadFile(r.ctx, 42, "", "ghost.md")
+			require.NoError(t, err)
+			require.NotNil(t, view)
+			assert.Equal(t, UnavailableNotFound, view.Unavailable)
+			assert.Empty(t, view.Content)
+		})
+
+		convey.Convey("远端:借不到租约(设备离线) → unavailable=offline,不报错", func() {
+			r := newRig(t, 7, "/remote/work")
+			r.rd.EXPECT().Pool().Return(r.pool)
+			r.pool.EXPECT().Borrow(r.ctx, int64(7)).Return(nil, errors.New("dial fail"))
+
+			view, err := r.svc.ReadFile(r.ctx, 42, "", "a.txt")
+			require.NoError(t, err)
+			require.NotNil(t, view)
+			assert.Equal(t, UnavailableOffline, view.Unavailable)
+			assert.Empty(t, view.Content)
+		})
+
+		convey.Convey("读得到的文件 unavailable 为空", func() {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello\n"), 0o644))
+			r := newRig(t, 0, dir)
+
+			view, err := r.svc.ReadFile(r.ctx, 42, "", "a.txt")
+			require.NoError(t, err)
+			assert.Empty(t, view.Unavailable)
+		})
+	})
+
+	convey.Convey("归类不出来的失败仍旧是错误,不被伪装成视图态", t, func() {
+		convey.Convey("本机:越界路径仍是 WorkspaceFsPathRefused", func() {
+			r := newRig(t, 0, t.TempDir())
+
+			_, err := r.svc.ReadFile(r.ctx, 42, "", "../etc/passwd")
+			require.Error(t, err)
+			assert.Equal(t, i18n.NewError(r.ctx, code.WorkspaceFsPathRefused).Error(), err.Error())
+		})
+
+		convey.Convey("远端:设备不存在不算离线,仍是 RemoteDeviceNotFound 错误", func() {
+			r := newRig(t, 7, "/remote/work")
+			r.rd.EXPECT().Pool().Return(r.pool)
+			r.pool.EXPECT().Borrow(r.ctx, int64(7)).Return(nil, remote_device_svc.ErrDeviceNotFound)
+
+			_, err := r.svc.ReadFile(r.ctx, 42, "", "a.txt")
+			require.Error(t, err)
+			assert.Equal(t, i18n.NewError(r.ctx, code.RemoteDeviceNotFound).Error(), err.Error())
+		})
+	})
+
+	convey.Convey("共用路径的错误行为不受影响", t, func() {
+		convey.Convey("ListDir 遇到不存在的子目录仍旧报错", func() {
+			r := newRig(t, 0, t.TempDir())
+
+			_, err := r.svc.ListDir(r.ctx, 42, "", "nope", false)
+			require.Error(t, err)
+		})
+
+		convey.Convey("GitFileContent 借不到租约仍旧报离线错误", func() {
+			r := newRig(t, 7, "/remote/work")
+			r.rd.EXPECT().Pool().Return(r.pool)
+			r.pool.EXPECT().Borrow(r.ctx, int64(7)).Return(nil, errors.New("dial fail"))
+
+			_, err := r.svc.GitFileContent(r.ctx, 42, "", "a.txt")
+			require.Error(t, err)
+			assert.Equal(t, i18n.NewError(r.ctx, code.WorkspaceFsDeviceOffline).Error(), err.Error())
+		})
+	})
+}

@@ -1008,6 +1008,7 @@ message RuntimeEventNotification {
     UsageUpdate usage_update = 27 [(agentre.wire.event_kind) = "usage"];
     PlanUpdated plan_updated = 28 [(agentre.wire.event_kind) = "plan_updated"];
     UnrecognizedBlock unrecognized_block = 29 [(agentre.wire.event_kind) = "unrecognized_block"];
+    ImageBlock image = 31 [(agentre.wire.event_kind) = "image"];
   }
 }
 
@@ -1186,4 +1187,28 @@ message PlanUpdated { repeated PlanStep steps = 1; string text = 2; repeated Pla
 message UnrecognizedBlock {
   string block_type = 1;
   bytes data = 2;
+}
+
+// BlobSource is where a block's bytes come from: inline, or a URL reference.
+// The two are mutually exclusive, mirroring cago's blocks.BlobSource.
+message BlobSource {
+  bytes inline = 1;
+  string url = 2;
+}
+
+// ImageBlock carries an image attachment from a user message. It mirrors cago's
+// blocks.ImageBlock exactly — media type plus a BlobSource — because the sending
+// host projects the stored block without reserializing its bytes.
+//
+// inline stays a plain bytes field on purpose: agentre-server's wireview projects
+// BytesKind to bare base64, which is what a consumer needs to rebuild a data URL.
+// Routing it through the raw-JSON escape hatch would wrap every image in a
+// {"$b64": ...} object for an ambiguity image bytes never have.
+//
+// Both source slots empty is legal-but-broken data: no image can be drawn, yet the
+// event is still emitted so the consumer can say "there is an image here I cannot
+// fetch" instead of silently losing a piece of the transcript.
+message ImageBlock {
+  string media_type = 1;
+  BlobSource source = 2;
 }

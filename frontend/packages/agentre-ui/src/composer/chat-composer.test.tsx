@@ -335,6 +335,82 @@ describe("ChatComposer · dropping files", () => {
     render(<ChatComposer onSubmit={vi.fn()} />);
     expect(sendButton()).toBeInTheDocument();
   });
+
+  /**
+   * 总量预算对**拖入**这条路同样成立。
+   *
+   * `resolveDroppedPaths` 只卡张数(`remainingImageSlots`),而宿主拒的是字节总量 ——
+   * 拖进来的四张各 4 MB 单张都合法、张数也合法,于是全都贴上了;按下发送时
+   * `chat_svc.blocksFromSendImages` 那道闸把**整轮**拒掉,回的是一个笼统的
+   * InvalidParameter。用户写的那句话连同图一起没了,而屏幕上此前没有一个字说过
+   * 这些图超了。
+   *
+   * 处置与贴/粘那条路逐字相同:这一批不贴上,并说清是总量的缘故。
+   */
+  it("拖入撑爆总量预算时不贴上,说的是总量,先前贴的仍在", async () => {
+    const readImages = vi.fn(
+      async (paths: string[]): Promise<DroppedImageItem[]> =>
+        paths.map((path) => ({
+          // 4 MB 原始字节:单张(5 MB)与张数(4)两道闸都过得去。
+          dataUrl: `data:image/png;base64,${b64OfBytes(4 * 1024 * 1024)}`,
+          kind: "image" as const,
+          mediaType: "image/png",
+          name: "huge.png",
+          path,
+        })),
+    );
+    const { registrar, drop } = fakeDropZone();
+
+    render(
+      <ChatComposer
+        supportsImageInput
+        dropZone={{ readImages, registerDropZone: registrar }}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(imageInput(), {
+      target: { files: [pngOfBytes("first.png", 4 * 1024 * 1024)] },
+    });
+    await screen.findByAltText("first.png");
+
+    drop(["/tmp/huge.png"]);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBeTruthy();
+    expect(alert.textContent).not.toMatch(/up to 4 images/i);
+    expect(alert.textContent).not.toMatch(/unsupported|not supported/i);
+    expect(screen.queryByAltText("huge.png")).toBeNull();
+    // 超限的是拖进来的那一张;把先前贴的一起清掉是另一种数据丢失。
+    expect(screen.getByAltText("first.png")).toBeTruthy();
+  });
+
+  it("拖入在预算之内时照常贴上,与从前一样", async () => {
+    const readImages = vi.fn(
+      async (paths: string[]): Promise<DroppedImageItem[]> =>
+        paths.map((path) => ({
+          dataUrl: "data:image/png;base64,AAAA",
+          kind: "image" as const,
+          mediaType: "image/png",
+          name: "small.png",
+          path,
+        })),
+    );
+    const { registrar, drop } = fakeDropZone();
+
+    render(
+      <ChatComposer
+        supportsImageInput
+        dropZone={{ readImages, registerDropZone: registrar }}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    drop(["/tmp/small.png"]);
+
+    expect(await screen.findByAltText("small.png")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
 
 describe("ChatComposer · bottom bar", () => {
@@ -417,6 +493,51 @@ describe("ChatComposer · top slot", () => {
     render(<ChatComposer topSlot={<div>queued</div>} onSubmit={vi.fn()} />);
     expect(screen.getByText("queued")).toBeInTheDocument();
   });
+
+  /**
+   * 总量上限(规格 2026-09-07-attachment-render-and-send-budget)。
+   *
+   * 此前只卡单张:MAX_IMAGE_COUNT=4 与 MAX_IMAGE_BYTES=5MB,没有任何一处卡总量。
+   * 而 runtime.run 把一条消息的所有图装在同一个请求里,4 × 5MB base64 之后是 26MB,
+   * 而中继单帧上限是 10MB —— 超限不是「这一次发送失败了」,是 gorilla 回 1009、
+   * 整条物理连接被拆掉,那台机器上每一条会话一起重连。
+   */
+  it("贴到撑爆总量预算时拒收这一张,说明说的是总量,先前贴的仍在", async () => {
+    render(<ChatComposer onSubmit={() => {}} />);
+
+    // 两张各 4 MB:单张都合法(< 5MB),加起来 8 MB 超过 6990506 的总量预算。
+    fireEvent.change(imageInput(), {
+      target: { files: [pngOfBytes("first.png", 4 * 1024 * 1024)] },
+    });
+    await screen.findByAltText("first.png");
+
+    fireEvent.change(imageInput(), {
+      target: { files: [pngOfBytes("second.png", 4 * 1024 * 1024)] },
+    });
+
+    // 规格要的是「说的是总量」,而它的可观察形态是:这句话与既有那两条不同 ——
+    // 三件事的处置不同(张数超了删一张就行,格式不支持换个文件,总量超了要换小图),
+    // 复用措辞会把用户指向错的动作。断在「不是那两句」上,而不是钉某个英文词。
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBeTruthy();
+    expect(alert.textContent).not.toMatch(/up to 4 images/i);
+    expect(alert.textContent).not.toMatch(/unsupported|not supported/i);
+    // 超限的是**这一张**;把先前贴的一起清掉是另一种数据丢失。
+    expect(screen.getByAltText("first.png")).toBeTruthy();
+    expect(screen.queryByAltText("second.png")).toBeNull();
+  });
+
+  it("总量在预算内时照常贴上,与从前一样", async () => {
+    render(<ChatComposer onSubmit={() => {}} />);
+
+    await attachPng("a.png");
+    fireEvent.change(imageInput(), {
+      target: { files: [pngOfBytes("b.png", 1024)] },
+    });
+
+    await screen.findByAltText("b.png");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
 
 function sendButton(): HTMLElement {
@@ -434,6 +555,16 @@ function pngFile(name: string): File {
 async function attachPng(name: string): Promise<void> {
   fireEvent.change(imageInput(), { target: { files: [pngFile(name)] } });
   await screen.findByAltText(name);
+}
+
+/** 一张指定原始字节数的假图(内容不重要,量才重要)。 */
+function pngOfBytes(name: string, bytes: number): File {
+  return new File([new Uint8Array(bytes)], name, { type: "image/png" });
+}
+
+/** 指定**原始**字节数的一段 base64(拖入那条路交回的是 dataUrl,不是 File)。 */
+function b64OfBytes(bytes: number): string {
+  return "A".repeat(Math.ceil(bytes / 3) * 4);
 }
 
 function formOf(container: HTMLElement): HTMLElement {

@@ -1167,6 +1167,13 @@ func blocksFromSendImages(ctx context.Context, images []SendImage) ([]blocks.Con
 			Source:    blocks.BlobSource{Inline: decoded},
 		})
 	}
+	// 总量是与上面两道**各自独立**的第三道:单张 5 MB、四张都合法,加起来却把
+	// runtime.run 那一个请求撑过链路读上限 —— 而桌面端驱远端 agentred 走的正是
+	// wire,超限拆掉的是整条物理连接,这台机器上所有会话一起重连。上限对本机那一跳
+	// 同样生效:一条消息能带多少附件不该因为它这一轮恰好跑在哪儿而不同。
+	if err := transcript.CheckAttachmentBudget(out); err != nil {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
 	return out, nil
 }
 

@@ -19,10 +19,12 @@ package workspace_fs_svc
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
+	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -156,11 +158,27 @@ type GitStateView struct {
 // ReadFileView 是 ReadFile 的返回值:文本为 UTF-8 正文(content),图片为 base64
 // 内容 + contentType(如 image/png);binary/tooLarge 为 true 时 content 恒为空。
 // 这三个标志是视图字段,不新增错误码(spec 决策 5)。
+// UnavailableReason 是 ReadFile 读不到正文时给出的**结构化原因**。取值互斥,空串
+// 表示正文有效。Wails 边界只过 Error() 字符串、没有结构化通道(同 chat_svc 的
+// CwdUnavailableReason),因此能归类的失败改走视图字段而不是错误 —— 前端据此在
+// 「文件不存在」(终态,不给动作)与「对端离线」(可重试)之间分流,而不是一律落到
+// 一句笼统的读取失败上。归类不出来的失败仍旧照常抛错,不在这里伪装成视图态。
+type UnavailableReason = string
+
+const (
+	// UnavailableNotFound 目标路径在那台机器上已经没有了。终态。
+	UnavailableNotFound UnavailableReason = "not-found"
+	// UnavailableOffline 那台机器现在够不着(含中继断开 / 借用连接失败)。可重试。
+	UnavailableOffline UnavailableReason = "offline"
+)
+
 type ReadFileView struct {
 	Content     string `json:"content"`
 	ContentType string `json:"contentType,omitempty"`
 	Binary      bool   `json:"binary,omitempty"`
 	TooLarge    bool   `json:"tooLarge,omitempty"`
+	// Unavailable 非空时 Content 恒为空,取值见 UnavailableReason。
+	Unavailable UnavailableReason `json:"unavailable,omitempty"`
 }
 
 // GitFileContentView 是 GitFileContent 的返回值:同一文件在 git HEAD 的版本
@@ -306,6 +324,12 @@ func (s *workspaceFsImpl) ReadFile(ctx context.Context, sessionID int64, root, r
 	if deviceID == 0 {
 		res, lerr := workspacefs.ReadFile(ctx, cwd, relPath)
 		if lerr != nil {
+			// 文件不存在是**视图态**而不是错误:转录里的路径来自当时那次工具调用,
+			// 之后被删掉是正常情况。归类只在 ReadFile 这条分支上做 —— mapLocalErr
+			// 被 ListDir / GitFileContent / SearchFiles 共用,在那里改会波及它们。
+			if errors.Is(lerr, fs.ErrNotExist) {
+				return &ReadFileView{Unavailable: UnavailableNotFound}, nil
+			}
 			return nil, mapLocalErr(ctx, lerr)
 		}
 		return &ReadFileView{
@@ -316,6 +340,12 @@ func (s *workspaceFsImpl) ReadFile(ctx context.Context, sessionID int64, root, r
 
 	response, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsReadFile, &agentrewire.WorkspaceFsReadFileRequest{Root: cwd, RelPath: relPath})
 	if cerr != nil {
+		// 对端离线同样是视图态:那台机器过会儿可能就回来了,前端要据此给重试。
+		// 远端的「文件不存在」本轮判不出来 —— wire 没有对应错误码,mapCallErr 只
+		// 认 PathRefused / BaselineRequired,它因此仍落到未归类的兜底上。
+		if isCode(cerr, code.WorkspaceFsDeviceOffline) {
+			return &ReadFileView{Unavailable: UnavailableOffline}, nil
+		}
 		return nil, cerr
 	}
 	resp := protowire.WorkspaceReadFileResponseFromProto(response)
@@ -584,6 +614,17 @@ func mapLocalErr(ctx context.Context, err error) error {
 		return i18n.NewError(ctx, code.WorkspaceFsBaselineRequired)
 	}
 	return i18n.NewError(ctx, code.WorkspaceFsReadFailed)
+}
+
+// isCode 回答一个已经被 i18n 包装过的错误是不是某个业务码。Wails 边界只过
+// Error() 字符串,服务层内部因此只能这样把码读回来 —— 与 chat_svc 的
+// cwdUnavailableReasonFor 同一手法。
+func isCode(err error, want int) bool {
+	var appErr *httputils.Error
+	if !errors.As(err, &appErr) {
+		return false
+	}
+	return appErr.Code == want
 }
 
 func mapBorrowErr(ctx context.Context, err error) error {

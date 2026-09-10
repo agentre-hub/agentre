@@ -1987,5 +1987,15 @@ func decodeUserBlocks(in []blocks.StoredBlock) ([]blocks.ContentBlock, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
-	return blocks.DecodeAll(in)
+	out, err := blocks.DecodeAll(in)
+	if err != nil {
+		return nil, err
+	}
+	// 总量兜底:客户端那一侧拦过一道,但宿主不能信客户端。撞破链路读上限的后果不是
+	// 这一次请求失败,是整条物理连接被拆掉、这台机器上所有会话一起重连,所以闸门落在
+	// 参数解出来之后、这一轮真的开跑之前。拒的是整轮,不截断附件(理由见该函数注释)。
+	if err := transcript.CheckAttachmentBudget(out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

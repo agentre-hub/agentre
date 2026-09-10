@@ -151,6 +151,47 @@ func TestListByProject(t *testing.T) {
 	})
 }
 
+// 视图必须带上指纹：宿主那侧唯一拿得到的 Agent 设备键是**指纹**
+// （chat_svc 的 ChatAgentItem.DeviceID 来自 ExternalDeviceID(be.DeviceFingerprint)），
+// 而 DeviceID 是配对表的数字 id 缓存。两个键不同源，前端要按指纹比才对得上；
+// 缺了这个字段，「远端 Agent + 已配路径」在界面上永远被判成「还没配路径」。
+func TestViewCarriesFingerprintSoHostsCanMatchAgents(t *testing.T) {
+	Convey("ListByProject 的每一行都带着该设备的指纹", t, func() {
+		ctx, repo, rd, svc := setupSvc(t)
+		repo.EXPECT().ListByProject(ctx, int64(1)).Return([]*project_location_entity.ProjectLocation{
+			{ID: 42, ProjectID: 1, DeviceID: "7", DeviceFingerprint: "sha256:fp-7", Path: "/home/me/foo", Status: consts.ACTIVE},
+		}, nil)
+		rd.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{
+			{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "sha256:fp-7"},
+		}, nil)
+
+		list, err := svc.ListByProject(ctx, 1)
+		So(err, ShouldBeNil)
+		So(len(list), ShouldEqual, 1)
+		So(list[0].DeviceFingerprint, ShouldEqual, "sha256:fp-7")
+		// 数字 id 仍旧照常给出——它是缓存，不是自然键。
+		So(list[0].DeviceID, ShouldEqual, "7")
+	})
+
+	Convey("Upsert 刚写完就回一份带指纹的视图（配完路径立刻能对上 Agent）", t, func() {
+		ctx, repo, rd, svc := setupSvc(t)
+		rd.EXPECT().Get(ctx, int64(7)).Return(
+			&remote_device_svc.DeviceView{ID: 7, Name: "linux-srv", Online: true, DaemonFingerprint: "sha256:fp-7"}, nil,
+		).AnyTimes()
+		repo.EXPECT().FindByProjectAndFingerprint(ctx, int64(1), "sha256:fp-7").Return(nil, gorm.ErrRecordNotFound)
+		repo.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(
+			func(_ context.Context, p *project_location_entity.ProjectLocation) error {
+				p.ID = 42
+				return nil
+			},
+		)
+
+		v, err := svc.Upsert(ctx, 1, "7", "/home/me/foo")
+		So(err, ShouldBeNil)
+		So(v.DeviceFingerprint, ShouldEqual, "sha256:fp-7")
+	})
+}
+
 func TestRemoveByProjectAndDevice(t *testing.T) {
 	Convey("RemoveByProjectAndDevice → repo.Delete", t, func() {
 		ctx, repo, _, svc := setupSvc(t)

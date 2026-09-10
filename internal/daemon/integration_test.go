@@ -40,6 +40,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -4326,4 +4327,24 @@ func TestIntegration_SteerAsTheLastEventOfTheTurn_StillLandsAtFinish(t *testing.
 		"轮末那一刻仍要落下插话那一行")
 	assert.NotZero(t, daemonMessageFrameSeqs(t, rig.d, messages[2].SessionID, messages[2].ID),
 		"插话那一行的持久帧必须已经取号发布 —— 没有号的内容补齐交不出去")
+}
+
+// Given agentred 起完;
+// When  去问 claudecode runtime 拿没拿到投递插话的信箱;
+// Then  拿到了 —— 否则这台宿主上的 runtime.steer 一律失败
+//
+//	（"steer inbox not configured"，claudecode/runtime.go:171），而桌面端
+//	（internal/bootstrap/cago.go）是注入了的：同一条「轮中插话」在两台宿主上
+//	一个能用一个不能，且没有任何编译期或静态检查会提醒。
+//
+// 实测过它坏着（2026-09-07 运行时验证）：桌面端 → agentred(claudecode) 会话在
+// status=running 时插话，报 "插入消息失败"，daemon 侧真因就是这一条。
+// hook 那一侧 agentred 本来就是通的（claudecode/hookcli.go:11 回落到当前可执行
+// 文件，agentred 自带 claudecode 子命令），缺的只有这一次注入。
+func TestIntegration_DaemonBoot_WiresTheClaudecodeSteerInbox(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	_ = rig
+
+	assert.True(t, claudecode.Default().SteerInboxConfigured(),
+		"agentred 起完必须把 gateway 的 SteerInbox 注入 claudecode runtime,否则这台宿主上的轮中插话一律失败")
 }

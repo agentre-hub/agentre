@@ -103,7 +103,8 @@ export type StructuredRuntimeEvent = {
     | "subagentModel"
     | "usageUpdate"
     | "planUpdated"
-    | "unrecognizedBlock";
+    | "unrecognizedBlock"
+    | "image";
 } & Record<string, unknown>;
 
 export interface RpcNotificationFrame {
@@ -294,6 +295,11 @@ function encodeStructuredEvent(event: StructuredRuntimeEvent) {
       return {
         case: event.case,
         value: create(pb.UnrecognizedBlockSchema, event as never),
+      };
+    case "image":
+      return {
+        case: event.case,
+        value: create(pb.ImageBlockSchema, event as never),
       };
   }
 }

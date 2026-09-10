@@ -57,11 +57,18 @@ type ProjectMemberItem = app.ProjectMemberItem & {
 // 这两个 view 由 wailsjs codegen 在 `make dev` 时刷新；在此之前保住 TS 安全。
 type ProjectLocationView = {
   deviceId: string;
+  /** 账号内的自然键，也是 Agent 那侧 deviceID 用的同一个键（见下面的 configuredDevices）。 */
+  deviceFingerprint: string;
   path: string;
   deviceName: string;
   online: boolean;
 };
-type DeviceView = { id: number; name: string; online: boolean };
+type DeviceView = {
+  id: number;
+  name: string;
+  online: boolean;
+  daemonFingerprint: string;
+};
 
 /** 项目树拍平成父项目候选。深度只影响缩进，这一格暂不缩进。 */
 function flattenTree(
@@ -255,7 +262,9 @@ function ProjectSettingsDrawer({
               writeNeedsOnline: false,
               path: byDevice.get(id)?.path ?? "",
               removable: byDevice.has(id),
-              hasMember: memberDeviceIDs.has(id),
+              // memberDeviceIDs 装的是 Agent 的指纹，所以这里也按设备指纹查，
+              // 不能拿数字 id 去查（两个键不同源）。
+              hasMember: memberDeviceIDs.has(d.daemonFingerprint),
             };
           }),
         ];
@@ -295,7 +304,12 @@ function ProjectSettingsDrawer({
     ...direct.map((m) => m.agentID),
     ...inherited.map((m) => m.agentID),
   ]);
-  const configuredDevices = new Set(locations.map((l) => l.deviceId));
+  // 按**指纹**建集合：宿主拿得到的 Agent 设备键是 chat_svc 给的指纹
+  // （ExternalDeviceID(be.DeviceFingerprint)），而 deviceId 是配对表数字 id 的缓存。
+  // 用后者比会恒不相交 —— 远端 Agent 会永远被判成「还没配路径」。
+  const configuredDevices = new Set(
+    locations.map((l) => l.deviceFingerprint).filter(Boolean),
+  );
 
   const members: ProjectMemberView[] = [
     ...direct.map((m) => ({

@@ -55,12 +55,13 @@ func (s *projectLocationImpl) ListByProject(ctx context.Context, projectID int64
 			}
 		}
 		out = append(out, &ProjectLocationView{
-			ID:         r.ID,
-			ProjectID:  r.ProjectID,
-			DeviceID:   newDeviceID,
-			Path:       r.Path,
-			DeviceName: dv.Name,
-			Online:     dv.Online,
+			ID:                r.ID,
+			ProjectID:         r.ProjectID,
+			DeviceID:          newDeviceID,
+			DeviceFingerprint: r.DeviceFingerprint,
+			Path:              r.Path,
+			DeviceName:        dv.Name,
+			Online:            dv.Online,
 		})
 	}
 	return out, nil
@@ -137,10 +138,11 @@ func (s *projectLocationImpl) RemoveByProjectAndDevice(ctx context.Context, proj
 // 前端视图，不重复发起查询。
 func (s *projectLocationImpl) toResolvedView(p *project_location_entity.ProjectLocation, dv *remote_device_svc.DeviceView) *ProjectLocationView {
 	v := &ProjectLocationView{
-		ID:        p.ID,
-		ProjectID: p.ProjectID,
-		DeviceID:  p.DeviceID,
-		Path:      p.Path,
+		ID:                p.ID,
+		ProjectID:         p.ProjectID,
+		DeviceID:          p.DeviceID,
+		DeviceFingerprint: p.DeviceFingerprint,
+		Path:              p.Path,
 	}
 	if dv != nil {
 		v.DeviceName = dv.Name

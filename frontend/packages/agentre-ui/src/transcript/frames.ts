@@ -75,6 +75,7 @@ import {
   EventToolResult,
   EventToolUseEnd,
   EventToolUseStart,
+  EventImage,
   EventUsage,
   EventUnrecognizedBlock,
   EventUserMessage,
@@ -201,6 +202,17 @@ interface State {
    * 用户消息开启新一轮时置空：没有助手消息的一轮不该把 meta 倒挂到上一轮头上。
    */
   turn: TranscriptMessage | null;
+  /**
+   * 当前还能继续吸收附件块的那条**用户**消息。
+   *
+   * 帧是块级的(一块一帧),而一条带附件的用户消息因此占好几帧:两个宿主的块序都是
+   * [文本, 附件...],所以附件帧紧跟在它自己那条 `user_message` 之后。没有这一格的话
+   * 每一帧都会新建一条消息,同一句话画成两个气泡。
+   *
+   * 与 `open` 严格对称,寿命也对称:`pushUserMessage` 开它,`openAssistant` 关它 ——
+   * 一轮的正文一旦开始,后来的附件就不再属于上一条提问。
+   */
+  openUser: TranscriptMessage | null;
   nextId: number;
   /** 正在处理的这一帧报的发生时刻；新建消息时盖上去。见 applyFrame 里的说明。 */
   frameAt: number;
@@ -217,6 +229,7 @@ function newState(): State {
     messages: [],
     open: null,
     turn: null,
+    openUser: null,
     nextId: 1,
     frameAt: 0,
     touched: new Set(),
@@ -224,6 +237,9 @@ function newState(): State {
 }
 
 function openAssistant(st: State, sessionId: number): TranscriptMessage {
+  // 一轮的正文开始了,上一条用户消息就不再吸收附件 —— 与 pushUserMessage 关掉
+  // `st.open` 严格对称。放在两条 return 之前:复用既有 open 的那条路同样要关。
+  st.openUser = null;
   // 拿到它就是要改它：消息级字段（usage / model / errorText）与块都从这里进。
   if (st.open) {
     st.touched.add(st.open);
@@ -474,6 +490,68 @@ function pushUserMessage(
   st.messages.push(msg);
   st.open = null;
   st.turn = null;
+  // 它后面紧跟着的附件帧属于这一条(块序 [文本, 附件...]),交给 openUserMessage。
+  st.openUser = msg;
+}
+
+/**
+ * 拿到当前这条用户消息 —— 没有就新建一条。
+ *
+ * 「没有」是真实的一档而不是异常:只贴图不打字发得出去(提交键在有图时就启用),
+ * 那一条根本没有文本块,于是也没有 `user_message` 帧,附件帧就是它的首帧。
+ */
+function openUserMessage(st: State, sessionId: number): TranscriptMessage {
+  if (st.openUser) {
+    st.touched.add(st.openUser);
+    return st.openUser;
+  }
+  const msg = emptyMessage(st.nextId++, "user", sessionId, st.frameAt);
+  st.messages.push(msg);
+  st.open = null;
+  st.turn = null;
+  st.openUser = msg;
+  st.touched.add(msg);
+  return msg;
+}
+
+/**
+ * 把一个图片块摆进当前这条用户消息。
+ *
+ * 两条来路共用它:新的 image 事件,以及**老形态** —— 升级前的 agentred 认不出
+ * image 块,发的是 `unrecognized_block`。`session.pull` 原样重放日志里当时那一份,
+ * 而那份日志永久保存,所以老形态不是过渡期现象,是永久的。
+ *
+ * `dataUrl` 在这里拼:块里存的是媒体类型加 base64 两段,而 `ImageBlockView` 读的是
+ * 一个可以直接塞进 `<img src>` 的串。
+ *
+ * 两格都空是合法的坏数据,这时**不留一个没有 dataUrl 的 image 块**:`ImageBlockView`
+ * 读不到 dataUrl 就 `return null`,那样的块在屏幕上什么都不是 —— 转录里照样凭空少
+ * 一块,只是少在渲染那一步。按 R8 的同一条纪律落成 notice,如实说这里有一张取不到
+ * 的图;`payload` 就是那一帧自己带的载荷,notice 的正文与 R8 的 `${blockType}
+ * ${pretty(data)}` 同形。落在**用户**那条消息上:取不到的那张仍是用户贴的。
+ */
+function pushImageBlock(
+  st: State,
+  sessionId: number,
+  mediaType: string,
+  inline: string,
+  url: string,
+  payload: unknown,
+): void {
+  const dataUrl =
+    url || (inline && mediaType ? `data:${mediaType};base64,${inline}` : "");
+  const target = openUserMessage(st, sessionId);
+  if (!dataUrl) {
+    target.blocks.push({
+      type: "notice",
+      text: `image ${pretty(payload ?? null)}`,
+    });
+    return;
+  }
+  target.blocks.push({
+    type: "image",
+    image: { dataUrl, mediaType },
+  });
 }
 
 function applyFrame(
@@ -878,6 +956,20 @@ function applyFrame(
       return;
     }
 
+    case EventImage: {
+      const mediaType = str(ev, "mediaType") ?? "";
+      const source = obj(obj(ev)?.source) ?? {};
+      pushImageBlock(
+        st,
+        sessionId,
+        mediaType,
+        typeof source.inline === "string" ? source.inline : "",
+        typeof source.url === "string" ? source.url : "",
+        { mediaType, source },
+      );
+      return;
+    }
+
     case EventUnrecognizedBlock: {
       // 发送方读不懂的块。它与 default 分支的区别只在**是谁读不懂**:这一条是
       // 发送方明说「我投射不出这一块」并把原件带过来了,不是收到一个词表外
@@ -886,6 +978,22 @@ function applyFrame(
         blockType: str(ev, "blockType") ?? "",
         data: obj(ev)?.data,
       };
+      // 老形态的图走与新事件同一个落点:升级前的宿主认不出 image 块,发的就是这个,
+      // 而 session.pull 原样重放日志里当时那一份 —— 不接它,那些图永远停在 notice。
+      // 载荷是块的**原始 JSON**,所以键名是蛇形(media_type / source.inline)。
+      if (raw.blockType === "image") {
+        const data = obj(raw.data) ?? {};
+        const source = obj(data.source) ?? {};
+        pushImageBlock(
+          st,
+          sessionId,
+          typeof data.media_type === "string" ? data.media_type : "",
+          typeof source.inline === "string" ? source.inline : "",
+          typeof source.url === "string" ? source.url : "",
+          raw.data,
+        );
+        return;
+      }
       openAssistant(st, sessionId).blocks.push({
         type: "notice",
         text: `${raw.blockType || "?"} ${pretty(raw.data ?? null)}`,

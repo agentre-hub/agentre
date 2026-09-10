@@ -10742,6 +10742,7 @@ type RuntimeEventNotification struct {
 	//	*RuntimeEventNotification_UsageUpdate
 	//	*RuntimeEventNotification_PlanUpdated
 	//	*RuntimeEventNotification_UnrecognizedBlock
+	//	*RuntimeEventNotification_Image
 	Event         isRuntimeEventNotification_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -11048,6 +11049,15 @@ func (x *RuntimeEventNotification) GetUnrecognizedBlock() *UnrecognizedBlock {
 	return nil
 }
 
+func (x *RuntimeEventNotification) GetImage() *ImageBlock {
+	if x != nil {
+		if x, ok := x.Event.(*RuntimeEventNotification_Image); ok {
+			return x.Image
+		}
+	}
+	return nil
+}
+
 type isRuntimeEventNotification_Event interface {
 	isRuntimeEventNotification_Event()
 }
@@ -11160,6 +11170,10 @@ type RuntimeEventNotification_UnrecognizedBlock struct {
 	UnrecognizedBlock *UnrecognizedBlock `protobuf:"bytes,29,opt,name=unrecognized_block,json=unrecognizedBlock,proto3,oneof"`
 }
 
+type RuntimeEventNotification_Image struct {
+	Image *ImageBlock `protobuf:"bytes,31,opt,name=image,proto3,oneof"`
+}
+
 func (*RuntimeEventNotification_TextDelta) isRuntimeEventNotification_Event() {}
 
 func (*RuntimeEventNotification_ThinkingDelta) isRuntimeEventNotification_Event() {}
@@ -11213,6 +11227,8 @@ func (*RuntimeEventNotification_UsageUpdate) isRuntimeEventNotification_Event() 
 func (*RuntimeEventNotification_PlanUpdated) isRuntimeEventNotification_Event() {}
 
 func (*RuntimeEventNotification_UnrecognizedBlock) isRuntimeEventNotification_Event() {}
+
+func (*RuntimeEventNotification_Image) isRuntimeEventNotification_Event() {}
 
 type TextDelta struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -13793,6 +13809,124 @@ func (x *UnrecognizedBlock) GetData() []byte {
 	return nil
 }
 
+// BlobSource is where a block's bytes come from: inline, or a URL reference.
+// The two are mutually exclusive, mirroring cago's blocks.BlobSource.
+type BlobSource struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Inline        []byte                 `protobuf:"bytes,1,opt,name=inline,proto3" json:"inline,omitempty"`
+	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BlobSource) Reset() {
+	*x = BlobSource{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[194]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlobSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlobSource) ProtoMessage() {}
+
+func (x *BlobSource) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[194]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BlobSource.ProtoReflect.Descriptor instead.
+func (*BlobSource) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{194}
+}
+
+func (x *BlobSource) GetInline() []byte {
+	if x != nil {
+		return x.Inline
+	}
+	return nil
+}
+
+func (x *BlobSource) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+// ImageBlock carries an image attachment from a user message. It mirrors cago's
+// blocks.ImageBlock exactly — media type plus a BlobSource — because the sending
+// host projects the stored block without reserializing its bytes.
+//
+// inline stays a plain bytes field on purpose: agentre-server's wireview projects
+// BytesKind to bare base64, which is what a consumer needs to rebuild a data URL.
+// Routing it through the raw-JSON escape hatch would wrap every image in a
+// {"$b64": ...} object for an ambiguity image bytes never have.
+//
+// Both source slots empty is legal-but-broken data: no image can be drawn, yet the
+// event is still emitted so the consumer can say "there is an image here I cannot
+// fetch" instead of silently losing a piece of the transcript.
+type ImageBlock struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MediaType     string                 `protobuf:"bytes,1,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
+	Source        *BlobSource            `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImageBlock) Reset() {
+	*x = ImageBlock{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[195]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImageBlock) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImageBlock) ProtoMessage() {}
+
+func (x *ImageBlock) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[195]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImageBlock.ProtoReflect.Descriptor instead.
+func (*ImageBlock) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{195}
+}
+
+func (x *ImageBlock) GetMediaType() string {
+	if x != nil {
+		return x.MediaType
+	}
+	return ""
+}
+
+func (x *ImageBlock) GetSource() *BlobSource {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
 var file_agentre_wire_wire_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
@@ -14622,7 +14756,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x03cwd\x18\x03 \x01(\tR\x03cwd\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x14\n" +
 	"\x05turns\x18\x05 \x01(\x05R\x05turns\x12)\n" +
-	"\x10already_imported\x18\x06 \x01(\bR\x0falreadyImported\"\xd1\x14\n" +
+	"\x10already_imported\x18\x06 \x01(\bR\x0falreadyImported\"\x8e\x15\n" +
 	"\x18RuntimeEventNotification\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x03R\x03seq\x12\x18\n" +
@@ -14657,7 +14791,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x0esubagent_model\x18\x1a \x01(\v2\x1b.agentre.wire.SubagentModelB\x12\x8a\xa6\x1d\x0esubagent_modelH\x00R\rsubagentModel\x12I\n" +
 	"\fusage_update\x18\x1b \x01(\v2\x19.agentre.wire.UsageUpdateB\t\x8a\xa6\x1d\x05usageH\x00R\vusageUpdate\x12P\n" +
 	"\fplan_updated\x18\x1c \x01(\v2\x19.agentre.wire.PlanUpdatedB\x10\x8a\xa6\x1d\fplan_updatedH\x00R\vplanUpdated\x12h\n" +
-	"\x12unrecognized_block\x18\x1d \x01(\v2\x1f.agentre.wire.UnrecognizedBlockB\x16\x8a\xa6\x1d\x12unrecognized_blockH\x00R\x11unrecognizedBlockB\a\n" +
+	"\x12unrecognized_block\x18\x1d \x01(\v2\x1f.agentre.wire.UnrecognizedBlockB\x16\x8a\xa6\x1d\x12unrecognized_blockH\x00R\x11unrecognizedBlock\x12;\n" +
+	"\x05image\x18\x1f \x01(\v2\x18.agentre.wire.ImageBlockB\t\x8a\xa6\x1d\x05imageH\x00R\x05imageB\a\n" +
 	"\x05event\"\x1f\n" +
 	"\tTextDelta\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\"#\n" +
@@ -14878,7 +15013,16 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x11UnrecognizedBlock\x12\x1d\n" +
 	"\n" +
 	"block_type\x18\x01 \x01(\tR\tblockType\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data*\x87\x10\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"6\n" +
+	"\n" +
+	"BlobSource\x12\x16\n" +
+	"\x06inline\x18\x01 \x01(\fR\x06inline\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\"]\n" +
+	"\n" +
+	"ImageBlock\x12\x1d\n" +
+	"\n" +
+	"media_type\x18\x01 \x01(\tR\tmediaType\x120\n" +
+	"\x06source\x18\x02 \x01(\v2\x18.agentre.wire.BlobSourceR\x06source*\x87\x10\n" +
 	"\tRpcMethod\x12\x1a\n" +
 	"\x16RPC_METHOD_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RPC_METHOD_AUTH_ACCOUNT\x10\x01\x12\x1b\n" +
@@ -14964,7 +15108,7 @@ func file_agentre_wire_wire_proto_rawDescGZIP() []byte {
 }
 
 var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 200)
+var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 202)
 var file_agentre_wire_wire_proto_goTypes = []any{
 	(RpcMethod)(0),                             // 0: agentre.wire.RpcMethod
 	(AgentredSelfUpdateRejectReason)(0),        // 1: agentre.wire.AgentredSelfUpdateRejectReason
@@ -15162,13 +15306,15 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	(*PlanAction)(nil),                         // 193: agentre.wire.PlanAction
 	(*PlanUpdated)(nil),                        // 194: agentre.wire.PlanUpdated
 	(*UnrecognizedBlock)(nil),                  // 195: agentre.wire.UnrecognizedBlock
-	nil,                                        // 196: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	nil,                                        // 197: agentre.wire.LLMProvider.ModelRoutesEntry
-	nil,                                        // 198: agentre.wire.MCPServer.HeadersEntry
-	nil,                                        // 199: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	nil,                                        // 200: agentre.wire.MCPProxyRequest.HeadersEntry
-	nil,                                        // 201: agentre.wire.MCPProxyResponse.HeadersEntry
-	(*descriptorpb.FieldOptions)(nil),          // 202: google.protobuf.FieldOptions
+	(*BlobSource)(nil),                         // 196: agentre.wire.BlobSource
+	(*ImageBlock)(nil),                         // 197: agentre.wire.ImageBlock
+	nil,                                        // 198: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	nil,                                        // 199: agentre.wire.LLMProvider.ModelRoutesEntry
+	nil,                                        // 200: agentre.wire.MCPServer.HeadersEntry
+	nil,                                        // 201: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	nil,                                        // 202: agentre.wire.MCPProxyRequest.HeadersEntry
+	nil,                                        // 203: agentre.wire.MCPProxyResponse.HeadersEntry
+	(*descriptorpb.FieldOptions)(nil),          // 204: google.protobuf.FieldOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
 	9,   // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
@@ -15189,9 +15335,9 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	11,  // 15: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
 	12,  // 16: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
 	21,  // 17: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
-	196, // 18: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	198, // 18: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
 	21,  // 19: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
-	197, // 20: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
+	199, // 20: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
 	27,  // 21: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
 	32,  // 22: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
 	35,  // 23: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
@@ -15213,16 +15359,16 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	179, // 39: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
 	180, // 40: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
 	94,  // 41: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
-	198, // 42: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
+	200, // 42: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
 	93,  // 43: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
 	94,  // 44: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
 	95,  // 45: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
 	96,  // 46: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
-	199, // 47: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	201, // 47: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
 	93,  // 48: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
 	100, // 49: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
-	200, // 50: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
-	201, // 51: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
+	202, // 50: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
+	203, // 51: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
 	116, // 52: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
 	118, // 53: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
 	121, // 54: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
@@ -15266,24 +15412,26 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	191, // 92: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
 	194, // 93: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
 	195, // 94: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
-	170, // 95: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
-	176, // 96: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
-	178, // 97: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
-	179, // 98: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
-	180, // 99: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
-	187, // 100: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
-	188, // 101: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
-	170, // 102: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
-	192, // 103: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
-	193, // 104: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
-	110, // 105: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	110, // 106: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	202, // 107: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	108, // [108:108] is the sub-list for method output_type
-	108, // [108:108] is the sub-list for method input_type
-	108, // [108:108] is the sub-list for extension type_name
-	107, // [107:108] is the sub-list for extension extendee
-	0,   // [0:107] is the sub-list for field type_name
+	197, // 95: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
+	170, // 96: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
+	176, // 97: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
+	178, // 98: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
+	179, // 99: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
+	180, // 100: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
+	187, // 101: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
+	188, // 102: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
+	170, // 103: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
+	192, // 104: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
+	193, // 105: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
+	196, // 106: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
+	110, // 107: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	110, // 108: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	204, // 109: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	110, // [110:110] is the sub-list for method output_type
+	110, // [110:110] is the sub-list for method input_type
+	110, // [110:110] is the sub-list for extension type_name
+	109, // [109:110] is the sub-list for extension extendee
+	0,   // [0:109] is the sub-list for field type_name
 }
 
 func init() { file_agentre_wire_wire_proto_init() }
@@ -15349,6 +15497,7 @@ func file_agentre_wire_wire_proto_init() {
 		(*RuntimeEventNotification_UsageUpdate)(nil),
 		(*RuntimeEventNotification_PlanUpdated)(nil),
 		(*RuntimeEventNotification_UnrecognizedBlock)(nil),
+		(*RuntimeEventNotification_Image)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -15356,7 +15505,7 @@ func file_agentre_wire_wire_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   200,
+			NumMessages:   202,
 			NumExtensions: 1,
 			NumServices:   0,
 		},

@@ -60,6 +60,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/pkg/wire/wirelimits"
+
 	// 块类型词表是**运行时**注册表:判别值只有在注册包的 init() 跑过之后才存在。
 	// 这个 blank import 就是把本仓的注册包链接进测试二进制、让 init() 真的执行 ——
 	// 生成器随后问 blocks.RegisteredTypes() 拿到的才是完整答案。理由与代价见
@@ -284,6 +286,7 @@ func tsEventKindDecls() []tsEventKindDecl {
 		{"EventDone", agentruntime.EventDone},
 		{"EventUserMessage", agentruntime.EventUserMessage},
 		{"EventUnrecognizedBlock", agentruntime.EventUnrecognizedBlock},
+		{"EventImage", agentruntime.EventImage},
 		{"EventContextWindowUpdated", agentruntime.EventContextWindowUpdated},
 	}
 }
@@ -1188,9 +1191,13 @@ func tsGenHeader(what string, truth, boundary []string) []string {
 		" * 重新生成:",
 		" *",
 		" *   "+tsRegenCmd,
-		" *",
 	)
-	out = append(out, boundary...)
+	// 「边界」那一段是可选的(预算产物在 agentre-wire 那一份没有)。分隔行跟着它走,
+	// 不然没有边界段的产物头部会连着印两行空注释。
+	if len(boundary) > 0 {
+		out = append(out, " *")
+		out = append(out, boundary...)
+	}
 	return append(out,
 		" *",
 		" * 格式:生成器直接输出 Prettier(printWidth 80,本仓默认配置)的形态,",
@@ -1278,6 +1285,66 @@ const _: never = kind,「Go 新增了一个 kind」就成了消费方的编译�
 //
 // boundary 是文件头里「边界」那一段 —— 两处产物的常量逐字节相同,不同的只有这一段:
 // 读到 agentre-ui 那一份的人首先要知道的是它为什么是第二份(见 tsUIEventKindBoundary)。
+// renderTSLimits 把 wire 的尺寸预算写成 TS 常量。
+//
+// 值直接取 Go 常量本身(不是文本解析):产物因此不可能与真源漂移,而
+// TestGeneratedTSFresh 逐字节比对把这件事变成机械保证。这正是规格
+// 2026-09-07-attachment-render-and-send-budget 决策 6 要的 —— 那个常量恰恰是
+// 漂移过的那一个,手抄一份等于再犯一次。
+//
+// 两处产物都写:agentre-wire 给 wire 编解码的消费方,agentre-ui 给 composer ——
+// 后者装不了前者(理由见 tsUIEventKindBoundary),所以它必须有自己的一份。
+// tsUILimitsBoundary 是 agentre-ui 那一份预算产物的头部「边界」段:读到第二份的人
+// 首先要知道的是它为什么是第二份。
+func tsUILimitsBoundary() []string {
+	return []string{
+		" * 两处产物:同一组数在本仓写到两个包 —— @agentre-hub/agentre-wire 的",
+		" * src/limits.gen.ts(与 codec / constants 同包),以及本文件。理由与",
+		" * event-kinds.gen.ts 的第二份逐字同构:agentre-server 通过 git 依赖只取",
+		" * frontend/packages/agentre-ui 这一个子目录,抽出来的 tarball 里没有兄弟包,",
+		" * 所以这个包不能 import @agentre-hub/agentre-wire。",
+		" *",
+		" * 两份不是手抄:值都由同一个 Go 生成器从同一组 Go 常量写出,",
+		" * TestGeneratedTSFresh 对两处产物逐字节比对,漂移在机械上不可能发生。",
+	}
+}
+
+// tsLimitsTruth 是预算产物头部的「真理源」段,与 tsWireTruth / tsEventKindTruth 同形。
+func tsLimitsTruth() []string {
+	return []string{" * 真理源:  pkg/wire/wirelimits 的常量"}
+}
+
+func renderTSLimits(boundary []string) string {
+	lines := tsGenHeader(
+		"wire 协议的尺寸预算。",
+		// 这一段只写「真理源」那一行:生成器与重新生成命令由 tsGenHeader 自己补,
+		// 而那一份补的是 tsRegenCmd 常量。在这里再写一遍等于把同一段话印两次,
+		// 且那份手抄的命令与常量各走各的 —— 与其余三份产物的头部一比就看得出来。
+		tsLimitsTruth(),
+		boundary,
+	)
+	lines = append(lines, "")
+	lines = append(lines, tsDocComment(0, strings.Join([]string{
+		"一条 RPC 载荷的上限,整条链路共用这一个数。",
+		"",
+		"超限不是「这一次请求失败了」:gorilla 回 1009 并让读循环出错,于是整条物理",
+		"连接被拆掉,而那条链路上跑着那台机器的全部虚拟通道,所有会话一起断线重连。",
+	}, "\n"))...)
+	lines = append(lines, "export const MaxPayloadBytes = "+strconv.FormatInt(wirelimits.MaxPayloadBytes, 10)+";")
+	lines = append(lines, "")
+	lines = append(lines, tsDocComment(0, strings.Join([]string{
+		"一条消息里全部附件的**原始字节**总量上限(不是 base64 之后的量)。",
+		"",
+		"附件以 base64 过线、膨胀 4/3,所以这个数 base64 之后正好占满载荷的 8/9,",
+		"余下的 1/9 留给正文、提及、模型键与其余字段。",
+		"",
+		"它管的是总量这一维;单张上限与张数上限是另外两件事,各自在产生方那一侧。",
+	}, "\n"))...)
+	lines = append(lines, "export const MaxAttachmentBytes = "+strconv.FormatInt(wirelimits.MaxAttachmentBytes, 10)+";")
+	lines = append(lines, "")
+	return strings.Join(lines, "\n")
+}
+
 func renderTSEventKinds(decls eventKindDecls, boundary []string) string {
 	kinds := tsEventKindDecls()
 	lines := tsGenHeader(
@@ -1696,9 +1763,11 @@ func buildTSTargets(t *testing.T) []tsTarget {
 			{name: "event-kinds.gen.ts", content: renderTSEventKinds(kinds, tsEventKindBoundary())},
 			{name: "block-types.gen.ts", content: renderTSBlockTypes(blockTypeVocabulary(t))},
 			{name: "chat-block-types.gen.ts", content: renderTSChatBlockTypes(chatBlockTypeVocabulary(t))},
+			{name: "limits.gen.ts", content: renderTSLimits(nil)},
 		}},
 		{rel: tsUIGenRel, sources: []tsSource{
 			{name: "event-kinds.gen.ts", content: renderTSEventKinds(kinds, tsUIEventKindBoundary())},
+			{name: "limits.gen.ts", content: renderTSLimits(tsUILimitsBoundary())},
 		}},
 	}
 }

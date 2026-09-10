@@ -6,6 +6,8 @@ import {
   cn,
   previewNeedsMonaco,
   useUiTranslation,
+  type FilePreviewFailure,
+  type FilePreviewFailureKind,
   type FilePreviewPorts,
 } from "@agentre-hub/agentre-ui";
 
@@ -105,7 +107,35 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
 
   const ports: FilePreviewPorts = React.useMemo(
     () => ({
-      readFile: (path) => WorkspaceFsReadFile(sessionId, rootArg, path),
+      readFile: async (path) => {
+        const view = await WorkspaceFsReadFile(sessionId, rootArg, path);
+        // 归类的**产出点**就在这里：服务层把能判的失败作为结构化原因随应答带回
+        // （Wails 边界只过 Error() 字符串，没有别的通道），宿主在这里把它翻成包
+        // 里那套失败标记，面板才分得出「文件不存在」（终态、不给动作）与「对端
+        // 离线」（可重试）。翻不过来的失败照旧原样 reject，落包里的未归类兜底。
+        if (view.unavailable) {
+          // 只认服务层今天真的会给的那两个取值,认不出来的就**不贴标记**——照
+          // 直 reject 落包里的未归类兜底,而不是默认当成「离线」贴上重试按钮
+          // (同 cwdUnavailableReason 的读法:逐个已知取值判等,其余走兜底)。
+          const kind: FilePreviewFailureKind | undefined =
+            view.unavailable === "not-found"
+              ? "notFound"
+              : view.unavailable === "offline"
+                ? "offline"
+                : undefined;
+          if (!kind) {
+            // 未归类那档由面板**如实显示 reject 自带的那句话**——那条约定的前提
+            // 是宿主给得出一句已本地化的人话。这里给不出:`unavailable` 是个机器
+            // token,没有译文。所以留空文案,让面板回落到它自己那句通用提示,而
+            // 不是把 token 原样端到用户面前。
+            throw new Error();
+          }
+          throw Object.assign(new Error(view.unavailable), {
+            kind,
+          } satisfies FilePreviewFailure);
+        }
+        return view;
+      },
       gitFileContent: (path) =>
         WorkspaceFsGitFileContent(sessionId, rootArg, path),
     }),

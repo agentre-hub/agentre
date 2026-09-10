@@ -259,7 +259,7 @@ function LocalInternalPopover({
       </code>
       <div className="flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-meta text-muted-foreground">
         <MousePointerClick className="size-3" aria-hidden />
-        {t("richLink.openWithDefaultApp")}
+        {t("richLink.clickToOpen")}
       </div>
     </div>
   );

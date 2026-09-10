@@ -365,6 +365,58 @@ describe("FilePreviewPanel", () => {
     ).toBeInTheDocument();
   });
 
+  // 这两条**必须**打在生产路径上：让 Wails 桩返回带 unavailable 的应答，由装配根
+  // 自己把它翻成失败标记。不得改成注入一个预先贴好 kind 的 error —— 正是那种写法
+  // 让「文件不存在」在 2026-09-06 那一轮一路绿着发了出去，运行期才被抓到。
+  it("shows the not-found terminal state with no action when the file is gone", async () => {
+    readFileMock.mockResolvedValue({ content: "", unavailable: "not-found" });
+    openPreview("ghost.md", 7, "directory");
+    renderPanel();
+
+    const panel = await screen.findByRole("complementary", {
+      name: "File preview",
+    });
+    expect(
+      await within(panel).findByText(/File not found/),
+    ).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /Retry/i })).toBeNull();
+  });
+
+  it("shows the offline state with a retry when the peer is unreachable", async () => {
+    readFileMock.mockResolvedValue({ content: "", unavailable: "offline" });
+    openPreview("README.md", 7, "directory");
+    renderPanel();
+
+    const panel = await screen.findByRole("complementary", {
+      name: "File preview",
+    });
+    expect(
+      await within(panel).findByText(/This machine is unreachable right now/),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByRole("button", { name: /Retry/i }),
+    ).toBeInTheDocument();
+  });
+
+  // 服务层将来多给一个原因（或改了取值拼写）时，宿主翻不出标记 —— 那一档必须落
+  // 回包里那句本地化的通用提示，而不是把机器 token 原样端到用户面前。
+  it("falls back to the generic read failure copy for an unrecognised reason", async () => {
+    readFileMock.mockResolvedValue({ content: "", unavailable: "wedged" });
+    openPreview("README.md", 7, "directory");
+    renderPanel();
+
+    const panel = await screen.findByRole("complementary", {
+      name: "File preview",
+    });
+    expect(
+      await within(panel).findByText(/Failed to read file/),
+    ).toBeInTheDocument();
+    expect(within(panel).queryByText("wedged")).toBeNull();
+    expect(
+      within(panel).getByRole("button", { name: /Retry/i }),
+    ).toBeInTheDocument();
+  });
+
   it("shows the read error text with a retry that re-reads", async () => {
     readFileMock.mockRejectedValueOnce(
       new Error("Path is outside the session working directory"),

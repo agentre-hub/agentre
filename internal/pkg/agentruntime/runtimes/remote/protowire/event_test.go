@@ -92,7 +92,7 @@ func sealedEventSpecimens() []agentruntime.Event {
 		agentruntime.Retry{}, agentruntime.UsageUpdate{}, agentruntime.ContextWindowUpdated{},
 		agentruntime.CompactBoundary{}, agentruntime.RuntimeStatus{}, agentruntime.PlanUpdated{},
 		agentruntime.Done{}, agentruntime.ErrorEvent{}, agentruntime.UserMessageEvent{},
-		agentruntime.UnrecognizedBlock{},
+		agentruntime.UnrecognizedBlock{}, agentruntime.ImageBlockEvent{},
 	}
 }
 
@@ -151,6 +151,7 @@ func TestEventNotificationPreservesEveryField(t *testing.T) {
 		agentruntime.ErrorEvent{Err: errors.New("boom")},
 		agentruntime.UserMessageEvent{Text: "hello", SourceDevice: "fp", SourceDeviceName: "Mac"},
 		agentruntime.UnrecognizedBlock{BlockType: "future_block", Data: json.RawMessage(`{"nested":{"keep":true}}`)},
+		agentruntime.ImageBlockEvent{MediaType: "image/png", Inline: []byte{0x89, 0x50, 0x4e, 0x47}, URL: "https://example.test/a.png"},
 	}
 	require.Len(t, specimens, len(sealedEventSpecimens()),
 		"每个 sealed event 都要有一份填满字段的 specimen")

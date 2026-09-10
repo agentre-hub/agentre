@@ -300,6 +300,15 @@ func (e UnrecognizedBlock) MarshalJSON() ([]byte, error) {
 	}{EventUnrecognizedBlock, e.BlockType, e.Data})
 }
 
+func (e ImageBlockEvent) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kind      EventKind `json:"kind"`
+		MediaType string    `json:"mediaType,omitempty"`
+		Inline    []byte    `json:"inline,omitempty"`
+		URL       string    `json:"url,omitempty"`
+	}{EventImage, e.MediaType, e.Inline, e.URL})
+}
+
 func (e Done) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Kind         EventKind `json:"kind"`
@@ -649,6 +658,16 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			return nil, err
 		}
 		return UnrecognizedBlock{BlockType: w.BlockType, Data: w.Data}, nil
+	case EventImage:
+		var w struct {
+			MediaType string `json:"mediaType"`
+			Inline    []byte `json:"inline"`
+			URL       string `json:"url"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return ImageBlockEvent{MediaType: w.MediaType, Inline: w.Inline, URL: w.URL}, nil
 	case EventDone:
 		var w struct {
 			Model        string  `json:"model"`

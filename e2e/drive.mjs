@@ -143,6 +143,15 @@ const COMMANDS = {
     return `clicked ${rest[0]} (now at ${page.url()})`;
   },
 
+  async hover({ page, rest, flags }) {
+    // 悬停是一个**独立动作**，因为有整类控件只在父行 hover 时才渲染（会话索引里
+    // 的项目菜单、「新建随手对话」等）。对它们直接 click 会被 Playwright 判成不可
+    // 操作；先 hover 父行、下一条命令再 click 子控件即可——浏览器实例在两次
+    // drive 调用之间保留鼠标位置。
+    await locate(page, rest[0], flags).hover({ timeout: flags.timeout ?? DEFAULT_TIMEOUT });
+    return `hovered ${rest[0]}`;
+  },
+
   async fill({ page, rest, flags }) {
     await locate(page, rest[0], flags).fill(rest.slice(1).join(" "), {
       timeout: flags.timeout ?? DEFAULT_TIMEOUT,

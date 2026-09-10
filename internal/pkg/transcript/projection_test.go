@@ -29,6 +29,51 @@ import (
 //
 // 现在它是真的密封事件类型:带自己的 EventKind、proto 字段与两端生成产物,既送
 // 得出去,又如实。
+// TestProjectMessages_GivenUserImageBlock_ThenProjectsAnImageEvent 钉住一条带图的
+// 用户消息投影出什么。
+//
+// 它此前落 R8 兜底(UnrecognizedBlock):EventForStoredBlock 的 role==user 支只认
+// text / display_text。兜底本身没错 —— 它保住了字节 —— 但消费方那一侧只知道「有一块
+// 读不懂的东西」,既不知道这是图,也不知道它是用户贴的,于是画成助手名下的一段 base64。
+//
+// 块序照两个宿主落库的那一份:先文本、后附件。
+func TestProjectMessages_GivenUserImageBlock_ThenProjectsAnImageEvent(t *testing.T) {
+	t.Parallel()
+
+	messages := []*transcript_entity.Message{
+		{SessionID: 42, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"这张图哪里不对"}},{"type":"image","data":{"media_type":"image/png","source":{"inline":"AQID"}}}]`},
+	}
+
+	frames, _, err := transcript.ProjectMessages("conv-42", messages)
+	require.NoError(t, err)
+	require.Len(t, frames, 2)
+
+	assert.Equal(t, agentruntime.EventUserMessage, projectedEventKind(t, frames[0].Event))
+	assert.Equal(t, agentruntime.EventImage, projectedEventKind(t, frames[1].Event))
+	// 字节不重新编码:块里存的是 base64("AQID" = 0x01 0x02 0x03),Go 侧 []byte 解出来
+	// 就是那三个字节,过 wire 时再由 protobuf 的 bytes 原样带走。
+	assert.Equal(t, agentruntime.ImageBlockEvent{
+		MediaType: "image/png",
+		Inline:    []byte{0x01, 0x02, 0x03},
+	}, frames[1].Event)
+}
+
+// TestProjectMessages_GivenImageBlockWithoutBytes_ThenStillProjectsTheBlock 两格来源
+// 都空是合法的坏数据:画不出图,但**不静默跳过** —— 转录里凭空少一块比一块画不出来
+// 更难解释,而消费方拿到这一帧才说得出「这里有一张取不到的图」。
+func TestProjectMessages_GivenImageBlockWithoutBytes_ThenStillProjectsTheBlock(t *testing.T) {
+	t.Parallel()
+
+	messages := []*transcript_entity.Message{
+		{SessionID: 43, Role: "user", Seq: 1, BlocksJSON: `[{"type":"image","data":{"media_type":"image/jpeg","source":{}}}]`},
+	}
+
+	frames, _, err := transcript.ProjectMessages("conv-43", messages)
+	require.NoError(t, err)
+	require.Len(t, frames, 1)
+	assert.Equal(t, agentruntime.ImageBlockEvent{MediaType: "image/jpeg"}, frames[0].Event)
+}
+
 func TestProjectMessages_GivenPersistedBlocks_ThenForwardsUnrecognizedBlockVerbatim(t *testing.T) {
 	t.Parallel()
 

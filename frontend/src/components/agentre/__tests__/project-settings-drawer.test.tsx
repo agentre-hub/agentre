@@ -134,6 +134,49 @@ describe("成员", () => {
     );
   });
 
+  // 生产上 Agent 的 deviceID 是**指纹**（chat_svc: ExternalDeviceID(be.DeviceFingerprint)），
+  // 而 ProjectLocationList 的 deviceId 是配对表的数字 id。两边不是一个键，
+  // 所以判「这台机器配没配过路径」必须走 deviceFingerprint。
+  it("远端 Agent 的那台设备已经配了路径时，候选就该能选", async () => {
+    mockProject();
+    appMocks.ListChatAgents.mockResolvedValue({
+      agents: [
+        {
+          id: 7,
+          name: "Remote",
+          avatarColor: "agent-2",
+          deviceID: "sha256:fp-42",
+          online: true,
+        },
+      ],
+    });
+    appMocks.RemoteDeviceList.mockResolvedValue([
+      {
+        id: 42,
+        name: "build-01",
+        online: true,
+        daemonFingerprint: "sha256:fp-42",
+      },
+    ]);
+    appMocks.ProjectLocationList.mockResolvedValue([
+      {
+        id: 1,
+        projectId: 1,
+        deviceId: "42",
+        deviceFingerprint: "sha256:fp-42",
+        path: "/srv/app",
+        deviceName: "build-01",
+        online: true,
+      },
+    ]);
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByTestId("project-member-add-open"));
+    const candidate = await screen.findByTestId("project-member-add-7");
+    expect(candidate).not.toBeDisabled();
+  });
+
   it("远端 Agent 的那台设备还没配路径时，候选留在列表里并说出原因", async () => {
     mockProject();
     appMocks.ListChatAgents.mockResolvedValue({
@@ -142,7 +185,7 @@ describe("成员", () => {
           id: 7,
           name: "Remote",
           avatarColor: "agent-2",
-          deviceID: "42",
+          deviceID: "sha256:fp-42",
           online: true,
         },
       ],
@@ -269,13 +312,25 @@ describe("远端设备那几行", () => {
       directMembers: [{ agentID: 7, agentName: "Remote" }],
       inheritedMembers: [],
     });
+    // Agent 的 deviceID 生产上是**指纹**，不是配对表的数字 id；夹具照生产形状来，
+    // 否则这条断言在真实数据下根本不成立（原先的 "42" 是个真机上不会出现的值）。
     appMocks.ListChatAgents.mockResolvedValue({
       agents: [
-        { id: 7, name: "Remote", avatarColor: "agent-2", deviceID: "42" },
+        {
+          id: 7,
+          name: "Remote",
+          avatarColor: "agent-2",
+          deviceID: "sha256:fp-42",
+        },
       ],
     });
     appMocks.RemoteDeviceList.mockResolvedValue([
-      { id: 42, name: "build-01", online: true },
+      {
+        id: 42,
+        name: "build-01",
+        online: true,
+        daemonFingerprint: "sha256:fp-42",
+      },
     ]);
 
     renderDrawer();

@@ -33,6 +33,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
@@ -868,6 +869,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.gateway.Start(ctx); err != nil {
 		return err
 	}
+	// 把 gateway 的 SteerInbox 注入 claudecode runner —— 轮中插话经它投递,
+	// PostToolUse hook 在工具边界来 drain(hook 那一侧 agentred 走
+	// claudecode.hookBin 的回落:当前可执行文件,agentred 自带 claudecode 子命令)。
+	//
+	// 漏了这一次注入,这台宿主上的 runtime.steer 一律返回「steer inbox not
+	// configured」(claudecode/runtime.go:171),而桌面端(internal/bootstrap)是注入
+	// 了的 —— 同一条「轮中插话」在两台宿主上一个能用一个不能,且没有任何编译期
+	// 检查会提醒。回归锚在 integration_test.go 的
+	// TestIntegration_DaemonBoot_WiresTheClaudecodeSteerInbox。
+	claudecode.Default().SetSteerInbox(d.gateway.Steer())
 	if d.gateway.URL() == "" {
 		// Gateway bind failed; keep going — CLI-login backends can still
 		// operate without a gateway token. Structured logging is not wired

@@ -459,5 +459,10 @@ func decodePeerUserBlocks(userText string, in []cagoblocks.StoredBlock) ([]cagob
 	if err != nil {
 		return nil, fmt.Errorf("invalid peer session run: decode user blocks: %w", err)
 	}
+	// 桌面端做宿主时收的同样是**经中继来的**图(控制台驱动一条它托管的会话),所以
+	// 这道闸与 agentred 那一侧同一个:同一个常量、同一条「拒整轮不截断」的处置。
+	if err := transcript.CheckAttachmentBudget(out); err != nil {
+		return nil, fmt.Errorf("invalid peer session run: %w", err)
+	}
 	return transcript.TurnAttachments(userText, out), nil
 }

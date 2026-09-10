@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import { MaxAttachmentBytes } from "../limits.gen";
 import { AIChatInput } from "../chat-input";
 import type { AIChatInputProps } from "../chat-input";
 import { resolveDroppedPaths, type DroppedImageItem } from "../chat-input/drop";
@@ -93,6 +94,18 @@ export type ChatComposerProps = Omit<
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
 const MAX_IMAGE_COUNT = 4;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/**
+ * 一条消息里全部附件的**原始字节**总量上限。
+ *
+ * 与上面两个不是同一件事:那两个卡的是单张与张数,而 runtime.run 把一条消息的所有图
+ * 装在**同一个请求**里 —— 四张各 5 MB 都合法,加起来 base64 之后 26 MB,而链路载荷
+ * 上限是 10 MB。超限的后果不是「这一次发送失败了」,是整条物理连接被拆掉、那台机器上
+ * 所有会话一起重连(见 limits.gen.ts 上 MaxPayloadBytes 的说明)。
+ *
+ * 取的是生成常量而不是自己算:它由同一个 Go 生成器从 pkg/wire/wirelimits 写出,
+ * 而那个数正是「三处曾经不同源」栽过跟头的那一个。
+ */
+const MAX_ATTACHMENT_TOTAL_BYTES = MaxAttachmentBytes;
 
 function readImage(file: File): Promise<ChatImageAttachment> {
   return new Promise((resolve, reject) => {
@@ -112,6 +125,44 @@ function readImage(file: File): Promise<ChatImageAttachment> {
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * 一张已经贴上的图占多少**原始**字节。
+ *
+ * dataUrl 是 `data:<mime>;base64,<载荷>`,base64 每 4 个字符编 3 个字节,结尾的
+ * `=` 是补位不计入。总量预算量的是原始字节,所以这里要把它折回去 —— 拿 dataUrl 的
+ * 长度当量会把每一张都高估三分之一,预算于是悄悄紧了一档。
+ */
+function imageBytes(image: { dataUrl: string }): number {
+  const payload = image.dataUrl.split(",", 2)[1] ?? "";
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
+}
+
+/** 已经贴上的这些图一共占多少原始字节。 */
+function totalImageBytes(images: readonly { dataUrl: string }[]): number {
+  return images.reduce((sum, image) => sum + imageBytes(image), 0);
+}
+
+/**
+ * 再添 `adding` 个原始字节会不会撑破总量预算。
+ *
+ * 两条入口共用这一处:一处是贴/粘(`addFiles`),一处是拖入(`handleDroppedPaths`)。
+ * 拖入那条此前只经过 `resolveDroppedPaths` 的**张数**配额,而宿主拒的是字节总量 ——
+ * 四张各 4 MB 拖得进来、贴得上,按下发送时整轮被 `chat_svc.blocksFromSendImages`
+ * 拒掉,回的是一个笼统的参数错误,用户写的那句话连同图一起没了。
+ */
+function overAttachmentBudget(
+  current: readonly { dataUrl: string }[],
+  adding: number,
+): boolean {
+  return totalImageBytes(current) + adding > MAX_ATTACHMENT_TOTAL_BYTES;
+}
+
+/** 总量那句话里的 {{total}}。两条入口说的是同一句 —— 处置本来就相同。 */
+const TOO_LARGE_ARGS = {
+  total: Math.floor(MAX_ATTACHMENT_TOTAL_BYTES / (1024 * 1024)),
+};
 
 function imageFilesFromClipboard(data: DataTransfer): File[] {
   const itemFiles = Array.from(data.items ?? [])
@@ -243,6 +294,13 @@ export const ChatComposer = React.forwardRef<
           setImageError(t("chatComposer.images.unsupported"));
           return;
         }
+        // 总量是**第三件事**,与张数、单张各有各的处置,所以文案也不复用它们的。
+        // 量的是原始字节,不是 base64 之后的量 —— 后者是传输形态,用户手里的是前者。
+        const adding = next.reduce((sum, file) => sum + file.size, 0);
+        if (overAttachmentBudget(images, adding)) {
+          setImageError(t("chatComposer.images.tooLarge", TOO_LARGE_ARGS));
+          return;
+        }
         const attachments = await Promise.all(next.map(readImage));
         setImages((current) => [...current, ...attachments]);
         setImageError("");
@@ -252,7 +310,9 @@ export const ChatComposer = React.forwardRef<
         if (fileRef.current) fileRef.current.value = "";
       }
     },
-    [disabled, images.length, t],
+    // 依赖是 images 而不是 images.length:总量校验读的是**内容**(每张多少字节),
+    // 只跟长度走的话,换掉一张但张数不变时闭包里还是旧的那批,预算就按旧的算。
+    [disabled, images, t],
   );
 
   // 拖入永不死路：所有没能收编成附件的项都降级为路径文本插进编辑器。
@@ -266,13 +326,20 @@ export const ChatComposer = React.forwardRef<
           remainingImageSlots: MAX_IMAGE_COUNT - images.length,
         });
         if (attachments.length > 0) {
-          setImages((current) => [...current, ...attachments]);
-          setImageError("");
+          // 总量与贴/粘那条路同一道闸、同一句话:`resolveDroppedPaths` 只卡张数,
+          // 不在这里卡字节的话超量的那几张照样贴得上,直到按下发送才被宿主整轮拒掉。
+          if (overAttachmentBudget(images, totalImageBytes(attachments))) {
+            setImageError(t("chatComposer.images.tooLarge", TOO_LARGE_ARGS));
+          } else {
+            setImages((current) => [...current, ...attachments]);
+            setImageError("");
+          }
         }
         if (text) inputRef.current?.insertText(text);
       })();
     },
-    [disabled, dropZone, editing, images.length, inputRef, supportsImageInput],
+    // 依赖是 images 而不是 images.length:总量校验读的是**内容**(每张多少字节)。
+    [disabled, dropZone, editing, images, inputRef, supportsImageInput, t],
   );
 
   const { isDragOver } = useFileDropZone({

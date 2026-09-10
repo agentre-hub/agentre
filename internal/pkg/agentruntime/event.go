@@ -245,6 +245,24 @@ type UnrecognizedBlock struct {
 	Data      json.RawMessage
 }
 
+// ImageBlockEvent 一条用户消息里的图片附件(见 EventImage)。
+//
+// 形状照 cago 的 blocks.ImageBlock:媒体类型,加上互斥的两格字节来源。**不重新编码**
+// —— 内联那一格装的就是块里存着的那些字节,原样过线。
+//
+// 两格都空是合法的坏数据:画不出图,但事件照发。消费方据此说得出「这里有一张取不到
+// 的图」,而不是让转录里凭空少一块(与 UnrecognizedBlock 同一条纪律)。
+type ImageBlockEvent struct {
+	MediaType string
+	// Inline 是图片字节本身。过 protobuf 时它是 bytes,wireview 的 messageMap 按
+	// BytesKind 投成裸 base64 —— 这正是要的:图片字节从来不是 JSON,走 putRawJSON
+	// 只会白包一层 {"$b64": ...}。
+	Inline []byte
+	// URL 是外部引用那一格。今天没有任何产生方填它,消费方仍要认:填了就按它取图,
+	// 而不是当作缺失。
+	URL string
+}
+
 // Done turn 正常结束,并带上这一轮的统计。
 //
 // 四个字段由**收口这一轮的那一层**填,而不是 runtime:桌面端 chat_svc 在 finishTurn
@@ -289,6 +307,7 @@ func (CompactBoundary) isEvent()        {}
 func (RuntimeStatus) isEvent()          {}
 func (UserMessageEvent) isEvent()       {}
 func (UnrecognizedBlock) isEvent()      {}
+func (ImageBlockEvent) isEvent()        {}
 func (Done) isEvent()                   {}
 func (ErrorEvent) isEvent()             {}
 

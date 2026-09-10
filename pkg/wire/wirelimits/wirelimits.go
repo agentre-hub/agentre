@@ -17,3 +17,19 @@ package wirelimits
 // 链路的读上限还要再加一个信封头(relayenvelope.MaxEnvelopeBytes)—— 中继上收到的
 // 每一帧都是套过信封的载荷。
 const MaxPayloadBytes int64 = 10 << 20
+
+// MaxAttachmentBytes 是**一条消息里全部附件的原始字节总量**上限。
+//
+// 它从 MaxPayloadBytes 推导而不是另写一个字面量:上面那段注释记的正是「三处曾经
+// 不同源」的教训,而超限的后果是整条物理连接被拆掉、那台机器上所有会话一起重连。
+//
+// 取三分之二的算法:附件在 runtime.run 里以 base64 过线,膨胀 4/3,所以 2/3 的原始
+// 字节 base64 之后正好占满载荷的 8/9,余下的 1/9(约 1.16 MB)留给正文、提及、模型键
+// 与其余字段。
+//
+// 它管的是**总量**这一维。单张附件的上限与张数上限是另外两件事,各自在产生方那一侧
+// (共享包 composer 与 chat_svc)—— 一张 5 MB 的图合法,四张 5 MB 一起发不合法。
+//
+// 桌面端跑本机 runtime 是进程内调用,一个字节都不过 wire,这个上限在那条路上不是
+// 事故防线;它照样生效,因为一条消息能带多少附件不该因为它这一轮恰好跑在哪儿而不同。
+const MaxAttachmentBytes int64 = MaxPayloadBytes * 2 / 3

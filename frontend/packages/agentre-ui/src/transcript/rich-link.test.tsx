@@ -323,6 +323,58 @@ describe("RichLink", () => {
     });
   });
 
+  describe("Popover hint does not promise a destination", () => {
+    // 浮层在**点击之前**渲染，而去向由点击时的 previewFile 握手定下来（跟随
+    // files.open_action，且控制台宿主根本没有外部应用这条退路）。所以这一行只能
+    // 陈述「点一下会打开它」，不能指名由哪一侧打开。
+    it("local-internal popover states the action without naming the app", async () => {
+      render(
+        <RichLink href="/Users/me/proj/src/foo.go" cwd={CWD}>
+          foo.go
+        </RichLink>,
+      );
+      fireEvent.focus(screen.getByRole("link", { name: /foo\.go/ }));
+
+      expect(await screen.findByText(/Click to open this file/)).toBeTruthy();
+      expect(screen.queryByText(/default system app/i)).toBeNull();
+    });
+
+    // 「设置」进到包里的唯一形状就是 previewFile 的返回值(宿主自己看
+    // files.open_action)。浮层在**点击之前**渲染,两档必须是同一句话 —— 否则
+    // 就等于在渲染期承诺了一个只有点击时才定得下来的去向。
+    it.each([true, false])(
+      "keeps the same hint when previewFile answers %s",
+      async (handled) => {
+        previewFileMock.mockReturnValue(handled);
+        render(
+          <RichLink href="/Users/me/proj/src/foo.go" cwd={CWD} sessionId={7}>
+            foo.go
+          </RichLink>,
+        );
+        fireEvent.focus(screen.getByRole("link", { name: /foo\.go/ }));
+
+        expect(await screen.findByText(/Click to open this file/)).toBeTruthy();
+        expect(screen.queryByText(/default system app/i)).toBeNull();
+        // 浮层只是展开,不该替用户先按一次去向握手。
+        expect(previewFileMock).not.toHaveBeenCalled();
+      },
+    );
+
+    // cwd 之外的路径在任何设置、任何宿主下都只能交给外部应用，这句话本来就是对的。
+    it("local-external popover keeps naming the default system app", async () => {
+      render(
+        <RichLink href="/usr/local/bin/agentred" cwd={CWD}>
+          agentred
+        </RichLink>,
+      );
+      fireEvent.focus(screen.getByRole("link", { name: /agentred/ }));
+
+      expect(
+        await screen.findByText(/Click to open with the default system app/),
+      ).toBeTruthy();
+    });
+  });
+
   describe("Popover content sanity", () => {
     it("local-internal popover shows both project root and relative path", async () => {
       render(

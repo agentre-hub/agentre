@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1550,6 +1551,24 @@ func TestSend_ImageInput(t *testing.T) {
 				}},
 			})
 			assert.Error(t, err)
+		})
+
+		convey.Convey("Given attachments over the total budget, when Send, then it fails before repository calls", func() {
+			m := setupChatTest(t)
+			// 每张 2 MiB:单张(5 MB)与张数(4)两道闸都过得去,加起来 8 MiB 却越过
+			// 了总量预算 —— 正是「输入侧明确允许的组合」把整条物理连接撞掉的那一档。
+			one := chat_svc.SendImage{
+				Name:    "shot.png",
+				DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(make([]byte, 2<<20)),
+			}
+			_, err := m.svc.Send(context.Background(), &chat_svc.SendRequest{
+				AgentID: 7,
+				Images:  []chat_svc.SendImage{one, one, one, one},
+			})
+			var httpErr *httputils.Error
+			require.ErrorAs(t, err, &httpErr)
+			assert.Equal(t, code.InvalidParameter, httpErr.Code,
+				"整轮被拒,而不是截掉超出的那几张照跑")
 		})
 
 		convey.Convey("Given image message on backend without image capability, when Send, then it fails before persisting the turn", func() {

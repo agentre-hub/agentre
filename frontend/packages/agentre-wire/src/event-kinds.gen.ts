@@ -165,6 +165,18 @@ export const EventUserMessage = "user_message";
 export const EventUnrecognizedBlock = "unrecognized_block";
 
 /**
+ * EventImage 一条用户消息里的图片附件(见 event.go 的 ImageBlockEvent)。
+ *
+ * 它与 EventUnrecognizedBlock 的分工是「认得出 / 认不出」:图片块此前只能走后者
+ * 兜底,消费方那一侧于是只画得出一段 base64 文本、还挂在助手名下。有了自己的判别值
+ * 之后,消费方才认得出「这是一张图,而且是用户贴的」。
+ *
+ * 判别值与块类型同名(cago blocks.ImageBlock.Type() == "image"):两张词表本就不同,
+ * 而同一样东西在两处叫同一个名字,比为了避嫌另起一个更不容易读错。
+ */
+export const EventImage = "image";
+
+/**
  * EventContextWindowUpdated 给 ContextWindowUpdated 事件做 wire discriminator。
  * 老 RuntimeEvent 时 ContextWindow 走 RunResult,因此 runner.go 的 EventKind 列表里
  * 没这个常量,这里补上。
@@ -206,4 +218,5 @@ export type EventKind =
   | typeof EventDone
   | typeof EventUserMessage
   | typeof EventUnrecognizedBlock
+  | typeof EventImage
   | typeof EventContextWindowUpdated;

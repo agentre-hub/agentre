@@ -34,7 +34,7 @@ func TestDeclaredEventKindMatchesTheRuntimeVocabulary(t *testing.T) {
 		agentruntime.Retry{}, agentruntime.UsageUpdate{}, agentruntime.ContextWindowUpdated{},
 		agentruntime.CompactBoundary{}, agentruntime.RuntimeStatus{}, agentruntime.ErrorEvent{},
 		agentruntime.Done{}, agentruntime.UserMessageEvent{}, agentruntime.PlanUpdated{},
-		agentruntime.UnrecognizedBlock{},
+		agentruntime.UnrecognizedBlock{}, agentruntime.ImageBlockEvent{},
 	}
 
 	for _, event := range events {

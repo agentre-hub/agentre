@@ -155,6 +155,13 @@ func marshalEvent(frame *agentrewire.RuntimeEventNotification, event agentruntim
 		frame.Event = &agentrewire.RuntimeEventNotification_PlanUpdated{PlanUpdated: m}
 	case agentruntime.UnrecognizedBlock:
 		frame.Event = &agentrewire.RuntimeEventNotification_UnrecognizedBlock{UnrecognizedBlock: &agentrewire.UnrecognizedBlock{BlockType: value.BlockType, Data: value.Data}}
+	case agentruntime.ImageBlockEvent:
+		// source 恒发(哪怕两格都空):收方据此分得清「没有 source 这一格」与「有,
+		// 但里面是空的」—— 后者正是那张取不到的图。
+		frame.Event = &agentrewire.RuntimeEventNotification_Image{Image: &agentrewire.ImageBlock{
+			MediaType: value.MediaType,
+			Source:    &agentrewire.BlobSource{Inline: value.Inline, Url: value.URL},
+		}}
 	case agentruntime.Done:
 		frame.Event = &agentrewire.RuntimeEventNotification_Done{Done: &agentrewire.Done{Model: value.Model, DurationMs: int32(value.DurationMs), FirstTokenMs: int32(value.FirstTokenMs), TokensPerSec: value.TokensPerSec}}
 	case agentruntime.ErrorEvent:
@@ -269,6 +276,14 @@ func unmarshalEvent(frame *agentrewire.RuntimeEventNotification) (agentruntime.E
 	case *agentrewire.RuntimeEventNotification_UnrecognizedBlock:
 		v := value.UnrecognizedBlock
 		return agentruntime.UnrecognizedBlock{BlockType: v.GetBlockType(), Data: v.GetData()}, nil
+	case *agentrewire.RuntimeEventNotification_Image:
+		v := value.Image
+		// GetSource() 对 nil 安全,两格因此都还原成零值 —— 与发方「两格都空」同义。
+		return agentruntime.ImageBlockEvent{
+			MediaType: v.GetMediaType(),
+			Inline:    v.GetSource().GetInline(),
+			URL:       v.GetSource().GetUrl(),
+		}, nil
 	case *agentrewire.RuntimeEventNotification_Done:
 		v := value.Done
 		return agentruntime.Done{Model: v.GetModel(), DurationMs: int(v.GetDurationMs()), FirstTokenMs: int(v.GetFirstTokenMs()), TokensPerSec: v.GetTokensPerSec()}, nil

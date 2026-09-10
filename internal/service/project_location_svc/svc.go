@@ -18,12 +18,19 @@ type ProjectLocationSvc interface {
 }
 
 type ProjectLocationView struct {
-	ID         int64  `json:"id"`
-	ProjectID  int64  `json:"projectId"`
-	DeviceID   string `json:"deviceId"`
-	Path       string `json:"path"`
-	DeviceName string `json:"deviceName"`
-	Online     bool   `json:"online"`
+	ID        int64 `json:"id"`
+	ProjectID int64 `json:"projectId"`
+	// DeviceID 是 paired_agentreds 的数字 id，**只是缓存**：解不开指纹时会被清空
+	// （见 impl.go 的 R2b 分支）。宿主拿到的 Agent 设备键是指纹而不是它,
+	// 所以要把两边对起来请用 DeviceFingerprint。
+	DeviceID string `json:"deviceId"`
+	// DeviceFingerprint 是账号内的自然键 (project, device_fingerprint)，也是
+	// chat_svc 给前端的 ChatAgentItem.DeviceID 用的同一个键。前端据此判断
+	// 「这个远端 Agent 的机器配没配过路径」。
+	DeviceFingerprint string `json:"deviceFingerprint"`
+	Path              string `json:"path"`
+	DeviceName        string `json:"deviceName"`
+	Online            bool   `json:"online"`
 }
 
 var defaultSvc ProjectLocationSvc = &projectLocationImpl{}
