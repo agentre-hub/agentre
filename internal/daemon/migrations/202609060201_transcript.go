@@ -8,18 +8,12 @@ import (
 // migration202609060201 建出与桌面端同形的三张转录表（消息行 + 块行 + 帧台账）——规格
 // 2026-09-05 决策 1 / 8 / 9。
 //
-// **只做这一件事**。这一轮原本还两件：给 daemon_sessions 补本地数字主键（SQLite 加不了
-// AUTOINCREMENT 列，只能建新表搬行），以及退役 daemon_notification_journal。两者都已折进
-// 基线：会话表一开始就建成带 id 主键的终态，通知日志表干脆不建了。折叠的等价性拿库比过
-// （列 / 索引 / 约束 / 种子行全等）。
-//
 // DDL 逐字取自桌面端（migrations/202609040106_chat.go 与
 // 202609060101_transcript_frame_seq.go）—— 两个宿主共用同一份实体与仓储代码，表结构错
 // 一格就是同一行代码在两台机器上写出两种结果。两个进程各一个库，所以这里是**复制 DDL**
 // 而不是共享一张表；两边形状是否真的一致由 transcript_parity_test.go 盯着。
 //
-// turn_trigger 排在消息表最后不是随手放的：它原本是一条 ALTER TABLE ADD COLUMN（SQLite
-// 只能追加到表尾），折叠进建表语句时保持列序不变，库的终态才与桌面端逐列相同。
+// turn_trigger 排在消息表最后不是随手放的：桌面端那张表的列序如此，两边必须逐列相同。
 func migration202609060201() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "202609060201",

@@ -189,11 +189,6 @@ message AccountDevicePresence {}
 
 message AuthAccountRequest {
   string credential = 1;
-  // 2 曾是 device_fingerprint:调用方自报的对端身份。它从来没有被任何东西验证过,
-  // 而对端身份现在只从已验签的凭据的 pfp claim 取(见 AuthAccountResponse
-  // .peer_fingerprint)。留一个「说了不算」的字段是下一个人踩的坑,故删而不是忽略。
-  reserved 2;
-  reserved "device_fingerprint";
   // The wire protocol version the caller speaks — the (agentre.wire
   // .protocol_version) file option this schema declares above.
   string protocol_version = 3;

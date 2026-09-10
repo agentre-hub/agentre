@@ -15406,13 +15406,13 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x12AccountSyncVersion\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\"\x16\n" +
 	"\x14AccountMirrorChanged\"\x17\n" +
-	"\x15AccountDevicePresence\"\xbe\x01\n" +
+	"\x15AccountDevicePresence\"\xa4\x01\n" +
 	"\x12AuthAccountRequest\x12\x1e\n" +
 	"\n" +
 	"credential\x18\x01 \x01(\tR\n" +
 	"credential\x12)\n" +
 	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12C\n" +
-	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersionJ\x04\b\x02\x10\x03R\x12device_fingerprint\"\xb1\x02\n" +
+	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersion\"\xb1\x02\n" +
 	"\x13AuthAccountResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12#\n" +
 	"\rinstance_uuid\x18\x02 \x01(\tR\finstanceUuid\x12)\n" +

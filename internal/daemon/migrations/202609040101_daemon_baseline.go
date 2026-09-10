@@ -5,10 +5,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// migration202609040101 是 agentred 侧持久化的基线迁移:一次建出会话表与通知日志表的
-// 最终形态。它压缩了发布前的四条未发布迁移(建表 / 加 conversation_id 列 / 身份键收缩
-// 重建 / 加 reasoning_effort),那些迁移曾经服务的存量库在 2026-09-04 已一律删库重建,
-// 因此这里只建终态、不带任何回填与重建路径。
+// migration202609040101 是 agentred 侧持久化的基线迁移:一次建出会话表的最终形态,
+// 只建终态、不带任何回填与重建路径。
 //
 // daemon_sessions —— 会话表。行身份是自增的 id：库里每一张表的行身份都是一个与业务取值
 // 无关的数字（同一条约定见 desktop 的 internal/bootstrap 与 entity 的
