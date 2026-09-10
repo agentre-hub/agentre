@@ -9,7 +9,7 @@ import (
 //
 //   - sync_lost_changes —— 「没能同步的改动」，被覆盖 / 悬空引用超期 / 超窗口被拒
 //     三类失效事件共用，保留 30 天，并直接带上 R5a 的跨机自然键两列
-//     project_sync_id / agentred_fingerprint —— 恢复一条路径记录或远端 backend
+//     scope_sync_id / agentred_fingerprint —— 恢复一条路径记录或远端 backend
 //     必须能解析出归属。
 //   - sync_outbound_queue —— 出站，每条带基版本（R4a/R6a）。
 //   - sync_inbound_queue —— 入站，引用目标未到达时暂缓落地。排空路径
@@ -31,7 +31,7 @@ func migration202609040112() *gormigrate.Migration {
 	reason TEXT NOT NULL,
 	payload_json TEXT NOT NULL DEFAULT '',
 	origin_device TEXT NOT NULL DEFAULT '',
-	project_sync_id TEXT NOT NULL DEFAULT '',
+	scope_sync_id TEXT NOT NULL DEFAULT '',
 	agentred_fingerprint TEXT NOT NULL DEFAULT '',
 	occurred_at BIGINT NOT NULL DEFAULT 0,
 	createtime BIGINT NOT NULL DEFAULT 0

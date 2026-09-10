@@ -168,7 +168,7 @@ func TestAgentBackendCLIAdapter_LoadUsesOverlayNaturalKey(t *testing.T) {
 
 	out, err := agentBackendCLIAdapter{}.load(context.Background(), "overlay-1")
 	require.NoError(t, err)
-	assert.Equal(t, "backend-1", out.ProjectSyncID)
+	assert.Equal(t, "backend-1", out.ScopeSyncID)
 	assert.Equal(t, "sha256:self", out.AgentredFingerprint)
 	assert.JSONEq(t, `{"cli_path":"/opt/claude"}`, string(out.Payload))
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgentBackendCLI, out.Payload))
@@ -414,7 +414,7 @@ func TestProjectLocationAdapter_CarriesNaturalKeyOutsidePayload(t *testing.T) {
 	out, err := projectLocationAdapter{}.load(context.Background(), "loc-1")
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, "proj-1", out.ProjectSyncID)
+	assert.Equal(t, "proj-1", out.ScopeSyncID)
 	assert.Equal(t, "fp-builder", out.AgentredFingerprint)
 	assert.JSONEq(t, `{"path":"/srv/repo"}`, string(out.Payload))
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindProjectLocation, out.Payload))
@@ -449,7 +449,7 @@ func TestProjectLocationAdapter_ApplyResolvesDeviceIDWhenPaired(t *testing.T) {
 
 	err := projectLocationAdapter{}.apply(context.Background(), &inbound{
 		Kind: syncwire.KindProjectLocation, SyncID: "loc-1",
-		ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder",
+		ScopeSyncID: "proj-1", AgentredFingerprint: "fp-builder",
 		Payload: []byte(`{"path":"/srv/repo"}`),
 	}, map[string]int64{ref{Kind: syncwire.KindProject, SyncID: "proj-1"}.key(): 4})
 	require.NoError(t, err)
@@ -482,7 +482,7 @@ func TestProjectLocationAdapter_ApplyLeavesDeviceIDEmptyWhenUnpaired(t *testing.
 
 	err := projectLocationAdapter{}.apply(context.Background(), &inbound{
 		Kind: syncwire.KindProjectLocation, SyncID: "loc-2",
-		ProjectSyncID: "proj-1", AgentredFingerprint: "fp-unknown",
+		ScopeSyncID: "proj-1", AgentredFingerprint: "fp-unknown",
 		Payload: []byte(`{"path":"/srv/repo"}`),
 	}, map[string]int64{ref{Kind: syncwire.KindProject, SyncID: "proj-1"}.key(): 4})
 	require.NoError(t, err)
@@ -525,7 +525,7 @@ func TestProjectLocationAdapter_GivenNaturalKeyHeldLocally_TakesOverThatRow(t *t
 
 	err := projectLocationAdapter{}.apply(context.Background(), &inbound{
 		Kind: syncwire.KindProjectLocation, SyncID: "loc-remote",
-		ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder",
+		ScopeSyncID: "proj-1", AgentredFingerprint: "fp-builder",
 		Payload: []byte(`{"path":"/srv/repo"}`),
 	}, map[string]int64{ref{Kind: syncwire.KindProject, SyncID: "proj-1"}.key(): 4})
 

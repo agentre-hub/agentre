@@ -109,7 +109,7 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 	assert.Equal(t, "refresh-token", got.Credential.RefreshToken)
 	assert.NotZero(t, got.Credential.AccessTokenExpiresAt)
 	assert.NotZero(t, got.Credential.RefreshTokenExpiresAt)
-	assert.Equal(t, server.URL, got.HubServerURL, "successful login must persist the server used by service startup")
+	assert.Equal(t, server.URL, got.AccountServerURL, "successful login must persist the server used by service startup")
 	provider, ok := got.LLMProviders["provider-login"]
 	require.True(t, ok, "successful login must immediately pull the account engine snapshot")
 	assert.Equal(t, "login-key", provider.APIKey)
@@ -193,7 +193,7 @@ func TestGivenInjectedBuildIdentityWhenLoginAuthorizesThenRegistersSameIdentity(
 	assert.Equal(t, "v1.2.3 (abcdef1)", registeredVersion)
 	got, loadErr := state.Load(dir)
 	require.NoError(t, loadErr)
-	assert.Empty(t, got.HubServerURL, "failed login must not replace persisted runtime configuration")
+	assert.Empty(t, got.AccountServerURL, "failed login must not replace persisted runtime configuration")
 }
 
 func TestLoginRejectsAlreadyLoggedInDaemonWithoutNetwork(t *testing.T) {

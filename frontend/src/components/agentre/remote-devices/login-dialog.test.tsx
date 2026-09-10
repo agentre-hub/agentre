@@ -165,7 +165,7 @@ describe("LoginDialog", () => {
       );
     });
 
-    // 复制按钮把验证码写进剪贴板,并给出「已复制」反馈。
+    // 复制按钮把设备码写进剪贴板,并给出「已复制」反馈。
     it("copies the user code to the clipboard and confirms", async () => {
       const writeText = mockClipboard();
       const props = renderDialog();
@@ -191,12 +191,16 @@ describe("LoginDialog", () => {
         await Promise.resolve();
       });
       expect(props.startLogin).toHaveBeenCalled();
-      expect(screen.getByText("Code expires in 15:00")).toBeInTheDocument();
+      expect(
+        screen.getByText("Device code expires in 15:00"),
+      ).toBeInTheDocument();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      expect(screen.getByText("Code expires in 14:00")).toBeInTheDocument();
+      expect(
+        screen.getByText("Device code expires in 14:00"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -452,7 +456,7 @@ describe("LoginDialog", () => {
         await vi.advanceTimersByTimeAsync(5_000); // t=15s, past 12s expiry
       });
       expect(
-        screen.getByText("The code expired. Sign in again."),
+        screen.getByText("The device code expired. Sign in again."),
       ).toBeInTheDocument();
 
       pollLoginToken.mockClear();

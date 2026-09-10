@@ -58,7 +58,7 @@ func TestRootSubcommands(t *testing.T) {
 // logged-out state by removing every account-derived local cache — credential,
 // verification key, and revocation list — exclusively through state.json.
 //
-// This fixture records no HubServerURL, so there is nowhere to notify and the
+// This fixture records no AccountServerURL, so there is nowhere to notify and the
 // command stays purely local: the default HTTP transport is a tripwire proving
 // the local clear itself never depends on the network. A daemon that *does* know
 // its server best-effort revokes the authorization first — see
@@ -193,4 +193,19 @@ func TestRootHelpMentionsBinary(t *testing.T) {
 	root.SetArgs([]string{"--help"})
 	assert.NoError(t, root.Execute())
 	assert.True(t, strings.Contains(buf.String(), "agentred"))
+}
+
+// TestUpdateCmd_UpgradeAlias 控制台那颗按钮写的是「升级 agentred」,而它复制给用户
+// 的命令是 `agentred update`(agentre-server 的 DeviceUpgrade.tsx)。wire 那层第三个
+// 词又是 AGENTRED_SELF_UPDATE。用户照着「升级」去敲 upgrade 不该撞上 unknown command。
+//
+// update 保留为主名:已经发出去的脚本和文档都用它,改名是破坏性的。
+func TestUpdateCmd_UpgradeAlias(t *testing.T) {
+	for _, name := range []string{"update", "upgrade"} {
+		t.Run(name, func(t *testing.T) {
+			cmd, _, err := newRootCmd().Find([]string{name})
+			require.NoError(t, err)
+			require.Equal(t, "update", cmd.Name(), "两个词必须落到同一条命令")
+		})
+	}
 }

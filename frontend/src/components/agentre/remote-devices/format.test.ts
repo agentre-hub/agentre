@@ -31,7 +31,7 @@ const t = ((key: string, params?: Record<string, unknown>) => {
     "remoteDevices.login.errors.unreachable":
       "无法连接服务器，请检查地址后重试。",
     "remoteDevices.login.errors.accessDenied": "登录已被拒绝。",
-    "remoteDevices.login.errors.expired": "验证码已过期，请重新登录。",
+    "remoteDevices.login.errors.expired": "设备码已过期，请重新登录。",
     "remoteDevices.login.errors.inProgress": "已有登录流程正在进行。",
     "remoteDevices.login.errors.generic": "登录失败。",
   };
@@ -149,7 +149,7 @@ describe("friendlyLoginError (login error surfacing)", () => {
     );
     expect(
       friendlyLoginError(new Error("server: device code expired"), t),
-    ).toBe("验证码已过期，请重新登录。");
+    ).toBe("设备码已过期，请重新登录。");
     expect(
       friendlyLoginError(new Error("server: login already in progress"), t),
     ).toBe("已有登录流程正在进行。");

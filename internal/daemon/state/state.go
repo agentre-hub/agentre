@@ -128,7 +128,7 @@ func (s *State) LoginWithKeySet(accountID, currentKID string, publicKeys map[str
 //
 // 它按「留下什么」写，而不是「删掉什么」——这个方向不是风格问题。逐个列举要清的
 // 字段时，**新加的账号绑定字段默认被留下**，而那正是本方法两次漏掉东西的原因：
-// hubServerURL（登录时由 login 写入，logout 从没清过，于是 run 的持久化回退会把
+// accountServerURL（登录时由 login 写入，logout 从没清过，于是 run 的持久化回退会把
 // 一台已经离开账号的机器又指回旧 server）与 llmProviders（enginesnapshot 从账号
 // 拉下来的整份供应商配置，含 API key）。倒过来写之后，往 State 上加字段的默认
 // 结局是「跟着登录一起走」，要留下必须在这里明写并说明理由。
@@ -209,7 +209,7 @@ func (s *State) AdoptLoginFromDisk() (bool, error) {
 			return
 		}
 		st.AccountID = onDisk.AccountID
-		st.HubServerURL = onDisk.HubServerURL
+		st.AccountServerURL = onDisk.AccountServerURL
 		st.Credential = onDisk.Credential
 		st.VerificationPublicKeyPEM = onDisk.VerificationPublicKeyPEM
 		st.VerificationCurrentKID = onDisk.VerificationCurrentKID

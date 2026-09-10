@@ -164,7 +164,7 @@ func (s *service) captureMergeLoss(ctx context.Context, in *inbound) (*mergeLoss
 	}
 	return &mergeLoss{
 		kind: in.Kind, syncID: in.SyncID,
-		projectSyncID: out.ProjectSyncID, fingerprint: out.AgentredFingerprint,
+		projectSyncID: out.ScopeSyncID, fingerprint: out.AgentredFingerprint,
 		payload: out.Payload,
 	}, nil
 }
@@ -183,7 +183,7 @@ func (s *service) recordMergeLosses(ctx context.Context, accountID int64, losses
 			continue
 		}
 		holder, err := ad.syncIDAtNaturalKey(ctx, &inbound{
-			Kind: loss.kind, ProjectSyncID: loss.projectSyncID, AgentredFingerprint: loss.fingerprint,
+			Kind: loss.kind, ScopeSyncID: loss.projectSyncID, AgentredFingerprint: loss.fingerprint,
 		})
 		if err != nil {
 			return err
@@ -199,7 +199,7 @@ func (s *service) recordMergeLosses(ctx context.Context, accountID int64, losses
 			EntitySyncID:        loss.syncID,
 			Reason:              syncqueue_entity.ReasonOverwritten,
 			PayloadJSON:         string(loss.payload),
-			ProjectSyncID:       loss.projectSyncID,
+			ScopeSyncID:         loss.projectSyncID,
 			AgentredFingerprint: loss.fingerprint,
 			OccurredAt:          s.now(),
 		}); err != nil {
@@ -469,7 +469,7 @@ func (s *service) gcDeferred(ctx context.Context, accountID int64) error {
 		var env inbound
 		if err := json.Unmarshal([]byte(row.PayloadJSON), &env); err == nil {
 			lost.PayloadJSON = string(env.Payload)
-			lost.ProjectSyncID, lost.AgentredFingerprint = env.ProjectSyncID, env.AgentredFingerprint
+			lost.ScopeSyncID, lost.AgentredFingerprint = env.ScopeSyncID, env.AgentredFingerprint
 			lost.BaseVersion = env.Version
 		} else {
 			lost.PayloadJSON = row.PayloadJSON

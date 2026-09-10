@@ -34,13 +34,13 @@ func (agentBackendCLIAdapter) load(ctx context.Context, syncID string) (*outboun
 		return nil, err
 	}
 	return &outbound{
-		SyncID: row.SyncID, UpdatedAt: row.Updatetime, ProjectSyncID: row.BackendSyncID,
+		SyncID: row.SyncID, UpdatedAt: row.Updatetime, ScopeSyncID: row.BackendSyncID,
 		AgentredFingerprint: row.AgentredFingerprint, Payload: payload,
 	}, nil
 }
 
 func (agentBackendCLIAdapter) refs(in *inbound) []ref {
-	return []ref{{Kind: syncwire.KindAgentBackend, SyncID: in.ProjectSyncID}}
+	return []ref{{Kind: syncwire.KindAgentBackend, SyncID: in.ScopeSyncID}}
 }
 
 func (agentBackendCLIAdapter) apply(ctx context.Context, in *inbound, _ map[string]int64) error {
@@ -54,7 +54,7 @@ func (agentBackendCLIAdapter) apply(ctx context.Context, in *inbound, _ map[stri
 		return err
 	}
 	if !found {
-		held, findErr := agent_backend_repo.AgentBackend().FindCLIOverlay(ctx, in.ProjectSyncID, in.AgentredFingerprint)
+		held, findErr := agent_backend_repo.AgentBackend().FindCLIOverlay(ctx, in.ScopeSyncID, in.AgentredFingerprint)
 		if findErr != nil {
 			return findErr
 		}
@@ -62,7 +62,7 @@ func (agentBackendCLIAdapter) apply(ctx context.Context, in *inbound, _ map[stri
 			row, found = held, true
 		}
 	}
-	row.BackendSyncID, row.AgentredFingerprint, row.CLIPath = in.ProjectSyncID, in.AgentredFingerprint, payload.CLIPath
+	row.BackendSyncID, row.AgentredFingerprint, row.CLIPath = in.ScopeSyncID, in.AgentredFingerprint, payload.CLIPath
 	row.Status, row.SyncID = consts.ACTIVE, in.SyncID
 	if found {
 		return agent_backend_repo.AgentBackend().UpdateCLIOverlay(ctx, row)

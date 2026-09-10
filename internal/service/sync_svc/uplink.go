@@ -177,7 +177,7 @@ func (s *service) buildPushItem(ctx context.Context, p *pending) (*syncwire.Push
 		BaseVersion:         p.baseVersion,
 		UpdatedAt:           out.UpdatedAt,
 		AgentredFingerprint: out.AgentredFingerprint,
-		ProjectSyncID:       out.ProjectSyncID,
+		ScopeSyncID:         out.ScopeSyncID,
 		Payload:             out.Payload,
 	}, true, nil
 }
@@ -212,7 +212,7 @@ func (s *service) applyPushResult(
 			BaseVersion:         res.Version,
 			Reason:              syncqueue_entity.ReasonRejected,
 			PayloadJSON:         string(item.Payload),
-			ProjectSyncID:       item.ProjectSyncID,
+			ScopeSyncID:         item.ScopeSyncID,
 			AgentredFingerprint: item.AgentredFingerprint,
 			OccurredAt:          now,
 		})
@@ -242,7 +242,7 @@ func (s *service) applyPushResult(
 			// （item.Payload）是覆盖别人的那一份，它此刻正是 server 上的当前值——
 			// 把它记成「被覆盖」会让 R5 的「追回」变成「把刚生效的内容再推一遍」。
 			PayloadJSON:         string(res.OverwrittenPayload),
-			ProjectSyncID:       item.ProjectSyncID,
+			ScopeSyncID:         item.ScopeSyncID,
 			AgentredFingerprint: item.AgentredFingerprint,
 			// 空串 = 服务端直写（浏览器改的组织架构），不是「不知道被谁」，见 originDeviceOf。
 			OriginDevice: originDeviceOf(res.OverwrittenOriginFingerprint),
@@ -286,7 +286,7 @@ func (s *service) acceptRemoteTombstone(
 		BaseVersion:         res.Version,
 		Reason:              syncqueue_entity.ReasonRejected,
 		PayloadJSON:         string(item.Payload),
-		ProjectSyncID:       item.ProjectSyncID,
+		ScopeSyncID:         item.ScopeSyncID,
 		AgentredFingerprint: item.AgentredFingerprint,
 		OccurredAt:          now,
 	})
@@ -329,7 +329,7 @@ func (s *service) reevaluateAfterResync(
 		}
 		if i < len(items) {
 			lost.PayloadJSON = string(items[i].Payload)
-			lost.ProjectSyncID, lost.AgentredFingerprint = items[i].ProjectSyncID, items[i].AgentredFingerprint
+			lost.ScopeSyncID, lost.AgentredFingerprint = items[i].ScopeSyncID, items[i].AgentredFingerprint
 		}
 		if err := s.recordLostChange(ctx, accountID, lost); err != nil {
 			return nil, err

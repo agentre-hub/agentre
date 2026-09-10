@@ -52,7 +52,10 @@ func printStatusDetails(w io.Writer, v map[string]any) {
 	for _, u := range toAnySlice(v["listenURLs"]) {
 		_, _ = fmt.Fprintf(w, "  %v\n", u)
 	}
-	_, _ = fmt.Fprintf(w, "Paired devices: %d\n", len(toAnySlice(v["pairedPeers"])))
+	// 「peers」不是「devices」：这里数的是走配对码、同网段直连过来的桌面端
+	// (state.json 的 pairedPeers)，而控制台「设备」页数的是账号授权设备。两个集合
+	// 共用一个词，用户对不上数就会以为某一边错了。
+	_, _ = fmt.Fprintf(w, "Paired peers: %d\n", len(toAnySlice(v["pairedPeers"])))
 	state := "disconnected"
 	if connected, _ := v["relayConnected"].(bool); connected {
 		state = "connected"

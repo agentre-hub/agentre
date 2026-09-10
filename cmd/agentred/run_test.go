@@ -70,7 +70,7 @@ func TestGivenPersistedRuntimeConfigurationWhenRunHasNoOverridesThenConfiguratio
 			TLSCertFile: "/persisted/cert.pem",
 			TLSKeyFile:  "/persisted/key.pem",
 		}
-		s.HubServerURL = "https://persisted.example"
+		s.AccountServerURL = "https://persisted.example"
 	})
 	require.NoError(t, st.Save())
 
@@ -80,7 +80,7 @@ func TestGivenPersistedRuntimeConfigurationWhenRunHasNoOverridesThenConfiguratio
 	assert.Equal(t, 8123, got.LANPort)
 	assert.Equal(t, "/persisted/cert.pem", got.TLSCertFile)
 	assert.Equal(t, "/persisted/key.pem", got.TLSKeyFile)
-	assert.Equal(t, "https://persisted.example", got.HubServerURL)
+	assert.Equal(t, "https://persisted.example", got.AccountServerURL)
 }
 
 func TestGivenFlagsEnvironmentAndStateWhenRunStartsThenPriorityIsFlagsEnvironmentStateDefault(t *testing.T) {
@@ -95,7 +95,7 @@ func TestGivenFlagsEnvironmentAndStateWhenRunStartsThenPriorityIsFlagsEnvironmen
 			TLSCertFile: "/state/cert.pem",
 			TLSKeyFile:  "/state/key.pem",
 		}
-		s.HubServerURL = "https://state.example"
+		s.AccountServerURL = "https://state.example"
 	})
 	require.NoError(t, st.Save())
 	t.Setenv("AGENTRED_HOST", "env-host")
@@ -112,7 +112,7 @@ func TestGivenFlagsEnvironmentAndStateWhenRunStartsThenPriorityIsFlagsEnvironmen
 	assert.Equal(t, 7002, got.LANPort, "environment must override state")
 	assert.Equal(t, "/env/cert.pem", got.TLSCertFile)
 	assert.Equal(t, "/flag/key.pem", got.TLSKeyFile)
-	assert.Equal(t, "https://env.example", got.HubServerURL)
+	assert.Equal(t, "https://env.example", got.AccountServerURL)
 
 	reloaded, err := state.Load(dir)
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestGivenFlagsEnvironmentAndStateWhenRunStartsThenPriorityIsFlagsEnvironmen
 		TLSCertFile: "/env/cert.pem",
 		TLSKeyFile:  "/flag/key.pem",
 	}, reloaded.Listen, "resolved explicit configuration must survive service startup")
-	assert.Equal(t, "https://env.example", reloaded.HubServerURL)
+	assert.Equal(t, "https://env.example", reloaded.AccountServerURL)
 }
 
 func TestGivenInvalidPortEnvironmentWhenRunStartsThenItReturnsUsageErrorWithoutStartingDaemon(t *testing.T) {
@@ -290,7 +290,7 @@ func TestGivenLoggedInDaemonWhenRunPointsAtAnotherServerThenItRefusesWithoutRepo
 	require.NoError(t, err)
 	st.LoginWithKeySet("account-a", "kid-1", map[string]string{"kid-1": "pem"}, 3600,
 		state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
-	st.Mutate(func(s *state.State) { s.HubServerURL = "https://a.example" })
+	st.Mutate(func(s *state.State) { s.AccountServerURL = "https://a.example" })
 	require.NoError(t, st.Save())
 
 	got, err := executeRunForOptions(t, dir, "--server", "https://b.example")
@@ -300,7 +300,7 @@ func TestGivenLoggedInDaemonWhenRunPointsAtAnotherServerThenItRefusesWithoutRepo
 
 	reloaded, err := state.Load(dir)
 	require.NoError(t, err)
-	assert.Equal(t, "https://a.example", reloaded.HubServerURL,
+	assert.Equal(t, "https://a.example", reloaded.AccountServerURL,
 		"被拒的这次不许改掉登录时记下的 server 地址")
 }
 
@@ -312,12 +312,12 @@ func TestGivenLoggedInDaemonWhenRunKeepsTheSameServerThenItStarts(t *testing.T) 
 	require.NoError(t, err)
 	st.LoginWithKeySet("account-a", "kid-1", map[string]string{"kid-1": "pem"}, 3600,
 		state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
-	st.Mutate(func(s *state.State) { s.HubServerURL = "https://a.example" })
+	st.Mutate(func(s *state.State) { s.AccountServerURL = "https://a.example" })
 	require.NoError(t, st.Save())
 
 	got, err := executeRunForOptions(t, dir, "--server", "https://a.example/")
 	require.NoError(t, err)
-	assert.Equal(t, "https://a.example", got.HubServerURL)
+	assert.Equal(t, "https://a.example", got.AccountServerURL)
 }
 
 // 没登录的 daemon 随便指：它手上没有任何属于某个账号的东西，指到哪都只是配置。
@@ -326,10 +326,10 @@ func TestGivenLoggedOutDaemonWhenRunPointsAtAnotherServerThenItStarts(t *testing
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Mutate(func(s *state.State) { s.HubServerURL = "https://a.example" })
+	st.Mutate(func(s *state.State) { s.AccountServerURL = "https://a.example" })
 	require.NoError(t, st.Save())
 
 	got, err := executeRunForOptions(t, dir, "--server", "https://b.example")
 	require.NoError(t, err)
-	assert.Equal(t, "https://b.example", got.HubServerURL)
+	assert.Equal(t, "https://b.example", got.AccountServerURL)
 }

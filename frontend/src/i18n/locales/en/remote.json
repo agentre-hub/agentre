@@ -97,7 +97,7 @@
       "description": "Connect this desktop to your account so your other devices can find it.",
       "errors": {
         "accessDenied": "Sign-in was declined.",
-        "expired": "The code expired. Sign in again.",
+        "expired": "The device code expired. Sign in again.",
         "generic": "Sign-in failed.",
         "inProgress": "A sign-in is already in progress.",
         "unreachable": "Can't reach the server. Check the URL and try again."
@@ -121,8 +121,8 @@
       "title": "Sign in to your account",
       "waiting": {
         "autoClose": "Auto-finishes sign-in once you approve · sign out anytime in the Remote panel",
-        "expiresIn": "Code expires in {{time}}",
-        "userCode": "Your code",
+        "expiresIn": "Device code expires in {{time}}",
+        "userCode": "Your device code",
         "verificationUrl": "Go to"
       }
     },
@@ -167,7 +167,7 @@
       }
     },
     "panel": {
-      "description": "Manage remote agentred compute endpoints: desktop remote driver, direct LAN connections, and Cloud relay across networks (v0.3+).",
+      "description": "Manage remote agentred compute nodes: desktop remote driver, direct LAN connections, and Cloud relay across networks (v0.3+).",
       "stats": "{{paired}} paired · {{online}} online",
       "title": "Remote"
     },

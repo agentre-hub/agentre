@@ -138,7 +138,7 @@ func newFakeAdapter(name string) *fakeAdapter {
 }
 
 func (f *fakeAdapter) syncIDAtNaturalKey(_ context.Context, in *inbound) (string, error) {
-	return f.naturalKey[in.ProjectSyncID+"|"+in.AgentredFingerprint], nil
+	return f.naturalKey[in.ScopeSyncID+"|"+in.AgentredFingerprint], nil
 }
 
 func (f *fakeAdapter) kind() string { return f.name }
@@ -764,7 +764,7 @@ func TestPull_GivenNaturalKeyMergeLoss_RecordsOverwritten(t *testing.T) {
 	loc.rows["loc-mine"] = "/srv/mine"
 	loc.loadFn = func(syncID string) (*outbound, error) {
 		return &outbound{
-			SyncID: syncID, ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder",
+			SyncID: syncID, ScopeSyncID: "proj-1", AgentredFingerprint: "fp-builder",
 			Payload: []byte(`{"path":"/srv/mine"}`),
 		}, nil
 	}
@@ -778,9 +778,9 @@ func TestPull_GivenNaturalKeyMergeLoss_RecordsOverwritten(t *testing.T) {
 	h.transport.pages = []*syncwire.PullPage{{
 		Items: []syncwire.PullItem{
 			{Kind: syncwire.KindProjectLocation, SyncID: "loc-mine", Version: 10,
-				ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", DeletedAt: 1700},
+				ScopeSyncID: "proj-1", AgentredFingerprint: "fp-builder", DeletedAt: 1700},
 			{Kind: syncwire.KindProjectLocation, SyncID: "loc-winner", Version: 11,
-				ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder",
+				ScopeSyncID: "proj-1", AgentredFingerprint: "fp-builder",
 				Payload: []byte(`{"path":"/srv/theirs"}`)},
 		},
 		NextCursor: 11,
@@ -804,7 +804,7 @@ func TestPull_GivenPlainTombstone_RecordsNothing(t *testing.T) {
 	loc.rows["loc-mine"] = "/srv/mine"
 	loc.loadFn = func(syncID string) (*outbound, error) {
 		return &outbound{
-			SyncID: syncID, ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder",
+			SyncID: syncID, ScopeSyncID: "proj-1", AgentredFingerprint: "fp-builder",
 			Payload: []byte(`{"path":"/srv/mine"}`),
 		}, nil
 	}
@@ -815,7 +815,7 @@ func TestPull_GivenPlainTombstone_RecordsNothing(t *testing.T) {
 	h.transport.pages = []*syncwire.PullPage{{
 		Items: []syncwire.PullItem{{
 			Kind: syncwire.KindProjectLocation, SyncID: "loc-mine", Version: 10,
-			ProjectSyncID: "proj-1", AgentredFingerprint: "fp-builder", DeletedAt: 1700,
+			ScopeSyncID: "proj-1", AgentredFingerprint: "fp-builder", DeletedAt: 1700,
 		}},
 		NextCursor: 10,
 	}}
@@ -856,7 +856,7 @@ func TestGCDeferred_GivenExpiredRow_KeepsBarePayloadAndNaturalKey(t *testing.T) 
 	h.transport.pages = []*syncwire.PullPage{{
 		Items: []syncwire.PullItem{{
 			Kind: "project", SyncID: "loc-1", Version: 5,
-			ProjectSyncID: "proj-9", AgentredFingerprint: "fp-abc",
+			ScopeSyncID: "proj-9", AgentredFingerprint: "fp-abc",
 			Payload: []byte(`{"path":"/srv/work"}`),
 		}},
 		NextCursor: 5,
@@ -874,7 +874,7 @@ func TestGCDeferred_GivenExpiredRow_KeepsBarePayloadAndNaturalKey(t *testing.T) 
 	require.NoError(t, json.Unmarshal([]byte(h.lost.rows[0].PayloadJSON), &body))
 	assert.Equal(t, "/srv/work", body["path"], "存的是载荷正文，不是 inbound 信封")
 	assert.NotContains(t, body, "sync_id", "信封字段不该混进正文")
-	assert.Equal(t, "proj-9", h.lost.rows[0].ProjectSyncID)
+	assert.Equal(t, "proj-9", h.lost.rows[0].ScopeSyncID)
 	assert.Equal(t, "fp-abc", h.lost.rows[0].AgentredFingerprint)
 }
 

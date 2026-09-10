@@ -57,7 +57,7 @@ func TestAdapterRefs_GivenEveryKind_ThenTheKindGraphHasNoCycle(t *testing.T) {
 		in := &inbound{
 			Kind:                kind,
 			SyncID:              "self",
-			ProjectSyncID:       "other-7",
+			ScopeSyncID:         "other-7",
 			AgentredFingerprint: "fp-somewhere",
 			Payload:             payload,
 		}

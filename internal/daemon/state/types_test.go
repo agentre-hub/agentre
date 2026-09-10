@@ -13,7 +13,7 @@ func TestState_JSONRoundTrip(t *testing.T) {
 	in := &State{
 		SchemaVersion:      1,
 		DaemonInstanceUUID: "8f3a9c2b",
-		HubServerURL:       "https://hub.example",
+		AccountServerURL:   "https://account.example",
 		Listen: ListenPrefs{
 			LanHost:     "0.0.0.0",
 			LanPort:     7456,
@@ -133,7 +133,7 @@ func TestState_DefaultsAreSane(t *testing.T) {
 	assert.Equal(t, "uuid-x", s.DaemonInstanceUUID)
 	assert.Equal(t, "0.0.0.0", s.Listen.LanHost)
 	assert.Equal(t, 7456, s.Listen.LanPort)
-	assert.Empty(t, s.HubServerURL)
+	assert.Empty(t, s.AccountServerURL)
 	assert.Equal(t, "info", s.Preferences.LogLevel)
 	assert.Equal(t, 300, s.Preferences.PairingCodeTTLSeconds)
 	assert.Equal(t, 3, s.Preferences.PairingRateLimit.MaxAttemptsPerIP)

@@ -200,7 +200,7 @@ func inboundOfLostChange(row *syncqueue_entity.LostChange, syncID string) *inbou
 	return &inbound{
 		Kind:                row.EntityType,
 		SyncID:              syncID,
-		ProjectSyncID:       row.ProjectSyncID,
+		ScopeSyncID:         row.ScopeSyncID,
 		AgentredFingerprint: row.AgentredFingerprint,
 		Payload:             json.RawMessage(row.PayloadJSON),
 	}

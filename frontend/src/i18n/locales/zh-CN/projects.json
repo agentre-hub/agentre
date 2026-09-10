@@ -17,7 +17,7 @@
       "kinds": {
         "local": "本机",
         "desktop": "另一台桌面端",
-        "daemon": "agentred"
+        "daemon": "计算节点"
       }
     }
   },

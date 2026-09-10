@@ -126,7 +126,7 @@ type RestoreOutcome struct {
 type outbound struct {
 	SyncID              string
 	UpdatedAt           int64
-	ProjectSyncID       string
+	ScopeSyncID         string
 	AgentredFingerprint string
 	Payload             json.RawMessage
 }
@@ -135,7 +135,7 @@ type outbound struct {
 type inbound struct {
 	Kind                string          `json:"kind"`
 	SyncID              string          `json:"sync_id"`
-	ProjectSyncID       string          `json:"project_sync_id,omitempty"`
+	ScopeSyncID         string          `json:"scope_sync_id,omitempty"`
 	AgentredFingerprint string          `json:"agentred_fingerprint,omitempty"`
 	Payload             json.RawMessage `json:"payload,omitempty"`
 	Version             int64           `json:"version"`
@@ -153,7 +153,7 @@ func inboundOf(it syncwire.PullItem) *inbound {
 	return &inbound{
 		Kind:                it.Kind,
 		SyncID:              it.SyncID,
-		ProjectSyncID:       it.ProjectSyncID,
+		ScopeSyncID:         it.ScopeSyncID,
 		AgentredFingerprint: it.AgentredFingerprint,
 		Payload:             json.RawMessage(it.Payload),
 		Version:             it.Version,

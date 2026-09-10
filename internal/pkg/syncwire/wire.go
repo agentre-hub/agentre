@@ -96,8 +96,10 @@ type PushItem struct {
 	// 决策 20）。
 	DeletedAt           int64
 	AgentredFingerprint string
-	ProjectSyncID       string
-	Payload             []byte
+	// ScopeSyncID 装什么取决于 kind（project_location 装项目、agent_backend_cli
+	// 装后端），与 server 的 sync_objects.scope_sync_id 同义。
+	ScopeSyncID string
+	Payload     []byte
 }
 
 // PushResult 是一条上行的处置结果。
@@ -128,7 +130,7 @@ type PushResult struct {
 type PullItem struct {
 	Kind                string
 	SyncID              string
-	ProjectSyncID       string
+	ScopeSyncID         string
 	AgentredFingerprint string
 	Payload             []byte
 	Version             int64

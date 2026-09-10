@@ -36,10 +36,13 @@ type LostChange struct {
 	// PayloadJSON 被覆盖 / 丢弃 / 拒绝那一版的**内容正文**（不是上行 / 下行的信封），
 	// 供「可展开查看内容并恢复」。
 	PayloadJSON string `gorm:"column:payload_json;type:text;not null;default:''"`
-	// ProjectSyncID / AgentredFingerprint 是跨机自然键里不在正文中的那两项（决策 26）：
+	// ScopeSyncID / AgentredFingerprint 是跨机自然键里不在正文中的那两项（决策 26）：
 	// 路径记录属于哪个项目、哪台 agentred，backend 指向哪台 agentred。恢复要把这一版
 	// 重新落地（R5a），少了它们路径记录解析不出归属、远端 backend 会被当成本机的。
-	ProjectSyncID       string `gorm:"column:project_sync_id;type:text;not null;default:''"`
+	//
+	// 叫 Scope 而不是 Project：路径记录这一段装项目，backend 那一段装的是后端
+	// sync id，与 server 的 sync_objects.scope_sync_id 同义。
+	ScopeSyncID         string `gorm:"column:scope_sync_id;type:text;not null;default:''"`
 	AgentredFingerprint string `gorm:"column:agentred_fingerprint;type:text;not null;default:''"`
 	// OriginDevice 覆盖发生的来源设备；仅「被覆盖」一类有意义。
 	OriginDevice string `gorm:"column:origin_device;type:text;not null;default:''"`

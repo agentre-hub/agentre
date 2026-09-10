@@ -52,7 +52,7 @@ func newLogoutCmdWithDeps(deps logoutDeps) *cobra.Command {
 			// logout 就必须解除归属，否则一台再也连不上账号的机器将永远回不到未登录
 			// 状态，也就永远无法重新配对或登录另一个账号（前置规格 R19）。
 			snapshot := st.Snapshot()
-			if err := revokeAccountAuthorization(cmd, deps.http, snapshot.HubServerURL, snapshot.Credential); err != nil {
+			if err := revokeAccountAuthorization(cmd, deps.http, snapshot.AccountServerURL, snapshot.Credential); err != nil {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 					"Could not tell the account server to revoke this device (revoke it from the device list instead): %v\n", err)
 			}

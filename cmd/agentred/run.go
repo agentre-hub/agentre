@@ -98,7 +98,7 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 			if config.hasOverrides {
 				st.Mutate(func(s *state.State) {
 					s.Listen = config.listen
-					s.HubServerURL = config.serverURL
+					s.AccountServerURL = config.serverURL
 				})
 				if err := st.Save(); err != nil {
 					return fmt.Errorf("save daemon runtime configuration: %w", err)
@@ -116,12 +116,12 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 				zap.String("dataDir", dir))
 
 			d, err := deps.newDaemon(daemon.Options{
-				DataDir:      dir,
-				LANHost:      config.listen.LanHost,
-				LANPort:      config.listen.LanPort,
-				TLSCertFile:  config.listen.TLSCertFile,
-				TLSKeyFile:   config.listen.TLSKeyFile,
-				HubServerURL: config.serverURL,
+				DataDir:          dir,
+				LANHost:          config.listen.LanHost,
+				LANPort:          config.listen.LanPort,
+				TLSCertFile:      config.listen.TLSCertFile,
+				TLSKeyFile:       config.listen.TLSKeyFile,
+				AccountServerURL: config.serverURL,
 			})
 			if err != nil {
 				logger.Ctx(ctx).Error("agentred.run: daemon construction failed", zap.Error(err))
@@ -196,7 +196,7 @@ func requireServerMatchesLogin(st *state.State, serverURL string) error {
 	if !st.IsLoggedIn() {
 		return nil
 	}
-	loggedInURL := strings.TrimRight(strings.TrimSpace(st.Snapshot().HubServerURL), "/")
+	loggedInURL := strings.TrimRight(strings.TrimSpace(st.Snapshot().AccountServerURL), "/")
 	if loggedInURL == "" || serverURL == "" || loggedInURL == serverURL {
 		return nil
 	}
@@ -228,7 +228,7 @@ func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string
 	)
 	config.hasOverrides = config.hasOverrides || portOverride
 	config.serverURL, portOverride = resolveString(
-		cmd.Flags().Changed("server"), flagServerURL, "AGENTRED_SERVER_URL", persisted.HubServerURL, "",
+		cmd.Flags().Changed("server"), flagServerURL, "AGENTRED_SERVER_URL", persisted.AccountServerURL, "",
 	)
 	config.hasOverrides = config.hasOverrides || portOverride
 

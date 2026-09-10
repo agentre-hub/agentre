@@ -2218,7 +2218,7 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	t.Cleanup(relay.Close)
 	t.Cleanup(func() { closeRelayOnce.Do(func() { close(closeRelay) }) })
 
-	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, HubServerURL: relay.URL})
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, AccountServerURL: relay.URL})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)

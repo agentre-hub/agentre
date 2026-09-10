@@ -8,7 +8,7 @@ import "sync"
 type State struct {
 	SchemaVersion            int                        `json:"schemaVersion"`
 	DaemonInstanceUUID       string                     `json:"daemonInstanceUUID"`
-	HubServerURL             string                     `json:"hubServerURL,omitempty"`
+	AccountServerURL         string                     `json:"accountServerURL,omitempty"`
 	Listen                   ListenPrefs                `json:"listen"`
 	PairedPeers              map[string]PairedPeer      `json:"pairedPeers"`
 	LLMProviders             map[string]LLMProviderMeta `json:"llmProviders"`

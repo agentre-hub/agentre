@@ -47,8 +47,12 @@ func newUpdateCmdWithDeps(deps updateCommandDeps) *cobra.Command {
 		force     bool
 	)
 	cmd := &cobra.Command{
-		Use:   "update",
-		Short: "Download, verify and install the latest agentred release",
+		Use: "update",
+		// 控制台那颗按钮写的是「升级 agentred」,wire 那层叫 SELF_UPDATE。三个词指
+		// 同一件事,照着界面上的说法敲 upgrade 不该撞上 unknown command。update 仍是
+		// 主名:已发出去的脚本和文档都用它。
+		Aliases: []string{"upgrade"},
+		Short:   "Download, verify and install the latest agentred release",
 		Long: `Resolve the latest release for a channel, download the asset for this platform,
 verify its SHA256, replace this binary and restart the registered service.
 

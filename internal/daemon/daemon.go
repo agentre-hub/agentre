@@ -54,9 +54,9 @@ type Options struct {
 	LANPort     int
 	TLSCertFile string
 	TLSKeyFile  string
-	// HubServerURL is the account server base URL used for the daemon's
+	// AccountServerURL is the account server base URL used for the daemon's
 	// outbound relay connection. An empty URL leaves LAN-only operation intact.
-	HubServerURL string
+	AccountServerURL string
 
 	// CCUsageFetcher 注入 claudecode.usage handler 用的 OAuth 拉取函数。
 	// 留空 → 走 ccoauth.NewLocalFetcher()(从当前机器环境读 token + 调真实 endpoint);
@@ -724,10 +724,10 @@ func (d *Daemon) relayServerURL() string {
 		// 带着空 Bearer 去连只会换来一串 401，把「还没登录」伪装成「登录了但被拒」。
 		return ""
 	}
-	if d.opts.HubServerURL != "" {
-		return d.opts.HubServerURL
+	if d.opts.AccountServerURL != "" {
+		return d.opts.AccountServerURL
 	}
-	return snap.HubServerURL
+	return snap.AccountServerURL
 }
 
 // New constructs a Daemon from Options. It loads persistent state, creates
@@ -957,14 +957,14 @@ func (d *Daemon) awaitLogin(ctx context.Context) bool {
 // longer be renewed, so the hub link is canceled rather than kept retrying a
 // dead connection forever. Local sessions and the LAN server are unaffected.
 func (d *Daemon) runCredentialRefresh(ctx context.Context, stopRelay context.CancelFunc) {
-	newCredentialRefresher(d.state, d.opts.HubServerURL).run(ctx, stopRelay)
+	newCredentialRefresher(d.state, d.opts.AccountServerURL).run(ctx, stopRelay)
 }
 
 // runRevocationPoll launches the R4 revocation-list poller for the daemon's
 // relay lifetime. Nothing it does can fail the daemon: a pull failure keeps the
 // previously cached list, logs, and retries with backoff.
 func (d *Daemon) runRevocationPoll(ctx context.Context) {
-	newRevocationPoller(d.state, d.opts.HubServerURL, d.currentAccessToken).run(ctx)
+	newRevocationPoller(d.state, d.opts.AccountServerURL, d.currentAccessToken).run(ctx)
 }
 
 // defaultRefreshMargin is how long before AccessTokenExpiresAt the daemon

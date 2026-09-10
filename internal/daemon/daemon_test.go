@@ -356,7 +356,7 @@ func TestDaemon_GivenLoggedInAccount_WhenRelayConnectsAndReconnects_ThenPullsEng
 	require.NoError(t, err)
 	st.Mutate(func(s *state.State) {
 		s.AccountID = "account-1"
-		s.HubServerURL = "pending"
+		s.AccountServerURL = "pending"
 		s.Credential = state.AccountCredential{AccessToken: "device-token"}
 	})
 	require.NoError(t, st.Save())
@@ -389,7 +389,7 @@ func TestDaemon_GivenLoggedInAccount_WhenRelayConnectsAndReconnects_ThenPullsEng
 	}))
 	t.Cleanup(server.Close)
 
-	d, err := New(Options{DataDir: dir, HubServerURL: server.URL})
+	d, err := New(Options{DataDir: dir, AccountServerURL: server.URL})
 	require.NoError(t, err)
 	t.Cleanup(func() { closeDB(d.db) })
 	require.NotNil(t, d.engineSnapshot)
@@ -460,7 +460,7 @@ func TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEng
 	require.NoError(t, err)
 	st.Mutate(func(s *state.State) {
 		s.AccountID = "account-1"
-		s.HubServerURL = "pending"
+		s.AccountServerURL = "pending"
 		s.Credential = state.AccountCredential{AccessToken: "device-token"}
 	})
 	require.NoError(t, st.Save())
@@ -492,7 +492,7 @@ func TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEng
 	}))
 	t.Cleanup(server.Close)
 
-	d, err := New(Options{DataDir: dir, HubServerURL: server.URL})
+	d, err := New(Options{DataDir: dir, AccountServerURL: server.URL})
 	require.NoError(t, err)
 	t.Cleanup(func() { closeDB(d.db) })
 
@@ -1161,10 +1161,10 @@ func TestDaemon_GivenLoggedInAndUnavailableRelay_WhenRunning_ThenLANKeepsServing
 	require.NoError(t, st.Save())
 
 	d, err := New(Options{
-		DataDir:      dir,
-		LANHost:      "127.0.0.1",
-		LANPort:      0,
-		HubServerURL: relay.URL,
+		DataDir:          dir,
+		LANHost:          "127.0.0.1",
+		LANPort:          0,
+		AccountServerURL: relay.URL,
 	})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1196,7 +1196,7 @@ func TestDaemon_GivenLoggedInAndUnavailableRelay_WhenRunning_ThenLANKeepsServing
 // 存在（否则未登录启动的进程登录之后没有东西会把它建起来，见
 // TestDaemon_GivenLoggedOutAtStartup_...），拦住出站流量的是解析结果为空。
 func TestDaemon_GivenLoggedOutRelayURL_WhenConstructed_ThenKeepsLANOnly(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir(), HubServerURL: "http://relay.example"})
+	d, err := New(Options{DataDir: t.TempDir(), AccountServerURL: "http://relay.example"})
 	require.NoError(t, err)
 	t.Cleanup(func() { closeDB(d.db) })
 
@@ -1776,7 +1776,7 @@ func TestDaemon_RunStartsRevocationPolling(t *testing.T) {
 	st.Login("account-42", "cached-public-key", state.AccountCredential{AccessToken: "device-access-token"})
 	require.NoError(t, st.Save())
 
-	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, HubServerURL: server.URL})
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, AccountServerURL: server.URL})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2293,7 +2293,7 @@ func TestDaemon_GivenLoggedOutAtStartup_WhenLoginLandsOnDisk_ThenTheRelayLinkPic
 	// 另一个进程完成 login。
 	other, err := state.Load(dir)
 	require.NoError(t, err)
-	other.Mutate(func(s *state.State) { s.HubServerURL = "https://server.example" })
+	other.Mutate(func(s *state.State) { s.AccountServerURL = "https://server.example" })
 	other.LoginWithKeySet("42", "kid-1", map[string]string{"kid-1": "PEM"}, 900,
 		state.AccountCredential{DeviceID: 7, AccessToken: "at-1", RefreshToken: "rt-1"})
 	require.NoError(t, other.Save())

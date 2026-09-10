@@ -271,7 +271,7 @@ func (projectLocationAdapter) load(ctx context.Context, syncID string) (*outboun
 	return &outbound{
 		SyncID:              row.SyncID,
 		UpdatedAt:           row.Updatetime,
-		ProjectSyncID:       syncIDOf(project.SyncMeta),
+		ScopeSyncID:         syncIDOf(project.SyncMeta),
 		AgentredFingerprint: row.DeviceFingerprint,
 		Payload:             payload,
 	}, nil
@@ -281,7 +281,7 @@ func (projectLocationAdapter) load(ctx context.Context, syncID string) (*outboun
 // R2b 明说本机没配对那台机器时这一行照常留着，只是不参与解析、不呈现——
 // device_id 缓存留空就是那个状态（决策 26）。
 func (projectLocationAdapter) refs(in *inbound) []ref {
-	return []ref{{Kind: syncwire.KindProject, SyncID: in.ProjectSyncID}}
+	return []ref{{Kind: syncwire.KindProject, SyncID: in.ScopeSyncID}}
 }
 
 func (projectLocationAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
@@ -289,7 +289,7 @@ func (projectLocationAdapter) apply(ctx context.Context, in *inbound, resolved m
 	if err := json.Unmarshal(in.Payload, &p); err != nil {
 		return err
 	}
-	projectID := resolvedID(resolved, ref{Kind: syncwire.KindProject, SyncID: in.ProjectSyncID})
+	projectID := resolvedID(resolved, ref{Kind: syncwire.KindProject, SyncID: in.ScopeSyncID})
 	if projectID == 0 {
 		return errRefMissing
 	}
@@ -361,10 +361,10 @@ func findLocationAtNaturalKey(
 // 哪一行（决策 26）；没有活行时返回空串。R4b 的合并落败判定用它，见
 // downlink.recordMergeLosses。
 func (projectLocationAdapter) syncIDAtNaturalKey(ctx context.Context, in *inbound) (string, error) {
-	if in.ProjectSyncID == "" || in.AgentredFingerprint == "" {
+	if in.ScopeSyncID == "" || in.AgentredFingerprint == "" {
 		return "", nil
 	}
-	projectID, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindProject, in.ProjectSyncID)
+	projectID, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindProject, in.ScopeSyncID)
 	if err != nil || projectID == 0 {
 		return "", err
 	}

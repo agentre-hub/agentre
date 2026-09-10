@@ -97,7 +97,7 @@
       "description": "把这台桌面连接到你的账号，让其它设备能发现它。",
       "errors": {
         "accessDenied": "登录已被拒绝。",
-        "expired": "验证码已过期，请重新登录。",
+        "expired": "设备码已过期，请重新登录。",
         "generic": "登录失败。",
         "inProgress": "已有登录流程正在进行。",
         "unreachable": "无法连接服务器，请检查地址后重试。"
@@ -121,8 +121,8 @@
       "title": "登录账号",
       "waiting": {
         "autoClose": "批准后自动完成登录 · 已登录会话可随时在「远端」面板退出",
-        "expiresIn": "验证码将于 {{time}} 后过期",
-        "userCode": "你的验证码",
+        "expiresIn": "设备码将于 {{time}} 后过期",
+        "userCode": "你的设备码",
         "verificationUrl": "前往"
       }
     },
@@ -167,7 +167,7 @@
       }
     },
     "panel": {
-      "description": "管理远程 agentred 计算端 — desktop 远程驱动；LAN 同网段直连，Cloud 中转跨网段（v0.3+）。",
+      "description": "管理远程 agentred 计算节点 — desktop 远程驱动；LAN 同网段直连，Cloud 中转跨网段（v0.3+）。",
       "stats": "{{paired}} 已配对 · {{online}} 在线",
       "title": "远端"
     },

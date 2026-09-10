@@ -245,7 +245,7 @@ func (s *projectSvc) recordLostLocation(
 		BaseVersion:         loser.SyncVersion,
 		Reason:              syncqueue_entity.ReasonOverwritten,
 		PayloadJSON:         string(payload),
-		ProjectSyncID:       keep.SyncID,
+		ScopeSyncID:         keep.SyncID,
 		AgentredFingerprint: loser.DeviceFingerprint,
 		OccurredAt:          now,
 		Createtime:          now,

@@ -119,7 +119,7 @@ func TestLogoutBestEffortRevokesTheAccountAuthorizationBeforeClearingLocalState(
 
 	st.Mutate(func(s *state.State) {
 		s.AccountID = "account-1"
-		s.HubServerURL = server.URL
+		s.AccountServerURL = server.URL
 		s.Credential = state.AccountCredential{
 			DeviceID:              9,
 			AccessToken:           "stale-access",
@@ -161,7 +161,7 @@ func TestLogoutClearsLocalAccountStateEvenWhenTheServerIsUnreachable(t *testing.
 	require.NoError(t, err)
 	st.Mutate(func(s *state.State) {
 		s.AccountID = "account-1"
-		s.HubServerURL = "http://127.0.0.1:1"
+		s.AccountServerURL = "http://127.0.0.1:1"
 		s.Credential = state.AccountCredential{
 			DeviceID: 9, AccessToken: "stale-access", RefreshToken: "refresh-token",
 		}

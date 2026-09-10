@@ -258,7 +258,7 @@ func TestProjectSvcMerge_GivenLocationsCollide_ThenLoserIsRecordedAsALostChange(
 	assert.Equal(t, syncqueue_entity.ReasonOverwritten, got.Reason)
 	assert.Equal(t, int64(3), got.SyncAccountID)
 	assert.Equal(t, int64(4), got.BaseVersion)
-	assert.Equal(t, "sync-50", got.ProjectSyncID, "恢复要落回保留下来的那个项目")
+	assert.Equal(t, "sync-50", got.ScopeSyncID, "恢复要落回保留下来的那个项目")
 	assert.Equal(t, "fp-1", got.AgentredFingerprint)
 	assert.Contains(t, got.PayloadJSON, "/loser")
 	assert.NotZero(t, got.OccurredAt)

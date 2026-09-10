@@ -17,7 +17,7 @@
       "kinds": {
         "local": "This computer",
         "desktop": "Another desktop",
-        "daemon": "agentred"
+        "daemon": "Compute node"
       }
     }
   },

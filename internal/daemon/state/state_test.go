@@ -134,7 +134,7 @@ func TestStateLoadSave(t *testing.T) {
 
 			// 另一个进程完成登录。
 			other, _ := Load(dir)
-			other.Mutate(func(s *State) { s.HubServerURL = "https://server.example" })
+			other.Mutate(func(s *State) { s.AccountServerURL = "https://server.example" })
 			other.LoginWithKeySet("42", "kid-1", map[string]string{"kid-1": "PEM"}, 900,
 				AccountCredential{DeviceID: 7, AccessToken: "at", RefreshToken: "rt"})
 			require.NoError(t, other.Save())
@@ -146,7 +146,7 @@ func TestStateLoadSave(t *testing.T) {
 
 			snap := st.Snapshot()
 			assert.Equal(t, "42", snap.AccountID)
-			assert.Equal(t, "https://server.example", snap.HubServerURL)
+			assert.Equal(t, "https://server.example", snap.AccountServerURL)
 			assert.Equal(t, "at", snap.Credential.AccessToken)
 			assert.Equal(t, "rt", snap.Credential.RefreshToken)
 			assert.Equal(t, int64(7), snap.Credential.DeviceID)
@@ -196,7 +196,7 @@ func TestStateLoadSave(t *testing.T) {
 
 // ── Logout 的语义：留下什么，而不是删掉什么 ────────────────────────────────
 //
-// 老写法逐个列举要清的字段，于是**新加的账号绑定字段默认被留下**——hubServerURL
+// 老写法逐个列举要清的字段，于是**新加的账号绑定字段默认被留下**——accountServerURL
 // 就是这么漏掉的（登录时由 login 写入，logout 从没清过），llmProviders 也是
 // （enginesnapshot 从账号拉下来的整份供应商配置，含 API key）。
 //
@@ -241,7 +241,7 @@ func TestLogout_ClearsTheAccountServerURLAndItsProviderSnapshot(t *testing.T) {
 
 		convey.Convey("the account server address goes with the claim", func() {
 			// 留着它，`run` 的持久化回退会在 logout 之后把 daemon 又指回旧 server。
-			assert.Empty(t, st.HubServerURL)
+			assert.Empty(t, st.AccountServerURL)
 		})
 		convey.Convey("so does the provider snapshot pulled from that account", func() {
 			// enginesnapshot 从账号拉下来的整份配置，含 API key：一台已经离开账号的
@@ -275,7 +275,7 @@ func fullyPopulatedState(t *testing.T) *State {
 	st.Mutate(func(s *State) {
 		s.SchemaVersion = CurrentSchemaVersion
 		s.DaemonInstanceUUID = "uuid-1"
-		s.HubServerURL = "https://a.example"
+		s.AccountServerURL = "https://a.example"
 		s.Listen = ListenPrefs{LanHost: "0.0.0.0", LanPort: 7456}
 		s.PairedPeers = map[string]PairedPeer{"desktop": {DeviceName: "mac", DeviceToken: "t"}}
 		s.LLMProviders = map[string]LLMProviderMeta{"p": {Name: "OpenAI", APIKey: "sk-secret"}}

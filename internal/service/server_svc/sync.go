@@ -29,7 +29,9 @@ type syncPushReqItem struct {
 	// 2026-08-27-schema-overhaul 决策 20）。
 	DeletedAt           int64  `json:"deleted_at"`
 	AgentredFingerprint string `json:"agentred_fingerprint"`
-	ProjectSyncID       string `json:"project_sync_id"`
+	// ScopeSyncID 装什么取决于 kind：project_location 装项目、agent_backend_cli
+	// 装后端；其余 kind 恒为空串。与 server 的 sync_objects.scope_sync_id 同名。
+	ScopeSyncID string `json:"scope_sync_id"`
 	// Payload 必须 omitempty：墓碑不带正文（buildPushItem 的 delete 分支），而
 	// json.RawMessage 的零值编码出来是 JSON null——null 不是对象，server 的
 	// ValidatePayload 会整批拒（30501），一次删除就把出站队列永久堵死（R6/R7）。
@@ -47,7 +49,7 @@ type syncPushResp struct {
 type syncPullRespItem struct {
 	Kind                string          `json:"kind"`
 	SyncID              string          `json:"sync_id"`
-	ProjectSyncID       string          `json:"project_sync_id"`
+	ScopeSyncID         string          `json:"scope_sync_id"`
 	AgentredFingerprint string          `json:"agentred_fingerprint"`
 	Payload             json.RawMessage `json:"payload"`
 	Version             int64           `json:"version"`
@@ -86,7 +88,7 @@ func (s *service) SyncPush(ctx context.Context, items []syncwire.PushItem) ([]sy
 			UpdatedAt:           it.UpdatedAt,
 			DeletedAt:           it.DeletedAt,
 			AgentredFingerprint: it.AgentredFingerprint,
-			ProjectSyncID:       it.ProjectSyncID,
+			ScopeSyncID:         it.ScopeSyncID,
 			Payload:             json.RawMessage(it.Payload),
 		})
 	}
@@ -147,7 +149,7 @@ func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncw
 			items = append(items, syncwire.PullItem{
 				Kind:                it.Kind,
 				SyncID:              it.SyncID,
-				ProjectSyncID:       it.ProjectSyncID,
+				ScopeSyncID:         it.ScopeSyncID,
 				AgentredFingerprint: it.AgentredFingerprint,
 				Payload:             []byte(it.Payload),
 				Version:             it.Version,
