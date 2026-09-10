@@ -335,6 +335,7 @@ const (
 	WorkspaceFsReadFailed                      // 目录 / git 读取失败
 	WorkspaceFsBaselineRequired                // 「本分支」档缺少对比基线
 	WorkspaceFsDeviceOffline                   // 远端设备不在线 / pool borrow 失败
+	WorkspaceFsNotFound                        // 目标文件在那台机器上不存在(仅 readFile 的远端分支产出,随即被翻成视图态)
 )
 
 // 导入本地会话(chat import)20900~

@@ -609,6 +609,27 @@ func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<
 	return sess.events.Out(), sess.result, nil
 }
 
+// crossHostAgentID 决定本地 Agent 主键要不要跟着一轮过线。
+//
+// 有账号级同步标识时**不发**:对端按 ResolveAgentCwd 解析 Agent 工作目录,agent_id > 0
+// 就用它拼 <AppDataDir>/agents/<agent_id>/ —— 而这个号是发起端库里的自增主键,两台桌面
+// 端各自从 1 开始。同一个 agentred 上,桌面端 A 的 agent#3 与桌面端 B 的 agent#3 会静默
+// 落进同一个目录,两个毫不相干的 Agent 的文件混在一起(SyncAccountID 记下的「两套自建
+// 部署的第一个用户都是 1」是同一形状的事故)。省掉它,对端就走 agents/sync-<syncID>/,
+// 目录名由跨机唯一的那个标识决定。
+//
+// 标识为空时照旧发:sync_id 在 DDL 上是 not null default ”,老库里可能留空,两个身份都
+// 不发会让对端两头落空直接报错 —— 把一条本来能跑的执行变成失败。那种库上撞号无解,但
+// 不该由这里制造新的失败路径。
+//
+// 只作用于跨机边界。本机执行不经过 wire,照旧用 agents/<agentID>/,老目录不搬家。
+func crossHostAgentID(agentID int64, agentSyncID string) int64 {
+	if strings.TrimSpace(agentSyncID) != "" {
+		return 0
+	}
+	return agentID
+}
+
 // buildRunParams 序列化 agentruntime.RunRequest 成 wire.RunParams。Backend
 // 走 json.RawMessage 透传(避免 wire 硬依赖 entity 内部结构),History 通过
 // blocks.EncodeAll 转成 StoredBlock 形式。
@@ -631,7 +652,7 @@ func (r *Runtime) buildRunParams(req agentruntime.RunRequest) (wire.RunParams, e
 	}
 	return wire.RunParams{
 		Backend:           backendJSON,
-		AgentID:           req.AgentID,
+		AgentID:           crossHostAgentID(req.AgentID, req.AgentSyncID),
 		ConversationID:    r.conversationID(req.SessionID),
 		Cwd:               req.Cwd,
 		Title:             req.Title,
@@ -1140,7 +1161,8 @@ func (r *Runtime) goalParams(req agentruntime.GoalRequest) (wire.GoalParams, err
 	return wire.GoalParams{
 		ConversationID:    r.conversationID(req.SessionID),
 		PeerFingerprint:   r.originFor(req.SessionID),
-		AgentID:           req.AgentID,
+		AgentID:           crossHostAgentID(req.AgentID, req.AgentSyncID),
+		AgentSyncID:       req.AgentSyncID,
 		ProviderSessionID: req.ProviderSessionID,
 		Backend:           backendJSON,
 		Cwd:               req.Cwd,

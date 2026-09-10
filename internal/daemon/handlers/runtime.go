@@ -1284,13 +1284,13 @@ func resolveSessionCapability[T any](ctx context.Context, h *RuntimeHandlers, co
 // ── Control RPCs (Steer / CancelSteer / DrainPending / Abort / SetPM /
 //                  SubmitAnswer / SubmitToolPermission) ─────────────────────
 
-func (h *RuntimeHandlers) Steer(ctx context.Context, p wire.SteerParams) (wire.OK, error) {
+func (h *RuntimeHandlers) Steer(ctx context.Context, p wire.SteerParams) (wire.SteerResult, error) {
 	s, rid, err := resolveSessionCapability[agentruntime.Steerer](ctx, h, p.ConversationID, p.PeerFingerprint)
 	if err != nil {
-		return wire.OK{}, err
+		return wire.SteerResult{}, err
 	}
 	if err := s.Steer(ctx, rid, p.QueuedID, p.Text); err != nil {
-		return wire.OK{}, err
+		return wire.SteerResult{}, err
 	}
 	// R17:记下这条 steer 的**提交方**(调用连接自己的对端 —— 他端接管别人的会话时,
 	// 提交方 ≠ 会话发起方,而来源标识要标的是「谁发的」)。等 backend 把这条 steer
@@ -1301,7 +1301,10 @@ func (h *RuntimeHandlers) Steer(ctx context.Context, p wire.SteerParams) (wire.O
 			Name: peerName(ctx),
 		})
 	}
-	return wire.OK{}, nil
+	// 句柄原样回显:这一路把调用方给的号直接交给了 runner,SteerConsumed 里回来的
+	// 也是它。撤不撤得掉问 runner 自己 —— 与 chat_svc 入队时的判据同一个。
+	_, cancellable := s.(agentruntime.SteerCanceler)
+	return wire.SteerResult{QueuedID: p.QueuedID, Cancellable: cancellable}, nil
 }
 
 func (h *RuntimeHandlers) CancelSteer(ctx context.Context, p wire.CancelSteerParams) (wire.CancelSteerResult, error) {
@@ -1642,6 +1645,7 @@ func goalRequestFromWire(p wire.GoalParams) (agentruntime.GoalRequest, error) {
 	return agentruntime.GoalRequest{
 		SessionID:         runtimeSessionID(p.ConversationID),
 		AgentID:           p.AgentID,
+		AgentSyncID:       p.AgentSyncID,
 		ProviderSessionID: p.ProviderSessionID,
 		Backend:           be,
 		Cwd:               p.Cwd,

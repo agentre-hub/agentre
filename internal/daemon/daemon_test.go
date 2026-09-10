@@ -2417,3 +2417,48 @@ func TestDaemon_PayloadBudgetMatchesTheRelayServer(t *testing.T) {
 func convID(n int64) string {
 	return conversationid.Derive(conversationid.Namespace, rigDeviceFingerprint, strconv.FormatInt(n, 10))
 }
+
+// TestDaemon_EveryTableHasAutoIncrementIDPrimaryKey 钉死 agentred 库的行身份约定：迁移
+// 建出的每一张表都以单列 `id` 为主键，且该列自增。
+//
+// 与桌面端 internal/bootstrap 的同名用例是同一条约定的两半：两个 migrations 包互不引用，
+// 却共用同一份实体与仓储代码（transcript_entity / transcript_repo），表结构错一格就是同
+// 一行代码在两台机器上写出两种结果。
+func TestDaemon_EveryTableHasAutoIncrementIDPrimaryKey(t *testing.T) {
+	d, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	var tables []struct {
+		Name string `gorm:"column:name"`
+		SQL  string `gorm:"column:sql"`
+	}
+	require.NoError(t, d.db.Raw(`SELECT name, sql FROM sqlite_master
+WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'migrations'`).Scan(&tables).Error)
+	require.NotEmpty(t, tables, "migration chain produced no tables")
+
+	for _, table := range tables {
+		t.Run(table.Name, func(t *testing.T) {
+			var cols []struct {
+				Name string `gorm:"column:name"`
+				Type string `gorm:"column:type"`
+				PK   int    `gorm:"column:pk"`
+			}
+			require.NoError(t, d.db.Raw(`SELECT name, type, pk FROM pragma_table_info(?)`, table.Name).
+				Scan(&cols).Error)
+			var pk []string
+			for _, col := range cols {
+				if col.PK > 0 {
+					pk = append(pk, col.Name)
+					if col.Name == "id" {
+						assert.True(t, strings.EqualFold(col.Type, "INTEGER"),
+							"id column type = %q, want INTEGER", col.Type)
+					}
+				}
+			}
+			assert.Equal(t, []string{"id"}, pk)
+			assert.Contains(t, strings.ToUpper(table.SQL), "AUTOINCREMENT",
+				"primary key is not AUTOINCREMENT; DDL:\n%s", table.SQL)
+		})
+	}
+}

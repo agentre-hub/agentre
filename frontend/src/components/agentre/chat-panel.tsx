@@ -5,6 +5,7 @@ import {
   ContextMeter,
   MachineOfflineBanner,
   PermissionModePill,
+  QueuedMessagesBar,
   TooltipProvider,
   TranscriptJumpControl,
   TranscriptSkeleton,
@@ -87,7 +88,6 @@ import {
 } from "./reasoning-effort";
 import { NewSessionExecTargetLine } from "./session-exec-target";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
-import { QueuedMessagesBar } from "./queued-messages-bar";
 import { deriveBackgroundTasks } from "./background-tasks/derive";
 import { deriveTaskProgress } from "./task-progress/derive";
 import { TaskProgressBar } from "./task-progress/task-progress-bar";
@@ -179,7 +179,7 @@ function ChatPanel({
     return best;
   }, [sessionStreams]);
   const currentQueued = useQueuedMessagesStore(
-    (s) => s.queuedBySession.get(sessionId) ?? null,
+    (s) => s.queuedBySession.get(sessionId)?.items ?? null,
   );
   // 回合收尾未消费被暂存的排队条目(最多一条)。只有它与当前 session 匹配时才传给
   // QueuedMessagesBar —— 别 tab 的丢弃横幅不该贴在本 tab 的 composer 上。
@@ -1116,7 +1116,7 @@ function ChatPanel({
                           onClearAll={() => void doCancelQueued(sessionId, "")}
                           dropped={
                             droppedQueue && droppedQueue.sessionId === sessionId
-                              ? droppedQueue
+                              ? droppedQueue.items
                               : null
                           }
                           onRestoreDropped={() =>

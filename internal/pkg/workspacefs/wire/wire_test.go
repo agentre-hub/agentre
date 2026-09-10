@@ -20,6 +20,7 @@ func TestSentinelRoundTrip(t *testing.T) {
 		{"PathRefused", wire.ErrPathRefused, wire.ErrCodePathRefused},
 		{"BaselineRequired", wire.ErrBaselineRequired, wire.ErrCodeBaselineRequired},
 		{"NoCwd", wire.ErrNoCwd, wire.ErrCodeNoCwd},
+		{"NotFound", wire.ErrNotFound, wire.ErrCodeNotFound},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -53,7 +54,10 @@ func TestFromRPCError_UnknownCode(t *testing.T) {
 // 这条守卫就只在写它的那天成立。remotefs 认不出来时按约定原样返回,拿到的还是
 // 同一个 *rpcerror.Error;一旦翻出了别的 sentinel,就是撞号了。
 func TestErrorCodes_DoNotOverlapRemotefs(t *testing.T) {
-	for _, code := range []int{wire.ErrCodePathRefused, wire.ErrCodeBaselineRequired, wire.ErrCodeNoCwd} {
+	for _, code := range []int{
+		wire.ErrCodePathRefused, wire.ErrCodeBaselineRequired,
+		wire.ErrCodeNoCwd, wire.ErrCodeNotFound,
+	} {
 		src := &rpcerror.Error{Code: int32(code), Message: "x"}
 		assert.Samef(t, src, remotefswire.FromRPCError(src),
 			"workspacefs code %d 被 remotefs.* 翻成了它自己的 sentinel,两个方法族撞号", code)

@@ -96,9 +96,11 @@ func productionProtobufInboundDeps() ProtobufInboundDeps {
 		RunSession: func(ctx context.Context, params remotewire.RunParams, source chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
 			return adapter().RunPeerSession(ctx, params, source)
 		},
-		SteerSession: func(ctx context.Context, params remotewire.SteerParams, source chat_svc.PeerSessionSource) error {
-			_, err := adapter().EnqueuePeerSession(ctx, params, source)
-			return err
+		SteerSession: func(ctx context.Context, params remotewire.SteerParams, source chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {
+			return adapter().EnqueuePeerSession(ctx, params, source)
+		},
+		CancelSteerSession: func(ctx context.Context, params remotewire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error) {
+			return adapter().CancelPeerSessionQueued(ctx, params)
 		},
 		SubmitAnswer: func(ctx context.Context, params remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error) {
 			return adapter().AnswerPeerUserQuestion(ctx, params)

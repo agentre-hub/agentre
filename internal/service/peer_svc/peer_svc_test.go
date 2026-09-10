@@ -236,9 +236,9 @@ func TestPeerSvc_GivenAttachedRemoteSession_WhenPull_ThenReturnJournaledPage(t *
 // lands in the peer's existing steer path (R19 / R9).
 func TestPeerSvc_GivenAttachedRemoteSession_WhenSteer_ThenMessageLandsOnPeer(t *testing.T) {
 	var got wire.SteerParams
-	url := fakePeerServer(t, peer.ProtobufInboundDeps{SteerSession: func(_ context.Context, p wire.SteerParams, _ chat_svc.PeerSessionSource) error {
+	url := fakePeerServer(t, peer.ProtobufInboundDeps{SteerSession: func(_ context.Context, p wire.SteerParams, _ chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {
 		got = p
-		return nil
+		return &chat_svc.EnqueueResponse{Queued: true, QueuedID: "desktop-1"}, nil
 	}})
 	svc, _ := newTestSvc(t, url)
 
@@ -309,7 +309,9 @@ func TestPeerSvc_GivenTwoAttachedSessions_WhenLastDetach_ThenConnectionClosed(t 
 		AttachSession: func(_ context.Context, p wire.SessionAttachParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionAttachResult, error) {
 			return wire.SessionAttachResult{ConversationID: p.ConversationID, LifecycleState: wire.SessionLifecycleIdle}, nil
 		},
-		SteerSession: func(context.Context, wire.SteerParams, chat_svc.PeerSessionSource) error { return nil },
+		SteerSession: func(context.Context, wire.SteerParams, chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {
+			return &chat_svc.EnqueueResponse{Queued: true}, nil
+		},
 	})
 	_ = closed
 	svc, _ := newTestSvc(t, url)

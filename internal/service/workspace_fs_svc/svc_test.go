@@ -992,6 +992,18 @@ func TestReadFile_UnavailableReasonIsAViewField(t *testing.T) {
 			assert.Empty(t, view.Content)
 		})
 
+		convey.Convey("远端:那台机器回「文件不存在」→ unavailable=not-found,不报错", func() {
+			r := newRig(t, 7, "/remote/work")
+			r.expectCall(wire.MethodReadFile, gomock.Any()).
+				Return(&rpcerror.Error{Code: wire.ErrCodeNotFound, Message: "workspacefs: not found"})
+
+			view, err := r.svc.ReadFile(r.ctx, 42, "", "ghost.md")
+			require.NoError(t, err)
+			require.NotNil(t, view)
+			assert.Equal(t, UnavailableNotFound, view.Unavailable)
+			assert.Empty(t, view.Content)
+		})
+
 		convey.Convey("读得到的文件 unavailable 为空", func() {
 			dir := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello\n"), 0o644))
@@ -1010,6 +1022,16 @@ func TestReadFile_UnavailableReasonIsAViewField(t *testing.T) {
 			_, err := r.svc.ReadFile(r.ctx, 42, "", "../etc/passwd")
 			require.Error(t, err)
 			assert.Equal(t, i18n.NewError(r.ctx, code.WorkspaceFsPathRefused).Error(), err.Error())
+		})
+
+		convey.Convey("远端:认不出的码仍是错误,不被当成「不存在」", func() {
+			r := newRig(t, 7, "/remote/work")
+			r.expectCall(wire.MethodReadFile, gomock.Any()).
+				Return(&rpcerror.Error{Code: -32999, Message: "boom"})
+
+			_, err := r.svc.ReadFile(r.ctx, 42, "", "a.txt")
+			require.Error(t, err)
+			assert.Equal(t, i18n.NewError(r.ctx, code.RemoteRunnerCallFailed).Error(), err.Error())
 		})
 
 		convey.Convey("远端:设备不存在不算离线,仍是 RemoteDeviceNotFound 错误", func() {

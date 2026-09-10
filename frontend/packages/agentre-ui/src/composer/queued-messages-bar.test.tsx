@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { QueuedMessagesBar, type QueuedItem } from "../queued-messages-bar";
+import { QueuedMessagesBar } from "./queued-messages-bar";
+import type { QueuedItem } from "./steer-queue";
 
 function renderBar(queued: QueuedItem[]) {
   return render(
@@ -28,6 +29,20 @@ describe("QueuedMessagesBar", () => {
     expect(screen.getByText("second queued message")).toBeInTheDocument();
   });
 
+  // 撤回被对端拒了之后,这条 chip 留在原位并转成锁住 —— 悬停要讲**这一条**为什么
+  // 撤不动(对端那句已本地化的原话),而不是那句通用的「这个后端不支持撤回」。
+  it("shows the item's own note on the lock when cancelling was refused", () => {
+    renderBar([
+      {
+        id: "a",
+        text: "撤不掉的这条",
+        cancellable: false,
+        note: "这条已经被取走了",
+      },
+    ]);
+    expect(screen.getByTitle("这条已经被取走了")).toBeInTheDocument();
+  });
+
   // 真实诉求:排队中的消息是用户刚写的原文,得能选中复制(比如复制到别处重发)。
   // body 全局 user-select:none,只有挂 data-selectable-text='true' 的子树才放开。
   it("marks queued message text as selectable for copying", () => {
@@ -38,18 +53,14 @@ describe("QueuedMessagesBar", () => {
 });
 
 describe("QueuedMessagesBar dropped banner", () => {
-  const dropped = {
-    sessionId: 1,
-    at: Date.now(),
-    items: [
-      { id: "a", text: "第一条未发送消息", cancellable: true },
-      { id: "b", text: "second unsent message", cancellable: false },
-    ],
-  };
+  const dropped: QueuedItem[] = [
+    { id: "a", text: "第一条未发送消息", cancellable: true },
+    { id: "b", text: "second unsent message", cancellable: false },
+  ];
 
   function renderDropped(
     overrides: {
-      dropped?: typeof dropped | null;
+      dropped?: QueuedItem[] | null;
       onRestoreDropped?: () => void;
       onDiscardDropped?: () => void;
     } = {},

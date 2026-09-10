@@ -12,7 +12,7 @@
 // 命名约定与 internal/pkg/remotefs/wire 一致:
 //   - 方法在 "workspacefs.*" 命名空间下
 //   - 字段名 lowerCamelCase
-//   - 错误码 -32040..-32042 是稳定 wire 值,与既有方法族的 code 段不重叠
+//   - 错误码 -32040..-32043 是稳定 wire 值,与既有方法族的 code 段不重叠
 //     (remotefs.* 占 -32030..-32035,agentruntime remote wire 占
 //     -32010..-32014),wrapGuarded handler 返回 *rpcerror.Error 由本包翻译,
 //     客户端用 FromRPCError rehydrate。
@@ -42,6 +42,7 @@ const (
 	ErrCodePathRefused      = -32040
 	ErrCodeBaselineRequired = -32041
 	ErrCodeNoCwd            = -32042
+	ErrCodeNotFound         = -32043
 )
 
 // ── Sentinel errors ─────────────────────────────────────────────────────────
@@ -57,6 +58,13 @@ var (
 	// (root 为空)。与"越界"的 ErrPathRefused 区分开——cwd 为空是会话配置问题,
 	// 不是路径问题。
 	ErrNoCwd = errors.New("workspacefs: no cwd")
+	// ErrNotFound 表示 relPath 所指的文件在那台机器上不存在(含路径中间某一段
+	// 不存在、以及符号链接断链)。
+	//
+	// 它与"越界"的 ErrPathRefused 有明确的先后:越界判定在前,因此 root 之外的
+	// 路径无论存不存在都只会得到 ErrPathRefused ——这个码不能成为"那台机器上有
+	// 没有这个文件"的探测器。
+	ErrNotFound = errors.New("workspacefs: not found")
 )
 
 // ToRPCError 把 workspacefs sentinel 包成 *rpcerror.Error,daemon handler 返回。
@@ -69,6 +77,8 @@ func ToRPCError(err error) *rpcerror.Error {
 		return &rpcerror.Error{Code: ErrCodeBaselineRequired, Message: err.Error()}
 	case errors.Is(err, ErrNoCwd):
 		return &rpcerror.Error{Code: ErrCodeNoCwd, Message: err.Error()}
+	case errors.Is(err, ErrNotFound):
+		return &rpcerror.Error{Code: ErrCodeNotFound, Message: err.Error()}
 	}
 	return nil
 }
@@ -87,6 +97,8 @@ func FromRPCError(err error) error {
 		return ErrBaselineRequired
 	case ErrCodeNoCwd:
 		return ErrNoCwd
+	case ErrCodeNotFound:
+		return ErrNotFound
 	}
 	return err
 }

@@ -254,5 +254,24 @@
     "followBackendUnset": "跟随后端配置 · 未设定",
     "current": "当前",
     "note": "自下一轮生效，当前这一轮不受影响。"
+  },
+  "queuedMessages": {
+    "aria": "排队中的消息",
+    "cancelOne": "撤回这条排队消息",
+    "cancelOneTitle": "撤回 (尚未被 AI 取走时有效)",
+    "clear": "清空",
+    "clearAria": "清空排队消息",
+    "clearTitle": "清空全部排队消息",
+    "count": "排队中 · {{count}} 条",
+    "dropped": {
+      "title": "回合结束时 {{count}} 条消息未发送",
+      "restore": "恢复为草稿",
+      "discard": "丢弃"
+    },
+    "insertAfterAI": "AI 完成后插入",
+    "noCancelSupport": "这个后端不支持撤回",
+    "noCancelSupportTitle": "这个后端不支持撤回排队消息",
+    "notCancellable": "不可撤回（这个后端不支持）",
+    "notCancellableTitle": "这个后端的插话一发即不可撤"
   }
 }

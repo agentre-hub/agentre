@@ -224,6 +224,80 @@ func TestProtobufInboundRegistryServesSessionReasoningEffort(t *testing.T) {
 	require.Equal(t, "xhigh", response.Sessions[0].ReasoningEffort)
 }
 
+// 浏览器插话之后要能管理自己那份排队清单:它拿自己造的号去对 SteerConsumed 是对不
+// 上的 —— 桌面端的 chat_svc 入队时会另造一个号(chat.go 的 newQueuedID)。所以这条路
+// 的应答必须把**桌面端认的那个号**连同「撤不撤得掉」一起交回去。
+func TestProtobufInboundRegistrySteerReturnsQueuedHandle(t *testing.T) {
+	deps := ProtobufInboundDeps{
+		SteerSession: func(_ context.Context, p remotewire.SteerParams, _ chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {
+			require.Equal(t, "browser-local-1", p.QueuedID)
+			// chat_svc 自己造号,调用方给的那个此刻仍被丢弃 —— 应答回的正是这一个。
+			return &chat_svc.EnqueueResponse{SessionID: 7, Queued: true, QueuedID: "desktop-42", Cancellable: true}, nil
+		},
+	}
+	client, ctx := peerControlClient(t, deps)
+
+	res, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), &agentrewire.RuntimeSteerRequest{ConversationId: convID(7), QueuedId: "browser-local-1", Text: "continue"}, func() *agentrewire.RuntimeSteerResponse { return &agentrewire.RuntimeSteerResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, "desktop-42", res.QueuedId)
+	require.True(t, res.Cancellable)
+}
+
+// 撤回排队消息此前在这一侧**根本没注册**:浏览器上那颗撤回键无论怎么点都只会撞
+// method not found,而 chat_svc.CancelQueued 早就在了(桌面端自己的前端一直在用)。
+func TestProtobufInboundRegistryServesCancelSteer(t *testing.T) {
+	var got remotewire.CancelSteerParams
+	deps := ProtobufInboundDeps{
+		CancelSteerSession: func(_ context.Context, p remotewire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error) {
+			got = p
+			return &chat_svc.CancelQueuedResponse{Removed: []string{"desktop-42"}}, nil
+		},
+	}
+	client, ctx := peerControlClient(t, deps)
+
+	res, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), &agentrewire.RuntimeCancelSteerRequest{ConversationId: convID(7), QueuedId: "desktop-42"}, func() *agentrewire.RuntimeCancelSteerResponse { return &agentrewire.RuntimeCancelSteerResponse{} })
+	require.NoError(t, err)
+	require.Equal(t, []string{"desktop-42"}, res.Removed)
+	require.Equal(t, convID(7), got.ConversationID)
+	require.Equal(t, "desktop-42", got.QueuedID)
+}
+
+// 撤回与入队同一档:没认证的连接一个字都别想改动这台机器上的会话。
+func TestProtobufInboundRegistryCancelSteerRequiresAuth(t *testing.T) {
+	deps := ProtobufInboundDeps{
+		CancelSteerSession: func(context.Context, remotewire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error) {
+			t.Fatal("未认证的连接不该走到撤回")
+			return nil, nil
+		},
+	}
+	registry := NewProtobufInboundRegistry(deps)
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), &agentrewire.RuntimeCancelSteerRequest{ConversationId: convID(7)}, func() *agentrewire.RuntimeCancelSteerResponse { return &agentrewire.RuntimeCancelSteerResponse{} })
+	require.Error(t, err)
+}
+
+// peerControlClient 起一条已认证的 pipe 连接,交出客户端一侧。
+func peerControlClient(t *testing.T, deps ProtobufInboundDeps) (*protorpc.Conn, context.Context) {
+	t.Helper()
+	registry := NewProtobufInboundRegistry(deps)
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "sha256:caller"})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+	return client, ctx
+}
+
 func TestProtobufInboundRegistryServesPeerSessionControlMethods(t *testing.T) {
 	var steered remotewire.SteerParams
 	deps := ProtobufInboundDeps{
@@ -240,9 +314,9 @@ func TestProtobufInboundRegistryServesPeerSessionControlMethods(t *testing.T) {
 			require.Equal(t, "sha256:caller", source.Device)
 			return &chat_svc.SendResponse{SessionID: 42}, nil
 		},
-		SteerSession: func(_ context.Context, p remotewire.SteerParams, _ chat_svc.PeerSessionSource) error {
+		SteerSession: func(_ context.Context, p remotewire.SteerParams, _ chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {
 			steered = p
-			return nil
+			return &chat_svc.EnqueueResponse{Queued: true, QueuedID: "desktop-1"}, nil
 		},
 		SubmitAnswer: func(_ context.Context, p remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error) {
 			require.Equal(t, "answer", p.RequestID)

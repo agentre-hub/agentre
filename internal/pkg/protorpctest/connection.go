@@ -188,9 +188,12 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 		response.PermissionMode = &agentrewire.PermissionModeMeta{AllowedModes: m.AllowedModes, DefaultMode: m.DefaultMode, SwitchableDuringTurn: m.SwitchableDuringTurn, Order: m.Order, LaunchDefaultMode: m.LaunchDefaultMode}
 		return response, nil
 	})
-	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.Empty, error) {
-		err := legacy.Call(ctx, wire.MethodSteer, wire.SteerParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), QueuedID: req.GetQueuedId(), Text: req.GetText()}, &wire.OK{})
-		return &agentrewire.Empty{}, testRPCError(err)
+	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.RuntimeSteerResponse, error) {
+		var out wire.SteerResult
+		if err := legacy.Call(ctx, wire.MethodSteer, wire.SteerParams{ConversationID: req.GetConversationId(), PeerFingerprint: req.GetPeerFingerprint(), QueuedID: req.GetQueuedId(), Text: req.GetText()}, &out); err != nil {
+			return nil, testRPCError(err)
+		}
+		return &agentrewire.RuntimeSteerResponse{QueuedId: out.QueuedID, Cancellable: out.Cancellable}, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), func() *agentrewire.RuntimeCancelSteerRequest { return &agentrewire.RuntimeCancelSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeCancelSteerRequest) (*agentrewire.RuntimeCancelSteerResponse, error) {
 		var out wire.CancelSteerResult

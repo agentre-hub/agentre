@@ -156,7 +156,7 @@ var RuntimeSetPermissionMode = Define[*agentrewire.RuntimeSetPermissionModeReque
 	func() *agentrewire.Empty { return &agentrewire.Empty{} })
 
 var RuntimeSteer = Define[*agentrewire.RuntimeSteerRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER,
-	func() *agentrewire.Empty { return &agentrewire.Empty{} })
+	func() *agentrewire.RuntimeSteerResponse { return &agentrewire.RuntimeSteerResponse{} })
 
 var RuntimeStopBackgroundTask = Define[*agentrewire.RuntimeStopBackgroundTaskRequest](agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK,
 	func() *agentrewire.Empty { return &agentrewire.Empty{} })

@@ -473,6 +473,23 @@ export type {
 export { ComposerOptionPicker } from "./composer/composer-option-picker";
 export type { ComposerOption } from "./composer/composer-option-picker";
 export { ContextMeter } from "./composer/context-meter";
+export { QueuedMessagesBar } from "./composer/queued-messages-bar";
+// 排队队列的状态迁移:两个宿主共用同一份归约,只有键控与「被丢弃的字去哪儿」归宿主。
+export {
+  adoptSteerHandle,
+  clearSteerQueue,
+  consumeSteers,
+  dropSteers,
+  emptySteerQueue,
+  enqueueSettledSteer,
+  enqueueSteer,
+  markSteerNotCancellable,
+} from "./composer/steer-queue";
+export type {
+  ConsumedSteerRef,
+  QueuedItem,
+  SteerQueueState,
+} from "./composer/steer-queue";
 export type { ContextMeterProps } from "./composer/context-meter";
 export { ReasoningEffortPicker } from "./composer/reasoning-effort-picker";
 export type { ReasoningEffortPickerProps } from "./composer/reasoning-effort-picker";

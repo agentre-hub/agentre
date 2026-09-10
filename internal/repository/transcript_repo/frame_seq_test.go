@@ -1,12 +1,14 @@
 package transcript_repo_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/cago-frame/cago/pkg/utils/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm/schema"
 
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
@@ -71,4 +73,17 @@ func TestFrameSeqRepo_LoadKeepsTheLatestSeqPerFramePosition(t *testing.T) {
 		{MessageID: 92, BlockIdx: 1, Ordinal: 0}: 5,
 	}, ledger)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestFrameSeqRowHasAutoIncrementIDPrimaryKey 把台账行纳入库级约定：每一张表都以单列
+// 自增 id 为主键（表侧见 migrations 包的 TestEveryTableHasAutoIncrementIDPrimaryKey）。
+//
+// FrameSeqRow 住在仓储包而不是 entity 包，所以它不在
+// internal/model/entity 那份实体清单里，只能在这里各钉一次。
+func TestFrameSeqRowHasAutoIncrementIDPrimaryKey(t *testing.T) {
+	sch, err := schema.Parse(&transcript_repo.FrameSeqRow{}, &sync.Map{}, schema.NamingStrategy{})
+	require.NoError(t, err)
+	require.Len(t, sch.PrimaryFields, 1)
+	assert.Equal(t, "id", sch.PrimaryFields[0].DBName)
+	assert.True(t, sch.PrimaryFields[0].AutoIncrement)
 }

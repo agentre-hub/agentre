@@ -20,6 +20,7 @@ type FrameKey = transcript.FrameKey
 
 // FrameSeqRow 是台账里的一行：一次编号分配。
 type FrameSeqRow struct {
+	ID        int64 `gorm:"column:id;primaryKey;autoIncrement"`
 	SessionID int64 `gorm:"column:session_id;type:bigint;not null"`
 	MessageID int64 `gorm:"column:message_id;type:bigint;not null"`
 	BlockIdx  int   `gorm:"column:block_idx;type:int;not null"`

@@ -481,25 +481,6 @@
   "localCommand": {
     "notSharedWithAI": "不发送给 AI"
   },
-  "queuedMessages": {
-    "aria": "排队中的消息",
-    "cancelOne": "撤回这条排队消息",
-    "cancelOneTitle": "撤回 (尚未被 AI 取走时有效)",
-    "clear": "清空",
-    "clearAria": "清空排队消息",
-    "clearTitle": "清空全部排队消息",
-    "codexNoCancel": "codex 不支持撤回",
-    "codexNoCancelTitle": "codex 后端不支持撤回",
-    "count": "排队中 · {{count}} 条",
-    "insertAfterAI": "AI 完成后插入",
-    "notCancellable": "不可撤回（codex 后端）",
-    "notCancellableTitle": "codex turn/steer 协议一发即不可撤",
-    "dropped": {
-      "title": "回合结束时 {{count}} 条消息未发送",
-      "restore": "恢复为草稿",
-      "discard": "丢弃"
-    }
-  },
   "slashCommands": {
     "compact": {
       "description": "压缩对话上下文,只保留摘要"

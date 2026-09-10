@@ -340,11 +340,15 @@ func (s *workspaceFsImpl) ReadFile(ctx context.Context, sessionID int64, root, r
 
 	response, cerr := callWorkspace(ctx, s, deviceID, wirecall.WorkspaceFsReadFile, &agentrewire.WorkspaceFsReadFileRequest{Root: cwd, RelPath: relPath})
 	if cerr != nil {
-		// 对端离线同样是视图态:那台机器过会儿可能就回来了,前端要据此给重试。
-		// 远端的「文件不存在」本轮判不出来 —— wire 没有对应错误码,mapCallErr 只
-		// 认 PathRefused / BaselineRequired,它因此仍落到未归类的兜底上。
+		// 与本机分支同一套口径,只是原因从叶子包的 sentinel 换成了 wire 码:
+		// 对端离线是视图态(那台机器过会儿可能就回来了,前端要据此给重试),
+		// 文件不存在也是视图态(终态,不给动作)。两者都先由 callWorkspace 里的
+		// mapBorrowErr / mapCallErr 翻成 20800 段的码,再在这里变成视图态。
 		if isCode(cerr, code.WorkspaceFsDeviceOffline) {
 			return &ReadFileView{Unavailable: UnavailableOffline}, nil
+		}
+		if isCode(cerr, code.WorkspaceFsNotFound) {
+			return &ReadFileView{Unavailable: UnavailableNotFound}, nil
 		}
 		return nil, cerr
 	}
@@ -648,6 +652,11 @@ func mapCallErr(ctx context.Context, err error) error {
 		return i18n.NewError(ctx, code.WorkspaceFsPathRefused)
 	case wire.ErrCodeBaselineRequired:
 		return i18n.NewError(ctx, code.WorkspaceFsBaselineRequired)
+	case wire.ErrCodeNotFound:
+		// 只有 readFile 的 handler 会产出这个码(daemon 侧 handler_readfile.go),
+		// 所以共用本函数的 ListDir / GitChanges / GitFileContent / SearchFiles 的
+		// 失败面不会因为这一条而改变。ReadFile 的远端分支随即把它翻成视图态。
+		return i18n.NewError(ctx, code.WorkspaceFsNotFound)
 	}
 	return i18n.NewError(ctx, code.RemoteRunnerCallFailed)
 }

@@ -27,14 +27,15 @@ const (
 
 // MessageBlock 是消息正文数组里的一个块,一块一行。
 //
-// (message_id, idx) 是自然键:idx 是块在原数组中的下标,决定重组顺序。块集合与宿主
+// (message_id, idx) 是自然键(唯一索引,不是主键):idx 是块在原数组中的下标,决定重组顺序。块集合与宿主
 // 消息同生共死 —— 消息被物理删除时块行随之删除,任何时刻不允许存在没有宿主消息的块行。
 //
 // ToolCallID 是定位键,由仓储按块类型填充(subagent_state 填它的 parent_tool_call_id,
 // 工具类块填它自身或它所应答的工具调用 id,其余类型留空);空值不进索引。
 type MessageBlock struct {
-	MessageID  int64  `gorm:"column:message_id;type:bigint;not null;primaryKey"`
-	Idx        int    `gorm:"column:idx;type:int;not null;primaryKey"`
+	ID         int64  `gorm:"column:id;primaryKey;autoIncrement"`
+	MessageID  int64  `gorm:"column:message_id;type:bigint;not null"`
+	Idx        int    `gorm:"column:idx;type:int;not null"`
 	Type       string `gorm:"column:type;type:text;not null;default:''"`
 	ToolCallID string `gorm:"column:tool_call_id;type:text;not null;default:''"`
 	Codec      int    `gorm:"column:codec;type:int;not null;default:0"`

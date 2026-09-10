@@ -224,6 +224,20 @@ func (s *chatSvc) EnqueuePeerSession(ctx context.Context, params wire.SteerParam
 	return s.enqueue(ctx, &EnqueueRequest{SessionID: sessionID, Text: params.Text, peerSource: source.messageSource()})
 }
 
+// CancelPeerSessionQueued 撤回这条会话里还没被取走的排队消息(空 QueuedID = 清空
+// 整条队列),与 EnqueuePeerSession 成对。
+//
+// 浏览器与桌面端前端走的是**同一个**撤回实现(CancelQueued):撤不撤得掉、撤掉了哪
+// 几条,都由那一处说了算,这一层只负责把会话身份解出来。此前这条路根本没有,浏览器
+// 上的排队消息因此只能看着,撤不掉。
+func (s *chatSvc) CancelPeerSessionQueued(ctx context.Context, params wire.CancelSteerParams) (*CancelQueuedResponse, error) {
+	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.CancelQueued(ctx, &CancelQueuedRequest{SessionID: sessionID, QueuedID: params.QueuedID})
+}
+
 // PendingPeerSessionWaiters 是 AnswerPeerToolPermission / AnswerPeerUserQuestion 这两个
 // 写侧的读侧（与 agentred 的 SessionCatchupHandlers.PendingWaiters 同一个方法、同一份
 // 载荷形状）。浏览器不订阅桌面端的 Wails 事件，它画审批卡 / 提问卡的数据源就是这份

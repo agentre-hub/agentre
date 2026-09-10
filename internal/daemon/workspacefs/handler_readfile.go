@@ -3,6 +3,7 @@ package workspacefs
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"path/filepath"
 
 	pkgworkspacefs "github.com/agentre-hub/agentre/internal/pkg/workspacefs"
@@ -30,6 +31,15 @@ func (h *Handlers) ReadFile(ctx context.Context, req wire.ReadFileReq) (*wire.Re
 		}
 		if errors.Is(err, pkgworkspacefs.ErrNoCwd) {
 			return nil, wire.ErrNoCwd
+		}
+		// 文件不存在是可分辨的一类,且**排在越界之后**:relPath 自身越界的请求已
+		// 被上面那道 ErrPathRefused 摘走,因此这个码不会成为"cwd 外那个 relPath
+		// 在不在"的探测器(决策 6)。root 内的符号链接断链会落到这里而不是越界档,
+		// 这是 spec 明写的语义("含符号链接断链"),也是叶子包既有的判定次序。
+		// 叶子包在 EvalSymlinks / Stat 两处都 %w 包着原始的 *PathError,
+		// fs.ErrNotExist 同时覆盖"目标不存在"与"中间某段不存在"。
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, wire.ErrNotFound
 		}
 		return nil, err
 	}

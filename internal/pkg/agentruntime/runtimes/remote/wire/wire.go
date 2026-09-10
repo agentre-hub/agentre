@@ -270,9 +270,12 @@ type PeerSessionControlResult struct {
 }
 
 type GoalParams struct {
-	ConversationID    string          `json:"conversationId"`
-	PeerFingerprint   string          `json:"peerFingerprint,omitempty"`
-	AgentID           int64           `json:"agentId,omitempty"`
+	ConversationID  string `json:"conversationId"`
+	PeerFingerprint string `json:"peerFingerprint,omitempty"`
+	AgentID         int64  `json:"agentId,omitempty"`
+	// AgentSyncID 与 RunParams.AgentSyncID 同形同义：对端在 cwd 为空时按它命名兜底
+	// 工作目录。有它就不发 AgentID —— 那是发起端的本地自增主键，跨机会撞号。
+	AgentSyncID       string          `json:"agentSyncId,omitempty"`
 	ProviderSessionID string          `json:"providerSessionId"`
 	Backend           json.RawMessage `json:"backend,omitempty"`
 	Cwd               string          `json:"cwd,omitempty"`
@@ -461,6 +464,20 @@ type SteerParams struct {
 	PeerFingerprint string `json:"peerFingerprint,omitempty"`
 	QueuedID        string `json:"queuedId,omitempty"`
 	Text            string `json:"text"`
+}
+
+// SteerResult 把这条插话在**执行端**的句柄交回调用方。
+//
+// QueuedID 是执行端自己认的那个号:agentred 回显调用方传来的那个(它被原样交给
+// runner),桌面端回 chat_svc 入队时造的那个。调用方据此管理自己那份排队清单,并按
+// SteerConsumed.QueuedID 把条目清掉 —— 拿自己造的号去对是对不上的,桌面端那条路上
+// 两个号根本不是同一个。
+//
+// Cancellable 说的是这条链路上撤不撤得掉(runner 实现了 SteerCanceler 没有),界面
+// 据此决定摆撤回键还是锁。空 QueuedID = 对端还没升级到这一版(应答仍是 OK)。
+type SteerResult struct {
+	QueuedID    string `json:"queuedId,omitempty"`
+	Cancellable bool   `json:"cancellable,omitempty"`
 }
 
 // CancelSteerParams 等同 agentruntime.SteerCanceler.CancelSteer 的入参。

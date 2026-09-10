@@ -91,7 +91,7 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		}
 		return &agentrewire.RuntimeRunResponse{ConversationId: result.ConversationID, ProviderSessionId: result.ProviderSessionID, LaunchPermissionMode: result.LaunchPermissionMode, ProviderFallbackKey: result.ProviderFallbackKey, UserMessageSeq: result.UserMessageSeq, UserMessageMinSeq: result.UserMessageMinSeq}, nil
 	})
-	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.Empty, error) {
+	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.RuntimeSteerResponse, error) {
 		if err := guard(ctx); err != nil {
 			return nil, err
 		}
@@ -99,12 +99,13 @@ func (d *Daemon) registerProtobufRuntimeMethods(reg *protorpc.Registry, conn *pr
 		if err != nil {
 			return nil, protobufRuntimeError(err)
 		}
-		_, err = rh.Steer(ctx, remotewire.SteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId, Text: req.Text})
+		result, err := rh.Steer(ctx, remotewire.SteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId, Text: req.Text})
 		if err != nil {
 			d.conns.undoClaim(ticket)
 			return nil, protobufRuntimeError(err)
 		}
-		return &agentrewire.Empty{}, nil
+		// 句柄交回调用方:它据此维护自己那份排队清单,并按 SteerConsumed.queuedId 清条目。
+		return &agentrewire.RuntimeSteerResponse{QueuedId: result.QueuedID, Cancellable: result.Cancellable}, nil
 	})
 	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), func() *agentrewire.RuntimeCancelSteerRequest { return &agentrewire.RuntimeCancelSteerRequest{} }, func(ctx context.Context, req *agentrewire.RuntimeCancelSteerRequest) (*agentrewire.RuntimeCancelSteerResponse, error) {
 		if err := guard(ctx); err != nil {

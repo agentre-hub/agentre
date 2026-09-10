@@ -62,7 +62,9 @@ const DefaultUpdateChannel = "stable"
 
 // AppSetting 一行 key-value 设置项记录。
 type AppSetting struct {
-	Key        string `gorm:"column:key;primaryKey;type:text;not null"`
+	ID int64 `gorm:"column:id;primaryKey;autoIncrement"`
+	// Key 是自然键，落在唯一索引上：Set 的 ON CONFLICT(key) 认的就是它。
+	Key        string `gorm:"column:key;type:text;not null;uniqueIndex"`
 	Value      string `gorm:"column:value;type:text;not null"`
 	Updatetime int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
 }

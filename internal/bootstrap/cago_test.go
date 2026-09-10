@@ -779,3 +779,55 @@ WHERE name NOT LIKE 'sqlite_%' AND name != 'migrations' ORDER BY name`).Scan(&ro
 	}
 	return out
 }
+
+// TestEveryTableHasAutoIncrementIDPrimaryKey 钉死一条库级约定：迁移建出的每一张业务表
+// 都以单列 `id` 为主键，且该列自增。
+//
+// 复合主键与自然主键都不算数 —— 一张表的行身份必须是一个与业务取值无关的数字。原来
+// 的复合键/自然键降级为 UNIQUE 索引，它们表达的唯一性照旧成立。实体侧的同一条约定由
+// internal/model/entity 的 TestEveryEntityHasAutoIncrementIDPrimaryKey 独立钉住：两侧
+// 差一格，同一段代码就会在内存里和库里各认一套行身份。
+func TestEveryTableHasAutoIncrementIDPrimaryKey(t *testing.T) {
+	gormDB := openMigratedSQLite(t, "primary-keys.db", nil)
+
+	var tables []struct {
+		Name string `gorm:"column:name"`
+		SQL  string `gorm:"column:sql"`
+	}
+	if err := gormDB.Raw(`SELECT name, sql FROM sqlite_master
+WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'migrations'`).Scan(&tables).Error; err != nil {
+		t.Fatalf("list tables: %v", err)
+	}
+	if len(tables) == 0 {
+		t.Fatal("migration chain produced no tables")
+	}
+
+	for _, table := range tables {
+		t.Run(table.Name, func(t *testing.T) {
+			var cols []struct {
+				Name string `gorm:"column:name"`
+				Type string `gorm:"column:type"`
+				PK   int    `gorm:"column:pk"`
+			}
+			if err := gormDB.Raw(`SELECT name, type, pk FROM pragma_table_info(?)`, table.Name).
+				Scan(&cols).Error; err != nil {
+				t.Fatalf("pragma_table_info(%s): %v", table.Name, err)
+			}
+			var pk []string
+			for _, col := range cols {
+				if col.PK > 0 {
+					pk = append(pk, col.Name)
+					if col.Name == "id" && !strings.EqualFold(col.Type, "INTEGER") {
+						t.Errorf("id column type = %q, want INTEGER", col.Type)
+					}
+				}
+			}
+			if len(pk) != 1 || pk[0] != "id" {
+				t.Errorf("primary key = %v, want [id]", pk)
+			}
+			if !strings.Contains(strings.ToUpper(table.SQL), "AUTOINCREMENT") {
+				t.Errorf("primary key is not AUTOINCREMENT; DDL:\n%s", table.SQL)
+			}
+		})
+	}
+}

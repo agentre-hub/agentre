@@ -21,6 +21,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
@@ -1386,3 +1387,64 @@ func TestEventShowsProgressAfterError_SubagentModel(t *testing.T) {
 
 // SelfFingerprint 满足 client.ProtobufConnection:这个假连接从没握过手,本端指纹为空。
 func (c *noopDaemonClient) SelfFingerprint() string { return "" }
+
+// TestSetGoalRemote_SendsSyncIDNotLocalAgentPrimaryKey 端到端钉住跨机 goal 的 Agent
+// 身份口径：过线的是账号级同步标识，不是本地自增主键。
+//
+// 对端按 ResolveAgentCwd 命名 Agent 的兜底工作目录。agent_id 是**发起端**库里的自增
+// 主键，两台桌面端各自从 1 开始——同一个 agentred 上，桌面端 A 的 agent#7 与桌面端 B
+// 的 agent#7 会静默落进同一个目录。这条断言同时守住链路的两端：goal.go 得把 a.SyncID
+// 填进 GoalRequest，goalParams 得在有标识时把本地主键压成 0。
+func TestSetGoalRemote_SendsSyncIDNotLocalAgentPrimaryKey(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	rec := newRecordingDaemonClient()
+	rec.expect(wire.MethodCapabilities, func(_, result any) error {
+		*(result.(*wire.CapabilitiesResult)) = wire.CapabilitiesResult{
+			Capabilities: capability.Capabilities{Set: map[capability.Capability]bool{capability.CapGoal: true}},
+		}
+		return nil
+	})
+	rec.expect(wire.MethodSetGoal, func(params, result any) error {
+		gp, ok := params.(wire.GoalParams)
+		require.True(t, ok, "expected wire.GoalParams, got %T", params)
+		assert.Equal(t, "01KZNE7YKJQ6A79YVDCMW1A63R", gp.AgentSyncID,
+			"账号级同步标识必须过线：对端拿它命名 Agent 工作目录")
+		assert.Zero(t, gp.AgentID,
+			"本地自增主键不该过线：两台桌面端同号会在同一个 agentred 上共用目录")
+		*(result.(*wire.GoalResult)) = wire.GoalResult{Goal: &agentruntime.Goal{
+			ThreadID: "codex-thread-123", Objective: "ship it", Status: "active",
+		}}
+		return nil
+	})
+
+	pool := mock_remote_device_svc.NewMockConnPool(ctrl)
+	lease := mock_remote_device_svc.NewMockLease(ctrl)
+	pool.EXPECT().Borrow(gomock.Any(), int64(7)).Return(lease, nil)
+	lease.EXPECT().Client().Return(protorpctest.WrapConnection(rec)).AnyTimes()
+	lease.EXPECT().Closed().Return(make(chan struct{})).AnyTimes()
+	lease.EXPECT().Release().AnyTimes()
+
+	svc := &chatSvc{}
+	svc.setConnPoolForTest(pool)
+	installPairedDevice(t, ctrl, 7)
+	installExecDaemonRecorder(t, ctrl)
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, nil)
+	t.Cleanup(restore)
+
+	be := &agent_backend_entity.AgentBackend{
+		ID: 12, Type: string(agent_backend_entity.TypeCodex),
+		DeviceFingerprint: testDeviceFingerprint(7), Status: 1,
+	}
+	sess := &chat_entity.Session{ID: 100, AgentID: 7, ProviderSessionID: "codex-thread-123"}
+	agent := &agent_entity.Agent{ID: 7}
+	agent.SyncMeta = syncmeta_entity.SyncMeta{SyncID: "01KZNE7YKJQ6A79YVDCMW1A63R"}
+	objective := "ship it"
+
+	_, release, err := svc.goals().SetOnSessionForTest(
+		context.Background(), sess, agent, be, nil, goal.Patch{Objective: &objective})
+	require.NoError(t, err)
+	defer release()
+	assert.Equal(t, 1, rec.count(wire.MethodSetGoal))
+}

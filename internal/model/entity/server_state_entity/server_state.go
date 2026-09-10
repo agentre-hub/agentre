@@ -3,9 +3,12 @@ package server_state_entity
 
 import "time"
 
-// ServerState 桌面端联机状态，全表只有一行（id = 1，CHECK 约束）。
+// ServerState 桌面端联机状态，全表只有一行。
+//
+// 单行由 DDL 上的 singleton 列担保（NOT NULL DEFAULT 1 CHECK (singleton = 1) UNIQUE），
+// 那一列不进实体：它是一条约束，不是业务字段。行本身照旧是 id = 1，repo 按它定位。
 type ServerState struct {
-	ID                int64  `gorm:"column:id;primaryKey;autoIncrement:false"`
+	ID                int64  `gorm:"column:id;primaryKey;autoIncrement"`
 	ServerURL         string `gorm:"column:server_url;type:text;not null;default:''"`
 	DeviceID          int64  `gorm:"column:device_id;type:integer;not null;default:0"`
 	DeviceFingerprint string `gorm:"column:device_fingerprint;type:text;not null;default:''"`

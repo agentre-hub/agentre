@@ -98,8 +98,10 @@ func (l *Label) Check(ctx context.Context) error {
 
 // IssueLabel issue ↔ label 多对多关联。
 type IssueLabel struct {
-	IssueID int64 `gorm:"column:issue_id;primaryKey"`
-	LabelID int64 `gorm:"column:label_id;primaryKey"`
+	ID int64 `gorm:"column:id;primaryKey;autoIncrement"`
+	// (issue_id, label_id) 是自然键，落在唯一索引上；行身份由 ID 承担。
+	IssueID int64 `gorm:"column:issue_id"`
+	LabelID int64 `gorm:"column:label_id"`
 	// SyncMeta 关联行自己也是一个同步对象：跨机表达的是「哪个任务挂了哪个标签」，
 	// 两端的本地自增主键各不相同，只能靠同步标识指认。
 	syncmeta_entity.SyncMeta `gorm:"embedded"`

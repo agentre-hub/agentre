@@ -931,6 +931,28 @@ func TestIntegration_SteerConsumedCarriesSubmitterSource(t *testing.T) {
 		"daemon must stamp the submitter device name onto the consumed steer")
 }
 
+// TestIntegration_SteerAnswersWithTheQueuedHandle: 插话的应答要把这条消息在执行端的
+// 句柄交回调用方 —— 浏览器据此维护自己那份排队清单,并按 SteerConsumed.queuedId 把
+// 条目清掉。此前这一路答的是 Empty:调用方手里只有自己造的号。
+//
+// cancellable 说的是**这个 runner** 撤不撤得掉(steerAwareRunner 没有 SteerCanceler,
+// 与 codex / piagent 同一档),不是「插话成功了没有」。
+func TestIntegration_SteerAnswersWithTheQueuedHandle(t *testing.T) {
+	rt := &steerAwareRunner{}
+	rig := bootSteerAwareRig(t, rt)
+
+	_, _ = rig.startRun(t, 701)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	res, err := protorpc.CallMethod(ctx, rig.proto.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER),
+		&agentrewire.RuntimeSteerRequest{ConversationId: convID(701), QueuedId: "q-9", Text: "mid-turn"},
+		func() *agentrewire.RuntimeSteerResponse { return &agentrewire.RuntimeSteerResponse{} })
+	require.NoError(t, err)
+	assert.Equal(t, "q-9", res.GetQueuedId(), "agentred 这一路把调用方给的号原样交给 runner,应答就该回它")
+	assert.False(t, res.GetCancellable(), "这个 runner 没有 SteerCanceler,界面该摆锁而不是撤回键")
+}
+
 // TestIntegration_StrayConnDoesNotStealSessionNotifications 回归:一条完成 WS 升级却
 // **从不认证**的连接(LAN 扫描器 / 鉴权失败的客户端 / 掉队的重连)接入时,已配对设备
 // 上正在跑的会话必须照常收到推送。

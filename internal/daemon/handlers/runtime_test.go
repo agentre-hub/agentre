@@ -1720,6 +1720,45 @@ func TestRuntime_Steer_Success(t *testing.T) {
 	assert.Equal(t, []steerCall{{sid: handlers.RuntimeSessionKey(convID(9)), queuedID: "q-1", text: "stop"}}, rt.steerCalls)
 }
 
+// steerOnlyRT 实现 Runtime + Steerer,但**没有** SteerCanceler —— codex 与 piagent
+// 就是这一档(CapCancelSteer=false)。用来验应答里的 cancellable 说的是「这个 runner
+// 撤不撤得掉」,而不是「插话成功了没有」。
+type steerOnlyRT struct{ bareRT }
+
+func (steerOnlyRT) Steer(_ context.Context, _ int64, _, _ string) error { return nil }
+
+// R: 插话的应答要把这条消息在执行端的句柄交回调用方 —— 调用方(浏览器)据此管理自己
+// 那份排队清单,并按 SteerConsumed.queuedId 把它清掉。此前应答是 wire.OK,调用方只能
+// 拿自己造的号去对,而桌面端托管的那条路上两个号根本不是同一个。
+func TestRuntime_Steer_ReturnsQueuedHandle(t *testing.T) {
+	rt := &fullRT{}
+	ctx, _, h, live := runtimeWithLiveSession(t, rt, 9)
+	defer close(live)
+
+	res, err := h.Steer(ctx, wire.SteerParams{ConversationID: convID(9), QueuedID: "q-1", Text: "stop"})
+	require.NoError(t, err)
+	// agentred 这一侧的句柄就是调用方传来的那个:它被原样交给了 runner。
+	assert.Equal(t, "q-1", res.QueuedID)
+	// fullRT 实现了 SteerCanceler。
+	assert.True(t, res.Cancellable)
+}
+
+// R: runner 撤不掉时应答如实说不可撤 —— 界面据此把撤回键换成锁,而不是摆一颗按下去
+// 必然失败的键。
+func TestRuntime_Steer_RunnerWithoutCanceler_ReportsNotCancellable(t *testing.T) {
+	rt := &fullRT{}
+	ctx, _, h, live := runtimeWithLiveSession(t, rt, 11)
+	defer close(live)
+
+	// 会话登记完再换 runtime:与 TestRuntime_Steer_BackendUnsupported 同一个手法。
+	h.SwapRuntimeFor(func(_ agent_backend_entity.BackendType) agentruntime.Runtime { return steerOnlyRT{} })
+
+	res, err := h.Steer(ctx, wire.SteerParams{ConversationID: convID(11), QueuedID: "q-2", Text: "stop"})
+	require.NoError(t, err)
+	assert.Equal(t, "q-2", res.QueuedID)
+	assert.False(t, res.Cancellable)
+}
+
 func TestRuntime_Steer_NoSession_ErrNoActiveTurn(t *testing.T) {
 	ctx, _, _, _, h := setupRuntimeTest(t, &fullRT{})
 	_, err := h.Steer(ctx, wire.SteerParams{ConversationID: convID(99), Text: "x"})

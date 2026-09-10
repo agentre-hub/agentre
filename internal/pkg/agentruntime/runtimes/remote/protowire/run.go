@@ -52,7 +52,7 @@ func GoalRequestToProto(value wire.GoalParams) (*agentrewire.RuntimeGoalRequest,
 	if err != nil {
 		return nil, err
 	}
-	return &agentrewire.RuntimeGoalRequest{ConversationId: value.ConversationID, PeerFingerprint: value.PeerFingerprint, AgentId: value.AgentID, ProviderSessionId: value.ProviderSessionID, Backend: backendToProto(backend), Cwd: value.Cwd, Objective: value.Objective, Status: value.Status, TokenBudget: intPtrTo32(value.TokenBudget), LlmProviderKey: value.LLMProviderKey, LlmModelKey: value.LLMModelKey}, nil
+	return &agentrewire.RuntimeGoalRequest{ConversationId: value.ConversationID, PeerFingerprint: value.PeerFingerprint, AgentId: value.AgentID, AgentSyncId: value.AgentSyncID, ProviderSessionId: value.ProviderSessionID, Backend: backendToProto(backend), Cwd: value.Cwd, Objective: value.Objective, Status: value.Status, TokenBudget: intPtrTo32(value.TokenBudget), LlmProviderKey: value.LLMProviderKey, LlmModelKey: value.LLMModelKey}, nil
 }
 
 func GoalRequestFromProto(value *agentrewire.RuntimeGoalRequest) (wire.GoalParams, error) {
@@ -67,7 +67,7 @@ func GoalRequestFromProto(value *agentrewire.RuntimeGoalRequest) (wire.GoalParam
 		}
 		backend = encoded
 	}
-	return wire.GoalParams{ConversationID: value.GetConversationId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), ProviderSessionID: value.GetProviderSessionId(), Backend: backend, Cwd: value.GetCwd(), Objective: value.Objective, Status: value.Status, TokenBudget: int32PtrToInt(value.TokenBudget), LLMProviderKey: value.GetLlmProviderKey(), LLMModelKey: value.GetLlmModelKey()}, nil
+	return wire.GoalParams{ConversationID: value.GetConversationId(), PeerFingerprint: value.GetPeerFingerprint(), AgentID: value.GetAgentId(), AgentSyncID: value.GetAgentSyncId(), ProviderSessionID: value.GetProviderSessionId(), Backend: backend, Cwd: value.GetCwd(), Objective: value.Objective, Status: value.Status, TokenBudget: int32PtrToInt(value.TokenBudget), LLMProviderKey: value.GetLlmProviderKey(), LLMModelKey: value.GetLlmModelKey()}, nil
 }
 
 func GoalResponseFromProto(value *agentrewire.RuntimeGoalResponse) *agentruntime.Goal {

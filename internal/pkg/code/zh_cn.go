@@ -253,6 +253,7 @@ var zhCN = map[int]string{
 	WorkspaceFsReadFailed:       "读取工作目录失败",
 	WorkspaceFsBaselineRequired: "缺少对比基线,请先选择一个基线分支",
 	WorkspaceFsDeviceOffline:    "远端设备不在线",
+	WorkspaceFsNotFound:         "文件不存在",
 
 	// 导入本地会话(chat import)
 	ChatImportBackendUnavailable:     "这台机器上没有这个后端的会话档案",

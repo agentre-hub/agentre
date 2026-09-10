@@ -212,11 +212,15 @@ func (r *Runtime) goalSession(ctx context.Context, req agentruntime.GoalRequest,
 	cwd := req.Cwd
 	if cwd == "" {
 		var err error
-		cwd, err = agentruntime.AgentCwd(req.AgentID)
+		// 与 Run 同口径走 ResolveAgentCwd：AgentID=0 的 web 发起会话没有本地主键，
+		// 兜底目录由账号级同步标识定。goal 与 turn 必须落在同一个目录，否则同一条
+		// 会话的目标与轮次会分家。
+		cwd, err = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
 		if err != nil {
-			logger.Ctx(ctx).Error("codex runtime: AgentCwd resolve failed for goal",
+			logger.Ctx(ctx).Error("codex runtime: ResolveAgentCwd resolve failed for goal",
 				zap.Int64("sessionID", req.SessionID),
-				zap.Int64("agentID", req.AgentID), zap.Error(err))
+				zap.Int64("agentID", req.AgentID),
+				zap.String("agentSyncId", req.AgentSyncID), zap.Error(err))
 			return nil, err
 		}
 	}
@@ -225,6 +229,7 @@ func (r *Runtime) goalSession(ctx context.Context, req agentruntime.GoalRequest,
 		Provider:          req.Provider,
 		Effective:         req.Effective,
 		AgentID:           req.AgentID,
+		AgentSyncID:       req.AgentSyncID,
 		SessionID:         req.SessionID,
 		Cwd:               cwd,
 		ProviderSessionID: req.ProviderSessionID,

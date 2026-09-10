@@ -369,10 +369,6 @@ vi.mock("../capability/use-backend-capabilities", () => ({
   }),
 }));
 
-vi.mock("../queued-messages-bar", () => ({
-  QueuedMessagesBar: () => null,
-}));
-
 vi.mock("../task-progress/task-progress-bar", () => ({
   TaskProgressBar: () => null,
 }));

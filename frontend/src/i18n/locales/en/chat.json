@@ -481,25 +481,6 @@
   "localCommand": {
     "notSharedWithAI": "Not sent to AI"
   },
-  "queuedMessages": {
-    "aria": "Queued messages",
-    "cancelOne": "Cancel this queued message",
-    "cancelOneTitle": "Cancel before AI picks it up",
-    "clear": "Clear",
-    "clearAria": "Clear queued messages",
-    "clearTitle": "Clear all queued messages",
-    "codexNoCancel": "codex does not support cancel",
-    "codexNoCancelTitle": "codex backend does not support cancel",
-    "count": "Queued · {{count}}",
-    "insertAfterAI": "Inserted after AI finishes",
-    "notCancellable": "Not cancellable (codex backend)",
-    "notCancellableTitle": "codex turn/steer protocol is not cancellable after send",
-    "dropped": {
-      "title": "{{count}} message(s) were not sent when the turn ended",
-      "restore": "Restore as draft",
-      "discard": "Discard"
-    }
-  },
   "slashCommands": {
     "compact": {
       "description": "Compact the chat context and keep only the summary"

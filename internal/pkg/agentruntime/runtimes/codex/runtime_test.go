@@ -1532,3 +1532,45 @@ func TestRun_GivenReasoningEffortOnlyChanges_WhenRunningAgain_ThenTheOldSessionI
 		})
 	})
 }
+
+// TestSetGoal_WebInitiatedFreeSessionResolvesCwdFromSyncID 是
+// TestRun_WebInitiatedFreeSessionResolvesCwdFromSyncID 在 goal 路径上的同款。
+//
+// 2026-08-22 那次修复只落在 run 路径上:各 runtime 的 Run 在 Cwd 为空时改走
+// ResolveAgentCwd,AgentID=0 就用账号级同步标识兜底。goal 路径漏了 —— goalSession
+// 至今调的是 AgentCwd(req.AgentID),没有 sync 分支,于是 web 发起的自由会话
+// (AgentID=0 + Cwd 空)一设目标就撞上「AgentCwd needs agentID > 0」直接报错。
+//
+// 同一处还决定跨机执行的目录名:agent_id 是发起端库里的自增主键,两台桌面端各自
+// 从 1 开始,同一个 agentred 上同号即共用目录(见 6425ba59 在 run 路径上的修复)。
+func TestSetGoal_WebInitiatedFreeSessionResolvesCwdFromSyncID(t *testing.T) {
+	Convey("Given 一条 web 发起的自由会话:AgentID=0、Cwd 空、只带账号级 AgentSyncID", t, func() {
+		dataDir := t.TempDir()
+		t.Setenv("AGENTRE_DATA_DIR", dataDir)
+
+		var gotCwd string
+		restore := SetSessionFactoryForTest(
+			func(_ agentruntime.RunRequest, _ map[string]string, cwd string) (cxSessionHandle, error) {
+				gotCwd = cwd
+				return &fakeRuntimeSession{}, nil
+			})
+		defer restore()
+
+		Convey("When 给它设一个目标, Then 设得上,工作目录落在该 Agent 的账号级同步标识下", func() {
+			objective := "ship it"
+			goal, err := New().SetGoal(context.Background(), agentruntime.GoalRequest{
+				Backend: &agent_backend_entity.AgentBackend{
+					Type: string(agent_backend_entity.TypeCodex), EnvJSON: "{}",
+				},
+				SessionID:   1,
+				AgentID:     0,
+				AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R",
+				Objective:   &objective,
+			})
+			So(err, ShouldBeNil)
+			So(goal, ShouldNotBeNil)
+			So(gotCwd, ShouldEqual,
+				filepath.Join(dataDir, "agents", "sync-01KZNE7YKJQ6A79YVDCMW1A63R"))
+		})
+	})
+}

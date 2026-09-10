@@ -37,9 +37,9 @@ func TestOutboundUsesTypedProtobufSessionMethods(t *testing.T) {
 			require.True(t, p.FreshSession)
 			return &chat_svc.SendResponse{SessionID: 42}, nil
 		},
-		SteerSession: func(_ context.Context, p wire.SteerParams, _ chat_svc.PeerSessionSource) error {
+		SteerSession: func(_ context.Context, p wire.SteerParams, _ chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error) {
 			steered = p
-			return nil
+			return &chat_svc.EnqueueResponse{Queued: true, QueuedID: "desktop-1"}, nil
 		},
 		SubmitAnswer: func(context.Context, wire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error) {
 			return chat_svc.PeerSessionControlResult{AlreadyHandled: true}, nil

@@ -93,7 +93,7 @@ export const rpcMethods = {
     "runtimeSteer",
     9,
     pb.RuntimeSteerRequestSchema,
-    pb.EmptySchema,
+    pb.RuntimeSteerResponseSchema,
   ),
   runtimeCancelSteer: method(
     "runtimeCancelSteer",

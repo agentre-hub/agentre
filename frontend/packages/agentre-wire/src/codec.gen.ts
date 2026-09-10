@@ -139,6 +139,12 @@ export interface GoalParams extends WireObject {
   conversationId: string;
   peerFingerprint?: string;
   agentId?: number;
+
+  /**
+   * AgentSyncID 与 RunParams.AgentSyncID 同形同义：对端在 cwd 为空时按它命名兜底
+   * 工作目录。有它就不发 AgentID —— 那是发起端的本地自增主键，跨机会撞号。
+   */
+  agentSyncId?: string;
   providerSessionId: string;
   backend?: unknown;
   cwd?: string;
@@ -160,6 +166,7 @@ export function decodeGoalParams(v: unknown): GoalParams {
     o.conversationId = reqStr(o.conversationId, "GoalParams.conversationId");
     o.peerFingerprint = optStr(o.peerFingerprint, "GoalParams.peerFingerprint");
     o.agentId = optNum(o.agentId, "GoalParams.agentId");
+    o.agentSyncId = optStr(o.agentSyncId, "GoalParams.agentSyncId");
     o.providerSessionId = reqStr(
       o.providerSessionId,
       "GoalParams.providerSessionId",
@@ -566,6 +573,33 @@ export function decodeSteerParams(v: unknown): SteerParams {
 }
 
 export function encodeSteerParams(v: SteerParams): string {
+  return encodeWire(v);
+}
+
+/**
+ * SteerResult 把这条插话在**执行端**的句柄交回调用方。
+ *
+ * QueuedID 是执行端自己认的那个号:agentred 回显调用方传来的那个(它被原样交给
+ * runner),桌面端回 chat_svc 入队时造的那个。调用方据此管理自己那份排队清单,并按
+ * SteerConsumed.QueuedID 把条目清掉 —— 拿自己造的号去对是对不上的,桌面端那条路上
+ * 两个号根本不是同一个。
+ *
+ * Cancellable 说的是这条链路上撤不撤得掉(runner 实现了 SteerCanceler 没有),界面
+ * 据此决定摆撤回键还是锁。空 QueuedID = 对端还没升级到这一版(应答仍是 OK)。
+ */
+export interface SteerResult extends WireObject {
+  queuedId?: string;
+  cancellable?: boolean;
+}
+
+export function decodeSteerResult(v: unknown): SteerResult {
+  return decodeWire<SteerResult>(v, "SteerResult", (o) => {
+    o.queuedId = optStr(o.queuedId, "SteerResult.queuedId");
+    o.cancellable = optBool(o.cancellable, "SteerResult.cancellable");
+  });
+}
+
+export function encodeSteerResult(v: SteerResult): string {
   return encodeWire(v);
 }
 

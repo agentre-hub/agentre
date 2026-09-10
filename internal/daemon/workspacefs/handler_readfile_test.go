@@ -67,3 +67,39 @@ func TestReadFile_RelativeRoot_InvalidParams(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, rpcerror.ErrInvalidParams))
 }
+
+// Given 转录里的路径来自当时那次工具调用,文件之后被删掉是正常情况,
+// When 读一个工作根内已经不存在的 relPath,
+// Then daemon 回可分辨的 ErrNotFound —— 而不是一个笼统失败,host 侧才能把它
+// 画成终态的「文件不存在」而不是给一个必然再失败的重试按钮。
+func TestReadFile_Missing_NotFound(t *testing.T) {
+	h := workspacefs.NewHandlers(workspacefs.Options{})
+	root := t.TempDir()
+
+	_, err := h.ReadFile(context.Background(), wire.ReadFileReq{Root: root, RelPath: "ghost.md"})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, wire.ErrNotFound))
+}
+
+// 中间目录不存在与目标文件不存在是同一件事:两者都是"这条路径在那台机器上没有"。
+func TestReadFile_MissingParentDir_NotFound(t *testing.T) {
+	h := workspacefs.NewHandlers(workspacefs.Options{})
+	root := t.TempDir()
+
+	_, err := h.ReadFile(context.Background(), wire.ReadFileReq{Root: root, RelPath: "nope/ghost.md"})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, wire.ErrNotFound))
+}
+
+// Given 新码不得成为"cwd 外那个文件在不在"的探测器(spec 决策 6 与硬不变量),
+// When relPath 越界且越界后的目标同样不存在,
+// Then 仍然只回 ErrPathRefused —— 越界判定优先,存在性一个字都不透。
+func TestReadFile_EscapingMissingPath_StillPathRefused(t *testing.T) {
+	h := workspacefs.NewHandlers(workspacefs.Options{})
+	root := t.TempDir()
+
+	_, err := h.ReadFile(context.Background(), wire.ReadFileReq{Root: root, RelPath: "../surely-no-such-file-9f3a2c"})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, wire.ErrPathRefused))
+	assert.False(t, errors.Is(err, wire.ErrNotFound))
+}

@@ -31,6 +31,7 @@ type inboundSessionAdapter interface {
 	Delete(context.Context, *chat_svc.DeleteRequest) (*chat_svc.DeleteResponse, error)
 	RunPeerSession(context.Context, wire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
 	EnqueuePeerSession(context.Context, wire.SteerParams, chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error)
+	CancelPeerSessionQueued(context.Context, wire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error)
 	AnswerPeerUserQuestion(context.Context, wire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
 	AnswerPeerToolPermission(context.Context, wire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error)
 	SetPermissionMode(context.Context, *chat_svc.SetPermissionModeRequest) (*chat_svc.SetPermissionModeResponse, error)

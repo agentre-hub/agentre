@@ -615,6 +615,14 @@ message RuntimeCapabilitiesResponse {
 }
 
 message RuntimeSteerRequest { string conversation_id = 1; string peer_fingerprint = 2; string queued_id = 3; string text = 4; }
+// RuntimeSteerResponse 把这条插话在**执行端**的句柄交回调用方:queued_id 是执行端
+// 自己认的那个号(agentred 回显调用方传来的;桌面端回 chat_svc 入队时造的那个),
+// cancellable 说的是这条链路上撤不撤得掉。
+//
+// 调用方据此管理自己那份排队清单:此前这个应答是 Empty,浏览器只能拿自己造的号去
+// 对 SteerConsumed.queued_id —— 桌面端托管的会话上那两个号根本不是同一个。
+// queued_id 为空 = 对端还没升级到这一版(应答仍是 Empty),不按版本号猜。
+message RuntimeSteerResponse { string queued_id = 1; bool cancellable = 2; }
 message RuntimeCancelSteerRequest { string conversation_id = 1; string peer_fingerprint = 2; string queued_id = 3; }
 message RuntimeCancelSteerResponse { repeated string removed = 1; }
 message RuntimeDrainPendingRequest { string conversation_id = 1; string peer_fingerprint = 2; }
@@ -754,6 +762,12 @@ message RuntimeGoalRequest {
   optional int32 token_budget = 9;
   string llm_provider_key = 10;
   string llm_model_key = 11;
+  // The agent's account-level sync id, same meaning as on RuntimeRunRequest. It
+  // is what the responder names the agent's fallback working directory after
+  // when cwd is empty. agent_id above is the *originator's* local primary key —
+  // two desktops both count from 1, so on a shared daemon the same number is two
+  // different agents; the caller therefore sends this instead whenever it has one.
+  string agent_sync_id = 12;
 }
 message Goal {
   string thread_id = 1;

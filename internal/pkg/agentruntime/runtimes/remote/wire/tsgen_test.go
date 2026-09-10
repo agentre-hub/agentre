@@ -118,6 +118,7 @@ func tsRootTypes() []reflect.Type {
 		reflect.TypeOf(MCPProxyResponse{}),
 		reflect.TypeOf(RunAck{}),
 		reflect.TypeOf(SteerParams{}),
+		reflect.TypeOf(SteerResult{}),
 		reflect.TypeOf(CancelSteerParams{}),
 		reflect.TypeOf(CancelSteerResult{}),
 		reflect.TypeOf(DrainParams{}),

@@ -2050,3 +2050,89 @@ func TestGoalParams_ForwardsLLMTargetKeys(t *testing.T) {
 	_, err = rt.GetGoal(context.Background(), agentruntime.GoalRequest{SessionID: 42, Backend: &agent_backend_entity.AgentBackend{Type: "codex"}})
 	require.NoError(t, err)
 }
+
+// TestBuildRunParams_OmitsLocalAgentIDWhenSyncIDPresent 钉死跨机边界上不发桌面端的
+// 本地自增主键。
+//
+// agentred 收到一轮时按 ResolveAgentCwd 解析 Agent 工作目录:agent_id > 0 就用
+// <AppDataDir>/agents/<agent_id>/。而 agent_id 是**发起端**库里的自增主键,两台桌面端
+// 的主键各自从 1 开始 —— 同一个 agentred 上,桌面端 A 的 agent#3 与桌面端 B 的 agent#3
+// 会落进同一个目录,两个毫不相干的 Agent 的文件混在一起,且不报任何错。
+//
+// 这正是 SyncAccountID 记下的那次事故的同一形状(「两套自建部署的第一个用户都是 1」)。
+// 账号级同步标识是跨机唯一的那一个,过线只发它,让对端走 agents/sync-<syncID>/ 分支。
+func TestBuildRunParams_OmitsLocalAgentIDWhenSyncIDPresent(t *testing.T) {
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
+		Backend:     &agent_backend_entity.AgentBackend{},
+		SessionID:   9,
+		AgentID:     3,
+		AgentSyncID: "01JAGENTSYNCID0000000000AA",
+	})
+	if err != nil {
+		t.Fatalf("buildRunParams: %v", err)
+	}
+	if params.AgentID != 0 {
+		t.Fatalf("本地自增主键过线了 agentID=%d：对端会拿它当自己机器上的目录名，两台桌面端同号即撞目录", params.AgentID)
+	}
+	if params.AgentSyncID != "01JAGENTSYNCID0000000000AA" {
+		t.Fatalf("跨机身份没过线: %+v", params.AgentSyncID)
+	}
+}
+
+// TestBuildRunParams_KeepsLocalAgentIDWithoutSyncID 钉死兜底:同步标识为空时照旧发
+// 本地主键。
+//
+// sync_id 在 DDL 上是 not null default ”(唯一索引因此是 WHERE sync_id != ” 的部分
+// 索引),空值在老库里是可能的。两个身份都不发会让 ResolveAgentCwd 两头落空直接报错 ——
+// 把一条本来能跑的跨机执行变成失败。没有跨机身份可用时,撞号风险无解,但保持原样至少
+// 不制造新的失败路径。
+func TestBuildRunParams_KeepsLocalAgentIDWithoutSyncID(t *testing.T) {
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
+		Backend:   &agent_backend_entity.AgentBackend{},
+		SessionID: 9,
+		AgentID:   3,
+	})
+	if err != nil {
+		t.Fatalf("buildRunParams: %v", err)
+	}
+	if params.AgentID != 3 {
+		t.Fatalf("没有同步标识时应保留本地主键兜底，得到 %d", params.AgentID)
+	}
+}
+
+// TestGoalParams_OmitsLocalAgentIDWhenSyncIDPresent 是 buildRunParams 那条在 goal
+// 路径上的同款：目标与轮次共用同一个工作目录，两条路径对「拿什么当 Agent 身份」
+// 的口径必须一致，否则同一条会话的 goal 与 turn 会落进两个目录。
+func TestGoalParams_OmitsLocalAgentIDWhenSyncIDPresent(t *testing.T) {
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).goalParams(agentruntime.GoalRequest{
+		Backend:     &agent_backend_entity.AgentBackend{},
+		SessionID:   9,
+		AgentID:     3,
+		AgentSyncID: "01JAGENTSYNCID0000000000AA",
+	})
+	if err != nil {
+		t.Fatalf("goalParams: %v", err)
+	}
+	if params.AgentID != 0 {
+		t.Fatalf("本地自增主键过线了 agentID=%d：对端会拿它当自己机器上的目录名", params.AgentID)
+	}
+	if params.AgentSyncID != "01JAGENTSYNCID0000000000AA" {
+		t.Fatalf("跨机身份没过线: %q", params.AgentSyncID)
+	}
+}
+
+// TestGoalParams_KeepsLocalAgentIDWithoutSyncID 兜底同 buildRunParams：没有同步标识
+// 时照旧发本地主键，不制造新的失败路径。
+func TestGoalParams_KeepsLocalAgentIDWithoutSyncID(t *testing.T) {
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).goalParams(agentruntime.GoalRequest{
+		Backend:   &agent_backend_entity.AgentBackend{},
+		SessionID: 9,
+		AgentID:   3,
+	})
+	if err != nil {
+		t.Fatalf("goalParams: %v", err)
+	}
+	if params.AgentID != 3 {
+		t.Fatalf("没有同步标识时应保留本地主键兜底，得到 %d", params.AgentID)
+	}
+}

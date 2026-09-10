@@ -43,10 +43,15 @@ type ProtobufInboundDeps struct {
 	SetModelTarget          func(context.Context, string, string, string) error
 	// SetReasoningEffort 把浏览器选的会话思考力度转调进桌面端的 chat_svc,与
 	// SetModelTarget 同族:空串是要写下去的值(改回跟随后端配置),不是「不改」。
-	SetReasoningEffort   func(context.Context, string, string) error
-	SetPermissionMode    func(context.Context, string, string) error
-	RunSession           func(context.Context, remotewire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
-	SteerSession         func(context.Context, remotewire.SteerParams, chat_svc.PeerSessionSource) error
+	SetReasoningEffort func(context.Context, string, string) error
+	SetPermissionMode  func(context.Context, string, string) error
+	RunSession         func(context.Context, remotewire.RunParams, chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error)
+	// SteerSession 入队一条插话,并把 chat_svc 认的那个 queuedID 与「撤不撤得掉」
+	// 交回去 —— 调用方拿自己造的号对不上 SteerConsumed(入队侧另造了一个)。
+	SteerSession func(context.Context, remotewire.SteerParams, chat_svc.PeerSessionSource) (*chat_svc.EnqueueResponse, error)
+	// CancelSteerSession 撤回还没被取走的排队消息(空 queuedID = 清空整条队列)。
+	// 与 SteerSession 成对:少了它,浏览器上那颗撤回键只会撞 method not found。
+	CancelSteerSession   func(context.Context, remotewire.CancelSteerParams) (*chat_svc.CancelQueuedResponse, error)
 	SubmitAnswer         func(context.Context, remotewire.SubmitAnswerParams) (chat_svc.PeerSessionControlResult, error)
 	SubmitToolPermission func(context.Context, remotewire.SubmitToolPermissionParams) (chat_svc.PeerSessionControlResult, error)
 }
@@ -294,12 +299,36 @@ func registerPeerSessionMethods(registry *protorpc.Registry, deps ProtobufInboun
 		}
 		return out, nil
 	}))
-	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.Empty, error) {
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER), func() *agentrewire.RuntimeSteerRequest { return &agentrewire.RuntimeSteerRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeSteerRequest) (*agentrewire.RuntimeSteerResponse, error) {
 		if deps.SteerSession == nil {
 			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "steer unavailable"}
 		}
-		err := deps.SteerSession(ctx, remotewire.SteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId, Text: req.Text}, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint})
-		return &agentrewire.Empty{}, protobufPeerError(err)
+		enqueued, err := deps.SteerSession(ctx, remotewire.SteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId, Text: req.Text}, chat_svc.PeerSessionSource{Device: protorpc.ConnFromContext(ctx).Auth().DeviceFingerprint})
+		if err != nil {
+			return nil, protobufPeerError(err)
+		}
+		// 回的是**入队侧**认的那个号,不是请求里那个:chat_svc.enqueue 自己 newQueuedID()。
+		// 调用方拿它去对 SteerConsumed.queuedId 才对得上。
+		out := &agentrewire.RuntimeSteerResponse{}
+		if enqueued != nil {
+			out.QueuedId = enqueued.QueuedID
+			out.Cancellable = enqueued.Cancellable
+		}
+		return out, nil
+	}))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER), func() *agentrewire.RuntimeCancelSteerRequest { return &agentrewire.RuntimeCancelSteerRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeCancelSteerRequest) (*agentrewire.RuntimeCancelSteerResponse, error) {
+		if deps.CancelSteerSession == nil {
+			return nil, &protorpc.Error{Code: protorpc.CodeInternal, Message: "cancel steer unavailable"}
+		}
+		result, err := deps.CancelSteerSession(ctx, remotewire.CancelSteerParams{ConversationID: req.ConversationId, PeerFingerprint: req.PeerFingerprint, QueuedID: req.QueuedId})
+		if err != nil {
+			return nil, protobufPeerError(err)
+		}
+		out := &agentrewire.RuntimeCancelSteerResponse{}
+		if result != nil {
+			out.Removed = result.Removed
+		}
+		return out, nil
 	}))
 	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER), func() *agentrewire.RuntimeSubmitAnswerRequest { return &agentrewire.RuntimeSubmitAnswerRequest{} }, protobufadapter.Authenticated(func(ctx context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
 		if deps.SubmitAnswer == nil {

@@ -253,6 +253,7 @@ var enUS = map[int]string{
 	WorkspaceFsReadFailed:       "Failed to read the working directory",
 	WorkspaceFsBaselineRequired: "No comparison baseline; pick a baseline branch first",
 	WorkspaceFsDeviceOffline:    "Remote device offline",
+	WorkspaceFsNotFound:         "File does not exist",
 
 	// chat import (local transcripts)
 	ChatImportBackendUnavailable:     "No session archive for this backend on this machine",

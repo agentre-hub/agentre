@@ -13,7 +13,7 @@ describe("queued-messages-store", () => {
       .getState()
       .append(1, { id: "b", text: "world", cancellable: false });
     expect(
-      useQueuedMessagesStore.getState().queuedBySession.get(1)?.length,
+      useQueuedMessagesStore.getState().queuedBySession.get(1)?.items.length,
     ).toBe(2);
 
     const consumed = useQueuedMessagesStore.getState().consume(1);
@@ -37,7 +37,7 @@ describe("queued-messages-store", () => {
     const removed = useQueuedMessagesStore.getState().consume(1, ["a", "c"]);
     expect(removed.map((m) => m.id)).toEqual(["a", "c"]);
     const remaining = useQueuedMessagesStore.getState().queuedBySession.get(1);
-    expect(remaining?.map((m) => m.id)).toEqual(["b"]);
+    expect(remaining?.items.map((m) => m.id)).toEqual(["b"]);
   });
 
   it("clear removes all entries for session", () => {
@@ -62,7 +62,7 @@ describe("queued-messages-store", () => {
       false,
     );
     expect(
-      useQueuedMessagesStore.getState().queuedBySession.get(2)?.length,
+      useQueuedMessagesStore.getState().queuedBySession.get(2)?.items.length,
     ).toBe(1);
   });
 
@@ -130,13 +130,13 @@ describe("queued-messages-store", () => {
 
     expect(useQueuedMessagesStore.getState().dropped).toBeNull();
     const restored = useQueuedMessagesStore.getState().queuedBySession.get(1);
-    expect(restored?.map((m) => m.id)).toEqual(["a"]);
+    expect(restored?.items.map((m) => m.id)).toEqual(["a"]);
     // 会话 2 的队列原样保留
     expect(
       useQueuedMessagesStore
         .getState()
         .queuedBySession.get(2)
-        ?.map((m) => m.id),
+        ?.items.map((m) => m.id),
     ).toEqual(["z"]);
   });
 
@@ -156,7 +156,7 @@ describe("queued-messages-store", () => {
       useQueuedMessagesStore
         .getState()
         .queuedBySession.get(1)
-        ?.map((m) => m.id),
+        ?.items.map((m) => m.id),
     ).toEqual(["b", "a"]);
   });
 

@@ -526,7 +526,7 @@ describe("chat-streams-store", () => {
     });
 
     const remaining = useQueuedMessagesStore.getState().queuedBySession.get(7);
-    expect(remaining?.map((q) => q.id)).toEqual(["qid-2"]);
+    expect(remaining?.items.map((q) => q.id)).toEqual(["qid-2"]);
     // steer 换了 assistant 占位 → 流按新 messageId 重挂,旧 key 不再存在。
     expect(live(7, 1)).toBeNull();
     expect(live(7, 22)!.assistantMessageId).toBe(22);

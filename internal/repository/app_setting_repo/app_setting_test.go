@@ -29,7 +29,7 @@ func TestAppSettingRepo_Get(t *testing.T) {
 		convey.Convey("命中返回实体", func() {
 			rows := sqlmock.NewRows([]string{"key", "value", "updatetime"}).
 				AddRow("proxy.listen_port", "60080", int64(1700000000))
-			mock.ExpectQuery("SELECT \\* FROM `app_settings` WHERE `key` = \\? ORDER BY `app_settings`.`key` LIMIT \\?").
+			mock.ExpectQuery("SELECT \\* FROM `app_settings` WHERE `key` = \\? ORDER BY `app_settings`.`id` LIMIT \\?").
 				WithArgs("proxy.listen_port", 1).
 				WillReturnRows(rows)
 

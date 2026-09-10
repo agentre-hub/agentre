@@ -285,6 +285,9 @@ func (c *Controller) controllerForSession(
 		Effective:         cfg,
 		Cwd:               cwd,
 		AgentID:           a.ID,
+		// 跨机执行只认账号级同步标识：AgentID 是本机自增主键，两台桌面端同号会在
+		// 同一个 agentred 上共用 Agent 工作目录（remote.crossHostAgentID 据此压号）。
+		AgentSyncID: a.SyncID,
 	}, release, nil
 }
 

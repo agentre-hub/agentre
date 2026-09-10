@@ -94,7 +94,6 @@ func TestPairing_GivenAMethod_ThenItsResponseTypeFollowsTheNamingConvention(t *t
 		agentrewire.RpcMethod_RPC_METHOD_TERMINAL_WRITE,
 		agentrewire.RpcMethod_RPC_METHOD_TERMINAL_RESIZE,
 		agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE,
-		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER,
 		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE,
 		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK,
 	} {

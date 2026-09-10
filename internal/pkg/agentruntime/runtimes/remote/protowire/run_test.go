@@ -50,3 +50,16 @@ func TestGoalParamsProtobufPreservesOptionalZeroValues(t *testing.T) {
 	require.NotNil(t, got.TokenBudget)
 	require.Equal(t, want, got)
 }
+
+// TestGoalParamsProtobufCarriesAgentSyncID 钉死账号级同步标识过 protobuf。
+// 它是对端在 cwd 为空时命名 Agent 兜底工作目录的依据；漏传一格，跨机的 goal 就
+// 退回按发起端本地主键取目录（两台桌面端同号即共用目录），web 发起的会话更是连
+// 本地主键都没有，直接失败。
+func TestGoalParamsProtobufCarriesAgentSyncID(t *testing.T) {
+	want := wire.GoalParams{ConversationID: convID(42), AgentSyncID: "01KZNE7YKJQ6A79YVDCMW1A63R"}
+	pb, err := GoalRequestToProto(want)
+	require.NoError(t, err)
+	got, err := GoalRequestFromProto(pb)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
