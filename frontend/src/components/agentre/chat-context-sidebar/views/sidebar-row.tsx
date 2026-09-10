@@ -13,8 +13,10 @@ import {
   toRelPath,
 } from "@agentre-hub/agentre-ui";
 
+import { resolveRowOpenAction } from "@/lib/file-open-action";
 import { cn } from "@/lib/utils";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
+import { useFileSettingsStore } from "@/stores/file-settings-store";
 
 import type {
   FilePreviewTab,
@@ -93,10 +95,11 @@ type Props = {
  * SidebarRow 是「本次会话 / 未提交 / 目录」三个来源唯一的行渲染实现。
  *
  * 收敛到一处是刻意的：三种来源此前各写一遍行，点击语义因此长期分叉（变更跳轮次、
- * Git 打开文件、目录不可点）。现在单击语义只有一份——可预览的文件行单击 = 开临时
- * 预览标签、双击 = 转常驻，目录行单击 = 展开收起，不可预览的文件行不响应单击也不
- * 出 hover 高亮（spec「行的形态与交互」）。行右端是恒占 24px、hover 或键盘聚焦才
- * 显形的 ⋯ 槽位，它与右键打开同一份 RowMenu。
+ * Git 打开文件、目录不可点）。现在单击语义只有一份——文件行单击去哪由
+ * resolveRowOpenAction 一处判定（内置预览 / 交给外部应用），可预览的行双击 = 转常
+ * 驻，目录行单击 = 展开收起；两端都打不开的行（远端会话里不可预览的文件）不响应
+ * 单击也不出 hover 高亮（spec「行的形态与交互」「行的可交互性与键盘」）。行右端是
+ * 恒占 24px、hover 或键盘聚焦才显形的 ⋯ 槽位，它与右键打开同一份 RowMenu。
  */
 export function SidebarRow({
   sessionId,
@@ -136,6 +139,7 @@ export function SidebarRow({
   const activePreviewPath = useFilePreviewTabsStore(
     (s) => s.previewTabsBySession[sessionId]?.activePath,
   );
+  const openAction = useFileSettingsStore((s) => s.settings.openAction);
   const openFile = useOpenFile(cwd);
   const revealFile = useRevealFile(cwd);
 
@@ -154,7 +158,15 @@ export function SidebarRow({
   // 远端会话拿到的是对端路径，本机命令不能碰；无 cwd 时也拼不出绝对路径。
   const absPath = remote || cwd === "" ? null : openTarget(path, cwd);
 
-  const interactive = kind === "dir" || previewPath !== null;
+  // 单击去向的判定全在 resolveRowOpenAction 一处：allowlist 外一律外部打开、
+  // 选了外部应用却拼不出绝对路径时退回预览、两者都不可用时 "none"。
+  const rowAction =
+    kind === "file"
+      ? resolveRowOpenAction({ openAction, previewPath, absPath })
+      : "none";
+
+  const interactive = kind === "dir" || rowAction !== "none";
+  // 选中态仍只表达「这一行正开在预览面板里」——外部打开不产生选中态。
   const active = previewPath !== null && previewPath === activePreviewPath;
 
   // openPreviewFromRow 打开预览，并按「这是手势里的第几次 click」维护
@@ -204,8 +216,12 @@ export function SidebarRow({
   // 与右键菜单这同一组动作，不另起一套键盘专用分支。
   const listRow = useSidebarListRow(`${kind}:${rowKey ?? path}`, {
     toggle: kind === "dir" ? () => model.onToggle() : null,
+    // Enter 执行的就是单击那一个动作，不另起一套键盘专用分支。
     activate:
-      kind === "file" && previewPath !== null ? () => model.onPreview() : null,
+      kind === "file" && rowAction !== "none"
+        ? () =>
+            rowAction === "external" ? model.onOpenWith() : model.onPreview()
+        : null,
     openMenu: () => setMenuOpen(true),
   });
 
@@ -248,6 +264,12 @@ export function SidebarRow({
       // 「已展开 / 已收起、第几层」，键盘导航也读同一份属性。扁平列表没有层级，
       // 只用 aria-selected 表达「这一行正开在预览面板里」。
       aria-expanded={kind === "dir" ? expanded : undefined}
+      // 行才是 treeitem / option，读屏念的是**它**的名字。搜索结果高亮把
+      // basename 拆成 <mark> + 纯文本几个兄弟节点，行按内容算名会得到拆花的
+      // "no tes src"；显式给出未拆分的名字把它收回来。只在 nameChildren 这一支
+      // 设置：其余行按内容算出的名字本就是完整的，而目录行的 ariaLabel 是
+      // 「展开 / 收起 X」——那是给行内按钮的动作名，不是这一行的身份。
+      aria-label={nameChildren ? ariaLabel : undefined}
       aria-level={listRow?.role === "treeitem" ? depth + 1 : undefined}
       aria-selected={listRow ? active : undefined}
       data-testid={testId}
@@ -272,6 +294,14 @@ export function SidebarRow({
           className={bodyClassName}
           onClick={(event) => {
             if (kind === "dir") model.onToggle();
+            else if (rowAction === "external") {
+              // 外部打开什么标签都不替换，槽位因此必须清空：不清的话上一次经
+              // ⋯ 菜单「预览」记下的标签会被下面的双击分支当成「刚被这次手势吞
+              // 掉的临时标签」补回来，凭空多出一个早就被替换掉的标签。
+              clobberedTempRef.current = null;
+              // 双击的第二次 click 属于同一个手势，不再把系统应用拉起第二遍。
+              if (event.detail < 2) model.onOpenWith();
+            }
             // event.detail 是这次 click 在手势里的连击序号，双击的第二次 click 靠
             // 它被识别出来（见 openPreviewFromRow）。
             else openPreviewFromRow(event.detail);
@@ -282,8 +312,11 @@ export function SidebarRow({
           // 的注释）：先转常驻，再补回被原地替换掉的临时标签——不然「原临时标签
           // 依旧临时 + 双击的行转常驻」就会塌缩成只剩双击的这一行。先转常驻再补
           // 回也保证任何时刻都不会同时存在两个临时标签。
+          // 只按可预览性设防、不看单击去向：双击是预览标签条自己的语义，与
+          // 「单击去哪」是两件事（spec 决策 7）——选了外部应用的用户双击一个
+          // 可预览的文件，拿到的仍是一个常驻预览标签。
           onDoubleClick={
-            kind === "file"
+            kind === "file" && previewPath !== null
               ? () => {
                   model.onPreviewInNewTab();
                   const clobbered = clobberedTempRef.current;
@@ -299,9 +332,9 @@ export function SidebarRow({
         </button>
       ) : (
         // 不可交互的行同样要认 ariaLabel:搜索结果的高亮把 basename 拆成
-        // <mark> + 纯文本几个兄弟节点,无障碍名计算会在节点之间插进空格,而目录
-        // 命中与不在 allowlist 内的文件恰恰全落在这一支——ariaLabel 正是为它们
-        // 传进来的(见 nameChildren 的说明与 directory-search-panel.tsx)。
+        // <mark> + 纯文本几个兄弟节点,无障碍名计算会在节点之间插进空格。远端
+        // 会话(或无 cwd)里预览不了、本机也打不开的命中就落在这一支——ariaLabel
+        // 正是为它们传进来的(见 nameChildren 的说明与 directory-search-panel.tsx)。
         <div aria-label={ariaLabel} className={bodyClassName}>
           {body}
         </div>

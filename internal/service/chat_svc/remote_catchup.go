@@ -104,8 +104,13 @@ func (s *chatSvc) catchUpDevice(ctx context.Context, deviceID int64, sessions []
 		s.catchUpPending.Store(deviceID, struct{}{})
 		return
 	}
-	// 消费方必须在补齐**之前**接上:重放出来的内容以「没有 user 行的一轮」交付,
-	// 没人 drain 就会把通知读循环顶住,内容也永远进不了转录。
+	// 消费方必须在补齐**之前**接上:没人 drain 就会把通知读循环顶住,内容也永远进不了
+	// 转录。
+	//
+	// 重放交付的形状分两种(spec 2026-09-07「补齐与本地在飞的那一轮」):头一帧是带
+	// 他方设备身份的用户消息时(R18)落成「用户行 + assistant 行」;否则是一轮没有
+	// user 行的 assistant —— 而这一路里,若本地还留着派发那一轮时建下的在飞 assistant
+	// 行,补齐续写它而不是另起一行。
 	ready := make([]int64, 0, len(sessions))
 	for _, sess := range sessions {
 		if !s.watchCatchUpTurns(ctx, sess, rt) {
@@ -194,10 +199,16 @@ func (s *chatSvc) failSessionsNotLiveOnDaemon(ctx context.Context, all, live []i
 	}
 }
 
-// watchCatchUpTurns 给一条待补齐的会话接上轮次消费方(与自主续轮同一条:补齐重放出来
-// 的内容与自主续轮是同一种东西 —— 一轮没有 user 行的 assistant 轮,driveAutonomousTurn
-// 已经会把它落成消息)。解析不出后端就跳过这条会话:没有后端就没法落库,补齐它只会
-// 把内容重放进一个没人收的 channel。
+// watchCatchUpTurns 给一条待补齐的会话接上轮次消费方(与自主续轮同一条通道:
+// driveAutonomousTurn 已经会把一轮内容落成消息)。
+//
+// 两者**不是**同一种东西,这一点曾经写错过:自主续轮恒是一轮没有 user 行的 assistant,
+// 而补齐重放的一轮既可能带着发起方标记(R18,要落用户行),也可能正是本端自己派发过、
+// 本地已经建了一行 assistant 的那一轮(要续写那一行,见 adoptInFlightAssistant)。
+// 消费方据 Trigger 与本地状态分路,判据在 spec 2026-09-07「补齐与本地在飞的那一轮」。
+//
+// 解析不出后端就跳过这条会话:没有后端就没法落库,补齐它只会把内容重放进一个没人收的
+// channel。
 func (s *chatSvc) watchCatchUpTurns(ctx context.Context, sess *chat_entity.Session, src agentruntime.AutonomousTurnSource) bool {
 	be := s.sessionBackend(ctx, sess)
 	if be == nil {

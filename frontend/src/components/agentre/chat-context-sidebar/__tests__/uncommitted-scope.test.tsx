@@ -265,7 +265,7 @@ describe("「变更」页 · 未提交档", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the shared file-type icon alongside the git status letter, and a precise pdf/zip icon does not grant preview", async () => {
+  it("renders the shared file-type icon alongside the git status letter, and a precise pdf/zip icon sends its click to the external app", async () => {
     gitChangesMock.mockResolvedValue(
       changesView([
         { path: "internal/a.go", status: "modified" },
@@ -283,24 +283,26 @@ describe("「变更」页 · 未提交档", () => {
       "go",
     );
 
-    // 精确图标不授予预览能力：不可预览的行不是按钮，不响应单击。
+    // 精确图标不授予预览能力：这两行单击开的是外部应用，不是预览标签。
     const pdfRow = gitRow("report.pdf");
     expect(pdfRow.querySelector("[data-file-type]")).toHaveAttribute(
       "data-file-type",
       "pdf",
     );
-    expect(
-      within(pdfRow).queryByRole("button", { name: /report\.pdf/ }),
-    ).toBeNull();
 
     const zipRow = gitRow("archive.zip");
     expect(zipRow.querySelector("[data-file-type]")).toHaveAttribute(
       "data-file-type",
       "archive",
     );
-    expect(
-      within(zipRow).queryByRole("button", { name: /archive\.zip/ }),
-    ).toBeNull();
+
+    await userEvent.click(
+      within(zipRow).getByRole("button", { name: /archive\.zip/ }),
+    );
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7)).toBe(
+      null,
+    );
+    expect(openPathMock).toHaveBeenCalledWith(`${CWD}/archive.zip`);
   });
 
   it("opens the preview on row click instead of the system default app", async () => {
@@ -325,10 +327,14 @@ describe("「变更」页 · 未提交档", () => {
     });
     expect(openPathMock).not.toHaveBeenCalled();
 
-    // 不可预览的文件行不是按钮，单击没有反应。
+    // 不可预览的文件行单击交给外部应用，仍然不开预览标签。
+    await userEvent.click(
+      within(gitRow("asset.zip")).getByRole("button", { name: /asset\.zip/ }),
+    );
+    expect(openPathMock).toHaveBeenCalledWith(`${CWD}/asset.zip`);
     expect(
-      within(gitRow("asset.zip")).queryByRole("button", { name: /asset\.zip/ }),
-    ).toBeNull();
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7),
+    ).toMatchObject({ path: "internal/a.go" });
   });
 
   it("still previews on row click for a remote git session", async () => {

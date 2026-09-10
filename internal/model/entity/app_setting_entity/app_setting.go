@@ -39,6 +39,10 @@ const (
 	KeyNotifySystem            = "notify.system"              // 系统原生通知
 	KeyNotifyToast             = "notify.toast"               // 应用内 toast
 
+	// KeyFilesOpenAction 单击一个文件时的去向："preview"（app 内预览）/ "external"
+	// （交给系统默认应用）。缺省 preview —— 键不存在时由前端兜底，服务端不写入缺省值。
+	KeyFilesOpenAction = "files.open_action"
+
 	// KeyCtlSkillDeclined 用户是否在设置页主动卸载过 ctl 控制通道技能包（"true"/"false"）；
 	// 缺省未拒绝。卸载时置真、（重新）安装时清除；启动期把它当第一道闸——为真则整段跳过
 	// 自动安装。不走 app_settings_svc.Update 的白名单，直接经 app_setting_repo 读写，
@@ -129,6 +133,16 @@ func ParseDebugLogging(v string) bool {
 func ValidateUpdateChannel(ctx context.Context, v string) error {
 	switch strings.TrimSpace(v) {
 	case "stable", "beta", "nightly":
+		return nil
+	}
+	return i18n.NewError(ctx, code.InvalidParameter)
+}
+
+// ValidateFileOpenAction 校验 files.open_action 取值（service 层调用前已 TrimSpace）。
+// 空串同样非法：这个键没有「撤销」语义，读不到键才是缺省。
+func ValidateFileOpenAction(ctx context.Context, v string) error {
+	switch strings.TrimSpace(v) {
+	case "preview", "external":
 		return nil
 	}
 	return i18n.NewError(ctx, code.InvalidParameter)

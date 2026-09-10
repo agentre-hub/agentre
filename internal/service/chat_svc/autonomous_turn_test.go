@@ -1354,3 +1354,107 @@ func TestDriveAutonomousTurn_RemotePreviewFramesStillRenderPerToken(t *testing.T
 		})
 	})
 }
+
+// 补齐重放一轮时,消费方按本地状态分三路(spec 2026-09-07「补齐与本地在飞的那一轮」)。
+//
+// 起因:发起方派发一轮时本地已经建了一行 assistant;它断线、宿主独自跑完、它重连补齐 ——
+// 若这时再建一行,一个 prompt 底下就挂两个助手回合,其中一个空白无解释。
+func TestDriveAutonomousTurn_CatchUpReplay_ReusesTheLocalInFlightAssistantRow(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		latest  *chat_entity.Message
+		trigger string
+		wantNew bool
+		reason  string
+	}{
+		{
+			name:    "本地有该轮在飞的 assistant 行:续写它",
+			latest:  &chat_entity.Message{ID: 4004, SessionID: 100, Role: "assistant", Seq: 4, BlocksJSON: "[]"},
+			trigger: remote.TriggerCatchUp,
+			wantNew: false,
+			reason:  "补齐要填上派发时建的那一行,而不是另起一行",
+		},
+		{
+			name:    "本地那一行已定稿:不改写,按新的一轮落库",
+			latest:  &chat_entity.Message{ID: 4004, SessionID: 100, Role: "assistant", Seq: 4, BlocksJSON: "[]", Model: "claude-opus-5"},
+			trigger: remote.TriggerCatchUp,
+			wantNew: true,
+			reason:  "已经给过用户交代的记录不得被静默改写",
+		},
+		{
+			name: "本地那一行已经落过正文:不认领,另起一行",
+			latest: &chat_entity.Message{ID: 4004, SessionID: 100, Role: "assistant", Seq: 4,
+				BlocksJSON: `[{"type":"text","data":{"text":"断线前已经呈现给用户的半句"}}]`},
+			trigger: remote.TriggerCatchUp,
+			wantNew: true,
+			// 补齐重放的是**游标之后**那一截,而续写用的累加器是空的:认领这一行会让
+			// checkpoint 把整份正文换成那一截,断线前已落库的块就此消失(硬不变量 1
+			// 的「漏」)。派发后立刻离线那一行本来就是空的(spec 2026-09-07 问题 4 的
+			// 实测:role=assistant、**无块**),判据因此收在「还没落过正文」。
+			reason: "已经落过正文的那一行不得被只含尾段的重放覆盖",
+		},
+		{
+			name:    "本地没有可续写的行:落成新的一轮",
+			latest:  nil,
+			trigger: remote.TriggerCatchUp,
+			wantNew: true,
+			reason:  "第一次挂上这条会话时补齐照旧新建",
+		},
+		{
+			name:    "不是补齐而是真·自主续轮:照旧新建",
+			latest:  &chat_entity.Message{ID: 4004, SessionID: 100, Role: "assistant", Seq: 4, BlocksJSON: "[]"},
+			trigger: "background_task",
+			wantNew: true,
+			reason:  "自主续轮是后端自发的新一轮,不该被塞进上一轮那一行",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := setupChatTest(t)
+			ctx := m.ctx
+			sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc"}
+			be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+			m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+			m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			m.message.EXPECT().LatestAssistant(gomock.Any(), int64(100)).Return(tc.latest, nil).AnyTimes()
+			m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil).AnyTimes()
+			m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+			m.dbMock.ExpectBegin()
+			created := 0
+			m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+					created++
+					msg.ID = 2001
+					return nil
+				}).AnyTimes()
+			m.dbMock.ExpectCommit()
+
+			evs := make(chan agentruntime.Event, 2)
+			evs <- agentruntime.TextDelta{Text: "补齐重放的正文"}
+			close(evs)
+			chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, agentruntime.AutonomousTurn{
+				Events:  evs,
+				Result:  &agentruntime.RunResult{Model: "claude-opus-5"},
+				Trigger: tc.trigger,
+			})
+
+			if tc.wantNew {
+				assert.Equal(t, 1, created, tc.reason)
+				return
+			}
+			// 一行都不新建 —— 既没有第二份用户消息,也没有第二个助手回合。
+			assert.Zero(t, created, tc.reason)
+			// 而且内容确实落进了被认领的那一行:开轮事件报的是它的 id,不是新号。
+			var startedAssistantID int64
+			for _, ev := range m.events {
+				p, ok := ev.Payload.(chat_svc.ChatStreamEvent)
+				if !ok || p.Kind != chat_svc.StreamAutonomousStarted || p.AssistantMessage == nil {
+					continue
+				}
+				startedAssistantID = p.AssistantMessage.ID
+			}
+			assert.Equal(t, int64(4004), startedAssistantID,
+				"补齐要把内容续写进派发时建下的那一行,前端也该接到那一行上")
+		})
+	}
+}

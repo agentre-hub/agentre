@@ -7,6 +7,7 @@ import {
   Cable,
   Cpu,
   Database,
+  FileText,
   Info,
   Keyboard,
   Network,
@@ -38,6 +39,7 @@ import { useChatAgents } from "@/hooks/use-chat-agents";
 import { AgentBackendsPanel } from "./agent-backends";
 import { CtlSkillPanel } from "./ctl-skill";
 import { DataBackupPanel } from "./data-backup";
+import { FileSettingsPanel } from "./file-settings-panel";
 import { RemoteDevicesPanel } from "./remote-devices/remote-devices-panel";
 import { LlmProvidersPanel } from "./llm-providers";
 import { SettingsProxyPanel } from "./settings-proxy";
@@ -61,6 +63,7 @@ type SettingsPageId =
   | "appearance"
   | "remote-devices"
   | "data-backup"
+  | "files"
   | "keyboard-shortcuts"
   | "llm-providers"
   | "local-proxy"
@@ -75,6 +78,7 @@ const settingsPageIds = new Set<SettingsPageId>([
   "appearance",
   "remote-devices",
   "data-backup",
+  "files",
   "keyboard-shortcuts",
   "llm-providers",
   "local-proxy",
@@ -101,6 +105,7 @@ const settingsNavSections: SettingsNavSection[] = [
         id: "notifications",
         labelKey: "settings.nav.notifications",
       },
+      { icon: FileText, id: "files", labelKey: "settings.nav.files" },
       {
         icon: Keyboard,
         id: "keyboard-shortcuts",
@@ -161,6 +166,7 @@ const underConstructionSettingsPages: Record<
     | "local-proxy"
     | "version-logs"
     | "data-backup"
+    | "files"
     | "notifications"
     | "skills-tools"
     | "sync"
@@ -647,6 +653,7 @@ function SettingsUnderConstruction({ page }: { page: SettingsPageId }) {
     page === "appearance" ||
     page === "agent-backend" ||
     page === "remote-devices" ||
+    page === "files" ||
     page === "keyboard-shortcuts" ||
     page === "llm-providers" ||
     page === "local-proxy" ||
@@ -760,6 +767,8 @@ function SettingsPage({
             <KeyboardShortcutsPanel />
           ) : activePage === "data-backup" ? (
             <DataBackupPanel />
+          ) : activePage === "files" ? (
+            <FileSettingsPanel />
           ) : activePage === "notifications" ? (
             <NotificationsPanel />
           ) : activePage === "skills-tools" ? (

@@ -1604,3 +1604,86 @@ func TestRun_GivenAckCarriesUserMessageSeq_ThenCursorAdvancesOnlyWhenItIsTheVery
 		})
 	}
 }
+
+// 派发时推进的那一格游标必须**当场落库**,不进防抖批次:本轮要治的场景就是「派发完
+// 立刻被杀」(spec 2026-09-07「补齐与本地在飞的那一轮」的前置),进程活不到防抖窗口
+// 到期,库里那份就仍停在派发之前 —— 重连补齐照旧把这条自己写下的用户消息交回来,
+// 决策 1 等于没落地。热路径上的每帧推进仍照旧攒批:这一发一轮只有一次。
+func TestRun_GivenAckCarriesUserMessageSeq_ThenTheCursorIsPersistedBeforeTheDebounceWindow(t *testing.T) {
+	conn := newFakeConn()
+	cursor := &fakeCursorPort{}
+	cursor.setLoad(func(int64, string) (int64, bool, error) { return 4, true, nil })
+	conn.script(func(method string, _, result any) error {
+		if method == wire.MethodRun {
+			*(result.(*wire.RunAck)) = wire.RunAck{
+				ConversationID: convOf(rigSessionID),
+				UserMessageSeq: 5,
+			}
+		}
+		return nil
+	})
+	rt := New(conn,
+		WithConversationIDResolver(convOf),
+		WithDaemonFingerprint(rigFingerprint),
+		WithSessionCursor(cursor),
+		// 生产用的就是这一档(防抖):落库不能只在测试的同步档下发生。
+		WithCursorFlushInterval(time.Minute),
+	)
+	t.Cleanup(func() { _ = rt.Close() })
+
+	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
+		Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "x"},
+		SessionID: rigSessionID,
+		UserText:  "hi",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{5}, cursor.savedSeqs(),
+		"派发即对齐的游标要在 Run 返回时就已经在库里,进程此后被杀也不丢")
+}
+
+// 宿主是在**应答之前**把用户那一帧推上来的:agentred 的 beginTranscript 先 publish
+// 再 return ack,而本端读循环同步分发通知、随后才交付应答。所以到 Run 返回时,内存
+// 游标通常已经被那一帧推到了那个号 —— 派发即对齐于是无号可推。
+//
+// 但落库这件事不能跟着一起放弃:热路径那次推进只记进了防抖批次,而本轮要治的场景
+// 正是「派发完立刻被杀」。这一条钉住的就是这个次序下的落库(它是决策 1 在真实次序
+// 上唯一起作用的地方 —— 缺了它,派发对齐只在「通知比应答晚到」的次序下成立,而那
+// 个次序在 agentred 这一路上根本不发生)。
+func TestRun_GivenTheUserFrameArrivesBeforeTheAck_ThenTheCursorIsStillPersisted(t *testing.T) {
+	conn := newFakeConn()
+	cursor := &fakeCursorPort{}
+	cursor.setLoad(func(int64, string) (int64, bool, error) { return 4, true, nil })
+	conn.script(func(method string, _, result any) error {
+		if method != wire.MethodRun {
+			return nil
+		}
+		// 宿主的真实次序:用户那一帧先作为通知出去(取到 5 号),Run 才应答。
+		conn.deliver(t, wire.NotifyEvent, wire.EventFrame{
+			ConversationID: convOf(rigSessionID),
+			Event:          agentruntime.TextDelta{Text: "用户那一帧"},
+			Seq:            5,
+		})
+		*(result.(*wire.RunAck)) = wire.RunAck{
+			ConversationID: convOf(rigSessionID),
+			UserMessageSeq: 5,
+		}
+		return nil
+	})
+	rt := New(conn,
+		WithConversationIDResolver(convOf),
+		WithDaemonFingerprint(rigFingerprint),
+		WithSessionCursor(cursor),
+		// 生产用的就是这一档(防抖):落库不能只在测试的同步档下发生。
+		WithCursorFlushInterval(time.Minute),
+	)
+	t.Cleanup(func() { _ = rt.Close() })
+
+	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
+		Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), ID: 1, Name: "x"},
+		SessionID: rigSessionID,
+		UserText:  "hi",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{5}, cursor.savedSeqs(),
+		"通知先到时游标已经在内存里对齐了,Run 返回前必须把它落进库 —— 否则派发完立刻被杀,补齐照旧重放这条自己写下的用户消息")
+}

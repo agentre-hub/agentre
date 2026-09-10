@@ -41,6 +41,10 @@ import {
   selectActivePreviewTab,
   useFilePreviewTabsStore,
 } from "@/stores/file-preview-tabs-store";
+import {
+  DEFAULT_FILE_SETTINGS,
+  useFileSettingsStore,
+} from "@/stores/file-settings-store";
 
 import { DirectoryView } from "../views/directory-view";
 import { GitView } from "../views/git-view";
@@ -159,7 +163,13 @@ beforeEach(() => {
   sonnerMocks.toast.error.mockReset();
   sonnerMocks.toast.success.mockReset();
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
+  useFileSettingsStore.setState({ settings: { ...DEFAULT_FILE_SETTINGS } });
 });
+
+/** 把「单击文件时」这个设置切到「用外部应用打开」。 */
+function setOpenActionExternal() {
+  useFileSettingsStore.setState({ settings: { openAction: "external" } });
+}
 
 describe("行的统一点击语义", () => {
   it("本次会话档：单击可预览文件行开出临时标签，不再跳到对应轮次", async () => {
@@ -300,11 +310,32 @@ describe("行的统一点击语义", () => {
 });
 
 describe("不可预览的行", () => {
-  it("不响应单击、不出 hover 高亮，但仍有 ⋯ 菜单按钮", async () => {
+  it("本地会话下可点，单击交给外部应用而不是开预览", async () => {
     renderChanges({});
     const row = rowOf("archive.zip");
 
-    // 名称不是按钮：整行不可点。
+    // 预览渲染不了它,但系统能打开它——这一行因此与其余文件行同形。
+    expect(row.className).toContain("hover:bg-muted");
+
+    await setupUser().click(
+      within(row).getByRole("button", { name: /archive\.zip/ }),
+    );
+
+    expect(openPathMock).toHaveBeenCalledWith(`${CWD}/archive.zip`);
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
+      null,
+    );
+    expect(
+      within(row).getByRole("button", { name: /more actions/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("远端会话下仍不响应单击、不出 hover 高亮，但仍有 ⋯ 菜单按钮", async () => {
+    // 既预览不了、本机也碰不到对端路径:渲染成可点的按钮等于给一个注定失败的
+    // 目标(spec「行的可交互性与键盘」)。
+    renderChanges({ remote: true });
+    const row = rowOf("archive.zip");
+
     expect(within(row).queryByRole("button", { name: /archive\.zip/ })).toBe(
       null,
     );
@@ -314,6 +345,7 @@ describe("不可预览的行", () => {
     expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
       null,
     );
+    expect(openPathMock).not.toHaveBeenCalled();
 
     expect(
       within(row).getByRole("button", { name: /more actions/i }),
@@ -332,6 +364,137 @@ describe("不可预览的行", () => {
       "Copy absolute path",
       "Copy file name",
     ]);
+  });
+});
+
+describe("单击去向跟随 files.open_action", () => {
+  it("设置为外部应用时,可预览的文件行单击也交给外部应用", async () => {
+    setOpenActionExternal();
+    renderChanges({});
+
+    await setupUser().click(screen.getByRole("button", { name: /chat\.go/ }));
+
+    expect(openPathMock).toHaveBeenCalledWith(
+      `${CWD}/internal/service/chat.go`,
+    );
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
+      null,
+    );
+  });
+
+  it("设置为外部应用但拼不出绝对路径时退回预览", async () => {
+    setOpenActionExternal();
+    renderChanges({ remote: true });
+
+    await setupUser().click(screen.getByRole("button", { name: /chat\.go/ }));
+
+    expect(openPathMock).not.toHaveBeenCalled();
+    expect(
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
+    ).toMatchObject({ path: "internal/service/chat.go", isPreview: true });
+  });
+
+  it("设置为外部应用时,Enter 与单击执行同一个动作", async () => {
+    setOpenActionExternal();
+    renderChanges({});
+    const user = setupUser();
+
+    await user.tab();
+    await user.keyboard("{Enter}");
+
+    expect(openPathMock).toHaveBeenCalledTimes(1);
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
+      null,
+    );
+  });
+
+  it("目录行不受这个设置影响,单击仍是展开收起", async () => {
+    setOpenActionExternal();
+    listDirMock.mockResolvedValue({
+      path: CWD,
+      entries: [{ name: "internal", isDir: true }],
+      truncated: false,
+    });
+    render(
+      <DirectoryView
+        sessionId={1}
+        cwd={CWD}
+        root=""
+        remote={false}
+        showIgnored
+      />,
+    );
+
+    const dir = await screen.findByRole("button", { name: /internal/ });
+    await setupUser().click(dir);
+
+    expect(openPathMock).not.toHaveBeenCalled();
+    expect(rowOf("internal")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("双击语义不受这个设置影响,可预览的行仍是转常驻预览标签", async () => {
+    // 双击是预览标签条自己的语义,与「单击去哪」是两件事(spec 决策 7,双击语义
+    // 的任何改动都在 Out of scope 里)。
+    setOpenActionExternal();
+    renderChanges({});
+
+    await setupUser().dblClick(
+      screen.getByRole("button", { name: /README\.md/ }),
+    );
+
+    expect(
+      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
+    ).toMatchObject({ path: "README.md", isPreview: false });
+  });
+
+  it("设置为外部应用时,双击只交给系统打开一次", async () => {
+    // 真实鼠标双击在派发 dblclick 前会先各打一次 click:两次都调外部打开等于同
+    // 一个手势里把系统应用拉起两遍。
+    setOpenActionExternal();
+    renderChanges({});
+
+    await setupUser().dblClick(
+      screen.getByRole("button", { name: /README\.md/ }),
+    );
+
+    expect(openPathMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("设置为外部应用时,双击不会把之前被替换掉的临时标签复活出来", async () => {
+    // 外部打开不产生临时标签,这一次单击因此没有「被原地替换掉的标签」需要补
+    // 回;沿用上一次「预览」入口记下的槽位会凭空多出一个早就被替换掉的标签。
+    setOpenActionExternal();
+    renderChanges({});
+    const user = setupUser();
+
+    // 先经菜单开出临时标签 chat.go,再预览 README.md 把它原地替换掉。
+    await user.click(
+      within(await openRowMenu("chat.go")).getByRole("menuitem", {
+        name: "Preview",
+      }),
+    );
+    await user.click(
+      within(await openRowMenu("README.md")).getByRole("menuitem", {
+        name: "Preview",
+      }),
+    );
+
+    await user.dblClick(screen.getByRole("button", { name: /README\.md/ }));
+
+    expect(
+      useFilePreviewTabsStore
+        .getState()
+        .previewTabsBySession[1]?.tabs.map((tab) => tab.path),
+    ).toEqual(["README.md"]);
+  });
+
+  it("右键菜单不受这个设置影响:「预览」仍按可预览性出现", async () => {
+    setOpenActionExternal();
+    renderChanges({});
+    const menu = await openRowMenu("chat.go");
+
+    expect(menuItemNames(menu)).toContain("Preview");
+    expect(menuItemNames(menu)).toContain("Preview in a new tab");
   });
 });
 

@@ -484,11 +484,6 @@ describe("DirectoryPanel 目录页", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /expand internal/i }),
     );
-    // 不可预览的文件行不是按钮，单击没有反应。
-    expect(
-      within(row("doc.pdf")).queryByRole("button", { name: /doc\.pdf/ }),
-    ).toBeNull();
-
     await userEvent.click(
       within(row("chat.go")).getByRole("button", { name: /chat\.go/ }),
     );
@@ -526,7 +521,7 @@ describe("DirectoryPanel 目录页", () => {
     ).toMatchObject({ path: "main.go", sourceMode: "directory" });
   });
 
-  it("gives PDF/ZIP precise shared icons without granting preview interaction", async () => {
+  it("gives PDF/ZIP precise shared icons and sends their click to the external app", async () => {
     listDirMock.mockResolvedValue(
       listing([entry("doc.pdf"), entry("archive.zip")]),
     );
@@ -539,16 +534,26 @@ describe("DirectoryPanel 目录页", () => {
       "data-file-type",
       "pdf",
     );
-    expect(within(pdf).queryByRole("button", { name: /doc\.pdf/ })).toBeNull();
+    // 精确图标不授予预览能力：单击这一行开的是外部应用，不是预览标签。
+    await userEvent.click(
+      within(pdf).getByRole("button", { name: /doc\.pdf/ }),
+    );
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7)).toBe(
+      null,
+    );
 
     const zip = row("archive.zip");
     expect(zip.querySelector("[data-file-type]")).toHaveAttribute(
       "data-file-type",
       "archive",
     );
-    expect(
-      within(zip).queryByRole("button", { name: /archive\.zip/ }),
-    ).toBeNull();
+    await userEvent.click(
+      within(zip).getByRole("button", { name: /archive\.zip/ }),
+    );
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7)).toBe(
+      null,
+    );
+    expect(openPathMock).toHaveBeenCalledWith(`${CWD}/archive.zip`);
   });
 });
 

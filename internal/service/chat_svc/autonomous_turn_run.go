@@ -2,6 +2,7 @@ package chat_svc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
@@ -73,6 +75,19 @@ func (t *autonomousTurnRun) persistTurnMessages(ctx context.Context) error {
 	}
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
+		// 补齐重放的一轮可能是**本端自己派发过**的那一轮:派发时这里已经建过一行
+		// assistant,断线期间宿主把它跑完了。续写那一行,不另起一行 —— 否则一个
+		// prompt 底下挂两个助手回合,其中一个空白无解释(spec 2026-09-07 决策 2)。
+		adopted, err := t.adoptInFlightAssistant(txCtx)
+		if err != nil {
+			return err
+		}
+		if adopted {
+			t.sess.AgentStatus = "running"
+			t.sess.NeedsAttention = false
+			t.sess.LastMessageAt = time.Now().UnixMilli()
+			return chat_repo.Session().Update(txCtx, t.sess)
+		}
 		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, t.sessionID)
 		if err != nil {
 			return err
@@ -113,6 +128,63 @@ func (t *autonomousTurnRun) persistTurnMessages(ctx context.Context) error {
 		t.sess.LastMessageAt = time.Now().UnixMilli()
 		return chat_repo.Session().Update(txCtx, t.sess)
 	})
+}
+
+// adoptInFlightAssistant 认领本地那一行「派发时建下、还没定稿」的 assistant,让补齐
+// 续写它而不是另起一行(spec 2026-09-07「补齐与本地在飞的那一轮」的第 2 路)。
+//
+// 三个前提缺一不可:
+//   - 这一轮是**补齐重放**(TriggerCatchUp)。真·自主续轮是后端自发的**新**一轮,
+//     把它塞进上一轮那一行会把两轮内容并成一条。
+//   - 重放的头一帧不是发起方标记(prelude 为 nil)。带标记的那一路是「别的对端在一条
+//     空闲会话上开了新一轮」(R18),本地本来就没有这一轮,该新建。
+//   - 本地最后那一行 assistant 既没定稿、也还没落过正文(见 assistantRowStillInFlight)。
+//
+// 交回 true 表示已把 t.assistantMsg 指到那一行上,调用方不再新建。
+func (t *autonomousTurnRun) adoptInFlightAssistant(ctx context.Context) (bool, error) {
+	if t.at.Trigger != remote.TriggerCatchUp || t.prelude != nil {
+		return false, nil
+	}
+	latest, err := transcript_repo.Message().LatestAssistant(ctx, t.sessionID)
+	if err != nil || latest == nil {
+		return false, err
+	}
+	if !assistantRowStillInFlight(latest) {
+		return false, nil
+	}
+	t.assistantMsg = latest
+	if t.at.Result != nil && t.at.Result.Model != "" {
+		t.assistantMsg.Model = t.at.Result.Model
+	}
+	return true, nil
+}
+
+// assistantRowStillInFlight 报这一行 assistant 是不是「派发时建下、这一轮还什么都
+// 没往里落」。
+//
+// 两条判据:
+//   - 收口那一发写下的那几格(模型 / 耗时 / 错误)都还空着。它们只在 finalize 里被写,
+//     有任何一格就说明这一轮已经给过用户交代 —— 补齐不得静默改写它,宁可多一个可
+//     解释的回合(spec 2026-09-07「补齐与本地在飞的那一轮」的失败分支)。
+//   - 正文块还是空的。补齐重放的只是**游标之后**那一截,而续写用的累加器从空起手:
+//     认领一行已经 checkpoint 过内容的消息,下一次 checkpoint 就会把整份正文换成那
+//     一截,断线前已落库的块就此消失 —— 那是硬不变量 1 的「漏」,比多一个回合更糟。
+//     派发后立刻离线的那一行本来就是空的(spec 2026-09-07 问题 4 的实测:role=assistant、
+//     **无块**、error_text 与 model 皆空),这一路要治的正是它。
+func assistantRowStillInFlight(m *chat_entity.Message) bool {
+	if m == nil || m.Role != "assistant" ||
+		m.Model != "" || m.ErrorText != "" || m.DurationMs != 0 {
+		return false
+	}
+	if m.BlocksJSON == "" {
+		return true
+	}
+	var stored []json.RawMessage
+	if err := json.Unmarshal([]byte(m.BlocksJSON), &stored); err != nil {
+		// 读不懂的正文按「有内容」算:宁可多一个可解释的回合,也不要覆盖掉一行看不清的记录。
+		return false
+	}
+	return len(stored) == 0
 }
 
 // emitStarted 经会话级旁路把 per-turn 流名 + 新落的消息行推给前端。

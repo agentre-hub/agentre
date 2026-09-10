@@ -47,5 +47,6 @@ func migrationList() []*gormigrate.Migration {
 		migration202609040112(),
 		migration202609040113(),
 		migration202609060101(),
+		migration202609070101(),
 	}
 }

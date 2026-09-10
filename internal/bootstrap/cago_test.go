@@ -16,6 +16,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/migrations"
@@ -112,10 +113,12 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"departments":                {"sync_origin_fingerprint"},
 		"projects":                   {"sync_origin_fingerprint"},
 		"project_agents":             {"sync_origin_fingerprint"},
-		"project_locations":          {"device_fingerprint", "sync_origin_fingerprint"},
-		"chat_sessions":              {"model_key", "exec_agent_backend_id", "cwd", "exec_device_fingerprint", "conversation_id"},
-		"chat_messages":              {"first_token_ms", "tokens_per_sec", "device_fingerprint"},
-		"chat_message_blocks":        {"message_id", "idx", "type", "tool_call_id", "codec", "data"},
+		// device_id 是由指纹解析出的本地缓存(实体包注释),写入路径显式带这一列——
+		// 它一旦缺席,整张表就只读不可写。
+		"project_locations":   {"device_id", "device_fingerprint", "sync_origin_fingerprint"},
+		"chat_sessions":       {"model_key", "exec_agent_backend_id", "cwd", "exec_device_fingerprint", "conversation_id"},
+		"chat_messages":       {"first_token_ms", "tokens_per_sec", "device_fingerprint"},
+		"chat_message_blocks": {"message_id", "idx", "type", "tool_call_id", "codec", "data"},
 		// 任务并入账号级同步组，三张表各带六列同步元数据；issues 另有执行归属三列。
 		"issues":       {"agent_backend_id", "llm_provider_key", "llm_model_key", "sync_id", "sync_origin_fingerprint"},
 		"labels":       {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
@@ -501,6 +504,44 @@ func TestInitRegistersProjectLocationRepo(t *testing.T) {
 
 	if project_location_repo.ProjectLocation() == nil {
 		t.Fatal("project_location_repo.ProjectLocation() = nil after Init; bootstrap forgot to RegisterProjectLocation")
+	}
+}
+
+// TestInitLetsAProjectLocationBeWritten 证明全新库上「给别的机器配项目路径」这条写
+// 路径真的能落库。repo 层的单测按约定走 sqlmock,它验的是 SQL 拼写,永远碰不到真实
+// schema —— 迁移漏建一列时那边照绿,而这里会红。
+func TestInitLetsAProjectLocationBeWritten(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	ctx := context.Background()
+	row := &project_location_entity.ProjectLocation{
+		ProjectID:         1,
+		DeviceID:          "1",
+		DeviceFingerprint: "sha256:d0",
+		Path:              "/srv/work",
+	}
+	if err := project_location_repo.ProjectLocation().Create(ctx, row); err != nil {
+		t.Fatalf("Create() error = %v; 全新库上写不进项目位置,「给别的机器配路径」整个功能不可用", err)
+	}
+
+	got, err := project_location_repo.ProjectLocation().Get(ctx, row.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	// device_id 是由指纹解析出的本地缓存,读回来必须还是写进去的那个值。
+	if got.DeviceID != "1" {
+		t.Errorf("Get().DeviceID = %q, want %q", got.DeviceID, "1")
+	}
+	if got.Path != "/srv/work" {
+		t.Errorf("Get().Path = %q, want %q", got.Path, "/srv/work")
 	}
 }
 

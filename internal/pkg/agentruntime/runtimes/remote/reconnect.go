@@ -454,13 +454,26 @@ func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 // 不变量 1 的「漏」,比「重」更糟。闸门不成立时游标不动,那个场景下的行为退回本轮之前。
 //
 // seq 为 0 同样不推进:宿主拒绝了该轮、在落库前失败,或对端是不认这一格的旧构建。
+//
+// 「内存游标已经涵盖这个号」是**常态**,不是意外:宿主是在应答**之前**把用户那一帧
+// 作为通知推上来的(agentred 的 beginTranscript 先 publish 再 return ack),而本端的
+// 读循环同步分发通知、随后才交付应答 —— 到这里时游标通常已经被那一帧推到 seq 了。
+// 此刻没有游标可推进,但**落库照样要做**:热路径那次推进只记进了防抖批次,而本轮
+// 要治的场景就是「派发完立刻被杀」。落的是通知路径在 ss.mu 之下记下的那个值,这里
+// 不另造号,也不会把一个本端并不持有的位置写进库。
 func (r *Runtime) adoptDispatchedUserMessageSeq(ctx context.Context, sid, seq int64) {
 	if seq <= 0 || r.cursor() == nil {
 		return
 	}
 	ss := r.syncFor(ctx, sid)
 	ss.mu.Lock()
-	if seq != ss.cursor+1 {
+	switch {
+	case seq <= ss.cursor:
+		// 通知先到:内存已经对齐,只差把它从防抖批次里落下去。
+		ss.mu.Unlock()
+		r.flushCursors()
+		return
+	case seq != ss.cursor+1:
 		cursor := ss.cursor
 		ss.mu.Unlock()
 		logger.Ctx(ctx).Debug("remote.Runtime.adoptDispatchedUserMessageSeq: not the very next frame; cursor left alone",
@@ -470,9 +483,10 @@ func (r *Runtime) adoptDispatchedUserMessageSeq(ctx context.Context, sid, seq in
 	ss.cursor = seq
 	r.recordCursor(sid, seq)
 	ss.mu.Unlock()
-	if r.cursorFlush <= 0 { // 同步落库模式(测试用)
-		r.flushCursors()
-	}
+	// 这一格**当场落库**,不进防抖批次:本轮要治的场景就是「派发完立刻被杀」,进程活不到
+	// 防抖窗口到期,库里那份于是仍停在派发之前 —— 重连补齐照旧把这条自己写下的用户消息
+	// 交回来,决策 1 等于没落地。代价是一轮一次事务(通知热路径那边照旧攒批)。
+	r.flushCursors()
 }
 
 // stampSeq 按 method 把日志载荷解成对应的帧、盖上 seq、再重新序列化。

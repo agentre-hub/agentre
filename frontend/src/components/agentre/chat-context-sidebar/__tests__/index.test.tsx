@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const gitChangesMock = vi.fn();
 const listDirMock = vi.fn();
+const getAppSettingMock = vi.fn();
+const openPathMock = vi.fn();
 vi.mock("@/../wailsjs/go/app/App", () => ({
   // 多工作根：本组用例都是单根会话，认领集合恒为空 → 根切换器不渲染，
   // 分支状态条整条收起，chrome 与本轮之前一致。
@@ -21,7 +23,8 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
       notARepo: true,
       commonDir: "",
     }),
-  OpenPath: vi.fn(),
+  OpenPath: (p: string) => openPathMock(p),
+  GetAppSetting: (req: { key: string }) => getAppSettingMock(req),
   WorkspaceFsListDir: (
     sessionId: number,
     _root: string,
@@ -35,8 +38,23 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
     baseRef: string,
   ) => gitChangesMock(sessionId, scope, baseRef),
 }));
+// 同一份绑定的两个模块标识：组件走别名 `@/../wailsjs/...`，stores 走相对路径
+// `../../wailsjs/...`（见 stores/ 下 6 个 store），vitest 按标识各记一份。本文件
+// 的被测面同时跨这两侧，所以两个都要替身。
+vi.mock("../../../../../wailsjs/go/app/App", () => ({
+  GetAppSetting: (req: { key: string }) => getAppSettingMock(req),
+  UpdateAppSettings: vi.fn(),
+}));
 
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
+import {
+  selectActivePreviewTab,
+  useFilePreviewTabsStore,
+} from "@/stores/file-preview-tabs-store";
+import {
+  DEFAULT_FILE_SETTINGS,
+  useFileSettingsStore,
+} from "@/stores/file-settings-store";
 
 import { ChatContextSidebar } from "../index";
 
@@ -106,6 +124,49 @@ describe("ChatContextSidebar", () => {
       entries: [],
       truncated: false,
     });
+    openPathMock.mockReset();
+    openPathMock.mockResolvedValue(undefined);
+    getAppSettingMock.mockReset();
+    getAppSettingMock.mockRejectedValue(new Error("nf"));
+    useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
+    useFileSettingsStore.setState({ settings: { ...DEFAULT_FILE_SETTINGS } });
+  });
+
+  it("按已存的 files.open_action 分流:侧栏自己把这个设置读进来", async () => {
+    // 设置页不是唯一的读入口——用户可能从没进过设置页,侧栏必须自己 load 一次,
+    // 否则文件面板永远按默认的内置预览分流。
+    getAppSettingMock.mockResolvedValue({ value: "external" });
+    listDirMock.mockResolvedValue({
+      path: "/repo",
+      entries: [
+        { name: "main.go", isDir: false, size: 1, mtime: 0, symlink: false },
+      ],
+      truncated: false,
+    });
+    useChatSidebarStore.setState({ open: true, activeTab: "directory" });
+    render(
+      <ChatContextSidebar
+        sessionId={1}
+        messages={[]}
+        activeMessageId={null}
+        onJumpToMessage={() => {}}
+        cwd="/repo"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(getAppSettingMock).toHaveBeenCalledWith({
+        key: "files.open_action",
+      }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /main\.go/ }),
+    );
+
+    expect(openPathMock).toHaveBeenCalledWith("/repo/main.go");
+    expect(selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1)).toBe(
+      null,
+    );
   });
 
   afterEach(() => {

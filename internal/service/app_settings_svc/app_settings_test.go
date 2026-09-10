@@ -232,6 +232,34 @@ func TestUpdate_NotifyKeys(t *testing.T) {
 	})
 }
 
+func TestUpdate_FilesOpenAction(t *testing.T) {
+	convey.Convey("Update 文件打开去向 key", t, func() {
+		ctx, repo, gw, svc := setupSvcTest(t)
+
+		convey.Convey("两个合法取值都写得进去,不触发 gateway", func() {
+			repo.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			_, err := svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{
+				{Key: app_setting_entity.KeyFilesOpenAction, Value: "external"},
+			}})
+			assert.NoError(t, err)
+			assert.Equal(t, int32(0), gw.restartCalls.Load(), "文件设置不应触发 Restart")
+
+			repo.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			_, err = svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{
+				{Key: app_setting_entity.KeyFilesOpenAction, Value: "preview"},
+			}})
+			assert.NoError(t, err)
+		})
+
+		convey.Convey("取值不在两项之内直接拒,不落库", func() {
+			_, err := svc.Update(ctx, &UpdateRequest{Entries: []SettingEntry{
+				{Key: app_setting_entity.KeyFilesOpenAction, Value: "browser"},
+			}})
+			assert.Error(t, err)
+		})
+	})
+}
+
 func TestUpdate_SkippedUpdateVersion(t *testing.T) {
 	convey.Convey("Update 跳过版本 key", t, func() {
 		ctx, repo, gw, svc := setupSvcTest(t)

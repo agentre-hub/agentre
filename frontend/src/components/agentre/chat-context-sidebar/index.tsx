@@ -6,6 +6,7 @@ import {
   useChatStreamsStore,
   type ChatBlockData,
 } from "@/stores/chat-streams-store";
+import { useFileSettingsStore } from "@/stores/file-settings-store";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
@@ -58,6 +59,14 @@ export function ChatContextSidebar({
   const changesScope = useChatSidebarStore((s) => s.changesScope);
   const setChangesScope = useChatSidebarStore((s) => s.setChangesScope);
   const setWorkRoot = useChatSidebarStore((s) => s.setWorkRoot);
+
+  // 「单击文件时」这个设置由本侧栏读入：设置页不是唯一的读入口（用户可能从没
+  // 进过设置页），而文件面板的每一行都要按它分流。与通知设置同形——由**用到它
+  // 的那个常驻组件**自己 load 一次，store 之后由设置页的写入更新。
+  const loadFileSettings = useFileSettingsStore((s) => s.load);
+  React.useEffect(() => {
+    void loadFileSettings();
+  }, [loadFileSettings]);
 
   // 工作根由这一层持有：「变更」页与「目录」页共享它，切一级 tab 不改变它
   // （spec「工作根」）。root 是给绑定用的实参，workRoot 是拼绝对路径用的全路径。

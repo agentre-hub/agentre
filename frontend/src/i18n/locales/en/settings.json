@@ -129,6 +129,16 @@
       "ruleTitle": "When you get notified",
       "ruleDesc": "By default you're only notified when the app is in the background; turn off the switch above to also be notified while focused on a different session. Done, error, and needs-input all notify; ones you stop manually don't."
     },
+    "files": {
+      "openTitle": "Open behavior",
+      "openDesc": "Files that can't be previewed always go to an external app; files in remote sessions can only be previewed.",
+      "openAction": {
+        "label": "Single-click a file",
+        "desc": "A preview opens a tab on the right; double-click turns it into a persistent tab.",
+        "preview": "Preview inside agentre",
+        "external": "Open with external app"
+      }
+    },
     "nav": {
       "about": "About",
       "agentBackend": "Agent Backends",
@@ -136,6 +146,7 @@
       "appearance": "Appearance",
       "dataBackup": "Data & Backup",
       "engine": "Engine",
+      "files": "Files",
       "general": "General",
       "integrations": "Integrations",
       "keyboardShortcuts": "Keyboard Shortcuts",

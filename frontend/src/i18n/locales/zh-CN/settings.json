@@ -129,6 +129,16 @@
       "ruleTitle": "什么时候提醒",
       "ruleDesc": "默认只在窗口未激活时提醒；关掉上面的开关后，前台时背景会话完成也会提醒。完成、出错、等你输入都会提醒，你手动停止的不会。"
     },
+    "files": {
+      "openTitle": "打开方式",
+      "openDesc": "预览不了的文件始终交给外部应用；远端会话里的文件只能预览。",
+      "openAction": {
+        "label": "单击文件时",
+        "desc": "预览会在右侧开一个标签，双击转成常驻标签。",
+        "preview": "在 agentre 内预览",
+        "external": "用外部应用打开"
+      }
+    },
     "nav": {
       "about": "关于",
       "agentBackend": "Agent 后端",
@@ -136,6 +146,7 @@
       "appearance": "外观",
       "dataBackup": "数据 & 备份",
       "engine": "引擎",
+      "files": "文件",
       "general": "通用",
       "integrations": "集成",
       "keyboardShortcuts": "键盘快捷键",
