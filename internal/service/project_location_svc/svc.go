@@ -13,8 +13,6 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
-//go:generate mockgen -source svc.go -destination mock_project_location_svc/mock_svc.go
-
 type ProjectLocationSvc interface {
 	ListByProject(ctx context.Context, projectID int64) ([]*ProjectLocationView, error)
 	Upsert(ctx context.Context, projectID int64, deviceID, path string) (*ProjectLocationView, error)

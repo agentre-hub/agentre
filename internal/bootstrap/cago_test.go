@@ -14,10 +14,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/migrations"
 )
@@ -128,8 +126,9 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 			t.Errorf("current table %q was not created", table)
 			continue
 		}
+		present := realColumns(t, gormDB, table)
 		for _, column := range columns {
-			if !gormDB.Migrator().HasColumn(table, column) {
+			if !present[column] {
 				t.Errorf("current column %s.%s was not created", table, column)
 			}
 		}
@@ -152,8 +151,9 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"project_locations":          {"daemon_fingerprint", "sync_origin"},
 		"chat_sessions":              {"exec_daemon_fingerprint"},
 	} {
+		present := realColumns(t, gormDB, table)
 		for _, column := range columns {
-			if gormDB.Migrator().HasColumn(table, column) {
+			if present[column] {
 				t.Errorf("legacy column %s.%s must not exist in the fresh baseline", table, column)
 			}
 		}
@@ -378,51 +378,6 @@ func TestInitIgnoresAGENTREDebugEnv(t *testing.T) {
 	}
 	if loggerCfg.Level != "info" {
 		t.Fatalf("logger level = %q, want info", loggerCfg.Level)
-	}
-}
-
-// TestClaimRelativeBackends_GivenOccupiedSortOrder_AtomicallyReplacesTheTarget
-// uses the bootstrapped SQLite schema because sqlmock cannot enforce the real
-// (agent_id, sort_order) uniqueness constraint. R13 requires a runtime claim
-// to replace the old target without changing this desktop's active count.
-func TestClaimRelativeBackends_GivenOccupiedSortOrder_AtomicallyReplacesTheTarget(t *testing.T) {
-	dataDir := t.TempDir()
-	t.Setenv("AGENTRE_DATA_DIR", dataDir)
-	t.Setenv("AGENTRE_ENV", "test")
-
-	runtime, err := Init(context.Background())
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	t.Cleanup(runtime.Close)
-
-	gdb := db.Default()
-	original := &agent_backend_entity.AgentBackend{
-		Type: "claudecode", Name: "legacy relative", Status: 1,
-	}
-	if err := gdb.Create(original).Error; err != nil {
-		t.Fatalf("create relative backend: %v", err)
-	}
-	if err := gdb.Create(&agent_entity.AgentExecTarget{
-		AgentID: 1, AgentBackendID: original.ID, SortOrder: 0,
-	}).Error; err != nil {
-		t.Fatalf("create original target: %v", err)
-	}
-
-	claims, err := agent_backend_repo.AgentBackend().ClaimRelative(context.Background(), "sha256:desktop-a")
-	if err != nil {
-		t.Fatalf("ClaimRelative() error = %v", err)
-	}
-	if len(claims) != 1 {
-		t.Fatalf("claim count = %d, want 1", len(claims))
-	}
-
-	var targets []agent_entity.AgentExecTarget
-	if err := gdb.Where("agent_id = ?", 1).Order("sort_order ASC").Find(&targets).Error; err != nil {
-		t.Fatalf("list claimed targets: %v", err)
-	}
-	if len(targets) != 1 || targets[0].AgentBackendID != claims[0].ClaimedBackend.ID || targets[0].SortOrder != 0 {
-		t.Fatalf("claimed targets = %#v, want one replacement at sort order 0", targets)
 	}
 }
 
@@ -696,6 +651,26 @@ func testConversationID(id int64) string {
 	return fmt.Sprintf("0198f4c1-a000-7c0d-8b21-%012d", id)
 }
 
+// realColumns 交出某个表真实建出来的列名集合。
+//
+// 刻意不用 Migrator().HasColumn：SQLite 那一份实现是拿 `%列名%` 去 LIKE 建表语句的
+// **文本**，于是注释里出现过的列名会被当成真的列。本轮就撞上了——chat_messages 的建表
+// 注释里提了一句 project_locations 的某列，下面「旧列名必须不存在」那条断言就把那个名字
+// 认成了列。断言一列建没建出来，本来就不该被注释左右；正向断言同样因此更严（以前它也可
+// 能被别的表的同名列或一句注释碰巧蒙对）。
+func realColumns(t *testing.T, gormDB *gorm.DB, table string) map[string]bool {
+	t.Helper()
+	types, err := gormDB.Migrator().ColumnTypes(table)
+	if err != nil {
+		t.Fatalf("read columns of %s: %v", table, err)
+	}
+	names := make(map[string]bool, len(types))
+	for _, columnType := range types {
+		names[columnType.Name()] = true
+	}
+	return names
+}
+
 // retiredMigrationLedgerIDs 是历史上落进过开发机账本、如今文件已不存在的迁移号。
 //
 // 第一批来自 PR #36(202608080013~0018),第二批是 2026-08-28「压缩未发布数据库迁移」
@@ -715,6 +690,9 @@ var retiredMigrationLedgerIDs = []string{
 	"202609010001",
 	"202609040001", "202609040002", "202609040003", "202609040004", "202609040005",
 	"202609040006",
+	// 2026-09-10 为 0.1.0 首发折叠掉的三条补丁：它们的号一样躺在别人的账本里。
+	// 折叠的等价性另行用真库逐表比过（列/索引/约束/种子行全等），这里只负责守住号。
+	"202609070101", "202609080101", "202609090101",
 }
 
 // TestRunMigrationsSkipsNothingOnALedgerHoldingRetiredIDs 钉死迁移号不得复用退役号。

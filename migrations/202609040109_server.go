@@ -19,7 +19,8 @@ func migration202609040109() *gormigrate.Migration {
 		ID: "202609040109",
 		Migrate: func(tx *gorm.DB) error {
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS server_state (
-	id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	singleton INTEGER NOT NULL DEFAULT 1 CHECK (singleton = 1) UNIQUE,
 	server_url TEXT NOT NULL DEFAULT '',
 	device_id INTEGER NOT NULL DEFAULT 0,
 	device_fingerprint TEXT NOT NULL DEFAULT '',
@@ -29,7 +30,9 @@ func migration202609040109() *gormigrate.Migration {
 )`).Error; err != nil {
 				return err
 			}
-			if err := tx.Exec(`INSERT OR IGNORE INTO server_state (id) VALUES (1)`).Error; err != nil {
+			// 单行语义靠 singleton 而不是 id：id 改为自增后，`DEFAULT 1 CHECK (id = 1)`
+			// 那条约束没有着落了。repo 的 Get/Save 按 id=1 定位这一行，所以种子必须写 1。
+			if err := tx.Exec(`INSERT OR IGNORE INTO server_state (id, singleton) VALUES (1, 1)`).Error; err != nil {
 				return err
 			}
 

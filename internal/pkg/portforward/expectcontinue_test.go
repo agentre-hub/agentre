@@ -57,7 +57,9 @@ func forwardToRealDeviceWithLatency(
 	gate := daemonpf.NewHandlers(daemonpf.Options{Repo: repo, Dial: daemonpf.DialLoopback})
 	streams := daemonpf.NewStreams(daemonpf.StreamOptions{Gate: gate, Notify: far[7].Notify})
 	t.Cleanup(streams.CloseAll)
-	daemonpf.RegisterStreamMethods(far[7].Registry(), streams, nil)
+	// 这条用例测的是 Expect: 100-continue 的转发路径，与鉴权无关，所以**显式**给一个
+	// 放行的宿主闸门：传 nil 现在是「整族不注册」（见 streamwire.go），不再是「默认放行」。
+	daemonpf.RegisterStreamMethods(far[7].Registry(), streams, func(context.Context) error { return nil })
 
 	listeners := portforward.NewListeners(devices)
 	t.Cleanup(listeners.CloseAll)

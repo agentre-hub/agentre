@@ -17,7 +17,8 @@ func migration202609040108() *gormigrate.Migration {
 		ID: "202609040108",
 		Migrate: func(tx *gorm.DB) error {
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
-	key TEXT PRIMARY KEY,
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	key TEXT NOT NULL UNIQUE,
 	value TEXT NOT NULL,
 	updatetime INTEGER NOT NULL DEFAULT 0
 )`).Error; err != nil {

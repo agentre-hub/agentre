@@ -59,34 +59,6 @@ describe("chat-tabs-persistence · write", () => {
 });
 
 describe("chat-tabs-persistence · read", () => {
-  it("读出后还原 kind:'session' 形态, 默认 isPreview=false", () => {
-    localStorage.setItem(
-      CHAT_TABS_STORAGE_KEY,
-      JSON.stringify({
-        v: 1,
-        tabs: [
-          { id: "t1", sessionId: 1, isPinned: true, pinAt: 100, openedAt: 50 },
-        ],
-        activeTabId: "t1",
-      }),
-    );
-    const got = readPersistedTabs();
-    expect(got).toEqual({
-      tabs: [
-        {
-          id: "t1",
-          meta: { kind: "session", sessionId: 1 },
-          isPreview: false,
-          isPinned: true,
-          pinAt: 100,
-          openedAt: 50,
-          title: undefined,
-        },
-      ],
-      activeTabId: "t1",
-    });
-  });
-
   it("schema 版本不匹配返回 null", () => {
     localStorage.setItem(
       CHAT_TABS_STORAGE_KEY,
@@ -145,23 +117,6 @@ describe("chat-tabs-persistence · v2 升级", () => {
     expect(readPersistedTabs()?.tabs[0].meta).toMatchObject({
       kind: "session",
       sessionId: 9,
-    });
-  });
-
-  it("旧 v1 数据仍可读为 session tab", () => {
-    localStorage.setItem(
-      CHAT_TABS_STORAGE_KEY,
-      JSON.stringify({
-        v: 1,
-        activeTabId: "x",
-        tabs: [
-          { id: "x", sessionId: 3, isPinned: false, pinAt: 0, openedAt: 1 },
-        ],
-      }),
-    );
-    expect(readPersistedTabs()?.tabs[0].meta).toMatchObject({
-      kind: "session",
-      sessionId: 3,
     });
   });
 

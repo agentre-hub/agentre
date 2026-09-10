@@ -2,10 +2,6 @@ package server_svc
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"net/http"
 	"os"
 	"runtime"
@@ -15,6 +11,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/buildinfo"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 
@@ -24,11 +21,6 @@ import (
 // keychainAccountName 是 hub refresh_token 在 OS keychain 中挂的账号名。
 // 桌面端一台机器只有一份联机凭证，所以全局共用一个常量。
 const keychainAccountName = "agentre.server.refresh_token"
-
-// accountForDeviceFingerprint 是桌面端唯一设备指纹的 keychain 账号,与
-// remote_device_svc.accountForDeviceFingerprint（及 watcher_svc 的
-// keychainFingerprintAccount）必须一致——R5 决策 8:账号侧不得另生成指纹。
-const accountForDeviceFingerprint = "agentre-device-fingerprint"
 
 // osHostname 是设备显示名的取值口，抽成变量供测试替换。
 var osHostname = os.Hostname
@@ -254,28 +246,13 @@ func (s *service) markLoginDone() {
 	s.mu.Unlock()
 }
 
-// ensureDeviceFingerprint returns the desktop's canonical device fingerprint,
-// creating it on first use with the same pattern remote_device_svc uses
-// (add.go ensureDeviceFingerprint): keychain read → generate sha256 → persist.
-// The generated value therefore matches the LAN pairing fingerprint byte-for-byte.
+// ensureDeviceFingerprint 交给 deviceidentity.Ensure —— 本机指纹唯一的生成处,因此
+// 「账号登录与 LAN 配对拿到同一个指纹」不再是一句注释维持的承诺,而是同一段代码。
+//
+// 这里从前贴着一份逐字节相同的拷贝,唯一的差别是它走 keychain.Default() 而 LAN 配对走
+// 注入的 keychain:两份实现「一样」全靠注释,单边一改就分叉。
 func (s *service) ensureDeviceFingerprint() (devicefp.Carrier, error) {
-	fp, err := keychain.Default().Get(accountForDeviceFingerprint)
-	if err == nil && fp != "" {
-		return devicefp.Carrier(fp), nil
-	}
-	if err != nil && !errors.Is(err, keychain.ErrNotFound) {
-		return "", err
-	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(raw)
-	newFP := "sha256:" + hex.EncodeToString(sum[:])
-	if err := keychain.Default().Set(accountForDeviceFingerprint, newFP); err != nil {
-		return "", err
-	}
-	return devicefp.Carrier(newFP), nil
+	return deviceidentity.Ensure(keychain.Default())
 }
 
 // runtimePlatform returns "<GOOS>/<GOARCH>" for the device_authorize payload.

@@ -94,7 +94,10 @@ func migration202609040106() *gormigrate.Migration {
 	error_text TEXT NOT NULL DEFAULT '',
 	seq INTEGER NOT NULL DEFAULT 0,
 	createtime INTEGER NOT NULL DEFAULT 0,
-	updatetime INTEGER NOT NULL DEFAULT 0
+	updatetime INTEGER NOT NULL DEFAULT 0,
+	-- 与 project_locations.device_id 同一个理由：它原本是 ALTER TABLE ADD COLUMN，
+	-- 折叠时保持列序不变。
+	turn_trigger TEXT NOT NULL DEFAULT ''
 )`).Error; err != nil {
 				return err
 			}
@@ -104,6 +107,7 @@ ON chat_messages(session_id, seq)`).Error; err != nil {
 			}
 
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS chat_message_blocks (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	message_id INTEGER NOT NULL,
 	idx INTEGER NOT NULL,
 	type TEXT NOT NULL DEFAULT '',

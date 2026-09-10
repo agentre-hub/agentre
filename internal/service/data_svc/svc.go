@@ -7,8 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-//go:generate mockgen -source svc.go -destination mock_data_svc/mock_data_svc.go
-
 // DataSvc 数据导入导出 service。
 type DataSvc interface {
 	Export(ctx context.Context, req *ExportRequest) (*ExportResult, error)

@@ -171,9 +171,6 @@ func Init(ctx context.Context) (*Runtime, error) {
 	if err := InitRemoteDevice(ctx); err != nil {
 		return nil, fmt.Errorf("init remote device: %w", err)
 	}
-	if err := agent_backend_svc.AgentBackend().ClaimRelativeBackends(ctx); err != nil {
-		return nil, fmt.Errorf("claim relative agent backends: %w", err)
-	}
 	openclawrt.RegisterConfigResolver(openclawrt.ConfigResolverFunc(agent_backend_svc.ResolveOpenClawRuntimeConfig))
 
 	// 装配本地 HTTP 代理。启动失败软降级——只记日志、不阻断 App。

@@ -2,22 +2,34 @@ package remote_fs_svc
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/remotefs/wire"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	mockRD "github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
+
+// codeOf 取出错误里的业务码。视图层靠它分态，所以「翻成了哪个码」本身就是行为。
+func codeOf(t *testing.T, err error) int {
+	t.Helper()
+	require.Error(t, err)
+	var coded *httputils.Error
+	require.ErrorAs(t, err, &coded, "错误没带业务码,视图层无法分态: %v", err)
+	return coded.Code
+}
 
 func setupSvc(t *testing.T) (
 	context.Context,
@@ -106,7 +118,25 @@ func TestListDir(t *testing.T) {
 			rd.EXPECT().Pool().Return(pool)
 			pool.EXPECT().Borrow(ctx, int64(7)).Return(nil, remote_device_svc.ErrDeviceNotFound)
 			_, err := svc.ListDir(ctx, "7", "/home/me")
-			assert.Error(t, err)
+			// 设备已解除配对要说成「不在了」，不能混进本域的「够不着」：前者是
+			// 「去设备列表里把它删掉」，后者是「过会儿再试」。
+			assert.Equal(t, code.RemoteDeviceNotFound, codeOf(t, err))
+		})
+
+		convey.Convey("Borrow 报 unauthorized", func() {
+			ctx, rd, pool, _, _, _, svc := setupSvc(t)
+			rd.EXPECT().Pool().Return(pool)
+			pool.EXPECT().Borrow(ctx, int64(7)).Return(nil, remote_device_svc.ErrDeviceUnauthorized)
+			_, err := svc.ListDir(ctx, "7", "/home/me")
+			assert.Equal(t, code.RemoteDeviceUnauthorized, codeOf(t, err))
+		})
+
+		convey.Convey("Borrow 报其它失败 → 它是本域的「那台机器够不着」", func() {
+			ctx, rd, pool, _, _, _, svc := setupSvc(t)
+			rd.EXPECT().Pool().Return(pool)
+			pool.EXPECT().Borrow(ctx, int64(7)).Return(nil, errors.New("boom"))
+			_, err := svc.ListDir(ctx, "7", "/home/me")
+			assert.Equal(t, code.RemoteFsDeviceOffline, codeOf(t, err))
 		})
 
 		convey.Convey("Borrow ok + Call wire.ErrPermDenied → RemoteFsPermDenied", func() {

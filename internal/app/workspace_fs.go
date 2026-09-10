@@ -30,11 +30,6 @@ func (a *App) WorkspaceFsGitChanges(sessionID int64, root, scope, baseRef string
 	return workspace_fs_svc.Default().GitChanges(a.ctx, sessionID, root, scope, baseRef)
 }
 
-// WorkspaceFsGitBranches 取会话工作目录的分支清单、当前分支与推断出的默认基线。
-func (a *App) WorkspaceFsGitBranches(sessionID int64) (*workspace_fs_svc.GitBranchesView, error) {
-	return workspace_fs_svc.Default().GitBranches(a.ctx, sessionID)
-}
-
 // WorkspaceFsGitState 取只读 git 状态快照:分支 / worktree 短名 / 未提交数 /
 // 领先落后 / common git dir。root 为空串时用会话解析出的 cwd;非空时必须是
 // WorkspaceFsWorkRoots 给出的某个根,其余一律被服务层拒。本地会话与远端

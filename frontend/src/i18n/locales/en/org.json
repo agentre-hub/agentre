@@ -96,11 +96,8 @@
       "backend": {
         "configureProvider": "Configure LLM providers",
         "goAgentBackendSettings": "Go to Agent backend settings",
-        "inactiveSuffix": " (disabled)",
         "providerGapDescription": "The built-in SDK backend runs tasks through an LLM provider, but no active provider is linked yet.",
-        "providerGapTitle": "An LLM provider is still needed",
-        "title": "Agent Backend",
-        "unlinkedProvider": "No linked LLM provider"
+        "providerGapTitle": "An LLM provider is still needed"
       },
       "execTargets": {
         "title": "Execution Targets",
@@ -130,28 +127,18 @@
       "departmentLead": "{{name}} department lead",
       "descriptionHint": "Optional · shown as the row subtitle in the index",
       "fallbackName": "Agent",
-      "relativeTime": {
-        "daysAgo": "{{count}} days ago",
-        "hoursAgo": "{{count}} hours ago",
-        "justNow": "just now",
-        "minutesAgo": "{{count}} minutes ago"
-      },
-      "savedAt": "Saved · {{time}}",
       "skills": {
         "manage": "Manage skills",
         "count": "{{inherit}} inherited · {{on}} on · {{off}} off",
         "countCompact": "{{inherit}} inherited · {{on}} on · {{off}} off",
         "inheritNote": "Gray = inherited from global · Blue = forced on for this agent · Red = forced off for this agent (global untouched). Changes apply on the agent's next new session.",
         "empty": "No skill packs granted",
-        "personalNote": "Always available · personal skills (~/.claude/skills) can't be toggled individually",
-        "summary": "{{enabled}} enabled · {{disabled}} disabled",
         "copyFrom": "Copy from",
         "copyFromDisabledHint": "Different backend type — package ids don't match",
         "offlineNote": "Machine is offline, can't list packs to add · already-granted ones can still be removed"
       },
       "skillPicker": {
         "title": "Add Skills · Skill Packs",
-        "subtitle": "One pack = a set of skills, granted per agent",
         "subtitleForTarget": "Target #{{index}} · {{machine}} · {{backend}} — only affects this one",
         "searchPlaceholder": "Search skill packs / descriptions…",
         "personalNote": "Personal skills (~/.claude/skills) are always available; the CLI can't toggle them individually"
@@ -166,8 +153,7 @@
         "globalEnabled": "Globally enabled",
         "globalDisabled": "Globally disabled"
       },
-      "systemPrompt": "System Prompt",
-      "unsaved": "Unsaved"
+      "systemPrompt": "System Prompt"
     },
     "department": {
       "addGroup": "Add agent or sub-department",
@@ -209,7 +195,6 @@
       "sort": {
         "status": "Status"
       }
-    },
-    "reorderFailed": "Failed to save order, please retry"
+    }
   }
 }

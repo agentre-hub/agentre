@@ -340,24 +340,6 @@ func TestToChatMessage_NormalizedPiReplayPreservesGrouping(t *testing.T) {
 	assert.Empty(t, cm.Blocks[2].SubagentRunID, "missing run ID must survive as an unassigned fallback step")
 }
 
-func TestConvertOldEventToNew_PreservesSubagentRunID(t *testing.T) {
-	call := convertOldEventToNew(agentruntime.RuntimeEvent{
-		Kind: agentruntime.EventToolUseStart,
-		ToolUse: &agentruntime.ToolUseEvent{
-			ID: "child", ParentToolCallID: "outer", SubagentRunID: "run-1",
-		},
-	}).(agentruntime.ToolCall)
-	assert.Equal(t, "run-1", call.SubagentRunID)
-
-	result := convertOldEventToNew(agentruntime.RuntimeEvent{
-		Kind: agentruntime.EventToolResult,
-		ToolResult: &agentruntime.ToolResultEvent{
-			ToolCallID: "child", ParentToolCallID: "outer", SubagentRunID: "run-1",
-		},
-	}).(agentruntime.ToolResult)
-	assert.Equal(t, "run-1", result.SubagentRunID)
-}
-
 func TestToChatMessage_NoticeBlockProjection(t *testing.T) {
 	m := &chat_entity.Message{ID: 1, SessionID: 9, Role: "assistant"}
 	require.NoError(t, m.SetBlocks([]blocks.ContentBlock{

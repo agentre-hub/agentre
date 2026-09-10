@@ -84,6 +84,7 @@ func migration202609040110() *gormigrate.Migration {
 			}
 
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS issue_labels (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	issue_id INTEGER NOT NULL,
 	label_id INTEGER NOT NULL,
 	sync_id TEXT NOT NULL DEFAULT '',
@@ -92,7 +93,7 @@ func migration202609040110() *gormigrate.Migration {
 	sync_updated_at BIGINT NOT NULL DEFAULT 0,
 	sync_origin_fingerprint TEXT NOT NULL DEFAULT '',
 	sync_deleted_at BIGINT NOT NULL DEFAULT 0,
-	PRIMARY KEY (issue_id, label_id)
+	UNIQUE (issue_id, label_id)
 )`).Error; err != nil {
 				return err
 			}

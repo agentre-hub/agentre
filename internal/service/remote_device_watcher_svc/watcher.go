@@ -13,6 +13,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/wirecall"
 )
@@ -57,9 +58,6 @@ type Watcher struct {
 func keychainTokenAccount(id int64) string {
 	return "agentre-daemon-token-" + strconv.FormatInt(id, 10)
 }
-
-// keychainFingerprintAccount 与 remote_device_svc.accountForDeviceFingerprint 同步。
-const keychainFingerprintAccount = "agentre-device-fingerprint"
 
 // NewWatcher 构造一个 watcher。调用方负责 go w.Run(ctx)。
 // recorder 可为 nil;非 nil 时每次心跳成功后调 RecordDeviceProviders。
@@ -158,7 +156,7 @@ func (w *Watcher) dialOnce(ctx context.Context) (client.ProtobufConnection, *pai
 			return nil, row, errPermanentUnauthorized
 		}
 	}
-	fp, err := w.keychain.Get(keychainFingerprintAccount)
+	fp, err := w.keychain.Get(deviceidentity.KeychainAccount)
 	if err != nil || fp == "" {
 		return nil, row, errPermanentUnauthorized
 	}

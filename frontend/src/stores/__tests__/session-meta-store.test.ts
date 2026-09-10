@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  selectSessionMeta,
-  useSessionMetaStore,
-  type SessionMeta,
-} from "../session-meta-store";
+import { useSessionMetaStore, type SessionMeta } from "../session-meta-store";
 
 describe("session-meta-store", () => {
   beforeEach(() => {
@@ -19,7 +15,7 @@ describe("session-meta-store", () => {
       projectId: 7,
       title: "arch-review · jwt",
     });
-    const meta = selectSessionMeta(12)(useSessionMetaStore.getState());
+    const meta = useSessionMetaStore.getState().metas.get(12);
     expect(meta).toEqual({
       agentId: 3,
       agentName: "CEO",
@@ -27,10 +23,6 @@ describe("session-meta-store", () => {
       projectId: 7,
       title: "arch-review · jwt",
     });
-  });
-
-  it("不存在返回 null", () => {
-    expect(selectSessionMeta(999)(useSessionMetaStore.getState())).toBeNull();
   });
 
   it("同值短路, 不重建 Map", () => {
@@ -91,12 +83,10 @@ describe("session-meta-store", () => {
       ],
     ]);
     expect(useSessionMetaStore.getState().metas.size).toBe(2);
-    expect(selectSessionMeta(1)(useSessionMetaStore.getState())?.title).toBe(
-      "a",
+    expect(useSessionMetaStore.getState().metas.get(1)?.title).toBe("a");
+    expect(useSessionMetaStore.getState().metas.get(2)?.lastMessageAt).toBe(
+      200,
     );
-    expect(
-      selectSessionMeta(2)(useSessionMetaStore.getState())?.lastMessageAt,
-    ).toBe(200);
   });
 
   it("bulkUpsert 整批全等时不换 Map 引用", () => {

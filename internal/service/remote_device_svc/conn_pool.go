@@ -10,10 +10,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -33,6 +36,25 @@ var ErrDeviceNotFound = errors.New("remote device not found")
 // ErrDeviceUnauthorized 在 keychain 缺 token / device fingerprint,或 daemon
 // 拒绝鉴权时返回。
 var ErrDeviceUnauthorized = errors.New("remote device unauthorized")
+
+// MapBorrowErr 把 Borrow 借不出连接的原因翻成调用方域的 i18n 码。
+//
+// 「设备已解除配对」与「凭据失效」各有各的出路,必须与「那台机器此刻够不着」分开说
+// (后者过会儿可能就回来了);其余一切原因交给调用方给的兜底码 —— 那些原因归调用方
+// 的视图去解释,编一个更具体的码比不给码更糟。
+//
+// 兜底码是参数,因为它是三个域唯一真正的差异:工作区文件、端口转发、远端文件从前各
+// 抄一份逐行相同的 switch,只有最后那行不同。两份实现「一样」全靠人读,单边一改就
+// 分叉 —— 而它们翻的是同一个池的同一组哨兵。
+func MapBorrowErr(ctx context.Context, err error, offlineCode int) error {
+	switch {
+	case errors.Is(err, ErrDeviceNotFound):
+		return i18n.NewError(ctx, code.RemoteDeviceNotFound)
+	case errors.Is(err, ErrDeviceUnauthorized):
+		return i18n.NewError(ctx, code.RemoteDeviceUnauthorized)
+	}
+	return i18n.NewError(ctx, offlineCode)
+}
 
 // ConnPool 给上层(chat_svc / agent_backend_svc)提供 device-shared 的已鉴权
 // daemon 连接。并发安全;Borrow 与 Lease.Release 可在任意 goroutine 调用。
@@ -219,7 +241,7 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 			zap.Int64("deviceID", deviceID), zap.Error(err))
 		token = ""
 	}
-	fp, err := p.kc.Get(accountForDeviceFingerprint)
+	fp, err := p.kc.Get(deviceidentity.KeychainAccount)
 	if err != nil || fp == "" {
 		return nil, ErrDeviceUnauthorized
 	}

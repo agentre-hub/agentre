@@ -102,10 +102,8 @@
       "unread": "Unread"
     },
     "free": {
-      "attention": "{{count}} quick chats need attention",
       "empty": "No quick chats yet",
-      "name": "Quick chats",
-      "newSession": "New quick chat"
+      "name": "Quick chats"
     },
     "import": {
       "pickDirectoryTitle": "Choose a working directory for the imported session"

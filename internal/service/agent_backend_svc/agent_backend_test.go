@@ -1184,20 +1184,6 @@ func setupSvcTestWithRemoteDevice(t *testing.T) (
 	return ctx, backendMock, providerMock, agentMock, rd, prober, svc
 }
 
-func TestClaimRelativeBackends_PromotesExistingRowsWithoutCloningOrTombstoning(t *testing.T) {
-	ctx, _, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
-
-	// Given existing device-scoped backend rows, when startup promotes the
-	// account model, then it keeps every original identity. No type/name merge,
-	// clone, tombstone, or fingerprint lookup is allowed.
-	require.NoError(t, svc.ClaimRelativeBackends(ctx))
-}
-
-func TestClaimRelativeBackends_GivenNoRemoteIdentity_StillDoesNotBlockStartup(t *testing.T) {
-	ctx, _, _, _, _, _, svc := setupSvcTestWithRemoteDevice(t)
-	assert.NoError(t, svc.ClaimRelativeBackends(ctx))
-}
-
 // TestCLIOverlay_GivenNoExistingOverlay_CreatesLocalDeviceOverride verifies CLI
 // paths are persisted independently from the account backend identity.
 func TestCLIOverlay_GivenNoExistingOverlay_CreatesLocalDeviceOverride(t *testing.T) {

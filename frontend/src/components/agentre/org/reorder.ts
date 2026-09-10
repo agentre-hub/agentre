@@ -59,35 +59,3 @@ export function applyDepartmentOrder(
     ) as OrgDepartment;
   });
 }
-
-/**
- * Groups a reordered agent id list by each agent's original
- * (departmentId, parentAgentId) placement, preserving relative order
- * within each bucket. Used by the list-view drag handler to call
- * onReorderAgent once per distinct placement group.
- */
-export function bucketByPlacement(
-  agentById: Map<number, OrgAgent>,
-  orderedIds: number[],
-): Array<{
-  departmentId: number;
-  parentAgentId: number;
-  orderedIds: number[];
-}> {
-  const buckets = new Map<
-    string,
-    { departmentId: number; parentAgentId: number; orderedIds: number[] }
-  >();
-  for (const id of orderedIds) {
-    const a = agentById.get(id);
-    if (!a) continue;
-    const departmentId = a.departmentId ?? 0;
-    const parentAgentId = a.parentAgentId ?? 0;
-    const key = `${departmentId}:${parentAgentId}`;
-    if (!buckets.has(key)) {
-      buckets.set(key, { departmentId, parentAgentId, orderedIds: [] });
-    }
-    buckets.get(key)!.orderedIds.push(id);
-  }
-  return [...buckets.values()];
-}

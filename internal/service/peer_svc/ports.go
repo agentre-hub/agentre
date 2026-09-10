@@ -19,8 +19,6 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
-//go:generate mockgen -source ports.go -destination mock_peer_svc/mock_ports.go
-
 // Dialer 拨到一台具名桌面端。真实现是 server_svc.ServerSvc（DialDesktopRelay）；
 // 单测注入直连假对端的 dialer。
 type Dialer interface {

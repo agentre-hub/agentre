@@ -102,10 +102,8 @@
       "unread": "未读"
     },
     "free": {
-      "attention": "{{count}} 条随手对话需要关注",
       "empty": "还没有随手对话",
-      "name": "随手对话",
-      "newSession": "新建随手对话"
+      "name": "随手对话"
     },
     "import": {
       "pickDirectoryTitle": "为导入的会话选择工作目录"

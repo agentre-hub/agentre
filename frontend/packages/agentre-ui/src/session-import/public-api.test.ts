@@ -9,22 +9,19 @@ import * as pkg from "../index";
  *
  * 导入本地会话这一面是跨仓契约（规格 2026-08-26 硬约束 6：候选列表、转录预览、
  * 导入对话框、组头菜单条目各只有一份实现，且那份实现住在这里），所以钉在这里。
+ *
+ * 0.1.0 收窄：`ImportLocalSessionIcon` / `useImportLocalSessionLabel` /
+ * `IMPORT_MENU_ITEM_ID` / `CandidateList` / `PreviewPane` / `buildCandidateGroups` /
+ * `formatCandidateTime` 及其端口与 props 类型已从 barrel 摘除（实现仍在各自模块，
+ * 只是不再是对外契约）。
  */
 describe("导入本地会话的对外契约", () => {
-  it("呈现件与纯函数都从 barrel 出得去", () => {
+  it("入口与对话框从 barrel 出得去", () => {
     const missing = [
       // 入口：四条轴共用同一份条目定义
       "ImportLocalSessionMenu",
-      "ImportLocalSessionIcon",
-      "useImportLocalSessionLabel",
-      "IMPORT_MENU_ITEM_ID",
-      // 对话框与两栏
+      // 对话框
       "ImportSessionDialog",
-      "CandidateList",
-      "PreviewPane",
-      // 纯函数：两端按同一条规则分组与格式化
-      "buildCandidateGroups",
-      "formatCandidateTime",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);
@@ -40,27 +37,10 @@ describe("导入本地会话的对外契约", () => {
     const barrel = readFileSync(join(__dirname, "..", "index.ts"), "utf8");
     const missing = [
       "SessionImportPorts",
-      "ImportDeviceView",
-      "ImportAgentOption",
-      "ImportCandidateView",
-      "ImportCandidatesRequest",
       "ImportCandidatesResult",
-      "ImportScanIssue",
-      "ImportScanStatus",
-      "ImportGapView",
-      "ImportTranscriptMetaView",
-      "ImportPreviewRequest",
       "ImportPreviewResult",
-      "ImportRunRequest",
       "ImportOutcome",
       "ImportDialogPrefill",
-      "ImportSessionDialogProps",
-      "CandidateListProps",
-      "PreviewPaneProps",
-      "PreviewState",
-      "CandidateBucket",
-      "CandidateGroup",
-      "ImportLocalSessionMenuProps",
     ].filter((name) => !new RegExp(`\\b${name}\\b`).test(barrel));
 
     expect(missing).toEqual([]);

@@ -22,6 +22,20 @@ func RunMigrations(db *gorm.DB) error {
 
 // migrationList 按时间升序列出全部迁移构造函数。
 //
+// 2026-09-10 为 0.1.0 首发做了一次收口：把两条只补齐别人漏掉的东西的补丁折进各自该在
+// 的地方，两条补丁整条退役：
+//
+//   - 202609080101（chat_message_blocks / chat_frame_seqs 补自增 id 主键）→ 折进
+//     202609060201 的建表语句
+//   - 202609090101（chat_messages 补 turn_trigger）→ 同样折进 202609060201
+//
+// 同一轮还把基线的 daemon_sessions 直接建成带 id 主键的终态（原先要等 202609060201
+// 建新表搬行再改名），并把「建完就 DROP」的 daemon_notification_journal 从基线里去掉。
+//
+// **退役的号不得复用**：gormigrate 只认账本（migrations 表）里的 id 字符串，一个曾经
+// 跑过的号再次出现会被**静默跳过**，新迁移的 DDL 一行都不会跑、日志上什么也不说。
+// 回归见 retired_ledger_test.go。
+//
 // 新迁移的 id 必须**大于历史上用过的任何一个**,而不是「文件列表里最大的那个 +1」:
 // 账本 id 一旦落进过谁的库就永久退役,删掉文件也收不回来。gormigrate 见到 id 已在账本
 // 便静默跳过,复用退役号会让老库悄悄缺表缺列(桌面端 migrations/migrations.go 记着这么
@@ -34,8 +48,6 @@ func migrationList() []*gormigrate.Migration {
 	return []*gormigrate.Migration{
 		migration202609040101(),
 		migration202609060201(),
-		migration202609080101(),
 		migration202609080201(),
-		migration202609090101(),
 	}
 }

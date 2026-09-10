@@ -6,7 +6,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -410,11 +409,6 @@ func (a *App) registerChatService() {
 	hooktool_svc.Default().RegisterDeps(hook_svc.Hook(), agent_repo.Agent(), chat_svc.Chat())
 }
 
-// Greet returns a greeting for the given name.
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
-}
-
 // Info returns app build and runtime metadata.
 func (a *App) Info() AppInfo {
 	info := AppInfo{
@@ -433,13 +427,6 @@ func (a *App) Info() AppInfo {
 	}
 
 	return info
-}
-
-// OpenExternalURL opens url in the user's system browser. The frontend can't use
-// window.open() — Wails's embedded webview silently drops it — so any "open in
-// browser" action from JS must go through this binding.
-func (a *App) OpenExternalURL(url string) {
-	wailsruntime.BrowserOpenURL(a.ctx, url)
 }
 
 // SelectDirectory 弹出系统目录选择器并返回用户选中的绝对路径；用户取消时返回空串。

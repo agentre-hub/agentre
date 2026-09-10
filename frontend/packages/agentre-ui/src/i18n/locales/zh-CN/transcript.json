@@ -220,7 +220,6 @@
       "errors": {
         "optionRequired": "请先选择一个选项再提交",
         "otherRequired": "已选「自定义答案」请填写内容",
-        "submitFailed": "提交失败，请稍后再试",
         "expired": "提问已失效：会话已结束或已被新消息跳过"
       },
       "multi": "多选",

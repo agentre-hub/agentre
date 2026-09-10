@@ -7,6 +7,7 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
 )
 
 // ErrTOFUMismatch is returned by DaemonDialPort.Connect when the server's
@@ -28,7 +29,7 @@ func (s *service) Refresh(ctx context.Context, id int64) (*DeviceView, error) {
 		row.LastError = "unauthorized"
 		return s.toView(row), nil //nolint:nilerr // keychain miss is surfaced via row.LastError, not as an RPC error
 	}
-	fp, err := s.keychain.Get(accountForDeviceFingerprint)
+	fp, err := s.keychain.Get(deviceidentity.KeychainAccount)
 	if err != nil || fp == "" {
 		_ = s.repo.UpdateLastSeen(ctx, id, row.LastSeenAt, "unauthorized")
 		row.LastError = "unauthorized"

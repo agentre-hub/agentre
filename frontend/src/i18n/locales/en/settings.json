@@ -113,7 +113,6 @@
     },
     "notifications": {
       "pageTitle": "Notifications",
-      "pageDesc": "Get notified when a conversation finishes, fails, or needs your input.",
       "masterTitle": "Notifications",
       "masterDesc": "Master switch — turning this off disables every method below.",
       "enableLabel": "Enable notifications",

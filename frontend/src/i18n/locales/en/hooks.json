@@ -13,7 +13,6 @@
     "header": {
       "kindLabel": "{{interp}} Hook",
       "run": "Dry run",
-      "runNow": "Run now",
       "enable": "Enable",
       "disable": "Disable",
       "more": "More actions",
@@ -65,9 +64,7 @@
       "summary": "{{events}} events parsed · {{new}} new after dedupe · {{dup}} duplicates",
       "parseError": "Parse error: {{error}}",
       "stdout": "stdout",
-      "stderr": "stderr",
-      "running": "Running…",
-      "empty": "Click Dry run to execute once; the result shows here"
+      "stderr": "stderr"
     },
     "log": {
       "empty": "No events yet",

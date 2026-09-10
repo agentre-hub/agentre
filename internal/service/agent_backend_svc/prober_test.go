@@ -155,19 +155,6 @@ func (p *modelCapturingProvider) Model() string {
 	return p.seenModel
 }
 
-func TestBuildPiAgentProbeModel(t *testing.T) {
-	Convey("Given a pi-agent backend using ~/.pi/agent config", t, func() {
-		Convey("When testing with reasoning_effort, then Agentre leaves model empty so pi uses user defaultProvider/defaultModel and thinking stays separate", func() {
-			model := buildPiAgentProbeModel(&agent_backend_entity.AgentBackend{
-				Type:            string(agent_backend_entity.TypePiAgent),
-				ReasoningEffort: "high",
-			})
-
-			So(model, ShouldEqual, "")
-		})
-	})
-}
-
 // TestResolveCLIProbeModel 锁住「Test 连通性下发的模型」与 chat-path ccBuildClientOpts
 // 同优先级,避免 Test 与实际 chat run 漂移（agent-backend.md §2.3 不变量）：
 // provider/gateway 模型(deps.Model)→ claudecode 后端 DefaultModel → ""(CLI 默认)。
@@ -195,7 +182,7 @@ func TestResolveCLIProbeModel(t *testing.T) {
 		codex := &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex)}
 		So(resolveCLIProbeModel(codex, ProbeDeps{}), ShouldEqual, "")
 	})
-	Convey("piagent → buildPiAgentProbeModel(当前为空)", t, func() {
+	Convey("piagent → 空", t, func() {
 		pi := &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}
 		So(resolveCLIProbeModel(pi, ProbeDeps{Model: "ignored"}), ShouldEqual, "")
 	})

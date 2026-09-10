@@ -42,10 +42,6 @@ function missingWailsBinding(name: string): Promise<never> {
   return Promise.reject(new Error(`Wails binding ${name} not available`));
 }
 
-export const Greet = vi.fn((name: string) =>
-  Promise.resolve(`Hello ${name}, It's show time!`),
-);
-
 export const AnswerUserQuestion = vi.fn(() => Promise.resolve({}));
 export const AnswerToolPermission = vi.fn(() => Promise.resolve({}));
 export const AnswerToolApproval = vi.fn(() => Promise.resolve({}));
@@ -268,9 +264,6 @@ export const IssueList = windowBackedMock("IssueList", () =>
 );
 export const IssueListLabels = windowBackedMock("IssueListLabels", () =>
   Promise.resolve([]),
-);
-export const IssueGet = windowBackedMock("IssueGet", () =>
-  Promise.resolve({ ...emptyIssue }),
 );
 export const IssueCreate = windowBackedMock("IssueCreate", () =>
   Promise.resolve({ ...emptyIssue }),

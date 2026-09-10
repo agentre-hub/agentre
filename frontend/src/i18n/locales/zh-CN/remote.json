@@ -306,36 +306,6 @@
       }
     }
   },
-  "remoteFs": {
-    "actions": {
-      "cancel": "取消",
-      "newFolder": "新建",
-      "selectCurrent": "选择此目录"
-    },
-    "create": {
-      "placeholder": "folder name"
-    },
-    "empty": "（空）",
-    "entry": {
-      "enter": "进入",
-      "enterNamed": "进入 {{name}}",
-      "symlink": "符号链接"
-    },
-    "errors": {
-      "invalidName": "非法名字"
-    },
-    "filter": {
-      "ariaLabel": "筛选当前目录",
-      "placeholder": "筛选当前目录…"
-    },
-    "hidden": {
-      "ariaLabel": "显示隐藏文件",
-      "label": "隐藏"
-    },
-    "loading": "加载中…",
-    "title": "选择目录",
-    "truncated": "还有未列出的项，请用筛选缩小范围"
-  },
   "sync": {
     "description": "你的 Agent、部门、项目和项目路径，在所有已登录的桌面端之间保持一致。",
     "lostChanges": {

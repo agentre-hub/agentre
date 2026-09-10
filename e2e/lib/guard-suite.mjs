@@ -10,6 +10,10 @@ export const AUTOMATED_GUARD_TESTS = [
   "lib/app-overlay.test.mjs",
   "lib/fake-sync-server.test.mjs",
   "lib/current-contract.test.mjs",
+  "lib/browser.test.mjs",
+  // 最后这条守的是清单本身：磁盘上的 *.test.mjs 与清单必须互相包含。
+  // `lib/browser.test.mjs` 就是漏登记的那种情形 —— 文件在、断言是绿的、从没跑过。
+  "lib/guard-suite.test.mjs",
 ];
 
 export const FULL_GUARD_TESTS = [

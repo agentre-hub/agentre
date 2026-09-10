@@ -56,7 +56,6 @@ type IssueRepo interface {
 	// 改挂会把它们留在原地指向一个已消失的项目。
 	ReassignProject(ctx context.Context, fromProjectID, toProjectID int64) error
 	StageCounts(ctx context.Context, filter ListFilter) (map[string]int64, error)
-	CountByState(ctx context.Context, projectID int64) (open int64, closed int64, err error)
 	// CountUnfinishedByProject 按 project_id 统计**未完成**的任务数（键 0 = 未归属）。
 	// 项目选择器每一项右侧的计数由它喂养，因此刻意不吃 ListFilter —— 那个数的用途
 	// 就是判断该切到哪，跟着当前筛选缩水就失去了用途。
@@ -232,33 +231,6 @@ func (r *issueRepo) CountUnfinishedByProject(ctx context.Context) (map[int64]int
 		out[row.ProjectID] = row.Cnt
 	}
 	return out, nil
-}
-
-func (r *issueRepo) CountByState(ctx context.Context, projectID int64) (int64, int64, error) {
-	type agg struct {
-		State string
-		Cnt   int64
-	}
-	q := db.Ctx(ctx).Model(&issue_entity.Issue{}).
-		Select("state, count(*) as cnt").
-		Where("status = ?", consts.ACTIVE)
-	if projectID > 0 {
-		q = q.Where("project_id = ?", projectID)
-	}
-	var rows []agg
-	if err := q.Group("state").Scan(&rows).Error; err != nil {
-		return 0, 0, err
-	}
-	var open, closed int64
-	for _, row := range rows {
-		switch row.State {
-		case issue_entity.StateOpen:
-			open = row.Cnt
-		case issue_entity.StateClosed:
-			closed = row.Cnt
-		}
-	}
-	return open, closed, nil
 }
 
 func (r *issueRepo) StageCounts(ctx context.Context, filter ListFilter) (map[string]int64, error) {

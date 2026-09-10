@@ -155,30 +155,6 @@
     }
   },
   "chatPage": {
-    "add": {
-      "aria": "New",
-      "newAgent": "New agent",
-      "newAgentChat": "New agent chat",
-      "newAgentHint": "Create a new assistant/employee in the org chart"
-    },
-    "empty": {
-      "title": "No conversations yet",
-      "description": "Create an agent to start collaborating.",
-      "cta": "Create your first agent"
-    },
-    "filter": {
-      "chips": {
-        "all": "All",
-        "running": "Running",
-        "unread": "Unread"
-      },
-      "open": "Filter sidebar",
-      "options": {
-        "running": "Running",
-        "unread": "Unread"
-      }
-    },
-    "newChat": "New chat",
     "notChattable": {
       "actions": {
         "backendSettings": "Go to Agent backend settings",
@@ -200,11 +176,9 @@
           "unavailable": "Unavailable"
         }
       },
-      "defaultHint": "Bind a built-in backend to this Agent on the org chart page first",
       "info": {
         "title": "Built-in backends need an additional LLM provider"
       },
-      "message": "Not available for chat — {{hint}}",
       "reasons": {
         "noBackend": {
           "title": "{{name}} cannot chat yet",
@@ -242,25 +216,7 @@
           "short": "Unknown backend type"
         }
       }
-    },
-    "pin": {
-      "pin": "Pin",
-      "pinAria": "Pin {{name}}",
-      "unpin": "Unpin",
-      "unpinAria": "Unpin {{name}}"
-    },
-    "search": {
-      "aria": "Search agents",
-      "clear": "Clear filter",
-      "noMatches": "No agents match \"{{query}}\"",
-      "placeholder": "Search Agent"
-    },
-    "sections": {
-      "agents": "AGENTS",
-      "pinned": "PINNED"
-    },
-    "sidebar": "Agent list",
-    "untitledSession": "(Untitled session)"
+    }
   },
   "chatPanel": {
     "actions": {
@@ -290,8 +246,7 @@
       "rename": "Rename failed: {{msg}}",
       "send": "Send failed: {{msg}}",
       "stop": "Stop failed: {{msg}}",
-      "stopBackgroundTask": "Failed to stop background task: {{msg}}",
-      "loadFailed": "Failed to load session: {{msg}}"
+      "stopBackgroundTask": "Failed to stop background task: {{msg}}"
     },
     "execTarget": {
       "willRunPrefix": "Will run on",
@@ -382,9 +337,7 @@
       "hideContextSidebar": "Hide context sidebar",
       "showContextSidebar": "Show context sidebar",
       "stop": "Stop",
-      "stopActiveTitle": "Stop current chat",
-      "stopInactiveTitle": "No chat is currently running",
-      "terminalTitle": "Terminal (⌘`)"
+      "stopActiveTitle": "Stop current chat"
     },
     "untitled": "(Untitled)",
     "loadError": {
@@ -393,7 +346,6 @@
       "close": "Close session",
       "notFoundHint": "This session no longer exists or has been deleted."
     },
-    "sending": "Sending…",
     "sendRetry": {
       "restored": "Send failed — draft kept",
       "retry": "Retry send",
@@ -477,9 +429,6 @@
   },
   "compactHistory": {
     "viewPrevious": "View {{count}} messages before compaction"
-  },
-  "localCommand": {
-    "notSharedWithAI": "Not sent to AI"
   },
   "slashCommands": {
     "new": {

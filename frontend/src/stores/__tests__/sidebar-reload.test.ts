@@ -10,7 +10,6 @@ vi.mock("../../../wailsjs/go/app/App", () => ({
 const reloadProjectTreeCache = vi.fn();
 const treeLoaded = { value: false };
 vi.mock("@/hooks/use-project-tree", () => ({
-  ensureProjectTreeLoaded: vi.fn(),
   isProjectTreeCacheLoaded: () => treeLoaded.value,
   reloadProjectTreeCache: (...args: unknown[]) =>
     reloadProjectTreeCache(...args),
@@ -19,7 +18,6 @@ vi.mock("@/hooks/use-project-tree", () => ({
 import { useChatAgentsStore, type AgentSlim } from "../chat-agents-store";
 import { useSessionIndexStore } from "../session-index-store";
 import {
-  ensureSessionInSidebar,
   isSessionKnownToSidebar,
   reloadSidebarSources,
 } from "../sidebar-reload";
@@ -110,49 +108,6 @@ describe("sidebar-reload helpers", () => {
 
       expect(chatReload).toHaveBeenCalledTimes(1);
       expect(indexReload).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("ensureSessionInSidebar", () => {
-    it("reloads both sidebar sources when the session is unknown", () => {
-      seedAgents(99);
-      const chatReload = vi
-        .spyOn(useChatAgentsStore.getState(), "reload")
-        .mockResolvedValue();
-      const indexReload = vi
-        .spyOn(useSessionIndexStore.getState(), "reloadLoaded")
-        .mockResolvedValue();
-
-      ensureSessionInSidebar(11);
-
-      expect(chatReload).toHaveBeenCalledTimes(1);
-      expect(indexReload).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not reload when the session is already in the sidebar", () => {
-      seedAgents(11);
-      const chatReload = vi
-        .spyOn(useChatAgentsStore.getState(), "reload")
-        .mockResolvedValue();
-      const indexReload = vi
-        .spyOn(useSessionIndexStore.getState(), "reloadLoaded")
-        .mockResolvedValue();
-
-      ensureSessionInSidebar(11);
-
-      expect(chatReload).not.toHaveBeenCalled();
-      expect(indexReload).not.toHaveBeenCalled();
-    });
-
-    it("ignores non-positive session ids", () => {
-      seedAgents(99);
-      const chatReload = vi
-        .spyOn(useChatAgentsStore.getState(), "reload")
-        .mockResolvedValue();
-
-      ensureSessionInSidebar(0);
-
-      expect(chatReload).not.toHaveBeenCalled();
     });
   });
 });

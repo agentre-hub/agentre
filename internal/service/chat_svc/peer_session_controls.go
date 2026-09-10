@@ -71,14 +71,6 @@ type PeerSessionControlResult struct {
 	AlreadyHandled bool `json:"alreadyHandled,omitempty"`
 }
 
-// PeerSessionRunResult describes a rejected write while keeping the desktop
-// transcript readable. The peer adapter serializes it in typed RPC error data.
-type PeerSessionRunResult struct {
-	Accepted             bool `json:"accepted"`
-	HistoryAvailable     bool `json:"historyAvailable"`
-	ExecutionUnavailable bool `json:"executionUnavailable"`
-}
-
 // RunPeerSession adapts the existing runtime.run wire request into the
 // desktop's session-level Send path. Backend, queue, permission, and MCP
 // selection remain entirely owned by Send; only the authenticated source is
@@ -387,17 +379,6 @@ func peerSessionControlResult(err error) (PeerSessionControlResult, error) {
 		return PeerSessionControlResult{AlreadyHandled: true}, nil
 	}
 	return PeerSessionControlResult{}, err
-}
-
-// PeerSessionExecutionResult maps the one write-only availability failure to
-// the typed RPC payload consumed by the inbound adapter.
-func PeerSessionExecutionResult(err error) (PeerSessionRunResult, error) {
-	if errors.Is(err, ErrPeerExecutionUnavailable) {
-		return PeerSessionRunResult{
-			HistoryAvailable: true, ExecutionUnavailable: true,
-		}, nil
-	}
-	return PeerSessionRunResult{}, err
 }
 
 // persistPeerMessageSource 把提交方的设备身份盖进这条用户消息的正文。盖法归共用的

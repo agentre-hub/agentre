@@ -58,21 +58,6 @@ func (mr *MockAgentBackendRepoMockRecorder) BatchFind(ctx, ids any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchFind", reflect.TypeOf((*MockAgentBackendRepo)(nil).BatchFind), ctx, ids)
 }
 
-// ClaimRelative mocks base method.
-func (m *MockAgentBackendRepo) ClaimRelative(ctx context.Context, fingerprint devicefp.Carrier) ([]agent_backend_repo.RelativeClaim, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClaimRelative", ctx, fingerprint)
-	ret0, _ := ret[0].([]agent_backend_repo.RelativeClaim)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ClaimRelative indicates an expected call of ClaimRelative.
-func (mr *MockAgentBackendRepoMockRecorder) ClaimRelative(ctx, fingerprint any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimRelative", reflect.TypeOf((*MockAgentBackendRepo)(nil).ClaimRelative), ctx, fingerprint)
-}
-
 // Create mocks base method.
 func (m *MockAgentBackendRepo) Create(ctx context.Context, b *agent_backend_entity.AgentBackend) error {
 	m.ctrl.T.Helper()

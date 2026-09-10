@@ -61,6 +61,7 @@ ON projects(sync_id) WHERE sync_id != ''`).Error; err != nil {
 			}
 
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS project_agents (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id INTEGER NOT NULL,
 	agent_id INTEGER NOT NULL,
 	joined_at INTEGER NOT NULL DEFAULT 0,
@@ -70,7 +71,7 @@ ON projects(sync_id) WHERE sync_id != ''`).Error; err != nil {
 	sync_updated_at BIGINT NOT NULL DEFAULT 0,
 	sync_origin_fingerprint TEXT NOT NULL DEFAULT '',
 	sync_deleted_at BIGINT NOT NULL DEFAULT 0,
-	PRIMARY KEY (project_id, agent_id)
+	UNIQUE (project_id, agent_id)
 )`).Error; err != nil {
 				return err
 			}
@@ -95,7 +96,11 @@ ON project_agents(sync_id) WHERE sync_id != ''`).Error; err != nil {
 	sync_version BIGINT NOT NULL DEFAULT 0,
 	sync_updated_at BIGINT NOT NULL DEFAULT 0,
 	sync_origin_fingerprint TEXT NOT NULL DEFAULT '',
-	sync_deleted_at BIGINT NOT NULL DEFAULT 0
+	sync_deleted_at BIGINT NOT NULL DEFAULT 0,
+	-- device_id 排在最后不是随手放的：它原本是一条 ALTER TABLE ADD COLUMN（SQLite
+	-- 只能追加到表尾），折叠进建表语句时保持列序不变，库的终态才与逐条迁移跑出来的
+	-- 一模一样。单看列序并不影响任何行为，但等价性验证靠的就是“一模一样”。
+	device_id TEXT NOT NULL DEFAULT ''
 )`).Error; err != nil {
 				return err
 			}

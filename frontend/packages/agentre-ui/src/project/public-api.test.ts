@@ -9,9 +9,15 @@ import * as pkg from "../index";
  *
  * 项目这一面是跨仓契约（规格 2026-08-22：项目设置 / 新建 / 删除确认 / 组头菜单 /
  * 目录选择器各只保留一份实现，且那份实现住在这里），所以钉在这里。
+ *
+ * 0.1.0 收窄：`DirectoryPicker` / `joinPath` / `breadcrumbOf` 与
+ * `ProjectCreateMachinesPort` / `ProjectWriteFailureKind` / `ProjectCreateDraft` /
+ * `ProjectCreateOutcome` / `ProjectGitInfo` / `ProjectMenuCapabilities` /
+ * `DialogShellSaveState` / `DialogShellSize` 已从 barrel 摘除（实现仍在各自模块，
+ * 只是不再是对外契约）。
  */
 describe("项目这一面的对外契约", () => {
-  it("五件呈现件与纯函数都从 barrel 出得去", () => {
+  it("共享的弹窗外壳、项目表单与组头动作都从 barrel 出得去", () => {
     const missing = [
       // 弹窗外壳（两端的表单都建在它上面）
       "DialogShell",
@@ -26,11 +32,6 @@ describe("项目这一面的对外契约", () => {
       // 组头动作：⋮ 与右键由同一份定义渲染两遍
       "ProjectHeaderActions",
       "ProjectHeaderContextMenu",
-      // 目录选择器
-      "DirectoryPicker",
-      // 纯函数：两端都要按同一条规则拼路径与切面包屑
-      "joinPath",
-      "breadcrumbOf",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);
@@ -47,7 +48,6 @@ describe("项目这一面的对外契约", () => {
     const barrel = readFileSync(join(__dirname, "..", "index.ts"), "utf8");
     const missing = [
       "ProjectFsPort",
-      "ProjectCreateMachinesPort",
       "ListDirOutcome",
       "MkdirOutcome",
       "PickerMachine",
@@ -59,17 +59,10 @@ describe("项目这一面的对外契约", () => {
       "ProjectFieldValues",
       "ProjectWriteOutcome",
       "ProjectWriteFailure",
-      "ProjectWriteFailureKind",
       "ProjectCreatePorts",
-      "ProjectCreateDraft",
-      "ProjectCreateOutcome",
-      "ProjectGitInfo",
       "ProjectDeletePorts",
       "ProjectHeaderActionsProps",
       "ProjectHeaderMember",
-      "ProjectMenuCapabilities",
-      "DialogShellSaveState",
-      "DialogShellSize",
     ].filter((name) => !new RegExp(`\\b${name}\\b`).test(barrel));
 
     expect(missing).toEqual([]);

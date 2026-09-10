@@ -151,13 +151,6 @@ export const useSessionStatusStore = create<State & Actions>((set) => ({
   __reset: () => set({ statuses: new Map() }),
 }));
 
-// selectSessionStatus 是给非 React 处 / 显式 store.getState() 用的选择器。
-// React 组件直接走 useSessionStatus(sid) 一行更省。
-export function selectSessionStatus(sessionId: number) {
-  return (s: State): SessionStatusValue | null =>
-    s.statuses.get(sessionId) ?? null;
-}
-
 // useSessionStatus 给单个 sid 订阅最小读路径。Map 整体变化但本 sid 对象引用
 // 没变时不会触发本组件 re-render（依赖 zustand 的 Object.is 默认比较 + 我们
 // upsert 内同值短路保证对象稳定）。

@@ -68,7 +68,7 @@ UI
   → internal/app Wails binding
   → chat_svc
   → internal/daemon/client (binary Protobuf RPC client)
-  → agentred (internal/daemon/{rpc,handlers,repository})
+  → agentred (RPC engine: pkg/wire/protorpc; method handlers + persistence: internal/daemon/{handlers,repository})
   → claude-code / codex subprocess
 ```
 

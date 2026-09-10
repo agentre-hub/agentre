@@ -9,7 +9,6 @@ import agents from "./agents.json";
 import chat from "./chat.json";
 import common from "./common.json";
 import hooks from "./hooks.json";
-import llm from "./llm.json";
 import org from "./org.json";
 import projects from "./projects.json";
 import remote from "./remote.json";
@@ -21,7 +20,6 @@ export default {
   ...chat,
   ...common,
   ...hooks,
-  ...llm,
   ...org,
   ...projects,
   ...remote,

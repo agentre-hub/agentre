@@ -54,12 +54,6 @@ export function isProjectTreeCacheLoaded(): boolean {
   return cache.loaded;
 }
 
-// ensureProjectTreeLoaded 给非 React 处复用 loadOnce 语义: 已加载 → 返回缓存,
-// 否则触发并 await 加载, 中途有别人发起加载就复用 in-flight promise。
-export function ensureProjectTreeLoaded(): Promise<ProjectTreeNode[]> {
-  return loadOnce();
-}
-
 // commit: 把一次取数的结果写进缓存。乱序响应(requestID 不是最新的)直接丢弃 ——
 // 它携带的是更早的快照, 写进去就是回退。
 function commit(requestID: number, tree: ProjectTreeNode[]): ProjectTreeNode[] {

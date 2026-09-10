@@ -60,8 +60,6 @@
       "execTargets": {
         "dragHandle": "拖拽排序（也可按 ↑ / ↓ 方向键）",
         "keyboardHandle": "按 ↑ / ↓ 方向键排序",
-        "moveUp": "上移执行目标",
-        "moveDown": "下移执行目标",
         "remove": "移除",
         "replace": "更换",
         "localMachine": "本机",

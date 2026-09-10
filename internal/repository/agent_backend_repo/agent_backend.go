@@ -12,7 +12,6 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
-	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/repository/repoquery"
 
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -44,7 +43,6 @@ type AgentBackendRepo interface {
 	CreateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error
 	UpdateCLIOverlay(ctx context.Context, overlay *agent_backend_entity.CLIOverlay) error
 	DeleteCLIOverlay(ctx context.Context, id int64) error
-	ClaimRelative(ctx context.Context, fingerprint devicefp.Carrier) ([]RelativeClaim, error)
 	// ListTombstonesOlderThan 列出「墓碑且 updatetime 早于 cutoff(ms epoch)」的行——
 	// 决策 24 回收判据的前一半(墓碑 AND 超过保留期)。另一半(无任何引用)由调用方
 	// 结合 ListExecTargetBackendRefs / chat_repo.SessionRepo.ListExecAgentBackendRefs
@@ -64,15 +62,6 @@ type AgentBackendRepo interface {
 type ExecTargetBackendRef struct {
 	ExecTargetID   int64 `gorm:"column:id"`
 	AgentBackendID int64 `gorm:"column:agent_backend_id"`
-}
-
-// RelativeClaim is the locally atomic replacement of one legacy relative
-// backend and every execution target that references it.
-type RelativeClaim struct {
-	OriginalBackend *agent_backend_entity.AgentBackend
-	ClaimedBackend  *agent_backend_entity.AgentBackend
-	OriginalTargets []*agent_entity.AgentExecTarget
-	ClaimedTargets  []*agent_entity.AgentExecTarget
 }
 
 var defaultAgentBackend AgentBackendRepo
@@ -245,77 +234,6 @@ func (r *agentBackendRepo) UpdateCLIOverlay(ctx context.Context, overlay *agent_
 
 func (r *agentBackendRepo) DeleteCLIOverlay(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Model(&agent_backend_entity.CLIOverlay{}).Where("id = ?", id).Update("status", consts.DELETE).Error
-}
-
-// ClaimRelative clones every still-relative backend for fingerprint, fans out
-// its execution targets, and tombstones the old rows in one transaction. Only
-// DeviceID == "" is eligible: another desktop's already named clone can never
-// be claimed again.
-func (r *agentBackendRepo) ClaimRelative(ctx context.Context, fingerprint devicefp.Carrier) ([]RelativeClaim, error) {
-	if fingerprint == "" {
-		return nil, nil
-	}
-	claims := make([]RelativeClaim, 0)
-	err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
-		var originals []*agent_backend_entity.AgentBackend
-		if err := tx.Where("device_fingerprint = ? AND status = ?", "", consts.ACTIVE).Order("id ASC").Find(&originals).Error; err != nil {
-			return err
-		}
-		if err := hydrateConfig(originals...); err != nil {
-			return err
-		}
-		for _, original := range originals {
-			var originalTargets []*agent_entity.AgentExecTarget
-			if err := tx.Where("agent_backend_id = ?", original.ID).
-				Order("agent_id ASC, sort_order ASC, id ASC").Find(&originalTargets).Error; err != nil {
-				return err
-			}
-
-			claimed := *original
-			claimed.ID = 0
-			claimed.DeviceFingerprint = fingerprint
-			claimed.SyncMeta = syncmeta_entity.SyncMeta{SyncAccountID: original.SyncAccountID}
-			claimed.EnsureSyncID()
-			if err := claimed.MarshalConfig(); err != nil {
-				return err
-			}
-			if err := tx.Create(&claimed).Error; err != nil {
-				return err
-			}
-
-			// The unique (agent_id, sort_order) index includes the old target.
-			// Vacate those slots before inserting their replacements, as
-			// replaceExecTargets does for a changed target list.
-			for _, target := range originalTargets {
-				if err := tx.Where("id = ?", target.ID).Delete(&agent_entity.AgentExecTarget{}).Error; err != nil {
-					return err
-				}
-			}
-
-			claimedTargets := make([]*agent_entity.AgentExecTarget, 0, len(originalTargets))
-			for _, target := range originalTargets {
-				copyTarget := *target
-				copyTarget.ID = 0
-				copyTarget.AgentBackendID = claimed.ID
-				copyTarget.SyncMeta = syncmeta_entity.SyncMeta{SyncAccountID: target.SyncAccountID}
-				copyTarget.EnsureSyncID()
-				if err := tx.Create(&copyTarget).Error; err != nil {
-					return err
-				}
-				claimedTargets = append(claimedTargets, &copyTarget)
-			}
-			if err := tx.Model(&agent_backend_entity.AgentBackend{}).Where("id = ?", original.ID).
-				Update("status", consts.DELETE).Error; err != nil {
-				return err
-			}
-			claims = append(claims, RelativeClaim{
-				OriginalBackend: original, ClaimedBackend: &claimed,
-				OriginalTargets: originalTargets, ClaimedTargets: claimedTargets,
-			})
-		}
-		return nil
-	})
-	return claims, err
 }
 
 // hydrateConfig 把 config_json 摊回九个单类型独占字段（见

@@ -58,14 +58,6 @@ func IsSubagentActivityWatcherActiveForTest(svc ChatSvc, sessionID int64) bool {
 	return ok
 }
 
-// ConvertOldEventToNewForTest 暴露 convertOldEventToNew 给 chat_svc_test 包的
-// fake runner。生产路径 (runTurn drain) 直接吃 NEW Event channel,本函数仅给
-// 老 fixture 当桥接(用 RuntimeEvent{Kind: ...} 字面量驱动,内部转 NEW Event
-// 再回吐给 chat_svc dispatcher)。fixture 全部改写成直接构造 NEW Event 后即可删除。
-func ConvertOldEventToNewForTest(ev agentruntime.RuntimeEvent) agentruntime.Event {
-	return convertOldEventToNew(ev)
-}
-
 // DeliverRemotePreviewForTest 暴露 onRemotePreviewEvent 给外部测试包:模拟
 // *remote.Runtime 的读循环交来一条**预览帧**里的事件(即时呈现用,不进转录)。
 func DeliverRemotePreviewForTest(svc ChatSvc, sessionID int64, ev agentruntime.Event) {

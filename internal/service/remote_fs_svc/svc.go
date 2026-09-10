@@ -5,8 +5,6 @@
 // 服务层不依赖 DB,只依赖 RemoteDeviceSvc(已 mockable)。
 package remote_fs_svc
 
-//go:generate mockgen -source svc.go -destination mock_remote_fs_svc/mock_svc.go
-
 import (
 	"context"
 	"errors"
@@ -148,13 +146,7 @@ func (s *remoteFsImpl) Mkdir(ctx context.Context, deviceID, parent, name string)
 func noopHome() (string, error) { return "/", nil }
 
 func mapBorrowErr(ctx context.Context, err error) error {
-	switch {
-	case errors.Is(err, remote_device_svc.ErrDeviceNotFound):
-		return i18n.NewError(ctx, code.RemoteDeviceNotFound)
-	case errors.Is(err, remote_device_svc.ErrDeviceUnauthorized):
-		return i18n.NewError(ctx, code.RemoteDeviceUnauthorized)
-	}
-	return i18n.NewError(ctx, code.RemoteFsDeviceOffline)
+	return remote_device_svc.MapBorrowErr(ctx, err, code.RemoteFsDeviceOffline)
 }
 
 func mapCallErr(ctx context.Context, err error) error {

@@ -83,10 +83,10 @@ func (f *fakeRemoteDisc) ListSkills(_ context.Context, deviceID int64, backendTy
 	return f.packs, nil
 }
 
-// TestListAgentSkillPacks_SelfFingerprintBackendUsesLocalDiscovery R13 认领后本机
+// TestListAgentSkillPacksForTarget_SelfFingerprintBackendUsesLocalDiscovery R13 认领后本机
 // backend 的 DeviceID 是本机指纹:技能发现必须当本机档走本地 Discoverer,而不是当
 // 远端档(DeviceIDInt 解析不出数字)返回空包。
-func TestListAgentSkillPacks_SelfFingerprintBackendUsesLocalDiscovery(t *testing.T) {
+func TestListAgentSkillPacksForTarget_SelfFingerprintBackendUsesLocalDiscovery(t *testing.T) {
 	Convey("给定指向本机指纹的 claudecode backend, 发现走本地 Discoverer", t, func() {
 		ctrl := gomock.NewController(t)
 		al := mock_skill_svc.NewMockAgentLookup(ctrl)
@@ -107,10 +107,12 @@ func TestListAgentSkillPacks_SelfFingerprintBackendUsesLocalDiscovery(t *testing
 			{ID: "local-only@desktop", Name: "local-only", Installed: true, Source: agentskill.SourceInstalled},
 		}})
 		defer restore()
-		et := &fakeExecTargets{}
+		target := skillTarget()
+		target.AgentBackendID = 9
+		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{target}}
 		s := newForTest(al, bl, et)
 
-		cat, err := s.ListAgentSkillPacks(context.Background(), 1, false)
+		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
 		So(err, ShouldBeNil)
 		byID := map[string]SkillPackDTO{}
 		for _, p := range cat.Packs {
@@ -121,7 +123,7 @@ func TestListAgentSkillPacks_SelfFingerprintBackendUsesLocalDiscovery(t *testing
 	})
 }
 
-func TestListAgentSkillPacks_RemoteBackendUsesDaemonDiscovery(t *testing.T) {
+func TestListAgentSkillPacksForTarget_RemoteBackendUsesDaemonDiscovery(t *testing.T) {
 	Convey("远端 backend(DeviceID 是别机指纹)走 daemon 发现,不混入 desktop 本地发现", t, func() {
 		ctrl := gomock.NewController(t)
 		al := mock_skill_svc.NewMockAgentLookup(ctrl)
@@ -149,10 +151,12 @@ func TestListAgentSkillPacks_RemoteBackendUsesDaemonDiscovery(t *testing.T) {
 		remote := &fakeRemoteDisc{packs: []agentskill.SkillPack{
 			{ID: "superpowers@claude-plugins-official", Name: "superpowers", Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true},
 		}}
-		et := &fakeExecTargets{}
+		target := skillTarget()
+		target.AgentBackendID = 9
+		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{target}}
 		s := newForTestRemote(al, bl, et, remote)
 
-		cat, err := s.ListAgentSkillPacks(context.Background(), 1, false)
+		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
 		So(err, ShouldBeNil)
 		// 用解析出的 deviceID + backend type 调远端发现。
 		So(remote.gotDeviceID, ShouldEqual, int64(7))
@@ -169,10 +173,10 @@ func TestListAgentSkillPacks_RemoteBackendUsesDaemonDiscovery(t *testing.T) {
 	})
 }
 
-// TestListAgentSkillPacks_ReadsAuthorizationFromExecTargetNotAgentRow 锁住 R15e
+// TestListAgentSkillPacksForTarget_ReadsAuthorizationFromExecTargetNotAgentRow 锁住 R15e
 // 的存放位置:agents.skills_json 即便还留着(遗留列,保留但不再被读取),也不能再
 // 影响目录的授权标注 —— 真源是这一档执行目标行自己的 SkillsJSON。
-func TestListAgentSkillPacks_ReadsAuthorizationFromExecTargetNotAgentRow(t *testing.T) {
+func TestListAgentSkillPacksForTarget_ReadsAuthorizationFromExecTargetNotAgentRow(t *testing.T) {
 	Convey("Agent 行上的 legacy skills_json 与执行目标行的授权不一致时,以执行目标行为准", t, func() {
 		ctrl := gomock.NewController(t)
 		al := mock_skill_svc.NewMockAgentLookup(ctrl)
@@ -187,12 +191,12 @@ func TestListAgentSkillPacks_ReadsAuthorizationFromExecTargetNotAgentRow(t *test
 			{ID: "opsctl@opskat", Name: "opsctl", Installed: true, Source: agentskill.SourceInstalled},
 		}})
 		defer restore()
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{
-			skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true}),
-		}}
+		target := skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true})
+		target.AgentBackendID = 9
+		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{target}}
 		s := newForTest(al, bl, et)
 
-		cat, err := s.ListAgentSkillPacks(context.Background(), 5, false)
+		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 5, 9, false)
 		So(err, ShouldBeNil)
 		byID := map[string]SkillPackDTO{}
 		for _, p := range cat.Packs {
@@ -278,8 +282,8 @@ func TestEnabledPluginsMapForTarget_UsesPinnedTargetNotPrimary(t *testing.T) {
 
 // TestListAgentSkillPacksForTarget_UsesGivenTargetNotAgentPrimary 是任务 12(组织
 // 架构页"一档一块")的读口:发现来源与授权标注都钉死在调用方给出的那一档
-// (agentBackendID),不是 Agent 的主档(sort_order 最小的那档,ListAgentSkillPacks
-// 走的路径)——两档各自独立,互不干扰、不做并集(R15e)。
+// (agentBackendID),不是 Agent 的主档(sort_order 最小的那档)——两档各自独立,
+// 互不干扰、不做并集(R15e)。
 func TestListAgentSkillPacksForTarget_UsesGivenTargetNotAgentPrimary(t *testing.T) {
 	Convey("按 agentBackendID 取目录:发现与授权都钉在给定的那一档,不是 Agent 的主档", t, func() {
 		ctrl := gomock.NewController(t)
@@ -329,7 +333,7 @@ func TestListAgentSkillPacksForTarget_UnknownTargetReturnsEmptyCatalog(t *testin
 	})
 }
 
-func TestListAgentSkillPacks(t *testing.T) {
+func TestListAgentSkillPacksForTarget_CatalogMerge(t *testing.T) {
 	Convey("合并推荐 + 发现 + 授权标注", t, func() {
 		ctrl := gomock.NewController(t)
 		al := mock_skill_svc.NewMockAgentLookup(ctrl)
@@ -344,13 +348,13 @@ func TestListAgentSkillPacks(t *testing.T) {
 		defer restore()
 		// 授权挂在执行目标行上(R15e),不是 Agent 行:et 是这条 Agent 唯一那一档的
 		// 技能授权。
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{
-			skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true}),
-		}}
+		primary := skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true})
+		primary.AgentBackendID = 9
+		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{primary}}
 		s := newForTest(al, bl, et)
 
-		Convey("ListAgentSkillPacks", func() {
-			cat, err := s.ListAgentSkillPacks(context.Background(), 1, false)
+		Convey("ListAgentSkillPacksForTarget", func() {
+			cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
 			So(err, ShouldBeNil)
 			byID := map[string]SkillPackDTO{}
 			for _, p := range cat.Packs {
@@ -367,12 +371,14 @@ func TestListAgentSkillPacks(t *testing.T) {
 			So(byID["opsctl@opskat"].GloballyEnabled, ShouldBeFalse)
 		})
 		Convey("Given installed packs with inherited and explicit states, When listing the catalog, Then EffectiveEnabled reports the launch-time truth", func() {
-			et.rows = []*agent_entity.AgentExecTarget{skillTarget(
+			row := skillTarget(
 				agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: false}, // 显式关覆盖全局开
 				agent_entity.AgentSkillItem{ID: "opsctl@opskat", Enabled: true},                        // 显式开覆盖全局关
-			)}
+			)
+			row.AgentBackendID = 9
+			et.rows = []*agent_entity.AgentExecTarget{row}
 
-			cat, err := s.ListAgentSkillPacks(context.Background(), 1, false)
+			cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
 			So(err, ShouldBeNil)
 			byID := map[string]SkillPackDTO{}
 			for _, p := range cat.Packs {
@@ -384,9 +390,11 @@ func TestListAgentSkillPacks(t *testing.T) {
 			So(byID["code-review@claude-plugins-official"].EffectiveEnabled, ShouldBeFalse)
 		})
 		Convey("Given an installed globally-enabled pack without an agent override, When listing the catalog, Then it is effectively enabled by inheritance", func() {
-			et.rows = nil
+			row := skillTarget()
+			row.AgentBackendID = 9
+			et.rows = []*agent_entity.AgentExecTarget{row}
 
-			cat, err := s.ListAgentSkillPacks(context.Background(), 1, false)
+			cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
 			So(err, ShouldBeNil)
 			byID := map[string]SkillPackDTO{}
 			for _, p := range cat.Packs {
@@ -423,10 +431,12 @@ func TestListAgentSkillPacks(t *testing.T) {
 			{ID: "browser@openai-bundled", Name: "browser", Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true},
 		}})
 		defer restore()
-		et := &fakeExecTargets{}
+		primary := skillTarget()
+		primary.AgentBackendID = 10
+		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{primary}}
 		s := newForTest(al, bl, et)
 
-		cat, err := s.ListAgentSkillPacks(context.Background(), 2, false)
+		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 2, 10, false)
 		So(err, ShouldBeNil)
 		byID := map[string]SkillPackDTO{}
 		for _, p := range cat.Packs {
@@ -583,7 +593,7 @@ func TestListAgentSkillCommands_RemoteTargetAsksThatMachine(t *testing.T) {
 
 // TestListAgentSkillCommands_RemoteTargetWithoutPairedDeviceIsEmpty 那台机器没在本机
 // 配对过就没有可拨的对象。回空清单(输入框照常能用,只是没有补全),不是错误 ——
-// 与 ListAgentSkillPacks 对同一情形的处置口径一致。
+// 与 ListAgentSkillPacksForTarget 对同一情形的处置口径一致。
 func TestListAgentSkillCommands_RemoteTargetWithoutPairedDeviceIsEmpty(t *testing.T) {
 	Convey("Given a remote exec target whose machine is not paired here", t, func() {
 		ctrl := gomock.NewController(t)

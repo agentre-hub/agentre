@@ -306,36 +306,6 @@
       }
     }
   },
-  "remoteFs": {
-    "actions": {
-      "cancel": "Cancel",
-      "newFolder": "New",
-      "selectCurrent": "Select This Folder"
-    },
-    "create": {
-      "placeholder": "folder name"
-    },
-    "empty": "(empty)",
-    "entry": {
-      "enter": "Open",
-      "enterNamed": "Open {{name}}",
-      "symlink": "Symbolic link"
-    },
-    "errors": {
-      "invalidName": "Invalid name"
-    },
-    "filter": {
-      "ariaLabel": "Filter current folder",
-      "placeholder": "Filter current folder..."
-    },
-    "hidden": {
-      "ariaLabel": "Show hidden files",
-      "label": "Hidden"
-    },
-    "loading": "Loading...",
-    "title": "Select Folder",
-    "truncated": "Some items are not listed. Use the filter to narrow the folder."
-  },
   "sync": {
     "description": "Your agents, departments, projects, and project paths stay in sync across every signed-in desktop.",
     "lostChanges": {

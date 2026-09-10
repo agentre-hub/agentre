@@ -49,7 +49,7 @@ Release commits use the fixed form `🔖 release v{version}`.
 
 ## Applying SOLID and the Layering Rules
 
-[`../AGENTS.md`](../AGENTS.md#solid-coding-rules) owns the SOLID and high-cohesion/low-coupling principles; [`architecture.md`](./architecture.md#layering-conventions-cago-framework-style) owns the concrete package and dependency shape. This file owns the workflow for applying them before code is written:
+[`architecture.md`](./architecture.md#layering-conventions-cago-framework-style) owns the concrete package and dependency shape — one-way dependencies, DIP, which layer may import which; this file owns the workflow for applying them before code is written:
 
 1. Name the domain and its entity/repository/service package set; if no existing domain owns it, open a new one.
 2. Put single-entity validation/state/serialization on the entity and keep the service for cross-entity or external-dependency orchestration.
@@ -113,7 +113,7 @@ The PR description follows [`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_
 
 ## The CI Gate
 
-Merging requires the eight jobs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which run on every PR and on pushes to `main` / `develop/*`:
+Merging requires the nine jobs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which run on every PR and on pushes to `main` / `develop/*`:
 
 | Job | What it runs |
 | --- | --- |
@@ -122,7 +122,8 @@ Merging requires the eight jobs in [`.github/workflows/ci.yml`](../.github/workf
 | `Frontend Lint` | `cd frontend && pnpm run lint` |
 | `Frontend Test` | wails binding generation + `pnpm run test` |
 | `Wire Proto` | `cd frontend/packages/agentre-wire && pnpm run proto:check` |
-| `agentred Packaging` | release-workflow and POSIX installer contract tests |
+| `Mocks` | `make mock` regenerates them, then `git diff --exit-code` requires the checked-in output to already match (CI installs `mockgen@v0.6.0`) |
+| `agentred Packaging` | POSIX installer contract test (`bash scripts/test-install.sh`) |
 | `agentred Windows Installer` | Windows IPC/service and PowerShell installer tests |
 | `E2E` | `xvfb-run -a make e2e` — the independent hermetic desktop app, three serial smoke boundaries, on Ubuntu |
 

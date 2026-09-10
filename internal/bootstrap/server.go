@@ -2,20 +2,16 @@ package bootstrap
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 
 	"github.com/cago-frame/cago/pkg/gogo"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
-	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/repository/sync_account_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
-	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // InitServer wires the server_state_repo + server_svc defaults.
@@ -58,8 +54,9 @@ func SyncBoot(ctx context.Context) {
 	sync_svc.Default().Start(ctx)
 }
 
-// ServerBoot runs the per-startup server-side warm-up: ensures a device fingerprint
-// exists, refreshes the access token if logged in, emits the current state.
+// ServerBoot runs the per-startup server-side warm-up: refreshes the access token
+// if logged in and emits the current state. It deliberately does **not** touch the
+// device fingerprint — see the fresh-install branch below.
 //
 // Should be called from app.go.startup, after SetEmitter is bound. Runs in a
 // goroutine (via gogo.Go) so it doesn't block UI; logs all errors.
@@ -72,18 +69,15 @@ func ServerBoot(ctx context.Context) {
 			return nil
 		}
 		if row == nil {
-			// Fresh install — persist a fingerprint so future logins reuse it.
-			fp := newBootFingerprint()
-			if err := server_state_repo.ServerState().Save(ctx, &server_state_entity.ServerState{ID: 1, DeviceFingerprint: fp}); err != nil {
-				logger.Default().Warn("server boot: persist fingerprint", zap.Error(err))
-			}
+			// 全新安装：没有指纹要补，也没有登录可刷。
+			//
+			// 指纹**不在这里铸**。它是 keychain 那一个来源的值（internal/pkg/deviceidentity，
+			// R5 决策 8），由登录路径读出或铸出后再持久化。这里曾经自己铸一个 16 字节随机
+			// 十六进制串写进去 —— 那是个别的值空间的值（没有 `sha256:` 前缀），从生成那一刻
+			// 起就不可能等于本机真实指纹，于是登录路径不得不专门写一段「与 keychain 不一致就
+			// 覆盖掉」的代码来收拾它。去掉生产者，那段收拾也就不再需要。
+			logger.Ctx(ctx).Debug("bootstrap.ServerBoot: fresh install, nothing to warm up")
 			return nil
-		}
-		if row.DeviceFingerprint == "" {
-			row.DeviceFingerprint = newBootFingerprint()
-			if err := server_state_repo.ServerState().Save(ctx, row); err != nil {
-				logger.Default().Warn("server boot: persist fingerprint", zap.Error(err))
-			}
 		}
 
 		// Inconsistent-state guard: any of (user_id, device_id, keychain_account)
@@ -113,10 +107,4 @@ func ServerBoot(ctx context.Context) {
 			zap.Int64("userId", row.ServerUserID), zap.Int64("deviceId", row.DeviceID))
 		return nil
 	})
-}
-
-func newBootFingerprint() devicefp.Carrier {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return devicefp.Carrier(hex.EncodeToString(b))
 }
