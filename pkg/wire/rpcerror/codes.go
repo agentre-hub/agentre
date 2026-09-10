@@ -18,6 +18,7 @@ package rpcerror
 //	-32040..-32043   workspacefs.*
 //	-32050..-32052   project.*
 //	-32060..-32062   transcriptImport.*
+//	-32070..-32075   portforward.*
 //	-32600..-32700   JSON-RPC 标准码(见 error.go)
 //	-32800           取消(见 error.go)
 //
@@ -102,4 +103,35 @@ const (
 	CodeTranscriptImportBackendUnavailable = -32060
 	CodeTranscriptImportTranscriptOpen     = -32061
 	CodeTranscriptImportSessionInUse       = -32062
+)
+
+// ── portforward.* ──────────────────────────────────────────────────────
+//
+// 「访问设备 127.0.0.1 上某个已声明端口」那一族。段位取 -32075..-32070,前面两个
+// 十位段都避开:-3205x 今天被 project.* 与桌面仓 internal/pkg/transcriptimport/wire
+// 各占一次(见本文件开头的盲区那段);-3206x 则是 transcriptimport.* 搬进本包后
+// 拿到的段位。往这两段里塞新码等于给一次已知撞号再加一层。
+//
+// 这几个码的分辨率是产品要求而不是洁癖:「等那台机器回来」「去把服务起起来」
+// 「那个端口压根没被声明出来」是用户要做的三件不同的事,折进一个笼统失败就等于
+// 让用户去猜。
+const (
+	// CodePortForwardNotDeclared:这台设备上没有这个端口的声明(从没建过,或已被
+	// 删除)。端口白名单只由设备判定,调用方不持有授权。
+	CodePortForwardNotDeclared = -32070
+	// CodePortForwardDisabled:声明还在,但被停用了。与上一个分开 —— 停用是一次
+	// 可撤销的开关,界面据此提示「把它打开」而不是「重新建一条」。
+	CodePortForwardDisabled = -32071
+	// CodePortForwardNoListener:端口通过了声明集判定,但那台设备的环回地址上
+	// 没有服务在监听(端口写错了,或服务还没起)。
+	CodePortForwardNoListener = -32072
+	// CodePortForwardStreamNotFound:write / close / ack 指向的流不存在 —— 它已经
+	// 收尾,或从没 open 过。与「设备拒绝了这次 open」必须分得开:前者是调用方的
+	// 状态机落后了一步,后者是这次访问根本不被允许。
+	CodePortForwardStreamNotFound = -32073
+	// CodePortForwardPortTaken:新增声明时这个端口在这台设备上已经声明过。端口
+	// 在一台设备下唯一,所以它是一次可以就地改正的输入错误,不是写失败。
+	CodePortForwardPortTaken = -32074
+	// CodePortForwardInvalidPort:端口号不在 1..65535 内。
+	CodePortForwardInvalidPort = -32075
 )

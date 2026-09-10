@@ -178,6 +178,24 @@
       "unreachableAria": "{{path}} · Unreachable",
       "unreachableLabel": "{{path}} · Unreachable"
     },
+    "portForward": {
+      "actionFailed": "Action failed: {{message}}",
+      "add": {
+        "cancel": "Cancel",
+        "failed": "Could not add the mapping: {{message}}",
+        "invalidPort": "The port number must be between 1 and 65535.",
+        "name": "Name",
+        "port": "Port",
+        "portTaken": "This port is already mapped on this device. Pick another one.",
+        "submit": "Add"
+      },
+      "copyDone": "Address copied",
+      "copyFailed": "Failed to copy address",
+      "loadFailed": "Failed to load port mappings: {{message}}",
+      "loading": "Loading port mappings...",
+      "open": "Open",
+      "title": "Port forwarding"
+    },
     "providers": {
       "copyAria": "Copy fix command {{key}}",
       "copyCommand": "Copy Command",

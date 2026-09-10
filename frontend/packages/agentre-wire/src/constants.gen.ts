@@ -324,6 +324,40 @@ export const ErrCodeTranscriptImportTranscriptOpen = -32061;
 
 export const ErrCodeTranscriptImportSessionInUse = -32062;
 
+/**
+ * CodePortForwardNotDeclared:这台设备上没有这个端口的声明(从没建过,或已被
+ * 删除)。端口白名单只由设备判定,调用方不持有授权。
+ */
+export const ErrCodePortForwardNotDeclared = -32070;
+
+/**
+ * CodePortForwardDisabled:声明还在,但被停用了。与上一个分开 —— 停用是一次
+ * 可撤销的开关,界面据此提示「把它打开」而不是「重新建一条」。
+ */
+export const ErrCodePortForwardDisabled = -32071;
+
+/**
+ * CodePortForwardNoListener:端口通过了声明集判定,但那台设备的环回地址上
+ * 没有服务在监听(端口写错了,或服务还没起)。
+ */
+export const ErrCodePortForwardNoListener = -32072;
+
+/**
+ * CodePortForwardStreamNotFound:write / close / ack 指向的流不存在 —— 它已经
+ * 收尾,或从没 open 过。与「设备拒绝了这次 open」必须分得开:前者是调用方的
+ * 状态机落后了一步,后者是这次访问根本不被允许。
+ */
+export const ErrCodePortForwardStreamNotFound = -32073;
+
+/**
+ * CodePortForwardPortTaken:新增声明时这个端口在这台设备上已经声明过。端口
+ * 在一台设备下唯一,所以它是一次可以就地改正的输入错误,不是写失败。
+ */
+export const ErrCodePortForwardPortTaken = -32074;
+
+/** CodePortForwardInvalidPort:端口号不在 1..65535 内。 */
+export const ErrCodePortForwardInvalidPort = -32075;
+
 export const ErrCodeUnauthorized = -32001;
 
 export const ErrCodeSessionMissing = -32002;

@@ -69,6 +69,11 @@ func (t *autonomousTurnRun) persistTurnMessages(ctx context.Context) error {
 		DeviceFingerprint: t.be.DeviceFingerprint,
 		Role:              "assistant",
 		BlocksJSON:        "[]",
+		// 「这一轮是被什么起的」要跟着这一行落库:结构上非用户发起的轮不止一种,
+		// 而它们在转录里长得一模一样,前端要据此决定给用户看哪一句交代(sess-3797)。
+		// 注意只写在**新建**的行上 —— 下面 adoptInFlightAssistant 认领的那一行属于
+		// 一次用户发起的轮(补齐重放只是把它跑完),它的来源仍然是「用户」。
+		TurnTrigger: t.at.Trigger,
 	}
 	if t.at.Result != nil && t.at.Result.Model != "" {
 		t.assistantMsg.Model = t.at.Result.Model

@@ -72,7 +72,9 @@
   "chatPanel": {
     "autonomous": {
       "banner": "后台任务完成 · 自动继续",
-      "aria": "自动继续的回复"
+      "aria": "自动继续的回复",
+      "externalBanner": "外部唤醒 · 自动继续",
+      "externalAria": "外部唤醒后自动继续的回复"
     }
   },
   "clipboard": {

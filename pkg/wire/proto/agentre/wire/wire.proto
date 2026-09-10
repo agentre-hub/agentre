@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.4.0";
+option (agentre.wire.protocol_version) = "0.5.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -106,6 +106,14 @@ enum RpcMethod {
   RPC_METHOD_AGENTRED_SELF_UPDATE = 58;
   RPC_METHOD_SESSION_COUNTS = 59;
   RPC_METHOD_SKILLS_COMMANDS = 60;
+  RPC_METHOD_PORT_FORWARD_LIST = 61;
+  RPC_METHOD_PORT_FORWARD_CREATE = 62;
+  RPC_METHOD_PORT_FORWARD_SET_ENABLED = 63;
+  RPC_METHOD_PORT_FORWARD_DELETE = 64;
+  RPC_METHOD_PORT_FORWARD_OPEN = 65;
+  RPC_METHOD_PORT_FORWARD_WRITE = 66;
+  RPC_METHOD_PORT_FORWARD_CLOSE = 67;
+  RPC_METHOD_PORT_FORWARD_ACK = 68;
 }
 
 message WireFrame {
@@ -136,6 +144,10 @@ message RpcNotification {
     TerminalDataNotification terminal_data = 6;
     TerminalExitNotification terminal_exit = 7;
     TurnStartedNotification turn_started = 8;
+    PortForwardResponseNotification port_forward_response = 9;
+    PortForwardDataNotification port_forward_data = 10;
+    PortForwardClosedNotification port_forward_closed = 11;
+    PortForwardRevokedNotification port_forward_revoked = 12;
   }
 }
 
@@ -1269,4 +1281,167 @@ message BlobSource {
 message ImageBlock {
   string media_type = 1;
   BlobSource source = 2;
+}
+
+// ── portforward.* ─────────────────────────────────────────────────────────────
+//
+// 「把设备 127.0.0.1 上某个端口转出去」那一族(spec 2026-09-06-device-port-forward)。
+// 它分两半,挂在两个不同的注册面上:
+//
+//   声明族  list / create / set_enabled / delete —— 改的是**那台设备自己**持有的
+//           那张声明表(映射存在被访问的设备上,不存在服务端),挂 daemon 级注册面。
+//   流族    open / write / close / ack + 三条通知 —— 一条转发流的生命周期跟着承载
+//           它的那条连接走,挂连接级注册面(与 terminal.* 同一条路子)。
+//
+// **目标主机不在协议里**:设备侧恒连环回地址,端口必须已在这台设备上声明过。给请求
+// 加一格 host 就等于把「转到哪台机器」交给调用方决定,而这条限制的立论正是「不依赖
+// 任何客户端做对」——它必须在设备侧判得出来,协议里因此不能有位置放它。
+
+// PortForwardMapping 是一条声明:这台机器允许把它 127.0.0.1 上的某个端口转出去。
+// 端口在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
+message PortForwardMapping {
+  // id 是这条声明在**那台设备**上的主键。启停与删除按它定位,而不是按端口 ——
+  // 端口虽然也唯一,但它是用户随时会改的那一格。
+  int64 id = 1;
+  uint32 port = 2;
+  string name = 3;
+  bool enabled = 4;
+  // unix 秒。
+  int64 createtime = 5;
+  int64 updatetime = 6;
+}
+
+message PortForwardListRequest {}
+message PortForwardListResponse { repeated PortForwardMapping mappings = 1; }
+
+message PortForwardCreateRequest {
+  uint32 port = 1;
+  string name = 2;
+}
+// 应答交回**设备落库之后**的那一行:id、时间戳与启用位都由设备定,调用方不猜。
+message PortForwardCreateResponse { PortForwardMapping mapping = 1; }
+
+message PortForwardSetEnabledRequest {
+  int64 id = 1;
+  bool enabled = 2;
+}
+message PortForwardSetEnabledResponse { PortForwardMapping mapping = 1; }
+
+message PortForwardDeleteRequest { int64 id = 1; }
+message PortForwardDeleteResponse { bool deleted = 1; }
+
+// PortForwardOpenRequest 开一条转发流。设备在应答之前就把到本机服务的连接拨出去,
+// 所以「端口没有声明」「映射已停用」「端口上没有服务在监听」三种失败都以领域错误码
+// 落在这一次调用的应答上(见 rpcerror 的 portforward.* 段),而不是等到某条通知里。
+message PortForwardOpenRequest {
+  // stream_id 由调用方生成,在这条连接内唯一。此后 write / close / ack 与三条通知
+  // 都按它认流。
+  string stream_id = 1;
+  // 目标端口。**没有主机那一格**,理由见本节开头。
+  uint32 port = 2;
+  string method = 3;
+  // path 是已经剥掉宿主前缀的路径,含查询串。宿主在这一层理解 HTTP(服务端要剥
+  // /fw/<设备>/<端口>,两端都要改写 Host),101 之后就不再解释内容了。
+  string path = 4;
+  map<string, HeaderValues> headers = 5;
+  // has_body 说明此后还会有 portforward.write 送请求体。它必须是显式的一位:
+  // 「还没送到」与「没有请求体」在设备侧是两件事 —— 后者一格框架头都不写(既不写
+  // Content-Length 也不写 Transfer-Encoding),上游在请求头的空行处就知道这个请求已经
+  // 完整,不必等一个永远不来的 body。设备**不**因此半关闭写方向:升级请求同样没有
+  // 请求体,却正要靠这个方向送 101 之后的帧;而对普通请求,半关会让上游的 net/http
+  // 把请求 ctx 当作「客户端走了」取消掉。见 daemon/portforward/stream.go 的 framingNone。
+  bool has_body = 6;
+  // window_bytes 是调用方为**响应方向**开出的信用窗口,单位字节,0 表示用
+  // wirelimits.PortForwardWindowBytes 的默认值。见 PortForwardAckRequest。
+  uint64 window_bytes = 7;
+}
+message PortForwardOpenResponse { string stream_id = 1; }
+
+// PortForwardWriteRequest 送一块请求体(101 之后是纯字节)。
+//
+// 这个方向不需要单独的信用:write 是一次**请求**,它的应答就是那一块的凭据 ——
+// 调用方在上一块被设备收下之前不发下一块,而它等待期间停止从浏览器读,压力于是
+// 由内核的 TCP 窗口原路还给浏览器。
+message PortForwardWriteRequest {
+  string stream_id = 1;
+  bytes data = 2;
+  // eof 半关闭上游的写方向:请求体到此为止,响应可以继续流回来。
+  bool eof = 3;
+}
+
+message PortForwardCloseRequest { string stream_id = 1; }
+
+// PortForwardAckRequest 是这一族的**背压**,也是它唯一没有先例的一格。
+//
+// 为什么必须有它,写在这里,因为这是这条纪律唯一的传承处:
+//
+//  1. terminal.* 的流控是**有损**的 —— 队列满了就丢掉最老的一块,再插一行
+//     [--- output throttled ---]。终端上少几行还看得懂,HTTP 响应体丢一块就是文件
+//     损坏、页面白屏,所以那一套抄不得。
+//  2. 也不能靠**阻塞反压**:protorpc 的写锁是全连接互斥、通知在读循环里同步派发。
+//     生产者一阻塞,顶住的不是这一条流而是整条连接,同一条连接上所有别的会话跟着
+//     停 —— 那正是「一条转发流不得拖垮同一条连接上的其他会话」要排除的形态。
+//  3. 剩下的只有**应用层的窗口/信用**:消费者把「已消费到第几个字节」显式回给
+//     生产者;生产者按「已发 - 已确认」是否超过窗口决定还读不读本机 socket。它不
+//     读,内核的 TCP 窗口就把压力还给被转发的那个服务 —— 一个字节都不丢,而承载
+//     它的那条连接一刻都没被顶住。
+//
+// consumed_bytes 是**累计**量而不是增量:丢掉一条 ack 只会让窗口暂时偏紧,下一条
+// 就把账追平;而增量丢一条,两端的账就永久对不上。
+message PortForwardAckRequest {
+  string stream_id = 1;
+  uint64 consumed_bytes = 2;
+}
+
+// PortForwardResponseNotification 带回状态码与响应头。
+//
+// 它是**独立的一条通知**而不是 open 的应答:应答走 pending channel、通知走读循环,
+// 两条路谁先被消费者看到没有保证,而三条通知同在读循环上按序派发。HTTP 的
+// WriteHeader 必须先于第一块 body,把响应头放进应答就等于把这条时序交给运气。
+message PortForwardResponseNotification {
+  string stream_id = 1;
+  int32 status = 2;
+  map<string, HeaderValues> headers = 3;
+  // upgraded 说的是「此后不再是 HTTP」。它独立于 status 的 101 存在,因为消费者据它
+  // 切换的是**自己这一侧**的行为(把连接交出去、两个方向都只搬字节),而不是复述
+  // 一个数字;宿主没有立场解释升级之后的内容。
+  bool upgraded = 4;
+}
+
+// PortForwardDataNotification 是响应方向的一块字节。分片大小见
+// wirelimits.PortForwardChunkBytes —— 它必须远低于 MaxPayloadBytes,超限拆掉的是
+// 整条物理连接,那台机器上所有会话一起重连。
+message PortForwardDataNotification {
+  string stream_id = 1;
+  bytes data = 2;
+}
+
+// PortForwardClosedNotification 是这条流的收尾,每一种断开都必须有一条,不留悬挂的流。
+message PortForwardClosedNotification {
+  string stream_id = 1;
+  // code 是 rpcerror 的 portforward.* 领域码;0 表示正常收尾。
+  int32 code = 2;
+  // reason 是机器可判别的原因 token(eof / device_gone / mapping_removed …),
+  // message 是给人看的那一句。消费者按 reason 分支,不按 message 的文本。
+  string reason = 3;
+  string message = 4;
+}
+
+// PortForwardRevokedNotification 说的是「这台设备上这个端口此刻起不再允许转发」——
+// 声明被停用或删除,不论是谁改的。
+//
+// 它与 PortForwardClosedNotification 是两件事,不能合成一条:closed 说的是**某一条
+// 流**没了(它按 stream_id 认人,且只发给正开着流的那一方),而这一条说的是**这条
+// 声明**没了,连一条流都没开着的宿主同样要听见 —— 桌面端那条专属监听多半正闲着,
+// 而规格「断开与失败」要它一并关掉。
+//
+// 它按**端口**认人而不是按映射 id:设备侧的撤销面认的就是端口(流表里没有映射 id
+// 这一格),桌面端那条监听手上也只有端口,多带一格两端都用不上的 id 只会让「按什么
+// 认」这件事有两个答案。
+message PortForwardRevokedNotification {
+  // port 是被撤销的那个端口(这台设备的 127.0.0.1 上的那一个)。
+  uint32 port = 1;
+  // reason 与 PortForwardClosedNotification 取同一套 token(mapping_disabled /
+  // mapping_removed):同一件事在两条通知上不该有两套词汇。消费者按 token 分支。
+  string reason = 2;
 }

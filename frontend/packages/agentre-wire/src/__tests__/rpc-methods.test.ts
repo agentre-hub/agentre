@@ -19,6 +19,11 @@ describe("typed protobuf RPC methods", () => {
     // ID 是 proto 枚举里的全局稳定值,不是本表的下标:52–56(转录导入四条 + 活动
     // 汇总)至今只有桌面↔daemon 在走,浏览器侧没有调用方,所以这里是一段连号加上
     // 会话思考力度那条(57)与 agentred 自更新那条(58)。
+    //
+    // 61–64 是端口转发的**声明族**(列举/新增/启停/删除):控制台的设备卡要列它、
+    // 改它,所以浏览器侧有调用方。同族的**流族**(65–68:open/write/close/ack)
+    // 刻意不在这张表里 —— 转发流由服务端那侧的 Go 代理与设备对接,浏览器发出的是
+    // 普通 HTTP 请求,它一个字节都不经这条 RPC 通道。
     expect(
       Object.values(rpcMethods)
         .map((method) => method.id)
@@ -29,7 +34,75 @@ describe("typed protobuf RPC methods", () => {
       58,
       59,
       60,
+      61,
+      62,
+      63,
+      64,
     ]);
+  });
+
+  // 端口转发声明族:控制台按 id 停用与删除,按端口 + 名称新增。这张表是手写的,
+  // 所以四条都与生成的枚举直接对钉。
+  it("pairs every port forward declaration descriptor with its generated proto ID", () => {
+    expect(rpcMethods.portForwardList.id).toBe(RpcMethod.PORT_FORWARD_LIST);
+    expect(rpcMethods.portForwardCreate.id).toBe(RpcMethod.PORT_FORWARD_CREATE);
+    expect(rpcMethods.portForwardSetEnabled.id).toBe(
+      RpcMethod.PORT_FORWARD_SET_ENABLED,
+    );
+    expect(rpcMethods.portForwardDelete.id).toBe(RpcMethod.PORT_FORWARD_DELETE);
+  });
+
+  // 一条映射的每一格都要过得了线:控制台拿 enabled 决定出不出「打开」,拿 port
+  // 拼访问地址,拿 name 认它是哪个服务。
+  it("round-trips a port forward mapping with its enabled bit and timestamps", () => {
+    const listed = ProtobufRpcCodec.encodeTypedMethodResponse(
+      5n,
+      rpcMethods.portForwardList,
+      {
+        mappings: [
+          {
+            id: 7n,
+            port: 3000,
+            name: "dev server",
+            // 启用位取 true 而不是 false:proto3 的隐式存在让 false 等同「这一格
+            // 没写」,一个把 enabled 整个漏掉、或者映到另一个字段号的编码器,解出来
+            // 照样是 false —— 用 false 钉不住这一格。下面那条停用的行补 false 这一
+            // 侧(它要证的是「停用的声明整行保留」,不是字段映射对不对)。
+            enabled: true,
+            createtime: 1757000000n,
+            updatetime: 1757000001n,
+          },
+          { id: 8n, port: 3001, name: "docs", enabled: false },
+        ],
+      },
+    );
+    const decoded = decodeRpcMethodResponse(
+      listed,
+      rpcMethods.portForwardList,
+    ).mappings;
+    expect(decoded[0]).toMatchObject({
+      id: 7n,
+      port: 3000,
+      name: "dev server",
+      enabled: true,
+      // 时间戳过线是这条用例名字里就写着的一半,断言得真的问到它们:少了这两句,
+      // createtime / updatetime 改字段号或整个掉出 PortForwardMapping 都不会红。
+      createtime: 1757000000n,
+      updatetime: 1757000001n,
+    });
+    // 停用是「保留声明、拒绝访问」:那一行整行都要还在。
+    expect(decoded[1]).toMatchObject({ id: 8n, port: 3001, enabled: false });
+
+    const encoded = encodeRpcMethodRequest(6n, rpcMethods.portForwardCreate, {
+      port: 5173,
+      name: "vite",
+    });
+    expect(ProtobufRpcCodec.decode(encoded).body).toMatchObject({
+      case: "typedMethodRequest",
+      methodId: RpcMethod.PORT_FORWARD_CREATE,
+      method: "portForwardCreate",
+      value: expect.objectContaining({ port: 5173, name: "vite" }),
+    });
   });
   // 这张表是手写的:id 写错不会被编译器发现,只会在对端解出「未知 method ID」时爆掉。
   // 新加的这条因此与生成的枚举直接对钉。

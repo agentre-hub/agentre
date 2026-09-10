@@ -215,6 +215,33 @@ export const rpcMethods = {
     pb.SkillCommandsRequestSchema,
     pb.SkillCommandsResponseSchema,
   ),
+  // 端口转发的**声明族**。流族(open/write/close/ack)刻意不在这张表里:转发流由
+  // 服务端那侧的 Go 代理与设备对接,浏览器发出的是普通 HTTP 请求,一个字节都不经
+  // 这条 RPC 通道 —— 与 52–56 缺席的理由同形。
+  portForwardList: method(
+    "portForwardList",
+    61,
+    pb.PortForwardListRequestSchema,
+    pb.PortForwardListResponseSchema,
+  ),
+  portForwardCreate: method(
+    "portForwardCreate",
+    62,
+    pb.PortForwardCreateRequestSchema,
+    pb.PortForwardCreateResponseSchema,
+  ),
+  portForwardSetEnabled: method(
+    "portForwardSetEnabled",
+    63,
+    pb.PortForwardSetEnabledRequestSchema,
+    pb.PortForwardSetEnabledResponseSchema,
+  ),
+  portForwardDelete: method(
+    "portForwardDelete",
+    64,
+    pb.PortForwardDeleteRequestSchema,
+    pb.PortForwardDeleteResponseSchema,
+  ),
   remoteFsListDir: method(
     "remoteFsListDir",
     29,

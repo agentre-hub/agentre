@@ -1812,7 +1812,10 @@ func fakeIdleInitAfterResult(stdin io.Reader, stdout io.Writer) {
 // 陆续完成,task_updated / task_notification 一帧都没被读出来 —— 前端 subagent 卡在
 // 「运行中」,自主续轮永不浮现,对话框再无任何新内容。
 //
-// 所以断言的是**类**不是某个 subtype:空闲(无 Send 在途)时任何帧都只能被丢弃。
+// 所以断言的是**类**不是某个 subtype:空闲(无 Send 在途)时 system:init 这类「轮起手
+// 帧」只能被丢弃。sess-3797 之后这条不变量收窄了一档 —— 空闲态到达的主线 assistant
+// 帧会开一条外部轮(见 startsExternalTurn),因为它是模型真的在产出的证据;init 不是,
+// 它恰恰是子进程会空手重播的那一帧,本用例钉的就是这一点。
 func TestSession_IdleInitFrameAfterResultKeepsReaderAlive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1847,6 +1850,126 @@ func TestSession_IdleInitFrameAfterResultKeepsReaderAlive(t *testing.T) {
 	ch2, err := sess.Turn(ctx, "beta")
 	require.NoError(t, err)
 	assert.Equal(t, "echo:beta", drainText(t, ch2))
+}
+
+// fakeExternalTurnAfterResult 复刻 sess-3797 现场(CLI 2.1.216):一轮以 result 收尾、
+// 会话转空闲(没有任何排队的 user Turn)之后,子进程被**别的 Claude 会话经 UDS 发来的
+// 消息**叫醒,自己跑了一整轮主线 —— command_lifecycle → init → 主线 assistant 内容 →
+// result。注入的那条 user 消息不写进 stdout(现场抓帧:两份日志里 cross-session-message
+// 在原始帧中 0 命中),所以宿主能看见的第一帧真内容就是那条 assistant。
+func fakeExternalTurnAfterResult(stdin io.Reader, stdout io.Writer) {
+	const sid = "sess-external-turn-after-result"
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+	turn := 0
+	for sc.Scan() {
+		turn++
+		reply := extractTextField(sc.Text())
+		if turn == 1 {
+			writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"a1","content":[{"type":"text","text":"started:%s"}]}}`, reply)
+			writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+			// —— 空闲:外部消息把子进程叫醒,它自己跑一整轮主线 ——
+			writeFrame(stdout, `{"type":"command_lifecycle","command_uuid":"c1","state":"started","session_id":%q}`, sid)
+			writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+			writeFrame(stdout, `{"type":"assistant","message":{"id":"x1","content":[{"type":"text","text":"external:woken"}]}}`)
+			writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":3,"output_tokens":3}}`, sid)
+			continue
+		}
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a4","content":[{"type":"text","text":"echo:%s"}]}}`, reply)
+		writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+	}
+}
+
+// TestSession_IdleMainThreadTurnSurfacesAsExternalAutoTurn 钉死 sess-3797:CLI 自己起的
+// 一轮主线**不是**只有「agentre 写过 stdin」与「后台任务完成」两种来源。第三种是子进程
+// 被外部叫醒(今天已知的成因是别的 Claude 会话经 UDS 的 SendMessage,但判据不依赖成因)。
+//
+// 现场后果:整轮 init / assistant / result 逐帧落进 currentTurn 的空闲兜底被丢掉 ——
+// 转录里什么都没有、会话停在 idle、20 个子 agent 在跑而用户没有任何停止入口,那一轮
+// 的 result 帧记着 total_cost_usd 112.48。
+//
+// 起轮判据取**第一帧主线 assistant**,不取 init:init 会被子进程在空闲态自发重播
+// (sess-2187),据它起轮就造出一个等不到 result 的空轮。stream_event 同样不取 ——
+// 上一轮子 agent 活动的尾巴也会在空闲态漏出 stream_event,代价是外部轮首块的逐 token
+// 流失,但那条 assistant 帧带着完整内容,转录不缺。
+func TestSession_IdleMainThreadTurnSurfacesAsExternalAutoTurn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeExternalTurnAfterResult))
+	sess, err := c.OpenSession(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	// (a) Turn1 干净收尾,不吞后面那一轮外部唤醒的帧。
+	ch1, err := sess.Turn(ctx, "alpha")
+	require.NoError(t, err)
+	got1 := drainText(t, ch1)
+	assert.Equal(t, "started:alpha", got1)
+	assert.NotContains(t, got1, "external", "Turn1 不应吞掉外部唤醒的那一轮")
+
+	// (b) 外部唤醒的一轮必须浮现,且带得出「不是后台任务完成」这个身份。
+	var at *AutoTurn
+	select {
+	case at = <-sess.AutonomousTurns():
+	case <-time.After(2 * time.Second):
+		t.Fatal("空闲态到达的主线 assistant 帧没有起轮:整轮被丢弃(sess-3797)")
+	}
+	require.NotNil(t, at)
+	assert.Equal(t, triggerExternal, at.Trigger)
+	assert.Nil(t, at.CompletedTask, "外部唤醒不是后台任务完成续轮,没有完成的任务可报")
+	assert.Equal(t, "external:woken", drainText(t, at.Events))
+
+	// (c) 读循环仍然活着,后续 user 轮能正常起。
+	ch2, err := sess.Turn(ctx, "beta")
+	require.NoError(t, err)
+	assert.Equal(t, "echo:beta", drainText(t, ch2))
+}
+
+// fakeBackgroundTaskStarted 一轮里派出一个 run_in_background 的 Agent:CLI 先给 tool_use,
+// 再以 system{subtype:"task_started"} 把这个 tool_use id 与它的 CLI task_id 绑上。
+func fakeBackgroundTaskStarted(stdin io.Reader, stdout io.Writer) {
+	const sid = "sess-bg-task-started"
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), maxFrameBytes)
+	for sc.Scan() {
+		reply := extractTextField(sc.Text())
+		writeFrame(stdout, `{"type":"system","subtype":"init","session_id":%q,"cwd":"/tmp","model":"m","tools":[]}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a1","content":[{"type":"tool_use","id":"tu1","name":"Agent","input":{"description":"audit","run_in_background":true}}]}}`)
+		writeFrame(stdout, `{"type":"system","subtype":"task_started","task_id":"bgtask1","tool_use_id":"tu1","description":"audit","task_type":"local_agent","session_id":%q}`, sid)
+		writeFrame(stdout, `{"type":"assistant","message":{"id":"a2","content":[{"type":"text","text":"launched:%s"}]}}`, reply)
+		writeFrame(stdout, `{"type":"result","subtype":"success","session_id":%q,"usage":{"input_tokens":1,"output_tokens":1}}`, sid)
+	}
+}
+
+// TestSession_BackgroundTaskIDResolvesFromTaskStarted 钉死停止子任务的**权威来源**:
+// stop_task 认的是 CLI task_id,而用户点的那张派遣卡只认得 tool_use id,两者的绑定只在
+// task_started 帧里出现过一次。会话必须记住它。
+//
+// 为什么不能只靠宿主库里的 subagent_state overlay:那份 overlay 会因为一整轮没能落库而
+// 根本不存在(sess-3797),而任务照跑不误 —— 那时 StopBackgroundTask 查不到 overlay 就
+// 报「已停止」,实际什么都没停。子进程自己这张表在这种情形下仍然是对的。
+func TestSession_BackgroundTaskIDResolvesFromTaskStarted(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	c := New(WithBinary("fake"), pipeSpawner(t, fakeBackgroundTaskStarted))
+	sess, err := c.OpenSession(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	ch, err := sess.Turn(ctx, "go")
+	require.NoError(t, err)
+	drainText(t, ch) // 等这一轮收尾,确保 task_started 已经过完 route
+
+	got, ok := sess.BackgroundTaskID("tu1")
+	assert.True(t, ok, "task_started 报过 tool_use_id→task_id,会话必须记得,否则停止无从下发")
+	assert.Equal(t, "bgtask1", got)
+
+	_, ok = sess.BackgroundTaskID("tu-never-seen")
+	assert.False(t, ok, "没见过的 tool_use id 必须如实报查不到,不能瞎给一个")
 }
 
 // fakeDiesOnControlRequest 模拟「子进程收到 control_request 后直接死掉、不回

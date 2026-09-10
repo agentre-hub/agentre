@@ -293,6 +293,18 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 		{"ErrCodeTranscriptImportTranscriptOpen", "CodeTranscriptImportTranscriptOpen", rpcerror.CodeTranscriptImportTranscriptOpen},
 		{"ErrCodeTranscriptImportSessionInUse", "CodeTranscriptImportSessionInUse", rpcerror.CodeTranscriptImportSessionInUse},
 
+		// ── portforward.*(-32075..-32070)──
+		//
+		// 六个码全进:浏览器是这一族**声明面**的调用方之一(新增撞号 / 端口号越界都
+		// 是表单当场要分辨的输入错误),而流面的三个码经服务端 Go 代理折成 HTTP 状态时
+		// 也要按码分支。少导出任何一个,消费方就只能回到手抄魔数。
+		{"ErrCodePortForwardNotDeclared", "CodePortForwardNotDeclared", rpcerror.CodePortForwardNotDeclared},
+		{"ErrCodePortForwardDisabled", "CodePortForwardDisabled", rpcerror.CodePortForwardDisabled},
+		{"ErrCodePortForwardNoListener", "CodePortForwardNoListener", rpcerror.CodePortForwardNoListener},
+		{"ErrCodePortForwardStreamNotFound", "CodePortForwardStreamNotFound", rpcerror.CodePortForwardStreamNotFound},
+		{"ErrCodePortForwardPortTaken", "CodePortForwardPortTaken", rpcerror.CodePortForwardPortTaken},
+		{"ErrCodePortForwardInvalidPort", "CodePortForwardInvalidPort", rpcerror.CodePortForwardInvalidPort},
+
 		// ── daemon 会话/鉴权(-32001..-32006)与 JSON-RPC 标准码 ──
 		//
 		// 这一批在 Go 侧是 int32 有类型常量(住在 error.go),上面几族是无类型的。
@@ -365,6 +377,15 @@ func tsHostMethodDecls() []tsHostMethodDecl {
 		{agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_MKDIR, "remoteFsMkdir"},
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_READ_FILE, "workspaceFsReadFile"},
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT, "workspaceFsGitFileContent"},
+
+		// 端口转发**声明族**四条。流族(open/write/close/ack)不在这里,不是漏登记:
+		// 本清单要不多不少覆盖 Contract(),而流族压根不在 Contract() 里 —— 它挂的是
+		// 每条连接的注册面,浏览器一个字节都不经这条 RPC 通道发(rpc-methods.ts 里
+		// 那四条 descriptor 同样缺席)。
+		{agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_LIST, "portForwardList"},
+		{agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_CREATE, "portForwardCreate"},
+		{agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_SET_ENABLED, "portForwardSetEnabled"},
+		{agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_DELETE, "portForwardDelete"},
 
 		{agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_SCAN, ""},
 		{agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_OPEN, ""},

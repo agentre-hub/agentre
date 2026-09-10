@@ -20,7 +20,7 @@ import (
 // 断言打在**生产装配**上(productionProtobufInboundDeps + NewProtobufInboundRegistry),
 // 不是一份测试专用的注册面:漏挂端口正是这条缺陷的形状,测试若自己装配就永远看不见它。
 func TestProductionInboundServesTranscriptImportScan(t *testing.T) {
-	registry := NewProtobufInboundRegistry(productionProtobufInboundDeps())
+	registry := NewProtobufInboundRegistry(productionProtobufInboundDeps(newDevicePortForward()))
 	clientTransport, serverTransport := peerProtoPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	server := protorpc.NewConn(serverTransport, registry)

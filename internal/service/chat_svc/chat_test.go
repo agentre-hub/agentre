@@ -10156,11 +10156,19 @@ func TestStopBackgroundTask_AlreadyTerminalIsIdempotent(t *testing.T) {
 }
 
 func TestStopBackgroundTask_NoTaskIDReturnsUnknown(t *testing.T) {
-	convey.Convey("running 但缺 task_id(老会话)→ ChatStopBgTaskUnknown", t, func() {
+	convey.Convey("running 但缺 task_id(老会话)且 runner 反查不出 → ChatStopBgTaskUnknown", t, func() {
 		m := setupChatTest(t)
+		// 不实现 BackgroundTaskResolver 的 runner:定位只剩 overlay,而 overlay 没记 task_id。
+		restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &stopBgRunner{})
+		defer restore()
+
 		m.session.EXPECT().Find(m.ctx, int64(42)).Return(
 			&chat_entity.Session{ID: 42, AgentID: 7, Status: consts.ACTIVE}, nil)
 		m.message.EXPECT().FindSubagentState(m.ctx, int64(42), "tu1").Return("", "running", true, nil)
+		m.agent.EXPECT().Find(m.ctx, int64(7)).Return(
+			&agent_entity.Agent{ID: 7, AgentBackendID: 3, Status: consts.ACTIVE}, nil)
+		m.backend.EXPECT().Find(m.ctx, int64(3)).Return(
+			&agent_backend_entity.AgentBackend{ID: 3, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE}, nil)
 
 		_, err := m.svc.StopBackgroundTask(m.ctx, &chat_svc.StopBackgroundTaskRequest{SessionID: 42, ToolCallID: "tu1"})
 		assert.Error(t, err)

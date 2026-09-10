@@ -705,6 +705,25 @@ type BackgroundTaskStopper interface {
 	StopBackgroundTask(ctx context.Context, sessionID int64, taskID string) error
 }
 
+// BackgroundTaskResolver 由「自己知道某张派遣卡此刻对应哪个后台任务」的 runner 实现:
+// 把 transcript 上的 tool_use id 反查成 StopBackgroundTask 认得的后台任务标识。
+//
+// 这是「活着的子进程此刻真能停什么」的第一手来源 —— claudecode 由 CLI 的
+// system{subtype:"task_started"} 帧(同时带 tool_use_id 与 task_id)填出这张表,比持久化
+// 的 subagent_state overlay 权威:overlay 可能压根没写(帧丢了 / 老会话),也可能留着上一个
+// 子进程的旧值。chat_svc.StopBackgroundTask 先问这里,拿不到才退回 overlay。
+//
+// 声明成独立的窄接口(ISP)而不是塞进 BackgroundTaskStopper:能停任务与能反查 tool_use
+// 是两件事,remote / 未来的 backend 可能只具备前者;不实现本接口的 runner 一律退回
+// overlay 那条既有路径,行为不变。
+//
+// 返回 ErrBackgroundTaskUnknown 表示这个 runner 认不出该 tool_use id(不是后台任务、
+// 子进程从没报过它、或子进程已 evict)。实现**不得**用空字符串 + nil error 表达
+// 「不认识」,那会让调用方拿一个空标识去下发 stop。
+type BackgroundTaskResolver interface {
+	ResolveBackgroundTask(ctx context.Context, sessionID int64, toolUseID string) (taskID string, err error)
+}
+
 // PermissionModeSetter 由支持运行时切换 permission mode 的 runner 实现。
 // 当前只有 claudecode runner 实现；codex / builtin 不参与权限门概念。
 //

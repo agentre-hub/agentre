@@ -50,6 +50,10 @@ type ccSessionHandle interface {
 	// (run_in_background Bash / subagent)。**子进程保留**;后台任务跨 turn 存活,
 	// 空闲态也能停。CLI 回 not_found/not_running 视为幂等成功。
 	StopTask(ctx context.Context, taskID string) error
+	// BackgroundTaskID 反查某个派遣卡(tool_use id)对应的 CLI task_id,由这个子进程
+	// 自己收到的 system{subtype:"task_started"} 帧填出。ok=false = 它从没报过这个
+	// tool_use(不是后台任务 / 会话被 evict 重开)。
+	BackgroundTaskID(toolUseID string) (string, bool)
 	// ExitErr 子进程已退出时返其分类后的退出错误(如 claudecode.ErrSessionNotFound
 	// 或 *claudecode.ProcessExitError);还活着 / 没 spawn 返 nil。
 	// 0-frame fallback 用它替换 "subprocess produced no events" 通用消息,
@@ -130,6 +134,15 @@ func (a *ccClientAdapter) StopTask(ctx context.Context, taskID string) error {
 		return errors.New("agentruntime/runtimes/claudecode: session not opened")
 	}
 	return a.sess.StopTask(ctx, taskID)
+}
+
+// BackgroundTaskID 转发到底层 claudecode.Session.BackgroundTaskID:按 tool_use id
+// 反查这个子进程报过的 CLI task_id。没开 session 视为「不认识」。
+func (a *ccClientAdapter) BackgroundTaskID(toolUseID string) (string, bool) {
+	if a.sess == nil {
+		return "", false
+	}
+	return a.sess.BackgroundTaskID(toolUseID)
 }
 
 // SetPermissionMode 转发到底层 claudecode.Session.SetPermissionMode。抢 turnMu,

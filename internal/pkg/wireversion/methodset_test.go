@@ -17,7 +17,7 @@ import (
 //
 // 它按名字排序后再摘要,因此**只**对方法集本身敏感:重排 .proto 里的书写顺序不动它,
 // 增删一个方法、改一个方法的编号则必然改变它。
-const methodSetDigest = "ffcd0f5eefade5072eabc9422eb99f14b3dbdfa2cd8d2aacc266298e00b42c2f"
+const methodSetDigest = "75d193649e7e43a65f1f03fdeed2fc3247e0db01a25daccd1655c9b60077c9fc"
 
 // Given 握手把「对端的 Protocol 落在本方 [MinSupported, Protocol] 窗口内,且本方的
 // Protocol 落在对端窗口内」当成兼容判据(wireversion.Match),

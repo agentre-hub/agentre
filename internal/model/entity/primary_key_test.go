@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/port_forward_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
@@ -44,6 +45,7 @@ func allEntities() []any {
 		&llm_provider_entity.LLMProvider{},
 		&llm_provider_model_entity.LLMProviderModel{},
 		&paired_agentred_entity.PairedAgentred{},
+		&port_forward_entity.PortForward{},
 		&project_entity.Project{},
 		&project_entity.ProjectAgent{},
 		&project_location_entity.ProjectLocation{},

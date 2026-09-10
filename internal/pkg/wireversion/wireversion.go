@@ -71,6 +71,18 @@ var Protocol = protocolversion.Protocol()
 // genuinely has no skills". Per the conservation law above the floor rises with
 // the ceiling rather than a downgrade branch being added.
 //
+// 0.5.0 is the method set again, this time by eight members at once:
+// portforward.* — the declaration half (list / create / set_enabled / delete,
+// reading and writing the mapping table the accessed device itself holds) and
+// the stream half (open / write / close / ack plus three notifications, one
+// forwarded HTTP exchange). A build without them answers method-not-found on
+// every one, and the desktop cannot tell "this agentred is too old" from "this
+// machine has no mappings declared" — the same indistinguishability that forced
+// 0.4.0's bump. The floor rises with the ceiling per the conservation law above.
+// The practical consequence is stated here because it is the one that bites: a
+// desktop on 0.5.0 turns away every agentred still on 0.4.0 at the handshake, so
+// the daemons have to be redeployed alongside it.
+//
 // Unlike Protocol this one is written out here rather than read from the
 // protocol module, and deliberately so: it is not a property of the protocol
 // but a statement about this build. The same schema can be spoken by a host
@@ -78,7 +90,7 @@ var Protocol = protocolversion.Protocol()
 // pins it is the conservation law above, not an external file — while the
 // window is a single point, methodset_test.go requires it to equal Protocol,
 // and Protocol is the schema's own value.
-const MinSupported = "0.4.0"
+const MinSupported = "0.5.0"
 
 // version is a parsed MAJOR.MINOR.PATCH triple. Handshake versions in this
 // protocol are never pre-release or build-metadata strings, so a minimal

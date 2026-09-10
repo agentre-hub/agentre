@@ -72,7 +72,9 @@
   "chatPanel": {
     "autonomous": {
       "banner": "Background task finished · auto-continued",
-      "aria": "Auto-continued response"
+      "aria": "Auto-continued response",
+      "externalBanner": "Woken externally · auto-continued",
+      "externalAria": "Response auto-continued after an external wake-up"
     }
   },
   "clipboard": {

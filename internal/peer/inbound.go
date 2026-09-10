@@ -9,11 +9,14 @@ import (
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"go.uber.org/zap"
 
+	"github.com/agentre-hub/agentre/internal/daemon/portforward"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/pkg/activityrollup"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
+	"github.com/agentre-hub/agentre/internal/repository/port_forward_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
@@ -47,13 +50,29 @@ type Inbound struct {
 	link             *relaytransport.HubLink
 	mux              *relaytransport.Multiplexer
 	protobufRegistry *protorpc.Registry
+	// portForward 是这台桌面端**作为被访问的一方**时那一份判定(声明族 + 拨号闸门)。
+	// 声明族进注册面,流族按连接挂 —— 两边共用这一个,声明表与闸门只有一个答复处。
+	portForward *portforward.Handlers
+}
+
+// newDevicePortForward 建这台桌面端作为**被访问的一方**时那一份判定:声明族 + 拨号
+// 闸门。拨号恒为环回,端口必须已在这台机器上声明过 —— 目标主机不由请求携带。
+//
+// 它是个函数而不是散在各处的字面量,因为守卫用例要打在**生产装配**上:自己拼一份会把
+// 「桌面端到底挂了什么」偷换成「我这条用例挂了什么」。
+func newDevicePortForward() *portforward.Handlers {
+	return portforward.NewHandlers(portforward.Options{
+		Repo: port_forward_repo.NewPortForward(), Dial: portforward.DialLoopback,
+	})
 }
 
 func NewInbound(link *relaytransport.HubLink) *Inbound {
+	portForward := newDevicePortForward()
 	return &Inbound{
 		link:             link,
 		mux:              relaytransport.NewMultiplexer(link),
-		protobufRegistry: NewProtobufInboundRegistry(productionProtobufInboundDeps()),
+		protobufRegistry: NewProtobufInboundRegistry(productionProtobufInboundDeps(portForward)),
+		portForward:      portForward,
 	}
 }
 
@@ -77,6 +96,7 @@ func (p *Inbound) serve(ctx context.Context) {
 				continue
 			}
 			conn := protorpc.NewConn(protorpc.NewPayloadFrameConn(channel), p.protobufRegistry.Clone())
+			p.bindProtobufConn(conn)
 			go conn.Serve(ctx)
 		}
 	}
@@ -99,6 +119,18 @@ func drainReservedChannel(channel relaytransport.PayloadChannel) {
 			return
 		}
 	}
+}
+
+// bindProtobufConn 是桌面端的**每连接注册面**:挂那些生命周期跟着这一条连接走的方法族。
+//
+// 今天只有转发流族(与 agentred 的 bindProtobufConn 同形):一条流的生命周期跟着承载它
+// 的连接走,连接一断就把它开着的流连同本机 socket 一起关掉。声明族不在这里 —— 一张声明
+// 表属于这台机器,不属于某一条连接。
+//
+// 它是一个具名方法而不是 serve 里的两行,因为「桌面端的每条连接到底挂了什么」必须有个
+// 用例问得到,而那个用例不该自己拼一份装配。
+func (p *Inbound) bindProtobufConn(conn *protorpc.Conn) {
+	portforward.BindConn(conn, p.portForward, wireinbound.RequireAuthenticated)
 }
 
 func localProjectID(ctx context.Context, syncID string) (int64, error) {

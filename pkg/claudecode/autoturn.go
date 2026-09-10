@@ -25,8 +25,15 @@ type CompletedBackgroundTask struct {
 	Summary   string // CLI task_notification.summary,如 "Background command \"…\" completed (exit code 0)"
 }
 
-// triggerBackgroundTask 是目前唯一的 AutoTurn 触发原因。
-const triggerBackgroundTask = "background_task"
+const (
+	// triggerBackgroundTask:主线自己派的 run_in_background 任务完成,CLI 注入
+	// <task-notification> 并自主跑完一轮。
+	triggerBackgroundTask = "background_task"
+	// triggerExternal:子进程被 agentre 之外的东西叫醒,自己跑了一轮主线。今天已知
+	// 的成因是别的 Claude 会话经 UDS 的 SendMessage(sess-3797),但**判据不含成因**
+	// —— 只判「空闲态到达了主线 assistant 帧」,所以取值也不叫 peer_wake。
+	triggerExternal = "external"
+)
 
 // SubagentActivity 是一轮「后台 subagent 在空闲态产生的内部活动」的事件流。它由 readLoop
 // 在空闲态遇到第一帧后台 subagent 内部活动时开出(keyed by 发起该 subagent 的 Agent 工具
@@ -127,6 +134,29 @@ func (s *Session) rememberSubagentToolUse(id string) {
 	s.sinkMu.Lock()
 	s.subagentToolUseIDs[id] = struct{}{}
 	s.sinkMu.Unlock()
+}
+
+// rememberBackgroundTask 记下 task_started 报出的 tool_use id → task_id 绑定
+// (见 Session.backgroundTaskIDs)。
+func (s *Session) rememberBackgroundTask(toolUseID, taskID string) {
+	if toolUseID == "" || taskID == "" {
+		return
+	}
+	s.sinkMu.Lock()
+	s.backgroundTaskIDs[toolUseID] = taskID
+	s.sinkMu.Unlock()
+}
+
+// BackgroundTaskID 反查某个派遣卡(tool_use id)对应的 CLI task_id。ok=false 表示这个
+// 子进程从没报过它 —— 会话被 evict 重开、或该 tool_use 压根不是后台任务。
+func (s *Session) BackgroundTaskID(toolUseID string) (string, bool) {
+	if toolUseID == "" {
+		return "", false
+	}
+	s.sinkMu.Lock()
+	defer s.sinkMu.Unlock()
+	id, ok := s.backgroundTaskIDs[toolUseID]
+	return id, ok
 }
 
 // startsAutonomousTurnLocked 在 isBackgroundTaskNotification 之上再加一道**归属**判定:

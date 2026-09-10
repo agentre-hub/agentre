@@ -30,6 +30,59 @@ func RegisterPeripheralMethods(registry *protorpc.Registry, deps PeripheralDeps)
 	registerProtobufRemoteFS(registry, deps.RemoteFS)
 	registerProtobufWorkspaceFS(registry, deps.WorkspaceFS)
 	registerProtobufTranscriptImport(registry, deps.TranscriptImport)
+	registerProtobufPortForward(registry, deps.PortForward)
+}
+
+// registerProtobufPortForward 挂上 portforward.* 的**声明族**四个方法。流族
+// (open/write/close/ack)不在这里:一条转发流的生命周期跟着承载它的那条连接走,
+// 挂在连接级注册面上。
+//
+// 四个方法都在 Authenticated 里:一台机器上开着哪些端口、叫什么名字,是这台机器的
+// 配置,没配对的对端不该问得出来。
+//
+// 端口缺席就整族不挂 —— 与另外四族同一条判据。少了这道守卫,不带这个能力的宿主会
+// 挂上四个持有 nil 的 handler,进去就解空指针,对端拿到的是 -32603 internal(照着
+// transcriptimport 那次的原样再来一遍),而调用方要的答复是「这台机器办不到」。
+func registerProtobufPortForward(registry *protorpc.Registry, declarations PortForwardPort) {
+	if declarations == nil {
+		return
+	}
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_LIST), func() *agentrewire.PortForwardListRequest {
+		return &agentrewire.PortForwardListRequest{}
+	}, Authenticated(func(ctx context.Context, request *agentrewire.PortForwardListRequest) (*agentrewire.PortForwardListResponse, error) {
+		response, err := declarations.List(ctx, request)
+		if err != nil {
+			return nil, ConvertError(err)
+		}
+		return response, nil
+	}))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_CREATE), func() *agentrewire.PortForwardCreateRequest {
+		return &agentrewire.PortForwardCreateRequest{}
+	}, Authenticated(func(ctx context.Context, request *agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
+		response, err := declarations.Create(ctx, request)
+		if err != nil {
+			return nil, ConvertError(err)
+		}
+		return response, nil
+	}))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_SET_ENABLED), func() *agentrewire.PortForwardSetEnabledRequest {
+		return &agentrewire.PortForwardSetEnabledRequest{}
+	}, Authenticated(func(ctx context.Context, request *agentrewire.PortForwardSetEnabledRequest) (*agentrewire.PortForwardSetEnabledResponse, error) {
+		response, err := declarations.SetEnabled(ctx, request)
+		if err != nil {
+			return nil, ConvertError(err)
+		}
+		return response, nil
+	}))
+	protorpc.RegisterMethod(registry, uint32(agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_DELETE), func() *agentrewire.PortForwardDeleteRequest {
+		return &agentrewire.PortForwardDeleteRequest{}
+	}, Authenticated(func(ctx context.Context, request *agentrewire.PortForwardDeleteRequest) (*agentrewire.PortForwardDeleteResponse, error) {
+		response, err := declarations.Delete(ctx, request)
+		if err != nil {
+			return nil, ConvertError(err)
+		}
+		return response, nil
+	}))
 }
 
 func registerOptionalProtobufPeripheralMethods(registry *protorpc.Registry, deps PeripheralDeps) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/portforward"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
 	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
@@ -19,7 +20,10 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
-func productionProtobufInboundDeps() ProtobufInboundDeps {
+// portForward 由调用方传进来而不是在这里建:声明族挂 daemon 级注册面、流族挂每条
+// 连接的注册面,两边问的必须是同一张声明表、同一个闸门。各建一份不会立刻出错,但那时
+// 「这个端口声明过没有」就有了两个答复处。
+func productionProtobufInboundDeps(portForward *portforward.Handlers) ProtobufInboundDeps {
 	adapter := func() inboundSessionAdapter { value, _ := chat_svc.Chat().(inboundSessionAdapter); return value }
 	return ProtobufInboundDeps{
 		// 决策 8:入站对端的身份从**已验签的凭据**取,而不是它自己说的那个。
@@ -60,6 +64,10 @@ func productionProtobufInboundDeps() ProtobufInboundDeps {
 			WorkspaceFS:      workspacefs.NewHandlers(workspacefs.Options{}),
 			TranscriptImport: newDesktopTranscriptImport(),
 			ProjectSetPath:   protobufProjectSetPath, ProjectClearPath: protobufProjectClearPath,
+			// 桌面端也可能是**被访问的一方**(浏览器控制台按设备指纹拨过来,或另一台
+			// 桌面端经中继),所以它同样持有自己那份声明,挂的是与 agentred 逐字
+			// 相同的那一份实现。
+			PortForward: portForward,
 		},
 		ListSessions: func(ctx context.Context, params remotewire.SessionListParams) (*remotewire.SessionListResult, error) {
 			return adapter().ListPeerSessions(ctx, params)

@@ -357,3 +357,16 @@ const (
 	// 远端设备(agentred)那一半:三态里的两个非 ok 档各有各的出路。
 	ChatImportDeviceOffline // 远端设备此刻连不上 / 租约借不出来
 )
+
+// 设备端口转发(port forward)21000~
+//
+// 这一段是**声明族**(列举 / 新增 / 启停 / 删除)在桌面端这一侧的落点:设备侧
+// 用 rpcerror 的 -32070 段答复,服务层照码(不照文案)把它翻成这里的业务码,
+// 再由 internal/app/coded_error.go 写成 `agentre-code:<码>` 过 wails 桥。视图层
+// 因此分得开「等机器回来」与「把端口改一改」这两类完全不同的出路。
+const (
+	PortForwardDeviceOffline = iota + 21000 // 设备够不着(租约借不出 / 连接断了):列表出离线态,不出新增入口
+	PortForwardNotDeclared                  // 要改 / 要删的那条声明在设备上已经没有了(别的客户端刚删掉)
+	PortForwardPortTaken                    // 新增时这个端口在那台设备上已经声明过——用户改得动
+	PortForwardInvalidPort                  // 端口号不在 1..65535 内——用户改得动
+)

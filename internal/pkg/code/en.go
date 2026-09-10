@@ -268,4 +268,9 @@ var enUS = map[int]string{
 	ChatImportGapUnclosedToolCall:    "A tool call in this turn never received a result — the original session was interrupted there.",
 	ChatImportGapUnparsableRecords:   "Some records on disk could not be parsed and were skipped; the rest is complete.",
 	ChatImportDeviceOffline:          "This device cannot be reached right now; try again later",
+
+	PortForwardDeviceOffline: "This device cannot be reached right now; port forwarding is unavailable",
+	PortForwardNotDeclared:   "That port mapping no longer exists on this device",
+	PortForwardPortTaken:     "That port is already mapped on this device",
+	PortForwardInvalidPort:   "Port must be an integer between 1 and 65535",
 }

@@ -3,6 +3,7 @@ package peer
 import (
 	"testing"
 
+	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 )
 
@@ -16,10 +17,22 @@ import (
 //
 // 用生产装配而不是测试专用的 deps:测试里自己拼一份端口集会把「桌面端到底挂了什么」
 // 这个问题偷换成「我这条用例挂了什么」,而后者永远是对的。
+//
+// 注册面因此从 **NewInbound** 上取,而不是在这里自己调一次
+// NewProtobufInboundRegistry(productionProtobufInboundDeps(newDevicePortForward())):
+// 后者虽然用的也是生产的那两个构造函数,却把「NewInbound 到底递了什么进去」这一步
+// 替这条用例做掉了。把 inbound.go 里那次递参换成 nil,声明族四个方法会一个不剩地
+// 掉出注册面(registerProtobufPortForward 把 nil 端口当作「本宿主没有这个能力」,
+// 静默什么都不挂),而这条守卫照样绿 —— 那正是它存在的理由被绕开的样子。
+//
+// HubLink 只是构造出来当参数,Run 从没被调过:NewInbound 不做任何 I/O。
 func TestContract_DesktopRegistersWhatCallersSend(t *testing.T) {
 	t.Parallel()
 
-	registry := NewProtobufInboundRegistry(productionProtobufInboundDeps())
+	link := relaytransport.NewHubLink(relaytransport.HubLinkOptions{
+		ServerURL: "http://127.0.0.1:1", AccessToken: "contract-guard",
+	})
+	registry := NewInbound(link).protobufRegistry
 	result := wireinbound.CheckContract(wireinbound.HostDesktop, registry.RegisteredMethods())
 
 	for _, missing := range result.Missing {

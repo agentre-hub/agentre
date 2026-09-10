@@ -8,6 +8,7 @@ import {
   Activity,
   ArrowUpCircle,
   Copy,
+  Network,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -45,6 +46,8 @@ type Props = {
   onEditTLS?: () => void;
   onRemove: () => void;
   onToggleProviders?: () => void;
+  /** 同上:够不着那台设备就没有映射可列,不传即这一行不出这一项。 */
+  onTogglePortForward?: () => void;
   /** 不传 = 这一行没有可升级的判据(账号独有行没有 LAN 配对,够不着 RPC)。 */
   upgrade?: UpgradeMenuItem;
 };
@@ -104,6 +107,12 @@ export function DeviceActionMenu(props: Props) {
           <DropdownMenuItem onSelect={props.onToggleProviders}>
             <Activity className="mr-2 h-4 w-4" />
             {t("remoteDevices.providers.title")}
+          </DropdownMenuItem>
+        ) : null}
+        {props.onTogglePortForward ? (
+          <DropdownMenuItem onSelect={props.onTogglePortForward}>
+            <Network className="mr-2 h-4 w-4" />
+            {t("remoteDevices.portForward.title")}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSeparator />

@@ -6,6 +6,11 @@ import userEvent from "@testing-library/user-event";
 vi.mock("../../../../wailsjs/go/app/App", () => ({
   RemoteDeviceUpgrade: vi.fn(),
   RemoteDeviceGet: vi.fn(),
+  PortForwardList: vi.fn(),
+  PortForwardCreate: vi.fn(),
+  PortForwardSetEnabled: vi.fn(),
+  PortForwardDelete: vi.fn(),
+  PortForwardOpen: vi.fn(),
 }));
 
 const mockCopy = vi.fn();
@@ -22,12 +27,16 @@ vi.mock("@agentre-hub/agentre-ui", async () => {
 import {
   RemoteDeviceUpgrade,
   RemoteDeviceGet,
+  PortForwardList,
 } from "../../../../wailsjs/go/app/App";
 import { DeviceRow } from "./device-row";
 import type { DeviceRowModel, DeviceView } from "./use-remote-devices";
 
 const mockUpgrade = RemoteDeviceUpgrade as unknown as ReturnType<typeof vi.fn>;
 const mockGet = RemoteDeviceGet as unknown as ReturnType<typeof vi.fn>;
+const mockPortForwardList = PortForwardList as unknown as ReturnType<
+  typeof vi.fn
+>;
 
 const baseLan: DeviceView = {
   id: 1,
@@ -572,7 +581,9 @@ describe("DeviceRow", () => {
       await openMenuAndClickUpgrade();
       await flush();
 
-      expect(screen.getByText("No permission to replace agentred")).toBeInTheDocument();
+      expect(
+        screen.getByText("No permission to replace agentred"),
+      ).toBeInTheDocument();
       // 原话留着,但它是技术细节:等宽小字,不是那句解释。
       const detail = screen.getByTestId("device-upgrade-detail-1");
       expect(detail.textContent).toContain("permission denied");
@@ -657,6 +668,44 @@ describe("DeviceRow", () => {
         "data-disabled",
       );
       expect(mockUpgrade).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── 端口转发的入口 ─────────────────────────────────────────────────────────
+  // 决策 10:菜单里一项,点了在行下展开子块 —— 与「供应商同步」同形。
+  describe("the port forwarding entry", () => {
+    const onlineDevice: DeviceRowModel = {
+      ...baseDevice,
+      online: true,
+      lan: { ...baseLan, online: true },
+    };
+
+    it("展开的子块列的是这一行那台设备上的映射", async () => {
+      mockPortForwardList.mockResolvedValue([
+        { id: "11", port: 5173, name: "vite dev", enabled: true },
+      ]);
+      const user = userEvent.setup();
+      render(
+        <DeviceRow
+          device={onlineDevice}
+          now={1_000_000}
+          actions={noopActions}
+        />,
+      );
+
+      expect(
+        screen.queryByTestId("device-port-forward"),
+      ).not.toBeInTheDocument();
+
+      await user.click(screen.getByLabelText("More actions"));
+      await user.click(
+        await screen.findByRole("menuitem", { name: "Port forwarding" }),
+      );
+
+      expect(
+        await screen.findByTestId("device-port-forward"),
+      ).toBeInTheDocument();
+      expect(mockPortForwardList).toHaveBeenCalledWith("1");
     });
   });
 });

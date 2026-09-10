@@ -1039,7 +1039,9 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
   if (row.isFirstOfMessage) {
     return (
       <>
-        {row.autonomous ? <AutoTriggerBanner /> : null}
+        {row.autonomous ? (
+          <AutoTriggerBanner trigger={row.message?.turnTrigger} />
+        ) : null}
         <ChatMessage
           author={isAssistant ? (ctx?.agentName ?? "") : ""}
           avatar={ctx?.agentAvatar}

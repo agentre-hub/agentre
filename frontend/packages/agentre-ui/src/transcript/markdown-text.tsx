@@ -11,6 +11,7 @@ import {
   MARKDOWN_AUTOLINK_TAG,
   rehypeMarkdownAutolinks,
 } from "./markdown-autolinks";
+import { remarkDisableGfmUrlAutolinks } from "./remark-disable-gfm-url-autolinks";
 
 import { cn } from "../lib/utils";
 
@@ -294,6 +295,8 @@ const markdownComponentsStatic: Components = {
 // MarkdownText，让历史消息的 markdown 解析+语法高亮可以跳过。
 const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   remarkGfm,
+  // 顺序有意义:它要摘掉 remark-gfm 刚挂上的 autolink literal(见该文件注释)。
+  remarkDisableGfmUrlAutolinks,
 ];
 const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   [rehypeHighlight, { detect: true, ignoreMissing: true }],

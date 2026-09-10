@@ -251,6 +251,53 @@ func TestDriveAutonomousTurn_PersistsPureAssistantTurn(t *testing.T) {
 // RunResult.StopErr,而 driveAutonomousTurn 此前完全不看 StopErr —— 一条**被截断**的
 // 助手消息于是以「正常跑完」的样子落库(errorText 空、会话翻 idle、emit StreamDone),
 // 用户看到的是一条戛然而止却「成功」的回答,分不出这是打断还是答完了。
+// TestDriveAutonomousTurn_PersistsTurnTriggerOnTheAssistantRow 钉死 sess-3797 的渲染这一半:
+// 「这一轮是被什么起的」必须落到那一行 assistant 上,不能只活在实时事件里。
+//
+// 前端判「非用户发起」靠结构(这条 assistant 前面没有 user 消息),判得出**有没有**、判不出
+// **为什么**。在 sess-3797 之前非用户发起的轮只有一种(后台任务完成续轮),分隔卡因此可以写死
+// 「后台任务完成 · 自动继续」;现在多了「外部唤醒」这一种,两者结构一模一样 —— 不落库就只能
+// 给外部唤醒的轮挂一句与事实不符的文案,而且刷新之后连区分的依据都没有。
+func TestDriveAutonomousTurn_PersistsTurnTriggerOnTheAssistantRow(t *testing.T) {
+	convey.Convey("外部唤醒的一轮把 trigger 落到 assistant 行上", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		sess := &chat_entity.Session{ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc"}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil)
+		var createdTriggers []string
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				createdTriggers = append(createdTriggers, msg.TurnTrigger)
+				msg.ID = 2001
+				return nil
+			}).Times(1)
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.dbMock.ExpectCommit()
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		evs := make(chan agentruntime.Event, 2)
+		evs <- agentruntime.TextDelta{Text: "继续分派其余审查 agent。"}
+		close(evs)
+		at := agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc"},
+			Trigger: "external",
+		}
+
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
+
+		convey.Convey("落库的 assistant 行带着 external,刷新后仍分得清来源", func() {
+			assert.Equal(t, []string{"external"}, createdTriggers)
+		})
+	})
+}
+
 func TestDriveAutonomousTurn_TruncatedTurn_PersistsTerminatedNotCompleted(t *testing.T) {
 	convey.Convey("被打断的自主轮落成终态,而不是正常完成", t, func() {
 		m := setupChatTest(t)

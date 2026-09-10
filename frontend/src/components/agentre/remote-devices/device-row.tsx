@@ -24,6 +24,7 @@ import {
   type AgentredVersionState,
 } from "./agentred-version";
 import { DeviceActionMenu, type UpgradeMenuItem } from "./device-action-menu";
+import { DevicePortForward } from "./device-port-forward";
 import { DeviceProvidersSync } from "./device-providers-sync";
 import { relativeTime, friendlyLastError } from "./format";
 import { useDeviceUpgrade, type UpgradePhase } from "./use-device-upgrade";
@@ -483,6 +484,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
   const friendlyErr = friendlyLastError(lan?.lastError ?? "", t);
   const isTofu = lan?.lastError === "tofu_mismatch";
   const [showProviders, setShowProviders] = useState(false);
+  const [showPortForward, setShowPortForward] = useState(false);
   // 版本与短 commit 来自 watcher 最近一次 health.ping(进程内缓存,不落库)。
   const versionState = agentredVersionState({
     version: lan?.daemonVersion ?? "",
@@ -573,6 +575,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
             onEditTLS={actions.onEditTLS}
             onRemove={actions.onRemove}
             onToggleProviders={() => setShowProviders((s) => !s)}
+            onTogglePortForward={() => setShowPortForward((s) => !s)}
             upgrade={upgradeItem}
           />
         ) : null}
@@ -593,6 +596,19 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
         <ActiveTurnsConfirm phase={upgrade.phase} upgrade={upgrade} t={t} />
       ) : null}
       {showProviders && lan ? <DeviceProvidersSync deviceId={lan.id} /> : null}
+      {showPortForward && lan ? (
+        <DevicePortForward
+          deviceId={lan.id}
+          offline={!device.online}
+          offlineDetail={
+            device.lastSeenAt > 0
+              ? t("remoteDevices.status.lastConnected", {
+                  time: relativeTime(device.lastSeenAt, now, t),
+                })
+              : undefined
+          }
+        />
+      ) : null}
     </div>
   );
 }

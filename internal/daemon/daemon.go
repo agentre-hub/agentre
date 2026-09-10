@@ -27,6 +27,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	daemonmigrations "github.com/agentre-hub/agentre/internal/daemon/migrations"
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
+	"github.com/agentre-hub/agentre/internal/daemon/portforward"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
 	"github.com/agentre-hub/agentre/internal/daemon/sessions"
@@ -42,6 +43,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/internal/repository/port_forward_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -136,6 +138,12 @@ type Daemon struct {
 	runtimeMu        sync.RWMutex
 	runtimeHandlers  map[connection.Conn]*handlers.RuntimeHandlers
 	protobufRegistry *protorpc.Registry
+
+	// portForward 是这台设备上端口转发的那一份判定(声明族 + 拨号闸门)。它建一次
+	// 就够:声明族挂在 daemon 级注册面上,流族挂在每条连接上,两边问的必须是同一张
+	// 声明表、同一个闸门 —— 各建一份不会立刻出错,但那时「这个端口声明过没有」就有
+	// 了两个答复处。
+	portForward *portforward.Handlers
 }
 
 const daemonConnectionCleanupTimeout = 3 * time.Second
@@ -795,6 +803,10 @@ func New(opts Options) (*Daemon, error) {
 		sessionStore: daemonSessionStore{db: gormDB},
 		pairing:      pm, ratelim: rl,
 		auth: auth, protobufRegistry: protorpc.NewRegistry(),
+		// 拨号恒为环回,端口必须已在这台设备上声明过 —— 目标主机不由请求携带。
+		portForward: portforward.NewHandlers(portforward.Options{
+			Repo: port_forward_repo.NewPortForward(), Dial: portforward.DialLoopback,
+		}),
 		steerSource:     newSteerSourceStore(),
 		generations:     sessions.NewRegistry(),
 		runtimeHandlers: map[connection.Conn]*handlers.RuntimeHandlers{},

@@ -137,6 +137,16 @@ type Session struct {
 	// 通知到达,查这张表即可定性。只在持 sinkMu 时读写。
 	subagentToolUseIDs map[string]struct{}
 
+	// backgroundTaskIDs 是 tool_use id → CLI task_id 的绑定,来自 system{subtype:
+	// "task_started"}(该帧同时带这两个字段)。用途是「停止这张派遣卡对应的子任务」:
+	// stop_task 认的是 task_id,而用户点的那张卡只认得 tool_use id。
+	//
+	// 它是**活着的子进程此刻真能停什么**的第一手来源,比宿主库里那份 subagent_state
+	// overlay 权威 —— overlay 会因为一轮没能落库而缺失(sess-3797),而任务照跑不误。
+	// 子进程 evict 后本表随会话一起消失,那时任务也确实不在了,查不到即「已经没了」。
+	// 只在持 sinkMu 时读写。
+	backgroundTaskIDs map[string]string
+
 	// resumeBootstrapPending 只在 --resume 重开的会话上为真,由 readLoop 单 goroutine
 	// 读写。它给「这个进程的第一条 result 可能是恢复应答而不是某一轮的终点」开一次性
 	// 窗口,见 route。首条 result 处理完即落下,一个进程最多吞掉一条。
@@ -243,6 +253,7 @@ func newSession(p *process, rawSink func([]byte), sessionID string) *Session {
 
 		sideActivities:     make(map[string]*activeTurn),
 		subagentToolUseIDs: make(map[string]struct{}),
+		backgroundTaskIDs:  make(map[string]string),
 	}
 }
 
@@ -381,6 +392,11 @@ func (s *Session) route(f rawFrame, events []Event, done bool) {
 		if ev.Kind == EventPreToolUse && ev.ParentToolUseID != "" && ev.Tool != nil {
 			s.rememberSubagentToolUse(ev.Tool.ID)
 		}
+	}
+	// 同理,tool_use id → task_id 的绑定只在 task_started 里出现这一次,且与本帧最终
+	// 有没有归属轮无关 —— 那一轮落不落得了库,任务都已经在跑了(sess-3797)。
+	if f.Type == "system" && f.Subtype == "task_started" {
+		s.rememberBackgroundTask(f.ToolUseID, f.TaskID)
 	}
 	at := s.currentTurn(f)
 	if at == nil {
@@ -562,12 +578,51 @@ func (s *Session) currentTurn(f rawFrame) *activeTurn {
 		s.sinkMu.Unlock()
 		return at
 	default:
-		// 空闲(没有任何 Turn 在途):轮内容帧也只丢弃。这是「readLoop 永不阻塞在
-		// pendingTurns 上」的最后一道保险,与 canStartUserTurn 白名单互补 —— 白名单
-		// 挡的是 CLI 新增的会话级 system 子类型,这里挡的是白名单**内部**的帧被子进程
-		// 在空闲态自发重播(sess-2187 的 system{subtype:"init"})。
+	}
+	// 空闲(没有任何 Turn 在途)。分两类:
+	//
+	//   - **主线 assistant 帧** → 子进程被 agentre 之外的东西叫醒、自己起了一轮
+	//     (sess-3797)。它是真内容,丢掉就是整轮蒸发:转录里什么都没有、会话停在
+	//     idle、派出去的子 agent 因此没有任何停止入口。开一条外部轮经 autoCh 吐出,
+	//     首帧喂进去。
+	//   - **其余** → 丢弃。这是「readLoop 永不阻塞在 pendingTurns 上」的最后一道保险,
+	//     与 canStartUserTurn 白名单互补 —— 白名单挡的是 CLI 新增的会话级 system 子
+	//     类型,这里挡的是白名单**内部**的帧被子进程在空闲态自发重播(sess-2187 的
+	//     system{subtype:"init"})。
+	if !startsExternalTurn(f) {
 		return nil
 	}
+	at := newActiveTurn(true)
+	s.sinkMu.Lock()
+	s.active = at
+	s.sinkMu.Unlock()
+	s.autoCh <- &AutoTurn{
+		Events:    at.events.Out(),
+		SessionID: s.sessionID,
+		Trigger:   triggerExternal,
+	}
+	return at // 与后台完成续轮不同:首帧(assistant 正文)要喂进这一轮
+}
+
+// startsExternalTurn 判定一帧是否有资格在**空闲态**开一条外部轮 —— 即「这一轮不是
+// agentre 发起的,但它确实在跑」。
+//
+// 判据只取不带 parent_tool_use_id 的 assistant,刻意比 isMainThreadTurnFrame 更窄:
+//
+//   - **不取 system:init**。它是一轮的首帧不假,但子进程也会在空闲态自发重播它
+//     (sess-2187:会话 cwd 下的 skill 目录被后台 subagent 改动,CLI 重新广播了一次
+//     会话初始化)。据它起轮就造出一个等不到 result 的空轮 —— 会话长期停在 running
+//     且毫无输出,还占住 active 槽,正是 sess-3504 踩过的形态。
+//   - **不取 stream_event**。上一轮后台 subagent 的尾巴也会在空闲态漏出 stream_event。
+//     代价是外部轮**首块**的逐 token 流失 —— 但紧随其后的那条 assistant 帧带着该块的
+//     完整内容,转录不缺,后续帧全部落进已经开好的这一轮。
+//   - **不取 user**。空闲态的 user 帧是工具结果回灌与 [Request interrupted by user]
+//     一类的回声,不是「模型开始产出」的证据。
+//
+// 判据里没有任何「谁叫醒的」:今天已知的成因是别的 Claude 会话经 UDS 发来的消息
+// (sess-3797),但那条消息本身不写进 stdout,宿主看不见,也不该假装看得见。
+func startsExternalTurn(f rawFrame) bool {
+	return f.Type == "assistant" && f.ParentToolUseID == ""
 }
 
 // unregisterPendingTurn 把一个已登记、但最终没能写进 stdin 的轮从 FIFO 里摘掉,

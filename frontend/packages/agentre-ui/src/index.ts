@@ -25,6 +25,12 @@ export {
   LlmProviderLogo,
   resolveModelBrand,
 } from "./engine/ai-brand-logo";
+// 设备的端口转发小节：桌面端设备行下的子块与控制台设备卡展开区渲染同一份行。
+export { PortForwardSection } from "./port-forward/port-forward-section";
+export type {
+  PortForwardMappingView,
+  PortForwardSectionProps,
+} from "./port-forward/port-forward-section";
 export { PermissionModePill } from "./permission-mode";
 export type { PermissionModePillProps } from "./permission-mode";
 export {

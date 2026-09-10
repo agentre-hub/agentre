@@ -215,12 +215,17 @@ func (s *chatSvc) requestRuntimeAbort(ctx context.Context, be *agent_backend_ent
 
 // StopBackgroundTask 停掉某个后台任务 / 子 agent(run_in_background),而不是中断整个 turn。
 // 流程:
-//  1. 按 toolCallID 从持久化 subagent_state 读出 CLI task_id + 当前状态;
-//  2. 已终态 / 找不到 overlay → 幂等成功(任务已不在跑,前端 reload 自然对齐);
-//  3. 缺 task_id(老会话的块没记)→ ChatStopBgTaskUnknown,让前端提示;
-//  4. resolve runner,断言 BackgroundTaskStopper(否则 ChatStopBgUnsupported,正常已被
-//     capability 位挡在前端),下发 stop_task;
-//  5. 成功后主动把块 flip 成 "canceled" —— 前端 reload 立即显示「已停止」;CLI 停任务后
+//  1. 按 toolCallID 读持久化 subagent_state:**只有**「overlay 存在且状态已是终态」才
+//     幂等成功(任务确实已不在跑,前端 reload 自然对齐);
+//  2. resolve runner,断言 BackgroundTaskStopper(否则 ChatStopBgUnsupported,正常已被
+//     capability 位挡在前端);
+//  3. 定位 CLI task_id:**先问 runtime**(BackgroundTaskResolver,活着的子进程报过的
+//     task_started 绑定),拿不到才退回 overlay 里那一个;
+//  4. 两边都定位不到 → ChatStopBgTaskUnknown。这里**不能**返回 Stopped:true —— overlay
+//     没写(帧丢了 / 老会话:sess-3797 有 20 个 tool_use 完全没有 overlay)不等于任务已停,
+//     谎报成功会让子任务照跑而按钮变灰;
+//  5. 下发 stop_task;子进程已 evict(ErrNoActiveTurn)→ 任务随之消失,幂等成功;
+//  6. 成功后主动把块 flip 成 "canceled" —— 前端 reload 立即显示「已停止」;CLI 停任务后
 //     另发的 task_notification(canceled/failed)经既有自主轮再幂等收敛一次。
 func (s *chatSvc) StopBackgroundTask(ctx context.Context, req *StopBackgroundTaskRequest) (*StopBackgroundTaskResponse, error) {
 	if req == nil || req.SessionID <= 0 || req.ToolCallID == "" {
@@ -234,16 +239,13 @@ func (s *chatSvc) StopBackgroundTask(ctx context.Context, req *StopBackgroundTas
 		return nil, i18n.NewError(ctx, code.ChatSessionNotFound)
 	}
 
-	taskID, status, found, err := transcript_repo.Message().FindSubagentState(ctx, req.SessionID, req.ToolCallID)
+	overlayTaskID, status, found, err := transcript_repo.Message().FindSubagentState(ctx, req.SessionID, req.ToolCallID)
 	if err != nil {
 		return nil, err
 	}
-	if !found || (status != "" && status != "running") {
-		// 任务已终态 / 无 overlay:当已停处理,幂等。
+	if found && status != "" && status != "running" {
+		// overlay 明确记着任务已终态:当已停处理,幂等,连 runtime 都不必问。
 		return &StopBackgroundTaskResponse{Stopped: true}, nil
-	}
-	if taskID == "" {
-		return nil, i18n.NewError(ctx, code.ChatStopBgTaskUnknown)
 	}
 
 	_, be, _, berr := s.resolveAgentBackend(ctx, sess, sess.AgentID, sess.ProjectID)
@@ -253,6 +255,12 @@ func (s *chatSvc) StopBackgroundTask(ctx context.Context, req *StopBackgroundTas
 	runner, rerr := s.selectRunner(ctx, be, sess.ID)
 	if rerr != nil {
 		return nil, rerr
+	}
+	// 定位在「后端支持不支持停」之前判,保持与旧实现同一优先级:定位不到就是
+	// ChatStopBgTaskUnknown,不因为顺序调整改成 ChatStopBgUnsupported。
+	taskID := s.resolveBackgroundTaskID(ctx, runner, req.SessionID, req.ToolCallID, overlayTaskID)
+	if taskID == "" {
+		return nil, i18n.NewError(ctx, code.ChatStopBgTaskUnknown)
 	}
 	stopper, ok := runner.(agentruntime.BackgroundTaskStopper)
 	if !ok {
@@ -284,4 +292,35 @@ func (s *chatSvc) StopBackgroundTask(ctx context.Context, req *StopBackgroundTas
 			zap.Error(ferr))
 	}
 	return &StopBackgroundTaskResponse{Stopped: true}, nil
+}
+
+// resolveBackgroundTaskID 把派遣卡的 tool_use id 定位成一个能下发 stop 的后台任务标识,
+// 按权威性排序:
+//
+//  1. **runtime**(BackgroundTaskResolver):活着的子进程自己报过的 task_started 绑定,
+//     是「此刻真能停什么」的第一手来源 —— overlay 可能压根没写,也可能是上个子进程的旧值;
+//  2. **overlay**:持久化 subagent_state 里记着的 task_id。runner 不实现反查端口
+//     (codex / builtin / remote)、或它明确表示不认识这个 tool_use 时走这条,行为与
+//     引入该端口之前完全一致。
+//
+// 两条都空 = 定位不到,调用方据此报 ChatStopBgTaskUnknown,绝不当成「已停」。
+func (s *chatSvc) resolveBackgroundTaskID(ctx context.Context, runner agentruntime.Runtime, sessionID int64, toolCallID, overlayTaskID string) string {
+	resolver, ok := runner.(agentruntime.BackgroundTaskResolver)
+	if !ok {
+		return overlayTaskID
+	}
+	taskID, err := resolver.ResolveBackgroundTask(ctx, sessionID, toolCallID)
+	if err != nil {
+		if !errors.Is(err, agentruntime.ErrBackgroundTaskUnknown) {
+			logger.Ctx(ctx).Warn("chat_svc.StopBackgroundTask: runtime task lookup failed",
+				zap.Int64("sessionId", sessionID),
+				zap.String("toolUseId", toolCallID),
+				zap.Error(err))
+		}
+		return overlayTaskID
+	}
+	if taskID == "" {
+		return overlayTaskID
+	}
+	return taskID
 }

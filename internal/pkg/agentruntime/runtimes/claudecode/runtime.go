@@ -306,6 +306,32 @@ func (r *Runtime) StopBackgroundTask(ctx context.Context, sessionID int64, taskI
 	return a.handle.StopTask(ctx, taskID)
 }
 
+// ResolveBackgroundTask 实现 agentruntime.BackgroundTaskResolver:把派遣卡的 tool_use id
+// 反查成本 runner 能停的 CLI task_id。绑定来自 CLI 的 system{subtype:"task_started"} 帧,
+// 由**活着的那个子进程**持有 —— 因此这里也不校验 inTurn(后台任务跨 turn 存活),只要子进程
+// 还在 LRU 缓存里就能答。
+//
+// 子进程已 evict / 从没报过这个 tool_use → ErrBackgroundTaskUnknown,由 chat_svc 退回
+// 持久化的 subagent_state overlay 再判一次;绝不返回空 task_id 让调用方拿去下发 stop。
+func (r *Runtime) ResolveBackgroundTask(_ context.Context, sessionID int64, toolUseID string) (string, error) {
+	if toolUseID == "" {
+		return "", agentruntime.ErrBackgroundTaskUnknown
+	}
+	v, ok := r.cache.Get(sessionKey(sessionID))
+	if !ok {
+		return "", agentruntime.ErrBackgroundTaskUnknown
+	}
+	a := v.(*claudeActive)
+	if a.handle == nil {
+		return "", agentruntime.ErrBackgroundTaskUnknown
+	}
+	taskID, known := a.handle.BackgroundTaskID(toolUseID)
+	if !known || taskID == "" {
+		return "", agentruntime.ErrBackgroundTaskUnknown
+	}
+	return taskID, nil
+}
+
 // SetPermissionMode 实现 PermissionModeSetter。语义同顶层 SetPermissionMode。
 //
 // CLI 切换成功后必须同步 active.permissionMode 快照:CLI 的空闲 status 回显帧被

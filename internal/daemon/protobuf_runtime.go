@@ -7,6 +7,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/portforward"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
@@ -33,6 +34,9 @@ func (d *Daemon) bindProtobufConn(conn *protorpc.Conn) {
 	d.runtimeHandlers[key] = rh
 	d.runtimeMu.Unlock()
 	bindProtobufTerminal(conn, localPTYBackendAdapter{be: local.NewBackend()})
+	// 转发流族与终端族同形:挂连接级注册面,连接一断就把这条连接上开着的流全关掉,
+	// 不留悬挂的流,也不留悬挂的本机 socket。
+	portforward.BindConn(conn, d.portForward, requireProtobufAuth)
 	d.registerProtobufRuntimeMethods(conn.Registry(), conn, rh)
 	go func() {
 		<-conn.Done()

@@ -19,7 +19,7 @@ import (
 // 就永远看不见它(与 protobuf_transcriptimport_test.go 同一条理由)。
 func dialProductionInbound(t *testing.T) (context.Context, *protorpc.Conn) {
 	t.Helper()
-	registry := NewProtobufInboundRegistry(productionProtobufInboundDeps())
+	registry := NewProtobufInboundRegistry(productionProtobufInboundDeps(newDevicePortForward()))
 	clientTransport, serverTransport := peerProtoPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	server := protorpc.NewConn(serverTransport, registry)

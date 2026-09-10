@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	_ "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/portforward"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
@@ -72,6 +73,11 @@ type App struct {
 
 	shutdownCleanup func(context.Context)
 	shutdownOnce    sync.Once
+
+	// portForwards 是端口转发那些专属监听(每条映射一个 127.0.0.1:<随机端口>)。
+	// 懒装配:零值 App(单测里直接构造的那种)与 NewApp 出来的都得能用。
+	portForwardsMu sync.Mutex
+	portForwards   *portforward.Listeners
 
 	lastImportPath   string
 	lastImportPathMu sync.Mutex
@@ -231,6 +237,11 @@ func (a *App) Shutdown(ctx context.Context) {
 		killCtx, cancelKill := context.WithTimeout(context.Background(), cliSessionQuitKillTimeout)
 		agentruntime.CloseAllSessionsEverywhere(killCtx)
 		cancelKill()
+		// 端口转发的专属监听同步收掉。两个理由:关一条监听只是一次系统调用,不会
+		// 拖住退出(上面那条「不等资源清理」的纪律管的是卡得住的外部进程);而它
+		// 们各自握着一条**长活**的连接池租约,必须赶在 cleanupResources 关掉整个
+		// 连接池之前还回去,否则那些 entry 的引用计数永远降不下来。
+		a.forwards().CloseAll()
 		go func() {
 			logger.Ctx(ctx).Info("app.Shutdown: shutdown cleanup scheduled")
 			a.shutdownCleanup(context.WithoutCancel(ctx))

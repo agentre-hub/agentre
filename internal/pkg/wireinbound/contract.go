@@ -133,6 +133,19 @@ func Contract() []Requirement {
 		{agentrewire.RpcMethod_RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT, []Caller{CallerConsole, CallerDesktopToAgentred}, both,
 			"filePreviewPorts.ts:137,同上"},
 
+		// ── 端口转发声明族:两端各有一个入口,读的是**同一台设备上的同一份声明** ──
+		//
+		// 义务不是从某个已存在的调用点推出来的(界面落在后续任务),而是从决策 1
+		// 「映射存在被访问的那台设备上」推出来的:宿主手上没有这张表,要列举 / 新增 /
+		// 启停 / 删除都只能问那台机器。两种执行端都列,因为规格「设备侧的目标限制」
+		// 明写两类设备都可能是被访问的一方,而控制台的设备卡与桌面端的设备清单里
+		// agentred 与 desktop 是混着的。
+		{agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_LIST, []Caller{CallerConsole, CallerDesktopToAgentred}, both,
+			"规格 2026-09-06-device-port-forward「两端的入口」:控制台设备卡展开区的小节 + 桌面端 DeviceActionMenu 的子块,两端呈现同一批映射"},
+		{agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_CREATE, []Caller{CallerConsole, CallerDesktopToAgentred}, both, "同 list"},
+		{agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_SET_ENABLED, []Caller{CallerConsole, CallerDesktopToAgentred}, both, "同 list"},
+		{agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_DELETE, []Caller{CallerConsole, CallerDesktopToAgentred}, both, "同 list"},
+
 		// ── 导入族:server 后端发,机器清单含 desktop ──
 		{agentrewire.RpcMethod_RPC_METHOD_TRANSCRIPT_IMPORT_SCAN, []Caller{CallerServerBackend, CallerDesktopToAgentred}, both,
 			"useMachineReachability.tsx:275 机器清单含 desktop → SessionIndex.tsx:1032 喂给导入端口;sessionimport_ctr 全链路不筛 kind"},

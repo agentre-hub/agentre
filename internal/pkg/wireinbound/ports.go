@@ -58,6 +58,22 @@ type TranscriptImportPort interface {
 	Execute(ctx context.Context, params importwire.ExecuteParams) (*importwire.ExecuteResult, error)
 }
 
+// PortForwardPort 是这台设备上的端口转发**声明面**:列举 / 新增 / 启停 / 删除。
+//
+// 直接收发线上的载体,与 SkillsPort.Catalog 同一条判据:两种执行端在这一格上用的是
+// **同一个**实现(internal/daemon/portforward.Handlers,规格「设备侧的目标限制」明写
+// 两类设备共用一份),它自己就说 agentrewire,再套一层领域参数只是让同一份字段清单
+// 多抄一遍。
+//
+// 按 ISP 只收声明族四个方法:流族(open/write/close/ack)的生命周期跟着承载它的那条
+// 连接走,挂在连接级注册面上,不属于这份 daemon 级的外围能力。
+type PortForwardPort interface {
+	List(ctx context.Context, request *agentrewire.PortForwardListRequest) (*agentrewire.PortForwardListResponse, error)
+	Create(ctx context.Context, request *agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error)
+	SetEnabled(ctx context.Context, request *agentrewire.PortForwardSetEnabledRequest) (*agentrewire.PortForwardSetEnabledResponse, error)
+	Delete(ctx context.Context, request *agentrewire.PortForwardDeleteRequest) (*agentrewire.PortForwardDeleteResponse, error)
+}
+
 // PeripheralDeps 是宿主交出的那一份能力。
 //
 // **缺席就是一种回答。** 某一格为 nil 表示这台机器没有这个能力,本包据此**不注册**
@@ -76,4 +92,5 @@ type PeripheralDeps struct {
 	RemoteFS         RemoteFSPort
 	WorkspaceFS      WorkspaceFSPort
 	TranscriptImport TranscriptImportPort
+	PortForward      PortForwardPort
 }

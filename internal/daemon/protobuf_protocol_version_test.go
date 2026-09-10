@@ -51,8 +51,8 @@ func TestAuthPair_GivenCallerAdvertisesTheSameProtocolVersion_WhenPairing_ThenAc
 // 就等于本 build 自己的版本,那条「领先一档仍放行」的用例照旧绿着,却不再验它声称的
 // 东西。下面 TestProtocolVersionFixtures_... 是防止这件事静默发生的守卫。
 const (
-	oneMinorAhead  = "0.5.0"
-	twoMinorsAhead = "0.6.0"
+	oneMinorAhead  = "0.6.0"
+	twoMinorsAhead = "0.7.0"
 )
 
 // 这两个 fixture 必须真的高于本 build 的 Protocol,否则上下两条用例都退化成同义反复。

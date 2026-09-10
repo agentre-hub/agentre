@@ -177,6 +177,76 @@ describe("MarkdownText automatic RichLinks", () => {
   });
 });
 
+// GFM 的 autolink literal 只认 ASCII 尾标点,中文正文里 URL 后面紧跟的全角标点
+// 和汉字会被整段吞进 href。包里自己的 rehypeMarkdownAutolinks 有正确的全角边界,
+// 但 GFM 先在 mdast 阶段就把它变成 <a> 了,轮不到它。下面这组钉的是「中文语境下
+// 的裸链接边界由包自己说了算」。
+describe("MarkdownText bare URLs in CJK prose", () => {
+  it("Given a bold URL followed by a full-width parenthesis, when rendered, then the link stops at the URL and the emphasis still applies", () => {
+    const { container } = render(
+      <MarkdownText
+        text="Mockup 跑起来了：**http://localhost:5199/**（源码在 x）。"
+        cwd="/work/proj"
+      />,
+    );
+
+    const link = screen.getByRole("link");
+    expect(link.textContent).toContain("http://localhost:5199/");
+    expect(link).toHaveAttribute("href", "http://localhost:5199/");
+    expect(container.querySelector("strong")?.textContent).toContain(
+      "http://localhost:5199/",
+    );
+    expect(container.textContent).toContain("（源码在 x）。");
+  });
+
+  it("Given a URL wrapped in full-width parentheses, when rendered, then the closing parenthesis and following prose stay outside the link", () => {
+    const { container } = render(
+      <MarkdownText
+        text="（http://localhost:5199/），要关随时说。"
+        cwd="/work/proj"
+      />,
+    );
+
+    const link = screen.getByRole("link");
+    expect(link).toHaveAttribute("href", "http://localhost:5199/");
+    expect(container.textContent).toContain("），要关随时说。");
+  });
+
+  it("Given a URL followed directly by a full-width comma, when rendered, then the trailing clause stays outside the link", () => {
+    render(
+      <MarkdownText
+        text="打开 https://example.com/a，然后看"
+        cwd="/work/proj"
+      />,
+    );
+
+    expect(screen.getByRole("link")).toHaveAttribute(
+      "href",
+      "https://example.com/a",
+    );
+  });
+
+  it("Given a www target followed by a full-width comma, when rendered, then it still resolves to an http URL without swallowing the clause", () => {
+    render(
+      <MarkdownText text="打开 www.example.com/a，然后看" cwd="/work/proj" />,
+    );
+
+    expect(screen.getByRole("link")).toHaveAttribute(
+      "href",
+      "http://www.example.com/a",
+    );
+  });
+
+  it("Given a bare email address, when rendered, then it is still autolinked as mailto", () => {
+    render(<MarkdownText text="联系 foo@bar.com 就行" cwd="/work/proj" />);
+
+    expect(screen.getByRole("link")).toHaveAttribute(
+      "href",
+      "mailto:foo@bar.com",
+    );
+  });
+});
+
 describe("MarkdownText inline decorator", () => {
   // bobDecorator:测试用的最小装饰器 —— 把字面 "@Bob" 切成可点击 token,
   // 其余原样保留。只测接缝本身,不绑 mention 业务。

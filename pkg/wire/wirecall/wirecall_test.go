@@ -99,6 +99,12 @@ func TestPairing_GivenAMethod_ThenItsResponseTypeFollowsTheNamingConvention(t *t
 		agentrewire.RpcMethod_RPC_METHOD_TERMINAL_CLOSE,
 		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SET_PERMISSION_MODE,
 		agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK,
+		// 转发流的三个控制方法同理:write 送一块字节、close 收尾、ack 回报已消费
+		// 到第几个字节,三者都只报成败。ack 的**信用**方向是请求里那一格
+		// consumed_bytes,不是应答 —— 应答里再放一个窗口值就成了两处真理源。
+		agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_WRITE,
+		agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_CLOSE,
+		agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_ACK,
 	} {
 		exceptions[method] = "Empty"
 	}

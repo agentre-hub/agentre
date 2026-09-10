@@ -365,6 +365,11 @@ func (d *Daemon) registerProtobufMethods() {
 			SessionDelete:     d.sessionStore,
 			LoggedInAccountID: d.loggedInAccountID,
 		}),
+		// 端口转发的声明族。判定与线形状都收在 internal/daemon/portforward,桌面端
+		// 挂的是同一份(规格「设备侧的目标限制」:两类设备都可能是被访问的一方)。
+		// 流族不在这里:它挂在每条连接上(bindProtobufConn),用的是**同一个** d.portForward
+		// —— 声明表与闸门只有一个答复处。
+		PortForward: d.portForward,
 	})
 }
 

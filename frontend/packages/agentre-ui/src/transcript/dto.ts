@@ -310,6 +310,15 @@ export interface TranscriptMessage {
   createtime: number;
   sourceDevice?: string;
   sourceDeviceName?: string;
+  /**
+   * 这条 assistant 消息所属的那一轮是被什么起的:缺省 = 用户发起(也含本字段存在
+   * 之前的历史消息);"background_task" / "catch_up" / "external"。
+   *
+   * 「是不是用户发起的」看结构就够(这条 assistant 前面有没有 user 消息),但
+   * 「为什么」判不出来 —— 非用户发起的轮不止一种,而它们在转录里长得一模一样,
+   * 要给用户看的交代却不同(sess-3797)。
+   */
+  turnTrigger?: string;
 }
 
 /** 流式期间尚未冻结成 block 的重试提示。 */

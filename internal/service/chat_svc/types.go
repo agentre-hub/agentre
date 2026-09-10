@@ -489,6 +489,11 @@ type ChatMessage struct {
 	ErrorText        string  `json:"errorText"`
 	Seq              int     `json:"seq"`
 	Createtime       int64   `json:"createtime"`
+	// TurnTrigger 这条 assistant 消息所属的那一轮是被什么起的:空 = 用户发起(也含本
+	// 字段存在之前的历史消息);"background_task" / "catch_up" / "external"。前端用它
+	// 决定给一条非用户发起的轮看哪一句来源交代 —— 判「非用户发起」看结构就够,判
+	// 「为什么」必须看它(sess-3797)。
+	TurnTrigger string `json:"turnTrigger,omitempty"`
 	// SourceDevice 是 R17 的「来源设备标识」:非本机发出的用户消息才带(为空=本机/未知)。
 	// 携带的是提交方设备指纹;前端拿它与本机指纹比对,相等就不渲染来源标识(本机不带,
 	// 单客户端界面零变化)。

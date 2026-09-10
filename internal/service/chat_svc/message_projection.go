@@ -55,6 +55,7 @@ func toChatMessage(m *chat_entity.Message) (ChatMessage, error) {
 		FirstTokenMs:        m.FirstTokenMs,
 		TokensPerSec:        m.TokensPerSec,
 		ErrorText:           m.ErrorText,
+		TurnTrigger:         m.TurnTrigger,
 		Seq:                 m.Seq,
 		Createtime:          m.Createtime,
 		SourceDevice:        source.Device,

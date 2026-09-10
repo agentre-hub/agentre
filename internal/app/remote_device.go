@@ -17,8 +17,21 @@ func (a *App) RemoteDeviceAdd(req remote_device_svc.AddRequest) (*remote_device_
 }
 
 // RemoteDeviceRemove 软删行 + 清 keychain；不调远端 auth.revoke（见 spec §3.7）。
+//
+// 这台设备上还开着的端口转发监听一并关掉。连接池没有按设备逐出的入口，而每条转发
+// 监听握着一条**长活**租约（refcount 永远 ≥ 1，见 internal/pkg/portforward 包注释），
+// idle 回收因此轮不到它、lease.Closed() 也永远不来。少了这一句，那条 127.0.0.1 地址
+// 会在余下的整个 App 生命期里继续把 HTTP 转进一台刚被解除配对的机器——界面上设备
+// 已经没了，本机入口还活着。
+//
+// 只在 Remove 真的成功之后才关：失败时这台设备还配着，关掉监听会让用户手上那条地址
+// 无缘无故失效（与 PortForwardSetEnabled 同一条理由）。
 func (a *App) RemoteDeviceRemove(id int64) error {
-	return remote_device_svc.Default().Remove(a.ctx, id)
+	if err := remote_device_svc.Default().Remove(a.ctx, id); err != nil {
+		return err
+	}
+	a.forwards().CloseDevice(id)
+	return nil
 }
 
 // RemoteDeviceUpdateTLS 更新 TLS 信任配置并立即 Refresh 一次。

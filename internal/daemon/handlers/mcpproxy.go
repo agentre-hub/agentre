@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/internal/pkg/tunnelheader"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -64,30 +65,6 @@ func rewriteMCPServersForDaemon(specs []agentruntime.MCPServerSpec, daemonBaseFn
 	return out
 }
 
-// hopByHopTunnelHeaders 是不该跨隧道转发的逐跳头(+ Host/Content-Length,desktop 重放时
-// 由 http.Client 按目标 URL / body 重算)。其余头(Authorization / Content-Type / Accept /
-// Mcp-* 等)原样转发。
-var hopByHopTunnelHeaders = map[string]bool{
-	"Host": true, "Content-Length": true, "Connection": true, "Keep-Alive": true,
-	"Transfer-Encoding": true, "Te": true, "Trailer": true, "Upgrade": true, "Proxy-Connection": true,
-}
-
-func sanitizeTunnelHeaders(h http.Header) map[string][]string {
-	if len(h) == 0 {
-		return nil
-	}
-	out := make(map[string][]string, len(h))
-	for k, vs := range h {
-		if hopByHopTunnelHeaders[http.CanonicalHeaderKey(k)] {
-			continue
-		}
-		cp := make([]string, len(vs))
-		copy(cp, vs)
-		out[k] = cp
-	}
-	return out
-}
-
 // NewMCPTunnelHandler 返回挂在 daemon 本机 gateway /mcp/ 上的隧道入口:把 CLI 子进程的
 // MCP HTTP 请求装包,经 NotifierPort 反向请求(MethodMCPProxy)隧道回 desktop 执行,再把
 // 应答原样写回 CLI。MCP-over-HTTP 是纯请求/应答,单帧足够。
@@ -129,7 +106,7 @@ func NewMCPTunnelHandler(notifierFn func(peerFingerprint devicefp.Initiator, con
 		req := wire.MCPProxyRequest{
 			Path:    r.URL.Path,
 			Method:  r.Method,
-			Headers: sanitizeTunnelHeaders(r.Header),
+			Headers: tunnelheader.Sanitize(r.Header),
 			Body:    body,
 		}
 		var resp wire.MCPProxyResponse

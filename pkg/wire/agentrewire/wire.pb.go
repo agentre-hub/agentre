@@ -86,6 +86,14 @@ const (
 	RpcMethod_RPC_METHOD_AGENTRED_SELF_UPDATE           RpcMethod = 58
 	RpcMethod_RPC_METHOD_SESSION_COUNTS                 RpcMethod = 59
 	RpcMethod_RPC_METHOD_SKILLS_COMMANDS                RpcMethod = 60
+	RpcMethod_RPC_METHOD_PORT_FORWARD_LIST              RpcMethod = 61
+	RpcMethod_RPC_METHOD_PORT_FORWARD_CREATE            RpcMethod = 62
+	RpcMethod_RPC_METHOD_PORT_FORWARD_SET_ENABLED       RpcMethod = 63
+	RpcMethod_RPC_METHOD_PORT_FORWARD_DELETE            RpcMethod = 64
+	RpcMethod_RPC_METHOD_PORT_FORWARD_OPEN              RpcMethod = 65
+	RpcMethod_RPC_METHOD_PORT_FORWARD_WRITE             RpcMethod = 66
+	RpcMethod_RPC_METHOD_PORT_FORWARD_CLOSE             RpcMethod = 67
+	RpcMethod_RPC_METHOD_PORT_FORWARD_ACK               RpcMethod = 68
 )
 
 // Enum value maps for RpcMethod.
@@ -152,6 +160,14 @@ var (
 		58: "RPC_METHOD_AGENTRED_SELF_UPDATE",
 		59: "RPC_METHOD_SESSION_COUNTS",
 		60: "RPC_METHOD_SKILLS_COMMANDS",
+		61: "RPC_METHOD_PORT_FORWARD_LIST",
+		62: "RPC_METHOD_PORT_FORWARD_CREATE",
+		63: "RPC_METHOD_PORT_FORWARD_SET_ENABLED",
+		64: "RPC_METHOD_PORT_FORWARD_DELETE",
+		65: "RPC_METHOD_PORT_FORWARD_OPEN",
+		66: "RPC_METHOD_PORT_FORWARD_WRITE",
+		67: "RPC_METHOD_PORT_FORWARD_CLOSE",
+		68: "RPC_METHOD_PORT_FORWARD_ACK",
 	}
 	RpcMethod_value = map[string]int32{
 		"RPC_METHOD_UNSPECIFIED":                    0,
@@ -215,6 +231,14 @@ var (
 		"RPC_METHOD_AGENTRED_SELF_UPDATE":           58,
 		"RPC_METHOD_SESSION_COUNTS":                 59,
 		"RPC_METHOD_SKILLS_COMMANDS":                60,
+		"RPC_METHOD_PORT_FORWARD_LIST":              61,
+		"RPC_METHOD_PORT_FORWARD_CREATE":            62,
+		"RPC_METHOD_PORT_FORWARD_SET_ENABLED":       63,
+		"RPC_METHOD_PORT_FORWARD_DELETE":            64,
+		"RPC_METHOD_PORT_FORWARD_OPEN":              65,
+		"RPC_METHOD_PORT_FORWARD_WRITE":             66,
+		"RPC_METHOD_PORT_FORWARD_CLOSE":             67,
+		"RPC_METHOD_PORT_FORWARD_ACK":               68,
 	}
 )
 
@@ -529,6 +553,10 @@ type RpcNotification struct {
 	//	*RpcNotification_TerminalData
 	//	*RpcNotification_TerminalExit
 	//	*RpcNotification_TurnStarted
+	//	*RpcNotification_PortForwardResponse
+	//	*RpcNotification_PortForwardData
+	//	*RpcNotification_PortForwardClosed
+	//	*RpcNotification_PortForwardRevoked
 	Payload       isRpcNotification_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -643,6 +671,42 @@ func (x *RpcNotification) GetTurnStarted() *TurnStartedNotification {
 	return nil
 }
 
+func (x *RpcNotification) GetPortForwardResponse() *PortForwardResponseNotification {
+	if x != nil {
+		if x, ok := x.Payload.(*RpcNotification_PortForwardResponse); ok {
+			return x.PortForwardResponse
+		}
+	}
+	return nil
+}
+
+func (x *RpcNotification) GetPortForwardData() *PortForwardDataNotification {
+	if x != nil {
+		if x, ok := x.Payload.(*RpcNotification_PortForwardData); ok {
+			return x.PortForwardData
+		}
+	}
+	return nil
+}
+
+func (x *RpcNotification) GetPortForwardClosed() *PortForwardClosedNotification {
+	if x != nil {
+		if x, ok := x.Payload.(*RpcNotification_PortForwardClosed); ok {
+			return x.PortForwardClosed
+		}
+	}
+	return nil
+}
+
+func (x *RpcNotification) GetPortForwardRevoked() *PortForwardRevokedNotification {
+	if x != nil {
+		if x, ok := x.Payload.(*RpcNotification_PortForwardRevoked); ok {
+			return x.PortForwardRevoked
+		}
+	}
+	return nil
+}
+
 type isRpcNotification_Payload interface {
 	isRpcNotification_Payload()
 }
@@ -679,6 +743,22 @@ type RpcNotification_TurnStarted struct {
 	TurnStarted *TurnStartedNotification `protobuf:"bytes,8,opt,name=turn_started,json=turnStarted,proto3,oneof"`
 }
 
+type RpcNotification_PortForwardResponse struct {
+	PortForwardResponse *PortForwardResponseNotification `protobuf:"bytes,9,opt,name=port_forward_response,json=portForwardResponse,proto3,oneof"`
+}
+
+type RpcNotification_PortForwardData struct {
+	PortForwardData *PortForwardDataNotification `protobuf:"bytes,10,opt,name=port_forward_data,json=portForwardData,proto3,oneof"`
+}
+
+type RpcNotification_PortForwardClosed struct {
+	PortForwardClosed *PortForwardClosedNotification `protobuf:"bytes,11,opt,name=port_forward_closed,json=portForwardClosed,proto3,oneof"`
+}
+
+type RpcNotification_PortForwardRevoked struct {
+	PortForwardRevoked *PortForwardRevokedNotification `protobuf:"bytes,12,opt,name=port_forward_revoked,json=portForwardRevoked,proto3,oneof"`
+}
+
 func (*RpcNotification_RuntimeEvent) isRpcNotification_Payload() {}
 
 func (*RpcNotification_RunResultDone) isRpcNotification_Payload() {}
@@ -694,6 +774,14 @@ func (*RpcNotification_TerminalData) isRpcNotification_Payload() {}
 func (*RpcNotification_TerminalExit) isRpcNotification_Payload() {}
 
 func (*RpcNotification_TurnStarted) isRpcNotification_Payload() {}
+
+func (*RpcNotification_PortForwardResponse) isRpcNotification_Payload() {}
+
+func (*RpcNotification_PortForwardData) isRpcNotification_Payload() {}
+
+func (*RpcNotification_PortForwardClosed) isRpcNotification_Payload() {}
+
+func (*RpcNotification_PortForwardRevoked) isRpcNotification_Payload() {}
 
 type Request struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -14185,6 +14273,1056 @@ func (x *ImageBlock) GetSource() *BlobSource {
 	return nil
 }
 
+// PortForwardMapping 是一条声明:这台机器允许把它 127.0.0.1 上的某个端口转出去。
+// 端口在一台设备下唯一;enabled 为假的映射保留声明但一律拒绝访问。
+type PortForwardMapping struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id 是这条声明在**那台设备**上的主键。启停与删除按它定位,而不是按端口 ——
+	// 端口虽然也唯一,但它是用户随时会改的那一格。
+	Id      int64  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Port    uint32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	Name    string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Enabled bool   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// unix 秒。
+	Createtime    int64 `protobuf:"varint,5,opt,name=createtime,proto3" json:"createtime,omitempty"`
+	Updatetime    int64 `protobuf:"varint,6,opt,name=updatetime,proto3" json:"updatetime,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardMapping) Reset() {
+	*x = PortForwardMapping{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[200]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardMapping) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardMapping) ProtoMessage() {}
+
+func (x *PortForwardMapping) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[200]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardMapping.ProtoReflect.Descriptor instead.
+func (*PortForwardMapping) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{200}
+}
+
+func (x *PortForwardMapping) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *PortForwardMapping) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *PortForwardMapping) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PortForwardMapping) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *PortForwardMapping) GetCreatetime() int64 {
+	if x != nil {
+		return x.Createtime
+	}
+	return 0
+}
+
+func (x *PortForwardMapping) GetUpdatetime() int64 {
+	if x != nil {
+		return x.Updatetime
+	}
+	return 0
+}
+
+type PortForwardListRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardListRequest) Reset() {
+	*x = PortForwardListRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[201]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardListRequest) ProtoMessage() {}
+
+func (x *PortForwardListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[201]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardListRequest.ProtoReflect.Descriptor instead.
+func (*PortForwardListRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{201}
+}
+
+type PortForwardListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mappings      []*PortForwardMapping  `protobuf:"bytes,1,rep,name=mappings,proto3" json:"mappings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardListResponse) Reset() {
+	*x = PortForwardListResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[202]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardListResponse) ProtoMessage() {}
+
+func (x *PortForwardListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[202]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardListResponse.ProtoReflect.Descriptor instead.
+func (*PortForwardListResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{202}
+}
+
+func (x *PortForwardListResponse) GetMappings() []*PortForwardMapping {
+	if x != nil {
+		return x.Mappings
+	}
+	return nil
+}
+
+type PortForwardCreateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Port          uint32                 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardCreateRequest) Reset() {
+	*x = PortForwardCreateRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[203]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardCreateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardCreateRequest) ProtoMessage() {}
+
+func (x *PortForwardCreateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[203]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardCreateRequest.ProtoReflect.Descriptor instead.
+func (*PortForwardCreateRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{203}
+}
+
+func (x *PortForwardCreateRequest) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *PortForwardCreateRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+// 应答交回**设备落库之后**的那一行:id、时间戳与启用位都由设备定,调用方不猜。
+type PortForwardCreateResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mapping       *PortForwardMapping    `protobuf:"bytes,1,opt,name=mapping,proto3" json:"mapping,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardCreateResponse) Reset() {
+	*x = PortForwardCreateResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[204]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardCreateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardCreateResponse) ProtoMessage() {}
+
+func (x *PortForwardCreateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[204]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardCreateResponse.ProtoReflect.Descriptor instead.
+func (*PortForwardCreateResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{204}
+}
+
+func (x *PortForwardCreateResponse) GetMapping() *PortForwardMapping {
+	if x != nil {
+		return x.Mapping
+	}
+	return nil
+}
+
+type PortForwardSetEnabledRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Enabled       bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardSetEnabledRequest) Reset() {
+	*x = PortForwardSetEnabledRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[205]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardSetEnabledRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardSetEnabledRequest) ProtoMessage() {}
+
+func (x *PortForwardSetEnabledRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[205]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardSetEnabledRequest.ProtoReflect.Descriptor instead.
+func (*PortForwardSetEnabledRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{205}
+}
+
+func (x *PortForwardSetEnabledRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *PortForwardSetEnabledRequest) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+type PortForwardSetEnabledResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mapping       *PortForwardMapping    `protobuf:"bytes,1,opt,name=mapping,proto3" json:"mapping,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardSetEnabledResponse) Reset() {
+	*x = PortForwardSetEnabledResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[206]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardSetEnabledResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardSetEnabledResponse) ProtoMessage() {}
+
+func (x *PortForwardSetEnabledResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[206]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardSetEnabledResponse.ProtoReflect.Descriptor instead.
+func (*PortForwardSetEnabledResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{206}
+}
+
+func (x *PortForwardSetEnabledResponse) GetMapping() *PortForwardMapping {
+	if x != nil {
+		return x.Mapping
+	}
+	return nil
+}
+
+type PortForwardDeleteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardDeleteRequest) Reset() {
+	*x = PortForwardDeleteRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[207]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardDeleteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardDeleteRequest) ProtoMessage() {}
+
+func (x *PortForwardDeleteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[207]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardDeleteRequest.ProtoReflect.Descriptor instead.
+func (*PortForwardDeleteRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{207}
+}
+
+func (x *PortForwardDeleteRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type PortForwardDeleteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Deleted       bool                   `protobuf:"varint,1,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardDeleteResponse) Reset() {
+	*x = PortForwardDeleteResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[208]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardDeleteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardDeleteResponse) ProtoMessage() {}
+
+func (x *PortForwardDeleteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[208]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardDeleteResponse.ProtoReflect.Descriptor instead.
+func (*PortForwardDeleteResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{208}
+}
+
+func (x *PortForwardDeleteResponse) GetDeleted() bool {
+	if x != nil {
+		return x.Deleted
+	}
+	return false
+}
+
+// PortForwardOpenRequest 开一条转发流。设备在应答之前就把到本机服务的连接拨出去,
+// 所以「端口没有声明」「映射已停用」「端口上没有服务在监听」三种失败都以领域错误码
+// 落在这一次调用的应答上(见 rpcerror 的 portforward.* 段),而不是等到某条通知里。
+type PortForwardOpenRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// stream_id 由调用方生成,在这条连接内唯一。此后 write / close / ack 与三条通知
+	// 都按它认流。
+	StreamId string `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	// 目标端口。**没有主机那一格**,理由见本节开头。
+	Port   uint32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	Method string `protobuf:"bytes,3,opt,name=method,proto3" json:"method,omitempty"`
+	// path 是已经剥掉宿主前缀的路径,含查询串。宿主在这一层理解 HTTP(服务端要剥
+	// /fw/<设备>/<端口>,两端都要改写 Host),101 之后就不再解释内容了。
+	Path    string                   `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	Headers map[string]*HeaderValues `protobuf:"bytes,5,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// has_body 说明此后还会有 portforward.write 送请求体。它必须是显式的一位:
+	// 「还没送到」与「没有请求体」在设备侧是两件事 —— 后者一格框架头都不写(既不写
+	// Content-Length 也不写 Transfer-Encoding),上游在请求头的空行处就知道这个请求已经
+	// 完整,不必等一个永远不来的 body。设备**不**因此半关闭写方向:升级请求同样没有
+	// 请求体,却正要靠这个方向送 101 之后的帧;而对普通请求,半关会让上游的 net/http
+	// 把请求 ctx 当作「客户端走了」取消掉。见 daemon/portforward/stream.go 的 framingNone。
+	HasBody bool `protobuf:"varint,6,opt,name=has_body,json=hasBody,proto3" json:"has_body,omitempty"`
+	// window_bytes 是调用方为**响应方向**开出的信用窗口,单位字节,0 表示用
+	// wirelimits.PortForwardWindowBytes 的默认值。见 PortForwardAckRequest。
+	WindowBytes   uint64 `protobuf:"varint,7,opt,name=window_bytes,json=windowBytes,proto3" json:"window_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardOpenRequest) Reset() {
+	*x = PortForwardOpenRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[209]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardOpenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardOpenRequest) ProtoMessage() {}
+
+func (x *PortForwardOpenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[209]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardOpenRequest.ProtoReflect.Descriptor instead.
+func (*PortForwardOpenRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{209}
+}
+
+func (x *PortForwardOpenRequest) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *PortForwardOpenRequest) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *PortForwardOpenRequest) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *PortForwardOpenRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *PortForwardOpenRequest) GetHeaders() map[string]*HeaderValues {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *PortForwardOpenRequest) GetHasBody() bool {
+	if x != nil {
+		return x.HasBody
+	}
+	return false
+}
+
+func (x *PortForwardOpenRequest) GetWindowBytes() uint64 {
+	if x != nil {
+		return x.WindowBytes
+	}
+	return 0
+}
+
+type PortForwardOpenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardOpenResponse) Reset() {
+	*x = PortForwardOpenResponse{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[210]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardOpenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardOpenResponse) ProtoMessage() {}
+
+func (x *PortForwardOpenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[210]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardOpenResponse.ProtoReflect.Descriptor instead.
+func (*PortForwardOpenResponse) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{210}
+}
+
+func (x *PortForwardOpenResponse) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+// PortForwardWriteRequest 送一块请求体(101 之后是纯字节)。
+//
+// 这个方向不需要单独的信用:write 是一次**请求**,它的应答就是那一块的凭据 ——
+// 调用方在上一块被设备收下之前不发下一块,而它等待期间停止从浏览器读,压力于是
+// 由内核的 TCP 窗口原路还给浏览器。
+type PortForwardWriteRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	StreamId string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	Data     []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	// eof 半关闭上游的写方向:请求体到此为止,响应可以继续流回来。
+	Eof           bool `protobuf:"varint,3,opt,name=eof,proto3" json:"eof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardWriteRequest) Reset() {
+	*x = PortForwardWriteRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[211]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardWriteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardWriteRequest) ProtoMessage() {}
+
+func (x *PortForwardWriteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[211]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardWriteRequest.ProtoReflect.Descriptor instead.
+func (*PortForwardWriteRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{211}
+}
+
+func (x *PortForwardWriteRequest) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *PortForwardWriteRequest) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *PortForwardWriteRequest) GetEof() bool {
+	if x != nil {
+		return x.Eof
+	}
+	return false
+}
+
+type PortForwardCloseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardCloseRequest) Reset() {
+	*x = PortForwardCloseRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[212]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardCloseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardCloseRequest) ProtoMessage() {}
+
+func (x *PortForwardCloseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[212]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardCloseRequest.ProtoReflect.Descriptor instead.
+func (*PortForwardCloseRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{212}
+}
+
+func (x *PortForwardCloseRequest) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+// PortForwardAckRequest 是这一族的**背压**,也是它唯一没有先例的一格。
+//
+// 为什么必须有它,写在这里,因为这是这条纪律唯一的传承处:
+//
+//  1. terminal.* 的流控是**有损**的 —— 队列满了就丢掉最老的一块,再插一行
+//     [--- output throttled ---]。终端上少几行还看得懂,HTTP 响应体丢一块就是文件
+//     损坏、页面白屏,所以那一套抄不得。
+//  2. 也不能靠**阻塞反压**:protorpc 的写锁是全连接互斥、通知在读循环里同步派发。
+//     生产者一阻塞,顶住的不是这一条流而是整条连接,同一条连接上所有别的会话跟着
+//     停 —— 那正是「一条转发流不得拖垮同一条连接上的其他会话」要排除的形态。
+//  3. 剩下的只有**应用层的窗口/信用**:消费者把「已消费到第几个字节」显式回给
+//     生产者;生产者按「已发 - 已确认」是否超过窗口决定还读不读本机 socket。它不
+//     读,内核的 TCP 窗口就把压力还给被转发的那个服务 —— 一个字节都不丢,而承载
+//     它的那条连接一刻都没被顶住。
+//
+// consumed_bytes 是**累计**量而不是增量:丢掉一条 ack 只会让窗口暂时偏紧,下一条
+// 就把账追平;而增量丢一条,两端的账就永久对不上。
+type PortForwardAckRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	ConsumedBytes uint64                 `protobuf:"varint,2,opt,name=consumed_bytes,json=consumedBytes,proto3" json:"consumed_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardAckRequest) Reset() {
+	*x = PortForwardAckRequest{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[213]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardAckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardAckRequest) ProtoMessage() {}
+
+func (x *PortForwardAckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[213]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardAckRequest.ProtoReflect.Descriptor instead.
+func (*PortForwardAckRequest) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{213}
+}
+
+func (x *PortForwardAckRequest) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *PortForwardAckRequest) GetConsumedBytes() uint64 {
+	if x != nil {
+		return x.ConsumedBytes
+	}
+	return 0
+}
+
+// PortForwardResponseNotification 带回状态码与响应头。
+//
+// 它是**独立的一条通知**而不是 open 的应答:应答走 pending channel、通知走读循环,
+// 两条路谁先被消费者看到没有保证,而三条通知同在读循环上按序派发。HTTP 的
+// WriteHeader 必须先于第一块 body,把响应头放进应答就等于把这条时序交给运气。
+type PortForwardResponseNotification struct {
+	state    protoimpl.MessageState   `protogen:"open.v1"`
+	StreamId string                   `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	Status   int32                    `protobuf:"varint,2,opt,name=status,proto3" json:"status,omitempty"`
+	Headers  map[string]*HeaderValues `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// upgraded 说的是「此后不再是 HTTP」。它独立于 status 的 101 存在,因为消费者据它
+	// 切换的是**自己这一侧**的行为(把连接交出去、两个方向都只搬字节),而不是复述
+	// 一个数字;宿主没有立场解释升级之后的内容。
+	Upgraded      bool `protobuf:"varint,4,opt,name=upgraded,proto3" json:"upgraded,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardResponseNotification) Reset() {
+	*x = PortForwardResponseNotification{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[214]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardResponseNotification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardResponseNotification) ProtoMessage() {}
+
+func (x *PortForwardResponseNotification) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[214]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardResponseNotification.ProtoReflect.Descriptor instead.
+func (*PortForwardResponseNotification) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{214}
+}
+
+func (x *PortForwardResponseNotification) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *PortForwardResponseNotification) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *PortForwardResponseNotification) GetHeaders() map[string]*HeaderValues {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *PortForwardResponseNotification) GetUpgraded() bool {
+	if x != nil {
+		return x.Upgraded
+	}
+	return false
+}
+
+// PortForwardDataNotification 是响应方向的一块字节。分片大小见
+// wirelimits.PortForwardChunkBytes —— 它必须远低于 MaxPayloadBytes,超限拆掉的是
+// 整条物理连接,那台机器上所有会话一起重连。
+type PortForwardDataNotification struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardDataNotification) Reset() {
+	*x = PortForwardDataNotification{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[215]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardDataNotification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardDataNotification) ProtoMessage() {}
+
+func (x *PortForwardDataNotification) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[215]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardDataNotification.ProtoReflect.Descriptor instead.
+func (*PortForwardDataNotification) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{215}
+}
+
+func (x *PortForwardDataNotification) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *PortForwardDataNotification) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// PortForwardClosedNotification 是这条流的收尾,每一种断开都必须有一条,不留悬挂的流。
+type PortForwardClosedNotification struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	StreamId string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	// code 是 rpcerror 的 portforward.* 领域码;0 表示正常收尾。
+	Code int32 `protobuf:"varint,2,opt,name=code,proto3" json:"code,omitempty"`
+	// reason 是机器可判别的原因 token(eof / device_gone / mapping_removed …),
+	// message 是给人看的那一句。消费者按 reason 分支,不按 message 的文本。
+	Reason        string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	Message       string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardClosedNotification) Reset() {
+	*x = PortForwardClosedNotification{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[216]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardClosedNotification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardClosedNotification) ProtoMessage() {}
+
+func (x *PortForwardClosedNotification) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[216]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardClosedNotification.ProtoReflect.Descriptor instead.
+func (*PortForwardClosedNotification) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{216}
+}
+
+func (x *PortForwardClosedNotification) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *PortForwardClosedNotification) GetCode() int32 {
+	if x != nil {
+		return x.Code
+	}
+	return 0
+}
+
+func (x *PortForwardClosedNotification) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *PortForwardClosedNotification) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+// PortForwardRevokedNotification 说的是「这台设备上这个端口此刻起不再允许转发」——
+// 声明被停用或删除,不论是谁改的。
+//
+// 它与 PortForwardClosedNotification 是两件事,不能合成一条:closed 说的是**某一条
+// 流**没了(它按 stream_id 认人,且只发给正开着流的那一方),而这一条说的是**这条
+// 声明**没了,连一条流都没开着的宿主同样要听见 —— 桌面端那条专属监听多半正闲着,
+// 而规格「断开与失败」要它一并关掉。
+//
+// 它按**端口**认人而不是按映射 id:设备侧的撤销面认的就是端口(流表里没有映射 id
+// 这一格),桌面端那条监听手上也只有端口,多带一格两端都用不上的 id 只会让「按什么
+// 认」这件事有两个答案。
+type PortForwardRevokedNotification struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// port 是被撤销的那个端口(这台设备的 127.0.0.1 上的那一个)。
+	Port uint32 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
+	// reason 与 PortForwardClosedNotification 取同一套 token(mapping_disabled /
+	// mapping_removed):同一件事在两条通知上不该有两套词汇。消费者按 token 分支。
+	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortForwardRevokedNotification) Reset() {
+	*x = PortForwardRevokedNotification{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[217]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortForwardRevokedNotification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortForwardRevokedNotification) ProtoMessage() {}
+
+func (x *PortForwardRevokedNotification) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[217]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortForwardRevokedNotification.ProtoReflect.Descriptor instead.
+func (*PortForwardRevokedNotification) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{217}
+}
+
+func (x *PortForwardRevokedNotification) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *PortForwardRevokedNotification) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var file_agentre_wire_wire_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
@@ -14231,7 +15369,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\fnotification\x18\x04 \x01(\v2\x1d.agentre.wire.RpcNotificationH\x00R\fnotification\x12.\n" +
 	"\x05error\x18\x05 \x01(\v2\x16.agentre.wire.RpcErrorH\x00R\x05error\x12.\n" +
 	"\x06cancel\x18\x06 \x01(\v2\x14.agentre.wire.CancelH\x00R\x06cancelB\x06\n" +
-	"\x04body\"\xce\x05\n" +
+	"\x04body\"\xcd\b\n" +
 	"\x0fRpcNotification\x12M\n" +
 	"\rruntime_event\x18\x01 \x01(\v2&.agentre.wire.RuntimeEventNotificationH\x00R\fruntimeEvent\x12Q\n" +
 	"\x0frun_result_done\x18\x02 \x01(\v2'.agentre.wire.RunResultDoneNotificationH\x00R\rrunResultDone\x12i\n" +
@@ -14240,7 +15378,12 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x14autonomous_turn_done\x18\x05 \x01(\v2'.agentre.wire.RunResultDoneNotificationH\x00R\x12autonomousTurnDone\x12M\n" +
 	"\rterminal_data\x18\x06 \x01(\v2&.agentre.wire.TerminalDataNotificationH\x00R\fterminalData\x12M\n" +
 	"\rterminal_exit\x18\a \x01(\v2&.agentre.wire.TerminalExitNotificationH\x00R\fterminalExit\x12J\n" +
-	"\fturn_started\x18\b \x01(\v2%.agentre.wire.TurnStartedNotificationH\x00R\vturnStartedB\t\n" +
+	"\fturn_started\x18\b \x01(\v2%.agentre.wire.TurnStartedNotificationH\x00R\vturnStarted\x12c\n" +
+	"\x15port_forward_response\x18\t \x01(\v2-.agentre.wire.PortForwardResponseNotificationH\x00R\x13portForwardResponse\x12W\n" +
+	"\x11port_forward_data\x18\n" +
+	" \x01(\v2).agentre.wire.PortForwardDataNotificationH\x00R\x0fportForwardData\x12]\n" +
+	"\x13port_forward_closed\x18\v \x01(\v2+.agentre.wire.PortForwardClosedNotificationH\x00R\x11portForwardClosed\x12`\n" +
+	"\x14port_forward_revoked\x18\f \x01(\v2,.agentre.wire.PortForwardRevokedNotificationH\x00R\x12portForwardRevokedB\t\n" +
 	"\apayload\"O\n" +
 	"\aRequest\x12\x1b\n" +
 	"\tmethod_id\x18\x01 \x01(\rR\bmethodId\x12'\n" +
@@ -15311,7 +16454,76 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"ImageBlock\x12\x1d\n" +
 	"\n" +
 	"media_type\x18\x01 \x01(\tR\tmediaType\x120\n" +
-	"\x06source\x18\x02 \x01(\v2\x18.agentre.wire.BlobSourceR\x06source*\xa7\x10\n" +
+	"\x06source\x18\x02 \x01(\v2\x18.agentre.wire.BlobSourceR\x06source\"\xa6\x01\n" +
+	"\x12PortForwardMapping\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\rR\x04port\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x18\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabled\x12\x1e\n" +
+	"\n" +
+	"createtime\x18\x05 \x01(\x03R\n" +
+	"createtime\x12\x1e\n" +
+	"\n" +
+	"updatetime\x18\x06 \x01(\x03R\n" +
+	"updatetime\"\x18\n" +
+	"\x16PortForwardListRequest\"W\n" +
+	"\x17PortForwardListResponse\x12<\n" +
+	"\bmappings\x18\x01 \x03(\v2 .agentre.wire.PortForwardMappingR\bmappings\"B\n" +
+	"\x18PortForwardCreateRequest\x12\x12\n" +
+	"\x04port\x18\x01 \x01(\rR\x04port\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"W\n" +
+	"\x19PortForwardCreateResponse\x12:\n" +
+	"\amapping\x18\x01 \x01(\v2 .agentre.wire.PortForwardMappingR\amapping\"H\n" +
+	"\x1cPortForwardSetEnabledRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"[\n" +
+	"\x1dPortForwardSetEnabledResponse\x12:\n" +
+	"\amapping\x18\x01 \x01(\v2 .agentre.wire.PortForwardMappingR\amapping\"*\n" +
+	"\x18PortForwardDeleteRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"5\n" +
+	"\x19PortForwardDeleteResponse\x12\x18\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xd8\x02\n" +
+	"\x16PortForwardOpenRequest\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\rR\x04port\x12\x16\n" +
+	"\x06method\x18\x03 \x01(\tR\x06method\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\x12K\n" +
+	"\aheaders\x18\x05 \x03(\v21.agentre.wire.PortForwardOpenRequest.HeadersEntryR\aheaders\x12\x19\n" +
+	"\bhas_body\x18\x06 \x01(\bR\ahasBody\x12!\n" +
+	"\fwindow_bytes\x18\a \x01(\x04R\vwindowBytes\x1aV\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
+	"\x05value\x18\x02 \x01(\v2\x1a.agentre.wire.HeaderValuesR\x05value:\x028\x01\"6\n" +
+	"\x17PortForwardOpenResponse\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\"\\\n" +
+	"\x17PortForwardWriteRequest\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x10\n" +
+	"\x03eof\x18\x03 \x01(\bR\x03eof\"6\n" +
+	"\x17PortForwardCloseRequest\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\"[\n" +
+	"\x15PortForwardAckRequest\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12%\n" +
+	"\x0econsumed_bytes\x18\x02 \x01(\x04R\rconsumedBytes\"\xa0\x02\n" +
+	"\x1fPortForwardResponseNotification\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\x05R\x06status\x12T\n" +
+	"\aheaders\x18\x03 \x03(\v2:.agentre.wire.PortForwardResponseNotification.HeadersEntryR\aheaders\x12\x1a\n" +
+	"\bupgraded\x18\x04 \x01(\bR\bupgraded\x1aV\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
+	"\x05value\x18\x02 \x01(\v2\x1a.agentre.wire.HeaderValuesR\x05value:\x028\x01\"N\n" +
+	"\x1bPortForwardDataNotification\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"\x82\x01\n" +
+	"\x1dPortForwardClosedNotification\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\x05R\x04code\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"L\n" +
+	"\x1ePortForwardRevokedNotification\x12\x12\n" +
+	"\x04port\x18\x01 \x01(\rR\x04port\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason*\xc3\x12\n" +
 	"\tRpcMethod\x12\x1a\n" +
 	"\x16RPC_METHOD_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RPC_METHOD_AUTH_ACCOUNT\x10\x01\x12\x1b\n" +
@@ -15374,7 +16586,15 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"'RPC_METHOD_SET_SESSION_REASONING_EFFORT\x109\x12#\n" +
 	"\x1fRPC_METHOD_AGENTRED_SELF_UPDATE\x10:\x12\x1d\n" +
 	"\x19RPC_METHOD_SESSION_COUNTS\x10;\x12\x1e\n" +
-	"\x1aRPC_METHOD_SKILLS_COMMANDS\x10<*\xe1\x02\n" +
+	"\x1aRPC_METHOD_SKILLS_COMMANDS\x10<\x12 \n" +
+	"\x1cRPC_METHOD_PORT_FORWARD_LIST\x10=\x12\"\n" +
+	"\x1eRPC_METHOD_PORT_FORWARD_CREATE\x10>\x12'\n" +
+	"#RPC_METHOD_PORT_FORWARD_SET_ENABLED\x10?\x12\"\n" +
+	"\x1eRPC_METHOD_PORT_FORWARD_DELETE\x10@\x12 \n" +
+	"\x1cRPC_METHOD_PORT_FORWARD_OPEN\x10A\x12!\n" +
+	"\x1dRPC_METHOD_PORT_FORWARD_WRITE\x10B\x12!\n" +
+	"\x1dRPC_METHOD_PORT_FORWARD_CLOSE\x10C\x12\x1f\n" +
+	"\x1bRPC_METHOD_PORT_FORWARD_ACK\x10D*\xe1\x02\n" +
 	"\x1eAgentredSelfUpdateRejectReason\x122\n" +
 	".AGENTRED_SELF_UPDATE_REJECT_REASON_UNSPECIFIED\x10\x00\x123\n" +
 	"/AGENTRED_SELF_UPDATE_REJECT_REASON_ACTIVE_TURNS\x10\x01\x122\n" +
@@ -15384,7 +16604,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
-	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.4.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.5.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once
@@ -15399,7 +16619,7 @@ func file_agentre_wire_wire_proto_rawDescGZIP() []byte {
 }
 
 var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 206)
+var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 226)
 var file_agentre_wire_wire_proto_goTypes = []any{
 	(RpcMethod)(0),                             // 0: agentre.wire.RpcMethod
 	(AgentredSelfUpdateRejectReason)(0),        // 1: agentre.wire.AgentredSelfUpdateRejectReason
@@ -15603,14 +16823,34 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	(*UnrecognizedBlock)(nil),                  // 199: agentre.wire.UnrecognizedBlock
 	(*BlobSource)(nil),                         // 200: agentre.wire.BlobSource
 	(*ImageBlock)(nil),                         // 201: agentre.wire.ImageBlock
-	nil,                                        // 202: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	nil,                                        // 203: agentre.wire.LLMProvider.ModelRoutesEntry
-	nil,                                        // 204: agentre.wire.MCPServer.HeadersEntry
-	nil,                                        // 205: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	nil,                                        // 206: agentre.wire.MCPProxyRequest.HeadersEntry
-	nil,                                        // 207: agentre.wire.MCPProxyResponse.HeadersEntry
-	(*descriptorpb.FieldOptions)(nil),          // 208: google.protobuf.FieldOptions
-	(*descriptorpb.FileOptions)(nil),           // 209: google.protobuf.FileOptions
+	(*PortForwardMapping)(nil),                 // 202: agentre.wire.PortForwardMapping
+	(*PortForwardListRequest)(nil),             // 203: agentre.wire.PortForwardListRequest
+	(*PortForwardListResponse)(nil),            // 204: agentre.wire.PortForwardListResponse
+	(*PortForwardCreateRequest)(nil),           // 205: agentre.wire.PortForwardCreateRequest
+	(*PortForwardCreateResponse)(nil),          // 206: agentre.wire.PortForwardCreateResponse
+	(*PortForwardSetEnabledRequest)(nil),       // 207: agentre.wire.PortForwardSetEnabledRequest
+	(*PortForwardSetEnabledResponse)(nil),      // 208: agentre.wire.PortForwardSetEnabledResponse
+	(*PortForwardDeleteRequest)(nil),           // 209: agentre.wire.PortForwardDeleteRequest
+	(*PortForwardDeleteResponse)(nil),          // 210: agentre.wire.PortForwardDeleteResponse
+	(*PortForwardOpenRequest)(nil),             // 211: agentre.wire.PortForwardOpenRequest
+	(*PortForwardOpenResponse)(nil),            // 212: agentre.wire.PortForwardOpenResponse
+	(*PortForwardWriteRequest)(nil),            // 213: agentre.wire.PortForwardWriteRequest
+	(*PortForwardCloseRequest)(nil),            // 214: agentre.wire.PortForwardCloseRequest
+	(*PortForwardAckRequest)(nil),              // 215: agentre.wire.PortForwardAckRequest
+	(*PortForwardResponseNotification)(nil),    // 216: agentre.wire.PortForwardResponseNotification
+	(*PortForwardDataNotification)(nil),        // 217: agentre.wire.PortForwardDataNotification
+	(*PortForwardClosedNotification)(nil),      // 218: agentre.wire.PortForwardClosedNotification
+	(*PortForwardRevokedNotification)(nil),     // 219: agentre.wire.PortForwardRevokedNotification
+	nil,                                        // 220: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	nil,                                        // 221: agentre.wire.LLMProvider.ModelRoutesEntry
+	nil,                                        // 222: agentre.wire.MCPServer.HeadersEntry
+	nil,                                        // 223: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	nil,                                        // 224: agentre.wire.MCPProxyRequest.HeadersEntry
+	nil,                                        // 225: agentre.wire.MCPProxyResponse.HeadersEntry
+	nil,                                        // 226: agentre.wire.PortForwardOpenRequest.HeadersEntry
+	nil,                                        // 227: agentre.wire.PortForwardResponseNotification.HeadersEntry
+	(*descriptorpb.FieldOptions)(nil),          // 228: google.protobuf.FieldOptions
+	(*descriptorpb.FileOptions)(nil),           // 229: google.protobuf.FileOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
 	9,   // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
@@ -15627,110 +16867,121 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	109, // 11: agentre.wire.RpcNotification.terminal_data:type_name -> agentre.wire.TerminalDataNotification
 	110, // 12: agentre.wire.RpcNotification.terminal_exit:type_name -> agentre.wire.TerminalExitNotification
 	177, // 13: agentre.wire.RpcNotification.turn_started:type_name -> agentre.wire.TurnStartedNotification
-	10,  // 14: agentre.wire.Notification.account_sync_version:type_name -> agentre.wire.AccountSyncVersion
-	11,  // 15: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
-	12,  // 16: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
-	21,  // 17: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
-	202, // 18: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	21,  // 19: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
-	203, // 20: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
-	27,  // 21: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
-	32,  // 22: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
-	35,  // 23: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
-	42,  // 24: agentre.wire.HealthProvider.models:type_name -> agentre.wire.HealthModel
-	43,  // 25: agentre.wire.HealthPingResponse.providers:type_name -> agentre.wire.HealthProvider
-	1,   // 26: agentre.wire.AgentredSelfUpdateResponse.reject_reason:type_name -> agentre.wire.AgentredSelfUpdateRejectReason
-	48,  // 27: agentre.wire.ClaudeCodeUsageResponse.data:type_name -> agentre.wire.ClaudeCodeRateLimits
-	51,  // 28: agentre.wire.SkillsListResponse.packs:type_name -> agentre.wire.InstalledSkillPack
-	57,  // 29: agentre.wire.SessionListResponse.sessions:type_name -> agentre.wire.SessionSummary
-	59,  // 30: agentre.wire.ActivityRollupResponse.buckets:type_name -> agentre.wire.ActivityDailyBucket
-	65,  // 31: agentre.wire.SessionPullResponse.notifications:type_name -> agentre.wire.JournaledNotification
-	4,   // 32: agentre.wire.JournaledNotification.payload:type_name -> agentre.wire.RpcNotification
-	68,  // 33: agentre.wire.SessionPendingWaitersResponse.tool_permissions:type_name -> agentre.wire.PendingToolPermission
-	69,  // 34: agentre.wire.SessionPendingWaitersResponse.ask_user_questions:type_name -> agentre.wire.PendingAskUserQuestion
-	183, // 35: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion
-	78,  // 36: agentre.wire.RuntimeCapabilitiesResponse.capabilities:type_name -> agentre.wire.CapabilityEntry
-	79,  // 37: agentre.wire.RuntimeCapabilitiesResponse.permission_mode:type_name -> agentre.wire.PermissionModeMeta
-	180, // 38: agentre.wire.RuntimeDrainPendingResponse.steers:type_name -> agentre.wire.ConsumedSteer
-	183, // 39: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
-	184, // 40: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
-	95,  // 41: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
-	204, // 42: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
-	94,  // 43: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
-	95,  // 44: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
-	96,  // 45: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
-	97,  // 46: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
-	205, // 47: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	94,  // 48: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
-	101, // 49: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
-	206, // 50: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
-	207, // 51: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
-	117, // 52: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
-	119, // 53: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
-	117, // 54: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
-	122, // 55: agentre.wire.SkillCommandsResponse.commands:type_name -> agentre.wire.SkillCommand
-	125, // 56: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
-	130, // 57: agentre.wire.WorkspaceFsListDirResponse.entries:type_name -> agentre.wire.WorkspaceFsEntry
-	133, // 58: agentre.wire.WorkspaceFsGitChangesResponse.changes:type_name -> agentre.wire.WorkspaceFsChange
-	136, // 59: agentre.wire.WorkspaceFsGitBranchesResponse.branches:type_name -> agentre.wire.WorkspaceFsBranch
-	143, // 60: agentre.wire.WorkspaceFsSearchFilesResponse.hits:type_name -> agentre.wire.WorkspaceFsSearchHit
-	147, // 61: agentre.wire.TranscriptImportScanRequest.filter:type_name -> agentre.wire.TranscriptImportFilter
-	149, // 62: agentre.wire.TranscriptImportBackendResult.candidates:type_name -> agentre.wire.TranscriptImportCandidate
-	150, // 63: agentre.wire.TranscriptImportScanResponse.backends:type_name -> agentre.wire.TranscriptImportBackendResult
-	152, // 64: agentre.wire.TranscriptImportMeta.gaps:type_name -> agentre.wire.TranscriptImportGap
-	153, // 65: agentre.wire.TranscriptImportOpenResponse.meta:type_name -> agentre.wire.TranscriptImportMeta
-	157, // 66: agentre.wire.TranscriptImportTurn.user_images:type_name -> agentre.wire.TranscriptImportImage
-	162, // 67: agentre.wire.TranscriptImportTurn.events:type_name -> agentre.wire.RuntimeEventNotification
-	174, // 68: agentre.wire.TranscriptImportTurn.usage:type_name -> agentre.wire.Usage
-	158, // 69: agentre.wire.TranscriptImportTurnsResponse.turns:type_name -> agentre.wire.TranscriptImportTurn
-	163, // 70: agentre.wire.RuntimeEventNotification.text_delta:type_name -> agentre.wire.TextDelta
-	164, // 71: agentre.wire.RuntimeEventNotification.thinking_delta:type_name -> agentre.wire.ThinkingDelta
-	165, // 72: agentre.wire.RuntimeEventNotification.output_activity:type_name -> agentre.wire.OutputActivity
-	166, // 73: agentre.wire.RuntimeEventNotification.permission_mode_changed:type_name -> agentre.wire.PermissionModeChanged
-	167, // 74: agentre.wire.RuntimeEventNotification.retry:type_name -> agentre.wire.Retry
-	168, // 75: agentre.wire.RuntimeEventNotification.context_window_updated:type_name -> agentre.wire.ContextWindowUpdated
-	169, // 76: agentre.wire.RuntimeEventNotification.compact_boundary:type_name -> agentre.wire.CompactBoundary
-	170, // 77: agentre.wire.RuntimeEventNotification.runtime_status:type_name -> agentre.wire.RuntimeStatus
-	171, // 78: agentre.wire.RuntimeEventNotification.done:type_name -> agentre.wire.Done
-	172, // 79: agentre.wire.RuntimeEventNotification.error:type_name -> agentre.wire.ErrorEvent
-	173, // 80: agentre.wire.RuntimeEventNotification.user_message:type_name -> agentre.wire.UserMessage
-	178, // 81: agentre.wire.RuntimeEventNotification.tool_call:type_name -> agentre.wire.ToolCall
-	179, // 82: agentre.wire.RuntimeEventNotification.tool_result:type_name -> agentre.wire.ToolResult
-	181, // 83: agentre.wire.RuntimeEventNotification.steer_consumed:type_name -> agentre.wire.SteerConsumed
-	185, // 84: agentre.wire.RuntimeEventNotification.user_ask_request:type_name -> agentre.wire.UserAskRequest
-	186, // 85: agentre.wire.RuntimeEventNotification.user_ask_resolved:type_name -> agentre.wire.UserAskResolved
-	187, // 86: agentre.wire.RuntimeEventNotification.tool_permission_request:type_name -> agentre.wire.ToolPermissionRequest
-	188, // 87: agentre.wire.RuntimeEventNotification.tool_permission_resolved:type_name -> agentre.wire.ToolPermissionResolved
-	189, // 88: agentre.wire.RuntimeEventNotification.exec_approval_requested:type_name -> agentre.wire.ExecApprovalRequested
-	190, // 89: agentre.wire.RuntimeEventNotification.exec_approval_resolved:type_name -> agentre.wire.ExecApprovalResolved
-	193, // 90: agentre.wire.RuntimeEventNotification.subagent_started:type_name -> agentre.wire.SubagentEvent
-	193, // 91: agentre.wire.RuntimeEventNotification.subagent_progress:type_name -> agentre.wire.SubagentEvent
-	193, // 92: agentre.wire.RuntimeEventNotification.subagent_done:type_name -> agentre.wire.SubagentEvent
-	194, // 93: agentre.wire.RuntimeEventNotification.subagent_model:type_name -> agentre.wire.SubagentModel
-	195, // 94: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
-	198, // 95: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
-	199, // 96: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
-	201, // 97: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
-	174, // 98: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
-	180, // 99: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
-	182, // 100: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
-	183, // 101: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
-	184, // 102: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
-	191, // 103: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
-	192, // 104: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
-	174, // 105: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
-	196, // 106: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
-	197, // 107: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
-	200, // 108: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
-	111, // 109: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	111, // 110: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	208, // 111: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	209, // 112: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
-	113, // [113:113] is the sub-list for method output_type
-	113, // [113:113] is the sub-list for method input_type
-	113, // [113:113] is the sub-list for extension type_name
-	111, // [111:113] is the sub-list for extension extendee
-	0,   // [0:111] is the sub-list for field type_name
+	216, // 14: agentre.wire.RpcNotification.port_forward_response:type_name -> agentre.wire.PortForwardResponseNotification
+	217, // 15: agentre.wire.RpcNotification.port_forward_data:type_name -> agentre.wire.PortForwardDataNotification
+	218, // 16: agentre.wire.RpcNotification.port_forward_closed:type_name -> agentre.wire.PortForwardClosedNotification
+	219, // 17: agentre.wire.RpcNotification.port_forward_revoked:type_name -> agentre.wire.PortForwardRevokedNotification
+	10,  // 18: agentre.wire.Notification.account_sync_version:type_name -> agentre.wire.AccountSyncVersion
+	11,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
+	12,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
+	21,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
+	220, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	21,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
+	221, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
+	27,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
+	32,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
+	35,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
+	42,  // 28: agentre.wire.HealthProvider.models:type_name -> agentre.wire.HealthModel
+	43,  // 29: agentre.wire.HealthPingResponse.providers:type_name -> agentre.wire.HealthProvider
+	1,   // 30: agentre.wire.AgentredSelfUpdateResponse.reject_reason:type_name -> agentre.wire.AgentredSelfUpdateRejectReason
+	48,  // 31: agentre.wire.ClaudeCodeUsageResponse.data:type_name -> agentre.wire.ClaudeCodeRateLimits
+	51,  // 32: agentre.wire.SkillsListResponse.packs:type_name -> agentre.wire.InstalledSkillPack
+	57,  // 33: agentre.wire.SessionListResponse.sessions:type_name -> agentre.wire.SessionSummary
+	59,  // 34: agentre.wire.ActivityRollupResponse.buckets:type_name -> agentre.wire.ActivityDailyBucket
+	65,  // 35: agentre.wire.SessionPullResponse.notifications:type_name -> agentre.wire.JournaledNotification
+	4,   // 36: agentre.wire.JournaledNotification.payload:type_name -> agentre.wire.RpcNotification
+	68,  // 37: agentre.wire.SessionPendingWaitersResponse.tool_permissions:type_name -> agentre.wire.PendingToolPermission
+	69,  // 38: agentre.wire.SessionPendingWaitersResponse.ask_user_questions:type_name -> agentre.wire.PendingAskUserQuestion
+	183, // 39: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion
+	78,  // 40: agentre.wire.RuntimeCapabilitiesResponse.capabilities:type_name -> agentre.wire.CapabilityEntry
+	79,  // 41: agentre.wire.RuntimeCapabilitiesResponse.permission_mode:type_name -> agentre.wire.PermissionModeMeta
+	180, // 42: agentre.wire.RuntimeDrainPendingResponse.steers:type_name -> agentre.wire.ConsumedSteer
+	183, // 43: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
+	184, // 44: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
+	95,  // 45: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
+	222, // 46: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
+	94,  // 47: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
+	95,  // 48: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
+	96,  // 49: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
+	97,  // 50: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
+	223, // 51: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	94,  // 52: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
+	101, // 53: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
+	224, // 54: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
+	225, // 55: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
+	117, // 56: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
+	119, // 57: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
+	117, // 58: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
+	122, // 59: agentre.wire.SkillCommandsResponse.commands:type_name -> agentre.wire.SkillCommand
+	125, // 60: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
+	130, // 61: agentre.wire.WorkspaceFsListDirResponse.entries:type_name -> agentre.wire.WorkspaceFsEntry
+	133, // 62: agentre.wire.WorkspaceFsGitChangesResponse.changes:type_name -> agentre.wire.WorkspaceFsChange
+	136, // 63: agentre.wire.WorkspaceFsGitBranchesResponse.branches:type_name -> agentre.wire.WorkspaceFsBranch
+	143, // 64: agentre.wire.WorkspaceFsSearchFilesResponse.hits:type_name -> agentre.wire.WorkspaceFsSearchHit
+	147, // 65: agentre.wire.TranscriptImportScanRequest.filter:type_name -> agentre.wire.TranscriptImportFilter
+	149, // 66: agentre.wire.TranscriptImportBackendResult.candidates:type_name -> agentre.wire.TranscriptImportCandidate
+	150, // 67: agentre.wire.TranscriptImportScanResponse.backends:type_name -> agentre.wire.TranscriptImportBackendResult
+	152, // 68: agentre.wire.TranscriptImportMeta.gaps:type_name -> agentre.wire.TranscriptImportGap
+	153, // 69: agentre.wire.TranscriptImportOpenResponse.meta:type_name -> agentre.wire.TranscriptImportMeta
+	157, // 70: agentre.wire.TranscriptImportTurn.user_images:type_name -> agentre.wire.TranscriptImportImage
+	162, // 71: agentre.wire.TranscriptImportTurn.events:type_name -> agentre.wire.RuntimeEventNotification
+	174, // 72: agentre.wire.TranscriptImportTurn.usage:type_name -> agentre.wire.Usage
+	158, // 73: agentre.wire.TranscriptImportTurnsResponse.turns:type_name -> agentre.wire.TranscriptImportTurn
+	163, // 74: agentre.wire.RuntimeEventNotification.text_delta:type_name -> agentre.wire.TextDelta
+	164, // 75: agentre.wire.RuntimeEventNotification.thinking_delta:type_name -> agentre.wire.ThinkingDelta
+	165, // 76: agentre.wire.RuntimeEventNotification.output_activity:type_name -> agentre.wire.OutputActivity
+	166, // 77: agentre.wire.RuntimeEventNotification.permission_mode_changed:type_name -> agentre.wire.PermissionModeChanged
+	167, // 78: agentre.wire.RuntimeEventNotification.retry:type_name -> agentre.wire.Retry
+	168, // 79: agentre.wire.RuntimeEventNotification.context_window_updated:type_name -> agentre.wire.ContextWindowUpdated
+	169, // 80: agentre.wire.RuntimeEventNotification.compact_boundary:type_name -> agentre.wire.CompactBoundary
+	170, // 81: agentre.wire.RuntimeEventNotification.runtime_status:type_name -> agentre.wire.RuntimeStatus
+	171, // 82: agentre.wire.RuntimeEventNotification.done:type_name -> agentre.wire.Done
+	172, // 83: agentre.wire.RuntimeEventNotification.error:type_name -> agentre.wire.ErrorEvent
+	173, // 84: agentre.wire.RuntimeEventNotification.user_message:type_name -> agentre.wire.UserMessage
+	178, // 85: agentre.wire.RuntimeEventNotification.tool_call:type_name -> agentre.wire.ToolCall
+	179, // 86: agentre.wire.RuntimeEventNotification.tool_result:type_name -> agentre.wire.ToolResult
+	181, // 87: agentre.wire.RuntimeEventNotification.steer_consumed:type_name -> agentre.wire.SteerConsumed
+	185, // 88: agentre.wire.RuntimeEventNotification.user_ask_request:type_name -> agentre.wire.UserAskRequest
+	186, // 89: agentre.wire.RuntimeEventNotification.user_ask_resolved:type_name -> agentre.wire.UserAskResolved
+	187, // 90: agentre.wire.RuntimeEventNotification.tool_permission_request:type_name -> agentre.wire.ToolPermissionRequest
+	188, // 91: agentre.wire.RuntimeEventNotification.tool_permission_resolved:type_name -> agentre.wire.ToolPermissionResolved
+	189, // 92: agentre.wire.RuntimeEventNotification.exec_approval_requested:type_name -> agentre.wire.ExecApprovalRequested
+	190, // 93: agentre.wire.RuntimeEventNotification.exec_approval_resolved:type_name -> agentre.wire.ExecApprovalResolved
+	193, // 94: agentre.wire.RuntimeEventNotification.subagent_started:type_name -> agentre.wire.SubagentEvent
+	193, // 95: agentre.wire.RuntimeEventNotification.subagent_progress:type_name -> agentre.wire.SubagentEvent
+	193, // 96: agentre.wire.RuntimeEventNotification.subagent_done:type_name -> agentre.wire.SubagentEvent
+	194, // 97: agentre.wire.RuntimeEventNotification.subagent_model:type_name -> agentre.wire.SubagentModel
+	195, // 98: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
+	198, // 99: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
+	199, // 100: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
+	201, // 101: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
+	174, // 102: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
+	180, // 103: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
+	182, // 104: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
+	183, // 105: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
+	184, // 106: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
+	191, // 107: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
+	192, // 108: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
+	174, // 109: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
+	196, // 110: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
+	197, // 111: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
+	200, // 112: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
+	202, // 113: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
+	202, // 114: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
+	202, // 115: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
+	226, // 116: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
+	227, // 117: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
+	111, // 118: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	111, // 119: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	111, // 120: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	111, // 121: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	228, // 122: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	229, // 123: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
+	124, // [124:124] is the sub-list for method output_type
+	124, // [124:124] is the sub-list for method input_type
+	124, // [124:124] is the sub-list for extension type_name
+	122, // [122:124] is the sub-list for extension extendee
+	0,   // [0:122] is the sub-list for field type_name
 }
 
 func init() { file_agentre_wire_wire_proto_init() }
@@ -15757,6 +17008,10 @@ func file_agentre_wire_wire_proto_init() {
 		(*RpcNotification_TerminalData)(nil),
 		(*RpcNotification_TerminalExit)(nil),
 		(*RpcNotification_TurnStarted)(nil),
+		(*RpcNotification_PortForwardResponse)(nil),
+		(*RpcNotification_PortForwardData)(nil),
+		(*RpcNotification_PortForwardClosed)(nil),
+		(*RpcNotification_PortForwardRevoked)(nil),
 	}
 	file_agentre_wire_wire_proto_msgTypes[7].OneofWrappers = []any{
 		(*Notification_AccountSyncVersion)(nil),
@@ -15804,7 +17059,7 @@ func file_agentre_wire_wire_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   206,
+			NumMessages:   226,
 			NumExtensions: 2,
 			NumServices:   0,
 		},

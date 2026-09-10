@@ -53,9 +53,18 @@ type Message struct {
 	TokensPerSec     float64 `gorm:"column:tokens_per_sec;type:real;not null;default:0"`
 	ForkAnchor       string  `gorm:"column:fork_anchor;type:text;not null;default:''"`
 	ErrorText        string  `gorm:"column:error_text;type:text;not null;default:''"`
-	Seq              int     `gorm:"column:seq;type:int;not null;default:0"`
-	Createtime       int64   `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime       int64   `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	// TurnTrigger 这条 assistant 消息所属的那一轮是被什么起的:空串 = 用户发起(以及
+	// 本列存在之前的历史行);其余取值即 agentruntime.AutonomousTurn.Trigger ——
+	// "background_task"(后台任务完成续轮)、"catch_up"(断线补齐重放)、"external"
+	// (子进程被 agentre 之外的东西叫醒、自己起的一轮)。
+	//
+	// 为什么不能由结构推出来:前端判「非用户发起」看的是这条 assistant 前面有没有
+	// user 消息,那判得出**有没有**、判不出**为什么**,而不同来源要给用户看不同的
+	// 交代(sess-3797)。
+	TurnTrigger string `gorm:"column:turn_trigger;type:text;not null;default:''"`
+	Seq         int    `gorm:"column:seq;type:int;not null;default:0"`
+	Createtime  int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime  int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
 }
 
 func (*Message) TableName() string { return "chat_messages" }

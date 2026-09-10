@@ -268,4 +268,9 @@ var zhCN = map[int]string{
 	ChatImportGapUnclosedToolCall:    "这一轮有工具调用没有等到结果,原会话在那里被中断。",
 	ChatImportGapUnparsableRecords:   "磁盘上有解不出的记录,已跳过;其余内容完整。",
 	ChatImportDeviceOffline:          "这台设备此刻连不上,稍后再试",
+
+	PortForwardDeviceOffline: "这台设备此刻连不上,端口转发暂时用不了",
+	PortForwardNotDeclared:   "这条端口映射已经不在这台设备上了",
+	PortForwardPortTaken:     "这个端口在这台设备上已经映射过了",
+	PortForwardInvalidPort:   "端口必须是 1~65535 之间的整数",
 }

@@ -109,6 +109,38 @@ var TerminalResize = Define[*agentrewire.TerminalResizeRequest](agentrewire.RpcM
 var TerminalWrite = Define[*agentrewire.TerminalWriteRequest](agentrewire.RpcMethod_RPC_METHOD_TERMINAL_WRITE,
 	func() *agentrewire.Empty { return &agentrewire.Empty{} })
 
+// ── 端口转发 ────────────────────────────────────────────────────
+//
+// 声明族(list/create/set_enabled/delete)挂 daemon 级注册面,流族
+// (open/write/close/ack)挂连接级 —— 一条转发流的生命周期跟着承载它的连接走。
+// 这层薄壳看不出这个区别,它由两侧的装配点决定。
+
+var PortForwardAck = Define[*agentrewire.PortForwardAckRequest](agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_ACK,
+	func() *agentrewire.Empty { return &agentrewire.Empty{} })
+
+var PortForwardClose = Define[*agentrewire.PortForwardCloseRequest](agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_CLOSE,
+	func() *agentrewire.Empty { return &agentrewire.Empty{} })
+
+var PortForwardCreate = Define[*agentrewire.PortForwardCreateRequest](agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_CREATE,
+	func() *agentrewire.PortForwardCreateResponse { return &agentrewire.PortForwardCreateResponse{} })
+
+var PortForwardDelete = Define[*agentrewire.PortForwardDeleteRequest](agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_DELETE,
+	func() *agentrewire.PortForwardDeleteResponse { return &agentrewire.PortForwardDeleteResponse{} })
+
+var PortForwardList = Define[*agentrewire.PortForwardListRequest](agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_LIST,
+	func() *agentrewire.PortForwardListResponse { return &agentrewire.PortForwardListResponse{} })
+
+var PortForwardOpen = Define[*agentrewire.PortForwardOpenRequest](agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_OPEN,
+	func() *agentrewire.PortForwardOpenResponse { return &agentrewire.PortForwardOpenResponse{} })
+
+var PortForwardSetEnabled = Define[*agentrewire.PortForwardSetEnabledRequest](agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_SET_ENABLED,
+	func() *agentrewire.PortForwardSetEnabledResponse {
+		return &agentrewire.PortForwardSetEnabledResponse{}
+	})
+
+var PortForwardWrite = Define[*agentrewire.PortForwardWriteRequest](agentrewire.RpcMethod_RPC_METHOD_PORT_FORWARD_WRITE,
+	func() *agentrewire.Empty { return &agentrewire.Empty{} })
+
 // ── 会话 ────────────────────────────────────────────────────────
 
 var SessionAttach = Define[*agentrewire.SessionAttachRequest](agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH,

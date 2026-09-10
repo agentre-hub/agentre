@@ -33,3 +33,18 @@ const MaxPayloadBytes int64 = 10 << 20
 // 桌面端跑本机 runtime 是进程内调用,一个字节都不过 wire,这个上限在那条路上不是
 // 事故防线;它照样生效,因为一条消息能带多少附件不该因为它这一轮恰好跑在哪儿而不同。
 const MaxAttachmentBytes int64 = MaxPayloadBytes * 2 / 3
+
+// PortForwardChunkBytes 是一条转发流上一块响应体分片的目标大小。
+//
+// 它离 MaxPayloadBytes 有两个数量级的余量,这是有意的:超限的后果不是「这一块没送
+// 到」,而是整条物理连接被拆掉,那台机器上所有会话一起断线重连。分片还要留得下同一
+// 帧里的 stream_id 与信封头,所以这个数是「一块 body」的量,不是「一帧」的预算。
+const PortForwardChunkBytes int64 = 256 << 10
+
+// PortForwardWindowBytes 是转发流响应方向的默认信用窗口:生产者在「已发 - 已确认」
+// 超过它之前不停地读本机 socket,超过之后停读,由内核的 TCP 窗口把压力还给被转发
+// 的那个服务(理由见 wire.proto 的 PortForwardAckRequest)。
+//
+// 它必须大于 PortForwardChunkBytes —— 一个窗口里放不下一块分片,生产者连第一块都
+// 发不出去;取十几块的量则让一次往返的 ack 延迟不至于把吞吐压成串行。
+const PortForwardWindowBytes int64 = 4 << 20

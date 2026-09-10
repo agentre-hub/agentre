@@ -271,11 +271,14 @@ describe("OrgDetailAgent", () => {
     ) as HTMLInputElement | null;
     if (!input) throw new Error("file input not found");
     fireEvent.change(input, { target: { files: [file] } });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(onUploadAvatar).toHaveBeenCalledWith({
-      id: 7,
-      dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
-    });
+    // FileReader.readAsDataURL 是异步的,等条件而不是等时钟:固定 50ms 在整套并发下
+    // 不够用,onload 还没触发断言就落在「调用次数 0」上(同文件另外三处已用 waitFor)。
+    await waitFor(() =>
+      expect(onUploadAvatar).toHaveBeenCalledWith({
+        id: 7,
+        dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
+      }),
+    );
   });
 
   it("deletes an uploaded avatar from the inline detail row control", async () => {

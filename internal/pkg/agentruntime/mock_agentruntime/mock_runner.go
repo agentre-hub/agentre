@@ -323,6 +323,45 @@ func (mr *MockBackgroundTaskStopperMockRecorder) StopBackgroundTask(ctx, session
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopBackgroundTask", reflect.TypeOf((*MockBackgroundTaskStopper)(nil).StopBackgroundTask), ctx, sessionID, taskID)
 }
 
+// MockBackgroundTaskResolver is a mock of BackgroundTaskResolver interface.
+type MockBackgroundTaskResolver struct {
+	ctrl     *gomock.Controller
+	recorder *MockBackgroundTaskResolverMockRecorder
+	isgomock struct{}
+}
+
+// MockBackgroundTaskResolverMockRecorder is the mock recorder for MockBackgroundTaskResolver.
+type MockBackgroundTaskResolverMockRecorder struct {
+	mock *MockBackgroundTaskResolver
+}
+
+// NewMockBackgroundTaskResolver creates a new mock instance.
+func NewMockBackgroundTaskResolver(ctrl *gomock.Controller) *MockBackgroundTaskResolver {
+	mock := &MockBackgroundTaskResolver{ctrl: ctrl}
+	mock.recorder = &MockBackgroundTaskResolverMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockBackgroundTaskResolver) EXPECT() *MockBackgroundTaskResolverMockRecorder {
+	return m.recorder
+}
+
+// ResolveBackgroundTask mocks base method.
+func (m *MockBackgroundTaskResolver) ResolveBackgroundTask(ctx context.Context, sessionID int64, toolUseID string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveBackgroundTask", ctx, sessionID, toolUseID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveBackgroundTask indicates an expected call of ResolveBackgroundTask.
+func (mr *MockBackgroundTaskResolverMockRecorder) ResolveBackgroundTask(ctx, sessionID, toolUseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveBackgroundTask", reflect.TypeOf((*MockBackgroundTaskResolver)(nil).ResolveBackgroundTask), ctx, sessionID, toolUseID)
+}
+
 // MockPermissionModeSetter is a mock of PermissionModeSetter interface.
 type MockPermissionModeSetter struct {
 	ctrl     *gomock.Controller

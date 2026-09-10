@@ -225,7 +225,7 @@ func TestMessageRepo_Create(t *testing.T) {
 			int64(3), "", "user", "",
 			0, 0, 0, 0, 0, 0, 0,
 			0, 0.0, // first_token_ms, tokens_per_sec
-			"", "", 1,
+			"", "", "", 1, // fork_anchor, error_text, turn_trigger, seq
 			sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnResult(sqlmock.NewResult(42, 1))
@@ -247,7 +247,7 @@ func TestMessageRepo_CreateReplacementStage(t *testing.T) {
 			int64(-3), "", "user", "",
 			0, 0, 0, 0, 0, 0, 0,
 			0, 0.0, // first_token_ms, tokens_per_sec
-			"", "", 5,
+			"", "", "", 5, // fork_anchor, error_text, turn_trigger, seq
 			sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnResult(sqlmock.NewResult(52, 1))

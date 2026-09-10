@@ -55,6 +55,7 @@ agentrewire ───┤                    (生成物:消息、方法枚举、�
                ├──> eventkind       (事件判别值,从 descriptor 读)
                └──> protocolversion (协议版本号,从 descriptor 读)
                     wirecall        (调用侧 typed 面,依赖 agentrewire + protorpc)
+                    portforwardhost (端口转发宿主侧 Handler,依赖 wirecall + wirelimits)
 turnstate                           (叶子:一轮怎么收场)
 devicefp                            (叶子:设备指纹的四个角色各一个类型)
 guard                               (本 module 自己的守卫测试)
@@ -65,6 +66,7 @@ guard                               (本 module 自己的守卫测试)
 | `agentrewire` | buf 生成的消息、`RpcMethod` 枚举、`event_kind` 字段选项与 `protocol_version` 文件选项。**不要手改。** |
 | `protorpc` | RPC 引擎:分帧、请求号对应、取消、保活、panic 兜底、通知分发 |
 | `wirecall` | 调用侧一个方法一个函数;method ID 与消息类型的配对**整个工作区只在这里出现一次** |
+| `portforwardhost` | 端口转发协议宿主那一侧的消费者:请求 → open + 三条通知 + 累计 ack + 101 交接。**不是契约,是契约的消费者** —— 它住在这里是因为这个 module 是 Go 侧唯一被批准的跨仓共享通道,桌面端与 agentre-server 控制台共用同一份 |
 | `rpcerror` | `Error{Code,Message,Details}` 与错误码 |
 | `eventkind` | `RuntimeEventNotification` 每条 oneof 分支的转录判别值,从 descriptor 读 |
 | `protocolversion` | 协议自己声明的版本号(`(agentre.wire.protocol_version)` 文件选项),从 descriptor 读 |

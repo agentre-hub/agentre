@@ -12,7 +12,7 @@ import (
 )
 
 func TestProductionInboundRejectsMalformedBinaryAndContinuesWithProtobuf(t *testing.T) {
-	registry := NewProtobufInboundRegistry(productionProtobufInboundDeps())
+	registry := NewProtobufInboundRegistry(productionProtobufInboundDeps(newDevicePortForward()))
 	clientTransport, serverTransport := peerProtoPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
 	server := protorpc.NewConn(serverTransport, registry)
