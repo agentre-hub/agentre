@@ -1286,3 +1286,71 @@ func TestDriveAutonomousTurn_SteerConsumedSegmentsTheTurn(t *testing.T) {
 		})
 	})
 }
+
+// TestDriveAutonomousTurn_RemotePreviewFramesStillRenderPerToken 守规格
+// 2026-09-05「两级帧与补齐」的硬不变量 2:**自主续轮**同样是一条运行中的轮次,
+// 远端宿主为它发的逐 token 增量是预览帧(agentred 在 forwardAutonomousTurn 里
+// 显式打 Preview),消费方把预览帧从转录流里摘出去之后,必须仍有一条路把它呈现
+// 出来 —— 否则这一轮在收口之前前端一个字都看不到:落库的正文块只在收口那一次
+// 才作为持久帧发出,轮内的 checkpoint 按定义不发还在长的正文。
+func TestDriveAutonomousTurn_RemotePreviewFramesStillRenderPerToken(t *testing.T) {
+	convey.Convey("远端自主续轮:预览帧照旧逐 token 呈现", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx
+
+		// ExecDeviceID 非 0 = 这条会话跑在一台配对的 agentred 上,两级帧因此成立。
+		sess := &chat_entity.Session{
+			ID: 100, AgentID: 7, AgentStatus: "idle", ProviderSessionID: "sess-abc",
+			ExecDeviceID: 3, ExecDeviceFingerprint: "sha256:remote",
+		}
+		be := &agent_backend_entity.AgentBackend{ID: 12, Type: "claudecode"}
+
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(sess, nil).AnyTimes()
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(5, nil)
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				msg.ID = 2001
+				return nil
+			}).Times(1)
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		m.dbMock.ExpectCommit()
+		var finalBlocks string
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				finalBlocks = msg.BlocksJSON
+				return nil
+			}).AnyTimes()
+
+		// 不带缓冲:第一条持久帧被收下就说明这一轮已经登记好了预览通道,此后交来的
+		// 预览帧必定落在它上面,断言因此是确定的而不是靠时序碰运气。
+		evs := make(chan agentruntime.Event)
+		go func() {
+			evs <- agentruntime.TextDelta{Text: "durable-block"}
+			chat_svc.DeliverRemotePreviewForTest(m.svc, 100, agentruntime.TextDelta{Text: "live-token"})
+			close(evs)
+		}()
+		at := agentruntime.AutonomousTurn{
+			Events:  evs,
+			Result:  &agentruntime.RunResult{ProviderSessionID: "sess-abc", Model: "claude-sonnet-4-6"},
+			Trigger: "background_task",
+		}
+
+		chat_svc.DriveAutonomousTurnForTest(ctx, m.svc, 100, be, at)
+
+		var chunk string
+		for _, ev := range m.events {
+			if p, ok := ev.Payload.(chat_svc.ChatStreamEvent); ok && p.Kind == chat_svc.StreamChunk {
+				chunk += p.Delta
+			}
+		}
+
+		convey.Convey("预览帧呈现出去了", func() {
+			assert.Contains(t, chunk, "live-token")
+		})
+		convey.Convey("预览帧不进转录:落库的正文只有持久帧那一份", func() {
+			assert.Contains(t, finalBlocks, "durable-block")
+			assert.NotContains(t, finalBlocks, "live-token")
+		})
+	})
+}

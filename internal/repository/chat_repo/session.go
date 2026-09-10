@@ -1,4 +1,11 @@
-// Package chat_repo 提供 chat session / message 的持久化访问。
+// Package chat_repo 提供 chat session 的持久化访问 —— **只有会话**。消息 / 块的实体
+// 与仓储归独立域 transcript_repo（决策 8，两个宿主共用一份），调用方直接引它，这里
+// 连转发别名都不留：留一个 chat_repo.Message() 就是留一条「消息属于 chat 域」的线索,
+// 下一个人会顺着它把第二份消息仓储写回来。由
+// transcript_repo.TestChatRepoHoldsSessionsOnly 看住。
+//
+// 例外是 replacement_recovery.go：它按 session_id 搬动 / 清理 chat_messages 的**归属**
+// （会话替换的崩溃恢复），改的是行属于哪条会话而不是消息内容本身，因此仍属会话域。
 package chat_repo
 
 import (

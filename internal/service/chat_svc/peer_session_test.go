@@ -28,6 +28,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
@@ -36,10 +38,12 @@ type peerSessionTestDeps struct {
 	agent   *mock_agent_repo.MockAgentRepo
 	backend *mock_agent_backend_repo.MockAgentBackendRepo
 	session *mock_chat_repo.MockSessionRepo
-	message *mock_chat_repo.MockMessageRepo
+	message *mock_transcript_repo.MockMessageRepo
 	device  *mock_remote_device_svc.MockRemoteDeviceSvc
 	project *mock_project_repo.MockProjectRepo
-	svc     *chatSvc
+	// ledger 是帧编号台账。它按会话记账并活得比 svc 长，用例据此模拟「宿主重启」。
+	ledger *fakeFrameSeqLedger
+	svc    *chatSvc
 	// projects 是这台电脑上的项目清单，由用例按需摆好；projectListCalls 记下它被
 	// 读了几次——「一次列举只读一遍」是这份清单唯一的性能约束，它得测得到。
 	projects         []*project_entity.Project
@@ -53,17 +57,20 @@ func setupPeerSessionTest(t *testing.T) *peerSessionTestDeps {
 		agent:   mock_agent_repo.NewMockAgentRepo(ctrl),
 		backend: mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl),
 		session: mock_chat_repo.NewMockSessionRepo(ctrl),
-		message: mock_chat_repo.NewMockMessageRepo(ctrl),
+		message: mock_transcript_repo.NewMockMessageRepo(ctrl),
 		device:  mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl),
 		project: mock_project_repo.NewMockProjectRepo(ctrl),
+		ledger:  &fakeFrameSeqLedger{},
 		svc:     NewChat(NoopEmitter{}).(*chatSvc),
 	}
-	prevAgent, prevBackend, prevSession, prevMessage, prevDevice := agent_repo.Agent(), agent_backend_repo.AgentBackend(), chat_repo.Session(), chat_repo.Message(), remote_device_svc.Default()
+	prevAgent, prevBackend, prevSession, prevMessage, prevDevice := agent_repo.Agent(), agent_backend_repo.AgentBackend(), chat_repo.Session(), transcript_repo.Message(), remote_device_svc.Default()
 	prevProject := project_repo.Project()
+	prevFrameSeq := transcript_repo.FrameSeq()
+	transcript_repo.RegisterFrameSeq(deps.ledger)
 	agent_repo.RegisterAgent(deps.agent)
 	agent_backend_repo.RegisterAgentBackend(deps.backend)
 	chat_repo.RegisterSession(deps.session)
-	chat_repo.RegisterMessage(deps.message)
+	transcript_repo.RegisterMessage(deps.message)
 	remote_device_svc.SetDefault(deps.device)
 	project_repo.RegisterProject(deps.project)
 	// 项目清单是列会话时的一张查询表；不摆内容的用例读到的是空表。
@@ -89,9 +96,10 @@ func setupPeerSessionTest(t *testing.T) *peerSessionTestDeps {
 		agent_repo.RegisterAgent(prevAgent)
 		agent_backend_repo.RegisterAgentBackend(prevBackend)
 		chat_repo.RegisterSession(prevSession)
-		chat_repo.RegisterMessage(prevMessage)
+		transcript_repo.RegisterMessage(prevMessage)
 		remote_device_svc.SetDefault(prevDevice)
 		project_repo.RegisterProject(prevProject)
+		transcript_repo.RegisterFrameSeq(prevFrameSeq)
 		ctrl.Finish()
 	})
 	return deps

@@ -13,6 +13,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 )
 
 // 回归:用户在 runner.Run 还没返回时点「停止」(OpenClaw 要先跟网关握手 + 首个 RPC,
@@ -25,13 +27,13 @@ func TestFailTurn_PersistsWithDetachedContext(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 		sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
-		msgRepo := mock_chat_repo.NewMockMessageRepo(ctrl)
-		prevSess, prevMsg := chat_repo.Session(), chat_repo.Message()
+		msgRepo := mock_transcript_repo.NewMockMessageRepo(ctrl)
+		prevSess, prevMsg := chat_repo.Session(), transcript_repo.Message()
 		chat_repo.RegisterSession(sessRepo)
-		chat_repo.RegisterMessage(msgRepo)
+		transcript_repo.RegisterMessage(msgRepo)
 		t.Cleanup(func() {
 			chat_repo.RegisterSession(prevSess)
-			chat_repo.RegisterMessage(prevMsg)
+			transcript_repo.RegisterMessage(prevMsg)
 		})
 
 		canceledCtx, cancel := context.WithCancel(context.Background())
@@ -70,13 +72,13 @@ func TestRunTurn_AbortBeforeStreamConvergesToIdle(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 		sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
-		msgRepo := mock_chat_repo.NewMockMessageRepo(ctrl)
-		prevSess, prevMsg := chat_repo.Session(), chat_repo.Message()
+		msgRepo := mock_transcript_repo.NewMockMessageRepo(ctrl)
+		prevSess, prevMsg := chat_repo.Session(), transcript_repo.Message()
 		chat_repo.RegisterSession(sessRepo)
-		chat_repo.RegisterMessage(msgRepo)
+		transcript_repo.RegisterMessage(msgRepo)
 		t.Cleanup(func() {
 			chat_repo.RegisterSession(prevSess)
-			chat_repo.RegisterMessage(prevMsg)
+			transcript_repo.RegisterMessage(prevMsg)
 		})
 
 		canceledCtx, cancel := context.WithCancel(context.Background())

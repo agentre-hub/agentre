@@ -8,9 +8,11 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 )
 
 // §1.4 WithoutCancel 抗 abort — characterization tests
@@ -51,10 +53,10 @@ func TestCharacterization_Persistence_CheckpointAssistantSurvivesCancel(t *testi
 	Convey("§1.4 checkpointAssistant 即便 ctx canceled 仍能 Update message", t, func() {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
-		msgRepo := mock_chat_repo.NewMockMessageRepo(ctrl)
-		prev := chat_repo.Message()
-		chat_repo.RegisterMessage(msgRepo)
-		t.Cleanup(func() { chat_repo.RegisterMessage(prev) })
+		msgRepo := mock_transcript_repo.NewMockMessageRepo(ctrl)
+		prev := transcript_repo.Message()
+		transcript_repo.RegisterMessage(msgRepo)
+		t.Cleanup(func() { transcript_repo.RegisterMessage(prev) })
 
 		canceledCtx, cancel := context.WithCancel(context.Background())
 		cancel()

@@ -17,6 +17,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 func replaceTextPreserveImages(text string, old []blocks.ContentBlock) []blocks.ContentBlock {
@@ -78,12 +79,12 @@ func (r *transcriptReplacementLifecycle) activate(
 
 	userMsg.SessionID = r.sessionID
 	userMsg.Seq = r.fromSeq
-	if err := chat_repo.Message().Create(txCtx, userMsg); err != nil {
+	if err := transcript_repo.Message().Create(txCtx, userMsg); err != nil {
 		return err
 	}
 	assistantMsg.SessionID = r.sessionID
 	assistantMsg.Seq = r.fromSeq + 1
-	if err := chat_repo.Message().Create(txCtx, assistantMsg); err != nil {
+	if err := transcript_repo.Message().Create(txCtx, assistantMsg); err != nil {
 		return err
 	}
 	recovery.UserMessageID = userMsg.ID
@@ -336,7 +337,7 @@ func (s *chatSvc) isFailedFirstPiTurn(
 	if sess == nil || userMsg == nil || hasForkAnchor {
 		return false, nil
 	}
-	messages, err := chat_repo.Message().List(ctx, sess.ID)
+	messages, err := transcript_repo.Message().List(ctx, sess.ID)
 	if err != nil {
 		return false, operationFailedWithCause(ctx, err)
 	}
@@ -375,7 +376,7 @@ func (s *chatSvc) isFailedFirstPiTurn(
 }
 
 func (s *chatSvc) codexRollbackAnchor(ctx context.Context, sess *chat_entity.Session, userMsg *chat_entity.Message) (string, error) {
-	msgs, err := chat_repo.Message().List(ctx, sess.ID)
+	msgs, err := transcript_repo.Message().List(ctx, sess.ID)
 	if err != nil {
 		return "", operationFailedWithCause(ctx, err)
 	}

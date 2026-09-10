@@ -10,7 +10,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 

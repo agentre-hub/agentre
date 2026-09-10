@@ -12,9 +12,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // startSubagentActivityWatcher 为某 claudecode 会话惰性启动一个 watcher goroutine,订阅
@@ -61,7 +62,7 @@ func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be
 		return
 	}
 
-	launchMsg, err := chat_repo.Message().FindAssistantBySubagentToolCallID(ctx, sessionID, act.ToolCallID)
+	launchMsg, err := transcript_repo.Message().FindAssistantBySubagentToolCallID(ctx, sessionID, act.ToolCallID)
 	if err != nil || launchMsg == nil {
 		logger.Ctx(ctx).Warn("chat_svc: driveSubagentActivity launch message not found; draining events",
 			zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolCallID), zap.Error(err))
@@ -117,7 +118,7 @@ func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be
 		if err != nil {
 			logger.Ctx(finalCtx).Warn("chat_svc: driveSubagentActivity encode child blocks failed",
 				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolCallID), zap.Error(err))
-		} else if err := chat_repo.Message().AppendSubagentChildren(finalCtx, sessionID, act.ToolCallID, childJSON, childIDs); err != nil {
+		} else if err := transcript_repo.Message().AppendSubagentChildren(finalCtx, sessionID, act.ToolCallID, childJSON, childIDs); err != nil {
 			logger.Ctx(finalCtx).Warn("chat_svc: driveSubagentActivity AppendSubagentChildren failed",
 				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolCallID), zap.Error(err))
 		}
@@ -127,7 +128,7 @@ func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be
 	// 不重写整条消息(它属于一条早已收尾的旧消息),不落这一步的话重开会话又退回旧数字。
 	// 没变化就不写 —— 发起消息 blocks_json 动辄几百 KB,读-改-写不白跑一趟。
 	if progress := progressOf(state); progress != progressBefore {
-		if err := chat_repo.Message().PatchSubagentProgress(finalCtx, sessionID, act.ToolCallID, progress); err != nil {
+		if err := transcript_repo.Message().PatchSubagentProgress(finalCtx, sessionID, act.ToolCallID, progress); err != nil {
 			logger.Ctx(finalCtx).Warn("chat_svc.driveSubagentActivity: PatchSubagentProgress failed",
 				zap.Int64("sessionId", sessionID), zap.String("toolUseId", act.ToolCallID), zap.Error(err))
 		}
@@ -210,11 +211,11 @@ func seedSubagentState(acc *turn.Accumulator, launchMsg *chat_entity.Message, to
 
 // progressOf 取 overlay 的运行时进度快照(含 Model,R6/A9 空闲活动轮解出的实际模型经
 // 这份快照跟其它进度字段一起跨轮写回);state 为 nil 时返回零值快照(IsZero,不触发落库)。
-func progressOf(state *chatblocks.SubagentStateBlock) chat_repo.SubagentProgress {
+func progressOf(state *chatblocks.SubagentStateBlock) transcript_repo.SubagentProgress {
 	if state == nil {
-		return chat_repo.SubagentProgress{}
+		return transcript_repo.SubagentProgress{}
 	}
-	return chat_repo.SubagentProgress{
+	return transcript_repo.SubagentProgress{
 		TotalTokens:  state.TotalTokens,
 		ToolUses:     state.ToolUses,
 		DurationMs:   state.DurationMs,

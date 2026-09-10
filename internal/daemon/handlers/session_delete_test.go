@@ -18,34 +18,34 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
 )
 
-// setupSessionDeleteTest 组装删除 handler:会话行与通知日志两个写端口都用 mockgen
+// setupSessionDeleteTest 组装删除 handler:会话行与转录两个写端口都用 mockgen
 // 注入,不碰数据库(样例同 session_catchup_test.go)。
 func setupSessionDeleteTest(t *testing.T, loggedInAccountID func() string) (
 	context.Context,
 	*mock_handlers.MockSessionDeletePort,
-	*mock_handlers.MockJournalPurgePort,
+	*mock_handlers.MockTranscriptPurgePort,
 	*handlers.SessionDeleteHandlers,
 ) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	sessions := mock_handlers.NewMockSessionDeletePort(ctrl)
-	journal := mock_handlers.NewMockJournalPurgePort(ctrl)
+	transcriptPurge := mock_handlers.NewMockTranscriptPurgePort(ctrl)
 	h := handlers.NewSessionDeleteHandlers(handlers.SessionDeleteDeps{
 		Sessions:          sessions,
-		Journal:           journal,
+		Transcript:        transcriptPurge,
 		LoggedInAccountID: loggedInAccountID,
 	})
-	return context.Background(), sessions, journal, h
+	return context.Background(), sessions, transcriptPurge, h
 }
 
-// Given 一条属于调用方的会话, When 它被删除, Then 会话行与它的**全部**通知日志一起
+// Given 一条属于调用方的会话, When 它被删除, Then 会话行与它的**全部**转录一起
 // 消失 —— 只删会话行会留下一段没有主人的转录,而这台机器上的会话 id 是调用方本地自增
 // 的、会被复用,那段旧日志下一次就会被当成新会话的历史拉走。
-func TestSessionDelete_GivenOwnSession_ThenRemovesTheRowAndItsWholeJournal(t *testing.T) {
-	ctx, sessions, journal, h := setupSessionDeleteTest(t, nil)
+func TestSessionDelete_GivenOwnSession_ThenRemovesTheRowAndItsWholeTranscript(t *testing.T) {
+	ctx, sessions, transcriptPurge, h := setupSessionDeleteTest(t, nil)
 	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(1), nil)
-	journal.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(42), nil)
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(42), nil)
 
 	got, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
 	require.NoError(t, err)
@@ -55,10 +55,10 @@ func TestSessionDelete_GivenOwnSession_ThenRemovesTheRowAndItsWholeJournal(t *te
 // Given 同一条会话被删了第二次(server 记的待办重放、或用户重试), When 会话行早就
 // 不在了, Then 仍然是成功且日志照样清 —— 报错会让 server 那条待办永远重放下去,而
 // 「会话行已经没了、日志还剩着」正是上一次删到一半留下的样子,重试必须能收敛。
-func TestSessionDelete_GivenAlreadyDeletedSession_ThenSucceedsAndStillPurgesTheJournal(t *testing.T) {
-	ctx, sessions, journal, h := setupSessionDeleteTest(t, nil)
+func TestSessionDelete_GivenAlreadyDeletedSession_ThenSucceedsAndStillPurgesTheTranscript(t *testing.T) {
+	ctx, sessions, transcriptPurge, h := setupSessionDeleteTest(t, nil)
 	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(0), nil)
-	journal.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(0), nil)
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(0), nil)
 
 	got, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
 	require.NoError(t, err)
@@ -75,12 +75,12 @@ func TestSessionDelete_GivenNamedOriginWithoutAccount_ThenRejectsWithoutTouching
 	require.ErrorIs(t, err, rpcerror.ErrUnauthorized)
 }
 
-// Given 会话行删掉了, When 清日志这一步失败, Then 整个调用报错 —— 交出成功会让
-// server 把待办勾掉,那段转录就永远留在这台机器上了。
-func TestSessionDelete_GivenJournalPurgeFails_ThenReportsFailure(t *testing.T) {
-	ctx, sessions, journal, h := setupSessionDeleteTest(t, nil)
-	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(1), nil)
-	journal.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(0), errors.New("disk is gone"))
+// Given 清转录这一步失败, When 删除继续走下去, Then 整个调用报错、身份行原地不动
+// —— 交出成功会让 server 把待办勾掉,那段转录就永远留在这台机器上了;而身份行是
+// 收窄到调用方对端的唯一依据,先删掉它这段转录就再也删不动了。
+func TestSessionDelete_GivenTranscriptPurgeFails_ThenReportsFailure(t *testing.T) {
+	ctx, _, transcriptPurge, h := setupSessionDeleteTest(t, nil)
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(0), errors.New("disk is gone"))
 
 	_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
 	require.Error(t, err)
@@ -133,9 +133,9 @@ func TestSessionDelete_GivenPooledCLISession_WhenDeleted_ThenTheSubprocessIsRele
 	recorder := &sessionReleaseRecorder{}
 	defer agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, recorder)()
 
-	ctx, sessions, journal, h := setupSessionDeleteTest(t, nil)
+	ctx, sessions, transcriptPurge, h := setupSessionDeleteTest(t, nil)
 	sessions.EXPECT().Delete(gomock.Any(), "", convID(7)).Return(int64(1), nil)
-	journal.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(1), nil)
+	transcriptPurge.EXPECT().DeleteAll(gomock.Any(), "", convID(7)).Return(int64(1), nil)
 
 	_, err := h.Delete(ctx, wire.SessionDeleteParams{ConversationID: convID(7)})
 	require.NoError(t, err)

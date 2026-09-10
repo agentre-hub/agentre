@@ -15,10 +15,11 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/handlers"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
@@ -40,10 +41,20 @@ type turnRun struct {
 
 	runner agentruntime.Runtime
 	events <-chan agentruntime.Event
-	result *agentruntime.RunResult
-	req    agentruntime.RunRequest
+	// previews 是远端执行那一路的**预览帧**流(见 preview_stream.go)。非 nil 时这一轮
+	// 分工:预览帧负责呈现,events 上的持久帧负责转录。本机 runtime 上它是 nil,
+	// events 一条流两件事都干,与今天逐字一致。
+	previews <-chan agentruntime.Event
+	result   *agentruntime.RunResult
+	req      agentruntime.RunRequest
 
-	acc           *turn.Accumulator
+	acc *turn.Accumulator
+	// previewAcc 是预览帧用完即弃的累加器:呈现要的那点上下文攒在它里面,它不落库。
+	previewAcc *turn.Accumulator
+	// durableCtx 是持久帧那一路自己的轮上下文。持久帧只累积、不产生宿主副作用 ——
+	// 待决策的登记、计时、前端流都归实时那一路(它在这条会话上先发生过一次),
+	// 拿同一个 turnCtx 再走一遍会把已经答完的待决策重新挂回去。
+	durableCtx    *turn.TurnContext
 	streamStopErr error
 	segmentStart  time.Time
 	dispEmit      *dispatcherEmitter
@@ -122,86 +133,170 @@ func (t *turnRun) flushPendingSteers(ctx context.Context) {
 	if nextAssistant != nil && payload != nil {
 		t.assistantMsg = nextAssistant
 		t.acc = turn.New()
+		// 呈现那一路也从这个分段起重新攒:两只累加器都是「这一段」的状态。
+		t.previewAcc = nil
 		t.segmentStart = time.Now()
 		t.turnCtx = t.svc.newTurnContext(t.assistantMsg, t.sess, t.stream, t.be.Type)
 		t.svc.emitter.Emit(ctx, t.stream, *payload)
 	}
 }
 
-// consumeEvents 消费 runner 事件流直到 channel 关闭。
+// consumeEvents 消费本轮的事件流直到 runner 那条 channel 关闭。
+//
+// 远端执行那一路是**两级帧**(规格 2026-09-05「两级帧与补齐」):预览帧只用于即时
+// 呈现、不进转录,持久帧是转录与游标的唯一来源。两条流在这一个 goroutine 上消费 ——
+// handler 会动 turnCtx 与前端流,两个 goroutine 同时进去就是一场数据竞争。
 func (t *turnRun) consumeEvents(ctx context.Context) {
-	for ev := range t.events {
-		// Peer fanout observes the original canonical event before local reduction;
-		// it never replaces the desktop emitter or dispatcher.
-		t.svc.publishPeerEvent(t.sess.ID, ev)
-		if t.streamStopErr != nil {
-			if eventShowsProgressAfterError(ev) {
-				fields := make([]zap.Field, 0, 6)
-				fields = append(fields,
-					zap.Int64("sessionId", t.sess.ID),
-					zap.Int64("assistantMsgId", t.assistantMsg.ID),
-					zap.String("clearedBy", fmt.Sprintf("%T", ev)),
-				)
-				fields = append(fields, chatRuntimeErrorLogFields(t.streamStopErr)...)
-				logger.Ctx(ctx).Info("chat_svc.runTurn: stream error cleared by progress event", fields...)
-				t.streamStopErr = nil
-			} else {
-				continue
-			}
+	if t.previews == nil {
+		// 本机 runtime:没有两级帧,一条流既呈现也落库。
+		for ev := range t.events {
+			t.applyLive(ctx, ev, false)
 		}
-		// SteerConsumed + ErrorEvent 不走 dispatcher:
-		//   - SteerConsumed:turn-segmentation 紧耦合 assistantMsg/segmentStart/acc/turnCtx
-		//     的整体切换,handler 接口表达不了这 4 个字段的同步替换。
-		//   - ErrorEvent:旧路径只设 streamStopErr,真正的 StreamError emit 在 finalize
-		//     阶段(带 ChatMessage 完整快照);ErrorHandler 单独 emit 会与 finalize 重复
-		//     且缺 Message 字段。
-		switch e := ev.(type) {
-		case agentruntime.SteerConsumed:
-			t.pendingSteers = append(t.pendingSteers, e.Steers...)
-			// 工具在途时先不分段:claudecode 的 PostToolUse hook 在 CLI 写出
-			// tool_result 帧**之前**就 drain 走排队消息,SteerConsumed 因此会先于
-			// 同一个工具的 ToolResult 到达。此刻收口 assistant 会把 tool_use 冻在
-			// 旧消息里,随后的 tool_result 在新 accumulator 里查不到 tool_use,被
-			// ToolResultHandler 当孤儿丢弃 —— 工具卡永远停在 running。
-			if t.acc.HasOpenToolUse() {
-				continue
+		return
+	}
+	for {
+		select {
+		case ev, ok := <-t.events:
+			if !ok {
+				// 轮结束。预览与终态帧走同一条读循环、同一个顺序,所以此刻缓冲里
+				// 剩下的都是这一轮的,呈现完再收尾。
+				t.drainPreviews(ctx)
+				return
 			}
+			t.applyDurable(ctx, ev)
+		case preview := <-t.previews:
+			t.applyPreview(ctx, preview)
+		}
+	}
+}
+
+// applyDurable 把一条持久帧累积进本轮转录,并在定稿时刻 checkpoint 一次。
+//
+// 它**只累积**:呈现、待决策登记、计时都归预览那一路 —— 同一段内容在这条会话上已经
+// 实时发生过一次,持久帧是它落库之后的那一份事实,再走一遍宿主副作用就是把已经答完的
+// 待决策重新挂回去、把一段话在前端印两遍。
+func (t *turnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
+	if ev == nil {
+		return
+	}
+	if t.durableCtx == nil {
+		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
+	}
+	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, nil, t.durableCtx); err != nil {
+		logger.Ctx(ctx).Warn("chat dispatcher Apply failed",
+			zap.String("eventType", fmt.Sprintf("%T", ev)),
+			zap.Error(err))
+	}
+	if shouldCheckpointAssistantAfterEvent(ev) {
+		t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
+	}
+}
+
+// liveAcc 交回呈现这一路此刻该往里写的累加器。分段落地会把它整只换掉,所以每次现取。
+func (t *turnRun) liveAcc(preview bool) *turn.Accumulator {
+	if !preview {
+		return t.acc
+	}
+	if t.previewAcc == nil {
+		t.previewAcc = turn.New()
+	}
+	return t.previewAcc
+}
+
+// drainPreviews 把此刻还没呈现的预览帧呈现完。
+func (t *turnRun) drainPreviews(ctx context.Context) {
+	for {
+		select {
+		case preview := <-t.previews:
+			t.applyPreview(ctx, preview)
+		default:
+			return
+		}
+	}
+}
+
+// applyLive 呈现一条实时事件:对端扇出、流式错误与分段这些**宿主副作用**都在这里,
+// 内容则累积进 acc。
+//
+// 两处调用只差 acc 与要不要落库:
+//
+//   - 本机 runtime(preview=false):acc 就是本轮转录,呈现与落库是同一条流;
+//   - 远端执行(preview=true):这条流是**预览帧**,只负责呈现,累积进用完即弃的那只
+//     —— 落库归 events 上的持久帧(applyDurable),规格「两级帧与补齐」。
+//
+// 累加器每次现取(liveAcc):分段落地会把它整只换掉,拿一只在函数入口取好的旧引用
+// 往下写,分段之后的内容就全落回收口了的那条消息里。
+func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview bool) {
+	// Peer fanout observes the original canonical event before local reduction;
+	// it never replaces the desktop emitter or dispatcher.
+	t.svc.publishPeerEvent(t.sess.ID, ev)
+	if t.streamStopErr != nil {
+		if eventShowsProgressAfterError(ev) {
+			fields := make([]zap.Field, 0, 6)
+			fields = append(fields,
+				zap.Int64("sessionId", t.sess.ID),
+				zap.Int64("assistantMsgId", t.assistantMsg.ID),
+				zap.String("clearedBy", fmt.Sprintf("%T", ev)),
+			)
+			fields = append(fields, chatRuntimeErrorLogFields(t.streamStopErr)...)
+			logger.Ctx(ctx).Info("chat_svc.runTurn: stream error cleared by progress event", fields...)
+			t.streamStopErr = nil
+		} else {
+			return
+		}
+	}
+	// SteerConsumed + ErrorEvent 不走 dispatcher:
+	//   - SteerConsumed:turn-segmentation 紧耦合 assistantMsg/segmentStart/acc/turnCtx
+	//     的整体切换,handler 接口表达不了这 4 个字段的同步替换。
+	//   - ErrorEvent:旧路径只设 streamStopErr,真正的 StreamError emit 在 finalize
+	//     阶段(带 ChatMessage 完整快照);ErrorHandler 单独 emit 会与 finalize 重复
+	//     且缺 Message 字段。
+	switch e := ev.(type) {
+	case agentruntime.SteerConsumed:
+		t.pendingSteers = append(t.pendingSteers, e.Steers...)
+		// 工具在途时先不分段:claudecode 的 PostToolUse hook 在 CLI 写出
+		// tool_result 帧**之前**就 drain 走排队消息,SteerConsumed 因此会先于
+		// 同一个工具的 ToolResult 到达。此刻收口 assistant 会把 tool_use 冻在
+		// 旧消息里,随后的 tool_result 在新 accumulator 里查不到 tool_use,被
+		// ToolResultHandler 当孤儿丢弃 —— 工具卡永远停在 running。
+		if t.liveAcc(preview).HasOpenToolUse() {
+			return
+		}
+		t.flushPendingSteers(ctx)
+		return
+	case agentruntime.ErrorEvent:
+		if e.Err != nil {
+			fields := make([]zap.Field, 0, 6)
+			fields = append(fields,
+				zap.Int64("sessionId", t.sess.ID),
+				zap.Int64("assistantMsgId", t.assistantMsg.ID),
+				zap.String("stream", t.stream),
+			)
+			fields = append(fields, chatRuntimeErrorLogFields(e.Err)...)
+			logger.Ctx(ctx).Warn("chat_svc.runTurn: ErrorEvent intercepted", fields...)
+			t.streamStopErr = e.Err
+		}
+		return
+	}
+	// 推迟中的分段:这一帧不是 tool_result,说明在途 tool_use 的结果根本不走流
+	// (AskUserQuestion 这类),不再等 —— 且必须赶在 Apply 之前落地,否则这一帧的
+	// 内容会被记进本该收口的旧 assistant。推迟至多一个事件。
+	if len(t.pendingSteers) > 0 {
+		if _, isToolResult := ev.(agentruntime.ToolResult); !isToolResult {
 			t.flushPendingSteers(ctx)
-			continue
-		case agentruntime.ErrorEvent:
-			if e.Err != nil {
-				fields := make([]zap.Field, 0, 6)
-				fields = append(fields,
-					zap.Int64("sessionId", t.sess.ID),
-					zap.Int64("assistantMsgId", t.assistantMsg.ID),
-					zap.String("stream", t.stream),
-				)
-				fields = append(fields, chatRuntimeErrorLogFields(e.Err)...)
-				logger.Ctx(ctx).Warn("chat_svc.runTurn: ErrorEvent intercepted", fields...)
-				t.streamStopErr = e.Err
-			}
-			continue
 		}
-		// 推迟中的分段:这一帧不是 tool_result,说明在途 tool_use 的结果根本不走流
-		// (AskUserQuestion 这类),不再等 —— 且必须赶在 Apply 之前落地,否则这一帧的
-		// 内容会被记进本该收口的旧 assistant。推迟至多一个事件。
-		if len(t.pendingSteers) > 0 {
-			if _, isToolResult := ev.(agentruntime.ToolResult); !isToolResult {
-				t.flushPendingSteers(ctx)
-			}
-		}
-		if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, t.dispEmit, nil, t.turnCtx); err != nil {
-			logger.Ctx(ctx).Warn("chat dispatcher Apply failed",
-				zap.String("eventType", fmt.Sprintf("%T", ev)),
-				zap.Error(err))
-		}
-		// 在途工具都配上结果了:分段落地,tool_use 与 tool_result 一起留在旧 assistant。
-		if len(t.pendingSteers) > 0 && !t.acc.HasOpenToolUse() {
-			t.flushPendingSteers(ctx)
-		}
-		if shouldCheckpointAssistantAfterEvent(ev) {
-			t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
-		}
+	}
+	if err := t.svc.dispatcher.Apply(ctx, ev, t.liveAcc(preview), t.dispEmit, nil, t.turnCtx); err != nil {
+		logger.Ctx(ctx).Warn("chat dispatcher Apply failed",
+			zap.String("eventType", fmt.Sprintf("%T", ev)),
+			zap.Error(err))
+	}
+	// 在途工具都配上结果了:分段落地,tool_use 与 tool_result 一起留在旧 assistant。
+	if len(t.pendingSteers) > 0 && !t.liveAcc(preview).HasOpenToolUse() {
+		t.flushPendingSteers(ctx)
+	}
+	if !preview && shouldCheckpointAssistantAfterEvent(ev) {
+		t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
 	}
 }
 
@@ -341,10 +436,10 @@ func (t *turnRun) finalize(ctx context.Context) {
 	// finalCtx：去掉 cancel 信号但保留 DB 句柄。abort 路径下 turnCtx 已 cancel，
 	// 用它写 Update 会静默失败，partial 内容就丢了。
 	finalCtx := context.WithoutCancel(ctx)
-	_ = chat_repo.Message().Update(finalCtx, t.assistantMsg)
+	_ = transcript_repo.Message().Update(finalCtx, t.assistantMsg)
 	// 落库之后立刻把同一份统计发给对端订阅者:Peer Tab 的 meta 与本机看到的是
 	// 同一条 assistant 消息,数不该只有本机有。
-	t.svc.publishPeerTurnDone(t.sess.ID, t.assistantMsg)
+	t.svc.publishPeerTurnDone(finalCtx, t.sess.ID, t.assistantMsg)
 
 	// 对 finalize 时标 expired 的 AskUserQuestion emit 锁定 patch(形态同
 	// UserAskResolvedHandler):前端按 requestId merge,把在屏活卡立即翻到失效态,

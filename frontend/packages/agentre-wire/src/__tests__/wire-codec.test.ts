@@ -65,6 +65,7 @@ import sessionAttachResultFixture from "../../fixtures/session-attach-result.jso
 import sessionPendingWaitersParamsFixture from "../../fixtures/session-pending-waiters-params.json";
 import sessionPendingWaitersResultFixture from "../../fixtures/session-pending-waiters-result.json";
 import eventFrameFixture from "../../fixtures/event-frame.json";
+import eventFramePreviewFixture from "../../fixtures/event-frame-preview.json";
 import runResultDoneFrameFixture from "../../fixtures/run-result-done-frame.json";
 import usageWireFixture from "../../fixtures/usage-wire.json";
 import autonomousTurnStartedFixture from "../../fixtures/autonomous-turn-started.json";
@@ -280,12 +281,30 @@ describe("protobuf rpc envelope", () => {
     expect(runtimeEvent.event.value.text).toBe("hello");
   });
 
+  // 两级帧在 Protobuf 这一侧同样要分得开:二进制帧上 seq 的 0 分不出"没给"与
+  // "给了 0",所以级别只能由 preview 这一格承载(spec 2026-09-05 决策 4)。
+  it("given a preview runtime event notification, when encoded, then the level survives the protobuf round-trip", () => {
+    const preview = {
+      case: "runtimeEventNotification" as const,
+      conversationId: CONVERSATION_ID,
+      seq: 0,
+      preview: true,
+      event: { case: "textDelta" as const, text: "逐字" },
+    };
+    expect(
+      ProtobufRpcCodec.decode(
+        ProtobufRpcCodec.encode({ id: 0n, body: preview }),
+      ),
+    ).toEqual({ id: 0n, body: preview });
+  });
+
   // 实时通知帧不经 Request/Response,删掉 oneof 与它无关 —— 原样保留覆盖。
   it("given a live runtime event notification, when encoded, then it round-trips outside the request/response path", () => {
     const notification = {
       case: "runtimeEventNotification" as const,
       conversationId: CONVERSATION_ID,
       seq: 7,
+      preview: false,
       event: { case: "textDelta" as const, text: "hello" },
     };
     const live = ProtobufRpcCodec.encode({ id: 0n, body: notification });
@@ -330,6 +349,7 @@ describe("protobuf rpc envelope", () => {
         case: "runtimeEventNotification" as const,
         conversationId: CONVERSATION_ID,
         seq: 8,
+        preview: false,
         event,
       },
     };
@@ -572,6 +592,7 @@ describe("protobuf rpc envelope", () => {
           case: "runtimeEventNotification" as const,
           conversationId: CONVERSATION_ID,
           seq: 11,
+          preview: false,
           event,
         },
       };
@@ -815,6 +836,23 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
     expect(f.conversationId).toBe(CONVERSATION_ID);
     expect(f.seq).toBe(11);
     expect(f.event).toEqual({ kind: "text_delta", text: "你好" });
+    // 持久帧不带 preview 这一格 —— 上面那条是块级 / 消息级的帧。
+    expect(f.preview).toBeUndefined();
+  });
+
+  // 两级帧(spec 2026-09-05 决策 4):预览帧只带 preview、不带 seq。判别必须落在
+  // preview 这一格上 —— 拿 seq 是不是 0 去猜,会把每一条预览帧读成"不大于游标"
+  // 而丢进去重路径。
+  it("EventFrame 的预览帧解出 preview 且不带 seq", () => {
+    const f = assertRoundTrip(
+      decodeEventFrame,
+      encodeEventFrame,
+      eventFramePreviewFixture,
+      "EventFrame",
+    );
+    expect(f.preview).toBe(true);
+    expect(f.seq).toBeUndefined();
+    expect(f.event).toEqual({ kind: "text_delta", text: "你好" });
   });
 
   it("RunResultDoneFrame 解出 usage / 终态", () => {
@@ -856,6 +894,7 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
       case: "autonomousTurnEventNotification",
       conversationId: CONVERSATION_ID,
       seq: 12,
+      preview: false,
       event: { case: "textDelta", text: "auto" },
     },
     {
@@ -963,6 +1002,7 @@ describe("turn stats on the wire", () => {
         case: "runtimeEventNotification" as const,
         conversationId: CONVERSATION_ID,
         seq: 11,
+        preview: false,
         event: {
           case: "done" as const,
           model: "claude-sonnet-4-6",

@@ -10,8 +10,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // TranscriptBlockWindow 是一次下发多少条消息的完整正文。
@@ -40,7 +40,7 @@ func (s *chatSvc) LoadMessageBlocks(ctx context.Context, req *LoadMessageBlocksR
 	if limit <= 0 || limit > TranscriptBlockWindow {
 		limit = TranscriptBlockWindow
 	}
-	msgs, err := chat_repo.Message().ListMeta(ctx, req.SessionID)
+	msgs, err := transcript_repo.Message().ListMeta(ctx, req.SessionID)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
@@ -58,7 +58,7 @@ func (s *chatSvc) LoadMessageBlocks(ctx context.Context, req *LoadMessageBlocksR
 	if len(window) == 0 {
 		return resp, nil
 	}
-	if err := chat_repo.Message().FillBlocks(ctx, window); err != nil {
+	if err := transcript_repo.Message().FillBlocks(ctx, window); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
 	for _, m := range window {
@@ -123,11 +123,11 @@ func (s *chatSvc) LoadSessionBlocksByType(ctx context.Context, req *LoadSessionB
 	if req == nil || req.SessionID <= 0 || len(req.Types) == 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	msgs, err := chat_repo.Message().ListMeta(ctx, req.SessionID)
+	msgs, err := transcript_repo.Message().ListMeta(ctx, req.SessionID)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
-	if err := chat_repo.Message().FillBlocksByType(ctx, msgs, storedBlockTypes(req.Types)); err != nil {
+	if err := transcript_repo.Message().FillBlocksByType(ctx, msgs, storedBlockTypes(req.Types)); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
 	wanted := make(map[string]struct{}, len(req.Types))

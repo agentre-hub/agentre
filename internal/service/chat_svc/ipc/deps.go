@@ -9,6 +9,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // deps.go 声明 ipc 对仓储的**窄端口**(ISP,与 project_svc/deps.go 同形):这个包不是
@@ -23,7 +24,7 @@ type SessionPort interface {
 	UpdatePermissionMode(ctx context.Context, id int64, mode string) error
 }
 
-// MessagePort is ipc's narrow view of chat_repo.MessageRepo:只用来回看末条 assistant
+// MessagePort is ipc's narrow view of transcript_repo.MessageRepo:只用来回看末条 assistant
 // 有没有可操作的 plan 块。
 type MessagePort interface {
 	List(ctx context.Context, sessionID int64) ([]*chat_entity.Message, error)
@@ -54,7 +55,7 @@ func (sessionRepoDelegate) UpdatePermissionMode(ctx context.Context, id int64, m
 type messageRepoDelegate struct{}
 
 func (messageRepoDelegate) List(ctx context.Context, sessionID int64) ([]*chat_entity.Message, error) {
-	return chat_repo.Message().List(ctx, sessionID)
+	return transcript_repo.Message().List(ctx, sessionID)
 }
 
 type agentRepoDelegate struct{}

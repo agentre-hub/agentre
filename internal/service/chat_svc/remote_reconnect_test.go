@@ -24,6 +24,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo/mock_agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -622,7 +624,7 @@ func TestRemoteConnState_EmitsSessionLevelStreamEvent(t *testing.T) {
 func registerLoadSessionRepos(t *testing.T, ctrl *gomock.Controller, sessionID int64, sess *chat_entity.Session) {
 	t.Helper()
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
-	msgRepo := mock_chat_repo.NewMockMessageRepo(ctrl)
+	msgRepo := mock_transcript_repo.NewMockMessageRepo(ctrl)
 	agtRepo := mock_agent_repo.NewMockAgentRepo(ctrl)
 	sessRepo.EXPECT().Find(gomock.Any(), sessionID).Return(sess, nil).AnyTimes()
 	msgRepo.EXPECT().ListMeta(gomock.Any(), sessionID).Return([]*chat_entity.Message{
@@ -631,13 +633,13 @@ func registerLoadSessionRepos(t *testing.T, ctrl *gomock.Controller, sessionID i
 	msgRepo.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	agtRepo.EXPECT().Find(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
-	prevSess, prevMsg, prevAgent := chat_repo.Session(), chat_repo.Message(), agent_repo.Agent()
+	prevSess, prevMsg, prevAgent := chat_repo.Session(), transcript_repo.Message(), agent_repo.Agent()
 	chat_repo.RegisterSession(sessRepo)
-	chat_repo.RegisterMessage(msgRepo)
+	transcript_repo.RegisterMessage(msgRepo)
 	agent_repo.RegisterAgent(agtRepo)
 	t.Cleanup(func() {
 		chat_repo.RegisterSession(prevSess)
-		chat_repo.RegisterMessage(prevMsg)
+		transcript_repo.RegisterMessage(prevMsg)
 		agent_repo.RegisterAgent(prevAgent)
 	})
 }

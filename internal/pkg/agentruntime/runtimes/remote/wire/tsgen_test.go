@@ -64,7 +64,7 @@ import (
 	// 这个 blank import 就是把本仓的注册包链接进测试二进制、让 init() 真的执行 ——
 	// 生成器随后问 blocks.RegisteredTypes() 拿到的才是完整答案。理由与代价见
 	// blockTypeVocabulary 与 TestTSGenCoversBlockTypes。
-	_ "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	_ "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 )
 
 // tsGenRel 生成产物在本仓里的位置(相对仓库根)—— @agentre-hub/agentre-wire 的 src/。
@@ -297,14 +297,14 @@ const blocksPkgPath = "github.com/cago-frame/agents/agent/blocks"
 // blockTypeCycleBound 是本仓声明、但运行时枚举**够不着**的块类型判别值。
 //
 // 目前只有一条:chat_svc.PlanBlock 的 "plan"。它注册在 chat_svc 包本身(而不是
-// chat_svc/blocks 子包),而 chat_svc 传递依赖 wire 包,所以本包的包内测试
+// internal/pkg/transcript/blocks),而 chat_svc 传递依赖 wire 包,所以本包的包内测试
 // blank import 它会直接 import cycle —— 换句话说,这个 init() 在本测试二进制里
 // **永远不可能**跑起来。词表里那一格因此由 AST 扫描(scanBlockTypeRegistrations)
 // 补齐,而不是靠人记得手抄。
 //
 // 这不是一张豁免清单,而是一条被钉住的事实:TestTSGenCoversBlockTypes 断言
 // 「AST 扫到的减去运行时枚举到的」正好等于它。再有一个块类型落进够不着的包,
-// 或者 PlanBlock 挪进 chat_svc/blocks 之后这一格空了,守卫都会变红,逼人回来
+// 或者 PlanBlock 挪进 internal/pkg/transcript/blocks 之后这一格空了,守卫都会变红,逼人回来
 // 更新这段话。
 var blockTypeCycleBound = []string{"plan"}
 
@@ -1823,7 +1823,7 @@ func TestTSGenCoversBlockTypes(t *testing.T) {
 	require.Equal(t, blockTypeCycleBound, dedupe(missed),
 		"「本仓声明、但运行时枚举够不着」的块类型集合变了。\n"+
 			"多出来的:多半是新块类型注册在了一个 blank import 不进来的包里 —— 优先把它\n"+
-			"挪进 chat_svc/blocks(那里 import 得进来),挪不动再更新 blockTypeCycleBound;\n"+
+			"挪进 internal/pkg/transcript/blocks(那里 import 得进来),挪不动再更新 blockTypeCycleBound;\n"+
 			"少掉的:某个原本够不着的块类型现在够得着了,回去把 blockTypeCycleBound 那段\n"+
 			"注释一起改掉。改完重新生成:\n\t%s", tsRegenCmd)
 }

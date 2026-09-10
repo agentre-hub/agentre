@@ -28,10 +28,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
 	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
-	"github.com/agentre-hub/agentre/internal/daemon/repository/notification_repo"
 	"github.com/agentre-hub/agentre/internal/daemon/repository/session_repo"
 	"github.com/agentre-hub/agentre/internal/daemon/sessions"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -39,6 +39,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
 	"github.com/agentre-hub/agentre/internal/pkg/syncwire"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -82,9 +85,9 @@ type Daemon struct {
 	// it through ctx (db.WithContextDB at the Run ctx boundary), never directly.
 	db *gorm.DB
 
-	// journal 是通知日志的写入口,Daemon 级一份(会话日志按 (对端, 会话) 分区,不随
-	// 连接生灭 —— 断连重连不重置任何序号)。
-	journal handlers.JournalPort
+	// transcript 是转录(消息行 + 块行)的写入口,Daemon 级一份 —— 生产者是活过连接
+	// 的 fanout goroutine,断连重连不重置任何东西。它取代了从前的通知日志(决策 1)。
+	transcript handlers.TranscriptPort
 
 	// sessionStore 是会话身份与生命周期的存取口,同样 Daemon 级。
 	sessionStore daemonSessionStore
@@ -749,8 +752,10 @@ func New(opts Options) (*Daemon, error) {
 	// agentred 的组装根,位置对应桌面端 internal/bootstrap/cago.go 里 RunMigrations
 	// 之后的那批 RegisterXxx。实现本身无状态(句柄经 ctx 传),同进程多个 Daemon
 	// 注册同一个实现互不干扰。
-	notification_repo.RegisterNotification(notification_repo.NewNotification())
 	session_repo.RegisterSession(session_repo.NewSession())
+	// 转录(消息 + 块)与桌面端共用同一份仓储实现(决策 8):两个进程各一个库,
+	// 句柄经 ctx 传,所以同一份实现在这里注册一次即可。
+	transcript_repo.RegisterMessage(transcript_repo.NewMessage())
 	// R10:daemon 启动时把库里全部非终态会话标记为已中断。它们的子进程随上一个 daemon
 	// 进程消亡了,不扫的话客户端重连后会看到一批 running 的僵尸会话、接管上去无限期等待。
 	// 清扫失败即 New 失败:扫不动说明库本身有问题,而通知落库也走同一个库,让 daemon
@@ -782,7 +787,7 @@ func New(opts Options) (*Daemon, error) {
 
 	d := &Daemon{
 		opts: opts, state: st, db: gormDB,
-		journal:      notificationJournal{db: gormDB},
+		transcript:   transcriptStore{db: gormDB},
 		sessionStore: daemonSessionStore{db: gormDB},
 		pairing:      pm, ratelim: rl,
 		auth: auth, protobufRegistry: protorpc.NewRegistry(),
@@ -821,7 +826,7 @@ func New(opts Options) (*Daemon, error) {
 	})
 	d.sessionDelete = handlers.NewSessionDeleteHandlers(handlers.SessionDeleteDeps{
 		Sessions:          d.sessionStore,
-		Journal:           journalPurger{db: gormDB},
+		Transcript:        transcriptPurger{db: gormDB},
 		LoggedInAccountID: d.loggedInAccountID,
 	})
 	d.gateway = httpgateway.New("127.0.0.1", 0, NewProviderLookup(st))
@@ -1417,9 +1422,9 @@ func (d *Daemon) newRuntimeHandlers() *handlers.RuntimeHandlers {
 	return handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		// 会话通知的推送目标在发送那一刻按会话解析,不捕获 n:RuntimeHandlers 是
 		// per-conn 的,而它起的 fanout goroutine 会活过这条连接。
-		NotifyFor: d.notifierForPeer,
-		Journal:   d.journal,
-		Sessions:  d.sessionStore,
+		NotifyFor:  d.notifierForPeer,
+		Transcript: d.transcript,
+		Sessions:   d.sessionStore,
 		// R17:queuedID → 提交方对端映射是 Daemon 级的 —— Steer RPC 可能落在任意一条
 		// 连接(同设备多条连接 / 他端接管),而 SteerConsumed 由发起会话那条连接的
 		// fanout 发出,两者必须共享同一张表。
@@ -1568,24 +1573,98 @@ func (d *Daemon) DBStat() handlers.DBStat {
 
 var _ handlers.DBStatPort = (*Daemon)(nil)
 
-// notificationJournal 是 handlers.JournalPort 的 daemon 级实现:把「本该发出的通知」
-// 写进本实例的 daemon_notification_journal,seq 由仓储在同一条语句里分配。
+// transcriptStore 是 handlers.TranscriptPort 的 daemon 级实现:把一轮执行的转录写进
+// 本实例的库,用的是与桌面端**同一份**消息与块仓储(transcript_repo,决策 8)。
 //
-// 它自己往 ctx 上注入本 Daemon 的 db 句柄:通知的生产者是脱离请求 ctx 的 fanout
+// 它自己往 ctx 上注入本 Daemon 的 db 句柄:转录的生产者是脱离请求 ctx 的 fanout
 // goroutine(它可能拿到的只是一个裸 ctx),而 daemon 故意不写 db.SetDefault(同进程
 // 多个 Daemon 会互相串库,见 Daemon.db 注释),所以句柄只能从这里给。
-type notificationJournal struct{ db *gorm.DB }
+type transcriptStore struct{ db *gorm.DB }
 
-func (j notificationJournal) Append(ctx context.Context, peerFingerprint, peerSessionID string, payload []byte) (int64, error) {
-	row := &notification_repo.NotificationLog{
-		ConversationID:  peerSessionID,
-		PeerFingerprint: peerFingerprint,
-		Payload:         string(payload),
+var _ handlers.TranscriptPort = transcriptStore{}
+
+// StartTurn 落下用户那一行(userText 为空则跳过)并建一条空的 assistant 消息。
+//
+// 会话身份是 conversation_id,而共用的消息实体按**本机数字主键**挂靠(决策 9)——
+// 翻译在这里做一次,handlers 那一层不认识那个数字。会话行还没建成时交回
+// (nil, nil):这一轮的转录就此不落,而不是拿它陪葬打断执行。
+func (t transcriptStore) StartTurn(
+	ctx context.Context, conversationID, userText string,
+) (*transcript_entity.Message, *transcript_entity.Message, error) {
+	ctx = dbpkg.WithContextDB(ctx, t.db)
+	sessionID, err := session_repo.Session().LocalID(ctx, conversationID)
+	if err != nil {
+		return nil, nil, err
 	}
-	if err := notification_repo.Notification().Append(dbpkg.WithContextDB(ctx, j.db), row); err != nil {
-		return 0, err
+	if sessionID == 0 {
+		return nil, nil, nil
 	}
-	return row.Seq, nil
+	// 这一轮的帧要接在历史后面取号,所以历史里还没有号的那些帧得先补齐 —— 否则新
+	// 内容先占掉小号,历史随后被编到它后面,补齐交出的转录里回答排在提问前面。
+	// 补的是同一份(transcript_repo.NumberFrames),与补齐读侧一字不差;已经有号的
+	// 一个不动,所以第二轮起它只是一次读。
+	if err := t.numberBacklog(ctx, conversationID, sessionID); err != nil {
+		return nil, nil, err
+	}
+	seq, err := transcript_repo.Message().NextSeq(ctx, sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	var user *transcript_entity.Message
+	if userText != "" {
+		// 用户那一行的正文也走共用的累积器:一句纯文本落成什么块,两个宿主必须一致。
+		acc := turn.New()
+		acc.AddText(userText)
+		user = &transcript_entity.Message{SessionID: sessionID, Role: "user", Seq: seq}
+		if err := user.SetBlocks(acc.Finalize()); err != nil {
+			return nil, nil, err
+		}
+		if err := transcript_repo.Message().Create(ctx, user); err != nil {
+			return nil, nil, err
+		}
+		seq++
+	}
+	assistant := &transcript_entity.Message{
+		SessionID: sessionID, Role: "assistant", Seq: seq, BlocksJSON: "[]",
+	}
+	if err := transcript_repo.Message().Create(ctx, assistant); err != nil {
+		return nil, nil, err
+	}
+	return user, assistant, nil
+}
+
+// numberBacklog 给这条转录里此刻还没有号的既有帧补齐编号。开轮时调一次。
+func (t transcriptStore) numberBacklog(ctx context.Context, conversationID string, sessionID int64) error {
+	messages, err := transcript_repo.Message().List(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	keyed, err := transcript.ProjectKeyedMessages(conversationID, messages)
+	if err != nil {
+		return err
+	}
+	return transcript_repo.NumberFrames(ctx, sessionID, keyed)
+}
+
+// AllocateFrameSeqs 给这些帧位置取下一串号并落库。取号与发布不可分:调用方取到了才
+// 发得出去(规格「帧编号」)。
+func (t transcriptStore) AllocateFrameSeqs(
+	ctx context.Context, sessionID int64, keys []transcript.FrameKey,
+) ([]int64, error) {
+	return transcript_repo.FrameSeq().Allocate(dbpkg.WithContextDB(ctx, t.db), sessionID, keys)
+}
+
+func (t transcriptStore) Checkpoint(
+	ctx context.Context, m *transcript_entity.Message, prevBlocksJSON string,
+) error {
+	return transcript_repo.Message().CheckpointBlocks(dbpkg.WithContextDB(ctx, t.db), m, prevBlocksJSON)
+}
+
+func (t transcriptStore) FinishTurn(ctx context.Context, m *transcript_entity.Message) error {
+	return transcript_repo.Message().Update(dbpkg.WithContextDB(ctx, t.db), m)
 }
 
 // daemonSessionStore 同时是 handlers 的会话生命周期写入口与查询出口:两个接口在
@@ -1808,52 +1887,188 @@ func sessionRecordOf(row *session_repo.DaemonSession) handlers.SessionRecord {
 	}
 }
 
-// journalPurger 是通知日志的删除侧(会话删除用)。它与 notificationJournal(写一条)
-// 和 journalReader(读)分开:整段清空是唯一一条会让已落库的通知消失的路径,handlers
-// 那边也按 ISP 单独声明了它(JournalPurgePort)。
-type journalPurger struct{ db *gorm.DB }
+// transcriptPurger 是转录的删除侧(会话删除用)。它与写入侧(transcriptStore)分开:
+// 整段清空是唯一一条会让已落库的转录消失的路径,handlers 那边也按 ISP 单独声明了它
+// (TranscriptPurgePort)。
+//
+// 块行必须先于宿主消息删除,否则会在两条语句之间短暂变成孤儿 —— 顺序由
+// transcript_repo 的导出口收口,这里不自己重写一份。
+type transcriptPurger struct{ db *gorm.DB }
 
-var _ handlers.JournalPurgePort = journalPurger{}
+var _ handlers.TranscriptPurgePort = transcriptPurger{}
 
-func (j journalPurger) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
-	return notification_repo.Notification().DeleteAll(
-		dbpkg.WithContextDB(ctx, j.db), peerFingerprint, peerSessionID)
+func (t transcriptPurger) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	ctx = dbpkg.WithContextDB(ctx, t.db)
+	// 按对端收窄:这一层就是权限边界本身,一个对端点名别人的对话号必须删不掉一行。
+	// 走 Find(它按对端收窄)而不是 LocalID(它不收窄,服务的是本机写入侧)。
+	row, err := session_repo.Session().Find(ctx, peerFingerprint, peerSessionID)
+	if err != nil || row == nil || row.ID == 0 {
+		return 0, err
+	}
+	sessionID := row.ID
+	if err := transcript_repo.DeleteBlocksOfMessages(ctx, "session_id = ?", sessionID); err != nil {
+		return 0, err
+	}
+	// 台账也一并清:它给这条转录的每一帧记着号,转录没了那些行就没有主人。留着不会
+	// 让别的会话读错号(会话主键是 AUTOINCREMENT,不重用),但它是这条转录的一部分
+	// ——「身份行与它的全部转录一并消失」(规格「生命周期与删除」)。
+	if _, err := transcript_repo.FrameSeq().DeleteBySession(ctx, sessionID); err != nil {
+		return 0, err
+	}
+	return transcript_repo.Message().DeleteFromSeq(ctx, sessionID, 0)
 }
 
-// journalReader 是通知日志的读侧(补齐用),写侧见 notificationJournal。
+// journalReader 是补齐的读侧。它没有自己的存储:每次调用都现从 transcript_repo
+// 读出这条会话的消息与块,经共用投影器(internal/pkg/transcript)折成持久帧。
+// 只投影持久帧:预览帧从不落库,补齐因此天然不带逐 token 的过程(规格「两级帧与补齐」)。
+//
+// 编号只在**真被补齐**时落库(durableFrames);清单那条只读探测按台账预测,不写一行
+// —— 「未被访问的对话不付出任何代价」(规格「帧编号」)。
 type journalReader struct{ db *gorm.DB }
 
 var _ handlers.JournalReaderPort = journalReader{}
 
+// localSessionID 把 (对端指纹, 对话 id) 解成本机的数字会话主键;没有这一行时
+// 交回 0、不报错 —— 补齐一条从没在这台机器上跑过的会话是正常情况,不是故障。
+func (j journalReader) localSessionID(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+	row, err := session_repo.Session().Find(ctx, peerFingerprint, peerSessionID)
+	if err != nil || row == nil {
+		return 0, err
+	}
+	return row.ID, nil
+}
+
+// keyedFrames 是三个读方法共用的读取入口:解出本机会话、读回整段转录、投影出带位置
+// 的持久帧 —— **不取号**。三者必须读同一份计算结果,否则 List 报的高水位与 Pull 实际
+// 补到的末尾对不上,对端会把两者的差当成跳号。
+//
+// 取号(写库)刻意留在调用方:只有真被补齐的那一条路(ListSince)才惰性补齐编号,
+// 清单那条只读探测按台账预测(见 LatestSeq)。
+func (j journalReader) keyedFrames(ctx context.Context, peerFingerprint, peerSessionID string) (int64, []transcript.KeyedFrame, error) {
+	row, err := session_repo.Session().Find(ctx, peerFingerprint, peerSessionID)
+	if err != nil || row == nil || row.ID == 0 {
+		return 0, nil, err
+	}
+	sessionID := row.ID
+	messages, err := transcript_repo.Message().List(ctx, sessionID)
+	if err != nil {
+		return 0, nil, err
+	}
+	keyed, err := transcript.ProjectKeyedMessages(peerSessionID, messages)
+	if err != nil {
+		return 0, nil, err
+	}
+	if row.LifecycleState == wire.SessionLifecycleRunning && len(messages) > 0 {
+		keyed = withoutUnsettledTail(keyed, messages[len(messages)-1].ID)
+	}
+	return sessionID, keyed, nil
+}
+
+// withoutUnsettledTail 砍掉在飞那条消息里还没定稿的尾巴(还会继续长的正文块、以及
+// 这一轮还没发生的 usage / done)。
+//
+// 编号是一次性的:分配与落库不可分,一个位置取过号就不再改。补齐若给一条**在飞**消息
+// 结尾那个还在长的正文块取了号,收口时它的内容变了,同一个位置只能再取一个新的末尾号
+// —— 对端于是拿到同一段话的两份。定稿判据因此必须与实时发布那一侧是同一行代码
+// (transcript.SettledFrames),两个时刻在同一帧上定稿。
+func withoutUnsettledTail(keyed []transcript.KeyedFrame, inflightMessageID int64) []transcript.KeyedFrame {
+	head := len(keyed)
+	for head > 0 && keyed[head-1].Key.MessageID == inflightMessageID {
+		head--
+	}
+	return append(keyed[:head:head], transcript.SettledFrames(keyed[head:])...)
+}
+
+// durableFrames 是补齐真正读的那一份:在 keyedFrames 之上把缺号的位置**当场补齐并
+// 落库**(与桌面端 chat_svc 的 attach 同一条纪律,那边在 numberPeerFramesLocked)。
+func (j journalReader) durableFrames(ctx context.Context, peerFingerprint, peerSessionID string) ([]wire.EventFrame, []int64, error) {
+	sessionID, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
+	if err != nil || sessionID == 0 {
+		return nil, nil, err
+	}
+	if err := transcript_repo.NumberFrames(ctx, sessionID, keyed); err != nil {
+		return nil, nil, err
+	}
+	frames := make([]wire.EventFrame, len(keyed))
+	createtimes := make([]int64, len(keyed))
+	for i := range keyed {
+		frames[i] = keyed[i].Frame
+		createtimes[i] = keyed[i].Createtime
+	}
+	return frames, createtimes, nil
+}
+
 func (j journalReader) ListSince(ctx context.Context, peerFingerprint, peerSessionID string, cursor int64, limit int) ([]handlers.JournalRow, bool, error) {
-	rows, hasMore, err := notification_repo.Notification().ListSince(
-		dbpkg.WithContextDB(ctx, j.db), peerFingerprint, peerSessionID, cursor, limit)
+	ctx = dbpkg.WithContextDB(ctx, j.db)
+	frames, createtimes, err := j.durableFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil {
 		return nil, false, err
 	}
-	out := make([]handlers.JournalRow, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, handlers.JournalRow{
-			Seq:        row.Seq,
-			Payload:    []byte(row.Payload),
-			Createtime: row.Createtime,
-		})
+	rows := make([]handlers.JournalRow, 0, len(frames))
+	for i, frame := range frames {
+		if frame.Seq <= cursor {
+			continue
+		}
+		notification, err := protowire.WireNotificationToProto(wire.NotifyEvent, &frame)
+		if err != nil {
+			return nil, false, fmt.Errorf("encode durable frame seq %d: %w", frame.Seq, err)
+		}
+		payload, err := protowire.EncodeNotification(notification)
+		if err != nil {
+			return nil, false, fmt.Errorf("encode durable frame seq %d: %w", frame.Seq, err)
+		}
+		rows = append(rows, handlers.JournalRow{Seq: frame.Seq, Payload: payload, Createtime: createtimes[i]})
 	}
-	return out, hasMore, nil
+	hasMore := false
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+		hasMore = true
+	}
+	return rows, hasMore, nil
 }
 
+// LatestSeq 报这条会话的持久编号计数器此刻的末尾(规格「生命周期与删除」:会话列表
+// 报出的「最新 seq」来源从 journal 的 MAX(seq) 换成持久编号计数器)。
+//
+// 它**只读不写**:未编号的帧按「真去分配一次会拿到什么号」预测(PredictLatestSeq),
+// 而不是就地补齐编号。清单 RPC 是对端每代连接开轮前的一次探测,拿它给每一条对话
+// 补齐编号会让「未被访问的对话不付出任何代价」当场破掉。
 func (j journalReader) LatestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
-	return notification_repo.Notification().LatestSeq(
-		dbpkg.WithContextDB(ctx, j.db), peerFingerprint, peerSessionID)
+	ctx = dbpkg.WithContextDB(ctx, j.db)
+	sessionID, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
+	if err != nil || sessionID == 0 || len(keyed) == 0 {
+		return 0, err
+	}
+	return transcript_repo.PredictLatestSeq(ctx, sessionID, keyed)
 }
 
+// OldestSeq 报这条会话现存最老的持久帧号。当前版本从不回收帧(决策 8「永不回收」
+// 本轮不动),所以只要有帧,最老的那个恒是 1 —— 与桌面端 chat_svc 的
+// PullPeerSession 同一条判据。
 func (j journalReader) OldestSeq(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
-	return notification_repo.Notification().OldestSeq(
-		dbpkg.WithContextDB(ctx, j.db), peerFingerprint, peerSessionID)
+	ctx = dbpkg.WithContextDB(ctx, j.db)
+	_, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
+	if err != nil || len(keyed) == 0 {
+		return 0, err
+	}
+	return 1, nil
 }
 
 func (j journalReader) LatestSeqByPeer(ctx context.Context, peerFingerprint string) (map[string]int64, error) {
-	return notification_repo.Notification().LatestSeqByPeer(dbpkg.WithContextDB(ctx, j.db), peerFingerprint)
+	ctx = dbpkg.WithContextDB(ctx, j.db)
+	rows, err := session_repo.Session().ListByPeer(ctx, peerFingerprint, "", 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		latest, err := j.LatestSeq(ctx, peerFingerprint, row.ConversationID)
+		if err != nil {
+			return nil, err
+		}
+		out[row.ConversationID] = latest
+	}
+	return out, nil
 }
 
 // closeDB 关闭 openDB 拿到的句柄。只在 New 的失败路径上用:Daemon 构造失败时若不关,

@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	agent_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
-	blocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	blocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	hook_svc "github.com/agentre-hub/agentre/internal/service/hook_svc"
 	gomock "go.uber.org/mock/gomock"
 )

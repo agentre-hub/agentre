@@ -2,7 +2,6 @@ package chat_svc
 
 import (
 	"context"
-	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -17,100 +16,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
 
-// Given 一段里夹着本仓认不出的转录块的持久化记录,When 合成对端快照,Then 认不出
-// 的那个**如实送到对端**(R8),而不是被丢掉或伪造成一条送不出去的帧。
-//
-// 这条边界踩过两次坑,都记在这里:
-//
-//   - 一开始它伪造一条 kind 为 "unrecognized_block" 的事件。那个判别值不在密封
-//     词表里,接收侧 UnmarshalEvent 报 unknown kind,而 flushPeerSubscribers 把
-//     Notify 的错误当成「这个订阅者不行了」直接摘掉 —— 一个认不出的块会让整条
-//     实时流无声中断。
-//   - 于是先改成跳过。流是保住了,但 R8 丢了:对端连「这里有一块我读不懂的东西」
-//     都看不到。
-//
-// 现在它是真的密封事件类型:带自己的 EventKind、proto 字段与两端生成产物,既送
-// 得出去,又如实。
-func TestSynthesizePeerHistory_GivenPersistedBlocks_ThenForwardsUnrecognizedBlockVerbatim(t *testing.T) {
-	messages := []*chat_entity.Message{
-		{SessionID: 41, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"ship it"}}]`},
-		{SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: `[{"type":"thinking","data":{"text":"checking"}},{"type":"tool_use","data":{"id":"tool-1","name":"Read","input":{"path":"README.md"}}},{"type":"tool_result","data":{"tool_use_id":"tool-1","content":[{"type":"text","data":{"text":"ok"}}]}},{"type":"future_block","data":{"nested":{"keep":true}}}]`, ErrorText: "provider stopped"},
-	}
-
-	events, _, err := synthesizePeerHistory(convID(41), messages)
-	require.NoError(t, err)
-
-	kinds := make([]agentruntime.EventKind, 0, len(events))
-	for _, event := range events {
-		kinds = append(kinds, peerEventKind(t, event.Event))
-	}
-	assert.Equal(t, []agentruntime.EventKind{
-		agentruntime.EventUserMessage,
-		agentruntime.EventThinkingDelta,
-		agentruntime.EventToolUseStart,
-		agentruntime.EventToolResult,
-		agentruntime.EventUnrecognizedBlock,
-		agentruntime.EventError,
-		agentruntime.EventDone,
-	}, kinds)
-	// 原样:块类型与载荷字节一个都不改,对端才有可能认出本仓认不出的东西。
-	assert.Equal(t, agentruntime.UnrecognizedBlock{
-		BlockType: "future_block",
-		Data:      json.RawMessage(`{"nested":{"keep":true}}`),
-	}, events[4].Event)
-
-	// 每一帧都必须真能过协议边界 —— 从前那条伪造事件正是卡在这里,而当时没有
-	// 任何用例走到这一步。
-	for i, frame := range events {
-		_, err := protowire.WireNotificationToProto(wire.NotifyEvent, frame)
-		require.NoErrorf(t, err, "第 %d 帧送不出去,整条实时流会被摘掉", i)
-	}
-}
-
-// Given an attached peer and a frozen history, when live canonical events
-// arrive before the peer has pulled the snapshot high-water mark, then pull
-// emits deterministic 1..H history first and releases the buffered live frame
-// only after the cursor reaches H.
-// Given persisted final control-card state, when the desktop synthesizes a
-// history, then it reconstructs both the card creation and its final update so
-// the existing reducer can reach the stored readable state.
-func TestSynthesizePeerHistory_GivenFinalControlAndSnapshotBlocks_ThenEmitsReducerCompleteEvents(t *testing.T) {
-	messages := []*chat_entity.Message{{
-		SessionID: 41, Role: "assistant", Seq: 1, PromptTokens: 10, TotalInputTokens: 10,
-		BlocksJSON: `[` +
-			`{"type":"user_ask","data":{"request_id":"ask-1","tool_call_id":"tool-1","questions":[{"question":"continue?","options":[]}],"answered":true,"answers":[{"questionIndex":0,"labels":["yes"]}]}},` +
-			`{"type":"tool_permission","data":{"request_id":"permission-1","tool_call_id":"tool-2","tool_name":"Bash","tool_input":{"command":"pwd"},"resolved":true,"allowed":true}},` +
-			`{"type":"permission_mode_change","data":{"to":"plan"}},` +
-			`{"type":"subagent_state","data":{"parent_tool_call_id":"agent-1","status":"completed","total_tokens":7,"model":"claude"}},` +
-			`{"type":"plan","data":{"steps":[{"step":"inspect","status":"completed"}],"text":"# Plan"}}` +
-			`]`,
-	}}
-
-	events, _, err := synthesizePeerHistory(convID(41), messages)
-	require.NoError(t, err)
-	kinds := make([]agentruntime.EventKind, 0, len(events))
-	for _, event := range events {
-		kinds = append(kinds, peerEventKind(t, event.Event))
-	}
-	assert.Equal(t, []agentruntime.EventKind{
-		agentruntime.EventAskUserQuestion,
-		agentruntime.EventAskUserQuestionAnswered,
-		agentruntime.EventToolPermissionRequest,
-		agentruntime.EventToolPermissionResolved,
-		agentruntime.EventPermissionModeChanged,
-		agentruntime.EventSubagentDone,
-		agentruntime.EventSubagentModel,
-		agentruntime.EventPlanUpdated,
-		agentruntime.EventUsage,
-		agentruntime.EventDone,
-	}, kinds)
-}
-
-// Given an attached peer and a frozen history, when live canonical events
 // arrive before the peer has pulled the snapshot high-water mark, then pull
 // emits deterministic 1..H history first and releases the buffered live frame
 // only after the cursor reaches H.
@@ -131,7 +39,7 @@ func TestPeerSessionPull_GivenSnapshotAndEarlyLiveEvent_ThenKeepsOneOrderedSeqUn
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), attached.LatestSeq, "history must be frozen as user_message, text, done")
 
-	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "live"})
+	publishPeerDurableFrame(t, deps.svc, 41, 93, "live")
 	assert.Empty(t, subscriber.notifications(), "live output must wait behind the frozen snapshot")
 
 	first, err := deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Cursor: 0, Limit: 2}, subscriber)
@@ -172,7 +80,7 @@ func TestAttachPeerSession_GivenReconnectAfterLiveEvent_ThenRetainsLiveSeqForDed
 	attached, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, first)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), attached.LatestSeq)
-	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "live"})
+	publishPeerDurableFrame(t, deps.svc, 41, 93, "live")
 
 	second := newRecordingPeerSubscriber()
 	reconnected, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, second)
@@ -273,7 +181,7 @@ func TestPullPeerSession_GivenBufferedLiveFrameAndStalledNotify_ThenPublicationL
 	assert.Equal(t, int64(3), attached.LatestSeq)
 
 	// 拉平前先到一条实时帧（seq 4）：cursor < H，worker 不会投递，帧停在 pending。
-	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "live-before-pull"})
+	publishPeerDurableFrame(t, deps.svc, 41, 93, "live-before-pull")
 	assert.Empty(t, subscriber.seenSeqs(), "cursor below H must retain live buffering")
 
 	// pull 拉满历史并进入 catch-up：缓冲的实时帧在此刻交付。
@@ -291,7 +199,7 @@ func TestPullPeerSession_GivenBufferedLiveFrameAndStalledNotify_ThenPublicationL
 	// 交付卡在对端的网络写（锁内、RED）时，本地 turn 再发布一条事件。
 	published := make(chan struct{})
 	go func() {
-		deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "live-during-stall"})
+		publishPeerDurableFrame(t, deps.svc, 41, 94, "live-during-stall")
 		close(published)
 	}()
 	select {
@@ -335,7 +243,7 @@ func TestPeerSessionLive_GivenWorkerStalledOnEarlierFrame_ThenPullDoesNotDeliver
 	require.NoError(t, err)
 
 	// 第一条实时帧（seq 1）：flush worker 进入投递并卡在对端写上。
-	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "first"})
+	publishPeerDurableFrame(t, deps.svc, 41, 93, "first")
 	select {
 	case <-subscriber.entered:
 	case <-time.After(2 * time.Second):
@@ -343,7 +251,7 @@ func TestPeerSessionLive_GivenWorkerStalledOnEarlierFrame_ThenPullDoesNotDeliver
 	}
 
 	// 第二条实时帧（seq 2）到达后 peer 再 pull 一次：不得抢在 seq 1 之前交付。
-	deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "second"})
+	publishPeerDurableFrame(t, deps.svc, 41, 94, "second")
 	_, err = deps.svc.PullPeerSession(ctx, wire.SessionPullParams{ConversationID: convID(41), Cursor: 0}, subscriber)
 	require.NoError(t, err)
 	assert.Empty(t, subscriber.seenSeqs(), "a later live frame must not be delivered ahead of an earlier stalled one")
@@ -440,19 +348,6 @@ func agentForPeerSession() *agent_entity.Agent {
 	return &agent_entity.Agent{ID: 7, AgentBackendID: 11}
 }
 
-// peerEventKind 读出一条密封事件在 wire 上的判别值 —— 走的是事件自己的
-// MarshalJSON,与真正推出去的那份字节同源。
-func peerEventKind(t *testing.T, event agentruntime.Event) agentruntime.EventKind {
-	t.Helper()
-	raw, err := json.Marshal(event)
-	require.NoError(t, err)
-	var head struct {
-		Kind agentruntime.EventKind `json:"kind"`
-	}
-	require.NoError(t, json.Unmarshal(raw, &head))
-	return head.Kind
-}
-
 func assertPeerNotificationSeqs(t *testing.T, notifications []wire.JournaledNotification, want ...int64) {
 	t.Helper()
 	require.Len(t, notifications, len(want))
@@ -469,52 +364,9 @@ func eventFrameSeq(t *testing.T, params any) int64 {
 	return frame.Seq
 }
 
-// Given 一条落库的助手消息带着本轮的模型与计时,When 合成对端快照,Then 收口的
-// Done 事件把它们一起送出去。
-//
-// 对端 Peer Tab 的转录与浏览器控制台走的是**同一个**共享投影器,那边的 meta
-// (模型 · 耗时 · 首字 · 速率)读的正是 done 事件上的这几格。此前这里发的是一个
-// 空的 Done{} —— 数据就在手边那条消息实体上,一格都没送。
-//
-// agentred 那侧的同一份数走 runtime.runResultDone 终态帧,不走这条:它在事件流
-// 之上量表,Done 早就转发出去了,回不去。两个生产者各用自己填得起的载体,落点
-// (共享包的 EventDone)是同一个。
-func TestSynthesizePeerHistory_GivenTurnStats_ThenDoneCarriesThem(t *testing.T) {
-	messages := []*chat_entity.Message{
-		{SessionID: 41, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"ship it"}}]`},
-		{
-			SessionID: 41, Role: "assistant", Seq: 2,
-			BlocksJSON:   `[{"type":"text","data":{"text":"done"}}]`,
-			Model:        "claude-sonnet-4-6",
-			DurationMs:   9640,
-			FirstTokenMs: 8010,
-			TokensPerSec: 14.2,
-		},
-	}
-
-	events, _, err := synthesizePeerHistory(convID(41), messages)
-	require.NoError(t, err)
-
-	var done agentruntime.Done
-	var found bool
-	for _, frame := range events {
-		if d, ok := frame.Event.(agentruntime.Done); ok {
-			done, found = d, true
-		}
-	}
-	require.True(t, found, "助手消息收口必须发一条 Done")
-	assert.Equal(t, "claude-sonnet-4-6", done.Model)
-	assert.Equal(t, 9640, done.DurationMs)
-	assert.Equal(t, 8010, done.FirstTokenMs)
-	assert.InDelta(t, 14.2, done.TokensPerSec, 0.001)
-}
-
-// Given 一轮在这台桌面端上跑完,When 收口,Then 对端订阅者收到一条带本轮统计的
-// Done —— 与重连后从快照里读到的那一条同形。
-//
 // 实时与历史两条路必须给出同一份数:对端 Peer Tab 上一轮 meta 的模型 / 耗时 /
 // 首字 / 速率,断线重连前后不该变。历史那一半在
-// TestSynthesizePeerHistory_GivenTurnStats_ThenDoneCarriesThem。
+// internal/pkg/transcript 的 TestProjectMessages_GivenTurnStats_ThenDoneCarriesThem。
 func TestPublishPeerTurnDone_GivenFinishedTurn_ThenPeersSeeTurnStats(t *testing.T) {
 	deps := setupPeerSessionTest(t)
 	ctx := context.Background()
@@ -527,8 +379,8 @@ func TestPublishPeerTurnDone_GivenFinishedTurn_ThenPeersSeeTurnStats(t *testing.
 	_, err := deps.svc.AttachPeerSession(ctx, wire.SessionAttachParams{ConversationID: convID(41)}, subscriber)
 	require.NoError(t, err)
 
-	deps.svc.publishPeerTurnDone(41, &chat_entity.Message{
-		SessionID: 41, Role: "assistant",
+	deps.svc.publishPeerTurnDone(ctx, 41, &chat_entity.Message{
+		ID: 71, SessionID: 41, Role: "assistant", BlocksJSON: "[]",
 		Model: "claude-sonnet-4-6", DurationMs: 9640, FirstTokenMs: 8010, TokensPerSec: 14.2,
 	})
 
@@ -650,8 +502,8 @@ func TestPublishPeerEvent_GivenSubscriberFallsBehind_ThenQueueStaysBounded(t *te
 	require.NoError(t, err)
 	t.Cleanup(func() { close(stalled.released) })
 
-	for range peerSubscriberQueueDepth * 4 {
-		deps.svc.publishPeerEvent(41, agentruntime.TextDelta{Text: "flood"})
+	for i := range peerSubscriberQueueDepth * 4 {
+		publishPeerDurableFrame(t, deps.svc, 41, int64(100+i), "flood")
 	}
 
 	publication := deps.svc.peerPublication(41, convID(41))
@@ -669,24 +521,4 @@ func TestPublishPeerEvent_GivenSubscriberFallsBehind_ThenQueueStaysBounded(t *te
 	history := len(publication.history)
 	publication.mu.Unlock()
 	assert.Equal(t, peerSubscriberQueueDepth*4, history, "日志不参与丢弃")
-}
-
-// TestSynthesizePeerHistory_CarriesEachMessagesCreatetime 钉住这台桌面端作为**对端**
-// 服务出去的那份日志上的时刻。
-//
-// 由这台桌面端托管、镜到账号里的对话,浏览器控制台读到的转录就是这份合成日志。
-// 它不像 agentred 有一张按帧记时的日志表,但它有比那更好的东西 —— 消息表自己的
-// createtime。同一条消息摊开成的每一帧共用它:帧是这条消息的展开,不是各自独立的事件。
-func TestSynthesizePeerHistory_CarriesEachMessagesCreatetime(t *testing.T) {
-	messages := []*chat_entity.Message{
-		{SessionID: 41, Role: "user", Seq: 1, Createtime: 1700000000111, BlocksJSON: `[{"type":"text","data":{"text":"ship it"}}]`},
-		{SessionID: 41, Role: "assistant", Seq: 2, Createtime: 1700000009222, BlocksJSON: `[{"type":"thinking","data":{"text":"checking"}},{"type":"text","data":{"text":"done"}}]`},
-	}
-
-	events, createtimes, err := synthesizePeerHistory(convID(41), messages)
-	require.NoError(t, err)
-	require.Len(t, createtimes, len(events), "每一帧都要有一个时刻,不能只有一部分")
-	// user 一帧,assistant 两帧 + 收口的 done 一帧。
-	require.Len(t, events, 4)
-	assert.Equal(t, []int64{1700000000111, 1700000009222, 1700000009222, 1700000009222}, createtimes)
 }

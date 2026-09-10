@@ -45,6 +45,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/protorpctest"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -54,8 +55,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/claudecode"
@@ -67,7 +69,7 @@ type chatMocks struct {
 	backend    *mock_agent_backend_repo.MockAgentBackendRepo
 	provider   *mock_llm_provider_repo.MockLLMProviderRepo
 	session    *mock_chat_repo.MockSessionRepo
-	message    *mock_chat_repo.MockMessageRepo
+	message    *mock_transcript_repo.MockMessageRepo
 	execTarget *mock_agent_repo.MockAgentExecTargetRepo
 	dbMock     sqlmock.Sqlmock
 	ctx        context.Context
@@ -126,7 +128,7 @@ func setupChatTest(t *testing.T) *chatMocks {
 		backend:    mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl),
 		provider:   mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl),
 		session:    mock_chat_repo.NewMockSessionRepo(ctrl),
-		message:    mock_chat_repo.NewMockMessageRepo(ctrl),
+		message:    mock_transcript_repo.NewMockMessageRepo(ctrl),
 		execTarget: mock_agent_repo.NewMockAgentExecTargetRepo(ctrl),
 		dbMock:     dbMock,
 		ctx:        dbCtx,
@@ -135,7 +137,7 @@ func setupChatTest(t *testing.T) *chatMocks {
 	agent_backend_repo.RegisterAgentBackend(m.backend)
 	llm_provider_repo.RegisterLLMProvider(m.provider)
 	chat_repo.RegisterSession(m.session)
-	chat_repo.RegisterMessage(m.message)
+	transcript_repo.RegisterMessage(m.message)
 	// pi 恢复标记落在 app_settings,用真实现走同一份 sqlmock,标记 SQL 才进得了断言。
 	app_setting_repo.RegisterAppSetting(app_setting_repo.NewAppSetting())
 	agent_repo.RegisterAgentExecTarget(m.execTarget)
@@ -2512,22 +2514,22 @@ func TestSend_NewSessionWithExecTargetOverride_GivenValidNonFirstTarget_ThenReso
 	execTargetMock := mock_agent_repo.NewMockAgentExecTargetRepo(ctrl)
 	backendMock := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
 	sessionMock := mock_chat_repo.NewMockSessionRepo(ctrl)
-	messageMock := mock_chat_repo.NewMockMessageRepo(ctrl)
+	messageMock := mock_transcript_repo.NewMockMessageRepo(ctrl)
 
 	prevAgent, prevExecTarget := agent_repo.Agent(), agent_repo.AgentExecTarget()
 	prevBackend := agent_backend_repo.AgentBackend()
-	prevSession, prevMessage := chat_repo.Session(), chat_repo.Message()
+	prevSession, prevMessage := chat_repo.Session(), transcript_repo.Message()
 	agent_repo.RegisterAgent(agentMock)
 	agent_repo.RegisterAgentExecTarget(execTargetMock)
 	agent_backend_repo.RegisterAgentBackend(backendMock)
 	chat_repo.RegisterSession(sessionMock)
-	chat_repo.RegisterMessage(messageMock)
+	transcript_repo.RegisterMessage(messageMock)
 	t.Cleanup(func() {
 		agent_repo.RegisterAgent(prevAgent)
 		agent_repo.RegisterAgentExecTarget(prevExecTarget)
 		agent_backend_repo.RegisterAgentBackend(prevBackend)
 		chat_repo.RegisterSession(prevSession)
-		chat_repo.RegisterMessage(prevMessage)
+		transcript_repo.RegisterMessage(prevMessage)
 	})
 
 	svc := chat_svc.NewChat(chat_svc.NoopEmitter{})
@@ -5119,9 +5121,9 @@ func TestSend_StreamUsageEventsAreForwardedAndPersisted(t *testing.T) {
 
 	// per-frame usage 走**单列**写(不是整行 Update):整行会把已累积的 blocks_json
 	// 一起重写,而 usage 每个 API call 来一帧。这里把每帧的落库值记下来单独断言。
-	var usageWrites []chat_repo.MessageUsage
+	var usageWrites []transcript_repo.MessageUsage
 	m.message.EXPECT().UpdateUsage(gomock.Any(), int64(1001), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ int64, u chat_repo.MessageUsage) error {
+		func(_ context.Context, _ int64, u transcript_repo.MessageUsage) error {
 			usageWrites = append(usageWrites, u)
 			return nil
 		}).AnyTimes()

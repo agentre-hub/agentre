@@ -9,8 +9,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 )
 
 // streamCapture 与 captureEmitter 的区别:保留 stream 名。跨轮翻转的镜像必须落在
@@ -29,14 +29,14 @@ func (c *streamCapture) Emit(_ context.Context, stream string, payload any) {
 	}
 }
 
-func setupFlipperTest(t *testing.T) (*mock_chat_repo.MockMessageRepo, *streamCapture, *chatSvc) {
+func setupFlipperTest(t *testing.T) (*mock_transcript_repo.MockMessageRepo, *streamCapture, *chatSvc) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
-	msgRepo := mock_chat_repo.NewMockMessageRepo(ctrl)
-	prev := chat_repo.Message()
-	chat_repo.RegisterMessage(msgRepo)
-	t.Cleanup(func() { chat_repo.RegisterMessage(prev) })
+	msgRepo := mock_transcript_repo.NewMockMessageRepo(ctrl)
+	prev := transcript_repo.Message()
+	transcript_repo.RegisterMessage(msgRepo)
+	t.Cleanup(func() { transcript_repo.RegisterMessage(prev) })
 	rec := &streamCapture{}
 	return msgRepo, rec, &chatSvc{emitter: rec}
 }

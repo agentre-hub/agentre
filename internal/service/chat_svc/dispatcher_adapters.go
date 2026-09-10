@@ -8,9 +8,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/handlers"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // dispatcher_adapters.go 给 turn dispatcher 注入持久化 + 数据写入能力。
@@ -55,7 +56,7 @@ func (usageWriterAdapter) WriteUsage(ctx context.Context, msg any, u *agentrunti
 	if m.ID == 0 {
 		return nil
 	}
-	return chat_repo.Message().UpdateUsage(ctx, m.ID, chat_repo.MessageUsage{
+	return transcript_repo.Message().UpdateUsage(ctx, m.ID, transcript_repo.MessageUsage{
 		PromptTokens:        m.PromptTokens,
 		CompletionTokens:    m.CompletionTokens,
 		CachedTokens:        m.CachedTokens,
@@ -85,7 +86,7 @@ func (errorWriterAdapter) WriteErrorText(ctx context.Context, msg any, errText s
 	if m.ID == 0 {
 		return nil
 	}
-	return chat_repo.Message().UpdateErrorText(ctx, m.ID, errText)
+	return transcript_repo.Message().UpdateErrorText(ctx, m.ID, errText)
 }
 
 // contextWindowWriterAdapter 实现 handlers.ContextWindowWriter:同步内存中的
@@ -178,21 +179,18 @@ func (compactInspectorAdapter) MessageSeq(msg any) int {
 	return m.Seq
 }
 
-// buildHandlersWithAdapters 返回填充了 chat_svc 适配器的 handler 实例。
-func buildHandlersWithAdapters(_ *chatSvc) (
-	handlers.UsageUpdateHandler,
-	handlers.ErrorHandler,
-	handlers.ContextWindowUpdatedHandler,
-	handlers.PermissionModeChangedHandler,
-	handlers.PlanUpdatedHandler,
-	handlers.CompactBoundaryHandler,
-) {
-	return handlers.UsageUpdateHandler{Writer: usageWriterAdapter{}},
-		handlers.ErrorHandler{Writer: errorWriterAdapter{}},
-		handlers.ContextWindowUpdatedHandler{Writer: contextWindowWriterAdapter{}},
-		handlers.PermissionModeChangedHandler{Writer: permissionModeWriterAdapter{}},
-		handlers.PlanUpdatedHandler{Writer: planWriterAdapter{}},
-		handlers.CompactBoundaryHandler{Inspector: compactInspectorAdapter{}}
+// buildAdapters 把 chat_svc 的持久化适配器打包交给共享注册表
+// (transcript.NewTurnDispatcher)。注册表本身不在这里 —— 两个宿主共用一张,
+// 宿主之间的差异全部收在这几格上。
+func buildAdapters(_ *chatSvc) transcript.Adapters {
+	return transcript.Adapters{
+		Usage:          usageWriterAdapter{},
+		Error:          errorWriterAdapter{},
+		ContextWindow:  contextWindowWriterAdapter{},
+		PermissionMode: permissionModeWriterAdapter{},
+		Plan:           planWriterAdapter{},
+		Compact:        compactInspectorAdapter{},
+	}
 }
 
 // sessionTransitionerAdapter 把 turn.SessionTransitioner 调到 chatSvc 的
@@ -241,7 +239,7 @@ func (a subagentFlipperAdapter) FlipSubagentStatus(ctx context.Context, toolCall
 	}
 	// summary 是 CLI task_notification.summary(成功时子代理交回的报告,失败时中断
 	// 原因)。空串读作「这一帧没带」,FlipSubagentStatus 对空 summary 保持原值不动。
-	if err := chat_repo.Message().FlipSubagentStatus(ctx, a.sess.ID, toolCallID, status, summary); err != nil {
+	if err := transcript_repo.Message().FlipSubagentStatus(ctx, a.sess.ID, toolCallID, status, summary); err != nil {
 		return err
 	}
 	// 镜像到**会话级**流:派遣卡随更早那条消息早已落库,不在任何 liveBlocks 里,
@@ -264,7 +262,7 @@ func (a subagentFlipperAdapter) ResumeSubagentByTaskID(
 	if a.svc == nil || a.sess == nil || a.sess.ID <= 0 || taskID == "" {
 		return "", nil
 	}
-	return chat_repo.Message().ResumeSubagentByTaskID(ctx, a.sess.ID, taskID, status)
+	return transcript_repo.Message().ResumeSubagentByTaskID(ctx, a.sess.ID, taskID, status)
 }
 
 // newTurnContext 构造每轮 turn 的 TurnContext。stream 由调用方填(每轮 chat

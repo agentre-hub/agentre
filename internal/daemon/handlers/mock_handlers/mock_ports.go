@@ -18,6 +18,8 @@ import (
 	state "github.com/agentre-hub/agentre/internal/daemon/state"
 	agent_backend_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	llm_provider_entity "github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	transcript_entity "github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	transcript "github.com/agentre-hub/agentre/internal/pkg/transcript"
 	agentrewire "github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -138,43 +140,87 @@ func (mr *MockNotifierPortMockRecorder) Request(ctx, method, params, result any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Request", reflect.TypeOf((*MockNotifierPort)(nil).Request), ctx, method, params, result)
 }
 
-// MockJournalPort is a mock of JournalPort interface.
-type MockJournalPort struct {
+// MockTranscriptPort is a mock of TranscriptPort interface.
+type MockTranscriptPort struct {
 	ctrl     *gomock.Controller
-	recorder *MockJournalPortMockRecorder
+	recorder *MockTranscriptPortMockRecorder
 	isgomock struct{}
 }
 
-// MockJournalPortMockRecorder is the mock recorder for MockJournalPort.
-type MockJournalPortMockRecorder struct {
-	mock *MockJournalPort
+// MockTranscriptPortMockRecorder is the mock recorder for MockTranscriptPort.
+type MockTranscriptPortMockRecorder struct {
+	mock *MockTranscriptPort
 }
 
-// NewMockJournalPort creates a new mock instance.
-func NewMockJournalPort(ctrl *gomock.Controller) *MockJournalPort {
-	mock := &MockJournalPort{ctrl: ctrl}
-	mock.recorder = &MockJournalPortMockRecorder{mock}
+// NewMockTranscriptPort creates a new mock instance.
+func NewMockTranscriptPort(ctrl *gomock.Controller) *MockTranscriptPort {
+	mock := &MockTranscriptPort{ctrl: ctrl}
+	mock.recorder = &MockTranscriptPortMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockJournalPort) EXPECT() *MockJournalPortMockRecorder {
+func (m *MockTranscriptPort) EXPECT() *MockTranscriptPortMockRecorder {
 	return m.recorder
 }
 
-// Append mocks base method.
-func (m *MockJournalPort) Append(ctx context.Context, peerFingerprint, peerSessionID string, payload []byte) (int64, error) {
+// AllocateFrameSeqs mocks base method.
+func (m *MockTranscriptPort) AllocateFrameSeqs(ctx context.Context, sessionID int64, keys []transcript.FrameKey) ([]int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Append", ctx, peerFingerprint, peerSessionID, payload)
-	ret0, _ := ret[0].(int64)
+	ret := m.ctrl.Call(m, "AllocateFrameSeqs", ctx, sessionID, keys)
+	ret0, _ := ret[0].([]int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// Append indicates an expected call of Append.
-func (mr *MockJournalPortMockRecorder) Append(ctx, peerFingerprint, peerSessionID, payload any) *gomock.Call {
+// AllocateFrameSeqs indicates an expected call of AllocateFrameSeqs.
+func (mr *MockTranscriptPortMockRecorder) AllocateFrameSeqs(ctx, sessionID, keys any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Append", reflect.TypeOf((*MockJournalPort)(nil).Append), ctx, peerFingerprint, peerSessionID, payload)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllocateFrameSeqs", reflect.TypeOf((*MockTranscriptPort)(nil).AllocateFrameSeqs), ctx, sessionID, keys)
+}
+
+// Checkpoint mocks base method.
+func (m_2 *MockTranscriptPort) Checkpoint(ctx context.Context, m *transcript_entity.Message, prevBlocksJSON string) error {
+	m_2.ctrl.T.Helper()
+	ret := m_2.ctrl.Call(m_2, "Checkpoint", ctx, m, prevBlocksJSON)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Checkpoint indicates an expected call of Checkpoint.
+func (mr *MockTranscriptPortMockRecorder) Checkpoint(ctx, m, prevBlocksJSON any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Checkpoint", reflect.TypeOf((*MockTranscriptPort)(nil).Checkpoint), ctx, m, prevBlocksJSON)
+}
+
+// FinishTurn mocks base method.
+func (m_2 *MockTranscriptPort) FinishTurn(ctx context.Context, m *transcript_entity.Message) error {
+	m_2.ctrl.T.Helper()
+	ret := m_2.ctrl.Call(m_2, "FinishTurn", ctx, m)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FinishTurn indicates an expected call of FinishTurn.
+func (mr *MockTranscriptPortMockRecorder) FinishTurn(ctx, m any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishTurn", reflect.TypeOf((*MockTranscriptPort)(nil).FinishTurn), ctx, m)
+}
+
+// StartTurn mocks base method.
+func (m *MockTranscriptPort) StartTurn(ctx context.Context, conversationID, userText string) (*transcript_entity.Message, *transcript_entity.Message, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartTurn", ctx, conversationID, userText)
+	ret0, _ := ret[0].(*transcript_entity.Message)
+	ret1, _ := ret[1].(*transcript_entity.Message)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// StartTurn indicates an expected call of StartTurn.
+func (mr *MockTranscriptPortMockRecorder) StartTurn(ctx, conversationID, userText any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTurn", reflect.TypeOf((*MockTranscriptPort)(nil).StartTurn), ctx, conversationID, userText)
 }
 
 // MockDBStatPort is a mock of DBStatPort interface.
@@ -550,32 +596,32 @@ func (mr *MockSessionReasoningEffortPortMockRecorder) SetReasoningEffort(ctx, pe
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReasoningEffort", reflect.TypeOf((*MockSessionReasoningEffortPort)(nil).SetReasoningEffort), ctx, peerFingerprint, peerSessionID, reasoningEffort)
 }
 
-// MockJournalPurgePort is a mock of JournalPurgePort interface.
-type MockJournalPurgePort struct {
+// MockTranscriptPurgePort is a mock of TranscriptPurgePort interface.
+type MockTranscriptPurgePort struct {
 	ctrl     *gomock.Controller
-	recorder *MockJournalPurgePortMockRecorder
+	recorder *MockTranscriptPurgePortMockRecorder
 	isgomock struct{}
 }
 
-// MockJournalPurgePortMockRecorder is the mock recorder for MockJournalPurgePort.
-type MockJournalPurgePortMockRecorder struct {
-	mock *MockJournalPurgePort
+// MockTranscriptPurgePortMockRecorder is the mock recorder for MockTranscriptPurgePort.
+type MockTranscriptPurgePortMockRecorder struct {
+	mock *MockTranscriptPurgePort
 }
 
-// NewMockJournalPurgePort creates a new mock instance.
-func NewMockJournalPurgePort(ctrl *gomock.Controller) *MockJournalPurgePort {
-	mock := &MockJournalPurgePort{ctrl: ctrl}
-	mock.recorder = &MockJournalPurgePortMockRecorder{mock}
+// NewMockTranscriptPurgePort creates a new mock instance.
+func NewMockTranscriptPurgePort(ctrl *gomock.Controller) *MockTranscriptPurgePort {
+	mock := &MockTranscriptPurgePort{ctrl: ctrl}
+	mock.recorder = &MockTranscriptPurgePortMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockJournalPurgePort) EXPECT() *MockJournalPurgePortMockRecorder {
+func (m *MockTranscriptPurgePort) EXPECT() *MockTranscriptPurgePortMockRecorder {
 	return m.recorder
 }
 
 // DeleteAll mocks base method.
-func (m *MockJournalPurgePort) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
+func (m *MockTranscriptPurgePort) DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteAll", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(int64)
@@ -584,9 +630,9 @@ func (m *MockJournalPurgePort) DeleteAll(ctx context.Context, peerFingerprint, p
 }
 
 // DeleteAll indicates an expected call of DeleteAll.
-func (mr *MockJournalPurgePortMockRecorder) DeleteAll(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
+func (mr *MockTranscriptPurgePortMockRecorder) DeleteAll(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAll", reflect.TypeOf((*MockJournalPurgePort)(nil).DeleteAll), ctx, peerFingerprint, peerSessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAll", reflect.TypeOf((*MockTranscriptPurgePort)(nil).DeleteAll), ctx, peerFingerprint, peerSessionID)
 }
 
 // MockSteerSourcePort is a mock of SteerSourcePort interface.

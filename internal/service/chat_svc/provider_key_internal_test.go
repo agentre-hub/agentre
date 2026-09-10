@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
@@ -26,7 +27,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
@@ -54,7 +56,7 @@ type directRunMocks struct {
 	backend  *mock_agent_backend_repo.MockAgentBackendRepo
 	provider *mock_llm_provider_repo.MockLLMProviderRepo
 	session  *mock_chat_repo.MockSessionRepo
-	message  *mock_chat_repo.MockMessageRepo
+	message  *mock_transcript_repo.MockMessageRepo
 }
 
 func setupDirectRunTest(t *testing.T) (*directRunMocks, context.Context) {
@@ -66,13 +68,13 @@ func setupDirectRunTest(t *testing.T) (*directRunMocks, context.Context) {
 		backend:  mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl),
 		provider: mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl),
 		session:  mock_chat_repo.NewMockSessionRepo(ctrl),
-		message:  mock_chat_repo.NewMockMessageRepo(ctrl),
+		message:  mock_transcript_repo.NewMockMessageRepo(ctrl),
 	}
 	agent_repo.RegisterAgent(m.agent)
 	agent_backend_repo.RegisterAgentBackend(m.backend)
 	llm_provider_repo.RegisterLLMProvider(m.provider)
 	chat_repo.RegisterSession(m.session)
-	chat_repo.RegisterMessage(m.message)
+	transcript_repo.RegisterMessage(m.message)
 	return m, context.Background()
 }
 

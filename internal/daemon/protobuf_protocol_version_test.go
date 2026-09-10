@@ -61,7 +61,7 @@ func TestAuthPair_GivenCallerAdvertisesADifferentButCompatibleWindow_WhenPairing
 			// One minor ahead of this build's own Protocol, but declaring a
 			// floor (wireversion.MinSupported) that still covers it.
 			Code: code, DeviceName: "desktop", DeviceFingerprint: "device-1",
-			ProtocolVersion: "0.2.0", MinSupportedProtocolVersion: wireversion.MinSupported,
+			ProtocolVersion: "0.3.0", MinSupportedProtocolVersion: wireversion.MinSupported,
 		},
 		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
 
@@ -84,14 +84,14 @@ func TestAuthPair_GivenCallerFloorExcludesTheDaemon_WhenPairing_ThenRefusedWithP
 			// Floor one minor ahead of this build's own Protocol
 			// (wireversion.Protocol), so it no longer covers this build.
 			Code: code, DeviceName: "desktop", DeviceFingerprint: "device-1",
-			ProtocolVersion: "0.3.0", MinSupportedProtocolVersion: "0.2.0",
+			ProtocolVersion: "0.4.0", MinSupportedProtocolVersion: "0.3.0",
 		},
 		func() *agentrewire.AuthPairResponse { return &agentrewire.AuthPairResponse{} })
 
 	var rpcErr *protorpc.Error
 	require.ErrorAs(t, err, &rpcErr)
 	require.Equal(t, rpcerror.CodeProtocolVersion, rpcErr.Code)
-	require.Contains(t, rpcErr.Message, "0.3.0")
+	require.Contains(t, rpcErr.Message, "0.4.0")
 }
 
 // Given a desktop from another revision, When it pairs, Then the daemon refuses

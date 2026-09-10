@@ -7,8 +7,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // checkpointAssistantNew 中途 checkpoint(ToolResult 帧后调):把 acc.Snapshot
@@ -29,9 +29,13 @@ func (s *chatSvc) checkpointAssistantNew(ctx context.Context, msg *chat_entity.M
 			zap.Error(err))
 		return
 	}
-	if err := chat_repo.Message().CheckpointBlocks(context.WithoutCancel(ctx), msg, prevBlocksJSON); err != nil {
+	if err := transcript_repo.Message().CheckpointBlocks(context.WithoutCancel(ctx), msg, prevBlocksJSON); err != nil {
 		logger.Ctx(ctx).Warn("chat assistant checkpoint persist failed",
 			zap.Int64("messageID", msg.ID),
 			zap.Error(err))
+		return
 	}
+	// 块落了库才轮到取号:这是「分配与落库不可分」的那一刻(决策 3)。轮内 checkpoint
+	// 只发已经定稿的那些帧 —— 结尾还会继续长的正文块与消息级派生帧留给收口那一发。
+	s.publishPeerMessageFrames(context.WithoutCancel(ctx), msg.SessionID, msg, false)
 }

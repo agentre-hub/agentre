@@ -10,6 +10,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 )
 
 // Given a remote peer starts a desktop session turn, when its source is
@@ -27,7 +28,7 @@ func TestPeerSessionMessageSource_GivenRemoteAndLocalRows_ThenPersistsRemoteSour
 	assert.Equal(t, "sha256:phone", loaded.SourceDevice)
 	assert.Equal(t, "Pixel", loaded.SourceDeviceName)
 
-	history, _, err := synthesizePeerHistory(convID(41), []*chat_entity.Message{remote})
+	history, _, err := transcript.ProjectMessages(convID(41), []*chat_entity.Message{remote})
 	require.NoError(t, err)
 	require.Len(t, history, 1)
 	assert.Equal(t, agentruntime.UserMessageEvent{

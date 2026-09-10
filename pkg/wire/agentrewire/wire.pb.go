@@ -10662,10 +10662,28 @@ func (x *TranscriptImportExecuteResponse) GetAlreadyImported() bool {
 	return false
 }
 
+// Frames come in two levels.
+//
+// A *preview* frame is a per-fragment increment (text_delta, thinking_delta) or
+// a transient status (retry, runtime_status). It carries no seq, is never
+// stored, and takes no part in cursor advancement or de-duplication — losing
+// one loses nothing. It exists so a consumer can render generation as it
+// happens.
+//
+// A *durable* frame is block level, or derived at message level (usage_update,
+// done). It carries a seq, and it is what catch-up and mirroring replay. When a
+// durable frame covers content a preview frame already showed, the durable one
+// wins.
+//
+// preview is an explicit field rather than "seq == 0" on purpose: a consumer
+// treats "seq not greater than my cursor" as a duplicate, so an unnumbered
+// preview frame read through the numbering would be dropped outright. The
+// level has to be readable without consulting the numbering at all.
 type RuntimeEventNotification struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	Seq            int64                  `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	Preview        bool                   `protobuf:"varint,30,opt,name=preview,proto3" json:"preview,omitempty"`
 	// Types that are valid to be assigned to Event:
 	//
 	//	*RuntimeEventNotification_TextDelta
@@ -10742,6 +10760,13 @@ func (x *RuntimeEventNotification) GetSeq() int64 {
 		return x.Seq
 	}
 	return 0
+}
+
+func (x *RuntimeEventNotification) GetPreview() bool {
+	if x != nil {
+		return x.Preview
+	}
+	return false
 }
 
 func (x *RuntimeEventNotification) GetEvent() isRuntimeEventNotification_Event {
@@ -14549,10 +14574,11 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x03cwd\x18\x03 \x01(\tR\x03cwd\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x14\n" +
 	"\x05turns\x18\x05 \x01(\x05R\x05turns\x12)\n" +
-	"\x10already_imported\x18\x06 \x01(\bR\x0falreadyImported\"\xfc\x0f\n" +
+	"\x10already_imported\x18\x06 \x01(\bR\x0falreadyImported\"\x96\x10\n" +
 	"\x18RuntimeEventNotification\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x03R\x03seq\x128\n" +
+	"\x03seq\x18\x02 \x01(\x03R\x03seq\x12\x18\n" +
+	"\apreview\x18\x1e \x01(\bR\apreview\x128\n" +
 	"\n" +
 	"text_delta\x18\x03 \x01(\v2\x17.agentre.wire.TextDeltaH\x00R\ttextDelta\x12D\n" +
 	"\x0ethinking_delta\x18\x04 \x01(\v2\x1b.agentre.wire.ThinkingDeltaH\x00R\rthinkingDelta\x12G\n" +

@@ -59,6 +59,10 @@ func (h remotePoolHost) NewRuntime(
 		// runtime 只认进程内的 int64 会话键,这条注入是它与那一列之间的唯一一座桥。
 		remote.WithConversationIDResolver(sessionConversationID),
 		remote.WithConnStateObserver(remote.ConnStateFunc(h.s.onRemoteConnState)),
+		// 预览帧的呈现出口:它不进 Run 交回的那条事件流(那条流是本轮的转录来源),
+		// 由本轮的 turnRun 单独消费 —— 逐 token 照旧实时长出来,转录只认持久帧
+		// (规格 2026-09-05「两级帧与补齐」)。
+		remote.WithPreviewSink(remote.PreviewSinkFunc(h.s.onRemotePreviewEvent)),
 		remote.WithReconnect(remote.ReconnectFunc(func(rctx context.Context) (client.ProtobufConnection, string, error) {
 			return h.s.reconnectRemote(rctx, deviceID, entry)
 		})),

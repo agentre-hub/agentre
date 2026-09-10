@@ -969,6 +969,17 @@ type SkillCatalogResult struct {
 //
 // 日志里存的 payload 是**不含 seq** 的帧原样 —— seq 是日志行自己的列,实时推送与重连
 // 补齐都在发送时才把行上的 seq 盖到帧上,两条路径因此投递同一份字节 + 同一个 seq。
+//
+// 帧分两级(spec 2026-09-05 决策 4):
+//
+//   - **预览帧** —— 逐片段增量(TextDelta / ThinkingDelta)与过场状态(Retry /
+//     RuntimeStatus)。不带 seq、不落库、不参与游标推进与去重,丢失即丢失;它存在
+//     只为「实时看得到生成过程」。EventFrame.Preview 为真。
+//   - **持久帧** —— 块级帧与消息级派生帧(UsageUpdate / Done)。带 seq,参与补齐
+//     与镜像。对端收到覆盖同一内容的持久帧时以持久帧为准。
+//
+// 级别是**显式的一格**,不是从 seq 推出来的:消费方把「seq 不大于游标」当重复丢弃,
+// 而预览帧本就不带 seq —— 借 seq=0 表达级别等于把每一条预览帧送进去重路径。
 
 // EventFrame wraps a single agentruntime.Event for delivery over NotifyEvent.
 // ConversationID is transport metadata so the receiving end can route by
@@ -993,6 +1004,9 @@ type EventFrame struct {
 	ConversationID string             `json:"conversationId"`
 	Event          agentruntime.Event `json:"event"`
 	Seq            int64              `json:"seq,omitempty"`
+	// Preview 标出这是一条**预览帧**:即时呈现用,不带 seq、不落库、不参与游标
+	// 推进与去重(见上面「帧分两级」)。持久帧上不落这一格。
+	Preview bool `json:"preview,omitempty"`
 }
 
 // eventFrameWire 是 EventFrame 真正的线上形态。单独一个类型而不是直接用上面那组
@@ -1001,6 +1015,7 @@ type eventFrameWire struct {
 	ConversationID string          `json:"conversationId"`
 	Event          json.RawMessage `json:"event"`
 	Seq            int64           `json:"seq,omitempty"`
+	Preview        bool            `json:"preview,omitempty"`
 }
 
 func (f EventFrame) MarshalJSON() ([]byte, error) {
@@ -1014,7 +1029,7 @@ func (f EventFrame) MarshalJSON() ([]byte, error) {
 		}
 		raw = encoded
 	}
-	return json.Marshal(eventFrameWire{ConversationID: f.ConversationID, Event: raw, Seq: f.Seq})
+	return json.Marshal(eventFrameWire{ConversationID: f.ConversationID, Event: raw, Seq: f.Seq, Preview: f.Preview})
 }
 
 func (f *EventFrame) UnmarshalJSON(data []byte) error {
@@ -1024,6 +1039,7 @@ func (f *EventFrame) UnmarshalJSON(data []byte) error {
 	}
 	f.ConversationID = w.ConversationID
 	f.Seq = w.Seq
+	f.Preview = w.Preview
 	f.Event = nil
 	if len(w.Event) == 0 || string(w.Event) == "null" {
 		return nil

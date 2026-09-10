@@ -479,12 +479,13 @@ func (d *Daemon) registerProtobufMethods() {
 		// internal/pkg/transcriptimport 的注册表 —— daemon 侧不写第二套解析。
 		//
 		// 执行侧接的是与跑一轮**同一份**存储:会话身份行落进 daemon_sessions、
-		// 回放出的通知落进 daemon_notification_journal,导入的会话因此和别的会话一样
-		// 被 SESSION_LIST / SESSION_PULL 服务出去,不需要第二条镜像通路。
+		// 回放出的转录落成消息行 + 块行,导入的会话因此和别的会话一样被
+		// SESSION_LIST / SESSION_PULL 服务出去,不需要第二条镜像通路。
 		TranscriptImport: transcriptimport.NewHandlers(transcriptimport.Options{
 			Sessions:          d.sessionStore,
-			Journal:           d.journal,
-			JournalPurge:      journalPurger{db: d.db},
+			Transcript:        d.transcript,
+			TranscriptPurge:   transcriptPurger{db: d.db},
+			SessionDelete:     d.sessionStore,
 			LoggedInAccountID: d.loggedInAccountID,
 		}),
 	})

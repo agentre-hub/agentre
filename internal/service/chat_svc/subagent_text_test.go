@@ -11,16 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 func TestLatestAssistantText(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	// Register the real message repo (backed by sqlmock DB from testutils.Database).
-	prevMsg := chat_repo.Message()
-	chat_repo.RegisterMessage(chat_repo.NewMessage())
-	t.Cleanup(func() { chat_repo.RegisterMessage(prevMsg) })
+	prevMsg := transcript_repo.Message()
+	transcript_repo.RegisterMessage(transcript_repo.NewMessage())
+	t.Cleanup(func() { transcript_repo.RegisterMessage(prevMsg) })
 
 	// gorm First() appends `,`chat_messages`.`id`` to ORDER BY; regex adjusted to match.
 	mock.ExpectQuery("SELECT \\* FROM `chat_messages` WHERE session_id = \\? AND role = \\? ORDER BY seq DESC,`chat_messages`.`id` LIMIT \\?").

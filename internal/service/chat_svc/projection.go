@@ -3,7 +3,7 @@ package chat_svc
 import (
 	"github.com/cago-frame/agents/agent/blocks"
 
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 )
 
 // ProjectBlocks 把持久化的 cago/agents 内容块投影成前端 ChatBlock。

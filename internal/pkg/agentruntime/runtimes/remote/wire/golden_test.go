@@ -292,6 +292,9 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 			body: SkillCatalogResult{Packs: []SkillPackSummary{}, Discovery: SkillDiscoveryUnavailable},
 		},
 		{name: "event-frame", body: EventFrame{ConversationID: sid, Event: textDelta, Seq: 11}},
+		// 两级帧的另一级:预览帧不带 seq、带 preview(spec 2026-09-05 决策 4)。
+		// 浏览器侧据此判别,不能从 seq 是不是 0 去猜 —— 所以两级各留一条样本。
+		{name: "event-frame-preview", body: EventFrame{ConversationID: sid, Event: textDelta, Preview: true}},
 		{name: "run-result-done-frame", body: runResultDone},
 		{
 			name: "usage-wire",

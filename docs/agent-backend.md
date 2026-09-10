@@ -456,8 +456,8 @@ const showBypass = session.permission_mode_at_launch === "bypassPermissions"
 ExitPlanMode is a plan-exit protocol implemented by **reusing the ToolPermission channel** (claudecode-specific; codex has no equivalent):
 
 1. After the CLI finishes planning in plan mode, it calls the `ExitPlanMode` tool → the backend emits `ToolPermissionRequest{ToolName: "ExitPlanMode", Input: {plan: "..."}}`.
-2. chat_svc detects `ToolName=="ExitPlanMode"` in `internal/service/chat_svc/handlers/tool_permission.go`, and **additionally assembles** `Canonical = PlanApproveRequest{Plan, Actions}`, so the frontend renders with `PlanApproveCard` (instead of the generic ToolPermissionCard).
-3. `Actions` is assembled by `handlers.BuildPlanApproveActions(launchPermissionMode)` in the ToolPermissionRequest handler (`internal/service/chat_svc/handlers/plan_approve.go`), with the rules:
+2. chat_svc detects `ToolName=="ExitPlanMode"` in `internal/pkg/transcript/handlers/tool_permission.go`, and **additionally assembles** `Canonical = PlanApproveRequest{Plan, Actions}`, so the frontend renders with `PlanApproveCard` (instead of the generic ToolPermissionCard).
+3. `Actions` is assembled by `handlers.BuildPlanApproveActions(launchPermissionMode)` in the ToolPermissionRequest handler (`internal/pkg/transcript/handlers/plan_approve.go`), with the rules:
    - normal launch (empty / default / acceptEdits / plan) → `[plan.approve.accept_edits, plan.approve.manual, plan.refine]`
    - launch="bypassPermissions" → the first item is **replaced** with `plan.approve.bypass_permissions` (not appended), yielding `[plan.approve.bypass_permissions, plan.approve.manual, plan.refine]`
    - `plan.refine` carries `RequiresFeedback: true` — the frontend expands a feedback textarea; after the user submits, it goes through `Allow=false` + `DenyReason=feedback` (the CLI feeds the message back to the AI as a tool_result to continue planning), **not** allow + switch back to plan mode

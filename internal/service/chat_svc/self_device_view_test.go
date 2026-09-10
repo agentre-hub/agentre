@@ -12,10 +12,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 )
@@ -36,9 +36,9 @@ func registerSelfDeviceMocks(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
-	msgMock := mock_chat_repo.NewMockMessageRepo(ctrl)
-	prevMessage := chat_repo.Message()
-	chat_repo.RegisterMessage(msgMock)
+	msgMock := mock_transcript_repo.NewMockMessageRepo(ctrl)
+	prevMessage := transcript_repo.Message()
+	transcript_repo.RegisterMessage(msgMock)
 	msgMock.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	msgMock.EXPECT().ListMeta(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	msgMock.EXPECT().FillBlocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -57,7 +57,7 @@ func registerSelfDeviceMocks(t *testing.T) {
 	rds.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
 
 	t.Cleanup(func() {
-		chat_repo.RegisterMessage(prevMessage)
+		transcript_repo.RegisterMessage(prevMessage)
 		llm_provider_repo.RegisterLLMProvider(prevProvider)
 		remote_device_svc.SetDefault(prevRDS)
 	})

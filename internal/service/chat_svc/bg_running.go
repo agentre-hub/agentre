@@ -7,7 +7,7 @@ import (
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 )
 
 // bgRunningSet 是单会话「运行中后台 subagent 的 tool_use_id 集合」。用集合而非计数器：

@@ -1650,12 +1650,19 @@ export interface EventFrame extends WireObject {
   conversationId: string;
   event: unknown;
   seq?: number;
+
+  /**
+   * Preview 标出这是一条**预览帧**:即时呈现用,不带 seq、不落库、不参与游标
+   * 推进与去重(见上面「帧分两级」)。持久帧上不落这一格。
+   */
+  preview?: boolean;
 }
 
 export function decodeEventFrame(v: unknown): EventFrame {
   return decodeWire<EventFrame>(v, "EventFrame", (o) => {
     o.conversationId = reqStr(o.conversationId, "EventFrame.conversationId");
     o.seq = optNum(o.seq, "EventFrame.seq");
+    o.preview = optBool(o.preview, "EventFrame.preview");
   });
 }
 

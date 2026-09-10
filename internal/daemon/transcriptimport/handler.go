@@ -37,11 +37,13 @@ type Options struct {
 	Sources func() []pkgimport.Source
 	// MaxPageBytes 一页的字节预算(近似值),<=0 用 defaultMaxPageBytes。
 	MaxPageBytes int
-	// Sessions / Journal / JournalPurge 是**执行侧**(Execute)要用的存储口,
-	// 只读的三个方法用不到它们。留空时 Execute 报 internal 而不是静默假装导完了。
-	Sessions     SessionStore
-	Journal      Journal
-	JournalPurge JournalPurger
+	// Sessions / Transcript / TranscriptPurge / SessionDelete 是**执行侧**(Execute)
+	// 要用的存储口,只读的三个方法用不到它们。留空时 Execute 报 internal 而不是静默
+	// 假装导完了。
+	Sessions        SessionStore
+	Transcript      Transcript
+	TranscriptPurge TranscriptPurger
+	SessionDelete   SessionDeleter
 	// LoggedInAccountID 交出这台 daemon 此刻归属的账号,用来判定调用方有没有资格
 	// 把会话落在**点名的 origin**名下(与补齐族、删除族同一个门)。
 	LoggedInAccountID func() string
@@ -57,8 +59,9 @@ type Handlers struct {
 	sources           func() []pkgimport.Source
 	maxPageBytes      int
 	sessions          SessionStore
-	journal           Journal
-	journalPurge      JournalPurger
+	transcript        Transcript
+	transcriptPurge   TranscriptPurger
+	sessionDelete     SessionDeleter
 	loggedInAccountID func() string
 }
 
@@ -66,7 +69,8 @@ type Handlers struct {
 func NewHandlers(opts Options) *Handlers {
 	h := &Handlers{
 		sources: opts.Sources, maxPageBytes: opts.MaxPageBytes,
-		sessions: opts.Sessions, journal: opts.Journal, journalPurge: opts.JournalPurge,
+		sessions: opts.Sessions, transcript: opts.Transcript,
+		transcriptPurge: opts.TranscriptPurge, sessionDelete: opts.SessionDelete,
 		loggedInAccountID: opts.LoggedInAccountID,
 	}
 	if h.sources == nil {

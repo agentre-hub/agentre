@@ -8,16 +8,16 @@ package transcriptimport
 // 流上去。导入照同一条形状走,导出来的会话因此和别的会话一模一样地镜像上去,
 // 不需要第二条通路。
 //
-// 落库顺序刻意是「先清同号残留 → 再逐轮落日志 → 最后写身份行」:
-//   - 身份行是判重的锚点,它一旦在库里就代表这条导入**完整**。反过来先写身份行的话,
-//     回放中途失败会留下一条看着已经导完、实际只有半截转录的会话,而下一次同号重来
-//     会被判成「已导过」直接指回去 —— 那半截转录再也补不齐了。
-//   - 中途失败留下的是一段没有主人的日志,同号重来先把它清掉,两次回放因此不会首尾
+// 落库顺序是「先建身份行 → 清同号残留 → 再逐轮落转录 → 失败则连身份行一起撤掉」:
+//   - 转录(消息行 + 块行)按**本机会话主键**挂靠(规格 2026-09-05 决策 9),所以身份行
+//     必须先在库里,回放才有地方落。从前的顺序(身份行最后写)服务的是「身份行 = 导入
+//     完整」这个锚点,现在由失败路径上的撤销顶上:回放失败就把这一条整个删掉,库里
+//     不会留下一条看着已经导完、实际只有半截转录的会话。
+//   - 同号残留(上一次导入写到一半、进程没了)在回放之前清掉,两次回放因此不会首尾
 //     相接叠成一份双倍长的转录。
 //
-// 不开事务是有意的:通知日志的 Append 每条自行分配 seq(见 notification_repo 的
-// appendSQL —— 单条语句里取 MAX(seq)+1 并写入),把整份转录裹进一个事务会让这条
-// 长写锁住整个库,而这台 daemon 上别的会话正在实时落它们自己的通知。
+// 不开事务是有意的:把整份转录裹进一个事务会让这条长写锁住整个库,而这台 daemon 上
+// 别的会话正在实时落它们自己的转录。
 
 import (
 	"context"
@@ -29,10 +29,11 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	runtimewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
 )
@@ -46,16 +47,22 @@ type SessionStore interface {
 	Start(ctx context.Context, rec handlers.SessionRecord) error
 }
 
-// Journal 落库一条「本该发给客户端的通知」并返回库分配的 seq(同
-// handlers.JournalPort)。回放出的每一帧都从这里进库,SESSION_PULL 因此原样服务
-// 得出 —— 本包不另开第二本日志。
-type Journal interface {
-	Append(ctx context.Context, peerFingerprint, peerSessionID string, payload []byte) (int64, error)
+// SessionDeleter 删掉一条会话的身份行(同 handlers.SessionDeletePort)。本路径只在
+// 回放失败的撤销上用它,见文件头的落库顺序。
+type SessionDeleter interface {
+	Delete(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
 }
 
-// JournalPurger 清空某会话的全部日志(同 handlers.JournalPurgePort)。本路径只在
-// 「同号残留」这一处用它,见文件头的落库顺序。
-type JournalPurger interface {
+// Transcript 落库这条对话的转录(同 handlers.TranscriptPort)。回放出的每一轮都从
+// 这里进库 —— 本包不另开第二条落块路径,块怎么攒出来同样归共用的那只累积器。
+type Transcript interface {
+	StartTurn(ctx context.Context, conversationID, userText string) (user, assistant *transcript_entity.Message, err error)
+	FinishTurn(ctx context.Context, m *transcript_entity.Message) error
+}
+
+// TranscriptPurger 清空某会话的全部转录(同 handlers.TranscriptPurgePort)。本路径
+// 用它清「同号残留」,以及回放失败时撤掉这一次写进去的东西,见文件头的落库顺序。
+type TranscriptPurger interface {
 	DeleteAll(ctx context.Context, peerFingerprint, peerSessionID string) (int64, error)
 }
 
@@ -64,7 +71,7 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 	if err := handlers.ErrInvalidConversationID(params.ConversationID); err != nil {
 		return nil, err
 	}
-	if h.sessions == nil || h.journal == nil {
+	if h.sessions == nil || h.transcript == nil {
 		// 没接存储就没有「执行」可言。静默回一个空结果会让调用方以为导完了,
 		// 而库里一行都没有。
 		logger.Ctx(ctx).Error("daemon.transcriptimport.Execute: storage not wired",
@@ -75,12 +82,12 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 	if err != nil {
 		return nil, err
 	}
-	transcript, err := h.openTranscript(ctx, params.Backend, params.Locator)
+	source, err := h.openTranscript(ctx, params.Backend, params.Locator)
 	if err != nil {
 		return nil, err
 	}
-	defer closeTranscript(ctx, transcript)
-	meta := transcript.Meta()
+	defer closeTranscript(ctx, source)
+	meta := source.Meta()
 
 	// 身份列本来就是 TEXT:对话身份原样落进去,从前那一圈 int64↔string 往返消失了。
 	peerSessionID := params.ConversationID
@@ -101,24 +108,6 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 		}, nil
 	}
 
-	if err := h.clearLeftoverJournal(ctx, peer, peerSessionID); err != nil {
-		return nil, err
-	}
-	replay := &replayCounters{}
-	turnErr := transcript.Turns(ctx, func(turn pkgimport.Turn) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		return h.journalTurn(ctx, peer, peerSessionID, meta, turn, replay)
-	})
-	if turnErr != nil {
-		// 这里就是这条链路上「能判定它失败了」的那一层:上面只剩 RPC 壳。
-		logger.Ctx(ctx).Error("daemon.transcriptimport.Execute: replay failed",
-			zap.String("backendType", params.Backend), zap.String("conversationId", params.ConversationID),
-			zap.Int("turns", replay.turns), zap.Error(turnErr))
-		return nil, fmt.Errorf("transcriptimport: replay turns: %w", turnErr)
-	}
-
 	title := strings.TrimSpace(meta.Title)
 	record := handlers.SessionRecord{
 		PeerFingerprint: peer,
@@ -136,10 +125,30 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 	if err := h.sessions.Start(ctx, record); err != nil {
 		return nil, fmt.Errorf("transcriptimport: create session: %w", err)
 	}
+	if err := h.clearLeftoverTranscript(ctx, peer, peerSessionID); err != nil {
+		return nil, err
+	}
+	replay := &replayCounters{}
+	turnErr := source.Turns(ctx, func(turn pkgimport.Turn) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return h.importTurn(ctx, peerSessionID, turn, replay)
+	})
+	if turnErr != nil {
+		// 这里就是这条链路上「能判定它失败了」的那一层:上面只剩 RPC 壳。
+		// 半截转录连同它的身份行一起撤掉:留着会被下一次同号导入判成「已导过」,
+		// 那半截再也补不齐(见文件头的落库顺序)。
+		h.rollbackFailedImport(ctx, peer, peerSessionID)
+		logger.Ctx(ctx).Error("daemon.transcriptimport.Execute: replay failed",
+			zap.String("backendType", params.Backend), zap.String("conversationId", params.ConversationID),
+			zap.Int("turns", replay.turns), zap.Error(turnErr))
+		return nil, fmt.Errorf("transcriptimport: replay turns: %w", turnErr)
+	}
 	logger.Ctx(ctx).Info("daemon.transcriptimport.Execute: imported",
 		zap.String("backendType", params.Backend), zap.String("conversationId", params.ConversationID),
 		zap.String("providerSessionId", meta.ProviderSessionID), zap.Int("turns", replay.turns),
-		zap.Int64("latestSeq", replay.seq), zap.Int("droppedImages", replay.droppedImages))
+		zap.Int("droppedImages", replay.droppedImages))
 	return &wire.ExecuteResult{
 		ConversationID: params.ConversationID, ProviderSessionID: meta.ProviderSessionID,
 		Cwd: meta.Cwd, Title: title, Turns: replay.turns,
@@ -152,7 +161,6 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 // 一条 42 轮的会话写成 42 行(observability.md:不在循环里打日志)。
 type replayCounters struct {
 	turns         int
-	seq           int64
 	droppedImages int
 }
 
@@ -192,116 +200,86 @@ func (h *Handlers) findImported(
 	return nil, fmt.Errorf("%w: %s", wire.ErrSessionInUse, peerSessionID)
 }
 
-// clearLeftoverJournal 清掉同号的残留日志(上一次导入写到一半留下的)。
-func (h *Handlers) clearLeftoverJournal(ctx context.Context, peer, peerSessionID string) error {
-	if h.journalPurge == nil {
+// clearLeftoverTranscript 清掉同号的残留转录(上一次导入写到一半留下的)。
+func (h *Handlers) clearLeftoverTranscript(ctx context.Context, peer, peerSessionID string) error {
+	if h.transcriptPurge == nil {
 		return nil
 	}
-	removed, err := h.journalPurge.DeleteAll(ctx, peer, peerSessionID)
+	removed, err := h.transcriptPurge.DeleteAll(ctx, peer, peerSessionID)
 	if err != nil {
-		return fmt.Errorf("transcriptimport: clear leftover journal: %w", err)
+		return fmt.Errorf("transcriptimport: clear leftover transcript: %w", err)
 	}
 	if removed > 0 {
-		logger.Ctx(ctx).Warn("daemon.transcriptimport.Execute: cleared a leftover journal",
+		logger.Ctx(ctx).Warn("daemon.transcriptimport.Execute: cleared a leftover transcript",
 			zap.String("peerSessionId", peerSessionID), zap.Int64("rows", removed))
 	}
 	return nil
 }
 
-// journalTurn 把一轮落成客户端**本该收到过**的那串通知:
+// rollbackFailedImport 撤掉这一次写进去的东西:先清转录,再删身份行。尽力而为 ——
+// 撤不掉只记日志,原本那个回放错误才是调用方该看到的。
+func (h *Handlers) rollbackFailedImport(ctx context.Context, peer, peerSessionID string) {
+	if err := h.clearLeftoverTranscript(ctx, peer, peerSessionID); err != nil {
+		logger.Ctx(ctx).Warn("daemon.transcriptimport.Execute: rollback transcript failed",
+			zap.String("peerSessionId", peerSessionID), zap.Error(err))
+	}
+	if h.sessionDelete == nil {
+		return
+	}
+	if _, err := h.sessionDelete.Delete(ctx, peer, peerSessionID); err != nil {
+		logger.Ctx(ctx).Warn("daemon.transcriptimport.Execute: rollback session row failed",
+			zap.String("peerSessionId", peerSessionID), zap.Error(err))
+	}
+}
+
+// importTurn 把一轮落成与跑一轮**同形**的转录:用户那一行 + 一条 assistant 消息,
+// 正文由共用的累积器就着这一轮的事件攒出来(决策 2)。
 //
-//	runtime.event(用户那一行)→ runtime.event(这一轮的事件)→ 用量 / 错误 → Done
-//	→ runtime.runResultDone
-//
-// 形状照的是活着的那一轮自己发出的通知,不是另造一套:补齐侧(remote runtime 的
-// 补齐轮、agentre-server 的镜像投影)认的就是这一串,收尾帧 runResultDone 是补齐轮
-// 的终点 —— 少了它,客户端那一轮永远不结束。
-func (h *Handlers) journalTurn(
-	ctx context.Context, peer, peerSessionID string,
-	meta pkgimport.Meta, turn pkgimport.Turn, counters *replayCounters,
+// 不另造一套:同一段内容在两个宿主上必须由同一行代码写进库 —— 导入这条路走的是
+// 与实时那一轮完全一样的 dispatcher + accumulator + 消息仓储。
+func (h *Handlers) importTurn(
+	ctx context.Context, peerSessionID string, t pkgimport.Turn, counters *replayCounters,
 ) error {
-	// 用户那一行经 UserMessageEvent 进转录 —— 它是 daemon 到客户端「这一轮是谁开的」
-	// 的唯一事实来源。**不带 SourceDevice**:这一轮不是任何在线设备此刻发起的,
-	// 填一个指纹会在转录里印出一句「来自 <设备>」。
-	if turn.UserText != "" {
-		if err := h.journalEvent(ctx, peer, peerSessionID,
-			agentruntime.UserMessageEvent{Text: turn.UserText}, counters); err != nil {
-			return err
+	_, msg, err := h.transcript.StartTurn(ctx, peerSessionID, t.UserText)
+	if err != nil {
+		return fmt.Errorf("transcriptimport: start turn: %w", err)
+	}
+	if msg == nil {
+		return errors.New("transcriptimport: session row is missing")
+	}
+	// 用户附的图过不去:这一行只落文本。如实计数,收尾那行日志报出来,不假装导全了。
+	counters.droppedImages += len(t.UserImages)
+
+	dispatcher := transcript.NewTurnDispatcher(transcript.Adapters{})
+	acc := turn.New()
+	turnCtx := &turn.TurnContext{Waits: turn.NewWaitTracker()}
+	for _, event := range t.Events {
+		if err := dispatcher.Apply(ctx, event, acc, discardEmitter{}, nil, turnCtx); err != nil {
+			return fmt.Errorf("transcriptimport: apply event: %w", err)
 		}
 	}
-	// 用户附的图过不去:UserMessageEvent 只有文本一格,而事件流里没有第二个能挂在
-	// 用户那一行上的载体。如实计数,收尾那行日志报出来,不假装导全了。
-	counters.droppedImages += len(turn.UserImages)
-	for _, event := range turn.Events {
-		if err := h.journalEvent(ctx, peer, peerSessionID, event, counters); err != nil {
-			return err
-		}
+	if err := msg.SetBlocks(acc.Finalize()); err != nil {
+		return fmt.Errorf("transcriptimport: encode blocks: %w", err)
 	}
-	// 用量既走事件、也进收尾帧:桌面端按事件累加、收尾帧只在没有事件时兜底(见
-	// chat_svc 那处注释),而 agentre-server 的转录投影只读事件 —— 两边各取所需,
-	// 不会重复计数。
-	if turn.Usage != nil {
-		if err := h.journalEvent(ctx, peer, peerSessionID,
-			agentruntime.UsageUpdate{Usage: turn.Usage}, counters); err != nil {
-			return err
-		}
+	msg.Model = t.Model
+	msg.ErrorText = t.ErrorText
+	msg.ForkAnchor = t.ForkAnchor
+	if u := t.Usage; u != nil {
+		msg.PromptTokens = u.PromptTokens
+		msg.CompletionTokens = u.CompletionTokens
+		msg.CachedTokens = u.CachedTokens
+		msg.CacheCreationTokens = u.CacheCreationTokens
+		msg.ReasoningTokens = u.ReasoningTokens
+		msg.TotalInputTokens = u.PromptTokens + u.CachedTokens + u.CacheCreationTokens
 	}
-	if turn.ErrorText != "" {
-		if err := h.journalEvent(ctx, peer, peerSessionID,
-			agentruntime.ErrorEvent{Err: errors.New(turn.ErrorText)}, counters); err != nil {
-			return err
-		}
-	}
-	if err := h.journalEvent(ctx, peer, peerSessionID, agentruntime.Done{}, counters); err != nil {
-		return err
-	}
-	done := &runtimewire.RunResultDoneFrame{
-		ConversationID:    peerSessionID,
-		ProviderSessionID: meta.ProviderSessionID,
-		Model:             turn.Model,
-		UserAnchor:        turn.ForkAnchor,
-	}
-	if turn.Usage != nil {
-		done.Usage = &runtimewire.UsageWire{
-			PromptTokens: turn.Usage.PromptTokens, CompletionTokens: turn.Usage.CompletionTokens,
-			ReasoningTokens: turn.Usage.ReasoningTokens, CachedTokens: turn.Usage.CachedTokens,
-			CacheCreationTokens: turn.Usage.CacheCreationTokens, TotalTokens: turn.Usage.TotalTokens,
-		}
-	}
-	if err := h.journalNotification(ctx, peer, peerSessionID, runtimewire.NotifyRunResultDone, done, counters); err != nil {
-		return err
+	if err := h.transcript.FinishTurn(ctx, msg); err != nil {
+		return fmt.Errorf("transcriptimport: finish turn: %w", err)
 	}
 	counters.turns++
 	return nil
 }
 
-func (h *Handlers) journalEvent(
-	ctx context.Context, peer, peerSessionID string,
-	event agentruntime.Event, counters *replayCounters,
-) error {
-	frame := &runtimewire.EventFrame{ConversationID: peerSessionID, Event: event}
-	return h.journalNotification(ctx, peer, peerSessionID, runtimewire.NotifyEvent, frame, counters)
-}
+// discardEmitter 是 dispatcher 要的那个发射器的空位:导入不推送任何东西。
+type discardEmitter struct{}
 
-// journalNotification 把一帧转成 Protobuf 通知并落库。**落库的字节里 seq 是 0**:
-// seq 是日志行自己的属性,补齐时由行的 seq 列重新盖上(与 runtime.go 的 emit 同一
-// 条纪律)。
-func (h *Handlers) journalNotification(
-	ctx context.Context, peer, peerSessionID, method string, frame any, counters *replayCounters,
-) error {
-	notification, err := protowire.WireNotificationToProto(method, frame)
-	if err != nil {
-		return fmt.Errorf("transcriptimport: convert %s: %w", method, err)
-	}
-	protowire.SetNotificationSeq(notification, 0)
-	payload, err := protowire.EncodeNotification(notification)
-	if err != nil {
-		return fmt.Errorf("transcriptimport: encode %s: %w", method, err)
-	}
-	seq, err := h.journal.Append(ctx, peer, peerSessionID, payload)
-	if err != nil {
-		return fmt.Errorf("transcriptimport: journal %s: %w", method, err)
-	}
-	counters.seq = seq
-	return nil
-}
+func (discardEmitter) Emit(context.Context, string, any) {}

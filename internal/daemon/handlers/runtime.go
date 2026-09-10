@@ -50,8 +50,9 @@ type RuntimeDeps struct {
 	// forwardAutonomousTurn 的 goroutine 会活过那条连接:静态捕获的端口在客户端重连后
 	// 仍指向已死的旧连接,通知就再也发不出去了(见 daemon.bindConn 注释)。
 	NotifyFor func(peerFingerprint string) NotifierPort
-	// Journal 是通知日志,Daemon 级(每个 daemon 一份),不随连接生灭。
-	Journal JournalPort
+	// Transcript 是转录的写入口(消息行 + 块行),Daemon 级(每个 daemon 一份),
+	// 不随连接生灭。它取代了从前的通知日志(决策 1)。
+	Transcript TranscriptPort
 	// Sessions 是会话生命周期的写入口,同样 Daemon 级。它落的那一行是重连客户端
 	// 拿会话清单的唯一来源,也是 daemon 启动时把非终态会话标成中断(R10)的对象。
 	Sessions SessionLifecyclePort
@@ -558,7 +559,7 @@ func (h *RuntimeHandlers) Run(ctx context.Context, p wire.RunParams) (wire.RunAc
 	// 知道这一轮开了(它就是发的那个),而其余订阅者此前只看得到轮次结束,整轮里都把
 	// 这条对话显示成闲着。
 	em.emit(wire.NotifyTurnStarted, &wire.TurnStartedFrame{ConversationID: em.conversationID})
-	go h.fanout(em, owner, events, result, userMsg) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
+	go h.fanout(em, owner, events, result, userMsg, p.UserText) //nolint:gosec // G118: turn fanout outlives the Run RPC and owns terminal cleanup.
 	// 真实 runtime 若支持自主续轮(claudecode),起每会话一个转发 goroutine 把
 	// AutonomousTurns(sid) 推到 client。session 已 spawn,此刻订阅才拿得到 channel。
 	if src, ok := rt.(agentruntime.AutonomousTurnSource); ok {
@@ -727,7 +728,7 @@ func (h *RuntimeHandlers) startPreparedPi(
 		zap.String("peerFingerprint", em.peer))
 	h.startSession(em, p, bt, providerSessionID)
 	h.markStreaming(owner)
-	go h.fanout(em, owner, events, result, userMessageFor(p))
+	go h.fanout(em, owner, events, result, userMessageFor(p), p.UserText)
 	return ack, nil
 }
 
@@ -851,13 +852,14 @@ func (h *RuntimeHandlers) emitPrelude(em *sessionEmitter, owner *runtimeSession,
 	return em.emit(wire.NotifyEvent, &wire.EventFrame{
 		ConversationID: em.conversationID,
 		Event:          *prelude,
+		Preview:        true,
 	})
 }
 
 // fanout 把 backend events channel 抽干推到 runtime.event,channel close 后再发
 // runtime.runResultDone 终态帧。日志按事件 kind 计数,turn 结束时打一条汇总,
 // 排查 stuck-turn / 漏事件时方便对账 client 端实际收到几条。
-func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, prelude *agentruntime.UserMessageEvent) {
+func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, prelude *agentruntime.UserMessageEvent, userText string) {
 	startedAt := time.Now()
 	cid, rid := em.conversationID, em.rid
 	count := 0
@@ -867,6 +869,9 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 	// 「哪条事件动哪一下表」归 internal/pkg/turnstats,与 chat_svc 共用一份。
 	meter := turnMeter{}
 	meter.clock.StartGenerationAt(startedAt)
+	// 本轮的转录。它与推送是两件事:推出去的是即时呈现用的预览帧,落进库的是块
+	// (决策 1 / 4)。起手就建行,轮内每个定稿时刻 checkpoint 一次。
+	scribe := h.beginTranscript(em, userText)
 	// R18:把发起方标记作为**第一条**事件注入,保证订阅者先把这一轮的用户消息落成转录行,
 	// 再接收后端真正的事件。
 	if prelude != nil {
@@ -898,9 +903,11 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 				zap.String("eventKind", kind))
 			continue
 		}
+		scribe.observe(em.ctx, ev)
 		if em.emit(wire.NotifyEvent, &wire.EventFrame{
 			ConversationID: cid,
 			Event:          ev,
+			Preview:        true,
 		}) && !isNoisyEventKind(kind) {
 			// text/thinking/usage 频率极高,kindHist 汇总即可,不逐条 log。
 			logger.Ctx(em.ctx).Debug("handlers.RuntimeHandlers.fanout: event delivered",
@@ -921,6 +928,7 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		// 被 idempotentSubmitResult 判成真错误,给用户一个假失败。这个顺序下它解得出会话、
 		// 照旧走到 backend,由「waiter 已经不在了」按 R8 折成成功。
 		h.settleSession(em, frame)
+		scribe.finish(em.ctx, frame)
 		// 只清 active-turn 记录;**不撤销 gateway token** —— token 是会话级常驻,
 		// 跨轮复用,寿命跟随子进程(见 sessionTokens 注释),轮末撤销会让下一轮复用
 		// 的子进程手里 token 失效。
@@ -938,6 +946,7 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 	current := h.claimPiTerminal(rid, owner)
 	if current {
 		h.settleSession(em, frame)
+		scribe.finish(em.ctx, frame)
 		em.emit(wire.NotifyRunResultDone, &frame)
 		if cleanupErr := h.finalizePiGeneration(context.Background(), rid, owner); cleanupErr != nil {
 			logger.Ctx(em.ctx).Error("handlers.RuntimeHandlers.fanout: generation finalization failed",
@@ -1023,31 +1032,33 @@ func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentrunt
 		TurnToken:      at.TurnToken,
 	})
 	count := 0
+	// 自主续轮同样是一轮转录,只是没有用户那一行 —— 它不是任何人发起的。
+	scribe := h.beginTranscript(em, "")
 	for ev := range at.Events {
 		count++
+		scribe.observe(em.ctx, ev)
 		em.emit(wire.NotifyAutonomousTurnEvent, &wire.EventFrame{
 			ConversationID: cid,
 			Event:          ev,
+			Preview:        true,
 		})
 	}
 	frame := runResultToFrame(cid, at.Result)
 	h.settleSession(em, frame) // 同 fanout:先落行,再发终态帧
+	scribe.finish(em.ctx, frame)
 	em.emit(wire.NotifyAutonomousTurnDone, &frame)
 	log.Printf("runtime.autonomousTurn: forwarded conversation=%s trigger=%s events=%d hasStopErr=%t stopErrBytes=%d stopErrCode=%d",
 		cid, at.Trigger, count, frame.StopErrMsg != "", len(frame.StopErrMsg), frame.StopErrCode)
 }
 
-// ── 会话通知出口(先落库,后推送)────────────────────────────────────────────
+// ── 会话通知出口(实时推送)──────────────────────────────────────────────────
 
-// seqFrame 是能被盖上 seq 的通知帧。wire 的三个通知帧(EventFrame /
-// RunResultDoneFrame / AutonomousTurnStartedFrame)的指针都满足它。
-// 按 ISP 在消费方声明,wire 那边只留三个 SetSeq 方法。
-type seqFrame interface {
-	SetSeq(seq int64)
-}
-
-// sessionEmitter 是某个 (对端, 会话) 的通知出口:一条通知先落进 daemon 的通知日志拿到
-// seq,落库成功后才盖上 seq 推给此刻活着的那条连接。
+// sessionEmitter 是某个 (对端, 会话) 的通知出口:把一帧推给此刻活着的那条连接。
+//
+// 它**不再落库**。从前每一帧都先写进通知日志拿一个 seq 再推出去,于是同一段内容在
+// 这台机器上存了两份(块 + 事件级日志)、编号也有两套。现在落库的是块(见
+// runtime_transcript.go),推出去的是**预览帧** —— 即时呈现用,不带编号、不参与游标
+// 推进与去重,丢失即丢失(决策 4)。逐 token 的生成过程因此照旧实时可见。
 //
 // 它按**会话**构造(而不是按连接)有两个原因:
 //   - 对端指纹只在 runtime.run 的请求 ctx 上拿得到,而 fanout / forwardAutonomousTurn
@@ -1056,10 +1067,9 @@ type seqFrame interface {
 //     重连之后的通知一直发往那条死连接(见 daemon.bindConn 注释),所以推送目标每次
 //     发送时才解析。
 type sessionEmitter struct {
-	// ctx 派生自 runtime.run 的请求 ctx 但去掉了取消:落库要活过发起它的那次请求
+	// ctx 派生自 runtime.run 的请求 ctx 但去掉了取消:转录落库要活过发起它的那次请求
 	// (fanout 的寿命是整轮执行),但 ctx 上的值(daemon 自己的 db 句柄)必须留着。
 	ctx           context.Context
-	journal       JournalPort
 	notifyFor     func(peerFingerprint string) NotifierPort
 	peer          string
 	peerSessionID string
@@ -1078,7 +1088,6 @@ type sessionEmitter struct {
 func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, conversationID string, peer string) *sessionEmitter {
 	return &sessionEmitter{
 		ctx:       context.WithoutCancel(ctx),
-		journal:   h.deps.Journal,
 		notifyFor: h.deps.NotifyFor,
 		peer:      peer,
 		// daemon_sessions.peer_session_id 本来就是 TEXT:对话身份原样落进去,
@@ -1089,13 +1098,11 @@ func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, conversationID stri
 	}
 }
 
-// emit 先落库、后推送一条会话通知,返回是否真的推出去了(只给调用方决定要不要打
-// 成功日志)。三条硬规则:
-//   - 落库成功之后才推,推出去的帧带着库分配的 seq(R1 / R6);
-//   - 落库失败:不推、seq 不推进,记 error 日志 —— 日志里因此不会出现空洞,客户端拉到
-//     的连续 seq 就是完整序列(R3);
-//   - 推送失败:通知已经落库、seq 已经推进,记一条日志就继续下一条,不回滚不重试(R2)。
-func (e *sessionEmitter) emit(method string, frame seqFrame) bool {
+// emit 推送一条会话通知,返回是否真的推出去了(只给调用方决定要不要打成功日志)。
+//
+// 推送失败只记一条日志就继续下一条,不重试:这一帧是预览,它的内容此刻正被
+// checkpoint 进块表,补齐读的是那一份,不是这一帧。
+func (e *sessionEmitter) emit(method string, frame any) bool {
 	notification, err := protowire.WireNotificationToProto(method, frame)
 	if err != nil {
 		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: protobuf conversion failed",
@@ -1105,68 +1112,28 @@ func (e *sessionEmitter) emit(method string, frame seqFrame) bool {
 			zap.Error(err))
 		return false
 	}
-	if e.journal == nil {
-		// 没接日志就没有「事实」可言,只能连推送一起停:宁可整条出口静默失败被一眼看见,
-		// 也不能一边推一边丢事实(那样断连补齐会缺条,而没人会发现)。
-		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: journal not wired",
+	n := e.pushTarget()
+	if n == nil {
+		// 对端不在线:这一帧就此丢失,内容由块表保住,等它重连后补齐。
+		logger.Ctx(e.ctx).Debug("handlers.sessionEmitter.emit: no live peer to push to",
 			zap.String("conversationId", e.conversationID),
 			zap.String("peerFingerprint", e.peer),
 			zap.String("notificationMethod", method))
 		return false
 	}
-	protowire.SetNotificationSeq(notification, 0)
-	encoded, err := protowire.EncodeNotification(notification)
-	if err != nil {
-		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: protobuf encode failed",
-			zap.String("conversationId", e.conversationID),
-			zap.String("peerFingerprint", e.peer),
-			zap.String("notificationMethod", method),
-			zap.Error(err))
-		return false
-	}
-	seq, err := e.journal.Append(e.ctx, e.peer, e.peerSessionID, encoded)
-	if err != nil {
-		logger.Ctx(e.ctx).Error("handlers.sessionEmitter.emit: journal append failed",
-			zap.String("conversationId", e.conversationID),
-			zap.String("peerFingerprint", e.peer),
-			zap.String("notificationMethod", method),
-			zap.Int("payloadBytes", len(encoded)),
-			zap.Error(err))
-		return false
-	}
-	frame.SetSeq(seq)
-	// 推出去的是**刚才落库的那一条消息本身**,只多盖一个 seq —— 不重新转换一遍(转换要
-	// 对密封事件做一次 JSON 解码并重建整棵消息树,而这里跑的是每一个 token)。落库的
-	// 字节里 seq 仍是 0:它是日志行自己的属性,断连补齐时由行的 seq 列重新盖上。
-	protowire.SetNotificationSeq(notification, seq)
-	n := e.pushTarget()
-	if n == nil {
-		// 对端不在线:通知已经落库,等它重连后按游标补齐。
-		logger.Ctx(e.ctx).Debug("handlers.sessionEmitter.emit: notification journaled without live peer",
-			zap.String("conversationId", e.conversationID),
-			zap.String("peerFingerprint", e.peer),
-			zap.String("notificationMethod", method),
-			zap.Int64("seq", seq),
-			zap.Int("payloadBytes", len(encoded)))
-		return false
-	}
 	if err := n.Notify(notification); err != nil {
-		logger.Ctx(e.ctx).Warn("handlers.sessionEmitter.emit: notification push failed after journaling",
+		logger.Ctx(e.ctx).Warn("handlers.sessionEmitter.emit: notification push failed",
 			zap.String("conversationId", e.conversationID),
 			zap.String("peerFingerprint", e.peer),
 			zap.String("notificationMethod", method),
-			zap.Int64("seq", seq),
-			zap.Int("payloadBytes", len(encoded)),
 			zap.Error(err))
 		return false
 	}
 	if method != wire.NotifyEvent && method != wire.NotifyAutonomousTurnEvent {
-		logger.Ctx(e.ctx).Debug("handlers.sessionEmitter.emit: notification journaled and pushed",
+		logger.Ctx(e.ctx).Debug("handlers.sessionEmitter.emit: notification pushed",
 			zap.String("conversationId", e.conversationID),
 			zap.String("peerFingerprint", e.peer),
-			zap.String("notificationMethod", method),
-			zap.Int64("seq", seq),
-			zap.Int("payloadBytes", len(encoded)))
+			zap.String("notificationMethod", method))
 	}
 	return true
 }

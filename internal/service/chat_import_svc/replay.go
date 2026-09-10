@@ -9,45 +9,28 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/handlers"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
-// newImportDispatcher 注册与线上同一批 handler。区别只在注入的适配器:导入路径上
-// 一轮的消息还没有主键(整轮攒齐后才 Create),所以持久化适配器一律**只 patch 内存
-// 实体**,不发单列 UPDATE。
+// newImportDispatcher 用**线上那张**注册表(transcript.NewTurnDispatcher),只换适配器:
+// 导入路径上一轮的消息还没有主键(整轮攒齐后才 Create),所以持久化适配器一律
+// **只 patch 内存实体**,不发单列 UPDATE。
 //
-// 不复用 chat_svc 那份:它是私有的,而且它的适配器直接够 chat_repo 包级全局 ——
-// 每帧一次 UPDATE 打在一条还不存在的行上。
+// 从前这里另抄了一份注册表,理由是"chat_svc 那份是私有的、它的适配器直接够 chat_repo
+// 包级全局"。注册表下沉到共享包之后这两条都不成立了:表只有一张,够不够得着库由传进去
+// 的 Adapters 决定。
 func newImportDispatcher() *turn.Dispatcher {
-	d := turn.NewDispatcher()
-	d.Register((*agentruntime.TextDelta)(nil), handlers.TextDeltaHandler{})
-	d.Register((*agentruntime.ThinkingDelta)(nil), handlers.ThinkingDeltaHandler{})
-	d.Register((*agentruntime.OutputActivity)(nil), handlers.OutputActivityHandler{})
-	d.Register((*agentruntime.ToolCall)(nil), handlers.ToolCallHandler{})
-	d.Register((*agentruntime.ToolResult)(nil), handlers.ToolResultHandler{})
-	d.Register((*agentruntime.UserAskRequest)(nil), handlers.UserAskRequestHandler{})
-	d.Register((*agentruntime.UserAskResolved)(nil), handlers.UserAskResolvedHandler{})
-	d.Register((*agentruntime.ToolPermissionRequest)(nil), handlers.ToolPermissionRequestHandler{})
-	d.Register((*agentruntime.ToolPermissionResolved)(nil), handlers.ToolPermissionResolvedHandler{})
-	d.Register((*agentruntime.ExecApprovalRequested)(nil), handlers.ExecApprovalRequestedHandler{})
-	d.Register((*agentruntime.ExecApprovalResolved)(nil), handlers.ExecApprovalResolvedHandler{})
-	d.Register((*agentruntime.SubagentStarted)(nil), handlers.SubagentStartedHandler{})
-	d.Register((*agentruntime.SubagentProgress)(nil), handlers.SubagentProgressHandler{})
-	d.Register((*agentruntime.SubagentDone)(nil), handlers.SubagentDoneHandler{})
-	d.Register((*agentruntime.SubagentModel)(nil), handlers.SubagentModelHandler{})
-	d.Register((*agentruntime.PermissionModeChanged)(nil), handlers.PermissionModeChangedHandler{Writer: memPermissionModeWriter{}})
-	d.Register((*agentruntime.UsageUpdate)(nil), handlers.UsageUpdateHandler{Writer: memUsageWriter{}})
-	d.Register((*agentruntime.ContextWindowUpdated)(nil), handlers.ContextWindowUpdatedHandler{Writer: memContextWindowWriter{}})
-	d.Register((*agentruntime.Retry)(nil), handlers.RetryHandler{})
-	d.Register((*agentruntime.ErrorEvent)(nil), handlers.ErrorHandler{Writer: memErrorWriter{}})
-	d.Register((*agentruntime.Done)(nil), handlers.DoneHandler{})
-	d.Register((*agentruntime.PlanUpdated)(nil), handlers.PlanUpdatedHandler{Writer: memPlanWriter{}})
-	d.Register((*agentruntime.CompactBoundary)(nil), handlers.CompactBoundaryHandler{Inspector: memInspector{}})
-	d.Register((*agentruntime.RuntimeStatus)(nil), handlers.RuntimeStatusHandler{})
-	return d
+	return transcript.NewTurnDispatcher(transcript.Adapters{
+		Usage:          memUsageWriter{},
+		Error:          memErrorWriter{},
+		ContextWindow:  memContextWindowWriter{},
+		PermissionMode: memPermissionModeWriter{},
+		Plan:           memPlanWriter{},
+		Compact:        memInspector{},
+	})
 }
 
 func messageOf(v any) *chat_entity.Message {

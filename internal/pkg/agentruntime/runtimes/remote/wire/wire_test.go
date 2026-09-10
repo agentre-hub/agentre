@@ -126,6 +126,34 @@ func TestEventFrame_RoundTrip(t *testing.T) {
 	assert.Equal(t, ev, decoded.Event)
 }
 
+// Given 帧分两级(spec 决策 4),预览帧不带 seq、持久帧带 seq;
+// When  两级帧各自走一遍 JSON 往返;
+// Then  preview 这一格原样往返,而且它是**显式**的一格:持久帧上它不落键,
+//
+//	消费方因此不必从 seq 是不是 0 去猜这条帧属于哪一级。
+func TestEventFrame_PreviewIsAnExplicitLevelDiscriminator(t *testing.T) {
+	ev := agentruntime.TextDelta{Text: "逐字"}
+
+	previewJSON, err := json.Marshal(EventFrame{ConversationID: convID(42), Event: ev, Preview: true})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"conversationId":"`+convID(42)+`","event":{"kind":"text_delta","text":"逐字"},"preview":true}`,
+		string(previewJSON))
+
+	var preview EventFrame
+	require.NoError(t, json.Unmarshal(previewJSON, &preview))
+	assert.True(t, preview.Preview, "预览帧解回来仍是预览帧")
+	assert.Zero(t, preview.Seq, "预览帧不带编号")
+
+	durableJSON, err := json.Marshal(EventFrame{ConversationID: convID(42), Event: ev, Seq: 6})
+	require.NoError(t, err)
+	assert.NotContains(t, string(durableJSON), "preview", "持久帧不该落 preview 这一格")
+
+	var durable EventFrame
+	require.NoError(t, json.Unmarshal(durableJSON, &durable))
+	assert.False(t, durable.Preview)
+	assert.Equal(t, int64(6), durable.Seq)
+}
+
 // Given EventFrame 上那组不驱动序列化的 json tag,When 与它自己的 MarshalJSON
 // 实际落出来的键比对,Then 两者必须一致。
 //
@@ -141,8 +169,8 @@ func TestEventFrameWireTagsMatchMarshaler(t *testing.T) {
 		tagged = append(tagged, name)
 	}
 
-	// seq 带 omitempty,只有非零才落键 —— 所以这里要填满。
-	b, err := json.Marshal(EventFrame{ConversationID: convID(1), Event: agentruntime.Done{}, Seq: 2})
+	// seq 与 preview 都带 omitempty,只有非零才落键 —— 所以这里要填满。
+	b, err := json.Marshal(EventFrame{ConversationID: convID(1), Event: agentruntime.Done{}, Seq: 2, Preview: true})
 	require.NoError(t, err)
 	var marshaled map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(b, &marshaled))

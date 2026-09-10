@@ -7,8 +7,8 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 // gapCodes 把契约里的缺口种类映射到说明文案的 i18n code。认不出的种类不落块 ——

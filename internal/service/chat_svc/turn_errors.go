@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/claudecode"
 )
@@ -233,7 +234,7 @@ func (s *chatSvc) failTurn(ctx context.Context, sess *chat_entity.Session, msg *
 	// agent_status 永远停在 running、error_text 也写不进去(前端既不报错也停不掉)。
 	finalCtx := context.WithoutCancel(ctx)
 	msg.ErrorText = err.Error()
-	if uerr := chat_repo.Message().Update(finalCtx, msg); uerr != nil {
+	if uerr := transcript_repo.Message().Update(finalCtx, msg); uerr != nil {
 		logger.Ctx(finalCtx).Error("chat_svc.failTurn: persist error text failed",
 			zap.Int64("messageId", msg.ID), zap.Error(uerr))
 	}
@@ -304,7 +305,7 @@ func (s *chatSvc) abortTurnBeforeStream(ctx context.Context, sess *chat_entity.S
 		zap.Int64("sessionId", sess.ID),
 		zap.Int64("assistantMsgId", msg.ID),
 		zap.String("stream", stream))
-	if uerr := chat_repo.Message().Update(finalCtx, msg); uerr != nil {
+	if uerr := transcript_repo.Message().Update(finalCtx, msg); uerr != nil {
 		logger.Ctx(finalCtx).Error("chat_svc.abortTurnBeforeStream: persist message failed",
 			zap.Int64("messageId", msg.ID), zap.Error(uerr))
 	}

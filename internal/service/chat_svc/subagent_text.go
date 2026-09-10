@@ -8,6 +8,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // messageText 拼接某消息内全部 TextBlock 的文本(value/pointer 两种形态都收)。
@@ -37,7 +38,7 @@ func (s *chatSvc) FinalAssistantText(ctx context.Context, messageID int64) (stri
 	if messageID <= 0 {
 		return "", nil
 	}
-	msg, err := chat_repo.Message().Find(ctx, messageID)
+	msg, err := transcript_repo.Message().Find(ctx, messageID)
 	if err != nil {
 		return "", err
 	}
@@ -51,7 +52,7 @@ func (s *chatSvc) LatestAssistantText(ctx context.Context, sessionID int64) (str
 	if sessionID <= 0 {
 		return "", nil
 	}
-	msg, err := chat_repo.Message().LatestAssistant(ctx, sessionID)
+	msg, err := transcript_repo.Message().LatestAssistant(ctx, sessionID)
 	if err != nil {
 		return "", err
 	}

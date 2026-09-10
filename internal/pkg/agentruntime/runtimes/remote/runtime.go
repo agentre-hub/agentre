@@ -115,6 +115,10 @@ type Runtime struct {
 	// 所以必须与 sessions / autoSessions 一起进补齐范围。受 mu 保护。
 	tracked map[int64]struct{}
 
+	// previewSink 是预览帧的呈现出口(即时呈现用,不进转录)。nil = 预览帧就地丢弃,
+	// 见 PreviewSink。只在构造时写,之后只读。
+	previewSink PreviewSink
+
 	// ── 断连重连(reconnect.go)──
 	reconnect    ReconnectPort
 	connObserver ConnStateObserver
@@ -752,6 +756,14 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 	}
 	// 线上身份是 conversation_id;本进程的会话表按 int64 索引(决策 6),翻译只在这里。
 	sid := r.localSessionID(frame.ConversationID)
+	if frame.Preview {
+		// 预览帧只用于即时呈现:它**不进这条会话的事件流**,因为那条流就是消费方的
+		// 转录来源(chat_svc 的累积器逐条追加)。同一段内容随后会以持久帧的身份再来
+		// 一次,两条都累积就是同一段话记两遍 —— 而它正是重连补齐「重发已看过内容」
+		// 的另一半(规格 2026-09-05「两级帧与补齐」第 1/2 条)。
+		r.deliverPreview(sid, frame.Event)
+		return nil, nil
+	}
 	r.mu.RLock()
 	sess := r.sessions[sid]
 	knownSids := make([]int64, 0, len(r.sessions))
@@ -829,6 +841,16 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 		zap.Int64("sessionId", sid),
 		zap.String("eventType", fmt.Sprintf("%T", ev)))
 	return nil, nil
+}
+
+// deliverPreview 把一条预览帧里的事件交给呈现出口。没接出口就丢 —— 预览帧丢失即
+// 丢失、不补(规格「两级帧与补齐」),它的内容此刻正被宿主 checkpoint 进块表,补齐读
+// 的是那一份。
+func (r *Runtime) deliverPreview(sid int64, ev agentruntime.Event) {
+	if r.previewSink == nil || ev == nil {
+		return
+	}
+	r.previewSink.OnPreviewEvent(sid, ev)
 }
 
 func (r *Runtime) handleRunResultDone(ctx context.Context, params any) (any, error) {

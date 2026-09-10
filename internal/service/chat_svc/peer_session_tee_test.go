@@ -19,8 +19,13 @@ func TestCanonicalEventLoops_GivenPeerSubscribers_ThenTeeBeforeLocalDispatcherAp
 		file string
 		name string
 	}{
-		{file: "turn_run.go", name: "consumeEvents"},
-		{file: "autonomous_turn_run.go", name: "consumeEvents"},
+		// turn_run.go 的事件处理体拆到了 applyLive:远端执行那一路是两级帧,呈现
+		// (预览帧)与转录(持久帧)走两条流,consumeEvents 只做分派。扇出仍须在
+		// 本地 Apply 之前看到原始密封事件,守的还是这一条。
+		{file: "turn_run.go", name: "applyLive"},
+		// autonomous_turn_run.go 同理:远端执行的自主续轮也是两级帧,per-event 的
+		// 处理体拆到了 applyLive,consumeEvents 只做分派。
+		{file: "autonomous_turn_run.go", name: "applyLive"},
 		{file: "subagent_activity.go", name: "driveSubagentActivity"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
@@ -29,15 +34,20 @@ func TestCanonicalEventLoops_GivenPeerSubscribers_ThenTeeBeforeLocalDispatcherAp
 			file, err := parser.ParseFile(token.NewFileSet(), tc.file, source, 0)
 			require.NoError(t, err)
 
-			var eventLoop *ast.RangeStmt
+			// 事件处理体:range 循环,或(拆成 per-event 函数之后)函数体本身。
+			var eventLoop ast.Node
+			var rangeLoop *ast.RangeStmt
 			ast.Inspect(file, func(node ast.Node) bool {
 				decl, ok := node.(*ast.FuncDecl)
 				if !ok || decl.Name.Name != tc.name {
 					return true
 				}
+				if eventLoop == nil {
+					eventLoop = decl.Body
+				}
 				ast.Inspect(decl.Body, func(inner ast.Node) bool {
 					rangeStmt, ok := inner.(*ast.RangeStmt)
-					if !ok || eventLoop != nil {
+					if !ok || rangeLoop != nil {
 						return true
 					}
 					var hasApply bool
@@ -49,16 +59,16 @@ func TestCanonicalEventLoops_GivenPeerSubscribers_ThenTeeBeforeLocalDispatcherAp
 						return true
 					})
 					if hasApply {
-						eventLoop = rangeStmt
+						rangeLoop, eventLoop = rangeStmt, rangeStmt
 					}
 					return true
 				})
 				return false
 			})
-			require.NotNil(t, eventLoop, "must retain a canonical event range loop")
+			require.NotNil(t, eventLoop, "must retain a canonical event handling body")
 
 			var tee, apply token.Pos
-			ast.Inspect(eventLoop.Body, func(node ast.Node) bool {
+			ast.Inspect(eventLoop, func(node ast.Node) bool {
 				call, ok := node.(*ast.CallExpr)
 				if !ok {
 					return true

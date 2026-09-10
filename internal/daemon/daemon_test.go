@@ -32,9 +32,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/notifier"
 	"github.com/agentre-hub/agentre/internal/daemon/protorpc"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
-	"github.com/agentre-hub/agentre/internal/daemon/repository/notification_repo"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentredipc"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
@@ -43,6 +43,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	"github.com/agentre-hub/agentre/internal/pkg/rpcerror"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -60,21 +62,20 @@ func TestDaemon_OpensOwnDatabaseAndRunsMigrations(t *testing.T) {
 	require.NotNil(t, d.db)
 	assert.True(t, d.db.Migrator().HasTable("daemon_sessions"))
 	// 决策 9/11/18:时间戳随工作区惯例叫 createtime、「会话最后活动时刻」叫
-	// last_message_at(它唯一的消费方就是会话摘要的那一格),通知日志与线格式的
-	// JournaledNotification 统一词根叫 journal。旧名不留兼容列(决策 22)。
-	assert.True(t, d.db.Migrator().HasTable("daemon_notification_journal"))
-	assert.False(t, d.db.Migrator().HasTable("daemon_notification_logs"))
+	// last_message_at(它唯一的消费方就是会话摘要的那一格)。转录表随桌面端同名。
+	assert.True(t, d.db.Migrator().HasTable("chat_messages"))
+	assert.True(t, d.db.Migrator().HasTable("chat_message_blocks"))
 	for table, columns := range map[string][]string{
-		"daemon_sessions":             {"createtime", "last_message_at"},
-		"daemon_notification_journal": {"createtime"},
+		"daemon_sessions": {"createtime", "last_message_at"},
+		"chat_messages":   {"createtime", "updatetime"},
 	} {
 		for _, column := range columns {
 			assert.True(t, d.db.Migrator().HasColumn(table, column), "column %s.%s must exist", table, column)
 		}
 	}
 	for table, columns := range map[string][]string{
-		"daemon_sessions":             {"created_at", "updated_at"},
-		"daemon_notification_journal": {"created_at"},
+		"daemon_sessions": {"created_at", "updated_at"},
+		"chat_messages":   {"created_at", "updated_at"},
 	} {
 		for _, column := range columns {
 			assert.False(t, d.db.Migrator().HasColumn(table, column), "legacy column %s.%s must not exist", table, column)
@@ -102,23 +103,29 @@ func primaryKeyColumns(t *testing.T, gdb *gorm.DB, table string) []string {
 	return out
 }
 
-// TestDaemon_MigrationsKeyBothTablesByConversationID 钉死身份键的收缩(规格「会话身份 /
-// 身份键收缩为一列」):conversation_id 是全局唯一的对话标识,两张表都只按它认人,
-// peer_fingerprint 退出主键、留作来源标注与授权的普通列,对端本地那一格 peer_session_id
-// 随之消失 —— 线上早已不再传它。
-func TestDaemon_MigrationsKeyBothTablesByConversationID(t *testing.T) {
+// TestDaemon_MigrationsGiveTheSessionALocalKeyAndRetireTheJournal 钉死转录存储对齐的
+// 两处 schema 事实(规格 2026-09-05 决策 9 / 1):
+//
+//   - daemon_sessions 有了本地数字主键 id,与全局标识 conversation_id 是两件事 ——
+//     共用的消息实体按数字主键挂靠转录,不补这一格就无法共用同一份存储。
+//     conversation_id 退成 UNIQUE:身份仍然只按它认人,Upsert 的冲突目标也还是它。
+//   - daemon_notification_journal 退役,同时建出与桌面端同形的三张转录表。同一段内容
+//     不再有第二种存储形态。
+func TestDaemon_MigrationsGiveTheSessionALocalKeyAndRetireTheJournal(t *testing.T) {
 	d, err := New(Options{DataDir: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(func() { closeDB(d.db) })
 
-	assert.Equal(t, []string{"conversation_id"}, primaryKeyColumns(t, d.db, "daemon_sessions"))
-	assert.Equal(t, []string{"conversation_id", "seq"},
-		primaryKeyColumns(t, d.db, "daemon_notification_journal"))
-	for _, table := range []string{"daemon_sessions", "daemon_notification_journal"} {
-		assert.True(t, d.db.Migrator().HasColumn(table, "peer_fingerprint"),
-			"%s.peer_fingerprint 必须保留为普通列(来源标注与授权)", table)
-		assert.False(t, d.db.Migrator().HasColumn(table, "peer_session_id"),
-			"%s.peer_session_id 必须随身份键收缩一并消失", table)
+	assert.Equal(t, []string{"id"}, primaryKeyColumns(t, d.db, "daemon_sessions"))
+	assert.True(t, d.db.Migrator().HasColumn("daemon_sessions", "conversation_id"))
+	assert.True(t, d.db.Migrator().HasColumn("daemon_sessions", "peer_fingerprint"),
+		"peer_fingerprint 必须保留为普通列(来源标注与授权)")
+	assert.False(t, d.db.Migrator().HasColumn("daemon_sessions", "peer_session_id"),
+		"peer_session_id 必须随身份键收缩一并消失")
+	assert.False(t, d.db.Migrator().HasTable("daemon_notification_journal"),
+		"通知日志退役:表不该还在")
+	for _, table := range []string{"chat_messages", "chat_message_blocks", "chat_frame_seqs"} {
+		assert.True(t, d.db.Migrator().HasTable(table), "转录表 %s 必须建出来", table)
 	}
 }
 
@@ -155,7 +162,7 @@ func TestDaemon_SessionUpsertStaysIdempotentOnTheNewKey(t *testing.T) {
 }
 
 // TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter 钉死开库方式的
-// 可观察后果:通知日志的写是**每个流式事件一条**同步事务,而 session.pull 的补齐读是一段
+// 可观察后果:转录的写是**轮内每个定稿时刻一次** checkpoint 事务,而 session.pull 的补齐读是一段
 // 持续着的读事务。回滚日志模式下读事务持 SHARED 锁,写事务提交要 EXCLUSIVE —— 写者只能
 // 在 5s busy timeout 上干等,等不到就报 database is locked,那条通知既不落库也不推送(R3)。
 // WAL 下读写各走一份快照,互不阻塞。
@@ -165,29 +172,23 @@ func TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter(t *tes
 	t.Cleanup(func() { closeDB(d.db) })
 
 	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-	repo := notification_repo.NewNotification()
-	require.NoError(t, repo.Append(ctx, &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", ConversationID: "s1", Method: "runtime.event", Payload: "{}",
-	}))
+	seedSession(t, ctx, d.sessionStore, "peerA", "s1", wire.SessionLifecycleIdle)
+	require.NoError(t, seedTranscriptTurn(ctx, d, "s1", "first"))
 
 	// 补齐侧:一次翻页拉取是一个开着的读事务(整段期间都持有读锁)。
 	reader := d.db.Begin()
 	require.NoError(t, reader.Error)
 	t.Cleanup(func() { _ = reader.Rollback() })
-	var rows []*notification_repo.NotificationLog
-	require.NoError(t, reader.Where("peer_fingerprint = ?", "peerA").Find(&rows).Error)
-	require.Len(t, rows, 1)
+	var rows []*transcript_entity.Message
+	require.NoError(t, reader.Find(&rows).Error)
+	require.NotEmpty(t, rows)
 
 	// 流式侧:同一时刻的下一条通知必须照常落库。
 	done := make(chan error, 1)
-	go func() {
-		done <- repo.Append(ctx, &notification_repo.NotificationLog{
-			PeerFingerprint: "peerA", ConversationID: "s1", Method: "runtime.event", Payload: `{"delta":"x"}`,
-		})
-	}()
+	go func() { done <- seedTranscriptTurn(ctx, d, "s1", "second") }()
 	select {
 	case appendErr := <-done:
-		require.NoError(t, appendErr, "补齐读在飞时,流式通知仍必须落得进库")
+		require.NoError(t, appendErr, "补齐读在飞时,流式转录仍必须落得进库")
 	case <-time.After(2 * time.Second):
 		t.Fatal("streaming append is stuck behind an open catch-up read — the daemon database must be opened in WAL mode")
 	}
@@ -216,19 +217,19 @@ func TestDaemon_DatabaseUsesSynchronousNormalSoEveryStreamedEventDoesNotFsync(t 
 		"agentred 库必须以 synchronous=NORMAL 打开,否则每个流式事件都要 fsync 一次 WAL")
 }
 
-// TestDaemon_NewRegistersNotificationRepo 回归:New 是 agentred 的组装根,必须像
-// internal/bootstrap/cago.go 在 RunMigrations 之后注入仓储默认实现那样,把
-// notification_repo 的 GORM 实现注册进去。不注册的话 notification_repo.Notification()
-// 永远是 nil,后续任务的推送路径一调就 nil panic。
-func TestDaemon_NewRegistersNotificationRepo(t *testing.T) {
-	prev := notification_repo.Notification()
-	t.Cleanup(func() { notification_repo.RegisterNotification(prev) })
-	notification_repo.RegisterNotification(nil)
+// TestDaemon_NewRegistersTranscriptRepo 回归:New 是 agentred 的组装根,必须像
+// internal/bootstrap/cago.go 在 RunMigrations 之后注入仓储默认实现那样,把转录仓储的
+// GORM 实现注册进去。不注册的话 transcript_repo.Message() 永远是 nil,一轮执行的
+// 落块路径一调就 nil panic。
+func TestDaemon_NewRegistersTranscriptRepo(t *testing.T) {
+	prev := transcript_repo.Message()
+	t.Cleanup(func() { transcript_repo.RegisterMessage(prev) })
+	transcript_repo.RegisterMessage(nil)
 
 	_, err := New(Options{DataDir: t.TempDir()})
 	require.NoError(t, err)
 
-	assert.NotNil(t, notification_repo.Notification(), "New must register the notification repo implementation")
+	assert.NotNil(t, transcript_repo.Message(), "New must register the transcript repo implementation")
 }
 
 // TestDaemon_NewFailsWhenDatabaseUnusable 错误路径:库文件存在但不是合法 SQLite 时,
@@ -242,91 +243,8 @@ func TestDaemon_NewFailsWhenDatabaseUnusable(t *testing.T) {
 	assert.Nil(t, d)
 }
 
-// TestDaemon_NotificationJournal_ConcurrentAppendsAreLosslessAndGapFree 覆盖任务目标的
-// 「以下一个 seq 落库、seq 单调无洞」在并发写下也成立:同一会话的通知生产者不止一个
-// (handlers/runtime.go 的 fanout 与 startAutonomousFanout 是两个各自独立的 goroutine,
-// 同一 sid 上可同时推送),先读 MAX(seq) 再写入的两步实现会让两个写者拿到同一个 seq,
-// 后写的那条被幂等写静默吞掉——通知永久丢失而调用方以为落库成功。
-func TestDaemon_NotificationJournal_ConcurrentAppendsAreLosslessAndGapFree(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir()})
-	require.NoError(t, err)
-	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-	repo := notification_repo.NewNotification()
-
-	const writers = 24
-	var wg sync.WaitGroup
-	errs := make([]error, writers)
-	for i := range writers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			errs[i] = repo.Append(ctx, &notification_repo.NotificationLog{
-				PeerFingerprint: "peerA", ConversationID: "s1",
-				Method:  "runtime.event",
-				Payload: fmt.Sprintf(`{"n":%d}`, i),
-			})
-		}()
-	}
-	wg.Wait()
-	for i, appendErr := range errs {
-		require.NoError(t, appendErr, "writer %d", i)
-	}
-
-	rows, hasMore, err := repo.ListSince(ctx, "peerA", "s1", 0, writers)
-	require.NoError(t, err)
-	assert.False(t, hasMore)
-	require.Len(t, rows, writers, "every appended notification must be in the log — none silently dropped")
-	seen := map[string]bool{}
-	for i, row := range rows {
-		assert.Equal(t, int64(i+1), row.Seq, "seq 必须从 1 起连续无洞、按序读回")
-		assert.False(t, seen[row.Payload], "payload %s written twice", row.Payload)
-		seen[row.Payload] = true
-	}
-
-	// 身份键收缩之后:conversation_id 全局唯一,同一条对话即便换一个对端来驱动也还是
-	// 同一条 —— seq 空间是**整条对话**一份,续着往下发,而不是按写者各起一份。按写者
-	// 各起一份的实现会在这里撞上新主键 (conversation_id, seq) 直接报错。
-	other := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerB", ConversationID: "s1", Method: "runtime.event", Payload: "{}",
-	}
-	require.NoError(t, repo.Append(ctx, other),
-		"同一条对话换一个对端驱动时,seq 必须续着分配,不能撞主键")
-	assert.Equal(t, int64(writers+1), other.Seq, "seq 空间按对话一份,不按写者一份")
-}
-
-// TestDaemon_NotificationJournal_AppendNeverReusesASeq 在真库(SQLite,生产方言)上钉死
-// 「seq 只由库分配」:Append 是唯一写路径,入参上填了 Seq 也不作数,两次写入拿到的是两个
-// 相邻的 seq,两条通知都在日志里。
-//
-// 会漏掉它的实现:再开一条「按调用方给的 seq 写入」的路径。那种实现下两个写者会撞同一个
-// 主键——要么后到的那条被冲突处理静默吞掉(通知永久丢失,而调用方以为落库成功),要么把
-// 裸的唯一约束错误抛回通知热路径。
-func TestDaemon_NotificationJournal_AppendNeverReusesASeq(t *testing.T) {
-	d, err := New(Options{DataDir: t.TempDir()})
-	require.NoError(t, err)
-	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-	repo := notification_repo.NewNotification()
-
-	first := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", ConversationID: "s1", Seq: 1, Method: "runtime.event", Payload: `{"first":true}`,
-	}
-	require.NoError(t, repo.Append(ctx, first))
-	second := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", ConversationID: "s1", Seq: 1, Method: "runtime.event", Payload: `{"second":true}`,
-	}
-	require.NoError(t, repo.Append(ctx, second), "入参里的 seq 撞车不该让写入失败")
-	assert.Equal(t, int64(1), first.Seq)
-	assert.Equal(t, int64(2), second.Seq, "第二条必须拿到下一个 seq,而不是复用入参里那个")
-
-	rows, _, err := repo.ListSince(ctx, "peerA", "s1", 0, 10)
-	require.NoError(t, err)
-	require.Len(t, rows, 2, "两条通知都必须在日志里,一条也不能被冲突处理吞掉")
-	assert.Equal(t, `{"first":true}`, rows[0].Payload)
-	assert.Equal(t, `{"second":true}`, rows[1].Payload)
-}
-
 // TestDaemon_DatabaseHandlesAreIsolatedPerInstance 回归:两个不同 DataDir 的
-// Daemon 各自开的是物理上独立的 SQLite 文件——用两个 Daemon 各自写一条通知,确认
+// Daemon 各自开的是物理上独立的 SQLite 文件——用两个 Daemon 各自写一段转录,确认
 // 经由各自 db.WithContextDB(ctx, d.db) 注入的 ctx 互不可见对方的数据(会捕捉「实际
 // 打开的库路径没跟着 DataDir 走」这类 bug,例如两者都落到同一个硬编码/共享路径)。
 func TestDaemon_DatabaseHandlesAreIsolatedPerInstance(t *testing.T) {
@@ -340,13 +258,12 @@ func TestDaemon_DatabaseHandlesAreIsolatedPerInstance(t *testing.T) {
 	assert.NotSame(t, d1.db, d2.db, "each Daemon must own its own *gorm.DB handle")
 
 	ctx1 := dbpkg.WithContextDB(context.Background(), d1.db)
-	require.NoError(t, notification_repo.NewNotification().Append(ctx1, &notification_repo.NotificationLog{
-		PeerFingerprint: "peer", ConversationID: "s1", Method: "m", Payload: "{}",
-	}))
+	seedSession(t, ctx1, d1.sessionStore, "peer", "s1", wire.SessionLifecycleIdle)
+	require.NoError(t, seedTranscriptTurn(ctx1, d1, "s1", "only in d1"))
 
 	ctx2 := dbpkg.WithContextDB(context.Background(), d2.db)
-	rows, _, err := notification_repo.NewNotification().ListSince(ctx2, "peer", "s1", 0, 10)
-	require.NoError(t, err)
+	var rows []*transcript_entity.Message
+	require.NoError(t, dbpkg.Ctx(ctx2).Find(&rows).Error)
 	assert.Empty(t, rows, "writing through d1's handle must not be visible through d2's handle")
 }
 
@@ -540,9 +457,8 @@ func TestDaemon_NewDoesNotLeakIntoGlobalDefaultDB(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := dbpkg.WithContextDB(context.Background(), d.db)
-	require.NoError(t, notification_repo.NewNotification().Append(ctx, &notification_repo.NotificationLog{
-		PeerFingerprint: "leak-guard-peer", ConversationID: "leak-guard-session", Method: "m", Payload: "{}",
-	}))
+	seedSession(t, ctx, d.sessionStore, "leak-guard-peer", "leak-guard-session", wire.SessionLifecycleIdle)
+	require.NoError(t, seedTranscriptTurn(ctx, d, "leak-guard-session", "leak guard"))
 
 	func() {
 		defer func() {
@@ -551,8 +467,8 @@ func TestDaemon_NewDoesNotLeakIntoGlobalDefaultDB(t *testing.T) {
 			// New did not call db.SetDefault.
 			_ = recover()
 		}()
-		rows, _, err := notification_repo.NewNotification().ListSince(context.Background(), "leak-guard-peer", "leak-guard-session", 0, 10)
-		if err == nil {
+		var rows []*transcript_entity.Message
+		if err := dbpkg.Ctx(context.Background()).Find(&rows).Error; err == nil {
 			assert.Empty(t, rows, "a bare ctx (never wrapped with db.WithContextDB) must not resolve to this Daemon's data — that would mean New() called db.SetDefault")
 		}
 	}()
@@ -1396,12 +1312,10 @@ func TestDaemon_IPCStatus_ReportsDatabasePathAndSize(t *testing.T) {
 	assert.Positive(t, sizeBefore)
 
 	dbCtx := dbpkg.WithContextDB(context.Background(), d.db)
-	repo := notification_repo.NewNotification()
-	payload := `{"delta":"` + strings.Repeat("x", 4096) + `"}`
+	seedSession(t, dbCtx, d.sessionStore, "peerA", "s1", wire.SessionLifecycleIdle)
+	text := strings.Repeat("x", 4096)
 	for range 200 {
-		require.NoError(t, repo.Append(dbCtx, &notification_repo.NotificationLog{
-			PeerFingerprint: "peerA", ConversationID: "s1", Method: wire.NotifyEvent, Payload: payload,
-		}))
+		require.NoError(t, seedTranscriptTurn(dbCtx, d, "s1", text))
 	}
 
 	sizeAfter, ok := status()["dbSizeBytes"].(float64)
@@ -1451,20 +1365,6 @@ func TestDaemon_IPCStatus_CountsSessionsRunningRightNow(t *testing.T) {
 		"数的是此刻真的在跑的那些:空闲会话不算,别的对端在跑的算")
 }
 
-// seedJournal 给某会话灌 n 条日志(Append 依次分配 seq 1..n),全部盖上同一个落库时间。
-func seedJournal(t *testing.T, ctx context.Context, peer, sid string, n int, createdAt int64) {
-	t.Helper()
-	repo := notification_repo.NewNotification()
-	for i := 1; i <= n; i++ {
-		row := &notification_repo.NotificationLog{
-			PeerFingerprint: peer, ConversationID: sid,
-			Method: wire.NotifyEvent, Payload: fmt.Sprintf(`{"seq":%d}`, i), Createtime: createdAt,
-		}
-		require.NoError(t, repo.Append(ctx, row))
-		require.Equal(t, int64(i), row.Seq)
-	}
-}
-
 // seedSession 给某会话建一条生命周期行。
 func seedSession(t *testing.T, ctx context.Context, store daemonSessionStore, peer, sid, lifecycle string) {
 	t.Helper()
@@ -1473,51 +1373,19 @@ func seedSession(t *testing.T, ctx context.Context, store daemonSessionStore, pe
 	}))
 }
 
-// journalSeqs 读回某会话此刻还剩哪些 seq。
-func journalSeqs(t *testing.T, ctx context.Context, peer, sid string) []int64 {
-	t.Helper()
-	rows, _, err := notification_repo.NewNotification().ListSince(ctx, peer, sid, 0, 1000)
-	require.NoError(t, err)
-	out := make([]int64, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, row.Seq)
+// seedTranscriptTurn 落一轮最小转录(用户一行 + 一条 assistant 消息),用来在真库上
+// 观察写入本身的行为(WAL / 句柄隔离 / 库体量)。走的是生产那条 TranscriptPort。
+func seedTranscriptTurn(ctx context.Context, d *Daemon, conversationID, text string) error {
+	_, msg, err := d.transcript.StartTurn(ctx, conversationID, text)
+	if err != nil || msg == nil {
+		return err
 	}
-	return out
-}
-
-// TestDaemon_RunNeverReclaimsTheJournal 钉死规格决策 8(两端都永久保存):agentred 不再
-// 回收通知日志,Run 起来之后哪怕一条会话早就是终态、且安静了很久(90 天),它高水位以下的
-// 每一行也原样留着——不止行数不变,连每一个 seq 都必须还在,后续 Append 接着从高水位往上
-// 排。这正是 8496c291 那次静默冻结要防住的东西(TestDaemon_CollectJournal_KeepsTheSeq
-// TimelineIntact 曾经就地钉过的教训,回收整段删除后随之搬到这里):一旦谁悄悄删掉了旧
-// 前缀,MAX(seq) 归零后 Append 会从 1 重新分配,客户端游标停在旧高水位上,此后每条实时
-// 通知都被当成重复丢弃——没有跳号、没有错误,会话就是再也不出字。
-func TestDaemon_RunNeverReclaimsTheJournal(t *testing.T) {
-	dir, err := os.MkdirTemp("", "agentred-no-collect")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0})
-	require.NoError(t, err)
-	dbCtx := dbpkg.WithContextDB(context.Background(), d.db)
-	seedSession(t, dbCtx, d.sessionStore, "peerA", "1", wire.SessionLifecycleIdle)
-	seedJournal(t, dbCtx, "peerA", "1", 5, time.Now().Add(-90*24*time.Hour).UnixMilli())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = d.Run(ctx) }()
-
-	assert.Never(t, func() bool {
-		return len(journalSeqs(t, dbCtx, "peerA", "1")) != 5
-	}, 300*time.Millisecond, 20*time.Millisecond,
-		"daemon 跑起来之后不该再回收任何通知日志,哪怕会话早已安静终态")
-	assert.Equal(t, []int64{1, 2, 3, 4, 5}, journalSeqs(t, dbCtx, "peerA", "1"),
-		"高水位以下的每一行原样留着,不止行数不变")
-
-	next := &notification_repo.NotificationLog{
-		PeerFingerprint: "peerA", ConversationID: "1", Method: wire.NotifyEvent, Payload: "{}",
+	acc := turn.New()
+	acc.AddText(text)
+	if err := msg.SetBlocks(acc.Finalize()); err != nil {
+		return err
 	}
-	require.NoError(t, notification_repo.NewNotification().Append(dbCtx, next))
-	assert.Equal(t, int64(6), next.Seq, "序列接着从高水位往上排,绝不会被重排回 1")
+	return d.transcript.FinishTurn(ctx, msg)
 }
 
 func TestDaemon_VerificationKeysGivenEmergencyRetirementWhenRefreshedThenDropsOldKey(t *testing.T) {

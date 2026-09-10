@@ -83,3 +83,26 @@ func TestNotificationMethodNamesEveryJournalKind(t *testing.T) {
 	require.Empty(t, NotificationMethod(&agentrewire.RpcNotification{}))
 	require.Empty(t, NotificationMethod(nil))
 }
+
+// Given 帧分两级(spec 决策 4),预览帧与持久帧必须在 protobuf 这一侧也分得开;
+// When  一条预览帧与一条持久帧各走一遍 wire → proto → wire;
+// Then  preview 这一格原样往返 —— 协议是二进制的,消费方分不出 seq 的 0 是"没给"
+// 还是"给了 0",所以判别只能是这一格。
+func TestPreviewLevelSurvivesTheProtobufRoundTrip(t *testing.T) {
+	event := agentruntime.TextDelta{Text: "逐字"}
+	for _, method := range []string{wire.NotifyEvent, wire.NotifyAutonomousTurnEvent} {
+		preview, err := WireNotificationToProto(method, &wire.EventFrame{ConversationID: convID(42), Preview: true, Event: event})
+		require.NoError(t, err)
+		_, back, err := ProtoNotificationToWire(preview)
+		require.NoError(t, err)
+		require.True(t, back.(*wire.EventFrame).Preview, "%s: 预览帧过一趟 proto 之后仍是预览帧", method)
+		require.Zero(t, back.(*wire.EventFrame).Seq, "%s: 预览帧不带编号", method)
+
+		durable, err := WireNotificationToProto(method, &wire.EventFrame{ConversationID: convID(42), Seq: 6, Event: event})
+		require.NoError(t, err)
+		_, back, err = ProtoNotificationToWire(durable)
+		require.NoError(t, err)
+		require.False(t, back.(*wire.EventFrame).Preview, "%s: 持久帧不该被读成预览帧", method)
+		require.Equal(t, int64(6), back.(*wire.EventFrame).Seq)
+	}
+}

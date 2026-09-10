@@ -79,8 +79,33 @@ type ConnStateFunc func(sessionID int64, st SessionConnState)
 // OnSessionConnState 实现 ConnStateObserver。
 func (f ConnStateFunc) OnSessionConnState(sessionID int64, st SessionConnState) { f(sessionID, st) }
 
+// PreviewSink 接收**预览帧**里那条事件:逐片段增量与过场状态,即时呈现用。
+//
+// 它与 Run 交回的那条事件流是两件事,而这正是规格 2026-09-05「两级帧与补齐」定下的
+// 分工:预览帧只用于即时呈现,**不得进转录**;转录与游标的唯一来源是持久帧。两者
+// 走同一条 channel 的话,消费方就分不出「这一段该不该累积」——它今天只有追加语义,
+// 于是同一段内容既按预览追加一次、又随持久帧再来一次,重连补齐就重发对端已经看过
+// 的内容(硬不变量 1 的「重」)。
+//
+// 没接 sink 时预览帧就地丢弃:它按定义丢失即丢失、不补。宿主要逐 token 呈现就接一只
+// (桌面端在 chat_svc 接,见 previewSink)。
+type PreviewSink interface {
+	OnPreviewEvent(sessionID int64, ev agentruntime.Event)
+}
+
+// PreviewSinkFunc 是 PreviewSink 的函数式实现。
+type PreviewSinkFunc func(sessionID int64, ev agentruntime.Event)
+
+// OnPreviewEvent 实现 PreviewSink。
+func (f PreviewSinkFunc) OnPreviewEvent(sessionID int64, ev agentruntime.Event) { f(sessionID, ev) }
+
 // Option 是 New 的可选配置。
 type Option func(*Runtime)
+
+// WithPreviewSink 注入预览帧的呈现出口。不接则预览帧就地丢弃(见 PreviewSink)。
+func WithPreviewSink(sink PreviewSink) Option {
+	return func(r *Runtime) { r.previewSink = sink }
+}
 
 // WithReconnect 注入重连端口。**没有它就没有重连**:断连一律回落到今天的
 // 「注入 ErrDaemonDisconnected 并 close events」。
@@ -221,13 +246,18 @@ func (r *Runtime) ensureCursorLoaded(ctx context.Context, sid int64, ss *session
 
 // ── 通知分发(实时 + 补齐共用)────────────────────────────────────────────────
 
-// dispatchNotification 是五类通知的统一入口。R6 的三条规则都在这里:
+// dispatchNotification 是五类通知的统一入口。R6 的三条规则都在这里,而它们**只**
+// 管持久帧(spec 2026-09-05 决策 4):
 //   - seq == 游标 + 1  → 消费并推进游标
 //   - seq >  游标 + 1  → **不消费**,改从游标发起一次增量拉取,拉平后再继续
 //   - seq <= 游标      → 丢弃(重复投递)
 //
-// seq == 0 表示对面是不盖 seq 的老 daemon(帧上是 omitempty 的可选追加字段),
-// 此时没有游标可言,直接消费,行为与今天完全一致。
+// 预览帧在闸门**之前**放行:它按定义不属于这条编号时间线,既不推进游标也不参与去重,
+// 只为即时呈现而来(覆盖同一内容的持久帧随后到达时以持久帧为准)。判别取帧上显式的
+// preview 这一格,不看 seq —— 预览帧本就不带 seq,若拿 seq=0 当判据,一条恰好带上
+// 编号的预览帧就会被读成「不大于游标」而整条吞掉,正是决策 4 点名要避免的形态。
+//
+// 剩下的 seq == 0 是「这条帧没有序号」:没有游标可言,直接消费。
 func (r *Runtime) dispatchNotification(
 	ctx context.Context,
 	method string,
@@ -235,7 +265,7 @@ func (r *Runtime) dispatchNotification(
 	frame any,
 ) (any, error) {
 	head, ok := frameRoute(frame)
-	if !ok || head.Seq == 0 {
+	if !ok || head.Preview || head.Seq == 0 {
 		return h(r, ctx, frame)
 	}
 	// 序号闸门按**本进程认识的那条会话**记游标:线上身份是 conversation_id,进程内
@@ -417,26 +447,32 @@ func (r *Runtime) skipSeq(sid int64, ss *sessionSync, seq int64) {
 }
 
 // stampSeq 按 method 把日志载荷解成对应的帧、盖上 seq、再重新序列化。
-// frameRoute 读出一条通知帧的路由信息。三类帧都带会话与序号,但它们是各自独立的
-// 结构体、没有公共接口 —— 按 ISP 在消费方做一次类型分派,wire 那边不必为此多长出
-// 一组访问器。
+// frameRoute 读出一条通知帧的路由信息:会话、序号,以及它属于哪一级(预览 / 持久)。
+// 四类帧都带会话与序号,但它们是各自独立的结构体、没有公共接口 —— 按 ISP 在消费方
+// 做一次类型分派,wire 那边不必为此多长出一组访问器。
+//
+// 只有事件帧分级。终态与开轮那三类帧不分级也不带编号:它们是轮次的生命周期信号,
+// 不是转录的一部分(补齐重放的是块投影出的持久事件帧),所以照旧走 seq == 0 那条
+// 「没有序号,直接消费」的路。
 func frameRoute(frame any) (struct {
 	ConversationID string
 	Seq            int64
+	Preview        bool
 }, bool) {
 	type route = struct {
 		ConversationID string
 		Seq            int64
+		Preview        bool
 	}
 	switch f := frame.(type) {
 	case *wire.EventFrame:
-		return route{f.ConversationID, f.Seq}, true
+		return route{f.ConversationID, f.Seq, f.Preview}, true
 	case *wire.RunResultDoneFrame:
-		return route{f.ConversationID, f.Seq}, true
+		return route{ConversationID: f.ConversationID, Seq: f.Seq}, true
 	case *wire.AutonomousTurnStartedFrame:
-		return route{f.ConversationID, f.Seq}, true
+		return route{ConversationID: f.ConversationID, Seq: f.Seq}, true
 	case *wire.TurnStartedFrame:
-		return route{f.ConversationID, f.Seq}, true
+		return route{ConversationID: f.ConversationID, Seq: f.Seq}, true
 	}
 	return route{}, false
 }
@@ -754,8 +790,8 @@ func (r *Runtime) dropCursorAboveHighWater(ctx context.Context, sid int64, ss *s
 
 // dropCursorBelowOldest 把落在「已经不存在的那一段」里的游标抬到现存最老的一行之前。
 //
-// agentred 不再回收通知日志(规格 2026-08-18 决策 8),但它的库可能被从外部恢复或截断,
-// 老前缀因此仍可能消失。落后不止一格的客户端,它的游标正指向那段已经不存在的区间:
+// agentred 不回收转录(规格 2026-08-18 决策 8,2026-09-05 未改),但它的库可能被从外部
+// 恢复或截断,老前缀因此仍可能消失。落后不止一格的客户端,它的游标正指向那段已经不存在的区间:
 // 拉回来的每一页第一条都比 游标+1 大,在 dispatchNotification 的第二条规则里被判成跳号
 // 丢弃并触发补洞拉取,而补洞原样拉回同一页 —— 游标永远推不动,此后连实时通知也全被当成
 // 跳号,会话没有错误、没有跳号地冻住(与 dropCursorAboveHighWater 处理的越界冻结同类)。

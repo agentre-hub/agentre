@@ -12,9 +12,9 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 )
 
 // msgWithBlocks 造一条持久化形态的消息:blocks 经注册表编码进 BlocksJSON,
@@ -26,16 +26,16 @@ func msgWithBlocks(t *testing.T, id int64, bs ...blocks.ContentBlock) *chat_enti
 	return m
 }
 
-// stubMessages 把 chat_repo.Message() 换成只会 List 出 msgs 的 mock。
+// stubMessages 把 transcript_repo.Message() 换成只会 List 出 msgs 的 mock。
 func stubMessages(t *testing.T, msgs []*chat_entity.Message, listErr error) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
-	repo := mock_chat_repo.NewMockMessageRepo(ctrl)
+	repo := mock_transcript_repo.NewMockMessageRepo(ctrl)
 	repo.EXPECT().List(gomock.Any(), int64(7)).Return(msgs, listErr).AnyTimes()
-	prev := chat_repo.Message()
-	chat_repo.RegisterMessage(repo)
-	t.Cleanup(func() { chat_repo.RegisterMessage(prev) })
+	prev := transcript_repo.Message()
+	transcript_repo.RegisterMessage(repo)
+	t.Cleanup(func() { transcript_repo.RegisterMessage(prev) })
 }
 
 func TestSessionWrittenPaths(t *testing.T) {

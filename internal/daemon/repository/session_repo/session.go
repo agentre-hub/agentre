@@ -35,8 +35,15 @@ import (
 // 方携带、幂等覆盖;老会话缺字段时保持空串。ProviderSessionID 是决策 8 的新列:daemon
 // 每轮从 RunAck 路径收回并落库,续话不再需要调用方提供。
 type DaemonSession struct {
-	// ConversationID 是这条对话的全局唯一标识(uuid),也是本表的主键。
-	ConversationID string `gorm:"column:conversation_id;primaryKey"`
+	// ID 是这条对话在**本机**的数字主键,与全局标识 ConversationID 是两件事
+	// (规格 2026-09-05 决策 9)。它存在的理由只有一个:两个宿主共用的消息实体
+	// (transcript_entity.Message.SessionID)按数字主键挂靠转录,daemon 不补这一格
+	// 就无法共用同一份存储。它**不过线**,也从不参与身份判定 —— 对外仍只有
+	// ConversationID(桌面端 chat_entity/session.go 上写的是同一条纪律)。
+	ID int64 `gorm:"column:id;primaryKey;autoIncrement"`
+	// ConversationID 是这条对话的全局唯一标识(uuid),库上是一条 UNIQUE 约束:
+	// 身份仍然只按它认人,Upsert 的冲突目标也是它。
+	ConversationID string `gorm:"column:conversation_id"`
 	// PeerFingerprint 是把这条对话交到本机执行的对端 —— 来源标注与授权,不再是身份的
 	// 一部分。它在建行那一次落下,此后的幂等覆盖不再改写(见 Upsert)。
 	PeerFingerprint string `gorm:"column:peer_fingerprint"`
@@ -156,6 +163,14 @@ type SessionRepo interface {
 	// 行数(R10 的启动清扫)。它按状态而不是按对端 / 会话枚举:daemon 刚起时内存里一条
 	// 会话都没有,库里的行就是唯一的来源。
 	InterruptAll(ctx context.Context, interruptedState string) (int64, error)
+
+	// LocalID 交回这条对话在本机的数字主键;库里没有这一行时交回 0(不报错)。
+	//
+	// 它是转录挂靠的那一格(决策 9):共用的消息实体按数字主键归属会话,而线上的
+	// 身份是 conversation_id。不按对端收窄 —— 调用方是本机的转录写入侧,它拿到的
+	// conversation_id 已经过了各自入口的授权;再收窄一次只会让「同一条对话换个对端
+	// 接管」写不进转录。
+	LocalID(ctx context.Context, conversationID string) (int64, error)
 }
 
 var defaultSession SessionRepo
@@ -170,6 +185,16 @@ type sessionRepo struct{}
 
 // NewSession 构造默认 GORM 实现。
 func NewSession() SessionRepo { return &sessionRepo{} }
+
+func (r *sessionRepo) LocalID(ctx context.Context, conversationID string) (int64, error) {
+	var id int64
+	if err := db.Ctx(ctx).
+		Raw("SELECT COALESCE(MAX(id), 0) FROM daemon_sessions WHERE conversation_id = ?", conversationID).
+		Row().Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
 
 func (r *sessionRepo) Upsert(ctx context.Context, s *DaemonSession) error {
 	now := time.Now().UnixMilli()

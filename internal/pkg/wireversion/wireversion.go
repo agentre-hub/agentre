@@ -19,7 +19,7 @@ import (
 //
 // Keep it byte identical to the `version` field of
 // frontend/packages/agentre-wire/package.json.
-const Protocol = "0.1.0"
+const Protocol = "0.2.0"
 
 // MinSupported is the oldest peer protocol version this build still accepts.
 //
@@ -32,9 +32,19 @@ const Protocol = "0.1.0"
 // internal/pkg/wireversion/methodset_test.go's
 // TestMethodSet_GivenTheMethodSetDigestWasLastUpdated_....
 //
+// A changed method set is not the only reason to reset it. 0.2.0 splits frames
+// into two levels — preview frames carry no seq and are not replayed, catch-up
+// answers with block-level durable frames — without adding or removing a single
+// RPC method. A 0.1.x build reads those frames through the old contract and
+// mis-assembles the transcript in silence, so the floor rises with the ceiling
+// and that build is turned away at the handshake instead. There is deliberately
+// no downgrade branch for it (see docs/specs/2026-09-05-transcript-storage-
+// alignment.md 「兼容性」), and crossing this version is itself the signal a
+// consumer uses to invalidate frames it mirrored under the old numbering.
+//
 // Keep it byte identical to the `version` field of
 // frontend/packages/agentre-wire/package.json, exactly like Protocol.
-const MinSupported = "0.1.0"
+const MinSupported = "0.2.0"
 
 // version is a parsed MAJOR.MINOR.PATCH triple. Handshake versions in this
 // protocol are never pre-release or build-metadata strings, so a minimal

@@ -41,6 +41,21 @@ func (m *MockSessionRepo) EXPECT() *MockSessionRepoMockRecorder {
 	return m.recorder
 }
 
+// CountAll mocks base method.
+func (m *MockSessionRepo) CountAll(ctx context.Context, keyword string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountAll", ctx, keyword)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountAll indicates an expected call of CountAll.
+func (mr *MockSessionRepoMockRecorder) CountAll(ctx, keyword any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAll", reflect.TypeOf((*MockSessionRepo)(nil).CountAll), ctx, keyword)
+}
+
 // CountByLifecycle mocks base method.
 func (m *MockSessionRepo) CountByLifecycle(ctx context.Context, state string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -54,6 +69,36 @@ func (m *MockSessionRepo) CountByLifecycle(ctx context.Context, state string) (i
 func (mr *MockSessionRepoMockRecorder) CountByLifecycle(ctx, state any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).CountByLifecycle), ctx, state)
+}
+
+// CountByPeer mocks base method.
+func (m *MockSessionRepo) CountByPeer(ctx context.Context, peerFingerprint, keyword string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountByPeer", ctx, peerFingerprint, keyword)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountByPeer indicates an expected call of CountByPeer.
+func (mr *MockSessionRepoMockRecorder) CountByPeer(ctx, peerFingerprint, keyword any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByPeer", reflect.TypeOf((*MockSessionRepo)(nil).CountByPeer), ctx, peerFingerprint, keyword)
+}
+
+// CountByPeerLifecycle mocks base method.
+func (m *MockSessionRepo) CountByPeerLifecycle(ctx context.Context, peerFingerprint, state string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountByPeerLifecycle", ctx, peerFingerprint, state)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountByPeerLifecycle indicates an expected call of CountByPeerLifecycle.
+func (mr *MockSessionRepoMockRecorder) CountByPeerLifecycle(ctx, peerFingerprint, state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByPeerLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).CountByPeerLifecycle), ctx, peerFingerprint, state)
 }
 
 // Delete mocks base method.
@@ -102,33 +147,93 @@ func (mr *MockSessionRepoMockRecorder) InterruptAll(ctx, interruptedState any) *
 }
 
 // ListAll mocks base method.
-func (m *MockSessionRepo) ListAll(ctx context.Context, keyword string) ([]*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) ListAll(ctx context.Context, keyword string, offset, limit int) ([]*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAll", ctx, keyword)
+	ret := m.ctrl.Call(m, "ListAll", ctx, keyword, offset, limit)
 	ret0, _ := ret[0].([]*session_repo.DaemonSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListAll indicates an expected call of ListAll.
-func (mr *MockSessionRepoMockRecorder) ListAll(ctx, keyword any) *gomock.Call {
+func (mr *MockSessionRepoMockRecorder) ListAll(ctx, keyword, offset, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAll", reflect.TypeOf((*MockSessionRepo)(nil).ListAll), ctx, keyword)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAll", reflect.TypeOf((*MockSessionRepo)(nil).ListAll), ctx, keyword, offset, limit)
+}
+
+// ListAllByLifecycle mocks base method.
+func (m *MockSessionRepo) ListAllByLifecycle(ctx context.Context, state string, limit int) ([]*session_repo.DaemonSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllByLifecycle", ctx, state, limit)
+	ret0, _ := ret[0].([]*session_repo.DaemonSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListAllByLifecycle indicates an expected call of ListAllByLifecycle.
+func (mr *MockSessionRepoMockRecorder) ListAllByLifecycle(ctx, state, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllByLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).ListAllByLifecycle), ctx, state, limit)
 }
 
 // ListByPeer mocks base method.
-func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint, keyword string) ([]*session_repo.DaemonSession, error) {
+func (m *MockSessionRepo) ListByPeer(ctx context.Context, peerFingerprint, keyword string, offset, limit int) ([]*session_repo.DaemonSession, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByPeer", ctx, peerFingerprint, keyword)
+	ret := m.ctrl.Call(m, "ListByPeer", ctx, peerFingerprint, keyword, offset, limit)
 	ret0, _ := ret[0].([]*session_repo.DaemonSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListByPeer indicates an expected call of ListByPeer.
-func (mr *MockSessionRepoMockRecorder) ListByPeer(ctx, peerFingerprint, keyword any) *gomock.Call {
+func (mr *MockSessionRepoMockRecorder) ListByPeer(ctx, peerFingerprint, keyword, offset, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByPeer", reflect.TypeOf((*MockSessionRepo)(nil).ListByPeer), ctx, peerFingerprint, keyword)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByPeer", reflect.TypeOf((*MockSessionRepo)(nil).ListByPeer), ctx, peerFingerprint, keyword, offset, limit)
+}
+
+// ListByPeerLifecycle mocks base method.
+func (m *MockSessionRepo) ListByPeerLifecycle(ctx context.Context, peerFingerprint, state string, limit int) ([]*session_repo.DaemonSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByPeerLifecycle", ctx, peerFingerprint, state, limit)
+	ret0, _ := ret[0].([]*session_repo.DaemonSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByPeerLifecycle indicates an expected call of ListByPeerLifecycle.
+func (mr *MockSessionRepoMockRecorder) ListByPeerLifecycle(ctx, peerFingerprint, state, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByPeerLifecycle", reflect.TypeOf((*MockSessionRepo)(nil).ListByPeerLifecycle), ctx, peerFingerprint, state, limit)
+}
+
+// ListCreatedSince mocks base method.
+func (m *MockSessionRepo) ListCreatedSince(ctx context.Context, createdFromMs int64) ([]*session_repo.DaemonSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCreatedSince", ctx, createdFromMs)
+	ret0, _ := ret[0].([]*session_repo.DaemonSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCreatedSince indicates an expected call of ListCreatedSince.
+func (mr *MockSessionRepoMockRecorder) ListCreatedSince(ctx, createdFromMs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCreatedSince", reflect.TypeOf((*MockSessionRepo)(nil).ListCreatedSince), ctx, createdFromMs)
+}
+
+// LocalID mocks base method.
+func (m *MockSessionRepo) LocalID(ctx context.Context, conversationID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LocalID", ctx, conversationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LocalID indicates an expected call of LocalID.
+func (mr *MockSessionRepoMockRecorder) LocalID(ctx, conversationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalID", reflect.TypeOf((*MockSessionRepo)(nil).LocalID), ctx, conversationID)
 }
 
 // SetModelTarget mocks base method.

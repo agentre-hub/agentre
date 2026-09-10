@@ -14,18 +14,18 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	runtimewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	pkgimport "github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport/wire"
 )
 
-// TestExecute_OwnsTheSessionAndJournalsEveryTurn 是执行侧的主路径:一次导入之后,
+// TestExecute_OwnsTheSessionAndPersistsEveryTurn 是执行侧的主路径:一次导入之后,
 // 这条会话在**这台机器**名下有身份行(转录的 cwd / provider 会话身份 / 后端 / 标题),
-// 回放出的每一轮都按序落进通知日志 —— 普通的 SESSION_PULL 因此就能把它服务出去,
-// 不需要第二条镜像通路。
-func TestExecute_OwnsTheSessionAndJournalsEveryTurn(t *testing.T) {
+// 回放出的每一轮都落成与跑一轮**同形**的转录(用户一行 + 一条 assistant 消息),
+// 普通的 SESSION_PULL 因此就能把它服务出去,不需要第二条镜像通路。
+func TestExecute_OwnsTheSessionAndPersistsEveryTurn(t *testing.T) {
 	started := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
 	rig := newExecuteRig(t, &fakeTranscript{
 		meta: pkgimport.Meta{
@@ -69,34 +69,22 @@ func TestExecute_OwnsTheSessionAndJournalsEveryTurn(t *testing.T) {
 	assert.Equal(t, "agent-sync-1", row.AgentSyncID)
 	assert.Equal(t, runtimewire.SessionLifecycleIdle, row.LifecycleState, "导完就在等下一轮,不是在跑")
 
-	// 一轮 = 用户那一行 + 事件 + (用量) + (错误) + Done,再由一条 runResultDone 收尾;
-	// 收尾帧是补齐轮的终点,少了它客户端那一轮永远不结束。
-	assert.Equal(t, []string{
-		runtimewire.NotifyEvent, runtimewire.NotifyEvent, runtimewire.NotifyEvent,
-		runtimewire.NotifyEvent, runtimewire.NotifyRunResultDone,
-		runtimewire.NotifyEvent, runtimewire.NotifyEvent, runtimewire.NotifyEvent,
-		runtimewire.NotifyEvent, runtimewire.NotifyRunResultDone,
-	}, rig.journal.methods(t))
+	// 一轮 = 用户那一行 + 一条 assistant 消息;正文由共用的累积器攒出来,与跑一轮
+	// 落下的那一份出自同一行代码。
+	assert.Equal(t, []string{"user", "assistant", "user", "assistant"}, rig.transcript.roles())
 
-	events := rig.journal.events(t)
-	assert.Equal(t, agentruntime.UserMessageEvent{Text: "第一问"}, events[0],
-		"用户那一行来自转录,不带来源设备 —— 这一轮不是任何在线设备此刻发起的")
-	assert.Equal(t, agentruntime.TextDelta{Text: "第一答"}, events[1])
-	require.IsType(t, agentruntime.UsageUpdate{}, events[2])
-	assert.Equal(t, 7, events[2].(agentruntime.UsageUpdate).Usage.CompletionTokens)
-	assert.Equal(t, agentruntime.Done{}, events[3])
-	assert.Equal(t, agentruntime.UserMessageEvent{Text: "第二问"}, events[4])
-	require.IsType(t, agentruntime.ErrorEvent{}, events[6])
-	assert.EqualError(t, events[6].(agentruntime.ErrorEvent).Err, "被中断")
+	msgs := rig.transcript.msgs
+	assert.Equal(t, `[{"type":"text","data":{"text":"第一问"}}]`, msgs[0].BlocksJSON,
+		"用户那一行来自转录原文")
+	assert.Equal(t, `[{"type":"text","data":{"text":"第一答"}}]`, msgs[1].BlocksJSON)
+	assert.Equal(t, "claude-opus-5", msgs[1].Model)
+	assert.Equal(t, 11, msgs[1].PromptTokens)
+	assert.Equal(t, 7, msgs[1].CompletionTokens)
 
-	dones := rig.journal.dones(t)
-	require.Len(t, dones, 2)
-	assert.Equal(t, convID(907), dones[0].ConversationID)
-	assert.Equal(t, "prov-1", dones[0].ProviderSessionID)
-	assert.Equal(t, "claude-opus-5", dones[0].Model)
-	require.NotNil(t, dones[0].Usage)
-	assert.Equal(t, 11, dones[0].Usage.PromptTokens)
-	assert.Equal(t, "anchor-2", dones[1].UserAnchor, "续跑锚点跟着那一轮走")
+	assert.Equal(t, `[{"type":"text","data":{"text":"第二问"}}]`, msgs[2].BlocksJSON)
+	assert.Contains(t, msgs[3].BlocksJSON, `"type":"tool_use"`)
+	assert.Equal(t, "被中断", msgs[3].ErrorText)
+	assert.Equal(t, "anchor-2", msgs[3].ForkAnchor, "续跑锚点跟着那一轮走")
 }
 
 // TestExecute_SecondImportOfTheSameProviderSessionReusesTheSession:同一台对端把同
@@ -112,7 +100,7 @@ func TestExecute_SecondImportOfTheSameProviderSessionReusesTheSession(t *testing
 	}
 	first, err := rig.handlers.Execute(context.Background(), params)
 	require.NoError(t, err)
-	journaled := len(rig.journal.rows)
+	persisted := len(rig.transcript.msgs)
 
 	// 第二次连对话身份都换了:判重的锚点是 provider 会话身份,不是调用方铸的号。
 	params.ConversationID = convID(908)
@@ -123,7 +111,7 @@ func TestExecute_SecondImportOfTheSameProviderSessionReusesTheSession(t *testing
 	assert.Equal(t, first.ConversationID, second.ConversationID, "指回库里那条,不建第二条")
 	assert.Equal(t, 0, second.Turns)
 	assert.Len(t, rig.sessions.started, 1)
-	assert.Len(t, rig.journal.rows, journaled, "日志一条都不该再涨")
+	assert.Len(t, rig.transcript.msgs, persisted, "转录一条都不该再涨")
 }
 
 // TestExecute_RefusesToOverwriteAnotherSessionOnTheSameID:调用方铸的号已经被这台
@@ -145,32 +133,35 @@ func TestExecute_RefusesToOverwriteAnotherSessionOnTheSameID(t *testing.T) {
 
 	require.ErrorIs(t, err, wire.ErrSessionInUse)
 	assert.Empty(t, rig.sessions.started, "被占的号上一行都不该写")
-	assert.Empty(t, rig.journal.rows)
+	assert.Empty(t, rig.transcript.msgs)
 }
 
-// TestExecute_ClearsALeftoverJournalBeforeReplaying:上一次导入写到一半失败会在库里
-// 留下一段没有主人的日志(身份行**最后**才写,正是为了让这种残留认得出来)。同号重来
-// 必须先把它清掉,否则两次回放会首尾相接叠成一份双倍长的转录。
-func TestExecute_ClearsALeftoverJournalBeforeReplaying(t *testing.T) {
+// TestExecute_ClearsALeftoverTranscriptBeforeReplaying:上一次导入写到一半失败会在库里
+// 留下一段残留转录。同号重来必须先把它清掉,否则两次回放会首尾相接叠成一份双倍长的转录。
+func TestExecute_ClearsALeftoverTranscriptBeforeReplaying(t *testing.T) {
 	rig := newExecuteRig(t, &fakeTranscript{
 		meta:  pkgimport.Meta{ProviderSessionID: "prov-1", Cwd: "/srv/work"},
 		turns: makeTurns(1),
 	})
-	rig.journal.rows = append(rig.journal.rows, journalEntry{peerSessionID: convID(907), payload: []byte("残留")})
+	rig.transcript.msgs = append(rig.transcript.msgs, &transcript_entity.Message{
+		Role: "assistant", BlocksJSON: "残留",
+	})
+	rig.transcript.conv = append(rig.transcript.conv, convID(907))
 
 	_, err := rig.handlers.Execute(context.Background(), wire.ExecuteParams{
 		Backend: string(agent_backend_entity.TypeClaudeCode), Locator: "loc-1", ConversationID: convID(907),
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{convID(907)}, rig.purged, "同一条对话上的残留日志先清")
-	for _, row := range rig.journal.rows {
-		assert.NotEqual(t, []byte("残留"), row.payload)
+	assert.Equal(t, []string{convID(907)}, rig.purged, "同一条对话上的残留转录先清")
+	for _, row := range rig.transcript.msgs {
+		assert.NotEqual(t, "残留", row.BlocksJSON)
 	}
 }
 
-// TestExecute_LeavesNoSessionWhenTheReplayFails:回放中途出错时不写身份行 —— 写了的
+// TestExecute_LeavesNoSessionWhenTheReplayFails:回放中途出错时不留下身份行 —— 留着的
 // 话下一次同号重来会被判成"已导过"并直接指回去,那条会话就永远停在半截转录上。
+// 转录按本机会话主键挂靠,所以身份行必须先建;失败路径把它连同半截转录一起撤掉。
 func TestExecute_LeavesNoSessionWhenTheReplayFails(t *testing.T) {
 	rig := newExecuteRig(t, &fakeTranscript{
 		meta:          pkgimport.Meta{ProviderSessionID: "prov-1", Cwd: "/srv/work"},
@@ -185,7 +176,8 @@ func TestExecute_LeavesNoSessionWhenTheReplayFails(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "转录第二轮读坏了")
-	assert.Empty(t, rig.sessions.started, "半截转录不许留下一条看着导完了的会话")
+	assert.Empty(t, rig.sessions.rows, "半截转录不许留下一条看着导完了的会话")
+	assert.Empty(t, rig.transcript.msgs, "半截转录也一并撤掉")
 }
 
 // TestExecute_RejectsAnEmptySessionID:会话 id 由调用方铸,零值没法定位任何一行 ——
@@ -198,30 +190,31 @@ func TestExecute_RejectsAnEmptySessionID(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	assert.Empty(t, rig.journal.rows)
+	assert.Empty(t, rig.transcript.msgs)
 }
 
 // ── fakes ───────────────────────────────────────────────────────────────────
 
 type executeRig struct {
-	handlers *transcriptimport.Handlers
-	sessions *fakeSessionStore
-	journal  *fakeJournal
-	purged   []string
+	handlers   *transcriptimport.Handlers
+	sessions   *fakeSessionStore
+	transcript *fakeTranscriptStore
+	purged     []string
 }
 
-func newExecuteRig(t *testing.T, transcript *fakeTranscript) *executeRig {
+func newExecuteRig(t *testing.T, source *fakeTranscript) *executeRig {
 	t.Helper()
-	rig := &executeRig{sessions: newFakeSessionStore(), journal: &fakeJournal{}}
-	src := &fakeSource{backend: agent_backend_entity.TypeClaudeCode, transcript: transcript}
+	rig := &executeRig{sessions: newFakeSessionStore(), transcript: &fakeTranscriptStore{}}
+	src := &fakeSource{backend: agent_backend_entity.TypeClaudeCode, transcript: source}
 	rig.handlers = transcriptimport.NewHandlers(transcriptimport.Options{
-		Sources:  func() []pkgimport.Source { return []pkgimport.Source{src} },
-		Sessions: rig.sessions,
-		Journal:  rig.journal,
-		JournalPurge: purgeFunc(func(_ context.Context, _, peerSessionID string) (int64, error) {
+		Sources:    func() []pkgimport.Source { return []pkgimport.Source{src} },
+		Sessions:   rig.sessions,
+		Transcript: rig.transcript,
+		TranscriptPurge: purgeFunc(func(_ context.Context, _, peerSessionID string) (int64, error) {
 			rig.purged = append(rig.purged, peerSessionID)
-			return rig.journal.deleteAll(peerSessionID), nil
+			return rig.transcript.deleteAll(peerSessionID), nil
 		}),
+		SessionDelete: rig.sessions,
 	})
 	return rig
 }
@@ -265,76 +258,76 @@ func (f *fakeSessionStore) Start(_ context.Context, rec handlers.SessionRecord) 
 	return nil
 }
 
-type journalEntry struct {
-	peerSessionID string
-	payload       []byte
+func (f *fakeSessionStore) Delete(_ context.Context, _, peerSessionID string) (int64, error) {
+	if _, ok := f.rows[peerSessionID]; !ok {
+		return 0, nil
+	}
+	delete(f.rows, peerSessionID)
+	kept := make([]handlers.SessionRecord, 0, len(f.started))
+	for _, rec := range f.started {
+		if rec.PeerSessionID != peerSessionID {
+			kept = append(kept, rec)
+		}
+	}
+	f.started = kept
+	return 1, nil
 }
 
-type fakeJournal struct {
-	rows []journalEntry
-	seq  int64
+// fakeTranscriptStore 是 transcriptimport.Transcript 的替身:按到达顺序记下写进去的
+// 每一条消息。它不解释块 —— 块怎么攒出来归共用的累积器,这里只看落下的是什么。
+type fakeTranscriptStore struct {
+	msgs []*transcript_entity.Message
+	conv []string
+	next int64
 }
 
-func (f *fakeJournal) Append(_ context.Context, _, peerSessionID string, payload []byte) (int64, error) {
-	f.seq++
-	f.rows = append(f.rows, journalEntry{peerSessionID: peerSessionID, payload: payload})
-	return f.seq, nil
+func (f *fakeTranscriptStore) StartTurn(
+	_ context.Context, conversationID, userText string,
+) (*transcript_entity.Message, *transcript_entity.Message, error) {
+	var user *transcript_entity.Message
+	if userText != "" {
+		f.next++
+		user = &transcript_entity.Message{
+			ID: f.next, Role: "user",
+			BlocksJSON: `[{"type":"text","data":{"text":"` + userText + `"}}]`,
+		}
+		f.msgs = append(f.msgs, user)
+		f.conv = append(f.conv, conversationID)
+	}
+	f.next++
+	assistant := &transcript_entity.Message{ID: f.next, Role: "assistant", BlocksJSON: "[]"}
+	f.msgs = append(f.msgs, assistant)
+	f.conv = append(f.conv, conversationID)
+	return user, assistant, nil
 }
 
-func (f *fakeJournal) deleteAll(peerSessionID string) int64 {
-	kept := make([]journalEntry, 0, len(f.rows))
+func (f *fakeTranscriptStore) FinishTurn(_ context.Context, _ *transcript_entity.Message) error {
+	// 实体是按指针交出去的,收口时调用方就地改的就是 msgs 里那一条。
+	return nil
+}
+
+func (f *fakeTranscriptStore) deleteAll(conversationID string) int64 {
+	keptMsgs := make([]*transcript_entity.Message, 0, len(f.msgs))
+	keptConv := make([]string, 0, len(f.conv))
 	var removed int64
-	for _, row := range f.rows {
-		if row.peerSessionID == peerSessionID {
+	for i, row := range f.msgs {
+		if i < len(f.conv) && f.conv[i] == conversationID {
 			removed++
 			continue
 		}
-		kept = append(kept, row)
+		keptMsgs = append(keptMsgs, row)
+		if i < len(f.conv) {
+			keptConv = append(keptConv, f.conv[i])
+		}
 	}
-	f.rows = kept
+	f.msgs, f.conv = keptMsgs, keptConv
 	return removed
 }
 
-// decode 把日志行还原成 (method, params) —— 与 SESSION_PULL 走的是同一条解码路径。
-func (f *fakeJournal) decode(t *testing.T) (methods []string, params []any) {
-	t.Helper()
-	for _, row := range f.rows {
-		notification, err := protowire.DecodeNotification(row.payload)
-		require.NoError(t, err)
-		method, value, err := protowire.ProtoNotificationToWire(notification)
-		require.NoError(t, err)
-		methods = append(methods, method)
-		params = append(params, value)
-	}
-	return methods, params
-}
-
-func (f *fakeJournal) methods(t *testing.T) []string {
-	t.Helper()
-	methods, _ := f.decode(t)
-	return methods
-}
-
-func (f *fakeJournal) events(t *testing.T) []agentruntime.Event {
-	t.Helper()
-	_, params := f.decode(t)
-	out := make([]agentruntime.Event, 0, len(params))
-	for _, value := range params {
-		if frame, ok := value.(*runtimewire.EventFrame); ok {
-			out = append(out, frame.Event)
-		}
-	}
-	return out
-}
-
-func (f *fakeJournal) dones(t *testing.T) []runtimewire.RunResultDoneFrame {
-	t.Helper()
-	_, params := f.decode(t)
-	out := make([]runtimewire.RunResultDoneFrame, 0, len(params))
-	for _, value := range params {
-		if frame, ok := value.(*runtimewire.RunResultDoneFrame); ok {
-			out = append(out, *frame)
-		}
+func (f *fakeTranscriptStore) roles() []string {
+	out := make([]string, 0, len(f.msgs))
+	for _, row := range f.msgs {
+		out = append(out, row.Role)
 	}
 	return out
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
@@ -359,14 +360,14 @@ func appendSessionNotice(
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 		return
 	}
-	seq, err := chat_repo.Message().NextSeq(ctx, sess.ID)
+	seq, err := transcript_repo.Message().NextSeq(ctx, sess.ID)
 	if err != nil {
 		logger.Ctx(ctx).Warn(where+": next seq failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 		return
 	}
 	msg.Seq = seq
-	if err := chat_repo.Message().Create(ctx, msg); err != nil {
+	if err := transcript_repo.Message().Create(ctx, msg); err != nil {
 		logger.Ctx(ctx).Warn(where+": persist notice failed",
 			zap.Int64("sessionId", sess.ID), zap.Error(err))
 	}

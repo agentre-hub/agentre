@@ -121,7 +121,7 @@ type Turn struct {
 	// UserText / UserImages 是这一轮用户发出的内容。
 	UserText   string
 	UserImages []blocks.ImageBlock
-	// Events 是这一轮的事件序列,交给既有 chat_svc/turn.Dispatcher 落块 ——
+	// Events 是这一轮的事件序列,交给既有 transcript/turn.Dispatcher 落块 ——
 	// 不得另开第二条 blocks_json 生成路径。
 	Events []agentruntime.Event
 	// Usage 是这一轮最后一次 API call 的用量;磁盘上拿不到时为 nil。

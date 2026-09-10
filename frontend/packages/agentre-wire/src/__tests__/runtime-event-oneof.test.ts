@@ -43,6 +43,7 @@ describe("RuntimeEventNotification.event oneof", () => {
           case: "runtimeEventNotification",
           conversationId: CONVERSATION_ID,
           seq: 1,
+          preview: false,
           // 时间戳字段编码侧要过 BigInt(),缺了会抛 —— 这不是漂移,补零即可。
           event: {
             case: name,

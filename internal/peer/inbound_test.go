@@ -42,6 +42,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
@@ -413,24 +415,41 @@ func registerInboundPeerChat(t *testing.T) {
 	agents := mock_agent_repo.NewMockAgentRepo(ctrl)
 	backends := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
 	sessions := mock_chat_repo.NewMockSessionRepo(ctrl)
-	messages := mock_chat_repo.NewMockMessageRepo(ctrl)
+	messages := mock_transcript_repo.NewMockMessageRepo(ctrl)
 	device := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
 	// 会话清单要交出每条对话的项目归属（账号那边的项目轴据此分组），因此项目仓储
 	// 也在这套桩里。这台电脑上没有项目：自由会话的那一维本来就该是空的。
 	projects := mock_project_repo.NewMockProjectRepo(ctrl)
 	projects.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
+	// 对端帧编号台账：attach 要给这条对话的每一帧配一个持久编号。这套桩里没有库，
+	// 台账因此是个只按顺序发号的替身 —— 编号本身的持久语义由 chat_svc 的用例守。
+	frameSeqs := mock_transcript_repo.NewMockFrameSeqRepo(ctrl)
+	frameSeqs.EXPECT().Load(gomock.Any(), gomock.Any()).
+		Return(map[transcript_repo.FrameKey]int64{}, nil).AnyTimes()
+	var allocated int64
+	frameSeqs.EXPECT().Allocate(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int64, keys []transcript_repo.FrameKey) ([]int64, error) {
+			seqs := make([]int64, 0, len(keys))
+			for range keys {
+				allocated++
+				seqs = append(seqs, allocated)
+			}
+			return seqs, nil
+		}).AnyTimes()
 	prevChat := chat_svc.Chat()
 	prevAgents := agent_repo.Agent()
 	prevBackends := agent_backend_repo.AgentBackend()
 	prevSessions := chat_repo.Session()
-	prevMessages := chat_repo.Message()
+	prevMessages := transcript_repo.Message()
 	prevDevice := remote_device_svc.Default()
 	prevProjects := project_repo.Project()
+	prevFrameSeqs := transcript_repo.FrameSeq()
+	transcript_repo.RegisterFrameSeq(frameSeqs)
 	agent_repo.RegisterAgent(agents)
 	project_repo.RegisterProject(projects)
 	agent_backend_repo.RegisterAgentBackend(backends)
 	chat_repo.RegisterSession(sessions)
-	chat_repo.RegisterMessage(messages)
+	transcript_repo.RegisterMessage(messages)
 	remote_device_svc.SetDefault(device)
 	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NoopEmitter{}))
 	t.Cleanup(func() {
@@ -438,9 +457,10 @@ func registerInboundPeerChat(t *testing.T) {
 		agent_repo.RegisterAgent(prevAgents)
 		agent_backend_repo.RegisterAgentBackend(prevBackends)
 		chat_repo.RegisterSession(prevSessions)
-		chat_repo.RegisterMessage(prevMessages)
+		transcript_repo.RegisterMessage(prevMessages)
 		remote_device_svc.SetDefault(prevDevice)
 		project_repo.RegisterProject(prevProjects)
+		transcript_repo.RegisterFrameSeq(prevFrameSeqs)
 		ctrl.Finish()
 	})
 

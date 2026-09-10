@@ -14,7 +14,7 @@ import (
 )
 
 // toolNameExitPlanMode CLI 计划审批 control_request 的 tool_name。
-// 与 chat_svc/handlers 的同名常量各自归属(包间不互相 import)。
+// 与 internal/pkg/transcript/handlers 的同名常量各自归属(包间不互相 import)。
 const toolNameExitPlanMode = "ExitPlanMode"
 
 // SubmitAnswer 把前端提交的 AskUserQuestion 答案反向投回 CLI。语义同顶层

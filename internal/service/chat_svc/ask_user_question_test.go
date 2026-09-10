@@ -14,8 +14,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 // fakeAskRunner 是测试用的 Runtime + AskAnswerSink 组合体;记录 SubmitAnswer 调用。

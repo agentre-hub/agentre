@@ -8,9 +8,9 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 func TestBgRunningSet_AddRemoveClearActive(t *testing.T) {

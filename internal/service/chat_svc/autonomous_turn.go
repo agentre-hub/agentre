@@ -64,6 +64,16 @@ func (s *chatSvc) driveAutonomousTurn(ctx context.Context, sessionID int64, be *
 		return
 	}
 
+	// 远端执行:实时那一路是**预览帧**,它不在 at.Events 上(那条流是本轮的转录
+	// 来源),要另开一条通道接住并呈现,见 preview_stream.go。登记必须赶在读首条
+	// 事件之前:预览帧与持久帧走同一条读循环,晚一步登记就会漏掉开头那几个 token。
+	var previews <-chan agentruntime.Event
+	if sess.ExecDeviceID != 0 {
+		ch, unregister := s.registerPreviewStream(sessionID)
+		defer unregister()
+		previews = ch
+	}
+
 	// 先读首条事件:是 user_message 标记就把它剥出来,在事务里先落一行 user 消息。
 	first, hasFirst := <-at.Events
 	var prelude *agentruntime.UserMessageEvent
@@ -82,6 +92,7 @@ func (s *chatSvc) driveAutonomousTurn(ctx context.Context, sessionID int64, be *
 		first:     first,
 		hasFirst:  hasFirst,
 		prelude:   prelude,
+		previews:  previews,
 	}
 	if err := t.persistTurnMessages(ctx); err != nil {
 		logger.Ctx(ctx).Error("chat_svc: driveAutonomousTurn persist assistant failed",

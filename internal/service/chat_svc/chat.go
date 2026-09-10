@@ -42,16 +42,18 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/llmcatalog"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/goal"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/remotepool"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 )
@@ -242,6 +244,10 @@ type chatSvc struct {
 	// activeTurnStreams: sessionID(int64) → 当前活跃 turn 的 per-turn 流名(string)。
 	// runTurn 起止维护;工具审批(BeginToolApproval)据此路由审批卡到正确的流。
 	activeTurnStreams sync.Map
+	// previewStreams: sessionID(int64) → 该会话此刻这一轮的预览帧通道
+	// (chan agentruntime.Event)。远端执行的预览帧从 *remote.Runtime 的读循环进来,
+	// 由本轮的 turnRun 消费(见 preview_stream.go)。
+	previewStreams sync.Map
 	// toolApprovals: 本会话进行中 turn 上挂起/已决的工具审批 block(org / hook 等内置
 	// 写工具共用),finalize 时 merge 进 assistant 消息;LoadSession 时 overlay 到投影。
 	toolApprovalsMu sync.Mutex
@@ -613,11 +619,11 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 	// 读路径是「元数据全量 + 块按需取」(决策 6,**不是**历史截断):元数据一条不少,
 	// 正文只取最近一个窗口。窗口外的正文有两条按需取回的路 —— 向上滚动走
 	// LoadMessageBlocks,派生视图走 LoadSessionBlocksByType 的按类型点查。
-	msgs, err := chat_repo.Message().ListMeta(ctx, sess.ID)
+	msgs, err := transcript_repo.Message().ListMeta(ctx, sess.ID)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
-	if err := chat_repo.Message().FillBlocks(ctx, transcriptWindow(msgs)); err != nil {
+	if err := transcript_repo.Message().FillBlocks(ctx, transcriptWindow(msgs)); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
 	resp := &LoadSessionResponse{
@@ -1712,7 +1718,7 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 		return nil, i18n.NewError(ctx, code.ChatSessionNotFound)
 	}
 
-	target, err := chat_repo.Message().Find(ctx, req.MessageID)
+	target, err := transcript_repo.Message().Find(ctx, req.MessageID)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
@@ -1738,7 +1744,7 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 		}
 	}()
 	if gate.reconciled {
-		target, err = chat_repo.Message().Find(ctx, req.MessageID)
+		target, err = transcript_repo.Message().Find(ctx, req.MessageID)
 		if err != nil {
 			return nil, operationFailedWithCause(ctx, err)
 		}
@@ -1754,7 +1760,7 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 	}
 
 	// 找紧邻 target 之前的最后一条 user 消息（按 seq）。
-	all, err := chat_repo.Message().List(ctx, sess.ID)
+	all, err := transcript_repo.Message().List(ctx, sess.ID)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
@@ -1786,7 +1792,7 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 	anchorSeq := userAnchor.Seq
 	var replacement *transcriptReplacementLifecycle
 	preTx := func(txCtx context.Context) error {
-		_, derr := chat_repo.Message().DeleteFromSeq(txCtx, sess.ID, anchorSeq)
+		_, derr := transcript_repo.Message().DeleteFromSeq(txCtx, sess.ID, anchorSeq)
 		return derr
 	}
 	if be.IsPiAgent() {
@@ -1833,7 +1839,7 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 		return nil, i18n.NewError(ctx, code.ChatSessionNotFound)
 	}
 
-	target, err := chat_repo.Message().Find(ctx, req.MessageID)
+	target, err := transcript_repo.Message().Find(ctx, req.MessageID)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
@@ -1859,7 +1865,7 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 		}
 	}()
 	if gate.reconciled {
-		target, err = chat_repo.Message().Find(ctx, req.MessageID)
+		target, err = transcript_repo.Message().Find(ctx, req.MessageID)
 		if err != nil {
 			return nil, operationFailedWithCause(ctx, err)
 		}
@@ -1890,7 +1896,7 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 	anchorSeq := target.Seq
 	var replacement *transcriptReplacementLifecycle
 	preTx := func(txCtx context.Context) error {
-		_, derr := chat_repo.Message().DeleteFromSeq(txCtx, sess.ID, anchorSeq)
+		_, derr := transcript_repo.Message().DeleteFromSeq(txCtx, sess.ID, anchorSeq)
 		return derr
 	}
 	if be.IsPiAgent() {
@@ -2108,12 +2114,12 @@ func (s *chatSvc) startCompactTurn(
 
 	if err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
-		nextSeq, err := chat_repo.Message().NextSeq(txCtx, sess.ID)
+		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, sess.ID)
 		if err != nil {
 			return err
 		}
 		assistantMsg.Seq = nextSeq
-		if err := chat_repo.Message().Create(txCtx, assistantMsg); err != nil {
+		if err := transcript_repo.Message().Create(txCtx, assistantMsg); err != nil {
 			return err
 		}
 		sess.AgentStatus = "running"
@@ -2459,7 +2465,7 @@ func (s *chatSvc) buildRunRequest(
 	}
 	if be.IsBuiltin() {
 		// builtin 没有持久化 session — 把历史从 chat_messages 重建后透传。
-		msgs, err := chat_repo.Message().List(ctx, sess.ID)
+		msgs, err := transcript_repo.Message().List(ctx, sess.ID)
 		if err != nil {
 			return agentruntime.RunRequest{}, err
 		}
@@ -2547,16 +2553,16 @@ func (s *chatSvc) persistUserAnchor(
 	}
 	userMsg.ForkAnchor = anchor
 	if !hardFailure {
-		_ = chat_repo.Message().Update(ctx, userMsg)
+		_ = transcript_repo.Message().Update(ctx, userMsg)
 		return nil
 	}
-	if err := chat_repo.Message().Update(ctx, userMsg); err != nil {
+	if err := transcript_repo.Message().Update(ctx, userMsg); err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.persistUserAnchor: message update failed, retrying",
 			zap.Int64("sessionId", userMsg.SessionID),
 			zap.Int64("messageId", userMsg.ID),
 			zap.String("forkAnchor", userMsg.ForkAnchor),
 			zap.Error(err))
-		if retryErr := chat_repo.Message().Update(ctx, userMsg); retryErr != nil {
+		if retryErr := transcript_repo.Message().Update(ctx, userMsg); retryErr != nil {
 			logger.Ctx(ctx).Error("chat_svc.persistUserAnchor: message update failed after retry",
 				zap.Int64("sessionId", userMsg.SessionID),
 				zap.Int64("messageId", userMsg.ID),
@@ -2612,6 +2618,13 @@ func (s *chatSvc) runTurn(
 		result:       prepared.result,
 		req:          prepared.req,
 	}
+	// 远端执行:实时那一路是**预览帧**,它不在 prepared.events 上(那条流是本轮的
+	// 转录来源),要另开一条通道接住并呈现,见 preview_stream.go。
+	if _, isRemote := prepared.runner.(*remote.Runtime); isRemote {
+		previews, unregister := s.registerPreviewStream(sess.ID)
+		defer unregister()
+		t.previews = previews
+	}
 	// 登记本 turn 的活跃流名,供工具审批(BeginToolApproval)把审批卡路由到此流。
 	// stream 在 SteerConsumed 分段时不变(同 turn 一个流名),Store 一次即可;收尾时清掉。
 	s.activeTurnStreams.Store(sess.ID, stream)
@@ -2661,18 +2674,10 @@ func eventShowsProgressAfterError(ev agentruntime.Event) bool {
 	}
 }
 
+// shouldCheckpointAssistantAfterEvent 转调共用的那一份(transcript.ShouldCheckpointAfter):
+// 「哪一帧之后 checkpoint」在两个宿主上必须是同一个判断,agentred 的 fanout 调的就是它。
 func shouldCheckpointAssistantAfterEvent(ev agentruntime.Event) bool {
-	switch ev.(type) {
-	case agentruntime.ToolResult,
-		agentruntime.UserAskRequest,
-		agentruntime.UserAskResolved,
-		agentruntime.ToolPermissionRequest,
-		agentruntime.ToolPermissionResolved,
-		agentruntime.PlanUpdated:
-		return true
-	default:
-		return false
-	}
+	return transcript.ShouldCheckpointAfter(ev)
 }
 
 // persistAutoContinueTurn 把 turn 结束时 DrainPending 取到的排队消息合并成一条
@@ -2714,16 +2719,16 @@ func (s *chatSvc) persistAutoContinueTurn(
 
 	if err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
-		nextSeq, err := chat_repo.Message().NextSeq(txCtx, sess.ID)
+		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, sess.ID)
 		if err != nil {
 			return err
 		}
 		newUser.Seq = nextSeq
-		if err := chat_repo.Message().Create(txCtx, newUser); err != nil {
+		if err := transcript_repo.Message().Create(txCtx, newUser); err != nil {
 			return err
 		}
 		newAssistant.Seq = nextSeq + 1
-		if err := chat_repo.Message().Create(txCtx, newAssistant); err != nil {
+		if err := transcript_repo.Message().Create(txCtx, newAssistant); err != nil {
 			return err
 		}
 		sess.LastMessageAt = time.Now().UnixMilli()
@@ -2731,6 +2736,9 @@ func (s *chatSvc) persistAutoContinueTurn(
 	}); err != nil {
 		return nil, nil, nil, fmt.Errorf("persist auto-continue: %w", err)
 	}
+
+	// 接续轮插进来的 user 消息也在此刻取号,理由同 persistConsumedSteers。
+	s.publishPeerMessageFrames(ctx, sess.ID, newUser, true)
 
 	userEvent, err := toChatMessage(newUser)
 	if err != nil {
@@ -2809,10 +2817,10 @@ func (s *chatSvc) persistConsumedSteers(
 
 	if err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
-		if err := chat_repo.Message().Update(txCtx, current); err != nil {
+		if err := transcript_repo.Message().Update(txCtx, current); err != nil {
 			return err
 		}
-		nextSeq, err := chat_repo.Message().NextSeq(txCtx, sess.ID)
+		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, sess.ID)
 		if err != nil {
 			return err
 		}
@@ -2829,19 +2837,26 @@ func (s *chatSvc) persistConsumedSteers(
 			if err := persistPeerMessageSource(msg, peerMessageSource{Device: steer.SourcePeer, Name: steer.SourceName}); err != nil {
 				return err
 			}
-			if err := chat_repo.Message().Create(txCtx, msg); err != nil {
+			if err := transcript_repo.Message().Create(txCtx, msg); err != nil {
 				return err
 			}
 			userMsgs = append(userMsgs, msg)
 		}
 		nextAssistant.Seq = nextSeq + len(userMsgs)
-		if err := chat_repo.Message().Create(txCtx, nextAssistant); err != nil {
+		if err := transcript_repo.Message().Create(txCtx, nextAssistant); err != nil {
 			return err
 		}
 		sess.LastMessageAt = time.Now().UnixMilli()
 		return chat_repo.Session().Update(txCtx, sess)
 	}); err != nil {
 		return nil, nil, fmt.Errorf("persist consumed steer: %w", err)
+	}
+
+	// 分段落地:收口的 assistant 与插进来的 user 都已落库,按转录顺序依次取号 ——
+	// 编号顺序就是补齐的重放顺序,晚一步取号的那条会排到整段之后。
+	s.publishPeerMessageFrames(ctx, sess.ID, current, true)
+	for _, msg := range userMsgs {
+		s.publishPeerMessageFrames(ctx, sess.ID, msg, true)
 	}
 
 	userEvents := make([]ChatMessage, 0, len(userMsgs))

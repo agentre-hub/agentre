@@ -14,6 +14,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // CancelQueued 撤回 Enqueue 投递但尚未被 AI 消费的排队消息。QueuedID 为空
@@ -233,7 +234,7 @@ func (s *chatSvc) StopBackgroundTask(ctx context.Context, req *StopBackgroundTas
 		return nil, i18n.NewError(ctx, code.ChatSessionNotFound)
 	}
 
-	taskID, status, found, err := chat_repo.Message().FindSubagentState(ctx, req.SessionID, req.ToolCallID)
+	taskID, status, found, err := transcript_repo.Message().FindSubagentState(ctx, req.SessionID, req.ToolCallID)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +277,7 @@ func (s *chatSvc) StopBackgroundTask(ctx context.Context, req *StopBackgroundTas
 	}
 
 	// 主动翻 canceled(summary 留空:不写后端硬编码文案,「已停止」由前端 StatusPill 出 i18n)。
-	if ferr := chat_repo.Message().FlipSubagentStatus(ctx, req.SessionID, req.ToolCallID, "canceled", ""); ferr != nil {
+	if ferr := transcript_repo.Message().FlipSubagentStatus(ctx, req.SessionID, req.ToolCallID, "canceled", ""); ferr != nil {
 		logger.Ctx(ctx).Warn("chat_svc.StopBackgroundTask: flip subagent_state failed",
 			zap.Int64("sessionId", req.SessionID),
 			zap.String("toolUseId", req.ToolCallID),

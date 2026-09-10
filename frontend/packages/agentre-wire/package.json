@@ -1,6 +1,6 @@
 {
   "name": "@agentre-hub/agentre-wire",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agentre wire 协议：Protobuf schema、生成的 TS 编解码与黄金样本",
   "license": "MIT",
   "type": "module",

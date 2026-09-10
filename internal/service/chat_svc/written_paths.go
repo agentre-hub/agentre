@@ -10,8 +10,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // SessionWrittenPaths 列出本会话里 AI 写过的文件路径,按首次出现顺序去重。
@@ -33,7 +33,7 @@ func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]string, error)
 	if sessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
-	msgs, err := chat_repo.Message().List(ctx, sessionID)
+	msgs, err := transcript_repo.Message().List(ctx, sessionID)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}

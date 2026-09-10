@@ -13,6 +13,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // ReplacementRecoveryState is persisted on the recovery marker. Pending
@@ -208,7 +209,7 @@ func MoveMessagesFromSeq(ctx context.Context, sourceSessionID, targetSessionID i
 // one recovery generation, together with their block rows. A stale restore
 // therefore cannot truncate a retry.
 func DeleteOwnedReplacementMessages(ctx context.Context, sessionID, userMessageID, assistantMessageID int64) (int64, error) {
-	if err := deleteBlocksOfMessages(ctx, "session_id = ? AND id IN (?,?)",
+	if err := transcript_repo.DeleteBlocksOfMessages(ctx, "session_id = ? AND id IN (?,?)",
 		sessionID, userMessageID, assistantMessageID); err != nil {
 		return 0, err
 	}
@@ -315,7 +316,7 @@ func DeleteReplacementRecovery(ctx context.Context, sessionID int64) (int64, err
 	if err != nil {
 		return 0, err
 	}
-	if err := deleteBlocksOfMessages(ctx, "session_id = ?", recoverySessionID); err != nil {
+	if err := transcript_repo.DeleteBlocksOfMessages(ctx, "session_id = ?", recoverySessionID); err != nil {
 		return 0, err
 	}
 	if err := db.Ctx(ctx).

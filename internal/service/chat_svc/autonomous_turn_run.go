@@ -14,9 +14,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/handlers"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/handlers"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // autonomousTurnRun 承载 driveAutonomousTurn 一轮自主续轮期间的全部可变状态。
@@ -45,6 +46,18 @@ type autonomousTurnRun struct {
 	turnCtx       *turn.TurnContext
 	segmentStart  time.Time
 	pendingSteers []agentruntime.ConsumedSteer
+
+	// previews 是远端执行那一路的**预览帧**流(见 preview_stream.go)。自主续轮同样
+	// 是一条运行中的轮次:宿主为它发的逐 token 增量是预览帧(agentred 在
+	// forwardAutonomousTurn 里显式打 Preview),而 at.Events 上到达的是宿主实时发布
+	// 的持久帧。非 nil 时这一轮分工:预览帧负责呈现,持久帧负责转录。本机执行时它是
+	// nil,一条流两件事都干,与今天逐字一致。
+	previews <-chan agentruntime.Event
+	// previewAcc 是预览帧用完即弃的累加器:呈现要的那点上下文攒在它里面,它不落库。
+	previewAcc *turn.Accumulator
+	// durableCtx 是持久帧那一路自己的轮上下文。理由同 turnRun.durableCtx:持久帧只
+	// 累积、不产生宿主副作用,拿同一个 turnCtx 再走一遍会把已经答完的待决策挂回去。
+	durableCtx *turn.TurnContext
 }
 
 // persistTurnMessages 事务建 assistant 行(R18 下先建 user 行)并把会话翻 running。
@@ -60,7 +73,7 @@ func (t *autonomousTurnRun) persistTurnMessages(ctx context.Context) error {
 	}
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		txCtx := db.WithContextDB(ctx, tx)
-		nextSeq, err := chat_repo.Message().NextSeq(txCtx, t.sessionID)
+		nextSeq, err := transcript_repo.Message().NextSeq(txCtx, t.sessionID)
 		if err != nil {
 			return err
 		}
@@ -86,13 +99,13 @@ func (t *autonomousTurnRun) persistTurnMessages(ctx context.Context) error {
 			}); err != nil {
 				return err
 			}
-			if err := chat_repo.Message().Create(txCtx, t.userMsg); err != nil {
+			if err := transcript_repo.Message().Create(txCtx, t.userMsg); err != nil {
 				return err
 			}
 			nextSeq++
 		}
 		t.assistantMsg.Seq = nextSeq
-		if err := chat_repo.Message().Create(txCtx, t.assistantMsg); err != nil {
+		if err := transcript_repo.Message().Create(txCtx, t.assistantMsg); err != nil {
 			return err
 		}
 		t.sess.AgentStatus = "running"
@@ -182,6 +195,8 @@ func (t *autonomousTurnRun) flushPendingSteers(ctx context.Context) {
 	if nextAssistant != nil && payload != nil {
 		t.assistantMsg = nextAssistant
 		t.acc = turn.New()
+		// 呈现那一路也从这个分段起重新攒:两只累加器都是「这一段」的状态。
+		t.previewAcc = nil
 		t.segmentStart = time.Now()
 		t.turnCtx = t.svc.newTurnContext(t.assistantMsg, t.sess, t.stream, t.be.Type)
 		t.svc.emitter.Emit(ctx, t.stream, *payload)
@@ -208,7 +223,12 @@ func (t *autonomousTurnRun) consumeSteer(ctx context.Context, ev agentruntime.Ev
 	return true
 }
 
-// consumeEvents 消费本轮事件流直到 channel 关闭(首条已被上游先读走)。
+// consumeEvents 消费本轮事件流直到 at.Events 关闭(首条已被上游先读走)。
+//
+// 远端执行那一路是**两级帧**(规格 2026-09-05「两级帧与补齐」):at.Events 上到的是
+// 宿主实时发布的持久帧,只累积、不呈现;逐 token 的呈现走预览流。两条流在这一个
+// goroutine 上消费 —— dispatcher 会动 turnCtx 与前端流,两个 goroutine 同时进去
+// 就是一场数据竞争。
 func (t *autonomousTurnRun) consumeEvents(ctx context.Context) {
 	// The first event can be the persisted user-message prelude; it is still a
 	// canonical event for remote peers even though the local reducer does not
@@ -217,34 +237,112 @@ func (t *autonomousTurnRun) consumeEvents(ctx context.Context) {
 		t.svc.publishPeerEvent(t.sessionID, t.first)
 	}
 	// 首条若已是标记之外的普通事件,它仍要进 dispatcher(用户消息不进 assistant 内容)。
-	if t.hasFirst && t.prelude == nil && !t.consumeSteer(ctx, t.first) {
-		if err := t.svc.dispatcher.Apply(ctx, t.first, t.acc, t.dispEmit, nil, t.turnCtx); err != nil {
-			logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
-				zap.String("eventType", fmt.Sprintf("%T", t.first)), zap.Error(err))
-		}
-		if shouldCheckpointAssistantAfterEvent(t.first) {
-			t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
+	if t.hasFirst && t.prelude == nil {
+		switch {
+		case t.previews != nil:
+			t.applyDurable(ctx, t.first)
+		case !t.consumeSteer(ctx, t.first):
+			if err := t.svc.dispatcher.Apply(ctx, t.first, t.acc, t.dispEmit, nil, t.turnCtx); err != nil {
+				logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
+					zap.String("eventType", fmt.Sprintf("%T", t.first)), zap.Error(err))
+			}
+			if shouldCheckpointAssistantAfterEvent(t.first) {
+				t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
+			}
 		}
 	}
-	for ev := range t.at.Events {
-		t.svc.publishPeerEvent(t.sessionID, ev)
-		if t.consumeSteer(ctx, ev) {
-			continue
+	if t.previews == nil {
+		// 本机执行:没有两级帧,一条流既呈现也落库。
+		for ev := range t.at.Events {
+			t.applyLive(ctx, ev, false)
 		}
-		if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, t.dispEmit, nil, t.turnCtx); err != nil {
-			logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
-				zap.String("eventType", fmt.Sprintf("%T", ev)), zap.Error(err))
-		}
-		// 上一条事件收口了工具 → 之前推迟的分段现在可以落地。
-		if len(t.pendingSteers) > 0 && !t.acc.HasOpenToolUse() {
-			t.flushPendingSteers(ctx)
-		}
-		if shouldCheckpointAssistantAfterEvent(ev) {
-			t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
-		}
+	} else {
+		t.consumeTwoLevelFrames(ctx)
 	}
 	// 流结束时仍在推迟的分段必须落地:插话已经从 inbox drain 走了,不落就丢。
 	t.flushPendingSteers(ctx)
+}
+
+// consumeTwoLevelFrames 消费远端执行那一路的两条流:持久帧进转录,预览帧只呈现。
+func (t *autonomousTurnRun) consumeTwoLevelFrames(ctx context.Context) {
+	for {
+		select {
+		case ev, ok := <-t.at.Events:
+			if !ok {
+				// 轮结束。预览与持久帧走同一条读循环、同一个顺序,所以此刻缓冲里剩下
+				// 的都是这一轮的,呈现完再收尾。
+				t.drainPreviews(ctx)
+				return
+			}
+			t.applyDurable(ctx, ev)
+		case preview := <-t.previews:
+			t.applyLive(ctx, preview, true)
+		}
+	}
+}
+
+// drainPreviews 把此刻还没呈现的预览帧呈现完。
+func (t *autonomousTurnRun) drainPreviews(ctx context.Context) {
+	for {
+		select {
+		case preview := <-t.previews:
+			t.applyLive(ctx, preview, true)
+		default:
+			return
+		}
+	}
+}
+
+// liveAcc 交回呈现这一路此刻该往里写的累加器。分段落地会把 acc 整只换掉,所以每次现取。
+func (t *autonomousTurnRun) liveAcc(preview bool) *turn.Accumulator {
+	if !preview {
+		return t.acc
+	}
+	if t.previewAcc == nil {
+		t.previewAcc = turn.New()
+	}
+	return t.previewAcc
+}
+
+// applyDurable 把一条持久帧累积进本轮转录,并在定稿时刻 checkpoint 一次。
+//
+// 它**只累积**:呈现归预览那一路 —— 同一段内容在这条会话上已经实时呈现过一次,
+// 持久帧是它落库之后的那一份事实,再走一遍宿主副作用就是把一段话在前端印两遍。
+func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
+	if ev == nil {
+		return
+	}
+	if t.durableCtx == nil {
+		t.durableCtx = &turn.TurnContext{Waits: turn.NewWaitTracker()}
+	}
+	if err := t.svc.dispatcher.Apply(ctx, ev, t.acc, discardEmitter{}, nil, t.durableCtx); err != nil {
+		logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
+			zap.String("eventType", fmt.Sprintf("%T", ev)), zap.Error(err))
+	}
+	if shouldCheckpointAssistantAfterEvent(ev) {
+		t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
+	}
+}
+
+// applyLive 呈现一条实时事件:对端扇出、插话分段这些**宿主副作用**都在这里,内容则
+// 累积进 acc。preview=true 时累积进用完即弃的那只 —— 落库归 at.Events 上的持久帧。
+func (t *autonomousTurnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview bool) {
+	t.svc.publishPeerEvent(t.sessionID, ev)
+	if t.consumeSteer(ctx, ev) {
+		return
+	}
+	acc := t.liveAcc(preview)
+	if err := t.svc.dispatcher.Apply(ctx, ev, acc, t.dispEmit, nil, t.turnCtx); err != nil {
+		logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
+			zap.String("eventType", fmt.Sprintf("%T", ev)), zap.Error(err))
+	}
+	// 上一条事件收口了工具 → 之前推迟的分段现在可以落地。
+	if len(t.pendingSteers) > 0 && !acc.HasOpenToolUse() {
+		t.flushPendingSteers(ctx)
+	}
+	if !preview && shouldCheckpointAssistantAfterEvent(ev) {
+		t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
+	}
 }
 
 // finalize 收尾本轮:落 blocks + usage/model、翻终态、定向翻转后台任务、发终态事件。
@@ -302,8 +400,8 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 			zap.Int64("assistantMsgId", t.assistantMsg.ID),
 			zap.Error(t.at.Result.StopErr))
 	}
-	_ = chat_repo.Message().Update(finalCtx, t.assistantMsg)
-	t.svc.publishPeerTurnDone(t.sessionID, t.assistantMsg)
+	_ = transcript_repo.Message().Update(finalCtx, t.assistantMsg)
+	t.svc.publishPeerTurnDone(finalCtx, t.sessionID, t.assistantMsg)
 
 	t.sess.AgentStatus = "idle"
 	if stopErr != nil {
@@ -321,7 +419,7 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 	// per-turn accumulator,只能定向重写持久化态。completedRef 为 nil(含 remote
 	// 不携带 CompletedTask 的情形)时跳过。
 	if t.completedRef != nil {
-		if err := chat_repo.Message().FlipSubagentStatus(finalCtx, t.sessionID, t.completedRef.ToolCallID, t.completedRef.Status, t.completedRef.Summary); err != nil {
+		if err := transcript_repo.Message().FlipSubagentStatus(finalCtx, t.sessionID, t.completedRef.ToolCallID, t.completedRef.Status, t.completedRef.Summary); err != nil {
 			logger.Ctx(finalCtx).Warn("chat_svc.driveAutonomousTurn: FlipSubagentStatus failed",
 				zap.Int64("sessionId", t.sessionID),
 				zap.String("toolUseId", t.completedRef.ToolCallID),

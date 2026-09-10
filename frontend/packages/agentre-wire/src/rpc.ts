@@ -38,6 +38,16 @@ export interface RuntimeEventNotificationFrame {
   case: "runtimeEventNotification";
   conversationId: string;
   seq: number;
+  /**
+   * 这是一条**预览帧**:逐片段增量(textDelta / thinkingDelta)与过场状态
+   * (retry / runtimeStatus)。它不带 seq、不落库、不参与游标推进与去重,丢失即
+   * 丢失 —— 存在只为即时呈现生成过程。为假时是**持久帧**:块级帧与消息级派生帧
+   * (usageUpdate / done),带 seq,参与补齐与镜像;覆盖同一内容时以它为准。
+   *
+   * 判别只能看这一格,不能看 seq:消费方把「seq 不大于游标」当重复丢弃,而预览帧
+   * 本就不带 seq。见 wire.proto 上 RuntimeEventNotification 的注释。
+   */
+  preview: boolean;
   event:
     | { case: "textDelta"; text: string }
     | { case: "thinkingDelta"; text: string }
@@ -371,6 +381,7 @@ function encodeRuntimeEvent(value: RuntimeEventNotificationFrame) {
       value: create(RuntimeEventNotificationSchema, {
         conversationId: value.conversationId,
         seq: BigInt(value.seq),
+        preview: value.preview,
         event: encodedEvent,
       }),
     },
@@ -470,6 +481,7 @@ function decodeRuntimeEvent(
     case: "runtimeEventNotification",
     conversationId: value.payload.value.conversationId,
     seq: safeNumber(value.payload.value.seq, "seq"),
+    preview: value.payload.value.preview,
     event: decodedEvent,
   };
 }

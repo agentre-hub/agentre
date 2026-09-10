@@ -61,9 +61,12 @@ func TestMethodSet_GivenTheStrictVersionHandshake_WhenTheMethodSetChanges_ThenTh
 // Given 窗口的守恒律——方法集指纹改变时 MinSupported 必须等于 Protocol,When
 // methodSetDigest 是这份方法集当下的指纹(即上一条测试为绿,方法集自版本号最近一次
 // 抬升以来没有再变过),Then wireversion.MinSupported 在这同一个提交里必须与
-// wireversion.Protocol 逐字相等——本轮就是这个"方法集最近一次抬升"的时刻,两者都被
-// 重置到 0.1.0(0.1.0 发布前把协议号归零,窗口随之收成一个点)。这条断言是手工流程的机械兜底:下次改方法集时,连同上一条测试一起改红,
+// wireversion.Protocol 逐字相等——窗口至今始终是一个点。这条断言是手工流程的机械兜底:下次改方法集时,连同上一条测试一起改红,
 // 提醒开发者把 MinSupported 也抬到新 Protocol,而不是留着旧窗口悄悄变宽。
+//
+// 反过来不成立:方法集没变也可能必须抬版本 —— 0.2.0 的两级帧一个 RPC 方法都没动,
+// 改的是帧本身的契约(理由见 wireversion.MinSupported 的注释)。那一次 MinSupported
+// 同样跟着 Protocol 抬,所以这条断言照旧成立。
 func TestMethodSet_GivenTheMethodSetDigestWasLastUpdated_ThenMinSupportedMustEqualProtocolAtThatCommit(t *testing.T) {
 	t.Parallel()
 

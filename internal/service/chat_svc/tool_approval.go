@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 )
 
 // toolApprovalBlockToChatBlock 历史回放/overlay 路径：持久化 block → 前端 ChatBlock。

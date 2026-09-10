@@ -10,7 +10,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // ResolvePlanActionRequest 前端计划审批/历史计划 action 按钮点击后调
@@ -153,7 +153,7 @@ func (d planActionDispatch) clearsPlanActions(req *ResolvePlanActionRequest) boo
 }
 
 func (s *chatSvc) clearLatestActionablePlanActions(ctx context.Context, sessionID int64) error {
-	msgs, err := chat_repo.Message().List(ctx, sessionID)
+	msgs, err := transcript_repo.Message().List(ctx, sessionID)
 	if err != nil {
 		return err
 	}
@@ -188,7 +188,7 @@ func (s *chatSvc) clearLatestActionablePlanActions(ctx context.Context, sessionI
 		if err := msg.SetBlocks(bs); err != nil {
 			return err
 		}
-		return chat_repo.Message().Update(ctx, msg)
+		return transcript_repo.Message().Update(ctx, msg)
 	}
 	return nil
 }

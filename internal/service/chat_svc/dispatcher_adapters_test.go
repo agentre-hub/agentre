@@ -36,9 +36,8 @@ func TestUsageWriterAdapter_PatchesMessage(t *testing.T) {
 	Convey("usageWriterAdapter 把 UsageUpdate 字段写到 *chat_entity.Message", t, func() {
 		m := &chat_entity.Message{}
 		wr := usageWriterAdapter{}
-		// 通过 buildHandlersWithAdapters 拿到 handler 实例(里面已经把 writer 注入)
-		usageH, _, _, _, _, _ := buildHandlersWithAdapters(nil)
-		So(usageH.Writer, ShouldEqual, wr)
+		// 通过 buildAdapters 拿到交给共享注册表的那一格(writer 已经注入)
+		So(buildAdapters(nil).Usage, ShouldEqual, wr)
 		_ = m
 	})
 }

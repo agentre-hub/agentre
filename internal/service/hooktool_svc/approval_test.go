@@ -13,7 +13,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/service/hook_svc"
 	"github.com/agentre-hub/agentre/internal/service/hooktool_svc/mock_hooktool_svc"
 )

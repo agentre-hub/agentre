@@ -236,6 +236,7 @@ type reconnectRig struct {
 	conn1    *fakeConn
 	cursor   *fakeCursorPort
 	observer *connStateRecorder
+	previews *previewRecorder
 	events   <-chan agentruntime.Event
 	result   *agentruntime.RunResult
 
@@ -252,6 +253,31 @@ const rigSessionID int64 = 42
 
 // newReconnectRig 构造 rig 并跑起一轮会话。supported 决定能力探测(runtime.session.list)
 // 是回正常结果还是回 method-not-found。
+// previewRecorder 是预览帧的呈现出口:预览帧不进事件流(它不是转录),用例靠它证明
+// 「呈现得到、但没进转录」这两件事同时成立。
+type previewRecorder struct {
+	mu  sync.Mutex
+	got []agentruntime.Event
+}
+
+func (p *previewRecorder) OnPreviewEvent(_ int64, ev agentruntime.Event) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.got = append(p.got, ev)
+}
+
+func (p *previewRecorder) texts() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, 0, len(p.got))
+	for _, ev := range p.got {
+		if td, ok := ev.(agentruntime.TextDelta); ok {
+			out = append(out, td.Text)
+		}
+	}
+	return out
+}
+
 func newReconnectRig(t *testing.T) *reconnectRig {
 	t.Helper()
 	return newReconnectRigWithBackoff(t, []time.Duration{time.Millisecond, time.Millisecond})
@@ -265,6 +291,7 @@ func newReconnectRigWithBackoff(t *testing.T, backoff []time.Duration) *reconnec
 		conn1:    newFakeConn(),
 		cursor:   &fakeCursorPort{},
 		observer: &connStateRecorder{},
+		previews: &previewRecorder{},
 	}
 	rig.conn1.script(func(method string, _, result any) error {
 		switch method {
@@ -284,6 +311,7 @@ func newReconnectRigWithBackoff(t *testing.T, backoff []time.Duration) *reconnec
 		WithConnStateObserver(rig.observer),
 		WithReconnectBackoff(backoff),
 		WithCursorFlushInterval(0),
+		WithPreviewSink(rig.previews),
 	)
 	t.Cleanup(func() { _ = rig.rt.Close() })
 
@@ -609,6 +637,86 @@ func TestLiveFrame_SeqNotNewerThanCursor_Discarded(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	assert.Empty(t, rig.conn1.methodCalls(wire.MethodSessionPull), "重复帧不该触发补洞")
+}
+
+// ── 两级帧:预览帧不进闸门,持久帧才进 ────────────────────────────────────────
+
+// collectTexts 在若干次同步投递之后把已经交付的 TextDelta 收齐(channel 不关,
+// 所以不能用 drainTexts)。want 是期待的条数,收满即返回。
+func collectTexts(t *testing.T, ch <-chan agentruntime.Event, want int) []string {
+	t.Helper()
+	var out []string
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case ev := <-ch:
+				if td, ok := ev.(agentruntime.TextDelta); ok {
+					out = append(out, td.Text)
+				}
+			default:
+				return len(out) >= want
+			}
+		}
+	}, 3*time.Second, 5*time.Millisecond, "只收到 %v", out)
+	return out
+}
+
+// Given 本地游标为 5;
+// When  预览帧到达 —— 而且刻意各带一个「走闸门必被吞掉」的 seq(5 撞去重、9 撞跳号);
+// Then  它们只走呈现出口、**不进事件流**,游标不动,也不触发补洞拉取。
+//
+// 两件事在这一条里一起钉住(规格 2026-09-05「两级帧与补齐」修订后的第 1/2 条):
+//
+//   - 判别的是帧上的 preview 这一格,不是编号:预览帧按契约本就不带 seq,而这里给它
+//     带上一个,是要证明**任何** seq 取值都不能把一条预览帧送进「seq 不大于游标即
+//     重复」那条路(决策 4:预览帧必须在协议上可区分,不能靠 seq=0 表达);
+//   - 预览帧不进 Run 交回的那条事件流:那条流就是消费方的转录来源。进去了就会被
+//     追加进转录,而同一段内容随后还会以持久帧的身份再来一次 —— 重连补齐因此重发
+//     对端已经看过的内容(硬不变量 1 的「重」)。
+//
+// 收尾那条持久帧 seq=6 仍然被当作「游标 + 1」交付,正是"游标没被预览帧动过"的判据
+// —— 预览帧若推进了游标(到 5 或 9),它要么被判重复丢掉、要么触发一次白拉取。
+func TestPreviewFrame_NeitherAdvancesTheCursorNorEntersDedup(t *testing.T) {
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 5, true, nil })
+
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Preview: true, Seq: 5, Event: agentruntime.TextDelta{Text: "预览-撞去重"}})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Preview: true, Seq: 9, Event: agentruntime.TextDelta{Text: "预览-撞跳号"}})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Seq: 6, Event: agentruntime.TextDelta{Text: "持久"}})
+
+	assert.Equal(t, []string{"持久"}, collectTexts(t, rig.events, 1),
+		"事件流里只有持久帧:预览帧不进转录,而随后的持久帧仍是游标 + 1")
+	assert.Equal(t, []string{"预览-撞去重", "预览-撞跳号"}, rig.previews.texts(),
+		"预览帧照常呈现 —— 它只是不进转录,不是被丢掉")
+	assert.Empty(t, rig.conn1.methodCalls(wire.MethodSessionPull),
+		"预览帧的 seq 不该被读成跳号")
+}
+
+// Given 一条预览帧刚把同一段内容呈现过(按契约不带 seq);
+// When  覆盖它的持久帧带着 seq = 游标 + 1 到达,随后同一条持久帧被重复投递;
+// Then  持久帧那一条推进游标并进转录,重复的那条进去重路径被丢弃,而预览的那一条
+//
+//	只呈现过、没有进转录 —— 同一段内容在转录里恰好一份。
+//
+// 这是上一条的对照面:同样的内容,持久帧**要**参与补齐与去重,而且它是转录的唯一来源。
+func TestDurableFrame_CoveringPreviewContent_AdvancesCursorAndDedups(t *testing.T) {
+	rig := newReconnectRig(t)
+	rig.cursor.setLoad(func(int64, string) (int64, bool, error) { return 5, true, nil })
+
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Preview: true, Event: agentruntime.TextDelta{Text: "同一段内容"}})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Seq: 6, Event: agentruntime.TextDelta{Text: "同一段内容"}})
+	rig.conn1.deliver(t, wire.NotifyEvent, wire.EventFrame{ConversationID: convOf(rigSessionID),
+		Seq: 6, Event: agentruntime.TextDelta{Text: "同一段内容"}})
+
+	assert.Equal(t, []string{"同一段内容"}, collectTexts(t, rig.events, 1),
+		"转录里只留持久帧那一份:预览的那一条只呈现,重投的同号持久帧被去重丢弃")
+	assert.Equal(t, []string{"同一段内容"}, rig.previews.texts(), "预览的那一条呈现过")
+	assert.Empty(t, rig.conn1.methodCalls(wire.MethodSessionPull), "重复的持久帧不该触发补洞")
 }
 
 // ── 回放到的旧轮次终态帧不得终结当前这一轮 ───────────────────────────────────

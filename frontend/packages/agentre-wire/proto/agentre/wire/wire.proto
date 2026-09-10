@@ -927,9 +927,27 @@ message TranscriptImportExecuteResponse {
   bool already_imported = 6;
 }
 
+// Frames come in two levels.
+//
+// A *preview* frame is a per-fragment increment (text_delta, thinking_delta) or
+// a transient status (retry, runtime_status). It carries no seq, is never
+// stored, and takes no part in cursor advancement or de-duplication — losing
+// one loses nothing. It exists so a consumer can render generation as it
+// happens.
+//
+// A *durable* frame is block level, or derived at message level (usage_update,
+// done). It carries a seq, and it is what catch-up and mirroring replay. When a
+// durable frame covers content a preview frame already showed, the durable one
+// wins.
+//
+// preview is an explicit field rather than "seq == 0" on purpose: a consumer
+// treats "seq not greater than my cursor" as a duplicate, so an unnumbered
+// preview frame read through the numbering would be dropped outright. The
+// level has to be readable without consulting the numbering at all.
 message RuntimeEventNotification {
   string conversation_id = 1;
   int64 seq = 2;
+  bool preview = 30;
 
   oneof event {
     TextDelta text_delta = 3;

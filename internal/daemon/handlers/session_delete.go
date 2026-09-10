@@ -22,8 +22,8 @@ import (
 type SessionDeleteDeps struct {
 	// Sessions 删会话的身份行。
 	Sessions SessionDeletePort
-	// Journal 清该会话的全部通知日志。
-	Journal JournalPurgePort
+	// Transcript 清该会话的全部转录(消息行 + 块行)。
+	Transcript TranscriptPurgePort
 	// LoggedInAccountID returns the daemon account allowed to name another peer.
 	LoggedInAccountID func() string
 }
@@ -57,14 +57,18 @@ func (h *SessionDeleteHandlers) Delete(ctx context.Context, p wire.SessionDelete
 		return wire.SessionDeleteResult{}, err
 	}
 	sid := p.ConversationID
+	// 先清转录、再删身份行:转录按**本机会话主键**挂靠,而收窄到调用方对端的那一步
+	// 认的就是身份行(见 daemon.transcriptPurger)。反过来的话身份行先没了,收窄找不到
+	// 会话,那段转录就成了没有主人的孤儿 —— 而会话号会被复用,它下一次会被当成新会话
+	// 的历史读走,正是这条路径要防的东西。
+	purged, err := h.deps.Transcript.DeleteAll(ctx, peer, sid)
+	if err != nil {
+		// 交出成功会让 server 把待办勾掉,那段转录就永远留在这台机器上了。
+		return wire.SessionDeleteResult{}, fmt.Errorf("purge session transcript: %w", err)
+	}
 	rows, err := h.deps.Sessions.Delete(ctx, peer, sid)
 	if err != nil {
 		return wire.SessionDeleteResult{}, fmt.Errorf("delete session: %w", err)
-	}
-	purged, err := h.deps.Journal.DeleteAll(ctx, peer, sid)
-	if err != nil {
-		// 交出成功会让 server 把待办勾掉,那段转录就永远留在这台机器上了。
-		return wire.SessionDeleteResult{}, fmt.Errorf("purge session journal: %w", err)
 	}
 	// 会话已经不存在了,它在本机常驻的 CLI 子进程再也不会被任何一轮用到:不放掉的话
 	// 它只能等 idle 上限把自己挤出去,否则一直活到 daemon 退出。释放用的会话键与
@@ -72,6 +76,6 @@ func (h *SessionDeleteHandlers) Delete(ctx context.Context, p wire.SessionDelete
 	agentruntime.CloseSessionEverywhere(ctx, runtimeSessionID(p.ConversationID))
 	logger.Ctx(ctx).Info("handlers.SessionDeleteHandlers.Delete: session removed",
 		zap.String("conversationId", p.ConversationID), zap.Int64("sessionRows", rows),
-		zap.Int64("journalRows", purged))
+		zap.Int64("transcriptRows", purged))
 	return wire.SessionDeleteResult{Deleted: true}, nil
 }

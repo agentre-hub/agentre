@@ -8,9 +8,9 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 )
 
 // TestCheckpointAssistantPassesLastPersistedBody 钉住轮内 checkpoint 的写放大修复。
@@ -27,10 +27,10 @@ func TestCheckpointAssistantPassesLastPersistedBody(t *testing.T) {
 	Convey("轮内连续 checkpoint 把上一次落库的正文当作差分基准", t, func() {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
-		msgRepo := mock_chat_repo.NewMockMessageRepo(ctrl)
-		prevRepo := chat_repo.Message()
-		chat_repo.RegisterMessage(msgRepo)
-		t.Cleanup(func() { chat_repo.RegisterMessage(prevRepo) })
+		msgRepo := mock_transcript_repo.NewMockMessageRepo(ctrl)
+		prevRepo := transcript_repo.Message()
+		transcript_repo.RegisterMessage(msgRepo)
+		t.Cleanup(func() { transcript_repo.RegisterMessage(prevRepo) })
 
 		var prevs, nexts []string
 		msgRepo.EXPECT().CheckpointBlocks(gomock.Any(), gomock.Any(), gomock.Any()).

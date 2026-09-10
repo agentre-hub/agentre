@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -188,7 +187,7 @@ func (f *transcriptFakeSource) Open(_ context.Context, _ pkgimport.Locator) (pkg
 // TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup 是执行侧的终局
 // 判据,走的是**真的那台 daemon**(真库、真配对、真 protorpc):导完之后,
 // SESSION_LIST 报出这条会话带着转录的工作目录与 provider 会话身份(下一轮据此在那个
-// 目录里、对着那条原生会话续跑),SESSION_PULL 把回放出的轮次按序服务出去 ——
+// 目录里、对着那条原生会话续跑),回放出的轮次落成与跑一轮同形的转录 ——
 // 导入的会话因此和别的会话走同一条镜像通路,不需要第二条。
 func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing.T) {
 	restore := pkgimport.SwapSourceForTest(agent_backend_entity.TypeClaudeCode, &transcriptFakeSource{
@@ -242,19 +241,14 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 	assert.Equal(t, "磁盘上那条", session.Title)
 	assert.Equal(t, "agent-sync-e2e", session.AgentSyncID)
 	assert.Equal(t, remotewire.SessionLifecycleIdle, session.LifecycleState, "导完在等下一轮,不是在跑")
-	assert.Equal(t, int64(8), session.LatestSeq, "最新 seq 取自通知日志:两轮各 4 条")
-
-	methods, events := pullTranscript(t, rig, convID(4242))
-	assert.Equal(t, []string{
-		remotewire.NotifyEvent, remotewire.NotifyEvent, remotewire.NotifyEvent, remotewire.NotifyRunResultDone,
-		remotewire.NotifyEvent, remotewire.NotifyEvent, remotewire.NotifyEvent, remotewire.NotifyRunResultDone,
-	}, methods, "补齐服务的就是那两轮本该发出的通知,按序")
-	require.Len(t, events, 6)
-	assert.Equal(t, agentruntime.UserMessageEvent{Text: "第一问"}, events[0])
-	assert.Equal(t, agentruntime.TextDelta{Text: "第一答"}, events[1])
-	assert.Equal(t, agentruntime.Done{}, events[2])
-	assert.Equal(t, agentruntime.UserMessageEvent{Text: "第二问"}, events[3])
-	assert.Equal(t, agentruntime.ToolCall{ID: "t1", Name: "Read", Input: []byte(`{}`)}, events[4])
+	// 导入落下的是与跑一轮同形的转录:两轮 = 两条用户消息 + 两条 assistant 消息。
+	// 补齐的读路径换源到「块投影出的持久帧」归任务 6,在那之前直接看库。
+	messages := daemonMessages(t, rig.d, convID(4242))
+	require.Len(t, messages, 4)
+	assert.Equal(t, `[{"type":"text","data":{"text":"第一问"}}]`, messages[0].BlocksJSON)
+	assert.Equal(t, `[{"type":"text","data":{"text":"第一答"}}]`, messages[1].BlocksJSON)
+	assert.Equal(t, `[{"type":"text","data":{"text":"第二问"}}]`, messages[2].BlocksJSON)
+	assert.Contains(t, messages[3].BlocksJSON, `"type":"tool_use"`)
 
 	// 同一条 provider 会话再导一次:指回库里那条,既不建第二条会话,也不往日志里
 	// 再叠一份转录 —— 叠上去客户端会把整段历史读成「又发生了一遍」。
@@ -266,37 +260,5 @@ func TestProtobufTranscriptImportExecuteOwnsTheSessionAndFeedsCatchup(t *testing
 	var after remotewire.SessionListResult
 	require.NoError(t, callRig(t, rig.cli, remotewire.MethodSessionList, nil, &after))
 	require.Len(t, after.Sessions, 1, "第二次导入不得建第二条会话")
-	assert.Equal(t, int64(8), after.Sessions[0].LatestSeq, "日志一条都不该再涨")
-}
-
-// pullTranscript 按游标把整段日志拉平,交回每一行的 method 与其中的事件。
-func pullTranscript(t *testing.T, rig *pairedTestRig, conversationID string) ([]string, []agentruntime.Event) {
-	t.Helper()
-	var (
-		methods []string
-		events  []agentruntime.Event
-		cursor  int64
-	)
-	for pages := 0; ; pages++ {
-		require.Less(t, pages, 10, "翻页没有收敛")
-		var page remotewire.SessionPullResult
-		require.NoError(t, callRig(t, rig.cli, remotewire.MethodSessionPull,
-			remotewire.SessionPullParams{ConversationID: conversationID, Cursor: cursor}, &page))
-		for _, notification := range page.Notifications {
-			methods = append(methods, notification.Method)
-			if notification.Method == remotewire.NotifyEvent {
-				// callRig 把每条通知的 params 交成线上 JSON 原样,事件由 EventFrame
-				// 自己的解码器还原成密封事件 —— 与桌面端补齐走的是同一条路径。
-				raw, ok := notification.Params.([]byte)
-				require.True(t, ok, "日志行必须带上那条通知的 params 原样")
-				var frame remotewire.EventFrame
-				require.NoError(t, json.Unmarshal(raw, &frame))
-				events = append(events, frame.Event)
-			}
-			cursor = notification.Seq
-		}
-		if !page.HasMore {
-			return methods, events
-		}
-	}
+	assert.Len(t, daemonMessages(t, rig.d, convID(4242)), 4, "转录一条都不该再涨")
 }

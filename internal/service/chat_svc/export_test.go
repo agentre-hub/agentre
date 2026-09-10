@@ -65,3 +65,9 @@ func IsSubagentActivityWatcherActiveForTest(svc ChatSvc, sessionID int64) bool {
 func ConvertOldEventToNewForTest(ev agentruntime.RuntimeEvent) agentruntime.Event {
 	return convertOldEventToNew(ev)
 }
+
+// DeliverRemotePreviewForTest 暴露 onRemotePreviewEvent 给外部测试包:模拟
+// *remote.Runtime 的读循环交来一条**预览帧**里的事件(即时呈现用,不进转录)。
+func DeliverRemotePreviewForTest(svc ChatSvc, sessionID int64, ev agentruntime.Event) {
+	svc.(*chatSvc).onRemotePreviewEvent(sessionID, ev)
+}

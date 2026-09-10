@@ -9,6 +9,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 //go:generate mockgen -source deps.go -destination mock_deps/mock_deps.go -package mock_deps
@@ -23,9 +24,9 @@ type SessionPort interface {
 	ListIDsByProviderSessions(ctx context.Context, providerSessionIDs []string) (map[string]int64, error)
 }
 
-// MessagePort is chat_import_svc's narrow view of chat_repo.MessageRepo (ISP): only
+// MessagePort is chat_import_svc's narrow view of transcript_repo.MessageRepo (ISP): only
 // message creation, since a replayed turn is written once and never revisited.
-// chat_repo.Message() satisfies it structurally.
+// transcript_repo.Message() satisfies it structurally.
 type MessagePort interface {
 	Create(ctx context.Context, m *chat_entity.Message) error
 }
@@ -65,7 +66,7 @@ func (sessionRepoDelegate) ListIDsByProviderSessions(ctx context.Context, provid
 type messageRepoDelegate struct{}
 
 func (messageRepoDelegate) Create(ctx context.Context, m *chat_entity.Message) error {
-	return chat_repo.Message().Create(ctx, m)
+	return transcript_repo.Message().Create(ctx, m)
 }
 
 type agentRepoDelegate struct{}

@@ -8,7 +8,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 )
 
 type captureEmitter struct{ events []ChatStreamEvent }

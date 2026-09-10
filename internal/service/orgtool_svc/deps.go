@@ -6,8 +6,8 @@ import (
 	"context"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/service/agent_svc"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 )
 

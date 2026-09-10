@@ -2,24 +2,19 @@ package chat_svc
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
-	cagoblocks "github.com/cago-frame/agents/agent/blocks"
-	"github.com/cago-frame/agents/provider"
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	chatblocks "github.com/agentre-hub/agentre/internal/service/chat_svc/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 )
 
 // peerSessionPublication owns the one ordered notification universe for a
@@ -38,6 +33,9 @@ type peerSessionPublication struct {
 	// 建立这份宇宙的那一刻就定死,此后不再改 —— 每一帧都要盖它,而它是个不可变值,
 	// 所以不进锁、也不必回头查库。
 	conversationID string
+	// sessionID 是这条会话的本地主键 —— 帧编号台账按它分命名空间。与 conversationID
+	// 一样在建立这份宇宙时定死。
+	sessionID int64
 
 	mu      sync.Mutex
 	history []wire.EventFrame
@@ -50,6 +48,14 @@ type peerSessionPublication struct {
 	nextSeq     int64
 	initialized bool
 	subscribers map[string]*peerSessionSubscription
+	// publisher 记每个帧位置**当前**发布出去的那份内容,据此挑出此刻该发的帧。它是
+	// 两个宿主共用的那一份(transcript.FramePublisher):轮内哪些帧还不该发、哪一次
+	// 原地修补要重发,桌面端与 agentred 必须一字不差。
+	publisher *transcript.FramePublisher
+
+	// publishMu 串行化「取号 → 发布」这一整段。取号要落库(不能在 mu 里做网络/磁盘
+	// IO),而两次发布若交错,后取到的号可能先进 history,对端就会看到乱序。
+	publishMu sync.Mutex
 
 	// wake carries a single-slot non-blocking signal for the flush worker;
 	// startOnce guarantees at most one worker per publication.
@@ -74,8 +80,8 @@ type peerSessionSubscription struct {
 	highWater  int64
 	cursor     int64
 	pending    []wire.EventFrame
-	// dropped 记这个订阅者被丢过帧。只用于日志:对端靠 seq 跳号自己发现并补齐,
-	// 不需要服务端告诉它。
+	// dropped 记这个订阅者被丢过帧。只用于日志:对端靠持久帧的 seq 跳号自己发现
+	// 并补齐,不需要服务端告诉它。
 	dropped bool
 	// flushing 表示这个订阅者此刻有一条投递在飞。每个订阅者至多一条 —— 它保证
 	// 这个订阅者收到的帧仍然有序,同时让**不同**订阅者彼此独立:一个卡住的对端
@@ -86,7 +92,9 @@ type peerSessionSubscription struct {
 func (s *chatSvc) peerPublication(sessionID int64, conversationID string) *peerSessionPublication {
 	value, _ := s.peerPublications.LoadOrStore(sessionID, &peerSessionPublication{
 		conversationID: conversationID,
+		sessionID:      sessionID,
 		subscribers:    map[string]*peerSessionSubscription{},
+		publisher:      transcript.NewFramePublisher(),
 		wake:           make(chan struct{}, 1),
 	})
 	publication := value.(*peerSessionPublication)
@@ -258,22 +266,20 @@ func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, con
 	// in 1..H or assigned after H and buffered for this subscriber.
 	publication.mu.Lock()
 	if !publication.initialized {
-		messages, err := chat_repo.Message().List(ctx, sessionID)
+		messages, err := transcript_repo.Message().List(ctx, sessionID)
 		if err != nil {
 			publication.mu.Unlock()
 			return 0, nil, operationFailedWithCause(ctx, err)
 		}
-		history, createtimes, err := synthesizePeerHistory(conversationID, messages)
+		keyed, err := transcript.ProjectKeyedMessages(conversationID, messages)
 		if err != nil {
 			publication.mu.Unlock()
 			return 0, nil, fmt.Errorf("synthesize desktop peer history: %w", err)
 		}
-		for index := range history {
-			history[index].Seq = int64(index + 1)
+		if err := numberPeerFramesLocked(ctx, publication, keyed); err != nil {
+			publication.mu.Unlock()
+			return 0, nil, operationFailedWithCause(ctx, err)
 		}
-		publication.history = history
-		publication.createtimes = createtimes
-		publication.nextSeq = int64(len(history))
 		publication.initialized = true
 	}
 	highWater := publication.nextSeq
@@ -294,11 +300,37 @@ func (s *chatSvc) attachPeerTranscript(ctx context.Context, sessionID int64, con
 	return highWater, detach, nil
 }
 
-// publishPeerEvent 把一条密封事件挂进该会话的对端通知宇宙。
+// numberPeerFramesLocked 给一整条转录的持久帧配编号,并把它装成这份宇宙的初始前缀。
+// 调用方持 publication.mu。
 //
-// 从前这里分成 publishPeerEvent / publishPeerEventRaw 两跳,中间隔着一次
-// json.Marshal —— 那次序列化只是为了填 EventFrame 上的 json.RawMessage;帧现在
-// 直接装密封值,两跳合成一跳。
+// 编号本身归共用的那一份(transcript_repo.NumberFrames):已有编号原样沿用、存量惰性
+// 补齐、按 seq 重排,两个宿主一字不差。这里只做桌面端自己的事 —— 把配好号的帧装进
+// 这份内存宇宙。
+func numberPeerFramesLocked(ctx context.Context, publication *peerSessionPublication, keyed []transcript.KeyedFrame) error {
+	if err := transcript_repo.NumberFrames(ctx, publication.sessionID, keyed); err != nil {
+		return err
+	}
+	publication.history = make([]wire.EventFrame, 0, len(keyed))
+	publication.createtimes = make([]int64, 0, len(keyed))
+	for i, frame := range keyed {
+		publication.history = append(publication.history, frame.Frame)
+		publication.createtimes = append(publication.createtimes, frame.Createtime)
+		publication.publisher.Commit(keyed[i : i+1])
+		if frame.Frame.Seq > publication.nextSeq {
+			publication.nextSeq = frame.Frame.Seq
+		}
+	}
+	return nil
+}
+
+// publishPeerEvent 把一条密封事件当作**预览帧**挂进该会话的对端通知宇宙。
+//
+// 预览帧只为即时呈现:不带 seq、不进日志、不参与游标推进与去重,丢失即丢失
+// (spec「两级帧与补齐」)。逐 token 的生成过程因此照旧实时可见,而**同一段内容的
+// 持久帧**由 publishPeerMessageFrames 在它落库之后另行发出,并带着落库的编号。
+//
+// 从前这里给每一帧都发一个号:一次重启之后同一份内容会被重新编号,对端的游标随即
+// 指向一个宿主认不回来的号(问题 B)。
 func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 	if sessionID <= 0 || event == nil {
 		return
@@ -308,12 +340,8 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 		return
 	}
 	publication := value.(*peerSessionPublication)
+	frame := wire.EventFrame{ConversationID: publication.conversationID, Event: event, Preview: true}
 	publication.mu.Lock()
-	publication.nextSeq++
-	frame := wire.EventFrame{ConversationID: publication.conversationID, Event: event, Seq: publication.nextSeq}
-	publication.history = append(publication.history, frame)
-	// 实时帧的发生时刻就是此刻 —— 这一行是它离开产生它的那个事件循环的第一站。
-	publication.createtimes = append(publication.createtimes, time.Now().UnixMilli())
 	for _, subscription := range publication.subscribers {
 		// Queue only: the flush worker performs the (potentially blocking) relay
 		// write. Never Notify inline from a canonical event loop — a stalled
@@ -327,23 +355,85 @@ func (s *chatSvc) publishPeerEvent(sessionID int64, event agentruntime.Event) {
 	}
 }
 
-// publishPeerTurnDone 在一轮收口时把本轮统计随 Done 发给对端订阅者。
+// publishPeerMessageFrames 把一条**已落库**的消息此刻投影出的持久帧发给对端。
 //
-// 对端 Peer Tab 与浏览器控制台走的是同一个共享转录投影器,那边 meta 那一行
-// (模型 · 耗时 · 首字 · 速率)读的正是 done 事件上的这几格。这台桌面端此刻手里
-// 就有全套 —— 它自己刚算完并落了库 —— 所以送出去的是同一份数,与重连后从
-// synthesizePeerHistory 读到的那一条同形。
+// 取号与落库不可分:号从台账里取(一次事务),取到了才发布 —— 落库失败就不发,否则
+// 对端会持有一个宿主认不回来的号(spec「帧编号」)。已发布过、内容没变的位置直接跳过;
+// 内容变了(块被原地修补)则取一个新的末尾号,已发布的编号一律不动。
 //
-// runtime 自己 emit 的 Done(只有 openclaw / piagent 有)留零,零读作「没上报」,
-// 不会把这一条覆盖掉。
-func (s *chatSvc) publishPeerTurnDone(sessionID int64, msg *chat_entity.Message) {
-	if msg == nil {
+// final=false 是轮内 checkpoint:结尾那些还会继续长的正文块与消息级派生帧留到收口
+// 再发。挑帧本身归共用的那一份(transcript.FramePublisher) —— agentred 实时发布走的
+// 是同一只。
+func (s *chatSvc) publishPeerMessageFrames(ctx context.Context, sessionID int64, msg *chat_entity.Message, final bool) {
+	if sessionID <= 0 || msg == nil {
 		return
 	}
-	s.publishPeerEvent(sessionID, agentruntime.Done{
-		Model: msg.Model, DurationMs: msg.DurationMs,
-		FirstTokenMs: msg.FirstTokenMs, TokensPerSec: msg.TokensPerSec,
-	})
+	value, ok := s.peerPublications.Load(sessionID)
+	if !ok {
+		return
+	}
+	publication := value.(*peerSessionPublication)
+	publication.publishMu.Lock()
+	defer publication.publishMu.Unlock()
+
+	publication.mu.Lock()
+	initialized := publication.initialized
+	publication.mu.Unlock()
+	// 没人 attach 过就没有编号宇宙可言:这条消息的号留给下一次 attach 惰性补齐。
+	if !initialized {
+		return
+	}
+	keyed, err := transcript.ProjectKeyedMessage(publication.conversationID, msg)
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc: project peer durable frames failed",
+			zap.Int64("sessionId", sessionID), zap.Int64("messageId", msg.ID), zap.Error(err))
+		return
+	}
+	publication.mu.Lock()
+	pending := publication.publisher.Pending(keyed, final)
+	publication.mu.Unlock()
+	if len(pending) == 0 {
+		return
+	}
+	keys := make([]transcript_repo.FrameKey, 0, len(pending))
+	for _, frame := range pending {
+		keys = append(keys, frame.Key)
+	}
+	seqs, err := transcript_repo.FrameSeq().Allocate(context.WithoutCancel(ctx), sessionID, keys)
+	if err != nil || len(seqs) != len(pending) {
+		logger.Ctx(ctx).Warn("chat_svc: allocate peer frame seq failed; frames withheld",
+			zap.Int64("sessionId", sessionID), zap.Int64("messageId", msg.ID), zap.Error(err))
+		return
+	}
+	now := time.Now().UnixMilli()
+	publication.mu.Lock()
+	for index := range pending {
+		pending[index].Frame.Seq = seqs[index]
+		publication.history = append(publication.history, pending[index].Frame)
+		publication.createtimes = append(publication.createtimes, now)
+		publication.publisher.Commit(pending[index : index+1])
+		if seqs[index] > publication.nextSeq {
+			publication.nextSeq = seqs[index]
+		}
+		for _, subscription := range publication.subscribers {
+			enqueuePeerFrame(subscription, pending[index].Frame)
+		}
+	}
+	publication.mu.Unlock()
+	select {
+	case publication.wake <- struct{}{}:
+	default:
+	}
+}
+
+// publishPeerTurnDone 在一轮收口时把这条 assistant 消息的持久帧整份发给对端订阅者。
+//
+// 收口那一发是 final:结尾的正文块此刻已是终稿,消息级派生帧(usage / done)也才有值。
+// 对端 Peer Tab 与浏览器控制台走的是同一个共享转录投影器,那边 meta 那一行
+// (模型 · 耗时 · 首字 · 速率)读的正是 done 事件上的这几格 —— 它们与重连后补齐读到的
+// 是同一条,因为两边都出自 transcript.ProjectMessages。
+func (s *chatSvc) publishPeerTurnDone(ctx context.Context, sessionID int64, msg *chat_entity.Message) {
+	s.publishPeerMessageFrames(ctx, sessionID, msg, true)
 }
 
 func peerSubscriberKey(subscriber PeerSessionSubscriber) string {
@@ -355,264 +445,4 @@ func peerSubscriberKey(subscriber PeerSessionSubscriber) string {
 		return fmt.Sprintf("%T:%x", subscriber, value.Pointer())
 	}
 	return fmt.Sprintf("%T:%v", subscriber, subscriber)
-}
-
-// synthesizePeerHistory 把落库的消息摊成对端读得到的那份帧日志,并给每一帧配一个
-// **发生时刻**(第二个返回值,与帧一一对应)。
-//
-// 时刻取所属消息的 createtime:一条消息摊开成的若干帧是它的展开,不是各自独立的
-// 事件,没有比消息本身更细的时刻可言。它最终落到浏览器控制台转录上那个 HH:mm ——
-// 那一侧现折转录,除了帧带来的东西没有别的可读。
-func synthesizePeerHistory(conversationID string, messages []*chat_entity.Message) ([]wire.EventFrame, []int64, error) {
-	sorted := append([]*chat_entity.Message(nil), messages...)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		if sorted[i] == nil {
-			return false
-		}
-		if sorted[j] == nil {
-			return true
-		}
-		return sorted[i].Seq < sorted[j].Seq
-	})
-	frames := make([]wire.EventFrame, 0)
-	createtimes := make([]int64, 0)
-	// 当前正在摊开的那条消息的时刻。appendEvent 是这一族帧的唯一出口,所以时刻在
-	// 这里配给就够了 —— 新增一种块也不会漏掉它。
-	var messageAt int64
-	appendEvent := func(event agentruntime.Event) error {
-		frames = append(frames, wire.EventFrame{ConversationID: conversationID, Event: event})
-		createtimes = append(createtimes, messageAt)
-		return nil
-	}
-	for _, message := range sorted {
-		if message == nil {
-			continue
-		}
-		messageAt = message.Createtime
-		var stored []cagoblocks.StoredBlock
-		if err := json.Unmarshal([]byte(message.BlocksJSON), &stored); err != nil {
-			return nil, nil, fmt.Errorf("message %d blocks: %w", message.ID, err)
-		}
-		for _, block := range stored {
-			if message.Role == "assistant" && block.Type == "user_ask" {
-				var data chatblocks.UserAskBlock
-				if err := json.Unmarshal(block.Data, &data); err != nil {
-					return nil, nil, err
-				}
-				if err := appendEvent(agentruntime.UserAskRequest{RequestID: data.RequestID, ToolCallID: data.ToolCallID, Questions: peerQuestions(data.Questions)}); err != nil {
-					return nil, nil, err
-				}
-				if data.Answered || data.Skipped {
-					if err := appendEvent(agentruntime.UserAskResolved{RequestID: data.RequestID, Answers: peerAnswers(data.Answers), Skipped: data.Skipped}); err != nil {
-						return nil, nil, err
-					}
-				}
-				continue
-			}
-			if message.Role == "assistant" && block.Type == "subagent_state" {
-				var data chatblocks.SubagentStateBlock
-				if err := json.Unmarshal(block.Data, &data); err != nil {
-					return nil, nil, err
-				}
-				if err := appendEvent(agentruntime.SubagentDone{ToolCallID: data.ParentToolCallID, Info: agentruntime.SubagentInfo{
-					TaskID: data.TaskID, Kind: data.Kind, TaskDescription: data.Description, LastToolName: data.LastToolName,
-					ToolUses: data.ToolUses, TotalTokens: data.TotalTokens, DurationMs: data.DurationMs, Status: data.Status,
-					Mode: data.Mode, Runs: data.Runs,
-				}}); err != nil {
-					return nil, nil, err
-				}
-				if data.Model != "" {
-					if err := appendEvent(agentruntime.SubagentModel{ToolCallID: data.ParentToolCallID, Model: data.Model}); err != nil {
-						return nil, nil, err
-					}
-				}
-				continue
-			}
-			if message.Role == "assistant" && block.Type == "tool_permission" {
-				var data chatblocks.ToolPermissionBlock
-				if err := json.Unmarshal(block.Data, &data); err != nil {
-					return nil, nil, err
-				}
-				input, err := json.Marshal(data.ToolInput)
-				if err != nil {
-					return nil, nil, err
-				}
-				if err := appendEvent(agentruntime.ToolPermissionRequest{RequestID: data.RequestID, ToolCallID: data.ToolCallID, ToolName: data.ToolName, Input: input}); err != nil {
-					return nil, nil, err
-				}
-				if data.Resolved {
-					if err := appendEvent(agentruntime.ToolPermissionResolved{RequestID: data.RequestID, Allowed: data.Allowed, AlwaysAllow: data.AlwaysAllow, DenyReason: data.DenyReason}); err != nil {
-						return nil, nil, err
-					}
-				}
-				continue
-			}
-			if event, ok, err := peerEventForStoredBlock(message, block); err != nil {
-				return nil, nil, err
-			} else if ok {
-				if err := appendEvent(event); err != nil {
-					return nil, nil, err
-				}
-				// 投射不出来的块原样往下送(R8)。它是一等的密封事件,所以既过得了
-				// 协议边界,又不必在这里对载荷做任何解释 —— 上面那张 switch 只覆盖
-				// 它认得的几种,落库的块类型比它多。
-			} else if err := appendEvent(agentruntime.UnrecognizedBlock{
-				BlockType: block.Type,
-				Data:      append(json.RawMessage(nil), block.Data...),
-			}); err != nil {
-				return nil, nil, err
-			}
-		}
-		if message.Role == "assistant" {
-			if message.PromptTokens != 0 || message.CompletionTokens != 0 || message.CachedTokens != 0 || message.CacheCreationTokens != 0 || message.ReasoningTokens != 0 || message.TotalInputTokens != 0 {
-				if err := appendEvent(agentruntime.UsageUpdate{Usage: &provider.Usage{
-					PromptTokens: message.PromptTokens, CompletionTokens: message.CompletionTokens,
-					CachedTokens: message.CachedTokens, CacheCreationTokens: message.CacheCreationTokens,
-					ReasoningTokens: message.ReasoningTokens,
-				}, TotalInputTokens: message.TotalInputTokens}); err != nil {
-					return nil, nil, err
-				}
-			}
-			if message.ErrorText != "" {
-				if err := appendEvent(agentruntime.ErrorEvent{Err: errors.New(message.ErrorText)}); err != nil {
-					return nil, nil, err
-				}
-			}
-			// 收口带上本轮统计:对端 Peer Tab 的 meta(模型 · 耗时 · 首字 · 速率)
-			// 读的正是这几格,而它们就在手边这条消息实体上。
-			if err := appendEvent(agentruntime.Done{
-				Model: message.Model, DurationMs: message.DurationMs,
-				FirstTokenMs: message.FirstTokenMs, TokensPerSec: message.TokensPerSec,
-			}); err != nil {
-				return nil, nil, err
-			}
-		}
-	}
-	return frames, createtimes, nil
-}
-
-func peerEventForStoredBlock(message *chat_entity.Message, block cagoblocks.StoredBlock) (agentruntime.Event, bool, error) {
-	if message.Role == "user" && (block.Type == "text" || block.Type == "display_text") {
-		var data struct {
-			Text             string `json:"text"`
-			SourceDevice     string `json:"sourceDevice"`
-			SourceDeviceName string `json:"sourceDeviceName"`
-		}
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		return agentruntime.UserMessageEvent{
-			Text: data.Text, SourceDevice: data.SourceDevice, SourceDeviceName: data.SourceDeviceName,
-		}, true, nil
-	}
-	if message.Role != "assistant" {
-		return nil, false, nil
-	}
-	switch block.Type {
-	case "text", "display_text":
-		var data struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		return agentruntime.TextDelta{Text: data.Text}, true, nil
-	case "thinking":
-		var data struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		return agentruntime.ThinkingDelta{Text: data.Text}, true, nil
-	case "tool_use":
-		var data struct {
-			ID    string          `json:"id"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
-		}
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		return agentruntime.ToolCall{ID: data.ID, Name: data.Name, Input: data.Input}, true, nil
-	case "tool_result":
-		var data struct {
-			ToolCallID string                   `json:"tool_use_id"`
-			Content    []cagoblocks.StoredBlock `json:"content"`
-			IsError    bool                     `json:"is_error"`
-		}
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		return agentruntime.ToolResult{ToolCallID: data.ToolCallID, Content: peerTextFromStoredBlocks(data.Content), IsError: data.IsError}, true, nil
-	case "permission_mode_change":
-		var data chatblocks.PermissionModeChangeBlock
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		return agentruntime.PermissionModeChanged{Mode: data.To}, true, nil
-	case "plan":
-		var data PlanBlock
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		steps := make([]canonical.PlanStep, 0, len(data.Steps))
-		for _, step := range data.Steps {
-			steps = append(steps, canonical.PlanStep{Step: step.Step, Status: canonical.PlanStepStatus(step.Status)})
-		}
-		return agentruntime.PlanUpdated{Plan: canonical.PlanUpdate{Steps: steps, Text: data.Text, Actions: data.Actions}}, true, nil
-	case "compact_boundary":
-		var data chatblocks.CompactBoundaryBlock
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		return agentruntime.CompactBoundary{PreTokens: data.PreTokens, Trigger: data.Trigger}, true, nil
-	case "exec_approval":
-		var data chatblocks.ExecApprovalBlock
-		if err := json.Unmarshal(block.Data, &data); err != nil {
-			return nil, false, err
-		}
-		if data.Status == "resolved" || data.Status == "expired" {
-			return agentruntime.ExecApprovalResolved{ID: data.ID, Status: data.Status, Decision: data.Decision, ResolvedBy: data.ResolvedBy, ResolvedAtMs: data.ResolvedAtMs}, true, nil
-		}
-		return agentruntime.ExecApprovalRequested{ID: data.ID, CommandText: data.CommandText, CommandPreview: data.CommandPreview, AllowedDecisions: data.AllowedDecisions, Host: data.Host, NodeID: data.NodeID, AgentID: data.AgentID, CreatedAtMs: data.CreatedAtMs, ExpiresAtMs: data.ExpiresAtMs}, true, nil
-	default:
-		return nil, false, nil
-	}
-}
-
-func peerTextFromStoredBlocks(blocks []cagoblocks.StoredBlock) string {
-	var out strings.Builder
-	for _, block := range blocks {
-		if block.Type != "text" && block.Type != "display_text" {
-			continue
-		}
-		var data struct {
-			Text string `json:"text"`
-		}
-		if json.Unmarshal(block.Data, &data) == nil {
-			out.WriteString(data.Text)
-		}
-	}
-	return out.String()
-}
-
-func peerQuestions(in []chatblocks.AskQuestionDTO) []agentruntime.AskQuestion {
-	out := make([]agentruntime.AskQuestion, 0, len(in))
-	for _, question := range in {
-		options := make([]agentruntime.AskOption, 0, len(question.Options))
-		for _, option := range question.Options {
-			options = append(options, agentruntime.AskOption{Label: option.Label, Description: option.Description, Preview: option.Preview})
-		}
-		out = append(out, agentruntime.AskQuestion{ID: question.ID, Question: question.Question, Header: question.Header, MultiSelect: question.MultiSelect, IsOther: question.IsOther, IsSecret: question.IsSecret, Options: options})
-	}
-	return out
-}
-
-func peerAnswers(in []chatblocks.AskAnswerDTO) []agentruntime.AskAnswer {
-	out := make([]agentruntime.AskAnswer, 0, len(in))
-	for _, answer := range in {
-		out = append(out, agentruntime.AskAnswer{QuestionIndex: answer.QuestionIndex, Labels: answer.Labels, OtherText: answer.OtherText})
-	}
-	return out
 }

@@ -20,8 +20,8 @@ import (
 	"sync"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
-	"github.com/agentre-hub/agentre/internal/service/chat_svc/turn"
 )
 
 //go:generate mockgen -source svc.go -destination mock_chat_import_svc/mock_chat_import_svc.go

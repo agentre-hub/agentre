@@ -10,8 +10,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
 )
 
 // 本文件锁住 R15a「手动指定执行目标」的校验半边（validateExecTargetOverride）：
@@ -70,10 +70,10 @@ func TestLoadSession_PopulatesExecTargetCount_MultiTarget(t *testing.T) {
 	ctx, m, svc := setupExecTargetPinTest(t)
 	msgCtrl := gomock.NewController(t)
 	t.Cleanup(msgCtrl.Finish)
-	msgMock := mock_chat_repo.NewMockMessageRepo(msgCtrl)
-	prevMessage := chat_repo.Message()
-	chat_repo.RegisterMessage(msgMock)
-	t.Cleanup(func() { chat_repo.RegisterMessage(prevMessage) })
+	msgMock := mock_transcript_repo.NewMockMessageRepo(msgCtrl)
+	prevMessage := transcript_repo.Message()
+	transcript_repo.RegisterMessage(msgMock)
+	t.Cleanup(func() { transcript_repo.RegisterMessage(prevMessage) })
 
 	m.session.EXPECT().Find(ctx, int64(110)).Return(&chat_entity.Session{
 		ID: 110, AgentID: 54, Status: 1,

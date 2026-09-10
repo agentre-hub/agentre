@@ -17,7 +17,7 @@ func WireNotificationToProto(method string, params any) (*agentrewire.RpcNotific
 		if !ok {
 			return nil, fmt.Errorf("protowire: %s 参数类型为 %T", method, params)
 		}
-		out := &agentrewire.RuntimeEventNotification{ConversationId: frame.ConversationID, Seq: frame.Seq}
+		out := &agentrewire.RuntimeEventNotification{ConversationId: frame.ConversationID, Seq: frame.Seq, Preview: frame.Preview}
 		if err := marshalEvent(out, frame.Event); err != nil {
 			return nil, err
 		}
@@ -75,7 +75,7 @@ func ProtoNotificationToWire(notification *agentrewire.RpcNotification) (string,
 		if err != nil {
 			return "", nil, err
 		}
-		return method, &wire.EventFrame{ConversationID: frame.GetConversationId(), Seq: frame.GetSeq(), Event: event}, nil
+		return method, &wire.EventFrame{ConversationID: frame.GetConversationId(), Seq: frame.GetSeq(), Preview: frame.GetPreview(), Event: event}, nil
 	case *agentrewire.RpcNotification_RunResultDone:
 		return wire.NotifyRunResultDone, doneWire(payload.RunResultDone), nil
 	case *agentrewire.RpcNotification_AutonomousTurnDone:

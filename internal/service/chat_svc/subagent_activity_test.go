@@ -15,7 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/mock_agentruntime"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
@@ -191,10 +191,10 @@ func TestDriveSubagentActivity_ProgressUpdatesSpawnCard(t *testing.T) {
 			AppendSubagentChildren(gomock.Any(), sid, toolCallID, gomock.Any(), gomock.Any()).
 			Return(nil).AnyTimes()
 
-		var gotProgress chat_repo.SubagentProgress
+		var gotProgress transcript_repo.SubagentProgress
 		m.message.EXPECT().
 			PatchSubagentProgress(gomock.Any(), sid, toolCallID, gomock.Any()).
-			DoAndReturn(func(_ context.Context, _ int64, _ string, p chat_repo.SubagentProgress) error {
+			DoAndReturn(func(_ context.Context, _ int64, _ string, p transcript_repo.SubagentProgress) error {
 				gotProgress = p
 				return nil
 			}).Times(1)
@@ -284,10 +284,10 @@ func TestDriveSubagentActivity_ModelUpdatesSpawnCard(t *testing.T) {
 			AppendSubagentChildren(gomock.Any(), sid, toolCallID, gomock.Any(), gomock.Any()).
 			Return(nil).AnyTimes()
 
-		var gotProgress chat_repo.SubagentProgress
+		var gotProgress transcript_repo.SubagentProgress
 		m.message.EXPECT().
 			PatchSubagentProgress(gomock.Any(), sid, toolCallID, gomock.Any()).
-			DoAndReturn(func(_ context.Context, _ int64, _ string, p chat_repo.SubagentProgress) error {
+			DoAndReturn(func(_ context.Context, _ int64, _ string, p transcript_repo.SubagentProgress) error {
 				gotProgress = p
 				return nil
 			}).Times(1)

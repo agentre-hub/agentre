@@ -213,6 +213,12 @@ func (r *Runtime) handleAutonomousTurnEvent(ctx context.Context, params any) (an
 		return nil, nil
 	}
 	sid := r.localSessionID(frame.ConversationID)
+	if frame.Preview {
+		// 与 handleEvent 同一条纪律:预览帧只用于即时呈现,不进这一轮的事件流(那条
+		// 流是消费方的转录来源)。自主续轮的内容同样由宿主实时发布的持久帧交付。
+		r.deliverPreview(sid, frame.Event)
+		return nil, nil
+	}
 	a := r.lookupAutoSession(sid)
 	if a == nil {
 		return nil, nil
