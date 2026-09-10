@@ -127,85 +127,43 @@
       }
     },
     "onboarding": {
-      "commands": {
-        "daemonRunning": "Daemon running",
-        "foregroundRun": "agentred run",
-        "installUnix": "curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh",
-        "installWindows": "irm https://github.com/agentre-hub/agentre/releases/latest/download/install.ps1 | iex",
-        "listenAddress": "ws://…:7456/rpc",
-        "pair": "agentred pair",
-        "serviceInstall": "agentred service install --start",
-        "serviceRestart": "agentred service restart",
-        "serviceStatus": "agentred service status",
-        "version": "agentred --version"
-      },
       "complete": {
         "action": "Configure Agent Backends",
         "description": "Choose Claude Code, Codex, or Pi on this device.",
         "title": "Remote connected"
       },
-      "copyLabel": "Copy {{label}}",
-      "copySuccess": "Command copied",
-      "dismiss": "Collapse guide",
-      "install": {
-        "archHint": "Architecture is detected automatically",
-        "description": "Choose the remote operating system, then run the install command in its terminal.",
-        "linux": "Linux",
-        "macos": "macOS",
-        "manual": "Manual installation",
-        "next": "Installed, next",
-        "osLabel": "Remote operating system",
-        "powershell": "PowerShell",
-        "recommended": "Recommended install command",
-        "terminal": "Remote terminal",
-        "title": "Install agentred",
-        "verify": "Verify installation",
-        "windows": "Windows"
-      },
-      "pair": {
-        "back": "Back to service",
-        "commandLabel": "Get pairing information",
-        "description": "Run the pairing command on the remote machine, then enter its address and one-time code.",
-        "submit": "Pair and verify",
-        "title": "Connect this remote machine"
-      },
-      "service": {
-        "background": "Background service (recommended)",
-        "description": "Use the background service for a machine that should stay available.",
-        "diagnostics": {
-          "first": "Run <command>{{command}}</command> and confirm <status>{{status}}</status> appears.",
-          "second": "Confirm the listen address includes <address>{{address}}</address>.",
-          "third": "Keep the service running, then continue to pairing."
-        },
-        "diagnosticsHint": "Run these checks in the remote terminal",
-        "diagnosticsTitle": "Confirm the service is running",
-        "foreground": "Temporary foreground",
-        "foregroundDescription": "Keep this terminal open; closing it stops agentred.",
-        "installLabel": "Install and start service",
-        "modeHint": "Background service is recommended",
-        "modeLabel": "Run mode",
-        "next": "Service is running",
-        "restartLabel": "Restart service",
-        "statusLabel": "Check status",
-        "title": "Start the remote service"
-      },
       "stepLabel": "Step {{current}} of {{total}}",
       "steps": {
         "install": {
-          "done": "Complete",
-          "subtitle": "About 1 minute",
-          "title": "Install agentred"
-        },
-        "navLabel": "Step {{number}}: {{title}}",
-        "pair": {
-          "subtitle": "One-time code",
-          "title": "Pair and verify"
+          "title": "Install",
+          "subtitle": "agentred",
+          "done": "Installed"
         },
         "service": {
-          "done": "Running",
+          "title": "Keep it running",
           "subtitle": "Stay online",
-          "title": "Start the remote service"
+          "done": "Running"
+        },
+        "pair": {
+          "title": "Pair",
+          "subtitle": "One-time code"
         }
+      },
+      "install": {
+        "title": "Install agentred",
+        "description": "agentred runs on the remote machine; the desktop calls that machine's CLIs through it.",
+        "next": "Next"
+      },
+      "service": {
+        "title": "Keep agentred running",
+        "next": "Next"
+      },
+      "pair": {
+        "title": "Pair this remote machine",
+        "description": "The pairing code works once.",
+        "commandLabel": "Get the pairing code",
+        "back": "Back",
+        "submit": "Pair and verify"
       }
     },
     "panel": {
@@ -314,7 +272,8 @@
         "timeoutTitle": "It didn't come back",
         "upgradingBody": "Restarting once — usually under a minute.",
         "upgradingTitle": "Upgrading to {{version}}"
-      }
+      },
+      "copySuccess": "Command copied"
     }
   },
   "remoteFs": {

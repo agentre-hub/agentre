@@ -13,6 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  CommandCard,
   copyTextWithToast,
 } from "@agentre-hub/agentre-ui";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,6 @@ import {
   isProtocolRefusal,
   type AgentredVersionState,
 } from "./agentred-version";
-import { CommandCard } from "./command-card";
 import { DeviceActionMenu, type UpgradeMenuItem } from "./device-action-menu";
 import { DeviceProvidersSync } from "./device-providers-sync";
 import { relativeTime, friendlyLastError } from "./format";
@@ -429,7 +429,7 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
         ...upgradeMenuItem(versionState, upgrade.phase, upgrade, t),
         onCopyCommand: () => {
           void copyTextWithToast(t("remoteDevices.upgrade.command"), {
-            successTitle: t("remoteDevices.onboarding.copySuccess"),
+            successTitle: t("remoteDevices.upgrade.copySuccess"),
           });
         },
       }

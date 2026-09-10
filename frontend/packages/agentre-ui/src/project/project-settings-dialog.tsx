@@ -54,6 +54,7 @@ import {
 import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { DirectoryPicker } from "./directory-picker";
+import { useFailureText } from "./failure-text";
 import { ParentSelect } from "./parent-select";
 import { ProjectIdentityFields } from "./project-identity-fields";
 import type {
@@ -85,26 +86,6 @@ export interface ProjectSettingsDialogProps {
   /** 机器一台都没有时给的那条出路（宿主自己的路由）。不给就只留那句说明。 */
   devicesLink?: React.ReactNode;
   onChanged(): void;
-}
-
-/**
- * 一次写的结果怎么变成一句话。
- *
- * 分得出类时用包写好的那一句；分不出类时透出宿主抽好的业务文案。**两条规则一条式子**
- * —— 中继写失败按错误码分四类各给一句（把它们折成同一句「保存失败」，用户就得自己猜
- * 是该等一会儿、该换个目录还是该去开那台机器），而服务端自带文案的业务码
- * （「该 Agent 已经是这个项目的成员」）原样透出。
- */
-function useFailureText() {
-  const { t } = useUiTranslation();
-  return React.useCallback(
-    (outcome: Extract<ProjectWriteOutcome, { ok: false }>) => {
-      const { kind, message } = outcome.failure;
-      if (kind !== "unknown") return t(`projectSettings.failure.${kind}`);
-      return message?.trim() || t("projectSettings.failure.unknown");
-    },
-    [t],
-  );
 }
 
 export function ProjectSettingsDialog({

@@ -108,7 +108,7 @@ func newTestSvc(t *testing.T, url string) (peer_svc.PeerSvc, *spyEmitter) {
 		emitter,
 		stubSelf{fp: "sha256:local-desktop"},
 		stubAgents{agent: &agent_entity.Agent{ID: 3, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01HXAGENTIDENTITY0000000000"}}},
-		stubProjects{project: &project_entity.Project{ID: 9, Path: "/Users/wyz/agentre"}},
+		stubProjects{project: &project_entity.Project{ID: 9, Path: "/Users/me/agentre"}},
 	)
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc, emitter
@@ -121,7 +121,7 @@ func TestPeerSvc_GivenFreshDispatch_WhenRunFresh_ThenResolvesAgentAndCwdAndRetur
 	url := fakePeerServer(t, peer.ProtobufInboundDeps{RunSession: func(_ context.Context, p wire.RunParams, _ chat_svc.PeerSessionSource) (*chat_svc.SendResponse, error) {
 		assert.True(t, p.FreshSession, "dispatch must demand a genuinely new session")
 		assert.Equal(t, "01HXAGENTIDENTITY0000000000", p.AgentSyncID)
-		assert.Equal(t, "/Users/wyz/agentre", p.Cwd)
+		assert.Equal(t, "/Users/me/agentre", p.Cwd)
 		assert.Equal(t, "帮我看看这个项目", p.UserText)
 		assert.Equal(t, "provider-key", p.LLMProviderKey, "the transient provider target must cross the desktop peer boundary")
 		assert.Equal(t, "model-key", p.LLMModelKey, "the transient fixed model target must cross the desktop peer boundary")

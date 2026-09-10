@@ -141,8 +141,8 @@ describe("RemoteDevicesPanel", () => {
     expect(
       await screen.findByRole("heading", { name: "Install agentred" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Start the remote service")).toBeInTheDocument();
-    expect(screen.getByText("Pair and verify")).toBeInTheDocument();
+    expect(screen.getByText("Keep it running")).toBeInTheDocument();
+    expect(screen.getByText("Pair")).toBeInTheDocument();
     expect(
       screen.getByText(
         "curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh",
@@ -369,10 +369,8 @@ describe("RemoteDevicesPanel", () => {
     await screen.findByTestId("device-row");
 
     await user.click(screen.getByRole("button", { name: "Add agentred" }));
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://build-box.local:7456/rpc",
@@ -416,10 +414,8 @@ describe("RemoteDevicesPanel", () => {
     await screen.findByTestId("device-row");
 
     await user.click(screen.getByRole("button", { name: "Add agentred" }));
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://build-box.local:7456/rpc",
@@ -429,7 +425,7 @@ describe("RemoteDevicesPanel", () => {
 
     expect(await screen.findByText("Pairing code expired")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Connect this remote machine" }),
+      screen.getByRole("heading", { name: "Pair this remote machine" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Address")).toHaveValue(
       "ws://build-box.local:7456/rpc",
@@ -466,10 +462,8 @@ describe("RemoteDevicesPanel", () => {
     await screen.findByTestId("device-row");
 
     await user.click(screen.getByRole("button", { name: "Add agentred" }));
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://build-box.local:7456/rpc",
@@ -494,39 +488,36 @@ describe("RemoteDevicesPanel", () => {
     render(<RemoteDevicesPanel />);
     await screen.findByRole("heading", { name: "Install agentred" });
 
-    await user.click(screen.getByRole("radio", { name: "macOS" }));
+    await user.click(screen.getByRole("button", { name: "macOS" }));
     expect(
       screen.getByText(
         "curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh",
       ),
     ).toHaveAttribute("data-selectable-text", "true");
 
-    await user.click(screen.getByRole("radio", { name: "Windows" }));
+    await user.click(screen.getByRole("button", { name: "Windows" }));
     expect(
       screen.getByText(
         "irm https://github.com/agentre-hub/agentre/releases/latest/download/install.ps1 | iex",
       ),
     ).toHaveAttribute("data-selectable-text", "true");
 
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(
       screen.getByText("agentred service install --start"),
     ).toHaveAttribute("data-selectable-text", "true");
-    expect(screen.getByText("Daemon running")).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("radio", { name: "Temporary foreground" }),
+      screen.getByRole("button", { name: "Temporary foreground" }),
     );
     expect(screen.getByText("agentred run")).toHaveAttribute(
       "data-selectable-text",
       "true",
     );
 
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(
-      screen.getByRole("heading", { name: "Connect this remote machine" }),
+      screen.getByRole("heading", { name: "Pair this remote machine" }),
     ).toBeInTheDocument();
     expect(screen.getByText("agentred pair")).toHaveAttribute(
       "data-selectable-text",
@@ -541,10 +532,8 @@ describe("RemoteDevicesPanel", () => {
 
     render(<RemoteDevicesPanel />);
     await screen.findByRole("heading", { name: "Install agentred" });
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://linux-srv.local:7456/rpc",
@@ -576,10 +565,8 @@ describe("RemoteDevicesPanel", () => {
 
     render(<RemoteDevicesPanel onOpenAgentBackends={onOpenAgentBackends} />);
     await screen.findByRole("heading", { name: "Install agentred" });
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.type(
       screen.getByLabelText("Address"),
       "ws://linux-srv.local:7456/rpc",

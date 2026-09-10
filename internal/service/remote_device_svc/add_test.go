@@ -64,7 +64,7 @@ func TestAdd(t *testing.T) {
 	Convey("pairing a machine that was already adopted upgrades that row instead of adding a second", t, func() {
 		repo, dial, kc, w, svc := setupSvc(t)
 		adopted := &paired_agentred_entity.PairedAgentred{
-			ID: 7, Name: "coding", DaemonFingerprint: "sha256:abc", TLSMode: "default", Status: 1,
+			ID: 7, Name: "devbox", DaemonFingerprint: "sha256:abc", TLSMode: "default", Status: 1,
 		}
 		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(nil, nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)

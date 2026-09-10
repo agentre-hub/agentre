@@ -66,7 +66,7 @@ func TestRunPeerSession_GivenUnknownSession_ThenCreatesFreshDesktopSessionAndRun
 	project_repo.RegisterProjectAgent(projAgentMock)
 	t.Cleanup(func() { project_repo.RegisterProjectAgent(prevProjAgent) })
 
-	const cwd = "/Users/wyz/agentre-server"
+	const cwd = "/Users/me/agentre-server"
 	proj := &project_entity.Project{ID: 5, Name: "agentre-server", Path: cwd, Status: consts.ACTIVE}
 	projMock.EXPECT().List(ctx).Return([]*project_entity.Project{proj}, nil)
 
@@ -202,7 +202,7 @@ func TestRunPeerSession_GivenCwdMatchesNoLocalProject_ThenRejectsWithoutCreating
 	t.Cleanup(func() { project_repo.RegisterProject(prevProj) })
 	// 本机项目行里没有 /Users/old/removed 这条路径（项目刚被删/改路径）。
 	projMock.EXPECT().List(ctx).Return([]*project_entity.Project{
-		{ID: 5, Name: "agentre-server", Path: "/Users/wyz/agentre-server", Status: consts.ACTIVE},
+		{ID: 5, Name: "agentre-server", Path: "/Users/me/agentre-server", Status: consts.ACTIVE},
 	}, nil)
 
 	adapter, ok := m.svc.(peerRunAdapter)

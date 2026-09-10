@@ -127,85 +127,43 @@
       }
     },
     "onboarding": {
-      "commands": {
-        "daemonRunning": "Daemon running",
-        "foregroundRun": "agentred run",
-        "installUnix": "curl -fsSL https://github.com/agentre-hub/agentre/releases/latest/download/install.sh | sh",
-        "installWindows": "irm https://github.com/agentre-hub/agentre/releases/latest/download/install.ps1 | iex",
-        "listenAddress": "ws://…:7456/rpc",
-        "pair": "agentred pair",
-        "serviceInstall": "agentred service install --start",
-        "serviceRestart": "agentred service restart",
-        "serviceStatus": "agentred service status",
-        "version": "agentred --version"
-      },
       "complete": {
         "action": "配置 Agent 后端",
         "description": "选择这台设备上的 Claude Code、Codex 或 Pi。",
         "title": "远端已连接"
       },
-      "copyLabel": "复制{{label}}",
-      "copySuccess": "命令已复制",
-      "dismiss": "收起引导",
-      "install": {
-        "archHint": "架构将自动识别",
-        "description": "选择远端操作系统，然后在它的终端中运行安装命令。",
-        "linux": "Linux",
-        "macos": "macOS",
-        "manual": "手动安装",
-        "next": "我已安装，下一步",
-        "osLabel": "远端操作系统",
-        "powershell": "PowerShell",
-        "recommended": "推荐安装命令",
-        "terminal": "远端终端",
-        "title": "安装 agentred",
-        "verify": "验证安装",
-        "windows": "Windows"
-      },
-      "pair": {
-        "back": "返回服务",
-        "commandLabel": "获取配对信息",
-        "description": "在远端运行配对命令，然后填写连接地址和一次性配对码。",
-        "submit": "配对并验证",
-        "title": "连接这台远端机器"
-      },
-      "service": {
-        "background": "后台服务（推荐）",
-        "description": "需要长期在线的机器建议使用后台服务。",
-        "diagnostics": {
-          "first": "运行 <command>{{command}}</command>，确认出现 <status>{{status}}</status>。",
-          "second": "确认监听地址包含 <address>{{address}}</address>。",
-          "third": "保持服务运行，然后继续配对。"
-        },
-        "diagnosticsHint": "在远端终端执行",
-        "diagnosticsTitle": "确认服务已运行",
-        "foreground": "前台临时运行",
-        "foregroundDescription": "保持终端开启；关闭终端会停止 agentred。",
-        "installLabel": "安装并启动服务",
-        "modeHint": "建议使用后台服务",
-        "modeLabel": "运行方式",
-        "next": "服务已运行",
-        "restartLabel": "重启服务",
-        "statusLabel": "查看状态",
-        "title": "启动远端服务"
-      },
       "stepLabel": "步骤 {{current}} / {{total}}",
       "steps": {
         "install": {
-          "done": "已完成",
-          "subtitle": "约 1 分钟",
-          "title": "安装 agentred"
-        },
-        "navLabel": "第 {{number}} 步:{{title}}",
-        "pair": {
-          "subtitle": "一次性验证码",
-          "title": "配对并验证"
+          "title": "安装",
+          "subtitle": "agentred",
+          "done": "已安装"
         },
         "service": {
-          "done": "正在运行",
+          "title": "常驻",
           "subtitle": "保持在线",
-          "title": "启动远端服务"
+          "done": "运行中"
+        },
+        "pair": {
+          "title": "配对",
+          "subtitle": "一次性配对码"
         }
+      },
+      "install": {
+        "title": "安装 agentred",
+        "description": "agentred 跑在远端机器上，桌面端通过它调用那台机器的 CLI。",
+        "next": "下一步"
+      },
+      "service": {
+        "title": "让 agentred 常驻",
+        "next": "下一步"
+      },
+      "pair": {
+        "title": "配对这台远端机器",
+        "description": "配对码只能用一次。",
+        "commandLabel": "取配对码",
+        "back": "返回上一步",
+        "submit": "配对并验证"
       }
     },
     "panel": {
@@ -314,7 +272,8 @@
         "timeoutTitle": "没等到它回来",
         "upgradingBody": "重启一次，通常不到 1 分钟。",
         "upgradingTitle": "正在升级到 {{version}}"
-      }
+      },
+      "copySuccess": "命令已复制"
     }
   },
   "remoteFs": {

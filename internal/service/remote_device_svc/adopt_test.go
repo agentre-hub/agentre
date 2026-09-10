@@ -56,13 +56,13 @@ func TestAdoptAccountDevices_GivenAnUnpairedAgentred_ThenAdoptsItAsRelayOnly(t *
 		w.EXPECT().Start(gomock.Any(), int64(3)).Return(nil)
 
 		n, err := svc.AdoptAccountDevices(context.Background(),
-			[]remote_device_svc.AccountDevice{accountDevice("sha256:coding", "coding", "agentred")})
+			[]remote_device_svc.AccountDevice{accountDevice("sha256:devbox", "devbox", "agentred")})
 
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, 1)
 		So(created, ShouldNotBeNil)
-		So(created.DaemonFingerprint, ShouldEqual, "sha256:coding")
-		So(created.Name, ShouldEqual, "coding")
+		So(created.DaemonFingerprint, ShouldEqual, "sha256:devbox")
+		So(created.Name, ShouldEqual, "devbox")
 		So(created.URL, ShouldBeEmpty)
 		So(created.IsRelayOnly(), ShouldBeTrue)
 		So(created.Check(context.Background()), ShouldBeNil)
@@ -78,12 +78,12 @@ func TestAdoptAccountDevices_GivenAMachineTheUserRemoved_ThenDoesNotResurrectIt(
 		_ = w
 		repo.EXPECT().List(gomock.Any()).Return(nil, nil)
 		repo.EXPECT().ListDeleted(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
-			{ID: 4, Name: "coding", DaemonFingerprint: "sha256:coding", Status: consts.DELETE},
+			{ID: 4, Name: "devbox", DaemonFingerprint: "sha256:devbox", Status: consts.DELETE},
 		}, nil)
 		// 没有 Create 的 EXPECT：重建这一行就是复活，正是本用例要挡住的。
 
 		n, err := svc.AdoptAccountDevices(context.Background(),
-			[]remote_device_svc.AccountDevice{accountDevice("sha256:coding", "coding", "agentred")})
+			[]remote_device_svc.AccountDevice{accountDevice("sha256:devbox", "devbox", "agentred")})
 
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, 0)
@@ -128,7 +128,7 @@ func TestAdoptAccountDevices_GivenALanPairingTombstone_ThenKeepsItAndStillRefuse
 		repo.EXPECT().List(gomock.Any()).Return(nil, nil)
 		repo.EXPECT().ListDeleted(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
 			{
-				ID: 5, Name: "lan-box", URL: "ws://192.168.8.9:7456/rpc",
+				ID: 5, Name: "lan-box", URL: "ws://192.168.1.101:7456/rpc",
 				DaemonFingerprint: "sha256:lan-box", Status: consts.DELETE,
 			},
 		}, nil)
@@ -159,7 +159,7 @@ func TestAdoptAccountDevices_GivenAFingerprintlessTombstone_ThenIgnoresIt(t *tes
 		w.EXPECT().Start(gomock.Any(), int64(9)).Return(nil)
 
 		n, err := svc.AdoptAccountDevices(context.Background(),
-			[]remote_device_svc.AccountDevice{accountDevice("sha256:coding", "coding", "agentred")})
+			[]remote_device_svc.AccountDevice{accountDevice("sha256:devbox", "devbox", "agentred")})
 
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, 1)
@@ -171,14 +171,14 @@ func TestAdoptAccountDevices_GivenAlreadyKnownMachines_ThenAdoptsNothing(t *test
 		repo, w, svc := adoptFixture(t)
 		_ = w
 		repo.EXPECT().List(gomock.Any()).Return([]*paired_agentred_entity.PairedAgentred{
-			{ID: 1, Name: "agentred-1", URL: "ws://192.168.8.188:7456/rpc", DaemonFingerprint: "sha256:coding", Status: 1},
+			{ID: 1, Name: "agentred-1", URL: "ws://192.168.1.100:7456/rpc", DaemonFingerprint: "sha256:devbox", Status: 1},
 			{ID: 2, Name: "adopted", DaemonFingerprint: "sha256:other", Status: 1},
 		}, nil)
 		repo.EXPECT().ListDeleted(gomock.Any()).Return(nil, nil)
 		// 没有 Create 的 EXPECT：建了任何一行都是失败。
 
 		n, err := svc.AdoptAccountDevices(context.Background(), []remote_device_svc.AccountDevice{
-			accountDevice("sha256:coding", "coding", "agentred"),
+			accountDevice("sha256:devbox", "devbox", "agentred"),
 			accountDevice("sha256:other", "other", "agentred"),
 		})
 
@@ -214,7 +214,7 @@ func TestAdoptAccountDevices_GivenRepositoryFailure_ThenReportsIt(t *testing.T) 
 		repo.EXPECT().List(gomock.Any()).Return(nil, errors.New("db is gone"))
 
 		_, err := svc.AdoptAccountDevices(context.Background(),
-			[]remote_device_svc.AccountDevice{accountDevice("sha256:coding", "coding", "agentred")})
+			[]remote_device_svc.AccountDevice{accountDevice("sha256:devbox", "devbox", "agentred")})
 
 		So(err, ShouldNotBeNil)
 	})

@@ -1,0 +1,36 @@
+{
+  "onboarding": {
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyLabel": "Copy {{label}}",
+    "stepNav": "Step {{number}}: {{title}}",
+    "dismiss": "Collapse guide",
+    "install": {
+      "method": "Install method",
+      "native": "Native binary (recommended)",
+      "docker": "Docker container",
+      "os": "Operating system",
+      "osHint": "Architecture detected automatically",
+      "linux": "Linux",
+      "macos": "macOS",
+      "windows": "Windows",
+      "terminal": "Remote terminal",
+      "powershell": "Remote PowerShell",
+      "verify": "Verify installation",
+      "pull": "Pull image",
+      "verifyImage": "Verify image",
+      "manual": "Manual download",
+      "deployDoc": "Volumes and compose →"
+    },
+    "service": {
+      "mode": "Run mode",
+      "background": "Background service (recommended)",
+      "foreground": "Temporary foreground",
+      "install": "Register and start",
+      "status": "Check status",
+      "restart": "Restart service",
+      "composeUp": "Start container",
+      "composeLogs": "Follow logs"
+    }
+  }
+}

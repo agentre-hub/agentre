@@ -44,7 +44,7 @@ func TestListBackends_GivenUnpairedRemoteFingerprint_ThenItemKeepsRemoteDevice(t
 	rd.EXPECT().List(ctx).Return(nil, nil).AnyTimes()
 
 	backendMock.EXPECT().List(ctx).Return([]*agent_backend_entity.AgentBackend{{
-		ID: 235, Type: string(agent_backend_entity.TypeClaudeCode), Name: "coding",
+		ID: 235, Type: string(agent_backend_entity.TypeClaudeCode), Name: "devbox",
 		DeviceFingerprint: "sha256:other-box", Status: 1,
 	}}, nil)
 	agentMock.EXPECT().CountByBackends(ctx, []int64{235}).Return(map[int64]int64{}, nil)

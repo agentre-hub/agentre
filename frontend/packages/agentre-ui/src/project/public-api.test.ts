@@ -47,6 +47,7 @@ describe("项目这一面的对外契约", () => {
     const barrel = readFileSync(join(__dirname, "..", "index.ts"), "utf8");
     const missing = [
       "ProjectFsPort",
+      "ProjectCreateMachinesPort",
       "ListDirOutcome",
       "MkdirOutcome",
       "PickerMachine",

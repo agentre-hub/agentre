@@ -45,7 +45,7 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 			assert.Equal(t, "dev", body["version"])
 			// 主机名是设备列表里唯一有意义的名字来源：设备流不带它，服务端只能
 			// 拿指纹缩写当名字，同一个账号下的机器就都长得一样了。
-			assert.Equal(t, "coding", body["name"])
+			assert.Equal(t, "devbox", body["name"])
 			// 能力概念已从账号侧移除：授权一台设备拿到的就是账号的完整权限，
 			// 再自报一份服务端不校验、也不据以限制任何事的清单只是噪声。
 			assert.NotContains(t, body, "capabilities")
@@ -83,7 +83,7 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 		wait:     func(_ time.Duration) error { return nil },
 		platform: "linux",
 		version:  "dev",
-		hostname: func() (string, error) { return "coding", nil },
+		hostname: func() (string, error) { return "devbox", nil },
 	})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -152,7 +152,7 @@ func TestLogin_GivenEngineSnapshotFailure_WhenLoginSucceeds_ThenKeepsPreviousPro
 	cmd := newLoginCmdWithDeps(loginDeps{
 		dataDir: func() (string, error) { return dir, nil }, http: client,
 		openBrowser: func(string) error { return nil }, wait: func(time.Duration) error { return nil },
-		platform: "linux", version: "dev", hostname: func() (string, error) { return "coding", nil },
+		platform: "linux", version: "dev", hostname: func() (string, error) { return "devbox", nil },
 	})
 	var stderr bytes.Buffer
 	cmd.SetOut(&bytes.Buffer{})

@@ -815,6 +815,7 @@ export type {
   PickerMachine,
   ProjectCandidateView,
   ProjectCreateDraft,
+  ProjectCreateMachinesPort,
   ProjectCreateOutcome,
   ProjectCreatePorts,
   ProjectDeletePorts,
@@ -1066,3 +1067,33 @@ export type {
   TimePreset,
   TimeRange,
 } from "./board/query-types";
+
+// ── agentred 接入引导 ─────────────────────────────────────────────────
+// 桌面端与 agentre-server 的引导渲染同一份实现：命令是唯一的一份，两段正文与外壳
+// 归包，各自宿主的配对表单 / 设备码输入 / 路由留在宿主，经 props 与插槽接进来。
+export {
+  AGENTRED_DEPLOY_DOC_URL,
+  AGENTRED_IMAGE,
+  AGENTRED_RELEASES_URL,
+  agentredCommands,
+  agentredInstallCommand,
+  agentredLoginCommand,
+  agentredPairCommand,
+  agentredVersionCommand,
+} from "./onboarding/agentred-commands";
+export type {
+  AgentredInstallMethod,
+  AgentredRunMode,
+  AgentredTargetOS,
+} from "./onboarding/agentred-commands";
+export { CommandCard } from "./onboarding/command-card";
+export type { CommandCardProps } from "./onboarding/command-card";
+export { GuideStepRail } from "./onboarding/guide-step-rail";
+export type { GuideStep, GuideStepRailProps } from "./onboarding/guide-step-rail";
+export {
+  AgentredInstallDocsLink,
+  AgentredInstallSection,
+} from "./onboarding/agentred-install-section";
+export type { AgentredInstallSectionProps } from "./onboarding/agentred-install-section";
+export { AgentredServiceSection } from "./onboarding/agentred-service-section";
+export type { AgentredServiceSectionProps } from "./onboarding/agentred-service-section";

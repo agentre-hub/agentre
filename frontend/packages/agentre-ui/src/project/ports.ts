@@ -339,8 +339,47 @@ export interface ProjectGitInfo {
   origin?: string;
 }
 
+/**
+ * 建项目的同时，在账号里某台机器上配一条路径（web 宿主挂，桌面端不挂 —— 它有
+ * 「本机上的路径」那一格）。
+ *
+ * **路径进不了建项目那次写**：它不是项目自己的字段，按「项目 × 机器」另存一处
+ * （服务端 `CreateProjectRequest` 的注释：「这里没有 path，也不会有」）。所以这里是
+ * `create` **之后**紧跟的第二次写，两次之间那个「项目已经建出来了」的中间态由弹窗
+ * 当场交代，不靠组头那枚角标兜底 —— 用户刚做完的选择不该静默丢掉。
+ */
+export interface ProjectCreateMachinesPort {
+  /**
+   * 账号里可以挑的机器。
+   *
+   * 回空数组 = 没得挑，那一格整格不出现：一个点开是空的入口比没有更糟。与
+   * `ProjectSettingsPorts.listMachines` 不同，这时**还没有项目**，所以不带 projectId。
+   * 允许 reject，包 catch 成「没得挑」。
+   */
+  list(): Promise<PickerMachine[]>;
+  /** 挑目录用的传输，递给包里的目录选择器。 */
+  fs: ProjectFsPort;
+  /**
+   * 项目建出来之后，把路径写到那台机器上。
+   *
+   * 递整条 machine 而不是一个 id：写往哪去由那台机器是哪一类决定（agentred 的路径
+   * 服务端直写，桌面端的要经中继喊它自己写），这是一件只有宿主知道的 wire 事实 ——
+   * 与 `ProjectSettingsPorts.setMachinePath` 同一条理由。
+   */
+  setPath(
+    projectId: string,
+    machine: PickerMachine,
+    path: string,
+  ): Promise<ProjectWriteOutcome>;
+}
+
 export interface ProjectCreatePorts {
   create(draft: ProjectCreateDraft): Promise<ProjectCreateOutcome>;
+  /**
+   * 挂了才有「机器与路径」那一格。桌面端不挂 —— 一次只配一台机器，配第二台仍走
+   * 项目设置里的「机器与路径」那一节，那里本来就是干这个的。
+   */
+  machines?: ProjectCreateMachinesPort;
   /**
    * 宿主自己那台机器的原生目录对话框。**挂了才有「本机路径」那一格**，
    * web 宿主不挂 —— 没有那个 port 就没有那个入口，不用 `isDesktop` 分支。

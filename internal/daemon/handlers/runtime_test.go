@@ -465,6 +465,15 @@ func (n *recordingOutbound) waitFrames(t *testing.T, want int) []notifyFrame {
 	return n.snapshot()
 }
 
+// waitFramesUntil 等到快照满足 done 为止 —— 用于目标帧来自多个并发源、到达次序不固定
+// 的场景。这类用例不能用 waitFrames 数条数:只要 want 小于总帧数,快照就可能在目标帧
+// 到达之前被取走,断言随机落空。
+func (n *recordingOutbound) waitFramesUntil(t *testing.T, done func([]notifyFrame) bool, describe func() string) []notifyFrame {
+	t.Helper()
+	n.waitFor(t, func() bool { return done(n.snapshot()) }, describe)
+	return n.snapshot()
+}
+
 // waitSteps 等到出口上至少发生了 want 步(落库 / 推送,含失败),用于推送必然失败、
 // 等不到 frame 的场景。
 func (n *recordingOutbound) waitSteps(t *testing.T, want int) []string {
@@ -1196,23 +1205,46 @@ func TestRuntime_Run_AutonomousPayloadAndStopErrorRemainForwardedButNotLogged(t 
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
 	_, err := h.Run(ctx, wire.RunParams{Backend: backendJSON(t, be), ConversationID: convID(143)})
 	require.NoError(t, err)
-	frames := notif.waitFrames(t, 5)
-
-	var forwarded strings.Builder
-	for _, frame := range frames {
-		switch params := frame.params.(type) {
-		case wire.EventFrame:
-			forwarded.WriteString(eventText(t, params.Event))
-		case *wire.EventFrame:
-			forwarded.WriteString(eventText(t, params.Event))
-		case wire.RunResultDoneFrame:
-			forwarded.WriteString(params.StopErrMsg)
-		case *wire.RunResultDoneFrame:
-			forwarded.WriteString(params.StopErrMsg)
+	// 主轮 fanout 与自主轮是两个并发源,帧序不固定(带 StopErrMsg 的自主轮 done 帧可能
+	// 排在最后)。屏障必须等到三个哨兵都转发到位,数固定条数会在它到达前就取走快照。
+	sentinels := []string{resultSentinel, metaSentinel, stopErrSentinel}
+	forwardedText := func(frames []notifyFrame) string {
+		var forwarded strings.Builder
+		for _, frame := range frames {
+			switch params := frame.params.(type) {
+			case wire.EventFrame:
+				forwarded.WriteString(eventText(t, params.Event))
+			case *wire.EventFrame:
+				forwarded.WriteString(eventText(t, params.Event))
+			case wire.RunResultDoneFrame:
+				forwarded.WriteString(params.StopErrMsg)
+			case *wire.RunResultDoneFrame:
+				forwarded.WriteString(params.StopErrMsg)
+			}
 		}
+		return forwarded.String()
 	}
-	for _, sentinel := range []string{resultSentinel, metaSentinel, stopErrSentinel} {
-		assert.Contains(t, forwarded.String(), sentinel, "autonomous wire forwarding must remain lossless")
+	missing := func(frames []notifyFrame) []string {
+		text := forwardedText(frames)
+		var out []string
+		for _, sentinel := range sentinels {
+			if !strings.Contains(text, sentinel) {
+				out = append(out, sentinel)
+			}
+		}
+		return out
+	}
+	frames := notif.waitFramesUntil(t,
+		func(frames []notifyFrame) bool { return len(missing(frames)) == 0 },
+		func() string {
+			snapshot := notif.snapshot()
+			return fmt.Sprintf("autonomous sentinels %v to be forwarded; still missing %v after %d frames",
+				sentinels, missing(snapshot), len(snapshot))
+		})
+
+	forwarded := forwardedText(frames)
+	for _, sentinel := range sentinels {
+		assert.Contains(t, forwarded, sentinel, "autonomous wire forwarding must remain lossless")
 	}
 	require.Eventually(t, func() bool {
 		logs := captured.String()

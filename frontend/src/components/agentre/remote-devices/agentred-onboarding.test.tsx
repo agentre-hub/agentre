@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentredOnboarding } from "./agentred-onboarding";
 
 // 步骤条三格各自的稳定标识:序号是它们的身份,第 3 格因此不再和提交按钮同名。
-const INSTALL_CELL = "Step 1: Install agentred";
-const SERVICE_CELL = "Step 2: Start the remote service";
-const PAIR_CELL = "Step 3: Pair and verify";
+const INSTALL_CELL = "Step 1: Install";
+const SERVICE_CELL = "Step 2: Keep it running";
+const PAIR_CELL = "Step 3: Pair";
 
 function stepCell(name: string): HTMLElement {
   return screen.getByRole("button", { name });
@@ -20,7 +20,7 @@ describe("AgentredOnboarding", () => {
     render(<AgentredOnboarding onSubmit={onSubmit} />);
 
     expect(
-      screen.getByRole("link", { name: "Manual installation" }),
+      screen.getByRole("link", { name: "Manual download" }),
     ).toHaveAttribute(
       "href",
       "https://github.com/agentre-hub/agentre/releases/latest",
@@ -29,22 +29,17 @@ describe("AgentredOnboarding", () => {
       "data-selectable-text",
       "true",
     );
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(
-      screen
-        .getAllByText("agentred service status")
-        .every((element) => element.dataset.selectableText === "true"),
-    ).toBe(true);
-    expect(screen.getByText("agentred service restart")).toHaveAttribute(
-      "data-selectable-text",
-      "true",
-    );
-    expect(screen.getByText(/ws:\/\/…:7456\/rpc/)).toBeInTheDocument();
+      screen.getByText("agentred service install --start"),
+    ).toHaveAttribute("data-selectable-text", "true");
+    expect(screen.getByText("agentred service status")).toBeInTheDocument();
+    expect(screen.getByText("agentred service restart")).toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole("button", { name: "Service is running" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("agentred pair")).toBeInTheDocument();
+
     await user.type(screen.getByLabelText("Address"), "ws://host:7456/rpc");
     await user.type(screen.getByLabelText("Pairing Code"), "ABC2DE");
     await user.click(screen.getByRole("button", { name: "Pair and verify" }));
@@ -55,6 +50,40 @@ describe("AgentredOnboarding", () => {
         pairingCode: "ABC2DE",
       }),
     );
+  });
+
+  /**
+   * 容器方式贯穿三步:第 1 步换成拉镜像,第 2 步换成 compose,第 3 步的取码要进到
+   * 容器里跑——容器里的 daemon 只听容器内的本地 IPC,宿主上那条 `agentred pair`
+   * 找不到它。
+   */
+  it("carries the Docker install method through every step", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentredOnboarding onSubmit={vi.fn().mockResolvedValue(undefined)} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Docker container" }));
+
+    expect(
+      screen.getByText("docker pull ghcr.io/agentre-hub/agentred:latest"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Volumes and compose →" }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/agentre-hub/agentre/blob/main/deploy/README.md",
+    );
+
+    await user.click(stepCell(SERVICE_CELL));
+    expect(screen.getByText("docker compose up -d")).toBeInTheDocument();
+    expect(screen.queryByText("agentred service install --start")).toBeNull();
+
+    await user.click(stepCell(PAIR_CELL));
+    expect(
+      screen.getByText("docker compose exec agentred agentred pair"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("agentred pair")).toBeNull();
   });
 
   // 收起只有在宿主真的能收下它时才存在:零设备时没有可回退的地方。
@@ -128,22 +157,14 @@ describe("AgentredOnboarding", () => {
       <AgentredOnboarding onSubmit={vi.fn().mockResolvedValue(undefined)} />,
     );
 
-    expect(
-      screen.getByRole("button", { name: "Step 1: Install agentred" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Step 2: Start the remote service" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Step 3: Pair and verify" }),
-    ).toBeInTheDocument();
+    expect(stepCell(INSTALL_CELL)).toBeInTheDocument();
+    expect(stepCell(SERVICE_CELL)).toBeInTheDocument();
+    expect(stepCell(PAIR_CELL)).toBeInTheDocument();
 
     // 完成不改身份:序号 + 标题就是这一格的名字,不随「已完成」漂移。
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(
-      screen.getByRole("button", { name: "Step 1: Install agentred" }),
-    ).toBeInTheDocument();
+    expect(stepCell(INSTALL_CELL)).toBeInTheDocument();
   });
 
   // 完成标记记录的是「用户点过这一步的下一步」,不是「走到过这一步之后」。
@@ -156,11 +177,9 @@ describe("AgentredOnboarding", () => {
     await user.click(stepCell(PAIR_CELL));
 
     const skippedInstall = stepCell(INSTALL_CELL);
+    expect(within(skippedInstall).getByText("agentred")).toBeInTheDocument();
     expect(
-      within(skippedInstall).getByText("About 1 minute"),
-    ).toBeInTheDocument();
-    expect(
-      within(skippedInstall).queryByText("Complete"),
+      within(skippedInstall).queryByText("Installed"),
     ).not.toBeInTheDocument();
     expect(within(skippedInstall).getByText("01")).toBeInTheDocument();
 
@@ -172,12 +191,12 @@ describe("AgentredOnboarding", () => {
     expect(within(skippedService).getByText("02")).toBeInTheDocument();
 
     await user.click(stepCell(INSTALL_CELL));
-    await user.click(screen.getByRole("button", { name: "Installed, next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     const finishedInstall = stepCell(INSTALL_CELL);
-    expect(within(finishedInstall).getByText("Complete")).toBeInTheDocument();
+    expect(within(finishedInstall).getByText("Installed")).toBeInTheDocument();
     expect(within(finishedInstall).queryByText("01")).not.toBeInTheDocument();
-    // 第 2 步现在是当前步,但用户还没点过它的「服务已运行」。
+    // 第 2 步现在是当前步,但用户还没点过它的「下一步」。
     expect(
       within(stepCell(SERVICE_CELL)).getByText("Stay online"),
     ).toBeInTheDocument();

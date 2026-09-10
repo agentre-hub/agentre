@@ -60,7 +60,7 @@ func TestPairedAgentred_Check(t *testing.T) {
 	// 账号来源收编的行：这台机器在账号里，但本机从没 LAN 配对过它，所以没有 LAN
 	// 地址可填。空 URL 就是「只有中转路径」的标记——中转按指纹寻址，不需要地址。
 	Convey("relay-only row: empty URL is valid when it is the marker for having no LAN path", t, func() {
-		p := &PairedAgentred{Name: "coding", DaemonFingerprint: "sha256:abc", TLSMode: "default"}
+		p := &PairedAgentred{Name: "devbox", DaemonFingerprint: "sha256:abc", TLSMode: "default"}
 		So(p.Check(context.Background()), ShouldBeNil)
 		So(p.IsRelayOnly(), ShouldBeTrue)
 	})

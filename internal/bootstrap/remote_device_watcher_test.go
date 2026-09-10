@@ -60,7 +60,7 @@ func TestWatcherDialAdapter_GivenRelayOnlyRow_ThenDialsOverTheRelay(t *testing.T
 	c, err := a.Open(context.Background(), watcher.OpenArgs{
 		URL:                       "",
 		DeviceFingerprint:         "sha256:this-desktop",
-		ExpectedDaemonFingerprint: "sha256:coding",
+		ExpectedDaemonFingerprint: "sha256:devbox",
 	})
 
 	if err != nil || c == nil {
@@ -69,8 +69,8 @@ func TestWatcherDialAdapter_GivenRelayOnlyRow_ThenDialsOverTheRelay(t *testing.T
 	if dial.called {
 		t.Fatal("must not attempt a direct dial for a row that has no LAN address")
 	}
-	if !relay.called || relay.daemonFP != "sha256:coding" || relay.peerFP != "sha256:this-desktop" {
-		t.Fatalf("relay dial got (%q, %q), want (sha256:coding, sha256:this-desktop)", relay.daemonFP, relay.peerFP)
+	if !relay.called || relay.daemonFP != "sha256:devbox" || relay.peerFP != "sha256:this-desktop" {
+		t.Fatalf("relay dial got (%q, %q), want (sha256:devbox, sha256:this-desktop)", relay.daemonFP, relay.peerFP)
 	}
 }
 
@@ -80,12 +80,12 @@ func TestWatcherDialAdapter_GivenLANRow_ThenKeepsDialingDirect(t *testing.T) {
 	a := &dialAdapter{inner: dial, relay: relay}
 
 	if _, err := a.Open(context.Background(), watcher.OpenArgs{
-		URL: "ws://192.168.8.188:7456/rpc", TLSMode: "default",
-		ExpectedDaemonFingerprint: "sha256:coding",
+		URL: "ws://192.168.1.100:7456/rpc", TLSMode: "default",
+		ExpectedDaemonFingerprint: "sha256:devbox",
 	}); err != nil {
 		t.Fatalf("direct dial: %v", err)
 	}
-	if !dial.called || dial.args.URL != "ws://192.168.8.188:7456/rpc" {
+	if !dial.called || dial.args.URL != "ws://192.168.1.100:7456/rpc" {
 		t.Fatalf("direct dial args = %+v", dial.args)
 	}
 	if relay.called {
@@ -97,7 +97,7 @@ func TestWatcherDialAdapter_GivenRelayOnlyRowWithoutRelay_ThenFailsWithoutDialin
 	dial := &recordingDial{}
 	a := &dialAdapter{inner: dial}
 
-	if _, err := a.Open(context.Background(), watcher.OpenArgs{URL: "", ExpectedDaemonFingerprint: "sha256:coding"}); err == nil {
+	if _, err := a.Open(context.Background(), watcher.OpenArgs{URL: "", ExpectedDaemonFingerprint: "sha256:devbox"}); err == nil {
 		t.Fatal("no LAN address and no relay must fail loudly")
 	}
 	if dial.called {

@@ -3,6 +3,7 @@
 import chat from "./chat.json";
 import common from "./common.json";
 import llm from "./llm.json";
+import onboarding from "./onboarding.json";
 import org from "./org.json";
 import projects from "./projects.json";
 import session from "./session.json";
@@ -12,6 +13,7 @@ export default {
   ...chat,
   ...common,
   ...llm,
+  ...onboarding,
   ...org,
   ...projects,
   ...session,
