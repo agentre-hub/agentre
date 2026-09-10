@@ -8,31 +8,39 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 )
 
-// lastPreReleaseProtocol 是首发前跑到的最后一档协议号 —— 0.1.0 首发把号收回起点之前,
-// 已经装出去的桌面端与已经部署的 agentred 报出来的就是它。
+// unreachableWindow 是一个本方永远落不进去的对端窗口。
 //
-// 它写死成字面量而不是从 Protocol 推算:这条守卫要钉的正是「首发前的构建被关在门外」
-// 这个具体事实,推算出来的值会随 Protocol 一起漂,守卫也就跟着失效了。
-const lastPreReleaseProtocol = "0.5.0"
+// 号取得夸张,是为了让这条守卫不随本方 Protocol 的抬升而失效:换成一个挨着当前版本的
+// 号,总有一天本方会走到它上面,断言就会在没人注意的情况下从「拒绝」变成「接受」。
+const unreachableWindow = "9.9.9"
 
-// Given 0.1.0 首发把协议号从 0.5.0 收回起点(理由见 wireversion.MinSupported 的注释),
-// 而首发前的构建按老契约解读帧、也没有首发这一档的方法集;
-// When  一台首发前的构建(报出 lastPreReleaseProtocol)来握手;
-// Then  握手当场拒绝并说明双方版本 —— 而不是握上手、直到第一次调用才炸。
+// Given 本方出示的窗口是一个点(MinSupported == Protocol),
+// When  一台对端出示的窗口装不下本方的 Protocol,
+// Then  Match 判否,Reject 用双方的号说清楚为什么。
 //
-// 号往回收之后「旧」不再等于「小」,拒绝因此不是靠地板挡住的:首发前那档的窗口是
-// [0.5.0, 0.5.0],本方 Protocol 0.1.0 落在它下面,握手的第二个方向(本方 Protocol 不得
-// 老于对端 MinSupported)判否。两个方向都查是这条判据自带的性质,不是本轮新加的 ——
-// 这条守卫钉的是它在号收回之后依然成立。
-func TestMatch_GivenABuildFromBeforeTheVersionReset_WhenItHandshakes_ThenItIsRejectedThere(t *testing.T) {
+// 窗口比较本身的全部方向由 window_internal_test.go 那张表覆盖,用的是合成值。这条补的
+// 是导出的那一对:Match 确实把活的 Protocol / MinSupported 喂了进去,而不是拿别的什么去
+// 比;以及 Reject 的那句话里同时有对端报出的号和本方的窗口 —— 握手被拒时用户看到的就是
+// 它,也是这两个数字唯一露面的地方。
+func TestMatch_GivenAPeerWindowThatCannotHoldThisBuild_WhenItHandshakes_ThenItIsRejectedWithBothNumbers(t *testing.T) {
 	t.Parallel()
 
-	require.NotEqual(t, lastPreReleaseProtocol, wireversion.Protocol,
-		"协议版本必须已经收回首发这一档,否则首发前的构建仍旧握得上手")
-	require.False(t, wireversion.Match(lastPreReleaseProtocol, lastPreReleaseProtocol),
-		"首发前的构建必须在握手处被拒")
-	require.Contains(t, wireversion.Reject(lastPreReleaseProtocol, lastPreReleaseProtocol), lastPreReleaseProtocol,
-		"拒绝理由要带上对端报出的版本")
-	require.Contains(t, wireversion.Reject(lastPreReleaseProtocol, lastPreReleaseProtocol), wireversion.Protocol,
-		"拒绝理由要带上本方窗口")
+	require.False(t, wireversion.Match(unreachableWindow, unreachableWindow),
+		"对端窗口装不下本方 Protocol 时必须在握手处判否")
+
+	reason := wireversion.Reject(unreachableWindow, unreachableWindow)
+	require.Contains(t, reason, unreachableWindow, "拒绝理由要带上对端报出的版本")
+	require.Contains(t, reason, wireversion.Protocol, "拒绝理由要带上本方窗口的上沿")
+	require.Contains(t, reason, wireversion.MinSupported, "拒绝理由要带上本方窗口的下沿")
+}
+
+// Given 本方与对端出示同一个窗口,When 握手比较,Then 判是 —— 且 Reject 对一个匹配的
+// 对端不产生理由。这条钉的是上一条不是靠「Match 恒为假」蒙对的。
+func TestMatch_GivenAPeerOnThisSameWindow_WhenItHandshakes_ThenItIsAccepted(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, wireversion.Match(wireversion.Protocol, wireversion.MinSupported),
+		"出示同一个窗口的对端必须握得上手")
+	require.Empty(t, wireversion.Reject(wireversion.Protocol, wireversion.MinSupported),
+		"匹配的对端不产生拒绝理由")
 }

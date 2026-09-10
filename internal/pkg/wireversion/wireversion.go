@@ -45,24 +45,6 @@ var Protocol = protocolversion.Protocol()
 // ceiling and the older build is turned away at the handshake instead of being
 // given a downgrade branch.
 //
-// Both numbers were reset to 0.1.0 for the first release. Before it the
-// protocol had reached 0.5.0 over four such bumps, every one of them made while
-// the product was unreleased — no build in anyone's hands ever advertised them,
-// so the number went back to its starting point, alongside the migration chains
-// squashed to a baseline in the same round. The history of those four is not
-// kept. One consequence of dropping it is, because it is a trap:
-//
-//	0.2.0 through 0.5.0 will be handed out a second time, and unlike a
-//	migration id a protocol version leaves no ledger — nothing detects the
-//	reuse. A pre-release build left running somewhere would one day meet a
-//	post-reset build carrying the same number, and the handshake would accept
-//	it: same version, same floor, entirely different frame semantics. What
-//	stands in for a ledger is that no pre-release build outlives the release —
-//	the daemons are redeployed alongside it, and wireversion_test.go pins that
-//	a 0.5.0 peer is refused here. That guard necessarily goes red the moment
-//	this build's own Protocol reaches 0.5.0 again, which is the signal to come
-//	back and re-read this paragraph.
-//
 // Unlike Protocol this one is written out here rather than read from the
 // protocol module, and deliberately so: it is not a property of the protocol
 // but a statement about this build. The same schema can be spoken by a host

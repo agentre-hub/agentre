@@ -42,10 +42,6 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-// 0.1.0 是首发号。首发之前这个数字已经走到 0.5.0 —— 那几档全部产生在产品发布之前,
-// 没有一个装在用户手上的构建报过它们,所以 0.1.0 发布时把号收回了起点,和同一轮把迁移
-// 压成基线是同一件事。首发前那几档的沿革不再保留,唯一还需要记住的后果写在宿主的
-// wireversion.MinSupported 注释里:0.2.0~0.5.0 这几个号会被重新用一遍。
 option (agentre.wire.protocol_version) = "0.1.0";
 
 enum RpcMethod {
