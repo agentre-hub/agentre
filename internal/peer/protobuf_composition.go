@@ -26,10 +26,8 @@ import (
 func productionProtobufInboundDeps(portForward *portforward.Handlers) ProtobufInboundDeps {
 	adapter := func() inboundSessionAdapter { value, _ := chat_svc.Chat().(inboundSessionAdapter); return value }
 	return ProtobufInboundDeps{
-		// 决策 8:入站对端的身份从**已验签的凭据**取,而不是它自己说的那个。
-		VerifyAccountCredential: func(ctx context.Context, credential string) (string, error) {
-			return verifyInboundAccountCredential(ctx, credential)
-		},
+		// H1/决策 8:入站对端的身份从 server 已核验的凭据取,而不是它自己说的那个。
+		VerifyAccountCredential: verifyInboundAccountCredential,
 		// 只答「这台机器上这个 backend 的能力矩阵是什么」。折成线格式那一步与
 		// agentred 逐字相同,已经收进 wireinbound —— 这里不再手抄一份。
 		Capabilities: func(_ context.Context, params remotewire.CapabilitiesParams) (remotewire.CapabilitiesResult, error) {

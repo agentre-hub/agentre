@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
 	remotewire "github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
@@ -52,8 +53,10 @@ func (p *peerProtoPipe) Done() <-chan struct{} { return p.done }
 
 func TestProtobufInboundRegistryAuthenticatesAndReusesPeripheralAdapters(t *testing.T) {
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
-		Peripheral:              wireinbound.PeripheralDeps{RemoteFS: remotefs.NewHandlers(remotefs.Options{})},
-		VerifyAccountCredential: func(context.Context, string) (string, error) { return "peer-1", nil },
+		Peripheral: wireinbound.PeripheralDeps{RemoteFS: remotefs.NewHandlers(remotefs.Options{})},
+		VerifyAccountCredential: func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{AccountID: "42", PeerFingerprint: "peer-1"}, nil
+		},
 	})
 	clientTransport, serverTransport := peerProtoPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
@@ -75,6 +78,8 @@ func TestProtobufInboundRegistryAuthenticatesAndReusesPeripheralAdapters(t *test
 	// 身份来自验证器交出的那个值(请求体里已经没有可自报的字段),并原样回写给调用方。
 	require.Equal(t, "peer-1", server.Auth().DeviceFingerprint)
 	require.Equal(t, "peer-1", auth.GetPeerFingerprint())
+	// H1:成功握手连同账号身份一起写进连接,不止对端指纹。
+	require.Equal(t, "42", server.Auth().AccountID)
 
 	_, err = protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_REMOTE_FS_LIST_DIR), &agentrewire.RemoteFsListDirRequest{}, func() *agentrewire.RemoteFsListDirResponse { return &agentrewire.RemoteFsListDirResponse{} })
 	require.NoError(t, err)
@@ -82,7 +87,9 @@ func TestProtobufInboundRegistryAuthenticatesAndReusesPeripheralAdapters(t *test
 
 func TestProtobufInboundRegistryRejectsIncompleteAccountAuth(t *testing.T) {
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
-		VerifyAccountCredential: func(context.Context, string) (string, error) { return "peer-1", nil },
+		VerifyAccountCredential: func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{AccountID: "42", PeerFingerprint: "peer-1"}, nil
+		},
 	})
 	clientTransport, serverTransport := peerProtoPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
@@ -387,8 +394,8 @@ func TestProtobufInboundRegistry_GivenAnUnverifiableCredential_ThenRejectsTheHan
 // 验证器说不行就是不行:与「没有验证器」同一形态被拒,连接不留任何身份。
 func TestProtobufInboundRegistry_GivenAVerifierThatRejects_ThenRefusesTheHandshake(t *testing.T) {
 	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
-		VerifyAccountCredential: func(context.Context, string) (string, error) {
-			return "", errors.New("account credential signature invalid")
+		VerifyAccountCredential: func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{}, errors.New("account credential signature invalid")
 		},
 	})
 	clientTransport, serverTransport := peerProtoPipePair()
@@ -408,6 +415,34 @@ func TestProtobufInboundRegistry_GivenAVerifierThatRejects_ThenRefusesTheHandsha
 	require.Equal(t, int32(-32001), rpcErr.Code)
 	require.False(t, server.Auth().Authenticated)
 	require.Empty(t, server.Auth().DeviceFingerprint)
+}
+
+// TestProtobufInboundRegistry_GivenTheAccountServerIsUnreachable_ThenRejectsWithTheUnreachableCode
+// H3:核验请求到不了 server 时答一个新的、独立的「账号服务不可达」错误(-32007),
+// 不是今天的「凭据被拒」(-32001)—— 调用方据此判断这是可重试的连接失败,而不是
+// 凭据本身有问题。
+func TestProtobufInboundRegistry_GivenTheAccountServerIsUnreachable_ThenRejectsWithTheUnreachableCode(t *testing.T) {
+	registry := NewProtobufInboundRegistry(ProtobufInboundDeps{
+		VerifyAccountCredential: func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{}, auth.ErrAccountServerUnreachable
+		},
+	})
+	clientTransport, serverTransport := peerProtoPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT),
+		&agentrewire.AuthAccountRequest{Credential: "credential", ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported},
+		func() *agentrewire.AuthAccountResponse { return &agentrewire.AuthAccountResponse{} })
+
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, int32(-32007), rpcErr.Code)
+	require.False(t, server.Auth().Authenticated)
 }
 
 // TestProtobufInbound_Run_GivenHostNumberedTheUserMessage_ThenResponseCarriesItsHighestFrameSeq

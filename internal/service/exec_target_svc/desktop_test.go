@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/relaytransport"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
@@ -80,6 +81,9 @@ func (s stubServerSvc) ReportLocalPaths(context.Context, []syncwire.LocalPathRep
 func (s stubServerSvc) PutAvatar(context.Context, string, string, string) error { return nil }
 func (s stubServerSvc) GetAvatar(context.Context, string) (string, string, error) {
 	return "", "", nil
+}
+func (s stubServerSvc) IntrospectCredential(context.Context, string) (auth.Introspection, error) {
+	return auth.Introspection{}, nil
 }
 
 // setupDesktopTargetTest 装配桌面目标可用性判定所需的最小 mock 集：账号设备清单经

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
@@ -39,8 +40,8 @@ func fakePeerServer(t *testing.T, deps peer.ProtobufInboundDeps) string {
 	// 决策 8 之后 auth.account 必须验凭据才给身份;假对端在这里注入一个可控的验证
 	// 结果("这枚凭据验过了,对端是 sha256:test-peer"),各用例只关心会话族方法。
 	if deps.VerifyAccountCredential == nil {
-		deps.VerifyAccountCredential = func(context.Context, string) (string, error) {
-			return "sha256:test-peer", nil
+		deps.VerifyAccountCredential = func(context.Context, string) (auth.Introspection, error) {
+			return auth.Introspection{PeerFingerprint: "sha256:test-peer"}, nil
 		}
 	}
 	server := protorpc.NewLANServer(protorpc.LANOpts{Host: "127.0.0.1", Port: 0, Registry: peer.NewProtobufInboundRegistry(deps)})

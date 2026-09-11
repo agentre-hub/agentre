@@ -2,15 +2,8 @@ package auth
 
 import (
 	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -121,137 +114,6 @@ func TestAuth_Account_GivenTheAccountServerIsUnreachable_WhenAuthenticating_Then
 
 	require.ErrorIs(t, err, ErrAccountServerUnreachable)
 	assertRPCCode(t, err, rpcerror.CodeAccountServerUnreachable)
-}
-
-// ── VerifyAccountCredential:桌面端入站(internal/peer)仍在用的本地 RS256 验签 ──
-
-func TestVerifyAccountCredential_GivenAValidCredential_ThenReturnsItsAccountAndPeerFingerprint(t *testing.T) {
-	privateKey, publicKeyPEM := testRSAKeyPair(t)
-	credential := testAccountCredential(t, privateKey, int64(42), time.Now().Add(time.Hour))
-
-	verified, err := VerifyAccountCredential(credential, KeySet{CurrentPEM: publicKeyPEM})
-
-	require.NoError(t, err)
-	assert.Equal(t, "42", verified.AccountID)
-	assert.Equal(t, "sha256:account-client", verified.PeerFingerprint)
-}
-
-func TestVerifyAccountCredential_GivenVersionedKeySet_ThenSelectsKIDAndEnforcesLifetime(t *testing.T) {
-	oldPrivate, oldPublic := testRSAKeyPair(t)
-	_, currentPublic := testRSAKeyPair(t)
-	keys := KeySet{ByKID: map[string]string{"old": oldPublic, "current": currentPublic}, MaxLifetime: 900 * time.Second}
-
-	validOld := testVersionedAccountCredential(t, oldPrivate, "old", 42, time.Now(), time.Now().Add(15*time.Minute))
-	_, err := VerifyAccountCredential(validOld, keys)
-	require.NoError(t, err, "正常轮换窗口内应按 kid 使用旧公钥")
-
-	unknown := testVersionedAccountCredential(t, oldPrivate, "retired", 42, time.Now(), time.Now().Add(15*time.Minute))
-	_, err = VerifyAccountCredential(unknown, keys)
-	assertAccountCredentialRejection(t, err, "account credential invalid")
-
-	overlong := testVersionedAccountCredential(t, oldPrivate, "old", 42, time.Now(), time.Now().Add(16*time.Minute))
-	_, err = VerifyAccountCredential(overlong, keys)
-	assertAccountCredentialRejection(t, err, "account credential invalid")
-}
-
-func TestVerifyAccountCredential_GivenCredentialWithinClockSkew_ThenAccepts(t *testing.T) {
-	privateKey, publicKeyPEM := testRSAKeyPair(t)
-	credential := testAccountCredential(t, privateKey, int64(42), time.Now().Add(-30*time.Second))
-
-	_, err := VerifyAccountCredential(credential, KeySet{CurrentPEM: publicKeyPEM})
-
-	require.NoError(t, err)
-}
-
-func TestVerifyAccountCredential_GivenExpiredCredential_ThenRejectsExpiry(t *testing.T) {
-	privateKey, publicKeyPEM := testRSAKeyPair(t)
-	credential := testAccountCredential(t, privateKey, int64(42), time.Now().Add(-61*time.Second))
-
-	_, err := VerifyAccountCredential(credential, KeySet{CurrentPEM: publicKeyPEM})
-
-	assertAccountCredentialRejection(t, err, "account credential expired")
-}
-
-func TestVerifyAccountCredential_GivenWrongSignature_ThenRejectsSignature(t *testing.T) {
-	_, publicKeyPEM := testRSAKeyPair(t)
-	wrongPrivateKey, _ := testRSAKeyPair(t)
-	credential := testAccountCredential(t, wrongPrivateKey, int64(42), time.Now().Add(time.Hour))
-
-	_, err := VerifyAccountCredential(credential, KeySet{CurrentPEM: publicKeyPEM})
-
-	assertAccountCredentialRejection(t, err, "account credential signature invalid")
-}
-
-// 缺 pfp 的凭据与签名不合法同一形态被拒 —— 不回退到请求体,因为回退等于这条要求
-// 不存在。
-func TestVerifyAccountCredential_GivenNoPeerFingerprintClaim_ThenRejectsUnauthorized(t *testing.T) {
-	privateKey, publicKeyPEM := testRSAKeyPair(t)
-	credential := testAccountCredentialWithPeerFingerprint(t, privateKey, int64(42), time.Now().Add(time.Hour), "")
-
-	_, err := VerifyAccountCredential(credential, KeySet{CurrentPEM: publicKeyPEM})
-
-	assertAccountCredentialRejection(t, err, "account credential missing peer fingerprint")
-}
-
-func assertAccountCredentialRejection(t *testing.T, err error, reason string) {
-	t.Helper()
-	var rpcErr *rpcerror.Error
-	require.ErrorAs(t, err, &rpcErr)
-	assert.Equal(t, rpcerror.ErrUnauthorized.Code, rpcErr.Code)
-	assert.Equal(t, reason, rpcErr.Message)
-}
-
-func testRSAKeyPair(t *testing.T) (*rsa.PrivateKey, string) {
-	t.Helper()
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	require.NoError(t, err)
-	return privateKey, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-}
-
-func testAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID any, expiresAt time.Time) string {
-	t.Helper()
-	return testAccountCredentialWithPeerFingerprint(t, privateKey, accountID, expiresAt, "sha256:account-client")
-}
-
-// testAccountCredentialWithPeerFingerprint 铸一枚带 pfp claim(决策 8 的对端身份)的
-// 凭据。空 pfp 省略该 claim —— 那正是「凭据没说自己是谁」的形态。
-func testAccountCredentialWithPeerFingerprint(t *testing.T, privateKey *rsa.PrivateKey, accountID any,
-	expiresAt time.Time, peerFingerprint string) string {
-	t.Helper()
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	payloadClaims := map[string]any{"uid": accountID, "exp": expiresAt.Unix()}
-	if peerFingerprint != "" {
-		payloadClaims["pfp"] = peerFingerprint
-	}
-	claims, err := json.Marshal(payloadClaims)
-	require.NoError(t, err)
-	payload := base64.RawURLEncoding.EncodeToString(claims)
-	signingInput := header + "." + payload
-	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
-	require.NoError(t, err)
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
-}
-
-func testVersionedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, kid string, accountID any,
-	issuedAt, expiresAt time.Time) string {
-	t.Helper()
-	headerJSON, err := json.Marshal(map[string]any{"alg": "RS256", "typ": "JWT", "kid": kid})
-	require.NoError(t, err)
-	header := base64.RawURLEncoding.EncodeToString(headerJSON)
-	claimsJSON, err := json.Marshal(map[string]any{
-		"uid": accountID, "iat": issuedAt.Unix(), "exp": expiresAt.Unix(),
-		"pfp": "sha256:account-client",
-	})
-	require.NoError(t, err)
-	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
-	signingInput := header + "." + payload
-	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
-	require.NoError(t, err)
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
 func TestAuth_PairThenConnect(t *testing.T) {
