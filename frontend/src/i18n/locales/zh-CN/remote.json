@@ -210,6 +210,11 @@
       "title": "Provider 同步状态",
       "unsynced": "未同步"
     },
+    "removed": {
+      "restore": "恢复",
+      "restoreFailed": "没有恢复成功，请重试",
+      "toggle": "已移除 {{count}} 台"
+    },
     "signedOut": {
       "howTo": "怎么登录",
       "instructions": "在这台远端机器上运行 `agentred login` 登录你的账号（本桌面需先登录账号）。登录后，你账号下的其它设备就能看到它并直接连上。",

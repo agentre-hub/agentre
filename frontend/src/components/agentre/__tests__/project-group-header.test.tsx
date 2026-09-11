@@ -8,6 +8,8 @@ const appMocks = vi.hoisted(() => ({
   ProjectLocationList: vi.fn(),
   RemoteDeviceAdd: vi.fn(),
   RemoteDeviceList: vi.fn(),
+  RemoteDeviceListRemoved: vi.fn().mockResolvedValue([]),
+  RemoteDeviceRestore: vi.fn(),
   RemoteDeviceRefresh: vi.fn(),
   RemoteDeviceRemove: vi.fn(),
   RemoteDeviceRename: vi.fn(),

@@ -90,6 +90,10 @@ type RemoteDeviceSvc interface {
 	// 的收编行处理。返回本次清掉的台数。见 clear_account_direct.go。
 	ClearAccountDirect(ctx context.Context) (int, error)
 	Remove(ctx context.Context, id int64) error
+	// ListRemoved 按指纹列出本机的移除记录（D15），每台机器一条。见 restore.go。
+	ListRemoved(ctx context.Context) ([]RemovedDevice, error)
+	// Restore 删掉一台机器的全部移除记录，让收编把仍在账号里的它请回来（D15）。见 restore.go。
+	Restore(ctx context.Context, fingerprint devicefp.Carrier) error
 	UpdateTLS(ctx context.Context, id int64, mode, pem string) (*DeviceView, error)
 	Refresh(ctx context.Context, id int64) (*DeviceView, error)
 	Rename(ctx context.Context, id int64, name string) error

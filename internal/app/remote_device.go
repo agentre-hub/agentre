@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // RemoteDeviceList 返回当前已配对的全部 agentred（不含 keychain 秘密）。
@@ -32,6 +33,18 @@ func (a *App) RemoteDeviceRemove(id int64) error {
 	}
 	a.forwards().CloseDevice(id)
 	return nil
+}
+
+// RemoteDeviceListRemoved 按指纹列出本机的移除记录（D15），设备面板据此隐藏仍在账号里的
+// 被移除机器并给出「已移除」入口。
+func (a *App) RemoteDeviceListRemoved() ([]remote_device_svc.RemovedDevice, error) {
+	return remote_device_svc.Default().ListRemoved(a.ctx)
+}
+
+// RemoteDeviceRestore 删掉一台机器的移除记录（D15）。前端随后重载设备清单，
+// ServerListDevices 里的收编会把仍在账号里的它请回来。
+func (a *App) RemoteDeviceRestore(fingerprint string) error {
+	return remote_device_svc.Default().Restore(a.ctx, devicefp.Carrier(fingerprint))
 }
 
 // RemoteDeviceUpdateTLS 更新 TLS 信任配置并立即 Refresh 一次。

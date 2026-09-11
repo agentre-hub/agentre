@@ -30,6 +30,8 @@ vi.mock("../../../../wailsjs/go/app/App", () => ({
   RemoteDeviceUpdateTLS: vi.fn(),
   RemoteDeviceRefresh: vi.fn(),
   RemoteDeviceRename: vi.fn(),
+  RemoteDeviceListRemoved: vi.fn().mockResolvedValue([]),
+  RemoteDeviceRestore: vi.fn(),
   // 默认未登录:账号来源 unknown。R15 合并用例在测试里单独覆盖成已登录。
   ServerListDevices: vi.fn().mockRejectedValue(new Error("not logged in")),
   ServerGetState: vi.fn(),
@@ -53,6 +55,8 @@ import {
   RemoteDeviceAdd,
   RemoteDeviceRemove,
   RemoteDeviceRename,
+  RemoteDeviceListRemoved,
+  RemoteDeviceRestore,
   ServerListDevices,
   ServerGetState,
   ServerCheckURL,
@@ -69,6 +73,10 @@ const mockList = RemoteDeviceList as unknown as ReturnType<typeof vi.fn>;
 const mockAdd = RemoteDeviceAdd as unknown as ReturnType<typeof vi.fn>;
 const mockRemove = RemoteDeviceRemove as unknown as ReturnType<typeof vi.fn>;
 const mockRename = RemoteDeviceRename as unknown as ReturnType<typeof vi.fn>;
+const mockListRemoved = RemoteDeviceListRemoved as unknown as ReturnType<
+  typeof vi.fn
+>;
+const mockRestore = RemoteDeviceRestore as unknown as ReturnType<typeof vi.fn>;
 const mockServerList = ServerListDevices as unknown as ReturnType<typeof vi.fn>;
 const mockGetState = ServerGetState as unknown as ReturnType<typeof vi.fn>;
 const mockCheckURL = ServerCheckURL as unknown as ReturnType<typeof vi.fn>;
@@ -96,6 +104,9 @@ describe("RemoteDevicesPanel", () => {
     mockLogout.mockResolvedValue(undefined);
     mockOffline.mockReset();
     mockOffline.mockResolvedValue(false);
+    mockListRemoved.mockReset();
+    mockListRemoved.mockResolvedValue([]);
+    mockRestore.mockReset();
   });
 
   it("shows an accessible loading state instead of a blank page", () => {
@@ -676,6 +687,128 @@ describe("RemoteDevicesPanel", () => {
 
   // 真实场景:远端服务器上跑着 agentred,已登录同一个账号、中转在线,但这台桌面
   // 从没跟它 LAN 配对过 —— 它以前一行都不产生,面板里只看得见本机。
+  // D15：用户移除过、但仍在账号里的机器不再出现在设备列表与已配对计数里，由列表底部
+  // 收起的「已移除 N 台」入口逐台恢复。
+  describe("removed machines (D15)", () => {
+    const cloudBox = {
+      id: 21,
+      name: "cloud-box",
+      kind: "agentred",
+      platform: "linux",
+      version: "0.3.0",
+      fingerprint: "fp-cloud",
+      lastSeenAt: 1_700_000_000_000,
+      status: 1,
+      online: true,
+      isThisDevice: false,
+    };
+
+    it("hides a removed machine that is still in the account and offers a collapsed Removed entry", async () => {
+      const user = userEvent.setup();
+      mockList.mockResolvedValue([
+        {
+          id: 1,
+          name: "linux-srv",
+          url: "ws://192.168.1.50:7456/rpc",
+          daemonFingerprint: "fp-lan",
+          tlsMode: "default",
+          online: true,
+          lastSeenAt: 1_700_000_000_000,
+        },
+      ] as Partial<DeviceView>[]);
+      mockServerList.mockResolvedValue([cloudBox]);
+      mockListRemoved.mockResolvedValue([
+        { fingerprint: "fp-cloud", name: "cloud-box" },
+      ]);
+
+      render(<RemoteDevicesPanel />);
+
+      const entry = await screen.findByRole("button", { name: "Removed (1)" });
+      expect(screen.getAllByTestId("device-row")).toHaveLength(1);
+      expect(screen.getByText("1 paired · 1 online")).toBeInTheDocument();
+      expect(entry).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByText("cloud-box")).not.toBeInTheDocument();
+
+      await user.click(entry);
+
+      expect(entry).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByText("cloud-box")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Restore" }),
+      ).toBeInTheDocument();
+    });
+
+    it("restoring calls the binding with the fingerprint and reloads the list", async () => {
+      const user = userEvent.setup();
+      mockList.mockResolvedValue([]);
+      mockServerList.mockResolvedValue([cloudBox]);
+      mockListRemoved.mockResolvedValueOnce([
+        { fingerprint: "fp-cloud", name: "cloud-box" },
+      ]);
+      mockRestore.mockResolvedValue(undefined);
+
+      render(<RemoteDevicesPanel />);
+
+      await user.click(
+        await screen.findByRole("button", { name: "Removed (1)" }),
+      );
+      const loadsBefore = mockList.mock.calls.length;
+      await user.click(screen.getByRole("button", { name: "Restore" }));
+
+      expect(mockRestore).toHaveBeenCalledWith("fp-cloud");
+      await waitFor(() =>
+        expect(mockList.mock.calls.length).toBeGreaterThan(loadsBefore),
+      );
+      expect(await screen.findByTestId("device-row")).toHaveTextContent(
+        "cloud-box",
+      );
+      expect(
+        screen.queryByRole("button", { name: /Removed/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("a failed restore says so next to that machine and keeps the entry", async () => {
+      const user = userEvent.setup();
+      mockList.mockResolvedValue([]);
+      mockServerList.mockResolvedValue([cloudBox]);
+      mockListRemoved.mockResolvedValue([
+        { fingerprint: "fp-cloud", name: "cloud-box" },
+      ]);
+      mockRestore.mockRejectedValue(new Error("db locked"));
+
+      render(<RemoteDevicesPanel />);
+
+      await user.click(
+        await screen.findByRole("button", { name: "Removed (1)" }),
+      );
+      await user.click(screen.getByRole("button", { name: "Restore" }));
+
+      expect(
+        await screen.findByText("Couldn't restore this machine. Try again."),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/db locked/)).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Removed (1)" }),
+      ).toBeInTheDocument();
+    });
+
+    it("shows no Removed entry while the account list is unknown", async () => {
+      mockList.mockResolvedValue([]);
+      mockListRemoved.mockResolvedValue([
+        { fingerprint: "fp-cloud", name: "cloud-box" },
+      ]);
+
+      render(<RemoteDevicesPanel />);
+
+      expect(
+        await screen.findByRole("heading", { name: "Install agentred" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /Removed/ }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("lists an account-only agentred this desktop never paired over LAN", async () => {
     mockList.mockResolvedValueOnce([]);
     mockServerList.mockResolvedValueOnce([
