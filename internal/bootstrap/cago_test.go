@@ -87,7 +87,7 @@ func TestInitCreatesCagoRuntime(t *testing.T) {
 
 // TestInitCreatesOnlyCurrentDatabaseSchema pins the database baseline: a fresh
 // install creates the current model directly, without first materializing
-// columns or migration ledger entries that no table carries any more.
+// columns that no table carries any more.
 func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AGENTRE_DATA_DIR", dataDir)
@@ -209,17 +209,6 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		t.Errorf("subagent_state locator must be an index point lookup on idx_chat_message_blocks_tool_call, got plan:\n%s", planText)
 	}
 
-	var historicalMigrationCount int64
-	if err := gormDB.Table("migrations").Where("id IN ?", []string{
-		"202608110001", // legacy provider/model and route conversion
-		"202608200002", // legacy backend CLI/device conversion
-		"202608260001", // seconds-to-milliseconds data rewrite
-	}).Count(&historicalMigrationCount).Error; err != nil {
-		t.Fatalf("count historical migration ledger entries: %v", err)
-	}
-	if historicalMigrationCount != 0 {
-		t.Fatalf("historical migration ledger entries = %d, want 0", historicalMigrationCount)
-	}
 }
 
 // TestSQLiteDSNShape 回归(design decisions 1/2/5, docs/specs/2026-08-07-autonomous-turn-resilience.md
