@@ -264,8 +264,7 @@ func (s transcriptSource) Open(_ context.Context, loc transcriptimport.Locator) 
 // resolveLocator 把定位符还原成 codex home 内的绝对路径。根内解析与路径逃逸防护
 // 是三个读取器共同的安全边界,判据在 transcriptimport;这里只补上本包的上下文。
 //
-// home 取不到时由共享判据先行拒绝 —— 本包此前的副本没有这道防护,靠 Open 另行
-// 检查兜着,现在两处合成一处。
+// home 取不到时由共享判据先行拒绝。
 func resolveLocator(loc transcriptimport.Locator) (string, error) {
 	abs, err := transcriptimport.ResolveLocator(codexHome(), loc)
 	if err != nil {

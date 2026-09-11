@@ -30,7 +30,7 @@ const (
 	KeySkippedUpdateVersion = "update.skipped_version"
 
 	// KeyDebugLogging 是否开启 debug 级别日志（"true"/"false"）；缺省关闭。
-	// 取代旧的 AGENTRE_DEBUG 环境变量，由「设置 → 版本 & 更新」开关写入。
+	// 由「设置 → 版本 & 更新」开关写入。
 	KeyDebugLogging = "logger.debug_enabled"
 
 	// 通知设置。bool 型存 "true"/"false"。

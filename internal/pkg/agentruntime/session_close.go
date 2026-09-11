@@ -32,8 +32,8 @@ type AllSessionsCloser interface {
 
 // CloseAllSessionsEverywhere 让每个认领了批量收尾口的已注册 runtime 收掉自己的子进程。
 //
-// 宿主的关机路径此前只扫 CLISessionPool,而不是每个后端都把进程放在池里 —— pi 是
-// 每轮一个进程、不进池的,于是只扫池的收尾够不着它,确认退出时在跑的那一轮直接变成
+// 只扫 CLISessionPool 不够:在飞那一轮的进程不一定在池里(pi 的 CloseAllSessions 收的
+// 正是此刻在飞的每一轮),只扫池的收尾够不着它们,确认退出时在跑的那一轮直接变成
 // 孤儿(它自带进程组,不会被宿主退出连坐)。
 func CloseAllSessionsEverywhere(ctx context.Context) {
 	for _, rt := range RegisteredRuntimes() {

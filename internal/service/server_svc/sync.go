@@ -17,10 +17,8 @@ import (
 //
 // 载荷内容一律不进日志：里面有项目路径、prompt 与 EnvJSON。
 
-// 线上结构不再在这里另写一份:契约归共享 module pkg/syncwire 所有,桌面端与服务端
-// 消费同一份定义。这一份从前存在的唯一理由是补 json 标签 —— 领域侧那份 Payload 是
-// []byte,直接 Marshal 会被编成 base64,所以编码只能另找地方做。共享定义把 Payload
-// 声明成 json.RawMessage 之后,这个理由没有了,两个方向的转换循环也一并成了恒等。
+// 线上结构不在这里另写一份:契约归共享 module pkg/syncwire 所有,桌面端与服务端
+// 消费同一份定义(Payload 是 json.RawMessage,直接 Marshal 即可)。
 
 type syncPushReq struct {
 	Items []syncwire.PushItem `json:"items"`
@@ -96,7 +94,7 @@ func (s *service) SyncPull(ctx context.Context, cursor int64, limit int) (*syncw
 			return fmt.Errorf("server: sync pull rejected with code %d", env.Code)
 		}
 		*page = env.Data
-		// 空页交回空切片而不是 nil:从前那个转换循环用 make 起头,一直是这个形状。
+		// 空页交回空切片而不是 nil。
 		if page.Items == nil {
 			page.Items = []syncwire.PullItem{}
 		}

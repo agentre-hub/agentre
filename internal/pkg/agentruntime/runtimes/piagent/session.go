@@ -322,7 +322,6 @@ func safePiResponseCommand(command string) (string, bool) {
 // 非空时为 "agentre-<key>/<model>"）与物化后的 provider 扩展绝对路径。ModelID 为空
 // （保存时已拦截，此处仅兜底）时沿用现状：返回零值不报错，不注入模型也不物化扩展。
 // 模型名（Type 不可识别 / 模型空）出错一律显式返回，不静默吞掉后走无绑定运行。
-// #26 会话级模型覆盖已移除,不再有 override 参与。
 // cfg 是执行侧解析结果（EffectiveLLMConfig v1 seam）：模型 id 取解析出的 ModelID。
 func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig) (model string, extPath string, err error) {
 	if cfg == nil {

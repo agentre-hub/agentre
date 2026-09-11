@@ -17,9 +17,9 @@ import (
 // ListIndexSessions 是单一会话索引的分页查询（见
 // docs/specs/2026-08-16-unified-chat-index.md）。三个 scope 走同一条查询、返回**同一种
 // 载荷**，索引三个轴因此只需要一处投影：
-//   - recent  ：跨 agent、跨项目的全局最近活动（「按时间」档）—— 此前根本拿不到
+//   - recent  ：跨 agent、跨项目的全局最近活动（「按时间」档）
 //   - free    ：project_id = 0 的会话（「随手对话」组）—— ListSessions 挡在 projectID > 0
-//   - project ：某个项目下的会话 —— 取代 ProjectListSessions 那个缺 bgRunning 的形状
+//   - project ：某个项目下的会话
 
 // sessionFilterID 把一个 id 变成 filter 上的指针维。0 在每一维上都是有意义的取值
 // （随手对话 / 本机），所以这些维是指针而不是哨兵。

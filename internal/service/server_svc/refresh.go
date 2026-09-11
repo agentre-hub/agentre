@@ -130,9 +130,8 @@ func (s *service) withAuth(ctx context.Context, fn func(ctx context.Context) err
 }
 
 // RefreshWithBackoff 是开机热身用的刷新：服务端够不着就退避重试，直到刷新成功、
-// 凭据被明确拒绝、本机已登出，或 ctx 结束。它取代了老的「刷新失败即清登录」——
-// 那条路径把一次服务端停机变成了一次不可逆的本地登出（keychain 里的 refresh_token
-// 被删，服务端恢复也回不来）。
+// 凭据被明确拒绝、本机已登出，或 ctx 结束。刷新失败不清登录：那会把一次服务端停机变成
+// 一次不可逆的本地登出（keychain 里的 refresh_token 被删，服务端恢复也回不来）。
 func (s *service) RefreshWithBackoff(ctx context.Context) {
 	delay := refreshRetryInitial
 	for {

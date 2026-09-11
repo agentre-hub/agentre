@@ -87,7 +87,6 @@ describe("session-index-store", () => {
 
   it("Given a page of sessions, When it loads, Then every row lands in the meta store carrying BOTH grouping dimensions", async () => {
     // 决策 4/5：索引按一维分组时行首要放另一维，所以每行必须同时知道 agent 与项目。
-    // 这正是旧的 ProjectListSessions 通路给不出的东西。
     listIndex.mockResolvedValueOnce({
       sessions: [
         lite(9, { agentId: 3, projectId: 7, title: "in-project" }),

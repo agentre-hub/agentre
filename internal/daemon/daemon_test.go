@@ -359,10 +359,8 @@ func accountSyncVersionFrame(t *testing.T, version uint64) []byte {
 }
 
 // TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEngineSnapshotWithoutTouchingTheRPCRegistry
-// 是决策 13/14 在 agentred 这一侧的落地:账号信号不再走独立的 /v1/account/channel
-// 连接(那条连接与 enginesnapshot.Manager 自带的 dial + 重试循环一起被删除,见
-// enginesnapshot/manager.go),而是经由已经在跑的那一条中继连接上的保留通道
-// (relaytransport.SignalChannelID)抵达。RED 之前:serveRelayChannels 把 mux.Accept()
+// 是决策 13/14 在 agentred 这一侧的落地:账号信号经由中继连接上的保留通道
+// (relaytransport.SignalChannelID)抵达。serveRelayChannels 不能把 mux.Accept()
 // 交出的每一条通道都无差别地包成 protorpc.Conn 并起 Serve——那对保留通道是错的
 // (它只出不进,服务端也不会在它上面完成鉴权),因此这条测试断言的是「保留通道的信号
 // 触发了 Pull,而不是被当成一条新的 RPC 连接」。

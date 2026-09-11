@@ -82,8 +82,8 @@ type Runtime struct {
 // 用旧力度跑(spec 2026-09-01「三后端下发档位的收敛」)。ModelKey
 // 单列一项,因为两行不同的稳定模型可以解析到同一个上游 ModelID。
 //
-// 比对与「未记录即已变」的判定都交给 CLISessionPool.GetWithIdentity,身份随条目消失
-// —— 此前这里是一张旁路表,池自行淘汰条目时不回调本包,只能靠 512 条 FIFO 上限兜底。
+// 比对与「未记录即已变」的判定都交给 CLISessionPool.GetWithIdentity,身份随条目消失,
+// 不另开旁路表(池自行淘汰条目时不回调本包)。
 // 分隔符用 \x00:这些字段都是标识串,不会含 NUL。
 func launchIdentity(req agentruntime.RunRequest) string {
 	return strings.Join([]string{

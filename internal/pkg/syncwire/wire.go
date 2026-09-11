@@ -31,8 +31,7 @@ import (
 // 而「谁拥有这份契约」这个问题只有一个答案。
 //
 // 留在本包的是**本端专属**的东西:业务码的客户端表达(ErrResyncRequired /
-// ErrCursorUnknown)与账号级实时通道的解码。载荷守卫从前也在这里,现已归契约所有
-// (guard.go 只剩别名再导出)。
+// ErrCursorUnknown)与账号级实时通道的解码。载荷守卫归契约所有(guard.go 只做别名再导出)。
 const (
 	KindProject         = wire.KindProject
 	KindDepartment      = wire.KindDepartment
@@ -61,8 +60,7 @@ const (
 	PushStatusRejected = wire.PushStatusRejected
 )
 
-// 单条拒绝的三个原因。本端从前只认得 deleted 一个,另外两个走的是兜底分支 ——
-// 行为是对的,但契约里少了名字。
+// 单条拒绝的三个原因。
 const (
 	PushRejectReasonDeleted = wire.PushRejectReasonDeleted
 	PushRejectReasonKind    = wire.PushRejectReasonKind
@@ -77,9 +75,8 @@ const (
 
 // PushItem / PushResult / PullItem / PullPage 是线上结构本身。
 //
-// Payload 从 []byte 换成了 json.RawMessage(别名指向共享定义):这正是本包从前不带
-// json 标签的原因 —— []byte 会被 encoding/json 编成 base64,于是编码只能另找地方做,
-// server_svc 因此又抄了一份私有结构。换成 RawMessage 之后那一份也没有存在理由了。
+// Payload 是 json.RawMessage(别名指向共享定义):[]byte 会被 encoding/json 编成 base64,
+// 编码就只能另找地方做。
 type (
 	PushItem   = wire.PushItem
 	PushResult = wire.PushResult
@@ -90,9 +87,8 @@ type (
 // 十二个 kind 的载荷类型,同样归契约所有 —— 同步对象 payload 的形状在整个工作区
 // 只有一份定义。
 //
-// 它们从前是 internal/service/sync_svc 的私有结构体,而 server 同时是这些对象的
-// 一等写入方,那一侧只能拿字符串字面量读写同一份 JSON。字段含义、跨机引用规则与
-// 每个 omitempty 的理由都写在 pkg/syncwire/payload.go,别在这里另起一份。
+// server 同时是这些对象的一等写入方,所以载荷类型不能是某一端的私有结构体。字段含义、
+// 跨机引用规则与每个 omitempty 的理由都写在 pkg/syncwire/payload.go,别在这里另起一份。
 type (
 	ProjectPayload         = wire.ProjectPayload
 	ProjectAgentPayload    = wire.ProjectAgentPayload

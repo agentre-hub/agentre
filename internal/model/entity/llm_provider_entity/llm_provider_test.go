@@ -41,7 +41,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("legacy openai value rejected", func(t *testing.T) {
-		// 旧的 "openai" 由迁移转成 "openai-chat"；运行时再看到 "openai" 视为非法。
+		// "openai" 不是合法类型（合法的是 openai-chat / openai-response）。
 		p := &LLMProvider{Type: "openai", Name: "x"}
 		assert.Error(t, p.Check(ctx))
 	})

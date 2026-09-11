@@ -174,8 +174,8 @@ func TestListAgentSkillPacksForTarget_RemoteBackendUsesDaemonDiscovery(t *testin
 }
 
 // TestListAgentSkillPacksForTarget_ReadsAuthorizationFromExecTargetNotAgentRow 锁住 R15e
-// 的存放位置:agents.skills_json 即便还留着(遗留列,保留但不再被读取),也不能再
-// 影响目录的授权标注 —— 真源是这一档执行目标行自己的 SkillsJSON。
+// 的存放位置:Agent 实体上的 SkillsJSON(不落库的原始载荷)不影响目录的授权标注 ——
+// 真源是这一档执行目标行自己的 SkillsJSON。
 func TestListAgentSkillPacksForTarget_ReadsAuthorizationFromExecTargetNotAgentRow(t *testing.T) {
 	Convey("Agent 行上的 legacy skills_json 与执行目标行的授权不一致时,以执行目标行为准", t, func() {
 		ctrl := gomock.NewController(t)

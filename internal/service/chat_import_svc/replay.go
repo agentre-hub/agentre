@@ -19,9 +19,7 @@ import (
 // 导入路径上一轮的消息还没有主键(整轮攒齐后才 Create),所以持久化适配器一律
 // **只 patch 内存实体**,不发单列 UPDATE。
 //
-// 从前这里另抄了一份注册表,理由是"chat_svc 那份是私有的、它的适配器直接够 chat_repo
-// 包级全局"。注册表下沉到共享包之后这两条都不成立了:表只有一张,够不够得着库由传进去
-// 的 Adapters 决定。
+// 表只有一张:够不够得着库由传进去的 Adapters 决定,导入路径不另抄注册表。
 func newImportDispatcher() *turn.Dispatcher {
 	return transcript.NewTurnDispatcher(transcript.Adapters{
 		Usage:          memUsageWriter{},

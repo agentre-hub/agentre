@@ -4,11 +4,10 @@ import "reflect"
 
 // 同步载荷的形状:一个 kind 一个类型,整个工作区只有这一份定义。
 //
-// 从前这十二个结构体是桌面端 internal/service/sync_svc 的**私有**类型,而 server
-// 同时是这些对象的一等写入方(CreateOrgObject / UpdateOrgObject / SetProjectLocation
-// 与看板写入),只能拿字符串字面量读写同一份 JSON。于是一个领域的形状同时活在三处:
-// 桌面实体、桌面私有结构体、server 的裸字面量 —— 加一个字段要改四处,漏一处不报错,
-// 只是那一列在某一端静默变空。载荷类型归契约所有之后,两个宿主消费同一份定义。
+// server 同时是这些对象的一等写入方(CreateOrgObject / UpdateOrgObject / SetProjectLocation
+// 与看板写入)。载荷类型要是只活在某一端的私有结构体里,另一端就只能拿字符串字面量读写
+// 同一份 JSON —— 加一个字段要改好几处,漏一处不报错,只是那一列在某一端静默变空。所以
+// 载荷类型归契约所有,两个宿主消费同一份定义。
 //
 // **JSON 标签是承重的,不是命名风格。** 这些载荷已经躺在真实账号的
 // sync_objects.payload 里,接收端按键名取值:
@@ -261,9 +260,8 @@ type IssueLabelPayload struct {
 
 // payloadTypes 是「哪种 kind 对应哪个载荷类型」这件事的唯一答案。
 //
-// 它从前只散落在桌面端各 adapter 的 kind() 方法里:一个 kind 与一个私有结构体的
-// 对应关系在 sync_svc 之外没有任何地方说得出来,server 因此只能拿字符串字面量读写
-// 同一份 JSON。收进契约之后,新增一个 kind 却忘了给它载荷类型,payload_test.go
+// kind 与载荷类型的对应要是只散落在各 adapter 的 kind() 方法里,sync_svc 之外就没有
+// 任何地方说得出来。收进契约之后,新增一个 kind 却忘了给它载荷类型,payload_test.go
 // 当场红 —— 而不是等到某一端解出一片空值。
 var payloadTypes = map[string]reflect.Type{
 	KindProject:         reflect.TypeOf(ProjectPayload{}),

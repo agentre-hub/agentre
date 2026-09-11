@@ -8,10 +8,9 @@ import (
 
 // RateLimitsFromResponse 把 agentred 交回的一次配额查询翻成本包的领域结果。
 //
-// 它住在这里而不是 Wails 绑定层:从前这段(reason 分支 + 时间戳还原)整个写在
-// internal/app/cc_usage.go 里,而 App 里的代码 go test 够不着 —— 一条把
-// "auth_expired" 抄成 "auth-expired" 的改动没有任何东西会红。翻译的两头都在本包
-// 与 wire 包里,放这儿谁也没多依赖一层。
+// 它住在这里而不是 Wails 绑定层:这段(reason 分支 + 时间戳还原)写在 internal/app
+// 里的话 go test 够不着 —— 一条把 "auth_expired" 抄成 "auth-expired" 的改动没有任何
+// 东西会红。翻译的两头都在本包与 wire 包里,放这儿谁也没多依赖一层。
 //
 // reason 认不出时按网络错误处理:调用方据此重试,而不是把一个未知状态当成"没配额"
 // 渲染出去。

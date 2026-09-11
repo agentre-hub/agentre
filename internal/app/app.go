@@ -136,9 +136,9 @@ func (a *App) Startup(ctx context.Context) {
 	a.registerPeerService()
 	// 工作区多端同步的下行轮询（R3：30 秒一轮）。未登录时每一轮都是空操作（R12）。
 	//
-	// 落地什么要喊出来：项目树没有任何推送通道，另一台设备同步过来的项目此前靠
-	// 项目页那条 1 秒轮询才现身，轮询随单一会话索引一起删掉之后就只能干等下一次
-	// 别的交互。emitter 必须在 SyncBoot 之前绑好，否则第一轮下行没有听众。
+	// 落地什么要喊出来：项目树没有任何推送通道，另一台设备同步过来的项目只能靠这里通知
+	// 界面，否则就要干等下一次别的交互。emitter 必须在 SyncBoot 之前绑好，否则第一轮
+	// 下行没有听众。
 	if s := sync_svc.Default(); s != nil {
 		s.SetEmitter(func(kinds []string) {
 			wailsruntime.EventsEmit(a.ctx, sync_svc.AppliedEvent, kinds)

@@ -222,8 +222,7 @@ func (s *chatSvc) EnqueuePeerSession(ctx context.Context, params wire.SteerParam
 // 整条队列),与 EnqueuePeerSession 成对。
 //
 // 浏览器与桌面端前端走的是**同一个**撤回实现(CancelQueued):撤不撤得掉、撤掉了哪
-// 几条,都由那一处说了算,这一层只负责把会话身份解出来。此前这条路根本没有,浏览器
-// 上的排队消息因此只能看着,撤不掉。
+// 几条,都由那一处说了算,这一层只负责把会话身份解出来。
 func (s *chatSvc) CancelPeerSessionQueued(ctx context.Context, params wire.CancelSteerParams) (*CancelQueuedResponse, error) {
 	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
 	if err != nil {

@@ -108,10 +108,6 @@ func TestToChatMessage_ToolApprovalBlock(t *testing.T) {
 	assert.Equal(t, "pending", cm.Blocks[0].ToolApproval.Status)
 }
 
-// 历史:ToolResultMetaBlock 已整删,meta 字段改走 raw tool_result.Meta 字节透传
-// (StreamToolResult 事件的 toolResultMeta 字段),不再独立 block;原先的
-// TestToChatMessage_ToolResultWithMeta / OrphanToolResultMetaIsDropped 一并移除。
-
 func TestToChatMessage_TokenFields(t *testing.T) {
 	m := &chat_entity.Message{
 		ID: 1, SessionID: 9, Role: "assistant", BlocksJSON: "[]",

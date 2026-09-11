@@ -43,9 +43,8 @@ var ErrDeviceUnauthorized = errors.New("remote device unauthorized")
 // (后者过会儿可能就回来了);其余一切原因交给调用方给的兜底码 —— 那些原因归调用方
 // 的视图去解释,编一个更具体的码比不给码更糟。
 //
-// 兜底码是参数,因为它是三个域唯一真正的差异:工作区文件、端口转发、远端文件从前各
-// 抄一份逐行相同的 switch,只有最后那行不同。两份实现「一样」全靠人读,单边一改就
-// 分叉 —— 而它们翻的是同一个池的同一组哨兵。
+// 兜底码是参数,因为它是三个域(工作区文件、端口转发、远端文件)唯一真正的差异:三个域
+// 翻的是同一个池的同一组哨兵,各抄一份 switch 的话单边一改就分叉。
 func MapBorrowErr(ctx context.Context, err error, offlineCode int) error {
 	switch {
 	case errors.Is(err, ErrDeviceNotFound):

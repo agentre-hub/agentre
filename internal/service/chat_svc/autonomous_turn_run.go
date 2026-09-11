@@ -23,7 +23,7 @@ import (
 )
 
 // autonomousTurnRun 承载 driveAutonomousTurn 一轮自主续轮期间的全部可变状态。
-// 字段逐一对应原先散在函数体里的 local。它**刻意不复用 turnRun**:两条路径的收尾
+// 它**刻意不复用 turnRun**:两条路径的收尾
 // 语义不同(前台/全量 subagent 翻转、usage 覆盖口径、无 anchor / 无自动接续、多两发
 // 终态事件),合并会把历史上踩出来的差异抹平。
 type autonomousTurnRun struct {
@@ -464,8 +464,8 @@ func (t *autonomousTurnRun) finalize(ctx context.Context) {
 		handlers.MarkRunningForegroundSubagentsCancelled(t.acc, finalBlocks)
 	}
 	_ = t.assistantMsg.SetBlocks(finalBlocks)
-	// 与用户轮同一套收表口径(turn_run.finalize):自主续轮此前一格都不记,于是同一条
-	// 会话里用户发起的那些轮有耗时 / 首字 / 速率,自动续的那些是空的。
+	// 与用户轮同一套收表口径(turn_run.finalize):同一条会话里自动续的轮与用户发起的轮
+	// 一样要有耗时 / 首字 / 速率。
 	t.assistantMsg.DurationMs = int(time.Since(t.segmentStart).Milliseconds())
 	t.turnCtx.PauseGeneration()
 	t.assistantMsg.FirstTokenMs = t.turnCtx.FirstTokenMs()

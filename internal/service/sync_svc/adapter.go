@@ -145,7 +145,7 @@ func resolvedID(resolved map[string]int64, r ref) int64 {
 // syncKinds 是同步组的全部对象类型，按「被引用者在前」排列——认领（R12a）与任何
 // 需要遍历全部类型的地方都按它走，父行因此先入队、先落地（R2a 的暂缓少绕一圈）。
 //
-// 词表与次序归契约所有（syncwire.Kinds）：从前这里与服务端各枚举一遍，漏掉一个新
+// 词表与次序归契约所有（syncwire.Kinds）：两端各枚举一遍的话，漏掉一个新
 // kind 就是那一端整类静默不同步。这个名字只是本地别名，调用点因此不用改。
 var syncKinds = syncwire.Kinds
 

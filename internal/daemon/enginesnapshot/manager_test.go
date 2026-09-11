@@ -131,12 +131,8 @@ func TestManager_GivenLoggedOutDaemon_WhenResolvingCLIPath_ThenLeavesPairedDeskt
 	assert.Empty(t, path)
 }
 
-// 账号信号(sync_version 等)触发 Pull 的行为不再由 Manager 自己拨号验证——那条
-// 独立的 /v1/account/channel 连接与 Manager.WatchAccountChannel /
-// dialAccountChannel / consumeAccountChannel 已随决策 13 一起删除:账号信号现在
-// 经由 daemon 已经在跑的那条中继连接上的保留通道抵达(relaytransport.SignalChannelID),
-// 由 internal/daemon 包的 serveAccountSignal 消费后直接调 Manager.PullAsync——
-// 这就是本包不再需要 websocket 拨号测试的原因,也是「Manager 成为已合并连接的
-// 消费者」这句话在代码里的样子。那条路由行为的测试见
-// internal/daemon/daemon_test.go 的
+// 账号信号(sync_version 等)触发 Pull 不由 Manager 自己拨号:账号信号经由 daemon 那条
+// 中继连接上的保留通道抵达(relaytransport.SignalChannelID),由 internal/daemon 包的
+// serveAccountSignal 消费后直接调 Manager.PullAsync——所以本包没有 websocket 拨号测试。
+// 那条路由行为的测试见 internal/daemon/daemon_test.go 的
 // TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEngineSnapshotWithoutTouchingTheRPCRegistry。

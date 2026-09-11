@@ -26,8 +26,7 @@ const (
 	ReplacementRecoveryAcknowledged ReplacementRecoveryState = "acknowledged"
 
 	// replacementRecoveryKeyPrefix 是恢复标记在 app_settings 里的 key 前缀。
-	// 标记从前借 chat_messages 的四个列表达自己(payload 借 blocks_json、查找键借
-	// device_id);两根支柱在本轮都消失了,它改用通用键值表按 key 点查。
+	// 标记用通用键值表按 key 点查,不借 chat_messages 的列。
 	replacementRecoveryKeyPrefix = "chat.pi_recovery:"
 )
 

@@ -25,11 +25,8 @@ func TestSentinelsRoundTripThroughTypedCodes(t *testing.T) {
 // TestErrorCodesFollowTheirOwner:本包的短名字必须与 pkg/wire/rpcerror 里那三个
 // 常量同值。
 //
-// 这里**不再自己判断段位**。原来那条用例叫「与既有方法族不重叠」,断言却是
-// `code < -32042 && code >= -32059` —— 它恰好放行 -32050..-32052,而那正是
-// project.* 的段位。它抓不到那次撞号,因为它只认识自己注释里列的那几族:一张
-// 手抄的段表只在写它的那天成立。真正的守卫在 pkg/wire/rpcerror/segments_test.go,
-// 它 AST 扫全部 Code* 常量比对全部段位 —— 那三个码搬进去的第一次运行就判红了。
+// 这里**不自己判断段位**:手抄的段表只在写它的那天成立。段位守卫在
+// pkg/wire/rpcerror/segments_test.go,它 AST 扫全部 Code* 常量比对全部段位。
 //
 // 留在这里的这一条只管一件事:别名不许漂。
 func TestErrorCodesFollowTheirOwner(t *testing.T) {

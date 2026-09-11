@@ -38,9 +38,9 @@ func BindConn(conn *protorpc.Conn, gate *Handlers, auth func(context.Context) er
 // 没有」或者不问「你是谁」的连接，比没有这个能力更糟——调用方收到 method not found，
 // 据此知道这台机器办不到，而不是拿到一条没人把关的通路。
 //
-// 两个缺席刻意同一种处置。auth 曾经缺席时补一个恒放行的默认值，于是「调用方忘了传
-// 闸门」的后果从「办不到」变成「任何能连上这条连接的人都能开转发流」；而同一个函数
-// 对 gate 缺席是 fail-closed。不对称本身就是问题，不必等到别人把 nil 传进来才发现。
+// 两个缺席刻意同一种处置。auth 缺席时要是补一个恒放行的默认值，「调用方忘了传闸门」
+// 的后果就从「办不到」变成「任何能连上这条连接的人都能开转发流」；而同一个函数对 gate
+// 缺席是 fail-closed。不对称本身就是问题，不必等到别人把 nil 传进来才发现。
 func RegisterStreamMethods(registry *protorpc.Registry, streams *Streams, auth func(context.Context) error) {
 	if streams == nil || streams.gate == nil || auth == nil {
 		return

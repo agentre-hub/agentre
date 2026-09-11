@@ -1,12 +1,9 @@
 // Package protocolversion 交出 agentre ↔ agentred 协议自己声明的版本号。
 //
 // 版本号写在 .proto 的 (agentre.wire.protocol_version) 文件选项上,本包只负责从
-// descriptor 把它读出来 —— 和 eventkind 读字段选项是同一套做法,理由也一样:这个值
-// 从前住在一个消费方(前端 npm 包的 package.json)里,两个仓库的 Go 各自复述一份,
-// 各自靠一条解析文件的守卫钉住自己看得见的那个来源。复述能漂,守卫只能事后判红。
-//
-// 现在它跟着 schema 住进协议 module:谁 import 这个 module 谁就直接拿到版本号。
-// agentre-server 钉的那个不可变 revision 因此同时含着 schema 与它的版本号。
+// descriptor 把它读出来 —— 和 eventkind 读字段选项是同一套做法。版本号跟着 schema 住在
+// 协议 module 里:谁 import 这个 module 谁就直接拿到版本号,不必各自复述一份再靠守卫
+// 事后判红。agentre-server 钉的那个不可变 revision 因此同时含着 schema 与它的版本号。
 //
 // **窗口的另一端不在这里。**「这个 build 还接受多老的对端」(MinSupported)是宿主的
 // 策略,不是协议的属性:同一份协议,桌面端可以只认自己这一档,另一个消费方可以把地板

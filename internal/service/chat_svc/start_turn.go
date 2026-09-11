@@ -22,9 +22,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/transcriptfork"
 )
 
-// turnStart 承载 startTurn 一次开轮期间的全部可变状态。字段逐一对应原先散在
-// startTurn 函数体里的 local;每个阶段方法内部保留原来的清理与解锁,失败时把
-// 错误原样交回 startTurn 返回,分支顺序与原函数一致。
+// turnStart 承载 startTurn 一次开轮期间的全部可变状态。每个阶段方法内部负责自己的
+// 清理与解锁,失败时把错误原样交回 startTurn 返回。
 type turnStart struct {
 	svc *chatSvc
 
@@ -268,12 +267,11 @@ func (ts *turnStart) emitTurnStarted(ctx context.Context, stream string) {
 	// 之前,否则下一次 attach 时它是唯一没编号的那一条,惰性补齐会把它排到整段回答
 	// 之后(编号顺序就是补齐的重放顺序)。
 	ts.userMessageMinSeq, ts.userMessageSeq = ts.svc.publishPeerMessageFrames(ctx, ts.sess.ID, ts.userMsg, true)
-	// 这里从前还另发一条 user_message **预览帧**(R18 的发起方标记)。它现在是多余的:
-	// 上面那一发已经把同一句话作为**持久帧**交出去了,而拿帧重建转录的消费方(浏览器
-	// 控制台、桌面端 Peer Tab)对每条 user_message 都新建一条用户消息、不去重 ——
-	// 同一句话于是画出两条,预览那条还要等下一个持久帧才从预览尾巴上消失。留下的是
-	// 持久帧那一条:它带号、进转录、参与补齐,预览帧这三样一样都没有。来源标识也不随
-	// 它走丢 —— 用户那一行在 persistPeerMessageSource 里就盖上了。
+	// 这里不另发 user_message **预览帧**(R18 的发起方标记):上面那一发已经把同一句话
+	// 作为**持久帧**交出去了,而拿帧重建转录的消费方(浏览器控制台、桌面端 Peer Tab)对
+	// 每条 user_message 都新建一条用户消息、不去重 —— 再发一条就画出两条。持久帧带号、
+	// 进转录、参与补齐,预览帧这三样一样都没有。来源标识在 persistPeerMessageSource 里
+	// 就盖上了。
 	//
 	// 非查看者发起的轮(群成员轮经 scheduler dispatch):per-turn 流名只有发起者能从
 	// Send 响应拿到,该会话已打开(可能在后台)的 ChatPanel 拿不到 → 不接流、不翻 running。

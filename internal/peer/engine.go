@@ -14,10 +14,10 @@ import (
 
 // 桌面端的引擎探测一族。
 //
-// 这三个方法此前只有 agentred 答得出,而控制台的引擎面板经 executionDevice() 同时
-// 放行 desktop 与 agentred(EXECUTION_DEVICE_KINDS),于是在桌面机器上按下的每一次
-// 扫描 / 测试 / 查路径都撞 -32601 —— 前端把它 catch 成空结果,看起来与「这台机器上
-// 什么都没装」一模一样。
+// 控制台的引擎面板经 executionDevice() 同时放行 desktop 与 agentred
+// (EXECUTION_DEVICE_KINDS),所以桌面端必须答得出这三个方法 —— 否则在桌面机器上按下
+// 的每一次扫描 / 测试 / 查路径都撞 -32601,前端把它 catch 成空结果,看起来与「这台
+// 机器上什么都没装」一模一样。
 //
 // 桌面端答得出它们并不需要新能力:同一个 cliprober 本来就在
 // agent_backend_svc.ScanAndCreateAgentBackends 与 resolveCLIPathLocal 上跑着,

@@ -836,9 +836,8 @@ func execTargetsFromBundle(a BundleAgent, km *keyMap) []*agent_entity.AgentExecT
 	return out
 }
 
-// primaryTargetMirror 取 ① 的 backend 与技能授权:agents 上那两个保留列（
-// agent_backend_id / skills_json）只是执行目标列表的镜像，写着是为了回滚窗口，
-// 谁都不再读它们（R15e / R15f）。空列表时是零值。
+// primaryTargetMirror 取 ① 的 backend 与技能授权(列表顺序即 sort_order)。
+// 空列表时是零值。
 func primaryTargetMirror(targets []*agent_entity.AgentExecTarget) (int64, string) {
 	if len(targets) == 0 {
 		return 0, ""

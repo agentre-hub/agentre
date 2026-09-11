@@ -50,8 +50,7 @@ const (
 // ErrRelayTargetInvalid / ErrRelayTargetForbidden / ErrRelaySignalUnavailable
 // 是通道级失败(决策 10 把中继的失败粒度从连接降到通道)在桌面端的表达。
 // client.ErrRelayDaemonNotFound / ErrRelayDaemonOffline / ErrRelayForwardFailed
-// 是既有三个 —— 旧的按连接级 HTTP 状态码分类的时代就有,含义不变,只是现在从通道级
-// 错误帧翻译过来,而不是从 WebSocket 握手的 4xx/5xx 翻译过来。
+// 由通道级错误帧翻译过来。
 var (
 	ErrRelayTargetInvalid     = errors.New("relay: channel target is malformed")
 	ErrRelayTargetForbidden   = errors.New("relay: this account may not address that target")

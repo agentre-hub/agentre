@@ -245,10 +245,7 @@ func (s *service) markLoginDone() {
 }
 
 // ensureDeviceFingerprint 交给 deviceidentity.Ensure —— 本机指纹唯一的生成处,因此
-// 「账号登录与 LAN 配对拿到同一个指纹」不再是一句注释维持的承诺,而是同一段代码。
-//
-// 这里从前贴着一份逐字节相同的拷贝,唯一的差别是它走 keychain.Default() 而 LAN 配对走
-// 注入的 keychain:两份实现「一样」全靠注释,单边一改就分叉。
+// 「账号登录与 LAN 配对拿到同一个指纹」由同一段代码保证,而不是靠注释维持。
 func (s *service) ensureDeviceFingerprint() (devicefp.Carrier, error) {
 	return deviceidentity.Ensure(keychain.Default())
 }

@@ -129,8 +129,7 @@ func BackendToProto(v *agent_backend_entity.AgentBackend) *agentrewire.AgentBack
 }
 
 // BackendFromProto 把线上那一行 agent backend 翻回实体。它与 BackendToProto 成对,
-// 是 run / goal 两条路径唯一的那一份 —— 此前收端要先把它 marshal 成 JSON 再由 handler
-// unmarshal 回来。
+// 是 run / goal 两条路径唯一的那一份,收端不经过 JSON 中转。
 func BackendFromProto(v *agentrewire.AgentBackend) *agent_backend_entity.AgentBackend {
 	if v == nil {
 		return nil

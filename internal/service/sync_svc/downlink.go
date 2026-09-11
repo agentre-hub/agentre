@@ -61,7 +61,7 @@ func (s *service) pullFrom(ctx context.Context, accountID, cursor int64) error {
 	}
 	var losses []*mergeLoss
 	// 这一轮到底改变了本机什么。收工时交给 emitter —— 界面没有别的办法知道另一台
-	// 设备刚建了个项目（项目树没有推送通道，此前靠项目页那条 1 秒轮询兜着）。
+	// 设备刚建了个项目（项目树没有推送通道）。
 	landed := appliedKinds{}
 	for page := 0; page < maxPullPages; page++ {
 		p, err := transport.SyncPull(ctx, cursor, pullLimit)
@@ -489,13 +489,13 @@ func (s *service) gcDeferred(ctx context.Context, accountID int64) error {
 
 // ── 账号级实时通道：第二个下行触发源 ───────────────────────────────────────
 
-// watchAccountChannel 把账号级实时通道（server 的 GET /v1/account/channel）接成
+// watchAccountChannel 把账号级实时通道（中继连接上的保留信号通道）接成
 // 30 秒轮询之外的**第二个**下行触发源。通道上只流信号「这个账号的同步版本推进了」，
 // 不流对象内容，因此收到之后照常走 SyncOnce（规格「实时通道只送信号，不送数据」）。
 //
 // 这条通道的设计前提就是它可以不可靠：
 //
-//   - 出入口根本没有它（单机构建、旧版 server、测试替身）：直接返回，只剩轮询，
+//   - 出入口根本没有它（单机构建、测试替身）：直接返回，只剩轮询，
 //     而那本身是一个完整可用的形态；
 //   - 连不上 / 断开：隔 accountChannelRetry 再试一次，不重试到底、不阻塞任何操作；
 //   - 建连成功（首次与重连一视同仁）：立刻主动 Pull 一次，而不是等服务端补发——

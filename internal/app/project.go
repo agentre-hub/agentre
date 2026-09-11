@@ -212,7 +212,6 @@ func (a *App) ProjectLocationRemove(projectID int64, deviceID string) error {
 	return project_location_svc.Default().RemoveByProjectAndDevice(a.ctx, projectID, deviceID)
 }
 
-// ProjectListSessions 项目下未软删除的会话列表。
 // ProjectSetLocalPath 就地指定本机路径，解除「本机未配置路径」状态（R10）。
 func (a *App) ProjectSetLocalPath(req *ProjectSetLocalPathRequest) (*ProjectItem, error) {
 	var id int64

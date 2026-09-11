@@ -1,10 +1,9 @@
 // Package eventkind 交出 RuntimeEventNotification 每条 oneof 分支的转录判别值。
 //
 // 判别值写在 .proto 的 (agentre.wire.event_kind) 字段选项上,本包只负责从
-// descriptor 把它读出来。存在的理由是那张对照表从前是**手抄的**:分支名与判别值
-// 没有可推导的规则(tool_call → tool_use_start,user_ask_request →
-// ask_user_question,usage_update → usage),于是每个消费方各抄一份,而抄错编译器
-// 发现不了 —— 消费方的归约落进 default 分支,那一类卡片整块不渲染。
+// descriptor 把它读出来。分支名与判别值没有可推导的规则(tool_call → tool_use_start,
+// user_ask_request → ask_user_question,usage_update → usage),每个消费方各抄一份
+// 对照表的话,抄错编译器发现不了 —— 消费方的归约落进 default 分支,那一类卡片整块不渲染。
 //
 // 它和生成代码放在同一个 module 里、却不在 agentrewire/ 目录下:buf.gen.yaml 的
 // clean: true 每次生成前会清空那个目录(guard 包同理)。

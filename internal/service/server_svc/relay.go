@@ -57,7 +57,7 @@ func (s *service) DialDesktopRelay(ctx context.Context, desktopFingerprint devic
 // 走机器寻址,而 DialDaemonRelay/DialDesktopRelay 正是机器轴——ConnPool 按
 // deviceID 借连接,不知道对话)。
 //
-// URL 上不再出现 daemon_fingerprint(决策 10):目标从连接级降到了通道级。
+// URL 上没有 daemon_fingerprint(决策 10):目标在通道级。
 // peerFingerprint 从决策 8 起就不出现在线上任何地方(auth.account 的对端身份由
 // 服务端从已验签的凭据里取,不是客户端自报的)——这里仍然校验它非空,只是延续
 // dialRelay 原有的「两个参数都不许空」契约,不是把它发出去。

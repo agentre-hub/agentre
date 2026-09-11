@@ -39,7 +39,7 @@ type ProtobufInboundDeps struct {
 	// 对端身份(pfp claim,决策 8)。生产装配是 newAccountCredentialVerifier。
 	//
 	// 它是 nil 表示本进程此刻没有验证能力(未登录、公钥取不到、单测未装配):那时
-	// 握手一律拒绝。曾经这条路上凭据只需非空、指纹只需自报,任何人都能自称任何对端。
+	// 握手一律拒绝:凭据只需非空、指纹只需自报的话,任何人都能自称任何对端。
 	VerifyAccountCredential func(ctx context.Context, credential string) (string, error)
 	AttachSession           func(context.Context, remotewire.SessionAttachParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionAttachResult, error)
 	PullSession             func(context.Context, remotewire.SessionPullParams, chat_svc.PeerSessionSubscriber) (remotewire.SessionPullResult, error)

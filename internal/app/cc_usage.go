@@ -55,8 +55,8 @@ func (a *App) buildCCUsageResolver() cc_usage_svc.FetcherResolver {
 			if cerr != nil {
 				return nil, errors.Join(ccoauth.ErrNetwork, cerr)
 			}
-			// reason 分支与时间戳还原都在 ccoauth 里:那段翻译从前写在这一层,而 App
-			// 里的代码 go test 够不着(见 architecture.md 对绑定层的规定)。
+			// reason 分支与时间戳还原都在 ccoauth 里:App 里的代码 go test 够不着
+			// (见 architecture.md 对绑定层的规定)。
 			return ccoauth.RateLimitsFromResponse(res)
 		}, nil
 	}

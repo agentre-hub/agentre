@@ -82,9 +82,9 @@ func pairedDeviceID(ctx context.Context, fingerprint devicefp.Carrier) (int64, b
 	return 0, false
 }
 
-// authorizedSkills 取 agentID 主档(sort_order 最小的一档)的技能授权。存放位置
-// 已从 agents.skills_json 下沉到 agent_exec_targets(R15e),这里不再读 Agent 行 ——
-// 也不做跨档并集:agentID 有几档就有几份互不相干的授权,这里只取最靠前那一档的。
+// authorizedSkills 取 agentID 主档(sort_order 最小的一档)的技能授权。授权存在
+// agent_exec_targets(R15e) —— 不做跨档并集:agentID 有几档就有几份互不相干的授权,
+// 这里只取最靠前那一档的。
 func (s *Service) authorizedSkills(ctx context.Context, agentID int64) ([]agent_entity.AgentSkillItem, error) {
 	return s.authorizedSkillsForTarget(ctx, agentID, 0)
 }
@@ -178,10 +178,9 @@ func (s *Service) ListAgentSkillPacksForTarget(ctx context.Context, agentID, age
 //
 //   - **本机档**(DeviceFingerprint 空,或 R13 认领后等于本机指纹):本地枚举包,再
 //     交给 agentskill.BuildCommands 合并。
-//   - **远端档**:整份清单问那台机器要(skills.commands)。此前这里只问得到插件包
-//     那一半,CLI 原生解析的 user / project / system skill 被整段跳过 —— 本机发现器
-//     只看得见桌面端自己这台机器上的目录,拿它答远端档等于答错人,而界面上看不出
-//     少了东西。
+//   - **远端档**:整份清单问那台机器要(skills.commands),插件包与 CLI 原生解析的
+//     user / project / system skill 都在里面 —— 本机发现器只看得见桌面端自己这台机器上
+//     的目录,拿它答远端档等于答错人,而界面上看不出少了东西。
 //
 // 两条路的合并规则是同一份实现(agentskill.BuildCommands):本机在这里调,远端在那台
 // 机器的 handler 里调。授权两条路都由这一侧给出 —— 组织架构库只在桌面端。

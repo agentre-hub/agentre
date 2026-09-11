@@ -12,8 +12,7 @@ import (
 // TestSchemaShipsWithTheModuleItGenerates 守的是「协议 module 自解释」这一条。
 //
 // 这个 module 是 agentre ↔ agentred 协议在 Go 侧的主人，可它整包代码都是 buf 从一份
-// .proto 生成出来的。schema 若住在别处（历史上住在前端 npm 包
-// frontend/packages/agentre-wire/proto 里），依赖方向就是反的：主人要靠消费方的目录才
+// .proto 生成出来的。schema 若住在别处（比如前端 npm 包里），依赖方向就是反的：主人要靠消费方的目录才
 // 能重新生成自己，而消费方——agentre-server 钉的是这个 module 的一个不可变 revision
 // ——拿到的包里根本没有那份 schema，回答不了「这份协议长什么样」。
 //

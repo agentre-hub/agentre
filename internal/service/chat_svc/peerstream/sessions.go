@@ -268,7 +268,7 @@ func peerSessionSummary(
 		LatestSeq:       0,
 		LastMessageAt:   session.LastMessageAt,
 		// 会话级 ModelTarget 原样交出:这两列本来就是桌面端在写的(决策 2/3 与
-		// SetChatSessionModelTarget),浏览器此前只是读不到。空是有含义的值
+		// SetChatSessionModelTarget),浏览器要读得到。空是有含义的值
 		// (跟随 Agent 绑定),不补默认、不猜。
 		ProviderKey: session.ProviderKey,
 		ModelKey:    session.ModelKey,
@@ -341,9 +341,8 @@ func (s *Publisher) SubscriberCount(sessionID int64) int {
 // 一次查询,只在 RPC 边界上做一次;正向不再需要现场翻译 —— 对端通知宇宙
 // (peerSessionPublication)建立时就把这条对话的身份钉在自己身上,每一帧直接盖它。
 //
-// 这一层从前是「按 (本机指纹, 本地会话 id) 现场派生 + 枚举本机会话补齐备忘录」,
-// 那是 conversation_id 落库之前的过渡形态。新对话的号是**铸**出来的(UUIDv7),
-// 派生算出的是另一个值 —— 落列之后必须一律以库里那一列为准,不能再算。
+// 线上身份一律以库里 conversation_id 那一列为准,不按 (本机指纹, 本地会话 id) 现场派生:
+// 新对话的号是**铸**出来的(UUIDv7),派生算出的是另一个值。
 
 // ResolvePeerConversation 把线上的 conversation_id 翻回本机 chat_sessions.id。
 //

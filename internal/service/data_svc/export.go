@@ -240,7 +240,7 @@ func toBundleBackend(b *agent_backend_entity.AgentBackend, exportKey string, dev
 	// deviceUUIDByID 是按 paired_agentreds.id 的十进制串建的键，规范指纹永远查不中
 	// 它——命中的只有 device_fingerprint 列里遗留的数字 id 那种老值（见
 	// importBackendDeviceID）。这次显式转换把「拿指纹去查一张按数字 id 建的表」
-	// 这件事摆在明面上；取值与从前逐字节相同。
+	// 这件事摆在明面上。
 	deviceID := string(carrier)
 	if uuid, ok := deviceUUIDByID[deviceID]; ok {
 		deviceID = uuid

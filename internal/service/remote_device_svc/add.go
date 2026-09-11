@@ -134,10 +134,8 @@ func (s *service) deriveDisplayName(ctx context.Context, req AddRequest) (string
 
 // ensureDeviceFingerprint 交给 deviceidentity.Ensure —— 本机指纹唯一的生成处。
 //
-// 这里曾经贴着一份逐字节相同的拷贝。两份实现「一样」是靠注释维持的:任何一次单边修改
-// (哪怕只是错误信息不同)都会让 LAN 配对与账号登录拿到不同的指纹,而症状是同一台机器
-// 在 server 上变成两台设备。导出面因此也收回去了:那个为了装配期消费者而导出的名字
-// (存量对话回填)如今在本仓一个调用点都没有。
+// 只能有这一处:两份实现「一样」要靠注释维持,任何一次单边修改(哪怕只是错误信息不同)
+// 都会让 LAN 配对与账号登录拿到不同的指纹,而症状是同一台机器在 server 上变成两台设备。
 func (s *service) ensureDeviceFingerprint() (devicefp.Carrier, error) {
 	return deviceidentity.Ensure(s.keychain)
 }

@@ -47,8 +47,8 @@ func (h *ActivityHandlers) ActivityRollup(ctx context.Context, sinceDay, timeZon
 		}
 	}
 
-	// 窗口下推到存储:统计按「建立日」分桶,而调用方问的通常只是最近一段。此前这里
-	// 取的是整张表,再在 Aggregate 里把窗口外的丢掉 —— 为一张 30 天的图读三年的会话。
+	// 窗口下推到存储:统计按「建立日」分桶,而调用方问的通常只是最近一段 —— 取整张表再
+	// 在 Aggregate 里丢掉窗口外的,就是为一张 30 天的图读三年的会话。
 	rows, err := h.deps.Sessions.ListCreatedSince(ctx, dayStartMillis(sinceDay, loc))
 	if err != nil {
 		return nil, fmt.Errorf("list sessions for activity rollup: %w", err)
