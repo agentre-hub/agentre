@@ -3,6 +3,7 @@ package paired_agentred_entity
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/consts"
@@ -26,8 +27,18 @@ type PairedAgentred struct {
 	LastSeenAt        int64            `gorm:"column:last_seen_at;type:bigint;not null;default:0"`
 	LastError         string           `gorm:"column:last_error;type:text;not null;default:''"`
 	Status            int              `gorm:"column:status;type:int;not null;default:1"`
-	Createtime        int64            `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime        int64            `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	// Origin 标记这一行的直连凭证来源："manual"（默认；覆盖今天已有的手动 LAN 配对
+	// 行与纯中转收编行两种历史形状——它们都不是账号下发的直连内容）或 "account"
+	// （账号握手下发过地址/证书/凭据，见 IsAccountDirect）。与 IsRelayOnly 正交：
+	// 后者只看 url 是否为空，account-direct 行清空前 url 非空、IsRelayOnly()==false。
+	Origin string `gorm:"column:origin;type:text;not null;default:'manual'"`
+	// DirectURLsJSON 是账号一次下发的全部地址（D6：保存下发的全部地址），JSON 数组。
+	// URL 字段单独跟着"地址位"语义走——展示最近一次直连成功的地址，没成功过时是
+	// 这个列表的第一个（D6）；手动 LAN 配对/纯中转收编行留空数组。见 DirectURLs /
+	// SetDirectURLs。
+	DirectURLsJSON string `gorm:"column:direct_urls_json;type:text;not null;default:'[]'"`
+	Createtime     int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime     int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
 }
 
 // TableName 绑定表名。
@@ -35,6 +46,45 @@ func (*PairedAgentred) TableName() string { return "paired_agentreds" }
 
 // IsActive 是否处于启用态。
 func (p *PairedAgentred) IsActive() bool { return p != nil && p.Status == consts.ACTIVE }
+
+// originAccount 是 Origin 列在「账号下发过直连内容」时的取值。其余取值（含默认的
+// "manual" 与迁移前的零值 ""）一概不是账号直连行——本类型不对 Origin 做枚举校验
+// （Check 不检查它），零值故意也判 false，兼容既有测试与既有数据行手写零值。
+const originAccount = "account"
+
+// IsAccountDirect 报告这一行是否「来自账号的直连」（D6）：账号握手下发过地址/
+// 证书/本地直连凭据。与 IsRelayOnly 正交——账号直连行清空前 url 非空，
+// IsRelayOnly()==false；手动 LAN 配对来的行 Origin!="account"，即使 url 非空也
+// 不是账号直连行。
+func (p *PairedAgentred) IsAccountDirect() bool {
+	return p != nil && p.Origin == originAccount
+}
+
+// DirectURLs 反序列化账号下发的全部地址（D6）。JSON 为空或解析失败一律给空切片
+// （非 nil），不 panic。
+func (p *PairedAgentred) DirectURLs() []string {
+	out := []string{}
+	if p == nil || strings.TrimSpace(p.DirectURLsJSON) == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(p.DirectURLsJSON), &out); err != nil {
+		return []string{}
+	}
+	if out == nil {
+		out = []string{}
+	}
+	return out
+}
+
+// SetDirectURLs 序列化并写回 DirectURLsJSON。nil 存成 "[]" 而不是 "null"，
+// 与 DirectURLs 的「未下发时给空切片」对称。
+func (p *PairedAgentred) SetDirectURLs(urls []string) {
+	if urls == nil {
+		urls = []string{}
+	}
+	b, _ := json.Marshal(urls)
+	p.DirectURLsJSON = string(b)
+}
 
 // IsRelayOnly 报告这一行只有中转一条路径。它由账号来源收编而来（本机从没 LAN 配对
 // 过这台机器），因此没有 LAN 地址可拨；连接侧据此跳过直连、只走中转。

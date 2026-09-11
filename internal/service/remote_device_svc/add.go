@@ -58,8 +58,17 @@ func (s *service) Add(ctx context.Context, req AddRequest) (*DeviceView, error) 
 	if existing, ferr := s.repo.FindByFingerprint(ctx, result.DaemonFingerprint); ferr != nil {
 		return nil, ferr
 	} else if existing != nil {
-		if !existing.IsRelayOnly() {
+		// D14：一台「来自账号的直连」的机器（有地址/证书/账号凭据，但没被本机手动
+		// LAN 配对过）同样要走升级路径，而不是「已配对」拒绝——手动配对赢，把它
+		// 转成手动配对行，此后不再随账号登出被清（ClearAccountDirect 只认
+		// IsAccountDirect）。真正已经手动配对过的行（两者都不是）才拒绝。
+		if !existing.IsRelayOnly() && !existing.IsAccountDirect() {
 			return nil, i18n.NewError(ctx, code.RemoteDeviceAlreadyPaired)
+		}
+		if existing.IsAccountDirect() {
+			if err := s.repo.ClearAccountDirect(ctx, existing.ID); err != nil {
+				return nil, err
+			}
 		}
 		return s.upgradeRelayOnly(ctx, existing, req, result)
 	}

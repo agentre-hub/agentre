@@ -211,6 +211,53 @@ func TestPairedAgentredRepo_Rename(t *testing.T) {
 	})
 }
 
+// D6：账号下发内容落到一行既有记录（首次记录一台从未见过的机器走 Create，见
+// remote_device_svc.RecordAccountDirect，不测这个 repo 方法）。
+func TestPairedAgentredRepo_UpsertAccountDirect(t *testing.T) {
+	convey.Convey("UpsertAccountDirect sets address + urls json + cert + origin=account", t, func() {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE `paired_agentreds` SET").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+
+		err := remote_device_repo.NewPairedAgentred().UpsertAccountDirect(
+			ctx, 7, "wss://a:7456/rpc", `["wss://a:7456/rpc","wss://b:7456/rpc"]`, "PEM")
+		assert.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+// D10/D14：清回收编行的形状——地址、证书、下发地址列表、来源标记一并清空。
+func TestPairedAgentredRepo_ClearAccountDirect(t *testing.T) {
+	convey.Convey("ClearAccountDirect resets url/tls/direct urls/origin", t, func() {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE `paired_agentreds` SET").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+
+		err := remote_device_repo.NewPairedAgentred().ClearAccountDirect(ctx, 7)
+		assert.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+// D6：地址位跟着最近一次直连成功的地址走，不碰下发的全部地址列表。
+func TestPairedAgentredRepo_UpdateDirectAddress(t *testing.T) {
+	convey.Convey("UpdateDirectAddress sets only the address slot", t, func() {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE `paired_agentreds` SET").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+
+		err := remote_device_repo.NewPairedAgentred().UpdateDirectAddress(ctx, 7, "wss://b:7456/rpc")
+		assert.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
 func TestPairedAgentredRepo_Delete(t *testing.T) {
 	convey.Convey("Delete soft-deletes (status=2)", t, func() {
 		ctx, _, mock := testutils.Database(t)

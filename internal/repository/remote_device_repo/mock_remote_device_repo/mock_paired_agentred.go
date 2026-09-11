@@ -42,6 +42,20 @@ func (m *MockPairedAgentredRepo) EXPECT() *MockPairedAgentredRepoMockRecorder {
 	return m.recorder
 }
 
+// ClearAccountDirect mocks base method.
+func (m *MockPairedAgentredRepo) ClearAccountDirect(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearAccountDirect", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearAccountDirect indicates an expected call of ClearAccountDirect.
+func (mr *MockPairedAgentredRepoMockRecorder) ClearAccountDirect(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearAccountDirect", reflect.TypeOf((*MockPairedAgentredRepo)(nil).ClearAccountDirect), ctx, id)
+}
+
 // Create mocks base method.
 func (m *MockPairedAgentredRepo) Create(ctx context.Context, p *paired_agentred_entity.PairedAgentred) error {
 	m.ctrl.T.Helper()
@@ -173,6 +187,20 @@ func (mr *MockPairedAgentredRepoMockRecorder) Rename(ctx, id, name any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rename", reflect.TypeOf((*MockPairedAgentredRepo)(nil).Rename), ctx, id, name)
 }
 
+// UpdateDirectAddress mocks base method.
+func (m *MockPairedAgentredRepo) UpdateDirectAddress(ctx context.Context, id int64, address string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDirectAddress", ctx, id, address)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDirectAddress indicates an expected call of UpdateDirectAddress.
+func (mr *MockPairedAgentredRepoMockRecorder) UpdateDirectAddress(ctx, id, address any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDirectAddress", reflect.TypeOf((*MockPairedAgentredRepo)(nil).UpdateDirectAddress), ctx, id, address)
+}
+
 // UpdateEndpoint mocks base method.
 func (m *MockPairedAgentredRepo) UpdateEndpoint(ctx context.Context, id int64, url string, daemonFingerprint devicefp.Carrier) error {
 	m.ctrl.T.Helper()
@@ -213,4 +241,18 @@ func (m *MockPairedAgentredRepo) UpdateTLS(ctx context.Context, id int64, mode, 
 func (mr *MockPairedAgentredRepoMockRecorder) UpdateTLS(ctx, id, mode, pem any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTLS", reflect.TypeOf((*MockPairedAgentredRepo)(nil).UpdateTLS), ctx, id, mode, pem)
+}
+
+// UpsertAccountDirect mocks base method.
+func (m *MockPairedAgentredRepo) UpsertAccountDirect(ctx context.Context, id int64, address, urlsJSON, tlsCertPEM string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertAccountDirect", ctx, id, address, urlsJSON, tlsCertPEM)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertAccountDirect indicates an expected call of UpsertAccountDirect.
+func (mr *MockPairedAgentredRepoMockRecorder) UpsertAccountDirect(ctx, id, address, urlsJSON, tlsCertPEM any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertAccountDirect", reflect.TypeOf((*MockPairedAgentredRepo)(nil).UpsertAccountDirect), ctx, id, address, urlsJSON, tlsCertPEM)
 }
