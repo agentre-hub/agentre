@@ -73,7 +73,7 @@ func TestSessionRepo_ListByPeer_ScopedToCaller(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "agent_id", "cwd", "backend_type", "lifecycle_state", "title", "agent_sync_id", "provider_session_id", "createtime", "last_message_at"}).
 		AddRow("peerA", "s1", 7, "/work", "claudecode", "running", "fix the bug", "01HXsync000000000000000000", "claude-abc123", 100, 200).
 		AddRow("peerA", "s2", 8, "/other", "codex", "idle", "", "", "", 100, 150)
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC, id DESC").
 		WithArgs("peerA").
 		WillReturnRows(rows)
 
@@ -103,7 +103,7 @@ func TestSessionRepo_ListAll_ReturnsRowsAcrossPeers(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "agent_id", "cwd", "backend_type", "lifecycle_state", "title", "agent_sync_id", "provider_session_id", "createtime", "last_message_at"}).
 		AddRow("peerA", "s1", 7, "/work", "claudecode", "running", "", "", "", 100, 200).
 		AddRow("peerB", "s1", 8, "/other", "codex", "idle", "", "", "", 100, 150)
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` ORDER BY last_message_at DESC").WillReturnRows(rows)
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` ORDER BY last_message_at DESC, id DESC").WillReturnRows(rows)
 
 	got, err := repo.ListAll(ctx, session_repo.ListFilter{}, 0, 0)
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestSessionRepo_ListByPeer_PagesWithLimitAndOffset(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "lifecycle_state"}).
 		AddRow("peerA", "s3", "idle")
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC LIMIT \\? OFFSET \\?").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
 		WithArgs("peerA", 1, 2).
 		WillReturnRows(rows)
 
@@ -141,7 +141,7 @@ func TestSessionRepo_ListByPeer_UnpagedWhenNoLimit(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "lifecycle_state"}).
 		AddRow("peerA", "s1", "idle")
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC$").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC, id DESC$").
 		WithArgs("peerA").
 		WillReturnRows(rows)
 
@@ -175,7 +175,7 @@ func TestSessionRepo_ListAll_PagesAcrossPeers(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "lifecycle_state"}).
 		AddRow("peerB", "s9", "idle")
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` ORDER BY last_message_at DESC LIMIT \\? OFFSET \\?").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` ORDER BY last_message_at DESC, id DESC LIMIT \\? OFFSET \\?").
 		WithArgs(1, 20).
 		WillReturnRows(rows)
 
@@ -210,7 +210,7 @@ func TestSessionRepo_ListByPeerLifecycle_ScopesToStateAndPeer(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "lifecycle_state"}).
 		AddRow("peerA", "s1", "running")
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND lifecycle_state = \\? ORDER BY last_message_at DESC LIMIT \\?").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND lifecycle_state = \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
 		WithArgs("peerA", "running", 200).
 		WillReturnRows(rows)
 
@@ -229,7 +229,7 @@ func TestSessionRepo_ListAllByLifecycle_SpansPeers(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "lifecycle_state"}).
 		AddRow("peerB", "s2", "running")
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE lifecycle_state = \\? ORDER BY last_message_at DESC LIMIT \\?").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE lifecycle_state = \\? ORDER BY last_message_at DESC, id DESC LIMIT \\?").
 		WithArgs("running", 200).
 		WillReturnRows(rows)
 
@@ -282,13 +282,17 @@ func TestSessionRepo_Find_NotFound(t *testing.T) {
 // daemon 启动时把**全部对端**的非终态会话一次改成已中断。条件必须是
 // 「lifecycle_state <> interrupted」而不是按对端或按会话枚举 —— 重启时 daemon 内存里
 // 一条会话都没有,没有可枚举的来源。
+//
+// 决策 5(用户决定):启动清扫不是「活动」,只写 lifecycle_state,不再碰
+// last_message_at —— 否则一次重启会把所有被中断会话的最后活动时刻拍平到同一毫秒,
+// 抹掉它们真实的活动顺序(要求 7)。
 func TestSessionRepo_InterruptAll_SweepsEveryNonTerminalRow(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := session_repo.NewSession()
 
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `daemon_sessions` SET `last_message_at`=\\?,`lifecycle_state`=\\? WHERE lifecycle_state <> \\?").
-		WithArgs(sqlmock.AnyArg(), "interrupted", "interrupted").
+	mock.ExpectExec("UPDATE `daemon_sessions` SET `lifecycle_state`=\\? WHERE lifecycle_state <> \\?").
+		WithArgs("interrupted", "interrupted").
 		WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectCommit()
 
@@ -449,7 +453,7 @@ func TestSessionRepo_ListByPeer_NarrowsByKeyword(t *testing.T) {
 	repo := session_repo.NewSession()
 
 	// 对端限定必须**仍在**: 关键词是额外收窄,不是换一条查询。
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND title LIKE \\? ESCAPE '\\\\' ORDER BY last_message_at DESC").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND title LIKE \\? ESCAPE '\\\\' ORDER BY last_message_at DESC, id DESC").
 		WithArgs("peerA", "%happy%").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "title"}).
 			AddRow("peerA", "s1", "看看happy是怎么实现中继的"))
@@ -465,7 +469,7 @@ func TestSessionRepo_ListAll_NarrowsByKeyword(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := session_repo.NewSession()
 
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE title LIKE \\? ESCAPE '\\\\' ORDER BY last_message_at DESC").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE title LIKE \\? ESCAPE '\\\\' ORDER BY last_message_at DESC, id DESC").
 		WithArgs("%happy%").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id", "title"}).
 			AddRow("peerB", "s9", "happy path"))
@@ -502,7 +506,7 @@ func TestSessionRepo_ListByPeer_NarrowsByConversationIDs(t *testing.T) {
 
 	// 对端限定必须**仍在**: 点名是额外收窄,不是换一条查询 —— 少了它,一个对端就能
 	// 点名读到另一个对端名下那条会话的标题。
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND conversation_id IN \\(\\?,\\?\\) ORDER BY last_message_at DESC").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND conversation_id IN \\(\\?,\\?\\) ORDER BY last_message_at DESC, id DESC").
 		WithArgs("peerA", "s2", "s5").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerA", "s2"))
 
@@ -518,7 +522,7 @@ func TestSessionRepo_ListByPeer_CombinesKeywordAndConversationIDs(t *testing.T) 
 	ctx, _, mock := testutils.Database(t)
 	repo := session_repo.NewSession()
 
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND title LIKE \\? ESCAPE '\\\\' AND conversation_id IN \\(\\?\\) ORDER BY last_message_at DESC").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? AND title LIKE \\? ESCAPE '\\\\' AND conversation_id IN \\(\\?\\) ORDER BY last_message_at DESC, id DESC").
 		WithArgs("peerA", "%happy%", "s2").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerA", "s2"))
 
@@ -551,7 +555,7 @@ func TestSessionRepo_ListAll_NarrowsByConversationIDs(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := session_repo.NewSession()
 
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE conversation_id IN \\(\\?\\) ORDER BY last_message_at DESC").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE conversation_id IN \\(\\?\\) ORDER BY last_message_at DESC, id DESC").
 		WithArgs("s9").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerB", "s9"))
 
@@ -582,7 +586,7 @@ func TestSessionRepo_List_EmptyConversationIDsEmitNoIn(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := session_repo.NewSession()
 
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC$").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC, id DESC$").
 		WithArgs("peerA").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerA", "s1"))
 
@@ -597,7 +601,7 @@ func TestSessionRepo_List_BlankKeywordEmitsNoLike(t *testing.T) {
 	repo := session_repo.NewSession()
 
 	// 全空白与「没给关键词」等价: 一个只按了空格的搜索框不该把整台机器筛空。
-	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC$").
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE peer_fingerprint = \\? ORDER BY last_message_at DESC, id DESC$").
 		WithArgs("peerA").
 		WillReturnRows(sqlmock.NewRows([]string{"peer_fingerprint", "conversation_id"}).AddRow("peerA", "s1"))
 
@@ -674,5 +678,46 @@ func TestSessionRepo_Upsert_LeavesTheSessionReasoningEffortAlone(t *testing.T) {
 		// 就算调用方糊里糊涂带上了它,也不该被写进去。
 		ReasoningEffort: "should-not-be-assigned",
 	}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_ListCreatedSince_HasNoOrderBy 覆盖活跃统计那条读路径的收窄
+// (handlers.ActivityHandlers.ActivityRollup 是唯一调用方,取回的行只喂进
+// activityrollup.Aggregate 按天/维度计数,从不依赖行的返回顺序)。
+//
+// 迁移前 EXPLAIN 显示这条查询在 SCAN 之外还带一次 TEMP B-TREE 排序(要求 21);排序
+// 结果没有任何消费者读它,ORDER BY 因此整段去掉,而不是补一支索引去满足一个不存在的
+// 契约。
+func TestSessionRepo_ListCreatedSince_HasNoOrderBy(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	rows := sqlmock.NewRows([]string{"conversation_id", "createtime"}).
+		AddRow("s1", 500)
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions` WHERE createtime >= \\?$").
+		WithArgs(int64(400)).
+		WillReturnRows(rows)
+
+	got, err := repo.ListCreatedSince(ctx, 400)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "s1", got[0].ConversationID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_ListCreatedSince_ZeroFloorReadsWholeTable 覆盖「不设下界」那一档:
+// sinceDay 为空时调用方传 0,读的是整张表,不该发一段永真的 WHERE。
+func TestSessionRepo_ListCreatedSince_ZeroFloorReadsWholeTable(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := session_repo.NewSession()
+
+	rows := sqlmock.NewRows([]string{"conversation_id", "createtime"}).
+		AddRow("s1", 500)
+	mock.ExpectQuery("SELECT \\* FROM `daemon_sessions`$").
+		WillReturnRows(rows)
+
+	got, err := repo.ListCreatedSince(ctx, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
