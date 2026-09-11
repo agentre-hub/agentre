@@ -61,9 +61,13 @@ const dbFileName = "agentred.db"
 
 // Options configures the Daemon at construction time.
 type Options struct {
-	DataDir     string
-	LANHost     string
-	LANPort     int
+	DataDir string
+	LANHost string
+	LANPort int
+	// TLS keeps the LAN port wss-only. Without TLSCertFile/TLSKeyFile it serves
+	// the certificate lancert persists in DataDir, and Run fails when that
+	// certificate cannot be persisted.
+	TLS         bool
 	TLSCertFile string
 	TLSKeyFile  string
 	// AccountServerURL is the account server base URL used for the daemon's
@@ -120,8 +124,11 @@ type Daemon struct {
 
 	mu  sync.RWMutex
 	lan *protorpc.LANServer
-	hub *relaytransport.HubLink
-	mux *relaytransport.Multiplexer
+	// lanCertFile is the certificate a wss-only lan serves, reported to the
+	// local CLI for manual pinning; empty while lan also accepts ws.
+	lanCertFile string
+	hub         *relaytransport.HubLink
+	mux         *relaytransport.Multiplexer
 	// credRefresher backs both hub's RefreshCredential hook (P2/task 2: one
 	// single-flighted refresh on a relay 401, not the permanent state right
 	// away) and the scheduled renewal loop started by runCredentialRefresh —
@@ -888,6 +895,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// repository calling db.Ctx(ctx) anywhere below this point resolves to this
 	// instance's database, never another Daemon's.
 	ctx = dbpkg.WithContextDB(ctx, d.db)
+	// A wss-only port resolves its certificate before anything starts, so one
+	// that cannot be persisted stops the daemon instead of leaving it on ws.
+	lanCertFile, lanKeyFile, err := d.lanTLSFiles(ctx)
+	if err != nil {
+		return err
+	}
 	// Outbound relay failures are deliberately isolated from the LAN server and
 	// running sessions. HubLink owns logging, heartbeats, and retry for Run's
 	// whole lifetime; the multiplexer consumes its raw-frame seam separately.
@@ -928,14 +941,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 	lan := protorpc.NewLANServer(protorpc.LANOpts{
 		Host:              d.opts.LANHost,
 		Port:              d.opts.LANPort,
-		TLSCertFile:       d.opts.TLSCertFile,
-		TLSKeyFile:        d.opts.TLSKeyFile,
+		TLSCertFile:       lanCertFile,
+		TLSKeyFile:        lanKeyFile,
 		DirectCertificate: d.lanDirectCertificate(ctx),
 		Registry:          d.protobufRegistry,
 		OnConn:            d.bindProtobufConn,
 	})
 	d.mu.Lock()
 	d.lan = lan
+	d.lanCertFile = lanCertFile
 	d.mu.Unlock()
 	runErr := lan.Run(ctx)
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), daemonConnectionCleanupTimeout)
@@ -944,13 +958,28 @@ func (d *Daemon) Run(ctx context.Context) error {
 	return runErr
 }
 
+// lanTLSFiles resolves the certificate pair a wss-only LAN port serves: the
+// configured pair, or with TLS alone the pair lancert persists in DataDir.
+// Empty paths mean the port is not wss-only.
+func (d *Daemon) lanTLSFiles(ctx context.Context) (certFile, keyFile string, err error) {
+	if !d.opts.TLS || d.opts.TLSCertFile != "" || d.opts.TLSKeyFile != "" {
+		return d.opts.TLSCertFile, d.opts.TLSKeyFile, nil
+	}
+	if _, err := lancert.LoadOrCreate(ctx, d.opts.DataDir); err != nil {
+		return "", "", fmt.Errorf("tls: %w", err)
+	}
+	certFile, keyFile = lancert.Paths(d.opts.DataDir)
+	return certFile, keyFile, nil
+}
+
 // lanDirectCertificate returns the certificate served beside ws on the LAN port
-// for automatic direct connections. A configured certificate already is that
-// certificate, so nothing is generated then. When none can be persisted the
-// port keeps serving ws only: manual pairing still works and no direct address
-// is offered, rather than serving a certificate that changes on every start.
+// for automatic direct connections. A wss-only port (a configured certificate
+// or TLS) already serves that certificate, so nothing is served beside it then.
+// When none can be persisted the port keeps serving ws only: manual pairing
+// still works and no direct address is offered, rather than serving a
+// certificate that changes on every start.
 func (d *Daemon) lanDirectCertificate(ctx context.Context) *tls.Certificate {
-	if d.opts.TLSCertFile != "" || d.opts.TLSKeyFile != "" {
+	if d.opts.TLS || d.opts.TLSCertFile != "" || d.opts.TLSKeyFile != "" {
 		return nil
 	}
 	certificate, err := lancert.LoadOrCreate(ctx, d.opts.DataDir)

@@ -21,8 +21,11 @@ type State struct {
 }
 
 type ListenPrefs struct {
-	LanHost     string `json:"lanHost"`
-	LanPort     int    `json:"lanPort"`
+	LanHost string `json:"lanHost"`
+	LanPort int    `json:"lanPort"`
+	// TLS keeps the LAN port wss-only. Without TLSCertFile/TLSKeyFile the
+	// daemon serves the certificate it generates in its data directory.
+	TLS         bool   `json:"tls,omitempty"`
 	TLSCertFile string `json:"tlsCertFile,omitempty"`
 	TLSKeyFile  string `json:"tlsKeyFile,omitempty"`
 }

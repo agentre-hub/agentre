@@ -54,6 +54,21 @@ func TestGivenOlderStatusWithoutVersionWhenPrintingThenStillRenders(t *testing.T
 
 	assert.Contains(t, buf.String(), "Daemon running, pid 1\n")
 	assert.NotContains(t, buf.String(), "Version:")
+	assert.NotContains(t, buf.String(), "Certificate:", "a ws daemon has no certificate to pin")
+}
+
+func TestGivenCertificateFileWhenPrintingStatusThenShowsIt(t *testing.T) {
+	var buf bytes.Buffer
+	printStatus(&buf, map[string]any{
+		"pid":              float64(1),
+		"listenURLs":       []any{"wss://192.168.1.9:7456/rpc"},
+		"certificateFile":  "/var/lib/agentred/lan-cert.pem",
+		"pairedPeers":      []any{},
+		"activeSessions":   float64(0),
+		"llmProviderCount": float64(0),
+	})
+
+	assert.Contains(t, buf.String(), "Certificate: /var/lib/agentred/lan-cert.pem\n")
 }
 
 func TestGivenDaemonConnectionStateWhenPrintingThenShowsRelayAndClientConnections(t *testing.T) {

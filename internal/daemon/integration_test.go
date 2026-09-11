@@ -356,6 +356,7 @@ func TestIntegration_TLS_AllModes(t *testing.T) {
 	generatedCert, generatedKey := lancert.Paths(dir)
 	assert.NoFileExists(t, generatedCert, "a configured certificate is never joined by a generated one")
 	assert.NoFileExists(t, generatedKey)
+	assert.Equal(t, certPath, readLocalStatus(t, d)["certificateFile"], "status names the configured certificate to pin")
 
 	cases := []struct {
 		mode    client.TLSMode
@@ -414,6 +415,7 @@ func TestIntegration_LANCertificate_GeneratedOnFirstBootReusedOnRestartAndServed
 		for _, u := range listen {
 			assert.True(t, strings.HasPrefix(u.(string), "ws://"), "%s keeps printing ws addresses, got %v", name, u)
 		}
+		assert.NotContains(t, body, "certificateFile", "%s names no certificate for a ws address", name)
 	}
 
 	first.stop()
@@ -441,6 +443,85 @@ func TestIntegration_LANCertificate_UnpersistableCertificateLeavesWSOnly(t *test
 	rig.d.mu.RUnlock()
 	assert.Empty(t, lan.CertificatePEM())
 	assert.Empty(t, lan.DirectURLs())
+}
+
+// --tls 且未配证书:LAN 端口只接受 wss,出示的就是数据目录里生成的那张证书(自动直连
+// 固定的也是它);status / pair 印 wss:// 地址并给出证书路径,手动配对时拿去固定。
+func TestIntegration_TLSFlag_ServesGeneratedCertificateOverWSSOnly(t *testing.T) {
+	// 短前缀:t.TempDir() 的长路径会超过 macOS 104 字节的 unix socket 上限。
+	dir, err := os.MkdirTemp("", "ard-tlsflag")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, TLS: true})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- d.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-errCh:
+		case <-time.After(3 * time.Second):
+			t.Log("daemon did not shut down within 3s")
+		}
+	})
+	require.Eventually(t, func() bool {
+		d.mu.RLock()
+		ready := d.lan != nil && d.lan.Addr() != ""
+		d.mu.RUnlock()
+		return ready
+	}, 2*time.Second, 10*time.Millisecond)
+	d.mu.RLock()
+	lan := d.lan
+	d.mu.RUnlock()
+
+	certFile, _ := lancert.Paths(dir)
+	certPEM, err := os.ReadFile(certFile) //nolint:gosec // G304: the path lancert owns inside this test's data directory
+	require.NoError(t, err, "--tls without a configured certificate generates one in the data directory")
+	assert.Equal(t, string(certPEM), lan.CertificatePEM())
+
+	wssURL := lan.URL()
+	require.True(t, strings.HasPrefix(wssURL, "wss://"), "expected wss URL, got %q", wssURL)
+	assert.Equal(t, lan.AdvertiseURLs(), lan.DirectURLs(), "auto-direct pins the certificate manual pairing pins")
+	cfg, err := client.BuildTLSConfig(client.TLSPinCert, string(certPEM))
+	require.NoError(t, err)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer dialCancel()
+	wss, err := client.DialProtobuf(dialCtx, client.Options{URL: wssURL, TLSConfig: cfg})
+	require.NoError(t, err, "a desktop pinning the generated certificate connects over wss")
+	_ = wss.Close()
+	_, err = client.DialProtobuf(dialCtx, client.Options{URL: "ws://" + strings.TrimPrefix(wssURL, "wss://")})
+	assert.Error(t, err, "--tls keeps the port TLS-only")
+
+	for name, body := range map[string]map[string]any{"status": readLocalStatus(t, d), "pair": readLocalPair(t, d)} {
+		listen, _ := body["listenURLs"].([]any)
+		require.NotEmpty(t, listen, name)
+		for _, u := range listen {
+			assert.True(t, strings.HasPrefix(u.(string), "wss://"), "%s prints wss addresses, got %v", name, u)
+		}
+		assert.Equal(t, certFile, body["certificateFile"], "%s names the certificate to pin", name)
+	}
+}
+
+// --tls 承诺端口只接受 wss:证书落不了盘就拒绝启动,而不是像默认模式那样退回 ws。
+func TestIntegration_TLSFlag_UnpersistableCertificateRefusesToStart(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-tlsflag")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	_, keyFile := lancert.Paths(dir)
+	require.NoError(t, os.Mkdir(keyFile, 0o700))
+
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, TLS: true})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = d.Run(ctx)
+	require.Error(t, err, "--tls must not fall back to serving ws")
+	assert.Contains(t, err.Error(), "tls")
+	d.mu.RLock()
+	lan := d.lan
+	d.mu.RUnlock()
+	assert.Nil(t, lan, "no LAN listener is left serving")
 }
 
 func connectPinnedOverWSS(t *testing.T, wssURL, certPEM, token string) {

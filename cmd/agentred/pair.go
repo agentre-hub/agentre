@@ -48,4 +48,13 @@ func printPair(w io.Writer, v map[string]any) {
 	for _, u := range urls {
 		_, _ = fmt.Fprintf(w, "  %v\n", u)
 	}
+	printCertificateFile(w, v)
+}
+
+// printCertificateFile names the certificate a wss daemon presents, which a
+// desktop has to pin when it pairs manually; a ws daemon reports none.
+func printCertificateFile(w io.Writer, v map[string]any) {
+	if path, ok := v["certificateFile"].(string); ok && path != "" {
+		_, _ = fmt.Fprintf(w, "Certificate: %s\n", path)
+	}
 }

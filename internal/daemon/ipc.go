@@ -55,11 +55,11 @@ func (d *Daemon) ipcPair(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{
+	writeJSON(w, withLANCertificateFile(d, map[string]any{
 		"code":       code,
 		"ttlSeconds": d.state.Snapshot().Preferences.PairingCodeTTLSeconds,
 		"listenURLs": lanURLs(d),
-	})
+	}))
 }
 
 func (d *Daemon) ipcStatus(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +67,7 @@ func (d *Daemon) ipcStatus(w http.ResponseWriter, r *http.Request) {
 	// dbPath / dbSizeBytes:远端盒子上的 transcript 是永久档案,规格要求库文件的位置与
 	// 体量在状态查询里看得见,用户据此自行判断何时该清理(见 Daemon.DBStat)。
 	dbStat := d.DBStat()
-	writeJSON(w, map[string]any{
+	writeJSON(w, withLANCertificateFile(d, map[string]any{
 		"pid":                   os.Getpid(),
 		"version":               BuildIdentity(),
 		"daemonUUID":            snap.DaemonInstanceUUID,
@@ -80,7 +80,20 @@ func (d *Daemon) ipcStatus(w http.ResponseWriter, r *http.Request) {
 		"llmProviderCount":      len(snap.LLMProviders),
 		"dbPath":                dbStat.Path,
 		"dbSizeBytes":           dbStat.SizeBytes,
-	})
+	}))
+}
+
+// withLANCertificateFile names the certificate a wss-only LAN port presents,
+// which a desktop pairing by hand has to pin. A port that accepts ws names
+// none: its advertised addresses are ws.
+func withLANCertificateFile(d *Daemon, body map[string]any) map[string]any {
+	d.mu.RLock()
+	file := d.lanCertFile
+	d.mu.RUnlock()
+	if file != "" {
+		body["certificateFile"] = file
+	}
+	return body
 }
 
 // activeSessionCount 是「这台 daemon 此刻在为几条会话干活」,取自它自己记着的生命周期
