@@ -173,6 +173,26 @@ func (q *countingOutboundQueue) ListByAccount(context.Context, int64) ([]*syncqu
 func (q *countingOutboundQueue) Delete(context.Context, int64) error       { return nil }
 func (q *countingOutboundQueue) DeleteMany(context.Context, []int64) error { return nil }
 
+// CreateMany 是 enqueue 批量化后 Create 的落地位置(要求 15)：这里保留与旧 Create
+// 相同的可观察语义(计数 + 记行),否则本文件里「改动留在出站队列里」的既有断言会
+// 因为生产代码不再逐行调用 Create 而失真。
+func (q *countingOutboundQueue) CreateMany(_ context.Context, rows []*syncqueue_entity.OutboundQueueItem) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(rows) == 0 {
+		return nil
+	}
+	q.created++
+	for _, row := range rows {
+		q.nextID++
+		row.ID = q.nextID
+		q.rows = append(q.rows, row)
+	}
+	return nil
+}
+
+func (q *countingOutboundQueue) ReassignAccount(context.Context, int64, int64) error { return nil }
+
 type noopInboundQueue struct{}
 
 func (noopInboundQueue) Create(context.Context, *syncqueue_entity.InboundQueueItem) error { return nil }

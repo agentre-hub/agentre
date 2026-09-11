@@ -17,15 +17,54 @@ import (
 // mockgen 的期望链表达等于把被测逻辑再写一遍。因此这里用最小的内存替身，
 // 只有真正「一次调用一个答案」的 server_state 走 mockgen（见 sync_test.go）。
 
+// fakeOutboundQueue 另记 writes:一次 Create / CreateMany / ReassignAccount 调用
+// 都算一条写语句(桌面端一条就是一次 BEGIN IMMEDIATE),给「认领 / 入队是一次批量
+// 写入」(要求 15)那几条断言用。
 type fakeOutboundQueue struct {
 	rows   []*syncqueue_entity.OutboundQueueItem
 	nextID int64
+	writes int // Create / CreateMany 调用次数
+	// reassigns 与 writes 分开计:claimAnonymousQueue 每一轮都跑一次 ReassignAccount
+	// (即便这一轮没有匿名行),与「同一 kind 的认领/入队是一次批量写入」是两码事,
+	// 混在一起会让「入队只有一次写」的断言被 claimAnonymousQueue 的例行调用抬高。
+	reassigns int
 }
 
+// resetCounters 清零计数：预置数据走的 Create 不算进被测那一轮。
+func (f *fakeOutboundQueue) resetCounters() { f.writes, f.reassigns = 0, 0 }
+
 func (f *fakeOutboundQueue) Create(_ context.Context, row *syncqueue_entity.OutboundQueueItem) error {
+	f.writes++
 	f.nextID++
 	row.ID = f.nextID
 	f.rows = append(f.rows, row)
+	return nil
+}
+
+// CreateMany 与真仓储同一个语义：空切片不发语句、不计入写次数；非空时不论行数
+// 多少都只算**一次**写(一条 INSERT ... VALUES (...),(...) 语句)。
+func (f *fakeOutboundQueue) CreateMany(_ context.Context, rows []*syncqueue_entity.OutboundQueueItem) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	f.writes++
+	for _, row := range rows {
+		f.nextID++
+		row.ID = f.nextID
+		f.rows = append(f.rows, row)
+	}
+	return nil
+}
+
+// ReassignAccount 与真仓储同一个语义：一条集合 UPDATE,原行的 id / EntitySyncID /
+// Op / QueuedAt 都不变,只有 SyncAccountID 换了主人。
+func (f *fakeOutboundQueue) ReassignAccount(_ context.Context, from, to int64) error {
+	f.reassigns++
+	for _, row := range f.rows {
+		if row.SyncAccountID == from {
+			row.SyncAccountID = to
+		}
+	}
 	return nil
 }
 

@@ -410,6 +410,36 @@ func TestNotifyRuntimeClaim_GivenLoggedOut_QueuesUntilAuthentication(t *testing.
 	assert.Equal(t, "relative-old", h.outbound.rows[0].EntitySyncID)
 }
 
+// TestClaimAnonymousQueue_GivenSeveralRows_ReassignsThemInOneWrite 要求 15：匿名出站
+// 队列认领是一次写入。此前是先 ListByAccount(0) 整批读出来,再逐行 Create + Delete，
+// 3 行就是 1 次读 + 6 次写事务,且这一对不是原子的。改成集合 UPDATE 后原行的 id、
+// EntitySyncID、Op、QueuedAt 都不变——只有 SyncAccountID 换了主人。
+func TestClaimAnonymousQueue_GivenSeveralRows_ReassignsThemInOneWrite(t *testing.T) {
+	h := newHarness(t, false)
+	var seeded []*syncqueue_entity.OutboundQueueItem
+	for i := range 3 {
+		row := &syncqueue_entity.OutboundQueueItem{
+			SyncAccountID: 0, EntityType: "project", LocalID: int64(i + 1),
+			EntitySyncID: fmt.Sprintf("anon-%d", i), Op: OpDelete, QueuedAt: h.nowMs + int64(i),
+		}
+		require.NoError(t, h.outbound.Create(context.Background(), row))
+		seeded = append(seeded, row)
+	}
+	h.outbound.resetCounters()
+
+	require.NoError(t, h.svc.claimAnonymousQueue(context.Background(), 7))
+
+	assert.Equal(t, 1, h.outbound.reassigns, "认领是一次批量写入,不随行数增长")
+	require.Len(t, h.outbound.rows, 3, "原有的行都还在,不是删了重建")
+	for i, row := range h.outbound.rows {
+		assert.Equal(t, seeded[i].ID, row.ID, "认领沿用原 id,不分配新 id")
+		assert.Equal(t, int64(7), row.SyncAccountID, "归属换成新账号")
+		assert.Equal(t, seeded[i].EntitySyncID, row.EntitySyncID)
+		assert.Equal(t, seeded[i].Op, row.Op)
+		assert.Equal(t, seeded[i].QueuedAt, row.QueuedAt)
+	}
+}
+
 // TestNotifyLocalChange_GivenAnotherAccountsRowDeleted_QueuesTombstoneForThatAccount
 // R13a 管的是「不上行到**当前**账号」，不是「这条删除不存在」。
 //
@@ -1264,6 +1294,26 @@ func TestSyncOnce_GivenRowsFromBeforeLogin_ClaimsThemAndUploadsOnce(t *testing.T
 	require.NoError(t, h.svc.SyncOnce(ctx))
 	assert.Len(t, h.transport.pushed, 1)
 	assert.Empty(t, h.outbound.rows)
+}
+
+// TestSyncOnce_GivenManyRowsFromBeforeLogin_ClaimsThemInOneWrite 要求 15：同一 kind
+// 的认领入队是一次批量写入。此前 claimForCurrentAccount 对每一行都单独调用一次
+// enqueue,而 enqueue 又是逐行 Create——5 个还没归属账号的项目就是 5 次独立的
+// BEGIN IMMEDIATE。
+func TestSyncOnce_GivenManyRowsFromBeforeLogin_ClaimsThemInOneWrite(t *testing.T) {
+	h := newHarness(t, true)
+	for i := range 5 {
+		syncID := fmt.Sprintf("p-old-%d", i)
+		h.adapter.rows[syncID] = "Project " + syncID
+		h.state.unowned["project"] = append(h.state.unowned["project"], syncstate_repo.ClaimedRow{SyncID: syncID})
+	}
+	ctx := context.Background()
+
+	require.NoError(t, h.svc.SyncOnce(ctx))
+
+	require.Len(t, h.transport.pushed, 1)
+	assert.Len(t, h.transport.pushed[0], 5, "五行都跟着这一轮一起上行")
+	assert.Equal(t, 1, h.outbound.writes, "同一 kind 的认领入队只取一次写锁,不随行数增长")
 }
 
 // TestFlush_GivenDownlinkBetweenEditAndPush_CarriesEditTimeBaseVersion R4a/决策 27：

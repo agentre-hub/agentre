@@ -108,3 +108,98 @@ func TestOutboundQueueRepo_DeleteManyChunksBeyondVariableLimit(t *testing.T) {
 	require.NoError(t, repo.DeleteMany(ctx, ids))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestOutboundQueueRepo_CreateMany 钉死批量入队走**一条** INSERT 语句(要求 15)：
+// 此前 enqueue 是 for row := range rows { Create(row) },一条改动带 k 个从属行就是
+// k+1 次单独的 BEGIN IMMEDIATE。
+func TestOutboundQueueRepo_CreateMany(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO `sync_outbound_queue`").
+		WillReturnResult(sqlmock.NewResult(1, 2))
+	mock.ExpectCommit()
+
+	err := repo.CreateMany(ctx, []*syncqueue_entity.OutboundQueueItem{
+		{SyncAccountID: 1, EntityType: "project", LocalID: 1, Op: syncqueue_entity.OpCreate},
+		{SyncAccountID: 1, EntityType: "agent", LocalID: 2, Op: syncqueue_entity.OpCreate},
+	})
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestOutboundQueueRepo_CreateManyEmptyIsNoOp 空切片不得发语句(否则 GORM 的
+// CreateInBatches 在长度为 0 时仍会打开一段没有语句的事务)。
+func TestOutboundQueueRepo_CreateManyEmptyIsNoOp(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+	require.NoError(t, repo.CreateMany(ctx, nil))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestOutboundQueueRepo_CreateManyChunksBeyondBatchSize 超过单批上限(100,8 列留足
+// SQLITE_MAX_VARIABLE_NUMBER 余量)时分批插入,但整体仍在**一个**事务里
+// (gorm.CreateInBatches 对多批调用 tx.Transaction),不是 DeleteMany 那种每批一个
+// autocommit 事务。
+func TestOutboundQueueRepo_CreateManyChunksBeyondBatchSize(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+
+	rows := make([]*syncqueue_entity.OutboundQueueItem, syncqueue_repo.CreateManyBatchSize+1)
+	for i := range rows {
+		rows[i] = &syncqueue_entity.OutboundQueueItem{
+			SyncAccountID: 1, EntityType: "project", LocalID: int64(i + 1), Op: syncqueue_entity.OpCreate,
+		}
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO `sync_outbound_queue`").
+		WillReturnResult(sqlmock.NewResult(1, int64(syncqueue_repo.CreateManyBatchSize)))
+	mock.ExpectExec("INSERT INTO `sync_outbound_queue`").
+		WillReturnResult(sqlmock.NewResult(int64(syncqueue_repo.CreateManyBatchSize)+1, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.CreateMany(ctx, rows))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestOutboundQueueRepo_CreateManyPropagatesError 写入失败时事务回滚、错误照实返回。
+func TestOutboundQueueRepo_CreateManyPropagatesError(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO `sync_outbound_queue`").
+		WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+
+	err := repo.CreateMany(ctx, []*syncqueue_entity.OutboundQueueItem{
+		{SyncAccountID: 1, EntityType: "project", LocalID: 1, Op: syncqueue_entity.OpCreate},
+	})
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestOutboundQueueRepo_ReassignAccount 钉死匿名认领走**一条** UPDATE(要求 15)：
+// 此前 claimAnonymousQueue 是先读整批行,再逐行 Create + Delete,M 行就是
+// 1 次读 + 2M 次写事务,且这一对不是原子的。改成一条集合 UPDATE 后原行的 id、
+// EntitySyncID、Op、QueuedAt 都不变——只有 sync_account_id 换了主人。
+func TestOutboundQueueRepo_ReassignAccount(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `sync_outbound_queue` SET .*sync_account_id.*=\\? WHERE sync_account_id = \\?").
+		WithArgs(int64(7), int64(0)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.ReassignAccount(ctx, 0, 7))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestOutboundQueueRepo_ReassignAccountPropagatesError 写入失败时错误照实返回。
+func TestOutboundQueueRepo_ReassignAccountPropagatesError(t *testing.T) {
+	ctx, mock, repo := setupOutboundQueueRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `sync_outbound_queue`").
+		WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+
+	err := repo.ReassignAccount(ctx, 0, 7)
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

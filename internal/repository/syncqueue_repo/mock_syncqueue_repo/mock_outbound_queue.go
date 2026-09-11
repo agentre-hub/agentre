@@ -21,7 +21,6 @@ import (
 type MockOutboundQueueRepo struct {
 	ctrl     *gomock.Controller
 	recorder *MockOutboundQueueRepoMockRecorder
-	isgomock struct{}
 }
 
 // MockOutboundQueueRepoMockRecorder is the mock recorder for MockOutboundQueueRepo.
@@ -53,6 +52,20 @@ func (m *MockOutboundQueueRepo) Create(ctx context.Context, row *syncqueue_entit
 func (mr *MockOutboundQueueRepoMockRecorder) Create(ctx, row any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockOutboundQueueRepo)(nil).Create), ctx, row)
+}
+
+// CreateMany mocks base method.
+func (m *MockOutboundQueueRepo) CreateMany(ctx context.Context, rows []*syncqueue_entity.OutboundQueueItem) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateMany", ctx, rows)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateMany indicates an expected call of CreateMany.
+func (mr *MockOutboundQueueRepoMockRecorder) CreateMany(ctx, rows any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateMany", reflect.TypeOf((*MockOutboundQueueRepo)(nil).CreateMany), ctx, rows)
 }
 
 // Delete mocks base method.
@@ -96,4 +109,18 @@ func (m *MockOutboundQueueRepo) ListByAccount(ctx context.Context, accountID int
 func (mr *MockOutboundQueueRepoMockRecorder) ListByAccount(ctx, accountID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAccount", reflect.TypeOf((*MockOutboundQueueRepo)(nil).ListByAccount), ctx, accountID)
+}
+
+// ReassignAccount mocks base method.
+func (m *MockOutboundQueueRepo) ReassignAccount(ctx context.Context, from, to int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReassignAccount", ctx, from, to)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReassignAccount indicates an expected call of ReassignAccount.
+func (mr *MockOutboundQueueRepoMockRecorder) ReassignAccount(ctx, from, to any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignAccount", reflect.TypeOf((*MockOutboundQueueRepo)(nil).ReassignAccount), ctx, from, to)
 }
