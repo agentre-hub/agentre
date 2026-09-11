@@ -118,6 +118,11 @@ type Daemon struct {
 	lan *protorpc.LANServer
 	hub *relaytransport.HubLink
 	mux *relaytransport.Multiplexer
+	// credRefresher backs both hub's RefreshCredential hook (P2/task 2: one
+	// single-flighted refresh on a relay 401, not the permanent state right
+	// away) and the scheduled renewal loop started by runCredentialRefresh —
+	// same instance, so the two triggers single-flight against each other too.
+	credRefresher *credentialRefresher
 
 	// conns 是 daemon 的推送路由表:会话通知按**会话**解析到发起它的那条连接,
 	// MCP 反向隧道从同一份状态里解析目标,daemon 上没有第二个「当前连接」的全局。
@@ -817,9 +822,15 @@ func New(opts Options) (*Daemon, error) {
 	// 中转链路无条件构造：登录状态改由每次 dial 时重新解析（relayServerURL），
 	// 不在这里判一次。判一次的后果是未登录启动的进程即使之后登录了也永远没有链路
 	// —— login 是另一个进程，写完 state.json 就退出，没有东西会回来建它。
+	// Constructed here (not lazily inside runCredentialRefresh, which only starts
+	// after login) so hub's RefreshCredential hook and the scheduled renewal loop
+	// share one credentialRefresher — and therefore one refreshNow single flight
+	// — from the moment the link can start dialing.
+	d.credRefresher = newCredentialRefresher(st, opts.AccountServerURL)
 	hubOpts := relayLinkOptions()
 	hubOpts.ServerURLProvider = d.relayServerURL
 	hubOpts.AccessTokenProvider = d.currentAccessToken
+	hubOpts.RefreshCredential = d.credRefresher.refreshNow
 	d.hub = relaytransport.NewHubLink(hubOpts)
 	d.mux = relaytransport.NewMultiplexer(d.hub)
 	d.engineSnapshot = enginesnapshot.New(enginesnapshot.Options{
@@ -989,7 +1000,7 @@ func (d *Daemon) awaitLogin(ctx context.Context) bool {
 // longer be renewed, so the hub link is canceled rather than kept retrying a
 // dead connection forever. Local sessions and the LAN server are unaffected.
 func (d *Daemon) runCredentialRefresh(ctx context.Context, stopRelay context.CancelFunc) {
-	newCredentialRefresher(d.state, d.opts.AccountServerURL).run(ctx, stopRelay)
+	d.credRefresher.run(ctx, stopRelay)
 }
 
 // runRevocationPoll launches the R4 revocation-list poller for the daemon's
@@ -1037,6 +1048,21 @@ type credentialRefresher struct {
 	backoff func(int) time.Duration
 	margin  time.Duration
 	logf    func(format string, args ...any)
+
+	// refreshNowMu/refreshNowCall single-flight refreshNow (P2/task 2): a
+	// concurrent second caller — e.g. two 401s racing on the relay link, or a
+	// 401 landing while the scheduled loop in run() already has a refresh in
+	// flight — must not fire a second HTTP round trip against the same refresh
+	// token. It waits for the one in flight and shares its result instead.
+	refreshNowMu   sync.Mutex
+	refreshNowCall *refreshNowCall
+}
+
+// refreshNowCall is the in-flight/most-recent call shared by refreshNow's
+// single flight: every caller that joins it waits on done, then reads err.
+type refreshNowCall struct {
+	done chan struct{}
+	err  error
 }
 
 func newCredentialRefresher(st *state.State, serverURL string) *credentialRefresher {
@@ -1081,15 +1107,17 @@ func (r *credentialRefresher) run(ctx context.Context, stopRelay context.CancelF
 
 		// Retry transient failures with backoff without re-entering the schedule
 		// wait: the access token is still due until a refresh succeeds. Only a
-		// permanent grant rejection (invalid_grant) stops the loop.
-		token, permanent, err := r.refreshOnce(ctx, credential.RefreshToken)
-		for err != nil && !permanent {
+		// permanent grant rejection (invalid_grant) stops the loop. refreshNow
+		// does the HTTP round trip, the single-flighting shared with the relay
+		// link's 401 path (P2/task 2), and — on success — the persistence.
+		err := r.refreshNow(ctx)
+		for err != nil && !errors.Is(err, relaytransport.ErrRelayCredentialRejected) {
 			r.logf("daemon.refresh: refresh failed; retrying: %v", err)
 			if err := r.wait(ctx, r.backoff(failures)); err != nil {
 				return
 			}
 			failures++
-			token, permanent, err = r.refreshOnce(ctx, credential.RefreshToken)
+			err = r.refreshNow(ctx)
 		}
 		if err != nil {
 			r.logf("daemon.refresh: refresh token rejected by server; relay renewal stopped (LAN unaffected): %v", err)
@@ -1097,18 +1125,76 @@ func (r *credentialRefresher) run(ctx context.Context, stopRelay context.CancelF
 			return
 		}
 		failures = 0
-		rotated := state.AccountCredential{
-			DeviceID:              credential.DeviceID,
-			AccessToken:           token.AccessToken,
-			AccessTokenExpiresAt:  r.now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix(),
-			RefreshToken:          token.RefreshToken,
-			RefreshTokenExpiresAt: r.now().Add(time.Duration(token.RefreshExpiresIn) * time.Second).Unix(),
-		}
-		r.state.Mutate(func(s *state.State) { s.Credential = rotated })
-		if err := r.state.Save(); err != nil {
-			r.logf("daemon.refresh: persist refreshed credential: %v", err)
-		}
 	}
+}
+
+// refreshNow performs a single, single-flighted credential refresh (P2/task
+// 2). It is the shared entry point for two triggers that must never race each
+// other over the same stored refresh token: the relay link calls it once when
+// a dial is rejected with HTTP 401, instead of falling straight into the
+// permanent "needs re-login" state; run's scheduled loop above calls it too.
+// A concurrent second caller — two 401s racing, or a 401 landing while the
+// scheduled refresh is already in flight — waits for the one in flight and
+// shares its result instead of spending a second, possibly already-rotated,
+// refresh token.
+//
+// nil means the credential was rotated and persisted: the caller may retry
+// (redial) immediately. An error wrapping relaytransport.ErrRelayCredentialRejected
+// means the refresh grant was permanently rejected (expired/revoked/replay, or
+// there was no refresh token to try) — the caller must treat this exactly like
+// an unrefreshed 401: relay renewal is dead until a human logs in again. Any
+// other error is transient (network/5xx) and must be retried, never treated as
+// permanent.
+func (r *credentialRefresher) refreshNow(ctx context.Context) error {
+	r.refreshNowMu.Lock()
+	if call := r.refreshNowCall; call != nil {
+		r.refreshNowMu.Unlock()
+		<-call.done
+		return call.err
+	}
+	call := &refreshNowCall{done: make(chan struct{})}
+	r.refreshNowCall = call
+	r.refreshNowMu.Unlock()
+
+	call.err = r.doRefreshNow(ctx)
+
+	r.refreshNowMu.Lock()
+	r.refreshNowCall = nil
+	r.refreshNowMu.Unlock()
+	close(call.done)
+	return call.err
+}
+
+// doRefreshNow is refreshNow's actual work, run by exactly one caller per
+// single-flighted round trip.
+func (r *credentialRefresher) doRefreshNow(ctx context.Context) error {
+	credential := r.state.Snapshot().Credential
+	if credential.RefreshToken == "" {
+		return fmt.Errorf("%w: no refresh token to retry with", relaytransport.ErrRelayCredentialRejected)
+	}
+	if credential.RefreshTokenExpiresAt > 0 && r.now().Unix() >= credential.RefreshTokenExpiresAt {
+		return fmt.Errorf("%w: refresh token expired at %d", relaytransport.ErrRelayCredentialRejected,
+			credential.RefreshTokenExpiresAt)
+	}
+	token, permanent, err := r.refreshOnce(ctx, credential.RefreshToken)
+	if err != nil {
+		if permanent {
+			return fmt.Errorf("%w: %v", relaytransport.ErrRelayCredentialRejected, err)
+		}
+		return err
+	}
+	rotated := state.AccountCredential{
+		DeviceID:              credential.DeviceID,
+		AccessToken:           token.AccessToken,
+		AccessTokenExpiresAt:  r.now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix(),
+		RefreshToken:          token.RefreshToken,
+		RefreshTokenExpiresAt: r.now().Add(time.Duration(token.RefreshExpiresIn) * time.Second).Unix(),
+	}
+	r.state.Mutate(func(s *state.State) { s.Credential = rotated })
+	if err := r.state.Save(); err != nil {
+		r.logf("daemon.refresh: persist refreshed credential: %v", err)
+	}
+	return nil
 }
 
 // nextRefreshIn schedules the next proactive refresh well before the access

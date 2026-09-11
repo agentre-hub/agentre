@@ -2008,6 +2008,204 @@ func TestDaemon_RefreshLoop_GivenTransientRefreshFailure_WhenRetrySucceeds_ThenC
 	assert.Equal(t, "refresh-2", updated.RefreshToken)
 }
 
+// TestCredentialRefresher_RefreshNow_ConcurrentCallersSingleFlightOneHTTPRoundTrip
+// is task 2's own single-flight guarantee (P2): refreshNow is the shared entry
+// point HubLink's 401 path and the scheduled loop above both call, and two
+// callers racing each other — the scenario a 401 landing mid-scheduled-refresh
+// would create — must share one refresh HTTP round trip rather than each
+// spending the (possibly single-use) refresh token.
+func TestCredentialRefresher_RefreshNow_ConcurrentCallersSingleFlightOneHTTPRoundTrip(t *testing.T) {
+	clock := &refreshTestClock{now: time.Unix(1_700_000_000, 0)}
+	var calls atomic.Int32
+	proceed := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		<-proceed
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"access-2","expires_in":900,"refresh_token":"refresh-2","refresh_expires_in":3600}`))
+	}))
+	t.Cleanup(server.Close)
+
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Login("account-42", "pk", state.AccountCredential{
+		AccessToken:           "access-1",
+		AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
+		RefreshToken:          "refresh-1",
+		RefreshTokenExpiresAt: clock.Now().Add(24 * time.Hour).Unix(),
+	})
+	require.NoError(t, st.Save())
+
+	refresher := &credentialRefresher{
+		state: st, serverURL: server.URL, httpClient: server.Client(), now: clock.Now, logf: t.Logf,
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range 2 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = refresher.refreshNow(context.Background())
+		}(i)
+	}
+	// Both goroutines must have reached refreshNow before the one HTTP request
+	// in flight is allowed to complete, otherwise a late second call joining
+	// after the first already returned would trivially also see calls==1.
+	require.Eventually(t, func() bool { return calls.Load() == 1 }, time.Second, time.Millisecond)
+	close(proceed)
+	wg.Wait()
+
+	assert.Equal(t, int32(1), calls.Load(), "two concurrent refreshNow callers must share one HTTP round trip")
+	assert.NoError(t, errs[0])
+	assert.NoError(t, errs[1])
+	assert.Equal(t, "access-2", st.Snapshot().Credential.AccessToken)
+}
+
+// TestCredentialRefresher_RefreshNow_GivenPermanentGrantRejection_ThenErrorWrapsRelayCredentialRejected
+// covers the "refresh itself is rejected" half of P2: a confirmed invalid_grant
+// must be reported through the same sentinel HubLink already uses for an
+// unrefreshed 401, so the relay link's 401 handling can tell this apart from a
+// transient failure without a second, parallel error taxonomy.
+func TestCredentialRefresher_RefreshNow_GivenPermanentGrantRejection_ThenErrorWrapsRelayCredentialRejected(t *testing.T) {
+	clock := &refreshTestClock{now: time.Unix(1_700_000_000, 0)}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"invalid_grant","error_description":"refresh token revoked"}`, http.StatusBadRequest)
+	}))
+	t.Cleanup(server.Close)
+
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Login("account-42", "pk", state.AccountCredential{
+		AccessToken:           "access-1",
+		AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
+		RefreshToken:          "refresh-1",
+		RefreshTokenExpiresAt: clock.Now().Add(24 * time.Hour).Unix(),
+	})
+	require.NoError(t, st.Save())
+
+	refresher := &credentialRefresher{
+		state: st, serverURL: server.URL, httpClient: server.Client(), now: clock.Now, logf: t.Logf,
+	}
+	err = refresher.refreshNow(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, relaytransport.ErrRelayCredentialRejected,
+		"a server-confirmed invalid_grant must be reported the same way an unrefreshed 401 is")
+	assert.Equal(t, "access-1", st.Snapshot().Credential.AccessToken, "a rejected refresh must not touch the stored credential")
+}
+
+// TestCredentialRefresher_RefreshNow_GivenTransientFailure_ThenErrorDoesNotWrapRelayCredentialRejected
+// is the boundary the permanent-rejection test does not cover: a 5xx or
+// network failure is not evidence the grant was rejected, so the caller (the
+// relay link on a 401) must not mistake it for the permanent state.
+func TestCredentialRefresher_RefreshNow_GivenTransientFailure_ThenErrorDoesNotWrapRelayCredentialRejected(t *testing.T) {
+	clock := &refreshTestClock{now: time.Unix(1_700_000_000, 0)}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Login("account-42", "pk", state.AccountCredential{
+		AccessToken:           "access-1",
+		AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
+		RefreshToken:          "refresh-1",
+		RefreshTokenExpiresAt: clock.Now().Add(24 * time.Hour).Unix(),
+	})
+	require.NoError(t, st.Save())
+
+	refresher := &credentialRefresher{
+		state: st, serverURL: server.URL, httpClient: server.Client(), now: clock.Now, logf: t.Logf,
+	}
+	err = refresher.refreshNow(context.Background())
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, relaytransport.ErrRelayCredentialRejected,
+		"a transient 503 must not be reported as a permanent credential rejection")
+	assert.Equal(t, "access-1", st.Snapshot().Credential.AccessToken)
+}
+
+// TestDaemon_GivenRelayRejectsTheStoredAccessToken_WhenTheDaemonRefreshesItOnce_ThenTheHubRedialsAndConnects
+// is the end-to-end wiring proof for P2: a real Daemon built by New() — not a
+// hand-assembled HubLink/credentialRefresher pair — must route a relay 401
+// through its credential refresher and land connected, without a human
+// re-login. This is the "upgrade without forcing anyone to log in again"
+// scenario the spec's P2 describes.
+func TestDaemon_GivenRelayRejectsTheStoredAccessToken_WhenTheDaemonRefreshesItOnce_ThenTheHubRedialsAndConnects(t *testing.T) {
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Login("account-42", "cached-public-key", state.AccountCredential{
+		AccessToken:           "access-1",
+		AccessTokenExpiresAt:  time.Now().Add(15 * time.Minute).Unix(),
+		RefreshToken:          "refresh-1",
+		RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	})
+	require.NoError(t, st.Save())
+
+	var relayAttempts, refreshCalls atomic.Int32
+	upgrader := websocket.Upgrader{}
+	connected := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/oauth/token/refresh":
+			refreshCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"access-2","expires_in":900,"refresh_token":"refresh-2","refresh_expires_in":3600}`))
+		case "/v1/relay/daemon":
+			attempt := relayAttempts.Add(1)
+			if attempt == 1 {
+				assert.Equal(t, "Bearer access-1", r.Header.Get("Authorization"), "the first dial presents the stale pre-upgrade token")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			assert.Equal(t, "Bearer access-2", r.Header.Get("Authorization"), "the redial must present the refreshed token")
+			ws, upErr := upgrader.Upgrade(w, r, nil)
+			if upErr != nil {
+				return
+			}
+			defer func() { _ = ws.Close() }()
+			connected <- struct{}{}
+			for {
+				if _, _, readErr := ws.ReadMessage(); readErr != nil {
+					return
+				}
+			}
+		default:
+			t.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	d, err := New(Options{DataDir: dir, AccountServerURL: server.URL})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	hubDone := make(chan error, 1)
+	go func() { hubDone <- d.hub.Run(ctx) }()
+
+	select {
+	case <-connected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("hub never redialed successfully after the refresh")
+	}
+	assert.Equal(t, int32(1), refreshCalls.Load(), "the 401 must trigger exactly one credential refresh")
+	assert.Equal(t, int32(2), relayAttempts.Load(), "one rejected dial plus one successful redial")
+
+	cancel()
+	select {
+	case runErr := <-hubDone:
+		require.NoError(t, runErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("hub link did not stop")
+	}
+}
+
 type daemonPreparedPiRT struct {
 	mu       sync.Mutex
 	prepared []*daemonPreparedPiRun

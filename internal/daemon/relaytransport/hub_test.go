@@ -460,6 +460,191 @@ func TestHubLink_GivenServerRejectsTheCredential_ThenSaysItNeedsAFreshLoginNotJu
 	require.NoError(t, <-runDone)
 }
 
+// TestHubLink_Given401_WhenRefreshSucceeds_ThenRedialsImmediatelyWithTheFreshCredential
+// covers the P2 upgrade behavior: an upgraded daemon's first 401 on the relay
+// dial must not be treated as permanent right away. Run must call
+// RefreshCredential exactly once, and — on success — redial at once (no
+// backoff wait) using whatever AccessTokenProvider now returns.
+func TestHubLink_Given401_WhenRefreshSucceeds_ThenRedialsImmediatelyWithTheFreshCredential(t *testing.T) {
+	var attempts atomic.Int32
+	upgrader := websocket.Upgrader{}
+	dialed := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := attempts.Add(1)
+		auth := r.Header.Get("Authorization")
+		if attempt == 1 {
+			assert.Equal(t, "Bearer stale-token", auth, "the first dial presents the token on hand before any refresh")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		assert.Equal(t, "Bearer fresh-token", auth, "the redial must present the token RefreshCredential rotated in")
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = ws.Close() }()
+		dialed <- struct{}{}
+		for {
+			if _, _, readErr := ws.ReadMessage(); readErr != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	var token atomic.Value
+	token.Store("stale-token")
+	var refreshCalls, backoffCalls atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	link := NewHubLink(HubLinkOptions{
+		ServerURL:           server.URL,
+		AccessTokenProvider: func() string { return token.Load().(string) },
+		HeartbeatInterval:   100 * time.Millisecond,
+		RetryInitial:        time.Millisecond,
+		RetryMax:            2 * time.Millisecond,
+		RetryWait: func(context.Context, time.Duration) error {
+			backoffCalls.Add(1)
+			return nil
+		},
+		Random: func() float64 { return 1 },
+		RefreshCredential: func(context.Context) error {
+			refreshCalls.Add(1)
+			token.Store("fresh-token")
+			return nil
+		},
+		Logf: t.Logf,
+	})
+	runDone := make(chan error, 1)
+	go func() { runDone <- link.Run(ctx) }()
+
+	select {
+	case <-dialed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("link never connected using the refreshed credential")
+	}
+	assert.Equal(t, int32(1), refreshCalls.Load(), "exactly one refresh for the first 401")
+	assert.Equal(t, int32(2), attempts.Load(), "one rejected dial plus one successful redial")
+	assert.Zero(t, backoffCalls.Load(), "the redial after a successful refresh must not wait for backoff")
+
+	cancel()
+	require.NoError(t, <-runDone)
+}
+
+// TestHubLink_Given401_WhenRefreshIsRejected_ThenEntersThePermanentNeedsLoginState
+// covers the other half of P2: when the refresh itself is rejected by the
+// server, Run must fall into exactly today's permanent "needs re-login" state
+// — and must not keep hammering the refresh endpoint on every subsequent 401
+// once that rejection is confirmed.
+func TestHubLink_Given401_WhenRefreshIsRejected_ThenEntersThePermanentNeedsLoginState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"code":30304}`, http.StatusUnauthorized)
+	}))
+	t.Cleanup(server.Close)
+
+	var (
+		refreshCalls atomic.Int32
+		mu           sync.Mutex
+		lines        []string
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	link := NewHubLink(HubLinkOptions{
+		ServerURL:           server.URL,
+		AccessTokenProvider: func() string { return "stale-token" },
+		HeartbeatInterval:   100 * time.Millisecond,
+		RetryInitial:        time.Millisecond,
+		RetryMax:            2 * time.Millisecond,
+		RetryWait:           func(context.Context, time.Duration) error { return nil },
+		Random:              func() float64 { return 1 },
+		RefreshCredential: func(context.Context) error {
+			refreshCalls.Add(1)
+			return fmt.Errorf("%w: invalid_grant", ErrRelayCredentialRejected)
+		},
+		Logf: func(format string, args ...any) {
+			mu.Lock()
+			defer mu.Unlock()
+			lines = append(lines, fmt.Sprintf(format, args...))
+		},
+	})
+	runDone := make(chan error, 1)
+	go func() { runDone <- link.Run(ctx) }()
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, l := range lines {
+			if strings.Contains(l, "agentred login") {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "a refresh that is itself rejected must still fall into today's permanent state")
+
+	// Give the fast retry loop (1-2ms backoff) many more rounds; a confirmed
+	// rejection must not send another refresh on every one of them.
+	time.Sleep(30 * time.Millisecond)
+	assert.Equal(t, int32(1), refreshCalls.Load(),
+		"a confirmed permanent rejection must not be retried on every subsequent 401")
+
+	cancel()
+	require.NoError(t, <-runDone)
+}
+
+// TestHubLink_Given401_WhenCredentialRefreshFailsTransiently_ThenKeepsRetryingWithoutClaimingPermanentRejection
+// covers the boundary the other two tests do not: a refresh attempt that
+// fails for a transient reason (network blip, 5xx) is not evidence the
+// account was deauthorized. It must not be reported as the permanent
+// needs-re-login state, and must be retried on the next 401 rather than
+// given up on after one try.
+func TestHubLink_Given401_WhenCredentialRefreshFailsTransiently_ThenKeepsRetryingWithoutClaimingPermanentRejection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"code":30304}`, http.StatusUnauthorized)
+	}))
+	t.Cleanup(server.Close)
+
+	var (
+		refreshCalls atomic.Int32
+		mu           sync.Mutex
+		lines        []string
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	link := NewHubLink(HubLinkOptions{
+		ServerURL:           server.URL,
+		AccessTokenProvider: func() string { return "stale-token" },
+		HeartbeatInterval:   100 * time.Millisecond,
+		RetryInitial:        time.Millisecond,
+		RetryMax:            2 * time.Millisecond,
+		RetryWait:           func(context.Context, time.Duration) error { return nil },
+		Random:              func() float64 { return 1 },
+		RefreshCredential: func(context.Context) error {
+			refreshCalls.Add(1)
+			return errors.New("refresh endpoint unreachable")
+		},
+		Logf: func(format string, args ...any) {
+			mu.Lock()
+			defer mu.Unlock()
+			lines = append(lines, fmt.Sprintf(format, args...))
+		},
+	})
+	runDone := make(chan error, 1)
+	go func() { runDone <- link.Run(ctx) }()
+
+	require.Eventually(t, func() bool { return refreshCalls.Load() >= 3 }, 2*time.Second, 10*time.Millisecond,
+		"a transient refresh failure must keep being retried, not attempted once and given up on")
+
+	mu.Lock()
+	for _, l := range lines {
+		assert.NotContains(t, l, "agentred login",
+			"a transient refresh failure must never be reported as the permanent needs-re-login state")
+	}
+	mu.Unlock()
+
+	cancel()
+	require.NoError(t, <-runDone)
+}
+
 // Given 中继送来一帧超出上限的载荷,When 读循环收它,Then 这一帧不投递、链路重连,
 // 重连后的正常帧照常送达。
 //
