@@ -123,7 +123,12 @@ func (r *agentExecTargetRepo) DeleteBySyncID(ctx context.Context, syncID string)
 	if syncID == "" {
 		return nil
 	}
-	return db.Ctx(ctx).Where("sync_id = ?", syncID).Delete(&agent_entity.AgentExecTarget{}).Error
+	// `AND sync_id != ''` 不是多余的守卫:uniq_agent_exec_targets_sync_id 是
+	// `WHERE sync_id != ''` 的部分唯一索引,SQLite 只在能证明查询蕴含索引谓词时
+	// 才用得上它——`sync_id = ?` 里的绑定变量证不出 `? != ''`。少了这一句,
+	// EXPLAIN QUERY PLAN 退回 SCAN 全表。上面已经挡掉空标识,它不改变结果集。
+	return db.Ctx(ctx).Where("sync_id = ? AND sync_id != ''", syncID).
+		Delete(&agent_entity.AgentExecTarget{}).Error
 }
 
 // listExecTargets 按 (agent_id, sort_order, id) 升序读出给定 Agent 的执行目标行。

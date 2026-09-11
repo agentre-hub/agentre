@@ -255,36 +255,17 @@ func TestIssueLabelCountByLabel(t *testing.T) {
 
 // TestIssueLabelUpsertFromSync 下行落地一条关联行时必须沿用源端的同步标识：重新
 // 生成一个会让同一件事在账号里变成两份，两端从此各挂各的。同一对 (issue, label)
-// 已经有行时只把标识对上，不再插一行——联合主键上硬插会撞。
+// 已经有行时只把标识对上，不再插一行——联合主键上硬插会撞。要求 17：整个 upsert
+// 是一条语句（`ON CONFLICT (issue_id, label_id) DO UPDATE`，sqlmock 的 MySQL 方言
+// 渲染成 `ON DUPLICATE KEY UPDATE`），不再先 SELECT 一次现状才决定 Create/Update。
 func TestIssueLabelUpsertFromSync(t *testing.T) {
-	t.Run("creates the row carrying the incoming sync id", func(t *testing.T) {
+	t.Run("upserts in one statement carrying the incoming sync id, no preceding SELECT", func(t *testing.T) {
 		ctx, _, mock := testutils.Database(t)
 		repo := issue_repo.NewIssueLabel()
-		mock.ExpectQuery("SELECT \\* FROM `issue_labels` WHERE issue_id = \\? AND label_id = \\?").
-			WithArgs(int64(3), int64(9), 1).
-			WillReturnRows(sqlmock.NewRows([]string{"issue_id", "label_id", "sync_id"}))
 		mock.ExpectBegin()
-		mock.ExpectExec("INSERT INTO `issue_labels`").
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectCommit()
-
-		row := &issue_entity.IssueLabel{IssueID: 3, LabelID: 9}
-		row.SyncID = "link-1"
-		require.NoError(t, repo.UpsertFromSync(ctx, row))
-		assert.NoError(t, mock.ExpectationsWereMet())
-	})
-
-	t.Run("adopts the identifier of a row already on that pair", func(t *testing.T) {
-		ctx, _, mock := testutils.Database(t)
-		repo := issue_repo.NewIssueLabel()
-		mock.ExpectQuery("SELECT \\* FROM `issue_labels` WHERE issue_id = \\? AND label_id = \\?").
-			WithArgs(int64(3), int64(9), 1).
-			WillReturnRows(sqlmock.NewRows([]string{"issue_id", "label_id", "sync_id"}).
-				AddRow(int64(3), int64(9), "link-local"))
-		mock.ExpectBegin()
-		mock.ExpectExec("UPDATE `issue_labels` SET `sync_id`=\\? WHERE issue_id = \\? AND label_id = \\?").
-			WithArgs("link-1", int64(3), int64(9)).
-			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("INSERT INTO `issue_labels` .* ON DUPLICATE KEY UPDATE `sync_id`=VALUES\\(`sync_id`\\)").
+			WithArgs(int64(3), int64(9), "link-1", int64(0), int64(0), int64(0), "", int64(0)).
+			WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectCommit()
 
 		row := &issue_entity.IssueLabel{IssueID: 3, LabelID: 9}
@@ -303,11 +284,14 @@ func TestIssueLabelUpsertFromSync(t *testing.T) {
 
 // TestIssueLabelDeleteBySyncID 墓碑到达时按同步标识删：关联表是 (issue_id,
 // label_id) 联合主键，本地 ID 在另一台机器上指向完全不同的两行，指认不了它。
+// sync_id 非空这个条件不是多余的守卫：uniq_issue_labels_sync_id 是 sync_id 非空
+// 的部分唯一索引，SQLite 证不出绑定变量 sync_id = ? 蕴含非空，少了这一句
+// EXPLAIN QUERY PLAN 退回 SCAN 全表。
 func TestIssueLabelDeleteBySyncID(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := issue_repo.NewIssueLabel()
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM `issue_labels` WHERE sync_id = \\?").
+	mock.ExpectExec("DELETE FROM `issue_labels` WHERE sync_id = \\? AND sync_id != ''$").
 		WithArgs("link-1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
