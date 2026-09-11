@@ -63,6 +63,11 @@ type relayClientTarget struct {
 	// stall 为 true 时通道开得起来,但服务端永远不答 auth.account 那一帧 —— 用来
 	// 构造「握手挂着不动」这个状态。
 	stall bool
+	// directURLs / tlsCertPEM / directCredential 非空时,应答里带上 D3 的自动直连
+	// 下发内容(task 9 消费侧的假服务端)。
+	directURLs       []string
+	tlsCertPEM       string
+	directCredential string
 }
 
 // relayClientEndpointServer 起一个假的中继**客户端**入口(/v1/relay/client):校验
@@ -130,6 +135,7 @@ func relayClientEndpointServer(t *testing.T, bearer string, respond func(target 
 			response, _ := proto.Marshal(&agentrewire.AuthAccountResponse{
 				Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: peerProtocol,
 				MinSupportedProtocolVersion: peerMinSupported, PeerFingerprint: "sha256:desktop",
+				DirectUrls: outcome.directURLs, TlsCertPem: outcome.tlsCertPEM, DirectCredential: outcome.directCredential,
 			})
 			respFrame, _ := proto.Marshal(&agentrewire.RpcFrame{Id: frame.GetId(), Body: &agentrewire.RpcFrame_Response{
 				Response: &agentrewire.Response{MethodId: frame.GetRequest().GetMethodId(), EncodedPayload: response},
@@ -311,7 +317,60 @@ func TestDialDaemonRelay_LoggedInDialAndHandshake(t *testing.T) {
 		So(c.Closed(), ShouldNotBeNil)
 		So(c.SelfFingerprint(), ShouldEqual, "sha256:desktop")
 		So(*gotTargets, ShouldContain, "machine:sha256:daemon")
+		// D5 消费侧:假服务端这里没有下发任何内容(默认 relayClientTarget{}),
+		// 这条连接必须如实报告「没有下发内容」——task 9 的另一半判据。
+		deliverer, ok := c.(accountDirectDeliverer)
+		So(ok, ShouldBeTrue)
+		_, _, _, delivered := deliverer.AccountDirectDelivery()
+		So(delivered, ShouldBeFalse)
 		_ = c.Close()
+	})
+}
+
+// accountDirectDeliverer 与 client.ProtobufClient.AccountDirectDelivery 是同一个
+// 非导出可选接口的两份实现(task 9):中继虚拟通道上的 relayChannelConn 也必须
+// 能把 auth.account 应答里的自动直连下发内容原样交出来,供连接池落到设备行。
+type accountDirectDeliverer interface {
+	AccountDirectDelivery() (urls []string, certPEM, credential string, ok bool)
+}
+
+func TestDialDaemonRelay_GivenTheResponseCarriesAutomaticDirectDelivery_ThenTheConnectionExposesIt(t *testing.T) {
+	Convey("D3 消费侧:中继通道上的 auth.account 应答带下发内容时,连接把它原样交出来", t, func() {
+		wantURLs := []string{"wss://10.0.0.5:7456/rpc", "wss://192.168.1.9:7456/rpc"}
+		srv, _ := relayClientEndpointServer(t, "tok-9", func(string) relayClientTarget {
+			return relayClientTarget{
+				directURLs: wantURLs, tlsCertPEM: "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
+				directCredential: "direct-cred-1",
+			}
+		})
+		defer srv.Close()
+
+		row := &server_state_entity.ServerState{
+			ID: 1, ServerURL: srv.URL, DeviceID: 1, ServerUserID: 1,
+			KeychainAccount: "agentre.server.refresh_token",
+		}
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mRepo := mock_server_state_repo.NewMockServerStateRepo(ctrl)
+		server_state_repo.RegisterServerState(mRepo)
+		mRepo.EXPECT().Get(gomock.Any()).Return(row, nil).AnyTimes()
+		keychain.SetDefault(keychain.NewMemory())
+		svc := server_svc.New(server_svc.NewHTTPClient(srv.URL, "tok-9"), nil)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c, err := svc.DialDaemonRelay(ctx, "sha256:daemon", "sha256:desktop")
+		So(err, ShouldBeNil)
+		So(c, ShouldNotBeNil)
+		defer func() { _ = c.Close() }()
+
+		deliverer, ok := c.(accountDirectDeliverer)
+		So(ok, ShouldBeTrue)
+		urls, certPEM, credential, delivered := deliverer.AccountDirectDelivery()
+		So(delivered, ShouldBeTrue)
+		So(urls, ShouldResemble, wantURLs)
+		So(certPEM, ShouldEqual, "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----")
+		So(credential, ShouldEqual, "direct-cred-1")
 	})
 }
 

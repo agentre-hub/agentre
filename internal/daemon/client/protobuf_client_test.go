@@ -337,3 +337,101 @@ func TestAuthAccount_GivenResponderStatesTheCallerIdentity_ThenSelfFingerprintCo
 	require.NoError(t, err)
 	assert.Equal(t, "sha256:as-the-peer-sees-me", client.SelfFingerprint())
 }
+
+// TestAuthAccount_GivenTheResponseCarriesAutomaticDirectDelivery_ThenTheConnectionExposesIt
+// 钉住 D3 消费侧的第一段(task 9):agentred 在 auth.account 应答里额外下发的 wss
+// 地址列表、证书 PEM 与本地直连凭据,必须能从这条连接上原样取出来——它是这份内容
+// 唯一走出握手函数的载体(DaemonDialPort.OpenAccount 的返回类型仍是
+// client.ProtobufConnection,不能多一个返回值)。
+func TestAuthAccount_GivenTheResponseCarriesAutomaticDirectDelivery_ThenTheConnectionExposesIt(t *testing.T) {
+	upgrader := websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = ws.Close() }()
+		_, payload, err := ws.ReadMessage()
+		if err != nil {
+			return
+		}
+		var frame agentrewire.RpcFrame
+		if !assert.NoError(t, proto.Unmarshal(payload, &frame)) {
+			return
+		}
+		encodedResponse, err := proto.Marshal(&agentrewire.AuthAccountResponse{
+			Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported,
+			DirectUrls:       []string{"wss://10.0.0.5:7456/rpc", "wss://192.168.1.9:7456/rpc"},
+			TlsCertPem:       "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----",
+			DirectCredential: "direct-cred-1",
+		})
+		if err != nil {
+			return
+		}
+		response, err := proto.Marshal(&agentrewire.RpcFrame{Id: frame.GetId(), Body: &agentrewire.RpcFrame_Response{Response: &agentrewire.Response{MethodId: frame.GetRequest().GetMethodId(), EncodedPayload: encodedResponse}}})
+		if err != nil {
+			return
+		}
+		_ = ws.WriteMessage(websocket.BinaryMessage, response)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	client, err := DialProtobuf(t.Context(), Options{URL: "ws" + strings.TrimPrefix(server.URL, "http")})
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.AuthAccount(t.Context(), &agentrewire.AuthAccountRequest{Credential: "token"})
+	require.NoError(t, err)
+
+	urls, certPEM, credential, ok := client.AccountDirectDelivery()
+	require.True(t, ok)
+	assert.Equal(t, []string{"wss://10.0.0.5:7456/rpc", "wss://192.168.1.9:7456/rpc"}, urls)
+	assert.Equal(t, "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----", certPEM)
+	assert.Equal(t, "direct-cred-1", credential)
+}
+
+// TestAuthAccount_GivenTheResponseCarriesNoDelivery_ThenAccountDirectDeliveryReportsNotOK
+// 是任务 9 的另一半(D5 消费侧):agentred 没有可路由地址时应答不带下发内容,
+// AccountDirectDelivery 必须交出 ok=false,调用方据此不记录任何东西。
+func TestAuthAccount_GivenTheResponseCarriesNoDelivery_ThenAccountDirectDeliveryReportsNotOK(t *testing.T) {
+	upgrader := websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = ws.Close() }()
+		_, payload, err := ws.ReadMessage()
+		if err != nil {
+			return
+		}
+		var frame agentrewire.RpcFrame
+		if !assert.NoError(t, proto.Unmarshal(payload, &frame)) {
+			return
+		}
+		encodedResponse, err := proto.Marshal(&agentrewire.AuthAccountResponse{
+			Ok: true, InstanceUuid: "uuid-1", ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported,
+		})
+		if err != nil {
+			return
+		}
+		response, err := proto.Marshal(&agentrewire.RpcFrame{Id: frame.GetId(), Body: &agentrewire.RpcFrame_Response{Response: &agentrewire.Response{MethodId: frame.GetRequest().GetMethodId(), EncodedPayload: encodedResponse}}})
+		if err != nil {
+			return
+		}
+		_ = ws.WriteMessage(websocket.BinaryMessage, response)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	client, err := DialProtobuf(t.Context(), Options{URL: "ws" + strings.TrimPrefix(server.URL, "http")})
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.AuthAccount(t.Context(), &agentrewire.AuthAccountRequest{Credential: "token"})
+	require.NoError(t, err)
+
+	_, _, _, ok := client.AccountDirectDelivery()
+	assert.False(t, ok)
+}

@@ -103,6 +103,13 @@ func WithAccountCredential(credentials AccountCredentialPort) Option {
 	return func(p *pool) { p.credentials = credentials }
 }
 
+// WithAccountDirectRecorder 注入账号握手下发内容的落地端口（D3/D4,task 9）。
+// 生产装配不必调它——New() 拿到已构造的 pool 后会把 service 自己接进去（见
+// impl.go）；这里导出主要给 pool 自身的单测直接构造一个假记录器。
+func WithAccountDirectRecorder(r AccountDirectRecorderPort) Option {
+	return func(p *pool) { p.recorder = r }
+}
+
 // NewConnPool 构造一个生产 ConnPool。
 //   - repo: 查 device row(URL / TLS / fingerprint)
 //   - kc:   读 keychain 的 token + device fingerprint(用本包窄接口 KeychainPort)
@@ -132,8 +139,9 @@ type pool struct {
 	repo        remote_device_repo.PairedAgentredRepo
 	kc          KeychainPort
 	dial        DaemonDialPort
-	relay       RelayDialPort         // 可空:未注入时 Borrow 纯 LAN
-	credentials AccountCredentialPort // 可空:未注入时直连只认配对令牌
+	relay       RelayDialPort             // 可空:未注入时 Borrow 纯 LAN
+	credentials AccountCredentialPort     // 可空:未注入时直连只认配对令牌
+	recorder    AccountDirectRecorderPort // 可空:未注入时账号握手下发内容不落地（task 9）
 	idleTimeout time.Duration
 
 	// refreshMu 让「换一张账号凭据」在这个池子里单飞，见 retryWithFreshCredential。
@@ -142,6 +150,25 @@ type pool struct {
 	mu      sync.Mutex
 	entries map[int64]*entry
 	closed  bool
+}
+
+// setAccountDirectRecorder 供 impl.go 的 New() 在拿到已构造的 pool 后把 service
+// 自己接进去用:bootstrap.InitRemoteDevice 里 pool 先于 service 构造完成
+// （NewConnPool 在 New 之前调用），落地端口偏偏就是 service 自己——用一次性类型
+// 断言接进去，不必改动 bootstrap 的构造顺序，也不必新增导出 setter。
+func (p *pool) setAccountDirectRecorder(r AccountDirectRecorderPort) {
+	p.recorder = r
+}
+
+// accountDirectDeliverer 是 client.ProtobufConnection 的一个可选接口:一条连接
+// 若是由 auth.account 握手产生（direct 路径的 client.ProtobufClient、relay 路径
+// server_svc 的 relayChannelConn 都实现它），就能原样交出应答里的自动直连下发内容
+// （D3）。LAN 配对的 auth.connect 连接、单测里的普通假连接都不实现它——类型断言
+// 失败时 recordAccountDirect 直接跳过，不必让 client.ProtobufConnection 这个到处
+// 都有实现者的接口多长一个方法（见该接口自己的注释:测试假连接、watcher 的探活
+// 连接等广泛实现者都不该被迫跟着长出这个方法）。
+type accountDirectDeliverer interface {
+	AccountDirectDelivery() (urls []string, certPEM, credential string, ok bool)
 }
 
 // pooledClient 是 entry.client 的窄接口,允许 internal test 用 fake 替身。
@@ -275,6 +302,10 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 			return nil, fmt.Errorf("%w: %w", ErrDeviceUnauthorized, err)
 		}
 		return nil, err
+	}
+
+	if p.recorder != nil {
+		p.recordAccountDirect(ctx, args.ExpectedDaemonFingerprint, c)
 	}
 
 	p.mu.Lock()
@@ -425,6 +456,37 @@ func (p *pool) openAny(ctx context.Context, args ConnectArgs, credential string)
 			},
 		},
 	)
+}
+
+// recordAccountDirect 把一次成功的 auth.account 握手带回的自动直连下发内容
+// （D3/task 9）落到设备行，daemon 指纹就是这次 Borrow 已经解析出的那个
+// （args.ExpectedDaemonFingerprint）——不必再猜是哪一台，这正是把它放在 pool 这层
+// 而不是 dial.go / relayclient.go 的理由。c 不实现 accountDirectDeliverer（LAN
+// 配对的 auth.connect 连接、单测里的普通假连接）或对端应答没带下发内容（D5：
+// agentred 没有可路由地址）时，ok 为 false，什么都不记——这正是任务 9 的另一半：
+// 「应答无下发内容时不记录」。
+//
+// 记录失败只记日志、不让这次已经成功的连接失败：这份内容是锦上添花的自动直连，
+// 缺了它这次借用照样该把连接交给调用方（账号握手本身已经成功，凭据/协议层面
+// 没有任何问题）。
+func (p *pool) recordAccountDirect(ctx context.Context, daemonFingerprint devicefp.Carrier, c client.ProtobufConnection) {
+	deliverer, ok := c.(accountDirectDeliverer)
+	if !ok {
+		return
+	}
+	urls, certPEM, credential, delivered := deliverer.AccountDirectDelivery()
+	if !delivered {
+		return
+	}
+	if err := p.recorder.RecordAccountDirect(ctx, AccountDirectDelivery{
+		DaemonFingerprint: daemonFingerprint,
+		URLs:              urls,
+		CertPEM:           certPEM,
+		Credential:        credential,
+	}); err != nil {
+		logger.Ctx(ctx).Warn("conn_pool.recordAccountDirect: recording delivery failed",
+			zap.String("daemonFingerprint", string(daemonFingerprint)), zap.Error(err))
+	}
 }
 
 // watchClient 在 entry 建好后启,监听底层 conn 死亡 → evict。

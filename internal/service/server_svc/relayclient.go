@@ -346,7 +346,12 @@ func (r *residentRelay) openTarget(ctx context.Context, target, credential strin
 	}
 	conn := protorpc.NewConn(protorpc.NewPayloadFrameConn(channel), protorpc.NewRegistry())
 	go conn.Serve(ctx)
-	return &relayChannelConn{conn: conn, selfFP: response.GetPeerFingerprint()}, nil
+	return &relayChannelConn{
+		conn: conn, selfFP: response.GetPeerFingerprint(),
+		accountDirectURLs:       response.GetDirectUrls(),
+		accountDirectCertPEM:    response.GetTlsCertPem(),
+		accountDirectCredential: response.GetDirectCredential(),
+	}, nil
 }
 
 // authAccountOverChannel 手工做一次 auth.account 握手,而不是把 channel 直接交给
@@ -479,11 +484,27 @@ func translateChannelError(rpcErr *agentrewire.RpcError) error {
 type relayChannelConn struct {
 	conn   *protorpc.Conn
 	selfFP string
+	// accountDirectURLs/CertPEM/Credential 与 client.ProtobufClient 同名字段同一
+	// 用途(D3):这条中继虚拟通道上的 auth.account 应答携带的自动直连下发内容。
+	accountDirectURLs       []string
+	accountDirectCertPEM    string
+	accountDirectCredential string
 }
 
 func (c *relayChannelConn) Conn() *protorpc.Conn    { return c.conn }
 func (c *relayChannelConn) Closed() <-chan struct{} { return c.conn.Done() }
 func (c *relayChannelConn) Close() error            { return c.conn.Close() }
 func (c *relayChannelConn) SelfFingerprint() string { return c.selfFP }
+
+// AccountDirectDelivery 见 client.ProtobufClient.AccountDirectDelivery 的同名注释
+// ——两个类型各自实现同一个非导出的可选接口(remote_device_svc 的
+// accountDirectDeliverer),让连接池用同一段代码从两条路径上取出下发内容,不用
+// 关心这次借用到底是直连还是中转赢了竞速。
+func (c *relayChannelConn) AccountDirectDelivery() (urls []string, certPEM, credential string, ok bool) {
+	if len(c.accountDirectURLs) == 0 {
+		return nil, "", "", false
+	}
+	return c.accountDirectURLs, c.accountDirectCertPEM, c.accountDirectCredential, true
+}
 
 var _ client.ProtobufConnection = (*relayChannelConn)(nil)

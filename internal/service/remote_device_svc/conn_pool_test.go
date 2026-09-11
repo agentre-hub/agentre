@@ -77,6 +77,46 @@ func (c *stubProtobufConnection) Close() error {
 }
 func stubClient() client.ProtobufConnection { return newStubProtobufConnection() }
 
+// deliveringConnection 包一层 stubProtobufConnection,额外实现账号握手下发内容的
+// 可选接口(task 9)——真实现是 client.ProtobufClient(直连)与 server_svc 的
+// relayChannelConn(中转),两者都在一次成功的 auth.account 握手之后原样交出应答里
+// 的 direct_urls/tls_cert_pem/direct_credential。urls 为空时 AccountDirectDelivery
+// 交出 ok=false,对应 D5「没有可路由地址就不下发」。
+type deliveringConnection struct {
+	*stubProtobufConnection
+	urls       []string
+	certPEM    string
+	credential string
+}
+
+func (c *deliveringConnection) AccountDirectDelivery() (urls []string, certPEM, credential string, ok bool) {
+	if len(c.urls) == 0 {
+		return nil, "", "", false
+	}
+	return c.urls, c.certPEM, c.credential, true
+}
+
+// spyRecorder 是 remote_device_svc.AccountDirectRecorderPort 的假替身,记下每一次
+// RecordAccountDirect 调用;err 非空时模拟落地失败(验证它不拖垮一次本来成功的连接)。
+type spyRecorder struct {
+	mu    sync.Mutex
+	calls []remote_device_svc.AccountDirectDelivery
+	err   error
+}
+
+func (s *spyRecorder) RecordAccountDirect(_ context.Context, d remote_device_svc.AccountDirectDelivery) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, d)
+	return s.err
+}
+
+func (s *spyRecorder) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.calls)
+}
+
 func expectBorrowDialError(
 	f *poolFixture,
 	dialErr error,
@@ -644,5 +684,202 @@ func TestPool_Borrow_ConcurrentRejections_RefreshOnlyOnce(t *testing.T) {
 		So(errs[1], ShouldBeNil)
 		So(creds.refreshed, ShouldEqual, 1)
 		So(presented["fresh-jwt"], ShouldEqual, 2)
+	})
+}
+
+// ── task 9: D3/D4 消费侧 —— 中转或直连完成 auth.account 且应答带下发内容时记录到
+// 设备行;应答无下发内容时不记录。────────────────────────────────────────────
+
+// 直连 auth.account 握手带下发内容:记录到这次 Borrow 已经解析出的 daemon 指纹上,
+// 而不需要再猜是哪一台。
+func TestPool_Borrow_NoLocalPairing_AccountHandshakeDelivers_RecordsAccountDirect(t *testing.T) {
+	Convey("直连 auth.account 带下发内容:按这次 Borrow 的 daemon 指纹记到设备行", t, func() {
+		recorder := &spyRecorder{}
+		f := newPoolFixture(t,
+			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}),
+			remote_device_svc.WithAccountDirectRecorder(recorder))
+		_ = f.kc.Delete("agentre-daemon-token-42")
+		conn := &deliveringConnection{
+			stubProtobufConnection: newStubProtobufConnection(),
+			urls:                   []string{"wss://10.0.0.5:7456/rpc"},
+			certPEM:                "cert-pem",
+			credential:             "direct-cred",
+		}
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+		f.dial.EXPECT().OpenAccount(gomock.Any(), gomock.Any()).Return(conn, nil)
+
+		lease, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease.Client(), ShouldNotBeNil)
+		So(recorder.callCount(), ShouldEqual, 1)
+		got := recorder.calls[0]
+		So(got.DaemonFingerprint, ShouldEqual, devicefp.Carrier("sha256:abc"))
+		So(got.URLs, ShouldResemble, []string{"wss://10.0.0.5:7456/rpc"})
+		So(got.CertPEM, ShouldEqual, "cert-pem")
+		So(got.Credential, ShouldEqual, "direct-cred")
+	})
+}
+
+// 中转 auth.account 握手同样带下发内容:同一段记录逻辑覆盖两条路径。
+func TestPool_Borrow_RelayAccountHandshakeDelivers_RecordsAccountDirect(t *testing.T) {
+	Convey("中转 auth.account 带下发内容:也记到设备行", t, func() {
+		recorder := &spyRecorder{}
+		relayConn := &deliveringConnection{
+			stubProtobufConnection: newStubProtobufConnection(),
+			urls:                   []string{"wss://relay-seen.example/rpc"},
+			certPEM:                "relay-cert",
+			credential:             "relay-cred",
+		}
+		f := newPoolFixture(t,
+			remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _ devicefp.Carrier, _ devicefp.Initiator) (client.ProtobufConnection, error) {
+				return relayConn, nil
+			}}),
+			remote_device_svc.WithAccountDirectRecorder(recorder))
+		f.device.URL = "" // 收编行,没有 LAN 地址,只走中转
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+
+		lease, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease.Client(), ShouldNotBeNil)
+		So(recorder.callCount(), ShouldEqual, 1)
+		got := recorder.calls[0]
+		So(got.DaemonFingerprint, ShouldEqual, devicefp.Carrier("sha256:abc"))
+		So(got.URLs, ShouldResemble, []string{"wss://relay-seen.example/rpc"})
+		So(got.CertPEM, ShouldEqual, "relay-cert")
+		So(got.Credential, ShouldEqual, "relay-cred")
+	})
+}
+
+// D5 消费侧:daemon 没有可路由地址时应答不带下发内容 —— 连接实现了可选接口,但
+// AccountDirectDelivery 交出 ok=false,不该记录任何东西。
+func TestPool_Borrow_AccountHandshakeWithoutDeliveryContent_DoesNotRecord(t *testing.T) {
+	Convey("auth.account 应答没有下发内容:任务 9 的另一半 —— 不记录", t, func() {
+		recorder := &spyRecorder{}
+		f := newPoolFixture(t,
+			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}),
+			remote_device_svc.WithAccountDirectRecorder(recorder))
+		_ = f.kc.Delete("agentre-daemon-token-42")
+		conn := &deliveringConnection{stubProtobufConnection: newStubProtobufConnection()} // urls 为空
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+		f.dial.EXPECT().OpenAccount(gomock.Any(), gomock.Any()).Return(conn, nil)
+
+		lease, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease.Client(), ShouldNotBeNil)
+		So(recorder.callCount(), ShouldEqual, 0)
+	})
+}
+
+// 普通 LAN 配对(auth.connect)的连接压根不实现下发内容的可选接口 —— 这是与上面
+// 「实现了接口但 ok=false」不同的一类分支,两者都必须被正确跳过而不是误记一条空内容。
+func TestPool_Borrow_LANPairedHandshake_NeverRecordsAccountDirect(t *testing.T) {
+	Convey("auth.connect 的配对连接:不实现下发内容接口,什么都不记录", t, func() {
+		recorder := &spyRecorder{}
+		f := newPoolFixture(t, remote_device_svc.WithAccountDirectRecorder(recorder))
+		c := stubClient()
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+		f.dial.EXPECT().Open(gomock.Any(), gomock.Any()).Return(c, nil)
+
+		lease, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease.Client(), ShouldNotBeNil)
+		So(recorder.callCount(), ShouldEqual, 0)
+	})
+}
+
+// 部分下发内容(有地址、没凭据)仍然要记录下去 —— 这次 Borrow 只负责「有没有下发
+// 内容」这道闸(靠 urls 非空判断),内容本身是否完整由 RecordAccountDirect(task 8)
+// 自己校验,不是这里的职责。
+func TestPool_Borrow_AccountHandshake_URLsWithoutCredential_StillRecords(t *testing.T) {
+	Convey("有地址和证书、凭据为空:仍然记录,交给 RecordAccountDirect 自己校验", t, func() {
+		recorder := &spyRecorder{}
+		f := newPoolFixture(t,
+			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}),
+			remote_device_svc.WithAccountDirectRecorder(recorder))
+		_ = f.kc.Delete("agentre-daemon-token-42")
+		conn := &deliveringConnection{
+			stubProtobufConnection: newStubProtobufConnection(),
+			urls:                   []string{"wss://10.0.0.5:7456/rpc"},
+			certPEM:                "cert-pem",
+			credential:             "",
+		}
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+		f.dial.EXPECT().OpenAccount(gomock.Any(), gomock.Any()).Return(conn, nil)
+
+		lease, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease.Client(), ShouldNotBeNil)
+		So(recorder.callCount(), ShouldEqual, 1)
+		So(recorder.calls[0].Credential, ShouldEqual, "")
+	})
+}
+
+// recorder 失败不能拖垮一次本来成功的连接 —— 这份内容是锦上添花的自动直连记录,
+// 缺了它这次借用照样该把连接交给调用方。
+func TestPool_Borrow_RecorderFails_DoesNotFailTheBorrow(t *testing.T) {
+	Convey("RecordAccountDirect 报错:Borrow 仍然成功交出租约", t, func() {
+		recorder := &spyRecorder{err: errors.New("keychain busy")}
+		f := newPoolFixture(t,
+			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}),
+			remote_device_svc.WithAccountDirectRecorder(recorder))
+		_ = f.kc.Delete("agentre-daemon-token-42")
+		conn := &deliveringConnection{
+			stubProtobufConnection: newStubProtobufConnection(),
+			urls:                   []string{"wss://10.0.0.5:7456/rpc"},
+			certPEM:                "cert-pem",
+			credential:             "direct-cred",
+		}
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+		f.dial.EXPECT().OpenAccount(gomock.Any(), gomock.Any()).Return(conn, nil)
+
+		lease, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease, ShouldNotBeNil)
+		So(recorder.callCount(), ShouldEqual, 1)
+	})
+}
+
+// 生产装配路径不显式调 WithAccountDirectRecorder(bootstrap.InitRemoteDevice 只是
+// NewConnPool 之后紧接着 New(repo, dial, kc, pool))——New() 必须自己把刚构造出的
+// service 接成 pool 的记录器。这里不测就没有任何东西能暴露"忘了接线"这个缺口:
+// 上面全部用例都显式注入了假记录器,即便生产从没接上也照样全绿。
+func TestNew_WiresItselfAsThePoolsAccountDirectRecorder(t *testing.T) {
+	Convey("New(repo, dial, kc, pool) 之后,Borrow 触发的下发内容真的落到了 service 自己的 RecordAccountDirect", t, func() {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		repo := repomock.NewMockPairedAgentredRepo(ctrl)
+		dial := svcmock.NewMockDaemonDialPort(ctrl)
+		kc := keychain.NewMemory()
+		_ = kc.Set("agentre-device-fingerprint", "fp-x")
+		// Origin: "account" 复现 D4(同一台桌面端再次握手,地址/证书以最新值下发,
+		// 凭据沿用已有的那一张)——这一行早先已经是账号直连行,拿 UpsertAccountDirect
+		// 更新分支,而不是撞上"手动行永远赢"的跳过分支(那条分支不落地任何东西,
+		// 没法证明接线成立)。
+		device := &paired_agentred_entity.PairedAgentred{
+			ID: 42, Name: "agentred-a", URL: "wss://example/rpc", Origin: "account",
+			TLSMode: "skip-verify", DaemonFingerprint: "sha256:abc",
+		}
+		pool := remote_device_svc.NewConnPool(repo, kc, dial,
+			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}))
+		svc := remote_device_svc.New(repo, dial, kc, pool)
+
+		conn := &deliveringConnection{
+			stubProtobufConnection: newStubProtobufConnection(),
+			urls:                   []string{"wss://10.0.0.5:7456/rpc"},
+			certPEM:                "cert-pem",
+			credential:             "direct-cred",
+		}
+		repo.EXPECT().Get(gomock.Any(), int64(42)).Return(device, nil)
+		dial.EXPECT().OpenAccount(gomock.Any(), gomock.Any()).Return(conn, nil)
+		repo.EXPECT().ListDeleted(gomock.Any()).Return(nil, nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(device, nil)
+		repo.EXPECT().UpsertAccountDirect(gomock.Any(), int64(42), "wss://10.0.0.5:7456/rpc", gomock.Any(), "cert-pem").Return(nil)
+
+		lease, err := svc.Pool().Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease.Client(), ShouldNotBeNil)
+		got, kcErr := kc.Get("agentre-daemon-token-42")
+		So(kcErr, ShouldBeNil)
+		So(got, ShouldEqual, "direct-cred")
 	})
 }

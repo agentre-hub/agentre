@@ -106,6 +106,16 @@ type KeychainPort interface {
 	Delete(account string) error
 }
 
+// AccountDirectRecorderPort 接收一次 auth.account 握手带回的自动直连下发内容
+// （D3/D4,task 9），按这次借用已经解析出的 daemon 指纹落地。真实现是
+// RemoteDeviceSvc.RecordAccountDirect（task 8）；ConnPool 依赖这个窄接口而不是
+// 直接调 Default(),既保住 DIP,也让 pool 自身的单测能注入一个假记录器——生产
+// 装配不需要显式接线,New()拿到已构造好的 pool 后会把 service 自己接进去
+// (impl.go,pool 与 service 的构造顺序由 bootstrap.InitRemoteDevice 决定)。
+type AccountDirectRecorderPort interface {
+	RecordAccountDirect(ctx context.Context, d AccountDirectDelivery) error
+}
+
 // WatcherPort 是 remote_device_svc 反向消费 watcher_svc 的窄接口。SetWatcher 注入;
 // 单测可以注入 mock 验证 Start/Stop/Restart 被调到。
 type WatcherPort interface {

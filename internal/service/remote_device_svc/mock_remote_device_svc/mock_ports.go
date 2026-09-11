@@ -261,6 +261,44 @@ func (mr *MockKeychainPortMockRecorder) Set(account, secret any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockKeychainPort)(nil).Set), account, secret)
 }
 
+// MockAccountDirectRecorderPort is a mock of AccountDirectRecorderPort interface.
+type MockAccountDirectRecorderPort struct {
+	ctrl     *gomock.Controller
+	recorder *MockAccountDirectRecorderPortMockRecorder
+	isgomock struct{}
+}
+
+// MockAccountDirectRecorderPortMockRecorder is the mock recorder for MockAccountDirectRecorderPort.
+type MockAccountDirectRecorderPortMockRecorder struct {
+	mock *MockAccountDirectRecorderPort
+}
+
+// NewMockAccountDirectRecorderPort creates a new mock instance.
+func NewMockAccountDirectRecorderPort(ctrl *gomock.Controller) *MockAccountDirectRecorderPort {
+	mock := &MockAccountDirectRecorderPort{ctrl: ctrl}
+	mock.recorder = &MockAccountDirectRecorderPortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockAccountDirectRecorderPort) EXPECT() *MockAccountDirectRecorderPortMockRecorder {
+	return m.recorder
+}
+
+// RecordAccountDirect mocks base method.
+func (m *MockAccountDirectRecorderPort) RecordAccountDirect(ctx context.Context, d remote_device_svc.AccountDirectDelivery) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordAccountDirect", ctx, d)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordAccountDirect indicates an expected call of RecordAccountDirect.
+func (mr *MockAccountDirectRecorderPortMockRecorder) RecordAccountDirect(ctx, d any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordAccountDirect", reflect.TypeOf((*MockAccountDirectRecorderPort)(nil).RecordAccountDirect), ctx, d)
+}
+
 // MockWatcherPort is a mock of WatcherPort interface.
 type MockWatcherPort struct {
 	ctrl     *gomock.Controller
