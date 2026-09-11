@@ -797,9 +797,10 @@ func New(opts Options) (*Daemon, error) {
 	rl := pairing.NewRateLimiter(rlOpts)
 	auth := auth.NewAuthHandlers(st, pm, rl)
 
+	backlog := newBacklogMemo()
 	d := &Daemon{
 		opts: opts, state: st, db: gormDB,
-		transcript:   transcriptStore{db: gormDB},
+		transcript:   transcriptStore{db: gormDB, backlog: backlog},
 		sessionStore: daemonSessionStore{db: gormDB},
 		pairing:      pm, ratelim: rl,
 		auth: auth, protobufRegistry: protorpc.NewRegistry(),
@@ -842,7 +843,7 @@ func New(opts Options) (*Daemon, error) {
 	})
 	d.sessionDelete = handlers.NewSessionDeleteHandlers(handlers.SessionDeleteDeps{
 		Sessions:          d.sessionStore,
-		Transcript:        transcriptPurger{db: gormDB},
+		Transcript:        transcriptPurger{db: gormDB, backlog: backlog},
 		LoggedInAccountID: d.loggedInAccountID,
 	})
 	d.gateway = httpgateway.New("127.0.0.1", 0, NewProviderLookup(st))
@@ -1551,8 +1552,14 @@ func (d *Daemon) closeRuntimeConnections(ctx context.Context) error {
 // which this package must not do (see the db field's doc comment).
 func openDB(dataDir string) (*gorm.DB, error) {
 	dbPath := filepath.Join(dataDir, dbFileName)
-	// busy_timeout mirrors internal/bootstrap/cago.go's sqliteDSN: concurrent
-	// writers otherwise hit SQLITE_BUSY near-instantly instead of waiting.
+	// _txlock=immediate 与 internal/bootstrap/cago.go 的 sqliteDSN 同一条理由:默认的
+	// deferred 事务读时只拿快照、写时才升级取锁,而快照已过期的升级 SQLite 不调用 busy
+	// handler、当场报 database is locked。取号(SELECT MAX → INSERT)与开轮建行都是先读
+	// 后写,流式取号与补齐编号一撞就中。immediate 让事务在 BEGIN 时就取写锁,冲突在
+	// busy handler 上排队。
+	//
+	// 不带 busy_timeout:glebarez 驱动在每个连接建立时无条件执行 pragma BUSY_TIMEOUT(5000)
+	// (理由同 sqliteDSN 的注释),这个 DSN 参数从未改变过任何行为。
 	//
 	// WAL 不是调优,是这个库的工作负载本身要求的:写侧是轮内每个定稿时刻一次 checkpoint
 	// 事务,读侧是 session.pull 的翻页补齐 —— 一段开着的读事务。回滚日志模式下两者互斥:
@@ -1563,7 +1570,7 @@ func openDB(dataDir string) (*gorm.DB, error) {
 	// 提交约 603µs,NORMAL 档约 213µs。WAL + NORMAL 仍然崩溃安全:进程崩溃不损坏数据库,
 	// 只在断电/内核崩溃时可能丢最后若干已提交事务。与 internal/bootstrap/cago.go 的
 	// sqliteDSN 同源取舍。
-	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	dsn := dbPath + "?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 }
 
@@ -1602,7 +1609,11 @@ var _ handlers.DBStatPort = (*Daemon)(nil)
 // 它自己往 ctx 上注入本 Daemon 的 db 句柄:转录的生产者是脱离请求 ctx 的 fanout
 // goroutine(它可能拿到的只是一个裸 ctx),而 daemon 故意不写 db.SetDefault(同进程
 // 多个 Daemon 会互相串库,见 Daemon.db 注释),所以句柄只能从这里给。
-type transcriptStore struct{ db *gorm.DB }
+type transcriptStore struct {
+	db *gorm.DB
+	// backlog 记着哪些会话开轮时可以跳过补齐编号,与本 Daemon 的 transcriptPurger 共用一份。
+	backlog *backlogMemo
+}
 
 var _ handlers.TranscriptPort = transcriptStore{}
 
@@ -1628,13 +1639,12 @@ func (t transcriptStore) StartTurn(
 	// 这一轮的帧要接在历史后面取号,所以历史里还没有号的那些帧得先补齐 —— 否则新
 	// 内容先占掉小号,历史随后被编到它后面,补齐交出的转录里回答排在提问前面。
 	// 补的是同一份(transcript_repo.NumberFrames),与补齐读侧一字不差;已经有号的
-	// 一个不动,所以第二轮起它只是一次读。
-	if err := t.numberBacklog(ctx, conversationID, sessionID); err != nil {
-		return nil, nil, err
-	}
-	seq, err := transcript_repo.Message().NextSeq(ctx, sessionID)
-	if err != nil {
-		return nil, nil, err
+	// 一个不动。本进程里上一轮已经收口编完号的会话不再读回整段转录(见 backlogMemo)。
+	if skip, since := t.backlog.settled(sessionID); !skip {
+		if err := t.numberBacklog(ctx, conversationID, sessionID); err != nil {
+			return nil, nil, err
+		}
+		t.backlog.numbered(sessionID, since)
 	}
 	var user *transcript_entity.Message
 	if userText != "" || len(userBlocks) > 0 {
@@ -1652,7 +1662,7 @@ func (t transcriptStore) StartTurn(
 		for _, b := range transcript.TurnAttachments(userText, userBlocks) {
 			acc.AddBlock(b, "")
 		}
-		user = &transcript_entity.Message{SessionID: sessionID, Role: "user", Seq: seq}
+		user = &transcript_entity.Message{SessionID: sessionID, Role: "user"}
 		if err := user.SetBlocks(acc.Finalize()); err != nil {
 			return nil, nil, err
 		}
@@ -1665,17 +1675,30 @@ func (t transcriptStore) StartTurn(
 			return nil, nil, err
 		}
 		user.BlocksJSON = stamped
-		if err := transcript_repo.Message().Create(ctx, user); err != nil {
-			return nil, nil, err
+	}
+	assistant := &transcript_entity.Message{SessionID: sessionID, Role: "assistant", BlocksJSON: "[]"}
+	// 取号与两行建行是一次事务:半截开轮留下的用户那一行没有下文,这一轮也不会再有人给它
+	// 发帧,下一次开轮补齐编号时它却会被编进转录、重放给对端。正文在事务外就攒好,
+	// 事务只持写锁做取号与落库。
+	if err := t.db.Transaction(func(tx *gorm.DB) error {
+		txCtx := dbpkg.WithContextDB(ctx, tx)
+		seq, err := transcript_repo.Message().NextSeq(txCtx, sessionID)
+		if err != nil {
+			return err
 		}
-		seq++
-	}
-	assistant := &transcript_entity.Message{
-		SessionID: sessionID, Role: "assistant", Seq: seq, BlocksJSON: "[]",
-	}
-	if err := transcript_repo.Message().Create(ctx, assistant); err != nil {
+		if user != nil {
+			user.Seq = seq
+			if err := transcript_repo.Message().Create(txCtx, user); err != nil {
+				return err
+			}
+			seq++
+		}
+		assistant.Seq = seq
+		return transcript_repo.Message().Create(txCtx, assistant)
+	}); err != nil {
 		return nil, nil, err
 	}
+	t.backlog.opened(sessionID, assistant.ID)
 	return user, assistant, nil
 }
 
@@ -1730,6 +1753,7 @@ func (t transcriptStore) SegmentTurn(
 	}); err != nil {
 		return nil, nil, err
 	}
+	t.backlog.opened(sessionID, next.ID)
 	return users, next, nil
 }
 
@@ -1749,12 +1773,125 @@ func (t transcriptStore) numberBacklog(ctx context.Context, conversationID strin
 	return transcript_repo.NumberFrames(ctx, sessionID, keyed)
 }
 
+// backlogMemo 记着本进程里哪些会话的转录此刻没有没号的帧,开轮时据此跳过 numberBacklog
+// 那次整段读回。Daemon 级一份:会话主键只在本库内唯一。nil 即什么也不记 —— 每次开轮
+// 照旧补齐。
+//
+// 可以跳过要两件事都成立:
+//   - 这条会话开轮补齐成功过,且此后没有一次取号失败(失败的那一批帧留在库里没有号);
+//   - 最近开出的那条 assistant 已经收口,且收口之后那一发取到了号。轮末的正文与消息级
+//     派生帧(assistant 恒有一帧 Done)只在那一发里编号:没收口(轮中断、收口落库失败)
+//     或收口后没人取号(导入回放只落库不发布)的转录,尾巴上就是没号的帧。
+//
+// 任一条不成立,开轮就与没有这份记录时一样整段补齐。进程重启后记录为空,积压仍由首轮补齐。
+type backlogMemo struct {
+	mu sync.Mutex
+	// forgets 每忘掉一条会话 +1。补齐的读回在锁外进行,期间发生过忘记的那次补齐不能记下。
+	forgets  uint64
+	sessions map[int64]*backlogMark
+}
+
+// backlogMark 是一条补齐过的会话此刻的收口进度。
+type backlogMark struct {
+	open    int64 // 开出了、还没收口的 assistant
+	closed  int64 // 收口落了库、等收口那一发取号的 assistant
+	settled bool  // 没有在途的 assistant:可以跳过补齐
+}
+
+func newBacklogMemo() *backlogMemo {
+	return &backlogMemo{sessions: map[int64]*backlogMark{}}
+}
+
+// settled 回答开轮能不能跳过补齐;不能时交回的计数由补齐成功后的 numbered 带回来。
+func (m *backlogMemo) settled(sessionID int64) (bool, uint64) {
+	if m == nil {
+		return false, 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mark := m.sessions[sessionID]
+	return mark != nil && mark.settled, m.forgets
+}
+
+// numbered 记下补齐成功:此刻这条转录的帧全都有号。since 之后忘记过则不记。
+func (m *backlogMemo) numbered(sessionID int64, since uint64) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.forgets != since {
+		return
+	}
+	m.sessions[sessionID] = &backlogMark{settled: true}
+}
+
+// opened 记下这条会话开出了一条新的 assistant。
+func (m *backlogMemo) opened(sessionID, assistantID int64) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if mark := m.sessions[sessionID]; mark != nil {
+		*mark = backlogMark{open: assistantID}
+	}
+}
+
+// finished 记下在途的那条 assistant 收口落了库。
+func (m *backlogMemo) finished(sessionID, messageID int64) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if mark := m.sessions[sessionID]; mark != nil && mark.open == messageID {
+		mark.open, mark.closed = 0, messageID
+	}
+}
+
+// allocated 记下一次取号成功。取到号的帧里有等着的那条收口消息,转录的尾巴就编完了。
+func (m *backlogMemo) allocated(sessionID int64, keys []transcript.FrameKey) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mark := m.sessions[sessionID]
+	if mark == nil || mark.closed == 0 {
+		return
+	}
+	for _, key := range keys {
+		if key.MessageID == mark.closed {
+			mark.closed, mark.settled = 0, true
+			return
+		}
+	}
+}
+
+// forget 忘掉这条会话:取号失败留下了没号的帧,或它的转录被整段清掉。
+func (m *backlogMemo) forget(sessionID int64) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, sessionID)
+	m.forgets++
+}
+
 // AllocateFrameSeqs 给这些帧位置取下一串号并落库。取号与发布不可分:调用方取到了才
 // 发得出去(规格「帧编号」)。
 func (t transcriptStore) AllocateFrameSeqs(
 	ctx context.Context, sessionID int64, keys []transcript.FrameKey,
 ) ([]int64, error) {
-	return transcript_repo.FrameSeq().Allocate(dbpkg.WithContextDB(ctx, t.db), sessionID, keys)
+	seqs, err := transcript_repo.FrameSeq().Allocate(dbpkg.WithContextDB(ctx, t.db), sessionID, keys)
+	if err != nil {
+		t.backlog.forget(sessionID)
+		return nil, err
+	}
+	t.backlog.allocated(sessionID, keys)
+	return seqs, nil
 }
 
 func (t transcriptStore) Checkpoint(
@@ -1764,7 +1901,11 @@ func (t transcriptStore) Checkpoint(
 }
 
 func (t transcriptStore) FinishTurn(ctx context.Context, m *transcript_entity.Message) error {
-	return transcript_repo.Message().Update(dbpkg.WithContextDB(ctx, t.db), m)
+	if err := transcript_repo.Message().Update(dbpkg.WithContextDB(ctx, t.db), m); err != nil {
+		return err
+	}
+	t.backlog.finished(m.SessionID, m.ID)
+	return nil
 }
 
 // daemonSessionStore 同时是 handlers 的会话生命周期写入口与查询出口:两个接口在
@@ -2007,7 +2148,11 @@ func sessionRecordOf(row *session_repo.DaemonSession) handlers.SessionRecord {
 //
 // 块行必须先于宿主消息删除,否则会在两条语句之间短暂变成孤儿 —— 顺序由
 // transcript_repo 的导出口收口,这里不自己重写一份。
-type transcriptPurger struct{ db *gorm.DB }
+type transcriptPurger struct {
+	db *gorm.DB
+	// backlog 是写入侧那份开轮补齐记录:转录清掉之后这条会话的记录作废。
+	backlog *backlogMemo
+}
 
 var _ handlers.TranscriptPurgePort = transcriptPurger{}
 
@@ -2020,6 +2165,8 @@ func (t transcriptPurger) DeleteAll(ctx context.Context, peerFingerprint devicef
 		return 0, err
 	}
 	sessionID := row.ID
+	// 删到一半失败也要忘:剩下的行可能已经丢了台账上的号。
+	defer t.backlog.forget(sessionID)
 	if err := transcript_repo.DeleteBlocksOfMessages(ctx, "session_id = ?", sessionID); err != nil {
 		return 0, err
 	}
