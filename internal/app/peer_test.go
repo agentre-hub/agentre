@@ -286,21 +286,51 @@ type stubClearAccountDirectSvc struct {
 	remote_device_svc.RemoteDeviceSvc
 	discardCalls int
 	clearCalls   int
+	// calls 记下两个方法被调的先后。
+	calls []string
 }
 
 func (s *stubClearAccountDirectSvc) DiscardAdoptedDevices(context.Context) (int, error) {
 	s.discardCalls++
+	s.calls = append(s.calls, "discard")
 	return 0, nil
 }
 
 func (s *stubClearAccountDirectSvc) ClearAccountDirect(context.Context) (int, error) {
 	s.clearCalls++
+	s.calls = append(s.calls, "clear")
 	return 0, nil
 }
 
+// D10「这些行按今天收编行的方式处理」：今天登出时收编行被整行去掉
+// （DiscardAdoptedDevices 只认 IsRelayOnly 的行）。账号直连行必须先被清回收编行的
+// 形状、再过 DiscardAdoptedDevices，才会像收编行一样随登出消失；顺序反过来，清完的
+// 行就以「只有中转」的样子留在一台已经登出的桌面端上。
+func TestAppOnServerStateEvent_GivenLoggedOut_ThenAccountDirectRowsAreDiscardedLikeAdoptedRows(t *testing.T) {
+	previousPeer := newInboundPeer
+	newInboundPeer = func(context.Context) (inboundPeer, error) {
+		return &inboundPeerStub{started: make(chan struct{}), stopped: make(chan struct{})}, nil
+	}
+	t.Cleanup(func() { newInboundPeer = previousPeer })
+	previousDrop := dropAccountChannel
+	dropAccountChannel = func() {}
+	t.Cleanup(func() { dropAccountChannel = previousDrop })
+
+	original := remote_device_svc.Default()
+	t.Cleanup(func() { remote_device_svc.SetDefault(original) })
+	stub := &stubClearAccountDirectSvc{}
+	remote_device_svc.SetDefault(stub)
+
+	app := &App{}
+	app.onServerStateEvent(map[string]any{"kind": "logged_out"})
+	if len(stub.calls) != 2 || stub.calls[0] != "clear" || stub.calls[1] != "discard" {
+		t.Fatalf("登出必须先把账号直连行清回收编行、再去掉收编行；calls = %v", stub.calls)
+	}
+}
+
 // D10：桌面端登出不止要清收编行（上面那条用例），还要把「来自账号的直连」行退回
-// 收编行的形状——地址、证书、keychain 里的凭据清掉，行本身留着
-// （remote_device_svc.ClearAccountDirect）。
+// 收编行的形状——地址、证书、keychain 里的凭据清掉
+// （remote_device_svc.ClearAccountDirect），再与收编行一起去掉（见下一条用例）。
 func TestAppOnServerStateEvent_GivenLoggedOut_ThenClearsAccountDirectRows(t *testing.T) {
 	previousPeer := newInboundPeer
 	newInboundPeer = func(context.Context) (inboundPeer, error) {

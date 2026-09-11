@@ -77,6 +77,30 @@ func TestRecordAccountDirect_RedeliveryUpdatesExistingRow(t *testing.T) {
 	})
 }
 
+// D6「地址位显示最近一次直连成功的那个地址」：这一行上次经直连连上的是第二个地址
+// （RecordDirectSuccess 把地址位写成了它）。之后中转赢下竞速、账号握手再下发同一批
+// 地址时，地址位不能被打回列表的第一个——它仍在下发列表里，就仍是最近一次成功的地址。
+func TestRecordAccountDirect_RedeliveryKeepsLastDirectSuccessAddress(t *testing.T) {
+	Convey("a re-delivery that still lists the last successful direct address keeps it in the address slot", t, func() {
+		repo, _, kc, w, svc := setupSvc(t)
+		repo.EXPECT().ListDeleted(gomock.Any()).Return(nil, nil)
+		existing := &paired_agentred_entity.PairedAgentred{
+			ID: 11, Name: "devbox", DaemonFingerprint: "sha256:abc",
+			URL: "wss://b:7456/rpc", TLSMode: "pin-cert", TLSCertPEM: "PEM",
+			Origin: "account", Status: 1,
+		}
+		existing.SetDirectURLs([]string{"wss://a:7456/rpc", "wss://b:7456/rpc"})
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(existing, nil)
+		repo.EXPECT().UpsertAccountDirect(gomock.Any(), int64(11),
+			"wss://b:7456/rpc", `["wss://a:7456/rpc","wss://b:7456/rpc"]`, "PEM").Return(nil)
+		kc.EXPECT().Set("agentre-daemon-token-11", "opaque-cred").Return(nil)
+		w.EXPECT().Restart(gomock.Any(), int64(11)).Return(nil)
+
+		err := svc.RecordAccountDirect(context.Background(), validDelivery())
+		So(err, ShouldBeNil)
+	})
+}
+
 // D6：账号收编来的纯中转行（IsRelayOnly，没有 LAN 地址）第一次收到直连下发时同样是
 // 「升级」这一行，而不是新建——否则同一台机器会在面板上变成两台。
 func TestRecordAccountDirect_UpgradesRelayOnlyRow(t *testing.T) {

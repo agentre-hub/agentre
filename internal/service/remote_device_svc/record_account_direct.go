@@ -64,7 +64,7 @@ func (s *service) RecordAccountDirect(ctx context.Context, d AccountDirectDelive
 		return nil
 	}
 
-	address := urls[0]
+	address := addressSlot(existing, urls)
 	urlsJSON, err := json.Marshal(urls)
 	if err != nil {
 		return err
@@ -154,6 +154,21 @@ func (s *service) RecordDirectSuccess(ctx context.Context, deviceID int64, addre
 		return nil // 已经是当前地址位，省一次空写。
 	}
 	return s.repo.UpdateDirectAddress(ctx, deviceID, address)
+}
+
+// addressSlot 决定一次下发之后的地址位（D6）：一行已有的账号直连行，地址位要么是
+// 最近一次直连成功的地址（RecordDirectSuccess 写入），要么是上一次下发的第一个。它仍在
+// 这次下发的列表里就原样保留——中转赢下竞速时的再下发不能把最近成功的地址打回第一个；
+// 不在了（新行、收编行、地址已变）才取这次列表的第一个。
+func addressSlot(existing *paired_agentred_entity.PairedAgentred, urls []string) string {
+	if existing != nil && existing.IsAccountDirect() {
+		for _, u := range urls {
+			if u == existing.URL {
+				return u
+			}
+		}
+	}
+	return urls[0]
 }
 
 // isTombstoned 只判断这一个指纹是否有软删行，不做批量回收（回收只在整轮账号设备

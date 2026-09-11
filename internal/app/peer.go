@@ -34,22 +34,22 @@ var dropAccountChannel = func() {
 	}
 }
 
-// discardAdoptedDevices 去掉收编来的设备行，并把「来自账号的直连」行退回收编行的
-// 形状（D10）。同样抽成变量供测试替换；设备服务未装配时是空操作。失败只记日志：
+// discardAdoptedDevices 去掉收编来的设备行，「来自账号的直连」行同样按收编行处理
+// （D10）。同样抽成变量供测试替换；设备服务未装配时是空操作。失败只记日志：
 // 它是清理，不该让登出这条路径本身失败。
 var discardAdoptedDevices = func(ctx context.Context) {
 	svc := remote_device_svc.Default()
 	if svc == nil {
 		return
 	}
-	if _, err := svc.DiscardAdoptedDevices(ctx); err != nil {
-		logger.Ctx(ctx).Warn("app.onServerStateEvent: discarding adopted account agentreds failed", zap.Error(err))
-	}
-	// D10：这些行不是「收编来的」（IsRelayOnly 为假,有地址/证书/账号凭据),
-	// DiscardAdoptedDevices 不认它们，需要单独清——地址、证书、keychain 里的凭据
-	// 一并清掉，行本身留着，此后按收编行处理。
+	// D10：账号直连行不是「收编来的」（IsRelayOnly 为假，有地址/证书/账号凭据），
+	// DiscardAdoptedDevices 不认它们。先把地址、证书、keychain 里的凭据清掉，行就退回
+	// 收编行的形状，紧接着与收编行一起被去掉——顺序反过来，它们会留在已登出的桌面端上。
 	if _, err := svc.ClearAccountDirect(ctx); err != nil {
 		logger.Ctx(ctx).Warn("app.onServerStateEvent: clearing account-direct agentreds failed", zap.Error(err))
+	}
+	if _, err := svc.DiscardAdoptedDevices(ctx); err != nil {
+		logger.Ctx(ctx).Warn("app.onServerStateEvent: discarding adopted account agentreds failed", zap.Error(err))
 	}
 }
 
