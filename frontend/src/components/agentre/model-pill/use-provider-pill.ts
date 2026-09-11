@@ -182,13 +182,17 @@ export interface UseProviderPillReturn {
   /** Composer 常驻 pill 的四态与解析结果。 */
   pillState: ProviderPillState;
   /**
-   * 目录里真正解析出来的模型 ID；解析不出（目录还没到 / Provider 或 Model 被删停用）
-   * 时是空串，**绝不回落 model key**。给「需要一个人读模型名」的槽用（转录脚注在
-   * 消息自己的 model 为空时回退到它）——model key 是 uuid.NewString() 生成的引用键,
-   * 写到脸上就是一串 UUID。pillState.modelLabel 不承担这件事：失效态的 pill 要把
-   * 指向的那个键显示出来（「<key> · 目标已失效」），两者语义不同。
+   * 目录里真正解析出来的模型展示名（没填展示名回落模型 ID）；解析不出（目录还没到 /
+   * Provider 或 Model 被删停用）时是空串，**绝不回落 model key**——model key 是
+   * uuid.NewString() 生成的引用键,写到脸上就是一串 UUID。pillState.modelLabel 不承担
+   * 这件事：失效态的 pill 要把指向的那个键显示出来（「<key> · 目标已失效」），两者语义不同。
    */
   resolvedModelLabel: string;
+  /**
+   * 同一个解析结果的模型 ID，空串规则同上。给转录脚注用（消息自己的 model 为空时回退到
+   * 它）：真消息的脚注写的是运行时上报的模型 ID，占位行要是写展示名，真消息一到就跳字。
+   */
+  resolvedModelId: string;
   /** Picker 顶部「跟随 Agent 绑定」项的解析副行。 */
   boundResolutionLabel: string;
   /** 绑定供应商的类型（品牌标识判定用）；空串 = 目录里解析不出供应商。 */
@@ -514,6 +518,7 @@ export function useProviderPill({
     effectiveKey: providerKey || boundProviderKey || "",
     pillState,
     resolvedModelLabel: invalid ? "" : pillState.modelLabel,
+    resolvedModelId: invalid ? "" : pillState.modelId,
     boundResolutionLabel: boundState.resolutionLabel,
     boundProviderType: boundState.providerType,
     boundProviderLabel: boundState.providerLabel,

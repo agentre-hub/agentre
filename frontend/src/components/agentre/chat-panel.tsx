@@ -809,7 +809,7 @@ function ChatPanel({
                         loadingEarlier={loadingEarlierBlocks}
                         onLoadEarlier={() => void loadEarlierBlocks()}
                         liveByMessageId={liveByMessageId}
-                        fallbackModel={providerPill.resolvedModelLabel}
+                        fallbackModel={providerPill.resolvedModelId}
                         streaming={streaming}
                         liveCompacting={liveCompacting}
                         reconnecting={reconnecting}

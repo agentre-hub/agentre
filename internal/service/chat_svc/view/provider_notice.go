@@ -132,12 +132,10 @@ func ProviderDisplayName(prov *llm_provider_entity.LLMProvider) string {
 	return prov.Name
 }
 
-// ModelDisplayName 取模型展示名。model 为 nil（未解析 / 非 fixed-model）时返回空串。
+// ModelDisplayName 取模型展示名（没填展示名回落 ModelID）。model 为 nil（未解析 /
+// 非 fixed-model）时返回空串。
 func ModelDisplayName(model *llm_provider_model_entity.LLMProviderModel) string {
-	if model == nil {
-		return ""
-	}
-	return model.Name
+	return model.DisplayName()
 }
 
 func EncodeProviderFallback(providerKey, providerName string) string {

@@ -103,7 +103,7 @@ function BindingTriggerLabel({ target }: { target: ResolvedModelTarget }) {
     return (
       <span className="min-w-0 truncate">
         {t("agentBackends.binding.invalidTarget", {
-          target: target.providerName || target.modelId,
+          target: target.providerName || target.modelLabel,
         })}
       </span>
     );
@@ -140,12 +140,12 @@ function bindingTriggerSub(t: Translate, target: ResolvedModelTarget): string {
   if (target.mode === "invalid")
     return t("agentBackends.binding.invalidResolution");
   return target.mode === "provider-default"
-    ? t("agentBackends.binding.followResolution", { model: target.modelId })
-    : t("agentBackends.binding.fixedResolution", { model: target.modelId });
+    ? t("agentBackends.binding.followResolution", { model: target.modelLabel })
+    : t("agentBackends.binding.fixedResolution", { model: target.modelLabel });
 }
 
 // 分级路由 Picker 顶部「继承主绑定」项的解析副行 —— 与会话场景同一形态：箭头点出
-// 「解析到」，品牌标识让主绑定的供应商一眼可认，模型 ID 单独走等宽。CLI 登录态 / 失效
+// 「解析到」，品牌标识让主绑定的供应商一眼可认，模型写展示名。CLI 登录态 / 失效
 // 目标没有可认的供应商，回落既有纯文字说明（宁可少画一个标识，也不画半个空标识）。
 function bindingSpecialSublabel(
   t: Translate,
@@ -171,12 +171,7 @@ function bindingSpecialSublabel(
       />
       <span className="min-w-0 truncate">
         {target.providerName}
-        {target.modelId ? (
-          <>
-            {" · "}
-            <span className="font-mono">{target.modelId}</span>
-          </>
-        ) : null}
+        {target.modelLabel ? ` · ${target.modelLabel}` : null}
       </span>
     </span>
   );

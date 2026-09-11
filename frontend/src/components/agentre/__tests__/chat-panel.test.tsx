@@ -790,6 +790,50 @@ describe("ChatPanel · 转录脚注的模型回退值", () => {
     );
   });
 
+  // 真消息的脚注写的是运行时上报的模型 ID；占位行要是写成展示名，真消息一到脚注
+  // 就从「GLM 5.3」跳成「glm-5.3」。所以这里跟 pill 不同，不跟随展示名。
+  it("Given the fixed model has a display name, When the transcript renders, Then the fallback model stays the model ID", async () => {
+    resetStore();
+    onTestFinished(() => {
+      appMocks.ListLLMProviders.mockResolvedValue({ items: [] });
+    });
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          providerKey: "acme-anthropic",
+          name: "Acme Claude",
+          type: "anthropic",
+          enabled: true,
+          defaultModelKey: "",
+        },
+      ],
+    });
+    appMocks.ListLLMModels.mockResolvedValue({
+      items: [
+        {
+          modelKey: "c05987e3-c685-444c-945a-793eba176709",
+          modelId: "glm-5.3",
+          name: "GLM 5.3",
+          enabled: true,
+        },
+      ],
+    });
+    mockSessionStore.session = makeSession({
+      id: 42,
+      providerKey: "acme-anthropic",
+      modelKey: "c05987e3-c685-444c-945a-793eba176709",
+    });
+
+    render(<ChatPanel sessionId={42} />);
+
+    await waitFor(() =>
+      expect(componentMocks.chatTranscriptProps.at(-1)?.fallbackModel).toBe(
+        "glm-5.3",
+      ),
+    );
+  });
+
   it("Given the fixed model is gone from the catalog, When the transcript renders, Then the stable model key never reaches the fallback slot", async () => {
     resetStore();
     onTestFinished(() => {

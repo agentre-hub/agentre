@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -11,6 +12,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
@@ -237,6 +240,50 @@ func TestLoad_ToolsProjectionAndAvailableTools(t *testing.T) {
 			assert.Equal(t, "org", resp.Agents[0].Tools[0].Key)
 			assert.True(t, resp.Agents[0].Tools[0].Enabled)
 			assert.Equal(t, agenttool.Keys(), resp.AvailableTools)
+		})
+	})
+}
+
+// TestLoad_BackendSummaryModel 锁住组织页 Agent 卡片上的摘要模型：写供应商默认模型的
+// 展示名，没填展示名才回落 ModelID。
+func TestLoad_BackendSummaryModel(t *testing.T) {
+	convey.Convey("Load 的 BackendSummary.LLMProviderModel", t, func() {
+		ctx, deptMock, agentMock, backendMock, providerMock, execTargetMock, svc := setupLoadSvc(t)
+
+		expectLoad := func(model *llm_provider_model_entity.LLMProviderModel) {
+			deptMock.EXPECT().List(gomock.Any()).Return(nil, nil)
+			agentMock.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{
+				{ID: 10, Name: "Eva", Status: 1, AgentBackendID: 51, PromptJSON: "[]", SkillsJSON: "[]", ToolsJSON: "[]"},
+			}, nil)
+			backendMock.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.AgentBackend{
+				{ID: 51, Name: "cc", Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "pk-1"},
+			}, nil)
+			providerMock.EXPECT().List(gomock.Any()).Return([]*llm_provider_entity.LLMProvider{
+				{ProviderKey: "pk-1", Name: "Anthropic", DefaultModelKey: "mk-1", Status: consts.ACTIVE},
+			}, nil)
+			providerMock.EXPECT().FindModelByKey(gomock.Any(), "mk-1").Return(model, nil)
+			execTargetMock.EXPECT().ListByAgents(gomock.Any(), []int64{10}).Return(nil, nil)
+		}
+
+		convey.Convey("默认模型有展示名 → 写展示名", func() {
+			expectLoad(&llm_provider_model_entity.LLMProviderModel{ModelKey: "mk-1", ModelID: "claude-sonnet-4-6", Name: "Sonnet 4.6"})
+
+			resp, err := svc.Load(ctx, &LoadOrgRequest{})
+			assert.NoError(t, err)
+			if assert.Len(t, resp.Agents, 1) && assert.NotNil(t, resp.Agents[0].Backend) {
+				assert.Equal(t, "Anthropic", resp.Agents[0].Backend.LLMProviderName)
+				assert.Equal(t, "Sonnet 4.6", resp.Agents[0].Backend.LLMProviderModel)
+			}
+		})
+
+		convey.Convey("默认模型没填展示名 → 回落 ModelID", func() {
+			expectLoad(&llm_provider_model_entity.LLMProviderModel{ModelKey: "mk-1", ModelID: "claude-sonnet-4-6"})
+
+			resp, err := svc.Load(ctx, &LoadOrgRequest{})
+			assert.NoError(t, err)
+			if assert.Len(t, resp.Agents, 1) && assert.NotNil(t, resp.Agents[0].Backend) {
+				assert.Equal(t, "claude-sonnet-4-6", resp.Agents[0].Backend.LLMProviderModel)
+			}
 		})
 	})
 }

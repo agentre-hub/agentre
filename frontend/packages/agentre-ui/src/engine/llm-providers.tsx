@@ -19,6 +19,7 @@ import {
   useEngineSettingsPorts,
 } from "./ports-context";
 import { cn } from "../lib/utils";
+import { modelDisplayName } from "./model-display-name";
 import {
   type DeleteTarget,
   DeleteDialog,
@@ -129,12 +130,12 @@ function LlmProvidersPanelBody({
     setFlash({
       kind: "ok",
       text: t("llmProviders.flash.defaultSet", {
-        model: setDefaultTarget?.model.modelId ?? "",
+        model: setDefaultTarget ? modelDisplayName(setDefaultTarget.model) : "",
       }),
     });
     await refreshProviders();
     await refreshModels();
-  }, [refreshModels, refreshProviders, setDefaultTarget?.model.modelId, t]);
+  }, [refreshModels, refreshProviders, setDefaultTarget, t]);
 
   const handleFormSubmit = React.useCallback(
     async (mode: ProviderFormMode, values: ProviderFormValues) => {

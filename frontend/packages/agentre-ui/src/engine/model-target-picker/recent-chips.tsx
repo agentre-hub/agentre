@@ -44,7 +44,7 @@ export function RecentChipsRow({
               type="button"
               disabled={r.disabled}
               title={r.title}
-              className="flex max-w-[10rem] cursor-pointer items-center gap-1 font-mono text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex max-w-[10rem] cursor-pointer items-center gap-1 text-foreground disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => {
                 if (r.disabled) return;
                 onPick(r.target);
@@ -54,7 +54,7 @@ export function RecentChipsRow({
               <span aria-hidden="true" className="flex shrink-0">
                 {r.kind === "fixed" ? (
                   <LlmModelLogo
-                    model={r.label}
+                    model={r.modelId}
                     providerType={r.providerType}
                     providerName={r.providerName}
                     className="size-3.5"

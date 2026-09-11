@@ -161,7 +161,7 @@ function BackendRowBinding({
           >
             ›
           </span>
-          <span className="truncate font-mono">
+          <span className="truncate">
             {backend.llmProviderModel || t("agentBackends.provider.noModel")}
           </span>
           <Badge

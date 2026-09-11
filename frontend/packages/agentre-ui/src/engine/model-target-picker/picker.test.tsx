@@ -258,17 +258,16 @@ describe("ModelTargetPicker", () => {
     // 核心语义分歧：跟随默认用 primary-soft 底 + primary-text 标题，与固定模型两态可分。
     expect(options[1]).toHaveClass("bg-primary-soft");
     expect(options[1]).toHaveTextContent(/Follow this provider's default/);
-    expect(options[1]).toHaveTextContent("Currently claude-sonnet-4-6");
+    expect(options[1]).toHaveTextContent("Currently Sonnet");
     // 只写「当前跑哪个模型」，不带「默认变了自动跟着变」这类后果从句。
     expect(options[1]).not.toHaveTextContent(/follows automatically/);
     expect(options[1]).not.toHaveTextContent(/never changes/);
-    // 等宽只包模型标识本身，人读前缀不跟着走等宽（mockup 的 <span class="mono">）。
+    // 当前模型写展示名，人读文案不走等宽。
     const defaultSub = within(options[1] as HTMLElement).getByText(
-      "claude-sonnet-4-6",
+      "Currently Sonnet",
     );
-    expect(defaultSub).toHaveClass("font-mono");
-    expect(defaultSub.parentElement).not.toHaveClass("font-mono");
-    // 模型标识绝不能被截断（348px 弹层里副行一旦被吃掉就白写了）。
+    expect(defaultSub).not.toHaveClass("font-mono");
+    // 副行绝不能被截断（348px 弹层里副行一旦被吃掉就白写了）。
     expect(defaultSub).not.toHaveClass("truncate");
     expect(
       within(options[1] as HTMLElement).getByText(
@@ -392,8 +391,10 @@ describe("ModelTargetPicker", () => {
     const dyns = within(list).getAllByRole("option", {
       name: /Follow this provider's default/,
     });
-    expect(dyns[0]).toHaveTextContent("Currently claude-sonnet-4-6");
-    expect(dyns[1]).toHaveTextContent("Currently gpt-5.4");
+    expect(dyns[0]).toHaveTextContent("Currently Sonnet");
+    expect(dyns[1]).toHaveTextContent("Currently GPT");
+    // 当前模型写的是展示名，不是等宽的模型 ID。
+    expect(dyns[0].querySelector(".font-mono")).toBeNull();
   });
 
   it("没有默认模型时副行是回落说明，不被「当前」前缀包住、也不走等宽", async () => {
@@ -470,10 +471,10 @@ describe("ModelTargetPicker", () => {
         catalog={catalog()}
       />,
     );
-    // 摘要 = Provider + 当前默认模型（解析出的生效模型），不得只显示 Provider 名。
+    // 摘要 = Provider + 当前默认模型的展示名（解析出的生效模型），不得只显示 Provider 名。
     expect(
       screen.getByRole("button", { name: "LLM Provider" }),
-    ).toHaveTextContent("Anthropic · claude-sonnet-4-6");
+    ).toHaveTextContent("Anthropic · Sonnet");
   });
 
   it("triggerSub 存在时触发按钮以主副两行呈现，未传时保持既有单行消费方兼容", () => {
@@ -541,7 +542,7 @@ describe("ModelTargetPicker", () => {
     // 没传 aria-label 时名字回落到目录解析出的字符串，绝不让节点里的品牌标识
     // 和徽标参与无障碍名计算（否则屏幕阅读器会念出重复的品牌名）。
     const trigger = screen.getByRole("button", {
-      name: "Anthropic · claude-sonnet-4-6",
+      name: "Anthropic · Sonnet",
     });
     expect(within(trigger).getByTestId("trigger-brand")).toBeInTheDocument();
     expect(within(trigger).getByTestId("trigger-mode-chip")).toHaveTextContent(
@@ -734,9 +735,7 @@ describe("ModelTargetPicker", () => {
       within(list).getByRole("option", { name: /Inherit main binding/ }),
     ).toBeInTheDocument();
     // recent 是 chip：兼容的 Anthropic 可见，OpenAI 被隐藏。
-    expect(
-      screen.getByRole("button", { name: "claude-opus-4-8" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Opus" })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /gpt-5/ }),
     ).not.toBeInTheDocument();
@@ -768,17 +767,15 @@ describe("ModelTargetPicker", () => {
     // 单行横向、不换行。
     expect(chips).toHaveClass("flex-nowrap", "overflow-x-auto");
     // chip 主体可点击选择。
-    const opusChip = screen.getByRole("button", { name: "claude-opus-4-8" });
+    const opusChip = screen.getByRole("button", { name: "Opus" });
     expect(opusChip).not.toBeDisabled();
     // 单条移除。
-    await user.click(
-      screen.getByRole("button", { name: "Remove claude-opus-4-8" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Remove Opus" }));
     expect(readRecentTargets("backend", "")).toEqual([
       { providerKey: "k-anthropic", modelKey: "" },
     ]);
     expect(
-      screen.queryByRole("button", { name: "claude-opus-4-8" }),
+      screen.queryByRole("button", { name: "Opus" }),
     ).not.toBeInTheDocument();
   });
 
@@ -840,9 +837,13 @@ describe("ModelTargetPicker", () => {
 
     await user.click(screen.getByRole("button", { name: "LLM Provider" }));
     const chip = await screen.findByRole("button", {
-      name: "claude-opus-4-8",
+      name: "Opus",
     });
     expect(chip).not.toBeDisabled();
+    // chip 写展示名，品牌标识仍按模型 ID 判定（Opus 猜不出 Claude）。
+    expect(
+      within(chip).getByRole("img", { hidden: true, name: "Claude" }),
+    ).toBeInTheDocument();
     await user.click(chip);
     expect(onChange).toHaveBeenCalledWith({
       providerKey: "k-anthropic",
@@ -870,7 +871,7 @@ describe("ModelTargetPicker", () => {
 
     await user.click(screen.getByRole("button", { name: "LLM Provider" }));
     const chip = await screen.findByRole("button", {
-      name: "claude-sonnet-4-6",
+      name: "Sonnet",
     });
     await user.click(chip);
     expect(onChange).toHaveBeenCalledWith({
@@ -1006,7 +1007,7 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
     );
 
     // 最近使用不能绕过同一远端门控。
-    const recent = screen.getByRole("button", { name: "claude-opus-4-8" });
+    const recent = screen.getByRole("button", { name: "Opus" });
     expect(recent).toBeDisabled();
     await user.click(recent);
     expect(onChange).not.toHaveBeenCalled();
@@ -1422,7 +1423,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     ).toBeInTheDocument();
   });
 
-  it("最近使用 chip 带品牌标识并改成矮方角描边形，按钮无障碍名仍只是模型标识", async () => {
+  it("最近使用 chip 带品牌标识并改成矮方角描边形，按钮无障碍名仍只是模型展示名", async () => {
     const user = userEvent.setup();
     recordRecentTarget("backend", "", {
       providerKey: "k-anthropic",
@@ -1445,9 +1446,10 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     await user.click(screen.getByRole("button", { name: "LLM Provider" }));
     // 无障碍名不被品牌标识污染（品牌标识 aria-hidden）。
     const label = await screen.findByRole("button", {
-      name: "claude-opus-4-8",
+      name: "Opus",
     });
-    expect(label).toHaveClass("font-mono");
+    // 展示名是人读文案，不走等宽。
+    expect(label).not.toHaveClass("font-mono");
     const chip = label.parentElement as HTMLElement;
     expect(chip).toHaveClass(
       "h-[22px]",
@@ -1612,12 +1614,12 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     // mockup .opt.dis { cursor: not-allowed }
     expect(options[1]).toHaveClass("disabled:cursor-not-allowed");
 
-    expect(screen.getByRole("button", { name: "claude-opus-4-8" })).toHaveClass(
+    expect(screen.getByRole("button", { name: "Opus" })).toHaveClass(
       "cursor-pointer",
     );
-    expect(
-      screen.getByRole("button", { name: "Remove claude-opus-4-8" }),
-    ).toHaveClass("cursor-pointer");
+    expect(screen.getByRole("button", { name: "Remove Opus" })).toHaveClass(
+      "cursor-pointer",
+    );
 
     await user.type(
       screen.getByPlaceholderText("Search providers or models…"),
@@ -1832,9 +1834,8 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     );
     await user.click(screen.getByRole("button", { name: "LLM Provider" }));
 
-    const okChip = (
-      await screen.findByRole("button", { name: "claude-opus-4-8" })
-    ).parentElement as HTMLElement;
+    const okChip = (await screen.findByRole("button", { name: "Opus" }))
+      .parentElement as HTMLElement;
     expect(okChip).toHaveClass("cursor-pointer", "hover:border-border-strong");
 
     const offChip = (screen.getByRole("button", { name: "claude-old" })
@@ -1843,9 +1844,7 @@ describe("ModelTargetPicker mockup 结构对齐", () => {
     expect(offChip).not.toHaveClass("hover:border-border-strong");
 
     // mockup .rchip .rx：subtle 基线色，hover 才上 accent 底 + foreground 字。
-    expect(
-      screen.getByRole("button", { name: "Remove claude-opus-4-8" }),
-    ).toHaveClass(
+    expect(screen.getByRole("button", { name: "Remove Opus" })).toHaveClass(
       "text-muted-foreground",
       "hover:bg-accent",
       "hover:text-foreground",

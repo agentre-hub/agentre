@@ -88,7 +88,7 @@ export function routeConclusion(
       target:
         main.mode === "native"
           ? t("agentBackends.binding.cliLogin")
-          : main.modelId || main.providerName,
+          : main.modelLabel || main.providerName,
     });
   }
   const resolved = resolveModelTarget(
@@ -99,6 +99,6 @@ export function routeConclusion(
   if (resolved.mode === "invalid")
     return t("agentBackends.modelRoutes.invalid");
   return t("agentBackends.modelRoutes.fixedSummary", {
-    target: resolved.modelId || resolved.providerName,
+    target: resolved.modelLabel || resolved.providerName,
   });
 }

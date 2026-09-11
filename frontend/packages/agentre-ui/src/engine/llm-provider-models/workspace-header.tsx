@@ -26,6 +26,7 @@ import { Switch } from "../../ui/switch";
 import { cn } from "../../lib/utils";
 
 import { LlmProviderLogo } from "../ai-brand-logo";
+import { modelDisplayName } from "../model-display-name";
 import {
   type Model,
   type Provider,
@@ -80,7 +81,7 @@ export function ProviderWorkspaceHeader({
     : t("llmProviders.workspace.cannotEnableNoDefault");
 
   // 元信息行：当前默认模型（无则占位）与供应商被引用计数。
-  const defaultModelName = defaultModel?.modelId ?? "—";
+  const defaultModelName = defaultModel ? modelDisplayName(defaultModel) : "—";
   const refCounts = providerRefCounts ?? {
     backends: 0,
     sessions: 0,

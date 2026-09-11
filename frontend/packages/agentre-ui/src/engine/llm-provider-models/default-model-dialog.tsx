@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "../../ui/dialog";
 
+import { modelDisplayName } from "../model-display-name";
 import { useEngineSettingsBridge } from "../port-bridge";
 import { llm_provider_svc } from "../port-bridge";
 import {
@@ -138,7 +139,7 @@ export function DefaultModelDialog({
         <DialogHeader>
           <DialogTitle>
             {t("llmProviders.defaultSet.title", {
-              model: target?.model.modelId ?? "",
+              model: target ? modelDisplayName(target.model) : "",
               provider: target?.provider.name ?? "",
             })}
           </DialogTitle>
@@ -159,7 +160,7 @@ export function DefaultModelDialog({
             <>
               <p className="text-2xs leading-relaxed text-muted-foreground">
                 {t("llmProviders.defaultSet.confirmHint", {
-                  model: target?.model.modelId ?? "",
+                  model: target ? modelDisplayName(target.model) : "",
                 })}
               </p>
               {hasRefs ? (

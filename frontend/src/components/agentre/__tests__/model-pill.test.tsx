@@ -660,7 +660,7 @@ describe("ProviderPill · Composer 四态（mockup ?view=chat：单行，脸上�
 });
 
 describe("ProviderPill · 顶部特殊项副行（mockup：→ + 品牌标识 + 供应商 · 模型）", () => {
-  it("Given the agent binding resolves to a provider and model, When the picker opens, Then the follow-agent option's resolution line carries the arrow, the provider brand mark and a monospaced model id", async () => {
+  it("Given the agent binding resolves to a provider and model, When the picker opens, Then the follow-agent option's resolution line carries the arrow, the provider brand mark and the model display name", async () => {
     appMocks.ListLLMProviders.mockResolvedValue({
       items: [ANTHROPIC_PROVIDER],
     });
@@ -693,10 +693,9 @@ describe("ProviderPill · 顶部特殊项副行（mockup：→ + 品牌标识 + 
       within(resolution).getByRole("img", { name: "Anthropic" }),
     ).toBeInTheDocument();
     expect(resolution).toHaveTextContent("Acme Claude");
-    // 模型 ID 是标识符，按 mockup 单独走等宽，不跟着供应商名一起排。
-    expect(within(resolution).getByText("claude-sonnet-4-5")).toHaveClass(
-      "font-mono",
-    );
+    // 模型写的是人读展示名，不走等宽。
+    expect(resolution).toHaveTextContent("claude-sonnet-4-5");
+    expect(resolution.querySelector(".font-mono")).toBeNull();
   });
 
   it("Given the bound provider cannot be resolved in the catalog, When the picker opens, Then the resolution line stays plain text instead of rendering half a brand mark", async () => {

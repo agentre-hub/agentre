@@ -47,6 +47,18 @@ func (m *LLMProviderModel) IsActive() bool { return m != nil && m.Status == cons
 // IsEnabled 是否可被新选择 / 用于执行（独立于软删除状态）。
 func (m *LLMProviderModel) IsEnabled() bool { return m != nil && m.Enabled == EnabledOn }
 
+// DisplayName 界面上的人读名：展示名优先，没填回落 ModelID；nil 返回空串。
+// ModelID 是发给上游的标识符，凡是向用户说出「哪个模型」的地方都走这里。
+func (m *LLMProviderModel) DisplayName() string {
+	if m == nil {
+		return ""
+	}
+	if m.Name != "" {
+		return m.Name
+	}
+	return m.ModelID
+}
+
 // Check 校验关键字段：nil / 空 model_key / 空 model_id 直接返回业务错误。
 // model_key 承担稳定引用，model_id 是执行时发给上游的真实模型，两者都不可为空。
 func (m *LLMProviderModel) Check(ctx context.Context) error {

@@ -13,6 +13,7 @@ function state(over: Partial<ProviderPillState> = {}): ProviderPillState {
     providerLabel: "",
     providerType: "",
     modelLabel: "",
+    modelId: "",
     resolutionLabel: "",
     dynamic: false,
     cliLogin: false,
@@ -28,14 +29,15 @@ describe("ProviderPillTrigger", () => {
       <ProviderPillTrigger
         state={state({
           mode: "follow-agent",
-          modelLabel: "claude-sonnet-4-6",
+          modelLabel: "Sonnet 4.6",
+          modelId: "claude-sonnet-4-6",
           providerLabel: "Anthropic",
           providerType: "anthropic",
         })}
       />,
     );
     expect(screen.getByText(/Follow agent binding/).textContent).toContain(
-      "claude-sonnet-4-6",
+      "Sonnet 4.6",
     );
     expect(screen.getByTestId("follow-agent-icon")).toBeInTheDocument();
   });
@@ -58,13 +60,21 @@ describe("ProviderPillTrigger", () => {
     );
   });
 
-  it("固定模型：只写模型 ID，不写模式", () => {
+  // 展示名是人读文案，不走等宽；品牌标识仍按模型 ID 判定 —— 中转供应商下的
+  // Claude 模型，拿展示名去猜只会猜成供应商的标识。
+  it("固定模型：写展示名（不走等宽），品牌标识按模型 ID 判定，不写模式", () => {
     render(
       <ProviderPillTrigger
-        state={state({ modelLabel: "gpt-5", providerType: "openai" })}
+        state={state({
+          modelLabel: "Sonnet 4.6",
+          modelId: "claude-sonnet-4-6",
+          providerLabel: "Relay",
+          providerType: "openai-chat",
+        })}
       />,
     );
-    expect(screen.getByText("gpt-5")).toBeInTheDocument();
+    expect(screen.getByText("Sonnet 4.6")).not.toHaveClass("font-mono");
+    expect(screen.getByRole("img", { name: "Claude" })).toBeInTheDocument();
     expect(screen.queryByTestId("follow-agent-icon")).not.toBeInTheDocument();
   });
 
@@ -92,25 +102,25 @@ describe("ProviderPillTrigger", () => {
         state={state({ mode: "invalid", modelLabel: "retired-model" })}
       />,
     );
-    // 两段分处不同节点（模型 ID 走等宽），所以分开断言而不是拼字符串。
-    expect(screen.getByText("retired-model")).toBeInTheDocument();
+    expect(screen.getByText(/retired-model/)).toBeInTheDocument();
     expect(screen.getByText(/No longer valid/)).toBeInTheDocument();
   });
 });
 
 describe("ProviderPillResolution", () => {
-  it("解析到供应商与模型：箭头 + 标识 + 供应商 · 模型", () => {
+  it("解析到供应商与模型：箭头 + 标识 + 供应商 · 模型展示名", () => {
     render(
       <ProviderPillResolution
         boundProviderType="anthropic"
         boundProviderLabel="Anthropic"
-        boundModelLabel="claude-sonnet-4-6"
+        boundModelLabel="Sonnet 4.6"
         boundCliLogin={false}
       />,
     );
     const row = screen.getByTestId("special-resolution");
     expect(row.textContent).toContain("Anthropic");
-    expect(row.textContent).toContain("claude-sonnet-4-6");
+    expect(row.textContent).toContain("Sonnet 4.6");
+    expect(row.querySelector(".font-mono")).toBeNull();
   });
 
   it("确知没绑供应商：箭头保留，但不画半个空标识", () => {
