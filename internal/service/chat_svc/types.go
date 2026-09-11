@@ -357,7 +357,7 @@ type ChatBlock struct {
 	// Canonical 是 runtime translator 算出的统一工具识别投影 — wire 形态由
 	// chat_svc/view/CanonicalDTO 提供。前端按 kind 分发到 canonical-tool/<kind>/card.tsx。
 	// Live emit 路径:dispatcher_emitter 从 handler m["canonical"] 转;
-	// Replay 路径:view/project.go 重建 block 时按 runtime translator 重算。
+	// Replay 路径:toChatMessage 回放 history 时由各 block 的构造处(如 plan_block.go / ask_user_question.go)重建。
 	Canonical *view.CanonicalDTO `json:"canonical,omitempty"`
 
 	// Compact 仅 type="compact_boundary" 时填:压缩边界元数据(pre_tokens / trigger / at)。
@@ -490,7 +490,7 @@ type ChatMessage struct {
 	Seq              int     `json:"seq"`
 	Createtime       int64   `json:"createtime"`
 	// TurnTrigger 这条 assistant 消息所属的那一轮是被什么起的:空 = 用户发起(也含本
-	// 字段存在之前的历史消息);"background_task" / "catch_up" / "external"。前端用它
+	// 字段存在之前的历史消息);"background_task" / "catchup" / "external"。前端用它
 	// 决定给一条非用户发起的轮看哪一句来源交代 —— 判「非用户发起」看结构就够,判
 	// 「为什么」必须看它(sess-3797)。
 	TurnTrigger string `json:"turnTrigger,omitempty"`

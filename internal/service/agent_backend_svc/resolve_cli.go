@@ -47,7 +47,7 @@ func (s *agentBackendSvc) ResolveCLIPath(ctx context.Context, req *ResolveCLIPat
 func (s *agentBackendSvc) resolveCLIPathLocal(ctx context.Context, backendType string) (*ResolveCLIPathResponse, error) {
 	path, found, err := cliprober.ResolveCLIPath(backendType)
 	if err != nil {
-		// cliprober 当前只在 backendType 非 claudecode/codex 时返回 ErrInvalidType。
+		// cliprober 当前只在 backendType 非 claudecode/codex/piagent 时返回 ErrInvalidType。
 		return nil, i18n.NewError(ctx, code.AgentBackendInvalidType)
 	}
 	return &ResolveCLIPathResponse{Path: path, Found: found}, nil

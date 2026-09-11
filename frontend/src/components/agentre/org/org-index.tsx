@@ -2,7 +2,6 @@
 //
 // 树的那些零件在 org/ 下,与既有的 org-detail-* 同名风格一致:
 // org-index-filter / org-index-group-header / org-index-agent-row / org-index-empty。
-// 原先它们与本体挤在同一个 681 行的文件里。
 
 import * as React from "react";
 import { DndContext } from "@dnd-kit/core";

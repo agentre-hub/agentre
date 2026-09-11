@@ -51,7 +51,7 @@ func ScanAllCLIs() []CLIProbeResult {
 // ResolveCLIPath 在本机 $PATH 中查找 type 对应 binary 的绝对路径。
 //
 // 行为:
-//   - type 不在 claudecode / codex 范围 → ErrInvalidType
+//   - type 不在 claudecode / codex / piagent 范围 → ErrInvalidType
 //   - 找到 → (path, true, nil)
 //   - 找不到 → ("", false, nil)(非错误 —— 让调用方决定是否提示用户)
 //

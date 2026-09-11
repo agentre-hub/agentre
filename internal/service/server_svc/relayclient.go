@@ -23,8 +23,7 @@ import (
 // socket 数恒为 1。每台想接的机器/对话开一条虚拟通道,目标声明为通道的第一帧载荷
 // (conversation:<uuid> 或 machine:<fingerprint>,决策 10/11),不再出现在 URL 里。
 // 账号信号(sync_version 等)经由这条连接上的保留通道抵达(relaytransport.SignalChannelID
-// = agentre-server relay_svc.SignalChannelID 的逐字同值,决策 14),取代了已删除的
-// /v1/account/channel 与本文件从前的 accountchannel.go 实现。
+// = agentre-server relay_svc.SignalChannelID 的逐字同值,决策 14)。
 //
 // 它与中继的另一条连接(server_svc/relay.go 用不到、internal/peer.Inbound 用的
 // NewInboundHubLink)彼此独立:那条是桌面端**自己**作为可寻址目标被别人连(登记 +
@@ -60,8 +59,7 @@ var (
 )
 
 // accountChannelBuffer 是每个 DialAccountChannel 订阅者的信号流缓冲——信号只带
-// 版本号、彼此可合并,只需要吸收「引擎正在 Pull 时又来了几条」。与旧
-// accountchannel.go 同一个常量值,仅换了个家。
+// 版本号、彼此可合并,只需要吸收「引擎正在 Pull 时又来了几条」。
 const accountChannelBuffer = 16
 
 // residentRelay 是这台桌面端唯一一条中继客户端连接。它在创建后立刻常驻:
@@ -112,7 +110,7 @@ func newResidentRelay(ctx context.Context, hubOpts relaytransport.HubLinkOptions
 	}
 	// 断线之后是全新的一批订阅者:旧物理连接上还没送达的信号本来就无害地丢弃
 	// (accountchan_svc 包注释:漏帧/乱序/重复都无害),调用方据此重新 Dial 一次并
-	// 主动 Pull,补齐断线期间的变更——与旧 accountchannel.go 的约定完全一致。
+	// 主动 Pull,补齐断线期间的变更。
 	link.AddLifecycleListener(
 		func() {
 			r.connMu.Lock()
@@ -241,10 +239,9 @@ func (r *residentRelay) closeAllSubs() {
 	}
 }
 
-// DialAccountChannel 实现 sync_svc.AccountChannelDialer:同一个方法名与签名,从前
-// 由 accountchannel.go 拨一条独立 WebSocket 实现,现在改为向这条常驻连接的保留
-// 通道订阅一份信号流。返回的 channel 在 ctx 结束或物理连接断线时关闭,调用方据此
-// 重连(sync_svc.watchAccountChannel 的既有重试循环不用改一行)。
+// DialAccountChannel 实现 sync_svc.AccountChannelDialer:向这条常驻连接的保留通道订阅
+// 一份信号流。返回的 channel 在 ctx 结束或物理连接断线时关闭,调用方据此重连
+// (sync_svc.watchAccountChannel 的重试循环)。
 func (s *service) DialAccountChannel(ctx context.Context) (<-chan syncwire.AccountChannelFrame, error) {
 	relay, err := s.ensureRelay(ctx)
 	if err != nil {

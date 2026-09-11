@@ -1,7 +1,6 @@
 // Hooks 页:脚本编辑与运行记录两个页签。
 //
-// 两个页签本体与它们用的卡片在 hooks-page/ 下 —— 原先它们与这个页面挤在同一个
-// 734 行的文件里(6 个顶层声明)。
+// 两个页签本体与它们用的卡片在 hooks-page/ 下。
 
 import { useTranslation } from "react-i18next";
 import { Loader2, Plus, Save } from "lucide-react";

@@ -1,6 +1,6 @@
 // ⌘A / Ctrl+A 的让路逻辑:焦点在输入框里时交给输入框自己,否则才拦下来全选全文。
 //
-// 原先写在 App.tsx 里;DOM 侧的判据在 lib/text-selection.ts。
+// DOM 侧的判据在 lib/text-selection.ts。
 
 import { useEffect } from "react";
 

@@ -114,17 +114,15 @@ func (s *service) StartLogin(ctx context.Context, serverURL string) (*StartLogin
 		return nil, err
 	}
 	// R5 决策 8:桌面端指纹一律复用 LAN 配对 keychain 指纹,不另生成随机值。
-	// server_state 里的指纹必须与 keychain 一致(硬不变量),因此旧安装遗留的
-	// 随机指纹在此被覆盖为 keychain 值。
+	// server_state 里的指纹是 keychain 值的镜像(硬不变量),不一致时以 keychain 为准。
 	fp, err := s.ensureDeviceFingerprint()
 	if err != nil {
 		return nil, err
 	}
 	if row.DeviceFingerprint != fp {
 		row.DeviceFingerprint = fp
-		// Persist eagerly so a later Save failure doesn't cause the next StartLogin
-		// to generate a different fingerprint (which would orphan the hub's pending
-		// authorization).
+		// Persist eagerly so server_state already mirrors the keychain value even if
+		// a later Save fails.
 		if err := server_state_repo.ServerState().Save(ctx, row); err != nil {
 			return nil, err
 		}

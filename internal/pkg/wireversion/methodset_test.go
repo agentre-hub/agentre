@@ -64,9 +64,9 @@ func TestMethodSet_GivenTheStrictVersionHandshake_WhenTheMethodSetChanges_ThenTh
 // wireversion.Protocol 逐字相等——窗口至今始终是一个点。这条断言是手工流程的机械兜底:下次改方法集时,连同上一条测试一起改红,
 // 提醒开发者把 MinSupported 也抬到新 Protocol,而不是留着旧窗口悄悄变宽。
 //
-// 反过来不成立:方法集没变也可能必须抬版本 —— 0.2.0 的两级帧一个 RPC 方法都没动,
-// 改的是帧本身的契约(理由见 wireversion.MinSupported 的注释)。那一次 MinSupported
-// 同样跟着 Protocol 抬,所以这条断言照旧成立。
+// 反过来不成立:方法集没变也可能必须抬版本 —— 帧本身的契约变了,而 RPC 方法一个都
+// 没动(理由见 wireversion.MinSupported 的注释)。那种情况下 MinSupported 同样跟着
+// Protocol 抬,所以这条断言照旧成立。
 func TestMethodSet_GivenTheMethodSetDigestWasLastUpdated_ThenMinSupportedMustEqualProtocolAtThatCommit(t *testing.T) {
 	t.Parallel()
 

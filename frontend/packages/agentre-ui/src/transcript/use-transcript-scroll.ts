@@ -451,7 +451,7 @@ export function useTranscriptScroll(
     if (!el) {
       return;
     }
-    // 整个 chat 区被 display:none 收起时(App.tsx 在非 /chat·/projects 路由上这么做)
+    // 整个 chat 区被 display:none 收起时(App.tsx 在不带聊天区的路由上这么做)
     // clientHeight=0、scrollHeight 也是 0;此时设 scrollTop=0 会让回来时停在顶部。
     // 跳过,等回到 /chat 后由 active 切换恢复逻辑兜底滚到底部。
     // 注意这挡不住「隐藏 tab」—— 非活跃面板是 visibility:hidden + absolute inset-0
@@ -464,11 +464,11 @@ export function useTranscriptScroll(
     // 流式逐 chunk 的贴底由下面单独的 effect 接管(挂 liveDelta/liveThinking/...)。
   }, [messages, scrollStateKey, saveBottomScrollPosition]);
 
-  // 流式逐 chunk 贴底。曾经把这件事完全交给虚拟器的 anchorTo:"end"(见 chat.tsx),
-  // 但那条路只在「距底 ≤ 32px 钉底容差」时才钉:turn 开头结构性 follow 滚到的是
+  // 流式逐 chunk 贴底。不交给虚拟器的 anchorTo:"end":
+  // 那条路只在「距底 ≤ 32px 钉底容差」时才钉:turn 开头结构性 follow 滚到的是
   // 占位行 estimate 高度的底部,真实流式文本测量出来更高 → 首帧就落后 >32px →
-  // anchorTo:"end" 再也咬不回来,整轮转录区冻结、最新输出沉到折叠线下面(回归 bug)。
-  // 这里改成「意图驱动」:只要 autoFollowRef(贴底跟随意图,对内容增长免疫、仅用户上滚
+  // anchorTo:"end" 再也咬不回来,整轮转录区冻结、最新输出沉到折叠线下面。
+  // 所以这里是「意图驱动」:只要 autoFollowRef(贴底跟随意图,对内容增长免疫、仅用户上滚
   // 才解除,见 nextAutoFollow)为真,就随每个流式增量把滚动钉到真实底部。读的是已提交 DOM
   // 的实时 scrollHeight(readScrollMetrics 同步触发 reflow),不是慢一帧的虚拟器 getTotalSize
   // 估值,故不掉队;钉到真实底部后虚拟器的 anchorTo:"end" 也回到容差内、自然协同而非互抢。

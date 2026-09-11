@@ -1,5 +1,4 @@
 // 命令面板里的一行搜索结果(标题 + 副标题 + 快捷键提示 + 选中态)。
-// 原先与整个面板挤在一个 879 行的文件里。
 
 import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";

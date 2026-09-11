@@ -1,7 +1,7 @@
 // 流式会话状态的词汇:一条在流长什么样(LiveStream)、它挂在哪些块上、以及 store 的
 // state / actions 形状。
 //
-// 纯类型,没有实现 —— 原先它们与 store 本体挤在同一个 883 行的文件里。
+// 纯类型,没有实现。
 
 import type { ChatStreamEvent, ChatStreamUsage } from "@/hooks/use-chat-stream";
 
@@ -24,17 +24,10 @@ export type LiveToolUseInput = Omit<ChatBlockData, "type" | "subagent"> & {
 // ToolApprovalData 是 agent 内置写工具(org / workflow 等)审批卡片的纯
 // 数据形态,逐字对齐后端 chat_svc.ChatBlockToolApproval(去掉 wails 注入的 convertValues)。
 // 流事件 payload 与持久化/overlay block.toolApproval 都是这个形状,store/card 共用一份类型。
-
-// ToolApprovalData 是 agent 内置写工具(org / workflow 等)审批卡片的纯
-// 数据形态,逐字对齐后端 chat_svc.ChatBlockToolApproval(去掉 wails 注入的 convertValues)。
-// 流事件 payload 与持久化/overlay block.toolApproval 都是这个形状,store/card 共用一份类型。
 export type ToolApprovalData = Omit<
   chat_svc.ChatBlockToolApproval,
   "convertValues"
 >;
-
-// ExecApprovalData mirrors the presentation-safe OpenClaw Gateway approval
-// projection. It deliberately contains no token, environment, or systemRunPlan.
 
 // ExecApprovalData mirrors the presentation-safe OpenClaw Gateway approval
 // projection. It deliberately contains no token, environment, or systemRunPlan.
@@ -53,22 +46,8 @@ export type RetryNotice = {
 
 // LiveStream 是「该 session 当前正在跑的一轮 turn 的全部前端可见状态」。
 // 把它放到全局 store(而不是 ChatPanel 内部 state)的原因:
-//   - 用户切到 /projects 时 ChatPage 整棵 unmount,自管 state 会被销毁、
-//     <StreamSubscriber> 一并 EventsOff,后端继续推但前端再收不到。
-//   - 流式期间到达的 tool_use / tool_result 必须有个地方落,否则切回来时即使重新订阅也丢历史。
-//
-// 字段含义:
-//   - name: Wails 事件流名(后端 SendResponse.Stream),供 ChatStreamsHost 挂 EventsOn。
-//   - liveDelta: 尾部还没冻结成 TextBlock 的文字。遇到 tool_use 时整段冻进 liveBlocks,清空。
-//   - liveBlocks: 已按真实顺序冻结的文字 / tool_use / tool_result。渲染时摆在 persisted blocks
-//     之后、liveDelta 之前。
-//   - liveThinking: 单独累计的思考链。Anthropic 协议要求 thinking 一轮一个,在 turn 开头,
-//     所以前端也不穿插,统一让 renderer 摆到 liveBlocks 前面。
-
-// LiveStream 是「该 session 当前正在跑的一轮 turn 的全部前端可见状态」。
-// 把它放到全局 store(而不是 ChatPanel 内部 state)的原因:
-//   - 用户切到 /projects 时 ChatPage 整棵 unmount,自管 state 会被销毁、
-//     <StreamSubscriber> 一并 EventsOff,后端继续推但前端再收不到。
+//   - 组件自管的 state 随组件卸载销毁、事件订阅一并 EventsOff,后端继续推但前端
+//     再收不到。
 //   - 流式期间到达的 tool_use / tool_result 必须有个地方落,否则切回来时即使重新订阅也丢历史。
 //
 // 字段含义:

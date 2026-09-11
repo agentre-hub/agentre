@@ -1,5 +1,4 @@
-// 远程一键升级整簇(266 行)原先与整行一起住在 device-row.tsx(615 行 = 一行 136 行的
-// 组件 + 周围 17 个声明);只有这一簇要用 Dialog 与 CommandCard,搬出来独立成文件。
+// 远程一键升级整簇:只有它要用 Dialog 与 CommandCard,因此独立于 device-row.tsx。
 //
 // ── 远程一键升级(spec「远程一键升级」+「桌面端呈现」)──────────────────────
 // 触发点是动作菜单里的「升级 agentred」;这里只负责把 useDeviceUpgrade 的状态机

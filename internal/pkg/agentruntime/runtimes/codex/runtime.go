@@ -289,8 +289,7 @@ func sessionKey(id int64) string {
 	return agentruntime.SessionPoolKey(agent_backend_entity.TypeCodex, id)
 }
 
-// Run 启动一轮 codex CLI 发送。语义同顶层 codex.go.Run,emit 类型从
-// RuntimeEvent 改为 sealed agentruntime.Event。
+// Run 启动一轮 codex CLI 发送,emit sealed agentruntime.Event。
 func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 	if req.Backend == nil {
 		return nil, nil, fmt.Errorf("agentruntime/runtimes/codex: nil backend")
@@ -489,7 +488,7 @@ func (r *Runtime) CloseAllSessions(_ context.Context) {
 	r.pool.RemoveAll()
 }
 
-// Abort 软中断当前 turn。语义同顶层 codex.go.Abort。
+// Abort 软中断当前 turn。
 // turnToken 语义(决策 1):0 = 中断当前活跃轮;非 0 = 仅当该轮仍是当前活跃轮才中断,
 // 否则 stale no-op。codex 每会话同时至多一轮、只有用户轮,故被中断轮类型恒为 userTurn。
 func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) (agentruntime.AbortOutcome, error) {
@@ -542,7 +541,7 @@ func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID string, t
 }
 
 // SubmitAnswer 把前端提交的 request_user_input 答案反向投回 codex app-server。
-// 语义同顶层 codex.go.SubmitAnswer:skipped → 空 answers map(让 LLM 看到拒答);
+// skipped → 空 answers map(让 LLM 看到拒答);
 // 非 skipped → buildUserInputAnswers 拼 codex 期望的 map[questionID][]string。
 func (r *Runtime) SubmitAnswer(ctx context.Context, sessionID int64, requestID string, questions []agentruntime.AskQuestion, answers []agentruntime.AskAnswer, skipped bool) error {
 	if sessionID <= 0 {

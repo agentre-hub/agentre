@@ -1,7 +1,6 @@
 // 审批闸门:一段说明 + 批准 / 拒绝两个出口。
 //
-// 与 ToolCall 一样,它原先住在 chat.tsx 里且**在那边没被用到**,只被
-// components/agentre/index.ts 再导出(foundation 用例直接渲染它)。
+// 由 components/agentre/index.ts 再导出(foundation 用例直接渲染它)。
 
 import * as React from "react";
 import { TriangleAlert } from "lucide-react";

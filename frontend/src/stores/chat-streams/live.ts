@@ -33,17 +33,6 @@ export function noteVisibleToken(s: LiveStream, now: number): LiveStream {
 // 没有它，一跳纯工具调用（一个字都不吐）时首 token 会一路推迟到模型终于开口说正文
 // 那一刻：sess-3241 里 190.1s 的一轮报出 166.6s 的首 token，而在那之前整整 23 跳里
 // 界面上的「首 token」就是一个不断增长的整轮耗时、tok/s 干脆不显示。
-
-// noteFirstToken 只记首 token，不碰表。给「模型确实在产出输出 token，但产出的东西
-// 用户看不见」的信号用（output_activity；没有该事件的后端由 tool_use 兜底）。
-//
-// 与 noteVisibleToken 的区别是刻意的：那条要清挂账 + 重新开表（可见正文 = 工具空档
-// 必然已结束的自愈），这条只补一个时间戳，不让新信号动到已经钉死的 tok/s 分母口径。
-// 与后端 turn/timing.go 的 NoteOutputTokenAt 同口径。
-//
-// 没有它，一跳纯工具调用（一个字都不吐）时首 token 会一路推迟到模型终于开口说正文
-// 那一刻：sess-3241 里 190.1s 的一轮报出 166.6s 的首 token，而在那之前整整 23 跳里
-// 界面上的「首 token」就是一个不断增长的整轮耗时、tok/s 干脆不显示。
 export function noteFirstToken(s: LiveStream, now: number): LiveStream {
   return s.firstTokenAt == null ? { ...s, firstTokenAt: now } : s;
 }

@@ -1,9 +1,7 @@
 // use-live-session-status.ts
 //
 // 薄壳代理 —— 内部优先走 useSessionWithOverlays，没有 meta 时退化为直读
-// session-status-store（保持与旧消费方行为完全兼容）。
-//
-// 导出名保持不变，消费方 (project-page / agent-list 等) 无需改动。
+// session-status-store。
 import { useMemo } from "react";
 
 import { useSessionStatusStore } from "@/stores/session-status-store";

@@ -1,13 +1,11 @@
 // Package deviceidentity 是桌面端设备指纹的**唯一来源**：keychain 账号名，以及「读出或
 // 铸出」的规则。值空间的格式本身在 pkg/wire/devicefp（两端共用一个实现）。
 //
-// 为什么要有这个包：这份东西从前有三处（LAN 配对、账号登录、启动期预铸），其中两份实现
-// 逐字节相同、靠注释「必须一致」同步，第三份干脆写进了别的值空间（见 internal/bootstrap
-// 的 ServerBoot）。指纹一旦漂移，症状不是报错，而是同一台机器在 server 上变成两台设备。
+// 为什么只能有一份：LAN 配对、账号登录各自铸指纹的话，两份实现迟早漂开；而指纹一旦
+// 漂移，症状不是报错，而是同一台机器在 server 上变成两台设备。
 //
-// 依赖方向：只认 keychain 与 devicefp 两个包，不认识任何域服务 —— 于是四个调用点
-// （remote_device_svc、server_svc、remote_device_watcher_svc、bootstrap）都不必为了共用
-// 它而互相依赖。
+// 依赖方向：只认 keychain 与 devicefp 两个包，不认识任何域服务 —— 于是三个调用方
+// （remote_device_svc、server_svc、remote_device_watcher_svc）都不必为了共用它而互相依赖。
 package deviceidentity
 
 import (

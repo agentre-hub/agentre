@@ -1,7 +1,6 @@
 // 组织架构页:部门/agent 树 + 右侧详情 + 两个新建对话框。
 //
-// 两个对话框本体(org-chart/new-*-dialog.tsx)与详情渲染(org-chart/detail.tsx)
-// 已从这个文件里拆出去 —— 它们原先与页面挤在同一个 783 行的文件里。
+// 两个对话框本体在 org-chart/new-*-dialog.tsx,详情渲染在 org-chart/detail.tsx。
 
 import * as React from "react";
 import { FolderPlus, Plus } from "lucide-react";

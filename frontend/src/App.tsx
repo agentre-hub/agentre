@@ -1,14 +1,12 @@
 // 应用外壳:一个布局(侧栏 + 顶栏 + outlet)、两条重定向、以及路由表。
 //
-// 拆出来的四块都在 lib/ 与 hooks/ 下 —— 路由词汇(lib/app-routing.ts)、运行环境
+// 外壳用到的纯逻辑在 lib/ 与 hooks/ 下 —— 路由词汇(lib/app-routing.ts)、运行环境
 // 判定(lib/platform.ts)、选区助手(lib/text-selection.ts)与两个钩子
-// (use-prevent-global-select-all、use-persisted-window-size)。原先它们与这个布局
-// 挤在同一个文件里(786 行)。
+// (use-prevent-global-select-all、use-persisted-window-size)。
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 // 与 base.css 里的滚动条规则是一对：那半边把滑块颜色绑到 --sb-thumb 并默认
-// 透明，这半边在滚动时改值。此前这个 hook 就写在本文件里，agentre-server 那侧
-// 因此没有滚动条样式；现在两端共用同一份。
+// 透明，这半边在滚动时改值。两端共用同一份 hook。
 import {
   LocalCommandHistoryProvider,
   LocalCommandsProvider,

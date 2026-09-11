@@ -11,10 +11,9 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
-// ClaimRelativeBackends（R13 运行期认领）把本机 backend 的 DeviceID 从空串改写成本机
-// 指纹，展示侧的 toItem 却仍按「非空 DeviceID == 远端配对设备」解析：本机指纹永远不在
-// paired_agentreds 里（不会和自己配对），于是 DeviceName 空、Online 假，组织架构页的
-// 执行目标行渲染成「这台电脑未配对它 · 离线」。
+// 指向本机的 backend（self 档）DeviceID 是本机指纹。展示侧的 toItem 若按「非空 DeviceID
+// == 远端配对设备」解析：本机指纹永远不在 paired_agentreds 里（不会和自己配对），于是
+// DeviceName 空、Online 假，组织架构页的执行目标行渲染成「这台电脑未配对它 · 离线」。
 //
 // 契约与 chat_svc.execDeviceID 同一条：指向本机的 self 档在展示口径上是本机档。
 func TestListBackends_GivenSelfFingerprintBackend_ThenItemReportsLocalDevice(t *testing.T) {

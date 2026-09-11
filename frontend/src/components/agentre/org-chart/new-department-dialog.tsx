@@ -1,5 +1,4 @@
 // 「新建部门」对话框:薄壳(控制开合)+ 对话框体(表单本体)。
-// 它与「新建 agent」那个对话框原先都与组织架构页挤在一个 783 行的文件里。
 
 import * as React from "react";
 import { useTranslation } from "react-i18next";

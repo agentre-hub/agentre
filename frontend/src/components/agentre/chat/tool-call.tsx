@@ -5,8 +5,7 @@
 //   - canonical-tool/<kind>/card.tsx 处理规范 kind
 // 这张是本仓自己的兜底形状。
 //
-// 它原先住在 chat.tsx 里,而且**在那边一处都没被用到** —— 只被 components/agentre/index.ts
-// 再导出给宿主与测试。和 ChatTranscript 挤在同一个文件里是它难找的原因。
+// 它由 components/agentre/index.ts 再导出给宿主与测试。
 
 import * as React from "react";
 import { Check, LoaderCircle, Wrench } from "lucide-react";

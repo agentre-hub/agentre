@@ -1,8 +1,7 @@
 // 设置页的「版本与更新」区块:当前版本、渠道、镜像源,以及检查更新与下载安装。
 //
 // 它的零件在 update-section/ 下:format(常量与格式化)、rows(设置行)、
-// cards(版本卡片)、checksum-dialog(校验和弹窗)。原先它们与本体挤在同一个
-// 754 行的文件里。
+// cards(版本卡片)、checksum-dialog(校验和弹窗)。
 
 import * as React from "react";
 import { useTranslation } from "react-i18next";

@@ -2,7 +2,6 @@
 // AgentAvatarUploadActions)与它们共用的模式切换。
 //
 // 那些零件在 icon-picker/ 下:图标网格、上传图片档、首字母档、模式芯片、上传动作区。
-// 原先它们与这三个入口挤在同一个 645 行的文件里(17 个顶层声明,最大的一档只占 24%)。
 
 import * as React from "react";
 import { ChevronDown, Image as ImageIcon, Pencil, Type } from "lucide-react";

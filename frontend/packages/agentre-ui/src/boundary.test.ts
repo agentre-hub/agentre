@@ -178,7 +178,7 @@ describe("agentre-ui package boundary", () => {
    *
    *   - peer —— 跨实例会静默坏掉的：react/react-dom（hooks dispatcher）、
    *     i18next + react-i18next（宿主持有的实例与 I18nextProvider context）、
-   *     radix-ui（`TooltipProvider` 挂在宿主的 chat.tsx，第二份 radix 的
+   *     radix-ui（`TooltipProvider` 挂在宿主的 chat-panel.tsx，第二份 radix 的
    *     `Tooltip.Root` 找不到它的 context）、sonner（`toast()` 写模块级
    *     ToastState，`<Toaster/>` 挂在宿主 App.tsx，第二份的 toast 谁也看不见）。
    *   - dep —— 纯渲染/纯函数，多一份只是体积：react-markdown / remark-gfm /

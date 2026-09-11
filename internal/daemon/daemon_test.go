@@ -1048,9 +1048,6 @@ func TestDaemon_BindConnDoesNotMakeUnauthenticatedConnATarget(t *testing.T) {
 	assert.Nil(t, d.notifierForPeer(""), "空指纹不是可匹配身份")
 }
 
-// TestDaemon_AuthRejectsEmptyDeviceFingerprint 回归:rpc/auth.go 的 HandlePair 不拒绝空
-// deviceFingerprint,配对下来会在 PairedPeers 里留一条空键的对端,之后任何连接都能顶着
-// 空指纹 auth.connect 成功。daemon 在入参处挡掉。
 // TestDaemon_GivenLoggedInAndUnavailableRelay_WhenRunning_ThenLANKeepsServing
 // covers R14's degradation boundary: a relay failure must stay in the outbound
 // background loop rather than preventing the daemon's direct LAN server from starting.

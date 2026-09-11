@@ -1,8 +1,7 @@
 // 流式会话的 store:一帧一帧到达的正文/思考/工具调用攒成 LiveStream,按会话与消息
 // 索引,供聊天面板一行一行地读。
 //
-// 词汇在 chat-streams/types.ts,那份账的纯函数在 chat-streams/live.ts —— 原先它们与
-// 本体挤在同一个 883 行的文件里。
+// 词汇在 chat-streams/types.ts,那份账的纯函数在 chat-streams/live.ts。
 //
 // 下面那段再导出是**有意的**:25 个消费者一直从 "@/stores/chat-streams-store" 取那些
 // 类型与取值函数,拆文件不该让它们跟着改 import 路径。

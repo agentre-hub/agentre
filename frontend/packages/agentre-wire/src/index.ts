@@ -1,7 +1,7 @@
 /**
  * @agentre-hub/agentre-wire —— agentre ↔ agentred wire 协议的 TypeScript 侧。
  *
- * 两层构成:
+ * 三部分构成:
  *
  *   - `runtime.ts`   手写的稳定运行时:解码骨架 + 校验助手。
  *   - `rpc.ts`       Protobuf WebSocket RPC 的类型化二进制 codec。

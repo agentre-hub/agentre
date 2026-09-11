@@ -22,7 +22,7 @@ const REGISTRY: Partial<Record<CanonicalKind, React.FC<CanonicalCardProps>>> = {
 // 它们的正文由活动行的展开体直接调 content-renderer / hunk-renderer 渲染,
 // 不再经过卡壳(那两个卡壳已随聚合改动删除)。plan.update 同样刻意不注册:
 // tool_use 形态的 plan.update 走通用工具路径;type="plan" 且带 actions 的
-// plan.update 在 chat.tsx 里直接复用 PlanCard。
+// plan.update 在 transcript-row-view.tsx 里直接复用 PlanCard。
 export function CanonicalToolRouter(props: CanonicalCardProps) {
   const canonical = (props.toolBlock as { canonical?: CanonicalDTO }).canonical;
   if (!canonical) {

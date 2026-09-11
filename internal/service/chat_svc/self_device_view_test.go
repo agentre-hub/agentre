@@ -22,9 +22,8 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
-// R13 的运行期认领（agent_backend_svc.ClaimRelativeBackends）把本机 backend 的
-// DeviceID 从空串改写成了本机指纹，于是 be.IsRemote() 对本机档也成立。派发侧每一处
-// 都补了 remote_device_svc.IsSelfDevice 判据，**展示侧没有**：LoadSession 直接把
+// 指向本机的 backend（self 档）DeviceID 是本机指纹，于是 be.IsRemote() 对它也成立。
+// 派发侧每一处都有 remote_device_svc.IsSelfDevice 判据；展示侧若没有：LoadSession 把
 // be.DeviceID 抄进会话视图，再拿它去本机配对表查设备名/在线态——本机指纹永远不在
 // 配对表里（不会和自己配对），于是 DeviceName 空、Online 假，聊天头把本机会话渲染成
 // 灰色「离线」并弹出「所在机器离线」横幅。

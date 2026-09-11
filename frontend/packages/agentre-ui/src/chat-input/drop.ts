@@ -13,7 +13,7 @@ export type DroppedImageItem = {
   dataUrl?: string;
 };
 
-// 对齐 chat.tsx 的 CHAT_IMAGE_ACCEPT(image/png,image/jpeg,image/webp)。
+// 对齐 composer/chat-composer.tsx 的 IMAGE_ACCEPT(image/png,image/jpeg,image/webp)。
 const DROP_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"];
 
 // 取路径最后一段的小写扩展名;无扩展名/以点开头/以点结尾 → ""。
