@@ -178,12 +178,12 @@ func TestListExecTargetAvailability_GivenOverride_ThenResolvedOrderAndHasOverrid
 		{ID: 8, AgentID: 35, AgentBackendID: 91, SortOrder: 0},
 		{ID: 9, AgentID: 35, AgentBackendID: 92, SortOrder: 1},
 	}, nil)
-	// Get 会被调用两次：一次在顺序解析，一次在覆盖态标注（hasExecTargetOverride）。
+	// 覆盖行只读一次：顺序解析与覆盖态标注共用同一次读取（要求 19）。
 	m.execTargetOverride.EXPECT().Get(ctx, int64(35)).
-		Return(&agent_entity.AgentExecTargetOverride{AgentID: 35, OrderJSON: "[92,91]"}, nil).AnyTimes()
+		Return(&agent_entity.AgentExecTargetOverride{AgentID: 35, OrderJSON: "[92,91]"}, nil).Times(1)
 	m.remoteDevice.EXPECT().DeviceFingerprint().Return(devicefp.Carrier(""), nil).AnyTimes()
-	m.backend.EXPECT().Find(ctx, int64(92)).Return(orderPlainClaude(92), nil)
-	m.backend.EXPECT().Find(ctx, int64(91)).Return(orderPlainClaude(91), nil)
+	m.backend.EXPECT().BatchFind(ctx, gomock.InAnyOrder([]int64{92, 91})).
+		Return(map[int64]*agent_backend_entity.AgentBackend{92: orderPlainClaude(92), 91: orderPlainClaude(91)}, nil)
 
 	statuses, err := svc.ListExecTargetAvailability(ctx, 35, 0)
 	require.NoError(t, err)

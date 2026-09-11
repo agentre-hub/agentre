@@ -43,6 +43,28 @@ type pickExecTargetMocks struct {
 	project            *mock_project_repo.MockProjectRepo
 	projectLocation    *mock_project_location_repo.MockProjectLocationRepo
 	remoteDevice       *mock_remote_device_svc.MockRemoteDeviceSvc
+
+	// listed 是可用性列表路径（ListExecTargetAvailability）批量取到的 backend。
+	listed map[int64]*agent_backend_entity.AgentBackend
+}
+
+// listedBackend 为可用性列表路径登记一行 backend：列表只 BatchFind 一次（要求 19），
+// 首次登记时注册那一次批量取数的桩，按请求的 id 从已登记的行里回。
+func (m *pickExecTargetMocks) listedBackend(be *agent_backend_entity.AgentBackend) {
+	if m.listed == nil {
+		m.listed = map[int64]*agent_backend_entity.AgentBackend{}
+		m.backend.EXPECT().BatchFind(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, ids []int64) (map[int64]*agent_backend_entity.AgentBackend, error) {
+				out := make(map[int64]*agent_backend_entity.AgentBackend, len(ids))
+				for _, id := range ids {
+					if row, ok := m.listed[id]; ok {
+						out[id] = row
+					}
+				}
+				return out, nil
+			}).Times(1)
+	}
+	m.listed[be.ID] = be
 }
 
 func setupPickExecTargetTest(t *testing.T) (context.Context, *pickExecTargetMocks, exec_target_svc.ExecTargetSvc) {

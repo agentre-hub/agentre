@@ -73,38 +73,33 @@ func (s *execTargetSvc) selfBackendIDs(ctx context.Context, targets []*agent_ent
 // 无匹配档）原样用账号默认。派发（PickExecTarget）与组织架构页
 // （ListExecTargetAvailability）共用这一份解析，避免两处各写一份慢慢漂移。
 func (s *execTargetSvc) ResolvedExecTargets(ctx context.Context, agentID int64) ([]*agent_entity.AgentExecTarget, error) {
+	targets, _, err := s.resolveExecTargets(ctx, agentID)
+	return targets, err
+}
+
+// resolveExecTargets 是 ResolvedExecTargets 的本体，另外报告该 Agent 是否有本端顺序
+// 覆盖（R16 组织架构页的覆盖态标注）——覆盖行只读这一次，列表路径不再重复取。
+func (s *execTargetSvc) resolveExecTargets(ctx context.Context, agentID int64) ([]*agent_entity.AgentExecTarget, bool, error) {
 	targets, err := agent_repo.AgentExecTarget().ListByAgent(ctx, agentID)
 	if err != nil {
-		return nil, operationFailedWithCause(ctx, err, zap.Int64("agentId", agentID))
+		return nil, false, operationFailedWithCause(ctx, err, zap.Int64("agentId", agentID))
 	}
 	var override []int64
 	if repo := agent_repo.AgentExecTargetOverride(); repo != nil {
 		o, err := repo.Get(ctx, agentID)
 		if err != nil {
-			return nil, operationFailedWithCause(ctx, err, zap.Int64("agentId", agentID))
+			return nil, false, operationFailedWithCause(ctx, err, zap.Int64("agentId", agentID))
 		}
 		if o != nil {
 			override = o.GetOrder()
 		}
 	}
 	if len(override) > 0 {
-		return agent_entity.ResolveExecTargetOrder(targets, override, nil), nil
+		return agent_entity.ResolveExecTargetOrder(targets, override, nil), true, nil
 	}
 	selfIDs, err := s.selfBackendIDs(ctx, targets)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return agent_entity.ResolveExecTargetOrder(targets, nil, selfIDs), nil
-}
-
-// hasExecTargetOverride 报告某 Agent 是否有本端顺序覆盖（R16 组织架构页的覆盖态标注）。
-func (s *execTargetSvc) hasExecTargetOverride(ctx context.Context, agentID int64) bool {
-	if repo := agent_repo.AgentExecTargetOverride(); repo == nil {
-		return false
-	}
-	o, err := agent_repo.AgentExecTargetOverride().Get(ctx, agentID)
-	if err != nil || o == nil {
-		return false
-	}
-	return len(o.GetOrder()) > 0
+	return agent_entity.ResolveExecTargetOrder(targets, nil, selfIDs), false, nil
 }
