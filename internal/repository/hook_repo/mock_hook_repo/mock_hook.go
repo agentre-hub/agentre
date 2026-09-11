@@ -181,19 +181,19 @@ func (mr *MockHookEventRepoMockRecorder) Create(ctx, e any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockHookEventRepo)(nil).Create), ctx, e)
 }
 
-// FindByDedupeKey mocks base method.
-func (m *MockHookEventRepo) FindByDedupeKey(ctx context.Context, hookID int64, key string) (*hook_entity.HookEvent, error) {
+// CreateIfAbsent mocks base method.
+func (m *MockHookEventRepo) CreateIfAbsent(ctx context.Context, e *hook_entity.HookEvent) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindByDedupeKey", ctx, hookID, key)
-	ret0, _ := ret[0].(*hook_entity.HookEvent)
+	ret := m.ctrl.Call(m, "CreateIfAbsent", ctx, e)
+	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindByDedupeKey indicates an expected call of FindByDedupeKey.
-func (mr *MockHookEventRepoMockRecorder) FindByDedupeKey(ctx, hookID, key any) *gomock.Call {
+// CreateIfAbsent indicates an expected call of CreateIfAbsent.
+func (mr *MockHookEventRepoMockRecorder) CreateIfAbsent(ctx, e any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByDedupeKey", reflect.TypeOf((*MockHookEventRepo)(nil).FindByDedupeKey), ctx, hookID, key)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateIfAbsent", reflect.TypeOf((*MockHookEventRepo)(nil).CreateIfAbsent), ctx, e)
 }
 
 // ListByHook mocks base method.

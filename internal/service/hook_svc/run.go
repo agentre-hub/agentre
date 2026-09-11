@@ -85,7 +85,9 @@ func (s *hookSvc) executeHook(ctx context.Context, h *hook_entity.Hook, dryRun b
 		return out, nil
 	}
 
-	// 成功：解析事件 → (非 dry-run) 去重落库。
+	// 成功：解析事件 → (非 dry-run) 去重落库。dry-run 完全不碰库（含去重判断），所以
+	// 一律当新事件展示；真运行按 dedupe key 走 INSERT ... ON CONFLICT DO NOTHING，
+	// 命中已有 key（本次运行内重复，或与另一次并发运行撞车）算重复、不中断其余事件。
 	for _, ev := range parsed.Events {
 		title := strings.TrimSpace(ev.Title)
 		if title == "" {
@@ -93,18 +95,6 @@ func (s *hookSvc) executeHook(ctx context.Context, h *hook_entity.Hook, dryRun b
 		}
 		item := &HookEventItem{HookID: h.ID, Kind: hook_entity.HookEventKindOutput, Title: title,
 			DedupeKey: ev.DedupeKey, PayloadJSON: rawOrEmpty(ev.Payload), ReceivedAt: now}
-		if ev.DedupeKey != "" && !dryRun {
-			existing, err := hook_repo.HookEvent().FindByDedupeKey(ctx, h.ID, ev.DedupeKey)
-			if err != nil {
-				return out, err
-			}
-			if existing != nil {
-				out.DupCount++
-				continue
-			}
-		}
-		out.Events = append(out.Events, item)
-		out.NewCount++
 		if !dryRun {
 			row := &hook_entity.HookEvent{
 				HookID: h.ID, Kind: hook_entity.HookEventKindOutput, Title: title, DedupeKey: ev.DedupeKey,
@@ -114,10 +104,21 @@ func (s *hookSvc) executeHook(ctx context.Context, h *hook_entity.Hook, dryRun b
 			if err := row.Check(ctx); err != nil {
 				return out, err
 			}
-			if err := hook_repo.HookEvent().Create(ctx, row); err != nil {
+			if ev.DedupeKey != "" {
+				created, err := hook_repo.HookEvent().CreateIfAbsent(ctx, row)
+				if err != nil {
+					return out, err
+				}
+				if !created {
+					out.DupCount++
+					continue
+				}
+			} else if err := hook_repo.HookEvent().Create(ctx, row); err != nil {
 				return out, err
 			}
 		}
+		out.Events = append(out.Events, item)
+		out.NewCount++
 	}
 
 	if !dryRun {

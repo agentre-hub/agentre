@@ -8,6 +8,7 @@ import (
 	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/consts"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/hook_entity"
 )
@@ -26,7 +27,10 @@ type HookRepo interface {
 
 type HookEventRepo interface {
 	Create(ctx context.Context, e *hook_entity.HookEvent) error
-	FindByDedupeKey(ctx context.Context, hookID int64, key string) (*hook_entity.HookEvent, error)
+	// CreateIfAbsent 按 (hook_id, dedupe_key) 的部分唯一索引 ux_hook_events_dedupe 判重并插入；
+	// created=false 表示这一 key 已存在（本次运行内或与另一次并发运行撞车），调用方应计入
+	// 重复数、跳过这一条、继续处理其余事件——不能把冲突当错误让整次运行失败。
+	CreateIfAbsent(ctx context.Context, e *hook_entity.HookEvent) (created bool, err error)
 	ListByHook(ctx context.Context, hookID int64, limit int) ([]*hook_entity.HookEvent, error)
 	ListRecent(ctx context.Context, limit int) ([]*hook_entity.HookEvent, error)
 }
@@ -106,16 +110,12 @@ func (r *hookEventRepo) Create(ctx context.Context, e *hook_entity.HookEvent) er
 	return db.Ctx(ctx).Create(e).Error
 }
 
-func (r *hookEventRepo) FindByDedupeKey(ctx context.Context, hookID int64, key string) (*hook_entity.HookEvent, error) {
-	out := &hook_entity.HookEvent{}
-	err := db.Ctx(ctx).Where("hook_id = ? AND dedupe_key = ? AND status = ?", hookID, key, consts.ACTIVE).First(out).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
+func (r *hookEventRepo) CreateIfAbsent(ctx context.Context, e *hook_entity.HookEvent) (bool, error) {
+	res := db.Ctx(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(e)
+	if res.Error != nil {
+		return false, res.Error
 	}
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return res.RowsAffected > 0, nil
 }
 
 func (r *hookEventRepo) ListByHook(ctx context.Context, hookID int64, limit int) ([]*hook_entity.HookEvent, error) {
