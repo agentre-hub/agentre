@@ -88,6 +88,8 @@ type UseChatActionsOptions = {
   modelKey: string;
   /** 草稿态选中的思考力度；空串 = 跟随后端配置。仅新建会话随首条消息落库。 */
   reasoningEffort: string;
+  /** 新建会话建成（首发 / /goal 起头）后调用：瞬态 ModelTarget 此刻才随会话落库。 */
+  recordDraftTarget: () => void;
   /** activeEditing !== null。编辑态下回车走 confirmEdit，不起新一轮。 */
   editing: boolean;
   confirmEdit: (newText: string) => Promise<void>;
@@ -136,6 +138,7 @@ function useChatActions({
   providerKey,
   modelKey,
   reasoningEffort,
+  recordDraftTarget,
   editing,
   confirmEdit,
 }: UseChatActionsOptions): ChatActions {
@@ -178,6 +181,7 @@ function useChatActions({
           // 与上面那对瞬态 ModelTarget 同一条规则。
           ...(reasoningEffort ? { reasoningEffort } : {}),
         } as Parameters<typeof PeerRunFresh>[0]);
+        recordDraftTarget();
         onPeerSessionCreated?.({
           fingerprint: effectiveTarget.deviceId,
           conversationId: ack?.conversationId ?? "",
@@ -227,6 +231,7 @@ function useChatActions({
       );
       // 新建会话路径：通知父级把 selectedSessionId 切到新 id。
       if (targetSessionId === 0 && resp.sessionId) {
+        recordDraftTarget();
         onSessionCreated?.(resp.sessionId, agentId);
       }
       setMessages((prev) => [
@@ -377,8 +382,13 @@ function useChatActions({
         objective: cmd.objective,
         status: "active",
         permissionMode: isModeSwitchable ? permissionModeValue : "",
+        // /goal 起头的新会话与首发建出的是同一件事：草稿态的瞬态选择同样只在这一次
+        // 随会话落库（与 doSend 的 sendPayload 同一条规则）。
+        ...(providerKey ? { providerKey, modelKey } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
       });
       if (resp.sessionId) {
+        recordDraftTarget();
         onSessionCreated?.(resp.sessionId, agentId);
       }
       onSidebarShouldReload?.();

@@ -592,6 +592,7 @@ function ChatPanel({
     // 草稿态选中的思考力度随首条消息与会话一同落库(spec 2026-09-01「新建会话」),
     // 与上面那对瞬态 ModelTarget 同一条路;已有会话由后端忽略这一格。
     reasoningEffort: reasoningEffortPill.value,
+    recordDraftTarget: providerPill.recordDraftTarget,
     editing: activeEditing !== null,
     confirmEdit,
   });

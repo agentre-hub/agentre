@@ -143,6 +143,11 @@ export interface UseProviderPillReturn {
   modelKey: string;
   /** 由共享 ModelTargetPicker 发射的完整目标（providerKey + modelKey）。 */
   setTarget: (target: ModelTarget) => void;
+  /**
+   * 把当前选择记进最近使用。新建会话的选择在首发成功那一刻才随 Session 落库，由发起
+   * 首发的一方在成功后调用；已有会话的切换在持久化成功后已自行记录，不必再调。
+   */
+  recordDraftTarget: () => void;
   /** 与 backendType 兼容的供应商列表。 */
   providers: llm_provider_svc.ProviderItem[];
   /** effective backend 类型，供共享 Picker 的 provider.type 兼容过滤。 */
@@ -335,6 +340,11 @@ export function useProviderPill({
     [providerKey, modelKey, sessionId, executionLocation, onSwitched],
   );
 
+  // 与上面已有会话那一处同一条规则（决策 19）：只记已落库的目标，按执行位置隔离。
+  const recordDraftTarget = React.useCallback(() => {
+    recordRecentTarget("chat", executionLocation, { providerKey, modelKey });
+  }, [executionLocation, providerKey, modelKey]);
+
   // disabledReason 优先级：后端不可选 > 加载中（无专属原因，沿用既有行为）>
   // 加载成功但无兼容供应商。拉取失败时 providers 也是空数组，但不算「无兼容供应商」
   // ——失败态本身保持可用，靠弹层底部错误行说明（既有行为），不能被这条规则误判禁用。
@@ -492,6 +502,7 @@ export function useProviderPill({
     providerKey,
     modelKey,
     setTarget,
+    recordDraftTarget,
     providers,
     backendType,
     catalog,

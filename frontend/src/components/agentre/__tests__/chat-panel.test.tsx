@@ -3308,6 +3308,100 @@ describe("ChatPanel · 新对话 PermissionModePill", () => {
     });
   });
 
+  // 新建会话的选择在首发成功那一刻才落库（随 Session 一同 Create），「最近使用」只记
+  // 落了库的目标 —— 所以记录点就是首发成功，而不是选中那一下。
+  function renderNewClaudeChatWithProvider() {
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 11,
+          providerKey: "acme-anthropic",
+          name: "Acme Claude",
+          type: "anthropic",
+          enabled: true,
+          defaultModelKey: "",
+          model: "claude-sonnet-4-5",
+        },
+      ],
+    });
+    render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Eng",
+            agentBackendId: 1,
+            backendType: "claudecode",
+            llmProviderKey: "",
+          } as never
+        }
+      />,
+    );
+  }
+
+  async function pickProviderDefault() {
+    const pill = await screen.findByTestId("provider-pill");
+    await waitFor(() => expect(pill).not.toBeDisabled());
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: /Follow this provider's default/,
+      }),
+    );
+  }
+
+  const LOCAL_CHAT_RECENTS = "agentre.modelTargetPicker.recent.v1.chat.local";
+
+  it("Given 新建会话选了供应商, When 首发 Send 成功, Then 这一目标进入本机最近使用", async () => {
+    resetStore();
+    mockSessionStore.session = null;
+    appMocks.SendChatMessage.mockResolvedValue({
+      assistantMessageId: 1001,
+      sessionId: 42,
+      stream: "chat:event:42:1001",
+      userMessageId: 1000,
+    });
+    renderNewClaudeChatWithProvider();
+    await pickProviderDefault();
+    // 只是选中还没落库：不进最近使用。
+    expect(window.localStorage.getItem(LOCAL_CHAT_RECENTS)).toBeNull();
+
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    act(() => submit?.("hello"));
+
+    await waitFor(() => {
+      expect(
+        JSON.parse(window.localStorage.getItem(LOCAL_CHAT_RECENTS) ?? "null"),
+      ).toEqual([{ providerKey: "acme-anthropic", modelKey: "" }]);
+    });
+  });
+
+  it("Given 新建会话选了供应商, When 首发 Send 失败, Then 不进最近使用", async () => {
+    resetStore();
+    mockSessionStore.session = null;
+    appMocks.SendChatMessage.mockRejectedValue(new Error("backend down"));
+    renderNewClaudeChatWithProvider();
+    await pickProviderDefault();
+
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    act(() => submit?.("hello"));
+
+    await waitFor(() =>
+      expect(appMocks.SendChatMessage).toHaveBeenCalledOnce(),
+    );
+    // 失败会把草稿还回输入框 —— 等这一步落定，确认 catch 分支已经走完。
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.restoreDraft).toHaveBeenCalled(),
+    );
+    expect(window.localStorage.getItem(LOCAL_CHAT_RECENTS)).toBeNull();
+  });
+
   it("Given a desktop peer target and a transient provider-default selection, When the first message is dispatched, Then PeerRunFresh carries the selected model target", async () => {
     resetStore();
     mockSessionStore.session = null;
@@ -3409,6 +3503,21 @@ describe("ChatPanel · 新对话 PermissionModePill", () => {
       );
     });
     expect(appMocks.SendChatMessage).not.toHaveBeenCalled();
+    // 派到另一台机器上的会话，最近使用按那台的指纹隔离，绝不进本机那一份。
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          window.localStorage.getItem(
+            "agentre.modelTargetPicker.recent.v1.chat.daemon:sha256:peer-desktop",
+          ) ?? "null",
+        ),
+      ).toEqual([{ providerKey: "acme-anthropic", modelKey: "" }]);
+    });
+    expect(
+      window.localStorage.getItem(
+        "agentre.modelTargetPicker.recent.v1.chat.local",
+      ),
+    ).toBeNull();
   });
 
   it("sessionId=0 + 已绑 agent 的新建会话：未选时 pill 显示 agent 绑定供应商名", async () => {
@@ -4150,6 +4259,87 @@ describe("ChatPanel · Codex collaboration mode", () => {
       );
     });
     expect(appMocks.SetChatGoal).not.toHaveBeenCalled();
+  });
+
+  it("Given 新建 Codex 会话选了供应商, When 用 /goal 起头, Then 选择随 StartChatGoal 落库并进入最近使用", async () => {
+    resetStore();
+    componentMocks.capsSwitchableDuringTurn = false;
+    componentMocks.capsAllowedModes = ["default", "plan"];
+    mockSessionStore.session = null;
+    appMocks.StartChatGoal.mockResolvedValue({
+      sessionId: 123,
+      goal: { objective: "ship rpc", status: "active", tokensUsed: 0 },
+    });
+    appMocks.SendChatMessage.mockResolvedValue({
+      assistantMessageId: 1001,
+      sessionId: 123,
+      stream: "chat:event:123:1001",
+      userMessageId: 1000,
+    });
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 12,
+          providerKey: "acme-openai",
+          name: "Acme OpenAI",
+          type: "openai-response",
+          enabled: true,
+          defaultModelKey: "",
+          model: "gpt-5",
+        },
+      ],
+    });
+
+    render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Codex",
+            agentBackendId: 1,
+            backendType: "codex",
+            defaultPermissionMode: "default",
+          } as never
+        }
+      />,
+    );
+    const pill = await screen.findByTestId("provider-pill");
+    await waitFor(() => expect(pill).not.toBeDisabled());
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: /Follow this provider's default/,
+      }),
+    );
+
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    act(() => {
+      submit?.("/goal ship rpc");
+    });
+
+    await waitFor(() => {
+      expect(appMocks.StartChatGoal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: 7,
+          objective: "ship rpc",
+          providerKey: "acme-openai",
+          modelKey: "",
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          window.localStorage.getItem(
+            "agentre.modelTargetPicker.recent.v1.chat.local",
+          ) ?? "null",
+        ),
+      ).toEqual([{ providerKey: "acme-openai", modelKey: "" }]);
+    });
   });
 
   // codex plan approve/continue 不再由 chat-panel 中转 SendChatMessage —— PlanCard

@@ -53,6 +53,10 @@ type Host interface {
 	RemoteLeaseFor(ctx context.Context, be *agent_backend_entity.AgentBackend) (int64, bool)
 	// ReleaseRemoteRuntime 归还一次远端租约引用。
 	ReleaseRemoteRuntime(deviceID, sessionID int64)
+	// ValidateSessionModelTarget 校验新会话所选 ModelTarget 可在这一档上运行，返回它指向的
+	// 供应商（双空 key 返回 nil = 跟随 agent 绑定）。与首条 Send 建会话同一套校验口径。
+	ValidateSessionModelTarget(ctx context.Context, be *agent_backend_entity.AgentBackend, providerKey, modelKey string) (
+		*llm_provider_entity.LLMProvider, error)
 	// ResolveProjectContext 校验并归一 StartGoal 传来的 projectID。
 	ResolveProjectContext(ctx context.Context, projectID, agentID int64) (int64, error)
 	// PinExecTargetIfUnset 把首轮实际落在的那一档钉进会话行(R15b)。
@@ -83,6 +87,11 @@ type StartInput struct {
 	PermissionMode string
 	Objective      string
 	Patch          Patch
+	// ProviderKey / ModelKey / ReasoningEffort 是草稿态的瞬态选择，随这次建会话一起
+	// 校验并落库（与首条 Send 建会话同一条规则）。
+	ProviderKey     string
+	ModelKey        string
+	ReasoningEffort string
 }
 
 // Get 读取该会话当前的目标。
@@ -143,6 +152,19 @@ func (c *Controller) Start(ctx context.Context, in StartInput) (int64, *agentrun
 	if !be.IsCodex() {
 		return 0, nil, i18n.NewError(ctx, code.ChatGoalUnsupported)
 	}
+	reasoningEffort := strings.TrimSpace(in.ReasoningEffort)
+	if !agent_backend_entity.IsValidReasoningEffort(reasoningEffort) {
+		return 0, nil, i18n.NewError(ctx, code.AgentBackendInvalidReasoningEffort)
+	}
+	providerKey := strings.TrimSpace(in.ProviderKey)
+	modelKey := strings.TrimSpace(in.ModelKey)
+	if providerKey != "" || modelKey != "" {
+		sessionProv, verr := c.host.ValidateSessionModelTarget(ctx, be, providerKey, modelKey)
+		if verr != nil {
+			return 0, nil, verr
+		}
+		prov = sessionProv
+	}
 	projectID, err := c.host.ResolveProjectContext(ctx, in.ProjectID, in.AgentID)
 	if err != nil {
 		return 0, nil, err
@@ -157,6 +179,9 @@ func (c *Controller) Start(ctx context.Context, in StartInput) (int64, *agentrun
 		ProjectID:              projectID,
 		PermissionMode:         permissionMode,
 		PermissionModeAtLaunch: permissionMode,
+		ProviderKey:            providerKey,
+		ModelKey:               modelKey,
+		ReasoningEffort:        reasoningEffort,
 		Title:                  c.host.SessionTitle(objective),
 		AgentStatus:            "idle",
 		Status:                 consts.ACTIVE,

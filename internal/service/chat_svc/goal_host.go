@@ -61,11 +61,14 @@ func (s *chatSvc) StartGoal(ctx context.Context, req *StartGoalRequest) (*StartG
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
 	sessionID, g, err := s.goals().Start(ctx, goal.StartInput{
-		AgentID:        req.AgentID,
-		ProjectID:      req.ProjectID,
-		PermissionMode: req.PermissionMode,
-		Objective:      *req.Objective,
-		Patch:          goal.Patch{Status: req.Status, TokenBudget: req.TokenBudget},
+		AgentID:         req.AgentID,
+		ProjectID:       req.ProjectID,
+		PermissionMode:  req.PermissionMode,
+		Objective:       *req.Objective,
+		Patch:           goal.Patch{Status: req.Status, TokenBudget: req.TokenBudget},
+		ProviderKey:     req.ProviderKey,
+		ModelKey:        req.ModelKey,
+		ReasoningEffort: req.ReasoningEffort,
 	})
 	if err != nil {
 		return nil, err
@@ -95,6 +98,13 @@ func (h chatGoalHost) ResolveSessionProvider(
 	be *agent_backend_entity.AgentBackend, prov *llm_provider_entity.LLMProvider,
 ) (*llm_provider_entity.LLMProvider, *blocks.NoticeBlock, error) {
 	return h.s.resolveSessionProvider(ctx, sess, be, prov)
+}
+
+func (h chatGoalHost) ValidateSessionModelTarget(
+	ctx context.Context, be *agent_backend_entity.AgentBackend, providerKey, modelKey string,
+) (*llm_provider_entity.LLMProvider, error) {
+	prov, _, err := h.s.validateSessionModelTarget(ctx, be, providerKey, modelKey)
+	return prov, err
 }
 
 func (h chatGoalHost) SelectRunner(
