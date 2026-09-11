@@ -21,6 +21,7 @@ export {
 } from "./engine/ports-context";
 export {
   AgentBackendLogo,
+  agentreLogoUrl,
   LlmModelLogo,
   LlmProviderLogo,
   resolveModelBrand,

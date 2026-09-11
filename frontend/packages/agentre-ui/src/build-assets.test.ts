@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
  *
  * 这个包的构建就是一句 `tsc`，而 **tsc 只处理 TS，不搬非 TS 文件**。于是
  * `dist/engine/ai-brand-logo.js` 里那句 `import agentreLogo from
- * "./assets/images/logo-mark.png"` 指向一个不存在的文件 —— 包在本仓测试里一切正常
+ * "./assets/images/logo-mark.svg"` 指向一个不存在的文件 —— 包在本仓测试里一切正常
  * （测试读的是 `src/`），一发布成 tarball，任何宿主一加载引擎面板就在
  * `vite:import-analysis` 上炸掉，而且报的是宿主的错，排查要绕一圈才回到这里。
  *
