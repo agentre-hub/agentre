@@ -68,16 +68,18 @@ import (
 )
 
 type chatMocks struct {
-	agent      *mock_agent_repo.MockAgentRepo
-	backend    *mock_agent_backend_repo.MockAgentBackendRepo
-	provider   *mock_llm_provider_repo.MockLLMProviderRepo
-	session    *mock_chat_repo.MockSessionRepo
-	message    *mock_transcript_repo.MockMessageRepo
-	execTarget *mock_agent_repo.MockAgentExecTargetRepo
-	dbMock     sqlmock.Sqlmock
-	ctx        context.Context
-	events     []recorded
-	svc        chat_svc.ChatSvc
+	agent               *mock_agent_repo.MockAgentRepo
+	backend             *mock_agent_backend_repo.MockAgentBackendRepo
+	provider            *mock_llm_provider_repo.MockLLMProviderRepo
+	session             *mock_chat_repo.MockSessionRepo
+	message             *mock_transcript_repo.MockMessageRepo
+	frameSeq            *mock_transcript_repo.MockFrameSeqRepo
+	replacementRecovery *mock_chat_repo.MockReplacementRecoveryCleanupRepo
+	execTarget          *mock_agent_repo.MockAgentExecTargetRepo
+	dbMock              sqlmock.Sqlmock
+	ctx                 context.Context
+	events              []recorded
+	svc                 chat_svc.ChatSvc
 }
 
 type recorded struct {
@@ -127,20 +129,24 @@ func setupChatTest(t *testing.T) *chatMocks {
 	dbCtx, _, dbMock := testutils.Database(t)
 
 	m := &chatMocks{
-		agent:      mock_agent_repo.NewMockAgentRepo(ctrl),
-		backend:    mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl),
-		provider:   mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl),
-		session:    mock_chat_repo.NewMockSessionRepo(ctrl),
-		message:    mock_transcript_repo.NewMockMessageRepo(ctrl),
-		execTarget: mock_agent_repo.NewMockAgentExecTargetRepo(ctrl),
-		dbMock:     dbMock,
-		ctx:        dbCtx,
+		agent:               mock_agent_repo.NewMockAgentRepo(ctrl),
+		backend:             mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl),
+		provider:            mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl),
+		session:             mock_chat_repo.NewMockSessionRepo(ctrl),
+		message:             mock_transcript_repo.NewMockMessageRepo(ctrl),
+		frameSeq:            mock_transcript_repo.NewMockFrameSeqRepo(ctrl),
+		replacementRecovery: mock_chat_repo.NewMockReplacementRecoveryCleanupRepo(ctrl),
+		execTarget:          mock_agent_repo.NewMockAgentExecTargetRepo(ctrl),
+		dbMock:              dbMock,
+		ctx:                 dbCtx,
 	}
 	agent_repo.RegisterAgent(m.agent)
 	agent_backend_repo.RegisterAgentBackend(m.backend)
 	llm_provider_repo.RegisterLLMProvider(m.provider)
 	chat_repo.RegisterSession(m.session)
 	transcript_repo.RegisterMessage(m.message)
+	transcript_repo.RegisterFrameSeq(m.frameSeq)
+	chat_repo.RegisterReplacementRecoveryCleanup(m.replacementRecovery)
 	// pi 恢复标记落在 app_settings,用真实现走同一份 sqlmock,标记 SQL 才进得了断言。
 	app_setting_repo.RegisterAppSetting(app_setting_repo.NewAppSetting())
 	agent_repo.RegisterAgentExecTarget(m.execTarget)
@@ -6565,12 +6571,155 @@ func TestRenameAndDelete(t *testing.T) {
 			assert.Error(t, err)
 		})
 
-		convey.Convey("Delete 只软删 session，不清理 Agent cwd", func() {
+		convey.Convey("Delete 软删 session 并物理清除转录/台账/替换恢复状态（要求 6）", func() {
 			m := setupChatTest(t)
 			m.session.EXPECT().SoftDelete(ctx, int64(5)).Return(nil)
+			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(3), nil)
+			m.message.EXPECT().DeleteFromSeq(ctx, int64(5), 0).Return(int64(2), nil)
+			m.replacementRecovery.EXPECT().DeleteReplacementRecovery(ctx, int64(5)).Return(int64(1), nil)
 			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
 			assert.NoError(t, err)
 		})
+
+		convey.Convey("Delete 帧台账清理失败 → 返回错误，会话行仍软删", func() {
+			m := setupChatTest(t)
+			m.session.EXPECT().SoftDelete(ctx, int64(5)).Return(nil)
+			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(0), errors.New("frame seq ledger boom"))
+			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
+			assert.Error(t, err)
+		})
+
+		convey.Convey("Delete 转录清理失败 → 返回错误", func() {
+			m := setupChatTest(t)
+			m.session.EXPECT().SoftDelete(ctx, int64(5)).Return(nil)
+			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(0), nil)
+			m.message.EXPECT().DeleteFromSeq(ctx, int64(5), 0).Return(int64(0), errors.New("transcript purge boom"))
+			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
+			assert.Error(t, err)
+		})
+
+		convey.Convey("Delete 替换恢复清理失败 → 返回错误", func() {
+			m := setupChatTest(t)
+			m.session.EXPECT().SoftDelete(ctx, int64(5)).Return(nil)
+			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(0), nil)
+			m.message.EXPECT().DeleteFromSeq(ctx, int64(5), 0).Return(int64(0), nil)
+			m.replacementRecovery.EXPECT().DeleteReplacementRecovery(ctx, int64(5)).Return(int64(0), errors.New("replacement recovery cleanup boom"))
+			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
+			assert.Error(t, err)
+		})
+	})
+}
+
+// TestDeleteWaitsForInFlightTurnBeforePurging 证明 Delete 不会在 CloseSessionEverywhere
+// 返回后立刻清理转录:CloseSessionEverywhere 只是尽力关子进程,同一会话在飞的那一轮
+// goroutine 仍可能持有 s.lockFor(sessionID) 在做收尾写入(assistant 消息/会话状态),
+// 直到它写完才 Unlock。一个错误实现(不等锁就 purge)会让 frameSeq.DeleteBySession
+// 在 turn 收尾前就跑掉 —— 这里用一条阻塞在流上的假 turn 卡住锁,断言 purge 在流被放行
+// 前不会发生,放行后才发生。
+func TestDeleteWaitsForInFlightTurnBeforePurging(t *testing.T) {
+	convey.Convey("Delete 等在飞的 turn 释放会话锁后才清理转录", t, func() {
+		m := setupChatTest(t)
+		ctx := m.ctx // must carry DB handle for Transaction
+
+		providerCalled := make(chan struct{})
+		releaseStream := make(chan struct{})
+		fp := providertest.New().QueueStreamFunc(func(pCtx context.Context) <-chan provider.StreamChunk {
+			ch := make(chan provider.StreamChunk)
+			go func() {
+				select {
+				case <-releaseStream:
+				case <-pCtx.Done():
+				}
+				close(ch)
+			}()
+			return ch
+		})
+		chat_svc.SetProviderBuilderForTest(func(p *llm_provider_entity.LLMProvider) (provider.Provider, error) {
+			select {
+			case <-providerCalled:
+			default:
+				close(providerCalled)
+			}
+			return fp, nil
+		})
+		t.Cleanup(chat_svc.ResetProviderBuilderForTest)
+
+		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+			ID: 7, AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+		}, nil).AnyTimes()
+		m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+			ID: 12, Type: "builtin", LLMProviderKey: "key-21", Status: consts.ACTIVE,
+		}, nil).AnyTimes()
+		m.provider.EXPECT().FindByKey(gomock.Any(), "key-21").Return(&llm_provider_entity.LLMProvider{ProviderKey: "key-21", Enabled: llm_provider_entity.EnabledOn, DefaultModelKey: "mk-key-21", ID: 21, Type: string(llm_provider_entity.TypeAnthropic), Status: consts.ACTIVE}, nil).AnyTimes()
+		expectProviderResolvable(m, "key-21")
+		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(&chat_entity.Session{
+			ID: 100, AgentID: 7, AgentStatus: "idle", Status: consts.ACTIVE,
+		}, nil).AnyTimes()
+		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		m.dbMock.ExpectBegin()
+		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
+		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+				if msg.Role == "user" {
+					msg.ID = 1
+				} else {
+					msg.ID = 2
+				}
+				return nil
+			}).Times(2)
+		m.dbMock.ExpectCommit()
+		m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
+		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		// Start the turn — acquires the per-session lock, spawns a goroutine that
+		// blocks mid-stream (holding the lock) until releaseStream closes.
+		resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
+		assert.NoError(t, err)
+
+		select {
+		case <-providerCalled:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for providerBuilder to be called")
+		}
+
+		m.session.EXPECT().SoftDelete(gomock.Any(), int64(100)).Return(nil)
+		purgeCalled := make(chan struct{})
+		m.frameSeq.EXPECT().DeleteBySession(gomock.Any(), int64(100)).DoAndReturn(
+			func(context.Context, int64) (int64, error) {
+				close(purgeCalled)
+				return 0, nil
+			})
+		m.message.EXPECT().DeleteFromSeq(gomock.Any(), int64(100), 0).Return(int64(0), nil)
+		m.replacementRecovery.EXPECT().DeleteReplacementRecovery(gomock.Any(), int64(100)).Return(int64(0), nil)
+
+		deleteDone := make(chan error, 1)
+		go func() {
+			_, derr := m.svc.Delete(context.Background(), &chat_svc.DeleteRequest{SessionID: 100})
+			deleteDone <- derr
+		}()
+
+		select {
+		case <-purgeCalled:
+			t.Fatal("purge ran while the in-flight turn still held the session lock")
+		case <-time.After(150 * time.Millisecond):
+		}
+
+		// Release the in-flight turn; only now may Delete's purge proceed.
+		close(releaseStream)
+		chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+
+		select {
+		case derr := <-deleteDone:
+			assert.NoError(t, derr)
+		case <-time.After(2 * time.Second):
+			t.Fatal("Delete did not return after the in-flight turn released its lock")
+		}
+		select {
+		case <-purgeCalled:
+		default:
+			t.Fatal("purge never ran")
+		}
 	})
 }
 

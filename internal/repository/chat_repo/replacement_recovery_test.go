@@ -137,6 +137,35 @@ func TestReplacementRecovery_DeleteRemovesMarkerAndHiddenRows(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestReplacementRecoveryCleanup_DefaultAccessorDelegatesToDelete 证明
+// chat_repo.ReplacementRecoveryCleanup() 的默认实现(chat_svc.Delete 依赖的那个窄接口)
+// 真的转发到 DeleteReplacementRecovery,而不是一个 no-op 桩——错误实现会让这条断言
+// 落空(既不发 SQL,也不返回上面那条测试断言过的标记行数)。
+func TestReplacementRecoveryCleanup_DefaultAccessorDelegatesToDelete(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	useRealAppSettings(t)
+
+	ns, err := chat_repo.ReplacementRecoverySessionID(3)
+	require.NoError(t, err)
+
+	mock.ExpectExec("DELETE FROM `chat_message_blocks` WHERE message_id IN \\(SELECT id FROM `chat_messages` WHERE session_id = \\?\\)").
+		WithArgs(ns).
+		WillReturnResult(sqlmock.NewResult(0, 7))
+	mock.ExpectExec("DELETE FROM `chat_messages` WHERE session_id = \\?").
+		WithArgs(ns).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM `app_settings` WHERE `key` = \\?").
+		WithArgs("chat.pi_recovery:3").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	deleted, err := chat_repo.ReplacementRecoveryCleanup().DeleteReplacementRecovery(ctx, 3)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), deleted, "返回值是标记行数,不含隐藏消息")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestReplacementRecovery_NamespaceRejectsSecondGeneration 证明命名空间改由会话 id 推出后,
 // 同一会话上已有在飞的替换生成时第二次申领失败关闭。
 func TestReplacementRecovery_NamespaceRejectsSecondGeneration(t *testing.T) {

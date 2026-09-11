@@ -35,6 +35,40 @@ var (
 	ErrReplacementOwnershipLost      = errors.New("replacement recovery no longer owns the active session")
 )
 
+//go:generate mockgen -source replacement_recovery.go -destination mock_chat_repo/mock_replacement_recovery.go
+
+// ReplacementRecoveryCleanupRepo is the delete-facing seam over replacement
+// recovery cleanup. chat_svc.Delete depends on this narrow interface (instead
+// of calling the package-level DeleteReplacementRecovery directly) so a
+// service unit test can mock the purge call via RegisterReplacementRecoveryCleanup;
+// DeleteReplacementRecovery's own behavior stays proven against sqlmock by
+// this package's own tests. Named "Cleanup" rather than reusing the
+// ReplacementRecovery struct name above, which already owns that identifier.
+type ReplacementRecoveryCleanupRepo interface {
+	// DeleteReplacementRecovery removes this session's recovery marker plus
+	// every hidden row (and their blocks) under its namespace. See the
+	// package-level DeleteReplacementRecovery for exact semantics.
+	DeleteReplacementRecovery(ctx context.Context, sessionID int64) (int64, error)
+}
+
+var defaultReplacementRecoveryCleanup ReplacementRecoveryCleanupRepo = replacementRecoveryCleanupRepo{}
+
+// ReplacementRecoveryCleanup 是 ReplacementRecoveryCleanupRepo 的当前实现存取器。
+func ReplacementRecoveryCleanup() ReplacementRecoveryCleanupRepo {
+	return defaultReplacementRecoveryCleanup
+}
+
+// RegisterReplacementRecoveryCleanup 替换当前实现(测试注入 mock 用)。
+func RegisterReplacementRecoveryCleanup(impl ReplacementRecoveryCleanupRepo) {
+	defaultReplacementRecoveryCleanup = impl
+}
+
+type replacementRecoveryCleanupRepo struct{}
+
+func (replacementRecoveryCleanupRepo) DeleteReplacementRecovery(ctx context.Context, sessionID int64) (int64, error) {
+	return DeleteReplacementRecovery(ctx, sessionID)
+}
+
 // ReplacementRecovery owns one exact Pi replacement generation. The original
 // rows retain their IDs and contents under RecoverySessionID until Start is
 // acknowledged; the active IDs prevent stale restoration from deleting a retry.

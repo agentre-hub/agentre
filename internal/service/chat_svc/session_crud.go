@@ -19,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 )
 
@@ -68,6 +69,10 @@ func (s *chatSvc) Rename(ctx context.Context, req *RenameRequest) (*RenameRespon
 	return &RenameResponse{}, nil
 }
 
+// Delete 软删会话行，并物理清除它的转录（消息/块）、帧编号台账与替换恢复状态
+// （规格「可观察的要求」6）：会话删除后不留可恢复的转录残余，只有 chat_sessions 行
+// 本身保持软删（不回填历史上已软删的会话，见决策 6）。任一清理步骤失败都直接把错误
+// 返回给调用方，不吞掉——调用方（含 server 侧的删除重试）据此重放。
 func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteResponse, error) {
 	if err := chat_repo.Session().SoftDelete(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
@@ -78,6 +83,25 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	agentruntime.CloseSessionEverywhere(ctx, req.SessionID)
 	// 子进程已关，撤销并清掉它的常驻 gateway token（token 寿命跟随子进程）。
 	s.revokeChatToken(req.SessionID)
+
+	// CloseSessionEverywhere 只是尽力终止子进程；它返回时，仍在飞的那一轮的
+	// goroutine 可能还没观察到关闭、还在把收尾写入(assistant 消息/块、会话状态)落库
+	// ——该 goroutine 从起手到收尾全程持有 s.lockFor(sessionID)，收尾时才释放
+	// （见 acquireTurnGate / chat.go 的 defer lock.Unlock()）。这里借同一把锁跟它
+	// 串行：拿到锁即意味着它已经收尾完，purge 才不会跟它的最后一次写入交错。
+	lock := s.lockFor(req.SessionID)
+	lock.mu.Lock()
+	lock.mu.Unlock() //nolint:staticcheck // SA2001: 有意的空临界区——只借锁排队等在飞的 turn 收尾，不持锁跨越下面的清理
+
+	if _, err := transcript_repo.FrameSeq().DeleteBySession(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if _, err := transcript_repo.Message().DeleteFromSeq(ctx, req.SessionID, 0); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	if _, err := chat_repo.ReplacementRecoveryCleanup().DeleteReplacementRecovery(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
 	return &DeleteResponse{}, nil
 }
 
