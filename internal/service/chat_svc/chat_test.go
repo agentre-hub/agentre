@@ -415,8 +415,8 @@ func TestRegisterGatewayBeforeNewChatMakesCLIBackendsChattable(t *testing.T) {
 	m.session.EXPECT().CountRunningByAgents(ctx, []int64{7}).Return(map[int64]int{}, nil)
 	m.session.EXPECT().CountByAgents(ctx, []int64{7}).Return(map[int64]int64{}, nil)
 	m.session.EXPECT().ListIDsByAgents(ctx, []int64{7}).Return(map[int64][]int64{}, nil)
-	m.session.EXPECT().ListByAgent(ctx, int64(7), 5).Return(nil, nil)
-	m.session.EXPECT().ListAttentionByAgent(ctx, int64(7), 20).Return(nil, nil)
+	m.session.EXPECT().ListRecentByAgents(ctx, []int64{7}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, []int64{7}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 	resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 	assert.NoError(t, err)
@@ -441,10 +441,8 @@ func TestListAgentsOpenClawAvailability(t *testing.T) {
 	m.session.EXPECT().CountRunningByAgents(ctx, []int64{31, 32}).Return(map[int64]int{}, nil)
 	m.session.EXPECT().CountByAgents(ctx, []int64{31, 32}).Return(map[int64]int64{}, nil)
 	m.session.EXPECT().ListIDsByAgents(ctx, []int64{31, 32}).Return(map[int64][]int64{}, nil)
-	for _, id := range []int64{31, 32} {
-		m.session.EXPECT().ListByAgent(ctx, id, 5).Return(nil, nil)
-		m.session.EXPECT().ListAttentionByAgent(ctx, id, 20).Return(nil, nil)
-	}
+	m.session.EXPECT().ListRecentByAgents(ctx, []int64{31, 32}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, []int64{31, 32}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 	response, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 	assert.NoError(t, err)
@@ -486,8 +484,8 @@ func listSingleAgentItem(
 	m.session.EXPECT().CountRunningByAgents(ctx, []int64{a.ID}).Return(map[int64]int{}, nil)
 	m.session.EXPECT().CountByAgents(ctx, []int64{a.ID}).Return(map[int64]int64{}, nil)
 	m.session.EXPECT().ListIDsByAgents(ctx, []int64{a.ID}).Return(map[int64][]int64{}, nil)
-	m.session.EXPECT().ListByAgent(ctx, a.ID, 5).Return(nil, nil)
-	m.session.EXPECT().ListAttentionByAgent(ctx, a.ID, 20).Return(nil, nil)
+	m.session.EXPECT().ListRecentByAgents(ctx, []int64{a.ID}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, []int64{a.ID}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 	resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 	require.NoError(t, err)
@@ -680,8 +678,8 @@ func TestListAgents(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{3}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{3}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{3}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(3), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(3), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{3}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{3}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
@@ -707,8 +705,8 @@ func TestListAgents(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{4}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{4}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{4}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(4), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(4), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{4}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{4}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
@@ -733,13 +731,11 @@ func TestListAgents(t *testing.T) {
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{1, 2}).Return(map[int64][]int64{
 				2: {99, 50, 49, 48, 47, 46},
 			}, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(1), 20).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(2), 20).Return([]*chat_entity.Session{
-				{ID: 50, AgentID: 2, Title: "approve me", AgentStatus: "waiting", LastMessageAt: 1700000005000},
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{1, 2}, 20).Return(map[int64][]*chat_entity.Session{
+				2: {{ID: 50, AgentID: 2, Title: "approve me", AgentStatus: "waiting", LastMessageAt: 1700000005000}},
 			}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(1), 5).Return(nil, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(2), 5).Return([]*chat_entity.Session{
-				{ID: 99, AgentID: 2, Title: "支付小队 / 工程师", AgentStatus: "running", LastMessageAt: 1700000000000},
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{1, 2}, 5).Return(map[int64][]*chat_entity.Session{
+				2: {{ID: 99, AgentID: 2, Title: "支付小队 / 工程师", AgentStatus: "running", LastMessageAt: 1700000000000}},
 			}, nil)
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
@@ -771,14 +767,16 @@ func TestListAgents(t *testing.T) {
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{9}).Return(map[int64][]int64{
 				9: {6, 5, 4, 3, 2, 1},
 			}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(9), 5).Return([]*chat_entity.Session{
-				{ID: 6, AgentID: 9, Title: "s6", AgentStatus: "idle"},
-				{ID: 5, AgentID: 9, Title: "s5", AgentStatus: "idle"},
-				{ID: 4, AgentID: 9, Title: "s4", AgentStatus: "idle"},
-				{ID: 3, AgentID: 9, Title: "s3", AgentStatus: "idle"},
-				{ID: 2, AgentID: 9, Title: "s2", AgentStatus: "idle"},
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{9}, 5).Return(map[int64][]*chat_entity.Session{
+				9: {
+					{ID: 6, AgentID: 9, Title: "s6", AgentStatus: "idle"},
+					{ID: 5, AgentID: 9, Title: "s5", AgentStatus: "idle"},
+					{ID: 4, AgentID: 9, Title: "s4", AgentStatus: "idle"},
+					{ID: 3, AgentID: 9, Title: "s3", AgentStatus: "idle"},
+					{ID: 2, AgentID: 9, Title: "s2", AgentStatus: "idle"},
+				},
 			}, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(9), 20).Return(nil, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{9}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
 			assert.NoError(t, err)
@@ -788,6 +786,55 @@ func TestListAgents(t *testing.T) {
 			}
 		})
 	})
+}
+
+// TestListAgents_BatchesRecentAndAttentionAcrossAgents 是要求 18 / A14 的表征测试:
+// ListChatAgents 侧栏原来在循环体里逐 agent 各发一次 ListByAgent / ListAttentionByAgent,
+// SQL 条数随 agent 数线性增长。mockgen 的 EXPECT() 默认要求方法被恰好调用一次 ——
+// 3 个 agent 场景下 ListRecentByAgents / ListAttentionByAgents 各只设了一条期望,
+// 如果生产代码退回逐 agent 调用(调 3 次,或仍调已被接口删除的 ListByAgent /
+// ListAttentionByAgent),要么编译不过要么 ctrl.Finish() 报「未满足的期望」/「意外调用」。
+// 同时断言每个 agent 仍从批量返回的 map 里各自拿到自己的最近/关注会话、顺序不变 ——
+// 查询次数变了，但结果与今天一致。
+func TestListAgents_BatchesRecentAndAttentionAcrossAgents(t *testing.T) {
+	m := setupChatTest(t)
+	ctx := context.Background()
+
+	m.agent.EXPECT().List(ctx).Return([]*agent_entity.Agent{
+		{ID: 101, Name: "A1", Status: consts.ACTIVE},
+		{ID: 102, Name: "A2", Status: consts.ACTIVE},
+		{ID: 103, Name: "A3", Status: consts.ACTIVE},
+	}, nil)
+	m.backend.EXPECT().BatchFind(ctx, []int64{}).Return(map[int64]*agent_backend_entity.AgentBackend{}, nil)
+	m.provider.EXPECT().BatchFindByKey(ctx, []string{}).Return(map[string]*llm_provider_entity.LLMProvider{}, nil)
+	ids := []int64{101, 102, 103}
+	m.session.EXPECT().CountRunningByAgents(ctx, ids).Return(map[int64]int{}, nil)
+	m.session.EXPECT().CountByAgents(ctx, ids).Return(map[int64]int64{}, nil)
+	m.session.EXPECT().ListIDsByAgents(ctx, ids).Return(map[int64][]int64{}, nil)
+	m.session.EXPECT().ListRecentByAgents(ctx, ids, 5).Return(map[int64][]*chat_entity.Session{
+		101: {{ID: 1, AgentID: 101, Title: "r1", AgentStatus: "idle", LastMessageAt: 3}},
+		103: {{ID: 3, AgentID: 103, Title: "r3", AgentStatus: "idle", LastMessageAt: 1}},
+	}, nil)
+	m.session.EXPECT().ListAttentionByAgents(ctx, ids, 20).Return(map[int64][]*chat_entity.Session{
+		102: {{ID: 2, AgentID: 102, Title: "waiting", AgentStatus: "waiting", LastMessageAt: 2}},
+	}, nil)
+
+	resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
+	assert.NoError(t, err)
+	require.Len(t, resp.Agents, 3)
+	byID := map[int64]chat_svc.ChatAgentItem{}
+	for _, item := range resp.Agents {
+		byID[item.ID] = item
+	}
+	if assert.Len(t, byID[101].Sessions, 1) {
+		assert.Equal(t, int64(1), byID[101].Sessions[0].ID, "agent 101 只从批量结果里认领自己的最近会话")
+	}
+	assert.Empty(t, byID[102].Sessions, "agent 102 在 ListRecentByAgents 结果里没有条目,保持空")
+	if assert.Len(t, byID[102].AttentionSessions, 1) {
+		assert.Equal(t, int64(2), byID[102].AttentionSessions[0].ID)
+	}
+	assert.Empty(t, byID[101].AttentionSessions, "agent 101 在 ListAttentionByAgents 结果里没有条目,保持空")
+	assert.Empty(t, byID[103].AttentionSessions, "agent 103 同理")
 }
 
 func TestListAgents_PopulatesDeviceFields(t *testing.T) {
@@ -816,8 +863,8 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{5}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{5}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{5}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(5), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(5), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{5}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{5}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 			// 本地 backend 不触发 remote_device_svc.Get
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})
@@ -840,8 +887,8 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{6}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{6}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{6}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(6), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(6), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{6}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{6}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 			mockRDS.EXPECT().List(ctx).Return([]*remote_device_svc.DeviceView{
 				{ID: 7, DaemonFingerprint: "sha256:device-7", Name: "linux-srv", Online: true},
 			}, nil)
@@ -866,8 +913,8 @@ func TestListAgents_PopulatesDeviceFields(t *testing.T) {
 			m.session.EXPECT().CountRunningByAgents(ctx, []int64{7}).Return(map[int64]int{}, nil)
 			m.session.EXPECT().CountByAgents(ctx, []int64{7}).Return(map[int64]int64{}, nil)
 			m.session.EXPECT().ListIDsByAgents(ctx, []int64{7}).Return(map[int64][]int64{}, nil)
-			m.session.EXPECT().ListByAgent(ctx, int64(7), 5).Return(nil, nil)
-			m.session.EXPECT().ListAttentionByAgent(ctx, int64(7), 20).Return(nil, nil)
+			m.session.EXPECT().ListRecentByAgents(ctx, []int64{7}, 5).Return(map[int64][]*chat_entity.Session{}, nil)
+			m.session.EXPECT().ListAttentionByAgents(ctx, []int64{7}, 20).Return(map[int64][]*chat_entity.Session{}, nil)
 			mockRDS.EXPECT().List(ctx).Return(nil, errors.New("device not found"))
 
 			resp, err := m.svc.ListAgents(ctx, &chat_svc.ListAgentsRequest{})

@@ -375,6 +375,17 @@ func (s *chatSvc) ListAgents(ctx context.Context, _ *ListAgentsRequest) (*ListAg
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
+	// 批量取每个 agent 最近 5 条 / 关注 20 条会话,避免逐 agent 各发一次查询的
+	// N+1(要求 18 / A14):SQL 条数与 agent 数无关。口径不变,只是把循环体里的
+	// ListByAgent / ListAttentionByAgent 换成批量版本,提前在循环外查完。
+	recentByAgent, err := chat_repo.Session().ListRecentByAgents(ctx, agentIDs, 5)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	attentionByAgent, err := chat_repo.Session().ListAttentionByAgents(ctx, agentIDs, 20)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
 
 	for _, a := range agents {
 		ids := sessionIDs[a.ID]
@@ -422,10 +433,7 @@ func (s *chatSvc) ListAgents(ctx context.Context, _ *ListAgentsRequest) (*ListAg
 			item.ChattableHint = i18n.T(ctx, code.ChatAgentNoBackendHint)
 		}
 
-		sessions, err := chat_repo.Session().ListByAgent(ctx, a.ID, 5)
-		if err != nil {
-			return nil, operationFailedWithCause(ctx, err)
-		}
+		sessions := recentByAgent[a.ID]
 		item.RecentCount = len(sessions)
 		item.Sessions = make([]ChatSessionLite, 0, len(sessions))
 		for _, sess := range sessions {
@@ -434,10 +442,7 @@ func (s *chatSvc) ListAgents(ctx context.Context, _ *ListAgentsRequest) (*ListAg
 
 		// sidebar 折叠态 attention bubble：拉所有 running/waiting/error 会话。
 		// 不受 5 行常规列表的约束；limit=20 防异常数据撑爆 UI，前端去重与本组 sessions 的重叠。
-		attention, err := chat_repo.Session().ListAttentionByAgent(ctx, a.ID, 20)
-		if err != nil {
-			return nil, operationFailedWithCause(ctx, err)
-		}
+		attention := attentionByAgent[a.ID]
 		item.AttentionSessions = make([]ChatSessionLite, 0, len(attention))
 		for _, sess := range attention {
 			item.AttentionSessions = append(item.AttentionSessions, s.sessionLiteFromEntity(sess))
