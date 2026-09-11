@@ -26,23 +26,48 @@ import (
 // Merge 见 ProjectSvc 接口注释（R11a）。
 //
 // 流程：①挑赢家(keep)/输家(drop) ②keep 借 drop 的本机路径(若 keep 自己还没有)
-// ③五类引用逐一改挂到 keep ④复用既有 Delete() 软删 drop——Delete 内部的
+// ③五类引用逐一改挂到 keep ④复用 Delete 的落库部分（deleteRows）软删 drop——其中的
 // HasActiveChildren / CountActiveByProject 守卫在这里等于免费的二次校验：如果
-// 上一步漏改了哪一类引用，Delete 会拒绝，合并失败但不留下半改的烂摊子。
+// 上一步漏改了哪一类引用，它会拒绝，合并随之失败。
+//
+// 全部读写跑在同一个事务里（spec 2026-09-11 要求 4）：任一步失败整体回滚，库里不留
+// 半合并的状态。同步通知在事务里只收集、不发出，提交成功之后再用外层 ctx 按原次序
+// 发出：NotifyLocalChange 用拿到的 ctx 写出站队列，再以 context.WithoutCancel(ctx)
+// 起后台同步，事务的 ctx 会把一个已经提交的 tx 交给它；回滚之后，发出去的通知也收不回来。
 func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*project_entity.Project, error) {
 	if req == nil || req.SourceID <= 0 || req.TargetID <= 0 || req.SourceID == req.TargetID {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
+	var keep *project_entity.Project
+	var changes []sync_svc.LocalChange
+	if err := s.tx.RunInTx(ctx, func(txCtx context.Context) error {
+		var err error
+		keep, changes, err = s.mergeRows(txCtx, req)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	for _, ch := range changes {
+		sync_svc.Notify(ctx, ch)
+	}
+	return keep, nil
+}
+
+// mergeRows 是 Merge 在事务里的那一段，ctx 必须是事务的 ctx。返回保留下来的那一行，
+// 以及提交成功后要按次序发出的同步通知。
+func (s *projectSvc) mergeRows(
+	ctx context.Context, req *MergeProjectsRequest,
+) (*project_entity.Project, []sync_svc.LocalChange, error) {
 	a, err := project_repo.Project().Find(ctx, req.SourceID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	b, err := project_repo.Project().Find(ctx, req.TargetID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if a == nil || b == nil {
-		return nil, i18n.NewError(ctx, code.ProjectNotFound)
+		return nil, nil, i18n.NewError(ctx, code.ProjectNotFound)
 	}
 
 	keep, drop := chooseMergeWinner(a, b)
@@ -58,36 +83,40 @@ func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*pro
 		keep.ParentID = drop.ParentID
 	}
 	if err := project_repo.Project().Update(ctx, keep); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := s.sessions.ReassignProject(ctx, drop.ID, keep.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := reassignProjectAgents(ctx, drop.ID, keep.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := reassignChildProjects(ctx, drop.ID, keep.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// 改挂之前先把它们读出来：project_id 是任务同步载荷里的 project_sync_id
 	// （sync_svc.issuePayload），整批改写之后不为每条任务各发一次上行，对端的卡
 	// 就还挂在这个马上要消失的项目上。标识只在行上，整批 UPDATE 不回传它们。
 	moved := issuesToReannounce(ctx, drop.ID)
 	if err := issue_repo.Issue().ReassignProject(ctx, drop.ID, keep.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	changes := make([]sync_svc.LocalChange, 0, len(moved)+1)
 	for _, it := range moved {
-		sync_svc.NotifyUpdate(ctx, syncwire.KindIssue, it.ID, it.SyncMeta)
+		changes = append(changes, sync_svc.LocalChange{
+			Kind: syncwire.KindIssue, LocalID: it.ID, Op: sync_svc.OpUpdate, Meta: it.SyncMeta,
+		})
 	}
 	if err := s.reassignProjectLocations(ctx, keep, drop); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if err := s.Delete(ctx, drop.ID); err != nil {
-		return nil, err
+	deleted, err := s.deleteRows(ctx, drop.ID)
+	if err != nil {
+		return nil, nil, err
 	}
-	return keep, nil
+	return keep, append(changes, deleted), nil
 }
 
 // issuesToReannounce 列出还挂在 projectID 名下的存活任务（整行，带同步标识）。
@@ -97,8 +126,7 @@ func (s *projectSvc) Merge(ctx context.Context, req *MergeProjectsRequest) (*pro
 // ReassignProject 那一下只是不让本机留下指向已消失项目的悬空引用。
 //
 // 读失败不回传：这一次读取只为同步层服务，同步层的任何失败都不该否决用户的合并
-// （R8，与 project_svc.memberSyncMeta / issue_svc.labelLinksBefore 同一口径）。此刻
-// 项目、会话、成员与子项目都已经改挂完毕，在这里返回错误只会留下一个半合并的库。
+// （R8，与 project_svc.memberSyncMeta / issue_svc.labelLinksBefore 同一口径）。
 // 最坏的结果是这一轮少发几条上行，任务下次被编辑时再对上。
 func issuesToReannounce(ctx context.Context, projectID int64) []*issue_entity.Issue {
 	if !sync_svc.Active() {

@@ -56,6 +56,9 @@ type IssueRepo interface {
 	// 改挂会把它们留在原地指向一个已消失的项目。
 	ReassignProject(ctx context.Context, fromProjectID, toProjectID int64) error
 	StageCounts(ctx context.Context, filter ListFilter) (map[string]int64, error)
+	// MaxPosition 返回 stage 列里存活任务的最大 position（跨项目，列空时为 0），供
+	// 新建任务排到列尾：一次聚合，不必把整列读回来只取最后一张。
+	MaxPosition(ctx context.Context, stage string) (float64, error)
 	// CountUnfinishedByProject 按 project_id 统计**未完成**的任务数（键 0 = 未归属）。
 	// 项目选择器每一项右侧的计数由它喂养，因此刻意不吃 ListFilter —— 那个数的用途
 	// 就是判断该切到哪，跟着当前筛选缩水就失去了用途。
@@ -248,6 +251,18 @@ func (r *issueRepo) StageCounts(ctx context.Context, filter ListFilter) (map[str
 		out[row.Stage] = row.Cnt
 	}
 	return out, nil
+}
+
+// MaxPosition 见接口注释。条件走 scoped 的 Stage 那一条，与看板按 position 排列
+// 那一列的 List 出自同一套判据。
+func (r *issueRepo) MaxPosition(ctx context.Context, stage string) (float64, error) {
+	var maxPosition float64
+	err := r.scoped(ctx, ListFilter{Stage: stage}).
+		Select("COALESCE(MAX(position), 0)").Row().Scan(&maxPosition)
+	if err != nil {
+		return 0, err
+	}
+	return maxPosition, nil
 }
 
 func (r *issueRepo) Delete(ctx context.Context, id int64) error {

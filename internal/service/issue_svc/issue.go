@@ -582,16 +582,14 @@ func (s *issueSvc) hydrate(ctx context.Context, issue *issue_entity.Issue) (*Iss
 	return &IssueDetail{Issue: issue, Labels: labels}, nil
 }
 
-// appendPosition 返回目标 stage 末位之后的 position。
+// appendPosition 返回目标 stage 末位之后的 position：列里最大的 position 再加一步。
+// 列空时 MaxPosition 为 0，第一张卡落在一步处。
 func (s *issueSvc) appendPosition(ctx context.Context, stage string) (float64, error) {
-	rows, err := issue_repo.Issue().List(ctx, issue_repo.ListFilter{Stage: stage, Sort: "position"})
+	maxPosition, err := issue_repo.Issue().MaxPosition(ctx, stage)
 	if err != nil {
 		return 0, err
 	}
-	if len(rows) == 0 {
-		return positionStep, nil
-	}
-	return rows[len(rows)-1].Position + positionStep, nil
+	return maxPosition + positionStep, nil
 }
 
 // Move 改 stage + 计算列内 position（AfterID 之后 / 顶部）。

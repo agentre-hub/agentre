@@ -194,7 +194,7 @@ func TestProjectSvcMerge_GivenHiddenReferences_ThenNothingStillPointsAtTheDroppe
 	projectRepo.EXPECT().HasActiveChildren(ctx, int64(41)).Return(false, nil)
 	projectRepo.EXPECT().Delete(ctx, int64(41)).Return(nil)
 
-	_, err := project_svc.New(project_svc.WithSessionPort(sessions)).Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 40, TargetID: 41})
+	_, err := project_svc.New(project_svc.WithSessionPort(sessions), project_svc.WithTxRunner(&fakeTx{})).Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 40, TargetID: 41})
 	require.NoError(t, err)
 
 	for _, s := range sessions.rows {
@@ -249,7 +249,7 @@ func TestProjectSvcMerge_GivenLocationsCollide_ThenLoserIsRecordedAsALostChange(
 	projectRepo.EXPECT().HasActiveChildren(ctx, int64(51)).Return(false, nil)
 	projectRepo.EXPECT().Delete(ctx, int64(51)).Return(nil)
 
-	_, err := project_svc.New(project_svc.WithSessionPort(sessions)).Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 50, TargetID: 51})
+	_, err := project_svc.New(project_svc.WithSessionPort(sessions), project_svc.WithTxRunner(&fakeTx{})).Merge(ctx, &project_svc.MergeProjectsRequest{SourceID: 50, TargetID: 51})
 	require.NoError(t, err)
 
 	require.Len(t, lost.rows, 1, "落败的那一行必须留下一条可追回的记录")

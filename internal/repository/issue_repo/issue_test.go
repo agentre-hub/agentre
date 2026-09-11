@@ -161,6 +161,48 @@ func TestIssueStageCounts(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// 要求 20：新建任务取列尾 position 是一次聚合。判据与原先 List(Stage, Sort=position)
+// 取末位一致——只看存活行、只按 stage、不分项目。
+func TestIssueMaxPosition(t *testing.T) {
+	const maxPositionSQL = "SELECT COALESCE\\(MAX\\(position\\), 0\\) FROM `issues` WHERE status = \\? AND stage = \\?$"
+
+	t.Run("Given a stage with cards When MaxPosition Then returns the largest position", func(t *testing.T) {
+		ctx, mock, repo := setupIssueRepo(t)
+		mock.ExpectQuery(maxPositionSQL).
+			WithArgs(consts.ACTIVE, issue_entity.StageDoing).
+			WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(131072.5))
+
+		got, err := repo.MaxPosition(ctx, issue_entity.StageDoing)
+		require.NoError(t, err)
+		assert.Equal(t, 131072.5, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given an empty stage When MaxPosition Then returns 0", func(t *testing.T) {
+		ctx, mock, repo := setupIssueRepo(t)
+		// 列空时 MAX 为 NULL，COALESCE 让库直接交回 0。
+		mock.ExpectQuery(maxPositionSQL).
+			WithArgs(consts.ACTIVE, issue_entity.StageTodo).
+			WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(0.0))
+
+		got, err := repo.MaxPosition(ctx, issue_entity.StageTodo)
+		require.NoError(t, err)
+		assert.Zero(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Given the query fails When MaxPosition Then returns the error", func(t *testing.T) {
+		ctx, mock, repo := setupIssueRepo(t)
+		mock.ExpectQuery(maxPositionSQL).
+			WithArgs(consts.ACTIVE, issue_entity.StageTodo).
+			WillReturnError(assert.AnError)
+
+		_, err := repo.MaxPosition(ctx, issue_entity.StageTodo)
+		require.ErrorIs(t, err, assert.AnError)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
 func TestIssueUpdate_WritesStagePosition(t *testing.T) {
 	ctx, mock, repo := setupIssueRepo(t)
 	mock.ExpectBegin()

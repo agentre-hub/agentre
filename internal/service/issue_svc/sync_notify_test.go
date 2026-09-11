@@ -40,7 +40,7 @@ func registerRecordingSync(t *testing.T) *recordingSync {
 func TestIssueCreate_NotifiesSyncOnce(t *testing.T) {
 	ctx, mi, ml, mil, svc := setupIssueSvc(t)
 	rec := registerRecordingSync(t)
-	mi.EXPECT().List(ctx, gomock.Any()).Return(nil, nil)
+	mi.EXPECT().MaxPosition(ctx, issue_entity.StageTodo).Return(0.0, nil)
 	ml.EXPECT().ListByIDs(ctx, gomock.Any()).Return(nil, nil).AnyTimes()
 	mi.EXPECT().Create(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, i *issue_entity.Issue) error {
 		i.ID = 9
