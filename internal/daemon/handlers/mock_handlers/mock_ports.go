@@ -756,19 +756,19 @@ func (mr *MockDurableFrameReaderPortMockRecorder) LatestSeq(ctx, peerFingerprint
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestSeq", reflect.TypeOf((*MockDurableFrameReaderPort)(nil).LatestSeq), ctx, peerFingerprint, peerSessionID)
 }
 
-// LatestSeqByPeer mocks base method.
-func (m *MockDurableFrameReaderPort) LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error) {
+// LatestSeqs mocks base method.
+func (m *MockDurableFrameReaderPort) LatestSeqs(ctx context.Context, rows []handlers.SessionRecord) (map[string]int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LatestSeqByPeer", ctx, peerFingerprint)
+	ret := m.ctrl.Call(m, "LatestSeqs", ctx, rows)
 	ret0, _ := ret[0].(map[string]int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// LatestSeqByPeer indicates an expected call of LatestSeqByPeer.
-func (mr *MockDurableFrameReaderPortMockRecorder) LatestSeqByPeer(ctx, peerFingerprint any) *gomock.Call {
+// LatestSeqs indicates an expected call of LatestSeqs.
+func (mr *MockDurableFrameReaderPortMockRecorder) LatestSeqs(ctx, rows any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestSeqByPeer", reflect.TypeOf((*MockDurableFrameReaderPort)(nil).LatestSeqByPeer), ctx, peerFingerprint)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestSeqs", reflect.TypeOf((*MockDurableFrameReaderPort)(nil).LatestSeqs), ctx, rows)
 }
 
 // ListSince mocks base method.

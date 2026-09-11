@@ -63,8 +63,9 @@ func NewSessionCatchupHandlers(deps SessionCatchupDeps) *SessionCatchupHandlers 
 // 那几条对话,两者都原样下推给存储。它们是**收窄**而不是另一条查询:对端限定与账号
 // 可见性的判据一个字不变,两支都收同一份条件。
 //
-// 每条会话的「最新 seq」取自帧编号台账(见 DurableFrameReaderPort.LatestSeqByPeer)。会话一帧
-// 持久帧都还没有时报 0。「是否正在等待输入」现算,见 waitingForInput。标题 / Agent 同步标识 /
+// 每条会话的「最新 seq」取自帧编号台账(见 DurableFrameReaderPort.LatestSeqs),且只对
+// **这一页**求(要求 8)。会话一帧持久帧都还没有时报 0。「是否正在等待输入」现算,见
+// waitingForInput。标题 / Agent 同步标识 /
 // provider_session_id(R7 + 决策 8)原样回传;老会话缺这些字段时保持空串、如实留空。
 func (h *SessionCatchupHandlers) List(ctx context.Context, request *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
 	peer := peerFingerprint(ctx)
@@ -115,12 +116,12 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, request *agentrewire.
 	if limit <= 0 {
 		total = int64(offset + len(rows))
 	}
-	latest := map[string]int64{}
-	if !accountWide {
-		latest, err = h.deps.DurableFrames.LatestSeqByPeer(ctx, peer)
-		if err != nil {
-			return nil, fmt.Errorf("read latest seq: %w", err)
-		}
+	// 两个分支统一走 LatestSeqs、只带这一页 rows(要求 8):此前 accountWide 分支在
+	// 下面的循环里逐行现叫 LatestSeq,是「按页」与「按对端全表」之外的第三种代价 ——
+	// 条数与本页大小成正比没错,但仍是 N 次调用而不是一次。
+	latest, err := h.deps.DurableFrames.LatestSeqs(ctx, rows)
+	if err != nil {
+		return nil, fmt.Errorf("read latest seq: %w", err)
 	}
 	// 这台 daemon 认识 R7 / 决策 8 的那几列(它就是落库方),如实声明 —— 未升级的
 	// agentred 不认识这个字段,客户端解出来是 false,据此说明该机器需要升级。
@@ -138,12 +139,6 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, request *agentrewire.
 			continue
 		}
 		latestSeq := latest[row.PeerSessionID]
-		if accountWide {
-			latestSeq, err = h.deps.DurableFrames.LatestSeq(ctx, row.PeerFingerprint, row.PeerSessionID)
-			if err != nil {
-				return nil, fmt.Errorf("read latest seq: %w", err)
-			}
-		}
 		summary := &agentrewire.SessionSummary{
 			ConversationId:    conversationID,
 			AgentId:           row.AgentID,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
@@ -62,7 +65,7 @@ func setupCatchupTest(t *testing.T, rt agentruntime.Runtime) (
 // ── 会话清单 ────────────────────────────────────────────────────────────────
 
 // TestSessionCatchup_List_ReportsLatestSeqFromTheDurableFrames 覆盖清单的「最新 seq」:
-// 它取自帧编号台账(DurableFrameReaderPort.LatestSeqByPeer),会话表上没有这一格。
+// 它取自帧编号台账(DurableFrameReaderPort.LatestSeqs),会话表上没有这一格。
 // 一帧持久帧都还没有的会话报 0。
 func TestSessionCatchup_List_ReportsLatestSeqFromTheDurableFrames(t *testing.T) {
 	ctx, sessions, durable, h := setupCatchupTest(t, bareRT{})
@@ -70,7 +73,7 @@ func TestSessionCatchup_List_ReportsLatestSeqFromTheDurableFrames(t *testing.T) 
 		{PeerSessionID: convID(1), AgentID: 7, Cwd: "/work", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning},
 		{PeerSessionID: convID(2), AgentID: 8, Cwd: "/other", BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(map[string]int64{convID(1): 42}, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(map[string]int64{convID(1): 42}, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -85,6 +88,160 @@ func TestSessionCatchup_List_ReportsLatestSeqFromTheDurableFrames(t *testing.T) 
 
 	assert.Equal(t, convID(2), got.Sessions[1].ConversationId)
 	assert.Zero(t, got.Sessions[1].LatestSeq, "还没发过通知的会话报 0")
+}
+
+// TestSessionCatchup_List_ComputesLatestSeqsOnlyForThePage 覆盖要求 8:一次分页请求
+// 只对**返回页内的**会话求最新 seq,而不是这个对端全部会话。此前的 LatestSeqByPeer
+// 会把这个对端重新 ListByPeer 一遍(offset=0/limit=0 = 全表)再逐条投影整段转录求
+// seq —— 与请求的 limit 完全无关,是清单分页时最大的一次白读;严格 mock 上不再存在
+// LatestSeqByPeer / 逐行 LatestSeq 这两个方法,调用到即失败,天然钉死「只有这一次
+// 调用、只带这一页」。
+func TestSessionCatchup_List_ComputesLatestSeqsOnlyForThePage(t *testing.T) {
+	ctx, sessions, durable, h := setupCatchupTest(t, bareRT{})
+	page := []handlers.SessionRecord{
+		{PeerSessionID: convID(1), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
+		{PeerSessionID: convID(2), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
+	}
+	sessions.EXPECT().List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}, 0, 2).Return(page, nil)
+	sessions.EXPECT().Count(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}).Return(int64(5), nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), page).Times(1).Return(map[string]int64{convID(1): 3, convID(2): 4}, nil)
+
+	got, err := h.List(ctx, &agentrewire.SessionListRequest{Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 2)
+	assert.Equal(t, int64(3), got.Sessions[0].LatestSeq)
+	assert.Equal(t, int64(4), got.Sessions[1].LatestSeq)
+	assert.Equal(t, int64(5), got.Total, "总数仍是全量,只是求 seq 的这一步不再读全量")
+}
+
+// TestSessionCatchup_List_LatestSeqsFailurePropagates 覆盖失败路径:求最新 seq 失败时
+// 必须整份清单报错,不能悄悄回落成 0 —— 那会让客户端把还在追的会话看成从没发过消息。
+func TestSessionCatchup_List_LatestSeqsFailurePropagates(t *testing.T) {
+	ctx, sessions, durable, h := setupCatchupTest(t, bareRT{})
+	rows := []handlers.SessionRecord{
+		{PeerSessionID: convID(1), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
+	}
+	sessions.EXPECT().List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}, 0, 0).Return(rows, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), rows).Return(nil, errors.New("disk I/O error"))
+
+	_, err := h.List(ctx, &agentrewire.SessionListRequest{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk I/O error")
+}
+
+// accountWideSessionQuery 在 mockgen 生成的 SessionQueryPort mock 之上叠加
+// ListAll / CountAll —— List 的账号级分支靠一次匿名接口断言认出「这个 Sessions
+// 端口也支持账号级列出」(session_catchup.go),mockgen 只按显式声明的
+// SessionQueryPort 生成,断言不到这两个方法。
+type accountWideSessionQuery struct {
+	*mock_handlers.MockSessionQueryPort
+	rows  []handlers.SessionRecord
+	total int64
+}
+
+func (s *accountWideSessionQuery) ListAll(context.Context, handlers.SessionListFilter, int, int) ([]handlers.SessionRecord, error) {
+	return s.rows, nil
+}
+
+func (s *accountWideSessionQuery) CountAll(context.Context, handlers.SessionListFilter) (int64, error) {
+	return s.total, nil
+}
+
+// memFrameConnPair 是一对进程内直连的 protorpc.FrameConn,只为下面的
+// accountConnContext 搭一条真连接:hasLoggedInAccount 读的是
+// connection.FromContext(ctx),那把钥匙只在 protorpc.Conn 真正派发过一次入站请求
+// 之后才挂在 ctx 上,mock 或裸 context.Background() 都装不出来。
+type memFrameConn struct {
+	in, out chan []byte
+	done    chan struct{}
+	once    *sync.Once
+}
+
+func newMemFrameConnPair() (*memFrameConn, *memFrameConn) {
+	a, b := make(chan []byte, 8), make(chan []byte, 8)
+	done := make(chan struct{})
+	once := &sync.Once{}
+	return &memFrameConn{in: a, out: b, done: done, once: once}, &memFrameConn{in: b, out: a, done: done, once: once}
+}
+
+func (p *memFrameConn) ReadFrame() ([]byte, error) {
+	select {
+	case b := <-p.in:
+		return b, nil
+	case <-p.done:
+		return nil, io.EOF
+	}
+}
+
+func (p *memFrameConn) WriteFrame(b []byte) error {
+	select {
+	case p.out <- append([]byte(nil), b...):
+		return nil
+	case <-p.done:
+		return io.EOF
+	}
+}
+
+func (p *memFrameConn) Close() error          { p.once.Do(func() { close(p.done) }); return nil }
+func (p *memFrameConn) Done() <-chan struct{} { return p.done }
+
+// accountConnContext 建一对进程内直连的 protorpc.Conn,在服务端那条上盖一个已登录
+// 账号的 AuthState,发一次探针请求把服务端真正派发时的 ctx 捞出来 ——
+// connection.FromContext(ctx) 只在这个 ctx 上才认得出这条连接。
+func accountConnContext(t *testing.T, accountID string) context.Context {
+	t.Helper()
+	clientTransport, serverTransport := newMemFrameConnPair()
+	const probeMethodID = 0x7000_0001
+	captured := make(chan context.Context, 1)
+	registry := protorpc.NewRegistry()
+	protorpc.RegisterMethod(registry, probeMethodID,
+		func() *agentrewire.Empty { return &agentrewire.Empty{} },
+		func(ctx context.Context, _ *agentrewire.Empty) (*agentrewire.Empty, error) {
+			captured <- ctx
+			return &agentrewire.Empty{}, nil
+		})
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, registry)
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "fp-account-wide", AccountID: accountID})
+	go client.Serve(context.Background())
+	go server.Serve(context.Background())
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+
+	_, err := protorpc.CallMethod(context.Background(), client, probeMethodID,
+		&agentrewire.Empty{}, func() *agentrewire.Empty { return &agentrewire.Empty{} })
+	require.NoError(t, err)
+	return <-captured
+}
+
+// TestSessionCatchup_List_AccountWide_ComputesLatestSeqsOnlyForThePage 覆盖账号级
+// 分支同一条纪律(要求 8):此前 accountWide 分支在循环里逐行现叫 LatestSeq,条数
+// 与本页大小成正比但仍是 N 次调用;重构后两个分支统一走一次 LatestSeqs、只带这一页。
+func TestSessionCatchup_List_AccountWide_ComputesLatestSeqsOnlyForThePage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	sessions := &accountWideSessionQuery{MockSessionQueryPort: mock_handlers.NewMockSessionQueryPort(ctrl)}
+	durable := mock_handlers.NewMockDurableFrameReaderPort(ctrl)
+	h := handlers.NewSessionCatchupHandlers(handlers.SessionCatchupDeps{
+		Sessions:          sessions,
+		DurableFrames:     durable,
+		LoggedInAccountID: func() string { return "acct-1" },
+	})
+
+	page := []handlers.SessionRecord{
+		{PeerSessionID: convID(1), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
+		{PeerSessionID: convID(2), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
+	}
+	sessions.rows, sessions.total = page, 5
+	// 严格 mock 上不存在 LatestSeqByPeer / 逐行 LatestSeq,调用到即失败 —— 只准这一次、
+	// 只带这一页。
+	durable.EXPECT().LatestSeqs(gomock.Any(), page).Times(1).Return(map[string]int64{convID(1): 3, convID(2): 4}, nil)
+
+	got, err := h.List(accountConnContext(t, "acct-1"), &agentrewire.SessionListRequest{Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, got.Sessions, 2)
+	assert.Equal(t, int64(3), got.Sessions[0].LatestSeq)
+	assert.Equal(t, int64(4), got.Sessions[1].LatestSeq)
+	assert.Equal(t, int64(5), got.Total)
 }
 
 // TestSessionCatchup_List_ReturnsTitleAgentSyncIDAndProviderSessionID 覆盖 R7 + 决策 8
@@ -102,7 +259,7 @@ func TestSessionCatchup_List_ReturnsTitleAgentSyncIDAndProviderSessionID(t *test
 		// 老会话:这三个字段从没落过库,如实留空。
 		{PeerSessionID: convID(2), AgentID: 8, Cwd: "/other", BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -128,7 +285,7 @@ func TestSessionCatchup_List_ReportsLastActivity(t *testing.T) {
 		// 老会话:daemon 没记过活动时间,如实留 0,由客户端表达为「未知」而不是猜一个。
 		{PeerSessionID: convID(2), BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -150,7 +307,7 @@ func TestSessionCatchup_List_WaitingForInputIsOverlaidLive(t *testing.T) {
 
 	ctx, sessions, durable, h := setupCatchupTest(t, blocked)
 	sessions.EXPECT().List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}, 0, 0).Return(rows, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
 	require.Len(t, got.Sessions, 1)
@@ -159,7 +316,7 @@ func TestSessionCatchup_List_WaitingForInputIsOverlaidLive(t *testing.T) {
 	// 同一份会话行,backend 此刻没有任何 waiter → 必须报 false。
 	ctx2, sessions2, journal2, h2 := setupCatchupTest(t, &fullRT{})
 	sessions2.EXPECT().List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}, 0, 0).Return(rows, nil)
-	journal2.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	journal2.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 	got2, err := h2.List(ctx2, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
 	require.Len(t, got2.Sessions, 1)
@@ -174,7 +331,7 @@ func TestSessionCatchup_List_BackendWithoutApprovalProtocol_NotWaiting(t *testin
 	sessions.EXPECT().List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}, 0, 0).Return([]handlers.SessionRecord{
 		{PeerSessionID: convID(1), BackendType: "unknown", LifecycleState: wire.SessionLifecycleRunning},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -191,7 +348,7 @@ func TestSessionCatchup_List_SkipsRowsWithAnUnparseableSessionID(t *testing.T) {
 		{PeerSessionID: "not-a-number", LifecycleState: wire.SessionLifecycleIdle},
 		{PeerSessionID: convID(2), LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -209,7 +366,7 @@ func TestSessionCatchup_List_PagesAndReportsTheTotal(t *testing.T) {
 		{PeerSessionID: convID(2), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
 	sessions.EXPECT().Count(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}).Return(int64(44), nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{Limit: 2})
 	require.NoError(t, err)
@@ -227,7 +384,7 @@ func TestSessionCatchup_List_ContinuesFromTheCursor(t *testing.T) {
 		{PeerSessionID: convID(3), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
 	sessions.EXPECT().Count(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}).Return(int64(3), nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{Limit: 2, Cursor: wire.EncodeSessionListCursor(2)})
 	require.NoError(t, err)
@@ -244,7 +401,7 @@ func TestSessionCatchup_List_UnpagedStillAnswersEverything(t *testing.T) {
 	sessions.EXPECT().List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{}, 0, 0).Return([]handlers.SessionRecord{
 		{PeerSessionID: convID(1), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -633,7 +790,7 @@ func TestSessionCatchup_List_ReportsSessionModelTarget(t *testing.T) {
 		// 跟随 Agent 绑定:两格都空,这是个**有含义**的值,不是「没答」。
 		{PeerSessionID: convID(3), BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -665,7 +822,7 @@ func TestSessionCatchup_List_ReturnsProjectSyncID(t *testing.T) {
 		},
 		{PeerSessionID: convID(2), AgentID: 8, Cwd: "/other", BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -687,7 +844,7 @@ func TestSessionCatchup_List_PushesKeywordDownToTheStore(t *testing.T) {
 	sessions.EXPECT().List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{Keyword: "happy"}, 0, 0).Return([]handlers.SessionRecord{
 		{PeerSessionID: convID(1), AgentID: 7, Title: "看看happy是怎么实现中继的", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(map[string]int64{}, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(map[string]int64{}, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{Keyword: "happy"})
 	require.NoError(t, err)
@@ -711,7 +868,7 @@ func TestSessionCatchup_List_ReportsSessionReasoningEffort(t *testing.T) {
 		// 跟随后端配置:这一格是空的,而空是个有含义的值。
 		{PeerSessionID: convID(2), BackendType: "codex", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{})
 	require.NoError(t, err)
@@ -738,7 +895,7 @@ func TestSessionCatchup_List_PushesConversationIDsDownToTheStore(t *testing.T) {
 		Return([]handlers.SessionRecord{
 			{PeerSessionID: convID(2), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 		}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{ConversationIds: []string{convID(2)}})
 	require.NoError(t, err)
@@ -755,7 +912,7 @@ func TestSessionCatchup_List_CombinesConversationIDsWithKeywordAndPaging(t *test
 		{PeerSessionID: convID(5), Title: "happy path", BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
 	sessions.EXPECT().Count(gomock.Any(), devicefp.Initiator(""), filter).Return(int64(3), nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{
 		Keyword:         "happy",
@@ -776,7 +933,7 @@ func TestSessionCatchup_List_EmptyConversationIDsPassThroughUnnarrowed(t *testin
 		{PeerSessionID: convID(1), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 		{PeerSessionID: convID(2), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 	}, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	got, err := h.List(ctx, &agentrewire.SessionListRequest{ConversationIds: nil})
 	require.NoError(t, err)
@@ -808,7 +965,7 @@ func TestSessionCatchup_List_AcceptsExactlyTheConversationIDCeiling(t *testing.T
 	sessions.EXPECT().
 		List(gomock.Any(), devicefp.Initiator(""), handlers.SessionListFilter{ConversationIDs: ids}, 0, 0).
 		Return(nil, nil)
-	durable.EXPECT().LatestSeqByPeer(gomock.Any(), devicefp.Initiator("")).Return(nil, nil)
+	durable.EXPECT().LatestSeqs(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	_, err := h.List(ctx, &agentrewire.SessionListRequest{ConversationIds: ids})
 	require.NoError(t, err)

@@ -2294,19 +2294,19 @@ func (j durableFrameReader) OldestSeq(ctx context.Context, peerFingerprint devic
 	return 1, nil
 }
 
-func (j durableFrameReader) LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error) {
+// LatestSeqs 只对调用方给的这些行求最新 seq(决策 1 / 要求 8):session.list 传的是
+// 它刚查出来的那一页,取代此前的 LatestSeqByPeer —— 后者会把这个对端全部会话重新
+// ListByPeer 一遍(offset=0/limit=0 = 全表)再逐条投影整段转录求 seq,是清单分页时
+// 最大的一次白读。空 rows 不发任何查询。
+func (j durableFrameReader) LatestSeqs(ctx context.Context, rows []handlers.SessionRecord) (map[string]int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
-	rows, err := session_repo.Session().ListByPeer(ctx, peerFingerprint, session_repo.ListFilter{}, 0, 0)
-	if err != nil {
-		return nil, err
-	}
 	out := make(map[string]int64, len(rows))
 	for _, row := range rows {
-		latest, err := j.LatestSeq(ctx, peerFingerprint, row.ConversationID)
+		latest, err := j.LatestSeq(ctx, row.PeerFingerprint, row.PeerSessionID)
 		if err != nil {
 			return nil, err
 		}
-		out[row.ConversationID] = latest
+		out[row.PeerSessionID] = latest
 	}
 	return out, nil
 }
