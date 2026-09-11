@@ -120,7 +120,7 @@ type Session struct {
 	// ExecDeviceFingerprint 是上面那台 daemon 的实例标识：daemon 由自己的 instance
 	// uuid 派生出的 "sha256:<hex>"(见 internal/daemon/identity.DaemonFingerprint)，与
 	// paired_agentreds.daemon_fingerprint 同值、与 auth.connect 的 TOFU pin 同一个身份。
-	// daemon 重装 / 换机 / 数据目录被清后它会变，届时 EventCursor 指向的是另一条通知日志。
+	// daemon 重装 / 换机 / 数据目录被清后它会变，届时 EventCursor 指向的是另一个 daemon 实例的帧编号。
 	ExecDeviceFingerprint devicefp.Carrier `gorm:"column:exec_device_fingerprint;type:text;not null;default:''"`
 	// EventCursor 桌面端已消费到的 daemon 通知 seq(daemon 侧 journal 里单调递增)。
 	// 0 = 尚未消费。只有配合 ExecDeviceFingerprint 一起看才有意义，见 CursorValidFor。
@@ -177,7 +177,7 @@ func (s *Session) RanOnDaemon() bool { return s != nil && s.ExecDeviceID > 0 }
 
 // CursorValidFor 判断 EventCursor 相对当前连上的这台 daemon 是否仍然有效。
 // daemonFingerprint 是本次连接上的 daemon 实例标识；与会话记录的不一致(daemon 重装、
-// 换机、数据目录被清)时，记录的游标指向的是另一条通知日志，必须判为失效而不是拿去拉。
+// 换机、数据目录被清)时，记录的游标指向的是另一个 daemon 实例的帧编号，必须判为失效而不是拿去拉。
 func (s *Session) CursorValidFor(daemonFingerprint devicefp.Carrier) bool {
 	return s != nil && daemonFingerprint != "" && s.ExecDeviceFingerprint == daemonFingerprint
 }

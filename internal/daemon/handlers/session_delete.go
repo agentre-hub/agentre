@@ -1,5 +1,5 @@
 // Package handlers — session_delete.go 实现 runtime.session.delete:把一条会话连同
-// 它的整段通知日志从这台 daemon 上抹掉。
+// 它的全部转录从这台 daemon 上抹掉。
 //
 // 它与 session_catchup.go 分开是因为方向相反:补齐族只读存储、只读实时状态,明写着
 // 「看一眼不该改变任何东西」;删除是这条 wire 上**第一个破坏性方法**,越界的代价不再
@@ -39,7 +39,7 @@ func NewSessionDeleteHandlers(deps SessionDeleteDeps) *SessionDeleteHandlers {
 	return &SessionDeleteHandlers{deps: deps}
 }
 
-// Delete 删掉调用方名下的那条会话:先删会话行,再清它的整段通知日志。
+// Delete 删掉调用方名下的那条会话:先清它的全部转录,再删会话行。
 //
 // 两步的顺序是硬的。反过来(先清日志、后删会话行)只要第二步失败,就会留下一条
 // 「还在清单里、但 MAX(seq) 归零」的会话:此后 Append 从 1 重新分配 seq,而客户端游标

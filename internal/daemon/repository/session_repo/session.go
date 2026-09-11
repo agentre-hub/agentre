@@ -1,6 +1,6 @@
 // Package session_repo 提供 agentred 侧 daemon_sessions 表的持久化访问 —— 会话在这台
-// daemon 上的**身份与生命周期**。它是 notification_repo(会话的通知日志)的姊妹包:一个
-// 记「这条会话是谁的、在跑什么、处于哪一步」,一个记「它发出过哪些通知」。
+// daemon 上的**身份与生命周期**:「这条会话是谁的、在跑什么、处于哪一步」。转录不在
+// 本包,在与桌面端共用的 transcript_repo。
 //
 // 会话身份是 conversation_id 一列:它是这条对话在桌面端、agentred 与 server 三套库以及
 // 线格式上共用的全局唯一标识(规格 2026-08-31「身份键收缩为一列」),因此不再需要拿对端
@@ -11,9 +11,8 @@
 // 启动清扫):本包只负责存取,不解释状态机 —— 状态字符串同时是过线协议的一部分
 // (wire.SessionLifecycle*),把它固化进仓储会让两处定义迟早漂移。
 //
-// 「某会话最新的 seq」不在本包里:唯一真相源是通知日志自己的 MAX(seq)(见
-// notification_repo 与 handlers.JournalPort 的说明)。daemon_sessions 上曾经预留过一列
-// latest_seq 不在会话表维护；最新游标以通知日志的 MAX(seq) 为唯一真相源。
+// 「某会话最新的 seq」也不在本包里:它由转录的帧编号台账报出(见
+// handlers.JournalReaderPort 的 LatestSeq)。
 package session_repo
 
 import (
@@ -171,8 +170,7 @@ type SessionRepo interface {
 	// 不报错:删除必须幂等 —— 调用方(server 那条删除待办)会重放同一条指令,报错会让
 	// 它永远重放下去。
 	//
-	// 它只删身份行;那条会话的通知日志由 notification_repo.DeleteAll 清(两个包各管
-	// 各的表)。
+	// 它只删身份行;那条会话的转录由 handlers.TranscriptPurgePort 清(各管各的表)。
 	Delete(ctx context.Context, peerFingerprint devicefp.Initiator, conversationID string) (int64, error)
 
 	// InterruptAll 把库中所有还不是 interruptedState 的会话一次改成该状态,返回受影响

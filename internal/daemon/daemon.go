@@ -92,7 +92,7 @@ type Daemon struct {
 	db *gorm.DB
 
 	// transcript 是转录(消息行 + 块行)的写入口,Daemon 级一份 —— 生产者是活过连接
-	// 的 fanout goroutine,断连重连不重置任何东西。它取代了从前的通知日志(决策 1)。
+	// 的 fanout goroutine,断连重连不重置任何东西。
 	transcript handlers.TranscriptPort
 
 	// sessionStore 是会话身份与生命周期的存取口,同样 Daemon 级。
@@ -760,7 +760,7 @@ func New(opts Options) (*Daemon, error) {
 		closeDB(gormDB)
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
-	// 注入仓储默认实现,让 notification_repo.Notification() 拿到 GORM 版。New 是
+	// 注入仓储默认实现,让 session_repo.Session() 拿到 GORM 版。New 是
 	// agentred 的组装根,位置对应桌面端 internal/bootstrap/cago.go 里 RunMigrations
 	// 之后的那批 RegisterXxx。实现本身无状态(句柄经 ctx 传),同进程多个 Daemon
 	// 注册同一个实现互不干扰。
@@ -1554,18 +1554,15 @@ func openDB(dataDir string) (*gorm.DB, error) {
 	// busy_timeout mirrors internal/bootstrap/cago.go's sqliteDSN: concurrent
 	// writers otherwise hit SQLITE_BUSY near-instantly instead of waiting.
 	//
-	// WAL 不是调优,是这个库的工作负载本身要求的:写侧是**每个流式事件一条**同步事务
-	// (handlers/runtime.go 的 fanout 对每个 agentruntime.Event 都落一条日志),读侧是
-	// session.pull 的翻页补齐 —— 一段开着的读事务。回滚日志模式下两者互斥:读事务持
-	// SHARED,写事务提交要 EXCLUSIVE,于是流式写只能在 busy_timeout 上干等 5 秒,超时
-	// 那条通知既不落库也不推送(R3)。WAL 下读方读快照、写方追加,谁也不挡谁。
+	// WAL 不是调优,是这个库的工作负载本身要求的:写侧是轮内每个定稿时刻一次 checkpoint
+	// 事务,读侧是 session.pull 的翻页补齐 —— 一段开着的读事务。回滚日志模式下两者互斥:
+	// 读事务持 SHARED,写事务提交要 EXCLUSIVE,于是写方只能在 busy_timeout 上干等 5 秒,
+	// 超时那次写入就失败了(R3)。WAL 下读方读快照、写方追加,谁也不挡谁。
 	//
-	// synchronous(NORMAL): 上面那句「每个流式事件一条同步事务」同时决定了 fsync 的代价 ——
-	// SQLite 默认的 FULL 档在 WAL 下每次提交都 fsync WAL,实测 603µs/事件,NORMAL 档
-	// 213µs,即每个 token 白付约 390µs、一条三千帧的回复白付约 1.2s。WAL + NORMAL 仍然
-	// 崩溃安全:进程崩溃不损坏数据库,只在断电/内核崩溃时可能丢最后若干已提交事务。这份
-	// 通知日志本就是可重建的(桌面端按 seq 重新拉取),用它换掉每帧一次 fsync 是划算的。
-	// 与 internal/bootstrap/cago.go 的 sqliteDSN 同源取舍。
+	// synchronous(NORMAL): SQLite 默认的 FULL 档在 WAL 下每次提交都 fsync WAL,实测每次
+	// 提交约 603µs,NORMAL 档约 213µs。WAL + NORMAL 仍然崩溃安全:进程崩溃不损坏数据库,
+	// 只在断电/内核崩溃时可能丢最后若干已提交事务。与 internal/bootstrap/cago.go 的
+	// sqliteDSN 同源取舍。
 	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 }
@@ -1866,7 +1863,7 @@ func (s daemonSessionStore) Fail(ctx context.Context, peerFingerprint devicefp.I
 }
 
 // Delete 删掉这一条 (对端, 会话) 的会话行(handlers.SessionDeletePort)。它只删身份
-// 行,那条会话的通知日志由 journalPurger 清 —— 两张表各自的仓储各管各的。
+// 行,那条会话的转录由 transcriptPurger 清 —— 各张表各自的仓储各管各的。
 func (s daemonSessionStore) Delete(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	return session_repo.Session().Delete(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID)

@@ -3749,21 +3749,9 @@ func daemonMessagesOfSession(t *testing.T, d *Daemon, sessionID int64) []*transc
 	return rows
 }
 
-// daemonTableExists 回答这台 daemon 的库里还有没有这张表。
-func daemonTableExists(t *testing.T, d *Daemon, table string) bool {
-	t.Helper()
-	var count int64
-	require.NoError(t, d.db.Raw(
-		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).
-		Row().Scan(&count))
-	return count > 0
-}
-
 // Given 一轮远端执行跑完;
 // When  去 agentred 自己的库里看;
-// Then  落下的是与桌面端同形的消息行 + 块行(正文逐字节相同),而不是一段通知日志 ——
-//
-//	daemon_notification_journal 一行都没有(表已退役)。
+// Then  落下的是与桌面端同形的消息行 + 块行(正文逐字节相同)。
 func TestIntegration_RemoteTurn_LandsTheSameBlockTranscriptAsTheDesktop(t *testing.T) {
 	script := transcriptScript(t)
 	rig := bootRemoteRig(t, script)
@@ -3782,9 +3770,6 @@ func TestIntegration_RemoteTurn_LandsTheSameBlockTranscriptAsTheDesktop(t *testi
 	assert.Equal(t, "assistant", messages[1].Role)
 	assert.Equal(t, desktopBlocksJSON(t, script), messages[1].BlocksJSON,
 		"两个宿主就同一串事件落下的正文必须逐字节相同")
-
-	assert.False(t, daemonTableExists(t, rig.d, "daemon_notification_journal"),
-		"通知日志退役:表不该还在,更不该有行")
 }
 
 // haltingBackendRunner 发完点名的那几条事件就**停在轮中**:channel 不关,轮次不收口。

@@ -347,8 +347,7 @@ func TestSessionCatchup_Pull_ReturnsPageAndAdvancesCursor(t *testing.T) {
 }
 
 // TestSessionCatchup_Pull_CarriesTheJournalRowsCreatetime 钉住转录时间戳的**唯一**
-// 可信来源:日志行落库时记下的那一刻(notification_repo.Append 就地盖的
-// time.Now().UnixMilli()),也就是这一帧真正发生的时刻。
+// 可信来源:这一帧所在转录行落库时记下的 createtime,也就是这一帧真正发生的时刻。
 //
 // 补齐这一跳不带它,下游就只剩「收到的时刻」可用,而补齐本身是成批的:一条离线两天的
 // 对话补回来时,几百帧会被盖上同一个瞬间,浏览器控制台里整段转录因此显示成同一分钟。

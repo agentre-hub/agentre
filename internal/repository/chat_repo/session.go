@@ -101,19 +101,19 @@ type SessionRepo interface {
 	// deviceID=0 + 空标识表示回到本机执行；agentBackendID=0 表示尚未钉住。三列同一条
 	// 语句一并写入、一并加进 Update 的 Omit 清单，不拆成两个写入点——这是已经踩过的坑
 	// (见 session.go Update 上的注释)。实例标识变了(改绑到别的 daemon / 改回本机)时,
-	// event_cursor 在同一条语句里归零 —— 游标只在它所属的那条通知日志里有意义,不能
+	// event_cursor 在同一条语句里归零 —— 游标只在签发它的那个 daemon 实例里有意义,不能
 	// 跟着会话漂到另一台 daemon 上。标识不变则原样保留游标。
 	UpdateExecDaemon(ctx context.Context, sessionID int64, deviceID int64, daemonFingerprint devicefp.Carrier, agentBackendID int64) error
 	// UpdateEventCursor 记录桌面端已消费到的 daemon 通知 seq。只碰这一列,执行位置与
-	// 实例标识由 UpdateExecDaemon 负责。daemonFingerprint 是 seq 所属的那条通知日志的
+	// 实例标识由 UpdateExecDaemon 负责。daemonFingerprint 是签发这个 seq 的
 	// daemon 实例标识,进 WHERE 做守卫:会话已改绑后老连接迟到的写入落空(不报错,同
-	// MarkRead 的「写不进也算成功」),下次重连至多重复拉取,而不会跳过新日志的开头。
+	// MarkRead 的「写不进也算成功」),下次重连至多重复拉取,而不会跳过新实例的开头。
 	UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error
 	// ListRemoteExecSessions 列出记录了远端执行位置的活跃会话(exec_device_id > 0 且
 	// 带实例标识)。App 启动后的补齐靠它回答「该连谁」——(会话, daemon, 游标) 三者
 	// 都在这一行上,不必再回头遍历 agent / backend 才知道会话跑在哪。
 	//
-	// 实例标识为空的行一并排除:游标只在它所属的那条通知日志里有意义,标识为空时
+	// 实例标识为空的行一并排除:游标只在签发它的那个 daemon 实例里有意义,标识为空时
 	// LoadCursor 一律判失效,对它发起补齐只是白跑一轮 RPC。
 	//
 	// 取材是**有界**的(见 catchUpLimit):补齐会为每条会话装一个轮次消费方、加一份池
@@ -652,7 +652,7 @@ func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, dev
 			// 三列同生共死,不拆成两个写入点。
 			"exec_agent_backend_id": agentBackendID,
 			// 换了一台 daemon 实例(含改回本机的空标识)就在同一条语句里把游标归零:
-			// 老游标指的是老 daemon 通知日志里的位置,留着会被下次 LoadCursor 当成对新
+			// 老游标指的是老 daemon 实例上的位置,留着会被下次 LoadCursor 当成对新
 			// daemon 有效。SQL 的 SET 右值一律读改写前的行值,所以这里比的是老标识。
 			"event_cursor": gorm.Expr(
 				"CASE WHEN exec_device_fingerprint = ? THEN event_cursor ELSE 0 END", daemonFingerprint),
@@ -663,7 +663,7 @@ func (r *sessionRepo) UpdateExecDaemon(ctx context.Context, sessionID int64, dev
 // catchUpLimit 一次启动补齐最多认领多少条会话。补齐会为**每条**会话装一个轮次消费方、
 // 加一份池连接引用、开一条自主轮监视 goroutine,而 releaseCatchUpRefs 只还得掉 daemon
 // 说不在跑的那些 —— 剩下的引用要占到进程退出,开销随「历史上远端跑过的会话数」线性
-// 增长。那个数如今没有上界(通知日志不再回收、会话也不过期),所以这条上限是取材唯一
+// 增长。那个数如今没有上界(转录不回收、会话也不过期),所以这条上限是取材唯一
 // 的界,不能跟着时间窗一起去掉。
 //
 // 200 条远超「一台 daemon 上还可能有新内容的会话」的实际量级。收尾那一步的 SQL 参数

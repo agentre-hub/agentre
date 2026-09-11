@@ -1084,8 +1084,7 @@ func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, conversationID stri
 		ctx:       context.WithoutCancel(ctx),
 		notifyFor: h.deps.NotifyFor,
 		peer:      peer,
-		// daemon_sessions.peer_session_id 本来就是 TEXT:对话身份原样落进去,
-		// 从前那一圈 int64↔string 往返随之消失。
+		// 会话表按 conversation_id 认人,peerSessionID 就是对话身份本身。
 		peerSessionID:  conversationID,
 		conversationID: conversationID,
 		rid:            runtimeSessionID(conversationID),

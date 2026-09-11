@@ -21,9 +21,6 @@ import (
 // provider_key / model_key / reasoning_effort 是会话级覆盖的镜像，只供显示，执行路径
 // 不读它们；取值词表由发起端把关，不在 DDL 上加 CHECK —— 档位表会随后端能力演进，写死
 // 在表结构里改一次要重写整张表。
-//
-// **不建 daemon_notification_journal**：通知日志曾经是这一侧的第二份转录存储，现已退役，
-// 同一段内容只存一份（见 202609060201）。
 func migration202609040101() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "202609040101",
