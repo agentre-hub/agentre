@@ -1765,16 +1765,10 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 		return nil, i18n.NewError(ctx, code.ChatMessageNotFound)
 	}
 
-	// 找紧邻 target 之前的最后一条 user 消息（按 seq）。
-	all, err := transcript_repo.Message().List(ctx, sess.ID)
+	// 找紧邻 target 之前的最后一条 user 消息（按 seq）：只点查这一条，不读回整条转录。
+	userAnchor, err := transcript_repo.Message().LatestBeforeSeq(ctx, sess.ID, "user", target.Seq)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
-	}
-	var userAnchor *chat_entity.Message
-	for _, m := range all {
-		if m.Seq < target.Seq && m.Role == "user" {
-			userAnchor = m
-		}
 	}
 	if userAnchor == nil {
 		return nil, i18n.NewError(ctx, code.ChatRegenerateNoUserAnchor)

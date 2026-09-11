@@ -509,6 +509,140 @@ func TestMessageRepo_LatestAssistant_None(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// latestBeforeSeqQuery 是 LatestBeforeSeq 的定位语句:按 (session_id, seq) 索引倒着找
+// seq < beforeSeq 的第一条该角色消息,只取一行(gorm 的 First 会在 ORDER BY 后补主键)。
+const latestBeforeSeqQuery = "SELECT \\* FROM `chat_messages` WHERE session_id = \\? AND role = \\? AND seq < \\? " +
+	"ORDER BY seq DESC,`chat_messages`.`id` LIMIT \\?"
+
+// TestMessageRepo_LatestBeforeSeq 钉住重新生成找 user 锚点的读法(要求 13):只取 target
+// 之前最后一条 user 消息这一行,并只给这一条补正文 —— 不再读回整条转录再在内存里挑。
+func TestMessageRepo_LatestBeforeSeq(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery(latestBeforeSeqQuery).
+		WithArgs(int64(7), "user", 5, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "session_id", "role", "seq"}).
+			AddRow(40, 7, "user", 3))
+	mock.ExpectQuery("SELECT \\* FROM `chat_message_blocks` WHERE message_id IN \\(\\?\\)").
+		WithArgs(int64(40)).
+		WillReturnRows(sqlmock.NewRows([]string{"message_id", "idx", "type", "tool_call_id", "codec", "data"}).
+			AddRow(40, 0, "text", "", transcript_entity.BlockCodecRaw, []byte(`{"text":"second"}`)))
+
+	got, err := transcript_repo.NewMessage().LatestBeforeSeq(ctx, 7, "user", 5)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, int64(40), got.ID)
+	assert.Equal(t, 3, got.Seq)
+	assert.Equal(t, `[{"type":"text","data":{"text":"second"}}]`, got.BlocksJSON, "命中的那一条带全部正文")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMessageRepo_LatestBeforeSeq_NoneReturnsNil(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery(latestBeforeSeqQuery).
+		WithArgs(int64(7), "user", 1, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	got, err := transcript_repo.NewMessage().LatestBeforeSeq(ctx, 7, "user", 1)
+	require.NoError(t, err, "没有更早的该角色消息不是错误,由调用方决定怎么报")
+	assert.Nil(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet(), "无命中时不再发块查询")
+}
+
+func TestMessageRepo_LatestBeforeSeq_QueryErrorPropagates(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery(latestBeforeSeqQuery).
+		WithArgs(int64(7), "user", 5, 1).
+		WillReturnError(assert.AnError)
+
+	got, err := transcript_repo.NewMessage().LatestBeforeSeq(ctx, 7, "user", 5)
+	require.ErrorIs(t, err, assert.AnError)
+	assert.Nil(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// expectMessageInsert 是一条消息元数据行的 INSERT 期望,seq 是这一行应当拿到的号。
+func expectMessageInsert(mock sqlmock.Sqlmock, sessionID int64, seq int) *sqlmock.ExpectedExec {
+	return mock.ExpectExec("INSERT INTO `chat_messages`").
+		WithArgs(
+			sessionID, "", "assistant", "",
+			0, 0, 0, 0, 0, 0, 0,
+			0, 0.0, // first_token_ms, tokens_per_sec
+			"", "", "", seq, // fork_anchor, error_text, turn_trigger, seq
+			sqlmock.AnyArg(), sqlmock.AnyArg(),
+		)
+}
+
+// TestMessageRepo_CreateAtNextSeq 钉住「取号与建行同事务」(要求 2 桌面端):SELECT MAX(seq)
+// 与每条消息及其块行的 INSERT 共用同一个 BEGIN…COMMIT,多条消息拿到连续的号。取号若在
+// 事务外做,另一个写事务可以插进取号与建行之间拿到同一个号 —— (session_id, seq) 不是唯一索引。
+func TestMessageRepo_CreateAtNextSeq(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) \\+ 1 FROM `chat_messages` WHERE session_id = \\?").
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(5))
+	expectMessageInsert(mock, 3, 5).WillReturnResult(sqlmock.NewResult(42, 1))
+	mock.ExpectExec("INSERT INTO `chat_message_blocks`").
+		WithArgs(int64(42), 0, "notice", "", transcript_entity.BlockCodecRaw, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectMessageInsert(mock, 3, 6).WillReturnResult(sqlmock.NewResult(43, 1))
+	mock.ExpectCommit()
+
+	first := &transcript_entity.Message{
+		SessionID: 3, Role: "assistant",
+		BlocksJSON: `[{"type":"notice","data":{"level":"info","text":"switched"}}]`,
+	}
+	second := &transcript_entity.Message{SessionID: 3, Role: "assistant", BlocksJSON: "[]"}
+	err := transcript_repo.NewMessage().CreateAtNextSeq(ctx, first, second)
+	require.NoError(t, err)
+	assert.Equal(t, 5, first.Seq)
+	assert.Equal(t, 6, second.Seq, "同一批消息拿到连续的号")
+	assert.Equal(t, int64(42), first.ID)
+	assert.Equal(t, int64(43), second.ID)
+	assert.NotZero(t, first.Createtime)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMessageRepo_CreateAtNextSeq_InsertFailureRollsBack(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) \\+ 1 FROM `chat_messages` WHERE session_id = \\?").
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(5))
+	expectMessageInsert(mock, 3, 5).WillReturnResult(sqlmock.NewResult(42, 1))
+	expectMessageInsert(mock, 3, 6).WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+
+	err := transcript_repo.NewMessage().CreateAtNextSeq(ctx,
+		&transcript_entity.Message{SessionID: 3, Role: "assistant", BlocksJSON: "[]"},
+		&transcript_entity.Message{SessionID: 3, Role: "assistant", BlocksJSON: "[]"},
+	)
+	require.ErrorIs(t, err, assert.AnError)
+	assert.NoError(t, mock.ExpectationsWereMet(), "任一行写失败,整批连同已写的行一起回滚")
+}
+
+func TestMessageRepo_CreateAtNextSeq_Boundaries(t *testing.T) {
+	t.Run("Given no messages, When CreateAtNextSeq runs, Then it issues no statement", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		require.NoError(t, transcript_repo.NewMessage().CreateAtNextSeq(ctx))
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+	t.Run("Given messages of two sessions, When CreateAtNextSeq runs, Then it rejects them before any statement", func(t *testing.T) {
+		ctx, _, mock := testutils.Database(t)
+		err := transcript_repo.NewMessage().CreateAtNextSeq(ctx,
+			&transcript_entity.Message{SessionID: 3, Role: "assistant", BlocksJSON: "[]"},
+			&transcript_entity.Message{SessionID: 4, Role: "assistant", BlocksJSON: "[]"},
+		)
+		require.Error(t, err, "一个号段只属于一个会话,混进别的会话会拿到错误的 seq")
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
 // TestPatchSubagentProgressInBlockData 单测进度快照的就地改写:后台 subagent 在会话
 // **空闲态**跑的那段时间,CLI 持续吐 task_progress,但这些进度只能靠定向 patch 落回发起
 // 消息(per-turn accumulator 已经收尾)。零值字段不覆盖已有值 —— 缺 usage 的帧不该把

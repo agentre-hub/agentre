@@ -2,7 +2,9 @@ package chat_svc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/cago-frame/agents/agent/blocks"
@@ -26,16 +28,64 @@ func msgWithBlocks(t *testing.T, id int64, bs ...blocks.ContentBlock) *chat_enti
 	return m
 }
 
-// stubMessages 把 transcript_repo.Message() 换成只会 List 出 msgs 的 mock。
+// stubMessages 把 transcript_repo.Message() 换成按 msgs 作答的 mock:整条读(List)与
+// 窄读(ListMeta + FillBlocksByType)都由同一份 fixture 派生,读法换了结论也不该变。
 func stubMessages(t *testing.T, msgs []*chat_entity.Message, listErr error) {
+	t.Helper()
+	repo := registerMessageMock(t)
+	repo.EXPECT().List(gomock.Any(), int64(7)).Return(msgs, listErr).AnyTimes()
+	repo.EXPECT().ListMeta(gomock.Any(), int64(7)).Return(metaOf(msgs), listErr).AnyTimes()
+	repo.EXPECT().FillBlocksByType(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(fillBlocksByTypeFrom(t, msgs)).AnyTimes()
+}
+
+// registerMessageMock 注入一个严格的 MessageRepo mock:没写期望的方法被调用即失败。
+func registerMessageMock(t *testing.T) *mock_transcript_repo.MockMessageRepo {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	repo := mock_transcript_repo.NewMockMessageRepo(ctrl)
-	repo.EXPECT().List(gomock.Any(), int64(7)).Return(msgs, listErr).AnyTimes()
 	prev := transcript_repo.Message()
 	transcript_repo.RegisterMessage(repo)
 	t.Cleanup(func() { transcript_repo.RegisterMessage(prev) })
+	return repo
+}
+
+// metaOf 模拟 ListMeta:同一批消息的元数据副本,正文留空串(「没补过」)。
+func metaOf(msgs []*chat_entity.Message) []*chat_entity.Message {
+	out := make([]*chat_entity.Message, 0, len(msgs))
+	for _, m := range msgs {
+		meta := *m
+		meta.BlocksJSON = ""
+		out = append(out, &meta)
+	}
+	return out
+}
+
+// fillBlocksByTypeFrom 模拟 FillBlocksByType:按 ID 回到 fixture 取正文,只留下点名类型的块。
+func fillBlocksByTypeFrom(
+	t *testing.T, source []*chat_entity.Message,
+) func(context.Context, []*chat_entity.Message, []string) error {
+	return func(_ context.Context, msgs []*chat_entity.Message, types []string) error {
+		for _, m := range msgs {
+			var stored []blocks.StoredBlock
+			for _, src := range source {
+				if src.ID == m.ID {
+					require.NoError(t, json.Unmarshal([]byte(src.BlocksJSON), &stored))
+				}
+			}
+			kept := make([]blocks.StoredBlock, 0, len(stored))
+			for _, b := range stored {
+				if slices.Contains(types, b.Type) {
+					kept = append(kept, b)
+				}
+			}
+			buf, err := json.Marshal(kept)
+			require.NoError(t, err)
+			m.BlocksJSON = string(buf)
+		}
+		return nil
+	}
 }
 
 func TestSessionWrittenPaths(t *testing.T) {
@@ -89,6 +139,29 @@ func TestSessionWrittenPaths(t *testing.T) {
 			paths, err := SessionWrittenPaths(context.Background(), 7)
 			require.NoError(t, err)
 			assert.Empty(t, paths)
+		})
+
+		convey.Convey("只按 tool_use / nested_tool_use 两类块补正文,不读回整条转录", func() {
+			msgs := []*chat_entity.Message{
+				msgWithBlocks(t, 1,
+					blocks.TextBlock{Text: "long answer"},
+					blocks.ToolUseBlock{ID: "t1", Name: "Write", Input: map[string]any{"file_path": "/wt/a.go", "content": "x"}},
+				),
+				msgWithBlocks(t, 2, &chatblocks.NestedToolUseBlock{
+					ID: "n1", Name: "Write", ParentToolCallID: "t0",
+					Input: map[string]any{"file_path": "/wt/nested.go", "content": "x"},
+				}),
+			}
+			// 严格 mock:List 没有期望,被调用即失败。
+			repo := registerMessageMock(t)
+			repo.EXPECT().ListMeta(gomock.Any(), int64(7)).Return(metaOf(msgs), nil).Times(1)
+			repo.EXPECT().FillBlocksByType(gomock.Any(), gomock.Len(2),
+				gomock.InAnyOrder([]string{"tool_use", "nested_tool_use"})).
+				DoAndReturn(fillBlocksByTypeFrom(t, msgs)).Times(1)
+
+			paths, err := SessionWrittenPaths(context.Background(), 7)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/wt/a.go", "/wt/nested.go"}, paths)
 		})
 
 		convey.Convey("仓储报错原样冒泡,不静默降级成空清单", func() {
