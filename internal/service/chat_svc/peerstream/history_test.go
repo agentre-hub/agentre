@@ -332,7 +332,7 @@ func TestAttachPeerSession_GivenInitializationFails_ThenLeavesNoHalfInitializedP
 		{ID: 91, SessionID: 41, Role: "user", Seq: 1, BlocksJSON: `[{"type":"text","data":{"text":"hello"}}]`},
 		{ID: 92, SessionID: 41, Role: "assistant", Seq: 2, BlocksJSON: `[{"type":"text","data":{"text":"world"}}]`},
 	}
-	for name, arrange := range map[string]func(ctx context.Context, deps *peerSessionTestDeps) (recover func()){
+	for name, arrange := range map[string]func(ctx context.Context, deps *peerSessionTestDeps) (restore func()){
 		"transcript read fails": func(ctx context.Context, deps *peerSessionTestDeps) func() {
 			gomock.InOrder(
 				deps.message.EXPECT().List(ctx, int64(41)).Return(nil, errors.New("database is gone")),

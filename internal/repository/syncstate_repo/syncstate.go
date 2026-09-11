@@ -260,7 +260,7 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 
 	// 只认领**存活**的行：本机已经软删的行不该被当成一次新建推上账号（R6）。
 	// rowid 是 SQLite 给每张普通表的隐式主键，成员关系那张联合主键表也有——用它
-	// 逐行补标识与清版本号，每张表一套 SQL。
+	// 定位要改归属、补标识与清版本号的行，每张表一套 SQL。
 	//
 	// sync_account_id 一并取出来：它决定这一行是「还没上过云」还是「属于上一个
 	// 账号」，而后者的版本号必须清零（见接口注释）。
@@ -326,8 +326,12 @@ func (r *syncStateRepo) ClaimForAccount(ctx context.Context, kind string, accoun
 				continue
 			}
 			syncID := syncmeta_entity.NewSyncID()
-			if err := tx.Table(table).Where("rowid = ?", row.Rowid).
-				Updates(map[string]any{"sync_account_id": accountID, "sync_id": syncID}).Error; err != nil {
+			updates := map[string]any{"sync_account_id": accountID, "sync_id": syncID}
+			if row.SyncAccountID != 0 {
+				// 与 fromOtherAccount 那一批同一条理由：库里的版本号也要清，不止交回去的基版本。
+				updates["sync_version"] = 0
+			}
+			if err := tx.Table(table).Where("rowid = ?", row.Rowid).Updates(updates).Error; err != nil {
 				return err
 			}
 			out[i] = ClaimedRow{SyncID: syncID, Version: 0}

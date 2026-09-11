@@ -36,10 +36,15 @@ func newHookEventForDedupe() *hook_entity.HookEvent {
 	}
 }
 
+// hookEventInsertIfAbsentSQL 钉住冲突子句本身：少了它，撞上 ux_hook_events_dedupe 的
+// 插入会报 UNIQUE 错误让整次运行失败。sqlmock 走 MySQL 方言，ON CONFLICT DO NOTHING
+// 在这里渲染成 ON DUPLICATE KEY UPDATE。
+const hookEventInsertIfAbsentSQL = "INSERT INTO `hook_events` .* ON DUPLICATE KEY UPDATE"
+
 func TestHookEventRepo_CreateIfAbsent_Created(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO `hook_events`").
+	mock.ExpectExec(hookEventInsertIfAbsentSQL).
 		WillReturnResult(sqlmock.NewResult(5, 1))
 	mock.ExpectCommit()
 
@@ -54,7 +59,7 @@ func TestHookEventRepo_CreateIfAbsent_Created(t *testing.T) {
 func TestHookEventRepo_CreateIfAbsent_DuplicateKey(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO `hook_events`").
+	mock.ExpectExec(hookEventInsertIfAbsentSQL).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
@@ -67,7 +72,7 @@ func TestHookEventRepo_CreateIfAbsent_DuplicateKey(t *testing.T) {
 func TestHookEventRepo_CreateIfAbsent_Error(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO `hook_events`").
+	mock.ExpectExec(hookEventInsertIfAbsentSQL).
 		WillReturnError(errors.New("disk I/O error"))
 	mock.ExpectRollback()
 

@@ -355,6 +355,12 @@ func (s *service) dropQueueRows(ctx context.Context, ids []int64) error {
 }
 
 func (s *service) recordLostChange(ctx context.Context, accountID int64, row *syncqueue_entity.LostChange) error {
+	s.stampLostChange(accountID, row)
+	return syncqueue_repo.LostChange().Create(ctx, row)
+}
+
+// stampLostChange 给一条「没能同步的改动」盖上所属账号，并补上没填的落库与发生时刻。
+func (s *service) stampLostChange(accountID int64, row *syncqueue_entity.LostChange) {
 	row.SyncAccountID = accountID
 	if row.Createtime == 0 {
 		row.Createtime = s.now()
@@ -362,5 +368,4 @@ func (s *service) recordLostChange(ctx context.Context, accountID int64, row *sy
 	if row.OccurredAt == 0 {
 		row.OccurredAt = row.Createtime
 	}
-	return syncqueue_repo.LostChange().Create(ctx, row)
 }

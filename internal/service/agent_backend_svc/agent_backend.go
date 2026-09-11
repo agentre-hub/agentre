@@ -1177,7 +1177,11 @@ func prefetchItemLookup(
 	if rds := remote_device_svc.Default(); needDevices && rds != nil {
 		if views, err := rds.List(ctx); err == nil {
 			for _, view := range views {
-				if view != nil {
+				if view == nil {
+					continue
+				}
+				// 同一指纹取第一条:与 pairedDeviceView、exec_target_svc 的取法一致。
+				if _, seen := devices[view.DaemonFingerprint]; !seen {
 					devices[view.DaemonFingerprint] = view
 				}
 			}

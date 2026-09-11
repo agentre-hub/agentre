@@ -84,14 +84,9 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	// 子进程已关，撤销并清掉它的常驻 gateway token（token 寿命跟随子进程）。
 	s.revokeChatToken(req.SessionID)
 
-	// CloseSessionEverywhere 只是尽力终止子进程；它返回时，仍在飞的那一轮的
-	// goroutine 可能还没观察到关闭、还在把收尾写入(assistant 消息/块、会话状态)落库
-	// ——该 goroutine 从起手到收尾全程持有 s.lockFor(sessionID)，收尾时才释放
-	// （见 acquireTurnGate / chat.go 的 defer lock.Unlock()）。这里借同一把锁跟它
-	// 串行：拿到锁即意味着它已经收尾完，purge 才不会跟它的最后一次写入交错。
-	lock := s.lockFor(req.SessionID)
-	lock.mu.Lock()
-	lock.mu.Unlock() //nolint:staticcheck // SA2001: 有意的空临界区——只借锁排队等在飞的 turn 收尾，不持锁跨越下面的清理
+	if err := s.cancelAndAwaitTurn(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
 
 	if _, err := transcript_repo.FrameSeq().DeleteBySession(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
@@ -103,6 +98,36 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 		return nil, operationFailedWithCause(ctx, err)
 	}
 	return &DeleteResponse{}, nil
+}
+
+// turnSettlePollInterval 是 cancelAndAwaitTurn 两次尝试拿会话锁之间的间隔。
+const turnSettlePollInterval = 20 * time.Millisecond
+
+// cancelAndAwaitTurn 取消会话在飞的那一轮，并等它收尾、放开会话锁之后才返回。
+//
+// CloseSessionEverywhere 只是尽力终止子进程；它返回时，仍在飞的那一轮的 goroutine
+// 可能还在把收尾写入(assistant 消息/块、会话状态)落库——它从起手到收尾全程持有
+// s.lockFor(sessionID)（见 acquireTurnGate / chat.go 的 defer lock.Unlock()）。借同一把
+// 锁跟它串行：拿到锁即意味着它已经收尾完，清理才不会跟它的最后一次写入交错。
+//
+// 只等不取消不行：CloseSessionEverywhere 管不到的后端(builtin / remote / openclaw)上，
+// 一轮在等工具审批或一段很长的回答时，删除会一直挂着。每次拿不到锁都重新取消一次——
+// 起手的同步段已经占住锁、却还没登记控制柄时，前一次取消会扑空。ctx 结束就不再等：
+// 会话行已经软删，重试会重新走到这里和后面的清理。
+func (s *chatSvc) cancelAndAwaitTurn(ctx context.Context, sessionID int64) error {
+	lock := s.lockFor(sessionID)
+	for !lock.TryLock() {
+		if control, ok := s.takeActiveTurn(sessionID); ok && control != nil && control.cancel != nil {
+			control.cancel()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(turnSettlePollInterval):
+		}
+	}
+	lock.Unlock()
+	return nil
 }
 
 // MarkSessionRead 推进会话 last_read_at 到至少 req.Timestamp (unix ms)。

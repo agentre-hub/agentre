@@ -1427,8 +1427,8 @@ func startProbeTurn(t *testing.T, rt *Runtime) {
 // Given 同一条连接上连开两轮,When 第二轮开轮,Then 不再发第二次 runtime.session.list,
 // 而这一轮的开轮位置仍然正确 —— 回放上来的、属于已结束轮次的终态帧照样被挡住。
 //
-// 那条 RPC 在 daemon 侧是一次 LatestSeqByPeer 的 GROUP BY,外加对该对端**每条**会话的
-// PendingWaiters 探测,成本随这个对端历史上跑过的会话数增长;而开轮唯一消费的只有这条
+// 那条 RPC 在 daemon 侧要对返回的**每条**会话各读一遍转录求最新 seq(LatestSeqs),外加
+// 逐条的 PendingWaiters 探测,成本随返回的会话数增长;而开轮唯一消费的只有这条
 // 会话的 LatestSeq。把它钉在每一轮的启动热路径上是纯开销:高水位在本连接上探过一次之后
 // 就由游标接着跟(daemon 为这条会话新增的每一行都推给属主连接,推不动的那一刻这条连接
 // 也就死了,换代重连会重新探)。

@@ -41,34 +41,6 @@ func (m *MockInboundQueueRepo) EXPECT() *MockInboundQueueRepoMockRecorder {
 	return m.recorder
 }
 
-// Create mocks base method.
-func (m *MockInboundQueueRepo) Create(ctx context.Context, row *syncqueue_entity.InboundQueueItem) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Create", ctx, row)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Create indicates an expected call of Create.
-func (mr *MockInboundQueueRepoMockRecorder) Create(ctx, row any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockInboundQueueRepo)(nil).Create), ctx, row)
-}
-
-// Delete mocks base method.
-func (m *MockInboundQueueRepo) Delete(ctx context.Context, id int64) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Delete indicates an expected call of Delete.
-func (mr *MockInboundQueueRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockInboundQueueRepo)(nil).Delete), ctx, id)
-}
-
 // DeleteByEntity mocks base method.
 func (m *MockInboundQueueRepo) DeleteByEntity(ctx context.Context, accountID int64, kind, syncID string) error {
 	m.ctrl.T.Helper()
@@ -95,6 +67,20 @@ func (m *MockInboundQueueRepo) DeleteMany(ctx context.Context, ids []int64) erro
 func (mr *MockInboundQueueRepoMockRecorder) DeleteMany(ctx, ids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteMany", reflect.TypeOf((*MockInboundQueueRepo)(nil).DeleteMany), ctx, ids)
+}
+
+// DiscardToLostChanges mocks base method.
+func (m *MockInboundQueueRepo) DiscardToLostChanges(ctx context.Context, ids []int64, lost []*syncqueue_entity.LostChange) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DiscardToLostChanges", ctx, ids, lost)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DiscardToLostChanges indicates an expected call of DiscardToLostChanges.
+func (mr *MockInboundQueueRepoMockRecorder) DiscardToLostChanges(ctx, ids, lost any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardToLostChanges", reflect.TypeOf((*MockInboundQueueRepo)(nil).DiscardToLostChanges), ctx, ids, lost)
 }
 
 // ListByAccount mocks base method.

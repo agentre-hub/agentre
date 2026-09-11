@@ -6657,117 +6657,188 @@ func TestRenameAndDelete(t *testing.T) {
 	})
 }
 
-// TestDeleteWaitsForInFlightTurnBeforePurging 证明 Delete 不会在 CloseSessionEverywhere
-// 返回后立刻清理转录:CloseSessionEverywhere 只是尽力关子进程,同一会话在飞的那一轮
-// goroutine 仍可能持有 s.lockFor(sessionID) 在做收尾写入(assistant 消息/会话状态),
-// 直到它写完才 Unlock。一个错误实现(不等锁就 purge)会让 frameSeq.DeleteBySession
-// 在 turn 收尾前就跑掉 —— 这里用一条阻塞在流上的假 turn 卡住锁,断言 purge 在流被放行
-// 前不会发生,放行后才发生。
+// TestDeleteWaitsForInFlightTurnBeforePurging 证明 Delete 取消在飞的那一轮之后,仍等它把
+// 收尾写入落完、放开会话锁才清理转录:取消只让流停下,那一轮的 goroutine 仍持有
+// s.lockFor(sessionID) 在写 assistant 消息/会话状态。一个错误实现(取消后不等锁就 purge)
+// 会让 frameSeq.DeleteBySession 跑在收尾写入之前 —— 这里把收尾那次 assistant 落库卡住,
+// 断言 purge 在它放行前不会发生,放行后才发生。流只在被取消时结束:不取消的实现连收尾
+// 那次落库都走不到。
 func TestDeleteWaitsForInFlightTurnBeforePurging(t *testing.T) {
-	convey.Convey("Delete 等在飞的 turn 释放会话锁后才清理转录", t, func() {
-		m := setupChatTest(t)
-		ctx := m.ctx // must carry DB handle for Transaction
-
-		providerCalled := make(chan struct{})
-		releaseStream := make(chan struct{})
-		fp := providertest.New().QueueStreamFunc(func(pCtx context.Context) <-chan provider.StreamChunk {
+	m := setupChatTest(t)
+	armed := make(chan struct{})
+	finalWriteEntered := make(chan struct{}, 1)
+	releaseFinalWrite := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-releaseFinalWrite:
+		default:
+			close(releaseFinalWrite)
+		}
+	})
+	resp := startBlockingBuiltinTurn(t, m,
+		func(pCtx context.Context) <-chan provider.StreamChunk {
 			ch := make(chan provider.StreamChunk)
 			go func() {
-				select {
-				case <-releaseStream:
-				case <-pCtx.Done():
-				}
+				<-pCtx.Done()
 				close(ch)
 			}()
 			return ch
-		})
-		chat_svc.SetProviderBuilderForTest(func(p *llm_provider_entity.LLMProvider) (provider.Provider, error) {
+		},
+		func(_ context.Context, msg *chat_entity.Message) error {
 			select {
-			case <-providerCalled:
+			case <-armed:
 			default:
-				close(providerCalled)
-			}
-			return fp, nil
-		})
-		t.Cleanup(chat_svc.ResetProviderBuilderForTest)
-
-		m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
-			ID: 7, AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
-		}, nil).AnyTimes()
-		m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
-			ID: 12, Type: "builtin", LLMProviderKey: "key-21", Status: consts.ACTIVE,
-		}, nil).AnyTimes()
-		m.provider.EXPECT().FindByKey(gomock.Any(), "key-21").Return(&llm_provider_entity.LLMProvider{ProviderKey: "key-21", Enabled: llm_provider_entity.EnabledOn, DefaultModelKey: "mk-key-21", ID: 21, Type: string(llm_provider_entity.TypeAnthropic), Status: consts.ACTIVE}, nil).AnyTimes()
-		expectProviderResolvable(m, "key-21")
-		m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(&chat_entity.Session{
-			ID: 100, AgentID: 7, AgentStatus: "idle", Status: consts.ACTIVE,
-		}, nil).AnyTimes()
-		m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-		m.dbMock.ExpectBegin()
-		m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
-		m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
-				if msg.Role == "user" {
-					msg.ID = 1
-				} else {
-					msg.ID = 2
-				}
 				return nil
-			}).Times(2)
-		m.dbMock.ExpectCommit()
-		m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
-		m.message.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			}
+			if msg.ID == 2 {
+				select {
+				case finalWriteEntered <- struct{}{}:
+				default:
+				}
+				<-releaseFinalWrite
+			}
+			return nil
+		})
+	purgeCalled := expectSessionPurge(m)
 
-		// Start the turn — acquires the per-session lock, spawns a goroutine that
-		// blocks mid-stream (holding the lock) until releaseStream closes.
-		resp, err := m.svc.Send(ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
-		assert.NoError(t, err)
+	close(armed)
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, err := m.svc.Delete(context.Background(), &chat_svc.DeleteRequest{SessionID: 100})
+		deleteDone <- err
+	}()
 
+	select {
+	case <-finalWriteEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the canceled turn never reached its final assistant write")
+	}
+	select {
+	case <-purgeCalled:
+		t.Fatal("purge ran while the in-flight turn was still writing its final state")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(releaseFinalWrite)
+	chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+	select {
+	case err := <-deleteDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Delete did not return after the in-flight turn released its lock")
+	}
+	select {
+	case <-purgeCalled:
+	default:
+		t.Fatal("purge never ran")
+	}
+}
+
+// startBlockingBuiltinTurn 在会话 100 上开一轮 builtin,流何时结束由 stream 决定;返回时
+// 这一轮的 goroutine 已经进了流、持着会话锁。messageUpdate 非 nil 时由它应答消息的
+// Update(收尾那次 assistant 落库就走这里),为 nil 时直接成功。
+func startBlockingBuiltinTurn(
+	t *testing.T, m *chatMocks, stream func(pCtx context.Context) <-chan provider.StreamChunk,
+	messageUpdate func(context.Context, *chat_entity.Message) error,
+) *chat_svc.SendResponse {
+	t.Helper()
+	providerCalled := make(chan struct{})
+	fp := providertest.New().QueueStreamFunc(stream)
+	chat_svc.SetProviderBuilderForTest(func(p *llm_provider_entity.LLMProvider) (provider.Provider, error) {
 		select {
 		case <-providerCalled:
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for providerBuilder to be called")
-		}
-
-		m.session.EXPECT().SoftDelete(gomock.Any(), int64(100)).Return(nil)
-		purgeCalled := make(chan struct{})
-		m.frameSeq.EXPECT().DeleteBySession(gomock.Any(), int64(100)).DoAndReturn(
-			func(context.Context, int64) (int64, error) {
-				close(purgeCalled)
-				return 0, nil
-			})
-		m.message.EXPECT().DeleteFromSeq(gomock.Any(), int64(100), 0).Return(int64(0), nil)
-		m.replacementRecovery.EXPECT().DeleteReplacementRecovery(gomock.Any(), int64(100)).Return(int64(0), nil)
-
-		deleteDone := make(chan error, 1)
-		go func() {
-			_, derr := m.svc.Delete(context.Background(), &chat_svc.DeleteRequest{SessionID: 100})
-			deleteDone <- derr
-		}()
-
-		select {
-		case <-purgeCalled:
-			t.Fatal("purge ran while the in-flight turn still held the session lock")
-		case <-time.After(150 * time.Millisecond):
-		}
-
-		// Release the in-flight turn; only now may Delete's purge proceed.
-		close(releaseStream)
-		chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
-
-		select {
-		case derr := <-deleteDone:
-			assert.NoError(t, derr)
-		case <-time.After(2 * time.Second):
-			t.Fatal("Delete did not return after the in-flight turn released its lock")
-		}
-		select {
-		case <-purgeCalled:
 		default:
-			t.Fatal("purge never ran")
+			close(providerCalled)
 		}
+		return fp, nil
 	})
+	t.Cleanup(chat_svc.ResetProviderBuilderForTest)
+
+	m.agent.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
+		ID: 7, AgentBackendID: 12, Status: consts.ACTIVE, PromptJSON: `[]`,
+	}, nil).AnyTimes()
+	m.backend.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{
+		ID: 12, Type: "builtin", LLMProviderKey: "key-21", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	m.provider.EXPECT().FindByKey(gomock.Any(), "key-21").Return(&llm_provider_entity.LLMProvider{ProviderKey: "key-21", Enabled: llm_provider_entity.EnabledOn, DefaultModelKey: "mk-key-21", ID: 21, Type: string(llm_provider_entity.TypeAnthropic), Status: consts.ACTIVE}, nil).AnyTimes()
+	expectProviderResolvable(m, "key-21")
+	m.session.EXPECT().Find(gomock.Any(), int64(100)).Return(&chat_entity.Session{
+		ID: 100, AgentID: 7, AgentStatus: "idle", Status: consts.ACTIVE,
+	}, nil).AnyTimes()
+	m.session.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	m.dbMock.ExpectBegin()
+	m.message.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
+	m.message.EXPECT().Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
+			msg.ID = map[string]int64{"user": 1, "assistant": 2}[msg.Role]
+			return nil
+		}).Times(2)
+	m.dbMock.ExpectCommit()
+	m.message.EXPECT().List(gomock.Any(), int64(100)).Return(nil, nil).AnyTimes()
+	if messageUpdate == nil {
+		messageUpdate = func(context.Context, *chat_entity.Message) error { return nil }
+	}
+	m.message.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(messageUpdate).AnyTimes()
+
+	resp, err := m.svc.Send(m.ctx, &chat_svc.SendRequest{SessionID: 100, AgentID: 7, Text: "hi"})
+	require.NoError(t, err)
+	select {
+	case <-providerCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for providerBuilder to be called")
+	}
+	return resp
+}
+
+// expectSessionPurge 期望 Delete 软删会话 100 并清掉它的转录;返回的通道在帧台账清理
+// 那一步关闭。
+func expectSessionPurge(m *chatMocks) <-chan struct{} {
+	m.session.EXPECT().SoftDelete(gomock.Any(), int64(100)).Return(nil)
+	purgeCalled := make(chan struct{})
+	m.frameSeq.EXPECT().DeleteBySession(gomock.Any(), int64(100)).DoAndReturn(
+		func(context.Context, int64) (int64, error) {
+			close(purgeCalled)
+			return 0, nil
+		})
+	m.message.EXPECT().DeleteFromSeq(gomock.Any(), int64(100), 0).Return(int64(0), nil)
+	m.replacementRecovery.EXPECT().DeleteReplacementRecovery(gomock.Any(), int64(100)).Return(int64(0), nil)
+	return purgeCalled
+}
+
+// Given 会话上一轮 builtin 在飞,它的流只有被取消才会结束(等工具审批、一段很长的回答
+// 都是这个形状);When 删除这条会话;Then Delete 取消这一轮、等它收尾后清理并返回。
+//
+// 只等会话锁而不取消时,CloseSessionEverywhere 管不到的后端(builtin / remote /
+// openclaw)上在飞的一轮会让 Delete 一直挂着:Wails 调用不返回,对端的删除 RPC 也不返回。
+func TestDelete_GivenAnInFlightTurnThatOnlyEndsWhenCancelled_ThenDeleteCancelsItAndReturns(t *testing.T) {
+	m := setupChatTest(t)
+	resp := startBlockingBuiltinTurn(t, m, func(pCtx context.Context) <-chan provider.StreamChunk {
+		ch := make(chan provider.StreamChunk)
+		go func() {
+			<-pCtx.Done()
+			close(ch)
+		}()
+		return ch
+	}, nil)
+	purgeCalled := expectSessionPurge(m)
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, err := m.svc.Delete(context.Background(), &chat_svc.DeleteRequest{SessionID: 100})
+		deleteDone <- err
+	}()
+	select {
+	case err := <-deleteDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Delete kept waiting for an in-flight turn that only ends when canceled")
+	}
+	chat_svc.WaitForStreamForTest(m.svc, resp.AssistantMessageID)
+	select {
+	case <-purgeCalled:
+	default:
+		t.Fatal("purge never ran")
+	}
 }
 
 // encodeText helper: pack a text block into StoredBlock-envelope JSON for fixtures.

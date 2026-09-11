@@ -236,6 +236,7 @@ func newHarness(t *testing.T, loggedIn bool) *harness {
 		nowMs:     1_700_000_000_000,
 		row:       row,
 	}
+	h.inbound.lost = h.lost
 	syncqueue_repo.RegisterOutboundQueue(h.outbound)
 	syncqueue_repo.RegisterInboundQueue(h.inbound)
 	syncqueue_repo.RegisterLostChange(h.lost)
@@ -416,7 +417,7 @@ func TestNotifyRuntimeClaim_GivenLoggedOut_QueuesUntilAuthentication(t *testing.
 // EntitySyncID、Op、QueuedAt 都不变——只有 SyncAccountID 换了主人。
 func TestClaimAnonymousQueue_GivenSeveralRows_ReassignsThemInOneWrite(t *testing.T) {
 	h := newHarness(t, false)
-	var seeded []*syncqueue_entity.OutboundQueueItem
+	seeded := make([]*syncqueue_entity.OutboundQueueItem, 0, 3)
 	for i := range 3 {
 		row := &syncqueue_entity.OutboundQueueItem{
 			SyncAccountID: 0, EntityType: "project", LocalID: int64(i + 1),
@@ -1002,25 +1003,60 @@ func TestGCDeferred_GivenReceivedAtAtTheCutoff_DiscardsItAndKeepsOneMsLater(t *t
 	assert.Equal(t, syncqueue_entity.ReasonDiscarded, h.lost.rows[0].Reason)
 }
 
-// TestGCDeferred_GivenRecordingTheLossFails_KeepsTheRowItCouldNotRecord R2a 的「一行
-// 也不会被悄悄丢掉」：丢失记录落不下去的那一行必须还留在暂缓队列里，下一轮再试；
-// 已经记下的那一行照常出队，不在下一轮重复记一遍。
-func TestGCDeferred_GivenRecordingTheLossFails_KeepsTheRowItCouldNotRecord(t *testing.T) {
-	h := newHarness(t, true)
+// seedTwoExpiredRowsWithoutAdapter 预置两条早已到期的暂缓行。没有 adapter 的对象
+// 类型：重放跳过它们，只剩回收在动这两行。
+func seedTwoExpiredRowsWithoutAdapter(t *testing.T, h *harness) {
+	t.Helper()
 	expired := h.nowMs - TombstoneWindow.Milliseconds() - 1
-	// 没有 adapter 的对象类型：重放跳过它们，只剩回收在动这两行。
 	seedDeferred(t, h, &inbound{Kind: "gone-kind", SyncID: "c-1", Version: 1}, expired)
 	seedDeferred(t, h, &inbound{Kind: "gone-kind", SyncID: "c-2", Version: 2}, expired)
+}
+
+func lostSyncIDs(h *harness) []string {
+	out := make([]string, 0, len(h.lost.rows))
+	for _, row := range h.lost.rows {
+		out = append(out, row.EntitySyncID)
+	}
+	return out
+}
+
+// TestGCDeferred_GivenRecordingTheLossFails_KeepsEveryRowForTheNextRound R2a 的「一行
+// 也不会被悄悄丢掉」：记录与出队同进同退。有一行记不下时这一批一行都不出队、一条都
+// 不记，下一轮整批重来，每一行只记一次。
+func TestGCDeferred_GivenRecordingTheLossFails_KeepsEveryRowForTheNextRound(t *testing.T) {
+	h := newHarness(t, true)
+	seedTwoExpiredRowsWithoutAdapter(t, h)
 	h.lost.createErr = errors.New("disk full")
 	h.lost.createErrFor = "c-2"
 	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
 
 	require.Error(t, h.svc.SyncOnce(context.Background()))
+	assert.Empty(t, h.lost.rows, "这一批没能整体落下，一条都不该留下")
+	require.Len(t, h.inbound.rows, 2, "记不下丢失的行不许被删")
 
-	require.Len(t, h.lost.rows, 1)
-	assert.Equal(t, "c-1", h.lost.rows[0].EntitySyncID)
-	require.Len(t, h.inbound.rows, 1, "记不下丢失的那一行不许被删")
-	assert.Equal(t, "c-2", h.inbound.rows[0].EntitySyncID)
+	h.lost.createErr = nil
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+	assert.ElementsMatch(t, []string{"c-1", "c-2"}, lostSyncIDs(h), "每一行恰好记一次")
+	assert.Empty(t, h.inbound.rows)
+}
+
+// TestGCDeferred_GivenDequeueFailsAfterRecording_DoesNotRecordTheLossAgain 丢失记下了、
+// 出队却失败（写锁等超时、ctx 在中途被取消）时，下一轮不许把同一行再记一遍——否则
+// 「没能同步的改动」里同一件事会出现两次，积压多少行就重复多少条。
+func TestGCDeferred_GivenDequeueFailsAfterRecording_DoesNotRecordTheLossAgain(t *testing.T) {
+	h := newHarness(t, true)
+	seedTwoExpiredRowsWithoutAdapter(t, h)
+	h.inbound.dequeueErr = errors.New("database is locked")
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.Error(t, h.svc.SyncOnce(context.Background()))
+
+	h.inbound.dequeueErr = nil
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+	assert.ElementsMatch(t, []string{"c-1", "c-2"}, lostSyncIDs(h), "每一行恰好记一次")
+	assert.Empty(t, h.inbound.rows)
 }
 
 // replayCost 预置 n 条引用目标永远不到的暂缓行，跑一次 SyncOnce，交回这一轮对入站

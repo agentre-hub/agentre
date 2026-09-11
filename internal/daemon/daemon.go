@@ -2221,7 +2221,7 @@ func (j durableFrameReader) keyedFrames(ctx context.Context, peerFingerprint dev
 }
 
 // durableFrames 是补齐真正读的那一份:在 keyedFrames 之上把缺号的位置**当场补齐并
-// 落库**(与桌面端 chat_svc 的 attach 同一条纪律,那边在 numberPeerFramesLocked)。
+// 落库**(与桌面端 chat_svc 的 attach 同一条纪律,那边在 peerstream.initializePeerPublication)。
 func (j durableFrameReader) durableFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) ([]wire.EventFrame, []int64, error) {
 	sessionID, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil || sessionID == 0 {

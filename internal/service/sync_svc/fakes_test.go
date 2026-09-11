@@ -78,17 +78,6 @@ func (f *fakeOutboundQueue) ListByAccount(_ context.Context, accountID int64) ([
 	return out, nil
 }
 
-func (f *fakeOutboundQueue) Delete(_ context.Context, id int64) error {
-	kept := f.rows[:0]
-	for _, row := range f.rows {
-		if row.ID != id {
-			kept = append(kept, row)
-		}
-	}
-	f.rows = kept
-	return nil
-}
-
 func (f *fakeOutboundQueue) DeleteMany(_ context.Context, ids []int64) error {
 	drop := make(map[int64]struct{}, len(ids))
 	for _, id := range ids {
@@ -115,6 +104,11 @@ type fakeInboundQueue struct {
 	rowsRead int
 	writes   int
 	deletes  int
+
+	// dequeueErr 非 nil 时按主键出队的那一步失败、队列原样不动。
+	dequeueErr error
+	// lost 是同一个 harness 里的丢失列表：DiscardToLostChanges 在「一个事务」里写它。
+	lost *fakeLostChange
 }
 
 // resetCounters 清零计数：预置数据走的 Create 不算进被测那一轮。
@@ -175,10 +169,37 @@ func (f *fakeInboundQueue) ReplaceForEntity(_ context.Context, row *syncqueue_en
 	return nil
 }
 
-func (f *fakeInboundQueue) Delete(_ context.Context, id int64) error {
+// DiscardToLostChanges 与真仓储同一个语义：记录与出队在一个事务里同进同退——任一条
+// 记录落不下或出队失败，丢失列表与队列都保持原样。
+func (f *fakeInboundQueue) DiscardToLostChanges(
+	ctx context.Context, ids []int64, lost []*syncqueue_entity.LostChange,
+) error {
+	if len(ids) == 0 && len(lost) == 0 {
+		return nil
+	}
+	recorded, nextID := len(f.lost.rows), f.lost.nextID
+	rollback := func(err error) error {
+		f.lost.rows, f.lost.nextID = f.lost.rows[:recorded], nextID
+		return err
+	}
+	for _, row := range lost {
+		if err := f.lost.Create(ctx, row); err != nil {
+			return rollback(err)
+		}
+	}
+	if f.dequeueErr != nil {
+		return rollback(f.dequeueErr)
+	}
 	f.writes++
 	f.deletes++
-	f.drop(func(row *syncqueue_entity.InboundQueueItem) bool { return row.ID == id })
+	drop := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		drop[id] = struct{}{}
+	}
+	f.drop(func(row *syncqueue_entity.InboundQueueItem) bool {
+		_, ok := drop[row.ID]
+		return ok
+	})
 	return nil
 }
 
@@ -194,6 +215,9 @@ func (f *fakeInboundQueue) DeleteByEntity(_ context.Context, accountID int64, ki
 func (f *fakeInboundQueue) DeleteMany(_ context.Context, ids []int64) error {
 	if len(ids) == 0 {
 		return nil
+	}
+	if f.dequeueErr != nil {
+		return f.dequeueErr
 	}
 	f.writes++
 	f.deletes++

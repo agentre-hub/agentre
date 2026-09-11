@@ -1,7 +1,9 @@
 package syncstate_repo
 
 import (
+	"database/sql/driver"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -209,6 +211,59 @@ func TestClaimForAccount_GivenSeveralUnattributedRows_UsesOneSetUpdate(t *testin
 	assert.Equal(t, "p-1", rows[0].SyncID)
 	assert.Equal(t, "p-2", rows[1].SyncID)
 	assert.Equal(t, "p-3", rows[2].SyncID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClaimForAccount_GivenRowOfAnotherAccountWithoutSyncID_MintsAnIDAndZeroesTheVersion
+// 没有同步标识、却属于上一个账号的行走逐行那一支：现铸标识的同时版本号照样清零——
+// 它仍是上一个账号那套序列里的坐标。只清交回去的基版本、不清库里那一格，此后
+// FindVersion 读到的就是另一套序列的版本号，版本守卫会把真实的下行挡在门外。
+func TestClaimForAccount_GivenRowOfAnotherAccountWithoutSyncID_MintsAnIDAndZeroesTheVersion(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := NewSyncState()
+	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `projects` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
+		WithArgs(int64(9), consts.ACTIVE).
+		WillReturnRows(sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"}).
+			AddRow(int64(6), "", int64(4200), int64(3)))
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\?,`sync_id`=\\?,`sync_version`=\\? WHERE rowid = \\?$").
+		WithArgs(int64(9), sqlmock.AnyArg(), 0, int64(6)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	rows, err := repo.ClaimForAccount(ctx, syncwire.KindProject, 9)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.NotEmpty(t, rows[0].SyncID)
+	assert.Zero(t, rows[0].Version)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClaimForAccount_GivenMoreRowsThanOneBatch_ClaimsTheTailInASecondUpdate 超过
+// claimBatchSize 的行分成几条集合 UPDATE：每条都在 SQLite 绑定变量上限之内，最后
+// 不满一批的尾巴也必须有自己的那一条，不能被漏掉。
+func TestClaimForAccount_GivenMoreRowsThanOneBatch_ClaimsTheTailInASecondUpdate(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := NewSyncState()
+	result := sqlmock.NewRows([]string{"rowid", "sync_id", "sync_version", "sync_account_id"})
+	for i := 1; i <= claimBatchSize+1; i++ {
+		result.AddRow(int64(i), "p-"+strconv.Itoa(i), int64(0), int64(0))
+	}
+	mock.ExpectQuery("SELECT rowid,sync_id,sync_version,sync_account_id FROM `projects`").
+		WithArgs(int64(7), consts.ACTIVE).WillReturnRows(result)
+	firstBatch := []driver.Value{int64(7)}
+	for i := 1; i <= claimBatchSize; i++ {
+		firstBatch = append(firstBatch, int64(i))
+	}
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE rowid IN \\(").
+		WithArgs(firstBatch...).WillReturnResult(sqlmock.NewResult(0, int64(claimBatchSize)))
+	mock.ExpectExec("UPDATE `projects` SET `sync_account_id`=\\? WHERE rowid IN \\(\\?\\)$").
+		WithArgs(int64(7), int64(claimBatchSize+1)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	rows, err := repo.ClaimForAccount(ctx, syncwire.KindProject, 7)
+	require.NoError(t, err)
+	require.Len(t, rows, claimBatchSize+1)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

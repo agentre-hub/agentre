@@ -195,7 +195,7 @@ func TestRunHook_ThreadsInterpreterPath(t *testing.T) {
 }
 
 // 竞态：本次运行与并发的另一次运行（或调度器 tick）同时产出同一个 dedupe key，本次
-// 读到"未存在"、插入时却撞上对方已经提交的行。今天的 FindByDedupeKey→Create 两步不是
+// 读到"未存在"、插入时却撞上对方已经提交的行。此前的 FindByDedupeKey→Create 两步不是
 // 原子的，撞车时 Create 报 UNIQUE 冲突、RunHook 直接返回错误——运行不会正常结束，
 // last_run/next_run_at 不回写，第二条事件也不会再落库。要求 5：应计入重复数、正常结束、
 // 其余事件照常写入。

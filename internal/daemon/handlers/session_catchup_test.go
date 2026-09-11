@@ -93,9 +93,9 @@ func TestSessionCatchup_List_ReportsLatestSeqFromTheDurableFrames(t *testing.T) 
 // TestSessionCatchup_List_ComputesLatestSeqsOnlyForThePage 覆盖要求 8:一次分页请求
 // 只对**返回页内的**会话求最新 seq,而不是这个对端全部会话。此前的 LatestSeqByPeer
 // 会把这个对端重新 ListByPeer 一遍(offset=0/limit=0 = 全表)再逐条投影整段转录求
-// seq —— 与请求的 limit 完全无关,是清单分页时最大的一次白读;严格 mock 上不再存在
-// LatestSeqByPeer / 逐行 LatestSeq 这两个方法,调用到即失败,天然钉死「只有这一次
-// 调用、只带这一页」。
+// seq —— 与请求的 limit 完全无关,是清单分页时最大的一次白读。端口上已经没有
+// LatestSeqByPeer;逐行的 LatestSeq 在严格 mock 上没有期望,调用到即失败,天然钉死
+// 「只有这一次调用、只带这一页」。
 func TestSessionCatchup_List_ComputesLatestSeqsOnlyForThePage(t *testing.T) {
 	ctx, sessions, durable, h := setupCatchupTest(t, bareRT{})
 	page := []handlers.SessionRecord{
@@ -232,7 +232,7 @@ func TestSessionCatchup_List_AccountWide_ComputesLatestSeqsOnlyForThePage(t *tes
 		{PeerSessionID: convID(2), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleIdle},
 	}
 	sessions.rows, sessions.total = page, 5
-	// 严格 mock 上不存在 LatestSeqByPeer / 逐行 LatestSeq,调用到即失败 —— 只准这一次、
+	// 逐行的 LatestSeq 在严格 mock 上没有期望,调用到即失败 —— 只准这一次、
 	// 只带这一页。
 	durable.EXPECT().LatestSeqs(gomock.Any(), page).Times(1).Return(map[string]int64{convID(1): 3, convID(2): 4}, nil)
 

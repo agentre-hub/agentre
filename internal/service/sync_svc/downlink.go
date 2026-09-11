@@ -434,15 +434,20 @@ func (s *service) deferFailed(ctx context.Context, accountID int64, in *inbound,
 // gcDeferred 超过 30 天仍然等不到引用目标的行整行丢弃，并以「引用丢失」进 R5 的
 // 列表（R2a）。
 //
-// 只读到期的行；先把每一行记进列表、再一条语句出队。次序不能反：记录落不下去（或
-// 进程在中间退出）时，没记下的行还在队列里，下一轮再来——一行也不会被悄悄丢掉。
+// 只读到期的行；丢失记录与出队交给仓储在一个事务里同进同退（DiscardToLostChanges）：
+// 记录落不下去时一行都不出队，下一轮整批再来——一行也不会被悄悄丢掉；出队失败时
+// 记录也随之回滚，下一轮不会把同一行再记一遍。
 func (s *service) gcDeferred(ctx context.Context, accountID int64) error {
 	cutoff := s.now() - TombstoneWindow.Milliseconds()
 	rows, err := syncqueue_repo.InboundQueue().ListExpired(ctx, accountID, cutoff)
 	if err != nil {
 		return err
 	}
-	recorded := make([]int64, 0, len(rows))
+	if len(rows) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(rows))
+	discarded := make([]*syncqueue_entity.LostChange, 0, len(rows))
 	for _, row := range rows {
 		lost := &syncqueue_entity.LostChange{
 			EntityType:   row.EntityType,
@@ -461,15 +466,18 @@ func (s *service) gcDeferred(ctx context.Context, accountID int64) error {
 		} else {
 			lost.PayloadJSON = row.PayloadJSON
 		}
-		if err := s.recordLostChange(ctx, accountID, lost); err != nil {
-			// 已经记下的照常出队，免得下一轮把它们再记一遍；这一行和后面的留在队列里。
-			return errors.Join(err, syncqueue_repo.InboundQueue().DeleteMany(ctx, recorded))
-		}
-		recorded = append(recorded, row.ID)
+		s.stampLostChange(accountID, lost)
+		ids = append(ids, row.ID)
+		discarded = append(discarded, lost)
+	}
+	if err := syncqueue_repo.InboundQueue().DiscardToLostChanges(ctx, ids, discarded); err != nil {
+		return err
+	}
+	for _, row := range rows {
 		logger.Ctx(ctx).Info("sync_svc.gcDeferred: deferred row expired",
 			zap.String("kind", row.EntityType), zap.String("syncId", row.EntitySyncID))
 	}
-	return syncqueue_repo.InboundQueue().DeleteMany(ctx, recorded)
+	return nil
 }
 
 // ── 账号级实时通道：第二个下行触发源 ───────────────────────────────────────

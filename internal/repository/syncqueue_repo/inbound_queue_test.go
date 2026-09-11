@@ -19,21 +19,6 @@ func setupInboundQueueRepo(t *testing.T) (context.Context, sqlmock.Sqlmock, sync
 	return ctx, mock, syncqueue_repo.NewInboundQueue()
 }
 
-func TestInboundQueueRepo_Create(t *testing.T) {
-	ctx, mock, repo := setupInboundQueueRepo(t)
-	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO `sync_inbound_queue`").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	err := repo.Create(ctx, &syncqueue_entity.InboundQueueItem{
-		SyncAccountID: 1,
-		EntityType:    "agent",
-		EntitySyncID:  "agent-sync-1",
-	})
-	require.NoError(t, err)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestInboundQueueRepo_ListByAccount(t *testing.T) {
 	ctx, mock, repo := setupInboundQueueRepo(t)
 	mock.ExpectQuery("SELECT \\* FROM `sync_inbound_queue` WHERE sync_account_id = \\? ORDER BY received_at ASC, id ASC").
@@ -48,15 +33,62 @@ func TestInboundQueueRepo_ListByAccount(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestInboundQueueRepo_Delete(t *testing.T) {
+func discardedLostChange(syncID string) *syncqueue_entity.LostChange {
+	return &syncqueue_entity.LostChange{
+		SyncAccountID: 1, EntityType: "agent", EntitySyncID: syncID,
+		Reason: syncqueue_entity.ReasonDiscarded, OccurredAt: 1000, Createtime: 1000,
+	}
+}
+
+// TestInboundQueueRepo_DiscardToLostChanges 30 天回收的记录与出队是一个事务：先把每一行
+// 记进「没能同步的改动」，再一条 DELETE ... IN 出队，最后一起提交。
+func TestInboundQueueRepo_DiscardToLostChanges(t *testing.T) {
 	ctx, mock, repo := setupInboundQueueRepo(t)
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM `sync_inbound_queue` WHERE id = \\?").
-		WithArgs(int64(1)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO `sync_lost_changes`").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO `sync_lost_changes`").WillReturnResult(sqlmock.NewResult(2, 1))
+	mock.ExpectExec("DELETE FROM `sync_inbound_queue` WHERE id IN \\(\\?,\\?\\)$").
+		WithArgs(int64(3), int64(4)).WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectCommit()
 
-	require.NoError(t, repo.Delete(ctx, 1))
+	require.NoError(t, repo.DiscardToLostChanges(ctx, []int64{3, 4},
+		[]*syncqueue_entity.LostChange{discardedLostChange("agent-sync-1"), discardedLostChange("agent-sync-2")}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestInboundQueueRepo_DiscardToLostChanges_GivenARecordFails_RollsBackWithoutDequeuing
+// 记录落不下时一行都不出队、已经写下的记录随之回滚：出了队却没记下，这一行就悄悄丢了。
+func TestInboundQueueRepo_DiscardToLostChanges_GivenARecordFails_RollsBackWithoutDequeuing(t *testing.T) {
+	ctx, mock, repo := setupInboundQueueRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO `sync_lost_changes`").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO `sync_lost_changes`").WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+
+	err := repo.DiscardToLostChanges(ctx, []int64{3, 4},
+		[]*syncqueue_entity.LostChange{discardedLostChange("agent-sync-1"), discardedLostChange("agent-sync-2")})
+	require.ErrorIs(t, err, assert.AnError)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestInboundQueueRepo_DiscardToLostChanges_GivenDequeueFails_RollsBackTheRecords 出队
+// 失败时记录也不留：留下的话下一轮会把同一行再记一遍。
+func TestInboundQueueRepo_DiscardToLostChanges_GivenDequeueFails_RollsBackTheRecords(t *testing.T) {
+	ctx, mock, repo := setupInboundQueueRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO `sync_lost_changes`").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("DELETE FROM `sync_inbound_queue`").WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+
+	err := repo.DiscardToLostChanges(ctx, []int64{3}, []*syncqueue_entity.LostChange{discardedLostChange("agent-sync-1")})
+	require.ErrorIs(t, err, assert.AnError)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestInboundQueueRepo_DiscardToLostChanges_GivenNothing_SendsNothing 空批次不开事务。
+func TestInboundQueueRepo_DiscardToLostChanges_GivenNothing_SendsNothing(t *testing.T) {
+	ctx, mock, repo := setupInboundQueueRepo(t)
+	require.NoError(t, repo.DiscardToLostChanges(ctx, nil, nil))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -98,7 +130,9 @@ func TestInboundQueueRepo_ReplaceForEntity_GivenAnEarlierDeferral_KeepsItsReceiv
 	ctx, mock, repo := setupInboundQueueRepo(t)
 	mock.ExpectBegin()
 	expectEarliestReceivedAt(mock).WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(int64(500)))
-	mock.ExpectExec("DELETE FROM `sync_inbound_queue` WHERE sync_account_id = \\? AND entity_type = \\? AND entity_sync_id = \\?").
+	// 锚定整句：前一条 MIN 查询的条件漏进这条 DELETE 时（received_at > 0），旧行里没有
+	// 收到时间的那些会留在队列里。
+	mock.ExpectExec("DELETE FROM `sync_inbound_queue` WHERE sync_account_id = \\? AND entity_type = \\? AND entity_sync_id = \\?$").
 		WithArgs(int64(1), "agent", "agent-sync-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO `sync_inbound_queue`").
