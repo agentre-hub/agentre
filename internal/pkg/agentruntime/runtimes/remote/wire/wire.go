@@ -201,7 +201,7 @@ func FromRPCError(err error) error {
 // SentinelFromCode 把 wire error code 直接翻成 agentruntime sentinel,无匹配
 // 返 nil。客户端只拿到 (code, message) 二元组(走 RunResultDoneFrame 而非
 // *rpcerror.Error)时调它,免去人工合成 *rpcerror.Error 再走 FromRPCError
-// 的绕远路 —— 这也是 runtimes/remote 包能彻底不依赖 daemon/rpc 的关键。
+// 的绕远路。
 func SentinelFromCode(code int) error {
 	switch code {
 	case ErrCodeNoActiveTurn:
@@ -407,7 +407,7 @@ type RunParams struct {
 	// 空串在这里是「调用方什么都没说」,**不是**「用户选了默认档」:执行侧取值时
 	// run 参数非空优先、为空回落 backend 负载里的力度(硬不变量 6)。留空的是**同代**
 	// 调用方 —— 没有会话级覆盖的轮次,以及尚未接线该字段的浏览器派发;跨代对端不在
-	// 此列:方法集变更已把协议窗口收成单点 0.3.0,握手期即被拒。会话真的改回
+	// 此列:方法集变更已把协议窗口收成单点(MinSupported == Protocol),握手期即被拒。会话真的改回
 	// 「跟随后端配置」时,发起端合成出来的仍是后端配置那个值,两者不冲突。
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	// SourceDevice / SourceDeviceName 是「开新一轮」发起方的设备身份（R18/R19）。

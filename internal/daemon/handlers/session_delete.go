@@ -39,13 +39,11 @@ func NewSessionDeleteHandlers(deps SessionDeleteDeps) *SessionDeleteHandlers {
 	return &SessionDeleteHandlers{deps: deps}
 }
 
-// Delete 删掉调用方名下的那条会话:先清它的全部转录,再删会话行。
+// Delete 删掉调用方名下的那条会话:先清它的全部转录,再删会话行(顺序的理由见函数体)。
 //
-// 两步的顺序是硬的。反过来(先清日志、后删会话行)只要第二步失败,就会留下一条
-// 「还在清单里、但 MAX(seq) 归零」的会话:此后 Append 从 1 重新分配 seq,而客户端游标
-// 还停在旧高水位上,每条实时通知都被它当成重复丢弃 —— 会话没有跳号、没有错误地冻住。
-// 按现在的顺序,中途失败留下的是一段没人引用的日志,下一次重试(server 那条删除待办
-// 会重放)照样把它清掉:日志那一步**不因为会话行已经不在就跳过**,重试才收敛得了。
+// 中途失败时 server 那条删除待办会重放:两步各自幂等,重试照样收敛。代价在重试之前:
+// 转录清掉而会话行没删掉时,本会话的帧编号台账已经空了,之后新写的帧从 1 重新编号,
+// 而客户端游标还停在旧高水位上。
 //
 // 幂等:会话早就不在时删掉零行、照样报成功。
 func (h *SessionDeleteHandlers) Delete(ctx context.Context, req *agentrewire.SessionDeleteRequest) (*agentrewire.SessionDeleteResponse, error) {

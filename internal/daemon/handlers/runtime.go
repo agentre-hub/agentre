@@ -366,7 +366,7 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	// 一字不改就同时拿到它。
 	//
 	// 缺省**不**视为「用户选了默认」(硬不变量 6)。受众不是「老桌面端」:方法集变更
-	// 已按 wireversion 的既有守卫把协议窗口收成单点 0.3.0,跨代对端在握手期就被拒,
+	// 已按 wireversion 的既有守卫把协议窗口收成单点(MinSupported == Protocol),跨代对端在握手期就被拒,
 	// 根本走不到这里。留空的是**同代**调用方 —— 没有会话级覆盖的那些轮次(绝大多数),
 	// 以及尚未接线该字段的浏览器派发;把它们的缺省读成空档,等于让这些轮次集体丢掉
 	// 后端配置。

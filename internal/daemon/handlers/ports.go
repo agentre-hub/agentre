@@ -310,10 +310,9 @@ type DurableFrameReaderPort interface {
 	ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) (rows []DurableFrameRow, hasMore bool, err error)
 	LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 	LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error)
-	// OldestSeq 是该会话现存最老的那一帧的 seq(一条都没有时 0)。agentred 不回收转录
-	// (规格 2026-08-18 决策 8),所以对着当前版本它恒等于第一条;仍然要报,是因为库
-	// 可能被从外部恢复或截断,而补齐的客户端需要一个下界才分得清「游标之后
-	// 那一条还没写」与「它已经不在了」——分不清就只能一直等,会话静默冻住。
+	// OldestSeq 是该会话现存最老那一帧的 seq,一条都没有时 0。agentred 不回收转录(规格
+	// 2026-08-18 决策 8),所以当前实现有帧就报 1;补齐的客户端拿它当下界,分辨「游标之后
+	// 那一条还没写」与「它已经不在了」。库被从外部恢复或截断的情形,这个实现并不检测。
 	OldestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 }
 
