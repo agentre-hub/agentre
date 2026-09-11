@@ -519,6 +519,11 @@ func (p *pool) recordAccountDirect(ctx context.Context, daemonFingerprint device
 	if !delivered {
 		return
 	}
+	if p.accountCredential() == "" {
+		// 已登出：登出清掉并去掉了账号直连行，一次登出前就已握完手的借用不得把行和钥匙串
+		// 里的凭据重新建回来。
+		return
+	}
 	if err := p.recorder.RecordAccountDirect(ctx, AccountDirectDelivery{
 		DaemonFingerprint: daemonFingerprint,
 		URLs:              urls,

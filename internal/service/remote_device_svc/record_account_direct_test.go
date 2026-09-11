@@ -84,9 +84,10 @@ func TestRecordAccountDirect_RedeliveryKeepsLastDirectSuccessAddress(t *testing.
 	Convey("a re-delivery that still lists the last successful direct address keeps it in the address slot", t, func() {
 		repo, _, kc, w, svc := setupSvc(t)
 		repo.EXPECT().ListDeleted(gomock.Any()).Return(nil, nil)
+		// 证书换过（D16），所以这次下发确实要写库——地址位就在这次写入里被观察到。
 		existing := &paired_agentred_entity.PairedAgentred{
 			ID: 11, Name: "devbox", DaemonFingerprint: "sha256:abc",
-			URL: "wss://b:7456/rpc", TLSMode: "pin-cert", TLSCertPEM: "PEM",
+			URL: "wss://b:7456/rpc", TLSMode: "pin-cert", TLSCertPEM: "OLD-PEM",
 			Origin: "account", Status: 1,
 		}
 		existing.SetDirectURLs([]string{"wss://a:7456/rpc", "wss://b:7456/rpc"})
@@ -157,14 +158,19 @@ func TestRecordAccountDirect_TombstonedFingerprintIsRefused(t *testing.T) {
 // 钥匙串写入失败：新建的行必须回滚，不留一行没有凭据、地址却已经写好的半成品
 // （与 add.go 的 Add() 同一规则）。
 func TestRecordAccountDirect_KeychainFailureRollsBackNewRow(t *testing.T) {
-	Convey("keychain.Set failure after Create rolls back the row", t, func() {
+	// 回滚必须硬删：只软删会留下一块墓碑，而 RecordAccountDirect 与收编都把墓碑读成
+	// 「用户移除过这台机器」——一次钥匙串抖动就让它再也回不来。
+	Convey("keychain.Set failure after Create rolls back the row without leaving a tombstone", t, func() {
 		repo, _, kc, _, svc := setupSvc(t)
 		repo.EXPECT().ListDeleted(gomock.Any()).Return(nil, nil)
 		repo.EXPECT().FindByFingerprint(gomock.Any(), gomock.Any()).Return(nil, nil)
 		repo.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, p *paired_agentred_entity.PairedAgentred) error { p.ID = 11; return nil })
 		kc.EXPECT().Set("agentre-daemon-token-11", "opaque-cred").Return(errors.New("kc down"))
-		repo.EXPECT().Delete(gomock.Any(), int64(11)).Return(nil)
+		gomock.InOrder(
+			repo.EXPECT().Delete(gomock.Any(), int64(11)).Return(nil),
+			repo.EXPECT().Purge(gomock.Any(), int64(11)).Return(nil),
+		)
 
 		err := svc.RecordAccountDirect(context.Background(), validDelivery())
 		So(err, ShouldNotBeNil)
@@ -187,6 +193,45 @@ func TestRecordAccountDirect_KeychainFailureOnExistingRowDoesNotRollBack(t *test
 
 		err := svc.RecordAccountDirect(context.Background(), validDelivery())
 		So(err, ShouldNotBeNil)
+	})
+}
+
+// accountDirectRow 是 validDelivery 已经落过一次的那一行：地址位是最近一次直连成功的
+// 第二个地址，全部地址、证书与下发一致。
+func accountDirectRow() *paired_agentred_entity.PairedAgentred {
+	row := &paired_agentred_entity.PairedAgentred{
+		ID: 11, Name: "devbox", URL: "wss://b:7456/rpc", DaemonFingerprint: "sha256:abc",
+		TLSMode: "pin-cert", TLSCertPEM: "PEM", Origin: "account", Status: 1,
+	}
+	row.SetDirectURLs(validDelivery().URLs)
+	return row
+}
+
+// 中转赢下的每一次借用都会把同一份下发再带回来：内容没变就不写库、不重写钥匙串、不重启
+// watcher——重启会拆掉一条健康的探活连接，设备面板随之在线/离线闪烁。
+func TestRecordAccountDirect_UnchangedRedeliveryIsANoOp(t *testing.T) {
+	Convey("same addresses, certificate and credential: nothing is written or restarted", t, func() {
+		repo, _, kc, w, svc := setupSvc(t)
+		repo.EXPECT().ListDeleted(gomock.Any()).Return(nil, nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(accountDirectRow(), nil)
+		kc.EXPECT().Get("agentre-daemon-token-11").Return("opaque-cred", nil)
+		repo.EXPECT().UpsertAccountDirect(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+		kc.EXPECT().Set(gomock.Any(), gomock.Any()).Times(0)
+		w.EXPECT().Restart(gomock.Any(), gomock.Any()).Times(0)
+
+		So(svc.RecordAccountDirect(context.Background(), validDelivery()), ShouldBeNil)
+	})
+
+	Convey("only the credential changed: the keychain is updated, the row and the watcher are left alone", t, func() {
+		repo, _, kc, w, svc := setupSvc(t)
+		repo.EXPECT().ListDeleted(gomock.Any()).Return(nil, nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(accountDirectRow(), nil)
+		kc.EXPECT().Get("agentre-daemon-token-11").Return("reissued-before", nil)
+		kc.EXPECT().Set("agentre-daemon-token-11", "opaque-cred").Return(nil)
+		repo.EXPECT().UpsertAccountDirect(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+		w.EXPECT().Restart(gomock.Any(), gomock.Any()).Times(0)
+
+		So(svc.RecordAccountDirect(context.Background(), validDelivery()), ShouldBeNil)
 	})
 }
 

@@ -33,7 +33,10 @@ func (s *service) Add(ctx context.Context, req AddRequest) (*DeviceView, error) 
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil {
+	// 按地址查到的是账号直连行时先不判「已配对」：用户多半正照着 agentred 印出的地址给同一台
+	// 机器手动配对（D14）。握完手按指纹决定：同一台就转成手动配对行，否则地址属于别的机器。
+	urlHeldByAccountDirect := existing.IsAccountDirect()
+	if existing != nil && !urlHeldByAccountDirect {
 		return nil, i18n.NewError(ctx, code.RemoteDeviceAlreadyPaired)
 	}
 	name, err := s.deriveDisplayName(ctx, req)
@@ -71,6 +74,11 @@ func (s *service) Add(ctx context.Context, req AddRequest) (*DeviceView, error) 
 			}
 		}
 		return s.upgradeRelayOnly(ctx, existing, req, result)
+	}
+	if urlHeldByAccountDirect {
+		// 占着这个地址的账号直连行属于另一台机器（两个局域网里同一个私有地址）：新建一行只会
+		// 撞地址唯一索引。
+		return nil, i18n.NewError(ctx, code.RemoteDeviceAlreadyPaired)
 	}
 	row := &paired_agentred_entity.PairedAgentred{
 		Name: name, URL: req.URL,

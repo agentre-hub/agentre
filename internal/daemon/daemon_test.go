@@ -2582,6 +2582,10 @@ func writeDeviceListResponse(t *testing.T, w http.ResponseWriter, devices []devi
 			Devices []deviceListItem `json:"devices"`
 		} `json:"data"`
 	}{}
+	if devices == nil {
+		// The server builds the list with make(): an account without devices answers [], never null.
+		devices = []deviceListItem{}
+	}
 	body.Data.Devices = devices
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(body))
@@ -2867,6 +2871,108 @@ func TestDirectCredentialReconciler_ReconcileOnce_ConcurrentEnsureDirectCredenti
 	assert.Equal(t, "direct-cred-b", deskB.Credential)
 }
 
+// TestDirectCredentialReconciler_ReconcileOnce_CredentialIssuedWhileTheListIsInFlight_IsNotJudgedByThatList
+// covers the other half of the same interleave: a desktop whose credential is
+// issued while GET /v1/devices is in flight (it logged in after the server
+// built that list) is absent from the answer, yet that absence observed
+// nothing about it. Only credentials already on file when the fetch began may
+// be judged by its answer; a newer one waits for the next reconciliation.
+func TestDirectCredentialReconciler_ReconcileOnce_CredentialIssuedWhileTheListIsInFlight_IsNotJudgedByThatList(t *testing.T) {
+	st := loadDirectCredentialTestState(t, map[string]string{"sha256:desk-a": "direct-cred-a"})
+
+	requested := make(chan struct{})
+	proceed := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requested)
+		<-proceed
+		// Built before desk-b existed on the server: desk-a revoked, desk-b unknown.
+		writeDeviceListResponse(t, w, []deviceListItem{{Fingerprint: "sha256:desk-a", Kind: "desktop", Status: 2}})
+	}))
+	t.Cleanup(server.Close)
+
+	reconciler := &directCredentialReconciler{
+		state:       st,
+		http:        server.Client(),
+		serverURL:   func() string { return server.URL },
+		accessToken: func() string { return "access-1" },
+		refresh:     func(context.Context) error { return nil },
+		logf:        t.Logf,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		reconciler.reconcileOnce(context.Background())
+	}()
+
+	<-requested
+	_, issued, err := st.EnsureDirectCredential("sha256:desk-b", "account-42", "direct-cred-b")
+	require.NoError(t, err)
+	require.True(t, issued)
+	close(proceed)
+	<-done
+
+	snap := st.Snapshot()
+	_, deskAKept := snap.DirectCredentials["sha256:desk-a"]
+	assert.False(t, deskAKept, "the revoked desktop's credential must still be deleted")
+	_, deskBKept := snap.DirectCredentials["sha256:desk-b"]
+	assert.True(t, deskBKept, "a credential issued after the list was requested must not be deleted by that list")
+}
+
+// TestDirectCredentialReconciler_ReconcileOnce_Given2xxWithoutADeviceList_KeepsAllStoredCredentials
+// is D13 for a body that parses but is not the contract (a proxy or gateway
+// answering 200 with an empty envelope): no device list is not "no devices",
+// so nothing may be deleted.
+func TestDirectCredentialReconciler_ReconcileOnce_Given2xxWithoutADeviceList_KeepsAllStoredCredentials(t *testing.T) {
+	for _, body := range []string{`{}`, `{"code":0,"data":null}`, `{"code":0,"data":{}}`} {
+		t.Run(body, func(t *testing.T) {
+			st := loadDirectCredentialTestState(t, map[string]string{"sha256:desk-a": "direct-cred"})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			t.Cleanup(server.Close)
+
+			reconciler := &directCredentialReconciler{
+				state:       st,
+				http:        server.Client(),
+				serverURL:   func() string { return server.URL },
+				accessToken: func() string { return "access-1" },
+				refresh:     func(context.Context) error { return nil },
+				logf:        t.Logf,
+			}
+			reconciler.reconcileOnce(context.Background())
+
+			_, ok := st.Snapshot().DirectCredentials["sha256:desk-a"]
+			assert.True(t, ok, "a 2xx body without a device list must not delete any stored direct credential")
+		})
+	}
+}
+
+// TestDirectCredentialReconciler_ReconcileOnce_GivenNoCredentialOnFile_ThenMakesNoRequest
+// pins that a logged-in daemon with nothing to reconcile does not poll the
+// account server's device list every minute for an answer it cannot use.
+func TestDirectCredentialReconciler_ReconcileOnce_GivenNoCredentialOnFile_ThenMakesNoRequest(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		writeDeviceListResponse(t, w, nil)
+	}))
+	t.Cleanup(server.Close)
+
+	reconciler := &directCredentialReconciler{
+		state:       loadDirectCredentialTestState(t, nil),
+		http:        server.Client(),
+		serverURL:   func() string { return server.URL },
+		accessToken: func() string { return "access-1" },
+		refresh:     func(context.Context) error { return nil },
+		logf:        t.Logf,
+	}
+	reconciler.reconcileOnce(context.Background())
+
+	assert.Equal(t, int32(0), calls.Load(), "no stored direct credential means nothing to reconcile")
+}
+
 // TestDirectCredentialReconciler_Run_ReconcilesOnTheSameOneMinuteCadence pins
 // the periodic schedule: the loop asks to wait one minute — the retired
 // revocation poller's own cadence — before every tick, using the injectable
@@ -2875,11 +2981,12 @@ func TestDirectCredentialReconciler_Run_ReconcilesOnTheSameOneMinuteCadence(t *t
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		writeDeviceListResponse(t, w, nil)
+		// Keeps the desktop active, so every tick still has a credential to reconcile.
+		writeDeviceListResponse(t, w, []deviceListItem{{Fingerprint: "sha256:desk-a", Kind: "desktop", Status: 1}})
 	}))
 	t.Cleanup(server.Close)
 
-	st := loadDirectCredentialTestState(t, nil)
+	st := loadDirectCredentialTestState(t, map[string]string{"sha256:desk-a": "direct-cred"})
 	requested := make(chan time.Duration, 8)
 	release := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())

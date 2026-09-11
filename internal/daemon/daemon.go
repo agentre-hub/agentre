@@ -1531,6 +1531,13 @@ func (r *directCredentialReconciler) run(ctx context.Context) {
 // logs at Warn; the next tick or reconnect tries again (D13). Credentials and
 // tokens are never logged, only counts and error shapes.
 func (r *directCredentialReconciler) reconcileOnce(ctx context.Context) {
+	// Only credentials already on file when the list is requested can be judged
+	// by its answer: one issued while the request is in flight belongs to a
+	// desktop that list may predate, so its absence observed nothing about it.
+	onFile := r.state.Snapshot().DirectCredentials
+	if len(onFile) == 0 {
+		return
+	}
 	devices, err := r.fetchDevices(ctx)
 	if errors.Is(err, errDirectReconcileUnauthorized) {
 		if refreshErr := r.refresh(ctx); refreshErr != nil {
@@ -1543,7 +1550,7 @@ func (r *directCredentialReconciler) reconcileOnce(ctx context.Context) {
 		r.logf("daemon.directReconcile: account server unreachable; keeping local direct credentials: %v", err)
 		return
 	}
-	r.apply(ctx, devices)
+	r.apply(ctx, onFile, devices)
 }
 
 // fetchDevices resolves the daemon's current server/token and performs one
@@ -1586,31 +1593,34 @@ func (r *directCredentialReconciler) fetchDevices(ctx context.Context) ([]device
 		return nil, fmt.Errorf("daemon.directReconcile: account server returned status %d", resp.StatusCode)
 	}
 	var body struct {
-		Devices []deviceListItem `json:"devices"`
+		// A pointer tells an absent list (not the contract — nothing observed) from
+		// an empty one (the account has no devices).
+		Devices *[]deviceListItem `json:"devices"`
 	}
 	if err := decodeServerEnvelope(payload, &body); err != nil {
 		return nil, fmt.Errorf("daemon.directReconcile: malformed device list response: %w", err)
 	}
-	return body.Devices, nil
+	if body.Devices == nil {
+		return nil, errors.New("daemon.directReconcile: malformed device list response: no device list")
+	}
+	return *body.Devices, nil
 }
 
-// apply deletes the local direct credential of every desktop fingerprint that
-// fetched does not vouch for (D12). It names only the fingerprints to delete
-// rather than replacing the whole map, so a fingerprint EnsureDirectCredential
-// issues concurrently — for a desktop this fetch never asked about — is never
-// named here and survives untouched; State's own mutex still serializes the
-// two calls against whichever DirectCredentials is current at the time each
-// one runs.
-func (r *directCredentialReconciler) apply(ctx context.Context, fetched []deviceListItem) {
+// apply deletes the local direct credential of every desktop fingerprint in
+// onFile — the credentials stored when fetched was requested — that fetched
+// does not vouch for (D12). It names only those fingerprints rather than
+// replacing the whole map, so a credential EnsureDirectCredential issues after
+// the request went out is never judged by this answer and survives untouched;
+// State's own mutex still serializes the two calls.
+func (r *directCredentialReconciler) apply(ctx context.Context, onFile map[string]state.DirectCredential, fetched []deviceListItem) {
 	active := make(map[string]bool, len(fetched))
 	for _, device := range fetched {
 		if device.Kind == directReconcileDesktopKind && device.Status == consts.ACTIVE {
 			active[device.Fingerprint] = true
 		}
 	}
-	snapshot := r.state.Snapshot()
 	var stale []string
-	for fingerprint := range snapshot.DirectCredentials {
+	for fingerprint := range onFile {
 		if !active[fingerprint] {
 			stale = append(stale, fingerprint)
 		}

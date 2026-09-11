@@ -3,6 +3,7 @@ package remote_device_svc
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -70,9 +71,19 @@ func (s *service) RecordAccountDirect(ctx context.Context, d AccountDirectDelive
 		return err
 	}
 
+	// 中转赢下的每一次借用都会带回同一份下发：端点（地址位、全部地址、证书）没变就不写库、
+	// 不重启 watcher——重启会拆掉一条健康的探活连接——凭据也只在确实换了一张时才重写。
+	unchanged := existing != nil && existing.IsAccountDirect() && existing.URL == address &&
+		existing.TLSCertPEM == d.CertPEM && slices.Equal(existing.DirectURLs(), urls)
 	isNew := existing == nil
 	var id int64
-	if isNew {
+	switch {
+	case unchanged:
+		id = existing.ID
+		if stored, getErr := s.keychain.Get(keychainAccountForToken(id)); getErr == nil && stored == d.Credential {
+			return nil
+		}
+	case isNew:
 		row := &paired_agentred_entity.PairedAgentred{
 			Name:              adoptedName(AccountDevice{Fingerprint: fp}, fp),
 			URL:               address,
@@ -91,7 +102,7 @@ func (s *service) RecordAccountDirect(ctx context.Context, d AccountDirectDelive
 			return err
 		}
 		id = row.ID
-	} else {
+	default:
 		id = existing.ID
 		if err := s.repo.UpsertAccountDirect(ctx, id, address, string(urlsJSON), d.CertPEM); err != nil {
 			return err
@@ -102,12 +113,18 @@ func (s *service) RecordAccountDirect(ctx context.Context, d AccountDirectDelive
 		logger.Ctx(ctx).Warn("remote_device_svc.RecordAccountDirect: storing the direct credential failed",
 			zap.Int64("deviceID", id), zap.Error(err))
 		if isNew {
-			// 新行没有凭据就是半成品：地址/证书都写好了但拨不通，不如不留。
+			// 新行没有凭据就是半成品：地址/证书都写好了但拨不通，不如不留。硬删而不是只软删：
+			// 软删行是「用户移除过这台机器」的墓碑，留下它这台机器就再也收不回来了。
 			if delErr := s.repo.Delete(ctx, id); delErr != nil {
 				logger.Ctx(ctx).Warn("rollback after keychain.Set failed", zap.Error(delErr))
+			} else if purgeErr := s.repo.Purge(ctx, id); purgeErr != nil {
+				logger.Ctx(ctx).Warn("rollback after keychain.Set failed", zap.Error(purgeErr))
 			}
 		}
 		return i18n.NewError(ctx, code.RemoteDeviceKeychainFailed)
+	}
+	if unchanged {
+		return nil
 	}
 
 	if s.watcher != nil {

@@ -53,6 +53,29 @@ func TestLoadOrCreate_GivenAnUnreadableStoredKey_ThenReplacesThePairAndReusesThe
 	assert.Equal(t, replaced.Certificate[0], again.Certificate[0], "the replacement is persisted, not regenerated on every start")
 }
 
+// An intact pair that merely cannot be read right now (permissions, EIO, fd
+// exhaustion) is not a missing or broken certificate: replacing it would
+// silently break every desktop's pin, so the error surfaces instead.
+func TestLoadOrCreate_GivenAnIntactPairThatCannotBeReadRightNow_ThenReturnsAnErrorAndKeepsIt(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("file mode 000 does not deny reads here")
+	}
+	dir := t.TempDir()
+	original, err := lancert.LoadOrCreate(context.Background(), dir)
+	require.NoError(t, err)
+	certFile, _ := lancert.Paths(dir)
+	require.NoError(t, os.Chmod(certFile, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(certFile, 0o600) })
+
+	_, err = lancert.LoadOrCreate(context.Background(), dir)
+	require.Error(t, err)
+
+	require.NoError(t, os.Chmod(certFile, 0o600))
+	kept, err := lancert.LoadOrCreate(context.Background(), dir)
+	require.NoError(t, err)
+	assert.Equal(t, original.Certificate[0], kept.Certificate[0], "the pinned certificate must not be replaced")
+}
+
 func TestLoadOrCreate_GivenADataDirThatCannotHoldTheFiles_ThenReturnsAnError(t *testing.T) {
 	t.Run("the data dir path runs through a regular file", func(t *testing.T) {
 		blocker := filepath.Join(t.TempDir(), "file")

@@ -753,7 +753,9 @@ func TestPool_Borrow_RelayAccountHandshakeDelivers_RecordsAccountDirect(t *testi
 			remote_device_svc.WithRelayDial(stubRelayDial{open: func(_ context.Context, _ devicefp.Carrier, _ devicefp.Initiator) (client.ProtobufConnection, error) {
 				return relayConn, nil
 			}}),
-			remote_device_svc.WithAccountDirectRecorder(recorder))
+			remote_device_svc.WithAccountDirectRecorder(recorder),
+			// 中转的账号握手只发生在已登录时;登出后的下发不记(见 LoggedOut 用例)。
+			remote_device_svc.WithAccountCredential(stubAccountCredential{value: "acct-jwt"}))
 		f.device.URL = "" // 收编行,没有 LAN 地址,只走中转
 		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
 
