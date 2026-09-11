@@ -36,7 +36,7 @@ ERR="$DATA_DIR/logs/error.log"
 # DB — list tables, inspect schema, run query
 sqlite3 "$DB" ".tables"
 sqlite3 "$DB" ".schema chat_sessions"
-sqlite3 -header -column "$DB" "SELECT id, name, agent_backend_id FROM agents ORDER BY id DESC LIMIT 10;"
+sqlite3 -header -column "$DB" "SELECT id, name, department_id FROM agents ORDER BY id DESC LIMIT 10;"
 
 # Applied migrations (compare against files in migrations/)
 sqlite3 "$DB" "SELECT id FROM migrations ORDER BY id;"
@@ -58,8 +58,8 @@ jq -c 'select(.sessionId == 42)' "$LOG"
 
 | Table | What lives here |
 |-------|-----------------|
-| `agents`, `agent_backends` | Agent definitions + which CLI backend (builtin/claudecode/codex/piagent) |
-| `chat_sessions`, `chat_messages` | Conversation history, tool calls, thinking blocks |
+| `agents`, `agent_backends` | Agent definitions + which CLI backend (builtin/claudecode/codex/piagent/openclaw) |
+| `chat_sessions`, `chat_messages`, `chat_message_blocks` | Conversations, their messages, and each message's blocks (text, tool calls, thinking) |
 | `llm_providers` | Provider configs (OpenAI/Anthropic/etc.) |
 | `hooks`, `hook_events` | Script-driven hook definitions, schedule/run state, output events, and failure records |
 | `app_settings` | UI/runtime prefs persisted by the app |
