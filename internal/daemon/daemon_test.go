@@ -335,6 +335,10 @@ func TestDaemon_GivenLoggedInAccount_WhenRelayConnectsAndReconnects_ThenPullsEng
 			pull := snapshotPulls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P","type":"anthropic","base_url":"","api_key":"key-%d","default_model_key":"","models":[]}],"cli_overlays":[]}`, pull, pull)
+		case "/v1/devices":
+			// Task 7 shares this same relay-(re)connect hook for direct-credential
+			// reconciliation; this test only cares about the engine-snapshot pull.
+			writeDeviceListResponse(t, w, nil)
 		default:
 			t.Errorf("unexpected request path %s", r.URL.Path)
 		}
@@ -436,6 +440,10 @@ func TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEng
 			pull := snapshotPulls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P","type":"anthropic","base_url":"","api_key":"key-%d","default_model_key":"","models":[]}],"cli_overlays":[]}`, pull, pull)
+		case "/v1/devices":
+			// Task 7 shares this same relay-(re)connect hook for direct-credential
+			// reconciliation; this test only cares about the engine-snapshot pull.
+			writeDeviceListResponse(t, w, nil)
 		default:
 			t.Errorf("unexpected request path %s", r.URL.Path)
 		}
@@ -2536,4 +2544,449 @@ WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'migrations'`).Sca
 				"primary key is not AUTOINCREMENT; DDL:\n%s", table.SQL)
 		})
 	}
+}
+
+// ---- Task 7: direct-credential reconciliation (D12/D13) ----
+//
+// agentred periodically reconciles state.DirectCredentials against the
+// account server's device list (GET /v1/devices, the same shape the desktop
+// decodes in internal/service/server_svc/devices.go): a desktop fingerprint
+// absent from the list, or present with a non-active status, had its direct
+// credential revoked or the desktop removed from the account (D12). A GET
+// failure of any kind — network, timeout, 5xx, an unrefreshable 401, or a
+// malformed body — must never delete a stored credential (D13): a revocation
+// only takes effect once a reconciliation actually observes it.
+
+// loadDirectCredentialTestState logs a fresh on-disk state into "account-42"
+// and seeds it with the given desktop direct credentials.
+func loadDirectCredentialTestState(t *testing.T, credentials map[string]string) *state.State {
+	t.Helper()
+	st, err := state.Load(t.TempDir())
+	require.NoError(t, err)
+	st.Login("account-42", state.AccountCredential{AccessToken: "access-1"})
+	for fingerprint, credential := range credentials {
+		_, _, err := st.EnsureDirectCredential(fingerprint, "account-42", credential)
+		require.NoError(t, err)
+	}
+	require.NoError(t, st.Save())
+	return st
+}
+
+// writeDeviceListResponse answers a GET /v1/devices request through cago's
+// {code, data} envelope, matching decodeServerEnvelope's contract.
+func writeDeviceListResponse(t *testing.T, w http.ResponseWriter, devices []deviceListItem) {
+	t.Helper()
+	body := struct {
+		Code int `json:"code"`
+		Data struct {
+			Devices []deviceListItem `json:"devices"`
+		} `json:"data"`
+	}{}
+	body.Data.Devices = devices
+	w.Header().Set("Content-Type", "application/json")
+	require.NoError(t, json.NewEncoder(w).Encode(body))
+}
+
+// TestDirectCredentialReconciler_ReconcileOnce_AppliesDeviceListToStoredDirectCredentials
+// covers D12's core mapping: a fingerprint absent from the account's device
+// list, or listed but not active, loses its stored direct credential; a
+// fingerprint listed active under kind=desktop keeps it; a fingerprint
+// reported only under a non-desktop kind must not count as evidence the
+// desktop is still active (only a desktop's own row vouches for its
+// credential).
+func TestDirectCredentialReconciler_ReconcileOnce_AppliesDeviceListToStoredDirectCredentials(t *testing.T) {
+	cases := []struct {
+		name    string
+		devices []deviceListItem
+		deleted bool
+	}{
+		{
+			name:    "fingerprint absent from the device list",
+			devices: nil,
+			deleted: true,
+		},
+		{
+			name:    "fingerprint present but revoked (non-active status)",
+			devices: []deviceListItem{{Fingerprint: "sha256:desk-a", Kind: "desktop", Status: 2}},
+			deleted: true,
+		},
+		{
+			name:    "fingerprint present, kind=desktop, active status",
+			devices: []deviceListItem{{Fingerprint: "sha256:desk-a", Kind: "desktop", Status: 1}},
+			deleted: false,
+		},
+		{
+			name:    "fingerprint present only under a non-desktop kind",
+			devices: []deviceListItem{{Fingerprint: "sha256:desk-a", Kind: "agentred", Status: 1}},
+			deleted: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := loadDirectCredentialTestState(t, map[string]string{"sha256:desk-a": "direct-cred"})
+			auths := make(chan string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/v1/devices", r.URL.Path)
+				auths <- r.Header.Get("Authorization")
+				writeDeviceListResponse(t, w, tc.devices)
+			}))
+			t.Cleanup(server.Close)
+
+			reconciler := &directCredentialReconciler{
+				state:       st,
+				http:        server.Client(),
+				serverURL:   func() string { return server.URL },
+				accessToken: func() string { return "access-1" },
+				refresh:     func(context.Context) error { return nil },
+				logf:        t.Logf,
+			}
+			reconciler.reconcileOnce(context.Background())
+
+			select {
+			case auth := <-auths:
+				assert.Equal(t, "Bearer access-1", auth, "the reconcile must present the daemon's own device access token")
+			case <-time.After(time.Second):
+				t.Fatal("reconcile never called GET /v1/devices")
+			}
+
+			_, ok := st.Snapshot().DirectCredentials["sha256:desk-a"]
+			if tc.deleted {
+				assert.False(t, ok, "the stored direct credential must have been deleted")
+			} else {
+				assert.True(t, ok, "the stored direct credential must have been kept")
+			}
+		})
+	}
+}
+
+// TestDirectCredentialReconciler_ReconcileOnce_GivenRequestFailureOfAnyKind_KeepsAllStoredCredentials
+// is D13's floor: a network error, a timeout, a 5xx, a malformed 2xx body, or
+// a 401 whose refresh itself fails must all leave every stored direct
+// credential untouched — a revocation this reconcile could not actually
+// observe must not take effect.
+func TestDirectCredentialReconciler_ReconcileOnce_GivenRequestFailureOfAnyKind_KeepsAllStoredCredentials(t *testing.T) {
+	cases := []struct {
+		name   string
+		server func(t *testing.T) (baseURL string, client *http.Client)
+	}{
+		{
+			name: "network error (nothing listening)",
+			server: func(t *testing.T) (string, *http.Client) {
+				return "http://127.0.0.1:1", &http.Client{Timeout: 200 * time.Millisecond}
+			},
+		},
+		{
+			name: "request timeout",
+			server: func(t *testing.T) (string, *http.Client) {
+				s := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+					time.Sleep(100 * time.Millisecond)
+				}))
+				t.Cleanup(s.Close)
+				return s.URL, &http.Client{Timeout: 5 * time.Millisecond}
+			},
+		},
+		{
+			name: "account server 5xx",
+			server: func(t *testing.T) (string, *http.Client) {
+				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "boom", http.StatusServiceUnavailable)
+				}))
+				t.Cleanup(s.Close)
+				return s.URL, s.Client()
+			},
+		},
+		{
+			name: "malformed 2xx body",
+			server: func(t *testing.T) (string, *http.Client) {
+				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte("not json"))
+				}))
+				t.Cleanup(s.Close)
+				return s.URL, s.Client()
+			},
+		},
+		{
+			name: "401 and the refresh itself fails",
+			server: func(t *testing.T) (string, *http.Client) {
+				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+				}))
+				t.Cleanup(s.Close)
+				return s.URL, s.Client()
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := loadDirectCredentialTestState(t, map[string]string{"sha256:desk-a": "direct-cred"})
+			baseURL, client := tc.server(t)
+			reconciler := &directCredentialReconciler{
+				state:       st,
+				http:        client,
+				serverURL:   func() string { return baseURL },
+				accessToken: func() string { return "access-1" },
+				refresh:     func(context.Context) error { return errors.New("refresh failed") },
+				logf:        t.Logf,
+			}
+			reconciler.reconcileOnce(context.Background())
+
+			_, ok := st.Snapshot().DirectCredentials["sha256:desk-a"]
+			assert.True(t, ok, "a %s must not delete any stored direct credential", tc.name)
+		})
+	}
+}
+
+// TestDirectCredentialReconciler_ReconcileOnce_Given401_WhenRefreshSucceeds_ThenRetriesOnceWithTheFreshToken
+// covers the 401 recovery path: exactly one refresh, exactly one retried GET
+// bearing the refreshed token, and the retried answer is the one actually
+// applied — not silently discarded after the refresh succeeded.
+func TestDirectCredentialReconciler_ReconcileOnce_Given401_WhenRefreshSucceeds_ThenRetriesOnceWithTheFreshToken(t *testing.T) {
+	var calls atomic.Int32
+	var mu sync.Mutex
+	var auths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		mu.Lock()
+		auths = append(auths, r.Header.Get("Authorization"))
+		mu.Unlock()
+		if n == 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// The desktop is absent from this (post-refresh) answer, so applying
+		// it must delete the stored credential — proof the retry's answer,
+		// not the failed first attempt, drove the outcome.
+		writeDeviceListResponse(t, w, nil)
+	}))
+	t.Cleanup(server.Close)
+
+	st := loadDirectCredentialTestState(t, map[string]string{"sha256:desk-a": "direct-cred"})
+	token := "access-1"
+	var refreshCalls atomic.Int32
+	reconciler := &directCredentialReconciler{
+		state:       st,
+		http:        server.Client(),
+		serverURL:   func() string { return server.URL },
+		accessToken: func() string { return token },
+		refresh: func(context.Context) error {
+			refreshCalls.Add(1)
+			token = "access-2"
+			return nil
+		},
+		logf: t.Logf,
+	}
+	reconciler.reconcileOnce(context.Background())
+
+	assert.Equal(t, int32(1), refreshCalls.Load(), "a 401 must trigger exactly one refresh")
+	assert.Equal(t, int32(2), calls.Load(), "the daemon must retry the GET exactly once after refreshing")
+	mu.Lock()
+	require.Len(t, auths, 2)
+	assert.Equal(t, "Bearer access-2", auths[1], "the retry must present the freshly refreshed token")
+	mu.Unlock()
+	_, ok := st.Snapshot().DirectCredentials["sha256:desk-a"]
+	assert.False(t, ok, "the retried GET's answer must be the one applied")
+}
+
+// TestDirectCredentialReconciler_ReconcileOnce_GivenNoAccountServerOrAccessToken_ThenMakesNoRequest
+// is the logged-out floor: with no account server or access token to present
+// (exactly what a daemon that has never logged in, or just logged out,
+// resolves), the reconciler must not call the account server at all — not
+// even to receive and discard a response.
+func TestDirectCredentialReconciler_ReconcileOnce_GivenNoAccountServerOrAccessToken_ThenMakesNoRequest(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+	}))
+	t.Cleanup(server.Close)
+
+	st, err := state.Load(t.TempDir())
+	require.NoError(t, err)
+	reconciler := &directCredentialReconciler{
+		state:       st,
+		http:        server.Client(),
+		serverURL:   func() string { return "" },
+		accessToken: func() string { return "" },
+		refresh:     func(context.Context) error { return nil },
+		logf:        t.Logf,
+	}
+	reconciler.reconcileOnce(context.Background())
+
+	assert.Equal(t, int32(0), calls.Load(), "a logged-out daemon must not call the account server")
+}
+
+// TestDirectCredentialReconciler_ReconcileOnce_ConcurrentEnsureDirectCredential_ForAnUnrelatedDesktopSurvives
+// covers the interleave the review boundary calls out by name: apply() must
+// name the specific stale fingerprints to delete (state.DeleteDirectCredentials)
+// rather than rebuild and replace the whole map — the latter would silently
+// drop whatever a concurrent auto-direct handshake
+// (state.EnsureDirectCredential) had just recorded for a different, already
+// active desktop. The GET response is held open until the concurrent
+// handshake has landed, so the credential for "sha256:desk-b" exists in state
+// strictly before apply() reads it — and it must still be there afterward.
+func TestDirectCredentialReconciler_ReconcileOnce_ConcurrentEnsureDirectCredential_ForAnUnrelatedDesktopSurvives(t *testing.T) {
+	st := loadDirectCredentialTestState(t, map[string]string{"sha256:desk-a": "direct-cred-a"})
+
+	proceed := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-proceed
+		writeDeviceListResponse(t, w, []deviceListItem{
+			{Fingerprint: "sha256:desk-a", Kind: "desktop", Status: 2}, // revoked
+			{Fingerprint: "sha256:desk-b", Kind: "desktop", Status: 1}, // active
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	reconciler := &directCredentialReconciler{
+		state:       st,
+		http:        server.Client(),
+		serverURL:   func() string { return server.URL },
+		accessToken: func() string { return "access-1" },
+		refresh:     func(context.Context) error { return nil },
+		logf:        t.Logf,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		reconciler.reconcileOnce(context.Background())
+	}()
+
+	_, issued, err := st.EnsureDirectCredential("sha256:desk-b", "account-42", "direct-cred-b")
+	require.NoError(t, err)
+	require.True(t, issued)
+	close(proceed)
+	<-done
+
+	snap := st.Snapshot()
+	_, deskAKept := snap.DirectCredentials["sha256:desk-a"]
+	assert.False(t, deskAKept, "the revoked desktop's credential must still be deleted")
+	deskB, deskBKept := snap.DirectCredentials["sha256:desk-b"]
+	assert.True(t, deskBKept, "a credential issued concurrently with the reconcile must not be lost")
+	assert.Equal(t, "direct-cred-b", deskB.Credential)
+}
+
+// TestDirectCredentialReconciler_Run_ReconcilesOnTheSameOneMinuteCadence pins
+// the periodic schedule: the loop asks to wait one minute — the retired
+// revocation poller's own cadence — before every tick, using the injectable
+// wait seam so the test drives ticks deterministically instead of sleeping.
+func TestDirectCredentialReconciler_Run_ReconcilesOnTheSameOneMinuteCadence(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		writeDeviceListResponse(t, w, nil)
+	}))
+	t.Cleanup(server.Close)
+
+	st := loadDirectCredentialTestState(t, nil)
+	requested := make(chan time.Duration, 8)
+	release := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reconciler := &directCredentialReconciler{
+		state:       st,
+		http:        server.Client(),
+		serverURL:   func() string { return server.URL },
+		accessToken: func() string { return "access-1" },
+		refresh:     func(context.Context) error { return nil },
+		interval:    time.Minute,
+		wait: func(loopCtx context.Context, delay time.Duration) error {
+			requested <- delay
+			select {
+			case <-release:
+				return nil
+			case <-loopCtx.Done():
+				return loopCtx.Err()
+			}
+		},
+		logf: t.Logf,
+	}
+	go reconciler.run(ctx)
+
+	for tick := range 2 {
+		select {
+		case delay := <-requested:
+			assert.Equal(t, time.Minute, delay, "tick %d must wait exactly one minute", tick+1)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("reconciler never scheduled tick %d", tick+1)
+		}
+		release <- struct{}{}
+		want := int32(tick + 1)
+		require.Eventually(t, func() bool { return calls.Load() == want }, 2*time.Second, 10*time.Millisecond)
+	}
+}
+
+// TestDaemon_GivenRelayReconnects_ThenReconcilesDirectCredentialsImmediately
+// is the end-to-end wiring proof: a real Daemon built by New() must reconcile
+// right after a successful relay (re)connect — the same hook that already
+// triggers the engine-snapshot pull — instead of waiting for the next
+// one-minute tick (D12's "重新连上 server 时立即对账").
+func TestDaemon_GivenRelayReconnects_ThenReconcilesDirectCredentialsImmediately(t *testing.T) {
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Login("account-42", state.AccountCredential{
+		AccessToken:           "access-1",
+		AccessTokenExpiresAt:  time.Now().Add(15 * time.Minute).Unix(),
+		RefreshToken:          "refresh-1",
+		RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	})
+	// Stale on file: the account server no longer lists this desktop. Only the
+	// immediate post-connect reconcile (not the 1-minute tick, far outside
+	// this test's timeout) can be the thing that prunes it.
+	_, _, err = st.EnsureDirectCredential("sha256:desk-a", "account-42", "direct-cred")
+	require.NoError(t, err)
+	require.NoError(t, st.Save())
+
+	upgrader := websocket.Upgrader{}
+	devicesHit := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/relay/daemon":
+			ws, upErr := upgrader.Upgrade(w, r, nil)
+			if upErr != nil {
+				return
+			}
+			defer func() { _ = ws.Close() }()
+			for {
+				if _, _, readErr := ws.ReadMessage(); readErr != nil {
+					return
+				}
+			}
+		case "/v1/devices":
+			writeDeviceListResponse(t, w, nil)
+			select {
+			case devicesHit <- struct{}{}:
+			default:
+			}
+		default:
+			// The engine-snapshot pull the same reconnect hook also triggers
+			// (task 7 shares the hook, not the endpoint) hits its own path;
+			// this test only cares about /v1/devices.
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	d, err := New(Options{DataDir: dir, AccountServerURL: server.URL})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	d.startEngineSnapshotPulls(ctx)
+	go func() { _ = d.hub.Run(ctx) }()
+
+	select {
+	case <-devicesHit:
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay reconnect never triggered an immediate GET /v1/devices")
+	}
+
+	require.Eventually(t, func() bool {
+		_, ok := d.state.Snapshot().DirectCredentials["sha256:desk-a"]
+		return !ok
+	}, 2*time.Second, 10*time.Millisecond, "the immediate post-connect reconcile must prune the stale direct credential")
 }

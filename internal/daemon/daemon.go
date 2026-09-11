@@ -20,6 +20,7 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 	dbpkg "github.com/cago-frame/cago/database/db"
+	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -141,6 +142,17 @@ type Daemon struct {
 	// away) and the scheduled renewal loop started by runCredentialRefresh —
 	// same instance, so the two triggers single-flight against each other too.
 	credRefresher *credentialRefresher
+
+	// directReconciler reconciles agentred's local direct credentials
+	// (state.DirectCredentials) against the account server's device list
+	// (D12/D13, task 7): a desktop fingerprint that was revoked or removed
+	// from the account loses its local direct credential once this
+	// reconciliation actually observes that, never before — a pull that
+	// cannot reach the server always keeps what is on file. It runs on the
+	// same one-minute cadence the retired revocation poller used, plus
+	// immediately on every successful relay (re)connect (see
+	// startEngineSnapshotPulls's lifecycle listener).
+	directReconciler *directCredentialReconciler
 
 	// conns 是 daemon 的推送路由表:会话通知按**会话**解析到发起它的那条连接,
 	// MCP 反向隧道从同一份状态里解析目标,daemon 上没有第二个「当前连接」的全局。
@@ -844,6 +856,12 @@ func New(opts Options) (*Daemon, error) {
 	// share one credentialRefresher — and therefore one refreshNow single flight
 	// — from the moment the link can start dialing.
 	d.credRefresher = newCredentialRefresher(st, opts.AccountServerURL)
+	// Task 7: reconciliation reuses the relay link's own server-URL/access-token
+	// resolution (relayServerURL re-reads state.json until logged in, then the
+	// live account server) and the same single-flighted refresh, so a 401 from
+	// GET /v1/devices refreshes at most once and shares an in-flight refresh a
+	// concurrent 401 on the relay or introspection path may already be running.
+	d.directReconciler = newDirectCredentialReconciler(st, d.relayServerURL, d.currentAccessToken, d.credRefresher.refreshNow)
 	// Mode C 握手在线核验(H1-H4):向这台 daemon 所属的账号 server 出示对端凭据,
 	// 用的是 daemon 自己那份与中继共用的设备凭据;401 走同一个单飞刷新入口。
 	// 超时由 Introspector 按次施加,客户端本身不设。
@@ -1073,6 +1091,13 @@ func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
 	// relay registration or an in-flight round.
 	d.hub.AddLifecycleListener(func() {
 		d.engineSnapshot.PullAsync(ctx, "relay_connected")
+		// D12: reconcile local direct credentials immediately on every
+		// (re)connect, not just on the next one-minute tick — a desktop
+		// revoked while this daemon was offline must not stay reachable for
+		// up to a minute after connectivity comes back. Async for the same
+		// reason PullAsync is: a slow or stuck account server must not block
+		// relay registration or an in-flight round.
+		go d.directReconciler.reconcileOnce(ctx)
 	}, nil)
 	// 账号信号(决策 13)不再是一条独立连接:它现在是同一条中继连接上的保留通道,
 	// 由 serveRelayChannels → serveAccountSignal 消费,天然只在 auth.account 握手
@@ -1090,6 +1115,12 @@ func (d *Daemon) runAccountJobsWhenLoggedIn(ctx context.Context, stopRelay conte
 	// doomed relay is not kept alive forever (R4/R14). It never propagates
 	// to Run — local sessions and LAN stay healthy either way.
 	go d.runCredentialRefresh(ctx, stopRelay)
+	// Task 7 (D12): the periodic direct-credential reconciliation. Started
+	// only once this daemon is logged in — before that, DirectCredentials is
+	// always empty and relayServerURL()/currentAccessToken() resolve empty,
+	// so an earlier start would still be a no-op, but starting it here keeps
+	// it symmetric with the credential refresher above.
+	go d.directReconciler.run(ctx)
 }
 
 // awaitLogin 阻塞到这台 daemon 登录,返回 false 表示 ctx 先结束了。未登录期间
@@ -1414,6 +1445,185 @@ func waitForRefresh(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// directReconcileInterval is the reconciliation cadence (D12): the same
+// one-minute period the retired revocation poller ran on.
+const directReconcileInterval = time.Minute
+
+// directReconcileDesktopKind is the GET /v1/devices item kind that vouches
+// for a desktop's local direct credential; any other kind reporting the same
+// fingerprint (which should not happen — fingerprints are unique per device)
+// is not evidence the desktop itself is still active.
+const directReconcileDesktopKind = "desktop"
+
+// directDeviceListResponseLimit bounds one GET /v1/devices response body.
+const directDeviceListResponseLimit = 1 << 20
+
+// errDirectReconcileUnauthorized marks a 401 from GET /v1/devices: the
+// daemon's own device access token was rejected, distinct from every other
+// failure shape because it alone is worth one refresh-and-retry.
+var errDirectReconcileUnauthorized = errors.New("daemon.directReconcile: account server rejected the daemon's own access token")
+
+// deviceListItem is one entry of the account server's GET /v1/devices
+// response, mirroring the fields internal/service/server_svc/devices.go
+// decodes on the desktop side. Only the fields task 7 consumes are declared.
+type deviceListItem struct {
+	Fingerprint string `json:"fingerprint"`
+	Kind        string `json:"kind"`
+	Status      int    `json:"status"`
+}
+
+// directCredentialReconciler implements D12/D13: it periodically compares
+// state.DirectCredentials against the account server's device list and
+// deletes the local direct credential of any desktop fingerprint that is no
+// longer listed, or listed but not active. A pull that cannot reach or
+// authenticate to the server changes nothing (D13) — the caller always
+// retries on the next tick rather than treating "unreachable" as "revoked".
+type directCredentialReconciler struct {
+	state       *state.State
+	http        *http.Client
+	serverURL   func() string
+	accessToken func() string
+	// refresh refreshes the daemon's own device credential once, after the
+	// account server rejected it with HTTP 401 — the same single-flighted
+	// entry point the relay link's 401 path and Mode C introspection share.
+	refresh  func(context.Context) error
+	wait     func(context.Context, time.Duration) error
+	interval time.Duration
+	logf     func(format string, args ...any)
+}
+
+// newDirectCredentialReconciler wires a directCredentialReconciler to its
+// host: serverURL/accessToken resolve the daemon's own identity at every
+// tick (never captured once), and refresh is the shared single-flighted
+// refresh entry point (task 2's (*credentialRefresher).refreshNow).
+func newDirectCredentialReconciler(st *state.State, serverURL, accessToken func() string, refresh func(context.Context) error) *directCredentialReconciler {
+	return &directCredentialReconciler{
+		state:       st,
+		http:        &http.Client{Timeout: 15 * time.Second},
+		serverURL:   serverURL,
+		accessToken: accessToken,
+		refresh:     refresh,
+		wait:        waitForRefresh,
+		interval:    directReconcileInterval,
+		logf:        log.Printf,
+	}
+}
+
+// run reconciles once every r.interval until ctx is canceled. It never stops
+// permanently on its own (unlike the credential refresher): a logged-out
+// daemon simply resolves an empty server URL/access token at every tick and
+// reconcileOnce makes no request at all, per D13's "no server, no change".
+func (r *directCredentialReconciler) run(ctx context.Context) {
+	for {
+		if err := r.wait(ctx, r.interval); err != nil {
+			return
+		}
+		r.reconcileOnce(ctx)
+	}
+}
+
+// reconcileOnce performs one GET /v1/devices round trip and applies it.
+// Any failure to reach a usable answer — network error, timeout, non-2xx
+// status other than 401, a malformed body, or a 401 whose single refresh
+// attempt also fails — leaves every stored direct credential untouched and
+// logs at Warn; the next tick or reconnect tries again (D13). Credentials and
+// tokens are never logged, only counts and error shapes.
+func (r *directCredentialReconciler) reconcileOnce(ctx context.Context) {
+	devices, err := r.fetchDevices(ctx)
+	if errors.Is(err, errDirectReconcileUnauthorized) {
+		if refreshErr := r.refresh(ctx); refreshErr != nil {
+			r.logf("daemon.directReconcile: own access token rejected and refresh failed; keeping local direct credentials: %v", refreshErr)
+			return
+		}
+		devices, err = r.fetchDevices(ctx)
+	}
+	if err != nil {
+		r.logf("daemon.directReconcile: account server unreachable; keeping local direct credentials: %v", err)
+		return
+	}
+	r.apply(ctx, devices)
+}
+
+// fetchDevices resolves the daemon's current server/token and performs one
+// GET /v1/devices round trip. Returning errDirectReconcileUnauthorized lets
+// reconcileOnce distinguish "worth one refresh-and-retry" from every other
+// failure, which is otherwise handled identically (keep everything, retry
+// later).
+func (r *directCredentialReconciler) fetchDevices(ctx context.Context) ([]deviceListItem, error) {
+	serverURL := ""
+	if r.serverURL != nil {
+		serverURL = strings.TrimRight(strings.TrimSpace(r.serverURL()), "/")
+	}
+	token := ""
+	if r.accessToken != nil {
+		token = r.accessToken()
+	}
+	if serverURL == "" || token == "" {
+		// Not logged in (or no server configured yet): nothing to reconcile
+		// against, and no request is made — D13 extends to "no answer at all".
+		return nil, errors.New("daemon.directReconcile: no account server or access token available")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL+"/v1/devices", http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := r.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, directDeviceListResponseLimit))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, errDirectReconcileUnauthorized
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("daemon.directReconcile: account server returned status %d", resp.StatusCode)
+	}
+	var body struct {
+		Devices []deviceListItem `json:"devices"`
+	}
+	if err := decodeServerEnvelope(payload, &body); err != nil {
+		return nil, fmt.Errorf("daemon.directReconcile: malformed device list response: %w", err)
+	}
+	return body.Devices, nil
+}
+
+// apply deletes the local direct credential of every desktop fingerprint that
+// fetched does not vouch for (D12). It names only the fingerprints to delete
+// rather than replacing the whole map, so a fingerprint EnsureDirectCredential
+// issues concurrently — for a desktop this fetch never asked about — is never
+// named here and survives untouched; State's own mutex still serializes the
+// two calls against whichever DirectCredentials is current at the time each
+// one runs.
+func (r *directCredentialReconciler) apply(ctx context.Context, fetched []deviceListItem) {
+	active := make(map[string]bool, len(fetched))
+	for _, device := range fetched {
+		if device.Kind == directReconcileDesktopKind && device.Status == consts.ACTIVE {
+			active[device.Fingerprint] = true
+		}
+	}
+	snapshot := r.state.Snapshot()
+	var stale []string
+	for fingerprint := range snapshot.DirectCredentials {
+		if !active[fingerprint] {
+			stale = append(stale, fingerprint)
+		}
+	}
+	if len(stale) == 0 {
+		return
+	}
+	if err := r.state.DeleteDirectCredentials(stale...); err != nil {
+		r.logf("daemon.directReconcile: delete stale direct credentials failed: %v", err)
+		return
+	}
+	logger.Ctx(ctx).Info("daemon.directReconcile: removed local direct credentials for desktops revoked or removed from the account",
+		zap.Int("count", len(stale)))
 }
 
 // serveRelayChannels turns server-initiated virtual channels into the same
