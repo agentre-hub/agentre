@@ -219,6 +219,67 @@ func TestIntrospector_GivenTheAccountServerCannotAnswer_ThenReturnsAccountServer
 	}
 }
 
+func TestIntrospector_GivenTheAccountServerRateLimitsTheRequest_ThenReturnsAccountServerUnreachableWithoutRefreshing(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "no body", body: ""},
+		{name: "a rate-limit body", body: `{"code":42900,"msg":"too many requests"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			introspector, rig := setupIntrospectorTest(t, answer(http.StatusTooManyRequests, tc.body))
+
+			_, err := introspector.Verify(context.Background(), "credential")
+
+			assertRejectedWith(t, err, ErrAccountServerUnreachable)
+			assert.Equal(t, int32(0), rig.refreshCalls.Load(), "a 429 says nothing about the receiver's own credential and must not trigger a refresh")
+		})
+	}
+}
+
+func TestIntrospector_GivenTheAccountServerRateLimitsTheRequest_WhenPresentedAgain_ThenTheRateLimitWasNotCached(t *testing.T) {
+	var attempts atomic.Int32
+	introspector, _ := setupIntrospectorTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			answer(http.StatusTooManyRequests, `{"code":42900,"msg":"too many requests"}`)(w, r)
+			return
+		}
+		answer(http.StatusOK, introspectSuccessBody)(w, r)
+	})
+	ctx := context.Background()
+
+	_, err := introspector.Verify(ctx, "credential")
+	assertRejectedWith(t, err, ErrAccountServerUnreachable)
+	got, err := introspector.Verify(ctx, "credential")
+
+	require.NoError(t, err, "a 429 must not poison the cache for a later successful verification")
+	assert.Equal(t, "42", got.AccountID)
+}
+
+func TestIntrospector_GivenACachedSuccess_WhenTheServerWouldNowRateLimit_ThenTheCacheHitStillAnswers(t *testing.T) {
+	var afterFirst atomic.Bool
+	introspector, rig := setupIntrospectorTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if afterFirst.Load() {
+			answer(http.StatusTooManyRequests, `{"code":42900,"msg":"too many requests"}`)(w, r)
+			return
+		}
+		answer(http.StatusOK, introspectSuccessBody)(w, r)
+	})
+	ctx := context.Background()
+
+	_, err := introspector.Verify(ctx, "credential-a")
+	require.NoError(t, err)
+	afterFirst.Store(true)
+
+	cached, err := introspector.Verify(ctx, "credential-a")
+
+	require.NoError(t, err, "a cached success for this credential must not be displaced by the server rate-limiting a later request")
+	assert.Equal(t, "sha256:peer", cached.PeerFingerprint)
+	assert.Equal(t, int32(1), rig.calls.Load())
+}
+
 func TestIntrospector_GivenTheServerWasUnreachable_WhenItRecovers_ThenTheFailureWasNotCached(t *testing.T) {
 	var attempts atomic.Int32
 	introspector, _ := setupIntrospectorTest(t, func(w http.ResponseWriter, r *http.Request) {

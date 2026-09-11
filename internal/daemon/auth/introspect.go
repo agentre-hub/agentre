@@ -281,8 +281,9 @@ type introspectResponse struct {
 }
 
 // verdict classifies an answered round trip: 2xx is the server vouching for
-// the credential, any other 4xx is the server rejecting it, the rest is no
-// usable answer.
+// the credential, 429 is the server refusing to answer at all (decision 17:
+// rate-limited, not a verdict on the credential), any other 4xx is the
+// server rejecting the credential, the rest is no usable answer.
 func (i *Introspector) verdict(ctx context.Context, status int, payload []byte) (Introspection, time.Duration, error) {
 	switch {
 	case status >= http.StatusOK && status < http.StatusMultipleChoices:
@@ -306,6 +307,10 @@ func (i *Introspector) verdict(ctx context.Context, status int, payload []byte) 
 			AccountID: answer.AccountID, DeviceID: answer.DeviceID,
 			Kind: answer.Kind, PeerFingerprint: answer.PeerFingerprint,
 		}, ttl, nil
+	case status == http.StatusTooManyRequests:
+		logger.Ctx(ctx).Warn("auth.Introspector.Verify: account server rate-limited the introspect request",
+			zap.Int("status", status))
+		return Introspection{}, 0, ErrAccountServerUnreachable
 	case status >= http.StatusBadRequest && status < http.StatusInternalServerError:
 		logger.Ctx(ctx).Info("auth.Introspector.Verify: account server rejected the presented credential",
 			zap.Int("status", status))
