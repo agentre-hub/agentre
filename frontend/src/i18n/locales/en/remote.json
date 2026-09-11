@@ -167,7 +167,7 @@
       }
     },
     "panel": {
-      "description": "Manage remote agentred compute nodes: desktop remote driver, direct LAN connections, and Cloud relay across networks (v0.3+).",
+      "description": "Manage remote agentred compute nodes: desktop remote driver, direct LAN connections, and Cloud relay across networks.",
       "stats": "{{paired}} paired · {{online}} online",
       "title": "Remote"
     },

@@ -167,7 +167,7 @@
       }
     },
     "panel": {
-      "description": "管理远程 agentred 计算节点 — desktop 远程驱动；LAN 同网段直连，Cloud 中转跨网段（v0.3+）。",
+      "description": "管理远程 agentred 计算节点 — desktop 远程驱动；LAN 同网段直连，Cloud 中转跨网段。",
       "stats": "{{paired}} 已配对 · {{online}} 在线",
       "title": "远端"
     },
