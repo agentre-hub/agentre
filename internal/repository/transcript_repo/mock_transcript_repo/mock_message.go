@@ -233,6 +233,21 @@ func (mr *MockMessageRepoMockRecorder) ListMeta(ctx, sessionID any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMeta", reflect.TypeOf((*MockMessageRepo)(nil).ListMeta), ctx, sessionID)
 }
 
+// ListMetaBefore mocks base method.
+func (m *MockMessageRepo) ListMetaBefore(ctx context.Context, sessionID int64, beforeSeq, limit int) ([]*transcript_entity.Message, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMetaBefore", ctx, sessionID, beforeSeq, limit)
+	ret0, _ := ret[0].([]*transcript_entity.Message)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListMetaBefore indicates an expected call of ListMetaBefore.
+func (mr *MockMessageRepoMockRecorder) ListMetaBefore(ctx, sessionID, beforeSeq, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMetaBefore", reflect.TypeOf((*MockMessageRepo)(nil).ListMetaBefore), ctx, sessionID, beforeSeq, limit)
+}
+
 // NextSeq mocks base method.
 func (m *MockMessageRepo) NextSeq(ctx context.Context, sessionID int64) (int, error) {
 	m.ctrl.T.Helper()

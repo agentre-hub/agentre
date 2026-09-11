@@ -40,20 +40,26 @@ func (s *chatSvc) LoadMessageBlocks(ctx context.Context, req *LoadMessageBlocksR
 	if limit <= 0 || limit > TranscriptBlockWindow {
 		limit = TranscriptBlockWindow
 	}
-	msgs, err := transcript_repo.Message().ListMeta(ctx, req.SessionID)
+	// 只读 seq < BeforeSeq 的末尾 limit+1 条元数据(要求 12):多取一条用来探测「是否
+	// 还有更早的」,SQL 层面就把窗口收窄到 (session_id, seq) 索引能命中的一段 ——
+	// 不再靠 ListMeta 把整条会话的元数据读回内存再切片。
+	msgs, err := transcript_repo.Message().ListMetaBefore(ctx, req.SessionID, req.BeforeSeq, limit+1)
 	if err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
-	// ListMeta 已按 seq 升序,BeforeSeq 之前的那一段就是一个前缀;取它的末尾 limit 条。
-	end := 0
-	for end < len(msgs) && msgs[end].Seq < req.BeforeSeq {
-		end++
+	// ListMetaBefore 按 seq 降序返回;多出的那一条(第 limit+1 条)只用来判断
+	// HasMore,不进窗口——丢掉它之后再反转成 seq 升序,与切片时代的窗口顺序一致。
+	hasMore := len(msgs) > limit
+	if hasMore {
+		msgs = msgs[:limit]
 	}
-	start := max(end-limit, 0)
-	window := msgs[start:end]
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	window := msgs
 	resp := &LoadMessageBlocksResponse{
 		Messages: make([]ChatMessage, 0, len(window)),
-		HasMore:  start > 0,
+		HasMore:  hasMore,
 	}
 	if len(window) == 0 {
 		return resp, nil

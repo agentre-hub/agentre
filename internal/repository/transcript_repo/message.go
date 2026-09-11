@@ -46,6 +46,11 @@ type MessageRepo interface {
 	// 正文则由 FillBlocks 按窗口补,一条 8k 块的会话不再整条搬进内存。
 	// 返回的实体 BlocksJSON 是空串,表示「这条消息的正文没补过」。
 	ListMeta(ctx context.Context, sessionID int64) ([]*transcript_entity.Message, error)
+	// ListMetaBefore 取 seq < beforeSeq 的消息元数据,按 seq 降序最多 limit 条(供上翻分页,
+	// 决策见要求 12)。调用方传 limit+1 探测「是否还有更早的」,自己按 HasMore 截断/反转。
+	// 走 (session_id, seq) 索引的 keyset 分页:只读末尾这一段,不再把整条会话的元数据
+	// 读回内存再切片 —— 长会话（几千条消息）打开一次向上滚动不再是 O(会话长度)。
+	ListMetaBefore(ctx context.Context, sessionID int64, beforeSeq, limit int) ([]*transcript_entity.Message, error)
 	// FillBlocks 给点名的这几条消息补上全部正文(一次 IN 查询)。就地改写传入的实体。
 	FillBlocks(ctx context.Context, msgs []*transcript_entity.Message) error
 	// FillBlocksByType 只补指定类型的块。派生视图(后台任务面板 / 大纲 / 变更)按类型
@@ -136,6 +141,18 @@ func (r *messageRepo) ListMeta(ctx context.Context, sessionID int64) ([]*transcr
 	if err := db.Ctx(ctx).
 		Where("session_id = ?", sessionID).
 		Order("seq ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *messageRepo) ListMetaBefore(ctx context.Context, sessionID int64, beforeSeq, limit int) ([]*transcript_entity.Message, error) {
+	var rows []*transcript_entity.Message
+	if err := db.Ctx(ctx).
+		Where("session_id = ? AND seq < ?", sessionID, beforeSeq).
+		Order("seq DESC").
+		Limit(limit).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -532,6 +549,10 @@ func AppendNestedToolCallIDsInBlockData(data []byte, childIDs []string) ([]byte,
 	})
 }
 
+// AppendSubagentChildren 见接口注释。父块的 nested_tool_call_ids 改写与子块追加必须
+// 「同时生效,要么都不生效」(要求 3):两步原本是各自 autocommit 的独立语句,子块追加
+// 失败时父块的改写已经落库,留下「父块说有这个子块,但块表里没有」的不一致。这里把
+// 定位查询 + UPDATE + 子块的 SELECT MAX + INSERT 全部包进一个事务。
 func (r *messageRepo) AppendSubagentChildren(ctx context.Context, sessionID int64, parentToolCallID, childBlocksJSON string, childIDs []string) error {
 	if parentToolCallID == "" || childBlocksJSON == "" {
 		return nil
@@ -541,24 +562,27 @@ func (r *messageRepo) AppendSubagentChildren(ctx context.Context, sessionID int6
 	mu.Lock()
 	defer mu.Unlock()
 
-	row, err := findSubagentStateBlock(ctx, sessionID, parentToolCallID)
-	if err != nil || row == nil {
-		return err
-	}
-	data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
-	if err != nil {
-		return err
-	}
-	rewritten, changed, err := AppendNestedToolCallIDsInBlockData(data, childIDs)
-	if err != nil {
-		return err
-	}
-	if changed {
-		if err := updateBlockData(ctx, row, rewritten); err != nil {
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := db.WithContextDB(ctx, tx)
+		row, err := findSubagentStateBlock(txCtx, sessionID, parentToolCallID)
+		if err != nil || row == nil {
 			return err
 		}
-	}
-	return appendBlocks(ctx, row.MessageID, childBlocksJSON)
+		data, err := transcript_entity.DecodeBlockData(row.Codec, row.Data)
+		if err != nil {
+			return err
+		}
+		rewritten, changed, err := AppendNestedToolCallIDsInBlockData(data, childIDs)
+		if err != nil {
+			return err
+		}
+		if changed {
+			if err := updateBlockData(txCtx, row, rewritten); err != nil {
+				return err
+			}
+		}
+		return appendBlocks(txCtx, row.MessageID, childBlocksJSON)
+	})
 }
 
 func (r *messageRepo) FindAssistantBySubagentToolCallID(ctx context.Context, sessionID int64, toolCallID string) (*transcript_entity.Message, error) {

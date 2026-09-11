@@ -97,13 +97,30 @@ func TestLoadSession_ShortSessionLoadsEverything(t *testing.T) {
 	}
 }
 
+// seqMessagesDesc 造 ListMetaBefore 的返回形态(要求 12):`seq < beforeSeq` 的最多
+// limit 条消息元数据,按 seq **降序**排列 —— 调用方拿到手后自己反转成正序、按
+// len(结果) > 请求的窗口大小判断 HasMore。seq 从 1 起,candidates 用尽就提前收尾,
+// 模拟真实表里「没有更早的了」。
+func seqMessagesDesc(sessionID int64, beforeSeq, limit int) []*chat_entity.Message {
+	msgs := make([]*chat_entity.Message, 0, limit)
+	for seq := beforeSeq - 1; seq >= 1 && len(msgs) < limit; seq-- {
+		msgs = append(msgs, &chat_entity.Message{
+			ID: int64(seq), SessionID: sessionID, Role: "assistant",
+			Seq: seq, TotalInputTokens: seq * 100,
+		})
+	}
+	return msgs
+}
+
 // TestLoadMessageBlocks 向上滚动:取回 beforeSeq 之前的最后一段正文,并说明还有没有
-// 更早的一段可取。
+// 更早的一段可取。取数走 ListMetaBefore 的 SQL 侧 keyset(要求 12)—— 服务层传
+// limit+1 探测是否还有更早的,不再靠 ListMeta 读回整条会话再在内存里切片;
+// 窗口内容与 HasMore 的观感必须与切片时代逐字一致。
 func TestLoadMessageBlocks(t *testing.T) {
 	t.Run("取回给定 seq 之前的一段,并报告还有更早的", func(t *testing.T) {
 		m := setupChatTest(t)
 		ctx := context.Background()
-		m.message.EXPECT().ListMeta(ctx, int64(5)).Return(seqMessages(5, 10), nil)
+		m.message.EXPECT().ListMetaBefore(ctx, int64(5), 6, 4).Return(seqMessagesDesc(5, 6, 4), nil).Times(1)
 		var filled []*chat_entity.Message
 		m.message.EXPECT().FillBlocks(ctx, gomock.Any()).DoAndReturn(fillBody(&filled)).Times(1)
 
@@ -122,7 +139,7 @@ func TestLoadMessageBlocks(t *testing.T) {
 	t.Run("取到会话开头 → hasMore 为假", func(t *testing.T) {
 		m := setupChatTest(t)
 		ctx := context.Background()
-		m.message.EXPECT().ListMeta(ctx, int64(5)).Return(seqMessages(5, 10), nil)
+		m.message.EXPECT().ListMetaBefore(ctx, int64(5), 3, 6).Return(seqMessagesDesc(5, 3, 6), nil).Times(1)
 		m.message.EXPECT().FillBlocks(ctx, gomock.Any()).Return(nil).Times(1)
 
 		resp, err := m.svc.LoadMessageBlocks(ctx, &chat_svc.LoadMessageBlocksRequest{
@@ -136,7 +153,7 @@ func TestLoadMessageBlocks(t *testing.T) {
 	t.Run("已经在开头 → 空结果,不发取数", func(t *testing.T) {
 		m := setupChatTest(t)
 		ctx := context.Background()
-		m.message.EXPECT().ListMeta(ctx, int64(5)).Return(seqMessages(5, 10), nil)
+		m.message.EXPECT().ListMetaBefore(ctx, int64(5), 1, 6).Return(nil, nil).Times(1)
 
 		resp, err := m.svc.LoadMessageBlocks(ctx, &chat_svc.LoadMessageBlocksRequest{
 			SessionID: 5, BeforeSeq: 1, Limit: 5,
@@ -150,7 +167,9 @@ func TestLoadMessageBlocks(t *testing.T) {
 		m := setupChatTest(t)
 		ctx := context.Background()
 		total := chat_svc.TranscriptBlockWindow * 3
-		m.message.EXPECT().ListMeta(ctx, int64(5)).Return(seqMessages(5, total), nil)
+		windowPlusOne := chat_svc.TranscriptBlockWindow + 1
+		m.message.EXPECT().ListMetaBefore(ctx, int64(5), total, windowPlusOne).
+			Return(seqMessagesDesc(5, total, windowPlusOne), nil).Times(1)
 		m.message.EXPECT().FillBlocks(ctx, gomock.Any()).Return(nil).Times(1)
 
 		resp, err := m.svc.LoadMessageBlocks(ctx, &chat_svc.LoadMessageBlocksRequest{
