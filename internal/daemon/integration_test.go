@@ -30,6 +30,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
+	"github.com/agentre-hub/agentre/internal/daemon/lancert"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
@@ -139,11 +140,21 @@ func startTestDaemon(t *testing.T) (*Daemon, func()) {
 // readLocalPair dials the daemon's unix socket and calls /local/pair.
 func readLocalPair(t *testing.T, d *Daemon) map[string]any {
 	t.Helper()
+	return readLocalJSON(t, d, "/local/pair")
+}
+
+func readLocalStatus(t *testing.T, d *Daemon) map[string]any {
+	t.Helper()
+	return readLocalJSON(t, d, "/local/status")
+}
+
+func readLocalJSON(t *testing.T, d *Daemon, path string) map[string]any {
+	t.Helper()
 	tr := &http.Transport{DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 		return net.Dial("unix", d.SocketPath())
 	}}
 	c := &http.Client{Transport: tr}
-	resp, err := c.Get("http://daemon/local/pair")
+	resp, err := c.Get("http://daemon" + path)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
@@ -335,9 +346,16 @@ func TestIntegration_TLS_AllModes(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	d.mu.RLock()
-	wssURL := d.lan.URL()
+	lan := d.lan
 	d.mu.RUnlock()
+	wssURL := lan.URL()
 	require.True(t, strings.HasPrefix(wssURL, "wss://"), "expected wss URL, got %q", wssURL)
+	// D2:配了证书就不生成,自动直连固定的就是这张证书。
+	assert.Equal(t, certPEM, lan.CertificatePEM(), "auto-direct pins the configured certificate")
+	assert.Equal(t, lan.AdvertiseURLs(), lan.DirectURLs())
+	generatedCert, generatedKey := lancert.Paths(dir)
+	assert.NoFileExists(t, generatedCert, "a configured certificate is never joined by a generated one")
+	assert.NoFileExists(t, generatedKey)
 
 	cases := []struct {
 		mode    client.TLSMode
@@ -366,6 +384,77 @@ func TestIntegration_TLS_AllModes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// D1:未配证书的 agentred 首次启动生成自签证书并落在数据目录,重启沿用同一张;同一 LAN
+// 端口 ws 与 wss 都能用(bootRigInDir 就是经 ws:// 配对的),status / pair 仍只印 ws://。
+func TestIntegration_LANCertificate_GeneratedOnFirstBootReusedOnRestartAndServedBesideWS(t *testing.T) {
+	// 短前缀:t.TempDir() 的长路径会超过 macOS 104 字节的 unix socket 上限。
+	dir, err := os.MkdirTemp("", "ard-lancert")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	first := bootRigInDir(t, dir)
+	first.d.mu.RLock()
+	lan := first.d.lan
+	first.d.mu.RUnlock()
+	certPEM := lan.CertificatePEM()
+	require.NotEmpty(t, certPEM, "an agentred without a configured certificate serves a generated one")
+	certFile, _ := lancert.Paths(dir)
+	assert.FileExists(t, certFile)
+
+	wsURL := lan.URL()
+	require.True(t, strings.HasPrefix(wsURL, "ws://"), "manual pairing keeps the ws address, got %q", wsURL)
+	require.Equal(t, []string{"wss://" + strings.TrimPrefix(wsURL, "ws://")}, lan.DirectURLs(), "wss is served on the ws port")
+	connectPinnedOverWSS(t, lan.DirectURLs()[0], certPEM, first.token)
+
+	for name, body := range map[string]map[string]any{"status": readLocalStatus(t, first.d), "pair": readLocalPair(t, first.d)} {
+		listen, _ := body["listenURLs"].([]any)
+		require.NotEmpty(t, listen, name)
+		for _, u := range listen {
+			assert.True(t, strings.HasPrefix(u.(string), "ws://"), "%s keeps printing ws addresses, got %v", name, u)
+		}
+	}
+
+	first.stop()
+	second := bootRigInDir(t, dir)
+	second.d.mu.RLock()
+	restarted := second.d.lan
+	second.d.mu.RUnlock()
+	assert.Equal(t, certPEM, restarted.CertificatePEM(), "a restart presents the certificate desktops already pinned")
+	require.NotEmpty(t, restarted.DirectURLs())
+	connectPinnedOverWSS(t, restarted.DirectURLs()[0], certPEM, second.token)
+}
+
+// 证书落不了盘时不拿一张每次启动都变的临时证书去服务(桌面端固定了也会在重启后失配):
+// LAN 退回只有 ws,手动配对照常可用,也不下发直连地址。
+func TestIntegration_LANCertificate_UnpersistableCertificateLeavesWSOnly(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-lancert")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	_, keyFile := lancert.Paths(dir)
+	require.NoError(t, os.Mkdir(keyFile, 0o700))
+
+	rig := bootRigInDir(t, dir)
+	rig.d.mu.RLock()
+	lan := rig.d.lan
+	rig.d.mu.RUnlock()
+	assert.Empty(t, lan.CertificatePEM())
+	assert.Empty(t, lan.DirectURLs())
+}
+
+func connectPinnedOverWSS(t *testing.T, wssURL, certPEM, token string) {
+	t.Helper()
+	cfg, err := client.BuildTLSConfig(client.TLSPinCert, certPEM)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: wssURL, TLSConfig: cfg})
+	require.NoError(t, err)
+	defer func() { _ = cli.Close() }()
+	res, err := cli.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: string(rigDeviceFingerprint), DeviceToken: token})
+	require.NoError(t, err)
+	require.True(t, res.GetOk(), "a paired device authenticates over the pinned wss address")
 }
 
 func TestIntegration_UnauthGuard(t *testing.T) {

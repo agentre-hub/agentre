@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,13 +19,16 @@ import (
 
 	"github.com/cago-frame/agents/agent/blocks"
 	dbpkg "github.com/cago-frame/cago/database/db"
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/glebarez/sqlite"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
+	"github.com/agentre-hub/agentre/internal/daemon/lancert"
 	daemonmigrations "github.com/agentre-hub/agentre/internal/daemon/migrations"
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
 	"github.com/agentre-hub/agentre/internal/daemon/portforward"
@@ -922,12 +926,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("ipc: %w", err)
 	}
 	lan := protorpc.NewLANServer(protorpc.LANOpts{
-		Host:        d.opts.LANHost,
-		Port:        d.opts.LANPort,
-		TLSCertFile: d.opts.TLSCertFile,
-		TLSKeyFile:  d.opts.TLSKeyFile,
-		Registry:    d.protobufRegistry,
-		OnConn:      d.bindProtobufConn,
+		Host:              d.opts.LANHost,
+		Port:              d.opts.LANPort,
+		TLSCertFile:       d.opts.TLSCertFile,
+		TLSKeyFile:        d.opts.TLSKeyFile,
+		DirectCertificate: d.lanDirectCertificate(ctx),
+		Registry:          d.protobufRegistry,
+		OnConn:            d.bindProtobufConn,
 	})
 	d.mu.Lock()
 	d.lan = lan
@@ -937,6 +942,24 @@ func (d *Daemon) Run(ctx context.Context) error {
 	defer cancelCleanup()
 	d.shutdown(cleanupCtx)
 	return runErr
+}
+
+// lanDirectCertificate returns the certificate served beside ws on the LAN port
+// for automatic direct connections. A configured certificate already is that
+// certificate, so nothing is generated then. When none can be persisted the
+// port keeps serving ws only: manual pairing still works and no direct address
+// is offered, rather than serving a certificate that changes on every start.
+func (d *Daemon) lanDirectCertificate(ctx context.Context) *tls.Certificate {
+	if d.opts.TLSCertFile != "" || d.opts.TLSKeyFile != "" {
+		return nil
+	}
+	certificate, err := lancert.LoadOrCreate(ctx, d.opts.DataDir)
+	if err != nil {
+		logger.Ctx(ctx).Warn("daemon.Run: lan certificate unavailable, serving ws only",
+			zap.String("dataDir", d.opts.DataDir), zap.Error(err))
+		return nil
+	}
+	return &certificate
 }
 
 // loginPollInterval 是未登录时重读 state.json 的间隔。只在没有账号期间生效,

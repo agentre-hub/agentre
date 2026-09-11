@@ -3,6 +3,7 @@ package protorpc
 import (
 	"context"
 	"crypto/tls"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -14,11 +15,22 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// lanReadHeaderTimeout bounds how long one LAN client may take to start
+// talking: the request headers, the TLS handshake and, beside a direct
+// certificate, the first byte that tells ws from wss.
+const lanReadHeaderTimeout = 10 * time.Second
+
 type LANOpts struct {
 	Host, TLSCertFile, TLSKeyFile string
 	Port                          int
-	Registry                      *Registry
-	OnConn                        func(*Conn)
+	// DirectCertificate is served to clients that open the LAN port with a TLS
+	// handshake, while plain ws keeps working on the same port and stays the
+	// advertised scheme. It is the host's own certificate for automatic direct
+	// connections when no certificate was configured, so it cannot be combined
+	// with TLSCertFile/TLSKeyFile.
+	DirectCertificate *tls.Certificate
+	Registry          *Registry
+	OnConn            func(*Conn)
 }
 
 type LANServer struct {
@@ -26,13 +38,15 @@ type LANServer struct {
 	mu       sync.Mutex
 	listener net.Listener
 	server   *http.Server
+	certPEM  string
 }
 
 func NewLANServer(opts LANOpts) *LANServer { return &LANServer{opts: opts} }
 
 func (s *LANServer) Run(ctx context.Context) error {
-	if (s.opts.TLSCertFile == "") != (s.opts.TLSKeyFile == "") {
-		return errors.New("tls: both certificate and key are required")
+	certificate, err := s.loadCertificate()
+	if err != nil {
+		return err
 	}
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.opts.Host, s.opts.Port))
 	if err != nil {
@@ -40,6 +54,9 @@ func (s *LANServer) Run(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	s.listener = listener
+	if certificate != nil {
+		s.certPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]}))
+	}
 	s.mu.Unlock()
 	upgrader := websocket.Upgrader{Subprotocols: []string{Subprotocol}, CheckOrigin: func(*http.Request) bool { return true }}
 	mux := http.NewServeMux()
@@ -75,7 +92,7 @@ func (s *LANServer) Run(ctx context.Context) error {
 		}
 		go conn.Serve(ctx)
 	})
-	s.server = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	s.server = &http.Server{Handler: mux, ReadHeaderTimeout: lanReadHeaderTimeout}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -83,10 +100,13 @@ func (s *LANServer) Run(ctx context.Context) error {
 		_ = s.server.Shutdown(shutdownCtx)
 	}()
 	if s.opts.TLSCertFile != "" {
-		if _, err := tls.LoadX509KeyPair(s.opts.TLSCertFile, s.opts.TLSKeyFile); err != nil {
-			return fmt.Errorf("tls: %w", err)
-		}
-		err = s.server.ServeTLS(listener, s.opts.TLSCertFile, s.opts.TLSKeyFile)
+		// The pair loaded above is the one served, so CertificatePEM names exactly
+		// the leaf a client sees even if the files change while running.
+		s.server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{*certificate}}
+		err = s.server.ServeTLS(listener, "", "")
+	} else if certificate != nil {
+		err = s.server.Serve(newProtocolSniffListener(listener,
+			&tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{*certificate}}, lanReadHeaderTimeout))
 	} else {
 		err = s.server.Serve(listener)
 	}
@@ -105,34 +125,81 @@ func (s *LANServer) Addr() string {
 	return s.listener.Addr().String()
 }
 func (s *LANServer) URL() string {
-	scheme := "ws"
-	if s.opts.TLSCertFile != "" {
-		scheme = "wss"
-	}
-	return fmt.Sprintf("%s://%s/rpc", scheme, s.Addr())
+	return lanURL(s.advertisedScheme(), s.Addr())
 }
 
+// AdvertiseURLs lists the addresses a person pastes into a peer: wss only when
+// a certificate was configured, ws otherwise — including when DirectCertificate
+// is served beside it.
 func (s *LANServer) AdvertiseURLs() []string {
+	return s.peerURLs(s.advertisedScheme())
+}
+
+// DirectURLs lists the wss addresses of this same port that an automatic
+// direct connection pins CertificatePEM against. It is empty while no
+// certificate is served, and follows AdvertiseURLs' host selection.
+func (s *LANServer) DirectURLs() []string {
+	if s.CertificatePEM() == "" {
+		return nil
+	}
+	return s.peerURLs("wss")
+}
+
+// CertificatePEM is the PEM of the leaf certificate this server presents to
+// TLS clients, configured or direct; empty when it serves no TLS.
+func (s *LANServer) CertificatePEM() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.certPEM
+}
+
+func (s *LANServer) loadCertificate() (*tls.Certificate, error) {
+	if (s.opts.TLSCertFile == "") != (s.opts.TLSKeyFile == "") {
+		return nil, errors.New("tls: both certificate and key are required")
+	}
+	switch {
+	case s.opts.TLSCertFile != "" && s.opts.DirectCertificate != nil:
+		return nil, errors.New("tls: a configured certificate and a direct certificate cannot be combined")
+	case s.opts.TLSCertFile != "":
+		certificate, err := tls.LoadX509KeyPair(s.opts.TLSCertFile, s.opts.TLSKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("tls: %w", err)
+		}
+		return &certificate, nil
+	case s.opts.DirectCertificate != nil:
+		if len(s.opts.DirectCertificate.Certificate) == 0 {
+			return nil, errors.New("tls: direct certificate has no leaf")
+		}
+		return s.opts.DirectCertificate, nil
+	default:
+		return nil, nil
+	}
+}
+
+func (s *LANServer) advertisedScheme() string {
+	if s.opts.TLSCertFile != "" {
+		return "wss"
+	}
+	return "ws"
+}
+
+func (s *LANServer) peerURLs(scheme string) []string {
 	host, port, err := net.SplitHostPort(s.Addr())
 	if err != nil {
 		return nil
 	}
 	if !isWildcardHost(host) {
-		return []string{s.urlFor(net.JoinHostPort(host, port))}
+		return []string{lanURL(scheme, net.JoinHostPort(host, port))}
 	}
 	hosts := routableHosts(localInterfaces())
 	urls := make([]string, 0, len(hosts))
 	for _, current := range hosts {
-		urls = append(urls, s.urlFor(net.JoinHostPort(current, port)))
+		urls = append(urls, lanURL(scheme, net.JoinHostPort(current, port)))
 	}
 	return urls
 }
 
-func (s *LANServer) urlFor(address string) string {
-	scheme := "ws"
-	if s.opts.TLSCertFile != "" {
-		scheme = "wss"
-	}
+func lanURL(scheme, address string) string {
 	return fmt.Sprintf("%s://%s/rpc", scheme, address)
 }
 

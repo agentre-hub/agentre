@@ -152,6 +152,8 @@ Important files are:
 <AppDataDir>/
   state.json    runtime state, listen preferences, account claim, and LLM providers
   agentred.db   SQLite sessions and their transcripts
+  lan-cert.pem  generated LAN certificate (only when no --tls-cert is configured)
+  lan-key.pem   its private key, mode 0600
   logs/         rolling agentred.log and error.log (see Logs above)
 ```
 
@@ -161,7 +163,12 @@ Windows. Override the data directory for testing or operations with
 
 ## Encryption
 
-By default the LAN endpoint uses `ws://`. Supply both `--tls-cert` and
-`--tls-key` to use `wss://`. A locally trusted certificate can be generated with
+By default the LAN endpoint uses `ws://`, and `agentred status` / `agentred pair`
+print `ws://` addresses. Without a configured certificate, agentred also
+generates a self-signed certificate on first start, keeps it in the data
+directory, and accepts `wss://` with it on the same port; desktops signed in to
+the same account pin it for automatic direct connections. Delete both files to
+rotate it. Supply both `--tls-cert` and `--tls-key` to serve only `wss://` with
+your own certificate, which is then also the one direct connections pin. A locally trusted certificate can be generated with
 `mkcert`; the desktop supports OS trust, leaf-certificate pinning, a custom CA
 bundle, and an explicit development-only skip-verification mode.
