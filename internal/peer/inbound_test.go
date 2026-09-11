@@ -289,7 +289,8 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 // 本机的对话本体 —— 同一个 wire 方法在两种端上破坏力完全不同,agentred 那边的用例
 // 覆盖不到这一份。
 func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisComputersOwnCopyIdempotently(t *testing.T) {
-	sessions := registerInboundPeerChatForDelete(t)
+	chat := registerInboundPeerChatForDelete(t)
+	sessions := chat.sessions
 	ws := startInboundPeer(t)
 
 	// 账号门:补齐族的每个方法都在门后,新增的删除不能是例外 —— 它比读更该在门后。
@@ -307,6 +308,12 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 	require.Nil(t, authenticated.Error)
 
 	sessions.EXPECT().SoftDelete(gomock.Any(), int64(1)).Return(nil).Times(2)
+	// 两次都成功的删除请求(首次 + 幂等重放)各清一次转录/帧台账/替换恢复状态
+	// (规格「可观察的要求」6);不用 AnyTimes,免得错误实现(比如干脆不调用清理)
+	// 也能悄悄通过。
+	chat.frameSeq.EXPECT().DeleteBySession(gomock.Any(), int64(1)).Return(int64(0), nil).Times(2)
+	chat.messages.EXPECT().DeleteFromSeq(gomock.Any(), int64(1), 0).Return(int64(0), nil).Times(2)
+	chat.replacementRecovery.EXPECT().DeleteReplacementRecovery(gomock.Any(), int64(1)).Return(int64(0), nil).Times(2)
 
 	deleted := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`3`), Method: wire.MethodSessionDelete,
@@ -404,23 +411,42 @@ func startInboundPeer(t *testing.T) *websocket.Conn {
 	}
 }
 
-// registerInboundPeerChatForDelete 只装删除这条路径要的替身:本机指纹 + 会话仓储。
-// 期望由用例自己按场景下,helper 不替它决定删了几次。
-func registerInboundPeerChatForDelete(t *testing.T) *mock_chat_repo.MockSessionRepo {
+// registerInboundPeerChatForDelete 只装删除这条路径要的替身:本机指纹 + 会话仓储,
+// 以及 chatSvc.Delete 物理清理要碰的转录/帧台账/替换恢复仓储。期望由用例自己按场景下,
+// helper 不替它决定删了几次。
+func registerInboundPeerChatForDelete(t *testing.T) inboundDeleteChatMocks {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	sessions := mock_chat_repo.NewMockSessionRepo(ctrl)
 	device := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
+	// chatSvc.Delete 物理清除转录/帧台账/替换恢复状态(规格「可观察的要求」6),这三个
+	// 依赖跟 sessions 一样要换成 mock:这个用例组不起 testutils.Database,真实现会拿
+	// 空的 db.Ctx 去执行 SQL 并 panic —— 之前 Delete 只碰过 chat_repo.Session(),这里
+	// 从没需要过它们。生产环境里 chat_svc.Chat() 是同一个进程单例,不管由 Wails 绑定
+	// 还是这里的对端入站触发,bootstrap 早已把这三个仓储换成真实现,不存在跳过 DB 的
+	// 合法生产组合 —— 缺的是测试桩,不是产品代码该防这个 nil。
+	frameSeq := mock_transcript_repo.NewMockFrameSeqRepo(ctrl)
+	messages := mock_transcript_repo.NewMockMessageRepo(ctrl)
+	replacementRecovery := mock_chat_repo.NewMockReplacementRecoveryCleanupRepo(ctrl)
 	prevChat := chat_svc.Chat()
 	prevSessions := chat_repo.Session()
 	prevDevice := remote_device_svc.Default()
+	prevFrameSeq := transcript_repo.FrameSeq()
+	prevMessages := transcript_repo.Message()
+	prevReplacementRecovery := chat_repo.ReplacementRecoveryCleanup()
 	chat_repo.RegisterSession(sessions)
 	remote_device_svc.SetDefault(device)
+	transcript_repo.RegisterFrameSeq(frameSeq)
+	transcript_repo.RegisterMessage(messages)
+	chat_repo.RegisterReplacementRecoveryCleanup(replacementRecovery)
 	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NoopEmitter{}))
 	t.Cleanup(func() {
 		chat_svc.RegisterChat(prevChat)
 		chat_repo.RegisterSession(prevSessions)
 		remote_device_svc.SetDefault(prevDevice)
+		transcript_repo.RegisterFrameSeq(prevFrameSeq)
+		transcript_repo.RegisterMessage(prevMessages)
+		chat_repo.RegisterReplacementRecoveryCleanup(prevReplacementRecovery)
 		ctrl.Finish()
 	})
 	device.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:desktop"), nil).AnyTimes()
@@ -433,7 +459,24 @@ func registerInboundPeerChatForDelete(t *testing.T) *mock_chat_repo.MockSessionR
 		ID: 1, ConversationID: convID(1), AgentID: 7, Title: "Ship the release", Status: consts.ACTIVE,
 	}, nil).AnyTimes()
 	sessions.EXPECT().FindByConversationID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	return sessions
+	// 期望由用例自己按场景下 —— 这个 helper 也被几条从不触发真正删除的用例复用
+	// (inbound_runtime_test.go 只借它的 session/device 桩验证账号门),在这里替
+	// 三个清理依赖预先定死调用次数会连累它们。
+	return inboundDeleteChatMocks{
+		sessions:            sessions,
+		frameSeq:            frameSeq,
+		messages:            messages,
+		replacementRecovery: replacementRecovery,
+	}
+}
+
+// inboundDeleteChatMocks 是 registerInboundPeerChatForDelete 装好的替身集合;
+// 只有真正断言删除行为的用例需要在返回值上追加 EXPECT()。
+type inboundDeleteChatMocks struct {
+	sessions            *mock_chat_repo.MockSessionRepo
+	frameSeq            *mock_transcript_repo.MockFrameSeqRepo
+	messages            *mock_transcript_repo.MockMessageRepo
+	replacementRecovery *mock_chat_repo.MockReplacementRecoveryCleanupRepo
 }
 
 func registerInboundPeerChat(t *testing.T) {
