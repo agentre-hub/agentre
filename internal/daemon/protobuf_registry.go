@@ -124,11 +124,27 @@ func (d *Daemon) registerProtobufMethods() {
 			if err != nil {
 				return nil, protobufError(err)
 			}
-			if conn := protorpc.ConnFromContext(ctx); conn != nil {
-				conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: result.PeerFingerprint, AccountID: d.loggedInAccountID()})
-				d.conns.add(conn, notifier.NewProtobuf(conn))
-			}
+			d.authenticateAccountConn(ctx, result.PeerFingerprint)
 			return protobufAuthAccountResponse(result), nil
+		})
+
+	// auth.direct(D8):出示 auth.account 下发过的本地直连凭据,不访问 server。连接得到
+	// 与 auth.account 完全相同的身份,扇出与账号级操作因此无从区分两条路。
+	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT),
+		func() *agentrewire.AuthDirectRequest { return &agentrewire.AuthDirectRequest{} },
+		func(ctx context.Context, request *agentrewire.AuthDirectRequest) (*agentrewire.AuthDirectResponse, error) {
+			if err := requireProtocolVersion(ctx, request.ProtocolVersion, request.MinSupportedProtocolVersion); err != nil {
+				return nil, err
+			}
+			result, err := d.auth.HandleDirect(ctx, auth.DirectParams{Credential: request.Credential})
+			if err != nil {
+				return nil, protobufError(err)
+			}
+			d.authenticateAccountConn(ctx, result.PeerFingerprint)
+			return &agentrewire.AuthDirectResponse{
+				Ok: result.OK, InstanceUuid: result.InstanceUUID, PeerFingerprint: result.PeerFingerprint,
+				ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported,
+			}, nil
 		})
 
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_REVOKE),
@@ -373,11 +389,25 @@ func (d *Daemon) registerProtobufMethods() {
 	})
 }
 
+// authenticateAccountConn 把一次账号身份的握手(auth.account 或 auth.direct)记进连接:
+// 对端指纹取握手认定的那个值,账号取 daemon 此刻的归属账号 —— 订阅资格
+// (connRegistry.subscribersLocked)与账号级可见性都拿它比对,两条握手共用这一处,
+// 身份就不会一条路一个样。
+func (d *Daemon) authenticateAccountConn(ctx context.Context, peerFingerprint string) {
+	conn := protorpc.ConnFromContext(ctx)
+	if conn == nil {
+		return
+	}
+	conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: peerFingerprint, AccountID: d.loggedInAccountID()})
+	d.conns.add(conn, notifier.NewProtobuf(conn))
+}
+
 // protobufAuthAccountResponse 把握手结果折成线格式,并**回写对端身份**:调用方在
 // 请求体里已经给不出自己的身份了,它在这条连接上的身份只能由这里认定的这个值说了算
 // (conversation_id 的派生输入,见 client.ProtobufClient.SelfFingerprint)。
+// 桌面端的握手另带自动直连的下发内容(D3);没有下发时三格留空。
 func protobufAuthAccountResponse(result *auth.AccountResult) *agentrewire.AuthAccountResponse {
-	return &agentrewire.AuthAccountResponse{
+	response := &agentrewire.AuthAccountResponse{
 		Ok: result.OK, InstanceUuid: result.InstanceUUID,
 		PeerFingerprint:             result.PeerFingerprint,
 		ProtocolVersion:             wireversion.Protocol,
@@ -385,6 +415,12 @@ func protobufAuthAccountResponse(result *auth.AccountResult) *agentrewire.AuthAc
 		DaemonVersion:               configs.Version,
 		DaemonCommit:                buildinfo.ShortCommitID(),
 	}
+	if result.Direct != nil {
+		response.DirectUrls = result.Direct.URLs
+		response.TlsCertPem = result.Direct.CertPEM
+		response.DirectCredential = result.Direct.Credential
+	}
+	return response
 }
 
 // selfUpdateRejectReasons 把 handlers.SelfUpdateRejectReason 翻成 wire 枚举。

@@ -171,6 +171,10 @@ func Contract() []Requirement {
 			"自更新按定义只对 agentred 有意义;桌面端的版本由它自己的更新流程管"},
 		{agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote_device_svc/dial.go:34 局域网配对"},
 		{agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote_device_svc/dial.go:53"},
+		// 本地直连凭据只由 agentred 签发(随 auth.account 下发给桌面端),桌面端从不签发,
+		// 所以没有任何调用方会拿它去问一台桌面端。
+		{agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred},
+			"remote_device_svc/dial.go:164 来自账号的直连行出示本地直连凭据"},
 		{agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote_device_watcher_svc/watcher.go:188"},
 		{agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "internal/app/cc_usage.go:60"},
 		{agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT, []Caller{CallerDesktopToAgentred}, []HostKind{HostAgentred}, "remote_device_svc/conn_pool.go:154"},

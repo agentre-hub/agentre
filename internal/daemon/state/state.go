@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -215,7 +216,67 @@ func (s *State) Snapshot() State {
 		out.PairedPeers[k] = v
 	}
 	out.LLMProviders = cloneLLMProviders(s.LLMProviders)
+	out.DirectCredentials = maps.Clone(s.DirectCredentials)
 	return out
+}
+
+// EnsureDirectCredential returns the local direct credential on file for the
+// desktop fingerprint under accountID. When none is on file for that account
+// it records candidate instead and persists it before returning, so a
+// credential is never handed out that a restart would forget; issued reports
+// that. It records nothing unless the state still belongs to accountID.
+func (s *State) EnsureDirectCredential(fingerprint, accountID, candidate string) (credential string, issued bool, err error) {
+	if s.dir == "" {
+		return "", false, errors.New("state: dir not bound; load via Load(dir) first")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if accountID == "" || s.AccountID != accountID {
+		return "", false, errors.New("state: not logged into the account the credential would be issued for")
+	}
+	if existing, ok := s.DirectCredentials[fingerprint]; ok && existing.AccountID == accountID {
+		return existing.Credential, false, nil
+	}
+	replacement := maps.Clone(s.DirectCredentials)
+	if replacement == nil {
+		replacement = map[string]DirectCredential{}
+	}
+	replacement[fingerprint] = DirectCredential{Credential: candidate, AccountID: accountID}
+	if err := s.replaceDirectCredentialsLocked(replacement); err != nil {
+		return "", false, err
+	}
+	return candidate, true, nil
+}
+
+// DeleteDirectCredentials removes the local direct credentials of the named
+// desktop fingerprints and persists the result. Unknown fingerprints are
+// ignored; when nothing is removed nothing is written.
+func (s *State) DeleteDirectCredentials(fingerprints ...string) error {
+	if s.dir == "" {
+		return errors.New("state: dir not bound; load via Load(dir) first")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	replacement := maps.Clone(s.DirectCredentials)
+	for _, fingerprint := range fingerprints {
+		delete(replacement, fingerprint)
+	}
+	if len(replacement) == len(s.DirectCredentials) {
+		return nil
+	}
+	return s.replaceDirectCredentialsLocked(replacement)
+}
+
+// replaceDirectCredentialsLocked writes state.json with replacement and only
+// then swaps it in, so a failed write leaves memory matching disk.
+func (s *State) replaceDirectCredentialsLocked(replacement map[string]DirectCredential) error {
+	next := *s
+	next.DirectCredentials = replacement
+	if err := writeStateFile(s.dir, &next); err != nil {
+		return err
+	}
+	s.DirectCredentials = replacement
+	return nil
 }
 
 func cloneLLMProviders(in map[string]LLMProviderMeta) map[string]LLMProviderMeta {

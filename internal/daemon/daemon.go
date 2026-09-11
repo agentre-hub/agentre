@@ -840,12 +840,13 @@ func New(opts Options) (*Daemon, error) {
 	// Mode C 握手在线核验(H1-H4):向这台 daemon 所属的账号 server 出示对端凭据,
 	// 用的是 daemon 自己那份与中继共用的设备凭据;401 走同一个单飞刷新入口。
 	// 超时由 Introspector 按次施加,客户端本身不设。
+	// 自动直连的下发(D3/D5)读 LAN server 此刻的直连地址与证书。
 	d.auth = auth.NewAuthHandlers(st, pm, rl, auth.NewIntrospector(auth.IntrospectorOptions{
 		HTTP:              &http.Client{},
 		ServerURL:         d.relayServerURL,
 		AccessToken:       d.currentAccessToken,
 		RefreshCredential: d.refreshAccountCredential,
-	}))
+	}), d.directEndpoint)
 	hubOpts := relayLinkOptions()
 	hubOpts.ServerURLProvider = d.relayServerURL
 	hubOpts.AccessTokenProvider = d.currentAccessToken
@@ -989,6 +990,19 @@ func (d *Daemon) lanDirectCertificate(ctx context.Context) *tls.Certificate {
 		return nil
 	}
 	return &certificate
+}
+
+// directEndpoint reports the LAN server's routable wss addresses and the
+// certificate they present. Before the LAN server runs there is nothing to
+// offer, and an account handshake then delivers no auto-direct (D5).
+func (d *Daemon) directEndpoint() (urls []string, certPEM string) {
+	d.mu.RLock()
+	lan := d.lan
+	d.mu.RUnlock()
+	if lan == nil {
+		return nil, ""
+	}
+	return lan.DirectURLs(), lan.CertificatePEM()
 }
 
 // loginPollInterval 是未登录时重读 state.json 的间隔。只在没有账号期间生效,

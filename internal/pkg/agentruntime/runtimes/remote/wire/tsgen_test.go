@@ -401,6 +401,8 @@ func tsHostMethodDecls() []tsHostMethodDecl {
 		{agentrewire.RpcMethod_RPC_METHOD_AGENTRED_SELF_UPDATE, "agentredSelfUpdate"},
 		{agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR, "authPair"},
 		{agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT, "authConnect"},
+		// 只有桌面端的 Go 连接池发它(出示 agentred 下发的本地直连凭据),浏览器没有调用点。
+		{agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT, ""},
 		{agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING, "healthPing"},
 		{agentrewire.RpcMethod_RPC_METHOD_CLAUDE_CODE_USAGE, "claudeCodeUsage"},
 		{agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT, "llmUpsert"},

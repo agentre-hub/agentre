@@ -65,22 +65,65 @@ type AccountResult struct {
 	// PeerFingerprint 是 server 核验凭据后给出的对端身份 —— 对端会话落进
 	// peer_fingerprint 的那个值,也回写给调用方(AuthAccountResponse.peer_fingerprint)。
 	PeerFingerprint string `json:"peerFingerprint"`
+	// Direct is the auto-direct delivery for a desktop caller (D3); nil when the
+	// caller is not a desktop or the daemon has no address to offer (D5).
+	Direct *DirectDelivery `json:"-"`
 }
+
+// DirectDelivery is what an account handshake hands a desktop so it can later
+// connect directly: the daemon's current wss addresses, the certificate they
+// present, and the local direct credential issued for that desktop.
+type DirectDelivery struct {
+	URLs       []string
+	CertPEM    string
+	Credential string
+}
+
+// DirectEndpoint reports how another machine reaches this daemon directly: its
+// routable wss addresses and the PEM certificate those addresses present. No
+// addresses means none another machine could reach.
+type DirectEndpoint func() (urls []string, certPEM string)
+
+// DirectParams is the payload of an auth.direct request. It names no peer:
+// the credential alone identifies the desktop it was issued to.
+type DirectParams struct {
+	Credential string
+}
+
+// DirectResult is returned after a successful auth.direct handshake. Its peer
+// identity is the fingerprint the credential was issued under — the value a
+// relayed auth.account named for that same desktop.
+type DirectResult struct {
+	OK              bool
+	InstanceUUID    string
+	PeerFingerprint string
+}
+
+// deviceKindDesktop is the introspection kind of a desktop's device token —
+// the only caller auto-direct is delivered to. Browser relay tickets
+// (relay_client) and server-issued credentials (server_mirror) are not.
+const deviceKindDesktop = "desktop"
+
+// ErrDirectCredentialInvalid rejects a local direct credential agentred does
+// not hold for its current account: the same -32001 "credential rejected".
+var ErrDirectCredentialInvalid = &rpcerror.Error{Code: rpcerror.CodeUnauthorized, Message: "local direct credential rejected"}
 
 // AuthHandlers owns the pre-authentication gate. The daemon wires these
 // into the registry under method names "auth.pair" / "auth.connect" /
-// "auth.account" / "auth.revoke".
+// "auth.account" / "auth.direct" / "auth.revoke".
 type AuthHandlers struct {
 	st       *state.State
 	pairing  *pairing.Manager
 	rl       *pairing.RateLimiter
 	accounts AccountVerifier
+	direct   DirectEndpoint
 }
 
 // NewAuthHandlers constructs an AuthHandlers wired to the given state,
-// pairing manager, and rate limiter.
-func NewAuthHandlers(st *state.State, pm *pairing.Manager, rl *pairing.RateLimiter, accounts AccountVerifier) *AuthHandlers {
-	return &AuthHandlers{st: st, pairing: pm, rl: rl, accounts: accounts}
+// pairing manager, rate limiter, account verifier and direct endpoint (nil
+// means auto-direct is never delivered).
+func NewAuthHandlers(st *state.State, pm *pairing.Manager, rl *pairing.RateLimiter, accounts AccountVerifier, direct DirectEndpoint) *AuthHandlers {
+	return &AuthHandlers{st: st, pairing: pm, rl: rl, accounts: accounts, direct: direct}
 }
 
 // HandlePair implements Mode A. The ip arg is the source remote address
@@ -160,7 +203,79 @@ func (a *AuthHandlers) HandleAccount(ctx context.Context, p AccountParams) (*Acc
 	return &AccountResult{
 		OK: true, InstanceUUID: snapshot.DaemonInstanceUUID,
 		PeerFingerprint: verified.PeerFingerprint,
+		Direct:          a.deliverDirect(ctx, verified, snapshot.AccountID),
 	}, nil
+}
+
+// deliverDirect issues (or reuses, D4) the local direct credential of a
+// verified desktop and pairs it with the daemon's current addresses and
+// certificate. A failure here only withholds the delivery: the account
+// handshake itself has already succeeded.
+func (a *AuthHandlers) deliverDirect(ctx context.Context, verified Introspection, accountID string) *DirectDelivery {
+	if verified.Kind != deviceKindDesktop || a.direct == nil {
+		return nil
+	}
+	urls, certPEM := a.direct()
+	if len(urls) == 0 {
+		return nil
+	}
+	candidate, err := pairing.NewDeviceToken()
+	if err != nil {
+		logger.Ctx(ctx).Warn("auth.HandleAccount: could not mint a local direct credential, delivering none",
+			zap.String("peerFingerprint", verified.PeerFingerprint), zap.Error(err))
+		return nil
+	}
+	credential, issued, err := a.st.EnsureDirectCredential(verified.PeerFingerprint, accountID, candidate)
+	if err != nil {
+		logger.Ctx(ctx).Warn("auth.HandleAccount: could not record a local direct credential, delivering none",
+			zap.String("peerFingerprint", verified.PeerFingerprint), zap.Error(err))
+		return nil
+	}
+	if issued {
+		logger.Ctx(ctx).Info("auth.HandleAccount: issued a local direct credential",
+			zap.String("peerFingerprint", verified.PeerFingerprint), zap.String("accountId", accountID))
+	}
+	return &DirectDelivery{URLs: urls, CertPEM: certPEM, Credential: credential}
+}
+
+// HandleDirect implements auth.direct (D8). It never contacts the account
+// server: the presented credential must be one this daemon issued, and the
+// account it was issued under must be the account the daemon belongs to now.
+func (a *AuthHandlers) HandleDirect(ctx context.Context, p DirectParams) (*DirectResult, error) {
+	snapshot := a.st.Snapshot()
+	if snapshot.AccountID == "" {
+		return nil, ErrReceiverNotReady
+	}
+	fingerprint, record, ok := matchDirectCredential(snapshot.DirectCredentials, p.Credential)
+	if !ok {
+		logger.Ctx(ctx).Info("auth.HandleDirect: rejected a local direct credential this daemon does not hold")
+		return nil, ErrDirectCredentialInvalid
+	}
+	if record.AccountID != snapshot.AccountID {
+		logger.Ctx(ctx).Info("auth.HandleDirect: rejected a local direct credential issued under another account",
+			zap.String("peerFingerprint", fingerprint), zap.String("accountId", snapshot.AccountID),
+			zap.String("credentialAccountId", record.AccountID))
+		return nil, ErrDirectCredentialInvalid
+	}
+	return &DirectResult{OK: true, InstanceUUID: snapshot.DaemonInstanceUUID, PeerFingerprint: fingerprint}, nil
+}
+
+// matchDirectCredential finds the desktop a presented credential was issued
+// to. Every record is compared in constant time and the scan never stops
+// early, so neither a byte position nor a record's place in the map is
+// revealed by timing.
+func matchDirectCredential(records map[string]state.DirectCredential, presented string) (string, state.DirectCredential, bool) {
+	var (
+		fingerprint string
+		found       state.DirectCredential
+		ok          bool
+	)
+	for candidate, record := range records {
+		if pairing.VerifyDeviceToken(record.Credential, presented) && !ok {
+			fingerprint, found, ok = candidate, record, true
+		}
+	}
+	return fingerprint, found, ok
 }
 
 // HandleRevoke removes a paired peer from state. Used by future "remove

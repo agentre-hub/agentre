@@ -2321,11 +2321,17 @@ func newFakeAccountService(receiverBearer string) *fakeAccountService {
 }
 
 func (s *fakeAccountService) mint(accountID, peerFingerprint string) string {
+	return s.mintKind(accountID, peerFingerprint, "desktop")
+}
+
+// mintKind 铸一枚指定类型的凭据:desktop 设备令牌、浏览器票据 relay_client、server 自用
+// 的 server_mirror —— 自动直连只对第一种下发。
+func (s *fakeAccountService) mintKind(accountID, peerFingerprint, kind string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	credential := fmt.Sprintf("opaque-credential-%d", len(s.credentials)+1)
 	s.credentials[credential] = fakeIntrospection{
-		AccountID: accountID, DeviceID: int64(len(s.credentials) + 1), Kind: "desktop",
+		AccountID: accountID, DeviceID: int64(len(s.credentials) + 1), Kind: kind,
 		PeerFingerprint: peerFingerprint, ExpiresIn: 900,
 	}
 	return credential
@@ -2366,6 +2372,16 @@ func (s *fakeAccountService) serveIntrospect(w http.ResponseWriter, r *http.Requ
 
 func loginDaemonForIntegration(t *testing.T, d *Daemon, accountID string) mintAccountCredential {
 	t.Helper()
+	accounts, _ := accountServerForIntegration(t, d, accountID)
+	return func(peerFingerprint string) string {
+		return accounts.mint(accountID, peerFingerprint)
+	}
+}
+
+// accountServerForIntegration 把 daemon 登录进 accountID,并交回它背后那台假的账号
+// server —— 自动直连的用例要铸别的设备类型的凭据,还要把 server 停掉。
+func accountServerForIntegration(t *testing.T, d *Daemon, accountID string) (*fakeAccountService, *httptest.Server) {
+	t.Helper()
 	accounts := newFakeAccountService("integration-device-token")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !accounts.serveIntrospect(w, r) {
@@ -2376,10 +2392,205 @@ func loginDaemonForIntegration(t *testing.T, d *Daemon, accountID string) mintAc
 	d.state.Login(accountID, state.AccountCredential{AccessToken: "integration-device-token"})
 	d.state.Mutate(func(s *state.State) { s.AccountServerURL = server.URL })
 	require.NoError(t, d.state.Save())
+	return accounts, server
+}
 
-	return func(peerFingerprint string) string {
-		return accounts.mint(accountID, peerFingerprint)
+// accountDeliveryForIntegration 以一枚账号凭据经 LAN 的 ws 地址完成一次 auth.account,
+// 交回应答(其中带不带自动直连的下发内容正是用例要看的),然后断开。
+func accountDeliveryForIntegration(t *testing.T, d *Daemon, credential string) *agentrewire.AuthAccountResponse {
+	t.Helper()
+	d.mu.RLock()
+	url := d.lan.URL()
+	d.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: url})
+	require.NoError(t, err)
+	defer func() { _ = cli.Close() }()
+	response, err := cli.AuthAccount(ctx, &agentrewire.AuthAccountRequest{Credential: credential})
+	require.NoError(t, err)
+	require.True(t, response.GetOk())
+	return response
+}
+
+// directClientForIntegration 按桌面端的做法走自动直连:对下发的 wss 地址固定下发的
+// 证书,再出示下发的本地直连凭据。
+func directClientForIntegration(t *testing.T, url, certPEM, credential string) (*client.ProtobufClient, *agentrewire.AuthDirectResponse, error) {
+	t.Helper()
+	cfg, err := client.BuildTLSConfig(client.TLSPinCert, certPEM)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	cli, err := client.DialProtobuf(ctx, client.Options{URL: url, TLSConfig: cfg})
+	require.NoError(t, err, "the delivered certificate pins the delivered address")
+	t.Cleanup(func() { _ = cli.Close() })
+	response, err := cli.AuthDirect(ctx, &agentrewire.AuthDirectRequest{Credential: credential})
+	return cli, response, err
+}
+
+func requireCredentialRejected(t *testing.T, err error) {
+	t.Helper()
+	var rpcErr *rpcerror.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, rpcerror.CodeUnauthorized, rpcErr.Code)
+}
+
+func liveDirectEndpoint(d *Daemon) ([]string, string) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.lan.DirectURLs(), d.lan.CertificatePEM()
+}
+
+// D3 + D8:桌面端在 server 可达时经 auth.account 拿到下发内容;server 停掉之后,两台
+// 桌面端各自对下发地址固定证书、出示本地直连凭据完成 auth.direct —— 不访问 server,
+// 得到与中转 auth.account 相同的对端指纹与账号身份:一台起的会话被另一台接管并回答
+// 待决策,已不是属主的发起端仍从扇出里看到它被解决(扇出只认同账号的连接)。
+func TestIntegration_AutoDirect_GivenDesktopsHoldTheirDelivery_WhenTheAccountServerIsDown_ThenAuthDirectCarriesTheAccountIdentityThroughFanOut(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &twoClientApprovalRunner{}))
+	const accountID = "account-42"
+	accounts, server := accountServerForIntegration(t, rig.d, accountID)
+	const desk1, desk2 = "sha256:direct-desk-1", "sha256:direct-desk-2"
+	delivery1 := accountDeliveryForIntegration(t, rig.d, accounts.mint(accountID, desk1))
+	delivery2 := accountDeliveryForIntegration(t, rig.d, accounts.mint(accountID, desk2))
+
+	urls, certPEM := liveDirectEndpoint(rig.d)
+	require.NotEmpty(t, urls)
+	assert.Equal(t, urls, delivery1.GetDirectUrls(), "the delivery names the daemon's current wss addresses")
+	assert.Equal(t, certPEM, delivery1.GetTlsCertPem(), "and the certificate those addresses present")
+	require.NotEmpty(t, delivery1.GetDirectCredential())
+	require.NotEmpty(t, delivery2.GetDirectCredential())
+	assert.NotEqual(t, delivery1.GetDirectCredential(), delivery2.GetDirectCredential(), "each desktop gets its own credential")
+
+	server.Close()
+	introspectionsBefore := accounts.introspections.Load()
+
+	direct1, response1, err := directClientForIntegration(t, delivery1.GetDirectUrls()[0], delivery1.GetTlsCertPem(), delivery1.GetDirectCredential())
+	require.NoError(t, err, "auth.direct succeeds with the account server unreachable")
+	assert.True(t, response1.GetOk())
+	assert.Equal(t, desk1, response1.GetPeerFingerprint(), "the same peer identity auth.account assigned")
+	assert.Equal(t, desk1, direct1.SelfFingerprint())
+	direct2, _, err := directClientForIntegration(t, delivery2.GetDirectUrls()[0], delivery2.GetTlsCertPem(), delivery2.GetDirectCredential())
+	require.NoError(t, err)
+
+	frames1 := subscribeEventFrames(t, direct1)
+	frames2 := subscribeEventFrames(t, direct2)
+	startRunAs(t, direct1, rig.dir, 601, "offline-direct")
+	awaitEventOfType[agentruntime.ToolPermissionRequest](t, frames1, convID(601), "发起会话的那条直连")
+
+	var attached wire.SessionAttachResult
+	require.NoError(t, callRig(t, direct2, wire.MethodSessionAttach, wire.SessionAttachParams{
+		ConversationID: convID(601), PeerFingerprint: desk1,
+	}, &attached), "an account-level operation on another desktop's session")
+	var ok wire.OK
+	require.NoError(t, callRig(t, direct2, wire.MethodSubmitToolPermission, wire.SubmitToolPermissionParams{
+		ConversationID: convID(601), PeerFingerprint: desk1, RequestID: twoClientRequestID, Allow: true,
+	}, &ok))
+	awaitEventOfType[agentruntime.ToolPermissionResolved](t, frames2, convID(601), "回答的那一方")
+	awaitEventOfType[agentruntime.ToolPermissionResolved](t, frames1, convID(601),
+		"已不是属主的发起端必须经扇出看到这条待决策被解决")
+	awaitLifecycle(t, direct1, 601, wire.SessionLifecycleIdle)
+
+	assert.Equal(t, introspectionsBefore, accounts.introspections.Load(), "auth.direct never asked the account server")
+}
+
+// D3 + D4:只有桌面端的账号握手带下发内容并记账;daemon 重启(端口换了)之后同一台
+// 桌面端再握手,凭据沿用重启前落盘的那一张,地址取此刻的值。
+func TestIntegration_AutoDirect_GivenAccountHandshakes_ThenOnlyADesktopIsDeliveredAndARestartReusesItsCredentialAtTheCurrentAddress(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	first := bootRigInDir(t, dir)
+	const accountID = "account-42"
+	accounts, _ := accountServerForIntegration(t, first.d, accountID)
+	const desk = "sha256:direct-desk"
+
+	delivered := accountDeliveryForIntegration(t, first.d, accounts.mint(accountID, desk))
+	require.NotEmpty(t, delivered.GetDirectCredential())
+	for _, kind := range []string{"relay_client", "server_mirror"} {
+		response := accountDeliveryForIntegration(t, first.d, accounts.mintKind(accountID, "sha256:"+kind, kind))
+		assert.Empty(t, response.GetDirectUrls(), kind)
+		assert.Empty(t, response.GetTlsCertPem(), kind)
+		assert.Empty(t, response.GetDirectCredential(), kind)
 	}
+	assert.Equal(t, map[string]state.DirectCredential{desk: {Credential: delivered.GetDirectCredential(), AccountID: accountID}},
+		first.d.state.Snapshot().DirectCredentials, "agentred records the desktop's fingerprint and the issuing account, nothing else")
+
+	first.stop()
+	second := bootRigInDir(t, dir)
+	again := accountDeliveryForIntegration(t, second.d, accounts.mint(accountID, desk))
+
+	urls, certPEM := liveDirectEndpoint(second.d)
+	assert.Equal(t, delivered.GetDirectCredential(), again.GetDirectCredential(), "the credential on file is reused, not reissued")
+	assert.Equal(t, urls, again.GetDirectUrls(), "addresses are the restarted daemon's current ones")
+	assert.Equal(t, certPEM, again.GetTlsCertPem())
+	_, _, err = directClientForIntegration(t, again.GetDirectUrls()[0], again.GetTlsCertPem(), delivered.GetDirectCredential())
+	require.NoError(t, err, "the credential issued before the restart still authenticates")
+}
+
+// D5:找不到可被他机访问的直连地址(这里是证书落不了盘,LAN 只剩 ws)时,桌面端的账号
+// 握手照常成功,但不下发地址,也不签发凭据。
+func TestIntegration_AutoDirect_GivenNoDirectAddress_WhenADesktopHandshakes_ThenNothingIsDeliveredOrIssued(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	_, keyFile := lancert.Paths(dir)
+	require.NoError(t, os.Mkdir(keyFile, 0o700))
+	rig := bootRigInDir(t, dir)
+	mint := loginDaemonForIntegration(t, rig.d, "account-42")
+
+	response := accountDeliveryForIntegration(t, rig.d, mint("sha256:direct-desk"))
+
+	assert.Empty(t, response.GetDirectUrls())
+	assert.Empty(t, response.GetTlsCertPem())
+	assert.Empty(t, response.GetDirectCredential())
+	assert.Empty(t, rig.d.state.Snapshot().DirectCredentials)
+}
+
+// D11:agentred 登出(与 `agentred logout` 同一条路:daemon 停着时读盘、Logout、写盘)
+// 之后,它签发过的凭据被拒;再登录另一个账号,那张凭据仍被拒。
+func TestIntegration_AutoDirect_GivenTheDaemonLoggedOutAndThenIntoAnotherAccount_WhenAnIssuedCredentialIsPresented_ThenItIsRejected(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	first := bootRigInDir(t, dir)
+	accounts, _ := accountServerForIntegration(t, first.d, "account-42")
+	delivered := accountDeliveryForIntegration(t, first.d, accounts.mint("account-42", "sha256:direct-desk"))
+	require.NotEmpty(t, delivered.GetDirectCredential())
+	first.stop()
+
+	onDisk, err := state.Load(dir)
+	require.NoError(t, err)
+	onDisk.Logout()
+	require.NoError(t, onDisk.Save())
+	loggedOut := bootRigInDir(t, dir)
+	urls, certPEM := liveDirectEndpoint(loggedOut.d)
+	_, _, err = directClientForIntegration(t, urls[0], certPEM, delivered.GetDirectCredential())
+	requireCredentialRejected(t, err)
+	loggedOut.stop()
+
+	onDisk, err = state.Load(dir)
+	require.NoError(t, err)
+	onDisk.Login("account-77", state.AccountCredential{AccessToken: "other-token"})
+	require.NoError(t, onDisk.Save())
+	switched := bootRigInDir(t, dir)
+	urls, certPEM = liveDirectEndpoint(switched.d)
+	_, _, err = directClientForIntegration(t, urls[0], certPEM, delivered.GetDirectCredential())
+	requireCredentialRejected(t, err)
+}
+
+// auth.direct 与另外几种握手过同一道协议版本闸门,先于任何凭据判定。
+func TestAuthDirect_GivenCallerOmitsTheProtocolVersion_WhenAuthenticating_ThenRefusedAsTooOld(t *testing.T) {
+	client, _, ctx := protobufHandshakeConns(t)
+
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT),
+		&agentrewire.AuthDirectRequest{Credential: "token"},
+		func() *agentrewire.AuthDirectResponse { return &agentrewire.AuthDirectResponse{} })
+
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, rpcerror.CodeProtocolVersion, rpcErr.Code)
+	require.Contains(t, rpcErr.Message, wireversion.MinSupported)
 }
 
 // TestIntegration_AccountHandshake_GivenTheDaemonsOwnTokenIsRejected_WhenRefreshSucceeds_ThenRetriesOnceAndAuthenticates

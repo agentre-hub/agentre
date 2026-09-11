@@ -15,6 +15,10 @@ type State struct {
 	Preferences        Preferences                `json:"preferences"`
 	AccountID          string                     `json:"accountId,omitempty"`
 	Credential         AccountCredential          `json:"credential,omitempty"`
+	// DirectCredentials are the local direct credentials this daemon issued,
+	// keyed by the desktop fingerprint the account server named at issuance.
+	// Account-bound: Logout drops them with the claim (D11).
+	DirectCredentials map[string]DirectCredential `json:"directCredentials,omitempty"`
 
 	mu  *sync.RWMutex `json:"-"`
 	dir string        `json:"-"`
@@ -73,6 +77,14 @@ type AccountCredential struct {
 	AccessTokenExpiresAt  int64  `json:"accessTokenExpiresAt,omitempty"`
 	RefreshToken          string `json:"refreshToken,omitempty"`
 	RefreshTokenExpiresAt int64  `json:"refreshTokenExpiresAt,omitempty"`
+}
+
+// DirectCredential is one desktop's local direct credential: the opaque value
+// the desktop presents on auth.direct, and the account the daemon belonged to
+// when it issued it.
+type DirectCredential struct {
+	Credential string `json:"credential"`
+	AccountID  string `json:"accountId"`
 }
 
 type Preferences struct {

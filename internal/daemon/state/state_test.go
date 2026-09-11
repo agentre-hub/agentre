@@ -312,6 +312,114 @@ func fullyPopulatedState(t *testing.T) *State {
 		s.Preferences = Preferences{LogLevel: "info", LogRotateMB: 50}
 		s.AccountID = "account-a"
 		s.Credential = AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"}
+		s.DirectCredentials = map[string]DirectCredential{"sha256:desk": {Credential: "c", AccountID: "account-a"}}
 	})
 	return st
+}
+
+// ── 本地直连凭据:按桌面端指纹记账,记下签发时的账号 ─────────────────────────
+
+// D3:第一次为一台桌面端确保凭据时,记下候选值与账号并**原子落盘** —— daemon 重启后
+// 桌面端手里那一张必须仍然认得,而写不下来的凭据不该被发出去。
+func TestState_EnsureDirectCredential_GivenTheDesktopHoldsNone_WhenEnsured_ThenRecordsTheCandidateUnderTheAccountOnDisk(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+
+	credential, issued, err := st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+
+	require.NoError(t, err)
+	assert.True(t, issued)
+	assert.Equal(t, "candidate-1", credential)
+	reloaded, err := Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]DirectCredential{"sha256:desk": {Credential: "candidate-1", AccountID: "account-a"}},
+		reloaded.Snapshot().DirectCredentials)
+	info, err := os.Stat(filepath.Join(dir, "state.json"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "state.json holds credentials and stays owner-only")
+}
+
+// D4:同一台桌面端再次握手沿用已有那一张,候选值被丢弃。
+func TestState_EnsureDirectCredential_GivenTheDesktopAlreadyHoldsOne_WhenEnsuredAgain_ThenReturnsTheExistingOne(t *testing.T) {
+	st, err := Load(setupStateTest(t))
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+	_, _, err = st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+	require.NoError(t, err)
+
+	credential, issued, err := st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-2")
+
+	require.NoError(t, err)
+	assert.False(t, issued)
+	assert.Equal(t, "candidate-1", credential)
+}
+
+// 记在别的账号名下的那一张对当前账号不算「已有」:它在 auth.direct 上本来就会被拒。
+func TestState_EnsureDirectCredential_GivenTheRecordIsUnderAnotherAccount_WhenEnsured_ThenReplacesIt(t *testing.T) {
+	st, err := Load(setupStateTest(t))
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+	st.Mutate(func(s *State) {
+		s.DirectCredentials = map[string]DirectCredential{"sha256:desk": {Credential: "stale", AccountID: "account-z"}}
+	})
+
+	credential, issued, err := st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+
+	require.NoError(t, err)
+	assert.True(t, issued)
+	assert.Equal(t, "candidate-1", credential)
+	assert.Equal(t, DirectCredential{Credential: "candidate-1", AccountID: "account-a"}, st.Snapshot().DirectCredentials["sha256:desk"])
+}
+
+// 核验与记账之间 daemon 可能已经离开了那个账号:此时一张都不记,免得登出后留下残余。
+func TestState_EnsureDirectCredential_GivenTheStateNoLongerBelongsToThatAccount_WhenEnsured_ThenRecordsNothing(t *testing.T) {
+	for name, login := range map[string]string{"logged out": "", "another account": "account-b"} {
+		t.Run(name, func(t *testing.T) {
+			st, err := Load(setupStateTest(t))
+			require.NoError(t, err)
+			if login != "" {
+				st.Login(login, AccountCredential{AccessToken: "at"})
+			}
+
+			_, _, err = st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+
+			require.Error(t, err)
+			assert.Empty(t, st.Snapshot().DirectCredentials)
+		})
+	}
+}
+
+// 按桌面端指纹删:只删点名的那几台,并落盘。
+func TestState_DeleteDirectCredentials_GivenSeveralDesktops_WhenSomeAreDeleted_ThenOnlyThoseAreGoneOnDisk(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+	for _, fingerprint := range []string{"sha256:desk-1", "sha256:desk-2", "sha256:desk-3"} {
+		_, _, err := st.EnsureDirectCredential(fingerprint, "account-a", "credential-"+fingerprint)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, st.DeleteDirectCredentials("sha256:desk-1", "sha256:desk-3", "sha256:unknown"))
+
+	reloaded, err := Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]DirectCredential{"sha256:desk-2": {Credential: "credential-sha256:desk-2", AccountID: "account-a"}},
+		reloaded.Snapshot().DirectCredentials)
+}
+
+// Snapshot 是只读数据袋:改它手里的表不得改到活的状态。
+func TestState_Snapshot_GivenDirectCredentials_WhenTheSnapshotIsMutated_ThenTheLiveStateIsUntouched(t *testing.T) {
+	st, err := Load(setupStateTest(t))
+	require.NoError(t, err)
+	st.Login("account-a", AccountCredential{AccessToken: "at"})
+	_, _, err = st.EnsureDirectCredential("sha256:desk", "account-a", "candidate-1")
+	require.NoError(t, err)
+
+	snapshot := st.Snapshot()
+	delete(snapshot.DirectCredentials, "sha256:desk")
+
+	assert.Contains(t, st.Snapshot().DirectCredentials, "sha256:desk")
 }
