@@ -69,6 +69,20 @@ func (mr *MockLostChangeRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockLostChangeRepo)(nil).Delete), ctx, id)
 }
 
+// DeleteMany mocks base method.
+func (m *MockLostChangeRepo) DeleteMany(ctx context.Context, ids []int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteMany", ctx, ids)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteMany indicates an expected call of DeleteMany.
+func (mr *MockLostChangeRepoMockRecorder) DeleteMany(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteMany", reflect.TypeOf((*MockLostChangeRepo)(nil).DeleteMany), ctx, ids)
+}
+
 // ListByAccount mocks base method.
 func (m *MockLostChangeRepo) ListByAccount(ctx context.Context, accountID int64) ([]*syncqueue_entity.LostChange, error) {
 	m.ctrl.T.Helper()
@@ -82,4 +96,19 @@ func (m *MockLostChangeRepo) ListByAccount(ctx context.Context, accountID int64)
 func (mr *MockLostChangeRepoMockRecorder) ListByAccount(ctx, accountID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAccount", reflect.TypeOf((*MockLostChangeRepo)(nil).ListByAccount), ctx, accountID)
+}
+
+// ListExpired mocks base method.
+func (m *MockLostChangeRepo) ListExpired(ctx context.Context, accountID, cutoff int64) ([]*syncqueue_entity.LostChange, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExpired", ctx, accountID, cutoff)
+	ret0, _ := ret[0].([]*syncqueue_entity.LostChange)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExpired indicates an expected call of ListExpired.
+func (mr *MockLostChangeRepoMockRecorder) ListExpired(ctx, accountID, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExpired", reflect.TypeOf((*MockLostChangeRepo)(nil).ListExpired), ctx, accountID, cutoff)
 }

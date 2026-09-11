@@ -65,12 +65,26 @@ func (f *fakeOutboundQueue) DeleteMany(_ context.Context, ids []int64) error {
 	return nil
 }
 
+// fakeInboundQueue 另记三个计数，给「读写次数不随队列行数增长」那几条断言用：
+// queries 是读语句条数、rowsRead 是读回来的行数、writes 是写语句（每一条都是
+// 桌面端一次 BEGIN IMMEDIATE）条数，deletes 是其中纯删除的那些。
 type fakeInboundQueue struct {
 	rows   []*syncqueue_entity.InboundQueueItem
 	nextID int64
+
+	queries  int
+	rowsRead int
+	writes   int
+	deletes  int
+}
+
+// resetCounters 清零计数：预置数据走的 Create 不算进被测那一轮。
+func (f *fakeInboundQueue) resetCounters() {
+	f.queries, f.rowsRead, f.writes, f.deletes = 0, 0, 0, 0
 }
 
 func (f *fakeInboundQueue) Create(_ context.Context, row *syncqueue_entity.InboundQueueItem) error {
+	f.writes++
 	f.nextID++
 	row.ID = f.nextID
 	f.rows = append(f.rows, row)
@@ -78,32 +92,108 @@ func (f *fakeInboundQueue) Create(_ context.Context, row *syncqueue_entity.Inbou
 }
 
 func (f *fakeInboundQueue) ListByAccount(_ context.Context, accountID int64) ([]*syncqueue_entity.InboundQueueItem, error) {
+	return f.list(func(row *syncqueue_entity.InboundQueueItem) bool { return row.SyncAccountID == accountID }), nil
+}
+
+func (f *fakeInboundQueue) ListExpired(_ context.Context, accountID, cutoff int64) ([]*syncqueue_entity.InboundQueueItem, error) {
+	return f.list(func(row *syncqueue_entity.InboundQueueItem) bool {
+		return row.SyncAccountID == accountID && row.ReceivedAt <= cutoff
+	}), nil
+}
+
+func (f *fakeInboundQueue) list(match func(*syncqueue_entity.InboundQueueItem) bool) []*syncqueue_entity.InboundQueueItem {
+	f.queries++
 	out := make([]*syncqueue_entity.InboundQueueItem, 0, len(f.rows))
 	for _, row := range f.rows {
-		if row.SyncAccountID == accountID {
+		if match(row) {
 			out = append(out, row)
 		}
 	}
-	return out, nil
+	f.rowsRead += len(out)
+	return out
+}
+
+// ReplaceForEntity 与真仓储同一个语义：删掉同一个同步标识的旧行，新行沿用其中
+// 最早的那个收到时间。
+func (f *fakeInboundQueue) ReplaceForEntity(_ context.Context, row *syncqueue_entity.InboundQueueItem) error {
+	for _, old := range f.rows {
+		if old.SyncAccountID != row.SyncAccountID || old.EntityType != row.EntityType || old.EntitySyncID != row.EntitySyncID {
+			continue
+		}
+		if old.ReceivedAt > 0 && (row.ReceivedAt == 0 || old.ReceivedAt < row.ReceivedAt) {
+			row.ReceivedAt = old.ReceivedAt
+		}
+	}
+	f.drop(func(old *syncqueue_entity.InboundQueueItem) bool {
+		return old.SyncAccountID == row.SyncAccountID && old.EntityType == row.EntityType && old.EntitySyncID == row.EntitySyncID
+	})
+	f.nextID++
+	row.ID = f.nextID
+	f.rows = append(f.rows, row)
+	f.writes++
+	return nil
 }
 
 func (f *fakeInboundQueue) Delete(_ context.Context, id int64) error {
+	f.writes++
+	f.deletes++
+	f.drop(func(row *syncqueue_entity.InboundQueueItem) bool { return row.ID == id })
+	return nil
+}
+
+func (f *fakeInboundQueue) DeleteByEntity(_ context.Context, accountID int64, kind, syncID string) error {
+	f.writes++
+	f.deletes++
+	f.drop(func(row *syncqueue_entity.InboundQueueItem) bool {
+		return row.SyncAccountID == accountID && row.EntityType == kind && row.EntitySyncID == syncID
+	})
+	return nil
+}
+
+func (f *fakeInboundQueue) DeleteMany(_ context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	f.writes++
+	f.deletes++
+	drop := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		drop[id] = struct{}{}
+	}
+	f.drop(func(row *syncqueue_entity.InboundQueueItem) bool {
+		_, ok := drop[row.ID]
+		return ok
+	})
+	return nil
+}
+
+func (f *fakeInboundQueue) drop(match func(*syncqueue_entity.InboundQueueItem) bool) {
 	kept := f.rows[:0]
 	for _, row := range f.rows {
-		if row.ID != id {
+		if !match(row) {
 			kept = append(kept, row)
 		}
 	}
 	f.rows = kept
-	return nil
 }
 
+// fakeLostChange 记下读回来的行数与删除语句条数（回收只读过期行、批量删）；
+// createErr 非 nil 时 Create 失败（createErrFor 非空则只对那个同步标识失败），
+// 用来守「先记录丢失、后删除」。
 type fakeLostChange struct {
 	rows   []*syncqueue_entity.LostChange
 	nextID int64
+
+	rowsRead     int
+	deletes      int
+	createErr    error
+	createErrFor string
 }
 
 func (f *fakeLostChange) Create(_ context.Context, row *syncqueue_entity.LostChange) error {
+	if f.createErr != nil && (f.createErrFor == "" || f.createErrFor == row.EntitySyncID) {
+		return f.createErr
+	}
 	f.nextID++
 	if row.ID == 0 {
 		row.ID = f.nextID
@@ -113,24 +203,53 @@ func (f *fakeLostChange) Create(_ context.Context, row *syncqueue_entity.LostCha
 }
 
 func (f *fakeLostChange) ListByAccount(_ context.Context, accountID int64) ([]*syncqueue_entity.LostChange, error) {
+	return f.list(func(row *syncqueue_entity.LostChange) bool { return row.SyncAccountID == accountID }), nil
+}
+
+func (f *fakeLostChange) ListExpired(_ context.Context, accountID, cutoff int64) ([]*syncqueue_entity.LostChange, error) {
+	return f.list(func(row *syncqueue_entity.LostChange) bool {
+		return row.SyncAccountID == accountID && row.Createtime <= cutoff
+	}), nil
+}
+
+func (f *fakeLostChange) list(match func(*syncqueue_entity.LostChange) bool) []*syncqueue_entity.LostChange {
 	out := make([]*syncqueue_entity.LostChange, 0, len(f.rows))
 	for _, row := range f.rows {
-		if row.SyncAccountID == accountID {
+		if match(row) {
 			out = append(out, row)
 		}
 	}
-	return out, nil
+	f.rowsRead += len(out)
+	return out
 }
 
 func (f *fakeLostChange) Delete(_ context.Context, id int64) error {
+	f.deletes++
+	f.drop(map[int64]struct{}{id: {}})
+	return nil
+}
+
+func (f *fakeLostChange) DeleteMany(_ context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	f.deletes++
+	drop := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		drop[id] = struct{}{}
+	}
+	f.drop(drop)
+	return nil
+}
+
+func (f *fakeLostChange) drop(ids map[int64]struct{}) {
 	kept := f.rows[:0]
 	for _, row := range f.rows {
-		if row.ID != id {
+		if _, ok := ids[row.ID]; !ok {
 			kept = append(kept, row)
 		}
 	}
 	f.rows = kept
-	return nil
 }
 
 // fakeSyncState 是七张表同步元数据列的内存替身，键是「对象类型:同步标识」。

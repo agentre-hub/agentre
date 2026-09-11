@@ -212,19 +212,22 @@ func (s *service) recordMergeLosses(ctx context.Context, accountID int64, losses
 
 // gcLostChanges 「没能同步的改动」保留 30 天（R5、决策 5），到期回收。与暂缓行的
 // 回收同一个窗口、同一个节奏——两者都是 30 天承诺的一半，缺哪一半那句承诺都不成立。
+//
+// 只读到期的行、一条语句删掉：列表里躺着的未到期记录一行都不读回来。
 func (s *service) gcLostChanges(ctx context.Context, accountID int64) error {
-	rows, err := syncqueue_repo.LostChange().ListByAccount(ctx, accountID)
+	cutoff := s.now() - TombstoneWindow.Milliseconds()
+	rows, err := syncqueue_repo.LostChange().ListExpired(ctx, accountID, cutoff)
 	if err != nil {
 		return err
 	}
-	cutoff := s.now() - TombstoneWindow.Milliseconds()
+	ids := make([]int64, 0, len(rows))
 	for _, row := range rows {
-		if row.Createtime > cutoff {
-			continue
-		}
-		if err := syncqueue_repo.LostChange().Delete(ctx, row.ID); err != nil {
-			return err
-		}
+		ids = append(ids, row.ID)
+	}
+	if err := syncqueue_repo.LostChange().DeleteMany(ctx, ids); err != nil {
+		return err
+	}
+	for _, row := range rows {
 		logger.Ctx(ctx).Info("sync_svc.gcLostChanges: lost change expired",
 			zap.String("kind", row.EntityType), zap.String("syncId", row.EntitySyncID),
 			zap.String("reason", row.Reason))
@@ -240,16 +243,36 @@ func (s *service) gcLostChanges(ctx context.Context, accountID int64) error {
 // 返回值是「本机有没有真的因此改变」：版本守卫挡下的重复投递、无处可删的墓碑、
 // 等引用而暂缓的那些都是 false —— 界面据此决定要不要重拉，空转的轮次不该惊动它。
 func (s *service) applyInbound(ctx context.Context, accountID int64, in *inbound) (bool, error) {
+	outcome, err := s.land(ctx, accountID, in)
+	return outcome == landingApplied, err
+}
+
+// landing 是一条下行项走完两道闸之后的去向。
+type landing int
+
+const (
+	// landingUnchanged 本机没有因此改变，也不必再等：版本守卫挡下的重复投递、
+	// 无处可删的墓碑。
+	landingUnchanged landing = iota
+	// landingApplied 本机真的因此改变。
+	landingApplied
+	// landingDeferred 引用目标还没到，这一行已经挂进暂缓队列（替换掉同一个同步
+	// 标识的旧副本）。重放据此知道它不必再出队、也不算这一轮的进展。
+	landingDeferred
+)
+
+// land 是 applyInbound 的本体，另外交出「暂缓了」这一种去向。
+func (s *service) land(ctx context.Context, accountID int64, in *inbound) (landing, error) {
 	ad := s.adapters[in.Kind]
 	if ad == nil {
-		return false, nil
+		return landingUnchanged, nil
 	}
 	version, _, found, err := syncstate_repo.SyncState().FindVersion(ctx, in.Kind, in.SyncID)
 	if err != nil {
-		return false, err
+		return landingUnchanged, err
 	}
 	if found && version >= in.Version {
-		return false, nil
+		return landingUnchanged, nil
 	}
 	if in.IsTombstone() {
 		// 墓碑一到，同一个同步标识压在暂缓队列里的旧副本立刻作废。
@@ -258,14 +281,14 @@ func (s *service) applyInbound(ctx context.Context, accountID int64, in *inbound
 		// SaveMeta 那条 `UPDATE … WHERE sync_id = ?` 命中 0 行，同步元数据落不下去，
 		// 版本守卫对它们失忆；此后重放那份旧副本会把删掉的行原样建回来，而游标早已
 		// 越过这两版，谁也不会再纠正它（R6：删除不被复活）。
-		if err := s.dropDeferred(ctx, accountID, in.Kind, in.SyncID); err != nil {
-			return false, err
+		if err := syncqueue_repo.InboundQueue().DeleteByEntity(ctx, accountID, in.Kind, in.SyncID); err != nil {
+			return landingUnchanged, err
 		}
 	}
 	if in.IsTombstone() && !found {
 		// 本机从来没有这一行：墓碑没有可删的东西，也不必为它等引用目标到达
 		// ——把删除挂进暂缓队列只会白等 30 天（R2a/R6）。
-		return false, nil
+		return landingUnchanged, nil
 	}
 
 	if in.IsTombstone() {
@@ -274,26 +297,26 @@ func (s *service) applyInbound(ctx context.Context, accountID int64, in *inbound
 		// agentred 时一条 backend 的墓碑要在暂缓队列里空等 30 天再被当成「引用
 		// 丢失」丢掉——那一行在本机永远删不掉，而 R6 说删除必须到达各端。
 		if err := ad.remove(ctx, in); err != nil {
-			return false, err
+			return landingUnchanged, err
 		}
-		return true, s.saveInboundMeta(ctx, accountID, in)
+		return landingApplied, s.saveInboundMeta(ctx, accountID, in)
 	}
 
 	resolved, missing, err := resolveRefs(ctx, ad.refs(in))
 	if errors.Is(err, errRefMissing) {
-		return false, s.defer_(ctx, accountID, in, missing.key())
+		return landingDeferred, s.defer_(ctx, accountID, in, missing.key())
 	}
 	if err != nil {
-		return false, err
+		return landingUnchanged, err
 	}
 
 	if err := ad.apply(ctx, in, resolved); err != nil {
 		if errors.Is(err, errRefMissing) {
-			return false, s.defer_(ctx, accountID, in, "")
+			return landingDeferred, s.defer_(ctx, accountID, in, "")
 		}
-		return false, err
+		return landingUnchanged, err
 	}
-	return true, s.saveInboundMeta(ctx, accountID, in)
+	return landingApplied, s.saveInboundMeta(ctx, accountID, in)
 }
 
 // saveInboundMeta 记下这一行已经消费到哪一版（版本守卫下一次靠它）。
@@ -311,38 +334,23 @@ func (s *service) saveInboundMeta(ctx context.Context, accountID int64, in *inbo
 }
 
 // defer_ 把一条暂缓落地的行存进入站队列（R2a）：保留 30 天，等引用目标到达后完成。
-// 同一个同步标识只留最新的一份。
+// 同一个同步标识只留最新的一份，收到时间保留最早一次的：30 天窗口从「第一次等不到」
+// 开始算（ReplaceForEntity 在同一个事务里完成这三件事）。
 // missing identifies the deferred reference for debug logging; replay retries all rows.
 func (s *service) defer_(ctx context.Context, accountID int64, in *inbound, missing string) error {
 	body, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
-	rows, err := syncqueue_repo.InboundQueue().ListByAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	receivedAt := s.now()
-	for _, row := range rows {
-		if row.EntityType == in.Kind && row.EntitySyncID == in.SyncID {
-			// 保留最早一次收到的时间：30 天窗口从「第一次等不到」开始算。
-			if row.ReceivedAt > 0 && row.ReceivedAt < receivedAt {
-				receivedAt = row.ReceivedAt
-			}
-			if err := syncqueue_repo.InboundQueue().Delete(ctx, row.ID); err != nil {
-				return err
-			}
-		}
-	}
 	logger.Ctx(ctx).Debug("sync_svc.defer: reference has not arrived, holding row",
 		zap.String("kind", in.Kind), zap.String("syncId", in.SyncID),
 		zap.String("missingRef", missing))
-	return syncqueue_repo.InboundQueue().Create(ctx, &syncqueue_entity.InboundQueueItem{
+	return syncqueue_repo.InboundQueue().ReplaceForEntity(ctx, &syncqueue_entity.InboundQueueItem{
 		SyncAccountID: accountID,
 		EntityType:    in.Kind,
 		EntitySyncID:  in.SyncID,
 		PayloadJSON:   string(body),
-		ReceivedAt:    receivedAt,
+		ReceivedAt:    s.now(),
 	})
 }
 
@@ -352,6 +360,9 @@ func (s *service) defer_(ctx context.Context, accountID int64, in *inbound, miss
 // 它走的是与 applyInbound 同一条路（同样的版本守卫、同样的引用守卫、同样的删除
 // 例外），区别只在失败之后：暂缓的行**留在队列里**等下一轮，不往上抛——一条重试
 // 不成功的行不该把同一轮里其它行的重放也一起中断。
+//
+// 一轮只读一次队列：还差引用的行由 land 当场换成新的一份（不必再查它是不是还在），
+// 可以出队的行攒到这一轮末尾一条语句删掉——每条写语句在桌面端都要取一次写锁。
 func (s *service) replayDeferred(ctx context.Context, accountID int64, landed appliedKinds) error {
 	for round := 0; round < 8; round++ {
 		rows, err := syncqueue_repo.InboundQueue().ListByAccount(ctx, accountID)
@@ -362,23 +373,22 @@ func (s *service) replayDeferred(ctx context.Context, accountID int64, landed ap
 			return nil
 		}
 		progressed := false
+		done := make([]int64, 0, len(rows))
 		for _, row := range rows {
 			in := &inbound{}
 			if err := json.Unmarshal([]byte(row.PayloadJSON), in); err != nil {
 				// 存坏了的行没有重试价值，直接丢。
-				if derr := syncqueue_repo.InboundQueue().Delete(ctx, row.ID); derr != nil {
-					return derr
-				}
+				done = append(done, row.ID)
 				continue
 			}
 			if s.adapters[in.Kind] == nil {
 				continue
 			}
-			// 走 applyInbound 而不是自己再解析一遍引用：版本守卫也因此对重放生效。
+			// 走 land 而不是自己再解析一遍引用：版本守卫也因此对重放生效。
 			// 少了它，一次迟到的重放会把已经落地的更新版本盖回旧版本，而游标早已
 			// 越过那一版——被盖掉的内容再也不会被重新投递，回退是永久的。
-			applied, aerr := s.applyInbound(ctx, accountID, in)
-			if applied {
+			outcome, aerr := s.land(ctx, accountID, in)
+			if outcome == landingApplied {
 				landed[in.Kind] = struct{}{}
 			}
 			if aerr != nil {
@@ -386,53 +396,22 @@ func (s *service) replayDeferred(ctx context.Context, accountID int64, landed ap
 					zap.String("kind", in.Kind), zap.String("syncId", in.SyncID), zap.Error(aerr))
 				continue
 			}
-			// applyInbound 把「还差引用」重新挂了一条暂缓行；那条替换掉这一行，
-			// 这一行照常删掉（defer_ 已经保留了最早那次的 ReceivedAt）。
-			if err := syncqueue_repo.InboundQueue().Delete(ctx, row.ID); err != nil {
-				return err
+			if outcome == landingDeferred {
+				// 引用目标还是没到：land 已经用新的一份替换了这一行（最早那次的
+				// ReceivedAt 保留着），这一行不再出队，也不算进展。
+				continue
 			}
-			if !s.stillDeferred(ctx, accountID, in) {
-				progressed = true
-			}
+			done = append(done, row.ID)
+			progressed = true
+		}
+		if err := syncqueue_repo.InboundQueue().DeleteMany(ctx, done); err != nil {
+			return err
 		}
 		if !progressed {
 			return nil
 		}
 	}
 	return nil
-}
-
-// dropDeferred 清掉某个同步标识在暂缓队列里的全部行。
-func (s *service) dropDeferred(ctx context.Context, accountID int64, kind, syncID string) error {
-	rows, err := syncqueue_repo.InboundQueue().ListByAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if row.EntityType != kind || row.EntitySyncID != syncID {
-			continue
-		}
-		if err := syncqueue_repo.InboundQueue().Delete(ctx, row.ID); err != nil {
-			return err
-		}
-		logger.Ctx(ctx).Debug("sync_svc.dropDeferred: tombstone superseded a deferred row",
-			zap.String("kind", kind), zap.String("syncId", syncID))
-	}
-	return nil
-}
-
-// stillDeferred 报告这一行是不是又被挂回了暂缓队列（引用目标还是没到）。
-func (s *service) stillDeferred(ctx context.Context, accountID int64, in *inbound) bool {
-	rows, err := syncqueue_repo.InboundQueue().ListByAccount(ctx, accountID)
-	if err != nil {
-		return true
-	}
-	for _, row := range rows {
-		if row.EntityType == in.Kind && row.EntitySyncID == in.SyncID {
-			return true
-		}
-	}
-	return false
 }
 
 // deferFailed 把一条落不了地的下行行留进暂缓队列，让整页的其余部分继续。
@@ -448,16 +427,17 @@ func (s *service) deferFailed(ctx context.Context, accountID int64, in *inbound,
 
 // gcDeferred 超过 30 天仍然等不到引用目标的行整行丢弃，并以「引用丢失」进 R5 的
 // 列表（R2a）。
+//
+// 只读到期的行；先把每一行记进列表、再一条语句出队。次序不能反：记录落不下去（或
+// 进程在中间退出）时，没记下的行还在队列里，下一轮再来——一行也不会被悄悄丢掉。
 func (s *service) gcDeferred(ctx context.Context, accountID int64) error {
-	rows, err := syncqueue_repo.InboundQueue().ListByAccount(ctx, accountID)
+	cutoff := s.now() - TombstoneWindow.Milliseconds()
+	rows, err := syncqueue_repo.InboundQueue().ListExpired(ctx, accountID, cutoff)
 	if err != nil {
 		return err
 	}
-	cutoff := s.now() - TombstoneWindow.Milliseconds()
+	recorded := make([]int64, 0, len(rows))
 	for _, row := range rows {
-		if row.ReceivedAt > cutoff {
-			continue
-		}
 		lost := &syncqueue_entity.LostChange{
 			EntityType:   row.EntityType,
 			EntitySyncID: row.EntitySyncID,
@@ -476,15 +456,14 @@ func (s *service) gcDeferred(ctx context.Context, accountID int64) error {
 			lost.PayloadJSON = row.PayloadJSON
 		}
 		if err := s.recordLostChange(ctx, accountID, lost); err != nil {
-			return err
+			// 已经记下的照常出队，免得下一轮把它们再记一遍；这一行和后面的留在队列里。
+			return errors.Join(err, syncqueue_repo.InboundQueue().DeleteMany(ctx, recorded))
 		}
-		if err := syncqueue_repo.InboundQueue().Delete(ctx, row.ID); err != nil {
-			return err
-		}
+		recorded = append(recorded, row.ID)
 		logger.Ctx(ctx).Info("sync_svc.gcDeferred: deferred row expired",
 			zap.String("kind", row.EntityType), zap.String("syncId", row.EntitySyncID))
 	}
-	return nil
+	return syncqueue_repo.InboundQueue().DeleteMany(ctx, recorded)
 }
 
 // ── 账号级实时通道：第二个下行触发源 ───────────────────────────────────────

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -877,6 +878,229 @@ func TestGCDeferred_GivenExpiredRow_KeepsBarePayloadAndNaturalKey(t *testing.T) 
 	assert.NotContains(t, body, "sync_id", "信封字段不该混进正文")
 	assert.Equal(t, "proj-9", h.lost.rows[0].ScopeSyncID)
 	assert.Equal(t, devicefp.Carrier("fp-abc"), h.lost.rows[0].AgentredFingerprint)
+}
+
+// seedDeferred 直接往入站队列里放一条暂缓行（账号 7），模拟前几轮留下的积压。
+func seedDeferred(t *testing.T, h *harness, in *inbound, receivedAt int64) {
+	t.Helper()
+	body, err := json.Marshal(in)
+	require.NoError(t, err)
+	require.NoError(t, h.inbound.Create(context.Background(), &syncqueue_entity.InboundQueueItem{
+		SyncAccountID: 7, EntityType: in.Kind, EntitySyncID: in.SyncID,
+		PayloadJSON: string(body), ReceivedAt: receivedAt,
+	}))
+}
+
+// TestDefer_GivenRowDeferredAgain_KeepsTheFirstReceivedAt R2a：30 天窗口从「第一次
+// 等不到引用」开始算。重放再挂回去、更新的版本再次下行又暂缓，都不许把收到时间
+// 刷新成现在——否则一行永远等不到的引用会被每一轮续命，永远进不了 R5 的列表。
+func TestDefer_GivenRowDeferredAgain_KeepsTheFirstReceivedAt(t *testing.T) {
+	h := newHarness(t, true)
+	h.adapter.needRef = ref{Kind: "project", SyncID: "parent-1"}
+	ctx := context.Background()
+	first := h.nowMs
+	h.transport.pages = []*syncwire.PullPage{{
+		Items: []syncwire.PullItem{{
+			Kind: "project", SyncID: "child-1", Version: 5, Payload: []byte(`{"name":"Child"}`),
+		}},
+		NextCursor: 5,
+	}}
+	require.NoError(t, h.svc.SyncOnce(ctx))
+	require.Len(t, h.inbound.rows, 1)
+	require.Equal(t, first, h.inbound.rows[0].ReceivedAt)
+
+	// 一小时后只有重放：它把这一行又挂回去一次。
+	h.nowMs += int64(time.Hour / time.Millisecond)
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 5}}
+	require.NoError(t, h.svc.SyncOnce(ctx))
+	require.Len(t, h.inbound.rows, 1)
+	assert.Equal(t, first, h.inbound.rows[0].ReceivedAt, "重放重新暂缓不刷新收到时间")
+
+	// 又一小时后更新的版本下行，引用目标依旧没到。
+	h.nowMs += int64(time.Hour / time.Millisecond)
+	h.transport.pages = []*syncwire.PullPage{{
+		Items: []syncwire.PullItem{{
+			Kind: "project", SyncID: "child-1", Version: 6, Payload: []byte(`{"name":"Child v6"}`),
+		}},
+		NextCursor: 6,
+	}}
+	require.NoError(t, h.svc.SyncOnce(ctx))
+	require.Len(t, h.inbound.rows, 1, "同一个同步标识只留一份")
+	assert.Equal(t, first, h.inbound.rows[0].ReceivedAt, "新版本替换旧副本，但窗口仍从第一次算")
+	var kept inbound
+	require.NoError(t, json.Unmarshal([]byte(h.inbound.rows[0].PayloadJSON), &kept))
+	assert.Equal(t, int64(6), kept.Version, "留下的是最新那一份")
+}
+
+// TestGCLostChanges_GivenCreatetimeAtTheCutoff_DeletesItAndKeepsOneMsLater 回收边界：
+// 恰好 30 天整的那一条已经到期，晚 1 毫秒的还在窗口里。
+func TestGCLostChanges_GivenCreatetimeAtTheCutoff_DeletesItAndKeepsOneMsLater(t *testing.T) {
+	h := newHarness(t, true)
+	cutoff := h.nowMs - TombstoneWindow.Milliseconds()
+	h.lost.rows = []*syncqueue_entity.LostChange{
+		{ID: 1, SyncAccountID: 7, EntityType: "project", EntitySyncID: "p-at-cutoff",
+			Reason: syncqueue_entity.ReasonOverwritten, Createtime: cutoff},
+		{ID: 2, SyncAccountID: 7, EntityType: "project", EntitySyncID: "p-one-ms-later",
+			Reason: syncqueue_entity.ReasonOverwritten, Createtime: cutoff + 1},
+	}
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, h.lost.rows, 1)
+	assert.Equal(t, "p-one-ms-later", h.lost.rows[0].EntitySyncID)
+}
+
+// TestGCDeferred_GivenReceivedAtAtTheCutoff_DiscardsItAndKeepsOneMsLater 暂缓行的
+// 回收边界与「没能同步的改动」同一个窗口、同一个判据。
+func TestGCDeferred_GivenReceivedAtAtTheCutoff_DiscardsItAndKeepsOneMsLater(t *testing.T) {
+	h := newHarness(t, true)
+	h.adapter.needRef = ref{Kind: "project", SyncID: "never-arrives"}
+	cutoff := h.nowMs - TombstoneWindow.Milliseconds()
+	seedDeferred(t, h, &inbound{Kind: "project", SyncID: "c-at-cutoff", Version: 1,
+		Payload: json.RawMessage(`{"name":"A"}`)}, cutoff)
+	seedDeferred(t, h, &inbound{Kind: "project", SyncID: "c-one-ms-later", Version: 2,
+		Payload: json.RawMessage(`{"name":"B"}`)}, cutoff+1)
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, h.inbound.rows, 1)
+	assert.Equal(t, "c-one-ms-later", h.inbound.rows[0].EntitySyncID)
+	require.Len(t, h.lost.rows, 1)
+	assert.Equal(t, "c-at-cutoff", h.lost.rows[0].EntitySyncID)
+	assert.Equal(t, syncqueue_entity.ReasonDiscarded, h.lost.rows[0].Reason)
+}
+
+// TestGCDeferred_GivenRecordingTheLossFails_KeepsTheRowItCouldNotRecord R2a 的「一行
+// 也不会被悄悄丢掉」：丢失记录落不下去的那一行必须还留在暂缓队列里，下一轮再试；
+// 已经记下的那一行照常出队，不在下一轮重复记一遍。
+func TestGCDeferred_GivenRecordingTheLossFails_KeepsTheRowItCouldNotRecord(t *testing.T) {
+	h := newHarness(t, true)
+	expired := h.nowMs - TombstoneWindow.Milliseconds() - 1
+	// 没有 adapter 的对象类型：重放跳过它们，只剩回收在动这两行。
+	seedDeferred(t, h, &inbound{Kind: "gone-kind", SyncID: "c-1", Version: 1}, expired)
+	seedDeferred(t, h, &inbound{Kind: "gone-kind", SyncID: "c-2", Version: 2}, expired)
+	h.lost.createErr = errors.New("disk full")
+	h.lost.createErrFor = "c-2"
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.Error(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, h.lost.rows, 1)
+	assert.Equal(t, "c-1", h.lost.rows[0].EntitySyncID)
+	require.Len(t, h.inbound.rows, 1, "记不下丢失的那一行不许被删")
+	assert.Equal(t, "c-2", h.inbound.rows[0].EntitySyncID)
+}
+
+// replayCost 预置 n 条引用目标永远不到的暂缓行，跑一次 SyncOnce，交回这一轮对入站
+// 队列的读写计数。
+func replayCost(t *testing.T, n int) *fakeInboundQueue {
+	t.Helper()
+	h := newHarness(t, true)
+	h.adapter.needRef = ref{Kind: "project", SyncID: "never-arrives"}
+	for i := range n {
+		seedDeferred(t, h, &inbound{
+			Kind: "project", SyncID: fmt.Sprintf("child-%d", i), Version: int64(i + 1),
+			Payload: json.RawMessage(`{"name":"Child"}`),
+		}, h.nowMs)
+	}
+	h.inbound.resetCounters()
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, h.inbound.rows, n, "引用目标没到，一行都不丢")
+	return h.inbound
+}
+
+// TestSyncOnce_GivenDeferredRowsThatNeverResolve_QueueCostDoesNotGrowWithTheQueue
+// 要求 14：重放一轮对队列的读取次数不随行数增长，回收不读未到期的行。桌面端每一条
+// 写语句都是一次 BEGIN IMMEDIATE，与流式落库抢同一把写锁，所以写也不许超过每行一条。
+func TestSyncOnce_GivenDeferredRowsThatNeverResolve_QueueCostDoesNotGrowWithTheQueue(t *testing.T) {
+	one := replayCost(t, 1)
+	five := replayCost(t, 5)
+
+	assert.Equal(t, one.queries, five.queries, "读语句条数与队列行数无关")
+	assert.Equal(t, 5, five.rowsRead, "重放把每一行读一次，回收一行未到期的都不读")
+	assert.LessOrEqual(t, one.writes, 1)
+	assert.LessOrEqual(t, five.writes, 5)
+}
+
+// TestReplayDeferred_GivenRowsThatLand_DequeuesThemInOneWrite 一轮里落地的暂缓行
+// 一条删除语句出队，而不是每行一个写事务。
+func TestReplayDeferred_GivenRowsThatLand_DequeuesThemInOneWrite(t *testing.T) {
+	h := newHarness(t, true)
+	for i := range 5 {
+		seedDeferred(t, h, &inbound{
+			Kind: "project", SyncID: fmt.Sprintf("child-%d", i), Version: int64(i + 1),
+			Payload: json.RawMessage(fmt.Sprintf(`{"name":"Child %d"}`, i)),
+		}, h.nowMs)
+	}
+	h.inbound.resetCounters()
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	assert.Len(t, h.adapter.applied, 5)
+	assert.Empty(t, h.inbound.rows, "落地的全部出队")
+	assert.Equal(t, 1, h.inbound.writes, "五行出队只取一次写锁")
+}
+
+// TestGCLostChanges_GivenOnlyUnexpiredRows_ReadsNoneOfThem 要求 14：回收只读取过期行。
+// 列表里躺着 50 条都没到期时，这一轮一行都不该读回来。
+func TestGCLostChanges_GivenOnlyUnexpiredRows_ReadsNoneOfThem(t *testing.T) {
+	h := newHarness(t, true)
+	for i := range 50 {
+		h.lost.rows = append(h.lost.rows, &syncqueue_entity.LostChange{
+			ID: int64(i + 1), SyncAccountID: 7, EntityType: "project",
+			EntitySyncID: fmt.Sprintf("p-%d", i), Reason: syncqueue_entity.ReasonOverwritten,
+			Createtime: h.nowMs,
+		})
+	}
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	assert.Len(t, h.lost.rows, 50)
+	assert.Equal(t, 0, h.lost.rowsRead)
+}
+
+// TestGCLostChanges_GivenTwoExpiredRows_DeletesThemInOneWrite 要求 14：过期的批量删。
+func TestGCLostChanges_GivenTwoExpiredRows_DeletesThemInOneWrite(t *testing.T) {
+	h := newHarness(t, true)
+	expired := h.nowMs - TombstoneWindow.Milliseconds() - 1
+	h.lost.rows = []*syncqueue_entity.LostChange{
+		{ID: 1, SyncAccountID: 7, EntityType: "project", EntitySyncID: "p-old-1", Createtime: expired},
+		{ID: 2, SyncAccountID: 7, EntityType: "project", EntitySyncID: "p-old-2", Createtime: expired},
+		{ID: 3, SyncAccountID: 7, EntityType: "project", EntitySyncID: "p-fresh", Createtime: h.nowMs},
+	}
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	require.Len(t, h.lost.rows, 1)
+	assert.Equal(t, "p-fresh", h.lost.rows[0].EntitySyncID)
+	assert.Equal(t, 1, h.lost.deletes)
+}
+
+// TestGCDeferred_GivenTwoExpiredRows_RecordsBothThenDeletesInOneWrite 要求 14：暂缓行
+// 回收先记录丢失、再一条语句出队。
+func TestGCDeferred_GivenTwoExpiredRows_RecordsBothThenDeletesInOneWrite(t *testing.T) {
+	h := newHarness(t, true)
+	expired := h.nowMs - TombstoneWindow.Milliseconds() - 1
+	seedDeferred(t, h, &inbound{Kind: "gone-kind", SyncID: "c-1", Version: 1}, expired)
+	seedDeferred(t, h, &inbound{Kind: "gone-kind", SyncID: "c-2", Version: 2}, expired)
+	h.inbound.resetCounters()
+	h.transport.pages = []*syncwire.PullPage{{NextCursor: 1}}
+
+	require.NoError(t, h.svc.SyncOnce(context.Background()))
+
+	assert.Empty(t, h.inbound.rows)
+	require.Len(t, h.lost.rows, 2)
+	assert.Equal(t, syncqueue_entity.ReasonDiscarded, h.lost.rows[0].Reason)
+	assert.Equal(t, syncqueue_entity.ReasonDiscarded, h.lost.rows[1].Reason)
+	assert.Equal(t, 1, h.inbound.deletes)
 }
 
 // ── ② 30 秒轮询下行 ────────────────────────────────────────────────────────

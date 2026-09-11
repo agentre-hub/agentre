@@ -180,6 +180,14 @@ func (noopInboundQueue) ListByAccount(context.Context, int64) ([]*syncqueue_enti
 	return nil, nil
 }
 func (noopInboundQueue) Delete(context.Context, int64) error { return nil }
+func (noopInboundQueue) ListExpired(context.Context, int64, int64) ([]*syncqueue_entity.InboundQueueItem, error) {
+	return nil, nil
+}
+func (noopInboundQueue) ReplaceForEntity(context.Context, *syncqueue_entity.InboundQueueItem) error {
+	return nil
+}
+func (noopInboundQueue) DeleteByEntity(context.Context, int64, string, string) error { return nil }
+func (noopInboundQueue) DeleteMany(context.Context, []int64) error                   { return nil }
 
 type noopLostChange struct{}
 
@@ -188,6 +196,10 @@ func (noopLostChange) ListByAccount(context.Context, int64) ([]*syncqueue_entity
 	return nil, nil
 }
 func (noopLostChange) Delete(context.Context, int64) error { return nil }
+func (noopLostChange) ListExpired(context.Context, int64, int64) ([]*syncqueue_entity.LostChange, error) {
+	return nil, nil
+}
+func (noopLostChange) DeleteMany(context.Context, []int64) error { return nil }
 
 type emptySyncState struct{}
 
