@@ -185,7 +185,7 @@ func resolveLogLevel(cmd *cobra.Command, flagValue string) (string, error) {
 
 // requireServerMatchesLogin 挡住「已登录的 daemon 被 run 指到另一套 server」。
 //
-// 登录是一整套属于某个账号的东西：凭据、验签公钥、吊销表。把地址换掉而不动这些，
+// 登录是一整套属于某个账号的东西：账号标识与它的凭据。把地址换掉而不动这些，
 // daemon 会拿 A 的凭据去 B 登记，B 一律拒；而拒绝的收场是
 // credentialRefresher 停掉中继续期并写一行日志（daemon.go），daemon 自己仍然认为
 // 「我已登录」，LAN 也照常——用户看到的只有「这台机器就是不上线」。

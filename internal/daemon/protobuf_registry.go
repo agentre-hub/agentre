@@ -118,8 +118,8 @@ func (d *Daemon) registerProtobufMethods() {
 			if err := requireProtocolVersion(ctx, request.ProtocolVersion, request.MinSupportedProtocolVersion); err != nil {
 				return nil, err
 			}
-			// 对端身份不再从请求体读(决策 8):HandleAccount 验签后交出凭据 pfp
-			// claim 里那个身份,这里只是把它记进连接。
+			// 对端身份不从请求体读(决策 8):HandleAccount 经 server 在线核验后交出
+			// 核验结论里的对端身份,这里只是把它记进连接。
 			result, err := d.auth.HandleAccount(ctx, auth.AccountParams{Credential: request.Credential})
 			if err != nil {
 				return nil, protobufError(err)

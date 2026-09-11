@@ -13,6 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
+
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
@@ -51,9 +54,10 @@ type ConnectResult struct {
 }
 
 // AccountParams is the payload of an auth.account request (Mode C).
-// Credential is the account access-token JWT issued by agentre-server.
+// Credential is an opaque account credential issued by agentre-server; only
+// the server can say whose it is (spec H1).
 //
-// 它**没有**对端指纹字段:Mode C 的对端身份只从已验签凭据的 pfp claim 取(决策 8)。
+// 它**没有**对端指纹字段:Mode C 的对端身份只从 server 对凭据的核验结论取(决策 8)。
 // 请求体里自报的那个字符串从来没有被任何东西验证过,留着就等于「说了不算」。
 type AccountParams struct {
 	Credential string `json:"credential"`
@@ -67,7 +71,7 @@ type AccountParams struct {
 type AccountResult struct {
 	OK           bool   `json:"ok"`
 	InstanceUUID string `json:"instanceUUID"`
-	// PeerFingerprint 是凭据 pfp claim 里那个已验签的对端身份 —— 对端会话落进
+	// PeerFingerprint 是 server 核验凭据后给出的对端身份 —— 对端会话落进
 	// peer_fingerprint 的那个值,也回写给调用方(AuthAccountResponse.peer_fingerprint)。
 	PeerFingerprint string `json:"peerFingerprint"`
 }
@@ -77,8 +81,6 @@ const (
 	accountCredentialInvalid        = "account credential invalid"
 	accountCredentialExpired        = "account credential expired"
 	accountCredentialSignature      = "account credential signature invalid"
-	accountCredentialMismatch       = "account credential account mismatch"
-	accountCredentialRevoked        = "account credential revoked"
 	// 缺 pfp claim 与签名不合法同一形态(ErrUnauthorized),只是原因说得更准。
 	accountCredentialMissingPeerFingerprint = "account credential missing peer fingerprint"
 
@@ -89,15 +91,16 @@ const (
 // into the registry under method names "auth.pair" / "auth.connect" /
 // "auth.account" / "auth.revoke".
 type AuthHandlers struct {
-	st      *state.State
-	pairing *pairing.Manager
-	rl      *pairing.RateLimiter
+	st       *state.State
+	pairing  *pairing.Manager
+	rl       *pairing.RateLimiter
+	accounts AccountVerifier
 }
 
 // NewAuthHandlers constructs an AuthHandlers wired to the given state,
 // pairing manager, and rate limiter.
-func NewAuthHandlers(st *state.State, pm *pairing.Manager, rl *pairing.RateLimiter) *AuthHandlers {
-	return &AuthHandlers{st: st, pairing: pm, rl: rl}
+func NewAuthHandlers(st *state.State, pm *pairing.Manager, rl *pairing.RateLimiter, accounts AccountVerifier) *AuthHandlers {
+	return &AuthHandlers{st: st, pairing: pm, rl: rl, accounts: accounts}
 }
 
 // HandlePair implements Mode A. The ip arg is the source remote address
@@ -156,31 +159,23 @@ func (a *AuthHandlers) HandleConnect(ctx context.Context, p ConnectParams) (*Con
 	return &ConnectResult{OK: true, InstanceUUID: a.st.DaemonInstanceUUID}, nil
 }
 
-// HandleAccount implements Mode C. It verifies an account credential entirely
-// from the daemon's cached public key and cached revocation list, without
-// contacting agentre-server.
+// HandleAccount implements Mode C. The daemon must itself belong to an account;
+// the presented credential is then verified online by the account server
+// (AccountVerifier) and accepted only when it belongs to that same account.
+// The connection's peer identity is the one the server's verdict names.
 func (a *AuthHandlers) HandleAccount(ctx context.Context, p AccountParams) (*AccountResult, error) {
 	snapshot := a.st.Snapshot()
-	if snapshot.AccountID == "" || snapshot.VerificationPublicKeyPEM == "" {
-		return nil, accountCredentialError(accountCredentialKeyUnavailable)
+	if snapshot.AccountID == "" {
+		return nil, ErrReceiverNotReady
 	}
-	verified, err := VerifyAccountCredential(p.Credential, KeySet{
-		CurrentPEM:  snapshot.VerificationPublicKeyPEM,
-		ByKID:       snapshot.VerificationPublicKeys,
-		MaxLifetime: time.Duration(snapshot.MaxTokenLifetimeSeconds) * time.Second,
-	})
+	verified, err := a.accounts.Verify(ctx, p.Credential)
 	if err != nil {
 		return nil, err
 	}
 	if verified.AccountID != snapshot.AccountID {
-		return nil, accountCredentialError(accountCredentialMismatch)
-	}
-	// The revocation list is consulted from the cached snapshot only. A jti the
-	// daemon has not pulled yet still authenticates — that is R4's acknowledged
-	// delay (R19), and it is what keeps the handshake free of network round
-	// trips when the account server is unreachable (R3).
-	if isRevokedCredential(verified.JTI, snapshot.RevokedJTIs) {
-		return nil, accountCredentialError(accountCredentialRevoked)
+		logger.Ctx(ctx).Info("auth.HandleAccount: rejected a credential that belongs to another account",
+			zap.String("accountId", snapshot.AccountID), zap.String("credentialAccountId", verified.AccountID))
+		return nil, ErrCredentialInvalid
 	}
 	return &AccountResult{
 		OK: true, InstanceUUID: snapshot.DaemonInstanceUUID,
@@ -196,16 +191,12 @@ type KeySet struct {
 	MaxLifetime time.Duration
 }
 
-// VerifyAccountCredential 是**两个 Mode C 入口共用的**凭据验证:agentred 的
-// HandleAccount 与桌面端入站对端注册表(internal/peer)都从这里出来,两条路上
-// 「什么算验过了」因此只有一处定义,两条路不会各判各的。
+// VerifyAccountCredential 是桌面端入站对端注册表(internal/peer)仍在用的本地 RS256
+// 凭据验证。agentred 的 HandleAccount 已改为在线核验(Introspector),不再经过这里。
 //
 // 它验签名、算法、过期(±60s)、寿命上限,并交出凭据说了算的三样:账号、jti、以及
 // 决策 8 的对端身份。缺 pfp 的凭据在这里就被拒:它名不指人,而调用方绝不允许退回
-// 去采信请求体。
-//
-// 它**不查吊销列表**:吊销面是调用方各自的缓存(agentred 有 R4 的轮询快照,
-// 桌面端没有),由调用方在拿到 jti 后自己判定。
+// 去采信请求体。它不查吊销列表。
 func VerifyAccountCredential(credential string, keys KeySet) (VerifiedAccountCredential, error) {
 	publicKeyPEM := keys.CurrentPEM
 	if len(keys.ByKID) != 0 {
@@ -235,18 +226,6 @@ func VerifyAccountCredential(credential string, keys KeySet) (VerifiedAccountCre
 		return VerifiedAccountCredential{}, accountCredentialError(accountCredentialMissingPeerFingerprint)
 	}
 	return verified, nil
-}
-
-func isRevokedCredential(jti string, revoked []string) bool {
-	if jti == "" {
-		return false
-	}
-	for _, candidate := range revoked {
-		if candidate == jti {
-			return true
-		}
-	}
-	return false
 }
 
 func accountCredentialError(reason string) *rpcerror.Error {
@@ -280,7 +259,7 @@ type VerifiedAccountCredential struct {
 // verifyAccountCredential returns the credential's account id, its jti (the
 // identity the account's revocation list refers to) and the peer identity its
 // pfp claim states, once signature and expiry hold. Verification is purely
-// local — see HandleAccount.
+// local — see VerifyAccountCredential.
 func verifyAccountCredentialWithMaxLifetime(credential string, publicKey *rsa.PublicKey,
 	maxLifetime time.Duration) (VerifiedAccountCredential, error) {
 	parts := strings.Split(credential, ".")
@@ -338,7 +317,7 @@ func verifyAccountCredentialWithMaxLifetime(credential string, publicKey *rsa.Pu
 
 // accountCredentialPeerFingerprint reads the pfp claim — the peer identity
 // agentre-server signed into this credential (decision 8). A credential without
-// one names nobody, and HandleAccount rejects it rather than falling back to
+// one names nobody, and VerifyAccountCredential rejects it rather than falling back to
 // anything the caller said about itself.
 func accountCredentialPeerFingerprint(claims map[string]json.RawMessage) string {
 	raw, ok := claims["pfp"]

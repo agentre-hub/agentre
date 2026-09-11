@@ -2,15 +2,11 @@ package daemon
 
 import (
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
@@ -2128,34 +2124,161 @@ func pairSecondDevice(t *testing.T, d *Daemon, fingerprint string) *client.Proto
 	return cli
 }
 
-// mintAccountCredential 为一个具名对端铸一枚该账号的凭据。决策 8 之后对端身份写在
-// 凭据的 pfp claim 里,不再由请求体自报 —— 因此「两个不同对端」在测试里也必须是
-// 两枚不同的凭据,而不是同一枚凭据配两个自报字符串。
+// mintAccountCredential 为一个具名对端铸一枚该账号的凭据。凭据是不透明的:它指谁、
+// 对端身份是什么,全由 server 的核验端点说了算(H1),daemon 自己读不出任何东西 ——
+// 因此「两个不同对端」在测试里也必须是两枚不同的凭据。
 type mintAccountCredential func(peerFingerprint string) string
+
+// fakeAccountService 是 agentre-server 核验端点(POST /v1/credentials/introspect)的
+// 测试替身:只认它签过的不透明凭据,只接受它当前认可的那枚接收方自己的 Bearer。
+type fakeAccountService struct {
+	mu             sync.Mutex
+	bearer         string
+	credentials    map[string]fakeIntrospection
+	introspections atomic.Int32
+}
+
+type fakeIntrospection struct {
+	AccountID       string `json:"account_id"`
+	DeviceID        int64  `json:"device_id"`
+	Kind            string `json:"kind"`
+	PeerFingerprint string `json:"peer_fingerprint"`
+	ExpiresIn       int    `json:"expires_in"`
+}
+
+func newFakeAccountService(receiverBearer string) *fakeAccountService {
+	return &fakeAccountService{bearer: receiverBearer, credentials: map[string]fakeIntrospection{}}
+}
+
+func (s *fakeAccountService) mint(accountID, peerFingerprint string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	credential := fmt.Sprintf("opaque-credential-%d", len(s.credentials)+1)
+	s.credentials[credential] = fakeIntrospection{
+		AccountID: accountID, DeviceID: int64(len(s.credentials) + 1), Kind: "desktop",
+		PeerFingerprint: peerFingerprint, ExpiresIn: 900,
+	}
+	return credential
+}
+
+// serveIntrospect 答核验端点并返回 true;别的路径原样返回 false 交给调用方。
+func (s *fakeAccountService) serveIntrospect(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/v1/credentials/introspect" {
+		return false
+	}
+	s.introspections.Add(1)
+	s.mu.Lock()
+	bearer := s.bearer
+	s.mu.Unlock()
+	if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+bearer {
+		http.Error(w, `{"code":401,"msg":"unauthorized"}`, http.StatusUnauthorized)
+		return true
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"code":400,"msg":"bad request"}`, http.StatusBadRequest)
+		return true
+	}
+	s.mu.Lock()
+	found, ok := s.credentials[body.Token]
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":10401,"msg":"credential invalid"}`))
+		return true
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "ok", "data": found})
+	return true
+}
 
 func loginDaemonForIntegration(t *testing.T, d *Daemon, accountID string) mintAccountCredential {
 	t.Helper()
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	require.NoError(t, err)
-	d.state.Login(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), state.AccountCredential{})
+	accounts := newFakeAccountService("integration-device-token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !accounts.serveIntrospect(w, r) {
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	d.state.Login(accountID, state.AccountCredential{AccessToken: "integration-device-token"})
+	d.state.Mutate(func(s *state.State) { s.AccountServerURL = server.URL })
 	require.NoError(t, d.state.Save())
 
 	return func(peerFingerprint string) string {
-		t.Helper()
-		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-		claims, err := json.Marshal(map[string]any{
-			"uid": accountID, "exp": time.Now().Add(time.Hour).Unix(), "pfp": peerFingerprint,
-		})
-		require.NoError(t, err)
-		payload := base64.RawURLEncoding.EncodeToString(claims)
-		signingInput := header + "." + payload
-		digest := sha256.Sum256([]byte(signingInput))
-		signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
-		require.NoError(t, err)
-		return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+		return accounts.mint(accountID, peerFingerprint)
 	}
+}
+
+// TestIntegration_AccountHandshake_GivenTheDaemonsOwnTokenIsRejected_WhenRefreshSucceeds_ThenRetriesOnceAndAuthenticates
+// 是 H4 的 daemon 接线:核验端点对 daemon **自己的**访问令牌答 401,说明坏的是接收方
+// 而不是对端出示的凭据。daemon 走与中继同一个单飞刷新入口,带新令牌重试一次,握手照常
+// 成功 —— 对端感知不到接收方的令牌刚刚轮换过。
+func TestIntegration_AccountHandshake_GivenTheDaemonsOwnTokenIsRejected_WhenRefreshSucceeds_ThenRetriesOnceAndAuthenticates(t *testing.T) {
+	accounts := newFakeAccountService("access-2")
+	credential := accounts.mint("account-42", "sha256:refresh-peer")
+	var refreshCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if accounts.serveIntrospect(w, r) {
+			return
+		}
+		if r.URL.Path == "/v1/oauth/token/refresh" {
+			refreshCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"access-2","expires_in":900,"refresh_token":"refresh-2","refresh_expires_in":3600}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	dir, err := os.MkdirTemp("", "ard-intro")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Login("account-42", state.AccountCredential{
+		AccessToken: "access-1", AccessTokenExpiresAt: time.Now().Add(15 * time.Minute).Unix(),
+		RefreshToken: "refresh-1", RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	})
+	require.NoError(t, st.Save())
+
+	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, AccountServerURL: server.URL})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- d.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-errCh:
+		case <-time.After(3 * time.Second):
+			t.Error("daemon did not shut down within 3s")
+		}
+	})
+	require.Eventually(t, func() bool {
+		d.mu.RLock()
+		defer d.mu.RUnlock()
+		return d.lan != nil && d.lan.Addr() != ""
+	}, 2*time.Second, 10*time.Millisecond)
+	d.mu.RLock()
+	url := d.lan.URL()
+	d.mu.RUnlock()
+
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(dialCancel)
+	cli, err := client.DialProtobuf(dialCtx, client.Options{URL: url})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	result, err := cli.AuthAccount(dialCtx, &agentrewire.AuthAccountRequest{Credential: credential})
+	require.NoError(t, err)
+	assert.Equal(t, "sha256:refresh-peer", result.GetPeerFingerprint())
+	assert.Equal(t, int32(1), refreshCalls.Load(), "an introspect 401 must refresh the daemon's own credential exactly once")
+	assert.Equal(t, int32(2), accounts.introspections.Load(), "one rejected introspection plus one retry with the fresh token")
+	assert.Equal(t, "access-2", d.state.Snapshot().Credential.AccessToken)
 }
 
 func accountClientForIntegration(t *testing.T, d *Daemon, fingerprint devicefp.Initiator, mint mintAccountCredential) *client.ProtobufClient {
@@ -2187,21 +2310,16 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, fake)
 	t.Cleanup(restore)
 
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	require.NoError(t, err)
-
 	dir, err := os.MkdirTemp("", "ard-relay")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	st, err := state.Load(dir)
 	require.NoError(t, err)
 	accountID := "relay-account"
-	st.Login(accountID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
-		state.AccountCredential{AccessToken: "relay-access-token"})
+	st.Login(accountID, state.AccountCredential{AccessToken: "relay-access-token"})
 	require.NoError(t, st.Save())
-	credential := signedAccountCredential(t, privateKey, accountID, "sha256:relay-client")
+	accounts := newFakeAccountService("relay-access-token")
+	credential := accounts.mint(accountID, "sha256:relay-client")
 
 	connections := make(chan *websocket.Conn, 1)
 	closeRelay := make(chan struct{})
@@ -2209,8 +2327,12 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	var relayAttempts atomic.Int32
 	upgrader := websocket.Upgrader{}
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 同一台 fake server 也会收到 daemon 的吊销列表轮询(R4)。它与本测试无关,
-		// 但绝不能占掉下面「只接受第一次中转拨号」的那个计数。
+		// 中继与账号核验是同一台 server:握手时 daemon 会回头来问这枚凭据(H1)。
+		if accounts.serveIntrospect(w, r) {
+			return
+		}
+		// 其余请求(例如连上之后的引擎快照拉取)与本测试无关,但绝不能占掉下面
+		// 「只接受第一次中转拨号」的那个计数。
 		if r.URL.Path != "/v1/relay/daemon" {
 			http.NotFound(w, r)
 			return
@@ -2257,7 +2379,7 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 	authResult := &agentrewire.AuthAccountResponse{}
 	relayProtoRequest(t, relayConn, channelID, 1, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_ACCOUNT), &agentrewire.AuthAccountRequest{Credential: credential, ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported}, authResult)
 	assert.True(t, authResult.GetOk())
-	// 中转这条路上同样:身份来自凭据,daemon 把它认定的那个值回写。
+	// 中转这条路上同样:身份来自 server 的核验结论,daemon 把它认定的那个值回写。
 	assert.Equal(t, "sha256:relay-client", authResult.GetPeerFingerprint())
 
 	runtimeResult := &agentrewire.RuntimeCapabilitiesResponse{}
@@ -2276,20 +2398,6 @@ func TestIntegration_RelayInitiatedChannelServesAccountRuntimeAndCleansUp(t *tes
 		defer d.conns.mu.Unlock()
 		return len(d.conns.live) == 0 && len(d.conns.claims) == 0
 	}, time.Second, 10*time.Millisecond, "closed relay channel must be removed like a LAN connection")
-}
-
-func signedAccountCredential(t *testing.T, privateKey *rsa.PrivateKey, accountID, peerFingerprint string) string {
-	t.Helper()
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims := mustMarshal(t, map[string]any{
-		"uid": accountID, "exp": time.Now().Add(time.Hour).Unix(), "pfp": peerFingerprint,
-	})
-	payload := base64.RawURLEncoding.EncodeToString(claims)
-	signingInput := header + "." + payload
-	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
-	require.NoError(t, err)
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
 func relayProtoRequest(t *testing.T, conn *websocket.Conn, channelID string, id uint64, methodID uint32, request, response proto.Message) {
@@ -2328,13 +2436,6 @@ func unpackRelayEnvelope(t *testing.T, payload []byte) (string, []byte) {
 	require.Greater(t, channelIDLength, 0)
 	require.Greater(t, len(payload), 2+channelIDLength)
 	return string(payload[2 : 2+channelIDLength]), payload[2+channelIDLength:]
-}
-
-func mustMarshal(t *testing.T, value any) []byte {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	require.NoError(t, err)
-	return encoded
 }
 
 // TestIntegration_MultiClientVisibility_GatesAllPeerAccessByLoggedInAccount covers R10–R13:

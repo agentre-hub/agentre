@@ -276,7 +276,7 @@ func TestGivenRunWhenStdlibLogIsUsedThenItAlsoLandsInTheLogFile(t *testing.T) {
 
 // ── 已登录的 daemon 不许被 run 悄悄指到另一套 server ─────────────────────────
 //
-// 凭据、验签公钥、吊销表全都是**上一套 server 签发的**：指到另一套之后，中继登记
+// 账号标识与凭据全都是**上一套 server 签发的**：指到另一套之后，中继登记
 // 与刷新一律被拒，而 credentialRefresher 拿到 invalid_grant 只是停掉中继续期并写
 // 一行日志，daemon 自己仍然认为「我已登录」，LAN 照常。用户看到的只有「这台机器
 // 就是不上线」，线索全在日志里。
@@ -288,8 +288,7 @@ func TestGivenLoggedInDaemonWhenRunPointsAtAnotherServerThenItRefusesWithoutRepo
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.LoginWithKeySet("account-a", "kid-1", map[string]string{"kid-1": "pem"}, 3600,
-		state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
+	st.Login("account-a", state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
 	st.Mutate(func(s *state.State) { s.AccountServerURL = "https://a.example" })
 	require.NoError(t, st.Save())
 
@@ -310,8 +309,7 @@ func TestGivenLoggedInDaemonWhenRunKeepsTheSameServerThenItStarts(t *testing.T) 
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.LoginWithKeySet("account-a", "kid-1", map[string]string{"kid-1": "pem"}, 3600,
-		state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
+	st.Login("account-a", state.AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"})
 	st.Mutate(func(s *state.State) { s.AccountServerURL = "https://a.example" })
 	require.NoError(t, st.Save())
 

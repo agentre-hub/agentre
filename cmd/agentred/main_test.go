@@ -55,8 +55,8 @@ func TestRootSubcommands(t *testing.T) {
 }
 
 // TestLogoutClearsAccountLocally verifies that logout returns the daemon to the
-// logged-out state by removing every account-derived local cache — credential,
-// verification key, and revocation list — exclusively through state.json.
+// logged-out state by removing every account-derived local cache — the account
+// and its credential — exclusively through state.json.
 //
 // This fixture records no AccountServerURL, so there is nowhere to notify and the
 // command stays purely local: the default HTTP transport is a tripwire proving
@@ -70,14 +70,9 @@ func TestLogoutClearsAccountLocally(t *testing.T) {
 	require.NoError(t, err)
 	st.Mutate(func(s *state.State) {
 		s.AccountID = "account-42"
-		s.VerificationPublicKeyPEM = "-----BEGIN PUBLIC KEY-----cached"
 		s.Credential = state.AccountCredential{
 			AccessToken: "access", RefreshToken: "refresh", DeviceID: 7,
 		}
-		// The revocation list is pulled from — and only meaningful under — the
-		// account it was logged into, so returning to 未登录状态 has to drop it too.
-		s.RevokedJTIs = []string{"jti-revoked-1", "jti-revoked-2"}
-		s.RevocationsAsOf = 1_716_003_600_000
 	})
 	require.NoError(t, st.Save())
 
@@ -97,10 +92,7 @@ func TestLogoutClearsAccountLocally(t *testing.T) {
 	got, err := state.Load(dir)
 	require.NoError(t, err)
 	assert.Empty(t, got.AccountID)
-	assert.Empty(t, got.VerificationPublicKeyPEM)
 	assert.Equal(t, state.AccountCredential{}, got.Credential)
-	assert.Empty(t, got.RevokedJTIs, "the previous account's revocation list must not survive logout")
-	assert.Zero(t, got.RevocationsAsOf, "the previous account's revocation timestamp must not survive logout")
 	assert.Zero(t, networkCalls.Load(), "with no server recorded, logout has nowhere to notify")
 
 	gotDir, err := paths.AgentredDataDir()

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -135,8 +136,7 @@ func TestStateLoadSave(t *testing.T) {
 			// 另一个进程完成登录。
 			other, _ := Load(dir)
 			other.Mutate(func(s *State) { s.AccountServerURL = "https://server.example" })
-			other.LoginWithKeySet("42", "kid-1", map[string]string{"kid-1": "PEM"}, 900,
-				AccountCredential{DeviceID: 7, AccessToken: "at", RefreshToken: "rt"})
+			other.Login("42", AccountCredential{DeviceID: 7, AccessToken: "at", RefreshToken: "rt"})
 			require.NoError(t, other.Save())
 
 			adopted, err := st.AdoptLoginFromDisk()
@@ -150,19 +150,16 @@ func TestStateLoadSave(t *testing.T) {
 			assert.Equal(t, "at", snap.Credential.AccessToken)
 			assert.Equal(t, "rt", snap.Credential.RefreshToken)
 			assert.Equal(t, int64(7), snap.Credential.DeviceID)
-			assert.Equal(t, "kid-1", snap.VerificationCurrentKID)
-			assert.Equal(t, "PEM", snap.VerificationPublicKeys["kid-1"])
-			assert.Equal(t, int64(900), snap.MaxTokenLifetimeSeconds)
 		})
 
 		convey.Convey("AdoptLoginFromDisk leaves an already-claimed state alone", func() {
 			st, _ := Load(dir)
-			st.Login("mine", "PEM-mine", AccountCredential{AccessToken: "mine-at"})
+			st.Login("mine", AccountCredential{AccessToken: "mine-at"})
 			require.NoError(t, st.Save())
 
 			// 盘上换成了另一个账号（例如 logout + 重新登录留下的残留）。
 			other, _ := Load(dir)
-			other.Login("theirs", "PEM-theirs", AccountCredential{AccessToken: "theirs-at"})
+			other.Login("theirs", AccountCredential{AccessToken: "theirs-at"})
 			require.NoError(t, other.Save())
 
 			adopted, err := st.AdoptLoginFromDisk()
@@ -192,6 +189,39 @@ func TestStateLoadSave(t *testing.T) {
 			assert.Equal(t, "orig", st.LLMProviders["a"].Name)
 		})
 	})
+}
+
+// H6:升级前的 state.json 还带着本地验签时代的公钥集与吊销列表。升级后的 daemon 必须
+// 照常读它 —— 已登录的机器不用重新登录 —— 并在下一次写盘时丢掉这些再没有人读的字段。
+func TestState_GivenPreUpgradeStateWithVerificationAndRevocationFields_WhenLoadedAndSaved_ThenKeepsTheLoginAndDropsThem(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `{"schemaVersion":1,"daemonInstanceUUID":"uuid-1","accountServerURL":"https://a.example",` +
+		`"listen":{"lanHost":"0.0.0.0","lanPort":7456},"pairedPeers":{},"llmProviders":{},"preferences":{},` +
+		`"accountId":"42","verificationPublicKeyPEM":"pem","verificationCurrentKID":"kid-1",` +
+		`"verificationPublicKeys":{"kid-1":"pem"},"maxTokenLifetimeSeconds":900,` +
+		`"credential":{"deviceId":7,"accessToken":"at","refreshToken":"rt"},` +
+		`"revokedJTIs":["jti-1"],"revocationsAsOf":1700}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte(legacy), 0o600))
+
+	st, err := Load(dir)
+	require.NoError(t, err)
+	snap := st.Snapshot()
+	assert.Equal(t, "42", snap.AccountID, "an upgraded daemon stays logged in")
+	assert.Equal(t, "at", snap.Credential.AccessToken)
+	require.NoError(t, st.Save())
+
+	raw, err := os.ReadFile(filepath.Join(dir, "state.json")) //nolint:gosec // G304: dir is this test's t.TempDir.
+	require.NoError(t, err)
+	var onDisk map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &onDisk))
+	for _, stale := range []string{
+		"verificationPublicKeyPEM", "verificationCurrentKID", "verificationPublicKeys",
+		"maxTokenLifetimeSeconds", "revokedJTIs", "revocationsAsOf",
+	} {
+		assert.NotContains(t, onDisk, stale, "state.json must no longer carry %s", stale)
+	}
+	assert.Contains(t, onDisk, "accountId")
+	assert.Contains(t, onDisk, "credential")
 }
 
 // ── Logout 的语义：留下什么，而不是删掉什么 ────────────────────────────────
@@ -245,7 +275,7 @@ func TestLogout_ClearsTheAccountServerURLAndItsProviderSnapshot(t *testing.T) {
 		})
 		convey.Convey("so does the provider snapshot pulled from that account", func() {
 			// enginesnapshot 从账号拉下来的整份配置，含 API key：一台已经离开账号的
-			// 机器上不该留着上一个账号的凭证（与 revokedJTIs 同一条理由，R19）。
+			// 机器上不该留着上一个账号的凭证（R19）。
 			assert.Empty(t, st.LLMProviders)
 		})
 		convey.Convey("but the LAN pairings stay: logout returns to the pairing-only state", func() {
@@ -281,13 +311,7 @@ func fullyPopulatedState(t *testing.T) *State {
 		s.LLMProviders = map[string]LLMProviderMeta{"p": {Name: "OpenAI", APIKey: "sk-secret"}}
 		s.Preferences = Preferences{LogLevel: "info", LogRotateMB: 50}
 		s.AccountID = "account-a"
-		s.VerificationPublicKeyPEM = "pem"
-		s.VerificationCurrentKID = "kid-1"
-		s.VerificationPublicKeys = map[string]string{"kid-1": "pem"}
-		s.MaxTokenLifetimeSeconds = 3600
 		s.Credential = AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"}
-		s.RevokedJTIs = []string{"jti-1"}
-		s.RevocationsAsOf = 1700
 	})
 	return st
 }

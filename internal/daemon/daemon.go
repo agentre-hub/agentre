@@ -800,7 +800,6 @@ func New(opts Options) (*Daemon, error) {
 		rlOpts.Window = time.Duration(st.Preferences.PairingRateLimit.WindowSeconds) * time.Second
 	}
 	rl := pairing.NewRateLimiter(rlOpts)
-	auth := auth.NewAuthHandlers(st, pm, rl)
 
 	backlog := newBacklogMemo()
 	d := &Daemon{
@@ -808,7 +807,7 @@ func New(opts Options) (*Daemon, error) {
 		transcript:   transcriptStore{db: gormDB, backlog: backlog},
 		sessionStore: daemonSessionStore{db: gormDB},
 		pairing:      pm, ratelim: rl,
-		auth: auth, protobufRegistry: protorpc.NewRegistry(),
+		protobufRegistry: protorpc.NewRegistry(),
 		// 拨号恒为环回,端口必须已在这台设备上声明过 —— 目标主机不由请求携带。
 		portForward: portforward.NewHandlers(portforward.Options{
 			Repo: port_forward_repo.NewPortForward(), Dial: portforward.DialLoopback,
@@ -827,6 +826,15 @@ func New(opts Options) (*Daemon, error) {
 	// share one credentialRefresher — and therefore one refreshNow single flight
 	// — from the moment the link can start dialing.
 	d.credRefresher = newCredentialRefresher(st, opts.AccountServerURL)
+	// Mode C 握手在线核验(H1-H4):向这台 daemon 所属的账号 server 出示对端凭据,
+	// 用的是 daemon 自己那份与中继共用的设备凭据;401 走同一个单飞刷新入口。
+	// 超时由 Introspector 按次施加,客户端本身不设。
+	d.auth = auth.NewAuthHandlers(st, pm, rl, auth.NewIntrospector(auth.IntrospectorOptions{
+		HTTP:              &http.Client{},
+		ServerURL:         d.relayServerURL,
+		AccessToken:       d.currentAccessToken,
+		RefreshCredential: d.refreshAccountCredential,
+	}))
 	hubOpts := relayLinkOptions()
 	hubOpts.ServerURLProvider = d.relayServerURL
 	hubOpts.AccessTokenProvider = d.currentAccessToken
@@ -885,10 +893,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	agentruntime.DefaultCLISessionPool().StartIdleSweeper(ctx,
 		agentruntime.DefaultIdleSessionTTL, cliSessionSweepInterval)
 	go func() { _ = d.hub.Run(hubCtx) }()
-	// 凭据续期与吊销拉取都以「手上已经有凭据」为前提,所以要等登录落地再挂起来 ——
+	// 凭据续期以「手上已经有凭据」为前提,所以要等登录落地再挂起来 ——
 	// 见 runAccountJobsWhenLoggedIn。中转链路本身不必等:它每次 dial 重新解析端点,
 	// 解析不出来就退避重试。
-	go d.runAccountJobsWhenLoggedIn(ctx, hubCtx, hubCancel)
+	go d.runAccountJobsWhenLoggedIn(ctx, hubCancel)
 	defer d.mux.Close()
 	go d.serveRelayChannels(ctx, d.mux)
 	if err := d.gateway.Start(ctx); err != nil {
@@ -935,9 +943,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 // 登录一落地就不再轮询。
 const loginPollInterval = 5 * time.Second
 
-// runAccountJobsWhenLoggedIn 等到这台 daemon 登录之后,再启动凭据续期与吊销拉取。
+// runAccountJobsWhenLoggedIn 等到这台 daemon 登录之后,再启动凭据续期。
 //
-// 两者都以「手上已经有凭据」为前提:refresher 见到空的 refresh token 会记一行日志
+// 它以「手上已经有凭据」为前提:refresher 见到空的 refresh token 会记一行日志
 // 后**永久返回**。未登录时直接起等于把它废掉 —— 之后即使登录成功,访问令牌也没人
 // 续期,15 分钟后链路带着过期令牌掉线,再也回不来。
 func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
@@ -957,7 +965,7 @@ func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
 	// 保留通道自然也不会出现。
 }
 
-func (d *Daemon) runAccountJobsWhenLoggedIn(ctx, hubCtx context.Context, stopRelay context.CancelFunc) {
+func (d *Daemon) runAccountJobsWhenLoggedIn(ctx context.Context, stopRelay context.CancelFunc) {
 	if !d.awaitLogin(ctx) {
 		return
 	}
@@ -966,11 +974,6 @@ func (d *Daemon) runAccountJobsWhenLoggedIn(ctx, hubCtx context.Context, stopRel
 	// doomed relay is not kept alive forever (R4/R14). It never propagates
 	// to Run — local sessions and LAN stay healthy either way.
 	go d.runCredentialRefresh(ctx, stopRelay)
-	// R4 的另一半:定期把账号的吊销列表拉到本地。挂在 hubCtx 上是因为它与中转
-	// 链路共用同一份设备凭据 —— 凭据永久失效时两者一起停,最后拉到的那份列表
-	// 留在 state.json 里继续本地生效(R19 承认的延迟),本地会话与 LAN 直连
-	// 全程不受影响。
-	go d.runRevocationPoll(hubCtx)
 }
 
 // awaitLogin 阻塞到这台 daemon 登录,返回 false 表示 ctx 先结束了。未登录期间
@@ -1003,11 +1006,18 @@ func (d *Daemon) runCredentialRefresh(ctx context.Context, stopRelay context.Can
 	d.credRefresher.run(ctx, stopRelay)
 }
 
-// runRevocationPoll launches the R4 revocation-list poller for the daemon's
-// relay lifetime. Nothing it does can fail the daemon: a pull failure keeps the
-// previously cached list, logs, and retries with backoff.
-func (d *Daemon) runRevocationPoll(ctx context.Context) {
-	newRevocationPoller(d.state, d.opts.AccountServerURL, d.currentAccessToken).run(ctx)
+// refreshAccountCredential is the Mode C introspection's refresh hook: when the
+// account server rejects the daemon's own token (HTTP 401), it goes through the
+// same single-flighted refreshNow as the relay link. A permanently rejected
+// refresh leaves this daemon unable to verify anyone until it logs in again,
+// which the handshake reports as auth.ErrReceiverNotReady; any other failure is
+// transient.
+func (d *Daemon) refreshAccountCredential(ctx context.Context) error {
+	err := d.credRefresher.refreshNow(ctx)
+	if errors.Is(err, relaytransport.ErrRelayCredentialRejected) {
+		return fmt.Errorf("%w: %w", auth.ErrReceiverNotReady, err)
+	}
+	return err
 }
 
 // defaultRefreshMargin is how long before AccessTokenExpiresAt the daemon
@@ -1288,182 +1298,6 @@ func waitForRefresh(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
-}
-
-// defaultRevocationPollInterval is how often a claimed daemon pulls its account's
-// revocation list. It has to stay well under the server's 15m access TTL for the
-// pull to add anything: a credential revoked right after a pull is refused
-// locally at most one interval later, and its short expiry is the backstop (R4).
-const defaultRevocationPollInterval = time.Minute
-
-// revocationsResponse mirrors agentre-server's GET /v1/devices/revocations body
-// (device JWT bearer). RevokedJTI is every revoked access-token jti under the
-// caller device's account that was issued inside the server's access-TTL window;
-// older ones are omitted because expiry alone already invalidates them.
-type revocationsResponse struct {
-	RevokedJTI []string `json:"revoked_jti"`
-	AsOf       int64    `json:"as_of"`
-}
-
-type verificationKeysResponse struct {
-	CurrentKID              string            `json:"current_kid"`
-	Keys                    map[string]string `json:"keys"`
-	MaxTokenLifetimeSeconds int64             `json:"max_token_lifetime_seconds"`
-}
-
-// revocationPoller keeps the daemon's cached copy of that list fresh (R4
-// consumer). The account handshake is verified entirely from cached material
-// with zero network round trips (R3), so this loop is the only thing that can
-// make a revocation take effect on this machine. A failed or offline pull
-// deliberately keeps the previous list and keeps enforcing it — that is R4's
-// acknowledged revocation delay (R19), not a fallback — and it never touches
-// local sessions or LAN serving.
-type revocationPoller struct {
-	state       *state.State
-	serverURL   string
-	httpClient  *http.Client
-	accessToken func() string
-
-	interval time.Duration
-	// wait is the clock seam shared with the credential refresher: the loop asks
-	// for a delay, production sleeps it out, a test releases it immediately.
-	wait    func(context.Context, time.Duration) error
-	backoff func(int) time.Duration
-	logf    func(format string, args ...any)
-}
-
-func newRevocationPoller(st *state.State, serverURL string, accessToken func() string) *revocationPoller {
-	return &revocationPoller{
-		state:       st,
-		serverURL:   serverURL,
-		httpClient:  &http.Client{Timeout: 15 * time.Second},
-		accessToken: accessToken,
-		interval:    defaultRevocationPollInterval,
-		wait:        waitForRefresh,
-		backoff:     defaultRefreshBackoff, // the daemon's shared transient-retry ladder
-		logf:        log.Printf,
-	}
-}
-
-// run pulls until ctx is canceled, starting with an immediate pull so a daemon
-// that was offline (or just restarted) re-syncs as soon as it can reach server.
-func (p *revocationPoller) run(ctx context.Context) {
-	failures := 0
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		if len(p.state.Snapshot().VerificationPublicKeys) != 0 {
-			if err := p.refreshVerificationKeys(ctx); err != nil {
-				p.logf("daemon.verificationKeys: refresh failed; keeping the last key set: err=%v", err)
-			}
-		}
-		list, err := p.pullOnce(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			kept := p.state.Snapshot()
-			p.logf("daemon.revocations: pull failed; keeping the last list: revokedCount=%d asOf=%d err=%v",
-				len(kept.RevokedJTIs), kept.RevocationsAsOf, err)
-			if err := p.wait(ctx, p.backoff(failures)); err != nil {
-				return
-			}
-			failures++
-			continue
-		}
-		failures = 0
-		p.state.Mutate(func(s *state.State) {
-			s.RevokedJTIs = list.RevokedJTI
-			s.RevocationsAsOf = list.AsOf
-		})
-		// Persisted on every pull: the check has to survive a restart, and it is
-		// the only copy an offline daemon has left to enforce.
-		if err := p.state.Save(); err != nil {
-			p.logf("daemon.revocations: persist revocation list: revokedCount=%d err=%v",
-				len(list.RevokedJTI), err)
-		}
-		if err := p.wait(ctx, p.interval); err != nil {
-			return
-		}
-	}
-}
-
-func (p *revocationPoller) refreshVerificationKeys(ctx context.Context) error {
-	endpoint := strings.TrimRight(p.serverURL, "/") + "/v1/keys"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("build verification keys request: %w", err)
-	}
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("verification keys request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return fmt.Errorf("read verification keys response: %w", err)
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("verification keys endpoint returned %s", resp.Status)
-	}
-	var keys verificationKeysResponse
-	if err := decodeServerEnvelope(payload, &keys); err != nil {
-		return fmt.Errorf("parse verification keys response: %w", err)
-	}
-	if keys.CurrentKID == "" || keys.Keys[keys.CurrentKID] == "" || keys.MaxTokenLifetimeSeconds <= 0 {
-		return errors.New("verification keys endpoint returned an invalid key set")
-	}
-	p.state.Mutate(func(s *state.State) {
-		s.VerificationCurrentKID = keys.CurrentKID
-		s.VerificationPublicKeys = keys.Keys
-		s.VerificationPublicKeyPEM = keys.Keys[keys.CurrentKID]
-		s.MaxTokenLifetimeSeconds = keys.MaxTokenLifetimeSeconds
-	})
-	if err := p.state.Save(); err != nil {
-		return fmt.Errorf("persist verification keys: %w", err)
-	}
-	return nil
-}
-
-// pullOnce fetches the account's revocation list with the daemon's device
-// credential. Every failure — including the 401 a revoked device itself gets —
-// is transient here: the caller keeps the last list and retries with backoff.
-func (p *revocationPoller) pullOnce(ctx context.Context) (*revocationsResponse, error) {
-	token := p.accessToken()
-	if token == "" {
-		return nil, errors.New("no account access token")
-	}
-	endpoint := strings.TrimRight(p.serverURL, "/") + "/v1/devices/revocations"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build revocations request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("revocations request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("read revocations response: %w", err)
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("revocations endpoint returned %s", resp.Status)
-	}
-	var list revocationsResponse
-	if err := decodeServerEnvelope(payload, &list); err != nil {
-		return nil, fmt.Errorf("parse revocations response: %w", err)
-	}
-	// as_of is always set by the endpoint, so its absence means this is not the
-	// contract's payload (a captive portal or proxy answering 200, say). Treat
-	// it as a failed pull: replacing the cached list with an empty one would
-	// silently un-revoke everything.
-	if list.AsOf <= 0 {
-		return nil, errors.New("revocations endpoint returned a payload without as_of")
-	}
-	return &list, nil
 }
 
 // serveRelayChannels turns server-initiated virtual channels into the same

@@ -27,6 +27,7 @@ import (
 	"github.com/cago-frame/cago/configs"
 
 	"github.com/agentre-hub/agentre/internal/buildinfo"
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/notifier"
@@ -1102,7 +1103,7 @@ func TestDaemon_GivenLoggedInAndUnavailableRelay_WhenRunning_ThenLANKeepsServing
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "cached-public-key", state.AccountCredential{AccessToken: "device-access-token"})
+	st.Login("account-42", state.AccountCredential{AccessToken: "device-access-token"})
 	require.NoError(t, st.Save())
 
 	d, err := New(Options{
@@ -1476,272 +1477,98 @@ func TestDaemon_GivenAssistantWriteFails_WhenStartingATurn_ThenNoMessageRowOfTha
 	assert.Zero(t, count, "开轮任一写入失败时,这一轮的消息行必须一行都不留")
 }
 
-func TestDaemon_VerificationKeysGivenEmergencyRetirementWhenRefreshedThenDropsOldKey(t *testing.T) {
+// TestDaemon_GivenLoggedInDaemon_WhenRunning_ThenItPollsNeitherRevocationsNorVerificationKeys
+// 钉住 H6 的 agentred 侧:账号握手改为在线核验之后,本地没有任何需要保鲜的验证材料 ——
+// 吊销列表轮询与公钥刷新都已删除。一台已登录的 daemon 跑起来去拨中继,但绝不再碰
+// 这两个端点(server 侧也会删掉它们)。
+func TestDaemon_GivenLoggedInDaemon_WhenRunning_ThenItPollsNeitherRevocationsNorVerificationKeys(t *testing.T) {
+	var relayDials, staleRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/devices/revocations" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		require.Equal(t, "/v1/keys", r.URL.Path)
-		_, _ = w.Write([]byte(`{"version":1,"current_kid":"current","keys":{"current":"current-pem"},"public_key":"current-pem","max_token_lifetime_seconds":900}`))
-	}))
-	t.Cleanup(server.Close)
-
-	st, err := state.Load(t.TempDir())
-	require.NoError(t, err)
-	st.LoginWithKeySet("account-42", "current", map[string]string{
-		"old": "compromised-pem", "current": "current-pem",
-	}, 900, state.AccountCredential{AccessToken: "access-1"})
-	poller := newRevocationPoller(st, server.URL, func() string { return "access-1" })
-	poller.httpClient = server.Client()
-	poller.backoff = func(int) time.Duration { return time.Hour }
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		poller.run(ctx)
-	}()
-	require.Eventually(t, func() bool {
-		_, stillPresent := st.Snapshot().VerificationPublicKeys["old"]
-		return !stillPresent
-	}, time.Second, 10*time.Millisecond, "key set must refresh even when the access token is rejected")
-	cancel()
-	<-done
-	got := st.Snapshot()
-	require.Equal(t, map[string]string{"current": "current-pem"}, got.VerificationPublicKeys)
-	require.NotContains(t, got.VerificationPublicKeys, "old")
-}
-
-// TestDaemon_RevocationPoll_GivenServerList_WhenPulled_ThenPersistedAndSurvivesRestart
-// 覆盖 R4 的 daemon 一半:在线时按固定间隔(须显著短于 15m 的 access TTL)拉取账号的
-// 吊销列表,列表与 as_of 经 state.Mutate/Save 落盘 —— 之后 daemon 离线重启,列表照样
-// 在,吊销才不会被一次重启抹掉。
-func TestDaemon_RevocationPoll_GivenServerList_WhenPulled_ThenPersistedAndSurvivesRestart(t *testing.T) {
-	var polls atomic.Int32
-	auths := make(chan string, 4)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/devices/revocations" || r.Method != http.MethodGet {
+		switch r.URL.Path {
+		case "/v1/relay/daemon":
+			relayDials.Add(1)
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		case "/v1/devices/revocations", "/v1/keys":
+			staleRequests.Add(1)
 			http.NotFound(w, r)
-			return
-		}
-		polls.Add(1)
-		select {
-		case auths <- r.Header.Get("Authorization"):
 		default:
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":0,"data":{"revoked_jti":["jti-a","jti-b"],"as_of":1716000000123}}`))
-	}))
-	t.Cleanup(server.Close)
-
-	dir := t.TempDir()
-	st, err := state.Load(dir)
-	require.NoError(t, err)
-	st.Login("account-42", "cached-public-key", state.AccountCredential{AccessToken: "access-1"})
-	require.NoError(t, st.Save())
-
-	requested := make(chan time.Duration, 8)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	poller := &revocationPoller{
-		state:       st,
-		serverURL:   server.URL,
-		httpClient:  server.Client(),
-		accessToken: func() string { return st.Snapshot().Credential.AccessToken },
-		interval:    defaultRevocationPollInterval,
-		wait: func(loopCtx context.Context, delay time.Duration) error {
-			requested <- delay
-			<-loopCtx.Done()
-			return loopCtx.Err()
-		},
-		backoff: defaultRefreshBackoff,
-		logf:    t.Logf,
-	}
-	go poller.run(ctx)
-
-	select {
-	case delay := <-requested:
-		assert.Equal(t, time.Minute, delay, "轮询间隔须显著短于 15m 的 access TTL 才有意义")
-	case <-time.After(2 * time.Second):
-		t.Fatal("poller never pulled the revocation list")
-	}
-	assert.Equal(t, "Bearer access-1", <-auths, "拉取吊销列表用的是 HubLink 一直在续期的那份设备凭据")
-
-	snapshot := st.Snapshot()
-	assert.Equal(t, []string{"jti-a", "jti-b"}, snapshot.RevokedJTIs)
-	assert.Equal(t, int64(1716000000123), snapshot.RevocationsAsOf)
-
-	// 重启:重新从磁盘 Load 出来的 state 必须仍然带着这份列表。
-	reloaded, err := state.Load(dir)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"jti-a", "jti-b"}, reloaded.RevokedJTIs, "吊销列表必须挺过一次 daemon 重启")
-	assert.Equal(t, int64(1716000000123), reloaded.RevocationsAsOf)
-	assert.Equal(t, int32(1), polls.Load(), "一个间隔内只拉一次")
-}
-
-// TestDaemon_RevocationPoll_GivenPullFails_WhenRetrying_ThenKeepsLastListAndBacksOff
-// 覆盖离线/拉取失败:上一次的列表原样保留并继续本地生效(这正是 R4 承认的吊销延迟,
-// 不是 bug),重试按退避而不是按固定间隔,循环自己扛住失败、恢复后继续替换列表。
-func TestDaemon_RevocationPoll_GivenPullFails_WhenRetrying_ThenKeepsLastListAndBacksOff(t *testing.T) {
-	var polls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if polls.Add(1) <= 2 {
-			http.Error(w, "boom", http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":0,"data":{"revoked_jti":["jti-fresh"],"as_of":1716000060000}}`))
-	}))
-	t.Cleanup(server.Close)
-
-	dir := t.TempDir()
-	st, err := state.Load(dir)
-	require.NoError(t, err)
-	st.Login("account-42", "cached-public-key", state.AccountCredential{AccessToken: "access-1"})
-	st.Mutate(func(s *state.State) {
-		s.RevokedJTIs = []string{"jti-known"}
-		s.RevocationsAsOf = 1716000000000
-	})
-	require.NoError(t, st.Save())
-
-	requested := make(chan time.Duration, 8)
-	release := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	poller := &revocationPoller{
-		state:       st,
-		serverURL:   server.URL,
-		httpClient:  server.Client(),
-		accessToken: func() string { return st.Snapshot().Credential.AccessToken },
-		interval:    defaultRevocationPollInterval,
-		wait: func(loopCtx context.Context, delay time.Duration) error {
-			requested <- delay
-			select {
-			case <-release:
-				return nil
-			case <-loopCtx.Done():
-				return loopCtx.Err()
-			}
-		},
-		backoff: defaultRefreshBackoff,
-		logf:    t.Logf,
-	}
-	go poller.run(ctx)
-
-	nextDelay := func() time.Duration {
-		t.Helper()
-		select {
-		case delay := <-requested:
-			return delay
-		case <-time.After(2 * time.Second):
-			t.Fatal("poller stopped scheduling")
-			return 0
-		}
-	}
-
-	assert.Equal(t, time.Second, nextDelay(), "拉取失败后按退避重试,而不是等满一个轮询间隔")
-	kept := st.Snapshot()
-	assert.Equal(t, []string{"jti-known"}, kept.RevokedJTIs, "拉取失败时必须保留上一次的列表继续生效")
-	assert.Equal(t, int64(1716000000000), kept.RevocationsAsOf, "失败的拉取不得推进 as_of")
-	release <- struct{}{}
-
-	assert.Equal(t, 2*time.Second, nextDelay(), "连续失败时退避必须加倍")
-	assert.Equal(t, []string{"jti-known"}, st.Snapshot().RevokedJTIs, "第二次失败同样保留旧列表")
-	release <- struct{}{}
-
-	assert.Equal(t, time.Minute, nextDelay(), "恢复之后回到固定轮询间隔")
-	recovered := st.Snapshot()
-	assert.Equal(t, []string{"jti-fresh"}, recovered.RevokedJTIs, "循环必须扛住失败并在恢复后继续替换列表")
-	assert.Equal(t, int64(1716000060000), recovered.RevocationsAsOf)
-	reloaded, err := state.Load(dir)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"jti-fresh"}, reloaded.RevokedJTIs)
-}
-
-// TestDaemon_RevocationPoll_GivenPayloadWithoutAsOf_WhenPulled_ThenKeepsLastList
-// 守住「失败要失败在安全的一侧」:一个语法合法、却不是契约形状的 200(中间设备塞
-// 回来的空 JSON 是最常见的一种)绝不能把吊销列表洗成空的 —— 契约里 as_of 恒有值,
-// 拿不到就当这次拉取失败,保留上一次的列表继续生效。
-func TestDaemon_RevocationPoll_GivenPayloadWithoutAsOf_WhenPulled_ThenKeepsLastList(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
-	}))
-	t.Cleanup(server.Close)
-
-	dir := t.TempDir()
-	st, err := state.Load(dir)
-	require.NoError(t, err)
-	st.Login("account-42", "cached-public-key", state.AccountCredential{AccessToken: "access-1"})
-	st.Mutate(func(s *state.State) {
-		s.RevokedJTIs = []string{"jti-known"}
-		s.RevocationsAsOf = 1716000000000
-	})
-	require.NoError(t, st.Save())
-
-	requested := make(chan time.Duration, 8)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	poller := &revocationPoller{
-		state:       st,
-		serverURL:   server.URL,
-		httpClient:  server.Client(),
-		accessToken: func() string { return st.Snapshot().Credential.AccessToken },
-		interval:    defaultRevocationPollInterval,
-		wait: func(loopCtx context.Context, delay time.Duration) error {
-			requested <- delay
-			<-loopCtx.Done()
-			return loopCtx.Err()
-		},
-		backoff: defaultRefreshBackoff,
-		logf:    t.Logf,
-	}
-	go poller.run(ctx)
-
-	select {
-	case delay := <-requested:
-		assert.Equal(t, time.Second, delay, "不成形的响应算拉取失败,按退避重试")
-	case <-time.After(2 * time.Second):
-		t.Fatal("poller stopped scheduling")
-	}
-	kept := st.Snapshot()
-	assert.Equal(t, []string{"jti-known"}, kept.RevokedJTIs, "不成形的响应绝不能把吊销列表洗空")
-	assert.Equal(t, int64(1716000000000), kept.RevocationsAsOf)
-}
-
-// TestDaemon_RunStartsRevocationPolling 钉死接线:拉取必须由 daemon 自己跑起来。
-// 没有调用方的拉取路径等于没有吊销机制 —— 握手期只查缓存(R3 零网络往返),缓存
-// 没人更新就永远是空的。
-func TestDaemon_RunStartsRevocationPolling(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/devices/revocations" {
 			http.NotFound(w, r)
-			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":0,"data":{"revoked_jti":["jti-wired"],"as_of":1716000000123}}`))
 	}))
 	t.Cleanup(server.Close)
 
-	dir, err := os.MkdirTemp("", "agentred-revocations-")
+	dir, err := os.MkdirTemp("", "agentred-no-poll-")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "cached-public-key", state.AccountCredential{AccessToken: "device-access-token"})
+	st.Login("account-42", state.AccountCredential{
+		AccessToken: "device-access-token", AccessTokenExpiresAt: time.Now().Add(15 * time.Minute).Unix(),
+	})
 	require.NoError(t, st.Save())
 
 	d, err := New(Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, AccountServerURL: server.URL})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = d.Run(ctx) }()
+	errCh := make(chan error, 1)
+	go func() { errCh <- d.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-errCh:
+		case <-time.After(3 * time.Second):
+			t.Error("daemon did not shut down within 3s")
+		}
+	})
 
-	require.Eventually(t, func() bool {
-		return len(d.state.Snapshot().RevokedJTIs) == 1
-	}, 3*time.Second, 20*time.Millisecond, "daemon 跑起来之后必须自己把吊销列表拉下来")
-	assert.Equal(t, []string{"jti-wired"}, d.state.Snapshot().RevokedJTIs)
+	require.Eventually(t, func() bool { return relayDials.Load() >= 1 }, 3*time.Second, 20*time.Millisecond,
+		"the logged-in daemon's account jobs must be running (it dials the relay)")
+	require.Never(t, func() bool { return staleRequests.Load() > 0 }, 500*time.Millisecond, 20*time.Millisecond,
+		"a logged-in daemon must not poll the revocation list or refresh verification keys")
+}
+
+// TestDaemon_RefreshAccountCredential_GivenTheRefreshOutcome_ThenMapsItOntoTheHandshakeVocabulary
+// 钉住 Mode C 核验的刷新口(H4):refresh grant 被 server 永久拒绝时,这台 daemon 在重新
+// 登录之前无法核验任何人,必须被认成「接收方未就绪」(-32001);网络 / 5xx 这种暂时失败
+// 绝不能被认成它,否则一次 server 抖动会被对端当成不可恢复的拒绝。
+func TestDaemon_RefreshAccountCredential_GivenTheRefreshOutcome_ThenMapsItOntoTheHandshakeVocabulary(t *testing.T) {
+	cases := []struct {
+		name         string
+		status       int
+		body         string
+		wantNotReady bool
+	}{
+		{name: "refresh grant permanently rejected", status: http.StatusBadRequest,
+			body: `{"error":"invalid_grant","error_description":"refresh token revoked"}`, wantNotReady: true},
+		{name: "refresh endpoint transiently unavailable", status: http.StatusServiceUnavailable,
+			body: `unavailable`, wantNotReady: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/v1/oauth/token/refresh", r.URL.Path)
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			t.Cleanup(server.Close)
+			dir := t.TempDir()
+			st, err := state.Load(dir)
+			require.NoError(t, err)
+			st.Login("account-42", state.AccountCredential{
+				AccessToken: "access-1", RefreshToken: "refresh-1",
+				RefreshTokenExpiresAt: time.Now().Add(time.Hour).Unix(),
+			})
+			require.NoError(t, st.Save())
+			d, err := New(Options{DataDir: dir, AccountServerURL: server.URL})
+			require.NoError(t, err)
+			t.Cleanup(func() { closeDB(d.db) })
+
+			err = d.refreshAccountCredential(context.Background())
+
+			require.Error(t, err)
+			assert.Equal(t, tc.wantNotReady, errors.Is(err, auth.ErrReceiverNotReady))
+		})
+	}
 }
 
 // refreshTestClock is the injectable clock for the credential refresh loop: the
@@ -1808,7 +1635,7 @@ func TestDaemon_RefreshLoop_RefreshesBeforeExpiryAndRelayDialUsesFreshToken(t *t
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "cached-public-key", state.AccountCredential{
+	st.Login("account-42", state.AccountCredential{
 		DeviceID:              7,
 		AccessToken:           "access-1",
 		AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
@@ -1905,7 +1732,7 @@ func TestDaemon_RefreshLoop_ExpiredRefreshTokenStopsWithoutServerCall(t *testing
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "pk", state.AccountCredential{
+	st.Login("account-42", state.AccountCredential{
 		AccessToken:           "access-1",
 		AccessTokenExpiresAt:  clock.Now().Add(10 * time.Minute).Unix(),
 		RefreshToken:          "refresh-1",
@@ -1950,7 +1777,7 @@ func TestDaemon_RefreshLoop_GivenTransientRefreshFailure_WhenRetrySucceeds_ThenC
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "pk", state.AccountCredential{
+	st.Login("account-42", state.AccountCredential{
 		AccessToken:           "access-1",
 		AccessTokenExpiresAt:  clock.Now().Add(time.Minute).Unix(), // due before the margin
 		RefreshToken:          "refresh-1",
@@ -2029,7 +1856,7 @@ func TestCredentialRefresher_RefreshNow_ConcurrentCallersSingleFlightOneHTTPRoun
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "pk", state.AccountCredential{
+	st.Login("account-42", state.AccountCredential{
 		AccessToken:           "access-1",
 		AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
 		RefreshToken:          "refresh-1",
@@ -2078,7 +1905,7 @@ func TestCredentialRefresher_RefreshNow_GivenPermanentGrantRejection_ThenErrorWr
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "pk", state.AccountCredential{
+	st.Login("account-42", state.AccountCredential{
 		AccessToken:           "access-1",
 		AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
 		RefreshToken:          "refresh-1",
@@ -2110,7 +1937,7 @@ func TestCredentialRefresher_RefreshNow_GivenTransientFailure_ThenErrorDoesNotWr
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "pk", state.AccountCredential{
+	st.Login("account-42", state.AccountCredential{
 		AccessToken:           "access-1",
 		AccessTokenExpiresAt:  clock.Now().Add(15 * time.Minute).Unix(),
 		RefreshToken:          "refresh-1",
@@ -2138,7 +1965,7 @@ func TestDaemon_GivenRelayRejectsTheStoredAccessToken_WhenTheDaemonRefreshesItOn
 	dir := t.TempDir()
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "cached-public-key", state.AccountCredential{
+	st.Login("account-42", state.AccountCredential{
 		AccessToken:           "access-1",
 		AccessTokenExpiresAt:  time.Now().Add(15 * time.Minute).Unix(),
 		RefreshToken:          "refresh-1",
@@ -2448,8 +2275,7 @@ func TestDaemon_GivenLoggedOutAtStartup_WhenLoginLandsOnDisk_ThenTheRelayLinkPic
 	other, err := state.Load(dir)
 	require.NoError(t, err)
 	other.Mutate(func(s *state.State) { s.AccountServerURL = "https://server.example" })
-	other.LoginWithKeySet("42", "kid-1", map[string]string{"kid-1": "PEM"}, 900,
-		state.AccountCredential{DeviceID: 7, AccessToken: "at-1", RefreshToken: "rt-1"})
+	other.Login("42", state.AccountCredential{DeviceID: 7, AccessToken: "at-1", RefreshToken: "rt-1"})
 	require.NoError(t, other.Save())
 
 	assert.Equal(t, "https://server.example", d.relayServerURL(),
@@ -2502,7 +2328,7 @@ func TestDaemon_GivenLoggedInDaemon_WhenEngineRPCsAreCalled_ThenTheyUseLocalStat
 	dir := engineDataDir(t)
 	st, err := state.Load(dir)
 	require.NoError(t, err)
-	st.Login("account-42", "cached-public-key", state.AccountCredential{AccessToken: "device-access-token"})
+	st.Login("account-42", state.AccountCredential{AccessToken: "device-access-token"})
 	st.Mutate(func(s *state.State) {
 		s.LLMProviders["provider-key"] = state.LLMProviderMeta{
 			Type: "openai-chat", BaseURL: server.URL, APIKey: "daemon-engine-secret",

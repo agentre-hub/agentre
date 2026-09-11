@@ -68,10 +68,9 @@ func TestState_AccountLoginRoundTripStoresOnlyOpaqueAccountData(t *testing.T) {
 	}, credentialFields, "account credentials must not acquire PII fields")
 
 	in := &State{
-		SchemaVersion:            1,
-		DaemonInstanceUUID:       "daemon-uuid",
-		AccountID:                "account-42",
-		VerificationPublicKeyPEM: "-----BEGIN PUBLIC KEY-----\\nkey",
+		SchemaVersion:      1,
+		DaemonInstanceUUID: "daemon-uuid",
+		AccountID:          "account-42",
 		Credential: AccountCredential{
 			DeviceID:              9,
 			AccessToken:           "access-token",
@@ -90,7 +89,6 @@ func TestState_AccountLoginRoundTripStoresOnlyOpaqueAccountData(t *testing.T) {
 	var out State
 	require.NoError(t, json.Unmarshal(b, &out))
 	assert.Equal(t, in.AccountID, out.AccountID)
-	assert.Equal(t, in.VerificationPublicKeyPEM, out.VerificationPublicKeyPEM)
 	assert.Equal(t, in.Credential, out.Credential)
 }
 

@@ -98,27 +98,11 @@ func (s *State) IsLoggedIn() bool {
 	return s.AccountID != ""
 }
 
-// Claim records the opaque account identity, the public key used to verify its
-// credentials, and the refreshable credential obtained from the device flow.
-func (s *State) Login(accountID, verificationPublicKeyPEM string, credential AccountCredential) {
+// Login records the opaque account identity and the refreshable credential
+// obtained from the device flow.
+func (s *State) Login(accountID string, credential AccountCredential) {
 	s.Mutate(func(st *State) {
 		st.AccountID = accountID
-		st.VerificationPublicKeyPEM = verificationPublicKeyPEM
-		st.Credential = credential
-	})
-}
-
-// LoginWithKeySet records the versioned verification-key set distributed by the
-// account server and caches the active key in the single-key field used by the
-// local verifier when no key ID is present.
-func (s *State) LoginWithKeySet(accountID, currentKID string, publicKeys map[string]string,
-	maxTokenLifetimeSeconds int64, credential AccountCredential) {
-	s.Mutate(func(st *State) {
-		st.AccountID = accountID
-		st.VerificationCurrentKID = currentKID
-		st.VerificationPublicKeys = cloneStrings(publicKeys)
-		st.VerificationPublicKeyPEM = publicKeys[currentKID]
-		st.MaxTokenLifetimeSeconds = maxTokenLifetimeSeconds
 		st.Credential = credential
 	})
 }
@@ -211,12 +195,6 @@ func (s *State) AdoptLoginFromDisk() (bool, error) {
 		st.AccountID = onDisk.AccountID
 		st.AccountServerURL = onDisk.AccountServerURL
 		st.Credential = onDisk.Credential
-		st.VerificationPublicKeyPEM = onDisk.VerificationPublicKeyPEM
-		st.VerificationCurrentKID = onDisk.VerificationCurrentKID
-		st.VerificationPublicKeys = cloneStrings(onDisk.VerificationPublicKeys)
-		st.MaxTokenLifetimeSeconds = onDisk.MaxTokenLifetimeSeconds
-		st.RevokedJTIs = append([]string(nil), onDisk.RevokedJTIs...)
-		st.RevocationsAsOf = onDisk.RevocationsAsOf
 		adopted = true
 	})
 	return adopted, nil
@@ -237,8 +215,6 @@ func (s *State) Snapshot() State {
 		out.PairedPeers[k] = v
 	}
 	out.LLMProviders = cloneLLMProviders(s.LLMProviders)
-	out.RevokedJTIs = append([]string(nil), s.RevokedJTIs...)
-	out.VerificationPublicKeys = cloneStrings(s.VerificationPublicKeys)
 	return out
 }
 
