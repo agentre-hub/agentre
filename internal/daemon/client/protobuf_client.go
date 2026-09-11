@@ -318,6 +318,25 @@ func (c *ProtobufClient) AuthAccount(ctx context.Context, request *agentrewire.A
 	return response, nil
 }
 
+// AuthDirect presents the local direct credential an account handshake
+// delivered (auth.direct). It knows nothing about TLS: the caller must only
+// reach it on a connection whose certificate already matched the pin, because
+// this is the moment the credential leaves the desktop. As with auth.account,
+// this connection's own identity is the one the responder states.
+func (c *ProtobufClient) AuthDirect(ctx context.Context, request *agentrewire.AuthDirectRequest) (*agentrewire.AuthDirectResponse, error) {
+	request.ProtocolVersion = wireversion.Protocol
+	request.MinSupportedProtocolVersion = wireversion.MinSupported
+	response, err := wirecall.AuthDirect(ctx, wirecall.On(c.conn), request)
+	if err != nil {
+		return nil, ClassifyHandshakeError(err)
+	}
+	if versionErr := PeerProtocolVersionError(response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+		return nil, versionErr
+	}
+	c.selfFP = response.GetPeerFingerprint()
+	return response, nil
+}
+
 func (c *ProtobufClient) AuthPair(ctx context.Context, request *agentrewire.AuthPairRequest) (*agentrewire.AuthPairResponse, error) {
 	c.selfFP = request.GetDeviceFingerprint()
 	request.ProtocolVersion = wireversion.Protocol

@@ -2,6 +2,7 @@ package remote_device_svc_test
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -47,7 +48,27 @@ func newFakeDaemon(t *testing.T, instanceUUID string, reject *rpcerror.Error) *f
 func newFakeDaemonWith(t *testing.T, instanceUUID string, reject *rpcerror.Error, protocolVersion string) *fakeDaemon {
 	t.Helper()
 	d := &fakeDaemon{}
-	d.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	d.srv = httptest.NewServer(d.handler(instanceUUID, reject, protocolVersion))
+	t.Cleanup(d.srv.Close)
+	return d
+}
+
+// newTLSFakeDaemon 是只听 wss 的同一台假 agentred。cert 为 nil 时出示 httptest 自带的
+// 证书;给了就出示它 —— 用来造「地址上的证书与固定值不一致」(D16)。
+func newTLSFakeDaemon(t *testing.T, instanceUUID string, reject *rpcerror.Error, cert *tls.Certificate) *fakeDaemon {
+	t.Helper()
+	d := &fakeDaemon{}
+	d.srv = httptest.NewUnstartedServer(d.handler(instanceUUID, reject, wireversion.Protocol))
+	if cert != nil {
+		d.srv.TLS = &tls.Config{Certificates: []tls.Certificate{*cert}, MinVersion: tls.VersionTLS12}
+	}
+	d.srv.StartTLS()
+	t.Cleanup(d.srv.Close)
+	return d
+}
+
+func (d *fakeDaemon) handler(instanceUUID string, reject *rpcerror.Error, protocolVersion string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ws, err := (&websocket.Upgrader{Subprotocols: []string{protorpc.Subprotocol}}).Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -73,6 +94,8 @@ func newFakeDaemonWith(t *testing.T, instanceUUID string, reject *rpcerror.Error
 					response, _ = proto.Marshal(&agentrewire.AuthPairResponse{DeviceToken: "device-token", DaemonFingerprint: string(identity.DaemonFingerprint(instanceUUID)), InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion, MinSupportedProtocolVersion: wireversion.MinSupported})
 				case agentrewire.RpcMethod_RPC_METHOD_AUTH_CONNECT:
 					response, _ = proto.Marshal(&agentrewire.AuthConnectResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion, MinSupportedProtocolVersion: wireversion.MinSupported})
+				case agentrewire.RpcMethod_RPC_METHOD_AUTH_DIRECT:
+					response, _ = proto.Marshal(&agentrewire.AuthDirectResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion, MinSupportedProtocolVersion: wireversion.MinSupported, PeerFingerprint: "sha256:as-the-daemon-sees-me"})
 				default:
 					// 回写对端认定的本端身份(决策 8):调用方在请求体里已经报不了。
 					response, _ = proto.Marshal(&agentrewire.AuthAccountResponse{Ok: true, InstanceUuid: instanceUUID, ProtocolVersion: protocolVersion, MinSupportedProtocolVersion: wireversion.MinSupported, PeerFingerprint: "sha256:as-the-daemon-sees-me"})
@@ -82,9 +105,7 @@ func newFakeDaemonWith(t *testing.T, instanceUUID string, reject *rpcerror.Error
 			payload, _ = proto.Marshal(out)
 			_ = ws.WriteMessage(websocket.BinaryMessage, payload)
 		}
-	}))
-	t.Cleanup(d.srv.Close)
-	return d
+	})
 }
 
 func TestRealDial_PairAndConnectUseTypedProtobufMethods(t *testing.T) {

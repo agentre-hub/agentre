@@ -99,9 +99,28 @@ func (c *deliveringConnection) AccountDirectDelivery() (urls []string, certPEM, 
 // spyRecorder 是 remote_device_svc.AccountDirectRecorderPort 的假替身,记下每一次
 // RecordAccountDirect 调用;err 非空时模拟落地失败(验证它不拖垮一次本来成功的连接)。
 type spyRecorder struct {
-	mu    sync.Mutex
-	calls []remote_device_svc.AccountDirectDelivery
-	err   error
+	mu            sync.Mutex
+	calls         []remote_device_svc.AccountDirectDelivery
+	err           error
+	directSuccess []directSuccessCall
+}
+
+type directSuccessCall struct {
+	deviceID int64
+	address  string
+}
+
+func (s *spyRecorder) RecordDirectSuccess(_ context.Context, deviceID int64, address string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.directSuccess = append(s.directSuccess, directSuccessCall{deviceID: deviceID, address: address})
+	return s.err
+}
+
+func (s *spyRecorder) directSuccessCalls() []directSuccessCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]directSuccessCall(nil), s.directSuccess...)
 }
 
 func (s *spyRecorder) RecordAccountDirect(_ context.Context, d remote_device_svc.AccountDirectDelivery) error {
