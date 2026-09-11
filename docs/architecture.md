@@ -36,8 +36,8 @@ pkg/                           (externally reusable packages: agentred, claudeco
 frontend/                      (React 19 + TS + Vite + Tailwind; wailsjs/ is wails-generated, gitignored)
   packages/agentre-ui/         (@agentre-hub/agentre-ui —— the shared frontend layer, also consumed by agentre-server;
                                 design tokens + transcript renderer + data contract. See below and frontend.md)
-  packages/agentre-wire/       (@agentre-hub/agentre-wire —— the wire protocol's TS side: codec + golden samples, both
-                                generated from internal/pkg/agentruntime/runtimes/remote/wire. See frontend.md)
+  packages/agentre-wire/       (@agentre-hub/agentre-wire —— the wire protocol's TS side: Protobuf messages from pkg/wire/proto;
+                                legacy domain codecs + golden samples from remote/wire. See frontend.md)
 e2e/                           (independent hermetic Wails app/composition + one Playwright runner/config;
                                 formal agentre/agentred dependency graphs do not import it)
 ```

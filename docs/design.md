@@ -28,9 +28,8 @@ Every UI change must satisfy all of these. They are the bar for "consistent, fri
   > **Sanctioned literal-color exceptions** (everything else must be a token): the xterm ANSI
   > palette in [`terminal/terminal-theme.ts`](../frontend/packages/agentre-ui/src/terminal/terminal-theme.ts)
   > (xterm.js can't consume CSS variables); the `#94a3b8` slate **avatar fallback** when agent meta is
-  > missing (§3.6); neutral black-alpha **shadows/scrim** (`box-shadow rgba(0,0,0,…)`, the `Dialog`
-  > backdrop) — there are no `--shadow-*` tokens by design (§3.12); and `bg-neutral-600` as the
-  > **`"neutral"` agent** identity fill (§3.6).
+  > missing (§3.6); and neutral black-alpha **shadows/scrim** (`box-shadow rgba(0,0,0,…)`, the `Dialog`
+  > backdrop) — there are no `--shadow-*` tokens by design (§3.12).
 - **Both themes, always.** Light and dark are first-class. Because every color comes from a token that has a `:root` and a `.dark` value, using tokens makes a component theme-correct for free. Verify on real light *and* dark before considering anything done (§4).
 - **This is a desktop window, not a web page.** The shell is a fixed Wails frame — title bar → icon rail → resizable sidebar → tab strip → panel → status bar (§7). `html, body, #root` are `height:100%; overflow:hidden`, and the body defaults to `user-select:none`; text selection is **opted into** per region, not the default (§7). There is **no mobile breakpoint** and no `useIsMobile` — design for a resizable desktop window (min `860×640`), not a phone.
 - **No inline `style={{}}` for what Tailwind can express.** Compose utility classes via `cn()` (`clsx` + `tailwind-merge`); build variants with `class-variance-authority` (CVA). Inline styles only for genuinely dynamic values (a computed width, a per-agent `var(--agent-N)` color, a `display` toggle).
@@ -97,7 +96,7 @@ A muted, cool steel-blue chosen to stay distinct from the bright agent blues (§
 
 ### 3.3 Secondary / muted / accent
 
-> Per the shadcn convention these share the **same gray value** in each theme — different semantics, one fill.
+> `secondary` and `muted` share a value in light and differ in dark; `accent` deliberately equals no resting surface (see its row).
 
 | Token / class | Light | Dark | Use |
 | --- | --- | --- | --- |
@@ -166,7 +165,7 @@ Sixteen fixed hues give concurrent agents distinct, stable identities. Light use
 
 **How to apply a color.** The source of truth is the agent's `agentColor` token (e.g. `"agent-7"`), assigned by the backend — there is **no client-side hashing**. Map it through the helpers, never by hand:
 
-- Tailwind classes (the common path) — [`components/agentre/types.ts`](../frontend/src/components/agentre/types.ts): `agentColorClassNames[color]` → `bg-agent-7`; `agentTextColorClassNames[color]` / `agentTextColorClassName(token, fallback)` → `text-agent-7`. The extra member `"neutral"` maps to `bg-neutral-600` / `text-foreground`.
+- Tailwind classes (the common path) — [`components/agentre/types.ts`](../frontend/src/components/agentre/types.ts): `agentColorClassNames[color]` → `bg-agent-7`; `agentTextColorClassNames[color]` / `agentTextColorClassName(token, fallback)` → `text-agent-7`. The extra member `"neutral"` maps to `bg-agent-neutral` / `text-foreground`.
 - A raw CSS color (for inline `style`) — [`components/agentre/session-avatar.ts`](../frontend/src/components/agentre/session-avatar.ts): `tokenToCssColor(token)` → `var(--agent-7)` or `null` for an invalid token; `avatarFromMeta(meta)` → `{ letter, color }`, falling back to `#94a3b8` (slate) when meta is missing.
 
 Default fallback color is `agent-1`. `agentColorOrder` is the canonical 1→16 sequence for round-robin assignment.
@@ -281,7 +280,7 @@ Depth is primarily a **surface step**, not a shadow (Principle 5). Pick the surf
 
 ## 4. Theming
 
-**Mechanism:** the theme switches by adding/removing `.dark` on `document.documentElement` (`@custom-variant dark (&:is(.dark *))` is what makes the `dark:` variant work). The toggle is `applyDocumentTheme(theme)` in [`frontend/src/App.tsx`](../frontend/src/App.tsx), which also sets `data-theme` and `style.colorScheme` for redundancy. Every token is defined under both `:root` and `.dark`, so toggling the class re-skins the whole app — no per-component color changes needed.
+**Mechanism:** the theme switches by adding/removing `.dark` on `document.documentElement` (`@custom-variant dark (&:is(.dark *))` is what makes the `dark:` variant work). The toggle is `applyDocumentTheme(theme)` in the shared [`theme-context.tsx`](../frontend/packages/agentre-ui/src/theme/theme-context.tsx), which also sets `data-theme` and `style.colorScheme` for redundancy. Every token is defined under both `:root` and `.dark`, so toggling the class re-skins the whole app — no per-component color changes needed.
 
 **Preference & API.** Theme state is provided by the shared package's `ThemeProvider` and consumed with `useTheme`; the desktop host wraps the app with the provider and passes the resulting values to routed pages through the `Outlet` context. The model lives in the shared [`theme-context.tsx`](../frontend/packages/agentre-ui/src/theme/theme-context.tsx):
 
@@ -366,7 +365,7 @@ The shadcn primitives live in [`frontend/packages/agentre-ui/src/ui/`](../fronte
 
 ### 6.1 Primitives — present vs. absent
 
-The palette is pruned to what's actually imported. **Present** (18) in [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/):
+The palette is pruned to what's actually imported. **Present** in [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/):
 
 | File | Use |
 | --- | --- |
@@ -380,11 +379,12 @@ The palette is pruned to what's actually imported. **Present** (18) in [`package
 | `dropdown-menu.tsx` / `context-menu.tsx` | Dropdown / right-click menu |
 | `popover.tsx` / `hover-card.tsx` / `tooltip.tsx` | Floating layers |
 | `table.tsx` | Table subcomponents |
-| `toggle.tsx` / `toggle-group.tsx` | Pressed-state toggle & exclusive/multi toggle group |
+| `toggle.tsx` | Pressed-state toggle |
+| `skeleton.tsx` | Placeholder block while content loads |
 
-**Absent** (commonly expected, but *not* in the codebase — don't import or assume them): `card`, `tabs`, `sheet`, `skeleton`, `progress`, `accordion`, `collapsible`, `sonner` (the `Toaster` is imported straight from `sonner`), `command` (there's a custom command palette), `form` (no form library — see §9).
+**Absent** (commonly expected, but *not* in the codebase — don't import or assume them): `card`, `tabs`, `sheet`, `progress`, `accordion`, `collapsible`, `sonner` (the `Toaster` is imported straight from `sonner`), `command` (there's a custom command palette), `form` (no form library — see §9).
 
-> **No `card.tsx`.** A "card" is the inline convention `rounded-lg border border-border bg-card p-4` (raised) — compose it directly; don't add a card primitive without cause. **No `skeleton`/`progress`** — see §9 for the real loading conventions. Need a missing primitive back? Re-add it from shadcn rather than hand-rolling.
+> **No `card.tsx`.** A "card" is the inline convention `rounded-lg border border-border bg-card p-4` (raised) — compose it directly; don't add a card primitive without cause. **No `progress`** — see §9 for the real loading conventions. Need a missing primitive back? Re-add it from shadcn rather than hand-rolling.
 
 ### 6.2 Button variants / sizes
 
@@ -421,7 +421,7 @@ Project blocks in [`components/agentre/primitives.tsx`](../frontend/src/componen
 | `SidebarButton` | Icon rail button — `ghost`/`icon`, `size-10 rounded-lg`, `sidebar-icon` color; active = `bg-primary-soft text-sidebar-icon-active shadow-xs`; ships its own hover/focus tooltip (300ms hover delay) and `aria-current`. |
 | `DeviceTag` | Local/remote device chip (online/offline). |
 
-> Other high-reuse `components/agentre/` blocks worth knowing before building: `code-block` (highlighted code + copy), `markdown-text` (agent markdown renderer), `resizable-sidebar` (drag-resized, persisted sidebar shell, §7), `thinking-block` / `compact-history-fold` (collapsible transcript regions), `app-dialog` (generic dialog host), `icon-picker`, `remote-fs-picker`. Search [`components/agentre/`](../frontend/src/components/agentre/) for a composed block before hand-rolling.
+> Other high-reuse blocks worth knowing before building. In the shared package: `code-block` (highlighted code + copy), `markdown-text` (agent markdown renderer) and `thinking-block` under `transcript/`, `resizable-sidebar` (drag-resized, persisted sidebar shell, §7) under `ui/`, `app-dialog` (generic dialog host) under `engine/`. In [`components/agentre/`](../frontend/src/components/agentre/): `compact-history-fold` (collapsible transcript region) and `icon-picker`. Search both before hand-rolling.
 
 ### 6.5 Toasts & notifications
 
@@ -446,7 +446,7 @@ Two distinct systems — use the right one:
 Every screen renders inside `AppLayout` ([`App.tsx`](../frontend/src/App.tsx)). Top to bottom:
 
 1. **Title bar** (`AppTopBar`, [`chrome.tsx`](../frontend/src/components/agentre/chrome.tsx)) — `h-11`, `bg-rail`, `.wails-drag`; holds the app name/breadcrumb. Platform-aware: macOS reserves the 68px native traffic-light inset; Windows renders `WindowsWindowControls`.
-2. **Icon rail** — `<aside>` `w-14`, `bg-rail`, a column of `SidebarButton`s (Chat / Projects / Issues / Org / Hooks), with the theme toggle + Settings pinned to the bottom via `mt-auto`.
+2. **Icon rail** — `<aside>` `w-14`, `bg-rail`, a column of `SidebarButton`s (Chat / Issues / Org / Hooks, from `lib/app-routing.ts`), with the theme toggle + Settings pinned to the bottom via `mt-auto`.
 3. **Context sidebar** *(per page)* — optional `ResizableSidebar` (chat agent list, project tree). `hidden lg:flex`, drag handle, width persisted.
 4. **Outlet / chat panel** — the routed page (`Outlet`), or the chat **tab strip** (`h-[38px]`, drag-reorderable, `.scrollbar-none`) + `ChatPanelHost`, toggled via `display:none` by `data-page-has-chat`.
 5. **Status bar** (`AppStatusBar`) — `h-7`, `bg-rail`; agent summary, connection status, version.
@@ -464,7 +464,7 @@ The body defaults to `user-select: none` (this is an app chrome, not a document)
 
 ### Auto-hiding scrollbars
 
-Scrollbars are invisible until you scroll. `useAutoHideScrollbars` ([`App.tsx`](../frontend/src/App.tsx)) sets the `--sb-thumb` CSS variable to a visible color on scroll and clears it after ~900ms idle. This is a **CSS-variable** mechanism on purpose: WKWebView doesn't repaint `::-webkit-scrollbar` on class/selector changes (WebKit bug #104412), but it does on custom-property value changes. So: **don't** restyle scrollbars with classes per container; rely on the global rules. To fully hide one (a horizontal strip like the tab list), add `.scrollbar-none`.
+Scrollbars are invisible until you scroll. `useAutoHideScrollbars` (the shared [`use-auto-hide-scrollbars.ts`](../frontend/packages/agentre-ui/src/hooks/use-auto-hide-scrollbars.ts)) sets the `--sb-thumb` CSS variable to a visible color on scroll and clears it after ~900ms idle. This is a **CSS-variable** mechanism on purpose: WKWebView doesn't repaint `::-webkit-scrollbar` on class/selector changes (WebKit bug #104412), but it does on custom-property value changes. So: **don't** restyle scrollbars with classes per container; rely on the global rules. To fully hide one (a horizontal strip like the tab list), add `.scrollbar-none`.
 
 ### No mobile — desktop only
 
@@ -491,7 +491,7 @@ Ties break by DOM/portal order, not a bespoke number. A new "always on top" need
 
 ## 8. Motion
 
-**Sources:** `tw-animate-css` (`@import` in the shared [`tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) — provides `animate-in/out`, `fade-*`, `zoom-*`, `slide-*`) + Radix `data-state` + one custom keyframe (`typing-dot`). **No Framer Motion** — all motion is CSS.
+**Sources:** `tw-animate-css` (`@import` in the host [`globals.css`](../frontend/src/styles/globals.css) — provides `animate-in/out`, `fade-*`, `zoom-*`, `slide-*`) + Radix `data-state` + one custom keyframe (`typing-dot`). **No Framer Motion** — all motion is CSS.
 
 ### How to add motion that stays friendly
 
@@ -524,12 +524,12 @@ Ties break by DOM/portal order, not a bespoke number. A new "always on top" need
 
 ## 9. State patterns
 
-Every async flow covers loading / empty / error / success consistently. **Important:** unlike some shadcn apps, agentre has **no shared `StateScreen` / `EmptyState` / `LoadingState` / `Skeleton` / `Progress` components yet** — these states are currently composed ad hoc. Follow the conventions below, and **when a state block repeats across two or more pages, extract a shared component** rather than copy-pasting (Principle 6).
+Every async flow covers loading / empty / error / success consistently. **Important:** unlike some shadcn apps, agentre has **no shared `StateScreen` / `EmptyState` / `LoadingState` / `Progress` components yet** (only a `Skeleton` primitive) — these states are currently composed ad hoc. Follow the conventions below, and **when a state block repeats across two or more pages, extract a shared component** rather than copy-pasting (Principle 6).
 
 | State | Convention today |
 | --- | --- |
-| **Loading** | A centered `Loader2` (`animate-spin`, `text-muted-foreground`) for whole regions, or an inline `Loader2 size-3.5 animate-spin` inside a disabled button for single actions. For lightweight "first load" copy, the `CenterNote` pattern (centered `text-xs text-muted-foreground`, e.g. [`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). No skeletons exist — add one only if you build the shared component. |
-| **Empty** | Centered icon (`Inbox` / `Sparkles` in `decorative-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/src/components/agentre/llm-providers.tsx)) and `IssuesEmpty` ([`issues-page.tsx`](../frontend/src/components/agentre/issues-page.tsx)). |
+| **Loading** | A centered `Loader2` (`animate-spin`, `text-muted-foreground`) for whole regions, or an inline `Loader2 size-3.5 animate-spin` inside a disabled button for single actions. For lightweight "first load" copy, centered `text-xs text-muted-foreground`. For placeholder rows, the `Skeleton` primitive (e.g. [`exec-target-list.tsx`](../frontend/src/components/agentre/org/exec-target-list.tsx)). |
+| **Empty** | Centered icon (`Inbox` / `Sparkles` in `decorative-foreground`/`primary-soft`) + `text-sm font-semibold` title + `text-xs text-muted-foreground` description + a primary CTA. See `ProvidersEmptyState` ([`llm-providers.tsx`](../frontend/packages/agentre-ui/src/engine/llm-providers.tsx)). |
 | **Error** | `ErrorCard` ([`transcript-row-view.tsx`](../frontend/packages/agentre-ui/src/transcript/transcript-row-view.tsx)): `border-status-error/40 bg-destructive-soft`, `TriangleAlert` icon in `text-status-error`, the message, and an optional outline retry button. For page-level failures, centered `text-destructive` copy. |
 | **Success** | Transient → a Sonner `toast.success` (§6.5); a completed agent turn → the notification viewport. |
 | **In-progress** | No general-purpose `Progress` primitive in the shared package. Agent background-task progress has a dedicated `TaskProgressBar` ([`task-progress/`](../frontend/src/components/agentre/task-progress/)) — a real bar + expandable task list with a `LoaderCircle` spinner tinted `text-status-waiting`. For other waits, a status-tinted spinner + readable copy. |
@@ -602,7 +602,7 @@ When building a new page or dialog, run this checklist to stay consistent:
 - [ ] **Shell:** render inside the existing `AppLayout` frame — a routed `Outlet` page (title bar / rail / status bar are given). Add a `ResizableSidebar` only if the page needs a list/detail split (§7).
 - [ ] **Color** entirely from tokens (`bg-card` / `text-foreground` / `border-border` / `text-primary` / `bg-primary` …), no literals, verified on both themes (Constraints 1–2, §3–4).
 - [ ] **Agent/status surfaces** reuse `AgentAvatar` / `StatusDot` / `StatusPill` and the `agentColorClassNames` / `tokenToCssColor` helpers — never re-derive agent color or re-style status (Principle 1, §3.5–3.6, §6.4).
-- [ ] **Components** reuse first — search [`components/agentre/`](../frontend/src/components/agentre/) and [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) before building; remember there's **no `card`/`tabs`/`sheet`/`skeleton`/`progress`** primitive — compose the inline card and the §9 state patterns; variants via CVA, classes via `cn()`, icons via `lucide-react` (§6).
+- [ ] **Components** reuse first — search [`components/agentre/`](../frontend/src/components/agentre/) and [`packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/) before building; remember there's **no `card`/`tabs`/`sheet`/`progress`** primitive — compose the inline card and the §9 state patterns; variants via CVA, classes via `cn()`, icons via `lucide-react` (§6).
 - [ ] **Cards** are inline `rounded-lg border border-border bg-card p-4`; pick the surface by elevation (§3.12) and pair with the matching radius.
 - [ ] **State:** loading / empty / error / success all covered, never silent (§9); extract a shared state block if it repeats.
 - [ ] **Motion** restrained (`150–200ms`, `ease-out`), hover/focus via pseudo-classes, enter/leave via `data-state`, and **a `motion-reduce:` modifier on every animation** (§8).
@@ -651,7 +651,7 @@ export default function ExamplePage() {
 **Implementation source of truth (read/edit these when changing the design):**
 
 - Color / font / motion / scrollbar tokens → [`frontend/packages/agentre-ui/styles/tokens.css`](../frontend/packages/agentre-ui/styles/tokens.css) (imported by the host [`globals.css`](../frontend/src/styles/globals.css)); code highlighting → [`code-highlight.css`](../frontend/packages/agentre-ui/styles/code-highlight.css)
-- Theming + the app shell (title bar, rail, status bar, auto-hide scrollbars, window size) → [`frontend/src/App.tsx`](../frontend/src/App.tsx) + [`frontend/src/components/agentre/chrome.tsx`](../frontend/src/components/agentre/chrome.tsx)
+- Theming → the shared [`theme-context.tsx`](../frontend/packages/agentre-ui/src/theme/theme-context.tsx); auto-hide scrollbars → the shared [`use-auto-hide-scrollbars.ts`](../frontend/packages/agentre-ui/src/hooks/use-auto-hide-scrollbars.ts); the app shell (title bar, rail, status bar, window size) → [`frontend/src/App.tsx`](../frontend/src/App.tsx) + [`frontend/src/components/agentre/chrome.tsx`](../frontend/src/components/agentre/chrome.tsx)
 - Agent color / status model → [`frontend/src/components/agentre/types.ts`](../frontend/src/components/agentre/types.ts) + [`session-avatar.ts`](../frontend/src/components/agentre/session-avatar.ts); agent/status primitives → [`primitives.tsx`](../frontend/src/components/agentre/primitives.tsx)
 - Component primitives → [`frontend/packages/agentre-ui/src/ui/`](../frontend/packages/agentre-ui/src/ui/); shadcn config → [`components.json`](../frontend/components.json); `cn()` → [`frontend/src/lib/utils.ts`](../frontend/src/lib/utils.ts)
 

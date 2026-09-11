@@ -60,7 +60,7 @@ Agentre 采用标准的 GitHub fork 协作模式：
 
 ## 写代码之前
 
-先读 [AGENTS.md](../AGENTS.md)：其中的 **Development Conventions（必读）** 是唯一、完整的索引。下表只是最常用的入口，不是第二份穷举清单：
+先读 [AGENTS.md](../AGENTS.md)：其中的 **Engineering conventions and task routing** 一节是唯一、完整的索引。下表只是最常用的入口，不是第二份穷举清单：
 
 | 文档 | 内容 |
 | ---- | ---- |

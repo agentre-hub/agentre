@@ -30,20 +30,20 @@ Start the commit message with a **gitmoji emoji character** (write the emoji gly
 
 Issue / PR suffixes are selective, not automatic. Add an issue suffix only when the commit is a single focused change that directly resolves or advances a known issue, using the issue number form such as `#123`. When the work is organized around a PR, do **not** append the PR number to every commit; the PR already carries that context. In general, prefer issue references over PR references, and leave the suffix off when there is no relevant issue.
 
-Common gitmojis and the category they map to in the release notes (the release flow lets `gh release create --generate-notes` build them):
+Common gitmojis:
 
-| gitmoji | Purpose | changelog category |
-|---------|------|---------------|
-| ✨ | New feature | 🚀 Major new features |
-| 🐛 | Bug fix | 🐛 Bug fixes |
-| ⚡️ | Performance optimization | ⚡️ Performance optimizations |
-| ♻️ | Refactor / compatibility | ♻️ Refactoring and compatibility |
-| 🎨 | UI improvement | 🎨 UI improvements |
-| 📝 | Docs | Other |
-| ✅ | Tests | Other |
-| 🔧 | Configuration | Other |
-| 🔒 | Security | Other |
-| 🔖 | Release / version bump | — (the release commit itself) |
+| gitmoji | Purpose |
+|---------|------|
+| ✨ | New feature |
+| 🐛 | Bug fix |
+| ⚡️ | Performance optimization |
+| ♻️ | Refactor / compatibility |
+| 🎨 | UI improvement |
+| 📝 | Docs |
+| ✅ | Tests |
+| 🔧 | Configuration |
+| 🔒 | Security |
+| 🔖 | Release / version bump |
 
 Release commits use the fixed form `🔖 release v{version}`.
 
@@ -80,7 +80,7 @@ These are the conventions with a real check behind them. Everything else in thes
 | --- | --- | --- | --- |
 | No hardcoded Chinese UI copy in JSX text or visible attributes | `t("…")` + update **both** `zh-CN` and `en` locale files | `i18next/no-literal-string` in `frontend/eslint.config.js`, run by `make lint-frontend` | `src/**/__tests__/**` and `*.{test,spec}.{ts,tsx}`, where the rule is `off` |
 | Static `t("…")` keys must resolve, and both locales expose the same key set | Add the key to both locale files | `frontend/src/__tests__/i18n.test.ts` | — |
-| Go formatting and import grouping | `gofmt` + `goimports` | golangci-lint `formatters`, run by `make lint-backend` | `.claude`, `.dev-kit`, `frontend` (excluded paths) |
+| Go formatting and import grouping | `gofmt` + `goimports` | golangci-lint `formatters`, run by `make lint-backend` | `.claude`, `.dev-kit`, `frontend`, `e2e/scratch` (excluded paths) |
 | The daemon's `agentruntime` registry keeps every backend registered | Keep the `init` imports in `internal/daemon/runtime_imports.go` | `internal/daemon/runtime_imports_test.go` | — |
 | `wails dev` macOS identity stays distinct from the installed app | Keep `Info.dev.plist` identifier as production + `.dev` and mark the Dock name `(Dev)` | `internal/desktop/darwin_bundle_test.go` | — |
 | Transcript typography stays on the shared token scale | Use the tokens `globals.css` exposes | `frontend/src/components/agentre/__tests__/transcript-typography-guard.test.ts` + `frontend/src/__tests__/design-tokens.test.ts` | — |

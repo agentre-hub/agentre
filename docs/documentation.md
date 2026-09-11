@@ -47,14 +47,14 @@ Stage the files intended for the commit, then set `VERIFY_TREE="$(git write-tree
 | [`README_zh.md`](./README_zh.md) / [`../README.md`](../README.md) | The user-facing Chinese / English project README — **not** a docs index; don't stuff contributor conventions into it. |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) / [`CONTRIBUTING_ZH.md`](./CONTRIBUTING_ZH.md) | The contributor guide (English / Chinese): setup, the GitHub fork / branch / PR workflow, a summary of the ground rules, commit style, PR checklist. It **links into** `AGENTS.md` / `docs/*` for the details — keep it a pointer, don't let facts fork from the docs that own them. |
 
-**Agentre has no `docs/README.md` index file** — the docs index role is played by the **"Development Conventions (required reading)" section of `AGENTS.md`**.
+**Agentre has no `docs/README.md` index file** — the docs index role is played by the **"Engineering conventions and task routing" section of `AGENTS.md`**.
 When you add / move / delete `docs/*`, keep that section and the "Doc Set and Responsibilities" table above in sync.
 
 When you move a fact, move it to **the doc that owns it** and cross-link — never copy the same fact into two places, or they will eventually drift.
 
 ## Checklist 1 — Organization (Run Every Time You Change a Doc)
 
-- [ ] Added / renamed / deleted a doc → update the "Development Conventions (required reading)" list in [`AGENTS.md`](../AGENTS.md), the "Doc Set and Responsibilities" table here, **and** everywhere that references it.
+- [ ] Added / renamed / deleted a doc → update the "Engineering conventions and task routing" list in [`AGENTS.md`](../AGENTS.md), the "Doc Set and Responsibilities" table here, **and** everywhere that references it.
 - [ ] All relative links resolve (run the link check in *One-Shot Verification* below).
 - [ ] Nothing that only exists on a feature branch is written as the state of `main` — either delete it, or explicitly mark it "planned (branch `X`)".
 - [ ] No fact is duplicated across multiple docs; the doc that owns it holds it, the rest link to it.

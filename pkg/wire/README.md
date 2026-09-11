@@ -91,7 +91,7 @@ commit。
    `pnpm proto:generate`(Go 与 TS 生成物一起出)。
 2. 在 `pkg/wire/wirecall/methods.go` 加一行 —— **漏了会判红**:完备性守卫要求每个
    枚举值有且只有一个 typed 调用函数,命名守卫还会核对请求/响应类型符合约定。
-3. 在宿主里注册 handler(桌面端 `internal/daemon/protobuf_*`,peer 侧
+3. 在宿主里注册 handler(agentred 侧 `internal/daemon/protobuf_*`,桌面端
    `internal/peer/protobuf_inbound.go`)。
 4. 方法集变了就要考虑 `wireversion.MinSupported` —— 见那个包的注释里的守恒律。
 

@@ -101,7 +101,7 @@ node e2e/drive.mjs click "testid=nav-settings"
 node e2e/drive.mjs shot 01-settings
 node e2e/drive.mjs sql "select status, count(*) from chat_sessions group by status"
 node e2e/drive.mjs logs 40
-make verify-down                    # retain isolated state
+make verify-down                    # retain isolated state (the next verify-up wipes it unless VERIFY_FLAGS=--keep)
 make verify-down VERIFY_FLAGS=--wipe
 ```
 
@@ -109,6 +109,6 @@ make verify-down VERIFY_FLAGS=--wipe
 
 `lib/target.mjs` derives one checkout-scoped data directory, file-keychain directory, browser directory, session file, bridge port, and CDP port. It rejects the installed app root, the development root, arbitrary directories, non-loopback origins, and the ordinary development bridge. A second worktree derives a different target. The launcher never adopts an unrecorded process already holding its port.
 
-Real Server, daemon, or agent CLI behavior requires the verifier to configure and authorize that real dependency. If it is unavailable, the check fails or remains `not observed`; verification never substitutes an automated fake. Stop retains the isolated database/logs for investigation, while wipe deletes only directories first validated as this checkout's target.
+Real Server, daemon, or agent CLI behavior requires the verifier to configure and authorize that real dependency. If it is unavailable, the check fails or remains `not observed`; verification never substitutes an automated fake. Stop retains the isolated database/logs for investigation — the next `verify-up` clears them again unless started with `VERIFY_FLAGS=--keep` — while wipe deletes only directories first validated as this checkout's target.
 
 `drive.mjs` attaches through the recorded CDP session, allows only same-target navigation, restricts the SQLite oracle to `SELECT`/`WITH`/`PRAGMA`/`EXPLAIN`, and writes the action ledger and screenshots under gitignored `e2e/scratch/<scenario>/`. See [`docs/verification.md`](../docs/verification.md) for when this route is warranted, report creation, evidence, authorization, redaction, and honest verdicts.

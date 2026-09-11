@@ -20,7 +20,7 @@ Desktop UI for pairing and managing agentred LAN devices.
 | `login-dialog.tsx` | 账号登录对话框（设备流：code / 倒计时 / 打开浏览器） |
 | `mention-items.ts` | 设备面板行 → `@` 菜单设备清单的投影（本机置顶、指纹为唯一身份） |
 | `agentred-version.ts` | agentred 版本比较与升级判定（semver 解析、预发布排序） |
-| `use-remote-devices.ts` | hook：list / mutate / 30 s 轮询 / window focus 重新拉 |
+| `use-remote-devices.ts` | hook：list / mutate / `remote.device.state` 事件推送 / window focus 重新拉 |
 | `use-device-mentions.ts` | `@` 菜单设备清单取数（走 device-list-store，复用面板同一份合并规则） |
 | `use-device-upgrade.ts` | 桌面端取数适配：把共享包 `useAgentredUpgrade` 接到 Wails 绑定 |
 | `use-latest-agentred-version.ts` | 「桌面端已知的最新 agentred 版本」：update store 结果 + 本机构建标识 |
@@ -32,8 +32,8 @@ Desktop UI for pairing and managing agentred LAN devices.
 ```
 RemoteDevicesPanel
    │
-   ├── useRemoteDevices ─── window.setInterval(30s) → RemoteDeviceRefresh(id) for each
-   │                       window 'focus' event   → RemoteDeviceList
+   ├── useRemoteDevices ─── EventsOn('remote.device.state') → row state update
+   │                       window 'focus' event            → RemoteDeviceList
    │
    ├── AgentredOnboarding → DevicePairingForm
    │                          onSubmit({URL, code, name, tlsMode, tlsCertPEM})
@@ -62,16 +62,16 @@ agentred pair    # copy printed code
 # On desktop
 agentre   # open Settings → 远端 → 添加 agentred（零设备时引导已展开）
 # Step 3: paste URL, paste 6-char code, leave TLS = Default, click Pair
-# → row appears, status dot turns green within 30s
+# → row appears, status dot turns green
 
 # Edit TLS → switch to Pin certificate → paste cert → Apply
 # → row updates immediately (Refresh runs)
 
 # Stop remote agentred
-# → within 30s, row dot turns muted, last_error filled
+# → row dot turns muted, last_error filled
 
 # Restart remote agentred (same state.json)
-# → within 30s, row dot turns green again
+# → row dot turns green again
 
 # Delete remote state.json + restart agentred
 # → Refresh shows tofu_mismatch in red
