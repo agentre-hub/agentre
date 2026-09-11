@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/consts"
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -287,6 +288,29 @@ func TestPickExecTarget_GivenProjectBoundSession_WhenRemoteLocationMissing_ThenU
 	var httpErr *httputils.Error
 	require.True(t, errors.As(err, &httpErr))
 	assert.Equal(t, code.ChatAgentNoAvailableExecTarget, httpErr.Code)
+}
+
+// 表征（改前改后都绿，spec 决策 7）：绑定的 provider 已软删时，拦截原因是
+// ProviderInactive（「供应商存在但未激活」），不能漂成 BackendRequiresProvider（「没绑」）。
+func TestPickExecTarget_GivenSoftDeletedProvider_ThenReasonProviderInactive(t *testing.T) {
+	ctx, m, svc := setupPickExecTargetTest(t)
+	m.execTarget.EXPECT().ListByAgent(ctx, int64(343)).Return([]*agent_entity.AgentExecTarget{
+		{ID: 74, AgentID: 343, AgentBackendID: 814, SortOrder: 0},
+	}, nil)
+	m.backend.EXPECT().Find(ctx, int64(814)).Return(&agent_backend_entity.AgentBackend{
+		ID: 814, Type: string(agent_backend_entity.TypeBuiltin), LLMProviderKey: "deleted-key",
+	}, nil)
+	deleted := activeProvider("deleted-key")
+	deleted.Status = consts.DELETE
+	m.provider.EXPECT().FindByKey(ctx, "deleted-key").Return(deleted, nil)
+
+	choice, err := svc.PickExecTarget(ctx, 343, 0)
+	require.Error(t, err)
+	assert.Nil(t, choice)
+	var noneErr *exec_target_svc.ExecTargetNoneAvailableError
+	require.ErrorAs(t, err, &noneErr)
+	require.Len(t, noneErr.Reasons, 1)
+	assert.Equal(t, exec_target_svc.BlockReasonProviderInactive, noneErr.Reasons[0].Reason)
 }
 
 // ── 会话不绑项目时不受路径这一项约束 ────────────────────────────────────────

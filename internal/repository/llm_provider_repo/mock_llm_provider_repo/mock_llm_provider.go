@@ -58,6 +58,21 @@ func (mr *MockLLMProviderRepoMockRecorder) BatchFindByKey(ctx, keys any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchFindByKey", reflect.TypeOf((*MockLLMProviderRepo)(nil).BatchFindByKey), ctx, keys)
 }
 
+// BatchFindModelsByKey mocks base method.
+func (m *MockLLMProviderRepo) BatchFindModelsByKey(ctx context.Context, keys []string) (map[string]*llm_provider_model_entity.LLMProviderModel, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BatchFindModelsByKey", ctx, keys)
+	ret0, _ := ret[0].(map[string]*llm_provider_model_entity.LLMProviderModel)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BatchFindModelsByKey indicates an expected call of BatchFindModelsByKey.
+func (mr *MockLLMProviderRepoMockRecorder) BatchFindModelsByKey(ctx, keys any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchFindModelsByKey", reflect.TypeOf((*MockLLMProviderRepo)(nil).BatchFindModelsByKey), ctx, keys)
+}
+
 // CountModelReferences mocks base method.
 func (m *MockLLMProviderRepo) CountModelReferences(ctx context.Context, modelKey string) (llm_provider_repo.ModelRefCounts, error) {
 	m.ctrl.T.Helper()
@@ -261,6 +276,21 @@ func (m *MockLLMProviderRepo) List(ctx context.Context) ([]*llm_provider_entity.
 func (mr *MockLLMProviderRepoMockRecorder) List(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockLLMProviderRepo)(nil).List), ctx)
+}
+
+// ListByKeysAnyStatus mocks base method.
+func (m *MockLLMProviderRepo) ListByKeysAnyStatus(ctx context.Context, keys []string) (map[string]*llm_provider_entity.LLMProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByKeysAnyStatus", ctx, keys)
+	ret0, _ := ret[0].(map[string]*llm_provider_entity.LLMProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByKeysAnyStatus indicates an expected call of ListByKeysAnyStatus.
+func (mr *MockLLMProviderRepoMockRecorder) ListByKeysAnyStatus(ctx, keys any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByKeysAnyStatus", reflect.TypeOf((*MockLLMProviderRepo)(nil).ListByKeysAnyStatus), ctx, keys)
 }
 
 // ListModels mocks base method.
