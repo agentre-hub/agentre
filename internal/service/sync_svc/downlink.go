@@ -243,7 +243,10 @@ func (s *service) gcLostChanges(ctx context.Context, accountID int64) error {
 // 返回值是「本机有没有真的因此改变」：版本守卫挡下的重复投递、无处可删的墓碑、
 // 等引用而暂缓的那些都是 false —— 界面据此决定要不要重拉，空转的轮次不该惊动它。
 func (s *service) applyInbound(ctx context.Context, accountID int64, in *inbound) (bool, error) {
-	outcome, err := s.land(ctx, accountID, in)
+	outcome, missing, err := s.land(ctx, accountID, in)
+	if outcome == landingDeferred && err == nil {
+		return false, s.defer_(ctx, accountID, in, missing)
+	}
 	return outcome == landingApplied, err
 }
 
@@ -256,23 +259,25 @@ const (
 	landingUnchanged landing = iota
 	// landingApplied 本机真的因此改变。
 	landingApplied
-	// landingDeferred 引用目标还没到，这一行已经挂进暂缓队列（替换掉同一个同步
-	// 标识的旧副本）。重放据此知道它不必再出队、也不算这一轮的进展。
+	// landingDeferred 引用目标还没到，这一行要等。land 自己不写暂缓队列：下行那条路
+	// 由 applyInbound 挂进去（替换掉同一个同步标识的旧副本），重放手里那一行本身就是
+	// 暂缓行，原样留着即可，也不算这一轮的进展。
 	landingDeferred
 )
 
-// land 是 applyInbound 的本体，另外交出「暂缓了」这一种去向。
-func (s *service) land(ctx context.Context, accountID int64, in *inbound) (landing, error) {
+// land 是 applyInbound 的本体，另外交出「要暂缓」这一种去向；missing 是暂缓时缺的
+// 那个引用（只进调试日志，可能为空）。
+func (s *service) land(ctx context.Context, accountID int64, in *inbound) (landing, string, error) {
 	ad := s.adapters[in.Kind]
 	if ad == nil {
-		return landingUnchanged, nil
+		return landingUnchanged, "", nil
 	}
 	version, _, found, err := syncstate_repo.SyncState().FindVersion(ctx, in.Kind, in.SyncID)
 	if err != nil {
-		return landingUnchanged, err
+		return landingUnchanged, "", err
 	}
 	if found && version >= in.Version {
-		return landingUnchanged, nil
+		return landingUnchanged, "", nil
 	}
 	if in.IsTombstone() {
 		// 墓碑一到，同一个同步标识压在暂缓队列里的旧副本立刻作废。
@@ -282,13 +287,13 @@ func (s *service) land(ctx context.Context, accountID int64, in *inbound) (landi
 		// 版本守卫对它们失忆；此后重放那份旧副本会把删掉的行原样建回来，而游标早已
 		// 越过这两版，谁也不会再纠正它（R6：删除不被复活）。
 		if err := syncqueue_repo.InboundQueue().DeleteByEntity(ctx, accountID, in.Kind, in.SyncID); err != nil {
-			return landingUnchanged, err
+			return landingUnchanged, "", err
 		}
 	}
 	if in.IsTombstone() && !found {
 		// 本机从来没有这一行：墓碑没有可删的东西，也不必为它等引用目标到达
 		// ——把删除挂进暂缓队列只会白等 30 天（R2a/R6）。
-		return landingUnchanged, nil
+		return landingUnchanged, "", nil
 	}
 
 	if in.IsTombstone() {
@@ -297,26 +302,26 @@ func (s *service) land(ctx context.Context, accountID int64, in *inbound) (landi
 		// agentred 时一条 backend 的墓碑要在暂缓队列里空等 30 天再被当成「引用
 		// 丢失」丢掉——那一行在本机永远删不掉，而 R6 说删除必须到达各端。
 		if err := ad.remove(ctx, in); err != nil {
-			return landingUnchanged, err
+			return landingUnchanged, "", err
 		}
-		return landingApplied, s.saveInboundMeta(ctx, accountID, in)
+		return landingApplied, "", s.saveInboundMeta(ctx, accountID, in)
 	}
 
 	resolved, missing, err := resolveRefs(ctx, ad.refs(in))
 	if errors.Is(err, errRefMissing) {
-		return landingDeferred, s.defer_(ctx, accountID, in, missing.key())
+		return landingDeferred, missing.key(), nil
 	}
 	if err != nil {
-		return landingUnchanged, err
+		return landingUnchanged, "", err
 	}
 
 	if err := ad.apply(ctx, in, resolved); err != nil {
 		if errors.Is(err, errRefMissing) {
-			return landingDeferred, s.defer_(ctx, accountID, in, "")
+			return landingDeferred, "", nil
 		}
-		return landingUnchanged, err
+		return landingUnchanged, "", err
 	}
-	return landingApplied, s.saveInboundMeta(ctx, accountID, in)
+	return landingApplied, "", s.saveInboundMeta(ctx, accountID, in)
 }
 
 // saveInboundMeta 记下这一行已经消费到哪一版（版本守卫下一次靠它）。
@@ -361,8 +366,9 @@ func (s *service) defer_(ctx context.Context, accountID int64, in *inbound, miss
 // 例外），区别只在失败之后：暂缓的行**留在队列里**等下一轮，不往上抛——一条重试
 // 不成功的行不该把同一轮里其它行的重放也一起中断。
 //
-// 一轮只读一次队列：还差引用的行由 land 当场换成新的一份（不必再查它是不是还在），
-// 可以出队的行攒到这一轮末尾一条语句删掉——每条写语句在桌面端都要取一次写锁。
+// 一轮只读一次队列：还差引用的行原样留着——它就是这个同步标识在队列里唯一的那份，
+// 正文与重新暂缓时写出的一字不差，收到时间本来就是最早那次，换一份只会为每一行多一次
+// 读和一次写；可以出队的行攒到这一轮末尾一条语句删掉——每条写语句在桌面端都要取一次写锁。
 func (s *service) replayDeferred(ctx context.Context, accountID int64, landed appliedKinds) error {
 	for round := 0; round < 8; round++ {
 		rows, err := syncqueue_repo.InboundQueue().ListByAccount(ctx, accountID)
@@ -387,7 +393,7 @@ func (s *service) replayDeferred(ctx context.Context, accountID int64, landed ap
 			// 走 land 而不是自己再解析一遍引用：版本守卫也因此对重放生效。
 			// 少了它，一次迟到的重放会把已经落地的更新版本盖回旧版本，而游标早已
 			// 越过那一版——被盖掉的内容再也不会被重新投递，回退是永久的。
-			outcome, aerr := s.land(ctx, accountID, in)
+			outcome, _, aerr := s.land(ctx, accountID, in)
 			if outcome == landingApplied {
 				landed[in.Kind] = struct{}{}
 			}
@@ -397,8 +403,8 @@ func (s *service) replayDeferred(ctx context.Context, accountID int64, landed ap
 				continue
 			}
 			if outcome == landingDeferred {
-				// 引用目标还是没到：land 已经用新的一份替换了这一行（最早那次的
-				// ReceivedAt 保留着），这一行不再出队，也不算进展。
+				// 引用目标还是没到：这一行原样留在队列里（最早那次的 ReceivedAt 就在它
+				// 身上），不出队，也不算进展。
 				continue
 			}
 			done = append(done, row.ID)

@@ -153,8 +153,10 @@ func (f *fakeInboundQueue) list(match func(*syncqueue_entity.InboundQueueItem) b
 }
 
 // ReplaceForEntity 与真仓储同一个语义：删掉同一个同步标识的旧行，新行沿用其中
-// 最早的那个收到时间。
+// 最早的那个收到时间。真仓储先发一条 SELECT MIN(received_at) 读队列再写，这里同样
+// 记一次读，否则「读取次数不随队列行数增长」的断言看不见这条读。
 func (f *fakeInboundQueue) ReplaceForEntity(_ context.Context, row *syncqueue_entity.InboundQueueItem) error {
+	f.queries++
 	for _, old := range f.rows {
 		if old.SyncAccountID != row.SyncAccountID || old.EntityType != row.EntityType || old.EntitySyncID != row.EntitySyncID {
 			continue
