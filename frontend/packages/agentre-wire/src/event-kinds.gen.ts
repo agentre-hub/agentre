@@ -147,8 +147,8 @@ export const EventDone = "done";
 /**
  * EventUserMessage (R18):一轮的用户消息(见 event.go 的 UserMessageEvent)。宿主
  * 把用户那一行落库后当场作为**持久帧**投影发布,它因此走既有的 runtime.event 通知
- * 与补齐,不需要额外的通知通道。从前它还有第二个来源(事件流开头另注入的一条预览
- * 标记),那条已经撤掉 —— 同一句话发两遍,拿帧重建转录的消费方就画出两条。
+ * 与补齐,不需要额外的通知通道。它只有这一个来源 —— 同一句话发两遍,拿帧重建转录
+ * 的消费方就画出两条。
  */
 export const EventUserMessage = "user_message";
 
@@ -167,9 +167,9 @@ export const EventUnrecognizedBlock = "unrecognized_block";
 /**
  * EventImage 一条用户消息里的图片附件(见 event.go 的 ImageBlockEvent)。
  *
- * 它与 EventUnrecognizedBlock 的分工是「认得出 / 认不出」:图片块此前只能走后者
- * 兜底,消费方那一侧于是只画得出一段 base64 文本、还挂在助手名下。有了自己的判别值
- * 之后,消费方才认得出「这是一张图,而且是用户贴的」。
+ * 它与 EventUnrecognizedBlock 的分工是「认得出 / 认不出」:图片块要是走后者兜底,
+ * 消费方那一侧只画得出一段 base64 文本、还挂在助手名下。有了自己的判别值,消费方才
+ * 认得出「这是一张图,而且是用户贴的」。
  *
  * 判别值与块类型同名(cago blocks.ImageBlock.Type() == "image"):两张词表本就不同,
  * 而同一样东西在两处叫同一个名字,比为了避嫌另起一个更不容易读错。

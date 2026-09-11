@@ -307,17 +307,6 @@ export const ErrCodeProjectInvalidPath = -32051;
 
 export const ErrCodeProjectPathNotFound = -32052;
 
-/**
- * 这三个码此前住在桌面仓 internal/pkg/transcriptimport/wire 里,自己声明的是
- * -32050..-32052 —— 与上面 project.* 那一段逐个撞上,而那个包在本包的守卫视野
- * 之外,所以没有任何地方会红。搬进来的第一次运行,守卫就点名了这次撞号,这一段
- * 因此改到 -32060 起。
- *
- * 改的是**过线的值**。它安全,是因为今天没有任何消费方在解这三个码:产出侧经
- * wireinbound 的 transcriptImportError → ToRPCError 折上线,而反向的 FromRPCError
- * 一个调用点都没有(agentre-server 也不解)。混版本期最坏的后果是「认不出来,
- * 落回泛化错误」,与今天的行为一致。
- */
 export const ErrCodeTranscriptImportBackendUnavailable = -32060;
 
 export const ErrCodeTranscriptImportTranscriptOpen = -32061;
@@ -373,6 +362,19 @@ export const ErrCodeShuttingDown = -32005;
  * advertised a wire protocol version it does not accept.
  */
 export const ErrCodeProtocolVersion = -32006;
+
+/**
+ * CodeAccountServerUnreachable is returned by auth.account / auth.direct
+ * when the responder could not reach the account server (or got no
+ * answer) to verify the caller's credential, and no cached success
+ * covers it. It is deliberately distinct from CodeUnauthorized: a caller
+ * that sees -32001 refreshes its own credential and retries, which is
+ * pointless when the credential was never actually rejected — the
+ * account server was simply unreachable. Callers must treat this code as
+ * retryable, not as "this device will never work" (spec
+ * 2026-09-11-opaque-credentials-auto-direct H3).
+ */
+export const ErrCodeAccountServerUnreachable = -32007;
 
 export const ErrCodeMethodNotFound = -32601;
 

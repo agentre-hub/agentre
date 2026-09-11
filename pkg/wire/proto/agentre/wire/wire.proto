@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.1.0";
+option (agentre.wire.protocol_version) = "0.2.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -114,6 +114,7 @@ enum RpcMethod {
   RPC_METHOD_PORT_FORWARD_WRITE = 66;
   RPC_METHOD_PORT_FORWARD_CLOSE = 67;
   RPC_METHOD_PORT_FORWARD_ACK = 68;
+  RPC_METHOD_AUTH_DIRECT = 69;
 }
 
 message WireFrame {
@@ -227,6 +228,34 @@ message AuthAccountResponse {
   // judge upgradable no matter what daemon_version claims (such builds call
   // themselves 1.0.0).
   string daemon_commit = 7;
+  // The daemon's currently reachable wss:// addresses — the same address set
+  // AdvertiseURLs computes for the LAN listener, filtered to routable
+  // interfaces, and only ever wss (never ws): auto direct is TLS-pinned or
+  // nothing (spec 2026-09-11-opaque-credentials-auto-direct D3/D5). Empty
+  // means the daemon found no address another machine could reach (e.g. it
+  // only listens on loopback) — the caller then keeps relaying and must not
+  // request or expect direct_credential.
+  //
+  // Present only when the caller authenticated as an account device of kind
+  // "desktop"; a browser relay ticket, a server-issued credential, or any
+  // other device kind never receives it, per D3.
+  repeated string direct_urls = 8;
+  // The PEM-encoded certificate the daemon's LAN listener presents on the
+  // addresses above. The caller pins against this exact value during the TLS
+  // handshake before it ever sends direct_credential (D7) — it is the
+  // "already-verified account connection" delivery path D13 in the spec's
+  // safety section relies on instead of the daemon ever publishing this
+  // through server storage or an API.
+  string tls_cert_pem = 9;
+  // The local direct credential the daemon issued (or, on a repeat handshake
+  // from the same desktop, already holds — D4 never reissues one while the
+  // existing one is still on file) for this caller. The caller presents it
+  // verbatim in AuthDirectRequest.credential once TLS pinning against
+  // tls_cert_pem has passed; the daemon never asks the account server about
+  // it (D8). Opaque to the caller — it carries no parseable claims, matching
+  // the opaque-token posture the rest of this round applies to every
+  // credential.
+  string direct_credential = 10;
 }
 
 message AuthPairRequest {
@@ -270,6 +299,47 @@ message AuthConnectResponse {
 
 message AuthRevokeRequest { string device_fingerprint = 1; }
 message AuthRevokeResponse { bool ok = 1; }
+
+// AuthDirectRequest is the auto-direct handshake (spec
+// 2026-09-11-opaque-credentials-auto-direct D8): presented only after the
+// caller has already TLS-pinned the daemon's certificate (delivered on a
+// prior AuthAccountResponse), on a connection that has not yet completed
+// AuthAccount or AuthConnect. The daemon verifies credential entirely
+// locally — no account-server round trip — and confirms it still names the
+// account the daemon itself is currently logged into.
+message AuthDirectRequest {
+  // The opaque local direct credential from a prior AuthAccountResponse
+  // .direct_credential. It carries no parseable claims; the daemon looks it
+  // up rather than decodes it.
+  string credential = 1;
+  // The wire protocol version the caller speaks.
+  string protocol_version = 2;
+  // The oldest wire protocol version the caller still accepts from the peer.
+  string min_supported_protocol_version = 3;
+}
+
+// AuthDirectResponse mirrors the identity fields of AuthAccountResponse: a
+// successful direct handshake must hand the caller the same account identity
+// and peer fingerprint a relayed AuthAccount would have (D8), so the caller's
+// connection is indistinguishable from a relayed one for every downstream
+// purpose (session fan-out, account-level operations). Fields that describe
+// the *delivery* of auto-direct itself (direct_urls / tls_cert_pem /
+// direct_credential) do not belong here — this handshake is what those
+// fields are for, not a second place that hands them out.
+message AuthDirectResponse {
+  bool ok = 1;
+  string instance_uuid = 2;
+  // The wire protocol version the daemon speaks.
+  string protocol_version = 3;
+  // The oldest wire protocol version the daemon still accepts from the peer.
+  string min_supported_protocol_version = 4;
+  // The identity the responder assigned to the caller, read off the verified
+  // local direct credential. Same meaning and same value a relayed
+  // AuthAccount would have produced for this same caller — see
+  // AuthAccountResponse.peer_fingerprint for why the caller must not
+  // re-derive it.
+  string peer_fingerprint = 5;
+}
 
 message LLMModel {
   string model_key = 1;
