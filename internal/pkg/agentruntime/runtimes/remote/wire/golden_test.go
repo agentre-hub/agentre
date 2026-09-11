@@ -208,8 +208,8 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 		{
 			name: "session-pull-result",
 			body: SessionPullResult{
-				Notifications: []JournaledNotification{
-					// 日志行上的 params 不含 seq —— seq 是日志行自己的列,补齐端盖上去。
+				Notifications: []DurableNotification{
+					// 补齐页上的 params 不含 seq —— seq 是另记的一格,补齐端盖上去。
 					{Seq: 11, Method: NotifyEvent, Params: mustJSON(t, EventFrame{ConversationID: sid, Event: textDelta})},
 					{Seq: 12, Method: NotifyRunResultDone, Params: mustJSON(t, runResultDone)},
 				},
@@ -219,8 +219,8 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 			},
 		},
 		{
-			name: "journaled-notification",
-			body: JournaledNotification{
+			name: "durable-notification",
+			body: DurableNotification{
 				Seq:    11,
 				Method: NotifyEvent,
 				Params: mustJSON(t, EventFrame{ConversationID: sid, Event: textDelta}),
@@ -319,7 +319,7 @@ func buildGoldenFrames(t *testing.T) []goldenFrame {
 			SourceDeviceName: "Chrome · macOS",
 		}, map[string]any{"futureField": map[string]any{"nested": true}, "clientNote": "来自浏览器的自定义字段"}),
 		injectUnknown(t, "session-pull-result-extra", SessionPullResult{
-			Notifications: []JournaledNotification{
+			Notifications: []DurableNotification{
 				{Seq: 1, Method: NotifyEvent, Params: mustJSON(t, EventFrame{ConversationID: sid, Event: textDelta, Seq: 1})},
 			},
 			Cursor:    1,

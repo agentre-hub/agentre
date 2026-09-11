@@ -78,7 +78,7 @@ func SettledFrames(frames []KeyedFrame) []KeyedFrame {
 // WithoutUnsettledTail 砍掉**在飞那条消息**里还没定稿的尾巴:还会继续长的正文块,
 // 以及这一轮还没发生的消息级派生帧(usage / done)。在飞之前的那些消息一格不动。
 //
-// 两个宿主的补齐读侧共用这一份(agentred 的 journalReader.keyedFrames、桌面端的
+// 两个宿主的补齐读侧共用这一份(agentred 的 durableFrameReader.keyedFrames、桌面端的
 // attachPeerTranscript):它们要与实时发布那一侧在**同一帧**上定稿,否则补齐会先给
 // 还在长的正文块取一个号,收口时同一个位置的内容变了只能再取一个末尾号 —— 对端于是
 // 拿到同一段话的两份(硬不变量 1 的「重」)。

@@ -55,7 +55,7 @@ type Snapshot struct {
 	Sessions []SessionSnapshot `json:"sessions"`
 }
 
-// SessionSnapshot exposes only journal progress needed by the independent E2E oracle.
+// SessionSnapshot exposes only frame progress needed by the independent E2E oracle.
 type SessionSnapshot struct {
 	ConversationID string `json:"conversationId"`
 	LatestSeq      int64  `json:"latestSeq"`
@@ -66,7 +66,7 @@ type session struct {
 	providerSessionID string
 	lifecycle         string
 	latestSeq         int64
-	notifications     []*agentrewire.JournaledNotification
+	notifications     []*agentrewire.DurableNotification
 }
 
 // Server is a loopback binary Protobuf peer plus an authenticated control endpoint.
@@ -362,7 +362,7 @@ func (s *Server) appendNotification(conversationID string, notification *agentre
 	if done := notification.GetRunResultDone(); done != nil {
 		done.Seq = sess.latestSeq
 	}
-	sess.notifications = append(sess.notifications, &agentrewire.JournaledNotification{Seq: sess.latestSeq, Payload: notification})
+	sess.notifications = append(sess.notifications, &agentrewire.DurableNotification{Seq: sess.latestSeq, Payload: notification})
 }
 
 func (s *Server) setLifecycle(conversationID string, lifecycle string) {

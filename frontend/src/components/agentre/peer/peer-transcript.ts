@@ -119,8 +119,8 @@ export function reducePeerEvent(
   return advance(state, [frame]);
 }
 
-// reducePeerPullPage 把一页 journaled 历史喂给同一归约器。每条 notification 的
-// Params 是「不含 seq」的帧原样，须把日志行自己的 seq 盖上去（与浏览器同一约定）。
+// reducePeerPullPage 把一页持久帧历史喂给同一归约器。每条 notification 的
+// Params 是「不含 seq」的帧原样，须把那一条自己的 seq 盖上去（与浏览器同一约定）。
 export function reducePeerPullPage(
   state: PeerTranscriptState,
   notifications: Array<{
@@ -135,7 +135,7 @@ export function reducePeerPullPage(
       event?: { kind: string };
     };
     if (n.seq > 0 && n.seq <= state.cursor) continue;
-    // 这里只能**断言**成 EventKind 而不是校验:日志行来自对端,运行期照样可能
+    // 这里只能**断言**成 EventKind 而不是校验:这一页来自对端,运行期照样可能
     // 送来一个词表外的字符串(比本仓新的桌面端、坏行)。兜住它的是共享归约器
     // switch 的 default —— 那一档如实落 notice,不吞掉也不抛。
     fresh.push({

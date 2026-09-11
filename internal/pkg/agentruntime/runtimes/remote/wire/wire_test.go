@@ -118,8 +118,7 @@ func TestEventFrame_RoundTrip(t *testing.T) {
 
 	b, err := json.Marshal(EventFrame{ConversationID: convID(42), Event: ev})
 	require.NoError(t, err)
-	// 线上形态与「事件自己 marshal 出来的那段」逐字节一致 —— 帧换成装密封值
-	// 之后,老版本对端与通知日志里的旧行读到的字节没有任何变化。
+	// 线上形态与「事件自己 marshal 出来的那段」逐字节一致。
 	eventJSON, err := json.Marshal(ev)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"conversationId":"`+convID(42)+`","event":`+string(eventJSON)+`}`, string(b))
@@ -188,19 +187,19 @@ func TestEventFrameWireTagsMatchMarshaler(t *testing.T) {
 	require.Equal(t, tagged, emitted)
 }
 
-// Given JournaledNotification 上那组不驱动序列化的 json tag,When 与它自己的
+// Given DurableNotification 上那组不驱动序列化的 json tag,When 与它自己的
 // MarshalJSON 实际落出来的键比对,Then 两者必须一致 —— 理由与 EventFrame 那条
 // 相同:tag 是 TS 生成器唯一读得到的东西。
-func TestJournaledNotificationWireTagsMatchMarshaler(t *testing.T) {
+func TestDurableNotificationWireTagsMatchMarshaler(t *testing.T) {
 	tagged := make([]string, 0, 3)
-	typ := reflect.TypeOf(JournaledNotification{})
+	typ := reflect.TypeOf(DurableNotification{})
 	for i := 0; i < typ.NumField(); i++ {
 		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
-		require.NotEmpty(t, name, "JournaledNotification.%s 缺 json tag", typ.Field(i).Name)
+		require.NotEmpty(t, name, "DurableNotification.%s 缺 json tag", typ.Field(i).Name)
 		tagged = append(tagged, name)
 	}
 
-	b, err := json.Marshal(JournaledNotification{
+	b, err := json.Marshal(DurableNotification{
 		Seq: 1, Method: NotifyEvent, Params: &EventFrame{ConversationID: convID(2), Event: agentruntime.Done{}},
 	})
 	require.NoError(t, err)
@@ -218,23 +217,23 @@ func TestJournaledNotificationWireTagsMatchMarshaler(t *testing.T) {
 
 // Given 一行补齐日志,When 走完 marshal → unmarshal,Then Params 回来仍是那个帧
 // 本身 —— 线上形态不变(黄金样本守),但进程内不再是一段待解析的字节。
-func TestJournaledNotification_RoundTripsTypedParams(t *testing.T) {
-	in := JournaledNotification{
+func TestDurableNotification_RoundTripsTypedParams(t *testing.T) {
+	in := DurableNotification{
 		Seq: 11, Method: NotifyEvent,
 		Params: &EventFrame{ConversationID: convID(42), Event: agentruntime.TextDelta{Text: "你好"}},
 	}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
 
-	var out JournaledNotification
+	var out DurableNotification
 	require.NoError(t, json.Unmarshal(b, &out))
 	require.Equal(t, in, out)
 }
 
 // Given 一条本客户端还不认识的 method,When 解码,Then 得到 nil 帧而不是错误 ——
 // 整段补齐不该因为一条新通知而失败,那会把它后面每一条已知通知也一起丢掉。
-func TestJournaledNotification_UnknownMethodDecodesToNilFrame(t *testing.T) {
-	var out JournaledNotification
+func TestDurableNotification_UnknownMethodDecodesToNilFrame(t *testing.T) {
+	var out DurableNotification
 	require.NoError(t, json.Unmarshal(
 		[]byte(`{"seq":1,"method":"runtime.somethingNew","params":{"a":1}}`), &out))
 	require.Nil(t, out.Params)

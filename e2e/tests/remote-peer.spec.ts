@@ -60,7 +60,7 @@ async function remoteRequests(): Promise<Array<{
   return ((await response.json()) as { requests: Array<{ connectionId: number; method: string; params?: Record<string, unknown> }> }).requests;
 }
 
-/** 远端 peer 的日志水位（它自己那份 journal 的最高 seq）。
+/** 远端 peer 的帧高水位（它自己那份转录的最高 seq）。
  *
  *  **键是 conversation id，不是桌面端的会话 id**：peer 按线上的 conversation id 建会话
  *  表，那个自增 id 它从来不知道。原先这里按 `sessionId` 查，而 peer 的 snapshot 吐的是
@@ -137,7 +137,7 @@ test.describe.serial("remote peer smoke", () => {
     expect(remoteSessionByPrompt(FAILURE_PROMPT)?.error_text).not.toBe("");
   });
 
-  test("Given a recoverable mid-stream disconnect, when the peer finishes journaling while offline, then desktop reconnects, attaches, pulls, and persists one complete idle reply", async ({ page }) => {
+  test("Given a recoverable mid-stream disconnect, when the peer finishes the turn while offline, then desktop reconnects, attaches, pulls, and persists one complete idle reply", async ({ page }) => {
     await configureNextFault("recoverable-disconnect");
     await page.goto("/");
     await createRemoteChat(page);
@@ -152,7 +152,7 @@ test.describe.serial("remote peer smoke", () => {
     const recovered = remoteSessionByPrompt(RECOVERY_PROMPT)!;
     expect(recovered.agent_status).toBe("idle");
     expect(recovered.error_text).toBe("");
-    // 对表用 conversation id：桌面端的 event_cursor 追到 peer 那份 journal 的最高 seq
+    // 对表用 conversation id：桌面端的 event_cursor 追到 peer 那份转录的最高 seq
     // 就算「一条不漏地拉完了」。两边都是各自库里那个值，不是同一个字段被读了两遍。
     await expect.poll(() => remoteHighWater(recovered.conversation_id)).toBe(recovered.event_cursor);
 

@@ -20,7 +20,7 @@ import {
   decodeEventFrame,
   decodeSteerParams,
   encodeSteerParams,
-  decodeJournaledNotification,
+  decodeDurableNotification,
   decodeRunAck,
   decodeRunParams,
   decodeRunResultDoneFrame,
@@ -59,7 +59,7 @@ import sessionListResultFixture from "../../fixtures/session-list-result.json";
 
 import sessionPullParamsFixture from "../../fixtures/session-pull-params.json";
 import sessionPullResultFixture from "../../fixtures/session-pull-result.json";
-import journaledNotificationFixture from "../../fixtures/journaled-notification.json";
+import durableNotificationFixture from "../../fixtures/durable-notification.json";
 import sessionAttachParamsFixture from "../../fixtures/session-attach-params.json";
 import sessionAttachResultFixture from "../../fixtures/session-attach-result.json";
 import sessionPendingWaitersParamsFixture from "../../fixtures/session-pending-waiters-params.json";
@@ -231,10 +231,10 @@ describe("protobuf rpc envelope", () => {
 
   // 补齐分页里的日志条目必须仍是**带类型**的 RpcNotification 而不是不透明字节 ——
   // agentre-server 的 relayClient.pullUntilCaughtUp 正是这样读它的
-  // (journaledFromProtobuf 直接吃 notifications[].payload)。会拒绝的错误实现:
-  // 把 JournaledNotification.payload 改回 bytes。Go 侧同形回归在
+  // (durableFromProtobuf 直接吃 notifications[].payload)。会拒绝的错误实现:
+  // 把 DurableNotification.payload 改回 bytes。Go 侧同形回归在
   // protowire/session_test.go。
-  it("given session.pull with a journaled text event, when decoded by method ID, then the journal payload is still a typed notification", () => {
+  it("given session.pull with a durable text event, when decoded by method ID, then the durable payload is still a typed notification", () => {
     const response = ProtobufRpcCodec.encodeTypedMethodResponse(
       4n,
       rpcMethods.sessionPull,
@@ -271,10 +271,10 @@ describe("protobuf rpc envelope", () => {
     expect(value.notifications).toHaveLength(1);
     expect(value.notifications[0].seq).toBe(7n);
 
-    const journaled = value.notifications[0].payload;
-    expect(journaled?.payload.case).toBe("runtimeEvent");
-    if (journaled?.payload.case !== "runtimeEvent") return;
-    const runtimeEvent = journaled.payload.value;
+    const durable = value.notifications[0].payload;
+    expect(durable?.payload.case).toBe("runtimeEvent");
+    if (durable?.payload.case !== "runtimeEvent") return;
+    const runtimeEvent = durable.payload.value;
     expect(runtimeEvent.conversationId).toBe(CONVERSATION_ID);
     expect(runtimeEvent.event.case).toBe("textDelta");
     if (runtimeEvent.event.case !== "textDelta") return;
@@ -747,12 +747,12 @@ describe("wire 编解码:与 Go 侧黄金样本逐字段同构", () => {
     expect(p.limit).toBe(200);
   });
 
-  it("JournaledNotification 的 params 不含 seq(补齐端自己盖)", () => {
+  it("DurableNotification 的 params 不含 seq(补齐端自己盖)", () => {
     const n = assertRoundTrip(
-      decodeJournaledNotification,
+      decodeDurableNotification,
       (v) => JSON.stringify(v),
-      journaledNotificationFixture,
-      "JournaledNotification",
+      durableNotificationFixture,
+      "DurableNotification",
     );
     expect(n.seq).toBe(11);
     expect(n.method).toBe(NotifyEvent);

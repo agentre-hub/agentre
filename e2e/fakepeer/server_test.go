@@ -44,7 +44,7 @@ func authenticatedClient(t *testing.T, server *Server) *client.ProtobufClient {
 	return cli
 }
 
-func TestServerGivenTypedRuntimeRunThenStreamsAndJournalsBinaryNotifications(t *testing.T) {
+func TestServerGivenTypedRuntimeRunThenStreamsAndPersistsBinaryNotifications(t *testing.T) {
 	server := startTestServer(t)
 	cli := authenticatedClient(t, server)
 	events := make(chan *agentrewire.RpcNotification, 8)
@@ -73,7 +73,7 @@ func TestServerGivenTypedRuntimeRunThenStreamsAndJournalsBinaryNotifications(t *
 	assert.NotNil(t, pull.Notifications[len(pull.Notifications)-1].Payload.GetRunResultDone())
 }
 
-func TestServerGivenRecoverableDisconnectWhenClientReconnectsThenJournalCanBeAttachedAndPulledToTerminal(t *testing.T) {
+func TestServerGivenRecoverableDisconnectWhenClientReconnectsThenTranscriptCanBeAttachedAndPulledToTerminal(t *testing.T) {
 	server := startTestServer(t)
 	server.SetNextRunFault(FaultRecoverableDisconnect)
 	cli := authenticatedClient(t, server)

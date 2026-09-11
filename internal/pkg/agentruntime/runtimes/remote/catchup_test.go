@@ -20,7 +20,7 @@ import (
 
 // restartConn 造一条「App 刚重启后新连上」的连接:session.list 交出该 daemon 上的
 // 会话清单,attach / pull / pendingWaiters 按补齐三步应答。
-func restartConn(summaries []wire.SessionSummary, journal []wire.JournaledNotification) *fakeConn {
+func restartConn(summaries []wire.SessionSummary, durable []wire.DurableNotification) *fakeConn {
 	c := newFakeConn()
 	latest := map[string]int64{}
 	lifecycle := map[string]string{}
@@ -42,7 +42,7 @@ func restartConn(summaries []wire.SessionSummary, journal []wire.JournaledNotifi
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
-			for _, n := range journal {
+			for _, n := range durable {
 				// 现存最老的一行:真 daemon 报的是 MIN(seq),被回收掉的前缀不在里面。
 				if out.OldestSeq == 0 || n.Seq < out.OldestSeq {
 					out.OldestSeq = n.Seq
@@ -156,7 +156,7 @@ func TestCatchUpSessions_PeerOrigin_CarriedIntoRequests(t *testing.T) {
 //
 // 这里守的是一件**由构造消失**的事:会话号从前是各客户端本地自增的主键,两个对端的
 // 42 号会话会在清单里撞成一格 —— 高水位取错会让自己的会话不报错地冻住,origin 取错会
-// 把别人的通知日志重放进自己的转录。对话身份全局唯一之后,那种"同号会话"根本构造不
+// 把别人的持久帧重放进自己的转录。对话身份全局唯一之后,那种"同号会话"根本构造不
 // 出来:同一个 (对端, 会话号) 只对应一个 uuid,两个对端算出的 uuid 必然不同。
 func TestSessionSummaries_GivenTwoPeersOnTheSameDaemon_ThenNeitherConversationDisplacesTheOther(t *testing.T) {
 	const (
@@ -199,7 +199,7 @@ func TestSummaryFromProto_CarriesReasoningEffort(t *testing.T) {
 }
 
 // Given 同上的清单,When 为自己那条会话跑补齐三步,Then attach / pull / pendingWaiters
-// 一律点名自己那条对话、省略 origin —— 拉回来的绝不能是别的对端的通知日志。
+// 一律点名自己那条对话、省略 origin —— 拉回来的绝不能是别的对端的持久帧。
 func TestCatchUpSessions_GivenAnotherPeersConversation_ThenCatchesUpOnlyItsOwn(t *testing.T) {
 	const (
 		own  int64 = 42
@@ -238,16 +238,16 @@ func TestCatchUpSessions_GivenAnotherPeersConversation_ThenCatchesUpOnlyItsOwn(t
 // 内容」。在此之前 catchUpAll 只遍历本进程内在飞的轮次,而 App 刚启动时那个集合必然
 // 是空的 —— 补齐一条都不会发起,重放上来的内容也没有任何落点。
 func TestCatchUpSessions_NoLiveRun_ReplaysIntoSynthesizedTurn(t *testing.T) {
-	journal := []wire.JournaledNotification{
-		journaledEvent(4, "away-a"),
-		journaledEvent(5, "away-b"),
-		journaledDone(6, "sonnet"),
+	durable := []wire.DurableNotification{
+		durableEvent(4, "away-a"),
+		durableEvent(5, "away-b"),
+		durableDone(6, "sonnet"),
 	}
 	conn := restartConn([]wire.SessionSummary{{
 		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleIdle,
 		LatestSeq:      6,
-	}}, journal)
+	}}, durable)
 	rt, cursor, _ := newRestartRuntime(t, conn, 3)
 
 	turns := rt.AutonomousTurns(rigSessionID)
@@ -281,15 +281,15 @@ func TestCatchUpSessions_NoLiveRun_ReplaysIntoSynthesizedTurn(t *testing.T) {
 //   - autoSessions 条目只由 closeAllAutoSessions 关,于是每条补齐过的会话留下一个
 //     常驻 goroutine,还撑大 liveSessionIDs(),让之后每次重连把它们全部重新接管。
 func TestCatchUpSessions_FinishedSession_ReleasesTrackingAndWatcher(t *testing.T) {
-	journal := []wire.JournaledNotification{
-		journaledEvent(4, "away-a"),
-		journaledDone(5, "sonnet"),
+	durable := []wire.DurableNotification{
+		durableEvent(4, "away-a"),
+		durableDone(5, "sonnet"),
 	}
 	conn := restartConn([]wire.SessionSummary{{
 		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleIdle,
 		LatestSeq:      5,
-	}}, journal)
+	}}, durable)
 	rt, _, _ := newRestartRuntime(t, conn, 3)
 
 	turns := rt.AutonomousTurns(rigSessionID)
@@ -412,15 +412,15 @@ func TestAutonomousTurnStarted_ClosesTheOpenTurnFirst(t *testing.T) {
 // 会话就是再也不出字(与 8496c291 修的越界冻结同类)。
 func TestCatchUpSessions_ReclaimedPrefix_ResetsCursorInsteadOfFreezing(t *testing.T) {
 	// 日志曾经是 seq 1..11,留存回收掉了 10 以下的前缀:现存最老的一行是 10。
-	journal := []wire.JournaledNotification{
-		journaledEvent(10, "survivor"),
-		journaledDone(11, "sonnet"),
+	durable := []wire.DurableNotification{
+		durableEvent(10, "survivor"),
+		durableDone(11, "sonnet"),
 	}
 	conn := restartConn([]wire.SessionSummary{{
 		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleIdle,
 		LatestSeq:      11,
-	}}, journal)
+	}}, durable)
 	// 游标停在 7:那之后的 8、9 已经随留存窗口一起没了。
 	rt, cursor, _ := newRestartRuntime(t, conn, 7)
 
@@ -447,9 +447,9 @@ func TestCatchUpSessions_ReclaimedPrefix_ResetsCursorInsteadOfFreezing(t *testin
 // 露面(而开新一轮时它又会以「已结束轮次」的身份被分走)。
 func TestCatchUpSessions_PageEntirelyBelowTheNewFloor_PullsAgain(t *testing.T) {
 	// 日志此刻只剩 30、31:下界读到的却还是回收前的 10。
-	journal := []wire.JournaledNotification{
-		journaledEvent(30, "survivor"),
-		journaledDone(31, "sonnet"),
+	durable := []wire.DurableNotification{
+		durableEvent(30, "survivor"),
+		durableDone(31, "sonnet"),
 	}
 	// 重放里那条被判成跳号的行会另起一次补洞拉取,计数器因此有并发写者。
 	var pulls atomic.Int64
@@ -472,7 +472,7 @@ func TestCatchUpSessions_PageEntirelyBelowTheNewFloor_PullsAgain(t *testing.T) {
 			if pulls.Add(1) == 1 {
 				out.OldestSeq = 10
 			}
-			for _, n := range journal {
+			for _, n := range durable {
 				if n.Seq > p.Cursor {
 					out.Notifications = append(out.Notifications, n)
 					out.Cursor = n.Seq
@@ -513,9 +513,9 @@ func TestCatchUpSessions_InterruptedSession_ReadsHistoryThenEndsAsInterrupted(t 
 		ConversationID: convOf(rigSessionID),
 		LifecycleState: wire.SessionLifecycleInterrupted,
 		LatestSeq:      5,
-	}}, []wire.JournaledNotification{
-		journaledEvent(4, "before-the-crash"),
-		journaledEvent(5, "and-then-nothing"),
+	}}, []wire.DurableNotification{
+		durableEvent(4, "before-the-crash"),
+		durableEvent(5, "and-then-nothing"),
 	})
 	rt, _, obs := newRestartRuntime(t, conn, 3)
 

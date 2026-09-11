@@ -450,8 +450,8 @@ func TestSessionRepo_UpdateContextWindow(t *testing.T) {
 }
 
 // TestSessionRepo_UpdateExecDaemon 钉死「这条会话跑在哪台 daemon 上、钉在哪一档」的
-// 写入 SQL(R15b / 决策36)。关键不变式:(实例标识, 游标) 必须始终是同一条通知日志上
-// 的一对 —— 改绑到另一台 daemon 时,老游标指的是老 daemon 日志里的位置,必须在同一
+// 写入 SQL(R15b / 决策36)。关键不变式:(实例标识, 游标) 必须始终是同一个 daemon 实例上
+// 的一对 —— 改绑到另一台 daemon 时,老游标指的是老 daemon 帧编号里的位置,必须在同一
 // 条语句里归零;换成两次写(先改绑再清游标)会留下一个「游标看起来对新 daemon 有效」
 // 的崩溃窗口。exec_agent_backend_id 与设备/实例标识同一条语句一并写。
 func TestSessionRepo_UpdateExecDaemon(t *testing.T) {
@@ -471,7 +471,7 @@ func TestSessionRepo_UpdateExecDaemon(t *testing.T) {
 // TestSessionRepo_UpdateEventCursor 钉死游标推进的写入 SQL:只动 event_cursor,
 // 不能把执行位置或实例标识一起改掉(否则游标与 daemon 的绑定关系就断了);
 // 且 WHERE 必须带上实例标识 —— 会话已改绑到别的 daemon 后,老连接上迟到的一条
-// 通知不得把老日志的 seq 写到新 daemon 的记录上。
+// 通知不得把老 daemon 的 seq 写到新 daemon 的记录上。
 func TestSessionRepo_UpdateEventCursor(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	repo := chat_repo.NewSession()
@@ -860,16 +860,15 @@ func applySetClause(row map[string]any, sql string, vars []any) {
 // 段时间发生的全部内容」直接不成立。
 //
 // 过滤条件的两半都是硬的:exec_device_id > 0 排除本机会话(它们的真相源是本地库,
-// 没有可补齐的远端日志),exec_device_fingerprint <> ” 排除没有实例标识的行 ——
-// 游标只在它所属的那条通知日志里有意义,标识为空时 LoadCursor 一律判失效,拿它去
+// 没有可补齐的远端转录),exec_device_fingerprint <> ” 排除没有实例标识的行 ——
+// 游标只在签发它的那个 daemon 实例里有意义,标识为空时 LoadCursor 一律判失效,拿它去
 // attach 只会白发一轮 RPC。
 //
 // 取材还必须**有界**:补齐会为每条会话装一个消费方、加一份池连接引用、开一条自主轮
 // 监视,而这条查询原本返回「历史上曾远端执行过的每一条」会话 —— 用得久了就是几千条。
-// 界只剩条数(catchUpLimit),不再有时间截止:时间窗当初与 daemon 的通知日志留存窗口
-// 对齐(更老的会话补齐回来是空的),agentred 现在永久保存通知日志、不再回收(规格
-// 决策 8),那条依据随之消失 —— 一条本地停在 idle、远端却由后台任务续过轮的老会话,
-// 日志今天还在,不该因为「上次本地写它是 40 天前」就永远补不回来。
+// 界只有条数(catchUpLimit),没有时间截止:agentred 不回收转录(规格决策 8)——
+// 一条本地停在 idle、远端却由后台任务续过轮的老会话,转录还在,
+// 不该因为「上次本地写它是 40 天前」就永远补不回来。
 //
 // 因此这里连**带不带** updatetime 截止一起钉:多出那半个条件就是把还能补的内容挡在
 // 外面。排序仍把 running / waiting 排在最前 —— 条数上限砍谁由它决定,只有 daemon 能

@@ -147,7 +147,7 @@ func tsRootTypes() []reflect.Type {
 		reflect.TypeOf(SessionListResult{}),
 		reflect.TypeOf(SessionCountsResult{}),
 		reflect.TypeOf(SessionPullParams{}),
-		reflect.TypeOf(JournaledNotification{}),
+		reflect.TypeOf(DurableNotification{}),
 		reflect.TypeOf(SessionPullResult{}),
 		reflect.TypeOf(SessionPendingWaitersParams{}),
 		reflect.TypeOf(SessionPendingWaitersResult{}),

@@ -122,7 +122,7 @@ type Session struct {
 	// paired_agentreds.daemon_fingerprint 同值、与 auth.connect 的 TOFU pin 同一个身份。
 	// daemon 重装 / 换机 / 数据目录被清后它会变，届时 EventCursor 指向的是另一个 daemon 实例的帧编号。
 	ExecDeviceFingerprint devicefp.Carrier `gorm:"column:exec_device_fingerprint;type:text;not null;default:''"`
-	// EventCursor 桌面端已消费到的 daemon 通知 seq(daemon 侧 journal 里单调递增)。
+	// EventCursor 桌面端已消费到的 daemon 通知 seq(daemon 侧帧编号里单调递增)。
 	// 0 = 尚未消费。只有配合 ExecDeviceFingerprint 一起看才有意义，见 CursorValidFor。
 	EventCursor int64 `gorm:"column:event_cursor;type:bigint;not null;default:0"`
 	// ExecAgentBackendID 是这条会话钉住的执行目标档（R15b / 决策36）：Agent 有序

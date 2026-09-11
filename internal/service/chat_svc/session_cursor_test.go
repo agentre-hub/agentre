@@ -55,7 +55,7 @@ func TestSessionCursorPort_LoadCursor(t *testing.T) {
 
 		seq, ok, err := port.LoadCursor(context.Background(), 42, "sha256:cafe")
 		require.NoError(t, err)
-		assert.False(t, ok, "实例标识不匹配时游标指向另一条通知日志，不得据此增量拉取")
+		assert.False(t, ok, "实例标识不匹配时游标指向另一个 daemon 实例的帧编号，不得据此增量拉取")
 		assert.Equal(t, int64(0), seq)
 	})
 
@@ -109,9 +109,9 @@ func TestSessionCursorPort_SaveCursorThenLoad(t *testing.T) {
 }
 
 // TestSessionCursorPort_SaveCursorCarriesDaemonIdentity —— 写入侧同样带 daemon 身份。
-// seq 是某一条通知日志里的位置,离开那条日志就是个错的数字:会话改绑到别的 daemon
+// seq 是某一个 daemon 实例帧编号里的位置,离开那个实例就是个错的数字:会话改绑到别的 daemon
 // 后,老连接上迟到的一条通知若把 seq 无条件写进去,记录就变成「新 daemon 的标识 +
-// 老 daemon 的 seq」,下次重连会从一个远超新日志长度的位置往后拉,整段 transcript
+// 老 daemon 的 seq」,下次重连会从一个远超新实例帧编号的位置往后拉,整段 transcript
 // 永久丢失。端口把身份一路带到仓储的 WHERE 守卫上,调用方不需要(也无法安全地)
 // 自己先读后写。
 func TestSessionCursorPort_SaveCursorCarriesDaemonIdentity(t *testing.T) {

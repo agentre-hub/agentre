@@ -2013,7 +2013,7 @@ func callRig(t *testing.T, cli client.ProtobufConnection, method string, params,
 			if err != nil {
 				return err
 			}
-			out.Notifications = append(out.Notifications, wire.JournaledNotification{Seq: entry.GetSeq(), Method: method, Params: raw})
+			out.Notifications = append(out.Notifications, wire.DurableNotification{Seq: entry.GetSeq(), Method: method, Params: raw})
 		}
 		*(result.(*wire.SessionPullResult)) = out
 		return nil
@@ -2406,7 +2406,7 @@ func TestIntegration_MultiClientVisibility_GatesAllPeerAccessByLoggedInAccount(t
 	// 名下的那条会话上,而不是调用方自己名下那条同号会话。会话键是 (发起端指纹, 会话
 	// id):runtime.run 不认 origin 时,调用方发的每一轮都会在自己名下另建一条同号会话,
 	// 于是 ①上下文续不上(决策 8 落库的 provider_session_id 在发起端那一行);②事件
-	// journal 落到另一个分区,发起端与它的其余订阅者一条都收不到(R6 / R18 的前提落空);
+	// 落到另一条会话的转录里,发起端与它的其余订阅者一条都收不到(R6 / R18 的前提落空);
 	// ③清单里凭空多出一条重号会话。控制族(attach / pull / abort / submit)早就按
 	// ResolveSessionPeer 认 origin,runtime.run 是唯一还没认的那一个。
 	t.Run("a same-account peer can run a turn on another origin's session", func(t *testing.T) {
@@ -3142,7 +3142,7 @@ func TestIntegration_SessionCatchup_DaemonRestartMarksSessionsInterrupted(t *tes
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
-	// 第一台 daemon:跑一轮,留下一条非终态(idle)会话与它的通知日志。
+	// 第一台 daemon:跑一轮,留下一条非终态(idle)会话与它的转录。
 	first := bootRigInDir(t, dir)
 	events, _ := first.startRun(t, 903)
 	_ = drainRuntimeEvents(t, events, 5*time.Second)
@@ -3183,7 +3183,7 @@ func TestIntegration_SessionCatchup_DaemonRestartMarksSessionsInterrupted(t *tes
 
 // ── 断连补齐:硬不变量 ──────────────────────────────────────────────────────
 
-// recordedNotify 是客户端**实际拿到**的一条通知:方法、它在 daemon 通知日志里的
+// recordedNotify 是客户端**实际拿到**的一条通知:方法、它在 daemon 帧编号里的
 // 序号、以及剥掉 seq 之后的规范化载荷。实时推送与补齐拉取都归一到这个形状,
 // 两条路径因此可以逐条比对。
 type recordedNotify struct {
@@ -3218,7 +3218,7 @@ func (r *notifyRecorder) add(n recordedNotify) {
 	r.got = append(r.got, n)
 }
 
-// splitSeq 把一帧拆成 (seq, 剥掉 seq 的规范化载荷)。实时帧带 seq、日志载荷不带,
+// splitSeq 把一帧拆成 (seq, 剥掉 seq 的规范化载荷)。实时帧带 seq、补齐页的载荷不带,
 // 归一后才能逐条比对同一条通知的字节。
 func splitSeq(t *testing.T, raw json.RawMessage) (int64, string) {
 	t.Helper()
@@ -3388,7 +3388,7 @@ func bootPhasedRig(t *testing.T, r *phasedBackendRunner) *pairedTestRig {
 	return rig
 }
 
-// awaitJournalDepth 等 daemon 侧的补齐水位攒够 want。读的是 daemon 自己的库,与补齐
+// awaitDurableDepth 等 daemon 侧的补齐水位攒够 want。读的是 daemon 自己的库,与补齐
 // RPC 同源(块投影出的持久帧 + 帧编号台账)。
 func awaitCheckpointContains(t *testing.T, r *pairedTestRig, sessionID int64, substrs ...string) {
 	t.Helper()
@@ -3680,7 +3680,7 @@ func joinTextDeltas(events []agentruntime.Event) string {
 // SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
 func (c *rigProtobufConnection) SelfFingerprint() string { return string(rigDeviceFingerprint) }
 
-// ── 转录存储对齐:agentred 落块,不再落通知日志 ───────────────────────────────
+// ── 转录存储对齐:agentred 落块 ───────────────────────────────
 
 // transcriptScript 是这一族用例共用的一串后端事件:thinking 穿插、一次工具往返、
 // 收尾一段正文。它刻意与 internal/pkg/transcript 的累积用例同形 —— 两个宿主跑的是

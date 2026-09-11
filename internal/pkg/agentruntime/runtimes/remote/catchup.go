@@ -23,7 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
 
-// TriggerCatchUp 标记一轮是**补齐合成**出来的:内容来自 daemon 通知日志的重放,既不是
+// TriggerCatchUp 标记一轮是**补齐合成**出来的:内容来自 daemon 持久帧的重放,既不是
 // 用户在本进程里发起的那一轮,也不是 backend 自主起的续轮。上层据此给出措辞。
 const TriggerCatchUp = "catchup"
 
@@ -132,7 +132,7 @@ func (r *Runtime) releaseCaughtUp(all, live []int64) {
 //     管的话它接下来产生的通知在 daemon 那侧没有目标,只落库不推送,用户盯着一条正在
 //     跑的会话却一个字都等不到。
 //   - 正在等输入的会话:它的宣告事件可能早在游标之前就交付过(上次 App 是在它提问
-//     之后才关的),日志里没有新行,但待决策清单必须重新枚举一遍,否则用户回来看到
+//     之后才关的),没有新的持久帧,但待决策清单必须重新枚举一遍,否则用户回来看到
 //     的是一条静止的会话,而远端正在等他拍板。
 func (r *Runtime) needsCatchUp(ctx context.Context, sid int64, sum wire.SessionSummary) bool {
 	if liveOnDaemon(sum) {

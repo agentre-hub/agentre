@@ -63,7 +63,7 @@ compose 里两侧用的是同一个 `${AGENTRED_WORKSPACE}` 变量，就是为�
 | 容器内 | 默认宿主侧 | 装的是什么 |
 | --- | --- | --- |
 | `${AGENTRED_WORKSPACE}` | 同路径 | 所有会话的工作区 |
-| `/root/.config/agentred` | `~/.config/agentred` | daemon 状态：账号 claim 凭据、会话与通知日志 |
+| `/root/.config/agentred` | `~/.config/agentred` | daemon 状态：账号 claim 凭据、会话与转录 |
 | `/root/.config/agentre` | `~/.config/agentre` | Agent 工作目录与 pi 扩展物化目录 |
 | `/root/.claude` `/root/.claude.json` | `~/.claude` `~/.claude.json` | Claude Code 配置；`projects/` 还是 UserAnchor 的来源 |
 | `/root/.codex` | `~/.codex` | Codex 配置与 `sessions` / `session_index.jsonl` |

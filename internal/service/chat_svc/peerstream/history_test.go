@@ -344,7 +344,7 @@ func agentForPeerSession() *agent_entity.Agent {
 	return &agent_entity.Agent{ID: 7, AgentBackendID: 11}
 }
 
-func assertPeerNotificationSeqs(t *testing.T, notifications []wire.JournaledNotification, want ...int64) {
+func assertPeerNotificationSeqs(t *testing.T, notifications []wire.DurableNotification, want ...int64) {
 	t.Helper()
 	require.Len(t, notifications, len(want))
 	for i, seq := range want {

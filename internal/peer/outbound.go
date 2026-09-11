@@ -76,8 +76,8 @@ func (o *Outbound) Attach(ctx context.Context, params wire.SessionAttachParams) 
 	return wire.SessionAttachResult{ConversationID: response.ConversationId, BackendType: response.BackendType, LifecycleState: response.LifecycleState, LatestSeq: response.LatestSeq}, nil
 }
 
-// Pull 拉一页游标之后的 journaled 历史（R19 / R7）。桌面端的历史不回收，因此
-// OldestSeq 恒为第一条（空历史为 0），与 agentred 的回收语义区分。
+// Pull 拉一页游标之后的持久帧历史（R19 / R7）。桌面端的历史不回收，因此
+// OldestSeq 恒为第一条（空历史为 0）。
 func (o *Outbound) Pull(ctx context.Context, params wire.SessionPullParams) (wire.SessionPullResult, error) {
 	response, err := wirecall.SessionPull(ctx, o.c, &agentrewire.SessionPullRequest{ConversationId: params.ConversationID, PeerFingerprint: string(params.PeerFingerprint), Cursor: params.Cursor, Limit: int32(params.Limit)})
 	if err != nil {
@@ -92,8 +92,8 @@ func (o *Outbound) Pull(ctx context.Context, params wire.SessionPullParams) (wir
 			return result, x
 		}
 		// 不在这里 marshal:Params 装帧本身,真正需要 JSON 的是再往前一步的 Wails
-		// 边界,那一跳由 JournaledNotification.MarshalJSON 落出同样的形状。
-		result.Notifications = append(result.Notifications, wire.JournaledNotification{Seq: e.Seq, Method: method, Params: value, Createtime: e.GetCreatetime()})
+		// 边界,那一跳由 DurableNotification.MarshalJSON 落出同样的形状。
+		result.Notifications = append(result.Notifications, wire.DurableNotification{Seq: e.Seq, Method: method, Params: value, Createtime: e.GetCreatetime()})
 	}
 	return result, nil
 }

@@ -208,14 +208,14 @@ func TestPeerSvc_GivenAttachedRemoteSession_WhenPeerEmitsEvent_ThenEmitterReceiv
 	}
 }
 
-// Given an attached session, when this desktop pulls history, then the journaled
+// Given an attached session, when this desktop pulls history, then the durable
 // page, cursor and oldest-seq come back on the same wire shape the browser uses.
-func TestPeerSvc_GivenAttachedRemoteSession_WhenPull_ThenReturnJournaledPage(t *testing.T) {
+func TestPeerSvc_GivenAttachedRemoteSession_WhenPull_ThenReturnDurablePage(t *testing.T) {
 	url := fakePeerServer(t, peer.ProtobufInboundDeps{PullSession: func(_ context.Context, p wire.SessionPullParams, _ chat_svc.PeerSessionSubscriber) (wire.SessionPullResult, error) {
 		assert.Equal(t, convID(7), p.ConversationID)
 		assert.Equal(t, int64(0), p.Cursor)
 		return wire.SessionPullResult{
-			Notifications: []wire.JournaledNotification{{
+			Notifications: []wire.DurableNotification{{
 				Seq: 1, Method: wire.NotifyEvent,
 				Params: &wire.EventFrame{ConversationID: convID(7), Seq: 1, Event: agentruntime.UserMessageEvent{}},
 			}},

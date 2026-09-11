@@ -66,8 +66,8 @@ type NotifierPort interface {
 //     同一个位置。它必须落在**这一行**上:发起方标识此前只骑在一条另发的预览帧上,
 //     而那条帧不进转录、也不参与补齐,于是转录里没人知道这句话是谁发的。
 //   - Checkpoint:轮内。每个 ToolResult(以及待决策的提出与作答等定稿时刻)之后一次,
-//     只写变化的块行。**在途那一轮抗崩溃只靠它**,不另立 WAL(决策 5)——再立一本
-//     「在途帧日志」就是把刚退役的通知日志换个名字请回来。
+//     只写变化的块行。**在途那一轮抗崩溃只靠它**,不另立 WAL(决策 5)——
+//     同一段内容只存这一种形态。
 //   - SegmentTurn:轮中分段。插话被后端消费掉的那一刻,当前 assistant 就此收口,
 //     后面接上每条插话的一行用户消息与一条空的新 assistant。桌面端做宿主时是同一个
 //     形状(chat_svc.persistConsumedSteers),两个宿主必须落下同一份转录
@@ -125,7 +125,7 @@ type DBStatPort interface {
 // 调用方随 RunParams 携带、幂等覆盖,老会话缺字段时保持空串。ProviderSessionID 是
 // 决策 8 的新列:daemon 每轮从 RunAck 路径收回并落库,续话不再需要调用方提供。
 //
-// 它**不含**「最新 seq」与「是否正在等待输入」:前者的真相源是通知日志的 MAX(seq),
+// 它**不含**「最新 seq」与「是否正在等待输入」:前者由帧编号台账报出(见 DurableFrameReaderPort),
 // 后者由实时 waiter 状态叠加计算、永不落库。
 type SessionRecord struct {
 	PeerFingerprint devicefp.Initiator
@@ -288,9 +288,9 @@ type SteerSourcePort interface {
 	Forget(queuedID string)
 }
 
-// JournalRow 是补齐交出的一行。Payload 是那条通知的 params 原样、**不含 seq**;
+// DurableFrameRow 是补齐交出的一行。Payload 是那条通知的 params 原样、**不含 seq**;
 // seq 是行自己的属性,推送时才盖到帧上。
-type JournalRow struct {
+type DurableFrameRow struct {
 	Seq     int64
 	Payload []byte
 	// Createtime 是这一帧所在转录行落库的那一刻(Unix 毫秒),也就是这一帧真正发生的
@@ -300,14 +300,14 @@ type JournalRow struct {
 	Createtime int64
 }
 
-// JournalReaderPort 是补齐的读出口:增量拉取与「最新 seq」。它与 TranscriptPort
+// DurableFrameReaderPort 是补齐的读出口:增量拉取与「最新 seq」。它与 TranscriptPort
 // (写)分开声明是 ISP —— 跑一轮执行的一侧只写不读,补齐的一侧只读不写。
 //
 // 它的**数据源**是持久化的转录(块 → 帧的投影 + 帧编号台账),交出的是「(seq, 那条
 // 通知的 params 原样)」。它只服务持久帧 —— 预览帧
 // 从不落库,补齐因此天然不重放逐 token 的过程(规格「两级帧与补齐」)。
-type JournalReaderPort interface {
-	ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) (rows []JournalRow, hasMore bool, err error)
+type DurableFrameReaderPort interface {
+	ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) (rows []DurableFrameRow, hasMore bool, err error)
 	LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error)
 	LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error)
 	// OldestSeq 是该会话现存最老的那一帧的 seq(一条都没有时 0)。agentred 不回收转录

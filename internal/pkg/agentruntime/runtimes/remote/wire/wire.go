@@ -349,7 +349,7 @@ type RunParams struct {
 	// 的唯一来源;省略 = 调用方自己的对端,与控制族(attach / pull / abort / submit)
 	// 同一条 ResolveSessionPeer 约定 —— 点名别人的 origin 是账号级能力,配对身份点名
 	// 一律被拒。不点名地给别人的会话开新一轮,会在调用方名下另建一条同号会话:上下文
-	// (决策 8 的 provider_session_id)续不上,事件也落到另一个 journal 分区,发起端与
+	// (决策 8 的 provider_session_id)续不上,事件也落到另一条会话的转录里,发起端与
 	// 它的其余订阅者一条都收不到(R6 / R18 的前提)。
 	PeerFingerprint devicefp.Initiator `json:"peerFingerprint,omitempty"`
 	Cwd             string             `json:"cwd,omitempty"`
@@ -653,7 +653,7 @@ const (
 
 // SessionSummary 是会话清单里的一条:标识 + 生命周期状态 + 是否正在等待输入 + 最新 seq。
 //
-// LatestSeq 取自 daemon 通知日志里该会话的 MAX(seq)(唯一真相源),客户端拿它与自己
+// LatestSeq 是 daemon 帧编号台账里该会话的末尾,客户端拿它与自己
 // 存的游标一比就知道断连期间落下了多少条。
 type SessionSummary struct {
 	ConversationID  string             `json:"conversationId"`
@@ -759,43 +759,43 @@ type SessionPullParams struct {
 	Limit           int                `json:"limit,omitempty"`
 }
 
-// JournaledNotification 是日志里的一行:那条本该发出的通知的原样 (method, params)。
+// DurableNotification 是补齐页里的一条持久帧:那条通知的原样 (method, params)。
 //
-// Params **不含 seq** —— 落库时 seq 还没盖上去,它是日志行自己的列。补齐的客户端必须
+// Params **不含 seq** —— seq 是这一条上另记的一格,发送时才盖上去。补齐的客户端必须
 // 按 method 把 Params 解成对应的帧、把这里的 Seq 盖上去、再喂进与实时同一套 handler,
 // 否则每一帧都解出 seq=0,会被「不大于游标就丢弃」的规则整段吞掉(R6)。
 // Params 装的是**帧本身**(EventFrame / RunResultDoneFrame /
 // AutonomousTurnStartedFrame 之一),不是它的 JSON 字节。这一页补齐从头到尾在
 // Protobuf 与密封值之间走,中间摆一个 json.RawMessage 只会让每一行在服务端与
-// 客户端各自多走一轮 marshal→unmarshal —— 而日志行本身早就是 Protobuf 字节
-// (见 protowire.EncodeNotification),那次 JSON 连存储格式都不是。
+// 客户端各自多走一轮 marshal→unmarshal —— 而补齐页本身就是 Protobuf 字节
+// (见 protowire.EncodeNotification),那次 JSON 连线上格式都不是。
 //
 // json tag 在这里不驱动序列化(下面的 MarshalJSON / UnmarshalJSON 才是),但必须
-// 与 journaledNotificationWire 一字不差:TS 编解码生成器读的是 tag,读不到自定义
-// marshaler。TestJournaledNotificationWireTagsMatchMarshaler 守住这一致性。
-type JournaledNotification struct {
+// 与 durableNotificationWire 一字不差:TS 编解码生成器读的是 tag,读不到自定义
+// marshaler。TestDurableNotificationWireTagsMatchMarshaler 守住这一致性。
+type DurableNotification struct {
 	Seq    int64  `json:"seq"`
 	Method string `json:"method"`
 	Params any    `json:"params"`
-	// Createtime 是这一帧在**原点**发生的时刻(Unix 毫秒),取自日志行自己的列。
-	// 0 = 那一端还没升级到会报它,读者据此退回自己的收帧时刻,而不是把 0 当 1970。
+	// Createtime 是这一帧在**原点**发生的时刻(Unix 毫秒),取自这一帧所在的转录行。
+	// 0 = 那一端没报它,读者据此退回自己的收帧时刻,而不是把 0 当 1970。
 	//
 	// **没有 omitempty**:这一族结构的 json tag 就是 TS 编解码生成器读的那份契约
-	// (TestJournaledNotificationWireTagsMatchMarshaler 守着「tag 列表 == 实际发出的
+	// (TestDurableNotificationWireTagsMatchMarshaler 守着「tag 列表 == 实际发出的
 	// 键」)。省掉零值会让「报了 0」与「这一版根本没有这个字段」在线上长得一模一样。
 	Createtime int64 `json:"createtime"`
 }
 
-// journaledNotificationWire 是它真正的线上形态。Params 按 Method 决定解成哪个帧,
+// durableNotificationWire 是它真正的线上形态。Params 按 Method 决定解成哪个帧,
 // 所以两个方向都得自己接管。
-type journaledNotificationWire struct {
+type durableNotificationWire struct {
 	Seq        int64           `json:"seq"`
 	Method     string          `json:"method"`
 	Params     json.RawMessage `json:"params"`
 	Createtime int64           `json:"createtime"`
 }
 
-func (n JournaledNotification) MarshalJSON() ([]byte, error) {
+func (n DurableNotification) MarshalJSON() ([]byte, error) {
 	raw := json.RawMessage("null")
 	if n.Params != nil {
 		encoded, err := json.Marshal(n.Params)
@@ -804,11 +804,11 @@ func (n JournaledNotification) MarshalJSON() ([]byte, error) {
 		}
 		raw = encoded
 	}
-	return json.Marshal(journaledNotificationWire{Seq: n.Seq, Method: n.Method, Params: raw, Createtime: n.Createtime})
+	return json.Marshal(durableNotificationWire{Seq: n.Seq, Method: n.Method, Params: raw, Createtime: n.Createtime})
 }
 
-func (n *JournaledNotification) UnmarshalJSON(data []byte) error {
-	var w journaledNotificationWire
+func (n *DurableNotification) UnmarshalJSON(data []byte) error {
+	var w durableNotificationWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
@@ -864,10 +864,10 @@ func DecodeNotificationParams(method string, params json.RawMessage) (any, error
 }
 
 // SessionPullResult 是一页补齐:按 seq 升序的通知、翻页用的新游标、以及是否还有更多。
-// Cursor 在空页上**保持不变**(不回退到 0),否则客户端会把整段日志重放一遍。
+// Cursor 在空页上**保持不变**(不回退到 0),否则客户端会把整段转录重放一遍。
 //
-// OldestSeq 是该会话此刻**现存最老的那一行**的 seq(一条日志都没有时为 0)。它存在的
-// 唯一理由是日志的老前缀可能不在了 —— agentred 自己已经不回收(规格 2026-08-18
+// OldestSeq 是该会话此刻**现存最老的那一行**的 seq(一帧都没有时为 0)。它存在的
+// 唯一理由是转录的老前缀可能不在了 —— agentred 自己不回收(规格 2026-08-18
 // 决策 8),但库可能被从外部恢复或截断:
 // 客户端的游标会落在那段已经不存在的区间里,补洞拉取因此
 // 永远拉不到 游标+1 那一条 —— 每一页的第一条都被判成跳号丢弃,游标原地不动,此后连
@@ -875,10 +875,10 @@ func DecodeNotificationParams(method string, params json.RawMessage) (any, error
 // 客户端据它把游标复位到 OldestSeq-1(那截尾巴是真的没有了),照 dropCursorAboveHighWater
 // 的样子留一条 Warn,然后从现存最老的一行接着补。
 type SessionPullResult struct {
-	Notifications []JournaledNotification `json:"notifications,omitempty"`
-	Cursor        int64                   `json:"cursor"`
-	HasMore       bool                    `json:"hasMore"`
-	OldestSeq     int64                   `json:"oldestSeq,omitempty"`
+	Notifications []DurableNotification `json:"notifications,omitempty"`
+	Cursor        int64                 `json:"cursor"`
+	HasMore       bool                  `json:"hasMore"`
+	OldestSeq     int64                 `json:"oldestSeq,omitempty"`
 }
 
 // SessionPendingWaitersParams 是 MethodSessionPendingWaiters 的请求。
@@ -1043,14 +1043,14 @@ type SkillCommandsResult struct {
 // ── Notification frames ─────────────────────────────────────────────────────
 
 // Seq 字段的共同约定(EventFrame / RunResultDoneFrame / AutonomousTurnStartedFrame):
-// 它是这条通知在 daemon 通知日志里的序号,同一会话内从 1 起单调递增、无洞。daemon 先
-// 落库拿到 seq 再推送,所以每条推出去的帧都带着它(R6);客户端据此判断跳号并按游标补齐。
+// 它是这条持久帧在 daemon 帧编号台账里的序号,同一会话内从 1 起单调递增、无洞。daemon 先
+// 编号再推送,所以每条推出去的持久帧都带着它(R6);客户端据此判断跳号并按游标补齐。
 //
-// 它在 wire 上是 omitempty 的:不带日志序号的帧就不带这一格。日志里的序号从 1 起,
+// 它在 wire 上是 omitempty 的:不带序号的帧(预览帧)就不带这一格。序号从 1 起,
 // 所以收到 seq 为 0 读作「这条帧没有序号」,而不是「序号是 0」。
 //
-// 日志里存的 payload 是**不含 seq** 的帧原样 —— seq 是日志行自己的列,实时推送与重连
-// 补齐都在发送时才把行上的 seq 盖到帧上,两条路径因此投递同一份字节 + 同一个 seq。
+// 持久帧的 payload 是**不含 seq** 的帧原样 —— seq 是另记的一格,实时推送与重连
+// 补齐都在发送时才把它盖到帧上,两条路径因此投递同一份字节 + 同一个 seq。
 //
 // 帧分两级(spec 2026-09-05 决策 4):
 //
@@ -1075,8 +1075,7 @@ type SkillCommandsResult struct {
 //
 // 线上形态一个字节都没变:下面的 MarshalJSON / UnmarshalJSON 仍旧落
 // {"conversationId":…,"event":{"kind":…},"seq":…},由各 Event 自己的 MarshalJSON 与
-// agentruntime.UnmarshalEvent 负责 —— 通知日志里的旧行、旧版本对端、黄金样本
-// 都照常读得出来。
+// agentruntime.UnmarshalEvent 负责 —— 黄金样本照常读得出来。
 // json tag 在这里**不驱动序列化**(下面的 MarshalJSON / UnmarshalJSON 才是),
 // 但必须与 eventFrameWire 一字不差:TS 编解码生成器读的是 tag,读不到自定义
 // marshaler。两处一旦分家,生成出来的 decodeEventFrame 会去找 `ConversationID` 这样
@@ -1134,8 +1133,7 @@ func (f *EventFrame) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// SetSeq 盖上该帧在通知日志里的序号。指针接收者:发送方先 marshal 出不含 seq 的
-// payload 落库,再把库分配到的 seq 写回帧本身,然后才推送。
+// SetSeq 盖上该帧的持久帧序号。指针接收者:台账分配到的 seq 写回帧本身之后才推送。
 func (f *EventFrame) SetSeq(seq int64) { f.Seq = seq }
 
 // RunResultDoneFrame 在 daemon 端 events channel close 之后发一次,带完整 RunResult。
@@ -1168,7 +1166,7 @@ type RunResultDoneFrame struct {
 	TokensPerSec float64 `json:"tokensPerSec,omitempty"`
 }
 
-// SetSeq 盖上该帧在通知日志里的序号(见 EventFrame.SetSeq)。
+// SetSeq 盖上该帧的持久帧序号(见 EventFrame.SetSeq)。
 func (f *RunResultDoneFrame) SetSeq(seq int64) { f.Seq = seq }
 
 // AutonomousTurnStartedFrame 在一轮自主续轮开始时由 daemon 发一次。客户端据此
@@ -1182,7 +1180,7 @@ type AutonomousTurnStartedFrame struct {
 	Seq            int64  `json:"seq,omitempty"`
 }
 
-// SetSeq 盖上该帧在通知日志里的序号(见 EventFrame.SetSeq)。
+// SetSeq 盖上该帧的持久帧序号(见 EventFrame.SetSeq)。
 func (f *AutonomousTurnStartedFrame) SetSeq(seq int64) { f.Seq = seq }
 
 // TurnStartedFrame 在客户端要的一轮开始时由 daemon 发一次,见 NotifyTurnStarted。
@@ -1194,7 +1192,7 @@ type TurnStartedFrame struct {
 	Seq            int64  `json:"seq,omitempty"`
 }
 
-// SetSeq 盖上该帧在通知日志里的序号(见 EventFrame.SetSeq)。
+// SetSeq 盖上该帧的持久帧序号(见 EventFrame.SetSeq)。
 func (f *TurnStartedFrame) SetSeq(seq int64) { f.Seq = seq }
 
 // UsageWire mirrors provider.Usage with stable lowerCamelCase tags. provider.Usage

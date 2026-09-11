@@ -557,17 +557,17 @@ message SessionPullRequest {
 }
 
 message SessionPullResponse {
-  repeated JournaledNotification notifications = 1;
+  repeated DurableNotification notifications = 1;
   int64 cursor = 2;
   bool has_more = 3;
   int64 oldest_seq = 4;
 }
 
-message JournaledNotification {
+message DurableNotification {
   int64 seq = 1;
   RpcNotification payload = 2;
   // When this frame happened, by the origin's clock (Unix ms), read straight
-  // off the journal row that recorded it. It rides on the carrier rather than
+  // off the transcript row that recorded it. It rides on the carrier rather than
   // inside RpcNotification so replay never has to decode and re-encode a
   // payload just to stamp it.
   //
@@ -992,8 +992,8 @@ message TranscriptImportTurnsResponse {
 }
 
 // transcriptimport.execute runs the import on the machine that holds the
-// transcript: it writes the session row and appends the replayed turns to the
-// notification journal, so an ordinary SESSION_LIST / SESSION_PULL serves the
+// transcript: it writes the session row and the replayed turns into its
+// transcript, so an ordinary SESSION_LIST / SESSION_PULL serves the
 // imported session like any other. agentre-server never owns sessions, it
 // mirrors them — so importing from the web console has to happen here.
 //

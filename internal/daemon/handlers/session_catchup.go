@@ -33,8 +33,8 @@ import (
 type SessionCatchupDeps struct {
 	// Sessions 读会话行(身份 / 元数据 / 生命周期)。
 	Sessions SessionQueryPort
-	// Journal 读通知日志(增量拉取与最新 seq)。
-	Journal JournalReaderPort
+	// DurableFrames 读持久帧(增量拉取与最新 seq)。
+	DurableFrames DurableFrameReaderPort
 	// RuntimeFor 解 backend 类型 → 本进程里那个 runtime 单例,用来问它此刻有哪些
 	// 阻塞中的 waiter。留空取 agentruntime.RuntimeFor。
 	RuntimeFor func(agent_backend_entity.BackendType) agentruntime.Runtime
@@ -63,8 +63,8 @@ func NewSessionCatchupHandlers(deps SessionCatchupDeps) *SessionCatchupHandlers 
 // 那几条对话,两者都原样下推给存储。它们是**收窄**而不是另一条查询:对端限定与账号
 // 可见性的判据一个字不变,两支都收同一份条件。
 //
-// 每条会话的「最新 seq」取自通知日志的 MAX(seq) —— 唯一真相源。会话一条通知都还没
-// 发出时报 0。「是否正在等待输入」现算,见 waitingForInput。标题 / Agent 同步标识 /
+// 每条会话的「最新 seq」取自帧编号台账(见 DurableFrameReaderPort.LatestSeqByPeer)。会话一帧
+// 持久帧都还没有时报 0。「是否正在等待输入」现算,见 waitingForInput。标题 / Agent 同步标识 /
 // provider_session_id(R7 + 决策 8)原样回传;老会话缺这些字段时保持空串、如实留空。
 func (h *SessionCatchupHandlers) List(ctx context.Context, request *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
 	peer := peerFingerprint(ctx)
@@ -117,7 +117,7 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, request *agentrewire.
 	}
 	latest := map[string]int64{}
 	if !accountWide {
-		latest, err = h.deps.Journal.LatestSeqByPeer(ctx, peer)
+		latest, err = h.deps.DurableFrames.LatestSeqByPeer(ctx, peer)
 		if err != nil {
 			return nil, fmt.Errorf("read latest seq: %w", err)
 		}
@@ -139,7 +139,7 @@ func (h *SessionCatchupHandlers) List(ctx context.Context, request *agentrewire.
 		}
 		latestSeq := latest[row.PeerSessionID]
 		if accountWide {
-			latestSeq, err = h.deps.Journal.LatestSeq(ctx, row.PeerFingerprint, row.PeerSessionID)
+			latestSeq, err = h.deps.DurableFrames.LatestSeq(ctx, row.PeerFingerprint, row.PeerSessionID)
 			if err != nil {
 				return nil, fmt.Errorf("read latest seq: %w", err)
 			}
@@ -241,9 +241,9 @@ func (h *SessionCatchupHandlers) Counts(ctx context.Context) (*agentrewire.Sessi
 
 // Pull 按游标取回该会话其后的通知(seq 升序),并一并交出该会话现存最老的 seq。
 // The optional origin peer is resolved at the account gate before it reaches
-// the composite journal key; omitted origin remains the caller's own peer.
+// the composite session key; omitted origin remains the caller's own peer.
 //
-// 现存最老的 seq 每页都报:日志本身已经不回收了(规格 2026-08-18 决策 8),但库可能被从
+// 现存最老的 seq 每页都报:转录本身不回收(规格 2026-08-18 决策 8),但库可能被从
 // 外部恢复或截断,客户端的游标于是落在一段已经不存在的区间里。
 // 不报下界,它拉到的每一页第一条都比 游标+1 大,只能当成跳号丢弃并再拉一次同一页 ——
 // 游标永远推不动,此后连实时通知也全被判成跳号,会话没有错误、没有跳号地冻住。
@@ -261,26 +261,25 @@ func (h *SessionCatchupHandlers) Pull(ctx context.Context, request *agentrewire.
 	// 下界就会涨到页里那些行**之上** —— 客户端拿它复位游标(复位跑在重放之前),这一整页
 	// 已经拿到手的行会被当成重复全部丢掉,一段本来读得到的转录凭空消失。反过来先读下界
 	// 只会偏小,偏小最多让客户端少复位一次,拉下一页时自然拿到新的下界。
-	oldest, err := h.deps.Journal.OldestSeq(ctx, peer, sid)
+	oldest, err := h.deps.DurableFrames.OldestSeq(ctx, peer, sid)
 	if err != nil {
 		oldest = 0
 	}
-	rows, hasMore, err := h.deps.Journal.ListSince(ctx, peer, sid, request.GetCursor(), clampPullLimit(int(request.GetLimit())))
+	rows, hasMore, err := h.deps.DurableFrames.ListSince(ctx, peer, sid, request.GetCursor(), clampPullLimit(int(request.GetLimit())))
 	if err != nil {
 		return nil, fmt.Errorf("pull notifications: %w", err)
 	}
-	// 空页保持游标不变:回退到 0 会让客户端把整段日志重放一遍。
+	// 空页保持游标不变:回退到 0 会让客户端把整段转录重放一遍。
 	out := &agentrewire.SessionPullResponse{Cursor: request.GetCursor(), HasMore: hasMore, OldestSeq: oldest}
-	out.Notifications = make([]*agentrewire.JournaledNotification, 0, len(rows))
+	out.Notifications = make([]*agentrewire.DurableNotification, 0, len(rows))
 	for _, row := range rows {
-		// 日志里存的就是这一帧的 protobuf 原样:解出来盖上序号直接转交。此前它要
-		// 先翻成 JSON 词表、再由注册处翻回 protobuf —— 同一帧在一次拉取里白走一个来回。
+		// 行上交出的就是这一帧的 protobuf 编码:解出来盖上序号直接转交。
 		notification, err := protowire.DecodeNotification(row.Payload)
 		if err != nil {
 			return nil, fmt.Errorf("decode notification seq %d: %w", row.Seq, err)
 		}
 		protowire.SetNotificationSeq(notification, row.Seq)
-		out.Notifications = append(out.Notifications, &agentrewire.JournaledNotification{
+		out.Notifications = append(out.Notifications, &agentrewire.DurableNotification{
 			Seq:     row.Seq,
 			Payload: notification,
 			// 报不出时刻的对端交出 0,这里照样转交 0:「不知道」不能在中途被补成当下。
@@ -327,7 +326,7 @@ func (h *SessionCatchupHandlers) Attach(ctx context.Context, request *agentrewir
 		// 客户端对着一条永远不会再产出任何东西的会话无限期等下去。历史仍可 Pull。
 		return nil, agentruntime.ErrNoActiveTurn
 	}
-	latest, err := h.deps.Journal.LatestSeq(ctx, row.PeerFingerprint, row.PeerSessionID)
+	latest, err := h.deps.DurableFrames.LatestSeq(ctx, row.PeerFingerprint, row.PeerSessionID)
 	if err != nil {
 		return nil, fmt.Errorf("read latest seq: %w", err)
 	}

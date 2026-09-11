@@ -11,7 +11,7 @@ import (
 
 // HealthPingResult 是 health.ping 的返回。客户端用来探活，不修改 daemon 状态。
 //
-// DBSizeBytes 是这台 daemon 通知日志所在库的体量。远端盒子上的 transcript 是档案，
+// DBSizeBytes 是这台 daemon 转录所在库的体量。远端盒子上的 transcript 是档案，
 // 体量必须可见，用户才能判断何时清理。
 // 没有库统计口时省略,而不是报 0 ——「不知道」与「库是空的」在界面上必须是两回事。
 //

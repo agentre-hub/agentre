@@ -58,9 +58,9 @@ type remoteSession struct {
 	result *agentruntime.RunResult
 	ctx    context.Context
 	cancel context.CancelFunc
-	// startSeq 是**开轮那一刻** daemon 通知日志里这条会话的高水位:本轮自己的通知
+	// startSeq 是**开轮那一刻** daemon 上这条会话的帧高水位:本轮自己的通知
 	// 必然都比它新。它是这一轮在 seq 时间线上的位置 —— 而 runtime.run 这条 RPC 本身
-	// 不在那条时间线上(RunAck 不带 seq,日志载荷里也没有轮次身份),少了它就分不出
+	// 不在那条时间线上(RunAck 不带 seq,持久帧载荷里也没有轮次身份),少了它就分不出
 	// 补齐回放上来的一条终态帧到底是谁的。见 handleRunResultDone 与 turnStartFloor。
 	//
 	// 0 表示未知(没装重连端口 / 老 daemon / 这一次没读到),此时守卫退化成今天的行为。
@@ -552,7 +552,7 @@ func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<
 		return nil, nil, err
 	}
 	generationCtx, cancel := context.WithCancel(ctx)
-	// 开轮前读一眼日志高水位(顺带完成 R18 的能力探测),把这一轮钉在 seq 时间线上:
+	// 开轮前读一眼帧高水位(顺带完成 R18 的能力探测),把这一轮钉在 seq 时间线上:
 	// 不比它新的终态帧都属于已经结束的轮次。见 turnStartFloor。
 	floor := r.turnStartFloor(ctx, req.SessionID)
 	sess := &remoteSession{

@@ -357,9 +357,9 @@ type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
 
-// catchUpConn 造一条「重连后」的连接:attach 报 latestSeq,pull 交出 journaled,
+// catchUpConn 造一条「重连后」的连接:attach 报 latestSeq,pull 交出 durable,
 // pendingWaiters 交出 waiters。
-func catchUpConn(latestSeq int64, journaled []wire.JournaledNotification, waiters wire.SessionPendingWaitersResult) *fakeConn {
+func catchUpConn(latestSeq int64, durable []wire.DurableNotification, waiters wire.SessionPendingWaitersResult) *fakeConn {
 	c := newFakeConn()
 	c.script(func(method string, params, result any) error {
 		switch method {
@@ -372,7 +372,7 @@ func catchUpConn(latestSeq int64, journaled []wire.JournaledNotification, waiter
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
-			for _, n := range journaled {
+			for _, n := range durable {
 				if n.Seq > p.Cursor {
 					out.Notifications = append(out.Notifications, n)
 					out.Cursor = n.Seq
@@ -387,25 +387,25 @@ func catchUpConn(latestSeq int64, journaled []wire.JournaledNotification, waiter
 	return c
 }
 
-func journaledEvent(seq int64, text string) wire.JournaledNotification {
-	// 日志行上的帧 **不含 seq** —— seq 是日志行自己的列,补齐时才盖上去。
-	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyEvent,
+func durableEvent(seq int64, text string) wire.DurableNotification {
+	// 补齐页上的帧 **不含 seq** —— seq 是另记的一格,补齐时才盖上去。
+	return wire.DurableNotification{Seq: seq, Method: wire.NotifyEvent,
 		Params: &wire.EventFrame{ConversationID: convOf(rigSessionID), Event: agentruntime.TextDelta{Text: text}}}
 }
 
-func journaledDone(seq int64, model string) wire.JournaledNotification {
-	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyRunResultDone,
+func durableDone(seq int64, model string) wire.DurableNotification {
+	return wire.DurableNotification{Seq: seq, Method: wire.NotifyRunResultDone,
 		Params: &wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Model: model}}
 }
 
-// journaledAutoEvent / journaledAutoDone 是自主续轮那两类通知的日志行。
-func journaledAutoEvent(seq int64, text string) wire.JournaledNotification {
-	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyAutonomousTurnEvent,
+// durableAutoEvent / durableAutoDone 是自主续轮那两类通知的持久帧。
+func durableAutoEvent(seq int64, text string) wire.DurableNotification {
+	return wire.DurableNotification{Seq: seq, Method: wire.NotifyAutonomousTurnEvent,
 		Params: &wire.EventFrame{ConversationID: convOf(rigSessionID), Event: agentruntime.TextDelta{Text: text}}}
 }
 
-func journaledAutoDone(seq int64, model string) wire.JournaledNotification {
-	return wire.JournaledNotification{Seq: seq, Method: wire.NotifyAutonomousTurnDone,
+func durableAutoDone(seq int64, model string) wire.DurableNotification {
+	return wire.DurableNotification{Seq: seq, Method: wire.NotifyAutonomousTurnDone,
 		Params: &wire.RunResultDoneFrame{ConversationID: convOf(rigSessionID), Model: model}}
 }
 
@@ -461,12 +461,12 @@ func TestDisconnect_DoesNotEndSession_EntersReconnecting(t *testing.T) {
 // Given 断连期间 daemon 又落了两条通知,When 重连补齐,Then 它们经**实时同一套
 // handler** 交付给会话,游标推进到最新 seq,补齐三步按 attach → pull →
 // pendingWaiters 的顺序发出。
-func TestReconnect_CatchUpReplaysJournaledNotifications(t *testing.T) {
+func TestReconnect_CatchUpReplaysDurableNotifications(t *testing.T) {
 	rig := newReconnectRig(t)
 	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
-	conn2 := catchUpConn(5, []wire.JournaledNotification{
-		journaledEvent(4, "caught-up"),
-		journaledDone(5, "sonnet"),
+	conn2 := catchUpConn(5, []wire.DurableNotification{
+		durableEvent(4, "caught-up"),
+		durableDone(5, "sonnet"),
 	}, wire.SessionPendingWaitersResult{})
 	rig.queue(conn2, rigFingerprint, nil)
 
@@ -498,10 +498,10 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 	rig := newReconnectRig(t)
 	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 0, true, nil })
 
-	journal := []wire.JournaledNotification{
-		journaledEvent(1, "one"), journaledEvent(2, "two"),
-		journaledEvent(3, "three"), journaledEvent(4, "four"),
-		journaledDone(5, "sonnet"),
+	durable := []wire.DurableNotification{
+		durableEvent(1, "one"), durableEvent(2, "two"),
+		durableEvent(3, "three"), durableEvent(4, "four"),
+		durableDone(5, "sonnet"),
 	}
 	conn2 := newFakeConn()
 	var liveOnce sync.Once
@@ -527,7 +527,7 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 				<-done
 			})
 			out := wire.SessionPullResult{Cursor: p.Cursor}
-			for _, n := range journal {
+			for _, n := range durable {
 				if n.Seq > p.Cursor && len(out.Notifications) < 2 {
 					out.Notifications = append(out.Notifications, n)
 					out.Cursor = n.Seq
@@ -548,7 +548,7 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 	assert.Equal(t, "sonnet", rig.result.Model)
 }
 
-// Given 日志里夹着一条本客户端还不认识的通知(新版 daemon 加了第六类通知),
+// Given 补齐页里夹着一条本客户端还不认识的通知(新版 daemon 加了第六类通知),
 // When 重连补齐,Then 它后面的已知通知照常按序交付。
 //
 // 认不得的那条如果只是「跳过」而不占掉它那一格游标,下一条已知通知就会被闸门判成
@@ -557,15 +557,15 @@ func TestCatchUp_LiveFrameDuringReplay_KeepsOrderAndDoesNotDuplicate(t *testing.
 func TestReplay_UnknownNotificationMethod_DoesNotStallCatchUp(t *testing.T) {
 	rig := newReconnectRig(t)
 	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
-	unknown := wire.JournaledNotification{
+	unknown := wire.DurableNotification{
 		Seq:    4,
 		Method: "runtime.somethingTheClientDoesNotKnow",
 		Params: json.RawMessage(`{"sessionId":42}`),
 	}
-	conn2 := catchUpConn(6, []wire.JournaledNotification{
+	conn2 := catchUpConn(6, []wire.DurableNotification{
 		unknown,
-		journaledEvent(5, "after-hole"),
-		journaledDone(6, "sonnet"),
+		durableEvent(5, "after-hole"),
+		durableDone(6, "sonnet"),
 	}, wire.SessionPendingWaitersResult{})
 	rig.queue(conn2, rigFingerprint, nil)
 
@@ -589,8 +589,8 @@ func TestLiveFrame_SeqGap_TriggersPull(t *testing.T) {
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
-			for _, n := range []wire.JournaledNotification{
-				journaledEvent(4, "a"), journaledEvent(5, "b"), journaledEvent(6, "c"),
+			for _, n := range []wire.DurableNotification{
+				durableEvent(4, "a"), durableEvent(5, "b"), durableEvent(6, "c"),
 			} {
 				if n.Seq > p.Cursor {
 					out.Notifications = append(out.Notifications, n)
@@ -735,11 +735,11 @@ func TestDurableFrame_CoveringPreviewContent_AdvancesCursorAndDedups(t *testing.
 func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testing.T) {
 	// 游标停在 3;4..9 是客户端离线期间落库的三轮尾巴,9 是开新一轮那一刻的高水位;
 	// 10/11 才是新这一轮自己的通知。
-	journal := []wire.JournaledNotification{
-		journaledEvent(4, "old-a"), journaledDone(5, "old-1"),
-		journaledEvent(6, "old-b"), journaledDone(7, "old-2"),
-		journaledEvent(8, "old-c"), journaledDone(9, "old-3"),
-		journaledEvent(10, "new-a"), journaledEvent(11, "new-b"),
+	durable := []wire.DurableNotification{
+		durableEvent(4, "old-a"), durableDone(5, "old-1"),
+		durableEvent(6, "old-b"), durableDone(7, "old-2"),
+		durableEvent(8, "old-c"), durableDone(9, "old-3"),
+		durableEvent(10, "new-a"), durableEvent(11, "new-b"),
 	}
 	conn := newFakeConn()
 	conn.script(func(method string, params, result any) error {
@@ -757,7 +757,7 @@ func TestGapFill_ReplayedEndedTurns_LandInCatchUpTurns_NotTheCurrentOne(t *testi
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
-			for _, n := range journal {
+			for _, n := range durable {
 				if n.Seq > p.Cursor {
 					out.Notifications = append(out.Notifications, n)
 					out.Cursor = n.Seq
@@ -883,7 +883,7 @@ func TestReconnect_DaemonIdentityMismatch_InvalidatesCursor(t *testing.T) {
 		assert.Equal(t, devicefp.Carrier("sha256:daemon-b"), fp, "校验必须用重连后观察到的指纹")
 		return 0, false, nil
 	})
-	conn2 := catchUpConn(9, []wire.JournaledNotification{journaledEvent(4, "should-not-appear")},
+	conn2 := catchUpConn(9, []wire.DurableNotification{durableEvent(4, "should-not-appear")},
 		wire.SessionPendingWaitersResult{})
 	rig.queue(conn2, "sha256:daemon-b", nil)
 
@@ -911,9 +911,9 @@ func TestReconnect_CursorLoadError_RetriesInsteadOfEndingSession(t *testing.T) {
 		return 3, true, nil
 	})
 	conn2 := catchUpConn(5, nil, wire.SessionPendingWaitersResult{})
-	conn3 := catchUpConn(5, []wire.JournaledNotification{
-		journaledEvent(4, "recovered"),
-		journaledDone(5, "sonnet"),
+	conn3 := catchUpConn(5, []wire.DurableNotification{
+		durableEvent(4, "recovered"),
+		durableDone(5, "sonnet"),
 	}, wire.SessionPendingWaitersResult{})
 	rig.queue(conn2, rigFingerprint, nil)
 	rig.queue(conn3, rigFingerprint, nil)
@@ -928,7 +928,7 @@ func TestReconnect_CursorLoadError_RetriesInsteadOfEndingSession(t *testing.T) {
 
 // ── 游标越界:daemon 的高水位低于本地游标 ────────────────────────────────────
 
-// Given daemon 的通知日志退到了本地游标之下(agentred.db 被恢复 / 截断,而 state.json
+// Given daemon 的帧编号退到了本地游标之下(agentred.db 被恢复 / 截断,而 state.json
 // 连同 TOFU 指纹还在,R12 的指纹校验因此照常放行),When 重连接管,Then 客户端拿接管
 // 交回的高水位认出游标越界,作废它(连同库里那份)并从头补齐,其后的实时帧照常交付。
 //
@@ -938,10 +938,10 @@ func TestReconnect_CursorAboveDaemonHighWater_InvalidatesCursorAndCatchesUpFromS
 	rig := newReconnectRig(t)
 	// 本地游标停在 7,而 daemon 恢复出来的日志只到 3。
 	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 7, true, nil })
-	conn2 := catchUpConn(3, []wire.JournaledNotification{
-		journaledEvent(1, "restored-1"),
-		journaledEvent(2, "restored-2"),
-		journaledEvent(3, "restored-3"),
+	conn2 := catchUpConn(3, []wire.DurableNotification{
+		durableEvent(1, "restored-1"),
+		durableEvent(2, "restored-2"),
+		durableEvent(3, "restored-3"),
 	}, wire.SessionPendingWaitersResult{})
 	rig.queue(conn2, rigFingerprint, nil)
 
@@ -984,10 +984,10 @@ func TestReconnect_CursorAboveDaemonHighWater_InvalidatesCursorAndCatchesUpFromS
 func TestReconnect_CursorEqualsDaemonHighWater_KeepsCursor(t *testing.T) {
 	rig := newReconnectRig(t)
 	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
-	conn2 := catchUpConn(3, []wire.JournaledNotification{
-		journaledEvent(1, "old-1"),
-		journaledEvent(2, "old-2"),
-		journaledEvent(3, "old-3"),
+	conn2 := catchUpConn(3, []wire.DurableNotification{
+		durableEvent(1, "old-1"),
+		durableEvent(2, "old-2"),
+		durableEvent(3, "old-3"),
 	}, wire.SessionPendingWaitersResult{})
 	rig.queue(conn2, rigFingerprint, nil)
 
@@ -1023,7 +1023,7 @@ func deliverLiveTexts(t *testing.T, c *fakeConn, texts []string) {
 // 用一条真 goroutine(读循环的替身)复现这个交错,再用 channel 把它钉死:交错是确定的,
 // 但 dispatchNotification 与 attach/复位序列确实跑在两条 goroutine 上,-race 看得见。
 func attachPushingLiveFrame(
-	highWater int64, live wire.JournaledNotification, journal []wire.JournaledNotification,
+	highWater int64, live wire.DurableNotification, durable []wire.DurableNotification,
 ) *fakeConn {
 	c := newFakeConn()
 	var once sync.Once
@@ -1053,7 +1053,7 @@ func attachPushingLiveFrame(
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
-			for _, n := range journal {
+			for _, n := range durable {
 				if n.Seq > p.Cursor {
 					out.Notifications = append(out.Notifications, n)
 					out.Cursor = n.Seq
@@ -1081,11 +1081,11 @@ func TestReconnect_LiveFrameDuringAttach_DoesNotInvalidateCursor(t *testing.T) {
 	rig.cursor.setLoad(func(int64, devicefp.Carrier) (int64, bool, error) { return 3, true, nil })
 
 	// daemon 侧接管快照是 3;认领之后紧接着落下并推来 seq=4(它也进了日志)。
-	journal := []wire.JournaledNotification{
-		journaledEvent(1, "one"), journaledEvent(2, "two"),
-		journaledEvent(3, "three"), journaledEvent(4, "live-four"),
+	durable := []wire.DurableNotification{
+		durableEvent(1, "one"), durableEvent(2, "two"),
+		durableEvent(3, "three"), durableEvent(4, "live-four"),
 	}
-	conn2 := attachPushingLiveFrame(3, journaledEvent(4, "live-four"), journal)
+	conn2 := attachPushingLiveFrame(3, durableEvent(4, "live-four"), durable)
 	rig.queue(conn2, rigFingerprint, nil)
 
 	_ = rig.conn1.Close()
@@ -1123,7 +1123,7 @@ func TestCursorInvalidation_OutlivesPendingDebouncedWrite(t *testing.T) {
 
 	// daemon 的日志被恢复成空(高水位 0),接管后又推来一条 seq=8 —— 它把一个新的脏
 	// 条目记进防抖表,而紧接着的越界守卫要把游标作废掉。
-	conn2 := attachPushingLiveFrame(0, journaledEvent(8, "live-eight"), nil)
+	conn2 := attachPushingLiveFrame(0, durableEvent(8, "live-eight"), nil)
 	rig.queue(conn2, rigFingerprint, nil)
 
 	_ = rig.conn1.Close()
@@ -1281,7 +1281,7 @@ func TestControlCall_NoActiveTurn_ReAttachesAndRetries(t *testing.T) {
 
 // ── guard ───────────────────────────────────────────────────────────────────
 
-// 补齐重放要把日志里不含 seq 的载荷解成帧、盖上 seq 再喂回 handler。少一个映射,
+// 补齐重放要把补齐页里不含 seq 的载荷解成帧、盖上 seq 再喂回 handler。少一个映射,
 // 那一类通知就会在补齐时整条丢掉(解出 seq=0 → 不大于游标 → 丢弃),而实时路径
 // 一切正常 —— 只有断连过才看得出来。所以每一个 handler 都必须解得出帧、盖得上 seq。
 func TestEveryNotifyHandlerHasAStampableFrame(t *testing.T) {
@@ -1358,9 +1358,9 @@ func TestDisconnect_AutonomousTurnInFlight_ReconnectsInsteadOfTruncating(t *test
 		ConversationID: convOf(rigSessionID), Event: ev, Seq: 3,
 	})
 
-	conn2 := catchUpConn(5, []wire.JournaledNotification{
-		journaledAutoEvent(4, "tail"),
-		journaledAutoDone(5, "sonnet"),
+	conn2 := catchUpConn(5, []wire.DurableNotification{
+		durableAutoEvent(4, "tail"),
+		durableAutoDone(5, "sonnet"),
 	}, wire.SessionPendingWaitersResult{})
 	rig.queue(conn2, rigFingerprint, nil)
 
@@ -1435,11 +1435,11 @@ func startProbeTurn(t *testing.T, rt *Runtime) {
 func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 	// 游标停在 3;4..9 是上一次离线期间落库的三轮尾巴(9 是开轮那一刻的高水位),
 	// 10/11 才是当前这一轮自己的通知。
-	journal := []wire.JournaledNotification{
-		journaledEvent(4, "old-a"), journaledDone(5, "old-1"),
-		journaledEvent(6, "old-b"), journaledDone(7, "old-2"),
-		journaledEvent(8, "old-c"), journaledDone(9, "old-3"),
-		journaledEvent(10, "new-a"), journaledEvent(11, "new-b"),
+	durable := []wire.DurableNotification{
+		durableEvent(4, "old-a"), durableDone(5, "old-1"),
+		durableEvent(6, "old-b"), durableDone(7, "old-2"),
+		durableEvent(8, "old-c"), durableDone(9, "old-3"),
+		durableEvent(10, "new-a"), durableEvent(11, "new-b"),
 	}
 	conn := newFakeConn()
 	conn.script(func(method string, params, result any) error {
@@ -1457,7 +1457,7 @@ func TestTurnStartFloor_SecondTurnOnSameConn_DoesNotRelist(t *testing.T) {
 		case wire.MethodSessionPull:
 			p := params.(wire.SessionPullParams)
 			out := wire.SessionPullResult{Cursor: p.Cursor}
-			for _, n := range journal {
+			for _, n := range durable {
 				if n.Seq > p.Cursor {
 					out.Notifications = append(out.Notifications, n)
 					out.Cursor = n.Seq

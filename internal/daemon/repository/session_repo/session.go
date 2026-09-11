@@ -12,7 +12,7 @@
 // (wire.SessionLifecycle*),把它固化进仓储会让两处定义迟早漂移。
 //
 // 「某会话最新的 seq」也不在本包里:它由转录的帧编号台账报出(见
-// handlers.JournalReaderPort 的 LatestSeq)。
+// handlers.DurableFrameReaderPort 的 LatestSeq)。
 package session_repo
 
 import (

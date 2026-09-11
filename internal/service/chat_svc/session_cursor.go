@@ -20,7 +20,7 @@ type sessionCursorPort struct{}
 func init() { agentruntime.RegisterSessionCursor(sessionCursorPort{}) }
 
 // LoadCursor 读出会话已消费到的通知 seq。实例标识对不上(daemon 重装、换机、数据目录
-// 被清)时判为失效，交出 ok=false 而不是一个指向别的日志的 seq。
+// 被清)时判为失效，交出 ok=false 而不是一个指向别的 daemon 实例的 seq。
 func (sessionCursorPort) LoadCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier) (int64, bool, error) {
 	sess, err := chat_repo.Session().Find(ctx, sessionID)
 	if err != nil {
@@ -42,7 +42,7 @@ func (sessionCursorPort) LoadCursor(ctx context.Context, sessionID int64, daemon
 }
 
 // SaveCursor 推进会话的通知消费游标。身份一路带到仓储的 WHERE 守卫:会话已改绑到
-// 别的 daemon 时,老连接上迟到的这次写入落空,不会把老日志的 seq 记到新 daemon 名下。
+// 别的 daemon 时,老连接上迟到的这次写入落空,不会把老 daemon 的 seq 记到新 daemon 名下。
 func (sessionCursorPort) SaveCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error {
 	return chat_repo.Session().UpdateEventCursor(ctx, sessionID, daemonFingerprint, seq)
 }

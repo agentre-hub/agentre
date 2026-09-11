@@ -188,7 +188,7 @@ describe("peer-transcript", () => {
     );
   });
 
-  it("reducePeerPullPage overlays the journal seq onto each frame", () => {
+  it("reducePeerPullPage overlays the durable seq onto each frame", () => {
     let s = createPeerTranscript();
     s = reducePeerPullPage(s, [
       {

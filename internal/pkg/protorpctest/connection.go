@@ -150,13 +150,13 @@ func registerLegacyTestMethods(reg *protorpc.Registry, legacy legacyTestPort) {
 			// 模拟的正是「新版 daemon 发来第六类通知」,所以不能整页失败。
 			decoded, err := protowire.WireNotificationToProto(n.Method, n.Params)
 			if n.Params == nil || err != nil {
-				response.Notifications = append(response.Notifications, &agentrewire.JournaledNotification{
+				response.Notifications = append(response.Notifications, &agentrewire.DurableNotification{
 					Seq: n.Seq, Payload: &agentrewire.RpcNotification{},
 				})
 				continue
 			}
 			protowire.SetNotificationSeq(decoded, n.Seq)
-			response.Notifications = append(response.Notifications, &agentrewire.JournaledNotification{Seq: n.Seq, Payload: decoded})
+			response.Notifications = append(response.Notifications, &agentrewire.DurableNotification{Seq: n.Seq, Payload: decoded})
 		}
 		return response, nil
 	})
