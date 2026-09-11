@@ -1,7 +1,7 @@
 package agentruntime
 
 import (
-	"strings"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -78,7 +78,37 @@ func TestPiAgentProviderModelName_NilConfig(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestPiAgentProviderExtension_AllThreeTypesAPIMapping(t *testing.T) {
+// providerConfigPayload 是 registerProvider 的第二个参数在测试里的解构形状。断言按字段值
+// 做，不按渲染文本做：字段值是 Pi 真正读的契约，渲染文本只是它的载体。
+type providerConfigPayload struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"baseUrl"`
+	API     string `json:"api"`
+	APIKey  string `json:"apiKey"`
+	Models  []struct {
+		ID            string   `json:"id"`
+		Name          string   `json:"name"`
+		Reasoning     bool     `json:"reasoning"`
+		Input         []string `json:"input"`
+		ContextWindow int      `json:"contextWindow"`
+		MaxTokens     int      `json:"maxTokens"`
+		Cost          struct {
+			Input      float64 `json:"input"`
+			Output     float64 `json:"output"`
+			CacheRead  float64 `json:"cacheRead"`
+			CacheWrite float64 `json:"cacheWrite"`
+		} `json:"cost"`
+	} `json:"models"`
+}
+
+func decodeProviderConfig(t *testing.T, raw string) providerConfigPayload {
+	t.Helper()
+	var got providerConfigPayload
+	require.NoError(t, json.Unmarshal([]byte(raw), &got))
+	return got
+}
+
+func TestPiAgentProviderConfigJSON_APIMappingByProviderType(t *testing.T) {
 	cases := []struct {
 		name string
 		typ  string
@@ -91,44 +121,90 @@ func TestPiAgentProviderExtension_AllThreeTypesAPIMapping(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testProviderConfig(tc.typ, "m-1")
+			cfg.ProviderName = "My Compat"
 			cfg.BaseURL = "https://proxy.example.com"
-			src, err := PiAgentProviderExtension(cfg)
+			cfg.APIKey = "sk-plaintext-secret"
+
+			raw, err := piAgentProviderConfigJSON(cfg)
 			require.NoError(t, err)
-			assert.True(t, strings.HasPrefix(src, "export default function (pi) { "))
-			assert.Contains(t, src, `pi.registerProvider("agentre-`+testProviderKey+`", {`)
-			assert.Contains(t, src, `api: "`+tc.api+`"`)
-			// 每个 model 都必须带 cost，避免绑定模型 id 与用户 ~/.pi/agent 撞名时
-			// pi 0.83.0 模型合并崩溃（provider-composer.js applyModelOverride 读 model.cost.tiers）。
-			assert.Contains(t, src, `cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }`)
+			got := decodeProviderConfig(t, raw)
+
+			assert.Equal(t, "My Compat", got.Name)
+			assert.Equal(t, "https://proxy.example.com", got.BaseURL)
+			assert.Equal(t, tc.api, got.API)
+			// 密钥只进 env：config 里只留 $ENV 引用，明文绝不落进下发给 Pi 的任何文本。
+			assert.Equal(t, "$AGENTRE_PI_API_KEY_9a3b2c1d4e5f6a7b8c9d0e1f2a3b4c5d", got.APIKey)
+			assert.NotContains(t, raw, "sk-plaintext-secret")
+
+			require.Len(t, got.Models, 1)
+			model := got.Models[0]
+			assert.Equal(t, "m-1", model.ID)
+			assert.Equal(t, "m-1", model.Name)
+			assert.True(t, model.Reasoning)
+			assert.Equal(t, []string{"text", "image"}, model.Input)
+			assert.Equal(t, 200000, model.ContextWindow)
+			assert.Equal(t, 8192, model.MaxTokens)
 		})
 	}
 }
 
-func TestPiAgentProviderExtension_FullShape(t *testing.T) {
-	cfg := testProviderConfig(string(llm_provider_entity.TypeAnthropic), "claude-sonnet-4")
-	cfg.ProviderName = "My Anthropic Compat"
-	cfg.BaseURL = "https://proxy.example.com"
-	src, err := PiAgentProviderExtension(cfg)
-	require.NoError(t, err)
-	assert.Contains(t, src, `name: "My Anthropic Compat"`)
-	assert.Contains(t, src, `baseUrl: "https://proxy.example.com"`)
-	assert.Contains(t, src, `api: "anthropic-messages"`)
-	assert.Contains(t, src, `apiKey: "$AGENTRE_PI_API_KEY_9a3b2c1d4e5f6a7b8c9d0e1f2a3b4c5d"`)
-	assert.Contains(t, src, `models: [{ id: "claude-sonnet-4", name: "claude-sonnet-4", reasoning: true, input: ["text","image"], contextWindow: 200000, maxTokens: 8192, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }]`)
-	// 密钥只进 env，绝不落进扩展源。
-	assert.NotContains(t, src, "sk-plaintext-secret")
-}
-
-func TestPiAgentProviderExtension_ZeroWindowTokensOmitted(t *testing.T) {
+func TestPiAgentProviderConfigJSON_OmitsZeroWindowAndMaxTokensButKeepsCost(t *testing.T) {
 	cfg := testProviderConfig(string(llm_provider_entity.TypeOpenAIChat), "qwen")
 	cfg.ContextWindow = 0
 	cfg.MaxOutput = 0
 	cfg.BaseURL = "http://localhost:8080/v1"
+
+	raw, err := piAgentProviderConfigJSON(cfg)
+	require.NoError(t, err)
+	var payload struct {
+		Models []map[string]any `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &payload))
+	require.Len(t, payload.Models, 1)
+	assert.NotContains(t, payload.Models[0], "contextWindow")
+	assert.NotContains(t, payload.Models[0], "maxTokens")
+	// 每个 model 都必须带 cost，避免绑定模型 id 与用户 ~/.pi/agent 撞名时 pi 0.83.0 模型合并
+	// 崩溃（provider-composer.js applyModelOverride 读 model.cost.tiers）。
+	assert.Equal(t, map[string]any{"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0},
+		payload.Models[0]["cost"])
+}
+
+// TestPiAgentProviderExtension_RegistersProviderWithTheConfigJSON 同时守住两条下发路径同源：
+// 父进程走 --extension 的扩展源码、子进程走 env 注册表（PiAgentProviderRegistryJSON），
+// 两边必须是同一份 config —— 任何一边少字段，子进程的注册就与父进程不一致。
+func TestPiAgentProviderExtension_RegistersProviderWithTheConfigJSON(t *testing.T) {
+	cfg := testProviderConfig(string(llm_provider_entity.TypeAnthropic), "claude-sonnet-4")
+	cfg.APIKey = "sk-plaintext-secret"
+
+	config, err := piAgentProviderConfigJSON(cfg)
+	require.NoError(t, err)
 	src, err := PiAgentProviderExtension(cfg)
 	require.NoError(t, err)
-	assert.Contains(t, src, `models: [{ id: "qwen", name: "qwen", reasoning: true, input: ["text","image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }]`)
-	assert.NotContains(t, src, "contextWindow")
-	assert.NotContains(t, src, "maxTokens")
+
+	assert.Equal(t,
+		`export default function (pi) { pi.registerProvider("agentre-`+testProviderKey+`", `+config+`) }`,
+		src)
+	assert.NotContains(t, src, "sk-plaintext-secret")
+
+	registry, err := piAgentProviderRegistryJSON(cfg)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"agentre-`+testProviderKey+`": `+config+`}`, registry)
+}
+
+func TestPiAgentProviderRegistryJSON_KeysConfigByAgentreProviderName(t *testing.T) {
+	cfg := testProviderConfig(string(llm_provider_entity.TypeOpenAIResponse), "deepseek-flash")
+
+	raw, err := piAgentProviderRegistryJSON(cfg)
+	require.NoError(t, err)
+
+	var registry map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(raw), &registry))
+	require.Len(t, registry, 1)
+	config, ok := registry["agentre-"+testProviderKey]
+	require.True(t, ok, "注册表键必须与 --model 的 provider 段一致")
+	expected, err := piAgentProviderConfigJSON(cfg)
+	require.NoError(t, err)
+	assert.JSONEq(t, expected, string(config))
 }
 
 func TestPiAgentProviderExtension_Errors(t *testing.T) {
@@ -163,11 +239,30 @@ func TestBuildPiAgentProviderEnv(t *testing.T) {
 	assert.Equal(t, "bar", env["FOO"])
 	assert.Equal(t, "/tmp/cfg.json", env["AGENTRE_PI_MCP_CONFIG"])
 	assert.Equal(t, "sk-secret-123", env["AGENTRE_PI_API_KEY_9a3b2c1d4e5f6a7b8c9d0e1f2a3b4c5d"])
+	// 子进程继承不到父进程的 --extension（pi 只显式接受 --extension），provider 定义只能靠
+	// 这个注册表 env 到达 subagent；与扩展源码同源、同样只带 $ENV 引用。
+	expectedConfig, err := piAgentProviderConfigJSON(cfg)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"agentre-`+testProviderKey+`": `+expectedConfig+`}`, env[PiAgentProviderRegistryEnvKey])
+	assert.NotContains(t, env[PiAgentProviderRegistryEnvKey], "sk-secret-123")
 	// 不改入参 map。
 	assert.NotContains(t, base, "AGENTRE_PI_API_KEY_9a3b2c1d4e5f6a7b8c9d0e1f2a3b4c5d")
+	assert.NotContains(t, base, PiAgentProviderRegistryEnvKey)
 
 	// nil config 退化为纯副本，不注入 env 键。
 	envNil := BuildPiAgentProviderEnv(base, nil)
 	assert.Equal(t, "bar", envNil["FOO"])
 	assert.NotContains(t, envNil, "AGENTRE_PI_API_KEY_")
+	assert.NotContains(t, envNil, PiAgentProviderRegistryEnvKey)
+}
+
+func TestBuildPiAgentProviderEnv_UnresolvedModelInjectsAPIKeyWithoutRegistry(t *testing.T) {
+	// 没解析出 ModelID 时没有可注册的模型（注册表里的 provider 必须带 models），只注入
+	// APIKey —— 这种配置本来也不会下发 agentre-<key>/<model> 给子进程。
+	cfg := testProviderConfig(string(llm_provider_entity.TypeOpenAIChat), "")
+	cfg.APIKey = "sk-secret-123"
+
+	env := BuildPiAgentProviderEnv(map[string]string{"FOO": "bar"}, cfg)
+	assert.Equal(t, "sk-secret-123", env[PiAgentProviderEnvKey(testProviderKey)])
+	assert.NotContains(t, env, PiAgentProviderRegistryEnvKey)
 }

@@ -319,11 +319,13 @@ func safePiResponseCommand(command string) (string, bool) {
 
 // providerRunConfig 装配绑定供应商时的 provider 会话参数（APIKey 校验与 env 注入在
 // Run 层完成，见 runtime.go）：返回 --model 值（effectiveModel = 解析出的 ModelID，
-// 非空时为 "agentre-<key>/<model>"）与物化后的 provider 扩展绝对路径。ModelID 为空
-// （保存时已拦截，此处仅兜底）时沿用现状：返回零值不报错，不注入模型也不物化扩展。
+// 非空时为 "agentre-<key>/<model>"）与物化后的 provider 扩展绝对路径，并把静态子进程
+// provider 扩展装进 Pi 配置目录（内容幂等，失败只告警：父进程的 --extension 到不了
+// subagent，子进程得靠自己加载的扩展 + env 注册表解析 --model，见 childprovider.go）。
+// ModelID 为空（保存时已拦截，此处仅兜底）时沿用现状：返回零值不报错，不注入模型也不物化扩展。
 // 模型名（Type 不可识别 / 模型空）出错一律显式返回，不静默吞掉后走无绑定运行。
 // cfg 是执行侧解析结果（EffectiveLLMConfig v1 seam）：模型 id 取解析出的 ModelID。
-func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig) (model string, extPath string, err error) {
+func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig, env map[string]string) (model string, extPath string, err error) {
 	if cfg == nil {
 		return "", "", nil
 	}
@@ -338,9 +340,15 @@ func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig) (model string, extP
 	}
 	// 扩展与 --model 必须出自同一个 effectiveModel(都用 cfg):PiAgentProviderExtension
 	// 渲染的 registerProvider 只声明 models:[<cfg.ModelID>]。扩展按内容哈希落盘。
+	// env 是本次运行下发给 pi 的覆盖：子进程扩展要装到同一份 env 解析出的 Pi 配置目录。
 	extPath, err = MaterializeProviderExtension(cfg)
 	if err != nil {
 		return "", "", err
+	}
+	if installErr := childProviderExtensionInstaller(env); installErr != nil {
+		// 装不上只是 subagent 子进程解析不了 agentre-<key>/<model>，本轮会话本身照常跑。
+		logger.Default().Warn("piagent.providerRunConfig: child provider extension install failed",
+			zap.String("providerKey", cfg.ProviderKey), zap.Error(installErr))
 	}
 	return model, extPath, nil
 }
@@ -392,7 +400,7 @@ var sessionFactory = func(req agentruntime.RunRequest, env map[string]string, cw
 	var providerExtPath string
 	if req.Effective != nil {
 		var err error
-		model, providerExtPath, err = providerRunConfig(req.Effective)
+		model, providerExtPath, err = providerRunConfig(req.Effective, env)
 		if err != nil {
 			return nil, err
 		}
