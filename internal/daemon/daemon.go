@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,6 +79,12 @@ type Options struct {
 	// 留空 → 走 ccoauth.NewLocalFetcher()(从当前机器环境读 token + 调真实 endpoint);
 	// 集成测试传入 stub 屏蔽真实网络 / 真实 keychain。
 	CCUsageFetcher handlers.CCUsageFetcher
+
+	// directAddressReachable decides whether another machine can reach a direct
+	// address host; nil means reachableFromAnotherMachine. Unexported on purpose:
+	// only this package's tests replace it, so a daemon bound to 127.0.0.1 can
+	// still deliver auto-direct over a real connection.
+	directAddressReachable func(host string) bool
 }
 
 // Daemon assembles and runs all agentred sub-systems.
@@ -992,9 +999,12 @@ func (d *Daemon) lanDirectCertificate(ctx context.Context) *tls.Certificate {
 	return &certificate
 }
 
-// directEndpoint reports the LAN server's routable wss addresses and the
-// certificate they present. Before the LAN server runs there is nothing to
-// offer, and an account handshake then delivers no auto-direct (D5).
+// directEndpoint reports the LAN server's wss addresses another machine can
+// reach and the certificate they present. The LAN server lists an explicit
+// listen host verbatim, loopback included, so reachability is decided here for
+// wildcard and explicit hosts alike. With no such address — or before the LAN
+// server runs — there is nothing to offer, and an account handshake then
+// delivers no auto-direct (D5).
 func (d *Daemon) directEndpoint() (urls []string, certPEM string) {
 	d.mu.RLock()
 	lan := d.lan
@@ -1002,7 +1012,47 @@ func (d *Daemon) directEndpoint() (urls []string, certPEM string) {
 	if lan == nil {
 		return nil, ""
 	}
-	return lan.DirectURLs(), lan.CertificatePEM()
+	reachable := d.opts.directAddressReachable
+	if reachable == nil {
+		reachable = reachableFromAnotherMachine
+	}
+	urls = reachableDirectURLs(lan.DirectURLs(), reachable)
+	if len(urls) == 0 {
+		return nil, ""
+	}
+	return urls, lan.CertificatePEM()
+}
+
+// reachableDirectURLs keeps the addresses whose host reachable accepts.
+func reachableDirectURLs(candidates []string, reachable func(host string) bool) []string {
+	var out []string
+	for _, candidate := range candidates {
+		parsed, err := url.Parse(candidate)
+		if err != nil || !reachable(parsed.Hostname()) {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+// reachableFromAnotherMachine rejects hosts only this machine can reach:
+// loopback, unspecified and link-local addresses, and localhost. Any other
+// host name is the operator's explicit choice and is kept.
+func reachableFromAnotherMachine(host string) bool {
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return false
+	}
+	// A zoned IPv6 literal (fe80::1%en0) only parses without its zone, and a
+	// zone only exists on link-local addresses.
+	if zone := strings.IndexByte(host, '%'); zone >= 0 {
+		host = host[:zone]
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+	return ip.IsGlobalUnicast()
 }
 
 // loginPollInterval 是未登录时重读 state.json 的间隔。只在没有账号期间生效,

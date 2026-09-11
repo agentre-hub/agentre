@@ -773,9 +773,25 @@ func bootRemoteRig(t *testing.T, script []agentruntime.Event) *pairedTestRig {
 // 留下的那个库(R10 的启动清扫要扫的就是它)。
 func bootRigInDir(t *testing.T, dir string) *pairedTestRig {
 	t.Helper()
-	d, err := New(Options{
+	return bootRigWithOptions(t, Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0})
+}
+
+// bootDirectRigInDir 同 bootRigInDir,但把回环地址当作他机可达:集成用例的 daemon 只
+// 监听 127.0.0.1,生产判定下它没有可下发的直连地址(D5)。换上这个判定,自动直连的
+// 下发、证书固定与 auth.direct 才能在真实连接上走完。
+func bootDirectRigInDir(t *testing.T, dir string) *pairedTestRig {
+	t.Helper()
+	return bootRigWithOptions(t, Options{
 		DataDir: dir, LANHost: "127.0.0.1", LANPort: 0,
+		directAddressReachable: func(string) bool { return true },
 	})
+}
+
+// bootRigWithOptions 是 bootRigInDir 的本体,数据目录取 opts.DataDir。
+func bootRigWithOptions(t *testing.T, opts Options) *pairedTestRig {
+	t.Helper()
+	dir := opts.DataDir
+	d, err := New(opts)
 	require.NoError(t, err)
 	dCtx, dCancel := context.WithCancel(context.Background())
 	dErrCh := make(chan error, 1)
@@ -2446,8 +2462,11 @@ func liveDirectEndpoint(d *Daemon) ([]string, string) {
 // 得到与中转 auth.account 相同的对端指纹与账号身份:一台起的会话被另一台接管并回答
 // 待决策,已不是属主的发起端仍从扇出里看到它被解决(扇出只认同账号的连接)。
 func TestIntegration_AutoDirect_GivenDesktopsHoldTheirDelivery_WhenTheAccountServerIsDown_ThenAuthDirectCarriesTheAccountIdentityThroughFanOut(t *testing.T) {
-	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, &twoClientApprovalRunner{}))
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	rig := bootDirectRigInDir(t, dir)
 	const accountID = "account-42"
 	accounts, server := accountServerForIntegration(t, rig.d, accountID)
 	const desk1, desk2 = "sha256:direct-desk-1", "sha256:direct-desk-2"
@@ -2500,7 +2519,7 @@ func TestIntegration_AutoDirect_GivenAccountHandshakes_ThenOnlyADesktopIsDeliver
 	dir, err := os.MkdirTemp("", "ard-direct")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	first := bootRigInDir(t, dir)
+	first := bootDirectRigInDir(t, dir)
 	const accountID = "account-42"
 	accounts, _ := accountServerForIntegration(t, first.d, accountID)
 	const desk = "sha256:direct-desk"
@@ -2517,7 +2536,7 @@ func TestIntegration_AutoDirect_GivenAccountHandshakes_ThenOnlyADesktopIsDeliver
 		first.d.state.Snapshot().DirectCredentials, "agentred records the desktop's fingerprint and the issuing account, nothing else")
 
 	first.stop()
-	second := bootRigInDir(t, dir)
+	second := bootDirectRigInDir(t, dir)
 	again := accountDeliveryForIntegration(t, second.d, accounts.mint(accountID, desk))
 
 	urls, certPEM := liveDirectEndpoint(second.d)
@@ -2536,7 +2555,8 @@ func TestIntegration_AutoDirect_GivenNoDirectAddress_WhenADesktopHandshakes_Then
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	_, keyFile := lancert.Paths(dir)
 	require.NoError(t, os.Mkdir(keyFile, 0o700))
-	rig := bootRigInDir(t, dir)
+	// 回环当作可达:这条用例要看的是「没有证书就没有直连地址」,不是回环过滤。
+	rig := bootDirectRigInDir(t, dir)
 	mint := loginDaemonForIntegration(t, rig.d, "account-42")
 
 	response := accountDeliveryForIntegration(t, rig.d, mint("sha256:direct-desk"))
@@ -2547,13 +2567,46 @@ func TestIntegration_AutoDirect_GivenNoDirectAddress_WhenADesktopHandshakes_Then
 	assert.Empty(t, rig.d.state.Snapshot().DirectCredentials)
 }
 
+// D5:LAN 显式监听回环地址时,LAN server 自己仍列得出 wss://127.0.0.1 —— 但别的机器
+// 一个也够不着。桌面端的账号握手照常成功,不下发地址、证书,也不签发凭据。
+func TestIntegration_AutoDirect_GivenTheLANListensOnLoopbackOnly_WhenADesktopHandshakes_ThenNothingIsDeliveredOrIssued(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	rig := bootRigInDir(t, dir)
+	urls, _ := liveDirectEndpoint(rig.d)
+	require.NotEmpty(t, urls, "the LAN server itself lists its loopback wss address")
+	mint := loginDaemonForIntegration(t, rig.d, "account-42")
+
+	response := accountDeliveryForIntegration(t, rig.d, mint("sha256:direct-desk"))
+
+	assert.Empty(t, response.GetDirectUrls())
+	assert.Empty(t, response.GetTlsCertPem())
+	assert.Empty(t, response.GetDirectCredential())
+	assert.Empty(t, rig.d.state.Snapshot().DirectCredentials)
+}
+
+// D5 的判定本身:只有他机够得着的地址才下发。回环、未指定、链路本地与 localhost 都不算,
+// 与主机是通配还是显式无关;局域网、唯一本地与运维给的主机名算。
+func TestReachableDirectURLs_GivenCandidateAddresses_ThenOnlyThoseAnotherMachineCanReachRemain(t *testing.T) {
+	candidates := []string{
+		"wss://127.0.0.1:7456/rpc", "wss://[::1]:7456/rpc", "wss://localhost:7456/rpc", "wss://0.0.0.0:7456/rpc",
+		"wss://169.254.10.1:7456/rpc", "wss://[fe80::1]:7456/rpc", "wss://[fe80::1%25en0]:7456/rpc",
+		"wss://192.168.1.5:7456/rpc", "wss://[fd00::5]:7456/rpc", "wss://agentred.lan:7456/rpc",
+	}
+
+	assert.Equal(t, []string{"wss://192.168.1.5:7456/rpc", "wss://[fd00::5]:7456/rpc", "wss://agentred.lan:7456/rpc"},
+		reachableDirectURLs(candidates, reachableFromAnotherMachine))
+	assert.Empty(t, reachableDirectURLs([]string{"wss://127.0.0.1:7456/rpc", "wss://[::1]:7456/rpc"}, reachableFromAnotherMachine))
+}
+
 // D11:agentred 登出(与 `agentred logout` 同一条路:daemon 停着时读盘、Logout、写盘)
 // 之后,它签发过的凭据被拒;再登录另一个账号,那张凭据仍被拒。
 func TestIntegration_AutoDirect_GivenTheDaemonLoggedOutAndThenIntoAnotherAccount_WhenAnIssuedCredentialIsPresented_ThenItIsRejected(t *testing.T) {
 	dir, err := os.MkdirTemp("", "ard-direct")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	first := bootRigInDir(t, dir)
+	first := bootDirectRigInDir(t, dir)
 	accounts, _ := accountServerForIntegration(t, first.d, "account-42")
 	delivered := accountDeliveryForIntegration(t, first.d, accounts.mint("account-42", "sha256:direct-desk"))
 	require.NotEmpty(t, delivered.GetDirectCredential())
