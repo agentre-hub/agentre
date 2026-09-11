@@ -60,7 +60,7 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock("sonner", () => sonnerMocks);
 
-// chat.tsx 现在通过 useFileDropZone → file-drop → OnFileDrop 间接依赖 wailsjs runtime。
+// chat 模块的 composer 通过 lib/file-drop → OnFileDrop 间接依赖 wailsjs runtime。
 // happy-dom 下 window.runtime 不存在,故把 OnFileDrop/OnFileDropOff 桩成 no-op,其余保持真实。
 vi.mock("../../../../wailsjs/runtime/runtime", async () => {
   const actual = await vi.importActual<
@@ -2130,7 +2130,7 @@ describe("ChatTranscript message meta", () => {
   });
 
   // claude/codex 后端走 CLI 自身 login（llmProviderKey 为空）或绑了 provider 但 Model
-  // 字段留空时，落库的 assistantMsg.Model 是空串。之前 chat.tsx 用 `m.model` 作
+  // 字段留空时，落库的 assistantMsg.Model 是空串。之前转录区用 `m.model` 作
   // 门槛把整个 meta 行藏掉，连耗时和「重新生成」按钮一起没了。门槛改成
   // durationMs > 0（turn 完成的可靠信号）后这些会话也能正常显示 meta。
   it("shows the meta row with rerun button when model is empty but the turn completed", () => {

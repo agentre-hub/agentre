@@ -100,9 +100,8 @@ describe("composer single source", () => {
   it("Given the chat module, When it renders the composer, Then it only wires host capabilities onto the shared one", () => {
     const source = chatSource();
 
-    // 这里曾有一个 504 行的同名组件:自持编辑模式、命令模式、图片附件、拖入与
-    // 整条底栏。它现在是装配根 —— 只把这一端独有的能力(提及数据源、技能命令、
-    // Wails 拖入通道)接上去,一行 UI 都不画。
+    // chat 模块是装配根 —— 只把这一端独有的能力(提及数据源、技能命令、
+    // Wails 拖入通道)接到共享的 ChatComposer 上,一行输入框 UI 都不画。
     expect(importedFromPackage()).toContain("ChatComposer");
     expect(source).not.toMatch(/<form\b/);
     expect(source).not.toMatch(/chatComposer\.editing/);

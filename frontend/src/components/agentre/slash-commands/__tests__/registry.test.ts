@@ -13,7 +13,7 @@ import { desktopSlashCommands } from "../registry";
 // 这里只钉**桌面端独有**的那一条,以及它与包里那份清单合在一起之后的结果。
 const t = (key: string) => key;
 
-/** 桌面端真正交给输入框的那份清单 —— 与 chat.tsx 的组装同构。 */
+/** 桌面端真正交给输入框的那份清单 —— 与 chat/composer.tsx 经 useSlashCommands 的组装同构。 */
 function desktopAvailable(
   backendType: string,
   skills: { name: string }[] = [],

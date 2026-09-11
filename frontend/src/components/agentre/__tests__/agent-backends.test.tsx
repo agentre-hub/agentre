@@ -61,8 +61,8 @@ vi.mock("../../../../wailsjs/runtime/runtime", () => ({
 
 import { AgentBackendsPanel as AgentBackendsPanelBase } from "../agent-backends";
 
-// 页级操作(自动识别 / 新建后端)不再由面板自己摆在卡片里，而是通过 renderHeader
-// 交给宿主的 H1 行(settings.tsx 的 SettingsPageHeader actions 槽)。用例统一套一层
+// 页级操作(自动识别 / 新建后端)通过 renderHeader 交给宿主的 H1 行
+// (settings/header.tsx 的 SettingsPageHeader actions 槽)。用例统一套一层
 // 与宿主同形的页头槽，既保留 screen.getByRole 的找法，也不必逐个用例重写 renderHeader。
 function AgentBackendsPanel(
   props: ComponentProps<typeof AgentBackendsPanelBase>,

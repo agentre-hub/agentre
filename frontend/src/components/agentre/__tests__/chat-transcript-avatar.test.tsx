@@ -13,7 +13,7 @@ import { AgentAvatar } from "../primitives";
 describe("ChatMessage 头像列", () => {
   it("assistant 消息的彩色头像用规范尺寸 size-7(锁住一致性)", () => {
     render(
-      // 与 chat.tsx 里 renderCtx.agentAvatar 的构造保持一致 —— 这条守卫要锁的
+      // 与 chat/transcript/use-transcript-row-view.tsx 里 renderCtx.agentAvatar 的构造保持一致 —— 这条守卫要锁的
       // 正是「宿主这样构造出来的头像，落在规范的头像列尺寸上」。
       <ChatMessage
         author="后端"

@@ -81,7 +81,7 @@ function Harness({
         editorRef={editorRef}
         backendType={backendType}
         onSlashSelect={onSlashSelect}
-        // 清单归宿主:静态注册表 + 技能命令合并后按 backend 过滤,与 chat.tsx 同路。
+        // 清单归宿主:静态注册表 + 技能命令合并后按 backend 过滤,与 chat/composer.tsx 经 useSlashCommands 同路。
         slashCommands={listAvailable(backendType, [
           ...buildSlashCommands((key) => key),
           ...desktopSlashCommands,

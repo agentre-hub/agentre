@@ -4,14 +4,11 @@ import type { SlashCommand } from "./slash/types";
 /**
  * 输入框的占位文案，按**本次真正接上的能力**拼。
  *
- * 原先两端各写各的，判据都是 backendType：桌面端 `chat.tsx` 四选一
- * （`chat.composer.placeholder{,Claude,Codex,Pi}`），agentre-server 又照抄一份。
- * backendType 与「宿主接没接那些能力」无关 —— `peer-panel` 传的正是
- * `backendType=""`、没接 `onCommandSubmit` 也没接 `mentionSources`，落到的
- * 默认文案却许诺 `@ / !` 三样，它一样都没接；要不是它另写一句盖过去，
- * 用户看到的就是三条按不出反应的提示。
+ * 判据不能是 backendType：它与「宿主接没接那些能力」无关 —— `peer-panel` 传的正是
+ * `backendType=""`、没接 `onCommandSubmit` 也没接 `mentionSources`，按 backendType
+ * 选文案就会许诺 `@ / !` 三样按不出反应的提示。
  *
- * 所以判据换成「这次渲染真正启用了哪些触发器」，而且**落在 `AIChatInput` 自己
+ * 所以判据是「这次渲染真正启用了哪些触发器」，而且**落在 `AIChatInput` 自己
  * 身上** —— 四样能力启用没有，它比谁都清楚（`mentionSources` /
  * `backendType` + `onSlashSelect` / 清单里的 trigger / `onCommandSubmit`）。
  * 省略 `placeholder` 时由它自己拼，宿主少接一样能力就自动少一段，
