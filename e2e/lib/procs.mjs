@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
-function alive(pid) {
+/** pid(或它所在的进程组)是否还在。verify.mjs 与 target.mjs 的存活判定都用这一份。 */
+export function alive(pid) {
   for (const target of [-pid, pid]) {
     try {
       process.kill(target, 0);

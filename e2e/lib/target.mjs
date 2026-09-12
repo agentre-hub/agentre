@@ -8,6 +8,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { alive } from "./procs.mjs";
+
 export class IsolationError extends Error {
   constructor(message) {
     super(message);
@@ -162,9 +164,29 @@ export function clearSession() {
   rmSync(sessionPath(), { force: true });
 }
 
+/**
+ * wipe 是整条 verify 工具链里唯一会删数据的动作,而 target 是按 checkout 派生的:
+ * 同一个 checkout 上任何一处调用 wipe,删的都是那台机器上**正在跑**的那份联调数据。
+ * 所以删之前必须问一句「它还活着吗」——记着的会话里 appPid 还在,就拒绝,让人自己
+ * 决定是先 `make verify-down` 还是换 `--keep`。
+ *
+ * 没有会话记录 / 记着的进程已经不在了,才是 wipe 的正常前提。
+ */
+export function assertWipeAllowed(session, isAlive = alive) {
+  if (!session || typeof session !== "object") return;
+  const pid = session.appPid;
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  if (!isAlive(pid)) return;
+  throw new IsolationError(
+    `refusing to wipe a live verification target: app pid ${pid} is still running\n` +
+      "Stop it first (`make verify-down`), or keep its state (`make verify-up VERIFY_FLAGS=--keep`).",
+  );
+}
+
 export function prepareDirs(target, { wipe }) {
   assertIsolatedDataDir(target.dataDir);
   if (wipe) {
+    assertWipeAllowed(readSession());
     rmSync(target.dataDir, { recursive: true, force: true });
     rmSync(target.keychainDir, { recursive: true, force: true });
     rmSync(target.browserDir, { recursive: true, force: true });

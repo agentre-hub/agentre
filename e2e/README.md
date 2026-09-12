@@ -70,7 +70,7 @@ go test ./e2e/preflight ./e2e/composition ./e2e/fakepeer ./e2e/app
 cd e2e && pnpm exec tsc --noEmit
 ```
 
-The canonical automated check remains `make e2e`; passing only a focused fake or runner test does not establish the desktop smoke. `make e2e` intentionally reaches only the safe automated guard set. That set is `AUTOMATED_GUARD_TESTS` in `lib/guard-suite.mjs`, and `lib/guard-suite.test.mjs` keeps it honest: a guard file that exists on disk but is not listed never runs, so the list and `lib/*.test.mjs` must contain each other. The explicit `cd e2e && pnpm run test:guards` command runs that set plus `lib/target.test.mjs` for the separate formal verification tool; those target guards are not reached by `make e2e`.
+The canonical automated check remains `make e2e`; passing only a focused fake or runner test does not establish the desktop smoke. `make e2e` intentionally reaches only the automated guard set. That set is `AUTOMATED_GUARD_TESTS` in `lib/guard-suite.mjs`, and `lib/guard-suite.test.mjs` keeps it honest: a guard file that exists on disk but is not listed never runs, so the list and `lib/*.test.mjs` must contain each other. The explicit `cd e2e && pnpm run test:guards` command runs that set plus `lib/target.test.mjs` for the separate formal verification tool; those target guards are not reached by `make e2e`. They are safe to run next to a live verification target: they never wipe it, and `prepareDirs` itself now refuses to wipe a target whose recorded app PID is still alive.
 
 ### File map
 
