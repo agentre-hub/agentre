@@ -85,6 +85,15 @@ type service struct {
 	// relay 是这台桌面端唯一的常驻中继客户端连接（决策 13），懒创建，见 relayclient.go
 	// 的 ensureRelay。受 s.mu 保护，与 client / loginInFlight / emitState 同一把锁。
 	relay *residentRelay
+	// refreshMu 单独护着刷新的单飞状态（refresh.go）：refresh_token 是一次性的，
+	// 同一时刻放两条刷新出去，必然有一条拿着已被消费的旧票根去撞服务端的重放检测。
+	// 它不能与 s.mu 合并 —— 刷新期间要调用 getClient()/SetAccessToken，那些走 s.mu。
+	refreshMu sync.Mutex
+	// refreshInFlight 是此刻正在跑的那条刷新；并发调用方等它的结果而不是各自再发一次。
+	refreshInFlight *refreshFlight
+	// refreshGen 每成功刷新一次 +1。调用方发请求前取一次，撞 401 后拿它比对：
+	// 代次变了就说明别人已经把凭据续上了，直接用新的重试，别再刷一次。
+	refreshGen uint64
 	// introspectOnce/introspector 懒建这台桌面端唯一的 auth.Introspector 实例
 	// (introspect.go 的 accountIntrospector)。必须只建一份：H2 的 60 秒成功缓存
 	// 挂在实例内部，每次调用都新建就等于从不命中缓存。

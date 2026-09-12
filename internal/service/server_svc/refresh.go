@@ -38,38 +38,161 @@ type refreshEnvelope struct {
 	Error string      `json:"error"`
 }
 
+// refreshFlight 是一条正在跑的刷新。并发调用方共享它的结果：成功就各自拿新的
+// access token 重试自己的请求，失败就共享同一个失败。
+type refreshFlight struct {
+	done chan struct{}
+	err  error
+	// settled 标记这条刷新的善后（凭据真被拒时清登录）已经做过了，受 s.refreshMu 保护。
+	settled bool
+}
+
 // refresh exchanges the stored refresh_token for a new access token.
-// Server-side refresh-token rotation: the response carries a fresh refresh_token
-// and we overwrite the keychain entry. The desktop only keeps the latest one.
 //
 // 失败分两类，调用方靠 IsCredentialRejected 区分：服务端明确拒绝（ErrRefreshRejected，
 // 凭据真没了）与够不着 / 5xx / keychain 读不到（原样返回，登录态一个字都不许动）。
+// 它只换票，不做善后 —— 清不清登录由调用方决定。
 func (s *service) refresh(ctx context.Context) error {
-	old, err := keychain.Default().Get(keychainAccountName)
-	if err != nil {
-		// keychain 上锁或后端暂时不可用也走这里 —— 凭据可能好端端躺着，不能据此判死。
-		return fmt.Errorf("%w: keychain: %w", ErrRefreshFailed, err)
-	}
+	return s.refreshSince(ctx, s.refreshTicket(), nil)
+}
 
-	var env refreshEnvelope
-	status, err := s.getClient().do(ctx, http.MethodPost, "/v1/oauth/token/refresh",
-		map[string]string{"refresh_token": old}, &env)
-	if err != nil {
-		if credentialRejection(status, env.Error) {
-			return fmt.Errorf("%w: %s", ErrRefreshRejected, env.Error)
+// refreshClearingDeadLogin 是带善后的刷新：凭据被服务端证实作废时清掉本地登录。
+// 善后按「刷新」而不是按「调用方」记一次 —— 共享同一个失败的其余并发调用方只拿到
+// 错误，不重复清、也不重复发 logged_out。
+func (s *service) refreshClearingDeadLogin(ctx context.Context, ticket uint64) error {
+	return s.refreshSince(ctx, ticket, s.clearDeadLogin)
+}
+
+// clearDeadLogin 是唯一一处「凭据被证实作废 ⇒ 拆掉本地登录」的落点。
+func (s *service) clearDeadLogin(ctx context.Context, rerr error) {
+	logger.Ctx(ctx).Warn("server_svc.refresh: server rejected the refresh token we hold, clearing login",
+		zap.Error(rerr))
+	_ = s.clearLogin(ctx)
+}
+
+// refreshTicket 取一张「当前刷新代次」的票。调用方在发业务请求**之前**取票，撞 401
+// 之后把票交回 refreshSince：代次已经变了就说明别人在这中间把凭据续上了。
+func (s *service) refreshTicket() uint64 {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	return s.refreshGen
+}
+
+// refreshSince 保证同一时刻只有一条刷新在跑 —— refresh_token 是一次性的，服务端换出
+// 新的就把旧的撤销，并发放两条刷新出去必然有一条被判重放（invalid_grant）。
+//
+//   - 票过期（代次变了）：别人已经刷成功，直接返回 nil，调用方拿新 token 重试即可；
+//   - 已有一条在跑：等它，共享同一个结果（ctx 结束则提前返回，不影响那条刷新）；
+//   - 否则：自己跑这一条，成功后代次 +1 放行其余等着的调用方。
+//
+// onRejected（可为 nil）是凭据被证实作废时的善后，按刷新记一次：发起方在放行等待者
+// **之前**执行，晚一步才进来的调用方于是读不到凭据、只会得到 ErrRefreshFailed。
+func (s *service) refreshSince(ctx context.Context, ticket uint64, onRejected func(context.Context, error)) error {
+	s.refreshMu.Lock()
+	if s.refreshGen != ticket {
+		s.refreshMu.Unlock()
+		return nil
+	}
+	if f := s.refreshInFlight; f != nil {
+		s.refreshMu.Unlock()
+		select {
+		case <-f.done:
+			s.settleRejection(ctx, f, onRejected)
+			return f.err
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-		return err
 	}
-	if status != http.StatusOK || env.Code != 0 {
-		return fmt.Errorf("%w: code=%d msg=%s", ErrRefreshFailed, env.Code, env.Msg)
-	}
+	f := &refreshFlight{done: make(chan struct{})}
+	s.refreshInFlight = f
+	s.refreshMu.Unlock()
 
-	if err := keychain.Default().Set(keychainAccountName, env.Data.RefreshToken); err != nil {
-		return err
-	}
-	s.getClient().SetAccessToken(env.Data.AccessToken)
+	f.err = s.exchangeRefreshToken(ctx)
+	s.settleRejection(ctx, f, onRejected)
 
-	return nil
+	s.refreshMu.Lock()
+	s.refreshInFlight = nil
+	if f.err == nil {
+		s.refreshGen++
+	}
+	s.refreshMu.Unlock()
+	close(f.done)
+	return f.err
+}
+
+// settleRejection 跑一条刷新的善后，且只跑一次：发起方与等待者谁先到都行，第二个
+// 到的什么也不做。发起方带 nil onRejected（裸 Refresh）时，第一个带善后的等待者补上。
+func (s *service) settleRejection(ctx context.Context, f *refreshFlight, onRejected func(context.Context, error)) {
+	if onRejected == nil || !IsCredentialRejected(f.err) {
+		return
+	}
+	s.refreshMu.Lock()
+	first := !f.settled
+	f.settled = true
+	s.refreshMu.Unlock()
+	if first {
+		onRejected(ctx, f.err)
+	}
+}
+
+// exchangeRefreshToken 拿 keychain 里存着的那枚 refresh_token 换一对新的。
+// Server-side refresh-token rotation: the response carries a fresh refresh_token
+// and we overwrite the keychain entry. The desktop only keeps the latest one.
+//
+// 一次性令牌意味着「被拒」有两种截然不同的成因，判据必须落在事实上——我们提交的那枚
+// **是否仍是**当前存着的那一枚：
+//   - 仍是：这份登录真的死了（被吊销 / 设备已删 / 过期），返回 ErrRefreshRejected；
+//   - 已经不是：别人（另一个进程，或一条我们没能单飞掉的并发路径）刚刚刷成功，我们
+//     提交的只是它消费掉的旧票根。拿当前那枚重来一次，绝不能判这份登录死了。
+func (s *service) exchangeRefreshToken(ctx context.Context) error {
+	var rejection error
+	for attempt := 0; attempt < 2; attempt++ {
+		old, err := keychain.Default().Get(keychainAccountName)
+		if err != nil {
+			// keychain 上锁或后端暂时不可用也走这里 —— 凭据可能好端端躺着，不能据此判死。
+			return fmt.Errorf("%w: keychain: %w", ErrRefreshFailed, err)
+		}
+
+		var env refreshEnvelope
+		status, err := s.getClient().do(ctx, http.MethodPost, "/v1/oauth/token/refresh",
+			map[string]string{"refresh_token": old}, &env)
+		if err != nil {
+			if !credentialRejection(status, env.Error) {
+				return err
+			}
+			rejection = fmt.Errorf("%w: %s", ErrRefreshRejected, env.Error)
+			cur, cerr := keychain.Default().Get(keychainAccountName)
+			if cerr == nil && cur == "" {
+				cerr = errors.New("stored refresh token is empty")
+			}
+			if cerr != nil {
+				// 事实读不出来（钥匙串上锁 / 后端暂时不可用）就不许判死 —— 与函数
+				// 开头那次读不到 keychain 同一口径：凭据可能好端端躺着。
+				logger.Ctx(ctx).Warn("server_svc.refresh: rejected, but the stored token could not be read back; keeping the login",
+					zap.Error(cerr))
+				return fmt.Errorf("%w: cannot confirm the rejected token is still the stored one: %v",
+					ErrRefreshFailed, cerr)
+			}
+			if cur == old {
+				return rejection
+			}
+			logger.Ctx(ctx).Info("server_svc.refresh: the token we submitted had already been rotated away, retrying with the stored one")
+			continue
+		}
+		if status != http.StatusOK || env.Code != 0 {
+			return fmt.Errorf("%w: code=%d msg=%s", ErrRefreshFailed, env.Code, env.Msg)
+		}
+
+		if err := keychain.Default().Set(keychainAccountName, env.Data.RefreshToken); err != nil {
+			return err
+		}
+		s.getClient().SetAccessToken(env.Data.AccessToken)
+
+		return nil
+	}
+	// 连着两次都被判重放、且存着的那枚每次都在我们手上换掉了：这不是「登录失效」的
+	// 证据，登录态必须留着（%v 而非 %w：绝不能让它被当成 ErrRefreshRejected）。
+	return fmt.Errorf("%w: refresh token kept being rotated away: %v", ErrRefreshFailed, rejection)
 }
 
 // credentialRejection 判定这次失败是不是「服务端说这份凭据不作数了」。
@@ -90,10 +213,15 @@ func IsCredentialRejected(err error) bool { return errors.Is(err, ErrRefreshReje
 
 // withAuth runs fn(ctx); on 401, refreshes once and retries.
 //
-// 只有服务端**明确拒绝**了 refresh_token 才拆掉本地登录。服务端够不着 / 5xx 时
+// 只有服务端**明确拒绝**了 refresh_token、且我们提交的正是当前存着的那一枚，才拆掉
+// 本地登录（见 exchangeRefreshToken：重放被拒 ≠ 登录失效）。服务端够不着 / 5xx 时
 // 保留登录态，仅把自己标成离线：下一次成功的调用（sync_svc 每 30 秒一轮下行轮询）
 // 会自动把它复位回在线，用户不必重新登录。
+//
+// 取票要在 fn 之前：崩溃重启后 catch-up / sync / 设备清单会几乎同时撞 401，晚到的
+// 那几条必须认出「凭据已经被别人续上了」，直接拿新的重试。
 func (s *service) withAuth(ctx context.Context, fn func(ctx context.Context) error) error {
+	ticket := s.refreshTicket()
 	err := fn(ctx)
 	if err == nil {
 		s.markOnline()
@@ -107,11 +235,9 @@ func (s *service) withAuth(ctx context.Context, fn func(ctx context.Context) err
 	}
 	// 命中 401 = access token 过期。先 refresh 一次再重试。
 	logger.Ctx(ctx).Info("server_svc.withAuth: 401 received, refreshing access token")
-	if rerr := s.refresh(ctx); rerr != nil {
+	if rerr := s.refreshClearingDeadLogin(ctx, ticket); rerr != nil {
 		if IsCredentialRejected(rerr) {
-			logger.Ctx(ctx).Warn("server_svc.withAuth: server rejected the refresh token, clearing login",
-				zap.Error(rerr))
-			_ = s.clearLogin(ctx)
+			// 登录已由那条刷新善后掉了（一次刷新只清一次）；这里只把失败交回调用方。
 			return rerr
 		}
 		logger.Ctx(ctx).Warn("server_svc.withAuth: refresh unavailable, keeping login and marking offline",
@@ -141,15 +267,13 @@ func (s *service) RefreshWithBackoff(ctx context.Context) {
 			return
 		}
 
-		rerr := s.refresh(ctx)
+		rerr := s.refreshClearingDeadLogin(ctx, s.refreshTicket())
 		if rerr == nil {
 			s.markOnline()
 			return
 		}
 		if IsCredentialRejected(rerr) {
-			logger.Ctx(ctx).Warn("server_svc.RefreshWithBackoff: server rejected the stored credential, clearing login",
-				zap.Error(rerr))
-			_ = s.clearLogin(ctx)
+			// 登录已由那条刷新善后掉了；退避重试就此收手，没有凭据可刷了。
 			return
 		}
 

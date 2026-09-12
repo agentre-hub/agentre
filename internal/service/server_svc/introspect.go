@@ -55,14 +55,15 @@ func (s *service) introspectServerURL() string {
 // local login, the same handling withAuth gives that same signal on every
 // other authenticated call.
 func (s *service) refreshOwnCredentialForIntrospection(ctx context.Context) error {
-	err := s.refresh(ctx)
+	err := s.refreshClearingDeadLogin(ctx, s.refreshTicket())
 	if err == nil {
 		return nil
 	}
 	if IsCredentialRejected(err) {
-		logger.Ctx(ctx).Warn("server_svc.IntrospectCredential: account server rejected this device's own refresh token, clearing login",
+		// 清登录由那条刷新自己善后（refresh.go 的 refreshClearingDeadLogin，一次
+		// 刷新只清一次），这里只把「本机凭据没了」翻译成入站侧的暂不可用。
+		logger.Ctx(ctx).Warn("server_svc.IntrospectCredential: account server rejected this device's own refresh token",
 			zap.Error(err))
-		_ = s.clearLogin(ctx)
 		return auth.ErrReceiverNotReady
 	}
 	return err
