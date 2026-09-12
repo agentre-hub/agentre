@@ -208,18 +208,27 @@ export function useRemoteDevices() {
 
   // 「已移除」入口只列仍在账号里的机器:不在账号里的,面板本来就看不到它,也无从经收编
   // 请回来(再 LAN 配对一次才是它的路)。账号清单未知时一台都不列。
+  //
+  // 本机还有存活配对行的指纹同样不列:移除之后又亲手 LAN 配对回来的机器,设备列表里
+  // 就有它那一行(mergeDeviceSources 认同一条规则 —— 存活行是用户最新的意图)。这个
+  // 入口收的是面板不再显示的机器,把它也列进来,同一台机器会在同一页上既是一行设备、
+  // 又是一台等着「恢复」的已移除机器。
   const removedDevices = useMemo<RemovedDeviceView[]>(() => {
     if (!account.known) return [];
     const accountByFp = new Map(
       account.devices.map((d) => [d.fingerprint, d] as const),
     );
+    const pairedAgain = new Set(
+      lanDevices.map((d) => d.daemonFingerprint).filter(Boolean),
+    );
     return removed.flatMap((r) => {
+      if (pairedAgain.has(r.fingerprint)) return [];
       const acc = accountByFp.get(r.fingerprint);
       return acc
         ? [{ fingerprint: r.fingerprint, name: acc.name || r.name }]
         : [];
     });
-  }, [account, removed]);
+  }, [account, lanDevices, removed]);
 
   const reload = useCallback(async () => {
     const sequence = ++reloadSequence.current;

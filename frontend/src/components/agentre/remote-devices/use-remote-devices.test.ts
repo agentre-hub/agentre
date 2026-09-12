@@ -396,6 +396,25 @@ describe("useRemoteDevices removed machines (D15)", () => {
     ]);
   });
 
+  // 移除之后又亲手 LAN 配对回来的机器,存活行就是用户最新的意图:mergeDeviceSources
+  // 照常把它显示在设备列表里。「已移除」入口收的是面板不再显示的那些机器,再把这一台
+  // 列进去,同一台机器就在同一页上既是一行设备、又是一台「已移除」。
+  it("leaves out a removed machine that this desktop has paired again", async () => {
+    mockList.mockResolvedValue([lanDevice({ daemonFingerprint: "fp-cloud" })]);
+    mockServerList.mockResolvedValue([
+      accountDevice({ id: 21, name: "cloud-box", fingerprint: "fp-cloud" }),
+    ]);
+    mockListRemoved.mockResolvedValue([
+      { fingerprint: "fp-cloud", name: "cloud-box" },
+    ]);
+
+    const { result } = renderHook(() => useRemoteDevices());
+
+    await waitFor(() => expect(result.current.loadState).toBe("ready"));
+    expect(result.current.devices).toHaveLength(1);
+    expect(result.current.removedDevices).toEqual([]);
+  });
+
   it("exposes no removed machines while the account list is unknown", async () => {
     mockList.mockResolvedValue([]);
     mockListRemoved.mockResolvedValue([
