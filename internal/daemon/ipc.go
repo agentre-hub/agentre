@@ -36,8 +36,11 @@ func (d *Daemon) startIPC(ctx context.Context) (*http.Server, error) {
 	//nolint:gosec // G118: shutdown must use a fresh ctx since the request ctx is already canceled
 	go func() {
 		<-ctx.Done()
+		// Shutdown 关掉 agentredipc 交出来的监听,收尾(Unix 上删 socket)由它自己
+		// 按「这还是我造的那个吗」判定 —— 这里不能再按路径删一遍:同一个数据目录
+		// 先后起两个 daemon 时,这个 goroutine 没人 join,它可能晚到新进程已经
+		// 建好 socket 之后才被调度。
 		_ = srv.Shutdown(context.Background())
-		_ = agentredipc.Cleanup(d.opts.DataDir)
 	}()
 	go func() { _ = srv.Serve(ln) }()
 	return srv, nil

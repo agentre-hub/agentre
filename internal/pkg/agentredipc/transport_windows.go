@@ -35,11 +35,6 @@ func DialContext(dataDir string) func(context.Context, string, string) (net.Conn
 	}
 }
 
-// Cleanup is a no-op because closing the final named-pipe listener removes it.
-func Cleanup(string) error {
-	return nil
-}
-
 func currentUserSecurityDescriptor() (string, error) {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
