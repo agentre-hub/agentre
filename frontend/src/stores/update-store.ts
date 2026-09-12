@@ -3,7 +3,6 @@ import { create } from "zustand";
 
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import {
-  CHECKSUM_FETCH_ERROR_PREFIX,
   checkForUpdate,
   downloadAndInstallUpdate,
   getSkippedUpdateVersion,
@@ -47,8 +46,6 @@ export type UpdatePhase =
   | { kind: "installed"; info: UpdateInfo }
   | { kind: "error"; message: string };
 
-export type ChecksumPrompt = { open: boolean; reason: string };
-
 export type UpdateSnapshot = {
   phase: UpdatePhase;
   /** 最近一次结果的来源；决定「要不要主动通告」。 */
@@ -66,7 +63,6 @@ export type UpdateSnapshot = {
   announcedVersion: string;
   /** 更新面板是否展开。到达提示的「查看更新」靠它把面板拉开。 */
   panelOpen: boolean;
-  checksumPrompt: ChecksumPrompt;
 };
 
 export const INITIAL_UPDATE_STATE: UpdateSnapshot = {
@@ -76,7 +72,6 @@ export const INITIAL_UPDATE_STATE: UpdateSnapshot = {
   skippedVersion: "",
   announcedVersion: "",
   panelOpen: false,
-  checksumPrompt: { open: false, reason: "" },
 };
 
 /**
@@ -131,8 +126,7 @@ type UpdateStore = UpdateSnapshot & {
   /** 挂事件订阅并载入持久化的跳过版本；返回解绑函数。 */
   init: () => Promise<() => void>;
   check: (trigger: "manual" | "focus") => Promise<void>;
-  download: (skipChecksum: boolean) => Promise<void>;
-  dismissChecksumPrompt: () => void;
+  download: () => Promise<void>;
   /** 记下「这一版已经主动提示过了」，同一版本不再自动弹。 */
   markAnnounced: () => void;
   setPanelOpen: (open: boolean) => void;
@@ -219,36 +213,21 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     }
   },
 
-  download: async (skipChecksum) => {
+  // 校验和取不到是普通的下载失败之一：照常进 error 态，由胶囊与更新面板呈现。
+  // 这里没有「跳过校验重下一次」的第二条路 —— 那条路等于把校验整条关掉。
+  download: async () => {
     const phase = get().phase;
     if (phase.kind !== "available") return;
     const info = phase.info;
 
-    set({
-      phase: { kind: "downloading", info, progress: 0 },
-      checksumPrompt: { open: false, reason: "" },
-    });
+    set({ phase: { kind: "downloading", info, progress: 0 } });
     try {
-      await downloadAndInstallUpdate(skipChecksum);
+      await downloadAndInstallUpdate();
       set({ phase: { kind: "installed", info } });
     } catch (err) {
-      const message = errorMessage(err);
-      if (message.startsWith(CHECKSUM_FETCH_ERROR_PREFIX)) {
-        set({
-          phase: { kind: "available", info },
-          checksumPrompt: {
-            open: true,
-            reason: message.slice(CHECKSUM_FETCH_ERROR_PREFIX.length),
-          },
-        });
-        return;
-      }
-      set({ phase: { kind: "error", message } });
+      set({ phase: { kind: "error", message: errorMessage(err) } });
     }
   },
-
-  dismissChecksumPrompt: () =>
-    set({ checksumPrompt: { open: false, reason: "" } }),
 
   markAnnounced: () => {
     const phase = get().phase;

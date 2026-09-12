@@ -40,9 +40,6 @@ export type BugReportInfo = {
   osLabel: string;
 };
 
-// 校验文件下载失败的错误前缀，与后端 update_svc.ChecksumFetchError 一致。
-export const CHECKSUM_FETCH_ERROR_PREFIX = "CHECKSUM_FETCH_FAILED:";
-
 function call<T>(name: string, ...args: unknown[]): Promise<T> {
   const fn = window.go?.app?.App?.[name];
   if (typeof fn !== "function") {
@@ -61,8 +58,8 @@ export function maybeCheckForUpdate(): Promise<UpdateInfo | null> {
   return call<UpdateInfo | null>("MaybeCheckForUpdate");
 }
 
-export function downloadAndInstallUpdate(skipChecksum: boolean): Promise<void> {
-  return call<void>("DownloadAndInstallUpdate", skipChecksum);
+export function downloadAndInstallUpdate(): Promise<void> {
+  return call<void>("DownloadAndInstallUpdate");
 }
 
 export function getAvailableMirrors(): Promise<MirrorInfo[]> {

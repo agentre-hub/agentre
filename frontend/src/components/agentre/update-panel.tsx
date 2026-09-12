@@ -207,11 +207,7 @@ export function UpdatePanel({
               )}
             </div>
             <div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void download(false)}
-              >
+              <Button type="button" size="sm" onClick={() => void download()}>
                 <Download aria-hidden="true" className="size-3.5" />
                 {t("update.actions.downloadAndInstall")}
               </Button>

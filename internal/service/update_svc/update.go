@@ -48,7 +48,9 @@ const (
 	// ChannelNightly 每日构建更新通道
 	ChannelNightly = "nightly"
 
-	// ChecksumFetchError 校验文件获取失败的错误前缀，前端用于识别此特定错误
+	// ChecksumFetchError 校验文件获取失败的错误前缀，agentred 侧用它标出这一类失败。
+	// 桌面端不再带它：那个前缀原先只为让前端弹「跳过校验继续」，出口删掉后它在界面
+	// 上只是一段机器噪声。
 	ChecksumFetchError = "CHECKSUM_FETCH_FAILED:"
 )
 
@@ -367,8 +369,8 @@ func resolveInstallRelease(sources releaseSources, channel string) (*ReleaseInfo
 // installChecksums 取这次安装要比对的校验和清单，只从权威域名按发布号取。
 //
 // 取不到是错误而不是「跳过校验」：调用方拿到 nil 校验表就不校验，于是一次取不到
-// 校验文件的安装会被无声地放行。跳过校验只能是用户看到 ChecksumFetchError 之后
-// 显式按下的那一下（skipChecksum），不是这里替他做的默认。
+// 校验文件的安装会被无声地放行。取不到校验和就装不上，没有跳过它的出口 —— 有出口
+// 的话，社工一句「点跳过就能装」即可绕掉整条防线。
 func installChecksums(sources releaseSources, release *ReleaseInfo) (map[string]string, error) {
 	url, err := authoritativeChecksumURL(sources.checksumBaseURL, release.TagName)
 	if err != nil {
@@ -377,8 +379,10 @@ func installChecksums(sources releaseSources, release *ReleaseInfo) (map[string]
 	return fetchChecksumsFrom(context.Background(), url)
 }
 
-// DownloadAndUpdate 下载指定通道的最新版本并替换当前二进制
-func DownloadAndUpdate(channel, mirrorPrefix string, skipChecksum bool, onProgress func(downloaded, total int64)) error {
+// DownloadAndUpdate 下载指定通道的最新版本并替换当前二进制。
+//
+// 校验是无条件的：取不到权威校验和就不装，没有「跳过校验继续」的入参。
+func DownloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error {
 	if channel == "" {
 		channel = ChannelStable
 	}
@@ -407,13 +411,13 @@ func DownloadAndUpdate(channel, mirrorPrefix string, skipChecksum bool, onProgre
 		return fmt.Errorf("no release asset found for platform %s", platform)
 	}
 
-	// 获取校验信息
-	var checksums map[string]string
-	if !skipChecksum {
-		checksums, err = installChecksums(sources, release)
-		if err != nil {
-			return fmt.Errorf("%s%w", ChecksumFetchError, err)
-		}
+	// 获取校验信息。取不到就在这里失败，说清这一次为什么没有镜像出路、以及还能
+	// 怎么装上，而不是给一个「跳过校验继续」的按钮。
+	checksums, err := installChecksums(sources, release)
+	if err != nil {
+		return fmt.Errorf("获取官方校验文件失败: %w；校验文件只从 github.com 官方地址获取，"+
+			"绝不经下载镜像，请确认能访问 github.com 后重试，或前往 %s 手动下载",
+			err, release.HTMLURL)
 	}
 
 	// 下载资产
@@ -467,17 +471,16 @@ func DownloadAndUpdate(channel, mirrorPrefix string, skipChecksum bool, onProgre
 		logger.Default().Warn("close temp file", zap.Error(err))
 	}
 
-	// 校验 SHA256
-	if checksums != nil {
-		actualHash := hex.EncodeToString(hasher.Sum(nil))
-		expectedHash, ok := checksums[assetName]
-		if !ok {
-			return fmt.Errorf("SHA256SUMS.txt 中未找到 %s 的校验值，请前往 %s 手动下载", assetName, release.HTMLURL)
-		}
-		if !strings.EqualFold(actualHash, expectedHash) {
-			return fmt.Errorf("文件校验失败: %s 的 SHA256 不匹配 (期望: %s, 实际: %s)，文件可能已损坏或被篡改，请前往 %s 手动下载",
-				assetName, expectedHash, actualHash, release.HTMLURL)
-		}
+	// 校验 SHA256。清单一定在手上（取不到已经在上面失败），所以这里不再有
+	// 「没有清单就跳过比对」的分支。
+	actualHash := hex.EncodeToString(hasher.Sum(nil))
+	expectedHash, ok := checksums[assetName]
+	if !ok {
+		return fmt.Errorf("SHA256SUMS.txt 中未找到 %s 的校验值，请前往 %s 手动下载", assetName, release.HTMLURL)
+	}
+	if !strings.EqualFold(actualHash, expectedHash) {
+		return fmt.Errorf("文件校验失败: %s 的 SHA256 不匹配 (期望: %s, 实际: %s)，文件可能已损坏或被篡改，请前往 %s 手动下载",
+			assetName, expectedHash, actualHash, release.HTMLURL)
 	}
 
 	// 获取当前可执行文件路径

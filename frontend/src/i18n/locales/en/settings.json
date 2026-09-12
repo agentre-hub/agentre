@@ -248,12 +248,6 @@
       },
       "title": "Update Channel"
     },
-    "checksum": {
-      "confirm": "Skip Checksum and Continue",
-      "description": "SHA256SUMS.txt could not be fetched, so the downloaded file cannot be verified.",
-      "title": "Checksum File Download Failed",
-      "warning": "Continuing will skip integrity verification. Make sure you trust the current download source."
-    },
     "currentVersion": {
       "description": "Check GitHub Releases and install a new version.",
       "title": "Current Version"

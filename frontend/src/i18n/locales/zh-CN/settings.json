@@ -248,12 +248,6 @@
       },
       "title": "更新通道"
     },
-    "checksum": {
-      "confirm": "跳过校验继续",
-      "description": "SHA256SUMS.txt 获取不到，无法校验下载文件完整性。",
-      "title": "校验文件下载失败",
-      "warning": "继续下载将跳过完整性校验，请确认信任当前下载源。"
-    },
     "currentVersion": {
       "description": "通过 GitHub Releases 检查并安装新版本。",
       "title": "当前版本"

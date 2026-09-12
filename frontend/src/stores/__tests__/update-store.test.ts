@@ -245,7 +245,7 @@ describe("update-store 下载与进度", () => {
     useUpdateStore.setState({ phase: { kind: "available", info: INFO } });
 
     // download() 同步跑到第一个 await 就挂起，此时可以确定地投一条进度事件进去。
-    const pending = useUpdateStore.getState().download(false);
+    const pending = useUpdateStore.getState().download();
     emitProgress(50, 200);
 
     // 字节数一起留在阶段里：面板要说「12.0 MB / 48.0 MB」，百分比说不出还要等多久。
@@ -265,19 +265,28 @@ describe("update-store 下载与进度", () => {
     });
   });
 
-  it("Given 校验文件拉不到, When 下载报 CHECKSUM_FETCH_FAILED, Then 回到 available 并弹确认", async () => {
-    installBindings({
+  it("Given 校验文件取不到, When 后端据此拒装, Then 和别的下载失败一样进 error，没有跳过校验的出口", async () => {
+    const app = installBindings({
       DownloadAndInstallUpdate: vi.fn(() =>
-        Promise.reject(new Error("CHECKSUM_FETCH_FAILED:404 not found")),
+        Promise.reject(
+          new Error(
+            "获取官方校验文件失败: download checksums returned status 404",
+          ),
+        ),
       ),
     });
     useUpdateStore.setState({ phase: { kind: "available", info: INFO } });
 
-    await useUpdateStore.getState().download(false);
+    await useUpdateStore.getState().download();
 
-    const s = useUpdateStore.getState();
-    expect(s.phase).toEqual({ kind: "available", info: INFO });
-    expect(s.checksumPrompt).toEqual({ open: true, reason: "404 not found" });
+    // 校验失败就是装不上：错误照常落到 error 态，由胶囊变红 + 面板里那段可复制的
+    // 错误详情呈现，而不是退回 available 再弹一张「仍要继续」把校验绕过去。
+    expect(useUpdateStore.getState().phase).toEqual({
+      kind: "error",
+      message: "获取官方校验文件失败: download checksums returned status 404",
+    });
+    // 绑定不再收「跳过校验」这个入参：前端已经没有任何办法把它打开。
+    expect(app.DownloadAndInstallUpdate).toHaveBeenCalledWith();
   });
 
   it("Given 下载失败, When 不是校验错误, Then 进入 error", async () => {
@@ -288,7 +297,7 @@ describe("update-store 下载与进度", () => {
     });
     useUpdateStore.setState({ phase: { kind: "available", info: INFO } });
 
-    await useUpdateStore.getState().download(false);
+    await useUpdateStore.getState().download();
 
     expect(useUpdateStore.getState().phase).toEqual({
       kind: "error",

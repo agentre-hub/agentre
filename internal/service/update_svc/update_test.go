@@ -416,7 +416,7 @@ type fakeService struct {
 }
 
 func (f *fakeService) CheckForUpdate(_, _ string) (*UpdateInfo, error) { return nil, nil }
-func (f *fakeService) DownloadAndUpdate(_, _ string, _ bool, _ func(int64, int64)) error {
+func (f *fakeService) DownloadAndUpdate(_, _ string, _ func(int64, int64)) error {
 	return nil
 }
 func (f *fakeService) GetAvailableMirrors() []MirrorInfo                   { return f.mirrors }
