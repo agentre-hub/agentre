@@ -12,6 +12,8 @@
   },
   "info": {
     "productName": "Agentre",
-    "productVersion": "0.1.0"
+    "productVersion": "0.1.0",
+    "companyName": "Agentre",
+    "copyright": "© 2026 Agentre"
   }
 }

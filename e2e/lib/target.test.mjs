@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -20,6 +20,7 @@ import {
   assertIsolatedDataDir,
   assertRecordedSession,
   assertSanctionedURL,
+  assertWipeAllowed,
   isRecordedTargetLive,
   productionRoots,
   launchEnv,
@@ -102,13 +103,15 @@ test("Given a live verification target, when a URL is checked, then only its own
   assert.throws(() => assertSanctionedURL(target, "file:///etc/passwd"), IsolationError);
 });
 
-test("Given formal verification with stale E2E variables and missing isolated storage, when launch input is prepared, then private directories are created and E2E composition variables are absent", () => {
+// 这条用例**不许碰 wipe**。它验的是 `launchEnv` 的环境变量清洗与 `prepareDirs` 的
+// 目录落地，两者都不需要先删数据；而 `resolveTarget()` 给的是这个 checkout 的**真**
+// target，`prepareDirs(…, { wipe: true })` 会把另一个会话正在跑的联调数据目录删掉
+// (真发生过：agentre.db 被清空,app 还活着,之后全表 `no such table`)。
+// wipe 分支自己的拒绝语义由下一条用例覆盖,那条是纯函数,不落盘。
+test("Given formal verification with stale E2E variables, when launch input is prepared, then private directories exist and E2E composition variables are absent", () => {
   const target = resolveTarget();
-  for (const path of [target.dataDir, target.keychainDir, target.browserDir]) {
-    rmSync(path, { recursive: true, force: true });
-  }
 
-  prepareDirs(target, { wipe: true });
+  prepareDirs(target, { wipe: false });
   const env = launchEnv(target, {
     PATH: "/test/bin",
     AGENTRE_E2E_MANIFEST: "/tmp/stale-manifest",
@@ -122,7 +125,42 @@ test("Given formal verification with stale E2E variables and missing isolated st
   assert.equal(env.AGENTRE_E2E_REFRESH_TOKEN, undefined);
   for (const path of [target.dataDir, target.keychainDir, target.browserDir]) {
     assert.equal(existsSync(path), true);
+    assert.equal(statSync(path).mode & 0o777, 0o700);
   }
+});
+
+// Given 这个 checkout 的 target 上还记着一个活着的会话, When 有人要求 wipe,
+// Then 拒绝而不是把它的数据删掉 —— `prepareDirs` 的 wipe 分支此前完全不查存活,
+// 于是 `pnpm run test:guards` 一跑就清空了另一个会话正在用的 agentre.db。
+test("Given a live recorded verification session, when a wipe is requested, then it is refused instead of deleting the running target's state", () => {
+  const target = resolveTarget();
+  const session = {
+    appPid: 4242,
+    browserPid: 4243,
+    cdpPort: target.cdpPort,
+    cdpURL: `http://127.0.0.1:${target.cdpPort}`,
+    devserverPort: target.devserverPort,
+    baseURL: target.baseURL,
+    dataDir: target.dataDir,
+    keychainDir: target.keychainDir,
+    dbPath: target.dbPath,
+    logFile: target.logFile,
+    startedAt: new Date().toISOString(),
+    headless: true,
+  };
+
+  assert.throws(() => assertWipeAllowed(session, () => true), IsolationError);
+  assert.throws(
+    () => assertWipeAllowed(session, () => true),
+    /verify-down/,
+    "拒绝要告诉人怎么往下走",
+  );
+  // 记着的进程已经不在了 / 压根没有会话 —— 这才是 wipe 的正常前提。
+  assert.doesNotThrow(() => assertWipeAllowed(session, () => false));
+  assert.doesNotThrow(() => assertWipeAllowed(null, () => true));
+  assert.doesNotThrow(() =>
+    assertWipeAllowed({ ...session, appPid: 0 }, () => true),
+  );
 });
 
 test("Given formal verification, when its browser and driven page are prepared, then evidence uses the established 1440x900 viewport in headless and headed modes", async () => {

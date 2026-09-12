@@ -61,7 +61,6 @@ import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
 import { useChatAgents } from "@/hooks/use-chat-agents";
 import { deriveAppStatusBarState } from "@/lib/app-status-bar";
-import { UpdateChecksumDialogHost } from "@/components/agentre/update-section";
 import {
   unskippedUpdate,
   useUpdateStore,
@@ -348,9 +347,6 @@ function App() {
         <NotificationToastViewport />
         {/* 退出二次确认:常驻订阅 "app:quit-blocked",活跃会话存在时拦截退出弹框。*/}
         <QuitConfirmDialog />
-        {/* 校验文件拉不到时的「仍要继续」确认:下载可以从设置页,也可以从状态栏的
-          更新面板发起,对话只挂一处才两边都在。*/}
-        <UpdateChecksumDialogHost />
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/chat" element={<SessionIndexPage />} />

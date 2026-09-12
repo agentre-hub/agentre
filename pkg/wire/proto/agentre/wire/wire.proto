@@ -34,15 +34,15 @@ extend google.protobuf.FieldOptions {
 //
 // 它与 event_kind 一样是**纯 schema 注解**:不占字段号、不进任何一条 wire 上的字节。
 // 版本号真正上线的路径仍是握手消息里的 protocol_version / min_supported_protocol_version
-// 字段,那两格由宿主按本 build 的窗口填。
+// 字段,那两格由宿主填上本 build 的号。
 //
-// 窗口的另一端 min_supported 不在这里:那是「这个 build 还接受多老的对端」,是宿主的
-// 策略而不是协议的属性,留在各自的 wireversion 包里。
+// 兼容判据是**相等**:两端的 protocol_version 逐字相同才握得上手,没有区间可谈。判定
+// 本身是宿主的事,留在各自的 wireversion 包里(Match / Reject)。
 extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.2.0";
+option (agentre.wire.protocol_version) = "0.1.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -194,9 +194,8 @@ message AuthAccountRequest {
   // .protocol_version) file option this schema declares above.
   string protocol_version = 3;
   // The oldest wire protocol version the caller still accepts from the peer.
-  // Together with protocol_version this names the caller's [min_supported,
-  // protocol] window; wireversion.Match checks each side's protocol_version
-  // falls within the other side's window.
+  // Compatibility is exact equality of protocol_version, so a host fills this
+  // with its own version and no receiver reads it to reach a verdict.
   string min_supported_protocol_version = 4;
 }
 

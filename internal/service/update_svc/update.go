@@ -11,6 +11,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -36,6 +38,8 @@ const (
 	// 若仓库迁移需同步修改 release.yml 里的 gh api 路径。
 	githubRepo = "agentre-hub/agentre"
 	apiBaseURL = "https://api.github.com/repos/" + githubRepo
+	// githubDownloadBaseURL 是发布下载的权威域名前缀。
+	githubDownloadBaseURL = "https://github.com/" + githubRepo
 
 	// ChannelStable 稳定版更新通道
 	ChannelStable = "stable"
@@ -44,7 +48,9 @@ const (
 	// ChannelNightly 每日构建更新通道
 	ChannelNightly = "nightly"
 
-	// ChecksumFetchError 校验文件获取失败的错误前缀，前端用于识别此特定错误
+	// ChecksumFetchError 校验文件获取失败的错误前缀，agentred 侧用它标出这一类失败。
+	// 桌面端不再带它：那个前缀原先只为让前端弹「跳过校验继续」，出口删掉后它在界面
+	// 上只是一段机器噪声。
 	ChecksumFetchError = "CHECKSUM_FETCH_FAILED:"
 )
 
@@ -189,12 +195,28 @@ func fetchLatestBetaRelease() (*ReleaseInfo, error) {
 func releaseInfoURL(channel string) string {
 	switch channel {
 	case ChannelStable:
-		return "https://github.com/" + githubRepo + "/releases/latest/download/release-info.json"
+		return githubDownloadBaseURL + "/releases/latest/download/release-info.json"
 	case ChannelNightly:
-		return "https://github.com/" + githubRepo + "/releases/download/nightly/release-info.json"
+		return githubDownloadBaseURL + "/releases/download/nightly/release-info.json"
 	default:
 		return ""
 	}
+}
+
+// releaseTagPattern 是发布号的形状。tag 可能来自镜像供的元数据，只有形状对得上
+// 才拿去拼权威地址。
+var releaseTagPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// authoritativeChecksumURL 按 tag 给出 SHA256SUMS.txt 的权威地址。
+//
+// 地址只从常量与 tag 拼出来，不读 release 元数据里带的那个 URL：元数据可能来自
+// 镜像，那 URL 就由镜像说了算，于是校验和与被它校验的二进制同源 —— 校验只能证明
+// 「镜像自洽」，代理运营方单方面即可投毒。
+func authoritativeChecksumURL(baseURL, tag string) (string, error) {
+	if !releaseTagPattern.MatchString(tag) {
+		return "", fmt.Errorf("发布号 %q 不是可用的版本号，无法定位官方校验文件", tag)
+	}
+	return baseURL + "/releases/download/" + tag + "/SHA256SUMS.txt", nil
 }
 
 // fetchReleaseFromMirror 通过镜像下载 release-info.json 获取 release 信息
@@ -225,6 +247,27 @@ func fetchReleaseFromMirror(channel, mirrorPrefix string) (*ReleaseInfo, error) 
 		return nil, fmt.Errorf("decode mirror response failed: %w", err)
 	}
 	return &release, nil
+}
+
+// releaseSources 是解析一次发布要用到的几条来路。分开列出来是因为它们的信任级别
+// 不同：fetchRelease 与 checksumBaseURL 是权威来源，决定「装什么」与「校验值是
+// 多少」；mirrors 只是大文件的代下载，它说的校验值一律不采纳。
+type releaseSources struct {
+	// fetchRelease 取权威发布元数据（api.github.com）。
+	fetchRelease func(channel string) (*ReleaseInfo, error)
+	// mirrors 内置镜像列表，用于资产下载（以及 agentred 侧元数据的最后回落）。
+	mirrors []MirrorInfo
+	// checksumBaseURL 校验和清单的权威来源前缀，永不套镜像前缀。
+	checksumBaseURL string
+}
+
+// defaultReleaseSources 是生产来路。
+func defaultReleaseSources() releaseSources {
+	return releaseSources{
+		fetchRelease:    fetchRelease,
+		mirrors:         availableMirrors,
+		checksumBaseURL: githubDownloadBaseURL,
+	}
 }
 
 // CheckForUpdate 检查指定通道的最新版本
@@ -304,21 +347,48 @@ func hasUpdate(channel, currentVersion, latestVersion string) bool {
 	return compareVersions(lv, cv) > 0
 }
 
-// DownloadAndUpdate 下载指定通道的最新版本并替换当前二进制
-func DownloadAndUpdate(channel, mirrorPrefix string, skipChecksum bool, onProgress func(downloaded, total int64)) error {
+// resolveInstallRelease 取「决定装什么」的那份发布元数据。
+//
+// 它只认权威来源，签名上就不收镜像前缀：这份元数据同时决定资产地址与发布号，
+// 而发布号又决定去哪儿取校验和 —— 让镜像来供它，校验和与被它校验的二进制就同源，
+// 校验只能证明「镜像自洽」。取不到就失败，不降级（镜像仍然给资产下载用）。
+func resolveInstallRelease(sources releaseSources, channel string) (*ReleaseInfo, error) {
+	release, err := sources.fetchRelease(channel)
+	if errors.Is(err, errNoStableRelease) {
+		return nil, err
+	}
+	if err != nil {
+		logger.Default().Info("resolve release metadata failed",
+			zap.String("channel", channel), zap.Error(err))
+		return nil, fmt.Errorf("获取 GitHub 官方版本信息失败: %w；"+
+			"版本信息与校验文件只从 GitHub 官方地址获取，不走下载镜像，请确认能访问 github.com 后重试", err)
+	}
+	return release, nil
+}
+
+// installChecksums 取这次安装要比对的校验和清单，只从权威域名按发布号取。
+//
+// 取不到是错误而不是「跳过校验」：调用方拿到 nil 校验表就不校验，于是一次取不到
+// 校验文件的安装会被无声地放行。取不到校验和就装不上，没有跳过它的出口 —— 有出口
+// 的话，社工一句「点跳过就能装」即可绕掉整条防线。
+func installChecksums(sources releaseSources, release *ReleaseInfo) (map[string]string, error) {
+	url, err := authoritativeChecksumURL(sources.checksumBaseURL, release.TagName)
+	if err != nil {
+		return nil, err
+	}
+	return fetchChecksumsFrom(context.Background(), url)
+}
+
+// DownloadAndUpdate 下载指定通道的最新版本并替换当前二进制。
+//
+// 校验是无条件的：取不到权威校验和就不装，没有「跳过校验继续」的入参。
+func DownloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error {
 	if channel == "" {
 		channel = ChannelStable
 	}
 
-	release, err := fetchRelease(channel)
-	if errors.Is(err, errNoStableRelease) {
-		return err
-	}
-	if err != nil && mirrorPrefix != "" {
-		logger.Default().Info("GitHub API failed, trying mirror fallback",
-			zap.String("channel", channel), zap.Error(err))
-		release, err = fetchReleaseFromMirror(channel, mirrorPrefix)
-	}
+	sources := defaultReleaseSources()
+	release, err := resolveInstallRelease(sources, channel)
 	if err != nil {
 		return err
 	}
@@ -341,13 +411,13 @@ func DownloadAndUpdate(channel, mirrorPrefix string, skipChecksum bool, onProgre
 		return fmt.Errorf("no release asset found for platform %s", platform)
 	}
 
-	// 获取校验信息
-	var checksums map[string]string
-	if !skipChecksum {
-		checksums, err = FetchChecksums(release.Assets)
-		if err != nil {
-			return fmt.Errorf("%s%w", ChecksumFetchError, err)
-		}
+	// 获取校验信息。取不到就在这里失败，说清这一次为什么没有镜像出路、以及还能
+	// 怎么装上，而不是给一个「跳过校验继续」的按钮。
+	checksums, err := installChecksums(sources, release)
+	if err != nil {
+		return fmt.Errorf("获取官方校验文件失败: %w；校验文件只从 github.com 官方地址获取，"+
+			"绝不经下载镜像，请确认能访问 github.com 后重试，或前往 %s 手动下载",
+			err, release.HTMLURL)
 	}
 
 	// 下载资产
@@ -401,17 +471,16 @@ func DownloadAndUpdate(channel, mirrorPrefix string, skipChecksum bool, onProgre
 		logger.Default().Warn("close temp file", zap.Error(err))
 	}
 
-	// 校验 SHA256
-	if checksums != nil {
-		actualHash := hex.EncodeToString(hasher.Sum(nil))
-		expectedHash, ok := checksums[assetName]
-		if !ok {
-			return fmt.Errorf("SHA256SUMS.txt 中未找到 %s 的校验值，请前往 %s 手动下载", assetName, release.HTMLURL)
-		}
-		if !strings.EqualFold(actualHash, expectedHash) {
-			return fmt.Errorf("文件校验失败: %s 的 SHA256 不匹配 (期望: %s, 实际: %s)，文件可能已损坏或被篡改，请前往 %s 手动下载",
-				assetName, expectedHash, actualHash, release.HTMLURL)
-		}
+	// 校验 SHA256。清单一定在手上（取不到已经在上面失败），所以这里不再有
+	// 「没有清单就跳过比对」的分支。
+	actualHash := hex.EncodeToString(hasher.Sum(nil))
+	expectedHash, ok := checksums[assetName]
+	if !ok {
+		return fmt.Errorf("SHA256SUMS.txt 中未找到 %s 的校验值，请前往 %s 手动下载", assetName, release.HTMLURL)
+	}
+	if !strings.EqualFold(actualHash, expectedHash) {
+		return fmt.Errorf("文件校验失败: %s 的 SHA256 不匹配 (期望: %s, 实际: %s)，文件可能已损坏或被篡改，请前往 %s 手动下载",
+			assetName, expectedHash, actualHash, release.HTMLURL)
 	}
 
 	// 获取当前可执行文件路径
@@ -888,46 +957,6 @@ func parseChecksums(content string) map[string]string {
 		result[filename] = hash
 	}
 	return result
-}
-
-// FetchChecksums 从 release assets 下载并解析 SHA256SUMS.txt。
-//
-// 缺这个资产是错误而不是「跳过校验」:调用方拿到 nil 校验表就不校验,于是一个没带
-// 校验文件的 release 会被无声地装上去。跳过校验只能是用户看到 ChecksumFetchError
-// 之后显式按下的那一下(skipChecksum),不是这里替他做的默认。
-func FetchChecksums(assets []ReleaseAsset) (map[string]string, error) {
-	var checksumURL string
-	for _, asset := range assets {
-		if asset.Name == "SHA256SUMS.txt" {
-			checksumURL = asset.BrowserDownloadURL
-			break
-		}
-	}
-	if checksumURL == "" {
-		return nil, errors.New("release 里没有 SHA256SUMS.txt")
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(checksumURL)
-	if err != nil {
-		return nil, fmt.Errorf("download SHA256SUMS.txt failed: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Default().Warn("close checksum response body", zap.Error(err))
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download SHA256SUMS.txt returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read SHA256SUMS.txt failed: %w", err)
-	}
-
-	return parseChecksums(string(body)), nil
 }
 
 // compareVersions 比较两个版本号，支持预发布后缀

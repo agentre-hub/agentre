@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -147,33 +149,6 @@ func TestSplitPreRelease(t *testing.T) {
 		base, pre = splitPreRelease("1.0.0-beta.1.nightly.20260325")
 		assert.Equal(t, "1.0.0", base)
 		assert.Equal(t, "beta.1.nightly.20260325", pre)
-	})
-}
-
-// TestFetchChecksums_GivenAReleaseWithoutChecksums_WhenFetched_ThenItIsAnError
-// 钉住「没有 SHA256SUMS.txt 就不装」这条线:早先这里回 (nil, nil),而调用方对
-// nil 校验表的处理是**静默跳过校验** —— 一个没带校验文件的 release 会被无声地
-// 装上去。release 一律带 SHA256SUMS.txt,缺了就是异常。
-//
-// 交出错误而不是自己中止:DownloadAndUpdate 把它包成 ChecksumFetchError 前缀,
-// 前端据此提示用户,由用户显式选择 skipChecksum=true 才继续 —— 跳过校验必须是
-// 用户按下的那一下,不是代码替他做的默认。
-func TestFetchChecksums_GivenAReleaseWithoutChecksums_WhenFetched_ThenItIsAnError(t *testing.T) {
-	convey.Convey("release 里没有 SHA256SUMS.txt", t, func() {
-		convey.Convey("空 assets 报错,而不是回一张 nil 校验表", func() {
-			checksums, err := FetchChecksums(nil)
-			assert.Error(t, err)
-			assert.Nil(t, checksums)
-		})
-
-		convey.Convey("有资产但没有校验文件同样报错", func() {
-			assets := []ReleaseAsset{
-				{Name: "agentre-v1.0.0-darwin-arm64.dmg", BrowserDownloadURL: "https://example.com/file.dmg"},
-			}
-			checksums, err := FetchChecksums(assets)
-			assert.Error(t, err)
-			assert.Nil(t, checksums)
-		})
 	})
 }
 
@@ -441,7 +416,7 @@ type fakeService struct {
 }
 
 func (f *fakeService) CheckForUpdate(_, _ string) (*UpdateInfo, error) { return nil, nil }
-func (f *fakeService) DownloadAndUpdate(_, _ string, _ bool, _ func(int64, int64)) error {
+func (f *fakeService) DownloadAndUpdate(_, _ string, _ func(int64, int64)) error {
 	return nil
 }
 func (f *fakeService) GetAvailableMirrors() []MirrorInfo                   { return f.mirrors }
@@ -451,3 +426,159 @@ func (f *fakeService) GetMirror(_ context.Context) (string, error)         { ret
 func (f *fakeService) SetMirror(_ context.Context, _ string) error         { return nil }
 func (f *fakeService) GetLastUpdateCheck(_ context.Context) (int64, error) { return 0, nil }
 func (f *fakeService) SetLastUpdateCheck(_ context.Context, _ int64) error { return nil }
+
+// recordingServer 是一台会记账的测试服务器：它按「路径后缀」供文件，并记下每一次
+// 请求路径。镜像的请求路径是「镜像前缀 + 原始 URL」，只有后缀是稳定的；而「校验和
+// 有没有从这台机器上取过」正是同源校验那个缺陷的判据，所以必须记账。
+type recordingServer struct {
+	*httptest.Server
+	mu       sync.Mutex
+	requests []string
+	files    map[string][]byte
+}
+
+func newRecordingServer(t *testing.T, files map[string][]byte) *recordingServer {
+	t.Helper()
+	srv := &recordingServer{files: files}
+	srv.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv.mu.Lock()
+		srv.requests = append(srv.requests, r.URL.Path)
+		srv.mu.Unlock()
+		for suffix, body := range srv.files {
+			if strings.HasSuffix(r.URL.Path, suffix) {
+				_, _ = w.Write(body)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// asked 回答「这台服务器被要过带该后缀的东西吗」。
+func (s *recordingServer) asked(suffix string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, path := range s.requests {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// paths 返回收到过的请求路径副本。
+func (s *recordingServer) paths() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.requests...)
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	body, err := json.Marshal(v)
+	require.NoError(t, err)
+	return body
+}
+
+// unreachableFetch 是「权威元数据取不到」（api.github.com 被墙 / 超时）。
+func unreachableFetch(string) (*ReleaseInfo, error) {
+	return nil, errors.New("api.github.com unreachable")
+}
+
+// TestResolveInstallRelease 钉住桌面端安装路径的元数据来源：这份 release-info 决定
+// 资产地址**与**校验和地址，一旦允许镜像来供它，校验和与被它校验的二进制就同源，
+// 代理运营方单方面即可投毒。取不到就失败，不降级。
+func TestResolveInstallRelease(t *testing.T) {
+	convey.Convey("决定下载地址的那份发布元数据", t, func() {
+		mirror := newRecordingServer(t, map[string][]byte{
+			"/release-info.json": mustJSON(t, ReleaseInfo{TagName: "v9.9.9", Name: "v9.9.9"}),
+		})
+		sources := releaseSources{
+			fetchRelease:    unreachableFetch,
+			mirrors:         []MirrorInfo{{ID: "fake", Name: "fake", URL: mirror.URL + "/"}},
+			checksumBaseURL: githubDownloadBaseURL,
+		}
+
+		// 签名上就不收镜像前缀 —— 配了镜像也一样，这份元数据只从权威来源取。
+		convey.Convey("权威来源不可达时整个安装失败，且不从镜像取这份元数据", func() {
+			release, err := resolveInstallRelease(sources, ChannelStable)
+			require.Error(t, err)
+			assert.Nil(t, release)
+			assert.False(t, mirror.asked("release-info.json"),
+				"镜像供的元数据同时决定资产地址与校验和地址，校验和就只能证明「镜像自洽」")
+		})
+
+		convey.Convey("权威来源可达时用它，镜像照样不参与", func() {
+			sources.fetchRelease = func(string) (*ReleaseInfo, error) {
+				return &ReleaseInfo{TagName: "v1.2.3"}, nil
+			}
+			release, err := resolveInstallRelease(sources, ChannelStable)
+			require.NoError(t, err)
+			assert.Equal(t, "v1.2.3", release.TagName)
+			assert.Empty(t, mirror.paths())
+		})
+	})
+}
+
+// TestInstallChecksums 钉住校验和的来源：地址由「权威域名 + tag」拼出来，而不是读
+// 元数据里带的 URL —— 元数据可能来自镜像，那 URL 就由镜像说了算。
+func TestInstallChecksums(t *testing.T) {
+	convey.Convey("桌面端安装要比对的校验和清单", t, func() {
+		manifest := []byte("aa" + strings.Repeat("0", 62) + "  agentre-v1.2.3-darwin-arm64.dmg\n")
+		authoritative := newRecordingServer(t, map[string][]byte{
+			"/releases/download/v1.2.3/SHA256SUMS.txt": manifest,
+		})
+		poisoned := newRecordingServer(t, map[string][]byte{
+			"/SHA256SUMS.txt": []byte("bb" + strings.Repeat("0", 62) + "  agentre-v1.2.3-darwin-arm64.dmg\n"),
+		})
+		release := &ReleaseInfo{
+			TagName: "v1.2.3",
+			Assets: []ReleaseAsset{
+				{Name: "SHA256SUMS.txt", BrowserDownloadURL: poisoned.URL + "/SHA256SUMS.txt"},
+			},
+		}
+
+		convey.Convey("只从权威域名按 tag 取，元数据里那个地址不采纳", func() {
+			checksums, err := installChecksums(releaseSources{checksumBaseURL: authoritative.URL}, release)
+			require.NoError(t, err)
+			assert.Equal(t, "aa"+strings.Repeat("0", 62), checksums["agentre-v1.2.3-darwin-arm64.dmg"])
+			assert.Equal(t, []string{"/releases/download/v1.2.3/SHA256SUMS.txt"}, authoritative.paths())
+			assert.Empty(t, poisoned.paths(), "元数据里带的校验和地址一律不访问")
+		})
+
+		convey.Convey("权威域名上没有这份清单时报错，而不是回一张 nil 校验表", func() {
+			empty := newRecordingServer(t, nil)
+			checksums, err := installChecksums(releaseSources{checksumBaseURL: empty.URL}, release)
+			require.Error(t, err)
+			assert.Nil(t, checksums)
+		})
+	})
+}
+
+// TestAuthoritativeChecksumURL 钉住校验和地址怎么来的：权威域名 + 发布号，且发布号
+// 得是发布号的形状 —— 它可能来自镜像供的元数据，不能拿去随手拼地址。
+func TestAuthoritativeChecksumURL(t *testing.T) {
+	convey.Convey("校验文件的权威地址", t, func() {
+		convey.Convey("按发布号拼在权威域名下", func() {
+			url, err := authoritativeChecksumURL(githubDownloadBaseURL, "v1.2.3")
+			require.NoError(t, err)
+			assert.Equal(t, "https://github.com/agentre-hub/agentre/releases/download/v1.2.3/SHA256SUMS.txt", url)
+		})
+
+		convey.Convey("nightly 通道的固定发布号同样成立", func() {
+			url, err := authoritativeChecksumURL(githubDownloadBaseURL, "nightly")
+			require.NoError(t, err)
+			assert.Equal(t, "https://github.com/agentre-hub/agentre/releases/download/nightly/SHA256SUMS.txt", url)
+		})
+
+		for _, tag := range []string{"", "../../evil", "v1.2.3?x=", "v1 2"} {
+			convey.Convey("发布号形状不对时拒绝拼地址: "+tag, func() {
+				url, err := authoritativeChecksumURL(githubDownloadBaseURL, tag)
+				require.Error(t, err)
+				assert.Empty(t, url)
+			})
+		}
+	})
+}

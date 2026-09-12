@@ -13,6 +13,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
@@ -53,6 +54,15 @@ func (s *service) Add(ctx context.Context, req AddRequest) (*DeviceView, error) 
 	})
 	if err != nil {
 		return nil, translatePairError(ctx, err)
+	}
+	// 对端自报的 daemonFingerprint 必须自己算得出来。它不是一个普通字段:它进指纹唯一
+	// 索引、决定这次配对落在哪一行,并成为此后每一次连接 TOFU 复核的锚——而复核用的是
+	// derive(instanceUuid)。采信一个算不出来的值,等于让对端自己定义「我是谁」,而且此后
+	// 每次连接都会因为锚与实测值不一致而报成「指纹变了」。
+	if result.DaemonFingerprint != identity.DaemonFingerprint(result.InstanceUUID) {
+		logger.Ctx(ctx).Warn("remote_device_svc.Add: peer reported a fingerprint it cannot derive from its own instance uuid",
+			zap.String("url", req.URL))
+		return nil, i18n.NewError(ctx, code.RemoteDeviceTOFUMismatch)
 	}
 	// 指纹只有握完手才知道，所以这一步必须在 Pair 之后：本机可能已经有这台机器的
 	// 一行「只有中转路径」的收编记录（AdoptAccountDevices）。那是同一台机器，再建

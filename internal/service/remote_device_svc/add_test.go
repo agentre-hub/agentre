@@ -8,10 +8,10 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"go.uber.org/mock/gomock"
 
+	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func validAddReq() remote_device_svc.AddRequest {
@@ -23,9 +23,13 @@ func validAddReq() remote_device_svc.AddRequest {
 	}
 }
 
+// pairedDaemonFP 是 uuid-1 这台 daemon 的 TOFU 指纹。夹具不能再拿一个任意字符串当
+// 指纹：Add 会按对端自报的 instance uuid 重算一遍核对,算不出来的值配对直接被拒。
+var pairedDaemonFP = identity.DaemonFingerprint("uuid-1")
+
 func validPairResult() remote_device_svc.PairResult {
 	return remote_device_svc.PairResult{
-		DeviceToken: "tok-256bit", DaemonFingerprint: "sha256:abc", InstanceUUID: "uuid-1",
+		DeviceToken: "tok-256bit", DaemonFingerprint: pairedDaemonFP, InstanceUUID: "uuid-1",
 	}
 }
 
@@ -65,13 +69,13 @@ func TestAdd(t *testing.T) {
 	Convey("pairing a machine that was already adopted upgrades that row instead of adding a second", t, func() {
 		repo, dial, kc, w, svc := setupSvc(t)
 		adopted := &paired_agentred_entity.PairedAgentred{
-			ID: 7, Name: "devbox", DaemonFingerprint: "sha256:abc", TLSMode: "default", Status: 1,
+			ID: 7, Name: "devbox", DaemonFingerprint: pairedDaemonFP, TLSMode: "default", Status: 1,
 		}
 		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(nil, nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
 		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
-		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(adopted, nil)
-		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, devicefp.Carrier("sha256:abc")).Return(nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), pairedDaemonFP).Return(adopted, nil)
+		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, pairedDaemonFP).Return(nil)
 		repo.EXPECT().UpdateTLS(gomock.Any(), int64(7), "default", "").Return(nil)
 		kc.EXPECT().Set("agentre-daemon-token-7", "tok-256bit").Return(nil)
 		// 端点从「只有中转」变成「双路径」，长连状态机必须按新端点重来。
@@ -89,16 +93,16 @@ func TestAdd(t *testing.T) {
 	Convey("manually pairing an account-direct row converts it to a manually paired row", t, func() {
 		repo, dial, kc, w, svc := setupSvc(t)
 		accountDirect := &paired_agentred_entity.PairedAgentred{
-			ID: 7, Name: "devbox", DaemonFingerprint: "sha256:abc",
+			ID: 7, Name: "devbox", DaemonFingerprint: pairedDaemonFP,
 			URL: "wss://old-account:7456/rpc", TLSMode: "pin-cert", TLSCertPEM: "OLD-PEM",
 			Origin: "account", Status: 1,
 		}
 		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(nil, nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
 		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
-		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(accountDirect, nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), pairedDaemonFP).Return(accountDirect, nil)
 		repo.EXPECT().ClearAccountDirect(gomock.Any(), int64(7)).Return(nil)
-		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, devicefp.Carrier("sha256:abc")).Return(nil)
+		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, pairedDaemonFP).Return(nil)
 		repo.EXPECT().UpdateTLS(gomock.Any(), int64(7), "default", "").Return(nil)
 		kc.EXPECT().Set("agentre-daemon-token-7", "tok-256bit").Return(nil)
 		w.EXPECT().Restart(gomock.Any(), int64(7)).Return(nil)
@@ -114,16 +118,16 @@ func TestAdd(t *testing.T) {
 	Convey("manually pairing at the address an account-direct row already shows converts that row", t, func() {
 		repo, dial, kc, w, svc := setupSvc(t)
 		accountDirect := &paired_agentred_entity.PairedAgentred{
-			ID: 7, Name: "devbox", DaemonFingerprint: "sha256:abc",
+			ID: 7, Name: "devbox", DaemonFingerprint: pairedDaemonFP,
 			URL: validAddReq().URL, TLSMode: "pin-cert", TLSCertPEM: "OLD-PEM",
 			Origin: "account", Status: 1,
 		}
 		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(accountDirect, nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
 		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
-		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(accountDirect, nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), pairedDaemonFP).Return(accountDirect, nil)
 		repo.EXPECT().ClearAccountDirect(gomock.Any(), int64(7)).Return(nil)
-		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, devicefp.Carrier("sha256:abc")).Return(nil)
+		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, pairedDaemonFP).Return(nil)
 		repo.EXPECT().UpdateTLS(gomock.Any(), int64(7), "default", "").Return(nil)
 		kc.EXPECT().Set("agentre-daemon-token-7", "tok-256bit").Return(nil)
 		w.EXPECT().Restart(gomock.Any(), int64(7)).Return(nil)
@@ -144,7 +148,7 @@ func TestAdd(t *testing.T) {
 		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(other, nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
 		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
-		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(nil, nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), pairedDaemonFP).Return(nil, nil)
 		// 没有 Create 的 EXPECT：新建任何一行都是失败。
 
 		_, err := svc.Add(context.Background(), validAddReq())
@@ -156,8 +160,8 @@ func TestAdd(t *testing.T) {
 		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(nil, nil)
 		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
 		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
-		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(
-			&paired_agentred_entity.PairedAgentred{ID: 9, URL: "ws://other:7456/rpc", DaemonFingerprint: "sha256:abc", Status: 1}, nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), pairedDaemonFP).Return(
+			&paired_agentred_entity.PairedAgentred{ID: 9, URL: "ws://other:7456/rpc", DaemonFingerprint: pairedDaemonFP, Status: 1}, nil)
 
 		_, err := svc.Add(context.Background(), validAddReq())
 		So(err, ShouldNotBeNil)
@@ -179,7 +183,7 @@ func TestAdd(t *testing.T) {
 		got, err := svc.Add(context.Background(), validAddReq())
 		So(err, ShouldBeNil)
 		So(got.ID, ShouldEqual, 42)
-		So(got.DaemonFingerprint, ShouldEqual, devicefp.Carrier("sha256:abc"))
+		So(got.DaemonFingerprint, ShouldEqual, pairedDaemonFP)
 	})
 	Convey("reuses existing device fingerprint when present", t, func() {
 		repo, dial, kc, w, svc := setupSvc(t)
@@ -262,5 +266,21 @@ func TestAdd(t *testing.T) {
 		req.DisplayName = ""
 		_, err := svc.Add(context.Background(), req)
 		So(err, ShouldBeNil)
+	})
+	// 对端自报的 daemonFingerprint 与它自报的 instanceUuid 不自洽：这个值会进指纹唯一
+	// 索引，并成为此后每一次 TOFU 复核的锚（连接时重算的是 derive(instanceUuid)）。
+	// 采信一个算不出来的值，等于让对端自己定义「我是谁」——落库前必须自己重算核对。
+	Convey("a peer whose self-reported fingerprint is not derivable from its instance uuid is refused", t, func() {
+		repo, dial, kc, _, svc := setupSvc(t)
+		repo.EXPECT().FindByURL(gomock.Any(), gomock.Any()).Return(nil, nil)
+		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
+		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(remote_device_svc.PairResult{
+			DeviceToken: "tok-256bit", DaemonFingerprint: "sha256:self-chosen", InstanceUUID: "uuid-1",
+		}, nil)
+		// 没有 FindByFingerprint / Create / keychain.Set 的 EXPECT：查库或落库任何一步
+		// 用上这个指纹都是失败。
+
+		_, err := svc.Add(context.Background(), validAddReq())
+		So(err, ShouldNotBeNil)
 	})
 }

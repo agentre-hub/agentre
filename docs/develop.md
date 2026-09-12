@@ -88,7 +88,7 @@ These are the conventions with a real check behind them. Everything else in thes
 | Every static `t("…")` key in the shared package resolves in **both** of its bundles | Add the key to the matching domain module under `packages/agentre-ui/src/i18n/locales/{en,zh-CN}/` | `frontend/packages/agentre-ui/src/i18n/i18n.test.tsx` | — |
 | The Wails-generated chat models stay assignable to the shared package DTO | Update `packages/agentre-ui/src/transcript/dto.ts` when the Go side changes | `frontend/src/components/agentre/__tests__/transcript-dto-contract.test.ts` (fails at `tsc`, not at runtime) | — |
 | The protocol version is declared once, on the schema, and `@agentre-hub/agentre-wire`'s `package.json` only restates it | Bump `(agentre.wire.protocol_version)` in `pkg/wire/proto/agentre/wire/wire.proto`, regenerate, then bump `packages/agentre-wire/package.json` — both Go and TS read the option, so there is no third constant to touch | `pkg/wire/protocolversion/protocolversion_test.go` + `packages/agentre-wire/src/__tests__/protocol-version.test.ts` | — |
-| This build's floor `wireversion.MinSupported` stays equal to the protocol version while the window is a single point | Reset `MinSupported` to the new `Protocol` in the same commit that bumps the version | `internal/pkg/wireversion/methodset_test.go` | — |
+| The `RpcMethod` method set and the protocol version move together — compatibility is exact equality of the version, so the version has to stand for the method set | Bump `(agentre.wire.protocol_version)`, regenerate, and update the digest; `wireversion.MinSupported` (what this build puts in the handshake field) moves to the same number | `internal/pkg/wireversion/methodset_test.go`, `internal/pkg/wireversion/wireversion_test.go` | — |
 | The committed wire golden samples match what the Go marshaler emits today | Regenerate with `WIRE_GOLDEN_WRITE=1 go test ./internal/pkg/agentruntime/runtimes/remote/wire/ -run TestWriteGoldenSamples` | `TestGoldenFixturesFresh` in `internal/pkg/agentruntime/runtimes/remote/wire/golden_test.go` | — |
 
 > The i18n rule is the one with a **guard test on the guard**: `frontend/src/__tests__/eslint-i18n.test.ts` loads the real ESLint config and asserts the rule is present at the right severity and scope. **When you change one of these rules, change its guard in the same commit** — a rule that silently stops loading looks exactly like a rule nobody violates.
@@ -120,7 +120,7 @@ Merging requires the nine jobs in [`.github/workflows/ci.yml`](../.github/workfl
 | `Go Lint` | `golangci-lint` (CI-pinned to v2.12.2) |
 | `Go Test` | `make test-backend` |
 | `Frontend Lint` | `cd frontend && pnpm run lint` |
-| `Frontend Test` | wails binding generation + `pnpm run test` |
+| `Frontend Test` | wails binding generation + `pnpm run typecheck` + `pnpm run test` |
 | `Wire Proto` | `cd frontend/packages/agentre-wire && pnpm run proto:check` |
 | `Mocks` | `make mock` regenerates them, then `git diff --exit-code` requires the checked-in output to already match (CI installs `mockgen@v0.6.0`) |
 | `agentred Packaging` | POSIX installer contract test (`bash scripts/test-install.sh`) |

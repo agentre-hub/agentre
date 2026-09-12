@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/smartystreets/goconvey/convey"
@@ -322,5 +323,83 @@ func TestAgentredErrorsAreDistinguishable(t *testing.T) {
 		assert.False(t, errors.As(error(&TargetNotWritableError{Path: "/x"}), &active))
 		assert.False(t, errors.As(error(&ChecksumMismatchError{AssetName: "a"}), &missing))
 		assert.False(t, errors.As(error(&AssetNotFoundError{Platform: "p"}), &mismatch))
+	})
+}
+
+// agentredMirrorFiles 造一份「镜像上的 GitHub 发布」：release-info.json、资产，以及
+// 一份由镜像自己签的 SHA256SUMS.txt。这正是同源校验的攻击面 —— 镜像同时供二进制
+// 和它的校验值时，校验只能证明「镜像自洽」。
+func agentredMirrorFiles(t *testing.T, asset []byte) map[string][]byte {
+	t.Helper()
+	const assetName = "agentred-0.2.0-linux-amd64.tar.gz"
+	return map[string][]byte{
+		"/release-info.json": mustJSON(t, ReleaseInfo{
+			TagName: "v0.2.0",
+			Name:    "v0.2.0",
+			HTMLURL: githubDownloadBaseURL + "/releases/tag/v0.2.0",
+			Assets: []ReleaseAsset{
+				{Name: assetName, BrowserDownloadURL: githubDownloadBaseURL + "/releases/download/v0.2.0/" + assetName},
+				{Name: "SHA256SUMS.txt", BrowserDownloadURL: githubDownloadBaseURL + "/releases/download/v0.2.0/SHA256SUMS.txt"},
+			},
+		}),
+		"/" + assetName:   asset,
+		"/SHA256SUMS.txt": checksumFile(map[string][]byte{assetName: asset}),
+	}
+}
+
+// TestResolveAgentredReleaseChecksumSource 钉住 agentred 自更新的校验和来源：解析
+// 可以回落到镜像，校验和不行。校验和与被它校验的二进制走同一个镜像时，代理运营方
+// 单方面即可投毒，而校验照样通过。权威域名取不到校验和就直接失败，不降级、不放行。
+func TestResolveAgentredReleaseChecksumSource(t *testing.T) {
+	convey.Convey("GitHub 元数据不可达、解析回落到镜像时", t, func() {
+		poisonedArchive := agentredArchive(t, "poisoned binary")
+		mirror := newRecordingServer(t, agentredMirrorFiles(t, poisonedArchive))
+		sources := func(checksumBaseURL string) releaseSources {
+			return releaseSources{
+				fetchRelease:    unreachableFetch,
+				mirrors:         []MirrorInfo{{ID: "fake", Name: "fake", URL: mirror.URL + "/"}},
+				checksumBaseURL: checksumBaseURL,
+			}
+		}
+
+		convey.Convey("权威域名的校验和取不到时整个解析失败，且不从镜像取校验和", func() {
+			unreachable := newRecordingServer(t, nil)
+			release, err := resolveAgentredFromGitHub(context.Background(),
+				sources(unreachable.URL), ChannelStable, "linux", "amd64")
+			require.Error(t, err)
+			assert.Nil(t, release)
+			assert.Contains(t, err.Error(), ChecksumFetchError)
+			assert.False(t, mirror.asked("SHA256SUMS.txt"),
+				"镜像供的校验和只能证明「镜像自洽」，等于没有校验")
+			assert.True(t, unreachable.asked("SHA256SUMS.txt"), "校验和只找权威域名要")
+		})
+
+		convey.Convey("资产可以来自镜像，校验值只认权威域名", func() {
+			genuineArchive := agentredArchive(t, "genuine binary")
+			authoritative := newRecordingServer(t, map[string][]byte{
+				"/SHA256SUMS.txt": checksumFile(map[string][]byte{
+					"agentred-0.2.0-linux-amd64.tar.gz": genuineArchive,
+				}),
+			})
+			release, err := resolveAgentredFromGitHub(context.Background(),
+				sources(authoritative.URL), ChannelStable, "linux", "amd64")
+			require.NoError(t, err)
+			assert.True(t, strings.HasPrefix(release.AssetURL, mirror.URL), "大文件照旧走镜像")
+			assert.Equal(t, sha256Hex(genuineArchive), release.SHA256, "校验值来自权威域名")
+			assert.False(t, mirror.asked("SHA256SUMS.txt"))
+
+			convey.Convey("镜像换了二进制就装不上去，原二进制不动", func() {
+				dir := t.TempDir()
+				target := filepath.Join(dir, "agentred")
+				require.NoError(t, os.WriteFile(target, []byte("old binary"), 0o755))
+				err := ApplyAgentredUpdate(context.Background(), release,
+					ApplyAgentredUpdateOptions{TargetPath: target})
+				var mismatch *ChecksumMismatchError
+				require.ErrorAs(t, err, &mismatch)
+				content, readErr := os.ReadFile(target) //nolint:gosec // G304: target 来自 t.TempDir()。
+				require.NoError(t, readErr)
+				assert.Equal(t, "old binary", string(content))
+			})
+		})
 	})
 }

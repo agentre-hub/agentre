@@ -43,7 +43,7 @@ func protobufError(err error) error {
 // fingerprint required" or "unauthorized" sends the operator after credentials
 // when the real answer is `make agentred-deploy`.
 func requireProtocolVersion(ctx context.Context, peerProtocol, peerMinSupported string) error {
-	reason := wireversion.Reject(peerProtocol, peerMinSupported)
+	reason := wireversion.Reject(peerProtocol)
 	if reason == "" {
 		return nil
 	}

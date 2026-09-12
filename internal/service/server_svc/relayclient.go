@@ -444,8 +444,7 @@ func authAccountOverChannel(ctx context.Context, channel relaytransport.PayloadC
 			}
 			// 版本窗口(决策 f63cfb26)对这条握手同样成立:窗口外的对端要在这里就被
 			// 拒,而不是等到后面某个字段解不出来才炸成一句与升级无关的话。
-			if versionErr := client.PeerProtocolVersionError(
-				response.GetProtocolVersion(), response.GetMinSupportedProtocolVersion()); versionErr != nil {
+			if versionErr := client.PeerProtocolVersionError(response.GetProtocolVersion()); versionErr != nil {
 				return nil, versionErr
 			}
 			return &response, nil

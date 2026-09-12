@@ -174,7 +174,7 @@ cd frontend && pnpm test                 # vitest (happy-dom)
 cd frontend && pnpm test -- path/to/file.test.tsx   # single file
 ```
 
-`make test-frontend` runs `make generate` first and then `pnpm test`; use it when the wails bindings need to be regenerated. Vitest is configured with happy-dom and aliases the wails imports to a mock, so most tests can run even without a `frontend/wailsjs/` directory.
+`make test-frontend` runs `make generate` first, then `pnpm typecheck` (`tsc -b --noEmit`) and `pnpm test`; use it when the wails bindings need to be regenerated. Vitest is configured with happy-dom and aliases the wails imports to a mock, so most tests can run even without a `frontend/wailsjs/` directory.
 
 ## Formatting / Lint
 

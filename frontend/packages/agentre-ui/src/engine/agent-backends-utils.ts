@@ -130,3 +130,22 @@ export function truncateFlashText(text: string): {
     truncated: true,
   };
 }
+
+/**
+ * 把一个 catch 到的未知值说成一句给用户看的话。
+ *
+ * `translate` 由调用方从 `useUiTranslation()` 传进来，包内不许自己造一个读死某种
+ * 语言的 `t`：兜底文案要跟着宿主当前语言走。
+ */
+export function messageFromError(
+  err: unknown,
+  translate: (key: string) => string,
+): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return translate("common.unknownError");
+  }
+}

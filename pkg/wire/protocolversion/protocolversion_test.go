@@ -12,9 +12,9 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/protocolversion"
 )
 
-// versionShape 是握手比较认得的全部形态:三段十进制,没有 pre-release、没有构建元数据
-// (见宿主 wireversion 的 parseVersion)。写不出这个形状的版本号在窗口比较里一律被当成
-// 无法解析,握手当场拒绝 —— 所以「schema 上那格填得对不对」必须在这里挡住。
+// versionShape 是这套协议给版本号定的形态:三段十进制,没有 pre-release、没有构建元
+// 数据。握手按逐字相等比较(见宿主 wireversion 的 Match),所以形状写歪了不会在比较里
+// 报错,只会让每一次握手都对不上 —— 「schema 上那格填得对不对」必须在这里挡住。
 var versionShape = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // Given 协议版本号的主人是这份 schema 自己——它写在 wire.proto 的

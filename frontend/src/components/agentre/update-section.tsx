@@ -1,7 +1,7 @@
 // 设置页的「版本与更新」区块:当前版本、渠道、镜像源,以及检查更新与下载安装。
 //
 // 它的零件在 update-section/ 下:format(常量与格式化)、rows(设置行)、
-// cards(版本卡片)、checksum-dialog(校验和弹窗)。
+// cards(版本卡片)。
 
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -40,7 +40,6 @@ import {
   InstalledCard,
   ErrorCard,
 } from "./update-section/cards";
-import { ChecksumDialog } from "./update-section/checksum-dialog";
 import {
   REPOSITORY_URL,
   MIRROR_CUSTOM_ID,
@@ -162,7 +161,7 @@ export function UpdateSection() {
   }, [runCheck]);
 
   const handleDownload = React.useCallback(() => {
-    void runDownload(false);
+    void runDownload();
   }, [runDownload]);
 
   const handleRestart = React.useCallback(() => {
@@ -329,33 +328,5 @@ export function UpdateSection() {
 
       {phase.kind === "error" ? <ErrorCard message={phase.message} /> : null}
     </>
-  );
-}
-
-/**
- * UpdateChecksumDialogHost 把「校验文件拉不到，仍要继续吗」这张确认对话挂在应用根上。
- *
- * 它不能留在本节里：下载也可以从状态栏的更新面板发起，那时设置页根本没被渲染，
- * 对话连同「仍要继续」一起消失，用户只会看到下载莫名其妙地退回去。store 是唯一
- * 真相，这张对话也只该有一处。
- */
-
-export function UpdateChecksumDialogHost() {
-  const prompt = useUpdateStore((s) => s.checksumPrompt);
-  const dismiss = useUpdateStore((s) => s.dismissChecksumPrompt);
-  const download = useUpdateStore((s) => s.download);
-
-  const handleConfirm = React.useCallback(() => {
-    dismiss();
-    void download(true);
-  }, [dismiss, download]);
-
-  return (
-    <ChecksumDialog
-      open={prompt.open}
-      reason={prompt.reason}
-      onCancel={dismiss}
-      onConfirm={handleConfirm}
-    />
   );
 }

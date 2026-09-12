@@ -238,7 +238,7 @@ func ResolveAgentredRelease(ctx context.Context, opts AgentredReleaseOptions) (*
 	if strings.TrimSpace(opts.BaseURL) != "" {
 		release, err = resolveAgentredFromBaseURL(ctx, strings.TrimRight(strings.TrimSpace(opts.BaseURL), "/"), goos, goarch)
 	} else {
-		release, err = resolveAgentredFromGitHub(ctx, channel, goos, goarch)
+		release, err = resolveAgentredFromGitHub(ctx, defaultReleaseSources(), channel, goos, goarch)
 	}
 	if err != nil {
 		return nil, err
@@ -274,14 +274,17 @@ func resolveAgentredFromBaseURL(ctx context.Context, baseURL, goos, goarch strin
 	}, nil
 }
 
-// resolveAgentredFromGitHub 走 GitHub API，失败后逐个试内置镜像；镜像命中时下载
-// 地址也一并套上同一个前缀，否则解析走了镜像、下载还是回到连不上的 GitHub。
-func resolveAgentredFromGitHub(ctx context.Context, channel, goos, goarch string) (*AgentredRelease, error) {
-	release, err := fetchRelease(channel)
+// resolveAgentredFromGitHub 走 GitHub API，失败后逐个试内置镜像；镜像命中时资产
+// 下载地址也一并套上同一个前缀，否则解析走了镜像、下载还是回到连不上的 GitHub。
+//
+// 校验和不在这条回落之内：它只从权威域名取，取不到就失败（见下面的注释）。
+func resolveAgentredFromGitHub(ctx context.Context, sources releaseSources,
+	channel, goos, goarch string) (*AgentredRelease, error) {
+	release, err := sources.fetchRelease(channel)
 	mirrorPrefix := ""
 	if err != nil {
 		lastErr := err
-		for _, mirror := range availableMirrors {
+		for _, mirror := range sources.mirrors {
 			if mirror.URL == "" {
 				continue
 			}
@@ -304,21 +307,23 @@ func resolveAgentredFromGitHub(ctx context.Context, channel, goos, goarch string
 		return nil, &AssetNotFoundError{Platform: goos + "-" + goarch, Channel: channel}
 	}
 	var assetURL string
-	var checksumURL string
 	for _, asset := range release.Assets {
-		switch asset.Name {
-		case assetName:
+		if asset.Name == assetName {
 			assetURL = asset.BrowserDownloadURL
-		case "SHA256SUMS.txt":
-			checksumURL = asset.BrowserDownloadURL
+			break
 		}
 	}
-	if checksumURL == "" {
-		return nil, fmt.Errorf("release %s has no SHA256SUMS.txt", release.TagName)
-	}
-	checksums, err := fetchChecksumsFrom(ctx, applyMirror(checksumURL, mirrorPrefix))
+	// 校验和只从权威域名按发布号取：不套镜像前缀，也不读元数据里带的那个地址。
+	// 校验和与被它校验的二进制走同一个镜像时，校验只能证明「镜像自洽」，代理
+	// 运营方单方面即可投毒。取不到就在这里失败 —— 不降级、不放行，资产照旧可以
+	// 走镜像，因为有权威校验值兜住。
+	checksumURL, err := authoritativeChecksumURL(sources.checksumBaseURL, release.TagName)
 	if err != nil {
-		return nil, fmt.Errorf("%s%w", ChecksumFetchError, err)
+		return nil, err
+	}
+	checksums, err := fetchChecksumsFrom(ctx, checksumURL)
+	if err != nil {
+		return nil, fmt.Errorf("%s%w; %s", ChecksumFetchError, err, agentredChecksumHint)
 	}
 	sum, ok := checksums[assetName]
 	if !ok {
@@ -345,6 +350,11 @@ func agentredSourceError(err error) error {
 }
 
 const agentredSourceHint = "point " + AgentredReleaseBaseURLEnv + " at a reachable release source"
+
+// agentredChecksumHint 说清这一次失败没有镜像出路：校验和只认权威域名，要换源
+// 只能换成一个你自己信得过的发布源。
+const agentredChecksumHint = "checksums are fetched from github.com only and never through a download mirror; " +
+	"point " + AgentredReleaseBaseURLEnv + " at a release source you trust instead"
 
 // fetchChecksumsFrom 下载并解析一份 sha256sum 清单。
 func fetchChecksumsFrom(ctx context.Context, url string) (map[string]string, error) {

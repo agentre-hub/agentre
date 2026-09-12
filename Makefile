@@ -1,4 +1,4 @@
-.PHONY: run dev build agrctl agentred agentred-package agentred-linux agentred-deploy agentred-deploy-restart agentred-deploy-local-coding agentred-local-coding generate test test-backend test-frontend test-cover test-agentred-packaging lint lint-backend lint-frontend lint-fix lint-fix-backend lint-fix-frontend mock install install-deps clean check e2e e2e-app verify-up verify-status verify-down
+.PHONY: run dev build agrctl agentred agentred-package agentred-linux agentred-deploy agentred-deploy-restart generate test test-backend test-frontend test-cover test-agentred-packaging lint lint-backend lint-frontend lint-fix lint-fix-backend lint-fix-frontend mock install install-deps clean check e2e e2e-app verify-up verify-status verify-down
 
 APP_NAME := Agentre
 VERSION ?= 0.1.0
@@ -39,7 +39,8 @@ AGENTRED_GOOS ?= linux
 AGENTRED_GOARCH ?= amd64
 AGENTRED_PACKAGE_NAME := agentred-$(VERSION)-$(AGENTRED_GOOS)-$(AGENTRED_GOARCH)
 AGENTRED_LINUX_BINARY := $(AGENTRED_BUILD_DIR)/agentred-$(AGENTRED_GOOS)-$(AGENTRED_GOARCH)
-AGENTRED_TARGET ?= local-coding
+# 部署目标由调用方点名(opsctl 里的资产名),仓库里不留任何具体主机。
+AGENTRED_TARGET ?=
 AGENTRED_REMOTE_PATH ?= /usr/local/bin/agentred
 AGENTRED_REMOTE_TMP ?= /tmp/agentred.$(COMMIT_ID)
 AGENTRED_RUN_ARGS ?= run
@@ -91,8 +92,10 @@ agentred-linux:
 	mkdir -p "$(AGENTRED_BUILD_DIR)"
 	GOOS=$(AGENTRED_GOOS) GOARCH=$(AGENTRED_GOARCH) CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o "$(AGENTRED_LINUX_BINARY)" ./cmd/agentred
 
-# 通过 opsctl 部署 agentred 到远端(默认 local-coding:/usr/local/bin/agentred)
+# 通过 opsctl 部署 agentred 到远端(AGENTRED_TARGET=<资产名>,装到 AGENTRED_REMOTE_PATH)。
+# opsctl 是维护者自己的运维 CLI,不在本仓库 Prerequisites 里,这两个 target 只服务维护者。
 agentred-deploy: agentred-linux
+	$(if $(strip $(AGENTRED_TARGET)),,$(error AGENTRED_TARGET must name the opsctl asset to deploy to))
 	opsctl cp "$(AGENTRED_LINUX_BINARY)" "$(AGENTRED_TARGET):$(AGENTRED_REMOTE_TMP)"
 	opsctl exec "$(AGENTRED_TARGET)" -- "install -Dm755 $(AGENTRED_REMOTE_TMP) $(AGENTRED_REMOTE_PATH) && rm -f $(AGENTRED_REMOTE_TMP) && $(AGENTRED_REMOTE_PATH) --help >/dev/null"
 	@echo "已部署 agentred 到 $(AGENTRED_TARGET):$(AGENTRED_REMOTE_PATH)"
@@ -103,11 +106,6 @@ agentred-deploy-restart:
 	$(MAKE) agentred-deploy
 	opsctl exec "$(AGENTRED_TARGET)" -- "$(AGENTRED_RESTART_CMD)"
 	@echo "已重启 $(AGENTRED_TARGET) 上的 agentred ($(AGENTRED_RESTART_CMD))"
-
-agentred-deploy-local-coding:
-	$(MAKE) agentred-deploy AGENTRED_TARGET=local-coding AGENTRED_GOOS=linux AGENTRED_GOARCH=amd64
-
-agentred-local-coding: agentred-deploy-local-coding
 
 # 生成 Wails 前端绑定
 generate:
@@ -160,8 +158,10 @@ test-backend:
 	go test -C pkg/syncwire ./...
 
 # 运行前端测试
+# typecheck 与 vitest 一起跑：vitest 走 esbuild 只转译不查类型，而 tsc 此前只挂在
+# build 上 —— 于是 make test / make lint 全绿、打包那一刻才红，类型闸形同虚设。
 test-frontend: generate
-	cd $(FRONTEND_DIR) && pnpm test
+	cd $(FRONTEND_DIR) && pnpm typecheck && pnpm test
 
 # Build only the dedicated E2E composition root. Production build/package targets
 # remain rooted at main.go and never import e2e/composition or fake runtimes.

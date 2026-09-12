@@ -73,7 +73,7 @@ describe("更新面板 · 有新版本", () => {
     fireEvent.click(screen.getByRole("button", { name: /Download/i }));
 
     await waitFor(() =>
-      expect(app.DownloadAndInstallUpdate).toHaveBeenCalledWith(false),
+      expect(app.DownloadAndInstallUpdate).toHaveBeenCalledWith(),
     );
   });
 

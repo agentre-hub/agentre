@@ -31,8 +31,9 @@ func (a *App) MaybeCheckForUpdate() (*update_svc.UpdateInfo, error) {
 }
 
 // DownloadAndInstallUpdate 下载并安装最新版本；进度通过 "update:progress" 事件推送。
-// skipChecksum=true 用于 SHA256SUMS.txt 获取失败但用户选择继续的场景。
-func (a *App) DownloadAndInstallUpdate(skipChecksum bool) error {
+//
+// 没有「跳过校验」入参：校验和取不到就装不上，绑定层不给前端这个开关。
+func (a *App) DownloadAndInstallUpdate() error {
 	channel, err := update_svc.Update().GetChannel(a.ctx)
 	if err != nil {
 		return err
@@ -48,7 +49,7 @@ func (a *App) DownloadAndInstallUpdate(skipChecksum bool) error {
 			"total":      total,
 		})
 	}
-	return update_svc.Update().DownloadAndUpdate(channel, mirror, skipChecksum, onProgress)
+	return update_svc.Update().DownloadAndUpdate(channel, mirror, onProgress)
 }
 
 // GetAvailableMirrors 返回内置可用下载镜像列表。

@@ -7,9 +7,9 @@ import "context"
 type Service interface {
 	// CheckForUpdate 查询指定通道的最新版本，与当前 configs.Version 比对。
 	CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error)
-	// DownloadAndUpdate 下载并安装指定通道的最新版本。
+	// DownloadAndUpdate 下载并安装指定通道的最新版本；校验和取不到即失败。
 	// onProgress 可为 nil；非 nil 时按字节流回调下载进度。
-	DownloadAndUpdate(channel, mirrorPrefix string, skipChecksum bool, onProgress func(downloaded, total int64)) error
+	DownloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error
 	// GetAvailableMirrors 返回内置可用镜像列表（包含 GitHub 直连占位项）。
 	GetAvailableMirrors() []MirrorInfo
 
@@ -43,8 +43,8 @@ func (s *service) CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, err
 	return CheckForUpdate(channel, mirrorPrefix)
 }
 
-func (s *service) DownloadAndUpdate(channel, mirrorPrefix string, skipChecksum bool, onProgress func(downloaded, total int64)) error {
-	return DownloadAndUpdate(channel, mirrorPrefix, skipChecksum, onProgress)
+func (s *service) DownloadAndUpdate(channel, mirrorPrefix string, onProgress func(downloaded, total int64)) error {
+	return DownloadAndUpdate(channel, mirrorPrefix, onProgress)
 }
 
 func (s *service) GetAvailableMirrors() []MirrorInfo {

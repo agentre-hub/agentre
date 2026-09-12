@@ -406,7 +406,7 @@ func TestState_DeleteDirectCredentials_GivenSeveralDesktops_WhenSomeAreDeleted_T
 
 	reloaded, err := Load(dir)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]DirectCredential{"sha256:desk-2": {Credential: "credential-sha256:desk-2", AccountID: "account-a"}},
+	assert.Equal(t, map[string]DirectCredential{"sha256:desk-2": {Credential: "credential-sha256:desk-2", AccountID: "account-a"}}, //nolint:gosec // G101: 这是本用例造出来的凭据字面量,不是真凭据。
 		reloaded.Snapshot().DirectCredentials)
 }
 

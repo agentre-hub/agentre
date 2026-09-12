@@ -55,7 +55,6 @@ For every code change, read [docs/develop.md](docs/develop.md) for SOLID, cohesi
 - [docs/session-lifecycle.md](docs/session-lifecycle.md) — creation, reuse, sidebar visibility, and remote-execution ownership for `chat_sessions`.
 - [e2e/README.md](e2e/README.md) — the unified E2E / verification harness: `make e2e` runs the independent hermetic Wails app through one runner/config and the desktop, sync-client, and remote-peer smoke boundaries; `make verify-up` launches only the isolated formal desktop main for one-action-at-a-time `drive.mjs` verification; includes storage/process guards, protocol fakes, SQLite oracles, and sanitized per-run artifacts.
 - [docs/verification.md](docs/verification.md) — the verification **route** and what a run has to leave behind: when driving the real app is warranted at all, start → drive → record → stop, the one-scenario-one-directory evidence layout under `e2e/scratch/<scenario>/`, creating `report.md` **before** the run, reporting honestly (never describing red as green), and the one-place-only verdict table for spec acceptance. The template it copies is [docs/references/verification-report-template.md](docs/references/verification-report-template.md).
-- [docs/specs/](docs/specs/) — dated design/decision snapshots; use them for the scoped design history, not as the source of current engineering conventions or behavior.
 - [docs/documentation.md](docs/documentation.md) — required before changing any contributor doc (`AGENTS.md` / `CLAUDE.md` / `docs/*`): Git-aware fact-checking, doc ownership, link checking, and stale-content removal.
 > See the cago skill (`/cago`) for details — complete controller / service / repo / cron / queue unit-test examples.
 
@@ -76,7 +75,7 @@ make install          # build + install app bundle (macOS: /Applications/Agentre
 make generate         # wails generate module — refresh frontend/wailsjs/ bindings
 make test             # backend Go tests + frontend Vitest (runs `generate` first)
 make test-backend     # Go tests excluding /frontend/
-make test-frontend    # wails generate + frontend Vitest
+make test-frontend    # wails generate + frontend tsc typecheck + Vitest
 make test-cover       # coverage.out + coverage.html
 make lint / lint-fix  # golangci-lint + frontend ESLint (runs `generate` first)
 make check            # lint + test
@@ -100,7 +99,7 @@ go test -race -run TestName ./internal/service/chat_svc/...
 go test -race ./internal/repository/llm_provider_repo -run TestName
 go test -race ./pkg/codex -run TestName
 cd frontend && pnpm test -- path/to/file.test.tsx
-cd frontend && pnpm exec tsc -b --noEmit     # typecheck — vitest does NOT check types
+cd frontend && pnpm typecheck                # tsc -b --noEmit — vitest does NOT check types
 cd frontend && pnpm install                  # pnpm is source of truth, not npm
 ```
 

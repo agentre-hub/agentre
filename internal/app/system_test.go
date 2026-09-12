@@ -76,6 +76,24 @@ func TestValidateOpenPath(t *testing.T) {
 			_, err := validateOpenPath("~alice/notes.md")
 			So(err, ShouldNotBeNil)
 		})
+		// 受提示注入的 agent 可以在转录里印出 `C:\readme.txt&calc.exe`，前端会把它判成
+		// 一条可点的本地链接。这些字符在 NTFS / APFS 的文件名里本来就非法（`&|^<>` 是
+		// cmd.exe 的控制符，`"` 两边都不许出现），所以不分平台一律拒绝，零代价。
+		Convey("when the path carries a shell control character, then error", func() {
+			for _, p := range []string{
+				`C:\readme.txt&calc.exe`,
+				`C:\readme.txt&&calc.exe`,
+				`C:\a|calc.exe`,
+				`C:\a^&calc.exe`,
+				`C:\a<in.txt`,
+				`C:\a>out.txt`,
+				`C:\a"b.txt`,
+				"/tmp/readme.txt&calc.exe",
+			} {
+				_, err := validateOpenPath(p)
+				So(err, ShouldNotBeNil)
+			}
+		})
 		Convey("when Windows absolute path with line suffix, then strip suffix", func() {
 			got, err := validateOpenPath(`C:\Users\x\foo.go:10`)
 			So(err, ShouldBeNil)
@@ -106,8 +124,8 @@ func TestOpenPath_dispatchesPlatformCommand(t *testing.T) {
 				So(gotName, ShouldEqual, "open")
 				So(gotArgs, ShouldResemble, []string{"/tmp/file.go"})
 			case "windows":
-				So(gotName, ShouldEqual, "cmd")
-				So(gotArgs, ShouldResemble, []string{"/c", "start", "", "/tmp/file.go"})
+				So(gotName, ShouldEqual, "explorer")
+				So(gotArgs, ShouldResemble, []string{"/tmp/file.go"})
 			default:
 				So(gotName, ShouldEqual, "xdg-open")
 				So(gotArgs, ShouldResemble, []string{"/tmp/file.go"})
@@ -198,6 +216,55 @@ func TestRevealPath_dispatchesPlatformCommand(t *testing.T) {
 			err := a.RevealPath("/tmp/../etc/file.go")
 			So(err, ShouldNotBeNil)
 			So(called, ShouldBeFalse)
+		})
+	})
+}
+
+// TestRunOpenPlatform_PerGOOS 覆盖本机 GOOS 之外的两条分支。windows 那一条尤其
+// 要盯住「用哪个可执行文件」：只要经 cmd.exe，路径里的 `&` 之类就会被它当控制符,
+// 而 Go 的 EscapeArg 只在含空格/Tab/引号时才加引号,拦不住。
+func TestRunOpenPlatform_PerGOOS(t *testing.T) {
+	Convey("Given a stubbed exec runner", t, func() {
+		type call struct {
+			name string
+			args []string
+		}
+		var calls []call
+		origRun := runOpenCmd
+		defer func() { runOpenCmd = origRun }()
+		stub := func(err func(name string) error) {
+			runOpenCmd = func(name string, args ...string) error {
+				calls = append(calls, call{name, args})
+				return err(name)
+			}
+		}
+
+		Convey("when opening on windows, then no shell interprets the path", func() {
+			stub(func(string) error { return nil })
+			So(runOpenPlatform("windows", `C:\Users\x\foo.txt`), ShouldBeNil)
+			So(calls, ShouldHaveLength, 1)
+			So(calls[0].name, ShouldNotEqual, "cmd")
+			So(calls[0].name, ShouldEqual, "explorer")
+			So(calls[0].args, ShouldResemble, []string{`C:\Users\x\foo.txt`})
+		})
+
+		Convey("when explorer exits non-zero on windows, then open still succeeds", func() {
+			stub(func(string) error { return &exec.ExitError{} })
+			So(runOpenPlatform("windows", `C:\Users\x\foo.txt`), ShouldBeNil)
+		})
+
+		Convey("when explorer itself cannot be launched on windows, then error propagates", func() {
+			stub(func(string) error { return exec.ErrNotFound })
+			So(runOpenPlatform("windows", `C:\Users\x\foo.txt`), ShouldNotBeNil)
+		})
+
+		Convey("when opening on darwin / linux, then the existing openers are untouched", func() {
+			stub(func(string) error { return nil })
+			So(runOpenPlatform("darwin", "/Users/x/foo.txt"), ShouldBeNil)
+			So(runOpenPlatform("linux", "/home/x/foo.txt"), ShouldBeNil)
+			So(calls, ShouldHaveLength, 2)
+			So(calls[0].name, ShouldEqual, "open")
+			So(calls[1].name, ShouldEqual, "xdg-open")
 		})
 	})
 }
