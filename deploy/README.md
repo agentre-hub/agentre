@@ -8,7 +8,7 @@ CLI 的配置来自挂载**——升级 CLI 靠改 `Dockerfile` 里的版本重�
 
 | CLI | 默认版本 | 装法 |
 | --- | --- | --- |
-| claude | 2.1.224 | 官方安装器（原生 ELF，**动态链接 glibc**，所以运行段不能用 alpine） |
+| claude | 2.1.267 | 官方安装器（原生 ELF，**动态链接 glibc**，所以运行段不能用 alpine） |
 | codex | 0.146.0 | npm `@openai/codex` |
 | pi | 0.84.3 | npm `@earendil-works/pi-coding-agent` |
 
@@ -63,7 +63,7 @@ compose 里两侧用的是同一个 `${AGENTRED_WORKSPACE}` 变量，就是为�
 | 容器内 | 默认宿主侧 | 装的是什么 |
 | --- | --- | --- |
 | `${AGENTRED_WORKSPACE}` | 同路径 | 所有会话的工作区 |
-| `/root/.config/agentred` | `~/.config/agentred` | daemon 状态：账号 claim 凭据、会话与通知日志 |
+| `/root/.config/agentred` | `~/.config/agentred` | daemon 状态：账号 claim 凭据、会话与转录 |
 | `/root/.config/agentre` | `~/.config/agentre` | Agent 工作目录与 pi 扩展物化目录 |
 | `/root/.claude` `/root/.claude.json` | `~/.claude` `~/.claude.json` | Claude Code 配置；`projects/` 还是 UserAnchor 的来源 |
 | `/root/.codex` | `~/.codex` | Codex 配置与 `sessions` / `session_index.jsonl` |

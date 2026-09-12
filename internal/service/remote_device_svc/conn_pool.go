@@ -10,10 +10,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -33,6 +36,24 @@ var ErrDeviceNotFound = errors.New("remote device not found")
 // ErrDeviceUnauthorized 在 keychain 缺 token / device fingerprint,或 daemon
 // 拒绝鉴权时返回。
 var ErrDeviceUnauthorized = errors.New("remote device unauthorized")
+
+// MapBorrowErr 把 Borrow 借不出连接的原因翻成调用方域的 i18n 码。
+//
+// 「设备已解除配对」与「凭据失效」各有各的出路,必须与「那台机器此刻够不着」分开说
+// (后者过会儿可能就回来了);其余一切原因交给调用方给的兜底码 —— 那些原因归调用方
+// 的视图去解释,编一个更具体的码比不给码更糟。
+//
+// 兜底码是参数,因为它是三个域(工作区文件、端口转发、远端文件)唯一真正的差异:三个域
+// 翻的是同一个池的同一组哨兵,各抄一份 switch 的话单边一改就分叉。
+func MapBorrowErr(ctx context.Context, err error, offlineCode int) error {
+	switch {
+	case errors.Is(err, ErrDeviceNotFound):
+		return i18n.NewError(ctx, code.RemoteDeviceNotFound)
+	case errors.Is(err, ErrDeviceUnauthorized):
+		return i18n.NewError(ctx, code.RemoteDeviceUnauthorized)
+	}
+	return i18n.NewError(ctx, offlineCode)
+}
 
 // ConnPool 给上层(chat_svc / agent_backend_svc)提供 device-shared 的已鉴权
 // daemon 连接。并发安全;Borrow 与 Lease.Release 可在任意 goroutine 调用。
@@ -219,7 +240,7 @@ func (p *pool) Borrow(ctx context.Context, deviceID int64) (Lease, error) {
 			zap.Int64("deviceID", deviceID), zap.Error(err))
 		token = ""
 	}
-	fp, err := p.kc.Get(accountForDeviceFingerprint)
+	fp, err := p.kc.Get(deviceidentity.KeychainAccount)
 	if err != nil || fp == "" {
 		return nil, ErrDeviceUnauthorized
 	}
@@ -420,11 +441,18 @@ func (p *pool) watchClient(e *entry) {
 	}
 	<-c.Closed()
 
-	// 远端 daemon 断了(进程崩 / 网络断 / TLS 失败)。打 Warn 让运维区分
-	// "用户主动 Close" vs "remote 单方面失效"——前者走 Pool.Close 路径,
-	// 不经过 watchClient。
-	logger.Default().Warn("conn pool: daemon connection dropped, evicting entry",
-		zap.Int64("deviceID", e.deviceID))
+	// c.Closed() 同时被「远端 daemon 单方面失效」和「我方主动回收」触发:
+	// tryEvictIdle 与 Pool.Close 都会在调 c.Close() *之前*把 e.evicted 置位,
+	// 所以此刻读到 evicted=true 就说明是我们自己关的,不是故障。只有 evicted
+	// 仍为 false 才是远端断了(进程崩 / 网络断 / TLS 失败)。
+	//
+	// 这两条路径无法靠「谁持有 closedCh」区分——它们都从 watchClient 经过,而
+	// 这正是要修的点:例行 idle 回收曾被报成「远端断了」,把这条 Warn 唯一的
+	// 用途(区分用户主动 Close 与 remote 单方面失效)抹掉。
+	if !e.isEvicted() {
+		logger.Default().Warn("conn pool: daemon connection dropped, evicting entry",
+			zap.Int64("deviceID", e.deviceID))
+	}
 
 	p.mu.Lock()
 	if cur, ok := p.entries[e.deviceID]; ok && cur == e {

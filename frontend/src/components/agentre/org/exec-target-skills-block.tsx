@@ -51,9 +51,8 @@ function backendTypeLabel(type: string): string {
 
 // ExecTargetSkillsBlock 是折在执行目标行内的技能块：技能发现来源与授权都钉死在
 // props.backend 这一档，不与 Agent 名下别的档合并（不需要并集,不需要"几台装了"的
-// 分母)。GrantedChips/CapabilityPicker 两个既有组件的内部渲染逻辑不动——这里的
-// chip 行是按同一套 tone 规则(inherit/on/off)自行渲染,因为这一块的标题行要放
-// 档位序号 + 机器·后端,不是 GrantedChips 那个通用的"技能 · SKILL PACKS"标题。
+// 分母)。chip 行按 inherit/on/off 的 tone 规则自行渲染,因为这一块的标题行要放
+// 档位序号 + 机器·后端,而不是通用的"技能 · SKILL PACKS"标题。
 export function ExecTargetSkillsBlock(props: Props) {
   const { t } = useTranslation();
   const isRemote = Boolean(props.backend?.deviceId);

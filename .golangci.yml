@@ -37,6 +37,8 @@ linters:
       - .claude
       - .dev-kit
       - frontend
+      # gitignored 的运行期证据目录(一次性探针 Go 程序),不是生产代码。
+      - e2e/scratch
 
 formatters:
   enable:
@@ -51,6 +53,8 @@ formatters:
       - .claude
       - .dev-kit
       - frontend
+      # 同上:gitignored 的运行期证据目录不该被格式检查扫到。
+      - e2e/scratch
 
 run:
   timeout: 10m

@@ -6,9 +6,8 @@ import { ContextMeter } from "./context-meter";
 import { usageLevel } from "./usage-level";
 
 /**
- * 上下文计量器。此前桌面端 `chat.tsx`（ContextRing / ContextPanel / ContextMeter）
- * 与 agentre-server 的 `SessionComposer.tsx` 各持一份逐行同构的副本：环几何、
- * 200/100 悬停延迟、色阶表、228px 面板、两种语言的文案全都一样。
+ * 上下文计量器，两端共用这一份：环几何、200/100 悬停延迟、色阶表、228px 面板与
+ * 两种语言的文案。
  *
  * 浮窗用 `focusIn` 打开而不是模拟悬停：token 绝对值已经降级成「悬停才拿得到」，
  * 键盘用户能不能拿到它们正是这里要守的东西（jsdom 也没有真实的 hover 计时）。
@@ -131,9 +130,7 @@ describe("ContextMeter", () => {
 });
 
 /**
- * 阈值只有这一份：桌面端的 `QuotaMeter` 也委托它。此前它是桌面端 `chat.tsx` 里的
- * `quotaLevel`，注释点名「同一个文件里两套 90/75 常量迟早会改漏一处」——把计量器
- * 搬进包而把阈值留在原地，正好会制造出那种形态。
+ * 阈值只有这一份：桌面端的 `QuotaMeter` 也委托它。两套 90/75 常量迟早会改漏一处。
  */
 describe("usageLevel", () => {
   it("Given a percentage below 75, When levelled, Then it is ok", () => {

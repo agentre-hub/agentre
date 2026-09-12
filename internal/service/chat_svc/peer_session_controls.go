@@ -71,14 +71,6 @@ type PeerSessionControlResult struct {
 	AlreadyHandled bool `json:"alreadyHandled,omitempty"`
 }
 
-// PeerSessionRunResult describes a rejected write while keeping the desktop
-// transcript readable. The peer adapter serializes it in typed RPC error data.
-type PeerSessionRunResult struct {
-	Accepted             bool `json:"accepted"`
-	HistoryAvailable     bool `json:"historyAvailable"`
-	ExecutionUnavailable bool `json:"executionUnavailable"`
-}
-
 // RunPeerSession adapts the existing runtime.run wire request into the
 // desktop's session-level Send path. Backend, queue, permission, and MCP
 // selection remain entirely owned by Send; only the authenticated source is
@@ -230,8 +222,7 @@ func (s *chatSvc) EnqueuePeerSession(ctx context.Context, params wire.SteerParam
 // 整条队列),与 EnqueuePeerSession 成对。
 //
 // 浏览器与桌面端前端走的是**同一个**撤回实现(CancelQueued):撤不撤得掉、撤掉了哪
-// 几条,都由那一处说了算,这一层只负责把会话身份解出来。此前这条路根本没有,浏览器
-// 上的排队消息因此只能看着,撤不掉。
+// 几条,都由那一处说了算,这一层只负责把会话身份解出来。
 func (s *chatSvc) CancelPeerSessionQueued(ctx context.Context, params wire.CancelSteerParams) (*CancelQueuedResponse, error) {
 	sessionID, err := ResolvePeerConversation(ctx, params.ConversationID)
 	if err != nil {
@@ -387,17 +378,6 @@ func peerSessionControlResult(err error) (PeerSessionControlResult, error) {
 		return PeerSessionControlResult{AlreadyHandled: true}, nil
 	}
 	return PeerSessionControlResult{}, err
-}
-
-// PeerSessionExecutionResult maps the one write-only availability failure to
-// the typed RPC payload consumed by the inbound adapter.
-func PeerSessionExecutionResult(err error) (PeerSessionRunResult, error) {
-	if errors.Is(err, ErrPeerExecutionUnavailable) {
-		return PeerSessionRunResult{
-			HistoryAvailable: true, ExecutionUnavailable: true,
-		}, nil
-	}
-	return PeerSessionRunResult{}, err
 }
 
 // persistPeerMessageSource 把提交方的设备身份盖进这条用户消息的正文。盖法归共用的

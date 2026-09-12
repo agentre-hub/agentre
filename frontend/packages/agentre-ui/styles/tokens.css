@@ -526,7 +526,7 @@
   --animate-typing-dot-slow: typing-dot 2.4s ease-in-out infinite;
 }
 
-/* Typing 指示器三点跳动。chat.tsx 的 TypingIndicator 用 Tailwind arbitrary value 引用。 */
+/* Typing 指示器三点跳动。transcript-row-view.tsx 的 TypingIndicator 经 animate-typing-dot 类引用。 */
 @keyframes typing-dot {
   0%,
   80%,

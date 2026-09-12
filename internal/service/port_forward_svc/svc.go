@@ -13,8 +13,6 @@
 // 错误文本去 match 是错的做法 —— 文案一改就静默失灵,中英还得各猜一遍。
 package port_forward_svc
 
-//go:generate mockgen -source svc.go -destination mock_port_forward_svc/mock_svc.go
-
 import (
 	"context"
 	"errors"
@@ -212,13 +210,7 @@ func parseMappingID(ctx context.Context, mappingID string) (int64, error) {
 // mapBorrowErr 翻译「连接借不出来」。设备已解除配对 / 凭据失效各有各的出路,
 // 与「机器此刻不在线」分开说;其余一律当离线(那台机器过会儿可能就回来了)。
 func mapBorrowErr(ctx context.Context, err error) error {
-	switch {
-	case errors.Is(err, remote_device_svc.ErrDeviceNotFound):
-		return i18n.NewError(ctx, code.RemoteDeviceNotFound)
-	case errors.Is(err, remote_device_svc.ErrDeviceUnauthorized):
-		return i18n.NewError(ctx, code.RemoteDeviceUnauthorized)
-	}
-	return i18n.NewError(ctx, code.PortForwardDeviceOffline)
+	return remote_device_svc.MapBorrowErr(ctx, err, code.PortForwardDeviceOffline)
 }
 
 // mapCallErr 翻译设备答复的失败码。归类不出来的一律落到通用远端调用失败 ——

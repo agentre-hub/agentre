@@ -96,11 +96,8 @@
       "backend": {
         "configureProvider": "去配置 LLM 供应商",
         "goAgentBackendSettings": "去 Agent 后端设置",
-        "inactiveSuffix": "（已停用）",
         "providerGapDescription": "内置 SDK 后端通过 LLM 供应商执行任务，当前还没有已激活的供应商。",
-        "providerGapTitle": "还需要一个 LLM 供应商",
-        "title": "AGENT 后端",
-        "unlinkedProvider": "未绑定 LLM 供应商"
+        "providerGapTitle": "还需要一个 LLM 供应商"
       },
       "execTargets": {
         "title": "执行目标",
@@ -130,28 +127,18 @@
       "departmentLead": "{{name}} 部门长",
       "descriptionHint": "可选 · 显示在索引行的副标题",
       "fallbackName": "Agent",
-      "relativeTime": {
-        "daysAgo": "{{count}} 天前",
-        "hoursAgo": "{{count}} 小时前",
-        "justNow": "刚刚",
-        "minutesAgo": "{{count}} 分钟前"
-      },
-      "savedAt": "已保存 · {{time}}",
       "skills": {
         "manage": "管理技能",
         "count": "继承 {{inherit}} · 强制开 {{on}} · 强制关 {{off}}",
         "countCompact": "继承 {{inherit}} · 开 {{on}} · 关 {{off}}",
         "inheritNote": "灰=继承全局已启用 · 蓝=仅此 agent 强制开 · 红=仅此 agent 强制关(不动全局)。改动下次起新会话生效。",
         "empty": "未授予技能包",
-        "personalNote": "始终可用 · 个人技能（~/.claude/skills）不可单独开关",
-        "summary": "{{enabled}} 启用 · {{disabled}} 禁用",
         "copyFrom": "复制自",
         "copyFromDisabledHint": "后端类型不同，包 ID 对不上",
         "offlineNote": "机器离线，列不出可添加的包 · 已授权的仍可移除"
       },
       "skillPicker": {
         "title": "添加技能 · Skill Packs",
-        "subtitle": "一个包 = 一组 skill，按 agent 授权",
         "subtitleForTarget": "第 {{index}} 档 · {{machine}} · {{backend}} —— 只影响这一档",
         "searchPlaceholder": "搜索技能包 / 描述…",
         "personalNote": "个人技能（~/.claude/skills）始终可用，CLI 不支持单独开关"
@@ -166,8 +153,7 @@
         "globalEnabled": "全局已启用",
         "globalDisabled": "全局未启用"
       },
-      "systemPrompt": "系统提示词",
-      "unsaved": "未保存"
+      "systemPrompt": "系统提示词"
     },
     "department": {
       "addGroup": "添加 Agent 或子部门",
@@ -209,7 +195,6 @@
       "sort": {
         "status": "状态"
       }
-    },
-    "reorderFailed": "排序保存失败，请重试"
+    }
   }
 }

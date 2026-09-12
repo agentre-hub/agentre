@@ -141,6 +141,25 @@ func cloneSubagentRunSnapshot(runs []agentruntime.SubagentRun) []agentruntime.Su
 	return out
 }
 
+func agentSpawnRunsFromRuntime(runs []agentruntime.SubagentRun) []canonical.AgentSpawnRun {
+	if runs == nil {
+		return nil
+	}
+	out := make([]canonical.AgentSpawnRun, len(runs))
+	for i, run := range runs {
+		out[i] = canonical.AgentSpawnRun{
+			ID:             run.ID,
+			Index:          run.Index,
+			Agent:          run.Agent,
+			Profile:        run.Profile,
+			AgentSource:    run.AgentSource,
+			Task:           run.Task,
+			RequestedModel: run.RequestedModel,
+		}
+	}
+	return out
+}
+
 func imageBlockToChatBlock(img blocks.ImageBlock) ChatBlock {
 	cb := ChatBlock{Type: ChatBlockTypeImage, Image: &ChatBlockImage{MediaType: img.MediaType}}
 	if len(img.Source.Inline) > 0 {

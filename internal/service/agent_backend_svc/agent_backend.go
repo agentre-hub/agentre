@@ -57,7 +57,6 @@ type AgentBackendSvc interface {
 	// SurveyDanglingBackendReferences 巡检指向非 ACTIVE 后端的会话/执行目标引用，
 	// 只报出、不擅自改写(决策 24)。
 	SurveyDanglingBackendReferences(ctx context.Context, req *SurveyDanglingBackendReferencesRequest) (*SurveyDanglingBackendReferencesResponse, error)
-	ClaimRelativeBackends(ctx context.Context) error
 	GetCLIOverlay(ctx context.Context, req *GetCLIOverlayRequest) (*GetCLIOverlayResponse, error)
 	SetCLIOverlay(ctx context.Context, req *SetCLIOverlayRequest) (*SetCLIOverlayResponse, error)
 	ListCLIOverlays(ctx context.Context, req *ListCLIOverlaysRequest) (*ListCLIOverlaysResponse, error)
@@ -99,11 +98,6 @@ func RegisterGateway(g httpgateway.TokenIssuer) {
 
 // AgentBackend 取默认服务单例。
 func AgentBackend() AgentBackendSvc { return defaultAgentBackend }
-
-// ClaimRelativeBackends remains the bootstrap hook for historical callers. The
-// append-only migration now promotes rows in place: cloning by device or
-// merging by type/name would change their stable sync identities.
-func (s *agentBackendSvc) ClaimRelativeBackends(context.Context) error { return nil }
 
 // ListCLIOverlays exposes only non-sensitive status data for all account
 // overlays. Absolute paths stay behind GetCLIOverlay's desktop-only seam.

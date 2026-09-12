@@ -86,10 +86,10 @@ func TestBuildArgs_EffortLevel(t *testing.T) {
 	}
 }
 
-// TestBuildArgs_BypassPermissionMode locks in the post-cleanup behavior:
-// bypassPermissions is reached purely via --permission-mode; agentre no longer
-// emits --dangerously-skip-permissions because that flag is a one-way enabling
-// token that CLI refuses to re-enter bypass through `set_permission_mode`.
+// TestBuildArgs_BypassPermissionMode: bypassPermissions is reached purely via
+// --permission-mode; agentre does not emit --dangerously-skip-permissions because
+// that flag is a one-way enabling token that CLI refuses to re-enter bypass
+// through `set_permission_mode`.
 func TestBuildArgs_BypassPermissionMode(t *testing.T) {
 	got := buildArgs(runSpec{permissionMode: "bypassPermissions"})
 	joined := strings.Join(got, " ")

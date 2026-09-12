@@ -106,15 +106,14 @@ func primaryKeyColumns(t *testing.T, gdb *gorm.DB, table string) []string {
 	return out
 }
 
-// TestDaemon_MigrationsGiveTheSessionALocalKeyAndRetireTheJournal 钉死转录存储对齐的
-// 两处 schema 事实(规格 2026-09-05 决策 9 / 1):
+// TestDaemon_MigrationsGiveTheSessionALocalKeyAndTheDesktopTranscriptTables 钉死转录
+// 存储的两处 schema 事实(规格 2026-09-05 决策 9 / 1):
 //
-//   - daemon_sessions 有了本地数字主键 id,与全局标识 conversation_id 是两件事 ——
-//     共用的消息实体按数字主键挂靠转录,不补这一格就无法共用同一份存储。
-//     conversation_id 退成 UNIQUE:身份仍然只按它认人,Upsert 的冲突目标也还是它。
-//   - daemon_notification_journal 退役,同时建出与桌面端同形的三张转录表。同一段内容
-//     不再有第二种存储形态。
-func TestDaemon_MigrationsGiveTheSessionALocalKeyAndRetireTheJournal(t *testing.T) {
+//   - daemon_sessions 的行身份是本地数字主键 id,与全局标识 conversation_id 是两件事 ——
+//     共用的消息实体按数字主键挂靠转录。身份只按 conversation_id 认人,Upsert 的冲突
+//     目标也是它(下一条用例在真库上钉住)。
+//   - 转录落在与桌面端同形的三张表里,同一段内容只有这一种存储形态。
+func TestDaemon_MigrationsGiveTheSessionALocalKeyAndTheDesktopTranscriptTables(t *testing.T) {
 	d, err := New(Options{DataDir: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(func() { closeDB(d.db) })
@@ -123,10 +122,6 @@ func TestDaemon_MigrationsGiveTheSessionALocalKeyAndRetireTheJournal(t *testing.
 	assert.True(t, d.db.Migrator().HasColumn("daemon_sessions", "conversation_id"))
 	assert.True(t, d.db.Migrator().HasColumn("daemon_sessions", "peer_fingerprint"),
 		"peer_fingerprint 必须保留为普通列(来源标注与授权)")
-	assert.False(t, d.db.Migrator().HasColumn("daemon_sessions", "peer_session_id"),
-		"peer_session_id 必须随身份键收缩一并消失")
-	assert.False(t, d.db.Migrator().HasTable("daemon_notification_journal"),
-		"通知日志退役:表不该还在")
 	for _, table := range []string{"chat_messages", "chat_message_blocks", "chat_frame_seqs"} {
 		assert.True(t, d.db.Migrator().HasTable(table), "转录表 %s 必须建出来", table)
 	}
@@ -197,17 +192,14 @@ func TestDaemon_DatabaseUsesWALSoCatchUpReadsDoNotStallTheStreamingWriter(t *tes
 	}
 }
 
-// TestDaemon_DatabaseUsesSynchronousNormalSoEveryStreamedEventDoesNotFsync 钉死
-// daemon 库的 synchronous 档位。
+// TestDaemon_DatabaseUsesSynchronousNormalSoCommitsDoNotFsync 钉死 daemon 库的
+// synchronous 档位。
 //
-// 这个库的写侧是**每个流式事件一条同步事务**(handlers/runtime.go 的 fanout 对每个
-// agentruntime.Event 都 journal.Append 一条,包括每个 TextDelta)。SQLite 默认
-// synchronous=FULL,在 WAL 下意味着**每次提交都 fsync WAL** —— 实测 603µs/事件,
-// 而 NORMAL 档是 213µs,即每个 token 白付约 390µs。WAL + NORMAL 仍然崩溃安全:
-// 进程崩溃不损坏数据库,只在断电/内核崩溃时可能丢最后若干已提交事务 —— 对一份
-// 「随时可由桌面端重新拉取」的通知日志,这个取舍与 internal/bootstrap/cago.go
-// 的 sqliteDSN 完全同源。
-func TestDaemon_DatabaseUsesSynchronousNormalSoEveryStreamedEventDoesNotFsync(t *testing.T) {
+// 这个库的写侧是轮内每个定稿时刻一次 checkpoint 事务。SQLite 默认 synchronous=FULL,
+// 在 WAL 下意味着**每次提交都 fsync WAL** —— 实测每次提交约 603µs,NORMAL 档约
+// 213µs。WAL + NORMAL 仍然崩溃安全:进程崩溃不损坏数据库,只在断电/内核崩溃时可能丢
+// 最后若干已提交事务 —— 这个取舍与 internal/bootstrap/cago.go 的 sqliteDSN 同源。
+func TestDaemon_DatabaseUsesSynchronousNormalSoCommitsDoNotFsync(t *testing.T) {
 	d, err := New(Options{DataDir: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(func() { closeDB(d.db) })
@@ -217,7 +209,7 @@ func TestDaemon_DatabaseUsesSynchronousNormalSoEveryStreamedEventDoesNotFsync(t 
 	var synchronous int
 	require.NoError(t, d.db.Raw("PRAGMA synchronous").Scan(&synchronous).Error)
 	require.Equal(t, 1, synchronous,
-		"agentred 库必须以 synchronous=NORMAL 打开,否则每个流式事件都要 fsync 一次 WAL")
+		"agentred 库必须以 synchronous=NORMAL 打开,否则每次提交都要 fsync 一次 WAL")
 }
 
 // TestDaemon_NewRegistersTranscriptRepo 回归:New 是 agentred 的组装根,必须像
@@ -367,10 +359,8 @@ func accountSyncVersionFrame(t *testing.T, version uint64) []byte {
 }
 
 // TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEngineSnapshotWithoutTouchingTheRPCRegistry
-// 是决策 13/14 在 agentred 这一侧的落地:账号信号不再走独立的 /v1/account/channel
-// 连接(那条连接与 enginesnapshot.Manager 自带的 dial + 重试循环一起被删除,见
-// enginesnapshot/manager.go),而是经由已经在跑的那一条中继连接上的保留通道
-// (relaytransport.SignalChannelID)抵达。RED 之前:serveRelayChannels 把 mux.Accept()
+// 是决策 13/14 在 agentred 这一侧的落地:账号信号经由中继连接上的保留通道
+// (relaytransport.SignalChannelID)抵达。serveRelayChannels 不能把 mux.Accept()
 // 交出的每一条通道都无差别地包成 protorpc.Conn 并起 Serve——那对保留通道是错的
 // (它只出不进,服务端也不会在它上面完成鉴权),因此这条测试断言的是「保留通道的信号
 // 触发了 Pull,而不是被当成一条新的 RPC 连接」。
@@ -1056,9 +1046,6 @@ func TestDaemon_BindConnDoesNotMakeUnauthenticatedConnATarget(t *testing.T) {
 	assert.Nil(t, d.notifierForPeer(""), "空指纹不是可匹配身份")
 }
 
-// TestDaemon_AuthRejectsEmptyDeviceFingerprint 回归:rpc/auth.go 的 HandlePair 不拒绝空
-// deviceFingerprint,配对下来会在 PairedPeers 里留一条空键的对端,之后任何连接都能顶着
-// 空指纹 auth.connect 成功。daemon 在入参处挡掉。
 // TestDaemon_GivenLoggedInAndUnavailableRelay_WhenRunning_ThenLANKeepsServing
 // covers R14's degradation boundary: a relay failure must stay in the outbound
 // background loop rather than preventing the daemon's direct LAN server from starting.

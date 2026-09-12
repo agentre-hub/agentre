@@ -8,8 +8,8 @@
 // 「按 sessionId 存」与「被丢弃的那一份放哪儿」这两件宿主自己的事。
 //
 // 消费方：
-//   - chat-panel.tsx: 读 queuedBySession.get(sid) 渲染 QueuedMessagesBar；
-//     doEnqueue 调 append；doCancelQueued 调 consume（按 id 过滤）。
+//   - chat-panel.tsx: 读 queuedBySession.get(sid) 渲染 QueuedMessagesBar。
+//   - chat-panel/use-chat-actions.ts: 入队调 append；撤回调 consume（按 id 过滤）。
 //   - chat-streams-store.finishStream: 调 markDropped 暂存该 session 的残留。
 //   - chat-streams-store.consumeSteer: 调 consume（按 ids 过滤）消费掉被后端取走的条目。
 

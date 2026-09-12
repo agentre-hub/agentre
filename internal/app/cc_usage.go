@@ -24,12 +24,6 @@ func (a *App) GetCCUsage(deviceKey string) cc_usage_svc.UsageState {
 	return st
 }
 
-// RefreshCCUsage 强制触发一次 probe(供前端"手动刷新"按钮)。
-// 429 backoff 仍然有效 —— 短时间内连续调用不会真打 endpoint。
-func (a *App) RefreshCCUsage(deviceKey string) {
-	cc_usage_svc.CCUsage().Probe(a.ctx, cc_usage_svc.DeviceKey(deviceKey))
-}
-
 // buildCCUsageResolver 给 cc_usage_svc 提供 deviceKey → Fetcher 的解析逻辑。
 // 把"读凭证 / 远端 RPC"细节关在这一层,cc_usage_svc 本身只关心调度 + 状态。
 func (a *App) buildCCUsageResolver() cc_usage_svc.FetcherResolver {
@@ -61,8 +55,8 @@ func (a *App) buildCCUsageResolver() cc_usage_svc.FetcherResolver {
 			if cerr != nil {
 				return nil, errors.Join(ccoauth.ErrNetwork, cerr)
 			}
-			// reason 分支与时间戳还原都在 ccoauth 里:那段翻译从前写在这一层,而 App
-			// 里的代码 go test 够不着(见 architecture.md 对绑定层的规定)。
+			// reason 分支与时间戳还原都在 ccoauth 里:App 里的代码 go test 够不着
+			// (见 architecture.md 对绑定层的规定)。
 			return ccoauth.RateLimitsFromResponse(res)
 		}, nil
 	}

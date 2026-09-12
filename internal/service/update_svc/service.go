@@ -4,8 +4,6 @@ import "context"
 
 // Service 是 update_svc 对外暴露的依赖倒置接口；App 绑定层通过 Update()
 // 获取可替换实现，测试可通过 RegisterUpdate 注入 fake。
-//
-//go:generate mockgen -source service.go -destination mock_update_svc/mock_service.go
 type Service interface {
 	// CheckForUpdate 查询指定通道的最新版本，与当前 configs.Version 比对。
 	CheckForUpdate(channel, mirrorPrefix string) (*UpdateInfo, error)

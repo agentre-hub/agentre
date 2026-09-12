@@ -938,13 +938,12 @@ describe("estimateRowSize", () => {
 
 // estimateRowSizeWithSpacing / isLastRowOfMessage:复审对 Task 10 提出的 Important
 // 缺口 —— 上面的 estimateRowSize 只做了字号/间距的乘法缩放(ROW_SIZE_SCALE),没处理
-// chat.tsx rowWrapperPad 的加法部分:消息末行 padding pb-5→pb-7(20→28px),消息内
+// 行间距 padding 的加法部分:消息末行 padding pb-5→pb-7(20→28px),消息内
 // 分片行 padding pb-2→pb-2.5(8→10px)。这两档 padding 打在与 measureElement 同一个
-// div 上(chat.tsx 注释「padding 打在行 wrapper 上,跟随 measureElement 一起计入行
-// 高」),所以上面 estimateRowSize 表里的旧值本就隐含了旧 padding;纯乘法只把它放大到
+// div 上(跟随 measureElement 一起计入行高),所以上面 estimateRowSize 表里的旧值本就隐含了旧 padding;纯乘法只把它放大到
 // 20×SCALE≈22.4px / 8×SCALE≈8.97px,分别比新值少 ≈5.6px / ≈1px。
 // estimateRowSizeWithSpacing 在 estimateRowSize 之上,按 isLastRowOfMessage(与
-// chat.tsx:rowWrapperPad 共用同一份边界判断)补回这段差值。
+// transcriptRowPadClass 共用同一份边界判断)补回这段差值。
 describe("estimateRowSizeWithSpacing / isLastRowOfMessage", () => {
   const SCALE = 25.5 / 22.75;
 
@@ -1816,11 +1815,9 @@ describe("活动块聚合", () => {
   });
 });
 
-// transcriptRowPadClass:行间距的**类名**此前由两个宿主各写一份(agentre-server 的
-// Transcript.tsx、桌面端 chat.tsx 的 rowWrapperPad),而它与上面那两个 px 常量的
-// 对应关系只活在一句注释里(「chat.tsx rowWrapperPad 的 pb-2.5」)。改了 px 值,
-// 虚拟化估高会跟着动、两处实际渲染的 padding 却不会 —— 那正是这两个常量当初要
-// 消灭的系统性偏差,只是换了个方向重新长出来。这一组把对应关系钉成断言。
+// transcriptRowPadClass:行间距的**类名**与上面那两个 px 常量是同一件事的两种写法。
+// 改了 px 值、类名却不跟着改的话,虚拟化估高会动而实际渲染的 padding 不动 —— 正是
+// 这两个常量要消灭的系统性偏差。这一组把对应关系钉成断言。
 describe("transcriptRowPadClass", () => {
   function makeRow(messageId: number, key: string): TranscriptRow {
     return {

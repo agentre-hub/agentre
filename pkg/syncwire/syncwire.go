@@ -4,18 +4,9 @@
 // 桌面端 internal/pkg/syncwire 与本包同名,分工是清楚的:协议归本包,那边只做别名
 // 再导出加上本端专属的东西(业务码的客户端表达、账号级实时通道的解码)。
 //
-// 从前这份契约在工作区里存在**三份**:
-//
-//   - agentre/internal/pkg/syncwire —— 领域侧的结构,刻意不带 json 标签
-//     (Payload 是 []byte,直接 Marshal 会被编成 base64);
-//   - agentre/internal/service/server_svc/sync.go —— 私有的一套,只为补上 json 标签;
-//   - agentre-server/internal/api/sync —— 服务端那份,带 gin 的 binding 标签。
-//
-// 三份的字段集其实一直是对齐的,差的是标签。而标签在这条协议里是**承重的**:
-// PushItem.Payload 少一个 omitempty,墓碑就会带上 JSON null,server 的 ValidatePayload
-// 判 root.(map[string]any) 失败、整批拒(30501),出站队列被一次删除永久堵死。桌面端
-// 那份有 omitempty,服务端那份没有 —— 它不需要,因为它只解不编。合成一份时照搬哪一边,
-// 决定了这个坑装不装回来,syncwire_test.go 把它钉住了。
+// 字段的标签在这条协议里是**承重的**:PushItem.Payload 少一个 omitempty,墓碑就会带上
+// JSON null,server 的 GuardPayload 判 ErrPayloadNotObject、把这一条单独拒掉,这次删除
+// 就传不到别的设备。syncwire_test.go 把它钉住了。
 //
 // 一个结构同时承担两侧的角色,所以两套标签都要在:json 标签管桌面端的编码与服务端的
 // 解码,binding 标签管服务端的入参校验。binding 标签是惰性的,只有 gin 绑定时才读,
@@ -47,9 +38,8 @@ const (
 
 // Kinds 是同步组的全部对象类型,按「被引用者在前」排列。
 //
-// 常量表本身只有一份,**成员资格**从前却由两个宿主各自枚举(桌面端 sync_svc 的
-// syncKinds、服务端 sync_entity 的 KindValid):任何一边漏掉一个新 kind,那一类对象
-// 就在那一端整类静默不同步 —— 没有报错,只是没有。它归契约所有,两个宿主都只引用它。
+// 常量表与**成员资格**都只在这里:两个宿主要是各自枚举成员资格,任何一边漏掉一个新
+// kind,那一类对象就在那一端整类静默不同步 —— 没有报错,只是没有。两个宿主都只引用它。
 //
 // 次序是承重的:认领(R12a)与任何需要遍历全部类型的地方都按它走,父行因此先入队、
 // 先落地,R2a 的暂缓少绕一圈。追加新 kind 时按引用方向插进去,别随手贴到末尾。
@@ -151,8 +141,8 @@ type PushItem struct {
 	// 装后端),与 server 的 sync_objects.scope_sync_id 同义。
 	ScopeSyncID string `json:"scope_sync_id" binding:"max=128"`
 	// Payload 的 omitempty 是**承重的**:墓碑不带正文,而 json.RawMessage 的零值编出
-	// 来是 JSON null —— null 不是对象,server 的 ValidatePayload 会整批拒(30501),
-	// 一次删除就把出站队列永久堵死。类型必须是 json.RawMessage 而不是 []byte,否则
+	// 来是 JSON null —— null 不是对象,server 的 GuardPayload 会把这一条拒掉,这次删除
+	// 就传不到别的设备。类型必须是 json.RawMessage 而不是 []byte,否则
 	// encoding/json 会把整份文档编成 base64。
 	Payload json.RawMessage `json:"payload,omitempty"`
 }

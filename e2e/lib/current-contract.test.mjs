@@ -293,15 +293,19 @@ test("Given local ESM imports and literal relative CommonJS requires, when the r
 test("Given automated E2E and formal verification guards, when their test lists are inspected, then only the explicit full suite reaches target discovery", () => {
   assert.deepEqual([...guardSuite.AUTOMATED_GUARD_TESTS].sort(), [
     "lib/app-overlay.test.mjs",
+    "lib/browser.test.mjs",
     "lib/current-contract.test.mjs",
     "lib/fake-sync-server.test.mjs",
+    "lib/guard-suite.test.mjs",
     "lib/run-context.test.mjs",
   ]);
   assert.equal(guardSuite.AUTOMATED_GUARD_TESTS.includes("lib/target.test.mjs"), false);
   assert.deepEqual([...guardSuite.FULL_GUARD_TESTS].sort(), [
     "lib/app-overlay.test.mjs",
+    "lib/browser.test.mjs",
     "lib/current-contract.test.mjs",
     "lib/fake-sync-server.test.mjs",
+    "lib/guard-suite.test.mjs",
     "lib/run-context.test.mjs",
     "lib/target.test.mjs",
   ]);

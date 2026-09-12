@@ -249,9 +249,8 @@ func TestUpdateAgent(t *testing.T) {
 	})
 }
 
-// TestUpdateAgent_SkillsComeFromExecTargets R15e：「`agents.skills_json` 不再被
-// 读取」。写完之后回给前端的那份 AgentItem 里，技能授权必须来自执行目标行（档 ①），
-// 不是 Agent 行上那份已经停止维护的旧列。
+// TestUpdateAgent_SkillsComeFromExecTargets R15e：写完之后回给前端的那份 AgentItem 里，
+// 技能授权必须来自执行目标行（档 ①），不是 Agent 实体上那份不落库的 SkillsJSON。
 func TestUpdateAgent_SkillsComeFromExecTargets(t *testing.T) {
 	ctx, agentMock, _, backendMock, svc := setupSvc(t)
 	ctrl := gomock.NewController(t)

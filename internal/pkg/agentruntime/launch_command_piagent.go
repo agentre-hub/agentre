@@ -34,9 +34,8 @@ func piAgentModel(b *agent_backend_entity.AgentBackend, _ string) string {
 }
 
 // piAgentThinking 把落库的 reasoning_effort 映射为「复制启动命令」里的 pi CLI
-// --thinking 值。与真正 spawn 路径共用同一份映射(pkg/piagent.NormalizeThinkingLevel)
-// —— 此前这里另有一份内容相同的 max→xhigh 折叠(spec 2026-09-01「三后端下发档位的
-// 收敛」已否决)。
+// --thinking 值。与真正 spawn 路径共用同一份映射(pkg/piagent.NormalizeThinkingLevel),
+// 不另写一份。
 func piAgentThinking(b *agent_backend_entity.AgentBackend) string {
 	if b == nil {
 		return ""

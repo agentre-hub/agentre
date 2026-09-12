@@ -22,7 +22,7 @@ ARG RUNTIME_IMAGE=node:24-bookworm-slim
 FROM ${RUNTIME_IMAGE} AS runtime-base
 
 # 版本钉死并暴露为 build-arg。取值是 coding.local 上的现状
-ARG CLAUDE_VERSION=2.1.224
+ARG CLAUDE_VERSION=2.1.267
 ARG CODEX_VERSION=0.146.0
 ARG PI_VERSION=0.84.3
 

@@ -104,7 +104,7 @@ func (r *Runtime) Capabilities() capability.Capabilities {
 }
 
 // Steer 把 (queuedID, text) 投递给 cago agent.Runner,由 cago 在下个安全点
-// (tool 完成 / 一轮 LLM 文本结束)注入。语义同顶层 builtin.go.Steer。
+// (tool 完成 / 一轮 LLM 文本结束)注入。
 func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID, text string) error {
 	r.mu.Lock()
 	a := r.active[sessionID]
@@ -121,7 +121,7 @@ func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID, text str
 	return nil
 }
 
-// Abort 中止当前正在跑的 turn。语义同顶层 builtin.go.Abort:
+// Abort 中止当前正在跑的 turn:
 //  1. ClearPendingSteers 把还没被 cago 消费的 steer chip 清空;
 //  2. cancel turnCtx —— cago Runner.Send 监听 ctx,events channel 关闭,drain
 //     goroutine 退出。
@@ -149,7 +149,7 @@ func (r *Runtime) Abort(_ context.Context, sessionID int64, turnToken uint64) (a
 	return agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKindUser}, nil
 }
 
-// CancelSteer 撤回尚未被消费的 steer 条目。语义同顶层 builtin.go.CancelSteer:
+// CancelSteer 撤回尚未被消费的 steer 条目:
 //   - queuedID == "":清空,返回被清的 ID 列表
 //   - queuedID 非空:不在队列里返 ErrSteerNotFound
 func (r *Runtime) CancelSteer(_ context.Context, sessionID int64, queuedID string) ([]string, error) {
@@ -188,7 +188,7 @@ func (r *Runtime) unregister(sessionID int64) {
 
 // Run in-process 跑一轮 cago agent;emit 新 sealed agentruntime.Event。
 //
-// 与现有顶层 builtin.go.Run 平行,唯一差异是事件类型:
+// 事件处理:
 //   - 用 translate() 把 cago agent.Event 翻成 0/1 个 sealed Event;
 //   - 同安全点连续到达的多帧 SteerConsumed 在 Run() 层合并(per Part 0 §1.10),
 //     保持单批 emit 的 wire 行为(避免下游被迫处理多条窄帧)。

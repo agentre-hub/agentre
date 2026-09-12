@@ -15,9 +15,9 @@ import (
 
 // 改父项目（规格 2026-08-22 B 段「基本」那一节列了「父项目」这一格）。
 //
-// 此前这一端根本改不了：UpdateProjectRequest 没有 ParentID，而 ReorderSiblings 的
-// SQL 带 `AND parent_id = ?`（只在同一个父下排序，拿它反父级会 RowsAffected != 1
-// 直接报错）。types.go 当初写明「单独走 Move 接口；当前 spec 留作下次」——就是这次。
+// UpdateProjectRequest 没有 ParentID，而 ReorderSiblings 的 SQL 带 `AND parent_id = ?`
+// （只在同一个父下排序，拿它反父级会 RowsAffected != 1 直接报错），所以改父项目单独走
+// Move。
 //
 // 形状照部门那份 Move（department_svc.Move）：父级存在 + active + 环检测，
 // 同一条判据不该在两棵树上长出两个样子。

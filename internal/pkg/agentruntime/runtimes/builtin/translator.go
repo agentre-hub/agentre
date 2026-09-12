@@ -13,15 +13,15 @@ import (
 // translate 把单个 cago agent.Event 翻译成 0/1 个新 sealed agentruntime.Event。
 //
 // 翻译是无状态、纯函数 —— 一帧 cago event 对应一个新 Event(SteerConsumed 单独
-// 用单元素 Steers slice,Run() 负责把同一安全点连续到达的多帧合并以保持与现有
-// 顶层 builtin.go (lines 230-272 flushSteers 逻辑) 等价的 wire 行为)。
+// 用单元素 Steers slice,由 Run() 的 flushSteers 把同一安全点连续到达的多帧合并,
+// 见 runtime.go)。
 //
 // EventTurnEnd / EventDone / EventCancelled / EventCompacted / EventToolDelta /
 // EventMessageEnd / EventRetry 当前都不翻译:
 //   - TurnEnd / Done:由 Run() 把 ev.Usage / StopErr 写回 *RunResult,不下发独立事件。
 //   - Retry:builtin 不在 chat_svc 透传重试(spec §3 没要求;cago retry 仍生效,
 //     UI 不显示)。
-//   - 其它细粒度:builtin 历史上也不下发,保持等价。
+//   - 其它细粒度:builtin 不下发。
 func translate(ev agent.Event) []agentruntime.Event {
 	switch ev.Kind {
 	case agent.EventTextDelta:

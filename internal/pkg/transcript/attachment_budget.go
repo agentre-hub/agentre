@@ -39,8 +39,8 @@ var ErrAttachmentBudget = errors.New("attachment budget exceeded")
 func CheckAttachmentBudget(bs []cagoblocks.ContentBlock) error {
 	total := 0
 	for _, b := range bs {
-		// 值与指针两支并列,与本仓每一处认图片块的地方同形(chat_svc 的 projection.go /
-		// transcript_replacement.go、claudecode 的 images.go):ContentBlock 的方法是值
+		// 值与指针两支并列,与本仓每一处认图片块的地方同形(chat_svc 的 projection.go、
+		// claudecode 的 images.go):ContentBlock 的方法是值
 		// 接收者,*ImageBlock 同样满足这个接口,两种形态都进得了同一条切片。
 		// 只认一支的话这道闸是**失效放行** —— 而它失效的方向只允许是拒绝。
 		switch image := b.(type) {

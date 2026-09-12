@@ -60,7 +60,7 @@ Agentre follows the standard GitHub fork model:
 
 ## Before You Write Code
 
-Start with [AGENTS.md](./AGENTS.md): its **Development Conventions (required reading)** section is the canonical, complete index. These are the most common entry points, not a second exhaustive list:
+Start with [AGENTS.md](./AGENTS.md): its **Engineering conventions and task routing** section is the canonical, complete index. These are the most common entry points, not a second exhaustive list:
 
 | Document | What it covers |
 | -------- | -------------- |

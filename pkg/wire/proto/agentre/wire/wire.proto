@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.5.0";
+option (agentre.wire.protocol_version) = "0.1.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -189,11 +189,6 @@ message AccountDevicePresence {}
 
 message AuthAccountRequest {
   string credential = 1;
-  // 2 曾是 device_fingerprint:调用方自报的对端身份。它从来没有被任何东西验证过,
-  // 而对端身份现在只从已验签的凭据的 pfp claim 取(见 AuthAccountResponse
-  // .peer_fingerprint)。留一个「说了不算」的字段是下一个人踩的坑,故删而不是忽略。
-  reserved 2;
-  reserved "device_fingerprint";
   // The wire protocol version the caller speaks — the (agentre.wire
   // .protocol_version) file option this schema declares above.
   string protocol_version = 3;
@@ -562,17 +557,17 @@ message SessionPullRequest {
 }
 
 message SessionPullResponse {
-  repeated JournaledNotification notifications = 1;
+  repeated DurableNotification notifications = 1;
   int64 cursor = 2;
   bool has_more = 3;
   int64 oldest_seq = 4;
 }
 
-message JournaledNotification {
+message DurableNotification {
   int64 seq = 1;
   RpcNotification payload = 2;
   // When this frame happened, by the origin's clock (Unix ms), read straight
-  // off the journal row that recorded it. It rides on the carrier rather than
+  // off the transcript row that recorded it. It rides on the carrier rather than
   // inside RpcNotification so replay never has to decode and re-encode a
   // payload just to stamp it.
   //
@@ -997,8 +992,8 @@ message TranscriptImportTurnsResponse {
 }
 
 // transcriptimport.execute runs the import on the machine that holds the
-// transcript: it writes the session row and appends the replayed turns to the
-// notification journal, so an ordinary SESSION_LIST / SESSION_PULL serves the
+// transcript: it writes the session row and the replayed turns into its
+// transcript, so an ordinary SESSION_LIST / SESSION_PULL serves the
 // imported session like any other. agentre-server never owns sessions, it
 // mirrors them — so importing from the web console has to happen here.
 //

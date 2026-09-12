@@ -10,8 +10,8 @@ package transcriptimport
 //
 // 落库顺序是「先建身份行 → 清同号残留 → 再逐轮落转录 → 失败则连身份行一起撤掉」:
 //   - 转录(消息行 + 块行)按**本机会话主键**挂靠(规格 2026-09-05 决策 9),所以身份行
-//     必须先在库里,回放才有地方落。从前的顺序(身份行最后写)服务的是「身份行 = 导入
-//     完整」这个锚点,现在由失败路径上的撤销顶上:回放失败就把这一条整个删掉,库里
+//     必须先在库里,回放才有地方落。「身份行 = 导入完整」由失败路径上的撤销保证:
+//     回放失败就把这一条整个删掉,库里
 //     不会留下一条看着已经导完、实际只有半截转录的会话。
 //   - 同号残留(上一次导入写到一半、进程没了)在回放之前清掉,两次回放因此不会首尾
 //     相接叠成一份双倍长的转录。
@@ -91,7 +91,7 @@ func (h *Handlers) Execute(ctx context.Context, params wire.ExecuteParams) (*wir
 	defer closeTranscript(ctx, source)
 	meta := source.Meta()
 
-	// 身份列本来就是 TEXT:对话身份原样落进去,从前那一圈 int64↔string 往返消失了。
+	// 身份列本来就是 TEXT:对话身份原样落进去。
 	peerSessionID := params.ConversationID
 	existing, err := h.findImported(ctx, peer, peerSessionID, meta.ProviderSessionID)
 	if err != nil {

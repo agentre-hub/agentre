@@ -40,12 +40,10 @@
       "name": "Name",
       "description": "Description",
       "color": "Colour",
-      "icon": "Icon",
       "parent": "Parent project",
       "noParent": "None (top level)"
     },
     "identity": {
-      "glyph": "Icon and colour",
       "glyphAria": "Change the icon and colour of “{{name}}”",
       "namePlaceholder": "Project name",
       "descriptionPlaceholder": "Description (optional)",
@@ -56,14 +54,12 @@
     "members": {
       "empty": "This project has no members yet.",
       "noCandidates": "Every agent you have is already a member.",
-      "add": "Add {{name}}",
       "remove": "Remove {{name}}",
       "inherited": "Inherited",
       "inheritedFrom": "Inherited from {{name}}",
       "addTitle": "Add member",
       "searchPlaceholder": "Search agents…",
-      "noMatch": "No agent matches that.",
-      "count": "{{count}}"
+      "noMatch": "No agent matches that."
     },
     "paths": {
       "noPath": "No path yet",
@@ -103,7 +99,6 @@
       "retryPath": "Retry writing the path",
       "keepAnyway": "Leave it for now",
       "localPath": "Path on this machine",
-      "localPathRequired": "Required on this machine.",
       "browse": "Browse…",
       "detectingGit": "Checking whether this is a git repository…",
       "gitDetected": "git repository · {{branch}}",

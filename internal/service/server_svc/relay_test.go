@@ -25,9 +25,8 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
-// 本文件的假中转服务端说的是决策 10/13/14 之后的协议:一条连接、信封承载的虚拟
-// 通道、目标声明为通道的第一帧载荷、失败按通道级错误帧作答——不再是旧版一条连接
-// 一个目标、失败靠 HTTP 4xx/5xx 状态码。
+// 本文件的假中转服务端说的是决策 10/13/14 的协议:一条连接、信封承载的虚拟
+// 通道、目标声明为通道的第一帧载荷、失败按通道级错误帧作答。
 
 // wrapRelayEnvelope / unwrapRelayEnvelope 复现 relaytransport 的信封格式(2 字节
 // 大端长度 + 通道 ID + 载荷),与 agentre-server relay_svc.WrapEnvelope 同一格式。

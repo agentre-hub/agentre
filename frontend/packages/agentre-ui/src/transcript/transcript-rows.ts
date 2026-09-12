@@ -1063,9 +1063,8 @@ export function estimateRowSize(row: TranscriptRow): number {
 
 // ─── 行间距增量(virtualizer estimateSize 用,Task 10 复审 Important 缺口补丁) ───
 //
-// chat.tsx 把行间距 padding 打在与 measureElement 同一个 div 上(见 chat.tsx
-// rowWrapperPad 的注释:「padding 打在行 wrapper 上,跟随 measureElement 一起计入
-// 行高」)——消息末行 pb-5→pb-7(20px→28px),消息内分片行 pb-2→pb-2.5(8px→10px)。
+// 行间距 padding 打在与 measureElement 同一个 div 上(transcriptRowPadClass,
+// 跟随 measureElement 一起计入行高)——消息末行 pb-5→pb-7(20px→28px),消息内分片行 pb-2→pb-2.5(8px→10px)。
 // 这意味着上面 estimateRowSize() 表里的每一档旧估值(132/160/40/48/120)本就是在
 // 旧 padding(20px/8px)年代靠肉眼观测校准出来的整行高度,已经隐含烘焙了旧 padding。
 // ROW_SIZE_SCALE 只覆盖字号/间距"整体变大"的乘法关系(14×1.625→15×1.7),并不知道
@@ -1088,7 +1087,7 @@ export const ROW_MID_PADDING_DELTA =
   NEW_ROW_MID_PADDING_PX - OLD_ROW_MID_PADDING_PX * ROW_SIZE_SCALE;
 
 // isLastRowOfMessage:该虚拟行是否为其所属消息的最后一行(下一行不存在,或属于另一
-// 条消息 / local_command)。与 chat.tsx:rowWrapperPad 选 pb-7 还是 pb-2.5 用的是
+// 条消息 / local_command)。与 transcriptRowPadClass 选 pb-7 还是 pb-2.5 用的是
 // 完全相同的边界判断——两处必须共用这一份逻辑,否则实际渲染的 padding 与虚拟化估值
 // 的间距增量会各算各的,重新制造出一个新的系统性偏差。
 export function isLastRowOfMessage(
@@ -1102,8 +1101,7 @@ export function isLastRowOfMessage(
 
 // estimateRowSizeWithSpacing:virtualizer estimateSize 回调用的完整估值 ——
 // estimateRowSize 只负责按 item 类型估内容高度,这里再按 isLastRowOfMessage 补上
-// 对应的间距增量(消息末行 / 块内行)。index 越界(row 不存在)时回退到与旧
-// chat.tsx:estimateSize 兜底值一致的 148。
+// 对应的间距增量(消息末行 / 块内行)。index 越界(row 不存在)时回退到 148。
 /** 消息末行的下间距类名(28px)。与 NEW_ROW_END_PADDING_PX 是同一件事。 */
 export const ROW_END_PAD_CLASS = "pb-7";
 /** 消息内分片行的下间距类名(10px)。与 NEW_ROW_MID_PADDING_PX 是同一件事。 */

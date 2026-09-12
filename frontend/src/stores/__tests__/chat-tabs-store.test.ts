@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import {
   useChatTabsStore,
   __setNextIdFactoryForTesting,
@@ -441,25 +441,6 @@ describe("chat-tabs-store · reconcileMissingSessions", () => {
     useChatTabsStore.getState().reconcileMissingSessions(new Set([1]));
     const s = useChatTabsStore.getState();
     expect(s.tabs.map((t) => t.meta.kind)).toEqual(["session", "terminal"]);
-  });
-});
-
-describe("chat-tabs-store · hydrate from localStorage", () => {
-  it("import 时若 localStorage 有 v1 数据则恢复", async () => {
-    localStorage.setItem(
-      "agentre.chatTabs",
-      JSON.stringify({
-        v: 1,
-        tabs: [
-          { id: "tA", sessionId: 7, isPinned: false, pinAt: 0, openedAt: 1 },
-        ],
-        activeTabId: "tA",
-      }),
-    );
-    vi.resetModules();
-    const mod = await import("../chat-tabs-store");
-    expect(mod.useChatTabsStore.getState().tabs).toHaveLength(1);
-    expect(mod.useChatTabsStore.getState().activeTabId).toBe("tA");
   });
 });
 

@@ -132,6 +132,128 @@ function collectPackageI18nKeys(): {
 }
 
 /**
+ * 反向守卫：包的 bundle 里不应存在「没人用」的 key。
+ *
+ * 上面那条 `collectPackageI18nKeys` 只覆盖「代码 → bundle」：它保证包内每个静态
+ * `t("…")` 都有文案，却对**删多了**一无所知——把还在用的 key 删掉同样全绿，
+ * 代价是宿主（桌面端 / agentre-server）直接显示 key 字面量。这里补反方向。
+ *
+ * 一个叶子 key 只要满足下面任一条就算「有人用」：
+ *   1. 包内生产源码里的静态 `t("…")` / `i18n.t("…")`；
+ *   2. 包内任意源码（含测试）里出现过的点分路径；
+ *   3. `HOST_CONSUMER_KEYS`：宿主经包 namespace 取的 key（`uiT("…")`）；
+ *   4. `DYNAMIC_KEY_PREFIXES`：运行期拼出来的前缀；
+ *   5. 复数键：base key 有人用即可。
+ *
+ * 白名单故意写得宽——一条误报会逼后来的人把守卫关掉，那比没有守卫更糟。
+ */
+
+/**
+ * 运行期拼出来的 key 前缀——静态字面量里永远查不到完整 key。
+ * 每条后面注明是哪段代码在拼。
+ */
+const DYNAMIC_KEY_PREFIXES = [
+  // engine/agent-backends-fields.tsx: t(`agentBackends.approval.options.${opt.value}`)
+  "agentBackends.approval.options.",
+  // engine/agent-backends-{list,badges}.tsx / agent-backends.tsx:
+  //   t(`agentBackends.backendType.${typ}.label`) / `.shortLabel` / `.probe.${state}`
+  "agentBackends.backendType.",
+  // engine/agent-backends-fields.tsx: t(`agentBackends.reasoning.options.${opt || "default"}`)
+  "agentBackends.reasoning.options.",
+  // engine/backend-editor/draft.ts: translate(`agentBackends.openclaw.errors.${key}`)
+  // （宿主把 `t` 注进来，键仍是包自己的 namespace）
+  "agentBackends.openclaw.errors.",
+  // project/directory-picker.tsx: t(`directoryPicker.failure.${key}`)
+  "directoryPicker.failure.",
+  // org/icon-registry.ts: t(`${AGENTRE_UI_NAMESPACE}:iconRegistry.categories.${key}`)
+  "iconRegistry.categories.",
+  // engine/llm-provider-models/discover-error-panel.tsx:
+  //   t(`llmProviders.discover.error.${failure.kind}`) / `.errorTitle.${failure.kind}`
+  "llmProviders.discover.error.",
+  "llmProviders.discover.errorTitle.",
+  // engine/llm-provider-models/{provider-nav,workspace-header,provider-form-fields}.tsx:
+  //   t(`llmProviders.providerType.${type}.label`)
+  "llmProviders.providerType.",
+  // engine/model-target-picker/use-picker-options.ts:
+  //   t(`modelTargetPicker.special.${scenario}`)
+  "modelTargetPicker.special.",
+  // transcript/openclaw-exec-approval/card.tsx:
+  //   t(`openclawExecApproval.decision.${value}`) / `.decisionResult.${decision}`
+  "openclawExecApproval.decision.",
+  "openclawExecApproval.decisionResult.",
+  // org/exec-target-reasons.ts: t(`org.agent.execTargets.reasons.${key}`)
+  "org.agent.execTargets.reasons.",
+  // org/tool-catalog.ts: t(`org.agent.tools.names.${key}`) / `.descriptions.${key}`
+  "org.agent.tools.names.",
+  "org.agent.tools.descriptions.",
+  // project/failure-text.ts: t(`projectSettings.failure.${kind}`)
+  "projectSettings.failure.",
+  // transcript/tool-approval/card.tsx:
+  //   t(`toolApproval.status.${approval.status}`) / t(`toolApproval.tools.${approval.toolName}`)
+  "toolApproval.status.",
+  "toolApproval.tools.",
+];
+
+/**
+ * 宿主直接经包 namespace 取的 key（宿主源码里的 `uiT("…")`）。
+ *
+ * 这些 key 的字符串只出现在宿主的 `src/` 里，包内 `pnpm test` 的 cwd 够不到
+ * agentre-server；而桌面端与包同仓，所以每天新加一条 `uiT(...)` 时必须同步补这里。
+ * 业务上的所有其它宿主消费都走包内组件的 `useUiTranslation`，已被静态扫描覆盖。
+ */
+const HOST_CONSUMER_KEYS = [
+  // frontend/src/components/agentre/file-preview/file-preview-panel.tsx: uiT("filePreview.panelAria")
+  "filePreview.panelAria",
+  // frontend/src/components/agentre/org/exec-target-list.tsx:
+  //   uiT("org.agent.execTargets.localMachine") / uiT("org.agent.execTargets.reasons.unpaired")
+  "org.agent.execTargets.localMachine",
+  "org.agent.execTargets.reasons.unpaired",
+];
+
+/** 包内所有 ts/tsx 里出现过的点分路径（含测试，排除 `src/i18n` 自身的示例）。 */
+function collectReferencedPackageKeyPaths(): Set<string> {
+  const paths = new Set(HOST_CONSUMER_KEYS);
+  const tokenPattern = /[A-Za-z_$][\w$]*(?:\.[\w$]+)+/g;
+  const packageRoot = locatePackageRoot();
+  const sourceRoot = join(packageRoot, "src");
+
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "i18n") walk(fullPath);
+        continue;
+      }
+      if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+      const source = readFileSync(fullPath, "utf8");
+      for (const match of source.matchAll(tokenPattern)) {
+        const token = match[0];
+        paths.add(token);
+        // 逐级剥前缀：`agentreUiResources.en.agentBackends.x` 要能覆盖 `agentBackends.x`。
+        let dot = token.indexOf(".");
+        while (dot !== -1) {
+          paths.add(token.slice(dot + 1));
+          dot = token.indexOf(".", dot + 1);
+        }
+      }
+    }
+  };
+
+  walk(sourceRoot);
+  return paths;
+}
+
+function isPackageKeyReferenced(
+  key: string,
+  staticKeys: Set<string>,
+  referencedPaths: Set<string>,
+): boolean {
+  if (staticKeys.has(key)) return true;
+  if (referencedPaths.has(key)) return true;
+  return DYNAMIC_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+/**
  * 模拟宿主：实例是宿主建的，包只把 bundle 交出去。断言的是**合并之后**的行为，
  * 而不是「两个 JSON 文件长得一样」——后者证明不了包内组件真的取得到文案。
  */
@@ -268,6 +390,34 @@ describe("agentre-ui locale bundles", () => {
     );
 
     expect(missing).toEqual([]);
+  });
+
+  it("Given the exported bundles, When every leaf key is inspected, Then each one is referenced by package code, a host consumer or an explicit dynamic whitelist", () => {
+    const sites = collectPackageI18nKeys();
+
+    // 守卫自证「不空过」：AST 遍历或过滤哪天写错，静态 key 会塌成 0 条，
+    // 下面的差集自动为空、守卫静默全绿。
+    expect(sites.length).toBeGreaterThan(500);
+
+    const staticKeys = new Set(sites.map(({ key }) => key));
+    const referencedPaths = collectReferencedPackageKeyPaths();
+
+    const unused = flattenKeys(agentreUiResources.en).filter((key) => {
+      if (isPackageKeyReferenced(key, staticKeys, referencedPaths)) {
+        return false;
+      }
+      // 复数键：bundle 里是 `x_one` / `x_other`，代码里调的是 base `x`。
+      const base = key.replace(/_(?:one|other)$/, "");
+      return (
+        base === key ||
+        !isPackageKeyReferenced(base, staticKeys, referencedPaths)
+      );
+    });
+
+    expect(
+      unused,
+      "这些 key 在包内与宿主都没有读者，删掉它们，或把「哪段代码在拼」写进白名单",
+    ).toEqual([]);
   });
 });
 

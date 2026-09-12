@@ -36,7 +36,7 @@ type BundleItems struct {
 
 // BundleLLMProvider 一条 LLM 供应商记录（新 1→N 形状）。
 //
-// 单模型投影已移除：Model / MaxOutput / ContextWindow 不再出现在 Provider 层，
+// Provider 层不带单模型投影（Model / MaxOutput / ContextWindow），
 // 改由 Models 子列表逐条携带稳定 ModelKey、ModelID 与 token 元数据；DefaultModelKey
 // 指回 Provider 默认启用的子模型。APIKey 只在 includeSecrets 时写入。
 type BundleLLMProvider struct {
@@ -67,8 +67,7 @@ type BundleLLMProviderModel struct {
 // ModelTarget 用 LLMProviderKey + LLMModelKey 两个稳定字符串键表达（两者都空 =
 // native；ProviderKey 非空且 ModelKey 空 = provider-default；两者都非空 = fixed-model），
 // 与任务 3 的 agent_backend_entity 同形。ModelRoutes 是类型化的 Claude Tier Route
-// target 对象（key = OPUS/SONNET/HAIKU），不再是原始 JSON 字符串；预发布 bundle
-// 直接切换到新形状，不保留 string 旧 fixture 的兼容解析。
+// target 对象（key = OPUS/SONNET/HAIKU），不接受原始 JSON 字符串形态。
 type BundleAgentBackend struct {
 	ExportKey      string `json:"exportKey"`
 	Type           string `json:"type"`

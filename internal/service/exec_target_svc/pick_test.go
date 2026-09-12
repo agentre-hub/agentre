@@ -75,7 +75,7 @@ func setupPickExecTargetTest(t *testing.T) (context.Context, *pickExecTargetMock
 
 	// R14 顺序解析的默认宽松桩：这批既有测试不关心「本端覆盖 / 自己提前」，默认
 	// 无覆盖、无本机指纹。AnyTimes 宽松桩注册在前，具体测试不得对同一方法再叠加
-	// 精确期望（gomock 永远先匹配 AnyTimes）——R14 自身的用例在 exec_target_order_test.go
+	// 精确期望（gomock 永远先匹配 AnyTimes）——R14 自身的用例
 	// 用不带这些宽松桩的专用环境。
 	m.execTargetOverride.EXPECT().Get(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	m.remoteDevice.EXPECT().DeviceFingerprint().Return(devicefp.Carrier(""), nil).AnyTimes()

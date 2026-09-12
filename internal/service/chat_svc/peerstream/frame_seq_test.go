@@ -610,7 +610,7 @@ func TestPullPeerSession_GivenFramePublishedLive_ThenItsCreatetimeSurvivesHostRe
 }
 
 // createtimeBySeq 把一页补齐摊成「seq → 时刻」。
-func createtimeBySeq(t *testing.T, notifications []wire.JournaledNotification) map[int64]int64 {
+func createtimeBySeq(t *testing.T, notifications []wire.DurableNotification) map[int64]int64 {
 	t.Helper()
 	out := make(map[int64]int64, len(notifications))
 	for _, notification := range notifications {

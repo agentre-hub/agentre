@@ -74,7 +74,3 @@ export const useSessionMetaStore = create<State & Actions>((set) => ({
     }),
   __reset: () => set({ metas: new Map() }),
 }));
-
-export function selectSessionMeta(sessionId: number) {
-  return (s: State): SessionMeta | null => s.metas.get(sessionId) ?? null;
-}

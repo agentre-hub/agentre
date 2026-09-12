@@ -10,12 +10,8 @@ import (
 )
 
 // 墓碑不带正文。Payload 少了 omitempty,json.RawMessage 的零值会编成 JSON `null`,
-// 而 null 不是对象 —— server 的 ValidatePayload 拿 root.(map[string]any) 判,直接
-// ErrPayloadNotObject 整批拒(30501)。后果不是「这一条没上去」:出站队列按批推进,
-// 一次删除就把它**永久堵死**。
-//
-// 这条性质从前只活在桌面端一份私有结构体的注释里,而服务端那份同名结构没有
-// omitempty。两份合成一份时照搬哪一边,决定了这个坑装不装回来。
+// 而 null 不是对象 —— server 的 GuardPayload 判 ErrPayloadNotObject,把这一条拒掉,
+// 这次删除就传不到别的设备。
 func TestPushItem_GivenATombstone_ThenThePayloadKeyIsAbsentNotNull(t *testing.T) {
 	t.Parallel()
 

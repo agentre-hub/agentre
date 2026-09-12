@@ -161,7 +161,7 @@ func (cliProber) Run(ctx context.Context, b *agent_backend_entity.AgentBackend, 
 //   - provider 必须存在且 active（仿 builtinProber 的校验）；
 //   - 物化 provider 扩展（piagent.MaterializeProviderExtension，与 chat run 同源）；
 //   - env 在 buildPiAgentEnv 产出的 base 之上叠加 AGENTRE_PI_API_KEY_*；
-//   - --model 覆盖为 agentre-<key>/<model>（盖掉 buildPiAgentProbeModel 的 ""）。
+//   - --model 覆盖为 agentre-<key>/<model>（盖掉默认空串）。
 //
 // 未绑定供应商的 piagent 保持现状：原样返回入参，不注入任何东西。
 func buildPiAgentProviderProbe(ctx context.Context, b *agent_backend_entity.AgentBackend, env map[string]string, model string) (extensions []string, envOut map[string]string, modelOut string, err error) {
@@ -225,10 +225,6 @@ func effectiveLLMForProbe(
 	}), nil
 }
 
-func buildPiAgentProbeModel(*agent_backend_entity.AgentBackend) string {
-	return ""
-}
-
 // resolveCLIProbeModel 选 Test 连通性下发给 CLI 的模型,与 chat-path
 // claudecode/session.go::ccBuildClientOpts 同优先级,避免 Test 与实际 chat run 漂移
 // (agent-backend.md §2.3 不变量):provider/gateway 模型(deps.Model) → claudecode 后端
@@ -237,7 +233,7 @@ func buildPiAgentProbeModel(*agent_backend_entity.AgentBackend) string {
 // agentre-<key>/<model>。
 func resolveCLIProbeModel(b *agent_backend_entity.AgentBackend, deps ProbeDeps) string {
 	if b.IsPiAgent() {
-		return buildPiAgentProbeModel(b)
+		return ""
 	}
 	if m := strings.TrimSpace(deps.Model); m != "" {
 		return m

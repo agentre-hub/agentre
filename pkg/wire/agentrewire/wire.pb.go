@@ -4554,11 +4554,11 @@ func (x *SessionPullRequest) GetLimit() int32 {
 }
 
 type SessionPullResponse struct {
-	state         protoimpl.MessageState   `protogen:"open.v1"`
-	Notifications []*JournaledNotification `protobuf:"bytes,1,rep,name=notifications,proto3" json:"notifications,omitempty"`
-	Cursor        int64                    `protobuf:"varint,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
-	HasMore       bool                     `protobuf:"varint,3,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
-	OldestSeq     int64                    `protobuf:"varint,4,opt,name=oldest_seq,json=oldestSeq,proto3" json:"oldest_seq,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Notifications []*DurableNotification `protobuf:"bytes,1,rep,name=notifications,proto3" json:"notifications,omitempty"`
+	Cursor        int64                  `protobuf:"varint,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	HasMore       bool                   `protobuf:"varint,3,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	OldestSeq     int64                  `protobuf:"varint,4,opt,name=oldest_seq,json=oldestSeq,proto3" json:"oldest_seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4593,7 +4593,7 @@ func (*SessionPullResponse) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{62}
 }
 
-func (x *SessionPullResponse) GetNotifications() []*JournaledNotification {
+func (x *SessionPullResponse) GetNotifications() []*DurableNotification {
 	if x != nil {
 		return x.Notifications
 	}
@@ -4621,12 +4621,12 @@ func (x *SessionPullResponse) GetOldestSeq() int64 {
 	return 0
 }
 
-type JournaledNotification struct {
+type DurableNotification struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Seq     int64                  `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
 	Payload *RpcNotification       `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
 	// When this frame happened, by the origin's clock (Unix ms), read straight
-	// off the journal row that recorded it. It rides on the carrier rather than
+	// off the transcript row that recorded it. It rides on the carrier rather than
 	// inside RpcNotification so replay never has to decode and re-encode a
 	// payload just to stamp it.
 	//
@@ -4642,20 +4642,20 @@ type JournaledNotification struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *JournaledNotification) Reset() {
-	*x = JournaledNotification{}
+func (x *DurableNotification) Reset() {
+	*x = DurableNotification{}
 	mi := &file_agentre_wire_wire_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *JournaledNotification) String() string {
+func (x *DurableNotification) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*JournaledNotification) ProtoMessage() {}
+func (*DurableNotification) ProtoMessage() {}
 
-func (x *JournaledNotification) ProtoReflect() protoreflect.Message {
+func (x *DurableNotification) ProtoReflect() protoreflect.Message {
 	mi := &file_agentre_wire_wire_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4667,26 +4667,26 @@ func (x *JournaledNotification) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use JournaledNotification.ProtoReflect.Descriptor instead.
-func (*JournaledNotification) Descriptor() ([]byte, []int) {
+// Deprecated: Use DurableNotification.ProtoReflect.Descriptor instead.
+func (*DurableNotification) Descriptor() ([]byte, []int) {
 	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{63}
 }
 
-func (x *JournaledNotification) GetSeq() int64 {
+func (x *DurableNotification) GetSeq() int64 {
 	if x != nil {
 		return x.Seq
 	}
 	return 0
 }
 
-func (x *JournaledNotification) GetPayload() *RpcNotification {
+func (x *DurableNotification) GetPayload() *RpcNotification {
 	if x != nil {
 		return x.Payload
 	}
 	return nil
 }
 
-func (x *JournaledNotification) GetCreatetime() int64 {
+func (x *DurableNotification) GetCreatetime() int64 {
 	if x != nil {
 		return x.Createtime
 	}
@@ -10856,8 +10856,8 @@ func (x *TranscriptImportTurnsResponse) GetHasMore() bool {
 }
 
 // transcriptimport.execute runs the import on the machine that holds the
-// transcript: it writes the session row and appends the replayed turns to the
-// notification journal, so an ordinary SESSION_LIST / SESSION_PULL serves the
+// transcript: it writes the session row and the replayed turns into its
+// transcript, so an ordinary SESSION_LIST / SESSION_PULL serves the
 // imported session like any other. agentre-server never owns sessions, it
 // mirrors them — so importing from the web console has to happen here.
 //
@@ -15406,13 +15406,13 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x12AccountSyncVersion\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\"\x16\n" +
 	"\x14AccountMirrorChanged\"\x17\n" +
-	"\x15AccountDevicePresence\"\xbe\x01\n" +
+	"\x15AccountDevicePresence\"\xa4\x01\n" +
 	"\x12AuthAccountRequest\x12\x1e\n" +
 	"\n" +
 	"credential\x18\x01 \x01(\tR\n" +
 	"credential\x12)\n" +
 	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12C\n" +
-	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersionJ\x04\b\x02\x10\x03R\x12device_fingerprint\"\xb1\x02\n" +
+	"\x1emin_supported_protocol_version\x18\x04 \x01(\tR\x1bminSupportedProtocolVersion\"\xb1\x02\n" +
 	"\x13AuthAccountResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12#\n" +
 	"\rinstance_uuid\x18\x02 \x01(\tR\finstanceUuid\x12)\n" +
@@ -15659,14 +15659,14 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10peer_fingerprint\x18\x02 \x01(\tR\x0fpeerFingerprint\x12\x16\n" +
 	"\x06cursor\x18\x03 \x01(\x03R\x06cursor\x12\x14\n" +
-	"\x05limit\x18\x04 \x01(\x05R\x05limit\"\xb2\x01\n" +
-	"\x13SessionPullResponse\x12I\n" +
-	"\rnotifications\x18\x01 \x03(\v2#.agentre.wire.JournaledNotificationR\rnotifications\x12\x16\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\"\xb0\x01\n" +
+	"\x13SessionPullResponse\x12G\n" +
+	"\rnotifications\x18\x01 \x03(\v2!.agentre.wire.DurableNotificationR\rnotifications\x12\x16\n" +
 	"\x06cursor\x18\x02 \x01(\x03R\x06cursor\x12\x19\n" +
 	"\bhas_more\x18\x03 \x01(\bR\ahasMore\x12\x1d\n" +
 	"\n" +
-	"oldest_seq\x18\x04 \x01(\x03R\toldestSeq\"\x82\x01\n" +
-	"\x15JournaledNotification\x12\x10\n" +
+	"oldest_seq\x18\x04 \x01(\x03R\toldestSeq\"\x80\x01\n" +
+	"\x13DurableNotification\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x127\n" +
 	"\apayload\x18\x02 \x01(\v2\x1d.agentre.wire.RpcNotificationR\apayload\x12\x1e\n" +
 	"\n" +
@@ -16604,7 +16604,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"2AGENTRED_SELF_UPDATE_REJECT_REASON_DOWNLOAD_FAILED\x10\x05:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
-	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.5.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.1.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once
@@ -16686,7 +16686,7 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	(*SessionAttachResponse)(nil),              // 62: agentre.wire.SessionAttachResponse
 	(*SessionPullRequest)(nil),                 // 63: agentre.wire.SessionPullRequest
 	(*SessionPullResponse)(nil),                // 64: agentre.wire.SessionPullResponse
-	(*JournaledNotification)(nil),              // 65: agentre.wire.JournaledNotification
+	(*DurableNotification)(nil),                // 65: agentre.wire.DurableNotification
 	(*SessionPendingWaitersRequest)(nil),       // 66: agentre.wire.SessionPendingWaitersRequest
 	(*SessionPendingWaitersResponse)(nil),      // 67: agentre.wire.SessionPendingWaitersResponse
 	(*PendingToolPermission)(nil),              // 68: agentre.wire.PendingToolPermission
@@ -16888,8 +16888,8 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	51,  // 32: agentre.wire.SkillsListResponse.packs:type_name -> agentre.wire.InstalledSkillPack
 	57,  // 33: agentre.wire.SessionListResponse.sessions:type_name -> agentre.wire.SessionSummary
 	59,  // 34: agentre.wire.ActivityRollupResponse.buckets:type_name -> agentre.wire.ActivityDailyBucket
-	65,  // 35: agentre.wire.SessionPullResponse.notifications:type_name -> agentre.wire.JournaledNotification
-	4,   // 36: agentre.wire.JournaledNotification.payload:type_name -> agentre.wire.RpcNotification
+	65,  // 35: agentre.wire.SessionPullResponse.notifications:type_name -> agentre.wire.DurableNotification
+	4,   // 36: agentre.wire.DurableNotification.payload:type_name -> agentre.wire.RpcNotification
 	68,  // 37: agentre.wire.SessionPendingWaitersResponse.tool_permissions:type_name -> agentre.wire.PendingToolPermission
 	69,  // 38: agentre.wire.SessionPendingWaitersResponse.ask_user_questions:type_name -> agentre.wire.PendingAskUserQuestion
 	183, // 39: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion

@@ -81,7 +81,7 @@ export type TranscriptRenderContextValue = {
 export const TranscriptRenderContext =
   React.createContext<TranscriptRenderContextValue | null>(null);
 
-// ─── 消息 chrome 组件(自 chat.tsx 平移)──────────────────────────────────────
+// ─── 消息 chrome 组件──────────────────────────────────────
 
 function formatHHmm(ms: number): string {
   if (!ms) return "";
@@ -296,7 +296,7 @@ function MessageMeta({
     <div className="flex flex-wrap items-center gap-1.5">
       {/* 宿主(SaaS 前端等)不保证树上有 TooltipProvider,radix-ui 1.4 的 Root
           没有祖先 Provider 会在 render 阶段直接抛错,所以这里自带一份。
-          delayDuration 取 200ms,与桌面端 chat.tsx 外层 Provider 一致。 */}
+          delayDuration 取 200ms,与桌面端转录区外层 Provider 一致。 */}
       <TooltipProvider delayDuration={200}>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -989,7 +989,7 @@ export const TranscriptRowView = React.memo(function TranscriptRowView({
     isAssistant && row.isLastOfMessage
       ? extractAssistantOutputText(m.blocks ?? [], liveBlocks ?? [], liveTail)
       : "";
-  // live 行 = 仍在流式的那条消息的末行(chat.tsx 只给这一行喂 live* 内容)。
+  // live 行 = 仍在流式的那条消息的末行(宿主只给这一行喂 live* 内容)。
   // 尾部的活动块据此判「此刻正在跑」:自动展开 + 实时尾巴,落定后自动收起。
   const isLiveTailRow =
     row.isLastOfMessage && (liveBlocks !== undefined || liveTail.length > 0);

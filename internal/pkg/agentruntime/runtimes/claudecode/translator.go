@@ -92,8 +92,7 @@ func translate(ev claudecode.Event) (events []agentruntime.Event, usage *provide
 		// R2:pkg/claudecode 侧(parseAssistantContentWithUsage)是这条不变量
 		// (ParentToolUseID != "" && Model != "")的唯一生产者,已经保证只在两者都
 		// 非空时才产出这个 Kind(见 pkg/claudecode/session_test.go 的覆盖)。
-		// 同进程内不再重复判空——wrap-up 复审第三轮 Finding 2 判定此处原有的
-		// 防御式二次判空是与生产者重复的冗余守卫,已删除。
+		// 同进程内不重复判空。
 		events = append(events, agentruntime.SubagentModel{ToolCallID: ev.ParentToolUseID, Model: ev.Model})
 	case claudecode.EventError:
 		if ev.Err != nil {

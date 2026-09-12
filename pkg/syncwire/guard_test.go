@@ -80,8 +80,7 @@ func TestGuardPayload_RejectsNonObject(t *testing.T) {
 	assert.Error(t, syncwire.GuardPayload("", []byte(`{`)))
 }
 
-// TestGuardPayload_TheSharedVectors 这一组向量从前在桌面端与 server 各有一份**抄本**,
-// 靠人肉对齐;现在守卫本身住在这个共享 module 里,这张表就是两个宿主唯一的那一份。
+// TestGuardPayload_TheSharedVectors 这张表是两个宿主唯一的那一份测试向量。
 //
 // 最后一条是刻意的**反向**断言：env_json 是用户自填的透传环境变量表，按设计随
 // backend 明文过机，守卫不看 JSON 字符串内部。守卫的注释不承诺它会被过滤，这条测试

@@ -24,8 +24,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcriptimport"
 )
 
-//go:generate mockgen -source svc.go -destination mock_chat_import_svc/mock_chat_import_svc.go
-
 // ChatImportSvc 导入本地会话的服务契约。
 type ChatImportSvc interface {
 	// ListCandidates 列出某台设备上可导入的候选,按最后活动时间倒序。
@@ -110,14 +108,6 @@ var defaultImpl ChatImportSvc = newSvc()
 
 // Default 返回默认实现。
 func Default() ChatImportSvc { return defaultImpl }
-
-// Register 替换默认实现(供 e2e / 上层组合根)。
-func Register(impl ChatImportSvc) {
-	if impl == nil {
-		return
-	}
-	defaultImpl = impl
-}
 
 // dirExists 回答「这个工作目录还在不在」。不存在 → 导入降级为只读(spec 决策 16)。
 func dirExists(path string) bool {

@@ -12,8 +12,8 @@ import (
 //
 // SkillsJSON 是这一执行目标自己的技能授权：每个目标各自持有一份，
 // 发现从这一档所在的机器发起（本地进程内调 CLI / 远端走 daemon skills.list），
-// 不与列表里别的档合并、不做并集。存放位置从 agents.skills_json 下沉到这里；
-// GetSkills / SetSkills / GetEnabledPackIDs / SkillPackEnabled 随字段一起搬过来。
+// 不与列表里别的档合并、不做并集。GetSkills / SetSkills / GetEnabledPackIDs /
+// SkillPackEnabled 都挂在这里。
 type AgentExecTarget struct {
 	ID             int64  `gorm:"column:id;primaryKey;autoIncrement"`
 	AgentID        int64  `gorm:"column:agent_id;type:bigint;not null"`

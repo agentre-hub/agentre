@@ -202,7 +202,7 @@ func (s *chatSvc) failSessionsNotLiveOnDaemon(ctx context.Context, all, live []i
 // watchCatchUpTurns 给一条待补齐的会话接上轮次消费方(与自主续轮同一条通道:
 // driveAutonomousTurn 已经会把一轮内容落成消息)。
 //
-// 两者**不是**同一种东西,这一点曾经写错过:自主续轮恒是一轮没有 user 行的 assistant,
+// 两者**不是**同一种东西:自主续轮恒是一轮没有 user 行的 assistant,
 // 而补齐重放的一轮既可能带着发起方标记(R18,要落用户行),也可能正是本端自己派发过、
 // 本地已经建了一行 assistant 的那一轮(要续写那一行,见 adoptInFlightAssistant)。
 // 消费方据 Trigger 与本地状态分路,判据在 spec 2026-09-07「补齐与本地在飞的那一轮」。

@@ -40,12 +40,10 @@
       "name": "名字",
       "description": "简介",
       "color": "颜色",
-      "icon": "图标",
       "parent": "父项目",
       "noParent": "无（挂在根上）"
     },
     "identity": {
-      "glyph": "图标与颜色",
       "glyphAria": "改「{{name}}」的图标与颜色",
       "namePlaceholder": "项目名字",
       "descriptionPlaceholder": "简介（选填）",
@@ -56,14 +54,12 @@
     "members": {
       "empty": "这个项目还没有成员。",
       "noCandidates": "你手上的 Agent 都已经在这个项目里了。",
-      "add": "把 {{name}} 加进来",
       "remove": "移除 {{name}}",
       "inherited": "继承",
       "inheritedFrom": "继承自 {{name}}",
       "addTitle": "添加成员",
       "searchPlaceholder": "搜索 Agent…",
-      "noMatch": "没有匹配的 Agent。",
-      "count": "{{count}} 位"
+      "noMatch": "没有匹配的 Agent。"
     },
     "paths": {
       "noPath": "还没配路径",
@@ -103,7 +99,6 @@
       "retryPath": "重试写路径",
       "keepAnyway": "先这样",
       "localPath": "本机上的路径",
-      "localPathRequired": "这一端必须填。",
       "browse": "浏览…",
       "detectingGit": "正在看这是不是一个 git 仓库…",
       "gitDetected": "git 仓库 · {{branch}}",

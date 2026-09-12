@@ -82,7 +82,7 @@ func TestStart_GivenAccountChannelUnreachable_KeepsPollingAndLosesNothing(t *tes
 }
 
 // TestStart_GivenNoAccountChannelAtAll_KeepsPollingAndLosesNothing （c）把通道整个
-// 关掉：出入口根本不提供这条通道（单机构建、旧版 server、部署时关掉）。这是完整
+// 关掉：出入口根本不提供这条通道（单机构建、部署时关掉）。这是完整
 // 可用的形态，不是降级故障——引擎一次拨号都不该发起，功能一条都不该少。
 func TestStart_GivenNoAccountChannelAtAll_KeepsPollingAndLosesNothing(t *testing.T) {
 	h := newHarness(t, true)

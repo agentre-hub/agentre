@@ -34,7 +34,7 @@ type autoTurn struct {
 	// events 这一轮的事件流。同样走 orderedpipe,理由同 autoSession.out。
 	events *orderedpipe.Pipe[agentruntime.Event]
 	result *agentruntime.RunResult
-	// catchUp 这一轮是**补齐合成**的:内容来自 daemon 通知日志的重放,不是 daemon
+	// catchUp 这一轮是**补齐合成**的:内容来自 daemon 持久帧的重放,不是 daemon
 	// 宣告的自主续轮。两者对上层是同一种东西(一轮没有 user 行的 assistant 轮),
 	// 差别只在被别的一轮顶掉时该不该算作「被打断」——补齐轮的内容按重放区间天然
 	// 完整,自主续轮被顶掉则是真的没跑完。

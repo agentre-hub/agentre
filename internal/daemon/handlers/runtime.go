@@ -53,7 +53,7 @@ type RuntimeDeps struct {
 	// 仍指向已死的旧连接,通知就再也发不出去了(见 daemon.bindConn 注释)。
 	NotifyFor func(peerFingerprint devicefp.Initiator) NotifierPort
 	// Transcript 是转录的写入口(消息行 + 块行),Daemon 级(每个 daemon 一份),
-	// 不随连接生灭。它取代了从前的通知日志(决策 1)。
+	// 不随连接生灭。
 	Transcript TranscriptPort
 	// Sessions 是会话生命周期的写入口,同样 Daemon 级。它落的那一行是重连客户端
 	// 拿会话清单的唯一来源,也是 daemon 启动时把非终态会话标成中断(R10)的对象。
@@ -343,8 +343,8 @@ func (h *RuntimeHandlers) Capabilities(_ context.Context, req *agentrewire.Runti
 
 func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeRunRequest) (*agentrewire.RuntimeRunResponse, error) {
 	// 身份键收缩到 conversation_id 之后,daemon_sessions 的主键就是它:线上给来的
-	// 空串是一个人人都写得进的合法主键,每个这么发的对端都会落在同一行上,通知日志
-	// 也共用 ('' , seq) 那一串序号。与另外八个按对话寻址的处理器一样,在边界上拒掉。
+	// 空串是一个人人都写得进的合法主键,每个这么发的对端都会落在同一行上,转录
+	// 也共用同一串帧编号。与另外八个按对话寻址的处理器一样,在边界上拒掉。
 	if err := ErrInvalidConversationID(request.GetConversationId()); err != nil {
 		return nil, err
 	}
@@ -366,7 +366,7 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	// 一字不改就同时拿到它。
 	//
 	// 缺省**不**视为「用户选了默认」(硬不变量 6)。受众不是「老桌面端」:方法集变更
-	// 已按 wireversion 的既有守卫把协议窗口收成单点 0.3.0,跨代对端在握手期就被拒,
+	// 已按 wireversion 的既有守卫把协议窗口收成单点(MinSupported == Protocol),跨代对端在握手期就被拒,
 	// 根本走不到这里。留空的是**同代**调用方 —— 没有会话级覆盖的那些轮次(绝大多数),
 	// 以及尚未接线该字段的浏览器派发;把它们的缺省读成空档,等于让这些轮次集体丢掉
 	// 后端配置。
@@ -1040,9 +1040,7 @@ func (h *RuntimeHandlers) forwardAutonomousTurn(em *sessionEmitter, at agentrunt
 
 // sessionEmitter 是某个 (对端, 会话) 的通知出口:把一帧推给此刻活着的那条连接。
 //
-// 它**不再落库**。从前每一帧都先写进通知日志拿一个 seq 再推出去,于是同一段内容在
-// 这台机器上存了两份(块 + 事件级日志)、编号也有两套。现在落库的是块(见
-// runtime_transcript.go),这个出口只负责推。
+// 它**不落库**:落库的是块(见 runtime_transcript.go),这个出口只负责推。
 //
 // 两级帧都从这里出去(规格 2026-09-05「两级帧与补齐」):
 //   - **预览帧**(fanout / forwardAutonomousTurn 逐条推的那些):即时呈现用,不带
@@ -1084,8 +1082,7 @@ func (h *RuntimeHandlers) newEmitterFor(ctx context.Context, conversationID stri
 		ctx:       context.WithoutCancel(ctx),
 		notifyFor: h.deps.NotifyFor,
 		peer:      peer,
-		// daemon_sessions.peer_session_id 本来就是 TEXT:对话身份原样落进去,
-		// 从前那一圈 int64↔string 往返随之消失。
+		// 会话表按 conversation_id 认人,peerSessionID 就是对话身份本身。
 		peerSessionID:  conversationID,
 		conversationID: conversationID,
 		rid:            runtimeSessionID(conversationID),

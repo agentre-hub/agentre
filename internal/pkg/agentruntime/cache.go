@@ -204,8 +204,7 @@ type CLISessionInfo struct {
 
 // Snapshot 交回池内每条会话的描述,顺序按 LRU 的新到旧。
 //
-// 排查「机器上怎么多了一堆 CLI 进程」「这个会话是不是卡住了」此前只能翻日志:池
-// 本身对外一个字都不说。
+// 排查「机器上怎么多了一堆 CLI 进程」「这个会话是不是卡住了」靠它,不必翻日志。
 func (p *CLISessionPool) Snapshot() []CLISessionInfo {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -448,12 +447,11 @@ func setCloseGraceForTest(d time.Duration) func() {
 // closeWithTimeout 关掉一个被 evict 的 session,优雅关闭救不回来时升级到硬杀。
 //
 // 优雅关闭对卡死的 CLI 无效:claudecode.Session.Close 是「关 stdin → 等子进程退出」,
-// 而卡在 MCP 初始化里的 CLI 根本不读 stdin,这一步永不返回 —— 从前这里传的是
-// context.Background(),于是 goroutine 连同它的整棵子进程树被永久留下。宽限期一到就
-// 调 Kill(整组 SIGKILL):进程死亡后 Close 那一路自然收尾。
+// 而卡在 MCP 初始化里的 CLI 根本不读 stdin,这一步永不返回 —— 不设宽限期的话,
+// goroutine 连同它的整棵子进程树会被永久留下。宽限期一到就调 Kill(整组 SIGKILL):
+// 进程死亡后 Close 那一路自然收尾。
 //
-// 不实现 ctxKiller 的实现体(测试替身、纯内存 Runner)退化成原来的行为:等 Close 自己
-// 返回,不做别的。
+// 不实现 ctxKiller 的实现体(测试替身、纯内存 Runner)只等 Close 自己返回,不做别的。
 func closeWithTimeout(c ctxCloser) {
 	done := make(chan struct{})
 	go func() {
@@ -472,52 +470,5 @@ func closeWithTimeout(c ctxCloser) {
 	case <-timer.C:
 		_ = killer.Kill(context.Background())
 		<-done
-	}
-}
-
-// RunnerCache 按 (backendID, updatetime) 缓存 cliagent.Runner-likes。
-// updatetime 变化 = entity 重配；老 Runner 关掉重建。
-type RunnerCache struct {
-	mu      sync.Mutex
-	entries map[int64]*runnerEntry
-}
-
-type runnerEntry struct {
-	updatetime int64
-	runner     ctxCloser
-}
-
-// NewRunnerCache 构造空缓存。
-func NewRunnerCache() *RunnerCache { return &RunnerCache{entries: map[int64]*runnerEntry{}} }
-
-// GetOrCreate 命中则返回；updatetime 变了则关旧建新。
-// build 由调用方提供——claudecode.Runner 和 codex.Runner 类型不同，无法在缓存层抽象。
-func (c *RunnerCache) GetOrCreate(backendID, updatetime int64, build func() (ctxCloser, error)) (ctxCloser, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if e, ok := c.entries[backendID]; ok {
-		if e.updatetime == updatetime {
-			return e.runner, nil
-		}
-		go closeWithTimeout(e.runner)
-	}
-	r, err := build()
-	if err != nil {
-		return nil, err
-	}
-	c.entries[backendID] = &runnerEntry{updatetime: updatetime, runner: r}
-	return r, nil
-}
-
-// Drop 移除并关闭某 backend 的 Runner。
-func (c *RunnerCache) Drop(backendID int64) {
-	c.mu.Lock()
-	e, ok := c.entries[backendID]
-	if ok {
-		delete(c.entries, backendID)
-	}
-	c.mu.Unlock()
-	if ok {
-		go closeWithTimeout(e.runner)
 	}
 }

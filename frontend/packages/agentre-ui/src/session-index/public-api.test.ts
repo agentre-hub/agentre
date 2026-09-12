@@ -8,16 +8,16 @@ import * as pkg from "../index";
  * 桌面端经 workspace）根本看不见 —— 而那个失败要等到对面 import 时才炸。
  *
  * 索引这一组是跨仓契约（规格 2026-08-18「共享包承载什么」），所以钉在这里。
+ *
+ * 0.1.0 收窄：`IndexGroupHeader` / `groupActionRevealClassName` /
+ * `groupActionRevealTouchClassName` / `groupGlyphClassName` 已从 barrel 摘除
+ * （实现仍在各自模块，只是不再是对外契约）。
  */
 describe("会话索引的对外契约", () => {
   it("投影与呈现件都从 barrel 出得去", () => {
     const missing = [
       "buildAxisGroups",
       "AxisPicker",
-      "IndexGroupHeader",
-      "groupActionRevealClassName",
-      "groupActionRevealTouchClassName",
-      "groupGlyphClassName",
       "ProjectGroupHeader",
       "AgentGroupHeader",
       "MachineGroupHeader",

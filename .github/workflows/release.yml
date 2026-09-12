@@ -100,18 +100,25 @@ jobs:
           mkdir -m 700 "$AGENTRE_KEYCHAIN_DIR"
           echo "AGENTRE_KEYCHAIN_DIR=$AGENTRE_KEYCHAIN_DIR" >> "$GITHUB_ENV"
 
+      # 注入二进制的版本号不带 tag 的 "v"：make build、wails.json 的 productVersion 与
+      # 前端 package.json 的 version 都是无前缀形式，注入的必须与它们同形。展示层的 "v"
+      # 由前端补（update-panel / agentred-version）。
+      - name: Normalize app version
+        shell: bash
+        run: echo "APP_VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
       - name: Build desktop app
         if: matrix.goos != 'windows'
         run: |
           if [ -n "${{ matrix.extra_tags }}" ]; then
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags "${{ matrix.extra_tags }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags "${{ matrix.extra_tags }}"
           else
-            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
+            wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
           fi
 
       - name: Build desktop app (Windows)
         if: matrix.goos == 'windows'
-        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
+        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=$env:APP_VERSION -X github.com/agentre-hub/agentre/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}"
 
       - name: Import Apple certificate
         if: matrix.goos == 'darwin'

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 16 480 480" role="img" aria-labelledby="title">
+  <title id="title">Agentre</title>
+  <defs>
+    <linearGradient id="stroke" x1="86" y1="472" x2="426" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3C77B8"/>
+      <stop offset=".55" stop-color="#5FA3DC"/>
+      <stop offset="1" stop-color="#7CC0EC"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#stroke)" stroke-width="33" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M93 391 218 143M419 391 294 143"/>
+    <circle cx="256" cy="87" r="49"/>
+    <circle cx="86" cy="425" r="47"/>
+    <circle cx="426" cy="425" r="47"/>
+    <path d="M139 312h181"/>
+    <path d="m303 279 33 33-33 33"/>
+  </g>
+  <circle cx="86" cy="425" r="18" fill="#1FC4DC"/>
+  <circle cx="426" cy="425" r="18" fill="#A66CE8"/>
+</svg>

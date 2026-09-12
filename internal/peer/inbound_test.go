@@ -285,7 +285,7 @@ func TestInbound_GivenRelayReconnectAndShutdown_WhenAuthorizedPeerCallsCapabilit
 // Then 删掉的是**这台电脑自己那条 chat_sessions**(用户的主副本,不是一份执行日志,
 // 规格决策 16),重复删除仍然成功,而点名别的机器时一行都不许动。
 //
-// 桌面端这一侧单独立此回归:agentred 上删掉的是会话行与通知日志,这里删掉的是用户
+// 桌面端这一侧单独立此回归:agentred 上删掉的是会话行与转录,这里删掉的是用户
 // 本机的对话本体 —— 同一个 wire 方法在两种端上破坏力完全不同,agentred 那边的用例
 // 覆盖不到这一份。
 func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisComputersOwnCopyIdempotently(t *testing.T) {

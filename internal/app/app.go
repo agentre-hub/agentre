@@ -6,7 +6,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -137,9 +136,9 @@ func (a *App) Startup(ctx context.Context) {
 	a.registerPeerService()
 	// 工作区多端同步的下行轮询（R3：30 秒一轮）。未登录时每一轮都是空操作（R12）。
 	//
-	// 落地什么要喊出来：项目树没有任何推送通道，另一台设备同步过来的项目此前靠
-	// 项目页那条 1 秒轮询才现身，轮询随单一会话索引一起删掉之后就只能干等下一次
-	// 别的交互。emitter 必须在 SyncBoot 之前绑好，否则第一轮下行没有听众。
+	// 落地什么要喊出来：项目树没有任何推送通道，另一台设备同步过来的项目只能靠这里通知
+	// 界面，否则就要干等下一次别的交互。emitter 必须在 SyncBoot 之前绑好，否则第一轮
+	// 下行没有听众。
 	if s := sync_svc.Default(); s != nil {
 		s.SetEmitter(func(kinds []string) {
 			wailsruntime.EventsEmit(a.ctx, sync_svc.AppliedEvent, kinds)
@@ -410,11 +409,6 @@ func (a *App) registerChatService() {
 	hooktool_svc.Default().RegisterDeps(hook_svc.Hook(), agent_repo.Agent(), chat_svc.Chat())
 }
 
-// Greet returns a greeting for the given name.
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
-}
-
 // Info returns app build and runtime metadata.
 func (a *App) Info() AppInfo {
 	info := AppInfo{
@@ -433,13 +427,6 @@ func (a *App) Info() AppInfo {
 	}
 
 	return info
-}
-
-// OpenExternalURL opens url in the user's system browser. The frontend can't use
-// window.open() — Wails's embedded webview silently drops it — so any "open in
-// browser" action from JS must go through this binding.
-func (a *App) OpenExternalURL(url string) {
-	wailsruntime.BrowserOpenURL(a.ctx, url)
 }
 
 // SelectDirectory 弹出系统目录选择器并返回用户选中的绝对路径；用户取消时返回空串。

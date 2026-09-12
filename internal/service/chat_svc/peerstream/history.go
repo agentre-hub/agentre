@@ -223,7 +223,7 @@ func (s *Publisher) PullPeerSession(ctx context.Context, params wire.SessionPull
 		if index < len(publication.createtimes) {
 			createtime = publication.createtimes[index]
 		}
-		out.Notifications = append(out.Notifications, wire.JournaledNotification{
+		out.Notifications = append(out.Notifications, wire.DurableNotification{
 			Seq: frame.Seq, Method: wire.NotifyEvent, Params: &frame, Createtime: createtime,
 		})
 		out.Cursor = frame.Seq

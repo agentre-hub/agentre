@@ -42,9 +42,9 @@ func (*ProjectLocation) TableName() string { return "project_locations" }
 func (p *ProjectLocation) IsActive() bool { return p != nil && p.Status == consts.ACTIVE }
 
 // IsUnresolved 报告这一行的 device_id 缓存是否为空——即本机配对表里当前查不到
-// DeviceFingerprint 那一行（R2b：未配对）。取代原先的 IsLocal()：本表从不存放
-// 本机自己的路径（那住在 projects.path），device_id 降级为缓存后，"是否为空"
-// 问的不再是"是不是本机"，而是"这个指纹本机有没有解析出配对行"。
+// DeviceFingerprint 那一行（R2b：未配对）。本表从不存放本机自己的路径（那住在
+// projects.path），device_id 只是缓存，所以"是否为空"问的不是"是不是本机"，而是
+// "这个指纹本机有没有解析出配对行"。
 func (p *ProjectLocation) IsUnresolved() bool { return p != nil && p.DeviceID == "" }
 
 // Check 字段校验。绝对路径与否、指纹是否必填的检查放这里；外键存在性放 svc 层

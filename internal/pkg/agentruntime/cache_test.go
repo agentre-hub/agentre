@@ -108,42 +108,6 @@ func TestCLISessionPool_PrunesOnlyIdleSessions(t *testing.T) {
 	})
 }
 
-func TestRunnerCache_GetOrCreate(t *testing.T) {
-	c := NewRunnerCache()
-	r1 := newFakeSession("r1")
-	got, err := c.GetOrCreate(7, 100, func() (ctxCloser, error) { return r1, nil })
-	require.NoError(t, err)
-	assert.Same(t, r1, got.(*fakeSession))
-
-	// 同 updatetime → 复用，不调 build。
-	called := false
-	got2, err := c.GetOrCreate(7, 100, func() (ctxCloser, error) {
-		called = true
-		return newFakeSession("never"), nil
-	})
-	require.NoError(t, err)
-	assert.Same(t, r1, got2.(*fakeSession))
-	assert.False(t, called)
-
-	// updatetime 变 → 关旧建新。
-	r2 := newFakeSession("r2")
-	got3, err := c.GetOrCreate(7, 101, func() (ctxCloser, error) { return r2, nil })
-	require.NoError(t, err)
-	assert.Same(t, r2, got3.(*fakeSession))
-	r1.WaitClosed(t)
-	assert.True(t, r1.IsClosed())
-}
-
-func TestRunnerCache_Drop(t *testing.T) {
-	c := NewRunnerCache()
-	r := newFakeSession("r")
-	_, err := c.GetOrCreate(7, 100, func() (ctxCloser, error) { return r, nil })
-	require.NoError(t, err)
-	c.Drop(7)
-	r.WaitClosed(t)
-	assert.True(t, r.IsClosed())
-}
-
 // wedgedSession 模拟「优雅关闭救不回来」的子进程:claudecode.Session.Close 是
 // 「关 stdin → 等子进程退出」,CLI 卡在 MCP 初始化、根本不读 stdin 时它永不返回。
 // 只有硬杀(整组 SIGKILL)能让它收尾 —— Kill 之后 Close 才放行。

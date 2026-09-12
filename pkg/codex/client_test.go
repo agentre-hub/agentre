@@ -896,7 +896,7 @@ func TestClientForkThread(t *testing.T) {
 }
 
 func TestClientRollbackThread(t *testing.T) {
-	// Given a Codex thread with multiple turns.
+	// Given a paginated Codex thread with multiple turns.
 	runner := &fakeAppServerRunner{t: t}
 	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
 		sc := bufio.NewScanner(h.stdinR)
@@ -908,10 +908,21 @@ func TestClientRollbackThread(t *testing.T) {
 		assert.JSONEq(t, `{"threadId":"thread-source","excludeTurns":true,"cwd":"/tmp/work","approvalPolicy":"never"}`, string(resumeReq.Params))
 		respondRPC(h, resumeReq, map[string]any{"thread": map[string]any{"id": "thread-source", "cwd": "/tmp/work"}})
 
-		rollbackReq := readRPCReq(t, sc)
-		assert.Equal(t, "thread/rollback", rollbackReq.Method)
-		assert.JSONEq(t, `{"threadId":"thread-source","numTurns":2}`, string(rollbackReq.Params))
-		respondRPC(h, rollbackReq, map[string]any{
+		listReq := readRPCReq(t, sc)
+		assert.Equal(t, "thread/turns/list", listReq.Method)
+		assert.JSONEq(t, `{"threadId":"thread-source","limit":2,"sortDirection":"desc","itemsView":"summary"}`, string(listReq.Params))
+		respondRPC(h, listReq, map[string]any{
+			"data": []map[string]any{
+				{"id": "turn-newest"},
+				{"id": "turn-boundary"},
+			},
+			"nextCursor": nil,
+		})
+
+		revertReq := readRPCReq(t, sc)
+		assert.Equal(t, "thread/revert", revertReq.Method)
+		assert.JSONEq(t, `{"threadId":"thread-source","beforeTurnId":"turn-boundary"}`, string(revertReq.Params))
+		respondRPC(h, revertReq, map[string]any{
 			"thread": map[string]any{"id": "thread-source", "cwd": "/tmp/work"},
 		})
 	}
@@ -921,14 +932,72 @@ func TestClientRollbackThread(t *testing.T) {
 		WithAppServerRunnerForTesting(runner),
 	)
 
-	// When thread/rollback is called.
+	// When the caller requests the last two turns be removed.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	res, err := client.RollbackThread(ctx, "thread-source", 2)
 
-	// Then the same thread id is retained after the destructive rollback.
+	// Then the paginated history is reverted from the second-newest turn onward.
 	require.NoError(t, err)
 	assert.Equal(t, "thread-source", res.ThreadID)
+}
+
+func TestClientRollbackThreadRejectsInsufficientHistory(t *testing.T) {
+	// Given a paginated Codex thread with fewer turns than the requested rollback count.
+	runner := &fakeAppServerRunner{t: t}
+	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
+		sc := bufio.NewScanner(h.stdinR)
+		respondRPC(h, readRPCReq(t, sc), map[string]any{})
+		_ = readRPCReq(t, sc) // initialized
+
+		respondThreadResume(t, h, sc, `{"threadId":"thread-source","excludeTurns":true,"cwd":"/tmp/work","approvalPolicy":"never"}`, "thread-source")
+		listReq := readRPCReq(t, sc)
+		assert.Equal(t, "thread/turns/list", listReq.Method)
+		respondRPC(h, listReq, map[string]any{
+			"data":       []map[string]any{{"id": "only-turn"}},
+			"nextCursor": nil,
+		})
+	}
+
+	client := New(WithCwd("/tmp/work"), WithAppServerRunnerForTesting(runner))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	res, err := client.RollbackThread(ctx, "thread-source", 2)
+
+	require.ErrorContains(t, err, "cannot revert 2 turns: thread contains 1")
+	assert.Nil(t, res)
+}
+
+func TestSessionRewindToRevertsPaginatedTurns(t *testing.T) {
+	// Given the persistent session used by the runtime resumes a paginated thread.
+	runner := &fakeAppServerRunner{t: t}
+	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
+		sc := bufio.NewScanner(h.stdinR)
+		respondAppServerInit(t, h, sc)
+		respondThreadResume(t, h, sc, `{"threadId":"thread-source","excludeTurns":true,"cwd":"/tmp/work","approvalPolicy":"never"}`, "thread-source")
+
+		listReq := readRPCReq(t, sc)
+		assert.Equal(t, appMethodThreadTurnsList, listReq.Method)
+		respondRPC(h, listReq, map[string]any{"data": []map[string]any{{"id": "turn-boundary"}}})
+
+		revertReq := readRPCReq(t, sc)
+		assert.Equal(t, appMethodThreadRevert, revertReq.Method)
+		assert.JSONEq(t, `{"threadId":"thread-source","beforeTurnId":"turn-boundary"}`, string(revertReq.Params))
+		respondRPC(h, revertReq, map[string]any{"thread": map[string]any{"id": "thread-source"}})
+	}
+
+	client := New(WithCwd("/tmp/work"), WithAppServerRunnerForTesting(runner))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	sess, err := client.OpenSession(ctx, Resume("thread-source"))
+	require.NoError(t, err)
+	defer func() { _ = sess.Close(context.Background()) }()
+
+	threadID, err := sess.RewindTo(ctx, "1")
+
+	require.NoError(t, err)
+	assert.Equal(t, "thread-source", threadID)
 }
 
 func TestClientStream_ErrorsWhenAppServerExitsBeforeTurnCompleted(t *testing.T) {
@@ -1074,13 +1143,14 @@ func TestClientForkThread_ErrorsWhenResponseMissesID(t *testing.T) {
 }
 
 func TestClientRollbackThread_ErrorsWhenResponseMissesID(t *testing.T) {
-	// Given app-server returns an invalid thread/rollback response.
+	// Given app-server returns an invalid thread/revert response.
 	runner := &fakeAppServerRunner{t: t}
 	runner.handler = func(t *testing.T, h *fakeAppServerHandle) {
 		sc := bufio.NewScanner(h.stdinR)
 		respondRPC(h, readRPCReq(t, sc), map[string]any{})
 		_ = readRPCReq(t, sc) // initialized
 		respondRPC(h, readRPCReq(t, sc), map[string]any{"thread": map[string]any{"id": "source"}})
+		respondRPC(h, readRPCReq(t, sc), map[string]any{"data": []map[string]any{{"id": "turn-1"}}})
 		respondRPC(h, readRPCReq(t, sc), map[string]any{"thread": map[string]any{}})
 	}
 
@@ -1088,7 +1158,7 @@ func TestClientRollbackThread_ErrorsWhenResponseMissesID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_, err := client.RollbackThread(ctx, "source", 1)
-	assert.ErrorContains(t, err, "thread/rollback response missing id")
+	assert.ErrorContains(t, err, "thread/revert response missing id")
 }
 
 func TestClientStream_MapsToolLifecycle(t *testing.T) {

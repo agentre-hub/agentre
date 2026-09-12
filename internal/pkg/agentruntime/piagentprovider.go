@@ -46,7 +46,6 @@ func PiAgentProviderEnvKey(providerKey string) string {
 // 或 ModelID 为空返回 error（绑定保存时已拦截，此处兜底）。
 //
 // cfg 是执行侧解析结果（EffectiveLLMConfig v1 seam）：模型 id 取解析出的 ModelID，
-// 不再从 Provider 旧单模型字段读取。
 func PiAgentProviderModelName(cfg *EffectiveLLMConfig) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("agentruntime: effective config is nil")

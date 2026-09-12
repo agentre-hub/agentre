@@ -190,7 +190,7 @@ func TestExecTargetReplace_DroppingATargetDropsItsSkills(t *testing.T) {
 }
 
 // TestFindDerivesBackendFromExecTargets 派生读:Agent 的 AgentBackendID 一律取自
-// 执行目标行(sort_order 最小的那一行),不再读 agents.agent_backend_id 历史列。
+// 执行目标行(sort_order 最小的那一行);agents 表上没有这一列。
 func TestFindDerivesBackendFromExecTargets(t *testing.T) {
 	ctx, mock, repo := setupRepo(t)
 	mock.ExpectQuery("SELECT \\* FROM `agents` WHERE id = \\? AND status = \\?").

@@ -1,10 +1,8 @@
 // Package wirecall 是 agentre wire 协议在**调用侧**的 typed 面:一个 RPC 方法一个
 // 函数,method ID 与请求/响应消息类型的配对在整个工作区里只出现这一次。
 //
-// 从前这份配对散在两个仓库的十几个文件里 —— 桌面端的 13 个 service 包、Wails 绑定
-// 层、两个 internal/pkg 包,以及 agentre-server 的 machineConn,每处各写一份
-// `protorpc.CallMethod(ctx, conn, uint32(agentrewire.RpcMethod_RPC_METHOD_XXX), req,
-// func() *agentrewire.XxxResponse { ... })`。同一对配了好几遍,而两边写得不一样时
+// 各处各写一份 `protorpc.CallMethod(ctx, conn, uint32(agentrewire.RpcMethod_RPC_METHOD_XXX),
+// req, func() *agentrewire.XxxResponse { ... })` 的话,同一对会配好几遍,两边写得不一样时
 // 编译器一句话都不会说。
 //
 // 它刻意只是**一层薄壳**:交回的仍然是 wire 消息,翻成领域类型是各自领域的事。这层

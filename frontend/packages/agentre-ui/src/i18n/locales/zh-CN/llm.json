@@ -1,64 +1,5 @@
 {
-  "engine": {
-    "loading": "加载中…",
-    "actions": {
-      "cancel": "取消",
-      "save": "保存",
-      "edit": "编辑",
-      "enabled": "已启用",
-      "disabled": "已停用"
-    },
-    "providers": {
-      "add": "新增供应商",
-      "test": "测试连接",
-      "discover": "发现模型",
-      "models": "模型",
-      "empty": "尚未配置供应商",
-      "openBackends": "管理 Agent 后端",
-      "noApiKey": "没有 API Key",
-      "toggleModel": "切换 {{name}}",
-      "form": {
-        "ariaLabel": "供应商编辑器",
-        "name": "供应商名称",
-        "type": "供应商类型",
-        "baseUrl": "基础 URL",
-        "apiKey": "API Key"
-      }
-    },
-    "backends": {
-      "add": "新建后端",
-      "scan": "自动识别",
-      "test": "测试后端",
-      "empty": "尚未配置 Agent 后端",
-      "openProviders": "管理 LLM 供应商",
-      "list": "Agent 后端",
-      "cliStatus": {
-        "recognized": "已识别",
-        "path": "走 PATH",
-        "unchecked": "未检测"
-      },
-      "form": {
-        "ariaLabel": "后端编辑器",
-        "name": "后端名称",
-        "type": "后端类型",
-        "providerKey": "供应商 Key",
-        "modelKey": "模型 Key",
-        "cliPath": "CLI 路径"
-      }
-    }
-  },
   "llmProviders": {
-    "actions": {
-      "confirmDelete": "确认删除？",
-      "confirmDeleteNamed": "确认删除 {{name}}",
-      "deleteNamed": "删除 {{name}}",
-      "deleteTitle": "删除（需二次确认）",
-      "editNamed": "编辑 {{name}}",
-      "testCall": "测试调用",
-      "testNamed": "测试 {{name}}",
-      "testTitle": "测试调用（发送 hi）",
-      "testing": "测试中"
-    },
     "defaultSet": {
       "title": "将默认模型设为 {{model}} · {{provider}}",
       "description": "Provider 默认模型改动从下一轮开始生效，所有使用 provider-default 的引用将动态跟随。",
@@ -87,24 +28,16 @@
       "apiKeyPlaceholder": "sk-... 或自托管 token，留空走匿名",
       "baseUrl": "Base URL（可选）",
       "baseUrlHint": "留空走默认：{{url}}",
-      "contextWindow": "上下文窗口",
       "copyProviderKey": "复制 Provider Key",
       "copyProviderKeyDone": "已复制 Provider Key",
       "copyProviderKeyFailed": "复制 Provider Key 失败",
-      "defaultModel": "默认模型",
-      "defaultModelHint": "可手动填写模型 id，或点右侧 ⟳ 拉取供应商列表后下拉选择",
-      "defaultModelNeedKey": "请先填写 API Key 才能拉取模型列表",
       "hideApiKey": "隐藏 API Key",
-      "maxOutput": "最大输出 Token",
       "name": "名称",
       "namePlaceholder": "例如：production / 本地 Ollama",
-      "providerDecides": "由供应商决定",
       "providerKey": "Provider Key",
       "providerKeyHint": "稳定标识符，供 Agent 后端、远端设备引用此供应商使用",
-      "providerKeyPlaceholder": "保存后自动生成",
       "showApiKey": "显示 API Key",
       "type": "类型",
-      "typePlaceholder": "选择供应商类型",
       "models": "模型",
       "modelsDescription": "从远端发现或手动添加要随该供应商一起创建的模型。",
       "fetchModels": "拉取模型",
@@ -118,10 +51,8 @@
     },
     "flash": {
       "created": "已新增供应商 \"{{name}}\"",
-      "deleteFailed": "删除失败：{{message}}",
       "deleted": "已删除供应商 \"{{name}}\"",
       "loadFailed": "加载失败：{{message}}",
-      "saveFailed": "保存失败：{{message}}",
       "testFailed": "测试失败：{{message}}",
       "updated": "已更新供应商 \"{{name}}\"",
       "defaultSet": "已将 {{model}} 设为默认模型",
@@ -164,12 +95,7 @@
       "createSubmit": "创建"
     },
     "models": {
-      "empty": "供应商没有返回任何模型，请手动填写模型 id。",
-      "fetch": "拉取供应商可用模型",
-      "needApiKey": "请先填写 API Key",
-      "noList": "尚未获取模型列表",
-      "placeholder": "例如：claude-opus-4-7 / gpt-4o-mini",
-      "viewList": "查看模型列表"
+      "empty": "供应商没有返回任何模型，请手动填写模型 id。"
     },
     "providerType": {
       "anthropic": {
@@ -188,25 +114,14 @@
     "row": {
       "noApiKey": "未配置 API Key"
     },
-    "table": {
-      "ariaLabel": "LLM 供应商列表",
-      "endpointKey": "Endpoint / Key",
-      "name": "名称",
-      "type": "类型"
-    },
     "test": {
-      "draftFailed": "调用失败",
-      "draftSuccess": "调用成功，已发送 hi 并收到模型响应",
-      "failedTitle": "测试失败",
       "providerFailed": "\"{{name}}\" 连接失败（{{duration}}）：{{message}}",
       "providerSuccess": "\"{{name}}\" 调用成功（{{duration}}），已发送 hi 并收到模型响应",
-      "successTitle": "测试成功",
       "rowSuccess": "模型 {{model}} 调用成功（{{duration}}），已发送 hi 并收到模型响应",
       "rowFailed": "模型 {{model}} 连接失败（{{duration}}）：{{message}}"
     },
     "validation": {
       "apiKeyRequired": "API Key 不能为空",
-      "modelRequired": "请先填写默认模型",
       "nameRequired": "名称不能为空",
       "modelIdRequired": "模型 ID 不能为空",
       "duplicateModelId": "模型 ID {{modelId}} 重复",
@@ -216,8 +131,6 @@
       "ariaLabel": "供应商列表",
       "searchPlaceholder": "筛选供应商…",
       "searchAria": "筛选供应商",
-      "add": "添加供应商",
-      "enabled": "已启用",
       "disabled": "已停用",
       "noMatch": "没有匹配的供应商",
       "modelCount": "{{count}} 个模型"
@@ -231,16 +144,12 @@
       "enableNamed": "启用/停用 {{name}}",
       "enabledShort": "已启用",
       "disabledShort": "已停用",
-      "test": "测试",
       "testNamed": "测试 {{name}}",
       "testTitle": "测试连接（按默认模型发送最小请求）",
-      "editConnection": "编辑连接",
       "editConnectionNamed": "编辑 {{name}} 连接",
       "discover": "发现模型",
       "discoverNamed": "发现模型",
-      "delete": "删除",
       "deleteNamed": "删除 {{name}}",
-      "deleteTitle": "删除供应商（需二次确认）",
       "cannotEnableNoDefault": "未设置可用的启用默认模型，无法启用该供应商",
       "testConnection": "测试连接",
       "more": "更多",
@@ -267,12 +176,10 @@
     },
     "modelsTable": {
       "ariaLabel": "模型列表",
-      "modelId": "模型 ID",
       "context": "上下文",
       "maxOutput": "最大输出",
       "default": "默认",
       "defaultBadge": "默认",
-      "enabled": "已启用",
       "disabled": "已停用",
       "setDefaultAria": "将 {{model}} 设为默认",
       "currentDefaultAria": "{{model}} 是默认模型",
@@ -281,7 +188,6 @@
       "editModelNamed": "编辑 {{model}}",
       "deleteModelNamed": "删除 {{model}}",
       "deleteBlockedDefault": "默认模型：需先另设默认才能删除",
-      "deleteTitle": "删除（需二次确认）",
       "testPassed": "已通过",
       "testPassedHint": "本次会话内测试通过 · {{duration}}",
       "disableBlockedDefault": "默认模型：需先另设默认才能停用",
@@ -337,7 +243,6 @@
       "willDelete": "将被删除",
       "protected": "被保护（保持不动）",
       "noneDeletable": "没有可删除的模型",
-      "deleting": "正在删除…",
       "confirmButton": "删除 {{count}} 个模型",
       "confirmButton_one": "删除 {{count}} 个模型",
       "confirmButton_other": "删除 {{count}} 个模型"
@@ -440,13 +345,7 @@
     "providerOnDevice": "设备上已有",
     "syncInline": "同步过去",
     "syncFootnote": "同步会把 API Key 复制到该设备，需要你明确确认",
-    "syncProviderNamed": "同步 {{provider}} 到该设备",
-    "syncDialog": {
-      "title": "同步供应商到设备",
-      "description": "将 {{provider}} 及其模型目录同步到目标设备。",
-      "confirmation": "此操作会把供应商 API Key 复制到目标设备，请确认后继续。",
-      "confirm": "确认同步"
-    }
+    "syncProviderNamed": "同步 {{provider}} 到该设备"
   },
   "agentBackends": {
     "actions": {
@@ -463,7 +362,6 @@
     },
     "binding": {
       "label": "模型绑定",
-      "description": "先选择主模型来源；Claude 分级路由与 CLI 专属覆盖都从属于这项绑定。",
       "cliLogin": "CLI 自身登录态",
       "cliResolution": "生效模型由该 CLI 自身的登录账号决定",
       "modeFollow": "跟随默认",
@@ -587,8 +485,6 @@
     "modelRoutes": {
       "hint": "Claude Code 会把请求按 OPUS / SONNET / HAIKU 三档发出；没有单独设置的档位全部走上面的主绑定（对应 CLI 的 ANTHROPIC_DEFAULT_*_MODEL）。",
       "defaultChip": "默认不用改",
-      "inheritMain": "继承主供应商",
-      "inheritWithName": "继承主供应商 · {{name}}",
       "label": "模型分级路由",
       "tierAria": "OPUS/SONNET/HAIKU 路由",
       "inheritsSummary": "继承主绑定 → {{target}}",
@@ -665,32 +561,17 @@
       "remoteRootHintSuffix": "可让 CLI 跳过该检查。"
     },
     "provider": {
-      "clear": "清除供应商关联",
-      "clearTitle": "清除（走 CLI 自身登录）",
-      "cliLogin": "走 CLI 自身登录",
       "configureCta": "去配置 LLM 供应商",
       "emptyTitle": "还没有可用的 LLM 供应商",
-      "label": "LLM 供应商",
       "modelRequiredDescription": "该供应商未配置默认 Model，Pi 无法通过 --model 选中它。请先在「LLM 供应商」页面为其设置默认模型，再回来保存。",
       "modelRequiredTitle": "该供应商未配置默认模型",
-      "noMatchClaude": "未关联将走 claude CLI 自身登录态；如需通过本机代理转发请先新增 anthropic 类型供应商。",
-      "noMatchCodex": "未关联将走 codex CLI 自身登录态；如需通过本机代理转发请先新增 openai-response 类型供应商。",
-      "noMatchPiAgent": "未关联将走 pi CLI 自身登录态；如需绑定自定义供应商请先新增 LLM 供应商。",
       "noMatchTitle": "没有匹配类型的 LLM 供应商",
       "noModel": "（未选模型）",
       "noneDescription": "请先到「LLM 供应商」页面新增一个，再回来配置后端。",
-      "noneTitle": "暂无 LLM 供应商",
       "optionalSuffix": "· 可选",
-      "placeholderOptional": "不关联（走 CLI 自身登录）",
-      "placeholderRequired": "请选择 LLM 供应商",
-      "selectProvider": "选择供应商",
       "staleDescription": "请从下方重新挑选一个启用中的供应商{{optionalClause}}。",
       "staleOptionalClause": "，或清除关联走 CLI 自身登录",
-      "staleTitle": "原 LLM 供应商已停用或与当前类型不匹配",
-      "strictMatch": "严格匹配 · {{type}}",
-      "unlinked": "未关联供应商",
-      "followsDefault": "默认模型变化会从下一轮动态跟随",
-      "fixedNote": "已固定该模型，Provider 默认变化不会影响它"
+      "staleTitle": "原 LLM 供应商已停用或与当前类型不匹配"
     },
     "providerSync": {
       "descriptionOnly": "同步会把该 Provider 的 BaseURL、协议、API Key、默认模型与模型目录复制到远端 agentred 状态文件；不会保存表单其它改动。",

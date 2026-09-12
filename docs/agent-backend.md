@@ -50,7 +50,7 @@ Each row is a **reverse channel** (host→backend), **except the final `CapAuton
 | `CapAnswerUserAsk` / `"answer_user_ask"` | `AskAnswerSink` | ❌ | ✅ | ✅ | ❌ | ❌ | reverse-asking the user a question (single-select / multi-select / Other / password field); Skip must go through deny rather than an empty map, otherwise the turn silently hangs. OpenClaw stays unavailable until request/reply frames are verified |
 | `CapToolPermission` / `"tool_permission_gate"` | `ToolPermissionSink` | ❌ | ✅ `can_use_tool` | ✅ `requestApproval` | ❌ | ❌ | allow/deny approval before tool execution + "Remember for session" (alwaysAllowSession). claudecode goes through the `can_use_tool` control_request and feeds DenyReason back to the LLM as a tool_result; codex goes through the app-server `requestApproval` protocol — it carries allow/deny + remember-for-session but has **no DenyReason feedback** (the deny-message param is ignored, the protocol has no deny field). piagent has no equivalent protocol; OpenClaw exec approval is deliberately separate |
 | `CapExecApproval` / `"exec_approval"` | `ExecApprovalSink` | ❌ | ❌ | ❌ | ❌ | ✅ | Gateway `exec.approval.*`, dynamic decisions, expiry/race convergence, and reconnect list reconciliation; resolution is not tool completion |
-| `CapForkSession` / `"fork_session"` | `RunRequest.ForkAnchor` built in | ❌ | ✅ `--fork-session` | ✅ `thread/rollback` | ✅ RPC `fork` | ❌ | "Regenerate" derives a new session from a given provider anchor and reruns; Pi forks and prompts in one RPC process, returning the new native Session ID and user-entry anchor; OpenClaw does not expose fork semantics |
+| `CapForkSession` / `"fork_session"` | `RunRequest.ForkAnchor` built in | ❌ | ✅ `--fork-session` | ✅ `thread/turns/list` + `thread/revert` | ✅ RPC `fork` | ❌ | "Regenerate" derives a new session from a given provider anchor and reruns; Pi forks and prompts in one RPC process, returning the new native Session ID and user-entry anchor; OpenClaw does not expose fork semantics |
 | `CapReportContextWindow` / `"report_context_window"` | emit `ContextWindowUpdated` | ❌ | ✅ | ✅ | ✅ | ❌ | the runtime emits after probing the model's actual context-window size, for the frontend usage bar; the claudecode SDK does not report the window itself, so the translator looks it up in `llmcatalog` on the `system.init` frame as a fallback; piagent exclusively uses Pi RPC metadata: `get_state.model.contextWindow` supplies the synchronous startup denominator, `get_session_stats.contextUsage.contextWindow` corrects it before/after the round, and every usage snapshot carries the latest value because a custom Pi provider may reuse a public model ID with a different configured window. OpenClaw reports usage only |
 | `CapCompact` / `"compact"` | `RunRequest.Compact=true` | ❌ | ❌ | ✅ | ✅ | ❌ | native compact turn — have the LLM summarize history and then clear the occupied space; piagent goes through Pi RPC compact; OpenClaw does not claim native compaction |
 | `CapImageInput` / `"image_input"` | `RunRequest.UserBlocks` contains `blocks.ImageBlock` | ✅ | ✅ | ✅ | ✅ | ❌ | the user message can carry PNG / JPEG / WebP images. builtin passes cago blocks through directly; claudecode encodes inline images into a base64 `image` content block of the stream-json user frame (image first, text after — natively supported by the CLI); codex materializes inline images into temporary local files and then goes through the app-server `localImage`; piagent passes the RPC image content through; OpenClaw MVP submits text only |
@@ -198,7 +198,7 @@ Create a new package `internal/pkg/agentruntime/runtimes/<name>/`, with at least
    - The channel returned by `Run` **must be closed when the turn ends** (regardless of Done / Error / Abort). **`*RunResult` must not be read before the channel is closed** — `RunResult` is filled asynchronously.
    - When `RunRequest.Cwd` is non-empty, use it directly as cwd; when empty, fall back to `agentruntime.AgentCwd(req.AgentID)`. **Do not reverse-depend on `project_svc`**.
    - When launching a local CLI subprocess, call `procattr.ApplyNoConsoleWindow(cmd)` before `cmd.Start()`. This is required for Windows GUI builds; otherwise every agent turn can flash a transient console window.
-   - When `ForkAnchor` is non-empty, implement "Regenerate" — see claudecode using `--fork-session` and codex using `thread/rollback`.
+   - When `ForkAnchor` is non-empty, implement "Regenerate" — see claudecode using `--fork-session` and codex resolving the turn boundary through `thread/turns/list` before calling `thread/revert`.
    - Call `unregister(sessionID)` to clear the sessions map before the main goroutine exits, to avoid a leak.
 
 2. **`translator.go`** — translates the backend's own events into sealed `agentruntime.Event`:
@@ -343,7 +343,7 @@ type ToolPermissionSink interface {
 
 ##### D. AskAnswerSink — reverse-asking the user a question
 
-Interface signature (`UserAskSink` in `internal/pkg/agentruntime/runner.go`):
+Interface signature (`AskAnswerSink` in `internal/pkg/agentruntime/runner.go`):
 
 ```go
 type AskAnswerSink interface {
@@ -528,7 +528,7 @@ type AutonomousTurnSource interface {
 type AutonomousTurn struct {
     Events  <-chan Event // same shape as Run's stream; closes after the turn's result
     Result  *RunResult   // readable after Events closes
-    Trigger string       // "background_task"
+    Trigger string       // "background_task" / "catchup" / "external"
 }
 ```
 
@@ -554,10 +554,10 @@ When a new error must have cross-process semantics, **first add the sentinel + e
 
 ##### J. Per-turn model (provider default only, no session-level override)
 
-Session-level model switching was removed wholesale (`model_override`, #26, never shipped) — there is **no per-session model** anymore, only a per-session **provider** (`chat_sessions.provider_key`, `''` = follow the agent binding). `chat_svc.runTurn` resolves `effectiveProviderKey = firstNonEmpty(sess.ProviderKey, be.LLMProviderKey)` and hands the resolved provider to the runtime. A new backend owes three small things here:
+There is **no per-session model**, only a per-session **provider** (`chat_sessions.provider_key`, `''` = follow the agent binding). `chat_svc.runTurn` resolves `effectiveProviderKey = firstNonEmpty(sess.ProviderKey, be.LLMProviderKey)` and hands the resolved provider to the runtime. A new backend owes three small things here:
 
-1. **Resolve the model exactly where you already read the provider model** — do not invent a second mapping, and do not resurrect an override. Read `req.Provider.Model` at the existing resolution point (claudecode `--model`, piagent `agentre-<key>/<model>` via `providerRunConfig`, codex `thread {model}`, builtin `coding.WithModel`). The frontend provider pill selects a **provider**, never a model; the model is always that provider's default (`llm_provider.Model`), or the CLI's own login when the backend is not bound to a provider.
-2. **`RunResult.Model` must be the model that actually ran**, undecorated — `chat_messages.model` is the per-turn observation field and the #26 deviation notice machinery is gone. piagent still strips its bound-provider `agentre-<key>/` prefix (`piUserModelID`, `runtimes/piagent/session.go`) and codex reports the thread's own model, purely so the reported id stays user-facing.
+1. **Resolve the model exactly where you already read the provider model** — do not invent a second mapping, and do not add an override. Read `req.Provider.Model` at the existing resolution point (claudecode `--model`, piagent `agentre-<key>/<model>` via `providerRunConfig`, codex `thread {model}`, builtin `coding.WithModel`). The frontend provider pill selects a **provider**, never a model; the model is always that provider's default (`llm_provider.Model`), or the CLI's own login when the backend is not bound to a provider.
+2. **`RunResult.Model` must be the model that actually ran**, undecorated — `chat_messages.model` is the per-turn observation field. piagent still strips its bound-provider `agentre-<key>/` prefix (`piUserModelID`, `runtimes/piagent/session.go`) and codex reports the thread's own model, purely so the reported id stays user-facing.
 3. **Remote carries the effective provider key, not a model.** `remote.Runtime` serializes `effectiveProviderKey` (session `provider_key` preferred, else agent binding) into `wire.RunParams.LLMProviderKey`; the daemon self-resolves it via `ProviderLookup.FindByKey` and, when the session's key is missing/inactive there, falls back to the agent binding and echoes the dropped key back through `RunAck.ProviderFallbackKey` so chat_svc appends a persistent notice (`internal/daemon/handlers/runtime.go`). A new field on `RunParams` still needs its round-trip test like any other.
 
 ### 2.5 Daemon import (remote execution)
@@ -584,15 +584,15 @@ import (
 Only touch this when adding new fields:
 
 - `internal/service/agent_backend_svc/types.go`: add fields to `BackendItem` / `CreateBackendRequest` / `UpdateBackendRequest` / `TestBackendRequest`. **Stable field names, explicit json tags** — `make generate` promotes them into the frontend TS types.
-- `internal/service/agent_backend_svc/agent_backend.go`: read/write the new fields in buildEntity / mapItem.
+- `internal/service/agent_backend_svc/agent_backend.go`: read/write the new fields in `create` / `update`, and map them out in `toItem`.
 - `internal/app/<domain>.go`: the binding-layer methods do **only** parse → svc → return; business logic stuffed into `App` will be missed by `go test`. Agent backend actions currently live in `internal/app/agent_backend.go`.
 
 ### 2.7 Frontend
 
 - `make generate` regenerates the `frontend/wailsjs/` bindings.
-- Editor UI (`frontend/src/components/agentre/agent-backends.tsx` + `agent-backends-utils.ts`): add the type option and new-field form controls — **use the shadcn primitives from `@agentre-hub/agentre-ui` uniformly**, and do not add a native `<select>`.
+- Editor UI (the shared `packages/agentre-ui/src/engine/agent-backends*.tsx`, hosted by `frontend/src/components/agentre/agent-backends.tsx`): add the type option and new-field form controls — **use the shadcn primitives from `@agentre-hub/agentre-ui` uniformly**, and do not add a native `<select>`.
 - Capability gating: the frontend hooks `useBackendCapabilities` / `useSessionCapabilities` (`frontend/src/components/agentre/capability/`) call the Wails bindings `GetBackendCapabilities` / `GetSessionCapabilities` (`internal/app/chat.go` → `chat_svc/ipc/capability.go`), returning `Capabilities.Set` + `PermissionModeMeta`. The component reads `caps.has("steer")` / `caps.has("set_permission_mode")` etc. to gate the steer chip / abort button / permission mode pill / ask_user_question card. After adding a new cap to the capability enum, there is no need to change the hook — only change the consuming end.
-- New-session provider selection: the composer's `ProviderPill` (`frontend/src/components/agentre/model-pill/`) renders **only for a new session (`sessionId===0`)** and only for the provider-consuming backends — builtin / claudecode / codex / piagent, gated by `isProviderSelectableBackend` in `frontend/src/components/agentre/model-pill/use-provider-pill.ts` (mirrored as `providerSelectableBackend` in `chat-panel.tsx`). It fetches `ListLLMProviders()` and filters by `isProviderCompatible`, which must stay in step with the backend-side `ProviderTypeMatch` — a backend left off the frontend list gets no pill and no provider fetch at all; OpenClaw never renders the pill. Existing sessions render no switcher (decision 7). The transient pick rides the first `Send` as `SendRequest.ProviderKey` and lands in `chat_sessions.provider_key` ([§2.4 J](#j-per-turn-model-provider-default-only-no-session-level-override)).
+- New-session provider selection: the composer's `ProviderPill` (`frontend/src/components/agentre/model-pill/`) renders **only for a new session (`sessionId===0`)** and only for the provider-consuming backends — builtin / claudecode / codex / piagent, gated by `isProviderSelectableBackend` in `frontend/src/components/agentre/model-pill/use-provider-pill.ts`. It fetches `ListLLMProviders()` and filters by `isProviderCompatible`, which must stay in step with the backend-side `ProviderTypeMatch` — a backend left off the frontend list gets no pill and no provider fetch at all; OpenClaw never renders the pill. Existing sessions render no switcher (decision 7). The transient pick rides the first `Send` as `SendRequest.ProviderKey` and lands in `chat_sessions.provider_key` ([§2.4 J](#j-per-turn-model-provider-default-only-no-session-level-override)).
 - Session changed-file surfacing: the chat context sidebar's Files view is derived from persisted `ChatMessage.blocks` in `frontend/src/components/agentre/chat-context-sidebar/derive.ts`. Those blocks use the generated Wails field names `toolName` / `toolInput` (not backend-protocol names such as `name` / `input`). A backend that edits files must register its exact mutating tool name and path shape there and cover it with a fixture using the real `ChatBlock` wire shape; current mappings include Claude Code `Edit` / `Write` / `MultiEdit` with `file_path`, Codex `file_change` with `changes[].path` (plus legacy `apply_patch`), and Pi `edit` / `write` with `path`.
 
 ### 2.8 OpenClaw Gateway backend (implemented reference)
@@ -615,7 +615,7 @@ The desktop can dispatch a single chat to a LAN `agentred` to run:
 
 ```
 desktop UI → internal/app → chat_svc → remote.Runtime
-           → JSON-RPC over WebSocket (wire.MethodRun)
+           → binary Protobuf RPC over WebSocket (`RPC_METHOD_RUNTIME_RUN`)
            → daemon/handlers/RuntimeHandlers
            → agentruntime.RuntimeFor(backendType) — runs your newly written *Runtime
 ```

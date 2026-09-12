@@ -155,30 +155,6 @@
     }
   },
   "chatPage": {
-    "add": {
-      "aria": "新建",
-      "newAgent": "新建 Agent",
-      "newAgentChat": "新建 Agent 会话",
-      "newAgentHint": "在组织架构里创建新的助手/员工"
-    },
-    "empty": {
-      "title": "还没有对话",
-      "description": "创建一个 Agent，开始协作。",
-      "cta": "创建第一个 Agent"
-    },
-    "filter": {
-      "chips": {
-        "all": "全部",
-        "running": "运行中",
-        "unread": "未读"
-      },
-      "open": "筛选侧栏",
-      "options": {
-        "running": "运行中",
-        "unread": "未读"
-      }
-    },
-    "newChat": "新建会话",
     "notChattable": {
       "actions": {
         "backendSettings": "去 Agent 后端设置",
@@ -200,11 +176,9 @@
           "unavailable": "暂不可用"
         }
       },
-      "defaultHint": "该 Agent 还没配置后端，请在组织架构页选择一个 Agent 后端",
       "info": {
         "title": "内置后端需要额外的 LLM 供应商"
       },
-      "message": "暂不可对话 — {{hint}}",
       "reasons": {
         "noBackend": {
           "title": "{{name}} 暂时不能对话",
@@ -242,25 +216,7 @@
           "short": "后端类型未知"
         }
       }
-    },
-    "pin": {
-      "pin": "置顶",
-      "pinAria": "置顶 {{name}}",
-      "unpin": "取消置顶",
-      "unpinAria": "取消置顶 {{name}}"
-    },
-    "search": {
-      "aria": "搜索 Agent",
-      "clear": "清空筛选",
-      "noMatches": "没有匹配 \"{{query}}\" 的 Agent",
-      "placeholder": "搜索 Agent"
-    },
-    "sections": {
-      "agents": "AGENTS",
-      "pinned": "PINNED"
-    },
-    "sidebar": "Agent 列表",
-    "untitledSession": "(未命名会话)"
+    }
   },
   "chatPanel": {
     "actions": {
@@ -290,8 +246,7 @@
       "rename": "重命名失败：{{msg}}",
       "send": "发送失败：{{msg}}",
       "stop": "停止失败：{{msg}}",
-      "stopBackgroundTask": "停止后台任务失败：{{msg}}",
-      "loadFailed": "加载会话失败：{{msg}}"
+      "stopBackgroundTask": "停止后台任务失败：{{msg}}"
     },
     "execTarget": {
       "willRunPrefix": "将在",
@@ -382,9 +337,7 @@
       "hideContextSidebar": "隐藏上下文侧栏",
       "showContextSidebar": "显示上下文侧栏",
       "stop": "停止",
-      "stopActiveTitle": "停止当前对话",
-      "stopInactiveTitle": "当前没有进行中的对话",
-      "terminalTitle": "终端 (⌘`)"
+      "stopActiveTitle": "停止当前对话"
     },
     "untitled": "(未命名)",
     "loadError": {
@@ -393,7 +346,6 @@
       "close": "关闭会话",
       "notFoundHint": "此会话不存在或已被删除。"
     },
-    "sending": "正在发送…",
     "sendRetry": {
       "restored": "发送失败，草稿已保留",
       "retry": "重试发送",
@@ -477,9 +429,6 @@
   },
   "compactHistory": {
     "viewPrevious": "查看压缩前的 {{count}} 条消息"
-  },
-  "localCommand": {
-    "notSharedWithAI": "不发送给 AI"
   },
   "slashCommands": {
     "new": {

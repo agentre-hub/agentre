@@ -1796,8 +1796,7 @@ func TestApplyImport_AgentWithoutExecTargetsImportsEmptyTargetList(t *testing.T)
 }
 
 // TestApplyImport_Agent_LegacyBundleEmptyBackendKey_FallsBackToEmptyList 覆盖
-// "agentBackendKey 为空的 Agent 落成空列表,与迁移对 agent_backend_id = 0 的处理
-// 一致"。
+// "agentBackendKey 为空的 Agent 落成空列表"。
 func TestApplyImport_Agent_LegacyBundleEmptyBackendKey_FallsBackToEmptyList(t *testing.T) {
 	m := setupDataSvcTest(t)
 	m.providers.EXPECT().List(gomock.Any()).Return(nil, nil).Times(2)

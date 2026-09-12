@@ -20,7 +20,8 @@ import (
 // conn.Done() 一到就 CloseAll,不留悬挂的流,也不留悬挂的本机 socket)。
 //
 // auth 是宿主自己那道闸门:两种执行端的拒绝语在线上不是同一句,所以它是参数而不是
-// 本包自己写死的一句话。
+// 本包自己写死的一句话。**nil 不等于放行**:它意味着这个调用方没有闸门可传,那时整族
+// 不注册(见 RegisterStreamMethods)。
 func BindConn(conn *protorpc.Conn, gate *Handlers, auth func(context.Context) error) *Streams {
 	streams := NewStreams(StreamOptions{Gate: gate, Notify: conn.Notify})
 	RegisterStreamMethods(conn.Registry(), streams, auth)
@@ -33,15 +34,16 @@ func BindConn(conn *protorpc.Conn, gate *Handlers, auth func(context.Context) er
 
 // RegisterStreamMethods 挂上 open / write / close / ack 四个方法。
 //
-// 闸门缺席时不注册:一条能开转发流却不问「这个端口声明过没有」的连接,比没有这个能力
-// 更糟——调用方收到 method not found,据此知道这台机器办不到,而不是拿到一条没人把关
-// 的通路。
+// 闸门或宿主闸门（auth）**任缺一个都不注册**：一条能开转发流却不问「这个端口声明过
+// 没有」或者不问「你是谁」的连接，比没有这个能力更糟——调用方收到 method not found，
+// 据此知道这台机器办不到，而不是拿到一条没人把关的通路。
+//
+// 两个缺席刻意同一种处置。auth 缺席时要是补一个恒放行的默认值，「调用方忘了传闸门」
+// 的后果就从「办不到」变成「任何能连上这条连接的人都能开转发流」；而同一个函数对 gate
+// 缺席是 fail-closed。不对称本身就是问题，不必等到别人把 nil 传进来才发现。
 func RegisterStreamMethods(registry *protorpc.Registry, streams *Streams, auth func(context.Context) error) {
-	if streams == nil || streams.gate == nil {
+	if streams == nil || streams.gate == nil || auth == nil {
 		return
-	}
-	if auth == nil {
-		auth = func(context.Context) error { return nil }
 	}
 	guard := func(ctx context.Context) error { return auth(ctx) }
 

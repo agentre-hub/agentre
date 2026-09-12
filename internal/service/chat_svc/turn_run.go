@@ -23,9 +23,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
-// turnRun 承载 runTurn 一轮执行期间的全部可变状态。字段逐一对应原先散在
-// runTurn 函数体里的 local,拆成方法后语义不变:attachRuntime / initSegment /
-// consumeEvents / finalize 依次跑,顺序与原函数一致。
+// turnRun 承载 runTurn 一轮执行期间的全部可变状态:attachRuntime / initSegment /
+// consumeEvents / finalize 依次跑。
 type turnRun struct {
 	svc *chatSvc
 
@@ -523,9 +522,8 @@ func (t *turnRun) finalize(ctx context.Context) {
 		t.svc.reconcileBgRunningOnFinalize(finalCtx, t.sess, finalBlocks, t.stream)
 	}
 	// 诊断: 落库的最终(或自动接续中间态)agent_status。下面那段只在 error/waiting 时
-	// emit+log,idle 收尾历史上完全没日志 —— 这正是 agentre.log 里看不到 running→idle
-	// 翻转、排查「状态停在 running / 被过期快照盖回 idle」时无从对时间线的原因。这里补一条
-	// 覆盖所有终态(含 pending>0 自动接续仍 running 的中间态)。
+	// emit+log;这一条覆盖所有终态(含 pending>0 自动接续仍 running 的中间态),排查
+	// 「状态停在 running / 被过期快照盖回 idle」时才对得上时间线。
 	logger.Ctx(finalCtx).Info("chat_svc: agent_status finalized",
 		zap.Int64("sessionId", t.sess.ID),
 		zap.Int64("assistantMsgId", t.assistantMsg.ID),

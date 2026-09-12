@@ -22,7 +22,7 @@ export type NavigationItem = {
   icon: LucideIcon;
 };
 
-// 与 App.tsx 左侧 rail 的导航项一一对应（labelKey + path 同步）。
+// 与 lib/app-routing.ts 的 rail 导航项一一对应（labelKey + path 同步）。
 const NAV_ITEMS: NavigationItem[] = [
   { key: "nav-chat", path: "/chat", labelKey: "nav.chat", icon: MessageCircle },
   {

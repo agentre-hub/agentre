@@ -5,29 +5,28 @@ import (
 	"gorm.io/gorm"
 )
 
-// migration202609040101 是 agentred 侧持久化的基线迁移:一次建出会话表与通知日志表的
-// 最终形态。它压缩了发布前的四条未发布迁移(建表 / 加 conversation_id 列 / 身份键收缩
-// 重建 / 加 reasoning_effort),那些迁移曾经服务的存量库在 2026-09-04 已一律删库重建,
-// 因此这里只建终态、不带任何回填与重建路径。
+// migration202609040101 是 agentred 侧持久化的基线迁移:一次建出会话表的最终形态,
+// 只建终态、不带任何回填与重建路径。
 //
-// daemon_sessions —— 会话表。主键是 conversation_id 一列:对话身份全局唯一,两张表都
-// 只按它认人(规格「会话身份 / 身份键收缩为一列」)。peer_fingerprint 是普通列,做来源
-// 标注与授权收窄用(session_repo 的读路径按它收窄),并单独建索引把「列出某个对端的
-// 会话、按最近活动倒序」那条查询接住。agent_id 是对端(桌面端)本地的数字 agent 主键,
-// 原样透传保存。不含「等待输入」列 —— 那是 running 之上的实时叠加,不落库(R11)。
-// 「某会话最新的 seq」以通知日志自己的 MAX(seq) 为唯一真相源,不在会话表重复维护游标。
-// provider_key / model_key / reasoning_effort 是会话级覆盖的镜像,只供显示,执行路径
-// 不读它们;取值词表由发起端把关,不在 DDL 上加 CHECK —— 档位表会随后端能力演进,写死
+// daemon_sessions —— 会话表。行身份是自增的 id：库里每一张表的行身份都是一个与业务取值
+// 无关的数字（同一条约定见 desktop 的 internal/bootstrap 与 entity 的
+// TestEveryEntityHasAutoIncrementIDPrimaryKey）。对话身份全局唯一，落在
+// ux_daemon_sessions_conversation_id 这个唯一索引上 —— session_repo.Upsert 的
+// ON CONFLICT (conversation_id) 认的就是它。
+// peer_fingerprint 是普通列，做来源标注与授权收窄用（session_repo 的读路径按它收窄），
+// 并单独建索引把「列出某个对端的会话、按最近活动倒序」那条查询接住。agent_id 是对端
+// （桌面端）本地的数字 agent 主键，原样透传保存。不含「等待输入」列 —— 那是 running
+// 之上的实时叠加，不落库（R11）。
+// 「某会话最新的 seq」以转录表自己的 MAX(seq) 为唯一真相源，不在会话表重复维护游标。
+// provider_key / model_key / reasoning_effort 是会话级覆盖的镜像，只供显示，执行路径
+// 不读它们；取值词表由发起端把关，不在 DDL 上加 CHECK —— 档位表会随后端能力演进，写死
 // 在表结构里改一次要重写整张表。
-//
-// daemon_notification_journal —— 通知日志表。主键 (conversation_id, seq),一行 = 一条
-// 本该发出的通知,payload 是原样的 JSON-RPC 载荷。只追加、永久保存 —— agentred 不再
-// 回收任何一行(规格决策 8,server 与 agentred 两端都不设保留期)。
 func migration202609040101() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "202609040101",
 		Migrate: func(tx *gorm.DB) error {
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS daemon_sessions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	conversation_id TEXT NOT NULL,
 	peer_fingerprint TEXT NOT NULL,
 	agent_id INTEGER NOT NULL DEFAULT 0,
@@ -42,28 +41,25 @@ func migration202609040101() *gormigrate.Migration {
 	reasoning_effort TEXT NOT NULL DEFAULT '',
 	project_sync_id TEXT NOT NULL DEFAULT '',
 	createtime INTEGER NOT NULL DEFAULT 0,
-	last_message_at INTEGER NOT NULL DEFAULT 0,
-	PRIMARY KEY (conversation_id)
+	last_message_at INTEGER NOT NULL DEFAULT 0
 )`).Error; err != nil {
 				return err
 			}
-			if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_daemon_sessions_peer_fingerprint
-	ON daemon_sessions (peer_fingerprint, last_message_at)`).Error; err != nil {
-				return err
+			for _, stmt := range []string{
+				// 冲突目标必须是库上真实存在的 UNIQUE 约束：session_repo.Upsert 的
+				// ON CONFLICT (conversation_id) 认的就是它。
+				`CREATE UNIQUE INDEX IF NOT EXISTS ux_daemon_sessions_conversation_id
+	ON daemon_sessions (conversation_id)`,
+				`CREATE INDEX IF NOT EXISTS idx_daemon_sessions_peer_fingerprint
+	ON daemon_sessions (peer_fingerprint, last_message_at)`,
+			} {
+				if err := tx.Exec(stmt).Error; err != nil {
+					return err
+				}
 			}
-			return tx.Exec(`CREATE TABLE IF NOT EXISTS daemon_notification_journal (
-	conversation_id TEXT NOT NULL,
-	seq INTEGER NOT NULL,
-	peer_fingerprint TEXT NOT NULL,
-	payload BLOB NOT NULL,
-	createtime INTEGER NOT NULL DEFAULT 0,
-	PRIMARY KEY (conversation_id, seq)
-)`).Error
+			return nil
 		},
 		Rollback: func(tx *gorm.DB) error {
-			if err := tx.Exec(`DROP TABLE IF EXISTS daemon_notification_journal`).Error; err != nil {
-				return err
-			}
 			return tx.Exec(`DROP TABLE IF EXISTS daemon_sessions`).Error
 		},
 	}

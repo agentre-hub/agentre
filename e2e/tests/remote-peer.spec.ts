@@ -60,16 +60,32 @@ async function remoteRequests(): Promise<Array<{
   return ((await response.json()) as { requests: Array<{ connectionId: number; method: string; params?: Record<string, unknown> }> }).requests;
 }
 
-async function remoteHighWater(sessionID: number): Promise<number | undefined> {
+/** 远端 peer 的帧高水位（它自己那份转录的最高 seq）。
+ *
+ *  **键是 conversation id，不是桌面端的会话 id**：peer 按线上的 conversation id 建会话
+ *  表，那个自增 id 它从来不知道。原先这里按 `sessionId` 查，而 peer 的 snapshot 吐的是
+ *  `conversationId` —— 查表永远落空、恒返回 undefined，这条断言自那次重写起就不可能通过
+ *  （症状是 15 秒后报 "Received: undefined"，看不出是键写错了）。
+ *
+ *  所以查不到就**当场抛**，把 peer 实际持有的 id 一并打出来：字段名再漂一次，症状是
+ *  一句“对表键不对”，而不是一次看不懂的超时。 */
+async function remoteHighWater(conversationID: string): Promise<number> {
   const { url, token } = remoteControl();
   const response = await fetch(`${url}/snapshot`, {
     headers: { authorization: `Bearer ${token}` },
   });
   if (!response.ok) throw new Error(`remote fake recorder returned HTTP ${response.status}`);
   const snapshot = (await response.json()) as {
-    sessions: Array<{ sessionId: number; latestSeq: number }>;
+    sessions: Array<{ conversationId: string; latestSeq: number }>;
   };
-  return snapshot.sessions.find((session) => session.sessionId === sessionID)?.latestSeq;
+  const found = snapshot.sessions.find((session) => session.conversationId === conversationID);
+  if (!found) {
+    throw new Error(
+      `远端 peer 没有 ${conversationID} 这条对话的日志；它手上的是 ` +
+        JSON.stringify(snapshot.sessions.map((session) => session.conversationId)),
+    );
+  }
+  return found.latestSeq;
 }
 
 test.describe.serial("remote peer smoke", () => {
@@ -121,7 +137,7 @@ test.describe.serial("remote peer smoke", () => {
     expect(remoteSessionByPrompt(FAILURE_PROMPT)?.error_text).not.toBe("");
   });
 
-  test("Given a recoverable mid-stream disconnect, when the peer finishes journaling while offline, then desktop reconnects, attaches, pulls, and persists one complete idle reply", async ({ page }) => {
+  test("Given a recoverable mid-stream disconnect, when the peer finishes the turn while offline, then desktop reconnects, attaches, pulls, and persists one complete idle reply", async ({ page }) => {
     await configureNextFault("recoverable-disconnect");
     await page.goto("/");
     await createRemoteChat(page);
@@ -136,7 +152,9 @@ test.describe.serial("remote peer smoke", () => {
     const recovered = remoteSessionByPrompt(RECOVERY_PROMPT)!;
     expect(recovered.agent_status).toBe("idle");
     expect(recovered.error_text).toBe("");
-    await expect.poll(() => remoteHighWater(recovered.id)).toBe(recovered.event_cursor);
+    // 对表用 conversation id：桌面端的 event_cursor 追到 peer 那份转录的最高 seq
+    // 就算「一条不漏地拉完了」。两边都是各自库里那个值，不是同一个字段被读了两遍。
+    await expect.poll(() => remoteHighWater(recovered.conversation_id)).toBe(recovered.event_cursor);
 
     const requests = await remoteRequests();
     const run = requests.find((request) => request.method === "runtime.run" && request.params?.user_text === RECOVERY_PROMPT);

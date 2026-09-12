@@ -18,6 +18,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/bootstrap"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
@@ -44,15 +45,14 @@ const (
 	e2eRefreshTokenEnv = "AGENTRE_E2E_REFRESH_TOKEN" //nolint:gosec // G101: environment-variable name, not a credential
 )
 
-// keychainAccountRefreshToken / keychainAccountFingerprint mirror the constants
-// server_svc/login.go keeps unexported (keychainAccountName,
-// accountForDeviceFingerprint). They are part of the on-disk login shape, so a
+// keychainAccountRefreshToken mirrors the constant server_svc/login.go keeps
+// unexported (keychainAccountName). It is part of the on-disk login shape, so a
 // drift between the two would show up as "the seeded app is not logged in" on
 // the very first spec.
-const (
-	keychainAccountRefreshToken = "agentre.server.refresh_token" //nolint:gosec // G101: keychain account identifier, not a credential
-	keychainAccountFingerprint  = "agentre-device-fingerprint"
-)
+//
+// 指纹那个账号名**不在这里镜像**：它已经导出（deviceidentity.KeychainAccount），
+// 种子化时直接用它 —— 镜像一份就等于给「同一个值两个来源」留一个入口。
+const keychainAccountRefreshToken = "agentre.server.refresh_token" //nolint:gosec // G101: keychain account identifier, not a credential
 
 // installE2ELoggedInAccount makes this app instance a logged-in desktop of the
 // account the runner seeded. Absent env (every other e2e suite) it is a no-op,
@@ -110,7 +110,7 @@ func installE2ELoggedInAccount(ctx context.Context) error {
 		return fmt.Errorf("store refresh token: %w", err)
 	}
 	// server_svc.login asserts server_state.device_fingerprint equals this entry.
-	if err := kc.Set(keychainAccountFingerprint, fingerprint); err != nil {
+	if err := kc.Set(deviceidentity.KeychainAccount, fingerprint); err != nil {
 		return fmt.Errorf("store device fingerprint: %w", err)
 	}
 

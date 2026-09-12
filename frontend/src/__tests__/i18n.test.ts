@@ -124,6 +124,129 @@ function collectStaticCommonI18nKeys(): string[] {
   );
 }
 
+/**
+ * 反向守卫：`common` 语言包里不应存在「没人用」的 key。
+ *
+ * 上面那条正向守卫只覆盖「代码 → 语言包」这个方向：它保证代码引用的 key 都在，
+ * 却对**删多了**一无所知——把还在用的 key 删掉同样全绿，代价是界面直接印出
+ * `chatPanel.foo` 这样的字面量。这里补上反方向：
+ *
+ *   语言包里每个叶子 key，都必须能被「代码里的引用」或「显式白名单」覆盖。
+ *
+ * 「代码里的引用」不是只算 `t("…")`——mapping 表把 key 当普通字符串存着
+ * （`not-chattable/mapping.ts` 的 `copyKey`），组件也可能把 `t` 交给别的模块去拼
+ * （`debug` 面板的 `translate` 回调）。所以这里同时收集**整份宿主源码文本里
+ * 出现过的点分路径**，并允许它带宿主前缀（`enCommon.a.b` 覆盖 bundle 里的 `a.b`）。
+ * 测试与注释也算命中——守卫的目标是不误报，多留一条 key 比误红一条划算。
+ *
+ * 覆盖不到的那些必须逐条列进白名单，且每条注明是**哪段代码在拼**。白名单宁可
+ * 宽一点：一条误报会逼后来的人把整条守卫关掉，那比没有守卫更糟。
+ */
+
+/**
+ * 运行期拼出来的 key 前缀——静态字面量里永远查不到完整 key。
+ * 每条前缀后面的注释指出拼它的代码位置。
+ */
+const DYNAMIC_KEY_PREFIXES = [
+  // components/agentre/hooks-page/script-tab.tsx / hooks-page-header.tsx:
+  //   t(`hooks.interp.${opt.key}`) / t(`hooks.status.${hookStatus(…)}`)
+  "hooks.interp.",
+  "hooks.status.",
+  // components/agentre/hooks-page.tsx: t(`hooks.tabs.${tab}`)
+  "hooks.tabs.",
+  // not-chattable/mapping.ts 的 copyKey + not-chattable-dialog.tsx:
+  //   t(`${reasonKey}.title`) / t(`${reasonKey}.description`)
+  "chatPage.notChattable.reasons.",
+  // not-chattable/not-chattable-dialog.tsx:
+  //   t(`chatPage.notChattable.chain.states.${backendState}`)
+  "chatPage.notChattable.chain.states.",
+  // session-exec-target.tsx: t(`chatPanel.execTarget.reasons.${key}`)
+  "chatPanel.execTarget.reasons.",
+  // chat-tabs/tab-tooltip.tsx: t(`chatTabs.status.${status}`)
+  "chatTabs.status.",
+  // data-backup/import-preview-dialog.tsx: t(`dataBackup.actions.${action}`)
+  "dataBackup.actions.",
+  // data-backup/import-result-dialog.tsx: t(`dataBackup.importResult.${k}`)
+  "dataBackup.importResult.",
+  // data-backup/import-preview-dialog.tsx / export-section.tsx:
+  //   t(`dataBackup.scopes.${scope}`)
+  "dataBackup.scopes.",
+  // board/exec-target-pill.tsx: t(`issues.exec.kinds.${candidate.kind}`)
+  "issues.exec.kinds.",
+  // lib/turn-notify.ts: t(`notify.body.${kind}`)
+  "notify.body.",
+  // task-progress/task-progress-bar.tsx: t(`taskProgress.status.${task.status}`)
+  "taskProgress.status.",
+];
+
+/**
+ * 不是动态拼的，而是被一条**跨 namespace 的陈旧断言**钉住的键。
+ *
+ * session-index-chrome.test.tsx 已经从共享包 `@agentre-hub/agentre-ui` 取
+ * `AxisPicker`（它只认 agentreUi 那一份文案），却仍然拿宿主 `enCommon` / `zhCommon`
+ * 的 `sessionIndex.axis.*` 当期望值（`enCommon.sessionIndex.axis.title`，以及经中间
+ * 变量访问的 `axis.project` / `axis.agent` / `axis.time`）。所以这四条宿主键在生产
+ * 里没有读者，删掉却会让那条断言崩。等断言改读 `agentreUiResources` 后再删，
+ * 在那之前由这条白名单显式兜住。
+ */
+const TEST_PINNED_KEY_PREFIXES = ["sessionIndex.axis."];
+
+/** 含测试的宿主源码文本——key 可能只被断言或 fixtures 提到。 */
+function collectReferencedKeyPaths(): Set<string> {
+  const paths = new Set<string>();
+  // `enCommon.sessionIndex.axis.title` 这种宿主前缀，以及 mapping 表里裸写的
+  // `chatPage.notChattable.reasons.noBackend`，都会被这一条 token 正则整个吃掉。
+  const tokenPattern = /[A-Za-z_$][\w$]*(?:\.[\w$]+)+/g;
+
+  for (const file of collectHostSourceFiles()) {
+    const source = fs.readFileSync(file, "utf8");
+    for (const match of source.matchAll(tokenPattern)) {
+      const token = match[0];
+      paths.add(token);
+      // 逐级剥掉前缀：宿主写的 `enCommon.a.b` 要能覆盖 bundle 里的 `a.b`。
+      let dot = token.indexOf(".");
+      while (dot !== -1) {
+        paths.add(token.slice(dot + 1));
+        dot = token.indexOf(".", dot + 1);
+      }
+    }
+  }
+
+  return paths;
+}
+
+/** 宿主 `src` 下的所有 ts/tsx，含 `__tests__`，但排除 `src/i18n` 本身。 */
+function collectHostSourceFiles(): string[] {
+  const files: string[] = [];
+
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "i18n") walk(fullPath);
+        continue;
+      }
+      if (/\.(ts|tsx)$/.test(entry.name)) files.push(fullPath);
+    }
+  };
+
+  walk(path.resolve(process.cwd(), "src"));
+  return files;
+}
+
+function isCommonKeyReferenced(
+  key: string,
+  staticKeys: Set<string>,
+  referencedPaths: Set<string>,
+): boolean {
+  if (staticKeys.has(key)) return true;
+  if (referencedPaths.has(key)) return true;
+  if (DYNAMIC_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+    return true;
+  }
+  return TEST_PINNED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
 function collectProductionHanStringLiterals(): string[] {
   const han = /\p{Script=Han}/u;
   const findings: string[] = [];
@@ -412,6 +535,34 @@ describe("i18n resources", () => {
 
     expect(keys.filter((key) => !hasLocaleKey(zhCommon, key))).toEqual([]);
     expect(keys.filter((key) => !hasLocaleKey(enCommon, key))).toEqual([]);
+  });
+
+  it("Given the common locale bundle, When every leaf key is inspected, Then each one is referenced by code or an explicit whitelist", () => {
+    const staticKeys = collectStaticCommonI18nKeys();
+
+    // 守卫自证「不空过」：正则或过滤哪天写错，静态 key 会塌成 0 条，
+    // 那样下面的差集自动为空、守卫静默全绿。
+    expect(staticKeys.length).toBeGreaterThan(800);
+
+    const staticKeySet = new Set(staticKeys);
+    const referencedPaths = collectReferencedKeyPaths();
+
+    const unused = flattenKeys(enCommon).filter((key) => {
+      if (isCommonKeyReferenced(key, staticKeySet, referencedPaths)) {
+        return false;
+      }
+      // 复数键：语言包里是 `x_one` / `x_other`，代码里调的是 base `x`。
+      const base = key.replace(/_(?:one|other)$/, "");
+      return (
+        base === key ||
+        !isCommonKeyReferenced(base, staticKeySet, referencedPaths)
+      );
+    });
+
+    expect(
+      unused,
+      "这些 key 在宿主代码里已经没有读者，界面不会用到；删掉它们，或把「哪段代码在拼」写进白名单",
+    ).toEqual([]);
   });
 
   it("Given explicit React i18n, When production string literals are inspected, Then no Chinese UI copy is hardcoded outside locale files", () => {

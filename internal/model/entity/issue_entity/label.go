@@ -44,9 +44,9 @@ var allowedTones = func() map[string]struct{} {
 // Tones 返回 8 档色调（副本，调用方改不动取值域）。
 func Tones() []string { return append([]string(nil), tones...) }
 
-// builtinLabelNames 是内置标签目录：由 202608080010 seed、202608270004 精简到五个。
+// builtinLabelNames 是内置标签目录：由 202609040110_issues 迁移 seed 的五个。
 // 它们的显示名在前端按当前语言翻译（issues.labels.<name>），库里存的始终是这个英文
-// slug；色调不再等于名字（见 Tone 常量）。
+// slug；色调与名字无关（见 Tone 常量）。
 var builtinLabelNames = []string{"bug", "critical", "docs", "feature", "refactor"}
 
 // BuiltinLabelNames 返回内置标签目录（副本）。

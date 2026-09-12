@@ -1,7 +1,6 @@
 package chat_svc
 
 import (
-	"errors"
 	"testing"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
@@ -54,19 +53,4 @@ func TestPeerSessionControlResult_GivenWaiterAlreadyConsumed_ThenReturnsAlreadyH
 	result, err := peerSessionControlResult(agentruntime.ErrWaiterNotFound)
 	require.NoError(t, err)
 	assert.Equal(t, PeerSessionControlResult{AlreadyHandled: true}, result)
-}
-
-// Given a desktop session is pinned to an unavailable agentred, when a peer
-// starts another turn, then the distinct typed result keeps history readable
-// while rejecting the write; ordinary read errors do not get that mapping.
-func TestPeerSessionExecutionResult_GivenPinnedAgentredUnavailable_ThenRejectsWriteButKeepsHistoryReadable(t *testing.T) {
-	result, err := PeerSessionExecutionResult(ErrPeerExecutionUnavailable)
-	require.NoError(t, err)
-	assert.Equal(t, PeerSessionRunResult{
-		Accepted: false, HistoryAvailable: true, ExecutionUnavailable: true,
-	}, result)
-
-	_, err = PeerSessionExecutionResult(errors.New("database unavailable"))
-	require.Error(t, err)
-
 }

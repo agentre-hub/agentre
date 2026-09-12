@@ -19,7 +19,7 @@ import (
 //   - tools_json       []AgentToolItem 序列化
 //   - sync_*           账号级同步元数据（syncmeta_entity.SyncMeta）
 //
-// 注：运行态由 chat_sessions.agent_status 承载；Agent 实体不再持有 agent_status。
+// 注：运行态由 chat_sessions.agent_status 承载，不在这张表上。
 // 执行归属（后端档位与技能授权）的真相源是 agent_exec_targets，不在这张表上留镜像列。
 //
 // Seed：用 INSERT ... WHERE NOT EXISTS 保证幂等。

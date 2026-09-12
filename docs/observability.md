@@ -48,14 +48,14 @@ There is no lint rule pinning this boundary — review new logging sites deliber
 - **Field names are camelCase.** New or modified fields follow this rule. A few existing `hook_svc` sites still use the legacy `hook_id`; they are known exceptions, not a pattern to copy.
 
 ```go
-// ✅ real usage, lifted from internal/service/chat_svc/chat.go
-logger.Ctx(ctx).Warn("chat_svc.Stop: runner.Abort failed",
+// ✅ real usage, lifted from internal/service/chat_svc/stop.go
+logger.Ctx(ctx).Warn("chat_svc.Stop: local Pi abort failed",
     zap.Int64("sessionId", req.SessionID),
-    zap.String("backendType", be.Type),
-    zap.Error(aerr))
+    zap.String("backendType", string(agent_backend_entity.TypePiAgent)),
+    zap.Error(abortErr))
 
 // ❌ concatenation — cannot be filtered or aggregated by sessionId
-logger.Default().Warn(fmt.Sprintf("stop failed for %d: %v", req.SessionID, aerr))
+logger.Default().Warn(fmt.Sprintf("stop failed for %d: %v", req.SessionID, abortErr))
 ```
 
 - **Carry a correlation id.** Under concurrency — several sessions streaming at once is the normal state here — a line with no `sessionId` / `providerSessionID` / `requestId` is nearly unreadable.
@@ -64,7 +64,7 @@ logger.Default().Warn(fmt.Sprintf("stop failed for %d: %v", req.SessionID, aerr)
 
 **Passwords, tokens, API keys, cookies, private keys, complete credentials, and complete request/response bodies.**
 
-- Where an identifier is needed, log a **redacted form**. The existing precedent is `maskedTail` (`internal/daemon/handlers/llm.go`) for provider API keys, and `sanitizeTunnelHeaders` (`internal/daemon/handlers/mcpproxy.go`) for forwarded headers — reuse them rather than writing a third.
+- Where an identifier is needed, log a **redacted form**. The existing precedent is `maskedTail` (`internal/daemon/handlers/llm.go`) for provider API keys, and `tunnelheader.Sanitize` (`internal/pkg/tunnelheader`) for forwarded headers — reuse them rather than writing a third.
 - Logs reach log files, issue attachments, and an AI agent's context — **far more readers than you imagine.**
 - Runtime Debug sites that serialize complete agent frames (e.g. `claudecode/session.go` and `codex/session.go`) are **sanctioned, intended behavior**, not debt: Debug Logging is an opt-in toggle (off by default), and turning it on exists precisely to capture the full frame for troubleshooting — redacting the payload there would remove the toggle's entire purpose. This does not relax the credential red line above: a full frame must still never carry a raw password / token / API key / cookie / private key: any producer that could embed one still owes the frame a redaction step before this site logs it.
 - `piagent`'s equivalent sink logs only metadata, not because it follows a different convention: `pkg/piagent/client.go:504` hands the sink a diagnostic projection that is already payload-free (see the comment at `client.go:54`) — that layer never receives the raw frame to begin with. Do not read this difference between the three backends as drift awaiting consolidation.

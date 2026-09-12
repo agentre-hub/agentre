@@ -18,7 +18,7 @@ Prerequisites are Go, Node 24+, pnpm, the Wails CLI, Chromium, and the platform 
 
 `run-e2e.mjs` performs the complete lifecycle:
 
-1. Runs only the safe automated Node guards (`run-context`, app-overlay, fake-sync, and current-contract) before launching any process. It does not run the formal verification target guard, because that tool derives installed/development roots.
+1. Runs only the safe automated Node guards (`run-context`, app-overlay, fake-sync, current-contract, and browser) before launching any process, plus `guard-suite` itself, which fails if a `lib/*.test.mjs` on disk is not registered in the list below. It does not run the formal verification target guard, because that tool derives installed/development roots.
 2. Creates a random private run root with private data, keychain, browser, log, Playwright, manifest, and token paths.
 3. Reserves dynamic loopback ports.
 4. Starts the loopback fake sync HTTP server and loopback fake remote WebSocket peer.
@@ -65,11 +65,12 @@ Artifacts must never contain developer tokens, system-keychain secrets, real acc
 cd e2e && pnpm run test:guards
 node --test e2e/lib/run-context.test.mjs
 node --test e2e/lib/fake-sync-server.test.mjs
+node --test e2e/lib/browser.test.mjs
 go test ./e2e/preflight ./e2e/composition ./e2e/fakepeer ./e2e/app
 cd e2e && pnpm exec tsc --noEmit
 ```
 
-The canonical automated check remains `make e2e`; passing only a focused fake or runner test does not establish the desktop smoke. `make e2e` intentionally reaches only the safe automated guard set. The explicit `cd e2e && pnpm run test:guards` command runs that set plus `lib/target.test.mjs` for the separate formal verification tool; those target guards are not reached by `make e2e`.
+The canonical automated check remains `make e2e`; passing only a focused fake or runner test does not establish the desktop smoke. `make e2e` intentionally reaches only the safe automated guard set. That set is `AUTOMATED_GUARD_TESTS` in `lib/guard-suite.mjs`, and `lib/guard-suite.test.mjs` keeps it honest: a guard file that exists on disk but is not listed never runs, so the list and `lib/*.test.mjs` must contain each other. The explicit `cd e2e && pnpm run test:guards` command runs that set plus `lib/target.test.mjs` for the separate formal verification tool; those target guards are not reached by `make e2e`.
 
 ### File map
 
@@ -100,7 +101,7 @@ node e2e/drive.mjs click "testid=nav-settings"
 node e2e/drive.mjs shot 01-settings
 node e2e/drive.mjs sql "select status, count(*) from chat_sessions group by status"
 node e2e/drive.mjs logs 40
-make verify-down                    # retain isolated state
+make verify-down                    # retain isolated state (the next verify-up wipes it unless VERIFY_FLAGS=--keep)
 make verify-down VERIFY_FLAGS=--wipe
 ```
 
@@ -108,6 +109,6 @@ make verify-down VERIFY_FLAGS=--wipe
 
 `lib/target.mjs` derives one checkout-scoped data directory, file-keychain directory, browser directory, session file, bridge port, and CDP port. It rejects the installed app root, the development root, arbitrary directories, non-loopback origins, and the ordinary development bridge. A second worktree derives a different target. The launcher never adopts an unrecorded process already holding its port.
 
-Real Server, daemon, or agent CLI behavior requires the verifier to configure and authorize that real dependency. If it is unavailable, the check fails or remains `not observed`; verification never substitutes an automated fake. Stop retains the isolated database/logs for investigation, while wipe deletes only directories first validated as this checkout's target.
+Real Server, daemon, or agent CLI behavior requires the verifier to configure and authorize that real dependency. If it is unavailable, the check fails or remains `not observed`; verification never substitutes an automated fake. Stop retains the isolated database/logs for investigation — the next `verify-up` clears them again unless started with `VERIFY_FLAGS=--keep` — while wipe deletes only directories first validated as this checkout's target.
 
 `drive.mjs` attaches through the recorded CDP session, allows only same-target navigation, restricts the SQLite oracle to `SELECT`/`WITH`/`PRAGMA`/`EXPLAIN`, and writes the action ledger and screenshots under gitignored `e2e/scratch/<scenario>/`. See [`docs/verification.md`](../docs/verification.md) for when this route is warranted, report creation, evidence, authorization, redaction, and honest verdicts.

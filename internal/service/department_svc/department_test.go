@@ -275,9 +275,8 @@ func TestLoad_ExecTargets(t *testing.T) {
 			}
 		})
 
-		// 守卫（R15e）：agents.skills_json 不再被读取。Agent 行上那份遗留授权可能早已
-		// 与执行目标行不一致（同步落地走 UpdateRow / UpsertFromSync，只改执行目标行），
-		// 授权只能从执行目标行上读出来。
+		// 守卫（R15e）：授权只能从执行目标行上读出来——Agent 实体上的 SkillsJSON 不落库，
+		// 可能与执行目标行不一致（同步落地走 UpdateRow / UpsertFromSync，只改执行目标行）。
 		convey.Convey("Agent 行的 skills_json 已过期 → 授权取执行目标行 ①", func() {
 			deptMock.EXPECT().List(gomock.Any()).Return(nil, nil)
 			agentMock.EXPECT().List(gomock.Any()).Return([]*agent_entity.Agent{

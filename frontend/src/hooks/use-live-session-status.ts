@@ -1,9 +1,7 @@
 // use-live-session-status.ts
 //
 // 薄壳代理 —— 内部优先走 useSessionWithOverlays，没有 meta 时退化为直读
-// session-status-store（保持与旧消费方行为完全兼容）。
-//
-// 导出名保持不变，消费方 (project-page / agent-list 等) 无需改动。
+// session-status-store。
 import { useMemo } from "react";
 
 import { useSessionStatusStore } from "@/stores/session-status-store";
@@ -53,39 +51,4 @@ export function useEffectiveSessionStatus(
       needsAttention: liveStatus.needsAttention,
     };
   }, [view, liveStatus, fallback]);
-}
-
-// useSessionStatusOverlay 是列表态的批量版本 —— 接收一组 session 快照
-// （只关心 id / agentStatus / needsAttention 三个字段），把每条命中 store 的
-// 覆盖掉。没有任何 patch 命中时返回入参引用，下游 useMemo / 渲染保持稳定。
-export function useSessionStatusOverlay<
-  T extends {
-    id: number;
-    agentStatus: string;
-    needsAttention?: boolean;
-  },
->(sessions: T[]): T[] {
-  const statuses = useSessionStatusStore((s) => s.statuses);
-  return useMemo(() => {
-    if (statuses.size === 0 || sessions.length === 0) return sessions;
-    let mutated = false;
-    const out = sessions.map((sess) => {
-      const live = statuses.get(sess.id);
-      if (!live) return sess;
-      const currentNeeds = sess.needsAttention ?? false;
-      if (
-        live.agentStatus === sess.agentStatus &&
-        live.needsAttention === currentNeeds
-      ) {
-        return sess;
-      }
-      mutated = true;
-      return {
-        ...sess,
-        agentStatus: live.agentStatus,
-        needsAttention: live.needsAttention,
-      };
-    });
-    return mutated ? out : sessions;
-  }, [sessions, statuses]);
 }

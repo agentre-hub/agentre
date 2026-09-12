@@ -9,11 +9,10 @@ import type { DroppedImageItem } from "../chat-input/drop";
 import type { DropZoneRegistrar } from "../chat-input/use-file-drop";
 
 /**
- * ChatComposer 是两端唯一那份输入框外壳。此前桌面端 `chat.tsx` 里另有一个同名
- * 组件（504 行）自持编辑模式、命令模式、拖入、草稿句柄与整条底栏，而包里这份
- * 只有 agentre-server 在用 —— 同名不同物，改一处修不好另一处。
+ * ChatComposer 是两端唯一那份输入框外壳：编辑模式、命令模式、拖入、草稿句柄与整条
+ * 底栏都在这里，宿主只接能力。
  *
- * 这批用例是那 504 行的行为规格搬进包之后的落点：护栏跟着被守卫的代码走。
+ * 行为规格跟着被守卫的代码住在包里。
  */
 describe("ChatComposer", () => {
   it("Given image input is supported, When a PNG is selected and submitted, Then the host receives text and the image data URL", async () => {

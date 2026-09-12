@@ -5,7 +5,7 @@ subprocesses on a remote macOS, Linux, or Windows machine and connects to the
 desktop over binary Protobuf RPC on WebSocket.
 
 The daemon is stateful: it keeps runtime/account configuration in `state.json`
-and durable session and notification journals in its own `agentred.db` SQLite
+and durable sessions and their transcripts in its own `agentred.db` SQLite
 database.
 
 ## Build from source
@@ -151,7 +151,7 @@ Important files are:
 ```text
 <AppDataDir>/
   state.json    runtime state, listen preferences, account claim, and LLM providers
-  agentred.db   SQLite session and notification journals
+  agentred.db   SQLite sessions and their transcripts
   logs/         rolling agentred.log and error.log (see Logs above)
 ```
 

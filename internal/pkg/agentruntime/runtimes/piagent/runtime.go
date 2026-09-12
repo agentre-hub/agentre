@@ -108,8 +108,8 @@ func sessionKey(id int64) string {
 // 变了就只能重开一个,否则这一轮跑的是拿旧参数起来的进程。
 //
 // 比对与「未记录即已变」的判定都交给 CLISessionPool.GetWithIdentity(三个后端共用同
-// 一条规则,各自只决定自己的字段集),身份随条目一起消失 —— 此前这里是一张无上限的
-// 旁路表,池自行淘汰条目时不回调本包,条目只增不减。分隔符用 \x00:这些字段里 system
+// 一条规则,各自只决定自己的字段集),身份随条目一起消失,不另开旁路表(池自行淘汰条目
+// 时不回调本包,旁路表只增不减)。分隔符用 \x00:这些字段里 system
 // prompt 是自由文本,用它才不会与内容串味。
 func launchIdentity(req agentruntime.RunRequest, cwd string) string {
 	thinking, model := "", ""
@@ -332,7 +332,7 @@ func (p *preparedRun) Start(ctx context.Context) (<-chan agentruntime.Event, *ag
 // release 收尾一轮:干净结束的轮把 RPC 会话还给池留给下一轮,其余一律连会话一起收掉。
 //
 // 保守是刻意的 —— 取消 / 中断 / 出错之后进程处在什么状态无从判断,复用它就是把上一轮
-// 的残留带进下一轮。异常路径因此退化成 pi 从前的行为(每轮一个进程),复用只发生在
+// 的残留带进下一轮。异常路径因此退化成每轮一个进程,复用只发生在
 // 完全正常的那条路上。
 func (p *preparedRun) release(result *agentruntime.RunResult, active *activeSession) {
 	if p.poolKey != "" && p.reusable(result, active) {

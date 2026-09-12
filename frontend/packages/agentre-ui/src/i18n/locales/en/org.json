@@ -60,8 +60,6 @@
       "execTargets": {
         "dragHandle": "Reorder target (drag, or press the up / down arrow keys)",
         "keyboardHandle": "Reorder target (press the up / down arrow keys)",
-        "moveUp": "Move target up",
-        "moveDown": "Move target down",
         "remove": "Remove",
         "replace": "Replace",
         "localMachine": "Local machine",

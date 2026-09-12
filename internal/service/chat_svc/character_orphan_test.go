@@ -35,6 +35,3 @@ func TestCharacterization_Orphan_ToolResultDropped(t *testing.T) {
 		})
 	})
 }
-
-// ToolResultMetaBlock 已删除 —— meta 现在由 raw tool_result Meta 字节透传
-// (StreamToolResult 事件的 toolResultMeta 字段),不再独立 block,因此孤儿场景无意义。

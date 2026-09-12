@@ -82,8 +82,8 @@ type Runtime struct {
 // 用旧力度跑(spec 2026-09-01「三后端下发档位的收敛」)。ModelKey
 // 单列一项,因为两行不同的稳定模型可以解析到同一个上游 ModelID。
 //
-// 比对与「未记录即已变」的判定都交给 CLISessionPool.GetWithIdentity,身份随条目消失
-// —— 此前这里是一张旁路表,池自行淘汰条目时不回调本包,只能靠 512 条 FIFO 上限兜底。
+// 比对与「未记录即已变」的判定都交给 CLISessionPool.GetWithIdentity,身份随条目消失,
+// 不另开旁路表(池自行淘汰条目时不回调本包)。
 // 分隔符用 \x00:这些字段都是标识串,不会含 NUL。
 func launchIdentity(req agentruntime.RunRequest) string {
 	return strings.Join([]string{
@@ -114,7 +114,7 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 //   - CapCancelSteer = false(codex turn/steer fire-and-forget,无 withdraw verb)
 //   - CapDrainSteer = false(无 hook 队列)
 //   - CapToolPermission = true(codex app-server requestApproval 协议)
-//   - CapForkSession = true(走 thread/rollback)
+//   - CapForkSession = true(走 thread/turns/list + thread/revert)
 //   - CapReportContextWindow = true(thread/tokenUsage/updated 推 modelContextWindow)
 //   - PermissionModeMeta:仅 default / plan;**禁运行时切换**(running/waiting 禁切)
 func (r *Runtime) Capabilities() capability.Capabilities {
@@ -289,8 +289,7 @@ func sessionKey(id int64) string {
 	return agentruntime.SessionPoolKey(agent_backend_entity.TypeCodex, id)
 }
 
-// Run 启动一轮 codex CLI 发送。语义同顶层 codex.go.Run,emit 类型从
-// RuntimeEvent 改为 sealed agentruntime.Event。
+// Run 启动一轮 codex CLI 发送,emit sealed agentruntime.Event。
 func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 	if req.Backend == nil {
 		return nil, nil, fmt.Errorf("agentruntime/runtimes/codex: nil backend")
@@ -489,7 +488,7 @@ func (r *Runtime) CloseAllSessions(_ context.Context) {
 	r.pool.RemoveAll()
 }
 
-// Abort 软中断当前 turn。语义同顶层 codex.go.Abort。
+// Abort 软中断当前 turn。
 // turnToken 语义(决策 1):0 = 中断当前活跃轮;非 0 = 仅当该轮仍是当前活跃轮才中断,
 // 否则 stale no-op。codex 每会话同时至多一轮、只有用户轮,故被中断轮类型恒为 userTurn。
 func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) (agentruntime.AbortOutcome, error) {
@@ -542,7 +541,7 @@ func (r *Runtime) Steer(ctx context.Context, sessionID int64, queuedID string, t
 }
 
 // SubmitAnswer 把前端提交的 request_user_input 答案反向投回 codex app-server。
-// 语义同顶层 codex.go.SubmitAnswer:skipped → 空 answers map(让 LLM 看到拒答);
+// skipped → 空 answers map(让 LLM 看到拒答);
 // 非 skipped → buildUserInputAnswers 拼 codex 期望的 map[questionID][]string。
 func (r *Runtime) SubmitAnswer(ctx context.Context, sessionID int64, requestID string, questions []agentruntime.AskQuestion, answers []agentruntime.AskAnswer, skipped bool) error {
 	if sessionID <= 0 {

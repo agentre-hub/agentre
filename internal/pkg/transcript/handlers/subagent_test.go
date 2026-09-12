@@ -362,7 +362,7 @@ func TestSubagentDoneHandler_ZeroDurationMsDoesNotClobber(t *testing.T) {
 // 守卫(见 TestSubagentProgressHandler_ZeroDurationMsDoesNotClobber),但 TotalTokens
 // 与 ToolUses 仍是无条件赋值。三者来自同一个 CLI usage 对象(taskUsage,值类型无
 // 存在性区分):task_progress 帧偶尔缺 usage,解码成零值后若无条件赋值,会把已经
-// 攒起来的 token 数与工具数抹回 0(仓库自己在 chat_repo/message.go:336 记着这一点)。
+// 攒起来的 token 数与工具数抹回 0(transcript_repo/message.go 的 patch 也记着这一点)。
 func TestSubagentProgressHandler_ZeroTotalTokensAndToolUsesDoesNotClobber(t *testing.T) {
 	Convey("后续 Progress 帧 TotalTokens/ToolUses=0 不清空已记录的累计态", t, func() {
 		acc := turn.New()

@@ -3,10 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import {
-  useEffectiveSessionStatus,
-  useSessionStatusOverlay,
-} from "./use-live-session-status";
+import { useEffectiveSessionStatus } from "./use-live-session-status";
 
 describe("useEffectiveSessionStatus", () => {
   beforeEach(() => {
@@ -50,42 +47,6 @@ describe("useEffectiveSessionStatus", () => {
     expect(result.current).toEqual({
       agentStatus: "waiting",
       needsAttention: true,
-    });
-  });
-
-  // 列表 overlay 模式：project-page / agent-list 把 ProjectSessionItem[] 喂进来，
-  // 一次性把所有命中 store 的项替换 agentStatus / needsAttention,
-  // 没命中的保持原引用 —— 整数组只在真有变化时产生新引用避免反复 re-render。
-  describe("useSessionStatusOverlay", () => {
-    it("returns same reference when store is empty", () => {
-      const sessions = [
-        { id: 1, agentStatus: "idle", needsAttention: false },
-        { id: 2, agentStatus: "running", needsAttention: false },
-      ];
-      const { result } = renderHook(() => useSessionStatusOverlay(sessions));
-      expect(result.current).toBe(sessions);
-    });
-
-    it("overlays matching ids and keeps others unchanged", () => {
-      act(() => {
-        useSessionStatusStore.getState().upsert(2, {
-          agentStatus: "waiting",
-          needsAttention: true,
-        });
-      });
-      const sessions = [
-        { id: 1, agentStatus: "idle", needsAttention: false },
-        { id: 2, agentStatus: "running", needsAttention: false },
-        { id: 3, agentStatus: "idle", needsAttention: false },
-      ];
-      const { result } = renderHook(() => useSessionStatusOverlay(sessions));
-      expect(result.current[0]).toBe(sessions[0]);
-      expect(result.current[1]).toEqual({
-        id: 2,
-        agentStatus: "waiting",
-        needsAttention: true,
-      });
-      expect(result.current[2]).toBe(sessions[2]);
     });
   });
 

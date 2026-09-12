@@ -9,7 +9,7 @@ import (
 
 // 流式文本合帧。
 //
-// 每一条 TextDelta / ThinkingDelta 此前都是**一次独立的 Wails 事件**:一次
+// 不合帧的话,每一条 TextDelta / ThinkingDelta 都是**一次独立的 Wails 事件**:一次
 // json.Marshal + 一次主线程 WKWebView evaluateJavaScript(wails v2 的 EventsEmit
 // 就是拼一段 `window.wails.EventsNotify(...)` 交给 webview 求值)。一条长回复是
 // 上千个 token,一个会话还可以同时有用户轮 / 自主续轮 / 后台 subagent 活动轮三路流。

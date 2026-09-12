@@ -113,7 +113,6 @@
     },
     "notifications": {
       "pageTitle": "通知",
-      "pageDesc": "对话完成、出错或需要你输入时提醒你。",
       "masterTitle": "通知",
       "masterDesc": "总开关 —— 关闭后下面所有方式都不生效。",
       "enableLabel": "启用通知",

@@ -13,6 +13,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/bootstrap"
 	"github.com/agentre-hub/agentre/internal/model/entity/server_state_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/repository/server_state_repo"
@@ -47,7 +48,7 @@ func TestGivenDualLoginWhenHarnessInstallsAccountThenRemoteDeviceUsesLoginFinger
 	})
 
 	bootKeychain := keychain.NewMemory()
-	require.NoError(t, bootKeychain.Set(keychainAccountFingerprint, "sha256:boot"))
+	require.NoError(t, bootKeychain.Set(deviceidentity.KeychainAccount, "sha256:boot"))
 	keychain.SetDefault(bootKeychain)
 	require.NoError(t, bootstrap.InitRemoteDevice(ctx))
 

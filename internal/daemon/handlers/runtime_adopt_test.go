@@ -27,10 +27,10 @@ import (
 // Adopt 放进内存会话表的是**占位行**——它背后没有任何一轮在跑,存在只为让这条连接
 // 解得出会话的 backend(控制 RPC 要用)。它无条件盖掉那一格的话,正在跑的那一轮
 // 就此 isCurrent == false,fanout 里每一条事件都撞上 `if !current { continue }`,
-// 一条也进不了通知日志。
+// 一条也进不了转录。
 //
 // 真机上量到的样子(2026-09-03,agentred 联调机):claude CLI 答完了整整一轮,
-// fanout 汇总日志报 totalEvents=286 / currentGeneration=false,而 journal 里只剩
+// fanout 汇总日志报 totalEvents=286 / currentGeneration=false,而转录里只剩
 // 几帧 —— 循环之后无条件发的终态帧与开始帧。控制台上就是「点进去还没有消息」,
 // 不报错、不跳号。
 func TestRuntime_AdoptDoesNotSilenceTheTurnAlreadyStreaming(t *testing.T) {

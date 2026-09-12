@@ -14,7 +14,7 @@ import (
 
 // translate 把单帧 codex.Event 翻成 0/1/n 个 sealed agentruntime.Event。
 //
-// 与顶层 codex.go.translateCodexEvent 平行 + **加 canonical 识别**:
+// 翻译之外**加 canonical 识别**:
 //   - file_change → ToolCall.Canonical = canonical.FileEdit(per-File Kind:
 //     created/modified/deleted 都保留 diff 表示;canonical.FileWrite 适合带
 //     raw content 的 claudecode Write,codex 这里 created 也是 diff 形式,统一

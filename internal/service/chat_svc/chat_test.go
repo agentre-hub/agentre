@@ -3818,12 +3818,12 @@ func TestSend_NewCodexSessionStoresPermissionModeBeforeFirstTurn(t *testing.T) {
 func TestSend_CodexPlanUpdatedPersistsVisiblePlanBlock(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventPlanUpdated, Plan: []agentruntime.PlanStep{
-			{Step: "Inspect files", Status: "completed"},
-			{Step: "Describe next change", Status: "inProgress"},
-		}},
-		{Kind: agentruntime.EventDone},
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.PlanUpdated{Plan: canonical.PlanUpdate{Steps: []canonical.PlanStep{
+			{Step: "Inspect files", Status: canonical.StepCompleted},
+			{Step: "Describe next change", Status: canonical.StepInProgress},
+		}}},
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -3901,12 +3901,12 @@ func TestSend_CodexPlanUpdatedPersistsVisiblePlanBlock(t *testing.T) {
 func TestSend_UnansweredAskUserQuestionExpiresAtFinalize(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventAskUserQuestion, AskUserQuestion: &agentruntime.AskUserQuestionEvent{
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.UserAskRequest{
 			RequestID: "ask-1",
 			Questions: []agentruntime.AskQuestion{{ID: "q1", Question: "ok?", Options: []agentruntime.AskOption{{Label: "Y"}}}},
-		}},
-		{Kind: agentruntime.EventDone},
+		},
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -3980,9 +3980,9 @@ func TestSend_UnansweredAskUserQuestionExpiresAtFinalize(t *testing.T) {
 func TestSend_CodexPlanItemTextPersistsVisiblePlanBlock(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventPlanUpdated, PlanText: "# Plan\n\n1. Inspect files\n2. Report findings\n"},
-		{Kind: agentruntime.EventDone},
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.PlanUpdated{Plan: canonical.PlanUpdate{Text: "# Plan\n\n1. Inspect files\n2. Report findings\n"}},
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -4418,8 +4418,8 @@ func TestResolvePlanAction_CodexExecuteContinuesWaitingPlan(t *testing.T) {
 func TestSend_CodexPlanEmptyTurnPersistsFallbackText(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventDone},
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeCodex, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -5090,15 +5090,15 @@ func TestSend_StreamUsageEventsAreForwardedAndPersisted(t *testing.T) {
 	ctx := m.ctx
 
 	// 一个吐两帧 EventUsage 的 fake runner —— 模拟 turn 内两次内部 API call 的边界。
-	runner := scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventTextDelta, Text: "thinking..."},
-		{Kind: agentruntime.EventUsage, Usage: &provider.Usage{
+	runner := scriptedRunner{events: []agentruntime.Event{
+		agentruntime.TextDelta{Text: "thinking..."},
+		agentruntime.UsageUpdate{Usage: &provider.Usage{
 			PromptTokens: 200, CompletionTokens: 50, CachedTokens: 10000, CacheCreationTokens: 0,
 		}},
-		{Kind: agentruntime.EventUsage, Usage: &provider.Usage{
+		agentruntime.UsageUpdate{Usage: &provider.Usage{
 			PromptTokens: 50, CompletionTokens: 20, CachedTokens: 10300, CacheCreationTokens: 50,
 		}},
-		{Kind: agentruntime.EventDone},
+		agentruntime.Done{},
 	}}
 	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, runner)
 	t.Cleanup(restore)
@@ -5187,12 +5187,9 @@ func TestSend_StreamUsageEventsAreForwardedAndPersisted(t *testing.T) {
 	assert.Equal(t, final.CompletionTokens, last.CompletionTokens)
 }
 
-// scriptedRunner 按预设序列吐 RuntimeEvent 字面量(老 fixture 风格),内部转 NEW
-// Event 喂给 chat_svc dispatcher。生产 runner 已直接发 NEW Event;这里保留
-// RuntimeEvent 入参,是为了让大量老测试 fixture 字面量不必逐行重写,
-// 通过 chat_svc.ConvertOldEventToNewForTest 桥接。
+// scriptedRunner 按预设序列吐 sealed agentruntime.Event 字面量。
 type scriptedRunner struct {
-	events []agentruntime.RuntimeEvent
+	events []agentruntime.Event
 }
 
 // Capabilities 返联合 meta(同 recordingRunner)—— scriptedRunner 也会被多个
@@ -5210,9 +5207,7 @@ func (scriptedRunner) Capabilities() capability.Capabilities {
 func (r scriptedRunner) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
 	ch := make(chan agentruntime.Event, len(r.events))
 	for _, e := range r.events {
-		if ev := chat_svc.ConvertOldEventToNewForTest(e); ev != nil {
-			ch <- ev
-		}
+		ch <- e
 	}
 	close(ch)
 	return ch, &agentruntime.RunResult{}, nil
@@ -5330,7 +5325,7 @@ func TestSend_ErrorSessionMarksRunningAtTurnStart(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
 	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{
-		events: []agentruntime.RuntimeEvent{{Kind: agentruntime.EventDone}},
+		events: []agentruntime.Event{agentruntime.Done{}},
 	})
 	t.Cleanup(restore)
 
@@ -5444,7 +5439,7 @@ func TestRegenerate_PersistFailureDoesNotPersistRunning(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
 	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{
-		events: []agentruntime.RuntimeEvent{{Kind: agentruntime.EventDone}},
+		events: []agentruntime.Event{agentruntime.Done{}},
 	})
 	t.Cleanup(restore)
 
@@ -5483,21 +5478,20 @@ func TestRegenerate_PersistFailureDoesNotPersistRunning(t *testing.T) {
 func TestSend_AskUserQuestionFlipsSessionToWaiting(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventTextDelta, Text: "thinking..."},
-		{Kind: agentruntime.EventAskUserQuestion, AskUserQuestion: &agentruntime.AskUserQuestionEvent{
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.TextDelta{Text: "thinking..."},
+		agentruntime.UserAskRequest{
 			RequestID: "req-1",
 			Questions: []agentruntime.AskQuestion{{
 				Question: "Pick one",
 				Options:  []agentruntime.AskOption{{Label: "A"}, {Label: "B"}},
 			}},
-		}},
-		{Kind: agentruntime.EventAskUserQuestionAnswered, AskUserQuestion: &agentruntime.AskUserQuestionEvent{
+		},
+		agentruntime.UserAskResolved{
 			RequestID: "req-1",
-			Answered:  true,
 			Answers:   []agentruntime.AskAnswer{{QuestionIndex: 0, Labels: []string{"A"}}},
-		}},
-		{Kind: agentruntime.EventDone},
+		},
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -5525,15 +5519,15 @@ func TestSend_AskUserQuestionFlipsSessionToWaiting(t *testing.T) {
 func TestSend_AskUserQuestionCheckpointsWaitingCard(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventTextDelta, Text: "thinking..."},
-		{Kind: agentruntime.EventAskUserQuestion, AskUserQuestion: &agentruntime.AskUserQuestionEvent{
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.TextDelta{Text: "thinking..."},
+		agentruntime.UserAskRequest{
 			RequestID: "req-1",
 			Questions: []agentruntime.AskQuestion{{
 				Question: "Pick one",
 				Options:  []agentruntime.AskOption{{Label: "A"}, {Label: "B"}},
 			}},
-		}},
+		},
 	}})
 	t.Cleanup(restore)
 
@@ -5570,12 +5564,12 @@ func TestSend_AskUserQuestionCheckpointsWaitingCard(t *testing.T) {
 func TestSend_ToolPermissionCheckpointsWaitingCard(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventToolPermissionRequest, ToolPermission: &agentruntime.ToolPermissionEvent{
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.ToolPermissionRequest{
 			RequestID: "perm-1",
 			ToolName:  "Bash",
 			Input:     []byte(`{"command":"ls"}`),
-		}},
+		},
 	}})
 	t.Cleanup(restore)
 
@@ -5627,26 +5621,25 @@ func TestSend_OrphanToolResultFromAskUserQuestionIsDropped(t *testing.T) {
 	ctx := m.ctx
 
 	askToolID := "toolu_ask_001"
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventAskUserQuestion, AskUserQuestion: &agentruntime.AskUserQuestionEvent{
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.UserAskRequest{
 			RequestID: "req-orphan",
 			Questions: []agentruntime.AskQuestion{{
 				Question: "Pick one",
 				Options:  []agentruntime.AskOption{{Label: "A"}, {Label: "B"}},
 			}},
-		}},
-		{Kind: agentruntime.EventAskUserQuestionAnswered, AskUserQuestion: &agentruntime.AskUserQuestionEvent{
+		},
+		agentruntime.UserAskResolved{
 			RequestID: "req-orphan",
-			Answered:  true,
 			Answers:   []agentruntime.AskAnswer{{QuestionIndex: 0, Labels: []string{"A"}}},
-		}},
+		},
 		// translateClaudeCodeEvent 已经 drop 掉对应的 EventToolUseStart，
 		// 但 EventToolResult 因 Name 为空逃过过滤漏到这里。
-		{Kind: agentruntime.EventToolResult, ToolResult: &agentruntime.ToolResultEvent{
+		agentruntime.ToolResult{
 			ToolCallID: askToolID,
 			Content:    `[{"label":"A"}]`,
-		}},
-		{Kind: agentruntime.EventDone},
+		},
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -5671,19 +5664,19 @@ func TestSend_OrphanToolResultFromAskUserQuestionIsDropped(t *testing.T) {
 func TestSend_CheckpointsAssistantWhenToolResultArrives(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventTextDelta, Text: "checking "},
-		{Kind: agentruntime.EventToolUseStart, ToolUse: &agentruntime.ToolUseEvent{
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.TextDelta{Text: "checking "},
+		agentruntime.ToolCall{
 			ID:    "toolu_1",
 			Name:  "Bash",
 			Input: []byte(`{"command":"pwd"}`),
-		}},
-		{Kind: agentruntime.EventToolResult, ToolResult: &agentruntime.ToolResultEvent{
+		},
+		agentruntime.ToolResult{
 			ToolCallID: "toolu_1",
 			Content:    "/tmp/project",
-		}},
-		{Kind: agentruntime.EventTextDelta, Text: "done"},
-		{Kind: agentruntime.EventDone},
+		},
+		agentruntime.TextDelta{Text: "done"},
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -5800,20 +5793,17 @@ func toolResultIDForTest(t *testing.T, b blocks.ContentBlock) string {
 func TestSend_ToolPermissionFlipsSessionToWaiting(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventToolPermissionRequest, ToolPermission: &agentruntime.ToolPermissionEvent{
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.ToolPermissionRequest{
 			RequestID: "perm-1",
 			ToolName:  "Bash",
 			Input:     []byte(`{"command":"ls"}`),
-		}},
-		{Kind: agentruntime.EventToolPermissionResolved, ToolPermission: &agentruntime.ToolPermissionEvent{
+		},
+		agentruntime.ToolPermissionResolved{
 			RequestID: "perm-1",
-			ToolName:  "Bash",
-			Input:     []byte(`{"command":"ls"}`),
-			Resolved:  true,
 			Allowed:   true,
-		}},
-		{Kind: agentruntime.EventDone},
+		},
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -10833,26 +10823,32 @@ func TestSend_PassivePermissionModeChangePersistsAndEmitsPatch(t *testing.T) {
 func TestSend_StreamToolUseCarriesCanonical(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.RuntimeEvent{
-		{Kind: agentruntime.EventToolUseStart, ToolUse: &agentruntime.ToolUseEvent{
+	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: []agentruntime.Event{
+		agentruntime.ToolCall{
 			ID:    "toolu_edit",
 			Name:  "Edit",
 			Input: []byte(`{"file_path":"/x.go","old_string":"a\n","new_string":"b\n"}`),
-		}},
-		{Kind: agentruntime.EventToolResult, ToolResult: &agentruntime.ToolResultEvent{
+			Canonical: canonical.FileEdit{Files: []canonical.FileEditPatch{{
+				Path: "/x.go", Kind: canonical.ChangeModified,
+			}}},
+		},
+		agentruntime.ToolResult{
 			ToolCallID: "toolu_edit",
 			Content:    "ok",
-		}},
-		{Kind: agentruntime.EventToolUseStart, ToolUse: &agentruntime.ToolUseEvent{
+		},
+		agentruntime.ToolCall{
 			ID:    "toolu_write",
 			Name:  "Write",
 			Input: []byte(`{"file_path":"/y.go","content":"hello\n"}`),
-		}},
-		{Kind: agentruntime.EventToolResult, ToolResult: &agentruntime.ToolResultEvent{
+			Canonical: canonical.FileWrite{
+				Path: "/y.go", Content: "hello\n",
+			},
+		},
+		agentruntime.ToolResult{
 			ToolCallID: "toolu_write",
 			Content:    "ok",
-		}},
-		{Kind: agentruntime.EventDone},
+		},
+		agentruntime.Done{},
 	}})
 	t.Cleanup(restore)
 
@@ -10978,22 +10974,22 @@ func TestSend_CoalescedStreamPreservesTextAndOrdering(t *testing.T) {
 	before := []string{"Let ", "me ", "check ", "that ", "file", ".\n"}
 	after := []string{"Found ", "it", ": ", "all ", "good", "."}
 
-	events := make([]agentruntime.RuntimeEvent, 0, len(before)+len(after)+2)
+	events := make([]agentruntime.Event, 0, len(before)+len(after)+2)
 	for _, s := range before {
-		events = append(events, agentruntime.RuntimeEvent{Kind: agentruntime.EventTextDelta, Text: s})
+		events = append(events, agentruntime.TextDelta{Text: s})
 	}
 	events = append(events,
-		agentruntime.RuntimeEvent{Kind: agentruntime.EventToolUseStart, ToolUse: &agentruntime.ToolUseEvent{
+		agentruntime.ToolCall{
 			ID: "t1", Name: "Read", Input: []byte(`{}`),
-		}},
-		agentruntime.RuntimeEvent{Kind: agentruntime.EventToolResult, ToolResult: &agentruntime.ToolResultEvent{
+		},
+		agentruntime.ToolResult{
 			ToolCallID: "t1", Content: "ok",
-		}},
+		},
 	)
 	for _, s := range after {
-		events = append(events, agentruntime.RuntimeEvent{Kind: agentruntime.EventTextDelta, Text: s})
+		events = append(events, agentruntime.TextDelta{Text: s})
 	}
-	events = append(events, agentruntime.RuntimeEvent{Kind: agentruntime.EventDone})
+	events = append(events, agentruntime.Done{})
 
 	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeBuiltin, scriptedRunner{events: events})
 	t.Cleanup(restore)

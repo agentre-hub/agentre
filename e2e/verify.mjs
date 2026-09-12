@@ -20,7 +20,7 @@ import {
   writeSession,
 } from "./lib/target.mjs";
 import { verificationBrowserArgs } from "./lib/browser.mjs";
-import { reapOrphanVite } from "./lib/procs.mjs";
+import { reapOrphanVite, waitForExit } from "./lib/procs.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
@@ -273,13 +273,22 @@ function down(flags) {
   reapOrphanVite(repoRoot);
   if (flags.wipe) {
     assertIsolatedDataDir(target.dataDir);
-    rmSync(target.dataDir, { recursive: true, force: true });
-    rmSync(target.keychainDir, { recursive: true, force: true });
-    rmSync(target.browserDir, { recursive: true, force: true });
-    console.log("down: formal desktop stopped, isolated state wiped");
-    return 0;
+    return wipe(target, session);
   }
   console.log(`down: formal desktop stopped (state kept at ${target.dataDir}; add --wipe to remove)`);
+  return 0;
+}
+
+// 等被 SIGTERM 的进程真正退出再删目录。信号交出去到 Chromium 最后写完用户数据目录之间
+// 还有一拍,`rmSync` 抢在前面就会偶发 ENOTEMPTY(browserDir 里还在生成文件)。进程组等
+// 不到就在预算内放弃、照删不误——不能为了一个赖着不走的进程把 verify-down 挂死。
+async function wipe(target, session) {
+  await waitForExit(session?.browserPid);
+  await waitForExit(session?.appPid);
+  rmSync(target.dataDir, { recursive: true, force: true });
+  rmSync(target.keychainDir, { recursive: true, force: true });
+  rmSync(target.browserDir, { recursive: true, force: true });
+  console.log("down: formal desktop stopped, isolated state wiped");
   return 0;
 }
 

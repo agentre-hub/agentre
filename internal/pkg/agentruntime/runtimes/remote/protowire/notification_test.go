@@ -11,7 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
-func TestTypedNotificationEncodeDecodeAndSeqCoverAllJournalKinds(t *testing.T) {
+func TestTypedNotificationEncodeDecodeAndSeqCoverAllDurableKinds(t *testing.T) {
 	cases := []*agentrewire.RpcNotification{
 		{Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: &agentrewire.RuntimeEventNotification{ConversationId: convID(42)}}},
 		{Payload: &agentrewire.RpcNotification_RunResultDone{RunResultDone: &agentrewire.RunResultDoneNotification{ConversationId: convID(42)}}},
@@ -62,11 +62,11 @@ func TestTypedNotificationRejectsMissingPayloadAndSeqRejectsUnknownFuturePayload
 	require.Zero(t, NotificationSeq(&agentrewire.RpcNotification{}))
 }
 
-// TestNotificationMethodNamesEveryJournalKind 钉死「method 名从消息本身读出来」:推送
+// TestNotificationMethodNamesEveryDurableKind 钉死「method 名从消息本身读出来」:推送
 // 端口交出的是已经转换好的 Protobuf 通知,路由与日志需要的 method 串必须由它自己解出,
 // 而不是另带一个可能与消息内容不一致的第二份真相。未知 / 空 payload 交回空串,调用方
 // 据此报错,而不是猜一个方法名把帧推给别人。
-func TestNotificationMethodNamesEveryJournalKind(t *testing.T) {
+func TestNotificationMethodNamesEveryDurableKind(t *testing.T) {
 	cases := []struct {
 		want         string
 		notification *agentrewire.RpcNotification

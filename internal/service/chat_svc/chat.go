@@ -449,12 +449,12 @@ func (s *chatSvc) ListAgents(ctx context.Context, _ *ListAgentsRequest) (*ListAg
 
 // ── ListIndexSessions ────────────────────────────────────────────────────────
 
-// ListIndexSessions 见接口注释。两个 scope 各补上一个此前根本拿不到的集合：
+// ListIndexSessions 见接口注释。两个 scope 各给出一个别的接口拿不全的集合：
 //
 //   - recent —— 跨 agent、跨项目的全局最近活动。ListChatAgents 每个 agent 只给前 5
 //     条，把它们并起来是一个窗口而不是全量；「按时间」这一档要的正是全量的头部。
 //   - free —— project_id = 0 的会话。ListSessions 挡在 projectID > 0（0 不是一个
-//     项目），所以自由会话此前只能靠「碰巧落在某个 agent 的前 5 条里」被看见。
+//     项目），ListChatAgents 又只给每个 agent 前 5 条，自由会话只有这里拿得全。
 //
 // 分页口径与 ListAgentSessions 完全一致（默认 20 / 上限 100），前端两处翻页逻辑同形。
 func (s *chatSvc) ListIndexSessions(ctx context.Context, req *ListIndexSessionsRequest) (*ListIndexSessionsResponse, error) {

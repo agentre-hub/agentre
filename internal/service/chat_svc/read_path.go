@@ -116,8 +116,7 @@ func storedBlockTypes(types []string) []string {
 
 // LoadSessionBlocksByType 给派生视图供数:整条会话的消息元数据,每条只带点名类型的块。
 //
-// 后台任务面板 / 大纲 / 变更这三处此前靠「前端遍历本地全量转录」得出结论,块表的
-// type 列让它们改成后端按类型点查 —— 数据集合与改动前等价,但前端不再需要持有整条
+// 后台任务面板 / 大纲 / 变更这三处由后端按块表的 type 列点查,前端不需要持有整条
 // 会话的全部正文(决策 6)。
 func (s *chatSvc) LoadSessionBlocksByType(ctx context.Context, req *LoadSessionBlocksByTypeRequest) (*LoadSessionBlocksByTypeResponse, error) {
 	if req == nil || req.SessionID <= 0 || len(req.Types) == 0 {

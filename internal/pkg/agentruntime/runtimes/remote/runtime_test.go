@@ -847,11 +847,9 @@ func TestAutonomousTurns_ReconstructsForwardedTurn(t *testing.T) {
 // closeAllAutoSessions() 收尾 cur.events;关与送若不互斥 → send-on-closed-channel
 // panic(读循环 goroutine 无 recover → 整进程崩)。
 //
-// 不变量没变,复现手法换了。旧版靠「把 cap 64 的 channel 填满、让下一次送 park 住」
-// 制造窗口,而投递改走 orderedpipe 之后 Push 永不 park,那个手法既不成立也不再是
-// 需要防的形状 —— 现在要防的是 Push 与 Close 真并发。所以改成让**多路并发投递**与
-// 断连收尾直接对撞,由 -race 与 recover 同时把关。这比旧版更强:它不依赖任何缓冲
-// 容量,换实现也照样成立。
+// 投递走 orderedpipe,Push 永不 park,要防的是 Push 与 Close 真并发。所以让**多路并发
+// 投递**与断连收尾直接对撞,由 -race 与 recover 同时把关。它不依赖任何缓冲容量,换实现
+// 也照样成立。
 func TestAutonomousTurnEvent_ClosingRaceMustNotPanic(t *testing.T) {
 	_, _, capture, rt := setupRemote(t)
 	_ = rt.AutonomousTurns(42)

@@ -47,6 +47,11 @@
 // 就等于把那个角色留给下一个人另起炉灶。
 package devicefp
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+)
+
 // Carrier 承载者：这东西跑在/属于哪台机器。规范列名 device_fingerprint。
 //
 // 冻结的别名列 agentred_fingerprint / daemon_fingerprint / machine_fingerprint
@@ -72,3 +77,15 @@ type LastWriter string
 // 的 device_fingerprint）用的是**承载者**的列名而不是这个角色的，那是一条已发布
 // 的线格式，不在这一轮里重新归类。
 type Client string
+
+// FromSeed 把一个「实例身份串」派生成规范指纹：`sha256:` + 该串的 SHA-256 十六进制。
+//
+// 格式规则只有这一份实现，因为它是这个值空间的全部意义所在 —— 两端生成的指纹要能逐字节
+// 比较（server 上那些列就钉在 utf8mb4_0900_bin 上）。种子的来源两端不同：agentred 用自己
+// 的 instance UUID，桌面端用一份随机实例标识（internal/pkg/deviceidentity）；**格式相同，
+// 种子不同**，所以两端必须经过同一个函数换格式 —— 各自拼一遍字符串，漂移就只是时间问题，
+// 而漂移的症状是同一台机器被当成两台。
+func FromSeed(seed string) Carrier {
+	sum := sha256.Sum256([]byte(seed))
+	return Carrier("sha256:" + hex.EncodeToString(sum[:]))
+}

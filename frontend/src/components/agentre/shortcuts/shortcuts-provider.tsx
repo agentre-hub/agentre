@@ -45,9 +45,8 @@ const NAV_AXES: Record<string, IndexAxis> = {
   "nav.projects": "project",
 };
 
-// SessionScope —— 提供 ⌘1..9 历史侧边栏会话跳转的当前路由 scope。
-// /chat 和 /projects 都注册到这个槽位，但路由互斥，所以同一时刻只有一个生效。
-// Tab 化后 TabsScope 优先；SessionScope 仅作为回退保留，不再被主路径使用。
+// SessionScope —— ⌘1..9 历史侧边栏会话跳转的回退 scope。
+// Tab 化后 TabsScope 优先；SessionScope 仅作为回退保留，当前没有路由注册它。
 type SessionScope = {
   entries: AttentionEntry[];
   onSelect: (agentId: number, sessionId: number) => void;

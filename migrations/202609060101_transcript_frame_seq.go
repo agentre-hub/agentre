@@ -23,6 +23,7 @@ func migration202609060101() *gormigrate.Migration {
 		ID: "202609060101",
 		Migrate: func(tx *gorm.DB) error {
 			if err := tx.Exec(`CREATE TABLE IF NOT EXISTS chat_frame_seqs (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	session_id INTEGER NOT NULL,
 	message_id INTEGER NOT NULL,
 	block_idx INTEGER NOT NULL,

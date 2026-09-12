@@ -22,9 +22,9 @@ const virtualChannelBuffer = 64
 // 把同一个 id 再发出去。两件事需要的都只是覆盖「关掉那一刻还在网上飞的帧」的
 // 那个窗口 —— 一个 RTT,秒级。留得比这更久没有任何额外作用。
 //
-// 从前这里没有期限:记号只增不减,只有整条中继断开才清空。而每一次一次性调用
+// 不设期限的话记号只增不减,只有整条中继断开才清空。而每一次一次性调用
 // (技能面板 / 引擎设置 / 目录选择)都是一条新通道,一条稳定跑几周的链路上这个 map
-// 只会一直长。channels 是删的,retired 不是。
+// 只会一直长。channels 是删的,retired 也得删。
 const retiredChannelTTL = 30 * time.Second
 
 // retiredSweepThreshold 是顺带清理过期记号的门槛。只靠「用到时才发现过期」清不掉
@@ -34,8 +34,8 @@ const retiredSweepThreshold = 256
 // MaxEnvelopeBytes 是一条中继帧里信封头最多占多少,取自信封格式自己的定义。
 //
 // 它是**读上限**的一部分,不是载荷预算的一部分:中继这条线上收到的每一帧都是
-// 「服务端套过信封的载荷」,所以链路的读上限 = 载荷预算 + 这个数。服务端那侧从前
-// 有同名同值的一份,靠一条对着字面量的守卫盯着;两处如今取的是同一个常量。
+// 「服务端套过信封的载荷」,所以链路的读上限 = 载荷预算 + 这个数。服务端取的是
+// 同一个常量。
 const MaxEnvelopeBytes = relayenvelope.MaxEnvelopeBytes
 
 var ErrClosed = errors.New("relaytransport: channel closed")
@@ -208,9 +208,8 @@ func (m *Multiplexer) onDisconnect(error) {
 // closeChannel 关掉一条通道,并告诉对端这条通道没了 —— 一帧空载荷,与对端关通道时
 // 用的是同一个约定(agentre-server relay_svc.UnwrapEnvelope 的注释)。
 //
-// 这一帧不是可有可无的礼貌。目标从连接级降到通道级、且两端各自收拢成一条常驻物理
-// 连接之后,通道的关闭再没有别的信号可依:从前一条通道就是一条物理 WebSocket,关掉
-// 它对端立刻知道。不发的话,account server 那侧的通道登记(clientChannels.open、帧
+// 这一帧不是可有可无的礼貌。目标在通道级、两端各一条常驻物理连接,通道的关闭没有
+// 别的信号可依。不发的话,account server 那侧的通道登记(clientChannels.open、帧
 // 总线附着、在线登记与它那条定期续期的 goroutine)要等整条常驻连接断掉才回收,而它
 // 按设计与登录态等长 —— 每借还一台机器就漏一份。
 func (m *Multiplexer) closeChannel(channel *VirtualChannel) {

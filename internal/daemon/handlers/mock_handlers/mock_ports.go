@@ -717,32 +717,32 @@ func (mr *MockSteerSourcePortMockRecorder) Record(queuedID, entry any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Record", reflect.TypeOf((*MockSteerSourcePort)(nil).Record), queuedID, entry)
 }
 
-// MockJournalReaderPort is a mock of JournalReaderPort interface.
-type MockJournalReaderPort struct {
+// MockDurableFrameReaderPort is a mock of DurableFrameReaderPort interface.
+type MockDurableFrameReaderPort struct {
 	ctrl     *gomock.Controller
-	recorder *MockJournalReaderPortMockRecorder
+	recorder *MockDurableFrameReaderPortMockRecorder
 	isgomock struct{}
 }
 
-// MockJournalReaderPortMockRecorder is the mock recorder for MockJournalReaderPort.
-type MockJournalReaderPortMockRecorder struct {
-	mock *MockJournalReaderPort
+// MockDurableFrameReaderPortMockRecorder is the mock recorder for MockDurableFrameReaderPort.
+type MockDurableFrameReaderPortMockRecorder struct {
+	mock *MockDurableFrameReaderPort
 }
 
-// NewMockJournalReaderPort creates a new mock instance.
-func NewMockJournalReaderPort(ctrl *gomock.Controller) *MockJournalReaderPort {
-	mock := &MockJournalReaderPort{ctrl: ctrl}
-	mock.recorder = &MockJournalReaderPortMockRecorder{mock}
+// NewMockDurableFrameReaderPort creates a new mock instance.
+func NewMockDurableFrameReaderPort(ctrl *gomock.Controller) *MockDurableFrameReaderPort {
+	mock := &MockDurableFrameReaderPort{ctrl: ctrl}
+	mock.recorder = &MockDurableFrameReaderPortMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockJournalReaderPort) EXPECT() *MockJournalReaderPortMockRecorder {
+func (m *MockDurableFrameReaderPort) EXPECT() *MockDurableFrameReaderPortMockRecorder {
 	return m.recorder
 }
 
 // LatestSeq mocks base method.
-func (m *MockJournalReaderPort) LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
+func (m *MockDurableFrameReaderPort) LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LatestSeq", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(int64)
@@ -751,13 +751,13 @@ func (m *MockJournalReaderPort) LatestSeq(ctx context.Context, peerFingerprint d
 }
 
 // LatestSeq indicates an expected call of LatestSeq.
-func (mr *MockJournalReaderPortMockRecorder) LatestSeq(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
+func (mr *MockDurableFrameReaderPortMockRecorder) LatestSeq(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestSeq", reflect.TypeOf((*MockJournalReaderPort)(nil).LatestSeq), ctx, peerFingerprint, peerSessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestSeq", reflect.TypeOf((*MockDurableFrameReaderPort)(nil).LatestSeq), ctx, peerFingerprint, peerSessionID)
 }
 
 // LatestSeqByPeer mocks base method.
-func (m *MockJournalReaderPort) LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error) {
+func (m *MockDurableFrameReaderPort) LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LatestSeqByPeer", ctx, peerFingerprint)
 	ret0, _ := ret[0].(map[string]int64)
@@ -766,29 +766,29 @@ func (m *MockJournalReaderPort) LatestSeqByPeer(ctx context.Context, peerFingerp
 }
 
 // LatestSeqByPeer indicates an expected call of LatestSeqByPeer.
-func (mr *MockJournalReaderPortMockRecorder) LatestSeqByPeer(ctx, peerFingerprint any) *gomock.Call {
+func (mr *MockDurableFrameReaderPortMockRecorder) LatestSeqByPeer(ctx, peerFingerprint any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestSeqByPeer", reflect.TypeOf((*MockJournalReaderPort)(nil).LatestSeqByPeer), ctx, peerFingerprint)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LatestSeqByPeer", reflect.TypeOf((*MockDurableFrameReaderPort)(nil).LatestSeqByPeer), ctx, peerFingerprint)
 }
 
 // ListSince mocks base method.
-func (m *MockJournalReaderPort) ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) ([]handlers.JournalRow, bool, error) {
+func (m *MockDurableFrameReaderPort) ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) ([]handlers.DurableFrameRow, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListSince", ctx, peerFingerprint, peerSessionID, cursor, limit)
-	ret0, _ := ret[0].([]handlers.JournalRow)
+	ret0, _ := ret[0].([]handlers.DurableFrameRow)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
 
 // ListSince indicates an expected call of ListSince.
-func (mr *MockJournalReaderPortMockRecorder) ListSince(ctx, peerFingerprint, peerSessionID, cursor, limit any) *gomock.Call {
+func (mr *MockDurableFrameReaderPortMockRecorder) ListSince(ctx, peerFingerprint, peerSessionID, cursor, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSince", reflect.TypeOf((*MockJournalReaderPort)(nil).ListSince), ctx, peerFingerprint, peerSessionID, cursor, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSince", reflect.TypeOf((*MockDurableFrameReaderPort)(nil).ListSince), ctx, peerFingerprint, peerSessionID, cursor, limit)
 }
 
 // OldestSeq mocks base method.
-func (m *MockJournalReaderPort) OldestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
+func (m *MockDurableFrameReaderPort) OldestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OldestSeq", ctx, peerFingerprint, peerSessionID)
 	ret0, _ := ret[0].(int64)
@@ -797,9 +797,9 @@ func (m *MockJournalReaderPort) OldestSeq(ctx context.Context, peerFingerprint d
 }
 
 // OldestSeq indicates an expected call of OldestSeq.
-func (mr *MockJournalReaderPortMockRecorder) OldestSeq(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
+func (mr *MockDurableFrameReaderPortMockRecorder) OldestSeq(ctx, peerFingerprint, peerSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OldestSeq", reflect.TypeOf((*MockJournalReaderPort)(nil).OldestSeq), ctx, peerFingerprint, peerSessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OldestSeq", reflect.TypeOf((*MockDurableFrameReaderPort)(nil).OldestSeq), ctx, peerFingerprint, peerSessionID)
 }
 
 // MockGatewayPort is a mock of GatewayPort interface.

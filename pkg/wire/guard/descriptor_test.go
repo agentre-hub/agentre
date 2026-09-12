@@ -44,25 +44,6 @@ func TestDescriptorMatchesImportPath(t *testing.T) {
 	}
 }
 
-// TestSessionListResponseHasNoLegacyCapabilityFlags verifies the pre-release
-// protocol cleanup at the public descriptor boundary: given the current exact
-// protocol version, when a client inspects SessionListResponse, then session
-// metadata and model-target support are unconditional and no legacy feature
-// negotiation fields remain.
-func TestSessionListResponseHasNoLegacyCapabilityFlags(t *testing.T) {
-	t.Parallel()
-
-	message := agentrewire.File_agentre_wire_wire_proto.Messages().ByName("SessionListResponse")
-	if message == nil {
-		t.Fatal("SessionListResponse descriptor is missing")
-	}
-	for _, fieldName := range []string{"supports_session_metadata", "supports_session_model_target"} {
-		if field := message.Fields().ByName(protoreflect.Name(fieldName)); field != nil {
-			t.Errorf("legacy capability field %q is still exposed as field %d", fieldName, field.Number())
-		}
-	}
-}
-
 // TestRenamedFieldsCarryTheAlignedNames 守的是「跨进程的字段名」这一类:改名保号的
 // 协议字段在二进制编码上看不出任何差别(号不变),编译期也抓不到——两端各自的生成
 // 代码都会照自己那份 .proto 编译通过,只有 JSON 名与 TS 产物会悄悄分家。

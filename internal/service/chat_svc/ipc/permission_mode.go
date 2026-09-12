@@ -18,27 +18,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
-// ValidatePermissionMode 用 Capabilities().PermissionModeMeta 替代 chat_svc 旧的
-// normalizeStoredPermissionMode / validateRequestedPermissionMode 硬编码 switch。
-//
-// raw=""   → 返回 Caps.PermissionModeMeta.DefaultMode (可能也为"")
-// raw 命中 AllowedModes → 原值返回
-// raw 不命中 → code.ChatPermissionModeInvalid
-//
-// 与 ValidateRequestedPermissionMode 的差别只在空串:那一个把空串当非法请求,
-// 这一个把空串当「没给,用默认」。
-func ValidatePermissionMode(ctx context.Context, bt agent_backend_entity.BackendType, raw string) (string, error) {
-	caps := capabilitiesFor(bt)
-	mode := strings.TrimSpace(raw)
-	if mode == "" {
-		return caps.PermissionModeMeta.DefaultMode, nil
-	}
-	if slices.Contains(caps.PermissionModeMeta.AllowedModes, mode) {
-		return mode, nil
-	}
-	return "", i18n.NewError(ctx, code.ChatPermissionModeInvalid)
-}
-
 // ── 权限模式状态机 ───────────────────────────────────────────────────────────
 //
 // 以下这组从 chat_svc/chat.go 迁入:它们是围绕 capability.PermissionModeMeta 的一台
@@ -100,7 +79,7 @@ func NormalizeStoredPermissionMode(backendType agent_backend_entity.BackendType,
 }
 
 // ValidateRequestedPermissionMode 精确校验一个**显式请求**的 mode;空串与不在白名单
-// 的一律 ChatPermissionModeInvalid(与 ValidatePermissionMode 的差别正是空串语义)。
+// 的一律 ChatPermissionModeInvalid(空串一律非法)。
 func ValidateRequestedPermissionMode(
 	ctx context.Context, backendType agent_backend_entity.BackendType, raw string,
 ) (string, error) {

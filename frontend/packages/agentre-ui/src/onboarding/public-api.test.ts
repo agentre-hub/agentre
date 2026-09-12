@@ -6,9 +6,15 @@ import * as pkg from "../index";
  * 引导这一面是跨仓契约（规格 2026-09-05：两端引导由同一份引导域渲染），而
  * `src/index.ts` 是这个包唯一的门 —— 没从 barrel 出去的东西，agentre-server 经
  * git 依赖根本看不见，且那个失败要等到对面 import 时才炸。
+ *
+ * 0.1.0 收窄：`agentredCommands` / `agentredInstallCommand` /
+ * `agentredVersionCommand` / `AGENTRED_IMAGE` / `AGENTRED_DEPLOY_DOC_URL` 与
+ * `GuideStepRailProps` / `CommandCardProps` / `AgentredInstallSectionProps` /
+ * `AgentredServiceSectionProps` 已从 barrel 摘除（实现仍在各自模块，只是不再是
+ * 对外契约）。
  */
 describe("引导这一面的对外契约", () => {
-  it("三件呈现件、两个纯函数入口与常量都从 barrel 出得去", () => {
+  it("呈现件、两条命令入口与常量都从 barrel 出得去", () => {
     const missing = [
       // 呈现件
       "CommandCard",
@@ -17,15 +23,10 @@ describe("引导这一面的对外契约", () => {
       "AgentredInstallDocsLink",
       "AgentredServiceSection",
       // 命令：两端唯一的一份
-      "agentredCommands",
-      "agentredInstallCommand",
-      "agentredVersionCommand",
       "agentredLoginCommand",
       "agentredPairCommand",
       // 对外链接
-      "AGENTRED_IMAGE",
       "AGENTRED_RELEASES_URL",
-      "AGENTRED_DEPLOY_DOC_URL",
     ].filter((name) => !(name in pkg));
 
     expect(missing).toEqual([]);
@@ -45,10 +46,6 @@ describe("引导这一面的对外契约", () => {
       "AgentredTargetOS",
       "AgentredRunMode",
       "GuideStep",
-      "GuideStepRailProps",
-      "CommandCardProps",
-      "AgentredInstallSectionProps",
-      "AgentredServiceSectionProps",
     ].filter((name) => !new RegExp(`\\b${name}\\b`).test(barrel));
 
     expect(missing).toEqual([]);

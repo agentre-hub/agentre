@@ -61,8 +61,8 @@ func TestSyncPush(t *testing.T) {
 	})
 
 	Convey("墓碑上行不带 payload 字段，而不是发一个 JSON null（R6）", t, func() {
-		// server 的 ValidatePayload 只把「空」当合法（墓碑不带正文），JSON null 解出来
-		// 不是对象、会整批 30501 —— 一次删除就能把这台桌面端的出站队列永久堵死。
+		// server 的 GuardPayload 只把「空」当合法（墓碑不带正文），JSON null 不是对象、
+		// 会被单独拒掉 —— 这次删除就传不到别的设备。
 		var raw []byte
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw, _ = io.ReadAll(r.Body)

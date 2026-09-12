@@ -30,9 +30,9 @@ type Adapters struct {
 
 // NewTurnDispatcher 构造一轮 turn 的事件 dispatcher，注册全部 handler。
 //
-// **这是「哪种事件落哪种块」的唯一一张表。** 从前它在 chat_svc 与 chat_import_svc
-// 各有一份，两份只在注入的适配器上不同 —— 于是块类型每演进一次要同步两处，而漏同步
-// 的表现是转录静默少一张卡，编译期没有任何东西会报错。现在差异全部收在 Adapters 里。
+// **这是「哪种事件落哪种块」的唯一一张表。** chat_svc 与 chat_import_svc 共用它，差异
+// 全部收在 Adapters 里 —— 抄成两份的话，块类型每演进一次要同步两处，而漏同步的表现是
+// 转录静默少一张卡，编译期没有任何东西会报错。
 //
 // 未注册的事件由 turn.Dispatcher 默默丢弃（forward-compat）。SteerConsumed 与
 // 桌面端的 ErrorEvent 拦截属于宿主的轮次控制，不在这张表上。

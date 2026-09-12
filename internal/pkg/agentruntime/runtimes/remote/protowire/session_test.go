@@ -13,11 +13,11 @@ import (
 // Then 它仍是**带类型**的 RpcNotification 而不是不透明字节 —— 收端不必再猜内容,
 // 直接读得出 sessionId。
 //
-// 会拒绝的错误实现:把 JournaledNotification.Payload 改回 bytes(或在装配时
+// 会拒绝的错误实现:把 DurableNotification.Payload 改回 bytes(或在装配时
 // 先 EncodeNotification 成字节再塞进去)。notification_test.go 覆盖的是编解码
 // 本身,对载体形状退化无感;生产装配点在 daemon/protobuf_registry.go 的
 // session.pull handler,和这里同形。
-func TestSessionPullResponseCarriesTypedJournalPayload(t *testing.T) {
+func TestSessionPullResponseCarriesTypedDurablePayload(t *testing.T) {
 	notification := &agentrewire.RpcNotification{Payload: &agentrewire.RpcNotification_RuntimeEvent{
 		RuntimeEvent: &agentrewire.RuntimeEventNotification{
 			ConversationId: convID(42),
@@ -28,7 +28,7 @@ func TestSessionPullResponseCarriesTypedJournalPayload(t *testing.T) {
 
 	response := &agentrewire.SessionPullResponse{Cursor: 7, OldestSeq: 1}
 	response.Notifications = append(response.Notifications,
-		&agentrewire.JournaledNotification{Seq: 7, Payload: notification})
+		&agentrewire.DurableNotification{Seq: 7, Payload: notification})
 
 	// methodID 路径把应答体放进 Response.encoded_payload,过线的就是这串字节。
 	encoded, err := proto.Marshal(response)
@@ -40,7 +40,7 @@ func TestSessionPullResponseCarriesTypedJournalPayload(t *testing.T) {
 	entry := decoded.GetNotifications()[0]
 	require.Equal(t, int64(7), entry.GetSeq())
 	require.Equal(t, convID(42), NotificationConversationID(entry.GetPayload()),
-		"日志载荷必须仍是 typed RpcNotification,读得出 sessionId")
+		"持久帧载荷必须仍是 typed RpcNotification,读得出 sessionId")
 	require.Equal(t, "hello", entry.GetPayload().GetRuntimeEvent().GetTextDelta().GetText())
 	require.Equal(t, int64(7), decoded.GetCursor())
 	require.Equal(t, int64(1), decoded.GetOldestSeq())

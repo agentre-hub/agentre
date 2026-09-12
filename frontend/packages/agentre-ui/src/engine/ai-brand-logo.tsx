@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import agentreLogo from "./assets/images/logo-mark.png";
+import agentreLogo from "./assets/images/logo-mark.svg";
 import anthropicLogo from "./assets/brands/anthropic.svg";
 import claudeLogo from "./assets/brands/claude.svg";
 import codexLogo from "./assets/brands/codex.svg";
@@ -48,8 +48,10 @@ type BrandDefinition = {
   identityPatterns?: RegExp[];
 };
 
+export const agentreLogoUrl = agentreLogo;
+
 const brandRegistry: Record<Brand, BrandDefinition> = {
-  agentre: { label: "Agentre", src: agentreLogo },
+  agentre: { label: "Agentre", src: agentreLogoUrl },
   anthropic: {
     label: "Anthropic",
     src: anthropicLogo,

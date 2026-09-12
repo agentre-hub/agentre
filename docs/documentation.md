@@ -13,8 +13,7 @@ Contributor docs describe a living code base, so two kinds of failure keep recur
 
 ### Agentre's Handling Principle: Stale Means Fix or Delete, Don't Leave Deprecated Content
 
-**Agentre is not yet released and carries no compatibility burden** — migrations / refactors can hard delete old data, with no compatibility layer and no release notes needed.
-**Same for docs: when you find a stale / invalid fact, fix it or delete it outright; do not leave the invalid content in the doc behind a "(deprecated)" or "the old version was…" note.**
+**When you find a stale / invalid fact, fix it or delete it outright; do not leave the invalid content in the doc behind a "(deprecated)" or "the old version was…" note.**
 Keeping it around only makes readers unsure which line is current. The only exception is "planned, not yet landed" content — that either goes into the docs of its corresponding branch, or is **explicitly marked** as planned;
 it must never be written as if already released.
 
@@ -28,7 +27,7 @@ Stage the files intended for the commit, then set `VERIFY_TREE="$(git write-tree
 
 | Doc | What it owns |
 | --- | --- |
-| Workspace-root `AGENTS.md` (outside this repository, when using the multi-repo checkout) | Cross-repo facts and invariants (`go.work`, independent commits, the cago framework). |
+| Workspace-root `AGENTS.md` (outside this repository, when using the multi-repo checkout) | Cross-repo facts and invariants (independent commits, the cago framework). |
 | [`../CLAUDE.md`](../CLAUDE.md) | Just `@import`s `AGENTS.md`; holds no content of its own. |
 | [`../AGENTS.md`](../AGENTS.md) | **Single source of truth for the agent guide**: engineering principles, high-priority constraints, high cohesion / low coupling, key constraints, common commands; also indexes the `docs/*` below. |
 | [`architecture.md`](./architecture.md) | Project layout, cago layering conventions, the shared frontend package's place in the layering (leaf, one-way dependency) and its host seams, remote execution architecture, `AppDataDir` storage paths, database and migration flow, the device-fingerprint column vocabulary (four roles, one canonical name each), list of generated files. |
@@ -48,14 +47,14 @@ Stage the files intended for the commit, then set `VERIFY_TREE="$(git write-tree
 | [`README_zh.md`](./README_zh.md) / [`../README.md`](../README.md) | The user-facing Chinese / English project README — **not** a docs index; don't stuff contributor conventions into it. |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) / [`CONTRIBUTING_ZH.md`](./CONTRIBUTING_ZH.md) | The contributor guide (English / Chinese): setup, the GitHub fork / branch / PR workflow, a summary of the ground rules, commit style, PR checklist. It **links into** `AGENTS.md` / `docs/*` for the details — keep it a pointer, don't let facts fork from the docs that own them. |
 
-**Agentre has no `docs/README.md` index file** — the docs index role is played by the **"Development Conventions (required reading)" section of `AGENTS.md`**.
+**Agentre has no `docs/README.md` index file** — the docs index role is played by the **"Engineering conventions and task routing" section of `AGENTS.md`**.
 When you add / move / delete `docs/*`, keep that section and the "Doc Set and Responsibilities" table above in sync.
 
 When you move a fact, move it to **the doc that owns it** and cross-link — never copy the same fact into two places, or they will eventually drift.
 
 ## Checklist 1 — Organization (Run Every Time You Change a Doc)
 
-- [ ] Added / renamed / deleted a doc → update the "Development Conventions (required reading)" list in [`AGENTS.md`](../AGENTS.md), the "Doc Set and Responsibilities" table here, **and** everywhere that references it.
+- [ ] Added / renamed / deleted a doc → update the "Engineering conventions and task routing" list in [`AGENTS.md`](../AGENTS.md), the "Doc Set and Responsibilities" table here, **and** everywhere that references it.
 - [ ] All relative links resolve (run the link check in *One-Shot Verification* below).
 - [ ] Nothing that only exists on a feature branch is written as the state of `main` — either delete it, or explicitly mark it "planned (branch `X`)".
 - [ ] No fact is duplicated across multiple docs; the doc that owns it holds it, the rest link to it.

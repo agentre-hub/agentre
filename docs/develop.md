@@ -30,26 +30,26 @@ Start the commit message with a **gitmoji emoji character** (write the emoji gly
 
 Issue / PR suffixes are selective, not automatic. Add an issue suffix only when the commit is a single focused change that directly resolves or advances a known issue, using the issue number form such as `#123`. When the work is organized around a PR, do **not** append the PR number to every commit; the PR already carries that context. In general, prefer issue references over PR references, and leave the suffix off when there is no relevant issue.
 
-Common gitmojis and the category they map to when the changelog is generated (release flow):
+Common gitmojis:
 
-| gitmoji | Purpose | changelog category |
-|---------|------|---------------|
-| ✨ | New feature | 🚀 Major new features |
-| 🐛 | Bug fix | 🐛 Bug fixes |
-| ⚡️ | Performance optimization | ⚡️ Performance optimizations |
-| ♻️ | Refactor / compatibility | ♻️ Refactoring and compatibility |
-| 🎨 | UI improvement | 🎨 UI improvements |
-| 📝 | Docs / changelog | Other |
-| ✅ | Tests | Other |
-| 🔧 | Configuration | Other |
-| 🔒 | Security | Other |
-| 🔖 | Release / version bump | — (the release commit itself) |
+| gitmoji | Purpose |
+|---------|------|
+| ✨ | New feature |
+| 🐛 | Bug fix |
+| ⚡️ | Performance optimization |
+| ♻️ | Refactor / compatibility |
+| 🎨 | UI improvement |
+| 📝 | Docs |
+| ✅ | Tests |
+| 🔧 | Configuration |
+| 🔒 | Security |
+| 🔖 | Release / version bump |
 
-Release commits use fixed forms: `🔖 release v{version}` (version bump + `CHANGELOG.md`) and `📝 update changelog for v{version}` (sync the documentation-site changelog).
+Release commits use the fixed form `🔖 release v{version}`.
 
 ## Applying SOLID and the Layering Rules
 
-[`../AGENTS.md`](../AGENTS.md#solid-coding-rules) owns the SOLID and high-cohesion/low-coupling principles; [`architecture.md`](./architecture.md#layering-conventions-cago-framework-style) owns the concrete package and dependency shape. This file owns the workflow for applying them before code is written:
+[`architecture.md`](./architecture.md#layering-conventions-cago-framework-style) owns the concrete package and dependency shape — one-way dependencies, DIP, which layer may import which; this file owns the workflow for applying them before code is written:
 
 1. Name the domain and its entity/repository/service package set; if no existing domain owns it, open a new one.
 2. Put single-entity validation/state/serialization on the entity and keep the service for cross-entity or external-dependency orchestration.
@@ -80,7 +80,7 @@ These are the conventions with a real check behind them. Everything else in thes
 | --- | --- | --- | --- |
 | No hardcoded Chinese UI copy in JSX text or visible attributes | `t("…")` + update **both** `zh-CN` and `en` locale files | `i18next/no-literal-string` in `frontend/eslint.config.js`, run by `make lint-frontend` | `src/**/__tests__/**` and `*.{test,spec}.{ts,tsx}`, where the rule is `off` |
 | Static `t("…")` keys must resolve, and both locales expose the same key set | Add the key to both locale files | `frontend/src/__tests__/i18n.test.ts` | — |
-| Go formatting and import grouping | `gofmt` + `goimports` | golangci-lint `formatters`, run by `make lint-backend` | `.claude`, `.dev-kit`, `frontend` (excluded paths) |
+| Go formatting and import grouping | `gofmt` + `goimports` | golangci-lint `formatters`, run by `make lint-backend` | `.claude`, `.dev-kit`, `frontend`, `e2e/scratch` (excluded paths) |
 | The daemon's `agentruntime` registry keeps every backend registered | Keep the `init` imports in `internal/daemon/runtime_imports.go` | `internal/daemon/runtime_imports_test.go` | — |
 | `wails dev` macOS identity stays distinct from the installed app | Keep `Info.dev.plist` identifier as production + `.dev` and mark the Dock name `(Dev)` | `internal/desktop/darwin_bundle_test.go` | — |
 | Transcript typography stays on the shared token scale | Use the tokens `globals.css` exposes | `frontend/src/components/agentre/__tests__/transcript-typography-guard.test.ts` + `frontend/src/__tests__/design-tokens.test.ts` | — |
@@ -101,7 +101,7 @@ These are the conventions with a real check behind them. Everything else in thes
 2. **Migrations are append-only.** Add a new file at the end of `migrationList()`; **never edit a migration that already shipped** — environments that already ran it will not re-run it, and the gormigrate ledger will disagree with the schema. Prefer native SQL for DDL over relying on `AutoMigrate`. See [architecture.md](architecture.md).
 3. **Structure and backfill go in two separate commits** — combined, a failed backfill leaves you unable to tell whether the DDL or the data was at fault.
 4. **Verify against a database holding real existing rows**, running the same query before and after (row counts, edge values, NULL counts). **Green on an empty database is the same as not having run it.** Record it per [verification.md](verification.md).
-5. **Agentre is unreleased and carries no compatibility burden** — a migration may hard delete old data, with no compatibility layer and no release notes. That is a licence to delete cleanly, **not** a licence to skip step 4: the developer's own working database is real data.
+5. **From 0.1.0 on, the database a migration meets belongs to a user** — the pre-release licence to hard delete old data, with no compatibility layer and no release notes, ends with the first release. Name what a destructive migration removes and why, and do not plan around another "wipe and recreate" round; there is nobody left to grant one. Step 4 was never optional under the old licence either: the developer's own working database was already real data.
 
 ## Committing and PRs
 
@@ -113,7 +113,7 @@ The PR description follows [`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_
 
 ## The CI Gate
 
-Merging requires the eight jobs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which run on every PR and on pushes to `main` / `develop/*`:
+Merging requires the nine jobs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which run on every PR and on pushes to `main` / `develop/*`:
 
 | Job | What it runs |
 | --- | --- |
@@ -122,7 +122,8 @@ Merging requires the eight jobs in [`.github/workflows/ci.yml`](../.github/workf
 | `Frontend Lint` | `cd frontend && pnpm run lint` |
 | `Frontend Test` | wails binding generation + `pnpm run test` |
 | `Wire Proto` | `cd frontend/packages/agentre-wire && pnpm run proto:check` |
-| `agentred Packaging` | release-workflow and POSIX installer contract tests |
+| `Mocks` | `make mock` regenerates them, then `git diff --exit-code` requires the checked-in output to already match (CI installs `mockgen@v0.6.0`) |
+| `agentred Packaging` | POSIX installer contract test (`bash scripts/test-install.sh`) |
 | `agentred Windows Installer` | Windows IPC/service and PowerShell installer tests |
 | `E2E` | `xvfb-run -a make e2e` — the independent hermetic desktop app, three serial smoke boundaries, on Ubuntu |
 

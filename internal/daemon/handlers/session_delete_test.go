@@ -127,7 +127,7 @@ func (r *sessionReleaseRecorder) Released() []int64 {
 // Given 一条会话在本机还留着跨轮常驻的 CLI 子进程, When 这条会话被删除, Then 那个
 // 子进程要跟着放掉。
 //
-// 删除从前只动库(会话行 + 通知日志),子进程留在 CLISessionPool 里:它只能等 8 条
+// 删除从前只动库(会话行 + 转录),子进程留在 CLISessionPool 里:它只能等 8 条
 // idle 上限把自己挤出去,否则一直活到 daemon 退出 —— 而会话已经不存在了,再也没有
 // 任何一轮会用到它。桌面端删会话时是放的(chat_svc.Delete),daemon 这一侧缺了。
 func TestSessionDelete_GivenPooledCLISession_WhenDeleted_ThenTheSubprocessIsReleased(t *testing.T) {

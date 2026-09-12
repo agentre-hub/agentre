@@ -108,10 +108,6 @@ func TestToChatMessage_ToolApprovalBlock(t *testing.T) {
 	assert.Equal(t, "pending", cm.Blocks[0].ToolApproval.Status)
 }
 
-// 历史:ToolResultMetaBlock 已整删,meta 字段改走 raw tool_result.Meta 字节透传
-// (StreamToolResult 事件的 toolResultMeta 字段),不再独立 block;原先的
-// TestToChatMessage_ToolResultWithMeta / OrphanToolResultMetaIsDropped 一并移除。
-
 func TestToChatMessage_TokenFields(t *testing.T) {
 	m := &chat_entity.Message{
 		ID: 1, SessionID: 9, Role: "assistant", BlocksJSON: "[]",
@@ -338,24 +334,6 @@ func TestToChatMessage_NormalizedPiReplayPreservesGrouping(t *testing.T) {
 	assert.Equal(t, "small", outer.Canonical.AgentSpawn.Runs[0].RequestedModel)
 	assert.Equal(t, "run-0", cm.Blocks[1].SubagentRunID)
 	assert.Empty(t, cm.Blocks[2].SubagentRunID, "missing run ID must survive as an unassigned fallback step")
-}
-
-func TestConvertOldEventToNew_PreservesSubagentRunID(t *testing.T) {
-	call := convertOldEventToNew(agentruntime.RuntimeEvent{
-		Kind: agentruntime.EventToolUseStart,
-		ToolUse: &agentruntime.ToolUseEvent{
-			ID: "child", ParentToolCallID: "outer", SubagentRunID: "run-1",
-		},
-	}).(agentruntime.ToolCall)
-	assert.Equal(t, "run-1", call.SubagentRunID)
-
-	result := convertOldEventToNew(agentruntime.RuntimeEvent{
-		Kind: agentruntime.EventToolResult,
-		ToolResult: &agentruntime.ToolResultEvent{
-			ToolCallID: "child", ParentToolCallID: "outer", SubagentRunID: "run-1",
-		},
-	}).(agentruntime.ToolResult)
-	assert.Equal(t, "run-1", result.SubagentRunID)
 }
 
 func TestToChatMessage_NoticeBlockProjection(t *testing.T) {

@@ -357,7 +357,7 @@ type ChatBlock struct {
 	// Canonical 是 runtime translator 算出的统一工具识别投影 — wire 形态由
 	// chat_svc/view/CanonicalDTO 提供。前端按 kind 分发到 canonical-tool/<kind>/card.tsx。
 	// Live emit 路径:dispatcher_emitter 从 handler m["canonical"] 转;
-	// Replay 路径:view/project.go 重建 block 时按 runtime translator 重算。
+	// Replay 路径:toChatMessage 回放 history 时由各 block 的构造处(如 plan_block.go / ask_user_question.go)重建。
 	Canonical *view.CanonicalDTO `json:"canonical,omitempty"`
 
 	// Compact 仅 type="compact_boundary" 时填:压缩边界元数据(pre_tokens / trigger / at)。
@@ -490,7 +490,7 @@ type ChatMessage struct {
 	Seq              int     `json:"seq"`
 	Createtime       int64   `json:"createtime"`
 	// TurnTrigger 这条 assistant 消息所属的那一轮是被什么起的:空 = 用户发起(也含本
-	// 字段存在之前的历史消息);"background_task" / "catch_up" / "external"。前端用它
+	// 字段存在之前的历史消息);"background_task" / "catchup" / "external"。前端用它
 	// 决定给一条非用户发起的轮看哪一句来源交代 —— 判「非用户发起」看结构就够,判
 	// 「为什么」必须看它(sess-3797)。
 	TurnTrigger string `json:"turnTrigger,omitempty"`
@@ -517,8 +517,7 @@ type ChatSessionLite struct {
 	//
 	// 单一会话索引按其中一维分组时，行首要放**另一维**（决策 4：按项目分组时行首是
 	// agent 头像，按 Agent 分组时是项目色文件夹字形；决策 5 的时间轴两维都给）。
-	// 此前 Lite 两个都不带 —— 项目归属只有 ChatSessionDetail 有，也就是「这条会话被
-	// 打开过」之后才知道，侧栏拿不到。
+	// 两个都要在 Lite 上：ChatSessionDetail 要等「这条会话被打开过」之后才有，侧栏拿不到。
 	AgentID        int64  `json:"agentId"`
 	ProjectID      int64  `json:"projectId"`
 	Title          string `json:"title"`
@@ -794,15 +793,14 @@ const (
 	// 一个 agent，并起来只是一个窗口。
 	SessionScopeRecent SessionIndexScope = "recent"
 	// SessionScopeFree 仅未挂项目（project_id = 0）的会话 —— 索引的「随手对话」组。
-	// 自由会话此前没有任何列表接口能拿到：ListSessions 被挡在 projectID > 0，
-	// 而 0 本来就不是一个项目。
+	// ListSessions 挡在 projectID > 0（0 本来就不是一个项目），自由会话只能从这里拿。
 	SessionScopeFree SessionIndexScope = "free"
 	// SessionScopeProject 某个项目下的会话 —— 索引的项目组。
 	//
 	// 它与 free 只差一个 project_id，走同一条查询是有意的：索引三个轴拿到的是**同一种
 	// 载荷**（ChatSessionLite，带 agent / 项目 / bgRunning / 已读），前端一处投影就够。
-	// 旧的 ProjectListSessions 返回的是另一个形状（无 bgRunning、无 project_id），
-	// 正是「同一条会话在两个页面显示不一样」的根。
+	// 两处各返回一种形状（比如缺 bgRunning、缺 project_id），就是「同一条会话在两个页面
+	// 显示不一样」的根。
 	SessionScopeProject SessionIndexScope = "project"
 	// SessionScopeMachine 跑在某一台机器上的会话 —— 索引的「按机器」轴那一组
 	// （docs/specs/2026-08-21-index-glyph-and-machine-axis.md）。

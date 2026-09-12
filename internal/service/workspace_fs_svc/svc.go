@@ -14,8 +14,6 @@
 // chat_svc 在 composition root 注入。
 package workspace_fs_svc
 
-//go:generate mockgen -source svc.go -destination mock_workspace_fs_svc/mock_svc.go
-
 import (
 	"context"
 	"errors"
@@ -631,14 +629,10 @@ func isCode(err error, want int) bool {
 	return appErr.Code == want
 }
 
+// mapBorrowErr 见 remote_device_svc.MapBorrowErr:分类由池的拥有者给出,本域只声明
+// 自己的兜底码 —— 借不出来又归类不到配对/凭据,就是「那台机器够不着」。
 func mapBorrowErr(ctx context.Context, err error) error {
-	switch {
-	case errors.Is(err, remote_device_svc.ErrDeviceNotFound):
-		return i18n.NewError(ctx, code.RemoteDeviceNotFound)
-	case errors.Is(err, remote_device_svc.ErrDeviceUnauthorized):
-		return i18n.NewError(ctx, code.RemoteDeviceUnauthorized)
-	}
-	return i18n.NewError(ctx, code.WorkspaceFsDeviceOffline)
+	return remote_device_svc.MapBorrowErr(ctx, err, code.WorkspaceFsDeviceOffline)
 }
 
 // mapCallErr 翻译远端调用错误。

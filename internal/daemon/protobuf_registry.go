@@ -457,7 +457,7 @@ func timePointerMillis(value *time.Time) *int64 {
 // 住在 wireinbound。
 //
 // 这一侧的 handler 自己就说 agentrewire,所以每一格都是**直接绑**,中间一次转换都
-// 没有:补齐那一族的通知日志里存的本来就是这一帧的 protobuf 原样,翻成领域词表再翻
+// 没有:补齐那一族交出的本来就是这一帧的 protobuf 编码,翻成领域词表再翻
 // 回来是每拉一行白走一个来回。
 //
 // Auth / Error 是端口而不是共用的一句话:agentred 的拒绝语是 rpcerror.ErrUnauthorized

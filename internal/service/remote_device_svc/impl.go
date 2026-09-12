@@ -134,6 +134,3 @@ func (s *service) Pool() ConnPool { return s.pool }
 func keychainAccountForToken(id int64) string {
 	return "agentre-daemon-token-" + itoa(id)
 }
-
-// accountForDeviceFingerprint is the app-level singleton keychain account.
-const accountForDeviceFingerprint = "agentre-device-fingerprint"

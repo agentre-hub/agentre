@@ -8,8 +8,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 )
 
-//go:generate mockgen -source gateway.go -destination mock_ctl_svc/mock_gateway.go
-
 // AgentGateway 控制 API 对 agent 数据的窄依赖(ISP)。agent_repo.Agent() 直接满足。
 // subagent_svc 有一份方法集相同的窄依赖(subagent_svc.AgentGateway);两者各自声明是
 // 有意的(ISP 由消费方各自声明其窄依赖),不要为了「去重」把 ctl_svc 改成依赖 subagent_svc

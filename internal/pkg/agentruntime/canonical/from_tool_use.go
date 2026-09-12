@@ -57,9 +57,8 @@ func FromToolUse(toolName string, input map[string]any) (CanonicalTool, bool) {
 			return pu, true
 		}
 	case "TodoWrite":
-		// claudecode 独有工具:todos:[{id,content,status}]。canonical 此前没有
-		// 这个分支,识别只活在 claudecode/translator.go 里,live emit 与 replay
-		// 两条路径各认一套。迁入这里让两条路径共用同一份识别。
+		// claudecode 独有工具:todos:[{id,content,status}]。识别放在 canonical 里,
+		// live emit 与 replay 两条路径共用同一份。
 		if pu, ok := todoWriteFromInput(input); ok {
 			return pu, true
 		}

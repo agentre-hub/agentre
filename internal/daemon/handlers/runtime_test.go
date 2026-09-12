@@ -276,7 +276,7 @@ func (bareRT) Run(_ context.Context, _ agentruntime.RunRequest) (<-chan agentrun
 }
 
 // recordingOutbound 扮演会话通知的推送端口(handlers.NotifierPort),并按到达顺序
-// 记下每一帧。通知日志退役之后出口只剩推送这一件事,所以它不再有第二半。
+// 记下每一帧。出口只有推送这一件事。
 type recordingOutbound struct {
 	mu      sync.Mutex
 	frames  []notifyFrame
@@ -3895,7 +3895,7 @@ func convID(n int64) string {
 //
 // 只有 Run 漏了这道校验。放行的后果不是「这一轮失败」而是**串账**：身份键收缩到
 // conversation_id 之后，daemon_sessions 的主键就是它，空串于是成了一个人人都能写的
-// 合法主键——每个这么发的对端都落在同一行上，通知日志也共用 (” , seq) 那一串序号，
+// 合法主键——每个这么发的对端都落在同一行上，转录也共用同一串帧编号，
 // 谁也读不回自己的转录。
 func TestRuntime_Run_GivenAConversationIDThatIsNotOne_ThenItIsRejectedAtTheBoundary(t *testing.T) {
 	for _, conversationID := range []string{"", "42", "not-a-uuid"} {

@@ -13,7 +13,6 @@
     "header": {
       "kindLabel": "{{interp}} Hook",
       "run": "试运行",
-      "runNow": "立即运行",
       "enable": "启用",
       "disable": "停用",
       "more": "更多操作",
@@ -65,9 +64,7 @@
       "summary": "解析到 {{events}} 个事件 · 去重后 {{new}} 个新事件将入库 · {{dup}} 个重复",
       "parseError": "解析失败:{{error}}",
       "stdout": "stdout",
-      "stderr": "stderr",
-      "running": "运行中…",
-      "empty": "点「试运行」执行一次,结果会显示在这里"
+      "stderr": "stderr"
     },
     "log": {
       "empty": "还没有产出事件",

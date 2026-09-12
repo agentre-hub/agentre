@@ -11,7 +11,7 @@ import {
 } from "@agentre-hub/agentre-ui";
 import { localCommandHistoryStore } from "@/stores/local-command-history-store";
 
-// chat.tsx uses wailsjs runtime (OnFileDrop/OnFileDropOff via useFileDropZone)
+// the chat composer uses wailsjs runtime (OnFileDrop/OnFileDropOff via lib/file-drop)
 vi.mock("../../../../wailsjs/runtime/runtime", async () => {
   const actual = await vi.importActual<
     typeof import("../../../../wailsjs/runtime/runtime")

@@ -9,8 +9,6 @@ import {
   TooltipProvider,
   TranscriptJumpControl,
   TranscriptSkeleton,
-  buildTranscriptRows,
-  type PlanActionStream,
   type ReasoningEffortValue,
   useTranscriptScroll,
 } from "@agentre-hub/agentre-ui";
@@ -31,7 +29,6 @@ import { cn } from "@/lib/utils";
 import { useSessionAttention } from "@/stores/attention-store";
 import { useClearedBackgroundTasksStore } from "@/stores/cleared-background-tasks-store";
 import {
-  sessionStreamMap,
   useChatStreamsStore,
   type ChatBlockData,
   type LiveStream,
@@ -40,7 +37,6 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
 import { useSessionConnectionState } from "@/stores/session-conn-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
-import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { useBackendCapabilities } from "./capability/use-backend-capabilities";
 import { useSessionCapabilities } from "./capability/use-session-capabilities";
@@ -57,28 +53,16 @@ import { ChatPanelConfirmDialogs } from "./chat-panel/confirm-dialogs";
 import { NewSessionChatGuard } from "./chat-panel/new-session-chat-guard";
 import type { ChatPanelNotice } from "./chat-panel/notice";
 import { ChatPanelNoticeAlert } from "./chat-panel/notice-alert";
-import {
-  markSessionRunning,
-  optimisticAssistantPlaceholder,
-  optimisticUser,
-} from "./chat-panel/optimistic";
 import { SessionLoadError } from "./chat-panel/session-load-error";
-import {
-  applySteerConsumed,
-  applyStreamError,
-  liveContentByMessageId,
-  upsertMessage,
-} from "./chat-panel/stream-view";
+import { liveContentByMessageId } from "./chat-panel/stream-view";
 import { useAutonomousTurnEvents } from "./chat-panel/use-autonomous-turn-events";
 import { useChatActions } from "./chat-panel/use-chat-actions";
 import { useLocalCommandLauncher } from "./chat-panel/use-local-command-launcher";
+import { useTranscriptCatchUp } from "./chat-panel/use-transcript-catchup";
+import { usePlanActionStarted } from "./chat-panel/use-plan-action-started";
+import { useTurnSettledCleanup } from "./chat-panel/use-turn-settled-cleanup";
 import { useMessageActions } from "./chat-panel/use-message-actions";
 import { FilePreviewPanel } from "./file-preview/file-preview-panel";
-import {
-  clearCatchUp,
-  registerTranscriptRowCounter,
-  useCatchUpSummary,
-} from "./chat-panel-catchup-state";
 import { computeComposerContextUsage } from "./chat-panel-context-usage";
 import { usePermissionMode } from "./permission-mode";
 import { ProviderPill, useProviderPill } from "./model-pill";
@@ -103,10 +87,6 @@ import type { chat_svc } from "../../../wailsjs/go/models";
 type ChatAgentItem = chat_svc.ChatAgentItem;
 
 const EMPTY_CLEARED: string[] = [];
-
-// EMPTY_AUTONOMOUS_IDS:行数快照不关心「哪条消息是自主续轮」——那只影响首行要不要
-// 挂 banner,不改行数。渲染路径自己会算真值。
-const EMPTY_AUTONOMOUS_IDS: ReadonlySet<number> = new Set<number>();
 
 // ─── ChatPanel ───────────────────────────────────────────────────────────────
 
@@ -184,15 +164,6 @@ function ChatPanel({
   // 回合收尾未消费被暂存的排队条目(最多一条)。只有它与当前 session 匹配时才传给
   // QueuedMessagesBar —— 别 tab 的丢弃横幅不该贴在本 tab 的 composer 上。
   const droppedQueue = useQueuedMessagesStore((s) => s.dropped);
-  // doneTick / lastDoneEvent 从 session-status-store 读取。
-  // 每次 turn 结束（done/error/aborted/closed/steer_consumed）bumpDone 自增 doneTick，
-  // ChatPanel 的 lastSeenDoneTickRef effect 据此触发 reload + 副作用。
-  const liveStatus = useSessionStatusStore((s) =>
-    sessionId ? (s.statuses.get(sessionId) ?? null) : null,
-  );
-  const doneTick = liveStatus?.doneTick ?? 0;
-  const lastDoneEvent = liveStatus?.lastDoneEvent ?? null;
-
   const [notice, setNotice] = React.useState<ChatPanelNotice | null>(null);
   // R15a 手动指定执行目标：只在空会话态（showNewSessionPrompt）生效的瞬态选择，
   // 随首发 Send 透传给后端（SendRequest.ExecTargetOverride，与 ModelOverride 同一
@@ -628,111 +599,22 @@ function ChatPanel({
   // prop 优先，无 prop 时降级到内部派生值。
   const effectiveTopline = headerTopline ?? derivedTopline;
 
-  // ── 补齐落定后的「跳到最新」──
-  // 摘要由 ChatStreamsHost 在补齐落定那一发记下,这里只负责供转录行数、读与销账。
-  //
-  // 行数取数口:补齐窗口两端各调一次(掉线时快照、落定时做差),不是每帧算,所以
-  // 现场 build 一次即可。两个数据源的取法不同:
-  //   - messages 走 ref —— 它只在 reload 落定时换,慢一拍也是同一份;
-  //   - 在流的内容直接读 store 的 getState() —— 补齐落定那一发连接态事件到达时,
-  //     重放的内容早已进了 store 但 React 还没重渲,吃渲染期的 liveByMessageId
-  //     会数到补齐前的旧值,差出来恒等于 0。
-  // 这里不复现转录区的折叠(压缩前旧消息)与本地命令行:两者在窗口两端同增同减,
-  // 做差时抵消,补齐本身也产不出它们。
-  const messagesRef = React.useRef(messages);
-  React.useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-  React.useEffect(() => {
-    if (sessionId <= 0) return;
-    return registerTranscriptRowCounter(
-      sessionId,
-      () =>
-        buildTranscriptRows({
-          displayMessages: messagesRef.current,
-          autonomousIds: EMPTY_AUTONOMOUS_IDS,
-          liveByMessageId: liveContentByMessageId(
-            sessionStreamMap(useChatStreamsStore.getState(), sessionId),
-          ),
-        }).rows.length,
-    );
-  }, [sessionId]);
+  // 补齐落定后的「跳到最新」:转录行数上报与销账整块住在 useTranscriptCatchUp 里 ——
+  // 那段「行数取数口为什么两端各调一次」的理由跟着搬了过去。
+  const catchUp = useTranscriptCatchUp({
+    sessionId,
+    messages,
+    showBackToBottom,
+  });
 
-  // 销账条件是「人回到了底部」而不是「点了控件」:自己滚回底部同样意味着补齐内容
-  // 已经看过了,不销账的话下次往上翻会撞见一枚早就过期的控件。贴底时本就沿用既有的
-  // 贴底跟随,控件也永远不出现(渲染条件与销账条件是同一个 showBackToBottom)。
-  const catchUp = useCatchUpSummary(sessionId);
-  React.useEffect(() => {
-    if (showBackToBottom || !catchUp) return;
-    clearCatchUp(sessionId);
-  }, [catchUp, sessionId, showBackToBottom]);
-
-  // ── 跨路由 turn 落定后的善后 ──
-  // store 在 done/error/closed 时给该 sessionId 自增 doneTick。我们只关心「当前正在
-  // 显示」的会话:抓最新的 lastDoneEvent,reload 一次 useChatSession 把后端写好的
-  // 最终 blocks(穿插顺序)拉回来,然后做 error 文案等副作用。
-  // MarkChatSessionRead 不在这里调 —— 由下方 active-gated effect 在
-  // reloadSession 拉到新的 session.lastMessageAt 后自动触发(隐藏 tab active=false
-  // 不应被标已读)。
-  // 第一次 mount 时 doneTick=0,什么都不做(用 ref 跳过首次)。
-  const lastSeenDoneTickRef = React.useRef(doneTick);
-  React.useEffect(() => {
-    if (!sessionId) return;
-    if (doneTick === lastSeenDoneTickRef.current) return;
-    lastSeenDoneTickRef.current = doneTick;
-    const ev = lastDoneEvent;
-    if (!ev) return;
-    if (ev.kind === "steer_consumed") {
-      setMessages((prev) => applySteerConsumed(prev, ev));
-      void reloadSession();
-      onSidebarShouldReload?.();
-    } else if (ev.kind === "done") {
-      // 后端在发 done 前已经 chat_repo.Message().Update,reload 拿到最终顺序。
-      //
-      // 但不能只靠 reload:finishStream 是同步的,liveDelta / liveBlocks 当场清零,
-      // 而 messages 里那条 assistant 还是发送时插的空占位(blocks: [])——
-      // 中间那段 LoadChatSession 往返里,最后一轮的正文整段消失、行数塌陷,
-      // 响应回来才重新长出来。done 事件本身就带着最终 assistant 消息
-      // (chat_svc 的 `ChatStreamEvent{Kind: StreamDone, Message: final}`),
-      // 先同步落表,空窗就没了。reload 仍要发 —— 本轮可能还改了别的行
-      // (user 消息、subagent 子行、审批块),done 只覆盖 assistant 那一条。
-      if (ev.message) {
-        setMessages((prev) => upsertMessage(prev, ev.message!));
-      }
-      void reloadSession();
-      onSidebarShouldReload?.();
-    } else if (ev.kind === "error") {
-      // 错误路径:后端同样 Update 过 assistant.errorText,但有可能 final message 已附带
-      // ev.message。两条路都靠 reload 把最新落库状态拿回来;再补 errorText 落到 UI。
-      if (ev.message) {
-        setMessages((prev) => upsertMessage(prev, ev.message!));
-      } else if (ev.error) {
-        setMessages((prev) => applyStreamError(prev, ev.error));
-      }
-      void reloadSession();
-      onSidebarShouldReload?.();
-    } else if (ev.kind === "aborted") {
-      // 用户主动「停止」：后端已经把 partial 内容写入 DB 且 errorText 为空。
-      // 走和 done 一样的路径:事件自带 partial 消息就先同步落表(同样是为了不
-      // 在等 reload 的这段里把已经生成的内容闪没),再 reload 兜其余的行；
-      // 不调 MarkRead（abort 不是「用户已读完」语义）。
-      if (ev.message) {
-        setMessages((prev) => upsertMessage(prev, ev.message!));
-      }
-      void reloadSession();
-      onSidebarShouldReload?.();
-    } else if (ev.kind === "closed") {
-      // closed 单独出现(没先来 done/error)通常意味着 wails 端被关掉,不算 turn 结束,
-      // 不主动 reload 也不动 errorText —— 与旧版行为对齐。
-    }
-  }, [
-    doneTick,
-    lastDoneEvent,
-    onSidebarShouldReload,
-    reloadSession,
+  // 跨路由 turn 落定后的善后(done / error / aborted / closed / steer_consumed 的收尾)
+  // 整块住在 useTurnSettledCleanup 里 —— 那四条理由跟着搬了过去。
+  useTurnSettledCleanup({
     sessionId,
     setMessages,
-  ]);
+    reloadSession,
+    onSidebarShouldReload,
+  });
 
   // ── Mark-read: 仅当当前 ChatPanel 是「可见 tab」时,把 lastMessageAt 推进到
   // 服务端 last_read_at 并同步到 read overlay。chat-panel-host 会把所有 tab
@@ -753,35 +635,12 @@ function ChatPanel({
     useSessionReadStore.getState().markRead(sessionId, sessionLastMessageAt);
   }, [active, sessionId, sessionLastMessageAt]);
 
-  // handlePlanActionStarted 不做 memo:它经 useTranscriptCallbacks 的 useEvent 代理
-  // 进转录(每渲染更新 ref、对外恒是同一个稳定引用),父侧引用变不变都到不了行组件。
-  function handlePlanActionStarted(resp: PlanActionStream, userText: string) {
-    if (!resp.stream || !resp.sessionId || !resp.assistantMessageId) return;
-    followTranscriptBottom();
-    setMessages((prev) => {
-      const next = [...prev];
-      if (!next.some((m) => m.id === resp.userMessageId)) {
-        next.push(optimisticUser(resp.userMessageId, resp.sessionId, userText));
-      }
-      if (!next.some((m) => m.id === resp.assistantMessageId)) {
-        next.push(
-          optimisticAssistantPlaceholder(
-            resp.assistantMessageId,
-            resp.sessionId,
-          ),
-        );
-      }
-      return next;
-    });
-    markSessionRunning(resp.sessionId);
-    openStream({
-      name: resp.stream,
-      sessionId: resp.sessionId,
-      assistantMessageId: resp.assistantMessageId,
-      streamStartedAt: Date.now(),
-    });
-    onSidebarShouldReload?.();
-  }
+  const handlePlanActionStarted = usePlanActionStarted({
+    followTranscriptBottom,
+    setMessages,
+    openStream,
+    onSidebarShouldReload,
+  });
 
   // ── render ──
   const showNewSessionPrompt = !sessionId && newSessionAgent;

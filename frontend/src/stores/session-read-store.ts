@@ -27,27 +27,3 @@ export const useSessionReadStore = create<SessionReadState>((set) => ({
       return { overrides: next };
     }),
 }));
-
-// SessionLikeForOverlay 是 withReadOverlay 接受的最小字段集；
-// chat 的 ChatSessionLite / ProjectSessionItem 都满足结构子类型。
-// id 必填；lastReadAt 可空（== 0 处理）。
-export type SessionLikeForOverlay = {
-  id: number;
-  lastReadAt?: number;
-};
-
-// withReadOverlay 把 session.lastReadAt 替换为 max(server, clientOverride)。
-// 纯函数：传入 overrides Map（一般 useMemo 里 from store），不直接读 store —— 这样
-// React useMemo 可以把 overrides 加进依赖，store 变化自然 re-rank。
-//
-// SessionRow / page useMemo 都通过这一个函数走 overlay，保证「两边」对齐。
-export function withReadOverlay<T extends SessionLikeForOverlay>(
-  session: T,
-  overrides: Map<number, number>,
-): T {
-  const override = overrides.get(session.id);
-  if (override === undefined) return session;
-  const server = session.lastReadAt ?? 0;
-  if (override <= server) return session;
-  return { ...session, lastReadAt: override };
-}

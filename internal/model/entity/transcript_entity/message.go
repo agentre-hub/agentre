@@ -55,7 +55,7 @@ type Message struct {
 	ErrorText        string  `gorm:"column:error_text;type:text;not null;default:''"`
 	// TurnTrigger 这条 assistant 消息所属的那一轮是被什么起的:空串 = 用户发起(以及
 	// 本列存在之前的历史行);其余取值即 agentruntime.AutonomousTurn.Trigger ——
-	// "background_task"(后台任务完成续轮)、"catch_up"(断线补齐重放)、"external"
+	// "background_task"(后台任务完成续轮)、"catchup"(断线补齐重放)、"external"
 	// (子进程被 agentre 之外的东西叫醒、自己起的一轮)。
 	//
 	// 为什么不能由结构推出来:前端判「非用户发起」看的是这条 assistant 前面有没有

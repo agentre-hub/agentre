@@ -14,10 +14,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/migrations"
 )
@@ -87,10 +85,9 @@ func TestInitCreatesCagoRuntime(t *testing.T) {
 	}
 }
 
-// TestInitCreatesOnlyCurrentDatabaseSchema pins the unreleased database
-// baseline: a fresh install creates the current model directly, without first
-// materializing columns or migration ledger entries that only served old
-// development databases.
+// TestInitCreatesOnlyCurrentDatabaseSchema pins the database baseline: a fresh
+// install creates the current model directly, without first materializing
+// columns that no table carries any more.
 func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AGENTRE_DATA_DIR", dataDir)
@@ -128,16 +125,17 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 			t.Errorf("current table %q was not created", table)
 			continue
 		}
+		present := realColumns(t, gormDB, table)
 		for _, column := range columns {
-			if !gormDB.Migrator().HasColumn(table, column) {
+			if !present[column] {
 				t.Errorf("current column %s.%s was not created", table, column)
 			}
 		}
 	}
 
 	// 决策 14/16 的改名:机器指纹一律叫 device_fingerprint、同步来源一律叫
-	// sync_origin_fingerprint。三侧均未发布,旧名不保留兼容列(决策 22),因此
-	// 旧名在全新库上必须一个都不存在——这是编译期抓不到的那一类。
+	// sync_origin_fingerprint。旧名不保留兼容列(决策 22),因此旧名在全新库上
+	// 必须一个都不存在——这是编译期抓不到的那一类。
 	for table, columns := range map[string][]string{
 		"llm_providers": {"model", "max_output", "context_window", "sync_origin"},
 		// 正文改存 chat_message_blocks 一块一行,单列形态不再存在。
@@ -152,8 +150,9 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"project_locations":          {"daemon_fingerprint", "sync_origin"},
 		"chat_sessions":              {"exec_daemon_fingerprint"},
 	} {
+		present := realColumns(t, gormDB, table)
 		for _, column := range columns {
-			if gormDB.Migrator().HasColumn(table, column) {
+			if present[column] {
 				t.Errorf("legacy column %s.%s must not exist in the fresh baseline", table, column)
 			}
 		}
@@ -210,17 +209,6 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		t.Errorf("subagent_state locator must be an index point lookup on idx_chat_message_blocks_tool_call, got plan:\n%s", planText)
 	}
 
-	var historicalMigrationCount int64
-	if err := gormDB.Table("migrations").Where("id IN ?", []string{
-		"202608110001", // legacy provider/model and route conversion
-		"202608200002", // legacy backend CLI/device conversion
-		"202608260001", // seconds-to-milliseconds data rewrite
-	}).Count(&historicalMigrationCount).Error; err != nil {
-		t.Fatalf("count historical migration ledger entries: %v", err)
-	}
-	if historicalMigrationCount != 0 {
-		t.Fatalf("historical migration ledger entries = %d, want 0", historicalMigrationCount)
-	}
 }
 
 // TestSQLiteDSNShape 回归(design decisions 1/2/5, docs/specs/2026-08-07-autonomous-turn-resilience.md
@@ -378,51 +366,6 @@ func TestInitIgnoresAGENTREDebugEnv(t *testing.T) {
 	}
 	if loggerCfg.Level != "info" {
 		t.Fatalf("logger level = %q, want info", loggerCfg.Level)
-	}
-}
-
-// TestClaimRelativeBackends_GivenOccupiedSortOrder_AtomicallyReplacesTheTarget
-// uses the bootstrapped SQLite schema because sqlmock cannot enforce the real
-// (agent_id, sort_order) uniqueness constraint. R13 requires a runtime claim
-// to replace the old target without changing this desktop's active count.
-func TestClaimRelativeBackends_GivenOccupiedSortOrder_AtomicallyReplacesTheTarget(t *testing.T) {
-	dataDir := t.TempDir()
-	t.Setenv("AGENTRE_DATA_DIR", dataDir)
-	t.Setenv("AGENTRE_ENV", "test")
-
-	runtime, err := Init(context.Background())
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	t.Cleanup(runtime.Close)
-
-	gdb := db.Default()
-	original := &agent_backend_entity.AgentBackend{
-		Type: "claudecode", Name: "legacy relative", Status: 1,
-	}
-	if err := gdb.Create(original).Error; err != nil {
-		t.Fatalf("create relative backend: %v", err)
-	}
-	if err := gdb.Create(&agent_entity.AgentExecTarget{
-		AgentID: 1, AgentBackendID: original.ID, SortOrder: 0,
-	}).Error; err != nil {
-		t.Fatalf("create original target: %v", err)
-	}
-
-	claims, err := agent_backend_repo.AgentBackend().ClaimRelative(context.Background(), "sha256:desktop-a")
-	if err != nil {
-		t.Fatalf("ClaimRelative() error = %v", err)
-	}
-	if len(claims) != 1 {
-		t.Fatalf("claim count = %d, want 1", len(claims))
-	}
-
-	var targets []agent_entity.AgentExecTarget
-	if err := gdb.Where("agent_id = ?", 1).Order("sort_order ASC").Find(&targets).Error; err != nil {
-		t.Fatalf("list claimed targets: %v", err)
-	}
-	if len(targets) != 1 || targets[0].AgentBackendID != claims[0].ClaimedBackend.ID || targets[0].SortOrder != 0 {
-		t.Fatalf("claimed targets = %#v, want one replacement at sort order 0", targets)
 	}
 }
 
@@ -696,88 +639,37 @@ func testConversationID(id int64) string {
 	return fmt.Sprintf("0198f4c1-a000-7c0d-8b21-%012d", id)
 }
 
-// retiredMigrationLedgerIDs 是历史上落进过开发机账本、如今文件已不存在的迁移号。
+// realColumns 交出某个表真实建出来的列名集合。
 //
-// 第一批来自 PR #36(202608080013~0018),第二批是 2026-08-28「压缩未发布数据库迁移」
-// 删掉的那些独立文件,第三批是 2026-09-04 发布前压缩退役的那一整套基线
-// (202608080001~202608080012、202609010001、202609040001~202609040006)—— 产品未发布、
-// 长活的开发库一律删库重建,所以那一批被整体折进 202609040101 起的新基线,而它们的号
-// 仍旧躺在别人的账本里。账本只记 id,删文件收不回号。
-var retiredMigrationLedgerIDs = []string{
-	"202608080001", "202608080002", "202608080003", "202608080004", "202608080005",
-	"202608080006", "202608080007", "202608080008", "202608080009", "202608080010",
-	"202608080011", "202608080012",
-	"202608080013", "202608080014", "202608080015", "202608080016", "202608080017", "202608080018",
-	"202608100001", "202608110001", "202608130001", "202608150001", "202608150002",
-	"202608200001", "202608200002", "202608260001", "202608260002", "202608260003",
-	"202608270001", "202608270002", "202608270003", "202608270004", "202608270005",
-	"202608270006", "202608280001", "202608280002",
-	"202609010001",
-	"202609040001", "202609040002", "202609040003", "202609040004", "202609040005",
-	"202609040006",
-}
-
-// TestRunMigrationsSkipsNothingOnALedgerHoldingRetiredIDs 钉死迁移号不得复用退役号。
-//
-// 事故形态:新迁移接着「文件列表里最大的那个」往下编号,而那个号段早被上一个纪元的
-// 迁移占着 —— gormigrate 只认账本里的 id 字符串,于是新迁移被**静默跳过**:全新库一切
-// 正常,长活的库缺表缺列,直到运行时才炸。真炸过两次:202608080013 缺 sync_accounts 表,
-// 202608080014/0015 缺 chat_sessions.conversation_id 列("table chat_sessions has no
-// column named conversation_id")。
-//
-// 这里把退役号预先填进账本再跑全链:当前每一条迁移都必须照跑不误,跑完的 schema 与
-// 全新库一字不差。谁再复用一个退役号,他那条迁移的效果就会在这里整条消失。
-func TestRunMigrationsSkipsNothingOnALedgerHoldingRetiredIDs(t *testing.T) {
-	fresh := openMigratedSQLite(t, "fresh.db", nil)
-	legacy := openMigratedSQLite(t, "legacy.db", retiredMigrationLedgerIDs)
-
-	if want, got := schemaOf(t, fresh), schemaOf(t, legacy); want != got {
-		t.Errorf("a database whose ledger carries retired migration ids did not converge to the fresh schema.\nfresh:\n%s\nlegacy:\n%s", want, got)
+// 刻意不用 Migrator().HasColumn：SQLite 那一份实现是拿 `%列名%` 去 LIKE 建表语句的
+// **文本**，于是注释里出现过的列名会被当成真的列。本轮就撞上了——chat_messages 的建表
+// 注释里提了一句 project_locations 的某列，下面「旧列名必须不存在」那条断言就把那个名字
+// 认成了列。断言一列建没建出来，本来就不该被注释左右；正向断言同样因此更严（以前它也可
+// 能被别的表的同名列或一句注释碰巧蒙对）。
+func realColumns(t *testing.T, gormDB *gorm.DB, table string) map[string]bool {
+	t.Helper()
+	types, err := gormDB.Migrator().ColumnTypes(table)
+	if err != nil {
+		t.Fatalf("read columns of %s: %v", table, err)
 	}
+	names := make(map[string]bool, len(types))
+	for _, columnType := range types {
+		names[columnType.Name()] = true
+	}
+	return names
 }
 
-// openMigratedSQLite 开一个空库,先把 ledgerIDs 播进 gormigrate 的账本(模拟一台长活
-// 的开发机),再跑全链迁移。
-func openMigratedSQLite(t *testing.T, name string, ledgerIDs []string) *gorm.DB {
+// openMigratedSQLite 开一个空库并跑全链迁移,交出迁移后的库。
+func openMigratedSQLite(t *testing.T, name string) *gorm.DB {
 	t.Helper()
 	gormDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), name)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite %s: %v", name, err)
 	}
-	if len(ledgerIDs) > 0 {
-		// 账本表由 gormigrate 建;这里先建出来再播种,建表语句与它的一致(id 主键)。
-		if err := gormDB.Exec(`CREATE TABLE migrations (id VARCHAR(255) PRIMARY KEY)`).Error; err != nil {
-			t.Fatalf("create migration ledger: %v", err)
-		}
-		for _, id := range ledgerIDs {
-			if err := gormDB.Exec(`INSERT INTO migrations (id) VALUES (?)`, id).Error; err != nil {
-				t.Fatalf("seed retired ledger id %s: %v", id, err)
-			}
-		}
-	}
 	if err := migrations.RunMigrations(gormDB); err != nil {
 		t.Fatalf("RunMigrations() on %s error = %v", name, err)
 	}
 	return gormDB
-}
-
-// schemaOf 交出一个库的全部 DDL(表、索引、触发器),按名字排序 —— 两个库比对的口径。
-// 排除 sqlite_ 开头的内部对象与 migrations 账本表本身(账本内容本来就不同)。
-func schemaOf(t *testing.T, gormDB *gorm.DB) string {
-	t.Helper()
-	var rows []struct {
-		Name string `gorm:"column:name"`
-		SQL  string `gorm:"column:sql"`
-	}
-	if err := gormDB.Raw(`SELECT name, COALESCE(sql, '') AS sql FROM sqlite_master
-WHERE name NOT LIKE 'sqlite_%' AND name != 'migrations' ORDER BY name`).Scan(&rows).Error; err != nil {
-		t.Fatalf("read sqlite_master: %v", err)
-	}
-	out := ""
-	for _, row := range rows {
-		out += row.Name + ": " + row.SQL + "\n"
-	}
-	return out
 }
 
 // TestEveryTableHasAutoIncrementIDPrimaryKey 钉死一条库级约定：迁移建出的每一张业务表
@@ -788,7 +680,7 @@ WHERE name NOT LIKE 'sqlite_%' AND name != 'migrations' ORDER BY name`).Scan(&ro
 // internal/model/entity 的 TestEveryEntityHasAutoIncrementIDPrimaryKey 独立钉住：两侧
 // 差一格，同一段代码就会在内存里和库里各认一套行身份。
 func TestEveryTableHasAutoIncrementIDPrimaryKey(t *testing.T) {
-	gormDB := openMigratedSQLite(t, "primary-keys.db", nil)
+	gormDB := openMigratedSQLite(t, "primary-keys.db")
 
 	var tables []struct {
 		Name string `gorm:"column:name"`

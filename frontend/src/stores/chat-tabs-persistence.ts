@@ -25,18 +25,6 @@ type PersistedV2 = {
   activeTabId: string | null;
 };
 
-type PersistedV1 = {
-  v: 1;
-  tabs: Array<{
-    id: string;
-    sessionId: number;
-    isPinned: boolean;
-    pinAt: number;
-    openedAt: number;
-  }>;
-  activeTabId: string | null;
-};
-
 function getStorage(): Storage | null {
   if (typeof window === "undefined") return null;
   try {
@@ -156,22 +144,6 @@ export function readPersistedTabs(): {
       }
     }
     return { tabs, activeTabId: p.activeTabId };
-  }
-
-  if (v === 1) {
-    const p = parsed as PersistedV1;
-    return {
-      tabs: (p.tabs ?? []).map((r) =>
-        toChatTab(
-          r.id,
-          { kind: "session", sessionId: r.sessionId },
-          r.isPinned,
-          r.pinAt,
-          r.openedAt,
-        ),
-      ),
-      activeTabId: p.activeTabId,
-    };
   }
 
   return null;

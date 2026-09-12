@@ -36,7 +36,7 @@ ERR="$DATA_DIR/logs/error.log"
 # DB — list tables, inspect schema, run query
 sqlite3 "$DB" ".tables"
 sqlite3 "$DB" ".schema chat_sessions"
-sqlite3 -header -column "$DB" "SELECT id, name, agent_backend_id FROM agents ORDER BY id DESC LIMIT 10;"
+sqlite3 -header -column "$DB" "SELECT id, name, department_id FROM agents ORDER BY id DESC LIMIT 10;"
 
 # Applied migrations (compare against files in migrations/)
 sqlite3 "$DB" "SELECT id FROM migrations ORDER BY id;"
@@ -58,8 +58,8 @@ jq -c 'select(.sessionId == 42)' "$LOG"
 
 | Table | What lives here |
 |-------|-----------------|
-| `agents`, `agent_backends` | Agent definitions + which CLI backend (builtin/claudecode/codex/piagent) |
-| `chat_sessions`, `chat_messages` | Conversation history, tool calls, thinking blocks |
+| `agents`, `agent_backends` | Agent definitions + which CLI backend (builtin/claudecode/codex/piagent/openclaw) |
+| `chat_sessions`, `chat_messages`, `chat_message_blocks` | Conversations, their messages, and each message's blocks (text, tool calls, thinking) |
 | `llm_providers` | Provider configs (OpenAI/Anthropic/etc.) |
 | `hooks`, `hook_events` | Script-driven hook definitions, schedule/run state, output events, and failure records |
 | `app_settings` | UI/runtime prefs persisted by the app |
@@ -91,7 +91,7 @@ diff <(sqlite3 "$DB" "SELECT id FROM migrations ORDER BY id;") \
 ```
 Missing ids ⇒ relaunch the app to run `RunMigrations`; never hand-insert into `migrations`.
 
-**"A remote session on `agentred` produced nothing"** → inspect `<AgentredDataDir>/logs/agentred.log` (and `error.log` for failures). `agentred run` also mirrors logs to stdout, while its remaining standard-library `log.Printf` sites are redirected into the same rolling files. The desktop and daemon share the desktop's positive `chat_sessions.id` as `sid`; the daemon isolates equal ids from different desktops by pairing that id with the authenticated peer fingerprint in its session and journal keys. Filter `agentred.log` for `sid=<id>` and the `runtime.run:` lifecycle lines, then compare the daemon-side `agentred.db` journal/session state. `agentred status` prints the daemon's database path and size. Turn on `agentred run --log-level debug` (or `AGENTRED_LOG_LEVEL=debug`) only for a bounded investigation because the daemon's debug stream is verbose.
+**"A remote session on `agentred` produced nothing"** → inspect `<AgentredDataDir>/logs/agentred.log` (and `error.log` for failures). `agentred run` also mirrors logs to stdout, while its remaining standard-library `log.Printf` sites are redirected into the same rolling files. The desktop and daemon identify a session by its global `conversation_id` (`chat_sessions.conversation_id` on the desktop, `daemon_sessions.conversation_id` on the daemon). `agentred.log` is JSON: filter it with `jq -c 'select(.conversationId == "<uuid>")'`, follow the `handlers.RuntimeHandlers.Run:` lifecycle lines, then compare the daemon-side `agentred.db` transcript (`chat_messages` / `chat_message_blocks`) and `daemon_sessions` state. `agentred status` prints the daemon's database path and size. Turn on `agentred run --log-level debug` (or `AGENTRED_LOG_LEVEL=debug`) only for a bounded investigation because the daemon's debug stream is verbose.
 
 **"App won't start"** → read `error.log` last 50 lines first. Mostly `mkdir … file exists` or `database is locked` style messages from root `main.go` and `internal/bootstrap/`.
 

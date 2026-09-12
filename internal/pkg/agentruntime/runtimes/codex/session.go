@@ -192,8 +192,8 @@ func (a *cxClientAdapter) ClearGoal(ctx context.Context) (bool, error) {
 	return sess.ClearGoal(ctx)
 }
 
-// RewindTo 走 thread/rollback,把 sid 推回 numTurns 之前的状态。anchor 是十进制
-// numTurns(chat_svc 按 user msg count 算)。
+// RewindTo 先分页读取最近的 turn,再用 thread/revert 把 sid 推回
+// numTurns 之前的状态。anchor 是十进制 numTurns(chat_svc 按 user msg count 算)。
 func (a *cxClientAdapter) RewindTo(ctx context.Context, anchor string) (string, error) {
 	if strings.TrimSpace(a.sid) == "" {
 		return "", fmt.Errorf("agentruntime/runtimes/codex: missing provider session id for rollback")

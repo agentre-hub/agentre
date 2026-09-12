@@ -133,7 +133,7 @@ export function ChatStreamsHost(): React.ReactElement | null {
           noteOutputActivity(sessionId, assistantMessageId);
           return;
         case "tool_use":
-          // toolUseId / toolName 任一存在才算有效 —— 与旧版 applyLiveToolUse 行为一致。
+          // toolUseId / toolName 任一存在才算有效。
           if (!ev.toolUseId && !ev.toolName) return;
           clearLiveRetry(sessionId, assistantMessageId);
           appendLiveToolUse(sessionId, assistantMessageId, {

@@ -33,8 +33,7 @@ type ExecTargetInputDTO struct {
 
 // UpdateAgentRequest 更新 Agent；禁止改 system_badge / department_id。
 //
-// ExecTargets 是 R15 的有序执行目标列表，取代了历史上单一的 AgentBackendID +
-// Skills 两个字段——每次保存都是整份替换（与 Name/Prompt/Tools 等其它字段一样，
+// ExecTargets 是 R15 的有序执行目标列表——每次保存都是整份替换（与 Name/Prompt/Tools 等其它字段一样，
 // 这里从来都是全量快照式写入，不是增量 patch）。至少要有一项：列表为空的 Agent
 // 不能起会话，这条校验在 svc.Update 里做，界面在保存前用同一条件禁用保存
 // （R15：「列表为空的 Agent 不能起会话——界面在保存时就要求至少一项」）。

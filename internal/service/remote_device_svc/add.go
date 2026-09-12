@@ -2,9 +2,6 @@ package remote_device_svc
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -18,7 +15,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/paired_agentred_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/pkg/keychain"
+	"github.com/agentre-hub/agentre/internal/pkg/deviceidentity"
 
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
@@ -135,38 +132,12 @@ func (s *service) deriveDisplayName(ctx context.Context, req AddRequest) (string
 	return first, nil
 }
 
-func (s *service) ensureDeviceFingerprint() (devicefp.Carrier, error) {
-	return EnsureDeviceFingerprint(s.keychain)
-}
-
-// EnsureDeviceFingerprint 读出(没有就铸一个并存下)本机唯一的设备指纹。
+// ensureDeviceFingerprint 交给 deviceidentity.Ensure —— 本机指纹唯一的生成处。
 //
-// 它是这个值在整个桌面端**唯一**的生成处 —— R5 决策 8:账号侧不得另生成指纹。
-// 导出出来是因为装配期有一个比本服务更早的消费者:存量对话回填 conversation_id 要
-// 拿它当派生输入(spec 2026-08-31 决策 2),而迁移跑在 InitRemoteDevice 之前。让那条
-// 路自己再写一份生成逻辑,两处一旦漂移,同一台机器就会有两个"唯一"指纹。
-func EnsureDeviceFingerprint(kc keychain.Keychain) (devicefp.Carrier, error) {
-	if kc == nil {
-		return "", errors.New("remote_device_svc: no keychain backend")
-	}
-	fp, err := kc.Get(accountForDeviceFingerprint)
-	if err == nil && fp != "" {
-		return devicefp.Carrier(fp), nil
-	}
-	if err != nil && !errors.Is(err, keychain.ErrNotFound) {
-		return "", err
-	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(raw)
-	// "sha256:" 前缀与 agentred spec §4.3 / state.json key 格式一致。
-	newFP := "sha256:" + hex.EncodeToString(sum[:])
-	if err := kc.Set(accountForDeviceFingerprint, newFP); err != nil {
-		return "", err
-	}
-	return devicefp.Carrier(newFP), nil
+// 只能有这一处:两份实现「一样」要靠注释维持,任何一次单边修改(哪怕只是错误信息不同)
+// 都会让 LAN 配对与账号登录拿到不同的指纹,而症状是同一台机器在 server 上变成两台设备。
+func (s *service) ensureDeviceFingerprint() (devicefp.Carrier, error) {
+	return deviceidentity.Ensure(s.keychain)
 }
 
 // translatePairError maps DaemonDialPort errors back to local i18n codes. The

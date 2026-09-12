@@ -5,7 +5,6 @@
       "placeholder": "搜索会话 · 跳转 · 执行命令"
     },
     "navigationLabel": "主导航",
-    "title": "Agentre",
     "window": {
       "close": "关闭窗口",
       "maximize": "最大化窗口",
@@ -13,24 +12,16 @@
     }
   },
   "common": {
-    "add": "新增",
     "all": "全部",
     "cancel": "取消",
     "close": "关闭",
-    "copy": "复制",
     "copied": "已复制",
-    "copyFailed": "复制失败",
     "create": "创建",
     "delete": "删除",
-    "disable": "停用",
-    "edit": "编辑",
-    "enable": "启用",
     "errorOccurred": "出错了",
     "loading": "加载中...",
     "moreActions": "更多操作",
-    "operationCompleted": "操作完成",
     "operationFailed": "操作失败",
-    "operationSucceeded": "操作成功",
     "optional": "可选",
     "reject": "拒绝",
     "retry": "重试",
@@ -38,11 +29,8 @@
     "saved": "已保存",
     "saveFailed": "保存失败",
     "saving": "保存中...",
-    "skip": "跳过",
     "unassigned": "未指定",
-    "unknownError": "未知错误",
-    "unsavedChanges": "未保存的修改",
-    "saveChanges": "保存更改"
+    "unsavedChanges": "未保存的修改"
   },
   "deviceTag": {
     "local": "本地",

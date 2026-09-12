@@ -7,6 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
+
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -34,6 +39,34 @@ func (f *fakeClient) Close() error {
 		close(f.closed)
 	}
 	return nil
+}
+
+// idleEvictableClient 包一层 fakeClient,在 Closed() 被调用时发信号。
+// watchClient 阻塞在 <-c.Closed() 上之前会先调这个方法,信号到了就说明
+// watchClient 已经捕获 client 并在等待,从而让用例不必靠 sleep 表达时序。
+type idleEvictableClient struct {
+	*fakeClient
+	closedRead chan struct{}
+	once       sync.Once
+}
+
+func (c *idleEvictableClient) Closed() <-chan struct{} {
+	c.once.Do(func() { close(c.closedRead) })
+	return c.fakeClient.Closed()
+}
+
+// capturePoolLogs 把 logger.Default() 换成 observer,返回可查日志,用例结束还原。
+func capturePoolLogs(t *testing.T) *observer.ObservedLogs {
+	t.Helper()
+	core, logs := observer.New(zapcore.DebugLevel)
+	oldLogger := logger.Default()
+	logger.SetLogger(zap.New(core))
+	t.Cleanup(func() { logger.SetLogger(oldLogger) })
+	return logs
+}
+
+func daemonDropWarns(logs *observer.ObservedLogs) int {
+	return logs.FilterMessageSnippet("daemon connection dropped").Len()
 }
 
 func expectEntryEvictedAfterDrop(t *testing.T, p *pool, e *entry, fc *fakeClient) {
@@ -120,6 +153,55 @@ func TestPool_RedialsAfterDrop(t *testing.T) {
 		}
 		p.entries[9] = e
 		expectEntryEvictedAfterDrop(t, p, e, fc)
+	})
+}
+
+func TestPool_WatchClient_IdleEvictionDoesNotWarn(t *testing.T) {
+	Convey("idle 回收由我方关闭连接,watchClient 不该报「远端断了」", t, func() {
+		logs := capturePoolLogs(t)
+		p := &pool{entries: map[int64]*entry{}, idleTimeout: time.Second}
+		fc := newFakeClient()
+		wrapped := &idleEvictableClient{fakeClient: fc, closedRead: make(chan struct{})}
+		e := &entry{
+			deviceID: 7,
+			client:   wrapped,
+			closedCh: make(chan struct{}),
+			refcount: 0,
+		}
+		p.entries[7] = e
+
+		done := make(chan struct{})
+		go func() { p.watchClient(e); close(done) }()
+		<-wrapped.closedRead // watchClient 已在 <-c.Closed() 上等待
+		p.tryEvictIdle(e)
+		<-done
+
+		So(e.isEvicted(), ShouldBeTrue)
+		So(daemonDropWarns(logs), ShouldEqual, 0)
+	})
+}
+
+func TestPool_WatchClient_RemoteDropWarns(t *testing.T) {
+	Convey("远端单方面失效才该报「远端断了」", t, func() {
+		logs := capturePoolLogs(t)
+		p := &pool{entries: map[int64]*entry{}, idleTimeout: time.Second}
+		fc := newFakeClient()
+		wrapped := &idleEvictableClient{fakeClient: fc, closedRead: make(chan struct{})}
+		e := &entry{
+			deviceID: 8,
+			client:   wrapped,
+			closedCh: make(chan struct{}),
+			refcount: 1,
+		}
+		p.entries[8] = e
+
+		done := make(chan struct{})
+		go func() { p.watchClient(e); close(done) }()
+		<-wrapped.closedRead
+		_ = fc.Close() // 远端自己断开
+		<-done
+
+		So(daemonDropWarns(logs), ShouldEqual, 1)
 	})
 }
 

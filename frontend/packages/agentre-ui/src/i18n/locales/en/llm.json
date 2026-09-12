@@ -1,64 +1,5 @@
 {
-  "engine": {
-    "loading": "Loading…",
-    "actions": {
-      "cancel": "Cancel",
-      "save": "Save",
-      "edit": "Edit",
-      "enabled": "Enabled",
-      "disabled": "Disabled"
-    },
-    "providers": {
-      "add": "Add provider",
-      "test": "Test connection",
-      "discover": "Discover models",
-      "models": "Models",
-      "empty": "No providers configured",
-      "openBackends": "Manage agent backends",
-      "noApiKey": "No API key",
-      "toggleModel": "Toggle {{name}}",
-      "form": {
-        "ariaLabel": "Provider editor",
-        "name": "Provider name",
-        "type": "Provider type",
-        "baseUrl": "Base URL",
-        "apiKey": "API key"
-      }
-    },
-    "backends": {
-      "add": "Add backend",
-      "scan": "Auto-detect",
-      "test": "Test backend",
-      "empty": "No agent backends configured",
-      "openProviders": "Manage LLM providers",
-      "list": "Agent backends",
-      "cliStatus": {
-        "recognized": "Recognized",
-        "path": "Use PATH",
-        "unchecked": "Unchecked"
-      },
-      "form": {
-        "ariaLabel": "Backend editor",
-        "name": "Backend name",
-        "type": "Backend type",
-        "providerKey": "Provider key",
-        "modelKey": "Model key",
-        "cliPath": "CLI path"
-      }
-    }
-  },
   "llmProviders": {
-    "actions": {
-      "confirmDelete": "Confirm delete?",
-      "confirmDeleteNamed": "Confirm deleting {{name}}",
-      "deleteNamed": "Delete {{name}}",
-      "deleteTitle": "Delete (requires confirmation)",
-      "editNamed": "Edit {{name}}",
-      "testCall": "Test Call",
-      "testNamed": "Test {{name}}",
-      "testTitle": "Test call (send hi)",
-      "testing": "Testing"
-    },
     "defaultSet": {
       "title": "Set default model to {{model}} · {{provider}}",
       "description": "Changing the provider default takes effect from the next turn; references using provider-default will follow it dynamically.",
@@ -87,24 +28,16 @@
       "apiKeyPlaceholder": "sk-... or self-hosted token. Leave empty for anonymous access.",
       "baseUrl": "Base URL (optional)",
       "baseUrlHint": "Leave empty to use default: {{url}}",
-      "contextWindow": "Context Window",
       "copyProviderKey": "Copy Provider Key",
       "copyProviderKeyDone": "Provider Key copied",
       "copyProviderKeyFailed": "Failed to copy Provider Key",
-      "defaultModel": "Default Model",
-      "defaultModelHint": "Enter a model id manually, or fetch the provider list with the button on the right.",
-      "defaultModelNeedKey": "Enter an API Key before fetching models.",
       "hideApiKey": "Hide API Key",
-      "maxOutput": "Max Output Tokens",
       "name": "Name",
       "namePlaceholder": "Example: production / local Ollama",
-      "providerDecides": "Provider decides",
       "providerKey": "Provider Key",
       "providerKeyHint": "Stable identifier used by agent backends and remote devices to reference this provider.",
-      "providerKeyPlaceholder": "Generated after saving",
       "showApiKey": "Show API Key",
       "type": "Type",
-      "typePlaceholder": "Select provider type",
       "models": "Models",
       "modelsDescription": "Discover or manually add the models created together with this provider.",
       "fetchModels": "Fetch models",
@@ -118,10 +51,8 @@
     },
     "flash": {
       "created": "Provider \"{{name}}\" added",
-      "deleteFailed": "Delete failed: {{message}}",
       "deleted": "Provider \"{{name}}\" deleted",
       "loadFailed": "Load failed: {{message}}",
-      "saveFailed": "Save failed: {{message}}",
       "testFailed": "Test failed: {{message}}",
       "updated": "Provider \"{{name}}\" updated",
       "defaultSet": "{{model}} is now the default model",
@@ -164,12 +95,7 @@
       "createSubmit": "Create"
     },
     "models": {
-      "empty": "The provider did not return any models. Enter the model id manually.",
-      "fetch": "Fetch provider models",
-      "needApiKey": "Enter an API Key first",
-      "noList": "Model list has not been fetched",
-      "placeholder": "Example: claude-opus-4-7 / gpt-4o-mini",
-      "viewList": "View model list"
+      "empty": "The provider did not return any models. Enter the model id manually."
     },
     "providerType": {
       "anthropic": {
@@ -188,25 +114,14 @@
     "row": {
       "noApiKey": "API Key not configured"
     },
-    "table": {
-      "ariaLabel": "LLM provider list",
-      "endpointKey": "Endpoint / Key",
-      "name": "Name",
-      "type": "Type"
-    },
     "test": {
-      "draftFailed": "Call failed",
-      "draftSuccess": "Call succeeded. Sent hi and received a model response.",
-      "failedTitle": "Test Failed",
       "providerFailed": "\"{{name}}\" connection failed ({{duration}}): {{message}}",
       "providerSuccess": "\"{{name}}\" call succeeded ({{duration}}). Sent hi and received a model response.",
-      "successTitle": "Test Passed",
       "rowSuccess": "Model {{model}} call succeeded ({{duration}}). Sent hi and received a model response.",
       "rowFailed": "Model {{model}} connection failed ({{duration}}): {{message}}"
     },
     "validation": {
       "apiKeyRequired": "API Key is required",
-      "modelRequired": "Enter a default model first",
       "nameRequired": "Name is required",
       "modelIdRequired": "Model ID is required",
       "duplicateModelId": "Model ID {{modelId}} is duplicated",
@@ -216,8 +131,6 @@
       "ariaLabel": "Provider list",
       "searchPlaceholder": "Filter providers…",
       "searchAria": "Filter providers",
-      "add": "Add Provider",
-      "enabled": "Enabled",
       "disabled": "Disabled",
       "noMatch": "No matching providers",
       "modelCount": "{{count}} models"
@@ -231,16 +144,12 @@
       "enableNamed": "Enable {{name}}",
       "enabledShort": "Enabled",
       "disabledShort": "Disabled",
-      "test": "Test",
       "testNamed": "Test {{name}}",
       "testTitle": "Test connection (sends a minimal request using the default model)",
-      "editConnection": "Edit connection",
       "editConnectionNamed": "Edit {{name}} connection",
       "discover": "Discover models",
       "discoverNamed": "Discover models",
-      "delete": "Delete",
       "deleteNamed": "Delete {{name}}",
-      "deleteTitle": "Delete provider (requires confirmation)",
       "cannotEnableNoDefault": "Set an enabled default model before enabling this provider",
       "testConnection": "Test Connection",
       "more": "More",
@@ -267,12 +176,10 @@
     },
     "modelsTable": {
       "ariaLabel": "Model list",
-      "modelId": "Model ID",
       "context": "Context",
       "maxOutput": "Max Output",
       "default": "Default",
       "defaultBadge": "Default",
-      "enabled": "Enabled",
       "disabled": "Disabled",
       "setDefaultAria": "Set {{model}} as default",
       "currentDefaultAria": "{{model}} is default",
@@ -281,7 +188,6 @@
       "editModelNamed": "Edit {{model}}",
       "deleteModelNamed": "Delete {{model}}",
       "deleteBlockedDefault": "Default model: set another default before deleting",
-      "deleteTitle": "Delete (requires confirmation)",
       "testPassed": "Passed",
       "testPassedHint": "Passed in this session · {{duration}}",
       "disableBlockedDefault": "Default model: set another default before disabling",
@@ -337,7 +243,6 @@
       "willDelete": "Will be deleted",
       "protected": "Protected (unchanged)",
       "noneDeletable": "No deletable models",
-      "deleting": "Deleting…",
       "confirmButton": "Delete {{count}} models",
       "confirmButton_one": "Delete {{count}} model",
       "confirmButton_other": "Delete {{count}} models"
@@ -440,13 +345,7 @@
     "providerOnDevice": "Already on this device",
     "syncInline": "Sync over",
     "syncFootnote": "Syncing copies the API key to that device and needs your explicit confirmation",
-    "syncProviderNamed": "Sync {{provider}} to this device",
-    "syncDialog": {
-      "title": "Sync provider to device",
-      "description": "Sync {{provider}} and its model catalog to the target device.",
-      "confirmation": "This copies the provider API key to the target device. Confirm before continuing.",
-      "confirm": "Confirm sync"
-    }
+    "syncProviderNamed": "Sync {{provider}} to this device"
   },
   "agentBackends": {
     "actions": {
@@ -463,7 +362,6 @@
     },
     "binding": {
       "label": "Model binding",
-      "description": "Choose the model source first; Claude tier routes and CLI-only overrides follow this main binding.",
       "cliLogin": "CLI login state",
       "cliResolution": "Effective model is determined by the CLI's own login account",
       "modeFollow": "Follow default",
@@ -587,8 +485,6 @@
     "modelRoutes": {
       "hint": "Claude Code sends requests in three tiers — OPUS / SONNET / HAIKU. Any tier you leave alone follows the main binding above (the CLI's ANTHROPIC_DEFAULT_*_MODEL).",
       "defaultChip": "Usually no change needed",
-      "inheritMain": "Inherit main provider",
-      "inheritWithName": "Inherit main provider · {{name}}",
       "label": "Model tier routes",
       "tierAria": "Claude tier route",
       "inheritsSummary": "main binding → {{target}}",
@@ -665,32 +561,17 @@
       "remoteRootHintSuffix": "to let the CLI skip that check."
     },
     "provider": {
-      "clear": "Clear provider link",
-      "clearTitle": "Clear and use CLI login",
-      "cliLogin": "Use CLI login",
       "configureCta": "Configure LLM providers",
       "emptyTitle": "No LLM providers available yet",
-      "label": "LLM Provider",
       "modelRequiredDescription": "This provider has no default model, so Pi cannot select it via --model. Set a default model on the LLM Providers page first, then save again.",
       "modelRequiredTitle": "Provider has no default model",
-      "noMatchClaude": "Without a link, claude CLI uses its own login. Add an anthropic provider first if requests should route through the local proxy.",
-      "noMatchCodex": "Without a link, codex CLI uses its own login. Add an openai-response provider first if requests should route through the local proxy.",
-      "noMatchPiAgent": "Without a link, pi CLI uses its own login. Add an LLM provider first to bind a custom provider.",
       "noMatchTitle": "No matching LLM providers",
       "noModel": "(no model selected)",
       "noneDescription": "Add an LLM provider on the LLM Providers page first, then return to configure the backend.",
-      "noneTitle": "No LLM providers",
       "optionalSuffix": "· Optional",
-      "placeholderOptional": "No link (use CLI login)",
-      "placeholderRequired": "Select an LLM provider",
-      "selectProvider": "Select provider",
       "staleDescription": "Choose an enabled provider below{{optionalClause}}.",
       "staleOptionalClause": ", or clear the link to use CLI login",
-      "staleTitle": "The original LLM provider is disabled or does not match this type",
-      "strictMatch": "Strict match · {{type}}",
-      "unlinked": "No linked provider",
-      "followsDefault": "Follows the provider default model each turn",
-      "fixedNote": "Fixed to this model; provider default changes won't affect it"
+      "staleTitle": "The original LLM provider is disabled or does not match this type"
     },
     "providerSync": {
       "descriptionOnly": "Sync copies the provider's BaseURL, protocol, API key, default model and model catalog to the remote agentred state file. Other form changes are not saved.",

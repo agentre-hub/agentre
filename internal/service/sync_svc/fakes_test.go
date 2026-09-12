@@ -143,8 +143,8 @@ type fakeSyncState struct {
 	claimedBy map[string]int64
 	// hardDeleted 标出「这一类对象是硬删」（成员关系、执行目标——它们没有 status
 	// 软删列）。真仓储的 SaveMeta 是一条 `UPDATE … WHERE sync_id = ?`：行被硬删之后
-	// 那条语句命中 0 行，**同步元数据根本落不下去**。替身以前无条件写，等于凭空给了
-	// 这两类一个真实环境里不存在的版本记忆——版本守卫的漏洞因此在测试里全都看不见。
+	// 那条语句命中 0 行，**同步元数据根本落不下去**。替身要是无条件写，就等于凭空给了
+	// 这两类一个真实环境里不存在的版本记忆——版本守卫的漏洞在测试里就全都看不见。
 	hardDeleted map[string]bool
 	// softDeleted 标出「本机这一行已经软删（status = DELETE）」。替身没有业务列，
 	// 补删除那条取数在真仓储里按 status 判定，这里用一个显式集合表达同一件事。

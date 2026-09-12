@@ -92,7 +92,7 @@ type Daemon struct {
 	db *gorm.DB
 
 	// transcript 是转录(消息行 + 块行)的写入口,Daemon 级一份 —— 生产者是活过连接
-	// 的 fanout goroutine,断连重连不重置任何东西。它取代了从前的通知日志(决策 1)。
+	// 的 fanout goroutine,断连重连不重置任何东西。
 	transcript handlers.TranscriptPort
 
 	// sessionStore 是会话身份与生命周期的存取口,同样 Daemon 级。
@@ -760,7 +760,7 @@ func New(opts Options) (*Daemon, error) {
 		closeDB(gormDB)
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
-	// 注入仓储默认实现,让 notification_repo.Notification() 拿到 GORM 版。New 是
+	// 注入仓储默认实现,让 session_repo.Session() 拿到 GORM 版。New 是
 	// agentred 的组装根,位置对应桌面端 internal/bootstrap/cago.go 里 RunMigrations
 	// 之后的那批 RegisterXxx。实现本身无状态(句柄经 ctx 传),同进程多个 Daemon
 	// 注册同一个实现互不干扰。
@@ -828,7 +828,7 @@ func New(opts Options) (*Daemon, error) {
 	})
 	d.catchup = handlers.NewSessionCatchupHandlers(handlers.SessionCatchupDeps{
 		Sessions:          d.sessionStore,
-		Journal:           journalReader{db: gormDB},
+		DurableFrames:     durableFrameReader{db: gormDB},
 		LoggedInAccountID: d.loggedInAccountID,
 	})
 	d.activity = handlers.NewActivityHandlers(handlers.ActivityDeps{Sessions: d.sessionStore})
@@ -1554,18 +1554,15 @@ func openDB(dataDir string) (*gorm.DB, error) {
 	// busy_timeout mirrors internal/bootstrap/cago.go's sqliteDSN: concurrent
 	// writers otherwise hit SQLITE_BUSY near-instantly instead of waiting.
 	//
-	// WAL 不是调优,是这个库的工作负载本身要求的:写侧是**每个流式事件一条**同步事务
-	// (handlers/runtime.go 的 fanout 对每个 agentruntime.Event 都落一条日志),读侧是
-	// session.pull 的翻页补齐 —— 一段开着的读事务。回滚日志模式下两者互斥:读事务持
-	// SHARED,写事务提交要 EXCLUSIVE,于是流式写只能在 busy_timeout 上干等 5 秒,超时
-	// 那条通知既不落库也不推送(R3)。WAL 下读方读快照、写方追加,谁也不挡谁。
+	// WAL 不是调优,是这个库的工作负载本身要求的:写侧是轮内每个定稿时刻一次 checkpoint
+	// 事务,读侧是 session.pull 的翻页补齐 —— 一段开着的读事务。回滚日志模式下两者互斥:
+	// 读事务持 SHARED,写事务提交要 EXCLUSIVE,于是写方只能在 busy_timeout 上干等 5 秒,
+	// 超时那次写入就失败了(R3)。WAL 下读方读快照、写方追加,谁也不挡谁。
 	//
-	// synchronous(NORMAL): 上面那句「每个流式事件一条同步事务」同时决定了 fsync 的代价 ——
-	// SQLite 默认的 FULL 档在 WAL 下每次提交都 fsync WAL,实测 603µs/事件,NORMAL 档
-	// 213µs,即每个 token 白付约 390µs、一条三千帧的回复白付约 1.2s。WAL + NORMAL 仍然
-	// 崩溃安全:进程崩溃不损坏数据库,只在断电/内核崩溃时可能丢最后若干已提交事务。这份
-	// 通知日志本就是可重建的(桌面端按 seq 重新拉取),用它换掉每帧一次 fsync 是划算的。
-	// 与 internal/bootstrap/cago.go 的 sqliteDSN 同源取舍。
+	// synchronous(NORMAL): SQLite 默认的 FULL 档在 WAL 下每次提交都 fsync WAL,实测每次
+	// 提交约 603µs,NORMAL 档约 213µs。WAL + NORMAL 仍然崩溃安全:进程崩溃不损坏数据库,
+	// 只在断电/内核崩溃时可能丢最后若干已提交事务。与 internal/bootstrap/cago.go 的
+	// sqliteDSN 同源取舍。
 	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 }
@@ -1774,7 +1771,7 @@ func (t transcriptStore) FinishTurn(ctx context.Context, m *transcript_entity.Me
 // handlers 那边按 ISP 分开声明(跑一轮的一侧只写,补齐的一侧只读),daemon 这边由同一
 // 个仓储实现供给,不必为此拆成两个类型。
 //
-// 与 notificationJournal 同理,它自己往 ctx 上注入本 Daemon 的 db 句柄:生命周期的写入
+// 与 durableFrameReader 同理,它自己往 ctx 上注入本 Daemon 的 db 句柄:生命周期的写入
 // 方是脱离请求 ctx 的 fanout goroutine,而 daemon 故意不写 db.SetDefault(同进程多个
 // Daemon 会互相串库,见 Daemon.db 注释)。
 type daemonSessionStore struct{ db *gorm.DB }
@@ -1866,7 +1863,7 @@ func (s daemonSessionStore) Fail(ctx context.Context, peerFingerprint devicefp.I
 }
 
 // Delete 删掉这一条 (对端, 会话) 的会话行(handlers.SessionDeletePort)。它只删身份
-// 行,那条会话的通知日志由 journalPurger 清 —— 两张表各自的仓储各管各的。
+// 行,那条会话的转录由 transcriptPurger 清 —— 各张表各自的仓储各管各的。
 func (s daemonSessionStore) Delete(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	return session_repo.Session().Delete(
 		dbpkg.WithContextDB(ctx, s.db), peerFingerprint, peerSessionID)
@@ -2035,15 +2032,15 @@ func (t transcriptPurger) DeleteAll(ctx context.Context, peerFingerprint devicef
 	return transcript_repo.Message().DeleteFromSeq(ctx, sessionID, 0)
 }
 
-// journalReader 是补齐的读侧。它没有自己的存储:每次调用都现从 transcript_repo
+// durableFrameReader 是补齐的读侧。它没有自己的存储:每次调用都现从 transcript_repo
 // 读出这条会话的消息与块,经共用投影器(internal/pkg/transcript)折成持久帧。
 // 只投影持久帧:预览帧从不落库,补齐因此天然不带逐 token 的过程(规格「两级帧与补齐」)。
 //
 // 编号只在**真被补齐**时落库(durableFrames);清单那条只读探测按台账预测,不写一行
 // —— 「未被访问的对话不付出任何代价」(规格「帧编号」)。
-type journalReader struct{ db *gorm.DB }
+type durableFrameReader struct{ db *gorm.DB }
 
-var _ handlers.JournalReaderPort = journalReader{}
+var _ handlers.DurableFrameReaderPort = durableFrameReader{}
 
 // keyedFrames 是三个读方法共用的读取入口:解出本机会话、读回整段转录、投影出带位置
 // 的持久帧 —— **不取号**。三者必须读同一份计算结果,否则 List 报的高水位与 Pull 实际
@@ -2054,7 +2051,7 @@ var _ handlers.JournalReaderPort = journalReader{}
 //
 // 取号(写库)刻意留在调用方:只有真被补齐的那一条路(ListSince)才惰性补齐编号,
 // 清单那条只读探测按台账预测(见 LatestSeq)。
-func (j journalReader) keyedFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, []transcript.KeyedFrame, error) {
+func (j durableFrameReader) keyedFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, []transcript.KeyedFrame, error) {
 	row, err := session_repo.Session().Find(ctx, peerFingerprint, peerSessionID)
 	if err != nil || row == nil || row.ID == 0 {
 		return 0, nil, err
@@ -2078,7 +2075,7 @@ func (j journalReader) keyedFrames(ctx context.Context, peerFingerprint devicefp
 
 // durableFrames 是补齐真正读的那一份:在 keyedFrames 之上把缺号的位置**当场补齐并
 // 落库**(与桌面端 chat_svc 的 attach 同一条纪律,那边在 numberPeerFramesLocked)。
-func (j journalReader) durableFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) ([]wire.EventFrame, []int64, error) {
+func (j durableFrameReader) durableFrames(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) ([]wire.EventFrame, []int64, error) {
 	sessionID, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil || sessionID == 0 {
 		return nil, nil, err
@@ -2095,13 +2092,13 @@ func (j journalReader) durableFrames(ctx context.Context, peerFingerprint device
 	return frames, createtimes, nil
 }
 
-func (j journalReader) ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) ([]handlers.JournalRow, bool, error) {
+func (j durableFrameReader) ListSince(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string, cursor int64, limit int) ([]handlers.DurableFrameRow, bool, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
 	frames, createtimes, err := j.durableFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil {
 		return nil, false, err
 	}
-	rows := make([]handlers.JournalRow, 0, len(frames))
+	rows := make([]handlers.DurableFrameRow, 0, len(frames))
 	for i, frame := range frames {
 		if frame.Seq <= cursor {
 			continue
@@ -2114,7 +2111,7 @@ func (j journalReader) ListSince(ctx context.Context, peerFingerprint devicefp.I
 		if err != nil {
 			return nil, false, fmt.Errorf("encode durable frame seq %d: %w", frame.Seq, err)
 		}
-		rows = append(rows, handlers.JournalRow{Seq: frame.Seq, Payload: payload, Createtime: createtimes[i]})
+		rows = append(rows, handlers.DurableFrameRow{Seq: frame.Seq, Payload: payload, Createtime: createtimes[i]})
 	}
 	hasMore := false
 	if limit > 0 && len(rows) > limit {
@@ -2124,13 +2121,12 @@ func (j journalReader) ListSince(ctx context.Context, peerFingerprint devicefp.I
 	return rows, hasMore, nil
 }
 
-// LatestSeq 报这条会话的持久编号计数器此刻的末尾(规格「生命周期与删除」:会话列表
-// 报出的「最新 seq」来源从 journal 的 MAX(seq) 换成持久编号计数器)。
+// LatestSeq 报这条会话的持久编号计数器此刻的末尾(规格「生命周期与删除」)。
 //
 // 它**只读不写**:未编号的帧按「真去分配一次会拿到什么号」预测(PredictLatestSeq),
 // 而不是就地补齐编号。清单 RPC 是对端每代连接开轮前的一次探测,拿它给每一条对话
 // 补齐编号会让「未被访问的对话不付出任何代价」当场破掉。
-func (j journalReader) LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
+func (j durableFrameReader) LatestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
 	sessionID, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil || sessionID == 0 || len(keyed) == 0 {
@@ -2142,7 +2138,7 @@ func (j journalReader) LatestSeq(ctx context.Context, peerFingerprint devicefp.I
 // OldestSeq 报这条会话现存最老的持久帧号。当前版本从不回收帧(决策 8「永不回收」
 // 本轮不动),所以只要有帧,最老的那个恒是 1 —— 与桌面端 chat_svc 的
 // PullPeerSession 同一条判据。
-func (j journalReader) OldestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
+func (j durableFrameReader) OldestSeq(ctx context.Context, peerFingerprint devicefp.Initiator, peerSessionID string) (int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
 	_, keyed, err := j.keyedFrames(ctx, peerFingerprint, peerSessionID)
 	if err != nil || len(keyed) == 0 {
@@ -2151,7 +2147,7 @@ func (j journalReader) OldestSeq(ctx context.Context, peerFingerprint devicefp.I
 	return 1, nil
 }
 
-func (j journalReader) LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error) {
+func (j durableFrameReader) LatestSeqByPeer(ctx context.Context, peerFingerprint devicefp.Initiator) (map[string]int64, error) {
 	ctx = dbpkg.WithContextDB(ctx, j.db)
 	rows, err := session_repo.Session().ListByPeer(ctx, peerFingerprint, session_repo.ListFilter{}, 0, 0)
 	if err != nil {

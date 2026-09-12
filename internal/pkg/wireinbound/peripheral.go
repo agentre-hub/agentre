@@ -274,10 +274,10 @@ func transcriptImportError(err error) error {
 // registerProtobufTranscriptImport 挂上 transcriptimport.* 方法族。四个方法都在
 // Authenticated 里:磁盘上的转录是会话正文,没配对的对端不该问得出来。
 //
-// 端口缺席就整族不挂 —— 与另外三族同一条判据。这道闸门从前**只有这一族没有**:
-// 桌面端不带这个端口却照样注册了四个方法,handler 手里是个 nil,进去就在
-// h.sources() 上解空指针,对端拿到 -32603 internal(execute 那条更甚,它是这族唯一
-// 写库的)。缺席与"办不到"必须是同一句话:method not found。
+// 端口缺席就整族不挂 —— 与另外三族同一条判据。少了这道闸门,不带这个端口的宿主会
+// 照样注册四个方法,handler 手里是个 nil,进去就在 h.sources() 上解空指针,对端拿到
+// -32603 internal(execute 那条更甚,它是这族唯一写库的)。缺席与"办不到"必须是同一句话:
+// method not found。
 func registerProtobufTranscriptImport(registry *protorpc.Registry, handlers TranscriptImportPort) {
 	if handlers == nil {
 		return

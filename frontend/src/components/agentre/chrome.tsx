@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import {
+  agentreLogoUrl,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -22,7 +23,6 @@ import {
 } from "@agentre-hub/agentre-ui";
 import type { AppTheme, AppThemePreference } from "@agentre-hub/agentre-ui";
 
-import logoMarkUrl from "@/assets/images/logo-mark.png";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useUpdateStore } from "@/stores/update-store";
@@ -205,7 +205,7 @@ function AppTopBar({
       <div className="flex min-w-0 items-center gap-2">
         <span className="inline-flex size-[22px] shrink-0 items-center justify-center">
           <img
-            src={logoMarkUrl}
+            src={agentreLogoUrl}
             alt=""
             aria-hidden="true"
             className="size-full object-contain"

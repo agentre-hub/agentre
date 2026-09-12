@@ -167,15 +167,15 @@ type sessionSync struct {
 	loaded bool
 	// filling 补洞在飞。同一会话任一时刻至多一次拉取。
 	filling bool
-	// floorSeq / floorGen 是「这条会话的日志高水位在**哪一代连接**上探到过、探到多少」
+	// floorSeq / floorGen 是「这条会话的帧高水位在**哪一代连接**上探到过、探到多少」
 	// (见 turnStartFloor)。按连接代作废:换了连接就可能错过了 daemon 在断连期间新增
 	// 的行,那时候的旧值会偏小。
 	floorSeq int64
 	floorGen int64
 }
 
-// floorOnConn 交出这条会话在 gen 这代连接上已知的日志高水位:探到过的那个值与游标取
-// 较大者 —— 游标只由 daemon 真的发过的 seq 推进,它本身就是一份「日志至少长到这里」的
+// floorOnConn 交出这条会话在 gen 这代连接上已知的帧高水位:探到过的那个值与游标取
+// 较大者 —— 游标只由 daemon 真的发过的 seq 推进,它本身就是一份「帧至少编到这里」的
 // 证据,而且比探测那一刻更新。本代还没探过时 ok 为 false。
 func (s *sessionSync) floorOnConn(gen int64) (int64, bool) {
 	s.mu.Lock()
@@ -372,7 +372,7 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 				r.skipSeq(sid, ss, item.GetSeq())
 				continue
 			}
-			res.Notifications = append(res.Notifications, wire.JournaledNotification{Seq: item.GetSeq(), Method: method, Params: params})
+			res.Notifications = append(res.Notifications, wire.DurableNotification{Seq: item.GetSeq(), Method: method, Params: params})
 		}
 		// 复位必须在重放**之前**:这一页的第一条要么正是游标+1,要么就落在被回收掉的
 		// 那段之后 —— 后者不先复位,它当场被判成跳号丢弃,这一页一条也交付不出去。
@@ -400,14 +400,14 @@ func (r *Runtime) pullUntilCaughtUp(ctx context.Context, sid int64, ss *sessionS
 	}
 }
 
-// replay 把日志里的一行喂回**实时同一个入口**(dispatchNotification),因此重放帧
+// replay 把补齐页里的一条喂回**实时同一个入口**(dispatchNotification),因此重放帧
 // 与实时帧受同一套 seq 规则约束:重复的被丢、跳号的触发补洞。
 //
-// 日志里的 payload **不含 seq**(seq 是日志行自己的列),直接喂进去每一帧都解出
+// 补齐页里的 payload **不含 seq**(seq 是另记的一格),直接喂进去每一帧都解出
 // seq=0,闸门会当成「老 daemon 不盖 seq」放行却不推进游标 —— 补齐看似成功,游标
 // 却原地不动,下一条实时帧立刻判成跳号,把刚补的这段再重放一遍(重复投递)。
 // 所以必须按 method 解成对应的帧、盖上 seq、再重新序列化。
-func (r *Runtime) replay(ctx context.Context, sid int64, ss *sessionSync, n wire.JournaledNotification) (bool, error) {
+func (r *Runtime) replay(ctx context.Context, sid int64, ss *sessionSync, n wire.DurableNotification) (bool, error) {
 	h, ok := notifyHandlers[n.Method]
 	if !ok {
 		// 未知 method:新版 daemon 加了第六类通知而本客户端还不认识。跳过而不是
@@ -495,7 +495,6 @@ func (r *Runtime) adoptDispatchedUserMessageSeq(ctx context.Context, sid, minSeq
 	r.flushCursors()
 }
 
-// stampSeq 按 method 把日志载荷解成对应的帧、盖上 seq、再重新序列化。
 // frameRoute 读出一条通知帧的路由信息:会话、序号,以及它属于哪一级(预览 / 持久)。
 // 四类帧都带会话与序号,但它们是各自独立的结构体、没有公共接口 —— 按 ISP 在消费方
 // 做一次类型分派,wire 那边不必为此多长出一组访问器。
@@ -526,9 +525,9 @@ func frameRoute(frame any) (struct {
 	return route{}, false
 }
 
-// stampSeq 把日志行自己的 seq 盖到帧上。
+// stampSeq 把补齐页里那一条自己的 seq 盖到帧上。
 //
-// 日志里存的 params **不含 seq**(落库时还没分配),所以补齐重放必须先盖再喂,
+// 补齐页里的 params **不含 seq**(编号另记),所以补齐重放必须先盖再喂,
 // 否则每一帧都解出 seq=0,被「不大于游标就丢弃」的规则整段吞掉(R6)。
 //
 // 从前这一步要 json.Unmarshal 出帧、盖上、再 json.Marshal 回去;帧现在就是帧,
@@ -738,7 +737,7 @@ func (r *Runtime) catchUpSession(ctx context.Context, sid int64) error {
 // 握着 2-3 条同指纹连接(连接池 / 心跳 / 刷新探测),每条新连接都会把 runtime.*
 // 重新注册进 daemon 的共享 registry 并带一张空的会话表,把上一次接管静默还原。
 //
-// 返回接管时 daemon 交回的高水位(该会话通知日志里此刻的 MAX(seq)),补齐据它校验
+// 返回接管时 daemon 交回的高水位(该会话此刻的帧编号末尾),补齐据它校验
 // 本地游标有没有越界(见 dropCursorAboveHighWater)。失败时返 0。
 func (r *Runtime) attachSession(ctx context.Context, sid int64) (int64, error) {
 	att, err := wirecall.SessionAttach(ctx, r.conn(), &agentrewire.SessionAttachRequest{ConversationId: r.conversationID(sid), PeerFingerprint: string(r.originFor(sid))})
@@ -795,7 +794,7 @@ func (r *Runtime) pinCursorFor(ctx context.Context, sid int64) (*sessionSync, in
 	}
 	if !valid {
 		// R12:实例标识对不上(daemon 重装 / 换机 / 数据目录被清)。记录的游标指向
-		// 另一条通知日志,拿它去拉会静默跳过整段转录,只能按已中断处理。
+		// 另一个 daemon 实例的帧编号,拿它去拉会静默跳过整段转录,只能按已中断处理。
 		return nil, 0, errSessionUnrecoverable
 	}
 	ss.mu.Lock()
@@ -809,12 +808,12 @@ func (r *Runtime) pinCursorFor(ctx context.Context, sid int64) (*sessionSync, in
 }
 
 // dropCursorAboveHighWater 拿接管交回的高水位校验游标。游标只可能来自 daemon 发过的
-// seq,正常永远不会越过高水位;一旦越过,说明那台 daemon 的通知日志退了 —— agentred.db
+// seq,正常永远不会越过高水位;一旦越过,说明那台 daemon 的帧编号退了 —— agentred.db
 // 被恢复 / 截断而 state.json(连同 TOFU 指纹)还在,R12 的指纹校验因此照常放行。
 //
 // 比对的是 pinned —— pinCursorFor 在接管之前钉住的那个快照,**不是**此刻的 ss.cursor:
 // 接管一受理,daemon 就开始把实时帧推到这条连接上,读循环对每条顺序帧都推进 ss.cursor,
-// 拿它去比等于把「日志正常地长出了下一条」判成「日志退了」。
+// 拿它去比等于把「帧编号正常地长出了下一条」判成「帧编号退了」。
 //
 // 不管的后果不是丢几条:此后每一条实时帧都满足 seq <= 游标,在 dispatchNotification
 // 的第一条规则里被静默丢弃,会话没有跳号、没有错误、Debug 以上没有任何日志地冻住。
@@ -1018,13 +1017,13 @@ func (r *Runtime) sessionIDsLocked(withTracked bool) []int64 {
 
 // ── 开轮定位 + 能力探测(R18)───────────────────────────────────────────────
 
-// turnStartFloor 在开轮前读一眼这条会话此刻在 daemon 通知日志里的高水位,交给
+// turnStartFloor 在开轮前读一眼这条会话此刻在 daemon 上的帧高水位,交给
 // remoteSession.startSeq 当作**本轮**在 seq 时间线上的位置:凡是不比它新的通知,
 // 都是上一轮(或更早)留下的。
 //
 // 为什么非问一次不可:一轮的开始是 runtime.run 这条 RPC,而它不在通知的 seq 时间线上
-// —— RunAck 不带 seq,日志载荷里也没有轮次身份(seq 是日志行自己的列)。客户端因此没有
-// 别的办法把「我刚起的这一轮」与「日志里还没读到的那些旧通知」排出先后,而补齐回放的
+// —— RunAck 不带 seq,持久帧载荷里也没有轮次身份(seq 是另记的一格)。客户端因此没有
+// 别的办法把「我刚起的这一轮」与「还没读到的那些旧持久帧」排出先后,而补齐回放的
 // 区间里恰恰可能整段夹着上一轮的终态帧(见 handleRunResultDone)。
 //
 // 顺带完成 R18 的能力探测:runtime.session.list 规格明写无副作用,是补齐族里唯一能拿来
@@ -1065,7 +1064,7 @@ func (r *Runtime) turnStartFloor(ctx context.Context, sid int64) int64 {
 }
 
 // sessionSummaries 是补齐三步的第一步:问一眼这个对端在这台 daemon 上有哪些会话、
-// 各自的生命周期状态、是否正在等输入、日志高水位到哪。规格明写它无副作用。
+// 各自的生命周期状态、是否正在等输入、帧高水位到哪。规格明写它无副作用。
 func (r *Runtime) sessionSummaries(ctx context.Context) (map[string]wire.SessionSummary, error) {
 	res, err := wirecall.SessionList(ctx, r.conn(), &agentrewire.SessionListRequest{})
 	if err != nil {
