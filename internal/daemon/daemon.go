@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +73,14 @@ type Options struct {
 	TLS         bool
 	TLSCertFile string
 	TLSKeyFile  string
+	// AdvertiseAddr is the address this daemon is reached at from other
+	// machines — both the one `agentred pair` prints and the one automatic
+	// direct connections dial — instead of the ones it sees on its own
+	// interfaces. A daemon behind NAT (a container on a bridge network, a
+	// published port) can derive neither the reachable host nor the mapped port
+	// from the inside, so the operator states it. Empty keeps the automatic
+	// behavior.
+	AdvertiseAddr string
 	// AccountServerURL is the account server base URL used for the daemon's
 	// outbound relay connection. An empty URL leaves LAN-only operation intact.
 	AccountServerURL string
@@ -970,6 +979,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		TLSCertFile:       lanCertFile,
 		TLSKeyFile:        lanKeyFile,
 		DirectCertificate: d.lanDirectCertificate(ctx),
+		AdvertiseAddr:     d.opts.AdvertiseAddr,
 		Registry:          d.protobufRegistry,
 		OnConn:            d.bindProtobufConn,
 	})
@@ -1071,6 +1081,29 @@ func reachableFromAnotherMachine(host string) bool {
 		return true
 	}
 	return ip.IsGlobalUnicast()
+}
+
+// ValidAdvertiseAddr rejects an Options.AdvertiseAddr no other machine could
+// reach. Getting it wrong is silent otherwise: the address is dropped and all
+// that is left is "direct never connects to this host", so the caller that
+// reads the operator's configuration refuses at startup instead. An empty value
+// is the automatic behavior and is accepted.
+func ValidAdvertiseAddr(address string) error {
+	if address == "" {
+		return nil
+	}
+	host := address
+	if splitHost, port, err := net.SplitHostPort(address); err == nil {
+		number, convErr := strconv.Atoi(port)
+		if convErr != nil || number < 1 || number > 65535 {
+			return fmt.Errorf("%q is not a port between 1 and 65535", port)
+		}
+		host = splitHost
+	}
+	if !reachableFromAnotherMachine(host) {
+		return fmt.Errorf("%q is an address only this machine can reach", host)
+	}
+	return nil
 }
 
 // loginPollInterval 是未登录时重读 state.json 的间隔。只在没有账号期间生效,

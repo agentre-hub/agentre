@@ -2586,6 +2586,27 @@ func TestIntegration_AutoDirect_GivenTheLANListensOnLoopbackOnly_WhenADesktopHan
 	assert.Empty(t, rig.d.state.Snapshot().DirectCredentials)
 }
 
+// D5 的例外:跑在 NAT 后面的 daemon 自己看不见对外地址 —— 容器里只看得见网桥上那个
+// 内网地址,宿主把端口映射到哪个号上更无从知道,自动探测出来的地址对端一个也够不着。
+// 运维把对外地址说出来之后,握手下发的就是它。
+func TestIntegration_AutoDirect_GivenAnAdvertisedDirectAddress_WhenADesktopHandshakes_ThenThatAddressIsDeliveredInstead(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ard-direct")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	rig := bootRigWithOptions(t, Options{
+		DataDir: dir, LANHost: "127.0.0.1", LANPort: 0,
+		AdvertiseAddr: "203.0.113.7:9443",
+	})
+	mint := loginDaemonForIntegration(t, rig.d, "account-42")
+
+	response := accountDeliveryForIntegration(t, rig.d, mint("sha256:direct-desk"))
+
+	assert.Equal(t, []string{"wss://203.0.113.7:9443/rpc"}, response.GetDirectUrls(),
+		"the advertised address is delivered although this daemon only listens on loopback")
+	assert.NotEmpty(t, response.GetTlsCertPem(), "the desktop pins the certificate this port serves")
+	assert.NotEmpty(t, response.GetDirectCredential())
+}
+
 // D5 的判定本身:只有他机够得着的地址才下发。回环、未指定、链路本地与 localhost 都不算,
 // 与主机是通配还是显式无关;局域网、唯一本地与运维给的主机名算。
 func TestReachableDirectURLs_GivenCandidateAddresses_ThenOnlyThoseAnotherMachineCanReachRemain(t *testing.T) {

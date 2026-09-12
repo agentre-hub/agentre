@@ -62,13 +62,14 @@ func newRunCmd() *cobra.Command {
 
 func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 	var (
-		tlsOn     bool
-		tlsCert   string
-		tlsKey    string
-		host      string
-		port      int
-		serverURL string
-		logLevel  string
+		tlsOn         bool
+		tlsCert       string
+		tlsKey        string
+		host          string
+		port          int
+		advertiseAddr string
+		serverURL     string
+		logLevel      string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -90,7 +91,7 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			config, err := resolveRunConfig(cmd, st.Snapshot(), host, port, tlsOn, tlsCert, tlsKey, serverURL)
+			config, err := resolveRunConfig(cmd, st.Snapshot(), host, port, tlsOn, tlsCert, tlsKey, advertiseAddr, serverURL)
 			if err != nil {
 				return err
 			}
@@ -115,6 +116,7 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 				zap.Bool("tls", config.listen.TLS),
 				zap.String("tlsCertFile", config.listen.TLSCertFile),
 				zap.String("tlsKeyFile", config.listen.TLSKeyFile),
+				zap.String("advertiseAddr", config.listen.AdvertiseAddr),
 				zap.String("serverURL", config.serverURL),
 				zap.String("dataDir", dir))
 
@@ -125,6 +127,7 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 				TLS:              config.listen.TLS,
 				TLSCertFile:      config.listen.TLSCertFile,
 				TLSKeyFile:       config.listen.TLSKeyFile,
+				AdvertiseAddr:    config.listen.AdvertiseAddr,
 				AccountServerURL: config.serverURL,
 			})
 			if err != nil {
@@ -150,6 +153,8 @@ func newRunCmdWithDeps(deps runDeps) *cobra.Command {
 	cmd.Flags().StringVar(&tlsKey, "tls-key", "", "PEM private key path (or AGENTRED_TLS_KEY); required with --tls-cert")
 	cmd.Flags().StringVar(&host, "host", defaultAgentredHost, "LAN listen host (or AGENTRED_HOST)")
 	cmd.Flags().IntVar(&port, "port", defaultAgentredPort, "LAN listen port (or AGENTRED_PORT)")
+	cmd.Flags().StringVar(&advertiseAddr, "advertise-addr", "",
+		"address other machines reach this daemon at when it is behind NAT, host[:port] (or AGENTRED_ADVERTISE_ADDR)")
 	cmd.Flags().StringVar(&logLevel, "log-level", defaultLogLevel,
 		"file/console log verbosity: debug|info|warn|error (or AGENTRED_LOG_LEVEL)")
 	cmd.Flags().StringVar(&serverURL, "server", strings.TrimSpace(os.Getenv("AGENTRED_SERVER_URL")), "account server base URL (or AGENTRED_SERVER_URL)")
@@ -214,7 +219,7 @@ func requireServerMatchesLogin(st *state.State, serverURL string) error {
 }
 
 func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string, flagPort int, flagTLS bool,
-	flagTLSCert, flagTLSKey, flagServerURL string) (resolvedRunConfig, error) {
+	flagTLSCert, flagTLSKey, flagAdvertiseAddr, flagServerURL string) (resolvedRunConfig, error) {
 	config := resolvedRunConfig{}
 	config.listen.LanHost, config.hasOverrides = resolveString(
 		cmd.Flags().Changed("host"), flagHost, "AGENTRED_HOST", persisted.Listen.LanHost, defaultAgentredHost,
@@ -242,6 +247,10 @@ func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string
 		cmd.Flags().Changed("tls-key"), flagTLSKey, "AGENTRED_TLS_KEY", persisted.Listen.TLSKeyFile, "",
 	)
 	config.hasOverrides = config.hasOverrides || portOverride
+	config.listen.AdvertiseAddr, portOverride = resolveString(
+		cmd.Flags().Changed("advertise-addr"), flagAdvertiseAddr, "AGENTRED_ADVERTISE_ADDR", persisted.Listen.AdvertiseAddr, "",
+	)
+	config.hasOverrides = config.hasOverrides || portOverride
 	config.serverURL, portOverride = resolveString(
 		cmd.Flags().Changed("server"), flagServerURL, "AGENTRED_SERVER_URL", persisted.AccountServerURL, "",
 	)
@@ -250,7 +259,11 @@ func resolveRunConfig(cmd *cobra.Command, persisted state.State, flagHost string
 	config.listen.LanHost = strings.TrimSpace(config.listen.LanHost)
 	config.listen.TLSCertFile = strings.TrimSpace(config.listen.TLSCertFile)
 	config.listen.TLSKeyFile = strings.TrimSpace(config.listen.TLSKeyFile)
+	config.listen.AdvertiseAddr = strings.TrimSpace(config.listen.AdvertiseAddr)
 	config.serverURL = strings.TrimSpace(config.serverURL)
+	if err := daemon.ValidAdvertiseAddr(config.listen.AdvertiseAddr); err != nil {
+		return resolvedRunConfig{}, newUsageError("--advertise-addr (or AGENTRED_ADVERTISE_ADDR): %v", err)
+	}
 	if (config.listen.TLSCertFile == "") != (config.listen.TLSKeyFile == "") {
 		return resolvedRunConfig{}, newUsageError("both --tls-cert and --tls-key must be set or neither")
 	}

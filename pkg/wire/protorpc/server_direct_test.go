@@ -171,3 +171,54 @@ func readProtobufFile(t *testing.T, path string) string {
 	require.NoError(t, err)
 	return strings.TrimSpace(string(data)) + "\n"
 }
+
+// 跑在 NAT 后面(容器网桥、端口映射)的 daemon,从自己网卡上只看得见对端够不着的
+// 地址,更无从知道宿主把端口映射到了哪个号上。AdvertiseAddr 就是运维把「对外该用
+// 哪个地址」直接说出来 —— 自动直连与手工配对给的是同一个地址,只是方案不同。
+func TestProtobufLANURLsPublishTheConfiguredAdvertiseAddress(t *testing.T) {
+	certFile, keyFile := writeProtobufSelfSignedPair(t, "127.0.0.1")
+	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
+	require.NoError(t, err)
+	server := startProtobufLANServer(t, LANOpts{
+		Host: "0.0.0.0", Port: 0, DirectCertificate: &certificate,
+		AdvertiseAddr: "203.0.113.7:9443", Registry: pingRegistry(),
+	})
+
+	assert.Equal(t, []string{"wss://203.0.113.7:9443/rpc"}, server.DirectURLs(),
+		"the configured address replaces the interface addresses, it does not join them")
+	assert.Equal(t, []string{"ws://203.0.113.7:9443/rpc"}, server.AdvertiseURLs(),
+		"what a person pastes into a peer is the same address, on the scheme this port advertises")
+}
+
+func TestProtobufLANAdvertiseAddressWithoutAPortKeepsTheListeningPort(t *testing.T) {
+	certFile, keyFile := writeProtobufSelfSignedPair(t, "127.0.0.1")
+	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
+	require.NoError(t, err)
+
+	for name, address := range map[string]string{"IPv4": "203.0.113.7", "IPv6": "fd00::5", "host name": "agentred.example"} {
+		t.Run(name, func(t *testing.T) {
+			server := startProtobufLANServer(t, LANOpts{
+				Host: "0.0.0.0", Port: 0, DirectCertificate: &certificate,
+				AdvertiseAddr: address, Registry: pingRegistry(),
+			})
+			_, port, err := net.SplitHostPort(server.Addr())
+			require.NoError(t, err)
+
+			require.Len(t, server.DirectURLs(), 1)
+			parsed, err := url.Parse(server.DirectURLs()[0])
+			require.NoError(t, err)
+			assert.Equal(t, "wss", parsed.Scheme)
+			assert.Equal(t, address, parsed.Hostname())
+			assert.Equal(t, port, parsed.Port(), "an address without a port keeps the port this server listens on")
+		})
+	}
+}
+
+func TestProtobufLANAdvertiseAddressOffersNothingWithoutACertificate(t *testing.T) {
+	server := startProtobufLANServer(t, LANOpts{
+		Host: "0.0.0.0", Port: 0, AdvertiseAddr: "203.0.113.7:9443", Registry: pingRegistry(),
+	})
+
+	assert.Empty(t, server.DirectURLs(), "there is no certificate to pin, so there is nothing to offer")
+	assert.Empty(t, server.CertificatePEM())
+}

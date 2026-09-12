@@ -21,6 +21,10 @@ services:
     hostname: ${AGENTRED_HOSTNAME:-agentred}
     ports:
       - "${AGENTRED_PORT:-7456}:7456"
+    environment:
+      # 容器只看得见网桥上的内网地址,也不知道宿主把 7456 映射到了哪个端口 —— 自动
+      # 探测出来的地址对端一个也够不着。留空就退回自动探测(只有中继那条路能用)
+      AGENTRED_ADVERTISE_ADDR: ${AGENTRED_ADVERTISE_ADDR:-}
     volumes:
       # 工作区：两侧同一个变量，保证路径一致。会话 cwd 都在这下面,
       # 挂到别的路径上历史会话一个都打不开

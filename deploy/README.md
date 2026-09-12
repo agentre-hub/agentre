@@ -80,10 +80,15 @@ compose 里两侧用的是同一个 `${AGENTRED_WORKSPACE}` 变量，就是为�
 
 ## 已知限制
 
-**`agentred pair` / `agentred status` 报的 LAN 地址不可用。** 通配绑定下 agentred 枚举
-的是本进程的网卡，容器里取到的是桥接网段地址而不是宿主地址，直连局域网配对因此失效。
-反向外拨到账号服务器那条主路径不受影响，桌面端与网页经中继照常找得到它。要 LAN 直连
-就得改成 `network_mode: host`（只有 Linux 有），或者等分离绑定地址与广播地址的改动。
+**局域网地址要自己写出来。** 通配绑定下 agentred 枚举的是本进程的网卡，容器里取到的
+是桥接网段地址而不是宿主地址，宿主把 7456 映射到了哪个端口它更无从知道 —— 不管是
+`agentred pair` / `agentred status` 印出来给人粘的地址，还是账号下发给桌面端自动直连
+的地址，都会是对端一个也够不着的。用 `AGENTRED_ADVERTISE_ADDR` 把对外地址直接写出来
+（`host` 或 `host:port`，只写 host 就沿用监听端口），广播的就是它。
+
+反向外拨到账号服务器那条主路径本来就不受影响，不写这个值也能经中继正常使用；写错成
+一个别的机器够不着的地址（回环、`localhost`、`0.0.0.0`、链路本地）daemon 会在启动时
+直接拒绝，而不是让直连静默失效。
 
 **claude 的用量查询会走文件回退。** `go-keyring` 在 Linux 上要 Secret Service，容器里
 通常没有，会回落到 `$CLAUDE_CONFIG_DIR` 或 `~/.claude/.credentials.json`。只影响用量
