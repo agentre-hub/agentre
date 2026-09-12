@@ -1089,14 +1089,23 @@ func repoModelLookup(ctx context.Context) modelLookup {
 }
 
 func defaultModelID(p *llm_provider_entity.LLMProvider, model modelLookup) string {
+	if m := enabledDefaultModel(p, model); m != nil {
+		return m.ModelID
+	}
+	return ""
+}
+
+// enabledDefaultModel 按 provider-default 语义解析 Provider 当前可执行的默认模型：
+// Provider 未启用、未配置默认模型、或默认模型缺失 / 停用时返回 nil。
+func enabledDefaultModel(p *llm_provider_entity.LLMProvider, model modelLookup) *llm_provider_model_entity.LLMProviderModel {
 	if p == nil || !p.IsEnabled() || !p.HasDefaultModel() {
-		return ""
+		return nil
 	}
 	m := model(p.DefaultModelKey)
 	if m == nil || !m.IsEnabled() {
-		return ""
+		return nil
 	}
-	return m.ModelID
+	return m
 }
 
 func (s *agentBackendSvc) validateRouteProviders(ctx context.Context, b *agent_backend_entity.AgentBackend) error {
@@ -1226,7 +1235,7 @@ func (s *agentBackendSvc) buildItem(b *agent_backend_entity.AgentBackend, p *llm
 	if p != nil {
 		item.LLMProviderName = p.Name
 		item.LLMProviderType = p.Type
-		item.LLMProviderModel = effectiveModelID(b, p, lookup.model)
+		item.LLMProviderModel = effectiveModelName(b, p, lookup.model)
 		item.LLMProviderActive = p.IsActive()
 	}
 	// 展示口径的设备标识：本机档（空 DeviceID / R13 认领后的本机指纹）一律空串，
@@ -1286,21 +1295,21 @@ func effectiveModelKey(b *agent_backend_entity.AgentBackend, p *llm_provider_ent
 	return ""
 }
 
-// effectiveModelID 返回后端解析出的实际模型 ID（展示口径）：fixed-model 取指定模型且
-// 要求属于该 Provider，否则取 Provider 当前默认模型。只取 ModelID，不透出凭证。
-func effectiveModelID(b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider, model modelLookup) string {
+// effectiveModelName 返回后端解析出的实际模型展示名（展示口径，没填展示名回落 ModelID）：
+// fixed-model 取指定模型且要求属于该 Provider，否则取 Provider 当前默认模型。不透出凭证。
+func effectiveModelName(b *agent_backend_entity.AgentBackend, p *llm_provider_entity.LLMProvider, model modelLookup) string {
 	if b == nil || p == nil || !p.IsEnabled() {
 		return ""
 	}
 	key := strings.TrimSpace(b.LLMModelKey)
 	if key == "" {
-		return defaultModelID(p, model)
+		return enabledDefaultModel(p, model).DisplayName()
 	}
 	m := model(key)
 	if m == nil || !m.IsEnabled() || m.ProviderID != p.ID {
 		return ""
 	}
-	return m.ModelID
+	return m.DisplayName()
 }
 
 func (s *agentBackendSvc) secretStore() keychain.Keychain {

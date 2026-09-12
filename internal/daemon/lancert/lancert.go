@@ -52,7 +52,14 @@ func LoadOrCreate(ctx context.Context, dataDir string) (tls.Certificate, error) 
 	if err == nil {
 		return stored, nil
 	}
-	if !errors.Is(err, fs.ErrNotExist) {
+	var pathErr *fs.PathError
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case errors.As(err, &pathErr):
+		// The files are there but cannot be read right now (permissions, I/O, fd
+		// exhaustion). Replacing them would break every desktop's pin.
+		return tls.Certificate{}, fmt.Errorf("read lan certificate: %w", err)
+	default:
 		logger.Ctx(ctx).Warn("lancert.LoadOrCreate: stored lan certificate unreadable, regenerating",
 			zap.String("certFile", certFile), zap.String("keyFile", keyFile), zap.Error(err))
 	}

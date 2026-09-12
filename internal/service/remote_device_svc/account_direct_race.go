@@ -2,6 +2,8 @@ package remote_device_svc
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/agentre-hub/agentre/internal/daemon/client"
 
@@ -21,7 +23,8 @@ func RaceAccountDirect(
 	ctx context.Context, dial DaemonDialPort, relay RelayDialPort, args DirectArgs, peer devicefp.Initiator,
 ) (conn client.ProtobufConnection, directAddress string, err error) {
 	if relay == nil {
-		return dial.OpenDirect(ctx, args)
+		conn, directAddress, err = dial.OpenDirect(ctx, args)
+		return conn, directAddress, staleDirectCredential(err)
 	}
 	// 由 direct 路径的拨号 goroutine 写入；RaceProtobuf 收齐两条路径的结果才返回。
 	var directConn client.ProtobufConnection
@@ -33,7 +36,7 @@ func RaceAccountDirect(
 			Dial: func(ctx context.Context) (client.ProtobufConnection, error) {
 				c, a, err := dial.OpenDirect(ctx, args)
 				directConn, address = c, a
-				return c, err
+				return c, staleDirectCredential(err)
 			},
 		},
 		client.ProtobufPath{
@@ -51,4 +54,14 @@ func RaceAccountDirect(
 		return winner, address, nil
 	}
 	return winner, "", nil
+}
+
+// staleDirectCredential 把直连路径上的「凭据被拒」(-32001)折成一次普通的可重试失败：被拒的
+// 是本地直连凭据——agentred 对账删了它、或重新登录过——而不是账号凭据，换账号票救不了它，
+// 也不是「重试也没用」：中转的账号握手会重新下发一张。原因文字照留，只是不再带着 ErrUnauthorized。
+func staleDirectCredential(err error) error {
+	if err == nil || !errors.Is(err, ErrUnauthorized) {
+		return err
+	}
+	return fmt.Errorf("local direct credential rejected: %v", err)
 }

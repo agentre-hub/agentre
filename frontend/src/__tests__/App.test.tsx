@@ -1259,8 +1259,9 @@ describe("App", () => {
     expect(
       within(workspace).getAllByText("claude-sonnet-4-6").length,
     ).toBeGreaterThanOrEqual(1);
-    // 模型行主行显示 display name，modelKey 已移入编辑弹窗不再出现在行内
-    expect(within(workspace).getByText("Sonnet")).toBeInTheDocument();
+    // 模型行主行显示 display name，modelKey 已移入编辑弹窗不再出现在行内。页头的
+    // 默认模型也写展示名，所以是两处：页头元信息 + 模型行主行。
+    expect(within(workspace).getAllByText("Sonnet")).toHaveLength(2);
     expect(within(workspace).queryByText("mk-sonnet")).not.toBeInTheDocument();
 
     // mockup 注解①：唯一的「新增供应商」入口落在 H1 页头行内，不再单独占一层 strip

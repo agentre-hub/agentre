@@ -176,6 +176,21 @@ func (mr *MockRemoteDeviceSvcMockRecorder) ListDeviceProviders(deviceID any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeviceProviders", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).ListDeviceProviders), deviceID)
 }
 
+// ListRemoved mocks base method.
+func (m *MockRemoteDeviceSvc) ListRemoved(ctx context.Context) ([]remote_device_svc.RemovedDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRemoved", ctx)
+	ret0, _ := ret[0].([]remote_device_svc.RemovedDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRemoved indicates an expected call of ListRemoved.
+func (mr *MockRemoteDeviceSvcMockRecorder) ListRemoved(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRemoved", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).ListRemoved), ctx)
+}
+
 // Pool mocks base method.
 func (m *MockRemoteDeviceSvc) Pool() remote_device_svc.ConnPool {
 	m.ctrl.T.Helper()
@@ -295,6 +310,20 @@ func (m *MockRemoteDeviceSvc) Rename(ctx context.Context, id int64, name string)
 func (mr *MockRemoteDeviceSvcMockRecorder) Rename(ctx, id, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rename", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Rename), ctx, id, name)
+}
+
+// Restore mocks base method.
+func (m *MockRemoteDeviceSvc) Restore(ctx context.Context, fingerprint devicefp.Carrier) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Restore", ctx, fingerprint)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Restore indicates an expected call of Restore.
+func (mr *MockRemoteDeviceSvcMockRecorder) Restore(ctx, fingerprint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Restore", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).Restore), ctx, fingerprint)
 }
 
 // SetWatcher mocks base method.

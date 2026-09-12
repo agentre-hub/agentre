@@ -8,6 +8,8 @@ vi.mock("../../../../wailsjs/go/app/App", () => ({
   RemoteDeviceUpdateTLS: vi.fn(),
   RemoteDeviceRefresh: vi.fn(),
   RemoteDeviceRename: vi.fn(),
+  RemoteDeviceListRemoved: vi.fn(),
+  RemoteDeviceRestore: vi.fn(),
   ServerListDevices: vi.fn(),
 }));
 
@@ -18,6 +20,8 @@ vi.mock("../../../../wailsjs/runtime/runtime", () => ({
 import {
   RemoteDeviceList,
   RemoteDeviceAdd,
+  RemoteDeviceListRemoved,
+  RemoteDeviceRestore,
   ServerListDevices,
 } from "../../../../wailsjs/go/app/App";
 import { EventsOn } from "../../../../wailsjs/runtime/runtime";
@@ -31,6 +35,10 @@ import type { server_svc } from "../../../../wailsjs/go/models";
 const mockList = RemoteDeviceList as unknown as ReturnType<typeof vi.fn>;
 const mockAdd = RemoteDeviceAdd as unknown as ReturnType<typeof vi.fn>;
 const mockServerList = ServerListDevices as unknown as ReturnType<typeof vi.fn>;
+const mockListRemoved = RemoteDeviceListRemoved as unknown as ReturnType<
+  typeof vi.fn
+>;
+const mockRestore = RemoteDeviceRestore as unknown as ReturnType<typeof vi.fn>;
 const mockEventsOn = EventsOn as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -41,6 +49,9 @@ beforeEach(() => {
   mockEventsOn.mockImplementation(() => vi.fn()); // 默认返回 unsubscribe stub
   // 默认未登录:ServerListDevices 拒绝 → 账号来源 unknown,不判未登录。
   mockServerList.mockRejectedValue(new Error("not logged in"));
+  mockListRemoved.mockReset();
+  mockListRemoved.mockResolvedValue([]);
+  mockRestore.mockReset();
 });
 
 const lanDevice = (over: Partial<DeviceView> = {}): DeviceView => ({
@@ -325,6 +336,111 @@ describe("mergeDeviceSources (R15)", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].lan?.id).toBe(1);
+  });
+});
+
+// D15：用户从这台桌面移除过的机器（按指纹的移除记录），即使还在账号里也不再以账号独有行出现。
+describe("mergeDeviceSources with removed machines (D15)", () => {
+  it("drops an account-only row whose fingerprint this desktop removed", () => {
+    const rows = mergeDeviceSources(
+      [],
+      { known: true, devices: [accountDevice({ fingerprint: "fp-cloud" })] },
+      ["fp-cloud"],
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("keeps account-only rows for machines that were never removed", () => {
+    const rows = mergeDeviceSources(
+      [],
+      {
+        known: true,
+        devices: [
+          accountDevice({ id: 21, fingerprint: "fp-cloud" }),
+          accountDevice({ id: 22, name: "gpu-node", fingerprint: "fp-gpu" }),
+        ],
+      },
+      ["fp-cloud"],
+    );
+    expect(rows.map((r) => r.name)).toEqual(["gpu-node"]);
+  });
+
+  it("still shows a live local row even if an older removal record shares its fingerprint", () => {
+    const rows = mergeDeviceSources(
+      [lanDevice({ daemonFingerprint: "fp-1" })],
+      { known: true, devices: [accountDevice({ fingerprint: "fp-1" })] },
+      ["fp-1"],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].lan?.id).toBe(1);
+  });
+});
+
+describe("useRemoteDevices removed machines (D15)", () => {
+  it("exposes only removed machines that are still in the account, named as the account names them", async () => {
+    mockList.mockResolvedValue([]);
+    mockServerList.mockResolvedValue([
+      accountDevice({ id: 21, name: "cloud-box", fingerprint: "fp-cloud" }),
+    ]);
+    mockListRemoved.mockResolvedValue([
+      { fingerprint: "fp-cloud", name: "old name" },
+      { fingerprint: "fp-gone", name: "left the account" },
+    ]);
+
+    const { result } = renderHook(() => useRemoteDevices());
+
+    await waitFor(() => expect(result.current.loadState).toBe("ready"));
+    expect(result.current.devices).toEqual([]);
+    expect(result.current.removedDevices).toEqual([
+      { fingerprint: "fp-cloud", name: "cloud-box" },
+    ]);
+  });
+
+  // 移除之后又亲手 LAN 配对回来的机器,存活行就是用户最新的意图:mergeDeviceSources
+  // 照常把它显示在设备列表里。「已移除」入口收的是面板不再显示的那些机器,再把这一台
+  // 列进去,同一台机器就在同一页上既是一行设备、又是一台「已移除」。
+  it("leaves out a removed machine that this desktop has paired again", async () => {
+    mockList.mockResolvedValue([lanDevice({ daemonFingerprint: "fp-cloud" })]);
+    mockServerList.mockResolvedValue([
+      accountDevice({ id: 21, name: "cloud-box", fingerprint: "fp-cloud" }),
+    ]);
+    mockListRemoved.mockResolvedValue([
+      { fingerprint: "fp-cloud", name: "cloud-box" },
+    ]);
+
+    const { result } = renderHook(() => useRemoteDevices());
+
+    await waitFor(() => expect(result.current.loadState).toBe("ready"));
+    expect(result.current.devices).toHaveLength(1);
+    expect(result.current.removedDevices).toEqual([]);
+  });
+
+  it("exposes no removed machines while the account list is unknown", async () => {
+    mockList.mockResolvedValue([]);
+    mockListRemoved.mockResolvedValue([
+      { fingerprint: "fp-cloud", name: "cloud-box" },
+    ]);
+
+    const { result } = renderHook(() => useRemoteDevices());
+
+    await waitFor(() => expect(result.current.loadState).toBe("ready"));
+    expect(result.current.removedDevices).toEqual([]);
+  });
+
+  it("restore() calls the binding with the fingerprint, then reloads", async () => {
+    mockList.mockResolvedValue([]);
+    mockRestore.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useRemoteDevices());
+    await waitFor(() => expect(result.current.loadState).toBe("ready"));
+    const loadsBefore = mockList.mock.calls.length;
+
+    await act(async () => {
+      await result.current.restore("fp-cloud");
+    });
+
+    expect(mockRestore).toHaveBeenCalledWith("fp-cloud");
+    expect(mockList.mock.calls.length).toBe(loadsBefore + 1);
   });
 });
 

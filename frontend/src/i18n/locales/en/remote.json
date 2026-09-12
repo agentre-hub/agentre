@@ -210,6 +210,11 @@
       "title": "Provider Sync Status",
       "unsynced": "Not synced"
     },
+    "removed": {
+      "restore": "Restore",
+      "restoreFailed": "Couldn't restore this machine. Try again.",
+      "toggle": "Removed ({{count}})"
+    },
     "signedOut": {
       "howTo": "How to sign in",
       "instructions": "Run `agentred login` on that machine to sign it into your account (your desktop must already be signed in). Once signed in, your other devices can see it and connect directly.",

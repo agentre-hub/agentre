@@ -653,7 +653,7 @@ describe("AgentBackendsPanel", () => {
     ).toHaveClass("cursor-pointer");
   });
 
-  it("Given the main binding resolves to a provider, When a Claude tier route picker opens, Then its inherit option shows the same arrow + brand mark + monospaced model id as the session picker", async () => {
+  it("Given the main binding resolves to a provider, When a Claude tier route picker opens, Then its inherit option shows the same arrow + brand mark + model display name as the session picker", async () => {
     const user = userEvent.setup();
     installAppMock();
     render(<AgentBackendsPanel />);
@@ -691,9 +691,9 @@ describe("AgentBackendsPanel", () => {
       within(resolution).getByRole("img", { name: "Anthropic" }),
     ).toBeInTheDocument();
     expect(resolution).toHaveTextContent("Anthropic");
-    expect(within(resolution).getByText("claude-sonnet-4-6")).toHaveClass(
-      "font-mono",
-    );
+    // 模型写的是展示名（这里没填展示名，回落模型 ID），人读文案不走等宽。
+    expect(resolution).toHaveTextContent("claude-sonnet-4-6");
+    expect(resolution.querySelector(".font-mono")).toBeNull();
   });
 
   it("Given the main binding is CLI login, When a Claude tier route picker opens, Then its inherit option keeps the plain CLI resolution wording", async () => {

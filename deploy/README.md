@@ -96,7 +96,7 @@ compose 里两侧用的是同一个 `${AGENTRED_WORKSPACE}` 变量，就是为�
 **拉不到 docker.io 的网络要自己指镜像源。** `Dockerfile` 里 `RUNTIME_IMAGE` 的默认值
 是上游的 `node:24-bookworm-slim`；换源用 `--build-arg RUNTIME_IMAGE=<你的镜像源>`。
 
-## dev 环境（coding.local）
+## dev 环境
 
 推 `dev` 分支到 Gitea 就自动部署：runner 上 `make agentred-linux` 编出二进制送到目标机，
 目标机用 `Dockerfile` 的 `prebuilt` 目标打镜像再 compose。三个 CLI 那几层由

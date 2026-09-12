@@ -1,3 +1,4 @@
+import { modelDisplayName } from "../model-display-name";
 import type { ProviderPillState } from "./provider-pill-trigger";
 import type { ModelTarget, PickerProvider } from "./types";
 
@@ -60,6 +61,7 @@ function followAgentState(input: ProviderPillStateInput): ProviderPillState {
       providerLabel,
       providerType,
       modelLabel: "",
+      modelId: "",
       resolutionLabel: providerLabel,
       dynamic: false,
       cliLogin,
@@ -70,12 +72,13 @@ function followAgentState(input: ProviderPillStateInput): ProviderPillState {
     ? provider?.models.find((m) => m.modelKey === boundModelKey)
     : undefined;
   const resolvedModel = fixedModel ?? provider?.defaultModel ?? undefined;
-  const modelLabel = resolvedModel?.modelId ?? "";
+  const modelLabel = resolvedModel ? modelDisplayName(resolvedModel) : "";
   return {
     mode: "follow-agent",
     providerLabel,
     providerType,
     modelLabel,
+    modelId: resolvedModel?.modelId ?? "",
     resolutionLabel: modelLabel
       ? `${providerLabel} · ${modelLabel}`
       : providerLabel,
@@ -101,12 +104,16 @@ export function resolveProviderPillState(
     ? provider?.models.find((m) => m.modelKey === target.modelKey)
     : (provider?.defaultModel ?? undefined);
   // 解析不到就退回原始 key：失效态下用户要认的正是「我钉的那个东西没了」。
-  const modelLabel = selectedModel?.modelId ?? target.modelKey;
+  const modelLabel = selectedModel
+    ? modelDisplayName(selectedModel)
+    : target.modelKey;
   return {
     mode: invalid ? "invalid" : target.modelKey ? "fixed" : "provider-default",
     providerLabel,
     providerType,
     modelLabel,
+    // 原始 key 不是模型 ID，不能交给品牌标识去猜。
+    modelId: selectedModel?.modelId ?? "",
     resolutionLabel: modelLabel
       ? `${providerLabel} · ${modelLabel}`
       : providerLabel,

@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "../../ui/dialog";
 
+import { modelDisplayName } from "../model-display-name";
 import { useEngineSettingsBridge } from "../port-bridge";
 import { llm_provider_svc } from "../port-bridge";
 import {
@@ -186,7 +187,7 @@ export function DeleteDialog({
     target,
   ]);
 
-  const name = provider ? provider.name : model ? model.modelId : "";
+  const name = provider ? provider.name : model ? modelDisplayName(model) : "";
   const deleting = state.phase === "deleting";
   const disabling = state.phase === "disabling";
   const busy = deleting || disabling;

@@ -296,6 +296,9 @@ func (l *HubLink) Run(ctx context.Context) error {
 			} else {
 				unresolvedLogged = false
 				rejectedLogged = false
+				// A non-401 failure ends the rejection period just as a connection does:
+				// the next 401 (a token that lapsed during an outage) earns its own refresh.
+				refreshTried = false
 				l.opts.Logf("rpc.HubLink: relay dial failed; retrying: %v", err)
 			}
 			if err := l.wait(ctx, failures); err != nil {

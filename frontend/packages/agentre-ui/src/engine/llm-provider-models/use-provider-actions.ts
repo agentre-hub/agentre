@@ -7,6 +7,7 @@ import * as React from "react";
 import { useUiTranslation as useTranslation } from "../../i18n";
 
 import { copyTextToClipboard } from "../../lib/clipboard-toast";
+import { modelDisplayName } from "../model-display-name";
 import { llm_provider_svc } from "../port-bridge";
 import type { EngineSettingsBridge } from "../port-bridge";
 
@@ -118,14 +119,14 @@ export function useProviderActions(args: {
             ? {
                 kind: "ok",
                 text: t("llmProviders.test.rowSuccess", {
-                  model: model.modelId,
+                  model: modelDisplayName(model),
                   duration,
                 }),
               }
             : {
                 kind: "err",
                 text: t("llmProviders.test.rowFailed", {
-                  model: model.modelId,
+                  model: modelDisplayName(model),
                   message: resp.message,
                   duration,
                 }),
@@ -163,8 +164,12 @@ export function useProviderActions(args: {
         setFlash({
           kind: "ok",
           text: model.enabled
-            ? t("llmProviders.flash.modelDisabled", { model: model.modelId })
-            : t("llmProviders.flash.modelEnabled", { model: model.modelId }),
+            ? t("llmProviders.flash.modelDisabled", {
+                model: modelDisplayName(model),
+              })
+            : t("llmProviders.flash.modelEnabled", {
+                model: modelDisplayName(model),
+              }),
         });
         await refreshModels();
       } catch (err) {
@@ -333,7 +338,7 @@ export function useProviderActions(args: {
       setFlash({
         kind: "ok",
         text: t("llmProviders.flash.modelUpdated", {
-          model: updated.modelId,
+          model: modelDisplayName(updated),
         }),
       });
       void refreshModels();
@@ -355,7 +360,7 @@ export function useProviderActions(args: {
         setFlash({
           kind: "ok",
           text: t("llmProviders.flash.modelDeleted", {
-            model: target.model.modelId,
+            model: modelDisplayName(target.model),
           }),
         });
         void refreshModels();
@@ -380,7 +385,7 @@ export function useProviderActions(args: {
         setFlash({
           kind: "ok",
           text: t("llmProviders.flash.modelDisabled", {
-            model: target.model.modelId,
+            model: modelDisplayName(target.model),
           }),
         });
         void refreshModels();

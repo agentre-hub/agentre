@@ -20,7 +20,7 @@ concurrency:
 
 env:
   GOPROXY: ${{ secrets.GOPROXY && secrets.GOPROXY || 'https://goproxy.cn,direct' }}
-  DEPLOY_HOST: ${{ secrets.DEV_SSH_HOST && secrets.DEV_SSH_HOST || 'coding.local' }}
+  DEPLOY_HOST: ${{ secrets.DEV_SSH_HOST }}
   DEPLOY_USER: ${{ secrets.DEV_SSH_USER && secrets.DEV_SSH_USER || 'root' }}
   DEPLOY_PORT: ${{ secrets.DEV_SSH_PORT && secrets.DEV_SSH_PORT || '22' }}
   DEPLOY_DIR: ${{ secrets.DEV_AGENTRED_DIR && secrets.DEV_AGENTRED_DIR || '/srv/agentred-dev' }}
@@ -57,6 +57,7 @@ jobs:
           SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
         run: |
           set -euo pipefail
+          test -n "$DEPLOY_HOST" || { echo "缺少 secret DEV_SSH_HOST" >&2; exit 1; }
           test -n "$SSH_KEY" || { echo "缺少 secret DEV_SSH_KEY" >&2; exit 1; }
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/dev_deploy

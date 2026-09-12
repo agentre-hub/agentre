@@ -248,7 +248,7 @@ export function EffectiveConfigSummary({
       ? openClawModel || t("agentBackends.openclaw.modelGatewayDefault")
       : resolvedMainTarget.mode === "native"
         ? customModel || t("agentBackends.summary.cliAccountModel")
-        : resolvedMainTarget.modelId ||
+        : resolvedMainTarget.modelLabel ||
           t("agentBackends.summary.unresolvedModel");
   const mode =
     type === "openclaw"

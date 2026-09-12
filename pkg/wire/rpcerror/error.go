@@ -14,9 +14,10 @@ const (
 	// CodeProtocolVersion is returned by a handshake handler whose peer
 	// advertised a wire protocol version it does not accept.
 	CodeProtocolVersion int32 = -32006
-	// CodeAccountServerUnreachable is returned by auth.account / auth.direct
-	// when the responder could not reach the account server (or got no
-	// answer) to verify the caller's credential, and no cached success
+	// CodeAccountServerUnreachable is returned by auth.account (auth.direct
+	// never contacts the account server) when the responder could not reach
+	// the account server (or got no answer) to verify the caller's
+	// credential, and no cached success
 	// covers it. It is deliberately distinct from CodeUnauthorized: a caller
 	// that sees -32001 refreshes its own credential and retries, which is
 	// pointless when the credential was never actually rejected — the

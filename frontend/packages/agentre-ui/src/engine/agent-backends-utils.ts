@@ -1,3 +1,4 @@
+import { modelDisplayName } from "./model-display-name";
 import type { PickerProvider } from "./model-target-picker";
 import type { AccountDeviceView } from "./ports";
 
@@ -55,7 +56,8 @@ export function backendDeviceLocation(
 export type ResolvedModelTarget = {
   providerName: string;
   providerType: string;
-  modelId: string;
+  // modelLabel 生效模型的展示名（没填展示名回落模型 ID；失效且找不到时是原始 key）。
+  modelLabel: string;
   mode: "native" | "provider-default" | "fixed" | "invalid";
 };
 
@@ -68,7 +70,7 @@ export function resolveModelTarget(
     return {
       providerName: "",
       providerType: "",
-      modelId: "",
+      modelLabel: "",
       mode: "native",
     };
   }
@@ -77,7 +79,7 @@ export function resolveModelTarget(
     return {
       providerName: provider?.name ?? providerKey,
       providerType: provider?.type ?? "",
-      modelId: modelKey,
+      modelLabel: modelKey,
       mode: "invalid",
     };
   }
@@ -86,13 +88,13 @@ export function resolveModelTarget(
       ? {
           providerName: provider.name,
           providerType: provider.type,
-          modelId: provider.defaultModel.modelId,
+          modelLabel: modelDisplayName(provider.defaultModel),
           mode: "provider-default",
         }
       : {
           providerName: provider.name,
           providerType: provider.type,
-          modelId: "",
+          modelLabel: "",
           mode: "invalid",
         };
   }
@@ -101,13 +103,13 @@ export function resolveModelTarget(
     ? {
         providerName: provider.name,
         providerType: provider.type,
-        modelId: model.modelId,
+        modelLabel: modelDisplayName(model),
         mode: "fixed",
       }
     : {
         providerName: provider.name,
         providerType: provider.type,
-        modelId: model?.modelId ?? modelKey,
+        modelLabel: model ? modelDisplayName(model) : modelKey,
         mode: "invalid",
       };
 }

@@ -43,7 +43,7 @@ beforeEach(() => {
 });
 
 describe("BoardModelPill", () => {
-  it("Given a fixed model, When the pill renders, Then the resolved model id is on the trigger", async () => {
+  it("Given a fixed model, When the pill renders, Then the resolved model display name is on the trigger", async () => {
     render(
       <BoardModelPill
         className="pill"
@@ -54,7 +54,8 @@ describe("BoardModelPill", () => {
       />,
     );
 
-    expect(await screen.findByText("claude-sonnet-5")).toBeInTheDocument();
+    expect(await screen.findByText("Sonnet")).toBeInTheDocument();
+    expect(screen.queryByText("claude-sonnet-5")).not.toBeInTheDocument();
   });
 
   it("Given a target is picked, When the picker closes, Then the host is handed the whole target", async () => {
@@ -107,7 +108,7 @@ describe("BoardModelPill", () => {
       />,
     );
 
-    await screen.findByText("claude-sonnet-5");
+    await screen.findByText("Sonnet");
     expect(onChange).not.toHaveBeenCalled();
   });
 });

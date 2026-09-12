@@ -6,6 +6,7 @@
 // 的依赖钉好再调用。文案一律以已解析的字符串传入，避免这层再持有 i18n。
 import type { ReactNode } from "react";
 
+import { modelDisplayName } from "../model-display-name";
 import { readRecentTargets } from "./recents";
 import {
   isNativeTarget,
@@ -44,6 +45,8 @@ export type RecentChip = {
   // kind 决定 chip 上的品牌标识取法：fixed 按 modelId 判定，provider-default 按供应商。
   kind: "fixed" | "provider-default";
   label: string;
+  // modelId 只给 fixed chip 的品牌标识判定用（label 是展示名，猜不出品牌）；解析不到为空。
+  modelId: string;
   providerType: string;
   providerName: string;
   target: ModelTarget;
@@ -61,11 +64,11 @@ export function resolveTargetLabel(
   const providerLabel = p?.name ?? target.providerKey;
   if (!target.modelKey) {
     return p?.defaultModel
-      ? `${providerLabel} · ${p.defaultModel.modelId}`
+      ? `${providerLabel} · ${modelDisplayName(p.defaultModel)}`
       : providerLabel;
   }
   const m = p?.models.find((x) => x.modelKey === target.modelKey);
-  const modelLabel = m ? m.name || m.modelId : target.modelKey;
+  const modelLabel = m ? modelDisplayName(m) : target.modelKey;
   return `${providerLabel} · ${modelLabel}`;
 }
 
@@ -124,14 +127,19 @@ export function buildRecentChips(args: {
     const dedupeKey = `${target.providerKey}\u0000${target.modelKey}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
+    const model = target.modelKey
+      ? p.models.find((m) => m.modelKey === target.modelKey)
+      : undefined;
     const label = target.modelKey
-      ? (p.models.find((m) => m.modelKey === target.modelKey)?.modelId ??
-        target.modelKey)
+      ? model
+        ? modelDisplayName(model)
+        : target.modelKey
       : p.name;
     out.push({
       key: `recent-${dedupeKey}`,
       kind: target.modelKey ? "fixed" : "provider-default",
       label,
+      modelId: model?.modelId ?? "",
       providerType: p.type,
       providerName: p.name,
       target,
@@ -203,17 +211,12 @@ export function buildCatalogOptions(args: {
       group: groupLabel,
       groupType: p.type,
       label: followDefaultLabel,
-      // 副行 = mockup .opt.dyn 的「当前 <mono>模型标识</mono>」：只回答「现在跑哪个
-      // 模型」，不带后果从句；等宽只包标识符，人读前缀不跟着走等宽。
-      sublabel: defaultModel ? (
-        <>
-          {defaultCurrentPrefix}{" "}
-          <span className="break-all font-mono">{defaultModel.modelId}</span>
-        </>
-      ) : (
-        noDefaultModelLabel
-      ),
-      searchText: `${followDefaultLabel} ${defaultModel?.modelId ?? ""}`,
+      // 副行 = 「当前 <模型展示名>」：只回答「现在跑哪个模型」，不带后果从句。
+      sublabel: defaultModel
+        ? `${defaultCurrentPrefix} ${modelDisplayName(defaultModel)}`
+        : noDefaultModelLabel,
+      // 模型 ID 不上脸，但仍可搜。
+      searchText: `${followDefaultLabel} ${defaultModel ? `${modelDisplayName(defaultModel)} ${defaultModel.modelId}` : ""}`,
       target: { providerKey: p.providerKey, modelKey: "" },
       disabled: !p.enabled || providerSyncNeeded || defaultSyncNeeded,
       disabledHint:
@@ -246,9 +249,9 @@ export function buildCatalogOptions(args: {
         kind: "fixed",
         group: groupLabel,
         groupType: p.type,
-        label: m.name || m.modelId,
+        label: modelDisplayName(m),
         sublabel: m.modelId,
-        searchText: `${m.name || m.modelId} ${m.modelId}`,
+        searchText: `${modelDisplayName(m)} ${m.modelId}`,
         contextWindow: m.contextWindow,
         maxOutput: m.maxOutput,
         target: { providerKey: p.providerKey, modelKey: m.modelKey },

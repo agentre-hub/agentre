@@ -1052,7 +1052,7 @@ func TestProviderRunConfig(t *testing.T) {
 		Convey("When assembling the session config Then model is agentre-<key>/<model> and extension path is returned", func() {
 			model, extPath, err := providerRunConfig(&agentruntime.EffectiveLLMConfig{
 				ProviderKey: "provabc", ModelID: "deepseek-v3", ProviderType: string(llm_provider_entity.TypeOpenAIChat),
-			})
+			}, nil)
 			So(err, ShouldBeNil)
 			So(model, ShouldEqual, "agentre-provabc/deepseek-v3")
 			So(extPath, ShouldEqual, "/ext/agentre-provider-abc.mjs")
@@ -1079,12 +1079,13 @@ func TestProviderRunConfig(t *testing.T) {
 		}
 
 		Convey("Then the extension registers 解析出的 ModelID, matching --model", func() {
-			model, _, err := providerRunConfig(prov())
+			model, _, err := providerRunConfig(prov(), nil)
 			So(err, ShouldBeNil)
 			So(model, ShouldEqual, "agentre-provabc/deepseek-v3")
-			So(source, ShouldContainSubstring, `id: "deepseek-v3"`)
+			So(source, ShouldContainSubstring, `"agentre-provabc"`)
+			So(source, ShouldContainSubstring, `"id":"deepseek-v3"`)
 			// provider 的其余元数据(contextWindow 等)仍随扩展下发。
-			So(source, ShouldContainSubstring, "contextWindow: 128000")
+			So(source, ShouldContainSubstring, `"contextWindow":128000`)
 		})
 	})
 
@@ -1095,7 +1096,7 @@ func TestProviderRunConfig(t *testing.T) {
 		defer restore()
 
 		Convey("When the provider is nil Then zero values are returned without error", func() {
-			model, extPath, err := providerRunConfig(nil)
+			model, extPath, err := providerRunConfig(nil, nil)
 			So(err, ShouldBeNil)
 			So(model, ShouldEqual, "")
 			So(extPath, ShouldEqual, "")
@@ -1104,7 +1105,7 @@ func TestProviderRunConfig(t *testing.T) {
 		Convey("When the provider model is empty Then no model or extension is produced", func() {
 			model, extPath, err := providerRunConfig(&agentruntime.EffectiveLLMConfig{
 				ProviderKey: "provabc", ProviderType: string(llm_provider_entity.TypeOpenAIChat),
-			})
+			}, nil)
 			So(err, ShouldBeNil)
 			So(model, ShouldEqual, "")
 			So(extPath, ShouldEqual, "")
@@ -1113,7 +1114,7 @@ func TestProviderRunConfig(t *testing.T) {
 		Convey("When the provider type is unsupported Then an error is returned instead of silently running unbound", func() {
 			_, _, err := providerRunConfig(&agentruntime.EffectiveLLMConfig{
 				ProviderKey: "provabc", ModelID: "deepseek-v3", ProviderType: "deepseek",
-			})
+			}, nil)
 			So(err, ShouldNotBeNil)
 		})
 	})
@@ -1127,9 +1128,63 @@ func TestProviderRunConfig(t *testing.T) {
 		Convey("When materializing Then the error propagates", func() {
 			_, _, err := providerRunConfig(&agentruntime.EffectiveLLMConfig{
 				ProviderKey: "provabc", ModelID: "deepseek-v3", ProviderType: string(llm_provider_entity.TypeOpenAIChat),
-			})
+			}, nil)
 			So(err, ShouldNotBeNil)
 			So(err.Error(), ShouldContainSubstring, "disk full")
+		})
+	})
+
+	// 子进程继承不到父进程的 --extension，只能靠 Pi 全局扩展目录里的静态扩展 + env 注册表：
+	// 绑定供应商时要把它装上，没绑定（子进程本来就能从自己的配置解析 --model）时不许碰用户的
+	// ~/.pi/agent。
+	Convey("Given a stubbed child provider installer", t, func() {
+		installs := 0
+		var installedEnv map[string]string
+		restoreInstall := SetChildProviderExtensionInstallerForTest(func(env map[string]string) error {
+			installs++
+			installedEnv = env
+			return nil
+		})
+		defer restoreInstall()
+		restoreWriter := SetProviderExtensionWriterForTest(func(string) (string, error) {
+			return "/ext/agentre-provider-abc.mjs", nil
+		})
+		defer restoreWriter()
+
+		bound := func() *agentruntime.EffectiveLLMConfig {
+			return &agentruntime.EffectiveLLMConfig{
+				ProviderKey: "provabc", ModelID: "deepseek-v3", ProviderType: string(llm_provider_entity.TypeOpenAIChat),
+			}
+		}
+
+		Convey("When the provider is bound Then the child provider extension is installed once with the run env", func() {
+			runEnv := map[string]string{"PI_CODING_AGENT_DIR": "/run/env/dir"}
+			_, _, err := providerRunConfig(bound(), runEnv)
+			So(err, ShouldBeNil)
+			So(installs, ShouldEqual, 1)
+			// 安装落点按本次运行下发给 pi 的 env 解析：agent 后端 env_json 会覆盖它，
+			// 装错目录等于没装（远端 daemon 尤其常见）。
+			So(installedEnv["PI_CODING_AGENT_DIR"], ShouldEqual, "/run/env/dir")
+		})
+
+		Convey("When the provider is unbound Then nothing is installed", func() {
+			_, _, err := providerRunConfig(nil, nil)
+			So(err, ShouldBeNil)
+			_, _, err = providerRunConfig(&agentruntime.EffectiveLLMConfig{ProviderKey: "provabc", ProviderType: string(llm_provider_entity.TypeOpenAIChat)}, nil)
+			So(err, ShouldBeNil)
+			So(installs, ShouldEqual, 0)
+		})
+
+		Convey("When installing fails Then the session config still comes back", func() {
+			restoreFail := SetChildProviderExtensionInstallerForTest(func(map[string]string) error {
+				return errors.New("read-only config dir")
+			})
+			defer restoreFail()
+
+			model, extPath, err := providerRunConfig(bound(), nil)
+			So(err, ShouldBeNil)
+			So(model, ShouldEqual, "agentre-provabc/deepseek-v3")
+			So(extPath, ShouldEqual, "/ext/agentre-provider-abc.mjs")
 		})
 	})
 }

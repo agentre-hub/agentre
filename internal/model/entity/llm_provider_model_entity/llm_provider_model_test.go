@@ -32,6 +32,22 @@ func TestLLMProviderModelCheck(t *testing.T) {
 	})
 }
 
+func TestLLMProviderModelDisplayName(t *testing.T) {
+	t.Run("name wins when set", func(t *testing.T) {
+		m := &LLMProviderModel{ModelID: "claude-sonnet-4-6", Name: "Sonnet 4.6"}
+		assert.Equal(t, "Sonnet 4.6", m.DisplayName())
+	})
+
+	t.Run("empty name falls back to model_id", func(t *testing.T) {
+		m := &LLMProviderModel{ModelID: "claude-sonnet-4-6"}
+		assert.Equal(t, "claude-sonnet-4-6", m.DisplayName())
+	})
+
+	t.Run("nil receiver is empty", func(t *testing.T) {
+		assert.Equal(t, "", (*LLMProviderModel)(nil).DisplayName())
+	})
+}
+
 func TestLLMProviderModelState(t *testing.T) {
 	t.Run("IsActive only when status ACTIVE", func(t *testing.T) {
 		assert.True(t, (&LLMProviderModel{Status: consts.ACTIVE}).IsActive())

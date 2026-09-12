@@ -15,6 +15,7 @@ import {
 } from "../../ui/dialog";
 import { Input } from "../../ui/input";
 
+import { modelDisplayName } from "../model-display-name";
 import { useEngineSettingsBridge } from "../port-bridge";
 import { llm_provider_svc } from "../port-bridge";
 import {
@@ -119,7 +120,7 @@ export function ModelEditDialog({
     ],
   );
 
-  const modelName = model ? model.modelId : "";
+  const modelName = model ? modelDisplayName(model) : "";
 
   return (
     <Dialog

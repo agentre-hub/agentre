@@ -23,6 +23,7 @@ import { AgentredOnboarding } from "./agentred-onboarding";
 import { DeviceRow } from "./device-row";
 import { hostOf } from "./format";
 import { LoginDialog } from "./login-dialog";
+import { RemovedDevices } from "./removed-devices";
 import { TLSTrustDialog } from "./tls-trust-dialog";
 import { useLatestAgentredVersion } from "./use-latest-agentred-version";
 import { useRemoteDevices, type DeviceView } from "./use-remote-devices";
@@ -93,10 +94,12 @@ export function RemoteDevicesPanel({
   const { t } = useTranslation();
   const {
     devices,
+    removedDevices,
     accountDevices,
     loadState,
     add,
     remove,
+    restore,
     updateTLS,
     rename,
     refresh,
@@ -282,6 +285,8 @@ export function RemoteDevicesPanel({
           })}
         </div>
       ) : null}
+
+      <RemovedDevices devices={removedDevices} onRestore={restore} />
 
       {desktopDevices.length > 0 ? (
         <div className="flex flex-col gap-2">

@@ -405,8 +405,11 @@ describe("LlmProvidersPanel", () => {
     render(<LlmProvidersPanel />);
 
     const workspace = await waitForModelTable(/Anthropic models/);
-    // 主行显示 display name（Sonnet），副行显示 modelId
-    expect(await within(workspace).findByText("Sonnet")).toBeInTheDocument();
+    // 主行显示 display name（Sonnet），副行显示 modelId。页头的默认模型也写展示名，
+    // 所以限定在这一行里找。
+    expect(
+      await within(rowForModel("claude-sonnet-4-5")).findByText("Sonnet"),
+    ).toBeInTheDocument();
     expect(
       within(workspace).getAllByText("claude-sonnet-4-5").length,
     ).toBeGreaterThan(0);
@@ -662,6 +665,7 @@ describe("LlmProvidersPanel", () => {
               id: 12,
               modelKey: "mk-opus",
               modelId: "claude-opus-4-1",
+              name: "Opus 4.1",
               isDefault: false,
             }),
           ],
@@ -684,7 +688,7 @@ describe("LlmProvidersPanel", () => {
 
     // spec 2026-08-11「Provider management」：改默认模型前先展示动态影响并二次确认。
     await screen.findByRole("heading", {
-      name: /Set default model to claude-opus-4-1/i,
+      name: /Set default model to Opus 4\.1/i,
     });
     await waitFor(() => {
       expect(mocks.LLMProviderRefCounts).toHaveBeenCalledWith(
@@ -1493,6 +1497,10 @@ describe("LlmProvidersPanel", () => {
     ).toBeInTheDocument();
     expect(within(workspace).getByText("sk-••••••9XQ2")).toBeInTheDocument();
     expect(within(workspace).getByText("Default model")).toBeInTheDocument();
+    // 默认模型写展示名；模型 ID 留在表格行的副行里。
+    expect(
+      within(workspace).getByText("Default model").nextElementSibling,
+    ).toHaveTextContent(/^Sonnet$/);
     expect(
       (await within(workspace).findAllByText("claude-sonnet-4-5")).length,
     ).toBeGreaterThan(0);
@@ -2380,7 +2388,7 @@ describe("LlmProvidersPanel", () => {
               id: 12,
               modelKey: "mk-opus",
               modelId: "claude-opus-4-1",
-              name: "",
+              name: "Opus 4.1",
               isDefault: false,
             }),
           ],
@@ -2421,7 +2429,7 @@ describe("LlmProvidersPanel", () => {
     });
     // 后端已改状态，工作区必须跟着刷新并把结果说出来，而不是留在陈旧的启用态
     expect(
-      await screen.findByText("Model claude-opus-4-1 disabled"),
+      await screen.findByText("Model Opus 4.1 disabled"),
     ).toBeInTheDocument();
     await waitFor(() => {
       expect(

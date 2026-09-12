@@ -416,7 +416,7 @@ func TestCreateBackend(t *testing.T) {
 			// 校验（requireOwnedEnabledModel）+ 展示（effectiveModelID）各解析一次固定模型。
 			providerMock.EXPECT().FindModelByKey(gomock.Any(), "mk-fixed-1").
 				Return(&llm_provider_model_entity.LLMProviderModel{
-					ModelKey: "mk-fixed-1", ModelID: "claude-opus-4-8",
+					ModelKey: "mk-fixed-1", ModelID: "claude-opus-4-8", Name: "Opus 4.8",
 					Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE,
 				}, nil).Times(2)
 			backendMock.EXPECT().Create(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{})).
@@ -434,8 +434,8 @@ func TestCreateBackend(t *testing.T) {
 				LLMModelKey:    "mk-fixed-1",
 			})
 			assert.NoError(t, err)
-			assert.Equal(t, "claude-opus-4-8", resp.Item.LLMProviderModel,
-				"fixed-model 展示必须解析到指定模型，而不是默认模型")
+			assert.Equal(t, "Opus 4.8", resp.Item.LLMProviderModel,
+				"fixed-model 展示必须解析到指定模型（展示名），而不是默认模型")
 		})
 
 		convey.Convey("fixed-model 引用的模型不存在 → LLMProviderModelNotFound", func() {

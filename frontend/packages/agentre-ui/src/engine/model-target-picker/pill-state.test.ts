@@ -31,7 +31,8 @@ const catalog: PickerProvider[] = [provider()];
 
 describe("resolveProviderPillState 跟随 Agent 绑定", () => {
   // 脸上要写「实际会跑哪个模型」，而绑定固定模型时那就是它本人 —— 不是 ↻。
-  it("绑定固定模型：写出该模型的标识符，不标动态", () => {
+  // 写的是人读的展示名；模型 ID 单独交出去，只给品牌标识判定用。
+  it("绑定固定模型：写出该模型的展示名，不标动态", () => {
     const s = resolveProviderPillState({
       boundProviderKey: "pk-anthropic",
       boundModelKey: "mk-sonnet",
@@ -40,9 +41,10 @@ describe("resolveProviderPillState 跟随 Agent 绑定", () => {
     });
     expect(s.mode).toBe("follow-agent");
     expect(s.providerLabel).toBe("Anthropic");
-    expect(s.modelLabel).toBe("claude-sonnet-4-6");
+    expect(s.modelLabel).toBe("Sonnet 4.6");
+    expect(s.modelId).toBe("claude-sonnet-4-6");
     expect(s.dynamic).toBe(false);
-    expect(s.resolutionLabel).toBe("Anthropic · claude-sonnet-4-6");
+    expect(s.resolutionLabel).toBe("Anthropic · Sonnet 4.6");
   });
 
   // 只绑了供应商 = 跟着它当前的默认模型走，默认模型换了这里就跟着换 —— 那正是 ↻。
@@ -53,7 +55,8 @@ describe("resolveProviderPillState 跟随 Agent 绑定", () => {
       target: { providerKey: "", modelKey: "" },
       catalog,
     });
-    expect(s.modelLabel).toBe("claude-sonnet-4-6");
+    expect(s.modelLabel).toBe("Sonnet 4.6");
+    expect(s.modelId).toBe("claude-sonnet-4-6");
     expect(s.dynamic).toBe(true);
   });
 
@@ -68,6 +71,7 @@ describe("resolveProviderPillState 跟随 Agent 绑定", () => {
       catalog,
     });
     expect(s.modelLabel).toBe("");
+    expect(s.modelId).toBe("");
     expect(s.dynamic).toBe(false);
     expect(s.resolutionLabel).toBe("Anthropic");
   });
@@ -102,7 +106,7 @@ describe("resolveProviderPillState 会话自己钉了目标", () => {
       catalog,
     });
     expect(s.mode).toBe("provider-default");
-    expect(s.modelLabel).toBe("claude-sonnet-4-6");
+    expect(s.modelLabel).toBe("Sonnet 4.6");
     expect(s.dynamic).toBe(true);
     expect(s.cliLogin).toBe(false);
   });
@@ -115,10 +119,23 @@ describe("resolveProviderPillState 会话自己钉了目标", () => {
       catalog,
     });
     expect(s.mode).toBe("fixed");
-    expect(s.modelLabel).toBe("claude-sonnet-4-6");
+    expect(s.modelLabel).toBe("Sonnet 4.6");
+    expect(s.modelId).toBe("claude-sonnet-4-6");
     expect(s.dynamic).toBe(false);
     // 会话自己选了目标，就不再由 CLI 登录账号决定 —— 哪怕绑定值是空的。
     expect(s.cliLogin).toBe(false);
+  });
+
+  // 展示名是可选的：没填就回落模型 ID，脸上不能空着。
+  it("模型没填展示名：回落模型 ID", () => {
+    const s = resolveProviderPillState({
+      boundProviderKey: "",
+      boundModelKey: "",
+      target: { providerKey: "pk-anthropic", modelKey: "mk-sonnet" },
+      catalog: [provider({ models: [model({ name: "" })] })],
+    });
+    expect(s.modelLabel).toBe("claude-sonnet-4-6");
+    expect(s.resolutionLabel).toBe("Anthropic · claude-sonnet-4-6");
   });
 });
 
@@ -154,6 +171,8 @@ describe("resolveProviderPillState 失效", () => {
     expect(s.mode).toBe("invalid");
     expect(s.providerLabel).toBe("pk-gone");
     expect(s.modelLabel).toBe("mk-gone");
+    // 引用键不是模型 ID：不能拿去给品牌标识猜。
+    expect(s.modelId).toBe("");
   });
 
   it("只钉了供应商而它当前没有可用默认模型：不算失效，只是解析不到模型", () => {

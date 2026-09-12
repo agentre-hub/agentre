@@ -24,7 +24,10 @@ export type ProviderPillState = {
   mode: "follow-agent" | "provider-default" | "fixed" | "invalid";
   providerLabel: string;
   providerType: string;
+  /** 模型展示名（没填展示名回落模型 ID；失效且解析不到时是原始 key）。 */
   modelLabel: string;
+  /** 品牌标识按它判定——展示名猜不出品牌。解析不到模型时为空。 */
+  modelId: string;
   resolutionLabel: string;
   dynamic: boolean;
   cliLogin: boolean;
@@ -33,7 +36,7 @@ export type ProviderPillState = {
 /**
  * ProviderPillTrigger 是 ModelTargetPicker 的 `triggerLabel` 内容。
  *
- * 脸上写的是「**实际会跑哪个模型**」：解析出模型就写模型 ID（标识符走等宽），只解析
+ * 脸上写的是「**实际会跑哪个模型**」：解析出模型就写它的展示名，只解析
  * 到供应商（新建会话没有 agent model key）就退回供应商人读名；确知没绑供应商就写
  * 「CLI 自身登录态」——那才是这一轮真正的模型来源。三者都不成立 = 还不知道，不写。
  *
@@ -50,9 +53,9 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
       className="size-3.5"
     />
   ) : null;
-  const modelLogo = state.modelLabel ? (
+  const modelLogo = state.modelId ? (
     <LlmModelLogo
-      model={state.modelLabel}
+      model={state.modelId}
       providerType={state.providerType}
       providerName={state.providerLabel}
       className="size-3.5"
@@ -61,13 +64,10 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
     providerLogo
   );
 
-  const resolvedTarget = state.modelLabel ? (
-    <span className="font-mono">{state.modelLabel}</span>
-  ) : state.providerLabel ? (
-    state.providerLabel
-  ) : state.cliLogin ? (
-    t("modelTargetPicker.special.backend")
-  ) : null;
+  const resolvedTarget =
+    state.modelLabel ||
+    state.providerLabel ||
+    (state.cliLogin ? t("modelTargetPicker.special.backend") : null);
 
   const triggerIcon =
     state.mode === "follow-agent" ? (
@@ -121,8 +121,7 @@ export function ProviderPillTrigger({ state }: { state: ProviderPillState }) {
 
 /**
  * ProviderPillResolution 是弹层顶部「跟随 Agent 绑定」那一项的解析副行：箭头点出
- * 「解析到」，品牌标识让绑定的供应商一眼可认，模型 ID 单独走等宽（标识符不跟人读名
- * 一起排）。
+ * 「解析到」，品牌标识让绑定的供应商一眼可认，模型写展示名。
  *
  * 解析不出供应商时回落纯文字（fallbackLabel）——宁可少画一个标识，也不画半个空标识。
  */
@@ -156,12 +155,7 @@ export function ProviderPillResolution({
         />
         <span className="min-w-0 truncate">
           {boundProviderLabel}
-          {boundModelLabel ? (
-            <>
-              {" · "}
-              <span className="font-mono">{boundModelLabel}</span>
-            </>
-          ) : null}
+          {boundModelLabel ? ` · ${boundModelLabel}` : null}
         </span>
       </span>
     );

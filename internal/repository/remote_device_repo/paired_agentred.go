@@ -41,7 +41,7 @@ type PairedAgentredRepo interface {
 	Rename(ctx context.Context, id int64, name string) error
 	Delete(ctx context.Context, id int64) error
 	// UpsertAccountDirect 把一行既有记录写成「来自账号的直连」的内容（D6）：地址位
-	// address（首次下发或再下发都从第一个地址起，见 remote_device_svc.RecordAccountDirect）、
+	// address（由 remote_device_svc.RecordAccountDirect 决定：仍在下发列表里的最近成功地址，否则第一个）、
 	// 账号一次下发的全部地址 urlsJSON、pin-cert 证书 tlsCertPEM，来源标记为 account。
 	// 只更新既有行——首次记录一台从未见过的机器走 Create，不走本方法。
 	UpsertAccountDirect(ctx context.Context, id int64, address, urlsJSON, tlsCertPEM string) error

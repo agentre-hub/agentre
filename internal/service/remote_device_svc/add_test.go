@@ -109,6 +109,47 @@ func TestAdd(t *testing.T) {
 		So(view.ID, ShouldEqual, 7)
 		So(view.URL, ShouldEqual, validAddReq().URL)
 	})
+	// D14 同一地址：用户照着 `agentred pair --tls` 印出的地址手动配对，而它正是账号直连行
+	// 当前的地址位。按地址查到的是那一行账号直连行而不是手动配对行——照样握手、转成手动配对行。
+	Convey("manually pairing at the address an account-direct row already shows converts that row", t, func() {
+		repo, dial, kc, w, svc := setupSvc(t)
+		accountDirect := &paired_agentred_entity.PairedAgentred{
+			ID: 7, Name: "devbox", DaemonFingerprint: "sha256:abc",
+			URL: validAddReq().URL, TLSMode: "pin-cert", TLSCertPEM: "OLD-PEM",
+			Origin: "account", Status: 1,
+		}
+		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(accountDirect, nil)
+		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
+		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(accountDirect, nil)
+		repo.EXPECT().ClearAccountDirect(gomock.Any(), int64(7)).Return(nil)
+		repo.EXPECT().UpdateEndpoint(gomock.Any(), int64(7), validAddReq().URL, devicefp.Carrier("sha256:abc")).Return(nil)
+		repo.EXPECT().UpdateTLS(gomock.Any(), int64(7), "default", "").Return(nil)
+		kc.EXPECT().Set("agentre-daemon-token-7", "tok-256bit").Return(nil)
+		w.EXPECT().Restart(gomock.Any(), int64(7)).Return(nil)
+
+		view, err := svc.Add(context.Background(), validAddReq())
+		So(err, ShouldBeNil)
+		So(view.ID, ShouldEqual, 7)
+	})
+	// 占着这个地址的账号直连行属于另一台机器（两个局域网里同一个私有地址）：地址仍被占着，
+	// 按「已配对」拒绝，不新建一行去撞地址唯一索引。
+	Convey("the account-direct row holding that address belongs to another machine: rejected as already paired", t, func() {
+		repo, dial, kc, _, svc := setupSvc(t)
+		other := &paired_agentred_entity.PairedAgentred{
+			ID: 8, Name: "elsewhere", DaemonFingerprint: "sha256:other",
+			URL: validAddReq().URL, TLSMode: "pin-cert", TLSCertPEM: "PEM",
+			Origin: "account", Status: 1,
+		}
+		repo.EXPECT().FindByURL(gomock.Any(), validAddReq().URL).Return(other, nil)
+		kc.EXPECT().Get("agentre-device-fingerprint").Return("existing-fp", nil)
+		dial.EXPECT().Pair(gomock.Any(), gomock.Any()).Return(validPairResult(), nil)
+		repo.EXPECT().FindByFingerprint(gomock.Any(), devicefp.Carrier("sha256:abc")).Return(nil, nil)
+		// 没有 Create 的 EXPECT：新建任何一行都是失败。
+
+		_, err := svc.Add(context.Background(), validAddReq())
+		So(err, ShouldNotBeNil)
+	})
 	// 已经有 LAN 路径的机器再配一次，仍然是「已配对」，不该被上面那条路径悄悄改掉地址。
 	Convey("pairing a machine that already has a LAN row is still rejected as already paired", t, func() {
 		repo, dial, kc, _, svc := setupSvc(t)

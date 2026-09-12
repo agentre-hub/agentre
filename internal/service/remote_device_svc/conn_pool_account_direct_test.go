@@ -154,6 +154,49 @@ func TestPool_Borrow_AccountDirectRow_EmptyCredentialSlot_NeverSendsAnEmptyAuthD
 	})
 }
 
+// auth.direct 答 -32001 说明手上那张本地直连凭据过时了(agentred 对账删了它、重新登录过),
+// 不是账号凭据被拒:不换账号票,也不判「重试也没用」——中转的账号握手会重新下发一张。
+func TestPool_Borrow_AccountDirectRow_StaleDirectCredential_NeitherRefreshesNorIsTerminal(t *testing.T) {
+	Convey("auth.direct -32001 while the relay is down: retryable, no account refresh", t, func() {
+		creds := &refreshingCredential{value: "acct-jwt", next: "fresh-jwt"}
+		f := newPoolFixture(t,
+			remote_device_svc.WithRelayDial(&relaySpy{err: errors.New("relay down")}),
+			remote_device_svc.WithAccountCredential(creds))
+		f.asAccountDirect()
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+		f.dial.EXPECT().OpenDirect(gomock.Any(), gomock.Any()).Times(1).Return(nil, "", remote_device_svc.ErrUnauthorized)
+
+		_, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldNotBeNil)
+		So(errors.Is(err, remote_device_svc.ErrDeviceUnauthorized), ShouldBeFalse)
+		So(creds.refreshed, ShouldEqual, 0)
+	})
+}
+
+// 登出会把账号直连行清掉并去掉;一次登出前就已握完手、登出后才走到记录这一步的借用,不得
+// 把行和钥匙串里的凭据重新建回来——已登出(没有账号凭据)时,中转握手带回的下发一律不记。
+func TestPool_Borrow_LoggedOut_DoesNotRecordTheDelivery(t *testing.T) {
+	Convey("relay-won borrow finishing after logout: the delivery is not recorded", t, func() {
+		recorder := &spyRecorder{}
+		relayConn := &deliveringConnection{
+			stubProtobufConnection: newStubProtobufConnection(),
+			urls:                   accountDirectURLs, certPEM: "pinned-cert-pem", credential: "direct-cred",
+		}
+		f := newPoolFixture(t,
+			remote_device_svc.WithRelayDial(&relaySpy{conn: relayConn}),
+			remote_device_svc.WithAccountDirectRecorder(recorder),
+			remote_device_svc.WithAccountCredential(stubAccountCredential{value: ""}))
+		f.asAccountDirect()
+		f.repo.EXPECT().Get(gomock.Any(), int64(42)).Return(f.device, nil)
+		f.dial.EXPECT().OpenDirect(gomock.Any(), gomock.Any()).Return(nil, "", errors.New("no route to host"))
+
+		lease, err := f.pool.Borrow(context.Background(), 42)
+		So(err, ShouldBeNil)
+		So(lease.Client(), ShouldNotBeNil)
+		So(recorder.callCount(), ShouldEqual, 0)
+	})
+}
+
 // H3(调用侧):「账号服务不可达」-32007 不是凭据被拒 —— 直连与中转两条路径上都不换票、
 // 不判终止,交回可重试的失败。
 func TestPool_Borrow_AccountServerUnreachable_NeitherRefreshesNorIsTerminal(t *testing.T) {

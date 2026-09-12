@@ -531,6 +531,87 @@ func TestHubLink_Given401_WhenRefreshSucceeds_ThenRedialsImmediatelyWithTheFresh
 	require.NoError(t, <-runDone)
 }
 
+// TestHubLink_Given401AfterARefreshAndAnOutage_ThenRefreshesAgain covers a
+// rejection period that ended without a connection: a 401 fixed by a refresh,
+// then an outage (non-401 dial failures) long enough for that fresh token to
+// lapse, then another 401. That second 401 starts a new rejection period and
+// earns its own refresh — not the permanent "run agentred logout" state.
+func TestHubLink_Given401AfterARefreshAndAnOutage_ThenRefreshesAgain(t *testing.T) {
+	var attempts atomic.Int32
+	var token atomic.Value
+	token.Store("stale-token")
+	upgrader := websocket.Upgrader{}
+	dialed := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch attempt := attempts.Add(1); {
+		case attempt == 1:
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		case attempt == 2:
+			http.Error(w, "outage", http.StatusServiceUnavailable)
+			return
+		case r.Header.Get("Authorization") != "Bearer fresh-2":
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = ws.Close() }()
+		dialed <- struct{}{}
+		for {
+			if _, _, readErr := ws.ReadMessage(); readErr != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	var (
+		refreshCalls atomic.Int32
+		mu           sync.Mutex
+		lines        []string
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	link := NewHubLink(HubLinkOptions{
+		ServerURL:           server.URL,
+		AccessTokenProvider: func() string { return token.Load().(string) },
+		HeartbeatInterval:   100 * time.Millisecond,
+		RetryInitial:        time.Millisecond,
+		RetryMax:            2 * time.Millisecond,
+		RetryWait:           func(context.Context, time.Duration) error { return nil },
+		Random:              func() float64 { return 1 },
+		RefreshCredential: func(context.Context) error {
+			token.Store(fmt.Sprintf("fresh-%d", refreshCalls.Add(1)))
+			return nil
+		},
+		Logf: func(format string, args ...any) {
+			mu.Lock()
+			defer mu.Unlock()
+			lines = append(lines, fmt.Sprintf(format, args...))
+		},
+	})
+	runDone := make(chan error, 1)
+	go func() { runDone <- link.Run(ctx) }()
+
+	select {
+	case <-dialed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second 401 was never refreshed, so the link never connected")
+	}
+	assert.Equal(t, int32(2), refreshCalls.Load(), "each rejection period gets its own refresh")
+	mu.Lock()
+	for _, l := range lines {
+		assert.NotContains(t, l, "agentred login", "a refreshable 401 must not be reported as needing a fresh login")
+	}
+	mu.Unlock()
+
+	cancel()
+	require.NoError(t, <-runDone)
+}
+
 // TestHubLink_Given401_WhenRefreshIsRejected_ThenEntersThePermanentNeedsLoginState
 // covers the other half of P2: when the refresh itself is rejected by the
 // server, Run must fall into exactly today's permanent "needs re-login" state

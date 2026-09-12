@@ -7,6 +7,8 @@ import {
   RemoteDeviceUpdateTLS,
   RemoteDeviceRefresh,
   RemoteDeviceRename,
+  RemoteDeviceListRemoved,
+  RemoteDeviceRestore,
   ServerListDevices,
 } from "../../../../wailsjs/go/app/App";
 import { EventsOn } from "../../../../wailsjs/runtime/runtime";
@@ -17,6 +19,9 @@ import type {
 
 export type DeviceView = remote_device_svc.DeviceView;
 export type AddRequest = remote_device_svc.AddRequest;
+
+/** 一台被用户从这台桌面移除过、仍在账号里的机器（D15），名字取账号清单里的当前名字。 */
+export type RemovedDeviceView = { fingerprint: string; name: string };
 
 // ── R15 可达路径 ─────────────────────────────────────────────────────────────
 // 一行一台机器:LAN 配对与账号归属两来源按设备指纹合并。该行呈现「可达路径」
@@ -79,11 +84,17 @@ export type DeviceRowModel = LanDeviceRow | AccountDeviceRow;
  * 按设备指纹把两个来源合成「一行一台机器」:LAN 独有、两边都有、账号独有
  * 三种都产生行(全外连接)。以 LAN 为左表做左连接会漏掉最后一种 —— 一台
  * 只登记在账号里、本机从没配对过的 agentred 就整台看不见。
+ *
+ * removedFingerprints 是用户从这台桌面移除过的机器(D15):它们即使还在账号里也不产生
+ * 账号独有行。本机还有存活配对行的指纹照常显示 —— 移除之后又亲手配对回来的机器,存活行
+ * 就是用户最新的意图。
  */
 export function mergeDeviceSources(
   lan: DeviceView[],
   account: AccountSource,
+  removedFingerprints: readonly string[] = [],
 ): DeviceRowModel[] {
+  const removed = new Set(removedFingerprints);
   const accountByFp = new Map<string, server_svc.Device>();
   for (const d of account.devices) {
     if (d.fingerprint && !accountByFp.has(d.fingerprint)) {
@@ -139,6 +150,7 @@ export function mergeDeviceSources(
   // 去重、且不收空指纹 —— 没有指纹的账号行既无从与 LAN 对照,也无从经中转寻址。
   for (const acc of accountByFp.values()) {
     if (claimedFingerprints.has(acc.fingerprint)) continue;
+    if (removed.has(acc.fingerprint)) continue;
     // kind=desktop 的机器由 DesktopDeviceRow 单独成行(R19),这里再出一行
     // 就是同一台机器在面板上出现两次。
     if (acc.kind === "desktop") continue;
@@ -174,6 +186,7 @@ export type RemoteDevicesLoadState = "loading" | "error" | "ready";
 
 export function useRemoteDevices() {
   const [lanDevices, setLanDevices] = useState<DeviceView[]>([]);
+  const [removed, setRemoved] = useState<remote_device_svc.RemovedDevice[]>([]);
   const [account, setAccount] = useState<AccountSource>({
     known: false,
     devices: [],
@@ -184,16 +197,50 @@ export function useRemoteDevices() {
 
   // 合并后的行 = LAN 来源 + 账号来源。在线态事件只改 LAN 来源,merge 重算路径。
   const devices = useMemo(
-    () => mergeDeviceSources(lanDevices, account),
-    [lanDevices, account],
+    () =>
+      mergeDeviceSources(
+        lanDevices,
+        account,
+        removed.map((r) => r.fingerprint),
+      ),
+    [lanDevices, account, removed],
   );
+
+  // 「已移除」入口只列仍在账号里的机器:不在账号里的,面板本来就看不到它,也无从经收编
+  // 请回来(再 LAN 配对一次才是它的路)。账号清单未知时一台都不列。
+  //
+  // 本机还有存活配对行的指纹同样不列:移除之后又亲手 LAN 配对回来的机器,设备列表里
+  // 就有它那一行(mergeDeviceSources 认同一条规则 —— 存活行是用户最新的意图)。这个
+  // 入口收的是面板不再显示的机器,把它也列进来,同一台机器会在同一页上既是一行设备、
+  // 又是一台等着「恢复」的已移除机器。
+  const removedDevices = useMemo<RemovedDeviceView[]>(() => {
+    if (!account.known) return [];
+    const accountByFp = new Map(
+      account.devices.map((d) => [d.fingerprint, d] as const),
+    );
+    const pairedAgain = new Set(
+      lanDevices.map((d) => d.daemonFingerprint).filter(Boolean),
+    );
+    return removed.flatMap((r) => {
+      if (pairedAgain.has(r.fingerprint)) return [];
+      const acc = accountByFp.get(r.fingerprint);
+      return acc
+        ? [{ fingerprint: r.fingerprint, name: acc.name || r.name }]
+        : [];
+    });
+  }, [account, lanDevices, removed]);
 
   const reload = useCallback(async () => {
     const sequence = ++reloadSequence.current;
     if (!hasLoaded.current) setLoadState("loading");
 
     try {
-      const list = (await RemoteDeviceList()) ?? [];
+      const [listResult, removedResult] = await Promise.all([
+        RemoteDeviceList(),
+        RemoteDeviceListRemoved(),
+      ]);
+      const list = listResult ?? [];
+      const removedList = removedResult ?? [];
       // 账号来源:未登录时 ServerListDevices 本地即返回 ErrNotLoggedIn(known=false,
       // 不判未登录);已登录但拉取失败(服务器离线)同样 known=false,不把每台都误标未登录。
       let acc: AccountSource;
@@ -205,6 +252,7 @@ export function useRemoteDevices() {
       }
       if (sequence !== reloadSequence.current) return;
       setLanDevices(list);
+      setRemoved(removedList);
       setAccount(acc);
       hasLoaded.current = true;
       setLoadState("ready");
@@ -249,6 +297,7 @@ export function useRemoteDevices() {
 
   return {
     devices,
+    removedDevices,
     accountDevices: account.devices,
     loadState,
     reload,
@@ -258,6 +307,10 @@ export function useRemoteDevices() {
     },
     remove: async (id: number) => {
       await RemoteDeviceRemove(id);
+      await reload();
+    },
+    restore: async (fingerprint: string) => {
+      await RemoteDeviceRestore(fingerprint);
       await reload();
     },
     updateTLS: async (id: number, mode: string, pem: string) => {
