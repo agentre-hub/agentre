@@ -80,8 +80,8 @@ type AccountArgs struct {
 	ExpectedDaemonFingerprint devicefp.Carrier
 }
 
-// ConnectResult 是 auth.connect 的返回；ActualFingerprint 在 -32001 时由服务端 error.data 提供，
-// 正常成功时填 expected。
+// ConnectResult 是 auth.connect 的返回；ActualFingerprint 是桌面端按应答里的 instanceUuid
+// 自己重算出的 TOFU 指纹（与 expected 不符时握手已经以 ErrTOFUMismatch 失败，不会返回）。
 type ConnectResult struct {
 	InstanceUUID      string
 	ActualFingerprint devicefp.Carrier

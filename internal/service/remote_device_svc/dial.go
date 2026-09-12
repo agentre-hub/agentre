@@ -58,7 +58,11 @@ func (realDial) Connect(ctx context.Context, args ConnectArgs) (ConnectResult, e
 	if err != nil {
 		return ConnectResult{}, translateConnectRPCError(err)
 	}
-	return ConnectResult{InstanceUUID: res.GetInstanceUuid(), ActualFingerprint: args.ExpectedDaemonFingerprint}, nil
+	actual := identity.DaemonFingerprint(res.GetInstanceUuid())
+	if err := verifyDaemonIdentity(actual, args.ExpectedDaemonFingerprint); err != nil {
+		return ConnectResult{}, err
+	}
+	return ConnectResult{InstanceUUID: res.GetInstanceUuid(), ActualFingerprint: actual}, nil
 }
 
 // Open 与 Connect 同样跑 TLS 握手 + auth.connect 鉴权，但**不**关闭连接，
@@ -73,10 +77,14 @@ func (realDial) Open(ctx context.Context, args ConnectArgs) (client.ProtobufConn
 	if err != nil {
 		return nil, translateProtocolError(err)
 	}
-	_, err = c.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: args.DeviceFingerprint, DeviceToken: args.DeviceToken, ExpectedDaemonFingerprint: string(args.ExpectedDaemonFingerprint)})
+	res, err := c.AuthConnect(ctx, &agentrewire.AuthConnectRequest{DeviceFingerprint: args.DeviceFingerprint, DeviceToken: args.DeviceToken, ExpectedDaemonFingerprint: string(args.ExpectedDaemonFingerprint)})
 	if err != nil {
 		_ = c.Close()
 		return nil, translateConnectRPCError(err)
+	}
+	if err := verifyDaemonIdentity(identity.DaemonFingerprint(res.GetInstanceUuid()), args.ExpectedDaemonFingerprint); err != nil {
+		_ = c.Close()
+		return nil, err
 	}
 	return c, nil
 }
@@ -100,9 +108,9 @@ func (realDial) OpenAccount(ctx context.Context, args AccountArgs) (client.Proto
 		_ = c.Close()
 		return nil, translateAccountRPCError(err)
 	}
-	if identity.DaemonFingerprint(res.GetInstanceUuid()) != args.ExpectedDaemonFingerprint {
+	if err := verifyDaemonIdentity(identity.DaemonFingerprint(res.GetInstanceUuid()), args.ExpectedDaemonFingerprint); err != nil {
 		_ = c.Close()
-		return nil, ErrTOFUMismatch
+		return nil, err
 	}
 	return c, nil
 }
@@ -166,11 +174,27 @@ func openDirectAt(ctx context.Context, address string, tlsCfg *tls.Config, args 
 		_ = c.Close()
 		return nil, translateAccountRPCError(err)
 	}
-	if identity.DaemonFingerprint(res.GetInstanceUuid()) != args.ExpectedDaemonFingerprint {
+	if err := verifyDaemonIdentity(identity.DaemonFingerprint(res.GetInstanceUuid()), args.ExpectedDaemonFingerprint); err != nil {
 		_ = c.Close()
-		return nil, ErrTOFUMismatch
+		return nil, err
 	}
 	return c, nil
+}
+
+// verifyDaemonIdentity 核对「刚握手的这台 daemon 是不是本地登记的那台」。
+//
+// actual 必须是桌面端自己按对端应答里的 instanceUuid 重算出来的值（identity.
+// DaemonFingerprint），绝不能回填调用方的 expected：auth.connect 把 expected 发给对端、
+// 由对端自己比对，那只是一次礼貌的自我申报——局域网里冒充 daemon 的一方当然会说「是我」。
+// 所以这道比对必须在本端做一遍，两端各做一次才成立。
+//
+// expected 为空时同样不通过：没有可锚定的身份就不该把连接当成「那台机器」的连接
+// （它会被 ConnPool 按 deviceID 缓存下来）。
+func verifyDaemonIdentity(actual, expected devicefp.Carrier) error {
+	if expected == "" || actual != expected {
+		return ErrTOFUMismatch
+	}
+	return nil
 }
 
 // translateProtocolError 把 client 层的协议哨兵折成 svc 自己的一套。

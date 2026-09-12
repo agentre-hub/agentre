@@ -267,3 +267,62 @@ func TestRealDial_GivenDaemonSpeaksAnotherVersion_WhenConnecting_ThenReturnsProt
 		So(errors.Is(err, remote_device_svc.ErrProtocolVersionMismatch), ShouldBeTrue)
 	})
 }
+
+// Given 一台冒充的 agentred（局域网里抢到地址、拿到过配对令牌，或干脆只是同一个
+// 地址上换了一台机器），它在 auth.connect 里回自己的 instance uuid，When 桌面端
+// 握手，Then 桌面端必须自己按这个 uuid 重算 TOFU 指纹并与本地登记值核对、不一致就
+// 拒绝 —— 只把 expectedDaemonFingerprint 发过去、由对端自己判自己，等于没有校验。
+func TestRealDial_GivenAnotherDaemonAnswers_WhenConnecting_ThenRefusesWithTOFUMismatch(t *testing.T) {
+	Convey("auth.connect 由另一台 daemon 应答 → ErrTOFUMismatch", t, func() {
+		d := newFakeDaemon(t, "uuid-impostor", nil)
+		dial := remote_device_svc.NewDaemonDial()
+		args := remote_device_svc.ConnectArgs{
+			URL: d.url(), DeviceFingerprint: "sha256:desktop", DeviceToken: "device-token",
+			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
+		}
+
+		_, err := dial.Connect(context.Background(), args)
+		So(errors.Is(err, remote_device_svc.ErrTOFUMismatch), ShouldBeTrue)
+	})
+
+	Convey("auth.connect 的长连接版本(Open)同样拒绝", t, func() {
+		d := newFakeDaemon(t, "uuid-impostor", nil)
+		dial := remote_device_svc.NewDaemonDial()
+
+		c, err := dial.Open(context.Background(), remote_device_svc.ConnectArgs{
+			URL: d.url(), DeviceFingerprint: "sha256:desktop", DeviceToken: "device-token",
+			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
+		})
+		So(c, ShouldBeNil)
+		So(errors.Is(err, remote_device_svc.ErrTOFUMismatch), ShouldBeTrue)
+	})
+
+	Convey("本地登记的那台 daemon 应答 → 照常连通，ActualFingerprint 是实测值", t, func() {
+		d := newFakeDaemon(t, "uuid-1", nil)
+		dial := remote_device_svc.NewDaemonDial()
+		args := remote_device_svc.ConnectArgs{
+			URL: d.url(), DeviceFingerprint: "sha256:desktop", DeviceToken: "device-token",
+			ExpectedDaemonFingerprint: identity.DaemonFingerprint("uuid-1"),
+		}
+
+		res, err := dial.Connect(context.Background(), args)
+		So(err, ShouldBeNil)
+		So(res.InstanceUUID, ShouldEqual, "uuid-1")
+		So(res.ActualFingerprint, ShouldEqual, identity.DaemonFingerprint("uuid-1"))
+
+		c, err := dial.Open(context.Background(), args)
+		So(err, ShouldBeNil)
+		So(c, ShouldNotBeNil)
+		_ = c.Close()
+	})
+
+	Convey("本地压根没有登记指纹 → 同样拒绝，不静默接受", t, func() {
+		d := newFakeDaemon(t, "uuid-1", nil)
+		dial := remote_device_svc.NewDaemonDial()
+
+		_, err := dial.Connect(context.Background(), remote_device_svc.ConnectArgs{
+			URL: d.url(), DeviceFingerprint: "sha256:desktop", DeviceToken: "device-token",
+		})
+		So(errors.Is(err, remote_device_svc.ErrTOFUMismatch), ShouldBeTrue)
+	})
+}
