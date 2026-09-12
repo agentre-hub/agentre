@@ -22,7 +22,14 @@ import (
 type WatcherConfig struct {
 	HeartbeatInterval time.Duration
 	CallTimeout       time.Duration
-	Backoff           BackoffConfig
+	// DialTimeout 是一次拨号的期限。<=0 表示不设期限(既有单测的形状)。
+	//
+	// 它兜的是「中转拨号挂住」:账号中转的 openTarget 会一直等常驻链路重新连上
+	// (server_svc.residentRelay.waitConnected 没有期限),而拨号竞速要收齐每条路径
+	// 的结果才返回 —— 账号服务不可达时,这条探活循环会整段卡在中转上,同一个局域网
+	// 里那条直连再也没有机会被重新拨出去。
+	DialTimeout time.Duration
+	Backoff     BackoffConfig
 }
 
 // DefaultWatcherConfig 是生产默认值(spec §4)。
@@ -30,6 +37,7 @@ func DefaultWatcherConfig() WatcherConfig {
 	return WatcherConfig{
 		HeartbeatInterval: 5 * time.Second,
 		CallTimeout:       3 * time.Second,
+		DialTimeout:       15 * time.Second,
 		Backoff: BackoffConfig{
 			Initial:    time.Second,
 			Max:        30 * time.Second,
@@ -51,6 +59,15 @@ type Watcher struct {
 	backoff  *Backoff
 	done     chan struct{}
 	recorder ProviderRecorder // 可空:nil 时跳过 provider cache 更新
+
+	// lastSeen 是这个 watcher 亲眼见到这台机器的最后时刻。只由 Run 那一条 goroutine
+	// 读写(拨号成功、每次心跳成功、以及失败时回写),所以不需要锁。
+	//
+	// 它必须独立于 dialOnce 读到的那一行:row 是**拨号那一刻**的快照,而随后每一次
+	// 心跳成功都只写库、不回填快照。失败时若拿 row.LastSeenAt 回写,就把一台刚刚
+	// 还在应答的机器的 last_seen 倒拨回几小时前 —— 设备面板与派发前的可用性判据
+	// 都从这一列推出来(5 分钟窗口),于是中转一断,同一个局域网里的机器当场被判离线。
+	lastSeen int64
 }
 
 // keychainTokenAccount 与 remote_device_svc.keychainAccountForToken 同步;
@@ -176,7 +193,16 @@ func (w *Watcher) dialOnce(ctx context.Context) (client.ProtobufConnection, *pai
 		return nil, row, errPermanentUnauthorized
 	}
 	args.DeviceFingerprint = fp
-	c, err := w.dial.Open(ctx, args)
+	dialCtx := ctx
+	if w.cfg.DialTimeout > 0 {
+		// 期限只管到「连上」为止:连接本身的生命周期不挂在这个 ctx 上
+		// (protorpc.Conn.Serve 只取值、不取消,见该方法的注释),与拨号竞速
+		// 选出赢家后随手取消自己那条拨号 ctx 是同一条既有约定。
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithTimeout(ctx, w.cfg.DialTimeout)
+		defer cancel()
+	}
+	c, err := w.dial.Open(dialCtx, args)
 	if err != nil {
 		return nil, row, err
 	}
@@ -205,7 +231,7 @@ func (w *Watcher) heartbeat(ctx context.Context, c client.ProtobufConnection, ro
 				w.emitError(row, "dial_failed:"+err.Error())
 				return true
 			}
-			_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, w.clock.NowMs(), "")
+			_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, w.markSeen(w.clock.NowMs()), "")
 			recordHealth(w.recorder, w.deviceID, res)
 			// online 状态持续:不再 emit,避免事件风暴
 		}
@@ -234,8 +260,17 @@ func recordHealth(recorder ProviderRecorder, deviceID int64, res *agentrewire.He
 	recorder.RecordDeviceBuild(deviceID, res.GetDaemonVersion(), res.GetDaemonCommit())
 }
 
+// markSeen 把「最后一次见到这台机器」推到 nowMs(只进不退),并交回推过之后的值。
+// 回退的入参(拨号那一刻的行快照)不会覆盖已经更新过的时刻。
+func (w *Watcher) markSeen(nowMs int64) int64 {
+	if nowMs > w.lastSeen {
+		w.lastSeen = nowMs
+	}
+	return w.lastSeen
+}
+
 func (w *Watcher) emitOnline(row *paired_agentred_entity.PairedAgentred) {
-	now := w.clock.NowMs()
+	now := w.markSeen(w.clock.NowMs())
 	_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, now, "")
 	w.emit.Emit(StateEvent{
 		ID: w.deviceID, Name: row.Name, Online: true,
@@ -250,6 +285,8 @@ func (w *Watcher) emitError(row *paired_agentred_entity.PairedAgentred, errMsg s
 		name = row.Name
 		lastSeen = row.LastSeenAt
 	}
+	// 失败不改变「最后一次见到它」是什么时候:拿行快照回写只会把它倒拨回拨号那一刻。
+	lastSeen = w.markSeen(lastSeen)
 	_ = w.repo.UpdateLastSeen(context.Background(), w.deviceID, lastSeen, errMsg)
 	w.emit.Emit(StateEvent{
 		ID: w.deviceID, Name: name, Online: false,
