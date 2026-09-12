@@ -24,6 +24,15 @@ var runOpenCmd = func(name string, args ...string) error {
 
 var lineSuffixRe = regexp.MustCompile(`:\d+(?:-\d+|:\d+)?$`)
 
+// shellControlChars 是 cmd.exe 的控制符（命令分隔、管道、重定向、转义）加上引号。
+//
+// 进到这里的路径来自转录里的链接，也就是 **agent 的输出**：一次提示注入就能让它印出
+// `C:\readme.txt&calc.exe`，前端把它判成一条可点的本地链接，用户点一下就以用户权限
+// 执行了后半截——目标文件甚至不必存在。所以路径绝不能再经任何一层 shell 解析
+// （见 runOpenPlatform 的 windows 分支），而这些字符在 NTFS 与 APFS 的文件名里本来
+// 就非法，不分平台一律拒绝是零代价的第二道闸。
+const shellControlChars = `&|^<>"`
+
 // userHomeDir 是 os.UserHomeDir 的包级 indirection，测试可替换。
 var userHomeDir = os.UserHomeDir
 
@@ -36,7 +45,7 @@ func (a *App) OpenPath(path string) error {
 	if err != nil {
 		return err
 	}
-	return runOpenPlatform(cleaned)
+	return runOpenPlatform(runtime.GOOS, cleaned)
 }
 
 func validateOpenPath(path string) (string, error) {
@@ -51,6 +60,9 @@ func validateOpenPath(path string) (string, error) {
 		return "", fmt.Errorf("OpenPath: path must be absolute: %s", path)
 	}
 	cleaned := lineSuffixRe.ReplaceAllString(path, "")
+	if strings.ContainsAny(cleaned, shellControlChars) {
+		return "", fmt.Errorf("OpenPath: path contains a shell control character: %s", path)
+	}
 	for _, part := range strings.FieldsFunc(cleaned, func(r rune) bool { return r == '/' || r == '\\' }) {
 		if part == ".." {
 			return "", fmt.Errorf("OpenPath: path contains '..' segment: %s", path)
@@ -110,18 +122,36 @@ func (a *App) OpenLogsDir() error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("OpenLogsDir: create logs dir: %w", err)
 	}
-	return runOpenPlatform(dir)
+	return runOpenPlatform(runtime.GOOS, dir)
 }
 
-func runOpenPlatform(path string) error {
-	switch runtime.GOOS {
+func runOpenPlatform(goos, path string) error {
+	switch goos {
 	case "darwin":
 		return runOpenCmd("open", path)
 	case "windows":
-		return runOpenCmd("cmd", "/c", "start", "", path)
+		// 刻意不是 `cmd /c start`：那条路会把整行交给 cmd.exe 解析，而 Go 的 EscapeArg
+		// 只在参数含空格 / Tab / 引号时才加引号，`& | ^ < >` 会原样拼进命令行被当成控制
+		// 符（validateOpenPath 已经先拒掉它们，这里不再给第二次机会）。explorer.exe 直接
+		// 由 CreateProcess 起，没有任何一层 shell 参与。
+		return runExplorer(path)
 	default:
 		return runOpenCmd("xdg-open", path)
 	}
+}
+
+// runExplorer 起 explorer.exe，并吃掉它的退出码。
+//
+// explorer.exe 即使成功也几乎恒以非零码退出（它把退出码用作别的语义），照直当失败会让
+// 每一次成功的打开 / 「在文件管理器中显示」都弹一条错误提示。只有进程根本起不来
+// （可执行文件找不到之类，此时 err 不是 *exec.ExitError）才是真失败。
+func runExplorer(args ...string) error {
+	err := runOpenCmd("explorer", args...)
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return nil
+	}
+	return err
 }
 
 func runRevealPlatform(goos, path string) error {
@@ -129,16 +159,7 @@ func runRevealPlatform(goos, path string) error {
 	case "darwin":
 		return runOpenCmd("open", "-R", path)
 	case "windows":
-		// explorer.exe 即使成功也几乎恒以非零码退出（它把退出码用作别的语义），
-		// 照直当失败会让每一次成功的「在文件管理器中显示」都弹一条错误提示。只有
-		// 进程根本起不来（可执行文件找不到之类，此时 err 不是 *exec.ExitError）
-		// 才是真失败。
-		err := runOpenCmd("explorer", "/select,"+path)
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return nil
-		}
-		return err
+		return runExplorer("/select," + path)
 	default:
 		// nautilus 只有 GNOME 装，KDE / XFCE / Sway 等桌面上根本不存在。它起不来时
 		// 回落到打开文件所在目录：选不中文件，但比只留一条错误提示强，用的还是与
