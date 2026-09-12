@@ -21,7 +21,7 @@ ARG RUNTIME_IMAGE=node:24-bookworm-slim
 # 目标机上这些层全部命中 layer cache，每次部署只重打最后那个 COPY。
 FROM ${RUNTIME_IMAGE} AS runtime-base
 
-# 版本钉死并暴露为 build-arg。取值是 coding.local 上的现状
+# 版本钉死并暴露为 build-arg。取值是当前已验证过的那一组 CLI 版本
 ARG CLAUDE_VERSION=2.1.267
 ARG CODEX_VERSION=0.146.0
 ARG PI_VERSION=0.84.3
